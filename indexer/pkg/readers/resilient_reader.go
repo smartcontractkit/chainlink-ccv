@@ -173,3 +173,11 @@ func (r *ResilientReader) recordError() {
 func (r *ResilientReader) recordSuccess() {
 	r.consecutiveErrors.Store(0)
 }
+
+// GetSinceValue returns the latest sequence number if the underlying reader supports it.
+func (r *ResilientReader) GetSinceValue() (int64, bool) {
+	if discoveryReader, ok := r.discoveryAPI.(protocol.DiscoveryStorageReader); ok {
+		return discoveryReader.GetSinceValue(), true
+	}
+	return 0, false
+}

@@ -473,6 +473,128 @@ func (d *Sink) UpdateMessageStatus(ctx context.Context, messageID protocol.Bytes
 	return nil
 }
 
+// GetDiscoverySequenceNumber tries to retrieve the discovery sequence number from each storage in order until found.
+// Returns the first successful result, or the last error if all storages fail.
+func (d *Sink) GetDiscoverySequenceNumber(ctx context.Context, discoveryLocation string) (int, error) {
+	var lastErr error
+
+	for i, storage := range d.storages {
+		d.lggr.Debugw("Attempting to read discovery sequence number from storage",
+			"storageIndex", i,
+			"discoveryLocation", discoveryLocation,
+		)
+
+		sequenceNumber, err := storage.GetDiscoverySequenceNumber(ctx, discoveryLocation)
+		if err == nil {
+			d.lggr.Debugw("Successfully read discovery sequence number from storage",
+				"storageIndex", i,
+				"discoveryLocation", discoveryLocation,
+				"sequenceNumber", sequenceNumber,
+			)
+			return sequenceNumber, nil
+		}
+
+		lastErr = err
+	}
+
+	d.lggr.Warnw("Error reading discovery sequence number from storage",
+		"discoveryLocation", discoveryLocation,
+		"error", lastErr,
+	)
+
+	return 0, lastErr
+}
+
+// CreateDiscoveryState creates discovery state in all storages in order.
+// If any storage fails, it continues to the next storage
+// and returns an error at the end indicating which storages failed.
+func (d *Sink) CreateDiscoveryState(ctx context.Context, discoveryLocation string, startingSequenceNumber int) error {
+	var errs []error
+	successCount := 0
+
+	for i, storage := range d.storages {
+		d.lggr.Debugw("Attempting to create discovery state in storage",
+			"storageIndex", i,
+			"discoveryLocation", discoveryLocation,
+			"startingSequenceNumber", startingSequenceNumber,
+		)
+
+		err := storage.CreateDiscoveryState(ctx, discoveryLocation, startingSequenceNumber)
+		if err != nil {
+			d.lggr.Warnw("Failed to create discovery state in storage",
+				"storageIndex", i,
+				"discoveryLocation", discoveryLocation,
+				"error", err,
+			)
+			errs = append(errs, fmt.Errorf("storage[%d]: %w", i, err))
+			continue
+		}
+
+		d.lggr.Debugw("Successfully created discovery state in storage",
+			"storageIndex", i,
+			"discoveryLocation", discoveryLocation,
+		)
+		successCount++
+	}
+
+	// If no storages succeeded, return an error
+	if successCount == 0 {
+		return fmt.Errorf("failed to create discovery state in any storage: %v", errs)
+	}
+
+	// If some storages failed, return an error but mention partial success
+	if len(errs) > 0 {
+		return fmt.Errorf("partial create failure (%d/%d succeeded): %v", successCount, len(d.storages), errs)
+	}
+
+	return nil
+}
+
+// UpdateDiscoverySequenceNumber updates the discovery sequence number in all storages in order.
+// If any storage fails, it continues to the next storage
+// and returns an error at the end indicating which storages failed.
+func (d *Sink) UpdateDiscoverySequenceNumber(ctx context.Context, discoveryLocation string, sequenceNumber int) error {
+	var errs []error
+	successCount := 0
+
+	for i, storage := range d.storages {
+		d.lggr.Debugw("Attempting to update discovery sequence number in storage",
+			"storageIndex", i,
+			"discoveryLocation", discoveryLocation,
+			"sequenceNumber", sequenceNumber,
+		)
+
+		err := storage.UpdateDiscoverySequenceNumber(ctx, discoveryLocation, sequenceNumber)
+		if err != nil {
+			d.lggr.Warnw("Failed to update discovery sequence number in storage",
+				"storageIndex", i,
+				"discoveryLocation", discoveryLocation,
+				"error", err,
+			)
+			errs = append(errs, fmt.Errorf("storage[%d]: %w", i, err))
+			continue
+		}
+
+		d.lggr.Debugw("Successfully updated discovery sequence number in storage",
+			"storageIndex", i,
+			"discoveryLocation", discoveryLocation,
+		)
+		successCount++
+	}
+
+	// If no storages succeeded, return an error
+	if successCount == 0 {
+		return fmt.Errorf("failed to update discovery sequence number in any storage: %v", errs)
+	}
+
+	// If some storages failed, return an error but mention partial success
+	if len(errs) > 0 {
+		return fmt.Errorf("partial update failure (%d/%d succeeded): %v", successCount, len(d.storages), errs)
+	}
+
+	return nil
+}
+
 // Close closes all underlying storages that implement the Closer interface.
 func (d *Sink) Close() error {
 	var errs []error
