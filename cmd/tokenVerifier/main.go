@@ -212,8 +212,30 @@ func main() {
 		verifierMonitoring,
 	)
 
+	rmnRemoteAddresses := make(map[string]protocol.UnknownAddress)
+	for selector, address := range config.RMNRemoteAddresses {
+		addr, err := protocol.NewUnknownAddressFromHex(address)
+		if err != nil {
+			lggr.Errorw("Failed to create RMN Remote address", "error", err, "selector", selector)
+			os.Exit(1)
+		}
+		rmnRemoteAddresses[selector] = addr
+	}
+
 	// Dummy, just to show multiple verifiers support
 	cctpConfig := config.TokenVerifiers[0].CCTP
+
+	cctpSourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
+	for selector, address := range cctpConfig.Verifiers {
+		strSelector := strconv.FormatUint(uint64(selector), 10)
+		cctpSourceConfigs[selector] = verifier.SourceConfig{
+			VerifierAddress:        address,
+			DefaultExecutorAddress: nil,
+			PollInterval:           1 * time.Second,
+			ChainSelector:          selector,
+			RMNRemoteAddress:       rmnRemoteAddresses[strSelector],
+		}
+	}
 
 	cctpVerifier := cctp.NewVerifier(
 		cctp.NewAttestationService(*cctpConfig),
@@ -222,9 +244,15 @@ func main() {
 	cctpCoordinator, err := verifier.NewCoordinator(
 		lggr,
 		cctpVerifier,
-		nil,
+		sourceReaders,
 		cctp.NewOffchainStorage(),
-		verifier.CoordinatorConfig{},
+		verifier.CoordinatorConfig{
+			VerifierID:          config.VerifierID,
+			SourceConfigs:       cctpSourceConfigs,
+			StorageBatchSize:    50,
+			StorageBatchTimeout: 100 * time.Millisecond,
+			CursePollInterval:   2 * time.Second,
+		},
 		messageTracker,
 		verifierMonitoring,
 		nil,
@@ -242,6 +270,18 @@ func main() {
 	// Dummy, just to show multiple verifiers support
 	lbtcConfig := config.TokenVerifiers[1].LBTC
 
+	lbtcSourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
+	for selector, address := range lbtcConfig.Verifiers {
+		strSelector := strconv.FormatUint(uint64(selector), 10)
+		lbtcSourceConfigs[selector] = verifier.SourceConfig{
+			VerifierAddress:        address,
+			DefaultExecutorAddress: nil,
+			PollInterval:           1 * time.Second,
+			ChainSelector:          selector,
+			RMNRemoteAddress:       rmnRemoteAddresses[strSelector],
+		}
+	}
+
 	lbtcVerifier := lbtc.NewVerifier(
 		lbtc.NewAttestationService(*lbtcConfig),
 	)
@@ -249,9 +289,15 @@ func main() {
 	lbtcCoordinator, err := verifier.NewCoordinator(
 		lggr,
 		lbtcVerifier,
-		nil,
+		sourceReaders,
 		lbtc.NewOffchainStorage(),
-		verifier.CoordinatorConfig{},
+		verifier.CoordinatorConfig{
+			VerifierID:          config.VerifierID,
+			SourceConfigs:       lbtcSourceConfigs,
+			StorageBatchSize:    50,
+			StorageBatchTimeout: 100 * time.Millisecond,
+			CursePollInterval:   2 * time.Second,
+		},
 		messageTracker,
 		verifierMonitoring,
 		nil,
