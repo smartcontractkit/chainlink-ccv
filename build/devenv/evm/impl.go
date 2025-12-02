@@ -732,15 +732,13 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		operations.NewMemoryReporter(),
 	)
 
-	tokenAmounts := make([]routeroperations.EVMTokenAmount, 0, len(fields.TokenAmounts))
-	for _, tokenAmount := range fields.TokenAmounts {
-		tokenAmounts = append(tokenAmounts, routeroperations.EVMTokenAmount{
-			Token:  common.HexToAddress(tokenAmount.TokenAddress.String()),
-			Amount: tokenAmount.Amount,
-		})
-	}
-	if len(tokenAmounts) > 1 {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("only one token amount is supported")
+	// Even though it is called "tokenAmounts", but we only support one token amount.
+	var tokenAmounts []routeroperations.EVMTokenAmount
+	if fields.TokenAmount.Amount != nil {
+		tokenAmounts = []routeroperations.EVMTokenAmount{{
+			Token:  common.HexToAddress(fields.TokenAmount.TokenAddress.String()),
+			Amount: fields.TokenAmount.Amount,
+		}}
 	}
 
 	extraArgs := serializeExtraArgs(opts, destFamily)
