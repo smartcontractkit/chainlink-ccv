@@ -36,15 +36,16 @@ type DBInput struct {
 }
 
 type IndexerInput struct {
-	Image          string         `toml:"image"`
-	Port           int            `toml:"port"`
-	SourceCodePath string         `toml:"source_code_path"`
-	RootPath       string         `toml:"root_path"`
-	DB             *DBInput       `toml:"db"`
-	ContainerName  string         `toml:"container_name"`
-	UseCache       bool           `toml:"use_cache"`
-	Out            *IndexerOutput `toml:"-"`
-	IndexerConfig  *config.Config `toml:"indexer_config"`
+	Image          string                `toml:"image"`
+	Port           int                   `toml:"port"`
+	SourceCodePath string                `toml:"source_code_path"`
+	RootPath       string                `toml:"root_path"`
+	DB             *DBInput              `toml:"db"`
+	ContainerName  string                `toml:"container_name"`
+	UseCache       bool                  `toml:"use_cache"`
+	Out            *IndexerOutput        `toml:"-"`
+	IndexerConfig  *config.Config        `toml:"indexer_config"`
+	Secrets        *config.SecretsConfig `toml:"secrets"`
 }
 
 type IndexerOutput struct {
@@ -73,6 +74,7 @@ func defaults(in *IndexerInput) {
 	}
 	if in.IndexerConfig == nil {
 		in.IndexerConfig = &config.Config{
+			LogLevel: "info",
 			Monitoring: config.MonitoringConfig{
 				Enabled: true,
 				Type:    "beholder",
@@ -99,8 +101,6 @@ func defaults(in *IndexerInput) {
 				AggregatorReaderConfig: config.AggregatorReaderConfig{
 					Address: "aggregator:50051",
 					Since:   0,
-					APIKey:  "dev-api-key-indexer",
-					Secret:  "dev-secret-indexer",
 				},
 				PollInterval: 500,
 				Timeout:      5000,
@@ -112,8 +112,6 @@ func defaults(in *IndexerInput) {
 					AggregatorReaderConfig: config.AggregatorReaderConfig{
 						Address: "default-aggregator:50051",
 						Since:   0,
-						APIKey:  "dev-api-key-indexer",
-						Secret:  "dev-secret-indexer",
 					},
 					IssuerAddresses:  []string{"0x9A676e781A523b5d0C0e43731313A708CB607508"},
 					Name:             "CommiteeVerifier (Primary)",
@@ -125,8 +123,6 @@ func defaults(in *IndexerInput) {
 					AggregatorReaderConfig: config.AggregatorReaderConfig{
 						Address: "secondary-aggregator:50051",
 						Since:   0,
-						APIKey:  "dev-api-key-indexer",
-						Secret:  "dev-secret-indexer",
 					},
 					IssuerAddresses:  []string{"0x68B1D87F95878fE05B998F19b66F4baba5De1aed"},
 					Name:             "CommiteeVerifier (Secondary)",
@@ -138,8 +134,6 @@ func defaults(in *IndexerInput) {
 					AggregatorReaderConfig: config.AggregatorReaderConfig{
 						Address: "tertiary-aggregator:50051",
 						Since:   0,
-						APIKey:  "dev-api-key-indexer",
-						Secret:  "dev-secret-indexer",
 					},
 					IssuerAddresses:  []string{"0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"},
 					Name:             "CommiteeVerifier (Tertiary)",
@@ -162,7 +156,6 @@ func defaults(in *IndexerInput) {
 						{
 							Type: "postgres",
 							Postgres: &config.PostgresConfig{
-								URI:                    "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable",
 								MaxOpenConnections:     20,
 								MaxIdleConnections:     5,
 								IdleInTxSessionTimeout: 60,
@@ -170,6 +163,40 @@ func defaults(in *IndexerInput) {
 							},
 						},
 					},
+				},
+			},
+		}
+	}
+
+	if in.Secrets == nil {
+		in.Secrets = &config.SecretsConfig{
+			Discovery: config.DiscoverySecrets{
+				APIKey: "dev-api-key-indexer",
+				Secret: "dev-secret-indexer",
+			},
+			Storage: config.StorageSecrets{
+				Sink: config.SinkStorageSecrets{
+					Storages: map[string]config.StorageBackendSecrets{
+						"1": {
+							Postgres: config.PostgresSecrets{
+								URI: "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable",
+							},
+						},
+					},
+				},
+			},
+			Verifier: map[string]config.VerifierSecrets{
+				"0": {
+					APIKey: "dev-api-key-indexer",
+					Secret: "dev-secret-indexer",
+				},
+				"1": {
+					APIKey: "dev-api-key-indexer",
+					Secret: "dev-secret-indexer",
+				},
+				"2": {
+					APIKey: "dev-api-key-indexer",
+					Secret: "dev-secret-indexer",
 				},
 			},
 		}
@@ -207,6 +234,24 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 	err = os.WriteFile(configPath, buff.Bytes(), 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write config: %w", err)
+	}
+
+	secretsPath, ok := os.LookupEnv("INDEXER_SECRETS_PATH")
+	if !ok {
+		secretsPath = filepath.Join(p, "secrets.toml")
+	}
+
+	secretsBuffer := new(bytes.Buffer)
+	secEncoder := toml.NewEncoder(secretsBuffer)
+	secEncoder.Indent = ""
+	err = secEncoder.Encode(in.Secrets)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode secrets: %w", err)
+	}
+
+	err = os.WriteFile(secretsPath, secretsBuffer.Bytes(), 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write secrets file: %w", err)
 	}
 
 	/* Database */

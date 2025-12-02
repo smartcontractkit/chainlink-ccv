@@ -10,6 +10,7 @@ import (
 
 // Config provides all configuration for the indexer.
 type Config struct {
+	LogLevel string `toml:"LogLevel"`
 	// Monitoring is the configuration for the monitoring system inside the indexer.
 	Monitoring MonitoringConfig `toml:"Monitoring"`
 	// Discovery is the configuration for the discovery system inside the indexer.
@@ -188,8 +189,9 @@ type RestReaderConfig struct {
 	RequestTimeout int64 `toml:"RequestTimeout"`
 }
 
-// LoadConfig loads configuration from a TOML file.
-// It returns an error if the file cannot be read or parsed.
+// LoadConfig loads configuration from a TOML file and merges secrets from secrets.toml.
+// It returns an error if the config file cannot be read or parsed.
+// Secrets are optional - if secrets.toml doesn't exist, the config will load without secrets.
 func LoadConfig() (*Config, error) {
 	filepath, ok := os.LookupEnv("INDEXER_CONFIG_PATH")
 	if !ok {
@@ -200,7 +202,26 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("failed to read config file config.toml: %w", err)
 	}
 
-	return LoadConfigFromBytes(data)
+	config, err := LoadConfigFromBytes(data)
+	if err != nil {
+		return nil, err
+	}
+
+	// Load and merge secrets
+	secrets, err := LoadSecrets()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load secrets: %w", err)
+	}
+
+	if err := MergeSecrets(config, secrets); err != nil {
+		return nil, fmt.Errorf("failed to merge secrets: %w", err)
+	}
+
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("config validation failed: %w", err)
+	}
+
+	return config, nil
 }
 
 // LoadConfigFromBytes loads configuration from TOML bytes.
@@ -209,10 +230,6 @@ func LoadConfigFromBytes(data []byte) (*Config, error) {
 	var config Config
 	if err := toml.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to parse TOML config: %w", err)
-	}
-
-	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
 
 	return &config, nil
