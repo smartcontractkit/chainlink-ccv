@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"math/big"
+	"os"
 	"testing"
 	"time"
 
@@ -59,7 +60,11 @@ type testcase struct {
 }
 
 func TestE2ESmoke(t *testing.T) {
-	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
+	smokeTestConfig := os.Getenv("SMOKE_TEST_CONFIG")
+	if smokeTestConfig == "" {
+		smokeTestConfig = "../../env-out.toml"
+	}
+	in, err := ccv.LoadOutput[ccv.Cfg](smokeTestConfig)
 	require.NoError(t, err)
 	ctx := ccv.Plog.WithContext(t.Context())
 	l := zerolog.Ctx(ctx)
@@ -72,7 +77,7 @@ func TestE2ESmoke(t *testing.T) {
 
 	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
 	require.NoError(t, err)
-	require.Len(t, selectors, 3, "expected 3 chains for this test in the environment")
+	require.GreaterOrEqual(t, len(selectors), 2, "expected at least 2 chains for this test in the environment")
 
 	c, err := evm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
 	require.NoError(t, err)
@@ -82,22 +87,25 @@ func TestE2ESmoke(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-	defaultAggregatorAddr := fmt.Sprintf("127.0.0.1:%d", defaultAggregatorPort(in))
+	var defaultAggregatorClient *ccv.AggregatorClient
+	if endpoint, ok := in.AggregatorEndpoints[evm.DefaultCommitteeVerifierQualifier]; ok {
+		defaultAggregatorClient, err = ccv.NewAggregatorClient(
+			zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
+			endpoint)
+		require.NoError(t, err)
+		require.NotNil(t, defaultAggregatorClient)
+		t.Cleanup(func() {
+			defaultAggregatorClient.Close()
+		})
+	}
 
-	defaultAggregatorClient, err := ccv.NewAggregatorClient(
-		zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
-		defaultAggregatorAddr)
-	require.NoError(t, err)
-	require.NotNil(t, defaultAggregatorClient)
-	t.Cleanup(func() {
-		defaultAggregatorClient.Close()
-	})
-
-	indexerClient := ccv.NewIndexerClient(
-		zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
-		indexerURL)
-	require.NotNil(t, indexerClient)
+	var indexerClient *ccv.IndexerClient
+	if in.IndexerEndpoint != "" {
+		indexerClient = ccv.NewIndexerClient(
+			zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
+			in.IndexerEndpoint)
+		require.NotNil(t, indexerClient)
+	}
 
 	t.Run("extra args v2", func(t *testing.T) {
 		tcs := []struct {

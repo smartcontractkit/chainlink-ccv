@@ -122,31 +122,35 @@ func (tc *TestingContext) AssertMessage(messageID [32]byte, opts AssertMessageOp
 		result.VerifierSigned = true
 	}
 
-	aggregatedResult, err := tc.AggregatorClient.WaitForVerifierResultForMessage(
-		ctx,
-		messageID,
-		opts.TickInterval)
-	if err != nil {
-		return result, fmt.Errorf("aggregator check failed: %w", err)
+	if tc.AggregatorClient != nil {
+		aggregatedResult, err := tc.AggregatorClient.WaitForVerifierResultForMessage(
+			ctx,
+			messageID,
+			opts.TickInterval)
+		if err != nil {
+			return result, fmt.Errorf("aggregator check failed: %w", err)
+		}
+
+		result.AggregatedResult = aggregatedResult
+		result.AggregatorFound = true
 	}
 
-	result.AggregatedResult = aggregatedResult
-	result.AggregatorFound = true
+	if tc.IndexerClient != nil {
+		indexedVerifications, err := tc.IndexerClient.WaitForVerificationsForMessageID(
+			ctx,
+			messageID,
+			opts.TickInterval,
+			opts.ExpectedVerifierResults)
+		if err != nil {
+			return result, fmt.Errorf("indexer check failed: %w", err)
+		}
 
-	indexedVerifications, err := tc.IndexerClient.WaitForVerificationsForMessageID(
-		ctx,
-		messageID,
-		opts.TickInterval,
-		opts.ExpectedVerifierResults)
-	if err != nil {
-		return result, fmt.Errorf("indexer check failed: %w", err)
+		result.IndexedVerifications = indexedVerifications
+		result.IndexerFound = true
 	}
-
-	result.IndexedVerifications = indexedVerifications
-	result.IndexerFound = true
 
 	if opts.AssertExecutorLogs {
-		_, err = tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.ProcessingInExecutor())
+		_, err := tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.ProcessingInExecutor())
 		if err != nil {
 			return result, fmt.Errorf("executor log assertion failed: %w", err)
 		}

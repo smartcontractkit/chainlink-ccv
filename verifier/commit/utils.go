@@ -11,9 +11,9 @@ import (
 func CreateVerifierNodeResult(verificationTask *verifier.VerificationTask, signature, verifierBlob []byte) (*protocol.VerifierNodeResult, error) {
 	message := verificationTask.Message
 
-	messageID, err := message.MessageID()
+	messageID, err := protocol.NewBytes32FromString(verificationTask.MessageID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to compute message ID: %w", err)
+		return nil, fmt.Errorf("failed to convert messageID to Bytes32: %w", err)
 	}
 
 	// Calculate number of CCV receipts from the receipt structure.

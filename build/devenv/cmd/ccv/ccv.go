@@ -849,6 +849,7 @@ func init() {
 	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(indexerDBShellCmd)
 	rootCmd.AddCommand(printAddressesCmd)
+
 	rootCmd.AddCommand(send.Command())
 
 	// on-chain monitoring
