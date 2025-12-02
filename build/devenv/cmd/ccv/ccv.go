@@ -937,7 +937,7 @@ var sendCmd = &cobra.Command{
 		} else {
 			// V2 format - use the dedicated V2 function
 			result, err = impl.SendMessage(ctx, src, dest, cciptestinterfaces.MessageFields{
-				Receiver: protocol.UnknownAddress(common.HexToAddress(receiverAddress).Bytes()), // mock receiver
+				Receiver: protocol.UnknownAddress(common.HexToAddress(receiverAddress).Bytes()),
 				Data:     []byte{},
 			}, cciptestinterfaces.MessageOptions{
 				Version:             2,
