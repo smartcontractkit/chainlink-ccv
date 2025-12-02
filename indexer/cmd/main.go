@@ -35,7 +35,12 @@ func main() {
 		panic(err)
 	}
 
-	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.InfoLevel))
+	logLevel, err := zapcore.ParseLevel(config.LogLevel)
+	if err != nil {
+		panic(err)
+	}
+
+	lggr, err := logger.NewWith(logging.DevelopmentConfig(logLevel))
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create logger: %v", err))
 	}
@@ -69,7 +74,7 @@ func main() {
 		lggr.Fatalf("Failed to initalize verifier readers: %v", err)
 	}
 
-	messageDiscovery, err := createDiscovery(lggr, config, indexerStorage, indexerMonitoring, verifierRegistry)
+	messageDiscovery, err := createDiscovery(ctx, lggr, config, indexerStorage, indexerMonitoring, verifierRegistry)
 	if err != nil {
 		lggr.Fatalf("Failed to initialize message discovery: %v", err)
 	}
@@ -147,8 +152,17 @@ func createReader(lggr logger.Logger, cfg *config.VerifierConfig) (*readers.Resi
 	}
 }
 
-func createDiscovery(lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring, registry *registry.VerifierRegistry) (common.MessageDiscovery, error) {
-	aggregator, err := readers.NewAggregatorReader(cfg.Discovery.Address, lggr, cfg.Discovery.Since, hmac.ClientConfig{
+func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring, registry *registry.VerifierRegistry) (common.MessageDiscovery, error) {
+	persistedSinceValue, err := storage.GetDiscoverySequenceNumber(ctx, cfg.Discovery.Address)
+	if err != nil {
+		lggr.Warnw("Discovery Location previously not persisted, using value set in config")
+		if err := storage.CreateDiscoveryState(ctx, cfg.Discovery.Address, int(cfg.Discovery.Since)); err != nil {
+			lggr.Warnw("Unable to persist discovery sequence number")
+		}
+		persistedSinceValue = int(cfg.Discovery.Since)
+	}
+
+	aggregator, err := readers.NewAggregatorReader(cfg.Discovery.Address, lggr, int64(persistedSinceValue), hmac.ClientConfig{
 		APIKey: cfg.Discovery.APIKey,
 		Secret: cfg.Discovery.Secret,
 	})
