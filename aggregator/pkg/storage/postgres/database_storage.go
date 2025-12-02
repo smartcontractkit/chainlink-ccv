@@ -197,14 +197,19 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 			car.created_at,
 			car.seq_num,
 			%s
-		FROM commit_aggregated_reports car
+		FROM (
+			SELECT message_id, created_at, seq_num, verification_record_ids
+			FROM commit_aggregated_reports
+			WHERE seq_num >= $1
+			ORDER BY seq_num ASC
+			LIMIT $2
+		) car
 		LEFT JOIN LATERAL UNNEST(car.verification_record_ids) WITH ORDINALITY AS vid(id, ord) ON true
 		LEFT JOIN commit_verification_records cvr ON cvr.id = vid.id
-		WHERE car.seq_num >= $1
 		ORDER BY car.seq_num ASC, vid.ord
 	`, allVerificationRecordColumnsQualified)
 
-	rows, err := d.ds.QueryContext(ctx, stmt, sinceSequenceInclusive)
+	rows, err := d.ds.QueryContext(ctx, stmt, sinceSequenceInclusive, d.pageSize+1)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query aggregated reports: %w", err)
 	}
@@ -214,7 +219,6 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 
 	reportsMap := make(map[string]*model.CommitAggregatedReport)
 	reportOrder := make([]string, 0)
-	reportCount := 0
 	verificationRowsByReport := make(map[string][]*commitVerificationRecordRow)
 
 	for rows.Next() {
@@ -250,10 +254,6 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 
 		_, exists := reportsMap[reportKey]
 		if !exists {
-			if reportCount >= d.pageSize {
-				break
-			}
-
 			reportsMap[reportKey] = &model.CommitAggregatedReport{
 				MessageID:     common.Hex2Bytes(messageIDReport),
 				Verifications: []*model.CommitVerificationRecord{},
@@ -261,7 +261,6 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 				WrittenAt:     createdAt,
 			}
 			reportOrder = append(reportOrder, reportKey)
-			reportCount++
 		}
 
 		if verRow.ID > 0 {
@@ -292,15 +291,14 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 		return &model.AggregatedReportBatch{}, nil
 	}
 
+	hasMore := len(reportOrder) > d.pageSize
+	if hasMore {
+		reportOrder = reportOrder[:d.pageSize]
+	}
+
 	reports := make([]*model.CommitAggregatedReport, 0, len(reportOrder))
 	for _, key := range reportOrder {
 		reports = append(reports, reportsMap[key])
-	}
-
-	hasMore := false
-	for rows.Next() {
-		hasMore = true
-		break
 	}
 
 	return &model.AggregatedReportBatch{

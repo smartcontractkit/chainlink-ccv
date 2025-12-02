@@ -2,14 +2,21 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
 	"time"
+
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
+
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lbtc"
 
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
@@ -180,7 +187,7 @@ func main() {
 	}
 
 	// Setup OTEL Monitoring (via beholder)
-	_, err = monitoring.InitMonitoring(beholder.Config{
+	verifierMonitoring, err := monitoring.InitMonitoring(beholder.Config{
 		InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
 		CACertFile:               config.Monitoring.Beholder.CACertFile,
 		OtelExporterHTTPEndpoint: config.Monitoring.Beholder.OtelExporterHTTPEndpoint,
@@ -195,13 +202,134 @@ func main() {
 	}
 
 	// Start HTTP server
-	server := &http.Server{Addr: ":8100", ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second}
+	httpServer := &http.Server{Addr: ":8100", ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second}
 	go func() {
 		lggr.Infow("🌐 HTTP server starting", "port", "8100")
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			lggr.Errorw("HTTP server error", "error", err)
 		}
 	}()
+
+	messageTracker := monitoring.NewMessageLatencyTracker(
+		lggr,
+		config.VerifierID,
+		verifierMonitoring,
+	)
+
+	rmnRemoteAddresses := make(map[string]protocol.UnknownAddress)
+	for selector, address := range config.RMNRemoteAddresses {
+		addr, err := protocol.NewUnknownAddressFromHex(address)
+		if err != nil {
+			lggr.Errorw("Failed to create RMN Remote address", "error", err, "selector", selector)
+			os.Exit(1)
+		}
+		rmnRemoteAddresses[selector] = addr
+	}
+
+	offchainStorage := storage.NewOffchainStorage()
+
+	// Dummy, just to show multiple verifiers support
+	cctpConfig := config.TokenVerifiers[0].CCTP
+
+	cctpSourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
+	for selector, address := range cctpConfig.Verifiers {
+		strSelector := strconv.FormatUint(uint64(selector), 10)
+		cctpSourceConfigs[selector] = verifier.SourceConfig{
+			VerifierAddress:        address,
+			DefaultExecutorAddress: nil,
+			PollInterval:           1 * time.Second,
+			ChainSelector:          selector,
+			RMNRemoteAddress:       rmnRemoteAddresses[strSelector],
+		}
+	}
+
+	cctpVerifier := cctp.NewVerifier(
+		cctp.NewAttestationService(*cctpConfig),
+	)
+
+	cctpCoordinator, err := verifier.NewCoordinator(
+		lggr,
+		cctpVerifier,
+		sourceReaders,
+		offchainStorage,
+		verifier.CoordinatorConfig{
+			VerifierID:          config.VerifierID,
+			SourceConfigs:       cctpSourceConfigs,
+			StorageBatchSize:    50,
+			StorageBatchTimeout: 100 * time.Millisecond,
+			CursePollInterval:   2 * time.Second,
+		},
+		messageTracker,
+		verifierMonitoring,
+		storage.NewChainStatusManager(),
+	)
+	if err != nil {
+		lggr.Errorw("Failed to create verification coordinator for cctp", "error", err)
+		os.Exit(1)
+	}
+
+	if err := cctpCoordinator.Start(ctx); err != nil {
+		lggr.Errorw("Failed to start verification coordinator", "error", err)
+		os.Exit(1)
+	}
+
+	// Dummy, just to show multiple verifiers support
+	lbtcConfig := config.TokenVerifiers[1].LBTC
+
+	lbtcSourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
+	for selector, address := range lbtcConfig.Verifiers {
+		strSelector := strconv.FormatUint(uint64(selector), 10)
+		lbtcSourceConfigs[selector] = verifier.SourceConfig{
+			VerifierAddress:        address,
+			DefaultExecutorAddress: nil,
+			PollInterval:           1 * time.Second,
+			ChainSelector:          selector,
+			RMNRemoteAddress:       rmnRemoteAddresses[strSelector],
+		}
+	}
+
+	lbtcVerifier := lbtc.NewVerifier(
+		lbtc.NewAttestationService(*lbtcConfig),
+	)
+
+	lbtcCoordinator, err := verifier.NewCoordinator(
+		lggr,
+		lbtcVerifier,
+		sourceReaders,
+		offchainStorage,
+		verifier.CoordinatorConfig{
+			VerifierID:          config.VerifierID,
+			SourceConfigs:       lbtcSourceConfigs,
+			StorageBatchSize:    50,
+			StorageBatchTimeout: 100 * time.Millisecond,
+			CursePollInterval:   2 * time.Second,
+		},
+		messageTracker,
+		verifierMonitoring,
+		storage.NewChainStatusManager(),
+	)
+	if err != nil {
+		lggr.Errorw("Failed to create verification coordinator for lbtc", "error", err)
+		os.Exit(1)
+	}
+
+	if err := lbtcCoordinator.Start(ctx); err != nil {
+		lggr.Errorw("Failed to start verification coordinator", "error", err)
+		os.Exit(1)
+	}
+
+	grpcServer := token.NewServer(lggr, *offchainStorage)
+
+	lc := &net.ListenConfig{}
+	lis, err := lc.Listen(context.Background(), "tcp", "address")
+	if err != nil {
+		lggr.Fatalw("failed to listen for CCV data service", "error", err)
+	}
+
+	err = grpcServer.Start(lis)
+	if err != nil {
+		lggr.Fatalw("failed to start CCV data service", "error", err)
+	}
 
 	lggr.Infow("🎯 Verifier service fully started and ready!")
 
@@ -214,8 +342,14 @@ func main() {
 	defer shutdownCancel()
 
 	// Stop HTTP server
-	if err := server.Shutdown(shutdownCtx); err != nil {
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		lggr.Errorw("HTTP server shutdown error", "error", err)
+	}
+	if err := grpcServer.Stop(); err != nil {
+		lggr.Errorw("GRPC server stop error", "error", err)
+	}
+	if err := lis.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		lggr.Errorw("failed to close listener", "error", err)
 	}
 
 	lggr.Infow("Verifier service stopped gracefully")

@@ -17,12 +17,14 @@ var (
 )
 
 type BackoffNTPProvider struct {
-	lggr            logger.Logger
-	backoffDuration time.Duration
-	failedAttempts  int
-	lastFailureTime time.Time
-	mu              sync.RWMutex
-	ntpServer       string
+	lggr                 logger.Logger
+	backoffDuration      time.Duration
+	failedAttempts       int
+	lastFailureTime      time.Time
+	lastSuccessLocalTime time.Time
+	lastSuccessNTPTime   time.Time
+	mu                   sync.RWMutex
+	ntpServer            string
 }
 
 func NewBackoffNTPProvider(lggr logger.Logger, backoffDuration time.Duration, ntpServer string) *BackoffNTPProvider {
@@ -45,10 +47,10 @@ func (b *BackoffNTPProvider) GetTime() time.Time {
 
 		if timeSinceLastFailure < backoffDuration {
 			// Still in backoff, return local time without trying NTP
-			b.lggr.Debugw("In backoff period, returning local time",
+			b.lggr.Debugw("In backoff period, returning fallback time",
 				"failedAttempts", b.failedAttempts,
 				"backoffRemaining", backoffDuration-timeSinceLastFailure)
-			return time.Now().UTC()
+			return b.getFallbackTime()
 		}
 		// Backoff period expired, will attempt NTP below
 		b.lggr.Debugw("Backoff period expired, attempting NTP again",
@@ -63,20 +65,30 @@ func (b *BackoffNTPProvider) GetTime() time.Time {
 		b.lastFailureTime = time.Now().UTC()
 		backoffDuration := b.calculateBackoffDuration()
 
-		b.lggr.Warnw("Unable to get NTP time, backing off and returning local time",
-			"error", err,
+		b.lggr.Warnw("Unable to get NTP time, backing off and returning fallback time",
 			"failedAttempts", b.failedAttempts,
 			"nextRetryIn", backoffDuration)
 
-		return time.Now().UTC()
+		return b.getFallbackTime()
 	}
 
 	// Success! Reset failed attempts counter
 	b.failedAttempts = 0
 	b.lastFailureTime = time.Time{} // zero time
+	b.lastSuccessLocalTime = time.Now().UTC()
+	b.lastSuccessNTPTime = ntpTime
 	b.lggr.Debugw("Successfully retrieved NTP time", "ntpTime", ntpTime)
 
 	return ntpTime
+}
+
+func (b *BackoffNTPProvider) getFallbackTime() time.Time {
+	now := time.Now().UTC()
+	if b.lastSuccessLocalTime.IsZero() {
+		return now
+	}
+	// localtime_now - localtime_then + ntptime_then
+	return b.lastSuccessNTPTime.Add(now.Sub(b.lastSuccessLocalTime))
 }
 
 // calculateBackoffDuration computes exponential backoff duration based on failed attempts.

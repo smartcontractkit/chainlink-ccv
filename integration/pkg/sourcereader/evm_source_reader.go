@@ -1,7 +1,6 @@
 package sourcereader
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -102,7 +101,8 @@ func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*
 	for _, blockNumber := range blockNumbers {
 		header, err := r.chainClient.HeadByNumber(ctx, blockNumber)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get block %s: %w", blockNumber.String(), err)
+			r.lggr.Warnw("Failed to get block header", "blockNumber", blockNumber.String(), "error", err)
+			continue
 		}
 		if header.Number < 0 {
 			return nil, fmt.Errorf("block number cannot be negative: %d", header.Number)
@@ -115,43 +115,6 @@ func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*
 		}
 	}
 	return headers, nil
-}
-
-// GetBlockHeaderByHash returns a block header by its hash.
-// Required for walking back parent chain during LCA finding in reorg detection.
-func (r *EVMSourceReader) GetBlockHeaderByHash(ctx context.Context, hash protocol.Bytes32) (*protocol.BlockHeader, error) {
-	// Convert protocol.Bytes32 to common.Hash
-	var ethHash common.Hash
-	copy(ethHash[:], hash[:])
-
-	header, err := r.chainClient.HeadByHash(ctx, ethHash)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get block by hash %s: %w", ethHash.Hex(), err)
-	}
-
-	if header == nil {
-		return nil, nil // Block not found
-	}
-
-	if header.Number < 0 {
-		return nil, fmt.Errorf("block number cannot be negative: %d", header.Number)
-	}
-
-	return &protocol.BlockHeader{
-		Number:     uint64(header.Number),
-		Hash:       protocol.Bytes32(header.Hash),
-		ParentHash: protocol.Bytes32(header.ParentHash),
-		Timestamp:  header.Timestamp,
-	}, nil
-}
-
-// BlockTime returns the timestamp of a given block.
-func (r *EVMSourceReader) BlockTime(ctx context.Context, block *big.Int) (uint64, error) {
-	hdr, err := r.chainClient.HeaderByNumber(ctx, block)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get block header for block %s: %w", block.String(), err)
-	}
-	return hdr.Time, nil
 }
 
 // FetchMessageSentEvents returns MessageSentEvents in the given block range.
@@ -255,23 +218,6 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 		}
 		r.lggr.Infow("Decoded message",
 			"message", decodedMsg)
-
-		// Validate that the on-chain MessageID matches the computed MessageID
-		computedMessageID, err := decodedMsg.MessageID()
-		if err != nil {
-			r.lggr.Errorw("Failed to compute message ID",
-				"error", err,
-				"onChainMessageID", common.Bytes2Hex(event.MessageId[:]))
-			continue // to next message
-		}
-		if !bytes.Equal(computedMessageID[:], event.MessageId[:]) {
-			r.lggr.Errorw("MessageID mismatch: on-chain MessageID does not match computed MessageID",
-				"onChainMessageID", common.Bytes2Hex(event.MessageId[:]),
-				"computedMessageID", common.Bytes2Hex(computedMessageID[:]),
-				"sequenceNumber", event.SequenceNumber,
-				"blockNumber", log.BlockNumber)
-			continue // to next message - this is a fatal error
-		}
 
 		// Validate that ccvAndExecutorHash is not zero - it's required
 		if decodedMsg.CcvAndExecutorHash == (protocol.Bytes32{}) {

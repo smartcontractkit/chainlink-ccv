@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/internal/aggregation_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -21,7 +22,7 @@ import (
 
 func makeValidProtoRequest() *pb.WriteCommitteeVerifierNodeResultRequest {
 	msg := makeTestMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.SequenceNumber(1), []byte{})
-	pbMsg := model.MapProtocolMessageToProtoMessage(msg)
+	pbMsg := ccvcommon.MapProtocolMessageToProtoMessage(msg)
 	return &pb.WriteCommitteeVerifierNodeResultRequest{
 		CommitteeVerifierNodeResult: &pb.CommitteeVerifierNodeResult{
 			Signature:       []byte("signature_bytes"),

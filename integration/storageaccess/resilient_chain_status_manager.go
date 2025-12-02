@@ -9,6 +9,7 @@ import (
 	"github.com/failsafe-go/failsafe-go/bulkhead"
 	"github.com/failsafe-go/failsafe-go/circuitbreaker"
 	"github.com/failsafe-go/failsafe-go/ratelimiter"
+	"github.com/failsafe-go/failsafe-go/retrypolicy"
 	"github.com/failsafe-go/failsafe-go/timeout"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -28,6 +29,7 @@ type resilientChainStatusManager struct {
 	circuitBreaker circuitbreaker.CircuitBreaker[readResult]
 	rateLimiter    ratelimiter.RateLimiter[readResult]
 	bulkhead       bulkhead.Bulkhead[readResult]
+	retryPolicy    retrypolicy.RetryPolicy[readResult]
 
 	// Separate timeout policies for read and write
 	writeTimeout timeout.Timeout[readResult]
@@ -96,11 +98,17 @@ func NewResilientChainStatusManager(
 		}).
 		Build()
 
+	policy := retrypolicy.NewBuilder[readResult]().
+		WithMaxAttempts(10).
+		WithBackoff(100*time.Millisecond, 1*time.Second).
+		Build()
+
 	return &resilientChainStatusManager{
 		delegate:       delegate,
 		circuitBreaker: cb,
 		rateLimiter:    rl,
 		bulkhead:       bh,
+		retryPolicy:    policy,
 		writeTimeout:   writeTimeout,
 		readTimeout:    readTimeout,
 		lggr:           lggr,
@@ -109,7 +117,7 @@ func NewResilientChainStatusManager(
 
 // WriteChainStatuses writes chain statuses with circuit breaker, timeout, rate limiting, and bulkhead protection.
 func (r *resilientChainStatusManager) WriteChainStatuses(ctx context.Context, statuses []protocol.ChainStatusInfo) error {
-	executor := failsafe.With(r.rateLimiter, r.bulkhead, r.circuitBreaker, r.writeTimeout)
+	executor := failsafe.With(r.rateLimiter, r.bulkhead, r.circuitBreaker, r.writeTimeout, r.retryPolicy)
 
 	err := executor.RunWithExecution(func(failsafe.Execution[readResult]) error {
 		return r.delegate.WriteChainStatuses(ctx, statuses)
@@ -126,7 +134,7 @@ func (r *resilientChainStatusManager) WriteChainStatuses(ctx context.Context, st
 
 // ReadChainStatuses reads chain statuses with circuit breaker, timeout, rate limiting, and bulkhead protection.
 func (r *resilientChainStatusManager) ReadChainStatuses(ctx context.Context, chainSelectors []protocol.ChainSelector) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
-	executor := failsafe.With(r.rateLimiter, r.bulkhead, r.circuitBreaker, r.readTimeout)
+	executor := failsafe.With(r.rateLimiter, r.bulkhead, r.circuitBreaker, r.readTimeout, r.retryPolicy)
 
 	result, err := executor.GetWithExecution(func(failsafe.Execution[readResult]) (readResult, error) {
 		return r.delegate.ReadChainStatuses(ctx, chainSelectors)

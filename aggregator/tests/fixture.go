@@ -10,6 +10,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
@@ -108,7 +109,7 @@ type MessageWithCCVNodeDataOption = func(*pb.CommitteeVerifierNodeResult) *pb.Co
 
 func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDataOption {
 	return func(m *pb.CommitteeVerifierNodeResult) *pb.CommitteeVerifierNodeResult {
-		protocolMessage, err := model.MapProtoMessageToProtocolMessage(m.Message)
+		protocolMessage, err := ccvcommon.MapProtoMessageToProtocolMessage(m.Message)
 		require.NoError(t, err)
 
 		messageID, err := protocolMessage.MessageID()
@@ -190,7 +191,7 @@ func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVe
 	}
 
 	// Compute and return the message ID
-	protocolMessage, err := model.MapProtoMessageToProtocolMessage(ccvNodeData.GetMessage())
+	protocolMessage, err := ccvcommon.MapProtoMessageToProtocolMessage(ccvNodeData.GetMessage())
 	require.NoError(t, err, "failed to map proto message")
 	messageID, err := protocolMessage.MessageID()
 	require.NoError(t, err, "failed to compute message ID")

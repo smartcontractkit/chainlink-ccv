@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -27,9 +28,9 @@ type AggregatorMessageDiscovery struct {
 	monitoring       common.IndexerMonitoring
 	timeProvider     ccvcommon.TimeProvider
 	messageCh        chan common.VerifierResultWithMetadata
-	stopCh           chan struct{}
-	doneCh           chan struct{}
 	readerLock       *sync.Mutex
+	wg               sync.WaitGroup
+	cancelFunc       context.CancelFunc
 }
 
 type Option func(*AggregatorMessageDiscovery)
@@ -78,8 +79,6 @@ func WithTimeProvider(timeProvider ccvcommon.TimeProvider) Option {
 
 func NewAggregatorMessageDiscovery(opts ...Option) (common.MessageDiscovery, error) {
 	a := &AggregatorMessageDiscovery{
-		stopCh:     make(chan struct{}),
-		doneCh:     make(chan struct{}),
 		messageCh:  make(chan common.VerifierResultWithMetadata),
 		readerLock: &sync.Mutex{},
 	}
@@ -130,7 +129,12 @@ func (a *AggregatorMessageDiscovery) validate() error {
 }
 
 func (a *AggregatorMessageDiscovery) Start(ctx context.Context) chan common.VerifierResultWithMetadata {
-	go a.run(ctx)
+	childCtx, cancelFunc := context.WithCancel(ctx)
+
+	a.wg.Add(2)
+	go a.run(childCtx)
+	go a.updateSequenceNumber(childCtx)
+	a.cancelFunc = cancelFunc
 	a.logger.Info("MessageDiscovery Started")
 
 	// Return a channel that emits all messages discovered from the aggregator
@@ -138,10 +142,8 @@ func (a *AggregatorMessageDiscovery) Start(ctx context.Context) chan common.Veri
 }
 
 func (a *AggregatorMessageDiscovery) Close() error {
-	close(a.stopCh)
-
-	// Wait for processing to stop
-	<-a.doneCh
+	a.cancelFunc()
+	a.wg.Wait()
 	a.logger.Info("MessageDiscovery Stopped")
 	return nil
 }
@@ -151,7 +153,8 @@ func (a *AggregatorMessageDiscovery) Replay(ctx context.Context, start, end uint
 }
 
 func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
-	defer close(a.doneCh)
+	defer a.wg.Done()
+
 	// Create a ticker based on the scan interval configured
 	ticker := time.NewTicker(time.Duration(a.config.PollInterval) * time.Millisecond)
 	defer ticker.Stop()
@@ -161,9 +164,6 @@ func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 		case <-ctx.Done():
 			a.logger.Info("MessageDiscovery stopped due to context cancellation")
 			return
-		case <-a.stopCh:
-			a.logger.Info("MessageDiscovery stopped due to stop signal")
-			return
 		case <-ticker.C:
 			// Create a child context with a timeout to prevent a single call from blocking the entire discovery process
 			readCtx, cancel := context.WithTimeout(ctx, time.Duration(a.config.Timeout)*time.Millisecond)
@@ -172,6 +172,30 @@ func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 			// Aim is to allow for quick backfilling of data if needed.
 			a.consumeReader(readCtx)
 			cancel()
+		}
+	}
+}
+
+func (a *AggregatorMessageDiscovery) updateSequenceNumber(ctx context.Context) {
+	defer a.wg.Done()
+
+	ticker := time.NewTicker(time.Second * 5)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			a.logger.Info("updateSequenceNumber stopped due to context cancellation")
+			return
+		case <-ticker.C:
+			latestSequenceNumber, supports := a.aggregatorReader.GetSinceValue()
+			if !supports {
+				a.logger.Warnw("unable to update sequence number as reader does not support this.", "discoveryLocation", a.config.Address)
+			}
+
+			if err := a.storageSink.UpdateDiscoverySequenceNumber(ctx, a.config.Address, int(latestSequenceNumber)); err != nil {
+				a.logger.Errorf("unable to update sequence number: %w", err)
+			}
 		}
 	}
 }
@@ -208,6 +232,7 @@ func (a *AggregatorMessageDiscovery) consumeReader(ctx context.Context) {
 }
 
 func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, error) {
+	var queryResponse []protocol.QueryResponse
 	queryResponse, err := a.aggregatorReader.ReadCCVData(ctx)
 	if err != nil {
 		if a.isCircuitBreakerOpen() {

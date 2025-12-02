@@ -16,11 +16,13 @@ type IndexerStorage interface {
 type IndexerStorageReader interface {
 	VerifierResultsStorageReader
 	MessageStorageReader
+	DiscoveryStateReader
 }
 
 type IndexerStorageWriter interface {
 	VerifierResultsStorageWriter
 	MessageStorageWriter
+	DiscoveryStateWriter
 }
 
 // VerifierResultsStorageReader provides the interface to retrieve verification results from storage.
@@ -55,4 +57,18 @@ type MessageStorageWriter interface {
 	BatchInsertMessages(ctx context.Context, messages []MessageWithMetadata) error
 	// UpdateMessageStatus updates the status of indexing to storage.
 	UpdateMessageStatus(ctx context.Context, messageID protocol.Bytes32, status MessageStatus, lastErr string) error
+}
+
+// DiscoveryStateReader provides the interface to retrieve the state for different discovery sources.
+type DiscoveryStateReader interface {
+	// GetDiscoverySequenceNumber returns the latest sequence number for a given discovery source.
+	GetDiscoverySequenceNumber(ctx context.Context, discoveryLocation string) (int, error)
+}
+
+// DiscoveryStateWriter provides the interface to insert and update state for different discovery sources.
+type DiscoveryStateWriter interface {
+	// CreateDiscoveryState creates a new record containing metadata about the discovery source.
+	CreateDiscoveryState(ctx context.Context, discoveryLocation string, startingSequenceNumber int) error
+	// UpdateDiscoverySequenceNumber updates the latest sequence number for that discovery source.
+	UpdateDiscoverySequenceNumber(ctx context.Context, discoveryLocation string, sequenceNumber int) error
 }

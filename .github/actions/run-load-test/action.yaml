@@ -20,7 +20,12 @@ inputs:
   env_name:
     description: 'Environment name for CCV'
     required: false
-    default: 'env-cl-16'
+    default: 'env-cl-16-ci.toml'
+  env_name_out:
+    description: 'Environment name for CCV'
+    required: false
+    default: 'env-cl-16-ci-out.toml'
+
 
 
 runs:
@@ -69,12 +74,8 @@ runs:
       working-directory: build/devenv
       run: go mod download
 
-    - name: Checkout Chainlink repository
-      uses: actions/checkout@v5
-      with:
-        repository: smartcontractkit/chainlink
-        path: chainlink
-        fetch-depth: 1
+    - name: Build Chainlink image
+      uses: ./.github/actions/build-cl
 
     - name: Build Docker Images
       shell: bash
@@ -101,7 +102,7 @@ runs:
         PROM_URL: http://localhost:9099
       run: |
         set -o pipefail
-        go test -v -timeout ${{ inputs.timeout }} -count=1 -run 'TestE2ELoad/${{ inputs.subtest }}'
+        LOAD_TEST_OUT_FILE=../../${{ inputs.env_name_out }} go test -v -timeout ${{ inputs.timeout }} -count=1 -run 'TestE2ELoad/${{ inputs.subtest }}'
       continue-on-error: true
 
     - name: Upload Logs

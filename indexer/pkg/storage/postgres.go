@@ -663,6 +663,100 @@ func (d *PostgresStorage) UpdateMessageStatus(ctx context.Context, messageID pro
 	return nil
 }
 
+func (d *PostgresStorage) CreateDiscoveryState(ctx context.Context, discoveryLocation string, startingSequenceNumber int) error {
+	startInsertMetric := time.Now()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	query := `
+    INSERT INTO indexer.discovery_state (
+      discovery_location,
+      last_sequence_number
+    ) VALUES ($1, $2)
+    ON CONFLICT (discovery_location) DO NOTHING
+	`
+
+	result, err := d.execContext(ctx, query,
+		discoveryLocation,
+		startingSequenceNumber,
+	)
+	if err != nil {
+		d.lggr.Errorw("Failed to create discovery state record", "error", err, "discoveryLocation", discoveryLocation, "sequenceNumber", startingSequenceNumber)
+		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
+		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		d.lggr.Warnw("Failed to get rows affected", "error", err)
+		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		d.lggr.Warnw("Discovery Record already exisits for source", "discoveryLocation", discoveryLocation)
+		return nil
+	}
+
+	d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
+	return nil
+}
+
+func (d *PostgresStorage) UpdateDiscoverySequenceNumber(ctx context.Context, discoveryLocation string, sequenceNumber int) error {
+	startUpdateMetric := time.Now()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	query := `
+    UPDATE indexer.discovery_state
+    SET last_sequence_number = $1
+    WHERE discovery_location = $2
+	`
+
+	result, err := d.execContext(ctx, query, sequenceNumber, discoveryLocation)
+	if err != nil {
+		d.lggr.Errorw("Failed to update discovery state record", "error", err, "discoveryLocation", discoveryLocation, "sequenceNumber", sequenceNumber)
+		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
+		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startUpdateMetric))
+		return fmt.Errorf("failed to update discovery state record: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		d.lggr.Warnw("Failed to get rows affected", "error", err)
+		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startUpdateMetric))
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startUpdateMetric))
+		return fmt.Errorf("discovery record not found: %s", discoveryLocation)
+	}
+
+	d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startUpdateMetric))
+	return nil
+}
+
+func (d *PostgresStorage) GetDiscoverySequenceNumber(ctx context.Context, discoveryLocation string) (int, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	query := `SELECT last_sequence_number FROM indexer.discovery_state WHERE discovery_location = $1`
+	row := d.queryRowContext(ctx, query, discoveryLocation)
+
+	var sequenceNumber int
+	err := row.Scan(&sequenceNumber)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, errors.New("failed to find discovery sequence number")
+		}
+		d.lggr.Errorw("Failed to query discovery sequence number", "error", err, "discoveryLocation", discoveryLocation)
+		return 0, fmt.Errorf("failed to query discovery sequence number: %w", err)
+	}
+
+	return sequenceNumber, nil
+}
+
 // trackUniqueMessage checks if this is the first time we're seeing this message ID
 // and increments the unique messages counter if so.
 func (d *PostgresStorage) trackUniqueMessage(ctx context.Context, messageID protocol.Bytes32) error {

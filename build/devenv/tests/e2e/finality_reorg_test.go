@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
+
+	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
@@ -20,11 +23,11 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
-// TestSimpleReorgWithMessageOrdering tests that messages sent in different orders
+// TestE2EReorg tests that messages sent in different orders
 // before and after a reorg are correctly verified after finality is reached.
 // IMPORTANT: Need to run this test against an env that has source chain with auto mining.
 // Run `just rebuild-all "env.toml,env-src-auto-mine.toml"` before running this test.
-func TestSimpleReorgWithMessageOrdering(t *testing.T) {
+func TestE2EReorg(t *testing.T) {
 	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
 	require.NoError(t, err)
 
@@ -58,6 +61,19 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 	require.NotNil(t, defaultAggregatorClient)
 	t.Cleanup(func() {
 		defaultAggregatorClient.Close()
+	})
+
+	// Create authenticated aggregator client for reading chain status
+	// Using the same API key/secret as the verifier (configured in env.toml)
+	authenticatedAggregatorClient, err := ccv.NewAuthenticatedAggregatorClient(
+		zerolog.Ctx(ctx).With().Str("component", "authenticated-aggregator-client").Logger(),
+		defaultAggregatorAddr,
+		"dev-api-key-verifier-1",
+		"dev-secret-verifier-1",
+	)
+	require.NoError(t, err, "should be able to create authenticated aggregator client")
+	t.Cleanup(func() {
+		authenticatedAggregatorClient.Close()
 	})
 
 	// Get the source and destination chain selectors
@@ -163,9 +179,8 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 		msg1IDAfterReorg := sendMessageWithLogging("message 1", "Sending message 1 second (swapped order)")
 		msg3ID := sendMessageWithLogging("message 3", "Sending a new msg that wasn't sent pre reorg")
 
-		// Mine 11 blocks to cross finality threshold
-		l.Info().Msg("⛏️  Mining 11 blocks to cross finality threshold")
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+2)
+		l.Info().Int("blocks", verifier.ConfirmationDepth+5).Msg("⛏️  Mining blocks to cross finality threshold")
+		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
 
 		// Verify all messages are found in aggregator after finality
 		l.Info().Msg("🔍 Verifying messages are in aggregator (after finality)")
@@ -180,5 +195,81 @@ func TestSimpleReorgWithMessageOrdering(t *testing.T) {
 
 		l.Info().
 			Msg("✨ Test completed: Messages sent in swapped order after reorg and verified after finality")
+	})
+
+	t.Run("finality violation", func(t *testing.T) {
+		// Log the source chain selector for verification
+		l.Info().Uint64("srcSelector", srcSelector).Msg("Source chain selector for finality violation test")
+
+		l.Info().Msg("💾 Creating initial snapshot before mining blocks")
+		snapshotID, err := anvilHelper.Snapshot(ctx)
+		require.NoError(t, err)
+		l.Info().Str("snapshotID", snapshotID).Msg("✅ Initial snapshot created")
+
+		l.Info().Msg("📨 Sending pre-violation message")
+		preViolationMessageID := sendMessageWithLogging("pre-violation message", "Sending pre-violation message")
+
+		l.Info().Int("blocks", verifier.ConfirmationDepth+5).Msg("⛏️  Mining blocks to establish finalized state")
+		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		l.Info().Msg("✅ Finalized state established")
+
+		// Wait for message to be processed and appear in aggregator
+		verifyMessageExists(preViolationMessageID, "Pre-violation message")
+
+		l.Info().Msg("Sending message to be dropped once finality violation happens")
+		toBeDroppedMessageID := sendMessageWithLogging("toBeDropped message", "Sending toBeDropped message")
+
+		l.Info().Msg("⚠️  Triggering finality violation by reverting to initial snapshot")
+		err = anvilHelper.Revert(ctx, snapshotID)
+		require.NoError(t, err)
+		l.Info().Msg("✅ Reverted to initial snapshot (deep reorg past finalized blocks)")
+		// Mine some blocks to give system opportunity to process (if it were working)
+		l.Info().Int("blocks", verifier.ConfirmationDepth+5).Msg("⛏️  Mining blocks after revert")
+		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		verifyMessageNotExists(toBeDroppedMessageID, "Post-violation message")
+
+		l.Info().Msg("🔍 Verifying chain status in aggregator...")
+
+		require.Eventually(t, func() bool {
+			chainStatusResp, err := authenticatedAggregatorClient.ReadChainStatus(ctx, []uint64{srcSelector})
+			require.NoError(t, err, "should be able to read chain status from aggregator")
+			require.Len(t, chainStatusResp.Statuses, 1, "should have one chain status for source chain")
+
+			chainStatus := chainStatusResp.Statuses[0]
+			require.Equal(t, srcSelector, chainStatus.ChainSelector, "chain selector should match")
+			require.True(t, chainStatus.Disabled, "chain should be marked as disabled after finality violation")
+			require.Equal(t, uint64(0), chainStatus.FinalizedBlockHeight, "finalized block height should be 0 after finality violation")
+
+			l.Info().Msg("✅ Chain status verified in aggregator: chain is disabled with checkpoint 0")
+
+			return true
+		}, 3*time.Second, 100*time.Millisecond, "chain status should reflect disabled state after finality violation")
+
+		l.Info().
+			Msg("✨ Test completed: Finality violation detected and system stopped processing new messages")
+	})
+
+	// a utility test to enable the chain again in the aggregator instead of creating a new env
+	t.Run("enable chain", func(t *testing.T) {
+		resp, err := authenticatedAggregatorClient.WriteChainStatus(ctx, []*pb.ChainStatus{
+			{
+				ChainSelector:        srcSelector,
+				FinalizedBlockHeight: 0,
+				Disabled:             false,
+			},
+		})
+
+		require.NoError(t, err, "should be able to enable chain in aggregator")
+		require.NotNil(t, resp, "response should not be nil when enabling chain")
+
+		chainStatusResp, err := authenticatedAggregatorClient.ReadChainStatus(ctx, []uint64{srcSelector})
+		require.NoError(t, err, "should be able to read chain status from aggregator")
+		require.Len(t, chainStatusResp.Statuses, 1, "should have one chain status for source chain")
+
+		chainStatus := chainStatusResp.Statuses[0]
+		require.Equal(t, srcSelector, chainStatus.ChainSelector, "chain selector should match")
+		require.False(t, chainStatus.Disabled, "chain should be enabled")
+
+		l.Info().Msg("✅ Source chain re-enabled in aggregator after being disabled from finality violation")
 	})
 }

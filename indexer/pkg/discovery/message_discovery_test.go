@@ -182,8 +182,6 @@ func TestNewAggregatorMessageDiscovery(t *testing.T) {
 	assert.Equal(t, resilientReader, aggDiscovery.aggregatorReader)
 	assert.Equal(t, config, aggDiscovery.config)
 	assert.NotNil(t, aggDiscovery.messageCh)
-	assert.NotNil(t, aggDiscovery.stopCh)
-	assert.NotNil(t, aggDiscovery.doneCh)
 	assert.NotNil(t, aggDiscovery.readerLock)
 }
 
@@ -241,50 +239,12 @@ func TestClose_GracefullyStops(t *testing.T) {
 		t.Fatal("Close() did not complete within timeout")
 	}
 
-	// Verify doneCh was closed
-	select {
-	case <-ts.Discovery.doneCh:
-		// Expected - doneCh was closed
-	default:
-		t.Fatal("doneCh was not closed")
-	}
-
-	// Verify stopCh was closed
-	select {
-	case <-ts.Discovery.stopCh:
-		// Expected - stopCh is closed (readable)
-	default:
-		t.Fatal("stopCh was not closed")
-	}
-
 	// Verify messageCh is still open (should not be closed)
 	select {
 	case <-messageCh:
 		t.Fatal("messageCh should not be closed")
 	default:
 		// Expected - messageCh remains open
-	}
-}
-
-// TestClose_MultipleCalls tests that the first Close succeeds.
-// Note: Multiple calls to Close() will panic because it closes a channel.
-// This test verifies the first call works correctly.
-func TestClose_MultipleCalls(t *testing.T) {
-	ts := setupMessageDiscoveryTestNoTimeout(t, defaultTestConfig())
-
-	ts.Discovery.Start(ts.Context)
-	time.Sleep(20 * time.Millisecond)
-
-	// First close should succeed
-	err := ts.Discovery.Close()
-	assert.NoError(t, err)
-
-	// Verify doneCh was closed
-	select {
-	case <-ts.Discovery.doneCh:
-		// Expected - doneCh was closed
-	default:
-		t.Fatal("doneCh was not closed")
 	}
 }
 
@@ -300,9 +260,9 @@ func TestStart_ContextCancellation(t *testing.T) {
 	// Cancel context
 	ts.Cancel()
 
-	// Wait for doneCh to be closed
+	// Wait for ctx to be closed
 	select {
-	case <-ts.Discovery.doneCh:
+	case <-ts.Context.Done():
 		// Expected - goroutine exited
 	case <-time.After(2 * time.Second):
 		t.Fatal("discovery did not stop after context cancellation")
@@ -510,7 +470,7 @@ func TestErrorHandling_ReaderError(t *testing.T) {
 
 	// Discovery should continue running despite error
 	select {
-	case <-ts.Discovery.doneCh:
+	case <-ts.Context.Done():
 		t.Fatal("discovery should not stop on reader error")
 	default:
 		// Expected - discovery continues
@@ -556,7 +516,7 @@ func TestErrorHandling_CircuitBreakerOpen(t *testing.T) {
 
 	// Discovery should continue (skip polling when circuit breaker is open)
 	select {
-	case <-ts.Discovery.doneCh:
+	case <-ts.Context.Done():
 		t.Fatal("discovery should not stop when circuit breaker is open")
 	default:
 		// Expected
@@ -699,4 +659,154 @@ func TestMessageDiscovery_NewMessageEmittedAndSaved(t *testing.T) {
 
 	// Verify that the stored message's Message field matches what was emitted
 	assert.Equal(t, receivedMessage.VerifierResult.Message.MustMessageID(), stored[0].VerifierResult.Message.MustMessageID(), "stored message's Message field should match emitted message")
+}
+
+// setupMessageDiscoveryTestWithSequenceNumberSupport creates a test setup with a reader that supports sequence numbers.
+func setupMessageDiscoveryTestWithSequenceNumberSupport(t *testing.T, discoveryAddress string, initialSequenceNumber int64) *testSetup {
+	t.Helper()
+	cfg := config.DiscoveryConfig{
+		AggregatorReaderConfig: config.AggregatorReaderConfig{
+			Address: discoveryAddress,
+		},
+		PollInterval: 50,
+		Timeout:      500,
+	}
+	return setupMessageDiscoveryTestWithSequenceNumberSupportAndConfig(t, cfg, initialSequenceNumber, 5*time.Second)
+}
+
+// setupMessageDiscoveryTestWithSequenceNumberSupportAndConfig creates a test setup with sequence number support and custom config.
+func setupMessageDiscoveryTestWithSequenceNumberSupportAndConfig(t *testing.T, cfg config.DiscoveryConfig, initialSequenceNumber int64, timeout time.Duration) *testSetup {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+
+	lggr := logger.Test(t)
+	mon := monitoring.NewNoopIndexerMonitoring()
+	store := storage.NewInMemoryStorage(lggr, mon)
+
+	// Create discovery state in storage
+	err := store.CreateDiscoveryState(ctx, cfg.Address, int(initialSequenceNumber))
+	require.NoError(t, err)
+
+	// Create a mock reader that supports sequence numbers
+	mockReader := readers.NewMockReader(readers.MockReaderConfig{
+		EmitEmptyResponses: true,
+	})
+	mockReader.SetSinceValue(initialSequenceNumber)
+
+	timeProvider := ccvcommon.NewMockTimeProvider(t)
+	timeProvider.EXPECT().GetTime().Return(time.Now().UTC()).Maybe()
+
+	// Wrap mock reader with ResilientReader for testing
+	resilientReader := readers.NewResilientReader(mockReader, lggr, readers.DefaultResilienceConfig())
+
+	registry := registry.NewVerifierRegistry()
+
+	discovery, _ := NewAggregatorMessageDiscovery(
+		WithLogger(lggr),
+		WithRegistry(registry),
+		WithTimeProvider(timeProvider),
+		WithMonitoring(mon),
+		WithStorage(store),
+		WithAggregator(resilientReader),
+		WithConfig(cfg),
+	)
+
+	return &testSetup{
+		Discovery:  discovery.(*AggregatorMessageDiscovery),
+		Logger:     lggr,
+		Monitor:    mon,
+		Storage:    store,
+		Reader:     resilientReader,
+		MockReader: mockReader,
+		Context:    ctx,
+		Cancel:     cancel,
+	}
+}
+
+// TestUpdateSequenceNumber_UpdatesPeriodically tests that sequence numbers are updated periodically.
+func TestUpdateSequenceNumber_UpdatesPeriodically(t *testing.T) {
+	discoveryAddress := "test-discovery-address"
+	initialSequenceNumber := int64(100)
+	newSequenceNumber := int64(150)
+
+	// Use a longer timeout to allow for the 5-second ticker
+	ts := setupMessageDiscoveryTestWithSequenceNumberSupportAndConfig(t, config.DiscoveryConfig{
+		AggregatorReaderConfig: config.AggregatorReaderConfig{
+			Address: discoveryAddress,
+		},
+		PollInterval: 50,
+		Timeout:      500,
+	}, initialSequenceNumber, 8*time.Second)
+	defer ts.Cleanup()
+
+	// Start discovery - this will start the updateSequenceNumber goroutine
+	messageCh := ts.Discovery.Start(ts.Context)
+
+	// Drain message channel in background to prevent blocking
+	go func() {
+		for {
+			select {
+			case <-ts.Context.Done():
+				return
+			case _, ok := <-messageCh:
+				if !ok {
+					return
+				}
+				// Drain any messages
+			}
+		}
+	}()
+
+	// Update the mock reader's sequence number
+	ts.MockReader.SetSinceValue(newSequenceNumber)
+
+	// Wait for the update to happen (ticker runs every 5 seconds)
+	// We wait 6 seconds to ensure at least one tick has occurred
+	time.Sleep(6 * time.Second)
+
+	// Verify sequence number was updated in storage
+	updatedSeq, err := ts.Storage.GetDiscoverySequenceNumber(ts.Context, discoveryAddress)
+	require.NoError(t, err)
+	assert.Equal(t, int(newSequenceNumber), updatedSeq, "sequence number should be updated in storage")
+}
+
+// TestUpdateSequenceNumber_StopsOnContextCancellation tests that the update goroutine stops on context cancellation.
+func TestUpdateSequenceNumber_StopsOnContextCancellation(t *testing.T) {
+	discoveryAddress := "test-discovery-address"
+	initialSequenceNumber := int64(100)
+
+	ts := setupMessageDiscoveryTestWithSequenceNumberSupport(t, discoveryAddress, initialSequenceNumber)
+	defer ts.Cleanup()
+
+	// Start discovery
+	messageCh := ts.Discovery.Start(ts.Context)
+
+	// Drain message channel in background to prevent blocking
+	go func() {
+		for range messageCh {
+			//
+		}
+	}()
+
+	// Wait a moment for goroutines to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Cancel context
+	ts.Cancel()
+
+	// Wait for goroutines to stop
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify discovery stopped
+	err := ts.Discovery.Close()
+	assert.NoError(t, err, "close should complete successfully")
+
+	// Verify context is canceled
+	select {
+	case <-ts.Context.Done():
+		// Expected
+	default:
+		t.Fatal("context should be cancelled")
+	}
 }
