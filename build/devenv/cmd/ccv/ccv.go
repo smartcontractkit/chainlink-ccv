@@ -19,6 +19,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -721,6 +722,89 @@ var fundAddressesCmd = &cobra.Command{
 	},
 }
 
+var manuallyExecuteCmd = &cobra.Command{
+	Use:   "manually-execute --env <env> --chain-selector <chain-selector> --message-id <message-id> --indexer-result-json <indexer-result-json> --gas-limit <gas-limit>",
+	Short: "Manually execute a message",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		chainSelector, err := cmd.Flags().GetUint64("chain-selector")
+		if err != nil {
+			return fmt.Errorf("failed to parse chain-selector: %w", err)
+		}
+		messageID, err := cmd.Flags().GetString("message-id")
+		if err != nil {
+			return fmt.Errorf("failed to parse message-id: %w", err)
+		}
+		env, err := cmd.Flags().GetString("env")
+		if err != nil {
+			return fmt.Errorf("failed to parse env: %w", err)
+		}
+		indexerResultJSON, err := cmd.Flags().GetString("indexer-result-json")
+		if err != nil {
+			return fmt.Errorf("failed to parse indexer-result-json: %w", err)
+		}
+		gasLimit, err := cmd.Flags().GetUint64("gas-limit")
+		if err != nil {
+			return fmt.Errorf("failed to parse gas-limit: %w", err)
+		}
+		envFile := fmt.Sprintf("env-%s.toml", env)
+		in, err := ccv.LoadOutput[ccv.Cfg](envFile)
+		if err != nil {
+			return fmt.Errorf("failed to load environment output: %w", err)
+		}
+
+		var messageIDBytes32 protocol.Bytes32
+		messageIDBytes := hexutil.MustDecode(messageID)
+		copy(messageIDBytes32[:], messageIDBytes)
+
+		chainID, err := chainsel.ChainIdFromSelector(chainSelector)
+		if err != nil {
+			return fmt.Errorf("failed to get chain details: %w", err)
+		}
+		chainIDStr := strconv.FormatUint(chainID, 10)
+
+		// get the blockchain input for the chain selector
+		var input *blockchain.Input
+		for _, bc := range in.Blockchains {
+			if bc.ChainID == chainIDStr {
+				input = bc
+				break
+			}
+		}
+		if input == nil {
+			return fmt.Errorf("blockchain with chain ID %s not found, please update the env file or use a different chain-selector", chainIDStr)
+		}
+
+		// TODO: this kind of thing should be chain-agnostic.
+		chainIDs, wsURLs := make([]string, 0), make([]string, 0)
+		for _, bc := range in.Blockchains {
+			chainIDs = append(chainIDs, bc.ChainID)
+			wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
+		}
+		_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+		if err != nil {
+			return fmt.Errorf("failed to create CLDF operations environment: %w", err)
+		}
+		l := log.
+			Output(zerolog.ConsoleWriter{Out: os.Stderr}).
+			Level(zerolog.DebugLevel).
+			With().
+			Fields(map[string]any{"component": "CCIP17EVM"}).
+			Logger()
+		impl, err := evm.NewCCIP17EVM(cmd.Context(), l, e, chainIDs, wsURLs)
+		if err != nil {
+			return fmt.Errorf("failed to create CCIP17EVM: %w", err)
+		}
+		// END TODO.
+
+		err = impl.ManuallyExecuteMessage(cmd.Context(), chainSelector, messageIDBytes32, gasLimit, indexerResultJSON)
+		if err != nil {
+			return fmt.Errorf("failed to manually execute message: %w", err)
+		}
+
+		return nil
+	},
+}
+
 var monitorContractsCmd = &cobra.Command{
 	Use:   "upload-on-chain-metrics <source> <dest>",
 	Short: "Reads on-chain EVM contract events and temporary exposes them as Prometheus metrics endpoint to be scraped",
@@ -1013,6 +1097,20 @@ func init() {
 	_ = generateConfigsCmd.MarkFlagRequired("aggregator-port")
 	_ = generateConfigsCmd.MarkFlagRequired("indexer-addr")
 	_ = generateConfigsCmd.MarkFlagRequired("monitoring-otel-exporter-http-endpoint")
+
+	// manual execution
+	rootCmd.AddCommand(manuallyExecuteCmd)
+	manuallyExecuteCmd.Flags().String("env", "out", "Select environment file to use (e.g., 'staging' for env-staging.toml, defaults to env-out.toml)")
+	manuallyExecuteCmd.Flags().Uint64("chain-selector", 0, "Chain selector to manually execute message for")
+	manuallyExecuteCmd.Flags().String("message-id", "", "Message ID to manually execute")
+	manuallyExecuteCmd.Flags().String("indexer-result-json", "", "Indexer result JSON to manually execute message from")
+	manuallyExecuteCmd.Flags().Uint64("gas-limit", 0, "Gas limit to use for the manually executed message")
+
+	_ = manuallyExecuteCmd.MarkFlagRequired("env")
+	_ = manuallyExecuteCmd.MarkFlagRequired("chain-selector")
+	_ = manuallyExecuteCmd.MarkFlagRequired("message-id")
+	_ = manuallyExecuteCmd.MarkFlagRequired("indexer-result-json")
+	_ = manuallyExecuteCmd.MarkFlagRequired("gas-limit")
 }
 
 func checkDockerIsRunning() {

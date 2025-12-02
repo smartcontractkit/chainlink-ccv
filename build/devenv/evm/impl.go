@@ -1,6 +1,7 @@
 package evm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -1671,6 +1673,92 @@ func (m *CCIP17EVM) fundLockReleaseTokenPool(
 	if receipt.Status != types.ReceiptStatusSuccessful {
 		return fmt.Errorf("transfer transaction failed with status: %d", receipt.Status)
 	}
+
+	return nil
+}
+
+func (m *CCIP17EVM) ManuallyExecuteMessage(
+	ctx context.Context,
+	destChainSelector uint64,
+	messageID [32]byte,
+	gasLimit uint64,
+	indexerResultJSON string,
+) error {
+	offRamp, ok := m.offRampBySelector[destChainSelector]
+	if !ok {
+		return fmt.Errorf("no off ramp for selector %d", destChainSelector)
+	}
+	privateKeyString := getNetworkPrivateKey()
+	privKey, err := crypto.HexToECDSA(privateKeyString)
+	if err != nil {
+		return fmt.Errorf("failed to parse private key: %w", err)
+	}
+	chainID, err := m.ethClients[destChainSelector].ChainID(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get chain ID: %w", err)
+	}
+
+	transactOpts := bind.NewKeyedTransactor(privKey, chainID)
+	transactOpts.GasLimit = gasLimit
+
+	var verifications protocol.MessageIDV1Response
+	err = json.Unmarshal([]byte(indexerResultJSON), &verifications)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal indexer result: %w", err)
+	}
+	if len(verifications.Results) == 0 {
+		return fmt.Errorf("no verifications found for messageID")
+	}
+
+	msg := verifications.Results[0].VerifierResult.Message
+	encodedMsg, err := msg.Encode()
+	if err != nil {
+		return fmt.Errorf("failed to encode message: %w", err)
+	}
+
+	msgID := msg.MustMessageID()
+	if !bytes.Equal(msgID[:], messageID[:]) {
+		return fmt.Errorf("messageID mismatch: calculated %s != provided %s", msgID.String(), hexutil.Encode(messageID[:]))
+	}
+
+	var ccvs []common.Address
+	var verifierResults [][]byte
+	for _, verification := range verifications.Results {
+		ccvs = append(ccvs, common.HexToAddress(verification.VerifierResult.VerifierDestAddress.String()))
+		verifierResults = append(verifierResults, verification.VerifierResult.CCVData)
+	}
+
+	m.logger.Info().
+		Str("MessageID", hexutil.Encode(messageID[:])).
+		Any("Message", msg).
+		Any("CCVs", ccvs).
+		Int("NumVerifierResults", len(verifications.Results)).
+		Str("FirstVerifierResult", hexutil.Encode(verifierResults[0])).
+		Uint64("ChainSelector", destChainSelector).
+		Msg("Executing message")
+
+	tx, err := offRamp.Execute(&bind.TransactOpts{
+		From:     transactOpts.From,
+		Signer:   transactOpts.Signer,
+		Context:  ctx,
+		GasLimit: gasLimit,
+	}, encodedMsg, ccvs, verifierResults)
+	if err != nil {
+		return fmt.Errorf("failed to execute off ramp: %w", err)
+	}
+
+	receipt, err := bind.WaitMined(ctx, m.ethClients[destChainSelector], tx.Hash())
+	if err != nil {
+		return fmt.Errorf("failed to wait for execution transaction to be mined: %w", err)
+	}
+	if receipt.Status != types.ReceiptStatusSuccessful {
+		return fmt.Errorf("execution transaction failed with status: %d", receipt.Status)
+	}
+
+	m.logger.Info().
+		Str("TxHash", tx.Hash().Hex()).
+		Uint64("ChainSelector", destChainSelector).
+		Msg("Execution transaction mined")
 
 	return nil
 }
