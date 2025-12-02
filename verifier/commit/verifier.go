@@ -127,13 +127,13 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 	start := time.Now()
 	message := verificationTask.Message
 
-	messageID, err := message.MessageID()
+	msgIDStr := verificationTask.MessageID
+	messageID, err := protocol.NewBytes32FromString(msgIDStr)
 	if err != nil {
-		return fmt.Errorf("failed to compute message ID: %w", err)
+		return fmt.Errorf("failed to convert messageID to Bytes32: %w", err)
 	}
-
 	cv.lggr.Infow("Starting message verification",
-		"messageID", messageID,
+		"messageID", msgIDStr,
 		"nonce", message.SequenceNumber,
 		"sourceChain", message.SourceChainSelector,
 		"destChain", message.DestChainSelector,
@@ -142,18 +142,18 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 	// 1. Validate that the message comes from a configured source chain
 	sourceConfig, exists := cv.config.SourceConfigs[message.SourceChainSelector]
 	if !exists {
-		return fmt.Errorf("message source chain selector %d is not configured for message %s", message.SourceChainSelector, messageID.String())
+		return fmt.Errorf("message source chain selector %d is not configured for message %s", message.SourceChainSelector, msgIDStr)
 	}
 
 	// 2. Validate message format and check verifier receipts
 	if err := cv.ValidateMessage(message); err != nil {
-		return fmt.Errorf("message format validation failed for message %s: %w", messageID.String(), err)
+		return fmt.Errorf("message format validation failed for message %s: %w", msgIDStr, err)
 	}
 
 	if err := ValidateMessage(&verificationTask); err != nil {
 		return fmt.Errorf(
 			"message validation failed for message %s with verifier address %s and default executor address %s: %w",
-			messageID.String(),
+			msgIDStr,
 			sourceConfig.VerifierAddress.String(),
 			sourceConfig.DefaultExecutorAddress.String(),
 			err,
@@ -188,7 +188,7 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 				issuers[i] = receipt.Issuer.String()
 			}
 			return fmt.Errorf("neither verifier nor default executor blob found for message %s, all issuers: %v, expected issuer: %s (verifier) or %s (default executor)",
-				messageID.String(),
+				msgIDStr,
 				issuers,
 				sourceConfig.VerifierAddress.String(),
 				sourceConfig.DefaultExecutorAddress.String(),
@@ -206,11 +206,11 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 
 	encodedSignature, err := cv.signer.Sign(hash[:])
 	if err != nil {
-		return fmt.Errorf("failed to sign message %s: %w", messageID.String(), err)
+		return fmt.Errorf("failed to sign message %s: %w", msgIDStr, err)
 	}
 
 	cv.lggr.Infow("Message signed successfully",
-		"messageID", messageID,
+		"messageID", msgIDStr,
 		"signer", cv.signerAddress.String(),
 		"signatureLength", len(encodedSignature),
 	)
@@ -218,7 +218,7 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 	// 4. Create CCV node data with all required fields
 	ccvNodeData, err := CreateVerifierNodeResult(&verificationTask, encodedSignature, verifierBlob)
 	if err != nil {
-		return fmt.Errorf("failed to create CCV node data for message %s: %w", messageID.String(), err)
+		return fmt.Errorf("failed to create CCV node data for message %s: %w", msgIDStr, err)
 	}
 
 	if err := ccvDataBatcher.Add(*ccvNodeData); err != nil {
@@ -234,7 +234,7 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 		RecordMessageVerificationDuration(ctx, time.Since(start))
 
 	cv.lggr.Infow("CCV data added to batcher for writing to storage",
-		"messageID", messageID,
+		"messageID", msgIDStr,
 		"nonce", message.SequenceNumber,
 		"sourceChain", message.SourceChainSelector,
 		"destChain", message.DestChainSelector,

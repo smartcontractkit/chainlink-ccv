@@ -1,7 +1,6 @@
 package sourcereader
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -217,23 +216,6 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 		}
 		r.lggr.Infow("Decoded message",
 			"message", decodedMsg)
-
-		// Validate that the on-chain MessageID matches the computed MessageID
-		computedMessageID, err := decodedMsg.MessageID()
-		if err != nil {
-			r.lggr.Errorw("Failed to compute message ID",
-				"error", err,
-				"onChainMessageID", common.Bytes2Hex(event.MessageId[:]))
-			continue // to next message
-		}
-		if !bytes.Equal(computedMessageID[:], event.MessageId[:]) {
-			r.lggr.Errorw("MessageID mismatch: on-chain MessageID does not match computed MessageID",
-				"onChainMessageID", common.Bytes2Hex(event.MessageId[:]),
-				"computedMessageID", common.Bytes2Hex(computedMessageID[:]),
-				"sequenceNumber", event.SequenceNumber,
-				"blockNumber", log.BlockNumber)
-			continue // to next message - this is a fatal error
-		}
 
 		// Validate that ccvAndExecutorHash is not zero - it's required
 		if decodedMsg.CcvAndExecutorHash == (protocol.Bytes32{}) {

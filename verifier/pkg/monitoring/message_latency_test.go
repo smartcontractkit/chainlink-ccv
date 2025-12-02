@@ -21,6 +21,10 @@ func Test_MessageLatency(t *testing.T) {
 	message2 := generateMessage(t)
 	message3 := generateMessage(t)
 
+	msgID1 := message1.MustMessageID().String()
+	msgID2 := message2.MustMessageID().String()
+	msgID3 := message3.MustMessageID().String()
+
 	twoSeconds := time.Now().Add(time.Second * 2)
 	tenMinutes := time.Now().Add(time.Minute * 10)
 
@@ -33,12 +37,12 @@ func Test_MessageLatency(t *testing.T) {
 		{
 			name: "messages with firstSeenAt are tracked correctly",
 			tasks: []verifier.VerificationTask{
-				{Message: message1, FirstSeenAt: twoSeconds},
-				{Message: message2, FirstSeenAt: tenMinutes},
+				{Message: message1, MessageID: msgID1, FirstSeenAt: twoSeconds},
+				{Message: message2, MessageID: msgID2, FirstSeenAt: tenMinutes},
 			},
 			messages: []protocol.VerifierNodeResult{
-				messageToCCVNodeData(message1),
-				messageToCCVNodeData(message2),
+				messageToCCVNodeData(message1, msgID1),
+				messageToCCVNodeData(message2, msgID2),
 			},
 			expectedLatencies: []E2ELatencyCall{
 				{
@@ -54,10 +58,10 @@ func Test_MessageLatency(t *testing.T) {
 		{
 			name: "messages without firstSeenAt are tracked as they just happened",
 			tasks: []verifier.VerificationTask{
-				{Message: message1},
+				{Message: message1, MessageID: msgID1},
 			},
 			messages: []protocol.VerifierNodeResult{
-				messageToCCVNodeData(message1),
+				messageToCCVNodeData(message1, msgID1),
 			},
 			expectedLatencies: []E2ELatencyCall{
 				{
@@ -69,22 +73,22 @@ func Test_MessageLatency(t *testing.T) {
 		{
 			name: "messages not marked as seen are ignored",
 			tasks: []verifier.VerificationTask{
-				{Message: message1, FirstSeenAt: twoSeconds},
+				{Message: message1, MessageID: msgID1, FirstSeenAt: twoSeconds},
 			},
 			messages: []protocol.VerifierNodeResult{
-				messageToCCVNodeData(message2),
-				messageToCCVNodeData(message3),
+				messageToCCVNodeData(message2, msgID2),
+				messageToCCVNodeData(message3, msgID3),
 			},
 			expectedLatencies: []E2ELatencyCall{},
 		},
 		{
 			name: "latencies are tracked once even if message appears the same with different seenAt",
 			tasks: []verifier.VerificationTask{
-				{Message: message1, FirstSeenAt: twoSeconds},
-				{Message: message1, FirstSeenAt: tenMinutes},
+				{Message: message1, MessageID: msgID1, FirstSeenAt: twoSeconds},
+				{Message: message1, MessageID: msgID1, FirstSeenAt: tenMinutes},
 			},
 			messages: []protocol.VerifierNodeResult{
-				messageToCCVNodeData(message1),
+				messageToCCVNodeData(message1, msgID1),
 			},
 			expectedLatencies: []E2ELatencyCall{
 				{
@@ -139,20 +143,22 @@ func Test_UnderlyingCacheTTL(t *testing.T) {
 	}
 
 	message := generateMessage(t)
+	msgID := message.MustMessageID().String()
 	task := verifier.VerificationTask{
 		Message:     message,
+		MessageID:   msgID,
 		FirstSeenAt: time.Now(),
 	}
 	tracker.MarkMessageAsSeen(&task)
 
 	// Wait for message to evaporate from the cache
 	require.Eventually(t, func() bool {
-		_, ok := tracker.messageTimestamps.Get(task.Message.MustMessageID().String())
+		_, ok := tracker.messageTimestamps.Get(msgID)
 		return !ok
 	}, 1*time.Second, 10*time.Millisecond)
 
 	tracker.TrackMessageLatencies(t.Context(), []protocol.VerifierNodeResult{
-		messageToCCVNodeData(message),
+		messageToCCVNodeData(message, msgID),
 	})
 	require.Len(t, monitoring.Fake.E2ELatencyCalls, 0)
 }
@@ -171,9 +177,13 @@ func generateMessage(t *testing.T) protocol.Message {
 	}
 }
 
-func messageToCCVNodeData(msg protocol.Message) protocol.VerifierNodeResult {
+func messageToCCVNodeData(msg protocol.Message, msgID string) protocol.VerifierNodeResult {
+	messageID, err := protocol.NewBytes32FromString(msgID)
+	if err != nil {
+		panic(err)
+	}
 	return protocol.VerifierNodeResult{
 		Message:   msg,
-		MessageID: msg.MustMessageID(),
+		MessageID: messageID,
 	}
 }
