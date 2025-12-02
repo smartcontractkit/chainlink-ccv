@@ -555,6 +555,13 @@ type OffchainStorageReader interface {
 	ReadCCVData(ctx context.Context) ([]QueryResponse, error)
 }
 
+// DiscoveryStorageReader define the interface to provide discovery services to off-chain components.
+type DiscoveryStorageReader interface {
+	OffchainStorageReader
+	// GetSinceValue returns the latest sequence number used in the querying of the discovery service.
+	GetSinceValue() int64
+}
+
 // VerifierResultsAPI defines the interface for the public API to interact with verifiers
 // It provides a singular API for offchain storage lookups by providing a batch endpoint
 //
