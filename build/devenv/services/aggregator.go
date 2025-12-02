@@ -421,10 +421,13 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 		req.Mounts = testcontainers.Mounts()
 		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
 		req.Mounts = append(req.Mounts, GoCacheMounts()...)
-		req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
-			configFilePath,
-			aggregator.DefaultConfigFile,
-		))
+		req.Files = []testcontainers.ContainerFile{
+			{
+				HostFilePath:      configFilePath,
+				ContainerFilePath: aggregator.DefaultConfigFile,
+				FileMode:          0o644,
+			},
+		}
 		framework.L.Info().
 			Str("Service", aggregatorContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")

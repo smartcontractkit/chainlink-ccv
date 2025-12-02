@@ -76,21 +76,21 @@ const (
 )
 
 type Cfg struct {
-	Mode                services.Mode               `toml:"mode"`
-	CLDF                CLDF                        `toml:"cldf"                  validate:"required"`
-	JD                  *jd.Input                   `toml:"jd"                    validate:"required"`
-	Fake                *services.FakeInput         `toml:"fake"                  validate:"required"`
-	Verifier            []*services.VerifierInput   `toml:"verifier"              validate:"required"`
-	Executor            []*services.ExecutorInput   `toml:"executor"              validate:"required"`
-	Indexer             *services.IndexerInput      `toml:"indexer"               validate:"required"`
-	Aggregator          []*services.AggregatorInput `toml:"aggregator"            validate:"required"`
-	Blockchains         []*blockchain.Input         `toml:"blockchains"           validate:"required"`
-	NodeSets            []*ns.Input                 `toml:"nodesets"              validate:"required"`
-	CLNodesFundingETH   float64                     `toml:"cl_nodes_funding_eth"`
-	CLNodesFundingLink  float64                     `toml:"cl_nodes_funding_link"`
+	Mode               services.Mode               `toml:"mode"`
+	CLDF               CLDF                        `toml:"cldf"                  validate:"required"`
+	JD                 *jd.Input                   `toml:"jd"                    validate:"required"`
+	Fake               *services.FakeInput         `toml:"fake"                  validate:"required"`
+	Verifier           []*services.VerifierInput   `toml:"verifier"              validate:"required"`
+	Executor           []*services.ExecutorInput   `toml:"executor"              validate:"required"`
+	Indexer            *services.IndexerInput      `toml:"indexer"               validate:"required"`
+	Aggregator         []*services.AggregatorInput `toml:"aggregator"            validate:"required"`
+	Blockchains        []*blockchain.Input         `toml:"blockchains"           validate:"required"`
+	NodeSets           []*ns.Input                 `toml:"nodesets"              validate:"required"`
+	CLNodesFundingETH  float64                     `toml:"cl_nodes_funding_eth"`
+	CLNodesFundingLink float64                     `toml:"cl_nodes_funding_link"`
 	// AggregatorEndpoints map the verifier qualifier to the aggregator URL for that verifier.
-	AggregatorEndpoints map[string]string           `toml:"aggregator_endpoints"`
-	IndexerEndpoint     string                      `toml:"indexer_endpoint"`
+	AggregatorEndpoints map[string]string `toml:"aggregator_endpoints"`
+	IndexerEndpoint     string            `toml:"indexer_endpoint"`
 }
 
 func checkKeys(in *Cfg) error {
