@@ -74,6 +74,7 @@ func defaults(in *IndexerInput) {
 	}
 	if in.IndexerConfig == nil {
 		in.IndexerConfig = &config.Config{
+			LogLevel: "info",
 			Monitoring: config.MonitoringConfig{
 				Enabled: true,
 				Type:    "beholder",

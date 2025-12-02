@@ -10,6 +10,7 @@ import (
 
 // Config provides all configuration for the indexer.
 type Config struct {
+	LogLevel string `toml:"LogLevel"`
 	// Monitoring is the configuration for the monitoring system inside the indexer.
 	Monitoring MonitoringConfig `toml:"Monitoring"`
 	// Discovery is the configuration for the discovery system inside the indexer.
