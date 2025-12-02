@@ -86,7 +86,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 		wantErr  bool
 	}{
 		{
-			name: "valid CCTP config with all values provided",
+			name: "valid cctp config with all values provided",
 			toml: `
 				type = "cctp"
 				version = "2.0"
@@ -100,7 +100,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				2 = "0xVerifier2"
 			`,
 			expected: VerifierConfig{
-				Type:    "CCTP",
+				Type:    "cctp",
 				Version: "2.0",
 				CCTP: &cctp.Config{
 					AttestationAPI:         "http://circle.com/attestation",
@@ -115,7 +115,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 			},
 		},
 		{
-			name: "valid CCTP config with missing optional values",
+			name: "valid cctp config with missing optional values",
 			toml: `
 				type = "cctp"
 				version = "2.0"
@@ -125,7 +125,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				"1" = "0xVerifier1"
 			`,
 			expected: VerifierConfig{
-				Type:    "CCTP",
+				Type:    "cctp",
 				Version: "2.0",
 				CCTP: &cctp.Config{
 					AttestationAPI:         "http://circle.com/attestation",
@@ -139,7 +139,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 			},
 		},
 		{
-			name: "malformed CCTP config returns error",
+			name: "malformed cctp config returns error",
 			toml: `
 				type = "cctp"
 				version = "2.0"
@@ -151,11 +151,11 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "valid LBTC config with all values provided",
+			name: "valid lbtc config with all values provided",
 			toml: `
 				type = "lbtc"
 				version = "1.0"
-				attestation_api = "http://LBTC.com/gohere"
+				attestation_api = "http://lbtc.com/gohere"
 				attestation_api_timeout = "2s"
 				attestation_api_interval = "500ms"
 				attestation_api_batch_size = 50
@@ -180,11 +180,11 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 			},
 		},
 		{
-			name: "valid LBTC config with missing optional values",
+			name: "valid lbtc config with missing optional values",
 			toml: `
-				type = "LBTC"
+				type = "lbtc"
 				version = "1.0"
-				attestation_api = "http://LBTC.com/gohere"
+				attestation_api = "http://lbtc.com/gohere"
 
 				[addresses]
 				1 = "0xLBTCVerifier1"
@@ -204,9 +204,9 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 			},
 		},
 		{
-			name: "malformed LBTC config returns error",
+			name: "malformed lbtc config returns error",
 			toml: `
-				type = "LBTC"
+				type = "lbtc"
 				version = "1.0"
 				attestation_api_dur = "10s"
 
