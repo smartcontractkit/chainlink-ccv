@@ -245,7 +245,7 @@ func main() {
 		lggr,
 		cctpVerifier,
 		sourceReaders,
-		cctp.NewOffchainStorage(),
+		token.NewOffchainStorage(),
 		verifier.CoordinatorConfig{
 			VerifierID:          config.VerifierID,
 			SourceConfigs:       cctpSourceConfigs,
@@ -255,7 +255,7 @@ func main() {
 		},
 		messageTracker,
 		verifierMonitoring,
-		nil,
+		token.NewChainStatusManager(),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator for cctp", "error", err)
@@ -290,7 +290,7 @@ func main() {
 		lggr,
 		lbtcVerifier,
 		sourceReaders,
-		lbtc.NewOffchainStorage(),
+		token.NewOffchainStorage(),
 		verifier.CoordinatorConfig{
 			VerifierID:          config.VerifierID,
 			SourceConfigs:       lbtcSourceConfigs,
@@ -300,7 +300,7 @@ func main() {
 		},
 		messageTracker,
 		verifierMonitoring,
-		nil,
+		token.NewChainStatusManager(),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator for lbtc", "error", err)
