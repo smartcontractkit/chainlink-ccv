@@ -19,6 +19,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -154,7 +155,7 @@ func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *t
 	}
 
 	// Now compute the correct messageID from the message with CCV data
-	protocolMessage, err := model.MapProtoMessageToProtocolMessage(msgWithCCV.Message)
+	protocolMessage, err := ccvcommon.MapProtoMessageToProtocolMessage(msgWithCCV.Message)
 	require.NoError(t, err)
 	messageID, err := protocolMessage.MessageID()
 	require.NoError(t, err)
@@ -178,7 +179,7 @@ func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *t
 
 // getMessageIDFromProto is a helper to derive messageID from the proto message.
 func getMessageIDFromProto(t *testing.T, msgWithCCV *pb.CommitteeVerifierNodeResult) []byte {
-	protocolMessage, err := model.MapProtoMessageToProtocolMessage(msgWithCCV.Message)
+	protocolMessage, err := ccvcommon.MapProtoMessageToProtocolMessage(msgWithCCV.Message)
 	require.NoError(t, err)
 	messageID, err := protocolMessage.MessageID()
 	require.NoError(t, err)
@@ -824,7 +825,7 @@ func TestQueryAggregatedReports_SinceSequence(t *testing.T) {
 		err := storage.SaveCommitVerification(ctx, record, aggregationKey)
 		require.NoError(t, err)
 
-		protocolMessage, err := model.MapProtoMessageToProtocolMessage(msgWithCCV.Message)
+		protocolMessage, err := ccvcommon.MapProtoMessageToProtocolMessage(msgWithCCV.Message)
 		require.NoError(t, err)
 		messageID, err := protocolMessage.MessageID()
 		require.NoError(t, err)
