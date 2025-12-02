@@ -143,9 +143,9 @@ const (
 // DiscoveryConfig allows you to change the discovery system used by the indexer.
 type DiscoveryConfig struct {
 	AggregatorReaderConfig
-	PollInterval int
-	Timeout      int
-	NtpServer    string
+	PollInterval int    `toml:"PollInterval"`
+	Timeout      int    `toml:"Timeout"`
+	NtpServer    string `toml:"NtpServer"`
 }
 
 type VerifierConfig struct {

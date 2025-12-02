@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	_ protocol.OffchainStorageReader = (*MockReader)(nil)
-	_ protocol.VerifierResultsAPI    = (*MockReader)(nil)
+	_ protocol.OffchainStorageReader  = (*MockReader)(nil)
+	_ protocol.VerifierResultsAPI     = (*MockReader)(nil)
+	_ protocol.DiscoveryStorageReader = (*MockReader)(nil)
 )
 
 // MockReaderConfig configures the behavior of the mock reader.
@@ -66,6 +67,7 @@ type MockReader struct {
 	messagesEmitted int
 	lastEmitTime    time.Time
 	lastCallTime    time.Time
+	sinceValue      int64 // Latest sequence number for GetSinceValue()
 }
 
 // NewMockReader creates a new mock reader with the given configuration.
@@ -266,6 +268,23 @@ func (m *MockReader) GetMessagesEmitted() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.messagesEmitted
+}
+
+// GetSinceValue returns the latest sequence number.
+// This implements protocol.DiscoveryStorageReader interface.
+// Returns 0 if not set. Use SetSinceValue to configure it.
+func (m *MockReader) GetSinceValue() int64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sinceValue
+}
+
+// SetSinceValue sets the sequence number that will be returned by GetSinceValue.
+// This is useful for testing sequence number updates.
+func (m *MockReader) SetSinceValue(value int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sinceValue = value
 }
 
 // DefaultMessageGenerator is the default message generator function.
