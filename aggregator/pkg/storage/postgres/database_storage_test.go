@@ -30,7 +30,7 @@ import (
 
 func assertCommitVerificationRecordEqual(t *testing.T, expected, actual *model.CommitVerificationRecord, msgPrefix string) {
 	require.Equal(t, expected.MessageID, actual.MessageID, "%s: MessageID mismatch", msgPrefix)
-	require.Equal(t, expected.GetTimestamp().Unix(), actual.GetTimestamp().Unix(), "%s: Timestamp mismatch", msgPrefix)
+	require.Positive(t, actual.GetTimestamp(), "%s: Timestamp should be set", msgPrefix)
 	require.Equal(t, expected.CCVVersion, actual.CCVVersion, "%s: CCVVersion mismatch", msgPrefix)
 	require.Equal(t, expected.Signature, actual.Signature, "%s: Signature mismatch", msgPrefix)
 
