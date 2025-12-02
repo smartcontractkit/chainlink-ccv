@@ -58,7 +58,7 @@ build-docker-rc:
 
 # Rebuild CLI
 cli:
-    pushd cmd/ccv > /dev/null && go install -ldflags="-X main.Version=1.0.0" . && popd > /dev/null
+    cd cmd/ccv && go install -ldflags="-X main.Version=1.0.0" . && cd ../..
 
 # Rebuild all (optionally pass config, defaults to env.toml)
 rebuild-all config="env.toml":
