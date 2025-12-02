@@ -238,6 +238,17 @@ func TestVerifierIssuerFilter_Filter(t *testing.T) {
 			},
 			expected: false,
 		},
+		{
+			name:    "nil issuers are ignored during filter init",
+			issuers: []protocol.UnknownAddress{nil, targetIssuer, nil},
+			msg: protocol.MessageSentEvent{
+				Receipts: []protocol.ReceiptWithBlob{
+					{Issuer: targetIssuer},
+					{Issuer: nil},
+				},
+			},
+			expected: true,
+		},
 	}
 
 	for _, tt := range tests {
