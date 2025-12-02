@@ -27,7 +27,7 @@ func Test_Config_Deserialization(t *testing.T) {
 		"2" = "0xRMN2"
 		
 		[[token_verifiers]]
-		type = "CCTP"
+		type = "cctp"
 		version = "2.0"
 		attestation_api_timeout = "11ms"
 		attestation_api = "https://iris-api.circle.com"
@@ -37,9 +37,9 @@ func Test_Config_Deserialization(t *testing.T) {
 		2 = "0xCCTPVerifier2"
 		
 		[[token_verifiers]]
-		type = "LBTC"
+		type = "lbtc"
 		version = "1.0"
-		attestation_api = "https://LBTC-api.example.com"
+		attestation_api = "https://lbtc-api.example.com"
 		attestation_api_timeout = "10s"
 		attestation_api_interval = 20
 		
@@ -61,7 +61,7 @@ func Test_Config_Deserialization(t *testing.T) {
 
 	require.Len(t, config.TokenVerifiers, 2)
 	cctpVerifier := config.TokenVerifiers[0]
-	assert.Equal(t, "CCTP", cctpVerifier.Type)
+	assert.Equal(t, "cctp", cctpVerifier.Type)
 	assert.Equal(t, "2.0", cctpVerifier.Version)
 	assert.Equal(t, 11*time.Millisecond, cctpVerifier.CCTP.AttestationAPITimeout)
 	assert.Equal(t, "https://iris-api.circle.com", cctpVerifier.CCTP.AttestationAPI)
@@ -69,7 +69,7 @@ func Test_Config_Deserialization(t *testing.T) {
 	assert.Equal(t, protocol.UnknownAddress("0xCCTPVerifier2"), cctpVerifier.CCTP.Verifiers[2])
 
 	lbtcVerifier := config.TokenVerifiers[1]
-	assert.Equal(t, "LBTC", lbtcVerifier.Type)
+	assert.Equal(t, "lbtc", lbtcVerifier.Type)
 	assert.Equal(t, "1.0", lbtcVerifier.Version)
 	assert.Equal(t, 10*time.Second, lbtcVerifier.LBTC.AttestationAPITimeout)
 	assert.Equal(t, 100*time.Millisecond, lbtcVerifier.LBTC.AttestationAPIInterval)
@@ -88,7 +88,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 		{
 			name: "valid CCTP config with all values provided",
 			toml: `
-				type = "CCTP"
+				type = "cctp"
 				version = "2.0"
 				attestation_api = "http://circle.com/attestation"
 				attestation_api_timeout = "100s"
@@ -117,7 +117,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 		{
 			name: "valid CCTP config with missing optional values",
 			toml: `
-				type = "CCTP"
+				type = "cctp"
 				version = "2.0"
 				attestation_api = "http://circle.com/attestation"
 
@@ -141,7 +141,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 		{
 			name: "malformed CCTP config returns error",
 			toml: `
-				type = "CCTP"
+				type = "cctp"
 				version = "2.0"
 				attestation_api_timeout = "not-a-duration"
 
@@ -153,7 +153,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 		{
 			name: "valid LBTC config with all values provided",
 			toml: `
-				type = "LBTC"
+				type = "lbtc"
 				version = "1.0"
 				attestation_api = "http://LBTC.com/gohere"
 				attestation_api_timeout = "2s"
@@ -165,7 +165,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				2 = "0xLBTCVerifier2"	
 			`,
 			expected: VerifierConfig{
-				Type:    "LBTC",
+				Type:    "lbtc",
 				Version: "1.0",
 				LBTC: &lbtc.Config{
 					AttestationAPI:          "http://lbtc.com/gohere",
@@ -190,7 +190,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				1 = "0xLBTCVerifier1"
 			`,
 			expected: VerifierConfig{
-				Type:    "LBTC",
+				Type:    "lbtc",
 				Version: "1.0",
 				LBTC: &lbtc.Config{
 					AttestationAPI:          "http://lbtc.com/gohere",

@@ -44,14 +44,14 @@ type VerifierConfig struct {
 	// Example JSON representation (but any format would work, as long proper marshall/unmarshall is implemented):
 	// [
 	//  {
-	//    "type": "CCTP",
+	//    "type": "cctp",
 	//    "version": "2.0",
 	//    "attestationAPI": "http://circle.com/attestation",
 	//    "attestationAPITimeout": "1s",
 	//    "attestationAPIIntervalMilliseconds": "500ms"
 	//  },
 	//  {
-	//    "type": "LBTC",
+	//    "type": "lbtc",
 	//    "version": "1.0",
 	//    "attestationAPI": "http://lbtc.com/gohere",
 	//    "attestationAPITimeout": "1s",
