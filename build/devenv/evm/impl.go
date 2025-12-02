@@ -439,7 +439,7 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq u
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("no onRamp for selector %d", from)
 	}
 
-	l.Info().Msg("Awaiting CCIPMessageSent event")
+	l.Info().Uint64("from", from).Uint64("to", to).Msg("Awaiting CCIPMessageSent event")
 
 	for {
 		select {
@@ -448,7 +448,7 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq u
 		case <-ticker.C:
 			filter, err := onRamp.FilterCCIPMessageSent(&bind.FilterOpts{}, []uint64{to}, []uint64{seq}, nil)
 			if err != nil {
-				l.Warn().Err(err).Msg("Failed to create filter")
+				l.Warn().Err(err).Str("onramp", onRamp.Address().Hex()).Msg("Failed to create filter")
 				continue
 			}
 			var eventFound *onramp.OnRampCCIPMessageSent

@@ -827,6 +827,11 @@ var sendCmd = &cobra.Command{
 			return fmt.Errorf("failed to parse 'receiver-qualifier' flag: %w", err)
 		}
 
+		receiverAddress, err := cmd.Flags().GetString("receiver-address")
+		if err != nil {
+			return fmt.Errorf("failed to parse 'receiver-address' flag: %w", err)
+		}
+
 		// Read the env flag, default to "out"
 		envName, err := cmd.Flags().GetString("env")
 		if err != nil {
@@ -871,14 +876,17 @@ var sendCmd = &cobra.Command{
 			return fmt.Errorf("failed to create CCIP17EVM: %w", err)
 		}
 
-		mockReceiverRef, err := in.CLDF.DataStore.Addresses().Get(
-			datastore.NewAddressRefKey(
-				dest,
-				datastore.ContractType(mock_receiver.ContractType),
-				semver.MustParse(mock_receiver.Deploy.Version()),
-				receiverQualifier))
-		if err != nil {
-			return fmt.Errorf("failed to get mock receiver address: %w", err)
+		if receiverAddress == "" {
+			mockReceiverRef, err := in.CLDF.DataStore.Addresses().Get(
+				datastore.NewAddressRefKey(
+					dest,
+					datastore.ContractType(mock_receiver.ContractType),
+					semver.MustParse(mock_receiver.Deploy.Version()),
+					receiverQualifier))
+			if err != nil {
+				return fmt.Errorf("failed to get mock receiver address: %w", err)
+			}
+			receiverAddress = mockReceiverRef.Address
 		}
 		// Use V3 if finality config is provided, otherwise use V2
 		var result cciptestinterfaces.MessageSentEvent
@@ -908,7 +916,7 @@ var sendCmd = &cobra.Command{
 				return fmt.Errorf("failed to get executor address: %w", err)
 			}
 			result, err = impl.SendMessage(ctx, src, dest, cciptestinterfaces.MessageFields{
-				Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()), // mock receiver
+				Receiver: protocol.UnknownAddress(common.HexToAddress(receiverAddress).Bytes()),
 				Data:     []byte{},
 			}, cciptestinterfaces.MessageOptions{
 				Version:        3,
@@ -930,7 +938,7 @@ var sendCmd = &cobra.Command{
 		} else {
 			// V2 format - use the dedicated V2 function
 			result, err = impl.SendMessage(ctx, src, dest, cciptestinterfaces.MessageFields{
-				Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()), // mock receiver
+				Receiver: protocol.UnknownAddress(common.HexToAddress(receiverAddress).Bytes()),
 				Data:     []byte{},
 			}, cciptestinterfaces.MessageOptions{
 				Version:             2,
@@ -989,6 +997,7 @@ func init() {
 	rootCmd.AddCommand(sendCmd)
 	sendCmd.Flags().String("env", "out", "Select environment file to use (e.g., 'staging' for env-staging.toml, defaults to env-out.toml)")
 	sendCmd.Flags().String("receiver-qualifier", evm.DefaultReceiverQualifier, "Receiver qualifier to use for the mock receiver contract")
+	sendCmd.Flags().String("receiver-address", "", "Receiver address to use, if not provided, will look up the mock receiver contract address from the datastore")
 
 	// on-chain monitoring
 	rootCmd.AddCommand(monitorContractsCmd)
