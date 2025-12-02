@@ -465,7 +465,7 @@ func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationT
 		if r.curseDetector.IsRemoteChainCursed(context.TODO(), task.Message.SourceChainSelector, task.Message.DestChainSelector) {
 			r.logger.Warnw("Dropping task - lane is cursed (enqueue)",
 				"blockNumber", task.BlockNumber,
-				"messageID", task.Message.MustMessageID())
+				"messageID", task.MessageID)
 			return
 		}
 
@@ -541,7 +541,7 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context) {
 		if r.curseDetector != nil &&
 			r.curseDetector.IsRemoteChainCursed(ctx, task.Message.SourceChainSelector, task.Message.DestChainSelector) {
 			r.logger.Warnw("Dropping finalized task - lane is cursed",
-				"messageID", task.Message.MustMessageID())
+				"messageID", task.MessageID)
 			continue
 		}
 
@@ -585,7 +585,7 @@ func (r *SourceReaderService) isMessageReadyForVerification(
 		// default finality: msgBlock <= finalized
 		ok := msgBlock.Cmp(latestFinalizedBlock) <= 0
 		r.logger.Infow("Default finality check",
-			"messageID", task.Message.MustMessageID(),
+			"messageID", task.MessageID,
 			"messageBlock", task.BlockNumber,
 			"finalizedBlock", latestFinalizedBlock.String(),
 			"meetsRequirement", ok,

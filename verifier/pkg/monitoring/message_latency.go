@@ -42,11 +42,7 @@ func NewMessageLatencyTracker(
 }
 
 func (m *inmemoryMessageLatencyTracker) MarkMessageAsSeen(task *verifier.VerificationTask) {
-	messageID, err := task.Message.MessageID()
-	if err != nil {
-		m.lggr.Errorw("Failed to compute message ID for latency tracking", "error", err)
-		return
-	}
+	messageID := task.MessageID
 
 	// Track message creation time for E2E latency measurement
 	if task.FirstSeenAt.IsZero() {
@@ -55,10 +51,10 @@ func (m *inmemoryMessageLatencyTracker) MarkMessageAsSeen(task *verifier.Verific
 	}
 
 	// Make it idempotent, don't overwrite existing timestamp if it's already in the cache
-	if _, ok := m.messageTimestamps.Get(messageID.String()); ok {
+	if _, ok := m.messageTimestamps.Get(messageID); ok {
 		return
 	}
-	m.messageTimestamps.SetDefault(messageID.String(), task.FirstSeenAt)
+	m.messageTimestamps.SetDefault(messageID, task.FirstSeenAt)
 }
 
 func (m *inmemoryMessageLatencyTracker) TrackMessageLatencies(ctx context.Context, messages []protocol.VerifierNodeResult) {
