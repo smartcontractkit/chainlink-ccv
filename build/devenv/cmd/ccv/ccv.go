@@ -915,7 +915,7 @@ var sendCmd = &cobra.Command{
 				return fmt.Errorf("failed to get executor address: %w", err)
 			}
 			result, err = impl.SendMessage(ctx, src, dest, cciptestinterfaces.MessageFields{
-				Receiver: protocol.UnknownAddress(common.HexToAddress(receiverAddress).Bytes()), // mock receiver
+				Receiver: protocol.UnknownAddress(common.HexToAddress(receiverAddress).Bytes()),
 				Data:     []byte{},
 			}, cciptestinterfaces.MessageOptions{
 				Version:        3,
