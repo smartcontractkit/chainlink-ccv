@@ -61,8 +61,8 @@ type VerifierConfig struct {
 	// Having version in that JSON isn't expensive, but it could reduce the risk of breaking the observers in the future.
 	Version string
 
-	cctp *cctp.Config
-	lbtc *lbtc.Config
+	CCTP *cctp.Config
+	LBTC *lbtc.Config
 }
 
 func (o *VerifierConfig) UnmarshalTOML(data any) error {
@@ -82,12 +82,12 @@ func (o *VerifierConfig) UnmarshalTOML(data any) error {
 	}
 
 	var err error
-	o.cctp, err = cctp.TryParsing(o.Type, o.Version, castedData)
+	o.CCTP, err = cctp.TryParsing(o.Type, o.Version, castedData)
 	if err == nil {
 		return nil
 	}
 
-	o.lbtc, err = lbtc.TryParsing(o.Type, o.Version, castedData)
+	o.LBTC, err = lbtc.TryParsing(o.Type, o.Version, castedData)
 	if err == nil {
 		return nil
 	}
