@@ -88,6 +88,7 @@ type Cfg struct {
 	NodeSets            []*ns.Input                 `toml:"nodesets"              validate:"required"`
 	CLNodesFundingETH   float64                     `toml:"cl_nodes_funding_eth"`
 	CLNodesFundingLink  float64                     `toml:"cl_nodes_funding_link"`
+	// AggregatorEndpoints map the verifier qualifier to the aggregator URL for that verifier.
 	AggregatorEndpoints map[string]string           `toml:"aggregator_endpoints"`
 	IndexerEndpoint     string                      `toml:"indexer_endpoint"`
 }
