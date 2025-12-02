@@ -11,6 +11,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lbtc"
+
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/grafana/pyroscope-go"
@@ -180,7 +183,7 @@ func main() {
 	}
 
 	// Setup OTEL Monitoring (via beholder)
-	_, err = monitoring.InitMonitoring(beholder.Config{
+	verifierMonitoring, err := monitoring.InitMonitoring(beholder.Config{
 		InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
 		CACertFile:               config.Monitoring.Beholder.CACertFile,
 		OtelExporterHTTPEndpoint: config.Monitoring.Beholder.OtelExporterHTTPEndpoint,
@@ -202,6 +205,112 @@ func main() {
 			lggr.Errorw("HTTP server error", "error", err)
 		}
 	}()
+
+	messageTracker := monitoring.NewMessageLatencyTracker(
+		lggr,
+		config.VerifierID,
+		verifierMonitoring,
+	)
+
+	rmnRemoteAddresses := make(map[string]protocol.UnknownAddress)
+	for selector, address := range config.RMNRemoteAddresses {
+		addr, err := protocol.NewUnknownAddressFromHex(address)
+		if err != nil {
+			lggr.Errorw("Failed to create RMN Remote address", "error", err, "selector", selector)
+			os.Exit(1)
+		}
+		rmnRemoteAddresses[selector] = addr
+	}
+
+	// Dummy, just to show multiple verifiers support
+	cctpConfig := config.TokenVerifiers[0].CCTP
+
+	cctpSourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
+	for selector, address := range cctpConfig.Verifiers {
+		strSelector := strconv.FormatUint(uint64(selector), 10)
+		cctpSourceConfigs[selector] = verifier.SourceConfig{
+			VerifierAddress:        address,
+			DefaultExecutorAddress: nil,
+			PollInterval:           1 * time.Second,
+			ChainSelector:          selector,
+			RMNRemoteAddress:       rmnRemoteAddresses[strSelector],
+		}
+	}
+
+	cctpVerifier := cctp.NewVerifier(
+		cctp.NewAttestationService(*cctpConfig),
+	)
+
+	cctpCoordinator, err := verifier.NewCoordinator(
+		lggr,
+		cctpVerifier,
+		sourceReaders,
+		token.NewOffchainStorage(),
+		verifier.CoordinatorConfig{
+			VerifierID:          config.VerifierID,
+			SourceConfigs:       cctpSourceConfigs,
+			StorageBatchSize:    50,
+			StorageBatchTimeout: 100 * time.Millisecond,
+			CursePollInterval:   2 * time.Second,
+		},
+		messageTracker,
+		verifierMonitoring,
+		token.NewChainStatusManager(),
+	)
+	if err != nil {
+		lggr.Errorw("Failed to create verification coordinator for cctp", "error", err)
+		os.Exit(1)
+	}
+
+	if err := cctpCoordinator.Start(ctx); err != nil {
+		lggr.Errorw("Failed to start verification coordinator", "error", err)
+		os.Exit(1)
+	}
+
+	// Dummy, just to show multiple verifiers support
+	lbtcConfig := config.TokenVerifiers[1].LBTC
+
+	lbtcSourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
+	for selector, address := range lbtcConfig.Verifiers {
+		strSelector := strconv.FormatUint(uint64(selector), 10)
+		lbtcSourceConfigs[selector] = verifier.SourceConfig{
+			VerifierAddress:        address,
+			DefaultExecutorAddress: nil,
+			PollInterval:           1 * time.Second,
+			ChainSelector:          selector,
+			RMNRemoteAddress:       rmnRemoteAddresses[strSelector],
+		}
+	}
+
+	lbtcVerifier := lbtc.NewVerifier(
+		lbtc.NewAttestationService(*lbtcConfig),
+	)
+
+	lbtcCoordinator, err := verifier.NewCoordinator(
+		lggr,
+		lbtcVerifier,
+		sourceReaders,
+		token.NewOffchainStorage(),
+		verifier.CoordinatorConfig{
+			VerifierID:          config.VerifierID,
+			SourceConfigs:       lbtcSourceConfigs,
+			StorageBatchSize:    50,
+			StorageBatchTimeout: 100 * time.Millisecond,
+			CursePollInterval:   2 * time.Second,
+		},
+		messageTracker,
+		verifierMonitoring,
+		token.NewChainStatusManager(),
+	)
+	if err != nil {
+		lggr.Errorw("Failed to create verification coordinator for lbtc", "error", err)
+		os.Exit(1)
+	}
+
+	if err := lbtcCoordinator.Start(ctx); err != nil {
+		lggr.Errorw("Failed to start verification coordinator", "error", err)
+		os.Exit(1)
+	}
 
 	lggr.Infow("🎯 Verifier service fully started and ready!")
 
