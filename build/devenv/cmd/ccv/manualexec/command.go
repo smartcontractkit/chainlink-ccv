@@ -9,12 +9,13 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/spf13/cobra"
+
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
-	"github.com/spf13/cobra"
 )
 
 func Command() *cobra.Command {
@@ -27,7 +28,7 @@ func Command() *cobra.Command {
 	}
 	var a args
 
-	var manuallyExecuteCmd = &cobra.Command{
+	manuallyExecuteCmd := &cobra.Command{
 		Use:   "manually-execute",
 		Short: "Manually execute a message",
 		RunE: func(cmd *cobra.Command, args []string) error {
