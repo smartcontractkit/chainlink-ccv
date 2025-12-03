@@ -25,12 +25,13 @@ type Coordinator struct {
 	leaderElector      LeaderElector
 	lggr               logger.Logger
 	monitoring         Monitoring
-	ccvDataCh          chan MessageWithCCVData
+	processingCh       chan message_heap.MessageWithTimestamps
 	cancel             context.CancelFunc
 	delayedMessageHeap message_heap.MessageHeap
 	running            atomic.Bool
 	expiryDuration     time.Duration
 	timeProvider       common.TimeProvider
+	workerCount        int
 }
 
 // NewCoordinator creates a new executor coordinator.
@@ -49,11 +50,12 @@ func NewCoordinator(
 		messageSubscriber: messageSubscriber,
 		leaderElector:     leaderElector,
 		monitoring:        monitoring,
-		ccvDataCh:         make(chan MessageWithCCVData, 100),
+		processingCh:      make(chan message_heap.MessageWithTimestamps, 100),
 		// cancel and delayedMessageHeap are initialized in Start()
 		// running, wg, and services.StateMachine default initialization is fine.
 		expiryDuration: expiryDuration,
 		timeProvider:   timeProvider,
+		workerCount:    10,
 	}
 
 	if err := ec.validate(); err != nil {
@@ -70,9 +72,11 @@ func (ec *Coordinator) Start(ctx context.Context) error {
 		ec.delayedMessageHeap = *message_heap.NewMessageHeap()
 
 		ec.running.Store(true)
-		ec.wg.Go(func() {
+		ec.wg.Add(1)
+		go func() {
+			defer ec.wg.Done()
 			ec.run(c)
-		})
+		}()
 
 		ec.lggr.Infow("Coordinator started")
 
@@ -89,7 +93,7 @@ func (ec *Coordinator) Close() error {
 		ec.wg.Wait()
 
 		// Close all channels
-		close(ec.ccvDataCh)
+		close(ec.processingCh)
 
 		// Update running state to reflect in healthcheck and readiness.
 		ec.running.Store(false)
@@ -101,10 +105,15 @@ func (ec *Coordinator) Close() error {
 }
 
 func (ec *Coordinator) run(ctx context.Context) {
-	// TODO: this waitgroup is not waited on anywhere right now, will have to fix this up
-	// in a follow up.
-	var wg sync.WaitGroup
-	streamerResults, err := ec.messageSubscriber.Start(ctx, &wg)
+	for i := 0; i < ec.workerCount; i++ {
+		ec.wg.Add(1)
+		go func() {
+			defer ec.wg.Done()
+			ec.handleMessage(ctx)
+		}()
+	}
+
+	streamerResults, err := ec.messageSubscriber.Start(ctx, nil)
 	if err != nil {
 		ec.lggr.Errorw("failed to start ccv result streamer", "error", err)
 		return
@@ -175,46 +184,64 @@ func (ec *Coordinator) run(ctx context.Context) {
 				"readyMessages", readyMessages,
 			)
 			for _, payload := range readyMessages {
-				if currentTime.After(payload.ExpiryTime) {
-					ec.lggr.Infow("message has expired", "messageID", payload.MessageID)
-					continue
+				select {
+				case ec.processingCh <- payload:
+				default:
+					ec.lggr.Warnw("processing channel full, pushing message back to heap", "messageID", payload.MessageID)
+					ec.delayedMessageHeap.Push(payload)
 				}
-				// TODO: use a worker pool here to avoid unbounded memory allocation
-				go func() {
-					message, currentTime, id := *payload.Message, currentTime, payload.MessageID
+			}
+		}
+	}
+}
 
-					ec.lggr.Infow("processing message with ID", "messageID", id)
-					messageStatus, err := ec.executor.GetMessageStatus(ctx, message)
-					if err != nil {
-						ec.lggr.Errorw("failed to check message status", "messageID", id, "error", err)
-					}
+func (ec *Coordinator) handleMessage(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case payload, ok := <-ec.processingCh:
+			if !ok {
+				return
+			}
+			currentTime := ec.timeProvider.GetTime()
+			if currentTime.After(payload.ExpiryTime) {
+				ec.lggr.Infow("message has expired", "messageID", payload.MessageID)
+				return
+			}
 
-					if messageStatus.ShouldRetry {
-						// todo: add exponential backoff here
-						retryTime := currentTime.Add(payload.RetryInterval)
-						ec.lggr.Infow("message should be retried, putting back in heap", "messageID", id)
-						ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
-							Message:       &message,
-							ReadyTime:     retryTime,
-							ExpiryTime:    payload.ExpiryTime,
-							RetryInterval: payload.RetryInterval,
-							MessageID:     id,
-						})
-					}
-					if messageStatus.ShouldExecute {
-						ec.lggr.Infow("attempting to execute message", "messageID", id)
-						err = ec.executor.AttemptExecuteMessage(ctx, message)
-						if errors.Is(err, ErrInsufficientVerifiers) {
-							ec.lggr.Infow("not enough verifiers to execute message, will wait until next notification", "messageID", id, "error", err)
-							return
-						} else if err != nil {
-							ec.lggr.Errorw("failed to process message", "messageID", id, "error", err)
-							ec.monitoring.Metrics().IncrementMessagesProcessingFailed(ctx)
-							return
-						}
-						ec.monitoring.Metrics().IncrementMessagesProcessed(ctx)
-					}
-				}()
+			message, id := *payload.Message, payload.MessageID
+
+			ec.lggr.Infow("processing message with ID", "messageID", id)
+			messageStatus, err := ec.executor.GetMessageStatus(ctx, message)
+			if err != nil {
+				ec.lggr.Errorw("failed to check message status", "messageID", id, "error", err)
+			}
+
+			if messageStatus.ShouldRetry {
+				// todo: add exponential backoff here
+				retryTime := currentTime.Add(payload.RetryInterval)
+				ec.lggr.Infow("message should be retried, putting back in heap", "messageID", id)
+				ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
+					Message:       &message,
+					ReadyTime:     retryTime,
+					ExpiryTime:    payload.ExpiryTime,
+					RetryInterval: payload.RetryInterval,
+					MessageID:     id,
+				})
+			}
+			if messageStatus.ShouldExecute {
+				ec.lggr.Infow("attempting to execute message", "messageID", id)
+				err = ec.executor.AttemptExecuteMessage(ctx, message)
+				if errors.Is(err, ErrInsufficientVerifiers) {
+					ec.lggr.Infow("not enough verifiers to execute message, will wait until next notification", "messageID", id, "error", err)
+					return
+				} else if err != nil {
+					ec.lggr.Errorw("failed to process message", "messageID", id, "error", err)
+					ec.monitoring.Metrics().IncrementMessagesProcessingFailed(ctx)
+					return
+				}
+				ec.monitoring.Metrics().IncrementMessagesProcessed(ctx)
 			}
 		}
 	}
