@@ -118,8 +118,10 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 			ec.handleMessage(ctx)
 		}()
 	}
-
-	streamerResults, err := ec.messageSubscriber.Start(ctx, &ec.wg)
+	// TODO: this waitgroup is not waited on anywhere right now, will have to fix this up
+	// in a follow up.
+	var wg sync.WaitGroup
+	streamerResults, err := ec.messageSubscriber.Start(ctx, &wg)
 	if err != nil {
 		ec.lggr.Errorw("failed to start ccv result streamer", "error", err)
 		return

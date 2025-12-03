@@ -149,6 +149,8 @@ func TestSubscribeMessagesError(t *testing.T) {
 	messageChan := make(chan executor.StreamerResult)
 	sentinelError := fmt.Errorf("lilo & stitch")
 	messageSubscriber.EXPECT().Start(mock.Anything, mock.Anything).Return(messageChan, sentinelError)
+	timeProvider := common.NewMockTimeProvider(t)
+	timeProvider.EXPECT().GetTime().Return(time.Now().UTC()).Maybe()
 
 	ec, err := executor.NewCoordinator(
 		lggr,
@@ -157,7 +159,7 @@ func TestSubscribeMessagesError(t *testing.T) {
 		executor_mocks.NewMockLeaderElector(t),
 		monitoring.NewNoopExecutorMonitoring(),
 		8*time.Hour,
-		common.NewMockTimeProvider(t),
+		timeProvider,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -166,6 +168,7 @@ func TestSubscribeMessagesError(t *testing.T) {
 	defer cancel()
 
 	require.NoError(t, ec.Start(ctx))
+	defer func() { require.NoError(t, ec.Close()) }()
 
 	found := func() bool {
 		for _, entry := range hook.All() {
