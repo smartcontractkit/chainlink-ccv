@@ -41,6 +41,13 @@ ccv sh
 
 ## Rebuilding Local Chainlink Node Image
 You can build a local image of CL node, please specify your `chainlink` repository path in `docker_ctx`
+
+Checkout the `chainlink` repsitory and update `chainlink-ccv` version
+```
+go get github.com/smartcontractkit/chainlink-ccv
+```
+
+Then run the environment, Docker container will be rebuilt automatically
 ```
 up env.toml,env-cl.toml
 ```
