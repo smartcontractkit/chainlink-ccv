@@ -186,3 +186,4 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 
 	return &wasp.Response{Data: "ok"}
 }
+
