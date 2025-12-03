@@ -1400,9 +1400,12 @@ func toComitteeVerifier(selector uint64, committees []cciptestinterfaces.OnChain
 
 // TODO: How to generate all the default/secondary/tertiary things from the committee param?
 func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, committees []cciptestinterfaces.OnChainCommittees) error {
-	if selector != m.chain.ChainSelector() {
-		return fmt.Errorf("ConnectContractsWithSelectors: chain %d not found in environment chains %v", selector, m.chain.ChainSelector())
-	}
+	// TODO: how does this even work?
+	/*
+		if selector != m.chain.ChainSelector() {
+			return fmt.Errorf("ConnectContractsWithSelectors: chain %d not found in environment chains %v", selector, m.chain.ChainSelector())
+		}
+	*/
 
 	l := m.logger
 	l.Info().Uint64("FromSelector", selector).Any("ToSelectors", remoteSelectors).Msg("Connecting contracts with selectors")
