@@ -369,16 +369,6 @@ func TestE2ELoad(t *testing.T) {
 
 	ctx := ccv.Plog.WithContext(context.Background())
 	l := zerolog.Ctx(ctx)
-	chainIDs, wsURLs := make([]string, 0), make([]string, 0)
-	for _, bc := range in.Blockchains {
-		chainIDs = append(chainIDs, bc.ChainID)
-		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
-	}
-
-	/*
-		impl, err := evm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
-		require.NoError(t, err)
-	*/
 	lib, err := ccv.NewLib(l, outfile)
 	require.NoError(t, err)
 	chainImpls, err := lib.Chains(ctx)

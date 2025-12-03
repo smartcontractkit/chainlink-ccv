@@ -87,6 +87,9 @@ func (l *Lib) Chains(ctx context.Context) (map[uint64]cciptestinterfaces.CCIP17P
 			return nil, fmt.Errorf("getting chain details for chain ID %s and family %s: %w", chainID, bc.Out.Family, err)
 		}
 		impl, err := evm.NewCCIP17EVM(ctx, *l.l, env, chainID, wsURL)
+		if err != nil {
+			return nil, fmt.Errorf("creating CCIP17 EVM implementation for chain ID %s: %w", chainID, err)
+		}
 		impls[details.ChainSelector] = impl
 	}
 

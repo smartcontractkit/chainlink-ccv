@@ -740,6 +740,9 @@ var monitorContractsCmd = &cobra.Command{
 		ctx = ccv.Plog.WithContext(ctx)
 		l := zerolog.Ctx(ctx)
 		impl, err := ccv.NewImpl(l, "env-out.toml", source)
+		if err != nil {
+			return fmt.Errorf("failed to create product configuration: %w", err)
+		}
 
 		_, reg, err := impl.ExposeMetrics(cmd.Context(), source, dest)
 		if err != nil {
