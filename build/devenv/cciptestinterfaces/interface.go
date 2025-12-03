@@ -55,9 +55,8 @@ type MessageFields struct {
 	// Data is the data for the message
 	// This is required.
 	Data []byte
-	// TokenAmounts are the token amounts for the message.
-	// This is optional - the default means no tokens are sent.
-	TokenAmounts []TokenAmount
+	// TokenAmount is an optional field to include a token transfer with the message.
+	TokenAmount TokenAmount
 	// FeeToken is the fee token to pay in.
 	// This is optional - the default means native token is used.
 	FeeToken protocol.UnknownAddress
@@ -68,9 +67,8 @@ type MessageFields struct {
 type MessageOptions struct {
 	// Version indicates the version of the extraArgs.
 	Version uint8
-	// GasLimit is the gas limit for the message
-	// Equivalent to ComputeLimit for solana.
-	GasLimit uint32
+	// ExecutionGasLimit is the execution gas limit for the message
+	ExecutionGasLimit uint32
 	// OutOfOrderExecution is whether to execute the message out of order
 	OutOfOrderExecution bool
 	// CCVs are the CCVs for the message
@@ -131,12 +129,14 @@ type Chains interface {
 	GetTokenBalance(ctx context.Context, chainSelector uint64, address, tokenAddress protocol.UnknownAddress) (*big.Int, error)
 	// GetMaxDataBytes gets the maximum data size for a CCIP message to a remote chain.
 	GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
+	// ManuallyExecuteMessage manually executes a message on a destination chain and returns an error if the execution fails.
+	ManuallyExecuteMessage(ctx context.Context, message protocol.Message, gasLimit uint64, ccvs []protocol.UnknownAddress, verifierResults [][]byte) (ExecutionStateChangedEvent, error)
+}
 
-	// ApplyCurse applies a curse to the specified subjects on the given chain.
-	ApplyCurse(ctx context.Context, chainSelector uint64, subjects [][16]byte) error
-
-	// ApplyUncurse removes a curse from the specified subjects on the given chain.
-	ApplyUncurse(ctx context.Context, chainSelector uint64, subjects [][16]byte) error
+type OnChainCommittees struct {
+	CommitteeQualifier string
+	Signers            [][]byte
+	Threshold          uint8
 }
 
 // OnChainConfigurable defines methods that allows devenv to
@@ -144,9 +144,9 @@ type Chains interface {
 type OnChainConfigurable interface {
 	// DeployContractsForSelector configures contracts for chain X
 	// returns all the contract addresses and metadata as datastore.DataStore
-	DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64) (datastore.DataStore, error)
+	DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, committees []OnChainCommittees) (datastore.DataStore, error)
 	// ConnectContractsWithSelectors connects this chain onRamp to one or multiple offRamps for remote selectors (other chains)
-	ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64) error
+	ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, committees []OnChainCommittees) error
 }
 
 // OffChainConfigurable defines methods that allows to
@@ -157,7 +157,10 @@ type OffChainConfigurable interface {
 	// ConfigureNodes configure CL nodes from blockchain data
 	// returns a piece of TOML config as a string that the framework inject into final configuration
 	ConfigureNodes(ctx context.Context, blockchain *blockchain.Input) (string, error)
-	// FundNodes Fund Chainlink nodes for some amount of native/LINK currency
+	// FundNodes funds Chainlink nodes for some amount of native/LINK currency
 	// using chain-specific clients or CLDF
 	FundNodes(ctx context.Context, cls []*nodeset.Input, bc *blockchain.Input, linkAmount, nativeAmount *big.Int) error
+	// FundAddresses funds addresses for some amount of native currency
+	// using chain-specific clients or CLDF
+	FundAddresses(ctx context.Context, bc *blockchain.Input, addresses []protocol.UnknownAddress, nativeAmount *big.Int) error
 }

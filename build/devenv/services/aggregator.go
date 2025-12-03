@@ -2,18 +2,29 @@ package services
 
 import (
 	"context"
+	_ "embed"
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 
+	"github.com/BurntSushi/toml"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/configuration"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
+
+//go:embed aggregator.template.toml
+var aggregatorConfigTemplate string
 
 const (
 	AggregatorContainerNameSuffix = "aggregator"
@@ -65,19 +76,36 @@ type AggregatorInput struct {
 	Out            *AggregatorOutput     `toml:"-"`
 	Env            *AggregatorEnvConfig  `toml:"env"`
 	CommitteeName  string                `toml:"committee_name"`
+
+	// Chain selector -> Committee Verifier Resolver Proxy Address
+	CommitteeVerifierResolverProxyAddresses map[uint64]string `toml:"committee_verifier_resolver_proxy_addresses"`
+	// Source chain selector -> threshold mapping
+	// If not available we default to a full quorum, i.e. all verifiers must sign.
+	ThresholdPerSource map[uint64]uint8 `toml:"threshold_per_source"`
+	// Maps to Monitoring.Beholder.OtelExporterHTTPEndpoint in the aggregator config toml.
+	MonitoringOtelExporterHTTPEndpoint string `toml:"monitoring_otel_exporter_http_endpoint"`
+}
+
+func (a *AggregatorInput) GetAPIKeys() (model.APIKeyConfig, error) {
+	var apiKeyConfig model.APIKeyConfig
+	err := json.Unmarshal([]byte(a.Env.APIKeysJSON), &apiKeyConfig)
+	if err != nil {
+		return model.APIKeyConfig{}, fmt.Errorf("failed to unmarshal API keys JSON: %w", err)
+	}
+	return apiKeyConfig, nil
 }
 
 type AggregatorOutput struct {
 	UseCache           bool   `toml:"use_cache"`
 	ContainerName      string `toml:"container_name"`
 	Address            string `toml:"address"`
+	ExternalHTTPUrl    string `toml:"external_http_url"`
 	DBURL              string `toml:"db_url"`
 	DBConnectionString string `toml:"db_connection_string"`
 }
 
 type Signer struct {
-	ParticipantID string   `toml:"participantID"`
-	Addresses     []string `toml:"addresses"`
+	Address string `toml:"address"`
 }
 
 // QuorumConfig represents the configuration for a quorum of signers.
@@ -93,8 +121,7 @@ type Committee struct {
 	// there is a commit verifier for.
 	// The aggregator uses this to verify signatures from each chain's
 	// commit verifier set.
-	QuorumConfigs           map[string]*QuorumConfig `toml:"quorumConfigs"`
-	SourceVerifierAddresses map[string]string        `toml:"sourceVerifierAddresses"`
+	QuorumConfigs map[string]*QuorumConfig `toml:"quorumConfigs"`
 }
 
 // StorageConfig represents the configuration for the storage backend.
@@ -108,7 +135,7 @@ type ServerConfig struct {
 	Address string `toml:"address"`
 }
 
-func validateAggregatorInput(in *AggregatorInput) error {
+func validateAggregatorInput(in *AggregatorInput, inV []*VerifierInput) error {
 	if in.Image == "" {
 		return fmt.Errorf("image is required for aggregator")
 	}
@@ -149,23 +176,129 @@ func validateAggregatorInput(in *AggregatorInput) error {
 	if in.Env.RedisDB == "" {
 		return fmt.Errorf("redis DB is required for aggregator")
 	}
+
+	if inV == nil {
+		return fmt.Errorf("at least one verifier input is required for aggregator")
+	}
+	for range inV {
+		// TODO: Validate verifier input?
+	}
 	return nil
 }
 
-func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
+// generateConfigs generates the aggregator service configuration using the inputs.
+func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) ([]byte, error) {
+	committeeName := a.CommitteeName
+
+	config, err := configuration.LoadConfigString(aggregatorConfigTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load aggregator config template: %w", err)
+	}
+
+	committeeConfig := &model.Committee{}
+	committeeConfig.QuorumConfigs = make(map[string]map[string]*model.QuorumConfig)
+
+	// Collect all chain selectors to use as both source and destination
+	allChainSelectors := make([]uint64, 0, len(a.CommitteeVerifierResolverProxyAddresses))
+	for chainSelector := range a.CommitteeVerifierResolverProxyAddresses {
+		allChainSelectors = append(allChainSelectors, chainSelector)
+	}
+
+	// Note: all verifiers are configured on all chains with the same pubkey.
+	// Create quorum configs for all source-destination pairs (where source != destination)
+	for destChainSelector, verifierAddress := range a.CommitteeVerifierResolverProxyAddresses {
+		destChainSelStr := strconv.FormatUint(destChainSelector, 10)
+		threshold := uint8(0)
+		var signers []model.Signer
+		for _, v := range inV {
+			if v.CommitteeName != committeeName {
+				continue
+			}
+			threshold++
+			signers = append(signers, model.Signer{
+				Address: v.SigningKeyPublic,
+			})
+		}
+
+		// Create a source configs map for this destination
+		sourceConfigs := make(map[string]*model.QuorumConfig)
+
+		// For each source chain (excluding when source == destination)
+		for _, sourceChainSelector := range allChainSelectors {
+			if sourceChainSelector == destChainSelector {
+				continue // Skip when source and destination are the same
+			}
+			sourceChainSelStr := strconv.FormatUint(sourceChainSelector, 10)
+
+			// Lookup source verifier address
+			sourceVerifierAddress, exists := a.CommitteeVerifierResolverProxyAddresses[sourceChainSelector]
+			if !exists {
+				return nil, fmt.Errorf("source verifier address not found for chain selector %d", sourceChainSelector)
+			}
+
+			// Use the threshold per source if available, otherwise use the default threshold
+			// calculated above.
+			var sourceThreshold uint8
+			if a.ThresholdPerSource != nil {
+				t, exists := a.ThresholdPerSource[sourceChainSelector]
+				if exists {
+					sourceThreshold = t
+				} else {
+					sourceThreshold = threshold
+				}
+			} else {
+				sourceThreshold = threshold
+			}
+			sourceConfigs[sourceChainSelStr] = &model.QuorumConfig{
+				DestinationVerifierAddress: verifierAddress,
+				SourceVerifierAddress:      sourceVerifierAddress,
+				Signers:                    signers,
+				Threshold:                  sourceThreshold,
+			}
+		}
+
+		committeeConfig.QuorumConfigs[destChainSelStr] = sourceConfigs
+	}
+
+	config.Committee = committeeConfig
+
+	if a.MonitoringOtelExporterHTTPEndpoint != "" {
+		config.Monitoring.Beholder.OtelExporterHTTPEndpoint = a.MonitoringOtelExporterHTTPEndpoint
+	}
+
+	cfg, err := toml.Marshal(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal aggregator config to TOML: %w", err)
+	}
+	return cfg, nil
+}
+
+func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput, error) {
 	if in == nil {
 		return nil, nil
 	}
 	if in.Out != nil && in.Out.UseCache {
 		return in.Out, nil
 	}
-	if err := validateAggregatorInput(in); err != nil {
+	if err := validateAggregatorInput(in, inV); err != nil {
 		return nil, err
 	}
 	ctx := context.Background()
 	p, err := CwdSourcePath(in.SourceCodePath)
 	if err != nil {
 		return in.Out, err
+	}
+
+	config, err := in.GenerateConfig(inV)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate aggregator config: %w", err)
+	}
+
+	confDir := util.CCVConfigDir()
+	configFilePath := filepath.Join(confDir,
+		fmt.Sprintf("aggregator-%s-config.toml", in.CommitteeName))
+	if err := os.WriteFile(configFilePath, config, 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write aggregator config to file: %w", err)
 	}
 
 	// Start the aggregator postgres database container
@@ -259,8 +392,6 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		envVars["AGGREGATOR_REDIS_DB"] = in.Env.RedisDB
 	}
 
-	envVars["AGGREGATOR_CONFIG_PATH"] = fmt.Sprintf("testconfig/%s/aggregator.toml", in.CommitteeName)
-
 	// Start the aggregator container
 	aggregatorContainerName := fmt.Sprintf("%s-%s", in.CommitteeName, AggregatorContainerNameSuffix)
 	req := testcontainers.ContainerRequest{
@@ -285,25 +416,40 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		WaitingFor: wait.ForHTTP("/health/live").WithPort("8080/tcp"),
 	}
 
+	// Note: identical code to verifier.go/executor.go -- will indexer be identical as well?
 	if in.SourceCodePath != "" {
 		req.Mounts = testcontainers.Mounts()
 		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
 		req.Mounts = append(req.Mounts, GoCacheMounts()...)
+		req.Files = []testcontainers.ContainerFile{
+			{
+				HostFilePath:      configFilePath,
+				ContainerFilePath: aggregator.DefaultConfigFile,
+				FileMode:          0o644,
+			},
+		}
 		framework.L.Info().
 			Str("Service", aggregatorContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")
 	}
 
-	_, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
 		Started:          true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to start container: %w", err)
 	}
+
+	host, err := c.Host(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get container host: %w", err)
+	}
+
 	in.Out = &AggregatorOutput{
-		ContainerName: aggregatorContainerName,
-		Address:       fmt.Sprintf("%s:%d", aggregatorContainerName, in.HostPort),
+		ContainerName:   aggregatorContainerName,
+		Address:         fmt.Sprintf("%s:%d", aggregatorContainerName, in.HostPort),
+		ExternalHTTPUrl: fmt.Sprintf("%s:%d", host, in.HostPort),
 	}
 	return in.Out, nil
 }

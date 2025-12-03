@@ -7,6 +7,9 @@ packages:
     github.com/smartcontractkit/chainlink-ccv/protocol:
         interfaces:
           ChainStatusManager:
+          FinalityViolationChecker:
     github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess:
         interfaces:
             HeadTracker:
+            SourceReader:
+            RMNCurseReader:

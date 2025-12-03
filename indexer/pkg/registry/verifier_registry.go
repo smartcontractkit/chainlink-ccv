@@ -4,7 +4,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -16,14 +16,16 @@ import (
 //
 // VerifierRegistry is safe for concurrent use by multiple goroutines.
 type VerifierRegistry struct {
-	verifiers map[string]*common.VerifierReader
-	mu        sync.RWMutex
+	verifiers  map[string]*readers.VerifierReader
+	addrToName map[string]string
+	mu         sync.RWMutex
 }
 
 // NewVerifierRegistry creates and returns a new VerifierRegistry instance.
 func NewVerifierRegistry() *VerifierRegistry {
 	return &VerifierRegistry{
-		verifiers: make(map[string]*common.VerifierReader),
+		verifiers:  make(map[string]*readers.VerifierReader),
+		addrToName: make(map[string]string),
 	}
 }
 
@@ -31,7 +33,7 @@ func NewVerifierRegistry() *VerifierRegistry {
 // If a verifier with the same address already exists, AddVerifier returns an error.
 //
 // AddVerifier is safe for concurrent use.
-func (v *VerifierRegistry) AddVerifier(address protocol.UnknownAddress, verifier *common.VerifierReader) error {
+func (v *VerifierRegistry) AddVerifier(address protocol.UnknownAddress, name string, verifier *readers.VerifierReader) error {
 	if verifier == nil {
 		return errors.New("verifier cannot be nil")
 	}
@@ -45,6 +47,7 @@ func (v *VerifierRegistry) AddVerifier(address protocol.UnknownAddress, verifier
 	}
 
 	v.verifiers[key] = verifier
+	v.addrToName[key] = name
 
 	return nil
 }
@@ -63,7 +66,12 @@ func (v *VerifierRegistry) RemoveVerifier(address protocol.UnknownAddress) error
 		return errors.New("verifier does not exist")
 	}
 
+	if _, ok := v.addrToName[key]; !ok {
+		return errors.New("name mapping does not exist for verifier")
+	}
+
 	delete(v.verifiers, key)
+	delete(v.addrToName, key)
 	return nil
 }
 
@@ -71,9 +79,20 @@ func (v *VerifierRegistry) RemoveVerifier(address protocol.UnknownAddress) error
 // If no verifier exists for the address, GetVerifier returns nil.
 //
 // GetVerifier is safe for concurrent use.
-func (v *VerifierRegistry) GetVerifier(address protocol.UnknownAddress) *common.VerifierReader {
+func (v *VerifierRegistry) GetVerifier(address protocol.UnknownAddress) *readers.VerifierReader {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 
 	return v.verifiers[address.String()]
+}
+
+// GetVerifierNameFromAddress returns the name associated with the verifier.
+// This is comonly used in returning metadata for the verifier.
+//
+// GetVerifierNameFromAddress is safe for concurrent use.
+func (v *VerifierRegistry) GetVerifierNameFromAddress(address protocol.UnknownAddress) string {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+
+	return v.addrToName[address.String()]
 }

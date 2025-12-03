@@ -4,46 +4,60 @@ Type = "beholder"
 
 [Monitoring.Beholder]
 InsecureConnection = true
+CACertFile = ""
+OtelExporterGRPCEndpoint = ""
 OtelExporterHTTPEndpoint = "otel-collector:4318"
 LogStreamingEnabled = true
 MetricReaderInterval = 5
 TraceSampleRatio = 1.0
 TraceBatchTimeout = 10
 
-[Scanner]
-ScanInterval = 1
-ReaderTimeout = 5
-
 [Discovery]
-Type = "static"
-
-[[Discovery.Static.Readers]]
-Type = "aggregator"
-
-[Discovery.Static.Readers.Aggregator]
 Address = "aggregator:50051"
 Since = 0
+PollInterval = 1
+Timeout = 5
+MessageChannelSize = 1000
+NtpServer = "time.google.com"
+
+[[Verifier]]
+Type = "aggregator"
+IssuerAddresses = ["0x1234567890123456789012345678901234567890"]
+Address = "aggregator:50051"
+Since = 0
+
+[[Verifier]]
+Type = "rest"
+IssuerAddresses = ["0x0987654321098765432109876543210987654321"]
+BaseURL = "http://verifier:8080"
+RequestTimeout = 10
 
 [Storage]
 Strategy = "sink" # Options: "single", "sink"
 
+# Example: Single storage strategy
+# [Storage.Single]
+# Type = "postgres"
+# [Storage.Single.Postgres]
+# URI = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"
+# MaxOpenConnections = 20
+# MaxIdleConnections = 5
+# IdleInTxSessionTimeout = 60
+# LockTimeout = 30
+
+# Example: Sink storage strategy with multiple backends
 [[Storage.Sink.Storages]]
 Type = "memory" # Options: "memory", "postgres"
 
 [Storage.Sink.Storages.Memory]
-TTL = 3600            # 1 hour TTL
+TTL = 3600            # 1 hour TTL (in seconds)
 MaxSize = 10000       # Keep up to 10k items
-CleanupInterval = 300 # Clean up every 5 minutes
+CleanupInterval = 300 # Clean up every 5 minutes (in seconds)
 
-[Storage.Sink.Storages.ReadCondition]
-Type = "recent"
-LookbackWindowSeconds = 3600 # Only read data from last hour
-
-# Persistent Storage with read condition
+# Persistent Storage
 [[Storage.Sink.Storages]]
 Type = "postgres"
 
-# PostgreSQL storage configuration
 [Storage.Sink.Storages.Postgres]
 URI = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"
 MaxOpenConnections = 20
@@ -51,5 +65,6 @@ MaxIdleConnections = 5
 IdleInTxSessionTimeout = 60
 LockTimeout = 30
 
-[Storage.Sink.Storages.ReadCondition]
-Type = "always"
+[API]
+[API.RateLimit]
+Enabled = false

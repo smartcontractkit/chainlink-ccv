@@ -183,16 +183,17 @@ func (s *LogStream) readLoop() {
 
 				logLine := values[1]
 
-				// Extract message ID from log line
-				messageID, ok := extractMessageID(logLine)
-				if !ok {
-					continue
-				}
-
 				// Determine which stage this log belongs to
 				stageName := s.identifyStage(logLine)
 				if stageName == "" {
 					continue
+				}
+
+				// Extract message ID from log line (may not exist for system-level logs like finality violations)
+				messageID, hasMessageID := extractMessageID(logLine)
+				if !hasMessageID {
+					// For logs without messageID (e.g., finality violations), use a zero messageID
+					messageID = [32]byte{}
 				}
 
 				// Send parsed log to channel
@@ -229,6 +230,12 @@ func (s *LogStream) identifyStage(logLine string) string {
 	}
 	if strings.Contains(logLine, SentToChainInExecutor().LogPattern) {
 		return SentToChainInExecutor().Name
+	}
+	if strings.Contains(logLine, FinalityViolationDetected().LogPattern) {
+		return FinalityViolationDetected().Name
+	}
+	if strings.Contains(logLine, SourceReaderStopped().LogPattern) {
+		return SourceReaderStopped().Name
 	}
 
 	return ""

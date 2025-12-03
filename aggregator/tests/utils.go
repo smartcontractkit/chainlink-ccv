@@ -41,9 +41,9 @@ type ClientConfig struct {
 
 type ConfigOption = func(*model.AggregatorConfig, *ClientConfig) (*model.AggregatorConfig, *ClientConfig)
 
-func WithCommitteeConfig(committeeConfig map[string]*model.Committee) ConfigOption {
+func WithCommitteeConfig(committeeConfig *model.Committee) ConfigOption {
 	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
-		cfg.Committees = committeeConfig
+		cfg.Committee = committeeConfig
 		return cfg, clientCfg
 	}
 }
@@ -80,11 +80,11 @@ func WithoutClientAuth() ConfigOption {
 
 // CreateServerAndClient creates a test server and client for functional testing.
 // Uses PostgreSQL storage by default, but can be overridden with options.
-func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.AggregatorClient, pb.VerifierResultAPIClient, func(), error) {
+func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.CommitteeVerifierClient, pb.VerifierResultAPIClient, pb.MessageDiscoveryClient, func(), error) {
 	// Create server
 	listener, serverCleanup, err := CreateServerOnly(t, options...)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	clientConfig := &ClientConfig{
@@ -103,7 +103,7 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.Aggregator
 		_, clientConfig = option(dummyConfig, clientConfig)
 	}
 
-	aggregatorClient, ccvDataClient, clientCleanup := CreateAuthenticatedClient(
+	aggregatorClient, ccvDataClient, messageDiscoveryClient, clientCleanup := CreateAuthenticatedClient(
 		t,
 		listener,
 		options...,
@@ -114,7 +114,7 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (pb.Aggregator
 		serverCleanup()
 	}
 
-	return aggregatorClient, ccvDataClient, cleanup, nil
+	return aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, nil
 }
 
 // CreateServerOnly creates and starts a test gRPC server using bufconn for in-memory communication.
@@ -147,14 +147,13 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 			},
 			DefaultLimits: map[string]model.RateLimitConfig{
 				// Generous defaults for tests - 10000 requests per minute
-				pb.VerifierResultAPI_GetMessagesSince_FullMethodName:                 {LimitPerMinute: 10000},
-				pb.VerifierResultAPI_GetVerifierResultForMessage_FullMethodName:      {LimitPerMinute: 10000},
-				pb.VerifierResultAPI_BatchGetVerifierResultForMessage_FullMethodName: {LimitPerMinute: 10000},
-				pb.Aggregator_WriteCommitCCVNodeData_FullMethodName:                  {LimitPerMinute: 10000},
-				pb.Aggregator_BatchWriteCommitCCVNodeData_FullMethodName:             {LimitPerMinute: 10000},
-				pb.Aggregator_ReadCommitCCVNodeData_FullMethodName:                   {LimitPerMinute: 10000},
-				pb.Aggregator_WriteChainStatus_FullMethodName:                        {LimitPerMinute: 10000},
-				pb.Aggregator_ReadChainStatus_FullMethodName:                         {LimitPerMinute: 10000},
+				pb.MessageDiscovery_GetMessagesSince_FullMethodName:                       {LimitPerMinute: 10000},
+				pb.VerifierResultAPI_GetVerifierResultsForMessage_FullMethodName:          {LimitPerMinute: 10000},
+				pb.CommitteeVerifier_WriteCommitteeVerifierNodeResult_FullMethodName:      {LimitPerMinute: 10000},
+				pb.CommitteeVerifier_BatchWriteCommitteeVerifierNodeResult_FullMethodName: {LimitPerMinute: 10000},
+				pb.CommitteeVerifier_ReadCommitteeVerifierNodeResult_FullMethodName:       {LimitPerMinute: 10000},
+				pb.CommitteeVerifier_WriteChainStatus_FullMethodName:                      {LimitPerMinute: 10000},
+				pb.CommitteeVerifier_ReadChainStatus_FullMethodName:                       {LimitPerMinute: 10000},
 			},
 		},
 	}
@@ -210,7 +209,7 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 }
 
 // CreateAuthenticatedClient creates a gRPC client with optional HMAC authentication.
-func CreateAuthenticatedClient(t *testing.T, listener *bufconn.Listener, options ...ConfigOption) (pb.AggregatorClient, pb.VerifierResultAPIClient, func()) {
+func CreateAuthenticatedClient(t *testing.T, listener *bufconn.Listener, options ...ConfigOption) (pb.CommitteeVerifierClient, pb.VerifierResultAPIClient, pb.MessageDiscoveryClient, func()) {
 	clientConfig := &ClientConfig{
 		SkipAuth: false,
 		APIKey:   defaultAPIKey,
@@ -252,6 +251,13 @@ func CreateAuthenticatedClient(t *testing.T, listener *bufconn.Listener, options
 		t.Fatalf("failed to create CCV data client: %v", err)
 	}
 
+	messageDiscoveryClient, messageDiscoveryConn, err := createMessageDiscoveryClient(ctx, listener, clientOptions...)
+	if err != nil {
+		_ = aggregatorConn.Close()
+		_ = ccvDataConn.Close()
+		t.Fatalf("failed to create message discovery client: %v", err)
+	}
+
 	cleanup := func() {
 		if err := aggregatorConn.Close(); err != nil {
 			t.Errorf("failed to close aggregator connection: %v", err)
@@ -259,9 +265,12 @@ func CreateAuthenticatedClient(t *testing.T, listener *bufconn.Listener, options
 		if err := ccvDataConn.Close(); err != nil {
 			t.Errorf("failed to close ccv data connection: %v", err)
 		}
+		if err := messageDiscoveryConn.Close(); err != nil {
+			t.Errorf("failed to close message discovery connection: %v", err)
+		}
 	}
 
-	return aggregatorClient, ccvDataClient, cleanup
+	return aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup
 }
 
 func createSimpleHMACClientInterceptor(config *hmacutil.ClientConfig) grpc.UnaryClientInterceptor {
@@ -287,7 +296,7 @@ func createAdminHMACClientInterceptor(config *hmacutil.ClientConfig, onBehalfOfC
 }
 
 // CreateAdminAuthenticatedClient creates a gRPC client with admin authentication and optional on-behalf-of functionality.
-func CreateAdminAuthenticatedClient(t *testing.T, listener *bufconn.Listener, adminClientID, adminSecret, onBehalfOfClientID string) (pb.AggregatorClient, pb.VerifierResultAPIClient, func()) {
+func CreateAdminAuthenticatedClient(t *testing.T, listener *bufconn.Listener, adminClientID, adminSecret, onBehalfOfClientID string) (pb.CommitteeVerifierClient, pb.VerifierResultAPIClient, func()) {
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
@@ -384,7 +393,7 @@ func createCCVDataClient(ctx context.Context, ccvDataBuf *bufconn.Listener, opts
 	return client, ccvDataConn, nil
 }
 
-func createAggregatorClient(ctx context.Context, aggregatorBuf *bufconn.Listener, opts ...grpc.DialOption) (pb.AggregatorClient, *grpc.ClientConn, error) {
+func createAggregatorClient(ctx context.Context, aggregatorBuf *bufconn.Listener, opts ...grpc.DialOption) (pb.CommitteeVerifierClient, *grpc.ClientConn, error) {
 	bufDialer := func(context.Context, string) (net.Conn, error) {
 		return aggregatorBuf.Dial()
 	}
@@ -404,6 +413,30 @@ func createAggregatorClient(ctx context.Context, aggregatorBuf *bufconn.Listener
 		return nil, nil, err
 	}
 
-	client := pb.NewAggregatorClient(aggregatorConn)
+	client := pb.NewCommitteeVerifierClient(aggregatorConn)
 	return client, aggregatorConn, nil
+}
+
+func createMessageDiscoveryClient(ctx context.Context, messageDiscoveryBuf *bufconn.Listener, opts ...grpc.DialOption) (pb.MessageDiscoveryClient, *grpc.ClientConn, error) {
+	bufDialer := func(context.Context, string) (net.Conn, error) {
+		return messageDiscoveryBuf.Dial()
+	}
+
+	//nolint:staticcheck // grpc.WithInsecure is deprecated but needed for test setup
+	defaultOpts := []grpc.DialOption{
+		grpc.WithContextDialer(bufDialer),
+		grpc.WithInsecure(),
+	}
+
+	// Append custom options (like interceptors)
+	allOpts := append(defaultOpts, opts...)
+
+	//nolint:staticcheck // grpc.DialContext is deprecated but needed for bufconn test setup
+	messageDiscoveryConn, err := grpc.DialContext(ctx, "bufnet", allOpts...)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	client := pb.NewMessageDiscoveryClient(messageDiscoveryConn)
+	return client, messageDiscoveryConn, nil
 }

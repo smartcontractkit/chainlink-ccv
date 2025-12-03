@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -19,33 +17,29 @@ type AggregationKey = string
 type OrphanedKey struct {
 	MessageID      MessageID
 	AggregationKey AggregationKey
-	CommitteeID    CommitteeID
 }
 
 // CommitVerificationRecordIdentifier uniquely identifies a commit verification record.
 type CommitVerificationRecordIdentifier struct {
-	MessageID   MessageID
-	Address     []byte
-	CommitteeID CommitteeID
+	MessageID MessageID
+	Address   []byte
 }
 
 // ToIdentifier converts the CommitVerificationRecordIdentifier to a string identifier.
 func (c CommitVerificationRecordIdentifier) ToIdentifier() string {
-	return fmt.Sprintf("%x:%x:%s", c.MessageID, hex.EncodeToString(c.Address), c.CommitteeID)
+	return fmt.Sprintf("%x:%x", c.MessageID, hex.EncodeToString(c.Address))
 }
 
 // CommitVerificationRecord represents a record of a commit verification.
 type CommitVerificationRecord struct {
-	MessageID             MessageID
-	SourceVerifierAddress []byte
-	Message               *protocol.Message
-	BlobData              []byte
-	CcvData               []byte
-	Timestamp             time.Time
-	ReceiptBlobs          []*ReceiptBlob
-	IdentifierSigner      *IdentifierSigner
-	CommitteeID           CommitteeID
-	IdempotencyKey        uuid.UUID
+	MessageID              MessageID
+	Message                *protocol.Message
+	CCVVersion             []byte
+	Signature              []byte
+	MessageCCVAddresses    []protocol.UnknownAddress
+	MessageExecutorAddress protocol.UnknownAddress
+	IdentifierSigner       *IdentifierSigner
+	createdAt              time.Time // Internal field for tracking creation time from DB
 }
 
 // GetID retrieves the unique identifier for the commit verification record.
@@ -58,18 +52,17 @@ func (c *CommitVerificationRecord) GetID() (*CommitVerificationRecordIdentifier,
 	}
 
 	return &CommitVerificationRecordIdentifier{
-		MessageID:   c.MessageID,
-		Address:     c.IdentifierSigner.Address,
-		CommitteeID: c.CommitteeID,
+		MessageID: c.MessageID,
+		Address:   c.IdentifierSigner.Address,
 	}, nil
 }
 
-// SetTimestampFromMillis sets the timestamp from milliseconds since Unix epoch.
+// SetTimestampFromMillis sets the internal timestamp from milliseconds since Unix epoch.
 func (c *CommitVerificationRecord) SetTimestampFromMillis(timestampMillis int64) {
-	c.Timestamp = time.UnixMilli(timestampMillis).UTC()
+	c.createdAt = time.UnixMilli(timestampMillis).UTC()
 }
 
-// GetTimestamp returns the domain model's Timestamp field.
+// GetTimestamp returns the internal creation timestamp.
 func (c *CommitVerificationRecord) GetTimestamp() time.Time {
-	return c.Timestamp
+	return c.createdAt
 }

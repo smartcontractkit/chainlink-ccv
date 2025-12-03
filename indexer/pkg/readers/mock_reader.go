@@ -6,12 +6,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 var (
-	_ protocol.OffchainStorageReader = (*MockReader)(nil)
-	_ protocol.DisconnectableReader  = (*MockReader)(nil)
+	_ protocol.OffchainStorageReader  = (*MockReader)(nil)
+	_ protocol.VerifierResultsAPI     = (*MockReader)(nil)
+	_ protocol.DiscoveryStorageReader = (*MockReader)(nil)
 )
 
 // MockReaderConfig configures the behavior of the mock reader.
@@ -19,7 +21,7 @@ type MockReaderConfig struct {
 	// MessageGenerator is a function that generates CCVData for the mock reader.
 	// If nil, a default generator will be used.
 	// The parameter is the message number (1-indexed), not the call count.
-	MessageGenerator func(messageNumber int) protocol.CCVData
+	MessageGenerator func(messageNumber int) common.VerifierResultWithMetadata
 
 	// EmitInterval is the interval at which messages should be emitted.
 	// If zero, messages are emitted on every call to ReadCCVData.
@@ -59,13 +61,13 @@ type MockReaderConfig struct {
 // after a certain number of messages. When EmitInterval is set, it will emit multiple
 // messages in a single call if enough time has passed since the last call.
 type MockReader struct {
-	config           MockReaderConfig
-	mu               sync.Mutex
-	callCount        int
-	messagesEmitted  int
-	lastEmitTime     time.Time
-	lastCallTime     time.Time
-	disconnectSignal bool
+	config          MockReaderConfig
+	mu              sync.Mutex
+	callCount       int
+	messagesEmitted int
+	lastEmitTime    time.Time
+	lastCallTime    time.Time
+	sinceValue      int64 // Latest sequence number for GetSinceValue()
 }
 
 // NewMockReader creates a new mock reader with the given configuration.
@@ -85,6 +87,10 @@ func NewMockReader(config MockReaderConfig) *MockReader {
 		// Initialize lastEmitTime to zero so the first message emits immediately
 		lastEmitTime: time.Time{},
 	}
+}
+
+func (m *MockReader) GetVerifications(ctx context.Context, batch []protocol.Bytes32) (map[protocol.Bytes32]protocol.VerifierResult, error) {
+	return nil, nil
 }
 
 // ReadCCVData implements the OffchainStorageReader interface.
@@ -126,7 +132,6 @@ func (m *MockReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse,
 
 	// Update tracking state
 	m.updateLastEmitTime(messagesToEmit, updatedNow)
-	m.checkAndSetDisconnectSignal()
 
 	// Apply latency simulation if configured
 	m.addLatency()
@@ -153,14 +158,7 @@ func (m *MockReader) shouldReturnError() error {
 
 // hasReachedMaxMessages checks if the maximum message limit has been reached.
 func (m *MockReader) hasReachedMaxMessages() bool {
-	maxMessagesReached := m.config.MaxMessages > 0 && m.messagesEmitted >= m.config.MaxMessages
-
-	if maxMessagesReached {
-		m.disconnectSignal = true
-		return true
-	}
-
-	return false
+	return m.config.MaxMessages > 0 && m.messagesEmitted >= m.config.MaxMessages
 }
 
 // calculateMessagesToEmit determines how many messages should be emitted based on time elapsed.
@@ -223,7 +221,7 @@ func (m *MockReader) generateResponses(messagesToEmit int, now time.Time) []prot
 
 		response := protocol.QueryResponse{
 			Timestamp: &timestamp,
-			Data:      ccvData,
+			Data:      ccvData.VerifierResult,
 		}
 		responses = append(responses, response)
 	}
@@ -256,21 +254,6 @@ func (m *MockReader) updateLastEmitTime(messagesToEmit int, now time.Time) {
 	}
 }
 
-// checkAndSetDisconnectSignal checks if max messages has been reached and sets disconnect signal.
-func (m *MockReader) checkAndSetDisconnectSignal() {
-	if m.config.MaxMessages > 0 && m.messagesEmitted >= m.config.MaxMessages {
-		m.disconnectSignal = true
-	}
-}
-
-// ShouldDisconnect implements the DisconnectableReader interface.
-// Returns true when the reader has emitted the maximum number of messages.
-func (m *MockReader) ShouldDisconnect() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.disconnectSignal
-}
-
 // GetCallCount returns the number of times ReadCCVData has been called.
 // This is useful for testing and verification.
 func (m *MockReader) GetCallCount() int {
@@ -287,10 +270,27 @@ func (m *MockReader) GetMessagesEmitted() int {
 	return m.messagesEmitted
 }
 
+// GetSinceValue returns the latest sequence number.
+// This implements protocol.DiscoveryStorageReader interface.
+// Returns 0 if not set. Use SetSinceValue to configure it.
+func (m *MockReader) GetSinceValue() int64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sinceValue
+}
+
+// SetSinceValue sets the sequence number that will be returned by GetSinceValue.
+// This is useful for testing sequence number updates.
+func (m *MockReader) SetSinceValue(value int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sinceValue = value
+}
+
 // DefaultMessageGenerator is the default message generator function.
 // It creates a simple CCVData with predictable values for testing.
 // The parameter represents the message number (not call count).
-func DefaultMessageGenerator(messageNumber int) protocol.CCVData {
+func DefaultMessageGenerator(messageNumber int) common.VerifierResultWithMetadata {
 	sourceAddr, _ := protocol.RandomAddress()
 	destAddr, _ := protocol.RandomAddress()
 	onRampAddr, _ := protocol.RandomAddress()
@@ -303,7 +303,7 @@ func DefaultMessageGenerator(messageNumber int) protocol.CCVData {
 		Version:              protocol.MessageVersion,
 		SourceChainSelector:  protocol.ChainSelector(1),
 		DestChainSelector:    protocol.ChainSelector(2),
-		Nonce:                protocol.Nonce(messageNumber),
+		SequenceNumber:       protocol.SequenceNumber(messageNumber),
 		OnRampAddressLength:  uint8(len(onRampAddr)),
 		OnRampAddress:        onRampAddr,
 		OffRampAddressLength: uint8(len(offRampAddr)),
@@ -316,25 +316,28 @@ func DefaultMessageGenerator(messageNumber int) protocol.CCVData {
 		DataLength:           0,
 		Data:                 []byte{},
 		TokenTransferLength:  0,
-		TokenTransfer:        []byte{},
+		TokenTransfer:        nil,
 		DestBlobLength:       0,
 		DestBlob:             []byte{},
 	}
 
 	messageID, _ := message.MessageID()
 
-	return protocol.CCVData{
-		SourceVerifierAddress: sourceAddr,
-		DestVerifierAddress:   destAddr,
-		Message:               message,
-		Nonce:                 message.Nonce,
-		SourceChainSelector:   message.SourceChainSelector,
-		DestChainSelector:     message.DestChainSelector,
-		MessageID:             messageID,
-		CCVData:               []byte{},
-		BlobData:              []byte{},
-		ReceiptBlobs:          []protocol.ReceiptWithBlob{},
-		Timestamp:             time.Now(),
+	return common.VerifierResultWithMetadata{
+		VerifierResult: protocol.VerifierResult{
+			VerifierSourceAddress:  sourceAddr,
+			VerifierDestAddress:    destAddr,
+			Message:                message,
+			MessageID:              messageID,
+			CCVData:                []byte{},
+			MessageCCVAddresses:    []protocol.UnknownAddress{},
+			MessageExecutorAddress: protocol.UnknownAddress{},
+			Timestamp:              time.Now(),
+		},
+		Metadata: common.VerifierResultMetadata{
+			AttestationTimestamp: time.Now(),
+			IngestionTimestamp:   time.Now(),
+		},
 	}
 }
 

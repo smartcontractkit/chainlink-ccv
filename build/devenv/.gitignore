@@ -49,7 +49,7 @@ pods.tmp.yml
 .devbox/
 dctl
 job-distributor/
-env-out.toml
+env-*out.toml
 dashboards/
 fakes/tmp
 tests/e2e/logs

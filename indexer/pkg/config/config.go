@@ -1,24 +1,49 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
-	"github.com/pelletier/go-toml/v2"
+	"github.com/BurntSushi/toml"
 )
 
 // Config provides all configuration for the indexer.
 type Config struct {
+	LogLevel string `toml:"LogLevel"`
 	// Monitoring is the configuration for the monitoring system inside the indexer.
 	Monitoring MonitoringConfig `toml:"Monitoring"`
-	// Scanner is the configuration for the scanner inside the indexer.
-	Scanner ScannerConfig `toml:"Scanner"`
 	// Discovery is the configuration for the discovery system inside the indexer.
 	Discovery DiscoveryConfig `toml:"Discovery"`
+	// Scheduler is the configuration for the scheduling component inside the indexer.
+	Scheduler SchedulerConfig `toml:"Scheduler"`
+	// Pool is the configuration for the worker pool within the indexer.
+	Pool PoolConfig `toml:"Pool"`
+	// Verifiers contains the configured verifiers known to the indexer.
+	Verifiers []VerifierConfig `toml:"Verifier"`
 	// Storage is the configuration for the storage inside the indexer.
 	Storage StorageConfig `toml:"Storage"`
 	// API is the configuration for the API inside the indexer.
 	API APIConfig `toml:"API"`
+}
+
+type SchedulerConfig struct {
+	// TickerInterval defines the number of milliseconds to wait before running the next scheduling loop.
+	TickerInterval int `toml:"TickerInterval"`
+	// VerificationVisibilityWindow defines the number of seconds before we will no longer attempt to retrieve verifications.
+	VerificationVisibilityWindow int `toml:"VerificationVisibilityWindow"`
+	// BaseDelay defines the minimum number of milliseconds to wait before retrying the message.
+	BaseDelay int `toml:"BaseDelay"`
+	// MaxDelay defines the maximum number of milliseconds to wait before retrying the message.
+	MaxDelay int `toml:"MaxDelay"`
+}
+
+type PoolConfig struct {
+	// ConcurrentWorkers is the maximum number of concurrent workers, equates to maximum number of concurrent messages being indexed.
+	ConcurrentWorkers int `toml:"ConcurrentWorkers"`
+	// WorkerTimeout is the number of seconds a worker can attempt to retrieve verifications for
+	// Note: This value should always be higher then the maximum timeout on the slowest configured verifier.
+	WorkerTimeout int `toml:"WorkerTimeout"`
 }
 
 // APIConfig provides all configuration for the API inside the indexer.
@@ -31,14 +56,6 @@ type APIConfig struct {
 type RateLimitConfig struct {
 	// Enabled enables the rate limiting system inside the indexer.
 	Enabled bool `toml:"Enabled"`
-}
-
-// ScannerConfig provides all configuration for the scanner inside the indexer.
-type ScannerConfig struct {
-	// ScanInterval is the interval to read from each off-chain storage (in seconds).
-	ScanInterval int64 `toml:"ScanInterval"`
-	// ReaderTimeout is the timeout for a single reader call (in seconds).
-	ReaderTimeout int64 `toml:"ReaderTimeout"`
 }
 
 // StorageConfig allows you to change the storage strategy used by the indexer.
@@ -86,8 +103,6 @@ type StorageBackendConfig struct {
 	Memory *InMemoryStorageConfig `toml:"Memory"`
 	// Postgres is the configuration for the postgres storage backend (required if type is postgres).
 	Postgres *PostgresConfig `toml:"Postgres"`
-	// ReadCondition is the read condition for this storage backend.
-	ReadCondition ReadConditionConfig `toml:"ReadCondition"`
 }
 
 // InMemoryStorageConfig provides configuration for the in-memory storage backend.
@@ -118,35 +133,6 @@ type PostgresConfig struct {
 	LockTimeout int64 `toml:"LockTimeout"`
 }
 
-// ReadConditionConfig provides configuration for storage read conditions.
-type ReadConditionConfig struct {
-	// Type is the type of read condition (always, never, time_range, recent).
-	Type ReadConditionType `toml:"Type"`
-	// StartUnix is the start of the time range this storage covers in unix timestamp.
-	// Only used when Type is time_range. nil means no lower bound.
-	StartUnix *int64 `toml:"StartUnix"`
-	// EndUnix is the end of the time range this storage covers in unix timestamp.
-	// Only used when Type is time_range. nil means no upper bound.
-	EndUnix *int64 `toml:"EndUnix"`
-	// LookbackWindowSeconds is the duration in seconds from now that this storage covers.
-	// Only used when Type is recent.
-	LookbackWindowSeconds *int64 `toml:"LookbackWindowSeconds"`
-}
-
-// ReadConditionType defines when a storage should be read from.
-type ReadConditionType string
-
-const (
-	// ReadConditionAlways means the storage is always eligible for reads.
-	ReadConditionAlways ReadConditionType = "always"
-	// ReadConditionNever means the storage is never read from (write-only).
-	ReadConditionNever ReadConditionType = "never"
-	// ReadConditionTimeRange means the storage is only read when query time range matches.
-	ReadConditionTimeRange ReadConditionType = "time_range"
-	// ReadConditionRecent means the storage is only read for recent data.
-	ReadConditionRecent ReadConditionType = "recent"
-)
-
 // StorageBackendType is the type of storage backend to use (memory, postgres).
 type StorageBackendType string
 
@@ -157,33 +143,22 @@ const (
 
 // DiscoveryConfig allows you to change the discovery system used by the indexer.
 type DiscoveryConfig struct {
-	// Type is the type of discovery to use (static).
-	Type DiscoveryType `toml:"Type"`
-	// Static is the configuration for the static discovery system.
-	Static StaticDiscoveryConfig `toml:"Static"`
+	AggregatorReaderConfig
+	PollInterval int    `toml:"PollInterval"`
+	Timeout      int    `toml:"Timeout"`
+	NtpServer    string `toml:"NtpServer"`
 }
 
-// DiscoveryType is the type of discovery to use (static).
-type DiscoveryType string
-
-const (
-	DiscoveryTypeStatic DiscoveryType = "static"
-)
-
-// StaticDiscoveryConfig allows you to change the static discovery system used by the indexer.
-type StaticDiscoveryConfig struct {
-	// Readers is the list of readers to use for the static discovery system.
-	Readers []StaticDiscoveryReaderConfig `toml:"Readers"`
-}
-
-// StaticDiscoveryReaderConfig allows you to change the static discovery system used by the indexer.
-type StaticDiscoveryReaderConfig struct {
-	// Type is the type of reader to use (aggregator, rest).
-	Type ReaderType `toml:"type"`
-	// Aggregator is the configuration for the aggregator reader.
-	Aggregator AggregatorReaderConfig `toml:"Aggregator"`
-	// Rest is the configuration for the rest reader.
-	Rest RestReaderConfig `toml:"Rest"`
+type VerifierConfig struct {
+	Type            ReaderType `toml:"Type"`
+	IssuerAddresses []string   `toml:"IssuerAddresses"`
+	Name            string     `toml:"Name"`
+	// BatchSize is the maximum batch size to send to the verifier.
+	BatchSize int `toml:"BatchSize"`
+	// MaxBatchWaitTime is the maximum time to wait in milliseconds before sending a batch to the verifier.
+	MaxBatchWaitTime int `toml:"MaxBatchWaitTime"`
+	AggregatorReaderConfig
+	RestReaderConfig
 }
 
 // ReaderType is the type of reader to use (aggregator).
@@ -200,20 +175,23 @@ type AggregatorReaderConfig struct {
 	Address string `toml:"Address"`
 	// Since is the unix timestamp in seconds to start reading from.
 	Since int64 `toml:"Since"`
+	// APIKey is the client's API Key (UUID format)
+	APIKey string `toml:"APIKey"`
+	// Secret is the HMAC secret used to sign requests
+	Secret string `toml:"Secret"`
 }
 
 // RestReaderConfig allows you to change the rest reader used by the indexer.
 type RestReaderConfig struct {
 	// BaseURL is the base URL for the rest reader.
 	BaseURL string `toml:"BaseURL"`
-	// Since is the unix timestamp in seconds to start reading from.
-	Since int64 `toml:"Since"`
 	// RequestTimeout is the timeout in seconds for the rest reader.
 	RequestTimeout int64 `toml:"RequestTimeout"`
 }
 
-// LoadConfig loads configuration from a TOML file.
-// It returns an error if the file cannot be read or parsed.
+// LoadConfig loads configuration from a TOML file and merges secrets from secrets.toml.
+// It returns an error if the config file cannot be read or parsed.
+// Secrets are optional - if secrets.toml doesn't exist, the config will load without secrets.
 func LoadConfig() (*Config, error) {
 	filepath, ok := os.LookupEnv("INDEXER_CONFIG_PATH")
 	if !ok {
@@ -224,7 +202,26 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("failed to read config file config.toml: %w", err)
 	}
 
-	return LoadConfigFromBytes(data)
+	config, err := LoadConfigFromBytes(data)
+	if err != nil {
+		return nil, err
+	}
+
+	// Load and merge secrets
+	secrets, err := LoadSecrets()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load secrets: %w", err)
+	}
+
+	if err := MergeSecrets(config, secrets); err != nil {
+		return nil, fmt.Errorf("failed to merge secrets: %w", err)
+	}
+
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("config validation failed: %w", err)
+	}
+
+	return config, nil
 }
 
 // LoadConfigFromBytes loads configuration from TOML bytes.
@@ -235,27 +232,23 @@ func LoadConfigFromBytes(data []byte) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse TOML config: %w", err)
 	}
 
-	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("config validation failed: %w", err)
-	}
-
 	return &config, nil
 }
 
 // Validate performs basic validation on the configuration.
 // It returns an error if the configuration is invalid.
 func (c *Config) Validate() error {
-	if c.Scanner.ScanInterval <= 0 {
-		return fmt.Errorf("scanner scan_interval must be positive, got %d", c.Scanner.ScanInterval)
+	if err := c.Scheduler.Validate(); err != nil {
+		return fmt.Errorf("scheduler config validation failed: %w", err)
+	}
+
+	if err := c.Discovery.Validate(0); err != nil {
+		return fmt.Errorf("discovery config validation failed: %w", err)
 	}
 
 	// Validate storage config
 	if err := c.Storage.Validate(); err != nil {
 		return fmt.Errorf("storage config validation failed: %w", err)
-	}
-
-	if c.Discovery.Type == "" {
-		return fmt.Errorf("discovery type is required")
 	}
 
 	if c.Monitoring.Enabled && c.Monitoring.Type == "" {
@@ -269,11 +262,24 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	// Validate discovery readers
-	if c.Discovery.Type == "static" {
-		if err := c.Discovery.Static.Validate(); err != nil {
-			return fmt.Errorf("static discovery config validation failed: %w", err)
-		}
+	return nil
+}
+
+func (s *SchedulerConfig) Validate() error {
+	if s.BaseDelay <= 0 {
+		return fmt.Errorf("base delay must be greater than 0")
+	}
+
+	if s.MaxDelay <= s.BaseDelay {
+		return fmt.Errorf("max delay must be greater than base delay")
+	}
+
+	if s.TickerInterval <= 20 {
+		return fmt.Errorf("ticker interval must be greater than 20 milliseconds")
+	}
+
+	if s.VerificationVisibilityWindow <= (s.MaxDelay / 1000) {
+		return fmt.Errorf("verification visability window must be greater than max delay after seconds conversion")
 	}
 
 	return nil
@@ -375,8 +381,7 @@ func (s *StorageBackendConfig) Validate(index int) error {
 		return fmt.Errorf("storage[%d]: unknown backend type: %s (must be 'memory' or 'postgres')", index, s.Type)
 	}
 
-	// Validate read condition
-	return s.ReadCondition.Validate(index)
+	return nil
 }
 
 // Validate performs validation on the in-memory storage configuration.
@@ -396,60 +401,15 @@ func (i *InMemoryStorageConfig) Validate() error {
 	return nil
 }
 
-// Validate performs validation on the read condition configuration.
-func (r *ReadConditionConfig) Validate(index int) error {
-	if r.Type == "" {
-		return fmt.Errorf("storage[%d]: read condition type is required", index)
-	}
-
-	switch r.Type {
-	case ReadConditionAlways, ReadConditionNever:
-		// No additional validation needed
-	case ReadConditionTimeRange:
-		// StartUnix and EndUnix are optional (nil means no bound)
-		// But if both are set, start must be <= end
-		if r.StartUnix != nil && r.EndUnix != nil && *r.StartUnix > *r.EndUnix {
-			return fmt.Errorf("storage[%d]: time_range start_unix (%d) must be <= end_unix (%d)", index, *r.StartUnix, *r.EndUnix)
-		}
-	case ReadConditionRecent:
-		if r.LookbackWindowSeconds == nil || *r.LookbackWindowSeconds <= 0 {
-			return fmt.Errorf("storage[%d]: recent read condition requires positive lookback_window_seconds", index)
-		}
+func (v *VerifierConfig) Validate(index int) error {
+	switch v.Type {
+	case ReaderTypeAggregator:
+		return v.AggregatorReaderConfig.Validate(index)
+	case ReaderTypeRest:
+		return v.RestReaderConfig.Validate(index)
 	default:
-		return fmt.Errorf("storage[%d]: unknown read condition type: %s (must be 'always', 'never', 'time_range', or 'recent')", index, r.Type)
+		return errors.New("invalid verifier type")
 	}
-
-	return nil
-}
-
-// Validate performs validation on the static discovery configuration.
-func (s *StaticDiscoveryConfig) Validate() error {
-	if len(s.Readers) == 0 {
-		return fmt.Errorf("at least one reader is required for static discovery")
-	}
-
-	for i, reader := range s.Readers {
-		if err := reader.Validate(i); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// Validate performs validation on the static discovery reader configuration.
-func (r *StaticDiscoveryReaderConfig) Validate(index int) error {
-	if r.Type == "" {
-		return fmt.Errorf("reader %d type is required", index)
-	}
-
-	if r.Type == "aggregator" {
-		if err := r.Aggregator.Validate(index); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 // Validate performs validation on the aggregator reader configuration.
@@ -460,6 +420,18 @@ func (a *AggregatorReaderConfig) Validate(index int) error {
 
 	if a.Since < 0 {
 		return fmt.Errorf("reader %d aggregator since must be non-negative, got %d", index, a.Since)
+	}
+
+	return nil
+}
+
+func (r *RestReaderConfig) Validate(index int) error {
+	if r.BaseURL == "" {
+		return fmt.Errorf("verifier %d base url is required", index)
+	}
+
+	if r.RequestTimeout <= 0 {
+		return fmt.Errorf("verifier %d request timeout must be greater than 0", index)
 	}
 
 	return nil

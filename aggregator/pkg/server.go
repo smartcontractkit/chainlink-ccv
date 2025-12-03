@@ -40,8 +40,9 @@ import (
 
 // Server represents a gRPC server for the aggregator service.
 type Server struct {
-	pb.UnimplementedAggregatorServer
+	pb.UnimplementedCommitteeVerifierServer
 	pb.UnimplementedVerifierResultAPIServer
+	pb.UnimplementedMessageDiscoveryServer
 
 	l                                  logger.Logger
 	config                             *model.AggregatorConfig
@@ -51,7 +52,6 @@ type Server struct {
 	readCommitCCVNodeDataHandler       *handlers.ReadCommitCCVNodeDataHandler
 	writeCommitCCVNodeDataHandler      *handlers.WriteCommitCCVNodeDataHandler
 	getMessagesSinceHandler            *handlers.GetMessagesSinceHandler
-	getCCVDataForMessageHandler        *handlers.GetCCVDataForMessageHandler
 	getBatchCCVDataForMessageHandler   *handlers.GetBatchCCVDataForMessageHandler
 	writeChainStatusHandler            *handlers.WriteChainStatusHandler
 	readChainStatusHandler             *handlers.ReadChainStatusHandler
@@ -65,25 +65,21 @@ type Server struct {
 	started                            bool
 }
 
-// WriteCommitCCVNodeData handles requests to write commit verification records.
-func (s *Server) WriteCommitCCVNodeData(ctx context.Context, req *pb.WriteCommitCCVNodeDataRequest) (*pb.WriteCommitCCVNodeDataResponse, error) {
+// WriteCommitteeVerifierNodeResult handles requests to write commit verification records.
+func (s *Server) WriteCommitteeVerifierNodeResult(ctx context.Context, req *pb.WriteCommitteeVerifierNodeResultRequest) (*pb.WriteCommitteeVerifierNodeResultResponse, error) {
 	return s.writeCommitCCVNodeDataHandler.Handle(ctx, req)
 }
 
-func (s *Server) BatchWriteCommitCCVNodeData(ctx context.Context, req *pb.BatchWriteCommitCCVNodeDataRequest) (*pb.BatchWriteCommitCCVNodeDataResponse, error) {
+func (s *Server) BatchWriteCommitteeVerifierNodeResult(ctx context.Context, req *pb.BatchWriteCommitteeVerifierNodeResultRequest) (*pb.BatchWriteCommitteeVerifierNodeResultResponse, error) {
 	return s.batchWriteCommitCCVNodeDataHandler.Handle(ctx, req)
 }
 
-// ReadCommitCCVNodeData handles requests to read commit verification records.
-func (s *Server) ReadCommitCCVNodeData(ctx context.Context, req *pb.ReadCommitCCVNodeDataRequest) (*pb.ReadCommitCCVNodeDataResponse, error) {
+// ReadCommitteeVerifierNodeResult handles requests to read commit verification records.
+func (s *Server) ReadCommitteeVerifierNodeResult(ctx context.Context, req *pb.ReadCommitteeVerifierNodeResultRequest) (*pb.ReadCommitteeVerifierNodeResultResponse, error) {
 	return s.readCommitCCVNodeDataHandler.Handle(ctx, req)
 }
 
-func (s *Server) GetVerifierResultForMessage(ctx context.Context, req *pb.GetVerifierResultForMessageRequest) (*pb.VerifierResult, error) {
-	return s.getCCVDataForMessageHandler.Handle(ctx, req)
-}
-
-func (s *Server) BatchGetVerifierResultForMessage(ctx context.Context, req *pb.BatchGetVerifierResultForMessageRequest) (*pb.BatchGetVerifierResultForMessageResponse, error) {
+func (s *Server) GetVerifierResultsForMessage(ctx context.Context, req *pb.GetVerifierResultsForMessageRequest) (*pb.GetVerifierResultsForMessageResponse, error) {
 	return s.getBatchCCVDataForMessageHandler.Handle(ctx, req)
 }
 
@@ -254,9 +250,8 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 	writeHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, l, validator)
 	readCommitCCVNodeDataHandler := handlers.NewReadCommitCCVNodeDataHandler(store, l)
-	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committees, l, aggMonitoring)
-	getCCVDataForMessageHandler := handlers.NewGetCCVDataForMessageHandler(store, config.Committees, l)
-	getBatchCCVDataForMessageHandler := handlers.NewGetBatchCCVDataForMessageHandler(store, config.Committees, config.MaxMessageIDsPerBatch, l)
+	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committee, l, aggMonitoring)
+	getBatchCCVDataForMessageHandler := handlers.NewGetBatchCCVDataForMessageHandler(store, config.Committee, config.MaxMessageIDsPerBatch, l)
 	batchWriteCommitCCVNodeDataHandler := handlers.NewBatchWriteCommitCCVNodeDataHandler(writeHandler)
 
 	// Initialize chain status storage
@@ -286,7 +281,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		l.Fatalf("Failed to initialize rate limiting middleware: %v", err)
 	}
 
-	isCCVDataService := func(ctx context.Context, callMeta interceptors.CallMeta) bool {
+	isVerifierResultAPI := func(callMeta interceptors.CallMeta) bool {
 		return callMeta.Service == pb.VerifierResultAPI_ServiceDesc.ServiceName
 	}
 
@@ -304,10 +299,12 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 			metricsMiddleware.Intercept,
 			hmacAuthMiddleware.Intercept,
 
-			// Anonymous auth fallback - only for CCVData service when HMAC didn't authenticate
+			// Anonymous auth fallback - only for VerifierResultAPI service when HMAC didn't authenticate
 			selector.UnaryServerInterceptor(
 				anonymousAuthMiddleware.Intercept,
-				selector.MatchFunc(isCCVDataService),
+				selector.MatchFunc(func(ctx context.Context, callMeta interceptors.CallMeta) bool {
+					return isVerifierResultAPI(callMeta)
+				}),
 			),
 
 			// Require authentication for all requests (ensures identity is set)
@@ -342,7 +339,6 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		readCommitCCVNodeDataHandler:       readCommitCCVNodeDataHandler,
 		writeCommitCCVNodeDataHandler:      writeHandler,
 		getMessagesSinceHandler:            getMessagesSinceHandler,
-		getCCVDataForMessageHandler:        getCCVDataForMessageHandler,
 		getBatchCCVDataForMessageHandler:   getBatchCCVDataForMessageHandler,
 		writeChainStatusHandler:            writeChainStatusHandler,
 		readChainStatusHandler:             readChainStatusHandler,
@@ -355,7 +351,8 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		mu:                                 sync.Mutex{},
 	}
 	pb.RegisterVerifierResultAPIServer(grpcServer, server)
-	pb.RegisterAggregatorServer(grpcServer, server)
+	pb.RegisterMessageDiscoveryServer(grpcServer, server)
+	pb.RegisterCommitteeVerifierServer(grpcServer, server)
 	reflection.Register(grpcServer)
 
 	return server

@@ -1,7 +1,6 @@
 package model
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,80 +14,57 @@ import (
 
 // Signer represents a participant in the commit verification process.
 type Signer struct {
-	ParticipantID string   `toml:"participantID"`
-	Addresses     []string `toml:"addresses"`
+	Address string `toml:"address"`
 }
 
 type IdentifierSigner struct {
-	ParticipantID string
-	Address       []byte
-	SignatureR    [32]byte
-	SignatureS    [32]byte
-	CommitteeID   CommitteeID
+	Address    []byte
+	SignatureR [32]byte
+	SignatureS [32]byte
 }
+
+// DestinationSelector represents a destination chain selector as a string.
+type DestinationSelector = string
+
+// SourceSelector represents a source chain selector as a string.
+type SourceSelector = string
 
 // Committee represents a group of signers participating in the commit verification process.
 type Committee struct {
-	// QuorumConfigs stores a QuorumConfig for each chain selector
-	// there is a commit verifier for.
+	// QuorumConfigs stores a QuorumConfig for each destination-source chain selector pair.
 	// The aggregator uses this to verify signatures from each chain's
 	// commit verifier set.
-	QuorumConfigs           map[string]*QuorumConfig `toml:"quorumConfigs"`
-	SourceVerifierAddresses map[string]string        `toml:"sourceVerifierAddresses"`
+	// Map structure: destination selector -> source selector -> QuorumConfig
+	QuorumConfigs map[DestinationSelector]map[SourceSelector]*QuorumConfig `toml:"quorumConfigs"`
 }
 
-func (c *Committee) GetSourceVerifierAddress(sourceSelector uint64) (string, bool) {
-	address, exists := c.SourceVerifierAddresses[fmt.Sprintf("%d", sourceSelector)]
-	return address, exists
-}
+func (c *Committee) GetQuorumConfig(destChainSelector, sourceChainSelector uint64) (*QuorumConfig, bool) {
+	destSelectorStr := new(big.Int).SetUint64(destChainSelector).String()
+	sourceSelectorStr := new(big.Int).SetUint64(sourceChainSelector).String()
 
-func (c *Committee) GetQuorumConfig(chainSelector uint64) (*QuorumConfig, bool) {
-	selectorStr := new(big.Int).SetUint64(chainSelector).String()
-	qc, exists := c.QuorumConfigs[selectorStr]
-	return qc, exists
-}
-
-func FindQuorumConfigFromSelectorAndSourceVerifierAddress(committees map[CommitteeID]*Committee, sourceSelector, destSelector uint64, sourceVerifierAddress []byte) *QuorumConfig {
-	for _, committee := range committees {
-		sourceAddress, ok := committee.SourceVerifierAddresses[fmt.Sprintf("%d", sourceSelector)]
-		if !ok {
-			continue
-		}
-		if !bytes.Equal(common.HexToAddress(sourceAddress).Bytes(), sourceVerifierAddress) {
-			continue
-		}
-
-		quorumConfig, exists := committee.GetQuorumConfig(destSelector)
-		if !exists {
-			continue
-		}
-		return quorumConfig
+	sourceConfigs, destExists := c.QuorumConfigs[destSelectorStr]
+	if !destExists {
+		return nil, false
 	}
-	return nil
+
+	qc, sourceExists := sourceConfigs[sourceSelectorStr]
+	return qc, sourceExists
 }
 
 // QuorumConfig represents the configuration for a quorum of signers.
 type QuorumConfig struct {
-	CommitteeVerifierAddress string   `toml:"committeeVerifierAddress"`
-	Signers                  []Signer `toml:"signers"`
-	Threshold                uint8    `toml:"threshold"`
-}
-
-func (q *QuorumConfig) GetParticipantFromAddress(address []byte) *Signer {
-	for _, signer := range q.Signers {
-		for _, addr := range signer.Addresses {
-			// TODO: Do not use go ethereum common package here
-			addrBytes := common.HexToAddress(addr).Bytes()
-			if bytes.Equal(addrBytes, address) {
-				return &signer
-			}
-		}
-	}
-	return nil
+	DestinationVerifierAddress string   `toml:"destinationVerifierAddress"`
+	SourceVerifierAddress      string   `toml:"sourceVerifierAddress"`
+	Signers                    []Signer `toml:"signers"`
+	Threshold                  uint8    `toml:"threshold"`
 }
 
 func (q *QuorumConfig) GetDestVerifierAddressBytes() []byte {
-	return common.HexToAddress(q.CommitteeVerifierAddress).Bytes()
+	return common.HexToAddress(q.DestinationVerifierAddress).Bytes()
+}
+
+func (q *QuorumConfig) GetSourceVerifierAddressBytes() []byte {
+	return common.HexToAddress(q.SourceVerifierAddress).Bytes()
 }
 
 // StorageType represents the type of storage backend to use.
@@ -101,9 +77,13 @@ const (
 
 // StorageConfig represents the configuration for the storage backend.
 type StorageConfig struct {
-	StorageType   StorageType `toml:"type"`
-	ConnectionURL string      `toml:"-"`
-	PageSize      int         `toml:"pageSize"`
+	StorageType     StorageType `toml:"type"`
+	ConnectionURL   string      `toml:"-"`
+	PageSize        int         `toml:"pageSize"`
+	MaxOpenConns    int         `toml:"maxOpenConns"`
+	MaxIdleConns    int         `toml:"maxIdleConns"`
+	ConnMaxLifetime int         `toml:"connMaxLifetime"` // in seconds
+	ConnMaxIdleTime int         `toml:"connMaxIdleTime"` // in seconds
 }
 
 // ServerConfig represents the configuration for the server.
@@ -139,11 +119,6 @@ type AggregationConfig struct {
 	ChannelBufferSize int `toml:"channelBufferSize"`
 	// BackgroundWorkerCount controls the number of background workers processing aggregation requests
 	BackgroundWorkerCount int `toml:"backgroundWorkerCount"`
-	// EnableAggregationAfterQuorum allows new aggregations even when an existing one already meets quorum.
-	// When disabled (default false), the aggregator will check for existing aggregated reports before creating new ones.
-	// If an existing report still meets quorum requirements, no new aggregation will be created.
-	// Set to true to disable this optimization and always attempt new aggregations.
-	EnableAggregationAfterQuorum bool `toml:"enableAggregationAfterQuorum"`
 }
 
 type OrphanRecoveryConfig struct {
@@ -332,21 +307,18 @@ func (c *APIKeyConfig) ValidateAPIKey(apiKey string) error {
 
 // AggregatorConfig is the root configuration for the pb.
 type AggregatorConfig struct {
-	// CommitteeID are just arbitrary names for different committees this is a concept internal to the aggregator
-	Committees     map[CommitteeID]*Committee `toml:"committees"`
-	Server         ServerConfig               `toml:"server"`
-	Storage        *StorageConfig             `toml:"storage"`
-	APIKeys        APIKeyConfig               `toml:"-"`
-	ChainStatuses  ChainStatusConfig          `toml:"chainStatuses"`
-	Aggregation    AggregationConfig          `toml:"aggregation"`
-	OrphanRecovery OrphanRecoveryConfig       `toml:"orphanRecovery"`
-	RateLimiting   RateLimitingConfig         `toml:"rateLimiting"`
-	HealthCheck    HealthCheckConfig          `toml:"healthCheck"`
-	StubMode       bool                       `toml:"stubQuorumValidation"`
-	Monitoring     MonitoringConfig           `toml:"monitoring"`
-	PyroscopeURL   string                     `toml:"pyroscope_url"`
-	// MaxMessageIDsPerBatch limits the number of message IDs per batch verifier result request
-	MaxMessageIDsPerBatch int `toml:"maxMessageIDsPerBatch"`
+	Committee             *Committee           `toml:"committee"`
+	Server                ServerConfig         `toml:"server"`
+	Storage               *StorageConfig       `toml:"storage"`
+	APIKeys               APIKeyConfig         `toml:"-"`
+	ChainStatuses         ChainStatusConfig    `toml:"chainStatuses"`
+	Aggregation           AggregationConfig    `toml:"aggregation"`
+	OrphanRecovery        OrphanRecoveryConfig `toml:"orphanRecovery"`
+	RateLimiting          RateLimitingConfig   `toml:"rateLimiting"`
+	HealthCheck           HealthCheckConfig    `toml:"healthCheck"`
+	Monitoring            MonitoringConfig     `toml:"monitoring"`
+	PyroscopeURL          string               `toml:"pyroscope_url"`
+	MaxMessageIDsPerBatch int                  `toml:"maxMessageIDsPerBatch"`
 }
 
 // SetDefaults sets default values for the configuration.
@@ -366,7 +338,6 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.Aggregation.BackgroundWorkerCount == 0 {
 		c.Aggregation.BackgroundWorkerCount = 10
 	}
-	// Note: EnableAggregationAfterQuorum defaults to false (no reaggregation after quorum)
 	// Initialize Storage config if nil
 	if c.Storage == nil {
 		c.Storage = &StorageConfig{}
@@ -470,10 +441,98 @@ func (c *AggregatorConfig) ValidateStorageConfig() error {
 	return nil
 }
 
+// ValidateCommitteeConfig validates the committee configuration.
+func (c *AggregatorConfig) ValidateCommitteeConfig() error {
+	if c.Committee == nil {
+		return errors.New("committee configuration cannot be nil")
+	}
+
+	if len(c.Committee.QuorumConfigs) == 0 {
+		return errors.New("committee must have at least one quorum configuration")
+	}
+
+	// Validate each destination's source configurations
+	for destSelector, sourceConfigs := range c.Committee.QuorumConfigs {
+		if strings.TrimSpace(destSelector) == "" {
+			return errors.New("destination selector cannot be empty")
+		}
+
+		// Validate destination selector is a valid uint64 string
+		if _, err := strconv.ParseUint(destSelector, 10, 64); err != nil {
+			return fmt.Errorf("invalid destination selector '%s': must be a valid uint64 decimal string", destSelector)
+		}
+
+		if len(sourceConfigs) == 0 {
+			return fmt.Errorf("destination selector '%s' has no source configurations", destSelector)
+		}
+
+		// Validate each source configuration
+		for sourceSelector, quorumConfig := range sourceConfigs {
+			if strings.TrimSpace(sourceSelector) == "" {
+				return fmt.Errorf("source selector cannot be empty for destination '%s'", destSelector)
+			}
+
+			// Validate source selector is a valid uint64 string
+			if _, err := strconv.ParseUint(sourceSelector, 10, 64); err != nil {
+				return fmt.Errorf("invalid source selector '%s' for destination '%s': must be a valid uint64 decimal string", sourceSelector, destSelector)
+			}
+
+			// Validate that source and destination selectors are not the same
+			if sourceSelector == destSelector {
+				return fmt.Errorf("source selector and destination selector cannot be the same: '%s'", sourceSelector)
+			}
+
+			if quorumConfig == nil {
+				return fmt.Errorf("quorum config cannot be nil for destination '%s', source '%s'", destSelector, sourceSelector)
+			}
+
+			// Validate quorum config
+			if quorumConfig.Threshold == 0 {
+				return fmt.Errorf("threshold must be greater than 0 for destination '%s', source '%s'", destSelector, sourceSelector)
+			}
+
+			if len(quorumConfig.Signers) == 0 {
+				return fmt.Errorf("must have at least one signer for destination '%s', source '%s'", destSelector, sourceSelector)
+			}
+
+			if int(quorumConfig.Threshold) > len(quorumConfig.Signers) {
+				return fmt.Errorf("threshold (%d) cannot exceed number of signers (%d) for destination '%s', source '%s'",
+					quorumConfig.Threshold, len(quorumConfig.Signers), destSelector, sourceSelector)
+			}
+
+			// Validate CommitteeVerifierAddress is a valid hex address
+			if strings.TrimSpace(quorumConfig.DestinationVerifierAddress) == "" {
+				return fmt.Errorf("committee verifier address cannot be empty for destination '%s', source '%s'", destSelector, sourceSelector)
+			}
+
+			// Validate no duplicate signers within this quorum
+			seenSigners := make(map[string]bool)
+			for i, signer := range quorumConfig.Signers {
+				if strings.TrimSpace(signer.Address) == "" {
+					return fmt.Errorf("signer address cannot be empty at index %d for destination '%s', source '%s'", i, destSelector, sourceSelector)
+				}
+
+				normalizedAddr := strings.ToLower(signer.Address)
+				if seenSigners[normalizedAddr] {
+					return fmt.Errorf("duplicate signer address '%s' for destination '%s', source '%s'", signer.Address, destSelector, sourceSelector)
+				}
+				seenSigners[normalizedAddr] = true
+			}
+		}
+	}
+
+	return nil
+}
+
 // Validate validates the aggregator configuration for integrity and correctness.
 func (c *AggregatorConfig) Validate() error {
 	// Set defaults first
 	c.SetDefaults()
+
+	// Validate committee configuration
+	if err := c.ValidateCommitteeConfig(); err != nil {
+		return fmt.Errorf("committee configuration error: %w", err)
+	}
 
 	// Validate API key configuration
 	if err := c.ValidateAPIKeyConfig(); err != nil {
@@ -500,16 +559,6 @@ func (c *AggregatorConfig) Validate() error {
 		return fmt.Errorf("storage configuration error: %w", err)
 	}
 
-	// TODO: Add other validation logic
-	// Should validate:
-	// - No duplicate signers within the same QuorumConfig
-	// - StorageType is supported (memory, etc.)
-	// - AggregationStrategy is supported (stub, etc.)
-	// - F value follows N = 3F + 1 rule, so F = (N-1) // 3
-	// - Committee names are valid
-	// - QuorumConfig chain selectors are valid
-	// - Server address format is correct
-	// - Offramp address cannot be shared across same chain on different committees
 	return nil
 }
 
@@ -533,7 +582,7 @@ func (c *AggregatorConfig) LoadFromEnvironment() error {
 	}
 	c.APIKeys = apiKeyConfig
 
-	if c.RateLimiting.Storage.Type == RateLimiterStoreTypeRedis {
+	if c.RateLimiting.Storage.Type == RateLimiterStoreTypeRedis && c.RateLimiting.Enabled {
 		if err := c.loadRateLimiterRedisConfigFromEnvironment(); err != nil {
 			return fmt.Errorf("failed to load rate limiter redis config from environment: %w", err)
 		}

@@ -5,6 +5,7 @@ package executor_mocks
 import (
 	context "context"
 
+	executor "github.com/smartcontractkit/chainlink-ccv/executor"
 	mock "github.com/stretchr/testify/mock"
 
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -113,6 +114,63 @@ func (_c *MockExecutor_CheckValidMessage_Call) Return(_a0 error) *MockExecutor_C
 }
 
 func (_c *MockExecutor_CheckValidMessage_Call) RunAndReturn(run func(context.Context, protocol.Message) error) *MockExecutor_CheckValidMessage_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetMessageStatus provides a mock function with given fields: ctx, message
+func (_m *MockExecutor) GetMessageStatus(ctx context.Context, message protocol.Message) (executor.MessageStatusResults, error) {
+	ret := _m.Called(ctx, message)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetMessageStatus")
+	}
+
+	var r0 executor.MessageStatusResults
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) (executor.MessageStatusResults, error)); ok {
+		return rf(ctx, message)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) executor.MessageStatusResults); ok {
+		r0 = rf(ctx, message)
+	} else {
+		r0 = ret.Get(0).(executor.MessageStatusResults)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, protocol.Message) error); ok {
+		r1 = rf(ctx, message)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockExecutor_GetMessageStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetMessageStatus'
+type MockExecutor_GetMessageStatus_Call struct {
+	*mock.Call
+}
+
+// GetMessageStatus is a helper method to define mock.On call
+//   - ctx context.Context
+//   - message protocol.Message
+func (_e *MockExecutor_Expecter) GetMessageStatus(ctx interface{}, message interface{}) *MockExecutor_GetMessageStatus_Call {
+	return &MockExecutor_GetMessageStatus_Call{Call: _e.mock.On("GetMessageStatus", ctx, message)}
+}
+
+func (_c *MockExecutor_GetMessageStatus_Call) Run(run func(ctx context.Context, message protocol.Message)) *MockExecutor_GetMessageStatus_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(protocol.Message))
+	})
+	return _c
+}
+
+func (_c *MockExecutor_GetMessageStatus_Call) Return(_a0 executor.MessageStatusResults, _a1 error) *MockExecutor_GetMessageStatus_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockExecutor_GetMessageStatus_Call) RunAndReturn(run func(context.Context, protocol.Message) (executor.MessageStatusResults, error)) *MockExecutor_GetMessageStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }

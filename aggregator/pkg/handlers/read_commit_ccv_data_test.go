@@ -23,7 +23,7 @@ func TestReadCommitCCVNodeDataHandler_InvalidRequest_ReturnsInvalidArgument(t *t
 	store := aggregation_mocks.NewMockCommitVerificationStore(t)
 	h := NewReadCommitCCVNodeDataHandler(store, lggr)
 
-	resp, err := h.Handle(context.Background(), &pb.ReadCommitCCVNodeDataRequest{MessageId: []byte{0x1}}) // too short
+	resp, err := h.Handle(context.Background(), &pb.ReadCommitteeVerifierNodeResultRequest{MessageId: []byte{0x1}}) // too short
 	require.Error(t, err)
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 	require.NotNil(t, resp)
@@ -37,7 +37,7 @@ func TestReadCommitCCVNodeDataHandler_StorageError_Propagates(t *testing.T) {
 	msgID := make([]byte, 32)
 
 	store.EXPECT().GetCommitVerification(mock.Anything, mock.Anything).Return(nil, status.Error(codes.Internal, "boom"))
-	resp, err := h.Handle(context.Background(), &pb.ReadCommitCCVNodeDataRequest{MessageId: msgID, Address: []byte{0xAA}})
+	resp, err := h.Handle(context.Background(), &pb.ReadCommitteeVerifierNodeResultRequest{MessageId: msgID, Address: []byte{0xAA}})
 	require.Error(t, err)
 	require.Nil(t, resp)
 }
@@ -50,19 +50,19 @@ func TestReadCommitCCVNodeDataHandler_Success_MapsToProto(t *testing.T) {
 	msgID := make([]byte, 32)
 
 	rec := &model.CommitVerificationRecord{
-		MessageID: msgID,
-		BlobData:  []byte{0x1},
-		CcvData:   []byte{0x2},
-		Timestamp: time.Now(),
+		MessageID:  msgID,
+		CCVVersion: []byte{0x1},
+		Signature:  []byte{0x2},
 		IdentifierSigner: &model.IdentifierSigner{
 			Address: []byte{0xAA},
 		},
 	}
+	rec.SetTimestampFromMillis(time.Now().UnixMilli())
 	store.EXPECT().GetCommitVerification(mock.Anything, mock.Anything).Return(rec, nil)
 
-	resp, err := h.Handle(context.Background(), &pb.ReadCommitCCVNodeDataRequest{MessageId: msgID, Address: []byte{0xAA}})
+	resp, err := h.Handle(context.Background(), &pb.ReadCommitteeVerifierNodeResultRequest{MessageId: msgID, Address: []byte{0xAA}})
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	require.NotNil(t, resp.CcvNodeData)
-	require.Equal(t, msgID, resp.CcvNodeData.MessageId)
+	require.NotNil(t, resp.CommitteeVerifierNodeResult)
+	require.Equal(t, []byte{0x1}, resp.CommitteeVerifierNodeResult.CcvVersion)
 }

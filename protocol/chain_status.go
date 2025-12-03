@@ -6,11 +6,10 @@ import (
 
 // BlockHeader represents blockchain block header metadata.
 type BlockHeader struct {
-	Number               uint64
-	Hash                 Bytes32
-	ParentHash           Bytes32
-	Timestamp            time.Time
-	FinalizedBlockNumber uint64 // Latest finalized block at time of this block
+	Number     uint64
+	Hash       Bytes32
+	ParentHash Bytes32
+	Timestamp  time.Time
 }
 
 // ReorgType indicates the type of reorg detected.
@@ -43,4 +42,8 @@ func (r ReorgType) String() string {
 type ChainStatus struct {
 	Type         ReorgType
 	ResetToBlock uint64 // Block number to reset to (0 for finality violations)
+}
+
+func (c ChainStatus) IsFinalityViolated() bool {
+	return c.Type == ReorgTypeFinalityViolation
 }

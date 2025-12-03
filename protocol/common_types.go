@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
 	"strconv"
@@ -20,6 +21,9 @@ type Nonce uint64
 func (n Nonce) String() string {
 	return strconv.FormatUint(uint64(n), 10)
 }
+
+// SequenceNumber represents a sequential identifier for messages in a CCIP lane.
+type SequenceNumber uint64
 
 // UnknownAddress represents an address on an unknown chain.
 type UnknownAddress []byte
@@ -87,6 +91,11 @@ func (a *UnknownAddress) UnmarshalJSON(data []byte) error {
 
 	*a = UnknownAddress(bytes)
 	return nil
+}
+
+// Equal checks if another UnknownAddress is equal to this one.
+func (a UnknownAddress) Equal(other UnknownAddress) bool {
+	return bytes.Equal(a.Bytes(), other.Bytes())
 }
 
 // ByteSlice is a wrapper around []byte that marshals/unmarshals to/from hex instead of base64.
@@ -254,4 +263,18 @@ func (b *Bytes32) UnmarshalJSON(data []byte) error {
 
 	copy(b[:], bCp)
 	return nil
+}
+
+// MessageSentEvent represents a CCIPMessageSent event from the blockchain.
+// This is the protocol-level representation of the OnRamp CCIPMessageSent event,
+// decoupled from chain-specific implementations.
+// Note: Message and ReceiptWithBlob types are defined in message_types.go.
+type MessageSentEvent struct {
+	DestChainSelector ChainSelector     // Destination chain for the message
+	SequenceNumber    uint64            // Sequential nonce for this message
+	MessageID         Bytes32           // Unique identifier for the message
+	Message           Message           // The decoded CCIP message
+	Receipts          []ReceiptWithBlob // Verifier receipts + executor receipt
+	BlockNumber       uint64            // Block number where event occurred
+	TxHash            ByteSlice         // Transaction hash of the event
 }

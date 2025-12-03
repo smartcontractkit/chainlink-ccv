@@ -65,7 +65,7 @@ func (ct *TXMEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.C
 		FromAddress:    roundRobinFromAddress,
 		ToAddress:      ct.OffRampAddress,
 		EncodedPayload: payload,
-		FeeLimit:       uint64(report.Message.GasLimit),
+		FeeLimit:       uint64(report.Message.ExecutionGasLimit),
 		Strategy:       txmgrcommon.NewSendEveryStrategy(),
 	})
 	if err != nil {

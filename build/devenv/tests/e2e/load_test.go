@@ -21,6 +21,7 @@ import (
 	cldfevm "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/rpc"
 	"github.com/smartcontractkit/chainlink-testing-framework/wasp"
@@ -162,6 +163,9 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 
 	// After sending, resolve MessageID via the on-chain Sent event and push enriched message into channel
 	if ok {
+		m.seqNosMu.Lock()
+		sentAt := m.sentTimes[seqNo]
+		m.seqNosMu.Unlock()
 		go func(localSeq uint64, sentAt time.Time) {
 			// Wait up to 2 minutes for the Sent event
 			sentEvent, waitErr := c.WaitOneSentEventBySeqNo(ctx, srcChain.ChainSelector, dstChain.ChainSelector, localSeq, 2*time.Minute)
@@ -172,7 +176,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 			m.msgIDs[localSeq] = sentEvent.MessageID
 			m.seqNosMu.Unlock()
 			m.sentMsgCh <- SentMessage{SeqNo: localSeq, MessageID: sentEvent.MessageID, SentTime: sentAt}
-		}(seqNo, m.sentTimes[seqNo])
+		}(seqNo, sentAt)
 	}
 	return &wasp.Response{Data: "ok"}
 }
@@ -183,17 +187,11 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun) func() ([]metrics.Mes
 
 	metricsChan := make(chan metrics.MessageMetrics, 100)
 	var wg sync.WaitGroup
-	var totalSent, totalReachedVerifier, totalVerified, totalAggregated, totalIndexed, totalReachedExecutor, totalSentToChainInExecutor, totalReceived int
+	var totalSent, totalReceived int
 	var countMu sync.Mutex
 
 	// Track specific messages for detailed reporting
 	sentMessages := make(map[uint64]string)
-	reachedVerifierMessages := make(map[uint64]string)
-	verifiedMessages := make(map[uint64]string)
-	aggregatedMessages := make(map[uint64]string)
-	indexedMessages := make(map[uint64]string)
-	reachedExecutorMessages := make(map[uint64]string)
-	sentToChainInExecutorMessages := make(map[uint64]string)
 	receivedMessages := make(map[uint64]string)
 
 	// Create a context with timeout for verification
@@ -216,51 +214,6 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun) func() ([]metrics.Mes
 				defer wg.Done()
 
 				msgIDHex := common.BytesToHash(msg.MessageID[:]).Hex()
-
-				result, err := tc.AssertMessage(msg.MessageID, AssertMessageOptions{
-					TickInterval:            2 * time.Second,
-					Timeout:                 1 * time.Minute,
-					ExpectedVerifierResults: 1,
-					AssertVerifierLogs:      true,
-					AssertExecutorLogs:      true,
-				})
-
-				countMu.Lock()
-				if result.VerifierReached {
-					totalReachedVerifier++
-					reachedVerifierMessages[msg.SeqNo] = msgIDHex
-				}
-				if result.VerifierSigned {
-					totalVerified++
-					verifiedMessages[msg.SeqNo] = msgIDHex
-				}
-				if result.AggregatorFound {
-					totalAggregated++
-					aggregatedMessages[msg.SeqNo] = msgIDHex
-				}
-				if result.IndexerFound {
-					totalIndexed++
-					indexedMessages[msg.SeqNo] = msgIDHex
-				}
-				if result.ExecutorLogFound {
-					totalReachedExecutor++
-					reachedExecutorMessages[msg.SeqNo] = msgIDHex
-				}
-				if result.SentToChainFound {
-					totalSentToChainInExecutor++
-					sentToChainInExecutorMessages[msg.SeqNo] = msgIDHex
-				}
-				countMu.Unlock()
-
-				if err != nil {
-					tc.T.Logf("Message %d (ID: %s) verification failed: %v", msg.SeqNo, msgIDHex, err)
-					return
-				}
-
-				tc.T.Logf("Message %d verified - aggregator entries, indexer: %d verifications",
-					msg.SeqNo,
-					len(result.IndexedVerifications.VerifierResults))
-
 				execEvent, err := tc.Impl.WaitOneExecEventBySeqNo(verifyCtx, fromSelector, toSelector, msg.SeqNo, tc.Timeout)
 
 				if verifyCtx.Err() != nil {
@@ -322,22 +275,10 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun) func() ([]metrics.Mes
 
 		countMu.Lock()
 		totals := metrics.MessageTotals{
-			Sent:                          totalSent,
-			ReachedVerifier:               totalReachedVerifier,
-			Verified:                      totalVerified,
-			Aggregated:                    totalAggregated,
-			Indexed:                       totalIndexed,
-			ReachedExecutor:               totalReachedExecutor,
-			SentToChainInExecutor:         totalSentToChainInExecutor,
-			Received:                      totalReceived,
-			SentMessages:                  sentMessages,
-			ReachedVerifierMessages:       reachedVerifierMessages,
-			VerifiedMessages:              verifiedMessages,
-			AggregatedMessages:            aggregatedMessages,
-			IndexedMessages:               indexedMessages,
-			ReachedExecutorMessages:       reachedExecutorMessages,
-			SentToChainInExecutorMessages: sentToChainInExecutorMessages,
-			ReceivedMessages:              receivedMessages,
+			Sent:             totalSent,
+			Received:         totalReceived,
+			SentMessages:     sentMessages,
+			ReceivedMessages: receivedMessages,
 		}
 		countMu.Unlock()
 
@@ -397,8 +338,16 @@ func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *de
 }
 
 func TestE2ELoad(t *testing.T) {
-	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
+	outfile := os.Getenv("LOAD_TEST_OUT_FILE")
+	if outfile == "" {
+		outfile = "../../env-out.toml"
+	}
+	in, err := ccv.LoadOutput[ccv.Cfg](outfile)
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
+		require.NoError(t, err)
+	})
 	if os.Getenv("LOKI_URL") == "" {
 		_ = os.Setenv("LOKI_URL", ccv.DefaultLokiURL)
 	}
@@ -448,7 +397,7 @@ func TestE2ELoad(t *testing.T) {
 		testDuration := 30 * time.Second
 
 		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
-		tc.Timeout = 5 * time.Minute
+		tc.Timeout = 2 * time.Minute
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 		waitForMetrics := assertMessagesAsync(tc, gun)
@@ -468,21 +417,23 @@ func TestE2ELoad(t *testing.T) {
 		summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
 		metrics.PrintMetricsSummary(t, summary)
 
-		require.Equal(t, summary.TotalSent, summary.TotalAggregated)
-		require.Equal(t, summary.TotalSent, summary.TotalIndexed)
-		require.LessOrEqual(t, summary.P90VerifierToExecutor, 30*time.Second)
+		require.Equal(t, summary.TotalSent, summary.TotalReceived)
+		require.LessOrEqual(t, summary.P90Latency, 8*time.Second)
 	})
 
 	t.Run("rpc latency", func(t *testing.T) {
+		testDuration := 1 * time.Hour
+		expectedP90Latency := 5 * time.Second
+		timeoutDuration := time.Duration((testDuration.Seconds()+expectedP90Latency.Seconds())*10) * time.Second
 		// 400ms latency for any RPC node
-		_, err = chaos.ExecPumba("netem --tc-image=ghcr.io/alexei-led/pumba-debian-nettools --duration=150s delay --time=400 re2:blockchain-node-.*", 0*time.Second)
+		pumbaCmd := fmt.Sprintf("netem --tc-image=ghcr.io/alexei-led/pumba-debian-nettools --duration=%s delay --time=400 re2:blockchain-.*", timeoutDuration)
+		_, err = chaos.ExecPumba(pumbaCmd, 0*time.Second)
 		require.NoError(t, err)
 
 		rps := int64(1)
-		testDuration := 120 * time.Second
 
 		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
-		tc.Timeout = 220 * time.Second
+		tc.Timeout = timeoutDuration
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
 		waitForMetrics := assertMessagesAsync(tc, gun)
@@ -501,6 +452,9 @@ func TestE2ELoad(t *testing.T) {
 
 		summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
 		metrics.PrintMetricsSummary(t, summary)
+
+		require.Equal(t, summary.TotalSent, summary.TotalReceived)
+		require.LessOrEqual(t, summary.P90Latency, expectedP90Latency)
 	})
 
 	t.Run("gas", func(t *testing.T) {

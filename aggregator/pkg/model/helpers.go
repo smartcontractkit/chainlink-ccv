@@ -1,64 +1,37 @@
 package model
 
 import (
-	"bytes"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 
 	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
-func MapProtoMessageToProtocolMessage(m *pb.Message) *protocol.Message {
-	return &protocol.Message{
-		Version:              uint8(m.Version), //nolint:gosec // G115: Protocol-defined conversion
-		SourceChainSelector:  protocol.ChainSelector(m.SourceChainSelector),
-		DestChainSelector:    protocol.ChainSelector(m.DestChainSelector),
-		Nonce:                protocol.Nonce(m.Nonce),
-		OnRampAddressLength:  uint8(m.OnRampAddressLength), //nolint:gosec // G115: Protocol-defined conversion
-		OnRampAddress:        m.OnRampAddress,
-		OffRampAddressLength: uint8(m.OffRampAddressLength), //nolint:gosec // G115: Protocol-defined conversion
-		OffRampAddress:       m.OffRampAddress,
-		Finality:             uint16(m.Finality), //nolint:gosec // G115: Protocol-defined conversion
-		GasLimit:             m.GasLimit,
-		SenderLength:         uint8(m.SenderLength), //nolint:gosec // G115: Protocol-defined conversion
-		Sender:               m.Sender,
-		ReceiverLength:       uint8(m.ReceiverLength), //nolint:gosec // G115: Protocol-defined conversion
-		Receiver:             m.Receiver,
-		DestBlobLength:       uint16(m.DestBlobLength), //nolint:gosec // G115: Protocol-defined conversion
-		DestBlob:             m.DestBlob,
-		TokenTransferLength:  uint16(m.TokenTransferLength), //nolint:gosec // G115: Protocol-defined conversion
-		TokenTransfer:        m.TokenTransfer,
-		DataLength:           uint16(m.DataLength), //nolint:gosec // G115: Protocol-defined conversion
-		Data:                 m.Data,
-	}
-}
-
-func compareStringCaseInsensitive(a, b string) bool {
-	return bytes.EqualFold([]byte(a), []byte(b))
-}
-
-func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committees map[string]*Committee) (*pb.VerifierResult, error) {
-	participantSignatures := make(map[string]protocol.Data)
+func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, c *Committee) (*pb.VerifierResult, error) {
+	addressSignatures := make(map[string]protocol.Data)
 	for _, verification := range report.Verifications {
 		if verification.IdentifierSigner == nil {
 			return nil, fmt.Errorf("missing IdentifierSigner in verification record")
 		}
 
-		participantSignatures[verification.IdentifierSigner.ParticipantID] = protocol.Data{
+		addressKey := common.BytesToAddress(verification.IdentifierSigner.Address).Hex()
+		addressSignatures[addressKey] = protocol.Data{
 			R:      verification.IdentifierSigner.SignatureR,
 			S:      verification.IdentifierSigner.SignatureS,
 			Signer: common.Address(verification.IdentifierSigner.Address),
 		}
 	}
 
-	quorumConfig := FindQuorumConfigFromSelectorAndSourceVerifierAddress(committees, report.GetSourceChainSelector(), report.GetDestinationSelector(), report.GetSourceVerifierAddress())
-	if quorumConfig == nil {
-		return nil, fmt.Errorf("quorum config not found for chain selector: %d and address: %s", report.GetDestinationSelector(), common.BytesToAddress(report.GetSourceVerifierAddress()).Hex())
+	quorumConfig, ok := c.GetQuorumConfig(report.GetDestinationSelector(), report.GetSourceChainSelector())
+	if !ok {
+		return nil, fmt.Errorf("quorum config not found for destination selector: %d, source selector: %d", report.GetDestinationSelector(), report.GetSourceChainSelector())
 	}
 
 	signers := quorumConfig.Signers
@@ -66,28 +39,30 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 	signatures := make([]protocol.Data, 0)
 
 	for _, signer := range signers {
-		sig, exists := participantSignatures[signer.ParticipantID]
-		if !exists {
-			// Skipping missing signatures (not all participants may have signed)
-			continue
+		// Normalize address format to match the map key format (with 0x prefix)
+		addr := signer.Address
+		if !strings.HasPrefix(addr, "0x") {
+			addr = "0x" + addr
 		}
 
-		recoveredAddress := sig.Signer
-		validAddresses := signer.Addresses
-		addressValid := false
-		for _, addr := range validAddresses {
-			if compareStringCaseInsensitive(addr, recoveredAddress.Hex()) {
-				addressValid = true
+		// Find matching signature by comparing addresses case-insensitively
+		var sig protocol.Data
+		var found bool
+		for key, s := range addressSignatures {
+			if strings.EqualFold(key, addr) {
+				sig = s
+				found = true
 				break
 			}
 		}
 
-		if addressValid {
-			signatures = append(signatures, sig)
+		if !found {
+			continue
 		}
+
+		signatures = append(signatures, sig)
 	}
 
-	// Encode signatures using simple format (sorting is handled internally)
 	encodedSignatures, err := protocol.EncodeSignatures(signatures)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode signatures: %w", err)
@@ -95,34 +70,38 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, committee
 
 	// To create the full ccvData, prepend encodedSignatures with the version of the source verifier
 	// The first verifierVersionLength bytes of the source verifier's return data constitute the version
-	// Because we aggregate on the signed hash and this data is actually signed by verifiers it is safe to assume that all verifications have the same BlobData
+	// Because we aggregate on the signed hash and this data is actually signed by verifiers it is safe to assume that all verifications have the same CCVVersion
 	if len(report.Verifications) == 0 {
 		return nil, fmt.Errorf("report does not contains verification")
 	}
 
-	blobData := report.Verifications[0].BlobData
-	if blobData == nil {
-		return nil, fmt.Errorf("blob is missing from receipt")
+	ccvVersion := report.Verifications[0].CCVVersion
+	if ccvVersion == nil {
+		return nil, fmt.Errorf("ccv version is missing from verification")
 	}
-	blobLen := len(blobData)
-	if blobLen < committee.VerifierVersionLength {
-		return nil, fmt.Errorf("blob is too short (expected at least %d bytes, got %d)", committee.VerifierVersionLength, blobLen)
+	ccvVersionLen := len(ccvVersion)
+	if ccvVersionLen < committee.VerifierVersionLength {
+		return nil, fmt.Errorf("ccv version is too short (expected at least %d bytes, got %d)", committee.VerifierVersionLength, ccvVersionLen)
 	}
-	ccvData := append(blobData[:committee.VerifierVersionLength], encodedSignatures...)
+	ccvData := append(ccvVersion[:committee.VerifierVersionLength], encodedSignatures...)
+
+	// Convert UnknownAddress types to [][]byte for protobuf
+	ccvAddresses := make([][]byte, len(report.GetMessageCCVAddresses()))
+	for i, addr := range report.GetMessageCCVAddresses() {
+		ccvAddresses[i] = []byte(addr)
+	}
 
 	return &pb.VerifierResult{
-		Message:               report.GetProtoMessage(),
-		SourceVerifierAddress: report.GetSourceVerifierAddress(),
-		DestVerifierAddress:   quorumConfig.GetDestVerifierAddressBytes(),
-		CcvData:               ccvData,
-		Timestamp:             timeToTimestampMillis(report.WrittenAt),
-		Sequence:              report.Sequence,
+		Message:                report.GetProtoMessage(),
+		MessageCcvAddresses:    ccvAddresses,
+		MessageExecutorAddress: []byte(report.GetMessageExecutorAddress()),
+		CcvData:                ccvData,
+		Metadata: &pb.VerifierResultMetadata{
+			Timestamp:             timeToTimestampMillis(report.WrittenAt),
+			VerifierSourceAddress: quorumConfig.GetSourceVerifierAddressBytes(),
+			VerifierDestAddress:   quorumConfig.GetDestVerifierAddressBytes(),
+		},
 	}, nil
-}
-
-// timestampMillisToTime converts millisecond timestamp to time.Time in UTC.
-func timestampMillisToTime(timestampMillis int64) time.Time {
-	return time.UnixMilli(timestampMillis).UTC()
 }
 
 // timeToTimestampMillis converts time.Time to millisecond timestamp.
@@ -130,63 +109,57 @@ func timeToTimestampMillis(t time.Time) int64 {
 	return t.UnixMilli()
 }
 
-// MapProtocolMessageToProtoMessage converts a protocol.Message to pb.Message.
-func MapProtocolMessageToProtoMessage(m *protocol.Message) *pb.Message {
-	return &pb.Message{
-		Version:              uint32(m.Version),
-		SourceChainSelector:  uint64(m.SourceChainSelector),
-		DestChainSelector:    uint64(m.DestChainSelector),
-		Nonce:                uint64(m.Nonce),
-		OnRampAddressLength:  uint32(m.OnRampAddressLength),
-		OnRampAddress:        m.OnRampAddress,
-		OffRampAddressLength: uint32(m.OffRampAddressLength),
-		OffRampAddress:       m.OffRampAddress,
-		Finality:             uint32(m.Finality),
-		GasLimit:             m.GasLimit,
-		SenderLength:         uint32(m.SenderLength),
-		Sender:               m.Sender,
-		ReceiverLength:       uint32(m.ReceiverLength),
-		Receiver:             m.Receiver,
-		DestBlobLength:       uint32(m.DestBlobLength),
-		DestBlob:             m.DestBlob,
-		TokenTransferLength:  uint32(m.TokenTransferLength),
-		TokenTransfer:        m.TokenTransfer,
-		DataLength:           uint32(m.DataLength),
-		Data:                 m.Data,
+// CommitVerificationRecordFromProto converts protobuf CommitteeVerifierNodeResult to domain model.
+func CommitVerificationRecordFromProto(proto *pb.CommitteeVerifierNodeResult) (*CommitVerificationRecord, error) {
+	// Convert [][]byte to []protocol.UnknownAddress
+	ccvAddresses := make([]protocol.UnknownAddress, len(proto.CcvAddresses))
+	for i, addr := range proto.CcvAddresses {
+		ccvAddresses[i] = protocol.UnknownAddress(addr)
 	}
-}
 
-// CommitVerificationRecordFromProto converts protobuf MessageWithCCVNodeData to domain model.
-func CommitVerificationRecordFromProto(proto *pb.MessageWithCCVNodeData) *CommitVerificationRecord {
 	record := &CommitVerificationRecord{
-		MessageID:             proto.MessageId,
-		SourceVerifierAddress: proto.SourceVerifierAddress,
-		BlobData:              proto.BlobData,
-		CcvData:               proto.CcvData,
-		Timestamp:             timestampMillisToTime(proto.Timestamp),
-		ReceiptBlobs:          ReceiptBlobsFromProto(proto.ReceiptBlobs),
+		CCVVersion:             proto.CcvVersion,
+		Signature:              proto.Signature,
+		MessageCCVAddresses:    ccvAddresses,
+		MessageExecutorAddress: protocol.UnknownAddress(proto.ExecutorAddress),
 	}
+	record.SetTimestampFromMillis(time.Now().UnixMilli())
 
 	if proto.Message != nil {
-		record.Message = MapProtoMessageToProtocolMessage(proto.Message)
+		msg, err := ccvcommon.MapProtoMessageToProtocolMessage(proto.Message)
+		if err != nil {
+			return nil, fmt.Errorf("failed to map proto message to protocol message: %w", err)
+		}
+
+		record.Message = msg
+
+		messageID, err := record.Message.MessageID()
+		if err != nil {
+			return nil, fmt.Errorf("failed to compute message ID: %w", err)
+		}
+		record.MessageID = messageID[:]
 	}
 
-	return record
+	return record, nil
 }
 
-// CommitVerificationRecordToProto converts domain model to protobuf MessageWithCCVNodeData.
-func CommitVerificationRecordToProto(record *CommitVerificationRecord) *pb.MessageWithCCVNodeData {
-	proto := &pb.MessageWithCCVNodeData{
-		MessageId:             record.MessageID,
-		SourceVerifierAddress: record.SourceVerifierAddress,
-		BlobData:              record.BlobData,
-		CcvData:               record.CcvData,
-		Timestamp:             timeToTimestampMillis(record.Timestamp),
-		ReceiptBlobs:          ReceiptBlobsToProto(record.ReceiptBlobs),
+// CommitVerificationRecordToProto converts domain model to protobuf CommitteeVerifierNodeResult.
+func CommitVerificationRecordToProto(record *CommitVerificationRecord) *pb.CommitteeVerifierNodeResult {
+	// Convert []protocol.UnknownAddress to [][]byte
+	ccvAddresses := make([][]byte, len(record.MessageCCVAddresses))
+	for i, addr := range record.MessageCCVAddresses {
+		ccvAddresses[i] = []byte(addr)
+	}
+
+	proto := &pb.CommitteeVerifierNodeResult{
+		CcvVersion:      record.CCVVersion,
+		Signature:       record.Signature,
+		CcvAddresses:    ccvAddresses,
+		ExecutorAddress: []byte(record.MessageExecutorAddress),
 	}
 
 	if record.Message != nil {
-		proto.Message = MapProtocolMessageToProtoMessage(record.Message)
+		proto.Message = ccvcommon.MapProtocolMessageToProtoMessage(record.Message)
 	}
 
 	return proto

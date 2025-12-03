@@ -363,11 +363,13 @@ func mustCreateMessage(t *testing.T, sourceChain, destChain, nonce uint64, gasLi
 	msg, err := protocol.NewMessage(
 		protocol.ChainSelector(sourceChain),
 		protocol.ChainSelector(destChain),
-		protocol.Nonce(nonce),
+		protocol.SequenceNumber(nonce),
 		protocol.UnknownAddress(common.HexToAddress("0x1111111111111111111111111111111111111111").Bytes()),
 		protocol.UnknownAddress(common.HexToAddress("0x2222222222222222222222222222222222222222").Bytes()),
 		1,
 		gasLimit,
+		gasLimit,           // ccipReceiveGasLimit
+		protocol.Bytes32{}, // ccvAndExecutorHash
 		protocol.UnknownAddress(common.HexToAddress("0x3333333333333333333333333333333333333333").Bytes()),
 		protocol.UnknownAddress(common.HexToAddress("0x4444444444444444444444444444444444444444").Bytes()),
 		[]byte{},

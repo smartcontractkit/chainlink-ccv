@@ -1,0 +1,32 @@
+indexer_address="http://indexer:8100"
+source_backoff_duration="15s"
+startup_lookback_window="1h"
+indexer_query_limit=20
+pyroscope_url="http://pyroscope:4040"
+executor_id="cl_node_executor_a"
+reader_cache_expiry="5m"
+max_retry_duration="8h"
+
+[Monitoring]
+    Enabled = true
+    Type = "beholder"
+    [Monitoring.Beholder]
+        InsecureConnection = true
+        CACertFile = ""
+        OtelExporterGRPCEndpoint = ""
+        OtelExporterHTTPEndpoint = "otel-collector:4318"
+        LogStreamingEnabled = true
+        MetricReaderInterval = 5
+        TraceSampleRatio = 1.0
+        TraceBatchTimeout = 10
+
+[chain_configuration]
+    [chain_configuration.3379446385462418246]
+        executor_pool = ["cl_node_executor_a"]
+        execution_interval = "15s"
+    [chain_configuration.12922642891491394802]
+        executor_pool = ["cl_node_executor_a"]
+        execution_interval = "15s"
+    [chain_configuration.4793464827907405086]
+        executor_pool = ["cl_node_executor_a"]
+        execution_interval = "15s"

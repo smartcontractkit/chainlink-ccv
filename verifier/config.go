@@ -6,21 +6,18 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
+type ConfigWithBlockchainInfos struct {
+	Config
+	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
+}
+
 type Config struct {
 	VerifierID        string `toml:"verifier_id"`
 	AggregatorAddress string `toml:"aggregator_address"`
 
-	// TODO: Move to a separate secrets config file.
-	AggregatorAPIKey string `toml:"aggregator_api_key"`
-
-	// TODO: Move to a separate secrets config file.
-	AggregatorSecretKey string `toml:"aggregator_secret_key"`
-
 	SignerAddress string `toml:"signer_address"`
 
-	// TODO: remove from verifier config, readers need to be initialized separately.
-	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
-	PyroscopeURL    string                              `toml:"pyroscope_url"`
+	PyroscopeURL string `toml:"pyroscope_url"`
 	// CommitteeVerifierAddresses is a map the addresses of the committee verifiers for each chain selector.
 	CommitteeVerifierAddresses map[string]string `toml:"committee_verifier_addresses"`
 	// OnRampAddresses is a map the addresses of the on ramps for each chain selector.
@@ -66,26 +63,52 @@ type BeholderConfig struct {
 }
 
 func (c *Config) Validate() error {
-	if len(c.BlockchainInfos) != len(c.OnRampAddresses) ||
-		len(c.BlockchainInfos) != len(c.CommitteeVerifierAddresses) ||
-		len(c.BlockchainInfos) != len(c.RMNRemoteAddresses) {
-		prefix := "invalid verifier configuration, mismatched lengths of blockchain infos and addresses"
-		return fmt.Errorf(
-			"%s: BlockchainInfos: %d, OnRampAddresses: %d, CommitteeVerifierAddresses: %d, RMNRemoteAddresses: %d",
-			prefix, len(c.BlockchainInfos), len(c.OnRampAddresses), len(c.CommitteeVerifierAddresses), len(c.RMNRemoteAddresses))
+	// Collect chain selectors as sets (map[string]struct{})
+	onRampSet := make(map[string]struct{})
+	for k := range c.OnRampAddresses {
+		onRampSet[k] = struct{}{}
+	}
+	committeeVerifierSet := make(map[string]struct{})
+	for k := range c.CommitteeVerifierAddresses {
+		committeeVerifierSet[k] = struct{}{}
+	}
+	rmnRemoteSet := make(map[string]struct{})
+	for k := range c.RMNRemoteAddresses {
+		rmnRemoteSet[k] = struct{}{}
 	}
 
-	for k := range c.BlockchainInfos {
-		if _, ok := c.OnRampAddresses[k]; !ok {
-			return fmt.Errorf("invalid CCV configuration, missing onramp address for chain: %s", k)
+	// Compare set lengths first
+	if len(onRampSet) != len(committeeVerifierSet) ||
+		len(onRampSet) != len(rmnRemoteSet) {
+		return fmt.Errorf("invalid verifier configuration, mismatched chain selectors for onramp, committee verifier, and RMN Remote addresses")
+	}
+
+	// Compare set values (they should all be equal)
+	for k := range onRampSet {
+		if _, ok := committeeVerifierSet[k]; !ok {
+			return fmt.Errorf("invalid verifier configuration, chain selector in onramp (%s) not in committee verifier addresses", k)
 		}
-		if _, ok := c.CommitteeVerifierAddresses[k]; !ok {
-			return fmt.Errorf("invalid CCV configuration, missing verifier address for chain: %s", k)
-		}
-		if _, ok := c.RMNRemoteAddresses[k]; !ok {
-			return fmt.Errorf("invalid CCV configuration, missing RMN Remote address for chain: %s", k)
+		if _, ok := rmnRemoteSet[k]; !ok {
+			return fmt.Errorf("invalid verifier configuration, chain selector in onramp (%s) not in RMN Remote addresses", k)
 		}
 	}
+	for k := range committeeVerifierSet {
+		if _, ok := onRampSet[k]; !ok {
+			return fmt.Errorf("invalid verifier configuration, chain selector in committee verifier (%s) not in onramp addresses", k)
+		}
+		if _, ok := rmnRemoteSet[k]; !ok {
+			return fmt.Errorf("invalid verifier configuration, chain selector in committee verifier (%s) not in RMN Remote addresses", k)
+		}
+	}
+	for k := range rmnRemoteSet {
+		if _, ok := onRampSet[k]; !ok {
+			return fmt.Errorf("invalid verifier configuration, chain selector in RMN Remote (%s) not in onramp addresses", k)
+		}
+		if _, ok := committeeVerifierSet[k]; !ok {
+			return fmt.Errorf("invalid verifier configuration, chain selector in RMN Remote (%s) not in committee verifier addresses", k)
+		}
+	}
+
 	return nil
 }
 

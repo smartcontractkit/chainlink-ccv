@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -17,10 +18,11 @@ func TestMessageMappingRoundTrip_PreservesMessageID(t *testing.T) {
 	originalID, err := message.MessageID()
 	require.NoError(t, err)
 
-	protoMessage := MapProtocolMessageToProtoMessage(message)
+	protoMessage := common.MapProtocolMessageToProtoMessage(message)
 	require.NotNil(t, protoMessage)
 
-	convertedMessage := MapProtoMessageToProtocolMessage(protoMessage)
+	convertedMessage, err := common.MapProtoMessageToProtocolMessage(protoMessage)
+	require.NoError(t, err)
 	require.NotNil(t, convertedMessage)
 
 	convertedID, err := convertedMessage.MessageID()
@@ -78,11 +80,13 @@ func createComprehensiveMessage(t *testing.T) *protocol.Message {
 	message, err := protocol.NewMessage(
 		protocol.ChainSelector(1337),
 		protocol.ChainSelector(2337),
-		protocol.Nonce(12345),
+		protocol.SequenceNumber(12345),
 		onRamp,
 		offRamp,
 		25,
 		300_000,
+		300_000,            // ccipReceiveGasLimit
+		protocol.Bytes32{}, // ccvAndExecutorHash
 		sender,
 		receiver,
 		destBlob,
@@ -99,7 +103,7 @@ func assertMessagesEqual(t *testing.T, expected, actual *protocol.Message) {
 	assert.Equal(t, expected.Version, actual.Version)
 	assert.Equal(t, expected.SourceChainSelector, actual.SourceChainSelector)
 	assert.Equal(t, expected.DestChainSelector, actual.DestChainSelector)
-	assert.Equal(t, expected.Nonce, actual.Nonce)
+	assert.Equal(t, expected.SequenceNumber, actual.SequenceNumber)
 	assert.Equal(t, expected.OnRampAddressLength, actual.OnRampAddressLength)
 	assert.Equal(t, expected.OnRampAddress, actual.OnRampAddress)
 	assert.Equal(t, expected.OffRampAddressLength, actual.OffRampAddressLength)

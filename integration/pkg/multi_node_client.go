@@ -35,9 +35,9 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *protocol
 	finalizedBlockOffset := ptr[uint32](16)
 	enforceRepeatableRead := ptr(true)
 	deathDeclarationDelay := time.Second * 3
-	noNewFinalizedBlocksThreshold := time.Second * 120
+	noNewFinalizedBlocksThreshold := 15 * time.Minute // High value - allows slow chains and manual mining
 	finalizedBlockPollInterval := time.Second * 10
-	newHeadsPollInterval := time.Second * 4
+	newHeadsPollInterval := time.Second * 1
 	confirmationTimeout := time.Second * 60
 	wsURL, _ := blockchainInfo.GetInternalWebsocketEndpoint()
 	httpURL, _ := blockchainInfo.GetInternalRPCEndpoint()
@@ -51,7 +51,7 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *protocol
 	finalityDepth := ptr(uint32(10))
 	safeDepth := ptr(uint32(6))
 	finalityTagEnabled := ptr(true)
-	lggr.Infow("🔍 Testing multinode chain client", "chainSelector", blockchainInfo.ChainID, "wsURL", wsURL, "httpURL", httpURL)
+	lggr.Infow("Testing multinode chain client", "chainSelector", blockchainInfo.ChainID, "wsURL", wsURL, "httpURL", httpURL)
 	chainCfg, nodePool, nodes, _ := client.NewClientConfigs(selectionMode, leaseDuration, chainTypeStr, nodeConfigs,
 		pollFailureThreshold, pollInterval, syncThreshold, nodeIsSyncingEnabled, noNewHeadsThreshold, finalityDepth,
 		finalityTagEnabled, finalizedBlockOffset, enforceRepeatableRead, deathDeclarationDelay, noNewFinalizedBlocksThreshold,
@@ -66,7 +66,7 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *protocol
 	}
 	// defer chainClient.Close()
 
-	lggr.Infow("✅ Multinode chain client created successfully",
+	lggr.Infow("Multinode chain client created successfully",
 		"chainID", blockchainInfo.ChainID,
 		"nodeStates", chainClient.NodeStates())
 
@@ -82,11 +82,11 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *protocol
 		lggr.Errorw("Failed to get latest block", "error", err)
 		return nil
 	}
-	lggr.Infow("📦 Latest block (via multinode)", "blockNumber", latestBlock)
+	lggr.Infow("Latest block (via multinode)", "blockNumber", latestBlock)
 
 	// Test 2: Get chain ID
 	chainID := chainClient.ConfiguredChainID()
-	lggr.Infow("🔗 Chain ID", "chainID", chainID)
+	lggr.Infow("Chain ID", "chainID", chainID)
 
 	// Test 3: Get a specific block header
 	header, err := chainClient.HeadByNumber(ctx, latestBlock)
@@ -94,11 +94,11 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *protocol
 		lggr.Errorw("Failed to get block header", "error", err)
 		return nil
 	}
-	lggr.Infow("📋 Block header",
+	lggr.Infow("Block header",
 		"number", header.Number,
 		"hash", header.Hash.Hex(),
 		"timestamp", header.Timestamp)
 
-	lggr.Infow("✅ Multinode chain client tests completed successfully!", "chainID", blockchainInfo.ChainID)
+	lggr.Infow("Multinode chain client tests completed successfully!", "chainID", blockchainInfo.ChainID)
 	return chainClient
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -28,11 +29,9 @@ func TestMockReader_EmitsMessagesImmediately(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, responses, 1)
 		assert.NotNil(t, responses[0].Timestamp)
-		assert.Equal(t, protocol.Nonce(i+1), responses[0].Data.Nonce)
+		assert.Equal(t, protocol.SequenceNumber(i+1), responses[0].Data.Message.SequenceNumber)
 	}
 
-	// Should signal disconnect after max messages
-	assert.True(t, reader.ShouldDisconnect())
 	assert.Equal(t, 3, reader.GetMessagesEmitted())
 	assert.Equal(t, 3, reader.GetCallCount())
 }
@@ -96,9 +95,17 @@ func TestMockReader_ReturnsErrorAfterCalls(t *testing.T) {
 
 func TestMockReader_CustomMessageGenerator(t *testing.T) {
 	customNonce := protocol.Nonce(999)
-	customGenerator := func(callCount int) protocol.CCVData {
-		return protocol.CCVData{
-			Nonce: customNonce,
+	customGenerator := func(callCount int) common.VerifierResultWithMetadata {
+		return common.VerifierResultWithMetadata{
+			VerifierResult: protocol.VerifierResult{
+				Message: protocol.Message{
+					SequenceNumber: protocol.SequenceNumber(customNonce),
+				},
+			},
+			Metadata: common.VerifierResultMetadata{
+				IngestionTimestamp:   time.Now(),
+				AttestationTimestamp: time.Now(),
+			},
 		}
 	}
 
@@ -113,7 +120,7 @@ func TestMockReader_CustomMessageGenerator(t *testing.T) {
 	responses, err := reader.ReadCCVData(ctx)
 	require.NoError(t, err)
 	require.Len(t, responses, 1)
-	assert.Equal(t, customNonce, responses[0].Data.Nonce)
+	assert.Equal(t, protocol.SequenceNumber(customNonce), responses[0].Data.Message.SequenceNumber)
 }
 
 func TestMockReader_InfiniteMessages(t *testing.T) {
@@ -132,8 +139,6 @@ func TestMockReader_InfiniteMessages(t *testing.T) {
 		require.Len(t, responses, 1)
 	}
 
-	// Should not signal disconnect
-	assert.False(t, reader.ShouldDisconnect())
 	assert.Equal(t, 10, reader.GetMessagesEmitted())
 }
 
@@ -150,19 +155,16 @@ func TestMockReader_DisconnectAfterMaxMessages(t *testing.T) {
 	responses, err := reader.ReadCCVData(ctx)
 	require.NoError(t, err)
 	require.Len(t, responses, 1)
-	assert.False(t, reader.ShouldDisconnect())
 
-	// Read second message - should signal disconnect after this
+	// Read second message
 	responses, err = reader.ReadCCVData(ctx)
 	require.NoError(t, err)
 	require.Len(t, responses, 1)
-	assert.True(t, reader.ShouldDisconnect())
 
 	// Next call should return empty since max messages reached
 	responses, err = reader.ReadCCVData(ctx)
 	require.NoError(t, err)
 	require.Len(t, responses, 0)
-	assert.True(t, reader.ShouldDisconnect())
 }
 
 func TestMockReader_TimestampIncreases(t *testing.T) {
@@ -201,7 +203,7 @@ func TestMockReader_EmitsMultipleMessagesWhenTimeHasPassed(t *testing.T) {
 	responses, err := reader.ReadCCVData(ctx)
 	require.NoError(t, err)
 	require.Len(t, responses, 1)
-	assert.Equal(t, protocol.Nonce(1), responses[0].Data.Nonce)
+	assert.Equal(t, protocol.SequenceNumber(1), responses[0].Data.Message.SequenceNumber)
 
 	// Wait for 250ms (2.5 intervals)
 	time.Sleep(250 * time.Millisecond)
@@ -210,8 +212,8 @@ func TestMockReader_EmitsMultipleMessagesWhenTimeHasPassed(t *testing.T) {
 	responses, err = reader.ReadCCVData(ctx)
 	require.NoError(t, err)
 	require.Len(t, responses, 2)
-	assert.Equal(t, protocol.Nonce(2), responses[0].Data.Nonce)
-	assert.Equal(t, protocol.Nonce(3), responses[1].Data.Nonce)
+	assert.Equal(t, protocol.SequenceNumber(2), responses[0].Data.Message.SequenceNumber)
+	assert.Equal(t, protocol.SequenceNumber(3), responses[1].Data.Message.SequenceNumber)
 
 	// Verify timestamps are spaced correctly (100ms = 0.1 seconds in Unix timestamp)
 	// Since we're using UnixMilli() which gives seconds, the difference should be at least 0
@@ -245,7 +247,6 @@ func TestMockReader_MultipleMessagesRespectsMaxLimit(t *testing.T) {
 	require.Len(t, responses, 4)
 
 	assert.Equal(t, 5, reader.GetMessagesEmitted())
-	assert.True(t, reader.ShouldDisconnect())
 
 	// Next call should return empty
 	responses, err = reader.ReadCCVData(ctx)

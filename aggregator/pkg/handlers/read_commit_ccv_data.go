@@ -26,10 +26,10 @@ func (h *ReadCommitCCVNodeDataHandler) logger(ctx context.Context) logger.Sugare
 }
 
 // Handle processes the read request and retrieves the corresponding commit verification record.
-func (h *ReadCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.ReadCommitCCVNodeDataRequest) (*pb.ReadCommitCCVNodeDataResponse, error) {
+func (h *ReadCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.ReadCommitteeVerifierNodeResultRequest) (*pb.ReadCommitteeVerifierNodeResultResponse, error) {
 	if err := validateReadRequest(req); err != nil {
 		h.logger(ctx).Errorw("validation error", "error", err)
-		return &pb.ReadCommitCCVNodeDataResponse{}, status.Errorf(codes.InvalidArgument, "validation error: %v", err)
+		return &pb.ReadCommitteeVerifierNodeResultResponse{}, status.Errorf(codes.InvalidArgument, "validation error: %v", err)
 	}
 	ctx = scope.WithMessageID(ctx, req.GetMessageId())
 
@@ -48,8 +48,8 @@ func (h *ReadCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.ReadC
 
 	protoRecord := model.CommitVerificationRecordToProto(record)
 
-	return &pb.ReadCommitCCVNodeDataResponse{
-		CcvNodeData: protoRecord,
+	return &pb.ReadCommitteeVerifierNodeResultResponse{
+		CommitteeVerifierNodeResult: protoRecord,
 	}, nil
 }
 

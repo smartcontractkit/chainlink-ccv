@@ -2,10 +2,11 @@ with-expecter: true
 inpackage: true
 
 packages:
-    github.com/smartcontractkit/chainlink-ccv/common/pkg/cursedetector:
+    github.com/smartcontractkit/chainlink-ccv/common:
         config:
             dir: "{{.InterfaceDir}}"
         interfaces:
-            CurseDetector: {}
-            RMNCurseReader: {}
+            CurseChecker: {}
+            CurseCheckerService: {}
+            TimeProvider: {}
 

@@ -1,0 +1,118 @@
+name: Run CCV Load Test
+description: Reusable action for running CCV load tests
+
+inputs:
+  subtest:
+    description: 'The subtest to run'
+    required: true
+  timeout:
+    description: 'Test timeout duration'
+    required: true
+  ccv-iam-role:
+    description: 'AWS IAM role for CCV'
+    required: true
+  jd-registry:
+    description: 'JD registry ID'
+    required: true
+  jd-image:
+    description: 'JD Docker image'
+    required: true
+  env_name:
+    description: 'Environment name for CCV'
+    required: false
+    default: 'env-cl-16-ci.toml'
+  env_name_out:
+    description: 'Environment name for CCV'
+    required: false
+    default: 'env-cl-16-ci-out.toml'
+
+
+
+runs:
+  using: composite
+  steps:
+    - name: Enable S3 Cache for Self-Hosted Runners
+      uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
+
+    - name: Checkout code
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+    - name: Install Just
+      uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
+      with:
+        just-version: '1.40.0'
+
+    - name: Authenticate to AWS ECR
+      uses: ./.github/actions/aws-ecr-auth
+      with:
+        role-to-assume: ${{ inputs.ccv-iam-role }}
+        aws-region: us-east-1
+        registry-type: public
+    
+    - name: Authenticate to AWS ECR (JD)
+      uses: ./.github/actions/aws-ecr-auth
+      with:
+        role-to-assume: ${{ inputs.ccv-iam-role }}
+        aws-region: us-west-2
+        registry-type: private
+        registries: ${{ inputs.jd-registry }}
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        cache: true
+        go-version-file: build/devenv/go.mod
+        cache-dependency-path: build/devenv/go.sum
+
+    - name: Download Go dependencies
+      shell: bash
+      working-directory: build/devenv
+      run: go mod download
+
+    - name: Build Chainlink image
+      uses: ./.github/actions/build-cl
+
+    - name: Build Docker Images
+      shell: bash
+      working-directory: build/devenv
+      run: just build-docker-dev-ci
+      env:
+        DOCKER_BUILDKIT: 1
+
+    - name: Run CCV environment
+      shell: bash
+      working-directory: build/devenv
+      env:
+        JD_IMAGE: ${{ inputs.jd-image }}
+      run: |
+        cd cmd/ccv && go install . && cd -
+        ccv u ${{ inputs.env_name }} && ccv obs up
+
+    - name: Run load tests
+      id: load_test
+      shell: bash
+      working-directory: build/devenv/tests/e2e
+      run: |
+        set -o pipefail
+        LOAD_TEST_OUT_FILE=../../${{ inputs.env_name_out }} go test -v -timeout ${{ inputs.timeout }} -count=1 -run 'TestE2ELoad/${{ inputs.subtest }}'
+      continue-on-error: true
+
+    - name: Upload Logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: container-logs-${{ inputs.subtest }}
+        path: build/devenv/tests/e2e/logs
+        retention-days: 1
+
+    - name: Check test results
+      if: always() && steps.load_test.outcome == 'failure'
+      shell: bash
+      run: |
+        echo "Load tests failed."
+        exit 1

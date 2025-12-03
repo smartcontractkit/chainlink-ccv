@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"os"
 	"time"
 
 	"github.com/Masterminds/semver/v3"
@@ -14,10 +15,12 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/burn_mint_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
@@ -35,12 +38,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/token_admin_registry"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
-	rmn_remote_binding "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -87,14 +88,6 @@ const (
 
 var (
 	ccipMessageSentTopic = onramp.OnRampCCIPMessageSent{}.Topic()
-
-	// this is a hacky way to be able to programmatically generate the individual verifier
-	// signing addresses for each qualifier.
-	nodesPerCommittee = map[string]int{
-		DefaultCommitteeVerifierQualifier:   2,
-		SecondaryCommitteeVerifierQualifier: 2,
-		TertiaryCommitteeVerifierQualifier:  2,
-	}
 
 	tokenPoolVersions = []string{
 		"1.6.1",
@@ -170,16 +163,17 @@ func AllTokenCombinations() []TokenCombination {
 			expectedReceiptIssuers:  3, // default CCV, token pool, executor
 			expectedVerifierResults: 1, // default CCV
 		},
-		{ // 1.7.0 lock -> 1.7.0 release
-			sourcePoolType:          string(lock_release_token_pool.ContractType),
-			sourcePoolVersion:       "1.7.0",
-			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
-			destPoolType:            string(lock_release_token_pool.ContractType),
-			destPoolVersion:         "1.7.0",
-			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
-			expectedReceiptIssuers:  3, // default CCV, token pool, executor
-			expectedVerifierResults: 1, // default CCV
-		},
+		// TODO: Re-enable when chainlink-ccip repo adds ERC20LockBox deployment support
+		// { // 1.7.0 lock -> 1.7.0 release
+		// 	sourcePoolType:          string(lock_release_token_pool.ContractType),
+		// 	sourcePoolVersion:       "1.7.0",
+		// 	sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
+		// 	destPoolType:            string(lock_release_token_pool.ContractType),
+		// 	destPoolVersion:         "1.7.0",
+		// 	destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
+		// 	expectedReceiptIssuers:  3, // default CCV, token pool, executor
+		// 	expectedVerifierResults: 1, // default CCV
+		// },
 		{ // 1.7.0 burn -> 1.7.0 mint
 			sourcePoolType:          string(burn_mint_token_pool.ContractType),
 			sourcePoolVersion:       "1.7.0",
@@ -258,6 +252,18 @@ type CCIP17EVM struct {
 	ethClients             map[uint64]*ethclient.Client
 	onRampBySelector       map[uint64]*onramp.OnRamp
 	offRampBySelector      map[uint64]*offramp.OffRamp
+}
+
+// NewEmptyCCIP17EVM creates a new CCIP17EVM with a logger that logs to the console.
+func NewEmptyCCIP17EVM() *CCIP17EVM {
+	return &CCIP17EVM{
+		logger: log.
+			Output(zerolog.ConsoleWriter{Out: os.Stderr}).
+			Level(zerolog.DebugLevel).
+			With().
+			Fields(map[string]any{"component": "CCIP17EVM"}).
+			Logger(),
+	}
 }
 
 // NewCCIP17EVM creates new smart-contracts wrappers with utility functions for CCIP17EVM implementation.
@@ -433,7 +439,7 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq u
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("no onRamp for selector %d", from)
 	}
 
-	l.Info().Msg("Awaiting CCIPMessageSent event")
+	l.Info().Uint64("from", from).Uint64("to", to).Msg("Awaiting CCIPMessageSent event")
 
 	for {
 		select {
@@ -442,7 +448,7 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq u
 		case <-ticker.C:
 			filter, err := onRamp.FilterCCIPMessageSent(&bind.FilterOpts{}, []uint64{to}, []uint64{seq}, nil)
 			if err != nil {
-				l.Warn().Err(err).Msg("Failed to create filter")
+				l.Warn().Err(err).Str("onramp", onRamp.Address().Hex()).Msg("Failed to create filter")
 				continue
 			}
 			var eventFound *onramp.OnRampCCIPMessageSent
@@ -504,7 +510,7 @@ func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq u
 		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("no off ramp for selector %d", to)
 	}
 
-	l.Info().Uint64("srcChain", from).Uint64("destChain", to).Uint64("seqNo", seq).Msg("Awaiting ExecutionStateChanged event")
+	l.Info().Msg("Awaiting ExecutionStateChanged event")
 
 	for {
 		select {
@@ -727,15 +733,13 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 		operations.NewMemoryReporter(),
 	)
 
-	tokenAmounts := make([]routeroperations.EVMTokenAmount, 0, len(fields.TokenAmounts))
-	for _, tokenAmount := range fields.TokenAmounts {
-		tokenAmounts = append(tokenAmounts, routeroperations.EVMTokenAmount{
-			Token:  common.HexToAddress(tokenAmount.TokenAddress.String()),
-			Amount: tokenAmount.Amount,
-		})
-	}
-	if len(tokenAmounts) > 1 {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("only one token amount is supported")
+	// Even though it is called "tokenAmounts", but we only support one token amount.
+	var tokenAmounts []routeroperations.EVMTokenAmount
+	if fields.TokenAmount.Amount != nil {
+		tokenAmounts = []routeroperations.EVMTokenAmount{{
+			Token:  common.HexToAddress(fields.TokenAmount.TokenAddress.String()),
+			Amount: fields.TokenAmount.Amount,
+		}}
 	}
 
 	extraArgs := serializeExtraArgs(opts, destFamily)
@@ -901,7 +905,7 @@ func serializeExtraArgsV1(opts cciptestinterfaces.MessageOptions) []byte {
 		GasLimit *big.Int
 	}
 
-	packed, err := arguments.Pack(EVMExtraArgsV1{GasLimit: big.NewInt(int64(opts.GasLimit))})
+	packed, err := arguments.Pack(EVMExtraArgsV1{GasLimit: big.NewInt(int64(opts.ExecutionGasLimit))})
 	if err != nil {
 		panic(fmt.Sprintf("failed to pack extraArgs: %v", err))
 	}
@@ -932,7 +936,7 @@ func serializeExtraArgsV2(opts cciptestinterfaces.MessageOptions) []byte {
 	}
 
 	packed, err := arguments.Pack(GenericExtraArgsV2{
-		GasLimit:                 big.NewInt(int64(opts.GasLimit)),
+		GasLimit:                 big.NewInt(int64(opts.ExecutionGasLimit)),
 		AllowOutOfOrderExecution: opts.OutOfOrderExecution,
 	})
 	if err != nil {
@@ -946,7 +950,7 @@ func serializeExtraArgsV2(opts cciptestinterfaces.MessageOptions) []byte {
 func serializeExtraArgsV3(opts cciptestinterfaces.MessageOptions) []byte {
 	extraArgs, err := NewV3ExtraArgs(
 		opts.FinalityConfig,
-		opts.GasLimit,
+		opts.ExecutionGasLimit,
 		opts.Executor.String(),
 		opts.ExecutorArgs,
 		opts.TokenArgs,
@@ -1050,34 +1054,38 @@ func (m *CCIP17EVM) ConfigureNodes(ctx context.Context, bc *blockchain.Input) (s
 	), nil
 }
 
-// getCommitteeSignatureConfig returns the committee signature configuration for a given qualifier.
-// The signer addresses are programmatically generated in an identical to fashion to what is done in
-// NewEnvironment to avoid hardcoding hard-to-determine addresses in the code.
-func getCommitteeSignatureConfig(qualifier string) committee_verifier.SetSignatureConfigArgs {
-	numNodes, ok := nodesPerCommittee[qualifier]
-	if !ok {
-		panic(fmt.Sprintf("couldn't find verifier indexes for qualifier: %s", qualifier))
-	}
-	signerAddresses := make([]common.Address, 0, numNodes)
-	for i := range numNodes {
-		privKeyString := cciptestinterfaces.XXXNewVerifierPrivateKey(qualifier, i)
-		privateKeyBytes, err := commit.ReadPrivateKeyFromString(privKeyString)
-		if err != nil {
-			panic(fmt.Sprintf("failed to read private key: %v", err))
+func toCommitteeVerifierParams(committees []cciptestinterfaces.OnChainCommittees) []sequences.CommitteeVerifierParams {
+	params := make([]sequences.CommitteeVerifierParams, 0, len(committees))
+
+	toCommon := func(addrs [][]byte) []common.Address {
+		var result []common.Address
+		for _, addr := range addrs {
+			if len(addr) != common.AddressLength {
+				panic(fmt.Sprintf("invalid address length: %d", len(addr)))
+			}
+			result = append(result, common.BytesToAddress(addr))
 		}
-		_, addr, err := commit.NewECDSAMessageSigner(privateKeyBytes)
-		if err != nil {
-			panic(fmt.Sprintf("failed to create ECDSA message signer: %v", err))
-		}
-		signerAddresses = append(signerAddresses, common.BytesToAddress(addr[:]))
+		return result
 	}
-	return committee_verifier.SetSignatureConfigArgs{
-		Threshold: uint8(numNodes),
-		Signers:   signerAddresses,
+
+	// TODO: deploy the offchain verifiers that correspond to these contracts.
+	for _, c := range committees {
+		params = append(params, sequences.CommitteeVerifierParams{
+			Version: semver.MustParse(committee_verifier.Deploy.Version()),
+			// TODO: add mocked contract here
+			FeeAggregator: common.HexToAddress("0x01"),
+			SignatureConfigArgs: committee_verifier.SetSignatureConfigArgs{
+				Signers:   toCommon(c.Signers),
+				Threshold: c.Threshold,
+			},
+			Qualifier: c.CommitteeQualifier,
+		})
 	}
+
+	return params
 }
 
-func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64) (datastore.DataStore, error) {
+func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, committees []cciptestinterfaces.OnChainCommittees) (datastore.DataStore, error) {
 	l := m.logger
 	l.Info().Msg("Configuring contracts for selector")
 	l.Info().Any("Selector", selector).Msg("Deploying for chain selectors")
@@ -1110,34 +1118,12 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 					Version: semver.MustParse(rmn_remote.Deploy.Version()),
 				},
 				OffRamp: sequences.OffRampParams{
-					Version: semver.MustParse(offrampoperations.Deploy.Version()),
+					Version:              semver.MustParse(offrampoperations.Deploy.Version()),
+					GasForCallExactCheck: 5_000,
 				},
 				// Deploy multiple committee verifiers in order to test different receiver
 				// configurations.
-				CommitteeVerifier: []sequences.CommitteeVerifierParams{
-					{
-						Version: semver.MustParse(committee_verifier.Deploy.Version()),
-						// TODO: add mocked contract here
-						FeeAggregator:       common.HexToAddress("0x01"),
-						SignatureConfigArgs: getCommitteeSignatureConfig(DefaultCommitteeVerifierQualifier),
-						Qualifier:           DefaultCommitteeVerifierQualifier,
-					},
-					// TODO: deploy the offchain verifiers that correspond to these contracts.
-					{
-						Version: semver.MustParse(committee_verifier.Deploy.Version()),
-						// TODO: add mocked contract here
-						FeeAggregator:       common.HexToAddress("0x01"),
-						SignatureConfigArgs: getCommitteeSignatureConfig(SecondaryCommitteeVerifierQualifier),
-						Qualifier:           SecondaryCommitteeVerifierQualifier,
-					},
-					{
-						Version: semver.MustParse(committee_verifier.Deploy.Version()),
-						// TODO: add mocked contract here
-						FeeAggregator:       common.HexToAddress("0x01"),
-						SignatureConfigArgs: getCommitteeSignatureConfig(TertiaryCommitteeVerifierQualifier),
-						Qualifier:           TertiaryCommitteeVerifierQualifier,
-					},
-				},
+				CommitteeVerifiers: toCommitteeVerifierParams(committees),
 				OnRamp: sequences.OnRampParams{
 					Version:       semver.MustParse(onrampoperations.Deploy.Version()),
 					FeeAggregator: common.HexToAddress("0x01"),
@@ -1160,6 +1146,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 					USDPerLINK:                     usdPerLink,
 					USDPerWETH:                     usdPerWeth,
 				},
+				// TODO: How to generate this from the committees param?
 				MockReceivers: []sequences.MockReceiverParams{
 					{
 						// single required verifier (default), no optional verifiers, no optional threshold
@@ -1412,7 +1399,29 @@ func (m *CCIP17EVM) configureTokenForTransfer(
 	return nil
 }
 
-func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64) error {
+func toComitteeVerifier(selector uint64, committees []cciptestinterfaces.OnChainCommittees) []adapters.CommitteeVerifier[datastore.AddressRef] {
+	committeeVerifiers := make([]adapters.CommitteeVerifier[datastore.AddressRef], 0, len(committees))
+	for _, committee := range committees {
+		committeeVerifiers = append(committeeVerifiers, adapters.CommitteeVerifier[datastore.AddressRef]{
+			Implementation: datastore.AddressRef{
+				Type:          datastore.ContractType(committee_verifier.ContractType),
+				Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+				ChainSelector: selector,
+				Qualifier:     committee.CommitteeQualifier,
+			},
+			Resolver: datastore.AddressRef{
+				Type:          datastore.ContractType(committee_verifier.ResolverType),
+				Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+				ChainSelector: selector,
+				Qualifier:     committee.CommitteeQualifier,
+			},
+		})
+	}
+	return committeeVerifiers
+}
+
+// TODO: How to generate all the default/secondary/tertiary things from the committee param?
+func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, committees []cciptestinterfaces.OnChainCommittees) error {
 	l := m.logger
 	l.Info().Uint64("FromSelector", selector).Any("ToSelectors", remoteSelectors).Msg("Connecting contracts with selectors")
 	bundle := operations.NewBundle(
@@ -1423,7 +1432,6 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 	e.OperationsBundle = bundle
 
 	remoteChains := make(map[uint64]adapters.RemoteChainConfig[datastore.AddressRef, datastore.AddressRef])
-
 	for _, rs := range remoteSelectors {
 		remoteChains[rs] = adapters.RemoteChainConfig[datastore.AddressRef, datastore.AddressRef]{
 			AllowTrafficFrom: true,
@@ -1440,7 +1448,7 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 					Type:          datastore.ContractType(committee_verifier.ResolverProxyType),
 					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
 					ChainSelector: selector,
-					Qualifier:     DefaultCommitteeVerifierQualifier,
+					Qualifier:     DefaultCommitteeVerifierQualifier, // TODO: pull this from committees param?
 				},
 			},
 			// LaneMandatedInboundCCVs: []datastore.AddressRef{},
@@ -1449,7 +1457,7 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 					Type:          datastore.ContractType(committee_verifier.ResolverProxyType),
 					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
 					ChainSelector: selector,
-					Qualifier:     DefaultCommitteeVerifierQualifier,
+					Qualifier:     DefaultCommitteeVerifierQualifier, // TODO: pull this from committees param?
 				},
 			},
 			// LaneMandatedOutboundCCVs: []datastore.AddressRef{},
@@ -1474,6 +1482,8 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 				DefaultTxGasLimit:           200_000,
 				NetworkFeeUSDCents:          10,
 				ChainFamilySelector:         [4]byte{0x28, 0x12, 0xd5, 0x2c}, // EVM
+				LinkFeeMultiplierPercent:    90,
+				USDPerUnitGas:               big.NewInt(1e6),
 			},
 			ExecutorDestChainConfig: adapters.ExecutorDestChainConfig{
 				Enabled:     true,
@@ -1508,50 +1518,7 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 					Type:    datastore.ContractType(routeroperations.ContractType),
 					Version: semver.MustParse(routeroperations.Deploy.Version()),
 				},
-				CommitteeVerifiers: []adapters.CommitteeVerifier[datastore.AddressRef]{
-					{
-						Implementation: datastore.AddressRef{
-							Type:          datastore.ContractType(committee_verifier.ContractType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     DefaultCommitteeVerifierQualifier,
-						},
-						Resolver: datastore.AddressRef{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     DefaultCommitteeVerifierQualifier,
-						},
-					},
-					{
-						Implementation: datastore.AddressRef{
-							Type:          datastore.ContractType(committee_verifier.ContractType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     SecondaryCommitteeVerifierQualifier,
-						},
-						Resolver: datastore.AddressRef{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     SecondaryCommitteeVerifierQualifier,
-						},
-					},
-					{
-						Implementation: datastore.AddressRef{
-							Type:          datastore.ContractType(committee_verifier.ContractType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     TertiaryCommitteeVerifierQualifier,
-						},
-						Resolver: datastore.AddressRef{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     TertiaryCommitteeVerifierQualifier,
-						},
-					},
-				},
+				CommitteeVerifiers: toComitteeVerifier(selector, committees),
 			},
 		},
 	})
@@ -1579,12 +1546,44 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 	return nil
 }
 
+func (m *CCIP17EVM) FundAddresses(ctx context.Context, bc *blockchain.Input, addresses []protocol.UnknownAddress, nativeAmount *big.Int) error {
+	client, _, _, err := ETHClient(ctx, bc.Out.Nodes[0].ExternalWSUrl, &GasSettings{
+		FeeCapMultiplier: 2,
+		TipCapMultiplier: 2,
+	})
+	if err != nil {
+		return fmt.Errorf("could not create basic eth client: %w", err)
+	}
+	chainInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(bc.ChainID, chainsel.FamilyEVM)
+	if err != nil {
+		return fmt.Errorf("could not get chain details: %w", err)
+	}
+	for _, addr := range addresses {
+		a, _ := nativeAmount.Float64()
+		addrStr := common.BytesToAddress(addr).Hex()
+		m.logger.Info().Uint64("ChainSelector", chainInfo.ChainSelector).Str("Address", addrStr).Msg("Funding address")
+		if err := FundNodeEIP1559(ctx, client, getNetworkPrivateKey(), addrStr, a); err != nil {
+			return fmt.Errorf("failed to fund address %s: %w", addrStr, err)
+		}
+		bal, err := client.BalanceAt(ctx, common.HexToAddress(addrStr), nil)
+		if err != nil {
+			return fmt.Errorf("failed to get balance: %w", err)
+		}
+		m.logger.Info().Uint64("ChainSelector", chainInfo.ChainSelector).Str("Address", addrStr).Int64("Balance", bal.Int64()).Msg("Address balance")
+	}
+	return nil
+}
+
 func (m *CCIP17EVM) FundNodes(ctx context.Context, ns []*simple_node_set.Input, bc *blockchain.Input, linkAmount, nativeAmount *big.Int) error {
 	l := m.logger
 	l.Info().Msg("Funding CL nodes with ETH and LINK")
-	nodeClients, err := clclient.New(ns[0].Out.CLNodes)
-	if err != nil {
-		return fmt.Errorf("connecting to CL nodes: %w", err)
+	nodeClients := make([]*clclient.ChainlinkClient, 0)
+	for _, n := range ns {
+		nc, err := clclient.New(n.Out.CLNodes)
+		if err != nil {
+			return fmt.Errorf("connecting to CL nodes: %w", err)
+		}
+		nodeClients = append(nodeClients, nc...)
 	}
 	ethKeyAddressesSrc := make([]string, 0)
 	for i, nc := range nodeClients {
@@ -1675,122 +1674,98 @@ func (m *CCIP17EVM) fundLockReleaseTokenPool(
 	return nil
 }
 
-// ============================================================================
-// RMN Curse Operations
-// ============================================================================
-
-// getRMNRemoteAddress returns the RMN Remote contract address for a given chain.
-func (m *CCIP17EVM) getRMNRemoteAddress(chainSelector uint64) (common.Address, error) {
-	rmnRemoteRef, err := m.e.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(
-			chainSelector,
-			datastore.ContractType(rmn_remote.ContractType),
-			rmn_remote.Version,
-			"",
-		),
-	)
-	if err != nil {
-		return common.Address{}, fmt.Errorf("failed to get RMN Remote address for chain %d: %w", chainSelector, err)
-	}
-	return common.HexToAddress(rmnRemoteRef.Address), nil
-}
-
-// ApplyCurse applies curses to the RMN Remote contract on a given chain.
-// The subjects parameter contains the curse subjects (either chain selectors or global curse).
-func (m *CCIP17EVM) ApplyCurse(ctx context.Context, chainSelector uint64, subjects [][16]byte) error {
-	rmnRemoteAddr, err := m.getRMNRemoteAddress(chainSelector)
-	if err != nil {
-		return err
-	}
-
-	ethClient, ok := m.ethClients[chainSelector]
+func (m *CCIP17EVM) ManuallyExecuteMessage(
+	ctx context.Context,
+	message protocol.Message,
+	gasLimit uint64,
+	ccvs []protocol.UnknownAddress,
+	verifierResults [][]byte,
+) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
+	destChainSelector := uint64(message.DestChainSelector)
+	offRamp, ok := m.offRampBySelector[destChainSelector]
 	if !ok {
-		return fmt.Errorf("eth client not found for chain %d", chainSelector)
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("no off ramp for selector %d", destChainSelector)
 	}
-
-	rmnRemote, err := rmn_remote_binding.NewRMNRemote(rmnRemoteAddr, ethClient)
+	privateKeyString := getNetworkPrivateKey()
+	privKey, err := crypto.HexToECDSA(privateKeyString)
 	if err != nil {
-		return fmt.Errorf("failed to create RMN Remote contract binding: %w", err)
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to parse private key: %w", err)
 	}
-
-	// Get deployer key for transaction signing
-	txOpts := m.e.BlockChains.EVMChains()[chainSelector].DeployerKey
-	if txOpts == nil {
-		return fmt.Errorf("deployer key not found for chain %d", chainSelector)
-	}
-
-	// Set context for transaction
-
-	// Call Curse method
-	tx, err := rmnRemote.Curse0(txOpts, subjects)
+	chainID, err := m.ethClients[destChainSelector].ChainID(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to call Curse on RMN Remote at %s: %w", rmnRemoteAddr.Hex(), err)
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to get chain ID: %w", err)
 	}
 
-	// Wait for transaction receipt
-	receipt, err := bind.WaitMined(ctx, ethClient, tx.Hash())
+	transactOpts := bind.NewKeyedTransactor(privKey, chainID)
+	transactOpts.GasLimit = gasLimit
+
+	encodedMsg, err := message.Encode()
 	if err != nil {
-		return fmt.Errorf("failed to wait for curse transaction: %w", err)
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to encode message: %w", err)
+	}
+
+	ccvAddresses := make([]common.Address, 0, len(ccvs))
+	for _, ccv := range ccvs {
+		ccvAddresses = append(ccvAddresses, common.HexToAddress(ccv.String()))
+	}
+
+	results := make([]string, 0, len(verifierResults))
+	for _, result := range verifierResults {
+		results = append(results, hexutil.Encode(result))
+	}
+	m.logger.Info().
+		Str("MessageID", message.MustMessageID().String()).
+		Any("Message", message).
+		Any("CCVs", ccvAddresses).
+		Int("NumVerifierResults", len(verifierResults)).
+		Strs("VerifierResults", results).
+		Uint64("ChainSelector", destChainSelector).
+		Msg("Executing message")
+
+	tx, err := offRamp.Execute(&bind.TransactOpts{
+		From:     transactOpts.From,
+		Signer:   transactOpts.Signer,
+		Context:  ctx,
+		GasLimit: gasLimit,
+	}, encodedMsg, ccvAddresses, verifierResults)
+	if err != nil {
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to execute off ramp: %w", err)
+	}
+
+	receipt, err := bind.WaitMined(ctx, m.ethClients[destChainSelector], tx.Hash())
+	if err != nil {
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to wait for execution transaction to be mined: %w", err)
 	}
 	if receipt.Status != types.ReceiptStatusSuccessful {
-		return fmt.Errorf("curse transaction failed")
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("execution transaction failed with status: %d", receipt.Status)
+	}
+
+	// fetch the event from the receipt's logs
+	topic := offramp.OffRampExecutionStateChanged{}.Topic()
+	var event cciptestinterfaces.ExecutionStateChangedEvent
+	for _, lg := range receipt.Logs {
+		if lg.Address == offRamp.Address() &&
+			lg.Topics[0] == topic {
+			parsedLog, err := offRamp.ParseExecutionStateChanged(*lg)
+			if err != nil {
+				m.logger.Warn().Err(err).Msg("Failed to parse execution state changed event")
+				continue
+			}
+			event = cciptestinterfaces.ExecutionStateChangedEvent{
+				MessageID:      parsedLog.MessageId,
+				SequenceNumber: parsedLog.SequenceNumber,
+				State:          cciptestinterfaces.MessageExecutionState(parsedLog.State),
+				ReturnData:     parsedLog.ReturnData,
+			}
+			break
+		}
 	}
 
 	m.logger.Info().
-		Uint64("chain", chainSelector).
-		Str("tx", tx.Hash().Hex()).
-		Int("numSubjects", len(subjects)).
-		Msg("Applied curse on chain")
+		Str("TxHash", tx.Hash().Hex()).
+		Uint64("ChainSelector", destChainSelector).
+		Any("Event", event).
+		Msg("Execution transaction mined")
 
-	return nil
-}
-
-// ApplyUncurse removes curses from the RMN Remote contract on a given chain.
-// The subjects parameter contains the curse subjects to remove (either chain selectors or global curse).
-func (m *CCIP17EVM) ApplyUncurse(ctx context.Context, chainSelector uint64, subjects [][16]byte) error {
-	rmnRemoteAddr, err := m.getRMNRemoteAddress(chainSelector)
-	if err != nil {
-		return err
-	}
-
-	ethClient, ok := m.ethClients[chainSelector]
-	if !ok {
-		return fmt.Errorf("eth client not found for chain %d", chainSelector)
-	}
-
-	rmnRemote, err := rmn_remote_binding.NewRMNRemote(rmnRemoteAddr, ethClient)
-	if err != nil {
-		return fmt.Errorf("failed to create RMN Remote contract binding: %w", err)
-	}
-
-	// Get deployer key for transaction signing
-	txOpts := m.e.BlockChains.EVMChains()[chainSelector].DeployerKey
-	if txOpts == nil {
-		return fmt.Errorf("deployer key not found for chain %d", chainSelector)
-	}
-
-	// Set context for transaction
-
-	// Call Uncurse method
-	tx, err := rmnRemote.Uncurse0(txOpts, subjects)
-	if err != nil {
-		return fmt.Errorf("failed to call Uncurse on RMN Remote at %s: %w", rmnRemoteAddr.Hex(), err)
-	}
-
-	// Wait for transaction receipt
-	receipt, err := bind.WaitMined(ctx, ethClient, tx.Hash())
-	if err != nil {
-		return fmt.Errorf("failed to wait for uncurse transaction: %w", err)
-	}
-	if receipt.Status != types.ReceiptStatusSuccessful {
-		return fmt.Errorf("uncurse transaction failed")
-	}
-
-	m.logger.Info().
-		Uint64("chain", chainSelector).
-		Str("tx", tx.Hash().Hex()).
-		Int("numSubjects", len(subjects)).
-		Msg("Applied uncurse on chain")
-
-	return nil
+	return event, nil
 }

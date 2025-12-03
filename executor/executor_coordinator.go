@@ -1,7 +1,6 @@
 package executor
 
 import (
-	"container/heap"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/message_heap"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -27,8 +27,10 @@ type Coordinator struct {
 	monitoring         Monitoring
 	ccvDataCh          chan MessageWithCCVData
 	cancel             context.CancelFunc
-	delayedMessageHeap *message_heap.MessageHeap
+	delayedMessageHeap message_heap.MessageHeap
 	running            atomic.Bool
+	expiryDuration     time.Duration
+	timeProvider       common.TimeProvider
 }
 
 // NewCoordinator creates a new executor coordinator.
@@ -38,6 +40,8 @@ func NewCoordinator(
 	messageSubscriber MessageSubscriber,
 	leaderElector LeaderElector,
 	monitoring Monitoring,
+	expiryDuration time.Duration,
+	timeProvider common.TimeProvider,
 ) (*Coordinator, error) {
 	ec := &Coordinator{
 		lggr:              lggr,
@@ -48,6 +52,8 @@ func NewCoordinator(
 		ccvDataCh:         make(chan MessageWithCCVData, 100),
 		// cancel and delayedMessageHeap are initialized in Start()
 		// running, wg, and services.StateMachine default initialization is fine.
+		expiryDuration: expiryDuration,
+		timeProvider:   timeProvider,
 	}
 
 	if err := ec.validate(); err != nil {
@@ -59,10 +65,9 @@ func NewCoordinator(
 
 func (ec *Coordinator) Start(ctx context.Context) error {
 	return ec.StartOnce("executor.Coordinator", func() error {
-		c, cancel := context.WithCancel(ctx)
+		c, cancel := context.WithCancel(context.Background())
 		ec.cancel = cancel
-		ec.delayedMessageHeap = &message_heap.MessageHeap{}
-		heap.Init(ec.delayedMessageHeap)
+		ec.delayedMessageHeap = *message_heap.NewMessageHeap()
 
 		ec.running.Store(true)
 		ec.wg.Go(func() {
@@ -124,7 +129,8 @@ func (ec *Coordinator) run(ctx context.Context) {
 				ec.lggr.Errorw("error reading from ccv result streamer", "error", streamResult.Error)
 			}
 
-			for _, msg := range streamResult.Messages {
+			for _, msgWithMetadata := range streamResult.Messages {
+				msg := msgWithMetadata.Message
 				err := ec.executor.CheckValidMessage(ctx, msg)
 				if err != nil {
 					ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)
@@ -138,36 +144,76 @@ func (ec *Coordinator) run(ctx context.Context) {
 					continue
 				}
 
-				// get message delay from leader elector
-				readyTimestamp := ec.leaderElector.GetReadyTimestamp(id, time.Now().Unix())
+				// get message delay from leader elector using indexer's ingestion timestamp
+				readyTimestamp := ec.leaderElector.GetReadyTimestamp(
+					id,
+					msg.DestChainSelector,
+					msgWithMetadata.Metadata.IngestionTimestamp)
 
-				heap.Push(ec.delayedMessageHeap, &message_heap.MessageWithTimestamp{
-					Payload:   &msg,
-					ReadyTime: readyTimestamp,
+				ec.lggr.Infow("pushing message to delayed heap",
+					"messageID", id,
+					"ingestionTimestamp", msgWithMetadata.Metadata.IngestionTimestamp,
+					"readyTimestamp", readyTimestamp,
+				)
+
+				ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
+					Message:       &msg,
+					ReadyTime:     readyTimestamp,
+					ExpiryTime:    readyTimestamp.Add(ec.expiryDuration),
+					RetryInterval: ec.leaderElector.GetRetryDelay(msg.DestChainSelector),
+					MessageID:     id,
 				})
 			}
 		case <-ticker.C:
-			// todo: get this current time from a single source across all executors
-			currentTime := time.Now().Unix()
+			currentTime := ec.timeProvider.GetTime()
+
+			// Process all messages that are ready to be processed.
 			readyMessages := ec.delayedMessageHeap.PopAllReady(currentTime)
-			for _, message := range readyMessages {
+			ec.lggr.Debugw("found messages ready for processing",
+				"count", len(readyMessages),
+				"currentTime", currentTime.String(),
+				"readyMessages", readyMessages,
+			)
+			for _, payload := range readyMessages {
+				if currentTime.After(payload.ExpiryTime) {
+					ec.lggr.Infow("message has expired", "messageID", payload.MessageID)
+					continue
+				}
+				// TODO: use a worker pool here to avoid unbounded memory allocation
 				go func() {
-					message := message
-					id, _ := message.MessageID() // can we make this less bad?
+					message, currentTime, id := *payload.Message, currentTime, payload.MessageID
+
 					ec.lggr.Infow("processing message with ID", "messageID", id)
-					err := ec.executor.AttemptExecuteMessage(ctx, message)
-					if errors.Is(err, ErrMsgAlreadyExecuted) {
-						ec.lggr.Infow("message already executed, skipping", "messageID", id)
-						return
-					} else if errors.Is(err, ErrInsufficientVerifiers) {
-						ec.lggr.Infow("not enough verifiers to execute message, will wait until next notification", "messageID", id, "error", err)
-						return
-					} else if err != nil {
-						ec.lggr.Errorw("failed to process message", "messageID", id, "error", err)
-						ec.monitoring.Metrics().IncrementMessagesProcessingFailed(ctx)
-						return
+					messageStatus, err := ec.executor.GetMessageStatus(ctx, message)
+					if err != nil {
+						ec.lggr.Errorw("failed to check message status", "messageID", id, "error", err)
 					}
-					ec.monitoring.Metrics().IncrementMessagesProcessed(ctx)
+
+					if messageStatus.ShouldRetry {
+						// todo: add exponential backoff here
+						retryTime := currentTime.Add(payload.RetryInterval)
+						ec.lggr.Infow("message should be retried, putting back in heap", "messageID", id)
+						ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
+							Message:       &message,
+							ReadyTime:     retryTime,
+							ExpiryTime:    payload.ExpiryTime,
+							RetryInterval: payload.RetryInterval,
+							MessageID:     id,
+						})
+					}
+					if messageStatus.ShouldExecute {
+						ec.lggr.Infow("attempting to execute message", "messageID", id)
+						err = ec.executor.AttemptExecuteMessage(ctx, message)
+						if errors.Is(err, ErrInsufficientVerifiers) {
+							ec.lggr.Infow("not enough verifiers to execute message, will wait until next notification", "messageID", id, "error", err)
+							return
+						} else if err != nil {
+							ec.lggr.Errorw("failed to process message", "messageID", id, "error", err)
+							ec.monitoring.Metrics().IncrementMessagesProcessingFailed(ctx)
+							return
+						}
+						ec.monitoring.Metrics().IncrementMessagesProcessed(ctx)
+					}
 				}()
 			}
 		}

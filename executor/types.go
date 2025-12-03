@@ -8,8 +8,8 @@ import (
 )
 
 var (
-	ErrMsgAlreadyExecuted    = fmt.Errorf("message already executed")
 	ErrInsufficientVerifiers = fmt.Errorf("insufficient verifiers for message")
+	NtpServer                = "time.google.com"
 )
 
 type AbstractAggregatedReport struct {
@@ -42,7 +42,7 @@ type ContractAddresses map[string]map[uint64]string
 
 // MessageWithCCVData is a struct that represents the data in between the indexer and executor.
 type MessageWithCCVData struct {
-	CCVData           []protocol.CCVData
+	CCVData           []protocol.VerifierResult
 	Message           protocol.Message
 	VerifiedTimestamp int64
 }
@@ -51,4 +51,23 @@ type CCVAddressInfo struct {
 	RequiredCCVs      []protocol.UnknownAddress `json:"required_ccvs"`
 	OptionalCCVs      []protocol.UnknownAddress `json:"optional_ccvs"`
 	OptionalThreshold uint8                     `json:"optional_threshold"`
+}
+
+type MessageExecutionState uint8
+
+// Sourced from the solidity contract.
+// Reference here if changes are needed.
+// https://github.com/smartcontractkit/chainlink-ccip/blob/develop/chains/evm/contracts/libraries/Internal.sol#L148.
+const (
+	UNTOUCHED MessageExecutionState = iota
+	IN_PROGRESS
+	SUCCESS
+	FAILURE
+)
+
+// MessageStatusResults is the translation of onchain execution state to executor's business logic behavior.
+// NonEVMs which have different contracts and onchain behavior will need special handling.
+type MessageStatusResults struct {
+	ShouldRetry   bool
+	ShouldExecute bool
 }

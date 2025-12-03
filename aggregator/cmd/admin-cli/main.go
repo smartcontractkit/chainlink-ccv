@@ -133,11 +133,11 @@ func runReadCommand() error {
 		}
 	}()
 
-	client := pb.NewAggregatorClient(conn)
+	client := pb.NewCommitteeVerifierClient(conn)
 	ctx := context.Background()
 
 	// Create authenticated context
-	authCtx, err := createAuthenticatedContextWithOverride(ctx, pb.Aggregator_ReadChainStatus_FullMethodName, &pb.ReadChainStatusRequest{}, targetClient)
+	authCtx, err := createAuthenticatedContextWithOverride(ctx, pb.CommitteeVerifier_ReadChainStatus_FullMethodName, &pb.ReadChainStatusRequest{}, targetClient)
 	if err != nil {
 		return fmt.Errorf("failed to create authenticated context: %w", err)
 	}
@@ -172,7 +172,7 @@ func runWriteCommand() error {
 		}
 	}()
 
-	client := pb.NewAggregatorClient(conn)
+	client := pb.NewCommitteeVerifierClient(conn)
 	ctx := context.Background()
 
 	// Parse chain selector
@@ -199,7 +199,7 @@ func runWriteCommand() error {
 	}
 
 	// Create authenticated context with admin override
-	authCtx, err := createAuthenticatedContextWithOverride(ctx, pb.Aggregator_WriteChainStatus_FullMethodName, req, targetClient)
+	authCtx, err := createAuthenticatedContextWithOverride(ctx, pb.CommitteeVerifier_WriteChainStatus_FullMethodName, req, targetClient)
 	if err != nil {
 		return fmt.Errorf("failed to create authenticated context: %w", err)
 	}

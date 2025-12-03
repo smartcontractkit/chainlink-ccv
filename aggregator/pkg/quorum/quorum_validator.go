@@ -1,7 +1,6 @@
 package quorum
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
@@ -17,8 +16,8 @@ import (
 )
 
 type EVMQuorumValidator struct {
-	Committees map[string]*model.Committee
-	l          logger.SugaredLogger
+	Committee *model.Committee
+	l         logger.SugaredLogger
 }
 
 func (q *EVMQuorumValidator) logger(ctx context.Context) logger.SugaredLogger {
@@ -31,10 +30,15 @@ func (q *EVMQuorumValidator) CheckQuorum(ctx context.Context, aggregatedReport *
 		return false, nil
 	}
 
-	_, quorumConfig, err := q.getQuorumConfig(protocol.ChainSelector(aggregatedReport.GetSourceChainSelector()), protocol.ChainSelector(aggregatedReport.GetDestinationSelector()), aggregatedReport.GetSourceVerifierAddress())
-	if err != nil {
-		q.logger(ctx).Errorf("Failed to get quorum config: %v", err)
-		return false, err
+	if q.Committee == nil {
+		q.logger(ctx).Error("committee config not found")
+		return false, fmt.Errorf("committee config not found")
+	}
+
+	quorumConfig, exists := q.Committee.GetQuorumConfig(aggregatedReport.GetDestinationSelector(), aggregatedReport.GetSourceChainSelector())
+	if !exists {
+		q.logger(ctx).Errorf("Failed to get quorum config for destination selector: %d, source selector: %d", aggregatedReport.GetDestinationSelector(), aggregatedReport.GetSourceChainSelector())
+		return false, fmt.Errorf("failed to get quorum config for destination selector: %d, source selector: %d", aggregatedReport.GetDestinationSelector(), aggregatedReport.GetSourceChainSelector())
 	}
 
 	if len(aggregatedReport.Verifications) < int(quorumConfig.Threshold) {
@@ -44,27 +48,24 @@ func (q *EVMQuorumValidator) CheckQuorum(ctx context.Context, aggregatedReport *
 
 	participantIDs := make(map[string]struct{})
 	for _, verification := range aggregatedReport.Verifications {
-		signers, _, err := q.ValidateSignature(ctx, verification)
+		signer, _, err := q.ValidateSignature(ctx, verification)
 		if err != nil {
 			q.logger(ctx).Errorw("Failed to validate signature: %v", err)
 			continue
 		}
-		if len(signers) == 0 {
-			q.logger(ctx).Warn("No valid signers found. Might be due to a config change")
+		if signer == nil {
+			q.logger(ctx).Warn("No valid signer found. Might be due to a config change")
 			continue
 		}
-		for _, signer := range signers {
-			participantIDs[signer.ParticipantID] = struct{}{}
-		}
+		participantIDs[string(signer.Address)] = struct{}{}
 	}
 
-	// Check if we have enough unique participant IDs to meet the quorum
 	if len(participantIDs) < int(quorumConfig.Threshold) {
-		q.logger(ctx).Debugf("Quorum not met: have %d unique participant IDs, need %d", len(participantIDs), quorumConfig.Threshold)
+		q.logger(ctx).Debugf("Quorum not met: have %d unique signer addresses, need %d", len(participantIDs), quorumConfig.Threshold)
 		return false, nil
 	}
 
-	q.logger(ctx).Debugf("Quorum met with %d unique participant IDs", len(participantIDs))
+	q.logger(ctx).Debugf("Quorum met with %d unique signer addresses", len(participantIDs))
 	return true, nil
 }
 
@@ -75,7 +76,7 @@ func (q *EVMQuorumValidator) DeriveAggregationKey(ctx context.Context, record *m
 		return "", err
 	}
 
-	hash, err := committee.NewSignableHash(messageID, record.BlobData)
+	hash, err := committee.NewSignableHash(messageID, record.CCVVersion)
 	if err != nil {
 		q.logger(ctx).Errorw("Failed to produce signed hash", "error", err)
 		return "", err
@@ -83,11 +84,9 @@ func (q *EVMQuorumValidator) DeriveAggregationKey(ctx context.Context, record *m
 	return hex.EncodeToString(hash[:]), nil
 }
 
-// ValidateSignature validates the signature of a commit verification record and returns the signers and the quorum config used.
-// It can return multiple signers from the same participant if they have multiple addresses in the config.
-func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *model.CommitVerificationRecord) ([]*model.IdentifierSigner, *model.QuorumConfig, error) {
+func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *model.CommitVerificationRecord) (*model.IdentifierSigner, *model.QuorumConfig, error) {
 	q.logger(ctx).Debug("Validating signature for report")
-	if record.CcvData == nil {
+	if record.Signature == nil {
 		q.logger(ctx).Error("Missing signature in report")
 		return nil, nil, fmt.Errorf("missing signature in report")
 	}
@@ -100,66 +99,55 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *mode
 		return nil, nil, err
 	}
 
-	hash, err := committee.NewSignableHash(messageID, record.BlobData)
+	hash, err := committee.NewSignableHash(messageID, record.CCVVersion)
 	if err != nil {
 		q.logger(ctx).Errorw("Failed to produce signed hash", "error", err)
 		return nil, nil, err
 	}
 
-	rs, ss, err := protocol.DecodeSignatures(record.CcvData)
+	r, s, _, err := protocol.DecodeSingleSignature(record.Signature)
 	if err != nil {
-		q.logger(ctx).Errorw("Failed to decode signatures", "error", err)
-		return nil, nil, err
+		q.logger(ctx).Errorw("Failed to decode single signature", "error", err)
+		return nil, nil, fmt.Errorf("failed to decode single signature: %w", err)
 	}
 
-	if len(rs) != len(ss) {
-		q.logger(ctx).Error("Mismatched signature lengths")
-		return nil, nil, fmt.Errorf("invalid signature format")
+	if q.Committee == nil {
+		q.logger(ctx).Error("committee config not found")
+		return nil, nil, fmt.Errorf("committee config not found")
 	}
 
-	committeeName, quorumConfig, err := q.getQuorumConfig(record.Message.SourceChainSelector, record.Message.DestChainSelector, record.SourceVerifierAddress)
+	quorumConfig, exists := q.Committee.GetQuorumConfig(uint64(message.DestChainSelector), uint64(message.SourceChainSelector))
+	if !exists {
+		q.logger(ctx).Errorf("Failed to get quorum config for destination selector: %d, source selector: %d", message.DestChainSelector, message.SourceChainSelector)
+		return nil, nil, fmt.Errorf("failed to get quorum config for destination selector: %d, source selector: %d", message.DestChainSelector, message.SourceChainSelector)
+	}
+
+	// All signatures are normalized to v=27 by SignV27, so we only need to try v=0
+	// (which corresponds to v=27 in the on-chain ecrecover context)
+	combined := append(r[:], s[:]...)
+	combined = append(combined, byte(0))
+	address, err := q.ecrecover(combined, hash[:])
 	if err != nil {
-		q.logger(ctx).Errorf("Failed to get quorum config: %v", err)
-		return nil, nil, err
+		q.logger(ctx).Debugw("Failed to recover address from signature", "error", err)
+		return nil, nil, fmt.Errorf("failed to recover address from signature: %w", err)
 	}
-	identifiedSigners := make([]*model.IdentifierSigner, 0, len(rs))
-	for i := range rs {
-		for vValue := byte(0); vValue <= 1; vValue++ {
-			combined := append(rs[i][:], ss[i][:]...)
-			combined = append(combined, vValue)
-			address, err := q.ecrecover(combined, hash[:])
-			if err != nil {
-				q.logger(ctx).Tracef("Failed to recover address from signature", "error", err)
-				continue
-			}
-			q.logger(ctx).Tracef("Recovered address: %s", address.Hex())
+	q.logger(ctx).Tracef("Recovered address: %s", address.Hex())
 
-			for _, signer := range quorumConfig.Signers {
-				for _, s := range signer.Addresses {
-					signerAddress := common.HexToAddress(s)
+	for _, signer := range quorumConfig.Signers {
+		signerAddress := common.HexToAddress(signer.Address)
 
-					if signerAddress == address {
-						q.logger(ctx).Infow("Recovered address from signature", "address", address.Hex())
-						identifiedSigners = append(identifiedSigners, &model.IdentifierSigner{
-							ParticipantID: signer.ParticipantID,
-							Address:       signerAddress.Bytes(),
-							SignatureR:    rs[i],
-							SignatureS:    ss[i],
-							CommitteeID:   committeeName,
-						})
-					}
-				}
-			}
+		if signerAddress == address {
+			q.logger(ctx).Infow("Recovered address from signature", "address", address.Hex())
+			return &model.IdentifierSigner{
+				Address:    signerAddress.Bytes(),
+				SignatureR: r,
+				SignatureS: s,
+			}, quorumConfig, nil
 		}
 	}
 
-	if len(identifiedSigners) == 0 {
-		q.logger(ctx).Debug("No valid signers found for the provided signature")
-		return nil, nil, fmt.Errorf("no valid signers found for the provided signature")
-	}
-
-	q.logger(ctx).Debugf("Successfully validated signatures with %d signers", len(identifiedSigners))
-	return identifiedSigners, quorumConfig, nil
+	q.logger(ctx).Debug("No valid signers found for the provided signature")
+	return nil, nil, fmt.Errorf("no valid signers found for the provided signature")
 }
 
 func (q *EVMQuorumValidator) ecrecover(signature, msgHash []byte) (common.Address, error) {
@@ -173,26 +161,9 @@ func (q *EVMQuorumValidator) ecrecover(signature, msgHash []byte) (common.Addres
 	return common.BytesToAddress(hash[12:]), nil
 }
 
-func (q *EVMQuorumValidator) getQuorumConfig(sourceSelector, destSelector protocol.ChainSelector, sourceVerifierAddress []byte) (model.CommitteeID, *model.QuorumConfig, error) {
-	for name, committee := range q.Committees {
-		sourceAddress, ok := committee.SourceVerifierAddresses[fmt.Sprintf("%d", uint64(sourceSelector))]
-		if !ok {
-			continue
-		}
-		if !bytes.Equal(common.HexToAddress(sourceAddress).Bytes(), sourceVerifierAddress) {
-			continue
-		}
-
-		if config, exists := committee.GetQuorumConfig(uint64(destSelector)); exists {
-			return name, config, nil
-		}
-	}
-	return "", nil, fmt.Errorf("quorum config not found for chain selector: %d and address: %s", destSelector, common.BytesToAddress(sourceVerifierAddress).Hex())
-}
-
 func NewQuorumValidator(config *model.AggregatorConfig, l logger.SugaredLogger) *EVMQuorumValidator {
 	return &EVMQuorumValidator{
-		Committees: config.Committees,
-		l:          l,
+		Committee: config.Committee,
+		l:         l,
 	}
 }

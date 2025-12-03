@@ -17,7 +17,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-
+	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
@@ -88,17 +88,14 @@ func NewIndexerClient(logger zerolog.Logger, url string) *IndexerClient {
 	}
 }
 
-// TODO: this should probably be exported by the indexer package?
 type GetVerificationsForMessageIDResponse struct {
-	Success         bool               `json:"success"`
-	VerifierResults []protocol.CCVData `json:"verifierResults"`
-	MessageID       string             `json:"messageID"`
+	protocol.MessageIDV1Response
 }
 
 func (g GetVerificationsForMessageIDResponse) SourceVerifierAddresses() []protocol.UnknownAddress {
-	sourceVerifierAddresses := make([]protocol.UnknownAddress, 0, len(g.VerifierResults))
-	for _, verifierResult := range g.VerifierResults {
-		sourceVerifierAddresses = append(sourceVerifierAddresses, verifierResult.SourceVerifierAddress)
+	sourceVerifierAddresses := make([]protocol.UnknownAddress, 0, len(g.Results))
+	for _, verifierResult := range g.Results {
+		sourceVerifierAddresses = append(sourceVerifierAddresses, verifierResult.VerifierResult.VerifierSourceAddress)
 	}
 	return sourceVerifierAddresses
 }
@@ -123,16 +120,16 @@ func (i *IndexerClient) WaitForVerificationsForMessageID(
 				i.logger.Error().Err(err).Msgf("failed to get verifications for messageID: %s, retrying", msgIDHex)
 				continue
 			}
-			if response.Success && len(response.VerifierResults) == expectedVerifierResults {
+			if response.Success && len(response.Results) == expectedVerifierResults {
 				i.logger.Info().
 					Str("messageID", msgIDHex).
-					Int("verifierResultsLen", len(response.VerifierResults)).
+					Int("verifierResultsLen", len(response.Results)).
 					Any("verifierAddresses", response.SourceVerifierAddresses()).
 					Int("expectedVerifierResults", expectedVerifierResults).
 					Msg("found verifications for messageID in indexer")
 				return response, nil
 			}
-			i.logger.Error().Msgf("not enough verifications found for messageID: %s, expected %d, got %d, retrying", msgIDHex, expectedVerifierResults, len(response.VerifierResults))
+			i.logger.Error().Msgf("not enough verifications found for messageID: %s, expected %d, got %d, retrying", msgIDHex, expectedVerifierResults, len(response.Results))
 		}
 	}
 }
@@ -160,7 +157,7 @@ func (i *IndexerClient) GetVerificationsForMessageID(ctx context.Context, messag
 		return GetVerificationsForMessageIDResponse{}, fmt.Errorf("failed to decode response into struct: %w", err)
 	}
 
-	if response.MessageID != msgIDHex {
+	if response.MessageID.String() != msgIDHex {
 		return GetVerificationsForMessageIDResponse{}, fmt.Errorf("messageID mismatch: got %s, wanted %s", response.MessageID, msgIDHex)
 	}
 
@@ -168,12 +165,15 @@ func (i *IndexerClient) GetVerificationsForMessageID(ctx context.Context, messag
 }
 
 type AggregatorClient struct {
-	logger     zerolog.Logger
-	addr       string
-	grpcClient pb.VerifierResultAPIClient
-	conn       *grpc.ClientConn
+	logger               zerolog.Logger
+	addr                 string
+	aggregatorClient     pb.CommitteeVerifierClient
+	verifierResultClient pb.VerifierResultAPIClient
+	conn                 *grpc.ClientConn
 }
 
+// NewAggregatorClient creates a new AggregatorClient without authentication.
+// For APIs that require authentication (e.g., ReadChainStatus), use NewAuthenticatedAggregatorClient.
 func NewAggregatorClient(logger zerolog.Logger, addr string) (*AggregatorClient, error) {
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -181,10 +181,37 @@ func NewAggregatorClient(logger zerolog.Logger, addr string) (*AggregatorClient,
 	}
 
 	return &AggregatorClient{
-		logger:     logger,
-		addr:       addr,
-		grpcClient: pb.NewVerifierResultAPIClient(conn),
-		conn:       conn,
+		logger:               logger,
+		addr:                 addr,
+		aggregatorClient:     pb.NewCommitteeVerifierClient(conn),
+		verifierResultClient: pb.NewVerifierResultAPIClient(conn),
+		conn:                 conn,
+	}, nil
+}
+
+// NewAuthenticatedAggregatorClient creates a new AggregatorClient with HMAC authentication.
+// This is required for APIs like ReadChainStatus that require authentication.
+func NewAuthenticatedAggregatorClient(logger zerolog.Logger, addr, apiKey, secret string) (*AggregatorClient, error) {
+	hmacConfig := &hmacutil.ClientConfig{
+		APIKey: apiKey,
+		Secret: secret,
+	}
+
+	conn, err := grpc.NewClient(
+		addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithUnaryInterceptor(hmacutil.NewClientInterceptor(hmacConfig)),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to aggregator: %w", err)
+	}
+
+	return &AggregatorClient{
+		logger:               logger,
+		addr:                 addr,
+		aggregatorClient:     pb.NewCommitteeVerifierClient(conn),
+		verifierResultClient: pb.NewVerifierResultAPIClient(conn),
+		conn:                 conn,
 	}, nil
 }
 
@@ -227,12 +254,47 @@ func (a *AggregatorClient) WaitForVerifierResultForMessage(
 }
 
 func (a *AggregatorClient) GetVerifierResultForMessage(ctx context.Context, messageID [32]byte) (*pb.VerifierResult, error) {
-	resp, err := a.grpcClient.GetVerifierResultForMessage(ctx, &pb.GetVerifierResultForMessageRequest{
-		MessageId: messageID[:],
+	resp, err := a.verifierResultClient.GetVerifierResultsForMessage(ctx, &pb.GetVerifierResultsForMessageRequest{
+		MessageIds: [][]byte{messageID[:]},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get verifier result: %w", err)
 	}
 
+	// Check for errors in the batch response
+	if len(resp.Errors) > 0 && resp.Errors[0].Code != 0 {
+		return nil, fmt.Errorf("verifier result error: %s", resp.Errors[0].Message)
+	}
+
+	// Return the first (and only) result
+	if len(resp.Results) > 0 {
+		return resp.Results[0], nil
+	}
+
+	return nil, fmt.Errorf("no verifier result found")
+}
+
+// ReadChainStatus reads the chain statuses for the given chain selectors.
+// If no chain selectors are provided, all chain statuses are returned.
+func (a *AggregatorClient) ReadChainStatus(ctx context.Context, chainSelectors []uint64) (*pb.ReadChainStatusResponse, error) {
+	resp, err := a.aggregatorClient.ReadChainStatus(ctx, &pb.ReadChainStatusRequest{
+		ChainSelectors: chainSelectors,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read chain status: %w", err)
+	}
+	return resp, nil
+}
+
+func (a *AggregatorClient) WriteChainStatus(
+	ctx context.Context,
+	statuses []*pb.ChainStatus,
+) (*pb.WriteChainStatusResponse, error) {
+	resp, err := a.aggregatorClient.WriteChainStatus(ctx, &pb.WriteChainStatusRequest{
+		Statuses: statuses,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to write chain status: %w", err)
+	}
 	return resp, nil
 }

@@ -2,24 +2,24 @@ package readers
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 )
 
-var _ common.VerifierReader = (*verifierReader)(nil)
-
-// verifierReader provides the link between the workers and the verifier.
+// VerifierReader provides the link between the workers and the verifier.
 // The reader batches up requests from multiple workers for a best effort
 // attempt at batching the requests into a single network call.
 //
 // It provides a one-shot results channel for every call to ProcessMessage;
 // this channel will emit a message once the batch has been completed.
-type verifierReader struct {
-	demux         *common.Demultiplexer[protocol.Bytes32, protocol.CCVData]
+type VerifierReader struct {
+	demux         *common.Demultiplexer[protocol.Bytes32, protocol.VerifierResult]
 	batchCh       chan batcher.BatchResult[protocol.Bytes32]
 	batcher       *batcher.Batcher[protocol.Bytes32]
 	batcherCtx    context.Context
@@ -30,30 +30,19 @@ type verifierReader struct {
 	closeOnce     sync.Once
 }
 
-// VerifierReaderConfig holds configuration parameters for a verifierReader.
-type VerifierReaderConfig struct {
-	// BatchSize is the maximum batch size to send to the verifier.
-	BatchSize int
-	// MaxWaitTime is the maximum time to wait before sending a batch to the verifier.
-	MaxWaitTime time.Duration
-	// MaxPendingBatches is the size of the batch channel which can fill up if the verifier
-	// is slower than the batcher.
-	MaxPendingBatches int
-}
-
 // NewVerifierReader creates and returns a new VerifierReader instance.
 // The returned reader batches message verification requests and processes them
 // asynchronously. The context is used to control the lifetime of the internal
 // batcher goroutine.
-func NewVerifierReader(ctx context.Context, verifier protocol.VerifierResultsAPI, config VerifierReaderConfig) common.VerifierReader {
-	batchCh := make(chan batcher.BatchResult[protocol.Bytes32], config.MaxPendingBatches)
+func NewVerifierReader(ctx context.Context, verifier protocol.VerifierResultsAPI, config *config.VerifierConfig) *VerifierReader {
+	batchCh := make(chan batcher.BatchResult[protocol.Bytes32])
 	batcherCtx, batcherCancel := context.WithCancel(ctx)
 
-	return &verifierReader{
+	return &VerifierReader{
 		verifier:      verifier,
-		demux:         common.NewDemultiplexer[protocol.Bytes32, protocol.CCVData](),
+		demux:         common.NewDemultiplexer[protocol.Bytes32, protocol.VerifierResult](),
 		batchCh:       batchCh,
-		batcher:       batcher.NewBatcher(batcherCtx, config.BatchSize, config.MaxWaitTime, batchCh),
+		batcher:       batcher.NewBatcher(batcherCtx, config.BatchSize, time.Duration(config.MaxBatchWaitTime)*time.Millisecond, batchCh),
 		batcherCtx:    batcherCtx,
 		batcherCancel: batcherCancel,
 	}
@@ -69,7 +58,7 @@ func NewVerifierReader(ctx context.Context, verifier protocol.VerifierResultsAPI
 // ProcessMessage returns an error if the message cannot be added to the batch,
 // typically because the batcher has been closed or the context has been
 // canceled.
-func (v *verifierReader) ProcessMessage(messageID protocol.Bytes32) (chan common.Result[protocol.CCVData], error) {
+func (v *VerifierReader) ProcessMessage(messageID protocol.Bytes32) (chan common.Result[protocol.VerifierResult], error) {
 	err := v.batcher.Add(messageID)
 	if err != nil {
 		return nil, err
@@ -84,19 +73,21 @@ func (v *verifierReader) ProcessMessage(messageID protocol.Bytes32) (chan common
 //
 // Start returns immediately after spawning the background goroutine. It does not
 // wait for the goroutine to complete.
-func (v *verifierReader) Start(ctx context.Context) error {
+func (v *VerifierReader) Start(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(ctx)
 	v.runCancel = cancel
-	v.runWg.Go(func() {
+	v.runWg.Add(1)
+	go func() {
+		defer v.runWg.Done()
 		v.run(runCtx)
-	})
+	}()
 	return nil
 }
 
 // run processes batches of verification requests until the context is canceled.
 // It receives batches from the batch channel, calls the verifier API, and
 // distributes results back to waiting callers via the demultiplexer.
-func (v *verifierReader) run(ctx context.Context) {
+func (v *VerifierReader) run(ctx context.Context) {
 	for {
 		select {
 		case batch, ok := <-v.batchCh:
@@ -104,14 +95,33 @@ func (v *verifierReader) run(ctx context.Context) {
 				// Channel closed, exit gracefully
 				return
 			}
+			// Process the batch fully before checking for context cancellation
 			respMap := v.callVerifier(ctx, batch.Items)
 
 			// Iterate over the responses and send the responses back to the caller
+			// This must complete even if context is canceled to ensure all results are delivered
 			for msgID, verificationResult := range respMap {
 				v.demux.Resolve(msgID, verificationResult.Value(), verificationResult.Err())
 			}
 		case <-ctx.Done():
-			return
+			// Check if there are any pending batches before exiting
+			// Drain any remaining batches to ensure all results are delivered
+			for {
+				select {
+				case batch, ok := <-v.batchCh:
+					if !ok {
+						// Channel closed, exit gracefully
+						return
+					}
+					respMap := v.callVerifier(ctx, batch.Items)
+					for msgID, verificationResult := range respMap {
+						v.demux.Resolve(msgID, verificationResult.Value(), verificationResult.Err())
+					}
+				default:
+					// No more batches, exit
+					return
+				}
+			}
 		}
 	}
 }
@@ -123,13 +133,13 @@ func (v *verifierReader) run(ctx context.Context) {
 // If the verifier API returns an error, that error is associated with all
 // message IDs in the batch. Individual message IDs may still have associated
 // data in the response map if the verifier was able to return partial results.
-func (v *verifierReader) callVerifier(ctx context.Context, batch []protocol.Bytes32) map[protocol.Bytes32]common.Result[protocol.CCVData] {
-	respMap := make(map[protocol.Bytes32]common.Result[protocol.CCVData])
+func (v *VerifierReader) callVerifier(ctx context.Context, batch []protocol.Bytes32) map[protocol.Bytes32]common.Result[protocol.VerifierResult] {
+	respMap := make(map[protocol.Bytes32]common.Result[protocol.VerifierResult])
 
 	if v.verifier == nil {
 		// If verifier is not set, return error for all items
 		for _, messageID := range batch {
-			respMap[messageID] = common.NewResult(protocol.CCVData{}, context.DeadlineExceeded)
+			respMap[messageID] = common.NewResult(protocol.VerifierResult{}, context.DeadlineExceeded)
 		}
 		return respMap
 	}
@@ -138,7 +148,15 @@ func (v *verifierReader) callVerifier(ctx context.Context, batch []protocol.Byte
 
 	// Iterate over the batch of results, return both value and error (if any)
 	for _, messageID := range batch {
-		respMap[messageID] = common.NewResult(response[messageID], err)
+		value, ok := response[messageID]
+		switch {
+		case err != nil:
+			respMap[messageID] = common.NewResult(value, err)
+		case !ok:
+			respMap[messageID] = common.NewResult(value, errors.New("verification not found"))
+		default:
+			respMap[messageID] = common.NewResult(value, nil)
+		}
 	}
 
 	return respMap
@@ -148,7 +166,7 @@ func (v *verifierReader) callVerifier(ctx context.Context, batch []protocol.Byte
 // trigger it to close the batch channel, cancels the run goroutine's context,
 // waits for it to finish processing any in-flight batches, and then closes the batcher.
 // Subsequent calls to Close are safe and will be no-ops.
-func (v *verifierReader) Close() error {
+func (v *VerifierReader) Close() error {
 	var err error
 	v.closeOnce.Do(func() {
 		// Cancel the batcher's context first, which will cause it to flush remaining

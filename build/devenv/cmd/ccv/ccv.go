@@ -2,32 +2,39 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"math/big"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/Masterminds/semver/v3"
 	"github.com/docker/docker/client"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
+	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/offramp"
+	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/onramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/cmd/ccv/manualexec"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	executor_operations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/cmd/ccv/send"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 )
 
@@ -442,6 +449,277 @@ var printAddressesCmd = &cobra.Command{
 	},
 }
 
+var generateConfigsCmd = &cobra.Command{
+	Use:   "generate-configs",
+	Short: "Generate the verifier and executor jobspecs (CL deployment only), and the aggregator and indexer TOML configuration files for the environment",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// TODO: maybe move the actual generation logic into a function
+		// so that it can potentially be re-used (maybe from CLD?)
+		addressRefsPath, err := cmd.Flags().GetString("address-refs-json")
+		if err != nil {
+			return err
+		}
+		verifierPubKeys, err := cmd.Flags().GetStringSlice("verifier-pubkeys")
+		if err != nil {
+			return err
+		}
+		aggregatorAddr, err := cmd.Flags().GetString("aggregator-addr")
+		if err != nil {
+			return err
+		}
+		aggregatorPort, err := cmd.Flags().GetInt("aggregator-port")
+		if err != nil {
+			return err
+		}
+		numExecutors, err := cmd.Flags().GetInt("num-executors")
+		if err != nil {
+			return err
+		}
+		if numExecutors == -1 {
+			numExecutors = len(verifierPubKeys)
+		}
+		if numExecutors > len(verifierPubKeys) {
+			return fmt.Errorf("number of executors cannot be greater than number of verifiers")
+		}
+		indexerAddress, err := cmd.Flags().GetString("indexer-addr")
+		if err != nil {
+			return err
+		}
+		monitoringOtelExporterHTTPEndpoint, err := cmd.Flags().GetString("monitoring-otel-exporter-http-endpoint")
+		if err != nil {
+			return err
+		}
+
+		ocrThreshold := func(n int) uint8 {
+			f := (n - 1) / 3    // n = 3f + 1 => f = (n - 1) / 3
+			return uint8(f + 1) // OCR threshold is f + 1
+		}
+
+		ccv.Plog.Info().
+			Str("address-refs-json", addressRefsPath).
+			Strs("verifier-pubkeys", verifierPubKeys).
+			Str("aggregator-addr", aggregatorAddr).
+			Int("aggregator-port", aggregatorPort).
+			Int("num-executors", numExecutors).
+			Msg("Generating configs")
+
+		// Load the address refs from the JSON file
+		f, err := os.Open(addressRefsPath)
+		if err != nil {
+			return fmt.Errorf("failed to open address refs JSON file: %w", err)
+		}
+		defer f.Close()
+
+		decoder := json.NewDecoder(f)
+		var addressRefs []datastore.AddressRef
+		if err := decoder.Decode(&addressRefs); err != nil {
+			return fmt.Errorf("failed to decode address refs JSON: %w", err)
+		}
+
+		const (
+			verifierIDPrefix = "default-verifier-"
+			executorIDPrefix = "default-executor-"
+			committeeName    = "default"
+		)
+		var (
+			onRampAddresses = make(map[string]string)
+			// TODO: both maps below store the same data, just the key type is different
+			committeeVerifierAddresses              = make(map[string]string)
+			committeeVerifierResolverProxyAddresses = make(map[uint64]string)
+			defaultExecutorOnRampAddresses          = make(map[string]string)
+			defaultExecutorOnRampAddressesUint64    = make(map[uint64]string)
+			rmnRemoteAddresses                      = make(map[string]string)
+			rmnRemoteAddressesUint64                = make(map[uint64]string)
+			offRampAddresses                        = make(map[uint64]string)
+			thresholdPerSource                      = make(map[uint64]uint8)
+		)
+		for _, ref := range addressRefs {
+			chainSelectorStr := strconv.FormatUint(ref.ChainSelector, 10)
+			switch ref.Type {
+			case datastore.ContractType(onrampoperations.ContractType):
+				onRampAddresses[chainSelectorStr] = ref.Address
+			case datastore.ContractType(committee_verifier.ResolverProxyType):
+				committeeVerifierAddresses[chainSelectorStr] = ref.Address
+				committeeVerifierResolverProxyAddresses[ref.ChainSelector] = ref.Address
+			case datastore.ContractType(executor_operations.ContractType):
+				defaultExecutorOnRampAddresses[chainSelectorStr] = ref.Address
+				defaultExecutorOnRampAddressesUint64[ref.ChainSelector] = ref.Address
+			case datastore.ContractType(rmn_remote.ContractType):
+				rmnRemoteAddresses[chainSelectorStr] = ref.Address
+				rmnRemoteAddressesUint64[ref.ChainSelector] = ref.Address
+			case datastore.ContractType(offrampoperations.ContractType):
+				offRampAddresses[ref.ChainSelector] = ref.Address
+			}
+			thresholdPerSource[ref.ChainSelector] = ocrThreshold(len(verifierPubKeys))
+		}
+
+		// create temporary directory to store the generated configs
+		tempDir, err := os.MkdirTemp("", "ccv-configs")
+		if err != nil {
+			return fmt.Errorf("failed to create temporary directory: %w", err)
+		}
+		ccv.Plog.Info().Str("temp-dir", tempDir).Msg("Created temporary directory for configs")
+
+		// create the VerifierInput for each verifier
+		verifierInputs := make([]*services.VerifierInput, 0, len(verifierPubKeys))
+		for i, pubKey := range verifierPubKeys {
+			verifierInputs = append(verifierInputs, &services.VerifierInput{
+				ContainerName:                      fmt.Sprintf("%s%d", verifierIDPrefix, i),
+				AggregatorAddress:                  fmt.Sprintf("%s:%d", aggregatorAddr, aggregatorPort),
+				SigningKeyPublic:                   pubKey,
+				CommitteeVerifierAddresses:         committeeVerifierAddresses,
+				OnRampAddresses:                    onRampAddresses,
+				DefaultExecutorOnRampAddresses:     defaultExecutorOnRampAddresses,
+				RMNRemoteAddresses:                 rmnRemoteAddresses,
+				CommitteeName:                      committeeName,
+				MonitoringOtelExporterHTTPEndpoint: monitoringOtelExporterHTTPEndpoint,
+			})
+		}
+		// generate and print the job spec to stdout for now
+		for _, verifierInput := range verifierInputs {
+			verifierJobSpec, err := verifierInput.GenerateJobSpec()
+			if err != nil {
+				return fmt.Errorf("failed to generate verifier job spec: %w", err)
+			}
+			ccv.Plog.Info().Msg("Generated verifier job spec, writing to temporary directory as a separate file")
+			// write to a file in the temporary directory generated above
+			filePath := filepath.Join(tempDir, fmt.Sprintf("verifier-%s-job-spec.toml", verifierInput.ContainerName))
+			if err := os.WriteFile(filePath, []byte(verifierJobSpec), 0o644); err != nil {
+				return fmt.Errorf("failed to write verifier job spec to file: %w", err)
+			}
+			ccv.Plog.Info().Str("file-path", filePath).Msg("Wrote verifier job spec to file")
+		}
+
+		// create the ExecutorInput for each executor
+		executorInputs := make([]services.ExecutorInput, 0, numExecutors)
+		// create executor pool first
+		executorPool := make([]string, 0, numExecutors)
+		for i := 0; i < numExecutors; i++ {
+			executorPool = append(executorPool, fmt.Sprintf("%s%d", executorIDPrefix, i))
+		}
+		for i := 0; i < numExecutors; i++ {
+			executorInputs = append(executorInputs, services.ExecutorInput{
+				ExecutorID:                         fmt.Sprintf("%s%d", executorIDPrefix, i),
+				ExecutorPool:                       executorPool,
+				OfframpAddresses:                   offRampAddresses,
+				IndexerAddress:                     indexerAddress,
+				ExecutorAddresses:                  defaultExecutorOnRampAddressesUint64,
+				RmnAddresses:                       rmnRemoteAddressesUint64,
+				MonitoringOtelExporterHTTPEndpoint: monitoringOtelExporterHTTPEndpoint,
+			})
+		}
+		// generate and print the config to stdout for now
+		for _, executorInput := range executorInputs {
+			// Chainlink node deployments don't need blockchain infos in job specs
+			executorJobSpec, err := executorInput.GenerateJobSpec()
+			if err != nil {
+				return fmt.Errorf("failed to generate executor job spec: %w", err)
+			}
+			ccv.Plog.Info().Msg("Generated executor job spec, writing to temporary directory as a separate file")
+			// write to a file in the temporary directory generated above
+			filePath := filepath.Join(tempDir, fmt.Sprintf("executor-%s-job-spec.toml", executorInput.ExecutorID))
+			if err := os.WriteFile(filePath, []byte(executorJobSpec), 0o644); err != nil {
+				return fmt.Errorf("failed to write executor job spec to file: %w", err)
+			}
+			ccv.Plog.Info().Str("file-path", filePath).Msg("Wrote executor job spec to file")
+		}
+
+		// Create the AggregatorInput
+		aggregatorInput := services.AggregatorInput{
+			CommitteeName:                           committeeName,
+			CommitteeVerifierResolverProxyAddresses: committeeVerifierResolverProxyAddresses,
+			ThresholdPerSource:                      thresholdPerSource,
+			MonitoringOtelExporterHTTPEndpoint:      monitoringOtelExporterHTTPEndpoint,
+		}
+		// generate and print the config to stdout for now
+		aggregatorConfig, err := aggregatorInput.GenerateConfig(verifierInputs)
+		if err != nil {
+			return fmt.Errorf("failed to generate aggregator config: %w", err)
+		}
+		ccv.Plog.Info().Msg("Generated aggregator config:")
+		// write to a file in the temporary directory generated above
+		filePath := filepath.Join(tempDir, "aggregator-config.toml")
+		if err := os.WriteFile(filePath, aggregatorConfig, 0o644); err != nil {
+			return fmt.Errorf("failed to write aggregator config to file: %w", err)
+		}
+		ccv.Plog.Info().Str("file-path", filePath).Msg("Wrote aggregator config to file")
+
+		return nil
+	},
+}
+
+var fundAddressesCmd = &cobra.Command{
+	Use:   "fund-addresses --env <env>--chain-id <chain-id> --addresses <address1,address2,...> --amount <amount>",
+	Short: "Fund addresses with ETH",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		chainSelector, err := cmd.Flags().GetUint64("chain-selector")
+		if err != nil {
+			return fmt.Errorf("failed to parse chain-selector: %w", err)
+		}
+		addresses, err := cmd.Flags().GetStringSlice("addresses")
+		if err != nil {
+			return fmt.Errorf("failed to parse addresses: %w", err)
+		}
+		amount, err := cmd.Flags().GetString("amount")
+		if err != nil {
+			return fmt.Errorf("failed to parse amount flag: %w", err)
+		}
+		env, err := cmd.Flags().GetString("env")
+		if err != nil {
+			return fmt.Errorf("failed to parse env: %w", err)
+		}
+
+		in, err := ccv.LoadOutput[ccv.Cfg](fmt.Sprintf("env-%s.toml", env))
+		if err != nil {
+			return fmt.Errorf("failed to load environment output: %w", err)
+		}
+
+		amountBig, ok := new(big.Int).SetString(amount, 10)
+		if !ok {
+			return fmt.Errorf("failed to parse amount into big int: %w", err)
+		}
+
+		unknownAddresses := make([]protocol.UnknownAddress, 0, len(addresses))
+		for _, addr := range addresses {
+			unknownAddress, err := protocol.NewUnknownAddressFromHex(addr)
+			if err != nil {
+				return fmt.Errorf("failed to parse address: %w", err)
+			}
+			unknownAddresses = append(unknownAddresses, unknownAddress)
+		}
+
+		chainID, err := chainsel.ChainIdFromSelector(chainSelector)
+		if err != nil {
+			return fmt.Errorf("failed to get chain details: %w", err)
+		}
+		chainIDStr := strconv.FormatUint(chainID, 10)
+
+		var input *blockchain.Input
+		for _, bc := range in.Blockchains {
+			if bc.ChainID == chainIDStr {
+				input = bc
+				break
+			}
+		}
+
+		if input == nil {
+			return fmt.Errorf("blockchain with chain ID %s not found, please update the env file or use a different chain-selector", chainIDStr)
+		}
+
+		impl, err := ccv.NewProductConfigurationFromNetwork(input.Type)
+		if err != nil {
+			return fmt.Errorf("failed to create product configuration: %w", err)
+		}
+
+		err = impl.FundAddresses(cmd.Context(), input, unknownAddresses, amountBig)
+		if err != nil {
+			return fmt.Errorf("failed to fund addresses: %w", err)
+		}
+
+		return nil
+	},
+}
+
 var monitorContractsCmd = &cobra.Command{
 	Use:   "upload-on-chain-metrics <source> <dest>",
 	Short: "Reads on-chain EVM contract events and temporary exposes them as Prometheus metrics endpoint to be scraped",
@@ -533,137 +811,20 @@ var txInfoCmd = &cobra.Command{
 	},
 }
 
-var sendCmd = &cobra.Command{
-	Use:     "send <src>,<dest>[,<finality>]",
-	Aliases: []string{"s"},
-	Args:    cobra.RangeArgs(1, 1),
-	Short:   "Send a message",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := context.Background()
-		ctx = ccv.Plog.WithContext(ctx)
-
-		// Read the env flag, default to "out"
-		envName, err := cmd.Flags().GetString("env")
-		if err != nil {
-			return fmt.Errorf("failed to parse 'env' flag: %w", err)
-		}
-		envFile := fmt.Sprintf("env-%s.toml", envName)
-
-		in, err := ccv.LoadOutput[ccv.Cfg](envFile)
-		if err != nil {
-			return fmt.Errorf("failed to load environment output: %w", err)
-		}
-		sels := strings.Split(args[0], ",")
-
-		// Support both V2 (2 params) and V3 (3 params) formats
-		if len(sels) != 2 && len(sels) != 3 {
-			return fmt.Errorf("expected 2 or 3 parameters (src,dest for V2 or src,dest,finality for V3), got %d", len(sels))
-		}
-
-		src, err := strconv.ParseUint(sels[0], 10, 64)
-		if err != nil {
-			return fmt.Errorf("failed to parse source chain selector: %w", err)
-		}
-		dest, err := strconv.ParseUint(sels[1], 10, 64)
-		if err != nil {
-			return fmt.Errorf("failed to parse destination chain selector: %w", err)
-		}
-
-		chainIDs, wsURLs := make([]string, 0), make([]string, 0)
-		for _, bc := range in.Blockchains {
-			chainIDs = append(chainIDs, bc.ChainID)
-			wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
-		}
-
-		_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
-		if err != nil {
-			return fmt.Errorf("creating CLDF operations environment: %w", err)
-		}
-		ctx = ccv.Plog.WithContext(ctx)
-		l := zerolog.Ctx(ctx)
-		impl, err := evm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
-		if err != nil {
-			return fmt.Errorf("failed to create CCIP17EVM: %w", err)
-		}
-
-		mockReceiverRef, err := in.CLDF.DataStore.Addresses().Get(
-			datastore.NewAddressRefKey(
-				dest,
-				datastore.ContractType(mock_receiver.ContractType),
-				semver.MustParse(mock_receiver.Deploy.Version()),
-				evm.DefaultReceiverQualifier))
-		if err != nil {
-			return fmt.Errorf("failed to get mock receiver address: %w", err)
-		}
-		// Use V3 if finality config is provided, otherwise use V2
-		var result cciptestinterfaces.MessageSentEvent
-		if len(sels) == 3 {
-			// V3 format with finality config
-			finality, err := strconv.ParseUint(sels[2], 10, 32)
-			if err != nil {
-				return fmt.Errorf("failed to parse finality config: %w", err)
-			}
-
-			committeeVerifierProxyRef, err := in.CLDF.DataStore.Addresses().Get(
-				datastore.NewAddressRefKey(
-					src,
-					datastore.ContractType(committee_verifier.ResolverProxyType),
-					semver.MustParse(committee_verifier.Deploy.Version()),
-					evm.DefaultCommitteeVerifierQualifier))
-			if err != nil {
-				return fmt.Errorf("failed to get committee verifier proxy address: %w", err)
-			}
-			executorRef, err := in.CLDF.DataStore.Addresses().Get(
-				datastore.NewAddressRefKey(
-					src,
-					datastore.ContractType(executor_operations.ContractType),
-					semver.MustParse(executor_operations.Deploy.Version()),
-					""))
-			if err != nil {
-				return fmt.Errorf("failed to get executor address: %w", err)
-			}
-			result, err = impl.SendMessage(ctx, src, dest, cciptestinterfaces.MessageFields{
-				Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()), // mock receiver
-				Data:     []byte{},
-			}, cciptestinterfaces.MessageOptions{
-				Version:        3,
-				FinalityConfig: uint16(finality),
-				Executor:       protocol.UnknownAddress(common.HexToAddress(executorRef.Address).Bytes()), // executor address
-				ExecutorArgs:   nil,
-				TokenArgs:      nil,
-				CCVs: []protocol.CCV{
-					{
-						CCVAddress: common.HexToAddress(committeeVerifierProxyRef.Address).Bytes(),
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
-			})
-			if err != nil {
-				return fmt.Errorf("failed to send message: %w", err)
-			}
-		} else {
-			// V2 format - use the dedicated V2 function
-			result, err = impl.SendMessage(ctx, src, dest, cciptestinterfaces.MessageFields{
-				Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()), // mock receiver
-				Data:     []byte{},
-			}, cciptestinterfaces.MessageOptions{
-				Version:             2,
-				GasLimit:            200_000,
-				OutOfOrderExecution: true,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to send message: %w", err)
-			}
-		}
-		ccv.Plog.Info().Msgf("Message ID: %s", hexutil.Encode(result.MessageID[:]))
-		ccv.Plog.Info().Msgf("Receipt issuers: %s", result.ReceiptIssuers)
-		return nil
-	},
-}
-
 func init() {
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "Enable running services with dlv to allow remote debugging.")
+
+	// Fund addresses
+	rootCmd.AddCommand(fundAddressesCmd)
+	fundAddressesCmd.Flags().String("env", "out", "Select environment file to use (e.g., 'staging' for env-staging.toml, defaults to env-out.toml)")
+	fundAddressesCmd.Flags().Uint64("chain-selector", 0, "Chain selector to fund addresses for")
+	fundAddressesCmd.Flags().StringSlice("addresses", []string{}, "Addresses to fund (comma separated)")
+	fundAddressesCmd.Flags().String("amount", "", "Amount to fund (in ETH, not in wei)")
+
+	_ = fundAddressesCmd.MarkFlagRequired("env")
+	_ = fundAddressesCmd.MarkFlagRequired("chain-selector")
+	_ = fundAddressesCmd.MarkFlagRequired("addresses")
+	_ = fundAddressesCmd.MarkFlagRequired("amount")
 
 	// Blockscout, on-chain debug
 	bsCmd.PersistentFlags().StringP("url", "u", "http://host.docker.internal:8555", "EVM RPC node URL (default to dst chain on 8555")
@@ -689,8 +850,8 @@ func init() {
 	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(indexerDBShellCmd)
 	rootCmd.AddCommand(printAddressesCmd)
-	rootCmd.AddCommand(sendCmd)
-	sendCmd.Flags().String("env", "out", "Select environment file to use (e.g., 'staging' for env-staging.toml, defaults to env-out.toml)")
+
+	rootCmd.AddCommand(send.Command())
 
 	// on-chain monitoring
 	rootCmd.AddCommand(monitorContractsCmd)
@@ -699,6 +860,26 @@ func init() {
 	// contract management
 	rootCmd.AddCommand(deployCommitVerifierCmd)
 	rootCmd.AddCommand(deployReceiverCmd)
+
+	// config generation
+	rootCmd.AddCommand(generateConfigsCmd)
+	generateConfigsCmd.Flags().String("address-refs-json", "", "Path to the CLD address_refs.json file")
+	generateConfigsCmd.Flags().StringSlice("verifier-pubkeys", []string{}, "List of verifier public keys (comma separated), implies number of verifiers to generate configs for")
+	generateConfigsCmd.Flags().String("aggregator-addr", "", "Aggregator gRPC address")
+	generateConfigsCmd.Flags().Int("aggregator-port", 0, "Aggregator gRPC port")
+	generateConfigsCmd.Flags().String("indexer-addr", "", "Indexer HTTP/s URL address")
+	generateConfigsCmd.Flags().String("monitoring-otel-exporter-http-endpoint", "", "Monitoring OpenTelemetry HTTP endpoint, e.g. otel-collector:4318")
+	generateConfigsCmd.Flags().Int("num-executors", -1, "Number of executors to generate configs for, defaults to number of verifiers if not provided")
+
+	_ = generateConfigsCmd.MarkFlagRequired("address-refs-json")
+	_ = generateConfigsCmd.MarkFlagRequired("verifier-pubkeys")
+	_ = generateConfigsCmd.MarkFlagRequired("aggregator-addr")
+	_ = generateConfigsCmd.MarkFlagRequired("aggregator-port")
+	_ = generateConfigsCmd.MarkFlagRequired("indexer-addr")
+	_ = generateConfigsCmd.MarkFlagRequired("monitoring-otel-exporter-http-endpoint")
+
+	// manual execution
+	rootCmd.AddCommand(manualexec.Command())
 }
 
 func checkDockerIsRunning() {

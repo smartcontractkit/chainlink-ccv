@@ -127,7 +127,7 @@ func (i *IndexerAPIReader) makeRequest(ctx context.Context, endpoint string, par
 func (i *IndexerAPIReader) ReadVerifierResults(
 	ctx context.Context,
 	queryData VerifierResultsRequest,
-) (map[string][]protocol.CCVData, error) {
+) (map[string][]protocol.VerifierResult, error) {
 	var response VerifierResultsResponse
 	err := i.makeRequest(ctx, "/v1/ccvdata", queryParams(queryData), &response)
 	if err != nil {
@@ -146,7 +146,7 @@ func (i *IndexerAPIReader) ReadVerifierResults(
 func (i *IndexerAPIReader) ReadMessages(
 	ctx context.Context,
 	queryData protocol.MessagesV1Request,
-) (map[string]protocol.Message, error) {
+) (map[string]protocol.MessageWithMetadata, error) {
 	var response protocol.MessagesV1Response
 	err := i.makeRequest(ctx, "/v1/messages", queryParams(queryData), &response)
 	if err != nil {
@@ -159,10 +159,11 @@ func (i *IndexerAPIReader) ReadMessages(
 	}
 
 	i.lggr.Debugw("Successfully retrieved Messages", "dataCount", len(response.Messages))
+
 	return response.Messages, nil
 }
 
-func (i *IndexerAPIReader) GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.CCVData, error) {
+func (i *IndexerAPIReader) GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error) {
 	var response protocol.MessageIDV1Response
 	request := "/v1/messageid/0x" + common.Bytes2Hex(messageID[:])
 	err := i.makeRequest(ctx, request, queryParams{}, &response)
@@ -174,18 +175,24 @@ func (i *IndexerAPIReader) GetVerifierResults(ctx context.Context, messageID pro
 		return nil, fmt.Errorf("indexer GetVerifierResults returned error: %s", response.Error)
 	}
 
+	withoutMeta := make([]protocol.VerifierResult, 0, len(response.Results))
+	for _, result := range response.Results {
+		withoutMeta = append(withoutMeta, result.VerifierResult)
+	}
+
 	i.lggr.Infow("Successfully retrieved VerifierResults",
 		"messageID", messageID,
-		"numberOfResults", len(response.VerifierResults),
-		"verifierAddresses", sourceVerifierAddresses(response.VerifierResults),
+		"numberOfResults", len(response.Results),
+		"verifierAddresses", sourceVerifierAddresses(withoutMeta),
 	)
-	return response.VerifierResults, nil
+
+	return withoutMeta, nil
 }
 
-func sourceVerifierAddresses(verifierResults []protocol.CCVData) []string {
+func sourceVerifierAddresses(verifierResults []protocol.VerifierResult) []string {
 	sourceVerifierAddresses := make([]string, 0, len(verifierResults))
 	for _, verifierResult := range verifierResults {
-		sourceVerifierAddresses = append(sourceVerifierAddresses, verifierResult.SourceVerifierAddress.String())
+		sourceVerifierAddresses = append(sourceVerifierAddresses, verifierResult.VerifierSourceAddress.String())
 	}
 	return sourceVerifierAddresses
 }

@@ -3,7 +3,7 @@ package readers
 import (
 	"context"
 	"fmt"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/failsafe-go/failsafe-go"
@@ -16,241 +16,168 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// Ensure ResilientReader conforms to both interfaces.
 var (
 	_ protocol.OffchainStorageReader = (*ResilientReader)(nil)
-	_ protocol.DisconnectableReader  = (*ResilientReader)(nil)
+	_ protocol.VerifierResultsAPI    = (*ResilientReader)(nil)
 )
 
 // ResilienceConfig contains configuration for resiliency policies.
 type ResilienceConfig struct {
-	// Error Handlers
-	CircuitBreakerErrorHandler func(response []protocol.QueryResponse, err error) bool // Default: nil
-	RetryPolicyErrorHandler    func(response []protocol.QueryResponse, err error) bool // Default: nil
+	CircuitBreakerErrorHandler func(map[protocol.Bytes32]protocol.VerifierResult, error) bool
+	RetryPolicyErrorHandler    func(map[protocol.Bytes32]protocol.VerifierResult, error) bool
 
-	// Circuit Breaker configuration
-	FailureThreshold      uint          // Number of failures before opening circuit (default: 5)
-	SuccessThreshold      uint          // Number of successes to close circuit (default: 3)
-	CircuitBreakerDelay   time.Duration // Delay before attempting to close circuit (default: 30s)
-	CircuitBreakerTimeout time.Duration // Timeout for circuit breaker half-open state (default: 10s)
+	DiscoveryCircuitBreakerErrorHandler func([]protocol.QueryResponse, error) bool
+	DiscoveryRetryPolicyErrorHandler    func([]protocol.QueryResponse, error) bool
 
-	// Timeout configuration
-	RequestTimeout time.Duration // Timeout for individual requests (default: 30s)
-
-	// Bulkhead configuration
-	MaxConcurrentRequests uint // Maximum concurrent requests (default: 10)
-
-	// Rate Limiter configuration
-	MaxRequestsPerSecond uint // Maximum requests per second (default: 10)
-
-	AllowDisconnect bool // Allow disconnection from the underlying reader (default: false)
+	// Shared configuration
+	FailureThreshold      uint
+	SuccessThreshold      uint
+	CircuitBreakerDelay   time.Duration
+	CircuitBreakerTimeout time.Duration
+	RequestTimeout        time.Duration
+	MaxConcurrentRequests uint
+	MaxRequestsPerSecond  uint
 }
 
 // DefaultResilienceConfig returns a configuration with sensible defaults.
 func DefaultResilienceConfig() ResilienceConfig {
 	return ResilienceConfig{
-		CircuitBreakerErrorHandler: nil,
-		RetryPolicyErrorHandler:    nil,
-		FailureThreshold:           5,
-		SuccessThreshold:           3,
-		CircuitBreakerDelay:        3 * time.Second,
-		CircuitBreakerTimeout:      1 * time.Second,
-		RequestTimeout:             10 * time.Second,
-		MaxConcurrentRequests:      5,
-		MaxRequestsPerSecond:       5,
-		AllowDisconnect:            false,
+		FailureThreshold:      5,
+		SuccessThreshold:      3,
+		CircuitBreakerDelay:   3 * time.Second,
+		CircuitBreakerTimeout: 1 * time.Second,
+		RequestTimeout:        10 * time.Second,
+		MaxConcurrentRequests: 5,
+		MaxRequestsPerSecond:  5,
 	}
+}
+
+type executorPolicies[T any] struct {
+	executor       failsafe.Executor[T]
+	circuitBreaker circuitbreaker.CircuitBreaker[T]
 }
 
 // ResilientReader wraps any OffchainStorageReader with failsafe policies.
 type ResilientReader struct {
-	underlying     protocol.OffchainStorageReader
-	executor       failsafe.Executor[[]protocol.QueryResponse]
-	circuitBreaker circuitbreaker.CircuitBreaker[[]protocol.QueryResponse]
-	bulkhead       bulkhead.Bulkhead[[]protocol.QueryResponse]
-	rateLimiter    ratelimiter.RateLimiter[[]protocol.QueryResponse]
-	timeoutPolicy  timeout.Timeout[[]protocol.QueryResponse]
-	lggr           logger.Logger
+	underlying   protocol.VerifierResultsAPI
+	discoveryAPI protocol.OffchainStorageReader
 
-	mu                   sync.RWMutex
-	allowDisconnect      bool
-	disconnectSignal     bool
-	consecutiveErrors    int
-	maxConsecutiveErrors int
+	discoveryPolicies     executorPolicies[[]protocol.QueryResponse]
+	verificationsPolicies executorPolicies[map[protocol.Bytes32]protocol.VerifierResult]
+
+	lggr                 logger.Logger
+	consecutiveErrors    atomic.Int32
+	maxConsecutiveErrors int32
 }
 
 // NewResilientReader wraps a reader with resiliency policies.
-func NewResilientReader(underlying protocol.OffchainStorageReader, lggr logger.Logger, config ResilienceConfig) *ResilientReader {
-	// The resilient reader wraps an underlying offchain storage reader with resiliency policies.
-	// To do this, we create a failsafe executor with multiple layers of policies to prevent cascading failures.
-	//
-	// Each layer has a different purpose and they are daisy chained together.
-	// The order matters: outermost to innermost
-	// RateLimiter -> Bulkhead -> CircuitBreaker -> Retry -> Timeout
-	// This means that if the request fails, the next layer will not be called.
-
-	// Rate limits incoming requests
-	rl := createRateLimiter(config)
-	// Limits concurrent requests
-	bh := createBulkhead(config, lggr)
-	// Circuit breaks if too many errors occur, allows the downstream service to recover
-	cb := createCircuitBreaker(config, lggr)
-	// Timeout the underlying request, if the request takes too long, it will be aborted
-	timeoutPolicy := createTimeoutPolicy(config, lggr)
-
-	// Build failsafe executor with all policies
-	// Order matters: outermost to innermost
-	// RateLimiter -> Bulkhead -> CircuitBreaker -> Timeout
-	executor := failsafe.With(rl, bh, cb, timeoutPolicy)
-
-	return &ResilientReader{
+func NewResilientReader(underlying protocol.VerifierResultsAPI, lggr logger.Logger, config ResilienceConfig) *ResilientReader {
+	rr := &ResilientReader{
 		underlying:           underlying,
-		executor:             executor,
-		circuitBreaker:       cb,
-		bulkhead:             bh,
-		rateLimiter:          rl,
-		timeoutPolicy:        timeoutPolicy,
 		lggr:                 lggr,
-		allowDisconnect:      config.AllowDisconnect,
-		maxConsecutiveErrors: 10, // Default max consecutive errors before disconnect
+		maxConsecutiveErrors: 10,
 	}
+
+	rr.verificationsPolicies = createPolicies(config, lggr, "GetVerifications", config.CircuitBreakerErrorHandler)
+
+	if discoveryAPI, ok := underlying.(protocol.OffchainStorageReader); ok {
+		rr.discoveryPolicies = createPolicies(config, lggr, "ReadCCVData", config.DiscoveryCircuitBreakerErrorHandler)
+		rr.discoveryAPI = discoveryAPI
+	}
+
+	return rr
 }
 
-// ReadCCVData implements the OffchainStorageReader interface with resilience policies applied.
-func (r *ResilientReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse, error) {
-	if r.isDisconnected() {
-		// Shouldn't be called, but just in case we do, don't call the reader again
-		return []protocol.QueryResponse{}, fmt.Errorf("reader is disconnected")
+func createPolicies[T any](config ResilienceConfig, lggr logger.Logger, name string, errorHandler func(T, error) bool) executorPolicies[T] {
+	handleIf := func(resp T, err error) bool { return err != nil }
+	if errorHandler != nil {
+		handleIf = errorHandler
 	}
 
-	// Execute with all failsafe policies
-	responses, err := r.executor.GetWithExecution(func(exec failsafe.Execution[[]protocol.QueryResponse]) ([]protocol.QueryResponse, error) {
-		return r.underlying.ReadCCVData(ctx)
-	})
-	// If the request fails, record and handle the error
-	if err != nil {
-		r.recordError()
-		return nil, r.handleError(err)
-	}
-
-	r.recordSuccess()
-	return responses, nil
-}
-
-// ShouldDisconnect implements the DisconnectableReader interface.
-func (r *ResilientReader) ShouldDisconnect() bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	// If disconnect is not allowed, return false
-	if !r.allowDisconnect {
-		return false
-	}
-
-	// Check if underlying reader wants to disconnect, if it does this takes priority
-	if disconnectable, ok := r.underlying.(protocol.DisconnectableReader); ok {
-		if disconnectable.ShouldDisconnect() {
-			return true
-		}
-	}
-
-	// Disconnect if we've hit the max consecutive errors or disconnect signal is set
-	return r.disconnectSignal || r.consecutiveErrors >= r.maxConsecutiveErrors
-}
-
-// GetCircuitBreakerState returns the current state of the circuit breaker.
-func (r *ResilientReader) GetCircuitBreakerState() circuitbreaker.State {
-	return r.circuitBreaker.State()
-}
-
-// isDisconnected checks if the reader has received a disconnect signal.
-func (r *ResilientReader) isDisconnected() bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.disconnectSignal && r.allowDisconnect
-}
-
-// recordError tracks consecutive errors and triggers disconnect if threshold is exceeded.
-func (r *ResilientReader) recordError() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.consecutiveErrors++
-	if r.consecutiveErrors >= r.maxConsecutiveErrors {
-		r.lggr.Warnw("Max consecutive errors reached, signaling disconnect (if applicable)",
-			"max_consecutive_errors", r.maxConsecutiveErrors,
-			"consecutive_errors", r.consecutiveErrors)
-
-		if r.allowDisconnect {
-			r.disconnectSignal = true
-		}
-	}
-}
-
-// recordSuccess resets the consecutive error counter.
-func (r *ResilientReader) recordSuccess() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.consecutiveErrors = 0
-}
-
-// handleError processes errors and provides context-aware error messages.
-func (r *ResilientReader) handleError(err error) error {
-	// Check if circuit breaker is open
-	if r.circuitBreaker.State() == circuitbreaker.OpenState {
-		return fmt.Errorf("circuit breaker is open, downstream service unavailable: %w", err)
-	}
-
-	return fmt.Errorf("failed to fetch data: %w", err)
-}
-
-// createCircuitBreaker creates a circuit breaker for query responses.
-func createCircuitBreaker(config ResilienceConfig, lggr logger.Logger) circuitbreaker.CircuitBreaker[[]protocol.QueryResponse] {
-	handleIf := func(response []protocol.QueryResponse, err error) bool {
-		// Open circuit on errors
-		return err != nil
-	}
-
-	if config.CircuitBreakerErrorHandler != nil {
-		handleIf = config.CircuitBreakerErrorHandler
-	}
-
-	return circuitbreaker.NewBuilder[[]protocol.QueryResponse]().
+	cb := circuitbreaker.NewBuilder[T]().
 		WithDelay(config.CircuitBreakerDelay).
 		HandleIf(handleIf).
-		OnOpen(func(event circuitbreaker.StateChangedEvent) {
-			lggr.Warnw("Circuit breaker opened", "failures", config.FailureThreshold)
+		OnOpen(func(circuitbreaker.StateChangedEvent) {
+			lggr.Warnw(name+" circuit breaker opened", "failures", config.FailureThreshold)
 		}).
-		OnHalfOpen(func(event circuitbreaker.StateChangedEvent) {
-			lggr.Info("Circuit breaker entering half-open state, attempting recovery")
+		OnHalfOpen(func(circuitbreaker.StateChangedEvent) {
+			lggr.Info(name + " circuit breaker entering half-open state")
 		}).
-		OnClose(func(event circuitbreaker.StateChangedEvent) {
-			lggr.Infow("Circuit breaker closed", "successes", config.SuccessThreshold)
+		OnClose(func(circuitbreaker.StateChangedEvent) {
+			lggr.Infow(name+" circuit breaker closed", "successes", config.SuccessThreshold)
 		}).
 		WithFailureThreshold(config.FailureThreshold).
 		WithSuccessThreshold(config.SuccessThreshold).
 		Build()
-}
 
-// createTimeoutPolicy creates a timeout policy for query responses.
-func createTimeoutPolicy(config ResilienceConfig, lggr logger.Logger) timeout.Timeout[[]protocol.QueryResponse] {
-	return timeout.NewBuilder[[]protocol.QueryResponse](config.RequestTimeout).
-		OnTimeoutExceeded(func(event failsafe.ExecutionDoneEvent[[]protocol.QueryResponse]) {
-			lggr.Warnw("Request timeout exceeded", "timeout", config.RequestTimeout)
+	rl := ratelimiter.NewBursty[T](config.MaxRequestsPerSecond, time.Second)
+	bh := bulkhead.NewBuilder[T](config.MaxConcurrentRequests).
+		OnFull(func(failsafe.ExecutionEvent[T]) {
+			lggr.Warnw(name+" bulkhead is full", "max_concurrent_requests", config.MaxConcurrentRequests)
 		}).
 		Build()
-}
-
-// createBulkhead creates a bulkhead for query responses.
-func createBulkhead(config ResilienceConfig, lggr logger.Logger) bulkhead.Bulkhead[[]protocol.QueryResponse] {
-	return bulkhead.NewBuilder[[]protocol.QueryResponse](config.MaxConcurrentRequests).
-		OnFull(func(event failsafe.ExecutionEvent[[]protocol.QueryResponse]) {
-			lggr.Warnw("Bulkhead is full", "max_concurrent_requests", config.MaxConcurrentRequests)
+	to := timeout.NewBuilder[T](config.RequestTimeout).
+		OnTimeoutExceeded(func(failsafe.ExecutionDoneEvent[T]) {
+			lggr.Warnw(name+" request timeout exceeded", "timeout", config.RequestTimeout)
 		}).
 		Build()
+
+	return executorPolicies[T]{
+		executor:       failsafe.With(rl, bh, cb, to),
+		circuitBreaker: cb,
+	}
 }
 
-// createRateLimiter creates a rate limiter for query responses.
-func createRateLimiter(config ResilienceConfig) ratelimiter.RateLimiter[[]protocol.QueryResponse] {
-	return ratelimiter.NewBursty[[]protocol.QueryResponse](config.MaxRequestsPerSecond, time.Second)
+func (r *ResilientReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse, error) {
+	return execute(r, r.discoveryPolicies, func() ([]protocol.QueryResponse, error) {
+		return r.discoveryAPI.ReadCCVData(ctx)
+	})
+}
+
+func (r *ResilientReader) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.VerifierResult, error) {
+	return execute(r, r.verificationsPolicies, func() (map[protocol.Bytes32]protocol.VerifierResult, error) {
+		return r.underlying.GetVerifications(ctx, messageIDs)
+	})
+}
+
+func execute[T any](r *ResilientReader, policies executorPolicies[T], fn func() (T, error)) (T, error) {
+	result, err := policies.executor.GetWithExecution(func(failsafe.Execution[T]) (T, error) {
+		return fn()
+	})
+	if err != nil {
+		r.recordError()
+		if policies.circuitBreaker.State() == circuitbreaker.OpenState {
+			return result, fmt.Errorf("circuit breaker is open, downstream service unavailable: %w", err)
+		}
+		return result, fmt.Errorf("failed to fetch data: %w", err)
+	}
+	r.recordSuccess()
+	return result, nil
+}
+
+func (r *ResilientReader) GetCircuitBreakerState() circuitbreaker.State {
+	return r.verificationsPolicies.circuitBreaker.State()
+}
+
+func (r *ResilientReader) GetDiscoveryCircuitBreakerState() circuitbreaker.State {
+	return r.discoveryPolicies.circuitBreaker.State()
+}
+
+func (r *ResilientReader) recordError() {
+	count := r.consecutiveErrors.Add(1)
+	if count >= r.maxConsecutiveErrors {
+		r.lggr.Warnw("Max consecutive write errors reached", "consecutive_errors", count)
+	}
+}
+
+func (r *ResilientReader) recordSuccess() {
+	r.consecutiveErrors.Store(0)
+}
+
+// GetSinceValue returns the latest sequence number if the underlying reader supports it.
+func (r *ResilientReader) GetSinceValue() (int64, bool) {
+	if discoveryReader, ok := r.discoveryAPI.(protocol.DiscoveryStorageReader); ok {
+		return discoveryReader.GetSinceValue(), true
+	}
+	return 0, false
 }

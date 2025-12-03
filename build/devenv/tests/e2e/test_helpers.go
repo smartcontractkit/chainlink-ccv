@@ -8,22 +8,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rs/zerolog"
-	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/logasserter"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
-)
-
-const (
-	defaultSentTimeout = 10 * time.Second
-	defaultExecTimeout = 40 * time.Second
 )
 
 type TestingContext struct {
@@ -47,7 +40,6 @@ func NewTestingContext(t *testing.T, ctx context.Context, impl *evm.CCIP17EVM, a
 	logAssert := logasserter.New(lokiURL, logger)
 	err := logAssert.StartStreaming(ctx, []logasserter.LogStage{
 		logasserter.MessageReachedVerifier(),
-		logasserter.MessageDroppedInVerifier(),
 		logasserter.MessageSigned(),
 		logasserter.ProcessingInExecutor(),
 		logasserter.SentToChainInExecutor(),
@@ -60,7 +52,7 @@ func NewTestingContext(t *testing.T, ctx context.Context, impl *evm.CCIP17EVM, a
 		AggregatorClient: aggregatorClient,
 		IndexerClient:    indexerClient,
 		LogAsserter:      logAssert,
-		Timeout:          60 * time.Second,
+		Timeout:          180 * time.Second,
 		logger:           logger,
 	}
 
@@ -77,81 +69,6 @@ func NewTestingContext(t *testing.T, ctx context.Context, impl *evm.CCIP17EVM, a
 
 func (tc *TestingContext) enrichMetrics(metrics []metrics.MessageMetrics) {
 	tc.LogAsserter.EnrichMetrics(metrics)
-}
-
-// DefaultMessageFields creates a simple message with test data.
-func DefaultMessageFields(receiver protocol.UnknownAddress) cciptestinterfaces.MessageFields {
-	return cciptestinterfaces.MessageFields{
-		Receiver: receiver,
-		Data:     []byte("test-msg"),
-	}
-}
-
-// MustSendMessage sends a message and waits for the sent event.
-// If finality is 0, uses version 2 (no finality config).
-// If finality is non-zero, uses version 3 with the specified finality config.
-func (tc *TestingContext) MustSendMessage(srcChain, destChain uint64, receiver protocol.UnknownAddress, finality uint16) cciptestinterfaces.MessageSentEvent {
-	l := zerolog.Ctx(tc.Ctx)
-	l.Info().Uint64("srcChain", srcChain).Uint64("destChain", destChain).Msg("Sending message")
-
-	seqNo, err := tc.Impl.GetExpectedNextSequenceNumber(tc.Ctx, srcChain, destChain)
-	require.NoError(tc.T, err)
-
-	opts := cciptestinterfaces.MessageOptions{
-		Version:  2,
-		GasLimit: 200_000,
-	}
-	if finality != 0 {
-		opts.Version = 3
-		opts.FinalityConfig = finality
-	}
-
-	_, err = tc.Impl.SendMessage(tc.Ctx, srcChain, destChain, DefaultMessageFields(receiver), opts)
-	require.NoError(tc.T, err)
-
-	sentEvt, err := tc.Impl.WaitOneSentEventBySeqNo(tc.Ctx, srcChain, destChain, seqNo, defaultSentTimeout)
-	require.NoError(tc.T, err)
-
-	return sentEvt
-}
-
-// MustFailSend attempts to send a message and asserts that it fails with the expected error.
-// If finality is 0, uses version 2 (no finality config).
-// If finality is non-zero, uses version 3 with the specified finality config.
-func (tc *TestingContext) MustFailSend(srcChain, destChain uint64, receiver protocol.UnknownAddress, finality uint16, expectedError string) {
-	l := zerolog.Ctx(tc.Ctx)
-
-	opts := cciptestinterfaces.MessageOptions{
-		Version:  2,
-		GasLimit: 200_000,
-	}
-	if finality != 0 {
-		opts.Version = 3
-		opts.FinalityConfig = finality
-	}
-
-	_, err := tc.Impl.SendMessage(tc.Ctx, srcChain, destChain, DefaultMessageFields(receiver), opts)
-	require.ErrorContains(tc.T, err, expectedError)
-
-	l.Info().Uint64("srcChain", srcChain).Uint64("destChain", destChain).Str("error", expectedError).Msg("Message send failed as expected")
-}
-
-// MustExecuteMessage sends a message and waits for successful execution.
-// If finality is 0, uses version 2 (no finality config).
-// If finality is non-zero, uses version 3 with the specified finality config.
-// Returns the execution event.
-func (tc *TestingContext) MustExecuteMessage(srcChain, destChain uint64, receiver protocol.UnknownAddress, finality uint16) cciptestinterfaces.ExecutionStateChangedEvent {
-	sentEvt := tc.MustSendMessage(srcChain, destChain, receiver, finality)
-
-	l := zerolog.Ctx(tc.Ctx)
-	l.Info().Uint64("srcChain", srcChain).Uint64("destChain", destChain).Hex("messageID", sentEvt.MessageID[:]).Msg("Waiting for message execution")
-
-	execEvt, err := tc.Impl.WaitOneExecEventBySeqNo(tc.Ctx, srcChain, destChain, sentEvt.SequenceNumber, defaultExecTimeout)
-	require.NoError(tc.T, err)
-	require.Equal(tc.T, cciptestinterfaces.ExecutionStateSuccess, execEvt.State,
-		"expected successful execution for message from chain %d to chain %d", srcChain, destChain)
-
-	return execEvt
 }
 
 type AssertionResult struct {
@@ -205,31 +122,35 @@ func (tc *TestingContext) AssertMessage(messageID [32]byte, opts AssertMessageOp
 		result.VerifierSigned = true
 	}
 
-	aggregatedResult, err := tc.AggregatorClient.WaitForVerifierResultForMessage(
-		ctx,
-		messageID,
-		opts.TickInterval)
-	if err != nil {
-		return result, fmt.Errorf("aggregator check failed: %w", err)
+	if tc.AggregatorClient != nil {
+		aggregatedResult, err := tc.AggregatorClient.WaitForVerifierResultForMessage(
+			ctx,
+			messageID,
+			opts.TickInterval)
+		if err != nil {
+			return result, fmt.Errorf("aggregator check failed: %w", err)
+		}
+
+		result.AggregatedResult = aggregatedResult
+		result.AggregatorFound = true
 	}
 
-	result.AggregatedResult = aggregatedResult
-	result.AggregatorFound = true
+	if tc.IndexerClient != nil {
+		indexedVerifications, err := tc.IndexerClient.WaitForVerificationsForMessageID(
+			ctx,
+			messageID,
+			opts.TickInterval,
+			opts.ExpectedVerifierResults)
+		if err != nil {
+			return result, fmt.Errorf("indexer check failed: %w", err)
+		}
 
-	indexedVerifications, err := tc.IndexerClient.WaitForVerificationsForMessageID(
-		ctx,
-		messageID,
-		opts.TickInterval,
-		opts.ExpectedVerifierResults)
-	if err != nil {
-		return result, fmt.Errorf("indexer check failed: %w", err)
+		result.IndexedVerifications = indexedVerifications
+		result.IndexerFound = true
 	}
-
-	result.IndexedVerifications = indexedVerifications
-	result.IndexerFound = true
 
 	if opts.AssertExecutorLogs {
-		_, err = tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.ProcessingInExecutor())
+		_, err := tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.ProcessingInExecutor())
 		if err != nil {
 			return result, fmt.Errorf("executor log assertion failed: %w", err)
 		}
@@ -255,80 +176,74 @@ func (tc *TestingContext) AssertMessage(messageID [32]byte, opts AssertMessageOp
 	return result, nil
 }
 
-// AssertMessageReachedAndDroppedInVerifier asserts that a message reached the verifier
-// but was dropped due to a curse. This is useful for testing curse behavior where messages
-// should not reach the aggregator or executor.
-func (tc *TestingContext) AssertMessageReachedAndDroppedInVerifier(messageID [32]byte, timeout time.Duration) {
-	ctx, cancel := context.WithTimeout(tc.Ctx, timeout)
-	defer cancel()
-
-	// Wait for message to reach verifier
-	_, err := tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.MessageReachedVerifier())
-	require.NoError(tc.T, err, "message didn't reach verifier as expected")
-
-	tc.logger.Info().
-		Str("messageID", fmt.Sprintf("0x%s", hex.EncodeToString(messageID[:]))).
-		Msg("✓ Message reached verifier")
-
-	// Wait for message to be dropped
-	_, err = tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.MessageDroppedInVerifier())
-	require.NoError(tc.T, err, "message reached verifier and wasn't dropped as expected")
-
-	tc.logger.Info().
-		Str("messageID", fmt.Sprintf("0x%s", hex.EncodeToString(messageID[:]))).
-		Msg("✓ Message dropped in verifier due to curse")
+// AnvilRPCHelper provides access to Anvil-specific RPC methods.
+type AnvilRPCHelper struct {
+	client *ethclient.Client
+	logger zerolog.Logger
 }
 
-func defaultAggregatorPort(in *ccv.Cfg) int {
-	for _, aggregator := range in.Aggregator {
-		if aggregator.CommitteeName == "default" {
-			return aggregator.HostPort
+// NewAnvilRPCHelper creates a new helper for Anvil RPC operations.
+func NewAnvilRPCHelper(client *ethclient.Client, logger zerolog.Logger) *AnvilRPCHelper {
+	return &AnvilRPCHelper{
+		client: client,
+		logger: logger,
+	}
+}
+
+// Mine mines the specified number of blocks.
+func (a *AnvilRPCHelper) Mine(ctx context.Context, numBlocks int) error {
+	for i := 0; i < numBlocks; i++ {
+		var result any
+		err := a.client.Client().CallContext(ctx, &result, "evm_mine")
+		if err != nil {
+			return fmt.Errorf("failed to mine %d blocks: %w", numBlocks, err)
 		}
 	}
-	panic(fmt.Sprintf("default aggregator not found, expected to find a default aggregator in the configuration, got: %+v", in.Aggregator))
+	a.logger.Info().Int("numBlocks", numBlocks).Msg("Mined blocks")
+	return nil
 }
 
-// NewDefaultTestingContext creates a complete testing context with all necessary components
-// for E2E tests. It handles loading the configuration, setting up chains, and initializing
-// aggregator and indexer clients.
-func NewDefaultTestingContext(t *testing.T, configPath string, expectedChainCount int) (TestingContext, []uint64) {
-	in, err := ccv.LoadOutput[ccv.Cfg](configPath)
-	require.NoError(t, err)
-
-	ctx := ccv.Plog.WithContext(t.Context())
-	l := zerolog.Ctx(ctx)
-
-	chainIDs, wsURLs := make([]string, 0), make([]string, 0)
-	for _, bc := range in.Blockchains {
-		chainIDs = append(chainIDs, bc.ChainID)
-		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
+func (a *AnvilRPCHelper) MustMine(ctx context.Context, numBlocks int) {
+	err := a.Mine(ctx, numBlocks)
+	if err != nil {
+		panic(fmt.Sprintf("MustMine failed: %v", err))
 	}
+	// This is to ensure that the blocks are read by client (e.g. source reader in verifier) as it's constantly polling.
+	time.Sleep(3 * time.Second)
+}
 
-	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
-	require.NoError(t, err)
-	require.Len(t, selectors, expectedChainCount, "expected %d chains for this test in the environment", expectedChainCount)
+// Snapshot creates a snapshot of the current blockchain state.
+func (a *AnvilRPCHelper) Snapshot(ctx context.Context) (string, error) {
+	var snapshotID string
+	err := a.client.Client().CallContext(ctx, &snapshotID, "evm_snapshot")
+	if err != nil {
+		return "", fmt.Errorf("failed to create snapshot: %w", err)
+	}
+	a.logger.Info().Str("snapshotID", snapshotID).Msg("Created snapshot")
+	return snapshotID, nil
+}
 
-	c, err := evm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
-	require.NoError(t, err)
+// Revert reverts the blockchain to a previous snapshot.
+func (a *AnvilRPCHelper) Revert(ctx context.Context, snapshotID string) error {
+	var result bool
+	err := a.client.Client().CallContext(ctx, &result, "evm_revert", snapshotID)
+	if err != nil {
+		return fmt.Errorf("failed to revert to snapshot %s: %w", snapshotID, err)
+	}
+	if !result {
+		return fmt.Errorf("revert to snapshot %s returned false", snapshotID)
+	}
+	a.logger.Info().Str("snapshotID", snapshotID).Msg("Reverted to snapshot")
+	return nil
+}
 
-	indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-	defaultAggregatorAddr := fmt.Sprintf("127.0.0.1:%d", defaultAggregatorPort(in))
-
-	defaultAggregatorClient, err := ccv.NewAggregatorClient(
-		zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
-		defaultAggregatorAddr)
-	require.NoError(t, err)
-	require.NotNil(t, defaultAggregatorClient)
-	t.Cleanup(func() {
-		defaultAggregatorClient.Close()
-	})
-
-	indexerClient := ccv.NewIndexerClient(
-		zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
-		indexerURL)
-	require.NotNil(t, indexerClient)
-
-	testCtx := NewTestingContext(t, ctx, c, defaultAggregatorClient, indexerClient)
-
-	return testCtx, selectors
+// GetAutomine returns whether auto-mining (instant mining) is enabled.
+func (a *AnvilRPCHelper) GetAutomine(ctx context.Context) (bool, error) {
+	var automine bool
+	err := a.client.Client().CallContext(ctx, &automine, "anvil_getAutomine")
+	if err != nil {
+		return false, fmt.Errorf("failed to get automine status: %w", err)
+	}
+	a.logger.Info().Bool("automine", automine).Msg("Got automine status")
+	return automine, nil
 }

@@ -1,74 +1,68 @@
 package handlers
 
 import (
-	"bytes"
 	"fmt"
-	"regexp"
-	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
-var hundredYears = 100 * 365 * 24 * time.Hour
-
-// uuidRegex matches standard UUID format (with or without hyphens).
-var uuidRegex = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
-
-func validateWriteRequest(req *pb.WriteCommitCCVNodeDataRequest) error {
+func validateWriteRequest(req *pb.WriteCommitteeVerifierNodeResultRequest) error {
 	err := validation.ValidateStruct(
 		req,
-		validation.Field(&req.CcvNodeData, validation.Required),
-		validation.Field(&req.IdempotencyKey, validation.Required, validation.Match(uuidRegex).Error("must be a valid UUID")))
+		validation.Field(&req.CommitteeVerifierNodeResult, validation.Required))
 	if err != nil {
 		return err
 	}
 
-	verificationRecord := req.CcvNodeData
+	verificationRecord := req.CommitteeVerifierNodeResult
 
 	err = validation.ValidateStruct(
 		verificationRecord,
-		validation.Field(&verificationRecord.MessageId, validation.Required, validation.Length(32, 32)),
-		validation.Field(&verificationRecord.CcvData, validation.Required),
-		// TODO: Check valid selector (needs to be in our configuration)
-		// validation.Field(&verificationRecord.DestVerifierAddress, validation.Required, validation.Length(20, 20)),
-		// validation.Field(&verificationRecord.SourceVerifierAddress, validation.Required, validation.Length(20, 20)),
-		validation.Field(&verificationRecord.Timestamp, validation.Required),
-		// TODO: Do deeper validation once format is finalized
+		validation.Field(&verificationRecord.Signature, validation.Required),
+		validation.Field(&verificationRecord.CcvVersion, validation.Required, validation.Length(4, 0)),
 		validation.Field(&verificationRecord.Message, validation.Required),
 	)
 	if err != nil {
 		return err
 	}
 
-	message := model.MapProtoMessageToProtocolMessage(verificationRecord.Message)
-	messageID, err := message.MessageID()
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(messageID[:], req.CcvNodeData.MessageId) {
-		return validation.NewError("MessageId", "does not match ID derived from Message")
+	// Validate ccv_and_executor_hash is required and has correct length
+	if len(verificationRecord.Message.CcvAndExecutorHash) != 32 {
+		return fmt.Errorf("ccv_and_executor_hash must be exactly 32 bytes, got %d", len(verificationRecord.Message.CcvAndExecutorHash))
 	}
 
-	// Validate timestamp precision
-	if !isValidMillisecondTimestamp(req.CcvNodeData.GetTimestamp()) {
-		return fmt.Errorf("invalid timestamp precision")
+	message, err := ccvcommon.MapProtoMessageToProtocolMessage(verificationRecord.Message)
+	if err != nil {
+		return fmt.Errorf("failed to map proto message: %w", err)
+	}
+	_, err = message.MessageID()
+	if err != nil {
+		return fmt.Errorf("failed to compute message ID: %w", err)
+	}
+
+	// Validate the hash from the verifier matches the computed hash
+	ccvAddrs := make([]protocol.UnknownAddress, len(verificationRecord.CcvAddresses))
+	for i, addr := range verificationRecord.CcvAddresses {
+		ccvAddrs[i] = protocol.UnknownAddress(addr)
+	}
+	executorAddr := protocol.UnknownAddress(verificationRecord.ExecutorAddress)
+	computedHash, err := protocol.ComputeCCVAndExecutorHash(ccvAddrs, executorAddr)
+	if err != nil {
+		return fmt.Errorf("failed to compute CCV and executor hash: %w", err)
+	}
+	if message.CcvAndExecutorHash != computedHash {
+		return fmt.Errorf("hash mismatch: received %x, computed %x", message.CcvAndExecutorHash, computedHash)
 	}
 
 	return nil
 }
 
-// isValidMillisecondTimestamp checks if timestamp represents valid milliseconds.
-func isValidMillisecondTimestamp(timestamp int64) bool {
-	future := time.Now().Add(hundredYears)
-	past := time.Now().Add(-hundredYears)
-	return timestamp >= past.UnixMilli() && timestamp <= future.UnixMilli()
-}
-
-func validateReadRequest(req *pb.ReadCommitCCVNodeDataRequest) error {
+func validateReadRequest(req *pb.ReadCommitteeVerifierNodeResultRequest) error {
 	err := validation.ValidateStruct(
 		req,
 		validation.Field(&req.MessageId, validation.Required, validation.Length(32, 32)),

@@ -11,9 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/executor_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -103,7 +105,7 @@ func TestConstructor(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := executor.NewCoordinator(tc.args.lggr, tc.args.exec, tc.args.sub, tc.args.le, tc.args.mon)
+			_, err := executor.NewCoordinator(tc.args.lggr, tc.args.exec, tc.args.sub, tc.args.le, tc.args.mon, 8*time.Hour, common.NewMockTimeProvider(t))
 
 			if tc.expectErr {
 				require.Error(t, err)
@@ -127,6 +129,8 @@ func TestLifecycle(t *testing.T) {
 		ccvDataReader,
 		executor_mocks.NewMockLeaderElector(t),
 		monitoring.NewNoopExecutorMonitoring(),
+		8*time.Hour,
+		common.NewMockTimeProvider(t),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -152,6 +156,8 @@ func TestSubscribeMessagesError(t *testing.T) {
 		messageSubscriber,
 		executor_mocks.NewMockLeaderElector(t),
 		monitoring.NewNoopExecutorMonitoring(),
+		8*time.Hour,
+		common.NewMockTimeProvider(t),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -182,9 +188,238 @@ func TestStopNotRunning(t *testing.T) {
 		executor_mocks.NewMockMessageSubscriber(t),
 		executor_mocks.NewMockLeaderElector(t),
 		monitoring.NewNoopExecutorMonitoring(),
+		8*time.Hour,
+		common.NewMockTimeProvider(t),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
 
 	require.ErrorContains(t, ec.Close(), "has not been started")
+}
+
+func TestMessageExpiration(t *testing.T) {
+	testcases := []struct {
+		name string
+		// How long before a message will expire.
+		expiryDuration time.Duration
+		// retry delay from the turn taking algorithm.
+		retryDelay time.Duration
+		// The initial delay to emulate turn taking for other executors in the pool.
+		initialReadyDelay time.Duration
+		// The value (after now) that is returned by the time provider when GetTime() is called.
+		mockedTimeDifference time.Duration
+		// The return value from the executor.GetMessageStatus() call.
+		messageStatusResults executor.MessageStatusResults
+		// Whether we should see the message logs to determine if the flow is correct.
+		shouldRetry   bool
+		shouldExecute bool
+		shouldExpire  bool
+	}{
+		{
+			name:                 "message expires when retry time exceeds expiry",
+			expiryDuration:       1 * time.Second,
+			retryDelay:           3 * time.Second,      // retry after 3 s
+			initialReadyDelay:    1 * time.Millisecond, // ready immediately
+			mockedTimeDifference: 2 * time.Second,
+			messageStatusResults: executor.MessageStatusResults{
+				ShouldRetry:   true,
+				ShouldExecute: false,
+			},
+			shouldRetry:   false, // because message is expired, we should not see retry log
+			shouldExecute: false, // because message is expired, we should not see execute log
+			shouldExpire:  true,  // because message is expired, we should see expire log
+		},
+		{
+			name:                 "message retries when within expiry window",
+			expiryDuration:       20 * time.Second,
+			retryDelay:           2 * time.Second, // 2 seconds retry delay
+			initialReadyDelay:    0 * time.Second,
+			mockedTimeDifference: 2 * time.Second,
+			messageStatusResults: executor.MessageStatusResults{
+				ShouldRetry:   true,
+				ShouldExecute: false,
+			},
+			shouldRetry:   true,  // because message is not expired, we should see retry log
+			shouldExecute: false, // because message status returns no execute, we should not see execute log
+			shouldExpire:  false,
+		},
+		{
+			name:                 "message does not retry when shouldRetry is false",
+			expiryDuration:       2 * time.Second,
+			retryDelay:           3 * time.Second,
+			initialReadyDelay:    0 * time.Second,
+			mockedTimeDifference: 1 * time.Second,
+			messageStatusResults: executor.MessageStatusResults{
+				ShouldRetry:   false,
+				ShouldExecute: false,
+			},
+			shouldRetry:   false, // because message status returns no retry, we should not see retry log
+			shouldExecute: false, // because message status returns no execute, we should not see execute log
+			shouldExpire:  false, // because message is not yet expired, we should not see expire log
+		},
+		{
+			name:                 "message should execute when within expiry and shouldExecute is true",
+			expiryDuration:       10 * time.Second,
+			retryDelay:           1 * time.Second,
+			initialReadyDelay:    0 * time.Second,
+			mockedTimeDifference: 1 * time.Second,
+			messageStatusResults: executor.MessageStatusResults{
+				ShouldRetry:   false,
+				ShouldExecute: true,
+			},
+			shouldRetry:   false, // no retry
+			shouldExecute: true,  // should execute log
+			shouldExpire:  false, // should not expire
+		},
+		{
+			name:                 "message should not execute, not retry, and not expire (future time)",
+			expiryDuration:       30 * time.Second,
+			retryDelay:           2 * time.Second,
+			initialReadyDelay:    7 * time.Second,
+			mockedTimeDifference: 1 * time.Second,
+			messageStatusResults: executor.MessageStatusResults{
+				ShouldRetry:   false,
+				ShouldExecute: false,
+			},
+			shouldRetry:   false,
+			shouldExecute: false,
+			shouldExpire:  false,
+		},
+		{
+			name:                 "message both retry and execute are true, should execute",
+			expiryDuration:       20 * time.Second,
+			retryDelay:           1 * time.Second,
+			initialReadyDelay:    0 * time.Second,
+			mockedTimeDifference: 1 * time.Second,
+			messageStatusResults: executor.MessageStatusResults{
+				ShouldRetry:   true,
+				ShouldExecute: true,
+			},
+			shouldRetry:   true,
+			shouldExecute: true,
+			shouldExpire:  false,
+		},
+		{
+			name:                 "message expired but shouldExecute is true, should still expire not execute",
+			expiryDuration:       1 * time.Second,
+			retryDelay:           1 * time.Second,
+			initialReadyDelay:    0 * time.Second,
+			mockedTimeDifference: 2 * time.Second,
+			messageStatusResults: executor.MessageStatusResults{
+				ShouldRetry:   false,
+				ShouldExecute: true,
+			},
+			shouldRetry:   false,
+			shouldExecute: false, // message is expired, so should not execute
+			shouldExpire:  true,
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create a new observed logger for each test case
+			lggr, hook := logger.TestObserved(t, zapcore.InfoLevel)
+
+			currentTime := time.Now().UTC()
+			mockTimeProvider := common.NewMockTimeProvider(t)
+			mockTimeProvider.EXPECT().GetTime().Return(currentTime.Add(tc.mockedTimeDifference)).Maybe()
+
+			// Create a test message
+			testMessage := executor.StreamerResult{
+				Messages: []protocol.MessageWithMetadata{
+					{
+						Message: protocol.Message{
+							DestChainSelector:   1,
+							SourceChainSelector: 2,
+							SequenceNumber:      1,
+						},
+						Metadata: protocol.MessageMetadata{
+							IngestionTimestamp: currentTime,
+						},
+					},
+				},
+			}
+
+			// Set up message subscriber to send one message
+			messageSubscriber := executor_mocks.NewMockMessageSubscriber(t)
+			messageChan := make(chan executor.StreamerResult, 1)
+			messageSubscriber.EXPECT().Start(mock.Anything, mock.Anything).Return(messageChan, nil)
+
+			// Set up executor mock
+			mockExecutor := executor_mocks.NewMockExecutor(t)
+			mockExecutor.EXPECT().CheckValidMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
+			mockExecutor.EXPECT().AttemptExecuteMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
+
+			// Set up leader elector mock
+			leaderElector := executor_mocks.NewMockLeaderElector(t)
+			leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything, mock.Anything).Return(currentTime.Add(tc.initialReadyDelay)).Maybe()
+			leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(tc.retryDelay).Maybe()
+
+			mockExecutor.EXPECT().GetMessageStatus(mock.Anything, mock.Anything).
+				Return(tc.messageStatusResults, nil).Maybe()
+
+			// Create coordinator with test expiry duration
+			ec, err := executor.NewCoordinator(
+				lggr,
+				mockExecutor,
+				messageSubscriber,
+				leaderElector,
+				monitoring.NewNoopExecutorMonitoring(),
+				tc.expiryDuration,
+				mockTimeProvider,
+			)
+			require.NoError(t, err)
+			require.NotNil(t, ec)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			// Start the coordinator
+			require.NoError(t, ec.Start(ctx))
+			defer func() {
+				_ = ec.Close()
+			}()
+
+			// Send the test message
+			messageChan <- testMessage
+
+			// Wait for processing to occur, we mock the time provider inside the test so there will only be a single time loop.
+			time.Sleep(2 * time.Second)
+
+			// Check for expected log entries
+			found := func(searchStr string) bool {
+				for _, entry := range hook.All() {
+					entryStr := fmt.Sprintf("%+v", entry)
+					if strings.Contains(entryStr, searchStr) {
+						return true
+					}
+				}
+				return false
+			}
+
+			if tc.shouldExecute {
+				require.Eventuallyf(t, func() bool {
+					return found("attempting to execute message")
+				}, 5*time.Second, 1*time.Second, "expected to find 'attempting to execute message' log entry")
+			} else {
+				require.False(t, found("attempting to execute message"), "should not have execute log")
+			}
+
+			if tc.shouldExpire {
+				require.Eventuallyf(t, func() bool {
+					return found("message has expired")
+				}, 3*time.Second, 1*time.Second, "expected to find 'message has expired' log entry")
+			} else {
+				require.False(t, found("message has expired"), "should not have expire log")
+			}
+
+			if tc.shouldRetry {
+				require.Eventuallyf(t, func() bool {
+					return found("message should be retried")
+				}, 3*time.Second, 1*time.Second, "expected to find 'message should be retried' log entry")
+			} else {
+				require.False(t, found("message should be retried"), "should not have retry log")
+			}
+		})
+	}
 }

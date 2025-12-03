@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
@@ -39,20 +39,42 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 
 	// Message at block 940 (< finalized 950) should be processed immediately
 	finalizedMessage := CreateTestMessage(t, 1, 1337, 2337, 0, 300_000)
-	finalizedTask := VerificationTask{
-		Message: finalizedMessage,
-		ReceiptBlobs: []protocol.ReceiptWithBlob{{
-			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
-			DestGasLimit:      300000,
-			DestBytesOverhead: 100,
-			Blob:              []byte("test-blob"),
-			ExtraArgs:         []byte{}, // Empty = default finality
-		}},
+	messageID, _ := finalizedMessage.MessageID()
+
+	// Create test CCV and executor addresses matching those in CreateTestMessage
+	ccvAddr := make([]byte, 20)
+	ccvAddr[0] = 0x11
+
+	executorAddr := make([]byte, 20)
+	executorAddr[0] = 0x22
+
+	finalizedEvent := protocol.MessageSentEvent{
+		DestChainSelector: finalizedMessage.DestChainSelector,
+		SequenceNumber:    uint64(finalizedMessage.SequenceNumber),
+		MessageID:         messageID,
+		Message:           finalizedMessage,
+		Receipts: []protocol.ReceiptWithBlob{
+			{
+				Issuer:            protocol.UnknownAddress(ccvAddr),
+				DestGasLimit:      300000,
+				DestBytesOverhead: 100,
+				Blob:              []byte("test-blob"),
+				ExtraArgs:         []byte{}, // Empty = default finality
+			},
+			{
+				// Executor receipt - always at the end
+				Issuer:            protocol.UnknownAddress(executorAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte{},
+				ExtraArgs:         []byte{},
+			},
+		},
 		BlockNumber: InitialFinalizedBlock - 10, // 940 <= 950 (finalized), should be processed immediately
 	}
 
 	// Send message
-	setup.verificationTaskCh <- finalizedTask
+	setup.sentEventsCh <- finalizedEvent
 	// Wait for processing (poll interval is 100ms, add some buffer)
 	time.Sleep(200 * time.Millisecond)
 
@@ -79,20 +101,42 @@ func TestFinality_CustomFinality(t *testing.T) {
 	customGasLimit := uint32(300_000)
 
 	readyMessage := CreateTestMessage(t, 1, 1337, 2337, customFinality, customGasLimit)
-	readyTask := VerificationTask{
-		Message: readyMessage,
-		ReceiptBlobs: []protocol.ReceiptWithBlob{{
-			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
-			DestGasLimit:      300000,
-			DestBytesOverhead: 100,
-			Blob:              []byte("test-blob"),
-			ExtraArgs:         []byte{},
-		}},
+	messageID, _ := readyMessage.MessageID()
+
+	// Create test CCV and executor addresses matching those in CreateTestMessage
+	ccvAddr := make([]byte, 20)
+	ccvAddr[0] = 0x11
+
+	executorAddr := make([]byte, 20)
+	executorAddr[0] = 0x22
+
+	readyEvent := protocol.MessageSentEvent{
+		DestChainSelector: readyMessage.DestChainSelector,
+		SequenceNumber:    uint64(readyMessage.SequenceNumber),
+		MessageID:         messageID,
+		Message:           readyMessage,
+		Receipts: []protocol.ReceiptWithBlob{
+			{
+				Issuer:            protocol.UnknownAddress(ccvAddr),
+				DestGasLimit:      300000,
+				DestBytesOverhead: 100,
+				Blob:              []byte("test-blob"),
+				ExtraArgs:         []byte{},
+			},
+			{
+				// Executor receipt - always at the end
+				Issuer:            protocol.UnknownAddress(executorAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte{},
+				ExtraArgs:         []byte{},
+			},
+		},
 		BlockNumber: uint64(InitialLatestBlock - customFinality), // should be ready
 	}
 
 	// Send message
-	setup.verificationTaskCh <- readyTask
+	setup.sentEventsCh <- readyEvent
 	// Wait for processing (poll interval is 100ms, add some buffer)
 	time.Sleep(200 * time.Millisecond)
 
@@ -119,24 +163,46 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 
 	nonFinalizedMessage := CreateTestMessage(t, 1, 1337, 2337, 0, 300_000)
 	nonFinalizedBlock := InitialFinalizedBlock + 10
-	nonFinalizedTask := VerificationTask{
-		Message: nonFinalizedMessage,
-		ReceiptBlobs: []protocol.ReceiptWithBlob{{
-			Issuer:            protocol.UnknownAddress([]byte("verifier-1337")),
-			DestGasLimit:      300000,
-			DestBytesOverhead: 100,
-			Blob:              []byte("test-blob"),
-			ExtraArgs:         []byte{}, // Empty = default finality
-		}},
+	messageID, _ := nonFinalizedMessage.MessageID()
+
+	// Create test CCV and executor addresses matching those in CreateTestMessage
+	ccvAddr := make([]byte, 20)
+	ccvAddr[0] = 0x11
+
+	executorAddr := make([]byte, 20)
+	executorAddr[0] = 0x22
+
+	nonFinalizedEvent := protocol.MessageSentEvent{
+		DestChainSelector: nonFinalizedMessage.DestChainSelector,
+		SequenceNumber:    uint64(nonFinalizedMessage.SequenceNumber),
+		MessageID:         messageID,
+		Message:           nonFinalizedMessage,
+		Receipts: []protocol.ReceiptWithBlob{
+			{
+				Issuer:            protocol.UnknownAddress(ccvAddr),
+				DestGasLimit:      300000,
+				DestBytesOverhead: 100,
+				Blob:              []byte("test-blob"),
+				ExtraArgs:         []byte{}, // Empty = default finality
+			},
+			{
+				// Executor receipt - always at the end
+				Issuer:            protocol.UnknownAddress(executorAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte{},
+				ExtraArgs:         []byte{},
+			},
+		},
 		BlockNumber: uint64(nonFinalizedBlock), // should be waiting for finality
 	}
 
 	// Send message with timeout
 	select {
-	case setup.verificationTaskCh <- nonFinalizedTask:
+	case setup.sentEventsCh <- nonFinalizedEvent:
 		// Successfully sent
 	case <-ctx.Done():
-		t.Fatal("Timeout sending task to verification channel")
+		t.Fatal("Timeout sending event to verification channel")
 	}
 
 	// Wait for task to be added to finality queue (poll interval is 50ms)
@@ -149,6 +215,14 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 
 	// Update the shared variable to simulate finalized block advancing
 	setup.setFinalizedBlock(uint64(nonFinalizedBlock))
+	// TODO: This is a hack because the mock doesn't keep on returning the event if it's within range once it's sent to channel.
+	//  This is purely a mock limitation.
+	select {
+	case setup.sentEventsCh <- nonFinalizedEvent:
+		// Successfully sent
+	case <-ctx.Done():
+		t.Fatal("Timeout sending event to verification channel")
+	}
 
 	// Poll until message is processed or timeout
 	deadline := time.Now().Add(2 * time.Second)
@@ -169,9 +243,9 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 
 type coordinatorTestSetup struct {
 	coordinator           *Coordinator
-	mockSourceReader      *MockSourceReader
+	mockSourceReader      *protocol_mocks.MockSourceReader
 	mockVerifier          *TestVerifier
-	verificationTaskCh    chan VerificationTask
+	sentEventsCh          chan protocol.MessageSentEvent
 	currentFinalizedBlock *big.Int      // to control the return value of LatestFinalizedBlockHeight
 	finalizedBlockMu      *sync.RWMutex // protects currentFinalizedBlock from data races
 }
@@ -191,25 +265,13 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	require.NoError(t, err)
 
 	mockVerifier := NewTestVerifier()
-	mockSourceReader := NewMockSourceReader(t)
+	mockSetup := SetupMockSourceReader(t)
+	mockSetup.ExpectFetchMessageSentEvent(false)
+	mockSourceReader := mockSetup.Reader
 	mockStorage := &NoopStorage{}
-	verificationTaskCh := make(chan VerificationTask, 10)
+	verificationTaskCh := mockSetup.Channel
 
-	mockSourceReader.EXPECT().VerificationTasks(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]VerificationTask, error) {
-		var tasks []VerificationTask
-		for {
-			select {
-			case task := <-verificationTaskCh:
-				tasks = append(tasks, task)
-			default:
-				return tasks, nil
-			}
-		}
-	})
-
-	// Mock BlockTime to return immediately during initialization
-	mockSourceReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(time.Now().Unix()), nil).Maybe()
-	mockSourceReader.EXPECT().GetRMNCursedSubjects(mock.Anything).Return(nil, nil).Maybe()
+	mockSourceReader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 
 	// Mock ChainStatusManager to prevent initialization hangs
 	mockChainStatusManager := protocol_mocks.NewMockChainStatusManager(t)
@@ -218,10 +280,9 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	// Allow writes for chain status updates
 	mockChainStatusManager.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	mockHeadTracker := protocol_mocks.NewMockHeadTracker(t)
 	currentFinalizedBlock := big.NewInt(InitialFinalizedBlock)
 	finalizedBlockMu := &sync.RWMutex{}
-	mockHeadTracker.EXPECT().LatestAndFinalizedBlock(mock.Anything).RunAndReturn(func(ctx context.Context) (*protocol.BlockHeader, *protocol.BlockHeader, error) {
+	mockSetup.Reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).RunAndReturn(func(ctx context.Context) (*protocol.BlockHeader, *protocol.BlockHeader, error) {
 		// Return latest and finalized headers with proper synchronization
 		// Must lock before accessing big.Int to avoid concurrent access issues
 		finalizedBlockMu.RLock()
@@ -229,47 +290,42 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		finalizedBlockMu.RUnlock()
 
 		latest := &protocol.BlockHeader{
-			Number:               InitialLatestBlock,
-			Hash:                 protocol.Bytes32{byte(InitialLatestBlock % 256)},
-			ParentHash:           protocol.Bytes32{byte((InitialLatestBlock - 1) % 256)},
-			Timestamp:            time.Now(),
-			FinalizedBlockNumber: finalizedNum,
+			Number:     InitialLatestBlock,
+			Hash:       protocol.Bytes32{byte(InitialLatestBlock % 256)},
+			ParentHash: protocol.Bytes32{byte((InitialLatestBlock - 1) % 256)},
+			Timestamp:  time.Now(),
 		}
 		finalized := &protocol.BlockHeader{
-			Number:               finalizedNum,
-			Hash:                 protocol.Bytes32{byte(finalizedNum % 256)},
-			ParentHash:           protocol.Bytes32{byte((finalizedNum - 1) % 256)},
-			Timestamp:            time.Now(),
-			FinalizedBlockNumber: finalizedNum,
+			Number:     finalizedNum,
+			Hash:       protocol.Bytes32{byte(finalizedNum % 256)},
+			ParentHash: protocol.Bytes32{byte((finalizedNum - 1) % 256)},
+			Timestamp:  time.Now(),
 		}
 		return latest, finalized, nil
 	}).Maybe()
 
+	verifierAddr := make([]byte, 20)
+	verifierAddr[0] = 0x11
+
 	config := CoordinatorConfig{
 		SourceConfigs: map[protocol.ChainSelector]SourceConfig{
 			1337: {
-				VerifierAddress: protocol.UnknownAddress([]byte("verifier-1337")),
+				VerifierAddress: protocol.UnknownAddress(verifierAddr),
 				PollInterval:    50 * time.Millisecond, // Fast polling for tests
 			},
 		},
 		VerifierID: verifierID,
 	}
 
-	noopMonitoring := &noopMonitoring{}
 	coordinator, err := NewCoordinator(
-		WithVerifier(mockVerifier),
-		WithSourceReaders(map[protocol.ChainSelector]SourceReader{
-			1337: mockSourceReader,
-		}),
-		WithHeadTrackers(map[protocol.ChainSelector]chainaccess.HeadTracker{
-			1337: mockHeadTracker,
-		}),
-		WithStorage(mockStorage),
-		WithChainStatusManager(mockChainStatusManager),
-		WithConfig(config),
-		WithLogger(lggr),
-		WithMonitoring(noopMonitoring),
-		WithFinalityCheckInterval(10*time.Millisecond),
+		lggr,
+		mockVerifier,
+		map[protocol.ChainSelector]chainaccess.SourceReader{1337: mockSourceReader},
+		mockStorage,
+		config,
+		&NoopLatencyTracker{},
+		&noopMonitoring{},
+		mockChainStatusManager,
 	)
 	require.NoError(t, err)
 
@@ -277,7 +333,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		coordinator:           coordinator,
 		mockSourceReader:      mockSourceReader,
 		mockVerifier:          mockVerifier,
-		verificationTaskCh:    verificationTaskCh,
+		sentEventsCh:          verificationTaskCh,
 		currentFinalizedBlock: currentFinalizedBlock,
 		finalizedBlockMu:      finalizedBlockMu,
 	}

@@ -1,0 +1,39 @@
+name: CCV Load Test - Scheduled
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM UTC
+
+defaults:
+  run:
+    working-directory: build/devenv
+
+jobs:
+  e2e-load-scheduled:
+    permissions:
+      id-token: write
+      contents: read
+    runs-on: runs-on=${{ github.run_id }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
+    timeout-minutes: 80 # 1 hour 20 minutes
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - subtest: rpc_latency
+            timeout: 1h10m
+    steps:
+      - name: Enable S3 Cache for Self-Hosted Runners
+        uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
+
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Run load test
+        uses: ./.github/actions/run-load-test
+        with:
+          subtest: ${{ matrix.test.subtest }}
+          timeout: ${{ matrix.test.timeout }}
+          ccv-iam-role: ${{ secrets.CCV_IAM_ROLE }}
+          jd-registry: ${{ secrets.JD_REGISTRY }}
+          jd-image: ${{ secrets.JD_IMAGE }}

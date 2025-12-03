@@ -22,9 +22,9 @@ func (_m *MockCommitVerificationAggregatedStore) EXPECT() *MockCommitVerificatio
 	return &MockCommitVerificationAggregatedStore_Expecter{mock: &_m.Mock}
 }
 
-// GetBatchCCVData provides a mock function with given fields: ctx, messageIDs, committeeID
-func (_m *MockCommitVerificationAggregatedStore) GetBatchCCVData(ctx context.Context, messageIDs [][]byte, committeeID string) (map[string]*model.CommitAggregatedReport, error) {
-	ret := _m.Called(ctx, messageIDs, committeeID)
+// GetBatchCCVData provides a mock function with given fields: ctx, messageIDs
+func (_m *MockCommitVerificationAggregatedStore) GetBatchCCVData(ctx context.Context, messageIDs [][]byte) (map[string]*model.CommitAggregatedReport, error) {
+	ret := _m.Called(ctx, messageIDs)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetBatchCCVData")
@@ -32,19 +32,19 @@ func (_m *MockCommitVerificationAggregatedStore) GetBatchCCVData(ctx context.Con
 
 	var r0 map[string]*model.CommitAggregatedReport
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, [][]byte, string) (map[string]*model.CommitAggregatedReport, error)); ok {
-		return rf(ctx, messageIDs, committeeID)
+	if rf, ok := ret.Get(0).(func(context.Context, [][]byte) (map[string]*model.CommitAggregatedReport, error)); ok {
+		return rf(ctx, messageIDs)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, [][]byte, string) map[string]*model.CommitAggregatedReport); ok {
-		r0 = rf(ctx, messageIDs, committeeID)
+	if rf, ok := ret.Get(0).(func(context.Context, [][]byte) map[string]*model.CommitAggregatedReport); ok {
+		r0 = rf(ctx, messageIDs)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(map[string]*model.CommitAggregatedReport)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, [][]byte, string) error); ok {
-		r1 = rf(ctx, messageIDs, committeeID)
+	if rf, ok := ret.Get(1).(func(context.Context, [][]byte) error); ok {
+		r1 = rf(ctx, messageIDs)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -60,14 +60,13 @@ type MockCommitVerificationAggregatedStore_GetBatchCCVData_Call struct {
 // GetBatchCCVData is a helper method to define mock.On call
 //   - ctx context.Context
 //   - messageIDs [][]byte
-//   - committeeID string
-func (_e *MockCommitVerificationAggregatedStore_Expecter) GetBatchCCVData(ctx interface{}, messageIDs interface{}, committeeID interface{}) *MockCommitVerificationAggregatedStore_GetBatchCCVData_Call {
-	return &MockCommitVerificationAggregatedStore_GetBatchCCVData_Call{Call: _e.mock.On("GetBatchCCVData", ctx, messageIDs, committeeID)}
+func (_e *MockCommitVerificationAggregatedStore_Expecter) GetBatchCCVData(ctx interface{}, messageIDs interface{}) *MockCommitVerificationAggregatedStore_GetBatchCCVData_Call {
+	return &MockCommitVerificationAggregatedStore_GetBatchCCVData_Call{Call: _e.mock.On("GetBatchCCVData", ctx, messageIDs)}
 }
 
-func (_c *MockCommitVerificationAggregatedStore_GetBatchCCVData_Call) Run(run func(ctx context.Context, messageIDs [][]byte, committeeID string)) *MockCommitVerificationAggregatedStore_GetBatchCCVData_Call {
+func (_c *MockCommitVerificationAggregatedStore_GetBatchCCVData_Call) Run(run func(ctx context.Context, messageIDs [][]byte)) *MockCommitVerificationAggregatedStore_GetBatchCCVData_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].([][]byte), args[2].(string))
+		run(args[0].(context.Context), args[1].([][]byte))
 	})
 	return _c
 }
@@ -77,14 +76,14 @@ func (_c *MockCommitVerificationAggregatedStore_GetBatchCCVData_Call) Return(_a0
 	return _c
 }
 
-func (_c *MockCommitVerificationAggregatedStore_GetBatchCCVData_Call) RunAndReturn(run func(context.Context, [][]byte, string) (map[string]*model.CommitAggregatedReport, error)) *MockCommitVerificationAggregatedStore_GetBatchCCVData_Call {
+func (_c *MockCommitVerificationAggregatedStore_GetBatchCCVData_Call) RunAndReturn(run func(context.Context, [][]byte) (map[string]*model.CommitAggregatedReport, error)) *MockCommitVerificationAggregatedStore_GetBatchCCVData_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetCCVData provides a mock function with given fields: ctx, messageID, committeeID
-func (_m *MockCommitVerificationAggregatedStore) GetCCVData(ctx context.Context, messageID []byte, committeeID string) (*model.CommitAggregatedReport, error) {
-	ret := _m.Called(ctx, messageID, committeeID)
+// GetCCVData provides a mock function with given fields: ctx, messageID
+func (_m *MockCommitVerificationAggregatedStore) GetCCVData(ctx context.Context, messageID []byte) (*model.CommitAggregatedReport, error) {
+	ret := _m.Called(ctx, messageID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetCCVData")
@@ -92,19 +91,19 @@ func (_m *MockCommitVerificationAggregatedStore) GetCCVData(ctx context.Context,
 
 	var r0 *model.CommitAggregatedReport
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, []byte, string) (*model.CommitAggregatedReport, error)); ok {
-		return rf(ctx, messageID, committeeID)
+	if rf, ok := ret.Get(0).(func(context.Context, []byte) (*model.CommitAggregatedReport, error)); ok {
+		return rf(ctx, messageID)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, []byte, string) *model.CommitAggregatedReport); ok {
-		r0 = rf(ctx, messageID, committeeID)
+	if rf, ok := ret.Get(0).(func(context.Context, []byte) *model.CommitAggregatedReport); ok {
+		r0 = rf(ctx, messageID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*model.CommitAggregatedReport)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, []byte, string) error); ok {
-		r1 = rf(ctx, messageID, committeeID)
+	if rf, ok := ret.Get(1).(func(context.Context, []byte) error); ok {
+		r1 = rf(ctx, messageID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -120,14 +119,13 @@ type MockCommitVerificationAggregatedStore_GetCCVData_Call struct {
 // GetCCVData is a helper method to define mock.On call
 //   - ctx context.Context
 //   - messageID []byte
-//   - committeeID string
-func (_e *MockCommitVerificationAggregatedStore_Expecter) GetCCVData(ctx interface{}, messageID interface{}, committeeID interface{}) *MockCommitVerificationAggregatedStore_GetCCVData_Call {
-	return &MockCommitVerificationAggregatedStore_GetCCVData_Call{Call: _e.mock.On("GetCCVData", ctx, messageID, committeeID)}
+func (_e *MockCommitVerificationAggregatedStore_Expecter) GetCCVData(ctx interface{}, messageID interface{}) *MockCommitVerificationAggregatedStore_GetCCVData_Call {
+	return &MockCommitVerificationAggregatedStore_GetCCVData_Call{Call: _e.mock.On("GetCCVData", ctx, messageID)}
 }
 
-func (_c *MockCommitVerificationAggregatedStore_GetCCVData_Call) Run(run func(ctx context.Context, messageID []byte, committeeID string)) *MockCommitVerificationAggregatedStore_GetCCVData_Call {
+func (_c *MockCommitVerificationAggregatedStore_GetCCVData_Call) Run(run func(ctx context.Context, messageID []byte)) *MockCommitVerificationAggregatedStore_GetCCVData_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].([]byte), args[2].(string))
+		run(args[0].(context.Context), args[1].([]byte))
 	})
 	return _c
 }
@@ -137,34 +135,34 @@ func (_c *MockCommitVerificationAggregatedStore_GetCCVData_Call) Return(_a0 *mod
 	return _c
 }
 
-func (_c *MockCommitVerificationAggregatedStore_GetCCVData_Call) RunAndReturn(run func(context.Context, []byte, string) (*model.CommitAggregatedReport, error)) *MockCommitVerificationAggregatedStore_GetCCVData_Call {
+func (_c *MockCommitVerificationAggregatedStore_GetCCVData_Call) RunAndReturn(run func(context.Context, []byte) (*model.CommitAggregatedReport, error)) *MockCommitVerificationAggregatedStore_GetCCVData_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// QueryAggregatedReports provides a mock function with given fields: ctx, start, committeeID, token
-func (_m *MockCommitVerificationAggregatedStore) QueryAggregatedReports(ctx context.Context, start int64, committeeID string, token *string) (*model.PaginatedAggregatedReports, error) {
-	ret := _m.Called(ctx, start, committeeID, token)
+// QueryAggregatedReports provides a mock function with given fields: ctx, sinceSequenceInclusive
+func (_m *MockCommitVerificationAggregatedStore) QueryAggregatedReports(ctx context.Context, sinceSequenceInclusive int64) (*model.AggregatedReportBatch, error) {
+	ret := _m.Called(ctx, sinceSequenceInclusive)
 
 	if len(ret) == 0 {
 		panic("no return value specified for QueryAggregatedReports")
 	}
 
-	var r0 *model.PaginatedAggregatedReports
+	var r0 *model.AggregatedReportBatch
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, int64, string, *string) (*model.PaginatedAggregatedReports, error)); ok {
-		return rf(ctx, start, committeeID, token)
+	if rf, ok := ret.Get(0).(func(context.Context, int64) (*model.AggregatedReportBatch, error)); ok {
+		return rf(ctx, sinceSequenceInclusive)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, int64, string, *string) *model.PaginatedAggregatedReports); ok {
-		r0 = rf(ctx, start, committeeID, token)
+	if rf, ok := ret.Get(0).(func(context.Context, int64) *model.AggregatedReportBatch); ok {
+		r0 = rf(ctx, sinceSequenceInclusive)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.PaginatedAggregatedReports)
+			r0 = ret.Get(0).(*model.AggregatedReportBatch)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, int64, string, *string) error); ok {
-		r1 = rf(ctx, start, committeeID, token)
+	if rf, ok := ret.Get(1).(func(context.Context, int64) error); ok {
+		r1 = rf(ctx, sinceSequenceInclusive)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -179,26 +177,24 @@ type MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call struct {
 
 // QueryAggregatedReports is a helper method to define mock.On call
 //   - ctx context.Context
-//   - start int64
-//   - committeeID string
-//   - token *string
-func (_e *MockCommitVerificationAggregatedStore_Expecter) QueryAggregatedReports(ctx interface{}, start interface{}, committeeID interface{}, token interface{}) *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call {
-	return &MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call{Call: _e.mock.On("QueryAggregatedReports", ctx, start, committeeID, token)}
+//   - sinceSequenceInclusive int64
+func (_e *MockCommitVerificationAggregatedStore_Expecter) QueryAggregatedReports(ctx interface{}, sinceSequenceInclusive interface{}) *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call {
+	return &MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call{Call: _e.mock.On("QueryAggregatedReports", ctx, sinceSequenceInclusive)}
 }
 
-func (_c *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call) Run(run func(ctx context.Context, start int64, committeeID string, token *string)) *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call {
+func (_c *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call) Run(run func(ctx context.Context, sinceSequenceInclusive int64)) *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(int64), args[2].(string), args[3].(*string))
+		run(args[0].(context.Context), args[1].(int64))
 	})
 	return _c
 }
 
-func (_c *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call) Return(_a0 *model.PaginatedAggregatedReports, _a1 error) *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call {
+func (_c *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call) Return(_a0 *model.AggregatedReportBatch, _a1 error) *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call) RunAndReturn(run func(context.Context, int64, string, *string) (*model.PaginatedAggregatedReports, error)) *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call {
+func (_c *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call) RunAndReturn(run func(context.Context, int64) (*model.AggregatedReportBatch, error)) *MockCommitVerificationAggregatedStore_QueryAggregatedReports_Call {
 	_c.Call.Return(run)
 	return _c
 }

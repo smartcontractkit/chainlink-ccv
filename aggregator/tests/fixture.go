@@ -2,43 +2,19 @@ package tests
 
 import (
 	"crypto/ecdsa"
-	"crypto/sha256"
-	"encoding/binary"
 	"testing"
-	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
-
-// DeriveUUIDFromString creates a deterministic UUID from a string for testing.
-func DeriveUUIDFromString(input string) string {
-	hash := sha256.Sum256([]byte(input))
-	// Use first 16 bytes to create a UUID
-	return uuid.UUID(hash[:16]).String()
-}
-
-// DeriveUUIDFromTimestamp creates a deterministic UUID from a timestamp for testing.
-func DeriveUUIDFromTimestamp(timestamp int64) string {
-	buf := make([]byte, 8)
-	// Safe conversion: use absolute value to avoid issues with negative timestamps
-	var ts uint64
-	if timestamp < 0 {
-		ts = uint64(-timestamp)
-	} else {
-		ts = uint64(timestamp)
-	}
-	binary.LittleEndian.PutUint64(buf, ts)
-	hash := sha256.Sum256(buf)
-	return uuid.UUID(hash[:16]).String()
-}
 
 func GenerateVerifierAddresses(t *testing.T) ([]byte, []byte) {
 	// Generate valid Ethereum addresses using private keys
@@ -65,8 +41,7 @@ func NewSignerFixture(t *testing.T, name string) *SignerFixture {
 	signerAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
 
 	signer := model.Signer{
-		ParticipantID: name,
-		Addresses:     []string{signerAddress.Hex()},
+		Address: signerAddress.Hex(),
 	}
 	return &SignerFixture{
 		Signer: signer,
@@ -74,11 +49,28 @@ func NewSignerFixture(t *testing.T, name string) *SignerFixture {
 	}
 }
 
+// NewCommitteeFixture creates a test committee configuration with the given parameters.
+// Uses default test chain selectors: source=1, dest=2.
+func NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress []byte, signers ...model.Signer) *model.Committee {
+	return &model.Committee{
+		QuorumConfigs: map[string]map[string]*model.QuorumConfig{
+			"2": {
+				"1": {
+					Threshold:                  uint8(len(signers)), //nolint:gosec // Test fixture with controlled values
+					Signers:                    signers,
+					SourceVerifierAddress:      common.BytesToAddress(sourceVerifierAddress).Hex(),
+					DestinationVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+				},
+			},
+		},
+	}
+}
+
 type ProtocolMessageOption = func(*protocol.Message) *protocol.Message
 
-func WithNonce(nonce uint64) ProtocolMessageOption {
+func WithSequenceNumber(seq uint64) ProtocolMessageOption {
 	return func(m *protocol.Message) *protocol.Message {
-		m.Nonce = protocol.Nonce(nonce)
+		m.SequenceNumber = protocol.SequenceNumber(seq)
 		return m
 	}
 }
@@ -88,7 +80,7 @@ func NewProtocolMessage(t *testing.T, options ...ProtocolMessageOption) *protoco
 		Version:              1,
 		SourceChainSelector:  1,
 		DestChainSelector:    2,
-		Nonce:                123,
+		SequenceNumber:       123,
 		OnRampAddressLength:  20,
 		OnRampAddress:        make([]byte, 20),
 		OffRampAddressLength: 20,
@@ -101,7 +93,7 @@ func NewProtocolMessage(t *testing.T, options ...ProtocolMessageOption) *protoco
 		DestBlobLength:       10,
 		DestBlob:             make([]byte, 10),
 		TokenTransferLength:  0,
-		TokenTransfer:        []byte{},
+		TokenTransfer:        nil,
 		DataLength:           8,
 		Data:                 []byte("testdata"),
 	}
@@ -113,128 +105,102 @@ func NewProtocolMessage(t *testing.T, options ...ProtocolMessageOption) *protoco
 	return msg
 }
 
-type MessageWithCCVNodeDataOption = func(*pb.MessageWithCCVNodeData) *pb.MessageWithCCVNodeData
+type MessageWithCCVNodeDataOption = func(*pb.CommitteeVerifierNodeResult) *pb.CommitteeVerifierNodeResult
 
-func WithCustomTimestamp(timestamp int64) MessageWithCCVNodeDataOption {
-	return func(m *pb.MessageWithCCVNodeData) *pb.MessageWithCCVNodeData {
-		m.Timestamp = timestamp
-		return m
-	}
-}
+func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDataOption {
+	return func(m *pb.CommitteeVerifierNodeResult) *pb.CommitteeVerifierNodeResult {
+		protocolMessage, err := ccvcommon.MapProtoMessageToProtocolMessage(m.Message)
+		require.NoError(t, err)
 
-func WithReceiptBlobs(receiptBlobs []*pb.ReceiptBlob) MessageWithCCVNodeDataOption {
-	return func(m *pb.MessageWithCCVNodeData) *pb.MessageWithCCVNodeData {
-		m.ReceiptBlobs = receiptBlobs
-		return m
-	}
-}
-
-// WithSignatureFrom merges signatures from multiple signers into a single CCV data.
-// This is useful for testing scenarios where quorum is reached immediately with multiple signatures.
-func WithSignatureFrom(t *testing.T, signers ...*SignerFixture) MessageWithCCVNodeDataOption {
-	return func(m *pb.MessageWithCCVNodeData) *pb.MessageWithCCVNodeData {
-		protocolMessage := model.MapProtoMessageToProtocolMessage(m.Message)
-
-		// Get message hash
 		messageID, err := protocolMessage.MessageID()
 		require.NoError(t, err, "failed to get message ID")
 
-		// Create dummy ccvArgs (nonce as 8 bytes) - must be done before signing
-		ccvArgs := make([]byte, 8)
-		binary.BigEndian.PutUint64(ccvArgs, 123) // dummy nonce
-
-		// Use SignV27 for proper signature creation and normalization
-		require.Len(t, m.BlobData, 4, "blob data must be at least 4 bytes to account for version")
-		hash, err := committee.NewSignableHash(messageID, m.BlobData)
+		require.Len(t, m.CcvVersion, 4, "ccv version must be at least 4 bytes")
+		hash, err := committee.NewSignableHash(messageID, m.CcvVersion)
 		require.NoError(t, err, "failed to create signed hash")
 
-		// Collect all signatures
-		sigData := make([]protocol.Data, 0, len(signers))
-		for _, signer := range signers {
-			r32, s32, signerAddr, err := protocol.SignV27(hash[:], signer.key)
-			require.NoError(t, err, "failed to sign message for signer %s", signer.Signer.ParticipantID)
+		r32, s32, signerAddr, err := protocol.SignV27(hash[:], signer.key)
+		require.NoError(t, err, "failed to sign message for signer %s", signer.Signer.Address)
 
-			sigData = append(sigData, protocol.Data{
-				R:      r32,
-				S:      s32,
-				Signer: signerAddr,
-			})
+		sigData := protocol.Data{
+			R:      r32,
+			S:      s32,
+			Signer: signerAddr,
 		}
 
-		m.CcvData, err = protocol.EncodeSignatures(sigData)
-		require.NoError(t, err, "failed to encode signatures")
+		m.Signature, err = protocol.EncodeSingleSignature(sigData)
+		require.NoError(t, err, "failed to encode single signature")
 
 		return m
 	}
 }
 
-func WithBlobData(blobData []byte) MessageWithCCVNodeDataOption {
-	return func(m *pb.MessageWithCCVNodeData) *pb.MessageWithCCVNodeData {
-		m.BlobData = blobData
+func WithCcvVersion(ccvVersion []byte) MessageWithCCVNodeDataOption {
+	return func(m *pb.CommitteeVerifierNodeResult) *pb.CommitteeVerifierNodeResult {
+		m.CcvVersion = ccvVersion
 		return m
 	}
 }
 
-func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVerifierAddress []byte, options ...MessageWithCCVNodeDataOption) *pb.MessageWithCCVNodeData {
-	messageID, err := message.MessageID()
-	require.NoError(t, err, "failed to compute message ID")
+func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVerifierAddress []byte, options ...MessageWithCCVNodeDataOption) (*pb.CommitteeVerifierNodeResult, protocol.Bytes32) {
+	ccvVersion := []byte{0x01, 0x02, 0x03, 0x04}
+	executorAddr := make([]byte, 20)
 
-	// blob data must be at least 4 bytes to account for version
-	blobData := []byte{0x01, 0x02, 0x03, 0x04}
+	// Compute the CCV and executor hash
+	ccvAddrs := []protocol.UnknownAddress{protocol.UnknownAddress(sourceVerifierAddress)}
+	ccvAndExecutorHash, err := protocol.ComputeCCVAndExecutorHash(ccvAddrs, protocol.UnknownAddress(executorAddr))
+	require.NoError(t, err, "failed to compute CCV and executor hash")
 
-	ccvNodeData := &pb.MessageWithCCVNodeData{
-		MessageId:             messageID[:],
-		SourceVerifierAddress: sourceVerifierAddress,
+	var tokenTransferBytes []byte
+	if message.TokenTransfer != nil {
+		tokenTransferBytes = message.TokenTransfer.Encode()
+	}
+
+	ccvNodeData := &pb.CommitteeVerifierNodeResult{
 		Message: &pb.Message{
 			Version:              uint32(message.Version),
 			SourceChainSelector:  uint64(message.SourceChainSelector),
 			DestChainSelector:    uint64(message.DestChainSelector),
-			Nonce:                uint64(message.Nonce),
+			SequenceNumber:       uint64(message.SequenceNumber),
 			OnRampAddressLength:  uint32(message.OnRampAddressLength),
 			OnRampAddress:        message.OnRampAddress[:],
 			OffRampAddressLength: uint32(message.OffRampAddressLength),
 			OffRampAddress:       message.OffRampAddress[:],
 			Finality:             uint32(message.Finality),
-			GasLimit:             message.GasLimit,
+			ExecutionGasLimit:    message.ExecutionGasLimit,
+			CcipReceiveGasLimit:  message.CcipReceiveGasLimit,
+			CcvAndExecutorHash:   ccvAndExecutorHash[:],
 			SenderLength:         uint32(message.SenderLength),
 			Sender:               message.Sender[:],
 			ReceiverLength:       uint32(message.ReceiverLength),
 			Receiver:             message.Receiver[:],
 			DestBlobLength:       uint32(message.DestBlobLength),
 			DestBlob:             message.DestBlob[:],
-			TokenTransferLength:  uint32(message.TokenTransferLength),
-			TokenTransfer:        message.TokenTransfer[:],
+			TokenTransferLength:  uint32(len(tokenTransferBytes)), //nolint:gosec // G115: Test fixture with bounded data
+			TokenTransfer:        tokenTransferBytes,
 			DataLength:           uint32(message.DataLength),
 			Data:                 message.Data[:],
 		},
-		BlobData:  blobData,
-		CcvData:   []byte("test ccv data"),
-		Timestamp: time.Now().UnixMilli(),
-		ReceiptBlobs: []*pb.ReceiptBlob{
-			{
-				Issuer: sourceVerifierAddress,
-				Blob:   blobData,
-			},
-		},
+		CcvVersion:      ccvVersion,
+		CcvAddresses:    [][]byte{sourceVerifierAddress},
+		ExecutorAddress: executorAddr,
+		Signature:       []byte("placeholder signature"),
 	}
 	for _, opt := range options {
 		ccvNodeData = opt(ccvNodeData)
 	}
-	return ccvNodeData
+
+	// Compute and return the message ID
+	protocolMessage, err := ccvcommon.MapProtoMessageToProtocolMessage(ccvNodeData.GetMessage())
+	require.NoError(t, err, "failed to map proto message")
+	messageID, err := protocolMessage.MessageID()
+	require.NoError(t, err, "failed to compute message ID")
+
+	return ccvNodeData, messageID
 }
 
-// NewWriteCommitCCVNodeDataRequest creates a new WriteCommitCCVNodeDataRequest with a generated idempotency key.
-func NewWriteCommitCCVNodeDataRequest(ccvNodeData *pb.MessageWithCCVNodeData) *pb.WriteCommitCCVNodeDataRequest {
-	return &pb.WriteCommitCCVNodeDataRequest{
-		CcvNodeData:    ccvNodeData,
-		IdempotencyKey: uuid.New().String(),
-	}
-}
-
-// NewWriteCommitCCVNodeDataRequestWithKey creates a new WriteCommitCCVNodeDataRequest with a specific idempotency key.
-func NewWriteCommitCCVNodeDataRequestWithKey(ccvNodeData *pb.MessageWithCCVNodeData, idempotencyKey string) *pb.WriteCommitCCVNodeDataRequest {
-	return &pb.WriteCommitCCVNodeDataRequest{
-		CcvNodeData:    ccvNodeData,
-		IdempotencyKey: idempotencyKey,
+func NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData *pb.CommitteeVerifierNodeResult) *pb.WriteCommitteeVerifierNodeResultRequest {
+	return &pb.WriteCommitteeVerifierNodeResultRequest{
+		CommitteeVerifierNodeResult: ccvNodeData,
 	}
 }
