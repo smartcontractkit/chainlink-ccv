@@ -22,7 +22,7 @@ import (
 const (
 	// ChainStatusInterval is how often to write statuses.
 	ChainStatusInterval = 300 * time.Second
-	DefaultPollInterval = 2 * time.Second
+	DefaultPollInterval = 2100 * time.Millisecond
 )
 
 type SourceReaderService struct {
@@ -42,11 +42,11 @@ type SourceReaderService struct {
 	readyTasksCh chan batcher.BatchResult[VerificationTask]
 
 	// mutable per-chain state
-	mu                 sync.RWMutex
-	lastProcessedBlock *big.Int
-	pendingTasks       map[string]VerificationTask
-	sentTasks          map[string]VerificationTask // Track messages already sent to prevent duplicates
-	disabled           atomic.Bool
+	mu                          sync.RWMutex
+	lastProcessedFinalizedBlock atomic.Pointer[big.Int]
+	pendingTasks                map[string]VerificationTask
+	sentTasks                   map[string]VerificationTask // Track messages already sent to prevent duplicates
+	disabled                    atomic.Bool
 
 	// ChainStatus management
 	chainStatusManager   protocol.ChainStatusManager
@@ -121,9 +121,7 @@ func (r *SourceReaderService) Start(ctx context.Context) error {
 			r.logger.Errorw("Failed to initialize start block", "error", err)
 			return err
 		}
-		r.mu.Lock()
-		r.lastProcessedBlock = startBlock
-		r.mu.Unlock()
+		r.lastProcessedFinalizedBlock.Store(startBlock)
 		r.logger.Infow("Initialized start block", "block", startBlock.String())
 
 		r.wg.Add(1)
@@ -185,18 +183,21 @@ func (r *SourceReaderService) eventMonitoringLoop() {
 			return
 		case <-ticker.C:
 			if !r.disabled.Load() {
-				// TODO: consider querying latest and finalized here and sending them to processEventCycle and sendReadyMessages
-				r.processEventCycle(ctx)
-				r.sendReadyMessages(ctx)
+				ready, latest, finalized := r.readyToQuery(ctx)
+				if !ready {
+					continue
+				}
+				r.processEventCycle(ctx, latest, finalized)
+				r.sendReadyMessages(ctx, latest, finalized)
 			}
 		}
 	}
 }
 
 // readyToQuery checks if there are new blocks to process.
-// Returns (true, finalizedBlock) if new blocks are available.
-func (r *SourceReaderService) readyToQuery(ctx context.Context) (bool, *protocol.BlockHeader) {
-	blockCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+// Returns (true, latest, finalized) if new blocks are available.
+func (r *SourceReaderService) readyToQuery(ctx context.Context) (bool, *protocol.BlockHeader, *protocol.BlockHeader) {
+	blockCtx, cancel := context.WithTimeout(ctx, r.pollInterval/3)
 	latest, finalized, err := r.sourceReader.LatestAndFinalizedBlock(blockCtx)
 	cancel()
 
@@ -204,40 +205,29 @@ func (r *SourceReaderService) readyToQuery(ctx context.Context) (bool, *protocol
 		r.logger.Errorw("Failed to get latest block", "error", err)
 		// Send batch-level error to coordinator
 		r.sendBatchError(ctx, fmt.Errorf("failed to get finalized block: %w", err))
-		return false, nil
+		return false, nil, nil
 	}
 	if finalized == nil || latest == nil {
 		r.logger.Errorw("nil block found during latest/finalized retrieval",
 			"finalized=Nil", finalized == nil, "latest=Nil", latest == nil)
 		r.sendBatchError(ctx, fmt.Errorf("finalized block is nil"))
-		return false, nil
+		return false, nil, nil
 	}
 
-	// TODO: Keep it or not?
-	// if latest.Number <= r.lastProcessedBlock.Uint64() {
-	//	r.logger.Debugw("No new blocks to process",
-	//		"lastProcessedBlock", r.lastProcessedBlock.String())
-	//	return false, finalized
-	// }
-
-	return true, finalized
+	return true, latest, finalized
 }
 
 // processEventCycle processes a single cycle of event monitoring.
 // It queries for new MessageSent events, converts them to VerificationTasks,
 // and adds them to the pending queue, handling reorgs as needed.
-func (r *SourceReaderService) processEventCycle(ctx context.Context) {
-	ready, finalized := r.readyToQuery(ctx)
-	if !ready {
-		return
-	}
-	// Query for logs
-	logsCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+func (r *SourceReaderService) processEventCycle(ctx context.Context, latest, finalized *protocol.BlockHeader) {
+	r.logger.Infow("processEventCycle starting",
+		"latestBlock", latest.Number,
+		"finalizedBlock", finalized.Number)
+	logsCtx, cancel := context.WithTimeout(ctx, r.pollInterval/3)
 	defer cancel()
 
-	r.mu.RLock()
-	fromBlock := r.lastProcessedBlock
-	r.mu.RUnlock()
+	fromBlock := r.lastProcessedFinalizedBlock.Load()
 
 	r.logger.Infow("Querying from block", "fromBlock", fromBlock.String())
 	// Fetch message events from blockchain
@@ -256,14 +246,18 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 	now := time.Now()
 	tasks := make([]VerificationTask, 0, len(events))
 	for _, event := range events {
+		if r.filter != nil && !r.filter.Filter(event) {
+			r.logger.Debugw("Message filtered out by filter",
+				"messageID", event.MessageID.String(),
+				"destChain", event.Message.DestChainSelector,
+			)
+			continue
+		}
 		computedMessageID, err := event.Message.MessageID()
 		if err != nil {
 			r.logger.Errorw("Failed to compute message ID", "error", err)
 			continue
 		}
-		// TODO: Move more validations here?
-		// TODO: Copy validation from evm source reader to source reader service
-		// TODO: Add the filter back
 		onchainMessageID := event.MessageID.String()
 		if computedMessageID.String() != onchainMessageID {
 			r.logger.Errorw("Message ID mismatch", "computed", computedMessageID.String(), "onchain", onchainMessageID)
@@ -288,19 +282,16 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context) {
 			"toBlock", "latest")
 	}
 
-	// Update processed block with optimistic locking check
-	r.mu.Lock()
-	// No reset occurred - safe to update
-	r.lastProcessedBlock = new(big.Int).SetUint64(finalized.Number)
+	// Update to latest known finalized block
+	newBlock := new(big.Int).SetUint64(finalized.Number)
+	r.lastProcessedFinalizedBlock.Store(newBlock)
 
-	r.mu.Unlock()
-
-	r.updateChainStatus(ctx, r.lastProcessedBlock)
+	r.updateChainStatus(ctx, newBlock)
 
 	r.logger.Debugw("Processed block range",
 		"fromBlock", fromBlock.String(),
 		"toBlock", "latest",
-		"advancedTo", r.lastProcessedBlock.String(),
+		"advancedTo", newBlock.String(),
 		"eventsFound", len(events))
 }
 
@@ -480,17 +471,10 @@ func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationT
 	}
 }
 
-func (r *SourceReaderService) sendReadyMessages(ctx context.Context) {
-	latest, finalized, err := r.sourceReader.LatestAndFinalizedBlock(ctx)
-	if err != nil {
-		r.logger.Warnw("Failed to get latest/finalized block",
-			"error", err)
-		return
-	}
-	if latest == nil || finalized == nil {
-		r.logger.Warnw("Latest or finalized block is nil")
-		return
-	}
+func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, finalized *protocol.BlockHeader) {
+	r.logger.Infow("Checking for ready messages to send",
+		"latestBlock", latest.Number,
+		"finalizedBlock", finalized.Number)
 
 	// Update finality checker with new finalized block and check for violations
 	if err := r.finalityChecker.UpdateFinalized(ctx, finalized.Number); err != nil {
