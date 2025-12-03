@@ -42,10 +42,10 @@ func getSubCommands(parent string) []prompt.Suggest {
 	case "send":
 		return []prompt.Suggest{
 			{Text: "Chain selectors", Description: "V2: source,destination or V3: source,destination,finality"},
-			{Text: "3379446385462418246,12922642891491394802", Description: "V2: send default Anvil 1337 -> Anvil 2337"},
-			{Text: "12922642891491394802,3379446385462418246", Description: "V2: send default Anvil 1337 <- Anvil 2337"},
-			{Text: "3379446385462418246,12922642891491394802,12", Description: "V3: send Anvil 1337 -> Anvil 2337 with finality=12"},
-			{Text: "12922642891491394802,3379446385462418246,5", Description: "V3: send Anvil 1337 <- Anvil 2337 with finality=5"},
+			{Text: "--src 3379446385462418246 --dest 12922642891491394802", Description: "V2: send default Anvil 1337 -> Anvil 2337"},
+			{Text: "--src 12922642891491394802 --dest 3379446385462418246", Description: "V2: send default Anvil 1337 <- Anvil 2337"},
+			{Text: "--src 3379446385462418246 --dest 12922642891491394802 --finality 12", Description: "V3: send Anvil 1337 -> Anvil 2337 with finality=12"},
+			{Text: "--src 12922642891491394802 --dest 3379446385462418246 --finality 5", Description: "V3: send Anvil 1337 <- Anvil 2337 with finality=5"},
 		}
 	case "deploy-commit-contracts":
 		return []prompt.Suggest{
