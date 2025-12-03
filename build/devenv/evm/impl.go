@@ -333,7 +333,7 @@ func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Envi
 // fetchAllSentEventsBySelector fetch all CCIPMessageSent events from on ramp contract.
 func (m *CCIP17EVM) fetchAllSentEventsBySelector(ctx context.Context, from, to uint64) ([]*onramp.OnRampCCIPMessageSent, error) {
 	if from != m.chain.ChainSelector() {
-		return nil, fmt.Errorf("chain %d not found in environment chains %v", from, m.chain.ChainSelector())
+		return nil, fmt.Errorf("fetchAllSentEventsBySelector: chain %d not found in environment chains %v", from, m.chain.ChainSelector())
 	}
 
 	l := m.logger
@@ -373,7 +373,7 @@ func (m *CCIP17EVM) fetchAllSentEventsBySelector(ctx context.Context, from, to u
 // fetchAllExecEventsBySelector fetch all ExecutionStateChanged events from off ramp contract.
 func (m *CCIP17EVM) fetchAllExecEventsBySelector(ctx context.Context, from, to uint64) ([]*offramp.OffRampExecutionStateChanged, error) {
 	if from != m.chain.ChainSelector() {
-		return nil, fmt.Errorf("chain %d not found in environment chains %v", from, m.chain.ChainSelector())
+		return nil, fmt.Errorf("fetchAllExecEventsBySelectors: chain %d not found in environment chains %v", from, m.chain.ChainSelector())
 	}
 
 	l := m.logger
@@ -414,7 +414,7 @@ func (m *CCIP17EVM) fetchAllExecEventsBySelector(ctx context.Context, from, to u
 
 func (m *CCIP17EVM) GetExpectedNextSequenceNumber(ctx context.Context, from, to uint64) (uint64, error) {
 	if from != m.chain.ChainSelector() {
-		return 0, fmt.Errorf("chain %d not found in environment chains %v", from, m.chain.ChainSelector())
+		return 0, fmt.Errorf("GetExpectedNextSequenceNumber: chain %d not found in environment chains %v", from, m.chain.ChainSelector())
 	}
 
 	return m.onRamp.GetExpectedNextSequenceNumber(&bind.CallOpts{Context: ctx}, to)
@@ -423,7 +423,7 @@ func (m *CCIP17EVM) GetExpectedNextSequenceNumber(ctx context.Context, from, to 
 // WaitOneSentEventBySeqNo wait and fetch strictly one CCIPMessageSent event by selector and sequence number and selector.
 func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (cciptestinterfaces.MessageSentEvent, error) {
 	if from != m.chain.ChainSelector() {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("chain %d not found in environment chains %v", from, m.chain.ChainSelector())
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("WaitOneSentEventBySeqNo: chain %d not found in environment chains %v", from, m.chain.ChainSelector())
 	}
 
 	l := m.logger
@@ -492,7 +492,7 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq u
 // WaitOneExecEventBySeqNo wait and fetch strictly one ExecutionStateChanged event by sequence number and selector.
 func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
 	if to != m.chain.ChainSelector() {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("chain %d not found in environment chains %v", from, m.chain.ChainSelector())
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("WaitOneExecEventBySeqNo: chain %d not found in environment chains %v", from, m.chain.ChainSelector())
 	}
 
 	l := m.logger
@@ -558,7 +558,7 @@ func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq u
 
 func (m *CCIP17EVM) GetEOAReceiverAddress(chainSelector uint64) (protocol.UnknownAddress, error) {
 	if m.chain.ChainSelector() != chainSelector {
-		return nil, fmt.Errorf("chain %d not found in environment chains %v", chainSelector, m.chain.ChainSelector())
+		return nil, fmt.Errorf("GetEOAReceiverAddress: chain %d not found in environment chains %v", chainSelector, m.chain.ChainSelector())
 	}
 
 	// returns the same address for each chain for now - we might need to extend this in the future if we'd ever
@@ -568,7 +568,7 @@ func (m *CCIP17EVM) GetEOAReceiverAddress(chainSelector uint64) (protocol.Unknow
 
 func (m *CCIP17EVM) GetSenderAddress(chainSelector uint64) (protocol.UnknownAddress, error) {
 	if m.chain.ChainSelector() != chainSelector {
-		return nil, fmt.Errorf("chain %d not found in environment chains %v", chainSelector, m.chain.ChainSelector())
+		return nil, fmt.Errorf("GetSenderAddress: chain %d not found in environment chains %v", chainSelector, m.chain.ChainSelector())
 	}
 
 	// Return the chain deployer key address
@@ -577,7 +577,7 @@ func (m *CCIP17EVM) GetSenderAddress(chainSelector uint64) (protocol.UnknownAddr
 
 func (m *CCIP17EVM) GetTokenBalance(ctx context.Context, chainSelector uint64, address, tokenAddress protocol.UnknownAddress) (*big.Int, error) {
 	if m.chain.ChainSelector() != chainSelector {
-		return nil, fmt.Errorf("chain %d not found in environment chains %v", chainSelector, m.chain.ChainSelector())
+		return nil, fmt.Errorf("GetTokenBalance: chain %d not found in environment chains %v", chainSelector, m.chain.ChainSelector())
 	}
 
 	tkn, err := erc20.NewERC20(common.HexToAddress(tokenAddress.String()), m.chain.Client)
@@ -687,7 +687,7 @@ func (m *CCIP17EVM) haveEnoughFeeTokens(ctx context.Context, chain evm.Chain, au
 func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions) (cciptestinterfaces.MessageSentEvent, error) {
 	l := m.logger
 	if m.chain.ChainSelector() != src {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("chain %d not found in environment chains %v", src, m.chain.ChainSelector())
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("SendMessage: chain %d not found in environment chains %v", src, m.chain.ChainSelector())
 	}
 	srcChain := m.chain
 
@@ -1301,7 +1301,7 @@ func (m *CCIP17EVM) deployTokenAndPool(
 
 func (m *CCIP17EVM) GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error) {
 	if remoteChainSelector != m.chain.ChainSelector() {
-		return 0, fmt.Errorf("chain %d not found in environment chains %v", remoteChainSelector, m.chain.ChainSelector())
+		return 0, fmt.Errorf("GetMaxDataBytes: chain %d not found in environment chains %v", remoteChainSelector, m.chain.ChainSelector())
 	}
 
 	feeQuoterRef, err := m.ds.Addresses().Get(datastore.NewAddressRefKey(remoteChainSelector, datastore.ContractType(fee_quoter.ContractType), semver.MustParse(fee_quoter.Deploy.Version()), ""))
@@ -1401,7 +1401,7 @@ func toComitteeVerifier(selector uint64, committees []cciptestinterfaces.OnChain
 // TODO: How to generate all the default/secondary/tertiary things from the committee param?
 func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, committees []cciptestinterfaces.OnChainCommittees) error {
 	if selector != m.chain.ChainSelector() {
-		return fmt.Errorf("chain %d not found in environment chains %v", selector, m.chain.ChainSelector())
+		return fmt.Errorf("ConnectContractsWithSelectors: chain %d not found in environment chains %v", selector, m.chain.ChainSelector())
 	}
 
 	l := m.logger
@@ -1665,7 +1665,7 @@ func (m *CCIP17EVM) ManuallyExecuteMessage(
 ) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
 	destChainSelector := uint64(message.DestChainSelector)
 	if destChainSelector != m.chain.ChainSelector() {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("chain %d not found in environment chains %v", destChainSelector, m.chain.ChainSelector())
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("ManuallyExecuteMessage: chain %d not found in environment chains %v", destChainSelector, m.chain.ChainSelector())
 	}
 
 	offRamp := m.offRamp
