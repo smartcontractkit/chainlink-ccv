@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ChainSelector represents chainlink-specific chain id.
@@ -276,5 +277,6 @@ type MessageSentEvent struct {
 	Message           Message           // The decoded CCIP message
 	Receipts          []ReceiptWithBlob // Verifier receipts + executor receipt
 	BlockNumber       uint64            // Block number where event occurred
+	BlockTimestamp    time.Time         // Timestamp when the block was mined
 	TxHash            ByteSlice         // Transaction hash of the event
 }

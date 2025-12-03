@@ -13,19 +13,20 @@ import (
 )
 
 type commitVerificationRecordRow struct {
-	ID                     int64          `db:"id"`
-	SeqNum                 int64          `db:"seq_num"`
-	MessageID              string         `db:"message_id"`
-	SignerAddress          string         `db:"signer_address"`
-	SignatureR             []byte         `db:"signature_r"`
-	SignatureS             []byte         `db:"signature_s"`
-	AggregationKey         string         `db:"aggregation_key"`
-	CCVVersion             []byte         `db:"ccv_version"`
-	Signature              []byte         `db:"signature"`
-	MessageCCVAddresses    pq.StringArray `db:"message_ccv_addresses"`
-	MessageExecutorAddress string         `db:"message_executor_address"`
-	MessageData            []byte         `db:"message_data"`
-	CreatedAt              time.Time      `db:"created_at"`
+	ID                        int64          `db:"id"`
+	SeqNum                    int64          `db:"seq_num"`
+	MessageID                 string         `db:"message_id"`
+	SignerAddress             string         `db:"signer_address"`
+	SignatureR                []byte         `db:"signature_r"`
+	SignatureS                []byte         `db:"signature_s"`
+	AggregationKey            string         `db:"aggregation_key"`
+	CCVVersion                []byte         `db:"ccv_version"`
+	Signature                 []byte         `db:"signature"`
+	MessageCCVAddresses       pq.StringArray `db:"message_ccv_addresses"`
+	MessageExecutorAddress    string         `db:"message_executor_address"`
+	MessageData               []byte         `db:"message_data"`
+	SourceChainBlockTimestamp time.Time      `db:"source_chain_block_timestamp"`
+	CreatedAt                 time.Time      `db:"created_at"`
 }
 
 func rowToCommitVerificationRecord(row *commitVerificationRecordRow) (*model.CommitVerificationRecord, error) {
@@ -68,13 +69,14 @@ func rowToCommitVerificationRecord(row *commitVerificationRecordRow) (*model.Com
 	}
 
 	record := &model.CommitVerificationRecord{
-		MessageID:              messageID,
-		Message:                &message,
-		CCVVersion:             row.CCVVersion,
-		Signature:              row.Signature,
-		MessageCCVAddresses:    messageCCVAddresses,
-		MessageExecutorAddress: messageExecutorAddress,
-		IdentifierSigner:       identifierSigner,
+		MessageID:                 messageID,
+		Message:                   &message,
+		CCVVersion:                row.CCVVersion,
+		Signature:                 row.Signature,
+		MessageCCVAddresses:       messageCCVAddresses,
+		MessageExecutorAddress:    messageExecutorAddress,
+		SourceChainBlockTimestamp: row.SourceChainBlockTimestamp,
+		IdentifierSigner:          identifierSigner,
 	}
 	record.SetTimestampFromMillis(row.CreatedAt.UnixMilli())
 	return record, nil
@@ -109,16 +111,17 @@ func recordToInsertParams(record *model.CommitVerificationRecord, aggregationKey
 	messageExecutorAddressHex := record.MessageExecutorAddress.String()
 
 	params := map[string]any{
-		"message_id":               messageIDHex,
-		"signer_address":           signerAddressHex,
-		"signature_r":              record.IdentifierSigner.SignatureR[:],
-		"signature_s":              record.IdentifierSigner.SignatureS[:],
-		"aggregation_key":          aggregationKey,
-		"ccv_version":              record.CCVVersion,
-		"signature":                record.Signature,
-		"message_ccv_addresses":    pq.Array(messageCCVAddressesHex),
-		"message_executor_address": messageExecutorAddressHex,
-		"message_data":             messageDataJSON,
+		"message_id":                   messageIDHex,
+		"signer_address":               signerAddressHex,
+		"signature_r":                  record.IdentifierSigner.SignatureR[:],
+		"signature_s":                  record.IdentifierSigner.SignatureS[:],
+		"aggregation_key":              aggregationKey,
+		"ccv_version":                  record.CCVVersion,
+		"signature":                    record.Signature,
+		"message_ccv_addresses":        pq.Array(messageCCVAddressesHex),
+		"message_executor_address":     messageExecutorAddressHex,
+		"message_data":                 messageDataJSON,
+		"source_chain_block_timestamp": record.SourceChainBlockTimestamp,
 	}
 
 	return params, nil
@@ -126,11 +129,11 @@ func recordToInsertParams(record *model.CommitVerificationRecord, aggregationKey
 
 const allVerificationRecordColumns = `message_id, signer_address, 
 	signature_r, signature_s, aggregation_key,
-	ccv_version, signature, message_ccv_addresses, message_executor_address, message_data, id, created_at`
+	ccv_version, signature, message_ccv_addresses, message_executor_address, message_data, id, source_chain_block_timestamp, created_at`
 
 const allVerificationRecordColumnsQualified = `cvr.message_id, cvr.signer_address, 
 	cvr.signature_r, cvr.signature_s, cvr.aggregation_key,
-	cvr.ccv_version, cvr.signature, cvr.message_ccv_addresses, cvr.message_executor_address, cvr.message_data, cvr.id, cvr.created_at`
+	cvr.ccv_version, cvr.signature, cvr.message_ccv_addresses, cvr.message_executor_address, cvr.message_data, cvr.id, cvr.source_chain_block_timestamp, cvr.created_at`
 
 func mustParseUint64(s string) uint64 {
 	var result uint64

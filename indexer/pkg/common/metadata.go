@@ -12,9 +12,10 @@ type VerifierResultWithMetadata struct {
 }
 
 type VerifierResultMetadata struct {
-	VerifierName         string    `json:"verifierName"`
-	AttestationTimestamp time.Time `json:"attestationTimestamp"`
-	IngestionTimestamp   time.Time `json:"ingestionTimestamp"`
+	VerifierName              string    `json:"verifierName"`
+	AttestationTimestamp      time.Time `json:"attestationTimestamp"`
+	IngestionTimestamp        time.Time `json:"ingestionTimestamp"`
+	SourceChainBlockTimestamp time.Time `json:"sourceChainBlockTimestamp"`
 }
 
 type MessageWithMetadata struct {

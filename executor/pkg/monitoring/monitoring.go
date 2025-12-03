@@ -99,6 +99,9 @@ func (n *NoopExecutorMetricLabeler) With(keyValues ...string) executor.MetricLab
 func (n *NoopExecutorMetricLabeler) RecordMessageExecutionLatency(ctx context.Context, duration time.Duration) {
 }
 
+func (n *NoopExecutorMetricLabeler) RecordMessageE2ELatency(ctx context.Context, duration time.Duration) {
+}
+
 func (n *NoopExecutorMetricLabeler) IncrementMessagesProcessed(ctx context.Context) {}
 
 func (n *NoopExecutorMetricLabeler) IncrementMessagesProcessingFailed(ctx context.Context) {}
