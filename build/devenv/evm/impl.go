@@ -746,27 +746,29 @@ func (m *CCIP17EVM) validateTokenBalances(ctx context.Context, srcChain evm.Chai
 		return nil, fmt.Errorf("failed to check if have enough tokens: %w", err)
 	}
 
-	if validateBalances {
-		if !haveEnoughFeeTokens {
-			return nil, fmt.Errorf("not enough tokens to send message, feeToken: %s, fee: %s, msgValue: %s", fields.FeeToken.String(), fee.String(), msgValue.String())
-		}
-
-		if len(tokenAmounts) > 0 {
-			haveEnoughTransferTokens, err := m.haveEnoughTransferTokens(ctx, srcChain, srcChain.DeployerKey, routerAddress, common.HexToAddress(tokenAmounts[0].Token.String()), tokenAmounts[0].Amount)
-			if err != nil {
-				return nil, fmt.Errorf("failed to check if have enough tokens: %w", err)
-			}
-			if !haveEnoughTransferTokens {
-				return nil, fmt.Errorf("not enough tokens to send in a message, token: %s, amount: %s", tokenAmounts[0].Token.String(), tokenAmounts[0].Amount.String())
-			}
-		}
-
-		l.Info().
-			Str("FeeToken", fields.FeeToken.String()).
-			Str("Amount", fee.String()).
-			Str("MsgValue", msgValue.String()).
-			Msg("Have enough tokens to send message")
+	if !validateBalances {
+		return msgValue, nil
 	}
+
+	if !haveEnoughFeeTokens {
+		return nil, fmt.Errorf("not enough tokens to send message, feeToken: %s, fee: %s, msgValue: %s", fields.FeeToken.String(), fee.String(), msgValue.String())
+	}
+
+	if len(tokenAmounts) > 0 {
+		haveEnoughTransferTokens, err := m.haveEnoughTransferTokens(ctx, srcChain, srcChain.DeployerKey, routerAddress, common.HexToAddress(tokenAmounts[0].Token.String()), tokenAmounts[0].Amount)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check if have enough tokens: %w", err)
+		}
+		if !haveEnoughTransferTokens {
+			return nil, fmt.Errorf("not enough tokens to send in a message, token: %s, amount: %s", tokenAmounts[0].Token.String(), tokenAmounts[0].Amount.String())
+		}
+	}
+
+	l.Info().
+		Str("FeeToken", fields.FeeToken.String()).
+		Str("Amount", fee.String()).
+		Str("MsgValue", msgValue.String()).
+		Msg("Have enough tokens to send message")
 
 	return msgValue, nil
 }
