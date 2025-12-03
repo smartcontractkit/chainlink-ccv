@@ -21,15 +21,15 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
 )
 
-// NewVerificationCoordinator starts the Committee Verifier with evm chains.
+// NewVerificationCoordinatorFromProviders starts the Committee Verifier with evm chains.
 // Signing is passed in because it's managed differently in the CL node vs standalone modes.
-func NewVerificationCoordinator(
+func NewVerificationCoordinatorFromProviders(
 	lggr logger.Logger,
 	cfg verifier.Config,
 	aggregatorSecret *hmac.ClientConfig,
 	signingAddress protocol.UnknownAddress,
 	signer verifier.MessageSigner,
-	relayers map[protocol.ChainSelector]legacyevm.Chain,
+	providers map[protocol.ChainSelector]chainaccess.Provider,
 ) (*verifier.Coordinator, error) {
 	if err := cfg.Validate(); err != nil {
 		lggr.Errorw("Invalid CCV verifier configuration.", "error", err)
@@ -41,11 +41,6 @@ func NewVerificationCoordinator(
 		return nil, fmt.Errorf("signing address does not match configuration: config %x vs provided %x", cfgSignerBytes, signingAddress.Bytes())
 	}
 
-	onRampAddrs, err := mapAddresses(cfg.OnRampAddresses)
-	if err != nil {
-		lggr.Errorw("Invalid CCV configuration, failed to map onramp addresses.", "error", err)
-		return nil, fmt.Errorf("invalid ccv configuration: failed to map onramp addresses: %w", err)
-	}
 	verifierAddrs, err := mapAddresses(cfg.CommitteeVerifierAddresses)
 	if err != nil {
 		lggr.Errorw("Invalid CCV configuration, failed to map verifier addresses.", "error", err)
@@ -81,33 +76,9 @@ func NewVerificationCoordinator(
 	// Initialize chain components.
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
-	for sel, chain := range relayers {
-		if _, ok := onRampAddrs[sel]; !ok {
-			lggr.Warnw("No onramp address for chain, skipping.", "chainID", sel)
-			continue
-		}
-		if _, ok := verifierAddrs[sel]; !ok {
-			lggr.Warnw("No verifier address for chain, skipping.", "chainID", sel)
-			continue
-		}
-
-		sourceReader, err := sourcereader.NewEVMSourceReader(
-			chain.Client(),
-			chain.HeadTracker(),
-			// TODO: use UnknownAddress instead of ethereum address.
-			common.HexToAddress(onRampAddrs[sel].String()),
-			common.HexToAddress(rmnRemoteAddrs[sel].String()),
-			// TODO: does this need to be configurable?
-			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
-			sel,
-			logger.With(lggr, "component", "SourceReader", "chainID", sel))
-		if err != nil {
-			lggr.Errorw("Failed to create source reader.", "error", err, "chainID", sel)
-			return nil, fmt.Errorf("failed to create source reader: %w", err)
-		}
-
+	for sel, provider := range providers {
 		observedSourceReader := sourcereader.NewObservedSourceReader(
-			sourceReader, cfg.VerifierID, sel, verifierMonitoring,
+			provider.SourceReader, cfg.VerifierID, sel, verifierMonitoring,
 		)
 
 		sourceReaders[sel] = observedSourceReader
@@ -182,4 +153,71 @@ func NewVerificationCoordinator(
 	}
 
 	return verifierCoordinator, nil
+}
+
+// NewVerificationCoordinator starts the Committee Verifier with evm chains.
+// Signing is passed in because it's managed differently in the CL node vs standalone modes.
+//
+// deprecated: use NewVerificationCoordinatorFromProviders instead.
+func NewVerificationCoordinator(
+	lggr logger.Logger,
+	cfg verifier.Config,
+	aggregatorSecret *hmac.ClientConfig,
+	signingAddress protocol.UnknownAddress,
+	signer verifier.MessageSigner,
+	relayers map[protocol.ChainSelector]legacyevm.Chain,
+) (*verifier.Coordinator, error) {
+	// map legacy to new
+	providers := make(map[protocol.ChainSelector]chainaccess.Provider)
+
+	onRampAddrs, err := mapAddresses(cfg.OnRampAddresses)
+	if err != nil {
+		lggr.Errorw("Invalid CCV configuration, failed to map onramp addresses.", "error", err)
+		return nil, fmt.Errorf("invalid ccv configuration: failed to map onramp addresses: %w", err)
+	}
+	rmnRemoteAddrs, err := mapAddresses(cfg.RMNRemoteAddresses)
+	if err != nil {
+		lggr.Errorw("Invalid CCV configuration, failed to map RMN Remote addresses.", "error", err)
+		return nil, fmt.Errorf("invalid ccv configuration: failed to map RMN Remote addresses: %w", err)
+	}
+
+	// Initialize chain components.
+	for sel, chain := range relayers {
+		if _, ok := onRampAddrs[sel]; !ok {
+			lggr.Warnw("No onramp address for chain, skipping.", "chainID", sel)
+			continue
+		}
+		if _, ok := rmnRemoteAddrs[sel]; !ok {
+			lggr.Warnw("No rmn remote address for chain, skipping.", "chainID", sel)
+			continue
+		}
+
+		sourceReader, err := sourcereader.NewEVMSourceReader(
+			chain.Client(),
+			chain.HeadTracker(),
+			// TODO: use UnknownAddress instead of ethereum address.
+			common.HexToAddress(onRampAddrs[sel].String()),
+			common.HexToAddress(rmnRemoteAddrs[sel].String()),
+			// TODO: does this need to be configurable?
+			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
+			sel,
+			logger.With(lggr, "component", "SourceReader", "chainID", sel))
+		if err != nil {
+			lggr.Errorw("Failed to create source reader.", "error", err, "chainID", sel)
+			return nil, fmt.Errorf("failed to create source reader: %w", err)
+		}
+
+		p := providers[sel]
+		p.SourceReader = sourceReader
+		providers[sel] = p
+	}
+
+	return NewVerificationCoordinatorFromProviders(
+		lggr,
+		cfg,
+		aggregatorSecret,
+		signingAddress,
+		signer,
+		providers,
+	)
 }
