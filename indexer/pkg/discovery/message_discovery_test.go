@@ -218,6 +218,7 @@ func TestStart_LaunchesGoroutine(t *testing.T) {
 // TestClose_GracefullyStops tests that Close gracefully stops discovery.
 func TestClose_GracefullyStops(t *testing.T) {
 	ts := setupMessageDiscoveryTestNoTimeout(t, defaultTestConfig())
+	t.Cleanup(ts.Cleanup)
 
 	messageCh := ts.Discovery.Start(ts.Context)
 
@@ -251,6 +252,7 @@ func TestClose_GracefullyStops(t *testing.T) {
 // TestStart_ContextCancellation tests that context cancellation stops discovery.
 func TestStart_ContextCancellation(t *testing.T) {
 	ts := setupMessageDiscoveryTestNoTimeout(t, defaultTestConfig())
+	t.Cleanup(ts.Cleanup)
 
 	messageCh := ts.Discovery.Start(ts.Context)
 
