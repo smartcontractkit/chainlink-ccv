@@ -285,8 +285,6 @@ func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Envi
 		return nil, fmt.Errorf("get chain details for chain %s: %w", chainID, err)
 	}
 
-	chainDetails = chainDetails
-
 	client, _, _, err := ETHClient(ctx, wsURL, gas)
 	if err != nil {
 		return nil, fmt.Errorf("create eth client for chain %s: %w", chainID, err)
