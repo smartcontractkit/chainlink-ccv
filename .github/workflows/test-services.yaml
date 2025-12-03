@@ -1,6 +1,7 @@
 name: Services CCV Tests
 
 on:
+  merge_group:
   push:
 
 defaults:
