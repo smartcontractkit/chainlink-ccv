@@ -75,7 +75,4 @@ type FinalityViolationChecker interface {
 	// Should be called after UpdateFinalized to validate chain consistency.
 	// Returns true if a violation is detected (critical error requiring service shutdown).
 	IsFinalityViolated() bool
-
-	// Reset clears all stored state. Used for testing or recovery scenarios.
-	Reset()
 }

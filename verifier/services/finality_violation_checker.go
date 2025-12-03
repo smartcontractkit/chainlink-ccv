@@ -185,8 +185,8 @@ func (f *FinalityViolationCheckerService) IsFinalityViolated() bool {
 	return f.violationDetected
 }
 
-// Reset clears all stored state. Used for testing or recovery scenarios.
-func (f *FinalityViolationCheckerService) Reset() {
+// reset clears all stored state. Used for testing.
+func (f *FinalityViolationCheckerService) reset() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
