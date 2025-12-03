@@ -453,13 +453,6 @@ func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationT
 			continue
 		}
 
-		if r.curseDetector.IsRemoteChainCursed(context.TODO(), task.Message.SourceChainSelector, task.Message.DestChainSelector) {
-			r.logger.Warnw("Dropping task - lane is cursed (enqueue)",
-				"blockNumber", task.BlockNumber,
-				"messageID", task.MessageID)
-			return
-		}
-
 		task.QueuedAt = time.Now()
 
 		r.pendingTasks[task.MessageID] = task
@@ -518,14 +511,16 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, fin
 	}
 
 	ready := make([]VerificationTask, 0, len(r.pendingTasks))
-	remaining := make(map[string]VerificationTask)
+	toBeDeleted := make([]string, 0)
 
 	for msgID, task := range r.pendingTasks {
-		// re-check curse at finality time
-		if r.curseDetector != nil &&
-			r.curseDetector.IsRemoteChainCursed(ctx, task.Message.SourceChainSelector, task.Message.DestChainSelector) {
-			r.logger.Warnw("Dropping finalized task - lane is cursed",
-				"messageID", task.MessageID)
+		// Mark cursed tasks for deletion
+		if r.curseDetector.IsRemoteChainCursed(ctx, task.Message.SourceChainSelector, task.Message.DestChainSelector) {
+			r.logger.Warnw("Dropping task - lane is cursed",
+				"messageID", msgID,
+				"sourceChain", task.Message.SourceChainSelector,
+				"destChain", task.Message.DestChainSelector)
+			toBeDeleted = append(toBeDeleted, msgID)
 			continue
 		}
 
@@ -533,12 +528,14 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, fin
 			ready = append(ready, task)
 			// Mark as sent to prevent re-sending
 			r.sentTasks[msgID] = task
-		} else {
-			remaining[msgID] = task
+			toBeDeleted = append(toBeDeleted, msgID)
 		}
 	}
 
-	r.pendingTasks = remaining
+	// Delete processed tasks from pending queue
+	for _, msgID := range toBeDeleted {
+		delete(r.pendingTasks, msgID)
+	}
 
 	if len(ready) == 0 {
 		return
@@ -546,7 +543,7 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, fin
 
 	r.logger.Infow("Emitting finalized messages",
 		"ready", len(ready),
-		"remaining", len(remaining),
+		"pending", len(r.pendingTasks),
 		"sentTasks", len(r.sentTasks))
 
 	batch := batcher.BatchResult[VerificationTask]{Items: ready}
