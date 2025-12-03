@@ -168,8 +168,8 @@ func TestFinalityViolationChecker_Reset(t *testing.T) {
 	err = checker.UpdateFinalized(ctx, 100)
 	require.NoError(t, err)
 
-	// Reset
-	checker.Reset()
+	// reset
+	checker.reset()
 
 	// Should be able to initialize again
 	err = checker.UpdateFinalized(ctx, 101)
