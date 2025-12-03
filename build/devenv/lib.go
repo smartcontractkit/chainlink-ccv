@@ -24,11 +24,17 @@ func NewLib(logger *zerolog.Logger, envOutFile string) (*Lib, error) {
 		return nil, fmt.Errorf("failed to load environment output: %w", err)
 	}
 
-	return &Lib{
+	lib := &Lib{
 		envOutFile: envOutFile,
 		cfg:        cfg,
 		l:          logger,
-	}, nil
+	}
+
+	if err := lib.verify(); err != nil {
+		return nil, fmt.Errorf("invalid library object: %w", err)
+	}
+
+	return lib, nil
 }
 
 // NewImpl is a convenience function that fetches a specific impl from the library.
@@ -57,6 +63,9 @@ func (l *Lib) verify() error {
 	}
 	if l.cfg == nil {
 		return fmt.Errorf("configuration is nil")
+	}
+	if l.l == nil {
+		return fmt.Errorf("logger is nil")
 	}
 	return nil
 }
