@@ -119,7 +119,7 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 		}()
 	}
 
-	streamerResults, err := ec.messageSubscriber.Start(ctx, nil)
+	streamerResults, err := ec.messageSubscriber.Start(ctx, &ec.wg)
 	if err != nil {
 		ec.lggr.Errorw("failed to start ccv result streamer", "error", err)
 		return

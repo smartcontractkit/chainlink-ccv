@@ -59,17 +59,19 @@ func (oss *IndexerStorageStreamer) IsRunning() bool {
 // Start implements the MessageSubscriber interface.
 func (oss *IndexerStorageStreamer) Start(
 	ctx context.Context,
-	_ *sync.WaitGroup,
+	wg *sync.WaitGroup,
 ) (<-chan executor.StreamerResult, error) {
 	if oss.reader == nil {
 		return nil, errors.New("reader not set")
 	}
 
 	messagesCh := make(chan executor.StreamerResult)
+	wg.Add(1)
 	oss.running = true
 
 	go func() {
 		defer func() {
+			wg.Done()
 			close(messagesCh)
 
 			oss.mu.Lock()
