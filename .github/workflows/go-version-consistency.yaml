@@ -1,6 +1,7 @@
 name: Go Version Consistency Check
 
 on:
+  merge_group:
   pull_request:
     paths:
       - '**/go.mod'
