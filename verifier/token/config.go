@@ -9,6 +9,11 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lbtc"
 )
 
+type ConfigWithBlockchainInfos struct {
+	Config
+	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
+}
+
 type Config struct {
 	VerifierID    string `toml:"verifier_id"`
 	SignerAddress string `toml:"signer_address"`
@@ -63,6 +68,14 @@ type VerifierConfig struct {
 
 	CCTP *cctp.Config
 	LBTC *lbtc.Config
+}
+
+func (o *VerifierConfig) IsLBTC() bool {
+	return o.LBTC != nil
+}
+
+func (o *VerifierConfig) IsCCTP() bool {
+	return o.CCTP != nil
 }
 
 func (o *VerifierConfig) UnmarshalTOML(data any) error {
