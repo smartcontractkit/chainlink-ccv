@@ -23,10 +23,36 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
 
-var environments = map[string]map[string]string{
+type Environments struct {
+	CLDDomain    string
+	OtelEndpoint string
+	K8sCluster   string
+	Verifiers    []string // This should be pulled from CLD once available
+}
+
+var environments = map[string]Environments{
 	"staging": {
-		"cld_domain":    "staging_testnet",
-		"otel_endpoint": "staging.telemetry.chain.link:443",
+		CLDDomain:    "staging_testnet",
+		OtelEndpoint: "staging.telemetry.chain.link:443",
+		K8sCluster:   "stage",
+		Verifiers: []string{ // This should be pulled from CLD once available
+			"0x3ca2a3d2e659be3726c793618717dd9928800227",
+			"0x782fd01aac12263461b32babaa26ea89a67576a8",
+			"0x800473c950b955c89b977572cc3d54fe06c88832",
+			"0x054946cceb3f3d591866e8cbc54168056dbdb99f",
+			"0xa17931a04befebb3f55b5b579b59282dfea519c1",
+			"0xf2be41368e41ee478aa3551ff0edecfa9dedbb5c",
+			"0xc33a3dc4ea861cbf478fee1e093391f6b11986e0",
+			"0x957ef4110a62783df103ab8bbde7408bc7f628ce",
+			"0x58586b772b68048e002536d4b2e71d94025fe78c",
+			"0x4b6564f874ed2135798adadc534cf2b31d166242",
+			"0x28a6030e4c90b34355ca5eab7364b5191411e2ad",
+			"0xfaf4e699a32a96d4a8be5081e295bea75f2902a0",
+			"0x3ed15f47cdbcceff652340da85ebda06fe9d001d",
+			"0xb1ae0dfa9c62dd8988c16b8ecf7077e88c621cd3",
+			"0x4c6c84a34744f71502c104ccd0f05ac388f92756",
+			"0x2532eedf29881726891906eec8ba8b31df64f440",
+		},
 	},
 }
 
@@ -59,7 +85,7 @@ func GenerateConfigs(env string, createPR bool) (string, error) {
 	gh := github.NewClient(tc)
 
 	// Fetch address refs file from github
-	addressRefsGh, _, _, err := gh.Repositories.GetContents(ctx, "smartcontractkit", "chainlink-deployments", fmt.Sprintf("domains/ccv/%s/datastore/address_refs.json", environments[env]["cld_domain"]), &github.RepositoryContentGetOptions{})
+	addressRefsGh, _, _, err := gh.Repositories.GetContents(ctx, "smartcontractkit", "chainlink-deployments", fmt.Sprintf("domains/ccv/%s/datastore/address_refs.json", environments[env].CLDDomain), &github.RepositoryContentGetOptions{})
 	if err != nil {
 		return "", fmt.Errorf("failed to get address refs JSON from GitHub: %w", err)
 	}
@@ -71,9 +97,9 @@ func GenerateConfigs(env string, createPR bool) (string, error) {
 	}
 
 	// Fetch verifier pub keys from github ////////////////
-	verifierPubKeys := []string{"0x1", "0x2", "0x3", "0x4"}
+	verifierPubKeys := environments[env].Verifiers
 	numExecutors := len(verifierPubKeys)
-	monitoringOtelExporterHTTPEndpoint := environments[env]["otel_endpoint"]
+	monitoringOtelExporterHTTPEndpoint := environments[env].OtelEndpoint
 
 	const (
 		verifierIDPrefix = "default-verifier-"
@@ -230,15 +256,19 @@ func GenerateConfigs(env string, createPR bool) (string, error) {
 		}
 
 		// Path where to add the aggregator config in the repo
-		aggPath := "projects/chainlink-ccv/files/aggregator/aggregator-config.toml"
+		aggPath := "projects/chainlink-ccv/files/aggregator/aggregator-config.yaml"
 
 		// Create file on the new branch
 		commitMsg := "Update ccv configuration"
 
-		// Marshal aggregator config into YAML under configMap.aggregator.toml
-		aggYaml := map[string]map[string]string{
-			"configMap": {
-				"aggregator.toml": string(aggregatorConfig),
+		// Marshal aggregator config into YAML under configMap.aggregator.\.toml
+		aggYaml := map[string]interface{}{
+			"main": map[string]interface{}{
+				environments[env].K8sCluster: map[string]interface{}{
+					"configMap": map[string]string{
+						"aggregator.toml": string(aggregatorConfig),
+					},
+				},
 			},
 		}
 		aggFileContent, err := yaml.Marshal(aggYaml)

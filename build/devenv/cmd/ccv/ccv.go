@@ -447,7 +447,7 @@ var printAddressesCmd = &cobra.Command{
 
 var generateConfigsCmd = &cobra.Command{
 	Use:   "generate-configs",
-	Short: "Generate the verifier and executor jobspecs (CL deployment only), and the aggregator and indexer TOML configuration files for the environment",
+	Short: "Generate the verifier and executor jobspecs (CL deployment only), and the aggregator and indexer TOML configuration files for the environment. Requires gh tool to authenticate to CLD repo.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		env, err := cmd.Flags().GetString("env")
 		if err != nil {
