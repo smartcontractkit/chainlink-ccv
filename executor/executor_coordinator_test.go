@@ -105,7 +105,7 @@ func TestConstructor(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := executor.NewCoordinator(tc.args.lggr, tc.args.exec, tc.args.sub, tc.args.le, tc.args.mon, 8*time.Hour, common.NewMockTimeProvider(t))
+			_, err := executor.NewCoordinator(tc.args.lggr, tc.args.exec, tc.args.sub, tc.args.le, tc.args.mon, 8*time.Hour, common.NewMockTimeProvider(t), 100)
 
 			if tc.expectErr {
 				require.Error(t, err)
@@ -131,6 +131,7 @@ func TestLifecycle(t *testing.T) {
 		monitoring.NewNoopExecutorMonitoring(),
 		8*time.Hour,
 		common.NewMockTimeProvider(t),
+		100,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -149,6 +150,8 @@ func TestSubscribeMessagesError(t *testing.T) {
 	messageChan := make(chan executor.StreamerResult)
 	sentinelError := fmt.Errorf("lilo & stitch")
 	messageSubscriber.EXPECT().Start(mock.Anything, mock.Anything).Return(messageChan, sentinelError)
+	timeProvider := common.NewMockTimeProvider(t)
+	timeProvider.EXPECT().GetTime().Return(time.Now().UTC()).Maybe()
 
 	ec, err := executor.NewCoordinator(
 		lggr,
@@ -157,7 +160,8 @@ func TestSubscribeMessagesError(t *testing.T) {
 		executor_mocks.NewMockLeaderElector(t),
 		monitoring.NewNoopExecutorMonitoring(),
 		8*time.Hour,
-		common.NewMockTimeProvider(t),
+		timeProvider,
+		100,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -166,6 +170,7 @@ func TestSubscribeMessagesError(t *testing.T) {
 	defer cancel()
 
 	require.NoError(t, ec.Start(ctx))
+	defer func() { require.NoError(t, ec.Close()) }()
 
 	found := func() bool {
 		for _, entry := range hook.All() {
@@ -190,6 +195,7 @@ func TestStopNotRunning(t *testing.T) {
 		monitoring.NewNoopExecutorMonitoring(),
 		8*time.Hour,
 		common.NewMockTimeProvider(t),
+		100,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -367,6 +373,7 @@ func TestMessageExpiration(t *testing.T) {
 				monitoring.NewNoopExecutorMonitoring(),
 				tc.expiryDuration,
 				mockTimeProvider,
+				100,
 			)
 			require.NoError(t, err)
 			require.NotNil(t, ec)

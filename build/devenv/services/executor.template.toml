@@ -6,6 +6,7 @@ pyroscope_url="http://pyroscope:4040"
 executor_id="cl_node_executor_a"
 reader_cache_expiry="5m"
 max_retry_duration="8h"
+worker_count=100
 
 [Monitoring]
     Enabled = true

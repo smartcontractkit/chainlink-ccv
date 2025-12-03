@@ -15,6 +15,8 @@ const (
 	maxRetryDurationDefault  = 8 * time.Hour
 	executionIntervalDefault = 1 * time.Minute
 	ntpServerDefault         = "time.google.com"
+	workerCountDefault       = 100
+	IndexerQueryLimitDefault = 100
 )
 
 type ConfigWithBlockchainInfo struct {
@@ -55,6 +57,7 @@ type Configuration struct {
 	// ChainConfiguration is a map of chain selector to chain configuration.
 	// This is used to configure the chain-specific configuration for each chain such as addresses, executor pool, and execution interval.
 	ChainConfiguration map[string]ChainConfiguration `toml:"chain_configuration"`
+	WorkerCount        int                           `toml:"worker_count"`
 }
 
 // ChainConfiguration is all the configuration an executor needs to know about a specific chain.
@@ -117,7 +120,10 @@ func (c *Configuration) GetNormalizedConfig() (*Configuration, error) {
 	normalized.ReaderCacheExpiry = parseOrDefault(c.ReaderCacheExpiry, readerCacheExpiryDefault)
 	normalized.MaxRetryDuration = parseOrDefault(c.MaxRetryDuration, maxRetryDurationDefault)
 	if c.IndexerQueryLimit == 0 {
-		normalized.IndexerQueryLimit = 100
+		normalized.IndexerQueryLimit = IndexerQueryLimitDefault
+	}
+	if c.WorkerCount == 0 {
+		normalized.WorkerCount = workerCountDefault
 	}
 
 	// Process per-chain configuration: parse and normalize durations
