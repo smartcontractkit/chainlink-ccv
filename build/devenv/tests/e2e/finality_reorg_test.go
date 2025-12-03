@@ -10,12 +10,13 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
-	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
@@ -28,24 +29,18 @@ import (
 // IMPORTANT: Need to run this test against an env that has source chain with auto mining.
 // Run `just rebuild-all "env.toml,env-src-auto-mine.toml"` before running this test.
 func TestE2EReorg(t *testing.T) {
+	ctx := ccv.Plog.WithContext(context.Background())
+	l := zerolog.Ctx(ctx)
+	lib, err := ccv.NewLib(l, "../../env-out.toml")
+	require.NoError(t, err)
+
+	// TODO: put LoadOutput behind the lib.
 	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
 	require.NoError(t, err)
 
-	ctx := ccv.Plog.WithContext(context.Background())
-	l := zerolog.Ctx(ctx)
-
-	chainIDs, wsURLs := make([]string, 0), make([]string, 0)
-	for _, bc := range in.Blockchains {
-		chainIDs = append(chainIDs, bc.ChainID)
-		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
-	}
-
-	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+	chains, err := lib.Chains(ctx)
 	require.NoError(t, err)
-	require.Len(t, selectors, 3, "expected 3 chains for this test in the environment")
-
-	c, err := evm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
-	require.NoError(t, err)
+	require.Len(t, chains, 3, "expected 3 chains for this test in the environment")
 
 	t.Cleanup(func() {
 		_, err := framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
@@ -76,9 +71,22 @@ func TestE2EReorg(t *testing.T) {
 		authenticatedAggregatorClient.Close()
 	})
 
+	idToSelector := make(map[uint64]uint64)
+	for selector := range chains {
+		id, ok := chain_selectors.ChainBySelector(selector)
+		if !ok {
+			t.Fatalf("no chain ID found for selector %d", selector)
+		}
+		idToSelector[id.EvmChainID] = selector
+	}
+	require.Contains(t, idToSelector, uint64(1337))
+	require.Contains(t, idToSelector, uint64(2337))
+	require.Contains(t, idToSelector, uint64(3337))
+
 	// Get the source and destination chain selectors
-	srcSelector := selectors[0]
-	destSelector := selectors[1]
+	srcSelector, destSelector := idToSelector[1337], idToSelector[2337]
+	srcImpl := chains[idToSelector[1337]]
+	destImpl := chains[idToSelector[2337]]
 
 	// Get eth client for source chain using HTTP URL
 	srcHTTPURL := in.Blockchains[0].Out.Nodes[0].ExternalHTTPUrl
@@ -94,7 +102,7 @@ func TestE2EReorg(t *testing.T) {
 	require.True(t, automine, "source chain must have auto-mining enabled (instant mining). Run with env-src-auto-mine.toml configuration")
 	l.Info().Bool("automine", automine).Msg("✅ Verified source chain has auto-mining enabled")
 
-	receiver := mustGetEOAReceiverAddress(t, c, destSelector)
+	receiver := mustGetEOAReceiverAddress(t, destImpl, destSelector)
 
 	executorAddr := getContractAddress(t, in, srcSelector,
 		datastore.ContractType(executor.ContractType),
@@ -112,7 +120,7 @@ func TestE2EReorg(t *testing.T) {
 	sendMessageWithLogging := func(data, logPrefix string) [32]byte {
 		l.Info().Str("data", data).Msgf("📨 %s", logPrefix)
 
-		event, err := c.SendMessage(ctx, srcSelector, destSelector,
+		event, err := srcImpl.SendMessage(ctx, srcSelector, destSelector,
 			cciptestinterfaces.MessageFields{
 				Receiver: receiver,
 				Data:     []byte(data),
