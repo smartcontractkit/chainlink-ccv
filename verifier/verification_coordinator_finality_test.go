@@ -304,10 +304,13 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		return latest, finalized, nil
 	}).Maybe()
 
+	verifierAddr := make([]byte, 20)
+	verifierAddr[0] = 0x11
+
 	config := CoordinatorConfig{
 		SourceConfigs: map[protocol.ChainSelector]SourceConfig{
 			1337: {
-				VerifierAddress: protocol.UnknownAddress([]byte("verifier-1337")),
+				VerifierAddress: protocol.UnknownAddress(verifierAddr),
 				PollInterval:    50 * time.Millisecond, // Fast polling for tests
 			},
 		},

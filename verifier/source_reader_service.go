@@ -247,7 +247,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context, latest, fin
 	tasks := make([]VerificationTask, 0, len(events))
 	for _, event := range events {
 		if r.filter != nil && !r.filter.Filter(event) {
-			r.logger.Debugw("Message filtered out by filter",
+			r.logger.Infow("Message filtered out by filter",
 				"messageID", event.MessageID.String(),
 				"destChain", event.Message.DestChainSelector,
 			)
