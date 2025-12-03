@@ -86,6 +86,7 @@ func TestE2EReorg(t *testing.T) {
 	// Get the source and destination chain selectors
 	srcSelector, destSelector := idToSelector[1337], idToSelector[2337]
 	srcImpl := chains[idToSelector[1337]]
+	destImpl := chains[idToSelector[2337]]
 
 	// Get eth client for source chain using HTTP URL
 	srcHTTPURL := in.Blockchains[0].Out.Nodes[0].ExternalHTTPUrl
@@ -101,7 +102,7 @@ func TestE2EReorg(t *testing.T) {
 	require.True(t, automine, "source chain must have auto-mining enabled (instant mining). Run with env-src-auto-mine.toml configuration")
 	l.Info().Bool("automine", automine).Msg("✅ Verified source chain has auto-mining enabled")
 
-	receiver := mustGetEOAReceiverAddress(t, srcImpl, destSelector)
+	receiver := mustGetEOAReceiverAddress(t, destImpl, destSelector)
 
 	executorAddr := getContractAddress(t, in, srcSelector,
 		datastore.ContractType(executor.ContractType),
