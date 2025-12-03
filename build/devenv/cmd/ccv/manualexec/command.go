@@ -3,19 +3,13 @@ package manualexec
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"strconv"
 
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
 func Command() *cobra.Command {
@@ -32,10 +26,22 @@ func Command() *cobra.Command {
 		Use:   "manually-execute",
 		Short: "Manually execute a message",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			l := zerolog.Ctx(ctx)
 			envFile := fmt.Sprintf("env-%s.toml", a.env)
-			in, err := ccv.LoadOutput[ccv.Cfg](envFile)
+			lib, err := ccv.NewLib(l, envFile)
 			if err != nil {
-				return fmt.Errorf("failed to load environment output: %w", err)
+				return fmt.Errorf("failed to create CCV library: %w", err)
+			}
+
+			impls, err := lib.Chains(ctx)
+			if err != nil {
+				return fmt.Errorf("failed to get chain implementations: %w", err)
+			}
+
+			impl, ok := impls[a.chainSelector]
+			if !ok {
+				return fmt.Errorf("no implementation found for source chain selector %d", a.chainSelector)
 			}
 
 			var messageIDBytes32 protocol.Bytes32
@@ -55,46 +61,6 @@ func Command() *cobra.Command {
 				ccvs = append(ccvs, result.VerifierResult.VerifierDestAddress)
 				verifierResults = append(verifierResults, result.VerifierResult.CCVData)
 			}
-
-			chainID, err := chainsel.ChainIdFromSelector(a.chainSelector)
-			if err != nil {
-				return fmt.Errorf("failed to get chain details: %w", err)
-			}
-			chainIDStr := strconv.FormatUint(chainID, 10)
-
-			// get the blockchain input for the chain selector
-			var input *blockchain.Input
-			for _, bc := range in.Blockchains {
-				if bc.ChainID == chainIDStr {
-					input = bc
-					break
-				}
-			}
-			if input == nil {
-				return fmt.Errorf("blockchain with chain ID %s not found, please update the env file or use a different chain-selector", chainIDStr)
-			}
-
-			// TODO: this kind of thing should be chain-agnostic.
-			chainIDs, wsURLs := make([]string, 0), make([]string, 0)
-			for _, bc := range in.Blockchains {
-				chainIDs = append(chainIDs, bc.ChainID)
-				wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
-			}
-			_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
-			if err != nil {
-				return fmt.Errorf("failed to create CLDF operations environment: %w", err)
-			}
-			l := log.
-				Output(zerolog.ConsoleWriter{Out: os.Stderr}).
-				Level(zerolog.DebugLevel).
-				With().
-				Fields(map[string]any{"component": "CCIP17EVM"}).
-				Logger()
-			impl, err := evm.NewCCIP17EVM(cmd.Context(), l, e, chainIDs, wsURLs)
-			if err != nil {
-				return fmt.Errorf("failed to create CCIP17EVM: %w", err)
-			}
-			// END TODO.
 
 			_, err = impl.ManuallyExecuteMessage(cmd.Context(), msg, a.gasLimit, ccvs, verifierResults)
 			if err != nil {

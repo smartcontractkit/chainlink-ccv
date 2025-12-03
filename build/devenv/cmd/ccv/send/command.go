@@ -93,21 +93,20 @@ func run(args sendArgs) error {
 		return fmt.Errorf("expected source and destination selectors (src,dest for V2 or src,dest,finality for V3)")
 	}
 
-	chainIDs, wsURLs := make([]string, 0), make([]string, 0)
-	for _, bc := range in.Blockchains {
-		chainIDs = append(chainIDs, bc.ChainID)
-		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
+	l := zerolog.Ctx(ctx)
+	lib, err := ccv.NewLib(l, envFile)
+	if err != nil {
+		return fmt.Errorf("failed to create CCV library: %w", err)
 	}
 
-	_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+	impls, err := lib.Chains(context.Background())
 	if err != nil {
-		return fmt.Errorf("creating CLDF operations environment: %w", err)
+		return fmt.Errorf("failed to get chain implementations: %w", err)
 	}
-	ctx = ccv.Plog.WithContext(ctx)
-	l := zerolog.Ctx(ctx)
-	impl, err := evm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
-	if err != nil {
-		return fmt.Errorf("failed to create CCIP17EVM: %w", err)
+
+	impl, ok := impls[args.srcSel]
+	if !ok {
+		return fmt.Errorf("no implementation found for source chain selector %d", args.srcSel)
 	}
 
 	// resolve mock receiver address if not provided
