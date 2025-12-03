@@ -66,38 +66,6 @@ func (_c *MockFinalityViolationChecker_IsFinalityViolated_Call) RunAndReturn(run
 	return _c
 }
 
-// Reset provides a mock function with no fields
-func (_m *MockFinalityViolationChecker) Reset() {
-	_m.Called()
-}
-
-// MockFinalityViolationChecker_Reset_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Reset'
-type MockFinalityViolationChecker_Reset_Call struct {
-	*mock.Call
-}
-
-// Reset is a helper method to define mock.On call
-func (_e *MockFinalityViolationChecker_Expecter) Reset() *MockFinalityViolationChecker_Reset_Call {
-	return &MockFinalityViolationChecker_Reset_Call{Call: _e.mock.On("Reset")}
-}
-
-func (_c *MockFinalityViolationChecker_Reset_Call) Run(run func()) *MockFinalityViolationChecker_Reset_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockFinalityViolationChecker_Reset_Call) Return() *MockFinalityViolationChecker_Reset_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *MockFinalityViolationChecker_Reset_Call) RunAndReturn(run func()) *MockFinalityViolationChecker_Reset_Call {
-	_c.Run(run)
-	return _c
-}
-
 // UpdateFinalized provides a mock function with given fields: ctx, finalizedBlock
 func (_m *MockFinalityViolationChecker) UpdateFinalized(ctx context.Context, finalizedBlock uint64) error {
 	ret := _m.Called(ctx, finalizedBlock)
