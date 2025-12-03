@@ -43,6 +43,7 @@ func NewCoordinator(
 	monitoring Monitoring,
 	expiryDuration time.Duration,
 	timeProvider common.TimeProvider,
+	workerCount int,
 ) (*Coordinator, error) {
 	ec := &Coordinator{
 		lggr:              lggr,
@@ -55,7 +56,7 @@ func NewCoordinator(
 		// running, wg, and services.StateMachine default initialization is fine.
 		expiryDuration: expiryDuration,
 		timeProvider:   timeProvider,
-		workerCount:    100,
+		workerCount:    workerCount,
 	}
 
 	if err := ec.validate(); err != nil {

@@ -105,7 +105,7 @@ func TestConstructor(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := executor.NewCoordinator(tc.args.lggr, tc.args.exec, tc.args.sub, tc.args.le, tc.args.mon, 8*time.Hour, common.NewMockTimeProvider(t))
+			_, err := executor.NewCoordinator(tc.args.lggr, tc.args.exec, tc.args.sub, tc.args.le, tc.args.mon, 8*time.Hour, common.NewMockTimeProvider(t), 100)
 
 			if tc.expectErr {
 				require.Error(t, err)
@@ -131,6 +131,7 @@ func TestLifecycle(t *testing.T) {
 		monitoring.NewNoopExecutorMonitoring(),
 		8*time.Hour,
 		common.NewMockTimeProvider(t),
+		100,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -160,6 +161,7 @@ func TestSubscribeMessagesError(t *testing.T) {
 		monitoring.NewNoopExecutorMonitoring(),
 		8*time.Hour,
 		timeProvider,
+		100,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -193,6 +195,7 @@ func TestStopNotRunning(t *testing.T) {
 		monitoring.NewNoopExecutorMonitoring(),
 		8*time.Hour,
 		common.NewMockTimeProvider(t),
+		100,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -370,6 +373,7 @@ func TestMessageExpiration(t *testing.T) {
 				monitoring.NewNoopExecutorMonitoring(),
 				tc.expiryDuration,
 				mockTimeProvider,
+				100,
 			)
 			require.NoError(t, err)
 			require.NotNil(t, ec)
