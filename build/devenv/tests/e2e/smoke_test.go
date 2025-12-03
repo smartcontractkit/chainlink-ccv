@@ -164,7 +164,7 @@ func TestE2ESmoke(t *testing.T) {
 				})
 				require.NoError(t, err)
 
-				sentEvent, err := chains[tc.toSelector].WaitOneSentEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultSentTimeout)
+				sentEvent, err := chains[tc.fromSelector].WaitOneSentEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultSentTimeout)
 				require.NoError(t, err)
 				messageID := sentEvent.MessageID
 
