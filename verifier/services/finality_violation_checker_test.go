@@ -64,10 +64,10 @@ func TestFinalityViolationChecker_NormalOperation(t *testing.T) {
 	lggr, _ := logger.New()
 
 	blocks := map[uint64]protocol.BlockHeader{
-		100: {Number: 100, Hash: makeBytes32("hash100")},
-		101: {Number: 101, Hash: makeBytes32("hash101")},
-		102: {Number: 102, Hash: makeBytes32("hash102")},
-		103: {Number: 103, Hash: makeBytes32("hash103")},
+		100: {Number: 100, Hash: makeBytes32("hash100"), ParentHash: makeBytes32("hash99")},
+		101: {Number: 101, Hash: makeBytes32("hash101"), ParentHash: makeBytes32("hash100")},
+		102: {Number: 102, Hash: makeBytes32("hash102"), ParentHash: makeBytes32("hash101")},
+		103: {Number: 103, Hash: makeBytes32("hash103"), ParentHash: makeBytes32("hash102")},
 	}
 	mockSetup := setupMockSourceReaderForFinality(t, blocks)
 
@@ -99,10 +99,10 @@ func TestFinalityViolationChecker_DetectsViolation(t *testing.T) {
 	lggr, _ := logger.New()
 
 	blocks := map[uint64]protocol.BlockHeader{
-		100: {Number: 100, Hash: makeBytes32("hash100")},
-		101: {Number: 101, Hash: makeBytes32("hash101")},
-		102: {Number: 102, Hash: makeBytes32("hash102")},
-		103: {Number: 103, Hash: makeBytes32("hash103")},
+		100: {Number: 100, Hash: makeBytes32("hash100"), ParentHash: makeBytes32("hash99")},
+		101: {Number: 101, Hash: makeBytes32("hash101"), ParentHash: makeBytes32("hash100")},
+		102: {Number: 102, Hash: makeBytes32("hash102"), ParentHash: makeBytes32("hash101")},
+		103: {Number: 103, Hash: makeBytes32("hash103"), ParentHash: makeBytes32("hash102")},
 	}
 	mockSetup := setupMockSourceReaderForFinality(t, blocks)
 
@@ -123,7 +123,7 @@ func TestFinalityViolationChecker_DetectsViolation(t *testing.T) {
 
 	// Simulate finality violation - block 101 hash changes in the RPC
 	// This would happen if the node's finalized block was reorged
-	blocks[101] = protocol.BlockHeader{Number: 101, Hash: makeBytes32("DIFFERENT")}
+	blocks[101] = protocol.BlockHeader{Number: 101, Hash: makeBytes32("DIFFERENT"), ParentHash: makeBytes32("hash100")}
 	// Re-setup the mock expectation with updated blocks
 	mockSetup.Reader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).RunAndReturn(
 		func(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
@@ -154,8 +154,8 @@ func TestFinalityViolationChecker_Reset(t *testing.T) {
 	lggr, _ := logger.New()
 
 	blocks := map[uint64]protocol.BlockHeader{
-		100: {Number: 100, Hash: makeBytes32("hash100")},
-		101: {Number: 101, Hash: makeBytes32("hash101")},
+		100: {Number: 100, Hash: makeBytes32("hash100"), ParentHash: makeBytes32("hash99")},
+		101: {Number: 101, Hash: makeBytes32("hash101"), ParentHash: makeBytes32("hash100")},
 	}
 	mockSetup := setupMockSourceReaderForFinality(t, blocks)
 
@@ -181,7 +181,7 @@ func TestFinalityViolationChecker_NoAdvancement(t *testing.T) {
 	lggr, _ := logger.New()
 
 	blocks := map[uint64]protocol.BlockHeader{
-		100: {Number: 100, Hash: makeBytes32("hash100")},
+		100: {Number: 100, Hash: makeBytes32("hash100"), ParentHash: makeBytes32("hash99")},
 	}
 	mockSetup := setupMockSourceReaderForFinality(t, blocks)
 
@@ -204,8 +204,8 @@ func TestFinalityViolationChecker_BackwardMovementDetected(t *testing.T) {
 	lggr, _ := logger.New()
 
 	blocks := map[uint64]protocol.BlockHeader{
-		99:  {Number: 99, Hash: makeBytes32("hash99")},
-		100: {Number: 100, Hash: makeBytes32("hash100")},
+		99:  {Number: 99, Hash: makeBytes32("hash99"), ParentHash: makeBytes32("hash98")},
+		100: {Number: 100, Hash: makeBytes32("hash100"), ParentHash: makeBytes32("hash99")},
 	}
 	mockSetup := setupMockSourceReaderForFinality(t, blocks)
 
@@ -230,7 +230,7 @@ func TestFinalityViolationChecker_SameHeightHashChange(t *testing.T) {
 	lggr, _ := logger.New()
 
 	blocks := map[uint64]protocol.BlockHeader{
-		100: {Number: 100, Hash: makeBytes32("hash100")},
+		100: {Number: 100, Hash: makeBytes32("hash100"), ParentHash: makeBytes32("hash99")},
 	}
 	mockSetup := setupMockSourceReaderForFinality(t, blocks)
 
@@ -244,7 +244,7 @@ func TestFinalityViolationChecker_SameHeightHashChange(t *testing.T) {
 	require.NoError(t, err)
 
 	// Change the hash at the same height
-	blocks[100] = protocol.BlockHeader{Number: 100, Hash: makeBytes32("DIFFERENT")}
+	blocks[100] = protocol.BlockHeader{Number: 100, Hash: makeBytes32("DIFFERENT"), ParentHash: makeBytes32("hash99")}
 	// Re-setup the mock expectation with updated blocks
 	mockSetup.Reader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).RunAndReturn(
 		func(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
@@ -263,5 +263,33 @@ func TestFinalityViolationChecker_SameHeightHashChange(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "finality violation")
 	assert.Contains(t, err.Error(), "hash changed")
+	assert.True(t, checker.IsFinalityViolated())
+}
+
+func TestFinalityViolationChecker_ParentHashMismatch(t *testing.T) {
+	lggr, _ := logger.New()
+
+	// Block 101's parent hash doesn't match block 100's hash - simulates mid-fetch reorg
+	blocks := map[uint64]protocol.BlockHeader{
+		100: {Number: 100, Hash: makeBytes32("hash100"), ParentHash: makeBytes32("hash99")},
+		101: {Number: 101, Hash: makeBytes32("hash101"), ParentHash: makeBytes32("WRONG_PARENT")}, // Wrong parent!
+	}
+	mockSetup := setupMockSourceReaderForFinality(t, blocks)
+
+	checker, err := NewFinalityViolationCheckerService(mockSetup.Reader, protocol.ChainSelector(1), lggr)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// Initialize with block 100
+	err = checker.UpdateFinalized(ctx, 100)
+	require.NoError(t, err)
+	assert.False(t, checker.IsFinalityViolated())
+
+	// Try to advance to 101 - should detect parent hash mismatch
+	err = checker.UpdateFinalized(ctx, 101)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "finality violation")
+	assert.Contains(t, err.Error(), "parent hash")
 	assert.True(t, checker.IsFinalityViolated())
 }
