@@ -114,7 +114,7 @@ func NewVerificationCoordinator(
 		sourceConfigs[sel] = verifier.SourceConfig{
 			VerifierAddress:        verifierAddrs[sel],
 			DefaultExecutorAddress: defaultExecutorAddrs[sel],
-			PollInterval:           1 * time.Second, // TODO: make configurable
+			PollInterval:           2 * time.Second, // TODO: make configurable
 			ChainSelector:          sel,
 			RMNRemoteAddress:       rmnRemoteAddrs[sel],
 		}
