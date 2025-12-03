@@ -740,6 +740,34 @@ func (m *CCIP17EVM) haveEnoughFeeTokens(ctx context.Context, chain evm.Chain, au
 	}
 }
 
+func (m *CCIP17EVM) validateTokenBalances(ctx context.Context, srcChain evm.Chain, routerAddress common.Address, fields cciptestinterfaces.MessageFields, fee *big.Int, tokenAmounts []routeroperations.EVMTokenAmount, l zerolog.Logger) error {
+	haveEnoughFeeTokens, msgValue, err := m.haveEnoughFeeTokens(ctx, srcChain, srcChain.DeployerKey, routerAddress, common.HexToAddress(fields.FeeToken.String()), fee)
+	if err != nil {
+		return fmt.Errorf("failed to check if have enough tokens: %w", err)
+	}
+	if !haveEnoughFeeTokens {
+		return fmt.Errorf("not enough tokens to send message, feeToken: %s, fee: %s, msgValue: %s", fields.FeeToken.String(), fee.String(), msgValue.String())
+	}
+
+	if len(tokenAmounts) > 0 {
+		haveEnoughTransferTokens, err := m.haveEnoughTransferTokens(ctx, srcChain, srcChain.DeployerKey, routerAddress, common.HexToAddress(tokenAmounts[0].Token.String()), tokenAmounts[0].Amount)
+		if err != nil {
+			return fmt.Errorf("failed to check if have enough tokens: %w", err)
+		}
+		if !haveEnoughTransferTokens {
+			return fmt.Errorf("not enough tokens to send in a message, token: %s, amount: %s", tokenAmounts[0].Token.String(), tokenAmounts[0].Amount.String())
+		}
+	}
+
+	l.Info().
+		Str("FeeToken", fields.FeeToken.String()).
+		Str("Amount", fee.String()).
+		Str("MsgValue", msgValue.String()).
+		Msg("Have enough tokens to send message")
+
+	return nil
+}
+
 func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions) (cciptestinterfaces.MessageSentEvent, error) {
 	return m.SendMessageWithNonce(ctx, src, dest, fields, opts, nil, false)
 }
@@ -800,29 +828,9 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, src, dest uint64, 
 	}
 
 	if !disableTokenAmountCheck {
-		haveEnoughFeeTokens, msgValue, err := m.haveEnoughFeeTokens(ctx, srcChain, srcChain.DeployerKey, routerAddress, common.HexToAddress(fields.FeeToken.String()), fee)
-		if err != nil {
-			return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to check if have enough tokens: %w", err)
+		if err := m.validateTokenBalances(ctx, srcChain, routerAddress, fields, fee, tokenAmounts, l); err != nil {
+			return cciptestinterfaces.MessageSentEvent{}, err
 		}
-		if !haveEnoughFeeTokens {
-			return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("not enough tokens to send message, feeToken: %s, fee: %s, msgValue: %s", fields.FeeToken.String(), fee.String(), msgValue.String())
-		}
-
-		if len(tokenAmounts) > 0 {
-			haveEnoughTransferTokens, err := m.haveEnoughTransferTokens(ctx, srcChain, srcChain.DeployerKey, routerAddress, common.HexToAddress(tokenAmounts[0].Token.String()), tokenAmounts[0].Amount)
-			if err != nil {
-				return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to check if have enough tokens: %w", err)
-			}
-			if !haveEnoughTransferTokens {
-				return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("not enough tokens to send in a message, token: %s, amount: %s", tokenAmounts[0].Token.String(), tokenAmounts[0].Amount.String())
-			}
-		}
-
-		l.Info().
-			Str("FeeToken", fields.FeeToken.String()).
-			Str("Amount", fee.String()).
-			Str("MsgValue", msgValue.String()).
-			Msg("Have enough tokens to send message")
 	}
 
 	if nonce == nil {

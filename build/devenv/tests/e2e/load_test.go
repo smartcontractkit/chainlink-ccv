@@ -325,7 +325,6 @@ func TestE2ELoad(t *testing.T) {
 	ensureWETHBalanceAndApproval(ctx, t, *l, e, srcChain, big.NewInt(requiredWETHBalance))
 
 	t.Run("clean", func(t *testing.T) {
-
 		// just a clean load test to measure performance
 		rps := int64(5)
 		testDuration := 30 * time.Second
