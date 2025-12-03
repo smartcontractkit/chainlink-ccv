@@ -42,7 +42,7 @@ ccv sh
 ## Rebuilding Local Chainlink Node Image
 You can build a local image of CL node, please specify your `chainlink` repository path in `docker_ctx`
 ```
-up env.toml,env-cl-rebuild.toml
+up env.toml,env-cl.toml
 ```
 
 ## Run the environment (testnets)
