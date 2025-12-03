@@ -197,7 +197,7 @@ func (r *SourceReaderService) eventMonitoringLoop() {
 // readyToQuery checks if there are new blocks to process.
 // Returns (true, latest, finalized) if new blocks are available.
 func (r *SourceReaderService) readyToQuery(ctx context.Context) (bool, *protocol.BlockHeader, *protocol.BlockHeader) {
-	blockCtx, cancel := context.WithTimeout(ctx, r.pollInterval/3)
+	blockCtx, cancel := context.WithTimeout(ctx, r.pollInterval)
 	latest, finalized, err := r.sourceReader.LatestAndFinalizedBlock(blockCtx)
 	cancel()
 
@@ -224,7 +224,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context, latest, fin
 	r.logger.Infow("processEventCycle starting",
 		"latestBlock", latest.Number,
 		"finalizedBlock", finalized.Number)
-	logsCtx, cancel := context.WithTimeout(ctx, r.pollInterval/3)
+	logsCtx, cancel := context.WithTimeout(ctx, r.pollInterval)
 	defer cancel()
 
 	fromBlock := r.lastProcessedFinalizedBlock.Load()
