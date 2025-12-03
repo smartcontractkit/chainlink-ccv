@@ -50,12 +50,12 @@ func NewCoordinator(
 		messageSubscriber: messageSubscriber,
 		leaderElector:     leaderElector,
 		monitoring:        monitoring,
-		processingCh:      make(chan message_heap.MessageWithTimestamps, 100),
+		processingCh:      make(chan message_heap.MessageWithTimestamps),
 		// cancel and delayedMessageHeap are initialized in Start()
 		// running, wg, and services.StateMachine default initialization is fine.
 		expiryDuration: expiryDuration,
 		timeProvider:   timeProvider,
-		workerCount:    10,
+		workerCount:    100,
 	}
 
 	if err := ec.validate(); err != nil {
@@ -75,7 +75,13 @@ func (ec *Coordinator) Start(ctx context.Context) error {
 		ec.wg.Add(1)
 		go func() {
 			defer ec.wg.Done()
-			ec.run(c)
+			ec.runStorageStream(c)
+		}()
+
+		ec.wg.Add(1)
+		go func() {
+			defer ec.wg.Done()
+			ec.runProcessingLoop(c)
 		}()
 
 		ec.lggr.Infow("Coordinator started")
@@ -104,7 +110,7 @@ func (ec *Coordinator) Close() error {
 	})
 }
 
-func (ec *Coordinator) run(ctx context.Context) {
+func (ec *Coordinator) runStorageStream(ctx context.Context) {
 	for i := 0; i < ec.workerCount; i++ {
 		ec.wg.Add(1)
 		go func() {
@@ -118,9 +124,6 @@ func (ec *Coordinator) run(ctx context.Context) {
 		ec.lggr.Errorw("failed to start ccv result streamer", "error", err)
 		return
 	}
-
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
 
 	for {
 		select {
@@ -173,6 +176,17 @@ func (ec *Coordinator) run(ctx context.Context) {
 					MessageID:     id,
 				})
 			}
+		}
+	}
+}
+
+func (ec *Coordinator) runProcessingLoop(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
 		case <-ticker.C:
 			currentTime := ec.timeProvider.GetTime()
 
@@ -184,12 +198,8 @@ func (ec *Coordinator) run(ctx context.Context) {
 				"readyMessages", readyMessages,
 			)
 			for _, payload := range readyMessages {
-				select {
-				case ec.processingCh <- payload:
-				default:
-					ec.lggr.Warnw("processing channel full, pushing message back to heap", "messageID", payload.MessageID)
-					ec.delayedMessageHeap.Push(payload)
-				}
+				// If the channel is full, we will block here, but messages will continue to be accumulate in the heap.
+				ec.processingCh <- payload
 			}
 		}
 	}
@@ -207,7 +217,7 @@ func (ec *Coordinator) handleMessage(ctx context.Context) {
 			currentTime := ec.timeProvider.GetTime()
 			if currentTime.After(payload.ExpiryTime) {
 				ec.lggr.Infow("message has expired", "messageID", payload.MessageID)
-				return
+				continue
 			}
 
 			message, id := *payload.Message, payload.MessageID
@@ -235,11 +245,11 @@ func (ec *Coordinator) handleMessage(ctx context.Context) {
 				err = ec.executor.AttemptExecuteMessage(ctx, message)
 				if errors.Is(err, ErrInsufficientVerifiers) {
 					ec.lggr.Infow("not enough verifiers to execute message, will wait until next notification", "messageID", id, "error", err)
-					return
+					continue
 				} else if err != nil {
 					ec.lggr.Errorw("failed to process message", "messageID", id, "error", err)
 					ec.monitoring.Metrics().IncrementMessagesProcessingFailed(ctx)
-					return
+					continue
 				}
 				ec.monitoring.Metrics().IncrementMessagesProcessed(ctx)
 			}
