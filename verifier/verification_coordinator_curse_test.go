@@ -105,12 +105,14 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 		},
 	).Maybe()
 
+	verifierAddr := make([]byte, 20)
+	verifierAddr[0] = 0x11
 	// Create coordinator configuration
 	coordinatorConfig := CoordinatorConfig{
 		VerifierID: "curse-test-coordinator",
 		SourceConfigs: map[protocol.ChainSelector]SourceConfig{
 			sourceChain: {
-				VerifierAddress: protocol.UnknownAddress("0x1234"),
+				VerifierAddress: verifierAddr,
 				PollInterval:    10 * time.Millisecond,
 			},
 		},
