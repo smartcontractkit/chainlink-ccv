@@ -365,7 +365,7 @@ func TestE2ESmoke(t *testing.T) {
 	})
 }
 
-func mustGetEOAReceiverAddress(t *testing.T, c *evm.CCIP17EVM, chainSelector uint64) protocol.UnknownAddress {
+func mustGetEOAReceiverAddress(t *testing.T, c cciptestinterfaces.CCIP17ProductConfiguration, chainSelector uint64) protocol.UnknownAddress {
 	receiver, err := c.GetEOAReceiverAddress(chainSelector)
 	require.NoError(t, err)
 	return receiver

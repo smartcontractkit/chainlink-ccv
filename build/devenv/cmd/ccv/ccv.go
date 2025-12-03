@@ -735,28 +735,13 @@ var monitorContractsCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to parse dest: %w", err)
 		}
-		ctx := context.Background()
-		ctx = ccv.Plog.WithContext(ctx)
-		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
-		if err != nil {
-			return fmt.Errorf("failed to load environment output: %w", err)
-		}
-		chainIDs, wsURLs := make([]string, 0), make([]string, 0)
-		for _, bc := range in.Blockchains {
-			chainIDs = append(chainIDs, bc.ChainID)
-			wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
-		}
-		_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
-		if err != nil {
-			return fmt.Errorf("failed to create CLDF operations environment: %w", err)
-		}
+
+		ctx := cmd.Context()
 		ctx = ccv.Plog.WithContext(ctx)
 		l := zerolog.Ctx(ctx)
-		impl, err := evm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
-		if err != nil {
-			return fmt.Errorf("failed to create CCIP17EVM: %w", err)
-		}
-		_, reg, err := impl.ExposeMetrics(ctx, source, dest, chainIDs, wsURLs)
+		impl, err := ccv.NewImpl(l, "env-out.toml", source)
+
+		_, reg, err := impl.ExposeMetrics(cmd.Context(), source, dest)
 		if err != nil {
 			return fmt.Errorf("failed to expose metrics: %w", err)
 		}

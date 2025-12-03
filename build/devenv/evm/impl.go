@@ -961,8 +961,6 @@ func serializeExtraArgsSVMV1(_ cciptestinterfaces.MessageOptions) []byte {
 func (m *CCIP17EVM) ExposeMetrics(
 	ctx context.Context,
 	source, dest uint64,
-	chainID string,
-	wsURL string,
 ) ([]string, *prometheus.Registry, error) {
 	msgSentTotal.Reset()
 	msgExecTotal.Reset()
@@ -973,12 +971,7 @@ func (m *CCIP17EVM) ExposeMetrics(
 
 	lp := NewLokiPusher()
 	tp := NewTempoPusher()
-	// TODO: Do not make a copy, this is the only reason "e" is included in the object.
-	c, err := NewCCIP17EVM(ctx, m.logger, m.e, chainID, wsURL)
-	if err != nil {
-		return nil, nil, err
-	}
-	err = ProcessLaneEvents(ctx, m, lp, tp, &LaneStreamConfig{
+	err := ProcessLaneEvents(ctx, m, lp, tp, &LaneStreamConfig{
 		FromSelector:      source,
 		ToSelector:        dest,
 		AggregatorAddress: "localhost:50051",
@@ -987,7 +980,7 @@ func (m *CCIP17EVM) ExposeMetrics(
 	if err != nil {
 		return nil, nil, err
 	}
-	err = ProcessLaneEvents(ctx, c, lp, tp, &LaneStreamConfig{
+	err = ProcessLaneEvents(ctx, m, lp, tp, &LaneStreamConfig{
 		FromSelector:      dest,
 		ToSelector:        source,
 		AggregatorAddress: "localhost:50051",

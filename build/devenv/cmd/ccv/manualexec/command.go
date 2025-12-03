@@ -29,18 +29,8 @@ func Command() *cobra.Command {
 			ctx := cmd.Context()
 			l := zerolog.Ctx(ctx)
 			envFile := fmt.Sprintf("env-%s.toml", a.env)
-			lib, err := ccv.NewLib(l, envFile)
+			impl, err := ccv.NewImpl(l, envFile, a.chainSelector)
 			if err != nil {
-				return fmt.Errorf("failed to create CCV library: %w", err)
-			}
-
-			impls, err := lib.Chains(ctx)
-			if err != nil {
-				return fmt.Errorf("failed to get chain implementations: %w", err)
-			}
-
-			impl, ok := impls[a.chainSelector]
-			if !ok {
 				return fmt.Errorf("no implementation found for source chain selector %d", a.chainSelector)
 			}
 

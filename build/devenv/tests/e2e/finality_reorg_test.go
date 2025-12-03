@@ -15,7 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
-	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
@@ -28,24 +28,18 @@ import (
 // IMPORTANT: Need to run this test against an env that has source chain with auto mining.
 // Run `just rebuild-all "env.toml,env-src-auto-mine.toml"` before running this test.
 func TestE2EReorg(t *testing.T) {
+	ctx := ccv.Plog.WithContext(context.Background())
+	l := zerolog.Ctx(ctx)
+	lib, err := ccv.NewLib(l, "../../env-out.toml")
+	require.NoError(t, err)
+
+	// TODO: put LoadOutput behind the lib.
 	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
 	require.NoError(t, err)
 
-	ctx := ccv.Plog.WithContext(context.Background())
-	l := zerolog.Ctx(ctx)
-
-	chainIDs, wsURLs := make([]string, 0), make([]string, 0)
-	for _, bc := range in.Blockchains {
-		chainIDs = append(chainIDs, bc.ChainID)
-		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
-	}
-
-	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+	chains, err := lib.Chains(ctx)
 	require.NoError(t, err)
-	require.Len(t, selectors, 3, "expected 3 chains for this test in the environment")
-
-	c, err := evm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
-	require.NoError(t, err)
+	require.Len(t, chains, 3, "expected 3 chains for this test in the environment")
 
 	t.Cleanup(func() {
 		_, err := framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
@@ -77,8 +71,16 @@ func TestE2EReorg(t *testing.T) {
 	})
 
 	// Get the source and destination chain selectors
-	srcSelector := selectors[0]
-	destSelector := selectors[1]
+	var srcSelector, destSelector uint64
+	var srcImpl cciptestinterfaces.CCIP17ProductConfiguration
+	for i, chain := range chains {
+		if srcImpl == nil {
+			srcImpl = chain
+			srcSelector = i
+		} else if destSelector == 0 {
+			destSelector = i
+		}
+	}
 
 	// Get eth client for source chain using HTTP URL
 	srcHTTPURL := in.Blockchains[0].Out.Nodes[0].ExternalHTTPUrl
@@ -94,7 +96,7 @@ func TestE2EReorg(t *testing.T) {
 	require.True(t, automine, "source chain must have auto-mining enabled (instant mining). Run with env-src-auto-mine.toml configuration")
 	l.Info().Bool("automine", automine).Msg("✅ Verified source chain has auto-mining enabled")
 
-	receiver := mustGetEOAReceiverAddress(t, c, destSelector)
+	receiver := mustGetEOAReceiverAddress(t, srcImpl, destSelector)
 
 	executorAddr := getContractAddress(t, in, srcSelector,
 		datastore.ContractType(executor.ContractType),
@@ -112,7 +114,7 @@ func TestE2EReorg(t *testing.T) {
 	sendMessageWithLogging := func(data, logPrefix string) [32]byte {
 		l.Info().Str("data", data).Msgf("📨 %s", logPrefix)
 
-		event, err := c.SendMessage(ctx, srcSelector, destSelector,
+		event, err := srcImpl.SendMessage(ctx, srcSelector, destSelector,
 			cciptestinterfaces.MessageFields{
 				Receiver: receiver,
 				Data:     []byte(data),

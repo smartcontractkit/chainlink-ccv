@@ -9,6 +9,7 @@ import (
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
 
 type Lib struct {
@@ -30,6 +31,26 @@ func NewLib(logger *zerolog.Logger, envOutFile string) (*Lib, error) {
 	}, nil
 }
 
+// NewImpl is a convenience function that fetches a specific impl from the library.
+func NewImpl(logger *zerolog.Logger, envOutFile string, selector uint64) (cciptestinterfaces.CCIP17ProductConfiguration, error) {
+	lib, err := NewLib(logger, envOutFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create CCV library: %w", err)
+	}
+
+	impls, err := lib.Chains(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get chain implementations: %w", err)
+	}
+
+	impl, ok := impls[selector]
+	if !ok {
+		return nil, fmt.Errorf("no implementation found for chain selector %d", selector)
+	}
+
+	return impl, nil
+}
+
 func (l *Lib) verify() error {
 	if l.envOutFile == "" {
 		return fmt.Errorf("environment output file is not set")
@@ -38,6 +59,13 @@ func (l *Lib) verify() error {
 		return fmt.Errorf("configuration is nil")
 	}
 	return nil
+}
+
+func (l *Lib) DataStore() (datastore.DataStore, error) {
+	if err := l.verify(); err != nil {
+		return nil, fmt.Errorf("failed to initialize datastore: %w", err)
+	}
+	return l.cfg.CLDF.DataStore, nil
 }
 
 func (l *Lib) Chains(ctx context.Context) (map[uint64]cciptestinterfaces.CCIP17ProductConfiguration, error) {

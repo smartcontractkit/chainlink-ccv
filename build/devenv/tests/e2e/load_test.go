@@ -28,7 +28,7 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
-	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 )
 
@@ -58,7 +58,7 @@ type EVMTXGun struct {
 	cfg        *ccv.Cfg
 	e          *deployment.Environment
 	selectors  []uint64
-	impl       cciptestinterfaces.CCIP17ProductConfiguration
+	impl       map[uint64]cciptestinterfaces.CCIP17ProductConfiguration
 	src        cldfevm.Chain
 	dest       cldfevm.Chain
 	sentSeqNos []uint64
@@ -76,7 +76,7 @@ func (m *EVMTXGun) CloseSentChannel() {
 	})
 }
 
-func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impl cciptestinterfaces.CCIP17ProductConfiguration, s, d cldfevm.Chain) *EVMTXGun {
+func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impl map[uint64]cciptestinterfaces.CCIP17ProductConfiguration, s, d cldfevm.Chain) *EVMTXGun {
 	return &EVMTXGun{
 		cfg:        cfg,
 		e:          e,
@@ -112,7 +112,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	}
 
 	// Get sequence number before sending and record timestamp
-	c, ok := m.impl.(*evm.CCIP17EVM)
+	c, ok := m.impl[dstChain.ChainSelector].(*evm.CCIP17EVM)
 	var seqNo uint64
 	if ok {
 		seqNo, err = c.GetExpectedNextSequenceNumber(ctx, srcChain.ChainSelector, dstChain.ChainSelector)
@@ -143,7 +143,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("could not find committee verifier proxy address in datastore: %w", err).Error(), Failed: true}
 	}
-	_, err = m.impl.SendMessage(ctx, srcChain.ChainSelector, dstChain.ChainSelector, cciptestinterfaces.MessageFields{
+	_, err = m.impl[srcChain.ChainSelector].SendMessage(ctx, srcChain.ChainSelector, dstChain.ChainSelector, cciptestinterfaces.MessageFields{
 		Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
 		Data:     []byte{},
 	}, cciptestinterfaces.MessageOptions{
@@ -214,7 +214,11 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun) func() ([]metrics.Mes
 				defer wg.Done()
 
 				msgIDHex := common.BytesToHash(msg.MessageID[:]).Hex()
-				execEvent, err := tc.Impl.WaitOneExecEventBySeqNo(verifyCtx, fromSelector, toSelector, msg.SeqNo, tc.Timeout)
+				if _, ok := tc.Impl[toSelector]; !ok {
+					tc.T.Logf("No implementation available to verify message %d", msg.SeqNo)
+					return
+				}
+				execEvent, err := tc.Impl[toSelector].WaitOneExecEventBySeqNo(verifyCtx, fromSelector, toSelector, msg.SeqNo, tc.Timeout)
 
 				if verifyCtx.Err() != nil {
 					tc.T.Logf("Message %d verification timed out", msg.SeqNo)
@@ -317,7 +321,7 @@ func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
 	}
 }
 
-func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, selectors []uint64, impl cciptestinterfaces.CCIP17ProductConfiguration, s, d cldfevm.Chain) (*wasp.Profile, *EVMTXGun) {
+func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, selectors []uint64, impl map[uint64]cciptestinterfaces.CCIP17ProductConfiguration, s, d cldfevm.Chain) (*wasp.Profile, *EVMTXGun) {
 	gun := NewEVMTransactionGun(in, e, selectors, impl, s, d)
 	profile := wasp.NewProfile().
 		Add(wasp.NewGenerator(&wasp.Config{
@@ -371,7 +375,13 @@ func TestE2ELoad(t *testing.T) {
 		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
 	}
 
-	impl, err := evm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
+	/*
+		impl, err := evm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
+		require.NoError(t, err)
+	*/
+	lib, err := ccv.NewLib(l, outfile)
+	require.NoError(t, err)
+	chainImpls, err := lib.Chains(ctx)
 	require.NoError(t, err)
 
 	indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
@@ -396,10 +406,10 @@ func TestE2ELoad(t *testing.T) {
 		rps := int64(5)
 		testDuration := 30 * time.Second
 
-		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
+		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
 		tc.Timeout = 2 * time.Minute
 
-		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
+		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
 		waitForMetrics := assertMessagesAsync(tc, gun)
 
 		_, err = p.Run(true)
@@ -432,10 +442,10 @@ func TestE2ELoad(t *testing.T) {
 
 		rps := int64(1)
 
-		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
+		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
 		tc.Timeout = timeoutDuration
 
-		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
+		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
 		waitForMetrics := assertMessagesAsync(tc, gun)
 
 		_, err = p.Run(true)
@@ -461,10 +471,10 @@ func TestE2ELoad(t *testing.T) {
 		rps := int64(1)
 		testDuration := 5 * time.Minute
 
-		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
+		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
 		tc.Timeout = 10 * time.Minute
 
-		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
+		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
 		waitForMetrics := assertMessagesAsync(tc, gun)
 
 		_, err = p.Run(false)
@@ -535,9 +545,9 @@ func TestE2ELoad(t *testing.T) {
 		rps := int64(1)
 		testDuration := 5 * time.Minute
 
-		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
+		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
 
-		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
+		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
 		waitForMetrics := assertMessagesAsync(tc, gun)
 
 		_, err = p.Run(false)
@@ -702,9 +712,9 @@ func TestE2ELoad(t *testing.T) {
 			},
 		}
 
-		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
+		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
 
-		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
+		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
 		waitForMetrics := assertMessagesAsync(tc, gun)
 
 		_, err = p.Run(false)
