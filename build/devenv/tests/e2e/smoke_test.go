@@ -70,18 +70,6 @@ func TestE2ESmoke(t *testing.T) {
 	ctx := ccv.Plog.WithContext(t.Context())
 	l := zerolog.Ctx(ctx)
 
-	/*
-		chainIDs, wsURLs := make([]string, 0), make([]string, 0)
-		for _, bc := range in.Blockchains {
-			chainIDs = append(chainIDs, bc.ChainID)
-			wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
-		}
-
-		selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
-		require.NoError(t, err)
-		require.GreaterOrEqual(t, len(selectors), 2, "expected at least 2 chains for this test in the environment")
-	*/
-
 	lib, err := ccv.NewLib(l, smokeTestConfig)
 	require.NoError(t, err)
 	chains, err := lib.Chains(ctx)
@@ -99,11 +87,6 @@ func TestE2ESmoke(t *testing.T) {
 	require.Contains(t, idToSelector, uint64(1337))
 	require.Contains(t, idToSelector, uint64(2337))
 	require.Contains(t, idToSelector, uint64(3337))
-
-	/*
-		c, err := evm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
-		require.NoError(t, err)
-	*/
 
 	t.Cleanup(func() {
 		_, err := framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
