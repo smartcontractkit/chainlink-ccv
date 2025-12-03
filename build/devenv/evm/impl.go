@@ -833,17 +833,19 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, src, dest uint64, 
 		}
 	}
 
-	if nonce == nil {
-		return cciptestinterfaces.MessageSentEvent{}, errors.New("nonce is required for SendMessageWithNonce")
+	var loadNonce *big.Int = nil
+	if nonce != nil {
+		loadNonce = big.NewInt(nonce.Load())
 	}
-
 	deployerKeyCopy := &bind.TransactOpts{
 		From:   srcChain.DeployerKey.From,
 		Signer: srcChain.DeployerKey.Signer,
-		Nonce:  big.NewInt(nonce.Load()),
+		Nonce:  loadNonce,
 		Value:  srcChain.DeployerKey.Value,
 	}
-	nonce.Add(1)
+	if nonce != nil {
+		nonce.Add(1)
+	}
 	tx, err := rout.CcipSend(deployerKeyCopy, dest, msg)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to send CCIP message: %w, extraArgs: %x", err, extraArgs)
