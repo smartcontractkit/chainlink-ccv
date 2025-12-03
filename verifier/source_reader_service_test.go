@@ -83,12 +83,10 @@ func TestSRS_FetchesAndQueuesMessages(t *testing.T) {
 	)
 
 	// Set starting lastProcessed before first event
-	srs.mu.Lock()
-	srs.lastProcessedBlock = big.NewInt(95)
-	srs.mu.Unlock()
+	srs.lastProcessedFinalizedBlock.Store(big.NewInt(95))
 
 	// Call cycle once
-	srs.processEventCycle(ctx)
+	srs.processEventCycle(ctx, latest, finalized)
 
 	// Check pending queue
 	srs.mu.RLock()
@@ -156,11 +154,9 @@ func TestSRS_DeduplicatesByMessageID(t *testing.T) {
 		10*time.Millisecond,
 	)
 
-	srs.mu.Lock()
-	srs.lastProcessedBlock = big.NewInt(95)
-	srs.mu.Unlock()
+	srs.lastProcessedFinalizedBlock.Store(big.NewInt(95))
 
-	srs.processEventCycle(ctx)
+	srs.processEventCycle(ctx, latest, finalized)
 
 	srs.mu.RLock()
 	defer srs.mu.RUnlock()
@@ -339,7 +335,7 @@ func TestSRS_Readiness_DefaultFinality_ReadyWhenBelowFinalized(t *testing.T) {
 	srs.mu.Unlock()
 
 	// Call sendReadyMessages once
-	go srs.sendReadyMessages(ctx)
+	go srs.sendReadyMessages(ctx, latest, finalized)
 
 	// Receive ready batch
 	select {
@@ -414,7 +410,7 @@ func TestSRS_Readiness_CustomFinality_ReadyAgainstLatest(t *testing.T) {
 	srs.pendingTasks[msgID.String()] = task
 	srs.mu.Unlock()
 
-	go srs.sendReadyMessages(ctx)
+	go srs.sendReadyMessages(ctx, latest, finalized)
 
 	select {
 	case batch := <-srs.readyTasksCh:
@@ -633,7 +629,7 @@ func TestSRS_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 	srs.sentTasks[task2.MessageID] = task2
 	srs.mu.Unlock()
 
-	go srs.sendReadyMessages(ctx)
+	go srs.sendReadyMessages(ctx, latest, finalized)
 
 	// Give it a moment
 	time.Sleep(50 * time.Millisecond)
