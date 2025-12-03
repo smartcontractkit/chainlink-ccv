@@ -246,12 +246,14 @@ func All17TokenCombinations() []TokenCombination {
 }
 
 type CCIP17EVM struct {
-	e                      *deployment.Environment
-	logger                 zerolog.Logger
-	chainDetailsBySelector map[uint64]chainsel.ChainDetails
-	ethClients             map[uint64]*ethclient.Client
-	onRampBySelector       map[uint64]*onramp.OnRamp
-	offRampBySelector      map[uint64]*offramp.OffRamp
+	e            *deployment.Environment
+	ds           datastore.DataStore
+	chain        evm.Chain
+	logger       zerolog.Logger
+	chainDetails chainsel.ChainDetails
+	ethClient    *ethclient.Client
+	onRamp       *onramp.OnRamp
+	offRamp      *offramp.OffRamp
 }
 
 // NewEmptyCCIP17EVM creates a new CCIP17EVM with a logger that logs to the console.
@@ -267,84 +269,77 @@ func NewEmptyCCIP17EVM() *CCIP17EVM {
 }
 
 // NewCCIP17EVM creates new smart-contracts wrappers with utility functions for CCIP17EVM implementation.
-func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Environment, chainIDs, wsURLs []string) (*CCIP17EVM, error) {
-	if len(chainIDs) != len(wsURLs) {
-		return nil, fmt.Errorf("len(chainIDs) != len(wsURLs) ; %d != %d", len(chainIDs), len(wsURLs))
-	}
-
+func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Environment, chainID, wsURL string) (*CCIP17EVM, error) {
 	gas := &GasSettings{
 		FeeCapMultiplier: 2,
 		TipCapMultiplier: 2,
 	}
 	var (
-		chainDetailsBySelector = make(map[uint64]chainsel.ChainDetails)
-		ethClients             = make(map[uint64]*ethclient.Client)
-		onRampBySelector       = make(map[uint64]*onramp.OnRamp)
-		offRampBySelector      = make(map[uint64]*offramp.OffRamp)
+		chainDetails chainsel.ChainDetails
+		ethClient    *ethclient.Client
+		onRamp       *onramp.OnRamp
+		offRamp      *offramp.OffRamp
 	)
-	for i := range chainIDs {
-		chainDetails, err := chainsel.GetChainDetailsByChainIDAndFamily(chainIDs[i], chainsel.FamilyEVM)
-		if err != nil {
-			return nil, fmt.Errorf("get chain details for chain %s: %w", chainIDs[i], err)
-		}
+	chainDetails, err := chainsel.GetChainDetailsByChainIDAndFamily(chainID, chainsel.FamilyEVM)
+	if err != nil {
+		return nil, fmt.Errorf("get chain details for chain %s: %w", chainID, err)
+	}
 
-		chainDetailsBySelector[chainDetails.ChainSelector] = chainDetails
+	chainDetails = chainDetails
 
-		client, _, _, err := ETHClient(ctx, wsURLs[i], gas)
-		if err != nil {
-			return nil, fmt.Errorf("create eth client for chain %s: %w", chainIDs[i], err)
-		}
-		ethClients[chainDetails.ChainSelector] = client
+	client, _, _, err := ETHClient(ctx, wsURL, gas)
+	if err != nil {
+		return nil, fmt.Errorf("create eth client for chain %s: %w", chainID, err)
+	}
+	ethClient = client
 
-		onRampAddressRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
-			chainDetails.ChainSelector,
-			datastore.ContractType(onrampoperations.ContractType),
-			semver.MustParse(onrampoperations.Deploy.Version()),
-			"",
-		))
-		if err != nil {
-			return nil, fmt.Errorf("get on ramp address for chain %d (id %s) from datastore: %w", chainDetails.ChainSelector, chainIDs[i], err)
-		}
-		offRampAddressRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
-			chainDetails.ChainSelector,
-			datastore.ContractType(offrampoperations.ContractType),
-			semver.MustParse(offrampoperations.Deploy.Version()),
-			"",
-		))
-		if err != nil {
-			return nil, fmt.Errorf("get off ramp address for chain %d (id %s) from datastore: %w", chainDetails.ChainSelector, chainIDs[i], err)
-		}
-		onRamp, err := onramp.NewOnRamp(common.HexToAddress(onRampAddressRef.Address), client)
-		if err != nil {
-			return nil, fmt.Errorf("create on ramp wrapper for chain %d (id %s): %w", chainDetails.ChainSelector, chainIDs[i], err)
-		}
-		offRamp, err := offramp.NewOffRamp(common.HexToAddress(offRampAddressRef.Address), client)
-		if err != nil {
-			return nil, fmt.Errorf("create off ramp wrapper for chain %d (id %s): %w", chainDetails.ChainSelector, chainIDs[i], err)
-		}
-
-		onRampBySelector[chainDetails.ChainSelector] = onRamp
-		offRampBySelector[chainDetails.ChainSelector] = offRamp
+	onRampAddressRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+		chainDetails.ChainSelector,
+		datastore.ContractType(onrampoperations.ContractType),
+		semver.MustParse(onrampoperations.Deploy.Version()),
+		"",
+	))
+	if err != nil {
+		return nil, fmt.Errorf("get on ramp address for chain %d (id %s) from datastore: %w", chainDetails.ChainSelector, chainID, err)
+	}
+	offRampAddressRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+		chainDetails.ChainSelector,
+		datastore.ContractType(offrampoperations.ContractType),
+		semver.MustParse(offrampoperations.Deploy.Version()),
+		"",
+	))
+	if err != nil {
+		return nil, fmt.Errorf("get off ramp address for chain %d (id %s) from datastore: %w", chainDetails.ChainSelector, chainID, err)
+	}
+	onRamp, err = onramp.NewOnRamp(common.HexToAddress(onRampAddressRef.Address), client)
+	if err != nil {
+		return nil, fmt.Errorf("create on ramp wrapper for chain %d (id %s): %w", chainDetails.ChainSelector, chainID, err)
+	}
+	offRamp, err = offramp.NewOffRamp(common.HexToAddress(offRampAddressRef.Address), client)
+	if err != nil {
+		return nil, fmt.Errorf("create off ramp wrapper for chain %d (id %s): %w", chainDetails.ChainSelector, chainID, err)
 	}
 
 	return &CCIP17EVM{
-		e:                      e,
-		logger:                 logger,
-		chainDetailsBySelector: chainDetailsBySelector,
-		ethClients:             ethClients,
-		onRampBySelector:       onRampBySelector,
-		offRampBySelector:      offRampBySelector,
+		e:            e,
+		ds:           e.DataStore,
+		chain:        e.BlockChains.EVMChains()[chainDetails.ChainSelector],
+		logger:       logger,
+		chainDetails: chainDetails,
+		ethClient:    ethClient,
+		onRamp:       onRamp,
+		offRamp:      offRamp,
 	}, nil
 }
 
 // fetchAllSentEventsBySelector fetch all CCIPMessageSent events from on ramp contract.
 func (m *CCIP17EVM) fetchAllSentEventsBySelector(ctx context.Context, from, to uint64) ([]*onramp.OnRampCCIPMessageSent, error) {
-	l := m.logger
-	onRamp, ok := m.onRampBySelector[from]
-	if !ok {
-		return nil, fmt.Errorf("no on ramp for selector %d", from)
+	if from != m.chain.ChainSelector() {
+		return nil, fmt.Errorf("chain %d not found in environment chains %v", from, m.chain.ChainSelector())
 	}
-	filter, err := onRamp.FilterCCIPMessageSent(&bind.FilterOpts{
+
+	l := m.logger
+	filter, err := m.onRamp.FilterCCIPMessageSent(&bind.FilterOpts{
 		Context: ctx,
 	}, []uint64{to}, nil, nil)
 	if err != nil {
@@ -379,12 +374,12 @@ func (m *CCIP17EVM) fetchAllSentEventsBySelector(ctx context.Context, from, to u
 
 // fetchAllExecEventsBySelector fetch all ExecutionStateChanged events from off ramp contract.
 func (m *CCIP17EVM) fetchAllExecEventsBySelector(ctx context.Context, from, to uint64) ([]*offramp.OffRampExecutionStateChanged, error) {
-	l := m.logger
-	offRamp, ok := m.offRampBySelector[from]
-	if !ok {
-		return nil, fmt.Errorf("no off ramp for selector %d", from)
+	if from != m.chain.ChainSelector() {
+		return nil, fmt.Errorf("chain %d not found in environment chains %v", from, m.chain.ChainSelector())
 	}
-	filter, err := offRamp.FilterExecutionStateChanged(&bind.FilterOpts{
+
+	l := m.logger
+	filter, err := m.offRamp.FilterExecutionStateChanged(&bind.FilterOpts{
 		Context: ctx,
 	}, []uint64{to}, nil, nil)
 	if err != nil {
@@ -420,24 +415,24 @@ func (m *CCIP17EVM) fetchAllExecEventsBySelector(ctx context.Context, from, to u
 }
 
 func (m *CCIP17EVM) GetExpectedNextSequenceNumber(ctx context.Context, from, to uint64) (uint64, error) {
-	p, ok := m.onRampBySelector[from]
-	if !ok {
-		return 0, fmt.Errorf("failed to assert onRamp by selector")
+	if from != m.chain.ChainSelector() {
+		return 0, fmt.Errorf("chain %d not found in environment chains %v", from, m.chain.ChainSelector())
 	}
-	return p.GetExpectedNextSequenceNumber(&bind.CallOpts{Context: ctx}, to)
+
+	return m.onRamp.GetExpectedNextSequenceNumber(&bind.CallOpts{Context: ctx}, to)
 }
 
 // WaitOneSentEventBySeqNo wait and fetch strictly one CCIPMessageSent event by selector and sequence number and selector.
 func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (cciptestinterfaces.MessageSentEvent, error) {
+	if from != m.chain.ChainSelector() {
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("chain %d not found in environment chains %v", from, m.chain.ChainSelector())
+	}
+
 	l := m.logger
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
-	onRamp, ok := m.onRampBySelector[from]
-	if !ok {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("no onRamp for selector %d", from)
-	}
 
 	l.Info().Uint64("from", from).Uint64("to", to).Msg("Awaiting CCIPMessageSent event")
 
@@ -446,9 +441,9 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq u
 		case <-ctx.Done():
 			return cciptestinterfaces.MessageSentEvent{}, ctx.Err()
 		case <-ticker.C:
-			filter, err := onRamp.FilterCCIPMessageSent(&bind.FilterOpts{}, []uint64{to}, []uint64{seq}, nil)
+			filter, err := m.onRamp.FilterCCIPMessageSent(&bind.FilterOpts{}, []uint64{to}, []uint64{seq}, nil)
 			if err != nil {
-				l.Warn().Err(err).Str("onramp", onRamp.Address().Hex()).Msg("Failed to create filter")
+				l.Warn().Err(err).Str("onramp", m.onRamp.Address().Hex()).Msg("Failed to create filter")
 				continue
 			}
 			var eventFound *onramp.OnRampCCIPMessageSent
@@ -498,17 +493,16 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq u
 
 // WaitOneExecEventBySeqNo wait and fetch strictly one ExecutionStateChanged event by sequence number and selector.
 func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
+	if to != m.chain.ChainSelector() {
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("chain %d not found in environment chains %v", from, m.chain.ChainSelector())
+	}
+
 	l := m.logger
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
-
-	offRamp, ok := m.offRampBySelector[to]
-	if !ok {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("no off ramp for selector %d", to)
-	}
 
 	l.Info().Msg("Awaiting ExecutionStateChanged event")
 
@@ -517,7 +511,7 @@ func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq u
 		case <-ctx.Done():
 			return cciptestinterfaces.ExecutionStateChangedEvent{}, ctx.Err()
 		case <-ticker.C:
-			filter, err := offRamp.FilterExecutionStateChanged(&bind.FilterOpts{}, []uint64{from}, []uint64{seq}, nil)
+			filter, err := m.offRamp.FilterExecutionStateChanged(&bind.FilterOpts{}, []uint64{from}, []uint64{seq}, nil)
 			if err != nil {
 				l.Warn().Err(err).Msg("Failed to create filter")
 				continue
@@ -565,9 +559,8 @@ func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq u
 }
 
 func (m *CCIP17EVM) GetEOAReceiverAddress(chainSelector uint64) (protocol.UnknownAddress, error) {
-	_, ok := m.e.BlockChains.EVMChains()[chainSelector]
-	if !ok {
-		return protocol.UnknownAddress{}, fmt.Errorf("chain %d not found in environment chains %v", chainSelector, m.e.BlockChains.EVMChains())
+	if m.chain.ChainSelector() != chainSelector {
+		return nil, fmt.Errorf("chain %d not found in environment chains %v", chainSelector, m.chain.ChainSelector())
 	}
 
 	// returns the same address for each chain for now - we might need to extend this in the future if we'd ever
@@ -576,26 +569,20 @@ func (m *CCIP17EVM) GetEOAReceiverAddress(chainSelector uint64) (protocol.Unknow
 }
 
 func (m *CCIP17EVM) GetSenderAddress(chainSelector uint64) (protocol.UnknownAddress, error) {
-	chains := m.e.BlockChains.EVMChains()
-	if chains == nil {
-		return protocol.UnknownAddress{}, errors.New("no EVM chains found")
-	}
-
-	chain, ok := chains[chainSelector]
-	if !ok {
-		return protocol.UnknownAddress{}, fmt.Errorf("chain %d not found in environment chains %v", chainSelector, chains)
+	if m.chain.ChainSelector() != chainSelector {
+		return nil, fmt.Errorf("chain %d not found in environment chains %v", chainSelector, m.chain.ChainSelector())
 	}
 
 	// Return the chain deployer key address
-	return protocol.UnknownAddress(chain.DeployerKey.From.Bytes()), nil
+	return protocol.UnknownAddress(m.chain.DeployerKey.From.Bytes()), nil
 }
 
 func (m *CCIP17EVM) GetTokenBalance(ctx context.Context, chainSelector uint64, address, tokenAddress protocol.UnknownAddress) (*big.Int, error) {
-	chain, ok := m.e.BlockChains.EVMChains()[chainSelector]
-	if !ok {
-		return nil, fmt.Errorf("chain %d not found in environment chains %v", chainSelector, m.e.BlockChains.EVMChains())
+	if m.chain.ChainSelector() != chainSelector {
+		return nil, fmt.Errorf("chain %d not found in environment chains %v", chainSelector, m.chain.ChainSelector())
 	}
-	tkn, err := erc20.NewERC20(common.HexToAddress(tokenAddress.String()), chain.Client)
+
+	tkn, err := erc20.NewERC20(common.HexToAddress(tokenAddress.String()), m.chain.Client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create erc20 wrapper: %w", err)
 	}
@@ -665,11 +652,11 @@ func (m *CCIP17EVM) haveEnoughTransferTokens(ctx context.Context, chain evm.Chai
 }
 
 func (m *CCIP17EVM) haveEnoughFeeTokens(ctx context.Context, chain evm.Chain, auth *bind.TransactOpts, routerAddress, feeToken common.Address, amount *big.Int) (hasEnough bool, msgValue *big.Int, err error) {
-	wrappedNativeRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(chain.Selector, datastore.ContractType(weth.ContractType), semver.MustParse(weth.Deploy.Version()), ""))
+	wrappedNativeRef, err := m.ds.Addresses().Get(datastore.NewAddressRefKey(chain.Selector, datastore.ContractType(weth.ContractType), semver.MustParse(weth.Deploy.Version()), ""))
 	if err != nil {
 		return false, nil, fmt.Errorf("failed to get wrapped native address: %w", err)
 	}
-	linkRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(chain.Selector, datastore.ContractType(link.ContractType), semver.MustParse(link.Deploy.Version()), ""))
+	linkRef, err := m.ds.Addresses().Get(datastore.NewAddressRefKey(chain.Selector, datastore.ContractType(link.ContractType), semver.MustParse(link.Deploy.Version()), ""))
 	if err != nil {
 		return false, nil, fmt.Errorf("failed to get link address: %w", err)
 	}
@@ -701,22 +688,17 @@ func (m *CCIP17EVM) haveEnoughFeeTokens(ctx context.Context, chain evm.Chain, au
 
 func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions) (cciptestinterfaces.MessageSentEvent, error) {
 	l := m.logger
-	chains := m.e.BlockChains.EVMChains()
-	if chains == nil {
-		return cciptestinterfaces.MessageSentEvent{}, errors.New("no EVM chains found")
+	if m.chain.ChainSelector() != src {
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("chain %d not found in environment chains %v", src, m.chain.ChainSelector())
 	}
-
-	srcChain, ok := chains[src]
-	if !ok {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("source chain %d not found in environment chains %v", src, chains)
-	}
+	srcChain := m.chain
 
 	destFamily, err := chainsel.GetSelectorFamily(dest)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to get destination family: %w", err)
 	}
 
-	routerRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(srcChain.Selector, datastore.ContractType(routeroperations.ContractType), semver.MustParse(routeroperations.Deploy.Version()), ""))
+	routerRef, err := m.ds.Addresses().Get(datastore.NewAddressRefKey(srcChain.Selector, datastore.ContractType(routeroperations.ContractType), semver.MustParse(routeroperations.Deploy.Version()), ""))
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to get router address: %w", err)
 	}
@@ -729,7 +711,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 
 	bundle := operations.NewBundle(
 		func() context.Context { return context.Background() },
-		m.e.Logger,
+		m.e.Logger, // logger incompatibility??
 		operations.NewMemoryReporter(),
 	)
 
@@ -810,7 +792,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 	for _, log := range receipt.Logs {
 		if log.Topics[0] == ccipMessageSentTopic {
 			var err error
-			messageSentEvent, err = m.onRampBySelector[src].ParseCCIPMessageSent(*log)
+			messageSentEvent, err = m.onRamp.ParseCCIPMessageSent(*log)
 			if err != nil {
 				// Don't fail the entire test just because of this but do log a warning.
 				l.Warn().Err(err).Msg("Failed to parse CCIPMessageSent event")
@@ -819,7 +801,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cc
 			break
 		}
 	}
-	dcc, err := m.onRampBySelector[src].GetDestChainConfig(&bind.CallOpts{
+	dcc, err := m.onRamp.GetDestChainConfig(&bind.CallOpts{
 		Context: ctx,
 	}, dest)
 	if err != nil {
@@ -981,8 +963,8 @@ func serializeExtraArgsSVMV1(_ cciptestinterfaces.MessageOptions) []byte {
 func (m *CCIP17EVM) ExposeMetrics(
 	ctx context.Context,
 	source, dest uint64,
-	chainIDs []string,
-	wsURLs []string,
+	chainID string,
+	wsURL string,
 ) ([]string, *prometheus.Registry, error) {
 	msgSentTotal.Reset()
 	msgExecTotal.Reset()
@@ -993,11 +975,12 @@ func (m *CCIP17EVM) ExposeMetrics(
 
 	lp := NewLokiPusher()
 	tp := NewTempoPusher()
-	c, err := NewCCIP17EVM(ctx, m.logger, m.e, chainIDs, wsURLs)
+	// TODO: Do not make a copy, this is the only reason "e" is included in the object.
+	c, err := NewCCIP17EVM(ctx, m.logger, m.e, chainID, wsURL)
 	if err != nil {
 		return nil, nil, err
 	}
-	err = ProcessLaneEvents(ctx, c, lp, tp, &LaneStreamConfig{
+	err = ProcessLaneEvents(ctx, m, lp, tp, &LaneStreamConfig{
 		FromSelector:      source,
 		ToSelector:        dest,
 		AggregatorAddress: "localhost:50051",
@@ -1326,11 +1309,15 @@ func (m *CCIP17EVM) deployTokenAndPool(
 }
 
 func (m *CCIP17EVM) GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error) {
-	feeQuoterRef, err := m.e.DataStore.Addresses().Get(datastore.NewAddressRefKey(remoteChainSelector, datastore.ContractType(fee_quoter.ContractType), semver.MustParse(fee_quoter.Deploy.Version()), ""))
+	if remoteChainSelector != m.chain.ChainSelector() {
+		return 0, fmt.Errorf("chain %d not found in environment chains %v", remoteChainSelector, m.chain.ChainSelector())
+	}
+
+	feeQuoterRef, err := m.ds.Addresses().Get(datastore.NewAddressRefKey(remoteChainSelector, datastore.ContractType(fee_quoter.ContractType), semver.MustParse(fee_quoter.Deploy.Version()), ""))
 	if err != nil {
 		return 0, fmt.Errorf("failed to get fee quoter address: %w", err)
 	}
-	feeQuoter, err := feequoterwrapper.NewFeeQuoter(common.HexToAddress(feeQuoterRef.Address), m.ethClients[remoteChainSelector])
+	feeQuoter, err := feequoterwrapper.NewFeeQuoter(common.HexToAddress(feeQuoterRef.Address), m.ethClient)
 	if err != nil {
 		return 0, fmt.Errorf("failed to new fee quoter contract: %w", err)
 	}
@@ -1422,6 +1409,10 @@ func toComitteeVerifier(selector uint64, committees []cciptestinterfaces.OnChain
 
 // TODO: How to generate all the default/secondary/tertiary things from the committee param?
 func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, committees []cciptestinterfaces.OnChainCommittees) error {
+	if selector != m.chain.ChainSelector() {
+		return fmt.Errorf("chain %d not found in environment chains %v", selector, m.chain.ChainSelector())
+	}
+
 	l := m.logger
 	l.Info().Uint64("FromSelector", selector).Any("ToSelectors", remoteSelectors).Msg("Connecting contracts with selectors")
 	bundle := operations.NewBundle(
@@ -1682,16 +1673,17 @@ func (m *CCIP17EVM) ManuallyExecuteMessage(
 	verifierResults [][]byte,
 ) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
 	destChainSelector := uint64(message.DestChainSelector)
-	offRamp, ok := m.offRampBySelector[destChainSelector]
-	if !ok {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("no off ramp for selector %d", destChainSelector)
+	if destChainSelector != m.chain.ChainSelector() {
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("chain %d not found in environment chains %v", destChainSelector, m.chain.ChainSelector())
 	}
+
+	offRamp := m.offRamp
 	privateKeyString := getNetworkPrivateKey()
 	privKey, err := crypto.HexToECDSA(privateKeyString)
 	if err != nil {
 		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to parse private key: %w", err)
 	}
-	chainID, err := m.ethClients[destChainSelector].ChainID(ctx)
+	chainID, err := m.ethClient.ChainID(ctx)
 	if err != nil {
 		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to get chain ID: %w", err)
 	}
@@ -1732,7 +1724,7 @@ func (m *CCIP17EVM) ManuallyExecuteMessage(
 		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to execute off ramp: %w", err)
 	}
 
-	receipt, err := bind.WaitMined(ctx, m.ethClients[destChainSelector], tx.Hash())
+	receipt, err := bind.WaitMined(ctx, m.ethClient, tx.Hash())
 	if err != nil {
 		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to wait for execution transaction to be mined: %w", err)
 	}
