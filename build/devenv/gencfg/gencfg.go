@@ -1,4 +1,4 @@
-package ccv
+package gencfg
 
 import (
 	"context"
@@ -11,16 +11,16 @@ import (
 	"time"
 
 	"github.com/google/go-github/v68/github"
-	"golang.org/x/oauth2"
-	"gopkg.in/yaml.v2"
-
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	executor_operations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/offramp"
 	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
+	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	"golang.org/x/oauth2"
+	"gopkg.in/yaml.v2"
 )
 
 type Environments struct {
@@ -68,7 +68,7 @@ func GenerateConfigs(env string, createPR bool) (string, error) {
 		return "", fmt.Errorf("environment %s is not supported", env)
 	}
 
-	Plog.Info().
+	ccv.Plog.Info().
 		Str("env", env).
 		Bool("pr", createPR).
 		Msg("Generating configs")
@@ -143,7 +143,7 @@ func GenerateConfigs(env string, createPR bool) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to create temporary directory: %w", err)
 	}
-	Plog.Info().Str("temp-dir", tempDir).Msg("Created temporary directory for configs")
+	ccv.Plog.Info().Str("temp-dir", tempDir).Msg("Created temporary directory for configs")
 
 	// Verifier inputs
 	verifierInputs := make([]*services.VerifierInput, 0, len(verifierPubKeys))
@@ -166,12 +166,12 @@ func GenerateConfigs(env string, createPR bool) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("failed to generate verifier job spec: %w", err)
 		}
-		Plog.Info().Msg("Generated verifier job spec, writing to temporary directory as a separate file")
+		ccv.Plog.Info().Msg("Generated verifier job spec, writing to temporary directory as a separate file")
 		filePath := filepath.Join(tempDir, fmt.Sprintf("verifier-%s-job-spec.toml", verifierInput.ContainerName))
 		if err := os.WriteFile(filePath, []byte(verifierJobSpec), 0o644); err != nil {
 			return "", fmt.Errorf("failed to write verifier job spec to file: %w", err)
 		}
-		Plog.Info().Str("file-path", filePath).Msg("Wrote verifier job spec to file")
+		ccv.Plog.Info().Str("file-path", filePath).Msg("Wrote verifier job spec to file")
 	}
 
 	// Executor inputs
@@ -196,12 +196,12 @@ func GenerateConfigs(env string, createPR bool) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("failed to generate executor job spec: %w", err)
 		}
-		Plog.Info().Msg("Generated executor job spec, writing to temporary directory as a separate file")
+		ccv.Plog.Info().Msg("Generated executor job spec, writing to temporary directory as a separate file")
 		filePath := filepath.Join(tempDir, fmt.Sprintf("executor-%s-job-spec.toml", executorInput.ExecutorID))
 		if err := os.WriteFile(filePath, []byte(executorJobSpec), 0o644); err != nil {
 			return "", fmt.Errorf("failed to write executor job spec to file: %w", err)
 		}
-		Plog.Info().Str("file-path", filePath).Msg("Wrote executor job spec to file")
+		ccv.Plog.Info().Str("file-path", filePath).Msg("Wrote executor job spec to file")
 	}
 
 	// Aggregator config
@@ -215,12 +215,12 @@ func GenerateConfigs(env string, createPR bool) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to generate aggregator config: %w", err)
 	}
-	Plog.Info().Msg("Generated aggregator config:")
+	ccv.Plog.Info().Msg("Generated aggregator config:")
 	filePath := filepath.Join(tempDir, "aggregator-config.toml")
 	if err := os.WriteFile(filePath, aggregatorConfig, 0o644); err != nil {
 		return "", fmt.Errorf("failed to write aggregator config to file: %w", err)
 	}
-	Plog.Info().Str("file-path", filePath).Msg("Wrote aggregator config to file")
+	ccv.Plog.Info().Str("file-path", filePath).Msg("Wrote aggregator config to file")
 
 	if createPR {
 		// Create a new branch, add the aggregator config file and open a PR
@@ -299,7 +299,7 @@ func GenerateConfigs(env string, createPR bool) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("failed to create pull request: %w", err)
 		}
-		Plog.Info().Str("pr-url", pr.GetHTMLURL()).Msg("Created PR with aggregator config")
+		ccv.Plog.Info().Str("pr-url", pr.GetHTMLURL()).Msg("Created PR with aggregator config")
 	}
 
 	return tempDir, nil

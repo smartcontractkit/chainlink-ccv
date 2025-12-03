@@ -23,6 +23,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/gencfg"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -458,7 +459,7 @@ var generateConfigsCmd = &cobra.Command{
 			return err
 		}
 
-		_, err = ccv.GenerateConfigs(env, createPR)
+		_, err = gencfg.GenerateConfigs(env, createPR)
 		if err != nil {
 			return fmt.Errorf("failed to generate configs: %w", err)
 		}
