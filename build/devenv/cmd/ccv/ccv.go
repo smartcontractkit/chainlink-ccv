@@ -830,7 +830,9 @@ func init() {
 	generateConfigsCmd.Flags().Int("num-executors", 1, "Number of executor jobspecs to generate")
 	generateConfigsCmd.Flags().Bool("create-pr", false, "Create a pull request with the generated configs")
 
-	_ = generateConfigsCmd.MarkFlagRequired("env")
+	_ = generateConfigsCmd.MarkFlagRequired("cld-domain")
+	_ = generateConfigsCmd.MarkFlagRequired("verifier-pubkeys")
+	_ = generateConfigsCmd.MarkFlagRequired("num-executors")
 }
 
 func checkDockerIsRunning() {
