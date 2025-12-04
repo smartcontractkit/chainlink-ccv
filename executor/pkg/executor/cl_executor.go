@@ -346,6 +346,7 @@ func (cle *ChainlinkExecutor) GetMessageStatus(ctx context.Context, message prot
 // IN_PROGRESS: Message reentrancy protection, should not be retried, should not be executed.
 // SUCCESS: Message was executed successfully, don't retry and don't execute.
 // FAILURE: Message failed to execute due to invalid verifier, don't retry and don't execute.
+// VERIFICATION_FAILED: Onchain verification failed, due to dishonest verifier result, reattempt.
 func (cle *ChainlinkExecutor) GetExecutionState(ctx context.Context, message protocol.Message, id protocol.Bytes32) (ret executor.MessageStatusResults, err error) {
 	// Check if the message is already executed to not waste gas and time.
 	destinationChain := message.DestChainSelector
@@ -359,8 +360,8 @@ func (cle *ChainlinkExecutor) GetExecutionState(ctx context.Context, message pro
 		return executor.MessageStatusResults{ShouldRetry: true, ShouldExecute: false}, fmt.Errorf("failed to check GetMessageExecutionState: %w", err)
 	}
 	switch executionState {
-	// We only retry and execute if the message is UNTOUCHED.
-	case executor.UNTOUCHED:
+	// We only retry and execute if the message is UNTOUCHED or VERIFICATION_FAILED.
+	case executor.UNTOUCHED, executor.VERIFICATION_FAILED:
 		ret.ShouldRetry = true
 		ret.ShouldExecute = true
 		err = nil
