@@ -199,43 +199,6 @@ func (cle *ChainlinkExecutor) getVerifierResultsAndQuorum(ctx context.Context, m
 	return ccvData, ccvInfo, nil
 }
 
-// // AttemptExecuteMessage will try to get all supplementary information for a message required for execution, then attempt the execution.
-// // If not all supplementary information is available (ie not enough verifierResults) it will return an error and the message will not be attempted.
-// func (cle *ChainlinkExecutor) AttemptExecuteMessage(ctx context.Context, message protocol.Message) error {
-// 	destinationChain, sourceSelector := message.DestChainSelector, message.SourceChainSelector
-// 	messageID, err := message.MessageID()
-// 	if err != nil {
-// 		return fmt.Errorf("failed to get message ID: %w", err)
-// 	}
-
-// 	orderedCCVData, orderedCCVOfframps, latestCCVTimestamp, err := orderCCVData(ccvData, ccvInfo)
-// 	if err != nil {
-// 		return fmt.Errorf("failed to order CCV Offramp data for message %s: %w", messageID.String(), err)
-// 	}
-
-// 	// Create the aggregated report and transmit it to the chain.
-// 	aggregatedReport := executor.AbstractAggregatedReport{
-// 		CCVS:    orderedCCVOfframps,
-// 		CCVData: orderedCCVData,
-// 		Message: message,
-// 	}
-// 	cle.lggr.Infow("transmitting aggregated report to chain",
-// 		"messageID", messageID,
-// 		"destinationChain", destinationChain,
-// 		"latestCCVTimestamp", latestCCVTimestamp,
-// 		"aggregatedReport", aggregatedReport,
-// 	)
-// 	err = cle.contractTransmitters[destinationChain].ConvertAndWriteMessageToChain(ctx, aggregatedReport)
-// 	if err != nil {
-// 		return fmt.Errorf("failed to transmit message %s to chain %d: %w", messageID.String(), destinationChain, err)
-// 	}
-
-// 	// Record the message execution latency.
-// 	cle.monitoring.Metrics().RecordMessageExecutionLatency(ctx, time.Since(time.Unix(latestCCVTimestamp, 0)))
-
-// 	return nil
-// }
-
 func ccvDataDestVerifiers(ccvDatas []protocol.VerifierResult) []string {
 	destVerifiersSet := make(map[string]struct{})
 	for _, ccvData := range ccvDatas {
@@ -400,62 +363,3 @@ func (cle *ChainlinkExecutor) Validate() error {
 	}
 	return nil
 }
-
-// // GetMessageStatus checks if a message should be executed and/or retried.
-// // Returns (shouldRetry bool, shouldExecute bool, error) to indicate whether the message should be retried (added back to heap) and executed.
-// func (cle *ChainlinkExecutor) GetMessageStatus(ctx context.Context, message protocol.Message) (executor.MessageStatusResults, error) {
-// 	messageID, err := message.MessageID()
-// 	if err != nil {
-// 		return executor.MessageStatusResults{}, fmt.Errorf("failed to get message ID: %w", err)
-// 	}
-// 	cursed := cle.curseChecker.IsRemoteChainCursed(ctx, message.DestChainSelector, message.SourceChainSelector)
-// 	if cursed {
-// 		cle.lggr.Infow("skipping execution for message due to curse", "messageID", messageID, "cursed", cursed)
-// 		return executor.MessageStatusResults{ShouldRetry: true, ShouldExecute: false}, nil
-// 	}
-// 	return cle.GetExecutionState(ctx, message, messageID)
-// }
-
-// // GetExecutionState checks the onchain execution state of a message and returns if it should be retried and executed.
-// // It does not do any checks to determine if verifications are available or not.
-// // Note these states might not be applicable for nonevm integrations. Should we add a translation layer or move them to destination reader?
-// // UNTOUCHED: Message should be executed and retried later to confirm successful execution
-// // IN_PROGRESS: Message reentrancy protection, should not be retried, should not be executed.
-// // SUCCESS: Message was executed successfully, don't retry and don't execute.
-// // FAILURE: Message failed to execute due to invalid verifier, don't retry and don't execute.
-// func (cle *ChainlinkExecutor) GetExecutionState(ctx context.Context, message protocol.Message, id protocol.Bytes32) (ret executor.MessageStatusResults, err error) {
-// 	// Check if the message is already executed to not waste gas and time.
-// 	destinationChain := message.DestChainSelector
-
-// 	executionState, err := cle.destinationReaders[destinationChain].GetMessageExecutability(
-// 		ctx,
-// 		message,
-// 	)
-// 	if err != nil {
-// 		// If we can't get execution state, don't execute, but put back in heap to retry later.
-// 		return executor.MessageStatusResults{ShouldRetry: true, ShouldExecute: false}, fmt.Errorf("failed to check GetMessageExecutionState: %w", err)
-// 	}
-// 	switch executionState {
-// 	// We only retry and execute if the message is UNTOUCHED.
-// 	case executor.UNTOUCHED:
-// 		ret.ShouldRetry = true
-// 		ret.ShouldExecute = true
-// 		err = nil
-
-// 	// All other states should not be retried and should not be executed.
-// 	// this is for SUCCESS, IN_PROGRESS, and FAILURE.
-// 	default:
-// 		ret.ShouldRetry = false
-// 		ret.ShouldExecute = false
-// 		err = nil
-// 	}
-
-// 	cle.lggr.Infow("message status",
-// 		"messageID", id,
-// 		"executionState", executionState,
-// 		"shouldRetry", ret.ShouldRetry,
-// 		"shouldExecute", ret.ShouldExecute,
-// 	)
-
-// 	return ret, err
-// }
