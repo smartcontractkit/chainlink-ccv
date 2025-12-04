@@ -18,6 +18,9 @@ type Config struct {
 	SignerAddress string `toml:"signer_address"`
 
 	PyroscopeURL string `toml:"pyroscope_url"`
+	// ChainStatusDBPath is the path to the SQLite database for persisting chain status.
+	// If empty, chain status will default to "chain_status.db"
+	ChainStatusDBPath string `toml:"chain_status_db_path"`
 	// CommitteeVerifierAddresses is a map the addresses of the committee verifiers for each chain selector.
 	CommitteeVerifierAddresses map[string]string `toml:"committee_verifier_addresses"`
 	// OnRampAddresses is a map the addresses of the on ramps for each chain selector.

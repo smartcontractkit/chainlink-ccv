@@ -196,7 +196,7 @@ func (vc *Coordinator) Start(_ context.Context) error {
 				"status", statusMap[chainSelector])
 
 			// Skip disabled chains
-			if chainStatus := statusMap[chainSelector]; chainStatus != nil && chainStatus.Disabled {
+			if chainStatus, ok := statusMap[chainSelector]; ok && chainStatus.Disabled {
 				vc.lggr.Warnw("Chain is disabled in aggregator DB, skipping initialization",
 					"chain", chainSelector,
 					"blockHeight", chainStatus.FinalizedBlockHeight)
