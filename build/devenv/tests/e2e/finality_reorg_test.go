@@ -244,5 +244,4 @@ func TestE2EReorg(t *testing.T) {
 		l.Info().
 			Msg("✨ Test completed: Finality violation detected and system stopped processing new messages")
 	})
-
 }
