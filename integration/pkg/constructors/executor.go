@@ -26,6 +26,13 @@ import (
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 )
 
+var (
+	indexerPollingInterval = 1 * time.Second
+	// indexerGarbagecollectionInterval describes how frequently we garbage collect message duplicates from the indexer results
+	// if this is too short, we will assume a message is net new every time it is read from the indexer.
+	indexerGarbageCollectionInterval = 24 * time.Hour
+)
+
 // NewExecutorCoordinator initializes the executor coordinator object.
 func NewExecutorCoordinator(
 	lggr logger.Logger,
@@ -142,18 +149,19 @@ func NewExecutorCoordinator(
 		cfg.ExecutorID,
 		execIntervals,
 	)
+	backoffProvider := timeprovider.NewBackoffNTPProvider(lggr, cfg.BackoffDuration, cfg.NtpServer)
 
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
 		lggr,
 		ccvstreamer.IndexerStorageConfig{
-			IndexerClient:   indexerClient,
-			LastQueryTime:   time.Now().Add(-1 * cfg.LookbackWindow).UnixMilli(),
-			PollingInterval: 1 * time.Second,
-			Backoff:         cfg.BackoffDuration,
-			QueryLimit:      cfg.IndexerQueryLimit,
+			IndexerClient:    indexerClient,
+			InitialQueryTime: time.Now().Add(-1 * cfg.LookbackWindow),
+			PollingInterval:  indexerPollingInterval,
+			Backoff:          cfg.BackoffDuration,
+			QueryLimit:       cfg.IndexerQueryLimit,
+			CleanInterval:    indexerGarbageCollectionInterval,
+			TimeProvider:     backoffProvider,
 		})
-
-	backoffProvider := timeprovider.NewBackoffNTPProvider(lggr, cfg.BackoffDuration, cfg.NtpServer)
 
 	exec, err := executor.NewCoordinator(
 		logger.With(lggr, "component", "Coordinator"),
