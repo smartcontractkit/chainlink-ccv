@@ -43,11 +43,9 @@ type VerifierResultReader interface {
 // Executor is responsible for executing validating messages.
 type Executor interface {
 	// AttemptExecuteMessage gets any supplementary data and tries to execute the message
-	AttemptExecuteMessage(ctx context.Context, message protocol.Message) error
+	HandleMessage(ctx context.Context, message protocol.Message) (shouldRetry bool, err error)
 	// CheckValidMessage checks that message is valid
 	CheckValidMessage(ctx context.Context, message protocol.Message) error
-	// GetMessageStatus checks if the message is expired, cursed, and if it should be retried and executed.
-	GetMessageStatus(ctx context.Context, message protocol.Message) (MessageStatusResults, error)
 }
 
 // ContractTransmitter is an interface for transmitting messages to destination chains
@@ -73,7 +71,8 @@ type DestinationReader interface {
 	// GetCCVSForMessage return cross-chain verifications for selected message
 	GetCCVSForMessage(ctx context.Context, message protocol.Message) (CCVAddressInfo, error)
 	// GetMessageExecutionState returns true if message is executed
-	GetMessageExecutionState(ctx context.Context, message protocol.Message) (MessageExecutionState, error)
+	// GetMessageExecutionState(ctx context.Context, message protocol.Message) (MessageExecutionState, error)
+	GetMessageExecutability(ctx context.Context, message protocol.Message) (bool, error)
 	// GetRMNCursedSubjects returns the full list of cursed subjects for the chain. These can be Bytes16 ChainSelectors or the GlobalCurseSubject.
 	GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error)
 }
