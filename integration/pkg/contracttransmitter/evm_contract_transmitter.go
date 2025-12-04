@@ -118,9 +118,7 @@ func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Cont
 		return err
 	}
 
-	messageID, _ := report.Message.MessageID()
-
-	ct.lggr.Infow("submitted tx to chain", "txHash", tx.Hash().Hex(), "messageID", messageID)
+	ct.lggr.Infow("submitted tx to chain", "messageID", report.Message.MustMessageID(), "txHash", tx.Hash().Hex())
 
 	return nil
 }

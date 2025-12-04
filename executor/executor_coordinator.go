@@ -23,7 +23,7 @@ type Coordinator struct {
 	leaderElector      LeaderElector
 	lggr               logger.Logger
 	monitoring         Monitoring
-	processingCh       chan message_heap.MessageWithTimestamps
+	workerPoolTasks    chan message_heap.MessageWithTimestamps
 	cancel             context.CancelFunc
 	delayedMessageHeap message_heap.MessageHeap
 	running            atomic.Bool
@@ -49,7 +49,7 @@ func NewCoordinator(
 		messageSubscriber: messageSubscriber,
 		leaderElector:     leaderElector,
 		monitoring:        monitoring,
-		processingCh:      make(chan message_heap.MessageWithTimestamps),
+		workerPoolTasks:   make(chan message_heap.MessageWithTimestamps),
 		// cancel and delayedMessageHeap are initialized in Start()
 		// running, wg, and services.StateMachine default initialization is fine.
 		expiryDuration: expiryDuration,
@@ -99,7 +99,7 @@ func (ec *Coordinator) Close() error {
 		ec.wg.Wait()
 
 		// Close all channels
-		close(ec.processingCh)
+		close(ec.workerPoolTasks)
 
 		// Update running state to reflect in healthcheck and readiness.
 		ec.running.Store(false)
@@ -196,7 +196,7 @@ func (ec *Coordinator) runProcessingLoop(ctx context.Context) {
 			)
 			for _, payload := range readyMessages {
 				// If the channel is full, we will block here, but messages will continue to be accumulate in the heap.
-				ec.processingCh <- payload
+				ec.workerPoolTasks <- payload
 			}
 		}
 	}
@@ -207,7 +207,7 @@ func (ec *Coordinator) handleMessage(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case payload, ok := <-ec.processingCh:
+		case payload, ok := <-ec.workerPoolTasks:
 			if !ok {
 				return
 			}
@@ -220,12 +220,9 @@ func (ec *Coordinator) handleMessage(ctx context.Context) {
 			message, id := *payload.Message, payload.MessageID
 
 			ec.lggr.Infow("processing message with ID", "messageID", id)
-			messageStatus, err := ec.executor.GetMessageStatus(ctx, message)
-			if err != nil {
-				ec.lggr.Errorw("failed to check message status", "messageID", id, "error", err)
-			}
 
-			if messageStatus.ShouldRetry {
+			shouldRetry, err := ec.executor.HandleMessage(ctx, message)
+			if shouldRetry {
 				// todo: add exponential backoff here
 				retryTime := currentTime.Add(payload.RetryInterval)
 				ec.lggr.Infow("message should be retried, putting back in heap", "messageID", id)
@@ -237,18 +234,8 @@ func (ec *Coordinator) handleMessage(ctx context.Context) {
 					MessageID:     id,
 				})
 			}
-			if messageStatus.ShouldExecute {
-				ec.lggr.Infow("attempting to execute message", "messageID", id)
-				err = ec.executor.AttemptExecuteMessage(ctx, message)
-				if errors.Is(err, ErrInsufficientVerifiers) {
-					ec.lggr.Infow("not enough verifiers to execute message, will wait until next notification", "messageID", id, "error", err)
-					continue
-				} else if err != nil {
-					ec.lggr.Errorw("failed to process message", "messageID", id, "error", err)
-					ec.monitoring.Metrics().IncrementMessagesProcessingFailed(ctx)
-					continue
-				}
-				ec.monitoring.Metrics().IncrementMessagesProcessed(ctx)
+			if err != nil {
+				ec.lggr.Errorw("failed to handle message", "messageID", id, "error", err)
 			}
 		}
 	}
