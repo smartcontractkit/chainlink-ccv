@@ -23,54 +23,20 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-type Environments struct {
-	CLDDomain    string
-	OtelEndpoint string
-	K8sCluster   string
-	Verifiers    []string // This should be pulled from CLD once available
-}
-
-var environments = map[string]Environments{
-	"staging": {
-		CLDDomain:    "staging_testnet",
-		OtelEndpoint: "staging.telemetry.chain.link:443",
-		K8sCluster:   "stage",
-		Verifiers: []string{ // This should be pulled from CLD once available
-			"0x3ca2a3d2e659be3726c793618717dd9928800227",
-			"0x782fd01aac12263461b32babaa26ea89a67576a8",
-			"0x800473c950b955c89b977572cc3d54fe06c88832",
-			"0x054946cceb3f3d591866e8cbc54168056dbdb99f",
-			"0xa17931a04befebb3f55b5b579b59282dfea519c1",
-			"0xf2be41368e41ee478aa3551ff0edecfa9dedbb5c",
-			"0xc33a3dc4ea861cbf478fee1e093391f6b11986e0",
-			"0x957ef4110a62783df103ab8bbde7408bc7f628ce",
-			"0x58586b772b68048e002536d4b2e71d94025fe78c",
-			"0x4b6564f874ed2135798adadc534cf2b31d166242",
-			"0x28a6030e4c90b34355ca5eab7364b5191411e2ad",
-			"0xfaf4e699a32a96d4a8be5081e295bea75f2902a0",
-			"0x3ed15f47cdbcceff652340da85ebda06fe9d001d",
-			"0xb1ae0dfa9c62dd8988c16b8ecf7077e88c621cd3",
-			"0x4c6c84a34744f71502c104ccd0f05ac388f92756",
-			"0x2532eedf29881726891906eec8ba8b31df64f440",
-		},
-	},
-}
-
 func ocrThreshold(n int) uint8 {
 	f := (n - 1) / 3
 	return uint8(f + 1)
 }
 
-func GenerateConfigs(env string, createPR bool) (string, error) {
+func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors int, createPR bool) (string, error) {
 	// Validate environment
 	ctx := context.Background()
-	if _, ok := environments[env]; !ok {
-		return "", fmt.Errorf("environment %s is not supported", env)
-	}
 
 	ccv.Plog.Info().
-		Str("env", env).
-		Bool("pr", createPR).
+		Str("cldDomain", cldDomain).
+		Strs("verifierPubKeys", verifierPubKeys).
+		Int("numExecutors", numExecutors).
+		Bool("createPR", createPR).
 		Msg("Generating configs")
 
 	token := os.Getenv("GITHUB_TOKEN")
@@ -85,7 +51,7 @@ func GenerateConfigs(env string, createPR bool) (string, error) {
 	gh := github.NewClient(tc)
 
 	// Fetch address refs file from github
-	addressRefsGh, _, _, err := gh.Repositories.GetContents(ctx, "smartcontractkit", "chainlink-deployments", fmt.Sprintf("domains/ccv/%s/datastore/address_refs.json", environments[env].CLDDomain), &github.RepositoryContentGetOptions{})
+	addressRefsGh, _, _, err := gh.Repositories.GetContents(ctx, "smartcontractkit", "chainlink-deployments", fmt.Sprintf("domains/ccv/%s/datastore/address_refs.json", cldDomain), &github.RepositoryContentGetOptions{})
 	if err != nil {
 		return "", fmt.Errorf("failed to get address refs JSON from GitHub: %w", err)
 	}
@@ -96,15 +62,13 @@ func GenerateConfigs(env string, createPR bool) (string, error) {
 		return "", fmt.Errorf("failed to decode address refs JSON: %w", err)
 	}
 
-	// Fetch verifier pub keys from github ////////////////
-	verifierPubKeys := environments[env].Verifiers
-	numExecutors := len(verifierPubKeys)
-	monitoringOtelExporterHTTPEndpoint := environments[env].OtelEndpoint
-
 	const (
-		verifierIDPrefix = "default-verifier-"
-		executorIDPrefix = "default-executor-"
-		committeeName    = "default"
+		verifierIDPrefix                   = "default-verifier-"
+		executorIDPrefix                   = "default-executor-"
+		committeeName                      = "default"
+		monitoringOtelExporterHTTPEndpoint = "prod.telemetry.chain.link:443"
+		aggregatorAddress                  = "http://chainlink-ccv-aggregator:50051"
+		indexerAddress                     = "http://chainlink-ccv-indexer:8100"
 	)
 
 	var (
@@ -150,7 +114,7 @@ func GenerateConfigs(env string, createPR bool) (string, error) {
 	for i, pubKey := range verifierPubKeys {
 		verifierInputs = append(verifierInputs, &services.VerifierInput{
 			ContainerName:                      fmt.Sprintf("%s%d", verifierIDPrefix, i),
-			AggregatorAddress:                  "http://chainlink-ccv-aggregator:50051",
+			AggregatorAddress:                  aggregatorAddress,
 			SigningKeyPublic:                   pubKey,
 			CommitteeVerifierAddresses:         committeeVerifierAddresses,
 			OnRampAddresses:                    onRampAddresses,
@@ -185,7 +149,7 @@ func GenerateConfigs(env string, createPR bool) (string, error) {
 			ExecutorID:                         fmt.Sprintf("%s%d", executorIDPrefix, i),
 			ExecutorPool:                       executorPool,
 			OfframpAddresses:                   offRampAddresses,
-			IndexerAddress:                     "http://chainlink-ccv-indexer:8100",
+			IndexerAddress:                     indexerAddress,
 			ExecutorAddresses:                  defaultExecutorOnRampAddressesUint64,
 			RmnAddresses:                       rmnRemoteAddressesUint64,
 			MonitoringOtelExporterHTTPEndpoint: monitoringOtelExporterHTTPEndpoint,
@@ -264,7 +228,7 @@ func GenerateConfigs(env string, createPR bool) (string, error) {
 		// Marshal aggregator config into YAML under configMap.aggregator.\.toml
 		aggYaml := map[string]interface{}{
 			"main": map[string]interface{}{
-				environments[env].K8sCluster: map[string]interface{}{
+				"stage": map[string]interface{}{ // TBD: support other environments once available
 					"configMap": map[string]string{
 						"aggregator.toml": string(aggregatorConfig),
 					},
@@ -288,7 +252,7 @@ func GenerateConfigs(env string, createPR bool) (string, error) {
 
 		// Open a PR from the new branch into default
 		prTitle := "CCV config update"
-		prBody := fmt.Sprintf("CCV CLI auto-generated PR to update configuration from CLD for %s environment", env)
+		prBody := fmt.Sprintf("CCV CLI auto-generated PR to update configuration from CLD for %s environment", cldDomain)
 		newPR := &github.NewPullRequest{
 			Title: github.Ptr(prTitle),
 			Head:  github.Ptr(branchName),

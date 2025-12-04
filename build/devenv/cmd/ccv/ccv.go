@@ -450,7 +450,15 @@ var generateConfigsCmd = &cobra.Command{
 	Use:   "generate-configs",
 	Short: "Generate the verifier and executor jobspecs (CL deployment only), and the aggregator and indexer TOML configuration files for the environment. Requires gh tool to authenticate to CLD repo.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		env, err := cmd.Flags().GetString("env")
+		cldDomain, err := cmd.Flags().GetString("cld-domain")
+		if err != nil {
+			return err
+		}
+		verifierPubKeys, err := cmd.Flags().GetStringSlice("verifier-pubkeys")
+		if err != nil {
+			return err
+		}
+		numExecutors, err := cmd.Flags().GetInt("num-executors")
 		if err != nil {
 			return err
 		}
@@ -459,7 +467,7 @@ var generateConfigsCmd = &cobra.Command{
 			return err
 		}
 
-		_, err = gencfg.GenerateConfigs(env, createPR)
+		_, err = gencfg.GenerateConfigs(cldDomain, verifierPubKeys, numExecutors, createPR)
 		if err != nil {
 			return fmt.Errorf("failed to generate configs: %w", err)
 		}
@@ -817,7 +825,9 @@ func init() {
 
 	// config generation
 	rootCmd.AddCommand(generateConfigsCmd)
-	generateConfigsCmd.Flags().String("env", "", "CCV Environment to target for config generation. Current options: staging")
+	generateConfigsCmd.Flags().String("cld-domain", "", "CLD Domain to target for config generation. Current options: staging_testnet")
+	generateConfigsCmd.Flags().StringSlice("verifier-pubkeys", []string{}, "List of verifier public keys (hex encoded) to include in the generated configs")
+	generateConfigsCmd.Flags().Int("num-executors", 1, "Number of executor jobspecs to generate")
 	generateConfigsCmd.Flags().Bool("create-pr", false, "Create a pull request with the generated configs")
 
 	_ = generateConfigsCmd.MarkFlagRequired("env")
