@@ -315,6 +315,7 @@ func TestExpirableMessageSet_ExpiryBehavior(t *testing.T) {
 		t.Errorf("Expected set to be empty after expiring all, got Len=%d", es.Len())
 	}
 }
+
 func TestExpirableMessageSet_HasAndLen(t *testing.T) {
 	expiryDuration := 30 * time.Minute
 	es := NewExpirableSet(expiryDuration)

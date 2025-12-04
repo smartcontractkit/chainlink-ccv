@@ -39,6 +39,9 @@ const (
 	// indexerPollingInterval describes how frequently we ask indexer for new messages.
 	// This should be kept at 1s for consistent behavior across all executors.
 	indexerPollingInterval = 1 * time.Second
+	// indexerGarbagecollectionInterval describes how frequently we garbage collect message duplicates from the indexer results
+	// if this is too short, we will assume a message is net new every time it is read from the indexer.
+	indexerGarbageCollectionInterval = 24 * time.Hour
 )
 
 func main() {
@@ -240,7 +243,7 @@ func main() {
 			PollingInterval:  indexerPollingInterval,
 			Backoff:          executorConfig.BackoffDuration,
 			QueryLimit:       executorConfig.IndexerQueryLimit,
-			CleanInterval:    24 * time.Hour,
+			CleanInterval:    indexerGarbageCollectionInterval,
 			TimeProvider:     timeProvider,
 		})
 

@@ -26,6 +26,13 @@ import (
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 )
 
+var (
+	indexerPollingInterval = 1 * time.Second
+	// indexerGarbagecollectionInterval describes how frequently we garbage collect message duplicates from the indexer results
+	// if this is too short, we will assume a message is net new every time it is read from the indexer.
+	indexerGarbageCollectionInterval = 24 * time.Hour
+)
+
 // NewExecutorCoordinator initializes the executor coordinator object.
 func NewExecutorCoordinator(
 	lggr logger.Logger,
@@ -149,10 +156,10 @@ func NewExecutorCoordinator(
 		ccvstreamer.IndexerStorageConfig{
 			IndexerClient:    indexerClient,
 			InitialQueryTime: time.Now().Add(-1 * cfg.LookbackWindow),
-			PollingInterval:  1 * time.Second,
+			PollingInterval:  indexerPollingInterval,
 			Backoff:          cfg.BackoffDuration,
 			QueryLimit:       cfg.IndexerQueryLimit,
-			CleanInterval:    24 * time.Hour,
+			CleanInterval:    indexerGarbageCollectionInterval,
 			TimeProvider:     backoffProvider,
 		})
 
