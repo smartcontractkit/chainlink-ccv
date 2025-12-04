@@ -19,8 +19,6 @@ type pollerResult[T any] struct {
 	err   error
 }
 
-const maxCacheSize = 10000
-
 type eventPoller[T any] struct {
 	ethClient        *ethclient.Client
 	logger           zerolog.Logger
@@ -28,7 +26,6 @@ type eventPoller[T any] struct {
 	lastScannedBlock uint64
 	waiters          map[eventKey]chan pollerResult[T]
 	cachedEvents     map[eventKey]pollerResult[T]
-	cacheOrder       []eventKey
 	mu               sync.Mutex
 	running          bool
 	stopCh           chan struct{}
@@ -47,7 +44,6 @@ func newEventPoller[T any](
 		eventName:    eventName,
 		waiters:      make(map[eventKey]chan pollerResult[T]),
 		cachedEvents: make(map[eventKey]pollerResult[T]),
-		cacheOrder:   make([]eventKey, 0),
 		pollFn:       pollFn,
 	}
 }
@@ -165,12 +161,5 @@ func (p *eventPoller[T]) addToCache(key eventKey, result pollerResult[T]) {
 		return
 	}
 
-	if len(p.cacheOrder) >= maxCacheSize {
-		oldestKey := p.cacheOrder[0]
-		p.cacheOrder = p.cacheOrder[1:]
-		delete(p.cachedEvents, oldestKey)
-	}
-
 	p.cachedEvents[key] = result
-	p.cacheOrder = append(p.cacheOrder, key)
 }

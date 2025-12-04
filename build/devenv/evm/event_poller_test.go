@@ -26,7 +26,6 @@ func TestEventPollerCache(t *testing.T) {
 			State:          cciptestinterfaces.MessageExecutionState(1),
 		}
 		poller.cachedEvents[key] = pollerResult[cciptestinterfaces.ExecutionStateChangedEvent]{event: expectedEvent}
-		poller.cacheOrder = append(poller.cacheOrder, key)
 
 		ctx := context.Background()
 		resultCh := poller.register(ctx, 1, 100)
@@ -91,7 +90,6 @@ func TestEventPollerCache(t *testing.T) {
 			SequenceNumber: 100,
 		}
 		poller.cachedEvents[key] = pollerResult[cciptestinterfaces.ExecutionStateChangedEvent]{event: expectedEvent}
-		poller.cacheOrder = append(poller.cacheOrder, key)
 
 		ctx := context.Background()
 		resultCh1 := poller.register(ctx, 1, 100)
@@ -104,40 +102,6 @@ func TestEventPollerCache(t *testing.T) {
 		require.NoError(t, result2.err)
 		require.Equal(t, expectedEvent.MessageID, result1.event.MessageID)
 		require.Equal(t, expectedEvent.MessageID, result2.event.MessageID)
-	})
-
-	t.Run("cache evicts oldest entries when max size reached", func(t *testing.T) {
-		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.ExecutionStateChangedEvent, error) {
-			return nil, nil
-		}
-
-		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
-
-		for i := uint64(0); i < maxCacheSize; i++ {
-			key := eventKey{chainSelector: 1, seqNo: i}
-			poller.addToCache(key, pollerResult[cciptestinterfaces.ExecutionStateChangedEvent]{
-				event: cciptestinterfaces.ExecutionStateChangedEvent{SequenceNumber: i},
-			})
-		}
-
-		require.Len(t, poller.cachedEvents, maxCacheSize)
-		require.Len(t, poller.cacheOrder, maxCacheSize)
-
-		_, exists := poller.cachedEvents[eventKey{chainSelector: 1, seqNo: 0}]
-		require.True(t, exists, "first entry should still exist")
-
-		newKey := eventKey{chainSelector: 1, seqNo: maxCacheSize}
-		poller.addToCache(newKey, pollerResult[cciptestinterfaces.ExecutionStateChangedEvent]{
-			event: cciptestinterfaces.ExecutionStateChangedEvent{SequenceNumber: maxCacheSize},
-		})
-
-		require.Len(t, poller.cachedEvents, maxCacheSize, "cache size should remain at max")
-
-		_, exists = poller.cachedEvents[eventKey{chainSelector: 1, seqNo: 0}]
-		require.False(t, exists, "oldest entry should be evicted")
-
-		_, exists = poller.cachedEvents[newKey]
-		require.True(t, exists, "new entry should exist")
 	})
 }
 
@@ -155,7 +119,6 @@ func TestEventPollerMessageSent(t *testing.T) {
 			SequenceNumber: 100,
 		}
 		poller.cachedEvents[key] = pollerResult[cciptestinterfaces.MessageSentEvent]{event: expectedEvent}
-		poller.cacheOrder = append(poller.cacheOrder, key)
 
 		ctx := context.Background()
 		resultCh := poller.register(ctx, 1, 100)
