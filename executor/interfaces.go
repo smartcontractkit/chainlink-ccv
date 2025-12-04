@@ -42,7 +42,7 @@ type VerifierResultReader interface {
 
 // Executor is responsible for executing validating messages.
 type Executor interface {
-	// AttemptExecuteMessage gets any supplementary data and tries to execute the message
+	// HandleMessage gets any supplementary data and tries to execute the message
 	HandleMessage(ctx context.Context, message protocol.Message) (shouldRetry bool, err error)
 	// CheckValidMessage checks that message is valid
 	CheckValidMessage(ctx context.Context, message protocol.Message) error
