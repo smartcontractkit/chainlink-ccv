@@ -6,13 +6,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/message_heap"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 // Ensure IndexerStorageStreamer implements the MessageSubscriber interface.
-var _ executor.MessageSubscriber = &IndexerStorageStreamer{}
+var (
+	_             executor.MessageSubscriber = &IndexerStorageStreamer{}
+	pollingBuffer                            = -1 * time.Millisecond
+)
 
 type IndexerStorageConfig struct {
 	IndexerClient    executor.MessageReader
@@ -20,12 +25,16 @@ type IndexerStorageConfig struct {
 	PollingInterval  time.Duration
 	Backoff          time.Duration
 	QueryLimit       uint64
+	ExpiryDuration   time.Duration
+	CleanInterval    time.Duration
+	TimeProvider     common.TimeProvider
 }
 
 func NewIndexerStorageStreamer(
 	lggr logger.Logger,
 	indexerConfig IndexerStorageConfig,
 ) *IndexerStorageStreamer {
+	expirableSet := message_heap.NewExpirableSet(indexerConfig.ExpiryDuration)
 	return &IndexerStorageStreamer{
 		reader:          indexerConfig.IndexerClient,
 		lggr:            lggr,
@@ -33,6 +42,9 @@ func NewIndexerStorageStreamer(
 		lastQueryTime:   indexerConfig.InitialQueryTime,
 		pollingInterval: indexerConfig.PollingInterval,
 		backoff:         indexerConfig.Backoff,
+		expirableSet:    expirableSet,
+		cleanInterval:   indexerConfig.CleanInterval,
+		timeProvider:    indexerConfig.TimeProvider,
 	}
 }
 
@@ -45,7 +57,9 @@ type IndexerStorageStreamer struct {
 	queryLimit      uint64
 	mu              sync.RWMutex
 	running         bool
-	querymu         sync.RWMutex
+	expirableSet    *message_heap.ExpirableMessageSet
+	cleanInterval   time.Duration
+	timeProvider    common.TimeProvider
 }
 
 func (oss *IndexerStorageStreamer) IsRunning() bool {
@@ -75,34 +89,44 @@ func (oss *IndexerStorageStreamer) Start(
 			oss.running = false
 			oss.mu.Unlock()
 		}()
-		var waitDuration time.Duration
+		ticker := time.NewTicker(oss.cleanInterval)
+		defer ticker.Stop()
+		var nextQueryTime time.Time
 		for {
 			select {
 			case <-ctx.Done():
 				// Context canceled, stop loop.
 				return
+			case <-ticker.C:
+				oss.expirableSet.CleanExpired(oss.timeProvider.GetTime())
 			default:
+				if oss.timeProvider.GetTime().Before(nextQueryTime) {
+					continue
+				}
 				responses, err := oss.reader.ReadMessages(ctx, protocol.MessagesV1Request{
 					Limit:                oss.queryLimit,
-					Start:                oss.lastQueryTime,
+					Start:                oss.lastQueryTime.Add(pollingBuffer).UnixMilli(),
 					SourceChainSelectors: nil,
 					DestChainSelectors:   nil,
 				})
 				oss.lggr.Infow("IndexerStorageStreamer query results", "start", oss.lastQueryTime, "count", len(responses), "error", err)
 
 				for _, msgWithMetadata := range responses {
-					oss.lggr.Infow("Found message from Indexer", "msgWithMetadata", msgWithMetadata)
 					if msgWithMetadata.Metadata.IngestionTimestamp.After(oss.lastQueryTime) {
 						oss.lastQueryTime = msgWithMetadata.Metadata.IngestionTimestamp
 					}
-					results <- msgWithMetadata
+					netNewMessage := oss.expirableSet.PushUnlessExists(msgWithMetadata.Message.MustMessageID(), msgWithMetadata.Metadata.IngestionTimestamp)
+					if netNewMessage {
+						oss.lggr.Infow("Found net new message from Indexer", "msgWithMetadata", msgWithMetadata)
+						results <- msgWithMetadata
+					}
 				}
 
 				// Determine if we should wait before querying again, or read new results immediately.
 				switch {
 				case err != nil:
 					// Error occurred: backoff and retry with same parameters
-					waitDuration = oss.backoff
+					nextQueryTime = oss.timeProvider.GetTime().Add(oss.backoff)
 					errors <- fmt.Errorf("IndexerStorageStreamer read error: %w", err)
 
 				case uint64(len(responses)) == oss.queryLimit:
@@ -112,14 +136,7 @@ func (oss *IndexerStorageStreamer) Start(
 
 				default:
 					// Complete result set received: update query window and reset for next polling cycle
-					waitDuration = oss.pollingInterval
-				}
-
-				// Wait before next iteration (common for error and complete cases)
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(waitDuration):
+					nextQueryTime = oss.timeProvider.GetTime().Add(oss.pollingInterval)
 				}
 			}
 		}

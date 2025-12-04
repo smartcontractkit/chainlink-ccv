@@ -9,14 +9,11 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
-	"github.com/smartcontractkit/chainlink-ccv/executor/internal/message_heap"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/message_heap"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
-
-// BackoffDuration is the duration to backoff when there is an error reading from the ccv data reader.
-const BackoffDuration = 5 * time.Second
 
 type Coordinator struct {
 	services.StateMachine
@@ -74,24 +71,18 @@ func (ec *Coordinator) Start(ctx context.Context) error {
 		ec.delayedMessageHeap = *message_heap.NewMessageHeap()
 
 		ec.running.Store(true)
-		ec.wg.Add(1)
-		go func() {
-			defer ec.wg.Done()
+		ec.wg.Go(func() {
 			ec.runStorageStream(c)
-		}()
+		})
 
-		ec.wg.Add(1)
-		go func() {
-			defer ec.wg.Done()
+		ec.wg.Go(func() {
 			ec.runProcessingLoop(c)
-		}()
+		})
 
 		for i := 0; i < ec.workerCount; i++ {
-			ec.wg.Add(1)
-			go func() {
-				defer ec.wg.Done()
+			ec.wg.Go(func() {
 				ec.handleMessage(c)
-			}()
+			})
 		}
 		ec.lggr.Infow("Coordinator started")
 
@@ -120,7 +111,7 @@ func (ec *Coordinator) Close() error {
 }
 
 func (ec *Coordinator) runStorageStream(ctx context.Context) {
-	indexerResults := make(chan protocol.MessageWithMetadata, 100)
+	indexerResults := make(chan protocol.MessageWithMetadata)
 	componentErrors := make(chan error)
 	defer func() {
 		close(indexerResults)
@@ -140,7 +131,7 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 			return
 		case e, ok := <-componentErrors:
 			if !ok {
-				ec.lggr.Warnw("errors channel closed")
+				ec.lggr.Errorw("coordinator component errors channel closed")
 			}
 			ec.lggr.Errorw("error in coordinator component", "error", e)
 		case streamResult, ok := <-indexerResults:
@@ -156,12 +147,32 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 				continue
 			}
 
-			id, _ := msg.MessageID()
+			id := msg.MustMessageID()
 
 			if ec.delayedMessageHeap.Has(id) {
 				ec.lggr.Infow("message already in delayed heap, skipping", "messageID", id)
 				continue
 			}
+
+			// get message delay from leader elector using indexer's ingestion timestamp
+			readyTimestamp := ec.leaderElector.GetReadyTimestamp(
+				id,
+				msg.DestChainSelector,
+				streamResult.Metadata.IngestionTimestamp)
+
+			ec.lggr.Infow("pushing message to delayed heap",
+				"messageID", id,
+				"ingestionTimestamp", streamResult.Metadata.IngestionTimestamp,
+				"readyTimestamp", readyTimestamp,
+			)
+
+			ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
+				Message:       &msg,
+				ReadyTime:     readyTimestamp,
+				ExpiryTime:    readyTimestamp.Add(ec.expiryDuration),
+				RetryInterval: ec.leaderElector.GetRetryDelay(msg.DestChainSelector),
+				MessageID:     id,
+			})
 		}
 	}
 }

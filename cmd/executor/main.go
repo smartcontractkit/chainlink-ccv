@@ -230,6 +230,7 @@ func main() {
 		executorConfig.ExecutorID,
 		execIntervals,
 	)
+	timeProvider := backofftimeprovider.NewBackoffNTPProvider(lggr, executorConfig.BackoffDuration, executorConfig.NtpServer)
 
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
 		lggr,
@@ -239,9 +240,10 @@ func main() {
 			PollingInterval:  indexerPollingInterval,
 			Backoff:          executorConfig.BackoffDuration,
 			QueryLimit:       executorConfig.IndexerQueryLimit,
+			CleanInterval:    24 * time.Hour,
+			TimeProvider:     timeProvider,
 		})
 
-	timeProvider := backofftimeprovider.NewBackoffNTPProvider(lggr, executorConfig.BackoffDuration, executorConfig.NtpServer)
 	//
 	// Initialize executor coordinator
 	// ------------------------------------------------------------------------------------------------

@@ -120,8 +120,7 @@ func TestLifecycle(t *testing.T) {
 	lggr := logger.Test(t)
 
 	ccvDataReader := executor_mocks.NewMockMessageSubscriber(t)
-	messageChan := make(chan executor.StreamerResult)
-	ccvDataReader.EXPECT().Start(mock.Anything, mock.Anything).Return(messageChan, nil)
+	ccvDataReader.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	ec, err := executor.NewCoordinator(
 		lggr,
@@ -147,9 +146,8 @@ func TestSubscribeMessagesError(t *testing.T) {
 
 	// Generate an error when SubscribeMessages() is called during Start().
 	messageSubscriber := executor_mocks.NewMockMessageSubscriber(t)
-	messageChan := make(chan executor.StreamerResult)
 	sentinelError := fmt.Errorf("lilo & stitch")
-	messageSubscriber.EXPECT().Start(mock.Anything, mock.Anything).Return(messageChan, sentinelError)
+	messageSubscriber.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything).Return(sentinelError)
 	timeProvider := common.NewMockTimeProvider(t)
 	timeProvider.EXPECT().GetTime().Return(time.Now().UTC()).Maybe()
 
@@ -331,25 +329,25 @@ func TestMessageExpiration(t *testing.T) {
 			mockTimeProvider.EXPECT().GetTime().Return(currentTime.Add(tc.mockedTimeDifference)).Maybe()
 
 			// Create a test message
-			testMessage := executor.StreamerResult{
-				Messages: []protocol.MessageWithMetadata{
-					{
-						Message: protocol.Message{
-							DestChainSelector:   1,
-							SourceChainSelector: 2,
-							SequenceNumber:      1,
-						},
-						Metadata: protocol.MessageMetadata{
-							IngestionTimestamp: currentTime,
-						},
-					},
+			testMessage := protocol.MessageWithMetadata{
+				Message: protocol.Message{
+					DestChainSelector:   1,
+					SourceChainSelector: 2,
+					SequenceNumber:      1,
+				},
+				Metadata: protocol.MessageMetadata{
+					IngestionTimestamp: currentTime,
 				},
 			}
 
 			// Set up message subscriber to send one message
 			messageSubscriber := executor_mocks.NewMockMessageSubscriber(t)
-			messageChan := make(chan executor.StreamerResult, 1)
-			messageSubscriber.EXPECT().Start(mock.Anything, mock.Anything).Return(messageChan, nil)
+			messageSubscriber.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything).Return(nil).Run(func(ctx context.Context, results chan protocol.MessageWithMetadata, errors chan error) {
+				// Send the test message to the channel
+				go func() {
+					results <- testMessage
+				}()
+			})
 
 			// Set up executor mock
 			mockExecutor := executor_mocks.NewMockExecutor(t)
@@ -386,9 +384,6 @@ func TestMessageExpiration(t *testing.T) {
 			defer func() {
 				_ = ec.Close()
 			}()
-
-			// Send the test message
-			messageChan <- testMessage
 
 			// Wait for processing to occur, we mock the time provider inside the test so there will only be a single time loop.
 			time.Sleep(2 * time.Second)
