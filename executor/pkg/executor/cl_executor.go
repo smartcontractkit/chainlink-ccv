@@ -65,6 +65,13 @@ func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, message pro
 	return nil
 }
 
+// HandleMessage will process a single message through the executors and its components.
+// 1. Check curse using the curse checker.
+// 2. Check executability using the destination reader. Executability checks on chain execution state.
+// 3. Get additional data (verifier results and quorum)
+// 4. Confirm the additional data is sufficient for execution.
+// 5. Order the CCV data to match the order expected by the receiver contract.
+// 6. Create the aggregated report and transmit it to the chain.
 func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protocol.Message) (shouldRetry bool, err error) {
 	destinationChain := message.DestChainSelector
 	messageID := message.MustMessageID()
