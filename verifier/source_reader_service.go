@@ -347,9 +347,9 @@ func (r *SourceReaderService) initializeStartBlock(ctx context.Context) (*big.In
 		return nil, err
 	}
 
-	chainStatus := chainStatuses[r.chainSelector]
+	chainStatus, ok := chainStatuses[r.chainSelector]
 
-	if chainStatus == nil {
+	if !ok {
 		r.logger.Infow("No chainStatus found, starting from block 1")
 		_, finalized, err := r.sourceReader.LatestAndFinalizedBlock(ctx)
 		if err != nil {

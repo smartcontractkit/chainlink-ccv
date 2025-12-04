@@ -26,6 +26,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -185,24 +186,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	aggregatorReader, err := storageaccess.NewAggregatorReader(config.AggregatorAddress, lggr, 0, hmacConfig) // since=0 for chain status reads
+	// Create chain status manager (local SQLite storage)
+	chainStatusManager, err := createChainStatusManager(config, lggr)
 	if err != nil {
-		// Clean up writer if reader creation fails
-		err := aggregatorWriter.Close()
-		if err != nil {
-			lggr.Errorw("Failed to close aggregator writer", "error", err)
-		}
-		lggr.Errorw("Failed to create aggregator reader", "error", err)
+		lggr.Errorw("Failed to create chain status manager", "error", err)
 		os.Exit(1)
 	}
-	// Create chain status manager (includes both writer and reader)
-	chainStatusManager := storageaccess.NewDefaultResilientChainStatusManager(
-		storageaccess.NewAggregatorChainStatusManager(
-			aggregatorWriter,
-			aggregatorReader,
-		),
-		lggr,
-	)
 
 	// Create source readers and head trackers - either blockchain-based or mock
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
@@ -423,6 +412,18 @@ func main() {
 	}
 
 	lggr.Infow("Verifier service stopped gracefully")
+}
+
+func createChainStatusManager(
+	config *verifier.Config,
+	lggr logger.Logger,
+) (protocol.ChainStatusManager, error) {
+	dbPath := config.ChainStatusDBPath
+	if dbPath == "" {
+		dbPath = "chain_status.db"
+	}
+	lggr.Infow("Using SQLite chain status storage", "dbPath", dbPath)
+	return chainstatus.NewSQLiteChainStatusManager(dbPath, lggr)
 }
 
 // simpleHeadTrackerWrapper is a simple implementation that wraps chain client calls.
