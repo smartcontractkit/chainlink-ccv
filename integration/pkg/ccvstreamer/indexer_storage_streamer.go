@@ -15,8 +15,8 @@ import (
 
 // Ensure IndexerStorageStreamer implements the MessageSubscriber interface.
 var (
-	_             executor.MessageSubscriber = &IndexerStorageStreamer{}
-	pollingBuffer                            = -1 * time.Millisecond
+	_                    executor.MessageSubscriber = &IndexerStorageStreamer{}
+	pollingOverlapWindow                            = 1 * time.Millisecond
 )
 
 type IndexerStorageConfig struct {
@@ -105,7 +105,7 @@ func (oss *IndexerStorageStreamer) Start(
 				}
 				responses, err := oss.reader.ReadMessages(ctx, protocol.MessagesV1Request{
 					Limit:                oss.queryLimit,
-					Start:                oss.lastQueryTime.Add(pollingBuffer).UnixMilli(),
+					Start:                oss.lastQueryTime.Add(-1 * pollingOverlapWindow).UnixMilli(),
 					SourceChainSelectors: nil,
 					DestChainSelectors:   nil,
 				})

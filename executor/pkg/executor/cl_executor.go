@@ -88,6 +88,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	)
 	if err != nil {
 		// If we can't get execution state, don't execute, but put back in heap to retry later.
+		// this usually only happens due to rpc issues, other nodes will try and this node will expec to see status SUCCESS later.
 		cle.lggr.Warnw("delaying execution due to failed check GetMessageExecutionState", "messageID", messageID)
 		return true, err
 	}
