@@ -15,6 +15,9 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
+// Coordinator is the main executor coordinator that manages the timing of a message lifecycle.
+// It is responsible for reading messages from a source, managing a decentralized delay mechanism,
+// dispatching them to workers for execution, and retrying if necessary.
 type Coordinator struct {
 	services.StateMachine
 	wg                 sync.WaitGroup

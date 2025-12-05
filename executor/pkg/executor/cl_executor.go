@@ -19,6 +19,9 @@ import (
 // Ensure ChainlinkExecutor implements the Executor interface.
 var _ executor.Executor = &ChainlinkExecutor{}
 
+// ChainlinkExecutor is responsible for managing the execution of a single message once it's been marked
+// for execution by the Coordinator. It goes through a series of steps and checks before finally transmitting.
+// Depending on these checks, it may send the message back to the coordinator for retry later.
 type ChainlinkExecutor struct {
 	lggr                   logger.Logger
 	contractTransmitters   map[protocol.ChainSelector]executor.ContractTransmitter
