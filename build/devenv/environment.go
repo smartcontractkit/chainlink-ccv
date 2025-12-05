@@ -535,9 +535,6 @@ func createJobs(in *Cfg, vIn []*services.VerifierInput, executorIn []*services.E
 
 	clClients := make([]*clclient.ChainlinkClient, 0)
 	for _, ns := range in.NodeSets {
-		if ns.Out == nil {
-			continue
-		}
 		nc, err := clclient.New(ns.Out.CLNodes)
 		if err != nil {
 			return fmt.Errorf("failed to connect CL node clients: %w", err)
