@@ -495,9 +495,13 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("failed to create standalone verifiers: %w", err)
 	}
 
-	_, err = services.ResolveContractsForTokenVerifier(e.DataStore, in.Blockchains, *in.TokenVerifier[0])
-	if err != nil {
-		return nil, fmt.Errorf("failed to lookup contracts %w", err)
+	for i := range in.TokenVerifier {
+		ver, err := services.ResolveContractsForTokenVerifier(e.DataStore, in.Blockchains, *in.TokenVerifier[i])
+		if err != nil {
+			return nil, fmt.Errorf("failed to lookup contracts %w", err)
+		}
+
+		in.TokenVerifier[i] = &ver
 	}
 
 	_, err = launchStandaloneTokenVerifiers(in)

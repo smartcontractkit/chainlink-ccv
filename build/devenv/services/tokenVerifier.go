@@ -112,7 +112,7 @@ func NewTokenVerifier(in *TokenVerifierInput) (*TokenVerifierOutput, error) {
 				},
 			}
 		},
-		WaitingFor: wait.ForLog("Starting").
+		WaitingFor: wait.ForLog("Using real blockchain information from environment").
 			WithStartupTimeout(120 * time.Second).
 			WithPollInterval(3 * time.Second),
 	}
@@ -190,7 +190,6 @@ func (v *TokenVerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos m
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal verifier config to TOML: %w", err)
 	}
-
 	return cfg, nil
 }
 

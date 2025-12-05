@@ -231,10 +231,10 @@ func main() {
 	coordinators := make([]*verifier.Coordinator, 0, len(config.TokenVerifiers))
 	for _, verifierConfig := range config.TokenVerifiers {
 		var coordinator *verifier.Coordinator
-		if verifierConfig.IsCCTP() {
+		if verifierConfig.IsLBTC() {
 			coordinator = createLBTCCoordinator(
 				config.VerifierID,
-				verifierConfig.LBTC,
+				verifierConfig.LBTCConfig,
 				lggr,
 				sourceReaders,
 				rmnRemoteAddresses,
@@ -245,7 +245,7 @@ func main() {
 		} else if verifierConfig.IsCCTP() {
 			coordinator = createCCTPCoordinator(
 				config.VerifierID,
-				verifierConfig.CCTP,
+				verifierConfig.CCTPConfig,
 				lggr,
 				sourceReaders,
 				rmnRemoteAddresses,
@@ -288,7 +288,7 @@ func main() {
 
 func createCCTPCoordinator(
 	verifierID string,
-	cctpConfig *cctp.Config,
+	cctpConfig *cctp.CCTPConfig,
 	lggr logger.Logger,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	rmnRemoteAddresses map[string]protocol.UnknownAddress,
@@ -296,7 +296,7 @@ func createCCTPCoordinator(
 	messageTracker verifier.MessageLatencyTracker,
 	verifierMonitoring verifier.Monitoring,
 ) *verifier.Coordinator {
-	cctpSourceConfigs := createSourceConfigs(cctpConfig.Verifiers, rmnRemoteAddresses)
+	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifiers, rmnRemoteAddresses)
 
 	cctpVerifier := cctp.NewVerifier(
 		cctp.NewAttestationService(*cctpConfig),
@@ -327,7 +327,7 @@ func createCCTPCoordinator(
 
 func createLBTCCoordinator(
 	verifierID string,
-	lbtcConfig *lbtc.Config,
+	lbtcConfig *lbtc.LBTCConfig,
 	lggr logger.Logger,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	rmnRemoteAddresses map[string]protocol.UnknownAddress,
@@ -335,7 +335,7 @@ func createLBTCCoordinator(
 	messageTracker verifier.MessageLatencyTracker,
 	verifierMonitoring verifier.Monitoring,
 ) *verifier.Coordinator {
-	sourceConfigs := createSourceConfigs(lbtcConfig.Verifiers, rmnRemoteAddresses)
+	sourceConfigs := createSourceConfigs(lbtcConfig.ParsedVerifiers, rmnRemoteAddresses)
 
 	lbtcVerifier := lbtc.NewVerifier(
 		lbtc.NewAttestationService(*lbtcConfig),
