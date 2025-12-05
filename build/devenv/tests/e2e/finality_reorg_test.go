@@ -111,7 +111,10 @@ func TestE2EReorg(t *testing.T) {
 		evm.DefaultCommitteeVerifierQualifier,
 		"committee verifier proxy")
 
-	// Helper function to send a message with logging
+	// Get receiver for destSelector2 (chain2)
+	receiver2 := mustGetEOAReceiverAddress(t, c, destSelector2)
+
+	// Helper function to send a message to destSelector (chain1) with logging
 	sendMessageWithLogging := func(data, logPrefix string) [32]byte {
 		l.Info().Str("data", data).Msgf("📨 %s", logPrefix)
 
@@ -142,6 +145,37 @@ func TestE2EReorg(t *testing.T) {
 		return event.MessageID
 	}
 
+	// Helper function to send a message to destSelector2 (chain2) with logging
+	sendMessageToDest2WithLogging := func(data, logPrefix string) [32]byte {
+		l.Info().Str("data", data).Msgf("📨 %s (to chain2)", logPrefix)
+
+		event, err := c.SendMessage(ctx, srcSelector, destSelector2,
+			cciptestinterfaces.MessageFields{
+				Receiver: receiver2,
+				Data:     []byte(data),
+			},
+			cciptestinterfaces.MessageOptions{
+				Version:  3,
+				Executor: executorAddr,
+				CCVs: []protocol.CCV{
+					{
+						CCVAddress: ccvAddr,
+						Args:       []byte{},
+						ArgsLen:    0,
+					},
+				},
+			})
+		require.NoError(t, err)
+
+		l.Info().
+			Str("messageID", fmt.Sprintf("%x", event.MessageID)).
+			Str("data", data).
+			Int("seqNumber", int(event.SequenceNumber)).
+			Msgf("✅ %s (to chain2)", logPrefix)
+
+		return event.MessageID
+	}
+
 	// Helper function to verify a message exists in aggregator (with polling)
 	verifyMessageExists := func(messageID [32]byte, description string) {
 		waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
@@ -168,10 +202,11 @@ func TestE2EReorg(t *testing.T) {
 		return result
 	}
 
-	//// globalCurseSubject returns the global curse constant.
-	//func globalCurseSubject() [16]byte {
-	//	return globals.GlobalCurseSubject()
-	//}
+	// globalCurseSubject returns the global curse constant from RMN specification.
+	// If this subject is present in cursed subjects, all lanes involving this chain are cursed.
+	globalCurseSubject := func() [16]byte {
+		return [16]byte{0: 0x01, 15: 0x01}
+	}
 
 	t.Run("simple reorg with message ordering", func(t *testing.T) {
 		// 1/5 Blocks
@@ -213,11 +248,6 @@ func TestE2EReorg(t *testing.T) {
 
 		l.Info().
 			Msg("✨ Test completed: Messages sent in swapped order after reorg and verified after finality")
-	})
-
-	t.Run("uncurse lane", func(t *testing.T) {
-		err = c.Uncurse(ctx, srcSelector, [][16]byte{chainSelectorToSubject(destSelector)})
-		require.NoError(t, err)
 	})
 
 	t.Run("curse lane verifier side", func(t *testing.T) {
@@ -276,31 +306,9 @@ func TestE2EReorg(t *testing.T) {
 
 		// Verify uncursed lane still works (srcSelector -> destSelector2)
 		l.Info().Msg("🔍 Verifying uncursed lane (chain0 -> chain2) still works")
-		receiver2 := mustGetEOAReceiverAddress(t, c, destSelector2)
-
-		event2, err := c.SendMessage(ctx, srcSelector, destSelector2,
-			cciptestinterfaces.MessageFields{
-				Receiver: receiver2,
-				Data:     []byte("uncursed lane message"),
-			},
-			cciptestinterfaces.MessageOptions{
-				Version:  3,
-				Executor: executorAddr,
-				CCVs: []protocol.CCV{
-					{
-						CCVAddress: ccvAddr,
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
-			})
-		require.NoError(t, err)
-		l.Info().
-			Str("messageID", fmt.Sprintf("%x", event2.MessageID)).
-			Msg("📨 Sent message on uncursed lane")
-
+		uncursedLaneMsgID := sendMessageToDest2WithLogging("uncursed lane message", "Verifying uncursed lane")
 		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
-		verifyMessageExists(event2.MessageID, "Uncursed lane message")
+		verifyMessageExists(uncursedLaneMsgID, "Uncursed lane message")
 		l.Info().Msg("✅ Confirmed uncursed lane still works")
 
 		// Uncurse the lane
@@ -316,8 +324,77 @@ func TestE2EReorg(t *testing.T) {
 		l.Info().Msg("✨ Test completed: Lane curse verified - message dropped, uncursed lane worked")
 	})
 
+	t.Run("global curse verifier side", func(t *testing.T) {
+		// Set up log asserter to verify messages are dropped after global curse
+		lokiURL := "ws://localhost:3030"
+		logAssertLogger := l.With().Str("component", "log-asserter").Logger()
+		logAssert := logasserter.New(lokiURL, logAssertLogger)
+
+		err := logAssert.StartStreaming(ctx, []logasserter.LogStage{
+			logasserter.MessageDroppedInVerifier(),
+		})
+		require.NoError(t, err, "should be able to start log streaming")
+		t.Cleanup(func() {
+			logAssert.StopStreaming()
+		})
+
+		// Send messages to BOTH destinations before applying global curse
+		l.Info().Msg("📨 Sending messages to chain1 and chain2 before global curse")
+
+		// Message to destSelector (chain1)
+		msg1ID := sendMessageWithLogging("global curse test msg to chain1", "Sending message to chain1")
+
+		// Message to destSelector2 (chain2)
+		msg2ID := sendMessageToDest2WithLogging("global curse test msg to chain2", "Sending message to chain2")
+
+		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth/5)
+
+		l.Info().Msg("🌐 Applying GLOBAL curse to source chain (affects ALL lanes from this chain)")
+		err = c.Curse(ctx, srcSelector, [][16]byte{globalCurseSubject()})
+		require.NoError(t, err)
+
+		l.Info().Msg("🔍 Asserting BOTH messages are dropped due to global curse")
+		assertCtx, assertCancel := context.WithTimeout(ctx, 100*time.Second)
+		defer assertCancel()
+
+		// Verify message to chain1 is dropped
+		_, err = logAssert.WaitForStage(assertCtx, msg1ID, logasserter.MessageDroppedInVerifier())
+		require.NoError(t, err, "message to chain1 should be dropped due to global curse")
+		l.Info().
+			Str("messageID", fmt.Sprintf("%x", msg1ID)).
+			Msg("✅ Confirmed message to chain1 was dropped due to global curse")
+
+		// Verify message to chain2 is dropped
+		_, err = logAssert.WaitForStage(assertCtx, msg2ID, logasserter.MessageDroppedInVerifier())
+		require.NoError(t, err, "message to chain2 should be dropped due to global curse")
+		l.Info().
+			Str("messageID", fmt.Sprintf("%x", msg2ID)).
+			Msg("✅ Confirmed message to chain2 was dropped due to global curse")
+
+		// Verify BOTH messages are NOT in the aggregator
+		verifyMessageNotExists(msg1ID, "Globally cursed message to chain1 should not be in aggregator")
+		verifyMessageNotExists(msg2ID, "Globally cursed message to chain2 should not be in aggregator")
+
+		// Uncurse the chain
+		l.Info().Msg("🔓 Removing global curse from source chain")
+		err = c.Uncurse(ctx, srcSelector, [][16]byte{globalCurseSubject()})
+		require.NoError(t, err)
+
+		// Send new messages after uncurse to verify both lanes work
+		l.Info().Msg("📨 Sending messages after global uncurse to verify lanes work")
+		msg3ID := sendMessageWithLogging("post-global-uncurse msg to chain1", "Sending message to chain1 after uncurse")
+		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		verifyMessageExists(msg3ID, "Message to chain1 after global uncurse")
+
+		msg4ID := sendMessageToDest2WithLogging("post-global-uncurse msg to chain2", "Sending message to chain2 after uncurse")
+		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		verifyMessageExists(msg4ID, "Message to chain2 after global uncurse")
+
+		l.Info().Msg("✨ Test completed: Global curse verified - both lanes blocked, then unblocked after uncurse")
+	})
+
 	// ============================================================================
-	// RMN Curse Tests
+	// RMN Curse Tests (Legacy - commented out)
 	// ============================================================================
 	//
 	//func TestRMNCurseLaneVerifierSide(t *testing.T) {
