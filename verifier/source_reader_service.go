@@ -524,7 +524,7 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, fin
 		// re-check curse at finality time
 		if r.curseDetector != nil &&
 			r.curseDetector.IsRemoteChainCursed(ctx, task.Message.SourceChainSelector, task.Message.DestChainSelector) {
-			r.logger.Warnw("Dropping finalized task - lane is cursed",
+			r.logger.Warnw("Dropping task - lane is cursed",
 				"messageID", task.MessageID)
 			continue
 		}
