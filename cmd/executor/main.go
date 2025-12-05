@@ -41,7 +41,11 @@ const (
 	indexerPollingInterval = 1 * time.Second
 	// indexerGarbagecollectionInterval describes how frequently we garbage collect message duplicates from the indexer results
 	// if this is too short, we will assume a message is net new every time it is read from the indexer.
-	indexerGarbageCollectionInterval = 24 * time.Hour
+	indexerGarbageCollectionInterval = 1 * time.Hour
+	// messageContextWindow is the time window we use to expire duplicate messages from the indexer.
+	// this combines with indexerGarbageCollectionInterval to avoid memory leak in the streamer.
+	// We store messages for messageContextWindow, cleaning up old messages every indexerGarbageCollectionInterval.
+	messageContextWindow = 9 * time.Hour
 )
 
 func main() {
@@ -243,6 +247,7 @@ func main() {
 			PollingInterval:  indexerPollingInterval,
 			Backoff:          executorConfig.BackoffDuration,
 			QueryLimit:       executorConfig.IndexerQueryLimit,
+			ExpiryDuration:   messageContextWindow,
 			CleanInterval:    indexerGarbageCollectionInterval,
 			TimeProvider:     timeProvider,
 		})

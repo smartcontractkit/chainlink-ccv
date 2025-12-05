@@ -109,7 +109,7 @@ func (oss *IndexerStorageStreamer) Start(
 					SourceChainSelectors: nil,
 					DestChainSelectors:   nil,
 				})
-				oss.lggr.Infow("IndexerStorageStreamer query results", "start", oss.lastQueryTime, "count", len(responses), "error", err)
+				oss.lggr.Debugw("IndexerStorageStreamer query results", "start", oss.lastQueryTime, "count", len(responses), "error", err)
 
 				for _, msgWithMetadata := range responses {
 					if msgWithMetadata.Metadata.IngestionTimestamp.After(oss.lastQueryTime) {
@@ -117,7 +117,7 @@ func (oss *IndexerStorageStreamer) Start(
 					}
 					netNewMessage := oss.expirableSet.PushUnlessExists(msgWithMetadata.Message.MustMessageID(), msgWithMetadata.Metadata.IngestionTimestamp)
 					if netNewMessage {
-						oss.lggr.Infow("Found net new message from Indexer", "msgWithMetadata", msgWithMetadata)
+						oss.lggr.Infow("Found net new message from Indexer", "messageID", msgWithMetadata.Message.MustMessageID(), "msgWithMetadata", msgWithMetadata)
 						results <- msgWithMetadata
 					}
 				}
@@ -126,6 +126,7 @@ func (oss *IndexerStorageStreamer) Start(
 				switch {
 				case err != nil:
 					// Error occurred: backoff and retry with same parameters
+					oss.lggr.Errorw("IndexerStorageStreamer read error", "error", err)
 					nextQueryTime = oss.timeProvider.GetTime().Add(oss.backoff)
 					errors <- fmt.Errorf("IndexerStorageStreamer read error: %w", err)
 
