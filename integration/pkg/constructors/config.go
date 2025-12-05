@@ -2,12 +2,12 @@ package constructors
 
 import (
 	"github.com/smartcontractkit/chainlink-ccv/executor"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 )
 
 // CCVConfig holds the configuration needed to configure the CCV services.
 type CCVConfig struct {
-	Verifiers []verifier.Config
+	Verifiers []commit.Config
 	Executor  executor.Configuration
 }
 
