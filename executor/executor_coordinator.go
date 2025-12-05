@@ -227,11 +227,11 @@ func (ec *Coordinator) handleMessage(ctx context.Context) {
 			shouldRetry, err := ec.executor.HandleMessage(ctx, message)
 			if shouldRetry {
 				// todo: add exponential backoff here
-				retryTime := currentTime.Add(payload.RetryInterval)
+				// The new ready time is the original ready time + retry interval to avoid drift between executors.
 				ec.lggr.Infow("message should be retried, putting back in heap", "messageID", id)
 				ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 					Message:       &message,
-					ReadyTime:     retryTime,
+					ReadyTime:     payload.ReadyTime.Add(payload.RetryInterval),
 					ExpiryTime:    payload.ExpiryTime,
 					RetryInterval: payload.RetryInterval,
 					MessageID:     id,
