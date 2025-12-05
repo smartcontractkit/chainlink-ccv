@@ -114,66 +114,33 @@ func TestE2EReorg(t *testing.T) {
 	// Get receiver for destSelector2 (chain2)
 	receiver2 := mustGetEOAReceiverAddress(t, c, destSelector2)
 
-	// Helper function to send a message to destSelector (chain1) with logging
-	sendMessageWithLogging := func(data, logPrefix string) [32]byte {
-		l.Info().Str("data", data).Msgf("📨 %s", logPrefix)
-
-		event, err := c.SendMessage(ctx, srcSelector, destSelector,
-			cciptestinterfaces.MessageFields{
-				Receiver: receiver,
-				Data:     []byte(data),
+	// Default message options for sending CCIP messages
+	defaultMessageOptions := cciptestinterfaces.MessageOptions{
+		Version:  3,
+		Executor: executorAddr,
+		CCVs: []protocol.CCV{
+			{
+				CCVAddress: ccvAddr,
+				Args:       []byte{},
+				ArgsLen:    0,
 			},
-			cciptestinterfaces.MessageOptions{
-				Version:  3,
-				Executor: executorAddr,
-				CCVs: []protocol.CCV{
-					{
-						CCVAddress: ccvAddr,
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
-			})
-		require.NoError(t, err)
-
-		l.Info().
-			Str("messageID", fmt.Sprintf("%x", event.MessageID)).
-			Str("data", data).
-			Int("seqNumber", int(event.SequenceNumber)).
-			Msgf("✅ %s", logPrefix)
-
-		return event.MessageID
+		},
 	}
 
-	// Helper function to send a message to destSelector2 (chain2) with logging
-	sendMessageToDest2WithLogging := func(data, logPrefix string) [32]byte {
-		l.Info().Str("data", data).Msgf("📨 %s (to chain2)", logPrefix)
+	// Helper to create MessageFields from receiver address and data string
+	newMessageFields := func(recv protocol.UnknownAddress, data string) cciptestinterfaces.MessageFields {
+		return cciptestinterfaces.MessageFields{
+			Receiver: recv,
+			Data:     []byte(data),
+		}
+	}
 
-		event, err := c.SendMessage(ctx, srcSelector, destSelector2,
-			cciptestinterfaces.MessageFields{
-				Receiver: receiver2,
-				Data:     []byte(data),
-			},
-			cciptestinterfaces.MessageOptions{
-				Version:  3,
-				Executor: executorAddr,
-				CCVs: []protocol.CCV{
-					{
-						CCVAddress: ccvAddr,
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
-			})
-		require.NoError(t, err)
-
+	// Helper to log a sent message event
+	logSentMessage := func(event cciptestinterfaces.MessageSentEvent, description string) {
 		l.Info().
 			Str("messageID", fmt.Sprintf("%x", event.MessageID)).
-			Str("data", data).
 			Int("seqNumber", int(event.SequenceNumber)).
-			Msgf("✅ %s (to chain2)", logPrefix)
-
-		return event.MessageID
+			Msgf("📨 %s", description)
 	}
 
 	// Helper function to verify a message exists in aggregator (with polling)
@@ -217,8 +184,16 @@ func TestE2EReorg(t *testing.T) {
 		// 2/5 Blocks
 		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth/5)
 
-		msg1IDBeforeReorg := sendMessageWithLogging("message 1", "Sending message 1")
-		msg2IDBeforeReorg := sendMessageWithLogging("message 2", "Sending message 2")
+		event1, err := c.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "message 1"), defaultMessageOptions)
+		require.NoError(t, err)
+		logSentMessage(event1, "Sending message 1")
+		msg1IDBeforeReorg := event1.MessageID
+
+		event2, err := c.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "message 2"), defaultMessageOptions)
+		require.NoError(t, err)
+		logSentMessage(event2, "Sending message 2")
+		msg2IDBeforeReorg := event2.MessageID
+
 		// 3/5 Blocks + 2 (for above messages to be mined)
 		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth/5)
 
@@ -228,9 +203,20 @@ func TestE2EReorg(t *testing.T) {
 
 		anvilHelper.MustMine(ctx, 1)
 
-		msg2IDAfterReorg := sendMessageWithLogging("message 2", "Sending message 2 first (swapped order)")
-		msg1IDAfterReorg := sendMessageWithLogging("message 1", "Sending message 1 second (swapped order)")
-		msg3ID := sendMessageWithLogging("message 3", "Sending a new msg that wasn't sent pre reorg")
+		event3, err := c.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "message 2"), defaultMessageOptions)
+		require.NoError(t, err)
+		logSentMessage(event3, "Sending message 2 first (swapped order)")
+		msg2IDAfterReorg := event3.MessageID
+
+		event4, err := c.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "message 1"), defaultMessageOptions)
+		require.NoError(t, err)
+		logSentMessage(event4, "Sending message 1 second (swapped order)")
+		msg1IDAfterReorg := event4.MessageID
+
+		event5, err := c.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "message 3"), defaultMessageOptions)
+		require.NoError(t, err)
+		logSentMessage(event5, "Sending a new msg that wasn't sent pre reorg")
+		msg3ID := event5.MessageID
 
 		l.Info().Int("blocks", verifier.ConfirmationDepth+5).Msg("⛏️  Mining blocks to cross finality threshold")
 		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
@@ -265,7 +251,11 @@ func TestE2EReorg(t *testing.T) {
 			logAssert.StopStreaming()
 		})
 
-		msg1ID := sendMessageWithLogging("message 1", "Sending message 1")
+		event1, err := c.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "message 1"), defaultMessageOptions)
+		require.NoError(t, err)
+		logSentMessage(event1, "Sending message 1")
+		msg1ID := event1.MessageID
+
 		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth/5)
 
 		l.Info().Msg("Applying lane curse between chain0 and chain1 (before message gets picked up by verifier)")
@@ -286,29 +276,17 @@ func TestE2EReorg(t *testing.T) {
 		// Verify the message is NOT in the aggregator (it was dropped, not processed)
 		verifyMessageNotExists(msg1ID, "Cursed message should not be in aggregator")
 
-		_, err = c.SendMessage(ctx, srcSelector, destSelector,
-			cciptestinterfaces.MessageFields{
-				Receiver: receiver,
-				Data:     []byte("cursed lane message"),
-			},
-			cciptestinterfaces.MessageOptions{
-				Version:  3,
-				Executor: executorAddr,
-				CCVs: []protocol.CCV{
-					{
-						CCVAddress: ccvAddr,
-						Args:       []byte{},
-						ArgsLen:    0,
-					},
-				},
-			})
+		_, err = c.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "cursed lane message"), defaultMessageOptions)
 		require.Error(t, err, "should not be able to send message on cursed lane")
 
 		// Verify uncursed lane still works (srcSelector -> destSelector2)
 		l.Info().Msg("🔍 Verifying uncursed lane (chain0 -> chain2) still works")
-		uncursedLaneMsgID := sendMessageToDest2WithLogging("uncursed lane message", "Verifying uncursed lane")
+		event2, err := c.SendMessage(ctx, srcSelector, destSelector2, newMessageFields(receiver2, "uncursed lane message"), defaultMessageOptions)
+		require.NoError(t, err)
+		logSentMessage(event2, "Verifying uncursed lane (to chain2)")
+
 		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
-		verifyMessageExists(uncursedLaneMsgID, "Uncursed lane message")
+		verifyMessageExists(event2.MessageID, "Uncursed lane message")
 		l.Info().Msg("✅ Confirmed uncursed lane still works")
 
 		// Uncurse the lane
@@ -317,9 +295,12 @@ func TestE2EReorg(t *testing.T) {
 		require.NoError(t, err)
 
 		// Send a message again on the previously cursed lane to verify it works now
-		msg2ID := sendMessageWithLogging("message 2 after uncurse", "Sending message 2 after uncurse")
+		event3, err := c.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "message 2 after uncurse"), defaultMessageOptions)
+		require.NoError(t, err)
+		logSentMessage(event3, "Sending message 2 after uncurse")
+
 		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
-		verifyMessageExists(msg2ID, "Message 2 after uncurse")
+		verifyMessageExists(event3.MessageID, "Message 2 after uncurse")
 
 		l.Info().Msg("✨ Test completed: Lane curse verified - message dropped, uncursed lane worked")
 	})
@@ -342,10 +323,16 @@ func TestE2EReorg(t *testing.T) {
 		l.Info().Msg("📨 Sending messages to chain1 and chain2 before global curse")
 
 		// Message to destSelector (chain1)
-		msg1ID := sendMessageWithLogging("global curse test msg to chain1", "Sending message to chain1")
+		event1, err := c.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "global curse test msg to chain1"), defaultMessageOptions)
+		require.NoError(t, err)
+		logSentMessage(event1, "Sending message to chain1")
+		msg1ID := event1.MessageID
 
 		// Message to destSelector2 (chain2)
-		msg2ID := sendMessageToDest2WithLogging("global curse test msg to chain2", "Sending message to chain2")
+		event2, err := c.SendMessage(ctx, srcSelector, destSelector2, newMessageFields(receiver2, "global curse test msg to chain2"), defaultMessageOptions)
+		require.NoError(t, err)
+		logSentMessage(event2, "Sending message to chain2")
+		msg2ID := event2.MessageID
 
 		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth/5)
 
@@ -382,13 +369,19 @@ func TestE2EReorg(t *testing.T) {
 
 		// Send new messages after uncurse to verify both lanes work
 		l.Info().Msg("📨 Sending messages after global uncurse to verify lanes work")
-		msg3ID := sendMessageWithLogging("post-global-uncurse msg to chain1", "Sending message to chain1 after uncurse")
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
-		verifyMessageExists(msg3ID, "Message to chain1 after global uncurse")
+		event3, err := c.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "post-global-uncurse msg to chain1"), defaultMessageOptions)
+		require.NoError(t, err)
+		logSentMessage(event3, "Sending message to chain1 after uncurse")
 
-		msg4ID := sendMessageToDest2WithLogging("post-global-uncurse msg to chain2", "Sending message to chain2 after uncurse")
 		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
-		verifyMessageExists(msg4ID, "Message to chain2 after global uncurse")
+		verifyMessageExists(event3.MessageID, "Message to chain1 after global uncurse")
+
+		event4, err := c.SendMessage(ctx, srcSelector, destSelector2, newMessageFields(receiver2, "post-global-uncurse msg to chain2"), defaultMessageOptions)
+		require.NoError(t, err)
+		logSentMessage(event4, "Sending message to chain2 after uncurse")
+
+		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		verifyMessageExists(event4.MessageID, "Message to chain2 after global uncurse")
 
 		l.Info().Msg("✨ Test completed: Global curse verified - both lanes blocked, then unblocked after uncurse")
 	})
@@ -403,7 +396,10 @@ func TestE2EReorg(t *testing.T) {
 		l.Info().Str("snapshotID", snapshotID).Msg("✅ Initial snapshot created")
 
 		l.Info().Msg("📨 Sending pre-violation message")
-		preViolationMessageID := sendMessageWithLogging("pre-violation message", "Sending pre-violation message")
+		event1, err := c.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "pre-violation message"), defaultMessageOptions)
+		require.NoError(t, err)
+		logSentMessage(event1, "Sending pre-violation message")
+		preViolationMessageID := event1.MessageID
 
 		l.Info().Int("blocks", verifier.ConfirmationDepth+5).Msg("⛏️  Mining blocks to establish finalized state")
 		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
@@ -413,7 +409,10 @@ func TestE2EReorg(t *testing.T) {
 		verifyMessageExists(preViolationMessageID, "Pre-violation message")
 
 		l.Info().Msg("Sending message to be dropped once finality violation happens")
-		toBeDroppedMessageID := sendMessageWithLogging("toBeDropped message", "Sending toBeDropped message")
+		event2, err := c.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "toBeDropped message"), defaultMessageOptions)
+		require.NoError(t, err)
+		logSentMessage(event2, "Sending toBeDropped message")
+		toBeDroppedMessageID := event2.MessageID
 
 		l.Info().Msg("⚠️  Triggering finality violation by reverting to initial snapshot")
 		err = anvilHelper.Revert(ctx, snapshotID)
