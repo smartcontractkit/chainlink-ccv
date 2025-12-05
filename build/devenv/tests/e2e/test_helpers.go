@@ -19,6 +19,9 @@ import (
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
+// DefaultLokiURL is the default Loki WebSocket URL for log streaming in tests.
+const DefaultLokiURL = "ws://localhost:3030"
+
 type TestingContext struct {
 	T                *testing.T
 	Ctx              context.Context
@@ -33,7 +36,7 @@ type TestingContext struct {
 func NewTestingContext(t *testing.T, ctx context.Context, impl *evm.CCIP17EVM, aggregatorClient *ccv.AggregatorClient, indexerClient *ccv.IndexerClient) TestingContext {
 	lokiURL := os.Getenv("LOKI_QUERY_URL")
 	if lokiURL == "" {
-		lokiURL = "ws://localhost:3030"
+		lokiURL = DefaultLokiURL
 	}
 
 	logger := zerolog.Ctx(ctx).With().Str("component", "log-asserter").Logger()

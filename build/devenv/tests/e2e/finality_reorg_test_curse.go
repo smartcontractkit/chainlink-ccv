@@ -238,7 +238,7 @@ func TestE2EReorg(t *testing.T) {
 
 	t.Run("curse lane verifier side", func(t *testing.T) {
 		// Set up log asserter to verify message is dropped after curse
-		lokiURL := "ws://localhost:3030"
+		lokiURL := DefaultLokiURL
 		logAssertLogger := l.With().Str("component", "log-asserter").Logger()
 		logAssert := logasserter.New(lokiURL, logAssertLogger)
 
@@ -307,7 +307,7 @@ func TestE2EReorg(t *testing.T) {
 
 	t.Run("global curse verifier side", func(t *testing.T) {
 		// Set up log asserter to verify messages are dropped after global curse
-		lokiURL := "ws://localhost:3030"
+		lokiURL := DefaultLokiURL
 		logAssertLogger := l.With().Str("component", "log-asserter").Logger()
 		logAssert := logasserter.New(lokiURL, logAssertLogger)
 
