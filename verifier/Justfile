@@ -8,16 +8,23 @@ default:
 
 build-rc:
     docker build -f Dockerfile -t verifier:rc ..
+    docker build -f Dockerfile ---build-arg VERIFIER_TYPE=token -t token-verifier:rc ..
 
 build-dev:
     docker build -f Dockerfile.dev -t verifier:dev ..
+    docker build -f Dockerfile.dev --build-arg VERIFIER_TYPE=token -t token-verifier:dev ..
 
 publish-rc registry version:
     docker tag verifier:rc {{registry}}/chainlink-ccv-verifier:{{version}}-rc
     docker push {{registry}}/chainlink-ccv-verifier:{{version}}-rc
 
+    docker tag verifier:rc {{registry}}/chainlink-ccv-token-verifier:{{version}}-rc
+    docker push {{registry}}/chainlink-ccv-token-verifier:{{version}}-rc
+
 clean:
     docker rmi verifier:latest
+    docker rmi token-verifier:latest
 
 clean-dev:
     docker rmi verifier:dev
+    docker rmi token-verifier:dev
