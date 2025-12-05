@@ -4,7 +4,15 @@ func MessageReachedVerifier() LogStage {
 	return LogStage{
 		Name:       "MessageReachedVerifier",
 		Service:    "verifier",
-		LogPattern: "Message added to finality queue",
+		LogPattern: "Added message to pending queue",
+	}
+}
+
+func MessageDroppedInVerifier() LogStage {
+	return LogStage{
+		Name:       "MessageDroppedInVerifier",
+		Service:    "verifier",
+		LogPattern: "Dropping task",
 	}
 }
 
