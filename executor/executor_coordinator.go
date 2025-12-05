@@ -15,6 +15,9 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
+// Coordinator is the main executor coordinator that manages the timing of a message lifecycle.
+// It is responsible for reading messages from a source, managing a decentralized delay mechanism,
+// dispatching them to workers for execution, and retrying if necessary.
 type Coordinator struct {
 	services.StateMachine
 	wg                 sync.WaitGroup
@@ -224,11 +227,11 @@ func (ec *Coordinator) handleMessage(ctx context.Context) {
 			shouldRetry, err := ec.executor.HandleMessage(ctx, message)
 			if shouldRetry {
 				// todo: add exponential backoff here
-				retryTime := currentTime.Add(payload.RetryInterval)
+				// The new ready time is the original ready time + retry interval to avoid drift between executors.
 				ec.lggr.Infow("message should be retried, putting back in heap", "messageID", id)
 				ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 					Message:       &message,
-					ReadyTime:     retryTime,
+					ReadyTime:     payload.ReadyTime.Add(payload.RetryInterval),
 					ExpiryTime:    payload.ExpiryTime,
 					RetryInterval: payload.RetryInterval,
 					MessageID:     id,

@@ -30,7 +30,12 @@ var (
 	indexerPollingInterval = 1 * time.Second
 	// indexerGarbagecollectionInterval describes how frequently we garbage collect message duplicates from the indexer results
 	// if this is too short, we will assume a message is net new every time it is read from the indexer.
-	indexerGarbageCollectionInterval = 24 * time.Hour
+	indexerGarbageCollectionInterval = 1 * time.Hour
+	// messageContextWindow is the time window we use to expire duplicate messages from the indexer.
+	// this combines with indexerGarbageCollectionInterval to avoid memory leak in the streamer.
+	// We store messages for messageContextWindow, cleaning up old messages every indexerGarbageCollectionInterval.
+	// These values should be set based on the indexer's message retry duration.
+	messageContextWindow = 9 * time.Hour
 )
 
 // NewExecutorCoordinator initializes the executor coordinator object.
@@ -159,6 +164,7 @@ func NewExecutorCoordinator(
 			PollingInterval:  indexerPollingInterval,
 			Backoff:          cfg.BackoffDuration,
 			QueryLimit:       cfg.IndexerQueryLimit,
+			ExpiryDuration:   messageContextWindow,
 			CleanInterval:    indexerGarbageCollectionInterval,
 			TimeProvider:     backoffProvider,
 		})
