@@ -25,13 +25,13 @@ import (
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
-//go:embed verifier.template.toml
+//go:embed committeeVerifier.template.toml
 var verifierConfigTemplate string
 
 const (
@@ -145,7 +145,7 @@ committeeVerifierConfig = """
 	), nil
 }
 
-func (v *VerifierInput) buildVerifierConfiguration(config *verifier.Config) error {
+func (v *VerifierInput) buildVerifierConfiguration(config *commit.Config) error {
 	if _, err := toml.Decode(verifierConfigTemplate, &config); err != nil {
 		return fmt.Errorf("failed to decode verifier config template: %w", err)
 	}
@@ -168,13 +168,13 @@ func (v *VerifierInput) buildVerifierConfiguration(config *verifier.Config) erro
 
 func (v *VerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*protocol.BlockchainInfo) (verifierTomlConfig []byte, err error) {
 	// Build base configuration
-	var baseConfig verifier.Config
+	var baseConfig commit.Config
 	if err := v.buildVerifierConfiguration(&baseConfig); err != nil {
 		return nil, err
 	}
 
 	// Wrap in ConfigWithBlockchainInfo and add blockchain infos
-	config := verifier.ConfigWithBlockchainInfos{
+	config := commit.ConfigWithBlockchainInfos{
 		Config:          baseConfig,
 		BlockchainInfos: blockchainInfos,
 	}
@@ -188,7 +188,7 @@ func (v *VerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[st
 }
 
 func (v *VerifierInput) GenerateConfig() (verifierTomlConfig []byte, err error) {
-	var config verifier.Config
+	var config commit.Config
 	err = v.buildVerifierConfiguration(&config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build verifier configuration: %w", err)

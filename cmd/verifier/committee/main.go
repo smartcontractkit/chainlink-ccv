@@ -292,8 +292,8 @@ func main() {
 	lggr.Infow("Committee service stopped gracefully")
 }
 
-func loadConfiguration(filepath string) (*verifier.Config, map[string]*protocol.BlockchainInfo, error) {
-	var config verifier.ConfigWithBlockchainInfos
+func loadConfiguration(filepath string) (*commit.Config, map[string]*protocol.BlockchainInfo, error) {
+	var config commit.ConfigWithBlockchainInfos
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
 		return nil, nil, err
 	}
