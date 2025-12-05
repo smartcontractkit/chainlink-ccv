@@ -101,59 +101,40 @@ func (f *FinalityViolationCheckerService) UpdateFinalized(ctx context.Context, f
 		return nil
 	}
 
-	// If finalizedBlock decreased, check stored hash for consistency
+	// Determine range to verify - handles both forward progress and RPC lagging behind
+	fromBlock := min(f.lastFinalized, finalizedBlock)
+	toBlock := max(f.lastFinalized, finalizedBlock)
+
 	if finalizedBlock < f.lastFinalized {
-		header, err := f.fetchSingleBlock(ctx, finalizedBlock)
-		if err != nil {
-			return fmt.Errorf("failed to fetch finalized block %d: %w", finalizedBlock, err)
-		}
-		f.lggr.Warnw("Finalized block number decreased - can be RPC lagging, checking stored hash",
+		f.lggr.Warnw("Finalized block number decreased - RPC may be lagging, verifying full range",
 			"lastFinalized", f.lastFinalized,
 			"newFinalized", finalizedBlock,
 		)
-		stored, ok := f.finalizedBlocks[finalizedBlock]
-		if ok && stored.Hash == header.Hash {
-			return nil
-		}
-
-		f.lggr.Errorw("FINALITY VIOLATION DETECTED - finalized block rewound")
-		f.violationDetected = true
-		return fmt.Errorf("finality violation: finalized block rewound from %d to %d",
-			f.lastFinalized, finalizedBlock)
 	}
 
-	// Fetch blocks from lastFinalized to finalizedBlock
+	// Fetch blocks in range [fromBlock, toBlock]
 	// Note: When finalizedBlock == lastFinalized, this still fetches and verifies the hash
-	headers, err := f.fetchBlockRange(ctx, f.lastFinalized, finalizedBlock)
+	headers, err := f.fetchBlockRange(ctx, fromBlock, toBlock)
 	if err != nil {
-		return fmt.Errorf("failed to fetch block range [%d, %d]: %w", f.lastFinalized, finalizedBlock, err)
+		return fmt.Errorf("failed to fetch block range [%d, %d]: %w", fromBlock, toBlock, err)
 	}
 
 	// Validate and store headers
-	for blockNum := f.lastFinalized; blockNum <= finalizedBlock; blockNum++ {
+	for blockNum := fromBlock; blockNum <= toBlock; blockNum++ {
 		newHeader, exists := headers[blockNum]
 		if !exists {
 			return fmt.Errorf("missing header for block %d in fetched range", blockNum)
 		}
 
-		// Check if we already have this block stored
-		if storedHeader, ok := f.finalizedBlocks[blockNum]; ok {
-			// Verify hash matches
-			if storedHeader.Hash != newHeader.Hash {
-				f.lggr.Errorw("FINALITY VIOLATION DETECTED - block hash changed",
-					"blockNumber", blockNum,
-				)
-				f.violationDetected = true
-				return fmt.Errorf("finality violation: block %d hash changed from %s to %s",
-					blockNum, storedHeader.Hash, newHeader.Hash)
-			}
-		} else {
-			// Store new finalized block
-			f.finalizedBlocks[blockNum] = newHeader
+		if err := f.validateAndStore(blockNum, newHeader); err != nil {
+			return err
 		}
 	}
 
-	f.lastFinalized = finalizedBlock
+	// Only advance lastFinalized when moving forward
+	if finalizedBlock > f.lastFinalized {
+		f.lastFinalized = finalizedBlock
+	}
 	f.lggr.Debugw("Updated finalized blocks",
 		"lastFinalized", f.lastFinalized,
 		"storedBlocksCount", len(f.finalizedBlocks))
@@ -175,6 +156,44 @@ func (f *FinalityViolationCheckerService) trimStoredBlocks() {
 			delete(f.finalizedBlocks, blockNum)
 		}
 	}
+}
+
+// validateAndStore checks block hash consistency and parent hash continuity.
+// Returns error and sets violationDetected if a finality violation is found.
+func (f *FinalityViolationCheckerService) validateAndStore(blockNum uint64, newHeader protocol.BlockHeader) error {
+	// Check if we already have this block stored
+	if storedHeader, ok := f.finalizedBlocks[blockNum]; ok {
+		if storedHeader.Hash != newHeader.Hash {
+			f.lggr.Errorw("FINALITY VIOLATION DETECTED - block hash changed",
+				"blockNumber", blockNum,
+				"storedHash", storedHeader.Hash,
+				"newHash", newHeader.Hash,
+			)
+			f.violationDetected = true
+			return fmt.Errorf("finality violation: block %d hash changed from %s to %s",
+				blockNum, storedHeader.Hash, newHeader.Hash)
+		}
+		return nil
+	}
+
+	// New block: verify parent hash matches the previous stored block
+	if blockNum > 0 {
+		if prevHeader, hasPrev := f.finalizedBlocks[blockNum-1]; hasPrev {
+			if newHeader.ParentHash != prevHeader.Hash {
+				f.lggr.Errorw("FINALITY VIOLATION DETECTED - parent hash mismatch",
+					"blockNumber", blockNum,
+					"expectedParent", prevHeader.Hash,
+					"actualParent", newHeader.ParentHash,
+				)
+				f.violationDetected = true
+				return fmt.Errorf("finality violation: block %d parent hash %s doesn't match block %d hash %s",
+					blockNum, newHeader.ParentHash, blockNum-1, prevHeader.Hash)
+			}
+		}
+	}
+
+	f.finalizedBlocks[blockNum] = newHeader
+	return nil
 }
 
 // IsFinalityViolated returns true if a finality violation has been detected.

@@ -9,7 +9,6 @@ import (
 )
 
 // ExpiryWithMessage is the struct used to maintain data of a message, not used directly for priority queue.
-// Todo: Use a time.Time object rather than a int64 timestamp for better stringification and logging.
 type ExpiryWithMessage struct {
 	Message       *protocol.Message
 	ExpiryTime    time.Time
@@ -68,6 +67,9 @@ func (h *ReadyTimestampHeap) Peek() MessageHeapEntry {
 	return (*h)[0]
 }
 
+// MessageHeap is the struct used to maintain the priority queue for timing messages in the coordinator.
+// Internally, it uses a heap for timing, and a separate map for the data of the message.
+// This is to reduce the amount of data and locking overhead when pushing and popping messages and fixing the heap.
 type MessageHeap struct {
 	heap    ReadyTimestampHeap
 	dataMap map[protocol.Bytes32]ExpiryWithMessage
@@ -148,4 +150,72 @@ func (mh *MessageHeap) Len() int {
 	mh.mu.RLock()
 	defer mh.mu.RUnlock()
 	return len(mh.dataMap)
+}
+
+// ExpirableMessageSet is a set of messageIDs associated with an expiry time.
+// It's used in the indexer storage streamer to deduplicate messages, but only hold for 24 hours.
+type ExpirableMessageSet struct {
+	heap           ReadyTimestampHeap
+	dataMap        map[protocol.Bytes32]struct{}
+	expiryDuration time.Duration
+	mu             *sync.RWMutex
+}
+
+func NewExpirableSet(expiryDuration time.Duration) *ExpirableMessageSet {
+	h := &ReadyTimestampHeap{}
+	heap.Init(h)
+	msgHeap := ExpirableMessageSet{
+		heap:           *h,
+		dataMap:        make(map[protocol.Bytes32]struct{}),
+		mu:             &sync.RWMutex{},
+		expiryDuration: expiryDuration,
+	}
+
+	return &msgHeap
+}
+
+func (es *ExpirableMessageSet) PushUnlessExists(msg protocol.Bytes32, initTime time.Time) bool {
+	es.mu.Lock()
+	defer es.mu.Unlock()
+
+	_, exists := es.dataMap[msg]
+	if exists {
+		return false
+	}
+	heap.Push(&es.heap, MessageHeapEntry{
+		ReadyTime: initTime.Add(es.expiryDuration),
+		MessageID: msg,
+	})
+
+	es.dataMap[msg] = struct{}{}
+	return true
+}
+
+func (es *ExpirableMessageSet) Has(msg protocol.Bytes32) bool {
+	es.mu.RLock()
+	defer es.mu.RUnlock()
+	_, exists := es.dataMap[msg]
+	return exists
+}
+
+func (es *ExpirableMessageSet) Len() int {
+	es.mu.RLock()
+	defer es.mu.RUnlock()
+	return len(es.dataMap)
+}
+
+func (es *ExpirableMessageSet) CleanExpired(timestamp time.Time) int {
+	es.mu.Lock()
+	defer es.mu.Unlock()
+
+	expiredCount := 0
+	for es.heap.Len() > 0 && !es.heap.Peek().ReadyTime.After(timestamp) {
+		msg, ok := heap.Pop(&es.heap).(MessageHeapEntry)
+		if !ok {
+			continue
+		}
+		delete(es.dataMap, msg.MessageID)
+		expiredCount++
+	}
+	return expiredCount
 }

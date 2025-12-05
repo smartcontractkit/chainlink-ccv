@@ -39,6 +39,9 @@ const (
 	// indexerPollingInterval describes how frequently we ask indexer for new messages.
 	// This should be kept at 1s for consistent behavior across all executors.
 	indexerPollingInterval = 1 * time.Second
+	// indexerGarbagecollectionInterval describes how frequently we garbage collect message duplicates from the indexer results
+	// if this is too short, we will assume a message is net new every time it is read from the indexer.
+	indexerGarbageCollectionInterval = 24 * time.Hour
 )
 
 func main() {
@@ -230,18 +233,20 @@ func main() {
 		executorConfig.ExecutorID,
 		execIntervals,
 	)
+	timeProvider := backofftimeprovider.NewBackoffNTPProvider(lggr, executorConfig.BackoffDuration, executorConfig.NtpServer)
 
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
 		lggr,
 		ccvstreamer.IndexerStorageConfig{
-			IndexerClient:   indexerClient,
-			LastQueryTime:   time.Now().Add(-1 * executorConfig.LookbackWindow).UnixMilli(),
-			PollingInterval: indexerPollingInterval,
-			Backoff:         executorConfig.BackoffDuration,
-			QueryLimit:      executorConfig.IndexerQueryLimit,
+			IndexerClient:    indexerClient,
+			InitialQueryTime: time.Now().Add(-1 * executorConfig.LookbackWindow),
+			PollingInterval:  indexerPollingInterval,
+			Backoff:          executorConfig.BackoffDuration,
+			QueryLimit:       executorConfig.IndexerQueryLimit,
+			CleanInterval:    indexerGarbageCollectionInterval,
+			TimeProvider:     timeProvider,
 		})
 
-	timeProvider := backofftimeprovider.NewBackoffNTPProvider(lggr, executorConfig.BackoffDuration, executorConfig.NtpServer)
 	//
 	// Initialize executor coordinator
 	// ------------------------------------------------------------------------------------------------
@@ -253,6 +258,7 @@ func main() {
 		executorMonitoring,
 		executorConfig.MaxRetryDuration,
 		timeProvider,
+		executorConfig.WorkerCount,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create execution coordinator", "error", err)

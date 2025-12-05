@@ -1,6 +1,7 @@
 name: Go Modules Tidy Check
 
 on:
+  merge_group:
   pull_request:
   push:
     branches:

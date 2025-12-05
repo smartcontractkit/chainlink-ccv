@@ -1,6 +1,7 @@
 name: Test Chainlink Node Integration
 
 on:
+  merge_group:
   pull_request:
 
 defaults:

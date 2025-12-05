@@ -81,23 +81,23 @@ func (_c *MockDestinationReader_GetCCVSForMessage_Call) RunAndReturn(run func(co
 	return _c
 }
 
-// GetMessageExecutionState provides a mock function with given fields: ctx, message
-func (_m *MockDestinationReader) GetMessageExecutionState(ctx context.Context, message protocol.Message) (executor.MessageExecutionState, error) {
+// GetMessageExecutability provides a mock function with given fields: ctx, message
+func (_m *MockDestinationReader) GetMessageExecutability(ctx context.Context, message protocol.Message) (bool, error) {
 	ret := _m.Called(ctx, message)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetMessageExecutionState")
+		panic("no return value specified for GetMessageExecutability")
 	}
 
-	var r0 executor.MessageExecutionState
+	var r0 bool
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) (executor.MessageExecutionState, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) (bool, error)); ok {
 		return rf(ctx, message)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) executor.MessageExecutionState); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) bool); ok {
 		r0 = rf(ctx, message)
 	} else {
-		r0 = ret.Get(0).(executor.MessageExecutionState)
+		r0 = ret.Get(0).(bool)
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, protocol.Message) error); ok {
@@ -109,31 +109,31 @@ func (_m *MockDestinationReader) GetMessageExecutionState(ctx context.Context, m
 	return r0, r1
 }
 
-// MockDestinationReader_GetMessageExecutionState_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetMessageExecutionState'
-type MockDestinationReader_GetMessageExecutionState_Call struct {
+// MockDestinationReader_GetMessageExecutability_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetMessageExecutability'
+type MockDestinationReader_GetMessageExecutability_Call struct {
 	*mock.Call
 }
 
-// GetMessageExecutionState is a helper method to define mock.On call
+// GetMessageExecutability is a helper method to define mock.On call
 //   - ctx context.Context
 //   - message protocol.Message
-func (_e *MockDestinationReader_Expecter) GetMessageExecutionState(ctx interface{}, message interface{}) *MockDestinationReader_GetMessageExecutionState_Call {
-	return &MockDestinationReader_GetMessageExecutionState_Call{Call: _e.mock.On("GetMessageExecutionState", ctx, message)}
+func (_e *MockDestinationReader_Expecter) GetMessageExecutability(ctx interface{}, message interface{}) *MockDestinationReader_GetMessageExecutability_Call {
+	return &MockDestinationReader_GetMessageExecutability_Call{Call: _e.mock.On("GetMessageExecutability", ctx, message)}
 }
 
-func (_c *MockDestinationReader_GetMessageExecutionState_Call) Run(run func(ctx context.Context, message protocol.Message)) *MockDestinationReader_GetMessageExecutionState_Call {
+func (_c *MockDestinationReader_GetMessageExecutability_Call) Run(run func(ctx context.Context, message protocol.Message)) *MockDestinationReader_GetMessageExecutability_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(protocol.Message))
 	})
 	return _c
 }
 
-func (_c *MockDestinationReader_GetMessageExecutionState_Call) Return(_a0 executor.MessageExecutionState, _a1 error) *MockDestinationReader_GetMessageExecutionState_Call {
+func (_c *MockDestinationReader_GetMessageExecutability_Call) Return(_a0 bool, _a1 error) *MockDestinationReader_GetMessageExecutability_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockDestinationReader_GetMessageExecutionState_Call) RunAndReturn(run func(context.Context, protocol.Message) (executor.MessageExecutionState, error)) *MockDestinationReader_GetMessageExecutionState_Call {
+func (_c *MockDestinationReader_GetMessageExecutability_Call) RunAndReturn(run func(context.Context, protocol.Message) (bool, error)) *MockDestinationReader_GetMessageExecutability_Call {
 	_c.Call.Return(run)
 	return _c
 }
