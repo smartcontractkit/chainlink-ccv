@@ -44,43 +44,43 @@ type Server struct {
 	pb.UnimplementedVerifierResultAPIServer
 	pb.UnimplementedMessageDiscoveryServer
 
-	l                                  logger.Logger
-	config                             *model.AggregatorConfig
-	store                              common.CommitVerificationStore
-	aggregator                         handlers.AggregationTriggerer
-	recoverer                          *OrphanRecoverer
-	readCommitCCVNodeDataHandler       *handlers.ReadCommitCCVNodeDataHandler
-	writeCommitCCVNodeDataHandler      *handlers.WriteCommitCCVNodeDataHandler
-	getMessagesSinceHandler            *handlers.GetMessagesSinceHandler
-	getBatchCCVDataForMessageHandler   *handlers.GetBatchCCVDataForMessageHandler
-	writeChainStatusHandler            *handlers.WriteChainStatusHandler
-	readChainStatusHandler             *handlers.ReadChainStatusHandler
-	chainStatusStorage                 common.ChainStatusStorageInterface
-	grpcServer                         *grpc.Server
-	batchWriteCommitCCVNodeDataHandler *handlers.BatchWriteCommitCCVNodeDataHandler
-	httpHealthServer                   *health.HTTPHealthServer
-	runGroup                           *run.Group
-	stopChan                           chan struct{}
-	mu                                 sync.Mutex
-	started                            bool
+	l                                         logger.Logger
+	config                                    *model.AggregatorConfig
+	store                                     common.CommitVerificationStore
+	aggregator                                handlers.AggregationTriggerer
+	recoverer                                 *OrphanRecoverer
+	readCommitVerifierNodeResultHandler       *handlers.ReadCommitVerifierNodeResultHandler
+	writeCommitVerifierNodeResultHandler      *handlers.WriteCommitVerifierNodeResultHandler
+	getMessagesSinceHandler                   *handlers.GetMessagesSinceHandler
+	getVerifierResultsForMessageHandler       *handlers.GetVerifierResultsForMessageHandler
+	writeChainStatusHandler                   *handlers.WriteChainStatusHandler
+	readChainStatusHandler                    *handlers.ReadChainStatusHandler
+	chainStatusStorage                        common.ChainStatusStorageInterface
+	grpcServer                                *grpc.Server
+	batchWriteCommitVerifierNodeResultHandler *handlers.BatchWriteCommitVerifierNodeResultHandler
+	httpHealthServer                          *health.HTTPHealthServer
+	runGroup                                  *run.Group
+	stopChan                                  chan struct{}
+	mu                                        sync.Mutex
+	started                                   bool
 }
 
 // WriteCommitteeVerifierNodeResult handles requests to write commit verification records.
 func (s *Server) WriteCommitteeVerifierNodeResult(ctx context.Context, req *pb.WriteCommitteeVerifierNodeResultRequest) (*pb.WriteCommitteeVerifierNodeResultResponse, error) {
-	return s.writeCommitCCVNodeDataHandler.Handle(ctx, req)
+	return s.writeCommitVerifierNodeResultHandler.Handle(ctx, req)
 }
 
 func (s *Server) BatchWriteCommitteeVerifierNodeResult(ctx context.Context, req *pb.BatchWriteCommitteeVerifierNodeResultRequest) (*pb.BatchWriteCommitteeVerifierNodeResultResponse, error) {
-	return s.batchWriteCommitCCVNodeDataHandler.Handle(ctx, req)
+	return s.batchWriteCommitVerifierNodeResultHandler.Handle(ctx, req)
 }
 
 // ReadCommitteeVerifierNodeResult handles requests to read commit verification records.
 func (s *Server) ReadCommitteeVerifierNodeResult(ctx context.Context, req *pb.ReadCommitteeVerifierNodeResultRequest) (*pb.ReadCommitteeVerifierNodeResultResponse, error) {
-	return s.readCommitCCVNodeDataHandler.Handle(ctx, req)
+	return s.readCommitVerifierNodeResultHandler.Handle(ctx, req)
 }
 
 func (s *Server) GetVerifierResultsForMessage(ctx context.Context, req *pb.GetVerifierResultsForMessageRequest) (*pb.GetVerifierResultsForMessageResponse, error) {
-	return s.getBatchCCVDataForMessageHandler.Handle(ctx, req)
+	return s.getVerifierResultsForMessageHandler.Handle(ctx, req)
 }
 
 func (s *Server) GetMessagesSince(ctx context.Context, req *pb.GetMessagesSinceRequest) (*pb.GetMessagesSinceResponse, error) {
@@ -248,11 +248,11 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		return nil
 	}
 
-	writeHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, l, validator)
-	readCommitCCVNodeDataHandler := handlers.NewReadCommitCCVNodeDataHandler(store, l)
+	writeCommitVerifierNodeResultHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, l, validator)
+	readCommitVerifierNodeResultHandler := handlers.NewReadCommitVerifierNodeResultHandler(store, l)
 	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committee, l, aggMonitoring)
-	getBatchCCVDataForMessageHandler := handlers.NewGetBatchCCVDataForMessageHandler(store, config.Committee, config.MaxMessageIDsPerBatch, l)
-	batchWriteCommitCCVNodeDataHandler := handlers.NewBatchWriteCommitCCVNodeDataHandler(writeHandler)
+	getVerifierResultsForMessageHandler := handlers.NewGetVerifierResultsForMessageHandler(store, config.Committee, config.MaxMessageIDsPerBatch, l)
+	batchWriteCommitVerifierNodeResultHandler := handlers.NewBatchWriteCommitVerifierNodeResultHandler(writeCommitVerifierNodeResultHandler)
 
 	// Initialize chain status storage
 	chainStatusStorage, err := factory.CreateChainStatusStorage(config.Storage, aggMonitoring)
@@ -285,7 +285,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		return callMeta.Service == pb.VerifierResultAPI_ServiceDesc.ServiceName
 	}
 
-	aggMonitoring.Metrics().IncrementPendingAggregationsChannelBuffer(context.Background(), 1000) // Pre-increment the buffer size metric
+	aggMonitoring.Metrics().IncrementPendingAggregationsChannelBuffer(context.Background(), config.Aggregation.ChannelBufferSize) // Pre-increment the buffer size metric
 	grpcPanicRecoveryHandler := func(p any) (err error) {
 		l.Error("recovered from panic", "panic", p, "stack", debug.Stack())
 		return status.Errorf(codes.Internal, "%s", p)
@@ -332,23 +332,23 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	}
 
 	server := &Server{
-		l:                                  l,
-		config:                             config,
-		store:                              store,
-		aggregator:                         agg,
-		readCommitCCVNodeDataHandler:       readCommitCCVNodeDataHandler,
-		writeCommitCCVNodeDataHandler:      writeHandler,
-		getMessagesSinceHandler:            getMessagesSinceHandler,
-		getBatchCCVDataForMessageHandler:   getBatchCCVDataForMessageHandler,
-		writeChainStatusHandler:            writeChainStatusHandler,
-		readChainStatusHandler:             readChainStatusHandler,
-		chainStatusStorage:                 chainStatusStorage,
-		batchWriteCommitCCVNodeDataHandler: batchWriteCommitCCVNodeDataHandler,
-		httpHealthServer:                   httpHealthServer,
-		grpcServer:                         grpcServer,
-		recoverer:                          recoverer,
-		started:                            false,
-		mu:                                 sync.Mutex{},
+		l:                                    l,
+		config:                               config,
+		store:                                store,
+		aggregator:                           agg,
+		readCommitVerifierNodeResultHandler:  readCommitVerifierNodeResultHandler,
+		writeCommitVerifierNodeResultHandler: writeCommitVerifierNodeResultHandler,
+		getMessagesSinceHandler:              getMessagesSinceHandler,
+		getVerifierResultsForMessageHandler:  getVerifierResultsForMessageHandler,
+		writeChainStatusHandler:              writeChainStatusHandler,
+		readChainStatusHandler:               readChainStatusHandler,
+		chainStatusStorage:                   chainStatusStorage,
+		batchWriteCommitVerifierNodeResultHandler: batchWriteCommitVerifierNodeResultHandler,
+		httpHealthServer: httpHealthServer,
+		grpcServer:       grpcServer,
+		recoverer:        recoverer,
+		started:          false,
+		mu:               sync.Mutex{},
 	}
 	pb.RegisterVerifierResultAPIServer(grpcServer, server)
 	pb.RegisterMessageDiscoveryServer(grpcServer, server)

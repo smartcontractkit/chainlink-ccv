@@ -37,7 +37,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, lggr, sig)
-	batchHandler := NewBatchWriteCommitCCVNodeDataHandler(writeHandler)
+	batchHandler := NewBatchWriteCommitVerifierNodeResultHandler(writeHandler)
 
 	validReq := makeValidProtoRequest()
 	invalidReq := makeValidProtoRequest()

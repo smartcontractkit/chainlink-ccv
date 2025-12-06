@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/rate_limiting"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -145,4 +146,25 @@ func (m *RateLimitingMiddleware) Intercept(ctx context.Context, req any, info *g
 	}
 
 	return handler(ctx, req)
+}
+
+// NewRateLimitingMiddlewareFromConfig creates a rate limiting middleware from configuration.
+func NewRateLimitingMiddlewareFromConfig(config model.RateLimitingConfig, apiConfig model.APIKeyConfig, lggr logger.SugaredLogger) (*RateLimitingMiddleware, error) {
+	if !config.Enabled {
+		return &RateLimitingMiddleware{enabled: false}, nil
+	}
+
+	// Check if any limits are configured (caller-specific, group, or default)
+	hasLimits := len(config.Limits) > 0 || len(config.GroupLimits) > 0 || len(config.DefaultLimits) > 0
+	if !hasLimits {
+		return nil, fmt.Errorf("rate limiting is enabled but no limits are configured")
+	}
+
+	// Create the storage backend
+	store, err := rate_limiting.NewRateLimiterStore(config.Storage)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create rate limiter storage: %w", err)
+	}
+
+	return NewRateLimitingMiddleware(store, config, apiConfig, lggr), nil
 }

@@ -17,7 +17,6 @@ const (
 	messageIDKey   contextKey = "messageID"
 	addressKey     contextKey = "address"
 	requestIDKey   contextKey = "requestID"
-	committeeIDKey contextKey = "committeeID"
 	apiName        contextKey = "apiName"
 	aggregationKey contextKey = "aggregationKey"
 )
@@ -26,13 +25,11 @@ var loggerContextKeys = []contextKey{
 	messageIDKey,
 	addressKey,
 	requestIDKey,
-	committeeIDKey,
 	apiName,
 	aggregationKey,
 }
 
 var metricsContextKeys = []contextKey{
-	committeeIDKey,
 	apiName,
 }
 
@@ -51,10 +48,6 @@ func WithMessageID(ctx context.Context, id []byte) context.Context {
 
 func WithAddress(ctx context.Context, address []byte) context.Context {
 	return context.WithValue(ctx, addressKey, hex.EncodeToString(address))
-}
-
-func WithCommitteeID(ctx context.Context, committeeID string) context.Context {
-	return context.WithValue(ctx, committeeIDKey, committeeID)
 }
 
 func WithAggregationKey(ctx context.Context, key string) context.Context {

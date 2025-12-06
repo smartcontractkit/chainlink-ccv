@@ -530,7 +530,7 @@ func TestQueryAggregatedReports_Pagination(t *testing.T) {
 			Verifications: []*model.CommitVerificationRecord{record},
 		}
 
-		err = storage.SubmitReport(ctx, report)
+		err = storage.SubmitAggregatedReport(ctx, report)
 		require.NoError(t, err)
 
 		time.Sleep(5 * time.Millisecond)
@@ -578,10 +578,10 @@ func TestGetCCVData_Found(t *testing.T) {
 		Verifications: []*model.CommitVerificationRecord{record},
 	}
 
-	err = storage.SubmitReport(ctx, report)
+	err = storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
-	retrieved, err := storage.GetCCVData(ctx, messageID[:])
+	retrieved, err := storage.GetCommitAggregatedReportByMessageID(ctx, messageID[:])
 	require.NoError(t, err)
 	require.NotNil(t, retrieved)
 	require.Len(t, retrieved.Verifications, 1)
@@ -595,7 +595,7 @@ func TestGetCCVData_NotFound(t *testing.T) {
 
 	ctx := context.Background()
 
-	retrieved, err := storage.GetCCVData(ctx, []byte("nonexistent"))
+	retrieved, err := storage.GetCommitAggregatedReportByMessageID(ctx, []byte("nonexistent"))
 	require.NoError(t, err)
 	require.Nil(t, retrieved)
 }
@@ -620,10 +620,10 @@ func TestSubmitReport_HappyPath(t *testing.T) {
 		Verifications: []*model.CommitVerificationRecord{record},
 	}
 
-	err = storage.SubmitReport(ctx, report)
+	err = storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
-	retrieved, err := storage.GetCCVData(ctx, messageID[:])
+	retrieved, err := storage.GetCommitAggregatedReportByMessageID(ctx, messageID[:])
 	require.NoError(t, err)
 	require.NotNil(t, retrieved)
 	require.Equal(t, messageID[:], retrieved.MessageID)
@@ -651,10 +651,10 @@ func TestSubmitReport_DuplicateHandling(t *testing.T) {
 		Verifications: []*model.CommitVerificationRecord{record},
 	}
 
-	err = storage.SubmitReport(ctx, report)
+	err = storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
-	err = storage.SubmitReport(ctx, report)
+	err = storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
 	result, err := storage.QueryAggregatedReports(ctx, 0)
@@ -701,7 +701,7 @@ func TestListOrphanedKeys(t *testing.T) {
 		MessageID:     messageID2,
 		Verifications: []*model.CommitVerificationRecord{aggregatedRecord},
 	}
-	err = storage.SubmitReport(ctx, report)
+	err = storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
 	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx)
@@ -768,10 +768,10 @@ func TestBatchOperations_MultipleSigners(t *testing.T) {
 		Verifications: records,
 	}
 
-	err := storage.SubmitReport(ctx, report)
+	err := storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
-	retrieved, err := storage.GetCCVData(ctx, messageID)
+	retrieved, err := storage.GetCommitAggregatedReportByMessageID(ctx, messageID)
 	require.NoError(t, err)
 	require.NotNil(t, retrieved)
 	require.Len(t, retrieved.Verifications, 3)
@@ -801,7 +801,7 @@ func TestSubmitReport_NilReport(t *testing.T) {
 
 	ctx := context.Background()
 
-	err := storage.SubmitReport(ctx, nil)
+	err := storage.SubmitAggregatedReport(ctx, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "aggregated report cannot be nil")
 }
@@ -835,11 +835,11 @@ func TestQueryAggregatedReports_SinceSequence(t *testing.T) {
 			Verifications: []*model.CommitVerificationRecord{record},
 		}
 
-		err = storage.SubmitReport(ctx, report)
+		err = storage.SubmitAggregatedReport(ctx, report)
 		require.NoError(t, err)
 
 		if i == 0 {
-			retrieved, err := storage.GetCCVData(ctx, messageID[:])
+			retrieved, err := storage.GetCommitAggregatedReportByMessageID(ctx, messageID[:])
 			require.NoError(t, err)
 			firstReportSeq = retrieved.Sequence
 		}

@@ -15,18 +15,18 @@ import (
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
-// ReadCommitCCVNodeDataHandler handles requests to read commit verification records.
-type ReadCommitCCVNodeDataHandler struct {
+// ReadCommitVerifierNodeResultHandler handles requests to read commit verification records.
+type ReadCommitVerifierNodeResultHandler struct {
 	storage common.CommitVerificationStore
 	l       logger.SugaredLogger
 }
 
-func (h *ReadCommitCCVNodeDataHandler) logger(ctx context.Context) logger.SugaredLogger {
+func (h *ReadCommitVerifierNodeResultHandler) logger(ctx context.Context) logger.SugaredLogger {
 	return scope.AugmentLogger(ctx, h.l)
 }
 
 // Handle processes the read request and retrieves the corresponding commit verification record.
-func (h *ReadCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.ReadCommitteeVerifierNodeResultRequest) (*pb.ReadCommitteeVerifierNodeResultResponse, error) {
+func (h *ReadCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *pb.ReadCommitteeVerifierNodeResultRequest) (*pb.ReadCommitteeVerifierNodeResultResponse, error) {
 	if err := validateReadRequest(req); err != nil {
 		h.logger(ctx).Errorw("validation error", "error", err)
 		return &pb.ReadCommitteeVerifierNodeResultResponse{}, status.Errorf(codes.InvalidArgument, "validation error: %v", err)
@@ -53,9 +53,9 @@ func (h *ReadCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.ReadC
 	}, nil
 }
 
-// NewReadCommitCCVNodeDataHandler creates a new instance of ReadCommitCCVNodeDataHandler.
-func NewReadCommitCCVNodeDataHandler(store common.CommitVerificationStore, l logger.SugaredLogger) *ReadCommitCCVNodeDataHandler {
-	return &ReadCommitCCVNodeDataHandler{
+// NewReadCommitVerifierNodeResultHandler creates a new instance of ReadCommitCCVNodeDataHandler.
+func NewReadCommitVerifierNodeResultHandler(store common.CommitVerificationStore, l logger.SugaredLogger) *ReadCommitVerifierNodeResultHandler {
+	return &ReadCommitVerifierNodeResultHandler{
 		storage: store,
 		l:       l,
 	}

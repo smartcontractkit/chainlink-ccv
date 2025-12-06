@@ -104,7 +104,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 			Verifications: []*model.CommitVerificationRecord{},
 		}
 
-		err := storage.SubmitReport(ctx, existingReport)
+		err := storage.SubmitAggregatedReport(ctx, existingReport)
 		require.NoError(t, err)
 
 		quorum.EXPECT().CheckQuorum(ctx, existingReport).Return(true, nil)
@@ -146,7 +146,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 			Verifications: []*model.CommitVerificationRecord{},
 		}
 
-		err := storage.SubmitReport(ctx, existingReport)
+		err := storage.SubmitAggregatedReport(ctx, existingReport)
 		require.NoError(t, err)
 
 		quorum.EXPECT().CheckQuorum(ctx, existingReport).Return(false, nil)
@@ -167,14 +167,14 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		assert.False(t, shouldSkip)
 	})
 
-	t.Run("should not skip when GetCCVData errors", func(t *testing.T) {
+	t.Run("should not skip when GetCommitAggregatedReportByMessageID errors", func(t *testing.T) {
 		aggStore := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
 		quorum := aggregation_mocks.NewMockQuorumValidator(t)
 		monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
 		metricLabeler := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
 
 		monitoring.EXPECT().Metrics().Return(metricLabeler).Maybe()
-		aggStore.EXPECT().GetCCVData(ctx, messageID).Return(nil, errors.New("boom"))
+		aggStore.EXPECT().GetCommitAggregatedReportByMessageID(ctx, messageID).Return(nil, errors.New("boom"))
 
 		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}}
 		a := NewCommitReportAggregator(memory.NewInMemoryStorage(), aggStore, memory.NewInMemoryStorage(), quorum, config, logger.Sugared(logger.Test(t)), monitoring)
@@ -192,7 +192,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		monitoring.EXPECT().Metrics().Return(metricLabeler).Maybe()
 
 		existingReport := &model.CommitAggregatedReport{MessageID: messageID}
-		err := storage.SubmitReport(ctx, existingReport)
+		err := storage.SubmitAggregatedReport(ctx, existingReport)
 		require.NoError(t, err)
 
 		quorum.EXPECT().CheckQuorum(ctx, existingReport).Return(false, errors.New("boom"))
@@ -320,7 +320,7 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 		quorum := aggregation_mocks.NewMockQuorumValidator(t)
 		quorum.EXPECT().CheckQuorum(ctx, mock.Anything).Return(true, nil).Maybe()
 		sink := aggregation_mocks.NewMockSink(t)
-		sink.EXPECT().SubmitReport(ctx, mock.Anything).Return(nil)
+		sink.EXPECT().SubmitAggregatedReport(ctx, mock.Anything).Return(nil)
 
 		monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
 		metric := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
@@ -339,7 +339,7 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 		quorum := aggregation_mocks.NewMockQuorumValidator(t)
 		quorum.EXPECT().CheckQuorum(ctx, mock.Anything).Return(true, nil).Maybe()
 		sink := aggregation_mocks.NewMockSink(t)
-		sink.EXPECT().SubmitReport(ctx, mock.Anything).Return(errors.New("boom"))
+		sink.EXPECT().SubmitAggregatedReport(ctx, mock.Anything).Return(errors.New("boom"))
 
 		monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
 		metric := aggregation_mocks.NewMockAggregatorMetricLabeler(t)

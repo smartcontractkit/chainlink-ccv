@@ -3,7 +3,6 @@ package model
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 
@@ -14,7 +13,7 @@ import (
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
-func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, c *Committee) (*pb.VerifierResult, error) {
+func getAllSignatureByAddress(report *CommitAggregatedReport) (map[string]protocol.Data, error) {
 	addressSignatures := make(map[string]protocol.Data)
 	for _, verification := range report.Verifications {
 		if verification.IdentifierSigner == nil {
@@ -28,13 +27,11 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, c *Commit
 			Signer: common.Address(verification.IdentifierSigner.Address),
 		}
 	}
+	return addressSignatures, nil
+}
 
-	quorumConfig, ok := c.GetQuorumConfig(report.GetDestinationSelector(), report.GetSourceChainSelector())
-	if !ok {
-		return nil, fmt.Errorf("quorum config not found for destination selector: %d, source selector: %d", report.GetDestinationSelector(), report.GetSourceChainSelector())
-	}
-
-	signers := quorumConfig.Signers
+func findAllSignaturesValidInConfig(addressSignatures map[string]protocol.Data, config *QuorumConfig) []protocol.Data {
+	signers := config.Signers
 
 	signatures := make([]protocol.Data, 0)
 
@@ -62,6 +59,25 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, c *Commit
 
 		signatures = append(signatures, sig)
 	}
+	return signatures
+}
+
+func MapAggregatedReportToVerifierResultProto(report *CommitAggregatedReport, c *Committee) (*pb.VerifierResult, error) {
+	if len(report.Verifications) == 0 {
+		return nil, fmt.Errorf("report does not contains verification")
+	}
+
+	addressSignatures, err := getAllSignatureByAddress(report)
+	if err != nil {
+		return nil, err
+	}
+
+	quorumConfig, ok := c.GetQuorumConfig(report.GetDestinationSelector(), report.GetSourceChainSelector())
+	if !ok {
+		return nil, fmt.Errorf("quorum config not found for destination selector: %d, source selector: %d", report.GetDestinationSelector(), report.GetSourceChainSelector())
+	}
+
+	signatures := findAllSignaturesValidInConfig(addressSignatures, quorumConfig)
 
 	encodedSignatures, err := protocol.EncodeSignatures(signatures)
 	if err != nil {
@@ -71,11 +87,7 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, c *Commit
 	// To create the full ccvData, prepend encodedSignatures with the version of the source verifier
 	// The first verifierVersionLength bytes of the source verifier's return data constitute the version
 	// Because we aggregate on the signed hash and this data is actually signed by verifiers it is safe to assume that all verifications have the same CCVVersion
-	if len(report.Verifications) == 0 {
-		return nil, fmt.Errorf("report does not contains verification")
-	}
-
-	ccvVersion := report.Verifications[0].CCVVersion
+	ccvVersion := report.GetVersion()
 	if ccvVersion == nil {
 		return nil, fmt.Errorf("ccv version is missing from verification")
 	}
@@ -88,25 +100,20 @@ func MapAggregatedReportToCCVDataProto(report *CommitAggregatedReport, c *Commit
 	// Convert UnknownAddress types to [][]byte for protobuf
 	ccvAddresses := make([][]byte, len(report.GetMessageCCVAddresses()))
 	for i, addr := range report.GetMessageCCVAddresses() {
-		ccvAddresses[i] = []byte(addr)
+		ccvAddresses[i] = addr.Bytes()
 	}
 
 	return &pb.VerifierResult{
 		Message:                report.GetProtoMessage(),
 		MessageCcvAddresses:    ccvAddresses,
-		MessageExecutorAddress: []byte(report.GetMessageExecutorAddress()),
+		MessageExecutorAddress: report.GetMessageExecutorAddress().Bytes(),
 		CcvData:                ccvData,
 		Metadata: &pb.VerifierResultMetadata{
-			Timestamp:             timeToTimestampMillis(report.WrittenAt),
+			Timestamp:             report.WrittenAt.UnixMilli(),
 			VerifierSourceAddress: quorumConfig.GetSourceVerifierAddressBytes(),
 			VerifierDestAddress:   quorumConfig.GetDestVerifierAddressBytes(),
 		},
 	}, nil
-}
-
-// timeToTimestampMillis converts time.Time to millisecond timestamp.
-func timeToTimestampMillis(t time.Time) int64 {
-	return t.UnixMilli()
 }
 
 // CommitVerificationRecordFromProto converts protobuf CommitteeVerifierNodeResult to domain model.
@@ -123,7 +130,6 @@ func CommitVerificationRecordFromProto(proto *pb.CommitteeVerifierNodeResult) (*
 		MessageCCVAddresses:    ccvAddresses,
 		MessageExecutorAddress: protocol.UnknownAddress(proto.ExecutorAddress),
 	}
-	record.SetTimestampFromMillis(time.Now().UnixMilli())
 
 	if proto.Message != nil {
 		msg, err := ccvcommon.MapProtoMessageToProtocolMessage(proto.Message)
@@ -148,14 +154,14 @@ func CommitVerificationRecordToProto(record *CommitVerificationRecord) *pb.Commi
 	// Convert []protocol.UnknownAddress to [][]byte
 	ccvAddresses := make([][]byte, len(record.MessageCCVAddresses))
 	for i, addr := range record.MessageCCVAddresses {
-		ccvAddresses[i] = []byte(addr)
+		ccvAddresses[i] = addr.Bytes()
 	}
 
 	proto := &pb.CommitteeVerifierNodeResult{
 		CcvVersion:      record.CCVVersion,
 		Signature:       record.Signature,
 		CcvAddresses:    ccvAddresses,
-		ExecutorAddress: []byte(record.MessageExecutorAddress),
+		ExecutorAddress: record.MessageExecutorAddress.Bytes(),
 	}
 
 	if record.Message != nil {

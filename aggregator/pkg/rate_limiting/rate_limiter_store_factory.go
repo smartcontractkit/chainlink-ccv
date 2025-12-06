@@ -1,4 +1,4 @@
-package middlewares
+package rate_limiting
 
 import (
 	"context"

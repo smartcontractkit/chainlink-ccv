@@ -12,6 +12,11 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
+const (
+	addrSigner       = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	addrDestVerifier = "0xcccccccccccccccccccccccccccccccccccccccc"
+)
+
 // buildCommittee is a helper to build a proper committee with quorum config.
 func buildCommittee(destSel, srcSel uint64, destVerifierAddr string, signers []model.Signer) *model.Committee {
 	return &model.Committee{

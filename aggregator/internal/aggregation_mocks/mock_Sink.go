@@ -22,12 +22,12 @@ func (_m *MockSink) EXPECT() *MockSink_Expecter {
 	return &MockSink_Expecter{mock: &_m.Mock}
 }
 
-// SubmitReport provides a mock function with given fields: ctx, report
-func (_m *MockSink) SubmitReport(ctx context.Context, report *model.CommitAggregatedReport) error {
+// SubmitAggregatedReport provides a mock function with given fields: ctx, report
+func (_m *MockSink) SubmitAggregatedReport(ctx context.Context, report *model.CommitAggregatedReport) error {
 	ret := _m.Called(ctx, report)
 
 	if len(ret) == 0 {
-		panic("no return value specified for SubmitReport")
+		panic("no return value specified for SubmitAggregatedReport")
 	}
 
 	var r0 error
@@ -40,31 +40,31 @@ func (_m *MockSink) SubmitReport(ctx context.Context, report *model.CommitAggreg
 	return r0
 }
 
-// MockSink_SubmitReport_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SubmitReport'
-type MockSink_SubmitReport_Call struct {
+// MockSink_SubmitAggregatedReport_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SubmitAggregatedReport'
+type MockSink_SubmitAggregatedReport_Call struct {
 	*mock.Call
 }
 
-// SubmitReport is a helper method to define mock.On call
+// SubmitAggregatedReport is a helper method to define mock.On call
 //   - ctx context.Context
 //   - report *model.CommitAggregatedReport
-func (_e *MockSink_Expecter) SubmitReport(ctx interface{}, report interface{}) *MockSink_SubmitReport_Call {
-	return &MockSink_SubmitReport_Call{Call: _e.mock.On("SubmitReport", ctx, report)}
+func (_e *MockSink_Expecter) SubmitAggregatedReport(ctx interface{}, report interface{}) *MockSink_SubmitAggregatedReport_Call {
+	return &MockSink_SubmitAggregatedReport_Call{Call: _e.mock.On("SubmitAggregatedReport", ctx, report)}
 }
 
-func (_c *MockSink_SubmitReport_Call) Run(run func(ctx context.Context, report *model.CommitAggregatedReport)) *MockSink_SubmitReport_Call {
+func (_c *MockSink_SubmitAggregatedReport_Call) Run(run func(ctx context.Context, report *model.CommitAggregatedReport)) *MockSink_SubmitAggregatedReport_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(*model.CommitAggregatedReport))
 	})
 	return _c
 }
 
-func (_c *MockSink_SubmitReport_Call) Return(_a0 error) *MockSink_SubmitReport_Call {
+func (_c *MockSink_SubmitAggregatedReport_Call) Return(_a0 error) *MockSink_SubmitAggregatedReport_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockSink_SubmitReport_Call) RunAndReturn(run func(context.Context, *model.CommitAggregatedReport) error) *MockSink_SubmitReport_Call {
+func (_c *MockSink_SubmitAggregatedReport_Call) RunAndReturn(run func(context.Context, *model.CommitAggregatedReport) error) *MockSink_SubmitAggregatedReport_Call {
 	_c.Call.Return(run)
 	return _c
 }

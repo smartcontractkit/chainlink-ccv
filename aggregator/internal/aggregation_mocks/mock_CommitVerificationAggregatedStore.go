@@ -22,12 +22,12 @@ func (_m *MockCommitVerificationAggregatedStore) EXPECT() *MockCommitVerificatio
 	return &MockCommitVerificationAggregatedStore_Expecter{mock: &_m.Mock}
 }
 
-// GetBatchCCVData provides a mock function with given fields: ctx, messageIDs
-func (_m *MockCommitVerificationAggregatedStore) GetBatchCCVData(ctx context.Context, messageIDs [][]byte) (map[string]*model.CommitAggregatedReport, error) {
+// GetBatchAggregatedReportByMessageIDs provides a mock function with given fields: ctx, messageIDs
+func (_m *MockCommitVerificationAggregatedStore) GetBatchAggregatedReportByMessageIDs(ctx context.Context, messageIDs [][]byte) (map[string]*model.CommitAggregatedReport, error) {
 	ret := _m.Called(ctx, messageIDs)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetBatchCCVData")
+		panic("no return value specified for GetBatchAggregatedReportByMessageIDs")
 	}
 
 	var r0 map[string]*model.CommitAggregatedReport
@@ -52,41 +52,41 @@ func (_m *MockCommitVerificationAggregatedStore) GetBatchCCVData(ctx context.Con
 	return r0, r1
 }
 
-// MockCommitVerificationAggregatedStore_GetBatchCCVData_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetBatchCCVData'
-type MockCommitVerificationAggregatedStore_GetBatchCCVData_Call struct {
+// MockCommitVerificationAggregatedStore_GetBatchAggregatedReportByMessageIDs_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetBatchAggregatedReportByMessageIDs'
+type MockCommitVerificationAggregatedStore_GetBatchAggregatedReportByMessageIDs_Call struct {
 	*mock.Call
 }
 
-// GetBatchCCVData is a helper method to define mock.On call
+// GetBatchAggregatedReportByMessageIDs is a helper method to define mock.On call
 //   - ctx context.Context
 //   - messageIDs [][]byte
-func (_e *MockCommitVerificationAggregatedStore_Expecter) GetBatchCCVData(ctx interface{}, messageIDs interface{}) *MockCommitVerificationAggregatedStore_GetBatchCCVData_Call {
-	return &MockCommitVerificationAggregatedStore_GetBatchCCVData_Call{Call: _e.mock.On("GetBatchCCVData", ctx, messageIDs)}
+func (_e *MockCommitVerificationAggregatedStore_Expecter) GetBatchAggregatedReportByMessageIDs(ctx interface{}, messageIDs interface{}) *MockCommitVerificationAggregatedStore_GetBatchAggregatedReportByMessageIDs_Call {
+	return &MockCommitVerificationAggregatedStore_GetBatchAggregatedReportByMessageIDs_Call{Call: _e.mock.On("GetBatchAggregatedReportByMessageIDs", ctx, messageIDs)}
 }
 
-func (_c *MockCommitVerificationAggregatedStore_GetBatchCCVData_Call) Run(run func(ctx context.Context, messageIDs [][]byte)) *MockCommitVerificationAggregatedStore_GetBatchCCVData_Call {
+func (_c *MockCommitVerificationAggregatedStore_GetBatchAggregatedReportByMessageIDs_Call) Run(run func(ctx context.Context, messageIDs [][]byte)) *MockCommitVerificationAggregatedStore_GetBatchAggregatedReportByMessageIDs_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].([][]byte))
 	})
 	return _c
 }
 
-func (_c *MockCommitVerificationAggregatedStore_GetBatchCCVData_Call) Return(_a0 map[string]*model.CommitAggregatedReport, _a1 error) *MockCommitVerificationAggregatedStore_GetBatchCCVData_Call {
+func (_c *MockCommitVerificationAggregatedStore_GetBatchAggregatedReportByMessageIDs_Call) Return(_a0 map[string]*model.CommitAggregatedReport, _a1 error) *MockCommitVerificationAggregatedStore_GetBatchAggregatedReportByMessageIDs_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockCommitVerificationAggregatedStore_GetBatchCCVData_Call) RunAndReturn(run func(context.Context, [][]byte) (map[string]*model.CommitAggregatedReport, error)) *MockCommitVerificationAggregatedStore_GetBatchCCVData_Call {
+func (_c *MockCommitVerificationAggregatedStore_GetBatchAggregatedReportByMessageIDs_Call) RunAndReturn(run func(context.Context, [][]byte) (map[string]*model.CommitAggregatedReport, error)) *MockCommitVerificationAggregatedStore_GetBatchAggregatedReportByMessageIDs_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetCCVData provides a mock function with given fields: ctx, messageID
-func (_m *MockCommitVerificationAggregatedStore) GetCCVData(ctx context.Context, messageID []byte) (*model.CommitAggregatedReport, error) {
+// GetCommitAggregatedReportByMessageID provides a mock function with given fields: ctx, messageID
+func (_m *MockCommitVerificationAggregatedStore) GetCommitAggregatedReportByMessageID(ctx context.Context, messageID []byte) (*model.CommitAggregatedReport, error) {
 	ret := _m.Called(ctx, messageID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetCCVData")
+		panic("no return value specified for GetCommitAggregatedReportByMessageID")
 	}
 
 	var r0 *model.CommitAggregatedReport
@@ -111,31 +111,31 @@ func (_m *MockCommitVerificationAggregatedStore) GetCCVData(ctx context.Context,
 	return r0, r1
 }
 
-// MockCommitVerificationAggregatedStore_GetCCVData_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCCVData'
-type MockCommitVerificationAggregatedStore_GetCCVData_Call struct {
+// MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByMessageID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCommitAggregatedReportByMessageID'
+type MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByMessageID_Call struct {
 	*mock.Call
 }
 
-// GetCCVData is a helper method to define mock.On call
+// GetCommitAggregatedReportByMessageID is a helper method to define mock.On call
 //   - ctx context.Context
 //   - messageID []byte
-func (_e *MockCommitVerificationAggregatedStore_Expecter) GetCCVData(ctx interface{}, messageID interface{}) *MockCommitVerificationAggregatedStore_GetCCVData_Call {
-	return &MockCommitVerificationAggregatedStore_GetCCVData_Call{Call: _e.mock.On("GetCCVData", ctx, messageID)}
+func (_e *MockCommitVerificationAggregatedStore_Expecter) GetCommitAggregatedReportByMessageID(ctx interface{}, messageID interface{}) *MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByMessageID_Call {
+	return &MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByMessageID_Call{Call: _e.mock.On("GetCommitAggregatedReportByMessageID", ctx, messageID)}
 }
 
-func (_c *MockCommitVerificationAggregatedStore_GetCCVData_Call) Run(run func(ctx context.Context, messageID []byte)) *MockCommitVerificationAggregatedStore_GetCCVData_Call {
+func (_c *MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByMessageID_Call) Run(run func(ctx context.Context, messageID []byte)) *MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByMessageID_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].([]byte))
 	})
 	return _c
 }
 
-func (_c *MockCommitVerificationAggregatedStore_GetCCVData_Call) Return(_a0 *model.CommitAggregatedReport, _a1 error) *MockCommitVerificationAggregatedStore_GetCCVData_Call {
+func (_c *MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByMessageID_Call) Return(_a0 *model.CommitAggregatedReport, _a1 error) *MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByMessageID_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockCommitVerificationAggregatedStore_GetCCVData_Call) RunAndReturn(run func(context.Context, []byte) (*model.CommitAggregatedReport, error)) *MockCommitVerificationAggregatedStore_GetCCVData_Call {
+func (_c *MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByMessageID_Call) RunAndReturn(run func(context.Context, []byte) (*model.CommitAggregatedReport, error)) *MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByMessageID_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -46,7 +46,7 @@ func (q *EVMQuorumValidator) CheckQuorum(ctx context.Context, aggregatedReport *
 		return false, nil
 	}
 
-	participantIDs := make(map[string]struct{})
+	signerAddressesSet := make(map[string]struct{})
 	for _, verification := range aggregatedReport.Verifications {
 		signer, _, err := q.ValidateSignature(ctx, verification)
 		if err != nil {
@@ -57,15 +57,15 @@ func (q *EVMQuorumValidator) CheckQuorum(ctx context.Context, aggregatedReport *
 			q.logger(ctx).Warn("No valid signer found. Might be due to a config change")
 			continue
 		}
-		participantIDs[string(signer.Address)] = struct{}{}
+		signerAddressesSet[string(signer.Address)] = struct{}{}
 	}
 
-	if len(participantIDs) < int(quorumConfig.Threshold) {
-		q.logger(ctx).Debugf("Quorum not met: have %d unique signer addresses, need %d", len(participantIDs), quorumConfig.Threshold)
+	if len(signerAddressesSet) < int(quorumConfig.Threshold) {
+		q.logger(ctx).Debugf("Quorum not met: have %d unique signer addresses, need %d", len(signerAddressesSet), quorumConfig.Threshold)
 		return false, nil
 	}
 
-	q.logger(ctx).Debugf("Quorum met with %d unique signer addresses", len(participantIDs))
+	q.logger(ctx).Debugf("Quorum met with %d unique signer addresses", len(signerAddressesSet))
 	return true, nil
 }
 
@@ -126,20 +126,20 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *mode
 	// (which corresponds to v=27 in the on-chain ecrecover context)
 	combined := append(r[:], s[:]...)
 	combined = append(combined, byte(0))
-	address, err := q.ecrecover(combined, hash[:])
+	recoveredAddress, err := q.ecrecover(combined, hash[:])
 	if err != nil {
-		q.logger(ctx).Debugw("Failed to recover address from signature", "error", err)
+		q.logger(ctx).Errorw("Failed to recover address from signature", "error", err)
 		return nil, nil, fmt.Errorf("failed to recover address from signature: %w", err)
 	}
-	q.logger(ctx).Tracef("Recovered address: %s", address.Hex())
+	q.logger(ctx).Tracef("Recovered address: %s", recoveredAddress.Hex())
 
-	for _, signer := range quorumConfig.Signers {
-		signerAddress := common.HexToAddress(signer.Address)
+	for _, candidateSigner := range quorumConfig.Signers {
+		candidateSignerAddress := common.HexToAddress(candidateSigner.Address)
 
-		if signerAddress == address {
-			q.logger(ctx).Infow("Recovered address from signature", "address", address.Hex())
+		if candidateSignerAddress == recoveredAddress {
+			q.logger(ctx).Infow("Recovered address from signature", "address", recoveredAddress.Hex())
 			return &model.IdentifierSigner{
-				Address:    signerAddress.Bytes(),
+				Address:    candidateSignerAddress.Bytes(),
 				SignatureR: r,
 				SignatureS: s,
 			}, quorumConfig, nil

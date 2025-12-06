@@ -16,20 +16,20 @@ import (
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
-// GetBatchCCVDataForMessageHandler handles batch requests to retrieve commit verification data for multiple message IDs.
-type GetBatchCCVDataForMessageHandler struct {
+// GetVerifierResultsForMessageHandler handles batch requests to retrieve commit verification data for multiple message IDs.
+type GetVerifierResultsForMessageHandler struct {
 	storage               common.CommitVerificationAggregatedStore
 	committee             *model.Committee
 	l                     logger.SugaredLogger
 	maxMessageIDsPerBatch int
 }
 
-func (h *GetBatchCCVDataForMessageHandler) logger(ctx context.Context) logger.SugaredLogger {
+func (h *GetVerifierResultsForMessageHandler) logger(ctx context.Context) logger.SugaredLogger {
 	return scope.AugmentLogger(ctx, h.l)
 }
 
 // Handle processes the batch get request and retrieves commit verification data for multiple message IDs.
-func (h *GetBatchCCVDataForMessageHandler) Handle(ctx context.Context, req *pb.GetVerifierResultsForMessageRequest) (*pb.GetVerifierResultsForMessageResponse, error) {
+func (h *GetVerifierResultsForMessageHandler) Handle(ctx context.Context, req *pb.GetVerifierResultsForMessageRequest) (*pb.GetVerifierResultsForMessageResponse, error) {
 	reqLogger := h.logger(ctx)
 	reqLogger.Infof("Received batch verifier result request for %d message IDs", len(req.GetMessageIds()))
 
@@ -48,7 +48,7 @@ func (h *GetBatchCCVDataForMessageHandler) Handle(ctx context.Context, req *pb.G
 	}
 
 	// Call storage for efficient batch retrieval
-	results, err := h.storage.GetBatchCCVData(ctx, messageIDs)
+	results, err := h.storage.GetBatchAggregatedReportByMessageIDs(ctx, messageIDs)
 	if err != nil {
 		reqLogger.Errorf("Failed to retrieve batch CCV data: %v", err)
 		return nil, grpcstatus.Errorf(codes.Internal, "failed to retrieve batch data: %v", err)
@@ -66,7 +66,7 @@ func (h *GetBatchCCVDataForMessageHandler) Handle(ctx context.Context, req *pb.G
 
 		if report, found := results[messageIDHex]; found {
 			// Map aggregated report to proto
-			ccvData, err := model.MapAggregatedReportToCCVDataProto(report, h.committee)
+			ccvData, err := model.MapAggregatedReportToVerifierResultProto(report, h.committee)
 			if err != nil {
 				reqLogger.Errorf("Failed to map aggregated report to proto for message ID %s: %v", messageIDHex, err)
 				SetBatchError(response.Errors, i, codes.Internal, "failed to map aggregated report")
@@ -84,9 +84,9 @@ func (h *GetBatchCCVDataForMessageHandler) Handle(ctx context.Context, req *pb.G
 	return response, nil
 }
 
-// NewGetBatchCCVDataForMessageHandler creates a new instance of GetBatchCCVDataForMessageHandler.
-func NewGetBatchCCVDataForMessageHandler(storage common.CommitVerificationAggregatedStore, committee *model.Committee, maxMessageIDsPerBatch int, l logger.SugaredLogger) *GetBatchCCVDataForMessageHandler {
-	return &GetBatchCCVDataForMessageHandler{
+// NewGetVerifierResultsForMessageHandler creates a new instance of GetVerifierResultsForMessageHandler.
+func NewGetVerifierResultsForMessageHandler(storage common.CommitVerificationAggregatedStore, committee *model.Committee, maxMessageIDsPerBatch int, l logger.SugaredLogger) *GetVerifierResultsForMessageHandler {
+	return &GetVerifierResultsForMessageHandler{
 		storage:               storage,
 		committee:             committee,
 		l:                     l,
