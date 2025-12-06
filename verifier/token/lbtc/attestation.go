@@ -19,7 +19,7 @@ type HTTPAttestationService struct {
 	batchSize int
 }
 
-func NewAttestationService(config Config) AttestationService {
+func NewAttestationService(config LBTCConfig) AttestationService {
 	return HTTPAttestationService{
 		api:       config.AttestationAPI,
 		timeout:   config.AttestationAPITimeout,

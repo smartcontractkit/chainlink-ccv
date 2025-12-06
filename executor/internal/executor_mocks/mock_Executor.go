@@ -5,7 +5,6 @@ package executor_mocks
 import (
 	context "context"
 
-	executor "github.com/smartcontractkit/chainlink-ccv/executor"
 	mock "github.com/stretchr/testify/mock"
 
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -22,53 +21,6 @@ type MockExecutor_Expecter struct {
 
 func (_m *MockExecutor) EXPECT() *MockExecutor_Expecter {
 	return &MockExecutor_Expecter{mock: &_m.Mock}
-}
-
-// AttemptExecuteMessage provides a mock function with given fields: ctx, message
-func (_m *MockExecutor) AttemptExecuteMessage(ctx context.Context, message protocol.Message) error {
-	ret := _m.Called(ctx, message)
-
-	if len(ret) == 0 {
-		panic("no return value specified for AttemptExecuteMessage")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) error); ok {
-		r0 = rf(ctx, message)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockExecutor_AttemptExecuteMessage_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AttemptExecuteMessage'
-type MockExecutor_AttemptExecuteMessage_Call struct {
-	*mock.Call
-}
-
-// AttemptExecuteMessage is a helper method to define mock.On call
-//   - ctx context.Context
-//   - message protocol.Message
-func (_e *MockExecutor_Expecter) AttemptExecuteMessage(ctx interface{}, message interface{}) *MockExecutor_AttemptExecuteMessage_Call {
-	return &MockExecutor_AttemptExecuteMessage_Call{Call: _e.mock.On("AttemptExecuteMessage", ctx, message)}
-}
-
-func (_c *MockExecutor_AttemptExecuteMessage_Call) Run(run func(ctx context.Context, message protocol.Message)) *MockExecutor_AttemptExecuteMessage_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(protocol.Message))
-	})
-	return _c
-}
-
-func (_c *MockExecutor_AttemptExecuteMessage_Call) Return(_a0 error) *MockExecutor_AttemptExecuteMessage_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockExecutor_AttemptExecuteMessage_Call) RunAndReturn(run func(context.Context, protocol.Message) error) *MockExecutor_AttemptExecuteMessage_Call {
-	_c.Call.Return(run)
-	return _c
 }
 
 // CheckValidMessage provides a mock function with given fields: ctx, message
@@ -118,23 +70,23 @@ func (_c *MockExecutor_CheckValidMessage_Call) RunAndReturn(run func(context.Con
 	return _c
 }
 
-// GetMessageStatus provides a mock function with given fields: ctx, message
-func (_m *MockExecutor) GetMessageStatus(ctx context.Context, message protocol.Message) (executor.MessageStatusResults, error) {
+// HandleMessage provides a mock function with given fields: ctx, message
+func (_m *MockExecutor) HandleMessage(ctx context.Context, message protocol.Message) (bool, error) {
 	ret := _m.Called(ctx, message)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetMessageStatus")
+		panic("no return value specified for HandleMessage")
 	}
 
-	var r0 executor.MessageStatusResults
+	var r0 bool
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) (executor.MessageStatusResults, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) (bool, error)); ok {
 		return rf(ctx, message)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) executor.MessageStatusResults); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) bool); ok {
 		r0 = rf(ctx, message)
 	} else {
-		r0 = ret.Get(0).(executor.MessageStatusResults)
+		r0 = ret.Get(0).(bool)
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, protocol.Message) error); ok {
@@ -146,31 +98,31 @@ func (_m *MockExecutor) GetMessageStatus(ctx context.Context, message protocol.M
 	return r0, r1
 }
 
-// MockExecutor_GetMessageStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetMessageStatus'
-type MockExecutor_GetMessageStatus_Call struct {
+// MockExecutor_HandleMessage_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HandleMessage'
+type MockExecutor_HandleMessage_Call struct {
 	*mock.Call
 }
 
-// GetMessageStatus is a helper method to define mock.On call
+// HandleMessage is a helper method to define mock.On call
 //   - ctx context.Context
 //   - message protocol.Message
-func (_e *MockExecutor_Expecter) GetMessageStatus(ctx interface{}, message interface{}) *MockExecutor_GetMessageStatus_Call {
-	return &MockExecutor_GetMessageStatus_Call{Call: _e.mock.On("GetMessageStatus", ctx, message)}
+func (_e *MockExecutor_Expecter) HandleMessage(ctx interface{}, message interface{}) *MockExecutor_HandleMessage_Call {
+	return &MockExecutor_HandleMessage_Call{Call: _e.mock.On("HandleMessage", ctx, message)}
 }
 
-func (_c *MockExecutor_GetMessageStatus_Call) Run(run func(ctx context.Context, message protocol.Message)) *MockExecutor_GetMessageStatus_Call {
+func (_c *MockExecutor_HandleMessage_Call) Run(run func(ctx context.Context, message protocol.Message)) *MockExecutor_HandleMessage_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(protocol.Message))
 	})
 	return _c
 }
 
-func (_c *MockExecutor_GetMessageStatus_Call) Return(_a0 executor.MessageStatusResults, _a1 error) *MockExecutor_GetMessageStatus_Call {
-	_c.Call.Return(_a0, _a1)
+func (_c *MockExecutor_HandleMessage_Call) Return(shouldRetry bool, err error) *MockExecutor_HandleMessage_Call {
+	_c.Call.Return(shouldRetry, err)
 	return _c
 }
 
-func (_c *MockExecutor_GetMessageStatus_Call) RunAndReturn(run func(context.Context, protocol.Message) (executor.MessageStatusResults, error)) *MockExecutor_GetMessageStatus_Call {
+func (_c *MockExecutor_HandleMessage_Call) RunAndReturn(run func(context.Context, protocol.Message) (bool, error)) *MockExecutor_HandleMessage_Call {
 	_c.Call.Return(run)
 	return _c
 }

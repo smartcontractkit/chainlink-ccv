@@ -222,6 +222,9 @@ func (s *LogStream) identifyStage(logLine string) string {
 	if strings.Contains(logLine, MessageReachedVerifier().LogPattern) {
 		return MessageReachedVerifier().Name
 	}
+	if strings.Contains(logLine, MessageDroppedInVerifier().LogPattern) {
+		return MessageDroppedInVerifier().Name
+	}
 	if strings.Contains(logLine, MessageSigned().LogPattern) {
 		return MessageSigned().Name
 	}

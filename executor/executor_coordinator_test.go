@@ -120,8 +120,7 @@ func TestLifecycle(t *testing.T) {
 	lggr := logger.Test(t)
 
 	ccvDataReader := executor_mocks.NewMockMessageSubscriber(t)
-	messageChan := make(chan executor.StreamerResult)
-	ccvDataReader.EXPECT().Start(mock.Anything, mock.Anything).Return(messageChan, nil)
+	ccvDataReader.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	ec, err := executor.NewCoordinator(
 		lggr,
@@ -147,9 +146,8 @@ func TestSubscribeMessagesError(t *testing.T) {
 
 	// Generate an error when SubscribeMessages() is called during Start().
 	messageSubscriber := executor_mocks.NewMockMessageSubscriber(t)
-	messageChan := make(chan executor.StreamerResult)
 	sentinelError := fmt.Errorf("lilo & stitch")
-	messageSubscriber.EXPECT().Start(mock.Anything, mock.Anything).Return(messageChan, sentinelError)
+	messageSubscriber.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything).Return(sentinelError)
 	timeProvider := common.NewMockTimeProvider(t)
 	timeProvider.EXPECT().GetTime().Return(time.Now().UTC()).Maybe()
 
@@ -217,9 +215,8 @@ func TestMessageExpiration(t *testing.T) {
 		// The return value from the executor.GetMessageStatus() call.
 		messageStatusResults executor.MessageStatusResults
 		// Whether we should see the message logs to determine if the flow is correct.
-		shouldRetry   bool
-		shouldExecute bool
-		shouldExpire  bool
+		shouldRetry  bool
+		shouldExpire bool
 	}{
 		{
 			name:                 "message expires when retry time exceeds expiry",
@@ -231,23 +228,8 @@ func TestMessageExpiration(t *testing.T) {
 				ShouldRetry:   true,
 				ShouldExecute: false,
 			},
-			shouldRetry:   false, // because message is expired, we should not see retry log
-			shouldExecute: false, // because message is expired, we should not see execute log
-			shouldExpire:  true,  // because message is expired, we should see expire log
-		},
-		{
-			name:                 "message retries when within expiry window",
-			expiryDuration:       20 * time.Second,
-			retryDelay:           2 * time.Second, // 2 seconds retry delay
-			initialReadyDelay:    0 * time.Second,
-			mockedTimeDifference: 2 * time.Second,
-			messageStatusResults: executor.MessageStatusResults{
-				ShouldRetry:   true,
-				ShouldExecute: false,
-			},
-			shouldRetry:   true,  // because message is not expired, we should see retry log
-			shouldExecute: false, // because message status returns no execute, we should not see execute log
-			shouldExpire:  false,
+			shouldRetry:  false, // because message is expired, we should not see retry log
+			shouldExpire: true,  // because message is expired, we should see expire log
 		},
 		{
 			name:                 "message does not retry when shouldRetry is false",
@@ -259,9 +241,8 @@ func TestMessageExpiration(t *testing.T) {
 				ShouldRetry:   false,
 				ShouldExecute: false,
 			},
-			shouldRetry:   false, // because message status returns no retry, we should not see retry log
-			shouldExecute: false, // because message status returns no execute, we should not see execute log
-			shouldExpire:  false, // because message is not yet expired, we should not see expire log
+			shouldRetry:  false, // because message status returns no retry, we should not see retry log
+			shouldExpire: false, // because message is not yet expired, we should not see expire log
 		},
 		{
 			name:                 "message should execute when within expiry and shouldExecute is true",
@@ -273,9 +254,8 @@ func TestMessageExpiration(t *testing.T) {
 				ShouldRetry:   false,
 				ShouldExecute: true,
 			},
-			shouldRetry:   false, // no retry
-			shouldExecute: true,  // should execute log
-			shouldExpire:  false, // should not expire
+			shouldRetry:  false, // no retry
+			shouldExpire: false, // should not expire
 		},
 		{
 			name:                 "message should not execute, not retry, and not expire (future time)",
@@ -287,23 +267,8 @@ func TestMessageExpiration(t *testing.T) {
 				ShouldRetry:   false,
 				ShouldExecute: false,
 			},
-			shouldRetry:   false,
-			shouldExecute: false,
-			shouldExpire:  false,
-		},
-		{
-			name:                 "message both retry and execute are true, should execute",
-			expiryDuration:       20 * time.Second,
-			retryDelay:           1 * time.Second,
-			initialReadyDelay:    0 * time.Second,
-			mockedTimeDifference: 1 * time.Second,
-			messageStatusResults: executor.MessageStatusResults{
-				ShouldRetry:   true,
-				ShouldExecute: true,
-			},
-			shouldRetry:   true,
-			shouldExecute: true,
-			shouldExpire:  false,
+			shouldRetry:  false,
+			shouldExpire: false,
 		},
 		{
 			name:                 "message expired but shouldExecute is true, should still expire not execute",
@@ -315,9 +280,8 @@ func TestMessageExpiration(t *testing.T) {
 				ShouldRetry:   false,
 				ShouldExecute: true,
 			},
-			shouldRetry:   false,
-			shouldExecute: false, // message is expired, so should not execute
-			shouldExpire:  true,
+			shouldRetry:  false,
+			shouldExpire: true,
 		},
 	}
 
@@ -331,38 +295,35 @@ func TestMessageExpiration(t *testing.T) {
 			mockTimeProvider.EXPECT().GetTime().Return(currentTime.Add(tc.mockedTimeDifference)).Maybe()
 
 			// Create a test message
-			testMessage := executor.StreamerResult{
-				Messages: []protocol.MessageWithMetadata{
-					{
-						Message: protocol.Message{
-							DestChainSelector:   1,
-							SourceChainSelector: 2,
-							SequenceNumber:      1,
-						},
-						Metadata: protocol.MessageMetadata{
-							IngestionTimestamp: currentTime,
-						},
-					},
+			testMessage := protocol.MessageWithMetadata{
+				Message: protocol.Message{
+					DestChainSelector:   1,
+					SourceChainSelector: 2,
+					SequenceNumber:      1,
+				},
+				Metadata: protocol.MessageMetadata{
+					IngestionTimestamp: currentTime,
 				},
 			}
 
 			// Set up message subscriber to send one message
 			messageSubscriber := executor_mocks.NewMockMessageSubscriber(t)
-			messageChan := make(chan executor.StreamerResult, 1)
-			messageSubscriber.EXPECT().Start(mock.Anything, mock.Anything).Return(messageChan, nil)
+			messageSubscriber.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything).Return(nil).Run(func(ctx context.Context, results chan protocol.MessageWithMetadata, errors chan error) {
+				// Send the test message to the channel
+				go func() {
+					results <- testMessage
+				}()
+			})
 
 			// Set up executor mock
 			mockExecutor := executor_mocks.NewMockExecutor(t)
 			mockExecutor.EXPECT().CheckValidMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
-			mockExecutor.EXPECT().AttemptExecuteMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
+			mockExecutor.EXPECT().HandleMessage(mock.Anything, mock.Anything).Return(false, nil).Maybe()
 
 			// Set up leader elector mock
 			leaderElector := executor_mocks.NewMockLeaderElector(t)
 			leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything, mock.Anything).Return(currentTime.Add(tc.initialReadyDelay)).Maybe()
 			leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(tc.retryDelay).Maybe()
-
-			mockExecutor.EXPECT().GetMessageStatus(mock.Anything, mock.Anything).
-				Return(tc.messageStatusResults, nil).Maybe()
 
 			// Create coordinator with test expiry duration
 			ec, err := executor.NewCoordinator(
@@ -387,9 +348,6 @@ func TestMessageExpiration(t *testing.T) {
 				_ = ec.Close()
 			}()
 
-			// Send the test message
-			messageChan <- testMessage
-
 			// Wait for processing to occur, we mock the time provider inside the test so there will only be a single time loop.
 			time.Sleep(2 * time.Second)
 
@@ -404,14 +362,7 @@ func TestMessageExpiration(t *testing.T) {
 				return false
 			}
 
-			if tc.shouldExecute {
-				require.Eventuallyf(t, func() bool {
-					return found("attempting to execute message")
-				}, 5*time.Second, 1*time.Second, "expected to find 'attempting to execute message' log entry")
-			} else {
-				require.False(t, found("attempting to execute message"), "should not have execute log")
-			}
-
+			// Only assert on retry and expire, not on execute.
 			if tc.shouldExpire {
 				require.Eventuallyf(t, func() bool {
 					return found("message has expired")

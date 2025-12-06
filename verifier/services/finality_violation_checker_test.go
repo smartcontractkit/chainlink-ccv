@@ -200,7 +200,7 @@ func TestFinalityViolationChecker_NoAdvancement(t *testing.T) {
 	assert.False(t, checker.IsFinalityViolated())
 }
 
-func TestFinalityViolationChecker_BackwardMovementDetected(t *testing.T) {
+func TestFinalityViolationChecker_BackwardMovementConsistentHashes_NoViolation(t *testing.T) {
 	lggr, _ := logger.New()
 
 	blocks := map[uint64]protocol.BlockHeader{
@@ -218,11 +218,39 @@ func TestFinalityViolationChecker_BackwardMovementDetected(t *testing.T) {
 	err = checker.UpdateFinalized(ctx, 100)
 	require.NoError(t, err)
 
-	// Update with earlier block - should detect finality violation
+	// Update with earlier block - RPC lagging, but hashes are consistent
+	// Should NOT be a violation since all hashes verify correctly
+	err = checker.UpdateFinalized(ctx, 99)
+	require.NoError(t, err)
+	assert.False(t, checker.IsFinalityViolated())
+}
+
+func TestFinalityViolationChecker_BackwardMovementHashChanged_Violation(t *testing.T) {
+	lggr, _ := logger.New()
+
+	blocks := map[uint64]protocol.BlockHeader{
+		99:  {Number: 99, Hash: makeBytes32("hash99"), ParentHash: makeBytes32("hash98")},
+		100: {Number: 100, Hash: makeBytes32("hash100"), ParentHash: makeBytes32("hash99")},
+	}
+	mockSetup := setupMockSourceReaderForFinality(t, blocks)
+
+	checker, err := NewFinalityViolationCheckerService(mockSetup.Reader, protocol.ChainSelector(1), lggr)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	// Initialize with block 100
+	err = checker.UpdateFinalized(ctx, 100)
+	require.NoError(t, err)
+
+	// Simulate reorg: block 100's hash changed
+	blocks[100] = protocol.BlockHeader{Number: 100, Hash: makeBytes32("REORGED"), ParentHash: makeBytes32("hash99")}
+
+	// Update with earlier block - should detect hash mismatch on block 100
 	err = checker.UpdateFinalized(ctx, 99)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "finality violation")
-	assert.Contains(t, err.Error(), "rewound")
+	assert.Contains(t, err.Error(), "hash changed")
 	assert.True(t, checker.IsFinalityViolated())
 }
 

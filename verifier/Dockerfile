@@ -9,7 +9,10 @@ RUN --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
 
 # Then copy the rest of the source and build
 COPY . .
-WORKDIR /cmd/verifier
+
+ARG VERIFIER_TYPE=committee
+WORKDIR /cmd/verifier/${VERIFIER_TYPE}
+
 RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
     --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
     CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/verifier main.go
