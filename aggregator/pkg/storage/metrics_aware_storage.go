@@ -67,21 +67,21 @@ func (s *MetricsAwareStorage) QueryAggregatedReports(ctx context.Context, sinceS
 	})
 }
 
-func (s *MetricsAwareStorage) GetCCVData(ctx context.Context, messageID model.MessageID) (*model.CommitAggregatedReport, error) {
+func (s *MetricsAwareStorage) GetCommitAggregatedReportByMessageID(ctx context.Context, messageID model.MessageID) (*model.CommitAggregatedReport, error) {
 	return captureMetrics(ctx, s.metrics(ctx, getCCVDataOp), func() (*model.CommitAggregatedReport, error) {
-		return s.inner.GetCCVData(ctx, messageID)
+		return s.inner.GetCommitAggregatedReportByMessageID(ctx, messageID)
 	})
 }
 
-func (s *MetricsAwareStorage) GetBatchCCVData(ctx context.Context, messageIDs []model.MessageID) (map[string]*model.CommitAggregatedReport, error) {
+func (s *MetricsAwareStorage) GetBatchAggregatedReportByMessageIDs(ctx context.Context, messageIDs []model.MessageID) (map[string]*model.CommitAggregatedReport, error) {
 	return captureMetrics(ctx, s.metrics(ctx, getBatchCCVDataOp), func() (map[string]*model.CommitAggregatedReport, error) {
-		return s.inner.GetBatchCCVData(ctx, messageIDs)
+		return s.inner.GetBatchAggregatedReportByMessageIDs(ctx, messageIDs)
 	})
 }
 
-func (s *MetricsAwareStorage) SubmitReport(ctx context.Context, report *model.CommitAggregatedReport) error {
+func (s *MetricsAwareStorage) SubmitAggregatedReport(ctx context.Context, report *model.CommitAggregatedReport) error {
 	return captureMetricsNoReturn(ctx, s.metrics(ctx, submitReportOp), func() error {
-		return s.inner.SubmitReport(ctx, report)
+		return s.inner.SubmitAggregatedReport(ctx, report)
 	})
 }
 

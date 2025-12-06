@@ -27,20 +27,20 @@ type AggregationTriggerer interface {
 	CheckAggregation(model.MessageID, model.AggregationKey) error
 }
 
-// WriteCommitCCVNodeDataHandler handles requests to write commit verification records.
-type WriteCommitCCVNodeDataHandler struct {
+// WriteCommitVerifierNodeResultHandler handles requests to write commit verification records.
+type WriteCommitVerifierNodeResultHandler struct {
 	storage            common.CommitVerificationStore
 	aggregator         AggregationTriggerer
 	l                  logger.SugaredLogger
 	signatureValidator SignatureValidator
 }
 
-func (h *WriteCommitCCVNodeDataHandler) logger(ctx context.Context) logger.SugaredLogger {
+func (h *WriteCommitVerifierNodeResultHandler) logger(ctx context.Context) logger.SugaredLogger {
 	return scope.AugmentLogger(ctx, h.l)
 }
 
 // Handle processes the write request and saves the commit verification record.
-func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.WriteCommitteeVerifierNodeResultRequest) (*pb.WriteCommitteeVerifierNodeResultResponse, error) {
+func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *pb.WriteCommitteeVerifierNodeResultRequest) (*pb.WriteCommitteeVerifierNodeResultResponse, error) {
 	reqLogger := h.logger(ctx)
 	reqLogger.Infof("Received WriteCommitCCVNodeDataRequest")
 	if err := validateWriteRequest(req); err != nil {
@@ -111,8 +111,8 @@ func (h *WriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.Writ
 }
 
 // NewWriteCommitCCVNodeDataHandler creates a new instance of WriteCommitCCVNodeDataHandler.
-func NewWriteCommitCCVNodeDataHandler(store common.CommitVerificationStore, aggregator AggregationTriggerer, l logger.SugaredLogger, signatureValidator SignatureValidator) *WriteCommitCCVNodeDataHandler {
-	return &WriteCommitCCVNodeDataHandler{
+func NewWriteCommitCCVNodeDataHandler(store common.CommitVerificationStore, aggregator AggregationTriggerer, l logger.SugaredLogger, signatureValidator SignatureValidator) *WriteCommitVerifierNodeResultHandler {
+	return &WriteCommitVerifierNodeResultHandler{
 		storage:            store,
 		aggregator:         aggregator,
 		l:                  l,

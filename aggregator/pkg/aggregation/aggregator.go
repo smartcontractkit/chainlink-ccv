@@ -105,7 +105,7 @@ func (c *CommitReportAggregator) shouldSkipAggregationDueToExistingQuorum(ctx co
 		return false, nil
 	}
 
-	existingReport, err := c.aggregatedStore.GetCCVData(ctx, messageID)
+	existingReport, err := c.aggregatedStore.GetCommitAggregatedReportByMessageID(ctx, messageID)
 	if err != nil {
 		lggr.Warnw("Failed to check for existing aggregated report", "error", err)
 		return false, nil
@@ -165,7 +165,7 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 	}
 
 	if quorumMet {
-		if err := c.sink.SubmitReport(ctx, aggregatedReport); err != nil {
+		if err := c.sink.SubmitAggregatedReport(ctx, aggregatedReport); err != nil {
 			lggr.Errorw("Failed to submit report", "error", err)
 			return nil, err
 		}

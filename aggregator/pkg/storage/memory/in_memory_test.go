@@ -30,14 +30,14 @@ func TestInMemoryStorage_GetBatchCCVData(t *testing.T) {
 	}
 
 	// Store test data
-	err := storage.SubmitReport(ctx, report1)
+	err := storage.SubmitAggregatedReport(ctx, report1)
 	require.NoError(t, err)
-	err = storage.SubmitReport(ctx, report2)
+	err = storage.SubmitAggregatedReport(ctx, report2)
 	require.NoError(t, err)
 
 	// Test batch retrieval
 	messageIDs := []model.MessageID{messageID1, messageID2, messageID3}
-	results, err := storage.GetBatchCCVData(ctx, messageIDs)
+	results, err := storage.GetBatchAggregatedReportByMessageIDs(ctx, messageIDs)
 	require.NoError(t, err)
 
 	// Verify results
@@ -60,7 +60,7 @@ func TestInMemoryStorage_GetBatchCCVData_EmptyMessageIDs(t *testing.T) {
 	ctx := context.Background()
 
 	// Test with empty message IDs
-	results, err := storage.GetBatchCCVData(ctx, []model.MessageID{})
+	results, err := storage.GetBatchAggregatedReportByMessageIDs(ctx, []model.MessageID{})
 	require.NoError(t, err)
 	assert.Empty(t, results)
 }
@@ -71,7 +71,7 @@ func TestInMemoryStorage_GetBatchCCVData_NoMatchingData(t *testing.T) {
 
 	// Test with message IDs that don't exist
 	messageIDs := []model.MessageID{[]byte("nonexistent1"), []byte("nonexistent2")}
-	results, err := storage.GetBatchCCVData(ctx, messageIDs)
+	results, err := storage.GetBatchAggregatedReportByMessageIDs(ctx, messageIDs)
 	require.NoError(t, err)
 	assert.Empty(t, results)
 }
