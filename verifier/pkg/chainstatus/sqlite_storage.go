@@ -30,7 +30,7 @@ func NewSQLiteChainStatusManager(dbPath string, lggr logger.Logger) (*SQLiteChai
 		return nil, fmt.Errorf("database path cannot be empty")
 	}
 
-	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
 	}
@@ -81,8 +81,7 @@ func (m *SQLiteChainStatusManager) WriteChainStatuses(ctx context.Context, statu
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	// Statement for full upsert (when block height is provided)
-	fullStmt, err := tx.PrepareContext(ctx, `
+	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO chain_statuses (chain_selector, finalized_block_height, disabled)
 		VALUES (?, ?, ?)
 		ON CONFLICT(chain_selector) DO UPDATE SET
@@ -91,40 +90,25 @@ func (m *SQLiteChainStatusManager) WriteChainStatuses(ctx context.Context, statu
 			updated_at = strftime('%s', 'now')
 	`)
 	if err != nil {
-		return fmt.Errorf("failed to prepare full statement: %w", err)
+		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer func() { _ = fullStmt.Close() }()
-
-	// Statement for disabled-only update (when block height is nil)
-	disabledOnlyStmt, err := tx.PrepareContext(ctx, `
-		UPDATE chain_statuses 
-		SET disabled = ?, updated_at = strftime('%s', 'now')
-		WHERE chain_selector = ?
-	`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare disabled-only statement: %w", err)
-	}
-	defer func() { _ = disabledOnlyStmt.Close() }()
+	defer func() { _ = stmt.Close() }()
 
 	for _, status := range statuses {
 		chainSelectorStr := strconv.FormatUint(uint64(status.ChainSelector), 10)
+
+		if status.FinalizedBlockHeight == nil {
+			return fmt.Errorf("finalized block height cannot be nil for chain %s", chainSelectorStr)
+		}
 		disabled := 0
 		if status.Disabled {
 			disabled = 1
 		}
 
-		if status.FinalizedBlockHeight != nil {
-			blockHeight := status.FinalizedBlockHeight.String()
-			_, err := fullStmt.ExecContext(ctx, chainSelectorStr, blockHeight, disabled)
-			if err != nil {
-				return fmt.Errorf("failed to upsert chain status for chain %s: %w", chainSelectorStr, err)
-			}
-		} else {
-			// Only update disabled flag, preserve existing block height
-			_, err := disabledOnlyStmt.ExecContext(ctx, disabled, chainSelectorStr)
-			if err != nil {
-				return fmt.Errorf("failed to update disabled flag for chain %s: %w", chainSelectorStr, err)
-			}
+		blockHeight := status.FinalizedBlockHeight.String()
+		_, err := stmt.ExecContext(ctx, chainSelectorStr, blockHeight, disabled)
+		if err != nil {
+			return fmt.Errorf("failed to upsert chain status for chain %s: %w", chainSelectorStr, err)
 		}
 	}
 

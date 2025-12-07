@@ -119,40 +119,22 @@ func TestWriteChainStatuses_UpdatesExistingStatuses(t *testing.T) {
 	assert.True(t, status.Disabled)
 }
 
-func TestWriteChainStatuses_NilBlockHeightPreservesExistingValue(t *testing.T) {
+func TestWriteChainStatuses_NilBlockHeightReturnsError(t *testing.T) {
 	mgr, cleanup := newTestChainStatusManager(t)
 	defer cleanup()
 
 	ctx := context.Background()
 	chainSelector := protocol.ChainSelector(1)
 
-	// First, create a record with a block height
 	err := mgr.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
 		{
 			ChainSelector:        chainSelector,
-			FinalizedBlockHeight: big.NewInt(500),
+			FinalizedBlockHeight: nil,
 			Disabled:             false,
 		},
 	})
-	require.NoError(t, err)
-
-	// Update with nil block height - should only update disabled flag
-	err = mgr.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
-		{
-			ChainSelector:        chainSelector,
-			FinalizedBlockHeight: nil,
-			Disabled:             true,
-		},
-	})
-	require.NoError(t, err)
-
-	result, err := mgr.ReadChainStatuses(ctx, []protocol.ChainSelector{chainSelector})
-	require.NoError(t, err)
-	require.Len(t, result, 1)
-
-	status := result[chainSelector]
-	assert.Equal(t, big.NewInt(500), status.FinalizedBlockHeight)
-	assert.True(t, status.Disabled)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "finalized block height cannot be nil")
 }
 
 func TestWriteChainStatuses_HandlesEmptyStatuses(t *testing.T) {
@@ -182,6 +164,21 @@ func TestReadChainStatuses_ReturnsEmptyMapWhenChainsNotFound(t *testing.T) {
 	result, err := mgr.ReadChainStatuses(ctx, []protocol.ChainSelector{999})
 	require.NoError(t, err)
 	assert.Empty(t, result)
+}
+
+func TestReadChainStatuses_NonExistingChainReturnsNilNotDisabled(t *testing.T) {
+	mgr, cleanup := newTestChainStatusManager(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	nonExistingChain := protocol.ChainSelector(999)
+
+	result, err := mgr.ReadChainStatuses(ctx, []protocol.ChainSelector{nonExistingChain})
+	require.NoError(t, err)
+
+	status, exists := result[nonExistingChain]
+	assert.False(t, exists, "non-existing chain should not be present in the result map")
+	assert.Nil(t, status, "non-existing chain status should be nil")
 }
 
 func TestReadChainStatuses_ReturnsOnlyRequestedChains(t *testing.T) {

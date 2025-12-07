@@ -106,9 +106,9 @@ type VerifierInput struct {
 	CommitteeName     string             `toml:"committee_name"`
 	NodeIndex         int                `toml:"node_index"`
 
-	// ChainStatusDBPath is the path to the SQLite database for chain status storage.
-	// If set, it will be used both for the container path and mounted to the host.
-	ChainStatusDBPath string `toml:"chain_status_db_path"`
+	// ChainStatusDBHostDir is the path to the directory containing the SQLite database for chain status storage.
+	// This directory will be mounted as /data in the container.
+	ChainStatusDBHostDir string `toml:"chain_status_db_host_dir"`
 
 	// SigningKey is generated during the deploy step.
 	SigningKey string `toml:"signing_key"`
@@ -161,7 +161,7 @@ func (v *VerifierInput) buildVerifierConfiguration(config *verifier.Config) erro
 	config.OnRampAddresses = v.OnRampAddresses
 	config.DefaultExecutorOnRampAddresses = v.DefaultExecutorOnRampAddresses
 	config.RMNRemoteAddresses = v.RMNRemoteAddresses
-	config.ChainStatusDBPath = "/data/chain_status.db"
+	config.ChainStatusDBPath = "/data/chain-status.db"
 
 	// The value in the template should be usable for devenv setups, only override if a different value is provided.
 	if v.MonitoringOtelExporterHTTPEndpoint != "" {
@@ -214,7 +214,6 @@ type VerifierOutput struct {
 	DBURL              string `toml:"db_url"`
 	DBConnectionString string `toml:"db_connection_string"`
 	UseCache           bool   `toml:"use_cache"`
-	ChainStatusDBPath  string `toml:"chain_status_db_path"`
 }
 
 func ApplyVerifierDefaults(in VerifierInput) VerifierInput {
@@ -237,10 +236,6 @@ func ApplyVerifierDefaults(in VerifierInput) VerifierInput {
 	if in.Mode == "" {
 		in.Mode = DefaultVerifierMode
 	}
-	if in.ChainStatusDBPath == "" {
-		in.ChainStatusDBPath = fmt.Sprintf("/tmp/verifier-%s-chain-status.db", in.ContainerName)
-	}
-
 	return in
 }
 
@@ -321,9 +316,14 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 		return nil, fmt.Errorf("failed to write aggregator config to file: %w", err)
 	}
 
-	// Mount the chain status database directory
-	chainStatusDBDir := filepath.Dir(in.ChainStatusDBPath)
-	if err := os.MkdirAll(chainStatusDBDir, 0o755); err != nil {
+	// Create a unique chain status database directory if not specified
+	if in.ChainStatusDBHostDir == "" {
+		dir, err := os.MkdirTemp("", fmt.Sprintf("verifier-%s-chain-status-*", in.ContainerName))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create chain status db temp directory: %w", err)
+		}
+		in.ChainStatusDBHostDir = dir
+	} else if err := os.MkdirAll(in.ChainStatusDBHostDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create chain status db directory: %w", err)
 	}
 
@@ -348,7 +348,7 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 				},
 			}
 			// Mount the chain status database directory for test access
-			h.Binds = append(h.Binds, fmt.Sprintf("%s:/data", chainStatusDBDir))
+			h.Binds = append(h.Binds, fmt.Sprintf("%s:/data", in.ChainStatusDBHostDir))
 		},
 		WaitingFor: wait.ForLog("Using real blockchain information from environment").
 			WithStartupTimeout(120 * time.Second).
@@ -409,7 +409,6 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 		ExternalHTTPURL:    fmt.Sprintf("http://%s:%d", host, in.Port),
 		InternalHTTPURL:    fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
 		DBConnectionString: DefaultVerifierDBConnectionString,
-		ChainStatusDBPath:  in.ChainStatusDBPath,
 	}, nil
 }
 

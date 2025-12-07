@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -66,7 +67,7 @@ func TestE2EReorg(t *testing.T) {
 	// Create chain status manager to read from the verifier's SQLite database
 	chainStatusLggr, err := logger.New()
 	require.NoError(t, err)
-	chainStatusManager, err := chainstatus.NewSQLiteChainStatusManager(in.Verifier[0].Out.ChainStatusDBPath, chainStatusLggr)
+	chainStatusManager, err := chainstatus.NewSQLiteChainStatusManager(filepath.Join(in.Verifier[0].ChainStatusDBHostDir, "chain-status.db"), chainStatusLggr)
 	require.NoError(t, err, "should be able to create chain status manager for verifier's database")
 	t.Cleanup(func() {
 		chainStatusManager.Close()
