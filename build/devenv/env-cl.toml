@@ -151,6 +151,7 @@
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-1"
+  executor_qualifier = "default"
 
 [[executor]]
   mode = "cl"
@@ -159,3 +160,13 @@
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-2"
+  executor_qualifier = "default"
+
+[[executor]]
+  mode = "cl"
+  image = "executor:dev"
+  port = 8103
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "custom-executor-1"
+  executor_qualifier = "custom"

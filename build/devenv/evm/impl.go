@@ -36,6 +36,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences/tokens"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	burnminterc677ops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc677"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/link"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
@@ -73,6 +74,7 @@ const (
 	// In the smoke test deployments these are the qualifiers that are used by default.
 	DefaultCommitteeVerifierQualifier = "default"
 	DefaultReceiverQualifier          = "default"
+	DefaultExecutorQualifier          = "default"
 
 	SecondaryCommitteeVerifierQualifier = "secondary"
 	SecondaryReceiverQualifier          = "secondary"
@@ -81,6 +83,8 @@ const (
 	TertiaryReceiverQualifier          = "tertiary"
 
 	QuaternaryReceiverQualifier = "quaternary"
+
+	CustomExecutorQualifier = "custom"
 
 	CommitteeVerifierGasForVerification = 500_000
 
@@ -1154,13 +1158,26 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 					Version:       semver.MustParse(onrampoperations.Deploy.Version()),
 					FeeAggregator: common.HexToAddress("0x01"),
 				},
-				Executor: sequences.ExecutorParams{
-					Version:       semver.MustParse(executor.Deploy.Version()),
-					MaxCCVsPerMsg: 10,
-					DynamicConfig: executor.SetDynamicConfigArgs{
-						FeeAggregator:         common.HexToAddress("0x01"),
-						MinBlockConfirmations: 0,
-						CcvAllowlistEnabled:   false,
+				Executors: []sequences.ExecutorParams{
+					{
+						Version:       semver.MustParse(executor.Deploy.Version()),
+						MaxCCVsPerMsg: 10,
+						DynamicConfig: executor.SetDynamicConfigArgs{
+							FeeAggregator:         common.HexToAddress("0x01"),
+							MinBlockConfirmations: 0,
+							CcvAllowlistEnabled:   false,
+						},
+						Qualifier: DefaultExecutorQualifier,
+					},
+					{
+						Version:       semver.MustParse(executor.Deploy.Version()),
+						MaxCCVsPerMsg: 10,
+						DynamicConfig: executor.SetDynamicConfigArgs{
+							FeeAggregator:         common.HexToAddress("0x01"),
+							MinBlockConfirmations: 0,
+							CcvAllowlistEnabled:   false,
+						},
+						Qualifier: CustomExecutorQualifier,
 					},
 				},
 				FeeQuoter: sequences.FeeQuoterParams{
@@ -1499,8 +1516,9 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 			},
 			// LaneMandatedOutboundCCVs: []datastore.AddressRef{},
 			DefaultExecutor: datastore.AddressRef{
-				Type:    datastore.ContractType(executor.ContractType),
-				Version: semver.MustParse(executor.Deploy.Version()),
+				Type:      datastore.ContractType(executor.ContractType),
+				Version:   semver.MustParse(executor.Deploy.Version()),
+				Qualifier: DefaultExecutorQualifier,
 			},
 			CommitteeVerifierDestChainConfig: adapters.CommitteeVerifierDestChainConfig{
 				AllowlistEnabled:   false,
@@ -1578,6 +1596,44 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 		if err := m.configureTokenForTransfer(e, tokenAdapterRegistry, mcmsReaderRegistry, selector, remoteSelectors, combo.DestPoolAddressRef(), combo.SourcePoolAddressRef(), combo.DestPoolCCVQualifiers()); err != nil {
 			return fmt.Errorf("failed to configure %s tokens for transfers: %w", combo.DestPoolAddressRef().Qualifier, err)
 		}
+	}
+
+	// Configure the custom executor for the dest chain manually.
+	customExecutor, err := e.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(
+			selector,
+			datastore.ContractType(executor.ContractType),
+			semver.MustParse(executor.Deploy.Version()),
+			CustomExecutorQualifier,
+		),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to get custom executor address: %w", err)
+	}
+	destChainSelectorsToAdd := make([]executor.RemoteChainConfigArgs, 0, len(remoteSelectors))
+	for _, rs := range remoteSelectors {
+		destChainSelectorsToAdd = append(destChainSelectorsToAdd, executor.RemoteChainConfigArgs{
+			DestChainSelector: rs,
+			Config: adapters.ExecutorDestChainConfig{
+				Enabled:     true,
+				USDCentsFee: 0, // TODO: set proper fee
+			},
+		})
+	}
+	_, err = operations.ExecuteOperation(
+		e.OperationsBundle,
+		executor.ApplyDestChainUpdates,
+		e.BlockChains.EVMChains()[selector],
+		contract.FunctionInput[executor.ApplyDestChainUpdatesArgs]{
+			Address:       common.HexToAddress(customExecutor.Address),
+			ChainSelector: selector,
+			Args: executor.ApplyDestChainUpdatesArgs{
+				DestChainSelectorsToAdd: destChainSelectorsToAdd,
+			},
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to apply dest chain updates to custom executor: %w", err)
 	}
 
 	return nil
