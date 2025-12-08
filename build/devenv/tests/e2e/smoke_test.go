@@ -119,7 +119,7 @@ func TestE2ESmoke(t *testing.T) {
 				name:                     "src->dst msg execution eoa receiver",
 				fromSelector:             sel0,
 				toSelector:               sel1,
-				receiver:                 mustGetEOAReceiverAddress(t, chains[sel1], sel1),
+				receiver:                 mustGetEOAReceiverAddress(t, chains[0], sel1),
 				expectFail:               false,
 				numExpectedVerifications: 1,
 			},
@@ -127,7 +127,7 @@ func TestE2ESmoke(t *testing.T) {
 				name:                     "dst->src msg execution eoa receiver",
 				fromSelector:             sel1,
 				toSelector:               sel0,
-				receiver:                 mustGetEOAReceiverAddress(t, chains[sel0], sel0),
+				receiver:                 mustGetEOAReceiverAddress(t, chains[0], sel0),
 				expectFail:               false,
 				numExpectedVerifications: 1,
 			},
@@ -142,10 +142,10 @@ func TestE2ESmoke(t *testing.T) {
 		}
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
-				seqNo, err := chains[tc.fromSelector].GetExpectedNextSequenceNumber(ctx, tc.fromSelector, tc.toSelector)
+				seqNo, err := chainMap[tc.fromSelector].GetExpectedNextSequenceNumber(ctx, tc.fromSelector, tc.toSelector)
 				require.NoError(t, err)
 				l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
-				_, err = chains[tc.fromSelector].SendMessage(ctx, tc.fromSelector, tc.toSelector, cciptestinterfaces.MessageFields{
+				_, err = chainMap[tc.fromSelector].SendMessage(ctx, tc.fromSelector, tc.toSelector, cciptestinterfaces.MessageFields{
 					Receiver: tc.receiver,
 					Data:     []byte{},
 				}, cciptestinterfaces.MessageOptions{
@@ -155,7 +155,7 @@ func TestE2ESmoke(t *testing.T) {
 				})
 				require.NoError(t, err)
 
-				sentEvent, err := chains[tc.fromSelector].WaitOneSentEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultSentTimeout)
+				sentEvent, err := chainMap[tc.fromSelector].WaitOneSentEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultSentTimeout)
 				require.NoError(t, err)
 				messageID := sentEvent.MessageID
 
@@ -171,7 +171,7 @@ func TestE2ESmoke(t *testing.T) {
 				require.NotNil(t, result.AggregatedResult)
 				require.Len(t, result.IndexedVerifications.Results, tc.numExpectedVerifications)
 
-				e, err := chains[tc.toSelector].WaitOneExecEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultExecTimeout)
+				e, err := chainMap[tc.toSelector].WaitOneExecEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultExecTimeout)
 				require.NoError(t, err)
 				require.NotNil(t, e)
 
@@ -209,14 +209,14 @@ func TestE2ESmoke(t *testing.T) {
 				if tc.tokenTransfer != nil {
 					tokenAmount = tc.tokenTransfer.tokenAmount
 					destTokenAddress = getContractAddress(t, in, tc.dstSelector, tc.tokenTransfer.destTokenRef.Type, tc.tokenTransfer.destTokenRef.Version.String(), tc.tokenTransfer.destTokenRef.Qualifier, "token on destination chain")
-					receiverStartBalance, err = chains[tc.dstSelector].GetTokenBalance(ctx, tc.dstSelector, tc.receiver, destTokenAddress)
+					receiverStartBalance, err = chainMap[tc.dstSelector].GetTokenBalance(ctx, tc.dstSelector, tc.receiver, destTokenAddress)
 					require.NoError(t, err)
 					l.Info().Str("Receiver", tc.receiver.String()).Str("Token", destTokenAddress.String()).Uint64("StartBalance", receiverStartBalance.Uint64()).Msg("Receiver start balance")
 				}
-				seqNo, err := chains[tc.srcSelector].GetExpectedNextSequenceNumber(ctx, tc.srcSelector, tc.dstSelector)
+				seqNo, err := chainMap[tc.srcSelector].GetExpectedNextSequenceNumber(ctx, tc.srcSelector, tc.dstSelector)
 				require.NoError(t, err)
 				l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
-				sendMessageResult, err := chains[tc.srcSelector].SendMessage(
+				sendMessageResult, err := chainMap[tc.srcSelector].SendMessage(
 					ctx, tc.srcSelector, tc.dstSelector, cciptestinterfaces.MessageFields{
 						Receiver:    tc.receiver,
 						Data:        tc.msgData,
@@ -230,7 +230,7 @@ func TestE2ESmoke(t *testing.T) {
 					})
 				require.NoError(t, err)
 				require.Lenf(t, sendMessageResult.ReceiptIssuers, tc.numExpectedReceipts, "expected %d receipt issuers, got %d", tc.numExpectedReceipts, len(sendMessageResult.ReceiptIssuers))
-				sentEvent, err := chains[tc.srcSelector].WaitOneSentEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, defaultSentTimeout)
+				sentEvent, err := chainMap[tc.srcSelector].WaitOneSentEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, defaultSentTimeout)
 				require.NoError(t, err)
 				messageID := sentEvent.MessageID
 
@@ -246,7 +246,7 @@ func TestE2ESmoke(t *testing.T) {
 				require.NotNil(t, result.AggregatedResult)
 				require.Len(t, result.IndexedVerifications.Results, tc.numExpectedVerifications)
 
-				e, err := chains[tc.dstSelector].WaitOneExecEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, defaultExecTimeout)
+				e, err := chainMap[tc.dstSelector].WaitOneExecEventBySeqNo(ctx, tc.srcSelector, tc.dstSelector, seqNo, defaultExecTimeout)
 				require.NoError(t, err)
 				require.NotNil(t, e)
 				if tc.expectFail {
@@ -255,7 +255,7 @@ func TestE2ESmoke(t *testing.T) {
 					require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, e.State, "unexpected state, return data: %x", e.ReturnData)
 				}
 				if receiverStartBalance != nil {
-					receiverEndBalance, err := chains[tc.dstSelector].GetTokenBalance(ctx, tc.dstSelector, tc.receiver, destTokenAddress)
+					receiverEndBalance, err := chainMap[tc.dstSelector].GetTokenBalance(ctx, tc.dstSelector, tc.receiver, destTokenAddress)
 					require.NoError(t, err)
 					require.Equal(t, receiverStartBalance.Add(receiverStartBalance, tc.tokenTransfer.tokenAmount.Amount), receiverEndBalance)
 					l.Info().Str("Receiver", tc.receiver.String()).Str("Token", destTokenAddress.String()).Uint64("EndBalance", receiverEndBalance.Uint64()).Msg("t")
@@ -266,20 +266,20 @@ func TestE2ESmoke(t *testing.T) {
 
 	t.Run("extra args v3 token transfer", func(t *testing.T) {
 		runTokenTransferTestCase := func(t *testing.T, combo evm.TokenCombination, finalityConfig uint16, receiver protocol.UnknownAddress) {
-			sender := mustGetSenderAddress(t, chains[sel0], sel0)
+			sender := mustGetSenderAddress(t, chains[0], sel0)
 
 			srcToken := getTokenAddress(t, in, sel0, combo.SourcePoolAddressRef().Qualifier)
 			destToken := getTokenAddress(t, in, sel1, combo.DestPoolAddressRef().Qualifier)
 
-			startBal, err := chains[sel1].GetTokenBalance(ctx, sel1, receiver, destToken)
+			startBal, err := chains[1].GetTokenBalance(ctx, sel1, receiver, destToken)
 			require.NoError(t, err)
 			l.Info().Str("Receiver", receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", combo.DestPoolAddressRef().Qualifier).Msg("receiver start balance")
 
-			srcStartBal, err := chains[sel0].GetTokenBalance(ctx, sel0, sender, srcToken)
+			srcStartBal, err := chains[0].GetTokenBalance(ctx, sel0, sender, srcToken)
 			require.NoError(t, err)
 			l.Info().Str("Sender", sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("sender start balance")
 
-			seqNo, err := chains[sel0].GetExpectedNextSequenceNumber(ctx, sel0, sel1)
+			seqNo, err := chains[0].GetExpectedNextSequenceNumber(ctx, sel0, sel1)
 			require.NoError(t, err)
 			l.Info().Uint64("SeqNo", seqNo).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("expecting sequence number")
 
@@ -290,7 +290,7 @@ func TestE2ESmoke(t *testing.T) {
 				Executor:          getContractAddress(t, in, sel0, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "", "executor"),
 			}
 
-			sendRes, err := chains[sel0].SendMessage(
+			sendRes, err := chains[0].SendMessage(
 				ctx, sel0, sel1,
 				cciptestinterfaces.MessageFields{
 					Receiver: receiver,
@@ -305,7 +305,7 @@ func TestE2ESmoke(t *testing.T) {
 			require.NotNil(t, sendRes)
 			require.Len(t, sendRes.ReceiptIssuers, combo.ExpectedReceiptIssuers(), "expected %d receipt issuers for %s token", combo.ExpectedReceiptIssuers(), combo.SourcePoolAddressRef().Qualifier)
 
-			sentEvt, err := chains[sel0].WaitOneSentEventBySeqNo(ctx, sel0, sel1, seqNo, defaultSentTimeout)
+			sentEvt, err := chains[0].WaitOneSentEventBySeqNo(ctx, sel0, sel1, seqNo, defaultSentTimeout)
 			require.NoError(t, err)
 			msgID := sentEvt.MessageID
 
@@ -322,29 +322,29 @@ func TestE2ESmoke(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, res.AggregatedResult)
 
-			execEvt, err := chains[sel1].WaitOneExecEventBySeqNo(ctx, sel0, sel1, seqNo, 45*time.Second)
+			execEvt, err := chains[1].WaitOneExecEventBySeqNo(ctx, sel0, sel1, seqNo, 45*time.Second)
 			require.NoError(t, err)
 			require.NotNil(t, execEvt)
 			require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected state, return data: %x", execEvt.ReturnData)
 
-			endBal, err := chains[sel1].GetTokenBalance(ctx, sel1, receiver, destToken)
+			endBal, err := chains[1].GetTokenBalance(ctx, sel1, receiver, destToken)
 			require.NoError(t, err)
 			require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), big.NewInt(1000)), endBal)
 			l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", combo.DestPoolAddressRef().Qualifier).Msg("receiver end balance")
 
-			srcEndBal, err := chains[sel0].GetTokenBalance(ctx, sel0, sender, srcToken)
+			srcEndBal, err := chains[0].GetTokenBalance(ctx, sel0, sender, srcToken)
 			require.NoError(t, err)
 			require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), big.NewInt(1000)), srcEndBal)
 			l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("sender end balance")
 		}
 		for _, combo := range evm.AllTokenCombinations() {
-			receiver := mustGetEOAReceiverAddress(t, chains[sel1], sel1)
+			receiver := mustGetEOAReceiverAddress(t, chains[1], sel1)
 			t.Run(fmt.Sprintf("src_dst msg execution with EOA receiver and token transfer (%s)", combo.SourcePoolAddressRef().Qualifier), func(t *testing.T) {
 				runTokenTransferTestCase(t, combo, combo.FinalityConfig(), receiver)
 			})
 		}
 		for _, combo := range evm.All17TokenCombinations() {
-			receiver := mustGetEOAReceiverAddress(t, chains[sel1], sel1)
+			receiver := mustGetEOAReceiverAddress(t, chains[1], sel1)
 			mockReceiver := getContractAddress(
 				t,
 				in,
