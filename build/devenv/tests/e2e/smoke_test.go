@@ -28,7 +28,7 @@ import (
 
 const (
 	defaultSentTimeout = 10 * time.Second
-	defaultExecTimeout = 40 * time.Second
+	defaultExecTimeout = 80 * time.Second
 )
 
 func defaultAggregatorPort(in *ccv.Cfg) int {
