@@ -274,9 +274,9 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 			}
 			return nil
 		}),
-		postgres.WithDatabase(DefaultVerifierName),
-		postgres.WithUsername(DefaultVerifierName),
-		postgres.WithPassword(DefaultVerifierName),
+		postgres.WithDatabase(in.ContainerName),
+		postgres.WithUsername(in.ContainerName),
+		postgres.WithPassword(in.ContainerName),
 		postgres.WithInitScripts(filepath.Join(p, DefaultVerifierSQLInit)),
 	)
 	if err != nil {
@@ -308,7 +308,7 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 
 	// Database connection for chain status (internal docker network address)
 	internalDBConnectionString := fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
-		DefaultVerifierName, DefaultVerifierName, in.DB.Name, DefaultVerifierName)
+		in.ContainerName, in.ContainerName, in.DB.Name, in.ContainerName)
 	envVars["CL_DATABASE_URL"] = internalDBConnectionString
 
 	// Generate and store config file.
@@ -399,10 +399,11 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 	}
 
 	return &VerifierOutput{
-		ContainerName:      in.ContainerName,
-		ExternalHTTPURL:    fmt.Sprintf("http://%s:%d", host, in.Port),
-		InternalHTTPURL:    fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
-		DBConnectionString: DefaultVerifierDBConnectionString,
+		ContainerName:   in.ContainerName,
+		ExternalHTTPURL: fmt.Sprintf("http://%s:%d", host, in.Port),
+		InternalHTTPURL: fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
+		DBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
+			in.ContainerName, in.ContainerName, in.DB.Port, in.ContainerName),
 	}, nil
 }
 

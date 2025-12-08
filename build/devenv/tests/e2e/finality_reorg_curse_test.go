@@ -19,7 +19,6 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/logasserter"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
@@ -72,7 +71,10 @@ func TestE2EReorg(t *testing.T) {
 	// Create chain status manager to read from the verifier's PostgreSQL database
 	chainStatusLggr, err := logger.New()
 	require.NoError(t, err)
-	chainStatusDB, err := sqlx.Connect("postgres", services.DefaultVerifierDBConnectionString)
+	// Build connection string from input (Out may not be populated when loading from cached config)
+	verifierDBConnectionString := fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
+		in.Verifier[0].ContainerName, in.Verifier[0].ContainerName, in.Verifier[0].DB.Port, in.Verifier[0].ContainerName)
+	chainStatusDB, err := sqlx.Connect("postgres", verifierDBConnectionString)
 	require.NoError(t, err, "should be able to connect to verifier's postgres database")
 	chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusDB, chainStatusLggr)
 	t.Cleanup(func() {
