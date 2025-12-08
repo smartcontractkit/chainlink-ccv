@@ -73,36 +73,35 @@ func run(args sendArgs) error {
 	ctx = ccv.Plog.WithContext(ctx)
 	envFile := fmt.Sprintf("env-%s.toml", args.env)
 
-	in, err := ccv.LoadOutput[ccv.Cfg](envFile)
-	if err != nil {
-		return fmt.Errorf("failed to load environment output: %w", err)
-	}
-
 	// Support both V2 (2 params) and V3 (3 params) formats
 	if args.srcSel == 0 || args.destSel == 0 {
 		return fmt.Errorf("expected source and destination selectors (src,dest for V2 or src,dest,finality for V3)")
 	}
 
-	chainIDs, wsURLs := make([]string, 0), make([]string, 0)
-	for _, bc := range in.Blockchains {
-		chainIDs = append(chainIDs, bc.ChainID)
-		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
+	l := zerolog.Ctx(ctx)
+	lib, err := ccv.NewLib(l, envFile)
+	if err != nil {
+		return fmt.Errorf("no implementation found for source chain selector %d", args.srcSel)
 	}
 
-	_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+	chains, err := lib.ChainsMap(ctx)
 	if err != nil {
-		return fmt.Errorf("creating CLDF operations environment: %w", err)
+		return fmt.Errorf("failed to get chain implementations: %w", err)
 	}
-	ctx = ccv.Plog.WithContext(ctx)
-	l := zerolog.Ctx(ctx)
-	impl, err := evm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
+
+	impl, ok := chains[args.srcSel]
+	if !ok {
+		return fmt.Errorf("no implementation found for source chain selector %d", args.srcSel)
+	}
+
+	ds, err := lib.DataStore()
 	if err != nil {
-		return fmt.Errorf("failed to create CCIP17EVM: %w", err)
+		return fmt.Errorf("failed to get datastore: %w", err)
 	}
 
 	// resolve mock receiver address if not provided
 	if args.receiverAddress == "" {
-		mockReceiver, err := in.CLDF.DataStore.Addresses().Get(
+		mockReceiver, err := ds.Addresses().Get(
 			datastore.NewAddressRefKey(
 				args.destSel,
 				datastore.ContractType(mock_receiver.ContractType),
@@ -119,7 +118,7 @@ func run(args sendArgs) error {
 		Data:        []byte{},
 		TokenAmount: args.tokenAmount,
 	}
-	messageOptions, err := getMessageOptions(args, in.CLDF.DataStore.Addresses())
+	messageOptions, err := getMessageOptions(args, ds.Addresses())
 	if err != nil {
 		return fmt.Errorf("failed to get message options: %w", err)
 	}

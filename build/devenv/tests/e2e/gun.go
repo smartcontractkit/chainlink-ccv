@@ -21,7 +21,7 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
-	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 )
 
@@ -38,7 +38,7 @@ type EVMTXGun struct {
 	cfg        *ccv.Cfg
 	e          *deployment.Environment
 	selectors  []uint64
-	impl       cciptestinterfaces.CCIP17ProductConfiguration
+	impl       map[uint64]cciptestinterfaces.CCIP17ProductConfiguration
 	src        cldfevm.Chain
 	dest       cldfevm.Chain
 	sentSeqNos []uint64
@@ -59,12 +59,12 @@ func (m *EVMTXGun) CloseSentChannel() {
 	})
 }
 
-func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impl cciptestinterfaces.CCIP17ProductConfiguration, s, d cldfevm.Chain) *EVMTXGun {
+func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impls map[uint64]cciptestinterfaces.CCIP17ProductConfiguration, s, d cldfevm.Chain) *EVMTXGun {
 	return &EVMTXGun{
 		cfg:        cfg,
 		e:          e,
 		selectors:  selectors,
-		impl:       impl,
+		impl:       impls,
 		src:        s,
 		dest:       d,
 		sentSeqNos: make([]uint64, 0),
@@ -119,7 +119,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}
 
-	c, ok := m.impl.(*evm.CCIP17EVM)
+	c, ok := m.impl[dstChain.ChainSelector].(*evm.CCIP17EVM)
 	if !ok {
 		return &wasp.Response{Error: "impl is not CCIP17EVM", Failed: true}
 	}
