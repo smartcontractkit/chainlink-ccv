@@ -200,7 +200,7 @@ func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) ([]byte, error) {
 	committeeConfig.DestinationVerifiers = make(map[string]string)
 
 	// Build signers list from verifier inputs
-	var signers []model.Signer
+	signers := make([]model.Signer, 0, len(inV))
 	for _, v := range inV {
 		if v.CommitteeName != committeeName {
 			continue
