@@ -14,17 +14,17 @@ import (
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
-// WriteCommitCCVNodeDataHandler handles requests to write commit verification records.
-type BatchWriteCommitCCVNodeDataHandler struct {
-	handler *WriteCommitCCVNodeDataHandler
+// BatchWriteCommitVerifierNodeResultHandler handles requests to write commit verification records.
+type BatchWriteCommitVerifierNodeResultHandler struct {
+	handler *WriteCommitVerifierNodeResultHandler
 }
 
-func (h *BatchWriteCommitCCVNodeDataHandler) logger(ctx context.Context) logger.SugaredLogger {
+func (h *BatchWriteCommitVerifierNodeResultHandler) logger(ctx context.Context) logger.SugaredLogger {
 	return scope.AugmentLogger(ctx, h.handler.l)
 }
 
 // Handle processes the write request and saves the commit verification record.
-func (h *BatchWriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb.BatchWriteCommitteeVerifierNodeResultRequest) (*pb.BatchWriteCommitteeVerifierNodeResultResponse, error) {
+func (h *BatchWriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *pb.BatchWriteCommitteeVerifierNodeResultRequest) (*pb.BatchWriteCommitteeVerifierNodeResultResponse, error) {
 	requests := req.GetRequests()
 	responses := make([]*pb.WriteCommitteeVerifierNodeResultResponse, len(requests))
 	errors := NewBatchErrorArray(len(requests))
@@ -59,9 +59,9 @@ func (h *BatchWriteCommitCCVNodeDataHandler) Handle(ctx context.Context, req *pb
 	}, nil
 }
 
-// NewBatchWriteCommitCCVNodeDataHandler creates a new instance of BatchWriteCommitCCVNodeDataHandler.
-func NewBatchWriteCommitCCVNodeDataHandler(handler *WriteCommitCCVNodeDataHandler) *BatchWriteCommitCCVNodeDataHandler {
-	return &BatchWriteCommitCCVNodeDataHandler{
+// NewBatchWriteCommitVerifierNodeResultHandler creates a new instance of BatchWriteCommitCCVNodeDataHandler.
+func NewBatchWriteCommitVerifierNodeResultHandler(handler *WriteCommitVerifierNodeResultHandler) *BatchWriteCommitVerifierNodeResultHandler {
+	return &BatchWriteCommitVerifierNodeResultHandler{
 		handler: handler,
 	}
 }

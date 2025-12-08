@@ -131,6 +131,8 @@ type Chains interface {
 	GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
 	// ManuallyExecuteMessage manually executes a message on a destination chain and returns an error if the execution fails.
 	ManuallyExecuteMessage(ctx context.Context, message protocol.Message, gasLimit uint64, ccvs []protocol.UnknownAddress, verifierResults [][]byte) (ExecutionStateChangedEvent, error)
+	Curse(ctx context.Context, chainSelector uint64, subjects [][16]byte) error
+	Uncurse(ctx context.Context, chainSelector uint64, subjects [][16]byte) error
 }
 
 type OnChainCommittees struct {

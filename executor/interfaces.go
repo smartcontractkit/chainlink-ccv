@@ -2,7 +2,6 @@ package executor
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -21,8 +20,9 @@ type MessageSubscriber interface {
 	// TODO: this function signature is really odd, we shouldn't be passing in a pointer to a waitgroup.
 	Start(
 		ctx context.Context,
-		wg *sync.WaitGroup,
-	) (<-chan StreamerResult, error)
+		results chan protocol.MessageWithMetadata,
+		errors chan error,
+	) error
 
 	// IsRunning returns whether the streamer is running.
 	IsRunning() bool
@@ -42,12 +42,10 @@ type VerifierResultReader interface {
 
 // Executor is responsible for executing validating messages.
 type Executor interface {
-	// AttemptExecuteMessage gets any supplementary data and tries to execute the message
-	AttemptExecuteMessage(ctx context.Context, message protocol.Message) error
+	// HandleMessage gets any supplementary data and tries to execute the message
+	HandleMessage(ctx context.Context, message protocol.Message) (shouldRetry bool, err error)
 	// CheckValidMessage checks that message is valid
 	CheckValidMessage(ctx context.Context, message protocol.Message) error
-	// GetMessageStatus checks if the message is expired, cursed, and if it should be retried and executed.
-	GetMessageStatus(ctx context.Context, message protocol.Message) (MessageStatusResults, error)
 }
 
 // ContractTransmitter is an interface for transmitting messages to destination chains
@@ -72,8 +70,8 @@ type LeaderElector interface {
 type DestinationReader interface {
 	// GetCCVSForMessage return cross-chain verifications for selected message
 	GetCCVSForMessage(ctx context.Context, message protocol.Message) (CCVAddressInfo, error)
-	// GetMessageExecutionState returns true if message is executed
-	GetMessageExecutionState(ctx context.Context, message protocol.Message) (MessageExecutionState, error)
+	// GetMessageExecutability returns true if message can be executed based on its on chain execution state.
+	GetMessageExecutability(ctx context.Context, message protocol.Message) (bool, error)
 	// GetRMNCursedSubjects returns the full list of cursed subjects for the chain. These can be Bytes16 ChainSelectors or the GlobalCurseSubject.
 	GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error)
 }

@@ -24,6 +24,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
+	rmn_remote_binding "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
+
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/burn_mint_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
@@ -1804,4 +1806,117 @@ func (m *CCIP17EVM) ManuallyExecuteMessage(
 		Msg("Execution transaction mined")
 
 	return event, nil
+}
+
+// ============================================================================
+// RMN Curse Operations
+// ============================================================================
+
+// getRMNRemoteAddress returns the RMN Remote contract address for a given chain.
+func (m *CCIP17EVM) getRMNRemoteAddress(chainSelector uint64) (common.Address, error) {
+	rmnRemoteRef, err := m.e.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(
+			chainSelector,
+			datastore.ContractType(rmn_remote.ContractType),
+			rmn_remote.Version,
+			"",
+		),
+	)
+	if err != nil {
+		return common.Address{}, fmt.Errorf("failed to get RMN Remote address for chain %d: %w", chainSelector, err)
+	}
+	return common.HexToAddress(rmnRemoteRef.Address), nil
+}
+
+func (m *CCIP17EVM) getRMNRemote(chainSelector uint64) (*rmn_remote_binding.RMNRemote, error) {
+	rmnRemoteAddr, err := m.getRMNRemoteAddress(chainSelector)
+	if err != nil {
+		return nil, err
+	}
+
+	ethClient, ok := m.ethClients[chainSelector]
+	if !ok {
+		return nil, fmt.Errorf("eth client not found for chain %d", chainSelector)
+	}
+
+	rmnRemote, err := rmn_remote_binding.NewRMNRemote(rmnRemoteAddr, ethClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create RMN Remote contract binding: %w", err)
+	}
+	return rmnRemote, nil
+}
+
+// Curse applies curses to the RMN Remote contract on a given chain.
+// The subjects parameter contains the curse subjects (either chain selectors or global curse).
+func (m *CCIP17EVM) Curse(ctx context.Context, chainSelector uint64, subjects [][16]byte) error {
+	rmnRemote, err := m.getRMNRemote(chainSelector)
+	if err != nil {
+		return err
+	}
+
+	// Get deployer key for transaction signing
+	txOpts := m.e.BlockChains.EVMChains()[chainSelector].DeployerKey
+	if txOpts == nil {
+		return fmt.Errorf("deployer key not found for chain %d", chainSelector)
+	}
+
+	// Call Curse method
+	tx, err := rmnRemote.Curse0(txOpts, subjects)
+	if err != nil {
+		return fmt.Errorf("failed to call Curse on RMN Remote: %w", err)
+	}
+
+	// Wait for transaction receipt
+	receipt, err := bind.WaitMined(ctx, m.ethClients[chainSelector], tx.Hash())
+	if err != nil {
+		return fmt.Errorf("failed to wait for curse transaction: %w", err)
+	}
+	if receipt.Status != types.ReceiptStatusSuccessful {
+		return fmt.Errorf("curse transaction failed")
+	}
+
+	m.logger.Info().
+		Uint64("chain", chainSelector).
+		Str("tx", tx.Hash().Hex()).
+		Int("numSubjects", len(subjects)).
+		Msg("Cursed subjects on chain")
+
+	return nil
+}
+
+// Uncurse removes curses from the RMN Remote contract on a given chain.
+// The subjects parameter contains the curse subjects to remove (either chain selectors or global curse).
+func (m *CCIP17EVM) Uncurse(ctx context.Context, chainSelector uint64, subjects [][16]byte) error {
+	rmnRemote, err := m.getRMNRemote(chainSelector)
+	if err != nil {
+		return err
+	}
+
+	// Get deployer key for transaction signing
+	txOpts := m.e.BlockChains.EVMChains()[chainSelector].DeployerKey
+	if txOpts == nil {
+		return fmt.Errorf("deployer key not found for chain %d", chainSelector)
+	}
+
+	tx, err := rmnRemote.Uncurse0(txOpts, subjects)
+	if err != nil {
+		return fmt.Errorf("failed to call Uncurse on RMN Remote: %w", err)
+	}
+
+	// Wait for transaction receipt
+	receipt, err := bind.WaitMined(ctx, m.ethClients[chainSelector], tx.Hash())
+	if err != nil {
+		return fmt.Errorf("failed to wait for uncurse transaction: %w", err)
+	}
+	if receipt.Status != types.ReceiptStatusSuccessful {
+		return fmt.Errorf("uncurse transaction failed")
+	}
+
+	m.logger.Info().
+		Uint64("chain", chainSelector).
+		Str("tx", tx.Hash().Hex()).
+		Int("numSubjects", len(subjects)).
+		Msg("Applied uncurse on chain")
+
+	return nil
 }

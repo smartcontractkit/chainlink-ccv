@@ -33,7 +33,7 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *pb.GetMessage
 
 	records := make([]*pb.VerifierResultWithSequence, 0, len(batch.Reports))
 	for _, report := range batch.Reports {
-		verifierResult, err := model.MapAggregatedReportToCCVDataProto(report, h.committee)
+		verifierResult, err := model.MapAggregatedReportToVerifierResultProto(report, h.committee)
 		if err != nil {
 			h.logger(ctx).Errorw("failed to map aggregated report to proto", "messageID", report.MessageID, "error", err)
 			return nil, err

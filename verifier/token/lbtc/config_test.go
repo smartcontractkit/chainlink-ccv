@@ -16,7 +16,7 @@ func Test_TryParsing(t *testing.T) {
 		t       string
 		v       string
 		data    map[string]any
-		want    *Config
+		want    *LBTCConfig
 		wantErr bool
 		errMsg  string
 	}{
@@ -34,12 +34,12 @@ func Test_TryParsing(t *testing.T) {
 					"2": "0xVerifier2",
 				},
 			},
-			want: &Config{
+			want: &LBTCConfig{
 				AttestationAPI:          "https://lbtc-api.example.com",
 				AttestationAPITimeout:   5 * time.Second,
 				AttestationAPIInterval:  200 * time.Millisecond,
 				AttestationAPIBatchSize: 50,
-				Verifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+				ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: protocol.UnknownAddress("0xVerifier1"),
 					2: protocol.UnknownAddress("0xVerifier2"),
 				},
@@ -56,12 +56,12 @@ func Test_TryParsing(t *testing.T) {
 					"1": "0xVerifier1",
 				},
 			},
-			want: &Config{
+			want: &LBTCConfig{
 				AttestationAPI:          "https://lbtc-api.example.com",
 				AttestationAPITimeout:   1 * time.Second,
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPIBatchSize: 20,
-				Verifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+				ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: protocol.UnknownAddress("0xVerifier1"),
 				},
 			},
@@ -78,12 +78,12 @@ func Test_TryParsing(t *testing.T) {
 					"1": "0xVerifier1",
 				},
 			},
-			want: &Config{
+			want: &LBTCConfig{
 				AttestationAPI:          "https://lbtc-api.example.com",
 				AttestationAPITimeout:   1 * time.Second,
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPIBatchSize: 30,
-				Verifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+				ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: protocol.UnknownAddress("0xVerifier1"),
 				},
 			},
@@ -180,12 +180,12 @@ func Test_TryParsing(t *testing.T) {
 				"attestation_api": "https://lbtc-api.example.com",
 				"addresses":       map[string]any{},
 			},
-			want: &Config{
+			want: &LBTCConfig{
 				AttestationAPI:          "https://lbtc-api.example.com",
 				AttestationAPITimeout:   1 * time.Second,
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPIBatchSize: 20,
-				Verifiers:               map[protocol.ChainSelector]protocol.UnknownAddress{},
+				ParsedVerifiers:         map[protocol.ChainSelector]protocol.UnknownAddress{},
 			},
 			wantErr: false,
 		},
@@ -208,7 +208,7 @@ func Test_TryParsing(t *testing.T) {
 				assert.Equal(t, tt.want.AttestationAPITimeout, got.AttestationAPITimeout)
 				assert.Equal(t, tt.want.AttestationAPIInterval, got.AttestationAPIInterval)
 				assert.Equal(t, tt.want.AttestationAPIBatchSize, got.AttestationAPIBatchSize)
-				assert.Equal(t, tt.want.Verifiers, got.Verifiers)
+				assert.Equal(t, tt.want.ParsedVerifiers, got.ParsedVerifiers)
 			}
 		})
 	}
