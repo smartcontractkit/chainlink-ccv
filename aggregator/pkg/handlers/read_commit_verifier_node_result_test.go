@@ -21,7 +21,7 @@ func TestReadCommitCCVNodeDataHandler_InvalidRequest_ReturnsInvalidArgument(t *t
 	t.Parallel()
 	lggr := logger.TestSugared(t)
 	store := aggregation_mocks.NewMockCommitVerificationStore(t)
-	h := NewReadCommitCCVNodeDataHandler(store, lggr)
+	h := NewReadCommitVerifierNodeResultHandler(store, lggr)
 
 	resp, err := h.Handle(context.Background(), &pb.ReadCommitteeVerifierNodeResultRequest{MessageId: []byte{0x1}}) // too short
 	require.Error(t, err)
@@ -33,7 +33,7 @@ func TestReadCommitCCVNodeDataHandler_StorageError_Propagates(t *testing.T) {
 	t.Parallel()
 	lggr := logger.TestSugared(t)
 	store := aggregation_mocks.NewMockCommitVerificationStore(t)
-	h := NewReadCommitCCVNodeDataHandler(store, lggr)
+	h := NewReadCommitVerifierNodeResultHandler(store, lggr)
 	msgID := make([]byte, 32)
 
 	store.EXPECT().GetCommitVerification(mock.Anything, mock.Anything).Return(nil, status.Error(codes.Internal, "boom"))
@@ -46,7 +46,7 @@ func TestReadCommitCCVNodeDataHandler_Success_MapsToProto(t *testing.T) {
 	t.Parallel()
 	lggr := logger.TestSugared(t)
 	store := aggregation_mocks.NewMockCommitVerificationStore(t)
-	h := NewReadCommitCCVNodeDataHandler(store, lggr)
+	h := NewReadCommitVerifierNodeResultHandler(store, lggr)
 	msgID := make([]byte, 32)
 
 	rec := &model.CommitVerificationRecord{
