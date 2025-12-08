@@ -11,18 +11,21 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rs/zerolog"
 
+	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/logasserter"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
+
+// DefaultLokiURL is the default Loki WebSocket URL for log streaming in tests.
+const DefaultLokiURL = "ws://localhost:3030"
 
 type TestingContext struct {
 	T                *testing.T
 	Ctx              context.Context
-	Impl             *evm.CCIP17EVM
+	Impl             map[uint64]cciptestinterfaces.CCIP17ProductConfiguration
 	AggregatorClient *ccv.AggregatorClient
 	IndexerClient    *ccv.IndexerClient
 	LogAsserter      *logasserter.LogAsserter
@@ -30,10 +33,10 @@ type TestingContext struct {
 	logger           zerolog.Logger
 }
 
-func NewTestingContext(t *testing.T, ctx context.Context, impl *evm.CCIP17EVM, aggregatorClient *ccv.AggregatorClient, indexerClient *ccv.IndexerClient) TestingContext {
+func NewTestingContext(t *testing.T, ctx context.Context, impl map[uint64]cciptestinterfaces.CCIP17ProductConfiguration, aggregatorClient *ccv.AggregatorClient, indexerClient *ccv.IndexerClient) TestingContext {
 	lokiURL := os.Getenv("LOKI_QUERY_URL")
 	if lokiURL == "" {
-		lokiURL = "ws://localhost:3030"
+		lokiURL = DefaultLokiURL
 	}
 
 	logger := zerolog.Ctx(ctx).With().Str("component", "log-asserter").Logger()
@@ -122,31 +125,35 @@ func (tc *TestingContext) AssertMessage(messageID [32]byte, opts AssertMessageOp
 		result.VerifierSigned = true
 	}
 
-	aggregatedResult, err := tc.AggregatorClient.WaitForVerifierResultForMessage(
-		ctx,
-		messageID,
-		opts.TickInterval)
-	if err != nil {
-		return result, fmt.Errorf("aggregator check failed: %w", err)
+	if tc.AggregatorClient != nil {
+		aggregatedResult, err := tc.AggregatorClient.WaitForVerifierResultForMessage(
+			ctx,
+			messageID,
+			opts.TickInterval)
+		if err != nil {
+			return result, fmt.Errorf("aggregator check failed: %w", err)
+		}
+
+		result.AggregatedResult = aggregatedResult
+		result.AggregatorFound = true
 	}
 
-	result.AggregatedResult = aggregatedResult
-	result.AggregatorFound = true
+	if tc.IndexerClient != nil {
+		indexedVerifications, err := tc.IndexerClient.WaitForVerificationsForMessageID(
+			ctx,
+			messageID,
+			opts.TickInterval,
+			opts.ExpectedVerifierResults)
+		if err != nil {
+			return result, fmt.Errorf("indexer check failed: %w", err)
+		}
 
-	indexedVerifications, err := tc.IndexerClient.WaitForVerificationsForMessageID(
-		ctx,
-		messageID,
-		opts.TickInterval,
-		opts.ExpectedVerifierResults)
-	if err != nil {
-		return result, fmt.Errorf("indexer check failed: %w", err)
+		result.IndexedVerifications = indexedVerifications
+		result.IndexerFound = true
 	}
-
-	result.IndexedVerifications = indexedVerifications
-	result.IndexerFound = true
 
 	if opts.AssertExecutorLogs {
-		_, err = tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.ProcessingInExecutor())
+		_, err := tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.ProcessingInExecutor())
 		if err != nil {
 			return result, fmt.Errorf("executor log assertion failed: %w", err)
 		}

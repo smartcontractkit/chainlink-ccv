@@ -3,11 +3,11 @@ package handlers
 import (
 	"fmt"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
@@ -36,7 +36,7 @@ func validateWriteRequest(req *pb.WriteCommitteeVerifierNodeResultRequest) error
 		return fmt.Errorf("ccv_and_executor_hash must be exactly 32 bytes, got %d", len(verificationRecord.Message.CcvAndExecutorHash))
 	}
 
-	message, err := model.MapProtoMessageToProtocolMessage(verificationRecord.Message)
+	message, err := ccvcommon.MapProtoMessageToProtocolMessage(verificationRecord.Message)
 	if err != nil {
 		return fmt.Errorf("failed to map proto message: %w", err)
 	}
@@ -63,12 +63,8 @@ func validateWriteRequest(req *pb.WriteCommitteeVerifierNodeResultRequest) error
 }
 
 func validateReadRequest(req *pb.ReadCommitteeVerifierNodeResultRequest) error {
-	err := validation.ValidateStruct(
+	return validation.ValidateStruct(
 		req,
 		validation.Field(&req.MessageId, validation.Required, validation.Length(32, 32)),
 	)
-	if err != nil {
-		return err
-	}
-	return nil
 }

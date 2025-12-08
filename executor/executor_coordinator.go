@@ -9,14 +9,15 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
-	"github.com/smartcontractkit/chainlink-ccv/executor/internal/message_heap"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/message_heap"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
-// BackoffDuration is the duration to backoff when there is an error reading from the ccv data reader.
-const BackoffDuration = 5 * time.Second
-
+// Coordinator is the main executor coordinator that manages the timing of a message lifecycle.
+// It is responsible for reading messages from a source, managing a decentralized delay mechanism,
+// dispatching them to workers for execution, and retrying if necessary.
 type Coordinator struct {
 	services.StateMachine
 	wg                 sync.WaitGroup
@@ -25,12 +26,13 @@ type Coordinator struct {
 	leaderElector      LeaderElector
 	lggr               logger.Logger
 	monitoring         Monitoring
-	ccvDataCh          chan MessageWithCCVData
+	workerPoolTasks    chan message_heap.MessageWithTimestamps
 	cancel             context.CancelFunc
 	delayedMessageHeap message_heap.MessageHeap
 	running            atomic.Bool
 	expiryDuration     time.Duration
 	timeProvider       common.TimeProvider
+	workerCount        int
 }
 
 // NewCoordinator creates a new executor coordinator.
@@ -42,6 +44,7 @@ func NewCoordinator(
 	monitoring Monitoring,
 	expiryDuration time.Duration,
 	timeProvider common.TimeProvider,
+	workerCount int,
 ) (*Coordinator, error) {
 	ec := &Coordinator{
 		lggr:              lggr,
@@ -49,11 +52,12 @@ func NewCoordinator(
 		messageSubscriber: messageSubscriber,
 		leaderElector:     leaderElector,
 		monitoring:        monitoring,
-		ccvDataCh:         make(chan MessageWithCCVData, 100),
+		workerPoolTasks:   make(chan message_heap.MessageWithTimestamps),
 		// cancel and delayedMessageHeap are initialized in Start()
 		// running, wg, and services.StateMachine default initialization is fine.
 		expiryDuration: expiryDuration,
 		timeProvider:   timeProvider,
+		workerCount:    workerCount,
 	}
 
 	if err := ec.validate(); err != nil {
@@ -71,9 +75,18 @@ func (ec *Coordinator) Start(ctx context.Context) error {
 
 		ec.running.Store(true)
 		ec.wg.Go(func() {
-			ec.run(c)
+			ec.runStorageStream(c)
 		})
 
+		ec.wg.Go(func() {
+			ec.runProcessingLoop(c)
+		})
+
+		for i := 0; i < ec.workerCount; i++ {
+			ec.wg.Go(func() {
+				ec.handleMessage(c)
+			})
+		}
 		ec.lggr.Infow("Coordinator started")
 
 		return nil
@@ -89,7 +102,7 @@ func (ec *Coordinator) Close() error {
 		ec.wg.Wait()
 
 		// Close all channels
-		close(ec.ccvDataCh)
+		close(ec.workerPoolTasks)
 
 		// Update running state to reflect in healthcheck and readiness.
 		ec.running.Store(false)
@@ -100,70 +113,80 @@ func (ec *Coordinator) Close() error {
 	})
 }
 
-func (ec *Coordinator) run(ctx context.Context) {
-	// TODO: this waitgroup is not waited on anywhere right now, will have to fix this up
-	// in a follow up.
-	var wg sync.WaitGroup
-	streamerResults, err := ec.messageSubscriber.Start(ctx, &wg)
+func (ec *Coordinator) runStorageStream(ctx context.Context) {
+	indexerResults := make(chan protocol.MessageWithMetadata)
+	componentErrors := make(chan error)
+	defer func() {
+		close(indexerResults)
+		close(componentErrors)
+	}()
+
+	err := ec.messageSubscriber.Start(ctx, indexerResults, componentErrors)
 	if err != nil {
 		ec.lggr.Errorw("failed to start ccv result streamer", "error", err)
 		return
 	}
-
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			ec.lggr.Infow("Coordinator exiting")
 			return
-		case streamResult, ok := <-streamerResults:
+		case e, ok := <-componentErrors:
+			if !ok {
+				ec.lggr.Errorw("coordinator component errors channel closed")
+			}
+			ec.lggr.Errorw("error in coordinator component", "error", e)
+		case streamResult, ok := <-indexerResults:
 			if !ok {
 				ec.lggr.Warnw("streamerResults closed")
 				// TODO: handle reconnection logic
-				// TODO: support multiple sources
 			}
 
-			if streamResult.Error != nil {
-				ec.lggr.Errorw("error reading from ccv result streamer", "error", streamResult.Error)
+			msg := streamResult.Message
+			err := ec.executor.CheckValidMessage(ctx, msg)
+			if err != nil {
+				ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)
+				continue
 			}
 
-			for _, msgWithMetadata := range streamResult.Messages {
-				msg := msgWithMetadata.Message
-				err := ec.executor.CheckValidMessage(ctx, msg)
-				if err != nil {
-					ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)
-					continue
-				}
+			id := msg.MustMessageID()
 
-				id, _ := msg.MessageID()
-
-				if ec.delayedMessageHeap.Has(id) {
-					ec.lggr.Infow("message already in delayed heap, skipping", "messageID", id)
-					continue
-				}
-
-				// get message delay from leader elector using indexer's ingestion timestamp
-				readyTimestamp := ec.leaderElector.GetReadyTimestamp(
-					id,
-					msg.DestChainSelector,
-					msgWithMetadata.Metadata.IngestionTimestamp)
-
-				ec.lggr.Infow("pushing message to delayed heap",
-					"messageID", id,
-					"ingestionTimestamp", msgWithMetadata.Metadata.IngestionTimestamp,
-					"readyTimestamp", readyTimestamp,
-				)
-
-				ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
-					Message:       &msg,
-					ReadyTime:     readyTimestamp,
-					ExpiryTime:    readyTimestamp.Add(ec.expiryDuration),
-					RetryInterval: ec.leaderElector.GetRetryDelay(msg.DestChainSelector),
-					MessageID:     id,
-				})
+			if ec.delayedMessageHeap.Has(id) {
+				ec.lggr.Infow("message already in delayed heap, skipping", "messageID", id)
+				continue
 			}
+
+			// get message delay from leader elector using indexer's ingestion timestamp
+			readyTimestamp := ec.leaderElector.GetReadyTimestamp(
+				id,
+				msg.DestChainSelector,
+				streamResult.Metadata.IngestionTimestamp)
+
+			ec.lggr.Infow("pushing message to delayed heap",
+				"messageID", id,
+				"ingestionTimestamp", streamResult.Metadata.IngestionTimestamp,
+				"readyTimestamp", readyTimestamp,
+			)
+
+			ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
+				Message:       &msg,
+				ReadyTime:     readyTimestamp,
+				ExpiryTime:    readyTimestamp.Add(ec.expiryDuration),
+				RetryInterval: ec.leaderElector.GetRetryDelay(msg.DestChainSelector),
+				MessageID:     id,
+			})
+		}
+	}
+}
+
+func (ec *Coordinator) runProcessingLoop(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
 		case <-ticker.C:
 			currentTime := ec.timeProvider.GetTime()
 
@@ -175,46 +198,47 @@ func (ec *Coordinator) run(ctx context.Context) {
 				"readyMessages", readyMessages,
 			)
 			for _, payload := range readyMessages {
-				if currentTime.After(payload.ExpiryTime) {
-					ec.lggr.Infow("message has expired", "messageID", payload.MessageID)
-					continue
-				}
-				// TODO: use a worker pool here to avoid unbounded memory allocation
-				go func() {
-					message, currentTime, id := *payload.Message, currentTime, payload.MessageID
+				// If the channel is full, we will block here, but messages will continue to be accumulate in the heap.
+				ec.workerPoolTasks <- payload
+			}
+		}
+	}
+}
 
-					ec.lggr.Infow("processing message with ID", "messageID", id)
-					messageStatus, err := ec.executor.GetMessageStatus(ctx, message)
-					if err != nil {
-						ec.lggr.Errorw("failed to check message status", "messageID", id, "error", err)
-					}
+func (ec *Coordinator) handleMessage(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case payload, ok := <-ec.workerPoolTasks:
+			if !ok {
+				return
+			}
+			currentTime := ec.timeProvider.GetTime()
+			if currentTime.After(payload.ExpiryTime) {
+				ec.lggr.Infow("message has expired", "messageID", payload.MessageID)
+				continue
+			}
 
-					if messageStatus.ShouldRetry {
-						// todo: add exponential backoff here
-						retryTime := currentTime.Add(payload.RetryInterval)
-						ec.lggr.Infow("message should be retried, putting back in heap", "messageID", id)
-						ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
-							Message:       &message,
-							ReadyTime:     retryTime,
-							ExpiryTime:    payload.ExpiryTime,
-							RetryInterval: payload.RetryInterval,
-							MessageID:     id,
-						})
-					}
-					if messageStatus.ShouldExecute {
-						ec.lggr.Infow("attempting to execute message", "messageID", id)
-						err = ec.executor.AttemptExecuteMessage(ctx, message)
-						if errors.Is(err, ErrInsufficientVerifiers) {
-							ec.lggr.Infow("not enough verifiers to execute message, will wait until next notification", "messageID", id, "error", err)
-							return
-						} else if err != nil {
-							ec.lggr.Errorw("failed to process message", "messageID", id, "error", err)
-							ec.monitoring.Metrics().IncrementMessagesProcessingFailed(ctx)
-							return
-						}
-						ec.monitoring.Metrics().IncrementMessagesProcessed(ctx)
-					}
-				}()
+			message, id := *payload.Message, payload.MessageID
+
+			ec.lggr.Infow("processing message with ID", "messageID", id)
+
+			shouldRetry, err := ec.executor.HandleMessage(ctx, message)
+			if shouldRetry {
+				// todo: add exponential backoff here
+				// The new ready time is the original ready time + retry interval to avoid drift between executors.
+				ec.lggr.Infow("message should be retried, putting back in heap", "messageID", id)
+				ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
+					Message:       &message,
+					ReadyTime:     payload.ReadyTime.Add(payload.RetryInterval),
+					ExpiryTime:    payload.ExpiryTime,
+					RetryInterval: payload.RetryInterval,
+					MessageID:     id,
+				})
+			}
+			if err != nil {
+				ec.lggr.Errorw("failed to handle message", "messageID", id, "error", err)
 			}
 		}
 	}

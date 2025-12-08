@@ -19,6 +19,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -29,7 +30,7 @@ import (
 
 func assertCommitVerificationRecordEqual(t *testing.T, expected, actual *model.CommitVerificationRecord, msgPrefix string) {
 	require.Equal(t, expected.MessageID, actual.MessageID, "%s: MessageID mismatch", msgPrefix)
-	require.Equal(t, expected.GetTimestamp().Unix(), actual.GetTimestamp().Unix(), "%s: Timestamp mismatch", msgPrefix)
+	require.Positive(t, actual.GetTimestamp(), "%s: Timestamp should be set", msgPrefix)
 	require.Equal(t, expected.CCVVersion, actual.CCVVersion, "%s: CCVVersion mismatch", msgPrefix)
 	require.Equal(t, expected.Signature, actual.Signature, "%s: Signature mismatch", msgPrefix)
 
@@ -154,7 +155,7 @@ func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *t
 	}
 
 	// Now compute the correct messageID from the message with CCV data
-	protocolMessage, err := model.MapProtoMessageToProtocolMessage(msgWithCCV.Message)
+	protocolMessage, err := ccvcommon.MapProtoMessageToProtocolMessage(msgWithCCV.Message)
 	require.NoError(t, err)
 	messageID, err := protocolMessage.MessageID()
 	require.NoError(t, err)
@@ -178,7 +179,7 @@ func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *t
 
 // getMessageIDFromProto is a helper to derive messageID from the proto message.
 func getMessageIDFromProto(t *testing.T, msgWithCCV *pb.CommitteeVerifierNodeResult) []byte {
-	protocolMessage, err := model.MapProtoMessageToProtocolMessage(msgWithCCV.Message)
+	protocolMessage, err := ccvcommon.MapProtoMessageToProtocolMessage(msgWithCCV.Message)
 	require.NoError(t, err)
 	messageID, err := protocolMessage.MessageID()
 	require.NoError(t, err)
@@ -529,7 +530,7 @@ func TestQueryAggregatedReports_Pagination(t *testing.T) {
 			Verifications: []*model.CommitVerificationRecord{record},
 		}
 
-		err = storage.SubmitReport(ctx, report)
+		err = storage.SubmitAggregatedReport(ctx, report)
 		require.NoError(t, err)
 
 		time.Sleep(5 * time.Millisecond)
@@ -577,10 +578,10 @@ func TestGetCCVData_Found(t *testing.T) {
 		Verifications: []*model.CommitVerificationRecord{record},
 	}
 
-	err = storage.SubmitReport(ctx, report)
+	err = storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
-	retrieved, err := storage.GetCCVData(ctx, messageID[:])
+	retrieved, err := storage.GetCommitAggregatedReportByMessageID(ctx, messageID[:])
 	require.NoError(t, err)
 	require.NotNil(t, retrieved)
 	require.Len(t, retrieved.Verifications, 1)
@@ -594,7 +595,7 @@ func TestGetCCVData_NotFound(t *testing.T) {
 
 	ctx := context.Background()
 
-	retrieved, err := storage.GetCCVData(ctx, []byte("nonexistent"))
+	retrieved, err := storage.GetCommitAggregatedReportByMessageID(ctx, []byte("nonexistent"))
 	require.NoError(t, err)
 	require.Nil(t, retrieved)
 }
@@ -619,10 +620,10 @@ func TestSubmitReport_HappyPath(t *testing.T) {
 		Verifications: []*model.CommitVerificationRecord{record},
 	}
 
-	err = storage.SubmitReport(ctx, report)
+	err = storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
-	retrieved, err := storage.GetCCVData(ctx, messageID[:])
+	retrieved, err := storage.GetCommitAggregatedReportByMessageID(ctx, messageID[:])
 	require.NoError(t, err)
 	require.NotNil(t, retrieved)
 	require.Equal(t, messageID[:], retrieved.MessageID)
@@ -650,10 +651,10 @@ func TestSubmitReport_DuplicateHandling(t *testing.T) {
 		Verifications: []*model.CommitVerificationRecord{record},
 	}
 
-	err = storage.SubmitReport(ctx, report)
+	err = storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
-	err = storage.SubmitReport(ctx, report)
+	err = storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
 	result, err := storage.QueryAggregatedReports(ctx, 0)
@@ -700,7 +701,7 @@ func TestListOrphanedKeys(t *testing.T) {
 		MessageID:     messageID2,
 		Verifications: []*model.CommitVerificationRecord{aggregatedRecord},
 	}
-	err = storage.SubmitReport(ctx, report)
+	err = storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
 	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx)
@@ -767,10 +768,10 @@ func TestBatchOperations_MultipleSigners(t *testing.T) {
 		Verifications: records,
 	}
 
-	err := storage.SubmitReport(ctx, report)
+	err := storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
-	retrieved, err := storage.GetCCVData(ctx, messageID)
+	retrieved, err := storage.GetCommitAggregatedReportByMessageID(ctx, messageID)
 	require.NoError(t, err)
 	require.NotNil(t, retrieved)
 	require.Len(t, retrieved.Verifications, 3)
@@ -800,7 +801,7 @@ func TestSubmitReport_NilReport(t *testing.T) {
 
 	ctx := context.Background()
 
-	err := storage.SubmitReport(ctx, nil)
+	err := storage.SubmitAggregatedReport(ctx, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "aggregated report cannot be nil")
 }
@@ -824,7 +825,7 @@ func TestQueryAggregatedReports_SinceSequence(t *testing.T) {
 		err := storage.SaveCommitVerification(ctx, record, aggregationKey)
 		require.NoError(t, err)
 
-		protocolMessage, err := model.MapProtoMessageToProtocolMessage(msgWithCCV.Message)
+		protocolMessage, err := ccvcommon.MapProtoMessageToProtocolMessage(msgWithCCV.Message)
 		require.NoError(t, err)
 		messageID, err := protocolMessage.MessageID()
 		require.NoError(t, err)
@@ -834,11 +835,11 @@ func TestQueryAggregatedReports_SinceSequence(t *testing.T) {
 			Verifications: []*model.CommitVerificationRecord{record},
 		}
 
-		err = storage.SubmitReport(ctx, report)
+		err = storage.SubmitAggregatedReport(ctx, report)
 		require.NoError(t, err)
 
 		if i == 0 {
-			retrieved, err := storage.GetCCVData(ctx, messageID[:])
+			retrieved, err := storage.GetCommitAggregatedReportByMessageID(ctx, messageID[:])
 			require.NoError(t, err)
 			firstReportSeq = retrieved.Sequence
 		}

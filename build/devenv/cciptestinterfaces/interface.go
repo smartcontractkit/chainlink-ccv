@@ -34,7 +34,7 @@ type CCIP17ProductConfiguration interface {
 // Observable pushes Loki streams and exposes Prometheus metrics and returns queries to assert SLAs.
 type Observable interface {
 	// ExposeMetrics exposes Prometheus metrics for the given source and destination chain IDs.
-	ExposeMetrics(ctx context.Context, source, dest uint64, chainIDs, wsURLs []string) ([]string, *prometheus.Registry, error)
+	ExposeMetrics(ctx context.Context, source, dest uint64) ([]string, *prometheus.Registry, error)
 }
 
 // TokenAmount represents a token amount being sent in a CCIP message.
@@ -55,9 +55,8 @@ type MessageFields struct {
 	// Data is the data for the message
 	// This is required.
 	Data []byte
-	// TokenAmounts are the token amounts for the message.
-	// This is optional - the default means no tokens are sent.
-	TokenAmounts []TokenAmount
+	// TokenAmount is an optional field to include a token transfer with the message.
+	TokenAmount TokenAmount
 	// FeeToken is the fee token to pay in.
 	// This is optional - the default means native token is used.
 	FeeToken protocol.UnknownAddress
@@ -130,6 +129,10 @@ type Chains interface {
 	GetTokenBalance(ctx context.Context, chainSelector uint64, address, tokenAddress protocol.UnknownAddress) (*big.Int, error)
 	// GetMaxDataBytes gets the maximum data size for a CCIP message to a remote chain.
 	GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
+	// ManuallyExecuteMessage manually executes a message on a destination chain and returns an error if the execution fails.
+	ManuallyExecuteMessage(ctx context.Context, message protocol.Message, gasLimit uint64, ccvs []protocol.UnknownAddress, verifierResults [][]byte) (ExecutionStateChangedEvent, error)
+	Curse(ctx context.Context, chainSelector uint64, subjects [][16]byte) error
+	Uncurse(ctx context.Context, chainSelector uint64, subjects [][16]byte) error
 }
 
 type OnChainCommittees struct {

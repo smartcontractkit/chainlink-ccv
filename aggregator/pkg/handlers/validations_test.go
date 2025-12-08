@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
@@ -17,7 +17,7 @@ func makeValidWriteReq() *pb.WriteCommitteeVerifierNodeResultRequest {
 		CommitteeVerifierNodeResult: &pb.CommitteeVerifierNodeResult{
 			Signature:       []byte{0x1},
 			CcvVersion:      []byte{0x1, 0x2, 0x3, 0x4},
-			Message:         model.MapProtocolMessageToProtoMessage(msg),
+			Message:         ccvcommon.MapProtocolMessageToProtoMessage(msg),
 			CcvAddresses:    [][]byte{},
 			ExecutorAddress: makeTestExecutorAddress(),
 		},

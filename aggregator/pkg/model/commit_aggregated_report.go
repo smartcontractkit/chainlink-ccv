@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
@@ -64,10 +65,14 @@ func (c *CommitAggregatedReport) GetMessageExecutorAddress() protocol.UnknownAdd
 	return c.Verifications[0].MessageExecutorAddress
 }
 
+func (c *CommitAggregatedReport) GetVersion() []byte {
+	return c.Verifications[0].CCVVersion
+}
+
 // It is assumed that all verifications in the report have the same message since otherwise the message ID would not match.
 func (c *CommitAggregatedReport) GetProtoMessage() *pb.Message {
 	if len(c.Verifications) > 0 && c.Verifications[0].Message != nil {
-		return MapProtocolMessageToProtoMessage(c.Verifications[0].Message)
+		return common.MapProtocolMessageToProtoMessage(c.Verifications[0].Message)
 	}
 	return nil
 }

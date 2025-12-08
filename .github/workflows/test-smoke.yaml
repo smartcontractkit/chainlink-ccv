@@ -1,6 +1,7 @@
 name: End-to-end CCV Test
 
 on:
+  merge_group:
   pull_request:
 
 defaults:

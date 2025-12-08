@@ -304,7 +304,7 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 	}, nil
 }
 
-func (d *DatabaseStorage) GetCCVData(ctx context.Context, messageID model.MessageID) (*model.CommitAggregatedReport, error) {
+func (d *DatabaseStorage) GetCommitAggregatedReportByMessageID(ctx context.Context, messageID model.MessageID) (*model.CommitAggregatedReport, error) {
 	messageIDHex := common.Bytes2Hex(messageID)
 
 	stmt := fmt.Sprintf(`
@@ -392,7 +392,7 @@ func (d *DatabaseStorage) GetCCVData(ctx context.Context, messageID model.Messag
 	return report, nil
 }
 
-func (d *DatabaseStorage) GetBatchCCVData(ctx context.Context, messageIDs []model.MessageID) (map[string]*model.CommitAggregatedReport, error) {
+func (d *DatabaseStorage) GetBatchAggregatedReportByMessageIDs(ctx context.Context, messageIDs []model.MessageID) (map[string]*model.CommitAggregatedReport, error) {
 	if len(messageIDs) == 0 {
 		return make(map[string]*model.CommitAggregatedReport), nil
 	}
@@ -494,7 +494,7 @@ func (d *DatabaseStorage) GetBatchCCVData(ctx context.Context, messageIDs []mode
 	return reports, nil
 }
 
-func (d *DatabaseStorage) SubmitReport(ctx context.Context, report *model.CommitAggregatedReport) error {
+func (d *DatabaseStorage) SubmitAggregatedReport(ctx context.Context, report *model.CommitAggregatedReport) error {
 	if report == nil {
 		return fmt.Errorf("aggregated report cannot be nil")
 	}

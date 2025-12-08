@@ -25,7 +25,7 @@ import (
 // Signing is passed in because it's managed differently in the CL node vs standalone modes.
 func NewVerificationCoordinator(
 	lggr logger.Logger,
-	cfg verifier.Config,
+	cfg commit.Config,
 	aggregatorSecret *hmac.ClientConfig,
 	signingAddress protocol.UnknownAddress,
 	signer verifier.MessageSigner,
@@ -114,7 +114,7 @@ func NewVerificationCoordinator(
 		sourceConfigs[sel] = verifier.SourceConfig{
 			VerifierAddress:        verifierAddrs[sel],
 			DefaultExecutorAddress: defaultExecutorAddrs[sel],
-			PollInterval:           1 * time.Second, // TODO: make configurable
+			PollInterval:           2 * time.Second, // TODO: make configurable
 			ChainSelector:          sel,
 			RMNRemoteAddress:       rmnRemoteAddrs[sel],
 		}

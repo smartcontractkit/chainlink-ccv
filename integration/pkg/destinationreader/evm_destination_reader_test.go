@@ -209,18 +209,13 @@ GetCCVSForMessage:
 - Caches the result with configured expiry time
 - Returns CCVAddressInfo with RequiredCCVs, OptionalCCVs, and OptionalThreshold
 
-GetMessageExecutionState:
+GetMessageExecutability:
 - Calls offramp.GetExecutionState with message details
-- Returns one of: UNTOUCHED, IN_PROGRESS, SUCCESS, or FAILURE
-- Used to determine if a message has already been executed on-chain
+- Returns whether the offramp's execution state is telling us to execute the message or not.
+- Used to determine if a message has already been honestly tried on-chain
 
 GetRMNCursedSubjects:
 - Delegates to rmnremotereader.EVMReadRMNCursedSubjects
 - Returns list of cursed chain selectors or global curse indicator
 - Used for curse checking before message execution
-
-For production testing, consider:
-- Integration tests with test network deployments
-- Creating interface wrappers for the generated bindings
-- Using contract simulation frameworks
 */

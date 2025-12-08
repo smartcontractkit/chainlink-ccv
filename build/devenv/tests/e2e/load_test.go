@@ -2,10 +2,12 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,22 +16,26 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	cldfevm "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+	"github.com/smartcontractkit/chainlink-evm/gethwrappers/shared/generated/initial/weth9"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/rpc"
 	"github.com/smartcontractkit/chainlink-testing-framework/wasp"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
-	cciptestinterfaces "github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
+)
+
+const (
+	postTestVerificationDelay = 30 * time.Second
+	requiredWETHBalance       = 1e18
 )
 
 type ChaosTestCase struct {
@@ -47,182 +53,52 @@ type GasTestCase struct {
 	waitBetweenTests time.Duration
 }
 
-// SentMessage represents a message that was sent and needs verification.
-type SentMessage struct {
-	SeqNo     uint64
-	MessageID [32]byte
-	SentTime  time.Time
-}
-
-type EVMTXGun struct {
-	cfg        *ccv.Cfg
-	e          *deployment.Environment
-	selectors  []uint64
-	impl       cciptestinterfaces.CCIP17ProductConfiguration
-	src        cldfevm.Chain
-	dest       cldfevm.Chain
-	sentSeqNos []uint64
-	sentTimes  map[uint64]time.Time
-	msgIDs     map[uint64][32]byte
-	seqNosMu   sync.Mutex
-	sentMsgCh  chan SentMessage // Channel for real-time message notifications
-	closeOnce  sync.Once        // Ensure channel is closed only once
-}
-
-// CloseSentChannel closes the sent messages channel to signal no more messages will be sent.
-func (m *EVMTXGun) CloseSentChannel() {
-	m.closeOnce.Do(func() {
-		close(m.sentMsgCh)
-	})
-}
-
-func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impl cciptestinterfaces.CCIP17ProductConfiguration, s, d cldfevm.Chain) *EVMTXGun {
-	return &EVMTXGun{
-		cfg:        cfg,
-		e:          e,
-		selectors:  selectors,
-		impl:       impl,
-		src:        s,
-		dest:       d,
-		sentSeqNos: make([]uint64, 0),
-		sentTimes:  make(map[uint64]time.Time),
-		msgIDs:     make(map[uint64][32]byte),
-		sentMsgCh:  make(chan SentMessage, 1000), // Buffered channel to avoid blocking
-	}
-}
-
-// Call implements example gun call, assertions on response bodies should be done here.
-func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
-	b := ccv.NewDefaultCLDFBundle(m.e)
-	m.e.OperationsBundle = b
-	ctx := context.Background()
-
-	chainIDs := make([]string, 0)
-	for _, bc := range m.cfg.Blockchains {
-		chainIDs = append(chainIDs, bc.ChainID)
-	}
-
-	srcChain, err := chainsel.GetChainDetailsByChainIDAndFamily(chainIDs[0], chainsel.FamilyEVM)
-	if err != nil {
-		return &wasp.Response{Error: err.Error(), Failed: true}
-	}
-	dstChain, err := chainsel.GetChainDetailsByChainIDAndFamily(chainIDs[1], chainsel.FamilyEVM)
-	if err != nil {
-		return &wasp.Response{Error: err.Error(), Failed: true}
-	}
-
-	// Get sequence number before sending and record timestamp
-	c, ok := m.impl.(*evm.CCIP17EVM)
-	var seqNo uint64
-	if ok {
-		seqNo, err = c.GetExpectedNextSequenceNumber(ctx, srcChain.ChainSelector, dstChain.ChainSelector)
-		if err == nil {
-			sentTime := time.Now()
-			m.seqNosMu.Lock()
-			m.sentSeqNos = append(m.sentSeqNos, seqNo)
-			m.sentTimes[seqNo] = sentTime
-			m.seqNosMu.Unlock()
-		}
-	}
-
-	mockReceiverRef, err := m.e.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(
-			dstChain.ChainSelector,
-			datastore.ContractType(mock_receiver.ContractType),
-			semver.MustParse(mock_receiver.Deploy.Version()),
-			evm.DefaultReceiverQualifier))
-	if err != nil {
-		return &wasp.Response{Error: fmt.Errorf("could not find mock receiver address in datastore: %w", err).Error(), Failed: true}
-	}
-	committeeVerifierProxyRef, err := m.e.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(
-			srcChain.ChainSelector,
-			datastore.ContractType(committee_verifier.ResolverProxyType),
-			semver.MustParse(committee_verifier.Deploy.Version()),
-			evm.DefaultCommitteeVerifierQualifier))
-	if err != nil {
-		return &wasp.Response{Error: fmt.Errorf("could not find committee verifier proxy address in datastore: %w", err).Error(), Failed: true}
-	}
-	_, err = m.impl.SendMessage(ctx, srcChain.ChainSelector, dstChain.ChainSelector, cciptestinterfaces.MessageFields{
-		Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
-		Data:     []byte{},
-	}, cciptestinterfaces.MessageOptions{
-		Version:        3,
-		FinalityConfig: uint16(1),
-		CCVs: []protocol.CCV{
-			{
-				CCVAddress: common.HexToAddress(committeeVerifierProxyRef.Address).Bytes(),
-				Args:       []byte{},
-				ArgsLen:    0,
-			},
-		},
-	})
-	if err != nil {
-		return &wasp.Response{Error: fmt.Errorf("failed to send message: %w", err).Error(), Failed: true}
-	}
-
-	// After sending, resolve MessageID via the on-chain Sent event and push enriched message into channel
-	if ok {
-		m.seqNosMu.Lock()
-		sentAt := m.sentTimes[seqNo]
-		m.seqNosMu.Unlock()
-		go func(localSeq uint64, sentAt time.Time) {
-			// Wait up to 2 minutes for the Sent event
-			sentEvent, waitErr := c.WaitOneSentEventBySeqNo(ctx, srcChain.ChainSelector, dstChain.ChainSelector, localSeq, 2*time.Minute)
-			if waitErr != nil {
-				return
-			}
-			m.seqNosMu.Lock()
-			m.msgIDs[localSeq] = sentEvent.MessageID
-			m.seqNosMu.Unlock()
-			m.sentMsgCh <- SentMessage{SeqNo: localSeq, MessageID: sentEvent.MessageID, SentTime: sentAt}
-		}(seqNo, sentAt)
-	}
-	return &wasp.Response{Data: "ok"}
-}
-
-func assertMessagesAsync(tc TestingContext, gun *EVMTXGun) func() ([]metrics.MessageMetrics, metrics.MessageTotals) {
+func assertMessagesAsync(tc TestingContext, gun *EVMTXGun, overallTimeout time.Duration) func() ([]metrics.MessageMetrics, metrics.MessageTotals) {
 	fromSelector := gun.src.Selector
 	toSelector := gun.dest.Selector
 
-	metricsChan := make(chan metrics.MessageMetrics, 100)
 	var wg sync.WaitGroup
-	var totalSent, totalReceived int
-	var countMu sync.Mutex
+	var totalSent, totalReceived atomic.Int32
 
-	// Track specific messages for detailed reporting
-	sentMessages := make(map[uint64]string)
-	receivedMessages := make(map[uint64]string)
+	sentMessages := &sync.Map{}
+	receivedMessages := &sync.Map{}
+	metricsData := &sync.Map{}
 
-	// Create a context with timeout for verification
-	verifyCtx, cancelVerify := context.WithTimeout(tc.Ctx, tc.Timeout)
+	verifyCtx, cancelVerify := context.WithTimeout(tc.Ctx, overallTimeout)
 
 	go func() {
-		defer close(metricsChan)
 		defer cancelVerify()
 
 		for sentMsg := range gun.sentMsgCh {
-			msgIDHex := common.BytesToHash(sentMsg.MessageID[:]).Hex()
-			countMu.Lock()
-			totalSent++
-			sentMessages[sentMsg.SeqNo] = msgIDHex
-			countMu.Unlock()
+			select {
+			case <-verifyCtx.Done():
+				tc.T.Logf("Overall verification timeout reached, stopping new verifications")
+				return
+			default:
+			}
 
-			// Launch a goroutine for each message to verify it
+			msgIDHex := common.BytesToHash(sentMsg.MessageID[:]).Hex()
+			totalSent.Add(1)
+			sentMessages.Store(sentMsg.SeqNo, msgIDHex)
+
 			wg.Add(1)
 			go func(msg SentMessage) {
 				defer wg.Done()
 
 				msgIDHex := common.BytesToHash(msg.MessageID[:]).Hex()
-				execEvent, err := tc.Impl.WaitOneExecEventBySeqNo(verifyCtx, fromSelector, toSelector, msg.SeqNo, tc.Timeout)
 
-				if verifyCtx.Err() != nil {
-					tc.T.Logf("Message %d verification timed out", msg.SeqNo)
+				if _, ok := tc.Impl[toSelector]; !ok {
+					tc.T.Logf("No implementation available to verify message %d", msg.SeqNo)
 					return
 				}
 
+				execEvent, err := tc.Impl[toSelector].WaitOneExecEventBySeqNo(verifyCtx, fromSelector, toSelector, msg.SeqNo, 0)
 				if err != nil {
-					tc.T.Logf("Failed to get execution event for sequence number %d: %v", msg.SeqNo, err)
+					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+						tc.T.Logf("Message %d verification cancelled or timed out", msg.SeqNo)
+					} else {
+						tc.T.Logf("Failed to get execution event for sequence number %d: %v", msg.SeqNo, err)
+					}
 					return
 				}
 
@@ -236,22 +112,20 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun) func() ([]metrics.Mes
 
 				tc.T.Logf("Message with sequence number %d successfully executed (latency: %v)", msg.SeqNo, latency)
 
-				countMu.Lock()
-				totalReceived++
-				receivedMessages[msg.SeqNo] = msgIDHex
-				countMu.Unlock()
+				totalReceived.Add(1)
+				receivedMessages.Store(msg.SeqNo, msgIDHex)
 
-				metricsChan <- metrics.MessageMetrics{
+				metricsData.Store(msg.SeqNo, metrics.MessageMetrics{
 					SeqNo:           msg.SeqNo,
 					MessageID:       msgIDHex,
 					SentTime:        msg.SentTime,
 					ExecutedTime:    executedTime,
 					LatencyDuration: latency,
-				}
+				})
 			}(sentMsg)
 		}
 
-		tc.T.Logf("All messages sent, waiting for assertion to complete")
+		tc.T.Logf("All messages sent, waiting for verifications to complete")
 
 		done := make(chan struct{})
 		go func() {
@@ -261,26 +135,39 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun) func() ([]metrics.Mes
 
 		select {
 		case <-done:
-			tc.T.Logf("All verification goroutines completed")
+			tc.T.Logf("All verification goroutines completed successfully")
 		case <-verifyCtx.Done():
-			tc.T.Logf("Verification timeout reached, some goroutines may still be running")
+			tc.T.Logf("Verification timeout reached, %d messages may be unverified", totalSent.Load()-totalReceived.Load())
 		}
 	}()
 
 	return func() ([]metrics.MessageMetrics, metrics.MessageTotals) {
-		datum := make([]metrics.MessageMetrics, 0, 100)
-		for metric := range metricsChan {
-			datum = append(datum, metric)
-		}
+		<-verifyCtx.Done()
 
-		countMu.Lock()
+		datum := make([]metrics.MessageMetrics, 0, int(totalReceived.Load()))
+		metricsData.Range(func(key, value any) bool {
+			datum = append(datum, value.(metrics.MessageMetrics))
+			return true
+		})
+
+		sent := make(map[uint64]string)
+		sentMessages.Range(func(key, value any) bool {
+			sent[key.(uint64)] = value.(string)
+			return true
+		})
+
+		received := make(map[uint64]string)
+		receivedMessages.Range(func(key, value any) bool {
+			received[key.(uint64)] = value.(string)
+			return true
+		})
+
 		totals := metrics.MessageTotals{
-			Sent:             totalSent,
-			Received:         totalReceived,
-			SentMessages:     sentMessages,
-			ReceivedMessages: receivedMessages,
+			Sent:             int(totalSent.Load()),
+			Received:         int(totalReceived.Load()),
+			SentMessages:     sent,
+			ReceivedMessages: received,
 		}
-		countMu.Unlock()
 
 		notVerified := totals.Sent - totals.Received
 		tc.T.Logf("Verification complete - Sent: %d, ReachedVerifier: %d, Verified: %d, Aggregated: %d, Indexed: %d, ReachedExecutor: %d, SentToChain: %d, Received: %d, Not Received: %d",
@@ -288,6 +175,52 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun) func() ([]metrics.Mes
 
 		return datum, totals
 	}
+}
+
+func ensureWETHBalanceAndApproval(ctx context.Context, t *testing.T, logger zerolog.Logger, e *deployment.Environment, chain cldfevm.Chain, requiredWETH *big.Int) {
+	wethContract, err := e.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(
+			chain.Selector,
+			datastore.ContractType(weth.ContractType),
+			semver.MustParse(weth.Deploy.Version()),
+			""))
+	require.NoError(t, err)
+
+	wethInstance, err := weth9.NewWETH9(common.HexToAddress(wethContract.Address), chain.Client)
+	require.NoError(t, err)
+
+	routerInstance, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+		chain.Selector,
+		datastore.ContractType(router.ContractType),
+		semver.MustParse(router.Deploy.Version()),
+		""))
+	require.NoError(t, err)
+
+	balance, err := chain.Client.BalanceAt(ctx, chain.DeployerKey.From, nil)
+	require.NoError(t, err)
+	logger.Info().Str("balance", balance.String()).Msg("Deployer balance before deposit")
+
+	wethBalance, err := wethInstance.BalanceOf(nil, chain.DeployerKey.From)
+	require.NoError(t, err)
+	logger.Info().Str("wethBalance", wethBalance.String()).Str("requiredWETH", requiredWETH.String()).Msg("Deployer WETH balance before deposit")
+
+	if wethBalance.Cmp(requiredWETH) < 0 {
+		depositAmount := new(big.Int).Sub(requiredWETH, wethBalance)
+		oldValue := chain.DeployerKey.Value
+		chain.DeployerKey.Value = depositAmount
+		tx1, err := wethInstance.Deposit(chain.DeployerKey)
+		require.NoError(t, err)
+		_, err = chain.Confirm(tx1)
+		require.NoError(t, err)
+		chain.DeployerKey.Value = oldValue
+		logger.Info().Str("depositAmount", depositAmount.String()).Msg("Deposited WETH")
+	}
+
+	tx, err := wethInstance.Approve(chain.DeployerKey, common.HexToAddress(routerInstance.Address), requiredWETH)
+	require.NoError(t, err)
+	_, err = chain.Confirm(tx)
+	require.NoError(t, err)
+	logger.Info().Str("approvedAmount", requiredWETH.String()).Msg("Approved WETH for router")
 }
 
 func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
@@ -317,7 +250,7 @@ func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
 	}
 }
 
-func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, selectors []uint64, impl cciptestinterfaces.CCIP17ProductConfiguration, s, d cldfevm.Chain) (*wasp.Profile, *EVMTXGun) {
+func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, selectors []uint64, impl map[uint64]cciptestinterfaces.CCIP17ProductConfiguration, s, d cldfevm.Chain) (*wasp.Profile, *EVMTXGun) {
 	gun := NewEVMTransactionGun(in, e, selectors, impl, s, d)
 	profile := wasp.NewProfile().
 		Add(wasp.NewGenerator(&wasp.Config{
@@ -365,46 +298,51 @@ func TestE2ELoad(t *testing.T) {
 
 	ctx := ccv.Plog.WithContext(context.Background())
 	l := zerolog.Ctx(ctx)
-	chainIDs, wsURLs := make([]string, 0), make([]string, 0)
-	for _, bc := range in.Blockchains {
-		chainIDs = append(chainIDs, bc.ChainID)
-		wsURLs = append(wsURLs, bc.Out.Nodes[0].ExternalWSUrl)
+	lib, err := ccv.NewLib(l, outfile)
+	require.NoError(t, err)
+	chainImpls, err := lib.ChainsMap(ctx)
+	require.NoError(t, err)
+
+	var defaultAggregatorClient *ccv.AggregatorClient
+	if endpoint, ok := in.AggregatorEndpoints[evm.DefaultCommitteeVerifierQualifier]; ok {
+		defaultAggregatorClient, err = ccv.NewAggregatorClient(
+			zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
+			endpoint)
+		require.NoError(t, err)
+		require.NotNil(t, defaultAggregatorClient)
+		t.Cleanup(func() {
+			defaultAggregatorClient.Close()
+		})
 	}
 
-	impl, err := evm.NewCCIP17EVM(ctx, *l, e, chainIDs, wsURLs)
-	require.NoError(t, err)
+	var indexerClient *ccv.IndexerClient
+	if in.IndexerEndpoint != "" {
+		indexerClient = ccv.NewIndexerClient(
+			zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
+			in.IndexerEndpoint)
+		require.NotNil(t, indexerClient)
+	}
 
-	indexerURL := fmt.Sprintf("http://127.0.0.1:%d", in.Indexer.Port)
-	defaultAggregatorAddr := fmt.Sprintf("127.0.0.1:%d", defaultAggregatorPort(in))
-
-	defaultAggregatorClient, err := ccv.NewAggregatorClient(
-		zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
-		defaultAggregatorAddr)
-	require.NoError(t, err)
-	require.NotNil(t, defaultAggregatorClient)
-	t.Cleanup(func() {
-		defaultAggregatorClient.Close()
-	})
-
-	indexerClient := ccv.NewIndexerClient(
-		zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
-		indexerURL)
-	require.NotNil(t, indexerClient)
+	// Ensure we have at least 1 WETH and approve router to spend it
+	ensureWETHBalanceAndApproval(ctx, t, *l, e, srcChain, big.NewInt(requiredWETHBalance))
 
 	t.Run("clean", func(t *testing.T) {
 		// just a clean load test to measure performance
 		rps := int64(5)
 		testDuration := 30 * time.Second
 
-		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
-		tc.Timeout = 2 * time.Minute
+		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
+		tc.Timeout = 30 * time.Second
 
-		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
-		waitForMetrics := assertMessagesAsync(tc, gun)
+		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
+		overallTimeout := testDuration + (2 * tc.Timeout)
+		waitForMetrics := assertMessagesAsync(tc, gun, overallTimeout)
 
 		_, err = p.Run(true)
 		require.NoError(t, err)
 
+		p.Wait()
+		time.Sleep(postTestVerificationDelay)
 		// Close the channel to signal no more messages will be sent
 		gun.CloseSentChannel()
 
@@ -432,11 +370,12 @@ func TestE2ELoad(t *testing.T) {
 
 		rps := int64(1)
 
-		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
+		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
 		tc.Timeout = timeoutDuration
 
-		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
-		waitForMetrics := assertMessagesAsync(tc, gun)
+		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
+		overallTimeout := testDuration + timeoutDuration
+		waitForMetrics := assertMessagesAsync(tc, gun, overallTimeout)
 
 		_, err = p.Run(true)
 		require.NoError(t, err)
@@ -461,11 +400,12 @@ func TestE2ELoad(t *testing.T) {
 		rps := int64(1)
 		testDuration := 5 * time.Minute
 
-		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
+		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
 		tc.Timeout = 10 * time.Minute
 
-		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
-		waitForMetrics := assertMessagesAsync(tc, gun)
+		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
+		overallTimeout := testDuration + tc.Timeout
+		waitForMetrics := assertMessagesAsync(tc, gun, overallTimeout)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
@@ -535,10 +475,11 @@ func TestE2ELoad(t *testing.T) {
 		rps := int64(1)
 		testDuration := 5 * time.Minute
 
-		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
+		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
 
-		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
-		waitForMetrics := assertMessagesAsync(tc, gun)
+		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
+		overallTimeout := testDuration + (2 * tc.Timeout)
+		waitForMetrics := assertMessagesAsync(tc, gun, overallTimeout)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
@@ -702,10 +643,11 @@ func TestE2ELoad(t *testing.T) {
 			},
 		}
 
-		tc := NewTestingContext(t, ctx, impl, defaultAggregatorClient, indexerClient)
+		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
 
-		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, impl, srcChain, dstChain)
-		waitForMetrics := assertMessagesAsync(tc, gun)
+		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
+		overallTimeout := testDuration + (2 * tc.Timeout)
+		waitForMetrics := assertMessagesAsync(tc, gun, overallTimeout)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)

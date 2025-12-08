@@ -472,7 +472,7 @@ func (vc *Coordinator) handleVerificationErrors(ctx context.Context, errorBatch 
 
 		vc.lggr.Errorw("Message verification failed",
 			"error", verificationError.Error,
-			"messageID", message.MustMessageID(),
+			"messageID", verificationError.Task.MessageID,
 			"nonce", message.SequenceNumber,
 			"sourceChain", message.SourceChainSelector,
 			"destChain", message.DestChainSelector,
@@ -543,3 +543,8 @@ func (vc *Coordinator) HealthReport() map[string]error {
 	report[vc.Name()] = vc.Ready()
 	return report
 }
+
+var (
+	_ services.Service        = (*Coordinator)(nil)
+	_ protocol.HealthReporter = (*Coordinator)(nil)
+)

@@ -2,15 +2,16 @@ package ccvstreamer_test
 
 import (
 	"context"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/integration/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -22,8 +23,13 @@ func TestNoReader(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	var wg sync.WaitGroup
-	_, err := oss.Start(ctx, &wg)
+	messageChan := make(chan protocol.MessageWithMetadata)
+	errorsChan := make(chan error)
+	go func() {
+		defer close(messageChan)
+		defer close(errorsChan)
+	}()
+	err := oss.Start(ctx, messageChan, errorsChan)
 
 	require.ErrorContains(t, err, "reader not set")
 }
@@ -35,22 +41,33 @@ func TestOffchainStorageStreamerLifecycle(t *testing.T) {
 	oss := ccvstreamer.NewIndexerStorageStreamer(lggr, ccvstreamer.IndexerStorageConfig{
 		IndexerClient:   &reader,
 		PollingInterval: 150 * time.Millisecond,
+		TimeProvider:    common.NewMockTimeProvider(t),
+		ExpiryDuration:  10 * time.Second,
+		CleanInterval:   1 * time.Second,
 	})
 	require.NotNil(t, oss)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	var wg sync.WaitGroup
-	_, err := oss.Start(ctx, &wg)
+	messageChan := make(chan protocol.MessageWithMetadata)
+	errorsChan := make(chan error)
+	go func() {
+		defer close(messageChan)
+		defer close(errorsChan)
+	}()
+	err := oss.Start(ctx, messageChan, errorsChan)
 
 	require.NoError(t, err)
 	require.True(t, oss.IsRunning())
 
-	// let it run a bit to ensure ReadCCVData is called
-	time.Sleep(200 * time.Millisecond)
-
+	deadline, ok := t.Deadline()
+	if !ok {
+		deadline = time.Now().Add(10 * time.Second)
+	}
+	waitTimeout := time.Until(deadline)
 	cancel()
-	wg.Wait()
-	require.False(t, oss.IsRunning())
+	require.Eventually(t, func() bool {
+		return !oss.IsRunning()
+	}, waitTimeout, 50*time.Millisecond)
 }

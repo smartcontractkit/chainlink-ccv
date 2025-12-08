@@ -20,7 +20,7 @@ type HTTPAttestationService struct {
 }
 
 func NewAttestationService(
-	config Config,
+	config CCTPConfig,
 ) AttestationService {
 	return &HTTPAttestationService{
 		api:      config.AttestationAPI,

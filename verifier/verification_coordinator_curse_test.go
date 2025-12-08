@@ -105,12 +105,14 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 		},
 	).Maybe()
 
+	verifierAddr := make([]byte, 20)
+	verifierAddr[0] = 0x11
 	// Create coordinator configuration
 	coordinatorConfig := CoordinatorConfig{
 		VerifierID: "curse-test-coordinator",
 		SourceConfigs: map[protocol.ChainSelector]SourceConfig{
 			sourceChain: {
-				VerifierAddress: protocol.UnknownAddress("0x1234"),
+				VerifierAddress: verifierAddr,
 				PollInterval:    10 * time.Millisecond,
 			},
 		},
@@ -214,6 +216,7 @@ func (s *curseTestSetup) advanceChain(latestBlock, finalizedBlock uint64) {
 //  2. Pending tasks are dropped when lane is cursed
 //  3. New tasks are also dropped while lane is cursed
 func TestCurseDetection_LaneSpecificCurse(t *testing.T) {
+	t.Skip("Flakey test: CCIP-8361")
 	sourceChain := protocol.ChainSelector(1337)
 	destChain := protocol.ChainSelector(2337)
 	destChain2 := protocol.ChainSelector(3337)

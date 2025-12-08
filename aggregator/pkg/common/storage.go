@@ -23,11 +23,11 @@ type CommitVerificationStore interface {
 type CommitVerificationAggregatedStore interface {
 	// QueryAggregatedReports retrieves a batch of aggregated reports starting from a sequence number.
 	QueryAggregatedReports(ctx context.Context, sinceSequenceInclusive int64) (*model.AggregatedReportBatch, error)
-	// GetCCVData retrieves the aggregated CCV data for a specific message ID.
-	GetCCVData(ctx context.Context, messageID model.MessageID) (*model.CommitAggregatedReport, error)
-	// GetBatchCCVData retrieves the aggregated CCV data for multiple message IDs efficiently.
+	// GetCommitAggregatedReportByMessageID retrieves the aggregated CCV data for a specific message ID.
+	GetCommitAggregatedReportByMessageID(ctx context.Context, messageID model.MessageID) (*model.CommitAggregatedReport, error)
+	// GetBatchAggregatedReportByMessageIDs retrieves the aggregated CCV data for multiple message IDs efficiently.
 	// Returns a map of messageID hex string to CommitAggregatedReport. Missing message IDs are not included in the map.
-	GetBatchCCVData(ctx context.Context, messageIDs []model.MessageID) (map[string]*model.CommitAggregatedReport, error)
+	GetBatchAggregatedReportByMessageIDs(ctx context.Context, messageIDs []model.MessageID) (map[string]*model.CommitAggregatedReport, error)
 }
 
 // ChainStatus represents chain status data with finalized block height and disabled flag.

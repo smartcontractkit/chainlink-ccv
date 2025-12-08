@@ -83,12 +83,10 @@ func TestSRS_FetchesAndQueuesMessages(t *testing.T) {
 	)
 
 	// Set starting lastProcessed before first event
-	srs.mu.Lock()
-	srs.lastProcessedBlock = big.NewInt(95)
-	srs.mu.Unlock()
+	srs.lastProcessedFinalizedBlock.Store(big.NewInt(95))
 
 	// Call cycle once
-	srs.processEventCycle(ctx)
+	srs.processEventCycle(ctx, latest, finalized)
 
 	// Check pending queue
 	srs.mu.RLock()
@@ -156,11 +154,9 @@ func TestSRS_DeduplicatesByMessageID(t *testing.T) {
 		10*time.Millisecond,
 	)
 
-	srs.mu.Lock()
-	srs.lastProcessedBlock = big.NewInt(95)
-	srs.mu.Unlock()
+	srs.lastProcessedFinalizedBlock.Store(big.NewInt(95))
 
-	srs.processEventCycle(ctx)
+	srs.processEventCycle(ctx, latest, finalized)
 
 	srs.mu.RLock()
 	defer srs.mu.RUnlock()
@@ -233,7 +229,8 @@ func TestSRS_Reorg_DropsMissingPendingAndSent(t *testing.T) {
 // Curses
 // ----------------------
 
-func TestSRS_Curse_DropsAtEnqueue(t *testing.T) {
+func TestSRS_Curse_DropsAtSendTime(t *testing.T) {
+	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
 	reader := protocol_mocks.NewMockSourceReader(t)
 	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
@@ -247,7 +244,7 @@ func TestSRS_Curse_DropsAtEnqueue(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, _ := newTestSRS(
+	srs, mockFC := newTestSRS(
 		t,
 		chain,
 		reader,
@@ -256,19 +253,31 @@ func TestSRS_Curse_DropsAtEnqueue(t *testing.T) {
 		10*time.Millisecond,
 	)
 
+	// Setup finality checker mock
+	mockFC.EXPECT().UpdateFinalized(mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockFC.EXPECT().IsFinalityViolated().Return(false).Maybe()
+
 	events := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{100, 101})
 	tasks := []VerificationTask{
 		{Message: events[0].Message, BlockNumber: events[0].BlockNumber, MessageID: events[0].MessageID.String()},
 		{Message: events[1].Message, BlockNumber: events[1].BlockNumber, MessageID: events[1].MessageID.String()},
 	}
 
-	// Because lane is cursed, addToPendingQueueHandleReorg should drop everything.
+	// Tasks are added to pending queue (no curse check at enqueue time)
 	srs.addToPendingQueueHandleReorg(tasks, big.NewInt(100))
 
 	srs.mu.RLock()
-	defer srs.mu.RUnlock()
+	require.Len(t, srs.pendingTasks, 2, "tasks should be enqueued initially")
+	srs.mu.RUnlock()
 
-	require.Len(t, srs.pendingTasks, 0, "no tasks should be enqueued when lane is cursed at enqueue time")
+	// When sendReadyMessages is called, cursed tasks are dropped
+	latest := &protocol.BlockHeader{Number: 150}
+	finalized := &protocol.BlockHeader{Number: 120}
+	srs.sendReadyMessages(ctx, latest, finalized)
+
+	srs.mu.RLock()
+	defer srs.mu.RUnlock()
+	require.Len(t, srs.pendingTasks, 0, "cursed tasks should be dropped at send time")
 }
 
 // ----------------------
@@ -339,7 +348,7 @@ func TestSRS_Readiness_DefaultFinality_ReadyWhenBelowFinalized(t *testing.T) {
 	srs.mu.Unlock()
 
 	// Call sendReadyMessages once
-	go srs.sendReadyMessages(ctx)
+	go srs.sendReadyMessages(ctx, latest, finalized)
 
 	// Receive ready batch
 	select {
@@ -414,7 +423,7 @@ func TestSRS_Readiness_CustomFinality_ReadyAgainstLatest(t *testing.T) {
 	srs.pendingTasks[msgID.String()] = task
 	srs.mu.Unlock()
 
-	go srs.sendReadyMessages(ctx)
+	go srs.sendReadyMessages(ctx, latest, finalized)
 
 	select {
 	case batch := <-srs.readyTasksCh:
@@ -423,6 +432,147 @@ func TestSRS_Readiness_CustomFinality_ReadyAgainstLatest(t *testing.T) {
 		require.Equal(t, task.MessageID, batch.Items[0].MessageID)
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for readyTasks batch")
+	}
+}
+
+func TestSRS_isMessageReadyForVerification(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+	reader := protocol_mocks.NewMockSourceReader(t)
+	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
+	curseDetector := ccv_common.NewMockCurseCheckerService(t)
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
+	curseDetector.EXPECT().Close().Return(nil).Maybe()
+
+	srs, _ := newTestSRS(
+		t,
+		chain,
+		reader,
+		chainStatusMgr,
+		curseDetector,
+		10*time.Millisecond,
+	)
+
+	tests := []struct {
+		name           string
+		blockDepth     uint16
+		msgBlock       uint64
+		latestBlock    uint64
+		finalizedBlock uint64
+		expectedReady  bool
+		description    string
+	}{
+		{
+			name:           "DefaultFinality_Ready_BelowFinalized",
+			blockDepth:     0, // wait finality
+			msgBlock:       100,
+			latestBlock:    200,
+			finalizedBlock: 150,
+			expectedReady:  true,
+			description:    "Default finality (0): message block <= finalized block",
+		},
+		{
+			name:           "DefaultFinality_NotReady_AboveFinalized",
+			blockDepth:     0, // wait finality
+			msgBlock:       160,
+			latestBlock:    200,
+			finalizedBlock: 150,
+			expectedReady:  false,
+			description:    "Default finality (0): message block > finalized block",
+		},
+		{
+			name:           "CustomFinality_Ready_MetCustomRequirement",
+			blockDepth:     10,
+			msgBlock:       180,
+			latestBlock:    200,
+			finalizedBlock: 150,
+			expectedReady:  true,
+			description:    "Custom finality: msgBlock (180) + blockDepth (10) = 190 <= latest (200)",
+		},
+		{
+			name:           "CustomFinality_Ready_CappedAtFinality",
+			blockDepth:     100,
+			msgBlock:       140,
+			latestBlock:    200,
+			finalizedBlock: 150,
+			expectedReady:  true,
+			description:    "Custom finality: msgBlock (140) + blockDepth (100) = 240 > latest (200), BUT msgBlock <= finalized (150)",
+		},
+		{
+			name:           "CustomFinality_NotReady_NeitherConditionMet",
+			blockDepth:     20,
+			msgBlock:       190,
+			latestBlock:    200,
+			finalizedBlock: 180,
+			expectedReady:  false,
+			description:    "Custom finality: msgBlock (190) + blockDepth (20) = 210 > latest (200) AND msgBlock (190) > finalized (180)",
+		},
+		{
+			name:           "DOSAttack_MAXUint16_Ready_CappedAtFinality",
+			blockDepth:     65535,
+			msgBlock:       100,
+			latestBlock:    200,
+			finalizedBlock: 150,
+			expectedReady:  true,
+			description:    "DoS attack with MAX_UINT16: should be ready once finalized, not wait 65k blocks",
+		},
+		{
+			name:           "DOSAttack_MAXUint16_NotReady_NotFinalized",
+			blockDepth:     65535,
+			msgBlock:       160,
+			latestBlock:    200,
+			finalizedBlock: 150,
+			expectedReady:  false,
+			description:    "DoS attack with MAX_UINT16: not ready if block not finalized",
+		},
+		{
+			name:           "FasterThanFinality_Ready_ShortFinality",
+			blockDepth:     5,
+			msgBlock:       195,
+			latestBlock:    200,
+			finalizedBlock: 190,
+			expectedReady:  true,
+			description:    "Faster-than-finality: msgBlock (195) + blockDepth (5) = 200 <= latest (200)",
+		},
+		{
+			name:           "EdgeCase_ExactlyAtFinalized",
+			blockDepth:     50,
+			msgBlock:       150,
+			latestBlock:    200,
+			finalizedBlock: 150,
+			expectedReady:  true,
+			description:    "Edge case: message block exactly at finalized block boundary",
+		},
+		{
+			name:           "EdgeCase_ExactlyAtCustomRequirement",
+			blockDepth:     10,
+			msgBlock:       190,
+			latestBlock:    200,
+			finalizedBlock: 180,
+			expectedReady:  true,
+			description:    "Edge case: msgBlock (190) + finality (10) = 200 == latest (200)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := CreateTestMessage(t, 1, chain, defaultDestChain, tt.blockDepth, 300_000)
+			msgID, _ := msg.MessageID()
+
+			task := VerificationTask{
+				Message:     msg,
+				BlockNumber: tt.msgBlock,
+				MessageID:   msgID.String(),
+			}
+
+			ready := srs.isMessageReadyForVerification(
+				task,
+				big.NewInt(int64(tt.latestBlock)),
+				big.NewInt(int64(tt.finalizedBlock)),
+			)
+
+			require.Equal(t, tt.expectedReady, ready, tt.description)
+		})
 	}
 }
 
@@ -492,7 +642,7 @@ func TestSRS_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 	srs.sentTasks[task2.MessageID] = task2
 	srs.mu.Unlock()
 
-	go srs.sendReadyMessages(ctx)
+	go srs.sendReadyMessages(ctx, latest, finalized)
 
 	// Give it a moment
 	time.Sleep(50 * time.Millisecond)

@@ -1,8 +1,0 @@
-root = ".."
-
-[build]
-cmd = "go build -o ./tmp/verifier /app/cmd/verifier"
-bin = "tmp/verifier"
-include_dir = ["app"]
-include_ext = ["go", "mod", "sum"]
-exclude_dir = ["tmp", "vendor", "testdata", ".git"]

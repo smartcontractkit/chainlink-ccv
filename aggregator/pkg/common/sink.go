@@ -9,6 +9,6 @@ import (
 
 // Sink defines an interface for submitting aggregated commit reports.
 type Sink interface {
-	// SubmitReport submits the aggregated commit report to the specified sink
-	SubmitReport(ctx context.Context, report *model.CommitAggregatedReport) error
+	// SubmitAggregatedReport submits the aggregated commit report to the specified sink
+	SubmitAggregatedReport(ctx context.Context, report *model.CommitAggregatedReport) error
 }
