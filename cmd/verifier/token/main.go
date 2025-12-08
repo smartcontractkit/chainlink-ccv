@@ -127,8 +127,6 @@ func main() {
 		}
 	}
 
-	// Setup Gin HTTP API with all routes and coordinators for health checking
-	// Convert coordinators to HealthReporter interface
 	healthReporters := make([]protocol.HealthReporter, len(coordinators))
 	for i, coordinator := range coordinators {
 		healthReporters[i] = coordinator

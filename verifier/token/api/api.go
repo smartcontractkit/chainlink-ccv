@@ -10,7 +10,11 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func NewHTTPAPI(lggr logger.Logger, storage *storage.OffchainStorage, healthReporters []protocol.HealthReporter) *gin.Engine {
+func NewHTTPAPI(
+	lggr logger.Logger,
+	storage *storage.OffchainStorage,
+	healthReporters []protocol.HealthReporter,
+) *gin.Engine {
 	router := gin.Default()
 	router.Use(gin.Recovery())
 
