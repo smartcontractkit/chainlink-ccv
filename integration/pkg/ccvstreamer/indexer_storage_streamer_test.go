@@ -47,10 +47,13 @@ func TestOffchainStorageStreamerLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, oss.IsRunning())
 
-	// let it run a bit to ensure ReadCCVData is called
-	time.Sleep(200 * time.Millisecond)
-
+	deadline, ok := t.Deadline()
+	if !ok {
+		deadline = time.Now().Add(10 * time.Second)
+	}
+	waitTimeout := time.Until(deadline)
 	cancel()
-	wg.Wait()
-	require.False(t, oss.IsRunning())
+	require.Eventually(t, func() bool {
+		return !oss.IsRunning()
+	}, waitTimeout, 50*time.Millisecond)
 }

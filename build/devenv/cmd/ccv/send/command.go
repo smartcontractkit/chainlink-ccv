@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"strconv"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
@@ -26,28 +25,14 @@ import (
 
 func Command() *cobra.Command {
 	var args sendArgs
-	var selectorStrings []string
 	var token string
 
 	cmd := &cobra.Command{
-		Use:     "send <src>,<dest>[,<finality>]",
+		Use:     "send",
 		Aliases: []string{"s"},
-		Args:    cobra.RangeArgs(1, 1),
 		Short:   "Send a message",
 		RunE: func(cmd *cobra.Command, positionalArgs []string) error {
-			if len(positionalArgs) != 0 && len(selectorStrings) != 0 {
-				return fmt.Errorf("cannot use both positional arguments and --selectors flag")
-			}
-			if len(positionalArgs) != 0 {
-				selectorStrings = positionalArgs
-			}
-
 			var err error
-			args.srcSel, args.destSel, args.finalitySel, err = parseSelectors(selectorStrings)
-			if err != nil {
-				return err
-			}
-
 			args.tokenAmount, err = parseTokenAmount(token)
 			if err != nil {
 				return err
@@ -60,8 +45,13 @@ func Command() *cobra.Command {
 	cmd.Flags().StringVar(&args.receiverQualifier, "receiver-qualifier", evm.DefaultReceiverQualifier, "Receiver qualifier to use for the mock receiver contract")
 	cmd.Flags().StringVar(&args.receiverAddress, "receiver-address", "", "Receiver address to use, if not provided, will look up the mock receiver contract address from the datastore")
 	cmd.Flags().StringVar(&args.env, "env", "out", "Select environment file to use (e.g., 'staging' for env-staging.toml, defaults to 'out' for env-out.toml)")
-	cmd.Flags().StringArrayVar(&selectorStrings, "selector", []string{}, "Selectors to use for the mock receiver contract, provide 2 or 3 selectors. Order is important: <src>,<dest>[,<finality>]")
 	cmd.Flags().StringVar(&token, "token", "", "Token amounts to send in the format <amount>:<tokenAddress>, e.g., 1000000000000000000:0xTokenAddress")
+	cmd.Flags().Uint64Var(&args.srcSel, "src", 0, "Source chain selector")
+	cmd.Flags().Uint64Var(&args.destSel, "dest", 0, "Destination chain selector")
+	cmd.Flags().Uint64Var(&args.finalitySel, "finality", 0, "Finality chain selector (optional, only for V3 messages)")
+
+	_ = cmd.MarkFlagRequired("src")
+	_ = cmd.MarkFlagRequired("dest")
 
 	return cmd
 }
@@ -210,23 +200,4 @@ func parseTokenAmount(input string) (cciptestinterfaces.TokenAmount, error) {
 		Amount:       amount,
 		TokenAddress: tokenAddress.Bytes(),
 	}, nil
-}
-
-func parseSelectors(input []string) (src, dest, finality uint64, err error) {
-	src, err = strconv.ParseUint(input[0], 10, 64)
-	if err != nil {
-		err = fmt.Errorf("failed to parse source chain selector: %w", err)
-		return src, dest, finality, err
-	}
-	dest, err = strconv.ParseUint(input[1], 10, 64)
-	if err != nil {
-		err = fmt.Errorf("failed to parse destination chain selector: %w", err)
-		return src, dest, finality, err
-	}
-	finality, err = strconv.ParseUint(input[2], 10, 64)
-	if err != nil {
-		err = fmt.Errorf("failed to parse finality chain selector: %w", err)
-		return src, dest, finality, err
-	}
-	return src, dest, finality, err
 }

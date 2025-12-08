@@ -136,20 +136,8 @@ func (f *FinalityViolationCheckerService) UpdateFinalized(ctx context.Context, f
 			return fmt.Errorf("missing header for block %d in fetched range", blockNum)
 		}
 
-		// Check if we already have this block stored
-		if storedHeader, ok := f.finalizedBlocks[blockNum]; ok {
-			// Verify hash matches
-			if storedHeader.Hash != newHeader.Hash {
-				f.lggr.Errorw("FINALITY VIOLATION DETECTED - block hash changed",
-					"blockNumber", blockNum,
-				)
-				f.violationDetected = true
-				return fmt.Errorf("finality violation: block %d hash changed from %s to %s",
-					blockNum, storedHeader.Hash, newHeader.Hash)
-			}
-		} else {
-			// Store new finalized block
-			f.finalizedBlocks[blockNum] = newHeader
+		if err := f.validateAndStore(blockNum, newHeader); err != nil {
+			return err
 		}
 	}
 
@@ -177,6 +165,44 @@ func (f *FinalityViolationCheckerService) trimStoredBlocks() {
 	}
 }
 
+// validateAndStore checks block hash consistency and parent hash continuity.
+// Returns error and sets violationDetected if a finality violation is found.
+func (f *FinalityViolationCheckerService) validateAndStore(blockNum uint64, newHeader protocol.BlockHeader) error {
+	// Check if we already have this block stored
+	if storedHeader, ok := f.finalizedBlocks[blockNum]; ok {
+		if storedHeader.Hash != newHeader.Hash {
+			f.lggr.Errorw("FINALITY VIOLATION DETECTED - block hash changed",
+				"blockNumber", blockNum,
+				"storedHash", storedHeader.Hash,
+				"newHash", newHeader.Hash,
+			)
+			f.violationDetected = true
+			return fmt.Errorf("finality violation: block %d hash changed from %s to %s",
+				blockNum, storedHeader.Hash, newHeader.Hash)
+		}
+		return nil
+	}
+
+	// New block: verify parent hash matches the previous stored block
+	if blockNum > 0 {
+		if prevHeader, hasPrev := f.finalizedBlocks[blockNum-1]; hasPrev {
+			if newHeader.ParentHash != prevHeader.Hash {
+				f.lggr.Errorw("FINALITY VIOLATION DETECTED - parent hash mismatch",
+					"blockNumber", blockNum,
+					"expectedParent", prevHeader.Hash,
+					"actualParent", newHeader.ParentHash,
+				)
+				f.violationDetected = true
+				return fmt.Errorf("finality violation: block %d parent hash %s doesn't match block %d hash %s",
+					blockNum, newHeader.ParentHash, blockNum-1, prevHeader.Hash)
+			}
+		}
+	}
+
+	f.finalizedBlocks[blockNum] = newHeader
+	return nil
+}
+
 // IsFinalityViolated returns true if a finality violation has been detected.
 // This is a lightweight check that doesn't make any RPC calls.
 func (f *FinalityViolationCheckerService) IsFinalityViolated() bool {
@@ -185,8 +211,8 @@ func (f *FinalityViolationCheckerService) IsFinalityViolated() bool {
 	return f.violationDetected
 }
 
-// Reset clears all stored state. Used for testing or recovery scenarios.
-func (f *FinalityViolationCheckerService) Reset() {
+// reset clears all stored state. Used for testing.
+func (f *FinalityViolationCheckerService) reset() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
