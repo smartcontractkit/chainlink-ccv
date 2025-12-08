@@ -196,68 +196,42 @@ func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) ([]byte, error) {
 	}
 
 	committeeConfig := &model.Committee{}
-	committeeConfig.QuorumConfigs = make(map[string]map[string]*model.QuorumConfig)
+	committeeConfig.QuorumConfigs = make(map[string]*model.QuorumConfig)
+	committeeConfig.DestinationVerifiers = make(map[string]string)
 
-	// Collect all chain selectors to use as both source and destination
-	allChainSelectors := make([]uint64, 0, len(a.CommitteeVerifierResolverProxyAddresses))
-	for chainSelector := range a.CommitteeVerifierResolverProxyAddresses {
-		allChainSelectors = append(allChainSelectors, chainSelector)
+	// Build signers list from verifier inputs
+	signers := make([]model.Signer, 0, len(inV))
+	for _, v := range inV {
+		if v.CommitteeName != committeeName {
+			continue
+		}
+		signers = append(signers, model.Signer{
+			Address: v.SigningKeyPublic,
+		})
 	}
+	defaultThreshold := uint8(len(signers))
 
-	// Note: all verifiers are configured on all chains with the same pubkey.
-	// Create quorum configs for all source-destination pairs (where source != destination)
-	for destChainSelector, verifierAddress := range a.CommitteeVerifierResolverProxyAddresses {
-		destChainSelStr := strconv.FormatUint(destChainSelector, 10)
-		threshold := uint8(0)
-		var signers []model.Signer
-		for _, v := range inV {
-			if v.CommitteeName != committeeName {
-				continue
-			}
-			threshold++
-			signers = append(signers, model.Signer{
-				Address: v.SigningKeyPublic,
-			})
-		}
+	// Create quorum configs per source chain and destination verifiers mapping
+	for chainSelector, verifierAddress := range a.CommitteeVerifierResolverProxyAddresses {
+		chainSelStr := strconv.FormatUint(chainSelector, 10)
 
-		// Create a source configs map for this destination
-		sourceConfigs := make(map[string]*model.QuorumConfig)
+		// Add destination verifier mapping
+		committeeConfig.DestinationVerifiers[chainSelStr] = verifierAddress
 
-		// For each source chain (excluding when source == destination)
-		for _, sourceChainSelector := range allChainSelectors {
-			if sourceChainSelector == destChainSelector {
-				continue // Skip when source and destination are the same
-			}
-			sourceChainSelStr := strconv.FormatUint(sourceChainSelector, 10)
-
-			// Lookup source verifier address
-			sourceVerifierAddress, exists := a.CommitteeVerifierResolverProxyAddresses[sourceChainSelector]
-			if !exists {
-				return nil, fmt.Errorf("source verifier address not found for chain selector %d", sourceChainSelector)
-			}
-
-			// Use the threshold per source if available, otherwise use the default threshold
-			// calculated above.
-			var sourceThreshold uint8
-			if a.ThresholdPerSource != nil {
-				t, exists := a.ThresholdPerSource[sourceChainSelector]
-				if exists {
-					sourceThreshold = t
-				} else {
-					sourceThreshold = threshold
-				}
-			} else {
-				sourceThreshold = threshold
-			}
-			sourceConfigs[sourceChainSelStr] = &model.QuorumConfig{
-				DestinationVerifierAddress: verifierAddress,
-				SourceVerifierAddress:      sourceVerifierAddress,
-				Signers:                    signers,
-				Threshold:                  sourceThreshold,
+		// Determine threshold for this source
+		sourceThreshold := defaultThreshold
+		if a.ThresholdPerSource != nil {
+			if t, exists := a.ThresholdPerSource[chainSelector]; exists {
+				sourceThreshold = t
 			}
 		}
 
-		committeeConfig.QuorumConfigs[destChainSelStr] = sourceConfigs
+		// Add quorum config for this source
+		committeeConfig.QuorumConfigs[chainSelStr] = &model.QuorumConfig{
+			SourceVerifierAddress: verifierAddress,
+			Signers:               signers,
+			Threshold:             sourceThreshold,
+		}
 	}
 
 	config.Committee = committeeConfig

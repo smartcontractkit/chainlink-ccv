@@ -20,14 +20,14 @@ const (
 // buildCommittee is a helper to build a proper committee with quorum config.
 func buildCommittee(destSel, srcSel uint64, destVerifierAddr string, signers []model.Signer) *model.Committee {
 	return &model.Committee{
-		QuorumConfigs: map[string]map[string]*model.QuorumConfig{
-			strconv.FormatUint(destSel, 10): {
-				strconv.FormatUint(srcSel, 10): {
-					DestinationVerifierAddress: destVerifierAddr,
-					Signers:                    signers,
-					Threshold:                  1,
-				},
+		QuorumConfigs: map[string]*model.QuorumConfig{
+			strconv.FormatUint(srcSel, 10): {
+				Signers:   signers,
+				Threshold: 1,
 			},
+		},
+		DestinationVerifiers: map[string]string{
+			strconv.FormatUint(destSel, 10): destVerifierAddr,
 		},
 	}
 }

@@ -72,9 +72,14 @@ func MapAggregatedReportToVerifierResultProto(report *CommitAggregatedReport, c 
 		return nil, err
 	}
 
-	quorumConfig, ok := c.GetQuorumConfig(report.GetDestinationSelector(), report.GetSourceChainSelector())
+	quorumConfig, ok := c.GetQuorumConfig(report.GetSourceChainSelector())
 	if !ok {
-		return nil, fmt.Errorf("quorum config not found for destination selector: %d, source selector: %d", report.GetDestinationSelector(), report.GetSourceChainSelector())
+		return nil, fmt.Errorf("quorum config not found for source selector: %d", report.GetSourceChainSelector())
+	}
+
+	destVerifierAddr := c.GetDestinationVerifierAddressBytes(report.GetDestinationSelector())
+	if destVerifierAddr == nil {
+		return nil, fmt.Errorf("destination verifier address not found for destination selector: %d", report.GetDestinationSelector())
 	}
 
 	signatures := findAllSignaturesValidInConfig(addressSignatures, quorumConfig)
@@ -111,7 +116,7 @@ func MapAggregatedReportToVerifierResultProto(report *CommitAggregatedReport, c 
 		Metadata: &pb.VerifierResultMetadata{
 			Timestamp:             report.WrittenAt.UnixMilli(),
 			VerifierSourceAddress: quorumConfig.GetSourceVerifierAddressBytes(),
-			VerifierDestAddress:   quorumConfig.GetDestVerifierAddressBytes(),
+			VerifierDestAddress:   destVerifierAddr,
 		},
 	}, nil
 }
