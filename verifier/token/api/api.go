@@ -1,0 +1,26 @@
+package api
+
+import (
+	"github.com/gin-gonic/gin"
+
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/api/health"
+	v1 "github.com/smartcontractkit/chainlink-ccv/verifier/token/api/v1"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+)
+
+func NewHTTPAPI(lggr logger.Logger, storage *storage.OffchainStorage) *gin.Engine {
+	router := gin.Default()
+	router.Use(gin.Recovery())
+
+	healthHandler := health.NewHealthStatus()
+	router.GET("/health/live", healthHandler.HandleLiveness)
+	router.GET("/health/ready", healthHandler.HandleReadiness)
+	router.GET("/health", healthHandler.HandleReadiness)
+
+	v1Group := router.Group("/v1")
+	verifierResultsHandler := v1.NewVerifierResultsHandler(lggr, storage)
+	v1Group.GET("/verification/results", verifierResultsHandler.Handle)
+
+	return router
+}

@@ -1,0 +1,193 @@
+package v1
+
+import (
+	"encoding/hex"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
+)
+
+func Test_VerifierResultsHandler(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	// Create test storage with sample data
+	offchainStorage := storage.NewOffchainStorage()
+	lggr := logger.Test(t)
+
+	messageID1, verifierResult1 := createSampleMessage(1, 2, 10)
+	messageID2, verifierResult2 := createSampleMessage(10, 20, 20)
+
+	err := offchainStorage.WriteCCVNodeData(
+		t.Context(),
+		[]protocol.VerifierNodeResult{
+			verifierResult1,
+			verifierResult2,
+		})
+	require.NoError(t, err)
+
+	handler := NewVerifierResultsHandler(lggr, offchainStorage)
+
+	t.Run("successful request - messageID prefixed with 0x", func(t *testing.T) {
+		router := gin.New()
+		router.GET("/verifier/results", handler.Handle)
+
+		req, _ := http.NewRequest(
+			"GET",
+			"/verifier/results?message_ids=0x"+hex.EncodeToString(messageID1[:]),
+			nil,
+		)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response VerifierResultsResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		assert.Len(t, response.Results, 1)
+		assert.NotNil(t, response.Results[0].Message)
+		assert.Equal(t, uint64(1), response.Results[0].Message.SourceChainSelector)
+		assert.Equal(t, uint64(2), response.Results[0].Message.DestChainSelector)
+		assert.Equal(t, uint64(10), response.Results[0].Message.SequenceNumber)
+	})
+
+	t.Run("successful request - raw messageID string", func(t *testing.T) {
+		router := gin.New()
+		router.GET("/verifier/results", handler.Handle)
+
+		req, _ := http.NewRequest(
+			"GET", "/verifier/results?message_ids="+hex.EncodeToString(messageID2[:]),
+			nil,
+		)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response VerifierResultsResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		assert.Len(t, response.Results, 1)
+		assert.NotNil(t, response.Results[0].Message)
+		assert.Equal(t, uint64(10), response.Results[0].Message.SourceChainSelector)
+		assert.Equal(t, uint64(20), response.Results[0].Message.DestChainSelector)
+		assert.Equal(t, uint64(20), response.Results[0].Message.SequenceNumber)
+	})
+
+	t.Run("missing message_ids parameter", func(t *testing.T) {
+		router := gin.New()
+		router.GET("/verifier/results", handler.Handle)
+
+		req, _ := http.NewRequest("GET", "/verifier/results", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("invalid hex format", func(t *testing.T) {
+		router := gin.New()
+		router.GET("/verifier/results", handler.Handle)
+
+		req, _ := http.NewRequest("GET", "/verifier/results?message_ids=invalid_hex", nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
+	t.Run("multiple message IDs", func(t *testing.T) {
+		router := gin.New()
+		router.GET("/verifier/results", handler.Handle)
+
+		messageID1Hex := hex.EncodeToString(messageID1[:])
+		messageID2Hex := "0x" + hex.EncodeToString(messageID2[:])
+		req, _ := http.NewRequest("GET", "/verifier/results?message_ids="+messageID1Hex+","+messageID2Hex, nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response VerifierResultsResponse
+		err = json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		assert.Len(t, response.Results, 2)
+		assert.Equal(t, uint64(10), response.Results[0].Message.SequenceNumber)
+		assert.Equal(t, uint64(20), response.Results[1].Message.SequenceNumber)
+	})
+
+	t.Run("message not found", func(t *testing.T) {
+		router := gin.New()
+		router.GET("/verifier/results", handler.Handle)
+
+		messageID, _ := createSampleMessage(100, 200, 200)
+		messageIDHex := hex.EncodeToString(messageID[:])
+
+		req, _ := http.NewRequest("GET", "/verifier/results?message_ids="+messageIDHex, nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response VerifierResultsResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		assert.Len(t, response.Results, 0)
+		assert.Len(t, response.Errors, 1)
+		assert.Contains(t, response.Errors[0], "message not found")
+	})
+}
+
+func createSampleMessage(sourceChain, destChain, seqNum uint64) (protocol.Bytes32, protocol.VerifierNodeResult) {
+	message := protocol.Message{
+		Version:              1,
+		SourceChainSelector:  protocol.ChainSelector(sourceChain),
+		DestChainSelector:    protocol.ChainSelector(destChain),
+		SequenceNumber:       protocol.SequenceNumber(seqNum),
+		OnRampAddress:        []byte{0x01, 0x02, 0x03},
+		OffRampAddress:       []byte{0x04, 0x05, 0x06},
+		Finality:             10,
+		ExecutionGasLimit:    200000,
+		CcipReceiveGasLimit:  150000,
+		CcvAndExecutorHash:   protocol.Bytes32{},
+		Sender:               []byte{0x07, 0x08, 0x09},
+		Receiver:             []byte{0x0a, 0x0b, 0x0c},
+		DestBlob:             []byte{0x0d, 0x0e, 0x0f},
+		Data:                 []byte{0x10, 0x11, 0x12},
+		OnRampAddressLength:  3,
+		OffRampAddressLength: 3,
+		SenderLength:         3,
+		ReceiverLength:       3,
+		DestBlobLength:       3,
+		DataLength:           3,
+	}
+	messageID := message.MustMessageID()
+	verifierResult := protocol.VerifierNodeResult{
+		MessageID:       messageID,
+		Message:         message,
+		CCVAddresses:    []protocol.UnknownAddress{{0x13, 0x14, 0x15}},
+		ExecutorAddress: protocol.UnknownAddress{0x16, 0x17, 0x18},
+		Signature:       []byte{0x19, 0x1a, 0x1b},
+	}
+	return messageID, verifierResult
+}

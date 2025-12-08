@@ -20,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
+	tokenapi "github.com/smartcontractkit/chainlink-ccv/verifier/token/api"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lbtc"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
@@ -70,15 +71,6 @@ func main() {
 
 	verifierMonitoring := cmd.SetupOTEL(lggr, config.Monitoring)
 
-	// Start HTTP server
-	httpServer := &http.Server{Addr: ":8100", ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second}
-	go func() {
-		lggr.Infow("🌐 HTTP server starting", "port", "8100")
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			lggr.Errorw("HTTP server error", "error", err)
-		}
-	}()
-
 	messageTracker := monitoring.NewMessageLatencyTracker(
 		lggr,
 		config.VerifierID,
@@ -96,6 +88,23 @@ func main() {
 	}
 
 	offchainStorage := storage.NewOffchainStorage()
+
+	// Setup Gin HTTP API with all routes
+	ginRouter := tokenapi.NewHTTPAPI(lggr, offchainStorage)
+
+	// Start HTTP server with Gin router
+	httpServer := &http.Server{
+		Addr:         ":8100",
+		Handler:      ginRouter,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+	go func() {
+		lggr.Infow("🌐 HTTP API server starting", "port", "8100")
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			lggr.Errorw("HTTP server error", "error", err)
+		}
+	}()
 
 	coordinators := make([]*verifier.Coordinator, 0, len(config.TokenVerifiers))
 	for _, verifierConfig := range config.TokenVerifiers {
