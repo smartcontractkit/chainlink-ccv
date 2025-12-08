@@ -89,23 +89,6 @@ func main() {
 
 	offchainStorage := storage.NewOffchainStorage()
 
-	// Setup Gin HTTP API with all routes
-	ginRouter := tokenapi.NewHTTPAPI(lggr, offchainStorage)
-
-	// Start HTTP server with Gin router
-	httpServer := &http.Server{
-		Addr:         ":8100",
-		Handler:      ginRouter,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-	}
-	go func() {
-		lggr.Infow("🌐 HTTP API server starting", "port", "8100")
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			lggr.Errorw("HTTP server error", "error", err)
-		}
-	}()
-
 	coordinators := make([]*verifier.Coordinator, 0, len(config.TokenVerifiers))
 	for _, verifierConfig := range config.TokenVerifiers {
 		var coordinator *verifier.Coordinator
@@ -136,11 +119,35 @@ func main() {
 			continue
 		}
 
+		coordinators = append(coordinators, coordinator)
+
 		if err := coordinator.Start(ctx); err != nil {
 			lggr.Errorw("Failed to start verification coordinator", "error", err)
 			os.Exit(1)
 		}
 	}
+
+	// Setup Gin HTTP API with all routes and coordinators for health checking
+	// Convert coordinators to HealthReporter interface
+	healthReporters := make([]protocol.HealthReporter, len(coordinators))
+	for i, coordinator := range coordinators {
+		healthReporters[i] = coordinator
+	}
+	ginRouter := tokenapi.NewHTTPAPI(lggr, offchainStorage, healthReporters)
+
+	// Start HTTP server with Gin router
+	httpServer := &http.Server{
+		Addr:         ":8100",
+		Handler:      ginRouter,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+	go func() {
+		lggr.Infow("🌐 HTTP API server starting", "port", "8100")
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			lggr.Errorw("HTTP server error", "error", err)
+		}
+	}()
 
 	lggr.Infow("🎯 Verifier service fully started and ready!")
 

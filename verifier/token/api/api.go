@@ -3,17 +3,18 @@ package api
 import (
 	"github.com/gin-gonic/gin"
 
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/api/health"
 	v1 "github.com/smartcontractkit/chainlink-ccv/verifier/token/api/v1"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func NewHTTPAPI(lggr logger.Logger, storage *storage.OffchainStorage) *gin.Engine {
+func NewHTTPAPI(lggr logger.Logger, storage *storage.OffchainStorage, healthReporters []protocol.HealthReporter) *gin.Engine {
 	router := gin.Default()
 	router.Use(gin.Recovery())
 
-	healthHandler := health.NewHealthStatus()
+	healthHandler := health.NewHealthStatus(healthReporters)
 	router.GET("/health/live", healthHandler.HandleLiveness)
 	router.GET("/health/ready", healthHandler.HandleReadiness)
 	router.GET("/health", healthHandler.HandleReadiness)
