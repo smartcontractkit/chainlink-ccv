@@ -73,6 +73,7 @@ const (
 	// In the smoke test deployments these are the qualifiers that are used by default.
 	DefaultCommitteeVerifierQualifier = "default"
 	DefaultReceiverQualifier          = "default"
+	DefaultExecutorQualifier          = "default"
 
 	SecondaryCommitteeVerifierQualifier = "secondary"
 	SecondaryReceiverQualifier          = "secondary"
@@ -81,6 +82,8 @@ const (
 	TertiaryReceiverQualifier          = "tertiary"
 
 	QuaternaryReceiverQualifier = "quaternary"
+
+	CustomExecutorQualifier = "custom"
 
 	CommitteeVerifierGasForVerification = 500_000
 
@@ -1194,13 +1197,26 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 					Version:       semver.MustParse(onrampoperations.Deploy.Version()),
 					FeeAggregator: common.HexToAddress("0x01"),
 				},
-				Executor: sequences.ExecutorParams{
-					Version:       semver.MustParse(executor.Deploy.Version()),
-					MaxCCVsPerMsg: 10,
-					DynamicConfig: executor.SetDynamicConfigArgs{
-						FeeAggregator:         common.HexToAddress("0x01"),
-						MinBlockConfirmations: 0,
-						CcvAllowlistEnabled:   false,
+				Executors: []sequences.ExecutorParams{
+					{
+						Version:       semver.MustParse(executor.Deploy.Version()),
+						MaxCCVsPerMsg: 10,
+						DynamicConfig: executor.SetDynamicConfigArgs{
+							FeeAggregator:         common.HexToAddress("0x01"),
+							MinBlockConfirmations: 0,
+							CcvAllowlistEnabled:   false,
+						},
+						Qualifier: DefaultExecutorQualifier,
+					},
+					{
+						Version:       semver.MustParse(executor.Deploy.Version()),
+						MaxCCVsPerMsg: 10,
+						DynamicConfig: executor.SetDynamicConfigArgs{
+							FeeAggregator:         common.HexToAddress("0x01"),
+							MinBlockConfirmations: 0,
+							CcvAllowlistEnabled:   false,
+						},
+						Qualifier: CustomExecutorQualifier,
 					},
 				},
 				FeeQuoter: sequences.FeeQuoterParams{
@@ -1528,8 +1544,9 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 			},
 			// LaneMandatedOutboundCCVs: []datastore.AddressRef{},
 			DefaultExecutor: datastore.AddressRef{
-				Type:    datastore.ContractType(executor.ContractType),
-				Version: semver.MustParse(executor.Deploy.Version()),
+				Type:      datastore.ContractType(executor.ContractType),
+				Version:   semver.MustParse(executor.Deploy.Version()),
+				Qualifier: DefaultExecutorQualifier,
 			},
 			CommitteeVerifierDestChainConfig: adapters.CommitteeVerifierDestChainConfig{
 				AllowlistEnabled:   false,

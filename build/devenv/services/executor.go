@@ -33,11 +33,9 @@ import (
 
 const (
 	DefaultExecutorName  = "executor"
-	DefaultExecutorID    = "cl_node_executor_a"
 	DefaultExecutorImage = "executor:dev"
 	DefaultExecutorPort  = 8101
 	DefaultExecutorMode  = Standalone
-	ExecutorIDPrefix     = "cl_node_executor_"
 )
 
 //go:embed executor.template.toml
@@ -58,6 +56,9 @@ type ExecutorInput struct {
 	RmnAddresses      map[uint64]string `toml:"rmn_addresses"`
 	ExecutorAddresses map[uint64]string `toml:"executor_addresses"`
 	IndexerAddress    string            `toml:"indexer_address"`
+	// ExecutorQualifier is the qualifier for the executor contract to have the offchain executor
+	// check against.
+	ExecutorQualifier string `toml:"executor_qualifier"`
 	// Maps to Monitoring.Beholder.OtelExporterHTTPEndpoint in the executor config toml.
 	MonitoringOtelExporterHTTPEndpoint string `toml:"monitoring_otel_exporter_http_endpoint"`
 
@@ -307,17 +308,20 @@ func SetTransmitterPrivateKey(execs []*ExecutorInput) ([]*ExecutorInput, error) 
 }
 
 // SetExecutorPoolAndID sets the executor pool and ID for the provided execs array.
-// The executor ID is set to the executor ID prefix followed by the index of the executor.
+// The executor ID is set to the executor qualifier followed by the index of the executor.
 // The executor pool is set to the executor IDs.
 func SetExecutorPoolAndID(execs []*ExecutorInput) ([]*ExecutorInput, error) {
+	executorPoolByQualifier := make(map[string][]string)
 	executorIDs := make([]string, 0, len(execs))
 	for i := range execs {
-		executorIDs = append(executorIDs, fmt.Sprintf("%s_%d", ExecutorIDPrefix, i))
+		executorID := fmt.Sprintf("%s_%d", execs[i].ExecutorQualifier, i)
+		executorIDs = append(executorIDs, executorID)
+		executorPoolByQualifier[execs[i].ExecutorQualifier] = append(executorPoolByQualifier[execs[i].ExecutorQualifier], executorID)
 	}
 
 	for i, exec := range execs {
 		exec.ExecutorID = executorIDs[i]
-		exec.ExecutorPool = executorIDs
+		exec.ExecutorPool = executorPoolByQualifier[exec.ExecutorQualifier]
 	}
 
 	return execs, nil
@@ -332,44 +336,44 @@ func ResolveContractsForExecutor(ds datastore.DataStore, blockchains []*blockcha
 		exec.ExecutorAddresses = make(map[uint64]string)
 	}
 
-	for _, chain := range blockchains {
-		// TODO: Not chain agnostic.
-		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(chain.ChainID, chainsel.FamilyEVM)
-		if err != nil {
-			return nil, err
-		}
+	for _, exec := range execs {
+		for _, chain := range blockchains {
+			// TODO: Not chain agnostic.
+			networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(chain.ChainID, chainsel.FamilyEVM)
+			if err != nil {
+				return nil, err
+			}
 
-		offRampAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
-			networkInfo.ChainSelector,
-			datastore.ContractType(offrampoperations.ContractType),
-			semver.MustParse(offrampoperations.Deploy.Version()),
-			"",
-		))
-		if err != nil {
-			return nil, fmt.Errorf("failed to get off ramp address for chain %s: %w", chain.ChainID, err)
-		}
+			offRampAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+				networkInfo.ChainSelector,
+				datastore.ContractType(offrampoperations.ContractType),
+				semver.MustParse(offrampoperations.Deploy.Version()),
+				"",
+			))
+			if err != nil {
+				return nil, fmt.Errorf("failed to get off ramp address for chain %s: %w", chain.ChainID, err)
+			}
 
-		rmnRemoteAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
-			networkInfo.ChainSelector,
-			datastore.ContractType(rmn_remote.ContractType),
-			semver.MustParse(rmn_remote.Deploy.Version()),
-			"",
-		))
-		if err != nil {
-			return nil, fmt.Errorf("failed to get rmn remote address for chain %s: %w", chain.ChainID, err)
-		}
+			rmnRemoteAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+				networkInfo.ChainSelector,
+				datastore.ContractType(rmn_remote.ContractType),
+				semver.MustParse(rmn_remote.Deploy.Version()),
+				"",
+			))
+			if err != nil {
+				return nil, fmt.Errorf("failed to get rmn remote address for chain %s: %w", chain.ChainID, err)
+			}
 
-		defaultExecutorAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
-			networkInfo.ChainSelector,
-			datastore.ContractType(execcontract.ContractType),
-			semver.MustParse(execcontract.Deploy.Version()),
-			"",
-		))
-		if err != nil {
-			return nil, fmt.Errorf("failed to get executor address for chain %s: %w", chain.ChainID, err)
-		}
+			defaultExecutorAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+				networkInfo.ChainSelector,
+				datastore.ContractType(execcontract.ContractType),
+				semver.MustParse(execcontract.Deploy.Version()),
+				exec.ExecutorQualifier,
+			))
+			if err != nil {
+				return nil, fmt.Errorf("failed to get executor address for chain %s: %w", chain.ChainID, err)
+			}
 
-		for _, exec := range execs {
 			exec.OfframpAddresses[networkInfo.ChainSelector] = offRampAddressRef.Address
 			exec.RmnAddresses[networkInfo.ChainSelector] = rmnRemoteAddressRef.Address
 			exec.ExecutorAddresses[networkInfo.ChainSelector] = defaultExecutorAddressRef.Address

@@ -226,7 +226,7 @@ func TestE2ESmoke(t *testing.T) {
 						Version:           3,
 						ExecutionGasLimit: 200_000,
 						FinalityConfig:    tc.finality,
-						Executor:          getContractAddress(t, in, tc.srcSelector, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "", "executor"),
+						Executor:          getContractAddress(t, in, tc.srcSelector, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.DefaultExecutorQualifier, "executor"),
 						CCVs:              tc.ccvs,
 					})
 				require.NoError(t, err)
@@ -288,7 +288,7 @@ func TestE2ESmoke(t *testing.T) {
 				Version:           3,
 				ExecutionGasLimit: 200_000,
 				FinalityConfig:    finalityConfig,
-				Executor:          getContractAddress(t, in, selectors[0], datastore.ContractType(executor.ContractType), executor.Deploy.Version(), "", "executor"),
+				Executor:          getContractAddress(t, in, selectors[0], datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.DefaultExecutorQualifier, "executor"),
 			}
 
 			sendRes, err := c.SendMessage(

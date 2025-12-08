@@ -616,6 +616,7 @@ cl_nodes_funding_link = 50
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-1"
+  executor_qualifier = "default"
 
 [[executor]]
   mode = "cl"
@@ -624,6 +625,7 @@ cl_nodes_funding_link = 50
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-2"
+  executor_qualifier = "default"
 
 [[executor]]
   mode = "cl"
@@ -632,6 +634,7 @@ cl_nodes_funding_link = 50
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-3"
+  executor_qualifier = "default"
 
 [[executor]]
   mode = "cl"
@@ -640,6 +643,7 @@ cl_nodes_funding_link = 50
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-4"
+  executor_qualifier = "default"
 
 [[executor]]
   mode = "cl"
@@ -648,6 +652,7 @@ cl_nodes_funding_link = 50
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-5"
+  executor_qualifier = "default"
 
 [[executor]]
   mode = "cl"
@@ -656,6 +661,7 @@ cl_nodes_funding_link = 50
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-6"
+  executor_qualifier = "default"
 
 [[executor]]
   mode = "cl"
@@ -664,6 +670,7 @@ cl_nodes_funding_link = 50
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-7"
+  executor_qualifier = "default"
 
 [[executor]]
   mode = "cl"
@@ -672,6 +679,7 @@ cl_nodes_funding_link = 50
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-8"
+  executor_qualifier = "default"
 
 [[executor]]
   mode = "cl"
@@ -680,6 +688,7 @@ cl_nodes_funding_link = 50
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-9"
+  executor_qualifier = "default"
 
 [[executor]]
   mode = "cl"
@@ -688,6 +697,7 @@ cl_nodes_funding_link = 50
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-10"
+  executor_qualifier = "default"
 
 [[executor]]
   mode = "cl"
@@ -696,6 +706,7 @@ cl_nodes_funding_link = 50
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-11"
+  executor_qualifier = "default"
 
 [[executor]]
   mode = "cl"
@@ -704,6 +715,7 @@ cl_nodes_funding_link = 50
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-12"
+  executor_qualifier = "default"
 
 [[executor]]
   mode = "cl"
@@ -712,6 +724,7 @@ cl_nodes_funding_link = 50
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-13"
+  executor_qualifier = "default"
 
 [[executor]]
   mode = "cl"
@@ -720,6 +733,7 @@ cl_nodes_funding_link = 50
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-14"
+  executor_qualifier = "default"
 
 [[executor]]
   mode = "cl"
@@ -728,6 +742,7 @@ cl_nodes_funding_link = 50
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-15"
+  executor_qualifier = "default"
 
 [[executor]]
   mode = "cl"
@@ -736,6 +751,7 @@ cl_nodes_funding_link = 50
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-16"
+  executor_qualifier = "default"
 
 [indexer]
   image = "indexer:dev"
@@ -1152,5 +1168,3 @@ LockTimeout = 30
   }
 }
 '''
-
-
