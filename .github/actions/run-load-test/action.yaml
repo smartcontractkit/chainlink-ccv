@@ -20,11 +20,11 @@ inputs:
   env_name:
     description: 'Environment name for CCV'
     required: false
-    default: 'env-cl-16-ci.toml'
+    default: 'env-cl-16.toml,env-cl-16-ci.toml'
   env_name_out:
     description: 'Environment name for CCV'
     required: false
-    default: 'env-cl-16-ci-out.toml'
+    default: 'env-out.toml'
 
 
 
