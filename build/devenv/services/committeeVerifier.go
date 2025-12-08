@@ -258,26 +258,32 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 	_, err = postgres.Run(ctx,
 		in.DB.Image,
 		testcontainers.WithName(in.DB.Name),
-		testcontainers.WithExposedPorts("5432/tcp"),
-		testcontainers.WithHostConfigModifier(func(h *container.HostConfig) {
-			h.PortBindings = nat.PortMap{
-				"5432/tcp": []nat.PortBinding{
-					{HostPort: strconv.Itoa(in.DB.Port)},
-				},
-			}
-		}),
-		testcontainers.WithLabels(framework.DefaultTCLabels()),
-		testcontainers.CustomizeRequestOption(func(req *testcontainers.GenericContainerRequest) error {
-			req.Networks = []string{framework.DefaultNetworkName}
-			req.NetworkAliases = map[string][]string{
-				framework.DefaultNetworkName: {in.DB.Name},
-			}
-			return nil
-		}),
 		postgres.WithDatabase(in.ContainerName),
 		postgres.WithUsername(in.ContainerName),
 		postgres.WithPassword(in.ContainerName),
 		postgres.WithInitScripts(filepath.Join(p, DefaultVerifierSQLInit)),
+		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
+			ContainerRequest: testcontainers.ContainerRequest{
+				Name:         in.DB.Name,
+				ExposedPorts: []string{"5432/tcp"},
+				Networks:     []string{framework.DefaultNetworkName},
+				NetworkAliases: map[string][]string{
+					framework.DefaultNetworkName: {in.DB.Name},
+				},
+				Labels: framework.DefaultTCLabels(),
+				HostConfigModifier: func(h *container.HostConfig) {
+					h.PortBindings = nat.PortMap{
+						"5432/tcp": []nat.PortBinding{
+							{HostPort: strconv.Itoa(in.DB.Port)},
+						},
+					}
+				},
+				WaitingFor: wait.ForAll(
+					wait.ForLog("database system is ready to accept connections"),
+					wait.ForListeningPort("5432/tcp"),
+				),
+			},
+		}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %w", err)
