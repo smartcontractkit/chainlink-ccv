@@ -31,36 +31,40 @@ type SourceSelector = string
 
 // Committee represents a group of signers participating in the commit verification process.
 type Committee struct {
-	// QuorumConfigs stores a QuorumConfig for each destination-source chain selector pair.
+	// QuorumConfigs stores a QuorumConfig for each source chain selector.
 	// The aggregator uses this to verify signatures from each chain's
 	// commit verifier set.
-	// Map structure: destination selector -> source selector -> QuorumConfig
-	QuorumConfigs map[DestinationSelector]map[SourceSelector]*QuorumConfig `toml:"quorumConfigs"`
+	// Map structure: source selector -> QuorumConfig
+	QuorumConfigs map[SourceSelector]*QuorumConfig `toml:"quorumConfigs"`
+	// DestinationVerifiers maps destination chain selectors to their verifier contract addresses.
+	DestinationVerifiers map[DestinationSelector]string `toml:"destinationVerifiers"`
 }
 
-func (c *Committee) GetQuorumConfig(destChainSelector, sourceChainSelector uint64) (*QuorumConfig, bool) {
-	destSelectorStr := new(big.Int).SetUint64(destChainSelector).String()
+func (c *Committee) GetQuorumConfig(sourceChainSelector uint64) (*QuorumConfig, bool) {
 	sourceSelectorStr := new(big.Int).SetUint64(sourceChainSelector).String()
+	qc, exists := c.QuorumConfigs[sourceSelectorStr]
+	return qc, exists
+}
 
-	sourceConfigs, destExists := c.QuorumConfigs[destSelectorStr]
-	if !destExists {
-		return nil, false
+func (c *Committee) GetDestinationVerifierAddress(destChainSelector uint64) (string, bool) {
+	destSelectorStr := new(big.Int).SetUint64(destChainSelector).String()
+	addr, exists := c.DestinationVerifiers[destSelectorStr]
+	return addr, exists
+}
+
+func (c *Committee) GetDestinationVerifierAddressBytes(destChainSelector uint64) []byte {
+	addr, exists := c.GetDestinationVerifierAddress(destChainSelector)
+	if !exists {
+		return nil
 	}
-
-	qc, sourceExists := sourceConfigs[sourceSelectorStr]
-	return qc, sourceExists
+	return common.HexToAddress(addr).Bytes()
 }
 
 // QuorumConfig represents the configuration for a quorum of signers.
 type QuorumConfig struct {
-	DestinationVerifierAddress string   `toml:"destinationVerifierAddress"`
-	SourceVerifierAddress      string   `toml:"sourceVerifierAddress"`
-	Signers                    []Signer `toml:"signers"`
-	Threshold                  uint8    `toml:"threshold"`
-}
-
-func (q *QuorumConfig) GetDestVerifierAddressBytes() []byte {
-	return common.HexToAddress(q.DestinationVerifierAddress).Bytes()
+	SourceVerifierAddress string   `toml:"sourceVerifierAddress"`
+	Signers               []Signer `toml:"signers"`
+	Threshold             uint8    `toml:"threshold"`
 }
 
 func (q *QuorumConfig) GetSourceVerifierAddressBytes() []byte {
@@ -451,73 +455,63 @@ func (c *AggregatorConfig) ValidateCommitteeConfig() error {
 		return errors.New("committee must have at least one quorum configuration")
 	}
 
-	// Validate each destination's source configurations
-	for destSelector, sourceConfigs := range c.Committee.QuorumConfigs {
+	if len(c.Committee.DestinationVerifiers) == 0 {
+		return errors.New("committee must have at least one destination verifier")
+	}
+
+	// Validate destination verifiers
+	for destSelector, verifierAddress := range c.Committee.DestinationVerifiers {
 		if strings.TrimSpace(destSelector) == "" {
 			return errors.New("destination selector cannot be empty")
 		}
 
-		// Validate destination selector is a valid uint64 string
 		if _, err := strconv.ParseUint(destSelector, 10, 64); err != nil {
 			return fmt.Errorf("invalid destination selector '%s': must be a valid uint64 decimal string", destSelector)
 		}
 
-		if len(sourceConfigs) == 0 {
-			return fmt.Errorf("destination selector '%s' has no source configurations", destSelector)
+		if strings.TrimSpace(verifierAddress) == "" {
+			return fmt.Errorf("destination verifier address cannot be empty for destination '%s'", destSelector)
+		}
+	}
+
+	// Validate each source configuration
+	for sourceSelector, quorumConfig := range c.Committee.QuorumConfigs {
+		if strings.TrimSpace(sourceSelector) == "" {
+			return errors.New("source selector cannot be empty")
 		}
 
-		// Validate each source configuration
-		for sourceSelector, quorumConfig := range sourceConfigs {
-			if strings.TrimSpace(sourceSelector) == "" {
-				return fmt.Errorf("source selector cannot be empty for destination '%s'", destSelector)
+		if _, err := strconv.ParseUint(sourceSelector, 10, 64); err != nil {
+			return fmt.Errorf("invalid source selector '%s': must be a valid uint64 decimal string", sourceSelector)
+		}
+
+		if quorumConfig == nil {
+			return fmt.Errorf("quorum config cannot be nil for source '%s'", sourceSelector)
+		}
+
+		if quorumConfig.Threshold == 0 {
+			return fmt.Errorf("threshold must be greater than 0 for source '%s'", sourceSelector)
+		}
+
+		if len(quorumConfig.Signers) == 0 {
+			return fmt.Errorf("must have at least one signer for source '%s'", sourceSelector)
+		}
+
+		if int(quorumConfig.Threshold) > len(quorumConfig.Signers) {
+			return fmt.Errorf("threshold (%d) cannot exceed number of signers (%d) for source '%s'",
+				quorumConfig.Threshold, len(quorumConfig.Signers), sourceSelector)
+		}
+
+		seenSigners := make(map[string]bool)
+		for i, signer := range quorumConfig.Signers {
+			if strings.TrimSpace(signer.Address) == "" {
+				return fmt.Errorf("signer address cannot be empty at index %d for source '%s'", i, sourceSelector)
 			}
 
-			// Validate source selector is a valid uint64 string
-			if _, err := strconv.ParseUint(sourceSelector, 10, 64); err != nil {
-				return fmt.Errorf("invalid source selector '%s' for destination '%s': must be a valid uint64 decimal string", sourceSelector, destSelector)
+			normalizedAddr := strings.ToLower(signer.Address)
+			if seenSigners[normalizedAddr] {
+				return fmt.Errorf("duplicate signer address '%s' for source '%s'", signer.Address, sourceSelector)
 			}
-
-			// Validate that source and destination selectors are not the same
-			if sourceSelector == destSelector {
-				return fmt.Errorf("source selector and destination selector cannot be the same: '%s'", sourceSelector)
-			}
-
-			if quorumConfig == nil {
-				return fmt.Errorf("quorum config cannot be nil for destination '%s', source '%s'", destSelector, sourceSelector)
-			}
-
-			// Validate quorum config
-			if quorumConfig.Threshold == 0 {
-				return fmt.Errorf("threshold must be greater than 0 for destination '%s', source '%s'", destSelector, sourceSelector)
-			}
-
-			if len(quorumConfig.Signers) == 0 {
-				return fmt.Errorf("must have at least one signer for destination '%s', source '%s'", destSelector, sourceSelector)
-			}
-
-			if int(quorumConfig.Threshold) > len(quorumConfig.Signers) {
-				return fmt.Errorf("threshold (%d) cannot exceed number of signers (%d) for destination '%s', source '%s'",
-					quorumConfig.Threshold, len(quorumConfig.Signers), destSelector, sourceSelector)
-			}
-
-			// Validate CommitteeVerifierAddress is a valid hex address
-			if strings.TrimSpace(quorumConfig.DestinationVerifierAddress) == "" {
-				return fmt.Errorf("committee verifier address cannot be empty for destination '%s', source '%s'", destSelector, sourceSelector)
-			}
-
-			// Validate no duplicate signers within this quorum
-			seenSigners := make(map[string]bool)
-			for i, signer := range quorumConfig.Signers {
-				if strings.TrimSpace(signer.Address) == "" {
-					return fmt.Errorf("signer address cannot be empty at index %d for destination '%s', source '%s'", i, destSelector, sourceSelector)
-				}
-
-				normalizedAddr := strings.ToLower(signer.Address)
-				if seenSigners[normalizedAddr] {
-					return fmt.Errorf("duplicate signer address '%s' for destination '%s', source '%s'", signer.Address, destSelector, sourceSelector)
-				}
-				seenSigners[normalizedAddr] = true
-			}
+			seenSigners[normalizedAddr] = true
 		}
 	}
 

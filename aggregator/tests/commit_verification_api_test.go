@@ -193,7 +193,7 @@ func TestKeyRotation(t *testing.T) {
 		signer1Address2 := common.HexToAddress(signer1Rotated.Signer.Address)
 		require.NotEqual(t, signer1Address1, signer1Address2)
 
-		committee.QuorumConfigs["2"]["1"].Signers[0] = signer1Rotated.Signer
+		committee.QuorumConfigs["1"].Signers[0] = signer1Rotated.Signer
 
 		ccvNodeData3, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1Rotated))
 		resp3, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData3))
@@ -436,14 +436,10 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 		assertCCVDataNotFound(t, t.Context(), ccvDataClient, messageId)
 
 		// Change committee to remove signer1 and add signer3
-		committee.QuorumConfigs["2"]["1"] = &model.QuorumConfig{
-			Threshold: 2,
-			Signers: []model.Signer{
-				signer2.Signer,
-				signer3.Signer,
-			},
-			SourceVerifierAddress:      common.BytesToAddress(sourceVerifierAddress).Hex(),
-			DestinationVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+		committee.QuorumConfigs["1"] = &model.QuorumConfig{
+			Threshold:             2,
+			Signers:               []model.Signer{signer2.Signer, signer3.Signer},
+			SourceVerifierAddress: common.BytesToAddress(sourceVerifierAddress).Hex(),
 		}
 
 		ccvNodeData2, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2))
@@ -506,14 +502,10 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 		assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer1), WithValidSignatureFrom(signer2), WithExactNumberOfSignatures(2))
 
 		// Change committee to remove signer1 and add signer3
-		committee.QuorumConfigs["2"]["1"] = &model.QuorumConfig{
-			Threshold: 2,
-			Signers: []model.Signer{
-				signer2.Signer,
-				signer3.Signer,
-			},
-			SourceVerifierAddress:      common.BytesToAddress(sourceVerifierAddress).Hex(),
-			DestinationVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+		committee.QuorumConfigs["1"] = &model.QuorumConfig{
+			Threshold:             2,
+			Signers:               []model.Signer{signer2.Signer, signer3.Signer},
+			SourceVerifierAddress: common.BytesToAddress(sourceVerifierAddress).Hex(),
 		}
 
 		assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer2), WithExactNumberOfSignatures(1))
@@ -811,7 +803,7 @@ func TestStopAggregationAfterQuorum(t *testing.T) {
 
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer, signer3.Signer)
 		// Override threshold to 2 (out of 3 signers)
-		committee.QuorumConfigs["2"]["1"].Threshold = 2
+		committee.QuorumConfigs["1"].Threshold = 2
 
 		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(
 			t,
@@ -918,7 +910,7 @@ func TestBatchGetVerifierResult_HappyPath(t *testing.T) {
 		signer3 := NewSignerFixture(t, "node3")
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer, signer3.Signer)
 		// Set threshold to 2 so we can have quorum with just 2 signatures
-		committee.QuorumConfigs["2"]["1"].Threshold = 2
+		committee.QuorumConfigs["1"].Threshold = 2
 		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
@@ -1432,7 +1424,7 @@ func TestKeyRotation_StopAggregationAfterQuorumThenRotate(t *testing.T) {
 
 		// Start with all 3 signers in committee, threshold = 2
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer, signer3.Signer)
-		committee.QuorumConfigs["2"]["1"].Threshold = 2
+		committee.QuorumConfigs["1"].Threshold = 2
 
 		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType))
 		t.Cleanup(cleanup)
@@ -1473,14 +1465,10 @@ func TestKeyRotation_StopAggregationAfterQuorumThenRotate(t *testing.T) {
 
 		// Phase 3: Committee rotation - remove signer1, keep signer2 and signer3
 		t.Log("Phase 3: Rotate committee - remove signer1, keep signer2 and signer3")
-		committee.QuorumConfigs["2"]["1"] = &model.QuorumConfig{
-			Threshold: 2,
-			Signers: []model.Signer{
-				signer2.Signer,
-				signer3.Signer,
-			},
-			SourceVerifierAddress:      common.BytesToAddress(sourceVerifierAddress).Hex(),
-			DestinationVerifierAddress: common.BytesToAddress(destVerifierAddress).Hex(),
+		committee.QuorumConfigs["1"] = &model.QuorumConfig{
+			Threshold:             2,
+			Signers:               []model.Signer{signer2.Signer, signer3.Signer},
+			SourceVerifierAddress: common.BytesToAddress(sourceVerifierAddress).Hex(),
 		}
 
 		// Phase 4: Signer3 verifies again → re-aggregation happens with new committee

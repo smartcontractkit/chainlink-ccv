@@ -114,14 +114,14 @@ func (b *TestCaseBuilder) BuildConfig() *model.AggregatorConfig {
 
 	return &model.AggregatorConfig{
 		Committee: &model.Committee{
-			QuorumConfigs: map[string]map[string]*model.QuorumConfig{
-				"1": {
-					"1": {
-						DestinationVerifierAddress: common.Bytes2Hex(b.destVerifierAddress),
-						Signers:                    signers,
-						Threshold:                  b.threshold,
-					},
+			QuorumConfigs: map[string]*model.QuorumConfig{
+				sourceSelector: {
+					Signers:   signers,
+					Threshold: b.threshold,
 				},
+			},
+			DestinationVerifiers: map[string]string{
+				"1": common.Bytes2Hex(b.destVerifierAddress),
 			},
 		},
 	}
@@ -189,14 +189,14 @@ func TestValidateSignature(t *testing.T) {
 		// Setup validator with test configuration
 		config := &model.AggregatorConfig{
 			Committee: &model.Committee{
-				QuorumConfigs: map[string]map[string]*model.QuorumConfig{
-					destSelector: {
-						sourceSelector: {
-							Signers:                    []model.Signer{signerFixture.Signer},
-							Threshold:                  1,
-							DestinationVerifierAddress: common.Bytes2Hex(destVerifierAddress),
-						},
+				QuorumConfigs: map[string]*model.QuorumConfig{
+					sourceSelector: {
+						Signers:   []model.Signer{signerFixture.Signer},
+						Threshold: 1,
 					},
+				},
+				DestinationVerifiers: map[string]string{
+					destSelector: common.Bytes2Hex(destVerifierAddress),
 				},
 			},
 		}
@@ -215,14 +215,14 @@ func TestValidateSignature(t *testing.T) {
 	t.Run("missing signature", func(t *testing.T) {
 		config := &model.AggregatorConfig{
 			Committee: &model.Committee{
-				QuorumConfigs: map[string]map[string]*model.QuorumConfig{
-					destSelector: {
-						sourceSelector: {
-							Signers:                    []model.Signer{signerFixture.Signer},
-							Threshold:                  1,
-							DestinationVerifierAddress: common.Bytes2Hex(destVerifierAddress),
-						},
+				QuorumConfigs: map[string]*model.QuorumConfig{
+					sourceSelector: {
+						Signers:   []model.Signer{signerFixture.Signer},
+						Threshold: 1,
 					},
+				},
+				DestinationVerifiers: map[string]string{
+					destSelector: common.Bytes2Hex(destVerifierAddress),
 				},
 			},
 		}
@@ -245,14 +245,14 @@ func TestValidateSignature(t *testing.T) {
 	t.Run("invalid signature", func(t *testing.T) {
 		config := &model.AggregatorConfig{
 			Committee: &model.Committee{
-				QuorumConfigs: map[string]map[string]*model.QuorumConfig{
-					destSelector: {
-						sourceSelector: {
-							Signers:                    []model.Signer{signerFixture.Signer},
-							Threshold:                  1,
-							DestinationVerifierAddress: common.Bytes2Hex(destVerifierAddress),
-						},
+				QuorumConfigs: map[string]*model.QuorumConfig{
+					sourceSelector: {
+						Signers:   []model.Signer{signerFixture.Signer},
+						Threshold: 1,
 					},
+				},
+				DestinationVerifiers: map[string]string{
+					destSelector: common.Bytes2Hex(destVerifierAddress),
 				},
 			},
 		}
