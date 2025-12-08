@@ -1829,17 +1829,16 @@ func (m *CCIP17EVM) getRMNRemoteAddress(chainSelector uint64) (common.Address, e
 }
 
 func (m *CCIP17EVM) getRMNRemote(chainSelector uint64) (*rmn_remote_binding.RMNRemote, error) {
+	if chainSelector != m.chain.ChainSelector() {
+		return nil, fmt.Errorf("getRMNRemote: chain %d not found in environment chains %v", chainSelector, m.chain.ChainSelector())
+	}
+
 	rmnRemoteAddr, err := m.getRMNRemoteAddress(chainSelector)
 	if err != nil {
 		return nil, err
 	}
 
-	ethClient, ok := m.ethClients[chainSelector]
-	if !ok {
-		return nil, fmt.Errorf("eth client not found for chain %d", chainSelector)
-	}
-
-	rmnRemote, err := rmn_remote_binding.NewRMNRemote(rmnRemoteAddr, ethClient)
+	rmnRemote, err := rmn_remote_binding.NewRMNRemote(rmnRemoteAddr, m.ethClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create RMN Remote contract binding: %w", err)
 	}
@@ -1849,6 +1848,10 @@ func (m *CCIP17EVM) getRMNRemote(chainSelector uint64) (*rmn_remote_binding.RMNR
 // Curse applies curses to the RMN Remote contract on a given chain.
 // The subjects parameter contains the curse subjects (either chain selectors or global curse).
 func (m *CCIP17EVM) Curse(ctx context.Context, chainSelector uint64, subjects [][16]byte) error {
+	if chainSelector != m.chain.ChainSelector() {
+		return fmt.Errorf("Curse: chain %d not found in environment chains %v", chainSelector, m.chain.ChainSelector())
+	}
+
 	rmnRemote, err := m.getRMNRemote(chainSelector)
 	if err != nil {
 		return err
@@ -1867,7 +1870,7 @@ func (m *CCIP17EVM) Curse(ctx context.Context, chainSelector uint64, subjects []
 	}
 
 	// Wait for transaction receipt
-	receipt, err := bind.WaitMined(ctx, m.ethClients[chainSelector], tx.Hash())
+	receipt, err := bind.WaitMined(ctx, m.ethClient, tx.Hash())
 	if err != nil {
 		return fmt.Errorf("failed to wait for curse transaction: %w", err)
 	}
@@ -1887,6 +1890,10 @@ func (m *CCIP17EVM) Curse(ctx context.Context, chainSelector uint64, subjects []
 // Uncurse removes curses from the RMN Remote contract on a given chain.
 // The subjects parameter contains the curse subjects to remove (either chain selectors or global curse).
 func (m *CCIP17EVM) Uncurse(ctx context.Context, chainSelector uint64, subjects [][16]byte) error {
+	if chainSelector != m.chain.ChainSelector() {
+		return fmt.Errorf("Uncurse: chain %d not found in environment chains %v", chainSelector, m.chain.ChainSelector())
+	}
+
 	rmnRemote, err := m.getRMNRemote(chainSelector)
 	if err != nil {
 		return err
@@ -1904,7 +1911,7 @@ func (m *CCIP17EVM) Uncurse(ctx context.Context, chainSelector uint64, subjects 
 	}
 
 	// Wait for transaction receipt
-	receipt, err := bind.WaitMined(ctx, m.ethClients[chainSelector], tx.Hash())
+	receipt, err := bind.WaitMined(ctx, m.ethClient, tx.Hash())
 	if err != nil {
 		return fmt.Errorf("failed to wait for uncurse transaction: %w", err)
 	}
