@@ -312,11 +312,13 @@ func SetTransmitterPrivateKey(execs []*ExecutorInput) ([]*ExecutorInput, error) 
 // The executor pool is set to the executor IDs.
 func SetExecutorPoolAndID(execs []*ExecutorInput) ([]*ExecutorInput, error) {
 	executorPoolByQualifier := make(map[string][]string)
+	indexByQualifier := make(map[string]int)
 	executorIDs := make([]string, 0, len(execs))
-	for i := range execs {
-		executorID := fmt.Sprintf("%s_%d", execs[i].ExecutorQualifier, i)
+	for _, exec := range execs {
+		executorID := fmt.Sprintf("%s_%d", exec.ExecutorQualifier, indexByQualifier[exec.ExecutorQualifier])
 		executorIDs = append(executorIDs, executorID)
-		executorPoolByQualifier[execs[i].ExecutorQualifier] = append(executorPoolByQualifier[execs[i].ExecutorQualifier], executorID)
+		executorPoolByQualifier[exec.ExecutorQualifier] = append(executorPoolByQualifier[exec.ExecutorQualifier], executorID)
+		indexByQualifier[exec.ExecutorQualifier]++
 	}
 
 	for i, exec := range execs {
