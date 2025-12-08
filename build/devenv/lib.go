@@ -12,6 +12,10 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
 
+type ChainImpl struct {
+	cciptestinterfaces.CCIP17ProductConfiguration
+	Details chain_selectors.ChainDetails
+}
 type Lib struct {
 	envOutFile string
 	cfg        *Cfg
@@ -41,17 +45,17 @@ func NewLib(logger *zerolog.Logger, envOutFile string) (*Lib, error) {
 func NewImpl(logger *zerolog.Logger, envOutFile string, selector uint64) (cciptestinterfaces.CCIP17ProductConfiguration, error) {
 	lib, err := NewLib(logger, envOutFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create CCV library: %w", err)
+		return ChainImpl{}, fmt.Errorf("failed to create CCV library: %w", err)
 	}
 
-	impls, err := lib.Chains(context.Background())
+	impls, err := lib.ChainsMap(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("failed to get chain implementations: %w", err)
+		return ChainImpl{}, fmt.Errorf("failed to get chain implementations: %w", err)
 	}
 
 	impl, ok := impls[selector]
 	if !ok {
-		return nil, fmt.Errorf("no implementation found for chain selector %d", selector)
+		return ChainImpl{}, fmt.Errorf("no implementation found for chain selector %d", selector)
 	}
 
 	return impl, nil
@@ -77,7 +81,8 @@ func (l *Lib) DataStore() (datastore.DataStore, error) {
 	return l.cfg.CLDF.DataStore, nil
 }
 
-func (l *Lib) Chains(ctx context.Context) (map[uint64]cciptestinterfaces.CCIP17ProductConfiguration, error) {
+// Chains returns a slice of Chains in Blockchain cfg order.
+func (l *Lib) Chains(ctx context.Context) ([]ChainImpl, error) {
 	if err := l.verify(); err != nil {
 		return nil, fmt.Errorf("invalid library object: %w", err)
 	}
@@ -87,8 +92,8 @@ func (l *Lib) Chains(ctx context.Context) (map[uint64]cciptestinterfaces.CCIP17P
 		return nil, fmt.Errorf("creating CLDF operations environment: %w", err)
 	}
 
-	impls := make(map[uint64]cciptestinterfaces.CCIP17ProductConfiguration)
-	for _, bc := range l.cfg.Blockchains {
+	impls := make([]ChainImpl, len(l.cfg.Blockchains))
+	for i, bc := range l.cfg.Blockchains {
 		chainID := bc.ChainID
 		wsURL := bc.Out.Nodes[0].ExternalWSUrl
 		details, err := chain_selectors.GetChainDetailsByChainIDAndFamily(chainID, bc.Out.Family)
@@ -99,8 +104,24 @@ func (l *Lib) Chains(ctx context.Context) (map[uint64]cciptestinterfaces.CCIP17P
 		if err != nil {
 			return nil, fmt.Errorf("creating CCIP17 EVM implementation for chain ID %s: %w", chainID, err)
 		}
-		impls[details.ChainSelector] = impl
+		impls[i] = ChainImpl{
+			CCIP17ProductConfiguration: impl,
+			Details:                    details,
+		}
 	}
 
 	return impls, nil
+}
+
+func (l *Lib) ChainsMap(ctx context.Context) (map[uint64]cciptestinterfaces.CCIP17ProductConfiguration, error) {
+	impls, err := l.Chains(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get chain implementations: %w", err)
+	}
+	chainMap := make(map[uint64]cciptestinterfaces.CCIP17ProductConfiguration)
+	for _, impl := range impls {
+		chainMap[impl.Details.ChainSelector] = impl
+	}
+
+	return chainMap, nil
 }

@@ -11,7 +11,6 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
-	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
@@ -72,27 +71,14 @@ func TestE2EReorg(t *testing.T) {
 		authenticatedAggregatorClient.Close()
 	})
 
-	idToSelector := make(map[uint64]uint64)
-	for selector := range chains {
-		id, ok := chain_selectors.ChainBySelector(selector)
-		if !ok {
-			t.Fatalf("no chain ID found for selector %d", selector)
-		}
-		idToSelector[id.EvmChainID] = selector
-	}
-	require.Contains(t, idToSelector, uint64(1337))
-	require.Contains(t, idToSelector, uint64(2337))
-	require.Contains(t, idToSelector, uint64(3337))
-
 	// Get the source and destination chain selectors
+	srcImpl := chains[0]
+	destImpl := chains[1]
+	dest2Impl := chains[2]
 
-	srcSelector := idToSelector[1337]
-	destSelector := idToSelector[2337]
-	destSelector2 := idToSelector[3337]
-
-	srcImpl := chains[idToSelector[1337]]
-	destImpl := chains[idToSelector[2337]]
-	dest2Impl := chains[idToSelector[3337]]
+	srcSelector := srcImpl.Details.ChainSelector
+	destSelector := destImpl.Details.ChainSelector
+	destSelector2 := dest2Impl.Details.ChainSelector
 
 	// Get eth client for source chain using HTTP URL
 	srcHTTPURL := in.Blockchains[0].Out.Nodes[0].ExternalHTTPUrl

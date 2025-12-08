@@ -300,7 +300,7 @@ func TestE2ELoad(t *testing.T) {
 	l := zerolog.Ctx(ctx)
 	lib, err := ccv.NewLib(l, outfile)
 	require.NoError(t, err)
-	chainImpls, err := lib.Chains(ctx)
+	chainImpls, err := lib.ChainsMap(ctx)
 	require.NoError(t, err)
 
 	var defaultAggregatorClient *ccv.AggregatorClient

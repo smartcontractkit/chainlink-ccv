@@ -84,7 +84,7 @@ func run(args sendArgs) error {
 		return fmt.Errorf("no implementation found for source chain selector %d", args.srcSel)
 	}
 
-	chains, err := lib.Chains(ctx)
+	chains, err := lib.ChainsMap(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get chain implementations: %w", err)
 	}

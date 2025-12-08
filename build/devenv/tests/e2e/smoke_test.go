@@ -13,7 +13,6 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
-	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
@@ -75,18 +74,8 @@ func TestE2ESmoke(t *testing.T) {
 	chains, err := lib.Chains(ctx)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(chains), 2, "expected at least 2 chains for this test in the environment")
-
-	idToSelector := make(map[uint64]uint64)
-	for selector := range chains {
-		id, ok := chain_selectors.ChainBySelector(selector)
-		if !ok {
-			t.Fatalf("no chain ID found for selector %d", selector)
-		}
-		idToSelector[id.EvmChainID] = selector
-	}
-	require.Contains(t, idToSelector, uint64(1337))
-	require.Contains(t, idToSelector, uint64(2337))
-	require.Contains(t, idToSelector, uint64(3337))
+	chainMap, err := lib.ChainsMap(ctx)
+	require.NoError(t, err)
 
 	t.Cleanup(func() {
 		_, err := framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
@@ -113,7 +102,9 @@ func TestE2ESmoke(t *testing.T) {
 		require.NotNil(t, indexerClient)
 	}
 
-	sel0, sel1, sel2 := idToSelector[1337], idToSelector[2337], idToSelector[3337]
+	sel0, sel1, sel2 := chains[0].Details.ChainSelector,
+		chains[1].Details.ChainSelector,
+		chains[2].Details.ChainSelector
 
 	t.Run("extra args v2", func(t *testing.T) {
 		tcs := []struct {
@@ -168,7 +159,7 @@ func TestE2ESmoke(t *testing.T) {
 				require.NoError(t, err)
 				messageID := sentEvent.MessageID
 
-				testCtx := NewTestingContext(t, ctx, chains, defaultAggregatorClient, indexerClient)
+				testCtx := NewTestingContext(t, ctx, chainMap, defaultAggregatorClient, indexerClient)
 				result, err := testCtx.AssertMessage(messageID, AssertMessageOptions{
 					TickInterval:            1 * time.Second,
 					Timeout:                 defaultExecTimeout,
@@ -203,13 +194,13 @@ func TestE2ESmoke(t *testing.T) {
 
 	t.Run("extra args v3 messaging", func(t *testing.T) {
 		var tcs []testcase
-		src, dest := idToSelector[1337], idToSelector[2337]
-		mvtcsSrcToDest := multiVerifierTestCases(t, src, dest, in, chains)
+		src, dest := chains[0].Details.ChainSelector, chains[1].Details.ChainSelector
+		mvtcsSrcToDest := multiVerifierTestCases(t, src, dest, in, chainMap)
 		tcs = append(tcs, mvtcsSrcToDest...)
 		// add one test case the other way around (dest->src) to test the reverse lane.
-		mvtcsDestToSrc := multiVerifierTestCases(t, dest, src, in, chains)
+		mvtcsDestToSrc := multiVerifierTestCases(t, dest, src, in, chainMap)
 		tcs = append(tcs, mvtcsDestToSrc[0])
-		tcs = append(tcs, dataSizeTestCases(t, src, dest, in, chains)...)
+		tcs = append(tcs, dataSizeTestCases(t, src, dest, in, chainMap)...)
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
 				var receiverStartBalance *big.Int
@@ -243,7 +234,7 @@ func TestE2ESmoke(t *testing.T) {
 				require.NoError(t, err)
 				messageID := sentEvent.MessageID
 
-				testCtx := NewTestingContext(t, t.Context(), chains, defaultAggregatorClient, indexerClient)
+				testCtx := NewTestingContext(t, t.Context(), chainMap, defaultAggregatorClient, indexerClient)
 				result, err := testCtx.AssertMessage(messageID, AssertMessageOptions{
 					TickInterval:            1 * time.Second,
 					ExpectedVerifierResults: tc.numExpectedVerifications,
@@ -318,7 +309,7 @@ func TestE2ESmoke(t *testing.T) {
 			require.NoError(t, err)
 			msgID := sentEvt.MessageID
 
-			testCtx := NewTestingContext(t, ctx, chains, defaultAggregatorClient, indexerClient)
+			testCtx := NewTestingContext(t, ctx, chainMap, defaultAggregatorClient, indexerClient)
 
 			res, err := testCtx.AssertMessage(msgID, AssertMessageOptions{
 				TickInterval:            1 * time.Second,
