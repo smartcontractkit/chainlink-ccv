@@ -3,11 +3,12 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
@@ -64,13 +65,14 @@ func TestE2EReorg(t *testing.T) {
 		defaultAggregatorClient.Close()
 	})
 
-	// Create chain status manager to read from the verifier's SQLite database
+	// Create chain status manager to read from the verifier's PostgreSQL database
 	chainStatusLggr, err := logger.New()
 	require.NoError(t, err)
-	chainStatusManager, err := chainstatus.NewSQLiteChainStatusManager(filepath.Join(in.Verifier[0].ChainStatusDBHostDir, "chain-status.db"), chainStatusLggr)
-	require.NoError(t, err, "should be able to create chain status manager for verifier's database")
+	chainStatusDB, err := sqlx.Connect("postgres", in.Verifier[0].Out.DBConnectionString)
+	require.NoError(t, err, "should be able to connect to verifier's postgres database")
+	chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusDB, chainStatusLggr)
 	t.Cleanup(func() {
-		chainStatusManager.Close()
+		_ = chainStatusDB.Close()
 	})
 
 	// Get the source and destination chain selectors

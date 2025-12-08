@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -14,6 +15,8 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/grafana/pyroscope-go"
+	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
@@ -38,6 +41,19 @@ import (
 const (
 	PkEnvVar   = "VERIFIER_SIGNER_PRIVATE_KEY"
 	ConfigPath = "VERIFIER_CONFIG_PATH"
+
+	// Database environment variables.
+	DatabaseURLEnvVar             = "CL_DATABASE_URL"
+	DatabaseMaxOpenConnsEnvVar    = "CL_DATABASE_MAX_OPEN_CONNS"
+	DatabaseMaxIdleConnsEnvVar    = "CL_DATABASE_MAX_IDLE_CONNS"
+	DatabaseConnMaxLifetimeEnvVar = "CL_DATABASE_CONN_MAX_LIFETIME"
+	DatabaseConnMaxIdleTimeEnvVar = "CL_DATABASE_CONN_MAX_IDLE_TIME"
+
+	// Database defaults.
+	defaultMaxOpenConns    = 10
+	defaultMaxIdleConns    = 5
+	defaultConnMaxLifetime = 300 // seconds
+	defaultConnMaxIdleTime = 60  // seconds
 )
 
 func loadConfiguration(filepath string) (*verifier.Config, map[string]*protocol.BlockchainInfo, error) {
@@ -186,12 +202,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create chain status manager (local SQLite storage)
-	chainStatusManager, err := createChainStatusManager(config, lggr)
+	// Create chain status manager (PostgreSQL storage)
+	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr)
 	if err != nil {
 		lggr.Errorw("Failed to create chain status manager", "error", err)
 		os.Exit(1)
 	}
+	defer func() {
+		if chainStatusDB != nil {
+			_ = chainStatusDB.Close()
+		}
+	}()
 
 	// Create source readers and head trackers - either blockchain-based or mock
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
@@ -414,16 +435,59 @@ func main() {
 	lggr.Infow("Verifier service stopped gracefully")
 }
 
-func createChainStatusManager(
-	config *verifier.Config,
-	lggr logger.Logger,
-) (protocol.ChainStatusManager, error) {
-	dbPath := config.ChainStatusDBPath
-	if dbPath == "" {
-		dbPath = "chain_status.db"
+func createChainStatusManager(lggr logger.Logger) (protocol.ChainStatusManager, *sqlx.DB, error) {
+	dbURL := os.Getenv(DatabaseURLEnvVar)
+	if dbURL == "" {
+		return nil, nil, fmt.Errorf("%s environment variable is required", DatabaseURLEnvVar)
 	}
-	lggr.Infow("Using SQLite chain status storage", "dbPath", dbPath)
-	return chainstatus.NewSQLiteChainStatusManager(dbPath, lggr)
+
+	maxOpenConns := getEnvInt(DatabaseMaxOpenConnsEnvVar, defaultMaxOpenConns)
+	maxIdleConns := getEnvInt(DatabaseMaxIdleConnsEnvVar, defaultMaxIdleConns)
+	connMaxLifetime := getEnvInt(DatabaseConnMaxLifetimeEnvVar, defaultConnMaxLifetime)
+	connMaxIdleTime := getEnvInt(DatabaseConnMaxIdleTimeEnvVar, defaultConnMaxIdleTime)
+
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to open postgres database: %w", err)
+	}
+
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxIdleConns)
+	db.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
+	db.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Second)
+
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
+		return nil, nil, fmt.Errorf("failed to ping postgres database: %w", err)
+	}
+
+	sqlxDB := sqlx.NewDb(db, "postgres")
+
+	if err := chainstatus.RunPostgresMigrations(sqlxDB); err != nil {
+		_ = db.Close()
+		return nil, nil, fmt.Errorf("failed to run postgres migrations: %w", err)
+	}
+
+	lggr.Infow("Using PostgreSQL chain status storage",
+		"maxOpenConns", maxOpenConns,
+		"maxIdleConns", maxIdleConns,
+		"connMaxLifetime", connMaxLifetime,
+		"connMaxIdleTime", connMaxIdleTime,
+	)
+
+	return chainstatus.NewPostgresChainStatusManager(sqlxDB, lggr), sqlxDB, nil
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	val := os.Getenv(key)
+	if val == "" {
+		return defaultValue
+	}
+	intVal, err := strconv.Atoi(val)
+	if err != nil {
+		return defaultValue
+	}
+	return intVal
 }
 
 // simpleHeadTrackerWrapper is a simple implementation that wraps chain client calls.
