@@ -8,28 +8,31 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-type Config struct {
-	AttestationAPI string
+//nolint:revive // type has to be prefixed to avoid name clash in VerifierConfig
+type CCTPConfig struct {
+	AttestationAPI string `toml:"attestation_api"`
 	// AttestationAPITimeout defines the timeout for the attestation API.
-	AttestationAPITimeout time.Duration
+	AttestationAPITimeout time.Duration `toml:"attestation_api_timeout"`
 	// AttestationAPIInterval defines the rate in requests per second that the attestation API can be called.
 	// Default set according to the APIs documentated 10 requests per second rate limit.
-	AttestationAPIInterval time.Duration
+	AttestationAPIInterval time.Duration `toml:"attestation_api_interval"`
 	// AttestationAPICooldown defines in what time it is allowed to make next call to API.
 	// Activates when plugin hits API's rate limits
-	AttestationAPICooldown time.Duration
-
-	Verifiers map[protocol.ChainSelector]protocol.UnknownAddress
+	AttestationAPICooldown time.Duration `toml:"attestation_api_cooldown"`
+	// Verifiers is a map of chain selectors to verifier addresses. It's only used for TOML marshall/unmarshall and then
+	// final values, properly cast to domain values are stored in ParsedVerifiers
+	Verifiers       map[string]any                                     `toml:"addresses"`
+	ParsedVerifiers map[protocol.ChainSelector]protocol.UnknownAddress `toml:"-"`
 }
 
-func TryParsing(t, v string, data map[string]any) (*Config, error) {
+func TryParsing(t, v string, data map[string]any) (*CCTPConfig, error) {
 	if t != "cctp" || v != "2.0" {
 		return nil, fmt.Errorf("unsupported verifier type %s and version %s", t, v)
 	}
 
 	var ok bool
 	var err error
-	c := &Config{}
+	c := &CCTPConfig{}
 
 	c.AttestationAPI, ok = data["attestation_api"].(string)
 	if !ok {
@@ -51,7 +54,7 @@ func TryParsing(t, v string, data map[string]any) (*Config, error) {
 		return nil, fmt.Errorf("invalid attestation_api_cooldown: %w", err)
 	}
 
-	c.Verifiers, err = common.ParseAddressesMap(data["addresses"])
+	c.ParsedVerifiers, c.Verifiers, err = common.ParseAddressesMap(data["addresses"])
 	if err != nil {
 		return nil, fmt.Errorf("invalid addresses: %w", err)
 	}

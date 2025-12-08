@@ -19,264 +19,488 @@ import (
 	coordinator "github.com/smartcontractkit/chainlink-ccv/executor"
 )
 
-func Test_ChainlinkExecutor(t *testing.T) {
-	defaultTransmitter := func() *executor_mocks.MockContractTransmitter {
-		ct := executor_mocks.NewMockContractTransmitter(t)
-		ct.EXPECT().ConvertAndWriteMessageToChain(mock.Anything, mock.Anything).Return(nil).Maybe()
-		return ct
+// setupTestExecutor creates a test executor with the provided mocks.
+func setupTestExecutor(
+	t *testing.T,
+	ct map[protocol.ChainSelector]*executor_mocks.MockContractTransmitter,
+	dr map[protocol.ChainSelector]*executor_mocks.MockDestinationReader,
+	vr *executor_mocks.MockVerifierResultReader,
+	address1, address2 protocol.UnknownAddress,
+	sourceChainSelector protocol.ChainSelector,
+) *ChainlinkExecutor {
+	allContractTransmitters := make(map[protocol.ChainSelector]coordinator.ContractTransmitter)
+	for chain, mockCT := range ct {
+		allContractTransmitters[chain] = mockCT
 	}
 
+	allDestinationReaders := make(map[protocol.ChainSelector]coordinator.DestinationReader)
+	allRMNReaders := make(map[protocol.ChainSelector]ccvcommon.RMNRemoteReader)
+	for chain, mockDR := range dr {
+		allDestinationReaders[chain] = mockDR
+		allRMNReaders[chain] = mockDR
+	}
+
+	curseChecker := cursechecker.NewCachedCurseChecker(cursechecker.Params{
+		Lggr:        logger.Test(t),
+		RmnReaders:  allRMNReaders,
+		CacheExpiry: 1 * time.Second,
+	})
+
+	defaultExecutorAddresses := map[protocol.ChainSelector]protocol.UnknownAddress{
+		1: address1,
+		2: address2,
+	}
+	defaultExecutorAddresses[sourceChainSelector] = address2
+
+	return NewChainlinkExecutor(
+		logger.Test(t),
+		allContractTransmitters,
+		allDestinationReaders,
+		curseChecker,
+		vr,
+		monitoring.NewNoopExecutorMonitoring(),
+		defaultExecutorAddresses,
+	)
+}
+
+func Test_ChainlinkExecutor_Validate(t *testing.T) {
 	address1, err := protocol.RandomAddress()
 	assert.NoError(t, err)
 	address2, err := protocol.RandomAddress()
 	assert.NoError(t, err)
 
-	mockVerifierResultCreator := func(msg protocol.Message) *executor_mocks.MockVerifierResultReader {
-		vr := executor_mocks.NewMockVerifierResultReader(t)
-		messageID, err := msg.MessageID()
-		assert.NoError(t, err)
-		vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.VerifierResult{
-			{MessageID: messageID, Message: msg, MessageCCVAddresses: []protocol.UnknownAddress{}, MessageExecutorAddress: address1},
-		}, nil).Maybe()
-		return vr
-	}
 	testcases := []struct {
-		name                       string
-		ct                         func() *executor_mocks.MockContractTransmitter
-		ctChains                   []protocol.ChainSelector
-		dr                         func() *executor_mocks.MockDestinationReader
-		drChains                   []protocol.ChainSelector
-		vr                         func(protocol.Message) *executor_mocks.MockVerifierResultReader
-		msg                        coordinator.MessageWithCCVData
-		validateShouldError        bool
-		validateMessageShouldError bool
-		executeShouldError         bool
+		name        string
+		ctChains    []protocol.ChainSelector
+		drChains    []protocol.ChainSelector
+		expectError bool
 	}{
 		{
-			name:     "valid case",
-			ct:       defaultTransmitter,
-			ctChains: []protocol.ChainSelector{1, 2},
-			dr: func() *executor_mocks.MockDestinationReader {
-				dr := executor_mocks.NewMockDestinationReader(t)
-				dr.EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(coordinator.CCVAddressInfo{}, nil).Maybe()
-				return dr
-			},
-			drChains:                   []protocol.ChainSelector{1, 2},
-			vr:                         mockVerifierResultCreator,
-			msg:                        coordinator.MessageWithCCVData{Message: protocol.Message{DestChainSelector: 1, SourceChainSelector: 2, SequenceNumber: 1}},
-			validateShouldError:        false,
-			validateMessageShouldError: false,
-			executeShouldError:         false,
+			name:        "valid case - matching chains",
+			ctChains:    []protocol.ChainSelector{1, 2},
+			drChains:    []protocol.ChainSelector{1, 2},
+			expectError: false,
 		},
 		{
-			name:     "mismatched supported chains should error",
-			ct:       defaultTransmitter,
-			ctChains: []protocol.ChainSelector{1},
-			dr: func() *executor_mocks.MockDestinationReader {
-				dr := executor_mocks.NewMockDestinationReader(t)
-				dr.EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(coordinator.CCVAddressInfo{}, nil).Maybe()
-				return dr
-			},
-			drChains:                   []protocol.ChainSelector{1, 2},
-			vr:                         mockVerifierResultCreator,
-			msg:                        coordinator.MessageWithCCVData{Message: generateFakeMessage(1, 2, 1, nil, address1)},
-			validateShouldError:        true,
-			validateMessageShouldError: false,
-			executeShouldError:         false,
-		},
-		{
-			name: "should fail to execute if ConvertAndWriteMessageToChain fails",
-			ct: func() *executor_mocks.MockContractTransmitter {
-				ct := executor_mocks.NewMockContractTransmitter(t)
-				ct.EXPECT().ConvertAndWriteMessageToChain(mock.Anything, mock.Anything).Return(errors.New("fail"))
-				return ct
-			},
-			ctChains: []protocol.ChainSelector{1},
-			dr: func() *executor_mocks.MockDestinationReader {
-				dr := executor_mocks.NewMockDestinationReader(t)
-				dr.EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(coordinator.CCVAddressInfo{}, nil).Maybe()
-				return dr
-			},
-			drChains:                   []protocol.ChainSelector{1},
-			vr:                         mockVerifierResultCreator,
-			msg:                        coordinator.MessageWithCCVData{Message: generateFakeMessage(1, 2, 1, nil, address1)},
-			validateShouldError:        false,
-			validateMessageShouldError: false,
-			executeShouldError:         true,
-		},
-		{
-			name: "Should only use up to threshold amount of optional CCVs",
-			ct: func() *executor_mocks.MockContractTransmitter {
-				ct := executor_mocks.NewMockContractTransmitter(t)
-				ct.EXPECT().ConvertAndWriteMessageToChain(mock.Anything, mock.MatchedBy(func(report coordinator.AbstractAggregatedReport) bool {
-					wantMsg := generateFakeMessage(1, 2, 1, address1, address2)
-					return assert.ObjectsAreEqual(wantMsg, report.Message) &&
-						len(report.CCVS) == 1 &&
-						len(report.CCVData) == 1 &&
-						string(report.CCVData[0]) == "data1"
-				})).Return(nil).Once()
-				return ct
-			},
-			ctChains: []protocol.ChainSelector{1},
-			dr: func() *executor_mocks.MockDestinationReader {
-				dr := executor_mocks.NewMockDestinationReader(t)
-				dr.EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(coordinator.CCVAddressInfo{
-					OptionalCCVs:      []protocol.UnknownAddress{address1, address2},
-					OptionalThreshold: 1,
-				}, nil).Maybe()
-				return dr
-			},
-			drChains: []protocol.ChainSelector{1},
-			vr: func(msg protocol.Message) *executor_mocks.MockVerifierResultReader {
-				vr := executor_mocks.NewMockVerifierResultReader(t)
-				messageID, _ := msg.MessageID()
-				vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.VerifierResult{
-					{MessageID: messageID, Message: msg, MessageCCVAddresses: []protocol.UnknownAddress{address1}, CCVData: []byte("data1"), VerifierDestAddress: address1, MessageExecutorAddress: address2},
-					{MessageID: messageID, Message: msg, MessageCCVAddresses: []protocol.UnknownAddress{address2}, CCVData: []byte("data2"), VerifierDestAddress: address2, MessageExecutorAddress: address2},
-				}, nil).Maybe()
-				return vr
-			},
-			msg: coordinator.MessageWithCCVData{Message: generateFakeMessage(1, 2, 1, address1, address2)},
-		},
-		{
-			name: "Should support a 0 threshold for optional CCVs",
-			ct: func() *executor_mocks.MockContractTransmitter {
-				ct := executor_mocks.NewMockContractTransmitter(t)
-				ct.EXPECT().ConvertAndWriteMessageToChain(mock.Anything, coordinator.AbstractAggregatedReport{
-					Message: generateFakeMessage(1, 2, 1, nil, address1),
-					CCVS:    []protocol.UnknownAddress{},
-					CCVData: [][]byte{},
-				}).Return(nil).Once()
-				return ct
-			},
-			ctChains: []protocol.ChainSelector{1},
-			dr: func() *executor_mocks.MockDestinationReader {
-				dr := executor_mocks.NewMockDestinationReader(t)
-				dr.EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(coordinator.CCVAddressInfo{
-					OptionalCCVs:      []protocol.UnknownAddress{address1, address2},
-					OptionalThreshold: 0,
-				}, nil).Maybe()
-				return dr
-			},
-			drChains: []protocol.ChainSelector{1},
-			vr: func(protocol.Message) *executor_mocks.MockVerifierResultReader {
-				vr := executor_mocks.NewMockVerifierResultReader(t)
-				vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.VerifierResult{
-					{VerifierDestAddress: address1, CCVData: []byte("data"), MessageExecutorAddress: address1},
-					{VerifierDestAddress: address2, CCVData: []byte("data"), MessageExecutorAddress: address1},
-				}, nil).Maybe()
-				return vr
-			},
-			msg: coordinator.MessageWithCCVData{Message: generateFakeMessage(1, 2, 1, nil, address1)},
-		},
-		{
-			name: "Should fail to execute if all verifier result messageExecutorAddress does not match defaultExecutorAddress",
-			ct: func() *executor_mocks.MockContractTransmitter {
-				// ConvertAndWriteMessageToChain should not be called if executor address doesn't match
-				ct := executor_mocks.NewMockContractTransmitter(t)
-				return ct
-			},
-			ctChains: []protocol.ChainSelector{1},
-			dr: func() *executor_mocks.MockDestinationReader {
-				dr := executor_mocks.NewMockDestinationReader(t)
-				dr.EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(coordinator.CCVAddressInfo{
-					OptionalCCVs:      []protocol.UnknownAddress{address1, address2},
-					OptionalThreshold: 1,
-				}, nil).Maybe()
-				return dr
-			},
-			drChains: []protocol.ChainSelector{1},
-			vr: func(protocol.Message) *executor_mocks.MockVerifierResultReader {
-				vr := executor_mocks.NewMockVerifierResultReader(t)
-				// MessageExecutorAddress is not equal to defaultExecutorAddress (address1).
-				vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.VerifierResult{
-					{VerifierDestAddress: address2, CCVData: []byte("data"), MessageExecutorAddress: address2},
-					{VerifierDestAddress: address2, CCVData: []byte("data"), MessageExecutorAddress: address2},
-				}, nil).Maybe()
-				return vr
-			},
-			msg:                coordinator.MessageWithCCVData{Message: generateFakeMessage(1, 2, 1, nil, address1)},
-			executeShouldError: true,
-		},
-		{
-			name: "Should continue to execute if one verifier result messageExecutorAddress does not match defaultExecutorAddress and meets quorum",
-			ct: func() *executor_mocks.MockContractTransmitter {
-				// ConvertAndWriteMessageToChain should not be called if executor address doesn't match
-				ct := executor_mocks.NewMockContractTransmitter(t)
-				return ct
-			},
-			ctChains: []protocol.ChainSelector{1},
-			dr: func() *executor_mocks.MockDestinationReader {
-				dr := executor_mocks.NewMockDestinationReader(t)
-				dr.EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(coordinator.CCVAddressInfo{
-					OptionalCCVs:      []protocol.UnknownAddress{address1, address2},
-					OptionalThreshold: 1,
-				}, nil).Maybe()
-				return dr
-			},
-			drChains: []protocol.ChainSelector{1},
-			vr: func(protocol.Message) *executor_mocks.MockVerifierResultReader {
-				vr := executor_mocks.NewMockVerifierResultReader(t)
-				// MessageExecutorAddress is not equal to defaultExecutorAddress (address1).
-				vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.VerifierResult{
-					{VerifierDestAddress: address1, CCVData: []byte("data"), MessageExecutorAddress: address1},
-					{VerifierDestAddress: address2, CCVData: []byte("data"), MessageExecutorAddress: address2},
-				}, nil).Maybe()
-				return vr
-			},
-			msg:                coordinator.MessageWithCCVData{Message: generateFakeMessage(1, 2, 1, nil, address1)},
-			executeShouldError: true,
+			name:        "mismatched supported chains should error",
+			ctChains:    []protocol.ChainSelector{1},
+			drChains:    []protocol.ChainSelector{1, 2},
+			expectError: true,
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			allContractTransmitters := make(map[protocol.ChainSelector]coordinator.ContractTransmitter)
-			ct := tc.ct()
+			ct := make(map[protocol.ChainSelector]*executor_mocks.MockContractTransmitter)
 			for _, chain := range tc.ctChains {
-				allContractTransmitters[chain] = ct
+				mockCT := executor_mocks.NewMockContractTransmitter(t)
+				ct[chain] = mockCT
 			}
 
-			allDestinationReaders := make(map[protocol.ChainSelector]coordinator.DestinationReader)
-			allRMNReaders := make(map[protocol.ChainSelector]ccvcommon.RMNRemoteReader)
-			dr := tc.dr()
+			dr := make(map[protocol.ChainSelector]*executor_mocks.MockDestinationReader)
 			for _, chain := range tc.drChains {
-				allDestinationReaders[chain] = dr
-				allRMNReaders[chain] = dr
+				mockDR := executor_mocks.NewMockDestinationReader(t)
+				dr[chain] = mockDR
 			}
-			curseChecker := cursechecker.NewCachedCurseChecker(cursechecker.Params{
-				Lggr:        logger.Test(t),
-				RmnReaders:  allRMNReaders,
-				CacheExpiry: 1 * time.Second,
-			})
-			defaultExecutorAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress)
-			for _, chain := range tc.drChains {
-				defaultExecutorAddresses[chain] = address1
-			}
-			defaultExecutorAddresses[tc.msg.Message.SourceChainSelector] = address2
-			executor := NewChainlinkExecutor(logger.Test(t), allContractTransmitters, allDestinationReaders, curseChecker, tc.vr(tc.msg.Message), monitoring.NewNoopExecutorMonitoring(), defaultExecutorAddresses)
+
+			vr := executor_mocks.NewMockVerifierResultReader(t)
+			executor := setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
+
 			err := executor.Validate()
-			if tc.validateShouldError {
+			if tc.expectError {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func Test_ChainlinkExecutor_HandleMessage_CurseCheck(t *testing.T) {
+	address1, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+	address2, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+
+	testcases := []struct {
+		name          string
+		isCursed      bool
+		expectedRetry bool
+		expectedError bool
+	}{
+		{
+			name:          "cursed, should retry",
+			isCursed:      true,
+			expectedRetry: true,
+			expectedError: false,
+		},
+		// we don't need to test the non cursed scenario, it will be covered in later tests
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			ct := map[protocol.ChainSelector]*executor_mocks.MockContractTransmitter{
+				1: executor_mocks.NewMockContractTransmitter(t),
+			}
+			dr := map[protocol.ChainSelector]*executor_mocks.MockDestinationReader{
+				1: executor_mocks.NewMockDestinationReader(t),
+			}
+			vr := executor_mocks.NewMockVerifierResultReader(t)
+			msg := generateFakeMessage(1, 2, 1, nil, address2)
+
+			curseChecker := ccvcommon.NewMockCurseChecker(t)
+			curseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(tc.isCursed).Once()
+			executor := setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
+			executor.curseChecker = curseChecker
+
+			shouldRetry, err := executor.HandleMessage(context.Background(), msg)
+			assert.Equal(t, tc.expectedRetry, shouldRetry)
+			if tc.expectedError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func Test_ChainlinkExecutor_HandleMessage_Executability(t *testing.T) {
+	address1, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+	address2, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+
+	testcases := []struct {
+		name             string
+		executability    bool
+		executabilityErr error
+		expectedRetry    bool
+		expectedError    bool
+	}{
+		{
+			name:          "message is not executable - should skip",
+			executability: false,
+			expectedRetry: false,
+			expectedError: false,
+		},
+		{
+			name:             "GetMessageExecutability returns error - should retry",
+			executability:    false,
+			executabilityErr: errors.New("executability check failed"),
+			expectedRetry:    true,
+			expectedError:    true,
+		},
+		// we don't need to check the message is executable scenario, will be covered by later tests
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			ct := map[protocol.ChainSelector]*executor_mocks.MockContractTransmitter{
+				1: executor_mocks.NewMockContractTransmitter(t),
 			}
 
-			err = executor.CheckValidMessage(context.Background(), tc.msg.Message)
-			if tc.validateMessageShouldError {
+			dr := map[protocol.ChainSelector]*executor_mocks.MockDestinationReader{
+				1: executor_mocks.NewMockDestinationReader(t),
+			}
+			dr[1].EXPECT().GetRMNCursedSubjects(mock.Anything).Return([]protocol.Bytes16{}, nil).Once()
+			dr[1].EXPECT().GetMessageExecutability(mock.Anything, mock.Anything).Return(tc.executability, tc.executabilityErr).Once()
+
+			vr := executor_mocks.NewMockVerifierResultReader(t)
+			msg := generateFakeMessage(1, 2, 1, nil, address2)
+
+			executor := setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
+
+			shouldRetry, err := executor.HandleMessage(context.Background(), msg)
+			assert.Equal(t, tc.expectedRetry, shouldRetry)
+			if tc.expectedError {
 				assert.Error(t, err)
-				return
 			} else {
 				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
+	address1, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+	address2, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+
+	testcases := []struct {
+		name                 string
+		verifierResults      []protocol.VerifierResult
+		verifierResultsErr   error
+		ccvInfo              coordinator.CCVAddressInfo
+		ccvInfoErr           error
+		expectedRetry        bool
+		expectedError        bool
+		expectedNoResultsErr bool
+	}{
+		{
+			name: "valid verifier results - should continue",
+			verifierResults: []protocol.VerifierResult{
+				{MessageID: protocol.Bytes32{}, Message: generateFakeMessage(1, 2, 1, nil, address2), MessageCCVAddresses: []protocol.UnknownAddress{}, MessageExecutorAddress: address2},
+			},
+			ccvInfo:       coordinator.CCVAddressInfo{},
+			expectedRetry: false,
+			expectedError: false,
+		},
+		{
+			name:               "GetVerifierResults returns error - should retry",
+			verifierResultsErr: errors.New("verifier results error"),
+			expectedRetry:      true,
+			expectedError:      true,
+		},
+		{
+			name:                 "no verifier results - should retry with error",
+			verifierResults:      []protocol.VerifierResult{},
+			ccvInfo:              coordinator.CCVAddressInfo{},
+			expectedRetry:        true,
+			expectedError:        true,
+			expectedNoResultsErr: true,
+		},
+		{
+			name: "verifier results filtered out due to executor address mismatch - should retry with error",
+			verifierResults: []protocol.VerifierResult{
+				{MessageID: protocol.Bytes32{}, Message: generateFakeMessage(1, 2, 1, nil, address1), MessageCCVAddresses: []protocol.UnknownAddress{}, MessageExecutorAddress: address1}, // address1 doesn't match defaultExecutorAddress[2] = address2
+			},
+			ccvInfo:              coordinator.CCVAddressInfo{},
+			expectedRetry:        true,
+			expectedError:        true,
+			expectedNoResultsErr: true,
+		},
+		{
+			name: "impossible receiver verifier quorum - should skip",
+			verifierResults: []protocol.VerifierResult{
+				{MessageID: protocol.Bytes32{}, Message: generateFakeMessage(1, 2, 1, nil, address2), MessageCCVAddresses: []protocol.UnknownAddress{}, MessageExecutorAddress: address2},
+			},
+			ccvInfo: coordinator.CCVAddressInfo{
+				OptionalCCVs:      []protocol.UnknownAddress{address1},
+				OptionalThreshold: 1,
+			},
+			expectedRetry: false,
+			expectedError: false,
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			ct := map[protocol.ChainSelector]*executor_mocks.MockContractTransmitter{
+				1: executor_mocks.NewMockContractTransmitter(t),
 			}
 
-			err = executor.AttemptExecuteMessage(context.Background(), tc.msg.Message)
-			if tc.executeShouldError {
+			dr := map[protocol.ChainSelector]*executor_mocks.MockDestinationReader{
+				1: executor_mocks.NewMockDestinationReader(t),
+			}
+			dr[1].EXPECT().GetRMNCursedSubjects(mock.Anything).Return([]protocol.Bytes16{}, nil).Once()
+			dr[1].EXPECT().GetMessageExecutability(mock.Anything, mock.Anything).Return(true, nil).Once()
+
+			// GetCCVSForMessage is called in parallel with GetVerifierResults, so we need to set it up even if verifier results error
+			dr[1].EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(tc.ccvInfo, tc.ccvInfoErr).Maybe()
+
+			vr := executor_mocks.NewMockVerifierResultReader(t)
+			msg := generateFakeMessage(1, 2, 1, nil, address2)
+			messageID, _ := msg.MessageID()
+
+			if tc.verifierResultsErr != nil {
+				vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return(nil, tc.verifierResultsErr).Once()
+			} else {
+				// Update messageID in verifier results
+				results := make([]protocol.VerifierResult, len(tc.verifierResults))
+				for i, result := range tc.verifierResults {
+					result.MessageID = messageID
+					result.Message = msg
+					results[i] = result
+				}
+				vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return(results, nil).Maybe()
+			}
+
+			// Only expect ConvertAndWriteMessageToChain if we have valid results and can proceed
+			if !tc.expectedError && !tc.expectedNoResultsErr && len(tc.verifierResults) > 0 && tc.verifierResults[0].MessageExecutorAddress.Equal(address2) {
+				ct[1].EXPECT().ConvertAndWriteMessageToChain(mock.Anything, mock.Anything).Return(nil).Maybe()
+			}
+
+			executor := setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
+
+			shouldRetry, err := executor.HandleMessage(context.Background(), msg)
+			assert.Equal(t, tc.expectedRetry, shouldRetry)
+			if tc.expectedError {
+				assert.Error(t, err)
+				if tc.expectedNoResultsErr {
+					assert.Contains(t, err.Error(), "no verifier results")
+				}
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func Test_ChainlinkExecutor_HandleMessage_OrderCCVData(t *testing.T) {
+	address1, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+	address2, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+
+	testcases := []struct {
+		name            string
+		verifierResults []protocol.VerifierResult
+		ccvInfo         coordinator.CCVAddressInfo
+		orderCCVDataErr bool
+		expectedRetry   bool
+		expectedError   bool
+	}{
+		{
+			name: "orderCCVData succeeds - should continue",
+			verifierResults: []protocol.VerifierResult{
+				{MessageID: protocol.Bytes32{}, Message: generateFakeMessage(1, 2, 1, address1, address2), MessageCCVAddresses: []protocol.UnknownAddress{address1}, VerifierDestAddress: address1, CCVData: []byte("data1"), MessageExecutorAddress: address2},
+			},
+			ccvInfo: coordinator.CCVAddressInfo{
+				OptionalCCVs:      []protocol.UnknownAddress{address1},
+				OptionalThreshold: 1,
+			},
+			expectedRetry: false,
+			expectedError: false,
+		},
+		{
+			name: "orderCCVData fails due to insufficient verifiers - should retry",
+			verifierResults: []protocol.VerifierResult{
+				{MessageID: protocol.Bytes32{}, Message: generateFakeMessage(1, 2, 1, address1, address2), MessageCCVAddresses: []protocol.UnknownAddress{address1}, VerifierDestAddress: address1, CCVData: []byte("data1"), MessageExecutorAddress: address2},
+			},
+			ccvInfo: coordinator.CCVAddressInfo{
+				RequiredCCVs:      []protocol.UnknownAddress{address2}, // address2 not in verifier results
+				OptionalCCVs:      []protocol.UnknownAddress{address1},
+				OptionalThreshold: 0,
+			},
+			orderCCVDataErr: true,
+			expectedRetry:   true,
+			expectedError:   true,
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			ct := map[protocol.ChainSelector]*executor_mocks.MockContractTransmitter{
+				1: executor_mocks.NewMockContractTransmitter(t),
+			}
+
+			dr := map[protocol.ChainSelector]*executor_mocks.MockDestinationReader{
+				1: executor_mocks.NewMockDestinationReader(t),
+			}
+			dr[1].EXPECT().GetRMNCursedSubjects(mock.Anything).Return([]protocol.Bytes16{}, nil).Once()
+			dr[1].EXPECT().GetMessageExecutability(mock.Anything, mock.Anything).Return(true, nil).Once()
+			dr[1].EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(tc.ccvInfo, nil).Maybe()
+
+			vr := executor_mocks.NewMockVerifierResultReader(t)
+			msg := generateFakeMessage(1, 2, 1, address1, address2)
+			messageID, _ := msg.MessageID()
+
+			// Update messageID in verifier results
+			results := make([]protocol.VerifierResult, len(tc.verifierResults))
+			for i, result := range tc.verifierResults {
+				result.MessageID = messageID
+				result.Message = msg
+				results[i] = result
+			}
+			vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return(results, nil).Maybe()
+
+			if !tc.orderCCVDataErr {
+				ct[1].EXPECT().ConvertAndWriteMessageToChain(mock.Anything, mock.Anything).Return(nil).Once()
+			}
+
+			executor := setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
+
+			shouldRetry, err := executor.HandleMessage(context.Background(), msg)
+			assert.Equal(t, tc.expectedRetry, shouldRetry)
+			if tc.expectedError {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
 			}
-			dr.AssertNotCalled(t, "GetMessageExecutionState")
+		})
+	}
+}
+
+func Test_ChainlinkExecutor_HandleMessage_ConvertAndWrite(t *testing.T) {
+	address1, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+	address2, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+
+	testcases := []struct {
+		name                string
+		convertAndWriteErr  error
+		expectedRetry       bool
+		expectedError       bool
+		expectedReportCheck func(*testing.T, coordinator.AbstractAggregatedReport) bool
+	}{
+		{
+			name:               "ConvertAndWriteMessageToChain succeeds - should complete",
+			convertAndWriteErr: nil,
+			expectedRetry:      false,
+			expectedError:      false,
+		},
+		{
+			name:               "ConvertAndWriteMessageToChain fails - should retry",
+			convertAndWriteErr: errors.New("convert and write failed"),
+			expectedRetry:      true,
+			expectedError:      true,
+		},
+		{
+			name:               "ConvertAndWriteMessageToChain with correct report structure",
+			convertAndWriteErr: nil,
+			expectedRetry:      false,
+			expectedError:      false,
+			expectedReportCheck: func(t *testing.T, report coordinator.AbstractAggregatedReport) bool {
+				return len(report.CCVS) == 1 &&
+					len(report.CCVData) == 1 &&
+					string(report.CCVData[0]) == "data1"
+			},
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			ct := map[protocol.ChainSelector]*executor_mocks.MockContractTransmitter{
+				1: executor_mocks.NewMockContractTransmitter(t),
+			}
+
+			dr := map[protocol.ChainSelector]*executor_mocks.MockDestinationReader{
+				1: executor_mocks.NewMockDestinationReader(t),
+			}
+			dr[1].EXPECT().GetRMNCursedSubjects(mock.Anything).Return([]protocol.Bytes16{}, nil).Once()
+			dr[1].EXPECT().GetMessageExecutability(mock.Anything, mock.Anything).Return(true, nil).Once()
+			dr[1].EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(coordinator.CCVAddressInfo{
+				OptionalCCVs:      []protocol.UnknownAddress{address1},
+				OptionalThreshold: 1,
+			}, nil).Maybe()
+
+			vr := executor_mocks.NewMockVerifierResultReader(t)
+			msg := generateFakeMessage(1, 2, 1, address1, address2)
+			messageID, _ := msg.MessageID()
+
+			vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.VerifierResult{
+				{MessageID: messageID, Message: msg, MessageCCVAddresses: []protocol.UnknownAddress{address1}, VerifierDestAddress: address1, CCVData: []byte("data1"), MessageExecutorAddress: address2},
+			}, nil).Maybe()
+
+			if tc.expectedReportCheck != nil {
+				ct[1].EXPECT().ConvertAndWriteMessageToChain(mock.Anything, mock.MatchedBy(func(report coordinator.AbstractAggregatedReport) bool {
+					return tc.expectedReportCheck(t, report)
+				})).Return(tc.convertAndWriteErr).Once()
+			} else {
+				ct[1].EXPECT().ConvertAndWriteMessageToChain(mock.Anything, mock.Anything).Return(tc.convertAndWriteErr).Once()
+			}
+
+			executor := setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
+
+			shouldRetry, err := executor.HandleMessage(context.Background(), msg)
+			assert.Equal(t, tc.expectedRetry, shouldRetry)
+			if tc.expectedError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
 		})
 	}
 }
@@ -426,13 +650,20 @@ func Test_orderCCVData(t *testing.T) {
 
 // generateFakeMessage creates a fake protocol.Message for testing purposes.
 // It accepts destChainSelector, sourceChainSelector, and sequenceNumber as parameters.
+// If verifierAddress is nil, an empty slice is used for CCV addresses.
 func generateFakeMessage(destChainSelector, sourceChainSelector protocol.ChainSelector, sequenceNumber protocol.SequenceNumber, verifierAddress, executorAddress protocol.UnknownAddress) protocol.Message {
 	// Use zero addresses and empty byte slices for simplicity
 	var (
 		emptyAddress protocol.UnknownAddress
 		emptyBytes   []byte
 	)
-	ccvAndExecutorHash, _ := protocol.ComputeCCVAndExecutorHash([]protocol.UnknownAddress{verifierAddress}, executorAddress)
+	var ccvAddresses []protocol.UnknownAddress
+	if len(verifierAddress) > 0 {
+		ccvAddresses = []protocol.UnknownAddress{verifierAddress}
+	} else {
+		ccvAddresses = []protocol.UnknownAddress{}
+	}
+	ccvAndExecutorHash, _ := protocol.ComputeCCVAndExecutorHash(ccvAddresses, executorAddress)
 	return protocol.Message{
 		Sender:               emptyAddress,
 		Data:                 emptyBytes,

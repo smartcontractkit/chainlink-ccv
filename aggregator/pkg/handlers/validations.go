@@ -63,12 +63,8 @@ func validateWriteRequest(req *pb.WriteCommitteeVerifierNodeResultRequest) error
 }
 
 func validateReadRequest(req *pb.ReadCommitteeVerifierNodeResultRequest) error {
-	err := validation.ValidateStruct(
+	return validation.ValidateStruct(
 		req,
 		validation.Field(&req.MessageId, validation.Required, validation.Length(32, 32)),
 	)
-	if err != nil {
-		return err
-	}
-	return nil
 }

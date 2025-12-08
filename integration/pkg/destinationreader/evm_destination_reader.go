@@ -172,7 +172,7 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 }
 
 // GetMessageExecutionState checks the destination chain to verify if a message has been executed.
-func (dr *EvmDestinationReader) GetMessageExecutionState(ctx context.Context, message protocol.Message) (executor.MessageExecutionState, error) {
+func (dr *EvmDestinationReader) GetMessageExecutability(ctx context.Context, message protocol.Message) (bool, error) {
 	rcv := common.BytesToAddress(message.Receiver)
 	execState, err := dr.offRampCaller.GetExecutionState(
 		&bind.CallOpts{
@@ -185,10 +185,17 @@ func (dr *EvmDestinationReader) GetMessageExecutionState(ctx context.Context, me
 		rcv)
 	if err != nil {
 		// expect that the error is checked by the caller so it doesn't accidentally assume success
-		return 0, fmt.Errorf("failed to call getExecutionState: %w", err)
+		return false, fmt.Errorf("failed to call getExecutionState: %w", err)
 	}
-
-	return executor.MessageExecutionState(execState), nil
+	dr.lggr.Infow("getExecutionState", "messageID", message.MustMessageID(), "execState", execState)
+	switch executor.MessageExecutionState(execState) {
+	// We only try to execute if the message is UNTOUCHED or VERIFICATION_FAILED.
+	case executor.UNTOUCHED, executor.VERIFICATION_FAILED:
+		return true, nil
+	}
+	// All other states should not be retried and should not be executed.
+	// this is for SUCCESS, IN_PROGRESS, and FAILURE.
+	return false, nil
 }
 
 // GetRMNCursedSubjects gets all the cursed subjects for the destination chain including global curse.

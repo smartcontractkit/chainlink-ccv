@@ -28,7 +28,7 @@ import (
 // The DataSource is passed in from CL node, or created by standalone mode.
 func NewVerificationCoordinator(
 	lggr logger.Logger,
-	cfg verifier.Config,
+	cfg commit.Config,
 	aggregatorSecret *hmac.ClientConfig,
 	signingAddress protocol.UnknownAddress,
 	signer verifier.MessageSigner,

@@ -76,7 +76,7 @@ func (s *InMemoryStorage) ListCommitVerificationByAggregationKey(_ context.Conte
 	return results, nil
 }
 
-func (s *InMemoryStorage) SubmitReport(_ context.Context, report *model.CommitAggregatedReport) error {
+func (s *InMemoryStorage) SubmitAggregatedReport(_ context.Context, report *model.CommitAggregatedReport) error {
 	id := report.GetID()
 	report.WrittenAt = time.Now()
 	s.aggregatedReports.Store(id, report)
@@ -105,7 +105,7 @@ func (s *InMemoryStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 	return s.QueryAggregatedReportsRange(ctx, sinceSequenceInclusive, end)
 }
 
-func (s *InMemoryStorage) GetCCVData(_ context.Context, messageID model.MessageID) (*model.CommitAggregatedReport, error) {
+func (s *InMemoryStorage) GetCommitAggregatedReportByMessageID(_ context.Context, messageID model.MessageID) (*model.CommitAggregatedReport, error) {
 	id := model.GetAggregatedReportID(messageID)
 	if value, ok := s.aggregatedReports.Load(id); ok {
 		if report, ok := value.(*model.CommitAggregatedReport); ok {
@@ -115,8 +115,8 @@ func (s *InMemoryStorage) GetCCVData(_ context.Context, messageID model.MessageI
 	return nil, nil
 }
 
-// GetBatchCCVData retrieves commit verification data for multiple message IDs.
-func (s *InMemoryStorage) GetBatchCCVData(_ context.Context, messageIDs []model.MessageID) (map[string]*model.CommitAggregatedReport, error) {
+// GetBatchAggregatedReportByMessageIDs retrieves commit verification data for multiple message IDs.
+func (s *InMemoryStorage) GetBatchAggregatedReportByMessageIDs(_ context.Context, messageIDs []model.MessageID) (map[string]*model.CommitAggregatedReport, error) {
 	results := make(map[string]*model.CommitAggregatedReport)
 
 	for _, messageID := range messageIDs {

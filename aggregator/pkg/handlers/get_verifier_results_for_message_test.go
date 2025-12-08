@@ -25,7 +25,7 @@ func TestGetBatchCCVDataForMessageHandler_ValidationErrors(t *testing.T) {
 	store := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
 	committee := &model.Committee{}
 
-	h := NewGetBatchCCVDataForMessageHandler(store, committee, 2, lggr)
+	h := NewGetVerifierResultsForMessageHandler(store, committee, 2, lggr)
 
 	// empty
 	_, err := h.Handle(context.Background(), &pb.GetVerifierResultsForMessageRequest{MessageIds: [][]byte{}})
@@ -58,7 +58,7 @@ func TestGetBatchCCVDataForMessageHandler_MixedResults(t *testing.T) {
 	destVerifierAddr := addrDestVerifier
 	committee := buildCommittee(destSel, sourceSel, destVerifierAddr, []model.Signer{{Address: signerAddr}})
 
-	h := NewGetBatchCCVDataForMessageHandler(store, committee, 10, lggr)
+	h := NewGetVerifierResultsForMessageHandler(store, committee, 10, lggr)
 
 	// For report2, we need a message with destSel=99999 to trigger the mapping error
 	// The original message has destSel=2, so create a different message for report2
@@ -67,7 +67,7 @@ func TestGetBatchCCVDataForMessageHandler_MixedResults(t *testing.T) {
 	report1 := makeAggregatedReport(m1, m1ID[:], signerAddr)
 	report2 := makeAggregatedReport(m2WithWrongDest, m2ID[:], signerAddr)
 
-	store.EXPECT().GetBatchCCVData(mock.Anything, mock.Anything).Return(map[string]*model.CommitAggregatedReport{
+	store.EXPECT().GetBatchAggregatedReportByMessageIDs(mock.Anything, mock.Anything).Return(map[string]*model.CommitAggregatedReport{
 		common.Bytes2Hex(m1ID[:]): report1,
 		common.Bytes2Hex(m2ID[:]): report2, // will map error
 	}, nil)
@@ -99,9 +99,9 @@ func TestGetBatchCCVDataForMessageHandler_StorageError(t *testing.T) {
 	lggr := logger.TestSugared(t)
 	store := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
 	committee := &model.Committee{}
-	h := NewGetBatchCCVDataForMessageHandler(store, committee, 10, lggr)
+	h := NewGetVerifierResultsForMessageHandler(store, committee, 10, lggr)
 
-	store.EXPECT().GetBatchCCVData(mock.Anything, mock.Anything).Return(nil, status.Error(codes.Internal, "boom"))
+	store.EXPECT().GetBatchAggregatedReportByMessageIDs(mock.Anything, mock.Anything).Return(nil, status.Error(codes.Internal, "boom"))
 
 	_, err := h.Handle(context.Background(), &pb.GetVerifierResultsForMessageRequest{MessageIds: [][]byte{{1}}})
 	require.Error(t, err)

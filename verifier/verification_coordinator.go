@@ -543,3 +543,8 @@ func (vc *Coordinator) HealthReport() map[string]error {
 	report[vc.Name()] = vc.Ready()
 	return report
 }
+
+var (
+	_ services.Service        = (*Coordinator)(nil)
+	_ protocol.HealthReporter = (*Coordinator)(nil)
+)

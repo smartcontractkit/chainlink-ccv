@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"math/big"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,17 +12,12 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
+	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
-	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
@@ -31,11 +25,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
-	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-evm/pkg/client"
-
-	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 )
 
 const (
@@ -55,42 +45,6 @@ const (
 	defaultConnMaxLifetime = 300 // seconds
 	defaultConnMaxIdleTime = 60  // seconds
 )
-
-func loadConfiguration(filepath string) (*verifier.Config, map[string]*protocol.BlockchainInfo, error) {
-	var config verifier.ConfigWithBlockchainInfos
-	if _, err := toml.DecodeFile(filepath, &config); err != nil {
-		return nil, nil, err
-	}
-	return &config.Config, config.BlockchainInfos, nil
-}
-
-func logBlockchainInfo(blockchainHelper *protocol.BlockchainHelper, lggr logger.Logger) {
-	for _, chainID := range blockchainHelper.GetAllChainSelectors() {
-		logChainInfo(blockchainHelper, chainID, lggr)
-	}
-}
-
-func logChainInfo(blockchainHelper *protocol.BlockchainHelper, chainSelector protocol.ChainSelector, lggr logger.Logger) {
-	if info, err := blockchainHelper.GetBlockchainInfo(chainSelector); err == nil {
-		lggr.Infow("🔗 Blockchain available", "chainSelector", chainSelector, "info", info)
-	}
-
-	if rpcURL, err := blockchainHelper.GetRPCEndpoint(chainSelector); err == nil {
-		lggr.Infow("🌐 RPC endpoint", "chainSelector", chainSelector, "url", rpcURL)
-	}
-
-	if wsURL, err := blockchainHelper.GetWebSocketEndpoint(chainSelector); err == nil {
-		lggr.Infow("🔌 WebSocket endpoint", "chainSelector", chainSelector, "url", wsURL)
-	}
-
-	if internalURL, err := blockchainHelper.GetInternalRPCEndpoint(chainSelector); err == nil {
-		lggr.Infow("🔒 Internal RPC endpoint", "chainSelector", chainSelector, "url", internalURL)
-	}
-
-	if nodes, err := blockchainHelper.GetAllNodes(chainSelector); err == nil {
-		lggr.Infow("📡 All nodes", "chainSelector", chainSelector, "nodeCount", len(nodes))
-	}
-}
 
 func main() {
 	// Debug level currently spams a lot of logs from the RPC callers.
@@ -139,37 +93,8 @@ func main() {
 	}
 	lggr.Infow("Loaded VERIFIER_AGGREGATOR_SECRET_KEY from environment")
 
-	if _, err := pyroscope.Start(pyroscope.Config{
-		ApplicationName: "verifier",
-		ServerAddress:   config.PyroscopeURL,
-		Logger:          nil, // Disable pyroscope logging - so noisy
-		ProfileTypes: []pyroscope.ProfileType{
-			pyroscope.ProfileCPU,
-			pyroscope.ProfileAllocObjects,
-			pyroscope.ProfileAllocSpace,
-			pyroscope.ProfileGoroutines,
-			pyroscope.ProfileBlockDuration,
-			pyroscope.ProfileMutexDuration,
-		},
-	}); err != nil {
-		lggr.Errorw("Failed to start pyroscope", "error", err)
-	}
-
-	// Use actual blockchain information from configuration
-	var blockchainHelper *protocol.BlockchainHelper
-	chainClients := make(map[protocol.ChainSelector]client.Client)
-	if len(blockchainInfos) == 0 {
-		lggr.Warnw("No blockchain information in config")
-	} else {
-		blockchainHelper = protocol.NewBlockchainHelper(blockchainInfos)
-		lggr.Infow("Using real blockchain information from environment",
-			"chainCount", len(blockchainInfos))
-		logBlockchainInfo(blockchainHelper, lggr)
-		for _, selector := range blockchainHelper.GetAllChainSelectors() {
-			lggr.Infow("Creating chain client", "chainSelector", selector)
-			chainClients[selector] = pkg.CreateHealthyMultiNodeClient(ctx, blockchainHelper, lggr, selector)
-		}
-	}
+	cmd.StartPyroscope(lggr, config.PyroscopeURL, "verifier")
+	blockchainHelper, chainClients := cmd.LoadBlockchainInfo(ctx, lggr, blockchainInfos)
 
 	// Create verifier addresses before source readers setup
 	verifierAddresses := make(map[string]protocol.UnknownAddress)
@@ -202,7 +127,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create chain status manager (PostgreSQL storage)
+	// Create chain status manager (PostgreSQL storage).
 	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr)
 	if err != nil {
 		lggr.Errorw("Failed to create chain status manager", "error", err)
@@ -214,52 +139,7 @@ func main() {
 		}
 	}()
 
-	// Create source readers and head trackers - either blockchain-based or mock
-	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
-
-	lggr.Infow("Committee verifier addresses", "addresses", config.CommitteeVerifierAddresses)
-	// Try to create blockchain source readers if possible
-	for _, selector := range blockchainHelper.GetAllChainSelectors() {
-		lggr.Infow("Creating source reader", "chainSelector", selector, "strSelector", uint64(selector))
-		strSelector := strconv.FormatUint(uint64(selector), 10)
-
-		if config.CommitteeVerifierAddresses[strSelector] == "" {
-			lggr.Errorw("Committee verifier address is not set", "chainSelector", selector)
-			continue
-		}
-		if config.OnRampAddresses[strSelector] == "" {
-			lggr.Errorw("On ramp address is not set", "chainSelector", selector)
-			continue
-		}
-		if config.RMNRemoteAddresses[strSelector] == "" {
-			lggr.Errorw("RMN Remote address is not set", "chainSelector", selector)
-			continue
-		}
-
-		// Create head tracker wrapper (uses hardcoded confirmation depth of 10 internally)
-		// This is only for standalone mode and for testing purposes.
-		// In CL node it'll be using HeadTracker which already abstracts away this per chain.
-		headTracker := newSimpleHeadTrackerWrapper(chainClients[selector], lggr)
-
-		evmSourceReader, err := sourcereader.NewEVMSourceReader(
-			chainClients[selector],
-			headTracker,
-			common.HexToAddress(config.OnRampAddresses[strSelector]),
-			common.HexToAddress(config.RMNRemoteAddresses[strSelector]),
-			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
-			selector,
-			lggr,
-		)
-		if err != nil {
-			lggr.Errorw("Failed to create EVM source reader", "selector", selector, "error", err)
-			continue
-		}
-
-		// EVMSourceReader implements both SourceReader and HeadTracker interfaces
-		sourceReaders[selector] = evmSourceReader
-
-		lggr.Infow("Created blockchain source reader", "chain", selector)
-	}
+	sourceReaders := cmd.LoadBlockchainReadersForCommit(lggr, blockchainHelper, chainClients, *config)
 
 	// Create coordinator configuration
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
@@ -312,20 +192,7 @@ func main() {
 	}
 	lggr.Infow("Using signer address", "address", publicKey)
 
-	// Setup OTEL Monitoring (via beholder)
-	verifierMonitoring, err := monitoring.InitMonitoring(beholder.Config{
-		InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
-		CACertFile:               config.Monitoring.Beholder.CACertFile,
-		OtelExporterHTTPEndpoint: config.Monitoring.Beholder.OtelExporterHTTPEndpoint,
-		OtelExporterGRPCEndpoint: config.Monitoring.Beholder.OtelExporterGRPCEndpoint,
-		LogStreamingEnabled:      config.Monitoring.Beholder.LogStreamingEnabled,
-		MetricReaderInterval:     time.Second * time.Duration(config.Monitoring.Beholder.MetricReaderInterval),
-		TraceSampleRatio:         config.Monitoring.Beholder.TraceSampleRatio,
-		TraceBatchTimeout:        time.Second * time.Duration(config.Monitoring.Beholder.TraceBatchTimeout),
-	})
-	if err != nil {
-		lggr.Fatalf("Failed to initialize verifier monitoring: %v", err)
-	}
+	verifierMonitoring := cmd.SetupOTEL(lggr, config.Monitoring)
 
 	// Create commit verifier
 	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, publicKey, signer, lggr, verifierMonitoring)
@@ -432,7 +299,15 @@ func main() {
 		lggr.Errorw("Coordinator stop error", "error", err)
 	}
 
-	lggr.Infow("Verifier service stopped gracefully")
+	lggr.Infow("Committee service stopped gracefully")
+}
+
+func loadConfiguration(filepath string) (*commit.Config, map[string]*protocol.BlockchainInfo, error) {
+	var config commit.ConfigWithBlockchainInfos
+	if _, err := toml.DecodeFile(filepath, &config); err != nil {
+		return nil, nil, err
+	}
+	return &config.Config, config.BlockchainInfos, nil
 }
 
 func createChainStatusManager(lggr logger.Logger) (protocol.ChainStatusManager, *sqlx.DB, error) {
@@ -488,90 +363,4 @@ func getEnvInt(key string, defaultValue int) int {
 		return defaultValue
 	}
 	return intVal
-}
-
-// simpleHeadTrackerWrapper is a simple implementation that wraps chain client calls.
-// This provides a HeadTracker interface without requiring the full EVM head tracker setup.
-// It calculates finalized blocks using a hardcoded confirmation depth.
-type simpleHeadTrackerWrapper struct {
-	chainClient client.Client
-	lggr        logger.Logger
-}
-
-// newSimpleHeadTrackerWrapper creates a new simple head tracker that delegates to the chain client.
-func newSimpleHeadTrackerWrapper(chainClient client.Client, lggr logger.Logger) *simpleHeadTrackerWrapper {
-	return &simpleHeadTrackerWrapper{
-		chainClient: chainClient,
-		lggr:        lggr,
-	}
-}
-
-// LatestAndFinalizedBlock returns the latest and finalized block headers.
-// Finalized is calculated as latest - verifier.ConfirmationDepth.
-func (m *simpleHeadTrackerWrapper) LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *evmtypes.Head, err error) {
-	// Get latest block
-	latestHead, err := m.chainClient.HeadByNumber(ctx, nil)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get latest block: %w", err)
-	}
-
-	// Calculate finalized block number based on confirmation depth
-	var finalizedBlockNum int64
-	if latestHead.Number >= verifier.ConfirmationDepth {
-		finalizedBlockNum = latestHead.Number - verifier.ConfirmationDepth
-	} else {
-		finalizedBlockNum = 0
-	}
-
-	// Get finalized block header
-	finalizedHead, err := m.chainClient.HeadByNumber(ctx, big.NewInt(finalizedBlockNum))
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get block at number %d: %w", finalizedBlockNum, err)
-	}
-
-	return latestHead, finalizedHead, nil
-}
-
-// LatestSafeBlock returns the latest safe block header.
-// Returns nil if the chain doesn't support safe blocks (optional feature).
-func (m *simpleHeadTrackerWrapper) LatestSafeBlock(ctx context.Context) (safe *evmtypes.Head, err error) {
-	return nil, nil
-}
-
-// Backfill is a no-op for the mock implementation.
-// In production, this would fetch historical blocks to fill gaps in the chain.
-func (m *simpleHeadTrackerWrapper) Backfill(ctx context.Context, headWithChain, prevHeadWithChain *evmtypes.Head) error {
-	// Mock implementation doesn't need backfill functionality
-	return nil
-}
-
-// LatestChain returns the latest head.
-// This is a synchronous call that returns the most recent block.
-func (m *simpleHeadTrackerWrapper) LatestChain() *evmtypes.Head {
-	return nil
-}
-
-// Start is a no-op for the mock implementation (implements services.Service).
-func (m *simpleHeadTrackerWrapper) Start(ctx context.Context) error {
-	return nil
-}
-
-// Close is a no-op for the mock implementation (implements services.Service).
-func (m *simpleHeadTrackerWrapper) Close() error {
-	return nil
-}
-
-// Name returns the service name (implements services.Service).
-func (m *simpleHeadTrackerWrapper) Name() string {
-	return "MockHeadTracker"
-}
-
-// Ready checks if the service is ready (implements services.Service).
-func (m *simpleHeadTrackerWrapper) Ready() error {
-	return nil
-}
-
-// HealthReport returns the health status (implements services.Service).
-func (m *simpleHeadTrackerWrapper) HealthReport() map[string]error {
-	return map[string]error{m.Name(): nil}
 }
