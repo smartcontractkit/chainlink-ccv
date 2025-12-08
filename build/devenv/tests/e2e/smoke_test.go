@@ -74,7 +74,7 @@ func TestE2ESmoke(t *testing.T) {
 	require.NoError(t, err)
 	chains, err := lib.Chains(ctx)
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, chains, 2, "expected at least 2 chains for this test in the environment")
+	require.GreaterOrEqual(t, len(chains), 2, "expected at least 2 chains for this test in the environment")
 
 	idToSelector := make(map[uint64]uint64)
 	for selector := range chains {
