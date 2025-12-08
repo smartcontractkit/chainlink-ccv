@@ -119,7 +119,7 @@ func TestE2ESmoke(t *testing.T) {
 				name:                     "src->dst msg execution eoa receiver",
 				fromSelector:             sel0,
 				toSelector:               sel1,
-				receiver:                 mustGetEOAReceiverAddress(t, chains[0], sel1),
+				receiver:                 mustGetEOAReceiverAddress(t, chains[1], sel1),
 				expectFail:               false,
 				numExpectedVerifications: 1,
 			},
