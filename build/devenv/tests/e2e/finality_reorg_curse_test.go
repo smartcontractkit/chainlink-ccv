@@ -102,7 +102,7 @@ func TestE2EReorg(t *testing.T) {
 	executorAddr := getContractAddress(t, in, srcSelector,
 		datastore.ContractType(executor.ContractType),
 		executor.Deploy.Version(),
-		"",
+		evm.DefaultExecutorQualifier,
 		"executor")
 
 	ccvAddr := getContractAddress(t, in, srcSelector,
