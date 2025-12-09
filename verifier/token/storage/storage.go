@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 var (
@@ -13,20 +14,20 @@ var (
 )
 
 type AttestationCCVWriter struct {
-	verifierSourceAddress protocol.UnknownAddress
-	verifierDestAddress   protocol.UnknownAddress
-	storage               *InMemory
+	lggr              logger.Logger
+	verifierAddresses map[protocol.ChainSelector]protocol.UnknownAddress
+	storage           *InMemory
 }
 
 func NewAttestationCCVWriter(
-	verifierSourceAddress protocol.UnknownAddress,
-	verifierDestAddress protocol.UnknownAddress,
+	lggr logger.Logger,
+	verifierAddresses map[protocol.ChainSelector]protocol.UnknownAddress,
 	storage *InMemory,
 ) *AttestationCCVWriter {
 	return &AttestationCCVWriter{
-		verifierSourceAddress: verifierSourceAddress,
-		verifierDestAddress:   verifierDestAddress,
-		storage:               storage,
+		lggr:              lggr,
+		verifierAddresses: verifierAddresses,
+		storage:           storage,
 	}
 }
 
@@ -36,14 +37,31 @@ func (a *AttestationCCVWriter) WriteCCVNodeData(
 ) error {
 	entries := make([]Entry, len(ccvDataList))
 	for i, ccvData := range ccvDataList {
+		source, dest := a.addresses(ccvData.Message)
 		entries[i] = Entry{
 			value:                 ccvData,
-			verifierSourceAddress: a.verifierSourceAddress,
-			verifierDestAddress:   a.verifierDestAddress,
+			verifierSourceAddress: source,
+			verifierDestAddress:   dest,
 			timestamp:             time.Now(),
 		}
 	}
 	return a.storage.Set(ctx, entries)
+}
+
+func (a *AttestationCCVWriter) addresses(message protocol.Message) (protocol.UnknownAddress, protocol.UnknownAddress) {
+	var ok bool
+	var source, dest protocol.UnknownAddress
+	source, ok = a.verifierAddresses[message.SourceChainSelector]
+	if !ok {
+		a.lggr.Errorw("missing verifier address for source chain selector", "chainSelector", message.SourceChainSelector)
+		source = protocol.UnknownAddress{}
+	}
+	dest, ok = a.verifierAddresses[message.DestChainSelector]
+	if !ok {
+		a.lggr.Errorw("missing verifier address for dest chain selector", "chainSelector", message.DestChainSelector)
+		dest = protocol.UnknownAddress{}
+	}
+	return source, dest
 }
 
 type AttestationCCVReader struct {

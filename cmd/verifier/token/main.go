@@ -99,7 +99,12 @@ func main() {
 				lggr,
 				sourceReaders,
 				rmnRemoteAddresses,
-				storage.NewAttestationCCVWriter(nil, nil, inmemoryStorage),
+				storage.NewAttestationCCVWriter(
+					lggr,
+					// TODO chainSelector to verifiers addresses mapping
+					map[protocol.ChainSelector]protocol.UnknownAddress{},
+					inmemoryStorage,
+				),
 				messageTracker,
 				verifierMonitoring,
 			)
@@ -110,7 +115,11 @@ func main() {
 				lggr,
 				sourceReaders,
 				rmnRemoteAddresses,
-				storage.NewAttestationCCVWriter(nil, nil, inmemoryStorage),
+				storage.NewAttestationCCVWriter(
+					lggr,
+					map[protocol.ChainSelector]protocol.UnknownAddress{},
+					inmemoryStorage,
+				),
 				messageTracker,
 				verifierMonitoring,
 			)

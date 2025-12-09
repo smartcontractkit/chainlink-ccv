@@ -3,6 +3,7 @@ package v1
 import (
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -22,8 +23,13 @@ func Test_VerifierResultsHandler(t *testing.T) {
 
 	inmemoryStorage := storage.NewInMemory()
 	ccvWriter := storage.NewAttestationCCVWriter(
-		protocol.UnknownAddress{0xaa, 0xbb, 0xcc},
-		protocol.UnknownAddress{0xdd, 0xee, 0xff},
+		logger.Test(t),
+		map[protocol.ChainSelector]protocol.UnknownAddress{
+			1:  {0x01, 0x02, 0x03},
+			2:  {0x04, 0x05, 0x06},
+			10: {0x07, 0x08, 0x09},
+			20: {0x0a, 0x0b, 0x0c},
+		},
 		inmemoryStorage,
 	)
 	ccvReader := storage.NewAttestationCCVReader(
@@ -90,7 +96,12 @@ func Test_VerifierResultsHandler(t *testing.T) {
 				},
 				"message_ccv_addresses": ["0x131415"],
 				"message_executor_address": "0x161718",
-				"ccv_data": "0x191a1b"
+				"ccv_data": "0x191a1b",
+				"metadata": {
+					"timestamp": ` + fmt.Sprint(response.Results[0].Metadata.Timestamp) + `,
+					"verifier_source_address": "0x010203",
+					"verifier_dest_address": "0x040506"
+				}
 			}]
 		}`
 		assert.JSONEq(t, expectedJSON, w.Body.String())
@@ -140,7 +151,12 @@ func Test_VerifierResultsHandler(t *testing.T) {
 				},
 				"message_ccv_addresses": ["0x131415"],
 				"message_executor_address": "0x161718",
-				"ccv_data": "0x191a1b"
+				"ccv_data": "0x191a1b",
+				"metadata": {
+					"timestamp": ` + fmt.Sprint(response.Results[0].Metadata.Timestamp) + `,
+					"verifier_source_address": "0x070809",
+					"verifier_dest_address": "0x0a0b0c"
+				}
 			}]
 		}`
 		assert.JSONEq(t, expectedJSON, w.Body.String())
@@ -214,7 +230,12 @@ func Test_VerifierResultsHandler(t *testing.T) {
 					},
 					"message_ccv_addresses": ["0x131415"],
 					"message_executor_address": "0x161718",
-					"ccv_data": "0x191a1b"
+					"ccv_data": "0x191a1b",
+					"metadata": {
+						"timestamp": ` + fmt.Sprint(response.Results[0].Metadata.Timestamp) + `,
+						"verifier_source_address": "0x010203",
+						"verifier_dest_address": "0x040506"
+					}
 				},
 				{
 					"message": {
@@ -235,7 +256,12 @@ func Test_VerifierResultsHandler(t *testing.T) {
 					},
 					"message_ccv_addresses": ["0x131415"],
 					"message_executor_address": "0x161718",
-					"ccv_data": "0x191a1b"
+					"ccv_data": "0x191a1b",
+					"metadata": {
+						"timestamp": ` + fmt.Sprint(response.Results[1].Metadata.Timestamp) + `,
+						"verifier_source_address": "0x070809",
+						"verifier_dest_address": "0x0a0b0c"
+					}
 				}
 			]
 		}`

@@ -49,7 +49,9 @@ type MessageResponse struct {
 
 // Metadata placeholder for future use.
 type Metadata struct {
-	// Add metadata fields as needed
+	Timestamp             int64  `json:"timestamp,omitempty"`
+	VerifierSourceAddress string `json:"verifier_source_address,omitempty"`
+	VerifierDestAddress   string `json:"verifier_dest_address,omitempty"`
 }
 
 // VerifierResultsHandler handles HTTP requests for verifier results.
@@ -166,7 +168,11 @@ func (h *VerifierResultsHandler) Handle(c *gin.Context) {
 			MessageCcvAddresses:    ccvAddresses,
 			MessageExecutorAddress: executorAddress,
 			CcvData:                "0x" + hex.EncodeToString(result.CCVData),
-			Metadata:               nil,
+			Metadata: &Metadata{
+				Timestamp:             result.Timestamp.Unix(),
+				VerifierSourceAddress: result.VerifierSourceAddress.String(),
+				VerifierDestAddress:   result.VerifierDestAddress.String(),
+			},
 		})
 	}
 
