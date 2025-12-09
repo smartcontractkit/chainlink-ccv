@@ -49,16 +49,16 @@ mod-download: ensure-go
     go mod download
 
 # Run all the tests below system-level
-test: ensure-go
+test:
     # 'build' dir is ignored by default, run all component/integration tests
     gomods -w go test -fullpath -shuffle on -v -race $(go list ./...) -coverprofile=./cover.out -covermode=atomic -coverpkg=./...
 
 # Run go-test-coverage checks
-cover:
+cover: ensure-go
     go-test-coverage --config=./.testcoverage.yml
 
 # Run go tool cover to render HTML coverage report
-cover-html:
+cover-html: ensure-go
     go tool cover -html=cover.out -o=cover.html
 
 bump-chainlink-ccip sha:
