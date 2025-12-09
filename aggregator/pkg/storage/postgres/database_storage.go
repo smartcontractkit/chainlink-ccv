@@ -14,6 +14,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
@@ -62,6 +63,7 @@ func (d *DatabaseStorage) logger(ctx context.Context) logger.SugaredLogger {
 var (
 	_ pkgcommon.CommitVerificationStore           = (*DatabaseStorage)(nil)
 	_ pkgcommon.CommitVerificationAggregatedStore = (*DatabaseStorage)(nil)
+	_ protocol.HealthReporter                     = (*DatabaseStorage)(nil)
 )
 
 func NewDatabaseStorage(ds sqlutil.DataSource, pageSize int, lggr logger.SugaredLogger) *DatabaseStorage {
@@ -72,26 +74,26 @@ func NewDatabaseStorage(ds sqlutil.DataSource, pageSize int, lggr logger.Sugared
 	}
 }
 
-func (d *DatabaseStorage) HealthCheck(ctx context.Context) *pkgcommon.ComponentHealth {
-	result := &pkgcommon.ComponentHealth{
-		Name:      "postgres_storage",
-		Timestamp: time.Now(),
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+func (d *DatabaseStorage) Ready() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	var count int
 	err := d.ds.GetContext(ctx, &count, "SELECT 1")
 	if err != nil {
-		result.Status = pkgcommon.HealthStatusUnhealthy
-		result.Message = fmt.Sprintf("query failed: %v", err)
-		return result
+		return fmt.Errorf("database health check failed: %w", err)
 	}
+	return nil
+}
 
-	result.Status = pkgcommon.HealthStatusHealthy
-	result.Message = "connected and responsive"
-	return result
+func (d *DatabaseStorage) HealthReport() map[string]error {
+	return map[string]error{
+		"postgres_storage": d.Ready(),
+	}
+}
+
+func (d *DatabaseStorage) Name() string {
+	return "postgres_storage"
 }
 
 func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *model.CommitVerificationRecord, aggregationKey model.AggregationKey) error {

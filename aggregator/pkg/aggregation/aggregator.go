@@ -2,6 +2,7 @@ package aggregation
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/sourcegraph/conc/pool"
@@ -9,8 +10,11 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
+
+var _ protocol.HealthReporter = (*CommitReportAggregator)(nil)
 
 type QuorumValidator interface {
 	// CheckQuorum checks if the aggregated report meets the quorum requirements.
@@ -35,40 +39,6 @@ type CommitReportAggregator struct {
 type aggregationRequest struct {
 	AggregationKey model.AggregationKey
 	MessageID      model.MessageID
-}
-
-func (c *CommitReportAggregator) HealthCheck(ctx context.Context) *common.ComponentHealth {
-	result := &common.ComponentHealth{
-		Name:      "aggregation_service",
-		Timestamp: time.Now(),
-	}
-
-	select {
-	case <-c.done:
-		result.Status = common.HealthStatusUnhealthy
-		result.Message = "aggregation worker stopped"
-		return result
-	default:
-	}
-
-	pending := len(c.aggregationKeyChan)
-	capacity := cap(c.aggregationKeyChan)
-
-	if pending >= capacity {
-		result.Status = common.HealthStatusDegraded
-		result.Message = "aggregation queue full"
-		return result
-	}
-
-	if float64(pending)/float64(capacity) > 0.8 {
-		result.Status = common.HealthStatusDegraded
-		result.Message = "aggregation queue high"
-		return result
-	}
-
-	result.Status = common.HealthStatusHealthy
-	result.Message = "aggregation queue healthy"
-	return result
 }
 
 // CheckAggregation enqueues a new aggregation request for the specified message ID.
@@ -201,6 +171,39 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+func (c *CommitReportAggregator) Ready() error {
+	select {
+	case <-c.done:
+		return fmt.Errorf("aggregation worker stopped")
+	default:
+	}
+
+	lggr := c.logger(context.Background())
+	pending := len(c.aggregationKeyChan)
+	capacity := cap(c.aggregationKeyChan)
+	if pending >= capacity {
+		lggr.Warnw("aggregation queue full", "capacity", capacity, "pending", pending)
+		return nil
+	}
+
+	if float64(pending)/float64(capacity) > 0.8 {
+		lggr.Warnw("aggregation queue over 80%% full", "capacity", capacity, "pending", pending)
+		return nil
+	}
+
+	return nil
+}
+
+func (c *CommitReportAggregator) HealthReport() map[string]error {
+	return map[string]error{
+		c.Name(): c.Ready(),
+	}
+}
+
+func (c *CommitReportAggregator) Name() string {
+	return "aggregation_service"
 }
 
 // NewCommitReportAggregator creates a new instance of CommitReportAggregator with the provided dependencies.
