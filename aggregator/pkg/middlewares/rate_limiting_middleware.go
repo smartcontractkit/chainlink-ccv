@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+
 	"github.com/ulule/limiter/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -17,6 +19,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/rate_limiting"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
+
+var _ protocol.HealthReporter = (*RateLimitingMiddleware)(nil)
 
 type RateLimitingMiddleware struct {
 	store     limiter.Store
@@ -167,4 +171,36 @@ func NewRateLimitingMiddlewareFromConfig(config model.RateLimitingConfig, apiCon
 	}
 
 	return NewRateLimitingMiddleware(store, config, apiConfig, lggr), nil
+}
+
+func (m *RateLimitingMiddleware) Ready() error {
+	if !m.enabled || m.store == nil {
+		// rate limiting disabled"
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	rate := limiter.Rate{
+		Period: time.Minute,
+		Limit:  1,
+	}
+
+	_, err := m.store.Peek(ctx, "health_check", rate)
+	if err != nil {
+		return fmt.Errorf("rate limiter store unavailable: %v", err)
+	}
+
+	return nil
+}
+
+func (m *RateLimitingMiddleware) HealthReport() map[string]error {
+	return map[string]error{
+		m.Name(): m.Ready(),
+	}
+}
+
+func (m *RateLimitingMiddleware) Name() string {
+	return "rate_limiter"
 }

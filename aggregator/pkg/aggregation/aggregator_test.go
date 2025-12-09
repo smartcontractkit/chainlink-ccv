@@ -206,19 +206,18 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 }
 
 func TestHealthCheck(t *testing.T) {
-	ctx := context.Background()
 	cases := []struct {
-		name          string
-		pending       int
-		capacity      int
-		stopped       bool
-		wantStatus    common.HealthStatus
-		wantMsgPrefix string
+		name           string
+		pending        int
+		capacity       int
+		stopped        bool
+		wantReadyError bool
+		wantMsgPrefix  string
 	}{
-		{name: "healthy", pending: 0, capacity: 10, wantStatus: common.HealthStatusHealthy, wantMsgPrefix: "aggregation queue healthy"},
-		{name: "high", pending: 9, capacity: 10, wantStatus: common.HealthStatusDegraded, wantMsgPrefix: "aggregation queue high"},
-		{name: "full", pending: 10, capacity: 10, wantStatus: common.HealthStatusDegraded, wantMsgPrefix: "aggregation queue full"},
-		{name: "stopped", pending: 0, capacity: 10, stopped: true, wantStatus: common.HealthStatusUnhealthy, wantMsgPrefix: "aggregation worker stopped"},
+		{name: "healthy", pending: 0, capacity: 10, wantReadyError: false},
+		{name: "high", pending: 9, capacity: 10, wantReadyError: false},
+		{name: "full", pending: 10, capacity: 10, wantReadyError: false},
+		{name: "stopped", pending: 0, capacity: 10, stopped: true, wantReadyError: true, wantMsgPrefix: "aggregation worker stopped"},
 	}
 
 	for _, tc := range cases {
@@ -238,9 +237,11 @@ func TestHealthCheck(t *testing.T) {
 				close(a.done)
 			}
 
-			h := a.HealthCheck(ctx)
-			assert.Equal(t, tc.wantStatus, h.Status)
-			assert.Equal(t, tc.wantMsgPrefix, h.Message)
+			err := a.Ready()
+			if tc.wantReadyError {
+				assert.Error(t, err)
+				assert.Equal(t, tc.wantMsgPrefix, err.Error())
+			}
 		})
 	}
 }

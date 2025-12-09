@@ -55,28 +55,6 @@ func (d *DatabaseChainStatusStorage) Name() string {
 	return "postgres_chain_status_storage"
 }
 
-func (d *DatabaseChainStatusStorage) HealthCheck(ctx context.Context) *common.ComponentHealth {
-	result := &common.ComponentHealth{
-		Name:      "postgres_chain_status_storage",
-		Timestamp: time.Now(),
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	var count int
-	err := d.ds.GetContext(ctx, &count, "SELECT 1")
-	if err != nil {
-		result.Status = common.HealthStatusUnhealthy
-		result.Message = fmt.Sprintf("query failed: %v", err)
-		return result
-	}
-
-	result.Status = common.HealthStatusHealthy
-	result.Message = "connected and responsive"
-	return result
-}
-
 // validateStoreChainStatusInput validates the input parameters for StoreChainStatus.
 func validateStoreChainStatusInput(clientID string, statuses map[uint64]*common.ChainStatus) error {
 	if strings.TrimSpace(clientID) == "" {
