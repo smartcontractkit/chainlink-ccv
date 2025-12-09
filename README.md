@@ -16,7 +16,13 @@ just pre-commit
 
 Run tests:
 ```bash
-just tests
+just test
+```
+
+Check coverage:
+```bash
+just cover # coverage threshold check
+just cover-html # default Go tool to work on coverage locally
 ```
 
 ## Local Dev Environment
