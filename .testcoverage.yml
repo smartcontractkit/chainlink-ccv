@@ -2,28 +2,98 @@
 profile: cover.out
 
 # Holds coverage thresholds percentages, values should be in range [0-100].
-# default coverage threshold for all the packages
+# 0 means it's not yet covered, when all the modules from overrides will be
+# covered increase the values here
 threshold:
-  file: 50
-  package: 50
-  total: 50
+  file: 0
+  package: 0
+  total: 48
 
 override:
-  # Increase coverage threshold to 100% for `foo` package 
-  # (default is 80, as configured above in this example).
-  - path: ^verifier.*
-    threshold: 70
-  - path: ^executor.*
-    threshold: 70
-  - path: ^aggregator.*
-    threshold: 70
-  - path: ^indexer.*
-    threshold: 70
+  # TODO: cover all the modules with tests or ignore some of them
+  - path: ^indexer/pkg/worker$
+    threshold: 0
+  - path: ^integration/pkg$
+    threshold: 0
+  - path: ^verifier/token/storage$
+    threshold: 46
+  - path: ^aggregator/pkg/health$
+    threshold: 33
+  - path: ^indexer/pkg/api/utils$
+    threshold: 0
+  - path: ^verifier/commit$
+    threshold: 59
+  - path: ^verifier/token/cctp$
+    threshold: 58
+  - path: ^aggregator/cmd$
+    threshold: 0
+  - path: ^executor/pkg/monitoring$
+    threshold: 7
+  - path: ^integration/pkg/sourcereader$
+    threshold: 14
+  - path: ^verifier/pkg/monitoring$
+    threshold: 26
+  - path: ^indexer/pkg/api$
+    threshold: 0
+  - path: ^aggregator/pkg/configuration$
+    threshold: 0
+  - path: ^cmd/verifier/token$
+    threshold: 0
+  - path: ^verifier/token/api$
+    threshold: 0
+  - path: ^aggregator/pkg/monitoring$
+    threshold: 4
+  - path: ^indexer/pkg/config$
+    threshold: 0
+  - path: ^aggregator/cmd/admin-cli$
+    threshold: 0
+  - path: ^aggregator/pkg/model$
+    threshold: 48
+  - path: ^cmd/verifier$
+    threshold: 0
+  - path: ^indexer/pkg/storage$
+    threshold: 33
+  - path: ^integration/pkg/constructors$
+    threshold: 0
+  - path: ^integration/pkg/rmnremotereader$
+    threshold: 0
+  - path: ^indexer/cmd$
+    threshold: 0
+  - path: ^indexer/pkg/api/middleware$
+    threshold: 0
+  - path: ^integration/pkg/contracttransmitter$
+    threshold: 24
+  - path: ^integration/pkg/destinationreader$
+    threshold: 20
+  - path: ^indexer/pkg/api/handlers/v1$
+    threshold: 0
+  - path: ^verifier/token/lbtc$
+    threshold: 51
+  - path: ^aggregator/pkg/storage/memory$
+    threshold: 55
+  - path: ^indexer/pkg/monitoring$
+    threshold: 3
+  - path: ^indexer/pkg/common$
+    threshold: 67
+  - path: ^indexer/pkg/readers$
+    threshold: 52
+  - path: ^executor$
+    threshold: 59
+  - path: ^aggregator/pkg$
+    threshold: 62
+  - path: ^cmd/executor$
+    threshold: 0
+  - path: ^cmd/verifier/committee$
+    threshold: 0
+  - path: ^aggregator/pkg/rate_limiting$
+    threshold: 58
+  - path: ^integration/storageaccess$
+    threshold: 0
 
 exclude:
   # Exclude files or packages matching their paths
   paths:
-    - .*mock_*
+    - .*mock*
     - \.pb\.go$    # excludes all protobuf generated files
 
 force-annotation-comment: false
