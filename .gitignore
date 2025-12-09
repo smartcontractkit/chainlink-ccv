@@ -13,3 +13,6 @@ indexer/secrets.toml
 
 # Ignore all tmp directories
 **/tmp/
+
+# Ignore local coverage files
+**/cover.out

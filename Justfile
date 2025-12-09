@@ -49,7 +49,7 @@ mod-download: ensure-go
 
 test:
     # 'build' dir is ignored by default, run all component/integration tests
-    gomods -w go test -fullpath -shuffle on -v -race $(go list ./...) -coverprofile=./cover.out -covermode=atomic -coverpkg=./...
+    go test -fullpath -shuffle on -v -race $(go list ./...) -coverprofile=./cover.out -covermode=atomic -coverpkg=./...
 
 cover:
     go-test-coverage --config=./.testcoverage.yml
