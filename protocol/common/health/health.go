@@ -29,10 +29,10 @@ type ReadinessResponse struct {
 }
 
 type ServicesHealth struct {
-	Name   string           `json:"name"`
-	Status ReadinessStatus  `json:"status"`
-	Error  string           `json:"error,omitempty"`
-	Report map[string]error `json:"report,omitempty"`
+	Name   string            `json:"name"`
+	Status ReadinessStatus   `json:"status"`
+	Error  string            `json:"error,omitempty"`
+	Report map[string]string `json:"report,omitempty"`
 }
 
 func NewAliveResponse() LivenessResponse {
@@ -79,10 +79,17 @@ func NewServiceHealth(
 		prettyError = err1.Error()
 	}
 
+	errorReport := make(map[string]string)
+	for k, v := range reporter.HealthReport() {
+		if v != nil {
+			errorReport[k] = v.Error()
+		}
+	}
+
 	return ServicesHealth{
 		Name:   reporter.Name(),
 		Status: status,
 		Error:  prettyError,
-		Report: reporter.HealthReport(),
+		Report: errorReport,
 	}
 }

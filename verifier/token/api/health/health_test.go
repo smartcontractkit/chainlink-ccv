@@ -196,7 +196,6 @@ func TestHealthStatus_HandleReadiness(t *testing.T) {
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusServiceUnavailable, w.Code)
-		// Note: report errors still serialize as empty objects {} since they are error type
 		assert.JSONEq(t, `{
 			"status": "not_ready",
 			"services": [
@@ -206,8 +205,7 @@ func TestHealthStatus_HandleReadiness(t *testing.T) {
 					"status": "not_ready", 
 					"error": "not started",
 					"report": {
-						"component1": {},
-						"component2": null
+						"component1": "component error"
 					}
 				},
 				{"name": "coordinator-3", "status": "ready"}
