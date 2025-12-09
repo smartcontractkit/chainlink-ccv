@@ -54,6 +54,9 @@ test:
 cover:
     go-test-coverage --config=./.testcoverage.yml
 
+cover-html:
+    go tool cover -html=cover.out -o=cover.html
+
 install-go-test-coverage:
     go install github.com/vladopajic/go-test-coverage/v2@latest
 
