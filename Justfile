@@ -21,6 +21,7 @@ install-go-tools:
     go install github.com/bufbuild/buf/cmd/buf@v$VERSION_BUF
     go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v$VERSION_GOLANGCI_LINT
     go install github.com/vektra/mockery/v2@v$VERSION_MOCKERY
+    go install github.com/vladopajic/go-test-coverage/v2@latest
 
 install-pre-commit:
     brew install pre-commit
@@ -47,18 +48,18 @@ lint fix="": ensure-golangci-lint
 mod-download: ensure-go
     go mod download
 
-test:
+# Run all the tests below system-level
+test: ensure-go
     # 'build' dir is ignored by default, run all component/integration tests
-    go test -fullpath -shuffle on -v -race $(go list ./...) -coverprofile=./cover.out -covermode=atomic -coverpkg=./...
+    gomods -w go test -fullpath -shuffle on -v -race $(go list ./...) -coverprofile=./cover.out -covermode=atomic -coverpkg=./...
 
+# Run go-test-coverage checks
 cover:
     go-test-coverage --config=./.testcoverage.yml
 
+# Run go tool cover to render HTML coverage report
 cover-html:
     go tool cover -html=cover.out -o=cover.html
-
-install-go-test-coverage:
-    go install github.com/vladopajic/go-test-coverage/v2@latest
 
 bump-chainlink-ccip sha:
     @echo "Bumping chainlink-ccip dependencies in root..."
