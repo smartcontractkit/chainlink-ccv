@@ -20,14 +20,22 @@ import (
 func Test_VerifierResultsHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	// Create test storage with sample data
-	offchainStorage := storage.NewOffchainStorage()
+	inmemoryStorage := storage.NewInMemory()
+	ccvWriter := storage.NewAttestationCCVWriter(
+		protocol.UnknownAddress{0xaa, 0xbb, 0xcc},
+		protocol.UnknownAddress{0xdd, 0xee, 0xff},
+		inmemoryStorage,
+	)
+	ccvReader := storage.NewAttestationCCVReader(
+		inmemoryStorage,
+	)
+
 	lggr := logger.Test(t)
 
 	messageID1, verifierResult1 := createSampleMessage(1, 2, 10)
 	messageID2, verifierResult2 := createSampleMessage(10, 20, 20)
 
-	err := offchainStorage.WriteCCVNodeData(
+	err := ccvWriter.WriteCCVNodeData(
 		t.Context(),
 		[]protocol.VerifierNodeResult{
 			verifierResult1,
@@ -35,7 +43,7 @@ func Test_VerifierResultsHandler(t *testing.T) {
 		})
 	require.NoError(t, err)
 
-	handler := NewVerifierResultsHandler(lggr, offchainStorage)
+	handler := NewVerifierResultsHandler(lggr, ccvReader)
 
 	t.Run("successful request - messageID prefixed with 0x", func(t *testing.T) {
 		router := gin.New()

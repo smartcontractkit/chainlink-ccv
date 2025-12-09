@@ -11,7 +11,6 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
 )
 
 // VerifierResultsResponse represents the JSON response.
@@ -56,13 +55,13 @@ type Metadata struct {
 // VerifierResultsHandler handles HTTP requests for verifier results.
 type VerifierResultsHandler struct {
 	lggr                  logger.Logger
-	storage               *storage.OffchainStorage
+	storage               protocol.VerifierResultsAPI
 	maxMessageIDsPerBatch int
 }
 
 func NewVerifierResultsHandler(
 	lggr logger.Logger,
-	storage *storage.OffchainStorage,
+	storage protocol.VerifierResultsAPI,
 ) *VerifierResultsHandler {
 	return &VerifierResultsHandler{
 		lggr:                  lggr,
@@ -126,7 +125,7 @@ func (h *VerifierResultsHandler) Handle(c *gin.Context) {
 	}
 
 	// Call storage for efficient batch retrieval
-	results, err := h.storage.ReadBatchCCVData(c.Request.Context(), messageIDs)
+	results, err := h.storage.GetVerifications(c.Request.Context(), messageIDs)
 	if err != nil {
 		h.lggr.Errorf("Failed to retrieve batch CCV data: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve batch data"})
@@ -145,20 +144,20 @@ func (h *VerifierResultsHandler) Handle(c *gin.Context) {
 		}
 
 		// Convert protocol.Message to MessageResponse
-		messageResponse := convertProtocolMessageToJSON(&result.Data.Message)
+		messageResponse := convertProtocolMessageToJSON(&result.Message)
 
 		// Convert addresses to hex strings
 		var ccvAddresses []string
-		if result.Data.MessageCCVAddresses != nil {
-			ccvAddresses = make([]string, len(result.Data.MessageCCVAddresses))
-			for i, addr := range result.Data.MessageCCVAddresses {
+		if result.MessageCCVAddresses != nil {
+			ccvAddresses = make([]string, len(result.MessageCCVAddresses))
+			for i, addr := range result.MessageCCVAddresses {
 				ccvAddresses[i] = "0x" + hex.EncodeToString(addr)
 			}
 		}
 
 		var executorAddress *string
-		if result.Data.MessageExecutorAddress != nil {
-			execAddr := "0x" + hex.EncodeToString(result.Data.MessageExecutorAddress)
+		if result.MessageExecutorAddress != nil {
+			execAddr := "0x" + hex.EncodeToString(result.MessageExecutorAddress)
 			executorAddress = &execAddr
 		}
 
@@ -166,7 +165,7 @@ func (h *VerifierResultsHandler) Handle(c *gin.Context) {
 			Message:                messageResponse,
 			MessageCcvAddresses:    ccvAddresses,
 			MessageExecutorAddress: executorAddress,
-			CcvData:                "0x" + hex.EncodeToString(result.Data.CCVData),
+			CcvData:                "0x" + hex.EncodeToString(result.CCVData),
 			Metadata:               nil,
 		})
 	}

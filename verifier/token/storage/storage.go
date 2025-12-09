@@ -7,83 +7,75 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-type OffchainStorage struct {
-	data map[protocol.Bytes32]protocol.VerifierNodeResult
+var (
+	_ protocol.CCVNodeDataWriter  = &AttestationCCVWriter{}
+	_ protocol.VerifierResultsAPI = &AttestationCCVReader{}
+)
+
+type AttestationCCVWriter struct {
+	verifierSourceAddress protocol.UnknownAddress
+	verifierDestAddress   protocol.UnknownAddress
+	storage               *InMemory
 }
 
-func NewOffchainStorage() *OffchainStorage {
-	return &OffchainStorage{
-		data: make(map[protocol.Bytes32]protocol.VerifierNodeResult),
+func NewAttestationCCVWriter(
+	verifierSourceAddress protocol.UnknownAddress,
+	verifierDestAddress protocol.UnknownAddress,
+	storage *InMemory,
+) *AttestationCCVWriter {
+	return &AttestationCCVWriter{
+		verifierSourceAddress: verifierSourceAddress,
+		verifierDestAddress:   verifierDestAddress,
+		storage:               storage,
 	}
 }
 
-func (o *OffchainStorage) WriteCCVNodeData(
-	_ context.Context,
+func (a *AttestationCCVWriter) WriteCCVNodeData(
+	ctx context.Context,
 	ccvDataList []protocol.VerifierNodeResult,
 ) error {
-	for _, ccvData := range ccvDataList {
-		o.data[ccvData.MessageID] = ccvData
+	entries := make([]Entry, len(ccvDataList))
+	for i, ccvData := range ccvDataList {
+		entries[i] = Entry{
+			value:                 ccvData,
+			verifierSourceAddress: a.verifierSourceAddress,
+			verifierDestAddress:   a.verifierDestAddress,
+			timestamp:             time.Now(),
+		}
 	}
-	return nil
+	return a.storage.Set(ctx, entries)
 }
 
-func (o *OffchainStorage) ReadBatchCCVData(
-	_ context.Context,
-	msgsIDs []protocol.Bytes32,
-) (map[protocol.Bytes32]protocol.QueryResponse, error) {
-	results := make(map[protocol.Bytes32]protocol.QueryResponse)
+type AttestationCCVReader struct {
+	storage *InMemory
+}
 
-	for _, msgID := range msgsIDs {
-		ccv, ok := o.data[msgID]
-		if !ok {
-			continue
-		}
-		results[msgID] = protocol.QueryResponse{
-			Timestamp: nil,
-			Data: protocol.VerifierResult{
-				MessageID:              ccv.MessageID,
-				Message:                ccv.Message,
-				MessageCCVAddresses:    ccv.CCVAddresses,
-				MessageExecutorAddress: ccv.ExecutorAddress,
-				CCVData:                ccv.Signature,
-				Timestamp:              time.Now(),
-				VerifierSourceAddress:  nil,
-				VerifierDestAddress:    nil,
-			},
+func NewAttestationCCVReader(
+	storage *InMemory,
+) *AttestationCCVReader {
+	return &AttestationCCVReader{
+		storage: storage,
+	}
+}
+
+func (a *AttestationCCVReader) GetVerifications(
+	ctx context.Context,
+	messageIDs []protocol.Bytes32,
+) (map[protocol.Bytes32]protocol.VerifierResult, error) {
+	storageOutput := a.storage.Get(ctx, messageIDs)
+
+	results := make(map[protocol.Bytes32]protocol.VerifierResult)
+	for msgID, entry := range storageOutput {
+		results[msgID] = protocol.VerifierResult{
+			MessageID:              entry.value.MessageID,
+			Message:                entry.value.Message,
+			MessageCCVAddresses:    entry.value.CCVAddresses,
+			MessageExecutorAddress: entry.value.ExecutorAddress,
+			CCVData:                entry.value.Signature,
+			Timestamp:              entry.timestamp,
+			VerifierSourceAddress:  entry.verifierSourceAddress,
+			VerifierDestAddress:    entry.verifierDestAddress,
 		}
 	}
 	return results, nil
-}
-
-type ChainStatusManager struct {
-	statuses map[protocol.ChainSelector]*protocol.ChainStatusInfo
-}
-
-func NewChainStatusManager() protocol.ChainStatusManager {
-	return &ChainStatusManager{
-		statuses: make(map[protocol.ChainSelector]*protocol.ChainStatusInfo),
-	}
-}
-
-func (c *ChainStatusManager) WriteChainStatuses(
-	_ context.Context,
-	statuses []protocol.ChainStatusInfo,
-) error {
-	for _, status := range statuses {
-		c.statuses[status.ChainSelector] = &status
-	}
-	return nil
-}
-
-func (c *ChainStatusManager) ReadChainStatuses(
-	_ context.Context,
-	chainSelectors []protocol.ChainSelector,
-) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
-	result := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
-	for _, selector := range chainSelectors {
-		if status, exists := c.statuses[selector]; exists {
-			result[selector] = status
-		}
-	}
-	return result, nil
 }
