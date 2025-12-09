@@ -54,6 +54,7 @@ test: ensure-go
     go test -fullpath -shuffle on -v -race $(go list ./...) -coverprofile=./cover.out -covermode=atomic -coverpkg=./...
 
 # Run go-test-coverage checks
+# read more about the tool here https://github.com/vladopajic/go-test-coverage
 cover: ensure-go
     go-test-coverage --config=./.testcoverage.yml
 
