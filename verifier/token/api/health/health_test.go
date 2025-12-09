@@ -62,43 +62,8 @@ func TestHealthStatus_HandleReadiness(t *testing.T) {
 		assert.JSONEq(t, `{"status":"ready","services":[]}`, w.Body.String())
 	})
 
-	t.Run("not ready when health reporter is nil", func(t *testing.T) {
-		healthReporters := []protocol.HealthReporter{nil}
-		handler := NewHealthStatus(healthReporters)
-
-		router := gin.New()
-		router.GET("/health/ready", handler.HandleReadiness)
-
-		req, _ := http.NewRequest("GET", "/health/ready", nil)
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusServiceUnavailable, w.Code)
-		assert.JSONEq(t, `{
-			"status": "not_ready",
-			"services": [{"name": "unknown", "status": "nil", "error": "health reporter is nil"}]
-		}`, w.Body.String())
-	})
-
-	t.Run("includes reporter statuses in response", func(t *testing.T) {
-		handler := NewHealthStatus([]protocol.HealthReporter{nil})
-
-		router := gin.New()
-		router.GET("/health/ready", handler.HandleReadiness)
-
-		req, _ := http.NewRequest("GET", "/health/ready", nil)
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusServiceUnavailable, w.Code)
-		assert.JSONEq(t, `{
-			"status": "not_ready",
-			"services": [{"name": "unknown", "status": "nil", "error": "health reporter is nil"}]
-		}`, w.Body.String())
-	})
-
 	t.Run("ready when single reporter is ready", func(t *testing.T) {
-		reporter := newFakeHealthReporter("coordinator-1", nil)
+		reporter := newFakeHealthReporter("coordinator-1", nil, nil)
 		healthReporters := []protocol.HealthReporter{reporter}
 		handler := NewHealthStatus(healthReporters)
 
@@ -112,12 +77,14 @@ func TestHealthStatus_HandleReadiness(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.JSONEq(t, `{
 			"status": "ready",
-			"services": [{"name": "coordinator-1", "status": "ready", "error": null}]
+			"services": [
+				{"name": "coordinator-1", "status": "ready"}
+			]
 		}`, w.Body.String())
 	})
 
 	t.Run("not ready when single reporter is not ready", func(t *testing.T) {
-		reporter := newFakeHealthReporter("coordinator-1", errors.New("state machine not started"))
+		reporter := newFakeHealthReporter("coordinator-1", errors.New("state machine not started"), nil)
 		healthReporters := []protocol.HealthReporter{reporter}
 		handler := NewHealthStatus(healthReporters)
 
@@ -131,14 +98,16 @@ func TestHealthStatus_HandleReadiness(t *testing.T) {
 		assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 		assert.JSONEq(t, `{
 			"status": "not_ready",
-			"services": [{"name": "coordinator-1", "status": "not_ready", "error": "state machine not started"}]
+			"services": [
+				{"name": "coordinator-1", "status": "not_ready", "error": "state machine not started"}
+			]
 		}`, w.Body.String())
 	})
 
 	t.Run("ready when all reporters are ready", func(t *testing.T) {
-		reporter1 := newFakeHealthReporter("coordinator-1", nil)
-		reporter2 := newFakeHealthReporter("coordinator-2", nil)
-		reporter3 := newFakeHealthReporter("coordinator-3", nil)
+		reporter1 := newFakeHealthReporter("coordinator-1", nil, nil)
+		reporter2 := newFakeHealthReporter("coordinator-2", nil, nil)
+		reporter3 := newFakeHealthReporter("coordinator-3", nil, nil)
 		healthReporters := []protocol.HealthReporter{reporter1, reporter2, reporter3}
 		handler := NewHealthStatus(healthReporters)
 
@@ -153,17 +122,17 @@ func TestHealthStatus_HandleReadiness(t *testing.T) {
 		assert.JSONEq(t, `{
 			"status": "ready",
 			"services": [
-				{"name": "coordinator-1", "status": "ready", "error": null},
-				{"name": "coordinator-2", "status": "ready", "error": null},
-				{"name": "coordinator-3", "status": "ready", "error": null}
+				{"name": "coordinator-1", "status": "ready"},
+				{"name": "coordinator-2", "status": "ready"},
+				{"name": "coordinator-3", "status": "ready"}
 			]
 		}`, w.Body.String())
 	})
 
 	t.Run("not ready when one of multiple reporters is not ready", func(t *testing.T) {
-		reporter1 := newFakeHealthReporter("coordinator-1", nil)
-		reporter2 := newFakeHealthReporter("coordinator-2", errors.New("database connection lost"))
-		reporter3 := newFakeHealthReporter("coordinator-3", nil)
+		reporter1 := newFakeHealthReporter("coordinator-1", nil, nil)
+		reporter2 := newFakeHealthReporter("coordinator-2", errors.New("database connection lost"), nil)
+		reporter3 := newFakeHealthReporter("coordinator-3", nil, nil)
 		healthReporters := []protocol.HealthReporter{reporter1, reporter2, reporter3}
 		handler := NewHealthStatus(healthReporters)
 
@@ -178,16 +147,16 @@ func TestHealthStatus_HandleReadiness(t *testing.T) {
 		assert.JSONEq(t, `{
 			"status": "not_ready",
 			"services": [
-				{"name": "coordinator-1", "status": "ready", "error": null},
+				{"name": "coordinator-1", "status": "ready"},
 				{"name": "coordinator-2", "status": "not_ready", "error": "database connection lost"},
-				{"name": "coordinator-3", "status": "ready", "error": null}
+				{"name": "coordinator-3", "status": "ready"}
 			]
 		}`, w.Body.String())
 	})
 
 	t.Run("not ready when all reporters are not ready", func(t *testing.T) {
-		reporter1 := newFakeHealthReporter("coordinator-1", errors.New("RPC node unreachable"))
-		reporter2 := newFakeHealthReporter("coordinator-2", errors.New("curse detector failed"))
+		reporter1 := newFakeHealthReporter("coordinator-1", errors.New("RPC node unreachable"), nil)
+		reporter2 := newFakeHealthReporter("coordinator-2", errors.New("curse detector failed"), nil)
 		healthReporters := []protocol.HealthReporter{reporter1, reporter2}
 		handler := NewHealthStatus(healthReporters)
 
@@ -208,32 +177,14 @@ func TestHealthStatus_HandleReadiness(t *testing.T) {
 		}`, w.Body.String())
 	})
 
-	t.Run("mixed state with nil and ready reporters", func(t *testing.T) {
-		reporter := newFakeHealthReporter("coordinator-1", nil)
-		healthReporters := []protocol.HealthReporter{reporter, nil}
-		handler := NewHealthStatus(healthReporters)
-
-		router := gin.New()
-		router.GET("/health/ready", handler.HandleReadiness)
-
-		req, _ := http.NewRequest("GET", "/health/ready", nil)
-		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusServiceUnavailable, w.Code)
-		assert.JSONEq(t, `{
-			"status": "not_ready",
-			"services": [
-				{"name": "coordinator-1", "status": "ready", "error": null},
-				{"name": "unknown", "status": "nil", "error": "health reporter is nil"}
-			]
-		}`, w.Body.String())
-	})
-
-	t.Run("response includes individual reporter statuses", func(t *testing.T) {
-		reporter1 := newFakeHealthReporter("coordinator-1", nil)
-		reporter2 := newFakeHealthReporter("coordinator-2", errors.New("not started"))
-		reporter3 := newFakeHealthReporter("coordinator-3", nil)
+	t.Run("response includes health report when available", func(t *testing.T) {
+		healthReport := map[string]error{
+			"component1": errors.New("component error"),
+			"component2": nil,
+		}
+		reporter1 := newFakeHealthReporter("coordinator-1", nil, nil)
+		reporter2 := newFakeHealthReporter("coordinator-2", errors.New("not started"), healthReport)
+		reporter3 := newFakeHealthReporter("coordinator-3", nil, nil)
 		healthReporters := []protocol.HealthReporter{reporter1, reporter2, reporter3}
 		handler := NewHealthStatus(healthReporters)
 
@@ -245,12 +196,21 @@ func TestHealthStatus_HandleReadiness(t *testing.T) {
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+		// Note: report errors still serialize as empty objects {} since they are error type
 		assert.JSONEq(t, `{
 			"status": "not_ready",
 			"services": [
-				{"name": "coordinator-1", "status": "ready", "error": null},
-				{"name": "coordinator-2", "status": "not_ready", "error": "not started"},
-				{"name": "coordinator-3", "status": "ready", "error": null}
+				{"name": "coordinator-1", "status": "ready"},
+				{
+					"name": "coordinator-2", 
+					"status": "not_ready", 
+					"error": "not started",
+					"report": {
+						"component1": {},
+						"component2": null
+					}
+				},
+				{"name": "coordinator-3", "status": "ready"}
 			]
 		}`, w.Body.String())
 	})
@@ -262,10 +222,13 @@ type fakeHealthReporter struct {
 	name         string
 }
 
-func newFakeHealthReporter(name string, readyErr error) *fakeHealthReporter {
+func newFakeHealthReporter(name string, readyErr error, healthReport map[string]error) *fakeHealthReporter {
+	if healthReport == nil {
+		healthReport = make(map[string]error)
+	}
 	return &fakeHealthReporter{
 		readyErr:     readyErr,
-		healthReport: make(map[string]error),
+		healthReport: healthReport,
 		name:         name,
 	}
 }

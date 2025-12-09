@@ -2,6 +2,7 @@ package v1
 
 import (
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -89,10 +90,9 @@ func (h *VerifierResultsHandler) Handle(c *gin.Context) {
 
 	if len(messageIDStrings) > h.maxMessageIDsPerBatch {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "too many message_ids: " +
-				string(rune(len(messageIDStrings))) +
-				", maximum allowed: " +
-				string(rune(h.maxMessageIDsPerBatch)),
+			"error": fmt.Sprintf("too many message_ids: %d, maximum allowed: %d",
+				len(messageIDStrings),
+				h.maxMessageIDsPerBatch),
 		})
 		return
 	}
@@ -107,7 +107,7 @@ func (h *VerifierResultsHandler) Handle(c *gin.Context) {
 		msgIDBytes, err := hex.DecodeString(msgIDStr)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "invalid message_id format: " + msgIDStr + " - " + err.Error(),
+				"error": fmt.Sprintf("invalid message_id format: %s - %v", msgIDStr, err),
 			})
 			return
 		}
@@ -115,7 +115,7 @@ func (h *VerifierResultsHandler) Handle(c *gin.Context) {
 		// Ensure it's 32 bytes
 		if len(msgIDBytes) != 32 {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "message_id must be 32 bytes, got " + string(rune(len(msgIDBytes))),
+				"error": fmt.Sprintf("message_id must be 32 bytes, got %d", len(msgIDBytes)),
 			})
 			return
 		}
