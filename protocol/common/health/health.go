@@ -6,31 +6,31 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-type ServiceStatus string
+type ReadinessStatus string
 
 const (
-	Ready    ServiceStatus = "ready"
-	NotReady ServiceStatus = "not_ready"
+	Ready    ReadinessStatus = "ready"
+	NotReady ReadinessStatus = "not_ready"
 )
 
-type ServiceLiveness string
+type LivenessStatus string
 
 const (
-	Alive ServiceLiveness = "alive"
+	Alive LivenessStatus = "alive"
 )
 
 type LivenessResponse struct {
-	Status ServiceLiveness `json:"status"`
+	Status LivenessStatus `json:"status"`
 }
 
 type ReadinessResponse struct {
-	Status   ServiceStatus    `json:"status"`
+	Status   ReadinessStatus  `json:"status"`
 	Services []ServicesHealth `json:"services"`
 }
 
 type ServicesHealth struct {
 	Name   string           `json:"name"`
-	Status ServiceStatus    `json:"status"`
+	Status ReadinessStatus  `json:"status"`
 	Error  string           `json:"error,omitempty"`
 	Report map[string]error `json:"report,omitempty"`
 }
