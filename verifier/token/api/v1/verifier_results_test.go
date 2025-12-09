@@ -3,6 +3,7 @@ package v1
 import (
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -20,14 +21,27 @@ import (
 func Test_VerifierResultsHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	// Create test storage with sample data
-	offchainStorage := storage.NewOffchainStorage()
+	inmemoryStorage := storage.NewInMemory()
+	ccvWriter := storage.NewAttestationCCVWriter(
+		logger.Test(t),
+		map[protocol.ChainSelector]protocol.UnknownAddress{
+			1:  {0x01, 0x02, 0x03},
+			2:  {0x04, 0x05, 0x06},
+			10: {0x07, 0x08, 0x09},
+			20: {0x0a, 0x0b, 0x0c},
+		},
+		inmemoryStorage,
+	)
+	ccvReader := storage.NewAttestationCCVReader(
+		inmemoryStorage,
+	)
+
 	lggr := logger.Test(t)
 
 	messageID1, verifierResult1 := createSampleMessage(1, 2, 10)
 	messageID2, verifierResult2 := createSampleMessage(10, 20, 20)
 
-	err := offchainStorage.WriteCCVNodeData(
+	err := ccvWriter.WriteCCVNodeData(
 		t.Context(),
 		[]protocol.VerifierNodeResult{
 			verifierResult1,
@@ -35,7 +49,7 @@ func Test_VerifierResultsHandler(t *testing.T) {
 		})
 	require.NoError(t, err)
 
-	handler := NewVerifierResultsHandler(lggr, offchainStorage)
+	handler := NewVerifierResultsHandler(lggr, ccvReader)
 
 	t.Run("successful request - messageID prefixed with 0x", func(t *testing.T) {
 		router := gin.New()
@@ -78,17 +92,23 @@ func Test_VerifierResultsHandler(t *testing.T) {
 					"sender": "0x070809",
 					"receiver": "0x0a0b0c",
 					"dest_blob": "0x0d0e0f",
+					"token_transfer": "",
 					"data": "0x101112"
 				},
 				"message_ccv_addresses": ["0x131415"],
 				"message_executor_address": "0x161718",
-				"ccv_data": "0x191a1b"
+				"ccv_data": "0x191a1b",
+				"metadata": {
+					"timestamp": ` + fmt.Sprint(response.Results[0].Metadata.Timestamp) + `,
+					"verifier_source_address": "0x010203",
+					"verifier_dest_address": "0x040506"
+				}
 			}]
 		}`
 		assert.JSONEq(t, expectedJSON, w.Body.String())
 	})
 
-	t.Run("successful request - raw messageID string", func(t *testing.T) {
+	t.Run("bad request - raw messageID string", func(t *testing.T) {
 		router := gin.New()
 		router.GET("/verifier/results", handler.Handle)
 
@@ -100,42 +120,7 @@ func Test_VerifierResultsHandler(t *testing.T) {
 
 		router.ServeHTTP(w, req)
 
-		assert.Equal(t, http.StatusOK, w.Code)
-
-		var response VerifierResultsResponse
-		err := json.Unmarshal(w.Body.Bytes(), &response)
-		require.NoError(t, err)
-
-		assert.Len(t, response.Results, 1)
-		assert.NotNil(t, response.Results[0].Message)
-		assert.Equal(t, uint64(10), response.Results[0].Message.SourceChainSelector)
-		assert.Equal(t, uint64(20), response.Results[0].Message.DestChainSelector)
-		assert.Equal(t, uint64(20), response.Results[0].Message.SequenceNumber)
-
-		expectedJSON := `{
-			"results": [{
-				"message": {
-					"version": 1,
-					"source_chain_selector": 10,
-					"dest_chain_selector": 20,
-					"sequence_number": 20,
-					"on_ramp_address": "0x010203",
-					"off_ramp_address": "0x040506",
-					"finality": 10,
-					"execution_gas_limit": 200000,
-					"ccip_receive_gas_limit": 150000,
-					"ccv_and_executor_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-					"sender": "0x070809",
-					"receiver": "0x0a0b0c",
-					"dest_blob": "0x0d0e0f",
-					"data": "0x101112"
-				},
-				"message_ccv_addresses": ["0x131415"],
-				"message_executor_address": "0x161718",
-				"ccv_data": "0x191a1b"
-			}]
-		}`
-		assert.JSONEq(t, expectedJSON, w.Body.String())
+		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("missing message_ids parameter", func(t *testing.T) {
@@ -161,15 +146,15 @@ func Test_VerifierResultsHandler(t *testing.T) {
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
-		assert.JSONEq(t, `{"error":"invalid message_id format: invalid_hex - encoding/hex: invalid byte: U+0069 'i'"}`, w.Body.String())
+		assert.JSONEq(t, `{"error":"invalid message_id format: invalid_hex - Bytes32 must start with '0x' prefix: invalid_hex"}`, w.Body.String())
 	})
 
 	t.Run("multiple message IDs", func(t *testing.T) {
 		router := gin.New()
 		router.GET("/verifier/results", handler.Handle)
 
-		messageID1Hex := hex.EncodeToString(messageID1[:])
-		messageID2Hex := "0x" + hex.EncodeToString(messageID2[:])
+		messageID1Hex := messageID1.String()
+		messageID2Hex := messageID2.String()
 		req, _ := http.NewRequest("GET", "/verifier/results?message_ids="+messageID1Hex+","+messageID2Hex, nil)
 		w := httptest.NewRecorder()
 
@@ -202,11 +187,17 @@ func Test_VerifierResultsHandler(t *testing.T) {
 						"sender": "0x070809",
 						"receiver": "0x0a0b0c",
 						"dest_blob": "0x0d0e0f",
+						"token_transfer": "",
 						"data": "0x101112"
 					},
 					"message_ccv_addresses": ["0x131415"],
 					"message_executor_address": "0x161718",
-					"ccv_data": "0x191a1b"
+					"ccv_data": "0x191a1b",
+					"metadata": {
+						"timestamp": ` + fmt.Sprint(response.Results[0].Metadata.Timestamp) + `,
+						"verifier_source_address": "0x010203",
+						"verifier_dest_address": "0x040506"
+					}
 				},
 				{
 					"message": {
@@ -223,11 +214,17 @@ func Test_VerifierResultsHandler(t *testing.T) {
 						"sender": "0x070809",
 						"receiver": "0x0a0b0c",
 						"dest_blob": "0x0d0e0f",
+						"token_transfer": "",
 						"data": "0x101112"
 					},
 					"message_ccv_addresses": ["0x131415"],
 					"message_executor_address": "0x161718",
-					"ccv_data": "0x191a1b"
+					"ccv_data": "0x191a1b",
+					"metadata": {
+						"timestamp": ` + fmt.Sprint(response.Results[1].Metadata.Timestamp) + `,
+						"verifier_source_address": "0x070809",
+						"verifier_dest_address": "0x0a0b0c"
+					}
 				}
 			]
 		}`
@@ -239,7 +236,7 @@ func Test_VerifierResultsHandler(t *testing.T) {
 		router.GET("/verifier/results", handler.Handle)
 
 		messageID, _ := createSampleMessage(100, 200, 200)
-		messageIDHex := hex.EncodeToString(messageID[:])
+		messageIDHex := messageID.String()
 
 		req, _ := http.NewRequest("GET", "/verifier/results?message_ids="+messageIDHex, nil)
 		w := httptest.NewRecorder()

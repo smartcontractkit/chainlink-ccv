@@ -87,7 +87,7 @@ func main() {
 		rmnRemoteAddresses[selector] = addr
 	}
 
-	offchainStorage := storage.NewOffchainStorage()
+	inmemoryStorage := storage.NewInMemory()
 
 	coordinators := make([]*verifier.Coordinator, 0, len(config.TokenVerifiers))
 	for _, verifierConfig := range config.TokenVerifiers {
@@ -99,7 +99,12 @@ func main() {
 				lggr,
 				sourceReaders,
 				rmnRemoteAddresses,
-				offchainStorage,
+				storage.NewAttestationCCVWriter(
+					lggr,
+					// TODO chainSelector to verifiers addresses mapping for LBTC
+					make(map[protocol.ChainSelector]protocol.UnknownAddress),
+					inmemoryStorage,
+				),
 				messageTracker,
 				verifierMonitoring,
 			)
@@ -110,7 +115,12 @@ func main() {
 				lggr,
 				sourceReaders,
 				rmnRemoteAddresses,
-				offchainStorage,
+				storage.NewAttestationCCVWriter(
+					lggr,
+					// TODO chainSelector to verifiers addresses mapping for CCTP
+					make(map[protocol.ChainSelector]protocol.UnknownAddress),
+					inmemoryStorage,
+				),
 				messageTracker,
 				verifierMonitoring,
 			)
@@ -131,7 +141,7 @@ func main() {
 	for i, coordinator := range coordinators {
 		healthReporters[i] = coordinator
 	}
-	ginRouter := tokenapi.NewHTTPAPI(lggr, offchainStorage, healthReporters)
+	ginRouter := tokenapi.NewHTTPAPI(lggr, storage.NewAttestationCCVReader(inmemoryStorage), healthReporters)
 
 	// Start HTTP server with Gin router
 	httpServer := &http.Server{
@@ -176,7 +186,7 @@ func createCCTPCoordinator(
 	lggr logger.Logger,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	rmnRemoteAddresses map[string]protocol.UnknownAddress,
-	offchainStorage *storage.OffchainStorage,
+	ccvStorage protocol.CCVNodeDataWriter,
 	messageTracker verifier.MessageLatencyTracker,
 	verifierMonitoring verifier.Monitoring,
 ) *verifier.Coordinator {
@@ -190,7 +200,7 @@ func createCCTPCoordinator(
 		lggr,
 		cctpVerifier,
 		sourceReaders,
-		offchainStorage,
+		ccvStorage,
 		verifier.CoordinatorConfig{
 			VerifierID:          verifierID,
 			SourceConfigs:       cctpSourceConfigs,
@@ -215,7 +225,7 @@ func createLBTCCoordinator(
 	lggr logger.Logger,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	rmnRemoteAddresses map[string]protocol.UnknownAddress,
-	offchainStorage *storage.OffchainStorage,
+	ccvStorage protocol.CCVNodeDataWriter,
 	messageTracker verifier.MessageLatencyTracker,
 	verifierMonitoring verifier.Monitoring,
 ) *verifier.Coordinator {
@@ -229,7 +239,7 @@ func createLBTCCoordinator(
 		lggr,
 		lbtcVerifier,
 		sourceReaders,
-		offchainStorage,
+		ccvStorage,
 		verifier.CoordinatorConfig{
 			VerifierID:          verifierID,
 			SourceConfigs:       sourceConfigs,

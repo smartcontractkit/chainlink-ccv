@@ -6,13 +6,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/api/health"
 	v1 "github.com/smartcontractkit/chainlink-ccv/verifier/token/api/v1"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 func NewHTTPAPI(
 	lggr logger.Logger,
-	storage *storage.OffchainStorage,
+	storage protocol.VerifierResultsAPI,
 	healthReporters []protocol.HealthReporter,
 ) *gin.Engine {
 	router := gin.Default()
