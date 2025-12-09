@@ -185,10 +185,12 @@ func (c *CommitReportAggregator) Ready() error {
 	capacity := cap(c.aggregationKeyChan)
 	if pending >= capacity {
 		lggr.Warnw("aggregation queue full", "capacity", capacity, "pending", pending)
+		return nil
 	}
 
 	if float64(pending)/float64(capacity) > 0.8 {
-		return fmt.Errorf("aggregation queue over 80%% full (%d/%d)", pending, capacity)
+		lggr.Warnw("aggregation queue over 80%% full", "capacity", capacity, "pending", pending)
+		return nil
 	}
 
 	return nil
