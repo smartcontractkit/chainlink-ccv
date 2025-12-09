@@ -1,11 +1,10 @@
 package health
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/health"
 )
 
 type Status struct {
@@ -22,9 +21,10 @@ func NewHealthStatus(healthReporters []protocol.HealthReporter) *Status {
 // This is a simple check - if the HTTP server can respond, the process is alive.
 // Kubernetes will restart the pod if this fails.
 func (h *Status) HandleLiveness(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"status": "alive",
-	})
+	response := health.NewLivenessResponse()
+	c.JSON(
+		response.StatusCode(), response,
+	)
 }
 
 // HandleReadiness checks if the service is ready to accept traffic.
@@ -32,28 +32,19 @@ func (h *Status) HandleLiveness(c *gin.Context) {
 // Note: 0 health reporters is a valid idle state and the service is considered ready.
 // Kubernetes will remove the pod from service endpoints if this fails.
 func (h *Status) HandleReadiness(c *gin.Context) {
-	reporterStatuses := make([]ServicesHealth, 0, len(h.healthReporters))
-	hasErrors := false
+	reporterStatuses := make([]health.ServicesHealth, 0, len(h.healthReporters))
 
 	// 0 health reporters is a valid idle state - service can still accept API requests
 	for _, reporter := range h.healthReporters {
-		hasErrors = hasErrors || (reporter.Ready() != nil)
 		reporterStatuses = append(
 			reporterStatuses,
-			NewServiceHealth(reporter),
+			health.NewServiceHealth(reporter),
 		)
 	}
 
-	if hasErrors {
-		c.JSON(
-			http.StatusServiceUnavailable,
-			NewResponse(NotReady, reporterStatuses),
-		)
-		return
-	}
-
+	response := health.NewReadinessResponse(reporterStatuses)
 	c.JSON(
-		http.StatusOK,
-		NewResponse(Ready, reporterStatuses),
+		response.StatusCode(),
+		response,
 	)
 }

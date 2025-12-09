@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/health"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -48,26 +48,11 @@ func (h *HTTPHealthServer) handleLiveness(w http.ResponseWriter, r *http.Request
 }
 
 func (h *HTTPHealthServer) handleReadiness(w http.ResponseWriter, r *http.Request) {
-	status, components := h.manager.CheckReadiness(r.Context())
-
-	response := map[string]any{
-		"status":     string(status),
-		"components": components,
-		"timestamp":  time.Now(),
-	}
+	components := h.manager.CheckReadiness(r.Context())
+	response := health.NewReadinessResponse(components)
 
 	w.Header().Set("Content-Type", "application/json")
-
-	switch status {
-	case common.HealthStatusHealthy:
-		w.WriteHeader(http.StatusOK)
-	case common.HealthStatusDegraded:
-		w.WriteHeader(http.StatusOK)
-		h.logger.Warnw("Service degraded", "components", components)
-	case common.HealthStatusUnhealthy:
-		w.WriteHeader(http.StatusServiceUnavailable)
-		h.logger.Errorw("Service unhealthy", "components", components)
-	}
+	w.WriteHeader(response.StatusCode())
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		h.logger.Errorw("Failed to encode readiness response", "error", err)

@@ -6,18 +6,20 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/health"
 )
 
 // Manager coordinates health checks across multiple components.
 type Manager struct {
-	components []common.HealthChecker
+	components []protocol.HealthReporter
 	mu         sync.RWMutex
 }
 
 // NewManager creates a new health check manager.
 func NewManager() *Manager {
 	return &Manager{
-		components: make([]common.HealthChecker, 0),
+		components: make([]protocol.HealthReporter, 0),
 	}
 }
 
@@ -26,7 +28,7 @@ func (m *Manager) Register(component any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if checker, ok := component.(common.HealthChecker); ok {
+	if checker, ok := component.(protocol.HealthReporter); ok {
 		m.components = append(m.components, checker)
 	}
 }
@@ -42,23 +44,14 @@ func (m *Manager) CheckLiveness(ctx context.Context) *common.ComponentHealth {
 }
 
 // CheckReadiness aggregates health status from all registered components.
-func (m *Manager) CheckReadiness(ctx context.Context) (common.HealthStatus, []*common.ComponentHealth) {
+func (m *Manager) CheckReadiness(ctx context.Context) []health.ServicesHealth {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	results := make([]*common.ComponentHealth, 0, len(m.components))
-	overallStatus := common.HealthStatusHealthy
-
+	results := make([]health.ServicesHealth, 0, len(m.components))
 	for _, component := range m.components {
-		health := component.HealthCheck(ctx)
-		results = append(results, health)
-
-		if health.Status == common.HealthStatusUnhealthy {
-			overallStatus = common.HealthStatusUnhealthy
-		} else if health.Status == common.HealthStatusDegraded && overallStatus != common.HealthStatusUnhealthy {
-			overallStatus = common.HealthStatusDegraded
-		}
+		results = append(results, health.NewServiceHealth(component))
 	}
 
-	return overallStatus, results
+	return results
 }

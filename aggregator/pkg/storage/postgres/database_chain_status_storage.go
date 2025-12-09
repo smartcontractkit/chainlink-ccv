@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
 
@@ -19,7 +20,10 @@ type DatabaseChainStatusStorage struct {
 }
 
 // Ensure DatabaseChainStatusStorage implements the interface.
-var _ common.ChainStatusStorageInterface = (*DatabaseChainStatusStorage)(nil)
+var (
+	_ common.ChainStatusStorageInterface = (*DatabaseChainStatusStorage)(nil)
+	_ protocol.HealthReporter            = (*DatabaseChainStatusStorage)(nil)
+)
 
 // NewDatabaseChainStatusStorage creates a new database-backed chain status storage instance.
 func NewDatabaseChainStatusStorage(ds sqlutil.DataSource) *DatabaseChainStatusStorage {
@@ -27,6 +31,28 @@ func NewDatabaseChainStatusStorage(ds sqlutil.DataSource) *DatabaseChainStatusSt
 		ds:         ds,
 		driverName: ds.DriverName(),
 	}
+}
+
+func (d *DatabaseChainStatusStorage) Ready() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var count int
+	err := d.ds.GetContext(ctx, &count, "SELECT 1")
+	if err != nil {
+		return fmt.Errorf("database health check failed: %w", err)
+	}
+	return nil
+}
+
+func (d *DatabaseChainStatusStorage) HealthReport() map[string]error {
+	return map[string]error{
+		d.Name(): d.Ready(),
+	}
+}
+
+func (d *DatabaseChainStatusStorage) Name() string {
+	return "postgres_chain_status_storage"
 }
 
 func (d *DatabaseChainStatusStorage) HealthCheck(ctx context.Context) *common.ComponentHealth {

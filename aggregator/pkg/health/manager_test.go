@@ -2,10 +2,12 @@ package health
 
 import (
 	"context"
+	"errors"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/health"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 )
@@ -14,26 +16,34 @@ type mockHealthyComponent struct {
 	name string
 }
 
-func (m *mockHealthyComponent) HealthCheck(ctx context.Context) *common.ComponentHealth {
-	return &common.ComponentHealth{
-		Name:      m.name,
-		Status:    common.HealthStatusHealthy,
-		Message:   "all good",
-		Timestamp: time.Now(),
-	}
+func (m *mockHealthyComponent) Ready() error {
+	return nil
+}
+
+func (m *mockHealthyComponent) HealthReport() map[string]error {
+	return map[string]error{}
+}
+
+func (m *mockHealthyComponent) Name() string {
+	return m.name
 }
 
 type mockUnhealthyComponent struct {
 	name string
 }
 
-func (m *mockUnhealthyComponent) HealthCheck(ctx context.Context) *common.ComponentHealth {
-	return &common.ComponentHealth{
-		Name:      m.name,
-		Status:    common.HealthStatusUnhealthy,
-		Message:   "something wrong",
-		Timestamp: time.Now(),
+func (m *mockUnhealthyComponent) Ready() error {
+	return errors.New("something wrong")
+}
+
+func (m *mockUnhealthyComponent) HealthReport() map[string]error {
+	return map[string]error{
+		m.Name(): m.Ready(),
 	}
+}
+
+func (m *mockUnhealthyComponent) Name() string {
+	return m.name
 }
 
 type nonHealthCheckableComponent struct {
@@ -72,9 +82,10 @@ func TestManager_CheckReadiness_AllHealthy(t *testing.T) {
 	manager.Register(&mockHealthyComponent{name: "comp1"})
 	manager.Register(&mockHealthyComponent{name: "comp2"})
 
-	status, components := manager.CheckReadiness(context.Background())
+	components := manager.CheckReadiness(t.Context())
+	response := health.NewReadinessResponse(components)
 
-	require.Equal(t, common.HealthStatusHealthy, status)
+	require.Equal(t, health.Ready, response.Status)
 	require.Len(t, components, 2)
 }
 
@@ -83,9 +94,10 @@ func TestManager_CheckReadiness_CriticalUnhealthy(t *testing.T) {
 	manager.Register(&mockHealthyComponent{name: "comp1"})
 	manager.Register(&mockUnhealthyComponent{name: "comp2"})
 
-	status, components := manager.CheckReadiness(context.Background())
+	components := manager.CheckReadiness(t.Context())
+	response := health.NewReadinessResponse(components)
 
-	require.Equal(t, common.HealthStatusUnhealthy, status)
+	require.Equal(t, health.NotReady, response.Status)
 	require.Len(t, components, 2)
 }
 
@@ -95,8 +107,9 @@ func TestManager_CheckReadiness_MixedWithNonHealthCheckable(t *testing.T) {
 	manager.Register(&nonHealthCheckableComponent{name: "ignored"})
 	manager.Register(&mockHealthyComponent{name: "comp2"})
 
-	status, components := manager.CheckReadiness(context.Background())
+	components := manager.CheckReadiness(t.Context())
+	response := health.NewReadinessResponse(components)
 
-	require.Equal(t, common.HealthStatusHealthy, status)
+	require.Equal(t, health.Ready, response.Status)
 	require.Len(t, components, 2)
 }
