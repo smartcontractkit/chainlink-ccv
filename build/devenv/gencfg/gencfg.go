@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"github.com/google/go-github/v68/github"
+	"golang.org/x/oauth2"
+	"gopkg.in/yaml.v2"
+
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	executor_operations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/offramp"
@@ -19,8 +22,6 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
-	"golang.org/x/oauth2"
-	"gopkg.in/yaml.v2"
 )
 
 func ocrThreshold(n int) uint8 {
@@ -226,9 +227,9 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 		commitMsg := "Update ccv configuration"
 
 		// Marshal aggregator config into YAML under configMap.aggregator.\.toml
-		aggYaml := map[string]interface{}{
-			"main": map[string]interface{}{
-				"stage": map[string]interface{}{ // TBD: support other environments once available
+		aggYaml := map[string]any{
+			"main": map[string]any{
+				"stage": map[string]any{
 					"configMap": map[string]string{
 						"aggregator.toml": string(aggregatorConfig),
 					},
