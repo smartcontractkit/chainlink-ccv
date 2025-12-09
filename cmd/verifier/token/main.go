@@ -186,7 +186,7 @@ func createCCTPCoordinator(
 	lggr logger.Logger,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	rmnRemoteAddresses map[string]protocol.UnknownAddress,
-	offchainStorage protocol.CCVNodeDataWriter,
+	ccvStorage protocol.CCVNodeDataWriter,
 	messageTracker verifier.MessageLatencyTracker,
 	verifierMonitoring verifier.Monitoring,
 ) *verifier.Coordinator {
@@ -200,7 +200,7 @@ func createCCTPCoordinator(
 		lggr,
 		cctpVerifier,
 		sourceReaders,
-		offchainStorage,
+		ccvStorage,
 		verifier.CoordinatorConfig{
 			VerifierID:          verifierID,
 			SourceConfigs:       cctpSourceConfigs,
@@ -225,7 +225,7 @@ func createLBTCCoordinator(
 	lggr logger.Logger,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	rmnRemoteAddresses map[string]protocol.UnknownAddress,
-	offchainStorage protocol.CCVNodeDataWriter,
+	ccvStorage protocol.CCVNodeDataWriter,
 	messageTracker verifier.MessageLatencyTracker,
 	verifierMonitoring verifier.Monitoring,
 ) *verifier.Coordinator {
@@ -239,7 +239,7 @@ func createLBTCCoordinator(
 		lggr,
 		lbtcVerifier,
 		sourceReaders,
-		offchainStorage,
+		ccvStorage,
 		verifier.CoordinatorConfig{
 			VerifierID:          verifierID,
 			SourceConfigs:       sourceConfigs,
