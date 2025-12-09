@@ -9,13 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/lib/pq"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
