@@ -560,6 +560,9 @@ type DiscoveryStorageReader interface {
 	OffchainStorageReader
 	// GetSinceValue returns the latest sequence number used in the querying of the discovery service.
 	GetSinceValue() int64
+	// SetSinceValue allows moves the cursor of the reader within the discovery service
+	// this happens automatically within the reader, this is an escape hatch mainly used to move the cursor backwards for replays.
+	SetSinceValue(since int64)
 }
 
 // VerifierResultsAPI defines the interface for the public API to interact with verifiers
