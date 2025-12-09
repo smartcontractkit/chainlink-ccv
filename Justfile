@@ -49,9 +49,9 @@ mod-download: ensure-go
     go mod download
 
 # Run all the tests below system-level
-test:
+test: ensure-go
     # 'build' dir is ignored by default, run all component/integration tests
-    gomods -w go test -fullpath -shuffle on -v -race $(go list ./...) -coverprofile=./cover.out -covermode=atomic -coverpkg=./...
+    go test -fullpath -shuffle on -v -race $(go list ./...) -coverprofile=./cover.out -covermode=atomic -coverpkg=./...
 
 # Run go-test-coverage checks
 cover: ensure-go
