@@ -102,7 +102,7 @@ func main() {
 				storage.NewAttestationCCVWriter(
 					lggr,
 					// TODO chainSelector to verifiers addresses mapping
-					map[protocol.ChainSelector]protocol.UnknownAddress{},
+					make(map[protocol.ChainSelector]protocol.UnknownAddress),
 					inmemoryStorage,
 				),
 				messageTracker,
@@ -117,7 +117,7 @@ func main() {
 				rmnRemoteAddresses,
 				storage.NewAttestationCCVWriter(
 					lggr,
-					map[protocol.ChainSelector]protocol.UnknownAddress{},
+					make(map[protocol.ChainSelector]protocol.UnknownAddress),
 					inmemoryStorage,
 				),
 				messageTracker,
