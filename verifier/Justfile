@@ -8,7 +8,7 @@ default:
 
 build-rc:
     docker build -f Dockerfile -t verifier:rc ..
-    docker build -f Dockerfile ---build-arg VERIFIER_TYPE=token -t token-verifier:rc ..
+    docker build -f Dockerfile --build-arg VERIFIER_TYPE=token -t token-verifier:rc ..
 
 build-dev:
     docker build -f Dockerfile.dev -t verifier:dev ..
