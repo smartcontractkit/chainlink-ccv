@@ -232,6 +232,7 @@ func (a *AggregatorMessageDiscovery) consumeReader(ctx context.Context) {
 }
 
 func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, error) {
+	startingSequence, ableToSetSinceValue := a.aggregatorReader.GetSinceValue()
 	var queryResponse []protocol.QueryResponse
 	queryResponse, err := a.aggregatorReader.ReadCCVData(ctx)
 	if err != nil {
@@ -248,6 +249,8 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 	a.logger.Debug("Called Aggregator")
 
 	ingestionTimestamp := a.timeProvider.GetTime()
+	messages := []common.MessageWithMetadata{}
+	verifications := []common.VerifierResultWithMetadata{}
 	for _, response := range queryResponse {
 		a.logger.Infof("Found new Message %s", response.Data.MessageID)
 
@@ -260,22 +263,39 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 			},
 		}
 
-		if err := a.storageSink.InsertMessage(ctx, common.MessageWithMetadata{
+		message := common.MessageWithMetadata{
 			Message: response.Data.Message,
 			Metadata: common.MessageMetadata{
 				IngestionTimestamp: ingestionTimestamp,
 			},
-		}); err != nil {
-			a.logger.Error("Error saving Message for MessageID %s to storage", response.Data.MessageID.String())
-			continue
 		}
 
-		// Save the VerificationResult to the storage layer
-		if err := a.storageSink.InsertCCVData(ctx, verifierResultWithMetadata); err != nil {
-			a.logger.Error("Error saving VerificationResult for MessageID %s to storage", response.Data.MessageID.String())
-			continue
-		}
+		verifications = append(verifications, verifierResultWithMetadata)
+		messages = append(messages, message)
+	}
 
+	// Save all messages we've seen from the discovery source, if we're unable to persist them.
+	// We'll set the sequence value on the reader back to it's original value.
+	// This means we won't continue ingesting new messages until these ones are saved.
+	//
+	// This ensures that we won't miss a message.
+	if err := a.storageSink.BatchInsertMessages(ctx, messages); err != nil {
+		a.logger.Warn("Unable to save messages to storage, will retry")
+		if ableToSetSinceValue {
+			a.aggregatorReader.SetSinceValue(startingSequence)
+		}
+		return false, err
+	}
+
+	if err := a.storageSink.BatchInsertCCVData(ctx, verifications); err != nil {
+		a.logger.Warn("Unable to save verifications to storage, will retry")
+		if ableToSetSinceValue {
+			a.aggregatorReader.SetSinceValue(startingSequence)
+		}
+		return false, err
+	}
+
+	for _, verifierResultWithMetadata := range verifications {
 		// Emit the Message into the message channel for downstream components to consume
 		a.messageCh <- verifierResultWithMetadata
 	}

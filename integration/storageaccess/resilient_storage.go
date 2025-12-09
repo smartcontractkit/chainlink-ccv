@@ -127,8 +127,8 @@ func defaultAggregatorResilienceConfig() aggregatorResilienceConfig {
 		FailureThreshold:      5,
 		SuccessThreshold:      3,
 		CircuitBreakerDelay:   2 * time.Second,
-		MaxConcurrentRequests: 10,
-		MaxRequestsPerSecond:  10,
+		MaxConcurrentRequests: 10000,
+		MaxRequestsPerSecond:  10000,
 		WriteTimeout:          2 * time.Second,
 	}
 }

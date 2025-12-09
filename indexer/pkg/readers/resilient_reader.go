@@ -181,3 +181,11 @@ func (r *ResilientReader) GetSinceValue() (int64, bool) {
 	}
 	return 0, false
 }
+
+func (r *ResilientReader) SetSinceValue(since int64) bool {
+	if discoveryReader, ok := r.discoveryAPI.(protocol.DiscoveryStorageReader); ok {
+		discoveryReader.SetSinceValue(since)
+		return true
+	}
+	return false
+}

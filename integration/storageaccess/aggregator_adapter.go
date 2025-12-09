@@ -221,6 +221,10 @@ func (a *AggregatorReader) GetSinceValue() int64 {
 	return a.since.Load()
 }
 
+func (a *AggregatorReader) SetSinceValue(since int64) {
+	a.since.Store(since)
+}
+
 // Close closes the gRPC connection to the aggregator server.
 func (a *AggregatorReader) Close() error {
 	if a.conn != nil {
