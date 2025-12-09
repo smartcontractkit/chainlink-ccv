@@ -188,84 +188,92 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 	ccv.Plog.Info().Str("file-path", filePath).Msg("Wrote aggregator config to file")
 
 	if createPR {
-		// Create a new branch, add the aggregator config file and open a PR
-		owner := "smartcontractkit"
-		repo := "infra-k8s"
-
-		// Get repository to find default branch
-		repoInfo, _, err := gh.Repositories.Get(ctx, owner, repo)
+		prURL, err := createConfigPR(gh, ctx, tempDir, cldDomain, aggregatorConfig)
 		if err != nil {
-			return "", fmt.Errorf("failed to fetch repository info: %w", err)
+			return "", fmt.Errorf("failed to create config PR: %w", err)
 		}
-		defaultBranch := repoInfo.GetDefaultBranch()
-
-		// Create a unique branch name
-		branchName := fmt.Sprintf("ccv_config_%d", time.Now().Unix())
-
-		// Get the reference for the default branch
-		baseRef, _, err := gh.Git.GetRef(ctx, owner, repo, "refs/heads/"+defaultBranch)
-		if err != nil {
-			return "", fmt.Errorf("failed to get base ref for branch %s: %w", defaultBranch, err)
-		}
-
-		// Create new branch ref pointing to the same commit as default
-		newRef := &github.Reference{
-			Ref: github.Ptr("refs/heads/" + branchName),
-			Object: &github.GitObject{
-				SHA: baseRef.Object.SHA,
-			},
-		}
-		_, _, err = gh.Git.CreateRef(ctx, owner, repo, newRef)
-		if err != nil {
-			return "", fmt.Errorf("failed to create branch %s: %w", branchName, err)
-		}
-
-		// Path where to add the aggregator config in the repo
-		aggPath := "projects/chainlink-ccv/files/aggregator/aggregator-config.yaml"
-
-		// Create file on the new branch
-		commitMsg := "Update ccv configuration"
-
-		// Marshal aggregator config into YAML under configMap.aggregator.\.toml
-		aggYaml := map[string]any{
-			"main": map[string]any{
-				"stage": map[string]any{
-					"configMap": map[string]string{
-						"aggregator.toml": string(aggregatorConfig),
-					},
-				},
-			},
-		}
-		aggFileContent, err := yaml.Marshal(aggYaml)
-		if err != nil {
-			return "", fmt.Errorf("failed to marshal aggregator config to YAML: %w", err)
-		}
-
-		opts := &github.RepositoryContentFileOptions{
-			Message: github.Ptr(commitMsg),
-			Content: aggFileContent,
-			Branch:  github.Ptr(branchName),
-		}
-		_, _, err = gh.Repositories.CreateFile(ctx, owner, repo, aggPath, opts)
-		if err != nil {
-			return "", fmt.Errorf("failed to create file %s on branch %s: %w", aggPath, branchName, err)
-		}
-
-		// Open a PR from the new branch into default
-		prTitle := "CCV config update"
-		prBody := fmt.Sprintf("CCV CLI auto-generated PR to update configuration from CLD for %s environment", cldDomain)
-		newPR := &github.NewPullRequest{
-			Title: github.Ptr(prTitle),
-			Head:  github.Ptr(branchName),
-			Base:  github.Ptr(defaultBranch),
-			Body:  github.Ptr(prBody),
-		}
-		pr, _, err := gh.PullRequests.Create(ctx, owner, repo, newPR)
-		if err != nil {
-			return "", fmt.Errorf("failed to create pull request: %w", err)
-		}
-		ccv.Plog.Info().Str("pr-url", pr.GetHTMLURL()).Msg("Created PR with aggregator config")
+		ccv.Plog.Info().Str("pr-url", prURL).Msg("Created PR with aggregator config")
 	}
 
 	return tempDir, nil
+}
+
+func createConfigPR(gh *github.Client, ctx context.Context, tempDir, cldDomain string, aggregatorConfig []byte) (string, error) {
+	// Create a new branch, add the aggregator config file and open a PR
+	owner := "smartcontractkit"
+	repo := "infra-k8s"
+
+	// Get repository to find default branch
+	repoInfo, _, err := gh.Repositories.Get(ctx, owner, repo)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch repository info: %w", err)
+	}
+	defaultBranch := repoInfo.GetDefaultBranch()
+
+	// Create a unique branch name
+	branchName := fmt.Sprintf("ccv_config_%d", time.Now().Unix())
+
+	// Get the reference for the default branch
+	baseRef, _, err := gh.Git.GetRef(ctx, owner, repo, "refs/heads/"+defaultBranch)
+	if err != nil {
+		return "", fmt.Errorf("failed to get base ref for branch %s: %w", defaultBranch, err)
+	}
+
+	// Create new branch ref pointing to the same commit as default
+	newRef := &github.Reference{
+		Ref: github.Ptr("refs/heads/" + branchName),
+		Object: &github.GitObject{
+			SHA: baseRef.Object.SHA,
+		},
+	}
+	_, _, err = gh.Git.CreateRef(ctx, owner, repo, newRef)
+	if err != nil {
+		return "", fmt.Errorf("failed to create branch %s: %w", branchName, err)
+	}
+
+	// Path where to add the aggregator config in the repo
+	aggPath := "projects/chainlink-ccv/files/aggregator/aggregator-config.yaml"
+
+	// Create file on the new branch
+	commitMsg := "Update ccv configuration"
+
+	// Marshal aggregator config into YAML under configMap.aggregator.\.toml
+	aggYaml := map[string]any{
+		"main": map[string]any{
+			"stage": map[string]any{
+				"configMap": map[string]string{
+					"aggregator.toml": string(aggregatorConfig),
+				},
+			},
+		},
+	}
+	aggFileContent, err := yaml.Marshal(aggYaml)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal aggregator config to YAML: %w", err)
+	}
+
+	opts := &github.RepositoryContentFileOptions{
+		Message: github.Ptr(commitMsg),
+		Content: aggFileContent,
+		Branch:  github.Ptr(branchName),
+	}
+	_, _, err = gh.Repositories.CreateFile(ctx, owner, repo, aggPath, opts)
+	if err != nil {
+		return "", fmt.Errorf("failed to create file %s on branch %s: %w", aggPath, branchName, err)
+	}
+
+	// Open a PR from the new branch into default
+	prTitle := "CCV config update"
+	prBody := fmt.Sprintf("CCV CLI auto-generated PR to update configuration from CLD for %s environment", cldDomain)
+	newPR := &github.NewPullRequest{
+		Title: github.Ptr(prTitle),
+		Head:  github.Ptr(branchName),
+		Base:  github.Ptr(defaultBranch),
+		Body:  github.Ptr(prBody),
+	}
+	pr, _, err := gh.PullRequests.Create(ctx, owner, repo, newPR)
+	if err != nil {
+		return "", fmt.Errorf("failed to create pull request: %w", err)
+	}
+	return pr.GetHTMLURL(), nil
 }
