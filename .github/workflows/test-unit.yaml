@@ -41,6 +41,7 @@ jobs:
           config: ./.testcoverage.yml
       
       - name: Generate HTML Report
+        if: always()
         run: |
           just cover-html
       
