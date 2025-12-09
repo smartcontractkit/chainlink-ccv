@@ -21,7 +21,7 @@ func NewHealthStatus(healthReporters []protocol.HealthReporter) *Status {
 // This is a simple check - if the HTTP server can respond, the process is alive.
 // Kubernetes will restart the pod if this fails.
 func (h *Status) HandleLiveness(c *gin.Context) {
-	response := health.NewLivenessResponse()
+	response := health.NewAliveResponse()
 	c.JSON(
 		response.StatusCode(), response,
 	)

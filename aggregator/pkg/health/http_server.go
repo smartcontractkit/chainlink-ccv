@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/health"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -41,15 +40,14 @@ func (h *HTTPHealthServer) handleLiveness(w http.ResponseWriter, r *http.Request
 	liveness := h.manager.CheckLiveness(r.Context())
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(liveness.StatusCode())
 	if err := json.NewEncoder(w).Encode(liveness); err != nil {
 		h.logger.Errorw("Failed to encode liveness response", "error", err)
 	}
 }
 
 func (h *HTTPHealthServer) handleReadiness(w http.ResponseWriter, r *http.Request) {
-	components := h.manager.CheckReadiness(r.Context())
-	response := health.NewReadinessResponse(components)
+	response := h.manager.CheckReadiness(r.Context())
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(response.StatusCode())

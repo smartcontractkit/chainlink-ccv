@@ -35,7 +35,7 @@ type ServicesHealth struct {
 	Report map[string]error `json:"report,omitempty"`
 }
 
-func NewLivenessResponse() LivenessResponse {
+func NewAliveResponse() LivenessResponse {
 	return LivenessResponse{
 		Status: Alive,
 	}

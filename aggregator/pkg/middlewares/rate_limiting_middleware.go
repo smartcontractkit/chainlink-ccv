@@ -14,7 +14,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/rate_limiting"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -43,38 +42,6 @@ func NewRateLimitingMiddleware(store limiter.Store, config model.RateLimitingCon
 		enabled:   true,
 		lggr:      lggr,
 	}
-}
-
-func (m *RateLimitingMiddleware) HealthCheck(ctx context.Context) *common.ComponentHealth {
-	result := &common.ComponentHealth{
-		Name:      "rate_limiter",
-		Timestamp: time.Now(),
-	}
-
-	if !m.enabled || m.store == nil {
-		result.Status = common.HealthStatusHealthy
-		result.Message = "rate limiting disabled"
-		return result
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-
-	rate := limiter.Rate{
-		Period: time.Minute,
-		Limit:  1,
-	}
-
-	_, err := m.store.Peek(ctx, "health_check", rate)
-	if err != nil {
-		result.Status = common.HealthStatusDegraded
-		result.Message = fmt.Sprintf("store unavailable: %v", err)
-		return result
-	}
-
-	result.Status = common.HealthStatusHealthy
-	result.Message = "rate limiter store responsive"
-	return result
 }
 
 func (m *RateLimitingMiddleware) buildKey(callerID, method string) string {

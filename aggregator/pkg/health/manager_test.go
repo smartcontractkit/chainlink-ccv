@@ -3,13 +3,12 @@ package health
 import (
 	"context"
 	"errors"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/health"
-
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 )
 
 type mockHealthyComponent struct {
@@ -73,8 +72,8 @@ func TestManager_CheckLiveness(t *testing.T) {
 
 	result := manager.CheckLiveness(context.Background())
 
-	require.Equal(t, "liveness", result.Name)
-	require.Equal(t, common.HealthStatusHealthy, result.Status)
+	require.Equal(t, http.StatusOK, result.StatusCode())
+	require.Equal(t, health.Alive, result.Status)
 }
 
 func TestManager_CheckReadiness_AllHealthy(t *testing.T) {
@@ -82,11 +81,10 @@ func TestManager_CheckReadiness_AllHealthy(t *testing.T) {
 	manager.Register(&mockHealthyComponent{name: "comp1"})
 	manager.Register(&mockHealthyComponent{name: "comp2"})
 
-	components := manager.CheckReadiness(t.Context())
-	response := health.NewReadinessResponse(components)
+	response := manager.CheckReadiness(t.Context())
 
 	require.Equal(t, health.Ready, response.Status)
-	require.Len(t, components, 2)
+	require.Len(t, response.Services, 2)
 }
 
 func TestManager_CheckReadiness_CriticalUnhealthy(t *testing.T) {
@@ -94,11 +92,10 @@ func TestManager_CheckReadiness_CriticalUnhealthy(t *testing.T) {
 	manager.Register(&mockHealthyComponent{name: "comp1"})
 	manager.Register(&mockUnhealthyComponent{name: "comp2"})
 
-	components := manager.CheckReadiness(t.Context())
-	response := health.NewReadinessResponse(components)
+	response := manager.CheckReadiness(t.Context())
 
 	require.Equal(t, health.NotReady, response.Status)
-	require.Len(t, components, 2)
+	require.Len(t, response.Services, 2)
 }
 
 func TestManager_CheckReadiness_MixedWithNonHealthCheckable(t *testing.T) {
@@ -107,9 +104,8 @@ func TestManager_CheckReadiness_MixedWithNonHealthCheckable(t *testing.T) {
 	manager.Register(&nonHealthCheckableComponent{name: "ignored"})
 	manager.Register(&mockHealthyComponent{name: "comp2"})
 
-	components := manager.CheckReadiness(t.Context())
-	response := health.NewReadinessResponse(components)
+	response := manager.CheckReadiness(t.Context())
 
 	require.Equal(t, health.Ready, response.Status)
-	require.Len(t, components, 2)
+	require.Len(t, response.Services, 2)
 }

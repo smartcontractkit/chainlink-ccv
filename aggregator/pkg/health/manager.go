@@ -3,9 +3,7 @@ package health
 import (
 	"context"
 	"sync"
-	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/health"
 )
@@ -34,17 +32,12 @@ func (m *Manager) Register(component any) {
 }
 
 // CheckLiveness returns the basic liveness status of the service.
-func (m *Manager) CheckLiveness(ctx context.Context) *common.ComponentHealth {
-	return &common.ComponentHealth{
-		Name:      "liveness",
-		Status:    common.HealthStatusHealthy,
-		Message:   "service is running",
-		Timestamp: time.Now(),
-	}
+func (m *Manager) CheckLiveness(ctx context.Context) health.LivenessResponse {
+	return health.NewAliveResponse()
 }
 
 // CheckReadiness aggregates health status from all registered components.
-func (m *Manager) CheckReadiness(ctx context.Context) []health.ServicesHealth {
+func (m *Manager) CheckReadiness(ctx context.Context) health.ReadinessResponse {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -53,5 +46,5 @@ func (m *Manager) CheckReadiness(ctx context.Context) []health.ServicesHealth {
 		results = append(results, health.NewServiceHealth(component))
 	}
 
-	return results
+	return health.NewReadinessResponse(results)
 }
