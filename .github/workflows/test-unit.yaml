@@ -1,0 +1,41 @@
+name: Test Unit
+
+on:
+  merge_group:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test-coverage:
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    runs-on: runs-on=${{ github.run_id }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
+    steps:
+      - name: Enable S3 Cache for Self-Hosted Runners
+        uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
+
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+      - name: Install Just
+        uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
+        with:
+          just-version: '1.40.0'
+      
+      - name: Run Unit Tests
+        run: |
+          just test
+      
+      - name: Check Test Coverage
+        uses: vladopajic/go-test-coverage/action/source@v2
+        with:
+          config: ./.testcoverage.yml
