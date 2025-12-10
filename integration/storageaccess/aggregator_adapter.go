@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"math/big"
 	"sync/atomic"
 	"time"
 
@@ -120,39 +119,6 @@ func (a *AggregatorWriter) Close() error {
 	return nil
 }
 
-// WriteChainStatus writes chain statuses to the aggregator.
-func (a *AggregatorWriter) WriteChainStatus(ctx context.Context, statuses []protocol.ChainStatusInfo) error {
-	// HMAC authentication is automatically handled by the client interceptor
-
-	// Convert chain statuses to protobuf format
-	pbStatuses := make([]*pb.ChainStatus, 0, len(statuses))
-	for _, status := range statuses {
-		pbStatuses = append(pbStatuses, &pb.ChainStatus{
-			ChainSelector:        uint64(status.ChainSelector),
-			FinalizedBlockHeight: status.FinalizedBlockHeight.Uint64(),
-			Disabled:             status.Disabled,
-		})
-	}
-
-	req := &pb.WriteChainStatusRequest{
-		Statuses: pbStatuses,
-	}
-
-	// Make the gRPC call
-	resp, err := a.client.WriteChainStatus(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to write chain status: %w", err)
-	}
-
-	if resp.Status != pb.WriteStatus_SUCCESS {
-		return fmt.Errorf("chain status write failed with status: %s", resp.Status.String())
-	}
-
-	a.lggr.Debugw("Successfully wrote chain statuses", "count", len(statuses))
-
-	return nil
-}
-
 // NewAggregatorWriter creates instance of AggregatorWriter that satisfies CCVNodeDataWriter interface.
 func NewAggregatorWriter(address string, lggr logger.Logger, hmacConfig *hmac.ClientConfig) (*AggregatorWriter, error) {
 	dialOptions := []grpc.DialOption{
@@ -231,42 +197,6 @@ func (a *AggregatorReader) Close() error {
 		return a.conn.Close()
 	}
 	return nil
-}
-
-// ReadChainStatus reads chain statuses from the aggregator.
-// Returns map of chainSelector -> ChainStatusInfo. Missing chains are not included in the map.
-func (a *AggregatorReader) ReadChainStatus(ctx context.Context, chainSelectors []protocol.ChainSelector) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
-	// Convert chainSelectors to uint64 slice
-	selectors := make([]uint64, len(chainSelectors))
-	for i, selector := range chainSelectors {
-		selectors[i] = uint64(selector)
-	}
-
-	// Create read request
-	req := &pb.ReadChainStatusRequest{
-		ChainSelectors: selectors,
-	}
-
-	// Create aggregator client for chain status operations (different from CCV data client)
-	aggregatorClient := pb.NewCommitteeVerifierClient(a.conn)
-
-	// Make the gRPC call
-	resp, err := aggregatorClient.ReadChainStatus(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read chain status: %w", err)
-	}
-
-	result := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
-	for _, chainStatus := range resp.Statuses {
-		selector := protocol.ChainSelector(chainStatus.ChainSelector)
-		result[selector] = &protocol.ChainStatusInfo{
-			ChainSelector:        selector,
-			FinalizedBlockHeight: new(big.Int).SetUint64(chainStatus.FinalizedBlockHeight),
-			Disabled:             chainStatus.Disabled,
-		}
-	}
-
-	return result, nil
 }
 
 func mapMessage(msg *pb.Message) (protocol.Message, error) {

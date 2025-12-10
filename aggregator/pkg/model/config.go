@@ -111,12 +111,6 @@ type APIKeyConfig struct {
 	Clients map[string]*APIClient `toml:"clients"`
 }
 
-// ChainStatusConfig represents the configuration for the chain status API.
-type ChainStatusConfig struct {
-	// MaxChainStatusesPerRequest limits the number of chain statuses per write request
-	MaxChainStatusesPerRequest int `toml:"maxChainStatusesPerRequest"`
-}
-
 // AggregationConfig represents the configuration for the aggregation system.
 type AggregationConfig struct {
 	// ChannelBufferSize controls the size of the aggregation request channel buffer
@@ -315,7 +309,6 @@ type AggregatorConfig struct {
 	Server                ServerConfig         `toml:"server"`
 	Storage               *StorageConfig       `toml:"storage"`
 	APIKeys               APIKeyConfig         `toml:"-"`
-	ChainStatuses         ChainStatusConfig    `toml:"chainStatuses"`
 	Aggregation           AggregationConfig    `toml:"aggregation"`
 	OrphanRecovery        OrphanRecoveryConfig `toml:"orphanRecovery"`
 	RateLimiting          RateLimitingConfig   `toml:"rateLimiting"`
@@ -327,9 +320,6 @@ type AggregatorConfig struct {
 
 // SetDefaults sets default values for the configuration.
 func (c *AggregatorConfig) SetDefaults() {
-	if c.ChainStatuses.MaxChainStatusesPerRequest == 0 {
-		c.ChainStatuses.MaxChainStatusesPerRequest = 1000
-	}
 	// Batch verifier result defaults
 	if c.MaxMessageIDsPerBatch == 0 {
 		c.MaxMessageIDsPerBatch = 100
@@ -389,15 +379,6 @@ func (c *AggregatorConfig) ValidateAPIKeyConfig() error {
 				return fmt.Errorf("client '%s' references undefined group '%s'", client.ClientID, group)
 			}
 		}
-	}
-
-	return nil
-}
-
-// ValidateChainStatusConfig validates the chain status configuration.
-func (c *AggregatorConfig) ValidateChainStatusConfig() error {
-	if c.ChainStatuses.MaxChainStatusesPerRequest <= 0 {
-		return errors.New("chainStatuses.maxChainStatusesPerRequest must be greater than 0")
 	}
 
 	return nil
@@ -531,11 +512,6 @@ func (c *AggregatorConfig) Validate() error {
 	// Validate API key configuration
 	if err := c.ValidateAPIKeyConfig(); err != nil {
 		return fmt.Errorf("api key configuration error: %w", err)
-	}
-
-	// Validate chain status configuration
-	if err := c.ValidateChainStatusConfig(); err != nil {
-		return fmt.Errorf("chain status configuration error: %w", err)
 	}
 
 	// Validate batch configuration

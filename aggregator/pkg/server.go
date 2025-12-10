@@ -53,9 +53,6 @@ type Server struct {
 	writeCommitVerifierNodeResultHandler      *handlers.WriteCommitVerifierNodeResultHandler
 	getMessagesSinceHandler                   *handlers.GetMessagesSinceHandler
 	getVerifierResultsForMessageHandler       *handlers.GetVerifierResultsForMessageHandler
-	writeChainStatusHandler                   *handlers.WriteChainStatusHandler
-	readChainStatusHandler                    *handlers.ReadChainStatusHandler
-	chainStatusStorage                        common.ChainStatusStorageInterface
 	grpcServer                                *grpc.Server
 	batchWriteCommitVerifierNodeResultHandler *handlers.BatchWriteCommitVerifierNodeResultHandler
 	httpHealthServer                          *health.HTTPHealthServer
@@ -85,16 +82,6 @@ func (s *Server) GetVerifierResultsForMessage(ctx context.Context, req *pb.GetVe
 
 func (s *Server) GetMessagesSince(ctx context.Context, req *pb.GetMessagesSinceRequest) (*pb.GetMessagesSinceResponse, error) {
 	return s.getMessagesSinceHandler.Handle(ctx, req)
-}
-
-// WriteChainStatus handles requests to write chain statuses.
-func (s *Server) WriteChainStatus(ctx context.Context, req *pb.WriteChainStatusRequest) (*pb.WriteChainStatusResponse, error) {
-	return s.writeChainStatusHandler.Handle(ctx, req)
-}
-
-// ReadChainStatus handles requests to read chain statuses.
-func (s *Server) ReadChainStatus(ctx context.Context, req *pb.ReadChainStatusRequest) (*pb.ReadChainStatusResponse, error) {
-	return s.readChainStatusHandler.Handle(ctx, req)
 }
 
 func (s *Server) Start(lis net.Listener) error {
@@ -254,18 +241,6 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	getVerifierResultsForMessageHandler := handlers.NewGetVerifierResultsForMessageHandler(store, config.Committee, config.MaxMessageIDsPerBatch, l)
 	batchWriteCommitVerifierNodeResultHandler := handlers.NewBatchWriteCommitVerifierNodeResultHandler(writeCommitVerifierNodeResultHandler)
 
-	// Initialize chain status storage
-	chainStatusStorage, err := factory.CreateChainStatusStorage(config.Storage, aggMonitoring)
-	if err != nil {
-		panic(fmt.Sprintf("failed to create chain status storage: %v", err))
-	}
-
-	chainStatusStorage = storage.WrapChainStatusWithMetrics(chainStatusStorage, aggMonitoring)
-
-	// Initialize chain status handlers
-	writeChainStatusHandler := handlers.NewWriteChainStatusHandler(chainStatusStorage, l)
-	readChainStatusHandler := handlers.NewReadChainStatusHandler(chainStatusStorage, l)
-
 	// Initialize middlewares
 	loggingMiddleware := middlewares.NewLoggingMiddleware(l)
 	metricsMiddleware := middlewares.NewMetricMiddleware(aggMonitoring)
@@ -318,7 +293,6 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 	healthManager := health.NewManager()
 	healthManager.Register(store)
-	healthManager.Register(chainStatusStorage)
 	healthManager.Register(rateLimitingMiddleware)
 	healthManager.Register(agg)
 
@@ -340,9 +314,6 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		writeCommitVerifierNodeResultHandler: writeCommitVerifierNodeResultHandler,
 		getMessagesSinceHandler:              getMessagesSinceHandler,
 		getVerifierResultsForMessageHandler:  getVerifierResultsForMessageHandler,
-		writeChainStatusHandler:              writeChainStatusHandler,
-		readChainStatusHandler:               readChainStatusHandler,
-		chainStatusStorage:                   chainStatusStorage,
 		batchWriteCommitVerifierNodeResultHandler: batchWriteCommitVerifierNodeResultHandler,
 		httpHealthServer: httpHealthServer,
 		grpcServer:       grpcServer,
