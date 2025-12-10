@@ -40,10 +40,15 @@ require (
 	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20250826201006-c81344a26fc3
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go v0.0.0-20251126123859-d079d6815edb
 	github.com/smartcontractkit/chainlink-testing-framework/wasp v1.51.1
+	github.com/spf13/cobra v1.8.1
 	google.golang.org/grpc v1.76.0
 )
 
-require github.com/google/go-querystring v1.1.0 // indirect
+require (
+	github.com/google/go-querystring v1.1.0 // indirect
+	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/spf13/pflag v1.0.10 // indirect
+)
 
 require (
 	cloud.google.com/go/auth v0.14.1 // indirect
