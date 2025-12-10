@@ -212,7 +212,6 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 	cv.lggr.Infow("Message signed successfully",
 		"messageID", msgIDStr,
 		"signer", cv.signerAddress.String(),
-		"signatureLength", len(encodedSignature),
 	)
 
 	// 4. Create CCV node data with all required fields

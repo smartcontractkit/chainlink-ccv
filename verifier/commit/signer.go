@@ -59,18 +59,12 @@ func (ecdsa *ECDSASigner) Sign(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to sign message: %w", err)
 	}
 
-	signature := protocol.Data{
-		R:      r,
-		S:      s,
-		Signer: signerAddress,
-	}
+	signatureData := make([]byte, 64)
+	copy(signatureData[0:32], r[:])
+	copy(signatureData[32:64], s[:])
 
-	encodedSignature, err := protocol.EncodeSingleSignature(signature)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode signature: %w", err)
-	}
-
-	return encodedSignature, nil
+	signature := protocol.NewSignature(protocol.SchemeECDSA, signatureData[:], signerAddress[:])
+	return signature.Bytes()
 }
 
 // ReadPrivateKeyFromString reads a private key from a string and returns the bytes.
@@ -105,16 +99,10 @@ func (s *ECDSASignerWithKeystoreSigner) Sign(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to sign message: %w", err)
 	}
 
-	signature := protocol.Data{
-		R:      r32,
-		S:      s32,
-		Signer: addr,
-	}
+	signatureData := make([]byte, 64)
+	copy(signatureData[0:32], r32[:])
+	copy(signatureData[32:64], s32[:])
 
-	encodedSignature, err := protocol.EncodeSingleSignature(signature)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode signature: %w", err)
-	}
-
-	return encodedSignature, nil
+	signature := protocol.NewSignature(protocol.SchemeECDSA, signatureData[:], addr[:])
+	return signature.Bytes()
 }

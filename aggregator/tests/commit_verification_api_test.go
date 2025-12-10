@@ -346,7 +346,7 @@ func validateSignatures(t *assert.CollectT, ccvData []byte, messageId protocol.B
 
 	// Decode the signature data
 	// We need to exclude the verifier version to get the simple signature data (i.e. length + sigs)
-	rs, ss, err := protocol.DecodeSignatures(ccvData[committee.VerifierVersionLength:])
+	rs, ss, err := protocol.DecodeECDSASignatures(ccvData[committee.VerifierVersionLength:])
 	require.NoError(t, err, "failed to decode CCV signature data")
 	require.Equal(t, len(rs), len(ss), "rs and ss arrays should have the same length")
 
@@ -362,7 +362,7 @@ func validateSignatures(t *assert.CollectT, ccvData []byte, messageId protocol.B
 	// Recover signer addresses from the aggregated signatures
 	hash, err := committee.NewSignableHash(messageId, ccvData)
 	require.NoError(t, err, "failed to create signed hash")
-	recoveredAddresses, err := protocol.RecoverSigners(hash, rs, ss)
+	recoveredAddresses, err := protocol.RecoverECDSASigners(hash, rs, ss)
 	require.NoError(t, err, "failed to recover signer addresses")
 
 	// Create a map of expected signer addresses for easier lookup
@@ -396,7 +396,7 @@ func validateSignatures(t *assert.CollectT, ccvData []byte, messageId protocol.B
 	if len(config.expectActualCCVData) > 0 {
 		for _, expectedSig := range config.expectActualCCVData {
 			found := false
-			expectedR, expectedS, err := protocol.DecodeSignatures(expectedSig)
+			expectedR, expectedS, err := protocol.DecodeECDSASignatures(expectedSig)
 			require.NoError(t, err, "failed to decode expected signature")
 			for i := range rs {
 				if rs[i] == expectedR[0] && ss[i] == expectedS[0] {
