@@ -14,6 +14,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
+	v1 "github.com/smartcontractkit/chainlink-ccv/integration/pkg/api/v1"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
 )
@@ -66,7 +67,7 @@ func Test_VerifierResultsHandler(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var response VerifierResultsResponse
+		var response v1.VerifierResultsResponse
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
@@ -92,7 +93,7 @@ func Test_VerifierResultsHandler(t *testing.T) {
 					"sender": "0x070809",
 					"receiver": "0x0a0b0c",
 					"dest_blob": "0x0d0e0f",
-					"token_transfer": "",
+					"token_transfer": "0x",
 					"data": "0x101112"
 				},
 				"message_ccv_addresses": ["0x131415"],
@@ -162,7 +163,7 @@ func Test_VerifierResultsHandler(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var response VerifierResultsResponse
+		var response v1.VerifierResultsResponse
 		err = json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
@@ -187,7 +188,7 @@ func Test_VerifierResultsHandler(t *testing.T) {
 						"sender": "0x070809",
 						"receiver": "0x0a0b0c",
 						"dest_blob": "0x0d0e0f",
-						"token_transfer": "",
+						"token_transfer": "0x",
 						"data": "0x101112"
 					},
 					"message_ccv_addresses": ["0x131415"],
@@ -214,7 +215,7 @@ func Test_VerifierResultsHandler(t *testing.T) {
 						"sender": "0x070809",
 						"receiver": "0x0a0b0c",
 						"dest_blob": "0x0d0e0f",
-						"token_transfer": "",
+						"token_transfer": "0x",
 						"data": "0x101112"
 					},
 					"message_ccv_addresses": ["0x131415"],
@@ -245,13 +246,13 @@ func Test_VerifierResultsHandler(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var response VerifierResultsResponse
+		var response v1.VerifierResultsResponse
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
 		assert.Len(t, response.Results, 0)
 		assert.Len(t, response.Errors, 1)
-		assert.Contains(t, response.Errors[0], "message not found")
+		assert.Contains(t, response.Errors[0].Message, "message not found")
 
 		expectedJSON := `{
 			"results": [],
