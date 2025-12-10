@@ -66,6 +66,7 @@ func TestPostgresChainStatusManager_WriteAndReadChainStatuses(t *testing.T) {
 
 	tests := []struct {
 		name           string
+		initialState   []protocol.ChainStatusInfo
 		statuses       []protocol.ChainStatusInfo
 		chainSelectors []protocol.ChainSelector
 		expected       map[protocol.ChainSelector]*protocol.ChainStatusInfo
@@ -139,12 +140,59 @@ func TestPostgresChainStatusManager_WriteAndReadChainStatuses(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "upsert updates existing chain status",
+			initialState: []protocol.ChainStatusInfo{
+				{
+					ChainSelector:        1,
+					FinalizedBlockHeight: big.NewInt(100),
+					Disabled:             false,
+				},
+			},
+			statuses: []protocol.ChainStatusInfo{
+				{
+					ChainSelector:        1,
+					FinalizedBlockHeight: big.NewInt(200),
+					Disabled:             true,
+				},
+			},
+			chainSelectors: []protocol.ChainSelector{1},
+			expected: map[protocol.ChainSelector]*protocol.ChainStatusInfo{
+				1: {
+					ChainSelector:        1,
+					FinalizedBlockHeight: big.NewInt(200),
+					Disabled:             true,
+				},
+			},
+		},
+		{
+			name:           "read non-existent chain selectors returns empty map",
+			statuses:       []protocol.ChainStatusInfo{},
+			chainSelectors: []protocol.ChainSelector{999},
+			expected:       map[protocol.ChainSelector]*protocol.ChainStatusInfo{},
+		},
+		{
+			name:           "read with empty selectors returns empty map",
+			statuses:       []protocol.ChainStatusInfo{},
+			chainSelectors: []protocol.ChainSelector{},
+			expected:       map[protocol.ChainSelector]*protocol.ChainStatusInfo{},
+		},
+		{
+			name:           "write empty statuses does not error",
+			statuses:       []protocol.ChainStatusInfo{},
+			chainSelectors: []protocol.ChainSelector{},
+			expected:       map[protocol.ChainSelector]*protocol.ChainStatusInfo{},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Clean up before each test.
 			_, _ = db.Exec("DELETE FROM ccv_chain_statuses")
+
+			if len(tt.initialState) > 0 {
+				err := manager.WriteChainStatuses(ctx, tt.initialState)
+				require.NoError(t, err)
+			}
 
 			err := manager.WriteChainStatuses(ctx, tt.statuses)
 			require.NoError(t, err)
@@ -164,7 +212,7 @@ func TestPostgresChainStatusManager_WriteAndReadChainStatuses(t *testing.T) {
 	}
 }
 
-func TestPostgresChainStatusManager_UpsertChainStatus(t *testing.T) {
+func TestPostgresChainStatusManager_WriteChainStatuses_Errors(t *testing.T) {
 	db := setupTestDB(t)
 	lggr, err := logger.New()
 	require.NoError(t, err)
@@ -172,94 +220,31 @@ func TestPostgresChainStatusManager_UpsertChainStatus(t *testing.T) {
 	manager := NewPostgresChainStatusManager(db, lggr)
 	ctx := context.Background()
 
-	// Write initial status.
-	err = manager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+	tests := []struct {
+		name            string
+		statuses        []protocol.ChainStatusInfo
+		expectedErrText string
+	}{
 		{
-			ChainSelector:        1,
-			FinalizedBlockHeight: big.NewInt(100),
-			Disabled:             false,
+			name: "nil block height returns error",
+			statuses: []protocol.ChainStatusInfo{
+				{
+					ChainSelector:        1,
+					FinalizedBlockHeight: nil,
+					Disabled:             false,
+				},
+			},
+			expectedErrText: "finalized block height cannot be nil",
 		},
-	})
-	require.NoError(t, err)
+	}
 
-	// Update the status.
-	err = manager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
-		{
-			ChainSelector:        1,
-			FinalizedBlockHeight: big.NewInt(200),
-			Disabled:             true,
-		},
-	})
-	require.NoError(t, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _ = db.Exec("DELETE FROM ccv_chain_statuses")
 
-	// Read and verify updated status.
-	result, err := manager.ReadChainStatuses(ctx, []protocol.ChainSelector{1})
-	require.NoError(t, err)
-	require.Len(t, result, 1)
-
-	status := result[1]
-	assert.Equal(t, protocol.ChainSelector(1), status.ChainSelector)
-	assert.Equal(t, 0, big.NewInt(200).Cmp(status.FinalizedBlockHeight))
-	assert.True(t, status.Disabled)
-}
-
-func TestPostgresChainStatusManager_ReadEmptyResult(t *testing.T) {
-	db := setupTestDB(t)
-	lggr, err := logger.New()
-	require.NoError(t, err)
-
-	manager := NewPostgresChainStatusManager(db, lggr)
-	ctx := context.Background()
-
-	// Read non-existent chain selectors.
-	result, err := manager.ReadChainStatuses(ctx, []protocol.ChainSelector{999})
-	require.NoError(t, err)
-	require.Empty(t, result)
-}
-
-func TestPostgresChainStatusManager_WriteEmptyStatuses(t *testing.T) {
-	db := setupTestDB(t)
-	lggr, err := logger.New()
-	require.NoError(t, err)
-
-	manager := NewPostgresChainStatusManager(db, lggr)
-	ctx := context.Background()
-
-	// Write empty statuses should not error.
-	err = manager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{})
-	require.NoError(t, err)
-}
-
-func TestPostgresChainStatusManager_ReadEmptySelectors(t *testing.T) {
-	db := setupTestDB(t)
-	lggr, err := logger.New()
-	require.NoError(t, err)
-
-	manager := NewPostgresChainStatusManager(db, lggr)
-	ctx := context.Background()
-
-	// Read with empty selectors should return empty map.
-	result, err := manager.ReadChainStatuses(ctx, []protocol.ChainSelector{})
-	require.NoError(t, err)
-	require.Empty(t, result)
-}
-
-func TestPostgresChainStatusManager_WriteNilBlockHeight(t *testing.T) {
-	db := setupTestDB(t)
-	lggr, err := logger.New()
-	require.NoError(t, err)
-
-	manager := NewPostgresChainStatusManager(db, lggr)
-	ctx := context.Background()
-
-	// Write with nil block height should error.
-	err = manager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
-		{
-			ChainSelector:        1,
-			FinalizedBlockHeight: nil,
-			Disabled:             false,
-		},
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "finalized block height cannot be nil")
+			err := manager.WriteChainStatuses(ctx, tt.statuses)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.expectedErrText)
+		})
+	}
 }
