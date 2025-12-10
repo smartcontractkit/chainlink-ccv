@@ -15,14 +15,17 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
 )
 
 // NewVerificationCoordinator starts the Committee Verifier with evm chains.
 // Signing is passed in because it's managed differently in the CL node vs standalone modes.
+// The DataSource is passed in from CL node, or created by standalone mode.
 func NewVerificationCoordinator(
 	lggr logger.Logger,
 	cfg commit.Config,
@@ -30,6 +33,7 @@ func NewVerificationCoordinator(
 	signingAddress protocol.UnknownAddress,
 	signer verifier.MessageSigner,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
+	ds sqlutil.DataSource,
 ) (*verifier.Coordinator, error) {
 	if err := cfg.Validate(); err != nil {
 		lggr.Errorw("Invalid CCV verifier configuration.", "error", err)
@@ -130,19 +134,8 @@ func NewVerificationCoordinator(
 		return nil, fmt.Errorf("failed to create aggregator writer: %w", err)
 	}
 
-	aggregatorReader, err := storageaccess.NewAggregatorReader(cfg.AggregatorAddress, lggr, 0, aggregatorSecret) // since=0 for checkpoint reads
-	if err != nil {
-		// Clean up writer if reader creation fails
-		err := aggregatorWriter.Close()
-		if err != nil {
-			lggr.Errorw("Failed to close aggregator writer", "error", err)
-		}
-		lggr.Errorw("Failed to create aggregator reader", "error", err)
-		return nil, fmt.Errorf("failed to create aggregator reader: %w", err)
-	}
-
-	// Create chain status manager (includes both writer and reader)
-	chainStatusManager := storageaccess.NewAggregatorChainStatusManager(aggregatorWriter, aggregatorReader)
+	// Create chain status manager using postgres
+	chainStatusManager := chainstatus.NewPostgresChainStatusManager(ds, lggr)
 
 	coordinatorConfig := verifier.CoordinatorConfig{
 		VerifierID:          cfg.VerifierID,

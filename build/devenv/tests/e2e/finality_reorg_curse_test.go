@@ -4,14 +4,15 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"math/big"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
-
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
@@ -21,6 +22,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/logasserter"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
@@ -58,17 +61,16 @@ func TestE2EReorg(t *testing.T) {
 		defaultAggregatorClient.Close()
 	})
 
-	// Create authenticated aggregator client for reading chain status
-	// Using the same API key/secret as the verifier (configured in env.toml)
-	authenticatedAggregatorClient, err := ccv.NewAuthenticatedAggregatorClient(
-		zerolog.Ctx(ctx).With().Str("component", "authenticated-aggregator-client").Logger(),
-		defaultAggregatorAddr,
-		"dev-api-key-verifier-1",
-		"dev-secret-verifier-1",
-	)
-	require.NoError(t, err, "should be able to create authenticated aggregator client")
+	// Create chain status manager to read from the verifier's PostgreSQL database
+	chainStatusLggr, err := logger.New()
+	require.NoError(t, err)
+	// Build connection string from input (Out may not be populated when loading from cached config)
+	verifierDBConnectionString := in.Verifier[0].Out.DBConnectionString
+	chainStatusDB, err := sqlx.Connect("postgres", verifierDBConnectionString)
+	require.NoError(t, err, "should be able to connect to verifier's postgres database")
+	chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusDB, chainStatusLggr)
 	t.Cleanup(func() {
-		authenticatedAggregatorClient.Close()
+		_ = chainStatusDB.Close()
 	})
 
 	// Get the source and destination chain selectors
@@ -420,19 +422,19 @@ func TestE2EReorg(t *testing.T) {
 		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
 		verifyMessageNotExists(toBeDroppedMessageID, "Post-violation message")
 
-		l.Info().Msg("🔍 Verifying chain status in aggregator...")
+		l.Info().Msg("🔍 Verifying chain status in verifier's local storage...")
 
 		require.Eventually(t, func() bool {
-			chainStatusResp, err := authenticatedAggregatorClient.ReadChainStatus(ctx, []uint64{srcSelector})
-			require.NoError(t, err, "should be able to read chain status from aggregator")
-			require.Len(t, chainStatusResp.Statuses, 1, "should have one chain status for source chain")
+			statuses, err := chainStatusManager.ReadChainStatuses(ctx, []protocol.ChainSelector{protocol.ChainSelector(srcSelector)})
+			require.NoError(t, err, "should be able to read chain status from verifier's database")
+			require.Len(t, statuses, 1, "should have one chain status for source chain")
 
-			chainStatus := chainStatusResp.Statuses[0]
-			require.Equal(t, srcSelector, chainStatus.ChainSelector, "chain selector should match")
+			chainStatus := statuses[protocol.ChainSelector(srcSelector)]
+			require.NotNil(t, chainStatus, "chain status should exist")
 			require.True(t, chainStatus.Disabled, "chain should be marked as disabled after finality violation")
-			require.Equal(t, uint64(0), chainStatus.FinalizedBlockHeight, "finalized block height should be 0 after finality violation")
+			require.Equal(t, uint64(0), chainStatus.FinalizedBlockHeight.Uint64(), "finalized block height should be 0 after finality violation")
 
-			l.Info().Msg("✅ Chain status verified in aggregator: chain is disabled with checkpoint 0")
+			l.Info().Msg("✅ Chain status verified in verifier's local storage: chain is disabled with checkpoint 0")
 
 			return true
 		}, 3*time.Second, 100*time.Millisecond, "chain status should reflect disabled state after finality violation")
@@ -441,27 +443,25 @@ func TestE2EReorg(t *testing.T) {
 			Msg("✨ Test completed: Finality violation detected and system stopped processing new messages")
 	})
 
-	// a utility test to enable the chain again in the aggregator instead of creating a new env
+	// a utility test to enable the chain again in the database instead of creating a new env
 	t.Run("enable chain", func(t *testing.T) {
-		resp, err := authenticatedAggregatorClient.WriteChainStatus(ctx, []*pb.ChainStatus{
+		err := chainStatusManager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
 			{
-				ChainSelector:        srcSelector,
-				FinalizedBlockHeight: 0,
+				ChainSelector:        protocol.ChainSelector(srcSelector),
+				FinalizedBlockHeight: big.NewInt(0),
 				Disabled:             false,
 			},
 		})
+		require.NoError(t, err, "should be able to enable chain in database")
 
-		require.NoError(t, err, "should be able to enable chain in aggregator")
-		require.NotNil(t, resp, "response should not be nil when enabling chain")
+		statuses, err := chainStatusManager.ReadChainStatuses(ctx, []protocol.ChainSelector{protocol.ChainSelector(srcSelector)})
+		require.NoError(t, err, "should be able to read chain status from database")
+		require.Len(t, statuses, 1, "should have one chain status for source chain")
 
-		chainStatusResp, err := authenticatedAggregatorClient.ReadChainStatus(ctx, []uint64{srcSelector})
-		require.NoError(t, err, "should be able to read chain status from aggregator")
-		require.Len(t, chainStatusResp.Statuses, 1, "should have one chain status for source chain")
-
-		chainStatus := chainStatusResp.Statuses[0]
-		require.Equal(t, srcSelector, chainStatus.ChainSelector, "chain selector should match")
+		chainStatus := statuses[protocol.ChainSelector(srcSelector)]
+		require.NotNil(t, chainStatus, "chain status should exist")
 		require.False(t, chainStatus.Disabled, "chain should be enabled")
 
-		l.Info().Msg("✅ Source chain re-enabled in aggregator after being disabled from finality violation")
+		l.Info().Msg("✅ Source chain re-enabled in database after being disabled from finality violation")
 	})
 }

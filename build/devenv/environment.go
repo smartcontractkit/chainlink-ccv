@@ -783,6 +783,7 @@ func launchStandaloneVerifiers(in *Cfg) ([]*services.VerifierOutput, error) {
 			if err != nil {
 				return nil, fmt.Errorf("failed to create verifier service: %w", err)
 			}
+			ver.Out = out
 			outs = append(outs, out)
 		}
 	}

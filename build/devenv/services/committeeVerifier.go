@@ -33,7 +33,7 @@ import (
 )
 
 //go:embed committeeVerifier.template.toml
-var verifierConfigTemplate string
+var committeeVerifierConfigTemplate string
 
 const (
 	DefaultVerifierName    = "verifier"
@@ -147,7 +147,7 @@ committeeVerifierConfig = """
 }
 
 func (v *VerifierInput) buildVerifierConfiguration(config *commit.Config) error {
-	if _, err := toml.Decode(verifierConfigTemplate, &config); err != nil {
+	if _, err := toml.Decode(committeeVerifierConfigTemplate, &config); err != nil {
 		return fmt.Errorf("failed to decode verifier config template: %w", err)
 	}
 
@@ -232,7 +232,6 @@ func ApplyVerifierDefaults(in VerifierInput) VerifierInput {
 	if in.Mode == "" {
 		in.Mode = DefaultVerifierMode
 	}
-
 	return in
 }
 
@@ -260,19 +259,32 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 	_, err = postgres.Run(ctx,
 		in.DB.Image,
 		testcontainers.WithName(in.DB.Name),
-		testcontainers.WithExposedPorts("5432/tcp"),
-		testcontainers.WithHostConfigModifier(func(h *container.HostConfig) {
-			h.PortBindings = nat.PortMap{
-				"5432/tcp": []nat.PortBinding{
-					{HostPort: strconv.Itoa(in.DB.Port)},
-				},
-			}
-		}),
-		testcontainers.WithLabels(framework.DefaultTCLabels()),
-		postgres.WithDatabase(DefaultVerifierName),
-		postgres.WithUsername(DefaultVerifierName),
-		postgres.WithPassword(DefaultVerifierName),
+		postgres.WithDatabase(in.ContainerName),
+		postgres.WithUsername(in.ContainerName),
+		postgres.WithPassword(in.ContainerName),
 		postgres.WithInitScripts(filepath.Join(p, DefaultVerifierSQLInit)),
+		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
+			ContainerRequest: testcontainers.ContainerRequest{
+				Name:         in.DB.Name,
+				ExposedPorts: []string{"5432/tcp"},
+				Networks:     []string{framework.DefaultNetworkName},
+				NetworkAliases: map[string][]string{
+					framework.DefaultNetworkName: {in.DB.Name},
+				},
+				Labels: framework.DefaultTCLabels(),
+				HostConfigModifier: func(h *container.HostConfig) {
+					h.PortBindings = nat.PortMap{
+						"5432/tcp": []nat.PortBinding{
+							{HostPort: strconv.Itoa(in.DB.Port)},
+						},
+					}
+				},
+				WaitingFor: wait.ForAll(
+					wait.ForLog("database system is ready to accept connections"),
+					wait.ForListeningPort("5432/tcp"),
+				),
+			},
+		}),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %w", err)
@@ -300,6 +312,11 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 	if in.SigningKey != "" {
 		envVars["VERIFIER_SIGNER_PRIVATE_KEY"] = in.SigningKey
 	}
+
+	// Database connection for chain status (internal docker network address)
+	internalDBConnectionString := fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
+		in.ContainerName, in.ContainerName, in.DB.Name, in.ContainerName)
+	envVars["CL_DATABASE_URL"] = internalDBConnectionString
 
 	// Generate and store config file.
 	config, err := in.GenerateConfigWithBlockchainInfos(blockchainInfos)
@@ -389,10 +406,11 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 	}
 
 	return &VerifierOutput{
-		ContainerName:      in.ContainerName,
-		ExternalHTTPURL:    fmt.Sprintf("http://%s:%d", host, in.Port),
-		InternalHTTPURL:    fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
-		DBConnectionString: DefaultVerifierDBConnectionString,
+		ContainerName:   in.ContainerName,
+		ExternalHTTPURL: fmt.Sprintf("http://%s:%d", host, in.Port),
+		InternalHTTPURL: fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
+		DBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
+			in.ContainerName, in.ContainerName, in.DB.Port, in.ContainerName),
 	}, nil
 }
 

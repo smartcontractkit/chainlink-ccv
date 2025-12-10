@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
 	"go.uber.org/zap/zapcore"
 
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
@@ -20,6 +23,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -27,6 +31,19 @@ import (
 const (
 	PkEnvVar   = "VERIFIER_SIGNER_PRIVATE_KEY"
 	ConfigPath = "VERIFIER_CONFIG_PATH"
+
+	// Database environment variables.
+	DatabaseURLEnvVar             = "CL_DATABASE_URL"
+	DatabaseMaxOpenConnsEnvVar    = "CL_DATABASE_MAX_OPEN_CONNS"
+	DatabaseMaxIdleConnsEnvVar    = "CL_DATABASE_MAX_IDLE_CONNS"
+	DatabaseConnMaxLifetimeEnvVar = "CL_DATABASE_CONN_MAX_LIFETIME"
+	DatabaseConnMaxIdleTimeEnvVar = "CL_DATABASE_CONN_MAX_IDLE_TIME"
+
+	// Database defaults.
+	defaultMaxOpenConns    = 2
+	defaultMaxIdleConns    = 1
+	defaultConnMaxLifetime = 300 // seconds
+	defaultConnMaxIdleTime = 60  // seconds
 )
 
 func main() {
@@ -110,24 +127,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	aggregatorReader, err := storageaccess.NewAggregatorReader(config.AggregatorAddress, lggr, 0, hmacConfig) // since=0 for chain status reads
+	// Create chain status manager (PostgreSQL storage).
+	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr)
 	if err != nil {
-		// Clean up writer if reader creation fails
-		err := aggregatorWriter.Close()
-		if err != nil {
-			lggr.Errorw("Failed to close aggregator writer", "error", err)
-		}
-		lggr.Errorw("Failed to create aggregator reader", "error", err)
+		lggr.Errorw("Failed to create chain status manager", "error", err)
 		os.Exit(1)
 	}
-	// Create chain status manager (includes both writer and reader)
-	chainStatusManager := storageaccess.NewDefaultResilientChainStatusManager(
-		storageaccess.NewAggregatorChainStatusManager(
-			aggregatorWriter,
-			aggregatorReader,
-		),
-		lggr,
-	)
+	defer func() {
+		if chainStatusDB != nil {
+			_ = chainStatusDB.Close()
+		}
+	}()
 
 	sourceReaders := cmd.LoadBlockchainReadersForCommit(lggr, blockchainHelper, chainClients, *config)
 
@@ -298,4 +308,59 @@ func loadConfiguration(filepath string) (*commit.Config, map[string]*protocol.Bl
 		return nil, nil, err
 	}
 	return &config.Config, config.BlockchainInfos, nil
+}
+
+func createChainStatusManager(lggr logger.Logger) (protocol.ChainStatusManager, *sqlx.DB, error) {
+	dbURL := os.Getenv(DatabaseURLEnvVar)
+	if dbURL == "" {
+		return nil, nil, fmt.Errorf("%s environment variable is required", DatabaseURLEnvVar)
+	}
+
+	maxOpenConns := getEnvInt(DatabaseMaxOpenConnsEnvVar, defaultMaxOpenConns)
+	maxIdleConns := getEnvInt(DatabaseMaxIdleConnsEnvVar, defaultMaxIdleConns)
+	connMaxLifetime := getEnvInt(DatabaseConnMaxLifetimeEnvVar, defaultConnMaxLifetime)
+	connMaxIdleTime := getEnvInt(DatabaseConnMaxIdleTimeEnvVar, defaultConnMaxIdleTime)
+
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to open postgres database: %w", err)
+	}
+
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxIdleConns)
+	db.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
+	db.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Second)
+
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
+		return nil, nil, fmt.Errorf("failed to ping postgres database: %w", err)
+	}
+
+	sqlxDB := sqlx.NewDb(db, "postgres")
+
+	if err := chainstatus.RunPostgresMigrations(sqlxDB); err != nil {
+		_ = db.Close()
+		return nil, nil, fmt.Errorf("failed to run postgres migrations: %w", err)
+	}
+
+	lggr.Infow("Using PostgreSQL chain status storage",
+		"maxOpenConns", maxOpenConns,
+		"maxIdleConns", maxIdleConns,
+		"connMaxLifetime", connMaxLifetime,
+		"connMaxIdleTime", connMaxIdleTime,
+	)
+
+	return chainstatus.NewPostgresChainStatusManager(sqlxDB, lggr), sqlxDB, nil
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	val := os.Getenv(key)
+	if val == "" {
+		return defaultValue
+	}
+	intVal, err := strconv.Atoi(val)
+	if err != nil {
+		return defaultValue
+	}
+	return intVal
 }
