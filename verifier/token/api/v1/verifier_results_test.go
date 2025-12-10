@@ -58,7 +58,7 @@ func Test_VerifierResultsHandler(t *testing.T) {
 
 		req, _ := http.NewRequest(
 			"GET",
-			"/verifier/results?message_ids=0x"+hex.EncodeToString(messageID1[:]),
+			"/verifier/results?message_ids="+messageID1.String(),
 			nil,
 		)
 		w := httptest.NewRecorder()

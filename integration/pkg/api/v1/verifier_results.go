@@ -239,7 +239,7 @@ func (r *VerifierResultMessage) MarshalJSON() ([]byte, error) {
 	}
 
 	var tokenTransfer *protocol.TokenTransfer
-	if r.TokenTransfer != nil {
+	if len(r.TokenTransfer) > 0 {
 		tt, err := protocol.DecodeTokenTransfer(protocol.ByteSlice(r.TokenTransfer))
 		if err != nil {
 			return nil, err
