@@ -116,51 +116,6 @@ func (s *MetricsAwareStorage) ListOrphanedKeys(ctx context.Context) (<-chan mode
 	return resultChan, errorChan
 }
 
-const (
-	storeChainStatusesOp     = "StoreChainStatus"
-	getClientChainStatusesOp = "GetClientChainStatuses"
-	getAllClientsOp          = "GetAllClients"
-)
-
-type MetricsAwareChainStatusStorage struct {
-	inner common.ChainStatusStorageInterface
-	m     common.AggregatorMonitoring
-}
-
-func NewMetricsAwareChainStatusStorage(inner common.ChainStatusStorageInterface, m common.AggregatorMonitoring) *MetricsAwareChainStatusStorage {
-	return &MetricsAwareChainStatusStorage{
-		inner: inner,
-		m:     m,
-	}
-}
-
-func (s *MetricsAwareChainStatusStorage) metrics(ctx context.Context, operation string) common.AggregatorMetricLabeler {
-	metrics := scope.AugmentMetrics(ctx, s.m.Metrics())
-	return metrics.With(operationLabel, operation)
-}
-
-func WrapChainStatusWithMetrics(inner common.ChainStatusStorageInterface, m common.AggregatorMonitoring) common.ChainStatusStorageInterface {
-	return NewMetricsAwareChainStatusStorage(inner, m)
-}
-
-func (s *MetricsAwareChainStatusStorage) StoreChainStatus(ctx context.Context, clientID string, chainStatuses map[uint64]*common.ChainStatus) error {
-	return captureMetricsNoReturn(ctx, s.metrics(ctx, storeChainStatusesOp), func() error {
-		return s.inner.StoreChainStatus(ctx, clientID, chainStatuses)
-	})
-}
-
-func (s *MetricsAwareChainStatusStorage) GetClientChainStatus(ctx context.Context, clientID string, chainSelectors []uint64) (map[uint64]*common.ChainStatus, error) {
-	return captureMetrics(ctx, s.metrics(ctx, getClientChainStatusesOp), func() (map[uint64]*common.ChainStatus, error) {
-		return s.inner.GetClientChainStatus(ctx, clientID, chainSelectors)
-	})
-}
-
-func (s *MetricsAwareChainStatusStorage) GetAllClients(ctx context.Context) ([]string, error) {
-	return captureMetrics(ctx, s.metrics(ctx, getAllClientsOp), func() ([]string, error) {
-		return s.inner.GetAllClients(ctx)
-	})
-}
-
 func captureMetrics[T any](ctx context.Context, metrics common.AggregatorMetricLabeler, fn func() (T, error)) (T, error) {
 	now := time.Now()
 	defer func() {

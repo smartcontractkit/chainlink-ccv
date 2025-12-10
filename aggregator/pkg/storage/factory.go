@@ -55,62 +55,6 @@ func (f *Factory) CreateStorage(config *model.StorageConfig, monitoring common.A
 	}
 }
 
-func (f *Factory) CreateChainStatusStorage(config *model.StorageConfig, monitoring common.AggregatorMonitoring) (common.ChainStatusStorageInterface, error) {
-	switch config.StorageType {
-	case model.StorageTypeMemory:
-		return memory.NewChainStatusStorage(), nil
-	case model.StorageTypePostgreSQL:
-		if config.ConnectionURL == "" {
-			return nil, fmt.Errorf("PostgreSQL connection URL is required")
-		}
-
-		db, err := sql.Open(postgresDriver, config.ConnectionURL)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open PostgreSQL database: %w", err)
-		}
-
-		// Configure connection pool settings
-		maxOpenConns := config.MaxOpenConns
-		if maxOpenConns <= 0 {
-			maxOpenConns = defaultMaxOpenConns
-		}
-		db.SetMaxOpenConns(maxOpenConns)
-
-		maxIdleConns := config.MaxIdleConns
-		if maxIdleConns <= 0 {
-			maxIdleConns = defaultMaxIdleConns
-		}
-		db.SetMaxIdleConns(maxIdleConns)
-
-		connMaxLifetime := config.ConnMaxLifetime
-		if connMaxLifetime <= 0 {
-			connMaxLifetime = defaultConnMaxLifetime
-		}
-		db.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
-
-		connMaxIdleTime := config.ConnMaxIdleTime
-		if connMaxIdleTime <= 0 {
-			connMaxIdleTime = defaultConnMaxIdleTime
-		}
-		db.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Second)
-
-		if err := db.Ping(); err != nil {
-			return nil, fmt.Errorf("failed to ping PostgreSQL database: %w", err)
-		}
-
-		// Create sqlx wrapper for sqlutil.DataSource compatibility
-		sqlxDB := sqlx.NewDb(db, postgresDriver)
-		// Run PostgreSQL migrations
-		err = postgres.RunMigrations(sqlxDB, postgresDriver)
-		if err != nil {
-			return nil, fmt.Errorf("failed to run PostgreSQL migrations: %w", err)
-		}
-		return postgres.NewDatabaseChainStatusStorage(sqlxDB), nil
-	default:
-		return nil, fmt.Errorf("unsupported chain status storage type: %s", config.StorageType)
-	}
-}
-
 // createPostgreSQLStorage creates a PostgreSQL-backed storage instance.
 func (f *Factory) createPostgreSQLStorage(config *model.StorageConfig) (CommitVerificationStorage, error) {
 	if config.ConnectionURL == "" {

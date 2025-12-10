@@ -9,9 +9,6 @@ enabled = true
 [storage]
 type = "postgres"
 
-[chainStatuses]
-maxChainStatusesPerRequest = 100
-
 [orphanRecovery]
 enabled = false
 intervalSeconds = 300
@@ -35,8 +32,6 @@ key_prefix = "ratelimit"
 # Group-based rate limits (more restrictive than defaults for specific groups)
 [rateLimiting.groupLimits.verifiers]
 "/chainlink_ccv.v1.CommitteeVerifier/BatchWriteCommitteeVerifierNodeResult" = { limit_per_minute = 6000 }
-"/chainlink_ccv.v1.CommitteeVerifier/WriteChainStatus" = { limit_per_minute = 60 }
-"/chainlink_ccv.v1.CommitteeVerifier/ReadChainStatus" = { limit_per_minute = 60 }
 
 [rateLimiting.groupLimits.monitoring]
 "/chainlink_ccv.v1.MessageDiscovery/GetMessagesSince" = { limit_per_minute = 200 }
