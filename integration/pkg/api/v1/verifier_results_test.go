@@ -82,6 +82,20 @@ func TestVerifierResultsMetadata_RoundTrip(t *testing.T) {
 			assert.Equal(t, tt.metadata.VerifierDestAddress, got.VerifierDestAddress)
 		})
 	}
+
+	t.Run("with invalid addresses", func(t *testing.T) {
+		malformedJSON := `{
+			"timestamp": 1234567890,
+			"verifier_source_address": "0xGGGG",
+			"verifier_dest_address": "0x040506"
+		}`
+
+		var metadata VerifierResultsMetadata
+		err := json.Unmarshal([]byte(malformedJSON), &metadata)
+
+		require.Error(t, err)
+		require.ErrorContains(t, err, "failed to decode hex")
+	})
 }
 
 func TestVerifierResultsMetadata_SchemaCompatibility(t *testing.T) {
