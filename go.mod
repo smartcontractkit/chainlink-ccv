@@ -53,7 +53,6 @@ require (
 	github.com/redis/go-redis/v9 v9.0.4
 	github.com/smartcontractkit/chainlink-framework/chains v0.0.0-20250717121125-2350c82883e2
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8
-	github.com/spf13/cobra v1.10.1
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.39.0
 	golang.org/x/crypto v0.42.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250804133106-a7a43d27e69b
@@ -146,7 +145,6 @@ require (
 	github.com/holiman/bloomfilter/v2 v2.0.3 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/huin/goupnp v1.3.0 // indirect
-	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/influxdata/tdigest v0.0.1 // indirect
 	github.com/invopop/jsonschema v0.13.0 // indirect
 	github.com/jackc/chunkreader/v2 v2.0.1 // indirect
@@ -222,7 +220,6 @@ require (
 	github.com/smartcontractkit/freeport v0.1.3-0.20250716200817-cb5dfd0e369e // indirect
 	github.com/smartcontractkit/grpc-proxy v0.0.0-20240830132753-a7e17fec5ab7 // indirect
 	github.com/smartcontractkit/libocr v0.0.0-20250905115425-2785a5cee79d // indirect
-	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/supranational/blst v0.3.16-0.20250831170142-f48500c1fdbe // indirect
 	github.com/syndtr/goleveldb v1.0.1-0.20220721030215-126854af5e6d // indirect
