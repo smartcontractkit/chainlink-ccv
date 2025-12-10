@@ -12,6 +12,7 @@ import (
 // Exported types wrapping the generated protobuf types. The main purpose is to implement custom
 // JSON marshaling/unmarshalling logic while remaining compatible with the generated protobuf types.
 // That way we can assure compatibility between gRPC and REST API representations.
+// Wrapping is required to implement marshalJSON/unmarshalJSON methods without modifying the generated code.
 
 type VerifierResultsResponse struct {
 	*v1.GetVerifierResultsForMessageResponse
@@ -53,25 +54,6 @@ type verifierResultsMetadataJSON struct {
 	Timestamp             int64                   `json:"timestamp,omitempty"`
 	VerifierSourceAddress protocol.UnknownAddress `json:"verifier_source_address,omitempty"`
 	VerifierDestAddress   protocol.UnknownAddress `json:"verifier_dest_address,omitempty"`
-}
-
-// verifierResultMessageJSON represents the JSON structure for VerifierResultMessage / v1.Message.
-type verifierResultMessageJSON struct {
-	Sender              protocol.UnknownAddress `json:"sender"`
-	Data                protocol.ByteSlice      `json:"data"`
-	OnRampAddress       protocol.UnknownAddress `json:"on_ramp_address"`
-	TokenTransfer       protocol.ByteSlice      `json:"token_transfer"`
-	OffRampAddress      protocol.UnknownAddress `json:"off_ramp_address"`
-	DestBlob            protocol.ByteSlice      `json:"dest_blob"`
-	Receiver            protocol.UnknownAddress `json:"receiver"`
-	SourceChainSelector uint64                  `json:"source_chain_selector"`
-	DestChainSelector   uint64                  `json:"dest_chain_selector"`
-	SequenceNumber      uint64                  `json:"sequence_number"`
-	ExecutionGasLimit   uint32                  `json:"execution_gas_limit"`
-	CcipReceiveGasLimit uint32                  `json:"ccip_receive_gas_limit"`
-	Finality            uint32                  `json:"finality"`
-	CcvAndExecutorHash  protocol.Bytes32        `json:"ccv_and_executor_hash"`
-	Version             uint8                   `json:"version"`
 }
 
 func NewVerifierResultsResponse(
@@ -256,49 +238,64 @@ func (r *VerifierResultMessage) MarshalJSON() ([]byte, error) {
 		ccvAndExecutorHash = protocol.Bytes32(r.CcvAndExecutorHash)
 	}
 
+	var tokenTransfer *protocol.TokenTransfer
+	if r.TokenTransfer != nil {
+		tt, err := protocol.DecodeTokenTransfer(protocol.ByteSlice(r.TokenTransfer))
+		if err != nil {
+			return nil, err
+		}
+		tokenTransfer = tt
+	}
+
 	return json.Marshal(
-		verifierResultMessageJSON{
+		protocol.Message{
 			//nolint:gosec // proto types use uint32 for Version, but we want uint8 in JSON
 			Version:             uint8(r.Version),
-			SourceChainSelector: r.SourceChainSelector,
-			DestChainSelector:   r.DestChainSelector,
-			SequenceNumber:      r.SequenceNumber,
+			SourceChainSelector: protocol.ChainSelector(r.SourceChainSelector),
+			DestChainSelector:   protocol.ChainSelector(r.DestChainSelector),
+			SequenceNumber:      protocol.SequenceNumber(r.SequenceNumber),
 			OnRampAddress:       r.OnRampAddress,
 			OffRampAddress:      protocol.UnknownAddress(r.OffRampAddress),
-			Finality:            r.Finality,
+			//nolint:gosec // proto types use uint32 for Finality, but we want uint16 in JSON
+			Finality:            uint16(r.Finality),
 			ExecutionGasLimit:   r.ExecutionGasLimit,
 			CcipReceiveGasLimit: r.CcipReceiveGasLimit,
 			CcvAndExecutorHash:  ccvAndExecutorHash,
 			Sender:              protocol.UnknownAddress(r.Sender),
 			Receiver:            protocol.UnknownAddress(r.Receiver),
 			DestBlob:            protocol.ByteSlice(r.DestBlob),
-			TokenTransfer:       protocol.ByteSlice(r.TokenTransfer),
+			TokenTransfer:       tokenTransfer,
 			Data:                protocol.ByteSlice(r.Data),
 		},
 	)
 }
 
 func (r *VerifierResultMessage) UnmarshalJSON(data []byte) error {
-	var aux verifierResultMessageJSON
+	var aux protocol.Message
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
 	}
 
+	var tokenTransferBytes []byte
+	if aux.TokenTransfer != nil {
+		tokenTransferBytes = aux.TokenTransfer.Encode()
+	}
+
 	r.Message = &v1.Message{
 		Version:             uint32(aux.Version),
-		SourceChainSelector: aux.SourceChainSelector,
-		DestChainSelector:   aux.DestChainSelector,
-		SequenceNumber:      aux.SequenceNumber,
+		SourceChainSelector: uint64(aux.SourceChainSelector),
+		DestChainSelector:   uint64(aux.DestChainSelector),
+		SequenceNumber:      uint64(aux.SequenceNumber),
 		OnRampAddress:       aux.OnRampAddress.Bytes(),
 		OffRampAddress:      aux.OffRampAddress.Bytes(),
-		Finality:            aux.Finality,
+		Finality:            uint32(aux.Finality),
 		ExecutionGasLimit:   aux.ExecutionGasLimit,
 		CcipReceiveGasLimit: aux.CcipReceiveGasLimit,
 		CcvAndExecutorHash:  aux.CcvAndExecutorHash[:],
 		Sender:              aux.Sender.Bytes(),
 		Receiver:            aux.Receiver.Bytes(),
 		DestBlob:            aux.DestBlob,
-		TokenTransfer:       aux.TokenTransfer,
+		TokenTransfer:       tokenTransferBytes,
 		Data:                aux.Data,
 	}
 	return nil
