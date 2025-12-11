@@ -220,8 +220,7 @@ func (a *AggregatorClient) WaitForVerifierResultForMessage(
 				a.logger.Info().
 					Str("messageID", msgIDHex).
 					Int("ccvDataLen", len(result.CcvData)).
-					Str("result", string(r)).
-					Msg("found verifier result for messageID in aggregator")
+					Msg("found verifier result for messageID in aggregator " + string(r))
 				return result, nil
 			}
 			a.logger.Error().Msgf("no verifier result found for messageID: %s, retrying", msgIDHex)
