@@ -663,6 +663,94 @@ func TestVerifierResultsResponse_SchemaCompatibility(t *testing.T) {
 	})
 }
 
+func TestVerifierResultsResponse_ToVerifierResults_HandlesNilResults(t *testing.T) {
+	t.Run("skips nil results without panicking", func(t *testing.T) {
+		// This test simulates the aggregator response when some message IDs are not found.
+		// The aggregator returns nil entries in Results array for not-found messages.
+		response := &VerifierResultsResponse{
+			GetVerifierResultsForMessageResponse: &v1.GetVerifierResultsForMessageResponse{
+				Results: []*v1.VerifierResult{
+					nil, // First message not found
+					{
+						Message: &v1.Message{
+							Version:             1,
+							SourceChainSelector: 100,
+							DestChainSelector:   200,
+							SequenceNumber:      42,
+							OnRampAddress:       []byte{0x01, 0x02, 0x03},
+							OffRampAddress:      []byte{0x04, 0x05, 0x06},
+							Finality:            10,
+							ExecutionGasLimit:   200000,
+							CcipReceiveGasLimit: 150000,
+							CcvAndExecutorHash:  make([]byte, 32),
+							Sender:              []byte{0x07, 0x08, 0x09},
+							Receiver:            []byte{0x0a, 0x0b, 0x0c},
+							DestBlob:            []byte{0x0d, 0x0e},
+							Data:                []byte{0x10, 0x11},
+							OnRampAddressLength: 3,
+							SenderLength:        3,
+							ReceiverLength:      3,
+							DestBlobLength:      2,
+							DataLength:          2,
+						},
+						MessageCcvAddresses:    [][]byte{{0x13, 0x14, 0x15}},
+						MessageExecutorAddress: []byte{0x16, 0x17, 0x18},
+						CcvData:                []byte{0x19, 0x1a, 0x1b},
+						Metadata: &v1.VerifierResultMetadata{
+							Timestamp:             1234567890,
+							VerifierSourceAddress: []byte{0xa1, 0xa2},
+							VerifierDestAddress:   []byte{0xb1, 0xb2},
+						},
+					},
+					nil, // Third message not found
+				},
+				Errors: []*status.Status{
+					{Code: 5, Message: "message ID not found"},
+					{Code: 0, Message: ""},
+					{Code: 5, Message: "message ID not found"},
+				},
+			},
+		}
+
+		results, err := response.ToVerifierResults()
+
+		require.NoError(t, err)
+		require.Len(t, results, 1, "should only contain the one valid result")
+	})
+
+	t.Run("returns empty map when all results are nil", func(t *testing.T) {
+		response := &VerifierResultsResponse{
+			GetVerifierResultsForMessageResponse: &v1.GetVerifierResultsForMessageResponse{
+				Results: []*v1.VerifierResult{nil, nil, nil},
+				Errors: []*status.Status{
+					{Code: 5, Message: "message ID not found"},
+					{Code: 5, Message: "message ID not found"},
+					{Code: 5, Message: "message ID not found"},
+				},
+			},
+		}
+
+		results, err := response.ToVerifierResults()
+
+		require.NoError(t, err)
+		require.Empty(t, results)
+	})
+
+	t.Run("handles empty results array", func(t *testing.T) {
+		response := &VerifierResultsResponse{
+			GetVerifierResultsForMessageResponse: &v1.GetVerifierResultsForMessageResponse{
+				Results: []*v1.VerifierResult{},
+				Errors:  []*status.Status{},
+			},
+		}
+
+		results, err := response.ToVerifierResults()
+
+		require.NoError(t, err)
+		require.Empty(t, results)
+	})
+}
+
 func TestVerifierResultMessage_RoundTrip(t *testing.T) {
 	tests := []struct {
 		name    string
