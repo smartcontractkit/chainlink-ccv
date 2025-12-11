@@ -252,7 +252,7 @@ func createConfigPR(gh *github.Client, ctx context.Context, cldDomain string, ag
 		return "", fmt.Errorf("failed to marshal aggregator config to YAML: %w", err)
 	}
 
-	aggFile, _, _, _ := gh.Repositories.GetContents(ctx, "smartcontractkit", "infra-k8s", fmt.Sprintf("projects/chainlink-ccv/files/aggregator/aggregator-config.yaml"), &github.RepositoryContentGetOptions{})
+	aggFile, _, _, _ := gh.Repositories.GetContents(ctx, "smartcontractkit", "infra-k8s", "projects/chainlink-ccv/files/aggregator/aggregator-config.yaml", &github.RepositoryContentGetOptions{})
 	aggSHA := aggFile.GetSHA()
 
 	opts := &github.RepositoryContentFileOptions{
