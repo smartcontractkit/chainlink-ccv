@@ -16,6 +16,11 @@ import (
 // JSON marshaling/unmarshalling logic while remaining compatible with the generated protobuf types.
 // That way we can assure compatibility between gRPC and REST API representations.
 // Wrapping is required to implement marshalJSON/unmarshalJSON methods without modifying the generated code.
+//
+// Additionally, types here are convertible to protocol ones (and back)
+// * VerifierResultsResponse -> map[protocol.Bytes32]protocol.VerifierResult
+// * VerifierResult <-> protocol.VerifierResult
+// * VerifierResultMessage <-> protocol.VerifierResultMessage
 
 type VerifierResultsResponse struct {
 	*v1.GetVerifierResultsForMessageResponse
