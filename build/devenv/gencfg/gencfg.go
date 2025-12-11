@@ -188,7 +188,7 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 	ccv.Plog.Info().Str("file-path", filePath).Msg("Wrote aggregator config to file")
 
 	if createPR {
-		prURL, err := createConfigPR(gh, ctx, tempDir, cldDomain, aggregatorConfig)
+		prURL, err := createConfigPR(gh, ctx, cldDomain, aggregatorConfig)
 		if err != nil {
 			return "", fmt.Errorf("failed to create config PR: %w", err)
 		}
@@ -198,7 +198,7 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 	return tempDir, nil
 }
 
-func createConfigPR(gh *github.Client, ctx context.Context, tempDir, cldDomain string, aggregatorConfig []byte) (string, error) {
+func createConfigPR(gh *github.Client, ctx context.Context, cldDomain string, aggregatorConfig []byte) (string, error) {
 	// Create a new branch, add the aggregator config file and open a PR
 	owner := "smartcontractkit"
 	repo := "infra-k8s"
@@ -252,10 +252,14 @@ func createConfigPR(gh *github.Client, ctx context.Context, tempDir, cldDomain s
 		return "", fmt.Errorf("failed to marshal aggregator config to YAML: %w", err)
 	}
 
+	aggFile, _, _, _ := gh.Repositories.GetContents(ctx, "smartcontractkit", "infra-k8s", "projects/chainlink-ccv/files/aggregator/aggregator-config.yaml", &github.RepositoryContentGetOptions{})
+	aggSHA := aggFile.GetSHA()
+
 	opts := &github.RepositoryContentFileOptions{
 		Message: github.Ptr(commitMsg),
 		Content: aggFileContent,
 		Branch:  github.Ptr(branchName),
+		SHA:     github.Ptr(aggSHA),
 	}
 	_, _, err = gh.Repositories.CreateFile(ctx, owner, repo, aggPath, opts)
 	if err != nil {
