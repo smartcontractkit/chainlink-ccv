@@ -214,9 +214,11 @@ func (a *AggregatorClient) WaitForVerifierResultForMessage(
 				continue
 			}
 			if result != nil && len(result.CcvData) > 0 {
+				r, _ := json.Marshal(result)
 				a.logger.Info().
 					Str("messageID", msgIDHex).
 					Int("ccvDataLen", len(result.CcvData)).
+					Str("result", string(r)).
 					Msg("found verifier result for messageID in aggregator")
 				return result, nil
 			}
