@@ -162,7 +162,7 @@ func NewVerifierResult(r protocol.VerifierResult) VerifierResult {
 			MessageExecutorAddress: r.MessageExecutorAddress,
 			CcvData:                r.CCVData,
 			Metadata: &v1.VerifierResultMetadata{
-				Timestamp:             r.Timestamp.Unix(),
+				Timestamp:             r.Timestamp.UnixMilli(),
 				VerifierSourceAddress: r.VerifierSourceAddress,
 				VerifierDestAddress:   r.VerifierDestAddress,
 			},
@@ -232,7 +232,7 @@ func (r *VerifierResult) ToVerifierResult() (protocol.VerifierResult, error) {
 	var verifierDestAddress protocol.UnknownAddress
 	var verifierSourceAddress protocol.UnknownAddress
 	if r.Metadata != nil {
-		timestamp = time.Unix(r.Metadata.Timestamp, 0)
+		timestamp = time.UnixMilli(r.Metadata.Timestamp)
 		verifierDestAddress = r.Metadata.VerifierDestAddress
 		verifierSourceAddress = r.Metadata.VerifierSourceAddress
 	}
