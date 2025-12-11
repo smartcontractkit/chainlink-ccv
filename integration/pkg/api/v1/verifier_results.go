@@ -332,6 +332,10 @@ func (r *VerifierResultMessage) UnmarshalJSON(data []byte) error {
 }
 
 func (r *VerifierResultMessage) ToMessage() (protocol.Message, error) {
+	if r.Message == nil {
+		return protocol.Message{}, fmt.Errorf("cannot convert nil Message to protocol.Message")
+	}
+
 	ccvAndExecutorHash := protocol.Bytes32{}
 
 	if r.CcvAndExecutorHash != nil {
