@@ -329,7 +329,7 @@ func Test_HTTPClient_RateLimiting_Parallel(t *testing.T) {
 			client, err := newHTTPClient(logger.Test(t), attestationURI.String(), tc.rateConfig, longTimeout, 0)
 			require.NoError(t, err)
 
-			ctx := context.Background()
+			ctx := t.Context()
 			if tc.timeout > 0 {
 				var cf context.CancelFunc
 				ctx, cf = context.WithTimeout(ctx, tc.timeout)
