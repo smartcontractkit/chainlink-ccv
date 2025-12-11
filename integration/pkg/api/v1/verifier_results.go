@@ -220,7 +220,7 @@ func (r *VerifierResult) UnmarshalJSON(data []byte) error {
 func (r *VerifierResult) ToVerifierResult() (protocol.VerifierResult, error) {
 	message, err := (&VerifierResultMessage{Message: r.Message}).ToMessage()
 	if err != nil {
-		return protocol.VerifierResult{}, fmt.Errorf("failed to convert ve to VerifierResultMessage to Message: %w", err)
+		return protocol.VerifierResult{}, fmt.Errorf("failed to convert VerifierResultMessage to Message: %w", err)
 	}
 
 	messageID, err := message.MessageID()
