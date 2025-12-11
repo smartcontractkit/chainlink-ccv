@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -154,8 +153,7 @@ func (i *IndexerClient) GetVerificationsForMessageID(ctx context.Context, messag
 	var response GetVerificationsForMessageIDResponse
 	err = json.NewDecoder(resp.Body).Decode(&response)
 	if err != nil {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return GetVerificationsForMessageIDResponse{}, fmt.Errorf("failed to decode response into struct: %w %s", err, string(bodyBytes))
+		return GetVerificationsForMessageIDResponse{}, fmt.Errorf("failed to decode response into struct: %w", err)
 	}
 
 	if response.MessageID.String() != msgIDHex {
@@ -216,11 +214,10 @@ func (a *AggregatorClient) WaitForVerifierResultForMessage(
 				continue
 			}
 			if result != nil && len(result.CcvData) > 0 {
-				r, _ := json.Marshal(result)
 				a.logger.Info().
 					Str("messageID", msgIDHex).
 					Int("ccvDataLen", len(result.CcvData)).
-					Msg("found verifier result for messageID in aggregator " + string(r))
+					Msg("found verifier result for messageID in aggregator")
 				return result, nil
 			}
 			a.logger.Error().Msgf("no verifier result found for messageID: %s, retrying", msgIDHex)
