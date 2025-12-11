@@ -18,9 +18,11 @@ import (
 // Wrapping is required to implement marshalJSON/unmarshalJSON methods without modifying the generated code.
 //
 // Additionally, types here are convertible to protocol ones (and back)
-// * VerifierResultsResponse -> map[protocol.Bytes32]protocol.VerifierResult
-// * VerifierResult <-> protocol.VerifierResult
-// * VerifierResultMessage <-> protocol.VerifierResultMessage
+// * VerifierResultsResponse -- ToVerifierResults() --> map[protocol.Bytes32]protocol.VerifierResult
+// * VerifierResult -- ToVerifierResult() --> protocol.VerifierResult
+// * VerifierResult <-- NewVerifierResult() -- protocol.VerifierResult
+// * VerifierResultMessage -- ToMessage() -> protocol.VerifierResultMessage
+// * VerifierResultMessage <-- NewVerifierResultMessage() -- protocol.VerifierResultMessage
 
 type VerifierResultsResponse struct {
 	*v1.GetVerifierResultsForMessageResponse
