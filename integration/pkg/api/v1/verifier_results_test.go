@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -901,4 +902,207 @@ func assertProtocolMessagesEqual(t *testing.T, expected, actual *protocol.Messag
 		assert.Equal(t, expected.TokenTransfer.ExtraDataLength, actual.TokenTransfer.ExtraDataLength)
 		assert.Equal(t, expected.TokenTransfer.ExtraData, actual.TokenTransfer.ExtraData)
 	}
+}
+
+func TestVerifierResult_RoundTrip(t *testing.T) {
+	tests := []struct {
+		name           string
+		verifierResult protocol.VerifierResult
+	}{
+		{
+			name:           "comprehensive verifier result with all fields",
+			verifierResult: createComprehensiveVerifierResult(t),
+		},
+		{
+			name:           "verifier result with multiple CCV addresses",
+			verifierResult: createVerifierResultWithMultipleCCVAddresses(t),
+		},
+		{
+			name:           "verifier result with minimal fields",
+			verifierResult: createMinimalVerifierResult(t),
+		},
+		{
+			name:           "verifier result with empty CCV data",
+			verifierResult: createVerifierResultWithEmptyCCVData(t),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Step 1: Get original message ID
+			originalID := tt.verifierResult.MessageID
+
+			// Step 2: Convert protocol.VerifierResult to VerifierResult
+			verifierResult := NewVerifierResult(tt.verifierResult)
+			require.NotNil(t, verifierResult.VerifierResult)
+
+			// Step 3: Convert back to protocol.VerifierResult
+			convertedResult, err := verifierResult.ToVerifierResult()
+			require.NoError(t, err)
+
+			convertedID := convertedResult.MessageID
+			assert.Equal(t, originalID, convertedID, "MessageID should remain identical after round-trip conversion")
+			assertVerifierResultsEqual(t, &tt.verifierResult, &convertedResult)
+		})
+	}
+}
+
+func createComprehensiveVerifierResult(t *testing.T) protocol.VerifierResult {
+	t.Helper()
+
+	message := createMinimalMessage(t)
+	messageID, err := message.MessageID()
+	require.NoError(t, err)
+
+	ccvAddr1, err := protocol.RandomAddress()
+	require.NoError(t, err)
+	ccvAddr2, err := protocol.RandomAddress()
+	require.NoError(t, err)
+	ccvAddr3, err := protocol.RandomAddress()
+	require.NoError(t, err)
+
+	executorAddr, err := protocol.RandomAddress()
+	require.NoError(t, err)
+
+	verifierSourceAddr, err := protocol.RandomAddress()
+	require.NoError(t, err)
+
+	verifierDestAddr, err := protocol.RandomAddress()
+	require.NoError(t, err)
+
+	ccvData := make([]byte, 100)
+	for i := range ccvData {
+		ccvData[i] = byte(i)
+	}
+
+	return protocol.VerifierResult{
+		MessageID:              messageID,
+		Message:                *message,
+		MessageCCVAddresses:    []protocol.UnknownAddress{ccvAddr1, ccvAddr2, ccvAddr3},
+		MessageExecutorAddress: executorAddr,
+		CCVData:                ccvData,
+		Timestamp:              time.Date(2024, 6, 15, 12, 30, 45, 0, time.UTC),
+		VerifierSourceAddress:  verifierSourceAddr,
+		VerifierDestAddress:    verifierDestAddr,
+	}
+}
+
+func createVerifierResultWithMultipleCCVAddresses(t *testing.T) protocol.VerifierResult {
+	t.Helper()
+
+	message := createMinimalMessage(t)
+	messageID, err := message.MessageID()
+	require.NoError(t, err)
+
+	ccvAddresses := make([]protocol.UnknownAddress, 5)
+	for i := range ccvAddresses {
+		addr, err := protocol.RandomAddress()
+		require.NoError(t, err)
+		ccvAddresses[i] = addr
+	}
+
+	executorAddr, err := protocol.RandomAddress()
+	require.NoError(t, err)
+
+	verifierSourceAddr, err := protocol.RandomAddress()
+	require.NoError(t, err)
+
+	verifierDestAddr, err := protocol.RandomAddress()
+	require.NoError(t, err)
+
+	ccvData := make([]byte, 256)
+	for i := range ccvData {
+		ccvData[i] = byte(i % 256)
+	}
+
+	return protocol.VerifierResult{
+		MessageID:              messageID,
+		Message:                *message,
+		MessageCCVAddresses:    ccvAddresses,
+		MessageExecutorAddress: executorAddr,
+		CCVData:                ccvData,
+		Timestamp:              time.Date(2024, 12, 31, 23, 59, 59, 0, time.UTC),
+		VerifierSourceAddress:  verifierSourceAddr,
+		VerifierDestAddress:    verifierDestAddr,
+	}
+}
+
+func createMinimalVerifierResult(t *testing.T) protocol.VerifierResult {
+	t.Helper()
+
+	message := createMinimalMessage(t)
+	messageID, err := message.MessageID()
+	require.NoError(t, err)
+
+	ccvAddr, err := protocol.RandomAddress()
+	require.NoError(t, err)
+
+	executorAddr, err := protocol.RandomAddress()
+	require.NoError(t, err)
+
+	verifierSourceAddr, err := protocol.RandomAddress()
+	require.NoError(t, err)
+
+	verifierDestAddr, err := protocol.RandomAddress()
+	require.NoError(t, err)
+
+	return protocol.VerifierResult{
+		MessageID:              messageID,
+		Message:                *message,
+		MessageCCVAddresses:    []protocol.UnknownAddress{ccvAddr},
+		MessageExecutorAddress: executorAddr,
+		CCVData:                []byte{0x01, 0x02, 0x03},
+		Timestamp:              time.Unix(1000000000, 0),
+		VerifierSourceAddress:  verifierSourceAddr,
+		VerifierDestAddress:    verifierDestAddr,
+	}
+}
+
+func createVerifierResultWithEmptyCCVData(t *testing.T) protocol.VerifierResult {
+	t.Helper()
+
+	message := createMinimalMessage(t)
+	messageID, err := message.MessageID()
+	require.NoError(t, err)
+
+	ccvAddr, err := protocol.RandomAddress()
+	require.NoError(t, err)
+
+	executorAddr, err := protocol.RandomAddress()
+	require.NoError(t, err)
+
+	verifierSourceAddr, err := protocol.RandomAddress()
+	require.NoError(t, err)
+
+	verifierDestAddr, err := protocol.RandomAddress()
+	require.NoError(t, err)
+
+	return protocol.VerifierResult{
+		MessageID:              messageID,
+		Message:                *message,
+		MessageCCVAddresses:    []protocol.UnknownAddress{ccvAddr},
+		MessageExecutorAddress: executorAddr,
+		CCVData:                []byte{},
+		Timestamp:              time.Unix(1234567890, 0),
+		VerifierSourceAddress:  verifierSourceAddr,
+		VerifierDestAddress:    verifierDestAddr,
+	}
+}
+
+func assertVerifierResultsEqual(t *testing.T, expected, actual *protocol.VerifierResult) {
+	t.Helper()
+
+	assert.Equal(t, expected.MessageID, actual.MessageID, "MessageID should be equal")
+	assertProtocolMessagesEqual(t, &expected.Message, &actual.Message)
+
+	require.Equal(t, len(expected.MessageCCVAddresses), len(actual.MessageCCVAddresses), "CCV addresses count should match")
+	for i := range expected.MessageCCVAddresses {
+		assert.Equal(t, expected.MessageCCVAddresses[i], actual.MessageCCVAddresses[i], "CCV address at index %d should match", i)
+	}
+
+	assert.Equal(t, expected.MessageExecutorAddress, actual.MessageExecutorAddress, "Executor address should match")
+	assert.Equal(t, expected.CCVData, actual.CCVData, "CCV data should match")
+	assert.Equal(t, expected.Timestamp.Unix(), actual.Timestamp.Unix(), "Timestamp should match")
+	assert.Equal(t, expected.VerifierSourceAddress, actual.VerifierSourceAddress, "Verifier source address should match")
+	assert.Equal(t, expected.VerifierDestAddress, actual.VerifierDestAddress, "Verifier dest address should match")
 }

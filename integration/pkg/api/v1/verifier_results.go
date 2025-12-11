@@ -230,7 +230,7 @@ func (r *VerifierResult) ToVerifierResult() (protocol.VerifierResult, error) {
 	var verifierDestAddress protocol.UnknownAddress
 	var verifierSourceAddress protocol.UnknownAddress
 	if r.Metadata != nil {
-		timestamp = time.UnixMilli(r.Metadata.Timestamp)
+		timestamp = time.Unix(r.Metadata.Timestamp, 0)
 		verifierDestAddress = r.Metadata.VerifierDestAddress
 		verifierSourceAddress = r.Metadata.VerifierSourceAddress
 	}
