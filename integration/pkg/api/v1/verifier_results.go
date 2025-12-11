@@ -134,6 +134,11 @@ func (r *VerifierResultsResponse) ToVerifierResults() (map[protocol.Bytes32]prot
 	mappedResults := make(map[protocol.Bytes32]protocol.VerifierResult)
 
 	for i, responseResult := range r.Results {
+		// Response is nil if message not found in aggregator
+		if responseResult == nil {
+			continue
+		}
+
 		result, err := (&VerifierResult{VerifierResult: responseResult}).ToVerifierResult()
 		if err != nil {
 			return nil, fmt.Errorf("error mapping message at index %d: %w", i, err)
@@ -332,10 +337,6 @@ func (r *VerifierResultMessage) UnmarshalJSON(data []byte) error {
 }
 
 func (r *VerifierResultMessage) ToMessage() (protocol.Message, error) {
-	if r.Message == nil {
-		return protocol.Message{}, fmt.Errorf("cannot convert nil Message to protocol.Message")
-	}
-
 	ccvAndExecutorHash := protocol.Bytes32{}
 
 	if r.CcvAndExecutorHash != nil {
