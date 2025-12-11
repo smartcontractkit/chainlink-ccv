@@ -14,6 +14,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
+	v1 "github.com/smartcontractkit/chainlink-ccv/integration/pkg/api/v1"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
 )
@@ -57,7 +58,7 @@ func Test_VerifierResultsHandler(t *testing.T) {
 
 		req, _ := http.NewRequest(
 			"GET",
-			"/verifier/results?message_ids=0x"+hex.EncodeToString(messageID1[:]),
+			"/verifier/results?message_ids="+messageID1.String(),
 			nil,
 		)
 		w := httptest.NewRecorder()
@@ -66,7 +67,7 @@ func Test_VerifierResultsHandler(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var response VerifierResultsResponse
+		var response v1.VerifierResultsResponse
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
@@ -83,16 +84,23 @@ func Test_VerifierResultsHandler(t *testing.T) {
 					"source_chain_selector": 1,
 					"dest_chain_selector": 2,
 					"sequence_number": 10,
+					"on_ramp_address_length": 0,
 					"on_ramp_address": "0x010203",
+					"off_ramp_address_length": 0,
 					"off_ramp_address": "0x040506",
 					"finality": 10,
 					"execution_gas_limit": 200000,
 					"ccip_receive_gas_limit": 150000,
 					"ccv_and_executor_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+					"sender_length": 0,
 					"sender": "0x070809",
+					"receiver_length": 0,
 					"receiver": "0x0a0b0c",
+					"dest_blob_length": 0,
 					"dest_blob": "0x0d0e0f",
-					"token_transfer": "",
+					"token_transfer_length": 0,
+					"token_transfer": null,
+					"data_length": 0,
 					"data": "0x101112"
 				},
 				"message_ccv_addresses": ["0x131415"],
@@ -162,7 +170,7 @@ func Test_VerifierResultsHandler(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var response VerifierResultsResponse
+		var response v1.VerifierResultsResponse
 		err = json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
@@ -178,16 +186,23 @@ func Test_VerifierResultsHandler(t *testing.T) {
 						"source_chain_selector": 1,
 						"dest_chain_selector": 2,
 						"sequence_number": 10,
+						"on_ramp_address_length": 0,
 						"on_ramp_address": "0x010203",
+						"off_ramp_address_length": 0,
 						"off_ramp_address": "0x040506",
 						"finality": 10,
 						"execution_gas_limit": 200000,
 						"ccip_receive_gas_limit": 150000,
 						"ccv_and_executor_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+						"sender_length": 0,
 						"sender": "0x070809",
+						"receiver_length": 0,
 						"receiver": "0x0a0b0c",
+						"dest_blob_length": 0,
 						"dest_blob": "0x0d0e0f",
-						"token_transfer": "",
+						"token_transfer_length": 0,
+						"token_transfer": null,
+						"data_length": 0,
 						"data": "0x101112"
 					},
 					"message_ccv_addresses": ["0x131415"],
@@ -205,16 +220,23 @@ func Test_VerifierResultsHandler(t *testing.T) {
 						"source_chain_selector": 10,
 						"dest_chain_selector": 20,
 						"sequence_number": 20,
+						"on_ramp_address_length": 0,
 						"on_ramp_address": "0x010203",
+						"off_ramp_address_length": 0,
 						"off_ramp_address": "0x040506",
 						"finality": 10,
 						"execution_gas_limit": 200000,
 						"ccip_receive_gas_limit": 150000,
 						"ccv_and_executor_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+						"sender_length": 0,
 						"sender": "0x070809",
+						"receiver_length": 0,
 						"receiver": "0x0a0b0c",
+						"dest_blob_length": 0,
 						"dest_blob": "0x0d0e0f",
-						"token_transfer": "",
+						"token_transfer_length": 0,
+						"token_transfer": null,
+						"data_length": 0,
 						"data": "0x101112"
 					},
 					"message_ccv_addresses": ["0x131415"],
@@ -245,13 +267,13 @@ func Test_VerifierResultsHandler(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var response VerifierResultsResponse
+		var response v1.VerifierResultsResponse
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
 		assert.Len(t, response.Results, 0)
 		assert.Len(t, response.Errors, 1)
-		assert.Contains(t, response.Errors[0], "message not found")
+		assert.Contains(t, response.Errors[0].Message, "message not found")
 
 		expectedJSON := `{
 			"results": [],
