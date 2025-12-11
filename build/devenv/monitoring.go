@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -153,7 +154,8 @@ func (i *IndexerClient) GetVerificationsForMessageID(ctx context.Context, messag
 	var response GetVerificationsForMessageIDResponse
 	err = json.NewDecoder(resp.Body).Decode(&response)
 	if err != nil {
-		return GetVerificationsForMessageIDResponse{}, fmt.Errorf("failed to decode response into struct: %w", err)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return GetVerificationsForMessageIDResponse{}, fmt.Errorf("failed to decode response into struct: %w %s", err, string(bodyBytes))
 	}
 
 	if response.MessageID.String() != msgIDHex {
