@@ -2,6 +2,7 @@ package v1
 
 import (
 	"encoding/json"
+	"math/big"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,6 +10,7 @@ import (
 	"google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	v1 "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
 )
 
@@ -658,4 +660,245 @@ func TestVerifierResultsResponse_SchemaCompatibility(t *testing.T) {
 		assert.Equal(t, customRoundTrip.Results[0].Message.SequenceNumber, protoRoundTrip.Results[0].Message.SequenceNumber)
 		assert.Equal(t, customRoundTrip.Errors[0].Message, protoRoundTrip.Errors[0].Message)
 	})
+}
+
+func TestVerifierResultMessage_RoundTrip(t *testing.T) {
+	tests := []struct {
+		name    string
+		message *protocol.Message
+	}{
+		{
+			name:    "comprehensive message with all fields",
+			message: createComprehensiveMessage(t),
+		},
+		{
+			name:    "message without token transfer",
+			message: createMessageWithoutTokenTransfer(t),
+		},
+		{
+			name:    "message with minimal fields",
+			message: createMinimalMessage(t),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Step 1: Get original message ID
+			originalID, err := tt.message.MessageID()
+			require.NoError(t, err)
+
+			// Step 2: Convert protocol.Message to VerifierResultMessage
+			verifierResultMsg := NewVerifierResultMessage(*tt.message)
+			require.NotNil(t, verifierResultMsg.Message)
+
+			// Step 3: Convert back to protocol.Message
+			convertedMessage, err := verifierResultMsg.ToMessage()
+			require.NoError(t, err)
+
+			// Step 4: Get converted message ID
+			convertedID, err := convertedMessage.MessageID()
+			require.NoError(t, err)
+
+			assert.Equal(t, originalID, convertedID)
+			assertProtocolMessagesEqual(t, tt.message, &convertedMessage)
+		})
+	}
+}
+
+func createComprehensiveMessage(t *testing.T) *protocol.Message {
+	t.Helper()
+
+	sender, err := protocol.RandomAddress()
+	require.NoError(t, err)
+	receiver, err := protocol.RandomAddress()
+	require.NoError(t, err)
+	onRamp, err := protocol.RandomAddress()
+	require.NoError(t, err)
+	offRamp, err := protocol.RandomAddress()
+	require.NoError(t, err)
+
+	tokenTransfer := &protocol.TokenTransfer{
+		Version:                  protocol.MessageVersion,
+		Amount:                   big.NewInt(1000000),
+		SourcePoolAddressLength:  20,
+		SourcePoolAddress:        make([]byte, 20),
+		SourceTokenAddressLength: 20,
+		SourceTokenAddress:       make([]byte, 20),
+		DestTokenAddressLength:   20,
+		DestTokenAddress:         make([]byte, 20),
+		TokenReceiverLength:      20,
+		TokenReceiver:            make([]byte, 20),
+		ExtraDataLength:          10,
+		ExtraData:                []byte("extra_data"),
+	}
+
+	for i := range tokenTransfer.SourcePoolAddress {
+		tokenTransfer.SourcePoolAddress[i] = byte(i + 1)
+	}
+	for i := range tokenTransfer.SourceTokenAddress {
+		tokenTransfer.SourceTokenAddress[i] = byte(i + 21)
+	}
+	for i := range tokenTransfer.DestTokenAddress {
+		tokenTransfer.DestTokenAddress[i] = byte(i + 50)
+	}
+	for i := range tokenTransfer.TokenReceiver {
+		tokenTransfer.TokenReceiver[i] = byte(i + 100)
+	}
+
+	destBlob := make([]byte, 50)
+	for i := range destBlob {
+		destBlob[i] = byte(i + 200)
+	}
+
+	messageData := make([]byte, 100)
+	for i := range messageData {
+		messageData[i] = byte(i + 150)
+	}
+
+	ccvAndExecutorHash := protocol.Bytes32{}
+	for i := range ccvAndExecutorHash {
+		ccvAndExecutorHash[i] = byte(i)
+	}
+
+	message, err := protocol.NewMessage(
+		protocol.ChainSelector(1337),
+		protocol.ChainSelector(2337),
+		protocol.SequenceNumber(12345),
+		onRamp,
+		offRamp,
+		25,
+		300_000,
+		300_000,
+		ccvAndExecutorHash,
+		sender,
+		receiver,
+		destBlob,
+		messageData,
+		tokenTransfer,
+	)
+	require.NoError(t, err)
+	return message
+}
+
+func createMessageWithoutTokenTransfer(t *testing.T) *protocol.Message {
+	t.Helper()
+
+	sender, err := protocol.RandomAddress()
+	require.NoError(t, err)
+	receiver, err := protocol.RandomAddress()
+	require.NoError(t, err)
+	onRamp, err := protocol.RandomAddress()
+	require.NoError(t, err)
+	offRamp, err := protocol.RandomAddress()
+	require.NoError(t, err)
+
+	destBlob := make([]byte, 30)
+	for i := range destBlob {
+		destBlob[i] = byte(i + 100)
+	}
+
+	messageData := make([]byte, 50)
+	for i := range messageData {
+		messageData[i] = byte(i + 200)
+	}
+
+	ccvAndExecutorHash := protocol.Bytes32{}
+	for i := range ccvAndExecutorHash {
+		ccvAndExecutorHash[i] = byte(i * 2)
+	}
+
+	message, err := protocol.NewMessage(
+		protocol.ChainSelector(9999),
+		protocol.ChainSelector(8888),
+		protocol.SequenceNumber(54321),
+		onRamp,
+		offRamp,
+		10,
+		200_000,
+		250_000,
+		ccvAndExecutorHash,
+		sender,
+		receiver,
+		destBlob,
+		messageData,
+		nil, // No token transfer
+	)
+	require.NoError(t, err)
+	return message
+}
+
+func createMinimalMessage(t *testing.T) *protocol.Message {
+	t.Helper()
+
+	sender, err := protocol.RandomAddress()
+	require.NoError(t, err)
+	receiver, err := protocol.RandomAddress()
+	require.NoError(t, err)
+	onRamp, err := protocol.RandomAddress()
+	require.NoError(t, err)
+	offRamp, err := protocol.RandomAddress()
+	require.NoError(t, err)
+
+	message, err := protocol.NewMessage(
+		protocol.ChainSelector(1),
+		protocol.ChainSelector(2),
+		protocol.SequenceNumber(1),
+		onRamp,
+		offRamp,
+		1,
+		100_000,
+		100_000,
+		protocol.Bytes32{},
+		sender,
+		receiver,
+		nil, // Empty destBlob
+		nil, // Empty data
+		nil, // No token transfer
+	)
+	require.NoError(t, err)
+	return message
+}
+
+func assertProtocolMessagesEqual(t *testing.T, expected, actual *protocol.Message) {
+	t.Helper()
+
+	assert.Equal(t, expected.Version, actual.Version)
+	assert.Equal(t, expected.SourceChainSelector, actual.SourceChainSelector)
+	assert.Equal(t, expected.DestChainSelector, actual.DestChainSelector)
+	assert.Equal(t, expected.SequenceNumber, actual.SequenceNumber)
+	assert.Equal(t, expected.OnRampAddressLength, actual.OnRampAddressLength)
+	assert.Equal(t, expected.OnRampAddress, actual.OnRampAddress)
+	assert.Equal(t, expected.OffRampAddressLength, actual.OffRampAddressLength)
+	assert.Equal(t, expected.OffRampAddress, actual.OffRampAddress)
+	assert.Equal(t, expected.ExecutionGasLimit, actual.ExecutionGasLimit)
+	assert.Equal(t, expected.CcipReceiveGasLimit, actual.CcipReceiveGasLimit)
+	assert.Equal(t, expected.Finality, actual.Finality)
+	assert.Equal(t, expected.CcvAndExecutorHash, actual.CcvAndExecutorHash)
+	assert.Equal(t, expected.SenderLength, actual.SenderLength)
+	assert.Equal(t, expected.Sender, actual.Sender)
+	assert.Equal(t, expected.ReceiverLength, actual.ReceiverLength)
+	assert.Equal(t, expected.Receiver, actual.Receiver)
+	assert.Equal(t, expected.DestBlobLength, actual.DestBlobLength)
+	assert.Equal(t, expected.DestBlob, actual.DestBlob)
+	assert.Equal(t, expected.DataLength, actual.DataLength)
+	assert.Equal(t, expected.Data, actual.Data)
+	assert.Equal(t, expected.TokenTransferLength, actual.TokenTransferLength)
+
+	if expected.TokenTransfer == nil {
+		assert.Nil(t, actual.TokenTransfer)
+	} else {
+		require.NotNil(t, actual.TokenTransfer)
+		assert.Equal(t, expected.TokenTransfer.Version, actual.TokenTransfer.Version)
+		assert.Equal(t, expected.TokenTransfer.Amount.String(), actual.TokenTransfer.Amount.String())
+		assert.Equal(t, expected.TokenTransfer.SourcePoolAddressLength, actual.TokenTransfer.SourcePoolAddressLength)
+		assert.Equal(t, expected.TokenTransfer.SourcePoolAddress, actual.TokenTransfer.SourcePoolAddress)
+		assert.Equal(t, expected.TokenTransfer.SourceTokenAddressLength, actual.TokenTransfer.SourceTokenAddressLength)
+		assert.Equal(t, expected.TokenTransfer.SourceTokenAddress, actual.TokenTransfer.SourceTokenAddress)
+		assert.Equal(t, expected.TokenTransfer.DestTokenAddressLength, actual.TokenTransfer.DestTokenAddressLength)
+		assert.Equal(t, expected.TokenTransfer.DestTokenAddress, actual.TokenTransfer.DestTokenAddress)
+		assert.Equal(t, expected.TokenTransfer.TokenReceiverLength, actual.TokenTransfer.TokenReceiverLength)
+		assert.Equal(t, expected.TokenTransfer.TokenReceiver, actual.TokenTransfer.TokenReceiver)
+		assert.Equal(t, expected.TokenTransfer.ExtraDataLength, actual.TokenTransfer.ExtraDataLength)
+		assert.Equal(t, expected.TokenTransfer.ExtraData, actual.TokenTransfer.ExtraData)
+	}
 }
