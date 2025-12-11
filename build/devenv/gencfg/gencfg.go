@@ -239,8 +239,8 @@ func createConfigPR(gh *github.Client, ctx context.Context, cldDomain string, ag
 
 	// Marshal aggregator config into YAML under configMap.aggregator.\.toml
 	aggYaml := map[string]any{
-		"stage": map[string]any{
-			"main": map[string]any{
+		"main": map[string]any{
+			"stage": map[string]any{
 				"configMap": map[string]string{
 					"aggregator.toml": string(aggregatorConfig),
 				},
