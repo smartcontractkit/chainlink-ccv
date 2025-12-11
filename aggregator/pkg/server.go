@@ -35,14 +35,16 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
+	msgdiscoverypb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery/v1"
+	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
 // Server represents a gRPC server for the aggregator service.
 type Server struct {
-	pb.UnimplementedCommitteeVerifierServer
-	pb.UnimplementedVerifierResultAPIServer
-	pb.UnimplementedMessageDiscoveryServer
+	committeepb.UnimplementedCommitteeVerifierServer
+	verifierpb.UnimplementedVerifierServer
+	msgdiscoverypb.UnimplementedMessageDiscoveryServer
 
 	l                                         logger.Logger
 	config                                    *model.AggregatorConfig
@@ -63,24 +65,24 @@ type Server struct {
 }
 
 // WriteCommitteeVerifierNodeResult handles requests to write commit verification records.
-func (s *Server) WriteCommitteeVerifierNodeResult(ctx context.Context, req *pb.WriteCommitteeVerifierNodeResultRequest) (*pb.WriteCommitteeVerifierNodeResultResponse, error) {
+func (s *Server) WriteCommitteeVerifierNodeResult(ctx context.Context, req *committeepb.WriteCommitteeVerifierNodeResultRequest) (*committeepb.WriteCommitteeVerifierNodeResultResponse, error) {
 	return s.writeCommitVerifierNodeResultHandler.Handle(ctx, req)
 }
 
-func (s *Server) BatchWriteCommitteeVerifierNodeResult(ctx context.Context, req *pb.BatchWriteCommitteeVerifierNodeResultRequest) (*pb.BatchWriteCommitteeVerifierNodeResultResponse, error) {
+func (s *Server) BatchWriteCommitteeVerifierNodeResult(ctx context.Context, req *committeepb.BatchWriteCommitteeVerifierNodeResultRequest) (*committeepb.BatchWriteCommitteeVerifierNodeResultResponse, error) {
 	return s.batchWriteCommitVerifierNodeResultHandler.Handle(ctx, req)
 }
 
 // ReadCommitteeVerifierNodeResult handles requests to read commit verification records.
-func (s *Server) ReadCommitteeVerifierNodeResult(ctx context.Context, req *pb.ReadCommitteeVerifierNodeResultRequest) (*pb.ReadCommitteeVerifierNodeResultResponse, error) {
+func (s *Server) ReadCommitteeVerifierNodeResult(ctx context.Context, req *committeepb.ReadCommitteeVerifierNodeResultRequest) (*committeepb.ReadCommitteeVerifierNodeResultResponse, error) {
 	return s.readCommitVerifierNodeResultHandler.Handle(ctx, req)
 }
 
-func (s *Server) GetVerifierResultsForMessage(ctx context.Context, req *pb.GetVerifierResultsForMessageRequest) (*pb.GetVerifierResultsForMessageResponse, error) {
+func (s *Server) GetVerifierResultsForMessage(ctx context.Context, req *verifierpb.GetVerifierResultsForMessageRequest) (*verifierpb.GetVerifierResultsForMessageResponse, error) {
 	return s.getVerifierResultsForMessageHandler.Handle(ctx, req)
 }
 
-func (s *Server) GetMessagesSince(ctx context.Context, req *pb.GetMessagesSinceRequest) (*pb.GetMessagesSinceResponse, error) {
+func (s *Server) GetMessagesSince(ctx context.Context, req *msgdiscoverypb.GetMessagesSinceRequest) (*msgdiscoverypb.GetMessagesSinceResponse, error) {
 	return s.getMessagesSinceHandler.Handle(ctx, req)
 }
 
@@ -257,7 +259,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	}
 
 	isVerifierResultAPI := func(callMeta interceptors.CallMeta) bool {
-		return callMeta.Service == pb.VerifierResultAPI_ServiceDesc.ServiceName
+		return callMeta.Service == verifierpb.Verifier_ServiceDesc.ServiceName
 	}
 
 	aggMonitoring.Metrics().IncrementPendingAggregationsChannelBuffer(context.Background(), config.Aggregation.ChannelBufferSize) // Pre-increment the buffer size metric
@@ -321,9 +323,9 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		started:          false,
 		mu:               sync.Mutex{},
 	}
-	pb.RegisterVerifierResultAPIServer(grpcServer, server)
-	pb.RegisterMessageDiscoveryServer(grpcServer, server)
-	pb.RegisterCommitteeVerifierServer(grpcServer, server)
+	verifierpb.RegisterVerifierServer(grpcServer, server)
+	msgdiscoverypb.RegisterMessageDiscoveryServer(grpcServer, server)
+	committeepb.RegisterCommitteeVerifierServer(grpcServer, server)
 	reflection.Register(grpcServer)
 
 	return server

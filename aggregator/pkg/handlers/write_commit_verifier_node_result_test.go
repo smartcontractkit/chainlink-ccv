@@ -17,14 +17,14 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 )
 
-func makeValidProtoRequest() *pb.WriteCommitteeVerifierNodeResultRequest {
+func makeValidProtoRequest() *committeepb.WriteCommitteeVerifierNodeResultRequest {
 	msg := makeTestMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.SequenceNumber(1), []byte{})
 	pbMsg := ccvcommon.MapProtocolMessageToProtoMessage(msg)
-	return &pb.WriteCommitteeVerifierNodeResultRequest{
-		CommitteeVerifierNodeResult: &pb.CommitteeVerifierNodeResult{
+	return &committeepb.WriteCommitteeVerifierNodeResultRequest{
+		CommitteeVerifierNodeResult: &committeepb.CommitteeVerifierNodeResult{
 			Signature:       []byte("signature_bytes"),
 			CcvVersion:      []byte{0x1, 0x2, 0x3, 0x4},
 			Message:         pbMsg,
@@ -43,13 +43,13 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 
 	type testCase struct {
 		name             string
-		req              *pb.WriteCommitteeVerifierNodeResultRequest
+		req              *committeepb.WriteCommitteeVerifierNodeResultRequest
 		signer           *model.IdentifierSigner
 		sigErr           error
 		saveErr          error
 		aggErr           error
 		expectGRPCCode   codes.Code
-		expectStatus     pb.WriteStatus
+		expectStatus     committeepb.WriteStatus
 		expectStoreCalls int
 		expectAggCalls   int
 	}
@@ -60,18 +60,18 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			req:              makeValidProtoRequest(),
 			signer:           signer1,
 			expectGRPCCode:   codes.OK,
-			expectStatus:     pb.WriteStatus_SUCCESS,
+			expectStatus:     committeepb.WriteStatus_SUCCESS,
 			expectStoreCalls: 1,
 			expectAggCalls:   1,
 		},
 		{
 			name: "validation_enabled_missing_payload_invalid_argument",
-			req: &pb.WriteCommitteeVerifierNodeResultRequest{
+			req: &committeepb.WriteCommitteeVerifierNodeResultRequest{
 				CommitteeVerifierNodeResult: nil,
 			},
 			// Signature validation is never called
 			expectGRPCCode:   codes.InvalidArgument,
-			expectStatus:     pb.WriteStatus_FAILED,
+			expectStatus:     committeepb.WriteStatus_FAILED,
 			expectStoreCalls: 0,
 			expectAggCalls:   0,
 		},
@@ -81,7 +81,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			signer:           nil,
 			sigErr:           errors.New("sig-fail"),
 			expectGRPCCode:   codes.Internal,
-			expectStatus:     pb.WriteStatus_FAILED,
+			expectStatus:     committeepb.WriteStatus_FAILED,
 			expectStoreCalls: 0,
 			expectAggCalls:   0,
 		},
@@ -91,7 +91,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			signer:           signer1,
 			saveErr:          errors.New("db-down"),
 			expectGRPCCode:   codes.Internal,
-			expectStatus:     pb.WriteStatus_FAILED,
+			expectStatus:     committeepb.WriteStatus_FAILED,
 			expectStoreCalls: 1,
 			expectAggCalls:   0,
 		},
@@ -101,7 +101,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			signer:           signer1,
 			aggErr:           common.ErrAggregationChannelFull,
 			expectGRPCCode:   codes.ResourceExhausted,
-			expectStatus:     pb.WriteStatus_FAILED,
+			expectStatus:     committeepb.WriteStatus_FAILED,
 			expectStoreCalls: 1,
 			expectAggCalls:   1,
 		},
@@ -111,7 +111,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			signer:           signer1,
 			aggErr:           errors.New("agg-fail"),
 			expectGRPCCode:   codes.Internal,
-			expectStatus:     pb.WriteStatus_FAILED,
+			expectStatus:     committeepb.WriteStatus_FAILED,
 			expectStoreCalls: 1,
 			expectAggCalls:   1,
 		},

@@ -9,7 +9,7 @@ import (
 	"google.golang.org/genproto/googleapis/rpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	v1 "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	v1 "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
 // Exported types wrapping the generated protobuf types. The main purpose is to implement custom

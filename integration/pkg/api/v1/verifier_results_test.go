@@ -12,7 +12,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	v1 "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	v1 "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
 func TestVerifierResultsMetadata_RoundTrip(t *testing.T) {

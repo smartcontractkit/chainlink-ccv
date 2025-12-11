@@ -17,7 +17,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
 /*
@@ -166,8 +166,7 @@ func (i *IndexerClient) GetVerificationsForMessageID(ctx context.Context, messag
 type AggregatorClient struct {
 	logger               zerolog.Logger
 	addr                 string
-	aggregatorClient     pb.CommitteeVerifierClient
-	verifierResultClient pb.VerifierResultAPIClient
+	verifierResultClient verifierpb.VerifierClient
 	conn                 *grpc.ClientConn
 }
 
@@ -181,8 +180,7 @@ func NewAggregatorClient(logger zerolog.Logger, addr string) (*AggregatorClient,
 	return &AggregatorClient{
 		logger:               logger,
 		addr:                 addr,
-		aggregatorClient:     pb.NewCommitteeVerifierClient(conn),
-		verifierResultClient: pb.NewVerifierResultAPIClient(conn),
+		verifierResultClient: verifierpb.NewVerifierClient(conn),
 		conn:                 conn,
 	}, nil
 }
@@ -198,7 +196,7 @@ func (a *AggregatorClient) WaitForVerifierResultForMessage(
 	ctx context.Context,
 	messageID [32]byte,
 	tickInterval time.Duration,
-) (*pb.VerifierResult, error) {
+) (*verifierpb.VerifierResult, error) {
 	msgIDHex := common.BytesToHash(messageID[:]).Hex()
 	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
@@ -225,8 +223,8 @@ func (a *AggregatorClient) WaitForVerifierResultForMessage(
 	}
 }
 
-func (a *AggregatorClient) GetVerifierResultForMessage(ctx context.Context, messageID [32]byte) (*pb.VerifierResult, error) {
-	resp, err := a.verifierResultClient.GetVerifierResultsForMessage(ctx, &pb.GetVerifierResultsForMessageRequest{
+func (a *AggregatorClient) GetVerifierResultForMessage(ctx context.Context, messageID [32]byte) (*verifierpb.VerifierResult, error) {
+	resp, err := a.verifierResultClient.GetVerifierResultsForMessage(ctx, &verifierpb.GetVerifierResultsForMessageRequest{
 		MessageIds: [][]byte{messageID[:]},
 	})
 	if err != nil {

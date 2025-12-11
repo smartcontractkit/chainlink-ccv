@@ -15,7 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
 func TestGetBatchCCVDataForMessageHandler_ValidationErrors(t *testing.T) {
@@ -28,12 +28,12 @@ func TestGetBatchCCVDataForMessageHandler_ValidationErrors(t *testing.T) {
 	h := NewGetVerifierResultsForMessageHandler(store, committee, 2, lggr)
 
 	// empty
-	_, err := h.Handle(context.Background(), &pb.GetVerifierResultsForMessageRequest{MessageIds: [][]byte{}})
+	_, err := h.Handle(context.Background(), &verifierpb.GetVerifierResultsForMessageRequest{MessageIds: [][]byte{}})
 	require.Error(t, err)
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 
 	// too many
-	_, err = h.Handle(context.Background(), &pb.GetVerifierResultsForMessageRequest{MessageIds: [][]byte{{}, {}, {}}})
+	_, err = h.Handle(context.Background(), &verifierpb.GetVerifierResultsForMessageRequest{MessageIds: [][]byte{{}, {}, {}}})
 	require.Error(t, err)
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 }
@@ -72,7 +72,7 @@ func TestGetBatchCCVDataForMessageHandler_MixedResults(t *testing.T) {
 		common.Bytes2Hex(m2ID[:]): report2, // will map error
 	}, nil)
 
-	resp, err := h.Handle(context.Background(), &pb.GetVerifierResultsForMessageRequest{MessageIds: [][]byte{
+	resp, err := h.Handle(context.Background(), &verifierpb.GetVerifierResultsForMessageRequest{MessageIds: [][]byte{
 		m1ID[:], m2ID[:], {0xFF}, // missing
 	}})
 	require.NoError(t, err)
@@ -103,7 +103,7 @@ func TestGetBatchCCVDataForMessageHandler_StorageError(t *testing.T) {
 
 	store.EXPECT().GetBatchAggregatedReportByMessageIDs(mock.Anything, mock.Anything).Return(nil, status.Error(codes.Internal, "boom"))
 
-	_, err := h.Handle(context.Background(), &pb.GetVerifierResultsForMessageRequest{MessageIds: [][]byte{{1}}})
+	_, err := h.Handle(context.Background(), &verifierpb.GetVerifierResultsForMessageRequest{MessageIds: [][]byte{{1}}})
 	require.Error(t, err)
 	require.Equal(t, codes.Internal, status.Code(err))
 }

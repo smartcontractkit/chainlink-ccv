@@ -25,7 +25,8 @@ import (
 
 	_ "github.com/lib/pq"
 
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
+	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
 func assertCommitVerificationRecordEqual(t *testing.T, expected, actual *model.CommitVerificationRecord, msgPrefix string) {
@@ -104,7 +105,7 @@ func createTestProtocolMessage() *protocol.Message {
 	}
 }
 
-func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *testFixture) *pb.CommitteeVerifierNodeResult {
+func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *testFixture) *committeepb.CommitteeVerifierNodeResult {
 	ccvVersion := []byte{0x01, 0x02, 0x03, 0x04}
 	ccvAddresses := [][]byte{{0x02, 0x02, 0x03, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16}}
 	executorAddress := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14}
@@ -119,8 +120,8 @@ func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *t
 	require.NoError(t, err)
 
 	// Create proto message with CCV data and the computed hash
-	msgWithCCV := &pb.CommitteeVerifierNodeResult{
-		Message: &pb.Message{
+	msgWithCCV := &committeepb.CommitteeVerifierNodeResult{
+		Message: &verifierpb.Message{
 			Version:              uint32(message.Version),
 			SourceChainSelector:  uint64(message.SourceChainSelector),
 			DestChainSelector:    uint64(message.DestChainSelector),
@@ -178,7 +179,7 @@ func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *t
 }
 
 // getMessageIDFromProto is a helper to derive messageID from the proto message.
-func getMessageIDFromProto(t *testing.T, msgWithCCV *pb.CommitteeVerifierNodeResult) []byte {
+func getMessageIDFromProto(t *testing.T, msgWithCCV *committeepb.CommitteeVerifierNodeResult) []byte {
 	protocolMessage, err := ccvcommon.MapProtoMessageToProtocolMessage(msgWithCCV.Message)
 	require.NoError(t, err)
 	messageID, err := protocolMessage.MessageID()
@@ -186,7 +187,7 @@ func getMessageIDFromProto(t *testing.T, msgWithCCV *pb.CommitteeVerifierNodeRes
 	return messageID[:]
 }
 
-func createTestCommitVerificationRecord(t *testing.T, msgWithCCV *pb.CommitteeVerifierNodeResult, signer *testFixture) *model.CommitVerificationRecord {
+func createTestCommitVerificationRecord(t *testing.T, msgWithCCV *committeepb.CommitteeVerifierNodeResult, signer *testFixture) *model.CommitVerificationRecord {
 	r32, s32 := [32]byte{}, [32]byte{}
 	copy(r32[:], []byte("r_signature_test_32_bytes_here!"))
 	copy(s32[:], []byte("s_signature_test_32_bytes_here!"))
@@ -204,7 +205,7 @@ func createTestCommitVerificationRecord(t *testing.T, msgWithCCV *pb.CommitteeVe
 	return record
 }
 
-func createTestCommitVerificationRecordWithNewKey(t *testing.T, msgWithCCV *pb.CommitteeVerifierNodeResult) *model.CommitVerificationRecord {
+func createTestCommitVerificationRecordWithNewKey(t *testing.T, msgWithCCV *committeepb.CommitteeVerifierNodeResult) *model.CommitVerificationRecord {
 	privateKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
 	signerAddress := crypto.PubkeyToAddress(privateKey.PublicKey)

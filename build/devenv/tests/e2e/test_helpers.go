@@ -16,7 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
 // DefaultLokiURL is the default Loki WebSocket URL for log streaming in tests.
@@ -81,7 +81,7 @@ type AssertionResult struct {
 	IndexerFound         bool
 	ExecutorLogFound     bool
 	SentToChainFound     bool
-	AggregatedResult     *pb.VerifierResult
+	AggregatedResult     *verifierpb.VerifierResult
 	IndexedVerifications ccv.GetVerificationsForMessageIDResponse
 }
 

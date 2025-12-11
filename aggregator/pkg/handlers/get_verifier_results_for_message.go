@@ -13,7 +13,7 @@ import (
 	ethcommon "github.com/ethereum/go-ethereum/common"
 	grpcstatus "google.golang.org/grpc/status"
 
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
 // GetVerifierResultsForMessageHandler handles batch requests to retrieve commit verification data for multiple message IDs.
@@ -29,7 +29,7 @@ func (h *GetVerifierResultsForMessageHandler) logger(ctx context.Context) logger
 }
 
 // Handle processes the batch get request and retrieves commit verification data for multiple message IDs.
-func (h *GetVerifierResultsForMessageHandler) Handle(ctx context.Context, req *pb.GetVerifierResultsForMessageRequest) (*pb.GetVerifierResultsForMessageResponse, error) {
+func (h *GetVerifierResultsForMessageHandler) Handle(ctx context.Context, req *verifierpb.GetVerifierResultsForMessageRequest) (*verifierpb.GetVerifierResultsForMessageResponse, error) {
 	reqLogger := h.logger(ctx)
 	reqLogger.Infof("Received batch verifier result request for %d message IDs", len(req.GetMessageIds()))
 
@@ -55,8 +55,8 @@ func (h *GetVerifierResultsForMessageHandler) Handle(ctx context.Context, req *p
 	}
 
 	// Prepare response with 1:1 correspondence between message IDs and errors
-	response := &pb.GetVerifierResultsForMessageResponse{
-		Results: make([]*pb.VerifierResult, len(req.GetMessageIds())),
+	response := &verifierpb.GetVerifierResultsForMessageResponse{
+		Results: make([]*verifierpb.VerifierResult, len(req.GetMessageIds())),
 		Errors:  NewBatchErrorArray(len(req.GetMessageIds())),
 	}
 
