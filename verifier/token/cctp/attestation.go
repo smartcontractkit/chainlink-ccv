@@ -13,6 +13,8 @@ type AttestationService interface {
 	Fetch(ctx context.Context, txHash protocol.ByteSlice, message protocol.Message) (Attestation, error)
 }
 
+// Attestation represents a CCTP attestation along with related data
+// allowing creating proper payload for the verifier on the destination chain.
 type Attestation struct {
 	ccvVerifierVersion protocol.ByteSlice
 	ccvAddress         protocol.UnknownAddress
