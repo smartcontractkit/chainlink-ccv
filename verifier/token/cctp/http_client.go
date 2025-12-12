@@ -129,16 +129,27 @@ type Message struct {
 	EventNonce     string         `json:"eventNonce"`
 	Attestation    string         `json:"attestation"`
 	DecodedMessage DecodedMessage `json:"decodedMessage"`
-	CCTPVersion    string         `json:"cctpVersion"`
+	CCTPVersion    any            `json:"cctpVersion"`
 	Status         string         `json:"status"`
 }
 
 func (m *Message) IsV2() bool {
-	version, err := strconv.ParseInt(m.CCTPVersion, 10, 64)
-	if err != nil {
+	switch v := m.CCTPVersion.(type) {
+	case int:
+		return v == 2
+	case int64:
+		return v == 2
+	case float64: // JSON numbers unmarshal to float64 by default
+		return v == 2
+	case string:
+		version, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return false
+		}
+		return version == 2
+	default:
 		return false
 	}
-	return version == 2
 }
 
 func (m *Message) IsAttestationComplete() bool {
