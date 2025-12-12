@@ -42,3 +42,11 @@ type VerificationError struct {
 	Error     error
 	Task      VerificationTask
 }
+
+func NewVerificationError(err error, task VerificationTask) VerificationError {
+	return VerificationError{
+		Timestamp: time.Now(),
+		Error:     err,
+		Task:      task,
+	}
+}
