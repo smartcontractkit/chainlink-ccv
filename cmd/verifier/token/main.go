@@ -200,7 +200,7 @@ func createCCTPCoordinator(
 
 	cctpCoordinator, err := verifier.NewCoordinator(
 		lggr,
-		cctp.NewVerifier(attestationService),
+		cctp.NewVerifier(lggr, attestationService),
 		sourceReaders,
 		ccvStorage,
 		verifier.CoordinatorConfig{

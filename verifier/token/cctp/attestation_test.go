@@ -89,6 +89,74 @@ func Test_AttestationFetch_HappyPath(t *testing.T) {
 	assert.Equal(t, "0x8e1d1a9dbbbbbb22aaaaaa11", attestation.ToVerifierFormat().String())
 }
 
+func TestNewAttestationErrors(t *testing.T) {
+	ccvVerifierVersion := mustByteSliceFromHex("0x01020304")
+
+	testCases := []struct {
+		name          string
+		msg           Message
+		expectedError string
+	}{
+		{
+			name: "decode attestation failure",
+			msg: Message{
+				Status:      attestationStatusPending,
+				Attestation: "0x01",
+				Message:     "0x02",
+				DecodedMessage: DecodedMessage{
+					Sender: "0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350",
+				},
+			},
+			expectedError: "failed to decode attestation",
+		},
+		{
+			name: "invalid encoded message",
+			msg: Message{
+				Status:      attestationStatusSuccess,
+				Attestation: "0xabc123",
+				Message:     "0xzz",
+				DecodedMessage: DecodedMessage{
+					Sender: "0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350",
+				},
+			},
+			expectedError: "failed to decode CCTP message",
+		},
+		{
+			name: "invalid ccv sender",
+			msg: Message{
+				Status:      attestationStatusSuccess,
+				Attestation: "0xabc123",
+				Message:     "0xdeadbeef",
+				DecodedMessage: DecodedMessage{
+					Sender: "0xzz",
+				},
+			},
+			expectedError: "failed to decode CCV address",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewAttestation(ccvVerifierVersion, tc.msg)
+			require.Error(t, err)
+			require.ErrorContains(t, err, tc.expectedError)
+		})
+	}
+}
+
+func TestAttestation_ToVerifierFormat(t *testing.T) {
+	att := Attestation{
+		ccvVerifierVersion: mustByteSliceFromHex("0x01020304"),
+		encodedCCTPMessage: mustByteSliceFromHex("0xdeadbeef"),
+		attestation:        mustByteSliceFromHex("0xcafec0ffee"),
+	}
+
+	expected := "0x01020304deadbeefcafec0ffee"
+	result := att.ToVerifierFormat()
+
+	assert.Equal(t, expected, result.String())
+}
+
 func mustByteSliceFromHex(s string) protocol.ByteSlice {
 	bs, err := protocol.NewByteSliceFromHex(s)
 	if err != nil {
