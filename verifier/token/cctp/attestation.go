@@ -137,7 +137,7 @@ func cctpMatchesMessage(
 		return fmt.Errorf("no CCV address configured for source chain selector: %s", ccipMessage.SourceChainSelector)
 	}
 
-	senderAddress, err := protocol.NewUnknownAddressFromHex(cctpMessage.DecodedMessage.Sender)
+	senderAddress, err := protocol.NewUnknownAddressFromHex(cctpMessage.DecodedMessage.DecodedMessageBody.MessageSender)
 	if err != nil {
 		return fmt.Errorf("invalid sender address: %w", err)
 	}
