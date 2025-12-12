@@ -2,11 +2,11 @@ package cctp
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -116,7 +116,7 @@ func parseResponseBody(body protocol.ByteSlice) (Messages, error) {
 // Messages represents the response structure from Circle's attestation API,
 // containing a list of CCTP v2 messages with their attestations.
 // This API response type is documented here:
-// https://developers.circle.com/api-reference/cctp/all/get-messages-v-2
+// https://developers.circle.com/api-reference/cctp/all/get-messages-v2
 type Messages struct {
 	Messages []Message `json:"messages"`
 }
@@ -129,12 +129,16 @@ type Message struct {
 	EventNonce     string         `json:"eventNonce"`
 	Attestation    string         `json:"attestation"`
 	DecodedMessage DecodedMessage `json:"decodedMessage"`
-	CCTPVersion    int            `json:"cctpVersion"`
+	CCTPVersion    string         `json:"cctpVersion"`
 	Status         string         `json:"status"`
 }
 
 func (m *Message) IsV2() bool {
-	return m.CCTPVersion == 2
+	version, err := strconv.ParseInt(m.CCTPVersion, 10, 64)
+	if err != nil {
+		return false
+	}
+	return version == 2
 }
 
 func (m *Message) IsAttestationComplete() bool {
@@ -145,7 +149,7 @@ func (m *Message) DecodeAttestation() (protocol.ByteSlice, error) {
 	if !m.IsAttestationComplete() {
 		return nil, fmt.Errorf("attestation is not complete, status: %s", m.Status)
 	}
-	attestation, err := hex.DecodeString(m.Attestation)
+	attestation, err := protocol.NewByteSliceFromHex(m.Attestation)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode attestation hex: %w", err)
 	}

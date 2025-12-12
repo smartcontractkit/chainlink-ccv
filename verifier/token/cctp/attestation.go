@@ -28,11 +28,20 @@ func NewAttestation(
 	if err != nil {
 		return Attestation{}, fmt.Errorf("failed to decode attestation: %w", err)
 	}
+	encodedCCTPMessage, err := protocol.NewByteSliceFromHex(msg.Message)
+	if err != nil {
+		return Attestation{}, fmt.Errorf("failed to decode CCTP message: %w", err)
+	}
+	ccvAddress, err := protocol.NewUnknownAddressFromHex(msg.DecodedMessage.Sender)
+	if err != nil {
+		return Attestation{}, fmt.Errorf("failed to decode CCV address: %w", err)
+	}
+
 	return Attestation{
 		ccvVerifierVersion: ccvVerifierVersion,
-		ccvAddress:         protocol.UnknownAddress(msg.DecodedMessage.Sender),
+		ccvAddress:         ccvAddress,
 		attestation:        attestation,
-		encodedCCTPMessage: protocol.ByteSlice(msg.Message),
+		encodedCCTPMessage: encodedCCTPMessage,
 	}, nil
 }
 
@@ -137,11 +146,19 @@ func (h *HTTPAttestationService) matchesMessage(msg Message, message protocol.Me
 		return false
 	}
 
+	actualHookData, err := protocol.NewByteSliceFromHex(msg.DecodedMessage.DecodedMessageBody.HookData)
+	if err != nil {
+		lggr.Debugw("CCTP Attestation: Skipping message due to invalid hook data",
+			"hookData", msg.DecodedMessage.DecodedMessageBody.HookData,
+			"error", err,
+		)
+		return false
+	}
+
 	// <4 byte verifier version><32 byte msg ID>
 	var expectedHookData protocol.ByteSlice
 	expectedHookData = append(expectedHookData, h.ccvVerifierVersion...)
 	expectedHookData = append(expectedHookData, messageID[:]...)
-	actualHookData := protocol.ByteSlice(msg.DecodedMessage.DecodedMessageBody.HookData)
 	if actualHookData.String() != expectedHookData.String() {
 		lggr.Debugw("CCTP Attestation: Skipping message due to hook data mismatch",
 			"expectedHookData", expectedHookData.String(),
