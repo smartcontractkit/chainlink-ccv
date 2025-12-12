@@ -3,8 +3,9 @@ package verifier
 import (
 	"testing"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 func TestReorgTracker_Track_AddsToSet(t *testing.T) {
