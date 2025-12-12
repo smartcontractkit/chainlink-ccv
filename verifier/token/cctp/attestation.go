@@ -17,7 +17,6 @@ type AttestationService interface {
 // allowing creating proper payload for the verifier on the destination chain.
 type Attestation struct {
 	ccvVerifierVersion protocol.ByteSlice
-	ccvAddress         protocol.UnknownAddress
 	attestation        protocol.ByteSlice
 	encodedCCTPMessage protocol.ByteSlice
 }
@@ -34,14 +33,9 @@ func NewAttestation(
 	if err != nil {
 		return Attestation{}, fmt.Errorf("failed to decode CCTP message: %w", err)
 	}
-	ccvAddress, err := protocol.NewUnknownAddressFromHex(msg.DecodedMessage.Sender)
-	if err != nil {
-		return Attestation{}, fmt.Errorf("failed to decode CCV address: %w", err)
-	}
 
 	return Attestation{
 		ccvVerifierVersion: ccvVerifierVersion,
-		ccvAddress:         ccvAddress,
 		attestation:        attestation,
 		encodedCCTPMessage: encodedCCTPMessage,
 	}, nil

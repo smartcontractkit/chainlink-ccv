@@ -108,7 +108,6 @@ func Test_AttestationFetch(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, "0xaaaaaa11", attestation.attestation.String())
-		assert.Equal(t, "0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350", attestation.ccvAddress.String())
 		assert.Equal(t, "0xbbbbbb22", attestation.encodedCCTPMessage.String())
 		assert.Equal(t, "0x8e1d1a9dbbbbbb22aaaaaa11", attestation.ToVerifierFormat().String())
 	})
@@ -155,18 +154,6 @@ func TestNewAttestationErrors(t *testing.T) {
 				},
 			},
 			expectedError: "failed to decode CCTP message",
-		},
-		{
-			name: "invalid ccv sender",
-			msg: Message{
-				Status:      attestationStatusSuccess,
-				Attestation: "0xabc123",
-				Message:     "0xdeadbeef",
-				DecodedMessage: DecodedMessage{
-					Sender: "0xzz",
-				},
-			},
-			expectedError: "failed to decode CCV address",
 		},
 	}
 
