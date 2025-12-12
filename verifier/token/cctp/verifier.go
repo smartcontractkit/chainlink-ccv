@@ -36,18 +36,13 @@ func (v Verifier) VerifyMessages(
 			})
 			continue
 		}
-
-		// build a payload for destination
-		// <4 byte verifier version><encoded CCTP message><attestation>
-		destPayload := attestation
-
 		err = ccvDataBatcher.Add(protocol.VerifierNodeResult{
 			Message:         task.Message,
 			MessageID:       task.Message.MustMessageID(),
-			CCVVersion:      nil, // how do I get that
-			CCVAddresses:    nil, // how do I get that
-			ExecutorAddress: nil, // how do I get that
-			Signature:       destPayload,
+			CCVVersion:      attestation.ccvVerifierVersion,
+			CCVAddresses:    []protocol.UnknownAddress{attestation.ccvAddress}, // what does go here? all ccv addresses involved in the message? or only dest/source?
+			ExecutorAddress: nil,                                               // how do I get that? Is it needed at this stage?
+			Signature:       attestation.ToVerifierFormat(),
 		})
 		if err != nil {
 			errors = append(errors, verifier.VerificationError{

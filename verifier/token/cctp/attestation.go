@@ -10,7 +10,41 @@ import (
 
 type AttestationService interface {
 	// Fetch retrieves the attestation for a given transaction hash and message.
-	Fetch(ctx context.Context, txHash protocol.ByteSlice, message protocol.Message) (protocol.ByteSlice, error)
+	Fetch(ctx context.Context, txHash protocol.ByteSlice, message protocol.Message) (Attestation, error)
+}
+
+type Attestation struct {
+	ccvVerifierVersion protocol.ByteSlice
+	ccvAddress         protocol.UnknownAddress
+	attestation        protocol.ByteSlice
+	encodedCCTPMessage protocol.ByteSlice
+}
+
+func NewAttestation(
+	ccvVerifierVersion protocol.ByteSlice,
+	msg Message,
+) (Attestation, error) {
+	attestation, err := msg.DecodeAttestation()
+	if err != nil {
+		return Attestation{}, fmt.Errorf("failed to decode attestation: %w", err)
+	}
+	return Attestation{
+		ccvVerifierVersion: ccvVerifierVersion,
+		ccvAddress:         protocol.UnknownAddress(msg.DecodedMessage.Sender),
+		attestation:        attestation,
+		encodedCCTPMessage: protocol.ByteSlice(msg.Message),
+	}, nil
+}
+
+// ToVerifierFormat converts the message into protocol.ByteSlice expected
+// by the verifier on the destination chain
+// format: <4 byte verifier version><encoded CCTP message><attestation>.
+func (a *Attestation) ToVerifierFormat() protocol.ByteSlice {
+	var output protocol.ByteSlice
+	output = append(output, a.ccvVerifierVersion...)
+	output = append(output, a.encodedCCTPMessage...)
+	output = append(output, a.attestation...)
+	return output
 }
 
 type HTTPAttestationService struct {
@@ -43,24 +77,23 @@ func (h *HTTPAttestationService) Fetch(
 	ctx context.Context,
 	txHash protocol.ByteSlice,
 	message protocol.Message,
-) (protocol.ByteSlice, error) {
+) (Attestation, error) {
 	sourceDomain, ok := sourceDomains[uint64(message.SourceChainSelector)]
 	if !ok {
-		return nil, fmt.Errorf("unsupported source chain selector: %d", message.SourceChainSelector)
+		return Attestation{}, fmt.Errorf("unsupported source chain selector: %d", message.SourceChainSelector)
 	}
 
 	response, err := h.client.GetMessages(ctx, message.SourceChainSelector, sourceDomain, txHash.String())
 	if err != nil {
-		return nil, fmt.Errorf(
+		return Attestation{}, fmt.Errorf(
 			"error fetching messages for chain selector %d and tx hash %s: %s",
 			message.SourceChainSelector, txHash, err,
 		)
 	}
-
 	return h.extractAttestationFromResponse(response, message)
 }
 
-func (h *HTTPAttestationService) extractAttestationFromResponse(response Messages, message protocol.Message) (protocol.ByteSlice, error) {
+func (h *HTTPAttestationService) extractAttestationFromResponse(response Messages, message protocol.Message) (Attestation, error) {
 	for _, msg := range response.Messages {
 		ok := h.matchesMessage(msg, message)
 		if !ok {
@@ -68,11 +101,11 @@ func (h *HTTPAttestationService) extractAttestationFromResponse(response Message
 			continue
 		}
 		if msg.IsAttestationComplete() {
-			return h.toVerifierFormat(msg)
+			return NewAttestation(h.ccvVerifierVersion, msg)
 		}
-		return nil, fmt.Errorf("attestation is not ready")
+		return Attestation{}, fmt.Errorf("attestation is not ready")
 	}
-	return nil, fmt.Errorf("no matching message found in response")
+	return Attestation{}, fmt.Errorf("no matching message found in response")
 }
 
 func (h *HTTPAttestationService) matchesMessage(msg Message, message protocol.Message) bool {
@@ -117,19 +150,4 @@ func (h *HTTPAttestationService) matchesMessage(msg Message, message protocol.Me
 		return false
 	}
 	return true
-}
-
-// toVerifierFormat converts the message into protocol.ByteSlice expected
-// by the verifier on the destination chain
-// format: <4 byte verifier version><encoded CCTP message><attestation>.
-func (h *HTTPAttestationService) toVerifierFormat(msg Message) (protocol.ByteSlice, error) {
-	attestation, err := msg.DecodeAttestation()
-	if err != nil {
-		return nil, err
-	}
-	var output protocol.ByteSlice
-	output = append(output, h.ccvVerifierVersion...)
-	// output = append(output, encoded CCTP message ???)
-	output = append(output, attestation...)
-	return output, nil
 }
