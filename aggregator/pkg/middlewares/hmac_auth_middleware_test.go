@@ -18,7 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 )
 
 const (
@@ -84,7 +84,7 @@ type contextCapturingHandler struct {
 
 func (h *contextCapturingHandler) Handle(ctx context.Context, req any) (any, error) {
 	h.capturedCtx = ctx //nolint:fatcontext // test helper needs to capture context for assertion
-	return &pb.ReadChainStatusResponse{Statuses: []*pb.ChainStatus{}}, nil
+	return &committeepb.ReadChainStatusResponse{Statuses: []*committeepb.ChainStatus{}}, nil
 }
 
 func TestHMACAuthMiddleware(t *testing.T) {
@@ -92,7 +92,7 @@ func TestHMACAuthMiddleware(t *testing.T) {
 	lggr := logger.Test(t)
 	middleware := NewHMACAuthMiddleware(config, lggr)
 
-	req := &pb.ReadChainStatusRequest{}
+	req := &committeepb.ReadChainStatusRequest{}
 	method := "/Aggregator/ReadChainStatus"
 	info := &grpc.UnaryServerInfo{FullMethod: method}
 
@@ -306,7 +306,7 @@ func TestHMACAuthMiddleware_AdminFunctionality(t *testing.T) {
 	lggr := logger.Test(t)
 	middleware := NewHMACAuthMiddleware(config, lggr)
 
-	req := &pb.WriteChainStatusRequest{}
+	req := &committeepb.WriteChainStatusRequest{}
 	method := "/Aggregator/WriteChainStatus"
 	info := &grpc.UnaryServerInfo{FullMethod: method}
 

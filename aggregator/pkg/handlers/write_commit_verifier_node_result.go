@@ -11,7 +11,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 )
 
 type SignatureValidator interface {
@@ -40,13 +40,13 @@ func (h *WriteCommitVerifierNodeResultHandler) logger(ctx context.Context) logge
 }
 
 // Handle processes the write request and saves the commit verification record.
-func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *pb.WriteCommitteeVerifierNodeResultRequest) (*pb.WriteCommitteeVerifierNodeResultResponse, error) {
+func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *committeepb.WriteCommitteeVerifierNodeResultRequest) (*committeepb.WriteCommitteeVerifierNodeResultResponse, error) {
 	reqLogger := h.logger(ctx)
 	reqLogger.Infof("Received WriteCommitCCVNodeDataRequest")
 	if err := validateWriteRequest(req); err != nil {
 		reqLogger.Errorw("validation error", "error", err)
-		return &pb.WriteCommitteeVerifierNodeResultResponse{
-			Status: pb.WriteStatus_FAILED,
+		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
+			Status: committeepb.WriteStatus_FAILED,
 		}, status.Errorf(codes.InvalidArgument, "validation error: %v", err)
 	}
 
@@ -61,8 +61,8 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 	signer, _, err := h.signatureValidator.ValidateSignature(ctx, record)
 	if err != nil {
 		reqLogger.Errorw("signature validation failed", "error", err)
-		return &pb.WriteCommitteeVerifierNodeResultResponse{
-			Status: pb.WriteStatus_FAILED,
+		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
+			Status: committeepb.WriteStatus_FAILED,
 		}, status.Errorf(codes.Internal, "signature validation failed: %v", err)
 	}
 
@@ -71,8 +71,8 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 	aggregationKey, err := h.signatureValidator.DeriveAggregationKey(ctx, record)
 	if err != nil {
 		reqLogger.Errorw("failed to derive aggregation key", err)
-		return &pb.WriteCommitteeVerifierNodeResultResponse{
-			Status: pb.WriteStatus_FAILED,
+		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
+			Status: committeepb.WriteStatus_FAILED,
 		}, status.Errorf(codes.Internal, "failed to derive aggregation key: %v", err)
 	}
 	ctx = scope.WithAggregationKey(ctx, aggregationKey)
@@ -84,8 +84,8 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 	err = h.storage.SaveCommitVerification(signerCtx, record, aggregationKey)
 	if err != nil {
 		h.logger(signerCtx).Errorw("failed to save commit verification record", "error", err)
-		return &pb.WriteCommitteeVerifierNodeResultResponse{
-			Status: pb.WriteStatus_FAILED,
+		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
+			Status: committeepb.WriteStatus_FAILED,
 		}, status.Errorf(codes.Internal, "failed to save commit verification record: %v", err)
 	}
 	h.logger(signerCtx).Infof("Successfully saved commit verification record")
@@ -93,20 +93,20 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 	if err := h.aggregator.CheckAggregation(record.MessageID, aggregationKey); err != nil {
 		if err == common.ErrAggregationChannelFull {
 			reqLogger.Errorf("Aggregation channel is full")
-			return &pb.WriteCommitteeVerifierNodeResultResponse{
-				Status: pb.WriteStatus_FAILED,
+			return &committeepb.WriteCommitteeVerifierNodeResultResponse{
+				Status: committeepb.WriteStatus_FAILED,
 			}, status.Errorf(codes.ResourceExhausted, "aggregation channel is full")
 		}
 
 		reqLogger.Errorw("failed to trigger aggregation", "error", err)
-		return &pb.WriteCommitteeVerifierNodeResultResponse{
-			Status: pb.WriteStatus_FAILED,
+		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
+			Status: committeepb.WriteStatus_FAILED,
 		}, status.Errorf(codes.Internal, "failed to trigger aggregation: %v", err)
 	}
 	reqLogger.Infof("Triggered aggregation check")
 
-	return &pb.WriteCommitteeVerifierNodeResultResponse{
-		Status: pb.WriteStatus_SUCCESS,
+	return &committeepb.WriteCommitteeVerifierNodeResultResponse{
+		Status: committeepb.WriteStatus_SUCCESS,
 	}, nil
 }
 

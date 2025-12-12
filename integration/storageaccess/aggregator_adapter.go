@@ -12,16 +12,18 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
+	msgdiscoverypb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery/v1"
+	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
 type AggregatorWriter struct {
-	client pb.CommitteeVerifierClient
+	client committeepb.CommitteeVerifierClient
 	conn   *grpc.ClientConn
 	lggr   logger.Logger
 }
 
-func mapCCVDataToCCVNodeDataProto(ccvData protocol.VerifierNodeResult) (*pb.WriteCommitteeVerifierNodeResultRequest, error) {
+func mapCCVDataToCCVNodeDataProto(ccvData protocol.VerifierNodeResult) (*committeepb.WriteCommitteeVerifierNodeResultRequest, error) {
 	// Convert CCV addresses to byte slices
 	ccvAddresses := make([][]byte, len(ccvData.CCVAddresses))
 	for i, addr := range ccvData.CCVAddresses {
@@ -29,8 +31,8 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.VerifierNodeResult) (*pb.Writ
 	}
 
 	message := v1.NewVerifierResultMessage(ccvData.Message)
-	return &pb.WriteCommitteeVerifierNodeResultRequest{
-		CommitteeVerifierNodeResult: &pb.CommitteeVerifierNodeResult{
+	return &committeepb.WriteCommitteeVerifierNodeResultRequest{
+		CommitteeVerifierNodeResult: &committeepb.CommitteeVerifierNodeResult{
 			CcvVersion:      ccvData.CCVVersion,
 			CcvAddresses:    ccvAddresses,
 			ExecutorAddress: ccvData.ExecutorAddress[:],
@@ -42,7 +44,7 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.VerifierNodeResult) (*pb.Writ
 func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.VerifierNodeResult) error {
 	a.lggr.Info("Storing CCV data using aggregator ", "count", len(ccvDataList))
 
-	requests := make([]*pb.WriteCommitteeVerifierNodeResultRequest, 0, len(ccvDataList))
+	requests := make([]*committeepb.WriteCommitteeVerifierNodeResultRequest, 0, len(ccvDataList))
 	for _, ccvData := range ccvDataList {
 		req, err := mapCCVDataToCCVNodeDataProto(ccvData)
 		// FIXME: Single bad entry shouldn't fail the whole batch, it might lead to infinitely retrying the same bad entry
@@ -54,7 +56,7 @@ func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []p
 	}
 
 	responses, err := a.client.BatchWriteCommitteeVerifierNodeResult(
-		ctx, &pb.BatchWriteCommitteeVerifierNodeResultRequest{
+		ctx, &committeepb.BatchWriteCommitteeVerifierNodeResultRequest{
 			Requests: requests,
 		},
 	)
@@ -70,7 +72,7 @@ func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []p
 			messageID = ccvDataList[i].MessageID.String()
 		}
 
-		if resp.Status != pb.WriteStatus_SUCCESS {
+		if resp.Status != committeepb.WriteStatus_SUCCESS {
 			a.lggr.Error("BatchWriteCommitteeVerifierNodeResult", "status", resp.Status)
 			continue
 		}
@@ -111,15 +113,15 @@ func NewAggregatorWriter(address string, lggr logger.Logger, hmacConfig *hmac.Cl
 	}
 
 	return &AggregatorWriter{
-		client: pb.NewCommitteeVerifierClient(conn),
+		client: committeepb.NewCommitteeVerifierClient(conn),
 		conn:   conn,
 		lggr:   lggr,
 	}, nil
 }
 
 type AggregatorReader struct {
-	client                 pb.VerifierResultAPIClient
-	messageDiscoveryClient pb.MessageDiscoveryClient
+	client                 verifierpb.VerifierClient
+	messageDiscoveryClient msgdiscoverypb.MessageDiscoveryClient
 	lggr                   logger.Logger
 	conn                   *grpc.ClientConn
 	since                  atomic.Int64
@@ -145,8 +147,8 @@ func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacCo
 	}
 
 	aggregatorReader := &AggregatorReader{
-		client:                 pb.NewVerifierResultAPIClient(conn),
-		messageDiscoveryClient: pb.NewMessageDiscoveryClient(conn),
+		client:                 verifierpb.NewVerifierClient(conn),
+		messageDiscoveryClient: msgdiscoverypb.NewMessageDiscoveryClient(conn),
 		conn:                   conn,
 		lggr:                   logger.With(lggr, "aggregatorAddress", address),
 	}
@@ -173,7 +175,7 @@ func (a *AggregatorReader) Close() error {
 
 // ReadCCVData returns the next available CCV data entries.
 func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse, error) {
-	resp, err := a.messageDiscoveryClient.GetMessagesSince(ctx, &pb.GetMessagesSinceRequest{
+	resp, err := a.messageDiscoveryClient.GetMessagesSince(ctx, &msgdiscoverypb.GetMessagesSinceRequest{
 		SinceSequence: a.since.Load(),
 	})
 	if err != nil {
@@ -217,7 +219,7 @@ func (a *AggregatorReader) GetVerifications(ctx context.Context, messageIDs []pr
 		messageIDsBytes = append(messageIDsBytes, id[:])
 	}
 
-	protoResponse, err := a.client.GetVerifierResultsForMessage(ctx, &pb.GetVerifierResultsForMessageRequest{
+	protoResponse, err := a.client.GetVerifierResultsForMessage(ctx, &verifierpb.GetVerifierResultsForMessageRequest{
 		MessageIds: messageIDsBytes,
 	})
 	if err != nil {

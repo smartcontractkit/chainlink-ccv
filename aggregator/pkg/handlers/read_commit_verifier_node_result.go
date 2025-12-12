@@ -12,7 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 )
 
 // ReadCommitVerifierNodeResultHandler handles requests to read commit verification records.
@@ -26,10 +26,10 @@ func (h *ReadCommitVerifierNodeResultHandler) logger(ctx context.Context) logger
 }
 
 // Handle processes the read request and retrieves the corresponding commit verification record.
-func (h *ReadCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *pb.ReadCommitteeVerifierNodeResultRequest) (*pb.ReadCommitteeVerifierNodeResultResponse, error) {
+func (h *ReadCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *committeepb.ReadCommitteeVerifierNodeResultRequest) (*committeepb.ReadCommitteeVerifierNodeResultResponse, error) {
 	if err := validateReadRequest(req); err != nil {
 		h.logger(ctx).Errorw("validation error", "error", err)
-		return &pb.ReadCommitteeVerifierNodeResultResponse{}, status.Errorf(codes.InvalidArgument, "validation error: %v", err)
+		return &committeepb.ReadCommitteeVerifierNodeResultResponse{}, status.Errorf(codes.InvalidArgument, "validation error: %v", err)
 	}
 	ctx = scope.WithMessageID(ctx, req.GetMessageId())
 
@@ -48,7 +48,7 @@ func (h *ReadCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *p
 
 	protoRecord := model.CommitVerificationRecordToProto(record)
 
-	return &pb.ReadCommitteeVerifierNodeResultResponse{
+	return &committeepb.ReadCommitteeVerifierNodeResultResponse{
 		CommitteeVerifierNodeResult: protoRecord,
 	}, nil
 }
