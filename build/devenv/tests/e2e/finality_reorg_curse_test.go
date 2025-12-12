@@ -494,6 +494,8 @@ func TestE2EReorg(t *testing.T) {
 
 		// Mine 1 block to advance chain
 		anvilHelper.MustMine(ctx, 1)
+		// Give the verifier time to process
+		time.Sleep(3 * time.Second)
 
 		// Re-send the message (will have same seqNum since we reverted)
 		event2, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "fast finality message after reorg"), customFinalityMessageOptions)
@@ -592,6 +594,8 @@ func TestE2EReorg(t *testing.T) {
 
 		// Mine 1 block to advance chain
 		anvilHelper.MustMine(ctx, 1)
+		// Give the verifier time to process
+		time.Sleep(3 * time.Second)
 
 		// Re-send the message (will have same seqNum since we reverted)
 		event2, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "replacement message after reorg"), customFinalityMessageOptions)
