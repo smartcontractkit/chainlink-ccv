@@ -385,64 +385,6 @@ func TestE2EReorg(t *testing.T) {
 		l.Info().Msg("✨ Test completed: Global curse verified - both lanes blocked, then unblocked after uncurse")
 	})
 
-	t.Run("finality violation", func(t *testing.T) {
-		// Log the source chain selector for verification
-		l.Info().Uint64("srcSelector", srcSelector).Msg("Source chain selector for finality violation test")
-
-		l.Info().Msg("💾 Creating initial snapshot before mining blocks")
-		snapshotID, err := anvilHelper.Snapshot(ctx)
-		require.NoError(t, err)
-		l.Info().Str("snapshotID", snapshotID).Msg("✅ Initial snapshot created")
-
-		l.Info().Msg("📨 Sending pre-violation message")
-		event1, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "pre-violation message"), defaultMessageOptions)
-		require.NoError(t, err)
-		logSentMessage(event1, "Sending pre-violation message")
-		preViolationMessageID := event1.MessageID
-
-		l.Info().Int("blocks", verifier.ConfirmationDepth+5).Msg("⛏️  Mining blocks to establish finalized state")
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
-		l.Info().Msg("✅ Finalized state established")
-
-		// Wait for message to be processed and appear in aggregator
-		verifyMessageExists(preViolationMessageID, "Pre-violation message")
-
-		l.Info().Msg("Sending message to be dropped once finality violation happens")
-		event2, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "toBeDropped message"), defaultMessageOptions)
-		require.NoError(t, err)
-		logSentMessage(event2, "Sending toBeDropped message")
-		toBeDroppedMessageID := event2.MessageID
-
-		l.Info().Msg("⚠️  Triggering finality violation by reverting to initial snapshot")
-		err = anvilHelper.Revert(ctx, snapshotID)
-		require.NoError(t, err)
-		l.Info().Msg("✅ Reverted to initial snapshot (deep reorg past finalized blocks)")
-		// Mine some blocks to give system opportunity to process (if it were working)
-		l.Info().Int("blocks", verifier.ConfirmationDepth+5).Msg("⛏️  Mining blocks after revert")
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
-		verifyMessageNotExists(toBeDroppedMessageID, "Post-violation message")
-
-		l.Info().Msg("🔍 Verifying chain status in verifier's local storage...")
-
-		require.Eventually(t, func() bool {
-			statuses, err := chainStatusManager.ReadChainStatuses(ctx, []protocol.ChainSelector{protocol.ChainSelector(srcSelector)})
-			require.NoError(t, err, "should be able to read chain status from verifier's database")
-			require.Len(t, statuses, 1, "should have one chain status for source chain")
-
-			chainStatus := statuses[protocol.ChainSelector(srcSelector)]
-			require.NotNil(t, chainStatus, "chain status should exist")
-			require.True(t, chainStatus.Disabled, "chain should be marked as disabled after finality violation")
-			require.Equal(t, uint64(0), chainStatus.FinalizedBlockHeight.Uint64(), "finalized block height should be 0 after finality violation")
-
-			l.Info().Msg("✅ Chain status verified in verifier's local storage: chain is disabled with checkpoint 0")
-
-			return true
-		}, 3*time.Second, 100*time.Millisecond, "chain status should reflect disabled state after finality violation")
-
-		l.Info().
-			Msg("✨ Test completed: Finality violation detected and system stopped processing new messages")
-	})
-
 	t.Run("reorg with faster-than-finality message", func(t *testing.T) {
 		// This test verifies that when a message with custom (faster) finality is affected by a reorg,
 		// the verifier will wait for full finalization before processing it, ignoring the custom finality.
@@ -630,6 +572,64 @@ func TestE2EReorg(t *testing.T) {
 		verifyMessageExists(msgIDSecondExecution, "Replacement message should be verified after full finalization")
 
 		l.Info().Msg("✨ Test completed: Replacement message waited for full finalization after reorg (sentTasks tracking)")
+	})
+
+	t.Run("finality violation", func(t *testing.T) {
+		// Log the source chain selector for verification
+		l.Info().Uint64("srcSelector", srcSelector).Msg("Source chain selector for finality violation test")
+
+		l.Info().Msg("💾 Creating initial snapshot before mining blocks")
+		snapshotID, err := anvilHelper.Snapshot(ctx)
+		require.NoError(t, err)
+		l.Info().Str("snapshotID", snapshotID).Msg("✅ Initial snapshot created")
+
+		l.Info().Msg("📨 Sending pre-violation message")
+		event1, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "pre-violation message"), defaultMessageOptions)
+		require.NoError(t, err)
+		logSentMessage(event1, "Sending pre-violation message")
+		preViolationMessageID := event1.MessageID
+
+		l.Info().Int("blocks", verifier.ConfirmationDepth+5).Msg("⛏️  Mining blocks to establish finalized state")
+		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		l.Info().Msg("✅ Finalized state established")
+
+		// Wait for message to be processed and appear in aggregator
+		verifyMessageExists(preViolationMessageID, "Pre-violation message")
+
+		l.Info().Msg("Sending message to be dropped once finality violation happens")
+		event2, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "toBeDropped message"), defaultMessageOptions)
+		require.NoError(t, err)
+		logSentMessage(event2, "Sending toBeDropped message")
+		toBeDroppedMessageID := event2.MessageID
+
+		l.Info().Msg("⚠️  Triggering finality violation by reverting to initial snapshot")
+		err = anvilHelper.Revert(ctx, snapshotID)
+		require.NoError(t, err)
+		l.Info().Msg("✅ Reverted to initial snapshot (deep reorg past finalized blocks)")
+		// Mine some blocks to give system opportunity to process (if it were working)
+		l.Info().Int("blocks", verifier.ConfirmationDepth+5).Msg("⛏️  Mining blocks after revert")
+		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		verifyMessageNotExists(toBeDroppedMessageID, "Post-violation message")
+
+		l.Info().Msg("🔍 Verifying chain status in verifier's local storage...")
+
+		require.Eventually(t, func() bool {
+			statuses, err := chainStatusManager.ReadChainStatuses(ctx, []protocol.ChainSelector{protocol.ChainSelector(srcSelector)})
+			require.NoError(t, err, "should be able to read chain status from verifier's database")
+			require.Len(t, statuses, 1, "should have one chain status for source chain")
+
+			chainStatus := statuses[protocol.ChainSelector(srcSelector)]
+			require.NotNil(t, chainStatus, "chain status should exist")
+			require.True(t, chainStatus.Disabled, "chain should be marked as disabled after finality violation")
+			require.Equal(t, uint64(0), chainStatus.FinalizedBlockHeight.Uint64(), "finalized block height should be 0 after finality violation")
+
+			l.Info().Msg("✅ Chain status verified in verifier's local storage: chain is disabled with checkpoint 0")
+
+			return true
+		}, 3*time.Second, 100*time.Millisecond, "chain status should reflect disabled state after finality violation")
+
+		l.Info().
+			Msg("✨ Test completed: Finality violation detected and system stopped processing new messages")
 	})
 
 	// a utility test to enable the chain again in the database instead of creating a new env
