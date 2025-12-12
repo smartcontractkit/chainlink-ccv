@@ -106,9 +106,13 @@ func (h *HTTPAttestationService) Fetch(
 
 func (h *HTTPAttestationService) extractAttestationFromResponse(response Messages, message protocol.Message) (Attestation, error) {
 	for _, msg := range response.Messages {
-		ok := h.matchesMessage(msg, message)
-		if !ok {
-			h.lggr.Debugw("skipping CCTP message as it doesn't match CCIP message", "message", msg)
+		err := cctpMatchesMessage(h.ccvVerifierVersion, h.ccvAddresses, msg, message)
+		if err != nil {
+			h.lggr.Debugw(
+				"skipping CCTP message as it doesn't match CCIP message",
+				"message", msg,
+				"reason", err,
+			)
 			continue
 		}
 		if msg.IsAttestationComplete() {
@@ -119,54 +123,45 @@ func (h *HTTPAttestationService) extractAttestationFromResponse(response Message
 	return Attestation{}, fmt.Errorf("no matching message found in response")
 }
 
-func (h *HTTPAttestationService) matchesMessage(msg Message, message protocol.Message) bool {
-	messageID, err := message.MessageID()
+func cctpMatchesMessage(
+	ccvVerifierVersion protocol.ByteSlice,
+	ccvAddresses map[protocol.ChainSelector]protocol.UnknownAddress,
+	cctpMessage Message,
+	ccipMessage protocol.Message,
+) error {
+	messageID, err := ccipMessage.MessageID()
 	if err != nil {
-		return false
+		return fmt.Errorf("failed to compute message ID: %w", err)
 	}
 
-	lggr := logger.With(h.lggr, "cctpMessage", message, "messageID", messageID)
-
-	if !msg.IsV2() {
-		lggr.Debugw("CCTP Attestation: Skipping message due to unsupported CCTP version")
-		return false
+	if !cctpMessage.IsV2() {
+		return fmt.Errorf("unsupported CCTP version")
 	}
 
-	ccvAddress, ok := h.ccvAddresses[message.SourceChainSelector]
+	ccvAddress, ok := ccvAddresses[ccipMessage.SourceChainSelector]
 	if !ok {
-		lggr.Debugw("CCTP Attestation: No CCV address configured for source chain selector",
-			"sourceChainSelector", message.SourceChainSelector)
-		return false
+		return fmt.Errorf("no CCV address configured for source chain selector: %s", ccipMessage.SourceChainSelector)
 	}
 
-	senderAddress := protocol.UnknownAddress(msg.DecodedMessage.Sender)
-	if !ccvAddress.Equal(senderAddress) {
-		lggr.Debugw("CCTP Attestation: Skipping message due to sender address mismatch",
-			"expectedSender", ccvAddress.String(),
-			"actualSender", senderAddress.String(),
-		)
-		return false
-	}
-
-	actualHookData, err := protocol.NewByteSliceFromHex(msg.DecodedMessage.DecodedMessageBody.HookData)
+	senderAddress, err := protocol.NewUnknownAddressFromHex(cctpMessage.DecodedMessage.Sender)
 	if err != nil {
-		lggr.Debugw("CCTP Attestation: Skipping message due to invalid hook data",
-			"hookData", msg.DecodedMessage.DecodedMessageBody.HookData,
-			"error", err,
-		)
-		return false
+		return fmt.Errorf("invalid sender address: %w", err)
+	}
+	if !ccvAddress.Equal(senderAddress) {
+		return fmt.Errorf("sender address mismatch: expected %s, got %s", ccvAddress.String(), senderAddress.String())
+	}
+
+	actualHookData, err := protocol.NewByteSliceFromHex(cctpMessage.DecodedMessage.DecodedMessageBody.HookData)
+	if err != nil {
+		return fmt.Errorf("invalid hook data: %w", err)
 	}
 
 	// <4 byte verifier version><32 byte msg ID>
 	var expectedHookData protocol.ByteSlice
-	expectedHookData = append(expectedHookData, h.ccvVerifierVersion...)
+	expectedHookData = append(expectedHookData, ccvVerifierVersion...)
 	expectedHookData = append(expectedHookData, messageID[:]...)
 	if actualHookData.String() != expectedHookData.String() {
-		lggr.Debugw("CCTP Attestation: Skipping message due to hook data mismatch",
-			"expectedHookData", expectedHookData.String(),
-			"actualHookData", actualHookData.String(),
-		)
-		return false
+		return fmt.Errorf("hook data mismatch: expected %s, got %s", expectedHookData.String(), actualHookData.String())
 	}
-	return true
+	return nil
 }

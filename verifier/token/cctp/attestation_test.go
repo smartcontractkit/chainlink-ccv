@@ -75,7 +75,7 @@ func Test_AttestationFetch_HappyPath(t *testing.T) {
 			AttestationAPITimeout:  1 * time.Minute,
 			AttestationAPICooldown: 5 * time.Minute,
 			ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
-				sourceChain: protocol.UnknownAddress("0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350"),
+				sourceChain: mustUnknownAddressFromHex("0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350"),
 			},
 		})
 	require.NoError(t, err)
@@ -157,10 +157,212 @@ func TestAttestation_ToVerifierFormat(t *testing.T) {
 	assert.Equal(t, expected, result.String())
 }
 
+func Test_cctpMatchesMessage(t *testing.T) {
+	sourceChain := protocol.ChainSelector(sel.GETH_TESTNET.Selector)
+	destChain := protocol.ChainSelector(sel.GETH_DEVNET_2.Selector)
+	ccvVerifierVersion := mustByteSliceFromHex("0x8e1d1a9d")
+
+	// Create a valid CCIP message and calculate its message ID
+	ccipMessage, err := protocol.NewMessage(
+		sourceChain,
+		destChain,
+		protocol.SequenceNumber(123),
+		mustUnknownAddressFromHex("0x1111111111111111111111111111111111111111"),
+		mustUnknownAddressFromHex("0x2222222222222222222222222222222222222222"),
+		10,
+		200_000,
+		100_000,
+		protocol.Bytes32{},
+		mustUnknownAddressFromHex("0x3333333333333333333333333333333333333333"),
+		mustUnknownAddressFromHex("0x4444444444444444444444444444444444444444"),
+		[]byte("test dest blob"),
+		[]byte("test data"),
+		nil,
+	)
+	require.NoError(t, err)
+
+	// Hardcoding hooks and messageID to avoid relying on logic we testing to generate them
+	hookData := "0x8e1d1a9d73fa314b5b2e7087b9ccac8eac29b001f339ff0447dff45a4924185338bffc7f"
+	messageID := mustByteSliceFromHex("0x73fa314b5b2e7087b9ccac8eac29b001f339ff0447dff45a4924185338bffc7f")
+
+	calculatedMessageID, err := ccipMessage.MessageID()
+	require.NoError(t, err)
+	require.Equal(t, messageID.String(), calculatedMessageID.String())
+
+	ccvAddress := mustUnknownAddressFromHex("0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350")
+	ccvAddresses := map[protocol.ChainSelector]protocol.UnknownAddress{
+		sourceChain: ccvAddress,
+	}
+
+	testCases := []struct {
+		name             string
+		cctpMessage      Message
+		ccipMessage      protocol.Message
+		ccvAddresses     map[protocol.ChainSelector]protocol.UnknownAddress
+		expectError      bool
+		expectedErrorMsg string
+	}{
+		{
+			name: "valid match",
+			cctpMessage: Message{
+				Message:     "0xaabbcc",
+				Attestation: "0xddeeff",
+				CCTPVersion: 2,
+				Status:      attestationStatusSuccess,
+				DecodedMessage: DecodedMessage{
+					Sender: "0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350",
+					DecodedMessageBody: DecodedMessageBody{
+						HookData: hookData,
+					},
+				},
+			},
+			ccipMessage:      *ccipMessage,
+			ccvAddresses:     ccvAddresses,
+			expectError:      false,
+			expectedErrorMsg: "",
+		},
+		{
+			name: "unsupported CCTP version",
+			cctpMessage: Message{
+				Message:     "0xaabbcc",
+				Attestation: "0xddeeff",
+				CCTPVersion: 1,
+				Status:      attestationStatusSuccess,
+				DecodedMessage: DecodedMessage{
+					Sender: ccvAddress.String(),
+					DecodedMessageBody: DecodedMessageBody{
+						HookData: hookData,
+					},
+				},
+			},
+			ccipMessage:      *ccipMessage,
+			ccvAddresses:     ccvAddresses,
+			expectError:      true,
+			expectedErrorMsg: "unsupported CCTP version",
+		},
+		{
+			name: "no CCV address configured for source chain",
+			cctpMessage: Message{
+				Message:     "0xaabbcc",
+				Attestation: "0xddeeff",
+				CCTPVersion: 2,
+				Status:      attestationStatusSuccess,
+				DecodedMessage: DecodedMessage{
+					Sender: ccvAddress.String(),
+					DecodedMessageBody: DecodedMessageBody{
+						HookData: hookData,
+					},
+				},
+			},
+			ccipMessage:      *ccipMessage,
+			ccvAddresses:     map[protocol.ChainSelector]protocol.UnknownAddress{}, // Empty map
+			expectError:      true,
+			expectedErrorMsg: "no CCV address configured for source chain selector",
+		},
+		{
+			name: "sender address mismatch",
+			cctpMessage: Message{
+				Message:     "0xaabbcc",
+				Attestation: "0xddeeff",
+				CCTPVersion: 2,
+				Status:      attestationStatusSuccess,
+				DecodedMessage: DecodedMessage{
+					Sender: "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+					DecodedMessageBody: DecodedMessageBody{
+						HookData: hookData,
+					},
+				},
+			},
+			ccipMessage:      *ccipMessage,
+			ccvAddresses:     ccvAddresses,
+			expectError:      true,
+			expectedErrorMsg: "sender address mismatch",
+		},
+		{
+			name: "invalid sender address hex",
+			cctpMessage: Message{
+				Message:     "0xaabbcc",
+				Attestation: "0xddeeff",
+				CCTPVersion: 2,
+				Status:      attestationStatusSuccess,
+				DecodedMessage: DecodedMessage{
+					Sender: "0xzzzz",
+					DecodedMessageBody: DecodedMessageBody{
+						HookData: hookData,
+					},
+				},
+			},
+			ccipMessage:      *ccipMessage,
+			ccvAddresses:     ccvAddresses,
+			expectError:      true,
+			expectedErrorMsg: "invalid sender address",
+		},
+		{
+			name: "invalid hook data hex",
+			cctpMessage: Message{
+				Message:     "0xaabbcc",
+				Attestation: "0xddeeff",
+				CCTPVersion: 2,
+				Status:      attestationStatusSuccess,
+				DecodedMessage: DecodedMessage{
+					Sender: ccvAddress.String(),
+					DecodedMessageBody: DecodedMessageBody{
+						HookData: "0xzzzz",
+					},
+				},
+			},
+			ccipMessage:      *ccipMessage,
+			ccvAddresses:     ccvAddresses,
+			expectError:      true,
+			expectedErrorMsg: "invalid hook data",
+		},
+		{
+			name: "hook data mismatch",
+			cctpMessage: Message{
+				Message:     "0xaabbcc",
+				Attestation: "0xddeeff",
+				CCTPVersion: 2,
+				Status:      attestationStatusSuccess,
+				DecodedMessage: DecodedMessage{
+					Sender: ccvAddress.String(),
+					DecodedMessageBody: DecodedMessageBody{
+						HookData: "0xdeadbeefcafebabe",
+					},
+				},
+			},
+			ccipMessage:      *ccipMessage,
+			ccvAddresses:     ccvAddresses,
+			expectError:      true,
+			expectedErrorMsg: "hook data mismatch",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := cctpMatchesMessage(ccvVerifierVersion, tc.ccvAddresses, tc.cctpMessage, tc.ccipMessage)
+
+			if tc.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.expectedErrorMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func mustByteSliceFromHex(s string) protocol.ByteSlice {
 	bs, err := protocol.NewByteSliceFromHex(s)
 	if err != nil {
 		panic(fmt.Sprintf("failed to decode hex string: %v", err))
 	}
 	return bs
+}
+
+func mustUnknownAddressFromHex(s string) protocol.UnknownAddress {
+	addr, err := protocol.NewUnknownAddressFromHex(s)
+	if err != nil {
+		panic(fmt.Sprintf("failed to decode address: %v", err))
+	}
+	return addr
 }
