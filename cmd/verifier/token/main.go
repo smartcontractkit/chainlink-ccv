@@ -192,13 +192,15 @@ func createCCTPCoordinator(
 ) *verifier.Coordinator {
 	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifiers, rmnRemoteAddresses)
 
-	cctpVerifier := cctp.NewVerifier(
-		cctp.NewAttestationService(*cctpConfig),
-	)
+	attestationService, err := cctp.NewAttestationService(lggr, *cctpConfig)
+	if err != nil {
+		lggr.Errorw("Failed to create CCTP attestation service", "error", err)
+		os.Exit(1)
+	}
 
 	cctpCoordinator, err := verifier.NewCoordinator(
 		lggr,
-		cctpVerifier,
+		cctp.NewVerifier(attestationService),
 		sourceReaders,
 		ccvStorage,
 		verifier.CoordinatorConfig{

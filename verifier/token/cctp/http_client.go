@@ -2,6 +2,7 @@ package cctp
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,6 +17,9 @@ import (
 const (
 	apiVersionV2 = "v2"
 	messagesPath = "messages"
+
+	attestationStatusSuccess string = "complete"
+	attestationStatusPending string = "pending_confirmations"
 )
 
 // HTTPClient defines the interface for fetching CCTP v2 messages via HTTP. At this stage we don't expose or implement
@@ -127,6 +131,25 @@ type Message struct {
 	DecodedMessage DecodedMessage `json:"decodedMessage"`
 	CCTPVersion    int            `json:"cctpVersion"`
 	Status         string         `json:"status"`
+}
+
+func (m *Message) IsV2() bool {
+	return m.CCTPVersion == 2
+}
+
+func (m *Message) IsAttestationComplete() bool {
+	return m.Status == attestationStatusSuccess
+}
+
+func (m *Message) DecodeAttestation() (protocol.ByteSlice, error) {
+	if !m.IsAttestationComplete() {
+		return nil, fmt.Errorf("attestation is not complete, status: %s", m.Status)
+	}
+	attestation, err := hex.DecodeString(m.Attestation)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode attestation hex: %w", err)
+	}
+	return attestation, nil
 }
 
 // DecodedMessage represents the 'decodedMessage' object within a Message.
