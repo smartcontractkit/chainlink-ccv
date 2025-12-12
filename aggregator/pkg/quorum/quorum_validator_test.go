@@ -15,7 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	fixtures "github.com/smartcontractkit/chainlink-ccv/aggregator/tests"
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 )
 
 const (
@@ -24,7 +24,7 @@ const (
 )
 
 // Helper function to create a commit verification record from protobuf message.
-func createCommitVerificationRecord(messageData *pb.CommitteeVerifierNodeResult) *model.CommitVerificationRecord {
+func createCommitVerificationRecord(messageData *committeepb.CommitteeVerifierNodeResult) *model.CommitVerificationRecord {
 	record, _ := model.CommitVerificationRecordFromProto(messageData)
 	return record
 }

@@ -10,7 +10,8 @@ import (
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
+	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
 func getAllSignatureByAddress(report *CommitAggregatedReport) (map[string]protocol.Data, error) {
@@ -62,7 +63,7 @@ func findAllSignaturesValidInConfig(addressSignatures map[string]protocol.Data, 
 	return signatures
 }
 
-func MapAggregatedReportToVerifierResultProto(report *CommitAggregatedReport, c *Committee) (*pb.VerifierResult, error) {
+func MapAggregatedReportToVerifierResultProto(report *CommitAggregatedReport, c *Committee) (*verifierpb.VerifierResult, error) {
 	if len(report.Verifications) == 0 {
 		return nil, fmt.Errorf("report does not contains verification")
 	}
@@ -108,12 +109,12 @@ func MapAggregatedReportToVerifierResultProto(report *CommitAggregatedReport, c 
 		ccvAddresses[i] = addr.Bytes()
 	}
 
-	return &pb.VerifierResult{
+	return &verifierpb.VerifierResult{
 		Message:                report.GetProtoMessage(),
 		MessageCcvAddresses:    ccvAddresses,
 		MessageExecutorAddress: report.GetMessageExecutorAddress().Bytes(),
 		CcvData:                ccvData,
-		Metadata: &pb.VerifierResultMetadata{
+		Metadata: &verifierpb.VerifierResultMetadata{
 			Timestamp:             report.WrittenAt.UnixMilli(),
 			VerifierSourceAddress: quorumConfig.GetSourceVerifierAddressBytes(),
 			VerifierDestAddress:   destVerifierAddr,
@@ -122,7 +123,7 @@ func MapAggregatedReportToVerifierResultProto(report *CommitAggregatedReport, c 
 }
 
 // CommitVerificationRecordFromProto converts protobuf CommitteeVerifierNodeResult to domain model.
-func CommitVerificationRecordFromProto(proto *pb.CommitteeVerifierNodeResult) (*CommitVerificationRecord, error) {
+func CommitVerificationRecordFromProto(proto *committeepb.CommitteeVerifierNodeResult) (*CommitVerificationRecord, error) {
 	// Convert [][]byte to []protocol.UnknownAddress
 	ccvAddresses := make([]protocol.UnknownAddress, len(proto.CcvAddresses))
 	for i, addr := range proto.CcvAddresses {
@@ -155,14 +156,14 @@ func CommitVerificationRecordFromProto(proto *pb.CommitteeVerifierNodeResult) (*
 }
 
 // CommitVerificationRecordToProto converts domain model to protobuf CommitteeVerifierNodeResult.
-func CommitVerificationRecordToProto(record *CommitVerificationRecord) *pb.CommitteeVerifierNodeResult {
+func CommitVerificationRecordToProto(record *CommitVerificationRecord) *committeepb.CommitteeVerifierNodeResult {
 	// Convert []protocol.UnknownAddress to [][]byte
 	ccvAddresses := make([][]byte, len(record.MessageCCVAddresses))
 	for i, addr := range record.MessageCCVAddresses {
 		ccvAddresses[i] = addr.Bytes()
 	}
 
-	proto := &pb.CommitteeVerifierNodeResult{
+	proto := &committeepb.CommitteeVerifierNodeResult{
 		CcvVersion:      record.CCVVersion,
 		Signature:       record.Signature,
 		CcvAddresses:    ccvAddresses,

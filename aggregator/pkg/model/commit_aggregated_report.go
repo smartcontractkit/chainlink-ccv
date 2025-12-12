@@ -7,7 +7,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
 // CommitAggregatedReport represents a report of aggregated commit verifications.
@@ -70,7 +70,7 @@ func (c *CommitAggregatedReport) GetVersion() []byte {
 }
 
 // It is assumed that all verifications in the report have the same message since otherwise the message ID would not match.
-func (c *CommitAggregatedReport) GetProtoMessage() *pb.Message {
+func (c *CommitAggregatedReport) GetProtoMessage() *verifierpb.Message {
 	if len(c.Verifications) > 0 && c.Verifications[0].Message != nil {
 		return common.MapProtocolMessageToProtoMessage(c.Verifications[0].Message)
 	}

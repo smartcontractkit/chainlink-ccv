@@ -14,7 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	msgdiscoverypb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery/v1"
 )
 
 func TestGetMessagesSinceHandler_Success(t *testing.T) {
@@ -43,7 +43,7 @@ func TestGetMessagesSinceHandler_Success(t *testing.T) {
 
 	h := NewGetMessagesSinceHandler(store, committee, lggr, mon)
 
-	resp, err := h.Handle(context.Background(), &pb.GetMessagesSinceRequest{SinceSequence: 0})
+	resp, err := h.Handle(context.Background(), &msgdiscoverypb.GetMessagesSinceRequest{SinceSequence: 0})
 	require.NoError(t, err)
 	require.Len(t, resp.Results, 1)
 	require.Equal(t, int64(1), resp.Results[0].Sequence)
@@ -61,7 +61,7 @@ func TestGetMessagesSinceHandler_StorageError(t *testing.T) {
 
 	store.EXPECT().QueryAggregatedReports(mock.Anything, mock.Anything).Return(nil, assertAnError())
 
-	resp, err := h.Handle(context.Background(), &pb.GetMessagesSinceRequest{SinceSequence: 0})
+	resp, err := h.Handle(context.Background(), &msgdiscoverypb.GetMessagesSinceRequest{SinceSequence: 0})
 	require.Error(t, err)
 	require.Equal(t, codes.Internal, status.Code(err))
 	require.Nil(t, resp)

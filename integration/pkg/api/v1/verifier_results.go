@@ -9,7 +9,7 @@ import (
 	"google.golang.org/genproto/googleapis/rpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	v1 "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	v1 "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
 // Exported types wrapping the generated protobuf types. The main purpose is to implement custom
@@ -134,6 +134,11 @@ func (r *VerifierResultsResponse) ToVerifierResults() (map[protocol.Bytes32]prot
 	mappedResults := make(map[protocol.Bytes32]protocol.VerifierResult)
 
 	for i, responseResult := range r.Results {
+		// Response is nil if message not found in aggregator
+		if responseResult == nil {
+			continue
+		}
+
 		result, err := (&VerifierResult{VerifierResult: responseResult}).ToVerifierResult()
 		if err != nil {
 			return nil, fmt.Errorf("error mapping message at index %d: %w", i, err)

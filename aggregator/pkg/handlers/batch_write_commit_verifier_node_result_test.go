@@ -12,7 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 )
 
 func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *testing.T) {
@@ -43,8 +43,8 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 	invalidReq := makeValidProtoRequest()
 	invalidReq.CommitteeVerifierNodeResult = nil
 
-	resp, err := batchHandler.Handle(context.Background(), &pb.BatchWriteCommitteeVerifierNodeResultRequest{
-		Requests: []*pb.WriteCommitteeVerifierNodeResultRequest{validReq, invalidReq},
+	resp, err := batchHandler.Handle(context.Background(), &committeepb.BatchWriteCommitteeVerifierNodeResultRequest{
+		Requests: []*committeepb.WriteCommitteeVerifierNodeResultRequest{validReq, invalidReq},
 	})
 
 	require.NoError(t, err)
@@ -52,11 +52,11 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 	require.Len(t, resp.Responses, 2)
 	require.Len(t, resp.Errors, 2)
 
-	require.Equal(t, pb.WriteStatus_SUCCESS, resp.Responses[0].Status)
+	require.Equal(t, committeepb.WriteStatus_SUCCESS, resp.Responses[0].Status)
 	require.NotNil(t, resp.Errors[0])
 	require.Equal(t, int32(codes.OK), resp.Errors[0].Code)
 
-	require.Equal(t, pb.WriteStatus_FAILED, resp.Responses[1].Status)
+	require.Equal(t, committeepb.WriteStatus_FAILED, resp.Responses[1].Status)
 	require.NotNil(t, resp.Errors[1])
 	require.Equal(t, int32(codes.InvalidArgument), resp.Errors[1].Code)
 }
