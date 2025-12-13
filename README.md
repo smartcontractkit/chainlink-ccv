@@ -9,15 +9,26 @@ List available commands:
 just --list
 ```
 
-Install pre-commit hooks:
+Install dependencies and pre-commit hooks:
 ```
+just install-go-tools
 just pre-commit
 ```
 
 Run tests:
 ```bash
-just tests
+just test
 ```
+
+Check coverage:
+```bash
+just cover # coverage threshold check
+just cover-html # default Go tool to work on coverage locally
+```
+
+Current coverage threshold can be found in [.testconverage.yml](./testconverage.yml)
+
+Current coverage breakdown is in [coverage-breakdown.txt](./coverage-breakdown.txt), we commit it manually to `main` and compare new PRs against it.
 
 ## Local Dev Environment
 Follow the [README](./build/devenv/README.md)
