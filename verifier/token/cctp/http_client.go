@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -16,6 +17,9 @@ import (
 const (
 	apiVersionV2 = "v2"
 	messagesPath = "messages"
+
+	attestationStatusSuccess string = "complete"
+	attestationStatusPending string = "pending_confirmations"
 )
 
 // HTTPClient defines the interface for fetching CCTP v2 messages via HTTP. At this stage we don't expose or implement
@@ -112,7 +116,7 @@ func parseResponseBody(body protocol.ByteSlice) (Messages, error) {
 // Messages represents the response structure from Circle's attestation API,
 // containing a list of CCTP v2 messages with their attestations.
 // This API response type is documented here:
-// https://developers.circle.com/api-reference/cctp/all/get-messages-v-2
+// https://developers.circle.com/api-reference/cctp/all/get-messages-v2
 type Messages struct {
 	Messages []Message `json:"messages"`
 }
@@ -125,8 +129,42 @@ type Message struct {
 	EventNonce     string         `json:"eventNonce"`
 	Attestation    string         `json:"attestation"`
 	DecodedMessage DecodedMessage `json:"decodedMessage"`
-	CCTPVersion    int            `json:"cctpVersion"`
+	CCTPVersion    any            `json:"cctpVersion"`
 	Status         string         `json:"status"`
+}
+
+func (m *Message) IsV2() bool {
+	switch v := m.CCTPVersion.(type) {
+	case int:
+		return v == 2
+	case int64:
+		return v == 2
+	case float64: // JSON numbers unmarshal to float64 by default
+		return v == 2
+	case string:
+		version, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return false
+		}
+		return version == 2
+	default:
+		return false
+	}
+}
+
+func (m *Message) IsAttestationComplete() bool {
+	return m.Status == attestationStatusSuccess
+}
+
+func (m *Message) DecodeAttestation() (protocol.ByteSlice, error) {
+	if !m.IsAttestationComplete() {
+		return nil, fmt.Errorf("attestation is not complete, status: %s", m.Status)
+	}
+	attestation, err := protocol.NewByteSliceFromHex(m.Attestation)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode attestation hex: %w", err)
+	}
+	return attestation, nil
 }
 
 // DecodedMessage represents the 'decodedMessage' object within a Message.

@@ -405,7 +405,7 @@ func TestParseResponseBody(t *testing.T) {
 		assert.Equal(t, "0xabcdef1234567890", msg.Message)
 		assert.Equal(t, "12345", msg.EventNonce)
 		assert.Equal(t, "0x9876543210fedcba", msg.Attestation)
-		assert.Equal(t, 2, msg.CCTPVersion)
+		assert.Equal(t, float64(2), msg.CCTPVersion)
 		assert.Equal(t, "complete", msg.Status)
 		assert.Equal(t, "0", msg.DecodedMessage.SourceDomain)
 		assert.Equal(t, "1000000", msg.DecodedMessage.DecodedMessageBody.Amount)
