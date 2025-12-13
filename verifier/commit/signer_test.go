@@ -21,18 +21,21 @@ func TestECDSASigner_Sign(t *testing.T) {
 
 	hash := crypto.Keccak256([]byte("test message"))
 
-	signature, err := signer.Sign(hash)
+	sigBytes, err := signer.Sign(hash)
 	require.NoError(t, err)
-	require.Len(t, signature, 96, "signature should be 96 bytes (32 R + 32 S + 20 Signer)")
+	require.Len(t, sigBytes, 65, "signature should be 65 bytes (1 scheme + 32 R + 32 S)")
 
-	r, s, signerAddr, err := protocol.DecodeSingleSignature(signature)
+	signature, err := protocol.DecodeSignature(sigBytes, hash)
 	require.NoError(t, err)
 
 	expectedAddr := crypto.PubkeyToAddress(privateKey.PublicKey)
-	require.Equal(t, expectedAddr, signerAddr, "signer address should match")
+	require.Equal(t, expectedAddr, signature.PublicKey, "signer address should match")
 
-	require.NotEqual(t, [32]byte{}, r, "R should not be zero")
-	require.NotEqual(t, [32]byte{}, s, "S should not be zero")
+	ecdsaSig, err := signature.ToECDSA()
+	require.NoError(t, err)
+
+	require.NotEqual(t, [32]byte{}, ecdsaSig.R, "R should not be zero")
+	require.NotEqual(t, [32]byte{}, ecdsaSig.S, "S should not be zero")
 }
 
 func TestECDSASigner_SignDifferentMessages(t *testing.T) {
@@ -122,16 +125,19 @@ func TestECDSASignerWithKeystoreSigner_Sign(t *testing.T) {
 
 	hash := crypto.Keccak256([]byte("test message"))
 
-	signature, err := signer.Sign(hash)
+	sigBytes, err := signer.Sign(hash)
 	require.NoError(t, err)
-	require.Len(t, signature, 96, "signature should be 96 bytes (32 R + 32 S + 20 Signer)")
+	require.Len(t, sigBytes, 65, "signature should be 65 bytes (1 scheme + 32 R + 32 S)")
 
-	r, s, signerAddr, err := protocol.DecodeSingleSignature(signature)
+	signature, err := protocol.DecodeSignature(sigBytes, hash)
 	require.NoError(t, err)
 
 	expectedAddr := crypto.PubkeyToAddress(privateKey.PublicKey)
-	require.Equal(t, expectedAddr, signerAddr, "signer address should match")
+	require.Equal(t, expectedAddr, signature.PublicKey, "signer address should match")
 
-	require.NotEqual(t, [32]byte{}, r, "R should not be zero")
-	require.NotEqual(t, [32]byte{}, s, "S should not be zero")
+	ecdsaSig, err := signature.ToECDSA()
+	require.NoError(t, err)
+
+	require.NotEqual(t, [32]byte{}, ecdsaSig.R, "R should not be zero")
+	require.NotEqual(t, [32]byte{}, ecdsaSig.S, "S should not be zero")
 }

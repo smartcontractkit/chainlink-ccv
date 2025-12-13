@@ -9,9 +9,8 @@ import (
 )
 
 // MessageSigner defines the interface for signing data.
-// TODO: revisit this, shouldn't be ECDSA specific?
 type MessageSigner interface {
-	// Sign returns an ECDSA signature that is 65 bytes long (R + S + V).
+	// Sign returns a canonical signature format that works across multiple schemes.
 	Sign(data []byte) (signed []byte, err error)
 }
 
