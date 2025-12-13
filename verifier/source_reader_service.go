@@ -46,6 +46,7 @@ type SourceReaderService struct {
 	lastProcessedFinalizedBlock atomic.Pointer[big.Int]
 	pendingTasks                map[string]VerificationTask
 	sentTasks                   map[string]VerificationTask // Track messages already sent to prevent duplicates
+	reorgTracker                *ReorgTracker               // Tracks seqNums affected by reorgs
 	disabled                    atomic.Bool
 
 	// ChainStatus management
@@ -103,6 +104,7 @@ func NewSourceReaderService(
 		readyTasksCh:       make(chan batcher.BatchResult[VerificationTask]),
 		pendingTasks:       make(map[string]VerificationTask),
 		sentTasks:          make(map[string]VerificationTask),
+		reorgTracker:       NewReorgTracker(),
 		stopCh:             make(chan struct{}),
 		filter:             filter,
 	}, nil
@@ -419,8 +421,11 @@ func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationT
 				r.logger.Warnw("Removing task from pending queue due to reorg",
 					"messageID", msgID,
 					"blockNumber", existing.BlockNumber,
+					"seqNum", existing.Message.SequenceNumber,
+					"destChain", existing.Message.DestChainSelector,
 					"fromBlock", fromBlock.String(),
 				)
+				r.reorgTracker.Track(existing.Message.DestChainSelector, existing.Message.SequenceNumber)
 				delete(r.pendingTasks, msgID)
 			}
 		}
@@ -432,7 +437,11 @@ func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationT
 		if taskBlock.Cmp(fromBlock) >= 0 {
 			if _, exists := tasksMap[msgID]; !exists {
 				r.logger.Warnw("Removing task from sentTasks due to reorg",
-					"messageID", msgID)
+					"messageID", msgID,
+					"seqNum", task.Message.SequenceNumber,
+					"destChain", task.Message.DestChainSelector,
+				)
+				r.reorgTracker.Track(task.Message.DestChainSelector, task.Message.SequenceNumber)
 				delete(r.sentTasks, msgID)
 			}
 		}
@@ -529,6 +538,8 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, fin
 			// Mark as sent to prevent re-sending
 			r.sentTasks[msgID] = task
 			toBeDeleted = append(toBeDeleted, msgID)
+			// If this seqNum was tracked due to reorg, remove it now that it's finalized
+			r.reorgTracker.Remove(task.Message.DestChainSelector, task.Message.SequenceNumber)
 		}
 	}
 
@@ -561,6 +572,23 @@ func (r *SourceReaderService) isMessageReadyForVerification(
 ) bool {
 	f := task.Message.Finality
 	msgBlock := new(big.Int).SetUint64(task.BlockNumber)
+	destChain := task.Message.DestChainSelector
+	seqNum := task.Message.SequenceNumber
+
+	// If this message's seqNum was part of a reorg, require full finalization
+	// regardless of any custom finality setting
+	if r.reorgTracker.RequiresFinalization(destChain, seqNum) {
+		ready := msgBlock.Cmp(latestFinalizedBlock) <= 0
+		r.logger.Infow("Reorg-affected message finality check",
+			"messageID", task.MessageID,
+			"seqNum", seqNum,
+			"destChain", destChain,
+			"messageBlock", task.BlockNumber,
+			"finalizedBlock", latestFinalizedBlock.String(),
+			"meetsRequirement", ready,
+		)
+		return ready
+	}
 
 	if f == 0 {
 		// default finality: msgBlock <= finalized

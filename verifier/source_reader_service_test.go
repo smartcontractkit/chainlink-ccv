@@ -717,3 +717,287 @@ func TestSRS_ChainStatus_MonotonicUpdates(t *testing.T) {
 
 	require.Equal(t, 2, callCount, "expected exactly 2 chain status writes")
 }
+
+// ----------------------
+// Reorg tracking tests
+// ----------------------
+
+func TestSRS_Reorg_TracksSequenceNumbers(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+	reader := protocol_mocks.NewMockSourceReader(t)
+
+	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
+	curseDetector := ccv_common.NewMockCurseCheckerService(t)
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
+	curseDetector.EXPECT().Close().Return(nil).Maybe()
+
+	srs, _ := newTestSRS(
+		t,
+		chain,
+		reader,
+		chainStatusMgr,
+		curseDetector,
+		10*time.Millisecond,
+	)
+
+	// Create initial tasks A and B
+	msgs := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{100, 101})
+	taskA := VerificationTask{Message: msgs[0].Message, BlockNumber: msgs[0].BlockNumber, MessageID: msgs[0].MessageID.String()}
+	taskB := VerificationTask{Message: msgs[1].Message, BlockNumber: msgs[1].BlockNumber, MessageID: msgs[1].MessageID.String()}
+
+	// Add to pending
+	srs.mu.Lock()
+	srs.pendingTasks = map[string]VerificationTask{
+		taskA.MessageID: taskA,
+		taskB.MessageID: taskB,
+	}
+	srs.mu.Unlock()
+
+	// New query results: B is gone (reorged), new task C appears
+	msgsC := createTestMessageSentEvents(t, 10, chain, defaultDestChain, []uint64{102})
+	taskC := VerificationTask{Message: msgsC[0].Message, BlockNumber: msgsC[0].BlockNumber, MessageID: msgsC[0].MessageID.String()}
+	newTasks := []VerificationTask{taskA, taskC}
+
+	srs.addToPendingQueueHandleReorg(newTasks, big.NewInt(100))
+
+	srs.mu.RLock()
+	defer srs.mu.RUnlock()
+
+	// B's seqNum (2) should be tracked as reorged
+	require.True(t, srs.reorgTracker.RequiresFinalization(defaultDestChain, taskB.Message.SequenceNumber),
+		"reorged task B's seqNum should be tracked")
+
+	// A's seqNum should NOT be tracked
+	require.False(t, srs.reorgTracker.RequiresFinalization(defaultDestChain, taskA.Message.SequenceNumber),
+		"non-reorged task A's seqNum should not be tracked")
+}
+
+func TestSRS_Reorg_TracksSentTasksSequenceNumbers(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+	reader := protocol_mocks.NewMockSourceReader(t)
+
+	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
+	curseDetector := ccv_common.NewMockCurseCheckerService(t)
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
+	curseDetector.EXPECT().Close().Return(nil).Maybe()
+
+	srs, _ := newTestSRS(
+		t,
+		chain,
+		reader,
+		chainStatusMgr,
+		curseDetector,
+		10*time.Millisecond,
+	)
+
+	// Task A was already sent (in sentTasks)
+	msgs := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{100})
+	taskA := VerificationTask{Message: msgs[0].Message, BlockNumber: msgs[0].BlockNumber, MessageID: msgs[0].MessageID.String()}
+
+	srs.mu.Lock()
+	srs.sentTasks = map[string]VerificationTask{
+		taskA.MessageID: taskA,
+	}
+	srs.mu.Unlock()
+
+	// New query results: A is gone (reorged after being sent)
+	newTasks := []VerificationTask{}
+
+	srs.addToPendingQueueHandleReorg(newTasks, big.NewInt(100))
+
+	srs.mu.RLock()
+	defer srs.mu.RUnlock()
+
+	// A's seqNum should be tracked as reorged even though it was in sentTasks
+	require.True(t, srs.reorgTracker.RequiresFinalization(defaultDestChain, taskA.Message.SequenceNumber),
+		"reorged sent task's seqNum should be tracked")
+}
+
+func TestSRS_ReorgedMessage_CustomFinality_WaitsForFinalization(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+	reader := protocol_mocks.NewMockSourceReader(t)
+	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
+	curseDetector := ccv_common.NewMockCurseCheckerService(t)
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
+	curseDetector.EXPECT().Close().Return(nil).Maybe()
+
+	srs, _ := newTestSRS(
+		t,
+		chain,
+		reader,
+		chainStatusMgr,
+		curseDetector,
+		10*time.Millisecond,
+	)
+
+	// Create message with custom finality of 5 blocks
+	const customFinality uint16 = 5
+	msg := CreateTestMessage(t, 10, chain, defaultDestChain, customFinality, 300_000)
+	msgID, _ := msg.MessageID()
+	task := VerificationTask{
+		Message:     msg,
+		BlockNumber: 190,
+		MessageID:   msgID.String(),
+	}
+
+	// Mark this seqNum as reorged
+	srs.reorgTracker.Track(defaultDestChain, msg.SequenceNumber)
+
+	latestBlock := big.NewInt(200) // msgBlock(190) + finality(5) = 195 <= 200, custom finality would be met
+	finalizedBlock := big.NewInt(180)
+
+	// Even though custom finality (195 <= 200) would be met, reorg tracking should require finalization
+	ready := srs.isMessageReadyForVerification(task, latestBlock, finalizedBlock)
+
+	require.False(t, ready, "reorged message should wait for finalization even if custom finality is met")
+
+	// Now set finalized block past message block
+	finalizedBlock = big.NewInt(195)
+	ready = srs.isMessageReadyForVerification(task, latestBlock, finalizedBlock)
+
+	require.True(t, ready, "reorged message should be ready once finalized")
+}
+
+func TestSRS_NonReorgedMessage_UsesCustomFinality(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+	reader := protocol_mocks.NewMockSourceReader(t)
+	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
+	curseDetector := ccv_common.NewMockCurseCheckerService(t)
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
+	curseDetector.EXPECT().Close().Return(nil).Maybe()
+
+	srs, _ := newTestSRS(
+		t,
+		chain,
+		reader,
+		chainStatusMgr,
+		curseDetector,
+		10*time.Millisecond,
+	)
+
+	// Create message with custom finality of 5 blocks
+	const customFinality uint16 = 5
+	msg := CreateTestMessage(t, 10, chain, defaultDestChain, customFinality, 300_000)
+	msgID, _ := msg.MessageID()
+	task := VerificationTask{
+		Message:     msg,
+		BlockNumber: 190,
+		MessageID:   msgID.String(),
+	}
+
+	// Don't mark this seqNum as reorged
+
+	latestBlock := big.NewInt(200)    // msgBlock(190) + finality(5) = 195 <= 200
+	finalizedBlock := big.NewInt(180) // msgBlock(190) > finalized(180)
+
+	// Custom finality should be used (no reorg tracking)
+	ready := srs.isMessageReadyForVerification(task, latestBlock, finalizedBlock)
+
+	require.True(t, ready, "non-reorged message should use custom finality")
+}
+
+func TestSRS_ReorgedMessage_DifferentDest_UsesCustomFinality(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+	dest1 := protocol.ChainSelector(100)
+	dest2 := protocol.ChainSelector(200)
+	reader := protocol_mocks.NewMockSourceReader(t)
+	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
+	curseDetector := ccv_common.NewMockCurseCheckerService(t)
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
+	curseDetector.EXPECT().Close().Return(nil).Maybe()
+
+	srs, _ := newTestSRS(
+		t,
+		chain,
+		reader,
+		chainStatusMgr,
+		curseDetector,
+		10*time.Millisecond,
+	)
+
+	// Mark seqNum 10 for dest1 as reorged
+	srs.reorgTracker.Track(dest1, 10)
+
+	// Create message with same seqNum 10 but for dest2 (different lane)
+	const customFinality uint16 = 5
+	msg := CreateTestMessage(t, 10, chain, dest2, customFinality, 300_000)
+	msgID, _ := msg.MessageID()
+	task := VerificationTask{
+		Message:     msg,
+		BlockNumber: 190,
+		MessageID:   msgID.String(),
+	}
+
+	latestBlock := big.NewInt(200)
+	finalizedBlock := big.NewInt(180)
+
+	// Message to dest2 should use custom finality (dest1's reorg doesn't affect it)
+	ready := srs.isMessageReadyForVerification(task, latestBlock, finalizedBlock)
+
+	require.True(t, ready, "message to different dest should not be affected by other dest's reorg tracking")
+}
+
+func TestSRS_ReorgTracker_RemovedAfterFinalization(t *testing.T) {
+	ctx := context.Background()
+	chain := protocol.ChainSelector(1337)
+	reader := protocol_mocks.NewMockSourceReader(t)
+	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
+	curseDetector := ccv_common.NewMockCurseCheckerService(t)
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
+	curseDetector.EXPECT().Close().Return(nil).Maybe()
+
+	srs, mockFC := newTestSRS(
+		t,
+		chain,
+		reader,
+		chainStatusMgr,
+		curseDetector,
+		10*time.Millisecond,
+	)
+
+	mockFC.EXPECT().UpdateFinalized(mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockFC.EXPECT().IsFinalityViolated().Return(false).Maybe()
+
+	// Create a message and mark its seqNum as reorged
+	msg := CreateTestMessage(t, 10, chain, defaultDestChain, 0, 300_000)
+	msgID, _ := msg.MessageID()
+	task := VerificationTask{
+		Message:     msg,
+		BlockNumber: 100,
+		MessageID:   msgID.String(),
+	}
+
+	srs.reorgTracker.Track(defaultDestChain, msg.SequenceNumber)
+	require.True(t, srs.reorgTracker.RequiresFinalization(defaultDestChain, msg.SequenceNumber))
+
+	// Add task to pending
+	srs.mu.Lock()
+	srs.pendingTasks[msgID.String()] = task
+	srs.mu.Unlock()
+
+	// Finalized block is past message block
+	latest := &protocol.BlockHeader{Number: 200}
+	finalized := &protocol.BlockHeader{Number: 150}
+
+	go srs.sendReadyMessages(ctx, latest, finalized)
+
+	// Receive ready batch
+	select {
+	case batch := <-srs.readyTasksCh:
+		require.NoError(t, batch.Error)
+		require.Len(t, batch.Items, 1)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for readyTasks batch")
+	}
+
+	// SeqNum should be removed from reorg tracker after finalization
+	require.False(t, srs.reorgTracker.RequiresFinalization(defaultDestChain, msg.SequenceNumber),
+		"seqNum should be removed from reorg tracker after finalization")
+	require.False(t, len(srs.reorgTracker.reorgedSeqNums) > 0)
+}

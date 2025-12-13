@@ -385,6 +385,195 @@ func TestE2EReorg(t *testing.T) {
 		l.Info().Msg("✨ Test completed: Global curse verified - both lanes blocked, then unblocked after uncurse")
 	})
 
+	t.Run("reorg with faster-than-finality message", func(t *testing.T) {
+		// This test verifies that when a message with custom (faster) finality is affected by a reorg,
+		// the verifier will wait for full finalization before processing it, ignoring the custom finality.
+		//
+		// Timeline:
+		// 1. Send message with custom finality (faster than ConfirmationDepth)
+		// 2. Immediately trigger reorg BEFORE custom finality is met (so message isn't verified yet)
+		// 3. Re-send the message (same seqNum since we reverted)
+		// 4. Mine enough blocks for custom finality to be met
+		// 5. Verify message is NOT verified (because seqNum was tracked as reorged)
+		// 6. Mine to full finalization
+		// 7. Verify message IS verified after finalization
+
+		// Custom finality: 5 blocks (much faster than ConfirmationDepth)
+		const customFinality uint16 = 5
+		customFinalityMessageOptions := cciptestinterfaces.MessageOptions{
+			Version:        3,
+			FinalityConfig: customFinality,
+			Executor:       executorAddr,
+			CCVs: []protocol.CCV{
+				{
+					CCVAddress: ccvAddr,
+					Args:       []byte{},
+					ArgsLen:    0,
+				},
+			},
+		}
+
+		// Create snapshot before sending message
+		snapshotID, err := anvilHelper.Snapshot(ctx)
+		require.NoError(t, err)
+		l.Info().Str("snapshotID", snapshotID).Msg("💾 Snapshot created before sending custom finality message")
+
+		// Send message with custom finality
+		event1, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "fast finality message"), customFinalityMessageOptions)
+		require.NoError(t, err)
+		logSentMessage(event1, "Sending message with custom finality")
+		msgIDBeforeReorg := event1.MessageID
+
+		// Mine only 1-2 blocks - NOT enough for custom finality to be met
+		// This ensures the verifier hasn't verified the message yet
+		l.Info().Int("blocks", 2).Msg("⛏️  Mining just 2 blocks (not enough for custom finality)")
+		anvilHelper.MustMine(ctx, 2)
+
+		// Trigger reorg IMMEDIATELY by reverting to snapshot (before custom finality is met)
+		l.Info().Msg("🔄 Triggering reorg by reverting to snapshot (before custom finality met)")
+		err = anvilHelper.Revert(ctx, snapshotID)
+		require.NoError(t, err)
+
+		// Mine 1 block to advance chain
+		anvilHelper.MustMine(ctx, 1)
+		// Give the verifier time to process
+		time.Sleep(3 * time.Second)
+
+		// Re-send the message (will have same seqNum since we reverted)
+		event2, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "fast finality message after reorg"), customFinalityMessageOptions)
+		require.NoError(t, err)
+		logSentMessage(event2, "Sending message with custom finality after reorg")
+		msgIDAfterReorg := event2.MessageID
+
+		// Mine enough blocks for custom finality to be met (but NOT full finalization)
+		blocksToMineForCustomFinality := int(customFinality) + 1
+		l.Info().Int("blocks", blocksToMineForCustomFinality).Msg("⛏️  Mining blocks for custom finality")
+		anvilHelper.MustMine(ctx, blocksToMineForCustomFinality)
+
+		// At this point, custom finality is met but full finalization is not
+		// The message should NOT be in the aggregator yet because its seqNum was tracked as reorged
+
+		// Give the verifier a moment to process (if it were going to verify with custom finality)
+		time.Sleep(3 * time.Second)
+
+		// Verify message is NOT in aggregator yet (reorg tracking should prevent early verification)
+		l.Info().Msg("🔍 Verifying message is NOT in aggregator yet (custom finality ignored due to reorg)")
+		verifyMessageNotExists(msgIDAfterReorg, "Message after reorg should not be verified yet")
+		verifyMessageNotExists(msgIDBeforeReorg, "Message before reorg should not be verified")
+
+		// Now mine to full finalization
+		remainingBlocks := verifier.ConfirmationDepth - blocksToMineForCustomFinality + 5
+		l.Info().Int("blocks", remainingBlocks).Msg("⛏️  Mining remaining blocks to reach full finalization")
+		anvilHelper.MustMine(ctx, remainingBlocks)
+
+		// Now the message should be verified (after full finalization)
+		l.Info().Msg("🔍 Verifying message is in aggregator after full finalization")
+		verifyMessageExists(msgIDAfterReorg, "Message after reorg should be verified after finalization")
+
+		// Original message should still not exist (it was reorged out)
+		verifyMessageNotExists(msgIDBeforeReorg, "Message before reorg should not be in aggregator")
+
+		l.Info().Msg("✨ Test completed: Message with custom finality waited for full finalization after reorg")
+	})
+
+	t.Run("reorg after message already verified", func(t *testing.T) {
+		// This test verifies that when a message with custom finality is ALREADY verified and sent
+		// to the aggregator, then a reorg removes it, the replacement message with the same seqNum
+		// must still wait for full finalization before being verified again.
+		//
+		// This tests the "double execution bound" scenario and specifically the sentTasks tracking
+		// in addToPendingQueueHandleReorg.
+		//
+		// Timeline:
+		// 1. Send message with custom finality
+		// 2. Mine blocks until custom finality met
+		// 3. Wait for message to be verified (first execution - unavoidable)
+		// 4. Trigger reorg that removes the message
+		// 5. Re-send message (same seqNum)
+		// 6. Verify NEW message waits for full finalization (reorg tracking from sentTasks)
+
+		// Custom finality: 5 blocks (much faster than ConfirmationDepth)
+		const customFinality uint16 = 5
+		customFinalityMessageOptions := cciptestinterfaces.MessageOptions{
+			Version:        3,
+			FinalityConfig: customFinality,
+			Executor:       executorAddr,
+			CCVs: []protocol.CCV{
+				{
+					CCVAddress: ccvAddr,
+					Args:       []byte{},
+					ArgsLen:    0,
+				},
+			},
+		}
+
+		// Create snapshot before sending message
+		snapshotID, err := anvilHelper.Snapshot(ctx)
+		require.NoError(t, err)
+		l.Info().Str("snapshotID", snapshotID).Msg("💾 Snapshot created before sending message")
+
+		// Send message with custom finality
+		event1, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "message to be verified then reorged"), customFinalityMessageOptions)
+		require.NoError(t, err)
+		logSentMessage(event1, "Sending message with custom finality (will be verified first)")
+		msgIDFirstExecution := event1.MessageID
+
+		// Mine enough blocks for custom finality to be met
+		blocksToMineForCustomFinality := int(customFinality) + 1
+		l.Info().Int("blocks", blocksToMineForCustomFinality).Msg("⛏️  Mining blocks for custom finality")
+		anvilHelper.MustMine(ctx, blocksToMineForCustomFinality)
+
+		// Wait for the message to be verified (first execution)
+		l.Info().Msg("⏳ Waiting for first message to be verified...")
+		_, err = defaultAggregatorClient.WaitForVerifierResultForMessage(ctx, msgIDFirstExecution, 500*time.Millisecond)
+		require.NoError(t, err, "first message should be verified (this is the unavoidable first execution)")
+		l.Info().Msg("✅ First message verified (first execution complete)")
+
+		// Now trigger reorg by reverting to snapshot (removes the verified message from chain)
+		l.Info().Msg("🔄 Triggering reorg by reverting to snapshot (after first verification)")
+		err = anvilHelper.Revert(ctx, snapshotID)
+		require.NoError(t, err)
+
+		// Mine 1 block to advance chain
+		anvilHelper.MustMine(ctx, 1)
+		// Give the verifier time to process
+		time.Sleep(3 * time.Second)
+
+		// Re-send the message (will have same seqNum since we reverted)
+		event2, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "replacement message after reorg"), customFinalityMessageOptions)
+		require.NoError(t, err)
+		logSentMessage(event2, "Sending replacement message after reorg")
+		msgIDSecondExecution := event2.MessageID
+
+		// The messageIDs should be different (different message content)
+		require.NotEqual(t, msgIDFirstExecution, msgIDSecondExecution, "message IDs should differ due to different content")
+
+		// Mine enough blocks for custom finality to be met (but NOT full finalization)
+		l.Info().Int("blocks", blocksToMineForCustomFinality).Msg("⛏️  Mining blocks for custom finality again")
+		anvilHelper.MustMine(ctx, blocksToMineForCustomFinality)
+
+		// Give the verifier time to process
+		time.Sleep(3 * time.Second)
+
+		// The NEW message should NOT be verified yet because:
+		// - The verifier detected that the first message (from sentTasks) is no longer in the chain
+		// - The seqNum was tracked as reorged
+		// - The new message with that seqNum must wait for full finalization
+		l.Info().Msg("🔍 Verifying replacement message is NOT in aggregator yet (reorg tracking from sentTasks)")
+		verifyMessageNotExists(msgIDSecondExecution, "Replacement message should not be verified yet - must wait for finalization")
+
+		// Now mine to full finalization
+		remainingBlocks := verifier.ConfirmationDepth - blocksToMineForCustomFinality + 5
+		l.Info().Int("blocks", remainingBlocks).Msg("⛏️  Mining remaining blocks to reach full finalization")
+		anvilHelper.MustMine(ctx, remainingBlocks)
+
+		// Now the replacement message should be verified (after full finalization)
+		l.Info().Msg("🔍 Verifying replacement message is in aggregator after full finalization")
+		verifyMessageExists(msgIDSecondExecution, "Replacement message should be verified after full finalization")
+
+		l.Info().Msg("✨ Test completed: Replacement message waited for full finalization after reorg (sentTasks tracking)")
+	})
+
 	t.Run("finality violation", func(t *testing.T) {
 		// Log the source chain selector for verification
 		l.Info().Uint64("srcSelector", srcSelector).Msg("Source chain selector for finality violation test")
