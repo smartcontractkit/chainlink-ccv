@@ -3,6 +3,7 @@ package executor
 import (
 	"encoding/json"
 	"fmt"
+	"math/big"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
@@ -51,6 +52,12 @@ type CCVAddressInfo struct {
 	RequiredCCVs      []protocol.UnknownAddress `json:"required_ccvs"`
 	OptionalCCVs      []protocol.UnknownAddress `json:"optional_ccvs"`
 	OptionalThreshold uint8                     `json:"optional_threshold"`
+}
+
+// ExecutionAttempt represents a chain-agnostic on-chain attempt.
+type ExecutionAttempt struct {
+	Report              AbstractAggregatedReport
+	TransactionGasLimit *big.Int
 }
 
 type MessageExecutionState uint8
