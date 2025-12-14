@@ -91,6 +91,7 @@ func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
 		offRampAddr,
 		params.ChainClient,
 		logger.With(params.Lggr, "component", "ExecutionAttemptPoller"),
+		0, // TODO: block number from 24 hours ago
 		params.CacheExpiry,
 	)
 	if err != nil {
