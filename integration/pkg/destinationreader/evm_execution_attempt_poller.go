@@ -29,6 +29,7 @@ type evmExecutionAttemptPoller struct {
 	services.StateMachine
 	lggr            logger.Logger
 	client          client.Client
+	startBlock      uint64
 	offRampFilterer offramp.OffRampFilterer
 	eventCh         chan *offramp.OffRampExecutionStateChanged
 	subscription    event.Subscription
@@ -44,6 +45,7 @@ func NewEVMExecutionAttemptPoller(
 	offRampAddress common.Address,
 	client client.Client,
 	lggr logger.Logger,
+	startBlock uint64,
 	attemptCacheExpiration time.Duration,
 ) (*evmExecutionAttemptPoller, error) {
 	if client == nil {
@@ -65,13 +67,14 @@ func NewEVMExecutionAttemptPoller(
 		offRampFilterer: *offRampFilterer,
 		eventCh:         make(chan *offramp.OffRampExecutionStateChanged),
 		attemptCache:    attemptCache,
+		startBlock:      startBlock,
 	}, nil
 }
 
 // Start starts the poller service. It implements the services.Service interface.
 func (ap *evmExecutionAttemptPoller) Start(ctx context.Context) error {
 	return ap.StartOnce("evm.executionattemptpoller.Service", func() error {
-		subscription, err := ap.offRampFilterer.WatchExecutionStateChanged(&bind.WatchOpts{}, ap.eventCh, nil, nil, nil)
+		subscription, err := ap.offRampFilterer.WatchExecutionStateChanged(&bind.WatchOpts{Start: &ap.startBlock, Context: ctx}, ap.eventCh, nil, nil, nil)
 		if err != nil {
 			return fmt.Errorf("failed to watch execution state changed events: %w", err)
 		}
@@ -115,6 +118,26 @@ func (ap *evmExecutionAttemptPoller) Close() error {
 	})
 }
 
+// GetExecutionAttempts retrieves cached execution attempts for the given message.
+func (ap *evmExecutionAttemptPoller) GetExecutionAttempts(ctx context.Context, message protocol.Message) ([]executor.ExecutionAttempt, error) {
+	_ = ctx // context reserved for future use
+
+	msgID, err := message.MessageID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get message ID: %w", err)
+	}
+
+	attempts, exists := ap.attemptCache.Get(msgID)
+	if !exists {
+		return []executor.ExecutionAttempt{}, nil
+	}
+
+	// return a copy to prevent external modification
+	result := make([]executor.ExecutionAttempt, len(attempts))
+	copy(result, attempts)
+	return result, nil
+}
+
 // run processes execution state changed events and caches execution attempts.
 func (ap *evmExecutionAttemptPoller) run(ctx context.Context) {
 	for {
@@ -126,7 +149,7 @@ func (ap *evmExecutionAttemptPoller) run(ctx context.Context) {
 			}
 
 			if err := ap.processExecutionStateChanged(ctx, execStateChanged); err != nil {
-				ap.lggr.Warnw("Failed to process execution state changed event",
+				ap.lggr.Warnw("Failed to process execution state changed event, this may be due to invalid polled callData",
 					"error", err,
 					"messageID", execStateChanged.MessageId,
 					"txHash", execStateChanged.Raw.TxHash)
@@ -257,24 +280,4 @@ func (ap *evmExecutionAttemptPoller) decodeCallDataToExecutionAttempt(callData [
 		Report:              report,
 		TransactionGasLimit: big.NewInt(int64(gasLimit)),
 	}, nil
-}
-
-// GetExecutionAttempts retrieves cached execution attempts for the given message.
-func (ap *evmExecutionAttemptPoller) GetExecutionAttempts(ctx context.Context, message protocol.Message) ([]executor.ExecutionAttempt, error) {
-	_ = ctx // context reserved for future use (e.g., cache invalidation)
-
-	msgID, err := message.MessageID()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get message ID: %w", err)
-	}
-
-	attempts, exists := ap.attemptCache.Get(msgID)
-	if !exists {
-		return []executor.ExecutionAttempt{}, nil
-	}
-
-	// return a copy to prevent external modification
-	result := make([]executor.ExecutionAttempt, len(attempts))
-	copy(result, attempts)
-	return result, nil
 }
