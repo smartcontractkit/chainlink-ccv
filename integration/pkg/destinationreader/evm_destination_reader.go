@@ -34,12 +34,13 @@ type verifierQuorumCacheKey struct {
 }
 
 type EvmDestinationReader struct {
-	offRampCaller   offramp.OffRampCaller
-	rmnRemoteCaller rmn_remote.RMNRemoteCaller
-	lggr            logger.Logger
-	client          bind.ContractCaller
-	chainSelector   protocol.ChainSelector
-	ccvCache        *expirable.LRU[verifierQuorumCacheKey, executor.CCVAddressInfo]
+	offRampCaller          offramp.OffRampCaller
+	rmnRemoteCaller        rmn_remote.RMNRemoteCaller
+	lggr                   logger.Logger
+	client                 bind.ContractCaller
+	chainSelector          protocol.ChainSelector
+	ccvCache               *expirable.LRU[verifierQuorumCacheKey, executor.CCVAddressInfo]
+	executionAttemptPoller *evmExecutionAttemptPoller
 }
 
 type Params struct {
@@ -85,13 +86,25 @@ func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
 	// Create cache with max 1000 entries and configurable expiry for verifier quorum info.
 	ccvCache := expirable.NewLRU[verifierQuorumCacheKey, executor.CCVAddressInfo](VerifierQuorumCacheMaxEntries, nil, params.CacheExpiry)
 
+	// Create execution attempt poller to track execution attempts
+	executionAttemptPoller, err := NewEVMExecutionAttemptPoller(
+		offRampAddr,
+		params.ChainClient,
+		logger.With(params.Lggr, "component", "ExecutionAttemptPoller"),
+		params.CacheExpiry,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create execution attempt poller for chain %d: %w", params.ChainSelector, err)
+	}
+
 	return &EvmDestinationReader{
-		offRampCaller:   *offRamp,
-		rmnRemoteCaller: *rmnRemote,
-		lggr:            params.Lggr,
-		chainSelector:   params.ChainSelector,
-		client:          params.ChainClient,
-		ccvCache:        ccvCache,
+		offRampCaller:          *offRamp,
+		rmnRemoteCaller:        *rmnRemote,
+		lggr:                   params.Lggr,
+		chainSelector:          params.ChainSelector,
+		client:                 params.ChainClient,
+		ccvCache:               ccvCache,
+		executionAttemptPoller: executionAttemptPoller,
 	}, nil
 }
 
@@ -203,4 +216,9 @@ func (dr *EvmDestinationReader) GetMessageExecutability(ctx context.Context, mes
 func (dr *EvmDestinationReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
 	// We use an abstracted function to reuse code between verifier and executor.
 	return rmnremotereader.EVMReadRMNCursedSubjects(ctx, dr.rmnRemoteCaller)
+}
+
+// GetExecutionAttempts retrieves execution attempts for the given message from the poller cache.
+func (dr *EvmDestinationReader) GetExecutionAttempts(ctx context.Context, message protocol.Message) ([]executor.ExecutionAttempt, error) {
+	return dr.executionAttemptPoller.GetExecutionAttempts(ctx, message)
 }
