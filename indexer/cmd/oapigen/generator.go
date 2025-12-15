@@ -3,8 +3,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
@@ -12,7 +14,22 @@ import (
 	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 )
 
+//go:generate go run generator.go ../../indexer_opanapi_v1.yaml
 func main() {
+	// Expect a single argument: output file path. Writing to stdout is NOT supported.
+	if len(os.Args) != 2 {
+		_, _ = fmt.Fprintf(os.Stderr, "usage: %s <output-file> (writing to stdout is not supported)\n", os.Args[0])
+		os.Exit(2)
+	}
+
+	outPath := os.Args[1]
+	out, err := getOutputFile(outPath)
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, "failed to open output file:", err)
+		os.Exit(1)
+	}
+	defer func() { _ = out.Close() }()
+
 	// Create a new stdlib HTTP router.
 	mux := http.NewServeMux()
 
@@ -49,8 +66,30 @@ func main() {
 
 	yml, err := api.OpenAPI().YAML()
 	if err != nil {
-		panic(err)
+		_, _ = fmt.Fprintln(os.Stderr, "failed to generate openapi yaml:", err)
+		os.Exit(1)
 	}
 
-	_, _ = os.Stdout.Write(yml)
+	if _, err := out.Write(yml); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, "failed to write file:", err)
+		os.Exit(1)
+	}
+
+	_, _ = fmt.Fprintf(os.Stderr, "wrote OpenAPI YAML to %s\n", outPath)
+}
+
+func getOutputFile(path string) (*os.File, error) {
+	// If outPath already exists and is a directory, fail early.
+	if st, err := os.Stat(path); err == nil && st.IsDir() {
+		_, _ = fmt.Fprintf(os.Stderr, "output path is an existing directory: %s\n", path)
+		os.Exit(2)
+	}
+
+	// Open output file for writing.
+	f, err := os.Create(filepath.Clean(path))
+	if err != nil {
+		// Maybe the directory doesn't exist yet, don't bother creating it.
+		return nil, fmt.Errorf("failed to create output file: %w", err)
+	}
+	return f, nil
 }

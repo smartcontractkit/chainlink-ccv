@@ -26,6 +26,9 @@ install-pre-commit:
     brew install pre-commit
     pre-commit install
 
+generate:
+	find . -name 'go.mod' -execdir go generate ./... \;
+
 mock: ensure-mockery
     @echo "Cleaning existing mocks..."
     find . -path "*/*_mocks/*.go"
