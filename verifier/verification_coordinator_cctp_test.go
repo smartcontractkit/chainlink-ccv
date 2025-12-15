@@ -29,7 +29,7 @@ var (
 // MessageIDs are intentionally hardcoded to match attestation hookData values, thus asserts on MessageIDs in various places.
 // It's done this way to make it easier to trace how attestation json response maps to the final CCV record.
 //
-// Please see attestation.go to see how the CCV data is created na how hook data is used
+// Please see attestation.go to see how the CCV data is created and how hookData is used
 // CCVData: <4 byte verifier version><CCTP encoded message><attestation> (set by offchain)
 // HookData: <4 byte verifier version><CCIP MessageID> (set by onchain)
 const (
