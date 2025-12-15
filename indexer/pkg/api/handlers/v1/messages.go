@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -12,6 +13,18 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+type MessagesInput struct {
+	SourceChainSelectors []protocol.ChainSelector // Excluded from form due to gin parsing
+	DestChainSelectors   []protocol.ChainSelector // Excluded from form due to gin parsing
+	Start                int64                    `form:"start"`
+	End                  int64                    `form:"end"`
+	Limit                uint64                   `form:"limit"`
+	Offset               uint64                   `form:"offset"`
+}
+type MessagesResponse struct {
+	Success  bool                                  `json:"success"`
+	Messages map[string]common.MessageWithMetadata `json:"messages"`
+}
 type MessagesHandler struct {
 	storage    common.IndexerStorage
 	lggr       logger.Logger
@@ -34,12 +47,14 @@ func (h *MessagesHandler) Handle(c *gin.Context) {
 		return
 	}
 
-	sourceChainSelectors, ok := utils.ParseSelectorTypes(c, "sourceChainSelectors")
-	if !ok {
+	sourceChainSelectors, err := utils.ParseSelectorTypes(c.DefaultQuery("sourceChainSelectors", ""))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, makeErrorResponse(fmt.Sprintf("bad sourceChainSelectors: %s", err.Error())))
 		return
 	}
-	destChainSelectors, ok := utils.ParseSelectorTypes(c, "destChainSelectors")
-	if !ok {
+	destChainSelectors, err := utils.ParseSelectorTypes(c.DefaultQuery("destChainSelectors", ""))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, makeErrorResponse(fmt.Sprintf("bad destChainSelectors: %s", err.Error())))
 		return
 	}
 	req.SourceChainSelectors = sourceChainSelectors
@@ -47,7 +62,7 @@ func (h *MessagesHandler) Handle(c *gin.Context) {
 
 	messages, err := h.storage.QueryMessages(c.Request.Context(), req.Start, req.End, req.SourceChainSelectors, req.DestChainSelectors, req.Limit, req.Offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, makeErrorResponse(err.Error()))
 		return
 	}
 
@@ -58,14 +73,14 @@ func (h *MessagesHandler) Handle(c *gin.Context) {
 	}
 
 	h.lggr.Debugw("/v1/messages", "number of messages returned", len(messageMap))
-	c.JSON(http.StatusOK, gin.H{
-		"success":  true,
-		"messages": messageMap,
+	c.JSON(http.StatusOK, MessagesResponse{
+		Success:  true,
+		Messages: messageMap,
 	})
 }
 
-func (h *MessagesHandler) defaultRequestParams() MessagesRequest {
-	return MessagesRequest{
+func (h *MessagesHandler) defaultRequestParams() MessagesInput {
+	return MessagesInput{
 		Start:                0,
 		End:                  time.Now().UnixMilli(),
 		SourceChainSelectors: []protocol.ChainSelector{},

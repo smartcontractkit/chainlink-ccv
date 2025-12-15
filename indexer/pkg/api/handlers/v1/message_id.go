@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -10,6 +11,16 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
+
+type MessageIDInput struct {
+	MessageID string `json:"messageId"`
+}
+
+type MessageIDResponse struct {
+	Success   bool                                `json:"success"`
+	Results   []common.VerifierResultWithMetadata `json:"results"`
+	MessageID protocol.Bytes32                    `json:"messageID"`
+}
 
 type MessageIDHandler struct {
 	storage    common.IndexerStorage
@@ -29,26 +40,27 @@ func (h *MessageIDHandler) Handle(c *gin.Context) {
 	messageID := c.Param("messageID")
 	messageIDBytes32, err := protocol.NewBytes32FromString(messageID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid MessageID"})
+		c.JSON(http.StatusBadRequest, makeErrorResponse("Invalid MessageID"))
 		return
 	}
 
 	// Get all verifications for the messageID
 	verifications, err := h.storage.GetCCVData(c.Request.Context(), messageIDBytes32)
+	h.lggr.Errorf("Error retrieving CCV data for MessageID %s: %v", messageID, err)
 
-	switch err {
-	case storage.ErrCCVDataNotFound:
-		c.JSON(http.StatusNotFound, gin.H{"error": "MessageID not found"})
+	switch {
+	case errors.Is(err, storage.ErrCCVDataNotFound):
+		c.JSON(http.StatusNotFound, makeErrorResponse("MessageID not found"))
 		return
-	case nil:
+	case err == nil:
 	default:
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal Server Error"})
+		c.JSON(http.StatusInternalServerError, makeErrorResponse("Internal Server Error"))
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"success":   true,
-		"results":   verifications,
-		"messageID": messageID,
+	c.JSON(http.StatusOK, MessageIDResponse{
+		Success:   true,
+		Results:   verifications,
+		MessageID: messageIDBytes32,
 	})
 }

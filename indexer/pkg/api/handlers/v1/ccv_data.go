@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -48,16 +49,18 @@ func (h *VerifierResultHandler) Handle(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindQuery(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, makeErrorResponse(err.Error()))
 		return
 	}
 
-	sourceChainSelectors, ok := utils.ParseSelectorTypes(c, "sourceChainSelectors")
-	if !ok {
+	sourceChainSelectors, err := utils.ParseSelectorTypes(c.DefaultQuery("sourceChainSelectors", ""))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, makeErrorResponse(fmt.Sprintf("bad sourceChainSelectors: %s", err.Error())))
 		return
 	}
-	destChainSelectors, ok := utils.ParseSelectorTypes(c, "destChainSelectors")
-	if !ok {
+	destChainSelectors, err := utils.ParseSelectorTypes(c.DefaultQuery("destChainSelectors", ""))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, makeErrorResponse(fmt.Sprintf("bad destChainSelectors: %s", err.Error())))
 		return
 	}
 	req.SourceChainSelectors = sourceChainSelectors
@@ -65,7 +68,7 @@ func (h *VerifierResultHandler) Handle(c *gin.Context) {
 
 	verifierResponse, err := h.storage.QueryCCVData(c.Request.Context(), req.Start, req.End, req.SourceChainSelectors, req.DestChainSelectors, req.Limit, req.Offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, makeErrorResponse(err.Error()))
 		return
 	}
 
