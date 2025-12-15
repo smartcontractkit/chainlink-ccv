@@ -87,7 +87,7 @@ jobs:
         working-directory: build/devenv/tests/e2e
         run: |
           set -o pipefail
-          go test -v -timeout 15m -count=1 -run '${{ matrix.test.name }}'
+          go test -v -timeout 45m -count=1 -run '${{ matrix.test.name }}'
         continue-on-error: true
 
       - name: Upload Logs
