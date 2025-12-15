@@ -123,7 +123,7 @@ func run(args sendArgs) error {
 		return fmt.Errorf("failed to get message options: %w", err)
 	}
 
-	result, err := impl.SendMessage(ctx, args.srcSel, args.destSel, messageFields, messageOptions)
+	result, err := impl.SendMessage(ctx, args.destSel, messageFields, messageOptions)
 	if err != nil {
 		return fmt.Errorf("failed to send message: %w", err)
 	}

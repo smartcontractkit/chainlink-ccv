@@ -517,27 +517,19 @@ func (m *CCIP17EVM) fetchAllExecEventsBySelector(ctx context.Context, from, to u
 	return events, nil
 }
 
-func (m *CCIP17EVM) GetExpectedNextSequenceNumber(ctx context.Context, from, to uint64) (uint64, error) {
-	if from != m.chain.ChainSelector() {
-		return 0, fmt.Errorf("GetExpectedNextSequenceNumber: chain %d not found in environment chains %v", from, m.chain.ChainSelector())
-	}
-
+func (m *CCIP17EVM) GetExpectedNextSequenceNumber(ctx context.Context, to uint64) (uint64, error) {
 	return m.onRamp.GetExpectedNextSequenceNumber(&bind.CallOpts{Context: ctx}, to)
 }
 
 // WaitOneSentEventBySeqNo wait and fetch strictly one CCIPMessageSent event by selector and sequence number and selector.
-func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (cciptestinterfaces.MessageSentEvent, error) {
-	if from != m.chain.ChainSelector() {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("WaitOneSentEventBySeqNo: chain %d not found in environment chains %v", from, m.chain.ChainSelector())
-	}
-
+func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, to, seq uint64, timeout time.Duration) (cciptestinterfaces.MessageSentEvent, error) {
 	l := m.logger
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	l.Info().Uint64("from", from).Uint64("to", to).Uint64("seq", seq).Msg("Awaiting CCIPMessageSent event")
+	l.Info().Uint64("from", m.chainDetails.ChainSelector).Uint64("to", to).Uint64("seq", seq).Msg("Awaiting CCIPMessageSent event")
 	poller, err := m.getOrCreateOnRampPoller()
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, err
@@ -556,11 +548,7 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq u
 }
 
 // WaitOneExecEventBySeqNo wait and fetch strictly one ExecutionStateChanged event by sequence number and selector.
-func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
-	if to != m.chain.ChainSelector() {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("WaitOneExecEventBySeqNo: chain %d not found in environment chains %v", from, m.chain.ChainSelector())
-	}
-
+func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, seq uint64, timeout time.Duration) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
 	l := m.logger
 	if timeout > 0 {
 		var cancel context.CancelFunc
@@ -568,7 +556,7 @@ func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq u
 		defer cancel()
 	}
 
-	l.Info().Uint64("from", from).Uint64("to", to).Uint64("seq", seq).Msg("Awaiting ExecutionStateChanged event")
+	l.Info().Uint64("from", from).Uint64("to", m.chainDetails.ChainSelector).Uint64("seq", seq).Msg("Awaiting ExecutionStateChanged event")
 
 	poller, err := m.getOrCreateOffRampPoller()
 	if err != nil {
@@ -589,30 +577,18 @@ func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq u
 	}
 }
 
-func (m *CCIP17EVM) GetEOAReceiverAddress(chainSelector uint64) (protocol.UnknownAddress, error) {
-	if m.chain.ChainSelector() != chainSelector {
-		return nil, fmt.Errorf("GetEOAReceiverAddress: chain %d not found in environment chains %v", chainSelector, m.chain.ChainSelector())
-	}
-
+func (m *CCIP17EVM) GetEOAReceiverAddress() (protocol.UnknownAddress, error) {
 	// returns the same address for each chain for now - we might need to extend this in the future if we'd ever
 	// need to access any funds on the EOA itself.
 	return protocol.UnknownAddress(common.HexToAddress("0x3Aa5ebB10DC797CAC828524e59A333d0A371443d").Bytes()), nil
 }
 
-func (m *CCIP17EVM) GetSenderAddress(chainSelector uint64) (protocol.UnknownAddress, error) {
-	if m.chain.ChainSelector() != chainSelector {
-		return nil, fmt.Errorf("GetSenderAddress: chain %d not found in environment chains %v", chainSelector, m.chain.ChainSelector())
-	}
-
+func (m *CCIP17EVM) GetSenderAddress() (protocol.UnknownAddress, error) {
 	// Return the chain deployer key address
 	return protocol.UnknownAddress(m.chain.DeployerKey.From.Bytes()), nil
 }
 
-func (m *CCIP17EVM) GetTokenBalance(ctx context.Context, chainSelector uint64, address, tokenAddress protocol.UnknownAddress) (*big.Int, error) {
-	if m.chain.ChainSelector() != chainSelector {
-		return nil, fmt.Errorf("GetTokenBalance: chain %d not found in environment chains %v", chainSelector, m.chain.ChainSelector())
-	}
-
+func (m *CCIP17EVM) GetTokenBalance(ctx context.Context, address, tokenAddress protocol.UnknownAddress) (*big.Int, error) {
 	tkn, err := erc20.NewERC20(common.HexToAddress(tokenAddress.String()), m.chain.Client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create erc20 wrapper: %w", err)
@@ -750,15 +726,12 @@ func (m *CCIP17EVM) validateTokenBalances(ctx context.Context, srcChain evm.Chai
 	return msgValue, nil
 }
 
-func (m *CCIP17EVM) SendMessage(ctx context.Context, src, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions) (cciptestinterfaces.MessageSentEvent, error) {
-	return m.SendMessageWithNonce(ctx, src, dest, fields, opts, nil, false)
+func (m *CCIP17EVM) SendMessage(ctx context.Context, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions) (cciptestinterfaces.MessageSentEvent, error) {
+	return m.SendMessageWithNonce(ctx, dest, fields, opts, nil, false)
 }
 
-func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, src, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions, nonce *atomic.Int64, disableTokenAmountCheck bool) (cciptestinterfaces.MessageSentEvent, error) {
+func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions, nonce *atomic.Int64, disableTokenAmountCheck bool) (cciptestinterfaces.MessageSentEvent, error) {
 	l := m.logger
-	if m.chain.ChainSelector() != src {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("SendMessage: chain %d not found in environment chains %v", src, m.chain.ChainSelector())
-	}
 	srcChain := m.chain
 
 	destFamily, err := chainsel.GetSelectorFamily(dest)
@@ -1869,27 +1842,23 @@ func (m *CCIP17EVM) ManuallyExecuteMessage(
 // ============================================================================
 
 // getRMNRemoteAddress returns the RMN Remote contract address for a given chain.
-func (m *CCIP17EVM) getRMNRemoteAddress(chainSelector uint64) (common.Address, error) {
+func (m *CCIP17EVM) getRMNRemoteAddress() (common.Address, error) {
 	rmnRemoteRef, err := m.e.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
-			chainSelector,
+			m.chainDetails.ChainSelector,
 			datastore.ContractType(rmn_remote.ContractType),
 			rmn_remote.Version,
 			"",
 		),
 	)
 	if err != nil {
-		return common.Address{}, fmt.Errorf("failed to get RMN Remote address for chain %d: %w", chainSelector, err)
+		return common.Address{}, fmt.Errorf("failed to get RMN Remote address for chain %d: %w", m.chainDetails.ChainSelector, err)
 	}
 	return common.HexToAddress(rmnRemoteRef.Address), nil
 }
 
-func (m *CCIP17EVM) getRMNRemote(chainSelector uint64) (*rmn_remote_binding.RMNRemote, error) {
-	if chainSelector != m.chain.ChainSelector() {
-		return nil, fmt.Errorf("getRMNRemote: chain %d not found in environment chains %v", chainSelector, m.chain.ChainSelector())
-	}
-
-	rmnRemoteAddr, err := m.getRMNRemoteAddress(chainSelector)
+func (m *CCIP17EVM) getRMNRemote() (*rmn_remote_binding.RMNRemote, error) {
+	rmnRemoteAddr, err := m.getRMNRemoteAddress()
 	if err != nil {
 		return nil, err
 	}
@@ -1903,20 +1872,16 @@ func (m *CCIP17EVM) getRMNRemote(chainSelector uint64) (*rmn_remote_binding.RMNR
 
 // Curse applies curses to the RMN Remote contract on a given chain.
 // The subjects parameter contains the curse subjects (either chain selectors or global curse).
-func (m *CCIP17EVM) Curse(ctx context.Context, chainSelector uint64, subjects [][16]byte) error {
-	if chainSelector != m.chain.ChainSelector() {
-		return fmt.Errorf("Curse: chain %d not found in environment chains %v", chainSelector, m.chain.ChainSelector())
-	}
-
-	rmnRemote, err := m.getRMNRemote(chainSelector)
+func (m *CCIP17EVM) Curse(ctx context.Context, subjects [][16]byte) error {
+	rmnRemote, err := m.getRMNRemote()
 	if err != nil {
 		return err
 	}
 
 	// Get deployer key for transaction signing
-	txOpts := m.e.BlockChains.EVMChains()[chainSelector].DeployerKey
+	txOpts := m.e.BlockChains.EVMChains()[m.chainDetails.ChainSelector].DeployerKey
 	if txOpts == nil {
-		return fmt.Errorf("deployer key not found for chain %d", chainSelector)
+		return fmt.Errorf("deployer key not found for chain %d", m.chainDetails.ChainSelector)
 	}
 
 	// Call Curse method
@@ -1935,7 +1900,7 @@ func (m *CCIP17EVM) Curse(ctx context.Context, chainSelector uint64, subjects []
 	}
 
 	m.logger.Info().
-		Uint64("chain", chainSelector).
+		Uint64("chain", m.chainDetails.ChainSelector).
 		Str("tx", tx.Hash().Hex()).
 		Int("numSubjects", len(subjects)).
 		Msg("Cursed subjects on chain")
@@ -1945,20 +1910,16 @@ func (m *CCIP17EVM) Curse(ctx context.Context, chainSelector uint64, subjects []
 
 // Uncurse removes curses from the RMN Remote contract on a given chain.
 // The subjects parameter contains the curse subjects to remove (either chain selectors or global curse).
-func (m *CCIP17EVM) Uncurse(ctx context.Context, chainSelector uint64, subjects [][16]byte) error {
-	if chainSelector != m.chain.ChainSelector() {
-		return fmt.Errorf("Uncurse: chain %d not found in environment chains %v", chainSelector, m.chain.ChainSelector())
-	}
-
-	rmnRemote, err := m.getRMNRemote(chainSelector)
+func (m *CCIP17EVM) Uncurse(ctx context.Context, subjects [][16]byte) error {
+	rmnRemote, err := m.getRMNRemote()
 	if err != nil {
 		return err
 	}
 
 	// Get deployer key for transaction signing
-	txOpts := m.e.BlockChains.EVMChains()[chainSelector].DeployerKey
+	txOpts := m.e.BlockChains.EVMChains()[m.chainDetails.ChainSelector].DeployerKey
 	if txOpts == nil {
-		return fmt.Errorf("deployer key not found for chain %d", chainSelector)
+		return fmt.Errorf("deployer key not found for chain %d", m.chainDetails.ChainSelector)
 	}
 
 	tx, err := rmnRemote.Uncurse0(txOpts, subjects)
@@ -1976,7 +1937,7 @@ func (m *CCIP17EVM) Uncurse(ctx context.Context, chainSelector uint64, subjects 
 	}
 
 	m.logger.Info().
-		Uint64("chain", chainSelector).
+		Uint64("chain", m.chainDetails.ChainSelector).
 		Str("tx", tx.Hash().Hex()).
 		Int("numSubjects", len(subjects)).
 		Msg("Applied uncurse on chain")

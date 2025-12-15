@@ -183,12 +183,12 @@ func TestE2EReorg(t *testing.T) {
 		// 2/5 Blocks
 		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth/5)
 
-		event1, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "message 1"), defaultMessageOptions)
+		event1, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "message 1"), defaultMessageOptions)
 		require.NoError(t, err)
 		logSentMessage(event1, "Sending message 1")
 		msg1IDBeforeReorg := event1.MessageID
 
-		event2, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "message 2"), defaultMessageOptions)
+		event2, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "message 2"), defaultMessageOptions)
 		require.NoError(t, err)
 		logSentMessage(event2, "Sending message 2")
 		msg2IDBeforeReorg := event2.MessageID
@@ -202,17 +202,17 @@ func TestE2EReorg(t *testing.T) {
 
 		anvilHelper.MustMine(ctx, 1)
 
-		event3, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "message 2"), defaultMessageOptions)
+		event3, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "message 3"), defaultMessageOptions)
 		require.NoError(t, err)
 		logSentMessage(event3, "Sending message 2 first (swapped order)")
 		msg2IDAfterReorg := event3.MessageID
 
-		event4, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "message 1"), defaultMessageOptions)
+		event4, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "message 1"), defaultMessageOptions)
 		require.NoError(t, err)
 		logSentMessage(event4, "Sending message 1 second (swapped order)")
 		msg1IDAfterReorg := event4.MessageID
 
-		event5, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "message 3"), defaultMessageOptions)
+		event5, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "message 3"), defaultMessageOptions)
 		require.NoError(t, err)
 		logSentMessage(event5, "Sending a new msg that wasn't sent pre reorg")
 		msg3ID := event5.MessageID
@@ -250,7 +250,7 @@ func TestE2EReorg(t *testing.T) {
 			logAssert.StopStreaming()
 		})
 
-		event1, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "message 1"), defaultMessageOptions)
+		event1, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "message 1"), defaultMessageOptions)
 		require.NoError(t, err)
 		logSentMessage(event1, "Sending message 1")
 		msg1ID := event1.MessageID
@@ -259,7 +259,7 @@ func TestE2EReorg(t *testing.T) {
 
 		l.Info().Msg("Applying lane curse between chain0 and chain1 (before message gets picked up by verifier)")
 		// normally it's bidirectional, for the sake of the test we only curse one direction
-		err = srcImpl.Curse(ctx, srcSelector, [][16]byte{chainSelectorToSubject(destSelector)})
+		err = srcImpl.Curse(ctx, [][16]byte{chainSelectorToSubject(destSelector)})
 		require.NoError(t, err)
 
 		l.Info().Msg("🔍 Asserting message reached verifier but was dropped due to curse")
@@ -275,12 +275,12 @@ func TestE2EReorg(t *testing.T) {
 		// Verify the message is NOT in the aggregator (it was dropped, not processed)
 		verifyMessageNotExists(msg1ID, "Cursed message should not be in aggregator")
 
-		_, err = srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "cursed lane message"), defaultMessageOptions)
+		_, err = srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "cursed lane message"), defaultMessageOptions)
 		require.Error(t, err, "should not be able to send message on cursed lane")
 
 		// Verify uncursed lane still works (srcSelector -> destSelector2)
 		l.Info().Msg("🔍 Verifying uncursed lane (chain0 -> chain2) still works")
-		event2, err := srcImpl.SendMessage(ctx, srcSelector, destSelector2, newMessageFields(receiver2, "uncursed lane message"), defaultMessageOptions)
+		event2, err := srcImpl.SendMessage(ctx, destSelector2, newMessageFields(receiver2, "uncursed lane message"), defaultMessageOptions)
 		require.NoError(t, err)
 		logSentMessage(event2, "Verifying uncursed lane (to chain2)")
 
@@ -290,11 +290,11 @@ func TestE2EReorg(t *testing.T) {
 
 		// Uncurse the lane
 		l.Info().Msg("🔓 Uncursing the cursed lane")
-		err = srcImpl.Uncurse(ctx, srcSelector, [][16]byte{chainSelectorToSubject(destSelector)})
+		err = srcImpl.Uncurse(ctx, [][16]byte{chainSelectorToSubject(destSelector)})
 		require.NoError(t, err)
 
 		// Send a message again on the previously cursed lane to verify it works now
-		event3, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "message 2 after uncurse"), defaultMessageOptions)
+		event3, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "message 2 after uncurse"), defaultMessageOptions)
 		require.NoError(t, err)
 		logSentMessage(event3, "Sending message 2 after uncurse")
 
@@ -322,13 +322,13 @@ func TestE2EReorg(t *testing.T) {
 		l.Info().Msg("📨 Sending messages to chain1 and chain2 before global curse")
 
 		// Message to destSelector (chain1)
-		event1, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "global curse test msg to chain1"), defaultMessageOptions)
+		event1, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "global curse test msg to chain1"), defaultMessageOptions)
 		require.NoError(t, err)
 		logSentMessage(event1, "Sending message to chain1")
 		msg1ID := event1.MessageID
 
 		// Message to destSelector2 (chain2)
-		event2, err := srcImpl.SendMessage(ctx, srcSelector, destSelector2, newMessageFields(receiver2, "global curse test msg to chain2"), defaultMessageOptions)
+		event2, err := srcImpl.SendMessage(ctx, destSelector2, newMessageFields(receiver2, "global curse test msg to chain2"), defaultMessageOptions)
 		require.NoError(t, err)
 		logSentMessage(event2, "Sending message to chain2")
 		msg2ID := event2.MessageID
@@ -336,7 +336,7 @@ func TestE2EReorg(t *testing.T) {
 		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth/5)
 
 		l.Info().Msg("🌐 Applying GLOBAL curse to source chain (affects ALL lanes from this chain)")
-		err = srcImpl.Curse(ctx, srcSelector, [][16]byte{globalCurseSubject()})
+		err = srcImpl.Curse(ctx, [][16]byte{globalCurseSubject()})
 		require.NoError(t, err)
 
 		l.Info().Msg("🔍 Asserting BOTH messages are dropped due to global curse")
@@ -363,19 +363,19 @@ func TestE2EReorg(t *testing.T) {
 
 		// Uncurse the chain
 		l.Info().Msg("🔓 Removing global curse from source chain")
-		err = srcImpl.Uncurse(ctx, srcSelector, [][16]byte{globalCurseSubject()})
+		err = srcImpl.Uncurse(ctx, [][16]byte{globalCurseSubject()})
 		require.NoError(t, err)
 
 		// Send new messages after uncurse to verify both lanes work
 		l.Info().Msg("📨 Sending messages after global uncurse to verify lanes work")
-		event3, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "post-global-uncurse msg to chain1"), defaultMessageOptions)
+		event3, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "post-global-uncurse msg to chain1"), defaultMessageOptions)
 		require.NoError(t, err)
 		logSentMessage(event3, "Sending message to chain1 after uncurse")
 
 		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
 		verifyMessageExists(event3.MessageID, "Message to chain1 after global uncurse")
 
-		event4, err := srcImpl.SendMessage(ctx, srcSelector, destSelector2, newMessageFields(receiver2, "post-global-uncurse msg to chain2"), defaultMessageOptions)
+		event4, err := srcImpl.SendMessage(ctx, destSelector2, newMessageFields(receiver2, "post-global-uncurse msg to chain2"), defaultMessageOptions)
 		require.NoError(t, err)
 		logSentMessage(event4, "Sending message to chain2 after uncurse")
 
@@ -395,7 +395,7 @@ func TestE2EReorg(t *testing.T) {
 		l.Info().Str("snapshotID", snapshotID).Msg("✅ Initial snapshot created")
 
 		l.Info().Msg("📨 Sending pre-violation message")
-		event1, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "pre-violation message"), defaultMessageOptions)
+		event1, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "pre-violation message"), defaultMessageOptions)
 		require.NoError(t, err)
 		logSentMessage(event1, "Sending pre-violation message")
 		preViolationMessageID := event1.MessageID
@@ -408,7 +408,7 @@ func TestE2EReorg(t *testing.T) {
 		verifyMessageExists(preViolationMessageID, "Pre-violation message")
 
 		l.Info().Msg("Sending message to be dropped once finality violation happens")
-		event2, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "toBeDropped message"), defaultMessageOptions)
+		event2, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "toBeDropped message"), defaultMessageOptions)
 		require.NoError(t, err)
 		logSentMessage(event2, "Sending toBeDropped message")
 		toBeDroppedMessageID := event2.MessageID
