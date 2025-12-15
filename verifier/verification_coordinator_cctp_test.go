@@ -31,7 +31,7 @@ var (
 //
 // Please see attestation.go to see how the CCV data is created and how hookData is used
 // CCVData: <4 byte verifier version><CCTP encoded message><attestation> (set by offchain)
-// HookData: <4 byte verifier version><CCIP MessageID> (set by onchain)
+// HookData: <4 byte verifier version><CCIP MessageID> (set by onchain).
 const (
 	attestation1 = `
 		{
