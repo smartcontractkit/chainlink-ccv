@@ -1,6 +1,7 @@
 package verifier_test
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -25,103 +26,100 @@ var (
 	chain2337 = protocol.ChainSelector(chainsel.GETH_DEVNET_2.Selector)
 )
 
-var attestation1 = `
-{
-  "messages": [
-	{
-      "message": "0xcccccc22",
-      "eventNonce": "9681",
-      "attestation": "0xaaaaaa22",
-      "decodedMessage": {
-        "sourceDomain": "100",
-        "destinationDomain": "101",
-        "nonce": "569",
-        "sender": "0xb7317b4EFEa194a22bEB42506065D3772C2E95EF",
-        "recipient": "0xb7317b4EFEa194a22bEB42506065D3772C2E95EF",
-        "destinationCaller": "0xf2Edb1Ad445C6abb1260049AcDDCA9E84D7D8aaA",
-        "messageBody": "0x00000000000000050000000300000000000194c2a65fc943419a5ad590042fd67c9791fd015acf53a54cc823edb8ff81b9ed722e00000000000000000000000019330d10d9cc8751218eaf51e8885d058642e08a000000000000000000000000fc05ad74c6fe2e7046e091d6ad4f660d2a15976200000000c6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0e47ca60203452f5d610000000000000000000000002d475f4746419c83be23056309a8e2ac33b30e3b0000000000000000000000000000000000000000000000000000000002b67df0feae5e08f5e6bf04d8c1de7dada9235c56996f4420b14371d6c6f3ddd2f2da78",
-        "decodedMessageBody": {
-          "burnToken": "0x4Bc078D75390C0f5CCc3e7f59Ae2159557C5eb85",
-          "mintRecipient": "0xb7317b4EFEa194a22bEB42506065D3772C2E95EF",
-          "amount": "5000",
-          "messageSender": "0x1100000000000000000000000000000000000000",
-          "hookData": "0x8e1d1a9d42fdceb59007e3a5aee1f4a6b2d92f2922e5ae879257aaea310aae61bf1bb993"
-        }
-      },
-      "cctpVersion": "2",
-      "status": "complete"
-    }
-  ]
-}`
+const (
+	attestation1 = `
+		{
+		  "messages": [
+			{
+			  "message": "0xcccccc22",
+			  "eventNonce": "9681",
+			  "attestation": "0xaaaaaa22",
+			  "decodedMessage": {
+				"sourceDomain": "100",
+				"destinationDomain": "101",
+				"nonce": "569",
+				"sender": "0xdoesntmatter",
+				"recipient": "0xdoesntmatter",
+				"destinationCaller": "0xdoesntmatter",
+				"messageBody": "0xdoesntmatter",
+				"decodedMessageBody": {
+				  "burnToken": "0xdoesntmatter",
+				  "mintRecipient": "0xdoesntmatter",
+				  "amount": "5000",
+				  "messageSender": "0x1100000000000000000000000000000000000000",
+				  "hookData": "0x8e1d1a9d42fdceb59007e3a5aee1f4a6b2d92f2922e5ae879257aaea310aae61bf1bb993"
+				}
+			  },
+			  "cctpVersion": "2",
+			  "status": "complete"
+			}
+		  ]
+		}`
+	attestation2 = `
+		{
+		  "messages": [
+			{
+			  "message": "0xbbbbbb22",
+			  "eventNonce": "9682",
+			  "attestation": "0xaaaaaa11",
+			  "decodedMessage": {
+				"sourceDomain": "100",
+				"destinationDomain": "101",
+				"nonce": "570",
+				"sender": "0xdoesntmatter",
+				"recipient": "0xdoesntmatter",
+				"destinationCaller": "0xdoesntmatter",
+				"messageBody": "0xdoesntmatter",
+				"decodedMessageBody": {
+				  "burnToken": "0xdoesntmatter",
+				  "mintRecipient": "0xdoesntmatter",
+				  "amount": "5000",
+				  "messageSender": "0x1100000000000000000000000000000000000000",
+				  "hookData": "0x8e1d1a9da912928643f3adf7fefe08dcbc40a1ca831ee861de1d65cca2c6e8a1a2bcda7a"
+				}
+			  },
+			  "cctpVersion": "2",
+			  "status": "complete"
+			}
+		  ]
+		}`
 
-var attestation2 = `
-{
-  "messages": [
-    {
-      "message": "0xbbbbbb22",
-      "eventNonce": "9682",
-      "attestation": "0xaaaaaa11",
-      "decodedMessage": {
-        "sourceDomain": "100",
-        "destinationDomain": "101",
-        "nonce": "570",
-        "sender": "0xb7317b4EFEa194a22bEB42506065D3772C2E95EF",
-        "recipient": "0xb7317b4EFEa194a22bEB42506065D3772C2E95EF",
-        "destinationCaller": "0xf2Edb1Ad445C6abb1260049AcDDCA9E84D7D8aaA",
-        "messageBody": "0x00000000000000050000000300000000000194c2a65fc943419a5ad590042fd67c9791fd015acf53a54cc823edb8ff81b9ed722e00000000000000000000000019330d10d9cc8751218eaf51e8885d058642e08a000000000000000000000000fc05ad74c6fe2e7046e091d6ad4f660d2a15976200000000c6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0e47ca60203452f5d610000000000000000000000002d475f4746419c83be23056309a8e2ac33b30e3b0000000000000000000000000000000000000000000000000000000002b67df0feae5e08f5e6bf04d8c1de7dada9235c56996f4420b14371d6c6f3ddd2f2da78",
-        "decodedMessageBody": {
-          "burnToken": "0x4Bc078D75390C0f5CCc3e7f59Ae2159557C5eb85",
-          "mintRecipient": "0xb7317b4EFEa194a22bEB42506065D3772C2E95EF",
-          "amount": "5000",
-          "messageSender": "0x1100000000000000000000000000000000000000",
-          "hookData": "0x8e1d1a9da912928643f3adf7fefe08dcbc40a1ca831ee861de1d65cca2c6e8a1a2bcda7a"
-        }
-      },
-      "cctpVersion": "2",
-      "status": "complete"
-    }
-  ]
-}
-`
-
-var attestation3 = `
-{
-  "messages": [
-    {
-      "message": "0xbbbbbb55",
-      "eventNonce": "9682",
-      "attestation": "0xaaaaaa55",
-      "decodedMessage": {
-        "sourceDomain": "101",
-        "destinationDomain": "100",
-        "nonce": "570",
-        "sender": "0xb7317b4EFEa194a22bEB42506065D3772C2E95EF",
-        "recipient": "0xb7317b4EFEa194a22bEB42506065D3772C2E95EF",
-        "destinationCaller": "0xf2Edb1Ad445C6abb1260049AcDDCA9E84D7D8aaA",
-        "messageBody": "0x00000000000000050000000300000000000194c2a65fc943419a5ad590042fd67c9791fd015acf53a54cc823edb8ff81b9ed722e00000000000000000000000019330d10d9cc8751218eaf51e8885d058642e08a000000000000000000000000fc05ad74c6fe2e7046e091d6ad4f660d2a15976200000000c6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0e47ca60203452f5d610000000000000000000000002d475f4746419c83be23056309a8e2ac33b30e3b0000000000000000000000000000000000000000000000000000000002b67df0feae5e08f5e6bf04d8c1de7dada9235c56996f4420b14371d6c6f3ddd2f2da78",
-        "decodedMessageBody": {
-          "burnToken": "0x4Bc078D75390C0f5CCc3e7f59Ae2159557C5eb85",
-          "mintRecipient": "0xb7317b4EFEa194a22bEB42506065D3772C2E95EF",
-          "amount": "5000",
-          "messageSender": "0x2222222200000000000000000000000000000000",
-          "hookData": "0x8e1d1a9d78bd0517e2f4167315be5921f215f8d12d8ba1b91d7884ec7fced62d1123f943"
-        }
-      },
-      "cctpVersion": "2",
-      "status": "complete"
-    }
-  ]
-}
-`
+	attestation3 = `
+		{
+		  "messages": [
+			{
+			  "message": "0xbbbbbb55",
+			  "eventNonce": "9682",
+			  "attestation": "0xaaaaaa55",
+			  "decodedMessage": {
+				"sourceDomain": "101",
+				"destinationDomain": "100",
+				"nonce": "570",
+				"sender": "0xdoesntmatter",
+				"recipient": "0xdoesntmatter",
+				"destinationCaller": "0xdoesntmatter",
+				"messageBody": "0xdoesntmatter",
+				"decodedMessageBody": {
+				  "burnToken": "0xdoesntmatter",
+				  "mintRecipient": "0xdoesntmatter",
+				  "amount": "5000",
+				  "messageSender": "0x2222222200000000000000000000000000000000",
+				  "hookData": "0x8e1d1a9d78bd0517e2f4167315be5921f215f8d12d8ba1b91d7884ec7fced62d1123f943"
+				}
+			  },
+			  "cctpVersion": "2",
+			  "status": "complete"
+			}
+		  ]
+		}`
+)
 
 func Test_CCTPMessages_SingleSource(t *testing.T) {
 	ts := newTestSetup(t)
-	defer ts.cleanup()
+	t.Cleanup(ts.cleanup)
 
-	txHash1, err := protocol.NewByteSliceFromHex("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-	require.NoError(t, err)
-	txHash2, err := protocol.NewByteSliceFromHex("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
-	require.NoError(t, err)
+	txHash1 := bytes.Repeat([]byte{0x1}, 32)
+	txHash2 := bytes.Repeat([]byte{0x2}, 32)
 
 	attestationResponse := []attestationMock{
 		{100, txHash1, attestation1},
@@ -138,7 +136,7 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 	require.NoError(t, err)
 
 	server := createFakeHTTPServer(t, attestationResponse)
-	defer server.Close()
+	t.Cleanup(server.Close)
 
 	config := createCoordinatorConfig(
 		"cctp-verifier",
@@ -146,7 +144,6 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 			chain1337: testCCVAddr,
 		})
 
-	// Set up mock source readerService
 	mockSetup := verifier.SetupMockSourceReader(t)
 	mockSetup.ExpectFetchMessageSentEvent(false)
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
@@ -179,8 +176,10 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 
 	err = v.Start(ts.ctx)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 
 	// MessageSent IDs are hardcoded to match attestation hookData values, thus asserts on MessageIDs
+	// Please see attestation.go to see how the CCV data is created na how hook data is used
 	msg1 := createTestMessageSentEvent(t, 100, chain1337, chain2337, 0, 300_000, 900)
 	msg1.TxHash = txHash1
 	require.Equal(t, "0x42fdceb59007e3a5aee1f4a6b2d92f2922e5ae879257aaea310aae61bf1bb993", msg1.MessageID.String())
@@ -204,10 +203,7 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 			return false
 		}
 		return len(results) == 2
-	}, 10*time.Second, 500*time.Millisecond, "waiting for messages to land in ccv storage")
-
-	err = v.Close()
-	require.NoError(t, err)
+	}, waitTimeout(t), 500*time.Millisecond, "waiting for messages to land in ccv storage")
 
 	assertResultMatchesMessage(t, results[msg1.MessageID], msg1, ccvData1, testCCVAddr, destVerifier)
 	assertResultMatchesMessage(t, results[msg2.MessageID], msg2, ccvData2, testCCVAddr, destVerifier)
@@ -215,12 +211,10 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 
 func Test_CCTPMessages_MultipleSources(t *testing.T) {
 	ts := newTestSetup(t)
-	defer ts.cleanup()
+	t.Cleanup(ts.cleanup)
 
-	txHash1, err := protocol.NewByteSliceFromHex("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-	require.NoError(t, err)
-	txHash3, err := protocol.NewByteSliceFromHex("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
-	require.NoError(t, err)
+	txHash1 := bytes.Repeat([]byte{0x1}, 32)
+	txHash3 := bytes.Repeat([]byte{0x3}, 32)
 
 	attestationResponse := []attestationMock{
 		{100, txHash1, attestation1},
@@ -230,14 +224,15 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 	destVerifier, err := protocol.NewUnknownAddressFromHex("0x2222222200000000000000000000000000000000")
 	require.NoError(t, err)
 
-	// Version + encoded msgs + attestation
+	// Please see attestation.go to see how the CCV data for CCTP is constructed:
+	// <4 byte verifier version><CCTP encoded message><attestation>
 	ccvData1, err := protocol.NewByteSliceFromHex("0x8e1d1a9dcccccc22aaaaaa22")
 	require.NoError(t, err)
 	ccvData2, err := protocol.NewByteSliceFromHex("0x8e1d1a9dbbbbbb55aaaaaa55")
 	require.NoError(t, err)
 
 	server := createFakeHTTPServer(t, attestationResponse)
-	defer server.Close()
+	t.Cleanup(server.Close)
 
 	config := createCoordinatorConfig(
 		"cctp-verifier",
@@ -246,10 +241,8 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 			chain2337: destVerifier,
 		})
 
-	// Set up mock source readerService
 	reader1337 := verifier.SetupMockSourceReader(t)
 	reader1337.ExpectFetchMessageSentEvent(false)
-
 	reader2337 := verifier.SetupMockSourceReader(t)
 	reader2337.ExpectFetchMessageSentEvent(false)
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
@@ -284,8 +277,10 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 
 	err = v.Start(ts.ctx)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
 
 	// MessageSent IDs are hardcoded to match attestation hookData values, thus asserts on MessageIDs
+	// Please see attestation.go to see how the CCV data is created na how hook data is used
 	msg1337 := createTestMessageSentEvent(t, 100, chain1337, chain2337, 0, 300_000, 900)
 	msg1337.TxHash = txHash1
 	msg1337.Receipts[0].Issuer = testCCVAddr
@@ -312,10 +307,7 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 			return false
 		}
 		return len(results) == 2
-	}, 10*time.Second, 500*time.Millisecond, "waiting for messages to land in ccv storage")
-
-	err = v.Close()
-	require.NoError(t, err)
+	}, waitTimeout(t), 500*time.Millisecond, "waiting for messages to land in ccv storage")
 
 	assertResultMatchesMessage(t, results[msg1337.MessageID], msg1337, ccvData1, testCCVAddr, destVerifier)
 	assertResultMatchesMessage(t, results[msg2337.MessageID], msg2337, ccvData2, destVerifier, testCCVAddr)
@@ -367,6 +359,14 @@ func createCCTPCoordinator(
 		noopMonitoring,
 		ts.chainStatusManager,
 	)
+}
+
+func waitTimeout(t *testing.T) time.Duration {
+	deadline, ok := t.Deadline()
+	if !ok {
+		deadline = time.Now().Add(10 * time.Second)
+	}
+	return time.Until(deadline)
 }
 
 type attestationMock struct {
