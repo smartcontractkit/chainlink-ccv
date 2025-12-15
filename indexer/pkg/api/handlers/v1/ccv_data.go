@@ -19,7 +19,7 @@ type VerifierResponseHandler struct {
 	monitoring common.IndexerMonitoring
 }
 
-func NewCCVDataHandler(storage common.IndexerStorage, lggr logger.Logger, monitoring common.IndexerMonitoring) *VerifierResponseHandler {
+func NewVerifierResponseHandler(storage common.IndexerStorage, lggr logger.Logger, monitoring common.IndexerMonitoring) *VerifierResponseHandler {
 	return &VerifierResponseHandler{
 		storage:    storage,
 		lggr:       lggr,

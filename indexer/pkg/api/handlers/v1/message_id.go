@@ -17,7 +17,7 @@ type MessageIDHandler struct {
 	monitoring common.IndexerMonitoring
 }
 
-func NewMessageIDV1Handler(storage common.IndexerStorage, lggr logger.Logger, monitoring common.IndexerMonitoring) *MessageIDHandler {
+func NewMessageIDHandler(storage common.IndexerStorage, lggr logger.Logger, monitoring common.IndexerMonitoring) *MessageIDHandler {
 	return &MessageIDHandler{
 		storage:    storage,
 		lggr:       lggr,

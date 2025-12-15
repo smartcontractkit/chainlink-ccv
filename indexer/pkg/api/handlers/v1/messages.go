@@ -18,7 +18,7 @@ type MessagesHandler struct {
 	monitoring common.IndexerMonitoring
 }
 
-func NewMessagesV1Handler(storage common.IndexerStorage, lggr logger.Logger, monitoring common.IndexerMonitoring) *MessagesHandler {
+func NewMessagesHandler(storage common.IndexerStorage, lggr logger.Logger, monitoring common.IndexerMonitoring) *MessagesHandler {
 	return &MessagesHandler{
 		storage:    storage,
 		lggr:       lggr,
