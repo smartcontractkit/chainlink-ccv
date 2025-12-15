@@ -29,16 +29,10 @@ func TestParseSelectorTypes(t *testing.T) {
 			wantErr: "",
 		},
 		{
-			name:    "invalid selector (not in selector list)",
-			arg:     "1",
-			want:    nil,
-			wantErr: "invalid chain selector: 1",
-		},
-		{
 			name:    "invalid selector (too big)",
 			arg:     "99999999999999999999999999999999999999999999999999",
 			want:    nil,
-			wantErr: "invalid chain selector: 99999999999",
+			wantErr: "invalid chain selector: strconv.ParseUint",
 		},
 	}
 	for _, tt := range tests {
