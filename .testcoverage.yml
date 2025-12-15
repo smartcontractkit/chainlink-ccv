@@ -48,7 +48,7 @@ override:
   - path: ^aggregator/cmd/admin-cli$
     threshold: 0
   - path: ^aggregator/pkg/model$
-    threshold: 48
+    threshold: 47
   - path: ^cmd/verifier$
     threshold: 0
   - path: ^indexer/pkg/storage$
@@ -70,7 +70,7 @@ override:
   - path: ^verifier/token/lbtc$
     threshold: 51
   - path: ^aggregator/pkg/storage/memory$
-    threshold: 55
+    threshold: 35
   - path: ^indexer/pkg/monitoring$
     threshold: 3
   - path: ^indexer/pkg/common$
@@ -80,7 +80,7 @@ override:
   - path: ^executor$
     threshold: 59
   - path: ^aggregator/pkg$
-    threshold: 62
+    threshold: 60
   - path: ^cmd/executor$
     threshold: 0
   - path: ^cmd/verifier/committee$

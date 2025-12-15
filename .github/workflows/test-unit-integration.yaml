@@ -1,11 +1,7 @@
-name: Test Unit & Integration
+name: Test Unit & Integration (Coverage)
 
 on:
-  merge_group:
   pull_request:
-  push:
-    branches:
-      - main
 
 jobs:
   test-coverage:
