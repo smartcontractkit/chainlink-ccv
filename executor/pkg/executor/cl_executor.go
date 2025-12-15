@@ -137,14 +137,14 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	// If they haven't we can execute it.
 	honestAttempt, err := cle.executionChecker.HasHonestAttempt(ctx, message, verifierResults, verifierQuorum)
 	if err != nil {
-		// if we error, we want to retry
+		cle.lggr.Errorw("unable to call execution checker, will retry message", "error", err, "messageID", messageID)
 		return true, err
 	}
 
 	// If someone else has already tried to execute this message with the data
 	// that we would execute the message with or deem valid. We won't execute.
 	if honestAttempt {
-		cle.lggr.Info("skipping execution due to existing honest attempt")
+		cle.lggr.Infow("skipping execution due to existing honest attempt", "messageID", messageID)
 		return false, nil
 	}
 
