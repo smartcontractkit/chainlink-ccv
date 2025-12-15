@@ -3,13 +3,13 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
+	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 )
 
 func main() {
@@ -51,5 +51,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(string(yml))
+
+	_, _ = os.Stdout.Write(yml)
 }
