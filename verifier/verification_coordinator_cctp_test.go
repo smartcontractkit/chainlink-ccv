@@ -26,6 +26,12 @@ var (
 	chain2337 = protocol.ChainSelector(chainsel.GETH_DEVNET_2.Selector)
 )
 
+// MessageIDs are intentionally hardcoded to match attestation hookData values, thus asserts on MessageIDs in various places.
+// It's done this way to make it easier to trace how attestation json response maps to the final CCV record.
+//
+// Please see attestation.go to see how the CCV data is created na how hook data is used
+// CCVData: <4 byte verifier version><CCTP encoded message><attestation> (set by offchain)
+// HookData: <4 byte verifier version><CCIP MessageID> (set by onchain)
 const (
 	attestation1 = `
 		{
@@ -178,8 +184,6 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = v.Close() })
 
-	// MessageSent IDs are hardcoded to match attestation hookData values, thus asserts on MessageIDs
-	// Please see attestation.go to see how the CCV data is created na how hook data is used
 	msg1 := createTestMessageSentEvent(t, 100, chain1337, chain2337, 0, 300_000, 900)
 	msg1.TxHash = txHash1
 	require.Equal(t, "0x42fdceb59007e3a5aee1f4a6b2d92f2922e5ae879257aaea310aae61bf1bb993", msg1.MessageID.String())
@@ -224,8 +228,6 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 	destVerifier, err := protocol.NewUnknownAddressFromHex("0x2222222200000000000000000000000000000000")
 	require.NoError(t, err)
 
-	// Please see attestation.go to see how the CCV data for CCTP is constructed:
-	// <4 byte verifier version><CCTP encoded message><attestation>
 	ccvData1, err := protocol.NewByteSliceFromHex("0x8e1d1a9dcccccc22aaaaaa22")
 	require.NoError(t, err)
 	ccvData2, err := protocol.NewByteSliceFromHex("0x8e1d1a9dbbbbbb55aaaaaa55")
@@ -279,8 +281,6 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = v.Close() })
 
-	// MessageSent IDs are hardcoded to match attestation hookData values, thus asserts on MessageIDs
-	// Please see attestation.go to see how the CCV data is created na how hook data is used
 	msg1337 := createTestMessageSentEvent(t, 100, chain1337, chain2337, 0, 300_000, 900)
 	msg1337.TxHash = txHash1
 	msg1337.Receipts[0].Issuer = testCCVAddr
