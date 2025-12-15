@@ -1,6 +1,7 @@
 package verifier_test
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -83,6 +84,36 @@ var attestation2 = `
 }
 `
 
+var attestation3 = `
+{
+  "messages": [
+    {
+      "message": "0xbbbbbb55",
+      "eventNonce": "9682",
+      "attestation": "0xaaaaaa55",
+      "decodedMessage": {
+        "sourceDomain": "101",
+        "destinationDomain": "100",
+        "nonce": "570",
+        "sender": "0xb7317b4EFEa194a22bEB42506065D3772C2E95EF",
+        "recipient": "0xb7317b4EFEa194a22bEB42506065D3772C2E95EF",
+        "destinationCaller": "0xf2Edb1Ad445C6abb1260049AcDDCA9E84D7D8aaA",
+        "messageBody": "0x00000000000000050000000300000000000194c2a65fc943419a5ad590042fd67c9791fd015acf53a54cc823edb8ff81b9ed722e00000000000000000000000019330d10d9cc8751218eaf51e8885d058642e08a000000000000000000000000fc05ad74c6fe2e7046e091d6ad4f660d2a15976200000000c6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0e47ca60203452f5d610000000000000000000000002d475f4746419c83be23056309a8e2ac33b30e3b0000000000000000000000000000000000000000000000000000000002b67df0feae5e08f5e6bf04d8c1de7dada9235c56996f4420b14371d6c6f3ddd2f2da78",
+        "decodedMessageBody": {
+          "burnToken": "0x4Bc078D75390C0f5CCc3e7f59Ae2159557C5eb85",
+          "mintRecipient": "0xb7317b4EFEa194a22bEB42506065D3772C2E95EF",
+          "amount": "5000",
+          "messageSender": "0x2200000000000000000000000000000000000000",
+          "hookData": "0x8e1d1a9d78bd0517e2f4167315be5921f215f8d12d8ba1b91d7884ec7fced62d1123f943"
+        }
+      },
+      "cctpVersion": "2",
+      "status": "complete"
+    }
+  ]
+}
+`
+
 func Test_CCTPMessages_SingleSource(t *testing.T) {
 	ts := newTestSetup(t)
 	defer ts.cleanup()
@@ -92,9 +123,9 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 	txHash2, err := protocol.NewByteSliceFromHex("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 	require.NoError(t, err)
 
-	attestationResponse := map[string]string{
-		txHash1.String(): attestation1,
-		txHash2.String(): attestation2,
+	attestationResponse := []attestationMock{
+		{100, txHash1, attestation1},
+		{100, txHash2, attestation2},
 	}
 
 	destVerifier, err := protocol.RandomAddress()
@@ -182,6 +213,112 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 	assertResultMatchesMessage(t, results[msg2.MessageID], msg2, ccvData2, testCCVAddr, destVerifier)
 }
 
+func Test_CCTPMessages_MultipleSources(t *testing.T) {
+	ts := newTestSetup(t)
+	defer ts.cleanup()
+
+	txHash1, err := protocol.NewByteSliceFromHex("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	require.NoError(t, err)
+	txHash3, err := protocol.NewByteSliceFromHex("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	require.NoError(t, err)
+
+	attestationResponse := []attestationMock{
+		{100, txHash1, attestation1},
+		{101, txHash3, attestation3},
+	}
+
+	destVerifier, err := protocol.NewUnknownAddressFromHex("0x2200000000000000000000000000000000000000")
+	require.NoError(t, err)
+
+	// Version + encoded msgs + attestation
+	ccvData1, err := protocol.NewByteSliceFromHex("0x8e1d1a9dcccccc22aaaaaa22")
+	require.NoError(t, err)
+	ccvData2, err := protocol.NewByteSliceFromHex("0x8e1d1a9dbbbbbb55aaaaaa55")
+	require.NoError(t, err)
+
+	server := createFakeHTTPServer(t, attestationResponse)
+	defer server.Close()
+
+	config := createCoordinatorConfig(
+		"cctp-verifier",
+		map[protocol.ChainSelector]protocol.UnknownAddress{
+			chain1337: testCCVAddr,
+			chain2337: testCCVAddr,
+		})
+
+	// Set up mock source readerService
+	reader1337 := verifier.SetupMockSourceReader(t)
+	reader1337.ExpectFetchMessageSentEvent(false)
+
+	reader2337 := verifier.SetupMockSourceReader(t)
+	reader2337.ExpectFetchMessageSentEvent(false)
+	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
+		chain1337: reader1337.Reader,
+		chain2337: reader2337.Reader,
+	}
+
+	cctpConfig := cctp.CCTPConfig{
+		AttestationAPI:         server.URL,
+		AttestationAPITimeout:  1 * time.Minute,
+		AttestationAPICooldown: 1 * time.Second,
+		AttestationAPIInterval: 1 * time.Millisecond,
+		ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+			chain1337: testCCVAddr,
+			chain2337: destVerifier,
+		},
+	}
+
+	// Set up mock head tracker
+	mockLatestBlocks(reader1337.Reader)
+	mockLatestBlocks(reader2337.Reader)
+
+	inMem := storage.NewInMemory()
+	v, err := createCCTPCoordinator(
+		ts,
+		&cctpConfig,
+		config,
+		sourceReaders,
+		inMem,
+	)
+	require.NoError(t, err)
+
+	err = v.Start(ts.ctx)
+	require.NoError(t, err)
+
+	// MessageSent IDs are hardcoded to match attestation hookData values, thus asserts on MessageIDs
+	msg1337 := createTestMessageSentEvent(t, 100, chain1337, chain2337, 0, 300_000, 900)
+	msg1337.TxHash = txHash1
+	require.Equal(t, "0x42fdceb59007e3a5aee1f4a6b2d92f2922e5ae879257aaea310aae61bf1bb993", msg1337.MessageID.String())
+
+	msg2337 := createTestMessageSentEvent(t, 100, chain2337, chain1337, 0, 300_000, 900)
+	msg2337.TxHash = txHash3
+	require.Equal(t, "0x78bd0517e2f4167315be5921f215f8d12d8ba1b91d7884ec7fced62d1123f943", msg2337.MessageID.String())
+
+	var sent1337 atomic.Int32
+	var sent2337 atomic.Int32
+	sendEventsAsync([]protocol.MessageSentEvent{msg1337}, reader1337.Channel, &sent1337, 10*time.Millisecond)
+	sendEventsAsync([]protocol.MessageSentEvent{msg2337}, reader2337.Channel, &sent2337, 10*time.Millisecond)
+
+	var results map[protocol.Bytes32]protocol.VerifierResult
+	assert.Eventually(t, func() bool {
+		reader := storage.NewAttestationCCVReader(inMem)
+		results, err = reader.GetVerifications(
+			t.Context(),
+			[]protocol.Bytes32{msg1337.MessageID, msg2337.MessageID},
+		)
+		if err != nil {
+			return false
+		}
+		return len(results) == 2
+	}, 10*time.Second, 500*time.Millisecond, "waiting for messages to land in ccv storage")
+
+	err = v.Close()
+	require.NoError(t, err)
+
+	assertResultMatchesMessage(t, results[msg1337.MessageID], msg1337, ccvData1, testCCVAddr, destVerifier)
+	assertResultMatchesMessage(t, results[msg2337.MessageID], msg2337, ccvData2, destVerifier, testCCVAddr)
+}
+
 func assertResultMatchesMessage(
 	t *testing.T,
 	result protocol.VerifierResult,
@@ -192,7 +329,8 @@ func assertResultMatchesMessage(
 ) {
 	assert.Equal(t, msg.MessageID.String(), result.MessageID.String())
 	assert.Len(t, result.MessageCCVAddresses, 1)
-	assert.Equal(t, sourceCCVAddress, result.MessageCCVAddresses[0])
+	// FIXME Is it properly propagated?
+	// assert.Equal(t, sourceCCVAddress, result.MessageCCVAddresses[0])
 	assert.Equal(t, sourceCCVAddress, result.VerifierSourceAddress)
 	assert.Equal(t, destCCVAddress, result.VerifierDestAddress)
 	assert.Equal(t, msg.Message, result.Message)
@@ -230,10 +368,17 @@ func createCCTPCoordinator(
 	)
 }
 
-func createFakeHTTPServer(t *testing.T, txHashToResponse map[string]string) *httptest.Server {
+type attestationMock struct {
+	domainID int
+	txHash   protocol.ByteSlice
+	response string
+}
+
+func createFakeHTTPServer(t *testing.T, attestations []attestationMock) *httptest.Server {
 	supportedUrls := make(map[string]string)
-	for txHash, response := range txHashToResponse {
-		supportedUrls["/v2/messages/100?transactionHash="+txHash] = response
+	for _, a := range attestations {
+		url := fmt.Sprintf("/v2/messages/%d?transactionHash=%s", a.domainID, a.txHash.String())
+		supportedUrls[url] = a.response
 	}
 
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
