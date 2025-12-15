@@ -12,21 +12,21 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-type MessagesV1Handler struct {
+type MessagesHandler struct {
 	storage    common.IndexerStorage
 	lggr       logger.Logger
 	monitoring common.IndexerMonitoring
 }
 
-func NewMessagesV1Handler(storage common.IndexerStorage, lggr logger.Logger, monitoring common.IndexerMonitoring) *MessagesV1Handler {
-	return &MessagesV1Handler{
+func NewMessagesV1Handler(storage common.IndexerStorage, lggr logger.Logger, monitoring common.IndexerMonitoring) *MessagesHandler {
+	return &MessagesHandler{
 		storage:    storage,
 		lggr:       lggr,
 		monitoring: monitoring,
 	}
 }
 
-func (h *MessagesV1Handler) Handle(c *gin.Context) {
+func (h *MessagesHandler) Handle(c *gin.Context) {
 	req := h.defaultRequestParams()
 
 	if err := c.ShouldBindQuery(&req); err != nil {
@@ -64,8 +64,8 @@ func (h *MessagesV1Handler) Handle(c *gin.Context) {
 	})
 }
 
-func (h *MessagesV1Handler) defaultRequestParams() MessagesV1Request {
-	return MessagesV1Request{
+func (h *MessagesHandler) defaultRequestParams() MessagesRequest {
+	return MessagesRequest{
 		Start:                0,
 		End:                  time.Now().UnixMilli(),
 		SourceChainSelectors: []protocol.ChainSelector{},

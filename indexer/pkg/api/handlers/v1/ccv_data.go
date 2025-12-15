@@ -13,21 +13,21 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-type CCVDataV1Handler struct {
+type VerifierResponseHandler struct {
 	storage    common.IndexerStorage
 	lggr       logger.Logger
 	monitoring common.IndexerMonitoring
 }
 
-func NewCCVDataV1Handler(storage common.IndexerStorage, lggr logger.Logger, monitoring common.IndexerMonitoring) *CCVDataV1Handler {
-	return &CCVDataV1Handler{
+func NewCCVDataHandler(storage common.IndexerStorage, lggr logger.Logger, monitoring common.IndexerMonitoring) *VerifierResponseHandler {
+	return &VerifierResponseHandler{
 		storage:    storage,
 		lggr:       lggr,
 		monitoring: monitoring,
 	}
 }
 
-func (h *CCVDataV1Handler) Handle(c *gin.Context) {
+func (h *VerifierResponseHandler) Handle(c *gin.Context) {
 	req := storageaccess.VerifierResultsRequest{
 		Start:                0,
 		End:                  time.Now().UnixMilli(),
@@ -53,12 +53,12 @@ func (h *CCVDataV1Handler) Handle(c *gin.Context) {
 	req.SourceChainSelectors = sourceChainSelectors
 	req.DestChainSelectors = destChainSelectors
 
-	ccvData, err := h.storage.QueryCCVData(c.Request.Context(), req.Start, req.End, req.SourceChainSelectors, req.DestChainSelectors, req.Limit, req.Offset)
+	verifierResponse, err := h.storage.QueryCCVData(c.Request.Context(), req.Start, req.End, req.SourceChainSelectors, req.DestChainSelectors, req.Limit, req.Offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	h.lggr.Debugw("/v1/ccvdata", "number of messages returned", len(ccvData))
-	c.JSON(http.StatusOK, gin.H{"success": true, "ccvData": ccvData})
+	h.lggr.Debugw("/v1/verifierresponse", "number of messages returned", len(verifierResponse))
+	c.JSON(http.StatusOK, gin.H{"success": true, "verifierResponse": verifierResponse})
 }

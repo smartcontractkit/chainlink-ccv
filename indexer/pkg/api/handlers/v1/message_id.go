@@ -11,21 +11,21 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-type MessageIDV1Handler struct {
+type MessageIDHandler struct {
 	storage    common.IndexerStorage
 	lggr       logger.Logger
 	monitoring common.IndexerMonitoring
 }
 
-func NewMessageIDV1Handler(storage common.IndexerStorage, lggr logger.Logger, monitoring common.IndexerMonitoring) *MessageIDV1Handler {
-	return &MessageIDV1Handler{
+func NewMessageIDV1Handler(storage common.IndexerStorage, lggr logger.Logger, monitoring common.IndexerMonitoring) *MessageIDHandler {
+	return &MessageIDHandler{
 		storage:    storage,
 		lggr:       lggr,
 		monitoring: monitoring,
 	}
 }
 
-func (h *MessageIDV1Handler) Handle(c *gin.Context) {
+func (h *MessageIDHandler) Handle(c *gin.Context) {
 	messageID := c.Param("messageID")
 	messageIDBytes32, err := protocol.NewBytes32FromString(messageID)
 	if err != nil {
