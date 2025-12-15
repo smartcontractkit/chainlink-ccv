@@ -12,6 +12,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/executionchecker"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -26,6 +27,7 @@ type ChainlinkExecutor struct {
 	lggr                   logger.Logger
 	contractTransmitters   map[protocol.ChainSelector]executor.ContractTransmitter
 	destinationReaders     map[protocol.ChainSelector]executor.DestinationReader
+	executionChecker       *executionchecker.AttemptCheckerService
 	curseChecker           common.CurseChecker
 	verifierResultsReader  executor.VerifierResultReader
 	monitoring             executor.Monitoring
@@ -44,10 +46,12 @@ func NewChainlinkExecutor(
 	lggr.Infow("new chainlink executor",
 		"defaultExecutorAddress", defaultExecutorAddress,
 	)
+
 	return &ChainlinkExecutor{
 		lggr:                   lggr,
 		contractTransmitters:   contractTransmitters,
 		destinationReaders:     destinationReaders,
+		executionChecker:       executionchecker.NewAttemptChecker(lggr, destinationReaders),
 		curseChecker:           curseChecker,
 		verifierResultsReader:  verifierResultReader,
 		monitoring:             monitoring,
@@ -85,19 +89,15 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 		return true, nil
 	}
 
-	executability, err := cle.destinationReaders[destinationChain].GetMessageExecutability(
-		ctx,
-		message,
-	)
+	executionSuccess, err := cle.destinationReaders[destinationChain].GetMessageSuccess(ctx, message)
 	if err != nil {
 		// If we can't get execution state, don't execute, but put back in heap to retry later.
 		// this usually only happens due to rpc issues, other nodes will try and this node will expec to see status SUCCESS later.
 		cle.lggr.Warnw("delaying execution due to failed check GetMessageExecutionState", "messageID", messageID)
 		return true, err
 	}
-	if !executability {
-		// Message is not executable due to its verification state.
-		cle.lggr.Infow("skipping execution due to verification state", "messageID", messageID)
+	if executionSuccess {
+		cle.lggr.Infow("skipping execution due to already being successfully executed", "messageID", messageID)
 		return false, nil
 	}
 
@@ -131,6 +131,21 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	if err != nil {
 		cle.lggr.Warnw("message did not meet verifier quorum, will retry", "messageID", messageID)
 		return true, err
+	}
+
+	// Check if anyone (third-party or other executor) has honestly attempted to execute this message.
+	// If they haven't we can execute it.
+	honestAttempt, err := cle.executionChecker.HasHonestAttempt(ctx, message, verifierResults, verifierQuorum)
+	if err != nil {
+		// if we error, we want to retry
+		return true, err
+	}
+
+	// If someone else has already tried to execute this message with the data
+	// that we would execute the message with or deem valid. We won't execute.
+	if honestAttempt {
+		cle.lggr.Info("skipping execution due to existing honest attempt")
+		return false, nil
 	}
 
 	// Create the aggregated report and transmit it to the chain.

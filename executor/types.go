@@ -70,7 +70,6 @@ const (
 	IN_PROGRESS
 	SUCCESS
 	FAILURE
-	VERIFICATION_FAILED
 )
 
 // MessageStatusResults is the translation of onchain execution state to executor's business logic behavior.

@@ -14,7 +14,9 @@ import (
 	"github.com/grafana/pyroscope-go"
 	"go.uber.org/zap/zapcore"
 
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
@@ -28,9 +30,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
-	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 )
 
 const (
@@ -151,15 +150,20 @@ func main() {
 		chainClient := pkg.CreateMultiNodeClientFromInfo(ctx, chain, lggr)
 		dr, err := destinationreader.NewEvmDestinationReader(
 			destinationreader.Params{
-				Lggr:             lggr,
-				ChainSelector:    protocol.ChainSelector(selector),
-				ChainClient:      chainClient,
-				OfframpAddress:   chainConfig.OffRampAddress,
-				RmnRemoteAddress: chainConfig.RmnAddress,
-				CacheExpiry:      executorConfig.ReaderCacheExpiry,
+				Lggr:                      lggr,
+				ChainSelector:             protocol.ChainSelector(selector),
+				ChainClient:               chainClient,
+				OfframpAddress:            chainConfig.OffRampAddress,
+				RmnRemoteAddress:          chainConfig.RmnAddress,
+				CacheExpiry:               executorConfig.ReaderCacheExpiry,
+				ExecutionVisabilityWindow: executorConfig.LookbackWindow,
 			})
 		if err != nil {
 			lggr.Errorw("Failed to create destination reader", "error", err, "chainSelector", strSel)
+		}
+
+		if err := dr.Start(ctx); err != nil {
+			lggr.Fatal("Failed to start destination reader", "error", err, "chainSelector", strSel)
 		}
 
 		pk := os.Getenv(privateKeyEnvVar)

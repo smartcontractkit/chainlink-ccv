@@ -13,10 +13,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
-// mockDestinationReader is a mock implementation of executor.DestinationReader
+// mockDestinationReader is a mock implementation of executor.DestinationReader.
 type mockDestinationReader struct {
 	mock.Mock
 }
@@ -26,7 +25,7 @@ func (m *mockDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 	return args.Get(0).(executor.CCVAddressInfo), args.Error(1)
 }
 
-func (m *mockDestinationReader) GetMessageExecutability(ctx context.Context, message protocol.Message) (bool, error) {
+func (m *mockDestinationReader) GetMessageSuccess(ctx context.Context, message protocol.Message) (bool, error) {
 	args := m.Called(ctx, message)
 	return args.Bool(0), args.Error(1)
 }
@@ -52,16 +51,15 @@ const (
 	testDestChain   = protocol.ChainSelector(2)
 )
 
-// newTestExecutionCheckerService creates a new ExecutionCheckerService for testing
-func newTestExecutionCheckerService(destReaders map[protocol.ChainSelector]executor.DestinationReader) *ExecutionCheckerService {
-	return &ExecutionCheckerService{
-		StateMachine:       services.StateMachine{},
+// newTestExecutionCheckerService creates a new ExecutionCheckerService for testing.
+func newTestExecutionCheckerService(destReaders map[protocol.ChainSelector]executor.DestinationReader) *AttemptCheckerService {
+	return &AttemptCheckerService{
 		destinationReaders: destReaders,
 		lggr:               logger.Nop(),
 	}
 }
 
-// createTestMessage creates a test message with the given parameters
+// createTestMessage creates a test message with the given parameters.
 func createTestMessage(t *testing.T, sequenceNumber protocol.SequenceNumber, sourceChain, destChain protocol.ChainSelector, gasLimit uint32) protocol.Message {
 	sender := protocol.UnknownAddress([]byte("sender_address"))
 	receiver := protocol.UnknownAddress([]byte("receiver_address"))
@@ -101,7 +99,7 @@ func createTestMessage(t *testing.T, sequenceNumber protocol.SequenceNumber, sou
 	return *message
 }
 
-// createTestVerifierResult creates a test verifier result
+// createTestVerifierResult creates a test verifier result.
 func createTestVerifierResult(t *testing.T, message protocol.Message, verifierDestAddr protocol.UnknownAddress, ccvData []byte) protocol.VerifierResult {
 	messageID, err := message.MessageID()
 	require.NoError(t, err)
@@ -118,7 +116,7 @@ func createTestVerifierResult(t *testing.T, message protocol.Message, verifierDe
 	}
 }
 
-// createTestExecutionAttempt creates a test execution attempt
+// createTestExecutionAttempt creates a test execution attempt.
 func createTestExecutionAttempt(message protocol.Message, ccvs []protocol.UnknownAddress, ccvData [][]byte, gasLimit *big.Int) executor.ExecutionAttempt {
 	return executor.ExecutionAttempt{
 		Report: executor.AbstractAggregatedReport{
@@ -128,30 +126,6 @@ func createTestExecutionAttempt(message protocol.Message, ccvs []protocol.Unknow
 		},
 		TransactionGasLimit: gasLimit,
 	}
-}
-
-func TestExecutionCheckerService_Start(t *testing.T) {
-	t.Run("successful start", func(t *testing.T) {
-		service := newTestExecutionCheckerService(map[protocol.ChainSelector]executor.DestinationReader{})
-		ctx := context.Background()
-
-		err := service.Start(ctx)
-		assert.NoError(t, err)
-		// Verify service is started by checking it can't be started again
-		err2 := service.Start(ctx)
-		assert.Error(t, err2) // Should error on double start
-	})
-
-	t.Run("double start returns error", func(t *testing.T) {
-		service := newTestExecutionCheckerService(map[protocol.ChainSelector]executor.DestinationReader{})
-		ctx := context.Background()
-
-		err := service.Start(ctx)
-		require.NoError(t, err)
-
-		err = service.Start(ctx)
-		assert.Error(t, err)
-	})
 }
 
 func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {

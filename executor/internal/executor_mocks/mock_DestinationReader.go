@@ -81,12 +81,71 @@ func (_c *MockDestinationReader_GetCCVSForMessage_Call) RunAndReturn(run func(co
 	return _c
 }
 
-// GetMessageExecutability provides a mock function with given fields: ctx, message
-func (_m *MockDestinationReader) GetMessageExecutability(ctx context.Context, message protocol.Message) (bool, error) {
+// GetExecutionAttempts provides a mock function with given fields: ctx, message
+func (_m *MockDestinationReader) GetExecutionAttempts(ctx context.Context, message protocol.Message) ([]executor.ExecutionAttempt, error) {
 	ret := _m.Called(ctx, message)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetMessageExecutability")
+		panic("no return value specified for GetExecutionAttempts")
+	}
+
+	var r0 []executor.ExecutionAttempt
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) ([]executor.ExecutionAttempt, error)); ok {
+		return rf(ctx, message)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) []executor.ExecutionAttempt); ok {
+		r0 = rf(ctx, message)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]executor.ExecutionAttempt)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, protocol.Message) error); ok {
+		r1 = rf(ctx, message)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockDestinationReader_GetExecutionAttempts_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetExecutionAttempts'
+type MockDestinationReader_GetExecutionAttempts_Call struct {
+	*mock.Call
+}
+
+// GetExecutionAttempts is a helper method to define mock.On call
+//   - ctx context.Context
+//   - message protocol.Message
+func (_e *MockDestinationReader_Expecter) GetExecutionAttempts(ctx interface{}, message interface{}) *MockDestinationReader_GetExecutionAttempts_Call {
+	return &MockDestinationReader_GetExecutionAttempts_Call{Call: _e.mock.On("GetExecutionAttempts", ctx, message)}
+}
+
+func (_c *MockDestinationReader_GetExecutionAttempts_Call) Run(run func(ctx context.Context, message protocol.Message)) *MockDestinationReader_GetExecutionAttempts_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(protocol.Message))
+	})
+	return _c
+}
+
+func (_c *MockDestinationReader_GetExecutionAttempts_Call) Return(_a0 []executor.ExecutionAttempt, _a1 error) *MockDestinationReader_GetExecutionAttempts_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockDestinationReader_GetExecutionAttempts_Call) RunAndReturn(run func(context.Context, protocol.Message) ([]executor.ExecutionAttempt, error)) *MockDestinationReader_GetExecutionAttempts_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetMessageSuccess provides a mock function with given fields: ctx, message
+func (_m *MockDestinationReader) GetMessageSuccess(ctx context.Context, message protocol.Message) (bool, error) {
+	ret := _m.Called(ctx, message)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetMessageSuccess")
 	}
 
 	var r0 bool
@@ -109,31 +168,31 @@ func (_m *MockDestinationReader) GetMessageExecutability(ctx context.Context, me
 	return r0, r1
 }
 
-// MockDestinationReader_GetMessageExecutability_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetMessageExecutability'
-type MockDestinationReader_GetMessageExecutability_Call struct {
+// MockDestinationReader_GetMessageSuccess_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetMessageSuccess'
+type MockDestinationReader_GetMessageSuccess_Call struct {
 	*mock.Call
 }
 
-// GetMessageExecutability is a helper method to define mock.On call
+// GetMessageSuccess is a helper method to define mock.On call
 //   - ctx context.Context
 //   - message protocol.Message
-func (_e *MockDestinationReader_Expecter) GetMessageExecutability(ctx interface{}, message interface{}) *MockDestinationReader_GetMessageExecutability_Call {
-	return &MockDestinationReader_GetMessageExecutability_Call{Call: _e.mock.On("GetMessageExecutability", ctx, message)}
+func (_e *MockDestinationReader_Expecter) GetMessageSuccess(ctx interface{}, message interface{}) *MockDestinationReader_GetMessageSuccess_Call {
+	return &MockDestinationReader_GetMessageSuccess_Call{Call: _e.mock.On("GetMessageSuccess", ctx, message)}
 }
 
-func (_c *MockDestinationReader_GetMessageExecutability_Call) Run(run func(ctx context.Context, message protocol.Message)) *MockDestinationReader_GetMessageExecutability_Call {
+func (_c *MockDestinationReader_GetMessageSuccess_Call) Run(run func(ctx context.Context, message protocol.Message)) *MockDestinationReader_GetMessageSuccess_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(protocol.Message))
 	})
 	return _c
 }
 
-func (_c *MockDestinationReader_GetMessageExecutability_Call) Return(_a0 bool, _a1 error) *MockDestinationReader_GetMessageExecutability_Call {
+func (_c *MockDestinationReader_GetMessageSuccess_Call) Return(_a0 bool, _a1 error) *MockDestinationReader_GetMessageSuccess_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockDestinationReader_GetMessageExecutability_Call) RunAndReturn(run func(context.Context, protocol.Message) (bool, error)) *MockDestinationReader_GetMessageExecutability_Call {
+func (_c *MockDestinationReader_GetMessageSuccess_Call) RunAndReturn(run func(context.Context, protocol.Message) (bool, error)) *MockDestinationReader_GetMessageSuccess_Call {
 	_c.Call.Return(run)
 	return _c
 }

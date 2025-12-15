@@ -16,6 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/services"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 )
 
@@ -25,6 +26,8 @@ var (
 
 	// This 1000 number is arbitrary, it can be adjusted as needed depending on usage pattern.
 	VerifierQuorumCacheMaxEntries = 1000
+
+	EvmDestinationReaderServiceName = "evm.destinationreader.Service"
 )
 
 type verifierQuorumCacheKey struct {
@@ -34,22 +37,25 @@ type verifierQuorumCacheKey struct {
 }
 
 type EvmDestinationReader struct {
+	services.StateMachine
 	offRampCaller          offramp.OffRampCaller
 	rmnRemoteCaller        rmn_remote.RMNRemoteCaller
 	lggr                   logger.Logger
 	client                 bind.ContractCaller
 	chainSelector          protocol.ChainSelector
 	ccvCache               *expirable.LRU[verifierQuorumCacheKey, executor.CCVAddressInfo]
-	executionAttemptPoller *evmExecutionAttemptPoller
+	executionAttemptPoller *EvmExecutionAttemptPoller
 }
 
 type Params struct {
-	Lggr             logger.Logger
-	ChainSelector    protocol.ChainSelector
-	ChainClient      client.Client
-	OfframpAddress   string
-	RmnRemoteAddress string
-	CacheExpiry      time.Duration
+	Lggr                      logger.Logger
+	ChainSelector             protocol.ChainSelector
+	ChainClient               client.Client
+	OfframpAddress            string
+	RmnRemoteAddress          string
+	CacheExpiry               time.Duration
+	StartBlock                uint64
+	ExecutionVisabilityWindow time.Duration
 }
 
 func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
@@ -66,6 +72,8 @@ func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
 	appendIfNil(params.CacheExpiry, "cacheExpiry")
 	appendIfNil(params.ChainClient, "chainClient")
 	appendIfNil(params.Lggr, "logger")
+	appendIfNil(params.StartBlock, "startBlock")
+	appendIfNil(params.ExecutionVisabilityWindow, "executionVisabilityWindow")
 
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
@@ -91,8 +99,8 @@ func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
 		offRampAddr,
 		params.ChainClient,
 		logger.With(params.Lggr, "component", "ExecutionAttemptPoller"),
-		0, // TODO: block number from 24 hours ago
-		params.CacheExpiry,
+		params.StartBlock,
+		params.ExecutionVisabilityWindow,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create execution attempt poller for chain %d: %w", params.ChainSelector, err)
@@ -107,6 +115,30 @@ func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
 		ccvCache:               ccvCache,
 		executionAttemptPoller: executionAttemptPoller,
 	}, nil
+}
+
+func (dr *EvmDestinationReader) Start(ctx context.Context) error {
+	return dr.StartOnce(EvmDestinationReaderServiceName, func() error {
+		dr.lggr.Info("Starting EVM Destination Reader")
+		err := dr.executionAttemptPoller.Start(ctx)
+		if err != nil {
+			return err
+		}
+		dr.lggr.Info("Started EVM Destination Reader")
+		return nil
+	})
+}
+
+func (dr *EvmDestinationReader) Stop() error {
+	return dr.StopOnce(EvmDestinationReaderServiceName, func() error {
+		dr.lggr.Info("Stopping EVM Destination Reader")
+		err := dr.executionAttemptPoller.Stop()
+		if err != nil {
+			return err
+		}
+		dr.lggr.Info("Stopped EVM Destination Reader")
+		return nil
+	})
 }
 
 // GetCCVSForMessage implements the DestinationReader interface. It uses the chainlink-evm client to call the get_ccvs function on the receiver contract.
@@ -185,8 +217,8 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 	return ccvInfo, nil
 }
 
-// GetMessageExecutionState checks the destination chain to verify if a message has been executed.
-func (dr *EvmDestinationReader) GetMessageExecutability(ctx context.Context, message protocol.Message) (bool, error) {
+// GetMessageSuccess checks the destination chain to verify if a message has been executed successfully.
+func (dr *EvmDestinationReader) GetMessageSuccess(ctx context.Context, message protocol.Message) (bool, error) {
 	rcv := common.BytesToAddress(message.Receiver)
 	execState, err := dr.offRampCaller.GetExecutionState(
 		&bind.CallOpts{
@@ -201,14 +233,12 @@ func (dr *EvmDestinationReader) GetMessageExecutability(ctx context.Context, mes
 		// expect that the error is checked by the caller so it doesn't accidentally assume success
 		return false, fmt.Errorf("failed to call getExecutionState: %w", err)
 	}
+
 	dr.lggr.Infow("getExecutionState", "messageID", message.MustMessageID(), "execState", execState)
-	switch executor.MessageExecutionState(execState) {
-	// We only try to execute if the message is UNTOUCHED or VERIFICATION_FAILED.
-	case executor.UNTOUCHED, executor.VERIFICATION_FAILED:
+	if executor.MessageExecutionState(execState) == executor.SUCCESS {
 		return true, nil
 	}
-	// All other states should not be retried and should not be executed.
-	// this is for SUCCESS, IN_PROGRESS, and FAILURE.
+
 	return false, nil
 }
 

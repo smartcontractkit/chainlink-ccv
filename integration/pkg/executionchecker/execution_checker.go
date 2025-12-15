@@ -10,29 +10,27 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
-// ExecutionCheckerService validates execution attempts to determine if a message
+// AttemptCheckerService validates execution attempts to determine if a message
 // should be executed. It checks that existing attempts use honest call data and
 // gas limits before allowing new execution attempts.
-type ExecutionCheckerService struct {
-	services.StateMachine
+type AttemptCheckerService struct {
 	destinationReaders map[protocol.ChainSelector]executor.DestinationReader
 	lggr               logger.Logger
 }
 
-// Start starts the service. It implements the services.Service interface.
-func (e *ExecutionCheckerService) Start(ctx context.Context) error {
-	return e.StartOnce("executionchecker.Service", func() error {
-		return nil
-	})
+func NewAttemptChecker(lggr logger.Logger, destinationReaders map[protocol.ChainSelector]executor.DestinationReader) *AttemptCheckerService {
+	return &AttemptCheckerService{
+		destinationReaders: destinationReaders,
+		lggr:               lggr,
+	}
 }
 
 // HasHonestAttempt reports whether an honest execution attempt has been
 // made for the given message. It returns true if an honest execution attempt
 // already exists, false otherwise.
-func (e *ExecutionCheckerService) HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo executor.CCVAddressInfo) (bool, error) {
+func (e *AttemptCheckerService) HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo executor.CCVAddressInfo) (bool, error) {
 	executionAttempts, err := e.destinationReaders[message.DestChainSelector].GetExecutionAttempts(ctx, message)
 	if err != nil {
 		return false, err
@@ -55,7 +53,7 @@ func (e *ExecutionCheckerService) HasHonestAttempt(ctx context.Context, message 
 
 // isHonestCallData reports whether the execution attempt's call data matches
 // the verifier results for all required CCVs and meets the optional CCV threshold.
-func (e *ExecutionCheckerService) isHonestCallData(message protocol.Message, attempt executor.ExecutionAttempt, verifierResults []protocol.VerifierResult, ccvAddressInfo executor.CCVAddressInfo) (bool, error) {
+func (e *AttemptCheckerService) isHonestCallData(message protocol.Message, attempt executor.ExecutionAttempt, verifierResults []protocol.VerifierResult, ccvAddressInfo executor.CCVAddressInfo) (bool, error) {
 	err := assertMessageIDsMatch(message, attempt)
 	if err != nil {
 		return false, err
@@ -74,7 +72,7 @@ func (e *ExecutionCheckerService) isHonestCallData(message protocol.Message, att
 
 // isHonestGasLimit reports whether the execution attempt's gas limit is at least
 // the message's execution gas limit.
-func (e *ExecutionCheckerService) isHonestGasLimit(message protocol.Message, attempt executor.ExecutionAttempt) bool {
+func (e *AttemptCheckerService) isHonestGasLimit(message protocol.Message, attempt executor.ExecutionAttempt) bool {
 	messageGasLimit := big.NewInt(int64(message.ExecutionGasLimit))
 	return messageGasLimit.Cmp(attempt.TransactionGasLimit) <= 0
 }
@@ -125,17 +123,17 @@ func mapResultsToCCVs(verifierResults []protocol.VerifierResult) map[string][]pr
 // assertMessageIDsMatch verifies that the message and execution attempt refer
 // to the same message by comparing their message IDs.
 func assertMessageIDsMatch(message protocol.Message, attempt executor.ExecutionAttempt) error {
-	msgId, err := message.MessageID()
+	msgID, err := message.MessageID()
 	if err != nil {
 		return errors.New("unable to construct msgid from message")
 	}
 
-	attemptMsgId, err := attempt.Report.Message.MessageID()
+	attemptMsgID, err := attempt.Report.Message.MessageID()
 	if err != nil {
 		return errors.New("unable to construct attempt msgid")
 	}
 
-	if msgId.String() != attemptMsgId.String() {
+	if msgID.String() != attemptMsgID.String() {
 		return errors.New("message ids do not match, attempt is not valid")
 	}
 

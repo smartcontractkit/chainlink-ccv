@@ -41,8 +41,8 @@ var (
 	errNilLogger = errors.New("logger cannot be nil")
 )
 
-// evmExecutionAttemptPoller polls for execution state changed events and caches execution attempts.
-type evmExecutionAttemptPoller struct {
+// EvmExecutionAttemptPoller polls for execution state changed events and caches execution attempts.
+type EvmExecutionAttemptPoller struct {
 	services.StateMachine
 	lggr            logger.Logger
 	client          client.Client
@@ -51,13 +51,10 @@ type evmExecutionAttemptPoller struct {
 	eventCh         chan *offramp.OffRampExecutionStateChanged
 	subscription    event.Subscription
 	attemptCache    *expirable.LRU[protocol.Bytes32, []executor.ExecutionAttempt]
-	runCtx          context.Context
-	runCancel       context.CancelFunc
+	cancelFunc      context.CancelFunc
 	runWg           sync.WaitGroup
-	// Polling mode fields (used when WebSocket is not available)
 	pollInterval    time.Duration
 	lastPolledBlock uint64
-	pollMu          sync.Mutex
 }
 
 // NewEVMExecutionAttemptPoller creates a new execution attempt poller for the given offramp address.
@@ -69,7 +66,7 @@ func NewEVMExecutionAttemptPoller(
 	lggr logger.Logger,
 	startBlock uint64,
 	attemptCacheExpiration time.Duration,
-) (*evmExecutionAttemptPoller, error) {
+) (*EvmExecutionAttemptPoller, error) {
 	if client == nil {
 		return nil, errNilClient
 	}
@@ -83,7 +80,7 @@ func NewEVMExecutionAttemptPoller(
 	}
 
 	attemptCache := expirable.NewLRU[protocol.Bytes32, []executor.ExecutionAttempt](0, nil, attemptCacheExpiration)
-	return &evmExecutionAttemptPoller{
+	return &EvmExecutionAttemptPoller{
 		lggr:            lggr,
 		client:          client,
 		offRampFilterer: *offRampFilterer,
@@ -97,34 +94,46 @@ func NewEVMExecutionAttemptPoller(
 
 // Start starts the poller service. It implements the services.Service interface.
 // It first tries to use WebSocket subscription, and falls back to HTTP polling if WebSocket is not available.
-func (p *evmExecutionAttemptPoller) Start(ctx context.Context) error {
+func (p *EvmExecutionAttemptPoller) Start(ctx context.Context) error {
 	return p.StartOnce("evm.executionattemptpoller.Service", func() error {
-		p.runCtx, p.runCancel = context.WithCancel(context.Background())
+		runCtx, cancel := context.WithCancel(context.Background())
+		p.cancelFunc = cancel
 
-		err := p.startWSMode()
+		err := p.startWSMode(runCtx)
 		if err != nil {
 			// if WS unavailable, we'll poll via HTTP
-			return p.startHTTPMode()
+			return p.startHTTPMode(runCtx)
 		}
 
 		return nil
 	})
 }
 
-func (p *evmExecutionAttemptPoller) startHTTPMode() error {
+func (p *EvmExecutionAttemptPoller) Stop() error {
+	return p.StopOnce("evm.executionattemptpoller.Service", func() error {
+		p.lggr.Info("Stopping EVM Execution Attempt Poller")
+		p.cancelFunc()
+		p.runWg.Wait()
+		p.lggr.Info("Stopped EVM Execution Attempt Poller")
+		return nil
+	})
+}
+
+func (p *EvmExecutionAttemptPoller) startHTTPMode(ctx context.Context) error {
 	p.lggr.Infow("WebSocket subscription not available, falling back to HTTP polling", "startBlock", p.startBlock)
+	p.lastPolledBlock = p.startBlock
 
 	p.runWg.Go(func() {
-		p.runPolling(p.runCtx)
+		p.runPolling(ctx)
 	})
 
 	p.lggr.Infow("Execution attempt poller started in polling mode")
 	return nil
 }
 
-func (p *evmExecutionAttemptPoller) startWSMode() error {
+func (p *EvmExecutionAttemptPoller) startWSMode(ctx context.Context) error {
 	subscription, err := p.offRampFilterer.WatchExecutionStateChanged(
-		&bind.WatchOpts{Start: &p.startBlock, Context: p.runCtx},
+		&bind.WatchOpts{Start: &p.startBlock, Context: ctx},
 		p.eventCh, nil, nil, nil,
 	)
 	if err != nil {
@@ -133,11 +142,11 @@ func (p *evmExecutionAttemptPoller) startWSMode() error {
 
 	p.subscription = subscription
 	p.runWg.Go(func() {
-		p.run(p.runCtx)
+		p.run(ctx)
 	})
 
 	p.runWg.Go(func() {
-		p.monitorSubscription(p.runCtx)
+		p.monitorSubscription(ctx)
 	})
 
 	p.lggr.Infow("execution attempt poller started in WebSocket mode")
@@ -145,7 +154,7 @@ func (p *evmExecutionAttemptPoller) startWSMode() error {
 }
 
 // Close stops the poller service and cleans up resources. It implements the services.Service interface.
-func (p *evmExecutionAttemptPoller) Close() error {
+func (p *EvmExecutionAttemptPoller) Close() error {
 	return p.StopOnce("evm.executionattemptpoller.Service", func() error {
 		p.lggr.Infow("Stopping execution attempt poller")
 
@@ -155,8 +164,8 @@ func (p *evmExecutionAttemptPoller) Close() error {
 			p.subscription.Unsubscribe()
 		}
 
-		if p.runCancel != nil {
-			p.runCancel()
+		if p.cancelFunc != nil {
+			p.cancelFunc()
 		}
 
 		p.runWg.Wait()
@@ -167,7 +176,7 @@ func (p *evmExecutionAttemptPoller) Close() error {
 }
 
 // GetExecutionAttempts retrieves cached execution attempts for the given message.
-func (p *evmExecutionAttemptPoller) GetExecutionAttempts(ctx context.Context, message protocol.Message) ([]executor.ExecutionAttempt, error) {
+func (p *EvmExecutionAttemptPoller) GetExecutionAttempts(ctx context.Context, message protocol.Message) ([]executor.ExecutionAttempt, error) {
 	msgID, err := message.MessageID()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get message ID: %w", err)
@@ -185,7 +194,7 @@ func (p *evmExecutionAttemptPoller) GetExecutionAttempts(ctx context.Context, me
 }
 
 // run processes execution state changed events and caches execution attempts.
-func (p *evmExecutionAttemptPoller) run(ctx context.Context) {
+func (p *EvmExecutionAttemptPoller) run(ctx context.Context) {
 	for {
 		select {
 		case execStateChanged, ok := <-p.eventCh:
@@ -210,7 +219,7 @@ func (p *evmExecutionAttemptPoller) run(ctx context.Context) {
 
 // monitorSubscription monitors the subscription for errors and logs them.
 // Only used in WebSocket mode.
-func (p *evmExecutionAttemptPoller) monitorSubscription(ctx context.Context) {
+func (p *EvmExecutionAttemptPoller) monitorSubscription(ctx context.Context) {
 	for {
 		select {
 		case err := <-p.subscription.Err():
@@ -226,7 +235,7 @@ func (p *evmExecutionAttemptPoller) monitorSubscription(ctx context.Context) {
 
 // runPolling runs the polling loop for HTTP RPC mode.
 // It periodically queries for new ExecutionStateChanged events using FilterExecutionStateChanged.
-func (p *evmExecutionAttemptPoller) runPolling(ctx context.Context) {
+func (p *EvmExecutionAttemptPoller) runPolling(ctx context.Context) {
 	ticker := time.NewTicker(p.pollInterval)
 	defer ticker.Stop()
 
@@ -244,7 +253,7 @@ func (p *evmExecutionAttemptPoller) runPolling(ctx context.Context) {
 }
 
 // pollForEvents queries for ExecutionStateChanged events since the last polled block.
-func (p *evmExecutionAttemptPoller) pollForEvents(ctx context.Context) error {
+func (p *EvmExecutionAttemptPoller) pollForEvents(ctx context.Context) error {
 	fromBlock := p.getLastPolledBlock()
 
 	// Get the latest block number
@@ -269,7 +278,9 @@ func (p *evmExecutionAttemptPoller) pollForEvents(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create filter for execution state changed events: %w", err)
 	}
-	defer filter.Close()
+
+	// Close the filter later, always returns nil so ignoring error check
+	defer func() { _ = filter.Close() }()
 
 	var eventCount int
 	for filter.Next() {
@@ -305,21 +316,21 @@ func (p *evmExecutionAttemptPoller) pollForEvents(ctx context.Context) error {
 }
 
 // getLastPolledBlock returns the last polled block number in a thread-safe manner.
-func (p *evmExecutionAttemptPoller) getLastPolledBlock() uint64 {
+func (p *EvmExecutionAttemptPoller) getLastPolledBlock() uint64 {
 	p.RLock()
 	defer p.RUnlock()
 	return p.lastPolledBlock
 }
 
 // setLastPolledBlock sets the last polled block number in a thread-safe manner.
-func (p *evmExecutionAttemptPoller) setLastPolledBlock(block uint64) {
+func (p *EvmExecutionAttemptPoller) setLastPolledBlock(block uint64) {
 	p.Lock()
 	defer p.Unlock()
 	p.lastPolledBlock = block
 }
 
 // processExecutionStateChanged processes a single execution state changed event.
-func (p *evmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Context, event *offramp.OffRampExecutionStateChanged) error {
+func (p *EvmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Context, event *offramp.OffRampExecutionStateChanged) error {
 	msgID := event.MessageId
 	txHash := event.Raw.TxHash
 
@@ -348,7 +359,7 @@ func (p *evmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Con
 
 // decodeCallDataToExecutionAttempt decodes the transaction call data into an ExecutionAttempt.
 // It validates the function selector, unpacks ABI-encoded parameters, and constructs the attempt.
-func (p *evmExecutionAttemptPoller) decodeCallDataToExecutionAttempt(callData []byte, gasLimit uint64) (*executor.ExecutionAttempt, error) {
+func (p *EvmExecutionAttemptPoller) decodeCallDataToExecutionAttempt(callData []byte, gasLimit uint64) (*executor.ExecutionAttempt, error) {
 	method, ok := offrampABI.Methods[executeMethodName]
 	if !ok {
 		return nil, fmt.Errorf("execute method not found in offramp ABI")
@@ -413,6 +424,6 @@ func (p *evmExecutionAttemptPoller) decodeCallDataToExecutionAttempt(callData []
 
 	return &executor.ExecutionAttempt{
 		Report:              report,
-		TransactionGasLimit: big.NewInt(int64(gasLimit)),
+		TransactionGasLimit: new(big.Int).SetUint64(gasLimit),
 	}, nil
 }

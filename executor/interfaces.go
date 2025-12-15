@@ -70,8 +70,8 @@ type LeaderElector interface {
 type DestinationReader interface {
 	// GetCCVSForMessage return cross-chain verifications for selected message
 	GetCCVSForMessage(ctx context.Context, message protocol.Message) (CCVAddressInfo, error)
-	// GetMessageExecutability returns true if message can be executed based on its on chain execution state.
-	GetMessageExecutability(ctx context.Context, message protocol.Message) (bool, error)
+	// GetMessageSuccess returns true if message has on-chain success state.
+	GetMessageSuccess(ctx context.Context, message protocol.Message) (bool, error)
 	// GetRMNCursedSubjects returns the full list of cursed subjects for the chain. These can be Bytes16 ChainSelectors or the GlobalCurseSubject.
 	GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error)
 	// GetExecutionAttempts returns the full list of execution attempts for a given message within the executable window.
