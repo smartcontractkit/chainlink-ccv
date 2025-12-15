@@ -419,7 +419,7 @@ func TestE2EReorg(t *testing.T) {
 		l.Info().Str("snapshotID", snapshotID).Msg("💾 Snapshot created before sending custom finality message")
 
 		// Send message with custom finality
-		event1, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "fast finality message"), customFinalityMessageOptions)
+		event1, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "fast finality message"), customFinalityMessageOptions)
 		require.NoError(t, err)
 		logSentMessage(event1, "Sending message with custom finality")
 		msgIDBeforeReorg := event1.MessageID
@@ -440,7 +440,7 @@ func TestE2EReorg(t *testing.T) {
 		time.Sleep(3 * time.Second)
 
 		// Re-send the message (will have same seqNum since we reverted)
-		event2, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "fast finality message after reorg"), customFinalityMessageOptions)
+		event2, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "fast finality message after reorg"), customFinalityMessageOptions)
 		require.NoError(t, err)
 		logSentMessage(event2, "Sending message with custom finality after reorg")
 		msgIDAfterReorg := event2.MessageID
@@ -513,7 +513,7 @@ func TestE2EReorg(t *testing.T) {
 		l.Info().Str("snapshotID", snapshotID).Msg("💾 Snapshot created before sending message")
 
 		// Send message with custom finality
-		event1, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "message to be verified then reorged"), customFinalityMessageOptions)
+		event1, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "message to be verified then reorged"), customFinalityMessageOptions)
 		require.NoError(t, err)
 		logSentMessage(event1, "Sending message with custom finality (will be verified first)")
 		msgIDFirstExecution := event1.MessageID
@@ -540,7 +540,7 @@ func TestE2EReorg(t *testing.T) {
 		time.Sleep(3 * time.Second)
 
 		// Re-send the message (will have same seqNum since we reverted)
-		event2, err := srcImpl.SendMessage(ctx, srcSelector, destSelector, newMessageFields(receiver, "replacement message after reorg"), customFinalityMessageOptions)
+		event2, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "replacement message after reorg"), customFinalityMessageOptions)
 		require.NoError(t, err)
 		logSentMessage(event2, "Sending replacement message after reorg")
 		msgIDSecondExecution := event2.MessageID
