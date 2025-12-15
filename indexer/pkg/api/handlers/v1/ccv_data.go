@@ -13,21 +13,31 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-type VerifierResponseHandler struct {
+type VerifierResultsInput struct {
+	SourceChainSelectors []protocol.ChainSelector `form:"sourceChainSelectors"`
+	DestChainSelectors   []protocol.ChainSelector `form:"destChainSelectors"`
+	Start                int64                    `form:"start"`
+}
+type VerifierResultResponse struct {
+	Success         bool                                           `json:"success"`
+	VerifierResults map[string][]common.VerifierResultWithMetadata `json:"verifierResults"`
+}
+
+type VerifierResultHandler struct {
 	storage    common.IndexerStorage
 	lggr       logger.Logger
 	monitoring common.IndexerMonitoring
 }
 
-func NewVerifierResponseHandler(storage common.IndexerStorage, lggr logger.Logger, monitoring common.IndexerMonitoring) *VerifierResponseHandler {
-	return &VerifierResponseHandler{
+func NewVerifierResultHandler(storage common.IndexerStorage, lggr logger.Logger, monitoring common.IndexerMonitoring) *VerifierResultHandler {
+	return &VerifierResultHandler{
 		storage:    storage,
 		lggr:       lggr,
 		monitoring: monitoring,
 	}
 }
 
-func (h *VerifierResponseHandler) Handle(c *gin.Context) {
+func (h *VerifierResultHandler) Handle(c *gin.Context) {
 	req := storageaccess.VerifierResultsRequest{
 		Start:                0,
 		End:                  time.Now().UnixMilli(),
@@ -59,6 +69,9 @@ func (h *VerifierResponseHandler) Handle(c *gin.Context) {
 		return
 	}
 
-	h.lggr.Debugw("/v1/verifierresponse", "number of messages returned", len(verifierResponse))
-	c.JSON(http.StatusOK, gin.H{"success": true, "verifierResponse": verifierResponse})
+	h.lggr.Debugw("/v1/verifierresult", "number of messages returned", len(verifierResponse))
+	c.JSON(http.StatusOK, VerifierResultResponse{
+		Success:         true,
+		VerifierResults: verifierResponse,
+	})
 }
