@@ -96,7 +96,7 @@ func TestE2EReorg(t *testing.T) {
 	require.True(t, automine, "source chain must have auto-mining enabled (instant mining). Run with env-src-auto-mine.toml configuration")
 	l.Info().Bool("automine", automine).Msg("✅ Verified source chain has auto-mining enabled")
 
-	receiver := mustGetEOAReceiverAddress(t, destImpl, destSelector)
+	receiver := mustGetEOAReceiverAddress(t, destImpl)
 
 	executorAddr := getContractAddress(t, in, srcSelector,
 		datastore.ContractType(executor.ContractType),
@@ -111,7 +111,7 @@ func TestE2EReorg(t *testing.T) {
 		"committee verifier proxy")
 
 	// Get receiver for destSelector2 (chain2)
-	receiver2 := mustGetEOAReceiverAddress(t, dest2Impl, destSelector2)
+	receiver2 := mustGetEOAReceiverAddress(t, dest2Impl)
 
 	// Default message options for sending CCIP messages
 	defaultMessageOptions := cciptestinterfaces.MessageOptions{
