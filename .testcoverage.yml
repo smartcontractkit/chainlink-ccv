@@ -1,4 +1,3 @@
-# may be multiple files
 profile: cover.out
 
 # Holds coverage thresholds percentages, values should be in range [0-100].
@@ -11,6 +10,10 @@ threshold:
 
 override:
   # TODO: cover all the modules with tests or ignore some of them
+  # when coverage is good enough it's okay to keep only the top level
+  # modules in case there are no critical modules inside them
+  # which should have other overrides
+  # read more here https://github.com/vladopajic/go-test-coverage
   - path: ^indexer/pkg/worker$
     threshold: 0
   - path: ^integration/pkg$
@@ -95,15 +98,3 @@ exclude:
   paths:
     - .*mock*
     - \.pb\.go$    # excludes all protobuf generated files
-
-force-annotation-comment: false
-
-# If specified, saves the current test coverage breakdown to this file.
-#
-# Typically, this breakdown is generated only for main (base) branches and 
-# stored as an artifact. Later, this file can be used in feature branches 
-# to compare test coverage against the base branch.
-breakdown-file-name: 'coverage-breakdown.txt'
-
-diff:
-  base-breakdown-file-name: 'coverage-breakdown.txt'
