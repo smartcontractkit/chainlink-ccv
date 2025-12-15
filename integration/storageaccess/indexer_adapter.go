@@ -129,7 +129,7 @@ func (i *IndexerAPIReader) ReadVerifierResults(
 	queryData VerifierResultsRequest,
 ) (map[string][]protocol.VerifierResult, error) {
 	var response VerifierResultsResponse
-	err := i.makeRequest(ctx, "/v1/ccvdata", queryParams(queryData), &response)
+	err := i.makeRequest(ctx, "/v1/verifierresponse", queryParams(queryData), &response)
 	if err != nil {
 		return nil, err
 	}

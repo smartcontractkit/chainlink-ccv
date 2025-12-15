@@ -2,12 +2,12 @@ package v1
 
 import "github.com/smartcontractkit/chainlink-ccv/protocol"
 
-type MessageIDV1Response struct {
+type MessageIDResponse struct {
 	MessageID     string                    `json:"messageID"`
 	Verifications []protocol.VerifierResult `json:"verifications"`
 }
 
-type MessagesV1Request struct {
+type MessagesRequest struct {
 	SourceChainSelectors []protocol.ChainSelector // Excluded from form due to gin parsing
 	DestChainSelectors   []protocol.ChainSelector // Excluded from form due to gin parsing
 	Start                int64                    `form:"start"`
