@@ -1,13 +1,16 @@
 package constructors
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	timeprovider "github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
@@ -21,9 +24,6 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
 	"github.com/smartcontractkit/chainlink-evm/pkg/keys"
-
-	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
-	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 )
 
 var (
@@ -108,6 +108,13 @@ func NewExecutorCoordinator(
 			lggr.Errorw("Failed to create destination reader", "error", err, "chainSelector", sel)
 			continue
 		}
+
+		// We're missing a context in the constructor, using todo for now
+		if err := evmDestReader.Start(context.TODO()); err != nil {
+			lggr.Errorw("Failed to start destination reader", "error", err, "chainSelector", sel)
+			continue
+		}
+
 		destReaders[sel] = evmDestReader
 		rmnReaders[sel] = evmDestReader
 	}
