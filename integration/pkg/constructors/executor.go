@@ -109,8 +109,7 @@ func NewExecutorCoordinator(
 			continue
 		}
 
-		// We're missing a context in the constructor, using todo for now
-		if err := evmDestReader.Start(context.TODO()); err != nil {
+		if err := evmDestReader.Start(context.Background()); err != nil {
 			lggr.Errorw("Failed to start destination reader", "error", err, "chainSelector", sel)
 			continue
 		}
