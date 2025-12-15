@@ -103,7 +103,7 @@ var attestation3 = `
           "burnToken": "0x4Bc078D75390C0f5CCc3e7f59Ae2159557C5eb85",
           "mintRecipient": "0xb7317b4EFEa194a22bEB42506065D3772C2E95EF",
           "amount": "5000",
-          "messageSender": "0x2200000000000000000000000000000000000000",
+          "messageSender": "0x2222222200000000000000000000000000000000",
           "hookData": "0x8e1d1a9d78bd0517e2f4167315be5921f215f8d12d8ba1b91d7884ec7fced62d1123f943"
         }
       },
@@ -194,7 +194,7 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 	sendEventsAsync(testEvents, mockSetup.Channel, &messagesSent, 10*time.Millisecond)
 
 	var results map[protocol.Bytes32]protocol.VerifierResult
-	assert.Eventually(t, func() bool {
+	require.Eventually(t, func() bool {
 		reader := storage.NewAttestationCCVReader(inMem)
 		results, err = reader.GetVerifications(
 			t.Context(),
@@ -227,7 +227,7 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 		{101, txHash3, attestation3},
 	}
 
-	destVerifier, err := protocol.NewUnknownAddressFromHex("0x2200000000000000000000000000000000000000")
+	destVerifier, err := protocol.NewUnknownAddressFromHex("0x2222222200000000000000000000000000000000")
 	require.NoError(t, err)
 
 	// Version + encoded msgs + attestation
@@ -243,7 +243,7 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 		"cctp-verifier",
 		map[protocol.ChainSelector]protocol.UnknownAddress{
 			chain1337: testCCVAddr,
-			chain2337: testCCVAddr,
+			chain2337: destVerifier,
 		})
 
 	// Set up mock source readerService
@@ -288,10 +288,12 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 	// MessageSent IDs are hardcoded to match attestation hookData values, thus asserts on MessageIDs
 	msg1337 := createTestMessageSentEvent(t, 100, chain1337, chain2337, 0, 300_000, 900)
 	msg1337.TxHash = txHash1
+	msg1337.Receipts[0].Issuer = testCCVAddr
 	require.Equal(t, "0x42fdceb59007e3a5aee1f4a6b2d92f2922e5ae879257aaea310aae61bf1bb993", msg1337.MessageID.String())
 
 	msg2337 := createTestMessageSentEvent(t, 100, chain2337, chain1337, 0, 300_000, 900)
 	msg2337.TxHash = txHash3
+	msg2337.Receipts[0].Issuer = destVerifier
 	require.Equal(t, "0x78bd0517e2f4167315be5921f215f8d12d8ba1b91d7884ec7fced62d1123f943", msg2337.MessageID.String())
 
 	var sent1337 atomic.Int32
@@ -300,7 +302,7 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 	sendEventsAsync([]protocol.MessageSentEvent{msg2337}, reader2337.Channel, &sent2337, 10*time.Millisecond)
 
 	var results map[protocol.Bytes32]protocol.VerifierResult
-	assert.Eventually(t, func() bool {
+	require.Eventually(t, func() bool {
 		reader := storage.NewAttestationCCVReader(inMem)
 		results, err = reader.GetVerifications(
 			t.Context(),
@@ -329,8 +331,7 @@ func assertResultMatchesMessage(
 ) {
 	assert.Equal(t, msg.MessageID.String(), result.MessageID.String())
 	assert.Len(t, result.MessageCCVAddresses, 1)
-	// FIXME Is it properly propagated?
-	// assert.Equal(t, sourceCCVAddress, result.MessageCCVAddresses[0])
+	assert.Equal(t, sourceCCVAddress, result.MessageCCVAddresses[0])
 	assert.Equal(t, sourceCCVAddress, result.VerifierSourceAddress)
 	assert.Equal(t, destCCVAddress, result.VerifierDestAddress)
 	assert.Equal(t, msg.Message, result.Message)
