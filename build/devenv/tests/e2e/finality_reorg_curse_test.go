@@ -202,7 +202,7 @@ func TestE2EReorg(t *testing.T) {
 
 		anvilHelper.MustMine(ctx, 1)
 
-		event3, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "message 3"), defaultMessageOptions)
+		event3, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "message 2"), defaultMessageOptions)
 		require.NoError(t, err)
 		logSentMessage(event3, "Sending message 2 first (swapped order)")
 		msg2IDAfterReorg := event3.MessageID
