@@ -17,13 +17,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc677"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework"
-
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
 const (

@@ -70,6 +70,51 @@ func (_c *MockExecutor_CheckValidMessage_Call) RunAndReturn(run func(context.Con
 	return _c
 }
 
+// Close provides a mock function with no fields
+func (_m *MockExecutor) Close() error {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Close")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func() error); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockExecutor_Close_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Close'
+type MockExecutor_Close_Call struct {
+	*mock.Call
+}
+
+// Close is a helper method to define mock.On call
+func (_e *MockExecutor_Expecter) Close() *MockExecutor_Close_Call {
+	return &MockExecutor_Close_Call{Call: _e.mock.On("Close")}
+}
+
+func (_c *MockExecutor_Close_Call) Run(run func()) *MockExecutor_Close_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockExecutor_Close_Call) Return(_a0 error) *MockExecutor_Close_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockExecutor_Close_Call) RunAndReturn(run func() error) *MockExecutor_Close_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // HandleMessage provides a mock function with given fields: ctx, message
 func (_m *MockExecutor) HandleMessage(ctx context.Context, message protocol.Message) (bool, error) {
 	ret := _m.Called(ctx, message)
@@ -123,6 +168,189 @@ func (_c *MockExecutor_HandleMessage_Call) Return(shouldRetry bool, err error) *
 }
 
 func (_c *MockExecutor_HandleMessage_Call) RunAndReturn(run func(context.Context, protocol.Message) (bool, error)) *MockExecutor_HandleMessage_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// HealthReport provides a mock function with no fields
+func (_m *MockExecutor) HealthReport() map[string]error {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for HealthReport")
+	}
+
+	var r0 map[string]error
+	if rf, ok := ret.Get(0).(func() map[string]error); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]error)
+		}
+	}
+
+	return r0
+}
+
+// MockExecutor_HealthReport_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HealthReport'
+type MockExecutor_HealthReport_Call struct {
+	*mock.Call
+}
+
+// HealthReport is a helper method to define mock.On call
+func (_e *MockExecutor_Expecter) HealthReport() *MockExecutor_HealthReport_Call {
+	return &MockExecutor_HealthReport_Call{Call: _e.mock.On("HealthReport")}
+}
+
+func (_c *MockExecutor_HealthReport_Call) Run(run func()) *MockExecutor_HealthReport_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockExecutor_HealthReport_Call) Return(_a0 map[string]error) *MockExecutor_HealthReport_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockExecutor_HealthReport_Call) RunAndReturn(run func() map[string]error) *MockExecutor_HealthReport_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Name provides a mock function with no fields
+func (_m *MockExecutor) Name() string {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Name")
+	}
+
+	var r0 string
+	if rf, ok := ret.Get(0).(func() string); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	return r0
+}
+
+// MockExecutor_Name_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Name'
+type MockExecutor_Name_Call struct {
+	*mock.Call
+}
+
+// Name is a helper method to define mock.On call
+func (_e *MockExecutor_Expecter) Name() *MockExecutor_Name_Call {
+	return &MockExecutor_Name_Call{Call: _e.mock.On("Name")}
+}
+
+func (_c *MockExecutor_Name_Call) Run(run func()) *MockExecutor_Name_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockExecutor_Name_Call) Return(_a0 string) *MockExecutor_Name_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockExecutor_Name_Call) RunAndReturn(run func() string) *MockExecutor_Name_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Ready provides a mock function with no fields
+func (_m *MockExecutor) Ready() error {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Ready")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func() error); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockExecutor_Ready_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Ready'
+type MockExecutor_Ready_Call struct {
+	*mock.Call
+}
+
+// Ready is a helper method to define mock.On call
+func (_e *MockExecutor_Expecter) Ready() *MockExecutor_Ready_Call {
+	return &MockExecutor_Ready_Call{Call: _e.mock.On("Ready")}
+}
+
+func (_c *MockExecutor_Ready_Call) Run(run func()) *MockExecutor_Ready_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockExecutor_Ready_Call) Return(_a0 error) *MockExecutor_Ready_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockExecutor_Ready_Call) RunAndReturn(run func() error) *MockExecutor_Ready_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Start provides a mock function with given fields: _a0
+func (_m *MockExecutor) Start(_a0 context.Context) error {
+	ret := _m.Called(_a0)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Start")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(_a0)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockExecutor_Start_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Start'
+type MockExecutor_Start_Call struct {
+	*mock.Call
+}
+
+// Start is a helper method to define mock.On call
+//   - _a0 context.Context
+func (_e *MockExecutor_Expecter) Start(_a0 interface{}) *MockExecutor_Start_Call {
+	return &MockExecutor_Start_Call{Call: _e.mock.On("Start", _a0)}
+}
+
+func (_c *MockExecutor_Start_Call) Run(run func(_a0 context.Context)) *MockExecutor_Start_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockExecutor_Start_Call) Return(_a0 error) *MockExecutor_Start_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockExecutor_Start_Call) RunAndReturn(run func(context.Context) error) *MockExecutor_Start_Call {
 	_c.Call.Return(run)
 	return _c
 }

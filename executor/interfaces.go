@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
 // StreamerResult is the result of a streaming operation.
@@ -42,6 +43,8 @@ type VerifierResultReader interface {
 
 // Executor is responsible for executing validating messages.
 type Executor interface {
+	services.Service
+
 	// HandleMessage gets any supplementary data and tries to execute the message
 	HandleMessage(ctx context.Context, message protocol.Message) (shouldRetry bool, err error)
 	// CheckValidMessage checks that message is valid
@@ -68,12 +71,15 @@ type LeaderElector interface {
 // It's used to get the list of ccv addresses for each receiver, as well as check if messages have been executed
 // When integrating with non-evms, the implementer only needs to add support for a single chain.
 type DestinationReader interface {
+	services.Service
 	// GetCCVSForMessage return cross-chain verifications for selected message
 	GetCCVSForMessage(ctx context.Context, message protocol.Message) (CCVAddressInfo, error)
-	// GetMessageExecutability returns true if message can be executed based on its on chain execution state.
-	GetMessageExecutability(ctx context.Context, message protocol.Message) (bool, error)
+	// GetMessageSuccess returns true if message has on-chain success state.
+	GetMessageSuccess(ctx context.Context, message protocol.Message) (bool, error)
 	// GetRMNCursedSubjects returns the full list of cursed subjects for the chain. These can be Bytes16 ChainSelectors or the GlobalCurseSubject.
 	GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error)
+	// GetExecutionAttempts returns the full list of execution attempts for a given message within the executable window.
+	GetExecutionAttempts(ctx context.Context, message protocol.Message) ([]ExecutionAttempt, error)
 }
 
 // Monitoring provides all core monitoring functionality for the executor. Also can be implemented as a no-op.

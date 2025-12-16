@@ -24,6 +24,51 @@ func (_m *MockDestinationReader) EXPECT() *MockDestinationReader_Expecter {
 	return &MockDestinationReader_Expecter{mock: &_m.Mock}
 }
 
+// Close provides a mock function with no fields
+func (_m *MockDestinationReader) Close() error {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Close")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func() error); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockDestinationReader_Close_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Close'
+type MockDestinationReader_Close_Call struct {
+	*mock.Call
+}
+
+// Close is a helper method to define mock.On call
+func (_e *MockDestinationReader_Expecter) Close() *MockDestinationReader_Close_Call {
+	return &MockDestinationReader_Close_Call{Call: _e.mock.On("Close")}
+}
+
+func (_c *MockDestinationReader_Close_Call) Run(run func()) *MockDestinationReader_Close_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockDestinationReader_Close_Call) Return(_a0 error) *MockDestinationReader_Close_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockDestinationReader_Close_Call) RunAndReturn(run func() error) *MockDestinationReader_Close_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetCCVSForMessage provides a mock function with given fields: ctx, message
 func (_m *MockDestinationReader) GetCCVSForMessage(ctx context.Context, message protocol.Message) (executor.CCVAddressInfo, error) {
 	ret := _m.Called(ctx, message)
@@ -81,12 +126,71 @@ func (_c *MockDestinationReader_GetCCVSForMessage_Call) RunAndReturn(run func(co
 	return _c
 }
 
-// GetMessageExecutability provides a mock function with given fields: ctx, message
-func (_m *MockDestinationReader) GetMessageExecutability(ctx context.Context, message protocol.Message) (bool, error) {
+// GetExecutionAttempts provides a mock function with given fields: ctx, message
+func (_m *MockDestinationReader) GetExecutionAttempts(ctx context.Context, message protocol.Message) ([]executor.ExecutionAttempt, error) {
 	ret := _m.Called(ctx, message)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetMessageExecutability")
+		panic("no return value specified for GetExecutionAttempts")
+	}
+
+	var r0 []executor.ExecutionAttempt
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) ([]executor.ExecutionAttempt, error)); ok {
+		return rf(ctx, message)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message) []executor.ExecutionAttempt); ok {
+		r0 = rf(ctx, message)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]executor.ExecutionAttempt)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, protocol.Message) error); ok {
+		r1 = rf(ctx, message)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockDestinationReader_GetExecutionAttempts_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetExecutionAttempts'
+type MockDestinationReader_GetExecutionAttempts_Call struct {
+	*mock.Call
+}
+
+// GetExecutionAttempts is a helper method to define mock.On call
+//   - ctx context.Context
+//   - message protocol.Message
+func (_e *MockDestinationReader_Expecter) GetExecutionAttempts(ctx interface{}, message interface{}) *MockDestinationReader_GetExecutionAttempts_Call {
+	return &MockDestinationReader_GetExecutionAttempts_Call{Call: _e.mock.On("GetExecutionAttempts", ctx, message)}
+}
+
+func (_c *MockDestinationReader_GetExecutionAttempts_Call) Run(run func(ctx context.Context, message protocol.Message)) *MockDestinationReader_GetExecutionAttempts_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(protocol.Message))
+	})
+	return _c
+}
+
+func (_c *MockDestinationReader_GetExecutionAttempts_Call) Return(_a0 []executor.ExecutionAttempt, _a1 error) *MockDestinationReader_GetExecutionAttempts_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockDestinationReader_GetExecutionAttempts_Call) RunAndReturn(run func(context.Context, protocol.Message) ([]executor.ExecutionAttempt, error)) *MockDestinationReader_GetExecutionAttempts_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetMessageSuccess provides a mock function with given fields: ctx, message
+func (_m *MockDestinationReader) GetMessageSuccess(ctx context.Context, message protocol.Message) (bool, error) {
+	ret := _m.Called(ctx, message)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetMessageSuccess")
 	}
 
 	var r0 bool
@@ -109,31 +213,31 @@ func (_m *MockDestinationReader) GetMessageExecutability(ctx context.Context, me
 	return r0, r1
 }
 
-// MockDestinationReader_GetMessageExecutability_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetMessageExecutability'
-type MockDestinationReader_GetMessageExecutability_Call struct {
+// MockDestinationReader_GetMessageSuccess_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetMessageSuccess'
+type MockDestinationReader_GetMessageSuccess_Call struct {
 	*mock.Call
 }
 
-// GetMessageExecutability is a helper method to define mock.On call
+// GetMessageSuccess is a helper method to define mock.On call
 //   - ctx context.Context
 //   - message protocol.Message
-func (_e *MockDestinationReader_Expecter) GetMessageExecutability(ctx interface{}, message interface{}) *MockDestinationReader_GetMessageExecutability_Call {
-	return &MockDestinationReader_GetMessageExecutability_Call{Call: _e.mock.On("GetMessageExecutability", ctx, message)}
+func (_e *MockDestinationReader_Expecter) GetMessageSuccess(ctx interface{}, message interface{}) *MockDestinationReader_GetMessageSuccess_Call {
+	return &MockDestinationReader_GetMessageSuccess_Call{Call: _e.mock.On("GetMessageSuccess", ctx, message)}
 }
 
-func (_c *MockDestinationReader_GetMessageExecutability_Call) Run(run func(ctx context.Context, message protocol.Message)) *MockDestinationReader_GetMessageExecutability_Call {
+func (_c *MockDestinationReader_GetMessageSuccess_Call) Run(run func(ctx context.Context, message protocol.Message)) *MockDestinationReader_GetMessageSuccess_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(protocol.Message))
 	})
 	return _c
 }
 
-func (_c *MockDestinationReader_GetMessageExecutability_Call) Return(_a0 bool, _a1 error) *MockDestinationReader_GetMessageExecutability_Call {
+func (_c *MockDestinationReader_GetMessageSuccess_Call) Return(_a0 bool, _a1 error) *MockDestinationReader_GetMessageSuccess_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockDestinationReader_GetMessageExecutability_Call) RunAndReturn(run func(context.Context, protocol.Message) (bool, error)) *MockDestinationReader_GetMessageExecutability_Call {
+func (_c *MockDestinationReader_GetMessageSuccess_Call) RunAndReturn(run func(context.Context, protocol.Message) (bool, error)) *MockDestinationReader_GetMessageSuccess_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -192,6 +296,189 @@ func (_c *MockDestinationReader_GetRMNCursedSubjects_Call) Return(_a0 []protocol
 }
 
 func (_c *MockDestinationReader_GetRMNCursedSubjects_Call) RunAndReturn(run func(context.Context) ([]protocol.Bytes16, error)) *MockDestinationReader_GetRMNCursedSubjects_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// HealthReport provides a mock function with no fields
+func (_m *MockDestinationReader) HealthReport() map[string]error {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for HealthReport")
+	}
+
+	var r0 map[string]error
+	if rf, ok := ret.Get(0).(func() map[string]error); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]error)
+		}
+	}
+
+	return r0
+}
+
+// MockDestinationReader_HealthReport_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HealthReport'
+type MockDestinationReader_HealthReport_Call struct {
+	*mock.Call
+}
+
+// HealthReport is a helper method to define mock.On call
+func (_e *MockDestinationReader_Expecter) HealthReport() *MockDestinationReader_HealthReport_Call {
+	return &MockDestinationReader_HealthReport_Call{Call: _e.mock.On("HealthReport")}
+}
+
+func (_c *MockDestinationReader_HealthReport_Call) Run(run func()) *MockDestinationReader_HealthReport_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockDestinationReader_HealthReport_Call) Return(_a0 map[string]error) *MockDestinationReader_HealthReport_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockDestinationReader_HealthReport_Call) RunAndReturn(run func() map[string]error) *MockDestinationReader_HealthReport_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Name provides a mock function with no fields
+func (_m *MockDestinationReader) Name() string {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Name")
+	}
+
+	var r0 string
+	if rf, ok := ret.Get(0).(func() string); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	return r0
+}
+
+// MockDestinationReader_Name_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Name'
+type MockDestinationReader_Name_Call struct {
+	*mock.Call
+}
+
+// Name is a helper method to define mock.On call
+func (_e *MockDestinationReader_Expecter) Name() *MockDestinationReader_Name_Call {
+	return &MockDestinationReader_Name_Call{Call: _e.mock.On("Name")}
+}
+
+func (_c *MockDestinationReader_Name_Call) Run(run func()) *MockDestinationReader_Name_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockDestinationReader_Name_Call) Return(_a0 string) *MockDestinationReader_Name_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockDestinationReader_Name_Call) RunAndReturn(run func() string) *MockDestinationReader_Name_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Ready provides a mock function with no fields
+func (_m *MockDestinationReader) Ready() error {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Ready")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func() error); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockDestinationReader_Ready_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Ready'
+type MockDestinationReader_Ready_Call struct {
+	*mock.Call
+}
+
+// Ready is a helper method to define mock.On call
+func (_e *MockDestinationReader_Expecter) Ready() *MockDestinationReader_Ready_Call {
+	return &MockDestinationReader_Ready_Call{Call: _e.mock.On("Ready")}
+}
+
+func (_c *MockDestinationReader_Ready_Call) Run(run func()) *MockDestinationReader_Ready_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockDestinationReader_Ready_Call) Return(_a0 error) *MockDestinationReader_Ready_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockDestinationReader_Ready_Call) RunAndReturn(run func() error) *MockDestinationReader_Ready_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Start provides a mock function with given fields: _a0
+func (_m *MockDestinationReader) Start(_a0 context.Context) error {
+	ret := _m.Called(_a0)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Start")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(_a0)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockDestinationReader_Start_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Start'
+type MockDestinationReader_Start_Call struct {
+	*mock.Call
+}
+
+// Start is a helper method to define mock.On call
+//   - _a0 context.Context
+func (_e *MockDestinationReader_Expecter) Start(_a0 interface{}) *MockDestinationReader_Start_Call {
+	return &MockDestinationReader_Start_Call{Call: _e.mock.On("Start", _a0)}
+}
+
+func (_c *MockDestinationReader_Start_Call) Run(run func(_a0 context.Context)) *MockDestinationReader_Start_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockDestinationReader_Start_Call) Return(_a0 error) *MockDestinationReader_Start_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockDestinationReader_Start_Call) RunAndReturn(run func(context.Context) error) *MockDestinationReader_Start_Call {
 	_c.Call.Return(run)
 	return _c
 }
