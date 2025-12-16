@@ -144,7 +144,13 @@ func TestE2ESmoke(t *testing.T) {
 		}
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
-				runV2TestCase(t, tc, chainMap, defaultAggregatorClient, indexerClient)
+				runV2TestCase(t, tc, chainMap, defaultAggregatorClient, indexerClient, AssertMessageOptions{
+					TickInterval:            1 * time.Second,
+					Timeout:                 defaultExecTimeout,
+					ExpectedVerifierResults: tc.numExpectedVerifications,
+					AssertVerifierLogs:      false,
+					AssertExecutorLogs:      false,
+				})
 			})
 		}
 	})
@@ -328,7 +334,14 @@ func TestE2ESmoke(t *testing.T) {
 	})
 }
 
-func runV2TestCase(t *testing.T, tc v2TestCase, chainMap map[uint64]cciptestinterfaces.CCIP17ProductConfiguration, defaultAggregatorClient *ccv.AggregatorClient, indexerClient *ccv.IndexerClient) {
+func runV2TestCase(
+	t *testing.T,
+	tc v2TestCase,
+	chainMap map[uint64]cciptestinterfaces.CCIP17ProductConfiguration,
+	defaultAggregatorClient *ccv.AggregatorClient,
+	indexerClient *ccv.IndexerClient,
+	assertMessageOptions AssertMessageOptions,
+) {
 	ctx := ccv.Plog.WithContext(t.Context())
 	l := zerolog.Ctx(ctx)
 
@@ -350,13 +363,7 @@ func runV2TestCase(t *testing.T, tc v2TestCase, chainMap map[uint64]cciptestinte
 	messageID := sentEvent.MessageID
 
 	testCtx := NewTestingContext(t, ctx, chainMap, defaultAggregatorClient, indexerClient)
-	result, err := testCtx.AssertMessage(messageID, AssertMessageOptions{
-		TickInterval:            1 * time.Second,
-		Timeout:                 defaultExecTimeout,
-		ExpectedVerifierResults: tc.numExpectedVerifications,
-		AssertVerifierLogs:      false,
-		AssertExecutorLogs:      false,
-	})
+	result, err := testCtx.AssertMessage(messageID, assertMessageOptions)
 	require.NoError(t, err)
 	require.NotNil(t, result.AggregatedResult)
 	require.Len(t, result.IndexedVerifications.Results, tc.numExpectedVerifications)
