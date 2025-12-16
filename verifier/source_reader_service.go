@@ -66,6 +66,7 @@ func NewSourceReaderService(
 	pollInterval time.Duration,
 	curseDetector common.CurseCheckerService,
 	filter chainaccess.MessageFilter,
+	metrics MetricLabeler,
 ) (*SourceReaderService, error) {
 	if sourceReader == nil {
 		return nil, fmt.Errorf("sourceReader cannot be nil")
@@ -78,6 +79,9 @@ func NewSourceReaderService(
 	}
 	if curseDetector == nil {
 		return nil, fmt.Errorf("curseDetector cannot be nil")
+	}
+	if metrics == nil {
+		return nil, fmt.Errorf("metrics cannot be nil")
 	}
 	finalityChecker, err := vservices.NewFinalityViolationCheckerService(
 		sourceReader,
@@ -104,7 +108,7 @@ func NewSourceReaderService(
 		readyTasksCh:       make(chan batcher.BatchResult[VerificationTask]),
 		pendingTasks:       make(map[string]VerificationTask),
 		sentTasks:          make(map[string]VerificationTask),
-		reorgTracker:       NewReorgTracker(),
+		reorgTracker:       NewReorgTracker(logger.With(lggr, "component", "ReorgTracker"), metrics),
 		stopCh:             make(chan struct{}),
 		filter:             filter,
 	}, nil

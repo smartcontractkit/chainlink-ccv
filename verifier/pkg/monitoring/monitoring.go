@@ -151,3 +151,5 @@ func (f *FakeVerifierMetricLabeler) RecordSourceChainLatestBlock(_ context.Conte
 func (f *FakeVerifierMetricLabeler) RecordSourceChainFinalizedBlock(_ context.Context, blockNum int64) {
 	f.SourceChainFinalizedBlock.Store(blockNum)
 }
+
+func (f *FakeVerifierMetricLabeler) RecordReorgTrackedSeqNums(context.Context, int64) {}

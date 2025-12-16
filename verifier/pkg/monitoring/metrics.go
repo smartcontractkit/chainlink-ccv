@@ -38,6 +38,9 @@ type VerifierMetrics struct {
 	// Chain State
 	sourceChainLatestBlockGauge    metric.Int64Gauge
 	sourceChainFinalizedBlockGauge metric.Int64Gauge
+
+	// Reorg Tracking
+	reorgTrackedSeqNumsGauge metric.Int64Gauge
 }
 
 // InitMetrics initializes all verifier metrics.
@@ -141,6 +144,15 @@ func InitMetrics() (*VerifierMetrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register source chain finalized block gauge: %w", err)
+	}
+
+	// Reorg Tracking
+	vm.reorgTrackedSeqNumsGauge, err = beholder.GetMeter().Int64Gauge(
+		"verifier_reorg_tracked_seqnums",
+		metric.WithDescription("Number of sequence numbers being tracked due to reorg per destination chain"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register reorg tracked seqnums gauge: %w", err)
 	}
 
 	return vm, nil
@@ -252,4 +264,9 @@ func (v *VerifierMetricLabeler) RecordSourceChainLatestBlock(ctx context.Context
 func (v *VerifierMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.sourceChainFinalizedBlockGauge.Record(ctx, blockNum, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.reorgTrackedSeqNumsGauge.Record(ctx, count, metric.WithAttributes(otelLabels...))
 }
