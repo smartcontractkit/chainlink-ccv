@@ -21,6 +21,7 @@ install-go-tools:
     go install github.com/bufbuild/buf/cmd/buf@v$VERSION_BUF
     go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v$VERSION_GOLANGCI_LINT
     go install github.com/vektra/mockery/v2@v$VERSION_MOCKERY
+    go install github.com/vladopajic/go-test-coverage/v2@latest
 
 install-pre-commit:
     brew install pre-commit
@@ -47,15 +48,21 @@ lint fix="": ensure-golangci-lint
 mod-download: ensure-go
     go mod download
 
-test: ensure-go
-    gomods -w go test -fullpath -shuffle on -v -race ./...
-
-test-coverage coverage_file="coverage.out":
-    # coverage_file := env_var_or_default('COVERAGE_FILE', 'coverage.out')
-    go test -v -race -fullpath -shuffle on -v -coverprofile={{coverage_file}} ./...
-    # Filter mockery-generated files (mock_*.go) from coverage profile
+# Run all the tests below system-level
+test coverage_file="cover.out": ensure-go
+    # 'build' dir is ignored by default, run all component/integration tests
+    go test -fullpath -shuffle on -v -race ./... -coverprofile={{coverage_file}} -covermode=atomic -coverpkg=./...
     { head -n1 {{coverage_file}}; tail -n +2 {{coverage_file}} | grep -v -E '{{COVERAGE_EXCLUDE_REGEX}}' || true; } > {{coverage_file}}.filtered
     mv {{coverage_file}}.filtered {{coverage_file}}
+
+# Run go-test-coverage checks
+# read more about the tool here https://github.com/vladopajic/go-test-coverage
+cover: ensure-go
+    go-test-coverage --config=./.testcoverage.yml
+
+# Run go tool cover to render HTML coverage report
+cover-html: ensure-go
+    go tool cover -html=cover.out -o=cover.html
 
 bump-chainlink-ccip sha:
     @echo "Bumping chainlink-ccip dependencies in root..."
