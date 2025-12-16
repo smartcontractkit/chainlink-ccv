@@ -138,8 +138,8 @@ type GetMessagesParams struct {
 	DestChainSelectors   *[]protocol.ChainSelector `form:"destChainSelectors,omitempty" json:"destChainSelectors,omitempty"`
 	Start                *int64                    `form:"start,omitempty" json:"start,omitempty"`
 	End                  *int64                    `form:"end,omitempty" json:"end,omitempty"`
-	Limit                *int64                    `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset               *int64                    `form:"offset,omitempty" json:"offset,omitempty"`
+	Limit                *uint64                   `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset               *uint64                   `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
 // VerifierResultParams defines parameters for VerifierResult.
