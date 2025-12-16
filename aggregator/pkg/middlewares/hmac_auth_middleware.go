@@ -88,28 +88,10 @@ func (m *HMACAuthMiddleware) Intercept(ctx context.Context, req any, info *grpc.
 		return nil, status.Error(codes.Unauthenticated, "invalid signature")
 	}
 
-	var identity *auth.CallerIdentity
-	if client.IsAdmin {
-		identity = auth.CreateAdminCallerIdentity(client.ClientID)
-
-		// Check for admin on-behalf-of header
-		if onBehalfOfClientID := getMetadataValue(md, "x-admin-client-id"); onBehalfOfClientID != "" {
-			identity.SetOnBehalfOf(onBehalfOfClientID)
-			m.logger.Debugf("Admin %s acting on behalf of %s", client.ClientID, onBehalfOfClientID)
-		}
-	} else {
-		identity = auth.CreateCallerIdentity(client.ClientID, false)
-
-		// Verify that non-admin clients are not trying to use admin headers
-		if onBehalfOfClientID := getMetadataValue(md, "x-admin-client-id"); onBehalfOfClientID != "" {
-			m.logger.Warnf("Non-admin client %s attempted to use admin on-behalf-of header", client.ClientID)
-			return nil, status.Error(codes.PermissionDenied, "only admin clients can perform operations on behalf of other clients")
-		}
-	}
-
+	identity := auth.CreateCallerIdentity(client.ClientID, false)
 	ctx = auth.ToContext(ctx, identity)
 
-	m.logger.Debugf("Successfully authenticated client: %s (admin: %v)", client.ClientID, client.IsAdmin)
+	m.logger.Debugf("Successfully authenticated client: %s", client.ClientID)
 
 	return handler(ctx, req)
 }
