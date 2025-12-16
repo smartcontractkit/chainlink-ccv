@@ -1,7 +1,6 @@
 package constructors
 
 import (
-	"context"
 	"fmt"
 	"strconv"
 	"time"
@@ -106,11 +105,6 @@ func NewExecutorCoordinator(
 			})
 		if err != nil {
 			lggr.Errorw("Failed to create destination reader", "error", err, "chainSelector", sel)
-			continue
-		}
-
-		if err := evmDestReader.Start(context.Background()); err != nil {
-			lggr.Errorw("Failed to start destination reader", "error", err, "chainSelector", sel)
 			continue
 		}
 

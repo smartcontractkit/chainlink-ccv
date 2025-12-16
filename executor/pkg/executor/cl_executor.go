@@ -15,15 +15,20 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/executionchecker"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
 // Ensure ChainlinkExecutor implements the Executor interface.
 var _ executor.Executor = &ChainlinkExecutor{}
 
+const chainlinkExecutorServiceName = "chainlink.executor.Service"
+
 // ChainlinkExecutor is responsible for managing the execution of a single message once it's been marked
 // for execution by the Coordinator. It goes through a series of steps and checks before finally transmitting.
 // Depending on these checks, it may send the message back to the coordinator for retry later.
 type ChainlinkExecutor struct {
+	services.StateMachine
+	services.Service
 	lggr                   logger.Logger
 	contractTransmitters   map[protocol.ChainSelector]executor.ContractTransmitter
 	destinationReaders     map[protocol.ChainSelector]executor.DestinationReader
@@ -57,6 +62,58 @@ func NewChainlinkExecutor(
 		monitoring:             monitoring,
 		defaultExecutorAddress: defaultExecutorAddress,
 	}
+}
+
+func (cle *ChainlinkExecutor) Start(ctx context.Context) error {
+	return cle.StartOnce(chainlinkExecutorServiceName, func() error {
+		cle.lggr.Info("Starting Chainlink Executor")
+		var errs []error
+		for chainSelector, reader := range cle.destinationReaders {
+			if err := reader.Start(ctx); err != nil {
+				errs = append(errs, fmt.Errorf("failed to start destination reader for chain %d: %w", chainSelector, err))
+			}
+		}
+		if len(errs) > 0 {
+			return errors.Join(errs...)
+		}
+		return nil
+	})
+}
+
+func (cle *ChainlinkExecutor) Close() error {
+	return cle.StopOnce(chainlinkExecutorServiceName, func() error {
+		cle.lggr.Info("Stopping Chainlink Executor")
+		var errs []error
+		for chainSelector, reader := range cle.destinationReaders {
+			if err := reader.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to close destination reader for chain %d: %w", chainSelector, err))
+			}
+		}
+		cle.lggr.Info("Stopped Chainlink Executor")
+		if len(errs) > 0 {
+			return errors.Join(errs...)
+		}
+		return nil
+	})
+}
+
+func (cle *ChainlinkExecutor) HealthReport() map[string]error {
+	report := make(map[string]error)
+	report[cle.Name()] = cle.Ready()
+
+	for _, reader := range cle.destinationReaders {
+		services.CopyHealth(report, reader.HealthReport())
+	}
+
+	return report
+}
+
+func (cle *ChainlinkExecutor) Name() string {
+	return chainlinkExecutorServiceName
+}
+
+func (cle *ChainlinkExecutor) Ready() error {
+	return cle.Healthy()
 }
 
 func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, message protocol.Message) error {

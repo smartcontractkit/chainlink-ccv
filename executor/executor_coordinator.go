@@ -69,26 +69,37 @@ func NewCoordinator(
 
 func (ec *Coordinator) Start(ctx context.Context) error {
 	return ec.StartOnce("executor.Coordinator", func() error {
-		c, cancel := context.WithCancel(context.Background())
+		// Derive context from the passed context instead of creating a new one
+		c, cancel := context.WithCancel(ctx)
 		ec.cancel = cancel
 		ec.delayedMessageHeap = *message_heap.NewMessageHeap()
-
 		ec.running.Store(true)
+
+		if err := ec.executor.Start(c); err != nil {
+			ec.lggr.Errorf("unable to start executor coordinator due to error: %w", err)
+			return err
+		}
+
+		// Start storage stream goroutine
 		ec.wg.Go(func() {
 			ec.runStorageStream(c)
 		})
 
+		// Start processing loop goroutine
 		ec.wg.Go(func() {
 			ec.runProcessingLoop(c)
 		})
 
+		// Start worker goroutines
+		ec.wg.Add(ec.workerCount)
 		for i := 0; i < ec.workerCount; i++ {
-			ec.wg.Go(func() {
+			go func() {
+				defer ec.wg.Done()
 				ec.handleMessage(c)
-			})
+			}()
 		}
-		ec.lggr.Infow("Coordinator started")
 
+		ec.lggr.Infow("Coordinator started")
 		return nil
 	})
 }
@@ -97,18 +108,21 @@ func (ec *Coordinator) Close() error {
 	return ec.StopOnce("executor.Coordinator", func() error {
 		ec.lggr.Infow("Coordinator stopping")
 
-		// cancel the .run() goroutine and wait for it to exit.
-		ec.cancel()
-		ec.wg.Wait()
+		// Cancel context to signal all goroutines to stop
+		if ec.cancel != nil {
+			ec.cancel()
+		}
 
-		// Close all channels
+		// Close channel to signal workers to stop
 		close(ec.workerPoolTasks)
 
-		// Update running state to reflect in healthcheck and readiness.
+		// Wait for all goroutines to finish
+		ec.wg.Wait()
+
+		// Update running state to reflect in healthcheck and readiness
 		ec.running.Store(false)
 
 		ec.lggr.Infow("Coordinator stopped")
-
 		return nil
 	})
 }
@@ -276,6 +290,7 @@ func (ec *Coordinator) HealthReport() map[string]error {
 	report := make(map[string]error)
 	report[ec.Name()] = ec.Ready()
 
+	services.CopyHealth(report, ec.executor.HealthReport())
 	return report
 }
 

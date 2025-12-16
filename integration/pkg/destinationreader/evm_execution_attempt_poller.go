@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,9 +33,12 @@ const (
 	expectedParamCount = 3
 	// executeMethodName is the name of the execute method in the offramp ABI.
 	executeMethodName = "execute"
+	// evmExecutionAttemptPollerServiceName is the name of the service.
+	evmExecutionAttemptPollerServiceName = "evm.executionattemptpoller.Service"
 )
 
 var (
+	_          = services.Service(&EvmExecutionAttemptPoller{})
 	offrampABI = evmtypes.MustGetABI(offramp.OffRampABI)
 
 	errNilClient = errors.New("client cannot be nil")
@@ -45,6 +49,7 @@ var (
 type EvmExecutionAttemptPoller struct {
 	services.StateMachine
 	lggr            logger.Logger
+	chainSelector   protocol.ChainSelector
 	client          client.Client
 	startBlock      uint64
 	offRampFilterer offramp.OffRampFilterer
@@ -55,6 +60,16 @@ type EvmExecutionAttemptPoller struct {
 	runWg           sync.WaitGroup
 	pollInterval    time.Duration
 	lastPolledBlock uint64
+}
+
+func (p *EvmExecutionAttemptPoller) HealthReport() map[string]error {
+	report := make(map[string]error)
+	report[p.Name()] = p.Healthy()
+	return report
+}
+
+func (p *EvmExecutionAttemptPoller) Name() string {
+	return strings.Join([]string{p.chainSelector.String(), evmExecutionAttemptPollerServiceName}, ".")
 }
 
 // NewEVMExecutionAttemptPoller creates a new execution attempt poller for the given offramp address.
@@ -95,7 +110,7 @@ func NewEVMExecutionAttemptPoller(
 // Start starts the poller service. It implements the services.Service interface.
 // It first tries to use WebSocket subscription, and falls back to HTTP polling if WebSocket is not available.
 func (p *EvmExecutionAttemptPoller) Start(ctx context.Context) error {
-	return p.StartOnce("evm.executionattemptpoller.Service", func() error {
+	return p.StartOnce(evmExecutionAttemptPollerServiceName, func() error {
 		runCtx, cancel := context.WithCancel(context.Background())
 		p.cancelFunc = cancel
 
@@ -105,16 +120,6 @@ func (p *EvmExecutionAttemptPoller) Start(ctx context.Context) error {
 			return p.startHTTPMode(runCtx)
 		}
 
-		return nil
-	})
-}
-
-func (p *EvmExecutionAttemptPoller) Stop() error {
-	return p.StopOnce("evm.executionattemptpoller.Service", func() error {
-		p.lggr.Info("Stopping EVM Execution Attempt Poller")
-		p.cancelFunc()
-		p.runWg.Wait()
-		p.lggr.Info("Stopped EVM Execution Attempt Poller")
 		return nil
 	})
 }
@@ -371,7 +376,7 @@ func (p *EvmExecutionAttemptPoller) decodeCallDataToExecutionAttempt(callData []
 	}
 
 	callDataSelector := callData[:functionSelectorLength]
-	if len(method.ID) != functionSelectorLength || !bytes.Equal(callDataSelector, method.ID) {
+	if !bytes.Equal(callDataSelector, method.ID) {
 		return nil, fmt.Errorf("call data does not match execute function selector: expected %x, got %x",
 			method.ID, callDataSelector)
 	}

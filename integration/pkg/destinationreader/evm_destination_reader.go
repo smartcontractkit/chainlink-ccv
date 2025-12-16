@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -38,6 +39,7 @@ type verifierQuorumCacheKey struct {
 
 type EvmDestinationReader struct {
 	services.StateMachine
+	cancelFunc             context.CancelFunc
 	offRampCaller          offramp.OffRampCaller
 	rmnRemoteCaller        rmn_remote.RMNRemoteCaller
 	lggr                   logger.Logger
@@ -45,6 +47,13 @@ type EvmDestinationReader struct {
 	chainSelector          protocol.ChainSelector
 	ccvCache               *expirable.LRU[verifierQuorumCacheKey, executor.CCVAddressInfo]
 	executionAttemptPoller *EvmExecutionAttemptPoller
+}
+
+func (dr *EvmDestinationReader) HealthReport() map[string]error {
+	report := make(map[string]error)
+	report[dr.Name()] = dr.Healthy()
+	report[dr.executionAttemptPoller.Name()] = dr.executionAttemptPoller.Healthy()
+	return report
 }
 
 type Params struct {
@@ -120,7 +129,9 @@ func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
 func (dr *EvmDestinationReader) Start(ctx context.Context) error {
 	return dr.StartOnce(EvmDestinationReaderServiceName, func() error {
 		dr.lggr.Info("Starting EVM Destination Reader")
-		err := dr.executionAttemptPoller.Start(ctx)
+		runCtx, cancel := context.WithCancel(context.Background())
+		dr.cancelFunc = cancel
+		err := dr.executionAttemptPoller.Start(runCtx)
 		if err != nil {
 			return err
 		}
@@ -129,16 +140,20 @@ func (dr *EvmDestinationReader) Start(ctx context.Context) error {
 	})
 }
 
-func (dr *EvmDestinationReader) Stop() error {
+func (dr *EvmDestinationReader) Close() error {
 	return dr.StopOnce(EvmDestinationReaderServiceName, func() error {
 		dr.lggr.Info("Stopping EVM Destination Reader")
-		err := dr.executionAttemptPoller.Stop()
+		err := dr.executionAttemptPoller.Close()
 		if err != nil {
 			return err
 		}
 		dr.lggr.Info("Stopped EVM Destination Reader")
 		return nil
 	})
+}
+
+func (dr *EvmDestinationReader) Name() string {
+	return strings.Join([]string{dr.chainSelector.String(), EvmDestinationReaderServiceName}, ".")
 }
 
 // GetCCVSForMessage implements the DestinationReader interface. It uses the chainlink-evm client to call the get_ccvs function on the receiver contract.

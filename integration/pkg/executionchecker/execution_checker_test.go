@@ -20,6 +20,39 @@ type mockDestinationReader struct {
 	mock.Mock
 }
 
+// Start implements services.Service interface.
+func (m *mockDestinationReader) Start(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+
+// Close implements services.Service interface.
+func (m *mockDestinationReader) Close() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
+// Name implements services.Service interface.
+func (m *mockDestinationReader) Name() string {
+	args := m.Called()
+	return args.String(0)
+}
+
+// Ready implements services.Service interface.
+func (m *mockDestinationReader) Ready() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
+// HealthReport implements services.Service interface.
+func (m *mockDestinationReader) HealthReport() map[string]error {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil
+	}
+	return args.Get(0).(map[string]error)
+}
+
 func (m *mockDestinationReader) GetCCVSForMessage(ctx context.Context, message protocol.Message) (executor.CCVAddressInfo, error) {
 	args := m.Called(ctx, message)
 	return args.Get(0).(executor.CCVAddressInfo), args.Error(1)
