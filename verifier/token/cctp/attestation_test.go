@@ -89,7 +89,7 @@ func Test_AttestationFetch(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close)
 
 	attestationService, err := NewAttestationService(
 		logger.Test(t),

@@ -77,11 +77,13 @@ func (h *HTTPAttestationService) Fetch(
 }
 
 func splitSlice[T any](s []T, chunkSize int) [][]T {
-	if chunkSize <= 0 {
-		return nil
-	}
-
 	var result [][]T
+
+	// if chunkSize is not defined then don't slice it and return as it is
+	if chunkSize <= 0 {
+		result = append(result, s)
+		return result
+	}
 
 	for i := 0; i < len(s); i += chunkSize {
 		end := i + chunkSize
