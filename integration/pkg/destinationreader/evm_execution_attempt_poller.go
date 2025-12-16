@@ -320,17 +320,11 @@ func (p *EvmExecutionAttemptPoller) pollForEvents(ctx context.Context) error {
 	return nil
 }
 
-// getLastPolledBlock returns the last polled block number in a thread-safe manner.
 func (p *EvmExecutionAttemptPoller) getLastPolledBlock() uint64 {
-	p.RLock()
-	defer p.RUnlock()
 	return p.lastPolledBlock
 }
 
-// setLastPolledBlock sets the last polled block number in a thread-safe manner.
 func (p *EvmExecutionAttemptPoller) setLastPolledBlock(block uint64) {
-	p.Lock()
-	defer p.Unlock()
 	p.lastPolledBlock = block
 }
 
@@ -347,6 +341,13 @@ func (p *EvmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Con
 	executionAttempt, err := p.decodeCallDataToExecutionAttempt(transaction.Data(), transaction.Gas())
 	if err != nil {
 		return fmt.Errorf("failed to decode call data for transaction %s: %w", txHash.Hex(), err)
+	}
+
+	// Invairant check: assert that computed messageID matches on-chain event emission.
+	attemptMsgID := executionAttempt.Report.Message.MustMessageID()
+	if !bytes.Equal(msgID[:], attemptMsgID[:]) {
+		p.lggr.Errorw("MessageID from event does not match the computed messageID. This should never happen.", "messageID", msgID, "computedMessageID", attemptMsgID)
+		return fmt.Errorf("computed message id does not match event message id")
 	}
 
 	// store the execution attempt in cache

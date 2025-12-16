@@ -162,10 +162,6 @@ func main() {
 			lggr.Errorw("Failed to create destination reader", "error", err, "chainSelector", strSel)
 		}
 
-		if err := dr.Start(ctx); err != nil {
-			lggr.Fatal("Failed to start destination reader", "error", err, "chainSelector", strSel)
-		}
-
 		pk := os.Getenv(privateKeyEnvVar)
 		if pk == "" {
 			lggr.Errorf("Environment variable %s is not set", privateKeyEnvVar)

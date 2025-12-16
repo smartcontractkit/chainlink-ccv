@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"slices"
 
@@ -77,25 +78,25 @@ func (e *AttemptCheckerService) isHonestGasLimit(message protocol.Message, attem
 	return messageGasLimit.Cmp(attempt.TransactionGasLimit) <= 0
 }
 
-// honestCCVs reports whether at least threshold CCVs in messageCCVs have matching
+// honestCCVs reports whether at least threshold CCVs in expectedCCVs have matching
 // call data in the execution attempt when compared against known verifier results.
-func honestCCVs(attempt executor.ExecutionAttempt, attemptCCVs, messageCCVs []string, threshold int, ccvToKnownResults map[string][]protocol.VerifierResult) bool {
+func honestCCVs(attempt executor.ExecutionAttempt, attemptCCVs, expectedCCVs []string, threshold int, expectedCCVsToKnownResults map[string][]protocol.VerifierResult) bool {
 	validCCVs := 0
 
-	for _, ccv := range messageCCVs {
+	for _, ccv := range expectedCCVs {
 		ccvIndex := slices.Index(attemptCCVs, ccv)
 		if ccvIndex == -1 || ccvIndex >= len(attempt.Report.CCVData) {
 			continue
 		}
 
 		ccvData := attempt.Report.CCVData[ccvIndex]
-		ccvResults := ccvToKnownResults[ccv]
+		ccvResults := expectedCCVsToKnownResults[ccv]
 
-		hasValidCallData := slices.ContainsFunc(ccvResults, func(result protocol.VerifierResult) bool {
+		hasValidCCVData := slices.ContainsFunc(ccvResults, func(result protocol.VerifierResult) bool {
 			return bytes.Equal(result.CCVData, ccvData)
 		})
 
-		if hasValidCallData {
+		if hasValidCCVData {
 			validCCVs++
 
 			// if we've already met the threshold, no need to check more CCVs
@@ -134,7 +135,7 @@ func assertMessageIDsMatch(message protocol.Message, attempt executor.ExecutionA
 	}
 
 	if msgID.String() != attemptMsgID.String() {
-		return errors.New("message ids do not match, attempt is not valid")
+		return fmt.Errorf("message ids do not match, attempt is not valid, expected: %s, got: %s", msgID.String(), attemptMsgID.String())
 	}
 
 	return nil
