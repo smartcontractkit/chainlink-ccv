@@ -61,6 +61,34 @@ const (
 			}
 		  ]
 		}`
+	attestationPending1 = `
+		{
+		  "messages": [
+			{
+			  "message": "0xcccccc22",
+			  "eventNonce": "9681",
+			  "attestation": "PENDING",
+			  "decodedMessage": {
+				"sourceDomain": "100",
+				"destinationDomain": "101",
+				"nonce": "569",
+				"sender": "0xdoesntmatter",
+				"recipient": "0xdoesntmatter",
+				"destinationCaller": "0xdoesntmatter",
+				"messageBody": "0xdoesntmatter",
+				"decodedMessageBody": {
+				  "burnToken": "0xdoesntmatter",
+				  "mintRecipient": "0xdoesntmatter",
+				  "amount": "5000",
+				  "messageSender": "0x1100000000000000000000000000000000000000",
+				  "hookData": "0x8e1d1a9d42fdceb59007e3a5aee1f4a6b2d92f2922e5ae879257aaea310aae61bf1bb993"
+				}
+			  },
+			  "cctpVersion": "2",
+			  "status": "pending_confirmations"
+			}
+		  ]
+		}`
 	attestation2 = `
 		{
 		  "messages": [
@@ -311,6 +339,95 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 
 	assertResultMatchesMessage(t, results[msg1337.MessageID], msg1337, ccvData1, testCCVAddr, destVerifier)
 	assertResultMatchesMessage(t, results[msg2337.MessageID], msg2337, ccvData2, destVerifier, testCCVAddr)
+}
+
+func Test_CCTPMessages_RetryingAttestation(t *testing.T) {
+	t.Skip("CCIP-8514 Coordinator doesn't support retries yet")
+	ts := newTestSetup(t)
+	t.Cleanup(ts.cleanup)
+
+	// This server will return a pending attestation twice, then a completed one
+	var requestCounter atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requestCounter.Load() >= 2 {
+			_, err := w.Write([]byte(attestation1))
+			require.NoError(t, err)
+		}
+
+		_, err := w.Write([]byte(attestationPending1))
+		requestCounter.Add(1)
+		require.NoError(t, err)
+	}))
+	t.Cleanup(server.Close)
+
+	destVerifier, err := protocol.RandomAddress()
+	require.NoError(t, err)
+
+	// Version + encoded msgs + attestation
+	ccvData, err := protocol.NewByteSliceFromHex("0x8e1d1a9dcccccc22aaaaaa22")
+	require.NoError(t, err)
+
+	config := createCoordinatorConfig(
+		"cctp-verifier",
+		map[protocol.ChainSelector]protocol.UnknownAddress{
+			chain1337: testCCVAddr,
+		})
+
+	mockSetup := verifier.SetupMockSourceReader(t)
+	mockSetup.ExpectFetchMessageSentEvent(false)
+	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
+		chain1337: mockSetup.Reader,
+	}
+
+	cctpConfig := cctp.CCTPConfig{
+		AttestationAPI:         server.URL,
+		AttestationAPITimeout:  1 * time.Minute,
+		AttestationAPICooldown: 1 * time.Second,
+		AttestationAPIInterval: 1 * time.Millisecond,
+		ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+			chain1337: testCCVAddr,
+			chain2337: destVerifier,
+		},
+	}
+
+	// Set up mock head tracker
+	mockLatestBlocks(mockSetup.Reader)
+
+	inMem := storage.NewInMemory()
+	v, err := createCCTPCoordinator(
+		ts,
+		&cctpConfig,
+		config,
+		sourceReaders,
+		inMem,
+	)
+	require.NoError(t, err)
+
+	err = v.Start(ts.ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
+
+	msg := createTestMessageSentEvent(t, 100, chain1337, chain2337, 0, 300_000, 900)
+	msg.TxHash = bytes.Repeat([]byte{0x1}, 32)
+	require.Equal(t, "0x42fdceb59007e3a5aee1f4a6b2d92f2922e5ae879257aaea310aae61bf1bb993", msg.MessageID.String())
+
+	var messagesSent atomic.Int32
+	sendEventsAsync([]protocol.MessageSentEvent{msg}, mockSetup.Channel, &messagesSent, 10*time.Millisecond)
+
+	var results map[protocol.Bytes32]protocol.VerifierResult
+	require.Eventually(t, func() bool {
+		reader := storage.NewAttestationCCVReader(inMem)
+		results, err = reader.GetVerifications(
+			t.Context(),
+			[]protocol.Bytes32{msg.MessageID},
+		)
+		if err != nil {
+			return false
+		}
+		return len(results) == 1
+	}, waitTimeout(t), 500*time.Millisecond, "waiting for messages to land in ccv storage")
+
+	assertResultMatchesMessage(t, results[msg.MessageID], msg, ccvData, testCCVAddr, destVerifier)
 }
 
 func assertResultMatchesMessage(
