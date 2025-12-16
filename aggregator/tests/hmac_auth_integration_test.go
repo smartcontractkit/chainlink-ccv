@@ -8,7 +8,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
+	msgdiscoverypb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery/v1"
+	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
 func TestUnauthenticatedRequestsAreRejected(t *testing.T) {
@@ -23,7 +25,7 @@ func TestUnauthenticatedRequestsAreRejected(t *testing.T) {
 
 	// Test Aggregator service APIs
 	t.Run("WriteChainStatus requires authentication", func(t *testing.T) {
-		req := &pb.WriteChainStatusRequest{}
+		req := &committeepb.WriteChainStatusRequest{}
 
 		_, err := aggregatorClient.WriteChainStatus(ctx, req)
 		require.Error(t, err, "unauthenticated request should fail")
@@ -34,7 +36,7 @@ func TestUnauthenticatedRequestsAreRejected(t *testing.T) {
 	})
 
 	t.Run("ReadChainStatus requires authentication", func(t *testing.T) {
-		req := &pb.ReadChainStatusRequest{}
+		req := &committeepb.ReadChainStatusRequest{}
 
 		_, err := aggregatorClient.ReadChainStatus(ctx, req)
 		require.Error(t, err, "unauthenticated request should fail")
@@ -45,7 +47,7 @@ func TestUnauthenticatedRequestsAreRejected(t *testing.T) {
 	})
 
 	t.Run("WriteCommitCCVNodeData requires authentication", func(t *testing.T) {
-		req := &pb.WriteCommitteeVerifierNodeResultRequest{}
+		req := &committeepb.WriteCommitteeVerifierNodeResultRequest{}
 
 		_, err := aggregatorClient.WriteCommitteeVerifierNodeResult(ctx, req)
 		require.Error(t, err, "unauthenticated request should fail")
@@ -56,7 +58,7 @@ func TestUnauthenticatedRequestsAreRejected(t *testing.T) {
 	})
 
 	t.Run("ReadCommitCCVNodeData requires authentication", func(t *testing.T) {
-		req := &pb.ReadCommitteeVerifierNodeResultRequest{}
+		req := &committeepb.ReadCommitteeVerifierNodeResultRequest{}
 
 		_, err := aggregatorClient.ReadCommitteeVerifierNodeResult(ctx, req)
 		require.Error(t, err, "unauthenticated request should fail")
@@ -68,7 +70,7 @@ func TestUnauthenticatedRequestsAreRejected(t *testing.T) {
 
 	// Test CCVData service APIs
 	t.Run("GetVerifierResultsForMessage supports an anonymous authentication", func(t *testing.T) {
-		req := &pb.GetVerifierResultsForMessageRequest{
+		req := &verifierpb.GetVerifierResultsForMessageRequest{
 			MessageIds: [][]byte{{}}, // Single empty message ID
 		}
 
@@ -80,7 +82,7 @@ func TestUnauthenticatedRequestsAreRejected(t *testing.T) {
 	})
 
 	t.Run("GetMessagesSince requires authentication", func(t *testing.T) {
-		req := &pb.GetMessagesSinceRequest{}
+		req := &msgdiscoverypb.GetMessagesSinceRequest{}
 
 		_, err := messageDiscoveryClient.GetMessagesSince(ctx, req)
 		require.Error(t, err, "unauthenticated request should fail")

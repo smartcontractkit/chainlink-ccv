@@ -1,8 +1,9 @@
 with-expecter: true
-inpackage: true
+
+dir: ./internal/mocks
+outpkg: mocks
 
 packages:
-  github.com/smartcontractkit/chainlink-ccv/verifier:
-    config:
-      dir: "{{.InterfaceDir}}"
+  github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp:
     interfaces:
+      AttestationService:

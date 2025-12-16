@@ -8,10 +8,10 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 )
 
-func validateWriteRequest(req *pb.WriteCommitteeVerifierNodeResultRequest) error {
+func validateWriteRequest(req *committeepb.WriteCommitteeVerifierNodeResultRequest) error {
 	err := validation.ValidateStruct(
 		req,
 		validation.Field(&req.CommitteeVerifierNodeResult, validation.Required))
@@ -62,7 +62,7 @@ func validateWriteRequest(req *pb.WriteCommitteeVerifierNodeResultRequest) error
 	return nil
 }
 
-func validateReadRequest(req *pb.ReadCommitteeVerifierNodeResultRequest) error {
+func validateReadRequest(req *committeepb.ReadCommitteeVerifierNodeResultRequest) error {
 	return validation.ValidateStruct(
 		req,
 		validation.Field(&req.MessageId, validation.Required, validation.Length(32, 32)),

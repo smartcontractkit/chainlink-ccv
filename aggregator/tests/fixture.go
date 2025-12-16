@@ -13,7 +13,8 @@ import (
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
+	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
 func GenerateVerifierAddresses(t *testing.T) ([]byte, []byte) {
@@ -105,10 +106,10 @@ func NewProtocolMessage(t *testing.T, options ...ProtocolMessageOption) *protoco
 	return msg
 }
 
-type MessageWithCCVNodeDataOption = func(*pb.CommitteeVerifierNodeResult) *pb.CommitteeVerifierNodeResult
+type MessageWithCCVNodeDataOption = func(*committeepb.CommitteeVerifierNodeResult) *committeepb.CommitteeVerifierNodeResult
 
 func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDataOption {
-	return func(m *pb.CommitteeVerifierNodeResult) *pb.CommitteeVerifierNodeResult {
+	return func(m *committeepb.CommitteeVerifierNodeResult) *committeepb.CommitteeVerifierNodeResult {
 		protocolMessage, err := ccvcommon.MapProtoMessageToProtocolMessage(m.Message)
 		require.NoError(t, err)
 
@@ -136,13 +137,13 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 }
 
 func WithCcvVersion(ccvVersion []byte) MessageWithCCVNodeDataOption {
-	return func(m *pb.CommitteeVerifierNodeResult) *pb.CommitteeVerifierNodeResult {
+	return func(m *committeepb.CommitteeVerifierNodeResult) *committeepb.CommitteeVerifierNodeResult {
 		m.CcvVersion = ccvVersion
 		return m
 	}
 }
 
-func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVerifierAddress []byte, options ...MessageWithCCVNodeDataOption) (*pb.CommitteeVerifierNodeResult, protocol.Bytes32) {
+func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVerifierAddress []byte, options ...MessageWithCCVNodeDataOption) (*committeepb.CommitteeVerifierNodeResult, protocol.Bytes32) {
 	ccvVersion := []byte{0x01, 0x02, 0x03, 0x04}
 	executorAddr := make([]byte, 20)
 
@@ -156,8 +157,8 @@ func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVe
 		tokenTransferBytes = message.TokenTransfer.Encode()
 	}
 
-	ccvNodeData := &pb.CommitteeVerifierNodeResult{
-		Message: &pb.Message{
+	ccvNodeData := &committeepb.CommitteeVerifierNodeResult{
+		Message: &verifierpb.Message{
 			Version:              uint32(message.Version),
 			SourceChainSelector:  uint64(message.SourceChainSelector),
 			DestChainSelector:    uint64(message.DestChainSelector),
@@ -199,8 +200,8 @@ func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVe
 	return ccvNodeData, messageID
 }
 
-func NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData *pb.CommitteeVerifierNodeResult) *pb.WriteCommitteeVerifierNodeResultRequest {
-	return &pb.WriteCommitteeVerifierNodeResultRequest{
+func NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData *committeepb.CommitteeVerifierNodeResult) *committeepb.WriteCommitteeVerifierNodeResultRequest {
+	return &committeepb.WriteCommitteeVerifierNodeResultRequest{
 		CommitteeVerifierNodeResult: ccvNodeData,
 	}
 }

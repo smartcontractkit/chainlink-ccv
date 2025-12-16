@@ -11,7 +11,7 @@ import (
 
 	grpcstatus "google.golang.org/grpc/status"
 
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 )
 
 // BatchWriteCommitVerifierNodeResultHandler handles requests to write commit verification records.
@@ -24,16 +24,16 @@ func (h *BatchWriteCommitVerifierNodeResultHandler) logger(ctx context.Context) 
 }
 
 // Handle processes the write request and saves the commit verification record.
-func (h *BatchWriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *pb.BatchWriteCommitteeVerifierNodeResultRequest) (*pb.BatchWriteCommitteeVerifierNodeResultResponse, error) {
+func (h *BatchWriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *committeepb.BatchWriteCommitteeVerifierNodeResultRequest) (*committeepb.BatchWriteCommitteeVerifierNodeResultResponse, error) {
 	requests := req.GetRequests()
-	responses := make([]*pb.WriteCommitteeVerifierNodeResultResponse, len(requests))
+	responses := make([]*committeepb.WriteCommitteeVerifierNodeResultResponse, len(requests))
 	errors := NewBatchErrorArray(len(requests))
 
 	wg := sync.WaitGroup{}
 
 	for i, r := range requests {
 		wg.Add(1)
-		go func(i int, r *pb.WriteCommitteeVerifierNodeResultRequest) {
+		go func(i int, r *committeepb.WriteCommitteeVerifierNodeResultRequest) {
 			defer wg.Done()
 			resp, err := h.handler.Handle(ctx, r)
 			if err != nil {
@@ -53,7 +53,7 @@ func (h *BatchWriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, 
 	}
 
 	wg.Wait()
-	return &pb.BatchWriteCommitteeVerifierNodeResultResponse{
+	return &committeepb.BatchWriteCommitteeVerifierNodeResultResponse{
 		Responses: responses,
 		Errors:    errors,
 	}, nil

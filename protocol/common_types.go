@@ -101,6 +101,24 @@ func (a UnknownAddress) Equal(other UnknownAddress) bool {
 // ByteSlice is a wrapper around []byte that marshals/unmarshals to/from hex instead of base64.
 type ByteSlice []byte
 
+func NewByteSliceFromHex(s string) (ByteSlice, error) {
+	if s == "" {
+		return ByteSlice{}, nil
+	}
+
+	// Remove 0x prefix if present
+	if len(s) >= 2 && s[:2] == "0x" {
+		s = s[2:]
+	}
+
+	bytes, err := hex.DecodeString(s)
+	if err != nil {
+		return nil, fmt.Errorf("invalid hex string: %w", err)
+	}
+
+	return ByteSlice(bytes), nil
+}
+
 // MarshalJSON returns the hex representation of the bytes.
 func (h ByteSlice) MarshalJSON() ([]byte, error) {
 	if h == nil {

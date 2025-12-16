@@ -4,10 +4,10 @@ import (
 	"fmt"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
-func MapProtoMessageToProtocolMessage(m *pb.Message) (*protocol.Message, error) {
+func MapProtoMessageToProtocolMessage(m *verifierpb.Message) (*protocol.Message, error) {
 	var ccvAndExecutorHash protocol.Bytes32
 	if len(m.CcvAndExecutorHash) > 0 {
 		copy(ccvAndExecutorHash[:], m.CcvAndExecutorHash)
@@ -51,14 +51,14 @@ func MapProtoMessageToProtocolMessage(m *pb.Message) (*protocol.Message, error) 
 	return msg, nil
 }
 
-// MapProtocolMessageToProtoMessage converts a protocol.Message to pb.Message.
-func MapProtocolMessageToProtoMessage(m *protocol.Message) *pb.Message {
+// MapProtocolMessageToProtoMessage converts a protocol.Message to verifierpb.Message.
+func MapProtocolMessageToProtoMessage(m *protocol.Message) *verifierpb.Message {
 	var tokenTransferBytes []byte
 	if m.TokenTransfer != nil {
 		tokenTransferBytes = m.TokenTransfer.Encode()
 	}
 
-	return &pb.Message{
+	return &verifierpb.Message{
 		Version:              uint32(m.Version),
 		SourceChainSelector:  uint64(m.SourceChainSelector),
 		DestChainSelector:    uint64(m.DestChainSelector),

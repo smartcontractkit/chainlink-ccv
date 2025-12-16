@@ -8,7 +8,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	pb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/go/v1"
+	msgdiscoverypb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery/v1"
 )
 
 type GetMessagesSinceHandler struct {
@@ -23,7 +23,7 @@ func (h *GetMessagesSinceHandler) logger(ctx context.Context) logger.SugaredLogg
 }
 
 // Handle processes the get request and retrieves the commit verification data since the specified time.
-func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *pb.GetMessagesSinceRequest) (*pb.GetMessagesSinceResponse, error) {
+func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *msgdiscoverypb.GetMessagesSinceRequest) (*msgdiscoverypb.GetMessagesSinceResponse, error) {
 	h.logger(ctx).Tracef("Received GetMessagesSinceRequest, sinceSequence: %d", req.SinceSequence)
 	batch, err := h.storage.QueryAggregatedReports(ctx, req.SinceSequence)
 	if err != nil {
@@ -31,14 +31,14 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *pb.GetMessage
 		return nil, err
 	}
 
-	records := make([]*pb.VerifierResultWithSequence, 0, len(batch.Reports))
+	records := make([]*msgdiscoverypb.VerifierResultWithSequence, 0, len(batch.Reports))
 	for _, report := range batch.Reports {
 		verifierResult, err := model.MapAggregatedReportToVerifierResultProto(report, h.committee)
 		if err != nil {
 			h.logger(ctx).Errorw("failed to map aggregated report to proto", "messageID", report.MessageID, "error", err)
 			return nil, err
 		}
-		resultWithSequence := &pb.VerifierResultWithSequence{
+		resultWithSequence := &msgdiscoverypb.VerifierResultWithSequence{
 			VerifierResult: verifierResult,
 			Sequence:       report.Sequence,
 		}
@@ -52,7 +52,7 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *pb.GetMessage
 		h.logger(ctx).Tracef("Report MessageID: %x, Sequence: %d, Verifications: %d", report.MessageID, report.Sequence, len(report.Verifications))
 	}
 
-	return &pb.GetMessagesSinceResponse{
+	return &msgdiscoverypb.GetMessagesSinceResponse{
 		Results: records,
 	}, nil
 }
