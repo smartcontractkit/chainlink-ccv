@@ -2,24 +2,34 @@ package lbtc
 
 import (
 	"context"
-	"time"
+	"fmt"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 type Verifier struct {
+	lggr logger.Logger
+
 	attestationService AttestationService
+	ccvVerifierVersion protocol.ByteSlice
 }
 
-func NewVerifier(attestationService AttestationService) Verifier {
-	return Verifier{
+func NewVerifier(
+	lggr logger.Logger,
+	attestationService AttestationService,
+) verifier.Verifier {
+	return &Verifier{
+		lggr:               lggr,
 		attestationService: attestationService,
+		ccvVerifierVersion: ccvVerifierVersion,
 	}
 }
 
-func (v Verifier) VerifyMessages(
+func (v *Verifier) VerifyMessages(
 	ctx context.Context,
 	tasks []verifier.VerificationTask,
 	ccvDataBatcher *batcher.Batcher[protocol.VerifierNodeResult],
@@ -29,30 +39,62 @@ func (v Verifier) VerifyMessages(
 		messages = append(messages, task.Message)
 	}
 
+	// 1. Fetch attestations in batch
 	attestations, err := v.attestationService.Fetch(ctx, messages)
 	if err != nil {
 		return batcher.BatchResult[verifier.VerificationError]{Error: err}
 	}
 
+	// 2. Process each task, iterate and match from response
 	var errors []verifier.VerificationError
-	for i, attestation := range attestations {
-		task := tasks[i]
-		err1 := ccvDataBatcher.Add(protocol.VerifierNodeResult{
-			Message:         task.Message,
-			MessageID:       task.Message.MustMessageID(),
-			CCVVersion:      nil, // how do I get that
-			CCVAddresses:    nil, // how do I get that
-			ExecutorAddress: nil, // how do I get that
-			Signature:       attestation,
-		})
-		if err1 != nil {
-			errors = append(errors, verifier.VerificationError{
-				Timestamp: time.Now(),
-				Error:     err,
-				Task:      task,
-			})
+	for _, task := range tasks {
+		lggr := logger.With(v.lggr, "messageID", task.MessageID, "txHash", task.TxHash)
+		lggr.Infow("Verifying Lombard task")
+
+		attestation, exists := attestations[task.MessageID]
+		if !exists {
+			lggr.Debugw("Attestation not found for message")
+			errors = append(errors, verifier.NewVerificationError(
+				fmt.Errorf("attestation not found for message ID: %s", task.MessageID),
+				task,
+			))
 			continue
 		}
+
+		if !attestation.IsReady() {
+			lggr.Debugw("Attestation not ready for message")
+			errors = append(errors, verifier.NewVerificationError(
+				fmt.Errorf("attestation not ready for message ID: %s", task.MessageID),
+				task,
+			))
+			continue
+		}
+
+		attestationBytes, err := protocol.NewByteSliceFromHex(attestation.Data)
+		if err != nil {
+			lggr.Errorw("Failed to decode attestation data", "err", err)
+			errors = append(errors, verifier.NewVerificationError(err, task))
+			continue
+		}
+
+		result, err1 := commit.CreateVerifierNodeResult(
+			&task,
+			attestationBytes,
+			v.ccvVerifierVersion,
+		)
+		if err1 != nil {
+			lggr.Errorw("CreateVerifierNodeResult: Failed to create VerifierNodeResult", "err", err)
+			errors = append(errors, verifier.NewVerificationError(err1, task))
+			continue
+		}
+
+		// 2.1 Add to batche one by one
+		if err = ccvDataBatcher.Add(*result); err != nil {
+			lggr.Errorw("VerifierResult: Failed to add to batcher", "err", err)
+			errors = append(errors, verifier.NewVerificationError(err, task))
+			continue
+		}
+		lggr.Infow("VerifierResult: Successfully added to the batcher", "signature", result.Signature)
 	}
 
 	return batcher.BatchResult[verifier.VerificationError]{

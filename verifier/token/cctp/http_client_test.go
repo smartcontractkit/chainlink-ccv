@@ -21,26 +21,9 @@ const (
 	testTxHash = "0x1234567890123456789012345678901234567890123456789012345678901234"
 )
 
-// MockHTTPClient is a mock implementation of httputil.Client.
-type MockHTTPClient struct {
-	mock.Mock
-}
-
-func (m *MockHTTPClient) Get(ctx context.Context, path string) (protocol.ByteSlice, httputil.Status, error) {
-	args := m.Called(ctx, path)
-	return args.Get(0).(protocol.ByteSlice), args.Get(1).(httputil.Status), args.Error(2)
-}
-
-func (m *MockHTTPClient) Post(
-	ctx context.Context, path string, requestData protocol.ByteSlice,
-) (protocol.ByteSlice, httputil.Status, error) {
-	args := m.Called(ctx, path, requestData)
-	return args.Get(0).(protocol.ByteSlice), args.Get(1).(httputil.Status), args.Error(2)
-}
-
 func TestGetMessages_Success(t *testing.T) {
 	lggr := logger.Test(t)
-	mockHTTPClient := &MockHTTPClient{}
+	mockHTTPClient := &httputil.MockHTTPClient{}
 
 	client := &HTTPClientImpl{
 		lggr:   lggr,
@@ -85,7 +68,7 @@ func TestGetMessages_Success(t *testing.T) {
 
 func TestGetMessages_InvalidTransactionHash(t *testing.T) {
 	lggr := logger.Test(t)
-	mockHTTPClient := &MockHTTPClient{}
+	mockHTTPClient := &httputil.MockHTTPClient{}
 
 	client := &HTTPClientImpl{
 		lggr:   lggr,
@@ -138,7 +121,7 @@ func TestGetMessages_InvalidTransactionHash(t *testing.T) {
 
 func TestGetMessages_HTTPError(t *testing.T) {
 	lggr := logger.Test(t)
-	mockHTTPClient := &MockHTTPClient{}
+	mockHTTPClient := &httputil.MockHTTPClient{}
 
 	client := &HTTPClientImpl{
 		lggr:   lggr,
@@ -171,7 +154,7 @@ func TestGetMessages_HTTPError(t *testing.T) {
 
 func TestGetMessages_NonOKStatus(t *testing.T) {
 	lggr := logger.Test(t)
-	mockHTTPClient := &MockHTTPClient{}
+	mockHTTPClient := &httputil.MockHTTPClient{}
 
 	client := &HTTPClientImpl{
 		lggr:   lggr,
@@ -216,7 +199,7 @@ func TestGetMessages_NonOKStatus(t *testing.T) {
 
 func TestGetMessages_ParseError(t *testing.T) {
 	lggr := logger.Test(t)
-	mockHTTPClient := &MockHTTPClient{}
+	mockHTTPClient := &httputil.MockHTTPClient{}
 
 	client := &HTTPClientImpl{
 		lggr:   lggr,
@@ -249,7 +232,7 @@ func TestGetMessages_ParseError(t *testing.T) {
 
 func TestGetMessages_URLEncoding(t *testing.T) {
 	lggr := logger.Test(t)
-	mockHTTPClient := &MockHTTPClient{}
+	mockHTTPClient := &httputil.MockHTTPClient{}
 
 	client := &HTTPClientImpl{
 		lggr:   lggr,
@@ -295,7 +278,7 @@ func TestGetMessages_MetricsTracking(t *testing.T) {
 	txHash := testTxHash
 
 	t.Run("Success path tracks success metrics", func(t *testing.T) {
-		mockHTTPClient := &MockHTTPClient{}
+		mockHTTPClient := &httputil.MockHTTPClient{}
 
 		client := &HTTPClientImpl{
 			lggr:   lggr,
@@ -319,7 +302,7 @@ func TestGetMessages_MetricsTracking(t *testing.T) {
 	})
 
 	t.Run("Error path tracks error metrics", func(t *testing.T) {
-		mockHTTPClient := &MockHTTPClient{}
+		mockHTTPClient := &httputil.MockHTTPClient{}
 
 		client := &HTTPClientImpl{
 			lggr:   lggr,
@@ -340,7 +323,7 @@ func TestGetMessages_MetricsTracking(t *testing.T) {
 	})
 
 	t.Run("Metrics called exactly once per request", func(t *testing.T) {
-		mockHTTPClient := &MockHTTPClient{}
+		mockHTTPClient := &httputil.MockHTTPClient{}
 
 		client := &HTTPClientImpl{
 			lggr:   lggr,
