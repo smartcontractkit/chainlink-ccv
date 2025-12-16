@@ -15,14 +15,17 @@ type Verifier struct {
 	attestationService AttestationService
 }
 
-func NewVerifier(lggr logger.Logger, attestationService AttestationService) Verifier {
-	return Verifier{
+func NewVerifier(
+	lggr logger.Logger,
+	attestationService AttestationService,
+) verifier.Verifier {
+	return &Verifier{
 		lggr:               lggr,
 		attestationService: attestationService,
 	}
 }
 
-func (v Verifier) VerifyMessages(
+func (v *Verifier) VerifyMessages(
 	ctx context.Context,
 	tasks []verifier.VerificationTask,
 	ccvDataBatcher *batcher.Batcher[protocol.VerifierNodeResult],

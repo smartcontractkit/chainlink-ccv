@@ -18,15 +18,18 @@ type Verifier struct {
 	ccvVerifierVersion protocol.ByteSlice
 }
 
-func NewVerifier(lggr logger.Logger, attestationService AttestationService) Verifier {
-	return Verifier{
+func NewVerifier(
+	lggr logger.Logger,
+	attestationService AttestationService,
+) verifier.Verifier {
+	return &Verifier{
 		lggr:               lggr,
 		attestationService: attestationService,
 		ccvVerifierVersion: ccvVerifierVersion,
 	}
 }
 
-func (v Verifier) VerifyMessages(
+func (v *Verifier) VerifyMessages(
 	ctx context.Context,
 	tasks []verifier.VerificationTask,
 	ccvDataBatcher *batcher.Batcher[protocol.VerifierNodeResult],
