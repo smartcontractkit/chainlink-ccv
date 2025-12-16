@@ -46,7 +46,7 @@ type Server struct {
 	verifierpb.UnimplementedVerifierServer
 	msgdiscoverypb.UnimplementedMessageDiscoveryServer
 
-	l                                         logger.Logger
+	l                                         logger.SugaredLogger
 	config                                    *model.AggregatorConfig
 	store                                     common.CommitVerificationStore
 	aggregator                                handlers.AggregationTriggerer
@@ -58,6 +58,7 @@ type Server struct {
 	grpcServer                                *grpc.Server
 	batchWriteCommitVerifierNodeResultHandler *handlers.BatchWriteCommitVerifierNodeResultHandler
 	httpHealthServer                          *health.HTTPHealthServer
+	healthManager                             *health.Manager
 	runGroup                                  *run.Group
 	stopChan                                  chan struct{}
 	mu                                        sync.Mutex
@@ -127,11 +128,18 @@ func (s *Server) Start(lis net.Listener) error {
 		return nil
 	}, func(error) {})
 
-	ctx, cancel := context.WithCancel(context.Background())
+	recovererCtx, recovererCancel := context.WithCancel(context.Background())
 	g.Add(func() error {
-		return s.recoverer.Start(ctx)
+		return s.recoverer.Start(recovererCtx)
 	}, func(error) {
-		cancel()
+		recovererCancel()
+	})
+
+	healthManagerCtx, healthManagerCancel := context.WithCancel(context.Background())
+	g.Add(func() error {
+		return s.healthManager.StartPeriodicHealthLogging(healthManagerCtx, s.l, time.Minute)
+	}, func(error) {
+		healthManagerCancel()
 	})
 
 	if s.httpHealthServer != nil {
@@ -200,6 +208,16 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	// Set defaults for configuration
 	config.SetDefaults()
 
+	l.Infow("Server configuration loaded",
+		"storage_type", config.Storage.StorageType,
+		"monitoring_enabled", config.Monitoring.Enabled,
+		"rate_limiting_enabled", config.RateLimiting.Enabled,
+		"health_check_enabled", config.HealthCheck.Enabled,
+		"orphan_recovery_enabled", config.OrphanRecovery.Enabled,
+		"aggregation_buffer_size", config.Aggregation.ChannelBufferSize,
+		"aggregation_workers", config.Aggregation.BackgroundWorkerCount,
+	)
+
 	var aggMonitoring common.AggregatorMonitoring = &monitoring.NoopAggregatorMonitoring{}
 
 	if config.Monitoring.Enabled && config.Monitoring.Type == "beholder" {
@@ -228,7 +246,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		panic(fmt.Sprintf("failed to create storage: %v", err))
 	}
 
-	store = storage.WrapWithMetrics(store, aggMonitoring)
+	store = storage.WrapWithMetrics(store, aggMonitoring, l)
 	validator := quorum.NewQuorumValidator(config, l)
 
 	agg, err := createAggregator(store, store, store, validator, config, l, aggMonitoring)
@@ -251,6 +269,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	// Initialize authentication middlewares
 	hmacAuthMiddleware := middlewares.NewHMACAuthMiddleware(&config.APIKeys, l)
 	anonymousAuthMiddleware := middlewares.NewAnonymousAuthMiddleware()
+	requireAuthMiddleware := middlewares.NewRequireAuthMiddleware(l)
 
 	// Initialize rate limiting middleware
 	rateLimitingMiddleware, err := middlewares.NewRateLimitingMiddlewareFromConfig(config.RateLimiting, config.APIKeys, l)
@@ -272,7 +291,6 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		grpc.ChainUnaryInterceptor(
 			recovery.UnaryServerInterceptor(recovery.WithRecoveryHandler(grpcPanicRecoveryHandler)),
 			scopingMiddleware.Intercept,
-			loggingMiddleware.Intercept,
 			metricsMiddleware.Intercept,
 			hmacAuthMiddleware.Intercept,
 
@@ -285,7 +303,10 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 			),
 
 			// Require authentication for all requests (ensures identity is set)
-			middlewares.RequireAuthInterceptor,
+			requireAuthMiddleware.Intercept,
+
+			// Logging after auth so caller_id is available in logs
+			loggingMiddleware.Intercept,
 
 			rateLimitingMiddleware.Intercept,
 		),
@@ -318,6 +339,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		getVerifierResultsForMessageHandler:  getVerifierResultsForMessageHandler,
 		batchWriteCommitVerifierNodeResultHandler: batchWriteCommitVerifierNodeResultHandler,
 		httpHealthServer: httpHealthServer,
+		healthManager:    healthManager,
 		grpcServer:       grpcServer,
 		recoverer:        recoverer,
 		started:          false,

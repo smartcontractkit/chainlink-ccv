@@ -33,8 +33,6 @@ func (h *ReadCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *c
 	}
 	ctx = scope.WithMessageID(ctx, req.GetMessageId())
 
-	h.logger(ctx).Infof("Received ReadCommitCCVNodeDataRequest")
-
 	id := model.CommitVerificationRecordIdentifier{
 		Address:   req.GetAddress(),
 		MessageID: req.GetMessageId(),
