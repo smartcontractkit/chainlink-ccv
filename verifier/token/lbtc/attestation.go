@@ -38,7 +38,6 @@ func (h *HTTPAttestationService) Fetch(
 	ctx context.Context,
 	messages []protocol.Message,
 ) (map[string]Attestation, error) {
-	// Build Lombard messageByRequestKey by grabbing ExtraData from each messages's TokenTransfer
 	requests := make([]protocol.ByteSlice, 0, len(messages))
 	for _, msg := range messages {
 		requests = append(requests, msg.TokenTransfer.ExtraData)
