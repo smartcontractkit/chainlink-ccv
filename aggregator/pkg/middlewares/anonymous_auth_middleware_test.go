@@ -344,7 +344,7 @@ func TestAnonymousAuthMiddleware_TryGetIP_WithTrustedProxies(t *testing.T) {
 			expectFound: false,
 		},
 		{
-			name: "uses peer IP when trusted proxy but no forwarded headers",
+			name: "uses peer IP (without port) when trusted proxy but no forwarded headers",
 			setupContext: func() context.Context {
 				ctx := context.Background()
 				ctx = peer.NewContext(ctx, &peer.Peer{
@@ -352,7 +352,7 @@ func TestAnonymousAuthMiddleware_TryGetIP_WithTrustedProxies(t *testing.T) {
 				})
 				return ctx
 			},
-			expectedIP:  "10.0.0.1:50051",
+			expectedIP:  "10.0.0.1",
 			expectFound: true,
 		},
 		{
@@ -527,7 +527,7 @@ func TestAnonymousAuthMiddleware_TryGetIP_IPv6(t *testing.T) {
 			expectFound: false,
 		},
 		{
-			name: "uses IPv6 peer IP when trusted proxy but no forwarded headers",
+			name: "uses IPv6 peer IP (without port) when trusted proxy but no forwarded headers",
 			setupContext: func() context.Context {
 				ctx := context.Background()
 				ctx = peer.NewContext(ctx, &peer.Peer{
@@ -535,7 +535,7 @@ func TestAnonymousAuthMiddleware_TryGetIP_IPv6(t *testing.T) {
 				})
 				return ctx
 			},
-			expectedIP:  "[::1]:50051",
+			expectedIP:  "::1",
 			expectFound: true,
 		},
 	}

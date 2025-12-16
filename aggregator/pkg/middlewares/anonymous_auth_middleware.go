@@ -115,8 +115,12 @@ func (m *AnonymousAuthMiddleware) tryGetIP(ctx context.Context) (string, bool) {
 		return ip, true
 	}
 
-	// Trusted proxy but no forwarded headers - use proxy IP
-	return peerIP, true
+	// Trusted proxy but no forwarded headers - use proxy IP (without port for consistency)
+	host, _, err := net.SplitHostPort(peerIP)
+	if err != nil {
+		host = peerIP
+	}
+	return host, true
 }
 
 func ipFromForwardedFor(ctx context.Context) (string, bool) {
