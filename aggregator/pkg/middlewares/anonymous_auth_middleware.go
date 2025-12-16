@@ -71,9 +71,10 @@ func (m *AnonymousAuthMiddleware) isTrustedProxy(ipStr string) bool {
 		return false
 	}
 
-	// Normalize IPv4 to 4-byte format for consistent comparison
-	// net.ParseIP returns 16-byte representation, but trusted proxies
-	// may be stored as 4-byte IPNets
+	// Normalize IPv4 to 4-byte format for consistent comparison.
+	// net.ParseIP returns a 16-byte representation, but parseCIDROrIP
+	// stores IPv4 trusted proxies as 4-byte IPNets. Both must use the
+	// same format for IPNet.Contains to match correctly.
 	if ip4 := ip.To4(); ip4 != nil {
 		ip = ip4
 	}
