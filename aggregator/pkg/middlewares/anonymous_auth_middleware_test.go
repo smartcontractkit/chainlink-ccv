@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/peer"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 func TestNewAnonymousAuthMiddleware_ParsesTrustedProxies(t *testing.T) {
@@ -67,7 +68,7 @@ func TestNewAnonymousAuthMiddleware_ParsesTrustedProxies(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			middleware, err := NewAnonymousAuthMiddleware(tt.trustedProxies)
+			middleware, err := NewAnonymousAuthMiddleware(tt.trustedProxies, logger.Test(t))
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -86,7 +87,7 @@ func TestAnonymousAuthMiddleware_IsTrustedProxy(t *testing.T) {
 		"10.0.0.0/8",
 		"172.16.0.0/12",
 		"192.168.1.100",
-	})
+	}, logger.Test(t))
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -154,7 +155,7 @@ func TestAnonymousAuthMiddleware_IsTrustedProxy_IPv6(t *testing.T) {
 		"2001:db8::/32",
 		"fd00::/8",
 		"::1",
-	})
+	}, logger.Test(t))
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -208,7 +209,7 @@ func TestAnonymousAuthMiddleware_IsTrustedProxy_IPv6(t *testing.T) {
 }
 
 func TestAnonymousAuthMiddleware_TryGetIP_WithNoTrustedProxies_DisablesAnonymousAuth(t *testing.T) {
-	middleware, err := NewAnonymousAuthMiddleware([]string{})
+	middleware, err := NewAnonymousAuthMiddleware([]string{}, logger.Test(t))
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -257,7 +258,7 @@ func TestAnonymousAuthMiddleware_TryGetIP_WithNoTrustedProxies_DisablesAnonymous
 }
 
 func TestAnonymousAuthMiddleware_TryGetIP_WithTrustedProxies(t *testing.T) {
-	middleware, err := NewAnonymousAuthMiddleware([]string{"10.0.0.0/8"})
+	middleware, err := NewAnonymousAuthMiddleware([]string{"10.0.0.0/8"}, logger.Test(t))
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -354,6 +355,37 @@ func TestAnonymousAuthMiddleware_TryGetIP_WithTrustedProxies(t *testing.T) {
 			expectedIP:  "10.0.0.1:50051",
 			expectFound: true,
 		},
+		{
+			name: "extracts rightmost IP from comma-separated X-Forwarded-For (prevents spoofing)",
+			setupContext: func() context.Context {
+				ctx := context.Background()
+				// Attacker sends "spoofed-ip" but ALB appends real client IP
+				ctx = metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
+					"x-forwarded-for": "spoofed-ip, another-fake, 203.0.113.99",
+				}))
+				ctx = peer.NewContext(ctx, &peer.Peer{
+					Addr: &net.TCPAddr{IP: net.ParseIP("10.0.0.1"), Port: 50051},
+				})
+				return ctx
+			},
+			expectedIP:  "203.0.113.99",
+			expectFound: true,
+		},
+		{
+			name: "handles single IP in X-Forwarded-For",
+			setupContext: func() context.Context {
+				ctx := context.Background()
+				ctx = metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
+					"x-forwarded-for": "203.0.113.50",
+				}))
+				ctx = peer.NewContext(ctx, &peer.Peer{
+					Addr: &net.TCPAddr{IP: net.ParseIP("10.0.0.1"), Port: 50051},
+				})
+				return ctx
+			},
+			expectedIP:  "203.0.113.50",
+			expectFound: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -369,7 +401,7 @@ func TestAnonymousAuthMiddleware_TryGetIP_WithTrustedProxies(t *testing.T) {
 }
 
 func TestAnonymousAuthMiddleware_Intercept(t *testing.T) {
-	middleware, err := NewAnonymousAuthMiddleware([]string{"10.0.0.0/8"})
+	middleware, err := NewAnonymousAuthMiddleware([]string{"10.0.0.0/8"}, logger.Test(t))
 	require.NoError(t, err)
 
 	info := &grpc.UnaryServerInfo{FullMethod: "/Test/Method"}
@@ -455,7 +487,7 @@ func TestAnonymousAuthMiddleware_Intercept(t *testing.T) {
 }
 
 func TestAnonymousAuthMiddleware_TryGetIP_IPv6(t *testing.T) {
-	middleware, err := NewAnonymousAuthMiddleware([]string{"fd00::/8", "::1"})
+	middleware, err := NewAnonymousAuthMiddleware([]string{"fd00::/8", "::1"}, logger.Test(t))
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -524,7 +556,7 @@ func TestAnonymousAuthMiddleware_MixedIPv4AndIPv6(t *testing.T) {
 	middleware, err := NewAnonymousAuthMiddleware([]string{
 		"10.0.0.0/8",
 		"fd00::/8",
-	})
+	}, logger.Test(t))
 	require.NoError(t, err)
 
 	t.Run("IPv4 peer trusted with IPv6 also configured", func(t *testing.T) {
@@ -549,7 +581,7 @@ func TestAnonymousAuthMiddleware_MixedIPv4AndIPv6(t *testing.T) {
 }
 
 func TestAnonymousAuthMiddleware_SecurityScenario_IPSpoofingPrevention(t *testing.T) {
-	middleware, err := NewAnonymousAuthMiddleware([]string{"10.0.0.0/8"})
+	middleware, err := NewAnonymousAuthMiddleware([]string{"10.0.0.0/8"}, logger.Test(t))
 	require.NoError(t, err)
 
 	t.Run("attacker from untrusted peer cannot get anonymous auth", func(t *testing.T) {
@@ -593,7 +625,7 @@ func TestAnonymousAuthMiddleware_SecurityScenario_IPSpoofingPrevention(t *testin
 }
 
 func TestAnonymousAuthMiddleware_NoTrustedProxies_DisablesAnonymousAuth(t *testing.T) {
-	middleware, err := NewAnonymousAuthMiddleware([]string{})
+	middleware, err := NewAnonymousAuthMiddleware([]string{}, logger.Test(t))
 	require.NoError(t, err)
 
 	info := &grpc.UnaryServerInfo{FullMethod: "/Test/Method"}

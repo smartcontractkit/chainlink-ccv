@@ -4,19 +4,22 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 type AnonymousAuthMiddleware struct {
 	trustedProxies []*net.IPNet
+	logger         logger.Logger
 }
 
-func NewAnonymousAuthMiddleware(trustedProxyCIDRs []string) (*AnonymousAuthMiddleware, error) {
+func NewAnonymousAuthMiddleware(trustedProxyCIDRs []string, lggr logger.Logger) (*AnonymousAuthMiddleware, error) {
 	trustedProxies := make([]*net.IPNet, 0, len(trustedProxyCIDRs))
 	for _, cidr := range trustedProxyCIDRs {
 		ipNet, err := parseCIDROrIP(cidr)
@@ -25,7 +28,7 @@ func NewAnonymousAuthMiddleware(trustedProxyCIDRs []string) (*AnonymousAuthMiddl
 		}
 		trustedProxies = append(trustedProxies, ipNet)
 	}
-	return &AnonymousAuthMiddleware{trustedProxies: trustedProxies}, nil
+	return &AnonymousAuthMiddleware{trustedProxies: trustedProxies, logger: lggr}, nil
 }
 
 func parseCIDROrIP(s string) (*net.IPNet, error) {
@@ -95,11 +98,13 @@ func (m *AnonymousAuthMiddleware) tryGetIP(ctx context.Context) (string, bool) {
 
 	peerIP, hasPeer := ipFromPeer(ctx)
 	if !hasPeer {
+		m.logger.Infow("Anonymous auth rejected: no peer IP in context")
 		return "", false
 	}
 
 	// Only allow anonymous auth if peer is a trusted proxy
 	if !m.isTrustedProxy(peerIP) {
+		m.logger.Infow("Anonymous auth rejected: peer is not a trusted proxy", "peerIP", peerIP)
 		return "", false
 	}
 
@@ -120,13 +125,23 @@ func ipFromForwardedFor(ctx context.Context) (string, bool) {
 		return "", false
 	}
 
-	ip := md.Get("x-forwarded-for")
-
-	if len(ip) == 0 {
+	values := md.Get("x-forwarded-for")
+	if len(values) == 0 {
 		return "", false
 	}
 
-	return ip[0], true
+	// X-Forwarded-For can be comma-separated: "client, proxy1, proxy2"
+	// The rightmost IP is the one added by the trusted proxy (ALB),
+	// representing the actual client IP that connected to the proxy.
+	// Left entries may be spoofed by the client.
+	// See https://docs.aws.amazon.com/elasticloadbalancing/latest/application/x-forwarded-headers.html#x-forwarded-for
+	parts := strings.Split(values[0], ",")
+	rightmost := strings.TrimSpace(parts[len(parts)-1])
+	if rightmost == "" {
+		return "", false
+	}
+
+	return rightmost, true
 }
 
 func ipFromRealIP(ctx context.Context) (string, bool) {

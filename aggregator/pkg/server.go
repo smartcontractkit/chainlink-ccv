@@ -268,7 +268,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 	// Initialize authentication middlewares
 	hmacAuthMiddleware := middlewares.NewHMACAuthMiddleware(&config.APIKeys, l)
-	anonymousAuthMiddleware, err := middlewares.NewAnonymousAuthMiddleware(config.AnonymousAuth.TrustedProxies)
+	anonymousAuthMiddleware, err := middlewares.NewAnonymousAuthMiddleware(config.AnonymousAuth.TrustedProxies, l)
 	if err != nil {
 		l.Fatalf("Failed to initialize anonymous auth middleware: %v", err)
 	}
