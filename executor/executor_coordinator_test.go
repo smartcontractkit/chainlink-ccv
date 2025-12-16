@@ -122,9 +122,12 @@ func TestLifecycle(t *testing.T) {
 	ccvDataReader := executor_mocks.NewMockMessageSubscriber(t)
 	ccvDataReader.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
+	executorMock := executor_mocks.NewMockExecutor(t)
+	executorMock.EXPECT().Start(mock.Anything).Return(nil)
+
 	ec, err := executor.NewCoordinator(
 		lggr,
-		executor_mocks.NewMockExecutor(t),
+		executorMock,
 		ccvDataReader,
 		executor_mocks.NewMockLeaderElector(t),
 		monitoring.NewNoopExecutorMonitoring(),
@@ -151,9 +154,12 @@ func TestSubscribeMessagesError(t *testing.T) {
 	timeProvider := common.NewMockTimeProvider(t)
 	timeProvider.EXPECT().GetTime().Return(time.Now().UTC()).Maybe()
 
+	mockExecutor := executor_mocks.NewMockExecutor(t)
+	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
+
 	ec, err := executor.NewCoordinator(
 		lggr,
-		executor_mocks.NewMockExecutor(t),
+		mockExecutor,
 		messageSubscriber,
 		executor_mocks.NewMockLeaderElector(t),
 		monitoring.NewNoopExecutorMonitoring(),
@@ -317,6 +323,7 @@ func TestMessageExpiration(t *testing.T) {
 
 			// Set up executor mock
 			mockExecutor := executor_mocks.NewMockExecutor(t)
+			mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
 			mockExecutor.EXPECT().CheckValidMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
 			mockExecutor.EXPECT().HandleMessage(mock.Anything, mock.Anything).Return(false, nil).Maybe()
 
