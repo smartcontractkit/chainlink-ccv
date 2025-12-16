@@ -101,97 +101,97 @@ func TestE2ESmoke(t *testing.T) {
 			in.IndexerEndpoint)
 		require.NotNil(t, indexerClient)
 	}
-	//
-	// sel0, sel1, sel2 := chains[0].Details.ChainSelector,
-	// 	chains[1].Details.ChainSelector,
-	// 	chains[2].Details.ChainSelector
-	//
-	// // t.Run("extra args v2", func(t *testing.T) {
-	// 	tcs := []struct {
-	// 		name                     string
-	// 		fromSelector             uint64
-	// 		toSelector               uint64
-	// 		receiver                 protocol.UnknownAddress
-	// 		expectFail               bool
-	// 		numExpectedVerifications int
-	// 	}{
-	// 		{
-	// 			name:                     "src->dst msg execution eoa receiver",
-	// 			fromSelector:             sel0,
-	// 			toSelector:               sel1,
-	// 			receiver:                 mustGetEOAReceiverAddress(t, chains[1], sel1),
-	// 			expectFail:               false,
-	// 			numExpectedVerifications: 1,
-	// 		},
-	// 		{
-	// 			name:                     "dst->src msg execution eoa receiver",
-	// 			fromSelector:             sel1,
-	// 			toSelector:               sel0,
-	// 			receiver:                 mustGetEOAReceiverAddress(t, chains[0], sel0),
-	// 			expectFail:               false,
-	// 			numExpectedVerifications: 1,
-	// 		},
-	// 		{
-	// 			name:                     "1337->3337 msg execution mock receiver",
-	// 			fromSelector:             sel0,
-	// 			toSelector:               sel2,
-	// 			receiver:                 getContractAddress(t, in, sel2, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), evm.DefaultReceiverQualifier, "mock receiver"),
-	// 			expectFail:               false,
-	// 			numExpectedVerifications: 1,
-	// 		},
-	// 	}
-	// 	for _, tc := range tcs {
-	// 		t.Run(tc.name, func(t *testing.T) {
-	// 			seqNo, err := chainMap[tc.fromSelector].GetExpectedNextSequenceNumber(ctx, tc.fromSelector, tc.toSelector)
-	// 			require.NoError(t, err)
-	// 			l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
-	// 			_, err = chainMap[tc.fromSelector].SendMessage(ctx, tc.fromSelector, tc.toSelector, cciptestinterfaces.MessageFields{
-	// 				Receiver: tc.receiver,
-	// 				Data:     []byte{},
-	// 			}, cciptestinterfaces.MessageOptions{
-	// 				Version:             2,
-	// 				ExecutionGasLimit:   200_000,
-	// 				OutOfOrderExecution: true,
-	// 			})
-	// 			require.NoError(t, err)
-	//
-	// 			sentEvent, err := chainMap[tc.fromSelector].WaitOneSentEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultSentTimeout)
-	// 			require.NoError(t, err)
-	// 			messageID := sentEvent.MessageID
-	//
-	// 			testCtx := NewTestingContext(t, ctx, chainMap, defaultAggregatorClient, indexerClient)
-	// 			result, err := testCtx.AssertMessage(messageID, AssertMessageOptions{
-	// 				TickInterval:            1 * time.Second,
-	// 				Timeout:                 defaultExecTimeout,
-	// 				ExpectedVerifierResults: tc.numExpectedVerifications,
-	// 				AssertVerifierLogs:      false,
-	// 				AssertExecutorLogs:      false,
-	// 			})
-	// 			require.NoError(t, err)
-	// 			require.NotNil(t, result.AggregatedResult)
-	// 			require.Len(t, result.IndexedVerifications.Results, tc.numExpectedVerifications)
-	//
-	// 			e, err := chainMap[tc.toSelector].WaitOneExecEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultExecTimeout)
-	// 			require.NoError(t, err)
-	// 			require.NotNil(t, e)
-	//
-	// 			if tc.expectFail {
-	// 				require.Equalf(t,
-	// 					cciptestinterfaces.ExecutionStateFailure,
-	// 					e.State,
-	// 					"unexpected state, return data: %x",
-	// 					e.ReturnData)
-	// 			} else {
-	// 				require.Equalf(t,
-	// 					cciptestinterfaces.ExecutionStateSuccess,
-	// 					e.State,
-	// 					"unexpected state, return data: %x",
-	// 					e.ReturnData)
-	// 			}
-	// 		})
-	// 	}
-	// })
-	//
+
+	sel0, sel1, sel2 := chains[0].Details.ChainSelector,
+		chains[1].Details.ChainSelector,
+		chains[2].Details.ChainSelector
+
+	t.Run("extra args v2", func(t *testing.T) {
+		tcs := []struct {
+			name                     string
+			fromSelector             uint64
+			toSelector               uint64
+			receiver                 protocol.UnknownAddress
+			expectFail               bool
+			numExpectedVerifications int
+		}{
+			{
+				name:                     "src->dst msg execution eoa receiver",
+				fromSelector:             sel0,
+				toSelector:               sel1,
+				receiver:                 mustGetEOAReceiverAddress(t, chains[1], sel1),
+				expectFail:               false,
+				numExpectedVerifications: 1,
+			},
+			{
+				name:                     "dst->src msg execution eoa receiver",
+				fromSelector:             sel1,
+				toSelector:               sel0,
+				receiver:                 mustGetEOAReceiverAddress(t, chains[0], sel0),
+				expectFail:               false,
+				numExpectedVerifications: 1,
+			},
+			{
+				name:                     "1337->3337 msg execution mock receiver",
+				fromSelector:             sel0,
+				toSelector:               sel2,
+				receiver:                 getContractAddress(t, in, sel2, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), evm.DefaultReceiverQualifier, "mock receiver"),
+				expectFail:               false,
+				numExpectedVerifications: 1,
+			},
+		}
+		for _, tc := range tcs {
+			t.Run(tc.name, func(t *testing.T) {
+				seqNo, err := chainMap[tc.fromSelector].GetExpectedNextSequenceNumber(ctx, tc.fromSelector, tc.toSelector)
+				require.NoError(t, err)
+				l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
+				_, err = chainMap[tc.fromSelector].SendMessage(ctx, tc.fromSelector, tc.toSelector, cciptestinterfaces.MessageFields{
+					Receiver: tc.receiver,
+					Data:     []byte{},
+				}, cciptestinterfaces.MessageOptions{
+					Version:             2,
+					ExecutionGasLimit:   200_000,
+					OutOfOrderExecution: true,
+				})
+				require.NoError(t, err)
+
+				sentEvent, err := chainMap[tc.fromSelector].WaitOneSentEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultSentTimeout)
+				require.NoError(t, err)
+				messageID := sentEvent.MessageID
+
+				testCtx := NewTestingContext(t, ctx, chainMap, defaultAggregatorClient, indexerClient)
+				result, err := testCtx.AssertMessage(messageID, AssertMessageOptions{
+					TickInterval:            1 * time.Second,
+					Timeout:                 defaultExecTimeout,
+					ExpectedVerifierResults: tc.numExpectedVerifications,
+					AssertVerifierLogs:      false,
+					AssertExecutorLogs:      false,
+				})
+				require.NoError(t, err)
+				require.NotNil(t, result.AggregatedResult)
+				require.Len(t, result.IndexedVerifications.Results, tc.numExpectedVerifications)
+
+				e, err := chainMap[tc.toSelector].WaitOneExecEventBySeqNo(ctx, tc.fromSelector, tc.toSelector, seqNo, defaultExecTimeout)
+				require.NoError(t, err)
+				require.NotNil(t, e)
+
+				if tc.expectFail {
+					require.Equalf(t,
+						cciptestinterfaces.ExecutionStateFailure,
+						e.State,
+						"unexpected state, return data: %x",
+						e.ReturnData)
+				} else {
+					require.Equalf(t,
+						cciptestinterfaces.ExecutionStateSuccess,
+						e.State,
+						"unexpected state, return data: %x",
+						e.ReturnData)
+				}
+			})
+		}
+	})
+
 	t.Run("extra args v3 messaging", func(t *testing.T) {
 		var tcs []testcase
 		src, dest := chains[0].Details.ChainSelector, chains[1].Details.ChainSelector
@@ -264,105 +264,105 @@ func TestE2ESmoke(t *testing.T) {
 			})
 		}
 	})
-	//
-	// t.Run("extra args v3 token transfer", func(t *testing.T) {
-	// 	runTokenTransferTestCase := func(t *testing.T, combo evm.TokenCombination, finalityConfig uint16, receiver protocol.UnknownAddress) {
-	// 		sender := mustGetSenderAddress(t, chains[0], sel0)
-	//
-	// 		srcToken := getTokenAddress(t, in, sel0, combo.SourcePoolAddressRef().Qualifier)
-	// 		destToken := getTokenAddress(t, in, sel1, combo.DestPoolAddressRef().Qualifier)
-	//
-	// 		startBal, err := chains[1].GetTokenBalance(ctx, sel1, receiver, destToken)
-	// 		require.NoError(t, err)
-	// 		l.Info().Str("Receiver", receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", combo.DestPoolAddressRef().Qualifier).Msg("receiver start balance")
-	//
-	// 		srcStartBal, err := chains[0].GetTokenBalance(ctx, sel0, sender, srcToken)
-	// 		require.NoError(t, err)
-	// 		l.Info().Str("Sender", sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("sender start balance")
-	//
-	// 		seqNo, err := chains[0].GetExpectedNextSequenceNumber(ctx, sel0, sel1)
-	// 		require.NoError(t, err)
-	// 		l.Info().Uint64("SeqNo", seqNo).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("expecting sequence number")
-	//
-	// 		messageOptions := cciptestinterfaces.MessageOptions{
-	// 			Version:           3,
-	// 			ExecutionGasLimit: 200_000,
-	// 			FinalityConfig:    finalityConfig,
-	// 			Executor:          getContractAddress(t, in, sel0, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.DefaultExecutorQualifier, "executor"),
-	// 		}
-	//
-	// 		sendRes, err := chains[0].SendMessage(
-	// 			ctx, sel0, sel1,
-	// 			cciptestinterfaces.MessageFields{
-	// 				Receiver: receiver,
-	// 				TokenAmount: cciptestinterfaces.TokenAmount{
-	// 					Amount:       big.NewInt(1000),
-	// 					TokenAddress: srcToken,
-	// 				},
-	// 			},
-	// 			messageOptions,
-	// 		)
-	// 		require.NoError(t, err)
-	// 		require.NotNil(t, sendRes)
-	// 		require.Len(t, sendRes.ReceiptIssuers, combo.ExpectedReceiptIssuers(), "expected %d receipt issuers for %s token", combo.ExpectedReceiptIssuers(), combo.SourcePoolAddressRef().Qualifier)
-	//
-	// 		sentEvt, err := chains[0].WaitOneSentEventBySeqNo(ctx, sel0, sel1, seqNo, defaultSentTimeout)
-	// 		require.NoError(t, err)
-	// 		msgID := sentEvt.MessageID
-	//
-	// 		testCtx := NewTestingContext(t, ctx, chainMap, defaultAggregatorClient, indexerClient)
-	//
-	// 		res, err := testCtx.AssertMessage(msgID, AssertMessageOptions{
-	// 			TickInterval:            1 * time.Second,
-	// 			Timeout:                 45 * time.Second,
-	// 			ExpectedVerifierResults: combo.ExpectedVerifierResults(),
-	// 			AssertVerifierLogs:      false,
-	// 			AssertExecutorLogs:      false,
-	// 		})
-	//
-	// 		require.NoError(t, err)
-	// 		require.NotNil(t, res.AggregatedResult)
-	//
-	// 		execEvt, err := chains[1].WaitOneExecEventBySeqNo(ctx, sel0, sel1, seqNo, 45*time.Second)
-	// 		require.NoError(t, err)
-	// 		require.NotNil(t, execEvt)
-	// 		require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected state, return data: %x", execEvt.ReturnData)
-	//
-	// 		endBal, err := chains[1].GetTokenBalance(ctx, sel1, receiver, destToken)
-	// 		require.NoError(t, err)
-	// 		require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), big.NewInt(1000)), endBal)
-	// 		l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", combo.DestPoolAddressRef().Qualifier).Msg("receiver end balance")
-	//
-	// 		srcEndBal, err := chains[0].GetTokenBalance(ctx, sel0, sender, srcToken)
-	// 		require.NoError(t, err)
-	// 		require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), big.NewInt(1000)), srcEndBal)
-	// 		l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("sender end balance")
-	// 	}
-	// 	for _, combo := range evm.AllTokenCombinations() {
-	// 		receiver := mustGetEOAReceiverAddress(t, chains[1], sel1)
-	// 		t.Run(fmt.Sprintf("src_dst msg execution with EOA receiver and token transfer (%s)", combo.SourcePoolAddressRef().Qualifier), func(t *testing.T) {
-	// 			runTokenTransferTestCase(t, combo, combo.FinalityConfig(), receiver)
-	// 		})
-	// 	}
-	// 	for _, combo := range evm.All17TokenCombinations() {
-	// 		receiver := mustGetEOAReceiverAddress(t, chains[1], sel1)
-	// 		mockReceiver := getContractAddress(
-	// 			t,
-	// 			in,
-	// 			sel1,
-	// 			datastore.ContractType(mock_receiver.ContractType),
-	// 			mock_receiver.Deploy.Version(),
-	// 			evm.DefaultReceiverQualifier,
-	// 			"default mock receiver",
-	// 		)
-	// 		t.Run(fmt.Sprintf("src_dst msg execution with EOA receiver and token transfer 1.7.0 (%s) default finality", combo.SourcePoolAddressRef().Qualifier), func(t *testing.T) {
-	// 			runTokenTransferTestCase(t, combo, 0, receiver)
-	// 		})
-	// 		t.Run(fmt.Sprintf("src_dst msg execution with mock receiver and token transfer 1.7.0 (%s) default finality", combo.SourcePoolAddressRef().Qualifier), func(t *testing.T) {
-	// 			runTokenTransferTestCase(t, combo, 0, mockReceiver)
-	// 		})
-	// 	}
-	// })
+
+	t.Run("extra args v3 token transfer", func(t *testing.T) {
+		runTokenTransferTestCase := func(t *testing.T, combo evm.TokenCombination, finalityConfig uint16, receiver protocol.UnknownAddress) {
+			sender := mustGetSenderAddress(t, chains[0], sel0)
+
+			srcToken := getTokenAddress(t, in, sel0, combo.SourcePoolAddressRef().Qualifier)
+			destToken := getTokenAddress(t, in, sel1, combo.DestPoolAddressRef().Qualifier)
+
+			startBal, err := chains[1].GetTokenBalance(ctx, sel1, receiver, destToken)
+			require.NoError(t, err)
+			l.Info().Str("Receiver", receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", combo.DestPoolAddressRef().Qualifier).Msg("receiver start balance")
+
+			srcStartBal, err := chains[0].GetTokenBalance(ctx, sel0, sender, srcToken)
+			require.NoError(t, err)
+			l.Info().Str("Sender", sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("sender start balance")
+
+			seqNo, err := chains[0].GetExpectedNextSequenceNumber(ctx, sel0, sel1)
+			require.NoError(t, err)
+			l.Info().Uint64("SeqNo", seqNo).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("expecting sequence number")
+
+			messageOptions := cciptestinterfaces.MessageOptions{
+				Version:           3,
+				ExecutionGasLimit: 200_000,
+				FinalityConfig:    finalityConfig,
+				Executor:          getContractAddress(t, in, sel0, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.DefaultExecutorQualifier, "executor"),
+			}
+
+			sendRes, err := chains[0].SendMessage(
+				ctx, sel0, sel1,
+				cciptestinterfaces.MessageFields{
+					Receiver: receiver,
+					TokenAmount: cciptestinterfaces.TokenAmount{
+						Amount:       big.NewInt(1000),
+						TokenAddress: srcToken,
+					},
+				},
+				messageOptions,
+			)
+			require.NoError(t, err)
+			require.NotNil(t, sendRes)
+			require.Len(t, sendRes.ReceiptIssuers, combo.ExpectedReceiptIssuers(), "expected %d receipt issuers for %s token", combo.ExpectedReceiptIssuers(), combo.SourcePoolAddressRef().Qualifier)
+
+			sentEvt, err := chains[0].WaitOneSentEventBySeqNo(ctx, sel0, sel1, seqNo, defaultSentTimeout)
+			require.NoError(t, err)
+			msgID := sentEvt.MessageID
+
+			testCtx := NewTestingContext(t, ctx, chainMap, defaultAggregatorClient, indexerClient)
+
+			res, err := testCtx.AssertMessage(msgID, AssertMessageOptions{
+				TickInterval:            1 * time.Second,
+				Timeout:                 45 * time.Second,
+				ExpectedVerifierResults: combo.ExpectedVerifierResults(),
+				AssertVerifierLogs:      false,
+				AssertExecutorLogs:      false,
+			})
+
+			require.NoError(t, err)
+			require.NotNil(t, res.AggregatedResult)
+
+			execEvt, err := chains[1].WaitOneExecEventBySeqNo(ctx, sel0, sel1, seqNo, 45*time.Second)
+			require.NoError(t, err)
+			require.NotNil(t, execEvt)
+			require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected state, return data: %x", execEvt.ReturnData)
+
+			endBal, err := chains[1].GetTokenBalance(ctx, sel1, receiver, destToken)
+			require.NoError(t, err)
+			require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), big.NewInt(1000)), endBal)
+			l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", combo.DestPoolAddressRef().Qualifier).Msg("receiver end balance")
+
+			srcEndBal, err := chains[0].GetTokenBalance(ctx, sel0, sender, srcToken)
+			require.NoError(t, err)
+			require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), big.NewInt(1000)), srcEndBal)
+			l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("sender end balance")
+		}
+		for _, combo := range evm.AllTokenCombinations() {
+			receiver := mustGetEOAReceiverAddress(t, chains[1], sel1)
+			t.Run(fmt.Sprintf("src_dst msg execution with EOA receiver and token transfer (%s)", combo.SourcePoolAddressRef().Qualifier), func(t *testing.T) {
+				runTokenTransferTestCase(t, combo, combo.FinalityConfig(), receiver)
+			})
+		}
+		for _, combo := range evm.All17TokenCombinations() {
+			receiver := mustGetEOAReceiverAddress(t, chains[1], sel1)
+			mockReceiver := getContractAddress(
+				t,
+				in,
+				sel1,
+				datastore.ContractType(mock_receiver.ContractType),
+				mock_receiver.Deploy.Version(),
+				evm.DefaultReceiverQualifier,
+				"default mock receiver",
+			)
+			t.Run(fmt.Sprintf("src_dst msg execution with EOA receiver and token transfer 1.7.0 (%s) default finality", combo.SourcePoolAddressRef().Qualifier), func(t *testing.T) {
+				runTokenTransferTestCase(t, combo, 0, receiver)
+			})
+			t.Run(fmt.Sprintf("src_dst msg execution with mock receiver and token transfer 1.7.0 (%s) default finality", combo.SourcePoolAddressRef().Qualifier), func(t *testing.T) {
+				runTokenTransferTestCase(t, combo, 0, mockReceiver)
+			})
+		}
+	})
 }
 
 func mustGetEOAReceiverAddress(t *testing.T, c cciptestinterfaces.CCIP17ProductConfiguration, chainSelector uint64) protocol.UnknownAddress {
