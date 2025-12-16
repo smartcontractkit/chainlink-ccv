@@ -3,9 +3,11 @@ package health
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/health"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 // Manager coordinates health checks across multiple components.
@@ -47,4 +49,34 @@ func (m *Manager) CheckReadiness(ctx context.Context) health.ReadinessResponse {
 	}
 
 	return health.NewReadinessResponse(results)
+}
+
+// StartPeriodicHealthLogging blocks and periodically logs the health status
+// of all registered components until the context is canceled.
+func (m *Manager) StartPeriodicHealthLogging(ctx context.Context, l logger.SugaredLogger, interval time.Duration) error {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			response := m.CheckReadiness(ctx)
+
+			componentStatus := make(map[string]string)
+			for _, svc := range response.Services {
+				status := "healthy"
+				if svc.Error != "" {
+					status = svc.Error
+				}
+				componentStatus[svc.Name] = status
+			}
+
+			l.Infow("Service health summary",
+				"overall_status", response.Status,
+				"components", componentStatus,
+			)
+		case <-ctx.Done():
+			return nil
+		}
+	}
 }

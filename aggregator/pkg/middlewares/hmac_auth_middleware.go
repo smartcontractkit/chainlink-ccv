@@ -45,12 +45,15 @@ func (m *HMACAuthMiddleware) Intercept(ctx context.Context, req any, info *grpc.
 
 	// If some but not all HMAC headers are present, this is an error
 	if apiKey == "" {
+		m.logger.Warnf("Authentication failed: missing authorization header")
 		return nil, status.Error(codes.Unauthenticated, "missing authorization header")
 	}
 	if timestamp == "" {
+		m.logger.Warnf("Authentication failed: missing x-authorization-timestamp header")
 		return nil, status.Error(codes.Unauthenticated, "missing x-authorization-timestamp header")
 	}
 	if providedSignature == "" {
+		m.logger.Warnf("Authentication failed: missing x-authorization-signature-sha256 header")
 		return nil, status.Error(codes.Unauthenticated, "missing x-authorization-signature-sha256 header")
 	}
 

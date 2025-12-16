@@ -31,7 +31,6 @@ func (h *GetVerifierResultsForMessageHandler) logger(ctx context.Context) logger
 // Handle processes the batch get request and retrieves commit verification data for multiple message IDs.
 func (h *GetVerifierResultsForMessageHandler) Handle(ctx context.Context, req *verifierpb.GetVerifierResultsForMessageRequest) (*verifierpb.GetVerifierResultsForMessageResponse, error) {
 	reqLogger := h.logger(ctx)
-	reqLogger.Infof("Received batch verifier result request for %d message IDs", len(req.GetMessageIds()))
 
 	// Validate batch size limits
 	if len(req.GetMessageIds()) == 0 {
@@ -80,7 +79,6 @@ func (h *GetVerifierResultsForMessageHandler) Handle(ctx context.Context, req *v
 		}
 	}
 
-	reqLogger.Infof("Batch request completed, %d message IDs processed", len(req.GetMessageIds()))
 	return response, nil
 }
 

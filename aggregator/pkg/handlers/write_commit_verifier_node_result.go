@@ -42,7 +42,6 @@ func (h *WriteCommitVerifierNodeResultHandler) logger(ctx context.Context) logge
 // Handle processes the write request and saves the commit verification record.
 func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *committeepb.WriteCommitteeVerifierNodeResultRequest) (*committeepb.WriteCommitteeVerifierNodeResultResponse, error) {
 	reqLogger := h.logger(ctx)
-	reqLogger.Infof("Received WriteCommitCCVNodeDataRequest")
 	if err := validateWriteRequest(req); err != nil {
 		reqLogger.Errorw("validation error", "error", err)
 		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
