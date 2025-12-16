@@ -67,17 +67,17 @@ func (h *HTTPAttestationService) Fetch(
 		if err != nil {
 			return nil, fmt.Errorf("message ID extraction failed: %w", err)
 		}
-		extraData := msg.TokenTransfer.ExtraData
+		extraData := msg.TokenTransfer.ExtraData.String()
 
 		idx := slices.IndexFunc(attestations, func(attestation Attestation) bool {
-			return attestation.MessageHash == extraData.String()
+			return attestation.MessageHash == extraData
 		})
 		if idx != -1 {
 			result[id.String()] = attestations[idx]
 		} else {
 			h.lggr.Errorw("Failed to find attestation for message in the response", "id", id)
 			result[id.String()] = Attestation{
-				MessageHash: extraData.String(),
+				MessageHash: extraData,
 				Status:      attestationStatusUnspecified,
 			}
 		}
