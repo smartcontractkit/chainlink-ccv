@@ -9,7 +9,7 @@ import (
 
 type AttestationService interface {
 	// Fetch retrieves the attestations for a given message batch.
-	Fetch(ctx context.Context, message []protocol.Message) ([]protocol.ByteSlice, error)
+	Fetch(ctx context.Context, message []protocol.Message) (map[string]protocol.ByteSlice, error)
 }
 
 type HTTPAttestationService struct {
@@ -31,11 +31,11 @@ func NewAttestationService(config LBTCConfig) AttestationService {
 func (h HTTPAttestationService) Fetch(
 	ctx context.Context,
 	message []protocol.Message,
-) ([]protocol.ByteSlice, error) {
+) (map[string]protocol.ByteSlice, error) {
 	// Build Lombard requests by grabbing ExtraData from each message's TokenTransfer
-	requests := make([]protocol.ByteSlice, 0, len(message))
+	requests := make(map[string]protocol.ByteSlice, len(message))
 	for _, msg := range message {
-		requests = append(requests, msg.TokenTransfer.ExtraData)
+		requests[msg.MustMessageID().String()] = msg.TokenTransfer.ExtraData
 	}
 	// Cal Lombard Batch API
 	return requests, nil

@@ -234,6 +234,7 @@ func createLBTCCoordinator(
 	sourceConfigs := createSourceConfigs(lbtcConfig.ParsedVerifiers, rmnRemoteAddresses)
 
 	lbtcVerifier := lbtc.NewVerifier(
+		lggr,
 		lbtc.NewAttestationService(*lbtcConfig),
 	)
 
