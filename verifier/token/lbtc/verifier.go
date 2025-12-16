@@ -88,7 +88,7 @@ func (v *Verifier) VerifyMessages(
 			continue
 		}
 
-		// 2.1 Add to batche one by one
+		// 2.1 Add to batcher one by one
 		if err = ccvDataBatcher.Add(*result); err != nil {
 			lggr.Errorw("VerifierResult: Failed to add to batcher", "err", err)
 			errors = append(errors, verifier.NewVerificationError(err, task))
