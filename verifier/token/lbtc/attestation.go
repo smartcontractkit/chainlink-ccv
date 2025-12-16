@@ -2,6 +2,7 @@ package lbtc
 
 import (
 	"context"
+	"fmt"
 	"slices"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -9,13 +10,16 @@ import (
 )
 
 type AttestationService interface {
-	// Fetch retrieves the attestations for a given message batch.
+	// Fetch retrieves the attestations for a given message batch. It should slice batch into smaller
+	// requests if number of messages exceeds allowed limit.
 	Fetch(ctx context.Context, message []protocol.Message) (map[string]Attestation, error)
 }
 
 type HTTPAttestationService struct {
-	lggr      logger.Logger
-	client    HTTPClient
+	lggr   logger.Logger
+	client HTTPClient
+	// batchSize defines maximum number of messages to request in a single API call.
+	// 0 or negative value means no limit.
 	batchSize int
 }
 
@@ -46,18 +50,22 @@ func (h *HTTPAttestationService) Fetch(
 	attestations := make([]Attestation, 0, len(requests))
 	batches := splitSlice(requests, h.batchSize)
 	for _, batch := range batches {
+		// TODO: Implement running that in parallel if needed.
+		// For now, it's not a big deal, because batch limit is quite high (20)
+		// considering the number of messages that be passed into this function at once.
 		response, err := h.client.GetMessages(ctx, batch)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("fetch attestations failed: %w", err)
 		}
 		attestations = append(attestations, response...)
 	}
 
+	// Map attestations back to messageIDs
 	result := make(map[string]Attestation)
 	for _, msg := range messages {
 		id, err := msg.MessageID()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("message ID extraction failed: %w", err)
 		}
 		extraData := msg.TokenTransfer.ExtraData
 
@@ -67,6 +75,7 @@ func (h *HTTPAttestationService) Fetch(
 		if idx != -1 {
 			result[id.String()] = attestations[idx]
 		} else {
+			h.lggr.Errorw("Failed to find attestation for message in the response", "id", id)
 			result[id.String()] = Attestation{
 				MessageHash: extraData.String(),
 				Status:      attestationStatusUnspecified,
