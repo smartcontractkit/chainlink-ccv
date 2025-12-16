@@ -6,10 +6,17 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+func newTestReorgTracker(t *testing.T) *ReorgTracker {
+	lggr, err := logger.New()
+	require.NoError(t, err)
+	return NewReorgTracker(lggr, &noopMetricLabeler{})
+}
+
 func TestReorgTracker_Track_AddsToSet(t *testing.T) {
-	tracker := NewReorgTracker()
+	tracker := newTestReorgTracker(t)
 	dest := protocol.ChainSelector(1337)
 
 	tracker.Track(dest, 10)
@@ -21,7 +28,7 @@ func TestReorgTracker_Track_AddsToSet(t *testing.T) {
 }
 
 func TestReorgTracker_Track_IndependentDestinations(t *testing.T) {
-	tracker := NewReorgTracker()
+	tracker := newTestReorgTracker(t)
 	dest1 := protocol.ChainSelector(1337)
 	dest2 := protocol.ChainSelector(2337)
 
@@ -35,7 +42,7 @@ func TestReorgTracker_Track_IndependentDestinations(t *testing.T) {
 }
 
 func TestReorgTracker_RequiresFinalization_InSet(t *testing.T) {
-	tracker := NewReorgTracker()
+	tracker := newTestReorgTracker(t)
 	dest := protocol.ChainSelector(1337)
 
 	tracker.Track(dest, 10)
@@ -44,14 +51,14 @@ func TestReorgTracker_RequiresFinalization_InSet(t *testing.T) {
 }
 
 func TestReorgTracker_RequiresFinalization_NotInSet(t *testing.T) {
-	tracker := NewReorgTracker()
+	tracker := newTestReorgTracker(t)
 	dest := protocol.ChainSelector(1337)
 
 	require.False(t, tracker.RequiresFinalization(dest, 10))
 }
 
 func TestReorgTracker_RequiresFinalization_UnknownDestination(t *testing.T) {
-	tracker := NewReorgTracker()
+	tracker := newTestReorgTracker(t)
 	dest := protocol.ChainSelector(1337)
 	unknownDest := protocol.ChainSelector(9999)
 
@@ -61,7 +68,7 @@ func TestReorgTracker_RequiresFinalization_UnknownDestination(t *testing.T) {
 }
 
 func TestReorgTracker_Remove_RemovesFromSet(t *testing.T) {
-	tracker := NewReorgTracker()
+	tracker := newTestReorgTracker(t)
 	dest := protocol.ChainSelector(1337)
 
 	tracker.Track(dest, 10)
@@ -75,7 +82,7 @@ func TestReorgTracker_Remove_RemovesFromSet(t *testing.T) {
 }
 
 func TestReorgTracker_Remove_CleansUpEmptyDestination(t *testing.T) {
-	tracker := NewReorgTracker()
+	tracker := newTestReorgTracker(t)
 	dest := protocol.ChainSelector(1337)
 
 	tracker.Track(dest, 10)
@@ -87,7 +94,7 @@ func TestReorgTracker_Remove_CleansUpEmptyDestination(t *testing.T) {
 }
 
 func TestReorgTracker_Remove_NoOpForUnknownSeqNum(t *testing.T) {
-	tracker := NewReorgTracker()
+	tracker := newTestReorgTracker(t)
 	dest := protocol.ChainSelector(1337)
 
 	tracker.Track(dest, 10)
@@ -98,7 +105,7 @@ func TestReorgTracker_Remove_NoOpForUnknownSeqNum(t *testing.T) {
 }
 
 func TestReorgTracker_Remove_NoOpForUnknownDestination(t *testing.T) {
-	tracker := NewReorgTracker()
+	tracker := newTestReorgTracker(t)
 	dest := protocol.ChainSelector(1337)
 	unknownDest := protocol.ChainSelector(9999)
 
@@ -110,7 +117,7 @@ func TestReorgTracker_Remove_NoOpForUnknownDestination(t *testing.T) {
 }
 
 func TestReorgTracker_MultipleReorgsToSameDest(t *testing.T) {
-	tracker := NewReorgTracker()
+	tracker := newTestReorgTracker(t)
 	dest := protocol.ChainSelector(1337)
 
 	tracker.Track(dest, 1)
@@ -129,7 +136,7 @@ func TestReorgTracker_MultipleReorgsToSameDest(t *testing.T) {
 }
 
 func TestReorgTracker_DuplicateTrackIsIdempotent(t *testing.T) {
-	tracker := NewReorgTracker()
+	tracker := newTestReorgTracker(t)
 	dest := protocol.ChainSelector(1337)
 
 	tracker.Track(dest, 10)

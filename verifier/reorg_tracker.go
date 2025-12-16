@@ -1,6 +1,12 @@
 package verifier
 
-import "github.com/smartcontractkit/chainlink-ccv/protocol"
+import (
+	"context"
+	"strconv"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+)
 
 // ReorgTracker tracks sequence numbers that were affected by shallow reorgs.
 // Messages with tracked seqNums must wait for full finalization before verification,
@@ -9,11 +15,15 @@ import "github.com/smartcontractkit/chainlink-ccv/protocol"
 // Tracking is per destination chain since sequence numbers are scoped by (source, dest) lane.
 type ReorgTracker struct {
 	reorgedSeqNums map[protocol.ChainSelector]map[protocol.SequenceNumber]struct{}
+	logger         logger.Logger
+	metrics        MetricLabeler
 }
 
-func NewReorgTracker() *ReorgTracker {
+func NewReorgTracker(lggr logger.Logger, metrics MetricLabeler) *ReorgTracker {
 	return &ReorgTracker{
 		reorgedSeqNums: make(map[protocol.ChainSelector]map[protocol.SequenceNumber]struct{}),
+		logger:         lggr,
+		metrics:        metrics,
 	}
 }
 
@@ -23,7 +33,23 @@ func (t *ReorgTracker) Track(destChain protocol.ChainSelector, seqNum protocol.S
 	if t.reorgedSeqNums[destChain] == nil {
 		t.reorgedSeqNums[destChain] = make(map[protocol.SequenceNumber]struct{})
 	}
+
+	if _, exists := t.reorgedSeqNums[destChain][seqNum]; exists {
+		return
+	}
+
 	t.reorgedSeqNums[destChain][seqNum] = struct{}{}
+
+	count := len(t.reorgedSeqNums[destChain])
+
+	t.logger.Infow("Tracking reorged sequence number",
+		"destChain", destChain,
+		"seqNum", seqNum,
+		"trackedCount", count,
+	)
+
+	t.metrics.With("destChain", strconv.FormatUint(uint64(destChain), 10)).
+		RecordReorgTrackedSeqNums(context.Background(), int64(count))
 }
 
 // RequiresFinalization returns true if the seqNum was reorged for the given destination.
@@ -44,8 +70,24 @@ func (t *ReorgTracker) Remove(destChain protocol.ChainSelector, seqNum protocol.
 	if !ok {
 		return
 	}
+
+	if _, exists := destSet[seqNum]; !exists {
+		return
+	}
+
 	delete(destSet, seqNum)
-	if len(destSet) == 0 {
+
+	newCount := len(destSet)
+	if newCount == 0 {
 		delete(t.reorgedSeqNums, destChain)
 	}
+
+	t.logger.Infow("Removed reorged sequence number from tracking",
+		"destChain", destChain,
+		"seqNum", seqNum,
+		"trackedCount", newCount,
+	)
+
+	t.metrics.With("destChain", strconv.FormatUint(uint64(destChain), 10)).
+		RecordReorgTrackedSeqNums(context.Background(), int64(newCount))
 }

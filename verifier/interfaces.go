@@ -81,4 +81,6 @@ type MetricLabeler interface {
 	RecordSourceChainLatestBlock(ctx context.Context, blockNum int64)
 	// RecordSourceChainFinalizedBlock records the latest finalized block number for a source chain.
 	RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64)
+	// RecordReorgTrackedSeqNums records the number of sequence numbers being tracked due to reorg.
+	RecordReorgTrackedSeqNums(ctx context.Context, count int64)
 }
