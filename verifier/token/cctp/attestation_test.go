@@ -107,9 +107,11 @@ func Test_AttestationFetch(t *testing.T) {
 		attestation, err := attestationService.Fetch(t.Context(), txHash, ccipMessage)
 		require.NoError(t, err)
 
-		assert.Equal(t, "0xaaaaaa11", attestation.attestation.String())
-		assert.Equal(t, "0xbbbbbb22", attestation.encodedCCTPMessage.String())
-		assert.Equal(t, "0x8e1d1a9dbbbbbb22aaaaaa11", attestation.ToVerifierFormat().String())
+		assert.Equal(t, "0xaaaaaa11", attestation.attestation)
+		assert.Equal(t, "0xbbbbbb22", attestation.encodedCCTPMessage)
+		bytes, err := attestation.ToVerifierFormat()
+		require.NoError(t, err)
+		assert.Equal(t, "0x8e1d1a9dbbbbbb22aaaaaa11", bytes.String())
 	})
 
 	t.Run("return error when no matching message found", func(t *testing.T) {
@@ -134,8 +136,8 @@ func TestNewAttestationErrors(t *testing.T) {
 		{
 			name: "decode attestation failure",
 			msg: Message{
-				Status:      attestationStatusPending,
-				Attestation: "0x01",
+				Status:      attestationStatusSuccess,
+				Attestation: "0xzzqwerwwerqwer",
 				Message:     "0x02",
 				DecodedMessage: DecodedMessage{
 					DecodedMessageBody: DecodedMessageBody{
@@ -163,8 +165,8 @@ func TestNewAttestationErrors(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := NewAttestation(ccvVerifierVersion, tc.msg)
-			require.Error(t, err)
+			att := NewAttestation(ccvVerifierVersion, tc.msg)
+			_, err := att.ToVerifierFormat()
 			require.ErrorContains(t, err, tc.expectedError)
 		})
 	}
@@ -173,13 +175,14 @@ func TestNewAttestationErrors(t *testing.T) {
 func TestAttestation_ToVerifierFormat(t *testing.T) {
 	att := Attestation{
 		ccvVerifierVersion: mustByteSliceFromHex("0x01020304"),
-		encodedCCTPMessage: mustByteSliceFromHex("0xdeadbeef"),
-		attestation:        mustByteSliceFromHex("0xcafec0ffee"),
+		encodedCCTPMessage: "0xdeadbeef",
+		attestation:        "0xcafec0ffee",
+		status:             attestationStatusSuccess,
 	}
 
 	expected := "0x01020304deadbeefcafec0ffee"
-	result := att.ToVerifierFormat()
-
+	result, err := att.ToVerifierFormat()
+	require.NoError(t, err)
 	assert.Equal(t, expected, result.String())
 }
 

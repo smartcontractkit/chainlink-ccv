@@ -95,7 +95,7 @@ func Test_AttestationFetch(t *testing.T) {
 		attestationPayload, ok := attestation[msg1.MustMessageID().String()]
 		require.True(t, ok)
 		assert.True(t, attestationPayload.IsReady())
-		assert.Equal(t, "0xdata1", attestationPayload.Data)
+		assert.Equal(t, "0xdata1", attestationPayload.attestation)
 	})
 
 	t.Run("successful fetch for multiple messages with not ready state", func(t *testing.T) {
@@ -118,7 +118,7 @@ func Test_AttestationFetch(t *testing.T) {
 		attestationPayload, ok := attestation[msg4.MustMessageID().String()]
 		require.True(t, ok)
 		assert.False(t, attestationPayload.IsReady())
-		assert.Equal(t, attestationStatusUnspecified, attestationPayload.Status)
+		assert.Equal(t, attestationStatusUnspecified, attestationPayload.status)
 	})
 }
 

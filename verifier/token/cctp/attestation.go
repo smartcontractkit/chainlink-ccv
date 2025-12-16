@@ -17,39 +17,43 @@ type AttestationService interface {
 // allowing creating proper payload for the verifier on the destination chain.
 type Attestation struct {
 	ccvVerifierVersion protocol.ByteSlice
-	attestation        protocol.ByteSlice
-	encodedCCTPMessage protocol.ByteSlice
+	attestation        string
+	encodedCCTPMessage string
+	status             AttestationStatus
 }
 
-func NewAttestation(
-	ccvVerifierVersion protocol.ByteSlice,
-	msg Message,
-) (Attestation, error) {
-	attestation, err := msg.DecodeAttestation()
-	if err != nil {
-		return Attestation{}, fmt.Errorf("failed to decode attestation: %w", err)
-	}
-	encodedCCTPMessage, err := protocol.NewByteSliceFromHex(msg.Message)
-	if err != nil {
-		return Attestation{}, fmt.Errorf("failed to decode CCTP message: %w", err)
-	}
-
+func NewAttestation(ccvVerifierVersion protocol.ByteSlice, msg Message) Attestation {
 	return Attestation{
 		ccvVerifierVersion: ccvVerifierVersion,
-		attestation:        attestation,
-		encodedCCTPMessage: encodedCCTPMessage,
-	}, nil
+		attestation:        msg.Attestation,
+		encodedCCTPMessage: msg.Message,
+		status:             msg.Status,
+	}
 }
 
-// ToVerifierFormat converts the message into protocol.ByteSlice expected
-// by the verifier on the destination chain
-// format: <4 byte verifier version><encoded CCTP message><attestation>.
-func (a *Attestation) ToVerifierFormat() protocol.ByteSlice {
+// ToVerifierFormat converts the message into format: <4 byte verifier version><encoded CCTP message><attestation>.
+func (a *Attestation) ToVerifierFormat() (protocol.ByteSlice, error) {
+	if !a.IsReady() {
+		return nil, fmt.Errorf("attestation is not ready, status: %s", a.status)
+	}
+	attestation, err := protocol.NewByteSliceFromHex(a.attestation)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode attestation hex: %w", err)
+	}
+	encodedCCTPMessage, err := protocol.NewByteSliceFromHex(a.encodedCCTPMessage)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode CCTP message: %w", err)
+	}
+
 	var output protocol.ByteSlice
 	output = append(output, a.ccvVerifierVersion...)
-	output = append(output, a.encodedCCTPMessage...)
-	output = append(output, a.attestation...)
-	return output
+	output = append(output, encodedCCTPMessage...)
+	output = append(output, attestation...)
+	return output, nil
+}
+
+func (a *Attestation) IsReady() bool {
+	return a.status == attestationStatusSuccess
 }
 
 type HTTPAttestationService struct {
@@ -109,10 +113,7 @@ func (h *HTTPAttestationService) extractAttestationFromResponse(response Message
 			)
 			continue
 		}
-		if msg.IsAttestationComplete() {
-			return NewAttestation(h.ccvVerifierVersion, msg)
-		}
-		return Attestation{}, fmt.Errorf("attestation is not ready")
+		return NewAttestation(h.ccvVerifierVersion, msg), nil
 	}
 	return Attestation{}, fmt.Errorf("no matching message found in response")
 }

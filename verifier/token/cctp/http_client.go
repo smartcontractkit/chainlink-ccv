@@ -14,12 +14,14 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+type AttestationStatus string
+
 const (
 	apiVersionV2 = "v2"
 	messagesPath = "messages"
 
-	attestationStatusSuccess string = "complete"
-	attestationStatusPending string = "pending_confirmations"
+	attestationStatusSuccess AttestationStatus = "complete"
+	attestationStatusPending AttestationStatus = "pending_confirmations"
 )
 
 // HTTPClient defines the interface for fetching CCTP v2 messages via HTTP. At this stage we don't expose or implement
@@ -125,12 +127,12 @@ type Messages struct {
 // It contains the message data, attestation signature, and decoded message details
 // needed for cross-chain USDC transfers.
 type Message struct {
-	Message        string         `json:"message"`
-	EventNonce     string         `json:"eventNonce"`
-	Attestation    string         `json:"attestation"`
-	DecodedMessage DecodedMessage `json:"decodedMessage"`
-	CCTPVersion    any            `json:"cctpVersion"`
-	Status         string         `json:"status"`
+	Message        string            `json:"message"`
+	EventNonce     string            `json:"eventNonce"`
+	Attestation    string            `json:"attestation"`
+	DecodedMessage DecodedMessage    `json:"decodedMessage"`
+	CCTPVersion    any               `json:"cctpVersion"`
+	Status         AttestationStatus `json:"status"`
 }
 
 func (m *Message) IsV2() bool {
@@ -150,21 +152,6 @@ func (m *Message) IsV2() bool {
 	default:
 		return false
 	}
-}
-
-func (m *Message) IsAttestationComplete() bool {
-	return m.Status == attestationStatusSuccess
-}
-
-func (m *Message) DecodeAttestation() (protocol.ByteSlice, error) {
-	if !m.IsAttestationComplete() {
-		return nil, fmt.Errorf("attestation is not complete, status: %s", m.Status)
-	}
-	attestation, err := protocol.NewByteSliceFromHex(m.Attestation)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode attestation hex: %w", err)
-	}
-	return attestation, nil
 }
 
 // DecodedMessage represents the 'decodedMessage' object within a Message.

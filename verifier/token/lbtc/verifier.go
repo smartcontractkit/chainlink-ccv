@@ -70,7 +70,7 @@ func (v *Verifier) VerifyMessages(
 			continue
 		}
 
-		attestationBytes, err := protocol.NewByteSliceFromHex(attestation.Data)
+		attestationPayload, err := attestation.ToVerifierFormat()
 		if err != nil {
 			lggr.Errorw("Failed to decode attestation data", "err", err)
 			errors = append(errors, verifier.NewVerificationError(err, task))
@@ -79,7 +79,7 @@ func (v *Verifier) VerifyMessages(
 
 		result, err1 := commit.CreateVerifierNodeResult(
 			&task,
-			attestationBytes,
+			attestationPayload,
 			v.ccvVerifierVersion,
 		)
 		if err1 != nil {

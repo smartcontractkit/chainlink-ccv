@@ -222,9 +222,10 @@ func createTestAttestation() cctp.Attestation {
 		DecodedMessage: cctp.DecodedMessage{
 			Sender: "0x1122334455",
 		},
+		Status: "complete",
 	}
 
 	ccvVerifierVersion := protocol.ByteSlice{0x00, 0x00, 0x00, 0x01}
-	attestation, _ := cctp.NewAttestation(ccvVerifierVersion, msg)
+	attestation := cctp.NewAttestation(ccvVerifierVersion, msg)
 	return attestation
 }

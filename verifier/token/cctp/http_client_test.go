@@ -61,7 +61,7 @@ func TestGetMessages_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, result.Messages, 1)
 	assert.Equal(t, "0xabcd", result.Messages[0].Message)
-	assert.Equal(t, "complete", result.Messages[0].Status)
+	assert.Equal(t, attestationStatusSuccess, result.Messages[0].Status)
 
 	mockHTTPClient.AssertExpectations(t)
 }
@@ -389,7 +389,7 @@ func TestParseResponseBody(t *testing.T) {
 		assert.Equal(t, "12345", msg.EventNonce)
 		assert.Equal(t, "0x9876543210fedcba", msg.Attestation)
 		assert.Equal(t, float64(2), msg.CCTPVersion)
-		assert.Equal(t, "complete", msg.Status)
+		assert.Equal(t, attestationStatusSuccess, msg.Status)
 		assert.Equal(t, "0", msg.DecodedMessage.SourceDomain)
 		assert.Equal(t, "1000000", msg.DecodedMessage.DecodedMessageBody.Amount)
 	})
@@ -454,7 +454,7 @@ func TestParseResponseBody(t *testing.T) {
 		assert.Equal(t, "", msg.Message)
 		assert.Equal(t, "", msg.EventNonce)
 		assert.Equal(t, "", msg.Attestation)
-		assert.Equal(t, "", msg.Status)
+		assert.Equal(t, "", string(msg.Status))
 	})
 
 	t.Run("Edge: Very long hex string", func(t *testing.T) {
