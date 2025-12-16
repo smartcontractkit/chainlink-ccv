@@ -92,7 +92,7 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun, overallTimeout time.D
 					return
 				}
 
-				execEvent, err := tc.Impl[toSelector].WaitOneExecEventBySeqNo(verifyCtx, fromSelector, toSelector, msg.SeqNo, 0)
+				execEvent, err := tc.Impl[toSelector].WaitOneExecEventBySeqNo(verifyCtx, fromSelector, msg.SeqNo, 0)
 				if err != nil {
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						tc.T.Logf("Message %d verification cancelled or timed out", msg.SeqNo)

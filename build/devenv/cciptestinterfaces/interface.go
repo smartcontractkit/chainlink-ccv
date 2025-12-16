@@ -25,7 +25,7 @@ for CCIP16 and CCIP17
 // it deploys network-specific infrastructure, configures both CL nodes and contracts and returns
 // operations for testing and SLA/Metrics assertions.
 type CCIP17ProductConfiguration interface {
-	Chains
+	Chain
 	Observable
 	OnChainConfigurable
 	OffChainConfigurable
@@ -111,28 +111,30 @@ type ExecutionStateChangedEvent struct {
 	ReturnData     []byte
 }
 
-// Chains provides methods to interact with a set of chains that have CCIP deployed.
-type Chains interface {
-	// GetEOAReceiverAddress gets an EOA receiver address for the provided chain selector.
-	GetEOAReceiverAddress(chainSelector uint64) (protocol.UnknownAddress, error)
-	// GetSenderAddress gets the sender address for the provided chain selector.
-	GetSenderAddress(chainSelector uint64) (protocol.UnknownAddress, error)
-	// SendMessage sends a CCIP message from src to dest with the specified message options.
-	SendMessage(ctx context.Context, src, dest uint64, fields MessageFields, opts MessageOptions) (MessageSentEvent, error)
-	// GetExpectedNextSequenceNumber gets an expected sequence number for message with "from" and "to" selectors
-	GetExpectedNextSequenceNumber(ctx context.Context, from, to uint64) (uint64, error)
-	// WaitOneSentEventBySeqNo waits until exactly one event for CCIP message sent is emitted on-chain
-	WaitOneSentEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (MessageSentEvent, error)
-	// WaitOneExecEventBySeqNo waits until exactly one event for CCIP execution state change is emitted on-chain
-	WaitOneExecEventBySeqNo(ctx context.Context, from, to, seq uint64, timeout time.Duration) (ExecutionStateChangedEvent, error)
-	// GetTokenBalance gets the balance of an account for a token on a chain
-	GetTokenBalance(ctx context.Context, chainSelector uint64, address, tokenAddress protocol.UnknownAddress) (*big.Int, error)
-	// GetMaxDataBytes gets the maximum data size for a CCIP message to a remote chain.
+// Chain provides methods to interact with a single chain that has CCIP deployed.
+type Chain interface {
+	// GetEOAReceiverAddress gets an EOA receiver address for this chain.
+	GetEOAReceiverAddress() (protocol.UnknownAddress, error)
+	// GetSenderAddress gets the sender address for this chain.
+	GetSenderAddress() (protocol.UnknownAddress, error)
+	// SendMessage sends a CCIP message to the specified destination chain with the specified message options.
+	SendMessage(ctx context.Context, dest uint64, fields MessageFields, opts MessageOptions) (MessageSentEvent, error)
+	// GetExpectedNextSequenceNumber gets an expected sequence number for message to the specified destination chain.
+	GetExpectedNextSequenceNumber(ctx context.Context, to uint64) (uint64, error)
+	// WaitOneSentEventBySeqNo waits until exactly one event for CCIP message sent is emitted on-chain for the specified destination chain and sequence number.
+	WaitOneSentEventBySeqNo(ctx context.Context, to, seq uint64, timeout time.Duration) (MessageSentEvent, error)
+	// WaitOneExecEventBySeqNo waits until exactly one event for CCIP execution state change is emitted on-chain for the specified source chain and sequence number.
+	WaitOneExecEventBySeqNo(ctx context.Context, from, seq uint64, timeout time.Duration) (ExecutionStateChangedEvent, error)
+	// GetTokenBalance gets the balance of an account for a token on the specified chain.
+	GetTokenBalance(ctx context.Context, address, tokenAddress protocol.UnknownAddress) (*big.Int, error)
+	// GetMaxDataBytes gets the maximum data size for a CCIP message to the specified remote chain.
 	GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
-	// ManuallyExecuteMessage manually executes a message on a destination chain and returns an error if the execution fails.
+	// ManuallyExecuteMessage manually executes a message on this chain and returns an error if the execution fails.
 	ManuallyExecuteMessage(ctx context.Context, message protocol.Message, gasLimit uint64, ccvs []protocol.UnknownAddress, verifierResults [][]byte) (ExecutionStateChangedEvent, error)
-	Curse(ctx context.Context, chainSelector uint64, subjects [][16]byte) error
-	Uncurse(ctx context.Context, chainSelector uint64, subjects [][16]byte) error
+	// Curse curses a list of chains on this chain.
+	Curse(ctx context.Context, subjects [][16]byte) error
+	// Uncurse uncurses a list of chains on this chain.
+	Uncurse(ctx context.Context, subjects [][16]byte) error
 }
 
 type OnChainCommittees struct {

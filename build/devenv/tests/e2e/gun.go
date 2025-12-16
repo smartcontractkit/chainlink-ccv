@@ -155,7 +155,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: fmt.Errorf("could not find WETH address in datastore: %w", err).Error(), Failed: true}
 	}
 
-	sentEvent, err := c.SendMessageWithNonce(ctx, srcChain.ChainSelector, dstChain.ChainSelector, cciptestinterfaces.MessageFields{
+	sentEvent, err := c.SendMessageWithNonce(ctx, dstChain.ChainSelector, cciptestinterfaces.MessageFields{
 		Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
 		Data:     []byte{},
 		FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),

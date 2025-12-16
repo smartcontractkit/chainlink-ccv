@@ -90,6 +90,17 @@ jobs:
           go test -v -timeout 15m -count=1 -run '${{ matrix.test.name }}'
         continue-on-error: true
 
+      - name: Dump logs if they're not already dumped
+        if: always()
+        working-directory: build/devenv/tests/e2e
+        run: |
+          if [ ! -d "logs" ] || [ -z "$(ls -A logs)" ]; then
+            echo "Logs not found or empty. Dumping logs manually..."
+            ccv dl --dir-suffix ${{ matrix.test.name }}
+          else
+            echo "Logs already exist. Skipping manual dump."
+          fi
+
       - name: Upload Logs
         if: always()
         uses: actions/upload-artifact@v4

@@ -114,6 +114,26 @@ var downCmd = &cobra.Command{
 	},
 }
 
+var dumpLogsCmd = &cobra.Command{
+	Use:     "dump-logs",
+	Aliases: []string{"dl"},
+	Short:   "Dump the logs of the development environment",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		dirSuffix, _ := cmd.Flags().GetString("dir-suffix")
+		if dirSuffix == "" {
+			return fmt.Errorf("dir-suffix is required")
+		}
+
+		framework.L.Info().Msg("Dumping the logs of all docker containers in the development environment")
+		_, err := framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, dirSuffix))
+		if err != nil {
+			return fmt.Errorf("failed to dump logs: %w", err)
+		}
+		framework.L.Info().Msg("Logs dumped successfully")
+		return nil
+	},
+}
+
 var bsCmd = &cobra.Command{
 	Use:   "bs",
 	Short: "Manage the Blockscout EVM block explorer",
@@ -682,6 +702,11 @@ func init() {
 	_ = generateConfigsCmd.MarkFlagRequired("cld-domain")
 	_ = generateConfigsCmd.MarkFlagRequired("verifier-pubkeys")
 	_ = generateConfigsCmd.MarkFlagRequired("num-executors")
+
+	// dump logs
+	rootCmd.AddCommand(dumpLogsCmd)
+	dumpLogsCmd.Flags().String("dir-suffix", "", "Suffix to add to the logs directory")
+	_ = dumpLogsCmd.MarkFlagRequired("dir-suffix")
 }
 
 func checkDockerIsRunning() {
