@@ -9,6 +9,9 @@ import (
 )
 
 func ParseSelectorTypes(sels string) ([]protocol.ChainSelector, error) {
+	if sels == "" {
+		return nil, nil
+	}
 	selectorTypesAsArrayOfStrings := strings.Split(sels, ",")
 	selectorTypes := make([]protocol.ChainSelector, 0, len(selectorTypesAsArrayOfStrings))
 	for _, propertyTypeAsString := range selectorTypesAsArrayOfStrings {
