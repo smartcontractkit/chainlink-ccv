@@ -223,7 +223,10 @@ func (a *AggregatorReader) GetVerifications(ctx context.Context, messageIDs []pr
 		MessageIds: messageIDsBytes,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("error calling GetVerifierResultsForMessage: %s", err)
+		return nil, fmt.Errorf("error calling GetVerifierResultsForMessage: %w", err)
+	}
+	if protoResponse == nil {
+		return nil, fmt.Errorf("GetVerifierResultsForMessage returned nil response")
 	}
 
 	resp := v1.VerifierResultsResponse{GetVerifierResultsForMessageResponse: protoResponse}

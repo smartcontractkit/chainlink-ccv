@@ -1194,3 +1194,58 @@ func assertVerifierResultsEqual(t *testing.T, expected, actual *protocol.Verifie
 	assert.Equal(t, expected.VerifierSourceAddress, actual.VerifierSourceAddress, "Verifier source address should match")
 	assert.Equal(t, expected.VerifierDestAddress, actual.VerifierDestAddress, "Verifier dest address should match")
 }
+
+func TestVerifierResultsResponse_NilChecks(t *testing.T) {
+	t.Run("MarshalJSON returns error when GetVerifierResultsForMessageResponse is nil", func(t *testing.T) {
+		response := &VerifierResultsResponse{GetVerifierResultsForMessageResponse: nil}
+		_, err := response.MarshalJSON()
+		require.Error(t, err)
+	})
+
+	t.Run("ToVerifierResults returns error when GetVerifierResultsForMessageResponse is nil", func(t *testing.T) {
+		response := &VerifierResultsResponse{GetVerifierResultsForMessageResponse: nil}
+		_, err := response.ToVerifierResults()
+		require.Error(t, err)
+	})
+}
+
+func TestVerifierResult_NilChecks(t *testing.T) {
+	t.Run("MarshalJSON returns error when VerifierResult is nil", func(t *testing.T) {
+		result := &VerifierResult{VerifierResult: nil}
+		_, err := result.MarshalJSON()
+		require.Error(t, err)
+	})
+
+	t.Run("ToVerifierResult returns error when VerifierResult is nil", func(t *testing.T) {
+		result := &VerifierResult{VerifierResult: nil}
+		_, err := result.ToVerifierResult()
+		require.Error(t, err)
+	})
+
+	t.Run("UnmarshalJSON returns error when message field is missing", func(t *testing.T) {
+		jsonData := `{
+			"message_ccv_addresses": ["0x0102"],
+			"message_executor_address": "0x0304",
+			"ccv_data": "0x0506"
+		}`
+		result := &VerifierResult{}
+		err := json.Unmarshal([]byte(jsonData), result)
+		require.Error(t, err)
+	})
+}
+
+func TestVerifierResultMessage_NilChecks(t *testing.T) {
+	t.Run("ToMessage returns error when Message is nil", func(t *testing.T) {
+		msg := &VerifierResultMessage{Message: nil}
+		_, err := msg.ToMessage()
+		require.Error(t, err)
+	})
+}
+
+func TestVerifierResultsMetadata_NilChecks(t *testing.T) {
+	t.Run("MarshalJSON returns error when VerifierResultMetadata is nil", func(t *testing.T) {
+		metadata := &VerifierResultsMetadata{VerifierResultMetadata: nil}
+		_, err := metadata.MarshalJSON()
+		require.Error(t, err)
+	})
+}

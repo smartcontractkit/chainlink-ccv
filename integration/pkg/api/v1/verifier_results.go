@@ -91,6 +91,10 @@ func NewVerifierResultsResponse(
 }
 
 func (r *VerifierResultsResponse) MarshalJSON() ([]byte, error) {
+	if r.GetVerifierResultsForMessageResponse == nil {
+		return nil, fmt.Errorf("GetVerifierResultsForMessageResponse is nil")
+	}
+
 	results := make([]*VerifierResult, len(r.Results))
 	for i, res := range r.Results {
 		results[i] = &VerifierResult{res}
@@ -131,6 +135,10 @@ func (r *VerifierResultsResponse) UnmarshalJSON(data []byte) error {
 }
 
 func (r *VerifierResultsResponse) ToVerifierResults() (map[protocol.Bytes32]protocol.VerifierResult, error) {
+	if r.GetVerifierResultsForMessageResponse == nil {
+		return nil, fmt.Errorf("GetVerifierResultsForMessageResponse is nil")
+	}
+
 	mappedResults := make(map[protocol.Bytes32]protocol.VerifierResult)
 
 	for i, responseResult := range r.Results {
@@ -176,6 +184,10 @@ func NewVerifierResult(r protocol.VerifierResult) VerifierResult {
 }
 
 func (r *VerifierResult) MarshalJSON() ([]byte, error) {
+	if r.VerifierResult == nil {
+		return nil, fmt.Errorf("VerifierResult is nil")
+	}
+
 	messageCcvAddresses := make([]protocol.UnknownAddress, len(r.MessageCcvAddresses))
 	for i, addr := range r.MessageCcvAddresses {
 		messageCcvAddresses[i] = addr
@@ -203,6 +215,10 @@ func (r *VerifierResult) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
+	if aux.Message == nil {
+		return fmt.Errorf("message field is required but was missing")
+	}
+
 	messageCcvAddresses := make([][]byte, len(aux.MessageCcvAddresses))
 	for i, addr := range aux.MessageCcvAddresses {
 		messageCcvAddresses[i] = addr.Bytes()
@@ -213,16 +229,16 @@ func (r *VerifierResult) UnmarshalJSON(data []byte) error {
 		MessageCcvAddresses:    messageCcvAddresses,
 		MessageExecutorAddress: aux.MessageExecutorAddress.Bytes(),
 		CcvData:                aux.CcvData,
-		Metadata: &v1.VerifierResultMetadata{
-			Timestamp:             aux.Metadata.Timestamp,
-			VerifierSourceAddress: aux.Metadata.VerifierSourceAddress,
-			VerifierDestAddress:   aux.Metadata.VerifierDestAddress,
-		},
+		Metadata:               aux.Metadata.VerifierResultMetadata,
 	}
 	return nil
 }
 
 func (r *VerifierResult) ToVerifierResult() (protocol.VerifierResult, error) {
+	if r.VerifierResult == nil {
+		return protocol.VerifierResult{}, fmt.Errorf("VerifierResult is nil")
+	}
+
 	message, err := (&VerifierResultMessage{Message: r.Message}).ToMessage()
 	if err != nil {
 		return protocol.VerifierResult{}, fmt.Errorf("failed to convert VerifierResultMessage to Message: %w", err)
@@ -230,7 +246,7 @@ func (r *VerifierResult) ToVerifierResult() (protocol.VerifierResult, error) {
 
 	messageID, err := message.MessageID()
 	if err != nil {
-		return protocol.VerifierResult{}, fmt.Errorf("error computing message ID %w", err)
+		return protocol.VerifierResult{}, fmt.Errorf("error computing message ID: %w", err)
 	}
 
 	var timestamp time.Time
@@ -260,6 +276,10 @@ func (r *VerifierResult) ToVerifierResult() (protocol.VerifierResult, error) {
 }
 
 func (r *VerifierResultsMetadata) MarshalJSON() ([]byte, error) {
+	if r.VerifierResultMetadata == nil {
+		return nil, fmt.Errorf("VerifierResultMetadata is nil")
+	}
+
 	return json.Marshal(
 		verifierResultsMetadataJSON{
 			Timestamp:             r.Timestamp,
@@ -337,6 +357,10 @@ func (r *VerifierResultMessage) UnmarshalJSON(data []byte) error {
 }
 
 func (r *VerifierResultMessage) ToMessage() (protocol.Message, error) {
+	if r.Message == nil {
+		return protocol.Message{}, fmt.Errorf("message field is nil")
+	}
+
 	ccvAndExecutorHash := protocol.Bytes32{}
 
 	if r.CcvAndExecutorHash != nil {
