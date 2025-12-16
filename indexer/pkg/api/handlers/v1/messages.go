@@ -14,12 +14,12 @@ import (
 )
 
 type MessagesInput struct {
-	SourceChainSelectors []protocol.ChainSelector // Excluded from form due to gin parsing
-	DestChainSelectors   []protocol.ChainSelector // Excluded from form due to gin parsing
-	Start                int64                    `form:"start"`
-	End                  int64                    `form:"end"`
-	Limit                uint64                   `form:"limit"`
-	Offset               uint64                   `form:"offset"`
+	SourceChainSelectors []protocol.ChainSelector `query:"sourceChainSelectors"` // Excluded from form due to gin parsing
+	DestChainSelectors   []protocol.ChainSelector `query:"destChainSelectors"`   // Excluded from form due to gin parsing
+	Start                int64                    `form:"start" query:"start"`
+	End                  int64                    `form:"end" query:"end"`
+	Limit                uint64                   `form:"limit" query:"limit"`
+	Offset               uint64                   `form:"offset" query:"offset"`
 }
 type MessagesResponse struct {
 	Success  bool                                  `json:"success"`

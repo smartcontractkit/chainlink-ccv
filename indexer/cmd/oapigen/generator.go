@@ -34,7 +34,8 @@ func main() {
 	mux := http.NewServeMux()
 
 	// Create a Huma v2 API on top of the router.
-	api := humago.New(mux, huma.DefaultConfig("Indexer API", "1.0.0"))
+	cfg := huma.DefaultConfig("Indexer API", "1.0.0")
+	api := humago.New(mux, cfg)
 	grp := huma.NewGroup(api, "/v1")
 
 	huma.Register(grp, huma.Operation{
@@ -64,7 +65,7 @@ func main() {
 		return nil, nil
 	})
 
-	yml, err := api.OpenAPI().YAML()
+	yml, err := api.OpenAPI().DowngradeYAML()
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, "failed to generate openapi yaml:", err)
 		os.Exit(1)

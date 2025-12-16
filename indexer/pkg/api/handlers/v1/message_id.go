@@ -13,7 +13,7 @@ import (
 )
 
 type MessageIDInput struct {
-	MessageID string `json:"messageId"`
+	MessageID string `json:"messageId" path:"messageID"`
 }
 
 type MessageIDResponse struct {

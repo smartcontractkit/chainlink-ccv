@@ -17,45 +17,38 @@ components:
       properties:
         $schema:
           description: A URL to the JSON Schema for this object.
-          examples:
-            - https://example.com/schemas/ErrorModel.json
+          example: https://example.com/schemas/ErrorModel.json
           format: uri
           readOnly: true
           type: string
         detail:
           description: A human-readable explanation specific to this occurrence of the problem.
-          examples:
-            - Property foo is required but is missing.
+          example: Property foo is required but is missing.
           type: string
         errors:
           description: Optional list of individual error details
           items:
             $ref: "#/components/schemas/ErrorDetail"
-          type:
-            - array
-            - "null"
+          nullable: true
+          type: array
         instance:
           description: A URI reference that identifies the specific occurrence of the problem.
-          examples:
-            - https://example.com/error-log/abc123
+          example: https://example.com/error-log/abc123
           format: uri
           type: string
         status:
           description: HTTP status code
-          examples:
-            - 400
+          example: 400
           format: int64
           type: integer
         title:
           description: A short, human-readable summary of the problem type. This value should not change between occurrences of the error.
-          examples:
-            - Bad Request
+          example: Bad Request
           type: string
         type:
           default: about:blank
           description: A URI reference to human-readable documentation for the error.
-          examples:
-            - https://example.com/errors/example
+          example: https://example.com/errors/example
           format: uri
           type: string
       type: object
@@ -67,17 +60,17 @@ components:
           minimum: 0
           type: integer
         ccv_and_executor_hash:
-          contentEncoding: base64
+          format: base64
           type: string
         data:
-          contentEncoding: base64
+          format: base64
           type: string
         data_length:
           format: int32
           minimum: 0
           type: integer
         dest_blob:
-          contentEncoding: base64
+          format: base64
           type: string
         dest_blob_length:
           format: int32
@@ -96,28 +89,28 @@ components:
           minimum: 0
           type: integer
         off_ramp_address:
-          contentEncoding: base64
+          format: base64
           type: string
         off_ramp_address_length:
           format: int32
           minimum: 0
           type: integer
         on_ramp_address:
-          contentEncoding: base64
+          format: base64
           type: string
         on_ramp_address_length:
           format: int32
           minimum: 0
           type: integer
         receiver:
-          contentEncoding: base64
+          format: base64
           type: string
         receiver_length:
           format: int32
           minimum: 0
           type: integer
         sender:
-          contentEncoding: base64
+          format: base64
           type: string
         sender_length:
           format: int32
@@ -193,39 +186,38 @@ components:
       additionalProperties: false
       properties:
         amount:
-          type:
-            - string
-            - "null"
+          nullable: true
+          type: string
         dest_token_address:
-          contentEncoding: base64
+          format: base64
           type: string
         dest_token_address_length:
           format: int32
           minimum: 0
           type: integer
         extra_data:
-          contentEncoding: base64
+          format: base64
           type: string
         extra_data_length:
           format: int32
           minimum: 0
           type: integer
         source_pool_address:
-          contentEncoding: base64
+          format: base64
           type: string
         source_pool_address_length:
           format: int32
           minimum: 0
           type: integer
         source_token_address:
-          contentEncoding: base64
+          format: base64
           type: string
         source_token_address_length:
           format: int32
           minimum: 0
           type: integer
         token_receiver:
-          contentEncoding: base64
+          format: base64
           type: string
         token_receiver_length:
           format: int32
@@ -253,31 +245,30 @@ components:
       additionalProperties: false
       properties:
         ccv_data:
-          contentEncoding: base64
+          format: base64
           type: string
         message:
           $ref: "#/components/schemas/Message"
         message_ccv_addresses:
           items:
-            contentEncoding: base64
+            format: base64
             type: string
-          type:
-            - array
-            - "null"
+          nullable: true
+          type: array
         message_executor_address:
-          contentEncoding: base64
+          format: base64
           type: string
         message_id:
-          contentEncoding: base64
+          format: base64
           type: string
         timestamp:
           format: date-time
           type: string
         verifier_dest_address:
-          contentEncoding: base64
+          format: base64
           type: string
         verifier_source_address:
-          contentEncoding: base64
+          format: base64
           type: string
       required:
         - message_id
@@ -319,12 +310,18 @@ components:
 info:
   title: Indexer API
   version: 1.0.0
-openapi: 3.1.0
+openapi: 3.0.3
 paths:
   /v1/messageid/{messageID}:
     get:
       description: Get message by ID
       operationId: message-by-id
+      parameters:
+        - in: path
+          name: messageID
+          required: true
+          schema:
+            type: string
       responses:
         "204":
           description: No Content
@@ -355,23 +352,47 @@ paths:
       description: Get messages
       operationId: get-messages
       parameters:
-        - in: form
+        - explode: false
+          in: query
+          name: sourceChainSelectors
+          schema:
+            items:
+              format: int64
+              minimum: 0
+              type: integer
+            nullable: true
+            type: array
+        - explode: false
+          in: query
+          name: destChainSelectors
+          schema:
+            items:
+              format: int64
+              minimum: 0
+              type: integer
+            nullable: true
+            type: array
+        - explode: false
+          in: query
           name: start
           schema:
             format: int64
             type: integer
-        - in: form
+        - explode: false
+          in: query
           name: end
           schema:
             format: int64
             type: integer
-        - in: form
+        - explode: false
+          in: query
           name: limit
           schema:
             format: int64
             minimum: 0
             type: integer
-        - in: form
+        - explode: false
+          in: query
           name: offset
           schema:
             format: int64
@@ -406,27 +427,28 @@ paths:
       description: Get verifier results
       operationId: verifier-result
       parameters:
-        - in: form
+        - explode: false
+          in: query
           name: sourceChainSelectors
           schema:
             items:
               format: int64
               minimum: 0
               type: integer
-            type:
-              - array
-              - "null"
-        - in: form
+            nullable: true
+            type: array
+        - explode: false
+          in: query
           name: destChainSelectors
           schema:
             items:
               format: int64
               minimum: 0
               type: integer
-            type:
-              - array
-              - "null"
-        - in: form
+            nullable: true
+            type: array
+        - explode: false
+          in: query
           name: start
           schema:
             format: int64
@@ -449,9 +471,8 @@ paths:
                 additionalProperties:
                   items:
                     $ref: "#/components/schemas/VerifierResultWithMetadata"
-                  type:
-                    - array
-                    - "null"
+                  nullable: true
+                  type: array
                 type: object
         default:
           content:

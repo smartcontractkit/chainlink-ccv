@@ -15,9 +15,9 @@ import (
 )
 
 type VerifierResultsInput struct {
-	SourceChainSelectors []protocol.ChainSelector `form:"sourceChainSelectors"`
-	DestChainSelectors   []protocol.ChainSelector `form:"destChainSelectors"`
-	Start                int64                    `form:"start"`
+	SourceChainSelectors []protocol.ChainSelector `query:"sourceChainSelectors"` // Excluded from form due to gin parsing
+	DestChainSelectors   []protocol.ChainSelector `query:"destChainSelectors"`   // Excluded from form due to gin parsing
+	Start                int64                    `form:"start" query:"start"`
 }
 type VerifierResultResponse struct {
 	Success         bool                                           `json:"success"`
