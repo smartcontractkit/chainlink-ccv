@@ -131,6 +131,17 @@ func TestAggregatorAuthentication(t *testing.T) {
 		require.Equal(t, codes.Unauthenticated, st.Code(), "should return Unauthenticated error")
 	})
 
+	t.Run("BatchWriteCommitteeVerifierNodeResult requires authentication", func(t *testing.T) {
+		req := &committeepb.BatchWriteCommitteeVerifierNodeResultRequest{}
+
+		_, err := committeeClient.BatchWriteCommitteeVerifierNodeResult(ctx, req)
+		require.Error(t, err, "unauthenticated request should fail")
+
+		st, ok := status.FromError(err)
+		require.True(t, ok, "error should be a gRPC status error")
+		require.Equal(t, codes.Unauthenticated, st.Code(), "should return Unauthenticated error")
+	})
+
 	t.Run("ReadCommitteeVerifierNodeResult requires authentication", func(t *testing.T) {
 		req := &committeepb.ReadCommitteeVerifierNodeResultRequest{}
 
