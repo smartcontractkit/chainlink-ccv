@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -112,12 +113,20 @@ func (i *IndexerAPIReader) makeRequest(ctx context.Context, endpoint string, par
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		i.lggr.Errorw("Indexer returned non-OK status", "status", resp.StatusCode)
+		b := maybeGetBody(resp.Body)
+		i.lggr.Errorw("Indexer returned non-OK status", "status", resp.StatusCode, "body", b)
+		if b != "" {
+			return fmt.Errorf("indexer returned status %d: %s", resp.StatusCode, b)
+		}
 		return fmt.Errorf("indexer returned status %d", resp.StatusCode)
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
-		i.lggr.Errorw("Failed to decode JSON response", "error", err)
+		b := maybeGetBody(resp.Body)
+		i.lggr.Errorw("Failed to decode JSON response", "error", err, "body", b)
+		if b != "" {
+			return fmt.Errorf("failed to decode JSON response: %w; body: %s", err, b)
+		}
 		return fmt.Errorf("failed to decode JSON response: %w", err)
 	}
 
@@ -195,4 +204,32 @@ func sourceVerifierAddresses(verifierResults []protocol.VerifierResult) []string
 		sourceVerifierAddresses = append(sourceVerifierAddresses, verifierResult.VerifierSourceAddress.String())
 	}
 	return sourceVerifierAddresses
+}
+
+// maybeGetBody returns a trimmed, possibly truncated string of at most 16 KiB
+// read from the provided reader. It does NOT close the reader; callers must
+// ensure the underlying ReadCloser is closed. This avoids double-close issues.
+func maybeGetBody(body io.Reader) string {
+	if body == nil {
+		return "nil reader detected"
+	}
+
+	const maxBody = 16 * 1024
+	lr := io.LimitReader(body, int64(maxBody+1))
+	b, err := io.ReadAll(lr)
+	if err != nil {
+		return fmt.Sprintf("failed to read body: %v", err)
+	}
+
+	truncated := false
+	if len(b) > maxBody {
+		truncated = true
+		b = b[:maxBody]
+	}
+
+	s := strings.TrimSpace(string(b))
+	if truncated {
+		s = s + "...(truncated)"
+	}
+	return s
 }
