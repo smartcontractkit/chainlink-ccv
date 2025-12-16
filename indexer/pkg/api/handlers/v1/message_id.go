@@ -46,7 +46,9 @@ func (h *MessageIDHandler) Handle(c *gin.Context) {
 
 	// Get all verifications for the messageID
 	verifications, err := h.storage.GetCCVData(c.Request.Context(), messageIDBytes32)
-	h.lggr.Errorf("Error retrieving CCV data for MessageID %s: %v", messageID, err)
+	if err != nil {
+		h.lggr.Errorf("Error retrieving CCV data for MessageID %s: %v", messageID, err)
+	}
 
 	switch {
 	case errors.Is(err, storage.ErrCCVDataNotFound):
