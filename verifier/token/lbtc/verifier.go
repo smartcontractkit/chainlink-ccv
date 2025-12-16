@@ -58,9 +58,25 @@ func (v Verifier) VerifyMessages(
 			continue
 		}
 
+		if !attestation.IsReady() {
+			lggr.Debugw("Attestation not ready for message")
+			errors = append(errors, verifier.NewVerificationError(
+				fmt.Errorf("attestation not ready for message ID: %s", task.MessageID),
+				task,
+			))
+			continue
+		}
+
+		attestationBytes, err := protocol.NewByteSliceFromHex(attestation.Data)
+		if err != nil {
+			lggr.Errorw("Failed to decode attestation data", "err", err)
+			errors = append(errors, verifier.NewVerificationError(err, task))
+			continue
+		}
+
 		result, err1 := commit.CreateVerifierNodeResult(
 			&task,
-			attestation,
+			attestationBytes,
 			v.ccvVerifierVersion,
 		)
 		if err1 != nil {

@@ -180,6 +180,7 @@ func main() {
 	lggr.Infow("Token verifier service stopped gracefully")
 }
 
+//nolint:dupl
 func createCCTPCoordinator(
 	verifierID string,
 	cctpConfig *cctp.CCTPConfig,
@@ -221,6 +222,7 @@ func createCCTPCoordinator(
 	return cctpCoordinator
 }
 
+//nolint:dupl
 func createLBTCCoordinator(
 	verifierID string,
 	lbtcConfig *lbtc.LBTCConfig,
@@ -233,14 +235,15 @@ func createLBTCCoordinator(
 ) *verifier.Coordinator {
 	sourceConfigs := createSourceConfigs(lbtcConfig.ParsedVerifiers, rmnRemoteAddresses)
 
-	lbtcVerifier := lbtc.NewVerifier(
-		lggr,
-		lbtc.NewAttestationService(*lbtcConfig),
-	)
+	attestationService, err := lbtc.NewAttestationService(lggr, *lbtcConfig)
+	if err != nil {
+		lggr.Errorw("Failed to create LBTC attestation service", "error", err)
+		os.Exit(1)
+	}
 
 	lbtcCoordinator, err := verifier.NewCoordinator(
 		lggr,
-		lbtcVerifier,
+		lbtc.NewVerifier(lggr, attestationService),
 		sourceReaders,
 		ccvStorage,
 		verifier.CoordinatorConfig{
