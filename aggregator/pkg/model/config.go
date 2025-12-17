@@ -75,7 +75,6 @@ func (q *QuorumConfig) GetSourceVerifierAddressBytes() []byte {
 type StorageType string
 
 const (
-	StorageTypeMemory     StorageType = "memory"
 	StorageTypePostgreSQL StorageType = "postgres"
 )
 
