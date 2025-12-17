@@ -51,7 +51,7 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 		Once()
 
 	outCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
-	ccvDataBatcher := batcher.NewBatcher(ctx, 2, 1*time.Millisecond, outCh)
+	ccvDataBatcher := batcher.NewBatcher(ctx, 2, 1*time.Minute, outCh)
 
 	v := lbtc.NewVerifier(lggr, mockAttestationService)
 	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
@@ -114,7 +114,7 @@ func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
 		Once()
 
 	outCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
-	ccvDataBatcher := batcher.NewBatcher(ctx, 3, 1*time.Millisecond, outCh)
+	ccvDataBatcher := batcher.NewBatcher(ctx, 3, 1*time.Minute, outCh)
 
 	v := lbtc.NewVerifier(lggr, mockAttestationService)
 	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
