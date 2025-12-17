@@ -17,40 +17,13 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-// ErrorDetail defines model for ErrorDetail.
-type ErrorDetail struct {
-	// Location Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id'
-	Location *string `json:"location,omitempty"`
-
-	// Message Error message text
+// ErrorResponse defines model for ErrorResponse.
+type ErrorResponse struct {
+	// Message A human-readable explanation specific to this occurrence of the problem.
 	Message *string `json:"message,omitempty"`
 
-	// Value The value at the given location
-	Value interface{} `json:"value,omitempty"`
-}
-
-// ErrorModel defines model for ErrorModel.
-type ErrorModel struct {
-	// Schema A URL to the JSON Schema for this object.
-	Schema *string `json:"$schema,omitempty"`
-
-	// Detail A human-readable explanation specific to this occurrence of the problem.
-	Detail *string `json:"detail,omitempty"`
-
-	// Errors Optional list of individual error details
-	Errors *[]ErrorDetail `json:"errors"`
-
-	// Instance A URI reference that identifies the specific occurrence of the problem.
-	Instance *string `json:"instance,omitempty"`
-
 	// Status HTTP status code
-	Status *int64 `json:"status,omitempty"`
-
-	// Title A short, human-readable summary of the problem type. This value should not change between occurrences of the error.
-	Title *string `json:"title,omitempty"`
-
-	// Type A URI reference to human-readable documentation for the error.
-	Type *string `json:"type,omitempty"`
+	Status int64 `json:"status"`
 }
 
 // Message defines model for Message.
@@ -566,9 +539,9 @@ type ClientWithResponsesInterface interface {
 }
 
 type MessageByIdResponse struct {
-	Body                          []byte
-	HTTPResponse                  *http.Response
-	ApplicationproblemJSONDefault *ErrorModel
+	Body         []byte
+	HTTPResponse *http.Response
+	JSONDefault  *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -588,9 +561,9 @@ func (r MessageByIdResponse) StatusCode() int {
 }
 
 type GetMessagesResponse struct {
-	Body                          []byte
-	HTTPResponse                  *http.Response
-	ApplicationproblemJSONDefault *ErrorModel
+	Body         []byte
+	HTTPResponse *http.Response
+	JSONDefault  *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -610,9 +583,9 @@ func (r GetMessagesResponse) StatusCode() int {
 }
 
 type VerifierResultResponse struct {
-	Body                          []byte
-	HTTPResponse                  *http.Response
-	ApplicationproblemJSONDefault *ErrorModel
+	Body         []byte
+	HTTPResponse *http.Response
+	JSONDefault  *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
@@ -673,11 +646,11 @@ func ParseMessageByIdResponse(rsp *http.Response) (*MessageByIdResponse, error) 
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorModel
+		var dest ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.JSONDefault = &dest
 
 	}
 
@@ -699,11 +672,11 @@ func ParseGetMessagesResponse(rsp *http.Response) (*GetMessagesResponse, error) 
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorModel
+		var dest ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.JSONDefault = &dest
 
 	}
 
@@ -725,11 +698,11 @@ func ParseVerifierResultResponse(rsp *http.Response) (*VerifierResultResponse, e
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorModel
+		var dest ErrorResponse
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.JSONDefault = &dest
 
 	}
 

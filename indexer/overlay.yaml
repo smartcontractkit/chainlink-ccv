@@ -1,3 +1,5 @@
+# OpenAPI overlay file is used to override specific parts of the
+# generated spec to use specific types.
 overlay: 1.0.0
 info:
   title: Overlay

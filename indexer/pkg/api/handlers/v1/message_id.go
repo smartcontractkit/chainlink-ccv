@@ -40,7 +40,7 @@ func (h *MessageIDHandler) Handle(c *gin.Context) {
 	messageID := c.Param("messageID")
 	messageIDBytes32, err := protocol.NewBytes32FromString(messageID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, makeErrorResponse("Invalid MessageID"))
+		c.JSON(http.StatusBadRequest, makeErrorResponse(http.StatusBadRequest, "Invalid MessageID"))
 		return
 	}
 
@@ -52,11 +52,11 @@ func (h *MessageIDHandler) Handle(c *gin.Context) {
 
 	switch {
 	case errors.Is(err, storage.ErrCCVDataNotFound):
-		c.JSON(http.StatusNotFound, makeErrorResponse("MessageID not found"))
+		c.JSON(http.StatusNotFound, makeErrorResponse(http.StatusNotFound, "MessageID not found"))
 		return
 	case err == nil:
 	default:
-		c.JSON(http.StatusInternalServerError, makeErrorResponse("Internal Server Error"))
+		c.JSON(http.StatusInternalServerError, makeErrorResponse(http.StatusInternalServerError, "Internal Server Error"))
 		return
 	}
 

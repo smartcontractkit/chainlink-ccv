@@ -36,6 +36,14 @@ func main() {
 	// Create a Huma v2 API on top of the router.
 	cfg := huma.DefaultConfig("Indexer API", "1.0.0")
 	api := humago.New(mux, cfg)
+
+	// Huma will use this to override its built in error type.
+	huma.NewError = func(status int, msg string, errs ...error) huma.StatusError {
+		return v1.ErrorResponse{
+			Status:  status,
+			Message: msg,
+		}
+	}
 	grp := huma.NewGroup(api, "/v1")
 
 	huma.Register(grp, huma.Operation{
@@ -65,6 +73,16 @@ func main() {
 		return nil, nil
 	})
 
+	oapi := api.OpenAPI()
+
+	// Remove $schema properties from all schemas (it was only in ErrorResponse)
+	if oapi.Components != nil {
+		for _, schema := range oapi.Components.Schemas.Map() {
+			delete(schema.Properties, "$schema")
+		}
+	}
+
+	//yml, err := api.OpenAPI().Downgrade()
 	yml, err := api.OpenAPI().DowngradeYAML()
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, "failed to generate openapi yaml:", err)
