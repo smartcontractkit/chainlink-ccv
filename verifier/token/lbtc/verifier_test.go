@@ -85,8 +85,8 @@ func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
 	mockAttestationService := mocks.NewLBTCAttestationService(t)
 
 	task1 := internal.CreateTestVerificationTask(1)
-	task2 := internal.CreateTestVerificationTask(1)
-	task3 := internal.CreateTestVerificationTask(1)
+	task2 := internal.CreateTestVerificationTask(2)
+	task3 := internal.CreateTestVerificationTask(3)
 	tasks := []verifier.VerificationTask{task1, task2, task3}
 
 	attestations := map[string]lbtc.Attestation{
