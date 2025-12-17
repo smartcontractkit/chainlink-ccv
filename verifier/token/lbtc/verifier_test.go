@@ -64,7 +64,7 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	mockAttestationService.AssertExpectations(t)
 
 	results := internal.ReadResultsFromChannel(t, outCh)
-	require.Len(t, results, 2, "Expected one result in batcher")
+	require.Len(t, results, 2, "Expected two results in batcher")
 
 	assert.Equal(t, task1.MessageID, results[0].MessageID.String())
 	assert.Equal(t, "0xf0f3a135abcdef", results[0].Signature.String())
