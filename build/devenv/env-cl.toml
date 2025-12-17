@@ -37,6 +37,7 @@
   root_path = "../../"
   committee_name = "default"
   node_index = 0
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-1-db"
@@ -56,6 +57,7 @@
   root_path = "../../"
   committee_name = "default"
   node_index = 1
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-2-db"
@@ -76,6 +78,7 @@
   root_path = "../../"
   committee_name = "secondary"
   node_index = 0
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "secondary-verifier-1-db"
@@ -95,6 +98,7 @@
   root_path = "../../"
   committee_name = "secondary"
   node_index = 1
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "secondary-verifier-2-db"
@@ -115,6 +119,7 @@
   root_path = "../../"
   committee_name = "tertiary"
   node_index = 0
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "tertiary-verifier-1-db"
@@ -134,6 +139,7 @@
   root_path = "../../"
   committee_name = "tertiary"
   node_index = 1
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "tertiary-verifier-2-db"

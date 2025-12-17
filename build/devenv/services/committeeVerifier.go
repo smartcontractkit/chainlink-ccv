@@ -132,6 +132,10 @@ type VerifierInput struct {
 	// TLSCACertFile is the path to the CA certificate file for TLS verification.
 	// This is set by the aggregator service and used to trust the self-signed CA.
 	TLSCACertFile string `toml:"-"`
+
+	// InsecureAggregatorConnection disables TLS for the aggregator gRPC connection.
+	// Only use for CL node tests where certificates cannot be injected.
+	InsecureAggregatorConnection bool `toml:"insecure_aggregator_connection"`
 }
 
 func (v *VerifierInput) GenerateJobSpec() (verifierJobSpec string, err error) {
@@ -162,6 +166,7 @@ func (v *VerifierInput) buildVerifierConfiguration(config *commit.Config) error 
 	config.OnRampAddresses = v.OnRampAddresses
 	config.DefaultExecutorOnRampAddresses = v.DefaultExecutorOnRampAddresses
 	config.RMNRemoteAddresses = v.RMNRemoteAddresses
+	config.InsecureAggregatorConnection = v.InsecureAggregatorConnection
 
 	// The value in the template should be usable for devenv setups, only override if a different value is provided.
 	if v.MonitoringOtelExporterHTTPEndpoint != "" {

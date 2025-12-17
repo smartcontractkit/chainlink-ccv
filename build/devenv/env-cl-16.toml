@@ -236,6 +236,7 @@ cl_nodes_funding_link = 50
   root_path = "../../"
   committee_name = "default"
   node_index = 0
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-1-db"
@@ -255,6 +256,7 @@ cl_nodes_funding_link = 50
   root_path = "../../"
   committee_name = "default"
   node_index = 1
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-2-db"
@@ -274,6 +276,7 @@ cl_nodes_funding_link = 50
   root_path = "../../"
   committee_name = "default"
   node_index = 2
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-3-db"
@@ -293,6 +296,7 @@ cl_nodes_funding_link = 50
   root_path = "../../"
   committee_name = "default"
   node_index = 3
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-4-db"
@@ -312,6 +316,7 @@ cl_nodes_funding_link = 50
   root_path = "../../"
   committee_name = "default"
   node_index = 4
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-5-db"
@@ -331,6 +336,7 @@ cl_nodes_funding_link = 50
   root_path = "../../"
   committee_name = "default"
   node_index = 5
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-6-db"
@@ -350,6 +356,7 @@ cl_nodes_funding_link = 50
   root_path = "../../"
   committee_name = "default"
   node_index = 6
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-7-db"
@@ -369,6 +376,7 @@ cl_nodes_funding_link = 50
   root_path = "../../"
   committee_name = "default"
   node_index = 7
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-8-db"
@@ -388,6 +396,7 @@ cl_nodes_funding_link = 50
   root_path = "../../"
   committee_name = "default"
   node_index = 8
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-9-db"
@@ -407,6 +416,7 @@ cl_nodes_funding_link = 50
   root_path = "../../"
   committee_name = "default"
   node_index = 9
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-10-db"
@@ -426,6 +436,7 @@ cl_nodes_funding_link = 50
   root_path = "../../"
   committee_name = "default"
   node_index = 10
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-11-db"
@@ -445,6 +456,7 @@ cl_nodes_funding_link = 50
   root_path = "../../"
   committee_name = "default"
   node_index = 11
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-12-db"
@@ -464,6 +476,7 @@ cl_nodes_funding_link = 50
   root_path = "../../"
   committee_name = "default"
   node_index = 12
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-13-db"
@@ -483,6 +496,7 @@ cl_nodes_funding_link = 50
   root_path = "../../"
   committee_name = "default"
   node_index = 13
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-14-db"
@@ -502,6 +516,7 @@ cl_nodes_funding_link = 50
   root_path = "../../"
   committee_name = "default"
   node_index = 14
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-15-db"
@@ -521,6 +536,7 @@ cl_nodes_funding_link = 50
   root_path = "../../"
   committee_name = "default"
   node_index = 15
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-16-db"
@@ -541,6 +557,7 @@ cl_nodes_funding_link = 50
   root_path = "../../"
   committee_name = "secondary"
   node_index = 0
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "secondary-verifier-1-db"
@@ -560,6 +577,7 @@ cl_nodes_funding_link = 50
   root_path = "../../"
   committee_name = "secondary"
   node_index = 1
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "secondary-verifier-2-db"
@@ -580,6 +598,7 @@ cl_nodes_funding_link = 50
   root_path = "../../"
   committee_name = "tertiary"
   node_index = 0
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "tertiary-verifier-1-db"
@@ -599,6 +618,7 @@ cl_nodes_funding_link = 50
   root_path = "../../"
   committee_name = "tertiary"
   node_index = 1
+  insecure_aggregator_connection = true
   [verifier.db]
     image = "postgres:16-alpine"
     name = "tertiary-verifier-2-db"

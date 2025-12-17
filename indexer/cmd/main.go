@@ -141,7 +141,7 @@ func createReader(lggr logger.Logger, cfg *config.VerifierConfig) (*readers.Resi
 		return readers.NewAggregatorReader(cfg.Address, lggr, cfg.Since, hmac.ClientConfig{
 			APIKey: cfg.APIKey,
 			Secret: cfg.Secret,
-		})
+		}, cfg.InsecureConnection)
 	case config.ReaderTypeRest:
 		return readers.NewRestReader(readers.RestReaderConfig{
 			BaseURL:        cfg.BaseURL,
@@ -165,7 +165,7 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 	aggregator, err := readers.NewAggregatorReader(cfg.Discovery.Address, lggr, int64(persistedSinceValue), hmac.ClientConfig{
 		APIKey: cfg.Discovery.APIKey,
 		Secret: cfg.Discovery.Secret,
-	})
+	}, cfg.Discovery.InsecureConnection)
 	if err != nil {
 		return nil, err
 	}

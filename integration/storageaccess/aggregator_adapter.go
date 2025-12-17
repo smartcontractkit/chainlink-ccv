@@ -8,6 +8,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	insecuregrpc "google.golang.org/grpc/credentials/insecure"
 
 	v1 "github.com/smartcontractkit/chainlink-ccv/integration/pkg/api/v1"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -99,9 +100,13 @@ func (a *AggregatorWriter) Close() error {
 }
 
 // NewAggregatorWriter creates instance of AggregatorWriter that satisfies CCVNodeDataWriter interface.
-func NewAggregatorWriter(address string, lggr logger.Logger, hmacConfig *hmac.ClientConfig) (*AggregatorWriter, error) {
-	dialOptions := []grpc.DialOption{
-		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: AdapterMinTLSVersion})),
+// If insecure is true, TLS verification is disabled (only for testing).
+func NewAggregatorWriter(address string, lggr logger.Logger, hmacConfig *hmac.ClientConfig, insecure bool) (*AggregatorWriter, error) {
+	var dialOptions []grpc.DialOption
+	if insecure {
+		dialOptions = append(dialOptions, grpc.WithTransportCredentials(insecuregrpc.NewCredentials()))
+	} else {
+		dialOptions = append(dialOptions, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: AdapterMinTLSVersion})))
 	}
 
 	if hmacConfig != nil {
@@ -133,9 +138,13 @@ type AggregatorReader struct {
 }
 
 // NewAggregatorReader creates instance of AggregatorReader that satisfies OffchainStorageReader interface.
-func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacConfig *hmac.ClientConfig) (*AggregatorReader, error) {
-	dialOptions := []grpc.DialOption{
-		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: AdapterMinTLSVersion})),
+// If insecure is true, TLS verification is disabled (only for testing).
+func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacConfig *hmac.ClientConfig, insecure bool) (*AggregatorReader, error) {
+	var dialOptions []grpc.DialOption
+	if insecure {
+		dialOptions = append(dialOptions, grpc.WithTransportCredentials(insecuregrpc.NewCredentials()))
+	} else {
+		dialOptions = append(dialOptions, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: AdapterMinTLSVersion})))
 	}
 
 	if hmacConfig != nil {
