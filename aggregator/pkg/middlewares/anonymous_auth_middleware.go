@@ -91,35 +91,29 @@ func (m *AnonymousAuthMiddleware) isTrustedProxy(ipStr string) bool {
 }
 
 func (m *AnonymousAuthMiddleware) tryGetIP(ctx context.Context) (string, bool) {
-	// If no trusted proxies are configured, anonymous auth is disabled
-	if len(m.trustedProxies) == 0 {
-		return "", false
-	}
-
 	peerIP, hasPeer := ipFromPeer(ctx)
 	if !hasPeer {
 		m.logger.Infow("Anonymous auth rejected: no peer IP in context")
 		return "", false
 	}
 
-	// Only allow anonymous auth if peer is a trusted proxy
-	if !m.isTrustedProxy(peerIP) {
-		m.logger.Infow("Anonymous auth rejected: peer is not a trusted proxy", "peerIP", peerIP)
-		return "", false
-	}
-
-	if ip, ok := ipFromForwardedFor(ctx); ok {
-		return ip, true
-	}
-	if ip, ok := ipFromRealIP(ctx); ok {
-		return ip, true
-	}
-
-	// Trusted proxy but no forwarded headers - use proxy IP (without port for consistency)
+	// Extract IP without port for consistent usage
 	host, _, err := net.SplitHostPort(peerIP)
 	if err != nil {
 		host = peerIP
 	}
+
+	// Only trust forwarding headers when peer is a trusted proxy
+	if m.isTrustedProxy(peerIP) {
+		if ip, ok := ipFromForwardedFor(ctx); ok {
+			return ip, true
+		}
+		if ip, ok := ipFromRealIP(ctx); ok {
+			return ip, true
+		}
+	}
+
+	// Rate limit by peer IP when not behind trusted proxy
 	return host, true
 }
 

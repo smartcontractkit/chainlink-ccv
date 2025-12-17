@@ -208,16 +208,18 @@ func TestAnonymousAuthMiddleware_IsTrustedProxy_IPv6(t *testing.T) {
 	}
 }
 
-func TestAnonymousAuthMiddleware_TryGetIP_WithNoTrustedProxies_DisablesAnonymousAuth(t *testing.T) {
+func TestAnonymousAuthMiddleware_TryGetIP_WithNoTrustedProxies_UsesPeerIP(t *testing.T) {
 	middleware, err := NewAnonymousAuthMiddleware([]string{}, logger.Test(t))
 	require.NoError(t, err)
 
 	tests := []struct {
 		name         string
 		setupContext func() context.Context
+		expectedIP   string
+		expectFound  bool
 	}{
 		{
-			name: "returns false even with X-Forwarded-For header",
+			name: "ignores X-Forwarded-For header and uses peer IP when no trusted proxies",
 			setupContext: func() context.Context {
 				ctx := context.Background()
 				ctx = metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
@@ -228,9 +230,11 @@ func TestAnonymousAuthMiddleware_TryGetIP_WithNoTrustedProxies_DisablesAnonymous
 				})
 				return ctx
 			},
+			expectedIP:  "10.0.0.1",
+			expectFound: true,
 		},
 		{
-			name: "returns false even with valid peer IP",
+			name: "uses peer IP directly when no trusted proxies configured",
 			setupContext: func() context.Context {
 				ctx := context.Background()
 				ctx = peer.NewContext(ctx, &peer.Peer{
@@ -238,12 +242,16 @@ func TestAnonymousAuthMiddleware_TryGetIP_WithNoTrustedProxies_DisablesAnonymous
 				})
 				return ctx
 			},
+			expectedIP:  "10.0.0.1",
+			expectFound: true,
 		},
 		{
 			name: "returns false when no peer in context",
 			setupContext: func() context.Context {
 				return context.Background()
 			},
+			expectedIP:  "",
+			expectFound: false,
 		},
 	}
 
@@ -251,8 +259,10 @@ func TestAnonymousAuthMiddleware_TryGetIP_WithNoTrustedProxies_DisablesAnonymous
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := tt.setupContext()
 			ip, found := middleware.tryGetIP(ctx)
-			require.False(t, found, "anonymous auth should be disabled when no trusted proxies configured")
-			require.Empty(t, ip)
+			require.Equal(t, tt.expectFound, found)
+			if tt.expectFound {
+				require.Equal(t, tt.expectedIP, ip)
+			}
 		})
 	}
 }
@@ -314,7 +324,7 @@ func TestAnonymousAuthMiddleware_TryGetIP_WithTrustedProxies(t *testing.T) {
 			expectFound: true,
 		},
 		{
-			name: "rejects anonymous auth when peer is NOT trusted proxy",
+			name: "uses peer IP when peer is NOT trusted proxy (ignores spoofed X-Forwarded-For)",
 			setupContext: func() context.Context {
 				ctx := context.Background()
 				ctx = metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
@@ -325,11 +335,11 @@ func TestAnonymousAuthMiddleware_TryGetIP_WithTrustedProxies(t *testing.T) {
 				})
 				return ctx
 			},
-			expectedIP:  "",
-			expectFound: false,
+			expectedIP:  "8.8.8.8",
+			expectFound: true,
 		},
 		{
-			name: "rejects anonymous auth when peer is NOT trusted even with X-Real-IP",
+			name: "uses peer IP when peer is NOT trusted (ignores spoofed X-Real-IP)",
 			setupContext: func() context.Context {
 				ctx := context.Background()
 				ctx = metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
@@ -340,8 +350,8 @@ func TestAnonymousAuthMiddleware_TryGetIP_WithTrustedProxies(t *testing.T) {
 				})
 				return ctx
 			},
-			expectedIP:  "",
-			expectFound: false,
+			expectedIP:  "8.8.8.8",
+			expectFound: true,
 		},
 		{
 			name: "uses peer IP (without port) when trusted proxy but no forwarded headers",
@@ -414,7 +424,7 @@ func TestAnonymousAuthMiddleware_Intercept(t *testing.T) {
 		expectIdentity   bool
 	}{
 		{
-			name: "does not set identity when peer is untrusted (even with spoofed header)",
+			name: "uses peer IP when peer is untrusted (ignores spoofed header)",
 			setupContext: func() context.Context {
 				ctx := context.Background()
 				ctx = metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
@@ -425,7 +435,8 @@ func TestAnonymousAuthMiddleware_Intercept(t *testing.T) {
 				})
 				return ctx
 			},
-			expectIdentity: false,
+			expectedCallerID: "8.8.8.8",
+			expectIdentity:   true,
 		},
 		{
 			name: "sets identity from X-Forwarded-For when trusted proxy",
@@ -512,7 +523,7 @@ func TestAnonymousAuthMiddleware_TryGetIP_IPv6(t *testing.T) {
 			expectFound: true,
 		},
 		{
-			name: "rejects anonymous auth when IPv6 peer is NOT trusted",
+			name: "uses peer IP when IPv6 peer is NOT trusted (ignores spoofed header)",
 			setupContext: func() context.Context {
 				ctx := context.Background()
 				ctx = metadata.NewIncomingContext(ctx, metadata.New(map[string]string{
@@ -523,8 +534,8 @@ func TestAnonymousAuthMiddleware_TryGetIP_IPv6(t *testing.T) {
 				})
 				return ctx
 			},
-			expectedIP:  "",
-			expectFound: false,
+			expectedIP:  "2607:f8b0:4004:800::200e",
+			expectFound: true,
 		},
 		{
 			name: "uses IPv6 peer IP (without port) when trusted proxy but no forwarded headers",
@@ -584,7 +595,7 @@ func TestAnonymousAuthMiddleware_SecurityScenario_IPSpoofingPrevention(t *testin
 	middleware, err := NewAnonymousAuthMiddleware([]string{"10.0.0.0/8"}, logger.Test(t))
 	require.NoError(t, err)
 
-	t.Run("attacker from untrusted peer cannot get anonymous auth", func(t *testing.T) {
+	t.Run("attacker from untrusted peer is rate limited by their real IP", func(t *testing.T) {
 		// Attacker connects directly (not through ALB) with public IP
 		// and tries to set X-Forwarded-For to victim's IP
 		attackerPeerIP := "203.0.113.100" // Attacker's real IP (not trusted)
@@ -599,9 +610,9 @@ func TestAnonymousAuthMiddleware_SecurityScenario_IPSpoofingPrevention(t *testin
 		})
 
 		ip, found := middleware.tryGetIP(ctx)
-		// Anonymous auth should be denied entirely for untrusted peers
-		require.False(t, found, "untrusted peer should not get anonymous auth")
-		require.Empty(t, ip)
+		// Attacker gets their real IP, not the spoofed one
+		require.True(t, found)
+		require.Equal(t, attackerPeerIP, ip, "untrusted peer should be identified by their real IP, not spoofed header")
 	})
 
 	t.Run("legitimate request through ALB uses forwarded IP", func(t *testing.T) {
@@ -624,13 +635,13 @@ func TestAnonymousAuthMiddleware_SecurityScenario_IPSpoofingPrevention(t *testin
 	})
 }
 
-func TestAnonymousAuthMiddleware_NoTrustedProxies_DisablesAnonymousAuth(t *testing.T) {
+func TestAnonymousAuthMiddleware_NoTrustedProxies_UsesPeerIPDirectly(t *testing.T) {
 	middleware, err := NewAnonymousAuthMiddleware([]string{}, logger.Test(t))
 	require.NoError(t, err)
 
 	info := &grpc.UnaryServerInfo{FullMethod: "/Test/Method"}
 
-	t.Run("no identity set when no trusted proxies configured", func(t *testing.T) {
+	t.Run("identity set with peer IP when no trusted proxies configured", func(t *testing.T) {
 		ctx := context.Background()
 		ctx = peer.NewContext(ctx, &peer.Peer{
 			Addr: &net.TCPAddr{IP: net.ParseIP("10.0.0.1"), Port: 50051},
@@ -646,7 +657,9 @@ func TestAnonymousAuthMiddleware_NoTrustedProxies_DisablesAnonymousAuth(t *testi
 		require.NoError(t, err)
 		require.Equal(t, "response", resp)
 
-		_, ok := auth.IdentityFromContext(capturedCtx)
-		require.False(t, ok, "no identity should be set when trusted proxies not configured")
+		identity, ok := auth.IdentityFromContext(capturedCtx)
+		require.True(t, ok, "identity should be set with peer IP when no trusted proxies configured")
+		require.Equal(t, "10.0.0.1", identity.CallerID)
+		require.True(t, identity.IsAnonymous)
 	})
 }
