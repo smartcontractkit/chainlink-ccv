@@ -66,5 +66,6 @@ func validateReadRequest(req *committeepb.ReadCommitteeVerifierNodeResultRequest
 	return validation.ValidateStruct(
 		req,
 		validation.Field(&req.MessageId, validation.Required, validation.Length(32, 32)),
+		validation.Field(&req.Address, validation.Required),
 	)
 }
