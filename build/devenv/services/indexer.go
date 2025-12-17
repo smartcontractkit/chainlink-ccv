@@ -46,6 +46,10 @@ type IndexerInput struct {
 	Out            *IndexerOutput        `toml:"-"`
 	IndexerConfig  *config.Config        `toml:"indexer_config"`
 	Secrets        *config.SecretsConfig `toml:"secrets"`
+
+	// TLSCACertFile is the path to the CA certificate file for TLS verification.
+	// This is set by the aggregator service and used to trust the self-signed CA.
+	TLSCACertFile string `toml:"-"`
 }
 
 type IndexerOutput struct {
@@ -304,6 +308,15 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 				},
 			}
 		},
+	}
+
+	// Mount CA cert for TLS verification if provided. Only our self-signed CA is used for now.
+	if in.TLSCACertFile != "" {
+		req.Files = append(req.Files, testcontainers.ContainerFile{
+			HostFilePath:      in.TLSCACertFile,
+			ContainerFilePath: "/etc/ssl/certs/ca-certificates.crt",
+			FileMode:          0o644,
+		})
 	}
 
 	if in.SourceCodePath != "" {

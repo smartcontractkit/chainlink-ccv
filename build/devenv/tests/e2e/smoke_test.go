@@ -30,15 +30,6 @@ const (
 	defaultExecTimeout = 40 * time.Second
 )
 
-func defaultAggregatorPort(in *ccv.Cfg) int {
-	for _, aggregator := range in.Aggregator {
-		if aggregator.CommitteeName == "default" {
-			return aggregator.HostPort
-		}
-	}
-	panic(fmt.Sprintf("default aggregator not found, expected to find a default aggregator in the configuration, got: %+v", in.Aggregator))
-}
-
 type tokenTransfer struct {
 	tokenAmount  cciptestinterfaces.TokenAmount
 	destTokenRef datastore.AddressRef
@@ -92,10 +83,10 @@ func TestE2ESmoke(t *testing.T) {
 	})
 
 	var defaultAggregatorClient *ccv.AggregatorClient
-	if endpoint, ok := in.AggregatorEndpoints[evm.DefaultCommitteeVerifierQualifier]; ok {
-		defaultAggregatorClient, err = ccv.NewAggregatorClient(
+	if _, ok := in.AggregatorEndpoints[evm.DefaultCommitteeVerifierQualifier]; ok {
+		defaultAggregatorClient, err = in.NewAggregatorClientForCommittee(
 			zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
-			endpoint)
+			evm.DefaultCommitteeVerifierQualifier)
 		require.NoError(t, err)
 		require.NotNil(t, defaultAggregatorClient)
 		t.Cleanup(func() {

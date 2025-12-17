@@ -50,11 +50,9 @@ func TestE2EReorg(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	defaultAggregatorAddr := fmt.Sprintf("127.0.0.1:%d", defaultAggregatorPort(in))
-
-	defaultAggregatorClient, err := ccv.NewAggregatorClient(
+	defaultAggregatorClient, err := in.NewAggregatorClientForCommittee(
 		zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
-		defaultAggregatorAddr)
+		evm.DefaultCommitteeVerifierQualifier)
 	require.NoError(t, err)
 	require.NotNil(t, defaultAggregatorClient)
 	t.Cleanup(func() {

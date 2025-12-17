@@ -304,10 +304,10 @@ func TestE2ELoad(t *testing.T) {
 	require.NoError(t, err)
 
 	var defaultAggregatorClient *ccv.AggregatorClient
-	if endpoint, ok := in.AggregatorEndpoints[evm.DefaultCommitteeVerifierQualifier]; ok {
-		defaultAggregatorClient, err = ccv.NewAggregatorClient(
+	if _, ok := in.AggregatorEndpoints[evm.DefaultCommitteeVerifierQualifier]; ok {
+		defaultAggregatorClient, err = in.NewAggregatorClientForCommittee(
 			zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
-			endpoint)
+			evm.DefaultCommitteeVerifierQualifier)
 		require.NoError(t, err)
 		require.NotNil(t, defaultAggregatorClient)
 		t.Cleanup(func() {

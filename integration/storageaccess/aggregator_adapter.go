@@ -2,11 +2,12 @@ package storageaccess
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"sync/atomic"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
 
 	v1 "github.com/smartcontractkit/chainlink-ccv/integration/pkg/api/v1"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -15,6 +16,10 @@ import (
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 	msgdiscoverypb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery/v1"
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
+)
+
+const (
+	AdapterMinTLSVersion = tls.VersionTLS13
 )
 
 type AggregatorWriter struct {
@@ -96,7 +101,7 @@ func (a *AggregatorWriter) Close() error {
 // NewAggregatorWriter creates instance of AggregatorWriter that satisfies CCVNodeDataWriter interface.
 func NewAggregatorWriter(address string, lggr logger.Logger, hmacConfig *hmac.ClientConfig) (*AggregatorWriter, error) {
 	dialOptions := []grpc.DialOption{
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: AdapterMinTLSVersion})),
 	}
 
 	if hmacConfig != nil {
@@ -130,7 +135,7 @@ type AggregatorReader struct {
 // NewAggregatorReader creates instance of AggregatorReader that satisfies OffchainStorageReader interface.
 func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacConfig *hmac.ClientConfig) (*AggregatorReader, error) {
 	dialOptions := []grpc.DialOption{
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: AdapterMinTLSVersion})),
 	}
 
 	if hmacConfig != nil {

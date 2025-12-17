@@ -2,10 +2,13 @@ package ccv
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -14,7 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
@@ -170,9 +173,25 @@ type AggregatorClient struct {
 	conn                 *grpc.ClientConn
 }
 
-// NewAggregatorClient creates a new AggregatorClient without authentication.
-func NewAggregatorClient(logger zerolog.Logger, addr string) (*AggregatorClient, error) {
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+// NewAggregatorClient creates a new AggregatorClient with TLS.
+// If caCertFile is provided, it will be used to verify the server certificate.
+func NewAggregatorClient(logger zerolog.Logger, addr, caCertFile string) (*AggregatorClient, error) {
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS13}
+
+	if caCertFile != "" {
+		caCert, err := os.ReadFile(caCertFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA cert file: %w", err)
+		}
+
+		certPool := x509.NewCertPool()
+		if !certPool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("failed to append CA cert to pool")
+		}
+		tlsConfig.RootCAs = certPool
+	}
+
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to aggregator: %w", err)
 	}

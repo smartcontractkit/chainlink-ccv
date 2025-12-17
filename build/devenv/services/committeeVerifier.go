@@ -128,6 +128,10 @@ type VerifierInput struct {
 	// NOTE: this should be removed from the verifier app config toml and into another config file
 	// that is specifically for standalone mode verifiers.
 	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
+
+	// TLSCACertFile is the path to the CA certificate file for TLS verification.
+	// This is set by the aggregator service and used to trust the self-signed CA.
+	TLSCACertFile string `toml:"-"`
 }
 
 func (v *VerifierInput) GenerateJobSpec() (verifierJobSpec string, err error) {
@@ -354,6 +358,15 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 		WaitingFor: wait.ForLog("Using real blockchain information from environment").
 			WithStartupTimeout(120 * time.Second).
 			WithPollInterval(3 * time.Second),
+	}
+
+	// Mount CA cert for TLS verification if provided. Only our self-signed CA is used for now.
+	if in.TLSCACertFile != "" {
+		req.Files = append(req.Files, testcontainers.ContainerFile{
+			HostFilePath:      in.TLSCACertFile,
+			ContainerFilePath: "/etc/ssl/certs/ca-certificates.crt",
+			FileMode:          0o644,
+		})
 	}
 
 	// Note: identical code to aggregator.go/executor.go -- will indexer be identical as well?
