@@ -25,7 +25,7 @@ func NewVerifier(
 	return &Verifier{
 		lggr:               lggr,
 		attestationService: attestationService,
-		ccvVerifierVersion: ccvVerifierVersion,
+		ccvVerifierVersion: CCVVerifierVersion,
 	}
 }
 
@@ -70,7 +70,7 @@ func (v *Verifier) VerifyMessages(
 			continue
 		}
 
-		attestationBytes, err := protocol.NewByteSliceFromHex(attestation.Data)
+		attestationPayload, err := attestation.ToVerifierFormat()
 		if err != nil {
 			lggr.Errorw("Failed to decode attestation data", "err", err)
 			errors = append(errors, verifier.NewVerificationError(err, task))
@@ -79,7 +79,7 @@ func (v *Verifier) VerifyMessages(
 
 		result, err1 := commit.CreateVerifierNodeResult(
 			&task,
-			attestationBytes,
+			attestationPayload,
 			v.ccvVerifierVersion,
 		)
 		if err1 != nil {
@@ -88,7 +88,7 @@ func (v *Verifier) VerifyMessages(
 			continue
 		}
 
-		// 2.1 Add to batche one by one
+		// 2.1 Add to batcher one by one
 		if err = ccvDataBatcher.Add(*result); err != nil {
 			lggr.Errorw("VerifierResult: Failed to add to batcher", "err", err)
 			errors = append(errors, verifier.NewVerificationError(err, task))
