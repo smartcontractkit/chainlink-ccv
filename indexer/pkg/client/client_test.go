@@ -142,7 +142,7 @@ func TestReadMessages(t *testing.T) {
 	mock := &mockClient{
 		getMessagesResp: &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(bmsg))},
 	}
-	cw := &iclient.ClientWithResponses{mock}
+	cw := &iclient.ClientWithResponses{ClientInterface: mock}
 	ic := &IndexerClient{ClientWithResponses: cw, lggr: logger.Test(t)}
 
 	msgs, err := ic.ReadMessages(context.Background(), protocol.MessagesV1Request{})
@@ -165,7 +165,7 @@ func TestGetVerifierResults(t *testing.T) {
 	mock := &mockClient{
 		messageByIdResp: &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(bmid))},
 	}
-	cw := &iclient.ClientWithResponses{mock}
+	cw := &iclient.ClientWithResponses{ClientInterface: mock}
 	ic := &IndexerClient{ClientWithResponses: cw, lggr: logger.Test(t)}
 
 	vr, err := ic.GetVerifierResults(context.Background(), protocol.Bytes32{})
@@ -176,7 +176,7 @@ func TestGetVerifierResults(t *testing.T) {
 }
 
 func TestNewIndexerClient(t *testing.T) {
-	ic, err := NewIndexerClient(logger.Test(t), "http://example.com/")
+	ic, err := NewIndexerClient(logger.Test(t), "http://example.com/", nil)
 	require.NoError(t, err)
 	require.NotNil(t, ic)
 	// ensure fields are set
@@ -195,9 +195,11 @@ type mockClient struct {
 func (m *mockClient) MessageById(ctx context.Context, messageID string, reqEditors ...iclient.RequestEditorFn) (*http.Response, error) {
 	return m.messageByIdResp, m.msgIdErr
 }
+
 func (m *mockClient) GetMessages(ctx context.Context, params *iclient.GetMessagesParams, reqEditors ...iclient.RequestEditorFn) (*http.Response, error) {
 	return m.getMessagesResp, m.getErr
 }
+
 func (m *mockClient) VerifierResult(ctx context.Context, params *iclient.VerifierResultParams, reqEditors ...iclient.RequestEditorFn) (*http.Response, error) {
 	return nil, nil
 }

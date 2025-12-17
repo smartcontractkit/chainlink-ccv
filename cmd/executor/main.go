@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -19,13 +20,13 @@ import (
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
-	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
@@ -199,7 +200,13 @@ func main() {
 	//
 	// Initialize indexer client
 	// ------------------------------------------------------------------------------------------------
-	indexerClient := storageaccess.NewIndexerAPIReader(lggr, executorConfig.IndexerAddress)
+	indexerClient, err := client.NewIndexerClient(lggr, executorConfig.IndexerAddress, &http.Client{
+		Timeout: 30 * time.Second,
+	})
+	if err != nil {
+		lggr.Errorw("Failed to create indexer client", "error", err)
+		os.Exit(1)
+	}
 
 	//
 	// Parse per chain configuration from executor configuration

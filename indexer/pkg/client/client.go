@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 	iclient "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client/internal"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -18,8 +19,12 @@ var ErrResponseTooLarge = errors.New("response body too large")
 
 const MaxBodySize = 10 << 20 // 10MB
 
-func NewIndexerClient(lggr logger.Logger, indexerURI string) (*IndexerClient, error) {
-	cl, err := iclient.NewClientWithResponses(indexerURI)
+func NewIndexerClient(lggr logger.Logger, indexerURI string, httpClient *http.Client) (*IndexerClient, error) {
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+
+	cl, err := iclient.NewClientWithResponses(indexerURI, iclient.WithHTTPClient(httpClient))
 	if err != nil {
 		return nil, err
 	}
@@ -29,7 +34,6 @@ func NewIndexerClient(lggr logger.Logger, indexerURI string) (*IndexerClient, er
 		indexerURI:          indexerURI,
 		ClientWithResponses: cl,
 	}, nil
-
 }
 
 type IndexerClient struct {
@@ -38,9 +42,26 @@ type IndexerClient struct {
 	indexerURI string
 }
 
+func (ic *IndexerClient) ReadVerifierResults(ctx context.Context, queryData protocol.VerifierResultsV1Request) (v1.VerifierResultResponse, error) {
+	resp, err := ic.VerifierResult(ctx, &iclient.VerifierResultParams{
+		SourceChainSelectors: &queryData.SourceChainSelectors,
+		DestChainSelectors:   &queryData.DestChainSelectors,
+		Start:                &queryData.Start,
+	})
+
+	var verifierResultResponse v1.VerifierResultResponse
+	if err = processResponse(resp, &verifierResultResponse); err != nil {
+		ic.lggr.Errorw("Indexer ReadVerifierResults returned error", "error", err)
+		return v1.VerifierResultResponse{}, err
+	}
+
+	ic.lggr.Debugw("Successfully retrieved VerifierResults", "dataCount", len(verifierResultResponse.VerifierResults))
+	return verifierResultResponse, nil
+}
+
 // ReadMessages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message.
 func (ic *IndexerClient) ReadMessages(ctx context.Context, queryData protocol.MessagesV1Request) (map[string]protocol.MessageWithMetadata, error) {
-	resp, err := ic.ClientWithResponses.GetMessages(ctx, &iclient.GetMessagesParams{
+	resp, err := ic.GetMessages(ctx, &iclient.GetMessagesParams{
 		SourceChainSelectors: &queryData.SourceChainSelectors,
 		DestChainSelectors:   &queryData.DestChainSelectors,
 		Start:                &queryData.Start,
@@ -67,9 +88,9 @@ func getAddrs(results []protocol.VerifierResult) []string {
 	return addrs
 }
 
-// GetVerifierResults returns all verifierResults for a given messageID
+// GetVerifierResults returns all verifierResults for a given messageID.
 func (ic *IndexerClient) GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error) {
-	resp, err := ic.ClientInterface.MessageById(ctx, messageID.String())
+	resp, err := ic.MessageById(ctx, messageID.String())
 
 	var messageIDResponse protocol.MessageIDV1Response
 	if err = processResponse(resp, &messageIDResponse); err != nil {

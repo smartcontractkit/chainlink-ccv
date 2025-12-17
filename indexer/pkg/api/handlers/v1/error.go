@@ -3,16 +3,16 @@ package v1
 import "fmt"
 
 type ErrorResponse struct {
-	Status  int    `json:"status" example:"400" doc:"HTTP status code"`
-	Message string `json:"message,omitempty" example:"Invalid chain selector" doc:"A human-readable explanation specific to this occurrence of the problem."`
+	Status  int    `json:"status"            doc:"HTTP status code"                                                         example:"400"`
+	Message string `json:"message,omitempty" doc:"A human-readable explanation specific to this occurrence of the problem." example:"Invalid chain selector"`
 }
 
-// GetStatus implements the interface huma.StatusError
+// GetStatus implements the interface huma.StatusError.
 func (er ErrorResponse) GetStatus() int {
 	return er.Status
 }
 
-// GetError implements the interface huma.StatusError
+// GetError implements the interface huma.StatusError.
 func (er ErrorResponse) GetError() string {
 	return er.Message
 }
