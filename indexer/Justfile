@@ -27,6 +27,6 @@ create-migration name:
 
 codegen:
     rm -f indexer_openapi_v1.yaml
-    rm -f pkg/client/client.go
+    rm -f pkg/client/internal/client.go
     cd cmd/oapigen && go run generator.go ../../indexer_opanapi_v1.yaml
     oapi-codegen -config client-codegen.yaml indexer_opanapi_v1.yaml

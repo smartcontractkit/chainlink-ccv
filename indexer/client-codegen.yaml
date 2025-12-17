@@ -1,5 +1,5 @@
 package: client
-output: pkg/client/client.go
+output: pkg/client/internal/client.go
 generate:
     client: true
     models: true
