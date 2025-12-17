@@ -19,20 +19,14 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-var (
-	ccvAddress1        = protocol.UnknownAddress{0x11, 0x12, 0x13}
-	ccvAddress2        = protocol.UnknownAddress{0x21, 0x22, 0x23}
-	executorAddress    = protocol.UnknownAddress{0x31, 0x32, 0x33}
-	ccvVerifierVersion = protocol.ByteSlice{0x00, 0x00, 0x00, 0x01}
-)
+var ccvVerifierVersion = protocol.ByteSlice{0x00, 0x00, 0x00, 0x01}
 
 func TestVerifier_VerifyMessages_Success(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx, cancel := context.WithCancel(t.Context())
 	lggr := logger.Test(t)
 	mockAttestationService := mocks.NewCCTPAttestationService(t)
 
-	task := createTestVerificationTask()
+	task := internal.CreateTestVerificationTask(1)
 	tasks := []verifier.VerificationTask{task}
 
 	testAttestation := createTestAttestation()
@@ -62,18 +56,17 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, task.MessageID, results[0].MessageID.String())
 	assert.Equal(t, attestation, results[0].Signature)
-	assert.Equal(t, []protocol.UnknownAddress{ccvAddress1, ccvAddress2}, results[0].CCVAddresses)
-	assert.Equal(t, executorAddress, results[0].ExecutorAddress)
+	assert.Equal(t, []protocol.UnknownAddress{internal.CCVAddress1, internal.CCVAddress2}, results[0].CCVAddresses)
+	assert.Equal(t, internal.ExecutorAddress, results[0].ExecutorAddress)
 	assert.Equal(t, ccvVerifierVersion, results[0].CCVVersion)
 }
 
 func TestVerifier_VerifyMessages_AttestationServiceFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	lggr := logger.Test(t)
 	mockAttestationService := mocks.NewCCTPAttestationService(t)
 
-	task := createTestVerificationTask()
+	task := internal.CreateTestVerificationTask(1)
 	tasks := []verifier.VerificationTask{task}
 
 	expectedErr := errors.New("attestation service unavailable")
@@ -107,7 +100,7 @@ func TestVerifier_VerifyMessages_BatcherFailure(t *testing.T) {
 	lggr := logger.Test(t)
 	mockAttestationService := mocks.NewCCTPAttestationService(t)
 
-	task := createTestVerificationTask()
+	task := internal.CreateTestVerificationTask(1)
 	tasks := []verifier.VerificationTask{task}
 
 	testAttestation := createTestAttestation()
@@ -140,14 +133,9 @@ func TestVerifier_VerifyMessages_MultipleTasksWithMixedResults(t *testing.T) {
 	lggr := logger.Test(t)
 	mockAttestationService := mocks.NewCCTPAttestationService(t)
 
-	task1 := createTestVerificationTask()
-	task1.Message.SequenceNumber = 100
-
-	task2 := createTestVerificationTask()
-	task2.Message.SequenceNumber = 101
-
-	task3 := createTestVerificationTask()
-	task3.Message.SequenceNumber = 102
+	task1 := internal.CreateTestVerificationTask(100)
+	task2 := internal.CreateTestVerificationTask(101)
+	task3 := internal.CreateTestVerificationTask(102)
 
 	tasks := []verifier.VerificationTask{task1, task2, task3}
 
@@ -192,45 +180,6 @@ func TestVerifier_VerifyMessages_MultipleTasksWithMixedResults(t *testing.T) {
 	require.Len(t, results, 2, "Expected two results in batcher")
 	assert.Equal(t, task1.MessageID, results[0].MessageID.String())
 	assert.Equal(t, task3.MessageID, results[1].MessageID.String())
-}
-
-func createTestVerificationTask() verifier.VerificationTask {
-	sourceChain := protocol.ChainSelector(1)
-	destChain := protocol.ChainSelector(2)
-
-	message := protocol.Message{
-		Version:              1,
-		SourceChainSelector:  sourceChain,
-		DestChainSelector:    destChain,
-		SequenceNumber:       protocol.SequenceNumber(100),
-		OnRampAddress:        protocol.UnknownAddress{0x01, 0x02},
-		Sender:               protocol.UnknownAddress{0x03, 0x04},
-		OffRampAddress:       protocol.UnknownAddress{0x05, 0x06},
-		Receiver:             protocol.UnknownAddress{0x07, 0x08},
-		Finality:             10,
-		ExecutionGasLimit:    100000,
-		CcipReceiveGasLimit:  50000,
-		OnRampAddressLength:  2,
-		SenderLength:         2,
-		OffRampAddressLength: 2,
-		ReceiverLength:       2,
-	}
-
-	messageID := message.MustMessageID()
-	return verifier.VerificationTask{
-		MessageID: messageID.String(),
-		Message:   message,
-		TxHash:    protocol.ByteSlice{0xaa, 0xbb, 0xcc},
-		ReceiptBlobs: []protocol.ReceiptWithBlob{
-			// Create receipt structure: [CCV1, CCV2, Executor]
-			{Issuer: ccvAddress1, Blob: []byte("ccv1-blob")},
-			{Issuer: ccvAddress2, Blob: []byte("ccv2-blob")},
-			{Issuer: executorAddress, Blob: []byte("executor-blob")},
-		},
-		BlockNumber: 12345,
-		FirstSeenAt: time.Now(),
-		QueuedAt:    time.Now(),
-	}
 }
 
 func createTestAttestation() cctp.Attestation {

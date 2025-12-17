@@ -17,19 +17,13 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-var (
-	ccvAddress1     = protocol.UnknownAddress{0x11, 0x12, 0x13}
-	ccvAddress2     = protocol.UnknownAddress{0x21, 0x22, 0x23}
-	executorAddress = protocol.UnknownAddress{0x31, 0x32, 0x33}
-)
-
 func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	lggr := logger.Test(t)
 	mockAttestationService := mocks.NewLBTCAttestationService(t)
 
-	task1 := createTestVerificationTask(1)
-	task2 := createTestVerificationTask(2)
+	task1 := internal.CreateTestVerificationTask(1)
+	task2 := internal.CreateTestVerificationTask(2)
 	tasks := []verifier.VerificationTask{task1, task2}
 
 	attestations := map[string]lbtc.Attestation{
@@ -74,14 +68,14 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 
 	assert.Equal(t, task1.MessageID, results[0].MessageID.String())
 	assert.Equal(t, "0xf0f3a135abcdef", results[0].Signature.String())
-	assert.Equal(t, []protocol.UnknownAddress{ccvAddress1, ccvAddress2}, results[0].CCVAddresses)
-	assert.Equal(t, executorAddress, results[0].ExecutorAddress)
+	assert.Equal(t, []protocol.UnknownAddress{internal.CCVAddress1, internal.CCVAddress2}, results[0].CCVAddresses)
+	assert.Equal(t, internal.ExecutorAddress, results[0].ExecutorAddress)
 	assert.Equal(t, lbtc.CCVVerifierVersion, results[0].CCVVersion)
 
 	assert.Equal(t, task2.MessageID, results[1].MessageID.String())
 	assert.Equal(t, "0xf0f3a135123456", results[1].Signature.String())
-	assert.Equal(t, []protocol.UnknownAddress{ccvAddress1, ccvAddress2}, results[1].CCVAddresses)
-	assert.Equal(t, executorAddress, results[1].ExecutorAddress)
+	assert.Equal(t, []protocol.UnknownAddress{internal.CCVAddress1, internal.CCVAddress2}, results[1].CCVAddresses)
+	assert.Equal(t, internal.ExecutorAddress, results[1].ExecutorAddress)
 	assert.Equal(t, lbtc.CCVVerifierVersion, results[1].CCVVersion)
 }
 
@@ -90,9 +84,9 @@ func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
 	lggr := logger.Test(t)
 	mockAttestationService := mocks.NewLBTCAttestationService(t)
 
-	task1 := createTestVerificationTask(1)
-	task2 := createTestVerificationTask(2)
-	task3 := createTestVerificationTask(3)
+	task1 := internal.CreateTestVerificationTask(1)
+	task2 := internal.CreateTestVerificationTask(1)
+	task3 := internal.CreateTestVerificationTask(1)
 	tasks := []verifier.VerificationTask{task1, task2, task3}
 
 	attestations := map[string]lbtc.Attestation{
@@ -142,28 +136,4 @@ func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
 	require.Len(t, results, 1, "Expected one result in batcher")
 
 	assert.Equal(t, task1.MessageID, results[0].MessageID.String())
-}
-
-func createTestVerificationTask(sequenceNumber int) verifier.VerificationTask {
-	message := protocol.Message{
-		SourceChainSelector: protocol.ChainSelector(1),
-		DestChainSelector:   protocol.ChainSelector(2),
-		SequenceNumber:      protocol.SequenceNumber(sequenceNumber),
-	}
-
-	messageID := message.MustMessageID()
-	return verifier.VerificationTask{
-		MessageID: messageID.String(),
-		Message:   message,
-		TxHash:    protocol.ByteSlice{0xaa, 0xbb, 0xcc},
-		ReceiptBlobs: []protocol.ReceiptWithBlob{
-			// Create receipt structure: [CCV1, CCV2, Executor]
-			{Issuer: ccvAddress1, Blob: []byte("ccv1-blob")},
-			{Issuer: ccvAddress2, Blob: []byte("ccv2-blob")},
-			{Issuer: executorAddress, Blob: []byte("executor-blob")},
-		},
-		BlockNumber: 12345,
-		FirstSeenAt: time.Now(),
-		QueuedAt:    time.Now(),
-	}
 }

@@ -5,8 +5,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
+)
+
+var (
+	CCVAddress1     = protocol.UnknownAddress{0x11, 0x12, 0x13}
+	CCVAddress2     = protocol.UnknownAddress{0x21, 0x22, 0x23}
+	ExecutorAddress = protocol.UnknownAddress{0x31, 0x32, 0x33}
 )
 
 func ReadResultsFromChannel(
@@ -40,4 +48,29 @@ func MustUnknownAddressFromHex(s string) protocol.UnknownAddress {
 		panic(fmt.Sprintf("failed to decode address: %v", err))
 	}
 	return addr
+}
+
+func CreateTestVerificationTask(sequenceNumber int) verifier.VerificationTask {
+	message := protocol.Message{
+		SourceChainSelector: protocol.ChainSelector(1),
+		DestChainSelector:   protocol.ChainSelector(2),
+		//nolint:gosec // used in tests
+		SequenceNumber: protocol.SequenceNumber(sequenceNumber),
+	}
+
+	messageID := message.MustMessageID()
+	return verifier.VerificationTask{
+		MessageID: messageID.String(),
+		Message:   message,
+		TxHash:    protocol.ByteSlice{0xaa, 0xbb, 0xcc},
+		ReceiptBlobs: []protocol.ReceiptWithBlob{
+			// Create receipt structure: [CCV1, CCV2, Executor]
+			{Issuer: CCVAddress1, Blob: []byte("ccv1-blob")},
+			{Issuer: CCVAddress2, Blob: []byte("ccv2-blob")},
+			{Issuer: ExecutorAddress, Blob: []byte("executor-blob")},
+		},
+		BlockNumber: 12345,
+		FirstSeenAt: time.Now(),
+		QueuedAt:    time.Now(),
+	}
 }
