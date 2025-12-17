@@ -22,7 +22,7 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	lggr := logger.Test(t)
-	mockAttestationService := mocks.NewMockAttestationService(t)
+	mockAttestationService := mocks.NewCCTPAttestationService(t)
 
 	task := createTestVerificationTask()
 	tasks := []verifier.VerificationTask{task}
@@ -52,7 +52,7 @@ func TestVerifier_VerifyMessages_AttestationServiceFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	lggr := logger.Test(t)
-	mockAttestationService := mocks.NewMockAttestationService(t)
+	mockAttestationService := mocks.NewCCTPAttestationService(t)
 
 	task := createTestVerificationTask()
 	tasks := []verifier.VerificationTask{task}
@@ -85,7 +85,7 @@ func TestVerifier_VerifyMessages_BatcherFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 	lggr := logger.Test(t)
-	mockAttestationService := mocks.NewMockAttestationService(t)
+	mockAttestationService := mocks.NewCCTPAttestationService(t)
 
 	task := createTestVerificationTask()
 	tasks := []verifier.VerificationTask{task}
@@ -119,7 +119,7 @@ func TestVerifier_VerifyMessages_MultipleTasksWithMixedResults(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	lggr := logger.Test(t)
-	mockAttestationService := mocks.NewMockAttestationService(t)
+	mockAttestationService := mocks.NewCCTPAttestationService(t)
 
 	task1 := createTestVerificationTask()
 	task1.Message.SequenceNumber = 100
