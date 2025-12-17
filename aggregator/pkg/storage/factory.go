@@ -9,7 +9,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/memory"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/postgres"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -45,14 +44,10 @@ func NewStorageFactory(logger logger.SugaredLogger) *Factory {
 
 // CreateStorage creates a storage instance based on the provided configuration.
 func (f *Factory) CreateStorage(config *model.StorageConfig, monitoring common.AggregatorMonitoring) (CommitVerificationStorage, error) {
-	switch config.StorageType {
-	case model.StorageTypeMemory:
-		return memory.NewInMemoryStorage(), nil
-	case model.StorageTypePostgreSQL:
-		return f.createPostgreSQLStorage(config)
-	default:
-		return nil, fmt.Errorf("unsupported storage type: %s", config.StorageType)
+	if config.StorageType != model.StorageTypePostgreSQL {
+		return nil, fmt.Errorf("unsupported storage type: %s (only postgres is supported)", config.StorageType)
 	}
+	return f.createPostgreSQLStorage(config)
 }
 
 // createPostgreSQLStorage creates a PostgreSQL-backed storage instance.
