@@ -15,9 +15,59 @@ type AttestationService interface {
 	Fetch(ctx context.Context, message []protocol.Message) (map[string]Attestation, error)
 }
 
+type Attestation struct {
+	ccvVerifierVersion protocol.ByteSlice
+	attestation        string
+	status             AttestationStatus
+}
+
+func NewAttestation(
+	ccvVerifierVersion protocol.ByteSlice,
+	resp AttestationResponse,
+) Attestation {
+	return Attestation{
+		ccvVerifierVersion: ccvVerifierVersion,
+		attestation:        resp.Data,
+		status:             resp.Status,
+	}
+}
+
+func NewMissingAttestation(
+	ccvVerifierVersion protocol.ByteSlice,
+) Attestation {
+	return Attestation{
+		ccvVerifierVersion: ccvVerifierVersion,
+		status:             AttestationStatusUnspecified,
+	}
+}
+
+// ToVerifierFormat converts the attestation into format expected by the verifier on the dest:
+// <4 byte verifier version><lombard attestation>
+// <lombard attestation> := abi.encode(payload, proof) as per Lombard spec, but offchain doesn't need to know the details.
+func (a *Attestation) ToVerifierFormat() (protocol.ByteSlice, error) {
+	if !a.IsReady() {
+		return nil, fmt.Errorf("attestation is not ready, status: %s", a.status)
+	}
+
+	attestationBytes, err := protocol.NewByteSliceFromHex(a.attestation)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode attestation hex: %w", err)
+	}
+
+	var output protocol.ByteSlice
+	output = append(output, a.ccvVerifierVersion...)
+	output = append(output, attestationBytes...)
+	return output, nil
+}
+
+func (a *Attestation) IsReady() bool {
+	return a.status == AttestationStatusApproved
+}
+
 type HTTPAttestationService struct {
-	lggr   logger.Logger
-	client HTTPClient
+	lggr               logger.Logger
+	client             HTTPClient
+	ccvVerifierVersion protocol.ByteSlice
 	// batchSize defines maximum number of messages to request in a single API call.
 	// 0 or negative value means no limit.
 	batchSize int
@@ -35,6 +85,8 @@ func NewAttestationService(
 		lggr:      lggr,
 		client:    client,
 		batchSize: config.AttestationAPIBatchSize,
+		// TODO Make that configurable per chain / per address CCIP-8521
+		ccvVerifierVersion: CCVVerifierVersion,
 	}, nil
 }
 
@@ -47,7 +99,7 @@ func (h *HTTPAttestationService) Fetch(
 		requests = append(requests, msg.TokenTransfer.ExtraData)
 	}
 
-	attestations := make([]Attestation, 0, len(requests))
+	attestations := make([]AttestationResponse, 0, len(requests))
 	batches := splitSlice(requests, h.batchSize)
 	for _, batch := range batches {
 		// TODO: Implement running that in parallel if needed.
@@ -69,17 +121,14 @@ func (h *HTTPAttestationService) Fetch(
 		}
 		extraData := msg.TokenTransfer.ExtraData.String()
 
-		idx := slices.IndexFunc(attestations, func(attestation Attestation) bool {
+		idx := slices.IndexFunc(attestations, func(attestation AttestationResponse) bool {
 			return attestation.MessageHash == extraData
 		})
 		if idx != -1 {
-			result[id.String()] = attestations[idx]
+			result[id.String()] = NewAttestation(h.ccvVerifierVersion, attestations[idx])
 		} else {
 			h.lggr.Errorw("Failed to find attestation for message in the response", "id", id)
-			result[id.String()] = Attestation{
-				MessageHash: extraData,
-				Status:      attestationStatusUnspecified,
-			}
+			result[id.String()] = NewMissingAttestation(h.ccvVerifierVersion)
 		}
 	}
 	return result, nil

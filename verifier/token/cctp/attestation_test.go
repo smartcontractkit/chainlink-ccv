@@ -1,7 +1,6 @@
 package cctp
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +11,7 @@ import (
 
 	sel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/internal"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -69,7 +69,7 @@ var attestationResponseBody = []byte(`
 
 func Test_AttestationFetch(t *testing.T) {
 	stringTxHash := "0x912f22a13e9ccb979b621500f6952b2afd6e75be7eadaed93fc2625fe11c52a2"
-	txHash := mustByteSliceFromHex(stringTxHash)
+	txHash := internal.MustByteSliceFromHex(stringTxHash)
 
 	sourceChain := protocol.ChainSelector(sel.GETH_TESTNET.Selector)
 	destChain := protocol.ChainSelector(sel.GETH_DEVNET_2.Selector)
@@ -98,7 +98,7 @@ func Test_AttestationFetch(t *testing.T) {
 			AttestationAPITimeout:  1 * time.Minute,
 			AttestationAPICooldown: 5 * time.Minute,
 			ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
-				sourceChain: mustUnknownAddressFromHex("0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350"),
+				sourceChain: internal.MustUnknownAddressFromHex("0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350"),
 			},
 		})
 	require.NoError(t, err)
@@ -107,15 +107,17 @@ func Test_AttestationFetch(t *testing.T) {
 		attestation, err := attestationService.Fetch(t.Context(), txHash, ccipMessage)
 		require.NoError(t, err)
 
-		assert.Equal(t, "0xaaaaaa11", attestation.attestation.String())
-		assert.Equal(t, "0xbbbbbb22", attestation.encodedCCTPMessage.String())
-		assert.Equal(t, "0x8e1d1a9dbbbbbb22aaaaaa11", attestation.ToVerifierFormat().String())
+		assert.Equal(t, "0xaaaaaa11", attestation.attestation)
+		assert.Equal(t, "0xbbbbbb22", attestation.encodedCCTPMessage)
+		bytes, err := attestation.ToVerifierFormat()
+		require.NoError(t, err)
+		assert.Equal(t, "0x8e1d1a9dbbbbbb22aaaaaa11", bytes.String())
 	})
 
 	t.Run("return error when no matching message found", func(t *testing.T) {
 		_, err := attestationService.Fetch(
 			t.Context(),
-			mustByteSliceFromHex("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"),
+			internal.MustByteSliceFromHex("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"),
 			ccipMessage,
 		)
 		require.Error(t, err)
@@ -124,7 +126,7 @@ func Test_AttestationFetch(t *testing.T) {
 }
 
 func TestNewAttestationErrors(t *testing.T) {
-	ccvVerifierVersion := mustByteSliceFromHex("0x01020304")
+	ccvVerifierVersion := internal.MustByteSliceFromHex("0x01020304")
 
 	testCases := []struct {
 		name          string
@@ -134,8 +136,8 @@ func TestNewAttestationErrors(t *testing.T) {
 		{
 			name: "decode attestation failure",
 			msg: Message{
-				Status:      attestationStatusPending,
-				Attestation: "0x01",
+				Status:      attestationStatusSuccess,
+				Attestation: "0xzzqwerwwerqwer",
 				Message:     "0x02",
 				DecodedMessage: DecodedMessage{
 					DecodedMessageBody: DecodedMessageBody{
@@ -163,8 +165,8 @@ func TestNewAttestationErrors(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := NewAttestation(ccvVerifierVersion, tc.msg)
-			require.Error(t, err)
+			att := NewAttestation(ccvVerifierVersion, tc.msg)
+			_, err := att.ToVerifierFormat()
 			require.ErrorContains(t, err, tc.expectedError)
 		})
 	}
@@ -172,35 +174,36 @@ func TestNewAttestationErrors(t *testing.T) {
 
 func TestAttestation_ToVerifierFormat(t *testing.T) {
 	att := Attestation{
-		ccvVerifierVersion: mustByteSliceFromHex("0x01020304"),
-		encodedCCTPMessage: mustByteSliceFromHex("0xdeadbeef"),
-		attestation:        mustByteSliceFromHex("0xcafec0ffee"),
+		ccvVerifierVersion: internal.MustByteSliceFromHex("0x01020304"),
+		encodedCCTPMessage: "0xdeadbeef",
+		attestation:        "0xcafec0ffee",
+		status:             attestationStatusSuccess,
 	}
 
 	expected := "0x01020304deadbeefcafec0ffee"
-	result := att.ToVerifierFormat()
-
+	result, err := att.ToVerifierFormat()
+	require.NoError(t, err)
 	assert.Equal(t, expected, result.String())
 }
 
 func Test_cctpMatchesMessage(t *testing.T) {
 	sourceChain := protocol.ChainSelector(sel.GETH_TESTNET.Selector)
 	destChain := protocol.ChainSelector(sel.GETH_DEVNET_2.Selector)
-	ccvVerifierVersion := mustByteSliceFromHex("0x8e1d1a9d")
+	ccvVerifierVersion := internal.MustByteSliceFromHex("0x8e1d1a9d")
 
 	// Create a valid CCIP message and calculate its message ID
 	ccipMessage, err := protocol.NewMessage(
 		sourceChain,
 		destChain,
 		protocol.SequenceNumber(123),
-		mustUnknownAddressFromHex("0x1111111111111111111111111111111111111111"),
-		mustUnknownAddressFromHex("0x2222222222222222222222222222222222222222"),
+		internal.MustUnknownAddressFromHex("0x1111111111111111111111111111111111111111"),
+		internal.MustUnknownAddressFromHex("0x2222222222222222222222222222222222222222"),
 		10,
 		200_000,
 		100_000,
 		protocol.Bytes32{},
-		mustUnknownAddressFromHex("0x3333333333333333333333333333333333333333"),
-		mustUnknownAddressFromHex("0x4444444444444444444444444444444444444444"),
+		internal.MustUnknownAddressFromHex("0x3333333333333333333333333333333333333333"),
+		internal.MustUnknownAddressFromHex("0x4444444444444444444444444444444444444444"),
 		[]byte("test dest blob"),
 		[]byte("test data"),
 		nil,
@@ -209,13 +212,13 @@ func Test_cctpMatchesMessage(t *testing.T) {
 
 	// Hardcoding hooks and messageID to avoid relying on logic we testing to generate them
 	hookData := "0x8e1d1a9d73fa314b5b2e7087b9ccac8eac29b001f339ff0447dff45a4924185338bffc7f"
-	messageID := mustByteSliceFromHex("0x73fa314b5b2e7087b9ccac8eac29b001f339ff0447dff45a4924185338bffc7f")
+	messageID := internal.MustByteSliceFromHex("0x73fa314b5b2e7087b9ccac8eac29b001f339ff0447dff45a4924185338bffc7f")
 
 	calculatedMessageID, err := ccipMessage.MessageID()
 	require.NoError(t, err)
 	require.Equal(t, messageID.String(), calculatedMessageID.String())
 
-	ccvAddress := mustUnknownAddressFromHex("0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350")
+	ccvAddress := internal.MustUnknownAddressFromHex("0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350")
 	ccvAddresses := map[protocol.ChainSelector]protocol.UnknownAddress{
 		sourceChain: ccvAddress,
 	}
@@ -375,20 +378,4 @@ func Test_cctpMatchesMessage(t *testing.T) {
 			}
 		})
 	}
-}
-
-func mustByteSliceFromHex(s string) protocol.ByteSlice {
-	bs, err := protocol.NewByteSliceFromHex(s)
-	if err != nil {
-		panic(fmt.Sprintf("failed to decode hex string: %v", err))
-	}
-	return bs
-}
-
-func mustUnknownAddressFromHex(s string) protocol.UnknownAddress {
-	addr, err := protocol.NewUnknownAddressFromHex(s)
-	if err != nil {
-		panic(fmt.Sprintf("failed to decode address: %v", err))
-	}
-	return addr
 }

@@ -7,8 +7,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-// ccvVerifierVersion is the version of the 1.7 LombardVerifier contract.
-var ccvVerifierVersion = mustDecodeHex("f0f3a135")
+// CCVVerifierVersion is the version of the 1.7 LombardVerifier contract.
+var CCVVerifierVersion = mustDecodeHex("f0f3a135")
 
 func mustDecodeHex(s string) protocol.ByteSlice {
 	b, err := hex.DecodeString(s)

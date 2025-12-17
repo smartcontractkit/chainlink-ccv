@@ -1490,3 +1490,216 @@ func TestKeyRotation_StopAggregationAfterQuorumThenRotate(t *testing.T) {
 		})
 	}
 }
+
+// TestGetVerifierResultsForMessage_ReturnsNotFoundWhenSourceVerifierNotInCCVAddresses verifies that
+// GetVerifierResultsForMessage returns NotFound when the source verifier address is not in the ccvAddresses.
+func TestGetVerifierResultsForMessage_ReturnsNotFoundWhenSourceVerifierNotInCCVAddresses(t *testing.T) {
+	t.Parallel()
+	storageTypes := []string{"postgres"}
+
+	testFunc := func(t *testing.T, storageType string) {
+		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
+		signer1 := NewSignerFixture(t, "node1")
+		signer2 := NewSignerFixture(t, "node2")
+		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
+		aggregatorClient, ccvDataClient, _, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
+		t.Cleanup(cleanup)
+		require.NoError(t, err, "failed to create server and client")
+
+		message := NewProtocolMessage(t)
+
+		// Create a different address that is NOT the source verifier
+		differentAddress := make([]byte, 20)
+		for i := range differentAddress {
+			differentAddress[i] = 0xAB
+		}
+
+		// Create ccvNodeData with ccvAddresses that do NOT include the source verifier
+		ccvNodeData1, messageId := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			WithCcvAddresses(t, [][]byte{differentAddress}),
+			WithSignatureFrom(t, signer1))
+
+		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
+		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
+		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS")
+
+		ccvNodeData2, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			WithCcvAddresses(t, [][]byte{differentAddress}),
+			WithSignatureFrom(t, signer2))
+
+		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
+		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
+		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
+
+		// Wait for aggregation
+		time.Sleep(100 * time.Millisecond)
+
+		// GetVerifierResultsForMessage should return NotFound because source verifier is not in ccvAddresses
+		batchResp, err := ccvDataClient.GetVerifierResultsForMessage(t.Context(), &verifierpb.GetVerifierResultsForMessageRequest{
+			MessageIds: [][]byte{messageId[:]},
+		})
+		require.NoError(t, err, "GetVerifierResultsForMessage should not return error")
+		require.NotNil(t, batchResp, "response should not be nil")
+		require.Len(t, batchResp.Results, 1, "should have 1 result slot")
+		require.Len(t, batchResp.Errors, 1, "should have 1 error slot")
+
+		// Verify it returns NotFound
+		require.Equal(t, int32(codes.NotFound), batchResp.Errors[0].Code, "should return NotFound when source verifier not in ccvAddresses")
+
+		t.Log("✅ GetVerifierResultsForMessage returns NotFound when source verifier not in ccvAddresses")
+	}
+
+	for _, storageType := range storageTypes {
+		t.Run(storageType, func(t *testing.T) {
+			t.Parallel()
+			testFunc(t, storageType)
+		})
+	}
+}
+
+// TestGetMessagesSince_ReturnsNilMetadataWhenSourceVerifierNotInCCVAddresses verifies that
+// GetMessagesSince returns nil VerifierSourceAddress and VerifierDestAddress when source verifier
+// is not in the ccvAddresses.
+func TestGetMessagesSince_ReturnsNilMetadataWhenSourceVerifierNotInCCVAddresses(t *testing.T) {
+	t.Parallel()
+	storageTypes := []string{"postgres"}
+
+	testFunc := func(t *testing.T, storageType string) {
+		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
+		signer1 := NewSignerFixture(t, "node1")
+		signer2 := NewSignerFixture(t, "node2")
+		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
+		aggregatorClient, _, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
+		t.Cleanup(cleanup)
+		require.NoError(t, err, "failed to create server and client")
+
+		message := NewProtocolMessage(t)
+
+		// Create a different address that is NOT the source verifier
+		differentAddress := make([]byte, 20)
+		for i := range differentAddress {
+			differentAddress[i] = 0xCD
+		}
+
+		// Create ccvNodeData with ccvAddresses that do NOT include the source verifier
+		ccvNodeData1, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			WithCcvAddresses(t, [][]byte{differentAddress}),
+			WithSignatureFrom(t, signer1))
+
+		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
+		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
+		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS")
+
+		ccvNodeData2, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			WithCcvAddresses(t, [][]byte{differentAddress}),
+			WithSignatureFrom(t, signer2))
+
+		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
+		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
+		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
+
+		// Wait for aggregation
+		time.Sleep(100 * time.Millisecond)
+
+		// GetMessagesSince should return the message but with nil metadata addresses
+		resp, err := messageDiscoveryClient.GetMessagesSince(t.Context(), &msgdiscoverypb.GetMessagesSinceRequest{
+			SinceSequence: 0,
+		})
+		require.NoError(t, err, "GetMessagesSince should succeed")
+		require.Len(t, resp.Results, 1, "should have 1 result")
+
+		result := resp.Results[0]
+		require.NotNil(t, result.VerifierResult, "VerifierResult should not be nil")
+		require.NotNil(t, result.VerifierResult.Metadata, "Metadata should not be nil")
+
+		// Verify metadata addresses are nil because source verifier is not in ccvAddresses
+		require.Nil(t, result.VerifierResult.Metadata.VerifierSourceAddress, "VerifierSourceAddress should be nil when source verifier not in ccvAddresses")
+		require.Nil(t, result.VerifierResult.Metadata.VerifierDestAddress, "VerifierDestAddress should be nil when source verifier not in ccvAddresses")
+
+		// Verify the rest of the data is still present
+		require.NotNil(t, result.VerifierResult.Message, "Message should still be present")
+		require.NotNil(t, result.VerifierResult.CcvData, "CcvData should still be present")
+
+		t.Log("✅ GetMessagesSince returns nil metadata addresses when source verifier not in ccvAddresses")
+	}
+
+	for _, storageType := range storageTypes {
+		t.Run(storageType, func(t *testing.T) {
+			t.Parallel()
+			testFunc(t, storageType)
+		})
+	}
+}
+
+// TestSourceVerifierInCCVAddresses_MetadataPopulated verifies that when source verifier IS in
+// ccvAddresses, the metadata addresses are properly populated in both APIs.
+func TestSourceVerifierInCCVAddresses_MetadataPopulated(t *testing.T) {
+	t.Parallel()
+	storageTypes := []string{"postgres"}
+
+	testFunc := func(t *testing.T, storageType string) {
+		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
+		signer1 := NewSignerFixture(t, "node1")
+		signer2 := NewSignerFixture(t, "node2")
+		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
+		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
+		t.Cleanup(cleanup)
+		require.NoError(t, err, "failed to create server and client")
+
+		message := NewProtocolMessage(t)
+
+		// Create ccvNodeData with ccvAddresses that INCLUDE the source verifier (default behavior)
+		ccvNodeData1, messageId := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			WithSignatureFrom(t, signer1))
+
+		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
+		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
+		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS")
+
+		ccvNodeData2, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			WithSignatureFrom(t, signer2))
+
+		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
+		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
+		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
+
+		// Wait for aggregation
+		time.Sleep(100 * time.Millisecond)
+
+		// Test GetVerifierResultsForMessage - should return OK with populated metadata
+		batchResp, err := ccvDataClient.GetVerifierResultsForMessage(t.Context(), &verifierpb.GetVerifierResultsForMessageRequest{
+			MessageIds: [][]byte{messageId[:]},
+		})
+		require.NoError(t, err, "GetVerifierResultsForMessage should succeed")
+		require.NotNil(t, batchResp, "response should not be nil")
+		require.Len(t, batchResp.Results, 1, "should have 1 result")
+		require.Len(t, batchResp.Errors, 1, "should have 1 error slot")
+		require.Equal(t, int32(codes.OK), batchResp.Errors[0].Code, "should return OK")
+
+		result := batchResp.Results[0]
+		require.NotNil(t, result.Metadata, "Metadata should not be nil")
+		require.Equal(t, sourceVerifierAddress, result.Metadata.VerifierSourceAddress, "VerifierSourceAddress should be populated")
+		require.Equal(t, destVerifierAddress, result.Metadata.VerifierDestAddress, "VerifierDestAddress should be populated")
+
+		// Test GetMessagesSince - should also have populated metadata
+		msgResp, err := messageDiscoveryClient.GetMessagesSince(t.Context(), &msgdiscoverypb.GetMessagesSinceRequest{
+			SinceSequence: 0,
+		})
+		require.NoError(t, err, "GetMessagesSince should succeed")
+		require.Len(t, msgResp.Results, 1, "should have 1 result")
+
+		msgResult := msgResp.Results[0]
+		require.NotNil(t, msgResult.VerifierResult.Metadata, "Metadata should not be nil")
+		require.Equal(t, sourceVerifierAddress, msgResult.VerifierResult.Metadata.VerifierSourceAddress, "VerifierSourceAddress should be populated")
+		require.Equal(t, destVerifierAddress, msgResult.VerifierResult.Metadata.VerifierDestAddress, "VerifierDestAddress should be populated")
+
+		t.Log("✅ Both APIs return populated metadata when source verifier is in ccvAddresses")
+	}
+
+	for _, storageType := range storageTypes {
+		t.Run(storageType, func(t *testing.T) {
+			t.Parallel()
+			testFunc(t, storageType)
+		})
+	}
+}

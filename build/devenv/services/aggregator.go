@@ -79,7 +79,7 @@ type AggregatorInput struct {
 	RootPath       string                `toml:"root_path"`
 	DB             *AggregatorDBInput    `toml:"db"`
 	Redis          *AggregatorRedisInput `toml:"redis"`
-	Out            *AggregatorOutput     `toml:"-"`
+	Out            *AggregatorOutput     `toml:"out"`
 	Env            *AggregatorEnvConfig  `toml:"env"`
 	CommitteeName  string                `toml:"committee_name"`
 

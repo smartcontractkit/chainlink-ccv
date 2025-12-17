@@ -129,6 +129,14 @@ type HealthCheckConfig struct {
 	Port    string `toml:"port"`
 }
 
+// AnonymousAuthConfig configures the anonymous authentication middleware.
+type AnonymousAuthConfig struct {
+	// TrustedProxies is a list of CIDR ranges or IPs that are trusted to set
+	// X-Forwarded-For and X-Real-IP headers. If empty, proxy headers are never trusted
+	// and the peer IP is always used for anonymous callers.
+	TrustedProxies []string `toml:"trustedProxies"`
+}
+
 // RateLimitConfig defines the rate limit for a specific method.
 type RateLimitConfig struct {
 	// LimitPerMinute is the number of requests allowed per minute
@@ -311,6 +319,7 @@ type AggregatorConfig struct {
 	OrphanRecovery        OrphanRecoveryConfig `toml:"orphanRecovery"`
 	RateLimiting          RateLimitingConfig   `toml:"rateLimiting"`
 	HealthCheck           HealthCheckConfig    `toml:"healthCheck"`
+	AnonymousAuth         AnonymousAuthConfig  `toml:"anonymousAuth"`
 	Monitoring            MonitoringConfig     `toml:"monitoring"`
 	PyroscopeURL          string               `toml:"pyroscope_url"`
 	MaxMessageIDsPerBatch int                  `toml:"maxMessageIDsPerBatch"`

@@ -8,8 +8,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-// ccvVerifierVersion is the version of the 1.7 CCTPVerifier contract.
-var ccvVerifierVersion = mustDecodeHex("8e1d1a9d")
+// CCVVerifierVersion is the version of the 1.7 CCTPVerifier contract.
+var CCVVerifierVersion = mustDecodeHex("8e1d1a9d")
 
 // sourceDomains represent mapping between ChainSelector and Circle specific
 // domains used for xchain transfers
