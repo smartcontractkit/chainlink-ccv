@@ -176,7 +176,7 @@ func TestGetVerifierResults(t *testing.T) {
 }
 
 func TestNewIndexerClient(t *testing.T) {
-	ic, err := NewIndexerClient(logger.Test(t), "http://example.com/")
+	ic, err := NewIndexerClient(logger.Test(t), "http://example.com/", nil)
 	require.NoError(t, err)
 	require.NotNil(t, ic)
 	// ensure fields are set

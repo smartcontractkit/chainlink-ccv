@@ -7,6 +7,8 @@ import (
 )
 
 type IndexerAPI interface {
+	// ReadVerifierResults reads all verifier results that matches the provided query parameters. Returns a map of messageID to the verifier results.
+	ReadVerifierResults(ctx context.Context, queryData protocol.VerifierResultsV1Request) (map[string][]protocol.VerifierResult, error)
 	// ReadMessages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message.
 	ReadMessages(ctx context.Context, queryData protocol.MessagesV1Request) (map[string]protocol.MessageWithMetadata, error)
 	// GetVerifierResults returns all verifierResults for a given messageID
