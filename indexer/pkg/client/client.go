@@ -48,6 +48,10 @@ func (ic *IndexerClient) ReadVerifierResults(ctx context.Context, queryData prot
 		DestChainSelectors:   &queryData.DestChainSelectors,
 		Start:                &queryData.Start,
 	})
+	if err != nil {
+		ic.lggr.Errorw("Indexer ReadVerifierResults request error", "error", err)
+		return v1.VerifierResultResponse{}, err
+	}
 
 	var verifierResultResponse v1.VerifierResultResponse
 	if err = processResponse(resp, &verifierResultResponse); err != nil {
