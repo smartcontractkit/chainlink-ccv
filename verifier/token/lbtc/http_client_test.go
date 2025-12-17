@@ -153,7 +153,7 @@ func TestGetMessages(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockHTTPClient := &httputil.MockHTTPClient{}
+			mockHTTPClient := &internal.MockHTTPClient{}
 			client := &HTTPClientImpl{
 				lggr:   logger.Test(t),
 				client: mockHTTPClient,
@@ -188,7 +188,7 @@ func TestGetMessages(t *testing.T) {
 }
 
 func TestGetMessages_RequestFormat(t *testing.T) {
-	mockHTTPClient := &httputil.MockHTTPClient{}
+	mockHTTPClient := &internal.MockHTTPClient{}
 	client := &HTTPClientImpl{
 		lggr:   logger.Test(t),
 		client: mockHTTPClient,
@@ -393,7 +393,7 @@ func TestGetMessages_RealWorldResponses(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockHTTPClient := &httputil.MockHTTPClient{}
+			mockHTTPClient := &internal.MockHTTPClient{}
 			client := &HTTPClientImpl{
 				lggr:   logger.Test(t),
 				client: mockHTTPClient,

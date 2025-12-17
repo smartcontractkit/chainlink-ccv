@@ -14,6 +14,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	httputil "github.com/smartcontractkit/chainlink-ccv/verifier/token/http"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/internal"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -23,7 +24,7 @@ const (
 
 func TestGetMessages_Success(t *testing.T) {
 	lggr := logger.Test(t)
-	mockHTTPClient := &httputil.MockHTTPClient{}
+	mockHTTPClient := &internal.MockHTTPClient{}
 
 	client := &HTTPClientImpl{
 		lggr:   lggr,
@@ -68,7 +69,7 @@ func TestGetMessages_Success(t *testing.T) {
 
 func TestGetMessages_InvalidTransactionHash(t *testing.T) {
 	lggr := logger.Test(t)
-	mockHTTPClient := &httputil.MockHTTPClient{}
+	mockHTTPClient := &internal.MockHTTPClient{}
 
 	client := &HTTPClientImpl{
 		lggr:   lggr,
@@ -121,7 +122,7 @@ func TestGetMessages_InvalidTransactionHash(t *testing.T) {
 
 func TestGetMessages_HTTPError(t *testing.T) {
 	lggr := logger.Test(t)
-	mockHTTPClient := &httputil.MockHTTPClient{}
+	mockHTTPClient := &internal.MockHTTPClient{}
 
 	client := &HTTPClientImpl{
 		lggr:   lggr,
@@ -154,7 +155,7 @@ func TestGetMessages_HTTPError(t *testing.T) {
 
 func TestGetMessages_NonOKStatus(t *testing.T) {
 	lggr := logger.Test(t)
-	mockHTTPClient := &httputil.MockHTTPClient{}
+	mockHTTPClient := &internal.MockHTTPClient{}
 
 	client := &HTTPClientImpl{
 		lggr:   lggr,
@@ -199,7 +200,7 @@ func TestGetMessages_NonOKStatus(t *testing.T) {
 
 func TestGetMessages_ParseError(t *testing.T) {
 	lggr := logger.Test(t)
-	mockHTTPClient := &httputil.MockHTTPClient{}
+	mockHTTPClient := &internal.MockHTTPClient{}
 
 	client := &HTTPClientImpl{
 		lggr:   lggr,
@@ -232,7 +233,7 @@ func TestGetMessages_ParseError(t *testing.T) {
 
 func TestGetMessages_URLEncoding(t *testing.T) {
 	lggr := logger.Test(t)
-	mockHTTPClient := &httputil.MockHTTPClient{}
+	mockHTTPClient := &internal.MockHTTPClient{}
 
 	client := &HTTPClientImpl{
 		lggr:   lggr,
@@ -278,7 +279,7 @@ func TestGetMessages_MetricsTracking(t *testing.T) {
 	txHash := testTxHash
 
 	t.Run("Success path tracks success metrics", func(t *testing.T) {
-		mockHTTPClient := &httputil.MockHTTPClient{}
+		mockHTTPClient := &internal.MockHTTPClient{}
 
 		client := &HTTPClientImpl{
 			lggr:   lggr,
@@ -302,7 +303,7 @@ func TestGetMessages_MetricsTracking(t *testing.T) {
 	})
 
 	t.Run("Error path tracks error metrics", func(t *testing.T) {
-		mockHTTPClient := &httputil.MockHTTPClient{}
+		mockHTTPClient := &internal.MockHTTPClient{}
 
 		client := &HTTPClientImpl{
 			lggr:   lggr,
@@ -323,7 +324,7 @@ func TestGetMessages_MetricsTracking(t *testing.T) {
 	})
 
 	t.Run("Metrics called exactly once per request", func(t *testing.T) {
-		mockHTTPClient := &httputil.MockHTTPClient{}
+		mockHTTPClient := &internal.MockHTTPClient{}
 
 		client := &HTTPClientImpl{
 			lggr:   lggr,
