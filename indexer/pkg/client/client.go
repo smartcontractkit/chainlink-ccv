@@ -48,6 +48,10 @@ func (ic *IndexerClient) ReadVerifierResults(ctx context.Context, queryData prot
 		DestChainSelectors:   &queryData.DestChainSelectors,
 		Start:                &queryData.Start,
 	})
+	if err != nil {
+		ic.lggr.Errorw("Indexer ReadVerifierResults request error", "error", err)
+		return v1.VerifierResultResponse{}, err
+	}
 
 	var verifierResultResponse v1.VerifierResultResponse
 	if err = processResponse(resp, &verifierResultResponse); err != nil {
@@ -69,6 +73,10 @@ func (ic *IndexerClient) ReadMessages(ctx context.Context, queryData protocol.Me
 		Limit:                &queryData.Limit,
 		Offset:               &queryData.Offset,
 	})
+	if err != nil {
+		ic.lggr.Errorw("Indexer ReadMessages request error", "error", err)
+		return nil, err
+	}
 
 	var messagesResponse protocol.MessagesV1Response
 	if err = processResponse(resp, &messagesResponse); err != nil {
@@ -91,6 +99,10 @@ func getAddrs(results []protocol.VerifierResult) []string {
 // GetVerifierResults returns all verifierResults for a given messageID.
 func (ic *IndexerClient) GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error) {
 	resp, err := ic.MessageById(ctx, messageID.String())
+	if err != nil {
+		ic.lggr.Errorw("Indexer GetVerifierResults request error", "error", err)
+		return nil, err
+	}
 
 	var messageIDResponse protocol.MessageIDV1Response
 	if err = processResponse(resp, &messageIDResponse); err != nil {
