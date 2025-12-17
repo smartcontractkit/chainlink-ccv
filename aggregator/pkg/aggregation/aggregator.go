@@ -3,6 +3,7 @@ package aggregation
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/sourcegraph/conc/pool"
@@ -15,6 +16,8 @@ import (
 )
 
 var _ protocol.HealthReporter = (*CommitReportAggregator)(nil)
+
+const maxConsecutivePanics = 3
 
 type QuorumValidator interface {
 	// CheckQuorum checks if the aggregated report meets the quorum requirements.
@@ -34,6 +37,9 @@ type CommitReportAggregator struct {
 	l                     logger.SugaredLogger
 	monitoring            common.AggregatorMonitoring
 	done                  chan struct{}
+
+	mu                sync.RWMutex
+	consecutivePanics int
 }
 
 type aggregationRequest struct {
@@ -155,6 +161,7 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 	c.done = make(chan struct{})
 	p := pool.New().WithMaxGoroutines(c.backgroundWorkerCount).WithContext(ctx)
 	go func() {
+		defer close(c.done)
 		for {
 			select {
 			case request := <-c.aggregationKeyChan:
@@ -162,11 +169,38 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 					c.monitoring.Metrics().DecrementPendingAggregationsChannelBuffer(poolCtx, 1)
 					poolCtx = scope.WithAggregationKey(poolCtx, request.AggregationKey)
 					poolCtx = scope.WithMessageID(poolCtx, request.MessageID)
-					_, err := c.checkAggregationAndSubmitComplete(poolCtx, request)
+
+					var didPanic bool
+					err := func() (err error) {
+						defer func() {
+							if r := recover(); r != nil {
+								c.logger(poolCtx).Errorw("Panic during aggregation", "panic", r)
+								didPanic = true
+								err = fmt.Errorf("panic: %v", r)
+							}
+						}()
+						_, err = c.checkAggregationAndSubmitComplete(poolCtx, request)
+						return err
+					}()
+
+					c.mu.Lock()
+					if didPanic {
+						c.consecutivePanics++
+						if c.consecutivePanics >= maxConsecutivePanics {
+							c.logger(poolCtx).Errorw("Aggregator unhealthy: too many consecutive panics",
+								"consecutivePanics", c.consecutivePanics)
+						}
+					} else {
+						c.consecutivePanics = 0
+					}
+					c.mu.Unlock()
+
+					if err != nil {
+						c.logger(poolCtx).Errorw("Error checking aggregation", "error", err)
+					}
 					return err
 				})
 			case <-ctx.Done():
-				close(c.done)
 				return
 			}
 		}
@@ -178,6 +212,14 @@ func (c *CommitReportAggregator) Ready() error {
 	case <-c.done:
 		return fmt.Errorf("aggregation worker stopped")
 	default:
+	}
+
+	c.mu.RLock()
+	consecutivePanics := c.consecutivePanics
+	c.mu.RUnlock()
+
+	if consecutivePanics >= maxConsecutivePanics {
+		return fmt.Errorf("aggregator unhealthy: %d consecutive panics", consecutivePanics)
 	}
 
 	lggr := c.logger(context.Background())

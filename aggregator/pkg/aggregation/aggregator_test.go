@@ -3,6 +3,7 @@ package aggregation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -376,6 +377,111 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 		_, err := a.checkAggregationAndSubmitComplete(ctx, request)
 		require.NoError(t, err)
 	})
+}
+
+func TestHealthCheck_ReportsStoppedAfterContextCancellation(t *testing.T) {
+	store := aggregation_mocks.NewMockCommitVerificationStore(t)
+	sink := aggregation_mocks.NewMockSink(t)
+	monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
+	metric := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
+	monitoring.EXPECT().Metrics().Return(metric).Maybe()
+
+	config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 1}}
+	a := NewCommitReportAggregator(store, nil, sink, aggregation_mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	a.StartBackground(ctx)
+
+	require.NoError(t, a.Ready())
+
+	cancel()
+	time.Sleep(50 * time.Millisecond)
+
+	err := a.Ready()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "stopped")
+}
+
+func TestHealthCheck_RecoversPanicAndKeepsRunning(t *testing.T) {
+	store := aggregation_mocks.NewMockCommitVerificationStore(t)
+	sink := aggregation_mocks.NewMockSink(t)
+	monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
+	metric := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
+	monitoring.EXPECT().Metrics().Return(metric).Maybe()
+	metric.EXPECT().IncrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
+	metric.EXPECT().DecrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
+
+	panicCount := 0
+	store.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ context.Context, _ model.MessageID, _ model.AggregationKey) {
+			panicCount++
+			if panicCount == 1 {
+				panic("simulated panic in storage")
+			}
+		}).Return([]*model.CommitVerificationRecord{}, nil).Maybe()
+
+	quorum := aggregation_mocks.NewMockQuorumValidator(t)
+	quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(false, nil).Maybe()
+
+	config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 1}}
+	a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a.StartBackground(ctx)
+
+	require.NoError(t, a.Ready())
+
+	// First request panics
+	_ = a.CheckAggregation([]byte{1, 2, 3}, "test-key")
+	time.Sleep(100 * time.Millisecond)
+
+	// Still healthy after 1 panic (threshold is 3)
+	require.NoError(t, a.Ready())
+
+	// Second request succeeds, resetting the counter
+	_ = a.CheckAggregation([]byte{4, 5, 6}, "test-key-2")
+	time.Sleep(100 * time.Millisecond)
+
+	require.NoError(t, a.Ready())
+}
+
+func TestHealthCheck_UnhealthyAfterConsecutivePanics(t *testing.T) {
+	store := aggregation_mocks.NewMockCommitVerificationStore(t)
+	sink := aggregation_mocks.NewMockSink(t)
+	monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
+	metric := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
+	monitoring.EXPECT().Metrics().Return(metric).Maybe()
+	metric.EXPECT().IncrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
+	metric.EXPECT().DecrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
+
+	panicCount := 0
+	store.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ context.Context, _ model.MessageID, _ model.AggregationKey) {
+			panicCount++
+			panic("simulated consecutive panic")
+		}).Maybe()
+
+	config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 1}}
+	a := NewCommitReportAggregator(store, nil, sink, aggregation_mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a.StartBackground(ctx)
+
+	require.NoError(t, a.Ready())
+
+	// Send 3 requests that will all panic
+	for i := 0; i < 3; i++ {
+		_ = a.CheckAggregation([]byte{byte(i)}, fmt.Sprintf("key-%d", i))
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Should report unhealthy after 3 consecutive panics
+	err := a.Ready()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "consecutive panics")
+	require.GreaterOrEqual(t, panicCount, 3, "should have panicked at least 3 times")
 }
 
 // helpers.

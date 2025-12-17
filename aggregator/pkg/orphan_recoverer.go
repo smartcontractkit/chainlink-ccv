@@ -15,6 +15,8 @@ import (
 
 var _ protocol.HealthReporter = (*OrphanRecoverer)(nil)
 
+const maxConsecutivePanics = 3
+
 type OrphanRecoverer struct {
 	config     *model.AggregatorConfig
 	aggregator handlers.AggregationTriggerer
@@ -22,9 +24,10 @@ type OrphanRecoverer struct {
 	logger     logger.SugaredLogger
 	metrics    common.AggregatorMetricLabeler
 
-	mu        sync.RWMutex
-	done      chan struct{}
-	lastError error
+	mu                sync.RWMutex
+	done              chan struct{}
+	lastError         error
+	consecutivePanics int
 }
 
 func (o *OrphanRecoverer) Start(ctx context.Context) error {
@@ -44,10 +47,30 @@ func (o *OrphanRecoverer) Start(ctx context.Context) error {
 	for {
 		now := time.Now()
 		o.logger.Info("Initiating orphan recovery scan")
-		err := o.RecoverOrphans(ctx)
+
+		var didPanic bool
+		err := func() (err error) {
+			defer func() {
+				if r := recover(); r != nil {
+					o.logger.Errorw("Panic during orphan recovery scan", "panic", r)
+					didPanic = true
+					err = fmt.Errorf("panic: %v", r)
+				}
+			}()
+			return o.RecoverOrphans(ctx)
+		}()
 
 		o.mu.Lock()
 		o.lastError = err
+		if didPanic {
+			o.consecutivePanics++
+			if o.consecutivePanics >= maxConsecutivePanics {
+				o.logger.Errorw("Orphan recoverer unhealthy: too many consecutive panics",
+					"consecutivePanics", o.consecutivePanics)
+			}
+		} else {
+			o.consecutivePanics = 0
+		}
 		o.mu.Unlock()
 
 		if err != nil {
@@ -172,6 +195,10 @@ func (o *OrphanRecoverer) Ready() error {
 	case <-o.done:
 		return fmt.Errorf("orphan recoverer stopped")
 	default:
+	}
+
+	if o.consecutivePanics >= maxConsecutivePanics {
+		return fmt.Errorf("orphan recoverer unhealthy: %d consecutive panics", o.consecutivePanics)
 	}
 
 	return nil

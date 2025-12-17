@@ -119,6 +119,8 @@ func (s *MetricsAwareStorage) ListOrphanedKeys(ctx context.Context, newerThan ti
 	go func() {
 		now := time.Now()
 		defer func() {
+			close(resultChan)
+			close(errorChan)
 			metrics.RecordStorageLatency(ctx, time.Since(now))
 		}()
 
@@ -126,13 +128,17 @@ func (s *MetricsAwareStorage) ListOrphanedKeys(ctx context.Context, newerThan ti
 			select {
 			case id, ok := <-innerResultChan:
 				if !ok {
-					close(resultChan)
 					return
 				}
 				resultChan <- id
 
-			case err := <-innerErrorChan:
-				errorChan <- err
+			case err, ok := <-innerErrorChan:
+				if !ok {
+					return
+				}
+				if err != nil {
+					errorChan <- err
+				}
 			}
 		}
 	}()
