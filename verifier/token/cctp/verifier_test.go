@@ -18,8 +18,15 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+var (
+	ccvAddress1        = protocol.UnknownAddress{0x11, 0x12, 0x13}
+	ccvAddress2        = protocol.UnknownAddress{0x21, 0x22, 0x23}
+	executorAddress    = protocol.UnknownAddress{0x31, 0x32, 0x33}
+	ccvVerifierVersion = protocol.ByteSlice{0x00, 0x00, 0x00, 0x01}
+)
+
 func TestVerifier_VerifyMessages_Success(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	lggr := logger.Test(t)
 	mockAttestationService := mocks.NewCCTPAttestationService(t)
@@ -34,22 +41,34 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 		Return(testAttestation, nil).
 		Once()
 
-	outCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
-	ccvDataBatcher := batcher.NewBatcher(ctx, 100, 1*time.Second, outCh)
+	outCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 1)
+	ccvDataBatcher := batcher.NewBatcher(ctx, 1, 1*time.Millisecond, outCh)
 
 	v := cctp.NewVerifier(lggr, mockAttestationService)
-	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
+	vErrors := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
+
+	assert.NoError(t, vErrors.Error, "Expected no batch-level error")
+	assert.Empty(t, vErrors.Items, "Expected no verification errors")
+	mockAttestationService.AssertExpectations(t)
 
 	cancel()
 	_ = ccvDataBatcher.Close()
 
-	assert.NoError(t, result.Error, "Expected no batch-level error")
-	assert.Empty(t, result.Items, "Expected no verification errors")
-	mockAttestationService.AssertExpectations(t)
+	results := readResultsFromChannel(t, outCh)
+
+	require.Len(t, results, 1, "Expected one result in batcher")
+
+	attestation, err := testAttestation.ToVerifierFormat()
+	require.NoError(t, err)
+	assert.Equal(t, task.MessageID, results[0].MessageID.String())
+	assert.Equal(t, attestation, results[0].Signature)
+	assert.Equal(t, []protocol.UnknownAddress{ccvAddress1, ccvAddress2}, results[0].CCVAddresses)
+	assert.Equal(t, executorAddress, results[0].ExecutorAddress)
+	assert.Equal(t, ccvVerifierVersion, results[0].CCVVersion)
 }
 
 func TestVerifier_VerifyMessages_AttestationServiceFailure(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	lggr := logger.Test(t)
 	mockAttestationService := mocks.NewCCTPAttestationService(t)
@@ -82,8 +101,9 @@ func TestVerifier_VerifyMessages_AttestationServiceFailure(t *testing.T) {
 }
 
 func TestVerifier_VerifyMessages_BatcherFailure(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
 	lggr := logger.Test(t)
 	mockAttestationService := mocks.NewCCTPAttestationService(t)
 
@@ -101,7 +121,7 @@ func TestVerifier_VerifyMessages_BatcherFailure(t *testing.T) {
 	ccvDataBatcher := batcher.NewBatcher(ctx, 100, 1*time.Second, outCh)
 
 	v := cctp.NewVerifier(lggr, mockAttestationService)
-	result := v.VerifyMessages(t.Context(), tasks, ccvDataBatcher)
+	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
 
 	_ = ccvDataBatcher.Close()
 
@@ -116,8 +136,7 @@ func TestVerifier_VerifyMessages_BatcherFailure(t *testing.T) {
 }
 
 func TestVerifier_VerifyMessages_MultipleTasksWithMixedResults(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
+	ctx, cancel := context.WithCancel(context.Background())
 	lggr := logger.Test(t)
 	mockAttestationService := mocks.NewCCTPAttestationService(t)
 
@@ -153,13 +172,10 @@ func TestVerifier_VerifyMessages_MultipleTasksWithMixedResults(t *testing.T) {
 		Once()
 
 	outCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
-	ccvDataBatcher := batcher.NewBatcher(ctx, 100, 1*time.Second, outCh)
+	ccvDataBatcher := batcher.NewBatcher(ctx, 1, 1*time.Millisecond, outCh)
 
 	v := cctp.NewVerifier(lggr, mockAttestationService)
 	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
-
-	cancel()
-	_ = ccvDataBatcher.Close()
 
 	assert.NoError(t, result.Error, "Expected no batch-level error")
 	require.Len(t, result.Items, 1, "Expected one verification error (task2)")
@@ -167,8 +183,15 @@ func TestVerifier_VerifyMessages_MultipleTasksWithMixedResults(t *testing.T) {
 	verificationError := result.Items[0]
 	assert.Equal(t, expectedErr, verificationError.Error)
 	assert.Equal(t, task2.MessageID, verificationError.Task.MessageID)
-
 	mockAttestationService.AssertExpectations(t)
+
+	cancel()
+	_ = ccvDataBatcher.Close()
+
+	results := readResultsFromChannel(t, outCh)
+	require.Len(t, results, 2, "Expected two results in batcher")
+	assert.Equal(t, task1.MessageID, results[0].MessageID.String())
+	assert.Equal(t, task3.MessageID, results[1].MessageID.String())
 }
 
 func createTestVerificationTask() verifier.VerificationTask {
@@ -194,17 +217,12 @@ func createTestVerificationTask() verifier.VerificationTask {
 	}
 
 	messageID := message.MustMessageID()
-
-	// Create receipt structure: [CCV1, CCV2, Executor]
-	ccvAddress1 := protocol.UnknownAddress{0x11, 0x12, 0x13}
-	ccvAddress2 := protocol.UnknownAddress{0x21, 0x22, 0x23}
-	executorAddress := protocol.UnknownAddress{0x31, 0x32, 0x33}
-
 	return verifier.VerificationTask{
 		MessageID: messageID.String(),
 		Message:   message,
 		TxHash:    protocol.ByteSlice{0xaa, 0xbb, 0xcc},
 		ReceiptBlobs: []protocol.ReceiptWithBlob{
+			// Create receipt structure: [CCV1, CCV2, Executor]
 			{Issuer: ccvAddress1, Blob: []byte("ccv1-blob")},
 			{Issuer: ccvAddress2, Blob: []byte("ccv2-blob")},
 			{Issuer: executorAddress, Blob: []byte("executor-blob")},
@@ -225,7 +243,23 @@ func createTestAttestation() cctp.Attestation {
 		Status: "complete",
 	}
 
-	ccvVerifierVersion := protocol.ByteSlice{0x00, 0x00, 0x00, 0x01}
 	attestation := cctp.NewAttestation(ccvVerifierVersion, msg)
 	return attestation
+}
+
+func readResultsFromChannel(
+	t *testing.T,
+	outCh chan batcher.BatchResult[protocol.VerifierNodeResult],
+) []protocol.VerifierNodeResult {
+	var results []protocol.VerifierNodeResult
+	select {
+	case batch, ok := <-outCh:
+		if !ok {
+			t.Fatal("Output channel closed without sending batch")
+		}
+		results = append(results, batch.Items...)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for batch from output channel")
+	}
+	return results
 }
