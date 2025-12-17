@@ -200,7 +200,7 @@ func main() {
 	//
 	// Initialize indexer client
 	// ------------------------------------------------------------------------------------------------
-	indexerClient, err := client.NewIndexerClient(lggr, executorConfig.IndexerAddress, &http.Client{
+	indexerClient, err := client.NewIndexerAdapterClient(lggr, executorConfig.IndexerAddress, &http.Client{
 		Timeout: 30 * time.Second,
 	})
 	if err != nil {
