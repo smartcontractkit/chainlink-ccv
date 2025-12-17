@@ -3,7 +3,6 @@ package lbtc
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	httputil "github.com/smartcontractkit/chainlink-ccv/verifier/token/http"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/internal"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -28,7 +28,7 @@ func TestGetMessages(t *testing.T) {
 		httpErr        error
 		expectError    bool
 		errorContains  string
-		validateResult func(t *testing.T, result []Attestation)
+		validateResult func(t *testing.T, result []AttestationResponse)
 	}{
 		{
 			name:   "single approved attestation",
@@ -41,11 +41,10 @@ func TestGetMessages(t *testing.T) {
 				}]
 			}`,
 			httpStatus: 200,
-			validateResult: func(t *testing.T, result []Attestation) {
+			validateResult: func(t *testing.T, result []AttestationResponse) {
 				require.Len(t, result, 1)
 				assert.Equal(t, hash1, result[0].MessageHash)
-				assert.Equal(t, attestationStatusApproved, result[0].Status)
-				assert.True(t, result[0].IsReady())
+				assert.Equal(t, AttestationStatusApproved, result[0].Status)
 			},
 		},
 		{
@@ -71,10 +70,9 @@ func TestGetMessages(t *testing.T) {
 				]
 			}`,
 			httpStatus: 200,
-			validateResult: func(t *testing.T, result []Attestation) {
+			validateResult: func(t *testing.T, result []AttestationResponse) {
 				require.Len(t, result, 3)
 				for i, att := range result {
-					assert.True(t, att.IsReady())
 					assert.Equal(t, []string{hash1, hash2, hash3}[i], att.MessageHash)
 				}
 			},
@@ -100,14 +98,11 @@ func TestGetMessages(t *testing.T) {
 				]
 			}`,
 			httpStatus: 200,
-			validateResult: func(t *testing.T, result []Attestation) {
+			validateResult: func(t *testing.T, result []AttestationResponse) {
 				require.Len(t, result, 3)
-				assert.Equal(t, attestationStatusApproved, result[0].Status)
-				assert.True(t, result[0].IsReady())
-				assert.Equal(t, attestationStatusPending, result[1].Status)
-				assert.False(t, result[1].IsReady())
-				assert.Equal(t, attestationStatusFailed, result[2].Status)
-				assert.False(t, result[2].IsReady())
+				assert.Equal(t, AttestationStatusApproved, result[0].Status)
+				assert.Equal(t, AttestationStatusPending, result[1].Status)
+				assert.Equal(t, AttestationStatusFailed, result[2].Status)
 			},
 		},
 		{
@@ -115,7 +110,7 @@ func TestGetMessages(t *testing.T) {
 			hashes:       []string{},
 			responseJSON: `{"attestations": []}`,
 			httpStatus:   200,
-			validateResult: func(t *testing.T, result []Attestation) {
+			validateResult: func(t *testing.T, result []AttestationResponse) {
 				assert.Empty(t, result)
 			},
 		},
@@ -124,7 +119,7 @@ func TestGetMessages(t *testing.T) {
 			hashes:       []string{hash1},
 			responseJSON: `{"attestations": []}`,
 			httpStatus:   200,
-			validateResult: func(t *testing.T, result []Attestation) {
+			validateResult: func(t *testing.T, result []AttestationResponse) {
 				assert.Empty(t, result)
 			},
 		},
@@ -158,7 +153,7 @@ func TestGetMessages(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockHTTPClient := &httputil.MockHTTPClient{}
+			mockHTTPClient := &internal.MockHTTPClient{}
 			client := &HTTPClientImpl{
 				lggr:   logger.Test(t),
 				client: mockHTTPClient,
@@ -167,7 +162,7 @@ func TestGetMessages(t *testing.T) {
 			ctx := t.Context()
 			messageHashes := make([]protocol.ByteSlice, len(tt.hashes))
 			for i, h := range tt.hashes {
-				messageHashes[i] = mustByteSliceFromHex(h)
+				messageHashes[i] = internal.MustByteSliceFromHex(h)
 			}
 
 			mockHTTPClient.On("Post", ctx, "bridge/v1/deposits/getByHash", mock.Anything).Return(
@@ -193,7 +188,7 @@ func TestGetMessages(t *testing.T) {
 }
 
 func TestGetMessages_RequestFormat(t *testing.T) {
-	mockHTTPClient := &httputil.MockHTTPClient{}
+	mockHTTPClient := &internal.MockHTTPClient{}
 	client := &HTTPClientImpl{
 		lggr:   logger.Test(t),
 		client: mockHTTPClient,
@@ -201,8 +196,8 @@ func TestGetMessages_RequestFormat(t *testing.T) {
 
 	ctx := t.Context()
 	messageHashes := []protocol.ByteSlice{
-		mustByteSliceFromHex("0x117f49bfccd85ce2d0ad3a2c9bc27af2abd43eed0cbaeb2ddf5098cbd6bb8bcf"),
-		mustByteSliceFromHex("0x27bf6eb2920da82a6a1294ceff503733c5a46a36d6d6c56a006f8720c399574b"),
+		internal.MustByteSliceFromHex("0x117f49bfccd85ce2d0ad3a2c9bc27af2abd43eed0cbaeb2ddf5098cbd6bb8bcf"),
+		internal.MustByteSliceFromHex("0x27bf6eb2920da82a6a1294ceff503733c5a46a36d6d6c56a006f8720c399574b"),
 	}
 
 	var capturedPath string
@@ -224,7 +219,7 @@ func TestGetMessages_RequestFormat(t *testing.T) {
 
 	assert.Equal(t, "bridge/v1/deposits/getByHash", capturedPath)
 
-	var request AttestationRequest
+	var request BatchRequest
 	require.NoError(t, json.Unmarshal(capturedPayload, &request))
 	assert.Len(t, request.PayloadHashes, 2)
 	assert.Equal(t, "0x117f49bfccd85ce2d0ad3a2c9bc27af2abd43eed0cbaeb2ddf5098cbd6bb8bcf", request.PayloadHashes[0])
@@ -251,33 +246,13 @@ func TestNewAttestationRequest(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			messageHashes := make([]protocol.ByteSlice, len(tt.hashes))
 			for i, h := range tt.hashes {
-				messageHashes[i] = mustByteSliceFromHex(h)
+				messageHashes[i] = internal.MustByteSliceFromHex(h)
 			}
-			request := NewAttestationRequest(messageHashes)
+			request := NewBatchRequest(messageHashes)
 			assert.Len(t, request.PayloadHashes, len(tt.hashes))
 			for i, hash := range messageHashes {
 				assert.Equal(t, hash.String(), request.PayloadHashes[i])
 			}
-		})
-	}
-}
-
-func TestAttestation_IsReady(t *testing.T) {
-	tests := []struct {
-		status   AttestationStatus
-		expected bool
-	}{
-		{attestationStatusApproved, true},
-		{attestationStatusPending, false},
-		{attestationStatusSubmitted, false},
-		{attestationStatusFailed, false},
-		{attestationStatusUnspecified, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(string(tt.status), func(t *testing.T) {
-			attestation := Attestation{Status: tt.status}
-			assert.Equal(t, tt.expected, attestation.IsReady())
 		})
 	}
 }
@@ -289,14 +264,14 @@ func TestAttestationResponse_JSON(t *testing.T) {
 		name        string
 		json        string
 		expectError bool
-		validate    func(t *testing.T, result AttestationResponse)
+		validate    func(t *testing.T, result BatchResponse)
 	}{
 		{
 			name: "empty attestations",
 			json: `{
 				"attestations": []
 			}`,
-			validate: func(t *testing.T, result AttestationResponse) {
+			validate: func(t *testing.T, result BatchResponse) {
 				assert.Empty(t, result.Attestations)
 			},
 		},
@@ -309,11 +284,10 @@ func TestAttestationResponse_JSON(t *testing.T) {
 					"status": "NOTARIZATION_STATUS_SESSION_APPROVED"
 				}]
 			}`,
-			validate: func(t *testing.T, result AttestationResponse) {
+			validate: func(t *testing.T, result BatchResponse) {
 				require.Len(t, result.Attestations, 1)
 				assert.Equal(t, hash1, result.Attestations[0].MessageHash)
-				assert.Equal(t, attestationStatusApproved, result.Attestations[0].Status)
-				assert.True(t, result.Attestations[0].IsReady())
+				assert.Equal(t, AttestationStatusApproved, result.Attestations[0].Status)
 			},
 		},
 		{
@@ -322,7 +296,7 @@ func TestAttestationResponse_JSON(t *testing.T) {
 				"code": 13,
 				"message": "invalid hash"
 			}`,
-			validate: func(t *testing.T, result AttestationResponse) {
+			validate: func(t *testing.T, result BatchResponse) {
 				assert.Equal(t, 13, result.Code)
 				assert.Contains(t, result.Message, "invalid hash")
 			},
@@ -343,7 +317,7 @@ func TestAttestationResponse_JSON(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var result AttestationResponse
+			var result BatchResponse
 			err := json.Unmarshal(protocol.ByteSlice(tt.json), &result)
 			if tt.expectError {
 				assert.Error(t, err)
@@ -362,7 +336,7 @@ func TestGetMessages_RealWorldResponses(t *testing.T) {
 		responseJSON string
 		httpStatus   int
 		expectError  bool
-		validate     func(t *testing.T, result []Attestation)
+		validate     func(t *testing.T, result []AttestationResponse)
 	}{
 		{
 			name:   "single approved with long attestation data",
@@ -375,9 +349,8 @@ func TestGetMessages_RealWorldResponses(t *testing.T) {
 				}]
 			}`,
 			httpStatus: 200,
-			validate: func(t *testing.T, result []Attestation) {
+			validate: func(t *testing.T, result []AttestationResponse) {
 				require.Len(t, result, 1)
-				assert.True(t, result[0].IsReady())
 				assert.NotEmpty(t, result[0].Data)
 			},
 		},
@@ -399,10 +372,10 @@ func TestGetMessages_RealWorldResponses(t *testing.T) {
 				]
 			}`,
 			httpStatus: 200,
-			validate: func(t *testing.T, result []Attestation) {
+			validate: func(t *testing.T, result []AttestationResponse) {
 				require.Len(t, result, 2)
 				for _, att := range result {
-					assert.True(t, att.IsReady())
+					assert.Equal(t, AttestationStatusApproved, att.Status)
 				}
 			},
 		},
@@ -420,7 +393,7 @@ func TestGetMessages_RealWorldResponses(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockHTTPClient := &httputil.MockHTTPClient{}
+			mockHTTPClient := &internal.MockHTTPClient{}
 			client := &HTTPClientImpl{
 				lggr:   logger.Test(t),
 				client: mockHTTPClient,
@@ -429,7 +402,7 @@ func TestGetMessages_RealWorldResponses(t *testing.T) {
 			ctx := t.Context()
 			messageHashes := make([]protocol.ByteSlice, len(tt.hashes))
 			for i, h := range tt.hashes {
-				messageHashes[i] = mustByteSliceFromHex(h)
+				messageHashes[i] = internal.MustByteSliceFromHex(h)
 			}
 
 			mockHTTPClient.On("Post", ctx, "bridge/v1/deposits/getByHash", mock.Anything).Return(
@@ -450,12 +423,4 @@ func TestGetMessages_RealWorldResponses(t *testing.T) {
 			mockHTTPClient.AssertExpectations(t)
 		})
 	}
-}
-
-func mustByteSliceFromHex(s string) protocol.ByteSlice {
-	bs, err := protocol.NewByteSliceFromHex(s)
-	if err != nil {
-		panic(fmt.Sprintf("failed to decode hex string: %v", err))
-	}
-	return bs
 }

@@ -486,8 +486,22 @@ func TestVerificationErrorHandling(t *testing.T) {
 
 // createTestMessageSentEvent creates a single MessageSentEvent for testing.
 func createTestMessageSentEvent(t *testing.T, sequenceNumber protocol.SequenceNumber, sourceChainSelector, destChainSelector protocol.ChainSelector, finality uint16, gasLimit uint32, blockNumber uint64) protocol.MessageSentEvent {
+	return createTestMessageSentEventWithToken(t, sequenceNumber, sourceChainSelector, destChainSelector, finality, gasLimit, blockNumber, nil)
+}
+
+// createTestMessageSentEvent creates a single MessageSentEvent for testing.
+func createTestMessageSentEventWithToken(
+	t *testing.T,
+	sequenceNumber protocol.SequenceNumber,
+	sourceChainSelector, destChainSelector protocol.ChainSelector,
+	finality uint16,
+	gasLimit uint32,
+	blockNumber uint64,
+	tokenTransfer *protocol.TokenTransfer,
+) protocol.MessageSentEvent {
 	t.Helper()
 	message := verifier.CreateTestMessage(t, sequenceNumber, sourceChainSelector, destChainSelector, finality, gasLimit)
+	message.TokenTransfer = tokenTransfer
 	messageID, _ := message.MessageID()
 
 	// Create test CCV and executor addresses matching those in CreateTestMessage

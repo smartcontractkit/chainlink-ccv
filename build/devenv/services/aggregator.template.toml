@@ -9,6 +9,17 @@ enabled = true
 [storage]
 type = "postgres"
 
+# Anonymous Auth Configuration
+# In devenv, all containers connect directly via Docker network.
+# These CIDRs cover standard Docker network ranges so that forwarded
+# headers from containers within the network are trusted.
+[anonymousAuth]
+trustedProxies = [
+    "172.16.0.0/12",
+    "10.0.0.0/8",
+    "192.168.0.0/16",
+]
+
 [orphanRecovery]
 enabled = false
 intervalSeconds = 300
