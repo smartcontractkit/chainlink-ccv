@@ -2,6 +2,7 @@ package cctp
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
@@ -15,14 +16,17 @@ type Verifier struct {
 	attestationService AttestationService
 }
 
-func NewVerifier(lggr logger.Logger, attestationService AttestationService) Verifier {
-	return Verifier{
+func NewVerifier(
+	lggr logger.Logger,
+	attestationService AttestationService,
+) verifier.Verifier {
+	return &Verifier{
 		lggr:               lggr,
 		attestationService: attestationService,
 	}
 }
 
-func (v Verifier) VerifyMessages(
+func (v *Verifier) VerifyMessages(
 	ctx context.Context,
 	tasks []verifier.VerificationTask,
 	ccvDataBatcher *batcher.Batcher[protocol.VerifierNodeResult],
@@ -38,7 +42,23 @@ func (v Verifier) VerifyMessages(
 		// 1. Fetch attestation
 		attestation, err := v.attestationService.Fetch(ctx, task.TxHash, task.Message)
 		if err != nil {
-			v.lggr.Warnw("Failed to fetch attestation", "err", err)
+			lggr.Warnw("Failed to fetch attestation", "err", err)
+			errors = append(errors, verifier.NewVerificationError(err, task))
+			continue
+		}
+
+		if !attestation.IsReady() {
+			lggr.Debugw("Attestation not ready for message")
+			errors = append(errors, verifier.NewVerificationError(
+				fmt.Errorf("attestation not ready for message ID: %s", task.MessageID),
+				task,
+			))
+			continue
+		}
+
+		attestationPayload, err := attestation.ToVerifierFormat()
+		if err != nil {
+			lggr.Errorw("Failed to decode attestation data", "err", err)
 			errors = append(errors, verifier.NewVerificationError(err, task))
 			continue
 		}
@@ -46,22 +66,22 @@ func (v Verifier) VerifyMessages(
 		// 2. Create VerifierNodeResult
 		result, err := commit.CreateVerifierNodeResult(
 			&task,
-			attestation.ToVerifierFormat(),
+			attestationPayload,
 			attestation.ccvVerifierVersion,
 		)
 		if err != nil {
-			v.lggr.Errorw("CreateVerifierNodeResult: Failed to create VerifierNodeResult", "err", err)
+			lggr.Errorw("CreateVerifierNodeResult: Failed to create VerifierNodeResult", "err", err)
 			errors = append(errors, verifier.NewVerificationError(err, task))
 			continue
 		}
 
 		// 3. Add to batcher
 		if err = ccvDataBatcher.Add(*result); err != nil {
-			v.lggr.Errorw("VerifierResult: Failed to add to batcher", "err", err)
+			lggr.Errorw("VerifierResult: Failed to add to batcher", "err", err)
 			errors = append(errors, verifier.NewVerificationError(err, task))
 			continue
 		}
-		v.lggr.Infow("VerifierResult: Successfully added to the batcher", "signature", result.Signature)
+		lggr.Infow("VerifierResult: Successfully added to the batcher", "signature", result.Signature)
 	}
 
 	return batcher.BatchResult[verifier.VerificationError]{

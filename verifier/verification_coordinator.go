@@ -240,6 +240,7 @@ func (vc *Coordinator) Start(_ context.Context) error {
 				sourceCfg.PollInterval,
 				vc.curseDetector,
 				filter,
+				vc.monitoring.Metrics(),
 			)
 			if err != nil {
 				vc.lggr.Errorw("Failed to create SourceReaderService",

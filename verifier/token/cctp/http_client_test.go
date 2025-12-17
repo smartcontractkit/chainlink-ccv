@@ -14,6 +14,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	httputil "github.com/smartcontractkit/chainlink-ccv/verifier/token/http"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/internal"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -21,26 +22,9 @@ const (
 	testTxHash = "0x1234567890123456789012345678901234567890123456789012345678901234"
 )
 
-// MockHTTPClient is a mock implementation of httputil.Client.
-type MockHTTPClient struct {
-	mock.Mock
-}
-
-func (m *MockHTTPClient) Get(ctx context.Context, path string) (protocol.ByteSlice, httputil.Status, error) {
-	args := m.Called(ctx, path)
-	return args.Get(0).(protocol.ByteSlice), args.Get(1).(httputil.Status), args.Error(2)
-}
-
-func (m *MockHTTPClient) Post(
-	ctx context.Context, path string, requestData protocol.ByteSlice,
-) (protocol.ByteSlice, httputil.Status, error) {
-	args := m.Called(ctx, path, requestData)
-	return args.Get(0).(protocol.ByteSlice), args.Get(1).(httputil.Status), args.Error(2)
-}
-
 func TestGetMessages_Success(t *testing.T) {
 	lggr := logger.Test(t)
-	mockHTTPClient := &MockHTTPClient{}
+	mockHTTPClient := &internal.MockHTTPClient{}
 
 	client := &HTTPClientImpl{
 		lggr:   lggr,
@@ -78,14 +62,14 @@ func TestGetMessages_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, result.Messages, 1)
 	assert.Equal(t, "0xabcd", result.Messages[0].Message)
-	assert.Equal(t, "complete", result.Messages[0].Status)
+	assert.Equal(t, attestationStatusSuccess, result.Messages[0].Status)
 
 	mockHTTPClient.AssertExpectations(t)
 }
 
 func TestGetMessages_InvalidTransactionHash(t *testing.T) {
 	lggr := logger.Test(t)
-	mockHTTPClient := &MockHTTPClient{}
+	mockHTTPClient := &internal.MockHTTPClient{}
 
 	client := &HTTPClientImpl{
 		lggr:   lggr,
@@ -138,7 +122,7 @@ func TestGetMessages_InvalidTransactionHash(t *testing.T) {
 
 func TestGetMessages_HTTPError(t *testing.T) {
 	lggr := logger.Test(t)
-	mockHTTPClient := &MockHTTPClient{}
+	mockHTTPClient := &internal.MockHTTPClient{}
 
 	client := &HTTPClientImpl{
 		lggr:   lggr,
@@ -171,7 +155,7 @@ func TestGetMessages_HTTPError(t *testing.T) {
 
 func TestGetMessages_NonOKStatus(t *testing.T) {
 	lggr := logger.Test(t)
-	mockHTTPClient := &MockHTTPClient{}
+	mockHTTPClient := &internal.MockHTTPClient{}
 
 	client := &HTTPClientImpl{
 		lggr:   lggr,
@@ -216,7 +200,7 @@ func TestGetMessages_NonOKStatus(t *testing.T) {
 
 func TestGetMessages_ParseError(t *testing.T) {
 	lggr := logger.Test(t)
-	mockHTTPClient := &MockHTTPClient{}
+	mockHTTPClient := &internal.MockHTTPClient{}
 
 	client := &HTTPClientImpl{
 		lggr:   lggr,
@@ -249,7 +233,7 @@ func TestGetMessages_ParseError(t *testing.T) {
 
 func TestGetMessages_URLEncoding(t *testing.T) {
 	lggr := logger.Test(t)
-	mockHTTPClient := &MockHTTPClient{}
+	mockHTTPClient := &internal.MockHTTPClient{}
 
 	client := &HTTPClientImpl{
 		lggr:   lggr,
@@ -295,7 +279,7 @@ func TestGetMessages_MetricsTracking(t *testing.T) {
 	txHash := testTxHash
 
 	t.Run("Success path tracks success metrics", func(t *testing.T) {
-		mockHTTPClient := &MockHTTPClient{}
+		mockHTTPClient := &internal.MockHTTPClient{}
 
 		client := &HTTPClientImpl{
 			lggr:   lggr,
@@ -319,7 +303,7 @@ func TestGetMessages_MetricsTracking(t *testing.T) {
 	})
 
 	t.Run("Error path tracks error metrics", func(t *testing.T) {
-		mockHTTPClient := &MockHTTPClient{}
+		mockHTTPClient := &internal.MockHTTPClient{}
 
 		client := &HTTPClientImpl{
 			lggr:   lggr,
@@ -340,7 +324,7 @@ func TestGetMessages_MetricsTracking(t *testing.T) {
 	})
 
 	t.Run("Metrics called exactly once per request", func(t *testing.T) {
-		mockHTTPClient := &MockHTTPClient{}
+		mockHTTPClient := &internal.MockHTTPClient{}
 
 		client := &HTTPClientImpl{
 			lggr:   lggr,
@@ -406,7 +390,7 @@ func TestParseResponseBody(t *testing.T) {
 		assert.Equal(t, "12345", msg.EventNonce)
 		assert.Equal(t, "0x9876543210fedcba", msg.Attestation)
 		assert.Equal(t, float64(2), msg.CCTPVersion)
-		assert.Equal(t, "complete", msg.Status)
+		assert.Equal(t, attestationStatusSuccess, msg.Status)
 		assert.Equal(t, "0", msg.DecodedMessage.SourceDomain)
 		assert.Equal(t, "1000000", msg.DecodedMessage.DecodedMessageBody.Amount)
 	})
@@ -471,7 +455,7 @@ func TestParseResponseBody(t *testing.T) {
 		assert.Equal(t, "", msg.Message)
 		assert.Equal(t, "", msg.EventNonce)
 		assert.Equal(t, "", msg.Attestation)
-		assert.Equal(t, "", msg.Status)
+		assert.Equal(t, "", string(msg.Status))
 	})
 
 	t.Run("Edge: Very long hex string", func(t *testing.T) {

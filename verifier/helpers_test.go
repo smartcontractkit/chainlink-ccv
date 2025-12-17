@@ -162,6 +162,7 @@ func (m *noopMetricLabeler) RecordCCVDataChannelSize(ctx context.Context, size i
 func (m *noopMetricLabeler) IncrementStorageWriteErrors(ctx context.Context)                        {}
 func (m *noopMetricLabeler) RecordSourceChainLatestBlock(ctx context.Context, blockNum int64)       {}
 func (m *noopMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64)    {}
+func (m *noopMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64)             {}
 
 type NoopLatencyTracker struct{}
 
@@ -334,6 +335,7 @@ func newTestSRS(
 		pollInterval,
 		curseDetector,
 		&noopFilter{},
+		&noopMetricLabeler{},
 	)
 	require.NoError(t, err)
 

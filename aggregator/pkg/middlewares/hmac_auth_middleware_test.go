@@ -22,10 +22,8 @@ import (
 )
 
 const (
-	testAPIKey1            = "test-api-key-1"
-	testSecretCurrent1     = "secret-current-1"
-	testAdminAPIKey        = "admin-api-key"
-	testAdminSecretCurrent = "admin-secret-current"
+	testAPIKey1        = "test-api-key-1"
+	testSecretCurrent1 = "secret-current-1"
 )
 
 // Test helper: generates HMAC signature for a gRPC request following Data Streams pattern.
@@ -49,7 +47,6 @@ func createTestAPIKeyConfig() *model.APIKeyConfig {
 				ClientID:    "client-1",
 				Description: "Test client 1",
 				Enabled:     true,
-				IsAdmin:     false,
 				Secrets: map[string]string{
 					"current":  testSecretCurrent1,
 					"previous": "secret-old-1",
@@ -59,18 +56,8 @@ func createTestAPIKeyConfig() *model.APIKeyConfig {
 				ClientID:    "client-2",
 				Description: "Test client 2",
 				Enabled:     true,
-				IsAdmin:     false,
 				Secrets: map[string]string{
 					"current": "secret-current-2",
-				},
-			},
-			testAdminAPIKey: {
-				ClientID:    "admin-client",
-				Description: "Test admin client",
-				Enabled:     true,
-				IsAdmin:     true,
-				Secrets: map[string]string{
-					"current": testAdminSecretCurrent,
 				},
 			},
 		},
@@ -296,165 +283,6 @@ func TestHMACAuthMiddleware(t *testing.T) {
 				identity, ok := auth.IdentityFromContext(capturingHandler.capturedCtx)
 				require.True(t, ok, "CallerIdentity should be set in context")
 				require.Equal(t, tt.expectedClientID, identity.CallerID)
-			}
-		})
-	}
-}
-
-func TestHMACAuthMiddleware_AdminFunctionality(t *testing.T) {
-	config := createTestAPIKeyConfig()
-	lggr := logger.Test(t)
-	middleware := NewHMACAuthMiddleware(config, lggr)
-
-	req := &committeepb.WriteChainStatusRequest{}
-	method := "/Aggregator/WriteChainStatus"
-	info := &grpc.UnaryServerInfo{FullMethod: method}
-
-	tests := []struct {
-		name                string
-		setupMetadata       func() metadata.MD
-		expectError         bool
-		expectedErrorCode   codes.Code
-		expectedErrorMsg    string
-		expectAdmin         bool
-		expectedCallerID    string
-		expectedEffectiveID string
-		expectOnBehalfOf    bool
-	}{
-		{
-			name: "admin client without on-behalf-of header acts normally",
-			setupMetadata: func() metadata.MD {
-				timestampMs := time.Now().UnixMilli()
-				apiKey := testAdminAPIKey
-				secret := testAdminSecretCurrent
-				signature := generateTestSignature(t, secret, method, req, apiKey, timestampMs)
-				return metadata.New(map[string]string{
-					hmacutil.HeaderAuthorization: apiKey,
-					hmacutil.HeaderTimestamp:     strconv.FormatInt(timestampMs, 10),
-					hmacutil.HeaderSignature:     signature,
-				})
-			},
-			expectError:         false,
-			expectAdmin:         true,
-			expectedCallerID:    "admin-client",
-			expectedEffectiveID: "admin-client",
-			expectOnBehalfOf:    false,
-		},
-		{
-			name: "admin client with on-behalf-of header sets effective caller ID",
-			setupMetadata: func() metadata.MD {
-				timestampMs := time.Now().UnixMilli()
-				apiKey := testAdminAPIKey
-				secret := testAdminSecretCurrent
-				signature := generateTestSignature(t, secret, method, req, apiKey, timestampMs)
-				return metadata.New(map[string]string{
-					hmacutil.HeaderAuthorization: apiKey,
-					hmacutil.HeaderTimestamp:     strconv.FormatInt(timestampMs, 10),
-					hmacutil.HeaderSignature:     signature,
-					"x-admin-client-id":          "target-verifier",
-				})
-			},
-			expectError:         false,
-			expectAdmin:         true,
-			expectedCallerID:    "admin-client",
-			expectedEffectiveID: "target-verifier",
-			expectOnBehalfOf:    true,
-		},
-		{
-			name: "regular client with on-behalf-of header is denied",
-			setupMetadata: func() metadata.MD {
-				timestampMs := time.Now().UnixMilli()
-				apiKey := testAPIKey1
-				secret := testSecretCurrent1
-				signature := generateTestSignature(t, secret, method, req, apiKey, timestampMs)
-				return metadata.New(map[string]string{
-					hmacutil.HeaderAuthorization: apiKey,
-					hmacutil.HeaderTimestamp:     strconv.FormatInt(timestampMs, 10),
-					hmacutil.HeaderSignature:     signature,
-					"x-admin-client-id":          "target-verifier",
-				})
-			},
-			expectError:       true,
-			expectedErrorCode: codes.PermissionDenied,
-			expectedErrorMsg:  "only admin clients can perform operations on behalf of other clients",
-			expectAdmin:       false,
-		},
-		{
-			name: "regular client without on-behalf-of header works normally",
-			setupMetadata: func() metadata.MD {
-				timestampMs := time.Now().UnixMilli()
-				apiKey := testAPIKey1
-				secret := testSecretCurrent1
-				signature := generateTestSignature(t, secret, method, req, apiKey, timestampMs)
-				return metadata.New(map[string]string{
-					hmacutil.HeaderAuthorization: apiKey,
-					hmacutil.HeaderTimestamp:     strconv.FormatInt(timestampMs, 10),
-					hmacutil.HeaderSignature:     signature,
-				})
-			},
-			expectError:         false,
-			expectAdmin:         false,
-			expectedCallerID:    "client-1",
-			expectedEffectiveID: "client-1",
-			expectOnBehalfOf:    false,
-		},
-		{
-			name: "admin with empty on-behalf-of header acts normally",
-			setupMetadata: func() metadata.MD {
-				timestampMs := time.Now().UnixMilli()
-				apiKey := testAdminAPIKey
-				secret := testAdminSecretCurrent
-				signature := generateTestSignature(t, secret, method, req, apiKey, timestampMs)
-				return metadata.New(map[string]string{
-					hmacutil.HeaderAuthorization: apiKey,
-					hmacutil.HeaderTimestamp:     strconv.FormatInt(timestampMs, 10),
-					hmacutil.HeaderSignature:     signature,
-					"x-admin-client-id":          "",
-				})
-			},
-			expectError:         false,
-			expectAdmin:         true,
-			expectedCallerID:    "admin-client",
-			expectedEffectiveID: "admin-client",
-			expectOnBehalfOf:    false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			md := tt.setupMetadata()
-			ctx := metadata.NewIncomingContext(context.Background(), md)
-
-			capturingHandler := &contextCapturingHandler{}
-			resp, err := middleware.Intercept(ctx, req, info, capturingHandler.Handle)
-
-			if tt.expectError {
-				require.Error(t, err)
-				st, ok := status.FromError(err)
-				require.True(t, ok)
-				require.Equal(t, tt.expectedErrorCode, st.Code())
-				require.Contains(t, st.Message(), tt.expectedErrorMsg)
-				return
-			}
-
-			require.NoError(t, err)
-			require.NotNil(t, resp)
-
-			// Validate identity was set correctly
-			require.NotNil(t, capturingHandler.capturedCtx)
-			identity, ok := auth.IdentityFromContext(capturingHandler.capturedCtx)
-			require.True(t, ok, "CallerIdentity should be set in context")
-
-			require.Equal(t, tt.expectedCallerID, identity.CallerID)
-			require.Equal(t, tt.expectedEffectiveID, identity.EffectiveCallerID)
-			require.Equal(t, tt.expectAdmin, identity.IsAdmin)
-
-			if tt.expectOnBehalfOf {
-				// When acting on behalf of someone, the effective ID should differ from caller ID
-				require.NotEqual(t, identity.CallerID, identity.EffectiveCallerID)
-			} else {
-				// When not acting on behalf of someone, they should be the same
-				require.Equal(t, identity.CallerID, identity.EffectiveCallerID)
 			}
 		})
 	}

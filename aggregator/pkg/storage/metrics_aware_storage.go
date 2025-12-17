@@ -7,6 +7,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 const (
@@ -20,18 +21,36 @@ const (
 	getBatchCCVDataOp        = "GetBatchCCVData"
 	submitReportOp           = "SubmitReport"
 	ListOrphanedKeysOp       = "ListOrphanedKeys"
+
+	defaultSlowQueryThreshold = 500 * time.Millisecond
 )
 
 type MetricsAwareStorage struct {
-	inner CommitVerificationStorage
-	m     common.AggregatorMonitoring
+	inner              CommitVerificationStorage
+	m                  common.AggregatorMonitoring
+	l                  logger.SugaredLogger
+	slowQueryThreshold time.Duration
 }
 
-func NewMetricsAwareStorage(inner CommitVerificationStorage, m common.AggregatorMonitoring) *MetricsAwareStorage {
-	return &MetricsAwareStorage{
-		inner: inner,
-		m:     m,
+type MetricsAwareStorageOption func(*MetricsAwareStorage)
+
+func WithSlowQueryThreshold(threshold time.Duration) MetricsAwareStorageOption {
+	return func(s *MetricsAwareStorage) {
+		s.slowQueryThreshold = threshold
 	}
+}
+
+func NewMetricsAwareStorage(inner CommitVerificationStorage, m common.AggregatorMonitoring, l logger.SugaredLogger, opts ...MetricsAwareStorageOption) *MetricsAwareStorage {
+	s := &MetricsAwareStorage{
+		inner:              inner,
+		m:                  m,
+		l:                  l,
+		slowQueryThreshold: defaultSlowQueryThreshold,
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 func (s *MetricsAwareStorage) metrics(ctx context.Context, operation string) common.AggregatorMetricLabeler {
@@ -39,48 +58,52 @@ func (s *MetricsAwareStorage) metrics(ctx context.Context, operation string) com
 	return metrics.With(operationLabel, operation)
 }
 
-func WrapWithMetrics(inner CommitVerificationStorage, m common.AggregatorMonitoring) CommitVerificationStorage {
-	return NewMetricsAwareStorage(inner, m)
+func (s *MetricsAwareStorage) logger(ctx context.Context) logger.SugaredLogger {
+	return scope.AugmentLogger(ctx, s.l)
+}
+
+func WrapWithMetrics(inner CommitVerificationStorage, m common.AggregatorMonitoring, l logger.SugaredLogger, opts ...MetricsAwareStorageOption) CommitVerificationStorage {
+	return NewMetricsAwareStorage(inner, m, l, opts...)
 }
 
 func (s *MetricsAwareStorage) SaveCommitVerification(ctx context.Context, record *model.CommitVerificationRecord, aggregationKey model.AggregationKey) error {
-	return captureMetricsNoReturn(ctx, s.metrics(ctx, saveOp), func() error {
+	return s.captureMetricsNoReturn(ctx, saveOp, func() error {
 		return s.inner.SaveCommitVerification(ctx, record, aggregationKey)
 	})
 }
 
 func (s *MetricsAwareStorage) GetCommitVerification(ctx context.Context, id model.CommitVerificationRecordIdentifier) (*model.CommitVerificationRecord, error) {
-	return captureMetrics(ctx, s.metrics(ctx, getOp), func() (*model.CommitVerificationRecord, error) {
+	return captureMetrics(ctx, s.metrics(ctx, getOp), s.logger(ctx), s.slowQueryThreshold, getOp, func() (*model.CommitVerificationRecord, error) {
 		return s.inner.GetCommitVerification(ctx, id)
 	})
 }
 
 func (s *MetricsAwareStorage) ListCommitVerificationByAggregationKey(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey) ([]*model.CommitVerificationRecord, error) {
-	return captureMetrics(ctx, s.metrics(ctx, listByMsgIDOp), func() ([]*model.CommitVerificationRecord, error) {
+	return captureMetrics(ctx, s.metrics(ctx, listByMsgIDOp), s.logger(ctx), s.slowQueryThreshold, listByMsgIDOp, func() ([]*model.CommitVerificationRecord, error) {
 		return s.inner.ListCommitVerificationByAggregationKey(ctx, messageID, aggregationKey)
 	})
 }
 
 func (s *MetricsAwareStorage) QueryAggregatedReports(ctx context.Context, sinceSequenceInclusive int64) (*model.AggregatedReportBatch, error) {
-	return captureMetrics(ctx, s.metrics(ctx, queryAggregatedReportsOp), func() (*model.AggregatedReportBatch, error) {
+	return captureMetrics(ctx, s.metrics(ctx, queryAggregatedReportsOp), s.logger(ctx), s.slowQueryThreshold, queryAggregatedReportsOp, func() (*model.AggregatedReportBatch, error) {
 		return s.inner.QueryAggregatedReports(ctx, sinceSequenceInclusive)
 	})
 }
 
 func (s *MetricsAwareStorage) GetCommitAggregatedReportByMessageID(ctx context.Context, messageID model.MessageID) (*model.CommitAggregatedReport, error) {
-	return captureMetrics(ctx, s.metrics(ctx, getCCVDataOp), func() (*model.CommitAggregatedReport, error) {
+	return captureMetrics(ctx, s.metrics(ctx, getCCVDataOp), s.logger(ctx), s.slowQueryThreshold, getCCVDataOp, func() (*model.CommitAggregatedReport, error) {
 		return s.inner.GetCommitAggregatedReportByMessageID(ctx, messageID)
 	})
 }
 
 func (s *MetricsAwareStorage) GetBatchAggregatedReportByMessageIDs(ctx context.Context, messageIDs []model.MessageID) (map[string]*model.CommitAggregatedReport, error) {
-	return captureMetrics(ctx, s.metrics(ctx, getBatchCCVDataOp), func() (map[string]*model.CommitAggregatedReport, error) {
+	return captureMetrics(ctx, s.metrics(ctx, getBatchCCVDataOp), s.logger(ctx), s.slowQueryThreshold, getBatchCCVDataOp, func() (map[string]*model.CommitAggregatedReport, error) {
 		return s.inner.GetBatchAggregatedReportByMessageIDs(ctx, messageIDs)
 	})
 }
 
 func (s *MetricsAwareStorage) SubmitAggregatedReport(ctx context.Context, report *model.CommitAggregatedReport) error {
-	return captureMetricsNoReturn(ctx, s.metrics(ctx, submitReportOp), func() error {
+	return s.captureMetricsNoReturn(ctx, submitReportOp, func() error {
 		return s.inner.SubmitAggregatedReport(ctx, report)
 	})
 }
@@ -116,21 +139,26 @@ func (s *MetricsAwareStorage) ListOrphanedKeys(ctx context.Context) (<-chan mode
 	return resultChan, errorChan
 }
 
-func captureMetrics[T any](ctx context.Context, metrics common.AggregatorMetricLabeler, fn func() (T, error)) (T, error) {
-	now := time.Now()
+func captureMetrics[T any](ctx context.Context, metrics common.AggregatorMetricLabeler, l logger.SugaredLogger, threshold time.Duration, operation string, fn func() (T, error)) (T, error) {
+	start := time.Now()
 	defer func() {
-		metrics.RecordStorageLatency(ctx, time.Since(now))
+		duration := time.Since(start)
+		metrics.RecordStorageLatency(ctx, duration)
+		if duration > threshold {
+			l.Warnw("Slow storage operation", "operation", operation, "duration_ms", duration.Milliseconds())
+		}
 	}()
 
 	res, err := fn()
 	if err != nil {
 		metrics.IncrementStorageError(ctx)
 	}
+
 	return res, err
 }
 
-func captureMetricsNoReturn(ctx context.Context, metrics common.AggregatorMetricLabeler, fn func() error) error {
-	_, err := captureMetrics(ctx, metrics, func() (struct{}, error) {
+func (s *MetricsAwareStorage) captureMetricsNoReturn(ctx context.Context, operation string, fn func() error) error {
+	_, err := captureMetrics(ctx, s.metrics(ctx, operation), s.logger(ctx), s.slowQueryThreshold, operation, func() (struct{}, error) {
 		return struct{}{}, fn()
 	})
 	return err

@@ -101,8 +101,7 @@ func main() {
 				rmnRemoteAddresses,
 				storage.NewAttestationCCVWriter(
 					lggr,
-					// TODO chainSelector to verifiers addresses mapping for LBTC
-					make(map[protocol.ChainSelector]protocol.UnknownAddress),
+					verifierConfig.LBTCConfig.ParsedVerifiers,
 					inmemoryStorage,
 				),
 				messageTracker,
@@ -117,8 +116,7 @@ func main() {
 				rmnRemoteAddresses,
 				storage.NewAttestationCCVWriter(
 					lggr,
-					// TODO chainSelector to verifiers addresses mapping for CCTP
-					make(map[protocol.ChainSelector]protocol.UnknownAddress),
+					verifierConfig.CCTPConfig.ParsedVerifiers,
 					inmemoryStorage,
 				),
 				messageTracker,
@@ -180,6 +178,7 @@ func main() {
 	lggr.Infow("Token verifier service stopped gracefully")
 }
 
+//nolint:dupl
 func createCCTPCoordinator(
 	verifierID string,
 	cctpConfig *cctp.CCTPConfig,
@@ -221,6 +220,7 @@ func createCCTPCoordinator(
 	return cctpCoordinator
 }
 
+//nolint:dupl
 func createLBTCCoordinator(
 	verifierID string,
 	lbtcConfig *lbtc.LBTCConfig,
@@ -233,13 +233,15 @@ func createLBTCCoordinator(
 ) *verifier.Coordinator {
 	sourceConfigs := createSourceConfigs(lbtcConfig.ParsedVerifiers, rmnRemoteAddresses)
 
-	lbtcVerifier := lbtc.NewVerifier(
-		lbtc.NewAttestationService(*lbtcConfig),
-	)
+	attestationService, err := lbtc.NewAttestationService(lggr, *lbtcConfig)
+	if err != nil {
+		lggr.Errorw("Failed to create LBTC attestation service", "error", err)
+		os.Exit(1)
+	}
 
 	lbtcCoordinator, err := verifier.NewCoordinator(
 		lggr,
-		lbtcVerifier,
+		lbtc.NewVerifier(lggr, attestationService),
 		sourceReaders,
 		ccvStorage,
 		verifier.CoordinatorConfig{
