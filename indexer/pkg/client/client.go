@@ -24,26 +24,26 @@ func NewIndexerClient(lggr logger.Logger, indexerURI string, httpClient *http.Cl
 		httpClient = http.DefaultClient
 	}
 
-	cl, err := iclient.NewClientWithResponses(indexerURI, iclient.WithHTTPClient(httpClient))
+	cl, err := iclient.NewClient(indexerURI, iclient.WithHTTPClient(httpClient))
 	if err != nil {
 		return nil, err
 	}
 
 	return &IndexerClient{
-		lggr:                lggr,
-		indexerURI:          indexerURI,
-		ClientWithResponses: cl,
+		lggr:       lggr,
+		indexerURI: indexerURI,
+		client:     cl,
 	}, nil
 }
 
 type IndexerClient struct {
-	*iclient.ClientWithResponses
+	client     *iclient.Client
 	lggr       logger.Logger
 	indexerURI string
 }
 
 func (ic *IndexerClient) VerifierResult(ctx context.Context, queryData v1.VerifierResultsInput) (v1.VerifierResultResponse, error) {
-	resp, err := ic.ClientInterface.VerifierResult(ctx, &iclient.VerifierResultParams{
+	resp, err := ic.client.VerifierResult(ctx, &iclient.VerifierResultParams{
 		SourceChainSelectors: &queryData.SourceChainSelectors,
 		DestChainSelectors:   &queryData.DestChainSelectors,
 		Start:                &queryData.Start,
@@ -65,7 +65,7 @@ func (ic *IndexerClient) VerifierResult(ctx context.Context, queryData v1.Verifi
 
 // GetMessages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message.
 func (ic *IndexerClient) GetMessages(ctx context.Context, queryData v1.MessagesInput) (v1.MessagesResponse, error) {
-	resp, err := ic.ClientInterface.GetMessages(ctx, &iclient.GetMessagesParams{
+	resp, err := ic.client.GetMessages(ctx, &iclient.GetMessagesParams{
 		SourceChainSelectors: &queryData.SourceChainSelectors,
 		DestChainSelectors:   &queryData.DestChainSelectors,
 		Start:                &queryData.Start,
@@ -87,9 +87,9 @@ func (ic *IndexerClient) GetMessages(ctx context.Context, queryData v1.MessagesI
 	return messagesResponse, nil
 }
 
-// MessageById returns all verifierResults for a given messageID.
-func (ic *IndexerClient) MessageById(ctx context.Context, queryData v1.MessageIDInput) (v1.MessageIDResponse, error) {
-	resp, err := ic.ClientInterface.MessageById(ctx, queryData.MessageID)
+// MessageByID returns all verifierResults for a given messageID.
+func (ic *IndexerClient) MessageByID(ctx context.Context, queryData v1.MessageIDInput) (v1.MessageIDResponse, error) {
+	resp, err := ic.client.MessageById(ctx, queryData.MessageID)
 	if err != nil {
 		ic.lggr.Errorw("Indexer GetVerifierResults request error", "error", err)
 		return v1.MessageIDResponse{}, err

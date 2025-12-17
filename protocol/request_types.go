@@ -8,10 +8,10 @@ import (
 type MessagesV1Request struct {
 	SourceChainSelectors []ChainSelector `query:"sourceChainSelectors"` // Excluded from form due to gin parsing
 	DestChainSelectors   []ChainSelector `query:"destChainSelectors"`   // Excluded from form due to gin parsing
-	Start                int64           `form:"start" query:"start"`
-	End                  int64           `form:"end" query:"end"`
-	Limit                uint64          `form:"limit" query:"limit"`
-	Offset               uint64          `form:"offset" query:"offset"`
+	Start                int64           `form:"start"                 query:"start"`
+	End                  int64           `form:"end"                   query:"end"`
+	Limit                uint64          `form:"limit"                 query:"limit"`
+	Offset               uint64          `form:"offset"                query:"offset"`
 }
 
 // TODO: Use github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1.MessagesResponse.
