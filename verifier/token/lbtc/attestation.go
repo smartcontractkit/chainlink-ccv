@@ -82,9 +82,10 @@ func NewAttestationService(
 		return nil, err
 	}
 	return &HTTPAttestationService{
-		lggr:      lggr,
-		client:    client,
-		batchSize: config.AttestationAPIBatchSize,
+		lggr:               lggr,
+		client:             client,
+		batchSize:          config.AttestationAPIBatchSize,
+		ccvVerifierVersion: CCVVerifierVersion,
 	}, nil
 }
 

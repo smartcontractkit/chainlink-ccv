@@ -169,7 +169,7 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 	ccvData2, err := protocol.NewByteSliceFromHex("0x8e1d1a9dbbbbbb22aaaaaa11")
 	require.NoError(t, err)
 
-	server := createFakeHTTPServer(t, attestationResponse)
+	server := createFakeCCTPServer(t, attestationResponse)
 	t.Cleanup(server.Close)
 
 	config := createCoordinatorConfig(
@@ -261,7 +261,7 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 	ccvData2, err := protocol.NewByteSliceFromHex("0x8e1d1a9dbbbbbb55aaaaaa55")
 	require.NoError(t, err)
 
-	server := createFakeHTTPServer(t, attestationResponse)
+	server := createFakeCCTPServer(t, attestationResponse)
 	t.Cleanup(server.Close)
 
 	config := createCoordinatorConfig(
@@ -492,7 +492,7 @@ type attestationMock struct {
 	response string
 }
 
-func createFakeHTTPServer(t *testing.T, attestations []attestationMock) *httptest.Server {
+func createFakeCCTPServer(t *testing.T, attestations []attestationMock) *httptest.Server {
 	supportedUrls := make(map[string]string)
 	for _, a := range attestations {
 		url := fmt.Sprintf("/v2/messages/%d?transactionHash=%s", a.domainID, a.txHash.String())
