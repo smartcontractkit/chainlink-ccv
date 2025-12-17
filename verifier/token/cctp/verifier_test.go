@@ -19,7 +19,7 @@ import (
 )
 
 func TestVerifier_VerifyMessages_Success(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	lggr := logger.Test(t)
 	mockAttestationService := mocks.NewCCTPAttestationService(t)
@@ -49,7 +49,7 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 }
 
 func TestVerifier_VerifyMessages_AttestationServiceFailure(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	lggr := logger.Test(t)
 	mockAttestationService := mocks.NewCCTPAttestationService(t)
@@ -82,8 +82,8 @@ func TestVerifier_VerifyMessages_AttestationServiceFailure(t *testing.T) {
 }
 
 func TestVerifier_VerifyMessages_BatcherFailure(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
 	lggr := logger.Test(t)
 	mockAttestationService := mocks.NewCCTPAttestationService(t)
 
@@ -101,7 +101,7 @@ func TestVerifier_VerifyMessages_BatcherFailure(t *testing.T) {
 	ccvDataBatcher := batcher.NewBatcher(ctx, 100, 1*time.Second, outCh)
 
 	v := cctp.NewVerifier(lggr, mockAttestationService)
-	result := v.VerifyMessages(context.Background(), tasks, ccvDataBatcher)
+	result := v.VerifyMessages(t.Context(), tasks, ccvDataBatcher)
 
 	_ = ccvDataBatcher.Close()
 
@@ -116,7 +116,7 @@ func TestVerifier_VerifyMessages_BatcherFailure(t *testing.T) {
 }
 
 func TestVerifier_VerifyMessages_MultipleTasksWithMixedResults(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	lggr := logger.Test(t)
 	mockAttestationService := mocks.NewCCTPAttestationService(t)

@@ -32,12 +32,24 @@ func NewAttestation(
 	}
 }
 
+func NewAttestationFields(
+	ccvVerifierVersion protocol.ByteSlice,
+	attestation string,
+	status AttestationStatus,
+) Attestation {
+	return Attestation{
+		ccvVerifierVersion: ccvVerifierVersion,
+		attestation:        attestation,
+		status:             status,
+	}
+}
+
 func NewMissingAttestation(
 	ccvVerifierVersion protocol.ByteSlice,
 ) Attestation {
 	return Attestation{
 		ccvVerifierVersion: ccvVerifierVersion,
-		status:             attestationStatusUnspecified,
+		status:             AttestationStatusUnspecified,
 	}
 }
 
@@ -59,7 +71,7 @@ func (a *Attestation) ToVerifierFormat() (protocol.ByteSlice, error) {
 }
 
 func (a *Attestation) IsReady() bool {
-	return a.status == attestationStatusApproved
+	return a.status == AttestationStatusApproved
 }
 
 type HTTPAttestationService struct {

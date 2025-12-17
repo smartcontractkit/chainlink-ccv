@@ -44,7 +44,7 @@ func TestGetMessages(t *testing.T) {
 			validateResult: func(t *testing.T, result []AttestationResponse) {
 				require.Len(t, result, 1)
 				assert.Equal(t, hash1, result[0].MessageHash)
-				assert.Equal(t, attestationStatusApproved, result[0].Status)
+				assert.Equal(t, AttestationStatusApproved, result[0].Status)
 			},
 		},
 		{
@@ -100,9 +100,9 @@ func TestGetMessages(t *testing.T) {
 			httpStatus: 200,
 			validateResult: func(t *testing.T, result []AttestationResponse) {
 				require.Len(t, result, 3)
-				assert.Equal(t, attestationStatusApproved, result[0].Status)
-				assert.Equal(t, attestationStatusPending, result[1].Status)
-				assert.Equal(t, attestationStatusFailed, result[2].Status)
+				assert.Equal(t, AttestationStatusApproved, result[0].Status)
+				assert.Equal(t, AttestationStatusPending, result[1].Status)
+				assert.Equal(t, AttestationStatusFailed, result[2].Status)
 			},
 		},
 		{
@@ -287,7 +287,7 @@ func TestAttestationResponse_JSON(t *testing.T) {
 			validate: func(t *testing.T, result BatchResponse) {
 				require.Len(t, result.Attestations, 1)
 				assert.Equal(t, hash1, result.Attestations[0].MessageHash)
-				assert.Equal(t, attestationStatusApproved, result.Attestations[0].Status)
+				assert.Equal(t, AttestationStatusApproved, result.Attestations[0].Status)
 			},
 		},
 		{
@@ -375,7 +375,7 @@ func TestGetMessages_RealWorldResponses(t *testing.T) {
 			validate: func(t *testing.T, result []AttestationResponse) {
 				require.Len(t, result, 2)
 				for _, att := range result {
-					assert.Equal(t, attestationStatusApproved, att.Status)
+					assert.Equal(t, AttestationStatusApproved, att.Status)
 				}
 			},
 		},

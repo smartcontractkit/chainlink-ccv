@@ -118,7 +118,7 @@ func Test_AttestationFetch(t *testing.T) {
 		attestationPayload, ok := attestation[msg4.MustMessageID().String()]
 		require.True(t, ok)
 		assert.False(t, attestationPayload.IsReady())
-		assert.Equal(t, attestationStatusUnspecified, attestationPayload.status)
+		assert.Equal(t, AttestationStatusUnspecified, attestationPayload.status)
 	})
 }
 

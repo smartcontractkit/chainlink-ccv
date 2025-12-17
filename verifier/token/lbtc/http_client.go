@@ -16,11 +16,11 @@ const (
 	apiVersion      = "v1"
 	attestationPath = "deposits/getByHash"
 
-	attestationStatusUnspecified AttestationStatus = "NOTARIZATION_STATUS_UNSPECIFIED"
-	attestationStatusFailed      AttestationStatus = "NOTARIZATION_STATUS_FAILED"
-	attestationStatusPending     AttestationStatus = "NOTARIZATION_STATUS_PENDING"
-	attestationStatusSubmitted   AttestationStatus = "NOTARIZATION_STATUS_SUBMITTED"
-	attestationStatusApproved    AttestationStatus = "NOTARIZATION_STATUS_SESSION_APPROVED"
+	AttestationStatusUnspecified AttestationStatus = "NOTARIZATION_STATUS_UNSPECIFIED"
+	AttestationStatusFailed      AttestationStatus = "NOTARIZATION_STATUS_FAILED"
+	AttestationStatusPending     AttestationStatus = "NOTARIZATION_STATUS_PENDING"
+	AttestationStatusSubmitted   AttestationStatus = "NOTARIZATION_STATUS_SUBMITTED"
+	AttestationStatusApproved    AttestationStatus = "NOTARIZATION_STATUS_SESSION_APPROVED"
 )
 
 type HTTPClient interface {
