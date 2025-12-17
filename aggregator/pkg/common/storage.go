@@ -21,10 +21,6 @@ type CommitVerificationStore interface {
 	ListOrphanedKeys(ctx context.Context, newerThan time.Time) (<-chan model.OrphanedKey, <-chan error)
 	// OrphanedKeyStats returns counts of orphaned records split by expired/non-expired status.
 	OrphanedKeyStats(ctx context.Context, cutoff time.Time) (*model.OrphanStats, error)
-	// DeleteExpiredOrphans deletes orphan verification records older than the given time.
-	// batchSize limits the number of records deleted per call to prevent long-running transactions.
-	// Returns channels for streaming deleted records and errors.
-	DeleteExpiredOrphans(ctx context.Context, olderThan time.Time, batchSize int) (<-chan model.DeletedOrphan, <-chan error)
 }
 
 type CommitVerificationAggregatedStore interface {

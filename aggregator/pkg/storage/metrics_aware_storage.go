@@ -22,7 +22,6 @@ const (
 	submitReportOp           = "SubmitReport"
 	ListOrphanedKeysOp       = "ListOrphanedKeys"
 	orphanedKeyStatsOp       = "OrphanedKeyStats"
-	deleteExpiredOrphansOp   = "DeleteExpiredOrphans"
 
 	defaultSlowQueryThreshold = 500 * time.Millisecond
 )
@@ -145,37 +144,6 @@ func (s *MetricsAwareStorage) OrphanedKeyStats(ctx context.Context, cutoff time.
 	return captureMetrics(ctx, s.metrics(ctx, orphanedKeyStatsOp), s.logger(ctx), s.slowQueryThreshold, orphanedKeyStatsOp, func() (*model.OrphanStats, error) {
 		return s.inner.OrphanedKeyStats(ctx, cutoff)
 	})
-}
-
-func (s *MetricsAwareStorage) DeleteExpiredOrphans(ctx context.Context, olderThan time.Time, batchSize int) (<-chan model.DeletedOrphan, <-chan error) {
-	metrics := s.metrics(ctx, deleteExpiredOrphansOp)
-	resultChan := make(chan model.DeletedOrphan, 100)
-	errorChan := make(chan error, 1)
-
-	innerResultChan, innerErrorChan := s.inner.DeleteExpiredOrphans(ctx, olderThan, batchSize)
-
-	go func() {
-		now := time.Now()
-		defer func() {
-			metrics.RecordStorageLatency(ctx, time.Since(now))
-		}()
-
-		for {
-			select {
-			case deleted, ok := <-innerResultChan:
-				if !ok {
-					close(resultChan)
-					return
-				}
-				resultChan <- deleted
-
-			case err := <-innerErrorChan:
-				errorChan <- err
-			}
-		}
-	}()
-
-	return resultChan, errorChan
 }
 
 func captureMetrics[T any](ctx context.Context, metrics common.AggregatorMetricLabeler, l logger.SugaredLogger, threshold time.Duration, operation string, fn func() (T, error)) (T, error) {

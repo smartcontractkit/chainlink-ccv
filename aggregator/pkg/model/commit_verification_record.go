@@ -19,12 +19,6 @@ type OrphanedKey struct {
 	AggregationKey AggregationKey
 }
 
-type DeletedOrphan struct {
-	MessageID      MessageID
-	AggregationKey AggregationKey
-	SignerAddress  string
-}
-
 // CommitVerificationRecordIdentifier uniquely identifies a commit verification record.
 type CommitVerificationRecordIdentifier struct {
 	MessageID MessageID

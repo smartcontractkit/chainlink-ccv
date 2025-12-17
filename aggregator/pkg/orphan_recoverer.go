@@ -3,13 +3,17 @@ package aggregator
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/handlers"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
+
+var _ protocol.HealthReporter = (*OrphanRecoverer)(nil)
 
 type OrphanRecoverer struct {
 	config     *model.AggregatorConfig
@@ -17,9 +21,21 @@ type OrphanRecoverer struct {
 	storage    common.CommitVerificationStore
 	logger     logger.SugaredLogger
 	metrics    common.AggregatorMetricLabeler
+
+	mu        sync.RWMutex
+	done      chan struct{}
+	lastError error
 }
 
 func (o *OrphanRecoverer) Start(ctx context.Context) error {
+	o.mu.Lock()
+	o.done = make(chan struct{})
+	o.mu.Unlock()
+
+	defer func() {
+		close(o.done)
+	}()
+
 	orphanRecoveryConfig := o.config.OrphanRecovery
 
 	o.logger.Infow("Starting orphan recovery process",
@@ -29,6 +45,11 @@ func (o *OrphanRecoverer) Start(ctx context.Context) error {
 		now := time.Now()
 		o.logger.Info("Initiating orphan recovery scan")
 		err := o.RecoverOrphans(ctx)
+
+		o.mu.Lock()
+		o.lastError = err
+		o.mu.Unlock()
+
 		if err != nil {
 			o.logger.Errorw("Orphan recovery scan failed", "error", err)
 		} else {
@@ -46,43 +67,6 @@ func (o *OrphanRecoverer) Start(ctx context.Context) error {
 			case <-time.After(sleepDuration):
 			case <-ctx.Done():
 				o.logger.Info("Orphan recovery process stopping due to context cancellation")
-				return ctx.Err()
-			}
-		}
-	}
-}
-
-// StartCleanup runs the orphan cleanup process in a separate loop.
-// This deletes expired orphan records based on MaxAgeHours configuration.
-func (o *OrphanRecoverer) StartCleanup(ctx context.Context) error {
-	orphanRecoveryConfig := o.config.OrphanRecovery
-
-	o.logger.Infow("Starting orphan cleanup process",
-		"interval", orphanRecoveryConfig.CleanupIntervalSeconds,
-		"maxAgeHours", orphanRecoveryConfig.MaxAgeHours)
-
-	for {
-		now := time.Now()
-		o.logger.Info("Initiating orphan cleanup")
-		err := o.deleteExpiredOrphans(ctx)
-		if err != nil {
-			o.logger.Errorw("Orphan cleanup failed", "error", err)
-			o.metrics.IncrementOrphanRecoveryErrors(ctx)
-		} else {
-			o.logger.Info("Orphan cleanup completed successfully")
-		}
-		duration := time.Since(now)
-		o.metrics.RecordOrphanCleanupDuration(ctx, duration)
-		o.logger.Infow("Orphan cleanup finished", "duration", duration)
-
-		if duration < time.Duration(orphanRecoveryConfig.CleanupIntervalSeconds)*time.Second {
-			sleepDuration := time.Duration(orphanRecoveryConfig.CleanupIntervalSeconds)*time.Second - duration
-			o.logger.Infow("Sleeping until next orphan cleanup",
-				"sleepDuration", sleepDuration)
-			select {
-			case <-time.After(sleepDuration):
-			case <-ctx.Done():
-				o.logger.Info("Orphan cleanup process stopping due to context cancellation")
 				return ctx.Err()
 			}
 		}
@@ -162,59 +146,6 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 	}
 }
 
-func (o *OrphanRecoverer) deleteExpiredOrphans(ctx context.Context) error {
-	cutoff := o.calculateCutoffFromNow()
-
-	totalDeleted := 0
-	for {
-		batchDeleted, err := o.deleteExpiredOrphansBatch(ctx, cutoff)
-		if err != nil {
-			return err
-		}
-
-		totalDeleted += batchDeleted
-		if batchDeleted == 0 {
-			break
-		}
-
-		o.logger.Debugw("Deleted batch of expired orphans", "batchSize", batchDeleted)
-	}
-
-	o.logger.Infow("Expired orphan deletion completed", "deleted", totalDeleted)
-	o.metrics.IncrementOrphanRecordsExpired(ctx, totalDeleted)
-	return nil
-}
-
-func (o *OrphanRecoverer) deleteExpiredOrphansBatch(ctx context.Context, cutoff time.Time) (int, error) {
-	deletedChan, errChan := o.storage.DeleteExpiredOrphans(ctx, cutoff, o.config.OrphanRecovery.DeleteBatchSize)
-
-	batchCount := 0
-	for {
-		select {
-		case deleted, ok := <-deletedChan:
-			if !ok {
-				return batchCount, nil
-			}
-			batchCount++
-			o.logger.Debugw("Deleted expired orphan record",
-				"messageID", fmt.Sprintf("%x", deleted.MessageID),
-				"aggregationKey", deleted.AggregationKey,
-				"signerAddress", deleted.SignerAddress)
-
-		case err, ok := <-errChan:
-			if !ok {
-				return batchCount, nil
-			}
-			if err != nil {
-				return batchCount, fmt.Errorf("error deleting expired orphans: %w", err)
-			}
-
-		case <-ctx.Done():
-			return batchCount, ctx.Err()
-		}
-	}
-}
-
 // processOrphanedRecord attempts to re-aggregate an orphaned verification record.
 func (o *OrphanRecoverer) processOrphanedRecord(record model.OrphanedKey) error {
 	err := o.aggregator.CheckAggregation(record.MessageID, record.AggregationKey)
@@ -227,6 +158,31 @@ func (o *OrphanRecoverer) processOrphanedRecord(record model.OrphanedKey) error 
 		"aggregationKey", record.AggregationKey)
 
 	return nil
+}
+
+func (o *OrphanRecoverer) Ready() error {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+
+	if o.done == nil {
+		return fmt.Errorf("orphan recoverer not started")
+	}
+
+	select {
+	case <-o.done:
+		return fmt.Errorf("orphan recoverer stopped")
+	default:
+	}
+
+	return nil
+}
+
+func (o *OrphanRecoverer) HealthReport() map[string]error {
+	return map[string]error{o.Name(): o.Ready()}
+}
+
+func (o *OrphanRecoverer) Name() string {
+	return "orphan_recoverer"
 }
 
 func NewOrphanRecoverer(store common.CommitVerificationStore, aggregator handlers.AggregationTriggerer, config *model.AggregatorConfig, l logger.SugaredLogger, metrics common.AggregatorMetricLabeler) *OrphanRecoverer {

@@ -24,68 +24,6 @@ func (_m *MockCommitVerificationStore) EXPECT() *MockCommitVerificationStore_Exp
 	return &MockCommitVerificationStore_Expecter{mock: &_m.Mock}
 }
 
-// DeleteExpiredOrphans provides a mock function with given fields: ctx, olderThan, batchSize
-func (_m *MockCommitVerificationStore) DeleteExpiredOrphans(ctx context.Context, olderThan time.Time, batchSize int) (<-chan model.DeletedOrphan, <-chan error) {
-	ret := _m.Called(ctx, olderThan, batchSize)
-
-	if len(ret) == 0 {
-		panic("no return value specified for DeleteExpiredOrphans")
-	}
-
-	var r0 <-chan model.DeletedOrphan
-	var r1 <-chan error
-	if rf, ok := ret.Get(0).(func(context.Context, time.Time, int) (<-chan model.DeletedOrphan, <-chan error)); ok {
-		return rf(ctx, olderThan, batchSize)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, time.Time, int) <-chan model.DeletedOrphan); ok {
-		r0 = rf(ctx, olderThan, batchSize)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(<-chan model.DeletedOrphan)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, time.Time, int) <-chan error); ok {
-		r1 = rf(ctx, olderThan, batchSize)
-	} else {
-		if ret.Get(1) != nil {
-			r1 = ret.Get(1).(<-chan error)
-		}
-	}
-
-	return r0, r1
-}
-
-// MockCommitVerificationStore_DeleteExpiredOrphans_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteExpiredOrphans'
-type MockCommitVerificationStore_DeleteExpiredOrphans_Call struct {
-	*mock.Call
-}
-
-// DeleteExpiredOrphans is a helper method to define mock.On call
-//   - ctx context.Context
-//   - olderThan time.Time
-//   - batchSize int
-func (_e *MockCommitVerificationStore_Expecter) DeleteExpiredOrphans(ctx interface{}, olderThan interface{}, batchSize interface{}) *MockCommitVerificationStore_DeleteExpiredOrphans_Call {
-	return &MockCommitVerificationStore_DeleteExpiredOrphans_Call{Call: _e.mock.On("DeleteExpiredOrphans", ctx, olderThan, batchSize)}
-}
-
-func (_c *MockCommitVerificationStore_DeleteExpiredOrphans_Call) Run(run func(ctx context.Context, olderThan time.Time, batchSize int)) *MockCommitVerificationStore_DeleteExpiredOrphans_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(time.Time), args[2].(int))
-	})
-	return _c
-}
-
-func (_c *MockCommitVerificationStore_DeleteExpiredOrphans_Call) Return(_a0 <-chan model.DeletedOrphan, _a1 <-chan error) *MockCommitVerificationStore_DeleteExpiredOrphans_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockCommitVerificationStore_DeleteExpiredOrphans_Call) RunAndReturn(run func(context.Context, time.Time, int) (<-chan model.DeletedOrphan, <-chan error)) *MockCommitVerificationStore_DeleteExpiredOrphans_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetCommitVerification provides a mock function with given fields: ctx, id
 func (_m *MockCommitVerificationStore) GetCommitVerification(ctx context.Context, id model.CommitVerificationRecordIdentifier) (*model.CommitVerificationRecord, error) {
 	ret := _m.Called(ctx, id)

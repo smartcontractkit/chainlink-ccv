@@ -83,14 +83,6 @@ func (c *NoopAggregatorMetricLabeler) RecordOrphanRecoveryDuration(ctx context.C
 	// No-op
 }
 
-func (c *NoopAggregatorMetricLabeler) RecordOrphanCleanupDuration(ctx context.Context, duration time.Duration) {
-	// No-op
-}
-
-func (c *NoopAggregatorMetricLabeler) IncrementOrphanRecordsExpired(ctx context.Context, count int) {
-	// No-op
-}
-
 func (c *NoopAggregatorMetricLabeler) IncrementOrphanRecoveryErrors(ctx context.Context) {
 	// No-op
 }
