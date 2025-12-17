@@ -3,7 +3,6 @@ package lbtc
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	httputil "github.com/smartcontractkit/chainlink-ccv/verifier/token/http"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/internal"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -162,7 +162,7 @@ func TestGetMessages(t *testing.T) {
 			ctx := t.Context()
 			messageHashes := make([]protocol.ByteSlice, len(tt.hashes))
 			for i, h := range tt.hashes {
-				messageHashes[i] = mustByteSliceFromHex(h)
+				messageHashes[i] = internal.MustByteSliceFromHex(h)
 			}
 
 			mockHTTPClient.On("Post", ctx, "bridge/v1/deposits/getByHash", mock.Anything).Return(
@@ -196,8 +196,8 @@ func TestGetMessages_RequestFormat(t *testing.T) {
 
 	ctx := t.Context()
 	messageHashes := []protocol.ByteSlice{
-		mustByteSliceFromHex("0x117f49bfccd85ce2d0ad3a2c9bc27af2abd43eed0cbaeb2ddf5098cbd6bb8bcf"),
-		mustByteSliceFromHex("0x27bf6eb2920da82a6a1294ceff503733c5a46a36d6d6c56a006f8720c399574b"),
+		internal.MustByteSliceFromHex("0x117f49bfccd85ce2d0ad3a2c9bc27af2abd43eed0cbaeb2ddf5098cbd6bb8bcf"),
+		internal.MustByteSliceFromHex("0x27bf6eb2920da82a6a1294ceff503733c5a46a36d6d6c56a006f8720c399574b"),
 	}
 
 	var capturedPath string
@@ -246,7 +246,7 @@ func TestNewAttestationRequest(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			messageHashes := make([]protocol.ByteSlice, len(tt.hashes))
 			for i, h := range tt.hashes {
-				messageHashes[i] = mustByteSliceFromHex(h)
+				messageHashes[i] = internal.MustByteSliceFromHex(h)
 			}
 			request := NewBatchRequest(messageHashes)
 			assert.Len(t, request.PayloadHashes, len(tt.hashes))
@@ -402,7 +402,7 @@ func TestGetMessages_RealWorldResponses(t *testing.T) {
 			ctx := t.Context()
 			messageHashes := make([]protocol.ByteSlice, len(tt.hashes))
 			for i, h := range tt.hashes {
-				messageHashes[i] = mustByteSliceFromHex(h)
+				messageHashes[i] = internal.MustByteSliceFromHex(h)
 			}
 
 			mockHTTPClient.On("Post", ctx, "bridge/v1/deposits/getByHash", mock.Anything).Return(
@@ -423,12 +423,4 @@ func TestGetMessages_RealWorldResponses(t *testing.T) {
 			mockHTTPClient.AssertExpectations(t)
 		})
 	}
-}
-
-func mustByteSliceFromHex(s string) protocol.ByteSlice {
-	bs, err := protocol.NewByteSliceFromHex(s)
-	if err != nil {
-		panic(fmt.Sprintf("failed to decode hex string: %v", err))
-	}
-	return bs
 }

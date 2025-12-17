@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/internal"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -54,8 +55,7 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	cancel()
 	_ = ccvDataBatcher.Close()
 
-	results := readResultsFromChannel(t, outCh)
-
+	results := internal.ReadResultsFromChannel(t, outCh)
 	require.Len(t, results, 1, "Expected one result in batcher")
 
 	attestation, err := testAttestation.ToVerifierFormat()
@@ -102,7 +102,7 @@ func TestVerifier_VerifyMessages_AttestationServiceFailure(t *testing.T) {
 
 func TestVerifier_VerifyMessages_BatcherFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+	cancel() // Cancel immediately
 
 	lggr := logger.Test(t)
 	mockAttestationService := mocks.NewCCTPAttestationService(t)
@@ -172,7 +172,7 @@ func TestVerifier_VerifyMessages_MultipleTasksWithMixedResults(t *testing.T) {
 		Once()
 
 	outCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
-	ccvDataBatcher := batcher.NewBatcher(ctx, 1, 1*time.Millisecond, outCh)
+	ccvDataBatcher := batcher.NewBatcher(ctx, 2, 1*time.Millisecond, outCh)
 
 	v := cctp.NewVerifier(lggr, mockAttestationService)
 	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
@@ -188,7 +188,7 @@ func TestVerifier_VerifyMessages_MultipleTasksWithMixedResults(t *testing.T) {
 	cancel()
 	_ = ccvDataBatcher.Close()
 
-	results := readResultsFromChannel(t, outCh)
+	results := internal.ReadResultsFromChannel(t, outCh)
 	require.Len(t, results, 2, "Expected two results in batcher")
 	assert.Equal(t, task1.MessageID, results[0].MessageID.String())
 	assert.Equal(t, task3.MessageID, results[1].MessageID.String())
@@ -245,21 +245,4 @@ func createTestAttestation() cctp.Attestation {
 
 	attestation := cctp.NewAttestation(ccvVerifierVersion, msg)
 	return attestation
-}
-
-func readResultsFromChannel(
-	t *testing.T,
-	outCh chan batcher.BatchResult[protocol.VerifierNodeResult],
-) []protocol.VerifierNodeResult {
-	var results []protocol.VerifierNodeResult
-	select {
-	case batch, ok := <-outCh:
-		if !ok {
-			t.Fatal("Output channel closed without sending batch")
-		}
-		results = append(results, batch.Items...)
-	case <-time.After(2 * time.Second):
-		t.Fatal("Timeout waiting for batch from output channel")
-	}
-	return results
 }

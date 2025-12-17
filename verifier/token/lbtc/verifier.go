@@ -25,7 +25,7 @@ func NewVerifier(
 	return &Verifier{
 		lggr:               lggr,
 		attestationService: attestationService,
-		ccvVerifierVersion: ccvVerifierVersion,
+		ccvVerifierVersion: CCVVerifierVersion,
 	}
 }
 

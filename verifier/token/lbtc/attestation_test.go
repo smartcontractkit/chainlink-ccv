@@ -1,7 +1,6 @@
 package lbtc
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +11,7 @@ import (
 
 	sel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/internal"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -47,22 +47,22 @@ func Test_AttestationFetch(t *testing.T) {
 
 	msg1 := protocol.Message{
 		TokenTransfer: &protocol.TokenTransfer{
-			ExtraData: mustByteSliceFromHex(hash1),
+			ExtraData: internal.MustByteSliceFromHex(hash1),
 		},
 	}
 	msg2 := protocol.Message{
 		TokenTransfer: &protocol.TokenTransfer{
-			ExtraData: mustByteSliceFromHex(hash2),
+			ExtraData: internal.MustByteSliceFromHex(hash2),
 		},
 	}
 	msg3 := protocol.Message{
 		TokenTransfer: &protocol.TokenTransfer{
-			ExtraData: mustByteSliceFromHex(hash3),
+			ExtraData: internal.MustByteSliceFromHex(hash3),
 		},
 	}
 	msg4 := protocol.Message{
 		TokenTransfer: &protocol.TokenTransfer{
-			ExtraData: mustByteSliceFromHex(hash4),
+			ExtraData: internal.MustByteSliceFromHex(hash4),
 		},
 	}
 
@@ -82,7 +82,7 @@ func Test_AttestationFetch(t *testing.T) {
 			AttestationAPI:        server.URL,
 			AttestationAPITimeout: 1 * time.Minute,
 			ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
-				sourceChain: mustUnknownAddressFromHex("0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350"),
+				sourceChain: internal.MustUnknownAddressFromHex("0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350"),
 			},
 		})
 	require.NoError(t, err)
@@ -120,12 +120,4 @@ func Test_AttestationFetch(t *testing.T) {
 		assert.False(t, attestationPayload.IsReady())
 		assert.Equal(t, AttestationStatusUnspecified, attestationPayload.status)
 	})
-}
-
-func mustUnknownAddressFromHex(s string) protocol.UnknownAddress {
-	addr, err := protocol.NewUnknownAddressFromHex(s)
-	if err != nil {
-		panic(fmt.Sprintf("failed to decode address: %v", err))
-	}
-	return addr
 }

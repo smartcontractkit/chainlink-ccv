@@ -74,7 +74,7 @@ func NewAttestationService(
 	return &HTTPAttestationService{
 		lggr:               lggr,
 		client:             client,
-		ccvVerifierVersion: ccvVerifierVersion,
+		ccvVerifierVersion: CCVVerifierVersion,
 		ccvAddresses:       config.ParsedVerifiers,
 	}, nil
 }
