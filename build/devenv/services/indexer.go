@@ -43,7 +43,7 @@ type IndexerInput struct {
 	DB             *DBInput              `toml:"db"`
 	ContainerName  string                `toml:"container_name"`
 	UseCache       bool                  `toml:"use_cache"`
-	Out            *IndexerOutput        `toml:"-"`
+	Out            *IndexerOutput        `toml:"out"`
 	IndexerConfig  *config.Config        `toml:"indexer_config"`
 	Secrets        *config.SecretsConfig `toml:"secrets"`
 }
