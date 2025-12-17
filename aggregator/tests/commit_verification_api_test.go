@@ -1502,7 +1502,7 @@ func TestGetVerifierResultsForMessage_ReturnsNotFoundWhenSourceVerifierNotInCCVA
 		signer1 := NewSignerFixture(t, "node1")
 		signer2 := NewSignerFixture(t, "node2")
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
-		aggregatorClient, ccvDataClient, _, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType))
+		aggregatorClient, ccvDataClient, _, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 
@@ -1569,7 +1569,7 @@ func TestGetMessagesSince_ReturnsNilMetadataWhenSourceVerifierNotInCCVAddresses(
 		signer1 := NewSignerFixture(t, "node1")
 		signer2 := NewSignerFixture(t, "node2")
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
-		aggregatorClient, _, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType))
+		aggregatorClient, _, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 
@@ -1642,7 +1642,7 @@ func TestSourceVerifierInCCVAddresses_MetadataPopulated(t *testing.T) {
 		signer1 := NewSignerFixture(t, "node1")
 		signer2 := NewSignerFixture(t, "node2")
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
-		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType))
+		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 
