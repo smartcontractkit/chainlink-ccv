@@ -15,7 +15,6 @@ import (
 
 func TestUnauthenticatedRequestsAreRejected(t *testing.T) {
 	aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t,
-		WithStorageType("memory"),
 		WithoutClientAuth(),
 	)
 	require.NoError(t, err)
