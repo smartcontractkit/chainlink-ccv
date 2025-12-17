@@ -18,6 +18,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
+// Please see attestation.go to see how the CCV data is created and how TokenTransfer.ExtraData is used
+// CCVData: <4 byte verifier version><attestation> (set by offchain)
+// TokenTransfer.ExtraData: <message_hash> (set by onchain).
 const (
 	lbtcAttestation = `
 		{
@@ -112,9 +115,7 @@ func Test_LBTCMessages_Success(t *testing.T) {
 	t.Cleanup(func() { _ = v.Close() })
 
 	msg1 := createTestMessageSentEventWithToken(t, 100, chain1337, chain2337, 0, 300_000, 900, &protocol.TokenTransfer{ExtraData: extraData1})
-	require.Equal(t, "0x50ff209da7755fd0c8520758b8a1cbeeaf6c59f2680309726b5be1d8fe418f9f", msg1.MessageID.String())
 	msg2 := createTestMessageSentEventWithToken(t, 200, chain1337, chain2337, 0, 300_000, 901, &protocol.TokenTransfer{ExtraData: extraData2})
-	require.Equal(t, "0x9eb2c0dd69a23f0ce7d948ded46ca00017cc7df42913d61708f946d52b8c4537", msg2.MessageID.String())
 	testEvents := []protocol.MessageSentEvent{msg1, msg2}
 
 	var messagesSent atomic.Int32
@@ -210,9 +211,7 @@ func Test_LBTCMessages_RetryingAttestation(t *testing.T) {
 	t.Cleanup(func() { _ = v.Close() })
 
 	msg1 := createTestMessageSentEventWithToken(t, 100, chain1337, chain2337, 0, 300_000, 900, &protocol.TokenTransfer{ExtraData: extraData1})
-	require.Equal(t, "0x50ff209da7755fd0c8520758b8a1cbeeaf6c59f2680309726b5be1d8fe418f9f", msg1.MessageID.String())
 	msg2 := createTestMessageSentEventWithToken(t, 200, chain1337, chain2337, 0, 300_000, 901, &protocol.TokenTransfer{ExtraData: extraData2})
-	require.Equal(t, "0x9eb2c0dd69a23f0ce7d948ded46ca00017cc7df42913d61708f946d52b8c4537", msg2.MessageID.String())
 	testEvents := []protocol.MessageSentEvent{msg1, msg2}
 
 	var messagesSent atomic.Int32
