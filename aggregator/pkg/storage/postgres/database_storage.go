@@ -554,8 +554,8 @@ func (d *DatabaseStorage) SubmitAggregatedReport(ctx context.Context, report *mo
 	return nil
 }
 
-func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context) (<-chan model.OrphanedKey, <-chan error) {
-	orphanedKeyCh := make(chan model.OrphanedKey, 10)
+func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context, newerThan time.Time) (<-chan model.OrphanedKey, <-chan error) {
+	orphanedKeyCh := make(chan model.OrphanedKey)
 	errCh := make(chan error, 1)
 
 	go func() {
@@ -565,11 +565,14 @@ func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context) (<-chan model.Or
 		stmt := `
 		SELECT DISTINCT cvr.message_id, cvr.aggregation_key
 		FROM commit_verification_records cvr
-		LEFT JOIN commit_aggregated_reports car ON cvr.message_id = car.message_id
-		WHERE car.message_id IS NULL
+		WHERE cvr.created_at >= $1
+		  AND NOT EXISTS (
+		    SELECT 1 FROM commit_aggregated_reports car
+		    WHERE car.message_id = cvr.message_id
+		  )
 		ORDER BY cvr.message_id, cvr.aggregation_key`
 
-		rows, err := d.ds.QueryContext(ctx, stmt)
+		rows, err := d.ds.QueryContext(ctx, stmt, newerThan)
 		if err != nil {
 			errCh <- fmt.Errorf("failed to query orphaned message pairs: %w", err)
 			return
@@ -619,4 +622,106 @@ func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context) (<-chan model.Or
 	}()
 
 	return orphanedKeyCh, errCh
+}
+
+func (d *DatabaseStorage) OrphanedKeyStats(ctx context.Context, cutoff time.Time) (*model.OrphanStats, error) {
+	stmt := `
+	SELECT 
+		COUNT(*) FILTER (WHERE created_at < $1) as expired_count,
+		COUNT(*) FILTER (WHERE created_at >= $1) as non_expired_count,
+		COUNT(*) as total_count
+	FROM (
+		SELECT DISTINCT ON (cvr.message_id, cvr.aggregation_key) cvr.message_id, cvr.aggregation_key, cvr.created_at
+		FROM commit_verification_records cvr
+		WHERE NOT EXISTS (
+			SELECT 1 FROM commit_aggregated_reports car
+			WHERE car.message_id = cvr.message_id
+		)
+	) orphans`
+
+	rows, err := d.ds.QueryContext(ctx, stmt, cutoff)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query orphan stats: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var stats model.OrphanStats
+	if rows.Next() {
+		if err := rows.Scan(&stats.ExpiredCount, &stats.NonExpiredCount, &stats.TotalCount); err != nil {
+			return nil, fmt.Errorf("failed to scan orphan stats: %w", err)
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error reading orphan stats: %w", err)
+	}
+
+	return &stats, nil
+}
+
+func (d *DatabaseStorage) DeleteExpiredOrphans(ctx context.Context, olderThan time.Time, batchSize int) (<-chan model.DeletedOrphan, <-chan error) {
+	deletedCh := make(chan model.DeletedOrphan)
+	errCh := make(chan error, 1)
+
+	go func() {
+		defer close(deletedCh)
+		defer close(errCh)
+
+		stmt := `
+		DELETE FROM commit_verification_records
+		WHERE id IN (
+			SELECT cvr.id
+			FROM commit_verification_records cvr
+			WHERE cvr.created_at < $1
+			  AND NOT EXISTS (
+			    SELECT 1 FROM commit_aggregated_reports car
+			    WHERE car.message_id = cvr.message_id
+			  )
+			LIMIT $2
+		)
+		RETURNING message_id, aggregation_key, signer_address`
+
+		rows, err := d.ds.QueryContext(ctx, stmt, olderThan, batchSize)
+		if err != nil {
+			errCh <- fmt.Errorf("failed to delete expired orphans: %w", err)
+			return
+		}
+		defer func() {
+			if closeErr := rows.Close(); closeErr != nil {
+				errCh <- fmt.Errorf("failed to close rows: %w", closeErr)
+			}
+		}()
+
+		for rows.Next() {
+			select {
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+				return
+			default:
+			}
+
+			var messageID, aggregationKey, signerAddress string
+			if err := rows.Scan(&messageID, &aggregationKey, &signerAddress); err != nil {
+				errCh <- fmt.Errorf("failed to scan deleted orphan: %w", err)
+				return
+			}
+
+			select {
+			case deletedCh <- model.DeletedOrphan{
+				MessageID:      common.Hex2Bytes(messageID),
+				AggregationKey: aggregationKey,
+				SignerAddress:  signerAddress,
+			}:
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+				return
+			}
+		}
+
+		if err := rows.Err(); err != nil {
+			errCh <- fmt.Errorf("error iterating over deleted orphans: %w", err)
+		}
+	}()
+
+	return deletedCh, errCh
 }

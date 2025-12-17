@@ -191,6 +191,73 @@ func (_c *MockAggregatorMetricLabeler_IncrementCompletedAggregations_Call) RunAn
 	return _c
 }
 
+// IncrementOrphanRecordsExpired provides a mock function with given fields: ctx, count
+func (_m *MockAggregatorMetricLabeler) IncrementOrphanRecordsExpired(ctx context.Context, count int) {
+	_m.Called(ctx, count)
+}
+
+// MockAggregatorMetricLabeler_IncrementOrphanRecordsExpired_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementOrphanRecordsExpired'
+type MockAggregatorMetricLabeler_IncrementOrphanRecordsExpired_Call struct {
+	*mock.Call
+}
+
+// IncrementOrphanRecordsExpired is a helper method to define mock.On call
+//   - ctx context.Context
+//   - count int
+func (_e *MockAggregatorMetricLabeler_Expecter) IncrementOrphanRecordsExpired(ctx interface{}, count interface{}) *MockAggregatorMetricLabeler_IncrementOrphanRecordsExpired_Call {
+	return &MockAggregatorMetricLabeler_IncrementOrphanRecordsExpired_Call{Call: _e.mock.On("IncrementOrphanRecordsExpired", ctx, count)}
+}
+
+func (_c *MockAggregatorMetricLabeler_IncrementOrphanRecordsExpired_Call) Run(run func(ctx context.Context, count int)) *MockAggregatorMetricLabeler_IncrementOrphanRecordsExpired_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int))
+	})
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_IncrementOrphanRecordsExpired_Call) Return() *MockAggregatorMetricLabeler_IncrementOrphanRecordsExpired_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_IncrementOrphanRecordsExpired_Call) RunAndReturn(run func(context.Context, int)) *MockAggregatorMetricLabeler_IncrementOrphanRecordsExpired_Call {
+	_c.Run(run)
+	return _c
+}
+
+// IncrementOrphanRecoveryErrors provides a mock function with given fields: ctx
+func (_m *MockAggregatorMetricLabeler) IncrementOrphanRecoveryErrors(ctx context.Context) {
+	_m.Called(ctx)
+}
+
+// MockAggregatorMetricLabeler_IncrementOrphanRecoveryErrors_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementOrphanRecoveryErrors'
+type MockAggregatorMetricLabeler_IncrementOrphanRecoveryErrors_Call struct {
+	*mock.Call
+}
+
+// IncrementOrphanRecoveryErrors is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockAggregatorMetricLabeler_Expecter) IncrementOrphanRecoveryErrors(ctx interface{}) *MockAggregatorMetricLabeler_IncrementOrphanRecoveryErrors_Call {
+	return &MockAggregatorMetricLabeler_IncrementOrphanRecoveryErrors_Call{Call: _e.mock.On("IncrementOrphanRecoveryErrors", ctx)}
+}
+
+func (_c *MockAggregatorMetricLabeler_IncrementOrphanRecoveryErrors_Call) Run(run func(ctx context.Context)) *MockAggregatorMetricLabeler_IncrementOrphanRecoveryErrors_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_IncrementOrphanRecoveryErrors_Call) Return() *MockAggregatorMetricLabeler_IncrementOrphanRecoveryErrors_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_IncrementOrphanRecoveryErrors_Call) RunAndReturn(run func(context.Context)) *MockAggregatorMetricLabeler_IncrementOrphanRecoveryErrors_Call {
+	_c.Run(run)
+	return _c
+}
+
 // IncrementPendingAggregationsChannelBuffer provides a mock function with given fields: ctx, count
 func (_m *MockAggregatorMetricLabeler) IncrementPendingAggregationsChannelBuffer(ctx context.Context, count int) {
 	_m.Called(ctx, count)
@@ -326,6 +393,74 @@ func (_c *MockAggregatorMetricLabeler_RecordMessageSinceNumberOfRecordsReturned_
 	return _c
 }
 
+// RecordOrphanCleanupDuration provides a mock function with given fields: ctx, duration
+func (_m *MockAggregatorMetricLabeler) RecordOrphanCleanupDuration(ctx context.Context, duration time.Duration) {
+	_m.Called(ctx, duration)
+}
+
+// MockAggregatorMetricLabeler_RecordOrphanCleanupDuration_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordOrphanCleanupDuration'
+type MockAggregatorMetricLabeler_RecordOrphanCleanupDuration_Call struct {
+	*mock.Call
+}
+
+// RecordOrphanCleanupDuration is a helper method to define mock.On call
+//   - ctx context.Context
+//   - duration time.Duration
+func (_e *MockAggregatorMetricLabeler_Expecter) RecordOrphanCleanupDuration(ctx interface{}, duration interface{}) *MockAggregatorMetricLabeler_RecordOrphanCleanupDuration_Call {
+	return &MockAggregatorMetricLabeler_RecordOrphanCleanupDuration_Call{Call: _e.mock.On("RecordOrphanCleanupDuration", ctx, duration)}
+}
+
+func (_c *MockAggregatorMetricLabeler_RecordOrphanCleanupDuration_Call) Run(run func(ctx context.Context, duration time.Duration)) *MockAggregatorMetricLabeler_RecordOrphanCleanupDuration_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(time.Duration))
+	})
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_RecordOrphanCleanupDuration_Call) Return() *MockAggregatorMetricLabeler_RecordOrphanCleanupDuration_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_RecordOrphanCleanupDuration_Call) RunAndReturn(run func(context.Context, time.Duration)) *MockAggregatorMetricLabeler_RecordOrphanCleanupDuration_Call {
+	_c.Run(run)
+	return _c
+}
+
+// RecordOrphanRecoveryDuration provides a mock function with given fields: ctx, duration
+func (_m *MockAggregatorMetricLabeler) RecordOrphanRecoveryDuration(ctx context.Context, duration time.Duration) {
+	_m.Called(ctx, duration)
+}
+
+// MockAggregatorMetricLabeler_RecordOrphanRecoveryDuration_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordOrphanRecoveryDuration'
+type MockAggregatorMetricLabeler_RecordOrphanRecoveryDuration_Call struct {
+	*mock.Call
+}
+
+// RecordOrphanRecoveryDuration is a helper method to define mock.On call
+//   - ctx context.Context
+//   - duration time.Duration
+func (_e *MockAggregatorMetricLabeler_Expecter) RecordOrphanRecoveryDuration(ctx interface{}, duration interface{}) *MockAggregatorMetricLabeler_RecordOrphanRecoveryDuration_Call {
+	return &MockAggregatorMetricLabeler_RecordOrphanRecoveryDuration_Call{Call: _e.mock.On("RecordOrphanRecoveryDuration", ctx, duration)}
+}
+
+func (_c *MockAggregatorMetricLabeler_RecordOrphanRecoveryDuration_Call) Run(run func(ctx context.Context, duration time.Duration)) *MockAggregatorMetricLabeler_RecordOrphanRecoveryDuration_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(time.Duration))
+	})
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_RecordOrphanRecoveryDuration_Call) Return() *MockAggregatorMetricLabeler_RecordOrphanRecoveryDuration_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_RecordOrphanRecoveryDuration_Call) RunAndReturn(run func(context.Context, time.Duration)) *MockAggregatorMetricLabeler_RecordOrphanRecoveryDuration_Call {
+	_c.Run(run)
+	return _c
+}
+
 // RecordStorageLatency provides a mock function with given fields: ctx, duration
 func (_m *MockAggregatorMetricLabeler) RecordStorageLatency(ctx context.Context, duration time.Duration) {
 	_m.Called(ctx, duration)
@@ -390,6 +525,74 @@ func (_c *MockAggregatorMetricLabeler_RecordTimeToAggregation_Call) Return() *Mo
 }
 
 func (_c *MockAggregatorMetricLabeler_RecordTimeToAggregation_Call) RunAndReturn(run func(context.Context, time.Duration)) *MockAggregatorMetricLabeler_RecordTimeToAggregation_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetOrphanBacklog provides a mock function with given fields: ctx, count
+func (_m *MockAggregatorMetricLabeler) SetOrphanBacklog(ctx context.Context, count int) {
+	_m.Called(ctx, count)
+}
+
+// MockAggregatorMetricLabeler_SetOrphanBacklog_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetOrphanBacklog'
+type MockAggregatorMetricLabeler_SetOrphanBacklog_Call struct {
+	*mock.Call
+}
+
+// SetOrphanBacklog is a helper method to define mock.On call
+//   - ctx context.Context
+//   - count int
+func (_e *MockAggregatorMetricLabeler_Expecter) SetOrphanBacklog(ctx interface{}, count interface{}) *MockAggregatorMetricLabeler_SetOrphanBacklog_Call {
+	return &MockAggregatorMetricLabeler_SetOrphanBacklog_Call{Call: _e.mock.On("SetOrphanBacklog", ctx, count)}
+}
+
+func (_c *MockAggregatorMetricLabeler_SetOrphanBacklog_Call) Run(run func(ctx context.Context, count int)) *MockAggregatorMetricLabeler_SetOrphanBacklog_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int))
+	})
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_SetOrphanBacklog_Call) Return() *MockAggregatorMetricLabeler_SetOrphanBacklog_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_SetOrphanBacklog_Call) RunAndReturn(run func(context.Context, int)) *MockAggregatorMetricLabeler_SetOrphanBacklog_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetOrphanExpiredBacklog provides a mock function with given fields: ctx, count
+func (_m *MockAggregatorMetricLabeler) SetOrphanExpiredBacklog(ctx context.Context, count int) {
+	_m.Called(ctx, count)
+}
+
+// MockAggregatorMetricLabeler_SetOrphanExpiredBacklog_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetOrphanExpiredBacklog'
+type MockAggregatorMetricLabeler_SetOrphanExpiredBacklog_Call struct {
+	*mock.Call
+}
+
+// SetOrphanExpiredBacklog is a helper method to define mock.On call
+//   - ctx context.Context
+//   - count int
+func (_e *MockAggregatorMetricLabeler_Expecter) SetOrphanExpiredBacklog(ctx interface{}, count interface{}) *MockAggregatorMetricLabeler_SetOrphanExpiredBacklog_Call {
+	return &MockAggregatorMetricLabeler_SetOrphanExpiredBacklog_Call{Call: _e.mock.On("SetOrphanExpiredBacklog", ctx, count)}
+}
+
+func (_c *MockAggregatorMetricLabeler_SetOrphanExpiredBacklog_Call) Run(run func(ctx context.Context, count int)) *MockAggregatorMetricLabeler_SetOrphanExpiredBacklog_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int))
+	})
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_SetOrphanExpiredBacklog_Call) Return() *MockAggregatorMetricLabeler_SetOrphanExpiredBacklog_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_SetOrphanExpiredBacklog_Call) RunAndReturn(run func(context.Context, int)) *MockAggregatorMetricLabeler_SetOrphanExpiredBacklog_Call {
 	_c.Run(run)
 	return _c
 }

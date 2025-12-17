@@ -30,12 +30,14 @@ CREATE TABLE IF NOT EXISTS commit_aggregated_reports (
 
 CREATE INDEX IF NOT EXISTS idx_verification_latest ON commit_verification_records(message_id, signer_address, seq_num DESC);
 CREATE INDEX IF NOT EXISTS idx_verification_aggregation_key ON commit_verification_records(message_id, aggregation_key, seq_num DESC);
+CREATE INDEX IF NOT EXISTS idx_verification_orphan_scan ON commit_verification_records(created_at, message_id, aggregation_key);
 CREATE INDEX IF NOT EXISTS idx_aggregated_latest ON commit_aggregated_reports(message_id, seq_num DESC);
 CREATE INDEX IF NOT EXISTS idx_aggregated_seq_num ON commit_aggregated_reports(seq_num ASC);
 
 -- +goose Down
 DROP INDEX IF EXISTS idx_aggregated_seq_num;
 DROP INDEX IF EXISTS idx_aggregated_latest;
+DROP INDEX IF EXISTS idx_verification_orphan_scan;
 DROP INDEX IF EXISTS idx_verification_aggregation_key;
 DROP INDEX IF EXISTS idx_verification_latest;
 
@@ -44,4 +46,3 @@ DROP TABLE IF EXISTS commit_verification_records;
 
 DROP SEQUENCE IF EXISTS commit_aggregated_reports_seq_num_seq;
 DROP SEQUENCE IF EXISTS commit_verification_records_seq_num_seq;
-

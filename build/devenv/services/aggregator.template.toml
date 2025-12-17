@@ -12,6 +12,7 @@ type = "postgres"
 [orphanRecovery]
 enabled = false
 intervalSeconds = 300
+maxAgeHours = 24
 
 # Rate Limiting Configuration
 [rateLimiting]

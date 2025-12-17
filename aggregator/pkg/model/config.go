@@ -123,6 +123,14 @@ type OrphanRecoveryConfig struct {
 	Enabled bool `toml:"enabled"`
 	// IntervalSeconds controls how often orphan recovery runs (in seconds)
 	IntervalSeconds int `toml:"intervalSeconds"`
+	// CleanupIntervalSeconds controls how often expired orphan cleanup runs (in seconds)
+	CleanupIntervalSeconds int `toml:"cleanupIntervalSeconds"`
+	// MaxAgeHours is the maximum age of orphan records before they are deleted.
+	// If 0, orphans are never deleted based on age.
+	MaxAgeHours int `toml:"maxAgeHours"`
+	// DeleteBatchSize limits the number of orphan records deleted per batch.
+	// This prevents long-running transactions from holding locks.
+	DeleteBatchSize int `toml:"deleteBatchSize"`
 }
 
 type HealthCheckConfig struct {
@@ -345,9 +353,17 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.OrphanRecovery.IntervalSeconds == 0 {
 		c.OrphanRecovery.IntervalSeconds = 300 // 5 minutes
 	}
-	// Default orphan recovery enabled unless explicitly disabled
-	if !c.OrphanRecovery.Enabled && c.OrphanRecovery.IntervalSeconds > 0 {
-		c.OrphanRecovery.Enabled = true
+	// Default cleanup interval: 1 hour
+	if c.OrphanRecovery.CleanupIntervalSeconds == 0 {
+		c.OrphanRecovery.CleanupIntervalSeconds = 3600 // 1 hour
+	}
+	// Default max age: 7 days
+	if c.OrphanRecovery.MaxAgeHours == 0 {
+		c.OrphanRecovery.MaxAgeHours = 168 // 7 days
+	}
+	// Default delete batch size: 1000 records per batch
+	if c.OrphanRecovery.DeleteBatchSize == 0 {
+		c.OrphanRecovery.DeleteBatchSize = 1000
 	}
 	// Health check defaults
 	if c.HealthCheck.Port == "" {
@@ -422,6 +438,26 @@ func (c *AggregatorConfig) ValidateStorageConfig() error {
 		return errors.New("storage.pageSize cannot exceed 1000")
 	}
 
+	return nil
+}
+
+// ValidateOrphanRecoveryConfig validates the orphan recovery configuration.
+func (c *AggregatorConfig) ValidateOrphanRecoveryConfig() error {
+	if !c.OrphanRecovery.Enabled {
+		return nil
+	}
+	if c.OrphanRecovery.MaxAgeHours < 1 {
+		return errors.New("orphanRecovery.maxAgeHours must be at least 1")
+	}
+	if c.OrphanRecovery.IntervalSeconds < 5 {
+		return errors.New("orphanRecovery.intervalSeconds must be at least 5")
+	}
+	if c.OrphanRecovery.CleanupIntervalSeconds < 5 {
+		return errors.New("orphanRecovery.cleanupIntervalSeconds must be at least 5")
+	}
+	if c.OrphanRecovery.DeleteBatchSize < 1 {
+		return errors.New("orphanRecovery.deleteBatchSize must be at least 1")
+	}
 	return nil
 }
 
@@ -526,6 +562,11 @@ func (c *AggregatorConfig) Validate() error {
 	// Validate storage configuration
 	if err := c.ValidateStorageConfig(); err != nil {
 		return fmt.Errorf("storage configuration error: %w", err)
+	}
+
+	// Validate orphan recovery configuration
+	if err := c.ValidateOrphanRecoveryConfig(); err != nil {
+		return fmt.Errorf("orphan recovery configuration error: %w", err)
 	}
 
 	return nil

@@ -132,9 +132,10 @@ func (s *InMemoryStorage) GetBatchAggregatedReportByMessageIDs(_ context.Context
 	return results, nil
 }
 
-// ListOrphanedMessageIDs streams unique (messageID, committeeID) combinations that have verification records but no aggregated reports.
+// ListOrphanedKeys streams unique (messageID, aggregationKey) combinations that have verification records
+// but no aggregated reports, and are newer than the given cutoff time.
 // Returns a channel for pairs and a channel for errors. Both channels will be closed when iteration is complete.
-func (s *InMemoryStorage) ListOrphanedKeys(ctx context.Context) (<-chan model.OrphanedKey, <-chan error) {
+func (s *InMemoryStorage) ListOrphanedKeys(ctx context.Context, newerThan time.Time) (<-chan model.OrphanedKey, <-chan error) {
 	pairCh := make(chan model.OrphanedKey, 10)
 	errCh := make(chan error, 1)
 
@@ -152,7 +153,7 @@ func (s *InMemoryStorage) ListOrphanedKeys(ctx context.Context) (<-chan model.Or
 
 			if record, ok := value.(*recordWithAggregationKey); ok {
 				_, found := s.aggregatedReports.Load(model.GetAggregatedReportID(record.record.MessageID))
-				if !found {
+				if !found && !record.record.GetTimestamp().Before(newerThan) {
 					pairCh <- model.OrphanedKey{
 						AggregationKey: record.aggregationKey,
 						MessageID:      record.record.MessageID,
@@ -164,6 +165,90 @@ func (s *InMemoryStorage) ListOrphanedKeys(ctx context.Context) (<-chan model.Or
 	}()
 
 	return pairCh, errCh
+}
+
+// OrphanedKeyStats returns counts of orphaned records split by expired/non-expired status.
+func (s *InMemoryStorage) OrphanedKeyStats(_ context.Context, cutoff time.Time) (*model.OrphanStats, error) {
+	stats := &model.OrphanStats{}
+
+	s.records.Range(func(key, value any) bool {
+		if record, ok := value.(*recordWithAggregationKey); ok {
+			_, found := s.aggregatedReports.Load(model.GetAggregatedReportID(record.record.MessageID))
+			if !found {
+				stats.TotalCount++
+				if record.record.GetTimestamp().Before(cutoff) {
+					stats.ExpiredCount++
+				} else {
+					stats.NonExpiredCount++
+				}
+			}
+		}
+		return true
+	})
+
+	return stats, nil
+}
+
+// DeleteExpiredOrphans deletes orphan verification records older than the given time.
+// batchSize is accepted for interface compatibility but not used in the in-memory implementation.
+// Returns channels for streaming deleted records and errors.
+func (s *InMemoryStorage) DeleteExpiredOrphans(ctx context.Context, olderThan time.Time, _ int) (<-chan model.DeletedOrphan, <-chan error) {
+	deletedCh := make(chan model.DeletedOrphan, 10)
+	errCh := make(chan error, 1)
+
+	go func() {
+		defer close(deletedCh)
+		defer close(errCh)
+
+		var keysToDelete []any
+
+		s.records.Range(func(key, value any) bool {
+			select {
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+				return false
+			default:
+			}
+
+			if record, ok := value.(*recordWithAggregationKey); ok {
+				_, hasAggregated := s.aggregatedReports.Load(model.GetAggregatedReportID(record.record.MessageID))
+				if !hasAggregated && record.record.GetTimestamp().Before(olderThan) {
+					keysToDelete = append(keysToDelete, key)
+				}
+			}
+			return true
+		})
+
+		for _, key := range keysToDelete {
+			select {
+			case <-ctx.Done():
+				errCh <- ctx.Err()
+				return
+			default:
+			}
+
+			if value, ok := s.records.LoadAndDelete(key); ok {
+				if record, ok := value.(*recordWithAggregationKey); ok {
+					signerAddr := ""
+					if record.record.IdentifierSigner != nil {
+						signerAddr = hex.EncodeToString(record.record.IdentifierSigner.Address)
+					}
+					select {
+					case deletedCh <- model.DeletedOrphan{
+						MessageID:      record.record.MessageID,
+						AggregationKey: record.aggregationKey,
+						SignerAddress:  signerAddr,
+					}:
+					case <-ctx.Done():
+						errCh <- ctx.Err()
+						return
+					}
+				}
+			}
+		}
+	}()
+
+	return deletedCh, errCh
 }
 
 // NewInMemoryStorage creates a new instance of InMemoryStorage.

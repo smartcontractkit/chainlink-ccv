@@ -70,3 +70,27 @@ func (c *NoopAggregatorMetricLabeler) IncrementStorageError(ctx context.Context)
 func (c *NoopAggregatorMetricLabeler) RecordTimeToAggregation(ctx context.Context, duration time.Duration) {
 	// No-op
 }
+
+func (c *NoopAggregatorMetricLabeler) SetOrphanBacklog(ctx context.Context, count int) {
+	// No-op
+}
+
+func (c *NoopAggregatorMetricLabeler) SetOrphanExpiredBacklog(ctx context.Context, count int) {
+	// No-op
+}
+
+func (c *NoopAggregatorMetricLabeler) RecordOrphanRecoveryDuration(ctx context.Context, duration time.Duration) {
+	// No-op
+}
+
+func (c *NoopAggregatorMetricLabeler) RecordOrphanCleanupDuration(ctx context.Context, duration time.Duration) {
+	// No-op
+}
+
+func (c *NoopAggregatorMetricLabeler) IncrementOrphanRecordsExpired(ctx context.Context, count int) {
+	// No-op
+}
+
+func (c *NoopAggregatorMetricLabeler) IncrementOrphanRecoveryErrors(ctx context.Context) {
+	// No-op
+}

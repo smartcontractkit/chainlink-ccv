@@ -226,6 +226,11 @@ func createTestCommitVerificationRecordWithNewKey(t *testing.T, msgWithCCV *comm
 }
 
 func setupTestDB(t *testing.T) (*DatabaseStorage, func()) {
+	storage, _, cleanup := setupTestDBWithDS(t)
+	return storage, cleanup
+}
+
+func setupTestDBWithDS(t *testing.T) (*DatabaseStorage, *sqlx.DB, func()) {
 	ctx := context.Background()
 
 	postgresContainer, err := postgres.Run(ctx,
@@ -260,7 +265,7 @@ func setupTestDB(t *testing.T) (*DatabaseStorage, func()) {
 		}
 	}
 
-	return storage, cleanup
+	return storage, ds, cleanup
 }
 
 func TestSaveCommitVerification_HappyPath(t *testing.T) {
@@ -705,7 +710,7 @@ func TestListOrphanedKeys(t *testing.T) {
 	err = storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
-	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx)
+	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, time.Time{})
 
 	orphanedKeys := []model.OrphanedKey{}
 	for keys := range orphanKeysCh {
@@ -730,13 +735,293 @@ func TestListOrphanedKeys_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	messageIDCh, errCh := storage.ListOrphanedKeys(ctx)
+	messageIDCh, errCh := storage.ListOrphanedKeys(ctx, time.Time{})
 
 	for range messageIDCh {
 	}
 
 	err := <-errCh
 	require.Error(t, err)
+}
+
+func TestDeleteExpiredOrphans_DeletesOnlyExpiredOrphans(t *testing.T) {
+	storage, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	signer := newTestSigner(t)
+
+	// Create an orphan record (no aggregated report)
+	message1 := createTestProtocolMessage()
+	message1.SequenceNumber = 1
+	msgWithCCV1 := createTestMessageWithCCV(t, message1, signer)
+	messageID1 := getMessageIDFromProto(t, msgWithCCV1)
+	aggregationKey1 := hex.EncodeToString(messageID1)
+	orphanRecord := createTestCommitVerificationRecord(t, msgWithCCV1, signer)
+	err := storage.SaveCommitVerification(ctx, orphanRecord, aggregationKey1)
+	require.NoError(t, err)
+
+	// Verify the orphan exists
+	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, time.Time{})
+	orphanedKeys := []model.OrphanedKey{}
+	for keys := range orphanKeysCh {
+		orphanedKeys = append(orphanedKeys, keys)
+	}
+	err = <-errCh
+	require.NoError(t, err)
+	require.Len(t, orphanedKeys, 1)
+
+	// Delete orphans older than 1 hour in the future (should delete the record)
+	cutoff := time.Now().Add(1 * time.Hour)
+	deletedCh, errCh := storage.DeleteExpiredOrphans(ctx, cutoff, 1000)
+
+	deletedOrphans := []model.DeletedOrphan{}
+	for deleted := range deletedCh {
+		deletedOrphans = append(deletedOrphans, deleted)
+	}
+	err = <-errCh
+	require.NoError(t, err)
+	require.Len(t, deletedOrphans, 1)
+	require.Equal(t, messageID1[:], deletedOrphans[0].MessageID)
+	require.Equal(t, aggregationKey1, deletedOrphans[0].AggregationKey)
+
+	// Verify the orphan is gone
+	orphanKeysCh, errCh = storage.ListOrphanedKeys(ctx, time.Time{})
+	orphanedKeys = []model.OrphanedKey{}
+	for keys := range orphanKeysCh {
+		orphanedKeys = append(orphanedKeys, keys)
+	}
+	err = <-errCh
+	require.NoError(t, err)
+	require.Len(t, orphanedKeys, 0)
+}
+
+func TestDeleteExpiredOrphans_DoesNotDeleteRecentOrphans(t *testing.T) {
+	storage, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	signer := newTestSigner(t)
+
+	// Create an orphan record
+	message1 := createTestProtocolMessage()
+	message1.SequenceNumber = 1
+	msgWithCCV1 := createTestMessageWithCCV(t, message1, signer)
+	messageID1 := getMessageIDFromProto(t, msgWithCCV1)
+	aggregationKey1 := hex.EncodeToString(messageID1)
+	orphanRecord := createTestCommitVerificationRecord(t, msgWithCCV1, signer)
+	err := storage.SaveCommitVerification(ctx, orphanRecord, aggregationKey1)
+	require.NoError(t, err)
+
+	// Delete orphans older than 1 hour ago (should NOT delete the just-created record)
+	cutoff := time.Now().Add(-1 * time.Hour)
+	deletedCh, errCh := storage.DeleteExpiredOrphans(ctx, cutoff, 1000)
+
+	deletedOrphans := []model.DeletedOrphan{}
+	for deleted := range deletedCh {
+		deletedOrphans = append(deletedOrphans, deleted)
+	}
+	err = <-errCh
+	require.NoError(t, err)
+	require.Len(t, deletedOrphans, 0)
+
+	// Verify the orphan still exists
+	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, time.Time{})
+	orphanedKeys := []model.OrphanedKey{}
+	for keys := range orphanKeysCh {
+		orphanedKeys = append(orphanedKeys, keys)
+	}
+	err = <-errCh
+	require.NoError(t, err)
+	require.Len(t, orphanedKeys, 1)
+}
+
+func TestDeleteExpiredOrphans_DoesNotDeleteAggregatedRecords(t *testing.T) {
+	storage, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	signer := newTestSigner(t)
+
+	// Create a record with an aggregated report
+	message1 := createTestProtocolMessage()
+	message1.SequenceNumber = 1
+	msgWithCCV1 := createTestMessageWithCCV(t, message1, signer)
+	messageID1 := getMessageIDFromProto(t, msgWithCCV1)
+	aggregationKey1 := hex.EncodeToString(messageID1)
+	aggregatedRecord := createTestCommitVerificationRecord(t, msgWithCCV1, signer)
+	err := storage.SaveCommitVerification(ctx, aggregatedRecord, aggregationKey1)
+	require.NoError(t, err)
+
+	// Submit aggregated report
+	report := &model.CommitAggregatedReport{
+		MessageID:     messageID1,
+		Verifications: []*model.CommitVerificationRecord{aggregatedRecord},
+	}
+	err = storage.SubmitAggregatedReport(ctx, report)
+	require.NoError(t, err)
+
+	// Try to delete "expired" records (cutoff in future so all would be expired if orphaned)
+	cutoff := time.Now().Add(1 * time.Hour)
+	deletedCh, errCh := storage.DeleteExpiredOrphans(ctx, cutoff, 1000)
+
+	deletedOrphans := []model.DeletedOrphan{}
+	for deleted := range deletedCh {
+		deletedOrphans = append(deletedOrphans, deleted)
+	}
+	err = <-errCh
+	require.NoError(t, err)
+	require.Len(t, deletedOrphans, 0, "Should not delete records with aggregated reports")
+}
+
+func TestDeleteExpiredOrphans_ContextCancellation(t *testing.T) {
+	storage, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	deletedCh, errCh := storage.DeleteExpiredOrphans(ctx, time.Now(), 1000)
+
+	for range deletedCh {
+	}
+
+	err := <-errCh
+	require.Error(t, err)
+}
+
+func TestDeleteExpiredOrphans_EmptyDatabase(t *testing.T) {
+	storage, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	// Delete on empty database
+	cutoff := time.Now().Add(1 * time.Hour)
+	deletedCh, errCh := storage.DeleteExpiredOrphans(ctx, cutoff, 1000)
+
+	deletedOrphans := []model.DeletedOrphan{}
+	for deleted := range deletedCh {
+		deletedOrphans = append(deletedOrphans, deleted)
+	}
+	err := <-errCh
+	require.NoError(t, err)
+	require.Len(t, deletedOrphans, 0)
+}
+
+func TestDeleteExpiredOrphans_DeletesOnlyExpiredOrphansInMixedSet(t *testing.T) {
+	storage, ds, cleanup := setupTestDBWithDS(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	signer := newTestSigner(t)
+
+	// Create 3 orphan records
+	type recordData struct {
+		messageID      []byte
+		aggregationKey string
+		record         *model.CommitVerificationRecord
+	}
+	orphans := make([]recordData, 3)
+
+	for i := 0; i < 3; i++ {
+		message := createTestProtocolMessage()
+		message.SequenceNumber = protocol.SequenceNumber(i + 1)
+		msgWithCCV := createTestMessageWithCCV(t, message, signer)
+		messageID := getMessageIDFromProto(t, msgWithCCV)
+		aggregationKey := hex.EncodeToString(messageID)
+		record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
+		err := storage.SaveCommitVerification(ctx, record, aggregationKey)
+		require.NoError(t, err)
+
+		orphans[i] = recordData{
+			messageID:      messageID,
+			aggregationKey: aggregationKey,
+			record:         record,
+		}
+	}
+
+	// Create an aggregated (non-orphaned) record
+	message := createTestProtocolMessage()
+	message.SequenceNumber = protocol.SequenceNumber(100)
+	msgWithCCV := createTestMessageWithCCV(t, message, signer)
+	aggregatedMessageID := getMessageIDFromProto(t, msgWithCCV)
+	aggregatedKey := hex.EncodeToString(aggregatedMessageID)
+	aggregatedRecord := createTestCommitVerificationRecord(t, msgWithCCV, signer)
+	err := storage.SaveCommitVerification(ctx, aggregatedRecord, aggregatedKey)
+	require.NoError(t, err)
+
+	// Submit aggregated report for this record
+	report := &model.CommitAggregatedReport{
+		MessageID:     aggregatedMessageID,
+		Verifications: []*model.CommitVerificationRecord{aggregatedRecord},
+	}
+	err = storage.SubmitAggregatedReport(ctx, report)
+	require.NoError(t, err)
+
+	// Backdate records:
+	// - orphans[0] and orphans[1]: expired orphans (should be deleted)
+	// - orphans[2]: recent orphan (should NOT be deleted)
+	// - aggregatedRecord: expired but aggregated (should NOT be deleted)
+	twoHoursAgo := time.Now().Add(-2 * time.Hour)
+	for i := 0; i < 2; i++ {
+		_, err := ds.ExecContext(ctx,
+			"UPDATE commit_verification_records SET created_at = $1 WHERE message_id = $2",
+			twoHoursAgo,
+			hex.EncodeToString(orphans[i].messageID),
+		)
+		require.NoError(t, err)
+	}
+	// Also backdate the aggregated record
+	_, err = ds.ExecContext(ctx,
+		"UPDATE commit_verification_records SET created_at = $1 WHERE message_id = $2",
+		twoHoursAgo,
+		hex.EncodeToString(aggregatedMessageID),
+	)
+	require.NoError(t, err)
+
+	// Use a cutoff of 1 hour ago - should delete only the 2 expired orphans
+	cutoff := time.Now().Add(-1 * time.Hour)
+	deletedCh, errCh := storage.DeleteExpiredOrphans(ctx, cutoff, 1000)
+
+	deletedOrphans := []model.DeletedOrphan{}
+	for deleted := range deletedCh {
+		deletedOrphans = append(deletedOrphans, deleted)
+	}
+	err = <-errCh
+	require.NoError(t, err)
+	require.Len(t, deletedOrphans, 2, "Should delete exactly 2 expired orphans")
+
+	// Verify the deleted ones are the first 2 (expired orphans)
+	deletedMessageIDs := make(map[string]bool)
+	for _, deleted := range deletedOrphans {
+		deletedMessageIDs[hex.EncodeToString(deleted.MessageID)] = true
+	}
+	for i := 0; i < 2; i++ {
+		require.True(t, deletedMessageIDs[hex.EncodeToString(orphans[i].messageID)],
+			"Expired orphan %d should have been deleted", i)
+	}
+	require.False(t, deletedMessageIDs[hex.EncodeToString(orphans[2].messageID)],
+		"Recent orphan should NOT have been deleted")
+	require.False(t, deletedMessageIDs[hex.EncodeToString(aggregatedMessageID)],
+		"Aggregated record should NOT have been deleted even though expired")
+
+	// Verify only the recent orphan remains as orphan
+	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, time.Time{})
+	remainingKeys := []model.OrphanedKey{}
+	for key := range orphanKeysCh {
+		remainingKeys = append(remainingKeys, key)
+	}
+	err = <-errCh
+	require.NoError(t, err)
+	require.Len(t, remainingKeys, 1, "Should have exactly 1 remaining orphan")
+	require.Equal(t, orphans[2].aggregationKey, remainingKeys[0].AggregationKey,
+		"Remaining orphan should be the recent one")
+
+	// Verify aggregated record still exists
+	retrieved, err := storage.GetCommitAggregatedReportByMessageID(ctx, aggregatedMessageID)
+	require.NoError(t, err)
+	require.NotNil(t, retrieved, "Aggregated record should still exist")
 }
 
 func TestBatchOperations_MultipleSigners(t *testing.T) {

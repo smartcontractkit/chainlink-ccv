@@ -135,6 +135,13 @@ func (s *Server) Start(lis net.Listener) error {
 		recovererCancel()
 	})
 
+	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
+	g.Add(func() error {
+		return s.recoverer.StartCleanup(cleanupCtx)
+	}, func(error) {
+		cleanupCancel()
+	})
+
 	healthManagerCtx, healthManagerCancel := context.WithCancel(context.Background())
 	g.Add(func() error {
 		return s.healthManager.StartPeriodicHealthLogging(healthManagerCtx, s.l, time.Minute)
@@ -312,7 +319,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		),
 	)
 
-	recoverer := NewOrphanRecoverer(store, agg, config, l)
+	recoverer := NewOrphanRecoverer(store, agg, config, l, aggMonitoring.Metrics())
 
 	healthManager := health.NewManager()
 	healthManager.Register(store)
