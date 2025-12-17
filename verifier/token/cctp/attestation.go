@@ -31,7 +31,8 @@ func NewAttestation(ccvVerifierVersion protocol.ByteSlice, msg Message) Attestat
 	}
 }
 
-// ToVerifierFormat converts the message into format: <4 byte verifier version><encoded CCTP message><attestation>.
+// ToVerifierFormat converts the message into format expected by verifier on the dest
+// <4 byte verifier version><encoded CCTP message><attestation>.
 func (a *Attestation) ToVerifierFormat() (protocol.ByteSlice, error) {
 	if !a.IsReady() {
 		return nil, fmt.Errorf("attestation is not ready, status: %s", a.status)

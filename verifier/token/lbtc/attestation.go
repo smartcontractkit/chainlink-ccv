@@ -53,7 +53,9 @@ func NewMissingAttestation(
 	}
 }
 
-// ToVerifierFormat converts the attestation into <4 byte verifier version><attestation>.
+// ToVerifierFormat converts the attestation into format expected by the verifier on the dest:
+// <4 byte verifier version><lombard attestation>
+// <lombard attestation> := abi.encode(payload, proof) as per Lombard spec, but offchain doesn't need to know the details.
 func (a *Attestation) ToVerifierFormat() (protocol.ByteSlice, error) {
 	if !a.IsReady() {
 		return nil, fmt.Errorf("attestation is not ready, status: %s", a.status)
