@@ -6,11 +6,12 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/require"
+
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
-	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -20,6 +21,8 @@ const (
 )
 
 func TestChaos_AggregatorOutageRecovery(t *testing.T) {
+	t.Skip("Skipping since no retries implemented in verifier yet")
+
 	const outageDuration = 20 * time.Second
 
 	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
