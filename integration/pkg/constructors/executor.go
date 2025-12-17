@@ -136,8 +136,7 @@ func NewExecutorCoordinator(
 	}
 
 	// create indexer client which implements MessageReader and VerifierResultReader
-	// indexerClient := storageaccess.NewIndexerAPIReader(lggr, cfg.IndexerAddress)
-	indexerClient, err := client.NewIndexerClient(lggr, cfg.IndexerAddress, &http.Client{
+	indexerClient, err := client.NewIndexerAdapterClient(lggr, cfg.IndexerAddress, &http.Client{
 		Timeout: 30 * time.Second,
 	})
 	if err != nil {

@@ -145,7 +145,7 @@ func TestReadMessages(t *testing.T) {
 	cw := &iclient.ClientWithResponses{ClientInterface: mock}
 	ic := &IndexerClient{ClientWithResponses: cw, lggr: logger.Test(t)}
 
-	msgs, err := ic.ReadMessages(context.Background(), protocol.MessagesV1Request{})
+	msgs, err := ic.GetMessages(context.Background(), protocol.MessagesV1Request{})
 	require.NoError(t, err)
 	require.Len(t, msgs, 1)
 	// verify the expected message key and value are present
@@ -176,7 +176,7 @@ func TestGetVerifierResults(t *testing.T) {
 }
 
 func TestNewIndexerClient(t *testing.T) {
-	ic, err := NewIndexerClient(logger.Test(t), "http://example.com/", nil)
+	ic, err := NewIndexerAdapterClient(logger.Test(t), "http://example.com/", nil)
 	require.NoError(t, err)
 	require.NotNil(t, ic)
 	// ensure fields are set

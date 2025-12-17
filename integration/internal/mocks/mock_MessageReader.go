@@ -28,7 +28,7 @@ func (_m *MockMessageReader) ReadMessages(ctx context.Context, queryData protoco
 	ret := _m.Called(ctx, queryData)
 
 	if len(ret) == 0 {
-		panic("no return value specified for ReadMessages")
+		panic("no return value specified for GetMessages")
 	}
 
 	var r0 map[string]protocol.MessageWithMetadata
@@ -53,7 +53,7 @@ func (_m *MockMessageReader) ReadMessages(ctx context.Context, queryData protoco
 	return r0, r1
 }
 
-// MockMessageReader_ReadMessages_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReadMessages'
+// MockMessageReader_ReadMessages_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetMessages'
 type MockMessageReader_ReadMessages_Call struct {
 	*mock.Call
 }
@@ -62,7 +62,7 @@ type MockMessageReader_ReadMessages_Call struct {
 //   - ctx context.Context
 //   - queryData protocol.MessagesV1Request
 func (_e *MockMessageReader_Expecter) ReadMessages(ctx interface{}, queryData interface{}) *MockMessageReader_ReadMessages_Call {
-	return &MockMessageReader_ReadMessages_Call{Call: _e.mock.On("ReadMessages", ctx, queryData)}
+	return &MockMessageReader_ReadMessages_Call{Call: _e.mock.On("GetMessages", ctx, queryData)}
 }
 
 func (_c *MockMessageReader_ReadMessages_Call) Run(run func(ctx context.Context, queryData protocol.MessagesV1Request)) *MockMessageReader_ReadMessages_Call {
