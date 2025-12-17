@@ -82,9 +82,10 @@ func NewAttestationService(
 		return nil, err
 	}
 	return &HTTPAttestationService{
-		lggr:               lggr,
-		client:             client,
-		batchSize:          config.AttestationAPIBatchSize,
+		lggr:      lggr,
+		client:    client,
+		batchSize: config.AttestationAPIBatchSize,
+		// TODO Make that configurable per chain / per address CCIP-8521
 		ccvVerifierVersion: CCVVerifierVersion,
 	}, nil
 }
