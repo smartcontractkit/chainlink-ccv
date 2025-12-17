@@ -56,8 +56,10 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	v := lbtc.NewVerifier(lggr, mockAttestationService)
 	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
 
-	cancel()
-	_ = ccvDataBatcher.Close()
+	t.Cleanup(func() {
+		cancel()
+		_ = ccvDataBatcher.Close()
+	})
 
 	assert.NoError(t, result.Error, "Expected no batch-level error")
 	assert.Empty(t, result.Items, "Expected no verification errors")
@@ -114,13 +116,15 @@ func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
 		Once()
 
 	outCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
-	ccvDataBatcher := batcher.NewBatcher(ctx, 3, 1*time.Minute, outCh)
+	ccvDataBatcher := batcher.NewBatcher(ctx, 1, 1*time.Minute, outCh)
 
 	v := lbtc.NewVerifier(lggr, mockAttestationService)
 	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
 
-	cancel()
-	_ = ccvDataBatcher.Close()
+	t.Cleanup(func() {
+		cancel()
+		_ = ccvDataBatcher.Close()
+	})
 
 	// Task1 should pass, Task2 is not ready, Task3 not found
 	assert.NoError(t, result.Error, "Expected no batch-level error")

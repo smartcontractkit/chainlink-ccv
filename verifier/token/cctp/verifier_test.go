@@ -46,8 +46,10 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	assert.Empty(t, vErrors.Items, "Expected no verification errors")
 	mockAttestationService.AssertExpectations(t)
 
-	cancel()
-	_ = ccvDataBatcher.Close()
+	t.Cleanup(func() {
+		cancel()
+		_ = ccvDataBatcher.Close()
+	})
 
 	results := internal.ReadResultsFromChannel(t, outCh)
 	require.Len(t, results, 1, "Expected one result in batcher")
@@ -81,8 +83,10 @@ func TestVerifier_VerifyMessages_AttestationServiceFailure(t *testing.T) {
 	v := cctp.NewVerifier(lggr, mockAttestationService)
 	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
 
-	cancel()
-	_ = ccvDataBatcher.Close()
+	t.Cleanup(func() {
+		cancel()
+		_ = ccvDataBatcher.Close()
+	})
 
 	assert.NoError(t, result.Error, "Expected no batch-level error")
 	require.Len(t, result.Items, 1, "Expected one verification error")
@@ -116,7 +120,9 @@ func TestVerifier_VerifyMessages_BatcherFailure(t *testing.T) {
 	v := cctp.NewVerifier(lggr, mockAttestationService)
 	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
 
-	_ = ccvDataBatcher.Close()
+	t.Cleanup(func() {
+		_ = ccvDataBatcher.Close()
+	})
 
 	assert.NoError(t, result.Error, "Expected no batch-level error")
 	require.Len(t, result.Items, 1, "Expected one verification error")
@@ -165,6 +171,11 @@ func TestVerifier_VerifyMessages_MultipleTasksWithMixedResults(t *testing.T) {
 	v := cctp.NewVerifier(lggr, mockAttestationService)
 	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
 
+	t.Cleanup(func() {
+		cancel()
+		_ = ccvDataBatcher.Close()
+	})
+
 	assert.NoError(t, result.Error, "Expected no batch-level error")
 	require.Len(t, result.Items, 1, "Expected one verification error (task2)")
 
@@ -172,9 +183,6 @@ func TestVerifier_VerifyMessages_MultipleTasksWithMixedResults(t *testing.T) {
 	assert.Equal(t, expectedErr, verificationError.Error)
 	assert.Equal(t, task2.MessageID, verificationError.Task.MessageID)
 	mockAttestationService.AssertExpectations(t)
-
-	cancel()
-	_ = ccvDataBatcher.Close()
 
 	results := internal.ReadResultsFromChannel(t, outCh)
 	require.Len(t, results, 2, "Expected two results in batcher")
