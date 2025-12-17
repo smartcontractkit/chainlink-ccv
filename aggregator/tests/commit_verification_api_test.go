@@ -31,7 +31,7 @@ func TestAggregationHappyPath(t *testing.T) {
 		signer1 := NewSignerFixture(t, "node1")
 		signer2 := NewSignerFixture(t, "node2")
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
-		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType))
+		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 		_ = messageDiscoveryClient // may be used later
@@ -76,7 +76,7 @@ func TestAggregationHappyPath_NoQuorumWhenBlobDataIsDifferent(t *testing.T) {
 		signer1 := NewSignerFixture(t, "node1")
 		signer2 := NewSignerFixture(t, "node2")
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
-		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType))
+		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 		_ = messageDiscoveryClient // may be used later
@@ -128,7 +128,7 @@ func TestIdempotency(t *testing.T) {
 		signer1 := NewSignerFixture(t, "node1")
 		signer2 := NewSignerFixture(t, "node2")
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
-		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType))
+		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 		_ = messageDiscoveryClient // may be used later
@@ -174,7 +174,7 @@ func TestKeyRotation(t *testing.T) {
 		signer2 := NewSignerFixture(t, "node2")
 
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
-		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType))
+		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err)
 
@@ -422,7 +422,7 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 		signer2 := NewSignerFixture(t, "node2")
 		signer3 := NewSignerFixture(t, "node3")
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
-		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType))
+		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 		_ = messageDiscoveryClient // may be used later
@@ -479,7 +479,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 		signer2 := NewSignerFixture(t, "node2")
 		signer3 := NewSignerFixture(t, "node3")
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
-		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType))
+		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 		_ = messageDiscoveryClient // may be used later
@@ -585,7 +585,6 @@ func runPaginationTest(t *testing.T, numMessages, pageSize int, storageType stri
 	aggregatorClient, _, messageDiscoveryClient, cleanup, err := CreateServerAndClient(
 		t,
 		WithCommitteeConfig(committee),
-		WithStorageType(storageType),
 		WithPaginationConfig(pageSize),
 	)
 	t.Cleanup(cleanup)
@@ -709,7 +708,7 @@ func TestSequenceOrdering(t *testing.T) {
 		signer2 := NewSignerFixture(t, "node2")
 
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
-		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType))
+		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 
@@ -810,7 +809,6 @@ func TestStopAggregationAfterQuorum(t *testing.T) {
 		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(
 			t,
 			WithCommitteeConfig(committee),
-			WithStorageType(storageType),
 		)
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
@@ -913,7 +911,7 @@ func TestBatchGetVerifierResult_HappyPath(t *testing.T) {
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer, signer3.Signer)
 		// Set threshold to 2 so we can have quorum with just 2 signatures
 		committee.QuorumConfigs["1"].Threshold = 2
-		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType))
+		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 		_ = messageDiscoveryClient // may be used later
@@ -1012,7 +1010,7 @@ func TestBatchGetVerifierResult_DuplicateMessageIDs(t *testing.T) {
 		signer1 := NewSignerFixture(t, "node1")
 		signer2 := NewSignerFixture(t, "node2")
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
-		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType))
+		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 		_ = messageDiscoveryClient // may be used later
@@ -1078,7 +1076,7 @@ func TestBatchGetVerifierResult_MissingMessages(t *testing.T) {
 		signer1 := NewSignerFixture(t, "node1")
 		signer2 := NewSignerFixture(t, "node2")
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
-		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType))
+		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 		_ = messageDiscoveryClient // may be used later
@@ -1156,7 +1154,7 @@ func TestBatchGetVerifierResult_EmptyRequest(t *testing.T) {
 		signer1 := NewSignerFixture(t, "node1")
 		signer2 := NewSignerFixture(t, "node2")
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
-		_, ccvDataClient, _, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType))
+		_, ccvDataClient, _, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 
@@ -1190,8 +1188,7 @@ func TestBatchWriteCommitteeVerifierNodeResult_MixedSuccessFailure(t *testing.T)
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
 
 		aggregatorClient, _, _, cleanup, err := CreateServerAndClient(t,
-			WithCommitteeConfig(committee),
-			WithStorageType(storageType))
+			WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err)
 
@@ -1265,7 +1262,6 @@ func TestBatchGetVerifierResult_MixedSuccessFailure(t *testing.T) {
 		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(
 			t,
 			WithCommitteeConfig(committee),
-			WithStorageType(storageType),
 		)
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
@@ -1358,7 +1354,7 @@ func TestReadCommitteeVerifierNodeResult_ReturnsLatestAggregationKey(t *testing.
 
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer)
 
-		aggregatorClient, _, _, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType))
+		aggregatorClient, _, _, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 
@@ -1428,7 +1424,7 @@ func TestKeyRotation_StopAggregationAfterQuorumThenRotate(t *testing.T) {
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer, signer3.Signer)
 		committee.QuorumConfigs["1"].Threshold = 2
 
-		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee), WithStorageType(storageType))
+		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 		_ = messageDiscoveryClient // may be used later

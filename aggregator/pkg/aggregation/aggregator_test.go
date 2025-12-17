@@ -12,7 +12,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/memory"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	aggregation_mocks "github.com/smartcontractkit/chainlink-ccv/aggregator/internal/aggregation_mocks"
@@ -23,7 +22,8 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 	messageID := model.MessageID{1, 2, 3}
 
 	t.Run("should not skip when aggregated store is nil", func(t *testing.T) {
-		storage := memory.NewInMemoryStorage()
+		store := aggregation_mocks.NewMockCommitVerificationStore(t)
+		sink := aggregation_mocks.NewMockSink(t)
 		quorum := aggregation_mocks.NewMockQuorumValidator(t)
 		monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
 		metricLabeler := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
@@ -38,9 +38,9 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		}
 
 		aggregator := NewCommitReportAggregator(
-			storage,
+			store,
 			nil,
-			storage,
+			sink,
 			quorum,
 			config,
 			logger.Sugared(logger.Test(t)),
@@ -54,12 +54,15 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 	})
 
 	t.Run("should not skip when no existing report", func(t *testing.T) {
-		storage := memory.NewInMemoryStorage()
+		store := aggregation_mocks.NewMockCommitVerificationStore(t)
+		aggStore := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
+		sink := aggregation_mocks.NewMockSink(t)
 		quorum := aggregation_mocks.NewMockQuorumValidator(t)
 		monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
 		metricLabeler := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
 
 		monitoring.EXPECT().Metrics().Return(metricLabeler).Maybe()
+		aggStore.EXPECT().GetCommitAggregatedReportByMessageID(ctx, messageID).Return(nil, nil)
 
 		config := &model.AggregatorConfig{
 			Aggregation: model.AggregationConfig{
@@ -69,9 +72,9 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		}
 
 		aggregator := NewCommitReportAggregator(
-			storage,
-			storage,
-			storage,
+			store,
+			aggStore,
+			sink,
 			quorum,
 			config,
 			logger.Sugared(logger.Test(t)),
@@ -85,7 +88,9 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 	})
 
 	t.Run("should skip when existing report meets quorum", func(t *testing.T) {
-		storage := memory.NewInMemoryStorage()
+		store := aggregation_mocks.NewMockCommitVerificationStore(t)
+		aggStore := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
+		sink := aggregation_mocks.NewMockSink(t)
 		quorum := aggregation_mocks.NewMockQuorumValidator(t)
 		monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
 		metricLabeler := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
@@ -104,15 +109,13 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 			Verifications: []*model.CommitVerificationRecord{},
 		}
 
-		err := storage.SubmitAggregatedReport(ctx, existingReport)
-		require.NoError(t, err)
-
+		aggStore.EXPECT().GetCommitAggregatedReportByMessageID(ctx, messageID).Return(existingReport, nil)
 		quorum.EXPECT().CheckQuorum(ctx, existingReport).Return(true, nil)
 
 		aggregator := NewCommitReportAggregator(
-			storage,
-			storage,
-			storage,
+			store,
+			aggStore,
+			sink,
 			quorum,
 			config,
 			logger.Sugared(logger.Test(t)),
@@ -127,7 +130,9 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 	})
 
 	t.Run("should not skip when existing report does not meet quorum", func(t *testing.T) {
-		storage := memory.NewInMemoryStorage()
+		store := aggregation_mocks.NewMockCommitVerificationStore(t)
+		aggStore := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
+		sink := aggregation_mocks.NewMockSink(t)
 		quorum := aggregation_mocks.NewMockQuorumValidator(t)
 		monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
 		metricLabeler := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
@@ -146,15 +151,13 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 			Verifications: []*model.CommitVerificationRecord{},
 		}
 
-		err := storage.SubmitAggregatedReport(ctx, existingReport)
-		require.NoError(t, err)
-
+		aggStore.EXPECT().GetCommitAggregatedReportByMessageID(ctx, messageID).Return(existingReport, nil)
 		quorum.EXPECT().CheckQuorum(ctx, existingReport).Return(false, nil)
 
 		aggregator := NewCommitReportAggregator(
-			storage,
-			storage,
-			storage,
+			store,
+			aggStore,
+			sink,
 			quorum,
 			config,
 			logger.Sugared(logger.Test(t)),
@@ -168,7 +171,9 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 	})
 
 	t.Run("should not skip when GetCommitAggregatedReportByMessageID errors", func(t *testing.T) {
+		store := aggregation_mocks.NewMockCommitVerificationStore(t)
 		aggStore := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
+		sink := aggregation_mocks.NewMockSink(t)
 		quorum := aggregation_mocks.NewMockQuorumValidator(t)
 		monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
 		metricLabeler := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
@@ -177,14 +182,16 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		aggStore.EXPECT().GetCommitAggregatedReportByMessageID(ctx, messageID).Return(nil, errors.New("boom"))
 
 		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}}
-		a := NewCommitReportAggregator(memory.NewInMemoryStorage(), aggStore, memory.NewInMemoryStorage(), quorum, config, logger.Sugared(logger.Test(t)), monitoring)
+		a := NewCommitReportAggregator(store, aggStore, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring)
 		shouldSkip, err := a.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
 		require.NoError(t, err)
 		assert.False(t, shouldSkip)
 	})
 
 	t.Run("should not skip when quorum check errors", func(t *testing.T) {
-		storage := memory.NewInMemoryStorage()
+		store := aggregation_mocks.NewMockCommitVerificationStore(t)
+		aggStore := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
+		sink := aggregation_mocks.NewMockSink(t)
 		quorum := aggregation_mocks.NewMockQuorumValidator(t)
 		monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
 		metricLabeler := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
@@ -192,13 +199,11 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		monitoring.EXPECT().Metrics().Return(metricLabeler).Maybe()
 
 		existingReport := &model.CommitAggregatedReport{MessageID: messageID}
-		err := storage.SubmitAggregatedReport(ctx, existingReport)
-		require.NoError(t, err)
-
+		aggStore.EXPECT().GetCommitAggregatedReportByMessageID(ctx, messageID).Return(existingReport, nil)
 		quorum.EXPECT().CheckQuorum(ctx, existingReport).Return(false, errors.New("boom"))
 
 		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}}
-		a := NewCommitReportAggregator(storage, storage, storage, quorum, config, logger.Sugared(logger.Test(t)), monitoring)
+		a := NewCommitReportAggregator(store, aggStore, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring)
 		shouldSkip, err := a.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
 		require.NoError(t, err)
 		assert.False(t, shouldSkip)
@@ -222,12 +227,14 @@ func TestHealthCheck(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			store := aggregation_mocks.NewMockCommitVerificationStore(t)
+			sink := aggregation_mocks.NewMockSink(t)
 			monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
 			metric := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
 			monitoring.EXPECT().Metrics().Return(metric).Maybe()
 
 			config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: tc.capacity, BackgroundWorkerCount: 1}}
-			a := NewCommitReportAggregator(memory.NewInMemoryStorage(), nil, memory.NewInMemoryStorage(), aggregation_mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring)
+			a := NewCommitReportAggregator(store, nil, sink, aggregation_mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring)
 
 			for i := 0; i < tc.pending; i++ {
 				a.aggregationKeyChan <- aggregationRequest{}
@@ -248,25 +255,29 @@ func TestHealthCheck(t *testing.T) {
 
 func TestCheckAggregation_EnqueueAndFull(t *testing.T) {
 	t.Run("enqueues and records metric", func(t *testing.T) {
+		store := aggregation_mocks.NewMockCommitVerificationStore(t)
+		sink := aggregation_mocks.NewMockSink(t)
 		monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
 		metric := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 		metric.EXPECT().IncrementPendingAggregationsChannelBuffer(mock.Anything, 1)
 
 		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 2, BackgroundWorkerCount: 1}}
-		a := NewCommitReportAggregator(memory.NewInMemoryStorage(), nil, memory.NewInMemoryStorage(), aggregation_mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring)
+		a := NewCommitReportAggregator(store, nil, sink, aggregation_mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring)
 
 		err := a.CheckAggregation([]byte{1}, "")
 		require.NoError(t, err)
 	})
 
 	t.Run("returns error when channel full", func(t *testing.T) {
+		store := aggregation_mocks.NewMockCommitVerificationStore(t)
+		sink := aggregation_mocks.NewMockSink(t)
 		monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
 		metric := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
 
 		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}}
-		a := NewCommitReportAggregator(memory.NewInMemoryStorage(), nil, memory.NewInMemoryStorage(), aggregation_mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring)
+		a := NewCommitReportAggregator(store, nil, sink, aggregation_mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring)
 
 		// Fill buffer
 		a.aggregationKeyChan <- aggregationRequest{}

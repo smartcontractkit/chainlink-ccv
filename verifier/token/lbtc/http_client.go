@@ -16,18 +16,18 @@ const (
 	apiVersion      = "v1"
 	attestationPath = "deposits/getByHash"
 
-	attestationStatusUnspecified AttestationStatus = "NOTARIZATION_STATUS_UNSPECIFIED"
-	attestationStatusFailed      AttestationStatus = "NOTARIZATION_STATUS_FAILED"
-	attestationStatusPending     AttestationStatus = "NOTARIZATION_STATUS_PENDING"
-	attestationStatusSubmitted   AttestationStatus = "NOTARIZATION_STATUS_SUBMITTED"
-	attestationStatusApproved    AttestationStatus = "NOTARIZATION_STATUS_SESSION_APPROVED"
+	AttestationStatusUnspecified AttestationStatus = "NOTARIZATION_STATUS_UNSPECIFIED"
+	AttestationStatusFailed      AttestationStatus = "NOTARIZATION_STATUS_FAILED"
+	AttestationStatusPending     AttestationStatus = "NOTARIZATION_STATUS_PENDING"
+	AttestationStatusSubmitted   AttestationStatus = "NOTARIZATION_STATUS_SUBMITTED"
+	AttestationStatusApproved    AttestationStatus = "NOTARIZATION_STATUS_SESSION_APPROVED"
 )
 
 type HTTPClient interface {
 	// GetMessages fetches Lombard attestations for the given message hashes. It uses Batch API.
 	GetMessages(
 		ctx context.Context, messageHashes []protocol.ByteSlice,
-	) ([]Attestation, error)
+	) ([]AttestationResponse, error)
 }
 
 type HTTPClientImpl struct {
@@ -59,8 +59,8 @@ func NewHTTPClient(
 func (h *HTTPClientImpl) GetMessages(
 	ctx context.Context,
 	messageHashes []protocol.ByteSlice,
-) ([]Attestation, error) {
-	encodedRequest, err := json.Marshal(NewAttestationRequest(messageHashes))
+) ([]AttestationResponse, error) {
+	encodedRequest, err := json.Marshal(NewBatchRequest(messageHashes))
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal attestation request: %w", err)
 	}
@@ -70,7 +70,7 @@ func (h *HTTPClientImpl) GetMessages(
 		return nil, fmt.Errorf("failed to post attestation request: %w", err)
 	}
 
-	var attestationResp AttestationResponse
+	var attestationResp BatchResponse
 	err = json.Unmarshal(respRaw, &attestationResp)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal attestation response: %w", err)
@@ -82,34 +82,28 @@ func (h *HTTPClientImpl) GetMessages(
 	return attestationResp.Attestations, nil
 }
 
-type AttestationRequest struct {
+type BatchRequest struct {
 	PayloadHashes []string `json:"messageHash"`
 }
 
-func NewAttestationRequest(
-	messageHashes []protocol.ByteSlice,
-) AttestationRequest {
+func NewBatchRequest(messageHashes []protocol.ByteSlice) BatchRequest {
 	payloadHashes := make([]string, 0, len(messageHashes))
 	for _, msgHash := range messageHashes {
 		payloadHashes = append(payloadHashes, msgHash.String())
 	}
-	return AttestationRequest{PayloadHashes: payloadHashes}
+	return BatchRequest{PayloadHashes: payloadHashes}
 }
 
-type AttestationResponse struct {
-	Attestations []Attestation `json:"attestations"`
+type BatchResponse struct {
+	Attestations []AttestationResponse `json:"attestations"`
 	// fields in case of error
 	Code    int    `json:"code,omitempty"`
 	Message string `json:"message,omitempty"`
 }
 
-type Attestation struct {
+type AttestationResponse struct {
 	MessageHash string            `json:"message_hash"`
 	Status      AttestationStatus `json:"status"`
 	// Data is represented by abi.encode(payload, proof)
 	Data string `json:"attestation,omitempty"`
-}
-
-func (a *Attestation) IsReady() bool {
-	return a.Status == attestationStatusApproved
 }

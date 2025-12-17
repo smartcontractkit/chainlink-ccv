@@ -2,7 +2,6 @@ package tests
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -45,13 +44,6 @@ type ConfigOption = func(*model.AggregatorConfig, *ClientConfig) (*model.Aggrega
 func WithCommitteeConfig(committeeConfig *model.Committee) ConfigOption {
 	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
 		cfg.Committee = committeeConfig
-		return cfg, clientCfg
-	}
-}
-
-func WithStorageType(storageType string) ConfigOption {
-	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
-		cfg.Storage.StorageType = model.StorageType(storageType)
 		return cfg, clientCfg
 	}
 }
@@ -178,23 +170,12 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 		config, clientConfig = option(config, clientConfig)
 	}
 
-	// Setup storage based on final configuration
-	var cleanupStorage func()
-
-	switch config.Storage.StorageType {
-	case model.StorageTypeMemory:
-		// No setup needed for memory storage
-		cleanupStorage = func() {}
-	case model.StorageTypePostgreSQL:
-		storageConfig, cleanup, err := setupPostgresStorage(t, config.Storage)
-		if err != nil {
-			return nil, nil, err
-		}
-		config.Storage = storageConfig
-		cleanupStorage = cleanup
-	default:
-		return nil, nil, fmt.Errorf("unsupported storage type: %s", config.Storage.StorageType)
+	// Setup PostgreSQL storage
+	storageConfig, cleanupStorage, err := setupPostgresStorage(t, config.Storage)
+	if err != nil {
+		return nil, nil, err
 	}
+	config.Storage = storageConfig
 
 	s := agg.NewServer(sugaredLggr, config)
 	err = s.Start(buf)
