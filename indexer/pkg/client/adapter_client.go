@@ -52,7 +52,8 @@ func (ic *IndexerAdapterClient) ReadVerifierResults(ctx context.Context, queryDa
 		return v1.VerifierResultResponse{}, err
 	}
 
-	ic.lggr.Debugw("Successfully retrieved VerifierResults", "dataCount", len(verifierResultResponse.VerifierResults))
+	// ic.lggr.Debugw("Successfully retrieved VerifierResults", "dataCount", len(verifierResultResponse.VerifierResults))
+	ic.lggr.Infow("Successfully retrieved VerifierResults", "dataCount", len(verifierResultResponse.VerifierResults))
 	return verifierResultResponse, nil
 }
 
@@ -77,7 +78,8 @@ func (ic *IndexerAdapterClient) ReadMessages(ctx context.Context, queryData prot
 		return nil, err
 	}
 
-	ic.lggr.Debugw("Successfully retrieved Messages", "dataCount", len(messagesResponse.Messages))
+	// ic.lggr.Debugw("Successfully retrieved Messages", "dataCount", len(messagesResponse.Messages))
+	ic.lggr.Infow("Successfully retrieved Messages", "dataCount", len(messagesResponse.Messages))
 	return messagesResponse.Messages, nil
 }
 
