@@ -32,18 +32,6 @@ func NewAttestation(
 	}
 }
 
-func NewAttestationFields(
-	ccvVerifierVersion protocol.ByteSlice,
-	attestation string,
-	status AttestationStatus,
-) Attestation {
-	return Attestation{
-		ccvVerifierVersion: ccvVerifierVersion,
-		attestation:        attestation,
-		status:             status,
-	}
-}
-
 func NewMissingAttestation(
 	ccvVerifierVersion protocol.ByteSlice,
 ) Attestation {
