@@ -33,7 +33,7 @@ var (
 // CCVData: <4 byte verifier version><CCTP encoded message><attestation> (set by offchain)
 // HookData: <4 byte verifier version><CCIP MessageID> (set by onchain).
 const (
-	attestation1 = `
+	cctpAttestation1 = `
 		{
 		  "messages": [
 			{
@@ -61,7 +61,7 @@ const (
 			}
 		  ]
 		}`
-	attestationPending1 = `
+	cctpAttestationPending1 = `
 		{
 		  "messages": [
 			{
@@ -89,7 +89,7 @@ const (
 			}
 		  ]
 		}`
-	attestation2 = `
+	cctpAttestation2 = `
 		{
 		  "messages": [
 			{
@@ -118,7 +118,7 @@ const (
 		  ]
 		}`
 
-	attestation3 = `
+	cctpAttestation3 = `
 		{
 		  "messages": [
 			{
@@ -156,8 +156,8 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 	txHash2 := bytes.Repeat([]byte{0x2}, 32)
 
 	attestationResponse := []attestationMock{
-		{100, txHash1, attestation1},
-		{100, txHash2, attestation2},
+		{100, txHash1, cctpAttestation1},
+		{100, txHash2, cctpAttestation2},
 	}
 
 	destVerifier, err := protocol.RandomAddress()
@@ -249,8 +249,8 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 	txHash3 := bytes.Repeat([]byte{0x3}, 32)
 
 	attestationResponse := []attestationMock{
-		{100, txHash1, attestation1},
-		{101, txHash3, attestation3},
+		{100, txHash1, cctpAttestation1},
+		{101, txHash3, cctpAttestation3},
 	}
 
 	destVerifier, err := protocol.NewUnknownAddressFromHex("0x2222222200000000000000000000000000000000")
@@ -350,11 +350,11 @@ func Test_CCTPMessages_RetryingAttestation(t *testing.T) {
 	var requestCounter atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if requestCounter.Load() >= 2 {
-			_, err := w.Write([]byte(attestation1))
+			_, err := w.Write([]byte(cctpAttestation1))
 			require.NoError(t, err)
 		}
 
-		_, err := w.Write([]byte(attestationPending1))
+		_, err := w.Write([]byte(cctpAttestationPending1))
 		requestCounter.Add(1)
 		require.NoError(t, err)
 	}))

@@ -18,21 +18,38 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-const lbtcAttestationResponse = `
-{
-	"attestations": [
+const (
+	lbtcAttestation = `
 		{
-			"message_hash": "0x1111",
-			"attestation": "0x00aa",
-			"status": "NOTARIZATION_STATUS_SESSION_APPROVED"
-		},
+			"attestations": [
+				{
+					"message_hash": "0x1111",
+					"attestation": "0x00aa",
+					"status": "NOTARIZATION_STATUS_SESSION_APPROVED"
+				},
+				{
+					"message_hash": "0x2222",
+					"attestation": "0x00bb",
+					"status": "NOTARIZATION_STATUS_SESSION_APPROVED"
+				}
+			]
+		}`
+	lbtcAttestationPending = `
 		{
-			"message_hash": "0x2222",
-			"attestation": "0x00bb",
-			"status": "NOTARIZATION_STATUS_SESSION_APPROVED"
-		}
-	]
-}`
+			"attestations": [
+				{
+					"message_hash": "0x1111",
+					"attestation": "0x00aa",
+					"status": "NOTARIZATION_STATUS_PENDING"
+				},
+				{
+					"message_hash": "0x2222",
+					"attestation": "0x00bb",
+					"status": "NOTARIZATION_STATUS_PENDING"
+				}
+			]
+		}`
+)
 
 func Test_LBTCMessages_Success(t *testing.T) {
 	ts := newTestSetup(t)
@@ -51,7 +68,105 @@ func Test_LBTCMessages_Success(t *testing.T) {
 	ccvData2, err := protocol.NewByteSliceFromHex("0xf0f3a13500bb")
 	require.NoError(t, err)
 
-	server := createFakeLBTCServer(t, lbtcAttestationResponse)
+	server := createFakeLBTCServer(t, lbtcAttestation)
+	t.Cleanup(server.Close)
+
+	config := createCoordinatorConfig(
+		"cctp-verifier",
+		map[protocol.ChainSelector]protocol.UnknownAddress{
+			chain1337: testCCVAddr,
+		})
+
+	mockSetup := verifier.SetupMockSourceReader(t)
+	mockSetup.ExpectFetchMessageSentEvent(false)
+	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
+		chain1337: mockSetup.Reader,
+	}
+
+	lbtcConfig := lbtc.LBTCConfig{
+		AttestationAPI:          server.URL,
+		AttestationAPITimeout:   1 * time.Minute,
+		AttestationAPIInterval:  1 * time.Millisecond,
+		AttestationAPIBatchSize: 10,
+		ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+			chain1337: testCCVAddr,
+			chain2337: destVerifier,
+		},
+	}
+
+	// Set up mock head tracker
+	mockLatestBlocks(mockSetup.Reader)
+
+	inMem := storage.NewInMemory()
+	v, err := createLBTCCoordinator(
+		ts,
+		&lbtcConfig,
+		config,
+		sourceReaders,
+		inMem,
+	)
+	require.NoError(t, err)
+
+	err = v.Start(ts.ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = v.Close() })
+
+	msg1 := createTestMessageSentEventWithToken(t, 100, chain1337, chain2337, 0, 300_000, 900, &protocol.TokenTransfer{ExtraData: extraData1})
+	require.Equal(t, "0x50ff209da7755fd0c8520758b8a1cbeeaf6c59f2680309726b5be1d8fe418f9f", msg1.MessageID.String())
+	msg2 := createTestMessageSentEventWithToken(t, 200, chain1337, chain2337, 0, 300_000, 901, &protocol.TokenTransfer{ExtraData: extraData2})
+	require.Equal(t, "0x9eb2c0dd69a23f0ce7d948ded46ca00017cc7df42913d61708f946d52b8c4537", msg2.MessageID.String())
+	testEvents := []protocol.MessageSentEvent{msg1, msg2}
+
+	var messagesSent atomic.Int32
+	sendEventsAsync(testEvents, mockSetup.Channel, &messagesSent, 10*time.Millisecond)
+
+	var results map[protocol.Bytes32]protocol.VerifierResult
+	require.Eventually(t, func() bool {
+		reader := storage.NewAttestationCCVReader(inMem)
+		results, err = reader.GetVerifications(
+			t.Context(),
+			[]protocol.Bytes32{msg1.MessageID, msg2.MessageID},
+		)
+		if err != nil {
+			return false
+		}
+		return len(results) == 2
+	}, waitTimeout(t), 500*time.Millisecond, "waiting for messages to land in ccv storage")
+
+	assertResultMatchesMessage(t, results[msg1.MessageID], msg1, ccvData1, testCCVAddr, destVerifier)
+	assertResultMatchesMessage(t, results[msg2.MessageID], msg2, ccvData2, testCCVAddr, destVerifier)
+}
+
+func Test_LBTCMessages_RetryingAttestation(t *testing.T) {
+	t.Skip("CCIP-8514 Coordinator doesn't support retries yet")
+	ts := newTestSetup(t)
+	t.Cleanup(ts.cleanup)
+
+	destVerifier, err := protocol.RandomAddress()
+	require.NoError(t, err)
+
+	extraData1, err := protocol.NewByteSliceFromHex("0x1111")
+	require.NoError(t, err)
+	extraData2, err := protocol.NewByteSliceFromHex("0x2222")
+	require.NoError(t, err)
+	// LBTC Verifier Version + attestation payload
+	ccvData1, err := protocol.NewByteSliceFromHex("0xf0f3a13500aa")
+	require.NoError(t, err)
+	ccvData2, err := protocol.NewByteSliceFromHex("0xf0f3a13500bb")
+	require.NoError(t, err)
+
+	// This server will return a pending attestation twice, then a completed one
+	var requestCounter atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requestCounter.Load() >= 2 {
+			_, err := w.Write([]byte(lbtcAttestation))
+			require.NoError(t, err)
+		}
+
+		_, err := w.Write([]byte(lbtcAttestationPending))
+		requestCounter.Add(1)
+		require.NoError(t, err)
+	}))
 	t.Cleanup(server.Close)
 
 	config := createCoordinatorConfig(
