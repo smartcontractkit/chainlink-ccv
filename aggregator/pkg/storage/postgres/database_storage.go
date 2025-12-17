@@ -565,11 +565,8 @@ func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context, newerThan time.T
 		stmt := `
 		SELECT DISTINCT cvr.message_id, cvr.aggregation_key
 		FROM commit_verification_records cvr
-		WHERE cvr.created_at >= $1
-		  AND NOT EXISTS (
-		    SELECT 1 FROM commit_aggregated_reports car
-		    WHERE car.message_id = cvr.message_id
-		  )
+		LEFT JOIN commit_aggregated_reports car ON cvr.message_id = car.message_id
+		WHERE cvr.created_at >= $1 AND car.message_id IS NULL
 		ORDER BY cvr.message_id, cvr.aggregation_key`
 
 		rows, err := d.ds.QueryContext(ctx, stmt, newerThan)
@@ -633,10 +630,8 @@ func (d *DatabaseStorage) OrphanedKeyStats(ctx context.Context, cutoff time.Time
 	FROM (
 		SELECT DISTINCT ON (cvr.message_id, cvr.aggregation_key) cvr.message_id, cvr.aggregation_key, cvr.created_at
 		FROM commit_verification_records cvr
-		WHERE NOT EXISTS (
-			SELECT 1 FROM commit_aggregated_reports car
-			WHERE car.message_id = cvr.message_id
-		)
+		LEFT JOIN commit_aggregated_reports car ON cvr.message_id = car.message_id
+		WHERE car.message_id IS NULL
 	) orphans`
 
 	rows, err := d.ds.QueryContext(ctx, stmt, cutoff)
@@ -672,11 +667,8 @@ func (d *DatabaseStorage) DeleteExpiredOrphans(ctx context.Context, olderThan ti
 		WHERE id IN (
 			SELECT cvr.id
 			FROM commit_verification_records cvr
-			WHERE cvr.created_at < $1
-			  AND NOT EXISTS (
-			    SELECT 1 FROM commit_aggregated_reports car
-			    WHERE car.message_id = cvr.message_id
-			  )
+			LEFT JOIN commit_aggregated_reports car ON cvr.message_id = car.message_id
+			WHERE cvr.created_at < $1 AND car.message_id IS NULL
 			LIMIT $2
 		)
 		RETURNING message_id, aggregation_key, signer_address`

@@ -226,11 +226,11 @@ func createTestCommitVerificationRecordWithNewKey(t *testing.T, msgWithCCV *comm
 }
 
 func setupTestDB(t *testing.T) (*DatabaseStorage, func()) {
-	storage, _, cleanup := setupTestDBWithDS(t)
+	storage, _, cleanup := setupTestDBWithDatabase(t)
 	return storage, cleanup
 }
 
-func setupTestDBWithDS(t *testing.T) (*DatabaseStorage, *sqlx.DB, func()) {
+func setupTestDBWithDatabase(t *testing.T) (*DatabaseStorage, *sqlx.DB, func()) {
 	ctx := context.Background()
 
 	postgresContainer, err := postgres.Run(ctx,
@@ -910,7 +910,7 @@ func TestDeleteExpiredOrphans_EmptyDatabase(t *testing.T) {
 }
 
 func TestDeleteExpiredOrphans_DeletesOnlyExpiredOrphansInMixedSet(t *testing.T) {
-	storage, ds, cleanup := setupTestDBWithDS(t)
+	storage, ds, cleanup := setupTestDBWithDatabase(t)
 	defer cleanup()
 
 	ctx := context.Background()

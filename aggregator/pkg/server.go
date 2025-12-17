@@ -128,19 +128,23 @@ func (s *Server) Start(lis net.Listener) error {
 		return nil
 	}, func(error) {})
 
-	recovererCtx, recovererCancel := context.WithCancel(context.Background())
-	g.Add(func() error {
-		return s.recoverer.Start(recovererCtx)
-	}, func(error) {
-		recovererCancel()
-	})
+	if s.config.OrphanRecovery.Enabled {
+		recovererCtx, recovererCancel := context.WithCancel(context.Background())
+		g.Add(func() error {
+			return s.recoverer.Start(recovererCtx)
+		}, func(error) {
+			recovererCancel()
+		})
 
-	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
-	g.Add(func() error {
-		return s.recoverer.StartCleanup(cleanupCtx)
-	}, func(error) {
-		cleanupCancel()
-	})
+		cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
+		g.Add(func() error {
+			return s.recoverer.StartCleanup(cleanupCtx)
+		}, func(error) {
+			cleanupCancel()
+		})
+	} else {
+		s.l.Info("Orphan recovery is disabled in configuration")
+	}
 
 	healthManagerCtx, healthManagerCancel := context.WithCancel(context.Background())
 	g.Add(func() error {

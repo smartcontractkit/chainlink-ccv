@@ -22,11 +22,6 @@ type OrphanRecoverer struct {
 func (o *OrphanRecoverer) Start(ctx context.Context) error {
 	orphanRecoveryConfig := o.config.OrphanRecovery
 
-	if !orphanRecoveryConfig.Enabled {
-		o.logger.Info("Orphan recovery is disabled in configuration")
-		return nil
-	}
-
 	o.logger.Infow("Starting orphan recovery process",
 		"interval", orphanRecoveryConfig.IntervalSeconds)
 
@@ -62,11 +57,6 @@ func (o *OrphanRecoverer) Start(ctx context.Context) error {
 func (o *OrphanRecoverer) StartCleanup(ctx context.Context) error {
 	orphanRecoveryConfig := o.config.OrphanRecovery
 
-	if !orphanRecoveryConfig.Enabled {
-		o.logger.Info("Orphan cleanup is disabled (recovery disabled)")
-		return nil
-	}
-
 	o.logger.Infow("Starting orphan cleanup process",
 		"interval", orphanRecoveryConfig.CleanupIntervalSeconds,
 		"maxAgeHours", orphanRecoveryConfig.MaxAgeHours)
@@ -99,11 +89,15 @@ func (o *OrphanRecoverer) StartCleanup(ctx context.Context) error {
 	}
 }
 
+func (o *OrphanRecoverer) calculateCutoffFromNow() time.Time {
+	return time.Now().Add(-time.Duration(o.config.OrphanRecovery.MaxAgeHours) * time.Hour)
+}
+
 // RecoverOrphans scans for orphaned verification records and attempts to re-aggregate them.
 // This method is designed to be called periodically to recover from cases where verifications
 // were submitted but aggregation failed due to transient errors.
 func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
-	cutoff := time.Now().Add(-time.Duration(o.config.OrphanRecovery.MaxAgeHours) * time.Hour)
+	cutoff := o.calculateCutoffFromNow()
 
 	stats, err := o.storage.OrphanedKeyStats(ctx, cutoff)
 	if err != nil {
@@ -169,7 +163,7 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 }
 
 func (o *OrphanRecoverer) deleteExpiredOrphans(ctx context.Context) error {
-	cutoff := time.Now().Add(-time.Duration(o.config.OrphanRecovery.MaxAgeHours) * time.Hour)
+	cutoff := o.calculateCutoffFromNow()
 
 	totalDeleted := 0
 	for {
