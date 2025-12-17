@@ -143,6 +143,24 @@ func WithCcvVersion(ccvVersion []byte) MessageWithCCVNodeDataOption {
 	}
 }
 
+func WithCcvAddresses(t *testing.T, ccvAddresses [][]byte) MessageWithCCVNodeDataOption {
+	return func(m *committeepb.CommitteeVerifierNodeResult) *committeepb.CommitteeVerifierNodeResult {
+		// Convert to UnknownAddress for hash computation
+		unknownAddrs := make([]protocol.UnknownAddress, len(ccvAddresses))
+		for i, addr := range ccvAddresses {
+			unknownAddrs[i] = protocol.UnknownAddress(addr)
+		}
+
+		// Recompute the CCV and executor hash with new addresses
+		ccvAndExecutorHash, err := protocol.ComputeCCVAndExecutorHash(unknownAddrs, protocol.UnknownAddress(m.ExecutorAddress))
+		require.NoError(t, err, "failed to compute CCV and executor hash")
+
+		m.CcvAddresses = ccvAddresses
+		m.Message.CcvAndExecutorHash = ccvAndExecutorHash[:]
+		return m
+	}
+}
+
 func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVerifierAddress []byte, options ...MessageWithCCVNodeDataOption) (*committeepb.CommitteeVerifierNodeResult, protocol.Bytes32) {
 	ccvVersion := []byte{0x01, 0x02, 0x03, 0x04}
 	executorAddr := make([]byte, 20)

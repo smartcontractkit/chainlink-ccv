@@ -57,6 +57,7 @@ type testcase struct {
 	numExpectedReceipts      int
 	numExpectedVerifications int
 	executor                 protocol.UnknownAddress
+	aggregatorQualifier      string // which aggregator to query (default, secondary, tertiary)
 }
 
 type v2TestCase struct {
@@ -91,17 +92,19 @@ func TestE2ESmoke(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	var defaultAggregatorClient *ccv.AggregatorClient
-	if endpoint, ok := in.AggregatorEndpoints[evm.DefaultCommitteeVerifierQualifier]; ok {
-		defaultAggregatorClient, err = ccv.NewAggregatorClient(
-			zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
+	aggregatorClients := make(map[string]*ccv.AggregatorClient)
+	for qualifier, endpoint := range in.AggregatorEndpoints {
+		client, err := ccv.NewAggregatorClient(
+			zerolog.Ctx(ctx).With().Str("component", fmt.Sprintf("aggregator-client-%s", qualifier)).Logger(),
 			endpoint)
 		require.NoError(t, err)
-		require.NotNil(t, defaultAggregatorClient)
+		require.NotNil(t, client)
+		aggregatorClients[qualifier] = client
 		t.Cleanup(func() {
-			defaultAggregatorClient.Close()
+			client.Close()
 		})
 	}
+	defaultAggregatorClient := aggregatorClients[evm.DefaultCommitteeVerifierQualifier]
 
 	var indexerClient *ccv.IndexerClient
 	if in.IndexerEndpoint != "" {
@@ -192,7 +195,14 @@ func TestE2ESmoke(t *testing.T) {
 				require.NoError(t, err)
 				messageID := sentEvent.MessageID
 
-				testCtx := NewTestingContext(t, t.Context(), chainMap, defaultAggregatorClient, indexerClient)
+				// Select the appropriate aggregator client based on the test case's aggregatorQualifier
+				aggregatorClient := defaultAggregatorClient
+				if tc.aggregatorQualifier != "" && tc.aggregatorQualifier != evm.DefaultCommitteeVerifierQualifier {
+					if client, ok := aggregatorClients[tc.aggregatorQualifier]; ok {
+						aggregatorClient = client
+					}
+				}
+				testCtx := NewTestingContext(t, t.Context(), chainMap, aggregatorClient, indexerClient)
 				result, err := testCtx.AssertMessage(messageID, AssertMessageOptions{
 					TickInterval:            1 * time.Second,
 					ExpectedVerifierResults: tc.numExpectedVerifications,
@@ -578,6 +588,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			// default executor and secondary committee verifier.
 			numExpectedReceipts: 2,
 			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.DefaultExecutorQualifier, "executor"),
+			aggregatorQualifier: evm.SecondaryCommitteeVerifierQualifier,
 		},
 		{
 			name:        "receiver w/ secondary required and tertiary optional threshold=1",
@@ -621,6 +632,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			// default executor, secondary and tertiary committee verifiers.
 			numExpectedReceipts: 3,
 			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.DefaultExecutorQualifier, "executor"),
+			aggregatorQualifier: evm.SecondaryCommitteeVerifierQualifier,
 		},
 		{
 			name:        "receiver w/ default required, secondary and tertiary optional, threshold=1, message specifies all three",

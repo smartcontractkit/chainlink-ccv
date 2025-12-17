@@ -14,6 +14,21 @@ import (
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
+// IsSourceVerifierInCCVAddresses checks whether the given source verifier address is present
+// in the provided list of CCV addresses. The sourceVerifierAddr parameter is the raw byte
+// representation of the source verifier address, and ccvAddresses is the list of CCV
+// addresses to search. It returns true if the source verifier address is found in the list,
+// and false otherwise.
+func IsSourceVerifierInCCVAddresses(sourceVerifierAddr []byte, ccvAddresses []protocol.UnknownAddress) bool {
+	sourceAddr := protocol.UnknownAddress(sourceVerifierAddr)
+	for _, addr := range ccvAddresses {
+		if sourceAddr.Equal(addr) {
+			return true
+		}
+	}
+	return false
+}
+
 func getAllSignatureByAddress(report *CommitAggregatedReport) (map[string]protocol.Data, error) {
 	addressSignatures := make(map[string]protocol.Data)
 	for _, verification := range report.Verifications {
