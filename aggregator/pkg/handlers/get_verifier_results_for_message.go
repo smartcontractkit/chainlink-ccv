@@ -64,6 +64,20 @@ func (h *GetVerifierResultsForMessageHandler) Handle(ctx context.Context, req *v
 		messageIDHex := ethcommon.Bytes2Hex(messageID)
 
 		if report, found := results[messageIDHex]; found {
+			// Get quorum config and validate source verifier is in ccvAddresses
+			quorumConfig, ok := h.committee.GetQuorumConfig(report.GetSourceChainSelector())
+			if !ok {
+				reqLogger.Errorf("Quorum config not found for source selector %d, message ID %s", report.GetSourceChainSelector(), messageIDHex)
+				SetBatchError(response.Errors, i, codes.Internal, "internal error")
+				continue
+			}
+
+			if !model.IsSourceVerifierInCCVAddresses(quorumConfig.GetSourceVerifierAddressBytes(), report.GetMessageCCVAddresses()) {
+				reqLogger.Debugf("Source verifier address not in ccvAddresses for message ID %s", messageIDHex)
+				SetBatchError(response.Errors, i, codes.NotFound, "message ID not found")
+				continue
+			}
+
 			// Map aggregated report to proto
 			ccvData, err := model.MapAggregatedReportToVerifierResultProto(report, h.committee)
 			if err != nil {

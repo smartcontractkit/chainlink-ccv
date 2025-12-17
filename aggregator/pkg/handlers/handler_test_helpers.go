@@ -13,8 +13,9 @@ import (
 )
 
 const (
-	addrSigner       = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	addrDestVerifier = "0xcccccccccccccccccccccccccccccccccccccccc"
+	addrSigner         = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	addrDestVerifier   = "0xcccccccccccccccccccccccccccccccccccccccc"
+	addrSourceVerifier = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 )
 
 // buildCommittee is a helper to build a proper committee with quorum config.
@@ -22,8 +23,9 @@ func buildCommittee(destSel, srcSel uint64, destVerifierAddr string, signers []m
 	return &model.Committee{
 		QuorumConfigs: map[string]*model.QuorumConfig{
 			strconv.FormatUint(srcSel, 10): {
-				Signers:   signers,
-				Threshold: 1,
+				Signers:               signers,
+				Threshold:             1,
+				SourceVerifierAddress: addrSourceVerifier,
 			},
 		},
 		DestinationVerifiers: map[string]string{
@@ -36,9 +38,9 @@ func buildCommittee(destSel, srcSel uint64, destVerifierAddr string, signers []m
 func makeAggregatedReport(msg *protocol.Message, msgID model.MessageID, sigAddr string) *model.CommitAggregatedReport {
 	// ccv version must be at least 4 bytes to account for version
 	ccvVersion := []byte{0x01, 0x02, 0x03, 0x04}
-	// create one verification
+	// create one verification with source verifier address in ccvAddresses
 	ccvAddresses := []protocol.UnknownAddress{
-		{0x02, 0x02, 0x03, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16},
+		protocol.UnknownAddress(common.HexToAddress(addrSourceVerifier).Bytes()),
 	}
 	executorAddress := protocol.UnknownAddress{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14}
 	// create one verification
