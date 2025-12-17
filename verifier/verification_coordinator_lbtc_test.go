@@ -18,7 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-// Please see attestation.go to see how the CCV data is created and how TokenTransfer.ExtraData is used
+// Please see lbtc/attestation.go to see how the CCV data is created and how TokenTransfer.ExtraData is used
 // CCVData: <4 byte verifier version><attestation> (set by offchain)
 // TokenTransfer.ExtraData: <message_hash> (set by onchain).
 const (
@@ -42,12 +42,12 @@ const (
 			"attestations": [
 				{
 					"message_hash": "0x1111",
-					"attestation": "0x00aa",
+					"attestation": "0xdeadbeef",
 					"status": "NOTARIZATION_STATUS_PENDING"
 				},
 				{
 					"message_hash": "0x2222",
-					"attestation": "0x00bb",
+					"attestation": "0xdeadbeef",
 					"status": "NOTARIZATION_STATUS_PENDING"
 				}
 			]
