@@ -524,12 +524,13 @@ http {
 
         ssl_certificate /etc/nginx/ssl/server.crt;
         ssl_certificate_key /etc/nginx/ssl/server.key;
-        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_protocols TLSv1.3;
         ssl_ciphers HIGH:!aNULL:!MD5;
 
         location / {
             grpc_pass grpc://%s:%d;
             error_page 502 = /error502grpc;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         }
 
         location = /error502grpc {
