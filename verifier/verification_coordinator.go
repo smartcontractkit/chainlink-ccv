@@ -16,10 +16,6 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
-const (
-	DefaultFinalityCheckInterval = 500 * time.Millisecond
-)
-
 // -----------------------------------------------------------------------------
 // Per-chain state
 // -----------------------------------------------------------------------------
@@ -69,8 +65,8 @@ type Coordinator struct {
 	curseDetector common.CurseCheckerService
 
 	// Storage batching (kept in coordinator as requested)
-	storageBatcher   *batcher.Batcher[protocol.VerifierNodeResult]
-	batchedCCVDataCh chan batcher.BatchResult[protocol.VerifierNodeResult]
+	processor      *StorageWriterProcessor
+	storageBatcher *batcher.Batcher[protocol.VerifierNodeResult]
 }
 
 // -----------------------------------------------------------------------------
@@ -119,7 +115,6 @@ func NewCoordinator(
 	if err := vc.validateConfig(); err != nil {
 		return nil, fmt.Errorf("invalid coordinator configuration: %w", err)
 	}
-	vc.applyConfigDefaults()
 
 	return vc, nil
 }
@@ -139,25 +134,6 @@ func (vc *Coordinator) validateConfig() error {
 	}
 
 	return nil
-}
-
-// applyConfigDefaults sets default values for config fields that are not set.
-func (vc *Coordinator) applyConfigDefaults() {
-	// Default storage batch size: 50 items
-	if vc.config.StorageBatchSize <= 0 {
-		vc.config.StorageBatchSize = 50
-		if vc.lggr != nil {
-			vc.lggr.Debugw("Using default StorageBatchSize", "value", vc.config.StorageBatchSize)
-		}
-	}
-
-	// Default storage batch timeout: 1 second
-	if vc.config.StorageBatchTimeout <= 0 {
-		vc.config.StorageBatchTimeout = time.Second
-		if vc.lggr != nil {
-			vc.lggr.Debugw("Using default StorageBatchTimeout", "value", vc.config.StorageBatchTimeout)
-		}
-	}
 }
 
 // -----------------------------------------------------------------------------
@@ -264,19 +240,18 @@ func (vc *Coordinator) Start(_ context.Context) error {
 			vc.sourceStates[chainSelector] = state
 		}
 
-		vc.batchedCCVDataCh = make(chan batcher.BatchResult[protocol.VerifierNodeResult])
-		vc.storageBatcher = batcher.NewBatcher(
+		processor, storageBatcher, err := NewStorageBatcherProcessor(
 			c,
-			vc.config.StorageBatchSize,
-			vc.config.StorageBatchTimeout,
-			vc.batchedCCVDataCh,
+			vc.lggr,
+			vc.messageTracker,
+			vc.storage,
+			vc.config,
 		)
-
-		vc.backgroundWg.Add(1)
-		go func() {
-			defer vc.backgroundWg.Done()
-			vc.ccvDataLoop(c)
-		}()
+		if err != nil {
+			return fmt.Errorf("failed to create or/and start storage batcher processor: %w", err)
+		}
+		vc.processor = processor
+		vc.storageBatcher = storageBatcher
 
 		//   - per-chain ready tasks loops
 		for _, state := range vc.sourceStates {
@@ -356,44 +331,6 @@ func (vc *Coordinator) readyTasksLoop(ctx context.Context, state *sourceState) {
 				continue
 			}
 			vc.processReadyTasks(ctx, batch.Items)
-		}
-	}
-}
-
-// ccvDataLoop consumes results from the storage batcher (if you need to log errors, etc).
-func (vc *Coordinator) ccvDataLoop(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case batch, ok := <-vc.batchedCCVDataCh:
-			if !ok {
-				vc.lggr.Infow("Storage batcher channel closed")
-				vc.verifyingWg.Wait()
-				return
-			}
-
-			// Handle batch-level errors from batcher (should be rare)
-			if batch.Error != nil {
-				vc.lggr.Errorw("Batch-level error from CCVData batcher",
-					"error", batch.Error,
-					"errorType", "batcher_failure")
-				continue
-			}
-
-			if len(batch.Items) == 0 {
-				vc.lggr.Debugw("Received empty CCVData batch")
-				continue
-			}
-
-			// TODO: Run in Go Routine
-			// Write batch of CCVData to offchain storage
-			if err := vc.storage.WriteCCVNodeData(ctx, batch.Items); err == nil {
-				vc.lggr.Infow("CCV data batch stored successfully",
-					"batchSize", len(batch.Items),
-				)
-				vc.messageTracker.TrackMessageLatencies(ctx, batch.Items)
-			}
 		}
 	}
 }
