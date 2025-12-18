@@ -13,7 +13,7 @@ import (
 // StreamerResult is the result of a streaming operation.
 type StreamerResult struct {
 	Error    error
-	Messages []protocol.MessageWithMetadata
+	Messages []common.MessageWithMetadata
 }
 
 // MessageSubscriber produces a channel of Messages objects that have new verifications.

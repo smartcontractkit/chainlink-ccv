@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
+	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -38,7 +39,7 @@ func Command() *cobra.Command {
 			messageIDBytes := hexutil.MustDecode(a.messageID)
 			copy(messageIDBytes32[:], messageIDBytes)
 
-			var resp protocol.MessageIDV1Response
+			var resp v1.MessageIDResponse
 			err = json.Unmarshal([]byte(a.indexerResultJSON), &resp)
 			if err != nil {
 				return fmt.Errorf("failed to unmarshal indexer result JSON: %w", err)

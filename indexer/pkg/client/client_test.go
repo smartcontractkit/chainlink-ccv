@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -29,8 +31,8 @@ func TestProcessResponse(t *testing.T) {
 			wantErr:           false,
 			wantMessagesCount: 1,
 			body: func() []byte {
-				msg := protocol.MessageWithMetadata{Message: protocol.Message{}, Metadata: protocol.MessageMetadata{}}
-				respObj := protocol.MessagesV1Response{Messages: map[string]protocol.MessageWithMetadata{"0x1": msg}, Success: true}
+				msg := common.MessageWithMetadata{Message: protocol.Message{}, Metadata: common.MessageMetadata{}}
+				respObj := v1.MessagesResponse{Messages: map[string]common.MessageWithMetadata{"0x1": msg}, Success: true}
 				b, _ := json.Marshal(respObj)
 				return b
 			}(),
@@ -67,7 +69,7 @@ func TestProcessResponse(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := &http.Response{StatusCode: tc.status, Body: io.NopCloser(bytes.NewReader(tc.body))}
-			var out protocol.MessagesV1Response
+			var out v1.MessagesResponse
 			err := processResponse(resp, &out)
 			if tc.wantErr {
 				require.Error(t, err)
