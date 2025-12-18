@@ -14,15 +14,9 @@ import (
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
-// IsSourceVerifierInCCVAddresses checks whether the given source verifier address is present
-// in the provided list of CCV addresses. The sourceVerifierAddr parameter is the raw byte
-// representation of the source verifier address, and ccvAddresses is the list of CCV
-// addresses to search. It returns true if the source verifier address is found in the list,
-// and false otherwise.
-func IsSourceVerifierInCCVAddresses(sourceVerifierAddr []byte, ccvAddresses []protocol.UnknownAddress) bool {
-	sourceAddr := protocol.UnknownAddress(sourceVerifierAddr)
+func IsSourceVerifierInCCVAddresses(sourceVerifierAddr protocol.UnknownAddress, ccvAddresses []protocol.UnknownAddress) bool {
 	for _, addr := range ccvAddresses {
-		if sourceAddr.Equal(addr) {
+		if sourceVerifierAddr.Equal(addr) {
 			return true
 		}
 	}
@@ -93,8 +87,8 @@ func MapAggregatedReportToVerifierResultProto(report *CommitAggregatedReport, c 
 		return nil, fmt.Errorf("quorum config not found for source selector: %d", report.GetSourceChainSelector())
 	}
 
-	destVerifierAddr := c.GetDestinationVerifierAddressBytes(report.GetDestinationSelector())
-	if destVerifierAddr == nil {
+	destVerifierAddr, ok := c.GetDestinationVerifierAddress(report.GetDestinationSelector())
+	if !ok {
 		return nil, fmt.Errorf("destination verifier address not found for destination selector: %d", report.GetDestinationSelector())
 	}
 
@@ -131,8 +125,8 @@ func MapAggregatedReportToVerifierResultProto(report *CommitAggregatedReport, c 
 		CcvData:                ccvData,
 		Metadata: &verifierpb.VerifierResultMetadata{
 			Timestamp:             report.WrittenAt.UnixMilli(),
-			VerifierSourceAddress: quorumConfig.GetSourceVerifierAddressBytes(),
-			VerifierDestAddress:   destVerifierAddr,
+			VerifierSourceAddress: quorumConfig.GetSourceVerifierAddress().Bytes(),
+			VerifierDestAddress:   destVerifierAddr.Bytes(),
 		},
 	}, nil
 }

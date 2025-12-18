@@ -45,7 +45,7 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *msgdiscoveryp
 			h.logger(ctx).Errorw("missing quorum config for source chain selector", "sourceChainSelector", report.GetSourceChainSelector(), "messageID", report.MessageID)
 			verifierResult.Metadata.VerifierSourceAddress = nil
 			verifierResult.Metadata.VerifierDestAddress = nil
-		} else if !model.IsSourceVerifierInCCVAddresses(quorumConfig.GetSourceVerifierAddressBytes(), report.GetMessageCCVAddresses()) {
+		} else if !model.IsSourceVerifierInCCVAddresses(quorumConfig.GetSourceVerifierAddress(), report.GetMessageCCVAddresses()) {
 			verifierResult.Metadata.VerifierSourceAddress = nil
 			verifierResult.Metadata.VerifierDestAddress = nil
 		}

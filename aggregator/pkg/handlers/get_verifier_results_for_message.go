@@ -72,7 +72,7 @@ func (h *GetVerifierResultsForMessageHandler) Handle(ctx context.Context, req *v
 				continue
 			}
 
-			if !model.IsSourceVerifierInCCVAddresses(quorumConfig.GetSourceVerifierAddressBytes(), report.GetMessageCCVAddresses()) {
+			if !model.IsSourceVerifierInCCVAddresses(quorumConfig.GetSourceVerifierAddress(), report.GetMessageCCVAddresses()) {
 				reqLogger.Debugf("Source verifier address not in ccvAddresses for message ID %s", messageIDHex)
 				SetBatchError(response.Errors, i, codes.NotFound, "message ID not found")
 				continue
