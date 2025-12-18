@@ -115,8 +115,8 @@ type MessagesParams struct {
 	Offset               *uint64                   `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
-// VerifierResultParams defines parameters for VerifierResult.
-type VerifierResultParams struct {
+// VerifierResultsParams defines parameters for VerifierResults.
+type VerifierResultsParams struct {
 	SourceChainSelectors *[]protocol.ChainSelector `form:"sourceChainSelectors,omitempty" json:"sourceChainSelectors,omitempty"`
 	DestChainSelectors   *[]protocol.ChainSelector `form:"destChainSelectors,omitempty" json:"destChainSelectors,omitempty"`
 	Start                *int64                    `form:"start,omitempty" json:"start,omitempty"`
@@ -198,26 +198,14 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
-	// ResultsByMessageId request
-	ResultsByMessageId(ctx context.Context, messageID string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// Messages request
 	Messages(ctx context.Context, params *MessagesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// VerifierResult request
-	VerifierResult(ctx context.Context, params *VerifierResultParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-}
+	// VerifierResults request
+	VerifierResults(ctx context.Context, params *VerifierResultsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-func (c *Client) ResultsByMessageId(ctx context.Context, messageID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewResultsByMessageIdRequest(c.Server, messageID)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
+	// VerifierResultsByMessageId request
+	VerifierResultsByMessageId(ctx context.Context, messageID string, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 func (c *Client) Messages(ctx context.Context, params *MessagesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -232,8 +220,8 @@ func (c *Client) Messages(ctx context.Context, params *MessagesParams, reqEditor
 	return c.Client.Do(req)
 }
 
-func (c *Client) VerifierResult(ctx context.Context, params *VerifierResultParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewVerifierResultRequest(c.Server, params)
+func (c *Client) VerifierResults(ctx context.Context, params *VerifierResultsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewVerifierResultsRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -244,38 +232,16 @@ func (c *Client) VerifierResult(ctx context.Context, params *VerifierResultParam
 	return c.Client.Do(req)
 }
 
-// NewResultsByMessageIdRequest generates requests for ResultsByMessageId
-func NewResultsByMessageIdRequest(server string, messageID string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "messageID", runtime.ParamLocationPath, messageID)
+func (c *Client) VerifierResultsByMessageId(ctx context.Context, messageID string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewVerifierResultsByMessageIdRequest(c.Server, messageID)
 	if err != nil {
 		return nil, err
 	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
 		return nil, err
 	}
-
-	operationPath := fmt.Sprintf("/v1/messageid/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("GET", queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
+	return c.Client.Do(req)
 }
 
 // NewMessagesRequest generates requests for Messages
@@ -407,8 +373,8 @@ func NewMessagesRequest(server string, params *MessagesParams) (*http.Request, e
 	return req, nil
 }
 
-// NewVerifierResultRequest generates requests for VerifierResult
-func NewVerifierResultRequest(server string, params *VerifierResultParams) (*http.Request, error) {
+// NewVerifierResultsRequest generates requests for VerifierResults
+func NewVerifierResultsRequest(server string, params *VerifierResultsParams) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -416,7 +382,7 @@ func NewVerifierResultRequest(server string, params *VerifierResultParams) (*htt
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/v1/verifierresult")
+	operationPath := fmt.Sprintf("/v1/verifierresults")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -536,6 +502,40 @@ func NewVerifierResultRequest(server string, params *VerifierResultParams) (*htt
 	return req, nil
 }
 
+// NewVerifierResultsByMessageIdRequest generates requests for VerifierResultsByMessageId
+func NewVerifierResultsByMessageIdRequest(server string, messageID string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithLocation("simple", false, "messageID", runtime.ParamLocationPath, messageID)
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/verifierresults/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -579,36 +579,14 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
-	// ResultsByMessageIdWithResponse request
-	ResultsByMessageIdWithResponse(ctx context.Context, messageID string, reqEditors ...RequestEditorFn) (*ResultsByMessageIdResponse, error)
-
 	// MessagesWithResponse request
 	MessagesWithResponse(ctx context.Context, params *MessagesParams, reqEditors ...RequestEditorFn) (*MessagesResponse, error)
 
-	// VerifierResultWithResponse request
-	VerifierResultWithResponse(ctx context.Context, params *VerifierResultParams, reqEditors ...RequestEditorFn) (*VerifierResultResponse, error)
-}
+	// VerifierResultsWithResponse request
+	VerifierResultsWithResponse(ctx context.Context, params *VerifierResultsParams, reqEditors ...RequestEditorFn) (*VerifierResultsResponse, error)
 
-type ResultsByMessageIdResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSONDefault  *ErrorResponse
-}
-
-// Status returns HTTPResponse.Status
-func (r ResultsByMessageIdResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ResultsByMessageIdResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
+	// VerifierResultsByMessageIdWithResponse request
+	VerifierResultsByMessageIdWithResponse(ctx context.Context, messageID string, reqEditors ...RequestEditorFn) (*VerifierResultsByMessageIdResponse, error)
 }
 
 type MessagesResponse struct {
@@ -633,14 +611,14 @@ func (r MessagesResponse) StatusCode() int {
 	return 0
 }
 
-type VerifierResultResponse struct {
+type VerifierResultsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	JSONDefault  *ErrorResponse
 }
 
 // Status returns HTTPResponse.Status
-func (r VerifierResultResponse) Status() string {
+func (r VerifierResultsResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -648,20 +626,33 @@ func (r VerifierResultResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r VerifierResultResponse) StatusCode() int {
+func (r VerifierResultsResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
 	return 0
 }
 
-// ResultsByMessageIdWithResponse request returning *ResultsByMessageIdResponse
-func (c *ClientWithResponses) ResultsByMessageIdWithResponse(ctx context.Context, messageID string, reqEditors ...RequestEditorFn) (*ResultsByMessageIdResponse, error) {
-	rsp, err := c.ResultsByMessageId(ctx, messageID, reqEditors...)
-	if err != nil {
-		return nil, err
+type VerifierResultsByMessageIdResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSONDefault  *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r VerifierResultsByMessageIdResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
 	}
-	return ParseResultsByMessageIdResponse(rsp)
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r VerifierResultsByMessageIdResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
 }
 
 // MessagesWithResponse request returning *MessagesResponse
@@ -673,39 +664,22 @@ func (c *ClientWithResponses) MessagesWithResponse(ctx context.Context, params *
 	return ParseMessagesResponse(rsp)
 }
 
-// VerifierResultWithResponse request returning *VerifierResultResponse
-func (c *ClientWithResponses) VerifierResultWithResponse(ctx context.Context, params *VerifierResultParams, reqEditors ...RequestEditorFn) (*VerifierResultResponse, error) {
-	rsp, err := c.VerifierResult(ctx, params, reqEditors...)
+// VerifierResultsWithResponse request returning *VerifierResultsResponse
+func (c *ClientWithResponses) VerifierResultsWithResponse(ctx context.Context, params *VerifierResultsParams, reqEditors ...RequestEditorFn) (*VerifierResultsResponse, error) {
+	rsp, err := c.VerifierResults(ctx, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseVerifierResultResponse(rsp)
+	return ParseVerifierResultsResponse(rsp)
 }
 
-// ParseResultsByMessageIdResponse parses an HTTP response from a ResultsByMessageIdWithResponse call
-func ParseResultsByMessageIdResponse(rsp *http.Response) (*ResultsByMessageIdResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
+// VerifierResultsByMessageIdWithResponse request returning *VerifierResultsByMessageIdResponse
+func (c *ClientWithResponses) VerifierResultsByMessageIdWithResponse(ctx context.Context, messageID string, reqEditors ...RequestEditorFn) (*VerifierResultsByMessageIdResponse, error) {
+	rsp, err := c.VerifierResultsByMessageId(ctx, messageID, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-
-	response := &ResultsByMessageIdResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
-		var dest ErrorResponse
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSONDefault = &dest
-
-	}
-
-	return response, nil
+	return ParseVerifierResultsByMessageIdResponse(rsp)
 }
 
 // ParseMessagesResponse parses an HTTP response from a MessagesWithResponse call
@@ -734,15 +708,41 @@ func ParseMessagesResponse(rsp *http.Response) (*MessagesResponse, error) {
 	return response, nil
 }
 
-// ParseVerifierResultResponse parses an HTTP response from a VerifierResultWithResponse call
-func ParseVerifierResultResponse(rsp *http.Response) (*VerifierResultResponse, error) {
+// ParseVerifierResultsResponse parses an HTTP response from a VerifierResultsWithResponse call
+func ParseVerifierResultsResponse(rsp *http.Response) (*VerifierResultsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &VerifierResultResponse{
+	response := &VerifierResultsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseVerifierResultsByMessageIdResponse parses an HTTP response from a VerifierResultsByMessageIdWithResponse call
+func ParseVerifierResultsByMessageIdResponse(rsp *http.Response) (*VerifierResultsByMessageIdResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &VerifierResultsByMessageIdResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}

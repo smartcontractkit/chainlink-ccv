@@ -207,7 +207,6 @@ func main() {
 		lggr.Errorw("Failed to create indexer client", "error", err)
 		os.Exit(1)
 	}
-	verifierResultReader := executor.NewIndexerReaderAdapter(indexerClient)
 
 	//
 	// Parse per chain configuration from executor configuration
@@ -234,7 +233,7 @@ func main() {
 	//
 	// Initialize Message Handler
 	// ------------------------------------------------------------------------------------------------
-	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, curseChecker, verifierResultReader, executorMonitoring, defaultExecutorAddresses)
+	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, curseChecker, indexerClient, executorMonitoring, defaultExecutorAddresses)
 
 	//
 	// Initialize leader elector
@@ -250,7 +249,7 @@ func main() {
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
 		lggr,
 		ccvstreamer.IndexerStorageConfig{
-			IndexerClient:    verifierResultReader,
+			IndexerClient:    indexerClient,
 			InitialQueryTime: time.Now().Add(-1 * executorConfig.LookbackWindow),
 			PollingInterval:  indexerPollingInterval,
 			Backoff:          executorConfig.BackoffDuration,

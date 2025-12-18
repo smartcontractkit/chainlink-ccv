@@ -12,31 +12,31 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-type ResultsByMessageIDInput struct {
+type VerifierResultsByMessageIDInput struct {
 	MessageID string `json:"messageId" path:"messageID"`
 }
 
-type ResultsByMessageIDResponse struct {
+type VerifierResultsByMessageIDResponse struct {
 	Success   bool                                `json:"success"`
 	Results   []common.VerifierResultWithMetadata `json:"results"`
 	MessageID protocol.Bytes32                    `json:"messageID"`
 }
 
-type ResultsByMessageIDHandler struct {
+type VerifierResultsByMessageIDHandler struct {
 	storage    common.IndexerStorage
 	lggr       logger.Logger
 	monitoring common.IndexerMonitoring
 }
 
-func NewResultsByMessageIDHandler(storage common.IndexerStorage, lggr logger.Logger, monitoring common.IndexerMonitoring) *ResultsByMessageIDHandler {
-	return &ResultsByMessageIDHandler{
+func NewVerifierResultsByMessageIDHandler(storage common.IndexerStorage, lggr logger.Logger, monitoring common.IndexerMonitoring) *VerifierResultsByMessageIDHandler {
+	return &VerifierResultsByMessageIDHandler{
 		storage:    storage,
 		lggr:       lggr,
 		monitoring: monitoring,
 	}
 }
 
-func (h *ResultsByMessageIDHandler) Handle(c *gin.Context) {
+func (h *VerifierResultsByMessageIDHandler) Handle(c *gin.Context) {
 	messageID := c.Param("messageID")
 	messageIDBytes32, err := protocol.NewBytes32FromString(messageID)
 	if err != nil {
@@ -60,7 +60,7 @@ func (h *ResultsByMessageIDHandler) Handle(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, ResultsByMessageIDResponse{
+	c.JSON(http.StatusOK, VerifierResultsByMessageIDResponse{
 		Success:   true,
 		Results:   verifications,
 		MessageID: messageIDBytes32,

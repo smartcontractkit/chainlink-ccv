@@ -13,6 +13,8 @@ import (
 	coordinator "github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/executor_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
+	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -189,7 +191,7 @@ func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
 			expectedError: false,
 		},
 		{
-			name:               "ResultsByMessageID returns error - should retry",
+			name:               "VerifierResultsByMessageID returns error - should retry",
 			verifierResultsErr: errors.New("verifier results error"),
 			expectedRetry:      true,
 			expectedError:      true,
@@ -238,7 +240,7 @@ func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
 			dr[1].EXPECT().GetRMNCursedSubjects(mock.Anything).Return([]protocol.Bytes16{}, nil).Once()
 			dr[1].EXPECT().GetMessageSuccess(mock.Anything, mock.Anything).Return(false, nil).Once()
 			dr[1].EXPECT().GetExecutionAttempts(mock.Anything, mock.Anything).Return([]coordinator.ExecutionAttempt{}, nil).Maybe()
-			// GetCCVSForMessage is called in parallel with ResultsByMessageID, so we need to set it up even if verifier results error
+			// GetCCVSForMessage is called in parallel with VerifierResultsByMessageID, so we need to set it up even if verifier results error
 			dr[1].EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(tc.ccvInfo, tc.ccvInfoErr).Maybe()
 
 			vr := executor_mocks.NewMockVerifierResultReader(t)
@@ -246,16 +248,20 @@ func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
 			messageID, _ := msg.MessageID()
 
 			if tc.verifierResultsErr != nil {
-				vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return(nil, tc.verifierResultsErr).Once()
+				vr.EXPECT().VerifierResultsByMessageID(mock.Anything, mock.Anything).Return(v1.VerifierResultsByMessageIDResponse{}, tc.verifierResultsErr).Once()
 			} else {
 				// Update messageID in verifier results
-				results := make([]protocol.VerifierResult, len(tc.verifierResults))
+				results := make([]common.VerifierResultWithMetadata, len(tc.verifierResults))
 				for i, result := range tc.verifierResults {
 					result.MessageID = messageID
 					result.Message = msg
-					results[i] = result
+					results[i].VerifierResult = result
 				}
-				vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return(results, nil).Maybe()
+				r := v1.VerifierResultsByMessageIDResponse{
+					Results: results,
+					Success: true,
+				}
+				vr.EXPECT().VerifierResultsByMessageID(mock.Anything, mock.Anything).Return(r, nil).Maybe()
 			}
 
 			// Only expect ConvertAndWriteMessageToChain if we have valid results and can proceed
@@ -340,13 +346,17 @@ func Test_ChainlinkExecutor_HandleMessage_OrderCCVData(t *testing.T) {
 			messageID, _ := msg.MessageID()
 
 			// Update messageID in verifier results
-			results := make([]protocol.VerifierResult, len(tc.verifierResults))
+			results := make([]common.VerifierResultWithMetadata, len(tc.verifierResults))
 			for i, result := range tc.verifierResults {
 				result.MessageID = messageID
 				result.Message = msg
-				results[i] = result
+				results[i].VerifierResult = result
 			}
-			vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return(results, nil).Maybe()
+			r := v1.VerifierResultsByMessageIDResponse{
+				Results: results,
+				Success: true,
+			}
+			vr.EXPECT().VerifierResultsByMessageID(mock.Anything, mock.Anything).Return(r, nil).Maybe()
 
 			if !tc.orderCCVDataErr {
 				ct[1].EXPECT().ConvertAndWriteMessageToChain(mock.Anything, mock.Anything).Return(nil).Once()
@@ -424,9 +434,13 @@ func Test_ChainlinkExecutor_HandleMessage_ConvertAndWrite(t *testing.T) {
 			msg := generateFakeMessage(1, 2, 1, address1, address2)
 			messageID, _ := msg.MessageID()
 
-			vr.EXPECT().GetVerifierResults(mock.Anything, mock.Anything).Return([]protocol.VerifierResult{
-				{MessageID: messageID, Message: msg, MessageCCVAddresses: []protocol.UnknownAddress{address1}, VerifierDestAddress: address1, CCVData: []byte("data1"), MessageExecutorAddress: address2},
-			}, nil).Maybe()
+			r := v1.VerifierResultsByMessageIDResponse{
+				Results: []common.VerifierResultWithMetadata{{
+					VerifierResult: protocol.VerifierResult{MessageID: messageID, Message: msg, MessageCCVAddresses: []protocol.UnknownAddress{address1}, VerifierDestAddress: address1, CCVData: []byte("data1"), MessageExecutorAddress: address2},
+				}},
+				Success: true,
+			}
+			vr.EXPECT().VerifierResultsByMessageID(mock.Anything, mock.Anything).Return(r, nil).Maybe()
 
 			if tc.expectedReportCheck != nil {
 				ct[1].EXPECT().ConvertAndWriteMessageToChain(mock.Anything, mock.MatchedBy(func(report coordinator.AbstractAggregatedReport) bool {

@@ -47,20 +47,20 @@ func main() {
 	grp := huma.NewGroup(api, "/v1")
 
 	huma.Register(grp, huma.Operation{
-		OperationID: "verifier-result",
+		OperationID: "verifier-results",
 		Method:      http.MethodGet,
-		Path:        "/verifierresult",
+		Path:        "/verifierresults",
 		Description: "Get verifier results",
 	}, func(ctx context.Context, input *v1.VerifierResultsInput) (*v1.VerifierResultsResponse, error) {
 		return nil, nil
 	})
 
 	huma.Register(grp, huma.Operation{
-		OperationID: "results-by-message-id",
+		OperationID: "verifier-results-by-message-id",
 		Method:      http.MethodGet,
-		Path:        "/messageid/{messageID}",
+		Path:        "/verifierresults/{messageID}",
 		Description: "Get message by ID",
-	}, func(ctx context.Context, input *v1.ResultsByMessageIDInput) (*v1.ResultsByMessageIDResponse, error) {
+	}, func(ctx context.Context, input *v1.VerifierResultsByMessageIDInput) (*v1.VerifierResultsByMessageIDResponse, error) {
 		return nil, nil
 	})
 

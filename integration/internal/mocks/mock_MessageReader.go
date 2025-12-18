@@ -5,8 +5,6 @@ package mocks
 import (
 	context "context"
 
-	common "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
-
 	mock "github.com/stretchr/testify/mock"
 
 	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
@@ -25,25 +23,23 @@ func (_m *MockMessageReader) EXPECT() *MockMessageReader_Expecter {
 	return &MockMessageReader_Expecter{mock: &_m.Mock}
 }
 
-// ReadMessages provides a mock function with given fields: ctx, queryData
-func (_m *MockMessageReader) Messages(ctx context.Context, queryData v1.MessagesInput) (map[string]common.MessageWithMetadata, error) {
+// Messages provides a mock function with given fields: ctx, queryData
+func (_m *MockMessageReader) Messages(ctx context.Context, queryData v1.MessagesInput) (v1.MessagesResponse, error) {
 	ret := _m.Called(ctx, queryData)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Messages")
 	}
 
-	var r0 map[string]common.MessageWithMetadata
+	var r0 v1.MessagesResponse
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, v1.MessagesInput) (map[string]common.MessageWithMetadata, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, v1.MessagesInput) (v1.MessagesResponse, error)); ok {
 		return rf(ctx, queryData)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, v1.MessagesInput) map[string]common.MessageWithMetadata); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, v1.MessagesInput) v1.MessagesResponse); ok {
 		r0 = rf(ctx, queryData)
 	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(map[string]common.MessageWithMetadata)
-		}
+		r0 = ret.Get(0).(v1.MessagesResponse)
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, v1.MessagesInput) error); ok {
@@ -55,31 +51,31 @@ func (_m *MockMessageReader) Messages(ctx context.Context, queryData v1.Messages
 	return r0, r1
 }
 
-// MockMessageReader_ReadMessages_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Messages'
-type MockMessageReader_ReadMessages_Call struct {
+// MockMessageReader_Messages_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Messages'
+type MockMessageReader_Messages_Call struct {
 	*mock.Call
 }
 
-// ReadMessages is a helper method to define mock.On call
+// Messages is a helper method to define mock.On call
 //   - ctx context.Context
 //   - queryData v1.MessagesInput
-func (_e *MockMessageReader_Expecter) ReadMessages(ctx interface{}, queryData interface{}) *MockMessageReader_ReadMessages_Call {
-	return &MockMessageReader_ReadMessages_Call{Call: _e.mock.On("Messages", ctx, queryData)}
+func (_e *MockMessageReader_Expecter) Messages(ctx interface{}, queryData interface{}) *MockMessageReader_Messages_Call {
+	return &MockMessageReader_Messages_Call{Call: _e.mock.On("Messages", ctx, queryData)}
 }
 
-func (_c *MockMessageReader_ReadMessages_Call) Run(run func(ctx context.Context, queryData v1.MessagesInput)) *MockMessageReader_ReadMessages_Call {
+func (_c *MockMessageReader_Messages_Call) Run(run func(ctx context.Context, queryData v1.MessagesInput)) *MockMessageReader_Messages_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(v1.MessagesInput))
 	})
 	return _c
 }
 
-func (_c *MockMessageReader_ReadMessages_Call) Return(_a0 map[string]common.MessageWithMetadata, _a1 error) *MockMessageReader_ReadMessages_Call {
+func (_c *MockMessageReader_Messages_Call) Return(_a0 v1.MessagesResponse, _a1 error) *MockMessageReader_Messages_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockMessageReader_ReadMessages_Call) RunAndReturn(run func(context.Context, v1.MessagesInput) (map[string]common.MessageWithMetadata, error)) *MockMessageReader_ReadMessages_Call {
+func (_c *MockMessageReader_Messages_Call) RunAndReturn(run func(context.Context, v1.MessagesInput) (v1.MessagesResponse, error)) *MockMessageReader_Messages_Call {
 	_c.Call.Return(run)
 	return _c
 }

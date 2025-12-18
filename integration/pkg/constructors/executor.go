@@ -143,14 +143,13 @@ func NewExecutorCoordinator(
 		lggr.Errorw("Failed to create indexer client", "error", err)
 		return nil, fmt.Errorf("failed to create indexer client: %w", err)
 	}
-	indexerAdapter := executor.NewIndexerReaderAdapter(indexerClient)
 
 	ex := x.NewChainlinkExecutor(
 		logger.With(lggr, "component", "Executor"),
 		transmitters,
 		destReaders,
 		curseChecker,
-		indexerAdapter,
+		indexerClient,
 		executorMonitoring,
 		defaultExecutorAddresses,
 	)
@@ -167,7 +166,7 @@ func NewExecutorCoordinator(
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
 		lggr,
 		ccvstreamer.IndexerStorageConfig{
-			IndexerClient:    indexerAdapter,
+			IndexerClient:    indexerClient,
 			InitialQueryTime: time.Now().Add(-1 * cfg.LookbackWindow),
 			PollingInterval:  indexerPollingInterval,
 			Backoff:          cfg.BackoffDuration,

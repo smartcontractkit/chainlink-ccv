@@ -12,6 +12,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/executionchecker"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -236,12 +237,15 @@ func (cle *ChainlinkExecutor) getVerifierResultsAndQuorum(ctx context.Context, m
 	g, errGroupCtx := errgroup.WithContext(ctx)
 	ccvData := make([]protocol.VerifierResult, 0)
 	g.Go(func() error {
-		res, err := cle.verifierResultsReader.ResultsByMessageID(errGroupCtx, messageID)
+		res, err := cle.verifierResultsReader.VerifierResultsByMessageID(errGroupCtx, v1.VerifierResultsByMessageIDInput{
+			MessageID: messageID.String(),
+		})
 		if err != nil {
 			return fmt.Errorf("failed to get Verifier Results for message %s: %w", messageID.String(), err)
 		}
 
-		for _, r := range res {
+		for _, result := range res.Results {
+			r := result.VerifierResult
 			if !r.MessageExecutorAddress.Equal(cle.defaultExecutorAddress[sourceSelector]) {
 				cle.lggr.Warnw("Verifier Result did not specify our executor",
 					"verifierResult", r,
