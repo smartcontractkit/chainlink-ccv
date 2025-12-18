@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -148,9 +149,26 @@ func FundNodeEIP1559(ctx context.Context, c *ethclient.Client, pkey, recipientAd
 	if err != nil {
 		return err
 	}
-	if _, err := bind.WaitMined(context.Background(), c, signedTx); err != nil {
+	if _, err := waitMinedFast(context.Background(), c, signedTx.Hash(), 5*time.Millisecond); err != nil {
 		return err
 	}
 	l.Info().Str("Wei", amountWei.String()).Msg("Funded with ETH")
 	return nil
+}
+
+// waitMinedFast is a method for Anvil's instant blocks mode to ovecrome bind.WaitMined ticket hardcode
+func waitMinedFast(ctx context.Context, b bind.DeployBackend, txHash common.Hash, dur time.Duration) (*types.Receipt, error) {
+	queryTicker := time.NewTicker(dur)
+	defer queryTicker.Stop()
+	for {
+		receipt, err := b.TransactionReceipt(ctx, txHash)
+		if err == nil {
+			return receipt, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-queryTicker.C:
+		}
+	}
 }
