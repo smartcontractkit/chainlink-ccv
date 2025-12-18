@@ -136,20 +136,21 @@ func NewExecutorCoordinator(
 	}
 
 	// create indexer client which implements MessageReader and VerifierResultReader
-	indexerClient, err := client.NewIndexerAdapterClient(lggr, cfg.IndexerAddress, &http.Client{
+	indexerClient, err := client.NewIndexerClient(lggr, cfg.IndexerAddress, &http.Client{
 		Timeout: 30 * time.Second,
 	})
 	if err != nil {
 		lggr.Errorw("Failed to create indexer client", "error", err)
 		return nil, fmt.Errorf("failed to create indexer client: %w", err)
 	}
+	indexerAdapter := executor.NewIndexerReaderAdapter(indexerClient)
 
 	ex := x.NewChainlinkExecutor(
 		logger.With(lggr, "component", "Executor"),
 		transmitters,
 		destReaders,
 		curseChecker,
-		indexerClient,
+		indexerAdapter,
 		executorMonitoring,
 		defaultExecutorAddresses,
 	)
@@ -166,7 +167,7 @@ func NewExecutorCoordinator(
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
 		lggr,
 		ccvstreamer.IndexerStorageConfig{
-			IndexerClient:    indexerClient,
+			IndexerClient:    indexerAdapter,
 			InitialQueryTime: time.Now().Add(-1 * cfg.LookbackWindow),
 			PollingInterval:  indexerPollingInterval,
 			Backoff:          cfg.BackoffDuration,

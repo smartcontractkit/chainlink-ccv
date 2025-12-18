@@ -42,7 +42,7 @@ type IndexerClient struct {
 	indexerURI string
 }
 
-func (ic *IndexerClient) VerifierResult(ctx context.Context, queryData v1.VerifierResultsInput) (v1.VerifierResultResponse, error) {
+func parseVerifierResultParams(queryData v1.VerifierResultsInput) *iclient.VerifierResultParams {
 	var params iclient.VerifierResultParams
 	if len(queryData.SourceChainSelectors) > 0 {
 		params.SourceChainSelectors = &queryData.SourceChainSelectors
@@ -62,8 +62,11 @@ func (ic *IndexerClient) VerifierResult(ctx context.Context, queryData v1.Verifi
 	if queryData.Offset != 0 {
 		params.Offset = &queryData.Offset
 	}
+	return &params
+}
 
-	resp, err := ic.client.VerifierResult(ctx, &params)
+func (ic *IndexerClient) VerifierResult(ctx context.Context, queryData v1.VerifierResultsInput) (v1.VerifierResultResponse, error) {
+	resp, err := ic.client.VerifierResult(ctx, parseVerifierResultParams(queryData))
 	if err != nil {
 		ic.lggr.Errorw("Indexer ReadVerifierResults request error", "error", err)
 		return v1.VerifierResultResponse{}, err
@@ -79,8 +82,7 @@ func (ic *IndexerClient) VerifierResult(ctx context.Context, queryData v1.Verifi
 	return verifierResultResponse, nil
 }
 
-// GetMessages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message.
-func (ic *IndexerClient) GetMessages(ctx context.Context, queryData v1.MessagesInput) (v1.MessagesResponse, error) {
+func parseMessagesParams(queryData v1.MessagesInput) *iclient.GetMessagesParams {
 	var params iclient.GetMessagesParams
 	if len(queryData.SourceChainSelectors) > 0 {
 		params.SourceChainSelectors = &queryData.SourceChainSelectors
@@ -100,8 +102,12 @@ func (ic *IndexerClient) GetMessages(ctx context.Context, queryData v1.MessagesI
 	if queryData.Offset != 0 {
 		params.Offset = &queryData.Offset
 	}
+	return &params
+}
 
-	resp, err := ic.client.GetMessages(ctx, &params)
+// GetMessages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message.
+func (ic *IndexerClient) GetMessages(ctx context.Context, queryData v1.MessagesInput) (v1.MessagesResponse, error) {
+	resp, err := ic.client.GetMessages(ctx, parseMessagesParams(queryData))
 	if err != nil {
 		ic.lggr.Errorw("Indexer ReadMessages request error", "error", err)
 	}

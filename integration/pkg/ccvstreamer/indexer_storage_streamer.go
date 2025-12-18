@@ -9,7 +9,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/message_heap"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
+	icommon "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -72,7 +73,7 @@ func (oss *IndexerStorageStreamer) IsRunning() bool {
 // Start implements the MessageSubscriber interface.
 func (oss *IndexerStorageStreamer) Start(
 	ctx context.Context,
-	results chan protocol.MessageWithMetadata,
+	results chan icommon.MessageWithMetadata,
 	errors chan error,
 ) error {
 	if oss.reader == nil {
@@ -104,7 +105,7 @@ func (oss *IndexerStorageStreamer) Start(
 				if oss.timeProvider.GetTime().Before(nextQueryTime) {
 					continue
 				}
-				responses, err := oss.reader.ReadMessages(ctx, protocol.MessagesV1Request{
+				responses, err := oss.reader.ReadMessages(ctx, v1.MessagesInput{
 					Limit:                oss.queryLimit,
 					Start:                oss.lastQueryTime.UnixMilli(),
 					Offset:               oss.offset,

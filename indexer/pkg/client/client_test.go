@@ -97,18 +97,6 @@ func TestProcessResponse(t *testing.T) {
 	}
 }
 
-func TestGetAddrs(t *testing.T) {
-	results := []protocol.VerifierResult{
-		{VerifierSourceAddress: protocol.UnknownAddress{0x01}},
-		{VerifierSourceAddress: protocol.UnknownAddress{0x02}},
-	}
-	addrs := getAddrs(results)
-	require.Len(t, addrs, 2)
-	// verify exact contents and order
-	require.Equal(t, "0x01", addrs[0])
-	require.Equal(t, "0x02", addrs[1])
-}
-
 func TestMaybeGetBody(t *testing.T) {
 	// nil reader
 	require.Error(t, func() error {
