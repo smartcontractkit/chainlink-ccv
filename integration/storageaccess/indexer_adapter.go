@@ -112,20 +112,24 @@ func (i *IndexerAPIReader) makeRequest(ctx context.Context, endpoint string, par
 		}
 	}()
 
+	body, err := maybeGetBody(resp.Body)
+	if err != nil {
+		i.lggr.Errorw("Failed to read response body", "error", err)
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		b := maybeGetBody(resp.Body)
-		i.lggr.Errorw("Indexer returned non-OK status", "status", resp.StatusCode, "body", b)
-		if b != "" {
-			return fmt.Errorf("indexer returned status %d: %s", resp.StatusCode, b)
+		i.lggr.Errorw("Indexer returned non-OK status", "status", resp.StatusCode, "body", body)
+		if len(body) > 0 {
+			return fmt.Errorf("indexer returned status %d: %s", resp.StatusCode, body)
 		}
 		return fmt.Errorf("indexer returned status %d", resp.StatusCode)
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
-		b := maybeGetBody(resp.Body)
-		i.lggr.Errorw("Failed to decode JSON response", "error", err, "body", b)
-		if b != "" {
-			return fmt.Errorf("failed to decode JSON response: %w; body: %s", err, b)
+	if err := json.Unmarshal(body, result); err != nil {
+		i.lggr.Errorw("Failed to decode JSON response", "error", err, "body", body)
+		if len(body) > 0 {
+			return fmt.Errorf("failed to decode JSON response: %w; body: %s", err, body)
 		}
 		return fmt.Errorf("failed to decode JSON response: %w", err)
 	}
@@ -209,27 +213,21 @@ func sourceVerifierAddresses(verifierResults []protocol.VerifierResult) []string
 // maybeGetBody returns a trimmed, possibly truncated string of at most 16 KiB
 // read from the provided reader. It does NOT close the reader; callers must
 // ensure the underlying ReadCloser is closed. This avoids double-close issues.
-func maybeGetBody(body io.Reader) string {
+func maybeGetBody(body io.Reader) ([]byte, error) {
 	if body == nil {
-		return "nil reader detected"
+		return nil, fmt.Errorf("nil reader detected")
 	}
 
 	const maxBody = 16 * 1024
 	lr := io.LimitReader(body, int64(maxBody+1))
 	b, err := io.ReadAll(lr)
 	if err != nil {
-		return fmt.Sprintf("failed to read body: %v", err)
+		return nil, fmt.Errorf("failed to read body: %v", err)
 	}
 
-	truncated := false
 	if len(b) > maxBody {
-		truncated = true
-		b = b[:maxBody]
+		return nil, fmt.Errorf("response body too large")
 	}
 
-	s := strings.TrimSpace(string(b))
-	if truncated {
-		s = s + "...(truncated)"
-	}
-	return s
+	return b, nil
 }
