@@ -35,11 +35,14 @@ type IndexerAdapterClient struct {
 	indexerURI string
 }
 
-func (ic *IndexerAdapterClient) ReadVerifierResults(ctx context.Context, queryData protocol.VerifierResultsV1Request) (v1.VerifierResultResponse, error) {
+func (ic *IndexerAdapterClient) ReadVerifierResults(ctx context.Context, queryData v1.VerifierResultsInput) (v1.VerifierResultResponse, error) {
 	resp, err := ic.client.VerifierResult(ctx, &iclient.VerifierResultParams{
 		SourceChainSelectors: &queryData.SourceChainSelectors,
 		DestChainSelectors:   &queryData.DestChainSelectors,
 		Start:                &queryData.Start,
+		End:                  &queryData.End,
+		Limit:                &queryData.Limit,
+		Offset:               &queryData.Offset,
 	})
 	if err != nil {
 		ic.lggr.Errorw("Indexer ReadVerifierResults request error", "error", err)
