@@ -99,7 +99,7 @@ func TestAggregatorAuthentication(t *testing.T) {
 
 	// Connect to aggregator without authentication
 	// Use ExternalHTTPUrl which contains host:port accessible from outside Docker
-	conn, err := grpc.NewClient(out.ExternalHTTPUrl, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(out.ExternalHTTPSUrl, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	defer conn.Close()
 

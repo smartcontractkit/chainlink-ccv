@@ -293,6 +293,7 @@ func FetchAllVerifications(ctx context.Context, aggregatorAddress string, aggreg
 		lggr,
 		aggregatorSince,
 		&hmacConfig,
+		false, // devenv uses mounted certs, secure connection
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create aggregator reader: %w", err)

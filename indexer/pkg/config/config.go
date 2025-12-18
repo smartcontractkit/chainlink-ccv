@@ -179,6 +179,9 @@ type AggregatorReaderConfig struct {
 	APIKey string `toml:"APIKey"`
 	// Secret is the HMAC secret used to sign requests
 	Secret string `toml:"Secret"`
+	// InsecureConnection disables TLS for the aggregator gRPC connection.
+	// Only use this for testing when custom certificates cannot be injected.
+	InsecureConnection bool `toml:"InsecureConnection"`
 }
 
 // RestReaderConfig allows you to change the rest reader used by the indexer.

@@ -15,6 +15,9 @@ type ConfigWithBlockchainInfos struct {
 type Config struct {
 	VerifierID        string `toml:"verifier_id"`
 	AggregatorAddress string `toml:"aggregator_address"`
+	// InsecureAggregatorConnection disables TLS for the aggregator gRPC connection.
+	// Only use this for testing when custom certificates cannot be injected.
+	InsecureAggregatorConnection bool `toml:"insecure_aggregator_connection"`
 
 	SignerAddress string `toml:"signer_address"`
 

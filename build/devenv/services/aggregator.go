@@ -40,6 +40,12 @@ const (
 	DefaultAggregatorDBName         = "aggregator"
 	DefaultDBContainerPort          = "5432/tcp"
 	DefaultAggregatorSQLInit        = "init.sql"
+
+	// Nginx TLS proxy constants.
+	AggregatorNginxContainerNameSuffix = "aggregator-nginx"
+	DefaultNginxImage                  = "nginx:alpine"
+	DefaultNginxTLSPort                = "443/tcp"
+	DefaultAggregatorGRPCPort          = 50051
 )
 
 type AggregatorDBInput struct {
@@ -84,6 +90,10 @@ type AggregatorInput struct {
 	ThresholdPerSource map[uint64]uint8 `toml:"threshold_per_source"`
 	// Maps to Monitoring.Beholder.OtelExporterHTTPEndpoint in the aggregator config toml.
 	MonitoringOtelExporterHTTPEndpoint string `toml:"monitoring_otel_exporter_http_endpoint"`
+
+	// SharedTLSCerts contains shared TLS certificates for all aggregators.
+	// If set, these certs will be used instead of generating new ones.
+	SharedTLSCerts *TLSCertPaths `toml:"-"`
 }
 
 func (a *AggregatorInput) GetAPIKeys() (model.APIKeyConfig, error) {
@@ -100,8 +110,10 @@ type AggregatorOutput struct {
 	ContainerName      string `toml:"container_name"`
 	Address            string `toml:"address"`
 	ExternalHTTPUrl    string `toml:"external_http_url"`
+	ExternalHTTPSUrl   string `toml:"external_https_url"`
 	DBURL              string `toml:"db_url"`
 	DBConnectionString string `toml:"db_connection_string"`
+	TLSCACertFile      string `toml:"tls_ca_cert_file"`
 }
 
 type Signer struct {
@@ -275,6 +287,31 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 		return nil, fmt.Errorf("failed to write aggregator config to file: %w", err)
 	}
 
+	aggregatorContainerName := fmt.Sprintf("%s-%s", in.CommitteeName, AggregatorContainerNameSuffix)
+	nginxContainerName := fmt.Sprintf("%s-%s", in.CommitteeName, AggregatorNginxContainerNameSuffix)
+
+	// Use shared TLS certs if provided, otherwise generate new ones
+	tlsCerts := in.SharedTLSCerts
+	if tlsCerts == nil {
+		tlsCertDir := filepath.Join(confDir, fmt.Sprintf("tls-%s", in.CommitteeName))
+		var err error
+		tlsCerts, err = GenerateTLSCertificates([]string{
+			nginxContainerName,
+			aggregatorContainerName,
+			"localhost",
+		}, tlsCertDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate TLS certificates: %w", err)
+		}
+	}
+
+	// Generate nginx configuration for gRPC TLS termination
+	nginxConfPath := filepath.Join(confDir, fmt.Sprintf("nginx-%s.conf", in.CommitteeName))
+	nginxConf := generateNginxConfig(aggregatorContainerName, DefaultAggregatorGRPCPort)
+	if err := os.WriteFile(nginxConfPath, []byte(nginxConf), 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write nginx config: %w", err)
+	}
+
 	// Start the aggregator postgres database container
 	_, err = postgres.Run(ctx,
 		in.DB.Image,
@@ -367,7 +404,6 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 	}
 
 	// Start the aggregator container
-	aggregatorContainerName := fmt.Sprintf("%s-%s", in.CommitteeName, AggregatorContainerNameSuffix)
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
 		Name:     aggregatorContainerName,
@@ -377,17 +413,9 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 			framework.DefaultNetworkName: {aggregatorContainerName},
 		},
 		Env: envVars,
-		// add more internal ports here with /tcp suffix, ex.: 9222/tcp
+		// Aggregator listens on 50051 internally, nginx proxies TLS to it
 		ExposedPorts: []string{"50051/tcp", "8080/tcp"},
-		HostConfigModifier: func(h *container.HostConfig) {
-			h.PortBindings = nat.PortMap{
-				// add more internal/external pairs here, ex.: 9222/tcp as a key and HostPort is the exposed port (no /tcp prefix!)
-				"50051/tcp": []nat.PortBinding{
-					{HostPort: strconv.Itoa(in.HostPort)},
-				},
-			}
-		},
-		WaitingFor: wait.ForHTTP("/health/live").WithPort("8080/tcp"),
+		WaitingFor:   wait.ForHTTP("/health/live").WithPort("8080/tcp"),
 	}
 
 	// Note: identical code to verifier.go/executor.go -- will indexer be identical as well?
@@ -420,10 +448,99 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 		return nil, fmt.Errorf("failed to get container host: %w", err)
 	}
 
+	// Start the nginx TLS termination sidecar
+	nginxReq := testcontainers.ContainerRequest{
+		Image:    DefaultNginxImage,
+		Name:     nginxContainerName,
+		Labels:   framework.DefaultTCLabels(),
+		Networks: []string{framework.DefaultNetworkName},
+		NetworkAliases: map[string][]string{
+			framework.DefaultNetworkName: {nginxContainerName},
+		},
+		ExposedPorts: []string{DefaultNginxTLSPort},
+		HostConfigModifier: func(h *container.HostConfig) {
+			h.PortBindings = nat.PortMap{
+				DefaultNginxTLSPort: []nat.PortBinding{
+					{HostPort: strconv.Itoa(in.HostPort)},
+				},
+			}
+		},
+		Files: []testcontainers.ContainerFile{
+			{
+				HostFilePath:      nginxConfPath,
+				ContainerFilePath: "/etc/nginx/nginx.conf",
+				FileMode:          0o644,
+			},
+			{
+				HostFilePath:      tlsCerts.ServerCertFile,
+				ContainerFilePath: "/etc/nginx/ssl/server.crt",
+				FileMode:          0o644,
+			},
+			{
+				HostFilePath:      tlsCerts.ServerKeyFile,
+				ContainerFilePath: "/etc/nginx/ssl/server.key",
+				FileMode:          0o600,
+			},
+		},
+		WaitingFor: wait.ForListeningPort("443/tcp"),
+	}
+
+	_, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		ContainerRequest: nginxReq,
+		Started:          true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to start nginx TLS proxy container: %w", err)
+	}
+
 	in.Out = &AggregatorOutput{
-		ContainerName:   aggregatorContainerName,
-		Address:         fmt.Sprintf("%s:%d", aggregatorContainerName, in.HostPort),
-		ExternalHTTPUrl: fmt.Sprintf("%s:%d", host, in.HostPort),
+		ContainerName:    nginxContainerName,
+		Address:          fmt.Sprintf("%s:443", nginxContainerName),
+		ExternalHTTPUrl:  fmt.Sprintf("%s:%d", aggregatorContainerName, DefaultAggregatorGRPCPort),
+		ExternalHTTPSUrl: fmt.Sprintf("%s:%d", host, in.HostPort),
+		TLSCACertFile:    tlsCerts.CACertFile,
 	}
 	return in.Out, nil
+}
+
+func generateNginxConfig(upstreamHost string, upstreamPort int) string {
+	return fmt.Sprintf(`
+worker_processes auto;
+error_log /var/log/nginx/error.log warn;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent"';
+    access_log /var/log/nginx/access.log main;
+
+    server {
+        listen 443 ssl http2;
+
+        ssl_certificate /etc/nginx/ssl/server.crt;
+        ssl_certificate_key /etc/nginx/ssl/server.key;
+        ssl_protocols TLSv1.3;
+        ssl_ciphers HIGH:!aNULL:!MD5;
+
+        location / {
+            grpc_pass grpc://%s:%d;
+            error_page 502 = /error502grpc;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+
+        location = /error502grpc {
+            internal;
+            default_type application/grpc;
+            add_header grpc-status 14;
+            add_header grpc-message "unavailable";
+            return 204;
+        }
+    }
+}
+`, upstreamHost, upstreamPort)
 }

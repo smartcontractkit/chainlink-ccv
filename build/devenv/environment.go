@@ -8,11 +8,13 @@ import (
 	"math/big"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/rs/zerolog"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
@@ -91,7 +93,22 @@ type Cfg struct {
 	CLNodesFundingLink float64                        `toml:"cl_nodes_funding_link"`
 	// AggregatorEndpoints map the verifier qualifier to the aggregator URL for that verifier.
 	AggregatorEndpoints map[string]string `toml:"aggregator_endpoints"`
-	IndexerEndpoint     string            `toml:"indexer_endpoint"`
+	// AggregatorCACertFiles map the verifier qualifier to the CA cert file path for TLS verification.
+	AggregatorCACertFiles map[string]string `toml:"aggregator_ca_cert_files"`
+	IndexerEndpoint       string            `toml:"indexer_endpoint"`
+}
+
+// NewAggregatorClientForCommittee creates an AggregatorClient for the specified committee.
+// It automatically handles TLS configuration, using the CA cert file if available (devenv),
+// or falling back to system certs (staging/prod).
+func (c *Cfg) NewAggregatorClientForCommittee(logger zerolog.Logger, committeeName string) (*AggregatorClient, error) {
+	endpoint, ok := c.AggregatorEndpoints[committeeName]
+	if !ok {
+		return nil, fmt.Errorf("no aggregator endpoint found for committee %s", committeeName)
+	}
+
+	caCertFile := c.AggregatorCACertFiles[committeeName]
+	return NewAggregatorClient(logger, endpoint, caCertFile)
 }
 
 func checkKeys(in *Cfg) error {
@@ -363,7 +380,29 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	// Start aggregators.
 	in.AggregatorEndpoints = make(map[string]string)
+	in.AggregatorCACertFiles = make(map[string]string)
+
+	// Generate shared TLS certificates for all aggregators
+	var sharedTLSCerts *services.TLSCertPaths
+	if len(in.Aggregator) > 0 {
+		var allHostnames []string
+		for _, agg := range in.Aggregator {
+			nginxName := fmt.Sprintf("%s-%s", agg.CommitteeName, services.AggregatorNginxContainerNameSuffix)
+			aggName := fmt.Sprintf("%s-%s", agg.CommitteeName, services.AggregatorContainerNameSuffix)
+			allHostnames = append(allHostnames, nginxName, aggName)
+		}
+		allHostnames = append(allHostnames, "localhost")
+
+		tlsCertDir := filepath.Join(util.CCVConfigDir(), "tls-shared")
+		var err error
+		sharedTLSCerts, err = services.GenerateTLSCertificates(allHostnames, tlsCertDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate shared TLS certificates: %w", err)
+		}
+	}
+
 	for _, aggregatorInput := range in.Aggregator {
+		aggregatorInput.SharedTLSCerts = sharedTLSCerts
 		// Initialize proxy addresses from datastore.
 		addrs, _ := e.DataStore.Addresses().Fetch()
 		if aggregatorInput.CommitteeVerifierResolverProxyAddresses == nil {
@@ -386,7 +425,10 @@ func NewEnvironment() (in *Cfg, err error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to create aggregator service for committee %s: %w", aggregatorInput.CommitteeName, err)
 		}
-		in.AggregatorEndpoints[aggregatorInput.CommitteeName] = out.ExternalHTTPUrl
+		in.AggregatorEndpoints[aggregatorInput.CommitteeName] = out.ExternalHTTPSUrl
+		if out.TLSCACertFile != "" {
+			in.AggregatorCACertFiles[aggregatorInput.CommitteeName] = out.TLSCACertFile
+		}
 	}
 
 	// Start indexer.
@@ -429,11 +471,26 @@ func NewEnvironment() (in *Cfg, err error) {
 			address.Address,
 		}
 
+		// Update verifier address to use nginx TLS proxy
+		if agg.Out != nil {
+			in.Indexer.IndexerConfig.Verifiers[idx].Address = agg.Out.Address
+		}
+
 		Plog.Info().
 			Str("committee", agg.CommitteeName).
 			Str("address", address.Address).
 			Msg("assigned issuer address to verifier in indexer config")
 	}
+
+	// Set TLS CA cert for indexer (all aggregators share the same CA)
+	if sharedTLSCerts != nil {
+		in.Indexer.TLSCACertFile = sharedTLSCerts.CACertFile
+		// Update discovery config to use nginx TLS proxy
+		if len(in.Aggregator) > 0 && in.Aggregator[0].Out != nil {
+			in.Indexer.IndexerConfig.Discovery.Address = in.Aggregator[0].Out.Address
+		}
+	}
+
 	indexerOut, err := services.NewIndexer(in.Indexer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create indexer service: %w", err)
@@ -484,7 +541,30 @@ func NewEnvironment() (in *Cfg, err error) {
 			return nil, fmt.Errorf("failed to lookup contracts for verifier %s: %w", in.Verifier[i].CommitteeName, err)
 		}
 
-		ver.AggregatorAddress = fmt.Sprintf("%s-aggregator:50051", ver.CommitteeName)
+		// Find aggregator output for this verifier's committee
+		for _, agg := range in.Aggregator {
+			if agg.CommitteeName == ver.CommitteeName && agg.Out != nil {
+				if ver.InsecureAggregatorConnection {
+					// CL node tests can't inject certs, use direct insecure connection
+					ver.AggregatorAddress = agg.Out.ExternalHTTPUrl
+				} else {
+					ver.AggregatorAddress = agg.Out.Address
+				}
+				break
+			}
+		}
+		if ver.AggregatorAddress == "" {
+			if ver.InsecureAggregatorConnection {
+				ver.AggregatorAddress = fmt.Sprintf("%s-aggregator:50051", ver.CommitteeName)
+			} else {
+				ver.AggregatorAddress = fmt.Sprintf("%s-aggregator-nginx:443", ver.CommitteeName)
+			}
+		}
+
+		// Use shared TLS CA cert for all verifiers (not needed for insecure connections)
+		if sharedTLSCerts != nil && !ver.InsecureAggregatorConnection {
+			ver.TLSCACertFile = sharedTLSCerts.CACertFile
+		}
 
 		// Apply changes back to input.
 		in.Verifier[i] = &ver
