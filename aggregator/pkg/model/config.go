@@ -92,7 +92,7 @@ type StorageConfig struct {
 // ServerConfig represents the configuration for the server.
 type ServerConfig struct {
 	Address string `toml:"address"`
-	// RequestTimeoutSeconds is the max duration for any GRPC request (default: 30s)
+	// RequestTimeoutSeconds is the max duration for any GRPC request (default: 10s)
 	RequestTimeoutSeconds int `toml:"requestTimeoutSeconds"`
 	// ConnectionTimeoutSeconds is the timeout for connection establishment (0 = no timeout, GRPC default)
 	ConnectionTimeoutSeconds int `toml:"connectionTimeoutSeconds"`
@@ -386,7 +386,7 @@ func (c *AggregatorConfig) SetDefaults() {
 	}
 	// Server defaults
 	if c.Server.RequestTimeoutSeconds == 0 {
-		c.Server.RequestTimeoutSeconds = 30
+		c.Server.RequestTimeoutSeconds = 10
 	}
 }
 
