@@ -21,10 +21,14 @@ install-go-tools:
     go install github.com/bufbuild/buf/cmd/buf@v$VERSION_BUF
     go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v$VERSION_GOLANGCI_LINT
     go install github.com/vektra/mockery/v2@v$VERSION_MOCKERY
+    go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v$VERSION_OAPI_CODEGEN
 
 install-pre-commit:
     brew install pre-commit
     pre-commit install
+
+generate:
+	find . -name 'go.mod' -execdir go generate ./... \;
 
 mock: ensure-mockery
     @echo "Cleaning existing mocks..."

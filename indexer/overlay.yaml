@@ -1,0 +1,38 @@
+# OpenAPI overlay file is used to override specific parts of the
+# generated spec to use specific types.
+overlay: 1.0.0
+info:
+  title: Overlay
+  version: 0.0.0
+actions:
+  - target: "$.paths['/v1/messages'].get.parameters[?(@.name=='sourceChainSelectors')].schema.items"
+    update:
+      x-go-type: protocol.ChainSelector
+      x-go-type-import:
+        path: github.com/smartcontractkit/chainlink-ccv/protocol
+
+  - target: "$.paths['/v1/messages'].get.parameters[?(@.name=='destChainSelectors')].schema.items"
+    update:
+      x-go-type: protocol.ChainSelector
+      x-go-type-import:
+        path: github.com/smartcontractkit/chainlink-ccv/protocol
+
+  - target: "$.paths['/v1/messages'].get.parameters[?(@.name=='limit')].schema"
+    update:
+      x-go-type: uint64
+
+  - target: "$.paths['/v1/messages'].get.parameters[?(@.name=='offset')].schema"
+    update:
+      x-go-type: uint64
+
+  - target: "$.paths['/v1/verifierresult'].get.parameters[?(@.name=='sourceChainSelectors')].schema.items"
+    update:
+      x-go-type: protocol.ChainSelector
+      x-go-type-import:
+        path: github.com/smartcontractkit/chainlink-ccv/protocol
+
+  - target: "$.paths['/v1/verifierresult'].get.parameters[?(@.name=='destChainSelectors')].schema.items"
+    update:
+      x-go-type: protocol.ChainSelector
+      x-go-type-import:
+        path: github.com/smartcontractkit/chainlink-ccv/protocol

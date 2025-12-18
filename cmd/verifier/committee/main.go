@@ -219,6 +219,7 @@ func main() {
 
 	// Create verification coordinator
 	coordinator, err := verifier.NewCoordinator(
+		ctx,
 		lggr,
 		commitVerifier,
 		sourceReaders,

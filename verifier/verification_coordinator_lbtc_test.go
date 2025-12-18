@@ -254,6 +254,7 @@ func createLBTCCoordinator(
 	)
 
 	return verifier.NewCoordinator(
+		ts.ctx,
 		ts.logger,
 		lbtc.NewVerifier(ts.logger, attestationService),
 		sourceReaders,

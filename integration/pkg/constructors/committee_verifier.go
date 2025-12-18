@@ -2,6 +2,7 @@ package constructors
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"time"
 
@@ -160,6 +161,7 @@ func NewVerificationCoordinator(
 
 	// Create verification coordinator
 	verifierCoordinator, err := verifier.NewCoordinator(
+		context.TODO(),
 		lggr,
 		commitVerifier,
 		sourceReaders,

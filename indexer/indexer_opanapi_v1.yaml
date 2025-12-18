@@ -1,0 +1,445 @@
+components:
+  schemas:
+    ErrorResponse:
+      additionalProperties: false
+      properties:
+        message:
+          description: A human-readable explanation specific to this occurrence of the problem.
+          example: Invalid chain selector
+          type: string
+        status:
+          description: HTTP status code
+          example: 400
+          format: int64
+          type: integer
+      required:
+        - status
+      type: object
+    Message:
+      additionalProperties: false
+      properties:
+        ccip_receive_gas_limit:
+          format: int32
+          minimum: 0
+          type: integer
+        ccv_and_executor_hash:
+          format: base64
+          type: string
+        data:
+          format: base64
+          type: string
+        data_length:
+          format: int32
+          minimum: 0
+          type: integer
+        dest_blob:
+          format: base64
+          type: string
+        dest_blob_length:
+          format: int32
+          minimum: 0
+          type: integer
+        dest_chain_selector:
+          format: int64
+          minimum: 0
+          type: integer
+        execution_gas_limit:
+          format: int32
+          minimum: 0
+          type: integer
+        finality:
+          format: int32
+          minimum: 0
+          type: integer
+        off_ramp_address:
+          format: base64
+          type: string
+        off_ramp_address_length:
+          format: int32
+          minimum: 0
+          type: integer
+        on_ramp_address:
+          format: base64
+          type: string
+        on_ramp_address_length:
+          format: int32
+          minimum: 0
+          type: integer
+        receiver:
+          format: base64
+          type: string
+        receiver_length:
+          format: int32
+          minimum: 0
+          type: integer
+        sender:
+          format: base64
+          type: string
+        sender_length:
+          format: int32
+          minimum: 0
+          type: integer
+        sequence_number:
+          format: int64
+          minimum: 0
+          type: integer
+        source_chain_selector:
+          format: int64
+          minimum: 0
+          type: integer
+        token_transfer:
+          $ref: "#/components/schemas/TokenTransfer"
+        token_transfer_length:
+          format: int32
+          minimum: 0
+          type: integer
+        version:
+          format: int32
+          minimum: 0
+          type: integer
+      required:
+        - sender
+        - data
+        - on_ramp_address
+        - token_transfer
+        - off_ramp_address
+        - dest_blob
+        - receiver
+        - source_chain_selector
+        - dest_chain_selector
+        - sequence_number
+        - execution_gas_limit
+        - ccip_receive_gas_limit
+        - finality
+        - ccv_and_executor_hash
+        - dest_blob_length
+        - token_transfer_length
+        - data_length
+        - receiver_length
+        - sender_length
+        - version
+        - off_ramp_address_length
+        - on_ramp_address_length
+      type: object
+    MessageMetadata:
+      additionalProperties: false
+      properties:
+        ingestionTimestamp:
+          format: date-time
+          type: string
+        status:
+          format: int64
+          type: integer
+      required:
+        - status
+        - ingestionTimestamp
+      type: object
+    MessageWithMetadata:
+      additionalProperties: false
+      properties:
+        message:
+          $ref: "#/components/schemas/Message"
+        metadata:
+          $ref: "#/components/schemas/MessageMetadata"
+      required:
+        - message
+        - metadata
+      type: object
+    TokenTransfer:
+      additionalProperties: false
+      properties:
+        amount:
+          nullable: true
+          type: string
+        dest_token_address:
+          format: base64
+          type: string
+        dest_token_address_length:
+          format: int32
+          minimum: 0
+          type: integer
+        extra_data:
+          format: base64
+          type: string
+        extra_data_length:
+          format: int32
+          minimum: 0
+          type: integer
+        source_pool_address:
+          format: base64
+          type: string
+        source_pool_address_length:
+          format: int32
+          minimum: 0
+          type: integer
+        source_token_address:
+          format: base64
+          type: string
+        source_token_address_length:
+          format: int32
+          minimum: 0
+          type: integer
+        token_receiver:
+          format: base64
+          type: string
+        token_receiver_length:
+          format: int32
+          minimum: 0
+          type: integer
+        version:
+          format: int32
+          minimum: 0
+          type: integer
+      required:
+        - amount
+        - source_pool_address
+        - source_token_address
+        - dest_token_address
+        - token_receiver
+        - extra_data
+        - version
+        - source_pool_address_length
+        - source_token_address_length
+        - dest_token_address_length
+        - token_receiver_length
+        - extra_data_length
+      type: object
+    VerifierResult:
+      additionalProperties: false
+      properties:
+        ccv_data:
+          format: base64
+          type: string
+        message:
+          $ref: "#/components/schemas/Message"
+        message_ccv_addresses:
+          items:
+            format: base64
+            type: string
+          nullable: true
+          type: array
+        message_executor_address:
+          format: base64
+          type: string
+        message_id:
+          format: base64
+          type: string
+        timestamp:
+          format: date-time
+          type: string
+        verifier_dest_address:
+          format: base64
+          type: string
+        verifier_source_address:
+          format: base64
+          type: string
+      required:
+        - message_id
+        - message
+        - message_ccv_addresses
+        - message_executor_address
+        - ccv_data
+        - timestamp
+        - verifier_source_address
+        - verifier_dest_address
+      type: object
+    VerifierResultMetadata:
+      additionalProperties: false
+      properties:
+        attestationTimestamp:
+          format: date-time
+          type: string
+        ingestionTimestamp:
+          format: date-time
+          type: string
+        verifierName:
+          type: string
+      required:
+        - verifierName
+        - attestationTimestamp
+        - ingestionTimestamp
+      type: object
+    VerifierResultWithMetadata:
+      additionalProperties: false
+      properties:
+        metadata:
+          $ref: "#/components/schemas/VerifierResultMetadata"
+        verifierResult:
+          $ref: "#/components/schemas/VerifierResult"
+      required:
+        - verifierResult
+        - metadata
+      type: object
+info:
+  title: Indexer API
+  version: 1.0.0
+openapi: 3.0.3
+paths:
+  /v1/messageid/{messageID}:
+    get:
+      description: Get message by ID
+      operationId: message-by-id
+      parameters:
+        - in: path
+          name: messageID
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+          headers:
+            MessageID:
+              schema:
+                type: string
+            Metadata:
+              schema:
+                $ref: "#/components/schemas/VerifierResultMetadata"
+            Results:
+              schema:
+                $ref: "#/components/schemas/VerifierResultWithMetadata"
+            Success:
+              schema:
+                type: boolean
+            VerifierResult:
+              schema:
+                $ref: "#/components/schemas/VerifierResult"
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Error
+  /v1/messages:
+    get:
+      description: Get messages
+      operationId: get-messages
+      parameters:
+        - explode: false
+          in: query
+          name: sourceChainSelectors
+          schema:
+            items:
+              format: int64
+              minimum: 0
+              type: integer
+            nullable: true
+            type: array
+        - explode: false
+          in: query
+          name: destChainSelectors
+          schema:
+            items:
+              format: int64
+              minimum: 0
+              type: integer
+            nullable: true
+            type: array
+        - explode: false
+          in: query
+          name: start
+          schema:
+            format: int64
+            type: integer
+        - explode: false
+          in: query
+          name: end
+          schema:
+            format: int64
+            type: integer
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            format: int64
+            minimum: 0
+            type: integer
+        - explode: false
+          in: query
+          name: offset
+          schema:
+            format: int64
+            minimum: 0
+            type: integer
+      responses:
+        "204":
+          description: No Content
+          headers:
+            Message:
+              schema:
+                $ref: "#/components/schemas/Message"
+            Messages:
+              schema:
+                additionalProperties:
+                  $ref: "#/components/schemas/MessageWithMetadata"
+                type: object
+            Metadata:
+              schema:
+                $ref: "#/components/schemas/MessageMetadata"
+            Success:
+              schema:
+                type: boolean
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Error
+  /v1/verifierresult:
+    get:
+      description: Get verifier results
+      operationId: verifier-result
+      parameters:
+        - explode: false
+          in: query
+          name: sourceChainSelectors
+          schema:
+            items:
+              format: int64
+              minimum: 0
+              type: integer
+            nullable: true
+            type: array
+        - explode: false
+          in: query
+          name: destChainSelectors
+          schema:
+            items:
+              format: int64
+              minimum: 0
+              type: integer
+            nullable: true
+            type: array
+        - explode: false
+          in: query
+          name: start
+          schema:
+            format: int64
+            type: integer
+      responses:
+        "204":
+          description: No Content
+          headers:
+            Metadata:
+              schema:
+                $ref: "#/components/schemas/VerifierResultMetadata"
+            Success:
+              schema:
+                type: boolean
+            VerifierResult:
+              schema:
+                $ref: "#/components/schemas/VerifierResult"
+            VerifierResults:
+              schema:
+                additionalProperties:
+                  items:
+                    $ref: "#/components/schemas/VerifierResultWithMetadata"
+                  nullable: true
+                  type: array
+                type: object
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Error

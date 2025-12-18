@@ -17,6 +17,7 @@ type StorageWriterProcessor struct {
 	wg sync.WaitGroup
 
 	lggr           logger.Logger
+	verifierID     string
 	messageTracker MessageLatencyTracker
 
 	storage          protocol.CCVNodeDataWriter
@@ -27,6 +28,7 @@ type StorageWriterProcessor struct {
 func NewStorageBatcherProcessor(
 	ctx context.Context,
 	lggr logger.Logger,
+	verifierID string,
 	messageTracker MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
 	config CoordinatorConfig,
@@ -42,16 +44,12 @@ func NewStorageBatcherProcessor(
 
 	processor := &StorageWriterProcessor{
 		lggr:             lggr,
+		verifierID:       verifierID,
 		messageTracker:   messageTracker,
 		storage:          storage,
 		batcher:          storageBatcher,
 		batchedCCVDataCh: batchedCCVDataCh,
 	}
-	err := processor.Start(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to start storage batcher processor: %w", err)
-	}
-
 	return processor, storageBatcher, nil
 }
 
@@ -80,15 +78,11 @@ func (s *StorageWriterProcessor) Start(ctx context.Context) error {
 	})
 }
 
-func (s *StorageWriterProcessor) Close(_ context.Context) error {
+func (s *StorageWriterProcessor) Close() error {
 	return s.StopOnce(s.Name(), func() error {
 		s.wg.Wait()
 		return nil
 	})
-}
-
-func (s *StorageWriterProcessor) Name() string {
-	return "StorageWriterProcessor"
 }
 
 func (s *StorageWriterProcessor) run(ctx context.Context) {
@@ -127,3 +121,18 @@ func (s *StorageWriterProcessor) run(ctx context.Context) {
 		}
 	}
 }
+
+func (s *StorageWriterProcessor) Name() string {
+	return fmt.Sprintf("verifier.StorageWriterProcessor[%s]", s.verifierID)
+}
+
+func (s *StorageWriterProcessor) HealthReport() map[string]error {
+	report := make(map[string]error)
+	report[s.Name()] = s.Ready()
+	return report
+}
+
+var (
+	_ services.Service        = (*StorageWriterProcessor)(nil)
+	_ protocol.HealthReporter = (*StorageWriterProcessor)(nil)
+)

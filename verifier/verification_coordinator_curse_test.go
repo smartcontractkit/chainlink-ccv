@@ -119,7 +119,8 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 	}
 
 	// Create coordinator with all components, including mock curse detector
-	coordinator, err := NewCoordinator(
+	coordinator, err := NewCoordinatorWithDetector(
+		ctx,
 		lggr,
 		setup.testVerifier,
 		map[protocol.ChainSelector]chainaccess.SourceReader{sourceChain: setup.mockSourceReader},
@@ -128,7 +129,7 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 		&NoopLatencyTracker{},
 		&noopMonitoring{},
 		setup.chainStatusManager,
-		WithCurseDetector(setup.mockCurseChecker),
+		setup.mockCurseChecker,
 	)
 	require.NoError(t, err)
 	setup.coordinator = coordinator

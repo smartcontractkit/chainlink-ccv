@@ -94,6 +94,7 @@ func main() {
 		var coordinator *verifier.Coordinator
 		if verifierConfig.IsLBTC() {
 			coordinator = createLBTCCoordinator(
+				ctx,
 				config.VerifierID,
 				verifierConfig.LBTCConfig,
 				lggr,
@@ -109,6 +110,7 @@ func main() {
 			)
 		} else if verifierConfig.IsCCTP() {
 			coordinator = createCCTPCoordinator(
+				ctx,
 				config.VerifierID,
 				verifierConfig.CCTPConfig,
 				lggr,
@@ -180,6 +182,7 @@ func main() {
 
 //nolint:dupl
 func createCCTPCoordinator(
+	ctx context.Context,
 	verifierID string,
 	cctpConfig *cctp.CCTPConfig,
 	lggr logger.Logger,
@@ -198,6 +201,7 @@ func createCCTPCoordinator(
 	}
 
 	cctpCoordinator, err := verifier.NewCoordinator(
+		ctx,
 		lggr,
 		cctp.NewVerifier(lggr, attestationService),
 		sourceReaders,
@@ -222,6 +226,7 @@ func createCCTPCoordinator(
 
 //nolint:dupl
 func createLBTCCoordinator(
+	ctx context.Context,
 	verifierID string,
 	lbtcConfig *lbtc.LBTCConfig,
 	lggr logger.Logger,
@@ -240,6 +245,7 @@ func createLBTCCoordinator(
 	}
 
 	lbtcCoordinator, err := verifier.NewCoordinator(
+		ctx,
 		lggr,
 		lbtc.NewVerifier(lggr, attestationService),
 		sourceReaders,

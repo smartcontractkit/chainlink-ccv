@@ -1,7 +1,10 @@
 package protocol
 
-import "time"
+import (
+	"time"
+)
 
+// TODO: Use github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1.MessagesInput.
 type MessagesV1Request struct {
 	SourceChainSelectors []ChainSelector // Excluded from form due to gin parsing
 	DestChainSelectors   []ChainSelector // Excluded from form due to gin parsing
@@ -11,6 +14,7 @@ type MessagesV1Request struct {
 	Offset               uint64          `form:"offset"`
 }
 
+// TODO: Use github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1.MessagesResponse.
 type MessagesV1Response struct {
 	Messages map[string]MessageWithMetadata `json:"messages"`
 	Error    string                         `json:"error,omitempty"`
@@ -26,6 +30,7 @@ type MessageMetadata struct {
 	IngestionTimestamp time.Time `json:"ingestionTimestamp"`
 }
 
+// TODO: Use github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1.MessageIDResponse.
 type MessageIDV1Response struct {
 	Error     string                       `json:"error,omitempty"`
 	Success   bool                         `json:"success"`
