@@ -353,10 +353,15 @@ func (vc *Coordinator) Name() string {
 // HealthReport returns a full health report of the coordinator and its dependencies.
 func (vc *Coordinator) HealthReport() map[string]error {
 	report := make(map[string]error)
-	tvp := vc.taskVerifierProcessor.HealthReport()
-	maps.Copy(report, tvp)
-	swp := vc.storageWriterProcessor.HealthReport()
-	maps.Copy(report, swp)
+	report[vc.Name()] = vc.Ready()
+	if vc.taskVerifierProcessor != nil {
+		tvp := vc.taskVerifierProcessor.HealthReport()
+		maps.Copy(report, tvp)
+	}
+	if vc.storageWriterProcessor != nil {
+		swp := vc.storageWriterProcessor.HealthReport()
+		maps.Copy(report, swp)
+	}
 	return report
 }
 
