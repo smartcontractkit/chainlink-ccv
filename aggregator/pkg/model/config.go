@@ -314,18 +314,19 @@ func (c *APIKeyConfig) ValidateAPIKey(apiKey string) error {
 
 // AggregatorConfig is the root configuration for the pb.
 type AggregatorConfig struct {
-	Committee             *Committee           `toml:"committee"`
-	Server                ServerConfig         `toml:"server"`
-	Storage               *StorageConfig       `toml:"storage"`
-	APIKeys               APIKeyConfig         `toml:"-"`
-	Aggregation           AggregationConfig    `toml:"aggregation"`
-	OrphanRecovery        OrphanRecoveryConfig `toml:"orphanRecovery"`
-	RateLimiting          RateLimitingConfig   `toml:"rateLimiting"`
-	HealthCheck           HealthCheckConfig    `toml:"healthCheck"`
-	AnonymousAuth         AnonymousAuthConfig  `toml:"anonymousAuth"`
-	Monitoring            MonitoringConfig     `toml:"monitoring"`
-	PyroscopeURL          string               `toml:"pyroscope_url"`
-	MaxMessageIDsPerBatch int                  `toml:"maxMessageIDsPerBatch"`
+	Committee                                   *Committee           `toml:"committee"`
+	Server                                      ServerConfig         `toml:"server"`
+	Storage                                     *StorageConfig       `toml:"storage"`
+	APIKeys                                     APIKeyConfig         `toml:"-"`
+	Aggregation                                 AggregationConfig    `toml:"aggregation"`
+	OrphanRecovery                              OrphanRecoveryConfig `toml:"orphanRecovery"`
+	RateLimiting                                RateLimitingConfig   `toml:"rateLimiting"`
+	HealthCheck                                 HealthCheckConfig    `toml:"healthCheck"`
+	AnonymousAuth                               AnonymousAuthConfig  `toml:"anonymousAuth"`
+	Monitoring                                  MonitoringConfig     `toml:"monitoring"`
+	PyroscopeURL                                string               `toml:"pyroscope_url"`
+	MaxMessageIDsPerBatch                       int                  `toml:"maxMessageIDsPerBatch"`
+	MaxCommitVerifierNodeResultRequestsPerBatch int                  `toml:"maxCommitVerifierNodeResultRequestsPerBatch"`
 }
 
 // SetDefaults sets default values for the configuration.
@@ -333,6 +334,9 @@ func (c *AggregatorConfig) SetDefaults() {
 	// Batch verifier result defaults
 	if c.MaxMessageIDsPerBatch == 0 {
 		c.MaxMessageIDsPerBatch = 100
+	}
+	if c.MaxCommitVerifierNodeResultRequestsPerBatch == 0 {
+		c.MaxCommitVerifierNodeResultRequestsPerBatch = 100
 	}
 	// Aggregation defaults
 	if c.Aggregation.ChannelBufferSize == 0 {
@@ -401,6 +405,12 @@ func (c *AggregatorConfig) ValidateBatchConfig() error {
 	}
 	if c.MaxMessageIDsPerBatch > 1000 {
 		return errors.New("maxMessageIDsPerBatch cannot exceed 1000")
+	}
+	if c.MaxCommitVerifierNodeResultRequestsPerBatch <= 0 {
+		return errors.New("maxCommitVerifierNodeResultRequestsPerBatch must be greater than 0")
+	}
+	if c.MaxCommitVerifierNodeResultRequestsPerBatch > 1000 {
+		return errors.New("maxCommitVerifierNodeResultRequestsPerBatch cannot exceed 1000")
 	}
 
 	return nil
