@@ -20,8 +20,8 @@ func NewIndexerReaderAdapter(client *client.IndexerClient) *IndexerReaderAdapter
 	}
 }
 
-func (ira *IndexerReaderAdapter) GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error) {
-	res, err := ira.client.MessageByID(ctx, v1.MessageIDInput{MessageID: messageID.String()})
+func (ira *IndexerReaderAdapter) ResultsByMessageID(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error) {
+	res, err := ira.client.ResultsByMessageID(ctx, v1.ResultsByMessageIDInput{MessageID: messageID.String()})
 	if err != nil {
 		return nil, err
 	}
@@ -34,7 +34,7 @@ func (ira *IndexerReaderAdapter) GetVerifierResults(ctx context.Context, message
 	return results, nil
 }
 
-func (ira *IndexerReaderAdapter) ReadMessages(ctx context.Context, queryData v1.MessagesInput) (map[string]common.MessageWithMetadata, error) {
+func (ira *IndexerReaderAdapter) Messages(ctx context.Context, queryData v1.MessagesInput) (map[string]common.MessageWithMetadata, error) {
 	res, err := ira.client.GetMessages(ctx, queryData)
 	if err != nil {
 		return nil, err

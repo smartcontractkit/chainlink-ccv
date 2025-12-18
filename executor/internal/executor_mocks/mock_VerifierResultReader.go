@@ -24,11 +24,11 @@ func (_m *MockVerifierResultReader) EXPECT() *MockVerifierResultReader_Expecter 
 }
 
 // GetVerifierResults provides a mock function with given fields: ctx, messageID
-func (_m *MockVerifierResultReader) GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error) {
+func (_m *MockVerifierResultReader) ResultsByMessageID(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error) {
 	ret := _m.Called(ctx, messageID)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetVerifierResults")
+		panic("no return value specified for ResultsByMessageID")
 	}
 
 	var r0 []protocol.VerifierResult
@@ -53,7 +53,7 @@ func (_m *MockVerifierResultReader) GetVerifierResults(ctx context.Context, mess
 	return r0, r1
 }
 
-// MockVerifierResultReader_GetVerifierResults_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetVerifierResults'
+// MockVerifierResultReader_GetVerifierResults_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ResultsByMessageID'
 type MockVerifierResultReader_GetVerifierResults_Call struct {
 	*mock.Call
 }
@@ -62,7 +62,7 @@ type MockVerifierResultReader_GetVerifierResults_Call struct {
 //   - ctx context.Context
 //   - messageID protocol.Bytes32
 func (_e *MockVerifierResultReader_Expecter) GetVerifierResults(ctx interface{}, messageID interface{}) *MockVerifierResultReader_GetVerifierResults_Call {
-	return &MockVerifierResultReader_GetVerifierResults_Call{Call: _e.mock.On("GetVerifierResults", ctx, messageID)}
+	return &MockVerifierResultReader_GetVerifierResults_Call{Call: _e.mock.On("ResultsByMessageID", ctx, messageID)}
 }
 
 func (_c *MockVerifierResultReader_GetVerifierResults_Call) Run(run func(ctx context.Context, messageID protocol.Bytes32)) *MockVerifierResultReader_GetVerifierResults_Call {

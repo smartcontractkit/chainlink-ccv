@@ -105,7 +105,7 @@ func (oss *IndexerStorageStreamer) Start(
 				if oss.timeProvider.GetTime().Before(nextQueryTime) {
 					continue
 				}
-				responses, err := oss.reader.ReadMessages(ctx, v1.MessagesInput{
+				responses, err := oss.reader.Messages(ctx, v1.MessagesInput{
 					Limit:                oss.queryLimit,
 					Start:                oss.lastQueryTime.UnixMilli(),
 					Offset:               oss.offset,

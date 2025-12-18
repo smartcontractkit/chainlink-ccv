@@ -278,7 +278,7 @@ paths:
   /v1/messageid/{messageID}:
     get:
       description: Get message by ID
-      operationId: message-by-id
+      operationId: results-by-message-id
       parameters:
         - in: path
           name: messageID
@@ -313,7 +313,7 @@ paths:
   /v1/messages:
     get:
       description: Get messages
-      operationId: get-messages
+      operationId: messages
       parameters:
         - explode: false
           in: query

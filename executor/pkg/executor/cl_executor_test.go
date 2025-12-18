@@ -189,7 +189,7 @@ func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
 			expectedError: false,
 		},
 		{
-			name:               "GetVerifierResults returns error - should retry",
+			name:               "ResultsByMessageID returns error - should retry",
 			verifierResultsErr: errors.New("verifier results error"),
 			expectedRetry:      true,
 			expectedError:      true,
@@ -238,7 +238,7 @@ func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
 			dr[1].EXPECT().GetRMNCursedSubjects(mock.Anything).Return([]protocol.Bytes16{}, nil).Once()
 			dr[1].EXPECT().GetMessageSuccess(mock.Anything, mock.Anything).Return(false, nil).Once()
 			dr[1].EXPECT().GetExecutionAttempts(mock.Anything, mock.Anything).Return([]coordinator.ExecutionAttempt{}, nil).Maybe()
-			// GetCCVSForMessage is called in parallel with GetVerifierResults, so we need to set it up even if verifier results error
+			// GetCCVSForMessage is called in parallel with ResultsByMessageID, so we need to set it up even if verifier results error
 			dr[1].EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(tc.ccvInfo, tc.ccvInfoErr).Maybe()
 
 			vr := executor_mocks.NewMockVerifierResultReader(t)

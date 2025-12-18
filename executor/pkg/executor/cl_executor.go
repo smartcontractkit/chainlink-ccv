@@ -236,7 +236,7 @@ func (cle *ChainlinkExecutor) getVerifierResultsAndQuorum(ctx context.Context, m
 	g, errGroupCtx := errgroup.WithContext(ctx)
 	ccvData := make([]protocol.VerifierResult, 0)
 	g.Go(func() error {
-		res, err := cle.verifierResultsReader.GetVerifierResults(errGroupCtx, messageID)
+		res, err := cle.verifierResultsReader.ResultsByMessageID(errGroupCtx, messageID)
 		if err != nil {
 			return fmt.Errorf("failed to get Verifier Results for message %s: %w", messageID.String(), err)
 		}

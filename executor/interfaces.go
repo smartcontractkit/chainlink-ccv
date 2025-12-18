@@ -33,14 +33,14 @@ type MessageSubscriber interface {
 
 // MessageReader reads messages from a storage backend based on query parameters. It is implemented by the IndexerAPI.
 type MessageReader interface {
-	// ReadMessages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message and its metadata.
-	ReadMessages(ctx context.Context, queryData v1.MessagesInput) (map[string]common.MessageWithMetadata, error)
+	// Messages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message and its metadata.
+	Messages(ctx context.Context, queryData v1.MessagesInput) (map[string]common.MessageWithMetadata, error)
 }
 
 // VerifierResultReader reads verifier results from a storage backend based on messageID. It is implemented by the IndexerAPI.
 type VerifierResultReader interface {
-	// GetVerifierResults returns all verifierResults for a given messageID
-	GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error)
+	// ResultsByMessageID returns all verifierResults for a given messageID
+	ResultsByMessageID(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error)
 }
 
 // Executor is responsible for executing validating messages.

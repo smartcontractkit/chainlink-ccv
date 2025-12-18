@@ -23,7 +23,8 @@ func NewV1API(lggr logger.Logger, cfg *config.Config, storage common.IndexerStor
 	v1Group := router.Group("/v1")
 
 	// View all known verifications over a time range
-	verifierResponseHandler := v1.NewVerifierResultHandler(storage, lggr, monitoring)
+	verifierResponseHandler := v1.NewVerifierResultsHandler(storage, lggr, monitoring)
+	// TODO: "/verifierresults"
 	v1Group.GET("/verifierresult", verifierResponseHandler.Handle)
 
 	// Get all messages over a time range
@@ -31,7 +32,8 @@ func NewV1API(lggr logger.Logger, cfg *config.Config, storage common.IndexerStor
 	v1Group.GET("/messages", messagesHandler.Handle)
 
 	// Get all verifications for a specific messageID
-	messageIDHandler := v1.NewMessageIDHandler(storage, lggr, monitoring)
+	messageIDHandler := v1.NewResultsByMessageIDHandler(storage, lggr, monitoring)
+	// TODO: "/verifierresults/:messageID"
 	v1Group.GET("/messageid/:messageID", messageIDHandler.Handle)
 
 	return router
