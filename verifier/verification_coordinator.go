@@ -15,44 +15,18 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
-type sourceState struct {
-	readerService *SourceReaderService
-	readyTasksCh  <-chan batcher.BatchResult[VerificationTask]
-	chainSelector protocol.ChainSelector
-}
-
-func (s *sourceState) Close() error {
-	if s == nil {
-		return nil
-	}
-	if s.readerService != nil {
-		return s.readerService.Stop()
-	}
-	return nil
-}
-
 type Coordinator struct {
 	services.StateMachine
-
 	cancel context.CancelFunc
 
-	verifier       Verifier
-	storage        protocol.CCVNodeDataWriter
-	lggr           logger.Logger
-	monitoring     Monitoring
-	messageTracker MessageLatencyTracker
-	config         CoordinatorConfig
+	lggr       logger.Logger
+	verifierID string
 
-	// Per-chain state
-	sourceStates map[protocol.ChainSelector]*sourceState
-
-	// Dependencies
-	sourceReaders      map[protocol.ChainSelector]chainaccess.SourceReader
-	chainStatusManager protocol.ChainStatusManager
-
-	// Curse detector is created & owned by coordinator
+	// All services/processors dependencies maintained by coordinator
+	// Curse detector is created & owned by coordinator (optional)
 	curseDetector common.CurseCheckerService
-
+	// 1st step processor: source readers (per-chain)
+	sourceReadersServices map[protocol.ChainSelector]*SourceReaderService
 	// 2nd step processor: task verifier
 	taskVerifierProcessor *TaskVerifierProcessor
 	// 3rd step processor: storage writer
@@ -60,15 +34,8 @@ type Coordinator struct {
 	storageBatcher         *batcher.Batcher[protocol.VerifierNodeResult]
 }
 
-type Option func(*Coordinator)
-
-func WithCurseDetector(detector common.CurseCheckerService) Option {
-	return func(vc *Coordinator) {
-		vc.curseDetector = detector
-	}
-}
-
 func NewCoordinator(
+	ctx context.Context,
 	lggr logger.Logger,
 	verifier Verifier,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
@@ -77,179 +44,177 @@ func NewCoordinator(
 	messageTracker MessageLatencyTracker,
 	monitoring Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
-	opts ...Option,
 ) (*Coordinator, error) {
-	vc := &Coordinator{
-		lggr:               lggr,
-		verifier:           verifier,
-		sourceReaders:      sourceReaders,
-		chainStatusManager: chainStatusManager,
-		storage:            storage,
-		config:             config,
-		messageTracker:     messageTracker,
-		monitoring:         monitoring,
-		sourceStates:       make(map[protocol.ChainSelector]*sourceState),
-	}
-
-	for _, opt := range opts {
-		opt(vc)
-	}
-
-	if err := vc.validateConfig(); err != nil {
-		return nil, fmt.Errorf("invalid coordinator configuration: %w", err)
-	}
-
-	return vc, nil
+	return NewCoordinatorWithDetector(ctx, lggr, verifier, sourceReaders, storage, config, messageTracker, monitoring, chainStatusManager, nil)
 }
 
-func (vc *Coordinator) validateConfig() error {
-	if vc.verifier == nil {
-		return errors.New("verifier is required")
-	}
-	if vc.storage == nil {
-		return errors.New("storage is required")
-	}
-	if vc.lggr == nil {
-		return errors.New("logger is required")
-	}
-	if vc.config.SourceConfigs == nil {
-		return errors.New("source configs are required")
+func NewCoordinatorWithDetector(
+	ctx context.Context,
+	lggr logger.Logger,
+	verifier Verifier,
+	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
+	storage protocol.CCVNodeDataWriter,
+	config CoordinatorConfig,
+	messageTracker MessageLatencyTracker,
+	monitoring Monitoring,
+	chainStatusManager protocol.ChainStatusManager,
+	detector common.CurseCheckerService,
+) (*Coordinator, error) {
+	enabledSourceReaders := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, chainStatusManager)
+	if len(enabledSourceReaders) == 0 {
+		return nil, errors.New("no enabled/initialized chain sources, nothing to coordinate")
 	}
 
-	return nil
+	curseDetector, err := createCurseDetector(lggr, config, detector, enabledSourceReaders)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create curse detector: %w", err)
+	}
+
+	sourceReaderServices := createSourceReaders(
+		lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders,
+	)
+
+	storageWriterProcessor, storageBatcher, err := NewStorageBatcherProcessor(
+		ctx, lggr, config.VerifierID, messageTracker, storage, config,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create or/and start storage batcher storageWriterProcessor: %w", err)
+	}
+
+	taskVerifierProcessor, err := NewTaskVerifierProcessor(
+		lggr, config.VerifierID, verifier, monitoring, sourceReaderServices, storageBatcher,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create or/and start task verifier service: %w", err)
+	}
+
+	return &Coordinator{
+		lggr:                   lggr,
+		sourceReadersServices:  sourceReaderServices,
+		curseDetector:          curseDetector,
+		storageWriterProcessor: storageWriterProcessor,
+		storageBatcher:         storageBatcher,
+		taskVerifierProcessor:  taskVerifierProcessor,
+	}, nil
 }
 
 func (vc *Coordinator) Start(_ context.Context) error {
 	return vc.StartOnce(vc.Name(), func() error {
 		vc.lggr.Infow("Starting verifier coordinator")
 
-		c, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(context.Background())
 		vc.cancel = cancel
 
-		statusMap := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
-		if vc.chainStatusManager != nil {
-			allSelectors := make([]protocol.ChainSelector, 0, len(vc.sourceReaders))
-			for selector := range vc.sourceReaders {
-				allSelectors = append(allSelectors, selector)
-			}
-
-			var err error
-			statusMap, err = vc.chainStatusManager.ReadChainStatuses(c, allSelectors)
-			if err != nil {
-				vc.lggr.Errorw("Failed to read chain statuses, proceeding with all chains",
-					"error", err)
+		// Curse detector is optional so only start if it's set
+		if vc.curseDetector != nil {
+			if err := vc.curseDetector.Start(ctx); err != nil {
+				vc.lggr.Errorw("Failed to start curse detector", "error", err)
+				return fmt.Errorf("failed to start curse detector: %w", err)
 			}
 		}
 
-		enabledSourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
-		for chainSelector, sourceReader := range vc.sourceReaders {
-			if sourceReader == nil {
-				continue
-			}
-			vc.lggr.Infow("Chain Status",
-				"chainSelector", chainSelector,
-				"status", statusMap[chainSelector])
-
-			// Skip disabled chains
-			if chainStatus, ok := statusMap[chainSelector]; ok && chainStatus.Disabled {
-				vc.lggr.Warnw("Chain is disabled in aggregator DB, skipping initialization",
-					"chain", chainSelector,
-					"blockHeight", chainStatus.FinalizedBlockHeight)
-				continue
-			}
-
-			_, ok := vc.config.SourceConfigs[chainSelector]
-			if !ok {
-				vc.lggr.Warnw("No source config for chain selector, skipping",
-					"chainSelector", chainSelector)
-				continue
-			}
-
-			enabledSourceReaders[chainSelector] = sourceReader
-		}
-
-		if len(enabledSourceReaders) == 0 {
-			return errors.New("no enabled/initialized chain sources, nothing to coordinate")
-		}
-
-		if err := vc.startCurseDetector(c, enabledSourceReaders); err != nil {
-			return fmt.Errorf("failed to start curse detector: %w", err)
-		}
-
-		for chainSelector := range enabledSourceReaders {
-			sourceReader := enabledSourceReaders[chainSelector]
-			sourceCfg := vc.config.SourceConfigs[chainSelector]
-
-			filter := chainaccess.NewReceiptIssuerFilter(
-				sourceCfg.VerifierAddress,
-				sourceCfg.DefaultExecutorAddress,
-			)
-
-			vc.lggr.Infow("PollInterval: ", "chainSelector", chainSelector, "interval", sourceCfg.PollInterval)
-			readerLogger := logger.With(vc.lggr, "component", "SourceReader", "chainID", chainSelector)
-			srs, err := NewSourceReaderService(
-				sourceReader,
-				chainSelector,
-				vc.chainStatusManager,
-				readerLogger,
-				sourceCfg.PollInterval,
-				vc.curseDetector,
-				filter,
-				vc.monitoring.Metrics(),
-			)
-			if err != nil {
-				vc.lggr.Errorw("Failed to create SourceReaderService",
-					"chainSelector", chainSelector,
-					"error", err)
-				continue
-			}
-
-			if err = srs.Start(c); err != nil {
+		// Start source readers - 1st step processor
+		for _, srs := range vc.sourceReadersServices {
+			if err := srs.Start(ctx); err != nil {
 				vc.lggr.Errorw("Failed to start SourceReaderService",
-					"chainSelector", chainSelector,
+					"chainSelector", srs.chainSelector,
 					"error", err)
-				continue
+				return fmt.Errorf("failed to start SourceReaderService for chain %s: %w", srs.chainSelector, err)
 			}
-
-			state := &sourceState{
-				readerService: srs,
-				readyTasksCh:  srs.ReadyTasksChannel(),
-				chainSelector: chainSelector,
-			}
-			vc.sourceStates[chainSelector] = state
 		}
 
-		storageWriterProcessor, storageBatcher, err := NewStorageBatcherProcessor(
-			c,
-			vc.lggr,
-			vc.config.VerifierID,
-			vc.messageTracker,
-			vc.storage,
-			vc.config,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to create or/and start storage batcher storageWriterProcessor: %w", err)
+		// Start task verifier processor - 2nd step processor
+		if err := vc.taskVerifierProcessor.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start task verifier processor: %w", err)
 		}
-		vc.storageWriterProcessor = storageWriterProcessor
-		vc.storageBatcher = storageBatcher
 
-		taskVerifierProcessor, err := NewTaskVerifierProcessor(
-			c,
-			vc.lggr,
-			vc.config.VerifierID,
-			vc.verifier,
-			vc.monitoring,
-			vc.sourceStates,
-			storageBatcher,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to create or/and start task verifier service: %w", err)
+		// Start storage writer processor - 3rd step processor
+		if err := vc.storageWriterProcessor.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start storage writer processor: %w", err)
 		}
-		vc.taskVerifierProcessor = taskVerifierProcessor
 
 		vc.lggr.Infow("Coordinator started successfully")
 		return nil
 	})
+}
+
+func createSourceReaders(lggr logger.Logger, config CoordinatorConfig, chainStatusManager protocol.ChainStatusManager, curseDetector common.CurseCheckerService, monitoring Monitoring, enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader) map[protocol.ChainSelector]*SourceReaderService {
+	sourceReaderServices := make(map[protocol.ChainSelector]*SourceReaderService)
+	for chainSelector := range enabledSourceReaders {
+		sourceReader := enabledSourceReaders[chainSelector]
+		sourceCfg := config.SourceConfigs[chainSelector]
+
+		filter := chainaccess.NewReceiptIssuerFilter(
+			sourceCfg.VerifierAddress,
+			sourceCfg.DefaultExecutorAddress,
+		)
+
+		lggr.Infow("PollInterval: ", "chainSelector", chainSelector, "interval", sourceCfg.PollInterval)
+		readerLogger := logger.With(lggr, "component", "SourceReader", "chainID", chainSelector)
+		srs, err := NewSourceReaderService(
+			sourceReader,
+			chainSelector,
+			chainStatusManager,
+			readerLogger,
+			sourceCfg.PollInterval,
+			curseDetector,
+			filter,
+			monitoring.Metrics(),
+		)
+		if err != nil {
+			lggr.Errorw("Failed to create SourceReaderService",
+				"chainSelector", chainSelector,
+				"error", err)
+			continue
+		}
+		sourceReaderServices[chainSelector] = srs
+	}
+	return sourceReaderServices
+}
+
+func filterOnlyEnabledSourceReaders(
+	ctx context.Context,
+	lggr logger.Logger,
+	config CoordinatorConfig,
+	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
+	chainStatusManager protocol.ChainStatusManager,
+) map[protocol.ChainSelector]chainaccess.SourceReader {
+	allSelectors := make([]protocol.ChainSelector, 0, len(sourceReaders))
+	for selector := range sourceReaders {
+		allSelectors = append(allSelectors, selector)
+	}
+
+	statusMap, err := chainStatusManager.ReadChainStatuses(ctx, allSelectors)
+	if err != nil {
+		statusMap = make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
+		lggr.Errorw("Failed to read chain statuses, proceeding with all chains", "error", err)
+	}
+
+	enabledSourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
+	for chainSelector, sourceReader := range sourceReaders {
+		if sourceReader == nil {
+			continue
+		}
+		lggr.Infow("Chain Status", "chainSelector", chainSelector, "status", statusMap[chainSelector])
+
+		// Skip disabled chains
+		if chainStatus, ok := statusMap[chainSelector]; ok && chainStatus.Disabled {
+			lggr.Warnw(
+				"Chain is disabled in aggregator DB, skipping initialization",
+				"chain", chainSelector,
+				"blockHeight", chainStatus.FinalizedBlockHeight,
+			)
+			continue
+		}
+
+		_, ok := config.SourceConfigs[chainSelector]
+		if !ok {
+			lggr.Warnw("No source config for chain selector, skipping", "chainSelector", chainSelector)
+			continue
+		}
+		enabledSourceReaders[chainSelector] = sourceReader
+	}
+	return enabledSourceReaders
 }
 
 // Close stops the verification coordinator processing.
@@ -259,95 +224,76 @@ func (vc *Coordinator) Close() error {
 		// This will also trigger the batcher to flush remaining items.
 		vc.cancel()
 
-		if err := vc.taskVerifierProcessor.Close(); err != nil {
-			vc.lggr.Errorw("Error closing task verifier processor", "error", err)
-		}
-
-		// Wait for storage batcher goroutine to finish flushing
-		if vc.storageBatcher != nil {
-			if err := vc.storageBatcher.Close(); err != nil {
-				vc.lggr.Errorw("Error closing storage batcher", "error", err)
-			}
-		}
-
-		// Stop curse detector
+		errs := make([]error, 0)
 		if vc.curseDetector != nil {
 			if err := vc.curseDetector.Close(); err != nil {
-				vc.lggr.Errorw("Error closing curse detector", "error", err)
+				vc.lggr.Errorw("Failed to stop curse detector", "error", err)
+				errs = append(errs, fmt.Errorf("failed to stop curse detector: %w", err))
 			}
 		}
 
-		// Stop per-chain pipelines (includes underlying readers and reorg detectors)
-		for chainSelector, state := range vc.sourceStates {
-			if err := state.Close(); err != nil {
-				vc.lggr.Errorw("Error closing source state",
-					"chainSelector", chainSelector,
-					"error", err)
+		for _, srs := range vc.sourceReadersServices {
+			if err := srs.Close(); err != nil {
+				vc.lggr.Errorw("Failed to stop SourceReaderService", "chainSelector", srs.chainSelector, "error", err)
+				errs = append(errs, fmt.Errorf("failed to stop SourceReaderService for chain %s: %w", srs.chainSelector, err))
 			}
 		}
 
-		if err := vc.storageBatcher.Close(); err != nil {
-			vc.lggr.Errorw("Error closing storage batcher", "error", err)
+		// Start task verifier processor - 2nd step processor
+		if err := vc.taskVerifierProcessor.Close(); err != nil {
+			vc.lggr.Errorw("Failed to stop verifier processor", "error", err)
+			errs = append(errs, fmt.Errorf("failed to stop verifier processor: %w", err))
+		}
+
+		// Start storage writer processor - 3rd step processor
+		if err := vc.storageWriterProcessor.Close(); err != nil {
+			vc.lggr.Errorw("Failed to stop storage writer processor", "error", err)
+			errs = append(errs, fmt.Errorf("failed to stop storage writer processor: %w", err))
 		}
 
 		vc.lggr.Infow("Verifier coordinator stopped")
-		return nil
+		return errors.Join(errs...)
 	})
 }
 
-// -----------------------------------------------------------------------------
-// Curse detector wiring (kept in coordinator as requested)
-// -----------------------------------------------------------------------------
-
 // startCurseDetector creates, configures, and starts a curse detector service from RMN readers.
 // Uses CursePollInterval from config, defaulting to 2s if not set.
-func (vc *Coordinator) startCurseDetector(
-	ctx context.Context,
+func createCurseDetector(
+	lggr logger.Logger,
+	config CoordinatorConfig,
+	curseDetector common.CurseCheckerService,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
-) error {
+) (common.CurseCheckerService, error) {
 	if len(sourceReaders) == 0 {
-		vc.lggr.Infow("No RMN readers provided; curse detector will not be started")
-		return nil
+		lggr.Infow("No RMN readers provided; curse detector will not be started")
+		return nil, nil
 	}
 	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
 	for chainSelector, sourceReader := range sourceReaders {
 		rmnReaders[chainSelector] = sourceReader
 	}
 
-	if vc.curseDetector != nil {
-		vc.lggr.Infow("Curse detector already injected; skipping creation from RMN readers")
-		return nil
-	}
-
 	// if a curse detector service is already set, use it; otherwise create a new one
-	curseDetectorSvc := vc.curseDetector
-	if curseDetectorSvc == nil {
-		cd, err := cursecheckerimpl.NewCurseDetectorService(
-			rmnReaders,
-			vc.config.CursePollInterval,
-			vc.lggr,
-		)
-		if err != nil {
-			vc.lggr.Errorw("Failed to create curse detector service", "error", err)
-			return fmt.Errorf("failed to create curse detector: %w", err)
-		}
-		curseDetectorSvc = cd
+	if curseDetector != nil {
+		lggr.Infow("Curse detector already injected; skipping creation from RMN readers")
+		return curseDetector, nil
 	}
 
-	if err := curseDetectorSvc.Start(ctx); err != nil {
-		vc.lggr.Errorw("Failed to start curse detector", "error", err)
-		return fmt.Errorf("failed to start curse detector: %w", err)
+	newCurseDetector, err := cursecheckerimpl.NewCurseDetectorService(
+		rmnReaders,
+		config.CursePollInterval,
+		lggr,
+	)
+	if err != nil {
+		lggr.Errorw("Failed to create curse detector service", "error", err)
+		return nil, fmt.Errorf("failed to create curse detector: %w", err)
 	}
-
-	vc.curseDetector = curseDetectorSvc
-	vc.lggr.Infow("Curse detector started", "chainCount", len(rmnReaders))
-
-	return nil
+	return newCurseDetector, nil
 }
 
 // Name returns the fully qualified name of the coordinator.
 func (vc *Coordinator) Name() string {
-	return fmt.Sprintf("verifier.Coordinator[%s]", vc.config.VerifierID)
+	return fmt.Sprintf("verifier.Coordinator[%s]", vc.verifierID)
 }
 
 // HealthReport returns a full health report of the coordinator and its dependencies.

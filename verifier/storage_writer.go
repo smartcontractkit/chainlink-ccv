@@ -50,11 +50,6 @@ func NewStorageBatcherProcessor(
 		batcher:          storageBatcher,
 		batchedCCVDataCh: batchedCCVDataCh,
 	}
-	err := processor.Start(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to start storage batcher storageWriterProcessor: %w", err)
-	}
-
 	return processor, storageBatcher, nil
 }
 

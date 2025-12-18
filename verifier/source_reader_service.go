@@ -141,7 +141,7 @@ func (r *SourceReaderService) Start(ctx context.Context) error {
 	})
 }
 
-func (r *SourceReaderService) Stop() error {
+func (r *SourceReaderService) Close() error {
 	return r.StopOnce(r.Name(), func() error {
 		r.logger.Infow("Stopping SourceReaderService")
 		close(r.stopCh)

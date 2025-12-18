@@ -318,6 +318,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	}
 
 	coordinator, err := NewCoordinator(
+		t.Context(),
 		lggr,
 		mockVerifier,
 		map[protocol.ChainSelector]chainaccess.SourceReader{1337: mockSourceReader},

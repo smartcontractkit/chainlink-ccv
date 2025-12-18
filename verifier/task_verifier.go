@@ -21,19 +21,18 @@ type TaskVerifierProcessor struct {
 	monitoring Monitoring
 	verifier   Verifier
 
-	// It reads from here
-	sourceStates map[protocol.ChainSelector]*sourceState
-	// to eventually sink verified results here
+	// Consumes from
+	sourceReaders map[protocol.ChainSelector]*SourceReaderService
+	// produces to
 	storageBatcher *batcher.Batcher[protocol.VerifierNodeResult]
 }
 
 func NewTaskVerifierProcessor(
-	ctx context.Context,
 	lggr logger.Logger,
 	verifierID string,
 	verifier Verifier,
 	monitoring Monitoring,
-	sourceStates map[protocol.ChainSelector]*sourceState,
+	sourceStates map[protocol.ChainSelector]*SourceReaderService,
 	storageBatcher *batcher.Batcher[protocol.VerifierNodeResult],
 ) (*TaskVerifierProcessor, error) {
 	p := &TaskVerifierProcessor{
@@ -41,25 +40,18 @@ func NewTaskVerifierProcessor(
 		verifierID:     verifierID,
 		monitoring:     monitoring,
 		verifier:       verifier,
-		sourceStates:   sourceStates,
+		sourceReaders:  sourceStates,
 		storageBatcher: storageBatcher,
-	}
-
-	err := p.Start(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to start TaskVerifierProcessor: %w", err)
 	}
 	return p, nil
 }
 
 func (p *TaskVerifierProcessor) Start(ctx context.Context) error {
 	return p.StartOnce(p.Name(), func() error {
-		for _, state := range p.sourceStates {
-			p.wg.Add(1)
-			go func(s *sourceState) {
-				defer p.wg.Done()
-				p.run(ctx, s)
-			}(state)
+		for _, state := range p.sourceReaders {
+			p.wg.Go(func() {
+				p.run(ctx, state.ReadyTasksChannel())
+			})
 		}
 		return nil
 	})
@@ -72,20 +64,18 @@ func (p *TaskVerifierProcessor) Close() error {
 	})
 }
 
-func (p *TaskVerifierProcessor) run(ctx context.Context, state *sourceState) {
+func (p *TaskVerifierProcessor) run(ctx context.Context, ch <-chan batcher.BatchResult[VerificationTask]) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case batch, ok := <-state.readyTasksCh:
+		case batch, ok := <-ch:
 			if !ok {
-				p.lggr.Infow("ReadyTasksChannel closed; exiting readyTasksLoop",
-					"chain", state.chainSelector)
+				p.lggr.Infow("ReadyTasksChannel closed; exiting readyTasksLoop")
 				return
 			}
 			if batch.Error != nil {
 				p.lggr.Errorw("Error batch received from SourceReaderService",
-					"chain", state.chainSelector,
 					"error", batch.Error)
 				continue
 			}
@@ -122,7 +112,7 @@ func (p *TaskVerifierProcessor) processReadyTasks(ctx context.Context, tasks []V
 	// TODO: Can parallelize chains
 	// Process each chain's tasks as a batch
 	for chainSelector, chainTasks := range tasksByChain {
-		_, ok := p.sourceStates[chainSelector]
+		_, ok := p.sourceReaders[chainSelector]
 		if !ok {
 			p.lggr.Errorw("No source state found for finalized messages",
 				"chainSelector", chainSelector,
