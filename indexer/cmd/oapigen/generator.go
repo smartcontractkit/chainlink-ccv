@@ -82,7 +82,7 @@ func main() {
 		}
 	}
 
-	//yml, err := api.OpenAPI().Downgrade()
+	// yml, err := api.OpenAPI().Downgrade()
 	yml, err := api.OpenAPI().DowngradeYAML()
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, "failed to generate openapi yaml:", err)

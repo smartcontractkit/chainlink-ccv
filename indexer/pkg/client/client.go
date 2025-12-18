@@ -29,7 +29,6 @@ func NewIndexerClient(lggr logger.Logger, indexerURI string) (*IndexerClient, er
 		indexerURI:          indexerURI,
 		ClientWithResponses: cl,
 	}, nil
-
 }
 
 type IndexerClient struct {
@@ -40,7 +39,7 @@ type IndexerClient struct {
 
 // ReadMessages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message.
 func (ic *IndexerClient) ReadMessages(ctx context.Context, queryData protocol.MessagesV1Request) (map[string]protocol.MessageWithMetadata, error) {
-	resp, err := ic.ClientWithResponses.GetMessages(ctx, &iclient.GetMessagesParams{
+	resp, err := ic.GetMessages(ctx, &iclient.GetMessagesParams{
 		SourceChainSelectors: &queryData.SourceChainSelectors,
 		DestChainSelectors:   &queryData.DestChainSelectors,
 		Start:                &queryData.Start,
@@ -48,6 +47,9 @@ func (ic *IndexerClient) ReadMessages(ctx context.Context, queryData protocol.Me
 		Limit:                &queryData.Limit,
 		Offset:               &queryData.Offset,
 	})
+	if err != nil {
+		ic.lggr.Errorw("Indexer ReadMessages request error", "error", err)
+	}
 
 	var messagesResponse protocol.MessagesV1Response
 	if err = processResponse(resp, &messagesResponse); err != nil {
@@ -67,9 +69,13 @@ func getAddrs(results []protocol.VerifierResult) []string {
 	return addrs
 }
 
-// GetVerifierResults returns all verifierResults for a given messageID
+// GetVerifierResults returns all verifierResults for a given messageID.
 func (ic *IndexerClient) GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error) {
-	resp, err := ic.ClientInterface.MessageById(ctx, messageID.String())
+	resp, err := ic.MessageById(ctx, messageID.String())
+	if err != nil {
+		ic.lggr.Errorw("Indexer GetVerifierResults request error", "error", err)
+		return nil, err
+	}
 
 	var messageIDResponse protocol.MessageIDV1Response
 	if err = processResponse(resp, &messageIDResponse); err != nil {
