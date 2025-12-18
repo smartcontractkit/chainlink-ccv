@@ -110,6 +110,7 @@ type AggregatorOutput struct {
 	ContainerName      string `toml:"container_name"`
 	Address            string `toml:"address"`
 	ExternalHTTPUrl    string `toml:"external_http_url"`
+	ExternalHTTPSUrl   string `toml:"external_https_url"`
 	DBURL              string `toml:"db_url"`
 	DBConnectionString string `toml:"db_connection_string"`
 	TLSCACertFile      string `toml:"tls_ca_cert_file"`
@@ -493,10 +494,11 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 	}
 
 	in.Out = &AggregatorOutput{
-		ContainerName:   nginxContainerName,
-		Address:         fmt.Sprintf("%s:443", nginxContainerName),
-		ExternalHTTPUrl: fmt.Sprintf("%s:%d", host, in.HostPort),
-		TLSCACertFile:   tlsCerts.CACertFile,
+		ContainerName:    nginxContainerName,
+		Address:          fmt.Sprintf("%s:443", nginxContainerName),
+		ExternalHTTPUrl:  fmt.Sprintf("%s:%d", aggregatorContainerName, DefaultAggregatorGRPCPort),
+		ExternalHTTPSUrl: fmt.Sprintf("%s:%d", host, in.HostPort),
+		TLSCACertFile:    tlsCerts.CACertFile,
 	}
 	return in.Out, nil
 }

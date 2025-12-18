@@ -425,7 +425,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to create aggregator service for committee %s: %w", aggregatorInput.CommitteeName, err)
 		}
-		in.AggregatorEndpoints[aggregatorInput.CommitteeName] = out.ExternalHTTPUrl
+		in.AggregatorEndpoints[aggregatorInput.CommitteeName] = out.ExternalHTTPSUrl
 		if out.TLSCACertFile != "" {
 			in.AggregatorCACertFiles[aggregatorInput.CommitteeName] = out.TLSCACertFile
 		}
@@ -544,16 +544,25 @@ func NewEnvironment() (in *Cfg, err error) {
 		// Find aggregator output for this verifier's committee
 		for _, agg := range in.Aggregator {
 			if agg.CommitteeName == ver.CommitteeName && agg.Out != nil {
-				ver.AggregatorAddress = agg.Out.Address
+				if ver.InsecureAggregatorConnection {
+					// CL node tests can't inject certs, use direct insecure connection
+					ver.AggregatorAddress = agg.Out.ExternalHTTPUrl
+				} else {
+					ver.AggregatorAddress = agg.Out.Address
+				}
 				break
 			}
 		}
 		if ver.AggregatorAddress == "" {
-			ver.AggregatorAddress = fmt.Sprintf("%s-aggregator-nginx:443", ver.CommitteeName)
+			if ver.InsecureAggregatorConnection {
+				ver.AggregatorAddress = fmt.Sprintf("%s-aggregator:50051", ver.CommitteeName)
+			} else {
+				ver.AggregatorAddress = fmt.Sprintf("%s-aggregator-nginx:443", ver.CommitteeName)
+			}
 		}
 
-		// Use shared TLS CA cert for all verifiers
-		if sharedTLSCerts != nil {
+		// Use shared TLS CA cert for all verifiers (not needed for insecure connections)
+		if sharedTLSCerts != nil && !ver.InsecureAggregatorConnection {
 			ver.TLSCACertFile = sharedTLSCerts.CACertFile
 		}
 
