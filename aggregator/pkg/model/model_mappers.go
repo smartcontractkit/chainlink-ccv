@@ -26,15 +26,20 @@ func IsSourceVerifierInCCVAddresses(sourceVerifierAddr protocol.UnknownAddress, 
 func getAllSignatureByAddress(report *CommitAggregatedReport) (map[string]protocol.Data, error) {
 	addressSignatures := make(map[string]protocol.Data)
 	for _, verification := range report.Verifications {
-		if verification.IdentifierSigner == nil {
-			return nil, fmt.Errorf("missing IdentifierSigner in verification record")
+		if verification.SignerIdentifier == nil {
+			return nil, fmt.Errorf("missing SignerIdentifier in verification record")
 		}
 
-		addressKey := common.BytesToAddress(verification.IdentifierSigner.Address).Hex()
+		r, s, _, err := protocol.DecodeSingleEcdsaSignature(verification.Signature)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode signature: %w", err)
+		}
+
+		addressKey := common.BytesToAddress(verification.SignerIdentifier.Identifier).Hex()
 		addressSignatures[addressKey] = protocol.Data{
-			R:      verification.IdentifierSigner.SignatureR,
-			S:      verification.IdentifierSigner.SignatureS,
-			Signer: common.Address(verification.IdentifierSigner.Address),
+			R:      r,
+			S:      s,
+			Signer: common.BytesToAddress(verification.SignerIdentifier.Identifier),
 		}
 	}
 	return addressSignatures, nil

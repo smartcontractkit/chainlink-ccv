@@ -52,19 +52,38 @@ func NewSignerFixture(t *testing.T, name string) *SignerFixture {
 
 // NewCommitteeFixture creates a test committee configuration with the given parameters.
 // Uses default test chain selectors: source=1, dest=2.
+// It also validates the config to populate parsed addresses.
 func NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress []byte, signers ...model.Signer) *model.Committee {
-	return &model.Committee{
-		QuorumConfigs: map[string]*model.QuorumConfig{
-			"1": {
-				Threshold:             uint8(len(signers)), //nolint:gosec // Test fixture with controlled values
-				Signers:               signers,
-				SourceVerifierAddress: common.BytesToAddress(sourceVerifierAddress).Hex(),
+	config := &model.AggregatorConfig{
+		Committee: &model.Committee{
+			QuorumConfigs: map[string]*model.QuorumConfig{
+				"1": {
+					Threshold:             uint8(len(signers)), //nolint:gosec // Test fixture with controlled values
+					Signers:               signers,
+					SourceVerifierAddress: common.BytesToAddress(sourceVerifierAddress).Hex(),
+				},
+			},
+			DestinationVerifiers: map[string]string{
+				"2": common.BytesToAddress(destVerifierAddress).Hex(),
 			},
 		},
-		DestinationVerifiers: map[string]string{
-			"2": common.BytesToAddress(destVerifierAddress).Hex(),
-		},
 	}
+	// Validate to populate parsed addresses
+	_ = config.ValidateCommitteeConfig()
+	return config.Committee
+}
+
+// UpdateCommitteeQuorum updates the quorum config for source chain selector "1" and re-validates.
+// This should be used instead of directly modifying committee.QuorumConfigs to ensure parsed addresses are populated.
+func UpdateCommitteeQuorum(committee *model.Committee, sourceVerifierAddress []byte, signers ...model.Signer) {
+	committee.QuorumConfigs["1"] = &model.QuorumConfig{
+		Threshold:             uint8(len(signers)), //nolint:gosec // Test fixture with controlled values
+		Signers:               signers,
+		SourceVerifierAddress: common.BytesToAddress(sourceVerifierAddress).Hex(),
+	}
+	// Re-validate to populate parsed addresses
+	config := &model.AggregatorConfig{Committee: committee}
+	_ = config.ValidateCommitteeConfig()
 }
 
 type ProtocolMessageOption = func(*protocol.Message) *protocol.Message
@@ -129,7 +148,7 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 			Signer: signerAddr,
 		}
 
-		m.Signature, err = protocol.EncodeSingleSignature(sigData)
+		m.Signature, err = protocol.EncodeSingleEcdsaSignature(sigData)
 		require.NoError(t, err, "failed to encode single signature")
 
 		return m

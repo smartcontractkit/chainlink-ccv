@@ -17,10 +17,9 @@ type Signer struct {
 	Address string `toml:"address"`
 }
 
-type IdentifierSigner struct {
-	Address    []byte
-	SignatureR [32]byte
-	SignatureS [32]byte
+// SignerIdentifier holds the chain-native signer identifier.
+type SignerIdentifier struct {
+	Identifier []byte
 }
 
 // DestinationSelector represents a destination chain selector as a string.

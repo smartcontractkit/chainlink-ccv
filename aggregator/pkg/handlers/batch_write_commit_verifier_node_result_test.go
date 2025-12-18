@@ -63,7 +63,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_BatchSizeValidation(t *testing.T) {
 			agg := aggregation_mocks.NewMockAggregationTriggerer(t)
 			sig := aggregation_mocks.NewMockSignatureValidator(t)
 
-			signer := &model.IdentifierSigner{Address: []byte{0xAA}}
+			signer := &model.SignerIdentifier{Identifier: []byte{0xAA}}
 
 			if tc.expectCode == codes.OK {
 				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(&model.SignatureValidationResult{
@@ -107,8 +107,8 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 	store := aggregation_mocks.NewMockCommitVerificationStore(t)
 	agg := aggregation_mocks.NewMockAggregationTriggerer(t)
 
-	signer := &model.IdentifierSigner{
-		Address: []byte{0xAA},
+	signer := &model.SignerIdentifier{
+		Identifier: []byte{0xAA},
 	}
 	sig := aggregation_mocks.NewMockSignatureValidator(t)
 	sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(&model.SignatureValidationResult{

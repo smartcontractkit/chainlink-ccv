@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/lib/pq"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -21,30 +20,30 @@ import (
 	pkgcommon "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 )
 
-func (d *DatabaseStorage) batchGetVerificationRecordIDs(ctx context.Context, messageIDHex string, signerAddresses []string) (map[string]int64, error) {
+func (d *DatabaseStorage) batchGetVerificationRecordIDs(ctx context.Context, messageIDHex string, signerIdentifiers []string) (map[string]int64, error) {
 	recordIDsMap := make(map[string]int64)
-	if len(signerAddresses) == 0 {
+	if len(signerIdentifiers) == 0 {
 		return recordIDsMap, nil
 	}
 
-	stmt := `SELECT DISTINCT ON (signer_address) signer_address, id
+	stmt := `SELECT DISTINCT ON (signer_identifier) signer_identifier, id
 		FROM commit_verification_records 
-		WHERE message_id = $1 AND signer_address = ANY($2)
-		ORDER BY signer_address, seq_num DESC`
+		WHERE message_id = $1 AND signer_identifier = ANY($2)
+		ORDER BY signer_identifier, seq_num DESC`
 
 	type idRecord struct {
-		SignerAddress string `db:"signer_address"`
-		ID            int64  `db:"id"`
+		SignerIdentifier string `db:"signer_identifier"`
+		ID               int64  `db:"id"`
 	}
 
 	var records []idRecord
-	err := d.ds.SelectContext(ctx, &records, stmt, messageIDHex, pq.Array(signerAddresses))
+	err := d.ds.SelectContext(ctx, &records, stmt, messageIDHex, pq.Array(signerIdentifiers))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get verification record IDs: %w", err)
 	}
 
 	for _, record := range records {
-		recordIDsMap[record.SignerAddress] = record.ID
+		recordIDsMap[record.SignerIdentifier] = record.ID
 	}
 
 	return recordIDsMap, nil
@@ -107,20 +106,17 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 	}
 
 	stmt := `INSERT INTO commit_verification_records 
-		(message_id, signer_address, 
-		 signature_r, signature_s, aggregation_key,
+		(message_id, signer_identifier, aggregation_key,
 		 ccv_version, signature, message_ccv_addresses, message_executor_address, message_data) 
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		ON CONFLICT (message_id, signer_address, aggregation_key) 
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (message_id, signer_identifier, aggregation_key) 
 		DO NOTHING
 		RETURNING id`
 
 	var recordID int64
 	err = d.ds.GetContext(ctx, &recordID, stmt,
 		params["message_id"],
-		params["signer_address"],
-		params["signature_r"],
-		params["signature_s"],
+		params["signer_identifier"],
 		params["aggregation_key"],
 		params["ccv_version"],
 		params["signature"],
@@ -141,14 +137,14 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 func (d *DatabaseStorage) GetCommitVerification(ctx context.Context, id model.CommitVerificationRecordIdentifier) (*model.CommitVerificationRecord, error) {
 	stmt := fmt.Sprintf(`SELECT %s
 		FROM commit_verification_records 
-		WHERE message_id = $1 AND signer_address = $2
+		WHERE message_id = $1 AND signer_identifier = $2
 		ORDER BY seq_num DESC LIMIT 1`, allVerificationRecordColumns)
 
-	messageIDHex := common.Bytes2Hex(id.MessageID)
-	signerAddressHex := common.BytesToAddress(id.Address).Hex()
+	messageIDHex := protocol.HexEncode(id.MessageID)
+	signerIdentifierHex := protocol.HexEncode(id.Address)
 
 	var row commitVerificationRecordRow
-	err := d.ds.GetContext(ctx, &row, stmt, messageIDHex, signerAddressHex)
+	err := d.ds.GetContext(ctx, &row, stmt, messageIDHex, signerIdentifierHex)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("commit verification record not found")
@@ -165,12 +161,12 @@ func (d *DatabaseStorage) GetCommitVerification(ctx context.Context, id model.Co
 }
 
 func (d *DatabaseStorage) ListCommitVerificationByAggregationKey(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey) ([]*model.CommitVerificationRecord, error) {
-	stmt := fmt.Sprintf(`SELECT DISTINCT ON (signer_address) %s
+	stmt := fmt.Sprintf(`SELECT DISTINCT ON (signer_identifier) %s
 		FROM commit_verification_records 
 		WHERE message_id = $1 AND aggregation_key = $2
-		ORDER BY signer_address, seq_num DESC`, allVerificationRecordColumns)
+		ORDER BY signer_identifier, seq_num DESC`, allVerificationRecordColumns)
 
-	messageIDHex := common.Bytes2Hex(messageID)
+	messageIDHex := protocol.HexEncode(messageID)
 
 	var rows []commitVerificationRecordRow
 	err := d.ds.SelectContext(ctx, &rows, stmt, messageIDHex, aggregationKey)
@@ -233,9 +229,7 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 			&createdAt,
 			&seqNum,
 			&verRow.MessageID,
-			&verRow.SignerAddress,
-			&verRow.SignatureR,
-			&verRow.SignatureS,
+			&verRow.SignerIdentifier,
 			&verRow.AggregationKey,
 			&verRow.CCVVersion,
 			&verRow.Signature,
@@ -253,8 +247,9 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 
 		_, exists := reportsMap[reportKey]
 		if !exists {
+			msgID, _ := protocol.HexDecode(messageIDReport)
 			reportsMap[reportKey] = &model.CommitAggregatedReport{
-				MessageID:     common.Hex2Bytes(messageIDReport),
+				MessageID:     msgID,
 				Verifications: []*model.CommitVerificationRecord{},
 				Sequence:      seqNum,
 				WrittenAt:     createdAt,
@@ -307,7 +302,7 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 }
 
 func (d *DatabaseStorage) GetCommitAggregatedReportByMessageID(ctx context.Context, messageID model.MessageID) (*model.CommitAggregatedReport, error) {
-	messageIDHex := common.Bytes2Hex(messageID)
+	messageIDHex := protocol.HexEncode(messageID)
 
 	stmt := fmt.Sprintf(`
         SELECT 
@@ -345,9 +340,7 @@ func (d *DatabaseStorage) GetCommitAggregatedReportByMessageID(ctx context.Conte
 			&createdAt,
 			&seqNum,
 			&verRow.MessageID,
-			&verRow.SignerAddress,
-			&verRow.SignatureR,
-			&verRow.SignatureS,
+			&verRow.SignerIdentifier,
 			&verRow.AggregationKey,
 			&verRow.CCVVersion,
 			&verRow.Signature,
@@ -362,8 +355,9 @@ func (d *DatabaseStorage) GetCommitAggregatedReportByMessageID(ctx context.Conte
 		}
 
 		if report == nil {
+			msgID, _ := protocol.HexDecode(messageIDReport)
 			report = &model.CommitAggregatedReport{
-				MessageID:     common.Hex2Bytes(messageIDReport),
+				MessageID:     msgID,
 				Verifications: []*model.CommitVerificationRecord{},
 				Sequence:      seqNum,
 				WrittenAt:     createdAt,
@@ -401,7 +395,7 @@ func (d *DatabaseStorage) GetBatchAggregatedReportByMessageIDs(ctx context.Conte
 
 	messageIDHexValues := make([]string, len(messageIDs))
 	for i, messageID := range messageIDs {
-		messageIDHexValues[i] = common.Bytes2Hex(messageID)
+		messageIDHexValues[i] = protocol.HexEncode(messageID)
 	}
 
 	placeholders := make([]string, len(messageIDHexValues))
@@ -446,9 +440,7 @@ func (d *DatabaseStorage) GetBatchAggregatedReportByMessageIDs(ctx context.Conte
 			&createdAt,
 			&seqNum,
 			&verRow.MessageID,
-			&verRow.SignerAddress,
-			&verRow.SignatureR,
-			&verRow.SignatureS,
+			&verRow.SignerIdentifier,
 			&verRow.AggregationKey,
 			&verRow.CCVVersion,
 			&verRow.Signature,
@@ -464,7 +456,7 @@ func (d *DatabaseStorage) GetBatchAggregatedReportByMessageIDs(ctx context.Conte
 
 		_, exists := reports[messageIDReport]
 		if !exists {
-			messageIDBytes := common.Hex2Bytes(messageIDReport)
+			messageIDBytes, _ := protocol.HexDecode(messageIDReport)
 			reports[messageIDReport] = &model.CommitAggregatedReport{
 				MessageID:     messageIDBytes,
 				Verifications: []*model.CommitVerificationRecord{},
@@ -502,24 +494,24 @@ func (d *DatabaseStorage) SubmitAggregatedReport(ctx context.Context, report *mo
 	}
 
 	verificationRecordIDs := make([]int64, 0, len(report.Verifications))
-	messageIDHex := common.Bytes2Hex(report.MessageID)
+	messageIDHex := protocol.HexEncode(report.MessageID)
 
-	signerAddresses := make([]string, 0, len(report.Verifications))
+	signerIdentifiers := make([]string, 0, len(report.Verifications))
 	for _, verification := range report.Verifications {
-		signerAddressHex := common.BytesToAddress(verification.IdentifierSigner.Address).Hex()
-		signerAddresses = append(signerAddresses, signerAddressHex)
+		signerIdentifierHex := protocol.HexEncode(verification.SignerIdentifier.Identifier)
+		signerIdentifiers = append(signerIdentifiers, signerIdentifierHex)
 	}
 
-	recordIDsMap, err := d.batchGetVerificationRecordIDs(ctx, messageIDHex, signerAddresses)
+	recordIDsMap, err := d.batchGetVerificationRecordIDs(ctx, messageIDHex, signerIdentifiers)
 	if err != nil {
 		return err
 	}
 
 	for _, verification := range report.Verifications {
-		signerAddressHex := common.BytesToAddress(verification.IdentifierSigner.Address).Hex()
-		recordID, exists := recordIDsMap[signerAddressHex]
+		signerIdentifierHex := protocol.HexEncode(verification.SignerIdentifier.Identifier)
+		recordID, exists := recordIDsMap[signerIdentifierHex]
 		if !exists {
-			return fmt.Errorf("failed to find verification record ID for signer %s", signerAddressHex)
+			return fmt.Errorf("failed to find verification record ID for signer %s", signerIdentifierHex)
 		}
 		verificationRecordIDs = append(verificationRecordIDs, recordID)
 	}
@@ -600,7 +592,7 @@ func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context, newerThan time.T
 				return
 			}
 
-			messageID := common.Hex2Bytes(result.MessageID)
+			messageID, _ := protocol.HexDecode(result.MessageID)
 
 			select {
 			case orphanedKeyCh <- model.OrphanedKey{

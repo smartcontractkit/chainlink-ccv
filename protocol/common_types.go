@@ -296,3 +296,16 @@ type MessageSentEvent struct {
 	BlockNumber       uint64            // Block number where event occurred
 	TxHash            ByteSlice         // Transaction hash of the event
 }
+
+// HexEncode encodes bytes to a hex string with 0x prefix.
+// This is chain-agnostic and preserves the full byte length.
+func HexEncode(b []byte) string {
+	return "0x" + hex.EncodeToString(b)
+}
+
+// HexDecode decodes a hex string (with or without 0x prefix) to bytes.
+// This is chain-agnostic and preserves the full byte length.
+func HexDecode(s string) ([]byte, error) {
+	s = strings.TrimPrefix(s, "0x")
+	return hex.DecodeString(s)
+}

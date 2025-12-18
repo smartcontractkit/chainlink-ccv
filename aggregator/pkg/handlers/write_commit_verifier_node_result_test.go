@@ -37,14 +37,14 @@ func makeValidProtoRequest() *committeepb.WriteCommitteeVerifierNodeResultReques
 func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 	t.Parallel()
 
-	signer1 := &model.IdentifierSigner{
-		Address: []byte{0xAA},
+	signer1 := &model.SignerIdentifier{
+		Identifier: []byte{0xAA},
 	}
 
 	type testCase struct {
 		name             string
 		req              *committeepb.WriteCommitteeVerifierNodeResultRequest
-		signer           *model.IdentifierSigner
+		signer           *model.SignerIdentifier
 		sigErr           error
 		saveErr          error
 		aggErr           error

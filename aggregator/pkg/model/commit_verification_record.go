@@ -19,7 +19,7 @@ type SignableHash = [32]byte
 
 // SignatureValidationResult contains the result of validating a signature.
 type SignatureValidationResult struct {
-	Signer       *IdentifierSigner
+	Signer       *SignerIdentifier
 	QuorumConfig *QuorumConfig
 	Hash         SignableHash
 }
@@ -48,14 +48,14 @@ type CommitVerificationRecord struct {
 	Signature              []byte
 	MessageCCVAddresses    []protocol.UnknownAddress
 	MessageExecutorAddress protocol.UnknownAddress
-	IdentifierSigner       *IdentifierSigner
+	SignerIdentifier       *SignerIdentifier
 	createdAt              time.Time // Internal field for tracking creation time from DB
 }
 
 // GetID retrieves the unique identifier for the commit verification record.
 func (c *CommitVerificationRecord) GetID() (*CommitVerificationRecordIdentifier, error) {
-	if len(c.IdentifierSigner.Address) == 0 {
-		return nil, fmt.Errorf("address is nil or empty")
+	if len(c.SignerIdentifier.Identifier) == 0 {
+		return nil, fmt.Errorf("identifier is nil or empty")
 	}
 	if len(c.MessageID) == 0 {
 		return nil, fmt.Errorf("message ID is nil or empty")
@@ -63,7 +63,7 @@ func (c *CommitVerificationRecord) GetID() (*CommitVerificationRecordIdentifier,
 
 	return &CommitVerificationRecordIdentifier{
 		MessageID: c.MessageID,
-		Address:   c.IdentifierSigner.Address,
+		Address:   c.SignerIdentifier.Identifier,
 	}, nil
 }
 

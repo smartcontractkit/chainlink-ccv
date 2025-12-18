@@ -4,14 +4,13 @@ import (
 	"context"
 
 	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	ethcommon "github.com/ethereum/go-ethereum/common"
-	grpcstatus "google.golang.org/grpc/status"
 
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
@@ -61,7 +60,7 @@ func (h *GetVerifierResultsForMessageHandler) Handle(ctx context.Context, req *v
 
 	// Process each message ID in order to maintain index correspondence
 	for i, messageID := range req.GetMessageIds() {
-		messageIDHex := ethcommon.Bytes2Hex(messageID)
+		messageIDHex := protocol.HexEncode(messageID)
 
 		if report, found := results[messageIDHex]; found {
 			// Get quorum config and validate source verifier is in ccvAddresses

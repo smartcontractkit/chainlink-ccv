@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/lib/pq"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -16,9 +15,7 @@ type commitVerificationRecordRow struct {
 	ID                     int64          `db:"id"`
 	SeqNum                 int64          `db:"seq_num"`
 	MessageID              string         `db:"message_id"`
-	SignerAddress          string         `db:"signer_address"`
-	SignatureR             []byte         `db:"signature_r"`
-	SignatureS             []byte         `db:"signature_s"`
+	SignerIdentifier       string         `db:"signer_identifier"`
 	AggregationKey         string         `db:"aggregation_key"`
 	CCVVersion             []byte         `db:"ccv_version"`
 	Signature              []byte         `db:"signature"`
@@ -29,17 +26,18 @@ type commitVerificationRecordRow struct {
 }
 
 func rowToCommitVerificationRecord(row *commitVerificationRecordRow) (*model.CommitVerificationRecord, error) {
-	messageID := common.Hex2Bytes(row.MessageID)
-	signerAddrBytes := common.HexToAddress(row.SignerAddress).Bytes()
+	messageID, err := protocol.HexDecode(row.MessageID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode message_id: %w", err)
+	}
 
-	var sigR, sigS [32]byte
-	copy(sigR[:], row.SignatureR)
-	copy(sigS[:], row.SignatureS)
+	signerIdentifierBytes, err := protocol.HexDecode(row.SignerIdentifier)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode signer_identifier: %w", err)
+	}
 
-	identifierSigner := &model.IdentifierSigner{
-		Address:    signerAddrBytes,
-		SignatureR: sigR,
-		SignatureS: sigS,
+	signerIdentifier := &model.SignerIdentifier{
+		Identifier: signerIdentifierBytes,
 	}
 
 	var message protocol.Message
@@ -74,7 +72,7 @@ func rowToCommitVerificationRecord(row *commitVerificationRecordRow) (*model.Com
 		Signature:              row.Signature,
 		MessageCCVAddresses:    messageCCVAddresses,
 		MessageExecutorAddress: messageExecutorAddress,
-		IdentifierSigner:       identifierSigner,
+		SignerIdentifier:       signerIdentifier,
 	}
 	record.SetTimestampFromMillis(row.CreatedAt.UnixMilli())
 	return record, nil
@@ -87,12 +85,12 @@ func recordToInsertParams(record *model.CommitVerificationRecord, aggregationKey
 	if record.Message == nil {
 		return nil, fmt.Errorf("record.Message cannot be nil")
 	}
-	if record.IdentifierSigner == nil {
-		return nil, fmt.Errorf("record.IdentifierSigner cannot be nil")
+	if record.SignerIdentifier == nil {
+		return nil, fmt.Errorf("record.SignerIdentifier cannot be nil")
 	}
 
-	messageIDHex := common.Bytes2Hex(record.MessageID)
-	signerAddressHex := common.BytesToAddress(record.IdentifierSigner.Address).Hex()
+	messageIDHex := protocol.HexEncode(record.MessageID)
+	signerIdentifierHex := protocol.HexEncode(record.SignerIdentifier.Identifier)
 
 	messageDataJSON, err := json.Marshal(record.Message)
 	if err != nil {
@@ -110,9 +108,7 @@ func recordToInsertParams(record *model.CommitVerificationRecord, aggregationKey
 
 	params := map[string]any{
 		"message_id":               messageIDHex,
-		"signer_address":           signerAddressHex,
-		"signature_r":              record.IdentifierSigner.SignatureR[:],
-		"signature_s":              record.IdentifierSigner.SignatureS[:],
+		"signer_identifier":        signerIdentifierHex,
 		"aggregation_key":          aggregationKey,
 		"ccv_version":              record.CCVVersion,
 		"signature":                record.Signature,
@@ -124,12 +120,10 @@ func recordToInsertParams(record *model.CommitVerificationRecord, aggregationKey
 	return params, nil
 }
 
-const allVerificationRecordColumns = `message_id, signer_address, 
-	signature_r, signature_s, aggregation_key,
+const allVerificationRecordColumns = `message_id, signer_identifier, aggregation_key,
 	ccv_version, signature, message_ccv_addresses, message_executor_address, message_data, id, created_at`
 
-const allVerificationRecordColumnsQualified = `cvr.message_id, cvr.signer_address, 
-	cvr.signature_r, cvr.signature_s, cvr.aggregation_key,
+const allVerificationRecordColumnsQualified = `cvr.message_id, cvr.signer_identifier, cvr.aggregation_key,
 	cvr.ccv_version, cvr.signature, cvr.message_ccv_addresses, cvr.message_executor_address, cvr.message_data, cvr.id, cvr.created_at`
 
 func mustParseUint64(s string) uint64 {

@@ -76,9 +76,9 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 	}
 	ctx = scope.WithAggregationKey(ctx, aggregationKey)
 
-	signerCtx := scope.WithAddress(ctx, validationResult.Signer.Address)
+	signerCtx := scope.WithAddress(ctx, validationResult.Signer.Identifier)
 
-	record.IdentifierSigner = validationResult.Signer
+	record.SignerIdentifier = validationResult.Signer
 
 	err = h.storage.SaveCommitVerification(signerCtx, record, aggregationKey)
 	if err != nil {

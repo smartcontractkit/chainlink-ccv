@@ -211,7 +211,7 @@ func TestValidateSignature(t *testing.T) {
 		assert.NotNil(t, result)
 		assert.NotNil(t, result.Signer)
 		assert.NotEqual(t, model.SignableHash{}, result.Hash)
-		assert.Equal(t, common.Hex2Bytes(strings.TrimPrefix(signerFixture.Signer.Address, "0x")), result.Signer.Address)
+		assert.Equal(t, common.Hex2Bytes(strings.TrimPrefix(signerFixture.Signer.Address, "0x")), result.Signer.Identifier)
 	})
 
 	t.Run("missing signature", func(t *testing.T) {

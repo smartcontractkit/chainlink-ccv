@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
@@ -68,7 +67,7 @@ func (q *EVMQuorumValidator) CheckQuorum(ctx context.Context, aggregatedReport *
 			return false, fmt.Errorf("verification hash mismatch: possible data tampering detected")
 		}
 		validSignerCount++
-		signerAddressesSet[string(result.Signer.Address)] = struct{}{}
+		signerAddressesSet[string(result.Signer.Identifier)] = struct{}{}
 	}
 
 	if len(signerAddressesSet) < int(quorumConfig.Threshold) {
@@ -116,7 +115,7 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *mode
 		return nil, err
 	}
 
-	r, s, _, err := protocol.DecodeSingleSignature(record.Signature)
+	r, s, _, err := protocol.DecodeSingleEcdsaSignature(record.Signature)
 	if err != nil {
 		q.logger(ctx).Errorw("Failed to decode single signature", "error", err)
 		return nil, fmt.Errorf("failed to decode single signature: %w", err)
@@ -133,11 +132,7 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *mode
 		return nil, fmt.Errorf("failed to get quorum config for source selector: %d", message.SourceChainSelector)
 	}
 
-	// All signatures are normalized to v=27 by SignV27, so we only need to try v=0
-	// (which corresponds to v=27 in the on-chain ecrecover context)
-	combined := append(r[:], s[:]...)
-	combined = append(combined, byte(0))
-	recoveredAddress, err := q.ecrecover(combined, hash[:])
+	recoveredAddress, err := protocol.RecoverEcdsaSigner(hash, r, s)
 	if err != nil {
 		q.logger(ctx).Errorw("Failed to recover address from signature", "error", err)
 		return nil, fmt.Errorf("failed to recover address from signature: %w", err)
@@ -150,10 +145,8 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *mode
 		if candidateSignerAddress == recoveredAddress {
 			q.logger(ctx).Infow("Recovered address from signature", "address", recoveredAddress.Hex())
 			return &model.SignatureValidationResult{
-				Signer: &model.IdentifierSigner{
-					Address:    candidateSignerAddress.Bytes(),
-					SignatureR: r,
-					SignatureS: s,
+				Signer: &model.SignerIdentifier{
+					Identifier: candidateSignerAddress.Bytes(),
 				},
 				QuorumConfig: quorumConfig,
 				Hash:         hash,
@@ -163,17 +156,6 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *mode
 
 	q.logger(ctx).Debug("No valid signers found for the provided signature")
 	return nil, fmt.Errorf("no valid signers found for the provided signature")
-}
-
-func (q *EVMQuorumValidator) ecrecover(signature, msgHash []byte) (common.Address, error) {
-	pubKeyBytes, err := crypto.Ecrecover(msgHash, signature)
-	if err != nil {
-		return common.Address{}, err
-	}
-	// Skip the 0x04 prefix and hash the uncompressed public key
-	hash := protocol.Keccak256(pubKeyBytes[1:])
-	// Take the last 20 bytes
-	return common.BytesToAddress(hash[12:]), nil
 }
 
 func NewQuorumValidator(config *model.AggregatorConfig, l logger.SugaredLogger) *EVMQuorumValidator {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -68,8 +67,8 @@ func TestGetBatchCCVDataForMessageHandler_MixedResults(t *testing.T) {
 	report2 := makeAggregatedReport(m2WithWrongDest, m2ID[:], signerAddr)
 
 	store.EXPECT().GetBatchAggregatedReportByMessageIDs(mock.Anything, mock.Anything).Return(map[string]*model.CommitAggregatedReport{
-		common.Bytes2Hex(m1ID[:]): report1,
-		common.Bytes2Hex(m2ID[:]): report2, // will map error
+		protocol.HexEncode(m1ID[:]): report1,
+		protocol.HexEncode(m2ID[:]): report2, // will map error
 	}, nil)
 
 	resp, err := h.Handle(context.Background(), &verifierpb.GetVerifierResultsForMessageRequest{MessageIds: [][]byte{

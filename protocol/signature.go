@@ -203,16 +203,16 @@ func DecodeSignatures(data []byte) ([][32]byte, [][32]byte, error) {
 	return rs, ss, nil
 }
 
-// RecoverSigners recovers signer addresses from signatures and a hash.
+// RecoverEcdsaSigners recovers signer addresses from signatures and a hash.
 // This is useful after decoding signatures when you need the signer addresses.
-func RecoverSigners(hash [32]byte, rs, ss [][32]byte) ([]common.Address, error) {
+func RecoverEcdsaSigners(hash [32]byte, rs, ss [][32]byte) ([]common.Address, error) {
 	if len(rs) != len(ss) {
 		return nil, fmt.Errorf("rs and ss arrays have different lengths: %d vs %d", len(rs), len(ss))
 	}
 
 	signers := make([]common.Address, len(rs))
 	for i := 0; i < len(rs); i++ {
-		signer, err := RecoverSigner(hash, rs[i], ss[i])
+		signer, err := RecoverEcdsaSigner(hash, rs[i], ss[i])
 		if err != nil {
 			return nil, fmt.Errorf("failed to recover signer for signature %d: %w", i, err)
 		}
@@ -222,7 +222,7 @@ func RecoverSigners(hash [32]byte, rs, ss [][32]byte) ([]common.Address, error) 
 	return signers, nil
 }
 
-func RecoverSigner(hash, r, s [32]byte) (common.Address, error) {
+func RecoverEcdsaSigner(hash, r, s [32]byte) (common.Address, error) {
 	// Create signature with v=0 (crypto.Ecrecover expects 0/1, not 27/28)
 	sig := make([]byte, 65)
 	copy(sig[0:32], r[:])
@@ -246,10 +246,13 @@ func RecoverSigner(hash, r, s [32]byte) (common.Address, error) {
 	return signer, nil
 }
 
-// EncodeSingleSignature encodes a single signature as R||S||Signer (96 bytes).
+// SingleEcdsaSignatureSize is the exact size of an encoded EVM signature: R(32) + S(32) + Address(20) = 84 bytes.
+const SingleEcdsaSignatureSize = 84
+
+// EncodeSingleEcdsaSignature encodes a single EVM signature as R||S||Signer (84 bytes).
 // This format is used by verifiers when sending individual signatures to the aggregator.
-// Format: [32 bytes R][32 bytes S][20 bytes Signer Address].
-func EncodeSingleSignature(sig Data) ([]byte, error) {
+// Format: [32 bytes R][32 bytes S][20 bytes EVM Signer Address].
+func EncodeSingleEcdsaSignature(sig Data) ([]byte, error) {
 	if sig.R == [32]byte{} || sig.S == [32]byte{} {
 		return nil, fmt.Errorf("signature R and S cannot be zero")
 	}
@@ -258,7 +261,7 @@ func EncodeSingleSignature(sig Data) ([]byte, error) {
 		return nil, fmt.Errorf("signer address cannot be zero")
 	}
 
-	result := make([]byte, 96)
+	result := make([]byte, SingleEcdsaSignatureSize)
 	copy(result[0:32], sig.R[:])
 	copy(result[32:64], sig.S[:])
 	copy(result[64:84], sig.Signer[:])
@@ -266,11 +269,11 @@ func EncodeSingleSignature(sig Data) ([]byte, error) {
 	return result, nil
 }
 
-// DecodeSingleSignature decodes a single signature from R||S||Signer format (96 bytes).
-// Returns the R, S components and the signer address.
-func DecodeSingleSignature(data []byte) (r, s [32]byte, signer common.Address, err error) {
-	if len(data) != 96 {
-		return r, s, signer, fmt.Errorf("signature data must be exactly 96 bytes, got %d", len(data))
+// DecodeSingleEcdsaSignature decodes a single EVM signature from R||S||Signer format (84 bytes).
+// Returns the R, S components and the EVM signer address.
+func DecodeSingleEcdsaSignature(data []byte) (r, s [32]byte, signer common.Address, err error) {
+	if len(data) != SingleEcdsaSignatureSize {
+		return r, s, signer, fmt.Errorf("signature data must be exactly %d bytes, got %d", SingleEcdsaSignatureSize, len(data))
 	}
 
 	copy(r[:], data[0:32])

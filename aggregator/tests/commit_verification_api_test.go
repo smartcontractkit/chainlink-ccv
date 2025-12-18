@@ -13,7 +13,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
@@ -364,7 +363,7 @@ func validateSignatures(t *assert.CollectT, ccvData []byte, messageId protocol.B
 	// Recover signer addresses from the aggregated signatures
 	hash, err := committee.NewSignableHash(messageId, ccvData)
 	require.NoError(t, err, "failed to create signed hash")
-	recoveredAddresses, err := protocol.RecoverSigners(hash, rs, ss)
+	recoveredAddresses, err := protocol.RecoverEcdsaSigners(hash, rs, ss)
 	require.NoError(t, err, "failed to recover signer addresses")
 
 	// Create a map of expected signer addresses for easier lookup
@@ -438,11 +437,7 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 		assertCCVDataNotFound(t, t.Context(), ccvDataClient, messageId)
 
 		// Change committee to remove signer1 and add signer3
-		committee.QuorumConfigs["1"] = &model.QuorumConfig{
-			Threshold:             2,
-			Signers:               []model.Signer{signer2.Signer, signer3.Signer},
-			SourceVerifierAddress: common.BytesToAddress(sourceVerifierAddress).Hex(),
-		}
+		UpdateCommitteeQuorum(committee, sourceVerifierAddress, signer2.Signer, signer3.Signer)
 
 		ccvNodeData2, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2))
 
@@ -504,11 +499,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 		assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer1), WithValidSignatureFrom(signer2), WithExactNumberOfSignatures(2))
 
 		// Change committee to remove signer1 and add signer3
-		committee.QuorumConfigs["1"] = &model.QuorumConfig{
-			Threshold:             2,
-			Signers:               []model.Signer{signer2.Signer, signer3.Signer},
-			SourceVerifierAddress: common.BytesToAddress(sourceVerifierAddress).Hex(),
-		}
+		UpdateCommitteeQuorum(committee, sourceVerifierAddress, signer2.Signer, signer3.Signer)
 
 		assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer2), WithExactNumberOfSignatures(1))
 
@@ -1463,11 +1454,7 @@ func TestKeyRotation_StopAggregationAfterQuorumThenRotate(t *testing.T) {
 
 		// Phase 3: Committee rotation - remove signer1, keep signer2 and signer3
 		t.Log("Phase 3: Rotate committee - remove signer1, keep signer2 and signer3")
-		committee.QuorumConfigs["1"] = &model.QuorumConfig{
-			Threshold:             2,
-			Signers:               []model.Signer{signer2.Signer, signer3.Signer},
-			SourceVerifierAddress: common.BytesToAddress(sourceVerifierAddress).Hex(),
-		}
+		UpdateCommitteeQuorum(committee, sourceVerifierAddress, signer2.Signer, signer3.Signer)
 
 		// Phase 4: Signer3 verifies again → re-aggregation happens with new committee
 		t.Log("Phase 4: Signer3 verifies again (should trigger re-aggregation)")
