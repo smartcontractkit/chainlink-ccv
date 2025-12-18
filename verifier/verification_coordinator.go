@@ -4,8 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
-	"time"
+	"maps"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	cursecheckerimpl "github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
@@ -15,10 +14,6 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
-
-// -----------------------------------------------------------------------------
-// Per-chain state
-// -----------------------------------------------------------------------------
 
 type sourceState struct {
 	readerService *SourceReaderService
@@ -36,16 +31,10 @@ func (s *sourceState) Close() error {
 	return nil
 }
 
-// -----------------------------------------------------------------------------
-// Coordinator
-// -----------------------------------------------------------------------------
-
 type Coordinator struct {
 	services.StateMachine
 
-	cancel       context.CancelFunc
-	verifyingWg  sync.WaitGroup // Tracks in-flight verification tasks (must complete before closing error channels)
-	backgroundWg sync.WaitGroup // Tracks background goroutines
+	cancel context.CancelFunc
 
 	verifier       Verifier
 	storage        protocol.CCVNodeDataWriter
@@ -64,14 +53,12 @@ type Coordinator struct {
 	// Curse detector is created & owned by coordinator
 	curseDetector common.CurseCheckerService
 
-	// Storage batching (kept in coordinator as requested)
-	processor      *StorageWriterProcessor
-	storageBatcher *batcher.Batcher[protocol.VerifierNodeResult]
+	// 2nd step processor: task verifier
+	taskVerifierProcessor *TaskVerifierProcessor
+	// 3rd step processor: storage writer
+	storageWriterProcessor *StorageWriterProcessor
+	storageBatcher         *batcher.Batcher[protocol.VerifierNodeResult]
 }
-
-// -----------------------------------------------------------------------------
-// Options
-// -----------------------------------------------------------------------------
 
 type Option func(*Coordinator)
 
@@ -80,10 +67,6 @@ func WithCurseDetector(detector common.CurseCheckerService) Option {
 		vc.curseDetector = detector
 	}
 }
-
-// -----------------------------------------------------------------------------
-// Construction / config
-// -----------------------------------------------------------------------------
 
 func NewCoordinator(
 	lggr logger.Logger,
@@ -135,10 +118,6 @@ func (vc *Coordinator) validateConfig() error {
 
 	return nil
 }
-
-// -----------------------------------------------------------------------------
-// Start / Stop
-// -----------------------------------------------------------------------------
 
 func (vc *Coordinator) Start(_ context.Context) error {
 	return vc.StartOnce(vc.Name(), func() error {
@@ -240,27 +219,33 @@ func (vc *Coordinator) Start(_ context.Context) error {
 			vc.sourceStates[chainSelector] = state
 		}
 
-		processor, storageBatcher, err := NewStorageBatcherProcessor(
+		storageWriterProcessor, storageBatcher, err := NewStorageBatcherProcessor(
 			c,
 			vc.lggr,
+			vc.config.VerifierID,
 			vc.messageTracker,
 			vc.storage,
 			vc.config,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to create or/and start storage batcher processor: %w", err)
+			return fmt.Errorf("failed to create or/and start storage batcher storageWriterProcessor: %w", err)
 		}
-		vc.processor = processor
+		vc.storageWriterProcessor = storageWriterProcessor
 		vc.storageBatcher = storageBatcher
 
-		//   - per-chain ready tasks loops
-		for _, state := range vc.sourceStates {
-			vc.backgroundWg.Add(1)
-			go func(s *sourceState) {
-				defer vc.backgroundWg.Done()
-				vc.readyTasksLoop(c, s)
-			}(state)
+		taskVerifierProcessor, err := NewTaskVerifierProcessor(
+			c,
+			vc.lggr,
+			vc.config.VerifierID,
+			vc.verifier,
+			vc.monitoring,
+			vc.sourceStates,
+			storageBatcher,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to create or/and start task verifier service: %w", err)
 		}
+		vc.taskVerifierProcessor = taskVerifierProcessor
 
 		vc.lggr.Infow("Coordinator started successfully")
 		return nil
@@ -274,8 +259,9 @@ func (vc *Coordinator) Close() error {
 		// This will also trigger the batcher to flush remaining items.
 		vc.cancel()
 
-		// Wait for any in-flight verification tasks to complete.
-		vc.verifyingWg.Wait()
+		if err := vc.taskVerifierProcessor.Close(); err != nil {
+			vc.lggr.Errorw("Error closing task verifier processor", "error", err)
+		}
 
 		// Wait for storage batcher goroutine to finish flushing
 		if vc.storageBatcher != nil {
@@ -300,124 +286,13 @@ func (vc *Coordinator) Close() error {
 			}
 		}
 
-		// Wait for background goroutines
-		vc.backgroundWg.Wait()
+		if err := vc.storageBatcher.Close(); err != nil {
+			vc.lggr.Errorw("Error closing storage batcher", "error", err)
+		}
 
 		vc.lggr.Infow("Verifier coordinator stopped")
 		return nil
 	})
-}
-
-// -----------------------------------------------------------------------------
-// Loops
-// -----------------------------------------------------------------------------
-
-// readyTasksLoop consumes ready tasks from a chain's SRS2 and sends them for verification.
-func (vc *Coordinator) readyTasksLoop(ctx context.Context, state *sourceState) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case batch, ok := <-state.readyTasksCh:
-			if !ok {
-				vc.lggr.Infow("ReadyTasksChannel closed; exiting readyTasksLoop",
-					"chain", state.chainSelector)
-				return
-			}
-			if batch.Error != nil {
-				vc.lggr.Errorw("Error batch received from SourceReaderService",
-					"chain", state.chainSelector,
-					"error", batch.Error)
-				continue
-			}
-			vc.processReadyTasks(ctx, batch.Items)
-		}
-	}
-}
-
-// -----------------------------------------------------------------------------
-// Core verification flow
-// -----------------------------------------------------------------------------
-
-// processReadyTasks receives tasks that are already ready (finality + curses handled
-// by SRS2) and fans out verification per source chain.
-func (vc *Coordinator) processReadyTasks(ctx context.Context, tasks []VerificationTask) {
-	if len(tasks) == 0 {
-		return
-	}
-
-	vc.lggr.Debugw("Processing batch of finalized messages", "batchSize", len(tasks))
-
-	// Metrics: finality wait duration based on QueuedAt set in SRS2
-	for _, task := range tasks {
-		if !task.QueuedAt.IsZero() && vc.monitoring != nil {
-			finalityWaitDuration := time.Since(task.QueuedAt)
-			vc.monitoring.Metrics().
-				With("source_chain", task.Message.SourceChainSelector.String(), "verifier_id", vc.config.VerifierID).
-				RecordFinalityWaitDuration(ctx, finalityWaitDuration)
-		}
-	}
-
-	// Group tasks by source chain
-	tasksByChain := make(map[protocol.ChainSelector][]VerificationTask)
-	for _, task := range tasks {
-		tasksByChain[task.Message.SourceChainSelector] = append(tasksByChain[task.Message.SourceChainSelector], task)
-	}
-
-	// TODO: Can parallelize chains
-	// Process each chain's tasks as a batch
-	for chainSelector, chainTasks := range tasksByChain {
-		_, ok := vc.sourceStates[chainSelector]
-		if !ok {
-			vc.lggr.Errorw("No source state found for finalized messages",
-				"chainSelector", chainSelector,
-				"taskCount", len(chainTasks))
-			continue
-		}
-
-		vc.verifyingWg.Add(1)
-		go func(tasks []VerificationTask, chain protocol.ChainSelector) {
-			defer vc.verifyingWg.Done()
-
-			errorBatch := vc.verifier.VerifyMessages(ctx, tasks, vc.storageBatcher)
-			vc.handleVerificationErrors(ctx, errorBatch, chain, len(tasks))
-		}(chainTasks, chainSelector)
-	}
-}
-
-// handleVerificationErrors processes and logs errors from a verification batch.
-func (vc *Coordinator) handleVerificationErrors(ctx context.Context, errorBatch batcher.BatchResult[VerificationError], chainSelector protocol.ChainSelector, totalTasks int) {
-	if len(errorBatch.Items) <= 0 {
-		vc.lggr.Debugw("Verification batch completed successfully",
-			"chainSelector", chainSelector,
-			"totalTasks", totalTasks)
-		return
-	}
-
-	vc.lggr.Infow("Verification batch completed with errors",
-		"chainSelector", chainSelector,
-		"totalTasks", totalTasks,
-		"errorCount", len(errorBatch.Items))
-
-	// Log and record metrics for each error
-	for _, verificationError := range errorBatch.Items {
-		message := verificationError.Task.Message
-
-		// Record verification error metric
-		vc.monitoring.Metrics().
-			With("source_chain", message.SourceChainSelector.String(), "dest_chain", message.DestChainSelector.String(), "verifier_id", vc.config.VerifierID).
-			IncrementMessagesVerificationFailed(ctx)
-
-		vc.lggr.Errorw("Message verification failed",
-			"error", verificationError.Error,
-			"messageID", verificationError.Task.MessageID,
-			"nonce", message.SequenceNumber,
-			"sourceChain", message.SourceChainSelector,
-			"destChain", message.DestChainSelector,
-			"timestamp", verificationError.Timestamp,
-			"chainSelector", chainSelector,
-		)
-	}
 }
 
 // -----------------------------------------------------------------------------
@@ -479,6 +354,14 @@ func (vc *Coordinator) Name() string {
 func (vc *Coordinator) HealthReport() map[string]error {
 	report := make(map[string]error)
 	report[vc.Name()] = vc.Ready()
+	if vc.taskVerifierProcessor != nil {
+		tvp := vc.taskVerifierProcessor.HealthReport()
+		maps.Copy(report, tvp)
+	}
+	if vc.storageWriterProcessor != nil {
+		swp := vc.storageWriterProcessor.HealthReport()
+		maps.Copy(report, swp)
+	}
 	return report
 }
 
