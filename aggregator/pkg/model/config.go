@@ -92,6 +92,18 @@ type StorageConfig struct {
 // ServerConfig represents the configuration for the server.
 type ServerConfig struct {
 	Address string `toml:"address"`
+	// RequestTimeoutSeconds is the max duration for any GRPC request (0 = no timeout, GRPC default)
+	RequestTimeoutSeconds int `toml:"requestTimeoutSeconds"`
+	// ConnectionTimeoutSeconds is the timeout for connection establishment (0 = no timeout, GRPC default)
+	ConnectionTimeoutSeconds int `toml:"connectionTimeoutSeconds"`
+	// KeepaliveMinTimeSeconds is the minimum time between client pings (0 = 5 min, GRPC default)
+	KeepaliveMinTimeSeconds int `toml:"keepaliveMinTimeSeconds"`
+	// KeepaliveTimeSeconds is the time after which server pings idle clients (0 = 2 hours, GRPC default)
+	KeepaliveTimeSeconds int `toml:"keepaliveTimeSeconds"`
+	// KeepaliveTimeoutSeconds is the timeout for ping ack before closing connection (0 = 20s, GRPC default)
+	KeepaliveTimeoutSeconds int `toml:"keepaliveTimeoutSeconds"`
+	// MaxConnectionAgeSeconds forces connections to be closed after this duration (0 = infinite, GRPC default)
+	MaxConnectionAgeSeconds int `toml:"maxConnectionAgeSeconds"`
 }
 
 // APIClient represents a configured client for API access.
@@ -115,6 +127,8 @@ type AggregationConfig struct {
 	ChannelBufferSize int `toml:"channelBufferSize"`
 	// BackgroundWorkerCount controls the number of background workers processing aggregation requests
 	BackgroundWorkerCount int `toml:"backgroundWorkerCount"`
+	// OperationTimeoutSeconds is the timeout for each aggregation operation (0 = no timeout)
+	OperationTimeoutSeconds int `toml:"operationTimeoutSeconds"`
 }
 
 type OrphanRecoveryConfig struct {
@@ -125,6 +139,8 @@ type OrphanRecoveryConfig struct {
 	// MaxAgeHours is the maximum age of orphan records to consider for recovery.
 	// Records older than this are filtered out from recovery attempts.
 	MaxAgeHours int `toml:"maxAgeHours"`
+	// ScanTimeoutSeconds is the timeout for each orphan recovery scan (0 = no timeout)
+	ScanTimeoutSeconds int `toml:"scanTimeoutSeconds"`
 }
 
 type HealthCheckConfig struct {
@@ -416,6 +432,29 @@ func (c *AggregatorConfig) ValidateBatchConfig() error {
 	return nil
 }
 
+// ValidateServerConfig validates the server configuration.
+func (c *AggregatorConfig) ValidateServerConfig() error {
+	if c.Server.RequestTimeoutSeconds < 0 {
+		return errors.New("server.requestTimeoutSeconds cannot be negative")
+	}
+	if c.Server.ConnectionTimeoutSeconds < 0 {
+		return errors.New("server.connectionTimeoutSeconds cannot be negative")
+	}
+	if c.Server.KeepaliveMinTimeSeconds < 0 {
+		return errors.New("server.keepaliveMinTimeSeconds cannot be negative")
+	}
+	if c.Server.KeepaliveTimeSeconds < 0 {
+		return errors.New("server.keepaliveTimeSeconds cannot be negative")
+	}
+	if c.Server.KeepaliveTimeoutSeconds < 0 {
+		return errors.New("server.keepaliveTimeoutSeconds cannot be negative")
+	}
+	if c.Server.MaxConnectionAgeSeconds < 0 {
+		return errors.New("server.maxConnectionAgeSeconds cannot be negative")
+	}
+	return nil
+}
+
 // ValidateAggregationConfig validates the aggregation configuration.
 func (c *AggregatorConfig) ValidateAggregationConfig() error {
 	if c.Aggregation.ChannelBufferSize <= 0 {
@@ -429,6 +468,9 @@ func (c *AggregatorConfig) ValidateAggregationConfig() error {
 	}
 	if c.Aggregation.BackgroundWorkerCount > 100 {
 		return errors.New("aggregation.backgroundWorkerCount cannot exceed 100")
+	}
+	if c.Aggregation.OperationTimeoutSeconds < 0 {
+		return errors.New("aggregation.operationTimeoutSeconds cannot be negative")
 	}
 
 	return nil
@@ -448,6 +490,9 @@ func (c *AggregatorConfig) ValidateStorageConfig() error {
 
 // ValidateOrphanRecoveryConfig validates the orphan recovery configuration.
 func (c *AggregatorConfig) ValidateOrphanRecoveryConfig() error {
+	if c.OrphanRecovery.ScanTimeoutSeconds < 0 {
+		return errors.New("orphanRecovery.scanTimeoutSeconds cannot be negative")
+	}
 	if !c.OrphanRecovery.Enabled {
 		return nil
 	}
@@ -537,6 +582,11 @@ func (c *AggregatorConfig) ValidateCommitteeConfig() error {
 func (c *AggregatorConfig) Validate() error {
 	// Set defaults first
 	c.SetDefaults()
+
+	// Validate server configuration
+	if err := c.ValidateServerConfig(); err != nil {
+		return fmt.Errorf("server configuration error: %w", err)
+	}
 
 	// Validate committee configuration
 	if err := c.ValidateCommitteeConfig(); err != nil {

@@ -98,6 +98,13 @@ func (o *OrphanRecoverer) calculateCutoffFromNow() time.Time {
 // This method is designed to be called periodically to recover from cases where verifications
 // were submitted but aggregation failed due to transient errors.
 func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
+	if o.config.OrphanRecovery.ScanTimeoutSeconds > 0 {
+		scanTimeout := time.Duration(o.config.OrphanRecovery.ScanTimeoutSeconds) * time.Second
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, scanTimeout)
+		defer cancel()
+	}
+
 	cutoff := o.calculateCutoffFromNow()
 
 	stats, err := o.storage.OrphanedKeyStats(ctx, cutoff)
