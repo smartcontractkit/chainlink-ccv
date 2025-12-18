@@ -18,6 +18,7 @@ const (
 	MessageVersion                = 1    // Current message format version
 	MinSizeRequiredMsgFields      = 27   // Minimum size for required fields in Message
 	MinSizeRequiredMsgTokenFields = 34   // Minimum size for required fields in TokenTransfer
+	MaxCCVsPerMessage             = 255  // Maximum number of CCV addresses per message (limited by uint8)
 )
 
 var (
@@ -45,7 +46,12 @@ type TokenTransfer struct {
 }
 
 // Encode returns the canonical encoding of this token transfer.
-func (tt *TokenTransfer) Encode() []byte {
+// Returns an error if any length field does not match the actual data length.
+func (tt *TokenTransfer) Encode() ([]byte, error) {
+	if err := tt.validateLengthFields(); err != nil {
+		return nil, err
+	}
+
 	var buf bytes.Buffer
 
 	// Version (1 byte)
@@ -76,12 +82,31 @@ func (tt *TokenTransfer) Encode() []byte {
 
 	// Extra data (2 bytes length)
 	if err := binary.Write(&buf, binary.BigEndian, tt.ExtraDataLength); err != nil {
-		// Should never happen
-		return nil
+		return nil, fmt.Errorf("failed to write extra data length: %w", err)
 	}
 	_, _ = buf.Write(tt.ExtraData)
 
-	return buf.Bytes()
+	return buf.Bytes(), nil
+}
+
+// validateLengthFields checks that all length fields match their corresponding data slices.
+func (tt *TokenTransfer) validateLengthFields() error {
+	if int(tt.SourcePoolAddressLength) != len(tt.SourcePoolAddress) {
+		return fmt.Errorf("SourcePoolAddressLength mismatch: field=%d, actual=%d", tt.SourcePoolAddressLength, len(tt.SourcePoolAddress))
+	}
+	if int(tt.SourceTokenAddressLength) != len(tt.SourceTokenAddress) {
+		return fmt.Errorf("SourceTokenAddressLength mismatch: field=%d, actual=%d", tt.SourceTokenAddressLength, len(tt.SourceTokenAddress))
+	}
+	if int(tt.DestTokenAddressLength) != len(tt.DestTokenAddress) {
+		return fmt.Errorf("DestTokenAddressLength mismatch: field=%d, actual=%d", tt.DestTokenAddressLength, len(tt.DestTokenAddress))
+	}
+	if int(tt.TokenReceiverLength) != len(tt.TokenReceiver) {
+		return fmt.Errorf("TokenReceiverLength mismatch: field=%d, actual=%d", tt.TokenReceiverLength, len(tt.TokenReceiver))
+	}
+	if int(tt.ExtraDataLength) != len(tt.ExtraData) {
+		return fmt.Errorf("ExtraDataLength mismatch: field=%d, actual=%d", tt.ExtraDataLength, len(tt.ExtraData))
+	}
+	return nil
 }
 
 // DecodeTokenTransfer decodes a TokenTransfer from bytes.
@@ -218,7 +243,12 @@ type Message struct {
 
 // Encode returns the canonical encoding of this message.
 // Matches Solidity MessageV1Codec._encodeMessageV1() format.
+// Returns an error if any length field does not match the actual data length.
 func (m *Message) Encode() ([]byte, error) {
+	if err := m.validateLengthFields(); err != nil {
+		return nil, err
+	}
+
 	var buf bytes.Buffer
 
 	// Version (1 byte)
@@ -277,7 +307,11 @@ func (m *Message) Encode() ([]byte, error) {
 	// Token transfer
 	var tokenTransferBytes []byte
 	if m.TokenTransfer != nil {
-		tokenTransferBytes = m.TokenTransfer.Encode()
+		var err error
+		tokenTransferBytes, err = m.TokenTransfer.Encode()
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode token transfer: %w", err)
+		}
 	}
 	if err := binary.Write(&buf, binary.BigEndian, uint16(len(tokenTransferBytes))); err != nil { //nolint:gosec // G115: Length validated in NewMessage
 		return nil, err
@@ -291,6 +325,29 @@ func (m *Message) Encode() ([]byte, error) {
 	_, _ = buf.Write(m.Data)
 
 	return buf.Bytes(), nil
+}
+
+// validateLengthFields checks that all length fields match their corresponding data slices.
+func (m *Message) validateLengthFields() error {
+	if int(m.OnRampAddressLength) != len(m.OnRampAddress) {
+		return fmt.Errorf("OnRampAddressLength mismatch: field=%d, actual=%d", m.OnRampAddressLength, len(m.OnRampAddress))
+	}
+	if int(m.OffRampAddressLength) != len(m.OffRampAddress) {
+		return fmt.Errorf("OffRampAddressLength mismatch: field=%d, actual=%d", m.OffRampAddressLength, len(m.OffRampAddress))
+	}
+	if int(m.SenderLength) != len(m.Sender) {
+		return fmt.Errorf("SenderLength mismatch: field=%d, actual=%d", m.SenderLength, len(m.Sender))
+	}
+	if int(m.ReceiverLength) != len(m.Receiver) {
+		return fmt.Errorf("ReceiverLength mismatch: field=%d, actual=%d", m.ReceiverLength, len(m.Receiver))
+	}
+	if int(m.DestBlobLength) != len(m.DestBlob) {
+		return fmt.Errorf("DestBlobLength mismatch: field=%d, actual=%d", m.DestBlobLength, len(m.DestBlob))
+	}
+	if int(m.DataLength) != len(m.Data) {
+		return fmt.Errorf("DataLength mismatch: field=%d, actual=%d", m.DataLength, len(m.Data))
+	}
+	return nil
 }
 
 // DecodeMessage decodes a Message from bytes.
@@ -629,7 +686,10 @@ func NewMessage(
 	// Calculate token transfer length if present
 	var tokenTransferLength uint16
 	if tokenTransfer != nil {
-		tokenTransferBytes := tokenTransfer.Encode()
+		tokenTransferBytes, err := tokenTransfer.Encode()
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode token transfer: %w", err)
+		}
 		tokenTransferLength = uint16(len(tokenTransferBytes)) //nolint:gosec // G115: TokenTransfer.Encode() produces bounded output
 	}
 
@@ -662,33 +722,39 @@ func NewMessage(
 
 // ComputeCCVAndExecutorHash calculates the keccak256 hash of CCV addresses and executor address.
 // This matches the Solidity MessageV1Codec._computeCCVAndExecutorHash() function.
-// Format: addressLength(1 byte) || ccv1(20 bytes) || ccv2(20 bytes) || ... || executor(20 bytes).
+// Format: addressLength(1 byte) || ccv1 || ccv2 || ... || executor.
+//
+// The address length is derived dynamically from the executor address, allowing for
+// chain-agnostic operation (e.g., 20 bytes for EVM, different lengths for other VMs).
+// All CCV addresses must have the same length as the executor address.
 func ComputeCCVAndExecutorHash(ccvAddresses []UnknownAddress, executorAddress UnknownAddress) (Bytes32, error) {
-	// Validate that all addresses are 20 bytes (EVM addresses)
-	const evmAddressLength = 20
+	if len(ccvAddresses) > MaxCCVsPerMessage {
+		return Bytes32{}, fmt.Errorf("too many CCV addresses: %d (max %d)", len(ccvAddresses), MaxCCVsPerMessage)
+	}
 
-	if len(executorAddress) != evmAddressLength {
-		return Bytes32{}, fmt.Errorf("executor address must be %d bytes, got %d", evmAddressLength, len(executorAddress))
+	addressLength := len(executorAddress)
+	if addressLength == 0 {
+		return Bytes32{}, fmt.Errorf("executor address cannot be empty")
 	}
 
 	for i, ccvAddr := range ccvAddresses {
-		if len(ccvAddr) != evmAddressLength {
-			return Bytes32{}, fmt.Errorf("CCV address at index %d must be %d bytes, got %d", i, evmAddressLength, len(ccvAddr))
+		if len(ccvAddr) != addressLength {
+			return Bytes32{}, fmt.Errorf("CCV address at index %d has different length: got %d, expected %d", i, len(ccvAddr), addressLength)
 		}
 	}
 
-	// Calculate total length: 1 byte (address length) + N*20 bytes (CCVs) + 20 bytes (executor)
-	encodedLength := 1 + len(ccvAddresses)*evmAddressLength + evmAddressLength
+	// Calculate total length: 1 byte (address length) + N*addressLength bytes (CCVs) + addressLength bytes (executor)
+	encodedLength := 1 + len(ccvAddresses)*addressLength + addressLength
 	encoded := make([]byte, encodedLength)
 
-	// First byte is the address length (20)
-	encoded[0] = evmAddressLength
+	// First byte is the address length
+	encoded[0] = byte(addressLength)
 
 	// Copy CCV addresses
 	offset := 1
 	for _, ccvAddr := range ccvAddresses {
-		copy(encoded[offset:offset+evmAddressLength], ccvAddr.Bytes())
-		offset += evmAddressLength
+		copy(encoded[offset:offset+addressLength], ccvAddr.Bytes())
+		offset += addressLength
 	}
 
 	// Copy executor address

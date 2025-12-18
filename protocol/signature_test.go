@@ -251,3 +251,54 @@ func TestSingleSignatureRoundTrip(t *testing.T) {
 	require.Equal(t, sig.S, decodedS)
 	require.Equal(t, sig.Signer, decodedSigner)
 }
+
+// TestLeftPad32_InputTooLong verifies that leftPad32 returns an error when input exceeds 32 bytes.
+func TestLeftPad32_InputTooLong(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       []byte
+		expectError bool
+	}{
+		{
+			name:        "32_bytes_valid",
+			input:       make([]byte, 32),
+			expectError: false,
+		},
+		{
+			name:        "1_byte_valid",
+			input:       []byte{0x01},
+			expectError: false,
+		},
+		{
+			name:        "empty_valid",
+			input:       []byte{},
+			expectError: false,
+		},
+		{
+			name:        "33_bytes_invalid",
+			input:       make([]byte, 33),
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := leftPad32(tt.input)
+			if tt.expectError {
+				require.Error(t, err)
+				require.Nil(t, result)
+				require.Contains(t, err.Error(), "slice too long")
+			} else {
+				require.NoError(t, err)
+				require.Len(t, result, 32)
+				// Verify the input is right-aligned in the output
+				expectedStart := 32 - len(tt.input)
+				require.Equal(t, tt.input, result[expectedStart:])
+				// Verify left padding is zeros
+				for i := 0; i < expectedStart; i++ {
+					require.Equal(t, byte(0), result[i])
+				}
+			}
+		})
+	}
+}

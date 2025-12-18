@@ -85,30 +85,35 @@ func TestComputeCCVAndExecutorHash(t *testing.T) {
 		assert.Equal(t, expectedHash[:], hash[:])
 	})
 
-	t.Run("invalid executor address length", func(t *testing.T) {
+	t.Run("CCV address length mismatch with executor", func(t *testing.T) {
+		// CCV address is 20 bytes but executor is only 2 bytes - they must match
 		ccvAddr, err := hex.DecodeString("1111111111111111111111111111111111111111")
 		require.NoError(t, err)
-		invalidExecutorAddr := []byte{0x22, 0x22} // Only 2 bytes
+		shortExecutorAddr := []byte{0x22, 0x22} // Only 2 bytes
 
 		ccvAddresses := []UnknownAddress{UnknownAddress(ccvAddr)}
-		executorAddress := UnknownAddress(invalidExecutorAddr)
+		executorAddress := UnknownAddress(shortExecutorAddr)
 
 		_, err = ComputeCCVAndExecutorHash(ccvAddresses, executorAddress)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "executor address must be 20 bytes")
+		// CCV address at index 0 has 20 bytes but executor has 2 bytes
+		assert.Contains(t, err.Error(), "CCV address at index 0 has different length")
 	})
 
-	t.Run("invalid CCV address length", func(t *testing.T) {
-		invalidCCVAddr := []byte{0x11, 0x11} // Only 2 bytes
+	t.Run("mixed CCV address lengths", func(t *testing.T) {
+		// First CCV is 20 bytes (matches executor), second CCV is only 2 bytes
+		validCCVAddr, err := hex.DecodeString("1111111111111111111111111111111111111111")
+		require.NoError(t, err)
+		invalidCCVAddr := []byte{0x33, 0x33} // Only 2 bytes
 		executorAddr, err := hex.DecodeString("2222222222222222222222222222222222222222")
 		require.NoError(t, err)
 
-		ccvAddresses := []UnknownAddress{UnknownAddress(invalidCCVAddr)}
+		ccvAddresses := []UnknownAddress{UnknownAddress(validCCVAddr), UnknownAddress(invalidCCVAddr)}
 		executorAddress := UnknownAddress(executorAddr)
 
 		_, err = ComputeCCVAndExecutorHash(ccvAddresses, executorAddress)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "CCV address at index 0 must be 20 bytes")
+		assert.Contains(t, err.Error(), "CCV address at index 1 has different length")
 	})
 }
 

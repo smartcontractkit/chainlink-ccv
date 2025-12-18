@@ -242,3 +242,164 @@ func TestMessageCCVHashValidation(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, ccvHash, derivedHash.String())
 }
+
+// TestMessage_Encode_LengthMismatch tests that Encode returns errors when length fields don't match data.
+func TestMessage_Encode_LengthMismatch(t *testing.T) {
+	tests := []struct {
+		name        string
+		msg         *Message
+		expectedErr string
+	}{
+		{
+			name: "OnRampAddressLength_mismatch",
+			msg: &Message{
+				Version:             1,
+				OnRampAddressLength: 20,              // claims 20 bytes
+				OnRampAddress:       []byte("short"), // only 5 bytes
+			},
+			expectedErr: "OnRampAddressLength mismatch",
+		},
+		{
+			name: "OffRampAddressLength_mismatch",
+			msg: &Message{
+				Version:              1,
+				OffRampAddressLength: 20,              // claims 20 bytes
+				OffRampAddress:       []byte("short"), // only 5 bytes
+			},
+			expectedErr: "OffRampAddressLength mismatch",
+		},
+		{
+			name: "SenderLength_mismatch",
+			msg: &Message{
+				Version:      1,
+				SenderLength: 20,           // claims 20 bytes
+				Sender:       []byte("ab"), // only 2 bytes
+			},
+			expectedErr: "SenderLength mismatch",
+		},
+		{
+			name: "ReceiverLength_mismatch",
+			msg: &Message{
+				Version:        1,
+				ReceiverLength: 20,           // claims 20 bytes
+				Receiver:       []byte("ab"), // only 2 bytes
+			},
+			expectedErr: "ReceiverLength mismatch",
+		},
+		{
+			name: "DestBlobLength_mismatch",
+			msg: &Message{
+				Version:        1,
+				DestBlobLength: 100,             // claims 100 bytes
+				DestBlob:       []byte("small"), // only 5 bytes
+			},
+			expectedErr: "DestBlobLength mismatch",
+		},
+		{
+			name: "DataLength_mismatch",
+			msg: &Message{
+				Version:    1,
+				DataLength: 50,           // claims 50 bytes
+				Data:       []byte("hi"), // only 2 bytes
+			},
+			expectedErr: "DataLength mismatch",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tt.msg.Encode()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.expectedErr)
+		})
+	}
+}
+
+// TestComputeCCVAndExecutorHash_VariableLengthAddresses tests chain-agnostic address handling.
+func TestComputeCCVAndExecutorHash_VariableLengthAddresses(t *testing.T) {
+	tests := []struct {
+		name          string
+		ccvAddresses  []UnknownAddress
+		executorAddr  UnknownAddress
+		expectedErr   string
+		expectSuccess bool
+	}{
+		{
+			name:          "32_byte_addresses_valid",
+			ccvAddresses:  []UnknownAddress{make([]byte, 32), make([]byte, 32)},
+			executorAddr:  make([]byte, 32),
+			expectSuccess: true,
+		},
+		{
+			name:          "single_byte_addresses_valid",
+			ccvAddresses:  []UnknownAddress{make([]byte, 1)},
+			executorAddr:  make([]byte, 1),
+			expectSuccess: true,
+		},
+		{
+			name:          "empty_ccv_addresses_valid",
+			ccvAddresses:  []UnknownAddress{},
+			executorAddr:  make([]byte, 20),
+			expectSuccess: true,
+		},
+		{
+			name:          "mixed_length_addresses_invalid",
+			ccvAddresses:  []UnknownAddress{make([]byte, 20), make([]byte, 32)},
+			executorAddr:  make([]byte, 20),
+			expectedErr:   "CCV address at index 1 has different length",
+			expectSuccess: false,
+		},
+		{
+			name:          "ccv_different_from_executor_invalid",
+			ccvAddresses:  []UnknownAddress{make([]byte, 32)},
+			executorAddr:  make([]byte, 20),
+			expectedErr:   "CCV address at index 0 has different length",
+			expectSuccess: false,
+		},
+		{
+			name:          "empty_executor_address_invalid",
+			ccvAddresses:  []UnknownAddress{},
+			executorAddr:  []byte{},
+			expectedErr:   "executor address cannot be empty",
+			expectSuccess: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hash, err := ComputeCCVAndExecutorHash(tt.ccvAddresses, tt.executorAddr)
+			if tt.expectSuccess {
+				require.NoError(t, err)
+				assert.NotEqual(t, Bytes32{}, hash)
+			} else {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectedErr)
+			}
+		})
+	}
+}
+
+// TestComputeCCVAndExecutorHash_TooManyCCVs tests the MaxCCVsPerMessage limit.
+func TestComputeCCVAndExecutorHash_TooManyCCVs(t *testing.T) {
+	// Create 256 CCV addresses (one more than max)
+	ccvAddresses := make([]UnknownAddress, MaxCCVsPerMessage+1)
+	for i := range ccvAddresses {
+		ccvAddresses[i] = make([]byte, 20)
+	}
+	executorAddr := make([]byte, 20)
+
+	_, err := ComputeCCVAndExecutorHash(ccvAddresses, executorAddr)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "too many CCV addresses")
+	assert.Contains(t, err.Error(), "256")
+	assert.Contains(t, err.Error(), "max 255")
+
+	// Verify that exactly MaxCCVsPerMessage works
+	ccvAddressesMax := make([]UnknownAddress, MaxCCVsPerMessage)
+	for i := range ccvAddressesMax {
+		ccvAddressesMax[i] = make([]byte, 20)
+	}
+	hash, err := ComputeCCVAndExecutorHash(ccvAddressesMax, executorAddr)
+	require.NoError(t, err)
+	assert.NotEqual(t, Bytes32{}, hash)
+}

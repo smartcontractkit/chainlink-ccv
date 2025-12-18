@@ -57,8 +57,16 @@ func NormalizeToV27(sig65 []byte) (r32, s32 [32]byte, err error) {
 	}
 
 	// Serialize back to fixed 32-byte big-endian
-	copy(r32[:], leftPad32(r.Bytes()))
-	copy(s32[:], leftPad32(s.Bytes()))
+	rPadded, err := leftPad32(r.Bytes())
+	if err != nil {
+		return r32, s32, fmt.Errorf("failed to pad r: %w", err)
+	}
+	sPadded, err := leftPad32(s.Bytes())
+	if err != nil {
+		return r32, s32, fmt.Errorf("failed to pad s: %w", err)
+	}
+	copy(r32[:], rPadded)
+	copy(s32[:], sPadded)
 	return r32, s32, nil
 }
 
@@ -108,11 +116,15 @@ func SignV27(hash []byte, priv *ecdsa.PrivateKey) (r32, s32 [32]byte, addr commo
 	return normalizeAndVerify(sig, hash)
 }
 
-// Helper: left-pad a big-endian slice to 32 bytes.
-func leftPad32(b []byte) []byte {
+// leftPad32 left-pads a big-endian slice to exactly 32 bytes.
+// Returns an error if the input exceeds 32 bytes.
+func leftPad32(b []byte) ([]byte, error) {
+	if len(b) > 32 {
+		return nil, fmt.Errorf("slice too long for 32-byte padding: got %d bytes", len(b))
+	}
 	out := make([]byte, 32)
 	copy(out[32-len(b):], b)
-	return out
+	return out, nil
 }
 
 // SortSignaturesBySigner sorts signatures by signer address in ascending order.
