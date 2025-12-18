@@ -9,25 +9,29 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/handlers"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 var _ protocol.HealthReporter = (*OrphanRecoverer)(nil)
 
-const maxConsecutivePanics = 3
-
 type OrphanRecoverer struct {
-	config     *model.AggregatorConfig
-	aggregator handlers.AggregationTriggerer
-	storage    common.CommitVerificationStore
-	logger     logger.SugaredLogger
-	metrics    common.AggregatorMetricLabeler
+	config        *model.AggregatorConfig
+	aggregator    handlers.AggregationTriggerer
+	storage       common.CommitVerificationStore
+	logger        logger.SugaredLogger
+	metricLabeler common.AggregatorMetricLabeler
 
-	mu                sync.RWMutex
-	done              chan struct{}
-	lastError         error
-	consecutivePanics int
+	mu        sync.RWMutex
+	done      chan struct{}
+	lastError error
+}
+
+func (o *OrphanRecoverer) metrics(ctx context.Context) common.AggregatorMetricLabeler {
+	metrics := scope.AugmentMetrics(ctx, o.metricLabeler)
+	metrics = metrics.With("component", "orphan_recoverer")
+	return metrics
 }
 
 func (o *OrphanRecoverer) Start(ctx context.Context) error {
@@ -48,12 +52,11 @@ func (o *OrphanRecoverer) Start(ctx context.Context) error {
 		now := time.Now()
 		o.logger.Info("Initiating orphan recovery scan")
 
-		var didPanic bool
 		err := func() (err error) {
 			defer func() {
 				if r := recover(); r != nil {
 					o.logger.Errorw("Panic during orphan recovery scan", "panic", r)
-					didPanic = true
+					o.metrics(ctx).IncrementPanics(ctx)
 					err = fmt.Errorf("panic: %v", r)
 				}
 			}()
@@ -62,15 +65,6 @@ func (o *OrphanRecoverer) Start(ctx context.Context) error {
 
 		o.mu.Lock()
 		o.lastError = err
-		if didPanic {
-			o.consecutivePanics++
-			if o.consecutivePanics >= maxConsecutivePanics {
-				o.logger.Errorw("Orphan recoverer unhealthy: too many consecutive panics",
-					"consecutivePanics", o.consecutivePanics)
-			}
-		} else {
-			o.consecutivePanics = 0
-		}
 		o.mu.Unlock()
 
 		if err != nil {
@@ -79,7 +73,7 @@ func (o *OrphanRecoverer) Start(ctx context.Context) error {
 			o.logger.Info("Orphan recovery scan completed successfully")
 		}
 		duration := time.Since(now)
-		o.metrics.RecordOrphanRecoveryDuration(ctx, duration)
+		o.metrics(ctx).RecordOrphanRecoveryDuration(ctx, duration)
 		o.logger.Infow("Orphan recovery scan finished",
 			"duration", duration)
 		if duration < time.Duration(orphanRecoveryConfig.IntervalSeconds)*time.Second {
@@ -109,10 +103,10 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 	stats, err := o.storage.OrphanedKeyStats(ctx, cutoff)
 	if err != nil {
 		o.logger.Errorw("Failed to get orphan stats", "error", err)
-		o.metrics.IncrementOrphanRecoveryErrors(ctx)
+		o.metrics(ctx).IncrementOrphanRecoveryErrors(ctx)
 	} else {
-		o.metrics.SetOrphanBacklog(ctx, stats.NonExpiredCount)
-		o.metrics.SetOrphanExpiredBacklog(ctx, stats.ExpiredCount)
+		o.metrics(ctx).SetOrphanBacklog(ctx, stats.NonExpiredCount)
+		o.metrics(ctx).SetOrphanExpiredBacklog(ctx, stats.ExpiredCount)
 		o.logger.Infow("Orphan stats",
 			"nonExpired", stats.NonExpiredCount,
 			"expired", stats.ExpiredCount,
@@ -140,7 +134,7 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 					"aggregationKey", orphanRecord.AggregationKey,
 					"error", err)
 				errorCount++
-				o.metrics.IncrementOrphanRecoveryErrors(ctx)
+				o.metrics(ctx).IncrementOrphanRecoveryErrors(ctx)
 			} else {
 				o.logger.Debugw("Successfully processed orphaned record",
 					"messageID", fmt.Sprintf("%x", orphanRecord.MessageID),
@@ -158,7 +152,7 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 
 			if err != nil {
 				o.logger.Errorw("Error during orphan scanning", "error", err)
-				o.metrics.IncrementOrphanRecoveryErrors(ctx)
+				o.metrics(ctx).IncrementOrphanRecoveryErrors(ctx)
 				return fmt.Errorf("orphan recovery failed: %w", err)
 			}
 
@@ -197,10 +191,6 @@ func (o *OrphanRecoverer) Ready() error {
 	default:
 	}
 
-	if o.consecutivePanics >= maxConsecutivePanics {
-		return fmt.Errorf("orphan recoverer unhealthy: %d consecutive panics", o.consecutivePanics)
-	}
-
 	return nil
 }
 
@@ -214,10 +204,10 @@ func (o *OrphanRecoverer) Name() string {
 
 func NewOrphanRecoverer(store common.CommitVerificationStore, aggregator handlers.AggregationTriggerer, config *model.AggregatorConfig, l logger.SugaredLogger, metrics common.AggregatorMetricLabeler) *OrphanRecoverer {
 	return &OrphanRecoverer{
-		config:     config,
-		aggregator: aggregator,
-		storage:    store,
-		logger:     l.With("component", "OrphanRecoverer"),
-		metrics:    metrics,
+		config:        config,
+		aggregator:    aggregator,
+		storage:       store,
+		logger:        l.With("component", "OrphanRecoverer"),
+		metricLabeler: metrics,
 	}
 }

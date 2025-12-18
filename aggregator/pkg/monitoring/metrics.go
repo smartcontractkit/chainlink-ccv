@@ -33,6 +33,9 @@ type AggregatorMetrics struct {
 	orphanExpiredBacklog   metric.Int64Gauge
 	orphanRecoveryDuration metric.Float64Histogram
 	orphanRecoveryErrors   metric.Int64Counter
+
+	// Worker health metrics
+	panics metric.Int64Counter
 }
 
 func MetricViews() []sdkmetric.View {
@@ -177,6 +180,14 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 		return nil, fmt.Errorf("failed to register orphan recovery errors counter: %w", err)
 	}
 
+	am.panics, err = beholder.GetMeter().Int64Counter(
+		"aggregator_panics",
+		metric.WithDescription("Total number of panics recovered by background workers"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register panics counter: %w", err)
+	}
+
 	return am, nil
 }
 
@@ -269,4 +280,9 @@ func (c *AggregatorMetricLabeler) RecordOrphanRecoveryDuration(ctx context.Conte
 func (c *AggregatorMetricLabeler) IncrementOrphanRecoveryErrors(ctx context.Context) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
 	c.am.orphanRecoveryErrors.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) IncrementPanics(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.am.panics.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }

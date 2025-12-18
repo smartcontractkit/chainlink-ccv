@@ -224,6 +224,39 @@ func (_c *MockAggregatorMetricLabeler_IncrementOrphanRecoveryErrors_Call) RunAnd
 	return _c
 }
 
+// IncrementPanics provides a mock function with given fields: ctx
+func (_m *MockAggregatorMetricLabeler) IncrementPanics(ctx context.Context) {
+	_m.Called(ctx)
+}
+
+// MockAggregatorMetricLabeler_IncrementPanics_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementPanics'
+type MockAggregatorMetricLabeler_IncrementPanics_Call struct {
+	*mock.Call
+}
+
+// IncrementPanics is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockAggregatorMetricLabeler_Expecter) IncrementPanics(ctx interface{}) *MockAggregatorMetricLabeler_IncrementPanics_Call {
+	return &MockAggregatorMetricLabeler_IncrementPanics_Call{Call: _e.mock.On("IncrementPanics", ctx)}
+}
+
+func (_c *MockAggregatorMetricLabeler_IncrementPanics_Call) Run(run func(ctx context.Context)) *MockAggregatorMetricLabeler_IncrementPanics_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_IncrementPanics_Call) Return() *MockAggregatorMetricLabeler_IncrementPanics_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_IncrementPanics_Call) RunAndReturn(run func(context.Context)) *MockAggregatorMetricLabeler_IncrementPanics_Call {
+	_c.Run(run)
+	return _c
+}
+
 // IncrementPendingAggregationsChannelBuffer provides a mock function with given fields: ctx, count
 func (_m *MockAggregatorMetricLabeler) IncrementPendingAggregationsChannelBuffer(ctx context.Context, count int) {
 	_m.Called(ctx, count)

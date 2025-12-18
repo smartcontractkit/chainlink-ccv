@@ -3,7 +3,6 @@ package aggregation
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/sourcegraph/conc/pool"
@@ -16,8 +15,6 @@ import (
 )
 
 var _ protocol.HealthReporter = (*CommitReportAggregator)(nil)
-
-const maxConsecutivePanics = 3
 
 type QuorumValidator interface {
 	// CheckQuorum checks if the aggregated report meets the quorum requirements.
@@ -37,9 +34,6 @@ type CommitReportAggregator struct {
 	l                     logger.SugaredLogger
 	monitoring            common.AggregatorMonitoring
 	done                  chan struct{}
-
-	mu                sync.RWMutex
-	consecutivePanics int
 }
 
 type aggregationRequest struct {
@@ -55,7 +49,7 @@ func (c *CommitReportAggregator) CheckAggregation(messageID model.MessageID, agg
 	}
 	select {
 	case c.aggregationKeyChan <- request:
-		c.monitoring.Metrics().IncrementPendingAggregationsChannelBuffer(context.Background(), 1)
+		c.metrics(context.Background()).IncrementPendingAggregationsChannelBuffer(context.Background(), 1)
 	default:
 		return common.ErrAggregationChannelFull
 	}
@@ -67,7 +61,9 @@ func (c *CommitReportAggregator) logger(ctx context.Context) logger.SugaredLogge
 }
 
 func (c *CommitReportAggregator) metrics(ctx context.Context) common.AggregatorMetricLabeler {
-	return scope.AugmentMetrics(ctx, c.monitoring.Metrics())
+	metrics := scope.AugmentMetrics(ctx, c.monitoring.Metrics())
+	metrics = metrics.With("component", "aggregator_worker")
+	return metrics
 }
 
 // shouldSkipAggregationDueToExistingQuorum checks if we should skip creating a new aggregation
@@ -166,35 +162,21 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 			select {
 			case request := <-c.aggregationKeyChan:
 				p.Go(func(poolCtx context.Context) error {
-					c.monitoring.Metrics().DecrementPendingAggregationsChannelBuffer(poolCtx, 1)
+					c.metrics(poolCtx).DecrementPendingAggregationsChannelBuffer(poolCtx, 1)
 					poolCtx = scope.WithAggregationKey(poolCtx, request.AggregationKey)
 					poolCtx = scope.WithMessageID(poolCtx, request.MessageID)
 
-					var didPanic bool
 					err := func() (err error) {
 						defer func() {
 							if r := recover(); r != nil {
 								c.logger(poolCtx).Errorw("Panic during aggregation", "panic", r)
-								didPanic = true
+								c.metrics(poolCtx).IncrementPanics(poolCtx)
 								err = fmt.Errorf("panic: %v", r)
 							}
 						}()
 						_, err = c.checkAggregationAndSubmitComplete(poolCtx, request)
 						return err
 					}()
-
-					c.mu.Lock()
-					if didPanic {
-						c.consecutivePanics++
-						if c.consecutivePanics >= maxConsecutivePanics {
-							c.logger(poolCtx).Errorw("Aggregator unhealthy: too many consecutive panics",
-								"consecutivePanics", c.consecutivePanics)
-						}
-					} else {
-						c.consecutivePanics = 0
-					}
-					c.mu.Unlock()
-
 					if err != nil {
 						c.logger(poolCtx).Errorw("Error checking aggregation", "error", err)
 					}
@@ -212,14 +194,6 @@ func (c *CommitReportAggregator) Ready() error {
 	case <-c.done:
 		return fmt.Errorf("aggregation worker stopped")
 	default:
-	}
-
-	c.mu.RLock()
-	consecutivePanics := c.consecutivePanics
-	c.mu.RUnlock()
-
-	if consecutivePanics >= maxConsecutivePanics {
-		return fmt.Errorf("aggregator unhealthy: %d consecutive panics", consecutivePanics)
 	}
 
 	lggr := c.logger(context.Background())

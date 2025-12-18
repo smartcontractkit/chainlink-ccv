@@ -3,7 +3,6 @@ package aggregation
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
@@ -261,6 +260,7 @@ func TestCheckAggregation_EnqueueAndFull(t *testing.T) {
 		monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
 		metric := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
+		metric.EXPECT().With("component", "aggregator_worker").Return(metric).Maybe()
 		metric.EXPECT().IncrementPendingAggregationsChannelBuffer(mock.Anything, 1)
 
 		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 2, BackgroundWorkerCount: 1}}
@@ -338,6 +338,7 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 		monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
 		metric := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
+		metric.EXPECT().With("component", "aggregator_worker").Return(metric).Maybe()
 		metric.EXPECT().IncrementCompletedAggregations(ctx)
 		metric.EXPECT().RecordTimeToAggregation(ctx, mock.Anything)
 
@@ -402,7 +403,7 @@ func TestHealthCheck_ReportsStoppedAfterContextCancellation(t *testing.T) {
 	assert.Contains(t, err.Error(), "stopped")
 }
 
-func TestHealthCheck_RecoversPanicAndKeepsRunning(t *testing.T) {
+func TestHealthCheck_RecoversPanicEmitsMetricAndKeepsRunning(t *testing.T) {
 	store := aggregation_mocks.NewMockCommitVerificationStore(t)
 	sink := aggregation_mocks.NewMockSink(t)
 	monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
@@ -410,6 +411,8 @@ func TestHealthCheck_RecoversPanicAndKeepsRunning(t *testing.T) {
 	monitoring.EXPECT().Metrics().Return(metric).Maybe()
 	metric.EXPECT().IncrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
 	metric.EXPECT().DecrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
+	metric.EXPECT().With(mock.Anything, mock.Anything).Return(metric).Maybe()
+	metric.EXPECT().IncrementPanics(mock.Anything).Times(1)
 
 	panicCount := 0
 	store.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, mock.Anything, mock.Anything).
@@ -436,52 +439,14 @@ func TestHealthCheck_RecoversPanicAndKeepsRunning(t *testing.T) {
 	_ = a.CheckAggregation([]byte{1, 2, 3}, "test-key")
 	time.Sleep(100 * time.Millisecond)
 
-	// Still healthy after 1 panic (threshold is 3)
+	// Still healthy after panic - we now emit metrics instead of tracking consecutive panics
 	require.NoError(t, a.Ready())
 
-	// Second request succeeds, resetting the counter
+	// Second request succeeds
 	_ = a.CheckAggregation([]byte{4, 5, 6}, "test-key-2")
 	time.Sleep(100 * time.Millisecond)
 
 	require.NoError(t, a.Ready())
-}
-
-func TestHealthCheck_UnhealthyAfterConsecutivePanics(t *testing.T) {
-	store := aggregation_mocks.NewMockCommitVerificationStore(t)
-	sink := aggregation_mocks.NewMockSink(t)
-	monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
-	metric := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
-	monitoring.EXPECT().Metrics().Return(metric).Maybe()
-	metric.EXPECT().IncrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
-	metric.EXPECT().DecrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
-
-	panicCount := 0
-	store.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, mock.Anything, mock.Anything).
-		Run(func(_ context.Context, _ model.MessageID, _ model.AggregationKey) {
-			panicCount++
-			panic("simulated consecutive panic")
-		}).Maybe()
-
-	config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 1}}
-	a := NewCommitReportAggregator(store, nil, sink, aggregation_mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	a.StartBackground(ctx)
-
-	require.NoError(t, a.Ready())
-
-	// Send 3 requests that will all panic
-	for i := 0; i < 3; i++ {
-		_ = a.CheckAggregation([]byte{byte(i)}, fmt.Sprintf("key-%d", i))
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	// Should report unhealthy after 3 consecutive panics
-	err := a.Ready()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "consecutive panics")
-	require.GreaterOrEqual(t, panicCount, 3, "should have panicked at least 3 times")
 }
 
 // helpers.
