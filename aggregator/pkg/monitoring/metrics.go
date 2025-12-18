@@ -27,6 +27,15 @@ type AggregatorMetrics struct {
 	// Storage metrics
 	storageLatency metric.Float64Histogram
 	storageError   metric.Int64Counter
+
+	// Orphan recovery metrics
+	orphanBacklog          metric.Int64Gauge
+	orphanExpiredBacklog   metric.Int64Gauge
+	orphanRecoveryDuration metric.Float64Histogram
+	orphanRecoveryErrors   metric.Int64Counter
+
+	// Worker health metrics
+	panics metric.Int64Counter
 }
 
 func MetricViews() []sdkmetric.View {
@@ -53,6 +62,12 @@ func MetricViews() []sdkmetric.View {
 			sdkmetric.Instrument{Name: "aggregator_storage_duration_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
 				Boundaries: []float64{0, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+			}},
+		),
+		sdkmetric.NewView(
+			sdkmetric.Instrument{Name: "aggregator_orphan_recovery_duration_seconds"},
+			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+				Boundaries: []float64{0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300},
 			}},
 		),
 	}
@@ -133,6 +148,46 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 		return nil, fmt.Errorf("failed to register time to aggregation histogram: %w", err)
 	}
 
+	am.orphanBacklog, err = beholder.GetMeter().Int64Gauge(
+		"aggregator_orphan_backlog",
+		metric.WithDescription("Current count of non-expired orphan records (recovery queue)"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register orphan backlog gauge: %w", err)
+	}
+
+	am.orphanExpiredBacklog, err = beholder.GetMeter().Int64Gauge(
+		"aggregator_orphan_expired_backlog",
+		metric.WithDescription("Current count of expired orphan records (pending cleanup)"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register orphan expired backlog gauge: %w", err)
+	}
+
+	am.orphanRecoveryDuration, err = beholder.GetMeter().Float64Histogram(
+		"aggregator_orphan_recovery_duration_seconds",
+		metric.WithDescription("Duration of orphan recovery scans in seconds"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register orphan recovery duration histogram: %w", err)
+	}
+
+	am.orphanRecoveryErrors, err = beholder.GetMeter().Int64Counter(
+		"aggregator_orphan_recovery_errors",
+		metric.WithDescription("Total number of errors during orphan recovery"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register orphan recovery errors counter: %w", err)
+	}
+
+	am.panics, err = beholder.GetMeter().Int64Counter(
+		"aggregator_panics",
+		metric.WithDescription("Total number of panics recovered by background workers"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register panics counter: %w", err)
+	}
+
 	return am, nil
 }
 
@@ -205,4 +260,29 @@ func (c *AggregatorMetricLabeler) IncrementStorageError(ctx context.Context) {
 func (c *AggregatorMetricLabeler) RecordTimeToAggregation(ctx context.Context, duration time.Duration) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
 	c.am.timeToAggregation.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) SetOrphanBacklog(ctx context.Context, count int) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.am.orphanBacklog.Record(ctx, int64(count), metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) SetOrphanExpiredBacklog(ctx context.Context, count int) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.am.orphanExpiredBacklog.Record(ctx, int64(count), metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) RecordOrphanRecoveryDuration(ctx context.Context, duration time.Duration) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.am.orphanRecoveryDuration.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) IncrementOrphanRecoveryErrors(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.am.orphanRecoveryErrors.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) IncrementPanics(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.am.panics.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }

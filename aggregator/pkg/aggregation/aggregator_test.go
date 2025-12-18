@@ -260,6 +260,7 @@ func TestCheckAggregation_EnqueueAndFull(t *testing.T) {
 		monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
 		metric := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
+		metric.EXPECT().With("component", "aggregator_worker").Return(metric).Maybe()
 		metric.EXPECT().IncrementPendingAggregationsChannelBuffer(mock.Anything, 1)
 
 		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 2, BackgroundWorkerCount: 1}}
@@ -337,6 +338,7 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 		monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
 		metric := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
+		metric.EXPECT().With("component", "aggregator_worker").Return(metric).Maybe()
 		metric.EXPECT().IncrementCompletedAggregations(ctx)
 		metric.EXPECT().RecordTimeToAggregation(ctx, mock.Anything)
 
@@ -376,6 +378,75 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 		_, err := a.checkAggregationAndSubmitComplete(ctx, request)
 		require.NoError(t, err)
 	})
+}
+
+func TestHealthCheck_ReportsStoppedAfterContextCancellation(t *testing.T) {
+	store := aggregation_mocks.NewMockCommitVerificationStore(t)
+	sink := aggregation_mocks.NewMockSink(t)
+	monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
+	metric := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
+	monitoring.EXPECT().Metrics().Return(metric).Maybe()
+
+	config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 1}}
+	a := NewCommitReportAggregator(store, nil, sink, aggregation_mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	a.StartBackground(ctx)
+
+	require.NoError(t, a.Ready())
+
+	cancel()
+	time.Sleep(50 * time.Millisecond)
+
+	err := a.Ready()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "stopped")
+}
+
+func TestHealthCheck_RecoversPanicEmitsMetricAndKeepsRunning(t *testing.T) {
+	store := aggregation_mocks.NewMockCommitVerificationStore(t)
+	sink := aggregation_mocks.NewMockSink(t)
+	monitoring := aggregation_mocks.NewMockAggregatorMonitoring(t)
+	metric := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
+	monitoring.EXPECT().Metrics().Return(metric).Maybe()
+	metric.EXPECT().IncrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
+	metric.EXPECT().DecrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
+	metric.EXPECT().With(mock.Anything, mock.Anything).Return(metric).Maybe()
+	metric.EXPECT().IncrementPanics(mock.Anything).Times(1)
+
+	panicCount := 0
+	store.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ context.Context, _ model.MessageID, _ model.AggregationKey) {
+			panicCount++
+			if panicCount == 1 {
+				panic("simulated panic in storage")
+			}
+		}).Return([]*model.CommitVerificationRecord{}, nil).Maybe()
+
+	quorum := aggregation_mocks.NewMockQuorumValidator(t)
+	quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(false, nil).Maybe()
+
+	config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 1}}
+	a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a.StartBackground(ctx)
+
+	require.NoError(t, a.Ready())
+
+	// First request panics
+	_ = a.CheckAggregation([]byte{1, 2, 3}, "test-key")
+	time.Sleep(100 * time.Millisecond)
+
+	// Still healthy after panic - we now emit metrics instead of tracking consecutive panics
+	require.NoError(t, a.Ready())
+
+	// Second request succeeds
+	_ = a.CheckAggregation([]byte{4, 5, 6}, "test-key-2")
+	time.Sleep(100 * time.Millisecond)
+
+	require.NoError(t, a.Ready())
 }
 
 // helpers.

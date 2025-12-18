@@ -3,28 +3,47 @@ package aggregator
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/handlers"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+var _ protocol.HealthReporter = (*OrphanRecoverer)(nil)
+
 type OrphanRecoverer struct {
-	config     *model.AggregatorConfig
-	aggregator handlers.AggregationTriggerer
-	storage    common.CommitVerificationStore
-	logger     logger.SugaredLogger
+	config        *model.AggregatorConfig
+	aggregator    handlers.AggregationTriggerer
+	storage       common.CommitVerificationStore
+	logger        logger.SugaredLogger
+	metricLabeler common.AggregatorMetricLabeler
+
+	mu        sync.RWMutex
+	done      chan struct{}
+	lastError error
+}
+
+func (o *OrphanRecoverer) metrics(ctx context.Context) common.AggregatorMetricLabeler {
+	metrics := scope.AugmentMetrics(ctx, o.metricLabeler)
+	metrics = metrics.With("component", "orphan_recoverer")
+	return metrics
 }
 
 func (o *OrphanRecoverer) Start(ctx context.Context) error {
-	orphanRecoveryConfig := o.config.OrphanRecovery
+	o.mu.Lock()
+	o.done = make(chan struct{})
+	o.mu.Unlock()
 
-	if !orphanRecoveryConfig.Enabled {
-		o.logger.Info("Orphan recovery is disabled in configuration")
-		return nil
-	}
+	defer func() {
+		close(o.done)
+	}()
+
+	orphanRecoveryConfig := o.config.OrphanRecovery
 
 	o.logger.Infow("Starting orphan recovery process",
 		"interval", orphanRecoveryConfig.IntervalSeconds)
@@ -32,13 +51,29 @@ func (o *OrphanRecoverer) Start(ctx context.Context) error {
 	for {
 		now := time.Now()
 		o.logger.Info("Initiating orphan recovery scan")
-		err := o.RecoverOrphans(ctx)
+
+		err := func() (err error) {
+			defer func() {
+				if r := recover(); r != nil {
+					o.logger.Errorw("Panic during orphan recovery scan", "panic", r)
+					o.metrics(ctx).IncrementPanics(ctx)
+					err = fmt.Errorf("panic: %v", r)
+				}
+			}()
+			return o.RecoverOrphans(ctx)
+		}()
+
+		o.mu.Lock()
+		o.lastError = err
+		o.mu.Unlock()
+
 		if err != nil {
 			o.logger.Errorw("Orphan recovery scan failed", "error", err)
 		} else {
 			o.logger.Info("Orphan recovery scan completed successfully")
 		}
 		duration := time.Since(now)
+		o.metrics(ctx).RecordOrphanRecoveryDuration(ctx, duration)
 		o.logger.Infow("Orphan recovery scan finished",
 			"duration", duration)
 		if duration < time.Duration(orphanRecoveryConfig.IntervalSeconds)*time.Second {
@@ -55,12 +90,30 @@ func (o *OrphanRecoverer) Start(ctx context.Context) error {
 	}
 }
 
+func (o *OrphanRecoverer) calculateCutoffFromNow() time.Time {
+	return time.Now().Add(-time.Duration(o.config.OrphanRecovery.MaxAgeHours) * time.Hour)
+}
+
 // RecoverOrphans scans for orphaned verification records and attempts to re-aggregate them.
 // This method is designed to be called periodically to recover from cases where verifications
 // were submitted but aggregation failed due to transient errors.
 func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
-	// Get channels for orphaned message/committee pairs
-	orphansChan, errorChan := o.storage.ListOrphanedKeys(ctx)
+	cutoff := o.calculateCutoffFromNow()
+
+	stats, err := o.storage.OrphanedKeyStats(ctx, cutoff)
+	if err != nil {
+		o.logger.Errorw("Failed to get orphan stats", "error", err)
+		o.metrics(ctx).IncrementOrphanRecoveryErrors(ctx)
+	} else {
+		o.metrics(ctx).SetOrphanBacklog(ctx, stats.NonExpiredCount)
+		o.metrics(ctx).SetOrphanExpiredBacklog(ctx, stats.ExpiredCount)
+		o.logger.Infow("Orphan stats",
+			"nonExpired", stats.NonExpiredCount,
+			"expired", stats.ExpiredCount,
+			"total", stats.TotalCount)
+	}
+
+	orphansChan, errorChan := o.storage.ListOrphanedKeys(ctx, cutoff)
 
 	var processedCount, errorCount int
 
@@ -68,14 +121,12 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 		select {
 		case orphanRecord, ok := <-orphansChan:
 			if !ok {
-				// Channel closed, we're done
 				o.logger.Infow("Orphan recovery completed",
 					"processed", processedCount,
 					"errors", errorCount)
 				return nil
 			}
 
-			// Process this orphaned record
 			err := o.processOrphanedRecord(orphanRecord)
 			if err != nil {
 				o.logger.Errorw("Failed to process orphaned record",
@@ -83,6 +134,7 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 					"aggregationKey", orphanRecord.AggregationKey,
 					"error", err)
 				errorCount++
+				o.metrics(ctx).IncrementOrphanRecoveryErrors(ctx)
 			} else {
 				o.logger.Debugw("Successfully processed orphaned record",
 					"messageID", fmt.Sprintf("%x", orphanRecord.MessageID),
@@ -92,7 +144,6 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 
 		case err, ok := <-errorChan:
 			if !ok {
-				// Error channel closed
 				o.logger.Infow("Orphan recovery completed",
 					"processed", processedCount,
 					"errors", errorCount)
@@ -101,6 +152,7 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 
 			if err != nil {
 				o.logger.Errorw("Error during orphan scanning", "error", err)
+				o.metrics(ctx).IncrementOrphanRecoveryErrors(ctx)
 				return fmt.Errorf("orphan recovery failed: %w", err)
 			}
 
@@ -112,7 +164,7 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 }
 
 // processOrphanedRecord attempts to re-aggregate an orphaned verification record.
-func (o *OrphanRecoverer) processOrphanedRecord(record model.OrphanedKey) error { // Trigger aggregation check - this will evaluate if we have enough verifications for quorum
+func (o *OrphanRecoverer) processOrphanedRecord(record model.OrphanedKey) error {
 	err := o.aggregator.CheckAggregation(record.MessageID, record.AggregationKey)
 	if err != nil {
 		return fmt.Errorf("failed to trigger aggregation check: %w", err)
@@ -125,11 +177,37 @@ func (o *OrphanRecoverer) processOrphanedRecord(record model.OrphanedKey) error 
 	return nil
 }
 
-func NewOrphanRecoverer(store common.CommitVerificationStore, aggregator handlers.AggregationTriggerer, config *model.AggregatorConfig, l logger.SugaredLogger) *OrphanRecoverer {
+func (o *OrphanRecoverer) Ready() error {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+
+	if o.done == nil {
+		return fmt.Errorf("orphan recoverer not started")
+	}
+
+	select {
+	case <-o.done:
+		return fmt.Errorf("orphan recoverer stopped")
+	default:
+	}
+
+	return nil
+}
+
+func (o *OrphanRecoverer) HealthReport() map[string]error {
+	return map[string]error{o.Name(): o.Ready()}
+}
+
+func (o *OrphanRecoverer) Name() string {
+	return "orphan_recoverer"
+}
+
+func NewOrphanRecoverer(store common.CommitVerificationStore, aggregator handlers.AggregationTriggerer, config *model.AggregatorConfig, l logger.SugaredLogger, metrics common.AggregatorMetricLabeler) *OrphanRecoverer {
 	return &OrphanRecoverer{
-		config:     config,
-		aggregator: aggregator,
-		storage:    store,
-		logger:     l.With("component", "OrphanRecoverer"),
+		config:        config,
+		aggregator:    aggregator,
+		storage:       store,
+		logger:        l.With("component", "OrphanRecoverer"),
+		metricLabeler: metrics,
 	}
 }

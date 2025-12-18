@@ -128,12 +128,16 @@ func (s *Server) Start(lis net.Listener) error {
 		return nil
 	}, func(error) {})
 
-	recovererCtx, recovererCancel := context.WithCancel(context.Background())
-	g.Add(func() error {
-		return s.recoverer.Start(recovererCtx)
-	}, func(error) {
-		recovererCancel()
-	})
+	if s.config.OrphanRecovery.Enabled {
+		recovererCtx, recovererCancel := context.WithCancel(context.Background())
+		g.Add(func() error {
+			return s.recoverer.Start(recovererCtx)
+		}, func(error) {
+			recovererCancel()
+		})
+	} else {
+		s.l.Info("Orphan recovery is disabled in configuration")
+	}
 
 	healthManagerCtx, healthManagerCancel := context.WithCancel(context.Background())
 	g.Add(func() error {
@@ -315,12 +319,15 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		),
 	)
 
-	recoverer := NewOrphanRecoverer(store, agg, config, l)
+	recoverer := NewOrphanRecoverer(store, agg, config, l, aggMonitoring.Metrics())
 
 	healthManager := health.NewManager()
 	healthManager.Register(store)
 	healthManager.Register(rateLimitingMiddleware)
 	healthManager.Register(agg)
+	if config.OrphanRecovery.Enabled {
+		healthManager.Register(recoverer)
+	}
 
 	var httpHealthServer *health.HTTPHealthServer
 	if config.HealthCheck.Enabled {

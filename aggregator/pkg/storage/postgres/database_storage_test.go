@@ -226,6 +226,11 @@ func createTestCommitVerificationRecordWithNewKey(t *testing.T, msgWithCCV *comm
 }
 
 func setupTestDB(t *testing.T) (*DatabaseStorage, func()) {
+	storage, _, cleanup := setupTestDBWithDatabase(t)
+	return storage, cleanup
+}
+
+func setupTestDBWithDatabase(t *testing.T) (*DatabaseStorage, *sqlx.DB, func()) {
 	ctx := context.Background()
 
 	postgresContainer, err := postgres.Run(ctx,
@@ -260,7 +265,7 @@ func setupTestDB(t *testing.T) (*DatabaseStorage, func()) {
 		}
 	}
 
-	return storage, cleanup
+	return storage, ds, cleanup
 }
 
 func TestSaveCommitVerification_HappyPath(t *testing.T) {
@@ -705,7 +710,7 @@ func TestListOrphanedKeys(t *testing.T) {
 	err = storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
-	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx)
+	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, time.Time{})
 
 	orphanedKeys := []model.OrphanedKey{}
 	for keys := range orphanKeysCh {
@@ -730,13 +735,67 @@ func TestListOrphanedKeys_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	messageIDCh, errCh := storage.ListOrphanedKeys(ctx)
+	messageIDCh, errCh := storage.ListOrphanedKeys(ctx, time.Time{})
 
 	for range messageIDCh {
 	}
 
 	err := <-errCh
 	require.Error(t, err)
+}
+
+func TestListOrphanedKeys_FiltersRecordsOlderThanCutoff(t *testing.T) {
+	storage, ds, cleanup := setupTestDBWithDatabase(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	signer := newTestSigner(t)
+
+	type recordData struct {
+		messageID      []byte
+		aggregationKey string
+	}
+	orphans := make([]recordData, 3)
+
+	for i := 0; i < 3; i++ {
+		message := createTestProtocolMessage()
+		message.SequenceNumber = protocol.SequenceNumber(i + 1)
+		msgWithCCV := createTestMessageWithCCV(t, message, signer)
+		messageID := getMessageIDFromProto(t, msgWithCCV)
+		aggregationKey := hex.EncodeToString(messageID)
+		record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
+		err := storage.SaveCommitVerification(ctx, record, aggregationKey)
+		require.NoError(t, err)
+
+		orphans[i] = recordData{
+			messageID:      messageID,
+			aggregationKey: aggregationKey,
+		}
+	}
+
+	twoHoursAgo := time.Now().Add(-2 * time.Hour)
+	for i := 0; i < 2; i++ {
+		_, err := ds.ExecContext(ctx,
+			"UPDATE commit_verification_records SET created_at = $1 WHERE message_id = $2",
+			twoHoursAgo,
+			hex.EncodeToString(orphans[i].messageID),
+		)
+		require.NoError(t, err)
+	}
+
+	cutoff := time.Now().Add(-1 * time.Hour)
+	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, cutoff)
+
+	orphanedKeys := []model.OrphanedKey{}
+	for key := range orphanKeysCh {
+		orphanedKeys = append(orphanedKeys, key)
+	}
+	err := <-errCh
+	require.NoError(t, err)
+
+	require.Len(t, orphanedKeys, 1, "Should only return orphan newer than cutoff")
+	require.Equal(t, orphans[2].aggregationKey, orphanedKeys[0].AggregationKey,
+		"Should return only the recent orphan")
 }
 
 func TestBatchOperations_MultipleSigners(t *testing.T) {

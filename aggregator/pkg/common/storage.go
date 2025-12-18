@@ -3,6 +3,7 @@ package common
 
 import (
 	"context"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 )
@@ -15,9 +16,11 @@ type CommitVerificationStore interface {
 	GetCommitVerification(ctx context.Context, id model.CommitVerificationRecordIdentifier) (*model.CommitVerificationRecord, error)
 	// ListCommitVerificationByAggregationKey retrieves all commit verification records for a specific message ID and aggregation Key.
 	ListCommitVerificationByAggregationKey(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey) ([]*model.CommitVerificationRecord, error)
-	// ListOrphanedKeys finds verification records that have not been aggregated yet.
+	// ListOrphanedKeys finds verification records that have not been aggregated yet and are newer than the cutoff.
 	// Returns channels for streaming results: one for message pairs, one for errors.
-	ListOrphanedKeys(ctx context.Context) (<-chan model.OrphanedKey, <-chan error)
+	ListOrphanedKeys(ctx context.Context, newerThan time.Time) (<-chan model.OrphanedKey, <-chan error)
+	// OrphanedKeyStats returns counts of orphaned records split by expired/non-expired status.
+	OrphanedKeyStats(ctx context.Context, cutoff time.Time) (*model.OrphanStats, error)
 }
 
 type CommitVerificationAggregatedStore interface {

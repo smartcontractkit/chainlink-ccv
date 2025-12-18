@@ -554,8 +554,8 @@ func (d *DatabaseStorage) SubmitAggregatedReport(ctx context.Context, report *mo
 	return nil
 }
 
-func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context) (<-chan model.OrphanedKey, <-chan error) {
-	orphanedKeyCh := make(chan model.OrphanedKey, 10)
+func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context, newerThan time.Time) (<-chan model.OrphanedKey, <-chan error) {
+	orphanedKeyCh := make(chan model.OrphanedKey)
 	errCh := make(chan error, 1)
 
 	go func() {
@@ -566,10 +566,10 @@ func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context) (<-chan model.Or
 		SELECT DISTINCT cvr.message_id, cvr.aggregation_key
 		FROM commit_verification_records cvr
 		LEFT JOIN commit_aggregated_reports car ON cvr.message_id = car.message_id
-		WHERE car.message_id IS NULL
+		WHERE cvr.created_at >= $1 AND car.message_id IS NULL
 		ORDER BY cvr.message_id, cvr.aggregation_key`
 
-		rows, err := d.ds.QueryContext(ctx, stmt)
+		rows, err := d.ds.QueryContext(ctx, stmt, newerThan)
 		if err != nil {
 			errCh <- fmt.Errorf("failed to query orphaned message pairs: %w", err)
 			return
@@ -619,4 +619,37 @@ func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context) (<-chan model.Or
 	}()
 
 	return orphanedKeyCh, errCh
+}
+
+func (d *DatabaseStorage) OrphanedKeyStats(ctx context.Context, cutoff time.Time) (*model.OrphanStats, error) {
+	stmt := `
+	SELECT 
+		COUNT(*) FILTER (WHERE created_at < $1) as expired_count,
+		COUNT(*) FILTER (WHERE created_at >= $1) as non_expired_count,
+		COUNT(*) as total_count
+	FROM (
+		SELECT DISTINCT ON (cvr.message_id, cvr.aggregation_key) cvr.message_id, cvr.aggregation_key, cvr.created_at
+		FROM commit_verification_records cvr
+		LEFT JOIN commit_aggregated_reports car ON cvr.message_id = car.message_id
+		WHERE car.message_id IS NULL
+	) orphans`
+
+	rows, err := d.ds.QueryContext(ctx, stmt, cutoff)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query orphan stats: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var stats model.OrphanStats
+	if rows.Next() {
+		if err := rows.Scan(&stats.ExpiredCount, &stats.NonExpiredCount, &stats.TotalCount); err != nil {
+			return nil, fmt.Errorf("failed to scan orphan stats: %w", err)
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error reading orphan stats: %w", err)
+	}
+
+	return &stats, nil
 }

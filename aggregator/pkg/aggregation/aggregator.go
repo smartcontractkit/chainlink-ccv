@@ -49,7 +49,7 @@ func (c *CommitReportAggregator) CheckAggregation(messageID model.MessageID, agg
 	}
 	select {
 	case c.aggregationKeyChan <- request:
-		c.monitoring.Metrics().IncrementPendingAggregationsChannelBuffer(context.Background(), 1)
+		c.metrics(context.Background()).IncrementPendingAggregationsChannelBuffer(context.Background(), 1)
 	default:
 		return common.ErrAggregationChannelFull
 	}
@@ -61,7 +61,9 @@ func (c *CommitReportAggregator) logger(ctx context.Context) logger.SugaredLogge
 }
 
 func (c *CommitReportAggregator) metrics(ctx context.Context) common.AggregatorMetricLabeler {
-	return scope.AugmentMetrics(ctx, c.monitoring.Metrics())
+	metrics := scope.AugmentMetrics(ctx, c.monitoring.Metrics())
+	metrics = metrics.With("component", "aggregator_worker")
+	return metrics
 }
 
 // shouldSkipAggregationDueToExistingQuorum checks if we should skip creating a new aggregation
@@ -155,18 +157,32 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 	c.done = make(chan struct{})
 	p := pool.New().WithMaxGoroutines(c.backgroundWorkerCount).WithContext(ctx)
 	go func() {
+		defer close(c.done)
 		for {
 			select {
 			case request := <-c.aggregationKeyChan:
 				p.Go(func(poolCtx context.Context) error {
-					c.monitoring.Metrics().DecrementPendingAggregationsChannelBuffer(poolCtx, 1)
+					c.metrics(poolCtx).DecrementPendingAggregationsChannelBuffer(poolCtx, 1)
 					poolCtx = scope.WithAggregationKey(poolCtx, request.AggregationKey)
 					poolCtx = scope.WithMessageID(poolCtx, request.MessageID)
-					_, err := c.checkAggregationAndSubmitComplete(poolCtx, request)
+
+					err := func() (err error) {
+						defer func() {
+							if r := recover(); r != nil {
+								c.logger(poolCtx).Errorw("Panic during aggregation", "panic", r)
+								c.metrics(poolCtx).IncrementPanics(poolCtx)
+								err = fmt.Errorf("panic: %v", r)
+							}
+						}()
+						_, err = c.checkAggregationAndSubmitComplete(poolCtx, request)
+						return err
+					}()
+					if err != nil {
+						c.logger(poolCtx).Errorw("Error checking aggregation", "error", err)
+					}
 					return err
 				})
 			case <-ctx.Done():
-				close(c.done)
 				return
 			}
 		}

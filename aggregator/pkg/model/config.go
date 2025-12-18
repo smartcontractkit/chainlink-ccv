@@ -122,6 +122,9 @@ type OrphanRecoveryConfig struct {
 	Enabled bool `toml:"enabled"`
 	// IntervalSeconds controls how often orphan recovery runs (in seconds)
 	IntervalSeconds int `toml:"intervalSeconds"`
+	// MaxAgeHours is the maximum age of orphan records to consider for recovery.
+	// Records older than this are filtered out from recovery attempts.
+	MaxAgeHours int `toml:"maxAgeHours"`
 }
 
 type HealthCheckConfig struct {
@@ -353,9 +356,9 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.OrphanRecovery.IntervalSeconds == 0 {
 		c.OrphanRecovery.IntervalSeconds = 300 // 5 minutes
 	}
-	// Default orphan recovery enabled unless explicitly disabled
-	if !c.OrphanRecovery.Enabled && c.OrphanRecovery.IntervalSeconds > 0 {
-		c.OrphanRecovery.Enabled = true
+	// Default max age: 7 days
+	if c.OrphanRecovery.MaxAgeHours == 0 {
+		c.OrphanRecovery.MaxAgeHours = 168 // 7 days
 	}
 	// Health check defaults
 	if c.HealthCheck.Port == "" {
@@ -430,6 +433,20 @@ func (c *AggregatorConfig) ValidateStorageConfig() error {
 		return errors.New("storage.pageSize cannot exceed 1000")
 	}
 
+	return nil
+}
+
+// ValidateOrphanRecoveryConfig validates the orphan recovery configuration.
+func (c *AggregatorConfig) ValidateOrphanRecoveryConfig() error {
+	if !c.OrphanRecovery.Enabled {
+		return nil
+	}
+	if c.OrphanRecovery.MaxAgeHours < 1 {
+		return errors.New("orphanRecovery.maxAgeHours must be at least 1")
+	}
+	if c.OrphanRecovery.IntervalSeconds < 5 {
+		return errors.New("orphanRecovery.intervalSeconds must be at least 5")
+	}
 	return nil
 }
 
@@ -534,6 +551,11 @@ func (c *AggregatorConfig) Validate() error {
 	// Validate storage configuration
 	if err := c.ValidateStorageConfig(); err != nil {
 		return fmt.Errorf("storage configuration error: %w", err)
+	}
+
+	// Validate orphan recovery configuration
+	if err := c.ValidateOrphanRecoveryConfig(); err != nil {
+		return fmt.Errorf("orphan recovery configuration error: %w", err)
 	}
 
 	return nil

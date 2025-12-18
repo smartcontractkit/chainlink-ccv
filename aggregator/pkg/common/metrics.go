@@ -37,4 +37,15 @@ type AggregatorMetricLabeler interface {
 	IncrementStorageError(ctx context.Context)
 	// RecordTimeToAggregation records the time taken to complete an aggregation.
 	RecordTimeToAggregation(ctx context.Context, duration time.Duration)
+	// SetOrphanBacklog sets the gauge for non-expired orphan records (recovery queue).
+	SetOrphanBacklog(ctx context.Context, count int)
+	// SetOrphanExpiredBacklog sets the gauge for expired orphan records (pending cleanup).
+	SetOrphanExpiredBacklog(ctx context.Context, count int)
+	// RecordOrphanRecoveryDuration records the duration of an orphan recovery scan.
+	// The histogram count can be used to determine the number of runs.
+	RecordOrphanRecoveryDuration(ctx context.Context, duration time.Duration)
+	// IncrementOrphanRecoveryErrors increments the counter for errors during orphan recovery.
+	IncrementOrphanRecoveryErrors(ctx context.Context)
+	// IncrementPanics increments the counter for panics recovered by background workers.
+	IncrementPanics(ctx context.Context)
 }
