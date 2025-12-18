@@ -36,14 +36,27 @@ type IndexerAdapterClient struct {
 }
 
 func (ic *IndexerAdapterClient) ReadVerifierResults(ctx context.Context, queryData v1.VerifierResultsInput) (v1.VerifierResultResponse, error) {
-	resp, err := ic.client.VerifierResult(ctx, &iclient.VerifierResultParams{
-		SourceChainSelectors: &queryData.SourceChainSelectors,
-		DestChainSelectors:   &queryData.DestChainSelectors,
-		Start:                &queryData.Start,
-		End:                  &queryData.End,
-		Limit:                &queryData.Limit,
-		Offset:               &queryData.Offset,
-	})
+	var params iclient.VerifierResultParams
+	if len(queryData.SourceChainSelectors) > 0 {
+		params.SourceChainSelectors = &queryData.SourceChainSelectors
+	}
+	if len(queryData.DestChainSelectors) > 0 {
+		params.DestChainSelectors = &queryData.DestChainSelectors
+	}
+	if queryData.Start != 0 {
+		params.Start = &queryData.Start
+	}
+	if queryData.End != 0 {
+		params.End = &queryData.End
+	}
+	if queryData.Limit != 0 {
+		params.Limit = &queryData.Limit
+	}
+	if queryData.Offset != 0 {
+		params.Offset = &queryData.Offset
+	}
+
+	resp, err := ic.client.VerifierResult(ctx, &params)
 	if err != nil {
 		ic.lggr.Errorw("Indexer ReadVerifierResults request error", "error", err)
 		return v1.VerifierResultResponse{}, err
