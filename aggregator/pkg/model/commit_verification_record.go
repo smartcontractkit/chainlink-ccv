@@ -14,6 +14,16 @@ type MessageID = []byte
 // AggregationKey is a type alias that represent the key on which the aggregation is performed.
 type AggregationKey = string
 
+// SignableHash represents a 32-byte hash used for signature verification.
+type SignableHash = [32]byte
+
+// SignatureValidationResult contains the result of validating a signature.
+type SignatureValidationResult struct {
+	Signer       *IdentifierSigner
+	QuorumConfig *QuorumConfig
+	Hash         SignableHash
+}
+
 type OrphanedKey struct {
 	MessageID      MessageID
 	AggregationKey AggregationKey

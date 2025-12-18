@@ -66,7 +66,9 @@ func TestBatchWriteCommitCCVNodeDataHandler_BatchSizeValidation(t *testing.T) {
 			signer := &model.IdentifierSigner{Address: []byte{0xAA}}
 
 			if tc.expectCode == codes.OK {
-				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(signer, nil, nil).Maybe()
+				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(&model.SignatureValidationResult{
+					Signer: signer,
+				}, nil).Maybe()
 				sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil).Maybe()
 				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything).Return(nil).Maybe()
 				store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -109,7 +111,9 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 		Address: []byte{0xAA},
 	}
 	sig := aggregation_mocks.NewMockSignatureValidator(t)
-	sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(signer, nil, nil)
+	sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(&model.SignatureValidationResult{
+		Signer: signer,
+	}, nil)
 	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil)
 
 	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything).Return(nil).Maybe()

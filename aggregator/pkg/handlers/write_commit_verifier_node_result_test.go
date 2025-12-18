@@ -132,9 +132,11 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 
 			// Signature validator expectation
 			if tc.sigErr != nil {
-				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(nil, nil, tc.sigErr)
+				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(nil, tc.sigErr)
 			} else {
-				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(tc.signer, nil, nil).Maybe()
+				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(&model.SignatureValidationResult{
+					Signer: tc.signer,
+				}, nil).Maybe()
 			}
 
 			// Save expectations with counter
