@@ -416,6 +416,26 @@ paths:
           schema:
             format: int64
             type: integer
+        - explode: false
+          in: query
+          name: end
+          schema:
+            format: int64
+            type: integer
+        - explode: false
+          in: query
+          name: limit
+          schema:
+            format: int64
+            minimum: 0
+            type: integer
+        - explode: false
+          in: query
+          name: offset
+          schema:
+            format: int64
+            minimum: 0
+            type: integer
       responses:
         "204":
           description: No Content
