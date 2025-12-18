@@ -50,12 +50,17 @@ func TestValidateWriteRequest_Errors(t *testing.T) {
 
 func TestValidateReadRequest(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
-		req := &committeepb.ReadCommitteeVerifierNodeResultRequest{MessageId: make([]byte, 32)}
+		req := &committeepb.ReadCommitteeVerifierNodeResultRequest{MessageId: make([]byte, 32), Address: []byte{0xAA}}
 		require.NoError(t, validateReadRequest(req))
 	})
 
-	t.Run("bad_length", func(t *testing.T) {
-		req := &committeepb.ReadCommitteeVerifierNodeResultRequest{MessageId: []byte{0x1}}
+	t.Run("bad_message_id_length", func(t *testing.T) {
+		req := &committeepb.ReadCommitteeVerifierNodeResultRequest{MessageId: []byte{0x1}, Address: []byte{0xAA}}
+		require.Error(t, validateReadRequest(req))
+	})
+
+	t.Run("missing_address", func(t *testing.T) {
+		req := &committeepb.ReadCommitteeVerifierNodeResultRequest{MessageId: make([]byte, 32)}
 		require.Error(t, validateReadRequest(req))
 	})
 }

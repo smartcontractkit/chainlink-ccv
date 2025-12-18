@@ -103,7 +103,7 @@ func (c *CommitReportAggregator) shouldSkipAggregationDueToExistingQuorum(ctx co
 
 func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, request aggregationRequest) (*model.CommitAggregatedReport, error) {
 	lggr := c.logger(ctx)
-	lggr.Infof("Checking aggregation for message", request.MessageID, request.AggregationKey)
+	lggr.Info("Checking aggregation for message")
 
 	shouldSkip, err := c.shouldSkipAggregationDueToExistingQuorum(ctx, request.MessageID)
 	if err != nil {
