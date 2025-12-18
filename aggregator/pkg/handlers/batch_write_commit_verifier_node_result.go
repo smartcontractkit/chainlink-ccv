@@ -16,7 +16,8 @@ import (
 
 // BatchWriteCommitVerifierNodeResultHandler handles requests to write commit verification records.
 type BatchWriteCommitVerifierNodeResultHandler struct {
-	handler *WriteCommitVerifierNodeResultHandler
+	handler                                     *WriteCommitVerifierNodeResultHandler
+	maxCommitVerifierNodeResultRequestsPerBatch int
 }
 
 func (h *BatchWriteCommitVerifierNodeResultHandler) logger(ctx context.Context) logger.SugaredLogger {
@@ -26,6 +27,15 @@ func (h *BatchWriteCommitVerifierNodeResultHandler) logger(ctx context.Context) 
 // Handle processes the write request and saves the commit verification record.
 func (h *BatchWriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *committeepb.BatchWriteCommitteeVerifierNodeResultRequest) (*committeepb.BatchWriteCommitteeVerifierNodeResultResponse, error) {
 	requests := req.GetRequests()
+
+	// Validate batch size limits
+	if len(requests) == 0 {
+		return nil, grpcstatus.Errorf(codes.InvalidArgument, "requests cannot be empty")
+	}
+	if len(requests) > h.maxCommitVerifierNodeResultRequestsPerBatch {
+		return nil, grpcstatus.Errorf(codes.InvalidArgument, "too many requests: %d, maximum allowed: %d", len(requests), h.maxCommitVerifierNodeResultRequestsPerBatch)
+	}
+
 	responses := make([]*committeepb.WriteCommitteeVerifierNodeResultResponse, len(requests))
 	errors := NewBatchErrorArray(len(requests))
 
@@ -60,8 +70,9 @@ func (h *BatchWriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, 
 }
 
 // NewBatchWriteCommitVerifierNodeResultHandler creates a new instance of BatchWriteCommitCCVNodeDataHandler.
-func NewBatchWriteCommitVerifierNodeResultHandler(handler *WriteCommitVerifierNodeResultHandler) *BatchWriteCommitVerifierNodeResultHandler {
+func NewBatchWriteCommitVerifierNodeResultHandler(handler *WriteCommitVerifierNodeResultHandler, maxCommitVerifierNodeResultRequestsPerBatch int) *BatchWriteCommitVerifierNodeResultHandler {
 	return &BatchWriteCommitVerifierNodeResultHandler{
 		handler: handler,
+		maxCommitVerifierNodeResultRequestsPerBatch: maxCommitVerifierNodeResultRequestsPerBatch,
 	}
 }

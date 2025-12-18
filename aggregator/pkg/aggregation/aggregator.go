@@ -3,6 +3,7 @@ package aggregation
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/sourcegraph/conc/pool"
@@ -30,10 +31,13 @@ type CommitReportAggregator struct {
 	sink                  common.Sink
 	aggregationKeyChan    chan aggregationRequest
 	backgroundWorkerCount int
+	operationTimeout      time.Duration
 	quorum                QuorumValidator
 	l                     logger.SugaredLogger
 	monitoring            common.AggregatorMonitoring
-	done                  chan struct{}
+
+	mu   sync.RWMutex
+	done chan struct{}
 }
 
 type aggregationRequest struct {
@@ -104,6 +108,12 @@ func (c *CommitReportAggregator) shouldSkipAggregationDueToExistingQuorum(ctx co
 }
 
 func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, request aggregationRequest) (*model.CommitAggregatedReport, error) {
+	if c.operationTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, c.operationTimeout)
+		defer cancel()
+	}
+
 	lggr := c.logger(ctx)
 	lggr.Info("Checking aggregation for message")
 
@@ -154,7 +164,10 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 
 // StartBackground begins processing aggregation requests in the background.
 func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
+	c.mu.Lock()
 	c.done = make(chan struct{})
+	c.mu.Unlock()
+
 	p := pool.New().WithMaxGoroutines(c.backgroundWorkerCount).WithContext(ctx)
 	go func() {
 		defer close(c.done)
@@ -190,6 +203,13 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 }
 
 func (c *CommitReportAggregator) Ready() error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.done == nil {
+		return fmt.Errorf("aggregation worker not started")
+	}
+
 	select {
 	case <-c.done:
 		return fmt.Errorf("aggregation worker stopped")
@@ -243,6 +263,7 @@ func NewCommitReportAggregator(storage common.CommitVerificationStore, aggregate
 		sink:                  sink,
 		aggregationKeyChan:    make(chan aggregationRequest, config.Aggregation.ChannelBufferSize),
 		backgroundWorkerCount: config.Aggregation.BackgroundWorkerCount,
+		operationTimeout:      time.Duration(config.Aggregation.OperationTimeoutSeconds) * time.Second,
 		quorum:                quorum,
 		monitoring:            monitoring,
 		l:                     logger,

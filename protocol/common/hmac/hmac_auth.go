@@ -65,7 +65,7 @@ func ComputeHMAC(secret, stringToSign string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// ValidateTimestamp checks if the timestamp is within acceptable window (±5 seconds).
+// ValidateTimestamp checks if the timestamp is within acceptable window.
 func ValidateTimestamp(timestampStr string) error {
 	timestampMs, err := strconv.ParseInt(timestampStr, 10, 64)
 	if err != nil {

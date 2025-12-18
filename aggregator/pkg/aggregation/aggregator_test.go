@@ -216,6 +216,7 @@ func TestHealthCheck(t *testing.T) {
 		pending        int
 		capacity       int
 		stopped        bool
+		notStarted     bool
 		wantReadyError bool
 		wantMsgPrefix  string
 	}{
@@ -223,6 +224,7 @@ func TestHealthCheck(t *testing.T) {
 		{name: "high", pending: 9, capacity: 10, wantReadyError: false},
 		{name: "full", pending: 10, capacity: 10, wantReadyError: false},
 		{name: "stopped", pending: 0, capacity: 10, stopped: true, wantReadyError: true, wantMsgPrefix: "aggregation worker stopped"},
+		{name: "not_started", pending: 0, capacity: 10, notStarted: true, wantReadyError: true, wantMsgPrefix: "aggregation worker not started"},
 	}
 
 	for _, tc := range cases {
@@ -242,6 +244,8 @@ func TestHealthCheck(t *testing.T) {
 			if tc.stopped {
 				a.done = make(chan struct{})
 				close(a.done)
+			} else if !tc.notStarted {
+				a.done = make(chan struct{})
 			}
 
 			err := a.Ready()

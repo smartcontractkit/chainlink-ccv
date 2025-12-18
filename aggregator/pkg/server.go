@@ -20,6 +20,7 @@ import (
 	"github.com/oklog/run"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 
@@ -49,7 +50,7 @@ type Server struct {
 	l                                         logger.SugaredLogger
 	config                                    *model.AggregatorConfig
 	store                                     common.CommitVerificationStore
-	aggregator                                handlers.AggregationTriggerer
+	aggregator                                *aggregation.CommitReportAggregator
 	recoverer                                 *OrphanRecoverer
 	readCommitVerifierNodeResultHandler       *handlers.ReadCommitVerifierNodeResultHandler
 	writeCommitVerifierNodeResultHandler      *handlers.WriteCommitVerifierNodeResultHandler
@@ -128,6 +129,16 @@ func (s *Server) Start(lis net.Listener) error {
 		return nil
 	}, func(error) {})
 
+	// Start aggregator background worker with cancellable context
+	aggregatorCtx, aggregatorCancel := context.WithCancel(context.Background())
+	g.Add(func() error {
+		s.aggregator.StartBackground(aggregatorCtx)
+		<-aggregatorCtx.Done()
+		return nil
+	}, func(error) {
+		aggregatorCancel()
+	})
+
 	if s.config.OrphanRecovery.Enabled {
 		recovererCtx, recovererCancel := context.WithCancel(context.Background())
 		g.Add(func() error {
@@ -196,10 +207,40 @@ func (s *Server) Stop() error {
 	return nil
 }
 
-func createAggregator(storage common.CommitVerificationStore, aggregatedStore common.CommitVerificationAggregatedStore, sink common.Sink, validator aggregation.QuorumValidator, config *model.AggregatorConfig, lggr logger.SugaredLogger, monitoring common.AggregatorMonitoring) (handlers.AggregationTriggerer, error) {
-	agg := aggregation.NewCommitReportAggregator(storage, aggregatedStore, sink, validator, config, lggr, monitoring)
-	agg.StartBackground(context.Background())
-	return agg, nil
+func createAggregator(storage common.CommitVerificationStore, aggregatedStore common.CommitVerificationAggregatedStore, sink common.Sink, validator aggregation.QuorumValidator, config *model.AggregatorConfig, lggr logger.SugaredLogger, monitoring common.AggregatorMonitoring) *aggregation.CommitReportAggregator {
+	return aggregation.NewCommitReportAggregator(storage, aggregatedStore, sink, validator, config, lggr, monitoring)
+}
+
+func buildGRPCServerOptions(serverConfig model.ServerConfig) []grpc.ServerOption {
+	var opts []grpc.ServerOption
+
+	if serverConfig.ConnectionTimeoutSeconds > 0 {
+		opts = append(opts, grpc.ConnectionTimeout(
+			time.Duration(serverConfig.ConnectionTimeoutSeconds)*time.Second))
+	}
+
+	if serverConfig.KeepaliveMinTimeSeconds > 0 {
+		opts = append(opts, grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             time.Duration(serverConfig.KeepaliveMinTimeSeconds) * time.Second,
+			PermitWithoutStream: true,
+		}))
+	}
+
+	if serverConfig.KeepaliveTimeSeconds > 0 || serverConfig.KeepaliveTimeoutSeconds > 0 || serverConfig.MaxConnectionAgeSeconds > 0 {
+		params := keepalive.ServerParameters{}
+		if serverConfig.KeepaliveTimeSeconds > 0 {
+			params.Time = time.Duration(serverConfig.KeepaliveTimeSeconds) * time.Second
+		}
+		if serverConfig.KeepaliveTimeoutSeconds > 0 {
+			params.Timeout = time.Duration(serverConfig.KeepaliveTimeoutSeconds) * time.Second
+		}
+		if serverConfig.MaxConnectionAgeSeconds > 0 {
+			params.MaxConnectionAge = time.Duration(serverConfig.MaxConnectionAgeSeconds) * time.Second
+		}
+		opts = append(opts, grpc.KeepaliveParams(params))
+	}
+
+	return opts
 }
 
 type SignatureAndQuorumValidator interface {
@@ -253,17 +294,13 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	store = storage.WrapWithMetrics(store, aggMonitoring, l)
 	validator := quorum.NewQuorumValidator(config, l)
 
-	agg, err := createAggregator(store, store, store, validator, config, l, aggMonitoring)
-	if err != nil {
-		l.Errorw("failed to create aggregator", "error", err)
-		return nil
-	}
+	agg := createAggregator(store, store, store, validator, config, l, aggMonitoring)
 
 	writeCommitVerifierNodeResultHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, l, validator)
 	readCommitVerifierNodeResultHandler := handlers.NewReadCommitVerifierNodeResultHandler(store, l)
 	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committee, l, aggMonitoring)
 	getVerifierResultsForMessageHandler := handlers.NewGetVerifierResultsForMessageHandler(store, config.Committee, config.MaxMessageIDsPerBatch, l)
-	batchWriteCommitVerifierNodeResultHandler := handlers.NewBatchWriteCommitVerifierNodeResultHandler(writeCommitVerifierNodeResultHandler)
+	batchWriteCommitVerifierNodeResultHandler := handlers.NewBatchWriteCommitVerifierNodeResultHandler(writeCommitVerifierNodeResultHandler, config.MaxCommitVerifierNodeResultRequestsPerBatch)
 
 	// Initialize middlewares
 	loggingMiddleware := middlewares.NewLoggingMiddleware(l)
@@ -294,30 +331,39 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		return status.Errorf(codes.Internal, "%s", p)
 	}
 
-	grpcServer := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(
-			recovery.UnaryServerInterceptor(recovery.WithRecoveryHandler(grpcPanicRecoveryHandler)),
-			scopingMiddleware.Intercept,
-			metricsMiddleware.Intercept,
-			hmacAuthMiddleware.Intercept,
+	grpcOpts := buildGRPCServerOptions(config.Server)
 
-			// Anonymous auth fallback - only for VerifierResultAPI service when HMAC didn't authenticate
-			selector.UnaryServerInterceptor(
-				anonymousAuthMiddleware.Intercept,
-				selector.MatchFunc(func(ctx context.Context, callMeta interceptors.CallMeta) bool {
-					return isVerifierResultAPI(callMeta)
-				}),
-			),
+	// Build interceptor chain
+	interceptorChain := []grpc.UnaryServerInterceptor{
+		recovery.UnaryServerInterceptor(recovery.WithRecoveryHandler(grpcPanicRecoveryHandler)),
+		scopingMiddleware.Intercept,
+		metricsMiddleware.Intercept,
+		hmacAuthMiddleware.Intercept,
 
-			// Require authentication for all requests (ensures identity is set)
-			requireAuthMiddleware.Intercept,
-
-			// Logging after auth so caller_id is available in logs
-			loggingMiddleware.Intercept,
-
-			rateLimitingMiddleware.Intercept,
+		// Anonymous auth fallback - only for VerifierResultAPI service when HMAC didn't authenticate
+		selector.UnaryServerInterceptor(
+			anonymousAuthMiddleware.Intercept,
+			selector.MatchFunc(func(ctx context.Context, callMeta interceptors.CallMeta) bool {
+				return isVerifierResultAPI(callMeta)
+			}),
 		),
-	)
+
+		// Require authentication for all requests (ensures identity is set)
+		requireAuthMiddleware.Intercept,
+
+		// Logging after auth so caller_id is available in logs
+		loggingMiddleware.Intercept,
+
+		rateLimitingMiddleware.Intercept,
+	}
+
+	// Add request timeout interceptor as first in chain
+	timeoutMiddleware := middlewares.NewRequestTimeoutMiddleware(
+		time.Duration(config.Server.RequestTimeoutSeconds) * time.Second)
+	interceptorChain = append([]grpc.UnaryServerInterceptor{timeoutMiddleware.Intercept}, interceptorChain...)
+
+	grpcOpts = append(grpcOpts, grpc.ChainUnaryInterceptor(interceptorChain...))
+	grpcServer := grpc.NewServer(grpcOpts...)
 
 	recoverer := NewOrphanRecoverer(store, agg, config, l, aggMonitoring.Metrics())
 

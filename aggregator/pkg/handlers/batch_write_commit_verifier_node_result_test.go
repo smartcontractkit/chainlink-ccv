@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/internal/aggregation_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -15,10 +16,91 @@ import (
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 )
 
+func TestBatchWriteCommitCCVNodeDataHandler_BatchSizeValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		numRequests    int
+		maxBatchSize   int
+		expectCode     codes.Code
+		expectErrorMsg string
+	}{
+		{
+			name:           "empty_requests_returns_invalid_argument",
+			numRequests:    0,
+			maxBatchSize:   10,
+			expectCode:     codes.InvalidArgument,
+			expectErrorMsg: "requests cannot be empty",
+		},
+		{
+			name:           "exceeds_max_batch_size_returns_invalid_argument",
+			numRequests:    5,
+			maxBatchSize:   3,
+			expectCode:     codes.InvalidArgument,
+			expectErrorMsg: "too many requests: 5, maximum allowed: 3",
+		},
+		{
+			name:         "at_max_batch_size_is_allowed",
+			numRequests:  3,
+			maxBatchSize: 3,
+			expectCode:   codes.OK,
+		},
+		{
+			name:         "below_max_batch_size_is_allowed",
+			numRequests:  2,
+			maxBatchSize: 5,
+			expectCode:   codes.OK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			lggr := logger.TestSugared(t)
+			store := aggregation_mocks.NewMockCommitVerificationStore(t)
+			agg := aggregation_mocks.NewMockAggregationTriggerer(t)
+			sig := aggregation_mocks.NewMockSignatureValidator(t)
+
+			signer := &model.IdentifierSigner{Address: []byte{0xAA}}
+
+			if tc.expectCode == codes.OK {
+				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(signer, nil, nil).Maybe()
+				sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil).Maybe()
+				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything).Return(nil).Maybe()
+				store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+			}
+
+			writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, lggr, sig)
+			batchHandler := NewBatchWriteCommitVerifierNodeResultHandler(writeHandler, tc.maxBatchSize)
+
+			requests := make([]*committeepb.WriteCommitteeVerifierNodeResultRequest, tc.numRequests)
+			for i := range requests {
+				requests[i] = makeValidProtoRequest()
+			}
+
+			resp, err := batchHandler.Handle(context.Background(), &committeepb.BatchWriteCommitteeVerifierNodeResultRequest{
+				Requests: requests,
+			})
+
+			if tc.expectCode == codes.OK {
+				require.NoError(t, err)
+				require.NotNil(t, resp)
+				require.Len(t, resp.Responses, tc.numRequests)
+			} else {
+				require.Error(t, err)
+				require.Equal(t, tc.expectCode, status.Code(err))
+				require.Contains(t, err.Error(), tc.expectErrorMsg)
+				require.Nil(t, resp)
+			}
+		})
+	}
+}
+
 func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *testing.T) {
 	t.Parallel()
 
-	// Common test scaffolding
 	lggr := logger.TestSugared(t)
 	store := aggregation_mocks.NewMockCommitVerificationStore(t)
 	agg := aggregation_mocks.NewMockAggregationTriggerer(t)
@@ -30,14 +112,12 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 	sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(signer, nil, nil)
 	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil)
 
-	// Aggregation may be called once for the valid request
 	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything).Return(nil).Maybe()
 
-	// For the valid request, expect one store call
 	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, lggr, sig)
-	batchHandler := NewBatchWriteCommitVerifierNodeResultHandler(writeHandler)
+	batchHandler := NewBatchWriteCommitVerifierNodeResultHandler(writeHandler, 10)
 
 	validReq := makeValidProtoRequest()
 	invalidReq := makeValidProtoRequest()
