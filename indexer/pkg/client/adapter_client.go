@@ -62,14 +62,28 @@ func (ic *IndexerAdapterClient) ReadVerifierResults(ctx context.Context, queryDa
 
 // ReadMessages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message.
 func (ic *IndexerAdapterClient) ReadMessages(ctx context.Context, queryData protocol.MessagesV1Request) (map[string]protocol.MessageWithMetadata, error) {
-	resp, err := ic.client.GetMessages(ctx, &iclient.GetMessagesParams{
-		SourceChainSelectors: &queryData.SourceChainSelectors,
-		DestChainSelectors:   &queryData.DestChainSelectors,
-		Start:                &queryData.Start,
-		End:                  &queryData.End,
-		Limit:                &queryData.Limit,
-		Offset:               &queryData.Offset,
-	})
+	var params iclient.GetMessagesParams
+	if len(queryData.SourceChainSelectors) > 0 {
+		params.SourceChainSelectors = &queryData.SourceChainSelectors
+	}
+	if len(queryData.DestChainSelectors) > 0 {
+		params.DestChainSelectors = &queryData.DestChainSelectors
+	}
+	if queryData.Start != 0 {
+		params.Start = &queryData.Start
+	}
+	if queryData.End != 0 {
+		params.End = &queryData.End
+	}
+	if queryData.Limit != 0 {
+		params.Limit = &queryData.Limit
+	}
+	if queryData.Offset != 0 {
+		params.Offset = &queryData.Offset
+	}
+
+	ic.lggr.Infow("Sending GetMessages request to Indexer", "params", params)
+	resp, err := ic.client.GetMessages(ctx, &params)
 	if err != nil {
 		ic.lggr.Errorw("Indexer GetMessages request error", "error", err)
 		return nil, err
