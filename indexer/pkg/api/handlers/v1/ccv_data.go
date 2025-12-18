@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -13,21 +14,31 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-type VerifierResponseHandler struct {
+type VerifierResultsInput struct {
+	SourceChainSelectors []protocol.ChainSelector `query:"sourceChainSelectors"` // Excluded from form due to gin parsing
+	DestChainSelectors   []protocol.ChainSelector `query:"destChainSelectors"`   // Excluded from form due to gin parsing
+	Start                int64                    `form:"start"                 query:"start"`
+}
+type VerifierResultResponse struct {
+	Success         bool                                           `json:"success"`
+	VerifierResults map[string][]common.VerifierResultWithMetadata `json:"verifierResults"`
+}
+
+type VerifierResultHandler struct {
 	storage    common.IndexerStorage
 	lggr       logger.Logger
 	monitoring common.IndexerMonitoring
 }
 
-func NewVerifierResponseHandler(storage common.IndexerStorage, lggr logger.Logger, monitoring common.IndexerMonitoring) *VerifierResponseHandler {
-	return &VerifierResponseHandler{
+func NewVerifierResultHandler(storage common.IndexerStorage, lggr logger.Logger, monitoring common.IndexerMonitoring) *VerifierResultHandler {
+	return &VerifierResultHandler{
 		storage:    storage,
 		lggr:       lggr,
 		monitoring: monitoring,
 	}
 }
 
-func (h *VerifierResponseHandler) Handle(c *gin.Context) {
+func (h *VerifierResultHandler) Handle(c *gin.Context) {
 	req := storageaccess.VerifierResultsRequest{
 		Start:                0,
 		End:                  time.Now().UnixMilli(),
@@ -38,16 +49,18 @@ func (h *VerifierResponseHandler) Handle(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindQuery(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, makeErrorResponse(http.StatusBadRequest, err.Error()))
 		return
 	}
 
-	sourceChainSelectors, ok := utils.ParseSelectorTypes(c, "sourceChainSelectors")
-	if !ok {
+	sourceChainSelectors, err := utils.ParseSelectorTypes(c.DefaultQuery("sourceChainSelectors", ""))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, makeErrorResponse(http.StatusBadRequest, fmt.Sprintf("bad sourceChainSelectors: %s", err.Error())))
 		return
 	}
-	destChainSelectors, ok := utils.ParseSelectorTypes(c, "destChainSelectors")
-	if !ok {
+	destChainSelectors, err := utils.ParseSelectorTypes(c.DefaultQuery("destChainSelectors", ""))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, makeErrorResponse(http.StatusBadRequest, fmt.Sprintf("bad destChainSelectors: %s", err.Error())))
 		return
 	}
 	req.SourceChainSelectors = sourceChainSelectors
@@ -55,10 +68,13 @@ func (h *VerifierResponseHandler) Handle(c *gin.Context) {
 
 	verifierResponse, err := h.storage.QueryCCVData(c.Request.Context(), req.Start, req.End, req.SourceChainSelectors, req.DestChainSelectors, req.Limit, req.Offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, makeErrorResponse(http.StatusInternalServerError, err.Error()))
 		return
 	}
 
-	h.lggr.Debugw("/v1/verifierresponse", "number of messages returned", len(verifierResponse))
-	c.JSON(http.StatusOK, gin.H{"success": true, "verifierResponse": verifierResponse})
+	h.lggr.Debugw("/v1/verifierresult", "number of messages returned", len(verifierResponse))
+	c.JSON(http.StatusOK, VerifierResultResponse{
+		Success:         true,
+		VerifierResults: verifierResponse,
+	})
 }

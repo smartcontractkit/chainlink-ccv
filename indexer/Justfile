@@ -24,3 +24,9 @@ clean-dev:
 
 create-migration name:
     goose create {{name}} sql -dir ./migrations
+
+codegen:
+    rm -f indexer_openapi_v1.yaml
+    rm -f pkg/client/internal/client.go
+    cd cmd/oapigen && go run generator.go ../../indexer_opanapi_v1.yaml
+    oapi-codegen -config client-codegen.yaml indexer_opanapi_v1.yaml

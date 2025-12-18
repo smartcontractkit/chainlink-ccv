@@ -1,9 +1,9 @@
 package storage
 
-import "fmt"
+import "errors"
 
 var (
-	ErrCCVDataNotFound  = fmt.Errorf("CCV data not found")
-	ErrDuplicateCCVData = fmt.Errorf("duplicate CCV data")
-	ErrMessageNotFound  = fmt.Errorf("message not found")
+	ErrCCVDataNotFound  = errors.New("CCV data not found")
+	ErrDuplicateCCVData = errors.New("duplicate CCV data")
+	ErrMessageNotFound  = errors.New("message not found")
 )

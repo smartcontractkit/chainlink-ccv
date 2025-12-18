@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -111,13 +112,25 @@ func (i *IndexerAPIReader) makeRequest(ctx context.Context, endpoint string, par
 		}
 	}()
 
+	body, err := maybeGetBody(resp.Body)
+	if err != nil {
+		i.lggr.Errorw("Failed to read response body", "error", err)
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		i.lggr.Errorw("Indexer returned non-OK status", "status", resp.StatusCode)
+		i.lggr.Errorw("Indexer returned non-OK status", "status", resp.StatusCode, "body", body)
+		if len(body) > 0 {
+			return fmt.Errorf("indexer returned status %d: %s", resp.StatusCode, body)
+		}
 		return fmt.Errorf("indexer returned status %d", resp.StatusCode)
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
-		i.lggr.Errorw("Failed to decode JSON response", "error", err)
+	if err := json.Unmarshal(body, result); err != nil {
+		i.lggr.Errorw("Failed to decode JSON response", "error", err, "body", body)
+		if len(body) > 0 {
+			return fmt.Errorf("failed to decode JSON response: %w; body: %s", err, body)
+		}
 		return fmt.Errorf("failed to decode JSON response: %w", err)
 	}
 
@@ -195,4 +208,26 @@ func sourceVerifierAddresses(verifierResults []protocol.VerifierResult) []string
 		sourceVerifierAddresses = append(sourceVerifierAddresses, verifierResult.VerifierSourceAddress.String())
 	}
 	return sourceVerifierAddresses
+}
+
+// maybeGetBody returns a trimmed, possibly truncated string of at most 16 KiB
+// read from the provided reader. It does NOT close the reader; callers must
+// ensure the underlying ReadCloser is closed. This avoids double-close issues.
+func maybeGetBody(body io.Reader) ([]byte, error) {
+	if body == nil {
+		return nil, fmt.Errorf("nil reader detected")
+	}
+
+	const maxBody = 16 * 1024
+	lr := io.LimitReader(body, int64(maxBody+1))
+	b, err := io.ReadAll(lr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read body: %v", err)
+	}
+
+	if len(b) > maxBody {
+		return nil, fmt.Errorf("response body too large")
+	}
+
+	return b, nil
 }

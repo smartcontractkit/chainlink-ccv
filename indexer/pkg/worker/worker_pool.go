@@ -112,7 +112,6 @@ func (p *Pool) run(ctx context.Context) {
 
 func (p *Pool) enqueueMessages(ctx context.Context) {
 	defer p.wg.Done()
-
 	for {
 		select {
 		case <-ctx.Done():

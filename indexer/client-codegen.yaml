@@ -1,0 +1,8 @@
+package: client
+output: pkg/client/internal/client.go
+generate:
+    client: true
+    models: true
+output-options:
+  overlay:
+    path: overlay.yaml
