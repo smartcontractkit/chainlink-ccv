@@ -21,13 +21,13 @@ import (
 
 func main() {
 	// Determine log level from environment variable, defaulting to "info"
-	logLevelStr := os.Getenv("AGGREGATOR_LOG_LEVEL")
+	logLevelStr := os.Getenv("LOG_LEVEL")
 	if logLevelStr == "" {
 		logLevelStr = "info"
 	}
 	var zapLevel zapcore.Level
 	if err := zapLevel.UnmarshalText([]byte(logLevelStr)); err != nil {
-		fmt.Fprintf(os.Stderr, "Invalid AGGREGATOR_LOG_LEVEL '%s', defaulting to 'info'\n", logLevelStr)
+		fmt.Fprintf(os.Stderr, "Invalid LOG_LEVEL '%s', defaulting to 'info'\n", logLevelStr)
 		zapLevel = zapcore.InfoLevel
 	}
 	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapLevel))

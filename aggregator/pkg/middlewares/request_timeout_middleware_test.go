@@ -12,7 +12,7 @@ import (
 
 const testResponse = "response"
 
-func TestRequestTimeoutMiddleware_AppliesTimeoutWhenConfigured(t *testing.T) {
+func TestRequestTimeoutMiddleware_AppliesTimeout(t *testing.T) {
 	middleware := NewRequestTimeoutMiddleware(100 * time.Millisecond)
 
 	handlerCalled := false
@@ -37,51 +37,10 @@ func TestRequestTimeoutMiddleware_AppliesTimeoutWhenConfigured(t *testing.T) {
 	assert.WithinDuration(t, time.Now().Add(100*time.Millisecond), deadline, 50*time.Millisecond)
 }
 
-func TestRequestTimeoutMiddleware_SkipsTimeoutWhenZero(t *testing.T) {
-	middleware := NewRequestTimeoutMiddleware(0)
-
-	ctxChan := make(chan context.Context, 1)
-
-	handler := func(ctx context.Context, _ any) (any, error) {
-		ctxChan <- ctx
-		return testResponse, nil
-	}
-
-	ctx := context.Background()
-	resp, err := middleware.Intercept(ctx, "request", &grpc.UnaryServerInfo{}, handler)
-
-	require.NoError(t, err)
-	assert.Equal(t, testResponse, resp)
-
-	receivedCtx := <-ctxChan
-	_, ok := receivedCtx.Deadline()
-	assert.False(t, ok)
-}
-
-func TestRequestTimeoutMiddleware_SkipsTimeoutWhenNegative(t *testing.T) {
-	middleware := NewRequestTimeoutMiddleware(-1 * time.Second)
-
-	ctxChan := make(chan context.Context, 1)
-
-	handler := func(ctx context.Context, _ any) (any, error) {
-		ctxChan <- ctx
-		return testResponse, nil
-	}
-
-	ctx := context.Background()
-	_, err := middleware.Intercept(ctx, "request", &grpc.UnaryServerInfo{}, handler)
-
-	require.NoError(t, err)
-
-	receivedCtx := <-ctxChan
-	_, ok := receivedCtx.Deadline()
-	assert.False(t, ok)
-}
-
 func TestRequestTimeoutMiddleware_CancelsContextOnTimeout(t *testing.T) {
 	middleware := NewRequestTimeoutMiddleware(10 * time.Millisecond)
 
-	handler := func(ctx context.Context, req any) (any, error) {
+	handler := func(ctx context.Context, _ any) (any, error) {
 		select {
 		case <-time.After(100 * time.Millisecond):
 			return "should not reach", nil

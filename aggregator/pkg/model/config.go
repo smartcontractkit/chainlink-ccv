@@ -92,7 +92,7 @@ type StorageConfig struct {
 // ServerConfig represents the configuration for the server.
 type ServerConfig struct {
 	Address string `toml:"address"`
-	// RequestTimeoutSeconds is the max duration for any GRPC request (0 = no timeout, GRPC default)
+	// RequestTimeoutSeconds is the max duration for any GRPC request (default: 30s)
 	RequestTimeoutSeconds int `toml:"requestTimeoutSeconds"`
 	// ConnectionTimeoutSeconds is the timeout for connection establishment (0 = no timeout, GRPC default)
 	ConnectionTimeoutSeconds int `toml:"connectionTimeoutSeconds"`
@@ -384,6 +384,10 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.HealthCheck.Port == "" {
 		c.HealthCheck.Port = "8080"
 	}
+	// Server defaults
+	if c.Server.RequestTimeoutSeconds == 0 {
+		c.Server.RequestTimeoutSeconds = 30
+	}
 }
 
 // ValidateAPIKeyConfig validates the API key configuration.
@@ -434,8 +438,8 @@ func (c *AggregatorConfig) ValidateBatchConfig() error {
 
 // ValidateServerConfig validates the server configuration.
 func (c *AggregatorConfig) ValidateServerConfig() error {
-	if c.Server.RequestTimeoutSeconds < 0 {
-		return errors.New("server.requestTimeoutSeconds cannot be negative")
+	if c.Server.RequestTimeoutSeconds <= 0 {
+		return errors.New("server.requestTimeoutSeconds must be greater than 0")
 	}
 	if c.Server.ConnectionTimeoutSeconds < 0 {
 		return errors.New("server.connectionTimeoutSeconds cannot be negative")

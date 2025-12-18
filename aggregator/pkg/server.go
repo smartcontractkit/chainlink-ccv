@@ -357,12 +357,10 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		rateLimitingMiddleware.Intercept,
 	}
 
-	// Add request timeout interceptor as first in chain if configured
-	if config.Server.RequestTimeoutSeconds > 0 {
-		timeoutMiddleware := middlewares.NewRequestTimeoutMiddleware(
-			time.Duration(config.Server.RequestTimeoutSeconds) * time.Second)
-		interceptorChain = append([]grpc.UnaryServerInterceptor{timeoutMiddleware.Intercept}, interceptorChain...)
-	}
+	// Add request timeout interceptor as first in chain
+	timeoutMiddleware := middlewares.NewRequestTimeoutMiddleware(
+		time.Duration(config.Server.RequestTimeoutSeconds) * time.Second)
+	interceptorChain = append([]grpc.UnaryServerInterceptor{timeoutMiddleware.Intercept}, interceptorChain...)
 
 	grpcOpts = append(grpcOpts, grpc.ChainUnaryInterceptor(interceptorChain...))
 	grpcServer := grpc.NewServer(grpcOpts...)
