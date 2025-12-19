@@ -312,6 +312,8 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 			1337: {
 				VerifierAddress: protocol.UnknownAddress(verifierAddr),
 				PollInterval:    50 * time.Millisecond, // Fast polling for tests
+				BatchSize:       1,
+				BatchTimeout:    100 * time.Millisecond,
 			},
 		},
 		VerifierID: verifierID,
