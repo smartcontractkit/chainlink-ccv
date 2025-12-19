@@ -21,8 +21,6 @@ const (
 )
 
 func TestChaos_AggregatorOutageRecovery(t *testing.T) {
-	t.Skip("Skipping since no retries implemented in verifier yet")
-
 	const outageDuration = 20 * time.Second
 
 	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
