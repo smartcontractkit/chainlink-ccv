@@ -9,8 +9,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/internal/aggregation_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -21,9 +21,9 @@ func TestGetMessagesSinceHandler_Success(t *testing.T) {
 	t.Parallel()
 
 	lggr := logger.TestSugared(t)
-	store := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
-	mon := aggregation_mocks.NewMockAggregatorMonitoring(t)
-	labeler := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
+	store := mocks.NewMockCommitVerificationAggregatedStore(t)
+	mon := mocks.NewMockAggregatorMonitoring(t)
+	labeler := mocks.NewMockAggregatorMetricLabeler(t)
 	mon.EXPECT().Metrics().Return(labeler)
 
 	const (
@@ -53,8 +53,8 @@ func TestGetMessagesSinceHandler_StorageError(t *testing.T) {
 	t.Parallel()
 
 	lggr := logger.TestSugared(t)
-	store := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
-	mon := aggregation_mocks.NewMockAggregatorMonitoring(t)
+	store := mocks.NewMockCommitVerificationAggregatedStore(t)
+	mon := mocks.NewMockAggregatorMonitoring(t)
 	// no metrics expected on early error path
 
 	h := NewGetMessagesSinceHandler(store, &model.Committee{}, lggr, mon)
