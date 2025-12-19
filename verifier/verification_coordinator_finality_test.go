@@ -145,7 +145,6 @@ func TestFinality_CustomFinality(t *testing.T) {
 	require.Equal(t, 1, processedCount, "Should have processed the ready message")
 }
 
-// TODO: Avoid using sleep to fix timing issues.
 func TestFinality_WaitingForFinality(t *testing.T) {
 	setup := initializeCoordinator(t, "test-finality-coordinator")
 
@@ -216,12 +215,6 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 
 	// Update the shared variable to simulate finalized block advancing
 	setup.setFinalizedBlock(uint64(nonFinalizedBlock))
-
-	// Wait a short while to ensure the SourceReaderService observes the new finalized block
-	// (poll interval is 50ms in the test). This prevents a race where the event is re-sent
-	// before the service has updated its view of the finalized block.
-	time.Sleep(100 * time.Millisecond)
-
 	// TODO: This is a hack because the mock doesn't keep on returning the event if it's within range once it's sent to channel.
 	//  This is purely a mock limitation.
 	select {
