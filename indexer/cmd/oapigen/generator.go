@@ -14,7 +14,6 @@ import (
 	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 )
 
-//go:generate go run generator.go ../../indexer_opanapi_v1.yaml
 func main() {
 	// Expect a single argument: output file path. Writing to stdout is NOT supported.
 	if len(os.Args) != 2 {
