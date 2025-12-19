@@ -3,6 +3,7 @@ package http
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"io"
 	"net/http"
@@ -53,6 +54,7 @@ type httpClient struct {
 	apiURL     *url.URL
 	apiTimeout time.Duration
 	rate       *rate.Limiter
+	client     *http.Client
 	// coolDownDuration defines the time to wait after getting rate limited.
 	// this value is only used if the 429 response does not contain the Retry-After header
 	coolDownDuration time.Duration
@@ -105,12 +107,33 @@ func newHTTPClient(
 	if err != nil {
 		return nil, err
 	}
+
+	// Create a secure HTTP client with TLS 1.2+ and proper timeouts to prevent Man-in-the-Middle attacks
+	client := &http.Client{
+		Timeout: apiTimeout,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				// Use secure cipher suites and modern TLS settings
+				CurvePreferences: []tls.CurveID{
+					tls.CurveP256,
+					tls.X25519,
+				},
+			},
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: apiTimeout,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
+	}
+
 	return &httpClient{
 		lggr:             lggr,
 		apiURL:           u,
 		apiTimeout:       apiTimeout,
 		coolDownDuration: coolDownDuration,
 		rate:             rate.NewLimiter(rate.Every(apiInterval), 1),
+		client:           client,
 		coolDownMu:       &sync.RWMutex{},
 	}, nil
 }
@@ -185,7 +208,7 @@ func (h *httpClient) callAPI(
 		return nil, http.StatusBadRequest, err
 	}
 	req.Header.Add("accept", "application/json")
-	res, err := http.DefaultClient.Do(req)
+	res, err := h.client.Do(req)
 	if err != nil {
 		if ctx.Err() != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return nil, http.StatusRequestTimeout, ErrTimeout
