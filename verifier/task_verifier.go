@@ -50,7 +50,7 @@ func (p *TaskVerifierProcessor) Start(ctx context.Context) error {
 	return p.StartOnce(p.Name(), func() error {
 		for _, state := range p.sourceReaders {
 			p.wg.Go(func() {
-				p.run(ctx, state.ReadyTasksChannel())
+				p.run(ctx, state)
 			})
 		}
 		return nil
@@ -64,12 +64,12 @@ func (p *TaskVerifierProcessor) Close() error {
 	})
 }
 
-func (p *TaskVerifierProcessor) run(ctx context.Context, ch <-chan batcher.BatchResult[VerificationTask]) {
+func (p *TaskVerifierProcessor) run(ctx context.Context, srs *SourceReaderService) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case batch, ok := <-ch:
+		case batch, ok := <-srs.ReadyTasksChannel():
 			if !ok {
 				p.lggr.Infow("ReadyTasksChannel closed; exiting readyTasksLoop")
 				return
@@ -79,21 +79,25 @@ func (p *TaskVerifierProcessor) run(ctx context.Context, ch <-chan batcher.Batch
 					"error", batch.Error)
 				continue
 			}
-			p.processReadyTasks(ctx, batch.Items)
+			p.processReadyTasks(ctx, srs, batch.Items)
 		}
 	}
 }
 
 // processReadyTasks receives tasks that are already ready (finality + curses handled
-// by SRS2) and fans out verification per source chain.
-func (p *TaskVerifierProcessor) processReadyTasks(ctx context.Context, tasks []VerificationTask) {
+// by SRS) and fans out verification per source chain.
+func (p *TaskVerifierProcessor) processReadyTasks(
+	ctx context.Context,
+	srs *SourceReaderService,
+	tasks []VerificationTask,
+) {
 	if len(tasks) == 0 {
 		return
 	}
 
 	p.lggr.Debugw("Processing batch of finalized messages", "batchSize", len(tasks))
 
-	// Metrics: finality wait duration based on QueuedAt set in SRS2
+	// Metrics: finality wait duration based on QueuedAt set in SRS
 	for _, task := range tasks {
 		if !task.QueuedAt.IsZero() && p.monitoring != nil {
 			finalityWaitDuration := time.Since(task.QueuedAt)
@@ -103,26 +107,8 @@ func (p *TaskVerifierProcessor) processReadyTasks(ctx context.Context, tasks []V
 		}
 	}
 
-	// Group tasks by source chain
-	tasksByChain := make(map[protocol.ChainSelector][]VerificationTask)
-	for _, task := range tasks {
-		tasksByChain[task.Message.SourceChainSelector] = append(tasksByChain[task.Message.SourceChainSelector], task)
-	}
-
-	// TODO: Can parallelize chains
-	// Process each chain's tasks as a batch
-	for chainSelector, chainTasks := range tasksByChain {
-		src, ok := p.sourceReaders[chainSelector]
-		if !ok {
-			p.lggr.Errorw("No source state found for finalized messages",
-				"chainSelector", chainSelector,
-				"taskCount", len(chainTasks))
-			continue
-		}
-
-		errorBatch := p.verifier.VerifyMessages(ctx, chainTasks, p.storageBatcher)
-		p.handleVerificationErrors(ctx, src, errorBatch, chainSelector, len(tasks))
-	}
+	errorBatch := p.verifier.VerifyMessages(ctx, tasks, p.storageBatcher)
+	p.handleVerificationErrors(ctx, srs, errorBatch, srs.chainSelector, len(tasks))
 }
 
 // handleVerificationErrors processes and logs errors from a verification batch.
@@ -159,9 +145,10 @@ func (p *TaskVerifierProcessor) handleVerificationErrors(ctx context.Context, sr
 			"destChain", message.DestChainSelector,
 			"timestamp", verificationError.Timestamp,
 			"chainSelector", chainSelector,
+			"retryable", verificationError.Retryable,
 		)
 
-		if verificationError.Retriable {
+		if verificationError.Retryable {
 			err1 := src.readyTasksBatcher.Retry(
 				verificationError.DelayOrDefault(),
 				verificationError.Task,

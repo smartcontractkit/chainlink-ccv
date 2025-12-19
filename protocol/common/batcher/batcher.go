@@ -66,9 +66,7 @@ func NewBatcher[T any](ctx context.Context, maxSize int, maxWait time.Duration, 
 	// Start the timer (will be reset on first Add)
 	b.timer = time.NewTimer(maxWait)
 	b.timer.Stop() // Stop immediately since buffer is empty
-
-	b.wg.Add(1)
-	go b.run()
+	b.wg.Go(b.run)
 
 	return b
 }
@@ -129,7 +127,6 @@ func (b *Batcher[T]) Retry(minDelay time.Duration, items ...T) error {
 
 // run is the background goroutine that handles time-based flushing and retry processing.
 func (b *Batcher[T]) run() {
-	defer b.wg.Done()
 	defer close(b.outCh) // Signal completion by closing output channel
 
 	// Ticker to periodically check for retry items that are ready
