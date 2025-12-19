@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
@@ -269,7 +270,7 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 
 type coordinatorTestSetup struct {
 	coordinator           *Coordinator
-	mockSourceReader      *protocol_mocks.MockSourceReader
+	mockSourceReader      *mocks.MockSourceReader
 	mockVerifier          *TestVerifier
 	sentEventsCh          chan protocol.MessageSentEvent
 	currentFinalizedBlock *big.Int      // to control the return value of LatestFinalizedBlockHeight

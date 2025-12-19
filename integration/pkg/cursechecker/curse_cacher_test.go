@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -76,7 +77,7 @@ func TestCachedCurseChecker_CacheHit(t *testing.T) {
 			assert.NoError(t, err)
 
 			// Create mock reader
-			mockReader := common.NewMockRMNRemoteReader(t)
+			mockReader := mocks.NewMockRMNRemoteReader(t)
 
 			// Set up expectation for first call
 			mockReader.EXPECT().
@@ -168,7 +169,7 @@ func TestCachedCurseChecker_CacheExpiry(t *testing.T) {
 			assert.NoError(t, err)
 
 			// Create mock reader
-			mockReader := common.NewMockRMNRemoteReader(t)
+			mockReader := mocks.NewMockRMNRemoteReader(t)
 
 			// Set up expectation for first call
 			mockReader.EXPECT().
@@ -240,7 +241,7 @@ func TestCachedCurseChecker_ErrorHandling(t *testing.T) {
 			lggr, err := logger.New()
 			assert.NoError(t, err)
 
-			mockReader := common.NewMockRMNRemoteReader(t)
+			mockReader := mocks.NewMockRMNRemoteReader(t)
 
 			// 1st call: reader returns error
 			readerErr := errors.New("RPC error")
@@ -320,7 +321,7 @@ func TestCachedCurseChecker_MultipleChains(t *testing.T) {
 			// Create mock readers for each chain
 			mockReaders := make(map[protocol.ChainSelector]common.RMNRemoteReader)
 			for _, chain := range tt.chains {
-				mockReader := common.NewMockRMNRemoteReader(t)
+				mockReader := mocks.NewMockRMNRemoteReader(t)
 				mockReader.EXPECT().
 					GetRMNCursedSubjects(mock.Anything).
 					Return(tt.curseResults[chain], nil).
@@ -405,7 +406,7 @@ func TestCachedCurseChecker_GlobalCurseDetection(t *testing.T) {
 			assert.NoError(t, err)
 
 			// Create mock reader
-			mockReader := common.NewMockRMNRemoteReader(t)
+			mockReader := mocks.NewMockRMNRemoteReader(t)
 			mockReader.EXPECT().
 				GetRMNCursedSubjects(mock.Anything).
 				Return(tt.cursedSubjects, nil).
@@ -454,7 +455,7 @@ func TestCachedCurseChecker_NilCursedSubjects(t *testing.T) {
 			assert.NoError(t, err)
 
 			// Create mock reader
-			mockReader := common.NewMockRMNRemoteReader(t)
+			mockReader := mocks.NewMockRMNRemoteReader(t)
 			mockReader.EXPECT().
 				GetRMNCursedSubjects(mock.Anything).
 				Return(nil, nil).

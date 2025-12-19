@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
@@ -59,7 +60,7 @@ const (
 	finalizedBlockHeight = 950
 )
 
-func mockLatestBlocks(reader *protocol_mocks.MockSourceReader) *protocol_mocks.MockSourceReader {
+func mockLatestBlocks(reader *mocks.MockSourceReader) *mocks.MockSourceReader {
 	latestHeader := &protocol.BlockHeader{
 		Number:     latestBlockHeight,
 		Hash:       protocol.Bytes32{byte(latestBlockHeight % 256)},

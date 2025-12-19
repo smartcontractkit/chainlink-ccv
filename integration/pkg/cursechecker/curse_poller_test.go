@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
-	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -28,13 +28,13 @@ func TestCurseDetectorService_LaneSpecificCurse(t *testing.T) {
 	)
 
 	// Chain A's RMN Remote says chain B is cursed
-	mockReaderA := protocol_mocks.NewMockRMNCurseReader(t)
+	mockReaderA := mocks.NewMockRMNRemoteReader(t)
 	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).
 		Return([]protocol.Bytes16{ChainSelectorToBytes16(chainB)}, nil).
 		Maybe()
 
 	// Chain B's RMN Remote has no curses
-	mockReaderB := protocol_mocks.NewMockRMNCurseReader(t)
+	mockReaderB := mocks.NewMockRMNRemoteReader(t)
 	mockReaderB.EXPECT().GetRMNCursedSubjects(mock.Anything).
 		Return([]protocol.Bytes16{}, nil).
 		Maybe()
@@ -76,13 +76,13 @@ func TestCurseDetectorService_GlobalCurse(t *testing.T) {
 	)
 
 	// Chain A has a global curse
-	mockReaderA := protocol_mocks.NewMockRMNCurseReader(t)
+	mockReaderA := mocks.NewMockRMNRemoteReader(t)
 	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).
 		Return([]protocol.Bytes16{GlobalCurseSubject}, nil).
 		Maybe()
 
 	// Chain B has no curses
-	mockReaderB := protocol_mocks.NewMockRMNCurseReader(t)
+	mockReaderB := mocks.NewMockRMNRemoteReader(t)
 	mockReaderB.EXPECT().GetRMNCursedSubjects(mock.Anything).
 		Return([]protocol.Bytes16{}, nil).
 		Maybe()
@@ -119,7 +119,7 @@ func TestCurseDetectorService_CurseLifting(t *testing.T) {
 	)
 
 	// Chain A's RMN Remote initially says chain B is cursed
-	mockReaderA := protocol_mocks.NewMockRMNCurseReader(t)
+	mockReaderA := mocks.NewMockRMNRemoteReader(t)
 	// First call returns curse, subsequent calls return no curse
 	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).
 		Return([]protocol.Bytes16{ChainSelectorToBytes16(chainB)}, nil).
@@ -158,7 +158,7 @@ func TestNewCurseDetectorService_Validation(t *testing.T) {
 	lggr, err := logger.New()
 	require.NoError(t, err)
 
-	mockReaderA := protocol_mocks.NewMockRMNCurseReader(t)
+	mockReaderA := mocks.NewMockRMNRemoteReader(t)
 
 	t.Run("EmptyReadersMap", func(t *testing.T) {
 		_, err := NewCurseDetectorService(
@@ -170,7 +170,7 @@ func TestNewCurseDetectorService_Validation(t *testing.T) {
 	})
 
 	t.Run("NilLogger", func(t *testing.T) {
-		mockReader := protocol_mocks.NewMockRMNCurseReader(t)
+		mockReader := mocks.NewMockRMNRemoteReader(t)
 		_, err := NewCurseDetectorService(
 			map[protocol.ChainSelector]chainaccess.RMNCurseReader{1: mockReader},
 			2*time.Second,
@@ -180,7 +180,7 @@ func TestNewCurseDetectorService_Validation(t *testing.T) {
 	})
 
 	t.Run("DefaultPollInterval", func(t *testing.T) {
-		mockReader := protocol_mocks.NewMockRMNCurseReader(t)
+		mockReader := mocks.NewMockRMNRemoteReader(t)
 		svc, err := NewCurseDetectorService(
 			map[protocol.ChainSelector]chainaccess.RMNCurseReader{1: mockReader},
 			0,
@@ -204,13 +204,13 @@ func TestCurseDetectorService_ReaderErrorHandling(t *testing.T) {
 	)
 
 	// Chain A's reader returns an error
-	mockReaderA := protocol_mocks.NewMockRMNCurseReader(t)
+	mockReaderA := mocks.NewMockRMNRemoteReader(t)
 	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).
 		Return(nil, errors.New("RPC error")).
 		Maybe()
 
 	// Chain B's reader works fine
-	mockReaderB := protocol_mocks.NewMockRMNCurseReader(t)
+	mockReaderB := mocks.NewMockRMNRemoteReader(t)
 	mockReaderB.EXPECT().GetRMNCursedSubjects(mock.Anything).
 		Return([]protocol.Bytes16{ChainSelectorToBytes16(chainA)}, nil).
 		Maybe()
@@ -245,7 +245,7 @@ func TestCurseDetectorService_NilCursedSubjects(t *testing.T) {
 	)
 
 	// Chain A returns nil cursed subjects (valid state - no curses)
-	mockReaderA := protocol_mocks.NewMockRMNCurseReader(t)
+	mockReaderA := mocks.NewMockRMNRemoteReader(t)
 	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).
 		Return(nil, nil).
 		Maybe()

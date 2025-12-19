@@ -1,0 +1,16 @@
+with-expecter: true
+
+dir: ./internal/mocks
+outpkg: mocks
+
+packages:
+  github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess:
+    interfaces:
+      SourceReader:
+
+  github.com/smartcontractkit/chainlink-ccv/common:
+    interfaces:
+      CurseChecker:
+      CurseCheckerService:
+      RMNRemoteReader:
+      TimeProvider:
