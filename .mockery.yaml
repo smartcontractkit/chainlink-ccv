@@ -27,4 +27,10 @@ packages:
 
   github.com/smartcontractkit/chainlink-ccv/executor:
     interfaces:
+      MessageSubscriber:
+      Executor:
+      ContractTransmitter:
+      LeaderElector:
+      DestinationReader:
+      VerifierResultReader:
       MessageReader:
