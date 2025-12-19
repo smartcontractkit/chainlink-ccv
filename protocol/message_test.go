@@ -360,7 +360,7 @@ func TestComputeCCVAndExecutorHash_VariableLengthAddresses(t *testing.T) {
 			name:          "empty_executor_address_invalid",
 			ccvAddresses:  []UnknownAddress{},
 			executorAddr:  []byte{},
-			expectedErr:   "executor address cannot be empty",
+			expectedErr:   "executor address length cannot be 0",
 			expectSuccess: false,
 		},
 	}
