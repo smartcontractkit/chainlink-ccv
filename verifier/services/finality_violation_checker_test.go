@@ -4,36 +4,35 @@ import (
 	"context"
 	"math/big"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 // MockSourceReaderSetup contains a mock source Reader and its Channel.
 // This follows the same pattern as verifier.MockSourceReaderSetup but is local to this package.
 type MockSourceReaderSetup struct {
-	Reader  *protocol_mocks.MockSourceReader
+	Reader  *mocks.MockSourceReader
 	Channel chan protocol.MessageSentEvent
 }
 
 // setupMockSourceReaderForFinality creates a mock source Reader with configurable block headers.
 func setupMockSourceReaderForFinality(t *testing.T, blocks map[uint64]protocol.BlockHeader) *MockSourceReaderSetup {
-	mockReader := protocol_mocks.NewMockSourceReader(t)
+	mockReader := mocks.NewMockSourceReader(t)
 	channel := make(chan protocol.MessageSentEvent, 10)
 
-	now := time.Now().Unix()
+	//now := time.Now().Unix()
 
-	mockReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(now), nil).Maybe()
+	//mockReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(now), nil).Maybe()
 	mockReader.EXPECT().GetRMNCursedSubjects(mock.Anything).Return(nil, nil).Maybe()
 	mockReader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(nil, nil, nil).Maybe()
 	mockReader.EXPECT().FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
-	mockReader.EXPECT().GetBlockHeaderByHash(mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+	//mockReader.EXPECT().GetBlockHeaderByHash(mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 
 	// Mock GetBlocksHeaders to return headers from the provided blocks map
 	mockReader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).RunAndReturn(
