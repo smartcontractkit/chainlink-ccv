@@ -2,6 +2,8 @@ package services_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"testing"
 
@@ -16,15 +18,41 @@ import (
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 )
 
+// generateTestSigningKey generates a deterministic signing key for testing.
+func generateTestSigningKey(committeeName string, nodeIndex int) (privateKey string, publicKey string, err error) {
+	preImage := fmt.Sprintf("dev-private-key-%s-%d-12345678901234567890", committeeName, nodeIndex)
+	hash := sha256.Sum256([]byte(preImage))
+	privateKey = hex.EncodeToString(hash[:])
+
+	pk, err := commit.ReadPrivateKeyFromString(privateKey)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to load private key: %w", err)
+	}
+	_, pubKey, err := commit.NewECDSAMessageSigner(pk)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to create message signer: %w", err)
+	}
+	publicKey = pubKey.String()
+	return privateKey, publicKey, nil
+}
+
 func TestServiceAggregator(t *testing.T) {
+	committeeName := "default"
+	privateKey, publicKey, err := generateTestSigningKey(committeeName, 0)
+	require.NoError(t, err)
+
 	out, err := services.NewAggregator(&services.AggregatorInput{
-		CommitteeName:  "default",
+		CommitteeName:  committeeName,
 		Image:          "aggregator:dev",
 		HostPort:       8103,
 		SourceCodePath: "../../../aggregator",
 		RootPath:       "../../../../",
+		CommitteeVerifierResolverProxyAddresses: map[uint64]string{
+			12922642891491394802: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
+		},
 		DB: &services.AggregatorDBInput{
 			Image:    "postgres:16-alpine",
 			HostPort: 7432,
@@ -45,10 +73,12 @@ func TestServiceAggregator(t *testing.T) {
 			APIKeysJSON:   `{"clients":{"test-key":{"clientId":"test","enabled":true,"groups":[],"secrets":{"primary":"test-secret"}}}}`,
 		},
 	}, []*services.VerifierInput{{
-		SourceCodePath: "../../../verifier",
-		RootPath:       "../../../../",
-		CommitteeName:  "default",
-		NodeIndex:      0,
+		SourceCodePath:   "../../../verifier",
+		RootPath:         "../../../../",
+		CommitteeName:    committeeName,
+		NodeIndex:        0,
+		SigningKey:       privateKey,
+		SigningKeyPublic: publicKey,
 	}})
 	require.NoError(t, err)
 	t.Run("test #1", func(t *testing.T) {
@@ -61,12 +91,19 @@ func TestServiceAggregator(t *testing.T) {
 // This test requires a real network connection (not bufconn) because the
 // anonymous auth middleware validates peer IP addresses.
 func TestAggregatorAuthentication(t *testing.T) {
+	committeeName := "auth-test"
+	privateKey, publicKey, err := generateTestSigningKey(committeeName, 0)
+	require.NoError(t, err)
+
 	out, err := services.NewAggregator(&services.AggregatorInput{
-		CommitteeName:  "auth-test",
+		CommitteeName:  committeeName,
 		Image:          "aggregator:dev",
 		HostPort:       8104,
 		SourceCodePath: "../../../aggregator",
 		RootPath:       "../../../../",
+		CommitteeVerifierResolverProxyAddresses: map[uint64]string{
+			12922642891491394802: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
+		},
 		DB: &services.AggregatorDBInput{
 			Image:    "postgres:16-alpine",
 			HostPort: 7433,
@@ -87,10 +124,12 @@ func TestAggregatorAuthentication(t *testing.T) {
 			APIKeysJSON:   `{"clients":{"test-key":{"clientId":"test","enabled":true,"groups":[],"secrets":{"primary":"test-secret"}}}}`,
 		},
 	}, []*services.VerifierInput{{
-		SourceCodePath: "../../../verifier",
-		RootPath:       "../../../../",
-		CommitteeName:  "auth-test",
-		NodeIndex:      0,
+		SourceCodePath:   "../../../verifier",
+		RootPath:         "../../../../",
+		CommitteeName:    committeeName,
+		NodeIndex:        0,
+		SigningKey:       privateKey,
+		SigningKeyPublic: publicKey,
 	}})
 	require.NoError(t, err)
 	require.NotNil(t, out)
