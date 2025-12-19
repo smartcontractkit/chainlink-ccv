@@ -70,7 +70,7 @@ func configWithDefaults(lggr logger.Logger, config CoordinatorConfig) (int, time
 
 	retryDelay := config.StorageRetryDelay
 	if retryDelay <= 0 {
-		retryDelay = 5 * time.Second
+		retryDelay = 2 * time.Second
 		lggr.Debugw("Using default StorageRetryDelay", "value", retryDelay)
 	}
 

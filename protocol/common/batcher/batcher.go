@@ -15,8 +15,8 @@ type Batcher[T any] struct {
 	outCh   chan<- BatchResult[T]
 
 	mu          sync.Mutex
-	buffer      []T
 	timer       *time.Timer
+	buffer      []T
 	retryBuffer []retryItem[T]
 
 	ctx context.Context
@@ -104,8 +104,9 @@ func (b *Batcher[T]) Add(item T) error {
 
 // Retry schedules items to be retried after the specified delay.
 // The items will be moved to the main buffer after the delay expires.
-// This method is thread-safe and non-blocking.
-func (b *Batcher[T]) Retry(delay time.Duration, items []T) error {
+// This method is thread-safe and non-blocking. Keep in mind that minDelay is approximate,
+// because the actual retry processing depends on the background goroutine's timing.
+func (b *Batcher[T]) Retry(minDelay time.Duration, items []T) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -116,14 +117,13 @@ func (b *Batcher[T]) Retry(delay time.Duration, items []T) error {
 	default:
 	}
 
-	retryTime := time.Now().Add(delay)
+	retryTime := time.Now().Add(minDelay)
 	for _, item := range items {
 		b.retryBuffer = append(b.retryBuffer, retryItem[T]{
 			item:      item,
 			retryTime: retryTime,
 		})
 	}
-
 	return nil
 }
 
@@ -133,6 +133,7 @@ func (b *Batcher[T]) run() {
 	defer close(b.outCh) // Signal completion by closing output channel
 
 	// Ticker to periodically check for retry items that are ready
+	// Make it longer than maxWait to avoid excessive wake-ups
 	retryTicker := time.NewTicker(b.maxWait * 2)
 	defer retryTicker.Stop()
 
@@ -158,7 +159,7 @@ func (b *Batcher[T]) run() {
 	}
 }
 
-// processRetryBufferLocked moves items from retry buffer to main buffer if their retry time has elapsed.
+// processRetryBufferLocked moves items from retryBuffer to main buffer if their retry time has elapsed.
 // Must be called with lock held.
 func (b *Batcher[T]) processRetryBufferLocked() {
 	if len(b.retryBuffer) == 0 {
