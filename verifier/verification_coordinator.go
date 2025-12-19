@@ -156,7 +156,7 @@ func createSourceReaders(lggr logger.Logger, config CoordinatorConfig, chainStat
 			chainSelector,
 			chainStatusManager,
 			readerLogger,
-			sourceCfg.PollInterval,
+			sourceCfg,
 			curseDetector,
 			filter,
 			monitoring.Metrics(),

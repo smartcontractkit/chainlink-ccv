@@ -342,7 +342,6 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 }
 
 func Test_CCTPMessages_RetryingAttestation(t *testing.T) {
-	t.Skip("CCIP-8514 Coordinator doesn't support retries yet")
 	ts := newTestSetup(t)
 	t.Cleanup(ts.cleanup)
 
@@ -352,6 +351,7 @@ func Test_CCTPMessages_RetryingAttestation(t *testing.T) {
 		if requestCounter.Load() >= 2 {
 			_, err := w.Write([]byte(cctpAttestation1))
 			require.NoError(t, err)
+			return
 		}
 
 		_, err := w.Write([]byte(cctpAttestationPending1))
@@ -425,7 +425,7 @@ func Test_CCTPMessages_RetryingAttestation(t *testing.T) {
 			return false
 		}
 		return len(results) == 1
-	}, waitTimeout(t), 500*time.Millisecond, "waiting for messages to land in ccv storage")
+	}, waitTimeout(t), 200*time.Millisecond, "waiting for messages to land in ccv storage")
 
 	assertResultMatchesMessage(t, results[msg.MessageID], msg, ccvData, testCCVAddr, destVerifier)
 }
@@ -469,7 +469,7 @@ func createCCTPCoordinator(
 	return verifier.NewCoordinator(
 		ts.ctx,
 		ts.logger,
-		cctp.NewVerifier(ts.logger, attestationService),
+		cctp.NewVerifierWithConfig(ts.logger, attestationService, 100*time.Millisecond, 100*time.Millisecond),
 		sourceReaders,
 		ccvWriter,
 		config,

@@ -332,12 +332,16 @@ func newTestSRS(
 		chainSelector,
 		chainStatusMgr,
 		lggr,
-		pollInterval,
+		SourceConfig{PollInterval: pollInterval},
 		curseDetector,
 		&noopFilter{},
 		&noopMetricLabeler{},
 	)
 	require.NoError(t, err)
+
+	srs.readyTasksBatcher = batcher.NewBatcher[VerificationTask](
+		t.Context(), 1, 100*time.Millisecond, srs.readyTasksCh,
+	)
 
 	// Override the internal finalityChecker with a mock.
 	mockFC := protocol_mocks.NewMockFinalityViolationChecker(t)
