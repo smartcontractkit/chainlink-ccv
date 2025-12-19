@@ -9,8 +9,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/internal/aggregation_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
@@ -59,9 +59,9 @@ func TestBatchWriteCommitCCVNodeDataHandler_BatchSizeValidation(t *testing.T) {
 			t.Parallel()
 
 			lggr := logger.TestSugared(t)
-			store := aggregation_mocks.NewMockCommitVerificationStore(t)
-			agg := aggregation_mocks.NewMockAggregationTriggerer(t)
-			sig := aggregation_mocks.NewMockSignatureValidator(t)
+			store := mocks.NewMockCommitVerificationStore(t)
+			agg := mocks.NewMockAggregationTriggerer(t)
+			sig := mocks.NewMockSignatureValidator(t)
 
 			signer := &model.SignerIdentifier{Identifier: []byte{0xAA}}
 
@@ -104,13 +104,13 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 	t.Parallel()
 
 	lggr := logger.TestSugared(t)
-	store := aggregation_mocks.NewMockCommitVerificationStore(t)
-	agg := aggregation_mocks.NewMockAggregationTriggerer(t)
+	store := mocks.NewMockCommitVerificationStore(t)
+	agg := mocks.NewMockAggregationTriggerer(t)
 
 	signer := &model.SignerIdentifier{
 		Identifier: []byte{0xAA},
 	}
-	sig := aggregation_mocks.NewMockSignatureValidator(t)
+	sig := mocks.NewMockSignatureValidator(t)
 	sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(&model.SignatureValidationResult{
 		Signer: signer,
 	}, nil)
