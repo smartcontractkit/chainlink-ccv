@@ -11,11 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/executor_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	icommon "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -106,7 +106,7 @@ func TestConstructor(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := executor.NewCoordinator(tc.args.lggr, tc.args.exec, tc.args.sub, tc.args.le, tc.args.mon, 8*time.Hour, common.NewMockTimeProvider(t), 100)
+			_, err := executor.NewCoordinator(tc.args.lggr, tc.args.exec, tc.args.sub, tc.args.le, tc.args.mon, 8*time.Hour, mocks.NewMockTimeProvider(t), 100)
 
 			if tc.expectErr {
 				require.Error(t, err)
@@ -133,7 +133,7 @@ func TestLifecycle(t *testing.T) {
 		executor_mocks.NewMockLeaderElector(t),
 		monitoring.NewNoopExecutorMonitoring(),
 		8*time.Hour,
-		common.NewMockTimeProvider(t),
+		mocks.NewMockTimeProvider(t),
 		100,
 	)
 	require.NoError(t, err)
@@ -152,7 +152,7 @@ func TestSubscribeMessagesError(t *testing.T) {
 	messageSubscriber := executor_mocks.NewMockMessageSubscriber(t)
 	sentinelError := fmt.Errorf("lilo & stitch")
 	messageSubscriber.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything).Return(sentinelError)
-	timeProvider := common.NewMockTimeProvider(t)
+	timeProvider := mocks.NewMockTimeProvider(t)
 	timeProvider.EXPECT().GetTime().Return(time.Now().UTC()).Maybe()
 
 	mockExecutor := executor_mocks.NewMockExecutor(t)
@@ -199,7 +199,7 @@ func TestStopNotRunning(t *testing.T) {
 		executor_mocks.NewMockLeaderElector(t),
 		monitoring.NewNoopExecutorMonitoring(),
 		8*time.Hour,
-		common.NewMockTimeProvider(t),
+		mocks.NewMockTimeProvider(t),
 		100,
 	)
 	require.NoError(t, err)
@@ -298,7 +298,7 @@ func TestMessageExpiration(t *testing.T) {
 			lggr, hook := logger.TestObserved(t, zapcore.InfoLevel)
 
 			currentTime := time.Now().UTC()
-			mockTimeProvider := common.NewMockTimeProvider(t)
+			mockTimeProvider := mocks.NewMockTimeProvider(t)
 			mockTimeProvider.EXPECT().GetTime().Return(currentTime.Add(tc.mockedTimeDifference)).Maybe()
 
 			// Create a test message

@@ -26,13 +26,13 @@ func setupMockSourceReaderForFinality(t *testing.T, blocks map[uint64]protocol.B
 	mockReader := mocks.NewMockSourceReader(t)
 	channel := make(chan protocol.MessageSentEvent, 10)
 
-	//now := time.Now().Unix()
+	// now := time.Now().Unix()
 
-	//mockReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(now), nil).Maybe()
+	// mockReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(now), nil).Maybe()
 	mockReader.EXPECT().GetRMNCursedSubjects(mock.Anything).Return(nil, nil).Maybe()
 	mockReader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(nil, nil, nil).Maybe()
 	mockReader.EXPECT().FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
-	//mockReader.EXPECT().GetBlockHeaderByHash(mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+	// mockReader.EXPECT().GetBlockHeaderByHash(mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 
 	// Mock GetBlocksHeaders to return headers from the provided blocks map
 	mockReader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).RunAndReturn(
