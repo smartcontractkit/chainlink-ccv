@@ -1,6 +1,0 @@
-with-expecter: true
-
-dir: ./internal/executor_mocks
-outpkg: executor_mocks
-
-packages:
