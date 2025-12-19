@@ -9,8 +9,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	ccv_common "github.com/smartcontractkit/chainlink-ccv/common"
-
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
@@ -25,8 +24,8 @@ type curseTestSetup struct {
 	ctx                context.Context
 	cancel             context.CancelFunc
 	coordinator        *Coordinator
-	mockSourceReader   *protocol_mocks.MockSourceReader
-	mockCurseChecker   *ccv_common.MockCurseCheckerService
+	mockSourceReader   *mocks.MockSourceReader
+	mockCurseChecker   *mocks.MockCurseCheckerService
 	chainStatusManager *protocol_mocks.MockChainStatusManager
 	testVerifier       *TestVerifier
 	storage            *common.InMemoryOffchainStorage
@@ -69,7 +68,7 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 	testVer := NewTestVerifier()
 
 	// Create mock curse detector
-	mockCurseDetector := ccv_common.NewMockCurseCheckerService(t)
+	mockCurseDetector := mocks.NewMockCurseCheckerService(t)
 
 	// Setup default behavior: no curses initially
 	mockCurseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
