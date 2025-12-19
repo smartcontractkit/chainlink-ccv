@@ -8,14 +8,16 @@ import (
 
 // Batcher accumulates items and flushes them in batches based on size or time thresholds.
 // It maintains insertion order (FIFO) within batches and is thread-safe.
+// The batcher also supports delayed retries of failed items via the Retry method.
 type Batcher[T any] struct {
 	maxSize int
 	maxWait time.Duration
 	outCh   chan<- BatchResult[T]
 
-	mu     sync.Mutex
-	buffer []T
-	timer  *time.Timer
+	mu          sync.Mutex
+	buffer      []T
+	timer       *time.Timer
+	retryBuffer []retryItem[T]
 
 	ctx context.Context
 	wg  sync.WaitGroup
@@ -39,6 +41,12 @@ type BatchResult[T any] struct {
 	Items []T
 	// Error indicates a batch-level error during batch creation/fetching
 	Error error
+}
+
+// retryItem holds an item to be retried along with the time it should be retried.
+type retryItem[T any] struct {
+	item      T
+	retryTime time.Time
 }
 
 // NewBatcher creates a new Batcher instance.
@@ -94,10 +102,39 @@ func (b *Batcher[T]) Add(item T) error {
 	return nil
 }
 
-// run is the background goroutine that handles time-based flushing.
+// Retry schedules items to be retried after the specified delay.
+// The items will be moved to the main buffer after the delay expires.
+// This method is thread-safe and non-blocking.
+func (b *Batcher[T]) Retry(delay time.Duration, items []T) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	// Check if context is canceled
+	select {
+	case <-b.ctx.Done():
+		return b.ctx.Err()
+	default:
+	}
+
+	retryTime := time.Now().Add(delay)
+	for _, item := range items {
+		b.retryBuffer = append(b.retryBuffer, retryItem[T]{
+			item:      item,
+			retryTime: retryTime,
+		})
+	}
+
+	return nil
+}
+
+// run is the background goroutine that handles time-based flushing and retry processing.
 func (b *Batcher[T]) run() {
 	defer b.wg.Done()
 	defer close(b.outCh) // Signal completion by closing output channel
+
+	// Ticker to periodically check for retry items that are ready
+	retryTicker := time.NewTicker(b.maxWait * 2)
+	defer retryTicker.Stop()
 
 	for {
 		select {
@@ -112,8 +149,46 @@ func (b *Batcher[T]) run() {
 			b.mu.Lock()
 			b.flushLocked()
 			b.mu.Unlock()
+		case <-retryTicker.C:
+			// Check for retry items that are ready
+			b.mu.Lock()
+			b.processRetryBufferLocked()
+			b.mu.Unlock()
 		}
 	}
+}
+
+// processRetryBufferLocked moves items from retry buffer to main buffer if their retry time has elapsed.
+// Must be called with lock held.
+func (b *Batcher[T]) processRetryBufferLocked() {
+	if len(b.retryBuffer) == 0 {
+		return
+	}
+
+	now := time.Now()
+	remainingRetries := make([]retryItem[T], 0, len(b.retryBuffer))
+
+	for _, retry := range b.retryBuffer {
+		if now.After(retry.retryTime) || now.Equal(retry.retryTime) {
+			// Retry time has elapsed, move to main buffer
+			b.buffer = append(b.buffer, retry.item)
+
+			// Reset timer if this is the first item in buffer
+			if len(b.buffer) == 1 {
+				b.timer.Reset(b.maxWait)
+			}
+		} else {
+			// Not ready yet, keep in retry buffer
+			remainingRetries = append(remainingRetries, retry)
+		}
+	}
+
+	// Flush if we've reached max size
+	if len(b.buffer) >= b.maxSize {
+		b.flushLocked()
+	}
+
+	b.retryBuffer = remainingRetries
 }
 
 // flushLocked sends the current buffer as a batch. Must be called with lock held.

@@ -20,6 +20,7 @@ type StorageWriterProcessor struct {
 	verifierID     string
 	messageTracker MessageLatencyTracker
 
+	retryDelay       time.Duration
 	storage          protocol.CCVNodeDataWriter
 	batcher          *batcher.Batcher[protocol.VerifierNodeResult]
 	batchedCCVDataCh chan batcher.BatchResult[protocol.VerifierNodeResult]
@@ -33,7 +34,7 @@ func NewStorageBatcherProcessor(
 	storage protocol.CCVNodeDataWriter,
 	config CoordinatorConfig,
 ) (*StorageWriterProcessor, *batcher.Batcher[protocol.VerifierNodeResult], error) {
-	storageBatchSize, storageBatchTimeout := configWithDefaults(lggr, config)
+	storageBatchSize, storageBatchTimeout, retryDelay := configWithDefaults(lggr, config)
 	batchedCCVDataCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult])
 	storageBatcher := batcher.NewBatcher(
 		ctx,
@@ -49,11 +50,12 @@ func NewStorageBatcherProcessor(
 		storage:          storage,
 		batcher:          storageBatcher,
 		batchedCCVDataCh: batchedCCVDataCh,
+		retryDelay:       retryDelay,
 	}
 	return processor, storageBatcher, nil
 }
 
-func configWithDefaults(lggr logger.Logger, config CoordinatorConfig) (int, time.Duration) {
+func configWithDefaults(lggr logger.Logger, config CoordinatorConfig) (int, time.Duration, time.Duration) {
 	storageBatchSize := config.StorageBatchSize
 	if config.StorageBatchSize <= 0 {
 		storageBatchSize = 50
@@ -66,7 +68,13 @@ func configWithDefaults(lggr logger.Logger, config CoordinatorConfig) (int, time
 		lggr.Debugw("Using default StorageBatchTimeout", "value", config.StorageBatchTimeout)
 	}
 
-	return storageBatchSize, storageBatchTimeout
+	retryDelay := config.StorageRetryDelay
+	if retryDelay <= 0 {
+		retryDelay = 5 * time.Second
+		lggr.Debugw("Using default StorageRetryDelay", "value", retryDelay)
+	}
+
+	return storageBatchSize, storageBatchTimeout, retryDelay
 }
 
 func (s *StorageWriterProcessor) Start(ctx context.Context) error {
@@ -93,7 +101,6 @@ func (s *StorageWriterProcessor) run(ctx context.Context) {
 		case batch, ok := <-s.batchedCCVDataCh:
 			if !ok {
 				s.lggr.Infow("Storage batcher channel closed")
-				s.wg.Wait()
 				return
 			}
 
@@ -110,14 +117,28 @@ func (s *StorageWriterProcessor) run(ctx context.Context) {
 				continue
 			}
 
-			// TODO: Run in Go Routine
 			// Write batch of CCVData to offchain storage
-			if err := s.storage.WriteCCVNodeData(ctx, batch.Items); err == nil {
-				s.lggr.Infow("CCV data batch stored successfully",
+			if err := s.storage.WriteCCVNodeData(ctx, batch.Items); err != nil {
+				s.lggr.Errorw("Failed to write CCV data batch to storage, scheduling retry",
+					"error", err,
 					"batchSize", len(batch.Items),
+					"retryDelay", s.retryDelay,
 				)
-				s.messageTracker.TrackMessageLatencies(ctx, batch.Items)
+
+				// Retry the failed batch after configured delay
+				if retryErr := s.batcher.Retry(s.retryDelay, batch.Items); retryErr != nil {
+					s.lggr.Errorw("Failed to schedule retry for CCV data batch",
+						"error", retryErr,
+						"batchSize", len(batch.Items),
+					)
+				}
+				continue
 			}
+
+			s.lggr.Infow("CCV data batch stored successfully",
+				"batchSize", len(batch.Items),
+			)
+			s.messageTracker.TrackMessageLatencies(ctx, batch.Items)
 		}
 	}
 }

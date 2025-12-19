@@ -180,7 +180,6 @@ func main() {
 	lggr.Infow("Token verifier service stopped gracefully")
 }
 
-//nolint:dupl
 func createCCTPCoordinator(
 	ctx context.Context,
 	verifierID string,
@@ -224,7 +223,6 @@ func createCCTPCoordinator(
 	return cctpCoordinator
 }
 
-//nolint:dupl
 func createLBTCCoordinator(
 	ctx context.Context,
 	verifierID string,
@@ -255,6 +253,7 @@ func createLBTCCoordinator(
 			SourceConfigs:       sourceConfigs,
 			StorageBatchSize:    50,
 			StorageBatchTimeout: 100 * time.Millisecond,
+			StorageRetryDelay:   2 * time.Second,
 			CursePollInterval:   2 * time.Second,
 		},
 		messageTracker,

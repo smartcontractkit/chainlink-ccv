@@ -172,6 +172,7 @@ func main() {
 		SourceConfigs:       sourceConfigs,
 		StorageBatchSize:    50,
 		StorageBatchTimeout: 100 * time.Millisecond,
+		StorageRetryDelay:   2 * time.Second,
 		CursePollInterval:   2 * time.Second, // Poll RMN Remotes for curse status every 2s
 	}
 
