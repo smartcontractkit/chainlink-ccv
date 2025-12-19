@@ -50,7 +50,7 @@ type testSetup struct {
 	cancel             context.CancelFunc
 	logger             logger.Logger
 	storage            *common.InMemoryOffchainStorage
-	chainStatusManager *protocol_mocks.MockChainStatusManager
+	chainStatusManager *mocks.MockChainStatusManager
 	signerAddr         protocol.UnknownAddress
 	signer             verifier.MessageSigner
 }
@@ -83,7 +83,7 @@ func newTestSetup(t *testing.T) *testSetup {
 	lggr := logger.Test(t)
 	storage := common.NewInMemoryOffchainStorage(lggr)
 	signer, addr := createTestSigner(t)
-	chainStatusManager := protocol_mocks.NewMockChainStatusManager(t)
+	chainStatusManager := mocks.NewMockChainStatusManager(t)
 	chainStatusManager.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).Return(nil, nil)
 	chainStatusManager.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).Return(nil).Maybe()
 
