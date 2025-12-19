@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -32,12 +31,12 @@ type OrphanedKey struct {
 // CommitVerificationRecordIdentifier uniquely identifies a commit verification record.
 type CommitVerificationRecordIdentifier struct {
 	MessageID MessageID
-	Address   []byte
+	Address   protocol.ByteSlice
 }
 
 // ToIdentifier converts the CommitVerificationRecordIdentifier to a string identifier.
 func (c CommitVerificationRecordIdentifier) ToIdentifier() string {
-	return fmt.Sprintf("%x:%x", c.MessageID, hex.EncodeToString(c.Address))
+	return fmt.Sprintf("%x:%x", c.MessageID, c.Address)
 }
 
 // CommitVerificationRecord represents a record of a commit verification.

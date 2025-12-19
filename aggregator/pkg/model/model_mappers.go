@@ -123,8 +123,13 @@ func MapAggregatedReportToVerifierResultProto(report *CommitAggregatedReport, c 
 		ccvAddresses[i] = addr.Bytes()
 	}
 
+	protoMsg := report.GetProtoMessage()
+	if protoMsg == nil {
+		return nil, fmt.Errorf("failed to convert message to proto format")
+	}
+
 	return &verifierpb.VerifierResult{
-		Message:                report.GetProtoMessage(),
+		Message:                protoMsg,
 		MessageCcvAddresses:    ccvAddresses,
 		MessageExecutorAddress: report.GetMessageExecutorAddress().Bytes(),
 		CcvData:                ccvData,
@@ -170,7 +175,7 @@ func CommitVerificationRecordFromProto(proto *committeepb.CommitteeVerifierNodeR
 }
 
 // CommitVerificationRecordToProto converts domain model to protobuf CommitteeVerifierNodeResult.
-func CommitVerificationRecordToProto(record *CommitVerificationRecord) *committeepb.CommitteeVerifierNodeResult {
+func CommitVerificationRecordToProto(record *CommitVerificationRecord) (*committeepb.CommitteeVerifierNodeResult, error) {
 	// Convert []protocol.UnknownAddress to [][]byte
 	ccvAddresses := make([][]byte, len(record.MessageCCVAddresses))
 	for i, addr := range record.MessageCCVAddresses {
@@ -185,8 +190,12 @@ func CommitVerificationRecordToProto(record *CommitVerificationRecord) *committe
 	}
 
 	if record.Message != nil {
-		proto.Message = ccvcommon.MapProtocolMessageToProtoMessage(record.Message)
+		msg, err := ccvcommon.MapProtocolMessageToProtoMessage(record.Message)
+		if err != nil {
+			return nil, fmt.Errorf("failed to map protocol message to proto: %w", err)
+		}
+		proto.Message = msg
 	}
 
-	return proto
+	return proto, nil
 }

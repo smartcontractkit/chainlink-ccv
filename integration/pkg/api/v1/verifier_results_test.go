@@ -673,25 +673,28 @@ func TestVerifierResultsResponse_ToVerifierResults_HandlesNilResults(t *testing.
 					nil, // First message not found
 					{
 						Message: &v1.Message{
-							Version:             1,
-							SourceChainSelector: 100,
-							DestChainSelector:   200,
-							SequenceNumber:      42,
-							OnRampAddress:       []byte{0x01, 0x02, 0x03},
-							OffRampAddress:      []byte{0x04, 0x05, 0x06},
-							Finality:            10,
-							ExecutionGasLimit:   200000,
-							CcipReceiveGasLimit: 150000,
-							CcvAndExecutorHash:  make([]byte, 32),
-							Sender:              []byte{0x07, 0x08, 0x09},
-							Receiver:            []byte{0x0a, 0x0b, 0x0c},
-							DestBlob:            []byte{0x0d, 0x0e},
-							Data:                []byte{0x10, 0x11},
-							OnRampAddressLength: 3,
-							SenderLength:        3,
-							ReceiverLength:      3,
-							DestBlobLength:      2,
-							DataLength:          2,
+							Version:              1,
+							SourceChainSelector:  100,
+							DestChainSelector:    200,
+							SequenceNumber:       42,
+							OnRampAddress:        []byte{0x01, 0x02, 0x03},
+							OffRampAddress:       []byte{0x04, 0x05, 0x06},
+							Finality:             10,
+							ExecutionGasLimit:    200000,
+							CcipReceiveGasLimit:  150000,
+							CcvAndExecutorHash:   make([]byte, 32),
+							Sender:               []byte{0x07, 0x08, 0x09},
+							Receiver:             []byte{0x0a, 0x0b, 0x0c},
+							DestBlob:             []byte{0x0d, 0x0e},
+							Data:                 []byte{0x10, 0x11},
+							TokenTransfer:        []byte{},
+							OnRampAddressLength:  3,
+							OffRampAddressLength: 3,
+							SenderLength:         3,
+							ReceiverLength:       3,
+							DestBlobLength:       2,
+							DataLength:           2,
+							TokenTransferLength:  0,
 						},
 						MessageCcvAddresses:    [][]byte{{0x13, 0x14, 0x15}},
 						MessageExecutorAddress: []byte{0x16, 0x17, 0x18},
@@ -777,7 +780,8 @@ func TestVerifierResultMessage_RoundTrip(t *testing.T) {
 			require.NoError(t, err)
 
 			// Step 2: Convert protocol.Message to VerifierResultMessage
-			verifierResultMsg := NewVerifierResultMessage(*tt.message)
+			verifierResultMsg, err := NewVerifierResultMessage(*tt.message)
+			require.NoError(t, err)
 			require.NotNil(t, verifierResultMsg.Message)
 
 			// Step 3: Convert back to protocol.Message
@@ -1021,7 +1025,8 @@ func TestVerifierResult_RoundTrip(t *testing.T) {
 			originalID := tt.verifierResult.MessageID
 
 			// Step 2: Convert protocol.VerifierResult to VerifierResult
-			verifierResult := NewVerifierResult(tt.verifierResult)
+			verifierResult, err := NewVerifierResult(tt.verifierResult)
+			require.NoError(t, err)
 			require.NotNil(t, verifierResult.VerifierResult)
 
 			// Step 3: Convert back to protocol.VerifierResult

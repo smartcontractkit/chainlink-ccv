@@ -67,7 +67,7 @@ func (q *EVMQuorumValidator) CheckQuorum(ctx context.Context, aggregatedReport *
 			return false, fmt.Errorf("verification hash mismatch: possible data tampering detected")
 		}
 		validSignerCount++
-		signerAddressesSet[string(result.Signer.Identifier)] = struct{}{}
+		signerAddressesSet[result.Signer.Identifier.String()] = struct{}{}
 	}
 
 	if len(signerAddressesSet) < int(quorumConfig.Threshold) {

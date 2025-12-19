@@ -26,12 +26,12 @@ type commitVerificationRecordRow struct {
 }
 
 func rowToCommitVerificationRecord(row *commitVerificationRecordRow) (*model.CommitVerificationRecord, error) {
-	messageID, err := protocol.HexDecode(row.MessageID)
+	messageID, err := protocol.NewByteSliceFromHex(row.MessageID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode message_id: %w", err)
 	}
 
-	signerIdentifierBytes, err := protocol.HexDecode(row.SignerIdentifier)
+	signerIdentifierBytes, err := protocol.NewByteSliceFromHex(row.SignerIdentifier)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode signer_identifier: %w", err)
 	}
@@ -89,8 +89,8 @@ func recordToInsertParams(record *model.CommitVerificationRecord, aggregationKey
 		return nil, fmt.Errorf("record.SignerIdentifier cannot be nil")
 	}
 
-	messageIDHex := protocol.HexEncode(record.MessageID)
-	signerIdentifierHex := protocol.HexEncode(record.SignerIdentifier.Identifier)
+	messageIDHex := protocol.ByteSlice(record.MessageID).String()
+	signerIdentifierHex := record.SignerIdentifier.Identifier.String()
 
 	messageDataJSON, err := json.Marshal(record.Message)
 	if err != nil {

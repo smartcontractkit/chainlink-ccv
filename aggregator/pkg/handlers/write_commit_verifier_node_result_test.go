@@ -22,7 +22,10 @@ import (
 
 func makeValidProtoRequest() *committeepb.WriteCommitteeVerifierNodeResultRequest {
 	msg := makeTestMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.SequenceNumber(1), []byte{})
-	pbMsg := ccvcommon.MapProtocolMessageToProtoMessage(msg)
+	pbMsg, err := ccvcommon.MapProtocolMessageToProtoMessage(msg)
+	if err != nil {
+		panic(err)
+	}
 	return &committeepb.WriteCommitteeVerifierNodeResultRequest{
 		CommitteeVerifierNodeResult: &committeepb.CommitteeVerifierNodeResult{
 			Signature:       []byte("signature_bytes"),

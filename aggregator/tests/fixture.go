@@ -191,7 +191,9 @@ func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVe
 
 	var tokenTransferBytes []byte
 	if message.TokenTransfer != nil {
-		tokenTransferBytes = message.TokenTransfer.Encode()
+		var err error
+		tokenTransferBytes, err = message.TokenTransfer.Encode()
+		require.NoError(t, err, "failed to encode token transfer")
 	}
 
 	ccvNodeData := &committeepb.CommitteeVerifierNodeResult{

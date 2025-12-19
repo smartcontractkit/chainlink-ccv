@@ -19,7 +19,7 @@ type Signer struct {
 
 // SignerIdentifier holds the chain-native signer identifier.
 type SignerIdentifier struct {
-	Identifier []byte
+	Identifier protocol.ByteSlice
 }
 
 // DestinationSelector represents a destination chain selector as a string.

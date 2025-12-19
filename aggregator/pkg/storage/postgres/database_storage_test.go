@@ -140,7 +140,9 @@ func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *t
 			TokenTransferLength:  uint32(message.TokenTransferLength),
 			TokenTransfer: func() []byte {
 				if message.TokenTransfer != nil {
-					return message.TokenTransfer.Encode()
+					encoded, err := message.TokenTransfer.Encode()
+					require.NoError(t, err)
+					return encoded
 				}
 				return []byte{}
 			}(),
@@ -263,7 +265,7 @@ func TestSaveCommitVerification_HappyPath(t *testing.T) {
 	msgWithCCV := createTestMessageWithCCV(t, message, signer)
 	record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
 
-	aggregationKey := protocol.HexEncode(getMessageIDFromProto(t, msgWithCCV))
+	aggregationKey := protocol.ByteSlice(getMessageIDFromProto(t, msgWithCCV)).String()
 
 	err := storage.SaveCommitVerification(ctx, record, aggregationKey)
 	require.NoError(t, err)
@@ -297,7 +299,7 @@ func TestSaveCommitVerification_Idempotency(t *testing.T) {
 	message := createTestProtocolMessage()
 	msgWithCCV := createTestMessageWithCCV(t, message, signer)
 	record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
-	aggregationKey := protocol.HexEncode(getMessageIDFromProto(t, msgWithCCV))
+	aggregationKey := protocol.ByteSlice(getMessageIDFromProto(t, msgWithCCV)).String()
 
 	err := storage.SaveCommitVerification(ctx, record, aggregationKey)
 	require.NoError(t, err)
@@ -331,7 +333,7 @@ func TestGetCommitVerification_NotFound(t *testing.T) {
 
 	id := model.CommitVerificationRecordIdentifier{
 		MessageID: []byte("nonexistent"),
-		Address:   []byte("address"),
+		Address:   protocol.ByteSlice([]byte("address")),
 	}
 
 	_, err := storage.GetCommitVerification(ctx, id)
@@ -347,7 +349,7 @@ func TestGetCommitVerification_MultipleVersions(t *testing.T) {
 	signer := newTestSigner(t)
 	message := createTestProtocolMessage()
 	msgWithCCV := createTestMessageWithCCV(t, message, signer)
-	aggregationKey := protocol.HexEncode(getMessageIDFromProto(t, msgWithCCV))
+	aggregationKey := protocol.ByteSlice(getMessageIDFromProto(t, msgWithCCV)).String()
 
 	record1 := createTestCommitVerificationRecord(t, msgWithCCV, signer)
 	err := storage.SaveCommitVerification(ctx, record1, aggregationKey)
@@ -381,7 +383,7 @@ func TestListCommitVerificationByAggregationKey(t *testing.T) {
 
 	msgWithCCV1 := createTestMessageWithCCV(t, message, signer1)
 	messageID := getMessageIDFromProto(t, msgWithCCV1)
-	aggregationKey := protocol.HexEncode(messageID)
+	aggregationKey := protocol.ByteSlice(messageID).String()
 
 	record1 := createTestCommitVerificationRecord(t, msgWithCCV1, signer1)
 	err := storage.SaveCommitVerification(ctx, record1, aggregationKey)
@@ -510,7 +512,7 @@ func TestQueryAggregatedReports_Pagination(t *testing.T) {
 		message.SequenceNumber = protocol.SequenceNumber(i)
 		msgWithCCV := createTestMessageWithCCV(t, message, signer)
 		messageID := getMessageIDFromProto(t, msgWithCCV)
-		aggregationKey := protocol.HexEncode(messageID)
+		aggregationKey := protocol.ByteSlice(messageID).String()
 		record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
 
 		err := storage.SaveCommitVerification(ctx, record, aggregationKey)
@@ -558,7 +560,7 @@ func TestGetCCVData_Found(t *testing.T) {
 	message := createTestProtocolMessage()
 	msgWithCCV := createTestMessageWithCCV(t, message, signer)
 	messageID := getMessageIDFromProto(t, msgWithCCV)
-	aggregationKey := protocol.HexEncode(messageID)
+	aggregationKey := protocol.ByteSlice(messageID).String()
 	record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
 
 	err := storage.SaveCommitVerification(ctx, record, aggregationKey)
@@ -600,7 +602,7 @@ func TestSubmitReport_HappyPath(t *testing.T) {
 	message := createTestProtocolMessage()
 	msgWithCCV := createTestMessageWithCCV(t, message, signer)
 	messageID := getMessageIDFromProto(t, msgWithCCV)
-	aggregationKey := protocol.HexEncode(messageID)
+	aggregationKey := protocol.ByteSlice(messageID).String()
 	record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
 
 	err := storage.SaveCommitVerification(ctx, record, aggregationKey)
@@ -631,7 +633,7 @@ func TestSubmitReport_DuplicateHandling(t *testing.T) {
 	message := createTestProtocolMessage()
 	msgWithCCV := createTestMessageWithCCV(t, message, signer)
 	messageID := getMessageIDFromProto(t, msgWithCCV)
-	aggregationKey := protocol.HexEncode(messageID)
+	aggregationKey := protocol.ByteSlice(messageID).String()
 	record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
 
 	err := storage.SaveCommitVerification(ctx, record, aggregationKey)
@@ -666,7 +668,7 @@ func TestListOrphanedKeys(t *testing.T) {
 	message1.SequenceNumber = 1
 	msgWithCCV1 := createTestMessageWithCCV(t, message1, signer)
 	messageID1 := getMessageIDFromProto(t, msgWithCCV1)
-	aggregationKey1 := protocol.HexEncode(messageID1)
+	aggregationKey1 := protocol.ByteSlice(messageID1).String()
 	orphanRecord := createTestCommitVerificationRecord(t, msgWithCCV1, signer)
 	err := storage.SaveCommitVerification(ctx, orphanRecord, aggregationKey1)
 	require.NoError(t, err)
@@ -679,7 +681,7 @@ func TestListOrphanedKeys(t *testing.T) {
 	message2.SequenceNumber = 2
 	msgWithCCV2 := createTestMessageWithCCV(t, message2, signer)
 	messageID2 := getMessageIDFromProto(t, msgWithCCV2)
-	aggregationKey2 := protocol.HexEncode(messageID2)
+	aggregationKey2 := protocol.ByteSlice(messageID2).String()
 	aggregatedRecord := createTestCommitVerificationRecord(t, msgWithCCV2, signer)
 	err = storage.SaveCommitVerification(ctx, aggregatedRecord, aggregationKey2)
 	require.NoError(t, err)
@@ -747,7 +749,7 @@ func TestListOrphanedKeys_FiltersRecordsOlderThanCutoff(t *testing.T) {
 		message.SequenceNumber = protocol.SequenceNumber(i + 1)
 		msgWithCCV := createTestMessageWithCCV(t, message, signer)
 		messageID := getMessageIDFromProto(t, msgWithCCV)
-		aggregationKey := protocol.HexEncode(messageID)
+		aggregationKey := protocol.ByteSlice(messageID).String()
 		record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
 		err := storage.SaveCommitVerification(ctx, record, aggregationKey)
 		require.NoError(t, err)
@@ -763,7 +765,7 @@ func TestListOrphanedKeys_FiltersRecordsOlderThanCutoff(t *testing.T) {
 		_, err := ds.ExecContext(ctx,
 			"UPDATE commit_verification_records SET created_at = $1 WHERE message_id = $2",
 			twoHoursAgo,
-			protocol.HexEncode(orphans[i].messageID),
+			protocol.ByteSlice(orphans[i].messageID).String(),
 		)
 		require.NoError(t, err)
 	}
@@ -801,7 +803,7 @@ func TestBatchOperations_MultipleSigners(t *testing.T) {
 	for _, signer := range signers {
 		msgWithCCV := createTestMessageWithCCV(t, message, signer)
 		messageID = getMessageIDFromProto(t, msgWithCCV)
-		aggregationKey := protocol.HexEncode(messageID)
+		aggregationKey := protocol.ByteSlice(messageID).String()
 		record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
 		err := storage.SaveCommitVerification(ctx, record, aggregationKey)
 		require.NoError(t, err)
@@ -864,7 +866,7 @@ func TestQueryAggregatedReports_SinceSequence(t *testing.T) {
 		message := createTestProtocolMessage()
 		message.SequenceNumber = protocol.SequenceNumber(i)
 		msgWithCCV := createTestMessageWithCCV(t, message, signer)
-		aggregationKey := protocol.HexEncode(getMessageIDFromProto(t, msgWithCCV))
+		aggregationKey := protocol.ByteSlice(getMessageIDFromProto(t, msgWithCCV)).String()
 		record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
 
 		err := storage.SaveCommitVerification(ctx, record, aggregationKey)

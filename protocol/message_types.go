@@ -725,7 +725,7 @@ func NewMessage(
 // Format: addressLength(1 byte) || ccv1 || ccv2 || ... || executor.
 //
 // The address length is derived dynamically from the executor address, allowing for
-// chain-agnostic operation (e.g., 20 bytes for EVM, different lengths for other VMs).
+// chain-agnostic operation (e.g., 20 bytes for EVM, different lengths for other chains).
 // All CCV addresses must have the same length as the executor address.
 func ComputeCCVAndExecutorHash(ccvAddresses []UnknownAddress, executorAddress UnknownAddress) (Bytes32, error) {
 	if len(ccvAddresses) > MaxCCVsPerMessage {
@@ -734,7 +734,7 @@ func ComputeCCVAndExecutorHash(ccvAddresses []UnknownAddress, executorAddress Un
 
 	addressLength := len(executorAddress)
 	if addressLength == 0 {
-		return Bytes32{}, fmt.Errorf("executor address cannot be empty")
+		return Bytes32{}, fmt.Errorf("executor address length cannot be 0")
 	}
 
 	for i, ccvAddr := range ccvAddresses {

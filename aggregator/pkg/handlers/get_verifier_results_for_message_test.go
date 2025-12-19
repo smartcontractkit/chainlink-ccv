@@ -67,8 +67,8 @@ func TestGetBatchCCVDataForMessageHandler_MixedResults(t *testing.T) {
 	report2 := makeAggregatedReport(m2WithWrongDest, m2ID[:], signerAddr)
 
 	store.EXPECT().GetBatchAggregatedReportByMessageIDs(mock.Anything, mock.Anything).Return(map[string]*model.CommitAggregatedReport{
-		protocol.HexEncode(m1ID[:]): report1,
-		protocol.HexEncode(m2ID[:]): report2, // will map error
+		protocol.ByteSlice(m1ID[:]).String(): report1,
+		protocol.ByteSlice(m2ID[:]).String(): report2, // will map error
 	}, nil)
 
 	resp, err := h.Handle(context.Background(), &verifierpb.GetVerifierResultsForMessageRequest{MessageIds: [][]byte{

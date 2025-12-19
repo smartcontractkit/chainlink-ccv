@@ -60,7 +60,7 @@ func (h *GetVerifierResultsForMessageHandler) Handle(ctx context.Context, req *v
 
 	// Process each message ID in order to maintain index correspondence
 	for i, messageID := range req.GetMessageIds() {
-		messageIDHex := protocol.HexEncode(messageID)
+		messageIDHex := protocol.ByteSlice(messageID).String()
 
 		if report, found := results[messageIDHex]; found {
 			// Get quorum config and validate source verifier is in ccvAddresses

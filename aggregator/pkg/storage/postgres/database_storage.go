@@ -140,8 +140,8 @@ func (d *DatabaseStorage) GetCommitVerification(ctx context.Context, id model.Co
 		WHERE message_id = $1 AND signer_identifier = $2
 		ORDER BY seq_num DESC LIMIT 1`, allVerificationRecordColumns)
 
-	messageIDHex := protocol.HexEncode(id.MessageID)
-	signerIdentifierHex := protocol.HexEncode(id.Address)
+	messageIDHex := protocol.ByteSlice(id.MessageID).String()
+	signerIdentifierHex := id.Address.String()
 
 	var row commitVerificationRecordRow
 	err := d.ds.GetContext(ctx, &row, stmt, messageIDHex, signerIdentifierHex)
@@ -166,7 +166,7 @@ func (d *DatabaseStorage) ListCommitVerificationByAggregationKey(ctx context.Con
 		WHERE message_id = $1 AND aggregation_key = $2
 		ORDER BY signer_identifier, seq_num DESC`, allVerificationRecordColumns)
 
-	messageIDHex := protocol.HexEncode(messageID)
+	messageIDHex := protocol.ByteSlice(messageID).String()
 
 	var rows []commitVerificationRecordRow
 	err := d.ds.SelectContext(ctx, &rows, stmt, messageIDHex, aggregationKey)
@@ -247,7 +247,7 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 
 		_, exists := reportsMap[reportKey]
 		if !exists {
-			msgID, _ := protocol.HexDecode(messageIDReport)
+			msgID, _ := protocol.NewByteSliceFromHex(messageIDReport)
 			reportsMap[reportKey] = &model.CommitAggregatedReport{
 				MessageID:     msgID,
 				Verifications: []*model.CommitVerificationRecord{},
@@ -302,7 +302,7 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 }
 
 func (d *DatabaseStorage) GetCommitAggregatedReportByMessageID(ctx context.Context, messageID model.MessageID) (*model.CommitAggregatedReport, error) {
-	messageIDHex := protocol.HexEncode(messageID)
+	messageIDHex := protocol.ByteSlice(messageID).String()
 
 	stmt := fmt.Sprintf(`
         SELECT 
@@ -355,7 +355,7 @@ func (d *DatabaseStorage) GetCommitAggregatedReportByMessageID(ctx context.Conte
 		}
 
 		if report == nil {
-			msgID, _ := protocol.HexDecode(messageIDReport)
+			msgID, _ := protocol.NewByteSliceFromHex(messageIDReport)
 			report = &model.CommitAggregatedReport{
 				MessageID:     msgID,
 				Verifications: []*model.CommitVerificationRecord{},
@@ -395,7 +395,7 @@ func (d *DatabaseStorage) GetBatchAggregatedReportByMessageIDs(ctx context.Conte
 
 	messageIDHexValues := make([]string, len(messageIDs))
 	for i, messageID := range messageIDs {
-		messageIDHexValues[i] = protocol.HexEncode(messageID)
+		messageIDHexValues[i] = protocol.ByteSlice(messageID).String()
 	}
 
 	placeholders := make([]string, len(messageIDHexValues))
@@ -456,7 +456,7 @@ func (d *DatabaseStorage) GetBatchAggregatedReportByMessageIDs(ctx context.Conte
 
 		_, exists := reports[messageIDReport]
 		if !exists {
-			messageIDBytes, _ := protocol.HexDecode(messageIDReport)
+			messageIDBytes, _ := protocol.NewByteSliceFromHex(messageIDReport)
 			reports[messageIDReport] = &model.CommitAggregatedReport{
 				MessageID:     messageIDBytes,
 				Verifications: []*model.CommitVerificationRecord{},
@@ -494,11 +494,11 @@ func (d *DatabaseStorage) SubmitAggregatedReport(ctx context.Context, report *mo
 	}
 
 	verificationRecordIDs := make([]int64, 0, len(report.Verifications))
-	messageIDHex := protocol.HexEncode(report.MessageID)
+	messageIDHex := protocol.ByteSlice(report.MessageID).String()
 
 	signerIdentifiers := make([]string, 0, len(report.Verifications))
 	for _, verification := range report.Verifications {
-		signerIdentifierHex := protocol.HexEncode(verification.SignerIdentifier.Identifier)
+		signerIdentifierHex := verification.SignerIdentifier.Identifier.String()
 		signerIdentifiers = append(signerIdentifiers, signerIdentifierHex)
 	}
 
@@ -508,7 +508,7 @@ func (d *DatabaseStorage) SubmitAggregatedReport(ctx context.Context, report *mo
 	}
 
 	for _, verification := range report.Verifications {
-		signerIdentifierHex := protocol.HexEncode(verification.SignerIdentifier.Identifier)
+		signerIdentifierHex := verification.SignerIdentifier.Identifier.String()
 		recordID, exists := recordIDsMap[signerIdentifierHex]
 		if !exists {
 			return fmt.Errorf("failed to find verification record ID for signer %s", signerIdentifierHex)
@@ -592,7 +592,7 @@ func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context, newerThan time.T
 				return
 			}
 
-			messageID, _ := protocol.HexDecode(result.MessageID)
+			messageID, _ := protocol.NewByteSliceFromHex(result.MessageID)
 
 			select {
 			case orphanedKeyCh <- model.OrphanedKey{

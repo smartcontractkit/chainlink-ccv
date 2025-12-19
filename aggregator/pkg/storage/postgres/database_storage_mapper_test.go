@@ -43,7 +43,7 @@ func TestRecordToInsertParams(t *testing.T) {
 		CCVVersion: []byte("ccv_version"),
 		Signature:  []byte("signature_data"),
 		SignerIdentifier: &model.SignerIdentifier{
-			Identifier: signerAddr.Bytes(),
+			Identifier: protocol.ByteSlice(signerAddr.Bytes()),
 		},
 	}
 	record.SetTimestampFromMillis(time.Now().UnixMilli())
@@ -52,8 +52,8 @@ func TestRecordToInsertParams(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, params)
 
-	require.Equal(t, protocol.HexEncode(messageID), params["message_id"])
-	require.Equal(t, protocol.HexEncode(signerAddr.Bytes()), params["signer_identifier"])
+	require.Equal(t, protocol.ByteSlice(messageID).String(), params["message_id"])
+	require.Equal(t, protocol.ByteSlice(signerAddr.Bytes()).String(), params["signer_identifier"])
 	require.Equal(t, "aggregation_key_1", params["aggregation_key"])
 
 	messageDataJSON, ok := params["message_data"].([]byte)
@@ -128,9 +128,9 @@ func TestRowToCommitVerificationRecord(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, record)
 
-	expectedMsgID, _ := protocol.HexDecode(messageIDHex)
-	require.Equal(t, expectedMsgID, record.MessageID)
-	expectedSignerID, _ := protocol.HexDecode(signerIdentifier)
+	expectedMsgID, _ := protocol.NewByteSliceFromHex(messageIDHex)
+	require.Equal(t, []byte(expectedMsgID), record.MessageID)
+	expectedSignerID, _ := protocol.NewByteSliceFromHex(signerIdentifier)
 	require.Equal(t, expectedSignerID, record.SignerIdentifier.Identifier)
 
 	require.NotNil(t, record.Message)
