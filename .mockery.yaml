@@ -24,3 +24,7 @@ packages:
       HeadTracker:
       SourceReader:
       RMNCurseReader:
+
+  github.com/smartcontractkit/chainlink-ccv/executor:
+    interfaces:
+      MessageReader:

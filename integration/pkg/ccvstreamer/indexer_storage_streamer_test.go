@@ -8,8 +8,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	icommon "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
-	imocks "github.com/smartcontractkit/chainlink-ccv/integration/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -23,7 +22,7 @@ func TestNoReader(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	messageChan := make(chan icommon.MessageWithMetadata)
+	messageChan := make(chan common.MessageWithMetadata)
 	errorsChan := make(chan error)
 	go func() {
 		defer close(messageChan)
@@ -36,7 +35,7 @@ func TestNoReader(t *testing.T) {
 
 func TestOffchainStorageStreamerLifecycle(t *testing.T) {
 	lggr := logger.Test(t)
-	reader := imocks.MockMessageReader{}
+	reader := mocks.MockMessageReader{}
 	reader.EXPECT().ReadMessages(mock.Anything, mock.Anything).Return(nil, nil)
 	oss := ccvstreamer.NewIndexerStorageStreamer(lggr, ccvstreamer.IndexerStorageConfig{
 		IndexerClient:   &reader,
@@ -50,7 +49,7 @@ func TestOffchainStorageStreamerLifecycle(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	messageChan := make(chan icommon.MessageWithMetadata)
+	messageChan := make(chan common.MessageWithMetadata)
 	errorsChan := make(chan error)
 	go func() {
 		defer close(messageChan)
