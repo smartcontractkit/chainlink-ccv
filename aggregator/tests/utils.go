@@ -260,6 +260,9 @@ func createSimpleHMACClientInterceptor(config *hmacutil.ClientConfig) grpc.Unary
 }
 
 func setupPostgresStorage(t *testing.T, existingConfig *model.StorageConfig) (*model.StorageConfig, func(), error) {
+	if testing.Short() {
+		t.Skip("skipping docker test in short mode")
+	}
 	// Start PostgreSQL testcontainer
 	postgresContainer, err := postgres.Run(t.Context(),
 		"postgres:15-alpine",

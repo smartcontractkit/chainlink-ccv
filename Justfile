@@ -54,9 +54,9 @@ mod-download: ensure-go
 test: ensure-go
     gomods -w go test -fullpath -shuffle on -v -race ./...
 
-test-coverage coverage_file="coverage.out":
+test-coverage coverage_file="coverage.out" short="":
     # coverage_file := env_var_or_default('COVERAGE_FILE', 'coverage.out')
-    go test -v -race -fullpath -shuffle on -v -coverprofile={{coverage_file}} ./...
+    go test -v -race -fullpath -shuffle on {{ if short != "" { "-short" } else { "" } }} -v -coverprofile={{coverage_file}} ./...
     # Filter mockery-generated files (mock_*.go) from coverage profile
     { head -n1 {{coverage_file}}; tail -n +2 {{coverage_file}} | grep -v -E '{{COVERAGE_EXCLUDE_REGEX}}' || true; } > {{coverage_file}}.filtered
     mv {{coverage_file}}.filtered {{coverage_file}}
