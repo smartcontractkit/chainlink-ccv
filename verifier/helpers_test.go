@@ -13,7 +13,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	ccv_common "github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -83,18 +83,15 @@ func CreateTestMessage(t *testing.T, sequenceNumber protocol.SequenceNumber, sou
 
 // MockSourceReaderSetup contains a mock source Reader and its Channel.
 type MockSourceReaderSetup struct {
-	Reader  *protocol_mocks.MockSourceReader
+	Reader  *mocks.MockSourceReader
 	Channel chan protocol.MessageSentEvent
 }
 
 // SetupMockSourceReader creates a mock source Reader with expectations.
 func SetupMockSourceReader(t *testing.T) *MockSourceReaderSetup {
-	mockReader := protocol_mocks.NewMockSourceReader(t)
+	mockReader := mocks.NewMockSourceReader(t)
 	channel := make(chan protocol.MessageSentEvent, 10)
 
-	now := time.Now().Unix()
-
-	mockReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(now), nil).Maybe()
 	mockReader.EXPECT().GetRMNCursedSubjects(mock.Anything).Return(nil, nil).Maybe()
 
 	// Mock GetBlocksHeaders to return proper block headers for the reorg detector
@@ -318,9 +315,9 @@ func (n *noopFilter) Filter(msg protocol.MessageSentEvent) bool {
 func newTestSRS(
 	t *testing.T,
 	chainSelector protocol.ChainSelector,
-	reader *protocol_mocks.MockSourceReader,
+	reader *mocks.MockSourceReader,
 	chainStatusMgr protocol.ChainStatusManager,
-	curseDetector *ccv_common.MockCurseCheckerService,
+	curseDetector *mocks.MockCurseCheckerService,
 	pollInterval time.Duration,
 ) (*SourceReaderService, *protocol_mocks.MockFinalityViolationChecker) {
 	t.Helper()
