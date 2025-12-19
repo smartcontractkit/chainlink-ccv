@@ -9,10 +9,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	ccv_common "github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-
-	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 )
 
 // ----------------------
@@ -24,7 +22,7 @@ func TestSRS_FetchesAndQueuesMessages(t *testing.T) {
 	chain := protocol.ChainSelector(1337)
 
 	// Mock source readerService
-	reader := protocol_mocks.NewMockSourceReader(t)
+	reader := mocks.NewMockSourceReader(t)
 
 	latest := &protocol.BlockHeader{
 		Number:     110,
@@ -53,7 +51,7 @@ func TestSRS_FetchesAndQueuesMessages(t *testing.T) {
 		Return(events, nil)
 
 	// ChainStatusManager: we don't care here, just satisfy constructor + write calls.
-	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 	// For initializeStartBlock: no prior status => fallback, but we override lastProcessed manually
 	chainStatusMgr.EXPECT().
 		ReadChainStatuses(mock.Anything, mock.Anything).
@@ -65,7 +63,7 @@ func TestSRS_FetchesAndQueuesMessages(t *testing.T) {
 		Maybe()
 
 	// Curse detector: no curses
-	curseDetector := ccv_common.NewMockCurseCheckerService(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
 	curseDetector.EXPECT().
 		IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).
 		Return(false).
@@ -109,7 +107,7 @@ func TestSRS_DeduplicatesByMessageID(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
 
-	reader := protocol_mocks.NewMockSourceReader(t)
+	reader := mocks.NewMockSourceReader(t)
 
 	latest := &protocol.BlockHeader{Number: 105}
 	finalized := &protocol.BlockHeader{Number: 100}
@@ -127,7 +125,7 @@ func TestSRS_DeduplicatesByMessageID(t *testing.T) {
 		FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).
 		Return(events, nil)
 
-	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 	chainStatusMgr.EXPECT().
 		ReadChainStatuses(mock.Anything, mock.Anything).
 		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{}, nil).
@@ -137,7 +135,7 @@ func TestSRS_DeduplicatesByMessageID(t *testing.T) {
 		Return(nil).
 		Maybe()
 
-	curseDetector := ccv_common.NewMockCurseCheckerService(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
 	curseDetector.EXPECT().
 		IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).
 		Return(false).
@@ -170,11 +168,11 @@ func TestSRS_DeduplicatesByMessageID(t *testing.T) {
 
 func TestSRS_Reorg_DropsMissingPendingAndSent(t *testing.T) {
 	chain := protocol.ChainSelector(1337)
-	reader := protocol_mocks.NewMockSourceReader(t)
+	reader := mocks.NewMockSourceReader(t)
 
 	// Minimal mocks – these tests don't call LatestAndFinalizedBlock/Fetch directly.
-	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
-	curseDetector := ccv_common.NewMockCurseCheckerService(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
 	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
@@ -232,10 +230,10 @@ func TestSRS_Reorg_DropsMissingPendingAndSent(t *testing.T) {
 func TestSRS_Curse_DropsAtSendTime(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
-	reader := protocol_mocks.NewMockSourceReader(t)
-	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
+	reader := mocks.NewMockSourceReader(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 
-	curseDetector := ccv_common.NewMockCurseCheckerService(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
 	// All lanes cursed for this test
 	curseDetector.EXPECT().
 		IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).
@@ -287,7 +285,7 @@ func TestSRS_Curse_DropsAtSendTime(t *testing.T) {
 func TestSRS_Readiness_DefaultFinality_ReadyWhenBelowFinalized(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
-	reader := protocol_mocks.NewMockSourceReader(t)
+	reader := mocks.NewMockSourceReader(t)
 
 	latest := &protocol.BlockHeader{Number: 1000}
 	finalized := &protocol.BlockHeader{Number: 950}
@@ -297,7 +295,7 @@ func TestSRS_Readiness_DefaultFinality_ReadyWhenBelowFinalized(t *testing.T) {
 		Return(latest, finalized, nil).
 		Maybe()
 
-	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 	chainStatusMgr.EXPECT().
 		ReadChainStatuses(mock.Anything, mock.Anything).
 		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{}, nil).
@@ -307,7 +305,7 @@ func TestSRS_Readiness_DefaultFinality_ReadyWhenBelowFinalized(t *testing.T) {
 		Return(nil).
 		Maybe()
 
-	curseDetector := ccv_common.NewMockCurseCheckerService(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
 	curseDetector.EXPECT().
 		IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).
 		Return(false).
@@ -370,7 +368,7 @@ func TestSRS_Readiness_DefaultFinality_ReadyWhenBelowFinalized(t *testing.T) {
 func TestSRS_Readiness_CustomFinality_ReadyAgainstLatest(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
-	reader := protocol_mocks.NewMockSourceReader(t)
+	reader := mocks.NewMockSourceReader(t)
 
 	latest := &protocol.BlockHeader{Number: 1000}
 	finalized := &protocol.BlockHeader{Number: 950}
@@ -380,7 +378,7 @@ func TestSRS_Readiness_CustomFinality_ReadyAgainstLatest(t *testing.T) {
 		Return(latest, finalized, nil).
 		Maybe()
 
-	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 	chainStatusMgr.EXPECT().
 		ReadChainStatuses(mock.Anything, mock.Anything).
 		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{}, nil).
@@ -390,7 +388,7 @@ func TestSRS_Readiness_CustomFinality_ReadyAgainstLatest(t *testing.T) {
 		Return(nil).
 		Maybe()
 
-	curseDetector := ccv_common.NewMockCurseCheckerService(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
 	curseDetector.EXPECT().
 		IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).
 		Return(false).
@@ -437,9 +435,9 @@ func TestSRS_Readiness_CustomFinality_ReadyAgainstLatest(t *testing.T) {
 
 func TestSRS_isMessageReadyForVerification(t *testing.T) {
 	chain := protocol.ChainSelector(1337)
-	reader := protocol_mocks.NewMockSourceReader(t)
-	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
-	curseDetector := ccv_common.NewMockCurseCheckerService(t)
+	reader := mocks.NewMockSourceReader(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
 	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
@@ -583,7 +581,7 @@ func TestSRS_isMessageReadyForVerification(t *testing.T) {
 func TestSRS_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
-	reader := protocol_mocks.NewMockSourceReader(t)
+	reader := mocks.NewMockSourceReader(t)
 
 	latest := &protocol.BlockHeader{Number: 1000}
 	finalized := &protocol.BlockHeader{Number: 950}
@@ -593,7 +591,7 @@ func TestSRS_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 		Return(latest, finalized, nil).
 		Maybe()
 
-	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 	chainStatusMgr.EXPECT().
 		ReadChainStatuses(mock.Anything, mock.Anything).
 		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{}, nil).
@@ -609,7 +607,7 @@ func TestSRS_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 		}).
 		Maybe()
 
-	curseDetector := ccv_common.NewMockCurseCheckerService(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
 	curseDetector.EXPECT().
 		IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).
 		Return(false).
@@ -662,10 +660,10 @@ func TestSRS_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 func TestSRS_ChainStatus_MonotonicUpdates(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
-	reader := protocol_mocks.NewMockSourceReader(t)
+	reader := mocks.NewMockSourceReader(t)
 
 	// We won't use readerService here
-	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 
 	// ReadChainStatuses for initializeStartBlock
 	chainStatusMgr.EXPECT().
@@ -692,7 +690,7 @@ func TestSRS_ChainStatus_MonotonicUpdates(t *testing.T) {
 		}).
 		Times(2)
 
-	curseDetector := ccv_common.NewMockCurseCheckerService(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
 	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
@@ -724,10 +722,10 @@ func TestSRS_ChainStatus_MonotonicUpdates(t *testing.T) {
 
 func TestSRS_Reorg_TracksSequenceNumbers(t *testing.T) {
 	chain := protocol.ChainSelector(1337)
-	reader := protocol_mocks.NewMockSourceReader(t)
+	reader := mocks.NewMockSourceReader(t)
 
-	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
-	curseDetector := ccv_common.NewMockCurseCheckerService(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
 	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
@@ -775,10 +773,10 @@ func TestSRS_Reorg_TracksSequenceNumbers(t *testing.T) {
 
 func TestSRS_Reorg_TracksSentTasksSequenceNumbers(t *testing.T) {
 	chain := protocol.ChainSelector(1337)
-	reader := protocol_mocks.NewMockSourceReader(t)
+	reader := mocks.NewMockSourceReader(t)
 
-	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
-	curseDetector := ccv_common.NewMockCurseCheckerService(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
 	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
@@ -817,9 +815,9 @@ func TestSRS_Reorg_TracksSentTasksSequenceNumbers(t *testing.T) {
 
 func TestSRS_ReorgedMessage_CustomFinality_WaitsForFinalization(t *testing.T) {
 	chain := protocol.ChainSelector(1337)
-	reader := protocol_mocks.NewMockSourceReader(t)
-	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
-	curseDetector := ccv_common.NewMockCurseCheckerService(t)
+	reader := mocks.NewMockSourceReader(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
 	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
@@ -863,9 +861,9 @@ func TestSRS_ReorgedMessage_CustomFinality_WaitsForFinalization(t *testing.T) {
 
 func TestSRS_NonReorgedMessage_UsesCustomFinality(t *testing.T) {
 	chain := protocol.ChainSelector(1337)
-	reader := protocol_mocks.NewMockSourceReader(t)
-	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
-	curseDetector := ccv_common.NewMockCurseCheckerService(t)
+	reader := mocks.NewMockSourceReader(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
 	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
@@ -904,9 +902,9 @@ func TestSRS_ReorgedMessage_DifferentDest_UsesCustomFinality(t *testing.T) {
 	chain := protocol.ChainSelector(1337)
 	dest1 := protocol.ChainSelector(100)
 	dest2 := protocol.ChainSelector(200)
-	reader := protocol_mocks.NewMockSourceReader(t)
-	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
-	curseDetector := ccv_common.NewMockCurseCheckerService(t)
+	reader := mocks.NewMockSourceReader(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
 	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
@@ -945,9 +943,9 @@ func TestSRS_ReorgedMessage_DifferentDest_UsesCustomFinality(t *testing.T) {
 func TestSRS_ReorgTracker_RemovedAfterFinalization(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
-	reader := protocol_mocks.NewMockSourceReader(t)
-	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
-	curseDetector := ccv_common.NewMockCurseCheckerService(t)
+	reader := mocks.NewMockSourceReader(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
 	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
