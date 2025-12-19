@@ -24,7 +24,7 @@ func TestBatcher_RetryBasic(t *testing.T) {
 	itemsToRetry := []int{1, 2, 3}
 	retryDelay := 50 * time.Millisecond
 
-	err := batcher.Retry(retryDelay, itemsToRetry)
+	err := batcher.Retry(retryDelay, itemsToRetry...)
 	require.NoError(t, err)
 
 	// Items should be retried after the delay
@@ -59,7 +59,7 @@ func TestBatcher_RetryWithSizeBasedFlush(t *testing.T) {
 	itemsToRetry := []int{10, 20, 30, 40, 50}
 	retryDelay := 50 * time.Millisecond
 
-	err := batcher.Retry(retryDelay, itemsToRetry)
+	err := batcher.Retry(retryDelay, itemsToRetry...)
 	require.NoError(t, err)
 
 	// Wait for retry delay and processing time (retry ticker is 2*maxWait = 100ms)
@@ -100,7 +100,7 @@ func TestBatcher_RetryMixedWithAdd(t *testing.T) {
 	retryItems := []int{4, 5, 6}
 	retryDelay := 50 * time.Millisecond
 
-	err := batcher.Retry(retryDelay, retryItems)
+	err := batcher.Retry(retryDelay, retryItems...)
 	require.NoError(t, err)
 
 	// First batch: immediate items should flush after maxWait
@@ -140,14 +140,14 @@ func TestBatcher_RetryMultipleBatchesWithDifferentDelays(t *testing.T) {
 	firstRetry := []int{1, 2}
 	firstDelay := 100 * time.Millisecond
 
-	err := batcher.Retry(firstDelay, firstRetry)
+	err := batcher.Retry(firstDelay, firstRetry...)
 	require.NoError(t, err)
 
 	// Schedule second retry batch with longer delay
 	secondRetry := []int{3, 4}
 	secondDelay := 300 * time.Millisecond
 
-	err = batcher.Retry(secondDelay, secondRetry)
+	err = batcher.Retry(secondDelay, secondRetry...)
 	require.NoError(t, err)
 
 	// Wait for first retry to be processed (retry ticker is 2*maxWait = 100ms)
@@ -195,7 +195,7 @@ func TestBatcher_RetryPreservesOrder(t *testing.T) {
 	retryItems := []int{5, 3, 9, 1, 7}
 	retryDelay := 50 * time.Millisecond
 
-	err := batcher.Retry(retryDelay, retryItems)
+	err := batcher.Retry(retryDelay, retryItems...)
 	require.NoError(t, err)
 
 	// Wait for retry to be processed (retry ticker is 2*maxWait = 200ms)
@@ -229,7 +229,7 @@ func TestBatcher_RetryWithContextCancellation(t *testing.T) {
 	retryItems := []int{1, 2, 3}
 	retryDelay := 5 * time.Second
 
-	err := batcher.Retry(retryDelay, retryItems)
+	err := batcher.Retry(retryDelay, retryItems...)
 	require.NoError(t, err)
 
 	// Cancel context before retry delay expires
@@ -252,7 +252,7 @@ func TestBatcher_RetryWithContextCancellation(t *testing.T) {
 	}
 
 	// Further retry calls should fail
-	err = batcher.Retry(100*time.Millisecond, []int{99})
+	err = batcher.Retry(100*time.Millisecond, 99)
 	require.Error(t, err)
 	require.Equal(t, context.Canceled, err)
 
@@ -271,7 +271,7 @@ func TestBatcher_RetryEmptySlice(t *testing.T) {
 	batcher := NewBatcher(ctx, maxSize, maxWait, outCh)
 
 	// Retry empty slice should not cause issues
-	err := batcher.Retry(50*time.Millisecond, []int{})
+	err := batcher.Retry(50 * time.Millisecond)
 	require.NoError(t, err)
 
 	// Wait a bit
@@ -303,7 +303,7 @@ func TestBatcher_RetryZeroDelay(t *testing.T) {
 	// Retry with zero delay - should be processed on next retry ticker
 	retryItems := []int{1, 2, 3}
 
-	err := batcher.Retry(0, retryItems)
+	err := batcher.Retry(0, retryItems...)
 	require.NoError(t, err)
 
 	// Wait for retry processing (retry ticker is 2*maxWait = 100ms)
@@ -344,7 +344,7 @@ func TestBatcher_ConcurrentRetries(t *testing.T) {
 			for i := 0; i < itemsPerGoroutine; i++ {
 				items[i] = offset*itemsPerGoroutine + i
 			}
-			_ = batcher.Retry(50*time.Millisecond, items)
+			_ = batcher.Retry(50*time.Millisecond, items...)
 			done <- struct{}{}
 		}(g)
 	}

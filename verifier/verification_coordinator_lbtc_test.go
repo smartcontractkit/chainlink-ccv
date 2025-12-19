@@ -139,7 +139,6 @@ func Test_LBTCMessages_Success(t *testing.T) {
 }
 
 func Test_LBTCMessages_RetryingAttestation(t *testing.T) {
-	t.Skip("CCIP-8514 Coordinator doesn't support retries yet")
 	ts := newTestSetup(t)
 	t.Cleanup(ts.cleanup)
 
@@ -162,6 +161,7 @@ func Test_LBTCMessages_RetryingAttestation(t *testing.T) {
 		if requestCounter.Load() >= 2 {
 			_, err := w.Write([]byte(lbtcAttestation))
 			require.NoError(t, err)
+			return
 		}
 
 		_, err := w.Write([]byte(lbtcAttestationPending))
@@ -228,7 +228,7 @@ func Test_LBTCMessages_RetryingAttestation(t *testing.T) {
 			return false
 		}
 		return len(results) == 2
-	}, waitTimeout(t), 500*time.Millisecond, "waiting for messages to land in ccv storage")
+	}, waitTimeout(t), 200*time.Millisecond, "waiting for messages to land in ccv storage")
 
 	assertResultMatchesMessage(t, results[msg1.MessageID], msg1, ccvData1, testCCVAddr, destVerifier)
 	assertResultMatchesMessage(t, results[msg2.MessageID], msg2, ccvData2, testCCVAddr, destVerifier)
@@ -256,7 +256,7 @@ func createLBTCCoordinator(
 	return verifier.NewCoordinator(
 		ts.ctx,
 		ts.logger,
-		lbtc.NewVerifier(ts.logger, attestationService),
+		lbtc.NewVerifierWithConfig(ts.logger, attestationService, 100*time.Millisecond, 100*time.Millisecond),
 		sourceReaders,
 		ccvWriter,
 		config,

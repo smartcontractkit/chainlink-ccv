@@ -332,7 +332,7 @@ func newTestSRS(
 		chainSelector,
 		chainStatusMgr,
 		lggr,
-		pollInterval,
+		SourceConfig{PollInterval: pollInterval},
 		curseDetector,
 		&noopFilter{},
 		&noopMetricLabeler{},

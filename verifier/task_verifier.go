@@ -112,7 +112,7 @@ func (p *TaskVerifierProcessor) processReadyTasks(ctx context.Context, tasks []V
 	// TODO: Can parallelize chains
 	// Process each chain's tasks as a batch
 	for chainSelector, chainTasks := range tasksByChain {
-		_, ok := p.sourceReaders[chainSelector]
+		src, ok := p.sourceReaders[chainSelector]
 		if !ok {
 			p.lggr.Errorw("No source state found for finalized messages",
 				"chainSelector", chainSelector,
@@ -121,12 +121,12 @@ func (p *TaskVerifierProcessor) processReadyTasks(ctx context.Context, tasks []V
 		}
 
 		errorBatch := p.verifier.VerifyMessages(ctx, chainTasks, p.storageBatcher)
-		p.handleVerificationErrors(ctx, errorBatch, chainSelector, len(tasks))
+		p.handleVerificationErrors(ctx, src, errorBatch, chainSelector, len(tasks))
 	}
 }
 
 // handleVerificationErrors processes and logs errors from a verification batch.
-func (p *TaskVerifierProcessor) handleVerificationErrors(ctx context.Context, errorBatch batcher.BatchResult[VerificationError], chainSelector protocol.ChainSelector, totalTasks int) {
+func (p *TaskVerifierProcessor) handleVerificationErrors(ctx context.Context, src *SourceReaderService, errorBatch batcher.BatchResult[VerificationError], chainSelector protocol.ChainSelector, totalTasks int) {
 	if len(errorBatch.Items) <= 0 {
 		p.lggr.Debugw("Verification batch completed successfully",
 			"chainSelector", chainSelector,
@@ -143,7 +143,6 @@ func (p *TaskVerifierProcessor) handleVerificationErrors(ctx context.Context, er
 	for _, verificationError := range errorBatch.Items {
 		message := verificationError.Task.Message
 
-		// Record verification error metric
 		p.monitoring.Metrics().
 			With(
 				"source_chain", message.SourceChainSelector.String(),
@@ -161,6 +160,23 @@ func (p *TaskVerifierProcessor) handleVerificationErrors(ctx context.Context, er
 			"timestamp", verificationError.Timestamp,
 			"chainSelector", chainSelector,
 		)
+
+		if verificationError.Retriable {
+			err1 := src.readyTasksBatcher.Retry(
+				verificationError.DelayOrDefault(),
+				verificationError.Task,
+			)
+			if err1 != nil {
+				p.lggr.Errorw("Failed to re-queue message for verification retry",
+					"error", err1.Error(),
+					"messageID", verificationError.Task.MessageID,
+					"nonce", message.SequenceNumber,
+					"sourceChain", message.SourceChainSelector,
+					"destChain", message.DestChainSelector,
+					"chainSelector", chainSelector,
+				)
+			}
+		}
 	}
 }
 

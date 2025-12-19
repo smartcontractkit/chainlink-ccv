@@ -75,7 +75,7 @@ func NewBatcher[T any](ctx context.Context, maxSize int, maxWait time.Duration, 
 
 // Add adds an item to the batcher. It may trigger a flush if the batch size is reached.
 // This method is thread-safe and non-blocking.
-func (b *Batcher[T]) Add(item T) error {
+func (b *Batcher[T]) Add(item ...T) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -86,13 +86,13 @@ func (b *Batcher[T]) Add(item T) error {
 	default:
 	}
 
-	// Add item to buffer
-	b.buffer = append(b.buffer, item)
-
 	// Reset timer if this is the first item
-	if len(b.buffer) == 1 {
+	if len(b.buffer) == 0 {
 		b.timer.Reset(b.maxWait)
 	}
+
+	// Add item to buffer
+	b.buffer = append(b.buffer, item...)
 
 	// Flush if we've reached max size
 	if len(b.buffer) >= b.maxSize {
@@ -106,7 +106,7 @@ func (b *Batcher[T]) Add(item T) error {
 // The items will be moved to the main buffer after the delay expires.
 // This method is thread-safe and non-blocking. Keep in mind that minDelay is approximate,
 // because the actual retry processing depends on the background goroutine's timing.
-func (b *Batcher[T]) Retry(minDelay time.Duration, items []T) error {
+func (b *Batcher[T]) Retry(minDelay time.Duration, items ...T) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
