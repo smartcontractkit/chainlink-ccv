@@ -52,7 +52,7 @@ func makeAggregatedReport(msg *protocol.Message, msgID model.MessageID, sigAddr 
 
 	// Create a valid 84-byte signature (R:32 || S:32 || Signer:20)
 	signerAddr := common.HexToAddress(sigAddr)
-	signature := make([]byte, protocol.SingleEcdsaSignatureSize)
+	signature := make([]byte, protocol.SingleECDSASignatureSize)
 	// R must be non-zero (32 bytes)
 	for i := 0; i < 32; i++ {
 		signature[i] = byte(i + 1)

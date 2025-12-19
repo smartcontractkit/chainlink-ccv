@@ -363,7 +363,7 @@ func validateSignatures(t *assert.CollectT, ccvData []byte, messageId protocol.B
 	// Recover signer addresses from the aggregated signatures
 	hash, err := committee.NewSignableHash(messageId, ccvData)
 	require.NoError(t, err, "failed to create signed hash")
-	recoveredAddresses, err := protocol.RecoverEcdsaSigners(hash, rs, ss)
+	recoveredAddresses, err := protocol.RecoverECDSASigners(hash, rs, ss)
 	require.NoError(t, err, "failed to recover signer addresses")
 
 	// Create a map of expected signer addresses for easier lookup

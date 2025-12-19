@@ -170,7 +170,7 @@ func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *t
 		Signer: signerAddr,
 	}
 
-	signature, err := protocol.EncodeSingleEcdsaSignature(sigData)
+	signature, err := protocol.EncodeSingleECDSASignature(sigData)
 	require.NoError(t, err)
 
 	msgWithCCV.Signature = signature

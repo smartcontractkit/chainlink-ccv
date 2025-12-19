@@ -65,7 +65,7 @@ func (ecdsa *ECDSASigner) Sign(data []byte) ([]byte, error) {
 		Signer: signerAddress,
 	}
 
-	encodedSignature, err := protocol.EncodeSingleEcdsaSignature(signature)
+	encodedSignature, err := protocol.EncodeSingleECDSASignature(signature)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode signature: %w", err)
 	}
@@ -111,7 +111,7 @@ func (s *ECDSASignerWithKeystoreSigner) Sign(data []byte) ([]byte, error) {
 		Signer: addr,
 	}
 
-	encodedSignature, err := protocol.EncodeSingleEcdsaSignature(signature)
+	encodedSignature, err := protocol.EncodeSingleECDSASignature(signature)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode signature: %w", err)
 	}

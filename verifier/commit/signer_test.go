@@ -23,9 +23,9 @@ func TestECDSASigner_Sign(t *testing.T) {
 
 	signature, err := signer.Sign(hash)
 	require.NoError(t, err)
-	require.Len(t, signature, protocol.SingleEcdsaSignatureSize, "signature should be 84 bytes (32 R + 32 S + 20 Signer)")
+	require.Len(t, signature, protocol.SingleECDSASignatureSize, "signature should be 84 bytes (32 R + 32 S + 20 Signer)")
 
-	r, s, signerAddr, err := protocol.DecodeSingleEcdsaSignature(signature)
+	r, s, signerAddr, err := protocol.DecodeSingleECDSASignature(signature)
 	require.NoError(t, err)
 
 	expectedAddr := crypto.PubkeyToAddress(privateKey.PublicKey)
@@ -124,9 +124,9 @@ func TestECDSASignerWithKeystoreSigner_Sign(t *testing.T) {
 
 	signature, err := signer.Sign(hash)
 	require.NoError(t, err)
-	require.Len(t, signature, protocol.SingleEcdsaSignatureSize, "signature should be 84 bytes (32 R + 32 S + 20 Signer)")
+	require.Len(t, signature, protocol.SingleECDSASignatureSize, "signature should be 84 bytes (32 R + 32 S + 20 Signer)")
 
-	r, s, signerAddr, err := protocol.DecodeSingleEcdsaSignature(signature)
+	r, s, signerAddr, err := protocol.DecodeSingleECDSASignature(signature)
 	require.NoError(t, err)
 
 	expectedAddr := crypto.PubkeyToAddress(privateKey.PublicKey)

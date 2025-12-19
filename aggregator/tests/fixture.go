@@ -148,7 +148,7 @@ func WithSignatureFrom(t *testing.T, signer *SignerFixture) MessageWithCCVNodeDa
 			Signer: signerAddr,
 		}
 
-		m.Signature, err = protocol.EncodeSingleEcdsaSignature(sigData)
+		m.Signature, err = protocol.EncodeSingleECDSASignature(sigData)
 		require.NoError(t, err, "failed to encode single signature")
 
 		return m
