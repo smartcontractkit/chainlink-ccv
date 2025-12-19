@@ -22,7 +22,7 @@ import (
 )
 
 // generateTestSigningKey generates a deterministic signing key for testing.
-func generateTestSigningKey(committeeName string, nodeIndex int) (privateKey string, publicKey string, err error) {
+func generateTestSigningKey(committeeName string, nodeIndex int) (privateKey, publicKey string, err error) {
 	preImage := fmt.Sprintf("dev-private-key-%s-%d-12345678901234567890", committeeName, nodeIndex)
 	hash := sha256.Sum256([]byte(preImage))
 	privateKey = hex.EncodeToString(hash[:])
