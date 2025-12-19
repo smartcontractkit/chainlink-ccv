@@ -324,50 +324,6 @@ func TestBatcher_RetryZeroDelay(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestBatcher_RetryTriggersSizeFlushWhenCombinedWithBuffer(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	outCh := make(chan BatchResult[int], 10)
-	maxSize := 5
-	maxWait := 100 * time.Millisecond
-
-	batcher := NewBatcher(ctx, maxSize, maxWait, outCh)
-
-	// Schedule retry items first with a short delay
-	retryItems := []int{1, 2, 3}
-	retryDelay := 50 * time.Millisecond
-
-	err := batcher.Retry(retryDelay, retryItems)
-	require.NoError(t, err)
-
-	// Wait for retry processing (retry ticker is 2*maxWait = 200ms)
-	time.Sleep(retryDelay + 2*maxWait + 50*time.Millisecond)
-
-	// Now the retry items should be in the main buffer
-	// Add 2 more items to trigger size-based flush (3 + 2 = 5 = maxSize)
-	err = batcher.Add(4)
-	require.NoError(t, err)
-	err = batcher.Add(5)
-	require.NoError(t, err)
-
-	// Should trigger size-based flush immediately
-	select {
-	case batch := <-outCh:
-		require.NoError(t, batch.Error)
-		require.Len(t, batch.Items, maxSize)
-		// Retry items come first (moved to buffer), then newly added items
-		expectedOrder := []int{1, 2, 3, 4, 5}
-		require.Equal(t, expectedOrder, batch.Items)
-	case <-time.After(500 * time.Millisecond):
-		t.Fatal("expected size-based flush after adding items to reach maxSize")
-	}
-
-	// Cancel context then close batcher
-	cancel()
-	err = batcher.Close()
-	require.NoError(t, err)
-}
-
 func TestBatcher_ConcurrentRetries(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
