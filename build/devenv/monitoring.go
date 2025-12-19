@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
+	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
@@ -91,7 +92,7 @@ func NewIndexerClient(logger zerolog.Logger, url string) *IndexerClient {
 }
 
 type GetVerificationsForMessageIDResponse struct {
-	protocol.MessageIDV1Response
+	v1.MessageIDResponse
 }
 
 func (g GetVerificationsForMessageIDResponse) SourceVerifierAddresses() []protocol.UnknownAddress {

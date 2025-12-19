@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
+	icommon "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/integration/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -23,7 +23,7 @@ func TestNoReader(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	messageChan := make(chan protocol.MessageWithMetadata)
+	messageChan := make(chan icommon.MessageWithMetadata)
 	errorsChan := make(chan error)
 	go func() {
 		defer close(messageChan)
@@ -50,7 +50,7 @@ func TestOffchainStorageStreamerLifecycle(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	messageChan := make(chan protocol.MessageWithMetadata)
+	messageChan := make(chan icommon.MessageWithMetadata)
 	errorsChan := make(chan error)
 	go func() {
 		defer close(messageChan)

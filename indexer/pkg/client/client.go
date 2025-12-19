@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"strings"
 
+	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 	iclient "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client/internal"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -18,82 +18,135 @@ var ErrResponseTooLarge = errors.New("response body too large")
 
 const MaxBodySize = 10 << 20 // 10MB
 
-func NewIndexerClient(lggr logger.Logger, indexerURI string) (*IndexerClient, error) {
-	cl, err := iclient.NewClientWithResponses(indexerURI)
+// NewIndexerClient creates a new IndexerAdapterClient to interact with the Indexer Adapter service.
+func NewIndexerClient(lggr logger.Logger, indexerURI string, httpClient *http.Client) (*IndexerClient, error) {
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+
+	cl, err := iclient.NewClient(indexerURI, iclient.WithHTTPClient(httpClient))
 	if err != nil {
 		return nil, err
 	}
 
 	return &IndexerClient{
-		lggr:                lggr,
-		indexerURI:          indexerURI,
-		ClientWithResponses: cl,
+		lggr:       lggr,
+		indexerURI: indexerURI,
+		client:     cl,
 	}, nil
 }
 
 type IndexerClient struct {
-	*iclient.ClientWithResponses
+	client     *iclient.Client
 	lggr       logger.Logger
 	indexerURI string
 }
 
-// ReadMessages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message.
-func (ic *IndexerClient) ReadMessages(ctx context.Context, queryData protocol.MessagesV1Request) (map[string]protocol.MessageWithMetadata, error) {
-	resp, err := ic.GetMessages(ctx, &iclient.GetMessagesParams{
-		SourceChainSelectors: &queryData.SourceChainSelectors,
-		DestChainSelectors:   &queryData.DestChainSelectors,
-		Start:                &queryData.Start,
-		End:                  &queryData.End,
-		Limit:                &queryData.Limit,
-		Offset:               &queryData.Offset,
-	})
+func parseVerifierResultParams(queryData v1.VerifierResultsInput) *iclient.VerifierResultParams {
+	var params iclient.VerifierResultParams
+	if len(queryData.SourceChainSelectors) > 0 {
+		params.SourceChainSelectors = &queryData.SourceChainSelectors
+	}
+	if len(queryData.DestChainSelectors) > 0 {
+		params.DestChainSelectors = &queryData.DestChainSelectors
+	}
+	if queryData.Start != 0 {
+		params.Start = &queryData.Start
+	}
+	if queryData.End != 0 {
+		params.End = &queryData.End
+	}
+	if queryData.Limit != 0 {
+		params.Limit = &queryData.Limit
+	}
+	if queryData.Offset != 0 {
+		params.Offset = &queryData.Offset
+	}
+	return &params
+}
+
+func (ic *IndexerClient) VerifierResult(ctx context.Context, queryData v1.VerifierResultsInput) (v1.VerifierResultResponse, error) {
+	resp, err := ic.client.VerifierResult(ctx, parseVerifierResultParams(queryData))
+	if err != nil {
+		ic.lggr.Errorw("Indexer ReadVerifierResults request error", "error", err)
+		return v1.VerifierResultResponse{}, err
+	}
+
+	var verifierResultResponse v1.VerifierResultResponse
+	if err = processResponse(resp, &verifierResultResponse); err != nil {
+		ic.lggr.Errorw("Indexer ReadVerifierResults returned error", "error", err)
+		return v1.VerifierResultResponse{}, err
+	}
+
+	ic.lggr.Debugw("Successfully retrieved VerifierResults", "dataCount", len(verifierResultResponse.VerifierResults))
+	return verifierResultResponse, nil
+}
+
+func parseMessagesParams(queryData v1.MessagesInput) *iclient.GetMessagesParams {
+	var params iclient.GetMessagesParams
+	if len(queryData.SourceChainSelectors) > 0 {
+		params.SourceChainSelectors = &queryData.SourceChainSelectors
+	}
+	if len(queryData.DestChainSelectors) > 0 {
+		params.DestChainSelectors = &queryData.DestChainSelectors
+	}
+	if queryData.Start != 0 {
+		params.Start = &queryData.Start
+	}
+	if queryData.End != 0 {
+		params.End = &queryData.End
+	}
+	if queryData.Limit != 0 {
+		params.Limit = &queryData.Limit
+	}
+	if queryData.Offset != 0 {
+		params.Offset = &queryData.Offset
+	}
+	return &params
+}
+
+// GetMessages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message.
+func (ic *IndexerClient) GetMessages(ctx context.Context, queryData v1.MessagesInput) (v1.MessagesResponse, error) {
+	resp, err := ic.client.GetMessages(ctx, parseMessagesParams(queryData))
 	if err != nil {
 		ic.lggr.Errorw("Indexer ReadMessages request error", "error", err)
 	}
 
-	var messagesResponse protocol.MessagesV1Response
+	var messagesResponse v1.MessagesResponse
 	if err = processResponse(resp, &messagesResponse); err != nil {
-		ic.lggr.Errorw("Indexer ReadMessages returned error", "error", err)
-		return nil, err
+		ic.lggr.Errorw("Indexer GetMessages returned error", "error", err)
+		return v1.MessagesResponse{}, err
 	}
 
 	ic.lggr.Debugw("Successfully retrieved Messages", "dataCount", len(messagesResponse.Messages))
-	return messagesResponse.Messages, nil
+	return messagesResponse, nil
 }
 
-func getAddrs(results []protocol.VerifierResult) []string {
-	addrs := make([]string, 0, len(results))
-	for _, result := range results {
-		addrs = append(addrs, result.VerifierSourceAddress.String())
-	}
-	return addrs
-}
-
-// GetVerifierResults returns all verifierResults for a given messageID.
-func (ic *IndexerClient) GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error) {
-	resp, err := ic.MessageById(ctx, messageID.String())
+// MessageByID returns all verifierResults for a given messageID.
+func (ic *IndexerClient) MessageByID(ctx context.Context, queryData v1.MessageIDInput) (v1.MessageIDResponse, error) {
+	resp, err := ic.client.MessageById(ctx, queryData.MessageID)
 	if err != nil {
 		ic.lggr.Errorw("Indexer GetVerifierResults request error", "error", err)
-		return nil, err
+		return v1.MessageIDResponse{}, err
 	}
 
-	var messageIDResponse protocol.MessageIDV1Response
+	var messageIDResponse v1.MessageIDResponse
 	if err = processResponse(resp, &messageIDResponse); err != nil {
-		ic.lggr.Errorw("Indexer GetVerifierResults returned error", "error", messageIDResponse.Error)
-		return nil, err
+		ic.lggr.Errorw("Indexer GetVerifierResults returned error", "error", err)
+		return v1.MessageIDResponse{}, err
 	}
 
-	resultWithoutMeta := make([]protocol.VerifierResult, 0, len(messageIDResponse.Results))
+	addrs := make([]string, 0, len(messageIDResponse.Results))
 	for _, result := range messageIDResponse.Results {
-		resultWithoutMeta = append(resultWithoutMeta, result.VerifierResult)
+		addrs = append(addrs, result.VerifierResult.VerifierSourceAddress.String())
 	}
 
 	ic.lggr.Infow("Successfully retrieved VerifierResults",
-		"messageID", messageID,
-		"numberOfResults", len(resultWithoutMeta),
-		"verifierAddresses", getAddrs(resultWithoutMeta),
+		"messageID", queryData.MessageID,
+		"numberOfResults", len(addrs),
+		"verifierAddresses", addrs,
 	)
-	return resultWithoutMeta, nil
+	return messageIDResponse, nil
 }
 
 func processResponse(resp *http.Response, rspObj any) error {

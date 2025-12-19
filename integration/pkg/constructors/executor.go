@@ -2,6 +2,7 @@ package constructors
 
 import (
 	"fmt"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -12,12 +13,12 @@ import (
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	timeprovider "github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
-	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -135,14 +136,21 @@ func NewExecutorCoordinator(
 	}
 
 	// create indexer client which implements MessageReader and VerifierResultReader
-	indexerClient := storageaccess.NewIndexerAPIReader(lggr, cfg.IndexerAddress)
+	indexerClient, err := client.NewIndexerClient(lggr, cfg.IndexerAddress, &http.Client{
+		Timeout: 30 * time.Second,
+	})
+	if err != nil {
+		lggr.Errorw("Failed to create indexer client", "error", err)
+		return nil, fmt.Errorf("failed to create indexer client: %w", err)
+	}
+	indexerAdapter := executor.NewIndexerReaderAdapter(indexerClient)
 
 	ex := x.NewChainlinkExecutor(
 		logger.With(lggr, "component", "Executor"),
 		transmitters,
 		destReaders,
 		curseChecker,
-		indexerClient,
+		indexerAdapter,
 		executorMonitoring,
 		defaultExecutorAddresses,
 	)
@@ -159,7 +167,7 @@ func NewExecutorCoordinator(
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
 		lggr,
 		ccvstreamer.IndexerStorageConfig{
-			IndexerClient:    indexerClient,
+			IndexerClient:    indexerAdapter,
 			InitialQueryTime: time.Now().Add(-1 * cfg.LookbackWindow),
 			PollingInterval:  indexerPollingInterval,
 			Backoff:          cfg.BackoffDuration,

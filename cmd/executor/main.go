@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -19,13 +20,13 @@ import (
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
-	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
@@ -199,7 +200,14 @@ func main() {
 	//
 	// Initialize indexer client
 	// ------------------------------------------------------------------------------------------------
-	indexerClient := storageaccess.NewIndexerAPIReader(lggr, executorConfig.IndexerAddress)
+	indexerClient, err := client.NewIndexerClient(lggr, executorConfig.IndexerAddress, &http.Client{
+		Timeout: 30 * time.Second,
+	})
+	if err != nil {
+		lggr.Errorw("Failed to create indexer client", "error", err)
+		os.Exit(1)
+	}
+	verifierResultReader := executor.NewIndexerReaderAdapter(indexerClient)
 
 	//
 	// Parse per chain configuration from executor configuration
@@ -226,7 +234,7 @@ func main() {
 	//
 	// Initialize Message Handler
 	// ------------------------------------------------------------------------------------------------
-	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, curseChecker, indexerClient, executorMonitoring, defaultExecutorAddresses)
+	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, curseChecker, verifierResultReader, executorMonitoring, defaultExecutorAddresses)
 
 	//
 	// Initialize leader elector
@@ -242,7 +250,7 @@ func main() {
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
 		lggr,
 		ccvstreamer.IndexerStorageConfig{
-			IndexerClient:    indexerClient,
+			IndexerClient:    verifierResultReader,
 			InitialQueryTime: time.Now().Add(-1 * executorConfig.LookbackWindow),
 			PollingInterval:  indexerPollingInterval,
 			Backoff:          executorConfig.BackoffDuration,

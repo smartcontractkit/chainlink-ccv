@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/executor_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
+	icommon "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -301,20 +302,20 @@ func TestMessageExpiration(t *testing.T) {
 			mockTimeProvider.EXPECT().GetTime().Return(currentTime.Add(tc.mockedTimeDifference)).Maybe()
 
 			// Create a test message
-			testMessage := protocol.MessageWithMetadata{
+			testMessage := icommon.MessageWithMetadata{
 				Message: protocol.Message{
 					DestChainSelector:   1,
 					SourceChainSelector: 2,
 					SequenceNumber:      1,
 				},
-				Metadata: protocol.MessageMetadata{
+				Metadata: icommon.MessageMetadata{
 					IngestionTimestamp: currentTime,
 				},
 			}
 
 			// Set up message subscriber to send one message
 			messageSubscriber := executor_mocks.NewMockMessageSubscriber(t)
-			messageSubscriber.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything).Return(nil).Run(func(ctx context.Context, results chan protocol.MessageWithMetadata, errors chan error) {
+			messageSubscriber.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything).Return(nil).Run(func(ctx context.Context, results chan icommon.MessageWithMetadata, errors chan error) {
 				// Send the test message to the channel
 				go func() {
 					results <- testMessage

@@ -40,7 +40,14 @@ func NewMessagesHandler(storage common.IndexerStorage, lggr logger.Logger, monit
 }
 
 func (h *MessagesHandler) Handle(c *gin.Context) {
-	req := h.defaultRequestParams()
+	req := MessagesInput{
+		Start:                0,
+		End:                  time.Now().UnixMilli(),
+		SourceChainSelectors: []protocol.ChainSelector{},
+		DestChainSelectors:   []protocol.ChainSelector{},
+		Limit:                100,
+		Offset:               0,
+	}
 
 	if err := c.ShouldBindQuery(&req); err != nil {
 		c.JSON(http.StatusBadRequest, makeErrorResponse(http.StatusBadRequest, err.Error()))
@@ -77,15 +84,4 @@ func (h *MessagesHandler) Handle(c *gin.Context) {
 		Success:  true,
 		Messages: messageMap,
 	})
-}
-
-func (h *MessagesHandler) defaultRequestParams() MessagesInput {
-	return MessagesInput{
-		Start:                0,
-		End:                  time.Now().UnixMilli(),
-		SourceChainSelectors: []protocol.ChainSelector{},
-		DestChainSelectors:   []protocol.ChainSelector{},
-		Limit:                100,
-		Offset:               0,
-	}
 }

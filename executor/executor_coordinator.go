@@ -10,7 +10,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/message_heap"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	icommon "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
@@ -127,7 +127,7 @@ func (ec *Coordinator) Close() error {
 }
 
 func (ec *Coordinator) runStorageStream(ctx context.Context) {
-	indexerResults := make(chan protocol.MessageWithMetadata)
+	indexerResults := make(chan icommon.MessageWithMetadata)
 	componentErrors := make(chan error)
 	defer func() {
 		close(indexerResults)

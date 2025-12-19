@@ -1,7 +1,6 @@
 package common
 
 import (
-	"encoding/json"
 	"errors"
 )
 
@@ -37,10 +36,6 @@ func (m MessageStatus) String() string {
 	default:
 		return MessageUnknownString
 	}
-}
-
-func (m MessageStatus) MarshalJSON() ([]byte, error) {
-	return json.Marshal(m.String())
 }
 
 func NewMessageStatusFromString(status string) (MessageStatus, error) {
