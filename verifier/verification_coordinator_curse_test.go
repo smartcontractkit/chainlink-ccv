@@ -14,8 +14,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 )
 
 // curseTestSetup contains the test fixtures for curse integration tests.
@@ -26,7 +24,7 @@ type curseTestSetup struct {
 	coordinator        *Coordinator
 	mockSourceReader   *mocks.MockSourceReader
 	mockCurseChecker   *mocks.MockCurseCheckerService
-	chainStatusManager *protocol_mocks.MockChainStatusManager
+	chainStatusManager *mocks.MockChainStatusManager
 	testVerifier       *TestVerifier
 	storage            *common.InMemoryOffchainStorage
 	sourceChain        protocol.ChainSelector
@@ -75,7 +73,7 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 	mockCurseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	mockCurseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 	chainStatusMgr.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).Return(nil).Maybe()
 	chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).Return(make(map[protocol.ChainSelector]*protocol.ChainStatusInfo), nil).Maybe()
 	setup := &curseTestSetup{

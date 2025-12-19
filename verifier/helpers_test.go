@@ -14,8 +14,6 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
-	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
-
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
@@ -319,7 +317,7 @@ func newTestSRS(
 	chainStatusMgr protocol.ChainStatusManager,
 	curseDetector *mocks.MockCurseCheckerService,
 	pollInterval time.Duration,
-) (*SourceReaderService, *protocol_mocks.MockFinalityViolationChecker) {
+) (*SourceReaderService, *mocks.MockFinalityViolationChecker) {
 	t.Helper()
 
 	lggr := logger.Test(t)
@@ -337,7 +335,7 @@ func newTestSRS(
 	require.NoError(t, err)
 
 	// Override the internal finalityChecker with a mock.
-	mockFC := protocol_mocks.NewMockFinalityViolationChecker(t)
+	mockFC := mocks.NewMockFinalityViolationChecker(t)
 	srs.finalityChecker = mockFC
 	mockFC.EXPECT().UpdateFinalized(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockFC.EXPECT().IsFinalityViolated().Return(false).Maybe()
