@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor/internal/executor_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -147,7 +148,7 @@ func Test_ChainlinkExecutor_HandleMessage_CurseCheck(t *testing.T) {
 			vr := executor_mocks.NewMockVerifierResultReader(t)
 			msg := generateFakeMessage(1, 2, 1, nil, address2)
 
-			curseChecker := ccvcommon.NewMockCurseChecker(t)
+			curseChecker := mocks.NewMockCurseChecker(t)
 			curseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(tc.isCursed).Once()
 			executor := setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
 			executor.curseChecker = curseChecker
