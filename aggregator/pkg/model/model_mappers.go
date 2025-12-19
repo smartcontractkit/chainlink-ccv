@@ -100,7 +100,7 @@ func MapAggregatedReportToVerifierResultProto(report *CommitAggregatedReport, c 
 
 	signatures := findAllSignaturesValidInConfig(addressSignatures, quorumConfig)
 
-	encodedSignatures, err := protocol.EncodeSignatures(signatures)
+	encodedSignatures, err := protocol.EncodeECDSASignatures(signatures)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode signatures: %w", err)
 	}

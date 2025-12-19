@@ -1,289 +1,219 @@
 package protocol
 
 import (
-	"crypto/ecdsa"
 	"errors"
 	"fmt"
-	"math/big"
-	"sort"
-
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 )
 
-// curve order n for secp256k1.
-var secpN = crypto.S256().Params().N
+// SignatureScheme is a uint8 that defines the identifier byte for the signature scheme used in the canonical encoding.
+// Note: This scheme is only used within the CommiteeVerifier off-chain. Other verifiers do NOT need to conform to this specification.
+//
+// --------------------------------------------------------------------------------------------------------------------------
+// | ID        | Scheme         | Curve     | Signature Size | Public Key Size   | Total Size | Notes                       |
+// |-----------|----------------|-----------|----------------|-------------------|------------|-----------------------------|
+// | 0x00      | Reserved       | -         | -              | -                 | -          | Placeholder                 |
+// | 0x01      | ECDSA          | secp256k1 | 64 bytes       | 0 bytes (derived) | 65 bytes   | v normalized to 27          |
+// | 0x02      | EdDSA          | ed25519   | 64 bytes       | 32 bytes          | 97 bytes   | Standard Ed25519            |
+// | 0x03-0x7F | Reserved       | -         | -              | -                 | -          | Reserved for future schemes |
+// | 0x80-0xFF | Experimental   | -         | -              | -                 | -          | Experimental/private use    |
+// --------------------------------------------------------------------------------------------------------------------------
+type SignatureScheme = uint8
 
-// Data represents a signature with its associated signer address.
-type Data struct {
-	R      [32]byte
-	S      [32]byte
-	Signer common.Address
+const (
+	SchemeReserved       SignatureScheme = 0x00
+	SchemeReservedString string          = "Reserved"
+	SchemeECDSA          SignatureScheme = 0x01
+	SchemeECDSAString    string          = "ECDSA"
+	SchemeEdDSA          SignatureScheme = 0x02
+	SchemeEdDSAString    string          = "EdDSA"
+)
+
+const (
+	SchemeSize = 1
+	// ECDSA signature sizes
+	ECDSASignatureSize = 64                              // R (32) + S (32)
+	ECDSATotalSize     = SchemeSize + ECDSASignatureSize // 65 bytes
+
+	// EdDSA signature sizes
+	EdDSASignatureSize = 64
+	EdDSAPublicKeySize = 32
+	EdDSATotalSize     = SchemeSize + EdDSASignatureSize + EdDSAPublicKeySize // 97 bytes
+
+	Keecak256HashSize = 32
+)
+
+var (
+	ErrInvalidScheme         = errors.New("invalid signature scheme")
+	ErrInvalidSignatureSize  = errors.New("invalid signature size")
+	ErrInvalidECDSAFormat    = errors.New("invalid ECDSA signature format")
+	ErrInvalidEdDSAFormat    = errors.New("invalid EdDSA signature format")
+	ErrZeroSignature         = errors.New("signature cannot be zero")
+	ErrInvalidPreimageLength = errors.New("invalid preimage length")
+)
+
+type Signature struct {
+	Scheme    SignatureScheme
+	Signature ByteSlice
+	PublicKey ByteSlice
 }
 
-// NormalizeToV27 takes a standard 65-byte Ethereum signature (R||S||V) and
-// rewrites it so that it is valid for ecrecover(hash, 27, r, s) on-chain.
-// If V == 28 (or == 1 if your signer returns 0/1), we flip s := n - s and set V := 27.
-// Output r,s are 32-byte big-endian scalars suitable for Solidity bytes32.
-func NormalizeToV27(sig65 []byte) (r32, s32 [32]byte, err error) {
-	if len(sig65) != 65 {
-		return r32, s32, errors.New("signature must be 65 bytes")
-	}
-	r := new(big.Int).SetBytes(sig65[0:32])
-	s := new(big.Int).SetBytes(sig65[32:64])
-	v := uint64(sig65[64])
-
-	// Accept both conventions: 27/28 or 0/1
-	switch v {
-	case 0, 1:
-		v += 27
-	case 27, 28:
-		// ok
+func SchemeString(scheme SignatureScheme) string {
+	switch scheme {
+	case SchemeECDSA:
+		return SchemeECDSAString
+	case SchemeEdDSA:
+		return SchemeEdDSAString
 	default:
-		return r32, s32, errors.New("invalid v (expected 0/1/27/28)")
+		return SchemeReservedString
 	}
-
-	// Basic scalar checks (defense in depth)
-	if r.Sign() == 0 || s.Sign() == 0 || r.Cmp(secpN) >= 0 || s.Cmp(secpN) >= 0 {
-		return r32, s32, errors.New("invalid r or s")
-	}
-
-	// If v == 28, flip s and set v = 27 so on-chain ecrecover(hash, 27, r, s) will work.
-	if v == 28 {
-		s.Sub(secpN, s)
-		if s.Sign() == 0 {
-			return r32, s32, errors.New("s became zero after flip")
-		}
-	}
-
-	// Serialize back to fixed 32-byte big-endian
-	copy(r32[:], leftPad32(r.Bytes()))
-	copy(s32[:], leftPad32(s.Bytes()))
-	return r32, s32, nil
 }
 
-func normalizeAndVerify(sig, hash []byte) (r32, s32 [32]byte, addr common.Address, err error) {
-	r32, s32, err = NormalizeToV27(sig)
-	if err != nil {
-		return r32, s32, common.Address{}, err
-	}
-
-	// Verify our normalization actually recovers the expected address on-chain semantics.
-	// We emulate ecrecover(hash,27,r,s) by reconstructing a 65B sig with v=0 and running SigToPub.
-	check := make([]byte, 65)
-	copy(check[0:32], r32[:])
-	copy(check[32:64], s32[:])
-	check[64] = 0 // SigToPub expects 0/1, not 27/28
-
-	pub, err := crypto.SigToPub(hash, check)
-	if err != nil {
-		return r32, s32, common.Address{}, err
-	}
-	return r32, s32, crypto.PubkeyToAddress(*pub), nil
+// ECDSASignature represents an ECDSA signature in canonical format.
+// Note: v is normalized to 27 so is not included in the format.
+// ┌──────────┬──────────────────┬──────────────────┐
+// │ Scheme   │   R (32 bytes)   │   S (32 bytes)   │
+// │ (0x01)   │   big-endian     │   big-endian     │
+// └──────────┴──────────────────┴──────────────────┘
+// Total: 65 Bytes
+type ECDSASignature struct {
+	R         [32]byte
+	S         [32]byte
+	PublicKey [20]byte // Derived from signature + preimage. Not included in the encoding
 }
 
-// SignV27WithKeystoreSigner signs hash with the provided keystore signer and returns (r,s) such that on-chain ecrecover(hash,27,r,s) recovers the signer.
-// This is equivalent to signing normally, then applying NormalizeToV27.
-func SignV27WithKeystoreSigner(hash []byte, keystoreSigner interface {
-	Sign(data []byte) ([]byte, error)
-},
-) (r32, s32 [32]byte, addr common.Address, err error) {
-	sig, err := keystoreSigner.Sign(hash)
-	if err != nil {
-		return r32, s32, common.Address{}, err
-	}
-
-	return normalizeAndVerify(sig, hash)
+func (e *ECDSASignature) Bytes() []byte {
+	output := make([]byte, 65)
+	return output
 }
 
-// SignV27 signs hash with priv and returns (r,s) such that on-chain ecrecover(hash,27,r,s) recovers the signer.
-// This is equivalent to signing normally, then applying NormalizeToV27.
-func SignV27(hash []byte, priv *ecdsa.PrivateKey) (r32, s32 [32]byte, addr common.Address, err error) {
-	// go-ethereum's crypto.Sign returns 65 bytes: R||S||V, where V is 0/1 (recovery id).
-	sig, err := crypto.Sign(hash, priv)
-	if err != nil {
-		return r32, s32, common.Address{}, err
-	}
-
-	return normalizeAndVerify(sig, hash)
+// EdDSASignature represents an EdDSA signature in canonical format.
+// ┌──────────┬─────────────────────────┬───────────────┐
+// │ Scheme   │   Signature (64 bytes)  │   Public Key  │
+// │ (0x02)   │   little-endian         │   (32 bytes)  │
+// └──────────┴─────────────────────────┴───────────────┘
+// Total: 97 bytes
+type EdDSASignature struct {
+	Signature [64]byte
+	PublicKey [32]byte
 }
 
-// Helper: left-pad a big-endian slice to 32 bytes.
-func leftPad32(b []byte) []byte {
-	out := make([]byte, 32)
-	copy(out[32-len(b):], b)
-	return out
+func (e *EdDSASignature) Bytes() []byte {
+	output := make([]byte, 97)
+	copy(output[0:1], []byte{SchemeEdDSA})
+	copy(output[1:65], e.Signature[:])
+	copy(output[65:97], e.PublicKey[:])
+	return output
 }
 
-// SortSignaturesBySigner sorts signatures by signer address in ascending order.
-// This is required for onchain validation which expects ordered signatures.
-func SortSignaturesBySigner(signatures []Data) {
-	sort.Slice(signatures, func(i, j int) bool {
-		// Compare addresses as big integers (uint160)
-		addrI := signatures[i].Signer.Big()
-		addrJ := signatures[j].Signer.Big()
-		return addrI.Cmp(addrJ) < 0
-	})
+// ToECDSA converts a generic signature structure into an ECDSA signature with the public key additionally included.
+func (s *Signature) ToECDSA() (ECDSASignature, error) {
+	if s.Scheme != SchemeECDSA {
+		return ECDSASignature{}, ErrInvalidScheme
+	}
+
+	return ECDSASignature{
+		R:         [32]byte(s.Signature[0:32]),
+		S:         [32]byte(s.Signature[0:64]),
+		PublicKey: [20]byte(s.PublicKey),
+	}, nil
 }
 
-// EncodeSignatures encodes signatures in the simple format expected by CCIP v1.7 onchain validation.
-// The format is: [2 bytes signature length][concatenated R,S pairs].
-func EncodeSignatures(signatures []Data) ([]byte, error) {
-	if len(signatures) == 0 {
-		return nil, fmt.Errorf("no signatures provided")
+// ToEdDSA converts a generic signature structure into an EdDSA signature with the public key additionally included.
+func (s *Signature) ToEdDSA() (EdDSASignature, error) {
+	if s.Scheme != SchemeEdDSA {
+		return EdDSASignature{}, ErrInvalidScheme
 	}
 
-	// Sort signatures by signer address for onchain compatibility
-	sortedSignatures := make([]Data, len(signatures))
-	copy(sortedSignatures, signatures)
-	SortSignaturesBySigner(sortedSignatures)
-
-	// Calculate signature length (each signature is 64 bytes: 32 R + 32 S)
-	//nolint:gosec // disable G115
-	signatureLength := uint16(len(sortedSignatures) * 64)
-
-	// Create result buffer
-	result := make([]byte, 2+int(signatureLength))
-
-	// Write signature length as first 2 bytes (big-endian uint16)
-	result[0] = byte(signatureLength >> 8)
-	result[1] = byte(signatureLength)
-
-	// Write concatenated R,S pairs
-	offset := 2
-	for _, sig := range sortedSignatures {
-		copy(result[offset:offset+32], sig.R[:])
-		offset += 32
-		copy(result[offset:offset+32], sig.S[:])
-		offset += 32
-	}
-
-	return result, nil
+	return EdDSASignature{
+		Signature: [64]byte(s.Signature),
+		PublicKey: [32]byte(s.PublicKey),
+	}, nil
 }
 
-// DecodeSignatures decodes simple-format signature data.
-// The format is: [2 bytes signature length][concatenated R,S pairs]
-// Returns rs, ss arrays in the same order as they appear in the data.
-func DecodeSignatures(data []byte) ([][32]byte, [][32]byte, error) {
-	if len(data) < 2 {
-		return nil, nil, fmt.Errorf("signature data too short: need at least 2 bytes for length")
-	}
-
-	// Read signature length from first 2 bytes (big-endian uint16)
-	signatureLength := uint16(data[0])<<8 | uint16(data[1])
-
-	// Validate data length
-	expectedLength := 2 + int(signatureLength)
-	if len(data) < expectedLength {
-		return nil, nil, fmt.Errorf("signature data too short: expected %d bytes, got %d", expectedLength, len(data))
-	}
-
-	// Validate signature length is multiple of 64 (32 R + 32 S per signature)
-	if signatureLength%64 != 0 {
-		return nil, nil, fmt.Errorf("invalid signature length: %d is not a multiple of 64", signatureLength)
-	}
-
-	numSignatures := int(signatureLength) / 64
-	if numSignatures == 0 {
-		return nil, nil, fmt.Errorf("no signatures found")
-	}
-
-	// Extract R and S arrays
-	rs := make([][32]byte, numSignatures)
-	ss := make([][32]byte, numSignatures)
-
-	offset := 2
-	for i := 0; i < numSignatures; i++ {
-		copy(rs[i][:], data[offset:offset+32])
-		offset += 32
-		copy(ss[i][:], data[offset:offset+32])
-		offset += 32
-	}
-
-	return rs, ss, nil
-}
-
-// RecoverSigners recovers signer addresses from signatures and a hash.
-// This is useful after decoding signatures when you need the signer addresses.
-func RecoverSigners(hash [32]byte, rs, ss [][32]byte) ([]common.Address, error) {
-	if len(rs) != len(ss) {
-		return nil, fmt.Errorf("rs and ss arrays have different lengths: %d vs %d", len(rs), len(ss))
-	}
-
-	signers := make([]common.Address, len(rs))
-	for i := 0; i < len(rs); i++ {
-		signer, err := RecoverSigner(hash, rs[i], ss[i])
+func (s *Signature) Bytes() ([]byte, error) {
+	switch s.Scheme {
+	case SchemeECDSA:
+		ecdsa, err := s.ToECDSA()
 		if err != nil {
-			return nil, fmt.Errorf("failed to recover signer for signature %d: %w", i, err)
+			return nil, err
 		}
-		signers[i] = signer
+		return ecdsa.Bytes(), nil
+	default:
+		return nil, ErrInvalidScheme
 	}
-
-	return signers, nil
 }
 
-func RecoverSigner(hash, r, s [32]byte) (common.Address, error) {
-	// Create signature with v=0 (crypto.Ecrecover expects 0/1, not 27/28)
-	sig := make([]byte, 65)
-	copy(sig[0:32], r[:])
-	copy(sig[32:64], s[:])
-	sig[64] = 0 // Always use v=0 since we normalize all signatures to v=27
+func NewSignature(scheme SignatureScheme, signature ByteSlice, publicKey ByteSlice) Signature {
+	return Signature{
+		Scheme:    SchemeECDSA,
+		Signature: signature,
+		PublicKey: publicKey,
+	}
+}
 
-	// Recover public key
-	pubKey, err := crypto.Ecrecover(hash[:], sig)
+// DecodeCanonicalSignature converts a []byte into a decoded structure containing both the signature and public key.
+// Note: For ECDSA a pre-image must be provided to recover the public key.
+func DecodeSignature(data ByteSlice, preimage ByteSlice) (Signature, error) {
+	if len(data) < 1 {
+		return Signature{}, ErrInvalidSignatureSize
+	}
+
+	scheme := SignatureScheme(data[0])
+
+	switch scheme {
+	case SchemeECDSA:
+		return decodeECDSASignatureFromCanonicalFormat(data, preimage)
+	case SchemeEdDSA:
+		return decodeEdDSASignatureFromCanonicalFormat(data)
+	default:
+		return Signature{}, fmt.Errorf("%w: unknown scheme 0x%02x", ErrInvalidScheme, scheme)
+	}
+}
+
+func decodeECDSASignatureFromCanonicalFormat(data ByteSlice, preimage ByteSlice) (Signature, error) {
+	if len(data) != ECDSATotalSize {
+		return Signature{}, fmt.Errorf("%w: ECDSA signature must be %d bytes, got %d", ErrInvalidSignatureSize, ECDSASignatureSize, len(data)-1)
+	}
+
+	signatureData := make([]byte, 64)
+	copy(signatureData[0:64], data[1:65])
+	if len(preimage) == 0 {
+		return Signature{
+			Scheme:    SchemeECDSA,
+			Signature: signatureData,
+		}, nil
+	}
+
+	if len(preimage) != 32 {
+		return Signature{}, fmt.Errorf("%w: Preimage length must be %d bytes, got %d", ErrInvalidPreimageLength, Keecak256HashSize, len(preimage))
+	}
+
+	address, err := RecoverECDSASigner([32]byte(preimage), [32]byte(signatureData[0:32]), [32]byte(signatureData[32:64]))
 	if err != nil {
-		return common.Address{}, fmt.Errorf("failed to recover public key for signature: %w", err)
+		return Signature{}, err
 	}
 
-	// Convert to address
-	unmarshalledPub, err := crypto.UnmarshalPubkey(pubKey)
-	if err != nil {
-		return common.Address{}, fmt.Errorf("failed to unmarshal public key for signature: %w", err)
-	}
-
-	signer := crypto.PubkeyToAddress(*unmarshalledPub)
-
-	return signer, nil
+	return Signature{
+		Scheme:    SchemeECDSA,
+		Signature: signatureData,
+		PublicKey: address.Bytes(),
+	}, nil
 }
 
-// EncodeSingleSignature encodes a single signature as R||S||Signer (96 bytes).
-// This format is used by verifiers when sending individual signatures to the aggregator.
-// Format: [32 bytes R][32 bytes S][20 bytes Signer Address].
-func EncodeSingleSignature(sig Data) ([]byte, error) {
-	if sig.R == [32]byte{} || sig.S == [32]byte{} {
-		return nil, fmt.Errorf("signature R and S cannot be zero")
+func decodeEdDSASignatureFromCanonicalFormat(data ByteSlice) (Signature, error) {
+	if len(data) != EdDSATotalSize {
+		return Signature{}, ErrInvalidSignatureSize
 	}
 
-	if sig.Signer == (common.Address{}) {
-		return nil, fmt.Errorf("signer address cannot be zero")
-	}
+	signatureData := make([]byte, 64)
+	copy(signatureData[0:64], data[1:65])
 
-	result := make([]byte, 96)
-	copy(result[0:32], sig.R[:])
-	copy(result[32:64], sig.S[:])
-	copy(result[64:84], sig.Signer[:])
+	publicKey := make([]byte, 32)
+	copy(publicKey[0:32], data[65:97])
 
-	return result, nil
-}
-
-// DecodeSingleSignature decodes a single signature from R||S||Signer format (96 bytes).
-// Returns the R, S components and the signer address.
-func DecodeSingleSignature(data []byte) (r, s [32]byte, signer common.Address, err error) {
-	if len(data) != 96 {
-		return r, s, signer, fmt.Errorf("signature data must be exactly 96 bytes, got %d", len(data))
-	}
-
-	copy(r[:], data[0:32])
-	copy(s[:], data[32:64])
-	copy(signer[:], data[64:84])
-
-	if r == [32]byte{} || s == [32]byte{} {
-		return r, s, signer, fmt.Errorf("signature R and S cannot be zero")
-	}
-
-	if signer == (common.Address{}) {
-		return r, s, signer, fmt.Errorf("signer address cannot be zero")
-	}
-
-	return r, s, signer, nil
+	return Signature{
+		Scheme:    SchemeEdDSA,
+		Signature: signatureData,
+		PublicKey: publicKey,
+	}, nil
 }
