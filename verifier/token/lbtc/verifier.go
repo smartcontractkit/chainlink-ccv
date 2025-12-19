@@ -33,18 +33,20 @@ func NewVerifier(
 	lggr logger.Logger,
 	attestationService AttestationService,
 ) verifier.Verifier {
-	return NewVerifierWithConfig(lggr, attestationService, attestationNotReadyRetry, anyErrorRetry)
+	return NewVerifierWithConfig(lggr, attestationService, CCVVerifierVersion, attestationNotReadyRetry, anyErrorRetry)
 }
 
 func NewVerifierWithConfig(
 	lggr logger.Logger,
 	attestationService AttestationService,
+	ccvVerifierVersion protocol.ByteSlice,
 	attestationNotReadyRetry time.Duration,
 	anyErrorRetry time.Duration,
 ) verifier.Verifier {
 	return &Verifier{
 		lggr:                     lggr,
 		attestationService:       attestationService,
+		ccvVerifierVersion:       ccvVerifierVersion,
 		attestationNotReadyRetry: attestationNotReadyRetry,
 		anyErrorRetry:            anyErrorRetry,
 	}
