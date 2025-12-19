@@ -32,7 +32,8 @@ generate:
 
 mock: ensure-mockery
     @echo "Cleaning existing mocks..."
-    find . -path "*/*_mocks/*.go"
+    # remove standalone mock_*.go files created by mockery
+    find . -type f -name 'mock_*.go' -print -delete
     @echo "Generating mocks with mockery..."
     find . -type f -name .mockery.yaml -execdir mockery \;
 
