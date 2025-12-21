@@ -156,7 +156,7 @@ func FundNodeEIP1559(ctx context.Context, c *ethclient.Client, pkey, recipientAd
 	return nil
 }
 
-// waitMinedFast is a method for Anvil's instant blocks mode to ovecrome bind.WaitMined ticket hardcode
+// waitMinedFast is a method for Anvil's instant blocks mode to ovecrome bind.WaitMined ticker hardcode.
 func waitMinedFast(ctx context.Context, b bind.DeployBackend, txHash common.Hash, dur time.Duration) (*types.Receipt, error) {
 	queryTicker := time.NewTicker(dur)
 	defer queryTicker.Stop()
