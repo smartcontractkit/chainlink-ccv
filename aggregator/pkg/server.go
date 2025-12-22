@@ -240,6 +240,14 @@ func buildGRPCServerOptions(serverConfig model.ServerConfig) []grpc.ServerOption
 		opts = append(opts, grpc.KeepaliveParams(params))
 	}
 
+	if serverConfig.MaxRecvMsgSizeBytes > 0 {
+		opts = append(opts, grpc.MaxRecvMsgSize(serverConfig.MaxRecvMsgSizeBytes))
+	}
+
+	if serverConfig.MaxSendMsgSizeBytes > 0 {
+		opts = append(opts, grpc.MaxSendMsgSize(serverConfig.MaxSendMsgSizeBytes))
+	}
+
 	return opts
 }
 
@@ -405,7 +413,11 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	verifierpb.RegisterVerifierServer(grpcServer, server)
 	msgdiscoverypb.RegisterMessageDiscoveryServer(grpcServer, server)
 	committeepb.RegisterCommitteeVerifierServer(grpcServer, server)
-	reflection.Register(grpcServer)
+
+	if os.Getenv("AGGREGATOR_GRPC_REFLECTION_ENABLED") == "true" {
+		reflection.Register(grpcServer)
+		l.Info("gRPC reflection enabled")
+	}
 
 	return server
 }

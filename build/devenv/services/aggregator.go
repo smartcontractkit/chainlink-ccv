@@ -403,6 +403,9 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 		envVars["AGGREGATOR_REDIS_DB"] = in.Env.RedisDB
 	}
 
+	// Enable gRPC reflection in devenv for debugging
+	envVars["AGGREGATOR_GRPC_REFLECTION_ENABLED"] = "true"
+
 	// Start the aggregator container
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,

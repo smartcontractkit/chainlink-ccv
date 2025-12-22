@@ -29,8 +29,8 @@ func (h *ReadCommitVerifierNodeResultHandler) logger(ctx context.Context) logger
 // Handle processes the read request and retrieves the corresponding commit verification record.
 func (h *ReadCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *committeepb.ReadCommitteeVerifierNodeResultRequest) (*committeepb.ReadCommitteeVerifierNodeResultResponse, error) {
 	if err := validateReadRequest(req); err != nil {
-		h.logger(ctx).Errorw("validation error", "error", err)
-		return &committeepb.ReadCommitteeVerifierNodeResultResponse{}, status.Errorf(codes.InvalidArgument, "validation error: %v", err)
+		h.logger(ctx).Warnw("validation error", "error", err)
+		return &committeepb.ReadCommitteeVerifierNodeResultResponse{}, status.Error(codes.InvalidArgument, "invalid request parameters")
 	}
 	ctx = scope.WithMessageID(ctx, req.GetMessageId())
 
@@ -41,8 +41,8 @@ func (h *ReadCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *c
 
 	record, err := h.storage.GetCommitVerification(ctx, id)
 	if err != nil {
-		h.logger(ctx).Errorw("failed to get commit verification record", "address", id.Address.String(), "error", err)
-		return nil, err
+		h.logger(ctx).Errorw("failed to get commit verification record", "address", id.Address, "error", err)
+		return nil, status.Error(codes.NotFound, "verification record not found")
 	}
 
 	protoRecord, err := model.CommitVerificationRecordToProto(record)

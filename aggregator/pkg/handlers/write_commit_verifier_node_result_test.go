@@ -79,11 +79,11 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			expectAggCalls:   0,
 		},
 		{
-			name:             "signature_validator_error_returns_internal",
+			name:             "signature_validator_error_returns_invalid_argument",
 			req:              makeValidProtoRequest(),
 			signer:           nil,
 			sigErr:           errors.New("sig-fail"),
-			expectGRPCCode:   codes.Internal,
+			expectGRPCCode:   codes.InvalidArgument,
 			expectStatus:     committeepb.WriteStatus_FAILED,
 			expectStoreCalls: 0,
 			expectAggCalls:   0,

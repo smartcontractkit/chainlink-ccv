@@ -99,6 +99,10 @@ type ServerConfig struct {
 	KeepaliveTimeoutSeconds int `toml:"keepaliveTimeoutSeconds"`
 	// MaxConnectionAgeSeconds forces connections to be closed after this duration (0 = infinite, GRPC default)
 	MaxConnectionAgeSeconds int `toml:"maxConnectionAgeSeconds"`
+	// MaxRecvMsgSizeBytes is the maximum message size in bytes the server can receive (default: 4MB)
+	MaxRecvMsgSizeBytes int `toml:"maxRecvMsgSizeBytes"`
+	// MaxSendMsgSizeBytes is the maximum message size in bytes the server can send (default: 4MB)
+	MaxSendMsgSizeBytes int `toml:"maxSendMsgSizeBytes"`
 }
 
 // APIClient represents a configured client for API access.
@@ -364,6 +368,19 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.Storage.PageSize == 0 {
 		c.Storage.PageSize = 100
 	}
+	// Database connection pool defaults
+	if c.Storage.MaxOpenConns == 0 {
+		c.Storage.MaxOpenConns = 25
+	}
+	if c.Storage.MaxIdleConns == 0 {
+		c.Storage.MaxIdleConns = 5
+	}
+	if c.Storage.ConnMaxLifetime == 0 {
+		c.Storage.ConnMaxLifetime = 3600 // 1 hour
+	}
+	if c.Storage.ConnMaxIdleTime == 0 {
+		c.Storage.ConnMaxIdleTime = 300 // 5 minutes
+	}
 	if c.APIKeys.Clients == nil {
 		c.APIKeys.Clients = make(map[string]*APIClient)
 	}
@@ -451,6 +468,18 @@ func (c *AggregatorConfig) ValidateServerConfig() error {
 	if c.Server.MaxConnectionAgeSeconds < 0 {
 		return errors.New("server.maxConnectionAgeSeconds cannot be negative")
 	}
+	if c.Server.MaxRecvMsgSizeBytes < 0 {
+		return errors.New("server.maxRecvMsgSizeBytes cannot be negative")
+	}
+	if c.Server.MaxRecvMsgSizeBytes > 100*1024*1024 {
+		return errors.New("server.maxRecvMsgSizeBytes cannot exceed 100MB")
+	}
+	if c.Server.MaxSendMsgSizeBytes < 0 {
+		return errors.New("server.maxSendMsgSizeBytes cannot be negative")
+	}
+	if c.Server.MaxSendMsgSizeBytes > 100*1024*1024 {
+		return errors.New("server.maxSendMsgSizeBytes cannot exceed 100MB")
+	}
 	return nil
 }
 
@@ -482,6 +511,21 @@ func (c *AggregatorConfig) ValidateStorageConfig() error {
 	}
 	if c.Storage.PageSize > 1000 {
 		return errors.New("storage.pageSize cannot exceed 1000")
+	}
+	if c.Storage.MaxOpenConns < 0 {
+		return errors.New("storage.maxOpenConns cannot be negative")
+	}
+	if c.Storage.MaxIdleConns < 0 {
+		return errors.New("storage.maxIdleConns cannot be negative")
+	}
+	if c.Storage.MaxIdleConns > c.Storage.MaxOpenConns {
+		return errors.New("storage.maxIdleConns cannot exceed storage.maxOpenConns")
+	}
+	if c.Storage.ConnMaxLifetime < 0 {
+		return errors.New("storage.connMaxLifetime cannot be negative")
+	}
+	if c.Storage.ConnMaxIdleTime < 0 {
+		return errors.New("storage.connMaxIdleTime cannot be negative")
 	}
 
 	return nil

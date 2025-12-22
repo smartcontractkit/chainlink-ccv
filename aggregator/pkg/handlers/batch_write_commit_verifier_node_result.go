@@ -25,6 +25,7 @@ func (h *BatchWriteCommitVerifierNodeResultHandler) logger(ctx context.Context) 
 }
 
 // Handle processes the write request and saves the commit verification record.
+// The parent context includes a timeout from RequestTimeoutMiddleware to prevent goroutine leaks.
 func (h *BatchWriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *committeepb.BatchWriteCommitteeVerifierNodeResultRequest) (*committeepb.BatchWriteCommitteeVerifierNodeResultResponse, error) {
 	requests := req.GetRequests()
 
@@ -49,10 +50,10 @@ func (h *BatchWriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, 
 			if err != nil {
 				statusErr, ok := grpcstatus.FromError(err)
 				if !ok {
-					h.logger(ctx).Errorf("unexpected error type: %v", err)
-					SetBatchError(errors, i, codes.Unknown, "unexpected error")
+					h.logger(ctx).Errorw("unexpected error type", "error", err)
+					SetBatchError(errors, i, codes.Unknown, "internal error")
 				} else {
-					h.logger(ctx).Errorw("failed to write commit CCV node data", "error", statusErr)
+					h.logger(ctx).Errorw("failed to write commit verification node result", "error", statusErr)
 					errors[i] = statusErr.Proto()
 				}
 			} else {
