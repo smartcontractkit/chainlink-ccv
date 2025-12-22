@@ -52,7 +52,8 @@ type retryItem[T any] struct {
 // The batcher will automatically flush when ctx is canceled.
 // maxSize: maximum number of items before triggering a flush
 // maxWait: maximum duration to wait before flushing incomplete batch
-// outCh: channel to send flushed batches to.
+// outCh: channel to send flushed batches to (user is responsible for reading from this channel and
+// providing it the right buffer if needed).
 func NewBatcher[T any](ctx context.Context, maxSize int, maxWait time.Duration, outCh chan<- BatchResult[T]) *Batcher[T] {
 	b := &Batcher[T]{
 		maxSize: maxSize,
@@ -170,9 +171,16 @@ func (b *Batcher[T]) flush(buffer *[]T, timer *time.Timer) {
 		Error: nil,
 	}
 
-	// Send batch - blocking to ensure all items are flushed
-	// We don't check context cancellation here to guarantee delivery of buffered items
-	b.outCh <- batch
+	// Send batch - non-blocking send without context cancellation check
+	// If channel is full, the batch is dropped (fire & forget pattern)
+	// This prevents blocking and allows the batcher to continue processing
+	select {
+	case b.outCh <- batch:
+		// Successfully sent
+	default:
+		// Channel full - drop the batch
+		// Consumer should ensure channel has adequate buffer or process faster
+	}
 
 	// Reset buffer for next batch
 	*buffer = make([]T, 0, b.maxSize)
