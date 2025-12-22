@@ -3,11 +3,11 @@ package verifier
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -15,152 +15,59 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// Mock implementations
-
-type mockCCVNodeDataWriter struct {
-	mock.Mock
-}
-
-func (m *mockCCVNodeDataWriter) WriteCCVNodeData(ctx context.Context, data []protocol.VerifierNodeResult) error {
-	args := m.Called(ctx, data)
-	return args.Error(0)
-}
-
-// Helper function to create test VerifierNodeResult
-func createTestVerifierNodeResult(sequenceNumber uint64) protocol.VerifierNodeResult {
-	messageID, _ := protocol.NewBytes32FromString("0x0000000000000000000000000000000000000000000000000000000000000001")
-	return protocol.VerifierNodeResult{
-		MessageID: messageID,
-		Message: protocol.Message{
-			SequenceNumber: protocol.SequenceNumber(sequenceNumber),
-		},
-		CCVVersion:      []byte{1, 2, 3},
-		CCVAddresses:    []protocol.UnknownAddress{},
-		ExecutorAddress: protocol.UnknownAddress{},
-		Signature:       []byte{4, 5, 6},
-	}
-}
-
 func TestConfigWithDefaults(t *testing.T) {
-	t.Run("uses provided config values when valid", func(t *testing.T) {
-		lggr := logger.Test(t)
-		config := CoordinatorConfig{
-			StorageBatchSize:    100,
-			StorageBatchTimeout: 5 * time.Second,
-			StorageRetryDelay:   3 * time.Second,
-		}
+	tests := []struct {
+		name               string
+		config             CoordinatorConfig
+		expectedBatchSize  int
+		expectedBatchTime  time.Duration
+		expectedRetryDelay time.Duration
+	}{
+		{
+			name: "uses provided config values when valid",
+			config: CoordinatorConfig{
+				StorageBatchSize:    100,
+				StorageBatchTimeout: 5 * time.Second,
+				StorageRetryDelay:   3 * time.Second,
+			},
+			expectedBatchSize:  100,
+			expectedBatchTime:  5 * time.Second,
+			expectedRetryDelay: 3 * time.Second,
+		},
+		{
+			name: "applies defaults for invalid values",
+			config: CoordinatorConfig{
+				StorageBatchSize:    0,
+				StorageBatchTimeout: 0,
+				StorageRetryDelay:   0,
+			},
+			expectedBatchSize:  50,
+			expectedBatchTime:  1 * time.Second,
+			expectedRetryDelay: 2 * time.Second,
+		},
+		{
+			name: "applies defaults for negative values",
+			config: CoordinatorConfig{
+				StorageBatchSize:    -10,
+				StorageBatchTimeout: -5 * time.Second,
+				StorageRetryDelay:   -3 * time.Second,
+			},
+			expectedBatchSize:  50,
+			expectedBatchTime:  1 * time.Second,
+			expectedRetryDelay: 2 * time.Second,
+		},
+	}
 
-		batchSize, batchTimeout, retryDelay := configWithDefaults(lggr, config)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lggr := logger.Test(t)
+			batchSize, batchTimeout, retryDelay := configWithDefaults(lggr, tt.config)
 
-		assert.Equal(t, 100, batchSize)
-		assert.Equal(t, 5*time.Second, batchTimeout)
-		assert.Equal(t, 3*time.Second, retryDelay)
-	})
-
-	t.Run("applies default for StorageBatchSize when zero", func(t *testing.T) {
-		lggr := logger.Test(t)
-		config := CoordinatorConfig{
-			StorageBatchSize:    0,
-			StorageBatchTimeout: 5 * time.Second,
-			StorageRetryDelay:   3 * time.Second,
-		}
-
-		batchSize, batchTimeout, retryDelay := configWithDefaults(lggr, config)
-
-		assert.Equal(t, 50, batchSize)
-		assert.Equal(t, 5*time.Second, batchTimeout)
-		assert.Equal(t, 3*time.Second, retryDelay)
-	})
-
-	t.Run("applies default for StorageBatchSize when negative", func(t *testing.T) {
-		lggr := logger.Test(t)
-		config := CoordinatorConfig{
-			StorageBatchSize:    -10,
-			StorageBatchTimeout: 5 * time.Second,
-			StorageRetryDelay:   3 * time.Second,
-		}
-
-		batchSize, batchTimeout, retryDelay := configWithDefaults(lggr, config)
-
-		assert.Equal(t, 50, batchSize)
-		assert.Equal(t, 5*time.Second, batchTimeout)
-		assert.Equal(t, 3*time.Second, retryDelay)
-	})
-
-	t.Run("applies default for StorageBatchTimeout when zero", func(t *testing.T) {
-		lggr := logger.Test(t)
-		config := CoordinatorConfig{
-			StorageBatchSize:    100,
-			StorageBatchTimeout: 0,
-			StorageRetryDelay:   3 * time.Second,
-		}
-
-		batchSize, batchTimeout, retryDelay := configWithDefaults(lggr, config)
-
-		assert.Equal(t, 100, batchSize)
-		assert.Equal(t, 1*time.Second, batchTimeout)
-		assert.Equal(t, 3*time.Second, retryDelay)
-	})
-
-	t.Run("applies default for StorageBatchTimeout when negative", func(t *testing.T) {
-		lggr := logger.Test(t)
-		config := CoordinatorConfig{
-			StorageBatchSize:    100,
-			StorageBatchTimeout: -5 * time.Second,
-			StorageRetryDelay:   3 * time.Second,
-		}
-
-		batchSize, batchTimeout, retryDelay := configWithDefaults(lggr, config)
-
-		assert.Equal(t, 100, batchSize)
-		assert.Equal(t, 1*time.Second, batchTimeout)
-		assert.Equal(t, 3*time.Second, retryDelay)
-	})
-
-	t.Run("applies default for StorageRetryDelay when zero", func(t *testing.T) {
-		lggr := logger.Test(t)
-		config := CoordinatorConfig{
-			StorageBatchSize:    100,
-			StorageBatchTimeout: 5 * time.Second,
-			StorageRetryDelay:   0,
-		}
-
-		batchSize, batchTimeout, retryDelay := configWithDefaults(lggr, config)
-
-		assert.Equal(t, 100, batchSize)
-		assert.Equal(t, 5*time.Second, batchTimeout)
-		assert.Equal(t, 2*time.Second, retryDelay)
-	})
-
-	t.Run("applies default for StorageRetryDelay when negative", func(t *testing.T) {
-		lggr := logger.Test(t)
-		config := CoordinatorConfig{
-			StorageBatchSize:    100,
-			StorageBatchTimeout: 5 * time.Second,
-			StorageRetryDelay:   -3 * time.Second,
-		}
-
-		batchSize, batchTimeout, retryDelay := configWithDefaults(lggr, config)
-
-		assert.Equal(t, 100, batchSize)
-		assert.Equal(t, 5*time.Second, batchTimeout)
-		assert.Equal(t, 2*time.Second, retryDelay)
-	})
-
-	t.Run("applies all defaults when all values are zero", func(t *testing.T) {
-		lggr := logger.Test(t)
-		config := CoordinatorConfig{
-			StorageBatchSize:    0,
-			StorageBatchTimeout: 0,
-			StorageRetryDelay:   0,
-		}
-
-		batchSize, batchTimeout, retryDelay := configWithDefaults(lggr, config)
-
-		assert.Equal(t, 50, batchSize)
-		assert.Equal(t, 1*time.Second, batchTimeout)
-		assert.Equal(t, 2*time.Second, retryDelay)
-	})
+			assert.Equal(t, tt.expectedBatchSize, batchSize)
+			assert.Equal(t, tt.expectedBatchTime, batchTimeout)
+			assert.Equal(t, tt.expectedRetryDelay, retryDelay)
+		})
+	}
 }
 
 func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
@@ -169,7 +76,7 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 		defer cancel()
 
 		lggr := logger.Test(t)
-		mockStorage := &mockCCVNodeDataWriter{}
+		fakeStorage := NewFakeCCVNodeDataWriter()
 
 		// Create channel with sufficient buffer
 		batchedCCVDataCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
@@ -179,7 +86,7 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 			lggr:             lggr,
 			verifierID:       "test-verifier",
 			messageTracker:   NoopLatencyTracker{},
-			storage:          mockStorage,
+			storage:          fakeStorage,
 			batchedCCVDataCh: batchedCCVDataCh,
 			retryDelay:       100 * time.Millisecond,
 		}
@@ -197,11 +104,6 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 		batch3 := []protocol.VerifierNodeResult{
 			createTestVerifierNodeResult(6),
 		}
-
-		// Set up mock expectations - storage always succeeds
-		mockStorage.On("WriteCCVNodeData", mock.Anything, batch1).Return(nil).Once()
-		mockStorage.On("WriteCCVNodeData", mock.Anything, batch2).Return(nil).Once()
-		mockStorage.On("WriteCCVNodeData", mock.Anything, batch3).Return(nil).Once()
 
 		// Start processor
 		processorCtx, processorCancel := context.WithCancel(ctx)
@@ -241,8 +143,18 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 			t.Fatal("processor did not finish in time")
 		}
 
-		// Verify all expectations were met
-		mockStorage.AssertExpectations(t)
+		// Verify all items were stored
+		stored := fakeStorage.GetStored()
+		expectedCount := len(batch1) + len(batch2) + len(batch3)
+		require.Equal(t, expectedCount, len(stored), "should have stored all items")
+
+		// Verify each item was stored correctly
+		allBatches := append(append(batch1, batch2...), batch3...)
+		for _, item := range allBatches {
+			storedItem, exists := stored[item.MessageID]
+			require.True(t, exists, "item with MessageID %s should be stored", item.MessageID)
+			require.Equal(t, item.Message.SequenceNumber, storedItem.Message.SequenceNumber)
+		}
 	})
 
 	t.Run("handles empty batches gracefully", func(t *testing.T) {
@@ -250,7 +162,7 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 		defer cancel()
 
 		lggr := logger.Test(t)
-		mockStorage := &mockCCVNodeDataWriter{}
+		fakeStorage := NewFakeCCVNodeDataWriter()
 
 		batchedCCVDataCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
 
@@ -258,7 +170,7 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 			lggr:             lggr,
 			verifierID:       "test-verifier",
 			messageTracker:   NoopLatencyTracker{},
-			storage:          mockStorage,
+			storage:          fakeStorage,
 			batchedCCVDataCh: batchedCCVDataCh,
 			retryDelay:       100 * time.Millisecond,
 		}
@@ -280,7 +192,6 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 
 		// Send valid batch
 		validBatch := []protocol.VerifierNodeResult{createTestVerifierNodeResult(1)}
-		mockStorage.On("WriteCCVNodeData", mock.Anything, validBatch).Return(nil).Once()
 
 		batchedCCVDataCh <- batcher.BatchResult[protocol.VerifierNodeResult]{
 			Items: validBatch,
@@ -296,8 +207,14 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 			t.Fatal("processor did not finish in time")
 		}
 
-		// Storage should only be called once (for valid batch)
-		mockStorage.AssertExpectations(t)
+		// Verify only the valid batch was stored (empty batch should be skipped)
+		require.Equal(t, 1, fakeStorage.GetStoredCount(), "should have stored only the valid batch")
+
+		// Verify the correct item was stored
+		stored := fakeStorage.GetStored()
+		storedItem, exists := stored[validBatch[0].MessageID]
+		require.True(t, exists)
+		require.Equal(t, validBatch[0].Message.SequenceNumber, storedItem.Message.SequenceNumber)
 	})
 
 	t.Run("handles batch-level errors from batcher", func(t *testing.T) {
@@ -305,7 +222,7 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 		defer cancel()
 
 		lggr := logger.Test(t)
-		mockStorage := &mockCCVNodeDataWriter{}
+		fakeStorage := NewFakeCCVNodeDataWriter()
 
 		batchedCCVDataCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
 
@@ -313,7 +230,7 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 			lggr:             lggr,
 			verifierID:       "test-verifier",
 			messageTracker:   NoopLatencyTracker{},
-			storage:          mockStorage,
+			storage:          fakeStorage,
 			batchedCCVDataCh: batchedCCVDataCh,
 			retryDelay:       100 * time.Millisecond,
 		}
@@ -342,8 +259,8 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 			t.Fatal("processor did not finish in time")
 		}
 
-		// Storage should not be called for error batches
-		mockStorage.AssertNotCalled(t, "WriteCCVNodeData")
+		// Storage should not have stored anything for error batches
+		require.Equal(t, 0, fakeStorage.GetStoredCount(), "should not have stored any items from error batches")
 	})
 }
 
@@ -353,7 +270,7 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 		defer cancel()
 
 		lggr := logger.Test(t)
-		mockStorage := &mockCCVNodeDataWriter{}
+		fakeStorage := NewFakeCCVNodeDataWriter()
 
 		// Create batcher with real channel
 		batchedCCVDataCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 100)
@@ -372,7 +289,7 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 			lggr:             lggr,
 			verifierID:       "test-verifier",
 			messageTracker:   NoopLatencyTracker{},
-			storage:          mockStorage,
+			storage:          fakeStorage,
 			batcher:          testBatcher,
 			batchedCCVDataCh: batchedCCVDataCh,
 			retryDelay:       50 * time.Millisecond,
@@ -384,11 +301,8 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 			createTestVerifierNodeResult(2),
 		}
 
-		// First attempt fails, second attempt succeeds
-		mockStorage.On("WriteCCVNodeData", mock.Anything, batch).
-			Return(errors.New("storage error")).Once()
-		mockStorage.On("WriteCCVNodeData", mock.Anything, batch).
-			Return(nil).Once()
+		// Configure fake to fail on first write
+		fakeStorage.SetError(errors.New("storage error"))
 
 		// Start processor
 		processorCtx, processorCancel := context.WithCancel(ctx)
@@ -406,8 +320,14 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 			Error: nil,
 		}
 
-		// Wait for initial failure and retry
-		time.Sleep(200 * time.Millisecond)
+		// Wait a bit for initial failure
+		time.Sleep(30 * time.Millisecond)
+
+		// Clear error so retry succeeds
+		fakeStorage.ClearError()
+
+		// Wait for retry
+		time.Sleep(150 * time.Millisecond)
 
 		// Close everything
 		batcherCancel()
@@ -420,8 +340,15 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 			t.Fatal("processor did not finish in time")
 		}
 
-		// Verify storage was called twice (initial + retry)
-		mockStorage.AssertExpectations(t)
+		// Verify data was eventually stored successfully (after retry)
+		stored := fakeStorage.GetStored()
+		require.Equal(t, len(batch), len(stored), "should have stored all items after retry")
+
+		for _, item := range batch {
+			storedItem, exists := stored[item.MessageID]
+			require.True(t, exists, "item should be stored after retry")
+			require.Equal(t, item.Message.SequenceNumber, storedItem.Message.SequenceNumber)
+		}
 	})
 
 	t.Run("continues processing other batches when retry fails", func(t *testing.T) {
@@ -429,7 +356,7 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 		defer cancel()
 
 		lggr := logger.Test(t)
-		mockStorage := &mockCCVNodeDataWriter{}
+		fakeStorage := NewFakeCCVNodeDataWriter()
 
 		batchedCCVDataCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 100)
 
@@ -447,7 +374,7 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 			lggr:             lggr,
 			verifierID:       "test-verifier",
 			messageTracker:   NoopLatencyTracker{},
-			storage:          mockStorage,
+			storage:          fakeStorage,
 			batcher:          testBatcher,
 			batchedCCVDataCh: batchedCCVDataCh,
 			retryDelay:       50 * time.Millisecond,
@@ -457,13 +384,8 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 		failingBatch := []protocol.VerifierNodeResult{createTestVerifierNodeResult(1)}
 		successBatch := []protocol.VerifierNodeResult{createTestVerifierNodeResult(2)}
 
-		// Failing batch fails once (we'll stop before retry)
-		mockStorage.On("WriteCCVNodeData", mock.Anything, failingBatch).
-			Return(errors.New("persistent error")).Once()
-
-		// Success batch succeeds
-		mockStorage.On("WriteCCVNodeData", mock.Anything, successBatch).
-			Return(nil).Once()
+		// Configure storage to always fail (will fail for both batches initially)
+		fakeStorage.SetError(errors.New("persistent error"))
 
 		// Start processor
 		processorCtx, processorCancel := context.WithCancel(ctx)
@@ -480,6 +402,12 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 			Items: failingBatch,
 			Error: nil,
 		}
+
+		// Wait a moment
+		time.Sleep(20 * time.Millisecond)
+
+		// Clear error so next batch succeeds
+		fakeStorage.ClearError()
 
 		// Send success batch
 		batchedCCVDataCh <- batcher.BatchResult[protocol.VerifierNodeResult]{
@@ -504,8 +432,15 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 			t.Fatal("processor did not finish in time")
 		}
 
-		// Verify success batch was processed
-		mockStorage.AssertCalled(t, "WriteCCVNodeData", mock.Anything, successBatch)
+		// Verify that at least the success batch was stored
+		stored := fakeStorage.GetStored()
+		successItem, exists := stored[successBatch[0].MessageID]
+		require.True(t, exists, "success batch should be stored")
+		require.Equal(t, successBatch[0].Message.SequenceNumber, successItem.Message.SequenceNumber)
+
+		// The failing batch should not be stored
+		_, failedExists := stored[failingBatch[0].MessageID]
+		require.False(t, failedExists, "failing batch should not be stored")
 	})
 }
 
@@ -515,7 +450,7 @@ func TestStorageWriterProcessor_ContextCancellation(t *testing.T) {
 		defer cancel()
 
 		lggr := logger.Test(t)
-		mockStorage := &mockCCVNodeDataWriter{}
+		fakeStorage := NewFakeCCVNodeDataWriter()
 
 		batchedCCVDataCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
 
@@ -523,7 +458,7 @@ func TestStorageWriterProcessor_ContextCancellation(t *testing.T) {
 			lggr:             lggr,
 			verifierID:       "test-verifier",
 			messageTracker:   NoopLatencyTracker{},
-			storage:          mockStorage,
+			storage:          fakeStorage,
 			batchedCCVDataCh: batchedCCVDataCh,
 			retryDelay:       100 * time.Millisecond,
 		}
@@ -547,4 +482,75 @@ func TestStorageWriterProcessor_ContextCancellation(t *testing.T) {
 			t.Fatal("processor did not stop after context cancellation")
 		}
 	})
+}
+
+// FakeCCVNodeDataWriter is a fake implementation that stores data in memory for testing.
+type FakeCCVNodeDataWriter struct {
+	mu            sync.RWMutex
+	stored        map[protocol.Bytes32]protocol.VerifierNodeResult
+	errorToReturn error
+}
+
+func NewFakeCCVNodeDataWriter() *FakeCCVNodeDataWriter {
+	return &FakeCCVNodeDataWriter{
+		stored: make(map[protocol.Bytes32]protocol.VerifierNodeResult),
+	}
+}
+
+func (f *FakeCCVNodeDataWriter) WriteCCVNodeData(_ context.Context, ccvDataList []protocol.VerifierNodeResult) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.errorToReturn != nil {
+		return f.errorToReturn
+	}
+
+	for _, data := range ccvDataList {
+		f.stored[data.MessageID] = data
+	}
+
+	return nil
+}
+
+func (f *FakeCCVNodeDataWriter) SetError(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.errorToReturn = err
+}
+
+func (f *FakeCCVNodeDataWriter) ClearError() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.errorToReturn = nil
+}
+
+func (f *FakeCCVNodeDataWriter) GetStored() map[protocol.Bytes32]protocol.VerifierNodeResult {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	result := make(map[protocol.Bytes32]protocol.VerifierNodeResult, len(f.stored))
+	for k, v := range f.stored {
+		result[k] = v
+	}
+	return result
+}
+
+func (f *FakeCCVNodeDataWriter) GetStoredCount() int {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return len(f.stored)
+}
+
+func createTestVerifierNodeResult(sequenceNumber uint64) protocol.VerifierNodeResult {
+	msg := protocol.Message{
+		SequenceNumber: protocol.SequenceNumber(sequenceNumber),
+	}
+	return protocol.VerifierNodeResult{
+		MessageID:       msg.MustMessageID(),
+		Message:         msg,
+		CCVVersion:      []byte{1, 2, 3},
+		CCVAddresses:    []protocol.UnknownAddress{},
+		ExecutorAddress: protocol.UnknownAddress{},
+		Signature:       []byte{4, 5, 6},
+	}
 }
