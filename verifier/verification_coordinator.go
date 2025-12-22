@@ -10,7 +10,6 @@ import (
 	cursecheckerimpl "github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
@@ -31,7 +30,6 @@ type Coordinator struct {
 	taskVerifierProcessor *TaskVerifierProcessor
 	// 3rd step processor: storage writer
 	storageWriterProcessor *StorageWriterProcessor
-	storageBatcher         *batcher.Batcher[protocol.VerifierNodeResult]
 }
 
 func NewCoordinator(
@@ -93,7 +91,6 @@ func NewCoordinatorWithDetector(
 		sourceReadersServices:  sourceReaderServices,
 		curseDetector:          curseDetector,
 		storageWriterProcessor: storageWriterProcessor,
-		storageBatcher:         storageBatcher,
 		taskVerifierProcessor:  taskVerifierProcessor,
 	}, nil
 }

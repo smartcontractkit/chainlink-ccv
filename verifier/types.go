@@ -44,10 +44,10 @@ type VerificationError struct {
 	Task      VerificationTask
 	Timestamp time.Time
 	Error     error
-	// Retriable defines whether Coordinator should retry that error.
+	// Retryable defines whether Coordinator should retry that error.
 	// That way, Verifier can decide how higher order layer should act upon failure.
 	// Additionally, it can suggest a delay before retrying.
-	Retriable bool
+	Retryable bool
 	// Delay specifies how long to wait before retrying the verification. If empty, 10s is assumed.
 	Delay *time.Duration
 }
@@ -68,7 +68,7 @@ func NewRetriableVerificationError(
 		Timestamp: time.Now(),
 		Error:     err,
 		Task:      task,
-		Retriable: true,
+		Retryable: true,
 		Delay:     &delay,
 	}
 }
