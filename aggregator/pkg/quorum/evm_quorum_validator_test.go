@@ -206,10 +206,12 @@ func TestValidateSignature(t *testing.T) {
 		// Convert protobuf to domain model for validation
 		record, err := model.CommitVerificationRecordFromProto(messageData)
 		require.NoError(t, err)
-		signer, _, err := validator.ValidateSignature(context.Background(), record)
+		result, err := validator.ValidateSignature(context.Background(), record)
 		require.NoError(t, err)
-		assert.NotNil(t, signer)
-		assert.Equal(t, common.Hex2Bytes(strings.TrimPrefix(signerFixture.Signer.Address, "0x")), signer.Address)
+		assert.NotNil(t, result)
+		assert.NotNil(t, result.Signer)
+		assert.NotEqual(t, model.SignableHash{}, result.Hash)
+		assert.Equal(t, protocol.ByteSlice(common.Hex2Bytes(strings.TrimPrefix(signerFixture.Signer.Address, "0x"))), result.Signer.Identifier)
 	})
 
 	t.Run("missing signature", func(t *testing.T) {
@@ -236,9 +238,9 @@ func TestValidateSignature(t *testing.T) {
 		// Convert protobuf to domain model for validation
 		recordNoSig, err := model.CommitVerificationRecordFromProto(messageDataNoSig)
 		require.NoError(t, err)
-		signer, _, err := validator.ValidateSignature(context.Background(), recordNoSig)
+		result, err := validator.ValidateSignature(context.Background(), recordNoSig)
 		assert.Error(t, err)
-		assert.Nil(t, signer)
+		assert.Nil(t, result)
 		assert.Contains(t, err.Error(), "missing signature in report")
 	})
 
@@ -267,9 +269,9 @@ func TestValidateSignature(t *testing.T) {
 		// Convert protobuf to domain model for validation
 		invalidRecord, err := model.CommitVerificationRecordFromProto(invalidMessageData)
 		require.NoError(t, err)
-		signer, _, err := validator.ValidateSignature(context.Background(), invalidRecord)
+		result, err := validator.ValidateSignature(context.Background(), invalidRecord)
 		assert.Error(t, err)
-		assert.Nil(t, signer)
+		assert.Nil(t, result)
 		assert.Contains(t, err.Error(), "no valid signers found for the provided signature")
 	})
 
@@ -284,9 +286,9 @@ func TestValidateSignature(t *testing.T) {
 		// Convert protobuf to domain model for validation
 		record, err := model.CommitVerificationRecordFromProto(messageData)
 		require.NoError(t, err)
-		signer, _, err := validator.ValidateSignature(context.Background(), record)
+		result, err := validator.ValidateSignature(context.Background(), record)
 		assert.Error(t, err)
-		assert.Nil(t, signer)
+		assert.Nil(t, result)
 		assert.Contains(t, err.Error(), "committee config not found")
 	})
 }
@@ -346,4 +348,60 @@ func TestCheckQuorum(t *testing.T) {
 			).Run(t)
 		})
 	}
+}
+
+func TestCheckQuorum_HashMismatchDetection(t *testing.T) {
+	sourceVerifierAddress, destVerifierAddress := fixtures.GenerateVerifierAddresses(t)
+
+	signer1 := fixtures.NewSignerFixture(t, "signer1")
+	signer2 := fixtures.NewSignerFixture(t, "signer2")
+
+	config := &model.AggregatorConfig{
+		Committee: &model.Committee{
+			QuorumConfigs: map[string]*model.QuorumConfig{
+				sourceSelector: {
+					Signers:   []model.Signer{signer1.Signer, signer2.Signer},
+					Threshold: 2,
+				},
+			},
+			DestinationVerifiers: map[string]string{
+				destSelector: common.Bytes2Hex(destVerifierAddress),
+			},
+		},
+	}
+
+	validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
+
+	// Create first verification with one message
+	protocolMessage1 := fixtures.NewProtocolMessage(t, func(m *protocol.Message) *protocol.Message {
+		m.DestChainSelector = 1
+		return m
+	})
+	messageData1, _ := fixtures.NewMessageWithCCVNodeData(t, protocolMessage1, sourceVerifierAddress,
+		fixtures.WithSignatureFrom(t, signer1))
+	record1, err := model.CommitVerificationRecordFromProto(messageData1)
+	require.NoError(t, err)
+
+	// Create second verification with a different CCVVersion (different hash)
+	// Note: WithCcvVersion must be applied BEFORE WithSignatureFrom since signature depends on CCVVersion
+	protocolMessage2 := fixtures.NewProtocolMessage(t, func(m *protocol.Message) *protocol.Message {
+		m.DestChainSelector = 1
+		return m
+	})
+	messageData2, _ := fixtures.NewMessageWithCCVNodeData(t, protocolMessage2, sourceVerifierAddress,
+		fixtures.WithCcvVersion([]byte{0xFF, 0xFF, 0xFF, 0xFF}),
+		fixtures.WithSignatureFrom(t, signer2))
+	record2, err := model.CommitVerificationRecordFromProto(messageData2)
+	require.NoError(t, err)
+
+	report := &model.CommitAggregatedReport{
+		Verifications: []*model.CommitVerificationRecord{record1, record2},
+	}
+
+	valid, err := validator.CheckQuorum(context.Background(), report)
+
+	assert.Error(t, err)
+	assert.False(t, valid)
+	assert.Contains(t, err.Error(), "verification hash mismatch")
+	assert.Contains(t, err.Error(), "possible data tampering")
 }

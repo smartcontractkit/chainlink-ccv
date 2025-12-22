@@ -91,6 +91,10 @@ func (m *RateLimitingMiddleware) Intercept(ctx context.Context, req any, info *g
 
 	limiterCtx, err := limiter.New(m.store, rate).Get(ctx, key)
 	if err != nil {
+		m.lggr.Errorw("Rate limiter store error - allowing request (fail-open). Health check will fail.",
+			"error", err,
+			"callerID", identity.CallerID,
+			"method", info.FullMethod)
 		return handler(ctx, req)
 	}
 

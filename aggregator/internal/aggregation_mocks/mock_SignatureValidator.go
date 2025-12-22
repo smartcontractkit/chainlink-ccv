@@ -81,42 +81,33 @@ func (_c *MockSignatureValidator_DeriveAggregationKey_Call) RunAndReturn(run fun
 }
 
 // ValidateSignature provides a mock function with given fields: ctx, record
-func (_m *MockSignatureValidator) ValidateSignature(ctx context.Context, record *model.CommitVerificationRecord) (*model.IdentifierSigner, *model.QuorumConfig, error) {
+func (_m *MockSignatureValidator) ValidateSignature(ctx context.Context, record *model.CommitVerificationRecord) (*model.SignatureValidationResult, error) {
 	ret := _m.Called(ctx, record)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ValidateSignature")
 	}
 
-	var r0 *model.IdentifierSigner
-	var r1 *model.QuorumConfig
-	var r2 error
-	if rf, ok := ret.Get(0).(func(context.Context, *model.CommitVerificationRecord) (*model.IdentifierSigner, *model.QuorumConfig, error)); ok {
+	var r0 *model.SignatureValidationResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *model.CommitVerificationRecord) (*model.SignatureValidationResult, error)); ok {
 		return rf(ctx, record)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *model.CommitVerificationRecord) *model.IdentifierSigner); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *model.CommitVerificationRecord) *model.SignatureValidationResult); ok {
 		r0 = rf(ctx, record)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*model.IdentifierSigner)
+			r0 = ret.Get(0).(*model.SignatureValidationResult)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *model.CommitVerificationRecord) *model.QuorumConfig); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, *model.CommitVerificationRecord) error); ok {
 		r1 = rf(ctx, record)
 	} else {
-		if ret.Get(1) != nil {
-			r1 = ret.Get(1).(*model.QuorumConfig)
-		}
+		r1 = ret.Error(1)
 	}
 
-	if rf, ok := ret.Get(2).(func(context.Context, *model.CommitVerificationRecord) error); ok {
-		r2 = rf(ctx, record)
-	} else {
-		r2 = ret.Error(2)
-	}
-
-	return r0, r1, r2
+	return r0, r1
 }
 
 // MockSignatureValidator_ValidateSignature_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ValidateSignature'
@@ -138,12 +129,12 @@ func (_c *MockSignatureValidator_ValidateSignature_Call) Run(run func(ctx contex
 	return _c
 }
 
-func (_c *MockSignatureValidator_ValidateSignature_Call) Return(_a0 *model.IdentifierSigner, _a1 *model.QuorumConfig, _a2 error) *MockSignatureValidator_ValidateSignature_Call {
-	_c.Call.Return(_a0, _a1, _a2)
+func (_c *MockSignatureValidator_ValidateSignature_Call) Return(_a0 *model.SignatureValidationResult, _a1 error) *MockSignatureValidator_ValidateSignature_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockSignatureValidator_ValidateSignature_Call) RunAndReturn(run func(context.Context, *model.CommitVerificationRecord) (*model.IdentifierSigner, *model.QuorumConfig, error)) *MockSignatureValidator_ValidateSignature_Call {
+func (_c *MockSignatureValidator_ValidateSignature_Call) RunAndReturn(run func(context.Context, *model.CommitVerificationRecord) (*model.SignatureValidationResult, error)) *MockSignatureValidator_ValidateSignature_Call {
 	_c.Call.Return(run)
 	return _c
 }

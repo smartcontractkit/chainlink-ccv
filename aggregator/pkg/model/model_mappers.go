@@ -14,15 +14,9 @@ import (
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
-// IsSourceVerifierInCCVAddresses checks whether the given source verifier address is present
-// in the provided list of CCV addresses. The sourceVerifierAddr parameter is the raw byte
-// representation of the source verifier address, and ccvAddresses is the list of CCV
-// addresses to search. It returns true if the source verifier address is found in the list,
-// and false otherwise.
-func IsSourceVerifierInCCVAddresses(sourceVerifierAddr []byte, ccvAddresses []protocol.UnknownAddress) bool {
-	sourceAddr := protocol.UnknownAddress(sourceVerifierAddr)
+func IsSourceVerifierInCCVAddresses(sourceVerifierAddr protocol.UnknownAddress, ccvAddresses []protocol.UnknownAddress) bool {
 	for _, addr := range ccvAddresses {
-		if sourceAddr.Equal(addr) {
+		if sourceVerifierAddr.Equal(addr) {
 			return true
 		}
 	}
@@ -32,15 +26,20 @@ func IsSourceVerifierInCCVAddresses(sourceVerifierAddr []byte, ccvAddresses []pr
 func getAllSignatureByAddress(report *CommitAggregatedReport) (map[string]protocol.Data, error) {
 	addressSignatures := make(map[string]protocol.Data)
 	for _, verification := range report.Verifications {
-		if verification.IdentifierSigner == nil {
-			return nil, fmt.Errorf("missing IdentifierSigner in verification record")
+		if verification.SignerIdentifier == nil {
+			return nil, fmt.Errorf("missing SignerIdentifier in verification record")
 		}
 
-		addressKey := common.BytesToAddress(verification.IdentifierSigner.Address).Hex()
+		r, s, _, err := protocol.DecodeSingleECDSASignature(verification.Signature)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode signature: %w", err)
+		}
+
+		addressKey := common.BytesToAddress(verification.SignerIdentifier.Identifier).Hex()
 		addressSignatures[addressKey] = protocol.Data{
-			R:      verification.IdentifierSigner.SignatureR,
-			S:      verification.IdentifierSigner.SignatureS,
-			Signer: common.Address(verification.IdentifierSigner.Address),
+			R:      r,
+			S:      s,
+			Signer: common.BytesToAddress(verification.SignerIdentifier.Identifier),
 		}
 	}
 	return addressSignatures, nil
@@ -93,8 +92,8 @@ func MapAggregatedReportToVerifierResultProto(report *CommitAggregatedReport, c 
 		return nil, fmt.Errorf("quorum config not found for source selector: %d", report.GetSourceChainSelector())
 	}
 
-	destVerifierAddr := c.GetDestinationVerifierAddressBytes(report.GetDestinationSelector())
-	if destVerifierAddr == nil {
+	destVerifierAddr, ok := c.GetDestinationVerifierAddress(report.GetDestinationSelector())
+	if !ok {
 		return nil, fmt.Errorf("destination verifier address not found for destination selector: %d", report.GetDestinationSelector())
 	}
 
@@ -124,15 +123,20 @@ func MapAggregatedReportToVerifierResultProto(report *CommitAggregatedReport, c 
 		ccvAddresses[i] = addr.Bytes()
 	}
 
+	protoMsg := report.GetProtoMessage()
+	if protoMsg == nil {
+		return nil, fmt.Errorf("failed to convert message to proto format")
+	}
+
 	return &verifierpb.VerifierResult{
-		Message:                report.GetProtoMessage(),
+		Message:                protoMsg,
 		MessageCcvAddresses:    ccvAddresses,
 		MessageExecutorAddress: report.GetMessageExecutorAddress().Bytes(),
 		CcvData:                ccvData,
 		Metadata: &verifierpb.VerifierResultMetadata{
 			Timestamp:             report.WrittenAt.UnixMilli(),
-			VerifierSourceAddress: quorumConfig.GetSourceVerifierAddressBytes(),
-			VerifierDestAddress:   destVerifierAddr,
+			VerifierSourceAddress: quorumConfig.GetSourceVerifierAddress().Bytes(),
+			VerifierDestAddress:   destVerifierAddr.Bytes(),
 		},
 	}, nil
 }
@@ -171,7 +175,7 @@ func CommitVerificationRecordFromProto(proto *committeepb.CommitteeVerifierNodeR
 }
 
 // CommitVerificationRecordToProto converts domain model to protobuf CommitteeVerifierNodeResult.
-func CommitVerificationRecordToProto(record *CommitVerificationRecord) *committeepb.CommitteeVerifierNodeResult {
+func CommitVerificationRecordToProto(record *CommitVerificationRecord) (*committeepb.CommitteeVerifierNodeResult, error) {
 	// Convert []protocol.UnknownAddress to [][]byte
 	ccvAddresses := make([][]byte, len(record.MessageCCVAddresses))
 	for i, addr := range record.MessageCCVAddresses {
@@ -186,8 +190,12 @@ func CommitVerificationRecordToProto(record *CommitVerificationRecord) *committe
 	}
 
 	if record.Message != nil {
-		proto.Message = ccvcommon.MapProtocolMessageToProtoMessage(record.Message)
+		msg, err := ccvcommon.MapProtocolMessageToProtoMessage(record.Message)
+		if err != nil {
+			return nil, fmt.Errorf("failed to map protocol message to proto: %w", err)
+		}
+		proto.Message = msg
 	}
 
-	return proto
+	return proto, nil
 }

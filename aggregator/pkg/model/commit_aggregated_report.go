@@ -46,15 +46,27 @@ func (c *CommitAggregatedReport) GetID() string {
 
 // GetDestinationSelector retrieves the destination chain selector from the first verification record.
 func (c *CommitAggregatedReport) GetDestinationSelector() uint64 {
-	return c.GetProtoMessage().DestChainSelector
+	msg := c.GetProtoMessage()
+	if msg == nil {
+		return 0
+	}
+	return msg.DestChainSelector
 }
 
 func (c *CommitAggregatedReport) GetSourceChainSelector() uint64 {
-	return c.GetProtoMessage().SourceChainSelector
+	msg := c.GetProtoMessage()
+	if msg == nil {
+		return 0
+	}
+	return msg.SourceChainSelector
 }
 
 func (c *CommitAggregatedReport) GetOffRampAddress() []byte {
-	return c.GetProtoMessage().OffRampAddress
+	msg := c.GetProtoMessage()
+	if msg == nil {
+		return nil
+	}
+	return msg.OffRampAddress
 }
 
 func (c *CommitAggregatedReport) GetMessageCCVAddresses() []protocol.UnknownAddress {
@@ -72,7 +84,11 @@ func (c *CommitAggregatedReport) GetVersion() []byte {
 // It is assumed that all verifications in the report have the same message since otherwise the message ID would not match.
 func (c *CommitAggregatedReport) GetProtoMessage() *verifierpb.Message {
 	if len(c.Verifications) > 0 && c.Verifications[0].Message != nil {
-		return common.MapProtocolMessageToProtoMessage(c.Verifications[0].Message)
+		msg, err := common.MapProtocolMessageToProtoMessage(c.Verifications[0].Message)
+		if err != nil {
+			return nil
+		}
+		return msg
 	}
 	return nil
 }

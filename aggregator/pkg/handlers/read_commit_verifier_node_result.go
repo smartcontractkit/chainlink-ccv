@@ -10,6 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
@@ -28,23 +29,27 @@ func (h *ReadCommitVerifierNodeResultHandler) logger(ctx context.Context) logger
 // Handle processes the read request and retrieves the corresponding commit verification record.
 func (h *ReadCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *committeepb.ReadCommitteeVerifierNodeResultRequest) (*committeepb.ReadCommitteeVerifierNodeResultResponse, error) {
 	if err := validateReadRequest(req); err != nil {
-		h.logger(ctx).Errorw("validation error", "error", err)
-		return &committeepb.ReadCommitteeVerifierNodeResultResponse{}, status.Errorf(codes.InvalidArgument, "validation error: %v", err)
+		h.logger(ctx).Warnw("validation error", "error", err)
+		return &committeepb.ReadCommitteeVerifierNodeResultResponse{}, status.Error(codes.InvalidArgument, "invalid request parameters")
 	}
 	ctx = scope.WithMessageID(ctx, req.GetMessageId())
 
 	id := model.CommitVerificationRecordIdentifier{
-		Address:   req.GetAddress(),
+		Address:   protocol.ByteSlice(req.GetAddress()),
 		MessageID: req.GetMessageId(),
 	}
 
 	record, err := h.storage.GetCommitVerification(ctx, id)
 	if err != nil {
 		h.logger(ctx).Errorw("failed to get commit verification record", "address", id.Address, "error", err)
-		return nil, err
+		return nil, status.Error(codes.NotFound, "verification record not found")
 	}
 
-	protoRecord := model.CommitVerificationRecordToProto(record)
+	protoRecord, err := model.CommitVerificationRecordToProto(record)
+	if err != nil {
+		h.logger(ctx).Errorw("failed to convert record to proto", "error", err)
+		return nil, status.Errorf(codes.Internal, "failed to convert record to proto: %v", err)
+	}
 
 	return &committeepb.ReadCommitteeVerifierNodeResultResponse{
 		CommitteeVerifierNodeResult: protoRecord,

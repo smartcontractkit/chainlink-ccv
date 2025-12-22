@@ -13,11 +13,15 @@ import (
 
 func makeValidWriteReq() *committeepb.WriteCommitteeVerifierNodeResultRequest {
 	msg := makeTestMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.SequenceNumber(1), []byte{})
+	pbMsg, err := ccvcommon.MapProtocolMessageToProtoMessage(msg)
+	if err != nil {
+		panic(err)
+	}
 	return &committeepb.WriteCommitteeVerifierNodeResultRequest{
 		CommitteeVerifierNodeResult: &committeepb.CommitteeVerifierNodeResult{
 			Signature:       []byte{0x1},
 			CcvVersion:      []byte{0x1, 0x2, 0x3, 0x4},
-			Message:         ccvcommon.MapProtocolMessageToProtoMessage(msg),
+			Message:         pbMsg,
 			CcvAddresses:    [][]byte{},
 			ExecutorAddress: makeTestExecutorAddress(),
 		},

@@ -6,9 +6,7 @@ CREATE TABLE IF NOT EXISTS commit_verification_records (
     id BIGSERIAL PRIMARY KEY,
     seq_num BIGINT NOT NULL DEFAULT nextval('commit_verification_records_seq_num_seq'),
     message_id TEXT NOT NULL,
-    signer_address TEXT NOT NULL,
-    signature_r BYTEA NOT NULL DEFAULT '',
-    signature_s BYTEA NOT NULL DEFAULT '',
+    signer_identifier TEXT NOT NULL,
     aggregation_key TEXT NOT NULL,
     message_data JSONB NOT NULL,
     ccv_version BYTEA,
@@ -16,7 +14,7 @@ CREATE TABLE IF NOT EXISTS commit_verification_records (
     message_ccv_addresses TEXT[],
     message_executor_address TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT unique_verification UNIQUE (message_id, signer_address, aggregation_key)
+    CONSTRAINT unique_verification UNIQUE (message_id, signer_identifier, aggregation_key)
 );
 
 CREATE TABLE IF NOT EXISTS commit_aggregated_reports (
@@ -28,7 +26,7 @@ CREATE TABLE IF NOT EXISTS commit_aggregated_reports (
     CONSTRAINT unique_aggregated_report_sequence UNIQUE (message_id, verification_record_ids)
 );
 
-CREATE INDEX IF NOT EXISTS idx_verification_latest ON commit_verification_records(message_id, signer_address, seq_num DESC);
+CREATE INDEX IF NOT EXISTS idx_verification_latest ON commit_verification_records(message_id, signer_identifier, seq_num DESC);
 CREATE INDEX IF NOT EXISTS idx_verification_aggregation_key ON commit_verification_records(message_id, aggregation_key, seq_num DESC);
 CREATE INDEX IF NOT EXISTS idx_verification_orphan_scan ON commit_verification_records(created_at, message_id, aggregation_key);
 CREATE INDEX IF NOT EXISTS idx_aggregated_latest ON commit_aggregated_reports(message_id, seq_num DESC);
