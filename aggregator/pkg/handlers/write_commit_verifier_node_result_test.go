@@ -22,7 +22,10 @@ import (
 
 func makeValidProtoRequest() *committeepb.WriteCommitteeVerifierNodeResultRequest {
 	msg := makeTestMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.SequenceNumber(1), []byte{})
-	pbMsg := ccvcommon.MapProtocolMessageToProtoMessage(msg)
+	pbMsg, err := ccvcommon.MapProtocolMessageToProtoMessage(msg)
+	if err != nil {
+		panic(err)
+	}
 	return &committeepb.WriteCommitteeVerifierNodeResultRequest{
 		CommitteeVerifierNodeResult: &committeepb.CommitteeVerifierNodeResult{
 			Signature:       []byte("signature_bytes"),
@@ -37,14 +40,14 @@ func makeValidProtoRequest() *committeepb.WriteCommitteeVerifierNodeResultReques
 func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 	t.Parallel()
 
-	signer1 := &model.IdentifierSigner{
-		Address: []byte{0xAA},
+	signer1 := &model.SignerIdentifier{
+		Identifier: []byte{0xAA},
 	}
 
 	type testCase struct {
 		name             string
 		req              *committeepb.WriteCommitteeVerifierNodeResultRequest
-		signer           *model.IdentifierSigner
+		signer           *model.SignerIdentifier
 		sigErr           error
 		saveErr          error
 		aggErr           error
@@ -132,9 +135,11 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 
 			// Signature validator expectation
 			if tc.sigErr != nil {
-				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(nil, nil, tc.sigErr)
+				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(nil, tc.sigErr)
 			} else {
-				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(tc.signer, nil, nil).Maybe()
+				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(&model.SignatureValidationResult{
+					Signer: tc.signer,
+				}, nil).Maybe()
 			}
 
 			// Save expectations with counter

@@ -15,8 +15,8 @@ import (
 )
 
 type SignatureValidator interface {
-	// ValidateSignature validates a signature and returns the signer information and quorum configuration.
-	ValidateSignature(ctx context.Context, record *model.CommitVerificationRecord) (*model.IdentifierSigner, *model.QuorumConfig, error)
+	// ValidateSignature validates a signature and returns the validation result.
+	ValidateSignature(ctx context.Context, record *model.CommitVerificationRecord) (*model.SignatureValidationResult, error)
 	// DeriveAggregationKey derives the aggregation key for grouping verification records.
 	DeriveAggregationKey(ctx context.Context, record *model.CommitVerificationRecord) (model.AggregationKey, error)
 }
@@ -57,7 +57,7 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 	ctx = scope.WithMessageID(ctx, record.MessageID)
 	reqLogger = h.logger(ctx)
 
-	signer, _, err := h.signatureValidator.ValidateSignature(ctx, record)
+	validationResult, err := h.signatureValidator.ValidateSignature(ctx, record)
 	if err != nil {
 		reqLogger.Errorw("signature validation failed", "error", err)
 		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
@@ -76,9 +76,9 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 	}
 	ctx = scope.WithAggregationKey(ctx, aggregationKey)
 
-	signerCtx := scope.WithAddress(ctx, signer.Address)
+	signerCtx := scope.WithAddress(ctx, validationResult.Signer.Identifier)
 
-	record.IdentifierSigner = signer
+	record.SignerIdentifier = validationResult.Signer
 
 	err = h.storage.SaveCommitVerification(signerCtx, record, aggregationKey)
 	if err != nil {

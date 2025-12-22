@@ -36,7 +36,10 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.VerifierNodeResult) (*committ
 		ccvAddresses[i] = addr[:]
 	}
 
-	message := v1.NewVerifierResultMessage(ccvData.Message)
+	message, err := v1.NewVerifierResultMessage(ccvData.Message)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create verifier result message: %w", err)
+	}
 	return &committeepb.WriteCommitteeVerifierNodeResultRequest{
 		CommitteeVerifierNodeResult: &committeepb.CommitteeVerifierNodeResult{
 			CcvVersion:      ccvData.CCVVersion,
