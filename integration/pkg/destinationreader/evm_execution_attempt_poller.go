@@ -459,10 +459,7 @@ func (p *EvmExecutionAttemptPoller) pollForEvents(ctx context.Context) error {
 
 	for currentFrom <= toBlock {
 		// Calculate the end block for this batch
-		batchEnd := currentFrom + maxFilterBlockRange - 1
-		if batchEnd > toBlock {
-			batchEnd = toBlock
-		}
+		batchEnd := min(currentFrom+maxFilterBlockRange-1, toBlock)
 
 		batchEndPtr := batchEnd
 		p.lggr.Debugw("Querying events in batch",
