@@ -35,7 +35,7 @@ var (
 	// this combines with indexerGarbageCollectionInterval to avoid memory leak in the streamer.
 	// We store messages for messageContextWindow, cleaning up old messages every indexerGarbageCollectionInterval.
 	// These values should be set based on the indexer's message retry duration.
-	messageContextWindow = 9 * time.Hour
+	messageContextWindow = 24 * time.Hour
 )
 
 // NewExecutorCoordinator initializes the executor coordinator object.
@@ -97,12 +97,13 @@ func NewExecutorCoordinator(
 
 		evmDestReader, err := destinationreader.NewEvmDestinationReader(
 			destinationreader.Params{
-				Lggr:             logger.With(lggr, "component", "DestinationReader"),
-				ChainSelector:    sel,
-				ChainClient:      chain.Client(),
-				OfframpAddress:   offRampAddresses[sel].String(), // TODO: use UnknownAddress instead of string?
-				RmnRemoteAddress: rmnAddresses[sel].String(),
-				CacheExpiry:      cfg.ReaderCacheExpiry,
+				Lggr:                      logger.With(lggr, "component", "DestinationReader"),
+				ChainSelector:             sel,
+				ChainClient:               chain.Client(),
+				OfframpAddress:            offRampAddresses[sel].String(), // TODO: use UnknownAddress instead of string?
+				RmnRemoteAddress:          rmnAddresses[sel].String(),
+				CacheExpiry:               cfg.ReaderCacheExpiry,
+				ExecutionVisabilityWindow: cfg.MaxRetryDuration,
 			})
 		if err != nil {
 			lggr.Errorw("Failed to create destination reader", "error", err, "chainSelector", sel)

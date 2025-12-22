@@ -63,7 +63,6 @@ type Params struct {
 	OfframpAddress            string
 	RmnRemoteAddress          string
 	CacheExpiry               time.Duration
-	StartBlock                uint64
 	ExecutionVisabilityWindow time.Duration
 }
 
@@ -81,7 +80,6 @@ func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
 	appendIfNil(params.CacheExpiry, "cacheExpiry")
 	appendIfNil(params.ChainClient, "chainClient")
 	appendIfNil(params.Lggr, "logger")
-	appendIfNil(params.StartBlock, "startBlock")
 	appendIfNil(params.ExecutionVisabilityWindow, "executionVisabilityWindow")
 
 	if len(errs) > 0 {
@@ -108,7 +106,6 @@ func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
 		offRampAddr,
 		params.ChainClient,
 		logger.With(params.Lggr, "component", "ExecutionAttemptPoller"),
-		params.StartBlock,
 		params.ExecutionVisabilityWindow,
 	)
 	if err != nil {
