@@ -13,10 +13,10 @@ import (
 type Batcher[T any] struct {
 	maxSize int
 	maxWait time.Duration
-	outCh   chan<- BatchResult[T]
 
 	addCh   chan []T
 	retryCh chan []retryItem[T]
+	outCh   chan<- BatchResult[T]
 
 	ctx context.Context
 	wg  sync.WaitGroup
@@ -130,21 +130,15 @@ func (b *Batcher[T]) run() {
 				timer.Reset(b.maxWait)
 			}
 
-			// Add items to buffer
 			buffer = append(buffer, items...)
-
-			// Flush if we've reached max size
 			if len(buffer) >= b.maxSize {
 				b.flush(&buffer, timer)
 			}
 		case retryItems := <-b.retryCh:
-			// Add items to retry buffer
 			retryBuffer = append(retryBuffer, retryItems...)
 		case <-timer.C:
-			// Timer expired, flush current batch
 			b.flush(&buffer, timer)
 		case <-retryTicker.C:
-			// Check for retry items that are ready
 			b.processRetryBuffer(&buffer, &retryBuffer, timer)
 		}
 	}
@@ -218,9 +212,11 @@ func (b *Batcher[T]) processRetryBuffer(buffer *[]T, retryBuffer *[]retryItem[T]
 	*retryBuffer = remainingRetries
 }
 
-// Close waits for the background goroutine to finish.
+// Close waits for the background goroutine to finish and closes internal channels.
 // The caller should cancel the context before calling Close() to trigger final flush.
 func (b *Batcher[T]) Close() error {
 	b.wg.Wait()
+	close(b.addCh)
+	close(b.retryCh)
 	return nil
 }
