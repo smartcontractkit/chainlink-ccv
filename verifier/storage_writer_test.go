@@ -415,7 +415,7 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 func TestStorageWriterProcessor_ContextCancellation(t *testing.T) {
 	t.Run("stops processing when context is cancelled", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
+		t.Cleanup(cancel)
 
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
