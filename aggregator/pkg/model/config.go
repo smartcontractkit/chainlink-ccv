@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ethereum/go-ethereum/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 // Signer represents a participant in the commit verification process.
@@ -17,10 +17,9 @@ type Signer struct {
 	Address string `toml:"address"`
 }
 
-type IdentifierSigner struct {
-	Address    []byte
-	SignatureR [32]byte
-	SignatureS [32]byte
+// SignerIdentifier holds the chain-native signer identifier.
+type SignerIdentifier struct {
+	Identifier protocol.ByteSlice
 }
 
 // DestinationSelector represents a destination chain selector as a string.
@@ -38,6 +37,8 @@ type Committee struct {
 	QuorumConfigs map[SourceSelector]*QuorumConfig `toml:"quorumConfigs"`
 	// DestinationVerifiers maps destination chain selectors to their verifier contract addresses.
 	DestinationVerifiers map[DestinationSelector]string `toml:"destinationVerifiers"`
+	// destinationVerifiersParsed holds the parsed addresses, populated during validation.
+	destinationVerifiersParsed map[DestinationSelector]protocol.UnknownAddress
 }
 
 func (c *Committee) GetQuorumConfig(sourceChainSelector uint64) (*QuorumConfig, bool) {
@@ -46,18 +47,10 @@ func (c *Committee) GetQuorumConfig(sourceChainSelector uint64) (*QuorumConfig, 
 	return qc, exists
 }
 
-func (c *Committee) GetDestinationVerifierAddress(destChainSelector uint64) (string, bool) {
+func (c *Committee) GetDestinationVerifierAddress(destChainSelector uint64) (protocol.UnknownAddress, bool) {
 	destSelectorStr := new(big.Int).SetUint64(destChainSelector).String()
-	addr, exists := c.DestinationVerifiers[destSelectorStr]
+	addr, exists := c.destinationVerifiersParsed[destSelectorStr]
 	return addr, exists
-}
-
-func (c *Committee) GetDestinationVerifierAddressBytes(destChainSelector uint64) []byte {
-	addr, exists := c.GetDestinationVerifierAddress(destChainSelector)
-	if !exists {
-		return nil
-	}
-	return common.HexToAddress(addr).Bytes()
 }
 
 // QuorumConfig represents the configuration for a quorum of signers.
@@ -65,10 +58,12 @@ type QuorumConfig struct {
 	SourceVerifierAddress string   `toml:"sourceVerifierAddress"`
 	Signers               []Signer `toml:"signers"`
 	Threshold             uint8    `toml:"threshold"`
+	// sourceVerifierAddressParsed holds the parsed address, populated during validation.
+	sourceVerifierAddressParsed protocol.UnknownAddress
 }
 
-func (q *QuorumConfig) GetSourceVerifierAddressBytes() []byte {
-	return common.HexToAddress(q.SourceVerifierAddress).Bytes()
+func (q *QuorumConfig) GetSourceVerifierAddress() protocol.UnknownAddress {
+	return q.sourceVerifierAddressParsed
 }
 
 // StorageType represents the type of storage backend to use.
@@ -104,6 +99,10 @@ type ServerConfig struct {
 	KeepaliveTimeoutSeconds int `toml:"keepaliveTimeoutSeconds"`
 	// MaxConnectionAgeSeconds forces connections to be closed after this duration (0 = infinite, GRPC default)
 	MaxConnectionAgeSeconds int `toml:"maxConnectionAgeSeconds"`
+	// MaxRecvMsgSizeBytes is the maximum message size in bytes the server can receive (default: 4MB)
+	MaxRecvMsgSizeBytes int `toml:"maxRecvMsgSizeBytes"`
+	// MaxSendMsgSizeBytes is the maximum message size in bytes the server can send (default: 4MB)
+	MaxSendMsgSizeBytes int `toml:"maxSendMsgSizeBytes"`
 }
 
 // APIClient represents a configured client for API access.
@@ -369,6 +368,19 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.Storage.PageSize == 0 {
 		c.Storage.PageSize = 100
 	}
+	// Database connection pool defaults
+	if c.Storage.MaxOpenConns == 0 {
+		c.Storage.MaxOpenConns = 25
+	}
+	if c.Storage.MaxIdleConns == 0 {
+		c.Storage.MaxIdleConns = 5
+	}
+	if c.Storage.ConnMaxLifetime == 0 {
+		c.Storage.ConnMaxLifetime = 3600 // 1 hour
+	}
+	if c.Storage.ConnMaxIdleTime == 0 {
+		c.Storage.ConnMaxIdleTime = 300 // 5 minutes
+	}
 	if c.APIKeys.Clients == nil {
 		c.APIKeys.Clients = make(map[string]*APIClient)
 	}
@@ -456,6 +468,18 @@ func (c *AggregatorConfig) ValidateServerConfig() error {
 	if c.Server.MaxConnectionAgeSeconds < 0 {
 		return errors.New("server.maxConnectionAgeSeconds cannot be negative")
 	}
+	if c.Server.MaxRecvMsgSizeBytes < 0 {
+		return errors.New("server.maxRecvMsgSizeBytes cannot be negative")
+	}
+	if c.Server.MaxRecvMsgSizeBytes > 100*1024*1024 {
+		return errors.New("server.maxRecvMsgSizeBytes cannot exceed 100MB")
+	}
+	if c.Server.MaxSendMsgSizeBytes < 0 {
+		return errors.New("server.maxSendMsgSizeBytes cannot be negative")
+	}
+	if c.Server.MaxSendMsgSizeBytes > 100*1024*1024 {
+		return errors.New("server.maxSendMsgSizeBytes cannot exceed 100MB")
+	}
 	return nil
 }
 
@@ -487,6 +511,21 @@ func (c *AggregatorConfig) ValidateStorageConfig() error {
 	}
 	if c.Storage.PageSize > 1000 {
 		return errors.New("storage.pageSize cannot exceed 1000")
+	}
+	if c.Storage.MaxOpenConns < 0 {
+		return errors.New("storage.maxOpenConns cannot be negative")
+	}
+	if c.Storage.MaxIdleConns < 0 {
+		return errors.New("storage.maxIdleConns cannot be negative")
+	}
+	if c.Storage.MaxIdleConns > c.Storage.MaxOpenConns {
+		return errors.New("storage.maxIdleConns cannot exceed storage.maxOpenConns")
+	}
+	if c.Storage.ConnMaxLifetime < 0 {
+		return errors.New("storage.connMaxLifetime cannot be negative")
+	}
+	if c.Storage.ConnMaxIdleTime < 0 {
+		return errors.New("storage.connMaxIdleTime cannot be negative")
 	}
 
 	return nil
@@ -523,7 +562,8 @@ func (c *AggregatorConfig) ValidateCommitteeConfig() error {
 		return errors.New("committee must have at least one destination verifier")
 	}
 
-	// Validate destination verifiers
+	// Validate and parse destination verifiers
+	c.Committee.destinationVerifiersParsed = make(map[DestinationSelector]protocol.UnknownAddress, len(c.Committee.DestinationVerifiers))
 	for destSelector, verifierAddress := range c.Committee.DestinationVerifiers {
 		if strings.TrimSpace(destSelector) == "" {
 			return errors.New("destination selector cannot be empty")
@@ -536,6 +576,12 @@ func (c *AggregatorConfig) ValidateCommitteeConfig() error {
 		if strings.TrimSpace(verifierAddress) == "" {
 			return fmt.Errorf("destination verifier address cannot be empty for destination '%s'", destSelector)
 		}
+
+		parsedAddr, err := protocol.NewUnknownAddressFromHex(verifierAddress)
+		if err != nil {
+			return fmt.Errorf("invalid destination verifier address '%s' for destination '%s': %w", verifierAddress, destSelector, err)
+		}
+		c.Committee.destinationVerifiersParsed[destSelector] = parsedAddr
 	}
 
 	// Validate each source configuration
@@ -564,6 +610,16 @@ func (c *AggregatorConfig) ValidateCommitteeConfig() error {
 			return fmt.Errorf("threshold (%d) cannot exceed number of signers (%d) for source '%s'",
 				quorumConfig.Threshold, len(quorumConfig.Signers), sourceSelector)
 		}
+
+		// Parse and store the source verifier address
+		if strings.TrimSpace(quorumConfig.SourceVerifierAddress) == "" {
+			return fmt.Errorf("source verifier address cannot be empty for source '%s'", sourceSelector)
+		}
+		parsedSourceAddr, err := protocol.NewUnknownAddressFromHex(quorumConfig.SourceVerifierAddress)
+		if err != nil {
+			return fmt.Errorf("invalid source verifier address '%s' for source '%s': %w", quorumConfig.SourceVerifierAddress, sourceSelector, err)
+		}
+		quorumConfig.sourceVerifierAddressParsed = parsedSourceAddr
 
 		seenSigners := make(map[string]bool)
 		for i, signer := range quorumConfig.Signers {

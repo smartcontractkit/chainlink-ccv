@@ -53,8 +53,8 @@ func TestReadCommitCCVNodeDataHandler_Success_MapsToProto(t *testing.T) {
 		MessageID:  msgID,
 		CCVVersion: []byte{0x1},
 		Signature:  []byte{0x2},
-		IdentifierSigner: &model.IdentifierSigner{
-			Address: []byte{0xAA},
+		SignerIdentifier: &model.SignerIdentifier{
+			Identifier: []byte{0xAA},
 		},
 	}
 	rec.SetTimestampFromMillis(time.Now().UnixMilli())

@@ -3,6 +3,9 @@ package handlers
 import (
 	"context"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
@@ -28,7 +31,7 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *msgdiscoveryp
 	batch, err := h.storage.QueryAggregatedReports(ctx, req.SinceSequence)
 	if err != nil {
 		h.logger(ctx).Errorw("failed to query aggregated reports", "sinceSequence", req.SinceSequence, "error", err)
-		return nil, err
+		return nil, status.Error(codes.Internal, "failed to retrieve messages")
 	}
 
 	records := make([]*msgdiscoverypb.VerifierResultWithSequence, 0, len(batch.Reports))
@@ -36,7 +39,7 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *msgdiscoveryp
 		verifierResult, err := model.MapAggregatedReportToVerifierResultProto(report, h.committee)
 		if err != nil {
 			h.logger(ctx).Errorw("failed to map aggregated report to proto", "messageID", report.MessageID, "error", err)
-			return nil, err
+			return nil, status.Error(codes.Internal, "failed to process messages")
 		}
 
 		// If source verifier is not in ccvAddresses, nil out metadata addresses
@@ -45,7 +48,7 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *msgdiscoveryp
 			h.logger(ctx).Errorw("missing quorum config for source chain selector", "sourceChainSelector", report.GetSourceChainSelector(), "messageID", report.MessageID)
 			verifierResult.Metadata.VerifierSourceAddress = nil
 			verifierResult.Metadata.VerifierDestAddress = nil
-		} else if !model.IsSourceVerifierInCCVAddresses(quorumConfig.GetSourceVerifierAddressBytes(), report.GetMessageCCVAddresses()) {
+		} else if !model.IsSourceVerifierInCCVAddresses(quorumConfig.GetSourceVerifierAddress(), report.GetMessageCCVAddresses()) {
 			verifierResult.Metadata.VerifierSourceAddress = nil
 			verifierResult.Metadata.VerifierDestAddress = nil
 		}

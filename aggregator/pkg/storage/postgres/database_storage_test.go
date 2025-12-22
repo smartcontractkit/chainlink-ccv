@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
 	"testing"
 	"time"
@@ -47,10 +46,8 @@ func assertCommitVerificationRecordEqual(t *testing.T, expected, actual *model.C
 		require.Equal(t, expected.Message.Data, actual.Message.Data, "%s: Message.Data mismatch", msgPrefix)
 	}
 
-	if expected.IdentifierSigner != nil && actual.IdentifierSigner != nil {
-		require.Equal(t, expected.IdentifierSigner.Address, actual.IdentifierSigner.Address, "%s: IdentifierSigner.Address mismatch", msgPrefix)
-		require.Equal(t, expected.IdentifierSigner.SignatureR, actual.IdentifierSigner.SignatureR, "%s: IdentifierSigner.SignatureR mismatch", msgPrefix)
-		require.Equal(t, expected.IdentifierSigner.SignatureS, actual.IdentifierSigner.SignatureS, "%s: IdentifierSigner.SignatureS mismatch", msgPrefix)
+	if expected.SignerIdentifier != nil && actual.SignerIdentifier != nil {
+		require.Equal(t, expected.SignerIdentifier.Identifier, actual.SignerIdentifier.Identifier, "%s: SignerIdentifier.Identifier mismatch", msgPrefix)
 	}
 
 	require.Equal(t, len(expected.MessageCCVAddresses), len(actual.MessageCCVAddresses), "%s: MessageCCVAddresses length mismatch", msgPrefix)
@@ -143,7 +140,9 @@ func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *t
 			TokenTransferLength:  uint32(message.TokenTransferLength),
 			TokenTransfer: func() []byte {
 				if message.TokenTransfer != nil {
-					return message.TokenTransfer.Encode()
+					encoded, err := message.TokenTransfer.Encode()
+					require.NoError(t, err)
+					return encoded
 				}
 				return []byte{}
 			}(),
@@ -171,7 +170,7 @@ func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *t
 		Signer: signerAddr,
 	}
 
-	signature, err := protocol.EncodeSingleSignature(sigData)
+	signature, err := protocol.EncodeSingleECDSASignature(sigData)
 	require.NoError(t, err)
 
 	msgWithCCV.Signature = signature
@@ -188,18 +187,12 @@ func getMessageIDFromProto(t *testing.T, msgWithCCV *committeepb.CommitteeVerifi
 }
 
 func createTestCommitVerificationRecord(t *testing.T, msgWithCCV *committeepb.CommitteeVerifierNodeResult, signer *testFixture) *model.CommitVerificationRecord {
-	r32, s32 := [32]byte{}, [32]byte{}
-	copy(r32[:], []byte("r_signature_test_32_bytes_here!"))
-	copy(s32[:], []byte("s_signature_test_32_bytes_here!"))
-
 	signerAddress := common.HexToAddress(signer.Signer.Address)
 
 	record, err := model.CommitVerificationRecordFromProto(msgWithCCV)
 	require.NoError(t, err)
-	record.IdentifierSigner = &model.IdentifierSigner{
-		Address:    signerAddress.Bytes(),
-		SignatureR: r32,
-		SignatureS: s32,
+	record.SignerIdentifier = &model.SignerIdentifier{
+		Identifier: signerAddress.Bytes(),
 	}
 
 	return record
@@ -210,16 +203,10 @@ func createTestCommitVerificationRecordWithNewKey(t *testing.T, msgWithCCV *comm
 	require.NoError(t, err)
 	signerAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
 
-	messageID := getMessageIDFromProto(t, msgWithCCV)
-	r32, s32, _, err := protocol.SignV27(messageID, privateKey)
-	require.NoError(t, err)
-
 	record, err := model.CommitVerificationRecordFromProto(msgWithCCV)
 	require.NoError(t, err)
-	record.IdentifierSigner = &model.IdentifierSigner{
-		Address:    signerAddress.Bytes(),
-		SignatureR: r32,
-		SignatureS: s32,
+	record.SignerIdentifier = &model.SignerIdentifier{
+		Identifier: signerAddress.Bytes(),
 	}
 
 	return record
@@ -278,7 +265,7 @@ func TestSaveCommitVerification_HappyPath(t *testing.T) {
 	msgWithCCV := createTestMessageWithCCV(t, message, signer)
 	record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
 
-	aggregationKey := hex.EncodeToString(getMessageIDFromProto(t, msgWithCCV))
+	aggregationKey := protocol.ByteSlice(getMessageIDFromProto(t, msgWithCCV)).String()
 
 	err := storage.SaveCommitVerification(ctx, record, aggregationKey)
 	require.NoError(t, err)
@@ -312,7 +299,7 @@ func TestSaveCommitVerification_Idempotency(t *testing.T) {
 	message := createTestProtocolMessage()
 	msgWithCCV := createTestMessageWithCCV(t, message, signer)
 	record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
-	aggregationKey := hex.EncodeToString(getMessageIDFromProto(t, msgWithCCV))
+	aggregationKey := protocol.ByteSlice(getMessageIDFromProto(t, msgWithCCV)).String()
 
 	err := storage.SaveCommitVerification(ctx, record, aggregationKey)
 	require.NoError(t, err)
@@ -346,7 +333,7 @@ func TestGetCommitVerification_NotFound(t *testing.T) {
 
 	id := model.CommitVerificationRecordIdentifier{
 		MessageID: []byte("nonexistent"),
-		Address:   []byte("address"),
+		Address:   protocol.ByteSlice([]byte("address")),
 	}
 
 	_, err := storage.GetCommitVerification(ctx, id)
@@ -362,7 +349,7 @@ func TestGetCommitVerification_MultipleVersions(t *testing.T) {
 	signer := newTestSigner(t)
 	message := createTestProtocolMessage()
 	msgWithCCV := createTestMessageWithCCV(t, message, signer)
-	aggregationKey := hex.EncodeToString(getMessageIDFromProto(t, msgWithCCV))
+	aggregationKey := protocol.ByteSlice(getMessageIDFromProto(t, msgWithCCV)).String()
 
 	record1 := createTestCommitVerificationRecord(t, msgWithCCV, signer)
 	err := storage.SaveCommitVerification(ctx, record1, aggregationKey)
@@ -396,7 +383,7 @@ func TestListCommitVerificationByAggregationKey(t *testing.T) {
 
 	msgWithCCV1 := createTestMessageWithCCV(t, message, signer1)
 	messageID := getMessageIDFromProto(t, msgWithCCV1)
-	aggregationKey := hex.EncodeToString(messageID)
+	aggregationKey := protocol.ByteSlice(messageID).String()
 
 	record1 := createTestCommitVerificationRecord(t, msgWithCCV1, signer1)
 	err := storage.SaveCommitVerification(ctx, record1, aggregationKey)
@@ -414,11 +401,11 @@ func TestListCommitVerificationByAggregationKey(t *testing.T) {
 	foundSigner1 := false
 	foundSigner2 := false
 	for _, rec := range records {
-		if bytes.Equal(rec.IdentifierSigner.Address, record1.IdentifierSigner.Address) {
+		if bytes.Equal(rec.SignerIdentifier.Identifier, record1.SignerIdentifier.Identifier) {
 			foundSigner1 = true
 			assertCommitVerificationRecordEqual(t, record1, rec, "Signer1")
 		}
-		if bytes.Equal(rec.IdentifierSigner.Address, record2.IdentifierSigner.Address) {
+		if bytes.Equal(rec.SignerIdentifier.Identifier, record2.SignerIdentifier.Identifier) {
 			foundSigner2 = true
 			assertCommitVerificationRecordEqual(t, record2, rec, "Signer2")
 		}
@@ -525,7 +512,7 @@ func TestQueryAggregatedReports_Pagination(t *testing.T) {
 		message.SequenceNumber = protocol.SequenceNumber(i)
 		msgWithCCV := createTestMessageWithCCV(t, message, signer)
 		messageID := getMessageIDFromProto(t, msgWithCCV)
-		aggregationKey := hex.EncodeToString(messageID)
+		aggregationKey := protocol.ByteSlice(messageID).String()
 		record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
 
 		err := storage.SaveCommitVerification(ctx, record, aggregationKey)
@@ -573,7 +560,7 @@ func TestGetCCVData_Found(t *testing.T) {
 	message := createTestProtocolMessage()
 	msgWithCCV := createTestMessageWithCCV(t, message, signer)
 	messageID := getMessageIDFromProto(t, msgWithCCV)
-	aggregationKey := hex.EncodeToString(messageID)
+	aggregationKey := protocol.ByteSlice(messageID).String()
 	record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
 
 	err := storage.SaveCommitVerification(ctx, record, aggregationKey)
@@ -615,7 +602,7 @@ func TestSubmitReport_HappyPath(t *testing.T) {
 	message := createTestProtocolMessage()
 	msgWithCCV := createTestMessageWithCCV(t, message, signer)
 	messageID := getMessageIDFromProto(t, msgWithCCV)
-	aggregationKey := hex.EncodeToString(messageID)
+	aggregationKey := protocol.ByteSlice(messageID).String()
 	record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
 
 	err := storage.SaveCommitVerification(ctx, record, aggregationKey)
@@ -646,7 +633,7 @@ func TestSubmitReport_DuplicateHandling(t *testing.T) {
 	message := createTestProtocolMessage()
 	msgWithCCV := createTestMessageWithCCV(t, message, signer)
 	messageID := getMessageIDFromProto(t, msgWithCCV)
-	aggregationKey := hex.EncodeToString(messageID)
+	aggregationKey := protocol.ByteSlice(messageID).String()
 	record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
 
 	err := storage.SaveCommitVerification(ctx, record, aggregationKey)
@@ -681,7 +668,7 @@ func TestListOrphanedKeys(t *testing.T) {
 	message1.SequenceNumber = 1
 	msgWithCCV1 := createTestMessageWithCCV(t, message1, signer)
 	messageID1 := getMessageIDFromProto(t, msgWithCCV1)
-	aggregationKey1 := hex.EncodeToString(messageID1)
+	aggregationKey1 := protocol.ByteSlice(messageID1).String()
 	orphanRecord := createTestCommitVerificationRecord(t, msgWithCCV1, signer)
 	err := storage.SaveCommitVerification(ctx, orphanRecord, aggregationKey1)
 	require.NoError(t, err)
@@ -694,7 +681,7 @@ func TestListOrphanedKeys(t *testing.T) {
 	message2.SequenceNumber = 2
 	msgWithCCV2 := createTestMessageWithCCV(t, message2, signer)
 	messageID2 := getMessageIDFromProto(t, msgWithCCV2)
-	aggregationKey2 := hex.EncodeToString(messageID2)
+	aggregationKey2 := protocol.ByteSlice(messageID2).String()
 	aggregatedRecord := createTestCommitVerificationRecord(t, msgWithCCV2, signer)
 	err = storage.SaveCommitVerification(ctx, aggregatedRecord, aggregationKey2)
 	require.NoError(t, err)
@@ -762,7 +749,7 @@ func TestListOrphanedKeys_FiltersRecordsOlderThanCutoff(t *testing.T) {
 		message.SequenceNumber = protocol.SequenceNumber(i + 1)
 		msgWithCCV := createTestMessageWithCCV(t, message, signer)
 		messageID := getMessageIDFromProto(t, msgWithCCV)
-		aggregationKey := hex.EncodeToString(messageID)
+		aggregationKey := protocol.ByteSlice(messageID).String()
 		record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
 		err := storage.SaveCommitVerification(ctx, record, aggregationKey)
 		require.NoError(t, err)
@@ -778,7 +765,7 @@ func TestListOrphanedKeys_FiltersRecordsOlderThanCutoff(t *testing.T) {
 		_, err := ds.ExecContext(ctx,
 			"UPDATE commit_verification_records SET created_at = $1 WHERE message_id = $2",
 			twoHoursAgo,
-			hex.EncodeToString(orphans[i].messageID),
+			protocol.ByteSlice(orphans[i].messageID).String(),
 		)
 		require.NoError(t, err)
 	}
@@ -816,7 +803,7 @@ func TestBatchOperations_MultipleSigners(t *testing.T) {
 	for _, signer := range signers {
 		msgWithCCV := createTestMessageWithCCV(t, message, signer)
 		messageID = getMessageIDFromProto(t, msgWithCCV)
-		aggregationKey := hex.EncodeToString(messageID)
+		aggregationKey := protocol.ByteSlice(messageID).String()
 		record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
 		err := storage.SaveCommitVerification(ctx, record, aggregationKey)
 		require.NoError(t, err)
@@ -840,7 +827,7 @@ func TestBatchOperations_MultipleSigners(t *testing.T) {
 	for i, expectedRecord := range records {
 		found := false
 		for _, actualRecord := range retrieved.Verifications {
-			if bytes.Equal(actualRecord.IdentifierSigner.Address, expectedRecord.IdentifierSigner.Address) {
+			if bytes.Equal(actualRecord.SignerIdentifier.Identifier, expectedRecord.SignerIdentifier.Identifier) {
 				assertCommitVerificationRecordEqual(t, expectedRecord, actualRecord, fmt.Sprintf("BatchOperations_Signer%d", i))
 				found = true
 				break
@@ -879,7 +866,7 @@ func TestQueryAggregatedReports_SinceSequence(t *testing.T) {
 		message := createTestProtocolMessage()
 		message.SequenceNumber = protocol.SequenceNumber(i)
 		msgWithCCV := createTestMessageWithCCV(t, message, signer)
-		aggregationKey := hex.EncodeToString(getMessageIDFromProto(t, msgWithCCV))
+		aggregationKey := protocol.ByteSlice(getMessageIDFromProto(t, msgWithCCV)).String()
 		record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
 
 		err := storage.SaveCommitVerification(ctx, record, aggregationKey)

@@ -24,7 +24,8 @@ func TestTokenTransferEncodeDecode(t *testing.T) {
 	}
 
 	// Encode
-	encoded := tt.Encode()
+	encoded, err := tt.Encode()
+	require.NoError(t, err)
 	require.NotEmpty(t, encoded)
 
 	// Decode
@@ -59,7 +60,8 @@ func TestEmptyTokenTransfer(t *testing.T) {
 	assert.Empty(t, tt.ExtraData)
 
 	// Should be able to encode/decode
-	encoded := tt.Encode()
+	encoded, err := tt.Encode()
+	require.NoError(t, err)
 	decoded, err := DecodeTokenTransfer(encoded)
 	require.NoError(t, err)
 	assert.Equal(t, tt.Version, decoded.Version)
@@ -126,15 +128,16 @@ func TestTokenTransferEdgeCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Encode
-			encoded := tt.transfer.Encode()
-			require.NotEmpty(t, encoded)
-
-			// Decode
-			decoded, err := DecodeTokenTransfer(encoded)
+			encoded, err := tt.transfer.Encode()
 			if tt.expectErr {
 				require.Error(t, err)
 				return
 			}
+			require.NoError(t, err)
+			require.NotEmpty(t, encoded)
+
+			// Decode
+			decoded, err := DecodeTokenTransfer(encoded)
 			require.NoError(t, err)
 
 			// Verify
@@ -144,6 +147,74 @@ func TestTokenTransferEdgeCases(t *testing.T) {
 			} else {
 				assert.Equal(t, tt.transfer.Amount.Cmp(decoded.Amount), 0)
 			}
+		})
+	}
+}
+
+// TestTokenTransfer_Encode_LengthMismatch tests that Encode returns errors when length fields don't match data.
+func TestTokenTransfer_Encode_LengthMismatch(t *testing.T) {
+	tests := []struct {
+		name        string
+		transfer    *TokenTransfer
+		expectedErr string
+	}{
+		{
+			name: "SourcePoolAddressLength_mismatch",
+			transfer: &TokenTransfer{
+				Version:                 1,
+				Amount:                  big.NewInt(100),
+				SourcePoolAddressLength: 10,            // claims 10 bytes
+				SourcePoolAddress:       []byte("abc"), // only 3 bytes
+			},
+			expectedErr: "SourcePoolAddressLength mismatch",
+		},
+		{
+			name: "SourceTokenAddressLength_mismatch",
+			transfer: &TokenTransfer{
+				Version:                  1,
+				Amount:                   big.NewInt(100),
+				SourceTokenAddressLength: 5,           // claims 5 bytes
+				SourceTokenAddress:       []byte("a"), // only 1 byte
+			},
+			expectedErr: "SourceTokenAddressLength mismatch",
+		},
+		{
+			name: "DestTokenAddressLength_mismatch",
+			transfer: &TokenTransfer{
+				Version:                1,
+				Amount:                 big.NewInt(100),
+				DestTokenAddressLength: 20,              // claims 20 bytes
+				DestTokenAddress:       []byte("short"), // only 5 bytes
+			},
+			expectedErr: "DestTokenAddressLength mismatch",
+		},
+		{
+			name: "TokenReceiverLength_mismatch",
+			transfer: &TokenTransfer{
+				Version:             1,
+				Amount:              big.NewInt(100),
+				TokenReceiverLength: 8,            // claims 8 bytes
+				TokenReceiver:       []byte("ab"), // only 2 bytes
+			},
+			expectedErr: "TokenReceiverLength mismatch",
+		},
+		{
+			name: "ExtraDataLength_mismatch",
+			transfer: &TokenTransfer{
+				Version:         1,
+				Amount:          big.NewInt(100),
+				ExtraDataLength: 100,             // claims 100 bytes
+				ExtraData:       []byte("small"), // only 5 bytes
+			},
+			expectedErr: "ExtraDataLength mismatch",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tt.transfer.Encode()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.expectedErr)
 		})
 	}
 }

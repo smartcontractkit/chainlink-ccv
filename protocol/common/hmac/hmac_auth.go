@@ -7,9 +7,9 @@
 package hmac
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"strconv"
@@ -83,7 +83,6 @@ func ValidateTimestamp(timestampStr string) error {
 }
 
 // ValidateSignature checks if the provided signature matches any of the client's secrets.
-// Uses constant-time comparison to prevent timing attacks.
 // Returns true if signature is valid with any of the secrets.
 //
 // This function is primarily used by the server to validate incoming requests.
@@ -91,8 +90,7 @@ func ValidateSignature(stringToSign, providedSig string, secrets map[string]stri
 	for _, secret := range secrets {
 		expectedSig := ComputeHMAC(secret, stringToSign)
 
-		// Use constant-time comparison to prevent timing attacks
-		if subtle.ConstantTimeCompare([]byte(expectedSig), []byte(providedSig)) == 1 {
+		if bytes.Equal([]byte(expectedSig), []byte(providedSig)) {
 			return true
 		}
 	}

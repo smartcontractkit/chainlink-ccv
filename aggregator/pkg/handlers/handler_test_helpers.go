@@ -19,19 +19,25 @@ const (
 )
 
 // buildCommittee is a helper to build a proper committee with quorum config.
+// It also validates the config to populate parsed addresses.
 func buildCommittee(destSel, srcSel uint64, destVerifierAddr string, signers []model.Signer) *model.Committee {
-	return &model.Committee{
-		QuorumConfigs: map[string]*model.QuorumConfig{
-			strconv.FormatUint(srcSel, 10): {
-				Signers:               signers,
-				Threshold:             1,
-				SourceVerifierAddress: addrSourceVerifier,
+	config := &model.AggregatorConfig{
+		Committee: &model.Committee{
+			QuorumConfigs: map[string]*model.QuorumConfig{
+				strconv.FormatUint(srcSel, 10): {
+					Signers:               signers,
+					Threshold:             1,
+					SourceVerifierAddress: addrSourceVerifier,
+				},
+			},
+			DestinationVerifiers: map[string]string{
+				strconv.FormatUint(destSel, 10): destVerifierAddr,
 			},
 		},
-		DestinationVerifiers: map[string]string{
-			strconv.FormatUint(destSel, 10): destVerifierAddr,
-		},
 	}
+	// Validate to populate parsed addresses
+	_ = config.ValidateCommitteeConfig()
+	return config.Committee
 }
 
 // makeAggregatedReport creates a minimal aggregated report for testing purposes.
@@ -43,15 +49,29 @@ func makeAggregatedReport(msg *protocol.Message, msgID model.MessageID, sigAddr 
 		protocol.UnknownAddress(common.HexToAddress(addrSourceVerifier).Bytes()),
 	}
 	executorAddress := protocol.UnknownAddress{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14}
+
+	// Create a valid 84-byte signature (R:32 || S:32 || Signer:20)
+	signerAddr := common.HexToAddress(sigAddr)
+	signature := make([]byte, protocol.SingleECDSASignatureSize)
+	// R must be non-zero (32 bytes)
+	for i := 0; i < 32; i++ {
+		signature[i] = byte(i + 1)
+	}
+	// S must be non-zero (32 bytes)
+	for i := 32; i < 64; i++ {
+		signature[i] = byte(i + 1)
+	}
+	copy(signature[64:84], signerAddr.Bytes()) // Signer (20 bytes)
+
 	// create one verification
 	ver := &model.CommitVerificationRecord{
 		MessageID: msgID,
 		Message:   msg,
-		IdentifierSigner: &model.IdentifierSigner{
-			Address: common.HexToAddress(sigAddr).Bytes(),
+		SignerIdentifier: &model.SignerIdentifier{
+			Identifier: signerAddr.Bytes(),
 		},
 		CCVVersion:             ccvVersion,
-		Signature:              []byte("test-signature"),
+		Signature:              signature,
 		MessageCCVAddresses:    ccvAddresses,
 		MessageExecutorAddress: executorAddress,
 	}

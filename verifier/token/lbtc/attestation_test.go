@@ -47,22 +47,26 @@ func Test_AttestationFetch(t *testing.T) {
 
 	msg1 := protocol.Message{
 		TokenTransfer: &protocol.TokenTransfer{
-			ExtraData: internal.MustByteSliceFromHex(hash1),
+			ExtraData:       internal.MustByteSliceFromHex(hash1),
+			ExtraDataLength: 32,
 		},
 	}
 	msg2 := protocol.Message{
 		TokenTransfer: &protocol.TokenTransfer{
-			ExtraData: internal.MustByteSliceFromHex(hash2),
+			ExtraData:       internal.MustByteSliceFromHex(hash2),
+			ExtraDataLength: 32,
 		},
 	}
 	msg3 := protocol.Message{
 		TokenTransfer: &protocol.TokenTransfer{
-			ExtraData: internal.MustByteSliceFromHex(hash3),
+			ExtraData:       internal.MustByteSliceFromHex(hash3),
+			ExtraDataLength: 32,
 		},
 	}
 	msg4 := protocol.Message{
 		TokenTransfer: &protocol.TokenTransfer{
-			ExtraData: internal.MustByteSliceFromHex(hash4),
+			ExtraData:       internal.MustByteSliceFromHex(hash4),
+			ExtraDataLength: 32,
 		},
 	}
 
