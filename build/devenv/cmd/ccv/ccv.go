@@ -239,10 +239,14 @@ var deployCommitVerifierCmd = &cobra.Command{
 			return fmt.Errorf("creating CLDF operations environment: %w", err)
 		}
 
-		allAddrs, err := evm.DeployAndConfigureNewCommitCCV(ctx, e, in.CLDF.Addresses, selectors, committee_verifier.SetSignatureConfigArgs{
-			Threshold: uint8(threshold),
-			Signers:   addresses,
-		})
+		signatureConfigBySelector := make(map[uint64]committee_verifier.SignatureConfig)
+		for _, selector := range selectors {
+			signatureConfigBySelector[selector] = committee_verifier.SignatureConfig{
+				Threshold: uint8(threshold),
+				Signers:   addresses,
+			}
+		}
+		allAddrs, err := evm.DeployAndConfigureNewCommitCCV(ctx, e, in.CLDF.Addresses, signatureConfigBySelector)
 		if err != nil {
 			return fmt.Errorf("deploying commit verifier contracts: %w", err)
 		}

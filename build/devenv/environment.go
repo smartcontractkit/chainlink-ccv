@@ -446,7 +446,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		address, err := e.DataStore.Addresses().Get(
 			datastore.NewAddressRefKey(
 				chainInfo.ChainSelector,
-				datastore.ContractType(committee_verifier.ResolverProxyType),
+				datastore.ContractType(committee_verifier.ResolverType),
 				semver.MustParse(committee_verifier.Deploy.Version()),
 				agg.CommitteeName,
 			))
