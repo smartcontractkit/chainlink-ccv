@@ -71,17 +71,15 @@ func TestConfigWithDefaults(t *testing.T) {
 }
 
 func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
+	lggr := logger.Test(t)
+
 	t.Run("processes batches from channel until closed with storage always succeeding", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
+		t.Cleanup(cancel)
 
-		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
-		// Create channel with sufficient buffer
 		batchedCCVDataCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
-
-		// Create processor
 		processor := &StorageWriterProcessor{
 			lggr:             lggr,
 			verifierID:       "test-verifier",
@@ -91,7 +89,6 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 			retryDelay:       100 * time.Millisecond,
 		}
 
-		// Prepare test data
 		batch1 := []protocol.VerifierNodeResult{
 			createTestVerifierNodeResult(1),
 			createTestVerifierNodeResult(2),
@@ -105,9 +102,8 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 			createTestVerifierNodeResult(6),
 		}
 
-		// Start processor
 		processorCtx, processorCancel := context.WithCancel(ctx)
-		defer processorCancel()
+		t.Cleanup(processorCancel)
 
 		done := make(chan struct{})
 		go func() {
@@ -131,8 +127,6 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 
 		// Give processor time to process all batches
 		time.Sleep(100 * time.Millisecond)
-
-		// Close channel to signal no more batches
 		close(batchedCCVDataCh)
 
 		// Wait for processor to finish
@@ -159,13 +153,11 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 
 	t.Run("handles empty batches gracefully", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
+		t.Cleanup(cancel)
 
-		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
 		batchedCCVDataCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
-
 		processor := &StorageWriterProcessor{
 			lggr:             lggr,
 			verifierID:       "test-verifier",
@@ -175,23 +167,19 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 			retryDelay:       100 * time.Millisecond,
 		}
 
-		processorCtx, processorCancel := context.WithCancel(ctx)
-		defer processorCancel()
-
 		done := make(chan struct{})
 		go func() {
-			processor.run(processorCtx)
+			processor.run(ctx)
 			close(done)
 		}()
 
-		// Send empty batch
 		batchedCCVDataCh <- batcher.BatchResult[protocol.VerifierNodeResult]{
 			Items: []protocol.VerifierNodeResult{},
 			Error: nil,
 		}
-
-		// Send valid batch
-		validBatch := []protocol.VerifierNodeResult{createTestVerifierNodeResult(1)}
+		validBatch := []protocol.VerifierNodeResult{
+			createTestVerifierNodeResult(1),
+		}
 
 		batchedCCVDataCh <- batcher.BatchResult[protocol.VerifierNodeResult]{
 			Items: validBatch,
@@ -219,9 +207,8 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 
 	t.Run("handles batch-level errors from batcher", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
+		t.Cleanup(cancel)
 
-		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
 		batchedCCVDataCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
@@ -235,12 +222,9 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 			retryDelay:       100 * time.Millisecond,
 		}
 
-		processorCtx, processorCancel := context.WithCancel(ctx)
-		defer processorCancel()
-
 		done := make(chan struct{})
 		go func() {
-			processor.run(processorCtx)
+			processor.run(ctx)
 			close(done)
 		}()
 
@@ -265,18 +249,17 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 }
 
 func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
+	lggr := logger.Test(t)
+
 	t.Run("retries failed batches after delay", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
+		t.Cleanup(cancel)
 
-		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
 		// Create batcher with real channel
 		batchedCCVDataCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 100)
-
 		batcherCtx, batcherCancel := context.WithCancel(ctx)
-		defer batcherCancel()
 
 		testBatcher := batcher.NewBatcher(
 			batcherCtx,
@@ -295,7 +278,6 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 			retryDelay:       50 * time.Millisecond,
 		}
 
-		// Prepare test data
 		batch := []protocol.VerifierNodeResult{
 			createTestVerifierNodeResult(1),
 			createTestVerifierNodeResult(2),
@@ -304,17 +286,12 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 		// Configure fake to fail on first write
 		fakeStorage.SetError(errors.New("storage error"))
 
-		// Start processor
-		processorCtx, processorCancel := context.WithCancel(ctx)
-		defer processorCancel()
-
 		done := make(chan struct{})
 		go func() {
-			processor.run(processorCtx)
+			processor.run(ctx)
 			close(done)
 		}()
 
-		// Send batch
 		batchedCCVDataCh <- batcher.BatchResult[protocol.VerifierNodeResult]{
 			Items: batch,
 			Error: nil,
@@ -353,16 +330,12 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 
 	t.Run("continues processing other batches when retry fails", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
+		t.Cleanup(cancel)
 
-		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
 		batchedCCVDataCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 100)
-
 		batcherCtx, batcherCancel := context.WithCancel(ctx)
-		defer batcherCancel()
-
 		testBatcher := batcher.NewBatcher(
 			batcherCtx,
 			10,
@@ -380,7 +353,6 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 			retryDelay:       50 * time.Millisecond,
 		}
 
-		// Prepare test data
 		failingBatch := []protocol.VerifierNodeResult{createTestVerifierNodeResult(1)}
 		successBatch := []protocol.VerifierNodeResult{createTestVerifierNodeResult(2)}
 
@@ -397,7 +369,6 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 			close(done)
 		}()
 
-		// Send failing batch
 		batchedCCVDataCh <- batcher.BatchResult[protocol.VerifierNodeResult]{
 			Items: failingBatch,
 			Error: nil,
@@ -405,17 +376,14 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 
 		// Wait a moment
 		time.Sleep(20 * time.Millisecond)
-
 		// Clear error so next batch succeeds
 		fakeStorage.ClearError()
 
-		// Send success batch
 		batchedCCVDataCh <- batcher.BatchResult[protocol.VerifierNodeResult]{
 			Items: successBatch,
 			Error: nil,
 		}
 
-		// Wait for processing
 		time.Sleep(100 * time.Millisecond)
 
 		// Cancel processor context first to stop the run loop
