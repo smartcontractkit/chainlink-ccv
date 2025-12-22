@@ -75,7 +75,6 @@ func TestBatcher_TimeBasedFlush(t *testing.T) {
 }
 
 func TestBatcher_GracefulClose(t *testing.T) {
-	t.Skip("CCIP-8572 Batcher has logic to flush entire buffer when cancel is called. However, during that flush we check whether context was done and we drop processing")
 	ctx, cancel := context.WithCancel(context.Background())
 	outCh := make(chan BatchResult[int], 10)
 	maxSize := 100

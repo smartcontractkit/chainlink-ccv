@@ -121,7 +121,11 @@ func (b *Batcher[T]) run() {
 	for {
 		select {
 		case <-b.ctx.Done():
-			// Context canceled, flush remaining items and exit
+			// Context canceled, move all retry items to buffer (ignore retry times)
+			// and flush everything before exit to prevent data loss
+			for _, retry := range retryBuffer {
+				buffer = append(buffer, retry.item)
+			}
 			b.flush(&buffer, timer)
 			return
 		case items := <-b.addCh:
@@ -166,14 +170,9 @@ func (b *Batcher[T]) flush(buffer *[]T, timer *time.Timer) {
 		Error: nil,
 	}
 
-	// Send batch (non-blocking with context check)
-	select {
-	case b.outCh <- batch:
-		// Successfully sent
-	case <-b.ctx.Done():
-		// Context canceled during send
-		return
-	}
+	// Send batch - blocking to ensure all items are flushed
+	// We don't check context cancellation here to guarantee delivery of buffered items
+	b.outCh <- batch
 
 	// Reset buffer for next batch
 	*buffer = make([]T, 0, b.maxSize)

@@ -239,16 +239,15 @@ func TestBatcher_RetryWithContextCancellation(t *testing.T) {
 	// Give goroutine time to process cancellation
 	time.Sleep(50 * time.Millisecond)
 
-	// Items in retry buffer should NOT be flushed (they're still waiting for retry time)
-	// Only items in main buffer get flushed on context cancellation
+	// On context cancellation, ALL items (including pending retries) should be flushed
+	// to prevent data loss during shutdown
 	select {
 	case batch, ok := <-outCh:
-		if ok {
-			// If we get a batch, it should be empty or not contain our retry items
-			require.Empty(t, batch.Items, "retry items should not be flushed before retry delay")
-		}
+		require.True(t, ok, "expected to receive a batch")
+		require.Len(t, batch.Items, len(retryItems), "all retry items should be flushed on shutdown")
+		require.Equal(t, retryItems, batch.Items)
 	case <-time.After(100 * time.Millisecond):
-		// No batch received - correct behavior
+		t.Fatal("expected retry items to be flushed on context cancellation")
 	}
 
 	// Further retry calls should fail
