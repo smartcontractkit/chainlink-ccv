@@ -43,16 +43,18 @@ func (h *WriteCommitVerifierNodeResultHandler) logger(ctx context.Context) logge
 func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *committeepb.WriteCommitteeVerifierNodeResultRequest) (*committeepb.WriteCommitteeVerifierNodeResultResponse, error) {
 	reqLogger := h.logger(ctx)
 	if err := validateWriteRequest(req); err != nil {
-		reqLogger.Errorw("validation error", "error", err)
+		reqLogger.Warnw("validation error", "error", err)
 		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
 			Status: committeepb.WriteStatus_FAILED,
-		}, status.Errorf(codes.InvalidArgument, "validation error: %v", err)
+		}, status.Error(codes.InvalidArgument, "validation failed: invalid request format")
 	}
 
 	record, err := model.CommitVerificationRecordFromProto(req.GetCommitteeVerifierNodeResult())
 	if err != nil {
-		h.logger(ctx).Errorw("Failed to convert proto to domain model", "error", err)
-		return nil, status.Errorf(codes.InvalidArgument, "failed to convert proto to domain model: %v", err)
+		reqLogger.Errorw("Failed to convert proto to domain model", "error", err)
+		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
+			Status: committeepb.WriteStatus_FAILED,
+		}, status.Error(codes.InvalidArgument, "invalid request format")
 	}
 	ctx = scope.WithMessageID(ctx, record.MessageID)
 	reqLogger = h.logger(ctx)
@@ -62,17 +64,17 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 		reqLogger.Errorw("signature validation failed", "error", err)
 		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
 			Status: committeepb.WriteStatus_FAILED,
-		}, status.Errorf(codes.Internal, "signature validation failed: %v", err)
+		}, status.Error(codes.InvalidArgument, "signature validation failed")
 	}
 
 	reqLogger.Infof("Signature validated successfully")
 
 	aggregationKey, err := h.signatureValidator.DeriveAggregationKey(ctx, record)
 	if err != nil {
-		reqLogger.Errorw("failed to derive aggregation key", err)
+		reqLogger.Errorw("failed to derive aggregation key", "error", err)
 		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
 			Status: committeepb.WriteStatus_FAILED,
-		}, status.Errorf(codes.Internal, "failed to derive aggregation key: %v", err)
+		}, status.Error(codes.Internal, "failed to process verification record")
 	}
 	ctx = scope.WithAggregationKey(ctx, aggregationKey)
 
@@ -85,7 +87,7 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 		h.logger(signerCtx).Errorw("failed to save commit verification record", "error", err)
 		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
 			Status: committeepb.WriteStatus_FAILED,
-		}, status.Errorf(codes.Internal, "failed to save commit verification record: %v", err)
+		}, status.Error(codes.Internal, "failed to save verification record")
 	}
 	h.logger(signerCtx).Infof("Successfully saved commit verification record")
 
@@ -94,13 +96,13 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 			reqLogger.Errorf("Aggregation channel is full")
 			return &committeepb.WriteCommitteeVerifierNodeResultResponse{
 				Status: committeepb.WriteStatus_FAILED,
-			}, status.Errorf(codes.ResourceExhausted, "aggregation channel is full")
+			}, status.Error(codes.ResourceExhausted, "service temporarily unavailable: aggregation queue full")
 		}
 
 		reqLogger.Errorw("failed to trigger aggregation", "error", err)
 		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
 			Status: committeepb.WriteStatus_FAILED,
-		}, status.Errorf(codes.Internal, "failed to trigger aggregation: %v", err)
+		}, status.Error(codes.Internal, "failed to trigger aggregation")
 	}
 	reqLogger.Infof("Triggered aggregation check")
 

@@ -86,6 +86,13 @@ func (f *Factory) createPostgreSQLStorage(config *model.StorageConfig) (CommitVe
 	}
 	db.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Second)
 
+	f.logger.Infow("Database connection pool configured",
+		"maxOpenConns", maxOpenConns,
+		"maxIdleConns", maxIdleConns,
+		"connMaxLifetime", connMaxLifetime,
+		"connMaxIdleTime", connMaxIdleTime,
+	)
+
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping PostgreSQL database: %w", err)
 	}

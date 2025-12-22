@@ -49,8 +49,8 @@ func (h *GetVerifierResultsForMessageHandler) Handle(ctx context.Context, req *v
 	// Call storage for efficient batch retrieval
 	results, err := h.storage.GetBatchAggregatedReportByMessageIDs(ctx, messageIDs)
 	if err != nil {
-		reqLogger.Errorf("Failed to retrieve batch CCV data: %v", err)
-		return nil, grpcstatus.Errorf(codes.Internal, "failed to retrieve batch data: %v", err)
+		reqLogger.Errorw("Failed to retrieve batch CCV data", "error", err)
+		return nil, grpcstatus.Error(codes.Internal, "failed to retrieve verification results")
 	}
 
 	// Prepare response with 1:1 correspondence between message IDs and errors
@@ -81,8 +81,8 @@ func (h *GetVerifierResultsForMessageHandler) Handle(ctx context.Context, req *v
 			// Map aggregated report to proto
 			ccvData, err := model.MapAggregatedReportToVerifierResultProto(report, h.committee)
 			if err != nil {
-				reqLogger.Errorf("Failed to map aggregated report to proto for message ID %s: %v", messageIDHex, err)
-				SetBatchError(response.Errors, i, codes.Internal, "failed to map aggregated report")
+				reqLogger.Errorw("Failed to map aggregated report to proto", "messageID", messageIDHex, "error", err)
+				SetBatchError(response.Errors, i, codes.Internal, "internal error")
 				continue
 			}
 
