@@ -37,9 +37,11 @@ type SourceReaderService struct {
 	curseDetector   common.CurseCheckerService
 	finalityChecker protocol.FinalityViolationChecker
 	pollInterval    time.Duration
+	sourceCfg       SourceConfig
 
 	// exposed channel to coordinator: READY tasks
-	readyTasksCh chan batcher.BatchResult[VerificationTask]
+	readyTasksBatcher *batcher.Batcher[VerificationTask]
+	readyTasksCh      chan batcher.BatchResult[VerificationTask]
 
 	// mutable per-chain state
 	mu                          sync.RWMutex
@@ -63,7 +65,7 @@ func NewSourceReaderService(
 	chainSelector protocol.ChainSelector,
 	chainStatusManager protocol.ChainStatusManager,
 	lggr logger.Logger,
-	pollInterval time.Duration,
+	sourceCfg SourceConfig,
 	curseDetector common.CurseCheckerService,
 	filter chainaccess.MessageFilter,
 	metrics MetricLabeler,
@@ -93,8 +95,8 @@ func NewSourceReaderService(
 	}
 
 	var interval time.Duration
-	interval = pollInterval
-	if pollInterval <= 0 {
+	interval = sourceCfg.PollInterval
+	if sourceCfg.PollInterval <= 0 {
 		interval = DefaultPollInterval
 	}
 	return &SourceReaderService{
@@ -105,6 +107,7 @@ func NewSourceReaderService(
 		curseDetector:      curseDetector,
 		finalityChecker:    finalityChecker,
 		pollInterval:       interval,
+		sourceCfg:          sourceCfg,
 		readyTasksCh:       make(chan batcher.BatchResult[VerificationTask]),
 		pendingTasks:       make(map[string]VerificationTask),
 		sentTasks:          make(map[string]VerificationTask),
@@ -120,6 +123,15 @@ func (r *SourceReaderService) ReadyTasksChannel() <-chan batcher.BatchResult[Ver
 
 func (r *SourceReaderService) Start(ctx context.Context) error {
 	return r.StartOnce(r.Name(), func() error {
+		batchSize, batchTimeout := readerConfigWithDefaults(r.logger, r.sourceCfg)
+		readyTaskBatcher := batcher.NewBatcher[VerificationTask](
+			ctx,
+			batchSize,
+			batchTimeout,
+			r.readyTasksCh,
+		)
+		r.readyTasksBatcher = readyTaskBatcher
+
 		r.logger.Infow("Starting SourceReaderService")
 
 		startBlock, err := r.initializeStartBlock(ctx)
@@ -146,7 +158,6 @@ func (r *SourceReaderService) Close() error {
 		r.logger.Infow("Stopping SourceReaderService")
 		close(r.stopCh)
 		r.wg.Wait()
-		close(r.readyTasksCh)
 
 		r.logger.Infow("SourceReaderService stopped")
 		return nil
@@ -561,11 +572,10 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, fin
 		"pending", len(r.pendingTasks),
 		"sentTasks", len(r.sentTasks))
 
-	batch := batcher.BatchResult[VerificationTask]{Items: ready}
-
-	select {
-	case r.readyTasksCh <- batch:
-	case <-r.stopCh:
+	err := r.readyTasksBatcher.Add(ready...)
+	if err != nil {
+		r.logger.Errorw("Failed to add ready tasks to batcher", "error", err)
+		return
 	}
 }
 
@@ -677,4 +687,20 @@ func (r *SourceReaderService) sendBatchError(ctx context.Context, err error) {
 	case <-ctx.Done():
 		r.logger.Debugw("Context cancelled while sending batch error")
 	}
+}
+
+func readerConfigWithDefaults(lggr logger.Logger, cfg SourceConfig) (int, time.Duration) {
+	batchSize := cfg.BatchSize
+	if batchSize <= 0 {
+		batchSize = 20
+		lggr.Debugw("Using default batch size", "batchSize", batchSize)
+	}
+
+	batchTimeout := cfg.BatchTimeout
+	if batchTimeout <= 0 {
+		batchTimeout = 500 * time.Millisecond
+		lggr.Debugw("Using default batch timeout", "batchTimeout", batchTimeout)
+	}
+
+	return batchSize, batchTimeout
 }

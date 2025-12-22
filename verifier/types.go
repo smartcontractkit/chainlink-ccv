@@ -24,6 +24,8 @@ type SourceConfig struct {
 	DefaultExecutorAddress protocol.UnknownAddress `json:"default_executor_address"`
 	ChainSelector          protocol.ChainSelector  `json:"chain_selector"`
 	PollInterval           time.Duration           `json:"poll_interval"`
+	BatchSize              int                     `json:"batch_size"`         // Maximum number of verification tasks to batch before sending to verifier (default: 20)
+	BatchTimeout           time.Duration           `json:"batch_timeout"`      // Maximum duration to wait before flushing incomplete verifier batch (default: 100ms)
 	RMNRemoteAddress       protocol.UnknownAddress `json:"rmn_remote_address"` // RMN Remote contract address for curse detection
 }
 
@@ -39,9 +41,36 @@ type CoordinatorConfig struct {
 
 // VerificationError represents an error that occurred during message verification.
 type VerificationError struct {
+	Task      VerificationTask
 	Timestamp time.Time
 	Error     error
-	Task      VerificationTask
+	// Retriable defines whether Coordinator should retry that error.
+	// That way, Verifier can decide how higher order layer should act upon failure.
+	// Additionally, it can suggest a delay before retrying.
+	Retriable bool
+	// Delay specifies how long to wait before retrying the verification. If empty, 10s is assumed.
+	Delay *time.Duration
+}
+
+func (v *VerificationError) DelayOrDefault() time.Duration {
+	if v.Delay != nil {
+		return *v.Delay
+	}
+	return 10 * time.Second
+}
+
+func NewRetriableVerificationError(
+	err error,
+	task VerificationTask,
+	delay time.Duration,
+) VerificationError {
+	return VerificationError{
+		Timestamp: time.Now(),
+		Error:     err,
+		Task:      task,
+		Retriable: true,
+		Delay:     &delay,
+	}
 }
 
 func NewVerificationError(err error, task VerificationTask) VerificationError {

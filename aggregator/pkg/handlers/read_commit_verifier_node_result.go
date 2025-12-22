@@ -10,6 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
@@ -34,7 +35,7 @@ func (h *ReadCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *c
 	ctx = scope.WithMessageID(ctx, req.GetMessageId())
 
 	id := model.CommitVerificationRecordIdentifier{
-		Address:   req.GetAddress(),
+		Address:   protocol.ByteSlice(req.GetAddress()),
 		MessageID: req.GetMessageId(),
 	}
 
@@ -44,7 +45,11 @@ func (h *ReadCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *c
 		return nil, status.Error(codes.NotFound, "verification record not found")
 	}
 
-	protoRecord := model.CommitVerificationRecordToProto(record)
+	protoRecord, err := model.CommitVerificationRecordToProto(record)
+	if err != nil {
+		h.logger(ctx).Errorw("failed to convert record to proto", "error", err)
+		return nil, status.Errorf(codes.Internal, "failed to convert record to proto: %v", err)
+	}
 
 	return &committeepb.ReadCommitteeVerifierNodeResultResponse{
 		CommitteeVerifierNodeResult: protoRecord,

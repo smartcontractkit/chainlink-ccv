@@ -258,8 +258,9 @@ type SignatureAndQuorumValidator interface {
 
 // NewServer creates a new aggregator server with the specified logger and configuration.
 func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
-	// Set defaults for configuration
-	config.SetDefaults()
+	if err := config.Validate(); err != nil {
+		l.Fatalf("Failed to validate server configuration: %v", err)
+	}
 
 	l.Infow("Server configuration loaded",
 		"storage_type", config.Storage.StorageType,

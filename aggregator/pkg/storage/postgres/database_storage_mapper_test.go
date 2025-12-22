@@ -16,10 +16,6 @@ func TestRecordToInsertParams(t *testing.T) {
 	messageID := common.Hex2Bytes("deadbeef")
 	signerAddr := common.HexToAddress("0x1234567890123456789012345678901234567890")
 
-	var sigR, sigS [32]byte
-	copy(sigR[:], []byte("signature_r_data_here_______"))
-	copy(sigS[:], []byte("signature_s_data_here_______"))
-
 	record := &model.CommitVerificationRecord{
 		MessageID: messageID,
 		Message: &protocol.Message{
@@ -46,10 +42,8 @@ func TestRecordToInsertParams(t *testing.T) {
 		},
 		CCVVersion: []byte("ccv_version"),
 		Signature:  []byte("signature_data"),
-		IdentifierSigner: &model.IdentifierSigner{
-			Address:    signerAddr.Bytes(),
-			SignatureR: sigR,
-			SignatureS: sigS,
+		SignerIdentifier: &model.SignerIdentifier{
+			Identifier: protocol.ByteSlice(signerAddr.Bytes()),
 		},
 	}
 	record.SetTimestampFromMillis(time.Now().UnixMilli())
@@ -58,8 +52,8 @@ func TestRecordToInsertParams(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, params)
 
-	require.Equal(t, common.Bytes2Hex(messageID), params["message_id"])
-	require.Equal(t, signerAddr.Hex(), params["signer_address"])
+	require.Equal(t, protocol.ByteSlice(messageID).String(), params["message_id"])
+	require.Equal(t, protocol.ByteSlice(signerAddr.Bytes()).String(), params["signer_identifier"])
 	require.Equal(t, "aggregation_key_1", params["aggregation_key"])
 
 	messageDataJSON, ok := params["message_data"].([]byte)
@@ -89,22 +83,16 @@ func TestRecordToInsertParams(t *testing.T) {
 
 func TestRowToCommitVerificationRecord(t *testing.T) {
 	messageIDHex := "deadbeef"
-	signerAddr := "0x1234567890123456789012345678901234567890"
-
-	var sigR, sigS [32]byte
-	copy(sigR[:], []byte("signature_r_data_here_______"))
-	copy(sigS[:], []byte("signature_s_data_here_______"))
+	signerIdentifier := "0x1234567890123456789012345678901234567890"
 
 	row := &commitVerificationRecordRow{
-		ID:             1,
-		MessageID:      messageIDHex,
-		SignerAddress:  signerAddr,
-		SignatureR:     sigR[:],
-		SignatureS:     sigS[:],
-		CreatedAt:      time.Now().UTC(),
-		AggregationKey: "aggregation_key_1",
-		CCVVersion:     []byte("ccv_version"),
-		Signature:      []byte("signature_data"),
+		ID:               1,
+		MessageID:        messageIDHex,
+		SignerIdentifier: signerIdentifier,
+		CreatedAt:        time.Now().UTC(),
+		AggregationKey:   "aggregation_key_1",
+		CCVVersion:       []byte("ccv_version"),
+		Signature:        []byte("signature_data"),
 	}
 
 	// Create test message matching protocol.Message structure
@@ -140,10 +128,10 @@ func TestRowToCommitVerificationRecord(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, record)
 
-	require.Equal(t, common.Hex2Bytes(messageIDHex), record.MessageID)
-	require.Equal(t, common.HexToAddress(signerAddr).Bytes(), record.IdentifierSigner.Address)
-	require.Equal(t, sigR, record.IdentifierSigner.SignatureR)
-	require.Equal(t, sigS, record.IdentifierSigner.SignatureS)
+	expectedMsgID, _ := protocol.NewByteSliceFromHex(messageIDHex)
+	require.Equal(t, []byte(expectedMsgID), record.MessageID)
+	expectedSignerID, _ := protocol.NewByteSliceFromHex(signerIdentifier)
+	require.Equal(t, expectedSignerID, record.SignerIdentifier.Identifier)
 
 	require.NotNil(t, record.Message)
 	require.Equal(t, uint8(1), record.Message.Version)

@@ -114,8 +114,14 @@ func Test_LBTCMessages_Success(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = v.Close() })
 
-	msg1 := createTestMessageSentEventWithToken(t, 100, chain1337, chain2337, 0, 300_000, 900, &protocol.TokenTransfer{ExtraData: extraData1})
-	msg2 := createTestMessageSentEventWithToken(t, 200, chain1337, chain2337, 0, 300_000, 901, &protocol.TokenTransfer{ExtraData: extraData2})
+	msg1 := createTestMessageSentEventWithToken(t, 100, chain1337, chain2337, 0, 300_000, 900, &protocol.TokenTransfer{
+		ExtraData:       extraData1,
+		ExtraDataLength: uint16(len(extraData1)),
+	})
+	msg2 := createTestMessageSentEventWithToken(t, 200, chain1337, chain2337, 0, 300_000, 901, &protocol.TokenTransfer{
+		ExtraData:       extraData2,
+		ExtraDataLength: uint16(len(extraData2)),
+	})
 	testEvents := []protocol.MessageSentEvent{msg1, msg2}
 
 	var messagesSent atomic.Int32
@@ -139,7 +145,6 @@ func Test_LBTCMessages_Success(t *testing.T) {
 }
 
 func Test_LBTCMessages_RetryingAttestation(t *testing.T) {
-	t.Skip("CCIP-8514 Coordinator doesn't support retries yet")
 	ts := newTestSetup(t)
 	t.Cleanup(ts.cleanup)
 
@@ -162,6 +167,7 @@ func Test_LBTCMessages_RetryingAttestation(t *testing.T) {
 		if requestCounter.Load() >= 2 {
 			_, err := w.Write([]byte(lbtcAttestation))
 			require.NoError(t, err)
+			return
 		}
 
 		_, err := w.Write([]byte(lbtcAttestationPending))
@@ -210,8 +216,14 @@ func Test_LBTCMessages_RetryingAttestation(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = v.Close() })
 
-	msg1 := createTestMessageSentEventWithToken(t, 100, chain1337, chain2337, 0, 300_000, 900, &protocol.TokenTransfer{ExtraData: extraData1})
-	msg2 := createTestMessageSentEventWithToken(t, 200, chain1337, chain2337, 0, 300_000, 901, &protocol.TokenTransfer{ExtraData: extraData2})
+	msg1 := createTestMessageSentEventWithToken(t, 100, chain1337, chain2337, 0, 300_000, 900, &protocol.TokenTransfer{
+		ExtraData:       extraData1,
+		ExtraDataLength: uint16(len(extraData1)),
+	})
+	msg2 := createTestMessageSentEventWithToken(t, 200, chain1337, chain2337, 0, 300_000, 901, &protocol.TokenTransfer{
+		ExtraData:       extraData2,
+		ExtraDataLength: uint16(len(extraData2)),
+	})
 	testEvents := []protocol.MessageSentEvent{msg1, msg2}
 
 	var messagesSent atomic.Int32
@@ -228,7 +240,7 @@ func Test_LBTCMessages_RetryingAttestation(t *testing.T) {
 			return false
 		}
 		return len(results) == 2
-	}, waitTimeout(t), 500*time.Millisecond, "waiting for messages to land in ccv storage")
+	}, waitTimeout(t), 200*time.Millisecond, "waiting for messages to land in ccv storage")
 
 	assertResultMatchesMessage(t, results[msg1.MessageID], msg1, ccvData1, testCCVAddr, destVerifier)
 	assertResultMatchesMessage(t, results[msg2.MessageID], msg2, ccvData2, testCCVAddr, destVerifier)
@@ -256,7 +268,7 @@ func createLBTCCoordinator(
 	return verifier.NewCoordinator(
 		ts.ctx,
 		ts.logger,
-		lbtc.NewVerifier(ts.logger, attestationService),
+		lbtc.NewVerifierWithConfig(ts.logger, attestationService, lbtc.CCVVerifierVersion, 100*time.Millisecond, 100*time.Millisecond),
 		sourceReaders,
 		ccvWriter,
 		config,

@@ -126,7 +126,7 @@ func (s *StorageWriterProcessor) run(ctx context.Context) {
 				)
 
 				// Retry the failed batch after configured delay
-				if retryErr := s.batcher.Retry(s.retryDelay, batch.Items); retryErr != nil {
+				if retryErr := s.batcher.Retry(s.retryDelay, batch.Items...); retryErr != nil {
 					s.lggr.Errorw("Failed to schedule retry for CCV data batch",
 						"error", retryErr,
 						"batchSize", len(batch.Items),
