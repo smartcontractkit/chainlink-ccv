@@ -89,7 +89,7 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 		switch ref.Type {
 		case datastore.ContractType(onrampoperations.ContractType):
 			onRampAddresses[chainSelectorStr] = ref.Address
-		case datastore.ContractType(committee_verifier.ResolverProxyType):
+		case datastore.ContractType(committee_verifier.ResolverType):
 			committeeVerifierAddresses[chainSelectorStr] = ref.Address
 			committeeVerifierResolverProxyAddresses[ref.ChainSelector] = ref.Address
 		case datastore.ContractType(executor_operations.ContractType):

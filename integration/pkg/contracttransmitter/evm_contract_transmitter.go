@@ -113,7 +113,7 @@ func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Cont
 	}
 
 	encodedMsg, _ := report.Message.Encode()
-	tx, err := ct.OffRamp.Execute(opts, encodedMsg, contractCcvs, report.CCVData)
+	tx, err := ct.OffRamp.Execute(opts, encodedMsg, contractCcvs, report.CCVData, 0)
 	if err != nil {
 		return err
 	}

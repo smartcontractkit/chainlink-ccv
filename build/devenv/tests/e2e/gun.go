@@ -138,7 +138,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	committeeVerifierProxyRef, err := m.e.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
 			srcChain.ChainSelector,
-			datastore.ContractType(committee_verifier.ResolverProxyType),
+			datastore.ContractType(committee_verifier.ResolverType),
 			semver.MustParse(committee_verifier.Deploy.Version()),
 			evm.DefaultCommitteeVerifierQualifier))
 	if err != nil {

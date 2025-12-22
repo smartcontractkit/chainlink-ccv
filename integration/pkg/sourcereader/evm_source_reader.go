@@ -160,7 +160,7 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 		event := &onramp.OnRampCCIPMessageSent{}
 		event.DestChainSelector = destChainSelector
 		event.MessageId = messageID
-		event.SequenceNumber = nonce
+		event.MessageNumber = nonce
 		abi, err := onramp.OnRampMetaData.GetAbi()
 		if err != nil {
 			r.lggr.Errorw("Failed to get ABI", "error", err)
@@ -174,7 +174,7 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 		// Log the event structure using the fixed bindings
 		r.lggr.Infow("OnRamp Event Structure",
 			"destChainSelector", event.DestChainSelector,
-			"nonce", event.SequenceNumber,
+			"nonce", event.MessageNumber,
 			"messageId", common.Bytes2Hex(event.MessageId[:]),
 			"ReceiptsCount", len(event.Receipts),
 			"verifierBlobsCount", len(event.VerifierBlobs))
@@ -219,7 +219,7 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 		// Validate that ccvAndExecutorHash is not zero - it's required
 		if decodedMsg.CcvAndExecutorHash == (protocol.Bytes32{}) {
 			r.lggr.Errorw("ccvAndExecutorHash is zero in decoded message",
-				"sequenceNumber", event.SequenceNumber,
+				"sequenceNumber", event.MessageNumber,
 				"blockNumber", log.BlockNumber)
 			continue // to next message
 		}
@@ -234,14 +234,14 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 		if err := validateCCVAndExecutorHash(*decodedMsg, allReceipts); err != nil {
 			r.lggr.Errorw("ccvAndExecutorHash validation failed",
 				"error", err,
-				"sequenceNumber", event.SequenceNumber,
+				"sequenceNumber", event.MessageNumber,
 				"blockNumber", log.BlockNumber)
 			continue // to next message
 		}
 
 		results = append(results, protocol.MessageSentEvent{
 			DestChainSelector: protocol.ChainSelector(event.DestChainSelector),
-			SequenceNumber:    event.SequenceNumber,
+			SequenceNumber:    event.MessageNumber,
 			MessageID:         protocol.Bytes32(event.MessageId),
 			Message:           *decodedMsg,
 			Receipts:          allReceipts, // Keep original order from OnRamp event

@@ -103,7 +103,7 @@ func TestE2EReorg(t *testing.T) {
 		"executor")
 
 	ccvAddr := getContractAddress(t, in, srcSelector,
-		datastore.ContractType(committee_verifier.ResolverProxyType),
+		datastore.ContractType(committee_verifier.ResolverType),
 		committee_verifier.Deploy.Version(),
 		evm.DefaultCommitteeVerifierQualifier,
 		"committee verifier proxy")
