@@ -15,7 +15,8 @@ func NewHTTPAPI(
 	storage protocol.VerifierResultsAPI,
 	healthReporters []protocol.HealthReporter,
 ) *gin.Engine {
-	router := gin.Default()
+	router := gin.New()
+	router.Use(gin.Logger())
 	router.Use(middleware.SecureRecovery(lggr))
 
 	healthHandler := health.NewHealthStatus(healthReporters)

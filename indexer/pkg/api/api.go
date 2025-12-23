@@ -15,7 +15,8 @@ import (
 )
 
 func NewV1API(lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring) *gin.Engine {
-	router := gin.Default()
+	router := gin.New()
+	router.Use(gin.Logger())
 
 	// Add the active requests middleware to all routes
 	router.Use(middleware.ActiveRequestsMiddleware(monitoring, lggr))
