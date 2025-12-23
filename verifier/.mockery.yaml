@@ -4,9 +4,6 @@ dir: ./internal/mocks
 outpkg: mocks
 
 packages:
-  github.com/smartcontractkit/chainlink-ccv/verifier:
-    interfaces:
-      Verifier:
   github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp:
     interfaces:
       AttestationService:
