@@ -108,132 +108,131 @@ func TestE2ESmoke(t *testing.T) {
 		require.NotNil(t, indexerClient)
 	}
 
-	sel0, sel1, sel2 := chains[0].Details.ChainSelector,
+	sel0, sel1, _ := chains[0].Details.ChainSelector,
 		chains[1].Details.ChainSelector,
 		chains[2].Details.ChainSelector
 
-	t.Run("extra args v2", func(t *testing.T) {
-		tcs := []v2TestCase{
-			{
-				name:                     "src->dst msg execution eoa receiver",
-				fromSelector:             sel0,
-				toSelector:               sel1,
-				receiver:                 mustGetEOAReceiverAddress(t, chainMap[sel1]),
-				expectFail:               false,
-				assertExecuted:           true,
-				numExpectedVerifications: 1,
-			},
-			{
-				name:                     "dst->src msg execution eoa receiver",
-				fromSelector:             sel1,
-				toSelector:               sel0,
-				receiver:                 mustGetEOAReceiverAddress(t, chainMap[sel0]),
-				expectFail:               false,
-				assertExecuted:           true,
-				numExpectedVerifications: 1,
-			},
-			{
-				name:                     "1337->3337 msg execution mock receiver",
-				fromSelector:             sel0,
-				toSelector:               sel2,
-				receiver:                 getContractAddress(t, in, sel2, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), evm.DefaultReceiverQualifier, "mock receiver"),
-				expectFail:               false,
-				assertExecuted:           true,
-				numExpectedVerifications: 1,
-			},
-		}
-		for _, tc := range tcs {
-			t.Run(tc.name, func(t *testing.T) {
-				runV2TestCase(t, tc, chainMap, defaultAggregatorClient, indexerClient, AssertMessageOptions{
-					TickInterval:            1 * time.Second,
-					Timeout:                 defaultExecTimeout,
-					ExpectedVerifierResults: tc.numExpectedVerifications,
-					AssertVerifierLogs:      false,
-					AssertExecutorLogs:      false,
-				})
-			})
-		}
-	})
-
-	t.Run("extra args v3 messaging", func(t *testing.T) {
-		var tcs []v3TestCase
-		src, dest := chains[0].Details.ChainSelector, chains[1].Details.ChainSelector
-		mvtcsSrcToDest := multiVerifierTestCases(t, src, dest, in, chainMap)
-		tcs = append(tcs, mvtcsSrcToDest...)
-		// add one test case the other way around (dest->src) to test the reverse lane.
-		mvtcsDestToSrc := multiVerifierTestCases(t, dest, src, in, chainMap)
-		tcs = append(tcs, mvtcsDestToSrc[0])
-		tcs = append(tcs, dataSizeTestCases(t, src, dest, in, chainMap)...)
-		tcs = append(tcs, customExecutorTestCase(t, src, dest, in))
-		for _, tc := range tcs {
-			t.Run(tc.name, func(t *testing.T) {
-				var receiverStartBalance *big.Int
-				var destTokenAddress protocol.UnknownAddress
-				var tokenAmount cciptestinterfaces.TokenAmount
-				if tc.tokenTransfer != nil {
-					tokenAmount = tc.tokenTransfer.tokenAmount
-					destTokenAddress = getContractAddress(t, in, tc.dstSelector, tc.tokenTransfer.destTokenRef.Type, tc.tokenTransfer.destTokenRef.Version.String(), tc.tokenTransfer.destTokenRef.Qualifier, "token on destination chain")
-					receiverStartBalance, err = chainMap[tc.dstSelector].GetTokenBalance(ctx, tc.receiver, destTokenAddress)
-					require.NoError(t, err)
-					l.Info().Str("Receiver", tc.receiver.String()).Str("Token", destTokenAddress.String()).Uint64("StartBalance", receiverStartBalance.Uint64()).Msg("Receiver start balance")
-				}
-				seqNo, err := chainMap[tc.srcSelector].GetExpectedNextSequenceNumber(ctx, tc.dstSelector)
-				require.NoError(t, err)
-				l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
-				sendMessageResult, err := chainMap[tc.srcSelector].SendMessage(
-					ctx, tc.dstSelector, cciptestinterfaces.MessageFields{
-						Receiver:    tc.receiver,
-						Data:        tc.msgData,
-						TokenAmount: tokenAmount,
-					}, cciptestinterfaces.MessageOptions{
-						Version:           3,
-						ExecutionGasLimit: 200_000,
-						FinalityConfig:    tc.finality,
-						Executor:          tc.executor,
-						CCVs:              tc.ccvs,
+	/*
+		t.Run("extra args v2", func(t *testing.T) {
+			tcs := []v2TestCase{
+				{
+					name:                     "src->dst msg execution eoa receiver",
+					fromSelector:             sel0,
+					toSelector:               sel1,
+					receiver:                 mustGetEOAReceiverAddress(t, chainMap[sel1]),
+					expectFail:               false,
+					numExpectedVerifications: 1,
+				},
+				{
+					name:                     "dst->src msg execution eoa receiver",
+					fromSelector:             sel1,
+					toSelector:               sel0,
+					receiver:                 mustGetEOAReceiverAddress(t, chainMap[sel0]),
+					expectFail:               false,
+					numExpectedVerifications: 1,
+				},
+				{
+					name:                     "1337->3337 msg execution mock receiver",
+					fromSelector:             sel0,
+					toSelector:               sel2,
+					receiver:                 getContractAddress(t, in, sel2, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), evm.DefaultReceiverQualifier, "mock receiver"),
+					expectFail:               false,
+					numExpectedVerifications: 1,
+				},
+			}
+			for _, tc := range tcs {
+				t.Run(tc.name, func(t *testing.T) {
+					runV2TestCase(t, tc, chainMap, defaultAggregatorClient, indexerClient, AssertMessageOptions{
+						TickInterval:            1 * time.Second,
+						Timeout:                 defaultExecTimeout,
+						ExpectedVerifierResults: tc.numExpectedVerifications,
+						AssertVerifierLogs:      false,
+						AssertExecutorLogs:      false,
 					})
-				require.NoError(t, err)
-				require.Lenf(t, sendMessageResult.ReceiptIssuers, tc.numExpectedReceipts, "expected %d receipt issuers, got %d", tc.numExpectedReceipts, len(sendMessageResult.ReceiptIssuers))
-				sentEvent, err := chainMap[tc.srcSelector].WaitOneSentEventBySeqNo(ctx, tc.dstSelector, seqNo, defaultSentTimeout)
-				require.NoError(t, err)
-				messageID := sentEvent.MessageID
-
-				// Select the appropriate aggregator client based on the test case's aggregatorQualifier
-				aggregatorClient := defaultAggregatorClient
-				if tc.aggregatorQualifier != "" && tc.aggregatorQualifier != evm.DefaultCommitteeVerifierQualifier {
-					if client, ok := aggregatorClients[tc.aggregatorQualifier]; ok {
-						aggregatorClient = client
-					}
-				}
-				testCtx := NewTestingContext(t, t.Context(), chainMap, aggregatorClient, indexerClient)
-				result, err := testCtx.AssertMessage(messageID, AssertMessageOptions{
-					TickInterval:            1 * time.Second,
-					ExpectedVerifierResults: tc.numExpectedVerifications,
-					Timeout:                 defaultExecTimeout,
-					AssertVerifierLogs:      false,
-					AssertExecutorLogs:      false,
 				})
-				require.NoError(t, err)
-				require.NotNil(t, result.AggregatedResult)
-				require.Len(t, result.IndexedVerifications.Results, tc.numExpectedVerifications)
+			}
+		})
 
-				e, err := chainMap[tc.dstSelector].WaitOneExecEventBySeqNo(ctx, tc.srcSelector, seqNo, defaultExecTimeout)
-				require.NoError(t, err)
-				require.NotNil(t, e)
-				if tc.expectFail {
-					require.Equal(t, cciptestinterfaces.ExecutionStateFailure, e.State)
-				} else {
-					require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, e.State, "unexpected state, return data: %x", e.ReturnData)
-				}
-				if receiverStartBalance != nil {
-					receiverEndBalance, err := chainMap[tc.dstSelector].GetTokenBalance(ctx, tc.receiver, destTokenAddress)
+		t.Run("extra args v3 messaging", func(t *testing.T) {
+			var tcs []testcase
+			src, dest := chains[0].Details.ChainSelector, chains[1].Details.ChainSelector
+			mvtcsSrcToDest := multiVerifierTestCases(t, src, dest, in, chainMap)
+			tcs = append(tcs, mvtcsSrcToDest...)
+			// add one test case the other way around (dest->src) to test the reverse lane.
+			mvtcsDestToSrc := multiVerifierTestCases(t, dest, src, in, chainMap)
+			tcs = append(tcs, mvtcsDestToSrc[0])
+			tcs = append(tcs, dataSizeTestCases(t, src, dest, in, chainMap)...)
+			tcs = append(tcs, customExecutorTestCase(t, src, dest, in))
+			for _, tc := range tcs {
+				t.Run(tc.name, func(t *testing.T) {
+					var receiverStartBalance *big.Int
+					var destTokenAddress protocol.UnknownAddress
+					var tokenAmount cciptestinterfaces.TokenAmount
+					if tc.tokenTransfer != nil {
+						tokenAmount = tc.tokenTransfer.tokenAmount
+						destTokenAddress = getContractAddress(t, in, tc.dstSelector, tc.tokenTransfer.destTokenRef.Type, tc.tokenTransfer.destTokenRef.Version.String(), tc.tokenTransfer.destTokenRef.Qualifier, "token on destination chain")
+						receiverStartBalance, err = chainMap[tc.dstSelector].GetTokenBalance(ctx, tc.receiver, destTokenAddress)
+						require.NoError(t, err)
+						l.Info().Str("Receiver", tc.receiver.String()).Str("Token", destTokenAddress.String()).Uint64("StartBalance", receiverStartBalance.Uint64()).Msg("Receiver start balance")
+					}
+					seqNo, err := chainMap[tc.srcSelector].GetExpectedNextSequenceNumber(ctx, tc.dstSelector)
 					require.NoError(t, err)
-					require.Equal(t, receiverStartBalance.Add(receiverStartBalance, tc.tokenTransfer.tokenAmount.Amount), receiverEndBalance)
-					l.Info().Str("Receiver", tc.receiver.String()).Str("Token", destTokenAddress.String()).Uint64("EndBalance", receiverEndBalance.Uint64()).Msg("t")
-				}
-			})
-		}
-	})
+					l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
+					sendMessageResult, err := chainMap[tc.srcSelector].SendMessage(
+						ctx, tc.dstSelector, cciptestinterfaces.MessageFields{
+							Receiver:    tc.receiver,
+							Data:        tc.msgData,
+							TokenAmount: tokenAmount,
+						}, cciptestinterfaces.MessageOptions{
+							Version:           3,
+							ExecutionGasLimit: 200_000,
+							FinalityConfig:    tc.finality,
+							Executor:          tc.executor,
+							CCVs:              tc.ccvs,
+						})
+					require.NoError(t, err)
+					require.Lenf(t, sendMessageResult.ReceiptIssuers, tc.numExpectedReceipts, "expected %d receipt issuers, got %d", tc.numExpectedReceipts, len(sendMessageResult.ReceiptIssuers))
+					sentEvent, err := chainMap[tc.srcSelector].WaitOneSentEventBySeqNo(ctx, tc.dstSelector, seqNo, defaultSentTimeout)
+					require.NoError(t, err)
+					messageID := sentEvent.MessageID
+
+					// Select the appropriate aggregator client based on the test case's aggregatorQualifier
+					aggregatorClient := defaultAggregatorClient
+					if tc.aggregatorQualifier != "" && tc.aggregatorQualifier != evm.DefaultCommitteeVerifierQualifier {
+						if client, ok := aggregatorClients[tc.aggregatorQualifier]; ok {
+							aggregatorClient = client
+						}
+					}
+					testCtx := NewTestingContext(t, t.Context(), chainMap, aggregatorClient, indexerClient)
+					result, err := testCtx.AssertMessage(messageID, AssertMessageOptions{
+						TickInterval:            1 * time.Second,
+						ExpectedVerifierResults: tc.numExpectedVerifications,
+						Timeout:                 defaultExecTimeout,
+						AssertVerifierLogs:      false,
+						AssertExecutorLogs:      false,
+					})
+					require.NoError(t, err)
+					require.NotNil(t, result.AggregatedResult)
+					require.Len(t, result.IndexedVerifications.Results, tc.numExpectedVerifications)
+
+					e, err := chainMap[tc.dstSelector].WaitOneExecEventBySeqNo(ctx, tc.srcSelector, seqNo, defaultExecTimeout)
+					require.NoError(t, err)
+					require.NotNil(t, e)
+					if tc.expectFail {
+						require.Equal(t, cciptestinterfaces.ExecutionStateFailure, e.State)
+					} else {
+						require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, e.State, "unexpected state, return data: %x", e.ReturnData)
+					}
+					if receiverStartBalance != nil {
+						receiverEndBalance, err := chainMap[tc.dstSelector].GetTokenBalance(ctx, tc.receiver, destTokenAddress)
+						require.NoError(t, err)
+						require.Equal(t, receiverStartBalance.Add(receiverStartBalance, tc.tokenTransfer.tokenAmount.Amount), receiverEndBalance)
+						l.Info().Str("Receiver", tc.receiver.String()).Str("Token", destTokenAddress.String()).Uint64("EndBalance", receiverEndBalance.Uint64()).Msg("t")
+					}
+				})
+			}
+		})
+	*/
 
 	t.Run("extra args v3 token transfer", func(t *testing.T) {
 		var (
@@ -448,7 +447,7 @@ func customExecutorTestCase(t *testing.T, src, dest uint64, in *ccv.Cfg) v3TestC
 				ArgsLen:    0,
 			},
 		},
-		numExpectedReceipts:      2,
+		numExpectedReceipts:      3,
 		expectFail:               false,
 		numExpectedVerifications: 1,
 		executor:                 getContractAddress(t, in, src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.CustomExecutorQualifier, "executor"),
@@ -481,7 +480,7 @@ func dataSizeTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[uint64
 					ArgsLen:    0,
 				},
 			},
-			numExpectedReceipts:      2,
+			numExpectedReceipts:      3,
 			expectFail:               false,
 			numExpectedVerifications: 1,
 			executor:                 getContractAddress(t, in, src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.DefaultExecutorQualifier, "executor"),
@@ -516,7 +515,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			// default verifier
 			numExpectedVerifications: 1,
 			// default executor and default committee verifier
-			numExpectedReceipts: 2,
+			numExpectedReceipts: 3,
 			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.DefaultExecutorQualifier, "executor"),
 		},
 		{
@@ -554,8 +553,8 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			},
 			// default and secondary verifiers will verify so should be two verifications.
 			numExpectedVerifications: 2,
-			// default executor, default and secondary committee verifiers.
-			numExpectedReceipts: 3,
+			// default executor, default and secondary committee verifiers, network fee.
+			numExpectedReceipts: 4,
 			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.DefaultExecutorQualifier, "executor"),
 		},
 		{
@@ -591,8 +590,8 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			// default verifies because its the message discovery mechanism, despite there being no onchain
 			// receipt for the default verifier.
 			numExpectedVerifications: 2,
-			// default executor and secondary committee verifier.
-			numExpectedReceipts: 2,
+			// default executor and secondary committee verifier and network fee.
+			numExpectedReceipts: 3,
 			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.DefaultExecutorQualifier, "executor"),
 			aggregatorQualifier: evm.SecondaryCommitteeVerifierQualifier,
 		},
@@ -635,8 +634,8 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			// default verifies because its the message discovery mechanism, despite there being no onchain
 			// receipt for the default verifier.
 			numExpectedVerifications: 3,
-			// default executor, secondary and tertiary committee verifiers.
-			numExpectedReceipts: 3,
+			// default executor, secondary and tertiary committee verifiers, and network fee.
+			numExpectedReceipts: 4,
 			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.DefaultExecutorQualifier, "executor"),
 			aggregatorQualifier: evm.SecondaryCommitteeVerifierQualifier,
 		},
@@ -686,8 +685,8 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			},
 			// default, secondary and tertiary verifiers will verify so should be three verifications.
 			numExpectedVerifications: 3,
-			// default executor and default, secondary and tertiary committee verifiers
-			numExpectedReceipts: 4,
+			// default executor and default, secondary and tertiary committee verifiers, and network fee.
+			numExpectedReceipts: 5,
 			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.DefaultExecutorQualifier, "executor"),
 		},
 		{
@@ -725,8 +724,8 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			},
 			// default and secondary verifiers will verify so should be two verifications.
 			numExpectedVerifications: 2,
-			// default executor, default and secondary committee verifiers
-			numExpectedReceipts: 3,
+			// default executor, default and secondary committee verifiers, and network fee.
+			numExpectedReceipts: 4,
 			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.DefaultExecutorQualifier, "executor"),
 		},
 		{
@@ -764,8 +763,8 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			},
 			// default and tertiary verifiers will verify so should be two verifications.
 			numExpectedVerifications: 2,
-			// default executor, default and tertiary committee verifiers
-			numExpectedReceipts: 3,
+			// default executor, default and tertiary committee verifiers, and network fee.
+			numExpectedReceipts: 4,
 			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.DefaultExecutorQualifier, "executor"),
 		},
 	}

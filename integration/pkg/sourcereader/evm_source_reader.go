@@ -329,11 +329,11 @@ func validateCCVAndExecutorHash(message protocol.Message, receiptBlobs []protoco
 	if message.TokenTransferLength != 0 {
 		numTokenTransfers = 1
 	}
-	numCCVBlobs := len(receiptBlobs) - numTokenTransfers - 1
+	numCCVBlobs := len(receiptBlobs) - numTokenTransfers - 2 // Executor + network fee
 
 	if numCCVBlobs < 0 {
-		return fmt.Errorf("invalid receipt structure: insufficient receipts (got %d, need at least %d for tokens + executor)",
-			len(receiptBlobs), numTokenTransfers+1)
+		return fmt.Errorf("invalid receipt structure: insufficient receipts (got %d, need at least %d for tokens + executor + network fee)",
+			len(receiptBlobs), numTokenTransfers+2)
 	}
 
 	// Parse receipt structure

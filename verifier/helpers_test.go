@@ -203,7 +203,7 @@ func (t *TestVerifier) VerifyMessages(
 			if verificationTask.Message.TokenTransferLength > 0 {
 				numTokenTransfers = 1
 			}
-			numCCVBlobs := len(verificationTask.ReceiptBlobs) - numTokenTransfers - 1
+			numCCVBlobs := len(verificationTask.ReceiptBlobs) - numTokenTransfers - 2
 
 			receiptStructure, err := protocol.ParseReceiptStructure(
 				verificationTask.ReceiptBlobs,
