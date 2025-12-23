@@ -435,12 +435,12 @@ func customExecutorTestCase(t *testing.T, src, dest uint64, in *ccv.Cfg) testcas
 		msgData: []byte("custom executor test"),
 		ccvs: []protocol.CCV{
 			{
-				CCVAddress: getContractAddress(t, in, src, datastore.ContractType(committee_verifier.ResolverProxyType), committee_verifier.Deploy.Version(), evm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
+				CCVAddress: getContractAddress(t, in, src, datastore.ContractType(committee_verifier.ResolverType), committee_verifier.Deploy.Version(), evm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
 				Args:       []byte{},
 				ArgsLen:    0,
 			},
 		},
-		numExpectedReceipts:      2,
+		numExpectedReceipts:      3,
 		expectFail:               false,
 		numExpectedVerifications: 1,
 		executor:                 getContractAddress(t, in, src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.CustomExecutorQualifier, "executor"),
@@ -468,12 +468,12 @@ func dataSizeTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[uint64
 			msgData: bytes.Repeat([]byte("a"), int(maxDataBytes)),
 			ccvs: []protocol.CCV{
 				{
-					CCVAddress: getContractAddress(t, in, src, datastore.ContractType(committee_verifier.ResolverProxyType), committee_verifier.Deploy.Version(), evm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
+					CCVAddress: getContractAddress(t, in, src, datastore.ContractType(committee_verifier.ResolverType), committee_verifier.Deploy.Version(), evm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
 					Args:       []byte{},
 					ArgsLen:    0,
 				},
 			},
-			numExpectedReceipts:      2,
+			numExpectedReceipts:      3,
 			expectFail:               false,
 			numExpectedVerifications: 1,
 			executor:                 getContractAddress(t, in, src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.DefaultExecutorQualifier, "executor"),
@@ -496,7 +496,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						t,
 						in,
 						src,
-						datastore.ContractType(committee_verifier.ResolverProxyType),
+						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
 						evm.DefaultCommitteeVerifierQualifier,
 						"committee verifier proxy",
@@ -508,7 +508,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			// default verifier
 			numExpectedVerifications: 1,
 			// default executor and default committee verifier
-			numExpectedReceipts: 2,
+			numExpectedReceipts: 3,
 			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.DefaultExecutorQualifier, "executor"),
 		},
 		{
@@ -523,7 +523,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						t,
 						in,
 						src,
-						datastore.ContractType(committee_verifier.ResolverProxyType),
+						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
 						evm.SecondaryCommitteeVerifierQualifier,
 						"secondary committee verifier proxy",
@@ -537,7 +537,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						t,
 						in,
 						src,
-						datastore.ContractType(committee_verifier.ResolverProxyType),
+						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
 						evm.DefaultCommitteeVerifierQualifier,
 						"default committee verifier proxy",
@@ -546,8 +546,8 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			},
 			// default and secondary verifiers will verify so should be two verifications.
 			numExpectedVerifications: 2,
-			// default executor, default and secondary committee verifiers.
-			numExpectedReceipts: 3,
+			// default executor, default and secondary committee verifiers, network fee.
+			numExpectedReceipts: 4,
 			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.DefaultExecutorQualifier, "executor"),
 		},
 		{
@@ -570,7 +570,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						t,
 						in,
 						src,
-						datastore.ContractType(committee_verifier.ResolverProxyType),
+						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
 						evm.SecondaryCommitteeVerifierQualifier,
 						"secondary committee verifier proxy",
@@ -583,8 +583,8 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			// default verifies because its the message discovery mechanism, despite there being no onchain
 			// receipt for the default verifier.
 			numExpectedVerifications: 2,
-			// default executor and secondary committee verifier.
-			numExpectedReceipts: 2,
+			// default executor and secondary committee verifier and network fee.
+			numExpectedReceipts: 3,
 			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.DefaultExecutorQualifier, "executor"),
 			aggregatorQualifier: evm.SecondaryCommitteeVerifierQualifier,
 		},
@@ -601,7 +601,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						t,
 						in,
 						src,
-						datastore.ContractType(committee_verifier.ResolverProxyType),
+						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
 						evm.SecondaryCommitteeVerifierQualifier, "secondary committee verifier proxy",
 					),
@@ -614,7 +614,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						t,
 						in,
 						src,
-						datastore.ContractType(committee_verifier.ResolverProxyType),
+						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
 						evm.TertiaryCommitteeVerifierQualifier,
 						"tertiary committee verifier proxy",
@@ -627,8 +627,8 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			// default verifies because its the message discovery mechanism, despite there being no onchain
 			// receipt for the default verifier.
 			numExpectedVerifications: 3,
-			// default executor, secondary and tertiary committee verifiers.
-			numExpectedReceipts: 3,
+			// default executor, secondary and tertiary committee verifiers, and network fee.
+			numExpectedReceipts: 4,
 			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.DefaultExecutorQualifier, "executor"),
 			aggregatorQualifier: evm.SecondaryCommitteeVerifierQualifier,
 		},
@@ -645,7 +645,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						t,
 						in,
 						src,
-						datastore.ContractType(committee_verifier.ResolverProxyType),
+						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
 						evm.DefaultCommitteeVerifierQualifier,
 						"default committee verifier proxy",
@@ -658,7 +658,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						t,
 						in,
 						src,
-						datastore.ContractType(committee_verifier.ResolverProxyType),
+						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
 						evm.SecondaryCommitteeVerifierQualifier,
 						"secondary committee verifier proxy",
@@ -669,7 +669,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						t,
 						in,
 						src,
-						datastore.ContractType(committee_verifier.ResolverProxyType),
+						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
 						evm.TertiaryCommitteeVerifierQualifier,
 						"tertiary committee verifier proxy",
@@ -678,8 +678,8 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			},
 			// default, secondary and tertiary verifiers will verify so should be three verifications.
 			numExpectedVerifications: 3,
-			// default executor and default, secondary and tertiary committee verifiers
-			numExpectedReceipts: 4,
+			// default executor and default, secondary and tertiary committee verifiers, and network fee.
+			numExpectedReceipts: 5,
 			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.DefaultExecutorQualifier, "executor"),
 		},
 		{
@@ -695,7 +695,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						t,
 						in,
 						src,
-						datastore.ContractType(committee_verifier.ResolverProxyType),
+						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
 						evm.DefaultCommitteeVerifierQualifier,
 						"default committee verifier proxy",
@@ -708,7 +708,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						t,
 						in,
 						src,
-						datastore.ContractType(committee_verifier.ResolverProxyType),
+						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
 						evm.SecondaryCommitteeVerifierQualifier,
 						"secondary committee verifier proxy",
@@ -717,8 +717,8 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			},
 			// default and secondary verifiers will verify so should be two verifications.
 			numExpectedVerifications: 2,
-			// default executor, default and secondary committee verifiers
-			numExpectedReceipts: 3,
+			// default executor, default and secondary committee verifiers, and network fee.
+			numExpectedReceipts: 4,
 			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.DefaultExecutorQualifier, "executor"),
 		},
 		{
@@ -734,7 +734,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						t,
 						in,
 						src,
-						datastore.ContractType(committee_verifier.ResolverProxyType),
+						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
 						evm.DefaultCommitteeVerifierQualifier,
 						"default committee verifier proxy",
@@ -747,7 +747,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						t,
 						in,
 						src,
-						datastore.ContractType(committee_verifier.ResolverProxyType),
+						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
 						evm.TertiaryCommitteeVerifierQualifier,
 						"tertiary committee verifier proxy",
@@ -756,8 +756,8 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			},
 			// default and tertiary verifiers will verify so should be two verifications.
 			numExpectedVerifications: 2,
-			// default executor, default and tertiary committee verifiers
-			numExpectedReceipts: 3,
+			// default executor, default and tertiary committee verifiers, and network fee.
+			numExpectedReceipts: 4,
 			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ContractType), executor.Deploy.Version(), evm.DefaultExecutorQualifier, "executor"),
 		},
 	}

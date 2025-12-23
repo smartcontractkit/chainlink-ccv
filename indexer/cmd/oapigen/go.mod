@@ -1,6 +1,6 @@
 module github.com/smartcontractkit/chainlink-ccv/indexer/cmd/oapigen
 
-go 1.25.3
+go 1.25.5
 
 require (
 	github.com/danielgtaylor/huma/v2 v2.34.1

@@ -147,7 +147,7 @@ func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptest
 	committeeVerifierProxyRef, err := addrs.Get(
 		datastore.NewAddressRefKey(
 			args.srcSel,
-			datastore.ContractType(committee_verifier.ResolverProxyType),
+			datastore.ContractType(committee_verifier.ResolverType),
 			semver.MustParse(committee_verifier.Deploy.Version()),
 			evm.DefaultCommitteeVerifierQualifier))
 	if err != nil {

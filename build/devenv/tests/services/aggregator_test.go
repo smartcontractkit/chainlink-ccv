@@ -50,7 +50,7 @@ func TestServiceAggregator(t *testing.T) {
 		HostPort:       8103,
 		SourceCodePath: "../../../aggregator",
 		RootPath:       "../../../../",
-		CommitteeVerifierResolverProxyAddresses: map[uint64]string{
+		CommitteeVerifierResolverAddresses: map[uint64]string{
 			12922642891491394802: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
 		},
 		DB: &services.AggregatorDBInput{
@@ -101,7 +101,7 @@ func TestAggregatorAuthentication(t *testing.T) {
 		HostPort:       8104,
 		SourceCodePath: "../../../aggregator",
 		RootPath:       "../../../../",
-		CommitteeVerifierResolverProxyAddresses: map[uint64]string{
+		CommitteeVerifierResolverAddresses: map[uint64]string{
 			12922642891491394802: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
 		},
 		DB: &services.AggregatorDBInput{
