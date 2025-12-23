@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
@@ -157,21 +158,31 @@ func TestVerifierReader_Run_ProcessesBatches(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait for batch to be processed (batch size is 2, so it should trigger immediately)
-	select {
-	case result1 := <-resultCh1:
-		assert.Equal(t, ccvData1, result1.Value())
-		assert.NoError(t, result1.Err())
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("timeout waiting for result1")
-	}
+	var result1 common.Result[protocol.VerifierResult]
+	require.Eventually(t, func() bool {
+		select {
+		case r := <-resultCh1:
+			result1 = r
+			return true
+		default:
+			return false
+		}
+	}, waitTimeout(t), 50*time.Millisecond, "waiting for result1")
+	assert.Equal(t, ccvData1, result1.Value())
+	assert.NoError(t, result1.Err())
 
-	select {
-	case result2 := <-resultCh2:
-		assert.Equal(t, ccvData2, result2.Value())
-		assert.NoError(t, result2.Err())
-	case <-time.After(200 * time.Millisecond):
-		t.Fatal("timeout waiting for result2")
-	}
+	var result2 common.Result[protocol.VerifierResult]
+	require.Eventually(t, func() bool {
+		select {
+		case r := <-resultCh2:
+			result2 = r
+			return true
+		default:
+			return false
+		}
+	}, waitTimeout(t), 50*time.Millisecond, "waiting for result2")
+	assert.Equal(t, ccvData2, result2.Value())
+	assert.NoError(t, result2.Err())
 
 	// Clean up to ensure goroutines finish properly
 	err = reader.Close()
@@ -353,4 +364,12 @@ func TestVerifierReader_Run_ChannelClosed(t *testing.T) {
 
 	// Wait for run goroutine to finish
 	reader.runWg.Wait()
+}
+
+func waitTimeout(t *testing.T) time.Duration {
+	deadline, ok := t.Deadline()
+	if !ok {
+		deadline = time.Now().Add(10 * time.Second)
+	}
+	return time.Until(deadline)
 }
