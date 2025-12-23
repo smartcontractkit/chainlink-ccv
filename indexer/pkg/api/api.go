@@ -8,6 +8,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/middleware"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
+	sharedmiddleware "github.com/smartcontractkit/chainlink-ccv/integration/pkg/api/middleware"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
@@ -19,6 +20,7 @@ func NewV1API(lggr logger.Logger, cfg *config.Config, storage common.IndexerStor
 	// Add the active requests middleware to all routes
 	router.Use(middleware.ActiveRequestsMiddleware(monitoring, lggr))
 	router.Use(middleware.RateLimit(lggr, cfg))
+	router.Use(sharedmiddleware.SecureRecovery(lggr))
 
 	v1Group := router.Group("/v1")
 

@@ -3,9 +3,9 @@ package api
 import (
 	"github.com/gin-gonic/gin"
 
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/api/middleware"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/api/health"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/api/middleware"
 	v1 "github.com/smartcontractkit/chainlink-ccv/verifier/token/api/v1"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
