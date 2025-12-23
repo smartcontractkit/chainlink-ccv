@@ -12,6 +12,13 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
+// TaskVerifierProcessor is responsible for processing read messages from SourceReaderServices,
+// verifying them using the provided Verifier, and sending the results to storageBatcher (effectively to StorageWriterProcessor).
+// It's the second stage in the verifier processing pipeline.
+// It spawns a goroutine per source chain to handle verification concurrently and independently.
+// Retries are handled for individual messages based on the verification result. General idea is very similar to
+// StorageWriterProcessor, but here Verifier decides whether the error is retryable or not and what delay should be set.
+// That way we give Verifier who is aware of the business logic more control over retry behavior.
 type TaskVerifierProcessor struct {
 	services.StateMachine
 	wg sync.WaitGroup

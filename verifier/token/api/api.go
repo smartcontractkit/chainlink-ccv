@@ -15,13 +15,14 @@ func NewHTTPAPI(
 	healthReporters []protocol.HealthReporter,
 ) *gin.Engine {
 	router := gin.Default()
-	router.Use(gin.Recovery())
 
 	healthHandler := health.NewHealthStatus(healthReporters)
 	router.GET("/health/live", healthHandler.HandleLiveness)
 	router.GET("/health/ready", healthHandler.HandleReadiness)
 	router.GET("/health", healthHandler.HandleReadiness)
 
+	// TODO This API will be publicly accessible, so we need a rate limiter to guard it CCIP-8878
+	// Consider adding middleware similar to the one in Indexer endpoints
 	v1Group := router.Group("/v1")
 	verifierResultsHandler := v1.NewVerifierResultsHandler(lggr, storage)
 	v1Group.GET("/verification/results", verifierResultsHandler.Handle)
