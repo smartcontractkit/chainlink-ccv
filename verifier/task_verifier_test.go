@@ -16,9 +16,6 @@ import (
 )
 
 func Test_ProcessingReadyTasks(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	t.Cleanup(cancel)
-
 	message1 := protocol.Message{SequenceNumber: 1}
 	messageID1 := message1.MustMessageID()
 	task1 := verifier.VerificationTask{MessageID: messageID1.String()}
@@ -30,7 +27,7 @@ func Test_ProcessingReadyTasks(t *testing.T) {
 	fanoutCh := make(chan batcher.BatchResult[verifier.VerificationTask], 10)
 	fakeFanout := FakeSourceReaderFanout{
 		batcher: batcher.NewBatcher[verifier.VerificationTask](
-			ctx,
+			t.Context(),
 			2,
 			100*time.Millisecond,
 			fanoutCh,
@@ -40,7 +37,7 @@ func Test_ProcessingReadyTasks(t *testing.T) {
 
 	storageOutCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
 	storageBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](
-		ctx,
+		t.Context(),
 		2,
 		100*time.Millisecond,
 		storageOutCh,
@@ -58,7 +55,7 @@ func Test_ProcessingReadyTasks(t *testing.T) {
 		storageBatcher,
 	)
 	require.NoError(t, err)
-	require.NoError(t, taskVerifier.Start(ctx))
+	require.NoError(t, taskVerifier.Start(t.Context()))
 
 	t.Run("successful verification works", func(t *testing.T) {
 		// Set the verifier to pass all verifications immediately
