@@ -5,6 +5,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/api/health"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/api/middleware"
 	v1 "github.com/smartcontractkit/chainlink-ccv/verifier/token/api/v1"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -15,6 +16,7 @@ func NewHTTPAPI(
 	healthReporters []protocol.HealthReporter,
 ) *gin.Engine {
 	router := gin.Default()
+	router.Use(middleware.SecureRecovery(lggr))
 
 	healthHandler := health.NewHealthStatus(healthReporters)
 	router.GET("/health/live", healthHandler.HandleLiveness)
