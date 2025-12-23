@@ -37,7 +37,6 @@ func Test_ProcessingReadyTasks(t *testing.T) {
 		),
 		outCh: fanoutCh,
 	}
-	t.Cleanup(func() { close(fanoutCh) })
 
 	storageOutCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
 	storageBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](
@@ -46,7 +45,6 @@ func Test_ProcessingReadyTasks(t *testing.T) {
 		100*time.Millisecond,
 		storageOutCh,
 	)
-	t.Cleanup(func() { close(storageOutCh) })
 
 	mockVerifier := &fakeVerifier{}
 	taskVerifier, err := verifier.NewTaskVerifierProcessorWithFanouts(
