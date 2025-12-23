@@ -4,16 +4,19 @@ dir: ./internal/mocks
 outpkg: mocks
 
 packages:
+  github.com/smartcontractkit/chainlink-ccv/verifier:
+    interfaces:
+      Verifier:
   github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp:
     interfaces:
       AttestationService:
         config:
-          filename: "mocks_cctpAttestationService.go"
+          filename: "mock_cctpAttestationService.go"
           mockname: "CCTPAttestationService"
   github.com/smartcontractkit/chainlink-ccv/verifier/token/lbtc:
     interfaces:
       AttestationService:
         config:
-          filename: "mocks_lbtcAttestationService.go"
+          filename: "mock_lbtcAttestationService.go"
           mockname: "LBTCAttestationService"
 
