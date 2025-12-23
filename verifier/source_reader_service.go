@@ -116,6 +116,10 @@ func NewSourceReaderService(
 	}, nil
 }
 
+func (r *SourceReaderService) RetryTasks(minDelay time.Duration, tasks ...VerificationTask) error {
+	return r.readyTasksBatcher.Retry(minDelay, tasks...)
+}
+
 func (r *SourceReaderService) ReadyTasksChannel() <-chan batcher.BatchResult[VerificationTask] {
 	return r.readyTasksCh
 }

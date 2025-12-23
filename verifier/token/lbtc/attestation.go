@@ -15,6 +15,9 @@ type AttestationService interface {
 	Fetch(ctx context.Context, message []protocol.Message) (map[string]Attestation, error)
 }
 
+// Attestation represents a LBTC attestation along with related data
+// allowing creating proper payload for the verifier on the destination chain.
+// Please see ToVerifierFormat for more details on the format.
 type Attestation struct {
 	ccvVerifierVersion protocol.ByteSlice
 	attestation        string
