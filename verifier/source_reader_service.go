@@ -9,12 +9,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	vservices "github.com/smartcontractkit/chainlink-ccv/verifier/services"
-
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
+	vservices "github.com/smartcontractkit/chainlink-ccv/verifier/services"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
@@ -124,7 +123,7 @@ func (r *SourceReaderService) ReadyTasksChannel() <-chan batcher.BatchResult[Ver
 func (r *SourceReaderService) Start(ctx context.Context) error {
 	return r.StartOnce(r.Name(), func() error {
 		batchSize, batchTimeout := readerConfigWithDefaults(r.logger, r.sourceCfg)
-		readyTaskBatcher := batcher.NewBatcher[VerificationTask](
+		readyTaskBatcher := batcher.NewBatcher(
 			ctx,
 			batchSize,
 			batchTimeout,
@@ -142,11 +141,9 @@ func (r *SourceReaderService) Start(ctx context.Context) error {
 		r.lastProcessedFinalizedBlock.Store(startBlock)
 		r.logger.Infow("Initialized start block", "block", startBlock.String())
 
-		r.wg.Add(1)
-		go func() {
-			defer r.wg.Done()
+		r.wg.Go(func() {
 			r.eventMonitoringLoop()
-		}()
+		})
 
 		r.logger.Infow("SourceReaderService started")
 		return nil
