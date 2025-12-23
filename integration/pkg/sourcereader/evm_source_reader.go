@@ -10,10 +10,9 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
-
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/rmn_remote"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -224,6 +223,12 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 				"blockNumber", log.BlockNumber)
 			continue // to next message
 		}
+
+		if !decodedMsg.OnRampAddress.Equal(r.onRampAddress[:]) {
+			r.lggr.Errorw("onRampAddress must match the value configured. This should never happen, if it does something is seriously wrong. Escalate immediately", "messageId", common.Bytes2Hex(event.MessageId[:]))
+			continue // to next message
+		}
+
 		allReceipts := receiptBlobsFromEvent(event.Receipts, event.VerifierBlobs) // Validate the receipt structure matches expectations
 		// Validate ccvAndExecutorHash
 		if err := validateCCVAndExecutorHash(*decodedMsg, allReceipts); err != nil {

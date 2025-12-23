@@ -5,16 +5,19 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/middleware"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 )
 
 func NewV1API(lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring) *gin.Engine {
 	router := gin.Default()
+	err := router.SetTrustedProxies(cfg.API.TrustedProxies)
+	if err != nil {
+		lggr.Fatalf("Unable to set Trusted Proxies", "error", err, "trustedProxies", cfg.API.TrustedProxies)
+	}
 
 	// Add the active requests middleware to all routes
 	router.Use(middleware.ActiveRequestsMiddleware(monitoring, lggr))

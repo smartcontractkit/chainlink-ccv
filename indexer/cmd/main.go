@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/pressly/goose/v3"
@@ -49,7 +51,8 @@ func main() {
 	// Use SugaredLogger for better API
 	lggr = logger.Sugared(lggr)
 
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	// Setup OTEL Monitoring (via beholder)
 	indexerMonitoring, err := monitoring.InitMonitoring(beholder.Config{

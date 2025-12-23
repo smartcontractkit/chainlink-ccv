@@ -50,6 +50,8 @@ type PoolConfig struct {
 type APIConfig struct {
 	// RateLimit is the configuration for the rate limiting system inside the indexer.
 	RateLimit RateLimitConfig `toml:"RateLimit"`
+	// TrustedProxies contains an array of trusted reverse proxies.
+	TrustedProxies []string `toml:"TrustedProxies"`
 }
 
 // RateLimitConfig provides all configuration for the rate limiting system inside the indexer.
