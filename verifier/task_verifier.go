@@ -58,6 +58,19 @@ func NewTaskVerifierProcessor(
 		sourceFanouts[chainSelector] = srs
 	}
 
+	return NewTaskVerifierProcessorWithFanouts(
+		lggr, verifierID, verifier, monitoring, sourceFanouts, storageBatcher,
+	)
+}
+
+func NewTaskVerifierProcessorWithFanouts(
+	lggr logger.Logger,
+	verifierID string,
+	verifier Verifier,
+	monitoring Monitoring,
+	sourceFanouts map[protocol.ChainSelector]SourceReaderFanout,
+	storageBatcher *batcher.Batcher[protocol.VerifierNodeResult],
+) (*TaskVerifierProcessor, error) {
 	p := &TaskVerifierProcessor{
 		lggr:           lggr,
 		verifierID:     verifierID,

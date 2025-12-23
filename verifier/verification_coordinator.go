@@ -43,7 +43,18 @@ func NewCoordinator(
 	monitoring Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 ) (*Coordinator, error) {
-	return NewCoordinatorWithDetector(ctx, lggr, verifier, sourceReaders, storage, config, messageTracker, monitoring, chainStatusManager, nil)
+	return NewCoordinatorWithDetector(
+		ctx,
+		lggr,
+		verifier,
+		sourceReaders,
+		storage,
+		config,
+		messageTracker,
+		monitoring,
+		chainStatusManager,
+		nil,
+	)
 }
 
 func NewCoordinatorWithDetector(
