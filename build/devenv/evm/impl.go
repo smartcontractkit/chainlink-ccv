@@ -1423,6 +1423,18 @@ func (m *CCIP17EVM) configureTokenForTransfer(
 func toComitteeVerifier(selector uint64, committees []cciptestinterfaces.OnChainCommittees, remoteChainConfigs map[uint64]adapters.CommitteeVerifierRemoteChainConfig) []adapters.CommitteeVerifierConfig[datastore.AddressRef, datastore.AddressRef] {
 	committeeVerifiers := make([]adapters.CommitteeVerifierConfig[datastore.AddressRef, datastore.AddressRef], 0, len(committees))
 	for _, committee := range committees {
+		remoteChainConfigWithSignatureConfig := make(map[uint64]adapters.CommitteeVerifierRemoteChainConfig, len(remoteChainConfigs))
+		for remoteChainSelector, remoteChainConfig := range remoteChainConfigs {
+			signers := make([]string, 0, len(committee.Signers))
+			for _, signer := range committee.Signers {
+				signers = append(signers, common.BytesToAddress(signer).String())
+			}
+			remoteChainConfig.SignatureConfig = adapters.CommitteeVerifierSignatureQuorumConfig{
+				Threshold: uint8(committee.Threshold),
+				Signers:   signers,
+			}
+			remoteChainConfigWithSignatureConfig[remoteChainSelector] = remoteChainConfig
+		}
 		committeeVerifiers = append(committeeVerifiers, adapters.CommitteeVerifierConfig[datastore.AddressRef, datastore.AddressRef]{
 			CommitteeVerifier: datastore.AddressRef{
 				Type:          datastore.ContractType(committee_verifier.ContractType),
@@ -1438,7 +1450,7 @@ func toComitteeVerifier(selector uint64, committees []cciptestinterfaces.OnChain
 					Qualifier:     committee.CommitteeQualifier,
 				},
 			},
-			RemoteChains: remoteChainConfigs,
+			RemoteChains: remoteChainConfigWithSignatureConfig,
 		})
 	}
 	return committeeVerifiers
