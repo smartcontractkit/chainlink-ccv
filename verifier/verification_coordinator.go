@@ -110,7 +110,19 @@ func (vc *Coordinator) Start(_ context.Context) error {
 			}
 		}
 
-		// Start source readers - 1st step processor
+		// Start consumers before producers to ensure channel sends don't block at startup.
+
+		// Start storage writer processor (consumes from taskVerifierProcessor)
+		if err := vc.storageWriterProcessor.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start storage writer processor: %w", err)
+		}
+
+		// Start task verifier processor (consumes from SRS, produces to storage writer)
+		if err := vc.taskVerifierProcessor.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start task verifier processor: %w", err)
+		}
+
+		// Start source readers (producers) - now consumers are ready to drain
 		for _, srs := range vc.sourceReadersServices {
 			if err := srs.Start(ctx); err != nil {
 				vc.lggr.Errorw("Failed to start SourceReaderService",
@@ -118,16 +130,6 @@ func (vc *Coordinator) Start(_ context.Context) error {
 					"error", err)
 				return fmt.Errorf("failed to start SourceReaderService for chain %s: %w", srs.chainSelector, err)
 			}
-		}
-
-		// Start task verifier processor - 2nd step processor
-		if err := vc.taskVerifierProcessor.Start(ctx); err != nil {
-			return fmt.Errorf("failed to start task verifier processor: %w", err)
-		}
-
-		// Start storage writer processor - 3rd step processor
-		if err := vc.storageWriterProcessor.Start(ctx); err != nil {
-			return fmt.Errorf("failed to start storage writer processor: %w", err)
 		}
 
 		vc.lggr.Infow("Coordinator started successfully")
