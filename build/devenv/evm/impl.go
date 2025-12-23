@@ -213,7 +213,7 @@ func AllTokenCombinations() []TokenCombination {
 			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
 			destPoolVersion:         "1.7.0",
 			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
-			expectedReceiptIssuers:  3, // default CCV, token pool, executor
+			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
 			expectedVerifierResults: 1, // default CCV
 		},
 		{ // 1.7.0 burn -> 1.7.0 mint (Default and Secondary CCV)
@@ -223,7 +223,7 @@ func AllTokenCombinations() []TokenCombination {
 			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
 			destPoolVersion:         "1.7.0",
 			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier, SecondaryCommitteeVerifierQualifier},
-			expectedReceiptIssuers:  4, // default CCV, secondary CCV, token pool, executor
+			expectedReceiptIssuers:  5, // default CCV, secondary CCV, token pool, executor, network fee
 			expectedVerifierResults: 2, // default CCV, secondary CCV
 		},
 		{ // 1.7.0 burn -> 1.7.0 mint (No CCV)
@@ -233,7 +233,7 @@ func AllTokenCombinations() []TokenCombination {
 			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
 			destPoolVersion:         "1.7.0",
 			destPoolCCVQualifiers:   []string{},
-			expectedReceiptIssuers:  3, // default CCV, token pool, executor
+			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
 			expectedVerifierResults: 1, // default CCV
 		},
 		{ // 1.7.0 burn -> 1.7.0 mint (Secondary CCV)
@@ -243,8 +243,8 @@ func AllTokenCombinations() []TokenCombination {
 			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
 			destPoolVersion:         "1.7.0",
 			destPoolCCVQualifiers:   []string{SecondaryCommitteeVerifierQualifier},
-			expectedReceiptIssuers:  4, // default CCV, secondary CCV, token pool, executor
-			expectedVerifierResults: 2, // default CCV, secondary CCV
+			expectedReceiptIssuers:  5, // secondary CCV, default CCV, token pool, executor, network fee
+			expectedVerifierResults: 2, // secondary CCV, default CCV (defaultCCV included because ccipReceiveGasLimit > 0)
 		},
 	}
 }
@@ -1409,7 +1409,8 @@ func (m *CCIP17EVM) configureTokenForTransfer(
 					Type:    datastore.ContractType(token_admin_registry.ContractType),
 					Version: semver.MustParse(token_admin_registry.Deploy.Version()),
 				},
-				RemoteChains: tokensRemoteChains,
+				RemoteChains:  tokensRemoteChains,
+				FinalityValue: 1,
 			},
 		},
 	})
@@ -1430,7 +1431,7 @@ func toComitteeVerifier(selector uint64, committees []cciptestinterfaces.OnChain
 				signers = append(signers, common.BytesToAddress(signer).String())
 			}
 			remoteChainConfig.SignatureConfig = adapters.CommitteeVerifierSignatureQuorumConfig{
-				Threshold: uint8(committee.Threshold),
+				Threshold: committee.Threshold,
 				Signers:   signers,
 			}
 			remoteChainConfigWithSignatureConfig[remoteChainSelector] = remoteChainConfig
