@@ -21,6 +21,7 @@ import (
 
 	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
@@ -168,10 +169,11 @@ func (i *IndexerClient) GetVerificationsForMessageID(ctx context.Context, messag
 }
 
 type AggregatorClient struct {
-	logger               zerolog.Logger
-	addr                 string
-	verifierResultClient verifierpb.VerifierClient
-	conn                 *grpc.ClientConn
+	logger                  zerolog.Logger
+	addr                    string
+	verifierResultClient    verifierpb.VerifierClient
+	committeeVerifierClient committeepb.CommitteeVerifierClient
+	conn                    *grpc.ClientConn
 }
 
 // NewAggregatorClient creates a new AggregatorClient with TLS.
@@ -198,10 +200,11 @@ func NewAggregatorClient(logger zerolog.Logger, addr, caCertFile string) (*Aggre
 	}
 
 	return &AggregatorClient{
-		logger:               logger,
-		addr:                 addr,
-		verifierResultClient: verifierpb.NewVerifierClient(conn),
-		conn:                 conn,
+		logger:                  logger,
+		addr:                    addr,
+		verifierResultClient:    verifierpb.NewVerifierClient(conn),
+		committeeVerifierClient: committeepb.NewCommitteeVerifierClient(conn),
+		conn:                    conn,
 	}, nil
 }
 
@@ -212,6 +215,63 @@ func (a *AggregatorClient) Close() error {
 	return nil
 }
 
+// WaitForCommitteeVerifierNodeResult waits for the committee verifier node results for a given messageID and signer addresses.
+// This is useful for tests where specific nodes are expected to sign the message.
+func (a *AggregatorClient) WaitForCommitteeVerifierNodeResult(
+	ctx context.Context,
+	messageID protocol.Bytes32,
+	expectedSignerAddresses []protocol.UnknownAddress,
+	tickInterval time.Duration,
+) ([]*committeepb.CommitteeVerifierNodeResult, error) {
+	ticker := time.NewTicker(tickInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("context cancelled: %w", ctx.Err())
+		case <-ticker.C:
+			var results []*committeepb.CommitteeVerifierNodeResult
+			for _, signerAddress := range expectedSignerAddresses {
+				result, err := a.ReadCommitteeVerifierNodeResult(ctx, messageID, signerAddress)
+				if err != nil {
+					a.logger.Error().Err(err).Msgf("failed to read committee verifier node result for signer address: %s, retrying", signerAddress)
+					continue
+				}
+				results = append(results, result)
+			}
+			if len(results) == len(expectedSignerAddresses) {
+				a.logger.Info().
+					Str("msgID", messageID.String()).
+					Any("expectedSignerAddresses", expectedSignerAddresses).
+					Int("committeeVerifierNodeResultsLen", len(results)).
+					Msg("found all committee verifier node results for messageID")
+				return results, nil
+			}
+			a.logger.Warn().
+				Str("msgID", messageID.String()).
+				Any("expectedSignerAddresses", expectedSignerAddresses).
+				Int("committeeVerifierNodeResultsLen", len(results)).
+				Msg("not enough committee verifier node results found for messageID, retrying")
+		}
+	}
+}
+
+func (a *AggregatorClient) ReadCommitteeVerifierNodeResult(ctx context.Context, messageID protocol.Bytes32, signerAddress protocol.UnknownAddress) (*committeepb.CommitteeVerifierNodeResult, error) {
+	resp, err := a.committeeVerifierClient.ReadCommitteeVerifierNodeResult(ctx, &committeepb.ReadCommitteeVerifierNodeResultRequest{
+		MessageId: messageID[:],
+		Address:   signerAddress.Bytes(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to read committee verifier node result for signer address: %s, %w", signerAddress, err)
+	}
+
+	if resp.CommitteeVerifierNodeResult == nil {
+		return nil, fmt.Errorf("committee verifier node result is nil for msg %s signer address: %s", messageID.String(), signerAddress.String())
+	}
+
+	return resp.CommitteeVerifierNodeResult, nil
+}
 func (a *AggregatorClient) WaitForVerifierResultForMessage(
 	ctx context.Context,
 	messageID [32]byte,

@@ -114,37 +114,8 @@ type AggregatorOutput struct {
 	DBURL              string `toml:"db_url"`
 	DBConnectionString string `toml:"db_connection_string"`
 	TLSCACertFile      string `toml:"tls_ca_cert_file"`
-}
-
-type Signer struct {
-	Address string `toml:"address"`
-}
-
-// QuorumConfig represents the configuration for a quorum of signers.
-type QuorumConfig struct {
-	CommitteeVerifierAddress string   `toml:"committeeVerifierAddress"`
-	Signers                  []Signer `toml:"signers"`
-	Threshold                uint8    `toml:"threshold"`
-}
-
-// Committee represents a group of signers participating in the commit verification process.
-type Committee struct {
-	// QuorumConfigs stores a QuorumConfig for each chain selector
-	// there is a commit verifier for.
-	// The aggregator uses this to verify signatures from each chain's
-	// commit verifier set.
-	QuorumConfigs map[string]*QuorumConfig `toml:"quorumConfigs"`
-}
-
-// StorageConfig represents the configuration for the storage backend.
-type StorageConfig struct {
-	StorageType   string `toml:"type"`
-	ConnectionURL string `toml:"connectionURL,omitempty"`
-}
-
-// ServerConfig represents the configuration for the server.
-type ServerConfig struct {
-	Address string `toml:"address"`
+	// Source chain selector -> threshold mapping.
+	ThresholdPerSource map[uint64]uint8 `toml:"threshold_per_source"`
 }
 
 func validateAggregatorInput(in *AggregatorInput, inV []*VerifierInput) error {
@@ -497,11 +468,12 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 	}
 
 	in.Out = &AggregatorOutput{
-		ContainerName:    nginxContainerName,
-		Address:          fmt.Sprintf("%s:443", nginxContainerName),
-		ExternalHTTPUrl:  fmt.Sprintf("%s:%d", aggregatorContainerName, DefaultAggregatorGRPCPort),
-		ExternalHTTPSUrl: fmt.Sprintf("%s:%d", host, in.HostPort),
-		TLSCACertFile:    tlsCerts.CACertFile,
+		ContainerName:      nginxContainerName,
+		Address:            fmt.Sprintf("%s:443", nginxContainerName),
+		ExternalHTTPUrl:    fmt.Sprintf("%s:%d", aggregatorContainerName, DefaultAggregatorGRPCPort),
+		ExternalHTTPSUrl:   fmt.Sprintf("%s:%d", host, in.HostPort),
+		TLSCACertFile:      tlsCerts.CACertFile,
+		ThresholdPerSource: in.ThresholdPerSource,
 	}
 	return in.Out, nil
 }

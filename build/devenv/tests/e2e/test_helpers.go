@@ -14,8 +14,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/logasserter"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
+	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
@@ -83,6 +85,9 @@ type AssertionResult struct {
 	SentToChainFound     bool
 	AggregatedResult     *verifierpb.VerifierResult
 	IndexedVerifications ccv.GetVerificationsForMessageIDResponse
+
+	// This is only surfaced if ExpectedSignerAddresses is provided in AssertMessageOptions.
+	CommitteeVerifierNodeResults []*committeepb.CommitteeVerifierNodeResult
 }
 
 type AssertMessageOptions struct {
@@ -93,6 +98,10 @@ type AssertMessageOptions struct {
 	// Optional log verification, since its slower.
 	AssertVerifierLogs bool
 	AssertExecutorLogs bool
+
+	// Optional committee verifier node result verification.
+	// This is useful for tests where specific nodes are expected to sign the message.
+	ExpectedSignerAddresses []protocol.UnknownAddress
 }
 
 func (tc *TestingContext) AssertMessage(messageID [32]byte, opts AssertMessageOptions) (AssertionResult, error) {
@@ -126,16 +135,28 @@ func (tc *TestingContext) AssertMessage(messageID [32]byte, opts AssertMessageOp
 	}
 
 	if tc.AggregatorClient != nil {
-		aggregatedResult, err := tc.AggregatorClient.WaitForVerifierResultForMessage(
-			ctx,
-			messageID,
-			opts.TickInterval)
-		if err != nil {
-			return result, fmt.Errorf("aggregator check failed: %w", err)
-		}
+		if len(opts.ExpectedSignerAddresses) > 0 {
+			committeeVerifierNodeResults, err := tc.AggregatorClient.WaitForCommitteeVerifierNodeResult(
+				ctx,
+				messageID,
+				opts.ExpectedSignerAddresses,
+				opts.TickInterval)
+			if err != nil {
+				return result, fmt.Errorf("committee verifier node result check failed: %w", err)
+			}
+			result.CommitteeVerifierNodeResults = committeeVerifierNodeResults
+		} else {
+			aggregatedResult, err := tc.AggregatorClient.WaitForVerifierResultForMessage(
+				ctx,
+				messageID,
+				opts.TickInterval)
+			if err != nil {
+				return result, fmt.Errorf("aggregator check failed: %w", err)
+			}
 
-		result.AggregatedResult = aggregatedResult
-		result.AggregatorFound = true
+			result.AggregatedResult = aggregatedResult
+			result.AggregatorFound = true
+		}
 	}
 
 	if tc.IndexerClient != nil {
