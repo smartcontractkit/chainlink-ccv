@@ -219,6 +219,9 @@ func setupTestDB(t *testing.T) (*DatabaseStorage, func()) {
 
 func setupTestDBWithDatabase(t *testing.T) (*DatabaseStorage, *sqlx.DB, func()) {
 	ctx := context.Background()
+	if testing.Short() {
+		t.Skip("skipping docker test in short mode")
+	}
 
 	postgresContainer, err := postgres.Run(ctx,
 		"postgres:15-alpine",
@@ -906,6 +909,9 @@ func TestQueryAggregatedReports_SinceSequence(t *testing.T) {
 
 func TestDatabaseStorage_PageSize(t *testing.T) {
 	ctx := context.Background()
+	if testing.Short() {
+		t.Skip("skipping docker test in short mode")
+	}
 
 	postgresContainer, err := postgres.Run(ctx,
 		"postgres:15-alpine",
