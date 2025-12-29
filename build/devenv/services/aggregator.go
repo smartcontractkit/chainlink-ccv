@@ -170,12 +170,13 @@ func validateAggregatorInput(in *AggregatorInput, inV []*VerifierInput) error {
 }
 
 // generateConfigs generates the aggregator service configuration using the inputs.
-func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) ([]byte, error) {
+func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) (tomlConfig []byte, thresholdPerSource map[uint64]uint8, err error) {
+	thresholdPerSource = make(map[uint64]uint8)
 	committeeName := a.CommitteeName
 
 	config, err := configuration.LoadConfigString(aggregatorConfigTemplate)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load aggregator config template: %w", err)
+		return nil, nil, fmt.Errorf("failed to load aggregator config template: %w", err)
 	}
 
 	committeeConfig := &model.Committee{}
@@ -215,6 +216,7 @@ func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) ([]byte, error) {
 			Signers:               signers,
 			Threshold:             sourceThreshold,
 		}
+		thresholdPerSource[chainSelector] = sourceThreshold
 	}
 
 	config.Committee = committeeConfig
@@ -225,9 +227,10 @@ func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) ([]byte, error) {
 
 	cfg, err := toml.Marshal(config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal aggregator config to TOML: %w", err)
+		return nil, nil, fmt.Errorf("failed to marshal aggregator config to TOML: %w", err)
 	}
-	return cfg, nil
+
+	return cfg, thresholdPerSource, nil
 }
 
 func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput, error) {
@@ -246,7 +249,7 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 		return in.Out, err
 	}
 
-	config, err := in.GenerateConfig(inV)
+	config, thresholdPerSource, err := in.GenerateConfig(inV)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate aggregator config: %w", err)
 	}
@@ -473,7 +476,7 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 		ExternalHTTPUrl:    fmt.Sprintf("%s:%d", aggregatorContainerName, DefaultAggregatorGRPCPort),
 		ExternalHTTPSUrl:   fmt.Sprintf("%s:%d", host, in.HostPort),
 		TLSCACertFile:      tlsCerts.CACertFile,
-		ThresholdPerSource: in.ThresholdPerSource,
+		ThresholdPerSource: thresholdPerSource,
 	}
 	return in.Out, nil
 }

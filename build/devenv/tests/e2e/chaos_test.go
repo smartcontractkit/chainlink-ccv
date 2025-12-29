@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
@@ -14,7 +13,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
 )
@@ -96,7 +94,7 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 
 	require.Contains(t, thresholdPerSource, fromSelector, "threshold per source not found for source chain %d", fromSelector)
 	threshold := thresholdPerSource[fromSelector]
-	require.Greater(t, len(defaultVerifierInputs), int(threshold), "number of default verifiers must be greater than the threshold for this test")
+	require.GreaterOrEqual(t, len(defaultVerifierInputs), int(threshold), "number of default verifiers must be greater than or equal to the threshold for this test")
 	numVerifiersToStop := len(defaultVerifierInputs) - int(threshold) + 1
 	require.Greater(t, numVerifiersToStop, 0, "number of verifiers to stop must be greater than 0 for this test")
 
@@ -110,6 +108,7 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 		return names
 	}(), "|"))
 	// shut down enough verifiers so that the fault tolerance threshold is violated.
+	// when the verifier is back up its expected to sign the message.
 	pumbaCmd := fmt.Sprintf("stop --duration=%s --restart re2:%s", outageDuration.String(), containerRe2)
 	setup.l.Info().Str("pumbaCmd", pumbaCmd).Msg("Stopping the verifier prior to sending the message to simulate an outage")
 	pumbaClose, err := chaos.ExecPumba(
@@ -124,20 +123,13 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 		fromSelector:             fromSelector,
 		toSelector:               toSelector,
 		receiver:                 mustGetEOAReceiverAddress(t, setup.chainMap[toSelector]),
-		assertExecuted:           false, // we don't assert executed since we are shutting down the verifiers.
-		numExpectedVerifications: 0,     // we don't expect any verifications since we are shutting down the verifiers.
-	}
-
-	// the verifiers that should sign are the remaining ones, that weren't stopped.
-	toSign := defaultVerifierInputs[numVerifiersToStop:]
-	signerAddresses := make([]protocol.UnknownAddress, 0, len(toSign))
-	for _, verifier := range toSign {
-		signerAddresses = append(signerAddresses, protocol.UnknownAddress(common.HexToAddress(verifier.SigningKeyPublic).Bytes()))
+		assertExecuted:           true,
+		numExpectedVerifications: 1,
 	}
 
 	setup.l.Info().
-		Any("expectedSignerAddresses", signerAddresses).
-		Msg("sending message with verifiers down")
+		Str("verifiersToStop", containerRe2).
+		Msg("sending message with some verifiers down")
 
 	startTime := time.Now()
 	runV2TestCase(
@@ -145,14 +137,13 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 		tc,
 		setup.chainMap,
 		setup.defaultAggregatorClient,
-		nil, // set indexerClient to nil because we are shutting down the verifiers and won't get a verifier result.
+		setup.indexerClient,
 		AssertMessageOptions{
 			TickInterval:            5 * time.Second,
 			Timeout:                 waitTimeout(t),
 			ExpectedVerifierResults: tc.numExpectedVerifications,
 			AssertVerifierLogs:      false,
 			AssertExecutorLogs:      false,
-			ExpectedSignerAddresses: signerAddresses,
 		})
 	duration := time.Since(startTime)
 	setup.l.Info().Dur("duration", duration).Msg("Time taken to run the test")

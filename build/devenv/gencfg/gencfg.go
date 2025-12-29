@@ -176,7 +176,7 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 		ThresholdPerSource:                      thresholdPerSource,
 		MonitoringOtelExporterHTTPEndpoint:      monitoringOtelExporterHTTPEndpoint,
 	}
-	aggregatorConfig, err := aggregatorInput.GenerateConfig(verifierInputs)
+	aggregatorConfig, _, err := aggregatorInput.GenerateConfig(verifierInputs)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate aggregator config: %w", err)
 	}
