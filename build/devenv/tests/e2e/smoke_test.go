@@ -153,7 +153,7 @@ func TestE2ESmoke(t *testing.T) {
 	})
 
 	t.Run("extra args v3 messaging", func(t *testing.T) {
-		var tcs []testcase
+		var tcs []v3TestCase
 		src, dest := chains[0].Details.ChainSelector, chains[1].Details.ChainSelector
 		mvtcsSrcToDest := multiVerifierTestCases(t, src, dest, in, chainMap)
 		tcs = append(tcs, mvtcsSrcToDest...)
