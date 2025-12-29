@@ -242,7 +242,7 @@ func TestParseReceiptStructure(t *testing.T) {
 			numCCVBlobs:       2,
 			numTokenTransfers: 1,
 			expectedErr:       true,
-			expectedErrMsg:    "unexpected receipt count: got 3, expected 4 (CCVs=2 + Tokens=1 + Executor=1 + Network fee=1)",
+			expectedErrMsg:    "unexpected receipt count: got 3, expected 5 (CCVs=2 + Tokens=1 + Executor=1 + Network fee=1)",
 		},
 		{
 			name: "mismatch - too many receipts",
