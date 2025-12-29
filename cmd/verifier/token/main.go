@@ -69,7 +69,7 @@ func main() {
 
 	sourceReaders := cmd.LoadBlockchainReadersForToken(lggr, blockchainHelper, chainClients, *config)
 
-	verifierMonitoring := cmd.SetupOTEL(lggr, config.Monitoring)
+	verifierMonitoring := cmd.SetupMonitoring(lggr, config.Monitoring)
 
 	messageTracker := monitoring.NewMessageLatencyTracker(
 		lggr,

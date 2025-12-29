@@ -18,7 +18,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
-	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
@@ -68,16 +67,7 @@ func NewVerificationCoordinator(
 	}
 
 	// TODO: monitoring config home
-	verifierMonitoring, err := monitoring.InitMonitoring(beholder.Config{
-		InsecureConnection:       cfg.Monitoring.Beholder.InsecureConnection,
-		CACertFile:               cfg.Monitoring.Beholder.CACertFile,
-		OtelExporterHTTPEndpoint: cfg.Monitoring.Beholder.OtelExporterHTTPEndpoint,
-		OtelExporterGRPCEndpoint: cfg.Monitoring.Beholder.OtelExporterGRPCEndpoint,
-		LogStreamingEnabled:      cfg.Monitoring.Beholder.LogStreamingEnabled,
-		MetricReaderInterval:     time.Second * time.Duration(cfg.Monitoring.Beholder.MetricReaderInterval),
-		TraceSampleRatio:         cfg.Monitoring.Beholder.TraceSampleRatio,
-		TraceBatchTimeout:        time.Second * time.Duration(cfg.Monitoring.Beholder.TraceBatchTimeout),
-	})
+	verifierMonitoring, err := monitoring.InitMonitoring()
 	if err != nil {
 		lggr.Errorw("Failed to initialize verifier monitoring", "error", err)
 		return nil, fmt.Errorf("failed to initialize verifier monitoring: %w", err)
