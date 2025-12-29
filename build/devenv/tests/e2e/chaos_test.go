@@ -149,7 +149,7 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 	setup.l.Info().Dur("duration", duration).Msg("Time taken to run the test")
 }
 
-func TestChaos_AllButOneExecutorDown(t *testing.T) {
+func TestChaos_AllExecutorsDown(t *testing.T) {
 	setup := setupChaos(t, "../../env-out.toml")
 
 	var defaultExecutorContainerNames []string
@@ -160,11 +160,7 @@ func TestChaos_AllButOneExecutorDown(t *testing.T) {
 	}
 	require.NotEmpty(t, defaultExecutorContainerNames, "default executor container names not found")
 
-	// we should be able to operate with only one executor, so shut down all except one
-	numExecutorsToStop := len(defaultExecutorContainerNames) - 1
-	require.Greater(t, numExecutorsToStop, 0, "number of executors to stop must be greater than 0 for this test")
-	toStop := defaultExecutorContainerNames[:numExecutorsToStop]
-	containerRe2 := fmt.Sprintf("(%s)", strings.Join(toStop, "|"))
+	containerRe2 := fmt.Sprintf("(%s)", strings.Join(defaultExecutorContainerNames, "|"))
 	pumbaCmd := fmt.Sprintf("stop --duration=%s --restart re2:%s", 30*time.Second, containerRe2)
 	setup.l.Info().Str("pumbaCmd", pumbaCmd).Msg("Stopping the executors prior to sending the message to simulate an outage")
 	pumbaClose, err := chaos.ExecPumba(
