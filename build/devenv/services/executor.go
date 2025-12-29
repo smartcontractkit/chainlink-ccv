@@ -43,7 +43,7 @@ var executorConfigTemplate string
 
 type ExecutorInput struct {
 	Mode              Mode              `toml:"mode"`
-	Out               *ExecutorOutput   `toml:"-"`
+	Out               *ExecutorOutput   `toml:"out"`
 	Image             string            `toml:"image"`
 	SourceCodePath    string            `toml:"source_code_path"`
 	RootPath          string            `toml:"root_path"`

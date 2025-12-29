@@ -149,6 +149,56 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 	setup.l.Info().Dur("duration", duration).Msg("Time taken to run the test")
 }
 
+func TestChaos_AllButOneExecutorDown(t *testing.T) {
+	setup := setupChaos(t, "../../env-out.toml")
+
+	var defaultExecutorContainerNames []string
+	for _, executor := range setup.in.Executor {
+		if executor.ExecutorQualifier == evm.DefaultCommitteeVerifierQualifier {
+			defaultExecutorContainerNames = append(defaultExecutorContainerNames, executor.Out.ContainerName)
+		}
+	}
+	require.NotEmpty(t, defaultExecutorContainerNames, "default executor container names not found")
+
+	// we should be able to operate with only one executor, so shut down all except one
+	numExecutorsToStop := len(defaultExecutorContainerNames) - 1
+	require.Greater(t, numExecutorsToStop, 0, "number of executors to stop must be greater than 0 for this test")
+	toStop := defaultExecutorContainerNames[:numExecutorsToStop]
+	containerRe2 := fmt.Sprintf("(%s)", strings.Join(toStop, "|"))
+	pumbaCmd := fmt.Sprintf("stop --duration=%s --restart re2:%s", 30*time.Second, containerRe2)
+	setup.l.Info().Str("pumbaCmd", pumbaCmd).Msg("Stopping the executors prior to sending the message to simulate an outage")
+	pumbaClose, err := chaos.ExecPumba(
+		pumbaCmd,
+		ctfPumbaTimeout,
+	)
+	require.NoError(t, err)
+	t.Cleanup(pumbaClose)
+
+	fromSelector, toSelector := setup.chains[0].Details.ChainSelector, setup.chains[1].Details.ChainSelector
+	require.Contains(t, setup.chainMap, fromSelector, "source chain selector not found in chain map")
+	require.Contains(t, setup.chainMap, toSelector, "destination chain selector not found in chain map")
+
+	tc := v2TestCase{
+		name:                     "src->dst msg execution eoa receiver",
+		fromSelector:             fromSelector,
+		toSelector:               toSelector,
+		receiver:                 mustGetEOAReceiverAddress(t, setup.chainMap[toSelector]),
+		assertExecuted:           true,
+		numExpectedVerifications: 1,
+	}
+
+	startTime := time.Now()
+	runV2TestCase(t, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerClient, AssertMessageOptions{
+		TickInterval:            5 * time.Second,
+		Timeout:                 waitTimeout(t),
+		ExpectedVerifierResults: tc.numExpectedVerifications,
+		AssertVerifierLogs:      false,
+		AssertExecutorLogs:      false,
+	})
+	duration := time.Since(startTime)
+	setup.l.Info().Dur("duration", duration).Msg("Time taken to run the test")
+}
+
 func waitTimeout(t *testing.T) time.Duration {
 	deadline, ok := t.Deadline()
 	if !ok {
