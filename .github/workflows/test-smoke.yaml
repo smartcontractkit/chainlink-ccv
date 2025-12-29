@@ -29,7 +29,7 @@ jobs:
             config: env.toml,env-src-auto-mine.toml
           - name: TestChaos_AggregatorOutageRecovery
             config: env.toml
-          - name: TestChaos_VerifierFaultToleranceThresholdViolated
+          - name: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_AllButOneExecutorDown)
             config: env.toml
     steps:
       - name: Enable S3 Cache for Self-Hosted Runners
@@ -100,16 +100,24 @@ jobs:
         run: |
           if [ ! -d "logs" ] || [ -z "$(ls -A logs)" ]; then
             echo "Logs not found or empty. Dumping logs manually..."
-            ccv dl --dir-suffix ${{ matrix.test.name }}
+            ccv dl --dir-suffix "${{ matrix.test.name }}"
           else
             echo "Logs already exist. Skipping manual dump."
           fi
+
+      - name: Sanitize test name for log artifact name
+        if: always()
+        id: sanitize_name
+        run: |
+          # The vertical bar is invalid in the uploaded artifact name, so we replace it with an underscore.
+          SANITIZED_NAME=$(echo "${{ matrix.test.name }}" | sed 's/[()|]/_/g')
+          echo "name=$SANITIZED_NAME" >> $GITHUB_OUTPUT
 
       - name: Upload Logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: container-logs-standalone-${{ matrix.test.name }}
+          name: container-logs-standalone-${{ steps.sanitize_name.outputs.name }}
           path: build/devenv/tests/e2e/logs
           retention-days: 1
 
