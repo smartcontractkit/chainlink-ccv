@@ -133,7 +133,7 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 
 	// Process found events
 	for _, log := range logs {
-		r.lggr.Infow("🎉 Found CCIPMessageSent event!",
+		r.lggr.Infow("Found CCIPMessageSent event!",
 			"chainSelector", r.chainSelector,
 			"blockNumber", log.BlockNumber,
 			"txHash", log.TxHash.Hex(),
@@ -141,18 +141,18 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 
 		// Parse indexed topics
 		var destChainSelector uint64
-		var nonce uint64
+		var sender common.Address
 		var messageID [32]byte
 
 		if len(log.Topics) >= 4 {
 			destChainSelector = binary.BigEndian.Uint64(log.Topics[1][24:]) // Last 8 bytes
-			nonce = binary.BigEndian.Uint64(log.Topics[2][24:])             // Last 8 bytes
+			sender = common.BytesToAddress(log.Topics[2][12:])              // Last 20 bytes for address
 			copy(messageID[:], log.Topics[3][:])                            // Full 32 bytes
 
-			r.lggr.Infow("📊 Event details",
+			r.lggr.Infow("Event details",
 				"sourceChainSelector", r.chainSelector,
 				"destChainSelector", destChainSelector,
-				"nonce", nonce,
+				"sender", sender,
 				"messageId", common.Bytes2Hex(messageID[:]))
 		}
 
@@ -160,7 +160,7 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 		event := &onramp.OnRampCCIPMessageSent{}
 		event.DestChainSelector = destChainSelector
 		event.MessageId = messageID
-		event.SequenceNumber = nonce
+		event.Sender = sender
 		abi, err := onramp.OnRampMetaData.GetAbi()
 		if err != nil {
 			r.lggr.Errorw("Failed to get ABI", "error", err)
@@ -174,7 +174,7 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 		// Log the event structure using the fixed bindings
 		r.lggr.Infow("OnRamp Event Structure",
 			"destChainSelector", event.DestChainSelector,
-			"nonce", event.SequenceNumber,
+			"sender", event.Sender,
 			"messageId", common.Bytes2Hex(event.MessageId[:]),
 			"ReceiptsCount", len(event.Receipts),
 			"verifierBlobsCount", len(event.VerifierBlobs))
@@ -187,7 +187,7 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 
 		// Log verifier receipts
 		for i, vr := range event.Receipts {
-			r.lggr.Infow("🧾 Verifier Receipt",
+			r.lggr.Infow("Verifier Receipt",
 				"index", i,
 				"issuer", vr.Issuer.Hex(),
 				"destGasLimit", vr.DestGasLimit,
@@ -219,7 +219,7 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 		// Validate that ccvAndExecutorHash is not zero - it's required
 		if decodedMsg.CcvAndExecutorHash == (protocol.Bytes32{}) {
 			r.lggr.Errorw("ccvAndExecutorHash is zero in decoded message",
-				"sequenceNumber", event.SequenceNumber,
+				"messageID", common.Bytes2Hex(event.MessageId[:]),
 				"blockNumber", log.BlockNumber)
 			continue // to next message
 		}
@@ -229,24 +229,37 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 			continue // to next message
 		}
 
+		if !decodedMsg.Sender.Equal(event.Sender[:]) {
+			r.lggr.Errorw("sender must match the value emitted from the on-chain event. This should never happen.", "messageId", common.Bytes2Hex(event.MessageId[:]))
+			continue // to next message
+		}
+
+		if decodedMsg.MustMessageID() != event.MessageId {
+			r.lggr.Errorw("computed messageID must match the value emitted from the on-chain event. This should never happen, if it does escalate immediately.", "messageId", common.Bytes2Hex(event.MessageId[:]))
+			continue // to the next message
+		}
+
+		if decodedMsg.DestChainSelector != protocol.ChainSelector(event.DestChainSelector) {
+			r.lggr.Errorw("destination chain selector must match the value emited from the on-chain event. This should never happen", "messageId", common.Bytes2Hex(event.MessageId[:]))
+			continue // to the next message
+		}
+
 		allReceipts := receiptBlobsFromEvent(event.Receipts, event.VerifierBlobs) // Validate the receipt structure matches expectations
 		// Validate ccvAndExecutorHash
 		if err := validateCCVAndExecutorHash(*decodedMsg, allReceipts); err != nil {
 			r.lggr.Errorw("ccvAndExecutorHash validation failed",
 				"error", err,
-				"sequenceNumber", event.SequenceNumber,
+				"messageID", common.Bytes2Hex(event.MessageId[:]),
 				"blockNumber", log.BlockNumber)
 			continue // to next message
 		}
 
 		results = append(results, protocol.MessageSentEvent{
-			DestChainSelector: protocol.ChainSelector(event.DestChainSelector),
-			SequenceNumber:    event.SequenceNumber,
-			MessageID:         protocol.Bytes32(event.MessageId),
-			Message:           *decodedMsg,
-			Receipts:          allReceipts, // Keep original order from OnRamp event
-			BlockNumber:       log.BlockNumber,
-			TxHash:            protocol.ByteSlice(log.TxHash.Bytes()),
+			MessageID:   protocol.Bytes32(event.MessageId),
+			Message:     *decodedMsg,
+			Receipts:    allReceipts, // Keep original order from OnRamp event
+			BlockNumber: log.BlockNumber,
+			TxHash:      protocol.ByteSlice(log.TxHash.Bytes()),
 		})
 	}
 	return results, nil

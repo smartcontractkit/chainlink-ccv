@@ -24,24 +24,33 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	rmn_remote_binding "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
-
+	chainsel "github.com/smartcontractkit/chain-selectors"
+	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
+	evmchangesets "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/burn_mint_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/fee_quoter"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/lock_release_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/offramp"
+	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences/tokens"
+	feequoterwrapper "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/fee_quoter"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	burnminterc677ops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc677"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/link"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
+	routeroperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/token_admin_registry"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
+	routerwrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_2_0/router"
+	rmn_remote_binding "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
+	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
+	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
@@ -55,17 +64,6 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
-
-	chainsel "github.com/smartcontractkit/chain-selectors"
-	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
-	evmchangesets "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/changesets"
-	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/offramp"
-	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/onramp"
-	feequoterwrapper "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/fee_quoter"
-	routeroperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
-	routerwrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_2_0/router"
-	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
-	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 )
 
 const (
@@ -363,17 +361,17 @@ func (m *CCIP17EVM) getOrCreateOnRampPoller() (*eventPoller[cciptestinterfaces.M
 		events := make(map[eventKey]cciptestinterfaces.MessageSentEvent)
 		for filter.Next() {
 			event := filter.Event
-			key := eventKey{chainSelector: event.DestChainSelector, seqNo: event.SequenceNumber}
 
 			message, err := protocol.DecodeMessage(event.EncodedMessage)
+			key := eventKey{chainSelector: event.DestChainSelector, msgNum: uint64(message.SequenceNumber)}
 			if err != nil {
-				m.logger.Warn().Err(err).Uint64("seqNo", event.SequenceNumber).Msg("Failed to decode message, skipping")
+				m.logger.Warn().Err(err).Uint64("msgNum", uint64(message.SequenceNumber)).Msg("Failed to decode message, skipping")
 				continue
 			}
 
 			ev := cciptestinterfaces.MessageSentEvent{
 				MessageID:      event.MessageId,
-				SequenceNumber: event.SequenceNumber,
+				Sender:         event.Sender[:],
 				Message:        message,
 				ReceiptIssuers: make([]protocol.UnknownAddress, 0, len(event.Receipts)),
 				VerifierBlobs:  event.VerifierBlobs,
@@ -415,12 +413,12 @@ func (m *CCIP17EVM) getOrCreateOffRampPoller() (*eventPoller[cciptestinterfaces.
 		events := make(map[eventKey]cciptestinterfaces.ExecutionStateChangedEvent)
 		for filter.Next() {
 			event := filter.Event
-			key := eventKey{chainSelector: event.SourceChainSelector, seqNo: event.SequenceNumber}
+			key := eventKey{chainSelector: event.SourceChainSelector, msgNum: event.MessageNumber}
 			events[key] = cciptestinterfaces.ExecutionStateChangedEvent{
-				MessageID:      event.MessageId,
-				SequenceNumber: event.SequenceNumber,
-				State:          cciptestinterfaces.MessageExecutionState(event.State),
-				ReturnData:     event.ReturnData,
+				MessageID:     event.MessageId,
+				MessageNumber: event.MessageNumber,
+				State:         cciptestinterfaces.MessageExecutionState(event.State),
+				ReturnData:    event.ReturnData,
 			}
 		}
 
@@ -462,7 +460,6 @@ func (m *CCIP17EVM) fetchAllSentEventsBySelector(ctx context.Context, from, to u
 
 		l.Info().
 			Any("TxHash", event.Raw.TxHash.Hex()).
-			Any("SeqNo", event.SequenceNumber).
 			Str("MsgID", hexutil.Encode(event.MessageId[:])).
 			Msg("Found CCIPMessageSent event")
 	}
@@ -503,7 +500,7 @@ func (m *CCIP17EVM) fetchAllExecEventsBySelector(ctx context.Context, from, to u
 		l.Info().
 			Any("State", event.State).
 			Any("TxHash", event.Raw.TxHash.Hex()).
-			Any("SeqNo", event.SequenceNumber).
+			Any("MsgNo", event.MessageNumber).
 			Str("MsgID", hexutil.Encode(event.MessageId[:])).
 			Str("Error", hexutil.Encode(filter.Event.ReturnData)).
 			Msg("Found ExecutionStateChanged event")
@@ -518,7 +515,7 @@ func (m *CCIP17EVM) fetchAllExecEventsBySelector(ctx context.Context, from, to u
 }
 
 func (m *CCIP17EVM) GetExpectedNextSequenceNumber(ctx context.Context, to uint64) (uint64, error) {
-	return m.onRamp.GetExpectedNextSequenceNumber(&bind.CallOpts{Context: ctx}, to)
+	return m.onRamp.GetExpectedNextMessageNumber(&bind.CallOpts{Context: ctx}, to)
 }
 
 // WaitOneSentEventBySeqNo wait and fetch strictly one CCIPMessageSent event by selector and sequence number and selector.
@@ -842,7 +839,7 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, field
 	}
 	result := cciptestinterfaces.MessageSentEvent{
 		MessageID:      messageSentEvent.MessageId,
-		SequenceNumber: messageSentEvent.SequenceNumber,
+		Sender:         messageSentEvent.Sender.Bytes(),
 		Message:        message,
 		ReceiptIssuers: make([]protocol.UnknownAddress, 0, len(messageSentEvent.Receipts)),
 		VerifierBlobs:  messageSentEvent.VerifierBlobs,
@@ -864,7 +861,7 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, field
 		Int("NumReceipts", len(result.ReceiptIssuers)).
 		Int("NumVerifierBlobs", len(result.VerifierBlobs)).
 		Any("ReceiptIssuers", result.ReceiptIssuers).
-		Uint64("SeqNo", result.SequenceNumber).
+		Uint64("MsgNum", uint64(result.Message.SequenceNumber)).
 		Msg("CCIP message sent")
 
 	return result, nil
@@ -1288,26 +1285,24 @@ func (m *CCIP17EVM) deployTokenAndPool(
 		return errors.New("failed to parse deployer balance")
 	}
 
-	out, err := evmchangesets.DeployBurnMintTokenAndPool(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[evmchangesets.DeployBurnMintTokenAndPoolCfg]{
-		Cfg: evmchangesets.DeployBurnMintTokenAndPoolCfg{
+	out, err := evmchangesets.DeployTokenAndPool(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[evmchangesets.DeployTokenAndPoolCfg]{
+		Cfg: evmchangesets.DeployTokenAndPoolCfg{
 			Accounts: map[common.Address]*big.Int{
 				chain.DeployerKey.From: deployerBalance,
 			},
+			ChainSel: selector,
+			Decimals: DefaultDecimals,
+			Router: datastore.AddressRef{
+				Type:    datastore.ContractType(routeroperations.ContractType),
+				Version: semver.MustParse(routeroperations.Deploy.Version()),
+			},
+			TokenPoolType:    tokenPoolRef.Type,
+			TokenPoolVersion: tokenPoolRef.Version,
+			TokenSymbol:      tokenPoolRef.Qualifier,
 			TokenInfo: tokens.TokenInfo{
 				Name:      tokenPoolRef.Qualifier,
 				Decimals:  DefaultDecimals,
 				MaxSupply: maxSupply,
-			},
-			DeployTokenPoolCfg: evmchangesets.DeployTokenPoolCfg{
-				ChainSel:           selector,
-				TokenPoolType:      tokenPoolRef.Type,
-				TokenPoolVersion:   tokenPoolRef.Version,
-				TokenSymbol:        tokenPoolRef.Qualifier,
-				LocalTokenDecimals: DefaultDecimals,
-				Router: datastore.AddressRef{
-					Type:    datastore.ContractType(routeroperations.ContractType),
-					Version: semver.MustParse(routeroperations.Deploy.Version()),
-				},
 			},
 		},
 	})
@@ -1794,7 +1789,7 @@ func (m *CCIP17EVM) ManuallyExecuteMessage(
 		Signer:   transactOpts.Signer,
 		Context:  ctx,
 		GasLimit: gasLimit,
-	}, encodedMsg, ccvAddresses, verifierResults)
+	}, encodedMsg, ccvAddresses, verifierResults, 0)
 	if err != nil {
 		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to execute off ramp: %w", err)
 	}
@@ -1819,10 +1814,11 @@ func (m *CCIP17EVM) ManuallyExecuteMessage(
 				continue
 			}
 			event = cciptestinterfaces.ExecutionStateChangedEvent{
-				MessageID:      parsedLog.MessageId,
-				SequenceNumber: parsedLog.SequenceNumber,
-				State:          cciptestinterfaces.MessageExecutionState(parsedLog.State),
-				ReturnData:     parsedLog.ReturnData,
+				SourceChainSelector: protocol.ChainSelector(parsedLog.SourceChainSelector),
+				MessageID:           parsedLog.MessageId,
+				MessageNumber:       parsedLog.MessageNumber,
+				State:               cciptestinterfaces.MessageExecutionState(parsedLog.State),
+				ReturnData:          parsedLog.ReturnData,
 			}
 			break
 		}

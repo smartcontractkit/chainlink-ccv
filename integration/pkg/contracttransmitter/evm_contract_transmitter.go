@@ -12,13 +12,15 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 
+	chainselectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	chainselectors "github.com/smartcontractkit/chain-selectors"
 )
+
+// Override provided to each CCIP message, this is set as 0 for all messages.
+const DefaultGasLimitOverride uint32 = 0
 
 var _ executor.ContractTransmitter = &EVMContractTransmitter{}
 
@@ -113,7 +115,7 @@ func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Cont
 	}
 
 	encodedMsg, _ := report.Message.Encode()
-	tx, err := ct.OffRamp.Execute(opts, encodedMsg, contractCcvs, report.CCVData)
+	tx, err := ct.OffRamp.Execute(opts, encodedMsg, contractCcvs, report.CCVData, DefaultGasLimitOverride)
 	if err != nil {
 		return err
 	}

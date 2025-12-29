@@ -13,9 +13,8 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
 	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 const (
@@ -49,10 +48,8 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 	executorAddr[0] = 0x22
 
 	finalizedEvent := protocol.MessageSentEvent{
-		DestChainSelector: finalizedMessage.DestChainSelector,
-		SequenceNumber:    uint64(finalizedMessage.SequenceNumber),
-		MessageID:         messageID,
-		Message:           finalizedMessage,
+		MessageID: messageID,
+		Message:   finalizedMessage,
 		Receipts: []protocol.ReceiptWithBlob{
 			{
 				Issuer:            protocol.UnknownAddress(ccvAddr),
@@ -111,10 +108,8 @@ func TestFinality_CustomFinality(t *testing.T) {
 	executorAddr[0] = 0x22
 
 	readyEvent := protocol.MessageSentEvent{
-		DestChainSelector: readyMessage.DestChainSelector,
-		SequenceNumber:    uint64(readyMessage.SequenceNumber),
-		MessageID:         messageID,
-		Message:           readyMessage,
+		MessageID: messageID,
+		Message:   readyMessage,
 		Receipts: []protocol.ReceiptWithBlob{
 			{
 				Issuer:            protocol.UnknownAddress(ccvAddr),
@@ -173,10 +168,8 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 	executorAddr[0] = 0x22
 
 	nonFinalizedEvent := protocol.MessageSentEvent{
-		DestChainSelector: nonFinalizedMessage.DestChainSelector,
-		SequenceNumber:    uint64(nonFinalizedMessage.SequenceNumber),
-		MessageID:         messageID,
-		Message:           nonFinalizedMessage,
+		MessageID: messageID,
+		Message:   nonFinalizedMessage,
 		Receipts: []protocol.ReceiptWithBlob{
 			{
 				Issuer:            protocol.UnknownAddress(ccvAddr),

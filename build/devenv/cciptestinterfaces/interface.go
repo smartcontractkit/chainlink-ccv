@@ -11,7 +11,6 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
-
 	nodeset "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
 
@@ -86,7 +85,7 @@ type MessageOptions struct {
 // MessageSentEvent is a chain-agnostic representation of the output of a ccipSend operation.
 type MessageSentEvent struct {
 	MessageID      [32]byte
-	SequenceNumber uint64
+	Sender         protocol.UnknownAddress
 	Message        *protocol.Message
 	ReceiptIssuers []protocol.UnknownAddress
 	VerifierBlobs  [][]byte
@@ -105,10 +104,11 @@ const (
 
 // ExecutionStateChangedEvent is a chain-agnostic representation of the output of a ccip message execution operation.
 type ExecutionStateChangedEvent struct {
-	MessageID      [32]byte
-	SequenceNumber uint64
-	State          MessageExecutionState
-	ReturnData     []byte
+	SourceChainSelector protocol.ChainSelector
+	MessageID           [32]byte
+	MessageNumber       uint64
+	State               MessageExecutionState
+	ReturnData          []byte
 }
 
 // Chain provides methods to interact with a single chain that has CCIP deployed.

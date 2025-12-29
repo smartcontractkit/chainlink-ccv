@@ -11,14 +11,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
 	ccv_common "github.com/smartcontractkit/chainlink-ccv/common"
-	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
-
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
+	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 // WaitForMessagesInStorage waits for the specified number of messages to be processed.
@@ -289,10 +287,8 @@ func createTestMessageSentEvents(
 		messageID, _ := message.MessageID()
 
 		events[i] = protocol.MessageSentEvent{
-			DestChainSelector: message.DestChainSelector,
-			SequenceNumber:    uint64(message.SequenceNumber),
-			MessageID:         messageID,
-			Message:           message,
+			MessageID: messageID,
+			Message:   message,
 			Receipts: []protocol.ReceiptWithBlob{
 				{
 					Issuer: protocol.UnknownAddress(ccvAddr),
