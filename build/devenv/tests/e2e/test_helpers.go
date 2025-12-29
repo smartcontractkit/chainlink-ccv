@@ -16,6 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
+	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
@@ -83,6 +84,9 @@ type AssertionResult struct {
 	SentToChainFound     bool
 	AggregatedResult     *verifierpb.VerifierResult
 	IndexedVerifications ccv.GetVerificationsForMessageIDResponse
+
+	// This is only surfaced if ExpectedSignerAddresses is provided in AssertMessageOptions.
+	CommitteeVerifierNodeResults []*committeepb.CommitteeVerifierNodeResult
 }
 
 type AssertMessageOptions struct {
