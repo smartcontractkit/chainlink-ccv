@@ -12,6 +12,13 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
+// TaskVerifierProcessor is responsible for processing read messages from SourceReaderServices,
+// verifying them using the provided Verifier, and sending the results to storageBatcher (effectively to StorageWriterProcessor).
+// It's the second stage in the verifier processing pipeline.
+// It spawns a goroutine per source chain to handle verification concurrently and independently.
+// Retries are handled for individual messages based on the verification result. General idea is very similar to
+// StorageWriterProcessor, but here Verifier decides whether the error is retryable or not and what delay should be set.
+// That way we give Verifier who is aware of the business logic more control over retry behavior.
 type TaskVerifierProcessor struct {
 	services.StateMachine
 	wg sync.WaitGroup
@@ -22,9 +29,20 @@ type TaskVerifierProcessor struct {
 	verifier   Verifier
 
 	// Consumes from
-	sourceReaders map[protocol.ChainSelector]*SourceReaderService
+	sourceFanouts map[protocol.ChainSelector]SourceReaderFanout
 	// produces to
 	storageBatcher *batcher.Batcher[protocol.VerifierNodeResult]
+}
+
+// SourceReaderFanout defines the interface that TaskVerifierProcessor expects from SourceReaderService
+// to read ready tasks and retry failed ones. This abstraction allows TaskVerifierProcessor to not depend
+// directly on SourceReaderService implementation details.
+type SourceReaderFanout interface {
+	// RetryTasks re-queues the given tasks for retry after the specified delay. Should delegate to
+	// the underlying Batcher used by SourceReaderService.
+	RetryTasks(minDelay time.Duration, tasks ...VerificationTask) error
+	// ReadyTasksChannel provides a channel from which ready tasks can be consumed
+	ReadyTasksChannel() <-chan batcher.BatchResult[VerificationTask]
 }
 
 func NewTaskVerifierProcessor(
@@ -35,12 +53,30 @@ func NewTaskVerifierProcessor(
 	sourceStates map[protocol.ChainSelector]*SourceReaderService,
 	storageBatcher *batcher.Batcher[protocol.VerifierNodeResult],
 ) (*TaskVerifierProcessor, error) {
+	sourceFanouts := make(map[protocol.ChainSelector]SourceReaderFanout)
+	for chainSelector, srs := range sourceStates {
+		sourceFanouts[chainSelector] = srs
+	}
+
+	return NewTaskVerifierProcessorWithFanouts(
+		lggr, verifierID, verifier, monitoring, sourceFanouts, storageBatcher,
+	)
+}
+
+func NewTaskVerifierProcessorWithFanouts(
+	lggr logger.Logger,
+	verifierID string,
+	verifier Verifier,
+	monitoring Monitoring,
+	sourceFanouts map[protocol.ChainSelector]SourceReaderFanout,
+	storageBatcher *batcher.Batcher[protocol.VerifierNodeResult],
+) (*TaskVerifierProcessor, error) {
 	p := &TaskVerifierProcessor{
 		lggr:           lggr,
 		verifierID:     verifierID,
 		monitoring:     monitoring,
 		verifier:       verifier,
-		sourceReaders:  sourceStates,
+		sourceFanouts:  sourceFanouts,
 		storageBatcher: storageBatcher,
 	}
 	return p, nil
@@ -48,9 +84,9 @@ func NewTaskVerifierProcessor(
 
 func (p *TaskVerifierProcessor) Start(ctx context.Context) error {
 	return p.StartOnce(p.Name(), func() error {
-		for _, state := range p.sourceReaders {
+		for sourceChainSelector, fanout := range p.sourceFanouts {
 			p.wg.Go(func() {
-				p.run(ctx, state)
+				p.run(ctx, sourceChainSelector, fanout)
 			})
 		}
 		return nil
@@ -64,12 +100,16 @@ func (p *TaskVerifierProcessor) Close() error {
 	})
 }
 
-func (p *TaskVerifierProcessor) run(ctx context.Context, srs *SourceReaderService) {
+func (p *TaskVerifierProcessor) run(
+	ctx context.Context,
+	selector protocol.ChainSelector,
+	sourceFanout SourceReaderFanout,
+) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case batch, ok := <-srs.ReadyTasksChannel():
+		case batch, ok := <-sourceFanout.ReadyTasksChannel():
 			if !ok {
 				p.lggr.Infow("ReadyTasksChannel closed; exiting readyTasksLoop")
 				return
@@ -79,7 +119,7 @@ func (p *TaskVerifierProcessor) run(ctx context.Context, srs *SourceReaderServic
 					"error", batch.Error)
 				continue
 			}
-			p.processReadyTasks(ctx, srs, batch.Items)
+			p.processReadyTasks(ctx, selector, sourceFanout, batch.Items)
 		}
 	}
 }
@@ -88,7 +128,8 @@ func (p *TaskVerifierProcessor) run(ctx context.Context, srs *SourceReaderServic
 // by SRS) and fans out verification per source chain.
 func (p *TaskVerifierProcessor) processReadyTasks(
 	ctx context.Context,
-	srs *SourceReaderService,
+	chainSelector protocol.ChainSelector,
+	sourceFanout SourceReaderFanout,
 	tasks []VerificationTask,
 ) {
 	if len(tasks) == 0 {
@@ -108,11 +149,17 @@ func (p *TaskVerifierProcessor) processReadyTasks(
 	}
 
 	errorBatch := p.verifier.VerifyMessages(ctx, tasks, p.storageBatcher)
-	p.handleVerificationErrors(ctx, srs, errorBatch, srs.chainSelector, len(tasks))
+	p.handleVerificationErrors(ctx, chainSelector, sourceFanout, errorBatch, len(tasks))
 }
 
 // handleVerificationErrors processes and logs errors from a verification batch.
-func (p *TaskVerifierProcessor) handleVerificationErrors(ctx context.Context, src *SourceReaderService, errorBatch batcher.BatchResult[VerificationError], chainSelector protocol.ChainSelector, totalTasks int) {
+func (p *TaskVerifierProcessor) handleVerificationErrors(
+	ctx context.Context,
+	chainSelector protocol.ChainSelector,
+	src SourceReaderFanout,
+	errorBatch batcher.BatchResult[VerificationError],
+	totalTasks int,
+) {
 	if len(errorBatch.Items) <= 0 {
 		p.lggr.Debugw("Verification batch completed successfully",
 			"chainSelector", chainSelector,
@@ -149,7 +196,7 @@ func (p *TaskVerifierProcessor) handleVerificationErrors(ctx context.Context, sr
 		)
 
 		if verificationError.Retryable {
-			err1 := src.readyTasksBatcher.Retry(
+			err1 := src.RetryTasks(
 				verificationError.DelayOrDefault(),
 				verificationError.Task,
 			)

@@ -35,7 +35,8 @@ type tokenTransfer struct {
 	destTokenRef datastore.AddressRef
 }
 
-type testcase struct {
+// v3TestCase is for tests that use ExtraArgsV3.
+type v3TestCase struct {
 	name                     string
 	srcSelector              uint64
 	dstSelector              uint64
@@ -51,12 +52,14 @@ type testcase struct {
 	aggregatorQualifier      string // which aggregator to query (default, secondary, tertiary)
 }
 
+// v2TestCase is for tests that use ExtraArgsV2.
 type v2TestCase struct {
 	name                     string
 	fromSelector             uint64
 	toSelector               uint64
 	receiver                 protocol.UnknownAddress
 	expectFail               bool
+	assertExecuted           bool
 	numExpectedVerifications int
 }
 
@@ -117,6 +120,7 @@ func TestE2ESmoke(t *testing.T) {
 				toSelector:               sel1,
 				receiver:                 mustGetEOAReceiverAddress(t, chainMap[sel1]),
 				expectFail:               false,
+				assertExecuted:           true,
 				numExpectedVerifications: 1,
 			},
 			{
@@ -125,6 +129,7 @@ func TestE2ESmoke(t *testing.T) {
 				toSelector:               sel0,
 				receiver:                 mustGetEOAReceiverAddress(t, chainMap[sel0]),
 				expectFail:               false,
+				assertExecuted:           true,
 				numExpectedVerifications: 1,
 			},
 			{
@@ -133,6 +138,7 @@ func TestE2ESmoke(t *testing.T) {
 				toSelector:               sel2,
 				receiver:                 getContractAddress(t, in, sel2, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), evm.DefaultReceiverQualifier, "mock receiver"),
 				expectFail:               false,
+				assertExecuted:           true,
 				numExpectedVerifications: 1,
 			},
 		}
@@ -150,7 +156,7 @@ func TestE2ESmoke(t *testing.T) {
 	})
 
 	t.Run("extra args v3 messaging", func(t *testing.T) {
-		var tcs []testcase
+		var tcs []v3TestCase
 		src, dest := chains[0].Details.ChainSelector, chains[1].Details.ChainSelector
 		mvtcsSrcToDest := multiVerifierTestCases(t, src, dest, in, chainMap)
 		tcs = append(tcs, mvtcsSrcToDest...)
@@ -369,22 +375,24 @@ func runV2TestCase(
 	require.NotNil(t, result.AggregatedResult)
 	require.Len(t, result.IndexedVerifications.Results, tc.numExpectedVerifications)
 
-	e, err := chainMap[tc.toSelector].WaitOneExecEventBySeqNo(ctx, tc.fromSelector, seqNo, defaultExecTimeout)
-	require.NoError(t, err)
-	require.NotNil(t, e)
+	if tc.assertExecuted {
+		e, err := chainMap[tc.toSelector].WaitOneExecEventBySeqNo(ctx, tc.fromSelector, seqNo, defaultExecTimeout)
+		require.NoError(t, err)
+		require.NotNil(t, e)
 
-	if tc.expectFail {
-		require.Equalf(t,
-			cciptestinterfaces.ExecutionStateFailure,
-			e.State,
-			"unexpected state, return data: %x",
-			e.ReturnData)
-	} else {
-		require.Equalf(t,
-			cciptestinterfaces.ExecutionStateSuccess,
-			e.State,
-			"unexpected state, return data: %x",
-			e.ReturnData)
+		if tc.expectFail {
+			require.Equalf(t,
+				cciptestinterfaces.ExecutionStateFailure,
+				e.State,
+				"unexpected state, return data: %x",
+				e.ReturnData)
+		} else {
+			require.Equalf(t,
+				cciptestinterfaces.ExecutionStateSuccess,
+				e.State,
+				"unexpected state, return data: %x",
+				e.ReturnData)
+		}
 	}
 }
 
@@ -417,8 +425,8 @@ func getTokenAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64, qualif
 		"burn mint erc677")
 }
 
-func customExecutorTestCase(t *testing.T, src, dest uint64, in *ccv.Cfg) testcase {
-	return testcase{
+func customExecutorTestCase(t *testing.T, src, dest uint64, in *ccv.Cfg) v3TestCase {
+	return v3TestCase{
 		name:        "custom executor",
 		srcSelector: src,
 		dstSelector: dest,
@@ -447,10 +455,10 @@ func customExecutorTestCase(t *testing.T, src, dest uint64, in *ccv.Cfg) testcas
 	}
 }
 
-func dataSizeTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[uint64]cciptestinterfaces.CCIP17ProductConfiguration) []testcase {
+func dataSizeTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[uint64]cciptestinterfaces.CCIP17ProductConfiguration) []v3TestCase {
 	maxDataBytes, err := c[dest].GetMaxDataBytes(t.Context(), dest)
 	require.NoError(t, err)
-	return []testcase{
+	return []v3TestCase{
 		{
 			name:        "max data size",
 			srcSelector: src,
@@ -482,8 +490,8 @@ func dataSizeTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[uint64
 }
 
 // multiVerifierTestCases returns a list of test cases for testing multi-verifier scenarios.
-func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[uint64]cciptestinterfaces.CCIP17ProductConfiguration) []testcase {
-	return []testcase{
+func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[uint64]cciptestinterfaces.CCIP17ProductConfiguration) []v3TestCase {
+	return []v3TestCase{
 		{
 			name:        "EOA receiver and default committee verifier",
 			srcSelector: src,

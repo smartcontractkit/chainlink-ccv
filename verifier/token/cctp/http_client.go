@@ -29,9 +29,7 @@ const (
 // https://developers.circle.com/api-reference/cctp/all/get-messages-v2
 type HTTPClient interface {
 	// GetMessages fetches CCTP v2 messages and attestations for the given transaction.
-	GetMessages(
-		ctx context.Context, sourceChain protocol.ChainSelector, sourceDomainID uint32, transactionHash string,
-	) (Messages, error)
+	GetMessages(ctx context.Context, sourceDomainID uint32, transactionHash string) (Messages, error)
 }
 
 type HTTPClientImpl struct {
@@ -61,9 +59,9 @@ func NewHTTPClient(
 }
 
 // GetMessages fetches CCTP v2 messages and attestations for the given transaction.
+// sourceDomainID is the Circle domain ID of the blockchain. See sourceDomains in consts.go.
 func (c *HTTPClientImpl) GetMessages(
 	ctx context.Context,
-	sourceChain protocol.ChainSelector,
 	sourceDomainID uint32,
 	transactionHash string,
 ) (Messages, error) {
@@ -76,7 +74,8 @@ func (c *HTTPClientImpl) GetMessages(
 	}
 
 	path := fmt.Sprintf("%s/%s/%d?transactionHash=%s",
-		apiVersionV2, messagesPath, sourceDomainID, url.QueryEscape(transactionHash))
+		apiVersionV2, messagesPath, sourceDomainID, url.QueryEscape(transactionHash),
+	)
 	body, status, err := c.client.Get(ctx, path)
 	if err != nil {
 		return Messages{},
@@ -135,6 +134,8 @@ type Message struct {
 	Status         AttestationStatus `json:"status"`
 }
 
+// IsV2 checks if the CCTP version of the message is 2. It handles different possible types for the CCTPVersion field.
+// It's a defensive check since the API returns different types than the documented ones.
 func (m *Message) IsV2() bool {
 	switch v := m.CCTPVersion.(type) {
 	case int:

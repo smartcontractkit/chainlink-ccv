@@ -32,7 +32,6 @@ func TestGetMessages_Success(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	sourceChain := protocol.ChainSelector(1)
 	sourceDomainID := uint32(0)
 	txHash := testTxHash
 
@@ -56,7 +55,7 @@ func TestGetMessages_Success(t *testing.T) {
 		nil,
 	)
 	// Execute
-	result, err := client.GetMessages(ctx, sourceChain, sourceDomainID, txHash)
+	result, err := client.GetMessages(ctx, sourceDomainID, txHash)
 
 	// Verify
 	require.NoError(t, err)
@@ -77,7 +76,6 @@ func TestGetMessages_InvalidTransactionHash(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	sourceChain := protocol.ChainSelector(1)
 	sourceDomainID := uint32(0)
 
 	testCases := []struct {
@@ -110,7 +108,7 @@ func TestGetMessages_InvalidTransactionHash(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Setup mock to expect error status tracking (validation errors have empty Status)
-			result, err := client.GetMessages(ctx, sourceChain, sourceDomainID, tc.txHash)
+			result, err := client.GetMessages(ctx, sourceDomainID, tc.txHash)
 
 			// Verify
 			assert.Error(t, err)
@@ -130,7 +128,6 @@ func TestGetMessages_HTTPError(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	sourceChain := protocol.ChainSelector(1)
 	sourceDomainID := uint32(0)
 	txHash := testTxHash
 
@@ -142,7 +139,7 @@ func TestGetMessages_HTTPError(t *testing.T) {
 		httpErr,
 	)
 	// Execute
-	result, err := client.GetMessages(ctx, sourceChain, sourceDomainID, txHash)
+	result, err := client.GetMessages(ctx, sourceDomainID, txHash)
 
 	// Verify
 	assert.Error(t, err)
@@ -163,7 +160,6 @@ func TestGetMessages_NonOKStatus(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	sourceChain := protocol.ChainSelector(1)
 	sourceDomainID := uint32(0)
 	txHash := testTxHash
 
@@ -186,7 +182,7 @@ func TestGetMessages_NonOKStatus(t *testing.T) {
 				nil,
 			).Once()
 			// Execute
-			result, err := client.GetMessages(ctx, sourceChain, sourceDomainID, txHash)
+			result, err := client.GetMessages(ctx, sourceDomainID, txHash)
 
 			// Verify
 			assert.Error(t, err)
@@ -208,7 +204,6 @@ func TestGetMessages_ParseError(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	sourceChain := protocol.ChainSelector(1)
 	sourceDomainID := uint32(0)
 	txHash := testTxHash
 
@@ -221,7 +216,7 @@ func TestGetMessages_ParseError(t *testing.T) {
 	)
 
 	// Execute
-	result, err := client.GetMessages(ctx, sourceChain, sourceDomainID, txHash)
+	result, err := client.GetMessages(ctx, sourceDomainID, txHash)
 
 	// Verify
 	assert.Error(t, err)
@@ -241,7 +236,6 @@ func TestGetMessages_URLEncoding(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	sourceChain := protocol.ChainSelector(1)
 	sourceDomainID := uint32(0)
 	txHash := testTxHash
 
@@ -260,7 +254,7 @@ func TestGetMessages_URLEncoding(t *testing.T) {
 	)
 
 	// Execute
-	_, err := client.GetMessages(ctx, sourceChain, sourceDomainID, txHash)
+	_, err := client.GetMessages(ctx, sourceDomainID, txHash)
 
 	// Verify
 	require.NoError(t, err)
@@ -274,7 +268,6 @@ func TestGetMessages_URLEncoding(t *testing.T) {
 func TestGetMessages_MetricsTracking(t *testing.T) {
 	lggr := logger.Test(t)
 	ctx := context.Background()
-	sourceChain := protocol.ChainSelector(1)
 	sourceDomainID := uint32(0)
 	txHash := testTxHash
 
@@ -296,7 +289,7 @@ func TestGetMessages_MetricsTracking(t *testing.T) {
 		).Once()
 
 		// Verify metrics called with success
-		_, err := client.GetMessages(ctx, sourceChain, sourceDomainID, txHash)
+		_, err := client.GetMessages(ctx, sourceDomainID, txHash)
 		require.NoError(t, err)
 
 		mockHTTPClient.AssertExpectations(t)
@@ -317,7 +310,7 @@ func TestGetMessages_MetricsTracking(t *testing.T) {
 		).Once()
 
 		// Verify metrics called with error
-		_, err := client.GetMessages(ctx, sourceChain, sourceDomainID, txHash)
+		_, err := client.GetMessages(ctx, sourceDomainID, txHash)
 		assert.Error(t, err)
 
 		mockHTTPClient.AssertExpectations(t)
@@ -341,7 +334,7 @@ func TestGetMessages_MetricsTracking(t *testing.T) {
 		).Once()
 
 		// Should be called exactly once
-		_, err := client.GetMessages(ctx, sourceChain, sourceDomainID, txHash)
+		_, err := client.GetMessages(ctx, sourceDomainID, txHash)
 		require.NoError(t, err)
 
 		mockHTTPClient.AssertExpectations(t)

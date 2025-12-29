@@ -43,7 +43,18 @@ func NewCoordinator(
 	monitoring Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 ) (*Coordinator, error) {
-	return NewCoordinatorWithDetector(ctx, lggr, verifier, sourceReaders, storage, config, messageTracker, monitoring, chainStatusManager, nil)
+	return NewCoordinatorWithDetector(
+		ctx,
+		lggr,
+		verifier,
+		sourceReaders,
+		storage,
+		config,
+		messageTracker,
+		monitoring,
+		chainStatusManager,
+		nil,
+	)
 }
 
 func NewCoordinatorWithDetector(
@@ -58,7 +69,10 @@ func NewCoordinatorWithDetector(
 	chainStatusManager protocol.ChainStatusManager,
 	detector common.CurseCheckerService,
 ) (*Coordinator, error) {
-	enabledSourceReaders := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, chainStatusManager)
+	enabledSourceReaders, err := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, chainStatusManager)
+	if err != nil {
+		return nil, fmt.Errorf("failed to filter enabled source readers: %w", err)
+	}
 	if len(enabledSourceReaders) == 0 {
 		return nil, errors.New("no enabled/initialized chain sources, nothing to coordinate")
 	}
@@ -177,7 +191,7 @@ func filterOnlyEnabledSourceReaders(
 	config CoordinatorConfig,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	chainStatusManager protocol.ChainStatusManager,
-) map[protocol.ChainSelector]chainaccess.SourceReader {
+) (map[protocol.ChainSelector]chainaccess.SourceReader, error) {
 	allSelectors := make([]protocol.ChainSelector, 0, len(sourceReaders))
 	for selector := range sourceReaders {
 		allSelectors = append(allSelectors, selector)
@@ -185,8 +199,7 @@ func filterOnlyEnabledSourceReaders(
 
 	statusMap, err := chainStatusManager.ReadChainStatuses(ctx, allSelectors)
 	if err != nil {
-		statusMap = make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
-		lggr.Errorw("Failed to read chain statuses, proceeding with all chains", "error", err)
+		return nil, fmt.Errorf("failed to read chain statuses from storage: %w", err)
 	}
 
 	enabledSourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
@@ -213,7 +226,7 @@ func filterOnlyEnabledSourceReaders(
 		}
 		enabledSourceReaders[chainSelector] = sourceReader
 	}
-	return enabledSourceReaders
+	return enabledSourceReaders, nil
 }
 
 // Close stops the verification coordinator processing.

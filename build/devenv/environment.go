@@ -127,7 +127,7 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Pr
 		return evm.NewEmptyCCIP17EVM(), nil
 	case "canton":
 		// see devenv-evm implementation and add Canton
-		return nil, nil
+		return nil, errors.New("canton is not supported yet")
 	default:
 		return nil, errors.New("unknown devenv network type " + typ)
 	}
@@ -291,9 +291,6 @@ func NewEnvironment() (in *Cfg, err error) {
 	// Start: Deploy contracts //
 	/////////////////////////////
 
-	// TODO: When job specs are supported, contract deploy needs to happen after CL nodes are up (and keys are
-	// generated) and before the services have been started.
-
 	var committees []cciptestinterfaces.OnChainCommittees
 	{
 		addrs := make(map[string][][]byte)
@@ -307,7 +304,9 @@ func NewEnvironment() (in *Cfg, err error) {
 			committees = append(committees, cciptestinterfaces.OnChainCommittees{
 				CommitteeQualifier: committeeName,
 				Signers:            signers,
-				Threshold:          uint8(len(signers)),
+				// TODO: should this be pulled from the aggregator configuration, ThresholdPerSource?
+				// And if nothing in there, default to len(signers)?
+				Threshold: uint8(len(signers)),
 			})
 		}
 	}
