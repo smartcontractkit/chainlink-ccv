@@ -322,6 +322,7 @@ func newTestSRS(
 	chainStatusMgr protocol.ChainStatusManager,
 	curseDetector *ccv_common.MockCurseCheckerService,
 	pollInterval time.Duration,
+	maxBlockRange uint64,
 ) (*SourceReaderService, *protocol_mocks.MockFinalityViolationChecker) {
 	t.Helper()
 
@@ -332,7 +333,7 @@ func newTestSRS(
 		chainSelector,
 		chainStatusMgr,
 		lggr,
-		SourceConfig{PollInterval: pollInterval},
+		SourceConfig{PollInterval: pollInterval, MaxBlockRange: maxBlockRange},
 		curseDetector,
 		&noopFilter{},
 		&noopMetricLabeler{},
