@@ -282,6 +282,9 @@ func createTestMessageSentEvents(
 	executorAddr := make([]byte, 20)
 	executorAddr[0] = 0x22 // Must match CreateTestMessage
 
+	routerAddr := make([]byte, 20)
+	routerAddr[0] = 0x44
+
 	events := make([]protocol.MessageSentEvent, len(blockNumbers))
 	for i, blockNum := range blockNumbers {
 		sequenceNumber := startNonce + uint64(i)
@@ -299,7 +302,11 @@ func createTestMessageSentEvents(
 				{
 					Issuer: protocol.UnknownAddress(executorAddr),
 					Blob:   []byte{},
-				}, // Executor receipt at the end
+				}, // Executor receipt
+				{
+					Issuer: protocol.UnknownAddress(routerAddr),
+					Blob:   []byte("router-blob"),
+				}, // Network fee receipt
 			},
 			BlockNumber: blockNum,
 		}

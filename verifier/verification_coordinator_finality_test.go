@@ -47,6 +47,9 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 	executorAddr := make([]byte, 20)
 	executorAddr[0] = 0x22
 
+	routerAddr := make([]byte, 20)
+	routerAddr[0] = 0x44
+
 	finalizedEvent := protocol.MessageSentEvent{
 		MessageID: messageID,
 		Message:   finalizedMessage,
@@ -59,11 +62,19 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 				ExtraArgs:         []byte{}, // Empty = default finality
 			},
 			{
-				// Executor receipt - always at the end
+				// Executor receipt
 				Issuer:            protocol.UnknownAddress(executorAddr),
 				DestGasLimit:      0,
 				DestBytesOverhead: 0,
 				Blob:              []byte{},
+				ExtraArgs:         []byte{},
+			},
+			{
+				// Network fee receipt
+				Issuer:            protocol.UnknownAddress(routerAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte("router-blob"),
 				ExtraArgs:         []byte{},
 			},
 		},
@@ -107,6 +118,9 @@ func TestFinality_CustomFinality(t *testing.T) {
 	executorAddr := make([]byte, 20)
 	executorAddr[0] = 0x22
 
+	routerAddr := make([]byte, 20)
+	routerAddr[0] = 0x44
+
 	readyEvent := protocol.MessageSentEvent{
 		MessageID: messageID,
 		Message:   readyMessage,
@@ -119,11 +133,19 @@ func TestFinality_CustomFinality(t *testing.T) {
 				ExtraArgs:         []byte{},
 			},
 			{
-				// Executor receipt - always at the end
+				// Executor receipt
 				Issuer:            protocol.UnknownAddress(executorAddr),
 				DestGasLimit:      0,
 				DestBytesOverhead: 0,
 				Blob:              []byte{},
+				ExtraArgs:         []byte{},
+			},
+			{
+				// Network fee receipt
+				Issuer:            protocol.UnknownAddress(routerAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte("router-blob"),
 				ExtraArgs:         []byte{},
 			},
 		},
@@ -167,6 +189,9 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 	executorAddr := make([]byte, 20)
 	executorAddr[0] = 0x22
 
+	routerAddr := make([]byte, 20)
+	routerAddr[0] = 0x44
+
 	nonFinalizedEvent := protocol.MessageSentEvent{
 		MessageID: messageID,
 		Message:   nonFinalizedMessage,
@@ -179,11 +204,19 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 				ExtraArgs:         []byte{}, // Empty = default finality
 			},
 			{
-				// Executor receipt - always at the end
+				// Executor receipt
 				Issuer:            protocol.UnknownAddress(executorAddr),
 				DestGasLimit:      0,
 				DestBytesOverhead: 0,
 				Blob:              []byte{},
+				ExtraArgs:         []byte{},
+			},
+			{
+				// Network fee receipt
+				Issuer:            protocol.UnknownAddress(routerAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte("router-blob"),
 				ExtraArgs:         []byte{},
 			},
 		},
