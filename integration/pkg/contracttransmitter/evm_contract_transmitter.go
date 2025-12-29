@@ -20,6 +20,9 @@ import (
 	chainselectors "github.com/smartcontractkit/chain-selectors"
 )
 
+// Override provided to each CCIP message, this is set as 0 for all messages.
+const DefaultGasLimitOverride uint32 = 0
+
 var _ executor.ContractTransmitter = &EVMContractTransmitter{}
 
 type EVMContractTransmitter struct {
@@ -113,7 +116,7 @@ func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Cont
 	}
 
 	encodedMsg, _ := report.Message.Encode()
-	tx, err := ct.OffRamp.Execute(opts, encodedMsg, contractCcvs, report.CCVData, 0)
+	tx, err := ct.OffRamp.Execute(opts, encodedMsg, contractCcvs, report.CCVData, DefaultGasLimitOverride)
 	if err != nil {
 		return err
 	}

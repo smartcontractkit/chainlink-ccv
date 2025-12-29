@@ -136,7 +136,7 @@ func TestE2EReorg(t *testing.T) {
 	logSentMessage := func(event cciptestinterfaces.MessageSentEvent, description string) {
 		l.Info().
 			Str("messageID", fmt.Sprintf("%x", event.MessageID)).
-			Int("seqNumber", int(event.SequenceNumber)).
+			Int("seqNumber", int(event.Message.SequenceNumber)).
 			Msgf("📨 %s", description)
 	}
 

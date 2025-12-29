@@ -289,10 +289,8 @@ func createTestMessageSentEvents(
 		messageID, _ := message.MessageID()
 
 		events[i] = protocol.MessageSentEvent{
-			DestChainSelector: message.DestChainSelector,
-			SequenceNumber:    uint64(message.SequenceNumber),
-			MessageID:         messageID,
-			Message:           message,
+			MessageID: messageID,
+			Message:   message,
 			Receipts: []protocol.ReceiptWithBlob{
 				{
 					Issuer: protocol.UnknownAddress(ccvAddr),

@@ -370,17 +370,17 @@ func (m *CCIP17EVM) getOrCreateOnRampPoller() (*eventPoller[cciptestinterfaces.M
 		events := make(map[eventKey]cciptestinterfaces.MessageSentEvent)
 		for filter.Next() {
 			event := filter.Event
-			key := eventKey{chainSelector: event.DestChainSelector, seqNo: event.MessageNumber}
 
 			message, err := protocol.DecodeMessage(event.EncodedMessage)
 			if err != nil {
-				m.logger.Warn().Err(err).Uint64("seqNo", event.MessageNumber).Msg("Failed to decode message, skipping")
+				m.logger.Warn().Err(err).Str("msgId", common.Bytes2Hex(event.MessageId[:])).Msg("Failed to decode message, skipping")
 				continue
 			}
+			key := eventKey{chainSelector: event.DestChainSelector, msgNum: uint64(message.SequenceNumber)}
 
 			ev := cciptestinterfaces.MessageSentEvent{
 				MessageID:      event.MessageId,
-				SequenceNumber: event.MessageNumber,
+				Sender:         protocol.UnknownAddress(event.Sender.Bytes()),
 				Message:        message,
 				ReceiptIssuers: make([]protocol.UnknownAddress, 0, len(event.Receipts)),
 				VerifierBlobs:  event.VerifierBlobs,
@@ -422,12 +422,12 @@ func (m *CCIP17EVM) getOrCreateOffRampPoller() (*eventPoller[cciptestinterfaces.
 		events := make(map[eventKey]cciptestinterfaces.ExecutionStateChangedEvent)
 		for filter.Next() {
 			event := filter.Event
-			key := eventKey{chainSelector: event.SourceChainSelector, seqNo: event.MessageNumber}
+			key := eventKey{chainSelector: event.SourceChainSelector, msgNum: event.MessageNumber}
 			events[key] = cciptestinterfaces.ExecutionStateChangedEvent{
-				MessageID:      event.MessageId,
-				SequenceNumber: event.MessageNumber,
-				State:          cciptestinterfaces.MessageExecutionState(event.State),
-				ReturnData:     event.ReturnData,
+				MessageID:     event.MessageId,
+				MessageNumber: event.MessageNumber,
+				State:         cciptestinterfaces.MessageExecutionState(event.State),
+				ReturnData:    event.ReturnData,
 			}
 		}
 
@@ -469,7 +469,6 @@ func (m *CCIP17EVM) fetchAllSentEventsBySelector(ctx context.Context, from, to u
 
 		l.Info().
 			Any("TxHash", event.Raw.TxHash.Hex()).
-			Any("SeqNo", event.MessageNumber).
 			Str("MsgID", hexutil.Encode(event.MessageId[:])).
 			Msg("Found CCIPMessageSent event")
 	}
@@ -849,7 +848,7 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, field
 	}
 	result := cciptestinterfaces.MessageSentEvent{
 		MessageID:      messageSentEvent.MessageId,
-		SequenceNumber: messageSentEvent.MessageNumber,
+		Sender:         protocol.UnknownAddress(messageSentEvent.Sender.Bytes()),
 		Message:        message,
 		ReceiptIssuers: make([]protocol.UnknownAddress, 0, len(messageSentEvent.Receipts)),
 		VerifierBlobs:  messageSentEvent.VerifierBlobs,
@@ -871,7 +870,7 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, field
 		Int("NumReceipts", len(result.ReceiptIssuers)).
 		Int("NumVerifierBlobs", len(result.VerifierBlobs)).
 		Any("ReceiptIssuers", result.ReceiptIssuers).
-		Uint64("SeqNo", result.SequenceNumber).
+		Uint64("SeqNo", uint64(result.Message.SequenceNumber)).
 		Msg("CCIP message sent")
 
 	return result, nil
@@ -1120,8 +1119,9 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 				// configurations.
 				CommitteeVerifiers: toCommitteeVerifierParams(committees),
 				OnRamp: sequences.OnRampParams{
-					Version:       semver.MustParse(onrampoperations.Deploy.Version()),
-					FeeAggregator: common.HexToAddress("0x01"),
+					Version:               semver.MustParse(onrampoperations.Deploy.Version()),
+					FeeAggregator:         common.HexToAddress("0x01"),
+					MaxUSDCentsPerMessage: 100_00, // $100
 				},
 				Executors: []sequences.ExecutorParams{
 					{
@@ -1846,10 +1846,10 @@ func (m *CCIP17EVM) ManuallyExecuteMessage(
 				continue
 			}
 			event = cciptestinterfaces.ExecutionStateChangedEvent{
-				MessageID:      parsedLog.MessageId,
-				SequenceNumber: parsedLog.MessageNumber,
-				State:          cciptestinterfaces.MessageExecutionState(parsedLog.State),
-				ReturnData:     parsedLog.ReturnData,
+				MessageID:     parsedLog.MessageId,
+				MessageNumber: parsedLog.MessageNumber,
+				State:         cciptestinterfaces.MessageExecutionState(parsedLog.State),
+				ReturnData:    parsedLog.ReturnData,
 			}
 			break
 		}

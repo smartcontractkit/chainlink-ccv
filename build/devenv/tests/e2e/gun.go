@@ -176,13 +176,13 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 
 	// Record the actual sequence number from the sent event
 	m.seqNosMu.Lock()
-	m.sentSeqNos = append(m.sentSeqNos, sentEvent.SequenceNumber)
-	m.sentTimes[sentEvent.SequenceNumber] = sentTime
-	m.msgIDs[sentEvent.SequenceNumber] = sentEvent.MessageID
+	m.sentSeqNos = append(m.sentSeqNos, uint64(sentEvent.Message.SequenceNumber))
+	m.sentTimes[uint64(sentEvent.Message.SequenceNumber)] = sentTime
+	m.msgIDs[uint64(sentEvent.Message.SequenceNumber)] = sentEvent.MessageID
 	m.seqNosMu.Unlock()
 
 	// Push to channel for verification
-	m.sentMsgCh <- SentMessage{SeqNo: sentEvent.SequenceNumber, MessageID: sentEvent.MessageID, SentTime: sentTime}
+	m.sentMsgCh <- SentMessage{SeqNo: uint64(sentEvent.Message.SequenceNumber), MessageID: sentEvent.MessageID, SentTime: sentTime}
 
 	return &wasp.Response{Data: "ok"}
 }

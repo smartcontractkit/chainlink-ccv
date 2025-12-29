@@ -11,7 +11,7 @@ import (
 
 type eventKey struct {
 	chainSelector uint64
-	seqNo         uint64
+	msgNum        uint64
 }
 
 type pollerResult[T any] struct {
@@ -52,7 +52,7 @@ func (p *eventPoller[T]) register(ctx context.Context, chainSelector, seq uint64
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	key := eventKey{chainSelector: chainSelector, seqNo: seq}
+	key := eventKey{chainSelector: chainSelector, msgNum: seq}
 	resultCh := make(chan pollerResult[T], 1)
 
 	if cachedResult, found := p.cachedEvents[key]; found {
@@ -145,7 +145,7 @@ func (p *eventPoller[T]) poll() {
 			delete(p.waiters, key)
 			p.logger.Info().
 				Uint64("chainSelector", key.chainSelector).
-				Uint64("seqNo", key.seqNo).
+				Uint64("seqNo", key.msgNum).
 				Str("event", p.eventName).
 				Msg("Event received")
 			ch <- result
