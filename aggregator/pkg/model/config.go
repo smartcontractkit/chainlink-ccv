@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/auth"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -103,21 +104,6 @@ type ServerConfig struct {
 	MaxRecvMsgSizeBytes int `toml:"maxRecvMsgSizeBytes"`
 	// MaxSendMsgSizeBytes is the maximum message size in bytes the server can send (default: 4MB)
 	MaxSendMsgSizeBytes int `toml:"maxSendMsgSizeBytes"`
-}
-
-// APIClient represents a configured client for API access.
-type APIClient struct {
-	ClientID    string            `toml:"clientId"`
-	Description string            `toml:"description,omitempty"`
-	Enabled     bool              `toml:"enabled"`
-	Secrets     map[string]string `toml:"secrets,omitempty"`
-	Groups      []string          `toml:"groups,omitempty"`
-}
-
-// APIKeyConfig represents the configuration for API key management.
-type APIKeyConfig struct {
-	// Clients maps API keys to client configurations
-	Clients map[string]*APIClient `toml:"clients"`
 }
 
 // AggregationConfig represents the configuration for the aggregation system.
@@ -230,7 +216,7 @@ type RateLimitingConfig struct {
 
 // GetEffectiveLimit resolves the effective rate limit for a given caller and method.
 // Priority order: 1) Specific caller limit, 2) Group limits (most restrictive), 3) Default limit.
-func (c *RateLimitingConfig) GetEffectiveLimit(callerID, method string, apiClient *APIClient) *RateLimitConfig {
+func (c *RateLimitingConfig) GetEffectiveLimit(callerID, method string, apiClient *auth.APIClient) *RateLimitConfig {
 	// 1. Check specific caller limit (highest priority)
 	if callerLimits, exists := c.Limits[callerID]; exists {
 		if limit, exists := callerLimits[method]; exists {
@@ -252,7 +238,7 @@ func (c *RateLimitingConfig) GetEffectiveLimit(callerID, method string, apiClien
 }
 
 // getMostRestrictiveGroupLimit finds the most restrictive rate limit from all groups the API client belongs to.
-func (c *RateLimitingConfig) getMostRestrictiveGroupLimit(apiClient *APIClient, method string) *RateLimitConfig {
+func (c *RateLimitingConfig) getMostRestrictiveGroupLimit(apiClient *auth.APIClient, method string) *RateLimitConfig {
 	if apiClient == nil {
 		return nil
 	}
@@ -300,39 +286,12 @@ type BeholderConfig struct {
 	TraceBatchTimeout int64 `toml:"TraceBatchTimeout"`
 }
 
-// GetClientByAPIKey returns the client configuration for a given API key.
-func (c *APIKeyConfig) GetClientByAPIKey(apiKey string) (*APIClient, bool) {
-	client, exists := c.Clients[apiKey]
-	if !exists || !client.Enabled {
-		return nil, false
-	}
-	return client, true
-}
-
-// ValidateAPIKey validates an API key against the configuration.
-func (c *APIKeyConfig) ValidateAPIKey(apiKey string) error {
-	if strings.TrimSpace(apiKey) == "" {
-		return errors.New("api key cannot be empty")
-	}
-
-	client, exists := c.GetClientByAPIKey(apiKey)
-	if !exists {
-		return errors.New("invalid or disabled api key")
-	}
-
-	if client.ClientID == "" {
-		return errors.New("client id cannot be empty")
-	}
-
-	return nil
-}
-
 // AggregatorConfig is the root configuration for the pb.
 type AggregatorConfig struct {
 	Committee                                   *Committee           `toml:"committee"`
 	Server                                      ServerConfig         `toml:"server"`
 	Storage                                     *StorageConfig       `toml:"storage"`
-	APIKeys                                     APIKeyConfig         `toml:"-"`
+	APIKeys                                     auth.APIKeyConfig    `toml:"-"`
 	Aggregation                                 AggregationConfig    `toml:"aggregation"`
 	OrphanRecovery                              OrphanRecoveryConfig `toml:"orphanRecovery"`
 	RateLimiting                                RateLimitingConfig   `toml:"rateLimiting"`
@@ -382,7 +341,7 @@ func (c *AggregatorConfig) SetDefaults() {
 		c.Storage.ConnMaxIdleTime = 300 // 5 minutes
 	}
 	if c.APIKeys.Clients == nil {
-		c.APIKeys.Clients = make(map[string]*APIClient)
+		c.APIKeys.Clients = make(map[string]*auth.APIClient)
 	}
 	// Default orphan recovery: enabled with 5 minute interval
 	if c.OrphanRecovery.IntervalSeconds == 0 {
@@ -695,7 +654,7 @@ func (c *AggregatorConfig) LoadFromEnvironment() error {
 		return errors.New("AGGREGATOR_API_KEYS_JSON environment variable is required")
 	}
 
-	var apiKeyConfig APIKeyConfig
+	var apiKeyConfig auth.APIKeyConfig
 	if err := json.Unmarshal([]byte(apiKeysJSON), &apiKeyConfig); err != nil {
 		return fmt.Errorf("failed to parse AGGREGATOR_API_KEYS_JSON: %w", err)
 	}

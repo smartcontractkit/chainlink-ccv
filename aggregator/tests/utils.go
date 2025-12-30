@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/common/auth"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -88,8 +89,8 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (committeepb.C
 
 	dummyConfig := &model.AggregatorConfig{
 		Storage: &model.StorageConfig{},
-		APIKeys: model.APIKeyConfig{
-			Clients: make(map[string]*model.APIClient),
+		APIKeys: auth.APIKeyConfig{
+			Clients: make(map[string]*auth.APIClient),
 		},
 	}
 	for _, option := range options {
@@ -130,8 +131,8 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 		Monitoring: model.MonitoringConfig{
 			Enabled: false,
 		},
-		APIKeys: model.APIKeyConfig{
-			Clients: make(map[string]*model.APIClient),
+		APIKeys: auth.APIKeyConfig{
+			Clients: make(map[string]*auth.APIClient),
 		},
 		RateLimiting: model.RateLimitingConfig{
 			Enabled: true,
@@ -151,7 +152,7 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 		},
 	}
 
-	config.APIKeys.Clients[defaultAPIKey] = &model.APIClient{
+	config.APIKeys.Clients[defaultAPIKey] = &auth.APIClient{
 		ClientID:    "test-client",
 		Description: "Test client for integration tests",
 		Enabled:     true,
@@ -200,8 +201,8 @@ func CreateAuthenticatedClient(t *testing.T, listener *bufconn.Listener, options
 
 	dummyConfig := &model.AggregatorConfig{
 		Storage: &model.StorageConfig{},
-		APIKeys: model.APIKeyConfig{
-			Clients: make(map[string]*model.APIClient),
+		APIKeys: auth.APIKeyConfig{
+			Clients: make(map[string]*auth.APIClient),
 		},
 	}
 	for _, option := range options {

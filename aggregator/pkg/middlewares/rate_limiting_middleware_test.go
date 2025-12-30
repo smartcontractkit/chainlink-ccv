@@ -10,8 +10,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/common/auth"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -45,8 +45,8 @@ func TestRateLimitingMiddleware_DefaultLimits(t *testing.T) {
 			"/test.Service/Method": {LimitPerMinute: 5},
 		},
 	}
-	apiConfig := model.APIKeyConfig{
-		Clients: map[string]*model.APIClient{
+	apiConfig := auth.APIKeyConfig{
+		Clients: map[string]*auth.APIClient{
 			"test-key": {
 				ClientID: "test-caller",
 				Enabled:  true,
@@ -90,8 +90,8 @@ func TestRateLimitingMiddleware_GroupLimits(t *testing.T) {
 			"/test.Service/Method": {LimitPerMinute: 10},
 		},
 	}
-	apiConfig := model.APIKeyConfig{
-		Clients: map[string]*model.APIClient{
+	apiConfig := auth.APIKeyConfig{
+		Clients: map[string]*auth.APIClient{
 			"test-key": {
 				ClientID: "test-caller",
 				Enabled:  true,
@@ -139,8 +139,8 @@ func TestRateLimitingMiddleware_MostRestrictiveGroup(t *testing.T) {
 			"/test.Service/Method": {LimitPerMinute: 10},
 		},
 	}
-	apiConfig := model.APIKeyConfig{
-		Clients: map[string]*model.APIClient{
+	apiConfig := auth.APIKeyConfig{
+		Clients: map[string]*auth.APIClient{
 			"test-key": {
 				ClientID: "test-caller",
 				Enabled:  true,
@@ -190,8 +190,8 @@ func TestRateLimitingMiddleware_CallerSpecificOverridesGroup(t *testing.T) {
 			"/test.Service/Method": {LimitPerMinute: 10},
 		},
 	}
-	apiConfig := model.APIKeyConfig{
-		Clients: map[string]*model.APIClient{
+	apiConfig := auth.APIKeyConfig{
+		Clients: map[string]*auth.APIClient{
 			"test-key": {
 				ClientID: "test-caller",
 				Enabled:  true,
