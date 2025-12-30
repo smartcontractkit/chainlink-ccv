@@ -276,7 +276,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 	if config.Monitoring.Enabled && config.Monitoring.Type == "beholder" {
 		// Setup OTEL Monitoring (via beholder)
-		m, err := monitoring.InitMonitoring(beholder.Config{
+		m, err := monitoring.InitMonitoring(l, beholder.Config{
 			InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
 			CACertFile:               config.Monitoring.Beholder.CACertFile,
 			OtelExporterGRPCEndpoint: config.Monitoring.Beholder.OtelExporterGRPCEndpoint,

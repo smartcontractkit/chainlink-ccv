@@ -4,9 +4,11 @@ import (
 	"fmt"
 
 	"github.com/grafana/pyroscope-go"
+	"go.opentelemetry.io/otel"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 )
 
@@ -14,7 +16,7 @@ type AggregatorBeholderMonitoring struct {
 	metrics common.AggregatorMetricLabeler
 }
 
-func InitMonitoring(config beholder.Config) (common.AggregatorMonitoring, error) {
+func InitMonitoring(lggr logger.SugaredLogger, config beholder.Config) (common.AggregatorMonitoring, error) {
 	config.MetricViews = MetricViews()
 
 	// Create the beholder client
@@ -26,6 +28,10 @@ func InitMonitoring(config beholder.Config) (common.AggregatorMonitoring, error)
 	// Set the beholder client and global otel providers, so they don't have to be referenced elsewhere.
 	beholder.SetClient(client)
 	beholder.SetGlobalOtelProviders()
+
+	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
+		lggr.Warnf("Encountered an otel error: %v", err)
+	}))
 
 	// Initialize the aggregator metrics
 	aggregatorMetrics, err := InitMetrics()

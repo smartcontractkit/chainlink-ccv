@@ -2,7 +2,7 @@ name: Publish Main commit
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, "ccip-8881/internal-otel-collector" ]
 
 concurrency:
   group: publish-main-${{ github.ref }}

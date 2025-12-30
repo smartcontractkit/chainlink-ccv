@@ -55,7 +55,7 @@ func main() {
 	defer stop()
 
 	// Setup OTEL Monitoring (via beholder)
-	indexerMonitoring, err := monitoring.InitMonitoring(beholder.Config{
+	indexerMonitoring, err := monitoring.InitMonitoring(lggr, beholder.Config{
 		InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
 		CACertFile:               config.Monitoring.Beholder.CACertFile,
 		OtelExporterHTTPEndpoint: config.Monitoring.Beholder.OtelExporterHTTPEndpoint,
