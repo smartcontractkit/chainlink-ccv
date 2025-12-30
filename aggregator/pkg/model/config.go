@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -9,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -103,21 +103,6 @@ type ServerConfig struct {
 	MaxRecvMsgSizeBytes int `toml:"maxRecvMsgSizeBytes"`
 	// MaxSendMsgSizeBytes is the maximum message size in bytes the server can send (default: 4MB)
 	MaxSendMsgSizeBytes int `toml:"maxSendMsgSizeBytes"`
-}
-
-// APIClient represents a configured client for API access.
-type APIClient struct {
-	ClientID    string            `toml:"clientId"`
-	Description string            `toml:"description,omitempty"`
-	Enabled     bool              `toml:"enabled"`
-	Secrets     map[string]string `toml:"secrets,omitempty"`
-	Groups      []string          `toml:"groups,omitempty"`
-}
-
-// APIKeyConfig represents the configuration for API key management.
-type APIKeyConfig struct {
-	// Clients maps API keys to client configurations
-	Clients map[string]*APIClient `toml:"clients"`
 }
 
 // AggregationConfig represents the configuration for the aggregation system.
@@ -230,7 +215,7 @@ type RateLimitingConfig struct {
 
 // GetEffectiveLimit resolves the effective rate limit for a given caller and method.
 // Priority order: 1) Specific caller limit, 2) Group limits (most restrictive), 3) Default limit.
-func (c *RateLimitingConfig) GetEffectiveLimit(callerID, method string, apiClient *APIClient) *RateLimitConfig {
+func (c *RateLimitingConfig) GetEffectiveLimit(callerID, method string, client auth.ClientConfig) *RateLimitConfig {
 	// 1. Check specific caller limit (highest priority)
 	if callerLimits, exists := c.Limits[callerID]; exists {
 		if limit, exists := callerLimits[method]; exists {
@@ -239,7 +224,7 @@ func (c *RateLimitingConfig) GetEffectiveLimit(callerID, method string, apiClien
 	}
 
 	// 2. Check group limits (most restrictive wins if multiple groups)
-	if mostRestrictive := c.getMostRestrictiveGroupLimit(apiClient, method); mostRestrictive != nil {
+	if mostRestrictive := c.getMostRestrictiveGroupLimit(client, method); mostRestrictive != nil {
 		return mostRestrictive
 	}
 
@@ -252,13 +237,13 @@ func (c *RateLimitingConfig) GetEffectiveLimit(callerID, method string, apiClien
 }
 
 // getMostRestrictiveGroupLimit finds the most restrictive rate limit from all groups the API client belongs to.
-func (c *RateLimitingConfig) getMostRestrictiveGroupLimit(apiClient *APIClient, method string) *RateLimitConfig {
-	if apiClient == nil {
+func (c *RateLimitingConfig) getMostRestrictiveGroupLimit(client auth.ClientConfig, method string) *RateLimitConfig {
+	if client == nil {
 		return nil
 	}
 
 	var mostRestrictive *RateLimitConfig
-	for _, group := range apiClient.Groups {
+	for _, group := range client.GetGroups() {
 		if groupLimits, exists := c.GroupLimits[group]; exists {
 			if limit, exists := groupLimits[method]; exists {
 				if mostRestrictive == nil || limit.LimitPerMinute < mostRestrictive.LimitPerMinute {
@@ -300,39 +285,12 @@ type BeholderConfig struct {
 	TraceBatchTimeout int64 `toml:"TraceBatchTimeout"`
 }
 
-// GetClientByAPIKey returns the client configuration for a given API key.
-func (c *APIKeyConfig) GetClientByAPIKey(apiKey string) (*APIClient, bool) {
-	client, exists := c.Clients[apiKey]
-	if !exists || !client.Enabled {
-		return nil, false
-	}
-	return client, true
-}
-
-// ValidateAPIKey validates an API key against the configuration.
-func (c *APIKeyConfig) ValidateAPIKey(apiKey string) error {
-	if strings.TrimSpace(apiKey) == "" {
-		return errors.New("api key cannot be empty")
-	}
-
-	client, exists := c.GetClientByAPIKey(apiKey)
-	if !exists {
-		return errors.New("invalid or disabled api key")
-	}
-
-	if client.ClientID == "" {
-		return errors.New("client id cannot be empty")
-	}
-
-	return nil
-}
-
 // AggregatorConfig is the root configuration for the pb.
 type AggregatorConfig struct {
 	Committee                                   *Committee           `toml:"committee"`
 	Server                                      ServerConfig         `toml:"server"`
 	Storage                                     *StorageConfig       `toml:"storage"`
-	APIKeys                                     APIKeyConfig         `toml:"-"`
+	APIClients                                  []*ClientConfig      `toml:"clients"`
 	Aggregation                                 AggregationConfig    `toml:"aggregation"`
 	OrphanRecovery                              OrphanRecoveryConfig `toml:"orphanRecovery"`
 	RateLimiting                                RateLimitingConfig   `toml:"rateLimiting"`
@@ -342,6 +300,82 @@ type AggregatorConfig struct {
 	PyroscopeURL                                string               `toml:"pyroscope_url"`
 	MaxMessageIDsPerBatch                       int                  `toml:"maxMessageIDsPerBatch"`
 	MaxCommitVerifierNodeResultRequestsPerBatch int                  `toml:"maxCommitVerifierNodeResultRequestsPerBatch"`
+}
+
+type APIKeyPairEnv struct {
+	APIKeyEnvVar string `toml:"apiKeyEnvVar"`
+	SecretEnvVar string `toml:"secretEnvVar"`
+}
+
+func (c *APIKeyPairEnv) GetAPIKey() string {
+	return os.Getenv(c.APIKeyEnvVar)
+}
+
+func (c *APIKeyPairEnv) GetSecret() string {
+	return os.Getenv(c.SecretEnvVar)
+}
+
+func (c *APIKeyPairEnv) Validate() error {
+	if c.APIKeyEnvVar == "" {
+		return errors.New("apiKeyEnvVar cannot be empty")
+	}
+	if c.SecretEnvVar == "" {
+		return errors.New("secretEnvVar cannot be empty")
+	}
+	if _, ok := os.LookupEnv(c.APIKeyEnvVar); !ok {
+		return errors.New("apiKeyEnvVar not found in environment")
+	}
+	if _, ok := os.LookupEnv(c.SecretEnvVar); !ok {
+		return errors.New("secretEnvVar not found in environment")
+	}
+	return nil
+}
+
+type ClientConfig struct {
+	APIKeyPairs []*APIKeyPairEnv `toml:"apiKeyPair"`
+	Groups      []string         `toml:"groups"`
+	Description string           `toml:"description"`
+	Enabled     bool             `toml:"enabled"`
+	ClientID    string           `toml:"clientId"`
+}
+
+func (c *ClientConfig) GetClientID() string { return c.ClientID }
+func (c *ClientConfig) GetGroups() []string { return c.Groups }
+func (c *ClientConfig) IsEnabled() bool     { return c.Enabled }
+
+func (c *ClientConfig) Validate() error {
+	if c.ClientID == "" {
+		return errors.New("clientId cannot be empty")
+	}
+	if len(c.APIKeyPairs) == 0 {
+		return errors.New("apiKeyPair cannot be empty")
+	}
+	for _, apiKeyPair := range c.APIKeyPairs {
+		if err := apiKeyPair.Validate(); err != nil {
+			return fmt.Errorf("apiKeyPair validation failed for client %s: %w", c.ClientID, err)
+		}
+	}
+	return nil
+}
+
+func (c *AggregatorConfig) GetClientByAPIKey(apiKey string) (auth.ClientConfig, auth.APIKeyPair, bool) {
+	for _, client := range c.APIClients {
+		for _, apiKeyPair := range client.APIKeyPairs {
+			if apiKeyPair.GetAPIKey() == apiKey {
+				return client, apiKeyPair, true
+			}
+		}
+	}
+	return nil, nil, false
+}
+
+func (c *AggregatorConfig) GetClientByClientID(clientID string) (auth.ClientConfig, bool) {
+	for _, client := range c.APIClients {
+		if client.ClientID == clientID {
+			return client, true
+		}
+	}
+	return nil, false
 }
 
 // SetDefaults sets default values for the configuration.
@@ -381,9 +415,6 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.Storage.ConnMaxIdleTime == 0 {
 		c.Storage.ConnMaxIdleTime = 300 // 5 minutes
 	}
-	if c.APIKeys.Clients == nil {
-		c.APIKeys.Clients = make(map[string]*APIClient)
-	}
 	// Default orphan recovery: enabled with 5 minute interval
 	if c.OrphanRecovery.IntervalSeconds == 0 {
 		c.OrphanRecovery.IntervalSeconds = 300 // 5 minutes
@@ -402,31 +433,14 @@ func (c *AggregatorConfig) SetDefaults() {
 	}
 }
 
-// ValidateAPIKeyConfig validates the API key configuration.
-func (c *AggregatorConfig) ValidateAPIKeyConfig() error {
-	// Validate each API key configuration
-	for apiKey, client := range c.APIKeys.Clients {
-		if strings.TrimSpace(apiKey) == "" {
-			return errors.New("api key cannot be empty")
-		}
-		if client == nil {
-			return fmt.Errorf("client configuration for api key '%s' cannot be nil", apiKey)
-		}
-		if strings.TrimSpace(client.ClientID) == "" {
-			return fmt.Errorf("client id for api key '%s' cannot be empty", apiKey)
-		}
-
-		// Validate group references
-		for _, group := range client.Groups {
-			if strings.TrimSpace(group) == "" {
-				return fmt.Errorf("empty group name for client '%s'", client.ClientID)
-			}
-			if _, exists := c.RateLimiting.GroupLimits[group]; !exists {
-				return fmt.Errorf("client '%s' references undefined group '%s'", client.ClientID, group)
-			}
+// ValidateClientConfig validates the client configuration.
+func (c *AggregatorConfig) ValidateClientConfig() error {
+	// Validate each client configuration
+	for _, client := range c.APIClients {
+		if err := client.Validate(); err != nil {
+			return fmt.Errorf("client validation failed for client %s: %w", client.ClientID, err)
 		}
 	}
-
 	return nil
 }
 
@@ -653,9 +667,9 @@ func (c *AggregatorConfig) Validate() error {
 		return fmt.Errorf("committee configuration error: %w", err)
 	}
 
-	// Validate API key configuration
-	if err := c.ValidateAPIKeyConfig(); err != nil {
-		return fmt.Errorf("api key configuration error: %w", err)
+	// Validate client configuration
+	if err := c.ValidateClientConfig(); err != nil {
+		return fmt.Errorf("client configuration error: %w", err)
 	}
 
 	// Validate batch configuration
@@ -689,17 +703,6 @@ func (c *AggregatorConfig) LoadFromEnvironment() error {
 		}
 		c.Storage.ConnectionURL = storageURL
 	}
-
-	apiKeysJSON := os.Getenv("AGGREGATOR_API_KEYS_JSON")
-	if apiKeysJSON == "" {
-		return errors.New("AGGREGATOR_API_KEYS_JSON environment variable is required")
-	}
-
-	var apiKeyConfig APIKeyConfig
-	if err := json.Unmarshal([]byte(apiKeysJSON), &apiKeyConfig); err != nil {
-		return fmt.Errorf("failed to parse AGGREGATOR_API_KEYS_JSON: %w", err)
-	}
-	c.APIKeys = apiKeyConfig
 
 	if c.RateLimiting.Storage.Type == RateLimiterStoreTypeRedis && c.RateLimiting.Enabled {
 		if err := c.loadRateLimiterRedisConfigFromEnvironment(); err != nil {

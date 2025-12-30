@@ -885,181 +885,175 @@ LockTimeout = 30
   [aggregator.redis]
     image = "redis:7-alpine"
     host_port  = 6379
-  
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-1"
+  description = "Development default verifier 1"
+  enabled = true
+  groups = ["verifiers"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-verifier-1"
+    secret = "dev-secret-verifier-1"
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-2"
+  description = "Development default verifier 2"
+  enabled = true
+  groups = ["verifiers"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-verifier-2"
+    secret = "dev-secret-verifier-2"
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-3"
+  description = "Development default verifier 3"
+  enabled = true
+  groups = ["verifiers"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-verifier-3"
+    secret = "dev-secret-verifier-3"
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-4"
+  description = "Development default verifier 4"
+  enabled = true
+  groups = ["verifiers"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-verifier-4"
+    secret = "dev-secret-verifier-4"
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-5"
+  description = "Development default verifier 5"
+  enabled = true
+  groups = ["verifiers"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-verifier-5"
+    secret = "dev-secret-verifier-5"
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-6"
+  description = "Development default verifier 6"
+  enabled = true
+  groups = ["verifiers"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-verifier-6"
+    secret = "dev-secret-verifier-6"
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-7"
+  description = "Development default verifier 7"
+  enabled = true
+  groups = ["verifiers"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-verifier-7"
+    secret = "dev-secret-verifier-7"
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-8"
+  description = "Development default verifier 8"
+  enabled = true
+  groups = ["verifiers"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-verifier-8"
+    secret = "dev-secret-verifier-8"
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-9"
+  description = "Development default verifier 9"
+  enabled = true
+  groups = ["verifiers"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-verifier-9"
+    secret = "dev-secret-verifier-9"
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-10"
+  description = "Development default verifier 10"
+  enabled = true
+  groups = ["verifiers"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-verifier-10"
+    secret = "dev-secret-verifier-10"
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-11"
+  description = "Development default verifier 11"
+  enabled = true
+  groups = ["verifiers"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-verifier-11"
+    secret = "dev-secret-verifier-11"
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-12"
+  description = "Development default verifier 12"
+  enabled = true
+  groups = ["verifiers"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-verifier-12"
+    secret = "dev-secret-verifier-12"
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-13"
+  description = "Development default verifier 13"
+  enabled = true
+  groups = ["verifiers"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-verifier-13"
+    secret = "dev-secret-verifier-13"
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-14"
+  description = "Development default verifier 14"
+  enabled = true
+  groups = ["verifiers"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-verifier-14"
+    secret = "dev-secret-verifier-14"
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-15"
+  description = "Development default verifier 15"
+  enabled = true
+  groups = ["verifiers"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-verifier-15"
+    secret = "dev-secret-verifier-15"
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-16"
+  description = "Development default verifier 16"
+  enabled = true
+  groups = ["verifiers"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-verifier-16"
+    secret = "dev-secret-verifier-16"
+
+  [[aggregator.api_clients]]
+  client_id = "monitoring"
+  description = "Monitoring and infrastructure client"
+  enabled = true
+  groups = ["monitoring"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-monitoring"
+    secret = "dev-secret-monitoring"
+
+  [[aggregator.api_clients]]
+  client_id = "indexer"
+  description = "Development Indexer"
+  enabled = true
+  groups = ["indexer"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-indexer"
+    secret = "dev-secret-indexer"
+
   # Environment variables for sensitive configuration
   [aggregator.env]
     storage_connection_url = "postgresql://aggregator:aggregator@default-aggregator-db:5432/aggregator?sslmode=disable"
     redis_address = "default-aggregator-redis:6379"
     redis_password = ""
     redis_db = "0"
-    api_keys_json = '''
-{
-  "clients": {
-    "dev-api-key-verifier-1": {
-      "clientId": "default-verifier-1",
-      "description": "Development default verifier 1",
-      "enabled": true,
-      "groups": ["verifiers"],
-      "secrets": {
-        "primary": "dev-secret-verifier-1"
-      }
-    },
-    "dev-api-key-verifier-2": {
-      "clientId": "default-verifier-2",
-      "description": "Development default verifier 2",
-      "enabled": true,
-      "groups": ["verifiers"],
-      "secrets": {
-        "primary": "dev-secret-verifier-2"
-      }
-    },
-    "dev-api-key-verifier-3": {
-      "clientId": "default-verifier-3",
-      "description": "Development default verifier 3",
-      "enabled": true,
-      "groups": ["verifiers"],
-      "secrets": {
-        "primary": "dev-secret-verifier-3"
-      }
-    },
-    "dev-api-key-verifier-4": {
-      "clientId": "default-verifier-4",
-      "description": "Development default verifier 4",
-      "enabled": true,
-      "groups": ["verifiers"],
-      "secrets": {
-        "primary": "dev-secret-verifier-4"
-      }
-    },
-    "dev-api-key-verifier-5": {
-      "clientId": "default-verifier-5",
-      "description": "Development default verifier 5",
-      "enabled": true,
-      "groups": ["verifiers"],
-      "secrets": {
-        "primary": "dev-secret-verifier-5"
-      }
-    },
-    "dev-api-key-verifier-6": {
-      "clientId": "default-verifier-6",
-      "description": "Development default verifier 6",
-      "enabled": true,
-      "groups": ["verifiers"],
-      "secrets": {
-        "primary": "dev-secret-verifier-6"
-      }
-    },
-    "dev-api-key-verifier-7": {
-      "clientId": "default-verifier-7",
-      "description": "Development default verifier 7",
-      "enabled": true,
-      "groups": ["verifiers"],
-      "secrets": {
-        "primary": "dev-secret-verifier-7"
-      }
-    },
-    "dev-api-key-verifier-8": {
-      "clientId": "default-verifier-8",
-      "description": "Development default verifier 8",
-      "enabled": true,
-      "groups": ["verifiers"],
-      "secrets": {
-        "primary": "dev-secret-verifier-8"
-      }
-    },
-    "dev-api-key-verifier-9": {
-      "clientId": "default-verifier-9",
-      "description": "Development default verifier 9",
-      "enabled": true,
-      "groups": ["verifiers"],
-      "secrets": {
-        "primary": "dev-secret-verifier-9"
-      }
-    },
-    "dev-api-key-verifier-10": {
-      "clientId": "default-verifier-10",
-      "description": "Development default verifier 10",
-      "enabled": true,
-      "groups": ["verifiers"],
-      "secrets": {
-        "primary": "dev-secret-verifier-10"
-      }
-    },
-    "dev-api-key-verifier-11": {
-      "clientId": "default-verifier-11",
-      "description": "Development default verifier 11",
-      "enabled": true,
-      "groups": ["verifiers"],
-      "secrets": {
-        "primary": "dev-secret-verifier-11"
-      }
-    },
-    "dev-api-key-verifier-12": {
-      "clientId": "default-verifier-12",
-      "description": "Development default verifier 12",
-      "enabled": true,
-      "groups": ["verifiers"],
-      "secrets": {
-        "primary": "dev-secret-verifier-12"
-      }
-    },
-    "dev-api-key-verifier-13": {
-      "clientId": "default-verifier-13",
-      "description": "Development default verifier 13",
-      "enabled": true,
-      "groups": ["verifiers"],
-      "secrets": {
-        "primary": "dev-secret-verifier-13"
-      }
-    },
-    "dev-api-key-verifier-14": {
-      "clientId": "default-verifier-14",
-      "description": "Development default verifier 14",
-      "enabled": true,
-      "groups": ["verifiers"],
-      "secrets": {
-        "primary": "dev-secret-verifier-14"
-      }
-    },
-    "dev-api-key-verifier-15": {
-      "clientId": "default-verifier-15",
-      "description": "Development default verifier 15",
-      "enabled": true,
-      "groups": ["verifiers"],
-      "secrets": {
-        "primary": "dev-secret-verifier-15"
-      }
-    },
-    "dev-api-key-verifier-16": {
-      "clientId": "default-verifier-16",
-      "description": "Development default verifier 16",
-      "enabled": true,
-      "groups": ["verifiers"],
-      "secrets": {
-        "primary": "dev-secret-verifier-16"
-      }
-    },
-    "dev-api-key-monitoring": {
-      "clientId": "monitoring",
-      "description": "Monitoring and infrastructure client",
-      "enabled": true,
-      "groups": ["monitoring"],
-      "secrets": {
-        "primary": "dev-secret-monitoring"
-      }
-    },
-    "dev-api-key-indexer": {
-      "clientId": "indexer",
-      "description": "Development Indexer",
-      "enabled": true,
-      "groups": ["indexer"],
-      "secrets": {
-        "primary": "dev-secret-indexer"
-      }
-    }
-  }
-}
-'''
 
 [[aggregator]]
   committee_name = "secondary"
@@ -1075,55 +1069,49 @@ LockTimeout = 30
   [aggregator.redis]
     image = "redis:7-alpine"
     host_port  = 6380
-  
+
+  [[aggregator.api_clients]]
+  client_id = "secondary-verifier-1"
+  description = "Development secondary verifier 1"
+  enabled = true
+  groups = ["verifiers"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-secondary-verifier-1"
+    secret = "dev-secret-secondary-verifier-1"
+
+  [[aggregator.api_clients]]
+  client_id = "secondary-verifier-2"
+  description = "Development secondary verifier 2"
+  enabled = true
+  groups = ["verifiers"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-secondary-verifier-2"
+    secret = "dev-secret-secondary-verifier-2"
+
+  [[aggregator.api_clients]]
+  client_id = "monitoring"
+  description = "Monitoring and infrastructure client"
+  enabled = true
+  groups = ["monitoring"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-monitoring"
+    secret = "dev-secret-monitoring"
+
+  [[aggregator.api_clients]]
+  client_id = "indexer"
+  description = "Development Indexer"
+  enabled = true
+  groups = ["indexer"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-indexer"
+    secret = "dev-secret-indexer"
+
   # Environment variables for sensitive configuration
   [aggregator.env]
     storage_connection_url = "postgresql://aggregator:aggregator@secondary-aggregator-db:5432/aggregator?sslmode=disable"
     redis_address = "secondary-aggregator-redis:6379"
     redis_password = ""
     redis_db = "0"
-    api_keys_json = '''
-{
-  "clients": {
-    "dev-api-key-secondary-verifier-1": {
-      "clientId": "secondary-verifier-1",
-      "description": "Development secondary verifier 1",
-      "enabled": true,
-      "groups": ["verifiers"],
-      "secrets": {
-        "primary": "dev-secret-secondary-verifier-1"
-      }
-    },
-    "dev-api-key-secondary-verifier-2": {
-      "clientId": "secondary-verifier-2",
-      "description": "Development secondary verifier 2",
-      "enabled": true,
-      "groups": ["verifiers"],
-      "secrets": {
-        "primary": "dev-secret-secondary-verifier-2"
-      }
-    },
-    "dev-api-key-monitoring": {
-      "clientId": "monitoring",
-      "description": "Monitoring and infrastructure client",
-      "enabled": true,
-      "groups": ["monitoring"],
-      "secrets": {
-        "primary": "dev-secret-monitoring"
-      }
-    },
-    "dev-api-key-indexer": {
-      "clientId": "indexer",
-      "description": "Development Indexer",
-      "enabled": true,
-      "groups": ["indexer"],
-      "secrets": {
-        "primary": "dev-secret-indexer"
-      }
-    }
-  }
-}
-'''
 
 [[aggregator]]
   committee_name = "tertiary"
@@ -1139,52 +1127,46 @@ LockTimeout = 30
   [aggregator.redis]
     image = "redis:7-alpine"
     host_port  = 6381
-  
+
+  [[aggregator.api_clients]]
+  client_id = "tertiary-verifier-1"
+  description = "Development tertiary verifier 1"
+  enabled = true
+  groups = ["verifiers"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-tertiary-verifier-1"
+    secret = "dev-secret-tertiary-verifier-1"
+
+  [[aggregator.api_clients]]
+  client_id = "tertiary-verifier-2"
+  description = "Development tertiary verifier 2"
+  enabled = true
+  groups = ["verifiers"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-tertiary-verifier-2"
+    secret = "dev-secret-tertiary-verifier-2"
+
+  [[aggregator.api_clients]]
+  client_id = "monitoring"
+  description = "Monitoring and infrastructure client"
+  enabled = true
+  groups = ["monitoring"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-monitoring"
+    secret = "dev-secret-monitoring"
+
+  [[aggregator.api_clients]]
+  client_id = "indexer"
+  description = "Development Indexer"
+  enabled = true
+  groups = ["indexer"]
+  [[aggregator.api_clients.api_key_pairs]]
+    api_key = "dev-api-key-indexer"
+    secret = "dev-secret-indexer"
+
   # Environment variables for sensitive configuration
   [aggregator.env]
     storage_connection_url = "postgresql://aggregator:aggregator@tertiary-aggregator-db:5432/aggregator?sslmode=disable"
     redis_address = "tertiary-aggregator-redis:6379"
     redis_password = ""
     redis_db = "0"
-    api_keys_json = '''
-{
-  "clients": {
-    "dev-api-key-tertiary-verifier-1": {
-      "clientId": "tertiary-verifier-1",
-      "description": "Development tertiary verifier 1",
-      "enabled": true,
-      "groups": ["verifiers"],
-      "secrets": {
-        "primary": "dev-secret-tertiary-verifier-1"
-      }
-    },
-    "dev-api-key-tertiary-verifier-2": {
-      "clientId": "tertiary-verifier-2",
-      "description": "Development tertiary verifier 2",
-      "enabled": true,
-      "groups": ["verifiers"],
-      "secrets": {
-        "primary": "dev-secret-tertiary-verifier-2"
-      }
-    },
-    "dev-api-key-monitoring": {
-      "clientId": "monitoring",
-      "description": "Monitoring and infrastructure client",
-      "enabled": true,
-      "groups": ["monitoring"],
-      "secrets": {
-        "primary": "dev-secret-monitoring"
-      }
-    },
-    "dev-api-key-indexer": {
-      "clientId": "indexer",
-      "description": "Development Indexer",
-      "enabled": true,
-      "groups": ["indexer"],
-      "secrets": {
-        "primary": "dev-secret-indexer"
-      }
-    }
-  }
-}
-'''

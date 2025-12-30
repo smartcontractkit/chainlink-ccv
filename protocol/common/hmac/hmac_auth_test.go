@@ -122,56 +122,19 @@ func TestValidateSignature(t *testing.T) {
 	stringToSign := "POST /path body-hash api-key timestamp"
 	validSignature := ComputeHMAC(secret, stringToSign)
 
-	t.Run("valid signature with single secret", func(t *testing.T) {
-		secrets := map[string]string{
-			"current": secret,
-		}
-
-		isValid := ValidateSignature(stringToSign, validSignature, secrets)
+	t.Run("valid signature", func(t *testing.T) {
+		isValid := ValidateSignature(stringToSign, validSignature, secret)
 		require.True(t, isValid, "Valid signature should be accepted")
 	})
 
-	t.Run("valid signature with multiple secrets", func(t *testing.T) {
-		secrets := map[string]string{
-			"current":  secret,
-			"previous": "old-secret",
-		}
-
-		isValid := ValidateSignature(stringToSign, validSignature, secrets)
-		require.True(t, isValid, "Valid signature should be accepted with multiple secrets")
-	})
-
-	t.Run("valid with rotated secret", func(t *testing.T) {
-		// Signature made with "old-secret"
-		oldSecret := "old-secret"
-		oldSignature := ComputeHMAC(oldSecret, stringToSign)
-
-		secrets := map[string]string{
-			"current":  secret,
-			"previous": oldSecret,
-		}
-
-		isValid := ValidateSignature(stringToSign, oldSignature, secrets)
-		require.True(t, isValid, "Signature with old secret should still be valid")
-	})
-
 	t.Run("invalid signature", func(t *testing.T) {
-		secrets := map[string]string{
-			"current": secret,
-		}
-
-		isValid := ValidateSignature(stringToSign, "invalid-signature", secrets)
+		isValid := ValidateSignature(stringToSign, "invalid-signature", secret)
 		require.False(t, isValid, "Invalid signature should be rejected")
 	})
 
 	t.Run("signature with wrong secret", func(t *testing.T) {
 		wrongSignature := ComputeHMAC("wrong-secret", stringToSign)
-
-		secrets := map[string]string{
-			"current": secret,
-		}
-
-		isValid := ValidateSignature(stringToSign, wrongSignature, secrets)
+		isValid := ValidateSignature(stringToSign, wrongSignature, secret)
 		require.False(t, isValid, "Signature with wrong secret should be rejected")
 	})
 }
