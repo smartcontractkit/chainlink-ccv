@@ -287,12 +287,36 @@ func createPostgresStorage(ctx context.Context, lggr logger.Logger, cfg *config.
 	return dbStore
 }
 
+// ensureDBConnection ensures that the database is up and running by pinging it.
+func ensureDBConnection(db *sql.DB) error {
+	const (
+		maxRetries    = 10
+		retryInterval = time.Second * 1
+	)
+	pingFn := func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), retryInterval)
+		defer cancel()
+		return db.PingContext(ctx)
+	}
+	for range maxRetries {
+		if err := pingFn(); err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("failed to connect to database after %d retries", maxRetries)
+}
+
 // runMigrations runs all pending database migrations using goose.
 func runMigrations(lggr logger.Logger, dbURI, migrationsDir string) error {
 	// Open a connection to the database for migrations
 	db, err := sql.Open("postgres", dbURI)
 	if err != nil {
 		return err
+	}
+
+	err = ensureDBConnection(db)
+	if err != nil {
+		return fmt.Errorf("could not connect to database: %w", err)
 	}
 
 	defer func() {

@@ -307,14 +307,6 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 					{HostPort: strconv.Itoa(in.Port)},
 				},
 			}
-
-			// This restart policy only kicks in on new container starts or on crashes.
-			// If the container is stopped gracefully, it will not be restarted by the docker daemon.
-			// This is needed to make sure the indexer eventually starts correctly even if the database is temporarily
-			// not available (i.e. due to starting up).
-			h.RestartPolicy = container.RestartPolicy{
-				Name: container.RestartPolicyAlways,
-			}
 		},
 	}
 
