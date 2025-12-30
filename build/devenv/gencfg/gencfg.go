@@ -73,15 +73,15 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 	)
 
 	var (
-		onRampAddresses                         = make(map[string]string)
-		committeeVerifierAddresses              = make(map[string]string)
-		committeeVerifierResolverProxyAddresses = make(map[uint64]string)
-		defaultExecutorOnRampAddresses          = make(map[string]string)
-		defaultExecutorOnRampAddressesUint64    = make(map[uint64]string)
-		rmnRemoteAddresses                      = make(map[string]string)
-		rmnRemoteAddressesUint64                = make(map[uint64]string)
-		offRampAddresses                        = make(map[uint64]string)
-		thresholdPerSource                      = make(map[uint64]uint8)
+		onRampAddresses                      = make(map[string]string)
+		committeeVerifierAddresses           = make(map[string]string)
+		committeeVerifierResolverAddresses   = make(map[uint64]string)
+		defaultExecutorOnRampAddresses       = make(map[string]string)
+		defaultExecutorOnRampAddressesUint64 = make(map[uint64]string)
+		rmnRemoteAddresses                   = make(map[string]string)
+		rmnRemoteAddressesUint64             = make(map[uint64]string)
+		offRampAddresses                     = make(map[uint64]string)
+		thresholdPerSource                   = make(map[uint64]uint8)
 	)
 
 	for _, ref := range addressRefs {
@@ -89,9 +89,9 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 		switch ref.Type {
 		case datastore.ContractType(onrampoperations.ContractType):
 			onRampAddresses[chainSelectorStr] = ref.Address
-		case datastore.ContractType(committee_verifier.ResolverProxyType):
+		case datastore.ContractType(committee_verifier.ResolverType):
 			committeeVerifierAddresses[chainSelectorStr] = ref.Address
-			committeeVerifierResolverProxyAddresses[ref.ChainSelector] = ref.Address
+			committeeVerifierResolverAddresses[ref.ChainSelector] = ref.Address
 		case datastore.ContractType(executor_operations.ContractType):
 			defaultExecutorOnRampAddresses[chainSelectorStr] = ref.Address
 			defaultExecutorOnRampAddressesUint64[ref.ChainSelector] = ref.Address
@@ -171,12 +171,12 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 
 	// Aggregator config
 	aggregatorInput := services.AggregatorInput{
-		CommitteeName:                           committeeName,
-		CommitteeVerifierResolverProxyAddresses: committeeVerifierResolverProxyAddresses,
-		ThresholdPerSource:                      thresholdPerSource,
-		MonitoringOtelExporterHTTPEndpoint:      monitoringOtelExporterHTTPEndpoint,
+		CommitteeName:                      committeeName,
+		CommitteeVerifierResolverAddresses: committeeVerifierResolverAddresses,
+		ThresholdPerSource:                 thresholdPerSource,
+		MonitoringOtelExporterHTTPEndpoint: monitoringOtelExporterHTTPEndpoint,
 	}
-	aggregatorConfig, err := aggregatorInput.GenerateConfig(verifierInputs)
+	aggregatorConfig, _, err := aggregatorInput.GenerateConfig(verifierInputs)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate aggregator config: %w", err)
 	}

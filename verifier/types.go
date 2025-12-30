@@ -24,9 +24,11 @@ type SourceConfig struct {
 	DefaultExecutorAddress protocol.UnknownAddress `json:"default_executor_address"`
 	ChainSelector          protocol.ChainSelector  `json:"chain_selector"`
 	PollInterval           time.Duration           `json:"poll_interval"`
+	PollTimeout            time.Duration           `json:"poll_timeout"`       // Maximum duration to wait for a block to be fetched (default: 10s)
 	BatchSize              int                     `json:"batch_size"`         // Maximum number of verification tasks to batch before sending to verifier (default: 20)
 	BatchTimeout           time.Duration           `json:"batch_timeout"`      // Maximum duration to wait before flushing incomplete verifier batch (default: 100ms)
 	RMNRemoteAddress       protocol.UnknownAddress `json:"rmn_remote_address"` // RMN Remote contract address for curse detection
+	MaxBlockRange          uint64                  `json:"max_block_range"`    // Max blocks per RPC query (default: 5000)
 }
 
 // CoordinatorConfig contains configuration for the verification coordinator.

@@ -20,8 +20,10 @@ import (
 
 const (
 	// ChainStatusInterval is how often to write statuses.
-	ChainStatusInterval = 300 * time.Second
-	DefaultPollInterval = 2100 * time.Millisecond
+	ChainStatusInterval  = 300 * time.Second
+	DefaultPollInterval  = 2100 * time.Millisecond
+	DefaultPollTimeout   = 10 * time.Second
+	DefaultMaxBlockRange = 5000
 )
 
 type SourceReaderService struct {
@@ -36,6 +38,8 @@ type SourceReaderService struct {
 	curseDetector   common.CurseCheckerService
 	finalityChecker protocol.FinalityViolationChecker
 	pollInterval    time.Duration
+	pollTimeout     time.Duration
+	maxBlockRange   uint64
 	sourceCfg       SourceConfig
 
 	// exposed channel to coordinator: READY tasks
@@ -98,6 +102,17 @@ func NewSourceReaderService(
 	if sourceCfg.PollInterval <= 0 {
 		interval = DefaultPollInterval
 	}
+
+	maxBlockRange := sourceCfg.MaxBlockRange
+	if maxBlockRange <= 0 {
+		maxBlockRange = DefaultMaxBlockRange
+	}
+
+	pollTimeout := sourceCfg.PollTimeout
+	if pollTimeout <= 0 {
+		pollTimeout = DefaultPollTimeout
+	}
+
 	return &SourceReaderService{
 		logger:             logger.With(lggr, "component", "SourceReaderService", "chain", chainSelector),
 		sourceReader:       sourceReader,
@@ -106,7 +121,9 @@ func NewSourceReaderService(
 		curseDetector:      curseDetector,
 		finalityChecker:    finalityChecker,
 		pollInterval:       interval,
+		pollTimeout:        pollTimeout,
 		sourceCfg:          sourceCfg,
+		maxBlockRange:      maxBlockRange,
 		readyTasksCh:       make(chan batcher.BatchResult[VerificationTask]),
 		pendingTasks:       make(map[string]VerificationTask),
 		sentTasks:          make(map[string]VerificationTask),
@@ -235,6 +252,50 @@ func (r *SourceReaderService) readyToQuery(ctx context.Context) (bool, *protocol
 	return true, latest, finalized
 }
 
+type blockRange struct {
+	fromBlock *big.Int
+	toBlock   *big.Int
+}
+
+func (r *SourceReaderService) getBlockRanges(fromBlock, latest uint64) []blockRange {
+	if fromBlock >= latest {
+		return []blockRange{{fromBlock: new(big.Int).SetUint64(fromBlock), toBlock: nil}}
+	}
+
+	var blockRanges []blockRange
+	for fromBlock <= latest {
+		toBlock := fromBlock + r.maxBlockRange
+		if toBlock >= latest {
+			blockRanges = append(blockRanges, blockRange{
+				fromBlock: new(big.Int).SetUint64(fromBlock),
+				toBlock:   nil,
+			})
+			break
+		}
+		blockRanges = append(blockRanges, blockRange{
+			fromBlock: new(big.Int).SetUint64(fromBlock),
+			toBlock:   new(big.Int).SetUint64(toBlock),
+		})
+		fromBlock = toBlock + 1
+	}
+
+	return blockRanges
+}
+
+func (r *SourceReaderService) loadEvents(ctx context.Context, fromBlock *big.Int, latest *protocol.BlockHeader) ([]protocol.MessageSentEvent, error) {
+	blockRanges := r.getBlockRanges(fromBlock.Uint64(), latest.Number)
+
+	allEvents := make([]protocol.MessageSentEvent, 0)
+	for _, blockRange := range blockRanges {
+		events, err := r.sourceReader.FetchMessageSentEvents(ctx, blockRange.fromBlock, blockRange.toBlock)
+		if err != nil {
+			return nil, err
+		}
+		allEvents = append(allEvents, events...)
+	}
+	return allEvents, nil
+}
+
 // processEventCycle processes a single cycle of event monitoring.
 // It queries for new MessageSent events, converts them to VerificationTasks,
 // and adds them to the pending queue, handling reorgs as needed.
@@ -242,14 +303,14 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context, latest, fin
 	r.logger.Infow("processEventCycle starting",
 		"latestBlock", latest.Number,
 		"finalizedBlock", finalized.Number)
-	logsCtx, cancel := context.WithTimeout(ctx, r.pollInterval)
+	logsCtx, cancel := context.WithTimeout(ctx, r.pollTimeout)
 	defer cancel()
 
 	fromBlock := r.lastProcessedFinalizedBlock.Load()
 
 	r.logger.Infow("Querying from block", "fromBlock", fromBlock.String())
 	// Fetch message events from blockchain
-	events, err := r.sourceReader.FetchMessageSentEvents(logsCtx, fromBlock, nil)
+	events, err := r.loadEvents(logsCtx, fromBlock, latest)
 	if err != nil {
 		r.logger.Errorw("Failed to query logs", "error", err,
 			"fromBlock", fromBlock.String(),

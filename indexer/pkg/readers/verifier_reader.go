@@ -59,12 +59,18 @@ func NewVerifierReader(ctx context.Context, verifier protocol.VerifierResultsAPI
 // typically because the batcher has been closed or the context has been
 // canceled.
 func (v *VerifierReader) ProcessMessage(messageID protocol.Bytes32) (chan common.Result[protocol.VerifierResult], error) {
+	// Create the result channel before adding to the batcher.
+	// This prevents a race where the batch is flushed and
+	// Resolve() called before Create() completes, causing lost results.
+	resultCh := v.demux.Create(messageID)
+
 	err := v.batcher.Add(messageID)
 	if err != nil {
+		v.demux.Resolve(messageID, protocol.VerifierResult{}, err)
 		return nil, err
 	}
 
-	return v.demux.Create(messageID), nil
+	return resultCh, nil
 }
 
 // Start begins processing batched verification requests in a background goroutine.

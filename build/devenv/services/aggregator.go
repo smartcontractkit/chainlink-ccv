@@ -84,8 +84,8 @@ type AggregatorInput struct {
 	Env            *AggregatorEnvConfig  `toml:"env"`
 	CommitteeName  string                `toml:"committee_name"`
 
-	// Chain selector -> Committee Verifier Resolver Proxy Address
-	CommitteeVerifierResolverProxyAddresses map[uint64]string `toml:"committee_verifier_resolver_proxy_addresses"`
+	// Chain selector -> Committee Verifier Resolver Address
+	CommitteeVerifierResolverAddresses map[uint64]string `toml:"committee_verifier_resolver_addresses"`
 	// Source chain selector -> threshold mapping
 	// If not available we default to a full quorum, i.e. all verifiers must sign.
 	ThresholdPerSource map[uint64]uint8 `toml:"threshold_per_source"`
@@ -115,37 +115,8 @@ type AggregatorOutput struct {
 	DBURL              string `toml:"db_url"`
 	DBConnectionString string `toml:"db_connection_string"`
 	TLSCACertFile      string `toml:"tls_ca_cert_file"`
-}
-
-type Signer struct {
-	Address string `toml:"address"`
-}
-
-// QuorumConfig represents the configuration for a quorum of signers.
-type QuorumConfig struct {
-	CommitteeVerifierAddress string   `toml:"committeeVerifierAddress"`
-	Signers                  []Signer `toml:"signers"`
-	Threshold                uint8    `toml:"threshold"`
-}
-
-// Committee represents a group of signers participating in the commit verification process.
-type Committee struct {
-	// QuorumConfigs stores a QuorumConfig for each chain selector
-	// there is a commit verifier for.
-	// The aggregator uses this to verify signatures from each chain's
-	// commit verifier set.
-	QuorumConfigs map[string]*QuorumConfig `toml:"quorumConfigs"`
-}
-
-// StorageConfig represents the configuration for the storage backend.
-type StorageConfig struct {
-	StorageType   string `toml:"type"`
-	ConnectionURL string `toml:"connectionURL,omitempty"`
-}
-
-// ServerConfig represents the configuration for the server.
-type ServerConfig struct {
-	Address string `toml:"address"`
+	// Source chain selector -> threshold mapping.
+	ThresholdPerSource map[uint64]uint8 `toml:"threshold_per_source"`
 }
 
 func validateAggregatorInput(in *AggregatorInput, inV []*VerifierInput) error {
@@ -200,12 +171,13 @@ func validateAggregatorInput(in *AggregatorInput, inV []*VerifierInput) error {
 }
 
 // generateConfigs generates the aggregator service configuration using the inputs.
-func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) ([]byte, error) {
+func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) (tomlConfig []byte, thresholdPerSource map[uint64]uint8, err error) {
+	thresholdPerSource = make(map[uint64]uint8)
 	committeeName := a.CommitteeName
 
 	config, err := configuration.LoadConfigString(aggregatorConfigTemplate)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load aggregator config template: %w", err)
+		return nil, nil, fmt.Errorf("failed to load aggregator config template: %w", err)
 	}
 
 	committeeConfig := &model.Committee{}
@@ -225,7 +197,7 @@ func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) ([]byte, error) {
 	defaultThreshold := uint8(len(signers))
 
 	// Create quorum configs per source chain and destination verifiers mapping
-	for chainSelector, verifierAddress := range a.CommitteeVerifierResolverProxyAddresses {
+	for chainSelector, verifierAddress := range a.CommitteeVerifierResolverAddresses {
 		chainSelStr := strconv.FormatUint(chainSelector, 10)
 
 		// Add destination verifier mapping
@@ -245,6 +217,7 @@ func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) ([]byte, error) {
 			Signers:               signers,
 			Threshold:             sourceThreshold,
 		}
+		thresholdPerSource[chainSelector] = sourceThreshold
 	}
 
 	config.Committee = committeeConfig
@@ -255,9 +228,10 @@ func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) ([]byte, error) {
 
 	cfg, err := toml.Marshal(config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal aggregator config to TOML: %w", err)
+		return nil, nil, fmt.Errorf("failed to marshal aggregator config to TOML: %w", err)
 	}
-	return cfg, nil
+
+	return cfg, thresholdPerSource, nil
 }
 
 func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput, error) {
@@ -276,7 +250,7 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 		return in.Out, err
 	}
 
-	config, err := in.GenerateConfig(inV)
+	config, thresholdPerSource, err := in.GenerateConfig(inV)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate aggregator config: %w", err)
 	}
@@ -498,11 +472,12 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 	}
 
 	in.Out = &AggregatorOutput{
-		ContainerName:    nginxContainerName,
-		Address:          fmt.Sprintf("%s:443", nginxContainerName),
-		ExternalHTTPUrl:  fmt.Sprintf("%s:%d", aggregatorContainerName, DefaultAggregatorGRPCPort),
-		ExternalHTTPSUrl: fmt.Sprintf("%s:%d", host, in.HostPort),
-		TLSCACertFile:    tlsCerts.CACertFile,
+		ContainerName:      nginxContainerName,
+		Address:            fmt.Sprintf("%s:443", nginxContainerName),
+		ExternalHTTPUrl:    fmt.Sprintf("%s:%d", aggregatorContainerName, DefaultAggregatorGRPCPort),
+		ExternalHTTPSUrl:   fmt.Sprintf("%s:%d", host, in.HostPort),
+		TLSCACertFile:      tlsCerts.CACertFile,
+		ThresholdPerSource: thresholdPerSource,
 	}
 	return in.Out, nil
 }

@@ -20,7 +20,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
 	"github.com/smartcontractkit/chainlink-evm/pkg/keys"
@@ -120,17 +119,7 @@ func NewExecutorCoordinator(
 		CacheExpiry: cfg.ReaderCacheExpiry,
 	})
 
-	// TODO: monitoring config home
-	executorMonitoring, err := monitoring.InitMonitoring(beholder.Config{
-		InsecureConnection:       cfg.Monitoring.Beholder.InsecureConnection,
-		CACertFile:               cfg.Monitoring.Beholder.CACertFile,
-		OtelExporterHTTPEndpoint: cfg.Monitoring.Beholder.OtelExporterHTTPEndpoint,
-		OtelExporterGRPCEndpoint: cfg.Monitoring.Beholder.OtelExporterGRPCEndpoint,
-		LogStreamingEnabled:      cfg.Monitoring.Beholder.LogStreamingEnabled,
-		MetricReaderInterval:     time.Second * time.Duration(cfg.Monitoring.Beholder.MetricReaderInterval),
-		TraceSampleRatio:         cfg.Monitoring.Beholder.TraceSampleRatio,
-		TraceBatchTimeout:        time.Second * time.Duration(cfg.Monitoring.Beholder.TraceBatchTimeout),
-	})
+	executorMonitoring, err := monitoring.InitMonitoring()
 	if err != nil {
 		lggr.Errorw("Failed to initialize executor monitoring", "error", err)
 		return nil, fmt.Errorf("failed to initialize executor monitoring: %w", err)

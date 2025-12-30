@@ -22,9 +22,8 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 )
 
-func SetupOTEL(lggr logger.Logger, config verifier.MonitoringConfig) verifier.Monitoring {
-	// Setup OTEL Monitoring (via beholder)
-	verifierMonitoring, err := monitoring.InitMonitoring(beholder.Config{
+func SetupMonitoring(lggr logger.Logger, config verifier.MonitoringConfig) verifier.Monitoring {
+	beholderConfig := beholder.Config{
 		InsecureConnection:       config.Beholder.InsecureConnection,
 		CACertFile:               config.Beholder.CACertFile,
 		OtelExporterHTTPEndpoint: config.Beholder.OtelExporterHTTPEndpoint,
@@ -33,9 +32,22 @@ func SetupOTEL(lggr logger.Logger, config verifier.MonitoringConfig) verifier.Mo
 		MetricReaderInterval:     time.Second * time.Duration(config.Beholder.MetricReaderInterval),
 		TraceSampleRatio:         config.Beholder.TraceSampleRatio,
 		TraceBatchTimeout:        time.Second * time.Duration(config.Beholder.TraceBatchTimeout),
-	})
+		// Note: due to OTEL spec, all histogram buckets must be defined when the beholder client is created.
+		MetricViews: monitoring.MetricViews(),
+	}
+
+	// Create the beholder client
+	beholderClient, err := beholder.NewClient(beholderConfig)
 	if err != nil {
-		lggr.Fatalf("Failed to initialize verifier monitoring: %v", err)
+		lggr.Fatalf("failed to create beholder client: %w", err)
+	}
+
+	// Set the beholder client and global otel providers
+	beholder.SetClient(beholderClient)
+	beholder.SetGlobalOtelProviders()
+	verifierMonitoring, err := monitoring.InitMonitoring()
+	if err != nil {
+		lggr.Fatalf("Failed to initialize verifier monitoring: %w", err)
 	}
 	return verifierMonitoring
 }
