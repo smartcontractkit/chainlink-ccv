@@ -83,8 +83,8 @@ type AggregatorInput struct {
 	Env            *AggregatorEnvConfig  `toml:"env"`
 	CommitteeName  string                `toml:"committee_name"`
 
-	// Chain selector -> Committee Verifier Resolver Proxy Address
-	CommitteeVerifierResolverProxyAddresses map[uint64]string `toml:"committee_verifier_resolver_proxy_addresses"`
+	// Chain selector -> Committee Verifier Resolver Address
+	CommitteeVerifierResolverAddresses map[uint64]string `toml:"committee_verifier_resolver_addresses"`
 	// Source chain selector -> threshold mapping
 	// If not available we default to a full quorum, i.e. all verifiers must sign.
 	ThresholdPerSource map[uint64]uint8 `toml:"threshold_per_source"`
@@ -196,7 +196,7 @@ func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) (tomlConfig []byt
 	defaultThreshold := uint8(len(signers))
 
 	// Create quorum configs per source chain and destination verifiers mapping
-	for chainSelector, verifierAddress := range a.CommitteeVerifierResolverProxyAddresses {
+	for chainSelector, verifierAddress := range a.CommitteeVerifierResolverAddresses {
 		chainSelStr := strconv.FormatUint(chainSelector, 10)
 
 		// Add destination verifier mapping

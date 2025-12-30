@@ -458,7 +458,7 @@ func ResolveContractsForVerifier(ds datastore.DataStore, blockchains []*blockcha
 
 		committeeVerifierAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
 			networkInfo.ChainSelector,
-			datastore.ContractType(committee_verifier.ResolverProxyType),
+			datastore.ContractType(committee_verifier.ResolverType),
 			semver.MustParse(committee_verifier.Deploy.Version()),
 			ver.CommitteeName,
 		))

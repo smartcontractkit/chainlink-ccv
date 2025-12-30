@@ -288,11 +288,9 @@ func (b *Bytes32) UnmarshalJSON(data []byte) error {
 // decoupled from chain-specific implementations.
 // Note: Message and ReceiptWithBlob types are defined in message_types.go.
 type MessageSentEvent struct {
-	DestChainSelector ChainSelector     // Destination chain for the message
-	SequenceNumber    uint64            // Sequential nonce for this message
-	MessageID         Bytes32           // Unique identifier for the message
-	Message           Message           // The decoded CCIP message
-	Receipts          []ReceiptWithBlob // Verifier receipts + executor receipt
-	BlockNumber       uint64            // Block number where event occurred
-	TxHash            ByteSlice         // Transaction hash of the event
+	MessageID   Bytes32           // Unique identifier for the message
+	Message     Message           // The decoded CCIP message
+	Receipts    []ReceiptWithBlob // Verifier receipts + executor receipt
+	BlockNumber uint64            // Block number where event occurred
+	TxHash      ByteSlice         // Transaction hash of the event
 }

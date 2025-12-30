@@ -404,20 +404,20 @@ func NewEnvironment() (in *Cfg, err error) {
 		aggregatorInput.SharedTLSCerts = sharedTLSCerts
 		// Initialize proxy addresses from datastore.
 		addrs, _ := e.DataStore.Addresses().Fetch()
-		if aggregatorInput.CommitteeVerifierResolverProxyAddresses == nil {
-			aggregatorInput.CommitteeVerifierResolverProxyAddresses = make(map[uint64]string)
+		if aggregatorInput.CommitteeVerifierResolverAddresses == nil {
+			aggregatorInput.CommitteeVerifierResolverAddresses = make(map[uint64]string)
 		}
 		for _, addr := range addrs {
 			if addr.Qualifier != aggregatorInput.CommitteeName {
 				continue
 			}
-			if addr.Type != "CommitteeVerifierResolverProxy" {
+			if addr.Type != "CommitteeVerifierResolver" {
 				continue
 			}
-			if _, ok := aggregatorInput.CommitteeVerifierResolverProxyAddresses[addr.ChainSelector]; ok {
-				return nil, fmt.Errorf("duplicate committee verifier resolver proxy address for committee %s on chain selector %d", aggregatorInput.CommitteeName, addr.ChainSelector)
+			if _, ok := aggregatorInput.CommitteeVerifierResolverAddresses[addr.ChainSelector]; ok {
+				return nil, fmt.Errorf("duplicate committee verifier resolver address for committee %s on chain selector %d", aggregatorInput.CommitteeName, addr.ChainSelector)
 			}
-			aggregatorInput.CommitteeVerifierResolverProxyAddresses[addr.ChainSelector] = addr.Address
+			aggregatorInput.CommitteeVerifierResolverAddresses[addr.ChainSelector] = addr.Address
 		}
 
 		out, err := services.NewAggregator(aggregatorInput, in.Verifier)
@@ -445,12 +445,12 @@ func NewEnvironment() (in *Cfg, err error) {
 		address, err := e.DataStore.Addresses().Get(
 			datastore.NewAddressRefKey(
 				chainInfo.ChainSelector,
-				datastore.ContractType(committee_verifier.ResolverProxyType),
+				datastore.ContractType(committee_verifier.ResolverType),
 				semver.MustParse(committee_verifier.Deploy.Version()),
 				agg.CommitteeName,
 			))
 		if err != nil {
-			return nil, fmt.Errorf("failed to get committee verifier resolver proxy address for committee %s on chain %s: %w", agg.CommitteeName, chain.ChainID, err)
+			return nil, fmt.Errorf("failed to get committee verifier resolver address for committee %s on chain %s: %w", agg.CommitteeName, chain.ChainID, err)
 		}
 
 		// find the verifier in the indexer config that references this aggregator
@@ -463,7 +463,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 
 		if idx == -1 {
-			return nil, fmt.Errorf("failed to find verifier in indexer config that references committee verifier resolver proxy address for committee %s on chain %s", agg.CommitteeName, chain.ChainID)
+			return nil, fmt.Errorf("failed to find verifier in indexer config that references committee verifier resolver address for committee %s on chain %s", agg.CommitteeName, chain.ChainID)
 		}
 
 		in.Indexer.IndexerConfig.Verifiers[idx].IssuerAddresses = []string{
