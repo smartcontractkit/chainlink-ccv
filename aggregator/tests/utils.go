@@ -3,6 +3,7 @@ package tests
 import (
 	"context"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -88,9 +89,6 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (committeepb.C
 
 	dummyConfig := &model.AggregatorConfig{
 		Storage: &model.StorageConfig{},
-		APIKeys: model.APIKeyConfig{
-			Clients: make(map[string]*model.APIClient),
-		},
 	}
 	for _, option := range options {
 		_, clientConfig = option(dummyConfig, clientConfig)
@@ -119,6 +117,10 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 	// Use SugaredLogger for better API
 	sugaredLggr := logger.Sugared(lggr)
 
+	// Set environment variables for test API keys
+	require.NoError(t, os.Setenv("TEST_API_KEY", defaultAPIKey))
+	require.NoError(t, os.Setenv("TEST_API_SECRET", defaultSecret))
+
 	// Create base config with PostgreSQL storage as default
 	config := &model.AggregatorConfig{
 		Server: model.ServerConfig{
@@ -130,8 +132,18 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 		Monitoring: model.MonitoringConfig{
 			Enabled: false,
 		},
-		APIKeys: model.APIKeyConfig{
-			Clients: make(map[string]*model.APIClient),
+		APIClients: []*model.ClientConfig{
+			{
+				ClientID:    "test-client",
+				Description: "Test client for integration tests",
+				Enabled:     true,
+				APIKeyPairs: []*model.APIKeyPairEnv{
+					{
+						APIKeyEnvVar: "TEST_API_KEY",
+						SecretEnvVar: "TEST_API_SECRET",
+					},
+				},
+			},
 		},
 		RateLimiting: model.RateLimitingConfig{
 			Enabled: true,
@@ -148,15 +160,6 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 				committeepb.CommitteeVerifier_WriteChainStatus_FullMethodName:                      {LimitPerMinute: 10000},
 				committeepb.CommitteeVerifier_ReadChainStatus_FullMethodName:                       {LimitPerMinute: 10000},
 			},
-		},
-	}
-
-	config.APIKeys.Clients[defaultAPIKey] = &model.APIClient{
-		ClientID:    "test-client",
-		Description: "Test client for integration tests",
-		Enabled:     true,
-		Secrets: map[string]string{
-			"current": defaultSecret,
 		},
 	}
 
@@ -200,9 +203,6 @@ func CreateAuthenticatedClient(t *testing.T, listener *bufconn.Listener, options
 
 	dummyConfig := &model.AggregatorConfig{
 		Storage: &model.StorageConfig{},
-		APIKeys: model.APIKeyConfig{
-			Clients: make(map[string]*model.APIClient),
-		},
 	}
 	for _, option := range options {
 		_, clientConfig = option(dummyConfig, clientConfig)

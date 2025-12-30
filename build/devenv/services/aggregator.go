@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -67,21 +66,33 @@ type AggregatorEnvConfig struct {
 	RedisAddress         string `toml:"redis_address"`
 	RedisPassword        string `toml:"redis_password"`
 	RedisDB              string `toml:"redis_db"`
-	APIKeysJSON          string `toml:"api_keys_json"`
+}
+
+type AggregatorAPIKeyPair struct {
+	APIKey string `toml:"api_key"`
+	Secret string `toml:"secret"`
+}
+type AggregatorClientConfig struct {
+	ClientID    string                  `toml:"client_id"`
+	Description string                  `toml:"description"`
+	Enabled     bool                    `toml:"enabled"`
+	Groups      []string                `toml:"groups"`
+	APIKeyPairs []*AggregatorAPIKeyPair `toml:"api_key_pairs"`
 }
 
 type AggregatorInput struct {
 	Image string `toml:"image"`
 	// HostPort is the port on the host machine that the aggregator will be exposed on.
 	// This should be unique across all containers.
-	HostPort       int                   `toml:"host_port"`
-	SourceCodePath string                `toml:"source_code_path"`
-	RootPath       string                `toml:"root_path"`
-	DB             *AggregatorDBInput    `toml:"db"`
-	Redis          *AggregatorRedisInput `toml:"redis"`
-	Out            *AggregatorOutput     `toml:"out"`
-	Env            *AggregatorEnvConfig  `toml:"env"`
-	CommitteeName  string                `toml:"committee_name"`
+	HostPort       int                       `toml:"host_port"`
+	SourceCodePath string                    `toml:"source_code_path"`
+	RootPath       string                    `toml:"root_path"`
+	DB             *AggregatorDBInput        `toml:"db"`
+	Redis          *AggregatorRedisInput     `toml:"redis"`
+	Out            *AggregatorOutput         `toml:"out"`
+	Env            *AggregatorEnvConfig      `toml:"env"`
+	APIClients     []*AggregatorClientConfig `toml:"api_clients"`
+	CommitteeName  string                    `toml:"committee_name"`
 
 	// Chain selector -> Committee Verifier Resolver Address
 	CommitteeVerifierResolverAddresses map[uint64]string `toml:"committee_verifier_resolver_addresses"`
@@ -94,15 +105,6 @@ type AggregatorInput struct {
 	// SharedTLSCerts contains shared TLS certificates for all aggregators.
 	// If set, these certs will be used instead of generating new ones.
 	SharedTLSCerts *TLSCertPaths `toml:"-"`
-}
-
-func (a *AggregatorInput) GetAPIKeys() (model.APIKeyConfig, error) {
-	var apiKeyConfig model.APIKeyConfig
-	err := json.Unmarshal([]byte(a.Env.APIKeysJSON), &apiKeyConfig)
-	if err != nil {
-		return model.APIKeyConfig{}, fmt.Errorf("failed to unmarshal API keys JSON: %w", err)
-	}
-	return apiKeyConfig, nil
 }
 
 type AggregatorOutput struct {
@@ -225,12 +227,35 @@ func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) (tomlConfig []byt
 		config.Monitoring.Beholder.OtelExporterHTTPEndpoint = a.MonitoringOtelExporterHTTPEndpoint
 	}
 
+	for _, client := range a.APIClients {
+		config.APIClients = append(config.APIClients, &model.ClientConfig{
+			ClientID:    client.ClientID,
+			Description: client.Description,
+			Enabled:     client.Enabled,
+			Groups:      client.Groups,
+			APIKeyPairs: make([]*model.APIKeyPairEnv, 0, len(client.APIKeyPairs)),
+		})
+		for i := range client.APIKeyPairs {
+			config.APIClients[len(config.APIClients)-1].APIKeyPairs = append(config.APIClients[len(config.APIClients)-1].APIKeyPairs, &model.APIKeyPairEnv{
+				APIKeyEnvVar: fmt.Sprintf("AGGREGATOR_API_KEY_%s_%d", client.ClientID, i),
+				SecretEnvVar: fmt.Sprintf("AGGREGATOR_SECRET_%s_%d", client.ClientID, i),
+			})
+		}
+	}
 	cfg, err := toml.Marshal(config)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to marshal aggregator config to TOML: %w", err)
 	}
 
 	return cfg, thresholdPerSource, nil
+}
+
+func (a *AggregatorInput) GetAPIKeys() ([]AggregatorClientConfig, error) {
+	apiKeyConfigs := make([]AggregatorClientConfig, 0, len(a.APIClients))
+	for _, client := range a.APIClients {
+		apiKeyConfigs = append(apiKeyConfigs, *client)
+	}
+	return apiKeyConfigs, nil
 }
 
 func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput, error) {
@@ -363,10 +388,12 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 		}
 		envVars["AGGREGATOR_STORAGE_CONNECTION_URL"] = in.Env.StorageConnectionURL
 
-		if in.Env.APIKeysJSON == "" {
-			return nil, fmt.Errorf("AGGREGATOR_API_KEYS_JSON is required in env config")
+		for _, client := range in.APIClients {
+			for i, apiKeyPair := range client.APIKeyPairs {
+				envVars[fmt.Sprintf("AGGREGATOR_API_KEY_%s_%d", client.ClientID, i)] = apiKeyPair.APIKey
+				envVars[fmt.Sprintf("AGGREGATOR_SECRET_%s_%d", client.ClientID, i)] = apiKeyPair.Secret
+			}
 		}
-		envVars["AGGREGATOR_API_KEYS_JSON"] = in.Env.APIKeysJSON
 
 		if in.Env.RedisAddress == "" {
 			return nil, fmt.Errorf("AGGREGATOR_REDIS_ADDRESS is required in env config")
