@@ -8,17 +8,20 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+const (
+	maxRetries    = 10
+	timeout       = 1 * time.Second
+	retryInterval = 3 * time.Second
+)
+
+// Pingable is implemented by servers that support pings.
 type Pingable interface {
+	// PingContext pings the server and returns an error if the ping is unsuccessful.
 	PingContext(ctx context.Context) error
 }
 
 // EnsureDBConnection ensures that the database is up and running by pinging it.
 func EnsureDBConnection(lggr logger.Logger, db Pingable) error {
-	const (
-		maxRetries    = 10
-		timeout       = 1 * time.Second
-		retryInterval = 3 * time.Second
-	)
 	pingFn := func() error {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
