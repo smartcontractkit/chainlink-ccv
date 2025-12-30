@@ -19,6 +19,7 @@ import (
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/configuration"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/common/auth"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
@@ -96,11 +97,11 @@ type AggregatorInput struct {
 	SharedTLSCerts *TLSCertPaths `toml:"-"`
 }
 
-func (a *AggregatorInput) GetAPIKeys() (model.APIKeyConfig, error) {
-	var apiKeyConfig model.APIKeyConfig
+func (a *AggregatorInput) GetAPIKeys() (auth.APIKeyConfig, error) {
+	var apiKeyConfig auth.APIKeyConfig
 	err := json.Unmarshal([]byte(a.Env.APIKeysJSON), &apiKeyConfig)
 	if err != nil {
-		return model.APIKeyConfig{}, fmt.Errorf("failed to unmarshal API keys JSON: %w", err)
+		return auth.APIKeyConfig{}, fmt.Errorf("failed to unmarshal API keys JSON: %w", err)
 	}
 	return apiKeyConfig, nil
 }

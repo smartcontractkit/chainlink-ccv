@@ -13,8 +13,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/common/auth"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
@@ -40,9 +39,9 @@ func generateTestSignature(
 }
 
 // Test helper: creates test API key configuration.
-func createTestAPIKeyConfig() *model.APIKeyConfig {
-	return &model.APIKeyConfig{
-		Clients: map[string]*model.APIClient{
+func createTestAPIKeyConfig() *auth.APIKeyConfig {
+	return &auth.APIKeyConfig{
+		Clients: map[string]*auth.APIClient{
 			testAPIKey1: {
 				ClientID:    "client-1",
 				Description: "Test client 1",

@@ -11,9 +11,9 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/rate_limiting"
+	"github.com/smartcontractkit/chainlink-ccv/common/auth"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -23,13 +23,13 @@ var _ protocol.HealthReporter = (*RateLimitingMiddleware)(nil)
 type RateLimitingMiddleware struct {
 	store     limiter.Store
 	config    model.RateLimitingConfig
-	apiConfig model.APIKeyConfig
+	apiConfig auth.APIKeyConfig
 	enabled   bool
 	lggr      logger.SugaredLogger
 }
 
 // NewRateLimitingMiddleware creates a new rate limiting middleware with the given store and configuration.
-func NewRateLimitingMiddleware(store limiter.Store, config model.RateLimitingConfig, apiConfig model.APIKeyConfig, lggr logger.SugaredLogger) *RateLimitingMiddleware {
+func NewRateLimitingMiddleware(store limiter.Store, config model.RateLimitingConfig, apiConfig auth.APIKeyConfig, lggr logger.SugaredLogger) *RateLimitingMiddleware {
 	if store == nil {
 		return &RateLimitingMiddleware{enabled: false}
 	}
@@ -49,7 +49,7 @@ func (m *RateLimitingMiddleware) buildKey(callerID, method string) string {
 
 func (m *RateLimitingMiddleware) getLimitConfig(callerID, method string) (model.RateLimitConfig, bool) {
 	// Get the API client configuration for the caller
-	var apiClient *model.APIClient
+	var apiClient *auth.APIClient
 	for _, client := range m.apiConfig.Clients {
 		if client.ClientID == callerID {
 			apiClient = client
@@ -123,7 +123,7 @@ func (m *RateLimitingMiddleware) Intercept(ctx context.Context, req any, info *g
 }
 
 // NewRateLimitingMiddlewareFromConfig creates a rate limiting middleware from configuration.
-func NewRateLimitingMiddlewareFromConfig(config model.RateLimitingConfig, apiConfig model.APIKeyConfig, lggr logger.SugaredLogger) (*RateLimitingMiddleware, error) {
+func NewRateLimitingMiddlewareFromConfig(config model.RateLimitingConfig, apiConfig auth.APIKeyConfig, lggr logger.SugaredLogger) (*RateLimitingMiddleware, error) {
 	if !config.Enabled {
 		return &RateLimitingMiddleware{enabled: false}, nil
 	}
