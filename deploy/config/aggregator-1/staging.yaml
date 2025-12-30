@@ -1,0 +1,8 @@
+name: chainlink-ccv-aggregator-1
+envFromSecretsKeyRef:
+  - envName: AGGREGATOR_STORAGE_CONNECTION_URL
+    secretName: tbd
+    secretKey: tbd
+  - envName: AGGREGATOR_API_KEYS_JSON
+    secretName: tbd
+    secretKey: tbd

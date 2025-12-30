@@ -1,0 +1,52 @@
+{{- $global := . -}}
+{{- range until (include "chainlink-cluster.clusterSize" . | int) }}
+  {{- $merged := dict "common" $global.Values.common "overrides" $global.Values.overrides "idx" . | include "chainlink-cluster.merged" | fromYaml -}}
+  {{- if and ($global.Values.enabled) (not $merged.chainlinkNode.enabled) }}
+  {{- if not $merged.chainlinkNode.existingSecret }}
+  {{- $nodeName :=  dict "global" $global "merged" $merged "idx" . | include "chainlink-cluster.nodeName" -}}
+  {{- $labels := dict "global" $global "merged" $merged "nodeName" $nodeName | include "chainlink-cluster.labelMachine" | fromYaml }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $nodeName }}-v2
+  labels: {{ $labels.instance | nindent 4 }}
+type: Opaque
+stringData:
+  {{- with $merged.chainlinkNode.spec }}
+  {{- $dburl := printf "postgresql://%s:%s/%s?user=%s&password=%s" .database.config.host .database.config.port (default $nodeName .database.config.database) (default $nodeName .database.config.user) .database.config.password }}
+  {{- if and (hasKey $merged.chainlinkNode.metadata.annotations "chainlinknode.k8s.chain.link/disable-tls") (eq (index $merged.chainlinkNode.metadata.annotations "chainlinknode.k8s.chain.link/disable-tls") "true") }}
+  {{- $dburl = printf "%s&sslmode=disable" $dburl }}
+  {{- end }}
+  {{ .credentials.config.api.key }}: {{ (printf "%s\n%s" .credentials.config.api.user .credentials.config.api.password) | quote }}
+  secret.toml: |
+    [Password]
+    Keystore = {{ .credentials.config.keystore.password | quote }}
+    VRF = {{ .credentials.config.vrf.password | quote }}
+    
+    [Database]
+    URL = {{ $dburl | quote }}
+  {{- end }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $nodeName }}-db
+  labels: {{ $labels.instance | nindent 4 }}
+type: Opaque
+data:
+  {{- with $merged.chainlinkNode.spec }}
+  {{- $dburl := printf "postgresql://%s:%s/%s?user=%s&password=%s" .database.config.host .database.config.port (default $nodeName .database.config.database) (default $nodeName .database.config.user) .database.config.password }}
+  {{- if and (hasKey $merged.chainlinkNode.metadata.annotations "chainlinknode.k8s.chain.link/disable-tls") (eq (index $merged.chainlinkNode.metadata.annotations "chainlinknode.k8s.chain.link/disable-tls") "true") }}
+  {{- $dburl = printf "%s&sslmode=disable" $dburl }}
+  {{- end }}
+  POSTGRES_DB: {{ (default $nodeName .database.config.database) | b64enc | quote }}
+  POSTGRES_HOST: {{ .database.config.host | b64enc | quote }}
+  POSTGRES_PASSWORD: {{ .database.config.password | b64enc | quote }}
+  POSTGRES_PORT: {{ .database.config.port | b64enc | quote }}
+  POSTGRES_USER: {{ (default $nodeName .database.config.user) | b64enc | quote }}
+  DATABASE_URL: {{ $dburl | b64enc | quote }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
+{{- end }}

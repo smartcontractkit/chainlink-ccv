@@ -1,0 +1,31 @@
+#envSecrets: {}
+readinessProbe: null
+livenessProbe: null
+image:
+  repository: 323150190480.dkr.ecr.us-west-2.amazonaws.com/chainlink-ccv-aggregator
+  tag: e21beb7b6213bf14427ce26720cde310bb964b0f-rc
+envVars:
+  APP_NAME: chainlink-ccv-aggregator
+  AGGREGATOR_CONFIG_PATH: /config/aggregator.toml
+resources:
+  limits:
+    cpu: 1
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 256Mi
+labels:
+  chain.link/environment: staging
+  chain.link/team: ccip
+volumes:
+  - name: aggregator-toml-config
+    configMap:
+      name: chainlink-ccv-aggregator
+volumeMounts:
+  - name: aggregator-toml-config
+    mountPath: /config/aggregator.toml
+    subPath: aggregator.toml
+serviceMonitor:
+  enabled: true
+service:
+  port: 50051

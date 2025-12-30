@@ -1,0 +1,148 @@
+# chart: https://github.com/bitnami/charts/tree/master/bitnami/postgresql
+# install: helm install pg bitnami/postgresql -n chainlink --version "13.1.3" -f values.pg.yaml
+architecture: standalone
+auth:
+  enablePostgresUser: true
+  postgresPassword: postgres
+  username: chainlink
+  password: chainlink
+  database: chainlink
+  existingSecret: ''
+image:
+  registry: 925774240219.dkr.ecr.us-west-2.amazonaws.com
+  repository: containers/debian-12/postgresql
+  tag: 15.14.0-debian-12-r8
+tls:
+  enabled: false
+containerPorts:
+  postgresql: 5432
+primary:
+  persistence:
+    enabled: false
+    size: 8Gi
+    storageClass: gp2
+  # https://github.com/bitnami/charts/tree/main/bitnami/postgresql#initialize-a-fresh-instance
+  initdb:
+    user: postgres
+    password: postgres
+    scripts:
+      # TEMP
+      init.sql: |
+        -- cln-misc-s-n
+        CREATE USER "cln-misc-s-n-0";
+        CREATE DATABASE "cln-misc-s-n-0";
+        ALTER DATABASE "cln-misc-s-n-0" OWNER TO "cln-misc-s-n-0";
+        ALTER ROLE "cln-misc-s-n-0" WITH PASSWORD 'JGVgp7M2Emcg7Av8KKVUgMZb';
+        GRANT ALL PRIVILEGES ON DATABASE "cln-misc-s-n-0" TO "cln-misc-s-n-0";
+        -- cln-misc-s-b
+        CREATE USER "cln-misc-s-b-0";
+        CREATE DATABASE "cln-misc-s-b-0";
+        ALTER DATABASE "cln-misc-s-b-0" OWNER TO "cln-misc-s-b-0";
+        ALTER ROLE "cln-misc-s-b-0" WITH PASSWORD 'JGVgp7M2Emcg7Av8KKVUgMZb';
+        GRANT ALL PRIVILEGES ON DATABASE "cln-misc-s-b-0" TO "cln-misc-s-b-0";
+        -- clc-misc-m-n
+        CREATE USER "clc-misc-m-n-0";
+        CREATE DATABASE "clc-misc-m-n-0";
+        ALTER DATABASE "clc-misc-m-n-0" OWNER TO "clc-misc-m-n-0";
+        ALTER ROLE "clc-misc-m-n-0" WITH PASSWORD 'JGVgp7M2Emcg7Av8KKVUgMZb';
+        GRANT ALL PRIVILEGES ON DATABASE "clc-misc-m-n-0" TO "clc-misc-m-n-0";
+        CREATE USER "clc-misc-m-n-1";
+        CREATE DATABASE "clc-misc-m-n-1";
+        ALTER DATABASE "clc-misc-m-n-1" OWNER TO "clc-misc-m-n-1";
+        ALTER ROLE "clc-misc-m-n-1" WITH PASSWORD 'JGVgp7M2Emcg7Av8KKVUgMZb';
+        GRANT ALL PRIVILEGES ON DATABASE "clc-misc-m-n-1" TO "clc-misc-m-n-1";
+        -- clc-misc-m-b
+        CREATE USER "clc-misc-m-b-0";
+        CREATE DATABASE "clc-misc-m-b-0";
+        ALTER DATABASE "clc-misc-m-b-0" OWNER TO "clc-misc-m-b-0";
+        ALTER ROLE "clc-misc-m-b-0" WITH PASSWORD 'JGVgp7M2Emcg7Av8KKVUgMZb';
+        GRANT ALL PRIVILEGES ON DATABASE "clc-misc-m-b-0" TO "clc-misc-m-b-0";
+        CREATE USER "clc-misc-m-b-1";
+        CREATE DATABASE "clc-misc-m-b-1";
+        ALTER DATABASE "clc-misc-m-b-1" OWNER TO "clc-misc-m-b-1";
+        ALTER ROLE "clc-misc-m-b-1" WITH PASSWORD 'JGVgp7M2Emcg7Av8KKVUgMZb';
+        GRANT ALL PRIVILEGES ON DATABASE "clc-misc-m-b-1" TO "clc-misc-m-b-1";
+        -- clc-misc-m-n-s-b
+        CREATE USER "clc-misc-m-n-s-b-boot";
+        CREATE DATABASE "clc-misc-m-n-s-b-boot";
+        ALTER DATABASE "clc-misc-m-n-s-b-boot" OWNER TO "clc-misc-m-n-s-b-boot";
+        ALTER ROLE "clc-misc-m-n-s-b-boot" WITH PASSWORD 'JGVgp7M2Emcg7Av8KKVUgMZb';
+        GRANT ALL PRIVILEGES ON DATABASE "clc-misc-m-n-s-b-boot" TO "clc-misc-m-n-s-b-boot";
+        CREATE USER "clc-misc-m-n-s-b-0";
+        CREATE DATABASE "clc-misc-m-n-s-b-0";
+        ALTER DATABASE "clc-misc-m-n-s-b-0" OWNER TO "clc-misc-m-n-s-b-0";
+        ALTER ROLE "clc-misc-m-n-s-b-0" WITH PASSWORD 'JGVgp7M2Emcg7Av8KKVUgMZb';
+        GRANT ALL PRIVILEGES ON DATABASE "clc-misc-m-n-s-b-0" TO "clc-misc-m-n-s-b-0";
+        CREATE USER "clc-misc-m-n-s-b-1";
+        CREATE DATABASE "clc-misc-m-n-s-b-1";
+        ALTER DATABASE "clc-misc-m-n-s-b-1" OWNER TO "clc-misc-m-n-s-b-1";
+        ALTER ROLE "clc-misc-m-n-s-b-1" WITH PASSWORD 'JGVgp7M2Emcg7Av8KKVUgMZb';
+        GRANT ALL PRIVILEGES ON DATABASE "clc-misc-m-n-s-b-1" TO "clc-misc-m-n-s-b-1";
+        CREATE USER "clc-misc-m-n-s-b-2";
+        CREATE DATABASE "clc-misc-m-n-s-b-2";
+        ALTER DATABASE "clc-misc-m-n-s-b-2" OWNER TO "clc-misc-m-n-s-b-2";
+        ALTER ROLE "clc-misc-m-n-s-b-2" WITH PASSWORD 'JGVgp7M2Emcg7Av8KKVUgMZb';
+        GRANT ALL PRIVILEGES ON DATABASE "clc-misc-m-n-s-b-2" TO "clc-misc-m-n-s-b-2";
+        CREATE USER "clc-misc-m-n-s-b-3";
+        CREATE DATABASE "clc-misc-m-n-s-b-3";
+        ALTER DATABASE "clc-misc-m-n-s-b-3" OWNER TO "clc-misc-m-n-s-b-3";
+        ALTER ROLE "clc-misc-m-n-s-b-3" WITH PASSWORD 'JGVgp7M2Emcg7Av8KKVUgMZb';
+        GRANT ALL PRIVILEGES ON DATABASE "clc-misc-m-n-s-b-3" TO "clc-misc-m-n-s-b-3";
+        -- clc-misc-m-n-m-b
+        CREATE USER "clc-misc-m-n-m-b-boot-0";
+        CREATE DATABASE "clc-misc-m-n-m-b-boot-0";
+        ALTER DATABASE "clc-misc-m-n-m-b-boot-0" OWNER TO "clc-misc-m-n-m-b-boot-0";
+        ALTER ROLE "clc-misc-m-n-m-b-boot-0" WITH PASSWORD 'JGVgp7M2Emcg7Av8KKVUgMZb';
+        GRANT ALL PRIVILEGES ON DATABASE "clc-misc-m-n-m-b-boot-0" TO "clc-misc-m-n-m-b-boot-0";
+        CREATE USER "clc-misc-m-n-m-b-boot-1";
+        CREATE DATABASE "clc-misc-m-n-m-b-boot-1";
+        ALTER DATABASE "clc-misc-m-n-m-b-boot-1" OWNER TO "clc-misc-m-n-m-b-boot-1";
+        ALTER ROLE "clc-misc-m-n-m-b-boot-1" WITH PASSWORD 'JGVgp7M2Emcg7Av8KKVUgMZb';
+        GRANT ALL PRIVILEGES ON DATABASE "clc-misc-m-n-m-b-boot-1" TO "clc-misc-m-n-m-b-boot-1";
+        CREATE USER "clc-misc-m-n-m-b-0";
+        CREATE DATABASE "clc-misc-m-n-m-b-0";
+        ALTER DATABASE "clc-misc-m-n-m-b-0" OWNER TO "clc-misc-m-n-m-b-0";
+        ALTER ROLE "clc-misc-m-n-m-b-0" WITH PASSWORD 'JGVgp7M2Emcg7Av8KKVUgMZb';
+        GRANT ALL PRIVILEGES ON DATABASE "clc-misc-m-n-m-b-0" TO "clc-misc-m-n-m-b-0";
+        CREATE USER "clc-misc-m-n-m-b-1";
+        CREATE DATABASE "clc-misc-m-n-m-b-1";
+        ALTER DATABASE "clc-misc-m-n-m-b-1" OWNER TO "clc-misc-m-n-m-b-1";
+        ALTER ROLE "clc-misc-m-n-m-b-1" WITH PASSWORD 'JGVgp7M2Emcg7Av8KKVUgMZb';
+        GRANT ALL PRIVILEGES ON DATABASE "clc-misc-m-n-m-b-1" TO "clc-misc-m-n-m-b-1";
+        CREATE USER "clc-misc-m-n-m-b-2";
+        CREATE DATABASE "clc-misc-m-n-m-b-2";
+        ALTER DATABASE "clc-misc-m-n-m-b-2" OWNER TO "clc-misc-m-n-m-b-2";
+        ALTER ROLE "clc-misc-m-n-m-b-2" WITH PASSWORD 'JGVgp7M2Emcg7Av8KKVUgMZb';
+        GRANT ALL PRIVILEGES ON DATABASE "clc-misc-m-n-m-b-2" TO "clc-misc-m-n-m-b-2";
+        CREATE USER "clc-misc-m-n-m-b-3";
+        CREATE DATABASE "clc-misc-m-n-m-b-3";
+        ALTER DATABASE "clc-misc-m-n-m-b-3" OWNER TO "clc-misc-m-n-m-b-3";
+        ALTER ROLE "clc-misc-m-n-m-b-3" WITH PASSWORD 'JGVgp7M2Emcg7Av8KKVUgMZb';
+        GRANT ALL PRIVILEGES ON DATABASE "clc-misc-m-n-m-b-3" TO "clc-misc-m-n-m-b-3";
+      # WIP / TODO (simplify)
+      # init.sql: |
+      #   -- Function to create user, database, set ownership, set password, and grant privileges
+      #   DO $$
+      #   DECLARE
+      #       user_arr_names text[] := ARRAY['test1', 'test2'];
+      #       user_name text;
+      #       db_name text;
+      #       password text := 'JGVgp7M2Emcg7Av8KKVUgMZb';
+      #   BEGIN
+      #       FOREACH user_arr_name IN ARRAY user_arr_names
+      #       LOOP
+      #           user_name := user_arr_name;
+      #           db_name := user_name;
+      #           EXECUTE format('CREATE USER "%s"', user_name);
+      #           EXECUTE format('CREATE DATABASE "%s"', db_name);
+      #           EXECUTE format('ALTER DATABASE "%s" OWNER TO "%s"', db_name, user_name);
+      #           EXECUTE format('ALTER ROLE "%s" WITH PASSWORD ''%s''', user_name, password);
+      #           EXECUTE format('GRANT ALL PRIVILEGES ON DATABASE "%s" TO "%s"', db_name, user_name);
+      #       END LOOP;
+      #   END $$;
+networkPolicy:
+  enabled: false
+volumePermissions:
+  enabled: false
+metrics:
+  enabled: false
