@@ -123,12 +123,30 @@ func SetupMockSourceReader(t *testing.T) *MockSourceReaderSetup {
 func (msrs *MockSourceReaderSetup) ExpectFetchMessageSentEvent(maybeVerificationTask bool) {
 	call := msrs.Reader.EXPECT().FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, b, b2 *big.Int) ([]protocol.MessageSentEvent, error) {
 		var events []protocol.MessageSentEvent
+
+		// Wait briefly for at least one event so tests that send right before a fetch aren't lost.
+		// Use a short timer to avoid hanging tests indefinitely.
+		timer := time.NewTimer(200 * time.Millisecond)
+		defer timer.Stop()
+
 		for {
 			select {
 			case event := <-msrs.Channel:
 				events = append(events, event)
-			default:
+				// Drain any additional matching events without blocking
+				for {
+					select {
+					case ev := <-msrs.Channel:
+						events = append(events, ev)
+					default:
+						return events, nil
+					}
+				}
+			case <-timer.C:
+				// no matching events arrived within the window; return whatever we collected (may be empty)
 				return events, nil
+			case <-ctx.Done():
+				return nil, ctx.Err()
 			}
 		}
 	})
