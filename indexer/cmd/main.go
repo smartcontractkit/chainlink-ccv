@@ -288,30 +288,30 @@ func createPostgresStorage(ctx context.Context, lggr logger.Logger, cfg *config.
 }
 
 // ensureDBConnection ensures that the database is up and running by pinging it.
-// func ensureDBConnection(lggr logger.Logger, db *sql.DB) error {
-// 	const (
-// 		maxRetries    = 10
-// 		timeout       = 1 * time.Second
-// 		retryInterval = 3 * time.Second
-// 	)
-// 	pingFn := func() error {
-// 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-// 		defer cancel()
-// 		return db.PingContext(ctx)
-// 	}
-// 	for range maxRetries {
-// 		err := pingFn()
-// 		if err == nil {
-// 			return nil
-// 		}
-// 		lggr.Warnw("failed to connect to database, retrying after sleeping",
-// 			"err", err,
-// 			"retryInterval", retryInterval.String(),
-// 			"maxRetries", maxRetries)
-// 		time.Sleep(retryInterval)
-// 	}
-// 	return fmt.Errorf("failed to connect to database after %d retries", maxRetries)
-// }
+func ensureDBConnection(lggr logger.Logger, db *sql.DB) error {
+	const (
+		maxRetries    = 10
+		timeout       = 1 * time.Second
+		retryInterval = 3 * time.Second
+	)
+	pingFn := func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		return db.PingContext(ctx)
+	}
+	for range maxRetries {
+		err := pingFn()
+		if err == nil {
+			return nil
+		}
+		lggr.Warnw("failed to connect to database, retrying after sleeping",
+			"err", err,
+			"retryInterval", retryInterval.String(),
+			"maxRetries", maxRetries)
+		time.Sleep(retryInterval)
+	}
+	return fmt.Errorf("failed to connect to database after %d retries", maxRetries)
+}
 
 // runMigrations runs all pending database migrations using goose.
 func runMigrations(lggr logger.Logger, dbURI, migrationsDir string) error {
@@ -321,10 +321,10 @@ func runMigrations(lggr logger.Logger, dbURI, migrationsDir string) error {
 		return err
 	}
 
-	// err = ensureDBConnection(lggr, db)
-	// if err != nil {
-	// 	return fmt.Errorf("could not connect to database: %w", err)
-	// }
+	err = ensureDBConnection(lggr, db)
+	if err != nil {
+		return fmt.Errorf("could not connect to database: %w", err)
+	}
 
 	defer func() {
 		if cerr := db.Close(); cerr != nil {
