@@ -17,6 +17,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
@@ -333,7 +334,7 @@ func createChainStatusManager(lggr logger.Logger) (protocol.ChainStatusManager, 
 	db.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
 	db.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Second)
 
-	if err := db.Ping(); err != nil {
+	if err := ccvcommon.EnsureDBConnection(lggr, db); err != nil {
 		_ = db.Close()
 		return nil, nil, fmt.Errorf("failed to ping postgres database: %w", err)
 	}

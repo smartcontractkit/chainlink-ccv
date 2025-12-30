@@ -12,6 +12,7 @@ import (
 	"github.com/pressly/goose/v3"
 	"go.uber.org/zap/zapcore"
 
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
@@ -287,32 +288,6 @@ func createPostgresStorage(ctx context.Context, lggr logger.Logger, cfg *config.
 	return dbStore
 }
 
-// ensureDBConnection ensures that the database is up and running by pinging it.
-func ensureDBConnection(lggr logger.Logger, db *sql.DB) error {
-	const (
-		maxRetries    = 10
-		timeout       = 1 * time.Second
-		retryInterval = 3 * time.Second
-	)
-	pingFn := func() error {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		defer cancel()
-		return db.PingContext(ctx)
-	}
-	for range maxRetries {
-		err := pingFn()
-		if err == nil {
-			return nil
-		}
-		lggr.Warnw("failed to connect to database, retrying after sleeping",
-			"err", err,
-			"retryInterval", retryInterval.String(),
-			"maxRetries", maxRetries)
-		time.Sleep(retryInterval)
-	}
-	return fmt.Errorf("failed to connect to database after %d retries", maxRetries)
-}
-
 // runMigrations runs all pending database migrations using goose.
 func runMigrations(lggr logger.Logger, dbURI, migrationsDir string) error {
 	// Open a connection to the database for migrations
@@ -321,7 +296,7 @@ func runMigrations(lggr logger.Logger, dbURI, migrationsDir string) error {
 		return err
 	}
 
-	err = ensureDBConnection(lggr, db)
+	err = ccvcommon.EnsureDBConnection(lggr, db)
 	if err != nil {
 		return fmt.Errorf("could not connect to database: %w", err)
 	}

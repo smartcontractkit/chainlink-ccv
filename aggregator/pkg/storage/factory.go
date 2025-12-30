@@ -10,6 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/postgres"
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	_ "github.com/lib/pq" // PostgreSQL driver
@@ -93,7 +94,7 @@ func (f *Factory) createPostgreSQLStorage(config *model.StorageConfig) (CommitVe
 		"connMaxIdleTime", connMaxIdleTime,
 	)
 
-	if err := db.Ping(); err != nil {
+	if err := ccvcommon.EnsureDBConnection(f.logger, db); err != nil {
 		return nil, fmt.Errorf("failed to ping PostgreSQL database: %w", err)
 	}
 
