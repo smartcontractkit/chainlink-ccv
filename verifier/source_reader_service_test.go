@@ -12,6 +12,7 @@ import (
 
 	ccv_common "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 
 	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 )
@@ -437,7 +438,7 @@ func TestSRS_Readiness_CustomFinality_ReadyAgainstLatest(t *testing.T) {
 		require.NoError(t, batch.Error)
 		require.Len(t, batch.Items, 1)
 		require.Equal(t, task.MessageID, batch.Items[0].MessageID)
-	case <-time.After(time.Second):
+	case <-time.After(tests.WaitTimeout(t)):
 		t.Fatal("timed out waiting for readyTasks batch")
 	}
 }

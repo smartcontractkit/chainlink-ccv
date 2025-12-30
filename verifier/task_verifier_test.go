@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 func Test_ProcessingReadyTasks(t *testing.T) {
@@ -26,7 +27,7 @@ func Test_ProcessingReadyTasks(t *testing.T) {
 
 	fanoutCh := make(chan batcher.BatchResult[verifier.VerificationTask], 10)
 	fakeFanout := FakeSourceReaderFanout{
-		batcher: batcher.NewBatcher[verifier.VerificationTask](
+		batcher: batcher.NewBatcher(
 			t.Context(),
 			2,
 			100*time.Millisecond,
@@ -36,7 +37,7 @@ func Test_ProcessingReadyTasks(t *testing.T) {
 	}
 
 	storageOutCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
-	storageBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](
+	storageBatcher := batcher.NewBatcher(
 		t.Context(),
 		2,
 		100*time.Millisecond,
@@ -86,7 +87,7 @@ func Test_ProcessingReadyTasks(t *testing.T) {
 		require.Eventually(t, func() bool {
 			return mockVerifier.Attempt(task1.MessageID) >= 3 &&
 				mockVerifier.Attempt(task2.MessageID) >= 3
-		}, waitTimeout(t), 10*time.Millisecond)
+		}, tests.WaitTimeout(t), 10*time.Millisecond)
 
 		select {
 		case res, ok := <-storageOutCh:

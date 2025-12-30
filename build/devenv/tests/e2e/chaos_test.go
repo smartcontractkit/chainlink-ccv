@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
 )
@@ -60,7 +61,7 @@ func TestChaos_AggregatorOutageRecovery(t *testing.T) {
 
 	runV2TestCase(t, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerClient, AssertMessageOptions{
 		TickInterval:            5 * time.Second,
-		Timeout:                 waitTimeout(t),
+		Timeout:                 tests.WaitTimeout(t),
 		ExpectedVerifierResults: tc.numExpectedVerifications,
 		AssertVerifierLogs:      false,
 		AssertExecutorLogs:      false,
@@ -136,7 +137,7 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 		setup.indexerClient,
 		AssertMessageOptions{
 			TickInterval:            5 * time.Second,
-			Timeout:                 waitTimeout(t),
+			Timeout:                 tests.WaitTimeout(t),
 			ExpectedVerifierResults: tc.numExpectedVerifications,
 			AssertVerifierLogs:      false,
 			AssertExecutorLogs:      false,
@@ -179,7 +180,7 @@ func TestChaos_AllExecutorsDown(t *testing.T) {
 
 	runV2TestCase(t, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerClient, AssertMessageOptions{
 		TickInterval:            5 * time.Second,
-		Timeout:                 waitTimeout(t),
+		Timeout:                 tests.WaitTimeout(t),
 		ExpectedVerifierResults: tc.numExpectedVerifications,
 		AssertVerifierLogs:      false,
 		AssertExecutorLogs:      false,
@@ -216,19 +217,11 @@ func TestChaos_IndexerDown(t *testing.T) {
 
 	runV2TestCase(t, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerClient, AssertMessageOptions{
 		TickInterval:            5 * time.Second,
-		Timeout:                 waitTimeout(t),
+		Timeout:                 tests.WaitTimeout(t),
 		ExpectedVerifierResults: tc.numExpectedVerifications,
 		AssertVerifierLogs:      false,
 		AssertExecutorLogs:      false,
 	})
-}
-
-func waitTimeout(t *testing.T) time.Duration {
-	deadline, ok := t.Deadline()
-	if !ok {
-		deadline = time.Now().Add(10 * time.Second)
-	}
-	return time.Until(deadline)
 }
 
 type chaosSetup struct {
