@@ -12,6 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 // mockVerifierResultsAPI is a simple mock implementation of VerifierResultsAPI for testing.
@@ -167,7 +168,7 @@ func TestVerifierReader_Run_ProcessesBatches(t *testing.T) {
 		default:
 			return false
 		}
-	}, waitTimeout(t), 50*time.Millisecond, "waiting for result1")
+	}, tests.WaitTimeout(t), 50*time.Millisecond, "waiting for result1")
 	assert.Equal(t, ccvData1, result1.Value())
 	assert.NoError(t, result1.Err())
 
@@ -180,7 +181,7 @@ func TestVerifierReader_Run_ProcessesBatches(t *testing.T) {
 		default:
 			return false
 		}
-	}, waitTimeout(t), 50*time.Millisecond, "waiting for result2")
+	}, tests.WaitTimeout(t), 50*time.Millisecond, "waiting for result2")
 	assert.Equal(t, ccvData2, result2.Value())
 	assert.NoError(t, result2.Err())
 
@@ -364,12 +365,4 @@ func TestVerifierReader_Run_ChannelClosed(t *testing.T) {
 
 	// Wait for run goroutine to finish
 	reader.runWg.Wait()
-}
-
-func waitTimeout(t *testing.T) time.Duration {
-	deadline, ok := t.Deadline()
-	if !ok {
-		deadline = time.Now().Add(10 * time.Second)
-	}
-	return time.Until(deadline)
 }

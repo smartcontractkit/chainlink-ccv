@@ -19,6 +19,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 var (
@@ -235,7 +236,7 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 			return false
 		}
 		return len(results) == 2
-	}, waitTimeout(t), 500*time.Millisecond, "waiting for messages to land in ccv storage")
+	}, tests.WaitTimeout(t), 500*time.Millisecond, "waiting for messages to land in ccv storage")
 
 	assertResultMatchesMessage(t, results[msg1.MessageID], msg1, ccvData1, testCCVAddr, destVerifier)
 	assertResultMatchesMessage(t, results[msg2.MessageID], msg2, ccvData2, testCCVAddr, destVerifier)
@@ -335,7 +336,7 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 			return false
 		}
 		return len(results) == 2
-	}, waitTimeout(t), 500*time.Millisecond, "waiting for messages to land in ccv storage")
+	}, tests.WaitTimeout(t), 500*time.Millisecond, "waiting for messages to land in ccv storage")
 
 	assertResultMatchesMessage(t, results[msg1337.MessageID], msg1337, ccvData1, testCCVAddr, destVerifier)
 	assertResultMatchesMessage(t, results[msg2337.MessageID], msg2337, ccvData2, destVerifier, testCCVAddr)
@@ -425,7 +426,7 @@ func Test_CCTPMessages_RetryingAttestation(t *testing.T) {
 			return false
 		}
 		return len(results) == 1
-	}, waitTimeout(t), 200*time.Millisecond, "waiting for messages to land in ccv storage")
+	}, tests.WaitTimeout(t), 200*time.Millisecond, "waiting for messages to land in ccv storage")
 
 	assertResultMatchesMessage(t, results[msg.MessageID], msg, ccvData, testCCVAddr, destVerifier)
 }
@@ -477,14 +478,6 @@ func createCCTPCoordinator(
 		noopMonitoring,
 		ts.chainStatusManager,
 	)
-}
-
-func waitTimeout(t *testing.T) time.Duration {
-	deadline, ok := t.Deadline()
-	if !ok {
-		deadline = time.Now().Add(10 * time.Second)
-	}
-	return time.Until(deadline)
 }
 
 type attestationMock struct {
