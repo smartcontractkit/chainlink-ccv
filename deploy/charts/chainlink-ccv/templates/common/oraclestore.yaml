@@ -1,0 +1,16 @@
+{{- $global := . -}}
+{{- range until (include "chainlink-cluster.clusterSize" . | int) }}
+  {{- $merged := dict "common" $global.Values.common "overrides" $global.Values.overrides "idx" . | include "chainlink-cluster.merged" | fromYaml -}}
+  {{- if and ($global.Values.enabled) ($merged.oraclestore.enabled) }}
+  {{- $nodeName :=  dict "global" $global "merged" $merged "idx" . | include "chainlink-cluster.nodeName" -}}
+  {{- $labels := dict "global" $global "merged" $merged "nodeName" $nodeName | include "chainlink-cluster.labelMachine" | fromYaml }}
+---
+apiVersion: k8s.chain.link/v1alpha1
+kind: OracleStore
+metadata:
+  name: {{ $nodeName }}
+  labels: {{ $labels.instance | nindent 4 }}
+  annotations: {{- toYaml $merged.oraclestore.metadata.annotations | nindent 4 }}
+spec: {{- toYaml $merged.oraclestore.spec | nindent 2 }}
+  {{- end }}
+{{- end }}

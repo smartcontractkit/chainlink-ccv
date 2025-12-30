@@ -1,0 +1,256 @@
+manifest should match snapshot:
+  1: |
+    apiVersion: v1
+    data:
+      00-defaults-node-config.toml: |
+        RootDir = '/home/chainlink'
+
+        [Database]
+          MaxIdleConns = 20
+          MaxOpenConns = 40
+          MigrateOnStartup = true
+
+        [Log]
+          Level = 'info'
+          JSONConsole = true
+
+        [Log.File]
+          MaxSize = '0b'
+
+        [WebServer]
+          AllowOrigins = '*'
+          HTTPPort = 6688
+          SecureCookies = false
+
+          [WebServer.RateLimit]
+            Authenticated = 2000
+            Unauthenticated = 100
+
+          [WebServer.TLS]
+            HTTPSPort = 0
+      01-networks.toml: |
+        [[EVM]]
+          ChainID = "11155111"
+
+          [[EVM.Nodes]]
+            HTTPURL = "https://nd-611-802-295.p2pify.com/05541dd996d9d812e580c32477f70b1a"
+            Name = "11155111_primary_Chainstack_0"
+            SendOnly = false
+            WSURL = "wss://ws-nd-611-802-295.p2pify.com/05541dd996d9d812e580c32477f70b1a"
+
+          [[EVM.Nodes]]
+            HTTPURL = "https://chainlinklabs-sepolia-geth-fullnode-01.bdnodes.net/?auth=waYM-neMbBEC2Nlg2u-8vcC6JFNWB5W-Yv-deQuHGAk"
+            Name = "11155111_primary_Blockdaemon_1"
+            SendOnly = false
+            WSURL = "wss://chainlinklabs-sepolia-geth-fullnode-01.bdnodes.net:8443/websocket?auth=waYM-neMbBEC2Nlg2u-8vcC6JFNWB5W-Yv-deQuHGAk"
+
+          [[EVM.Nodes]]
+            HTTPURL = "https://ethereum-sepolia-1.simplystaking.xyz/DFKJSDFKJNSD/rpc/"
+            Name = "11155111_primary_SimplyVC_2"
+            SendOnly = false
+            WSURL = "wss://ethereum-sepolia-1.simplystaking.xyz/DFKJSDFKJNSD/ws/"
+    kind: ConfigMap
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: cln-misc-s-b-bt-0
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: cln-misc-s-b
+        app.kubernetes.io/version: local
+      name: cln-misc-s-b-bt-0-cm-v2
+  2: |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: cln-misc-s-b-bt-0
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: cln-misc-s-b
+        app.kubernetes.io/version: local
+      name: cln-misc-s-b-bt-0
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/instance: cln-misc-s-b-bt-0
+          app.kubernetes.io/name: cln-misc-s-b
+      template:
+        metadata:
+          annotations:
+            checksum/config-v2: 8356c8f2158dd6075f39f56e6f9e5bf65be770a8ac941af28002f6b703dea497
+          labels:
+            app.chain.link/blockchain: ethereum
+            app.chain.link/network: sepolia
+            app.chain.link/network_type: testnet
+            app.chain.link/product: example
+            app.chain.link/team: infra
+            app.kubernetes.io/component: chainlink-example-node
+            app.kubernetes.io/instance: cln-misc-s-b-bt-0
+            app.kubernetes.io/managed-by: Helm
+            app.kubernetes.io/name: cln-misc-s-b
+            app.kubernetes.io/version: local
+        spec:
+          containers:
+            - args:
+                - -c
+                - /v2Config/00-defaults-node-config.toml
+                - -c
+                - /v2Config/01-networks.toml
+                - -s
+                - /v2Secret/secret.toml
+                - local
+                - "n"
+                - -a
+                - /v2Secret/.api
+              image: localhost:5001/chainlink:local
+              imagePullPolicy: IfNotPresent
+              name: chainlink-cluster
+              ports:
+                - containerPort: 6690
+                  name: p2pv1
+                  protocol: TCP
+                - containerPort: 5001
+                  name: p2pv2
+                  protocol: TCP
+                - containerPort: 6688
+                  name: http
+                  protocol: TCP
+              resources:
+                limits:
+                  cpu: 500m
+                  memory: 1024Mi
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+              volumeMounts:
+                - mountPath: /v2Config
+                  name: cln-misc-s-b-bt-0-cm-v2
+                  readOnly: true
+                - mountPath: /v2Secret
+                  name: cln-misc-s-b-bt-0-v2
+                  readOnly: true
+          enableServiceLinks: false
+          initContainers:
+            - args:
+                - -c
+                - |
+                  while ! pg_isready -d $POSTGRES_DB -h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER; do sleep 1; done;
+              command:
+                - /bin/bash
+              envFrom:
+                - secretRef:
+                    name: cln-misc-s-b-bt-0-db
+              image: docker.io/bitnami/postgresql:16.6.0
+              imagePullPolicy: IfNotPresent
+              name: init-db-check
+          topologySpreadConstraints:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: cln-misc-s-b
+              maxSkew: 1
+              topologyKey: topology.kubernetes.io/zone
+              whenUnsatisfiable: ScheduleAnyway
+          volumes:
+            - configMap:
+                name: cln-misc-s-b-bt-0-cm-v2
+              name: cln-misc-s-b-bt-0-cm-v2
+            - name: cln-misc-s-b-bt-0-v2
+              secret:
+                secretName: cln-misc-s-b-bt-0-v2
+  3: |
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: cln-misc-s-b-bt-0
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: cln-misc-s-b
+        app.kubernetes.io/version: local
+      name: cln-misc-s-b-bt-0-v2
+    stringData:
+      .api: |-
+        admin@chain.link
+        hWDmgcub2gUhyrG6cxriqt7T
+      secret.toml: |
+        [Password]
+        Keystore = "cdz7KhvF4ATje2TjrwGMJh2Q"
+        VRF = "cdz7KhvF4ATje2TjrwGMJh2Q"
+
+        [Database]
+        URL = "postgresql://pg-postgresql:5432/cln-misc-s-b-bt-0?user=cln-misc-s-b-bt-0&password=JGVgp7M2Emcg7Av8KKVUgMZb&sslmode=disable"
+    type: Opaque
+  4: |
+    apiVersion: v1
+    data:
+      DATABASE_URL: cG9zdGdyZXNxbDovL3BnLXBvc3RncmVzcWw6NTQzMi9jbG4tbWlzYy1zLWItYnQtMD91c2VyPWNsbi1taXNjLXMtYi1idC0wJnBhc3N3b3JkPUpHVmdwN00yRW1jZzdBdjhLS1ZVZ01aYiZzc2xtb2RlPWRpc2FibGU=
+      POSTGRES_DB: Y2xuLW1pc2Mtcy1iLWJ0LTA=
+      POSTGRES_HOST: cGctcG9zdGdyZXNxbA==
+      POSTGRES_PASSWORD: SkdWZ3A3TTJFbWNnN0F2OEtLVlVnTVpi
+      POSTGRES_PORT: NTQzMg==
+      POSTGRES_USER: Y2xuLW1pc2Mtcy1iLWJ0LTA=
+    kind: Secret
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: cln-misc-s-b-bt-0
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: cln-misc-s-b
+        app.kubernetes.io/version: local
+      name: cln-misc-s-b-bt-0-db
+    type: Opaque
+  5: |
+    apiVersion: v1
+    kind: Service
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: cln-misc-s-b-bt-0
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: cln-misc-s-b
+        app.kubernetes.io/version: local
+      name: cln-misc-s-b-bt-0
+    spec:
+      ports:
+        - name: http
+          port: 6688
+          protocol: TCP
+          targetPort: http
+        - name: p2pv1
+          port: 6690
+          protocol: TCP
+          targetPort: p2pv1
+        - name: p2pv2
+          port: 5001
+          protocol: TCP
+          targetPort: p2pv2
+      selector:
+        app.kubernetes.io/instance: cln-misc-s-b-bt-0
+        app.kubernetes.io/name: cln-misc-s-b
+      type: ClusterIP

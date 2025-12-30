@@ -5,28 +5,76 @@
 
 version: 1
 metadata:
-  account: my-account
-  project: my-project
-  service: my-service
-  owner: team-a
-  contact: team-a@smartcontract.com
+  account: ccip
+  project: ccip2
+  service: ccip2
+  owner: ccip
+  contact: andronikos.nedos@smartcontract.com
 build:
   charts:
     path: deploy/charts
     inventory:
-    - <your-chart>
+    - aggregator
+    - indexer
+    - chainlink-ccv
   containers:
     inventory: []
 deploytemplates: null
 deploy:
-  dev:
+  staging:
     instances:
-    - name: app-instance-1
-      namespace: workload-ns
-      path: deploy/charts/<your-chart>
+    - name: chainlink-ccv
+      namespace: chainlink-ccv
+      path: deploy/charts/chainlink-ccv
       config:
-      - deploy/config/dev.yaml
-      - deploy/config/instance1/dev.yaml
+      - deploy/config/chainlink-ccv/arm64-config.yaml
+      - deploy/config/chainlink-ccv/staging-chains.yaml
+      - deploy/config/chainlink-ccv/staging-image.yaml
+      - deploy/config/chainlink-ccv/staging-resources.yaml
+      - deploy/config/chainlink-ccv/staging-rpcs.yaml
+      - deploy/config/chainlink-ccv/cl-v2-config.yaml
+      settings:
+        install_timeout: 5m0s
+        rollback_timeout: 5m0s
+        upgrade_timeout: 5m0s
+    - name: aggregator-1
+      namespace: chainlink-ccv
+      path: deploy/charts/aggregator
+      config:
+      - deploy/config/staging-aggregator-common.yaml
+      - deploy/config/staging-aggregator-config.yaml
+      - deploy/config/aggregator-1/staging.yaml
+      settings:
+        install_timeout: 5m0s
+        rollback_timeout: 5m0s
+        upgrade_timeout: 5m0s
+    - name: aggregator-2
+      namespace: chainlink-ccv
+      path: deploy/charts/aggregator
+      config:
+      - deploy/config/staging-aggregator.yaml
+      - deploy/config/staging-aggregator-config.yaml
+      - deploy/config/aggregator-2/staging.yaml
+      settings:
+        install_timeout: 5m0s
+        rollback_timeout: 5m0s
+        upgrade_timeout: 5m0s
+    - name: indexer-1
+      namespace: chainlink-ccv
+      path: deploy/charts/indexer
+      config:
+      - deploy/config/staging.yaml
+      - deploy/config/aggregator-1/staging.yaml
+      settings:
+        install_timeout: 5m0s
+        rollback_timeout: 5m0s
+        upgrade_timeout: 5m0s
+    - name: indexer-2
+      namespace: chainlink-ccv
+      path: deploy/charts/indexer
+      config:
+      - deploy/config/staging.yaml
+      - deploy/config/aggregator-2/staging.yaml
       settings:
         install_timeout: 5m0s
         rollback_timeout: 5m0s

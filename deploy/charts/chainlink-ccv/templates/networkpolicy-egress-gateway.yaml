@@ -1,0 +1,76 @@
+{{- $global := . -}}
+{{- $common := $global.Values.common | default dict -}}
+{{- if and ($global.Values.enabled) ($global.Values.gatewayMode.enabled)  ($global.Values.gatewayMode.enableEgressNetworkPolicy) }}
+{{- $labels := dict "global" $global "merged" $global.Values.common "nodeName" "stub" | include "chainlink-cluster.labelMachine" | fromYaml }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "chainlink-cluster.fullname" . }}-netpol-egress
+  namespace: {{ .Release.Namespace }}
+  labels: {{ $labels.instance | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{ $labels.clusterSelector | nindent 6 }}
+  policyTypes:
+    - Egress
+  egress:
+    - to: # Allow database (RDS) access
+        - ipBlock:
+            cidr: {{ .Values.gatewayMode.rdsCidr }} # RDS endpoint
+      ports:
+        - protocol: TCP
+          port: 5432
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports: # allow internal DNS
+        - port: 53
+          protocol: UDP
+    # Allow DNS egress to node-local-dns service IP
+    - to:
+        - ipBlock:
+            cidr: 172.20.0.10/32
+      ports:
+        - protocol: TCP
+          port: 53
+        - protocol: UDP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: rpc-proxy-2
+    {{- if and (.Values.gatewayMode.allowEgressToJobDistributor ) (eq .Values.env "stage") }}
+    - to: # For JD staging: The staging JD and gateway are in the same env, and so we can use a selector to allow traffic to it.
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: job-distributor
+    {{- end }}
+    # Allow access the Internet but not to internal networks
+    # required for blockchain RPC connectivity
+    # limit to HTTPS
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8          # Internal networks - VPC
+              - 172.16.0.0/12       # Internal networks - k8s service network uses a subset of 172.17 network
+              - 192.168.0.0/16      # Internal networks - block just in case, because why not
+              - 100.64.0.0/10       # Internal network in "carrier-grade NAT scenarios"
+              - 169.254.0.0/16      # Link-local addresses
+      ports:
+        - protocol: TCP
+          port: 443
+    {{- if and (.Values.gatewayMode.allowEgressToJobDistributor ) (eq .Values.env "prod") }}
+    - to: # For JD prod: this service is located in a different env, so we have to use a static IP instead to allow access.
+      - ipBlock:
+          cidr: 100.20.245.225/32 # rpc-job-distributor.chain.link static IP
+      ports:
+        - protocol: TCP
+          port: 80
+    {{- end }}
+{{- end }}

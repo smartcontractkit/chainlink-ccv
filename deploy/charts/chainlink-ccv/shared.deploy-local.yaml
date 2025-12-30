@@ -1,0 +1,37 @@
+common:
+  image:
+    repository: localhost:5001/chainlink
+    tag: local
+
+  chainlinkNode:
+    enabled: false
+    metadata:
+      annotations:
+        chainlinknode.k8s.chain.link/disable-tls: 'true'
+    spec:
+      database:
+        secretName: ''
+        storageType: 'aws:ssm'
+        config:
+          database: '' # default = node name
+          host: pg-postgresql
+          password: JGVgp7M2Emcg7Av8KKVUgMZb
+          port: '5432'
+          user: '' # default = node name
+      credentials:
+        secretName: ''
+        storageType: 'aws:ssm'
+        config:
+          api:
+            key: .api
+            user: 'admin@chain.link'
+            password: hWDmgcub2gUhyrG6cxriqt7T
+          keystore:
+            key: .keystore
+            password: cdz7KhvF4ATje2TjrwGMJh2Q
+          vrf:
+            key: .vrf
+            password: cdz7KhvF4ATje2TjrwGMJh2Q
+
+  servicemonitor:
+    enabled: false

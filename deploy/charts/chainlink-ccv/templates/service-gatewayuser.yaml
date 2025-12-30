@@ -1,0 +1,19 @@
+{{- $global := . -}}
+{{- if and ($global.Values.enabled) ($global.Values.gatewayMode.enabled) }}
+{{- $labels := dict "global" $global "merged" $global.Values.common "nodeName" "stub" | include "chainlink-cluster.labelMachine" | fromYaml }}
+---
+# Gateway User service to be load balanced to each node in a cluster
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "chainlink-cluster.fullname" . }}-gtwuser
+  labels: {{ $labels.cluster | nindent 4 }}
+spec:
+  type: {{ .Values.gatewayMode.serviceType }}
+  selector: {{ $labels.clusterSelector | nindent 4 }}
+  ports:
+    - port: {{ include "chainlink-cluster.gatewayUserPort" . }}
+      targetPort: gateway-user
+      name: gateway-user
+      protocol: TCP
+{{- end }}

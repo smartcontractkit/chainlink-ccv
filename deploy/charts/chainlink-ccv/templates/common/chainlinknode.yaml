@@ -1,0 +1,29 @@
+{{- $global := . -}}
+{{- range until (include "chainlink-cluster.clusterSize" . | int) }}
+  {{- $merged := dict "common" $global.Values.common "overrides" $global.Values.overrides "idx" . | include "chainlink-cluster.merged" | fromYaml -}}
+  {{- if and ($global.Values.enabled) ($merged.chainlinkNode.enabled) }}
+  {{- $nodeName :=  dict "global" $global "merged" $merged "idx" . | include "chainlink-cluster.nodeName" -}}
+  {{- $labels := dict "global" $global "merged" $merged "nodeName" $nodeName | include "chainlink-cluster.labelMachine" | fromYaml }}
+---
+apiVersion: k8s.chain.link/v1alpha1
+kind: ChainlinkNode
+metadata:
+  name: {{ $nodeName }}
+  labels: {{ $labels.instance | nindent 4 }}
+  annotations: 
+    {{- toYaml $merged.chainlinkNode.metadata.annotations | nindent 4 }}
+spec:
+  {{- with $merged.chainlinkNode.spec }}
+  database:
+    secretName: {{ .database.secretName | default (printf "%s-%s" ($nodeName) "db")}}
+    storageType: {{ .database.storageType }}
+    config:
+      {{- toYaml .database.config | nindent 6 }}
+  credentials:
+    secretName: {{ .credentials.secretName | default (printf "%s-%s" ($nodeName) "creds")}}
+    storageType: {{ .credentials.storageType }}
+    config:  
+      {{- toYaml .credentials.config | nindent 6 }}
+  {{- end }}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,24 @@
+suite: test multi node single boot vpn
+values:
+  - ../shared.v2Config-defaults.yaml
+  - ../shared.v2Config-rpc-ethereum-sepolia.yaml
+  - ../values.multi-node-single-boot.yaml
+  - ../shared.deploy-eks.yaml
+  - ../shared.vpn.yaml
+templates:
+  - templates/common/chainlinknode.yaml
+  - templates/common/deployment.yaml
+  - templates/common/configmap-v2.yaml
+  - templates/common/service.yaml
+  - templates/common/servicemonitor.yaml
+  - templates/common/secret-vpn.yaml
+release:
+  name: clc-misc-m-n-s-b
+  namespace: chainlink
+chart:
+  version: 1.99.1
+  appVersion: 2.5.0
+tests:
+  - it: manifest should match snapshot
+    asserts:
+      - matchSnapshot: {}

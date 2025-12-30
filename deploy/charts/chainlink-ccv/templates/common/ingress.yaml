@@ -1,0 +1,56 @@
+{{- $global := . -}}
+{{- range until (include "chainlink-cluster.clusterSize" . | int) }}
+  {{- $idx := . -}}
+  {{- $merged := dict "common" $global.Values.common "overrides" $global.Values.overrides "idx" . | include "chainlink-cluster.merged" | fromYaml -}}
+  {{- if and ($global.Values.enabled) ($merged.ingress.enabled) }}
+  {{- $nodeName :=  dict "global" $global "merged" $merged "idx" . | include "chainlink-cluster.nodeName" -}}
+  {{- $labels := dict "global" $global "merged" $merged "nodeName" $nodeName | include "chainlink-cluster.labelMachine" | fromYaml }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $nodeName }}
+  labels: {{ $labels.instance | nindent 4 }}
+  {{- with $merged.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ingressClassName: {{ $merged.ingress.ingressClassName }}
+  {{- if $merged.ingress.tls }}
+  tls:
+    {{- range $merged.ingress.tls }}
+    - hosts:
+        {{- range .hosts }}
+        - {{ . | quote }}
+        {{- end }}
+      secretName: {{ .secretName }}
+    {{- end }}
+  {{- end }}
+  rules:
+    {{- range $merged.ingress.hosts }}
+      {{- $strTpl := ternary $nodeName ($idx|toString) .useNodeName }}
+    - host: {{ printf .host $strTpl | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ $nodeName }}
+                port:
+                  number: {{ include "chainlink-cluster.uiPort" . }}
+          {{- end }}
+          {{- if $merged.db_access.enabled }}
+          - path: /db-access
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $nodeName }}
+                port:
+                  name: db-access
+          {{- end }}
+    {{- end }}
+  {{- end }}
+{{- end }}

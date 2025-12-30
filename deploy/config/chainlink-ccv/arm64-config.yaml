@@ -1,0 +1,9 @@
+# Note: Tolerations added to deploy on ARM64 K8s node, do not use for AMD64/x86 builds.
+common:
+  nodeSelector:
+    node-role: nodes-arm
+  tolerations:
+    - key: "node-role"
+      operator: "Equal"
+      value: "nodes-arm"
+      effect: "NoSchedule"

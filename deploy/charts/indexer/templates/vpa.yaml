@@ -1,0 +1,26 @@
+{{- with .Values.vpa }}
+  {{- if .enabled }}
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: {{ $.Values.name }}
+  labels:
+    {{- include "generic-app.labels" $ | nindent 4 }}
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $.Values.name }}
+  updatePolicy:
+    updateMode: {{ .updateMode | quote }}
+  resourcePolicy:
+    containerPolicies:
+      - containerName: {{ default $.Values.name .containerName | quote }}
+        minAllowed:
+          cpu: {{ .min.cpu | quote }}
+          memory: {{ .min.memory | quote }}
+        maxAllowed:
+          cpu: {{ .max.cpu | quote }}
+          memory: {{ .max.memory | quote }}
+  {{- end }}
+{{- end }}
