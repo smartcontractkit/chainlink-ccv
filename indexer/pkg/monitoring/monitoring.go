@@ -4,9 +4,11 @@ import (
 	"fmt"
 
 	"github.com/grafana/pyroscope-go"
+	"go.opentelemetry.io/otel"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 )
 
@@ -16,7 +18,7 @@ type IndexerBeholderMonitoring struct {
 	metrics common.IndexerMetricLabeler
 }
 
-func InitMonitoring(config beholder.Config) (common.IndexerMonitoring, error) {
+func InitMonitoring(lggr logger.Logger, config beholder.Config) (common.IndexerMonitoring, error) {
 	// Note: due to OTEL spec, all histogram buckets must be defined when the beholder client is created.
 	config.MetricViews = MetricViews()
 
@@ -29,6 +31,10 @@ func InitMonitoring(config beholder.Config) (common.IndexerMonitoring, error) {
 	// Set the beholder client and global otel providers, so they don't have to be referenced elsewhere.
 	beholder.SetClient(client)
 	beholder.SetGlobalOtelProviders()
+
+	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
+		lggr.Warnf("Encountered an otel error: %v", err)
+	}))
 
 	// Initialize the indexer metrics
 	indexerMetrics, err := InitMetrics()
