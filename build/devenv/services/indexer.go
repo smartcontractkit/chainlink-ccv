@@ -307,6 +307,10 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 					{HostPort: strconv.Itoa(in.Port)},
 				},
 			}
+			h.RestartPolicy = container.RestartPolicy{
+				Name:              "on-failure",
+				MaximumRetryCount: 10,
+			}
 		},
 	}
 
