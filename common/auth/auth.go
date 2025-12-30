@@ -65,7 +65,7 @@ func validateParams(logger logger.Logger, apiKey, timestamp, signature string) e
 	}
 	if timestamp == "" {
 		logger.Warnf("Authentication failed: missing timestamp")
-		return status.Error(codes.Unauthenticated, "mmissing timestamp")
+		return status.Error(codes.Unauthenticated, "missing timestamp")
 	}
 	if signature == "" {
 		logger.Warnf("Authentication failed: missing signature")

@@ -151,7 +151,7 @@ func TestHMACAuthMiddleware(t *testing.T) {
 			},
 			expectError:       true,
 			expectedErrorCode: codes.Unauthenticated,
-			expectedErrorMsg:  "missing authorization header",
+			expectedErrorMsg:  "missing api key",
 			validateIdentity:  false,
 		},
 		{
@@ -164,7 +164,7 @@ func TestHMACAuthMiddleware(t *testing.T) {
 			},
 			expectError:       true,
 			expectedErrorCode: codes.Unauthenticated,
-			expectedErrorMsg:  "missing x-authorization-timestamp header",
+			expectedErrorMsg:  "missing timestamp",
 			validateIdentity:  false,
 		},
 		{
@@ -178,7 +178,7 @@ func TestHMACAuthMiddleware(t *testing.T) {
 			},
 			expectError:       true,
 			expectedErrorCode: codes.Unauthenticated,
-			expectedErrorMsg:  "missing x-authorization-signature-sha256 header",
+			expectedErrorMsg:  "missing signature",
 			validateIdentity:  false,
 		},
 		{
