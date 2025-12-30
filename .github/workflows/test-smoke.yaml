@@ -29,7 +29,9 @@ jobs:
             config: env.toml,env-src-auto-mine.toml
           - name: TestChaos_AggregatorOutageRecovery
             config: env.toml
-          - name: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_IndexerDown|TestChaos_AllExecutorsDown)
+          - name: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_AllExecutorsDown)
+            config: env.toml
+          - name: TestChaos_IndexerDown
             config: env.toml
     steps:
       - name: Enable S3 Cache for Self-Hosted Runners

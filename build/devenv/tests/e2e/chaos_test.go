@@ -58,7 +58,6 @@ func TestChaos_AggregatorOutageRecovery(t *testing.T) {
 		numExpectedVerifications: 1,
 	}
 
-	startTime := time.Now()
 	runV2TestCase(t, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerClient, AssertMessageOptions{
 		TickInterval:            5 * time.Second,
 		Timeout:                 waitTimeout(t),
@@ -66,8 +65,6 @@ func TestChaos_AggregatorOutageRecovery(t *testing.T) {
 		AssertVerifierLogs:      false,
 		AssertExecutorLogs:      false,
 	})
-	duration := time.Since(startTime)
-	setup.l.Info().Dur("duration", duration).Msg("Time taken to run the test")
 }
 
 func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
@@ -131,7 +128,6 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 		Str("verifiersToStop", containerRe2).
 		Msg("sending message with some verifiers down")
 
-	startTime := time.Now()
 	runV2TestCase(
 		t,
 		tc,
@@ -145,8 +141,6 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 			AssertVerifierLogs:      false,
 			AssertExecutorLogs:      false,
 		})
-	duration := time.Since(startTime)
-	setup.l.Info().Dur("duration", duration).Msg("Time taken to run the test")
 }
 
 func TestChaos_AllExecutorsDown(t *testing.T) {
@@ -183,7 +177,6 @@ func TestChaos_AllExecutorsDown(t *testing.T) {
 		numExpectedVerifications: 1,
 	}
 
-	startTime := time.Now()
 	runV2TestCase(t, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerClient, AssertMessageOptions{
 		TickInterval:            5 * time.Second,
 		Timeout:                 waitTimeout(t),
@@ -191,8 +184,6 @@ func TestChaos_AllExecutorsDown(t *testing.T) {
 		AssertVerifierLogs:      false,
 		AssertExecutorLogs:      false,
 	})
-	duration := time.Since(startTime)
-	setup.l.Info().Dur("duration", duration).Msg("Time taken to run the test")
 }
 
 func TestChaos_IndexerDown(t *testing.T) {
@@ -223,7 +214,6 @@ func TestChaos_IndexerDown(t *testing.T) {
 		numExpectedVerifications: 1,
 	}
 
-	startTime := time.Now()
 	runV2TestCase(t, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerClient, AssertMessageOptions{
 		TickInterval:            5 * time.Second,
 		Timeout:                 waitTimeout(t),
@@ -231,8 +221,6 @@ func TestChaos_IndexerDown(t *testing.T) {
 		AssertVerifierLogs:      false,
 		AssertExecutorLogs:      false,
 	})
-	duration := time.Since(startTime)
-	setup.l.Info().Dur("duration", duration).Msg("Time taken to run the test")
 }
 
 func waitTimeout(t *testing.T) time.Duration {
