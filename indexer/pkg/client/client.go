@@ -150,6 +150,9 @@ func (ic *IndexerClient) MessageByID(ctx context.Context, queryData v1.MessageID
 }
 
 func processResponse(resp *http.Response, rspObj any) error {
+	if resp == nil {
+		return fmt.Errorf("cannot process nil response")
+	}
 	b, err := maybeGetBody(resp.Body, MaxBodySize)
 	if err != nil {
 		return fmt.Errorf("failed to read error response body: %w", err)

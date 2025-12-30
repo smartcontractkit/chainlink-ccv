@@ -340,10 +340,12 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 		return nil, fmt.Errorf("failed to get container host: %w", err)
 	}
 
-	return &IndexerOutput{
+	out := &IndexerOutput{
 		ContainerName:      in.ContainerName,
 		ExternalHTTPURL:    fmt.Sprintf("http://%s:%d", host, in.Port),
 		InternalHTTPURL:    fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
 		DBConnectionString: DefaultIndexerDBConnectionString,
-	}, nil
+	}
+	in.Out = out
+	return out, nil
 }

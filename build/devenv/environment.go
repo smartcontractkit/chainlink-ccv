@@ -78,7 +78,6 @@ const (
 )
 
 type Cfg struct {
-	Mode               services.Mode                  `toml:"mode"`
 	CLDF               CLDF                           `toml:"cldf"                  validate:"required"`
 	JD                 *jd.Input                      `toml:"jd"                    validate:"required"`
 	Fake               *services.FakeInput            `toml:"fake"                  validate:"required"`
@@ -111,6 +110,8 @@ func (c *Cfg) NewAggregatorClientForCommittee(logger zerolog.Logger, committeeNa
 	return NewAggregatorClient(logger, endpoint, caCertFile)
 }
 
+// checkKeys performs basic sanity checks on the private key being used depending on which chain is in
+// the provided configuration.
 func checkKeys(in *Cfg) error {
 	if getNetworkPrivateKey() != DefaultAnvilKey && in.Blockchains[0].ChainID == "1337" && in.Blockchains[1].ChainID == "2337" {
 		return errors.New("you are trying to run simulated chains with a key that do not belong to Anvil, please run 'unset PRIVATE_KEY'")
@@ -133,7 +134,7 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Pr
 	}
 }
 
-// NewEnvironment creates a new CCIP CCV environment either locally in Docker or remotely in K8s.
+// NewEnvironment creates a new CCIP CCV environment locally in Docker.
 func NewEnvironment() (in *Cfg, err error) {
 	ctx := context.Background()
 	timeTrack := NewTimeTracker(Plog)
@@ -149,6 +150,10 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, err
 	}
 
+	/////////////////////////////
+	// START: Read Config toml //
+	/////////////////////////////
+
 	configs := strings.Split(os.Getenv(EnvVarTestConfigs), ",")
 	if len(configs) > 1 {
 		L.Warn().Msg("Multiple configuration files detected, this feature may be unsupported in the future.")
@@ -156,15 +161,6 @@ func NewEnvironment() (in *Cfg, err error) {
 	in, err = Load[Cfg](configs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
-	}
-
-	///////////////////////////////
-	// Start: Initialize Configs //
-	///////////////////////////////
-
-	// Override the default config to "cl"...
-	if in.Mode == "" {
-		in.Mode = services.Standalone
 	}
 
 	// Executor config...
@@ -175,12 +171,8 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	/////////////////////////////
-	// End: Initialize Configs //
+	// END: Read Config toml //
 	/////////////////////////////
-
-	if err = checkKeys(in); err != nil {
-		return nil, err
-	}
 
 	// Start fake data provider. This isn't really used, but may be useful in the future.
 	_, err = services.NewFake(in.Fake)
@@ -188,7 +180,14 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("failed to create fake data provider: %w", err)
 	}
 
-	// Start blockchains, the services crash if the RPC is not available.
+	///////////////////////////////
+	// START: Deploy blockchains //
+	// The services crash if the RPC is not available.
+	///////////////////////////////
+	if err = checkKeys(in); err != nil {
+		return nil, err
+	}
+
 	impls := make([]cciptestinterfaces.CCIP17ProductConfiguration, 0)
 	for _, bc := range in.Blockchains {
 		var impl cciptestinterfaces.CCIP17ProductConfiguration
@@ -204,9 +203,12 @@ func NewEnvironment() (in *Cfg, err error) {
 			return nil, fmt.Errorf("failed to deploy local networks: %w", err)
 		}
 	}
+	/////////////////////////////
+	// END: Deploy blockchains //
+	/////////////////////////////
 
 	////////////////////////////
-	// Start: Launch CL Nodes //
+	// START: Launch CL Nodes //
 	// We launch the CL nodes first because they don't require any configuration from
 	// the rest of the system to be up and running.
 	// In addition, if we need to launch the nodes (i.e if some services are not standalone),
@@ -222,10 +224,12 @@ func NewEnvironment() (in *Cfg, err error) {
 	timeTrack.Record("[infra] deployed CL nodes")
 
 	//////////////////////////
-	// End: Launch CL Nodes //
+	// END: Launch CL Nodes //
 	//////////////////////////
 
-	// Verifier configs...
+	/////////////////////////////////////////////
+	// START: Assign signing keys to verifiers //
+	/////////////////////////////////////////////
 	roundRobin := NewRoundRobinAssignment(onchainPublicKeys[signingKeyChainType])
 	for i := range in.Verifier {
 		ver := services.ApplyVerifierDefaults(*in.Verifier[i])
@@ -263,34 +267,13 @@ func NewEnvironment() (in *Cfg, err error) {
 		// Apply changes back to input.
 		in.Verifier[i] = &ver
 	}
-
-	// JD is not currently used.
-	/*
-		prodJDImage := os.Getenv("JD_IMAGE")
-
-		if in.JD != nil {
-			if prodJDImage != "" {
-				in.JD.Image = prodJDImage
-			}
-			if len(in.JD.Image) == 0 {
-				Plog.Warn().Msg("No JD image provided, skipping JD service startup")
-			} else {
-				_, err = jd.NewJD(in.JD)
-				if err != nil {
-					return nil, fmt.Errorf("failed to create JD service: %w", err)
-				}
-			}
-		} else {
-			Plog.Warn().Msg("No JD configuration provided, skipping JD service startup")
-		}
-	*/
-
-	timeTrack.Record("[infra] deploying blockchains")
+	/////////////////////////////////////////////
+	// END: Assign signing keys to verifiers //
+	/////////////////////////////////////////////
 
 	/////////////////////////////
-	// Start: Deploy contracts //
+	// START: Deploy contracts //
 	/////////////////////////////
-
 	var committees []cciptestinterfaces.OnChainCommittees
 	{
 		addrs := make(map[string][][]byte)
@@ -322,6 +305,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 	L.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 
+	timeTrack.Record("[infra] deploying blockchains")
 	ds := datastore.NewMemoryDataStore()
 	for i, impl := range impls {
 		var networkInfo chainsel.ChainDetails
@@ -351,6 +335,13 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 	e.DataStore = ds.Seal()
+	///////////////////////////
+	// END: Deploy contracts //
+	///////////////////////////
+
+	/////////////////////////////////////////
+	// START: Connect chains to each other //
+	/////////////////////////////////////////
 
 	for i, impl := range impls {
 		var networkInfo chainsel.ChainDetails
@@ -369,15 +360,15 @@ func NewEnvironment() (in *Cfg, err error) {
 			return nil, err
 		}
 	}
-	///////////////////////////
-	// END: Deploy contracts //
-	///////////////////////////
 
-	///////////////////////////////////////
-	// Start: Launch standalone services //
-	///////////////////////////////////////
+	/////////////////////////////////////////
+	// END: Connect chains to each other //
+	/////////////////////////////////////////
 
-	// Start aggregators.
+	///////////////////////////////
+	// START: Launch aggregators //
+	///////////////////////////////
+
 	in.AggregatorEndpoints = make(map[string]string)
 	in.AggregatorCACertFiles = make(map[string]string)
 
@@ -430,9 +421,15 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
-	// Start indexer.
+	///////////////////////////////
+	// START: Launch aggregators //
+	///////////////////////////////
+
+	///////////////////////////
+	// START: Launch indexer //
 	// start up the indexer after the aggregators are up to avoid spamming of errors
 	// in the logs when it starts before the aggregators are up.
+	///////////////////////////
 	// Need to update the addresses in the indexer config due to contract deployment nondeterminism.
 	for _, agg := range in.Aggregator {
 		// XXX: in theory addresses should be matching across chains
@@ -497,6 +494,14 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	in.IndexerEndpoint = indexerOut.ExternalHTTPURL
 
+	/////////////////////////
+	// END: Launch indexer //
+	/////////////////////////
+
+	/////////////////////////////
+	// START: Launch executors //
+	/////////////////////////////
+
 	if len(in.Executor) > 0 {
 		execs, err := services.ResolveContractsForExecutor(e.DataStore, in.Blockchains, in.Executor)
 		if err != nil {
@@ -533,6 +538,13 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("failed to create standalone executor: %w", err)
 	}
 
+	///////////////////////////
+	// END: Launch executors //
+	///////////////////////////
+
+	/////////////////////////////
+	// START: Launch verifiers //
+	/////////////////////////////
 	// Populate verifier input with contract addresses from the CLDF datastore.
 	for i := range in.Verifier {
 		ver, err := services.ResolveContractsForVerifier(e.DataStore, in.Blockchains, *in.Verifier[i])
@@ -574,6 +586,14 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("failed to create standalone verifiers: %w", err)
 	}
 
+	/////////////////////////////
+	// END: Launch verifiers //
+	/////////////////////////////
+
+	///////////////////////////////////
+	// START: Launch token verifiers //
+	///////////////////////////////////
+
 	for i := range in.TokenVerifier {
 		ver, err := services.ResolveContractsForTokenVerifier(e.DataStore, in.Blockchains, *in.TokenVerifier[i])
 		if err != nil {
@@ -588,14 +608,24 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("failed to create standalone token verifiers: %w", err)
 	}
 
-	/////////////////////////////////////
-	// End: Launch standalone services //
-	/////////////////////////////////////
+	///////////////////////////////////
+	// END: Launch token verifiers //
+	///////////////////////////////////
+
+	////////////////////////////////////////////////////
+	// START: Create jobs for verifiers and executors //
+	// Note that if they are started in standalone mode,
+	// there would be no CL nodes and this would be a no-op.
+	////////////////////////////////////////////////////
 
 	err = createJobs(in, in.Verifier, in.Executor)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create jobs: %w", err)
 	}
+
+	//////////////////////////////////////////////////
+	// END: Create jobs for verifiers and executors //
+	//////////////////////////////////////////////////
 
 	timeTrack.Print()
 	if err = PrintCLDFAddresses(in); err != nil {
