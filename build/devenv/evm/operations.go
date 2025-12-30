@@ -24,7 +24,6 @@ func DeployCommitVerifierForSelector(
 	e *deployment.Environment,
 	selector uint64,
 	committeeVerifierConstructorArgs committee_verifier.ConstructorArgs,
-	signatureConfigArgs committee_verifier.SetSignatureConfigArgs,
 ) (committeeVerifier datastore.AddressRef, err error) {
 	chain, ok := e.BlockChains.EVMChains()[selector]
 	if !ok {
@@ -39,32 +38,33 @@ func DeployCommitVerifierForSelector(
 		err = fmt.Errorf("failed to deploy Committee Verifier: %w", err)
 		return committeeVerifier, err
 	}
-	_, err = operations.ExecuteOperation(e.OperationsBundle, committee_verifier.SetSignatureConfigs, chain, contract.FunctionInput[committee_verifier.SetSignatureConfigArgs]{
-		Address:       common.HexToAddress(committeeVerifierReport.Output.Address),
-		ChainSelector: chain.Selector,
-		Args:          signatureConfigArgs,
-	})
-	if err != nil {
-		err = fmt.Errorf("failed to set CommitOffRamp signature config: %w", err)
-		return committeeVerifier, err
-	}
+
 	return committeeVerifierReport.Output, err
 }
 
 // ConfigureCommitVerifierOnSelectorForLanes configures an existing verifier on the given chain selector for the given lanes.
-func ConfigureCommitVerifierOnSelectorForLanes(e *deployment.Environment, selector uint64, committeeVerifier common.Address, destConfigArgs []committee_verifier.DestChainConfigArgs) error {
+func ConfigureCommitVerifierOnSelectorForLanes(e *deployment.Environment, selector uint64, committeeVerifier common.Address, remoteChainConfigArgs []committee_verifier.RemoteChainConfigArgs, signatureConfigArgs committee_verifier.SignatureConfigArgs) error {
 	chain, ok := e.BlockChains.EVMChains()[selector]
 	if !ok {
 		return fmt.Errorf("no EVM chain found for selector %d", selector)
 	}
 
-	_, err := operations.ExecuteOperation(e.OperationsBundle, committee_verifier.ApplyDestChainConfigUpdates, chain, contract.FunctionInput[[]committee_verifier.DestChainConfigArgs]{
+	_, err := operations.ExecuteOperation(e.OperationsBundle, committee_verifier.ApplyRemoteChainConfigUpdates, chain, contract.FunctionInput[[]committee_verifier.RemoteChainConfigArgs]{
 		ChainSelector: chain.Selector,
 		Address:       committeeVerifier,
-		Args:          destConfigArgs,
+		Args:          remoteChainConfigArgs,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to apply dest chain config updates to CommitteeVerifier(%s) on chain %s: %w", committeeVerifier, chain, err)
+	}
+
+	_, err = operations.ExecuteOperation(e.OperationsBundle, committee_verifier.ApplySignatureConfigs, chain, contract.FunctionInput[committee_verifier.SignatureConfigArgs]{
+		ChainSelector: chain.Selector,
+		Address:       committeeVerifier,
+		Args:          signatureConfigArgs,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to apply signature config updates to CommitteeVerifier(%s) on chain %s: %w", committeeVerifier, chain, err)
 	}
 
 	return nil
@@ -233,7 +233,7 @@ func DeployMockReceiver(ctx context.Context, e *deployment.Environment, addresse
 	return addrs, nil
 }
 
-func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environment, addresses []string, selectors []uint64, signatureConfigArgs committee_verifier.SetSignatureConfigArgs) ([]string, error) {
+func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environment, addresses []string, signatureConfigBySelector map[uint64]committee_verifier.SignatureConfig) ([]string, error) {
 	bundle := operations.NewBundle(
 		func() context.Context { return context.Background() },
 		e.Logger,
@@ -243,7 +243,7 @@ func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environme
 
 	allAddrs := make([]string, 0)
 
-	for _, sel := range selectors {
+	for sel := range signatureConfigBySelector {
 		committeeVerifier, err := DeployCommitVerifierForSelector(
 			e,
 			sel,
@@ -253,7 +253,6 @@ func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environme
 					AllowlistAdmin: e.BlockChains.EVMChains()[sel].DeployerKey.From,
 				},
 			},
-			signatureConfigArgs,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to deploy commit onramp and offramp for selector %d: %w", sel, err)
@@ -265,24 +264,26 @@ func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environme
 		allAddrs = append(allAddrs, addrs...)
 	}
 
-	for _, sel := range selectors {
-		var destConfigArgs []committee_verifier.DestChainConfigArgs
-		for _, destSel := range selectors {
-			if destSel == sel {
+	var signatureConfigArgs committee_verifier.SignatureConfigArgs
+	for sel := range signatureConfigBySelector {
+		var remoteChainConfigArgs []committee_verifier.RemoteChainConfigArgs
+		for remoteSel, signatureConfig := range signatureConfigBySelector {
+			if remoteSel == sel {
 				continue
 			}
-			destConfigArgs = append(destConfigArgs, committee_verifier.DestChainConfigArgs{
-				AllowlistEnabled:   false,
-				Router:             MustGetContractAddressForSelector(addresses, sel, router.ContractType),
-				DestChainSelector:  destSel,
-				GasForVerification: 1, // TODO: set proper gas limit
+			signatureConfigArgs.SignatureConfigUpdates = append(signatureConfigArgs.SignatureConfigUpdates, signatureConfig)
+			remoteChainConfigArgs = append(remoteChainConfigArgs, committee_verifier.RemoteChainConfigArgs{
+				AllowlistEnabled:    false,
+				Router:              MustGetContractAddressForSelector(addresses, sel, router.ContractType),
+				RemoteChainSelector: remoteSel,
+				GasForVerification:  1, // TODO: set proper gas limit
 				// TODO: Missing fields?
 				// FeeUSDCents        uint16
 				// PayloadSizeBytes   uint32
 			})
 		}
 
-		err := ConfigureCommitVerifierOnSelectorForLanes(e, sel, MustGetContractAddressForSelector(addresses, sel, committee_verifier.ContractType), destConfigArgs)
+		err := ConfigureCommitVerifierOnSelectorForLanes(e, sel, MustGetContractAddressForSelector(addresses, sel, committee_verifier.ContractType), remoteChainConfigArgs, signatureConfigArgs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to configure commit onramp for selector %d: %w", sel, err)
 		}

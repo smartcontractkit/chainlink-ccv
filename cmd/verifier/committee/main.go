@@ -193,7 +193,7 @@ func main() {
 	}
 	lggr.Infow("Using signer address", "address", publicKey)
 
-	verifierMonitoring := cmd.SetupOTEL(lggr, config.Monitoring)
+	verifierMonitoring := cmd.SetupMonitoring(lggr, config.Monitoring)
 
 	// Create commit verifier
 	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, publicKey, signer, lggr, verifierMonitoring)

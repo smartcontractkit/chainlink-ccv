@@ -27,7 +27,7 @@ func TestParseReceiptStructure(t *testing.T) {
 			expectedErrMsg:    "no receipts provided",
 		},
 		{
-			name: "only executor receipt - no CCVs or tokens",
+			name: "only executor receipt + network fee - no CCVs or tokens",
 			receipts: []ReceiptWithBlob{
 				{
 					Issuer:            UnknownAddress([]byte{0x01}),
@@ -36,6 +36,14 @@ func TestParseReceiptStructure(t *testing.T) {
 					Blob:              nil,
 					ExtraArgs:         []byte{},
 					FeeTokenAmount:    big.NewInt(1000),
+				},
+				{
+					Issuer:            UnknownAddress([]byte{0x02}),
+					DestGasLimit:      0,
+					DestBytesOverhead: 0,
+					Blob:              nil,
+					ExtraArgs:         []byte{},
+					FeeTokenAmount:    big.NewInt(0),
 				},
 			},
 			numCCVBlobs:       0,
@@ -50,7 +58,7 @@ func TestParseReceiptStructure(t *testing.T) {
 			},
 		},
 		{
-			name: "single CCV with executor - no tokens",
+			name: "single CCV with executor + network fee - no tokens",
 			receipts: []ReceiptWithBlob{
 				{
 					Issuer:            UnknownAddress([]byte{0xCC, 0x01}),
@@ -67,6 +75,14 @@ func TestParseReceiptStructure(t *testing.T) {
 					Blob:              nil,
 					ExtraArgs:         []byte{0x22},
 					FeeTokenAmount:    big.NewInt(1000),
+				},
+				{
+					Issuer:            UnknownAddress([]byte{0x02}),
+					DestGasLimit:      0,
+					DestBytesOverhead: 0,
+					Blob:              nil,
+					ExtraArgs:         []byte{},
+					FeeTokenAmount:    big.NewInt(0),
 				},
 			},
 			numCCVBlobs:       1,
@@ -88,7 +104,7 @@ func TestParseReceiptStructure(t *testing.T) {
 			},
 		},
 		{
-			name: "single token transfer with executor - no CCVs",
+			name: "single token transfer with executor + network fee - no CCVs",
 			receipts: []ReceiptWithBlob{
 				{
 					Issuer:            UnknownAddress([]byte{0xAA, 0x01}),
@@ -105,6 +121,14 @@ func TestParseReceiptStructure(t *testing.T) {
 					Blob:              nil,
 					ExtraArgs:         []byte{0x44},
 					FeeTokenAmount:    big.NewInt(1000),
+				},
+				{
+					Issuer:            UnknownAddress([]byte{0x02}),
+					DestGasLimit:      0,
+					DestBytesOverhead: 0,
+					Blob:              nil,
+					ExtraArgs:         []byte{},
+					FeeTokenAmount:    big.NewInt(0),
 				},
 			},
 			numCCVBlobs:       0,
@@ -124,7 +148,7 @@ func TestParseReceiptStructure(t *testing.T) {
 			},
 		},
 		{
-			name: "multiple CCVs with token and executor",
+			name: "multiple CCVs with token and executor + network fee",
 			receipts: []ReceiptWithBlob{
 				// CCV 1
 				{
@@ -171,6 +195,14 @@ func TestParseReceiptStructure(t *testing.T) {
 					ExtraArgs:         []byte{0x99},
 					FeeTokenAmount:    big.NewInt(1000),
 				},
+				{
+					Issuer:            UnknownAddress([]byte{0x02}),
+					DestGasLimit:      0,
+					DestBytesOverhead: 0,
+					Blob:              nil,
+					ExtraArgs:         []byte{},
+					FeeTokenAmount:    big.NewInt(0),
+				},
 			},
 			numCCVBlobs:       3,
 			numTokenTransfers: 1,
@@ -205,11 +237,12 @@ func TestParseReceiptStructure(t *testing.T) {
 			receipts: []ReceiptWithBlob{
 				{Issuer: UnknownAddress([]byte{0x01})},
 				{Issuer: UnknownAddress([]byte{0x02})},
+				{Issuer: UnknownAddress([]byte{0x03})},
 			},
 			numCCVBlobs:       2,
 			numTokenTransfers: 1,
 			expectedErr:       true,
-			expectedErrMsg:    "unexpected receipt count: got 2, expected 4 (CCVs=2 + Tokens=1 + Executor=1)",
+			expectedErrMsg:    "unexpected receipt count: got 3, expected 5 (CCVs=2 + Tokens=1 + Executor=1 + Network fee=1)",
 		},
 		{
 			name: "mismatch - too many receipts",
@@ -218,16 +251,17 @@ func TestParseReceiptStructure(t *testing.T) {
 				{Issuer: UnknownAddress([]byte{0x02})},
 				{Issuer: UnknownAddress([]byte{0x03})},
 				{Issuer: UnknownAddress([]byte{0x04})},
+				{Issuer: UnknownAddress([]byte{0x05})},
 			},
 			numCCVBlobs:       1,
 			numTokenTransfers: 1,
 			expectedErr:       true,
-			expectedErrMsg:    "unexpected receipt count: got 4, expected 3 (CCVs=1 + Tokens=1 + Executor=1)",
+			expectedErrMsg:    "unexpected receipt count: got 5, expected 4 (CCVs=1 + Tokens=1 + Executor=1 + Network fee=1)",
 		},
 		{
 			name: "edge case - many CCVs",
 			receipts: func() []ReceiptWithBlob {
-				receipts := make([]ReceiptWithBlob, 11) // 10 CCVs + 1 executor
+				receipts := make([]ReceiptWithBlob, 12) // 10 CCVs + 1 executor + 1 network fee
 				for i := 0; i < 10; i++ {
 					receipts[i] = ReceiptWithBlob{
 						Issuer:       UnknownAddress([]byte{0xCC, byte(i)}),
@@ -238,6 +272,14 @@ func TestParseReceiptStructure(t *testing.T) {
 				receipts[10] = ReceiptWithBlob{
 					Issuer:       UnknownAddress([]byte{0xEE}),
 					DestGasLimit: 100000,
+				}
+				receipts[11] = ReceiptWithBlob{
+					Issuer:            UnknownAddress([]byte{0xFF}),
+					DestGasLimit:      0,
+					DestBytesOverhead: 0,
+					Blob:              nil,
+					ExtraArgs:         []byte{},
+					FeeTokenAmount:    big.NewInt(0),
 				}
 				return receipts
 			}(),

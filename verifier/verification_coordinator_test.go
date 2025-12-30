@@ -16,13 +16,12 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 )
 
 // Test constants.
@@ -512,11 +511,12 @@ func createTestMessageSentEventWithToken(
 	executorAddr := make([]byte, 20)
 	executorAddr[0] = 0x22 // Must match CreateTestMessage
 
+	routerAddr := make([]byte, 20)
+	routerAddr[0] = 0x44
+
 	return protocol.MessageSentEvent{
-		DestChainSelector: message.DestChainSelector,
-		SequenceNumber:    uint64(message.SequenceNumber),
-		MessageID:         messageID,
-		Message:           message,
+		MessageID: messageID,
+		Message:   message,
 		Receipts: []protocol.ReceiptWithBlob{
 			{
 				Issuer:            protocol.UnknownAddress(ccvAddr),
@@ -526,11 +526,19 @@ func createTestMessageSentEventWithToken(
 				ExtraArgs:         []byte("test-extra-args"),
 			},
 			{
-				// Executor receipt - always at the end
+				// Executor receipt
 				Issuer:            protocol.UnknownAddress(executorAddr),
 				DestGasLimit:      0,
 				DestBytesOverhead: 0,
 				Blob:              []byte{},
+				ExtraArgs:         []byte{},
+			},
+			{
+				// Network fee receipt
+				Issuer:            protocol.UnknownAddress(routerAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte("router-blob"),
 				ExtraArgs:         []byte{},
 			},
 		},

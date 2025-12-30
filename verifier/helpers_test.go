@@ -203,7 +203,7 @@ func (t *TestVerifier) VerifyMessages(
 			if verificationTask.Message.TokenTransferLength > 0 {
 				numTokenTransfers = 1
 			}
-			numCCVBlobs := len(verificationTask.ReceiptBlobs) - numTokenTransfers - 1
+			numCCVBlobs := len(verificationTask.ReceiptBlobs) - numTokenTransfers - 2
 
 			receiptStructure, err := protocol.ParseReceiptStructure(
 				verificationTask.ReceiptBlobs,
@@ -282,6 +282,9 @@ func createTestMessageSentEvents(
 	executorAddr := make([]byte, 20)
 	executorAddr[0] = 0x22 // Must match CreateTestMessage
 
+	routerAddr := make([]byte, 20)
+	routerAddr[0] = 0x44
+
 	events := make([]protocol.MessageSentEvent, len(blockNumbers))
 	for i, blockNum := range blockNumbers {
 		sequenceNumber := startNonce + uint64(i)
@@ -289,10 +292,8 @@ func createTestMessageSentEvents(
 		messageID, _ := message.MessageID()
 
 		events[i] = protocol.MessageSentEvent{
-			DestChainSelector: message.DestChainSelector,
-			SequenceNumber:    uint64(message.SequenceNumber),
-			MessageID:         messageID,
-			Message:           message,
+			MessageID: messageID,
+			Message:   message,
 			Receipts: []protocol.ReceiptWithBlob{
 				{
 					Issuer: protocol.UnknownAddress(ccvAddr),
@@ -301,7 +302,11 @@ func createTestMessageSentEvents(
 				{
 					Issuer: protocol.UnknownAddress(executorAddr),
 					Blob:   []byte{},
-				}, // Executor receipt at the end
+				}, // Executor receipt
+				{
+					Issuer: protocol.UnknownAddress(routerAddr),
+					Blob:   []byte("router-blob"),
+				}, // Network fee receipt
 			},
 			BlockNumber: blockNum,
 		}

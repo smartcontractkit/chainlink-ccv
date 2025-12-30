@@ -15,6 +15,7 @@ var (
 	CCVAddress1     = protocol.UnknownAddress{0x11, 0x12, 0x13}
 	CCVAddress2     = protocol.UnknownAddress{0x21, 0x22, 0x23}
 	ExecutorAddress = protocol.UnknownAddress{0x31, 0x32, 0x33}
+	RouterAddress   = protocol.UnknownAddress{0x41, 0x42, 0x43}
 )
 
 func ReadResultsFromChannel(
@@ -64,10 +65,11 @@ func CreateTestVerificationTask(sequenceNumber int) verifier.VerificationTask {
 		Message:   message,
 		TxHash:    protocol.ByteSlice{0xaa, 0xbb, 0xcc},
 		ReceiptBlobs: []protocol.ReceiptWithBlob{
-			// Create receipt structure: [CCV1, CCV2, Executor]
+			// Create receipt structure: [CCV1, CCV2, Executor, NetworkFee]
 			{Issuer: CCVAddress1, Blob: []byte("ccv1-blob")},
 			{Issuer: CCVAddress2, Blob: []byte("ccv2-blob")},
 			{Issuer: ExecutorAddress, Blob: []byte("executor-blob")},
+			{Issuer: RouterAddress, Blob: []byte("router-blob")},
 		},
 		BlockNumber: 12345,
 		FirstSeenAt: time.Now(),
