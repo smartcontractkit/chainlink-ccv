@@ -23,20 +23,20 @@ deploytemplates: null
 deploy:
   staging:
     instances:
-    - name: chainlink-ccv
-      namespace: chainlink-ccv
-      path: deploy/charts/chainlink-ccv
-      config:
-      - deploy/config/chainlink-ccv/arm64-config.yaml
-      - deploy/config/chainlink-ccv/staging-chains.yaml
-      - deploy/config/chainlink-ccv/staging-image.yaml
-      - deploy/config/chainlink-ccv/staging-resources.yaml
-      - deploy/config/chainlink-ccv/staging-rpcs.yaml
-      - deploy/config/chainlink-ccv/cl-v2-config.yaml
-      settings:
-        install_timeout: 5m0s
-        rollback_timeout: 5m0s
-        upgrade_timeout: 5m0s
+    # - name: chainlink-ccv
+    #   namespace: chainlink-ccv
+    #   path: deploy/charts/chainlink-ccv
+    #   config:
+    #   - deploy/config/chainlink-ccv/arm64-config.yaml
+    #   - deploy/config/chainlink-ccv/staging-chains.yaml
+    #   - deploy/config/chainlink-ccv/staging-image.yaml
+    #   - deploy/config/chainlink-ccv/staging-resources.yaml
+    #   - deploy/config/chainlink-ccv/staging-rpcs.yaml
+    #   - deploy/config/chainlink-ccv/cl-v2-config.yaml
+    #   settings:
+    #     install_timeout: 5m0s
+    #     rollback_timeout: 5m0s
+    #     upgrade_timeout: 5m0s
     - name: aggregator-1
       namespace: chainlink-ccv
       path: deploy/charts/aggregator
