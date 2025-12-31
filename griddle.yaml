@@ -21,7 +21,7 @@ build:
     inventory: []
 deploytemplates: null
 deploy:
-  staging:
+  stage:
     instances:
     # - name: chainlink-ccv
     #   namespace: chainlink-ccv
