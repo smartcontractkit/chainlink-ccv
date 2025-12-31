@@ -56,3 +56,8 @@ ingress:
       paths:
         - path: /
           pathType: Prefix
+managedDB:
+  enabled: true
+  engineVersion: "15.4"
+  instanceCount: 1
+  instanceClass: db.t4g.medium
