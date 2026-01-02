@@ -1,0 +1,27 @@
+common:
+  chainlink:
+    v2Config:
+      00-defaults-node-config.toml: |
+        RootDir = '/home/chainlink'
+        [Database]
+        MaxIdleConns = 20
+        MaxOpenConns = 40
+        MigrateOnStartup = true
+        [Log]
+        Level = 'info'
+        JSONConsole = true
+        [Log.File]
+        MaxSize = '0b'
+        [WebServer]
+        AllowOrigins = '*'
+        HTTPPort = 6688
+        SecureCookies = false
+        [WebServer.RateLimit]
+        Authenticated = 2000
+        Unauthenticated = 100
+        [WebServer.TLS]
+        HTTPSPort = 0
+  chainlinkNode:
+    metadata:
+      annotations:
+        chainlinknode.k8s.chain.link/create-v2: "true" # enable v2Config toml secret creation

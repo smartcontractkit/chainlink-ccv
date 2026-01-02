@@ -1,0 +1,1751 @@
+manifest should match snapshot:
+  1: |
+    apiVersion: k8s.chain.link/v1alpha1
+    kind: ChainlinkNode
+    metadata:
+      annotations:
+        chainlinknode.k8s.chain.link/create-v2: "true"
+        chainlinknode.k8s.chain.link/init-rds: "true"
+        chainlinknode.k8s.chain.link/init-rds-idx: "0"
+        chainlinknode.k8s.chain.link/preserve-ssm: "true"
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-bt-0
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-bt-0
+    spec:
+      credentials:
+        config:
+          api:
+            key: .api
+            password: ""
+            user: admin@chain.link
+          keystore:
+            key: .keystore
+            password: ""
+          vrf:
+            key: .vrf
+            password: ""
+        secretName: clc-m-n-s-b-bt-0-creds
+        storageType: aws:ssm
+      database:
+        config:
+          database: ""
+          host: ""
+          password: ""
+          port: "5432"
+          user: ""
+        secretName: clc-m-n-s-b-bt-0-db
+        storageType: aws:ssm
+  2: |
+    apiVersion: k8s.chain.link/v1alpha1
+    kind: ChainlinkNode
+    metadata:
+      annotations:
+        chainlinknode.k8s.chain.link/create-v2: "true"
+        chainlinknode.k8s.chain.link/init-rds: "true"
+        chainlinknode.k8s.chain.link/init-rds-idx: "0"
+        chainlinknode.k8s.chain.link/preserve-ssm: "true"
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-0
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-0
+    spec:
+      credentials:
+        config:
+          api:
+            key: .api
+            password: ""
+            user: admin@chain.link
+          keystore:
+            key: .keystore
+            password: ""
+          vrf:
+            key: .vrf
+            password: ""
+        secretName: clc-m-n-s-b-0-creds
+        storageType: aws:ssm
+      database:
+        config:
+          database: ""
+          host: ""
+          password: ""
+          port: "5432"
+          user: ""
+        secretName: clc-m-n-s-b-0-db
+        storageType: aws:ssm
+  3: |
+    apiVersion: k8s.chain.link/v1alpha1
+    kind: ChainlinkNode
+    metadata:
+      annotations:
+        chainlinknode.k8s.chain.link/create-v2: "true"
+        chainlinknode.k8s.chain.link/init-rds: "true"
+        chainlinknode.k8s.chain.link/init-rds-idx: "0"
+        chainlinknode.k8s.chain.link/preserve-ssm: "true"
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-1
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-1
+    spec:
+      credentials:
+        config:
+          api:
+            key: .api
+            password: ""
+            user: admin@chain.link
+          keystore:
+            key: .keystore
+            password: ""
+          vrf:
+            key: .vrf
+            password: ""
+        secretName: clc-m-n-s-b-1-creds
+        storageType: aws:ssm
+      database:
+        config:
+          database: ""
+          host: ""
+          password: ""
+          port: "5432"
+          user: ""
+        secretName: clc-m-n-s-b-1-db
+        storageType: aws:ssm
+  4: |
+    apiVersion: k8s.chain.link/v1alpha1
+    kind: ChainlinkNode
+    metadata:
+      annotations:
+        chainlinknode.k8s.chain.link/create-v2: "true"
+        chainlinknode.k8s.chain.link/init-rds: "true"
+        chainlinknode.k8s.chain.link/init-rds-idx: "0"
+        chainlinknode.k8s.chain.link/preserve-ssm: "true"
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-2
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-2
+    spec:
+      credentials:
+        config:
+          api:
+            key: .api
+            password: ""
+            user: admin@chain.link
+          keystore:
+            key: .keystore
+            password: ""
+          vrf:
+            key: .vrf
+            password: ""
+        secretName: clc-m-n-s-b-2-creds
+        storageType: aws:ssm
+      database:
+        config:
+          database: ""
+          host: ""
+          password: ""
+          port: "5432"
+          user: ""
+        secretName: clc-m-n-s-b-2-db
+        storageType: aws:ssm
+  5: |
+    apiVersion: k8s.chain.link/v1alpha1
+    kind: ChainlinkNode
+    metadata:
+      annotations:
+        chainlinknode.k8s.chain.link/create-v2: "true"
+        chainlinknode.k8s.chain.link/init-rds: "true"
+        chainlinknode.k8s.chain.link/init-rds-idx: "0"
+        chainlinknode.k8s.chain.link/preserve-ssm: "true"
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-3
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-3
+    spec:
+      credentials:
+        config:
+          api:
+            key: .api
+            password: ""
+            user: admin@chain.link
+          keystore:
+            key: .keystore
+            password: ""
+          vrf:
+            key: .vrf
+            password: ""
+        secretName: clc-m-n-s-b-3-creds
+        storageType: aws:ssm
+      database:
+        config:
+          database: ""
+          host: ""
+          password: ""
+          port: "5432"
+          user: ""
+        secretName: clc-m-n-s-b-3-db
+        storageType: aws:ssm
+  6: |
+    apiVersion: v1
+    data:
+      00-defaults-node-config.toml: |
+        RootDir = '/home/chainlink'
+
+        [Database]
+          MaxIdleConns = 20
+          MaxOpenConns = 40
+          MigrateOnStartup = true
+
+        [Log]
+          Level = 'info'
+          JSONConsole = true
+
+        [Log.File]
+          MaxSize = '0b'
+
+        [WebServer]
+          AllowOrigins = '*'
+          HTTPPort = 6688
+          SecureCookies = false
+
+          [WebServer.RateLimit]
+            Authenticated = 2000
+            Unauthenticated = 100
+
+          [WebServer.TLS]
+            HTTPSPort = 0
+      01-networks.toml: |
+        [[EVM]]
+          ChainID = "11155111"
+
+          [[EVM.Nodes]]
+            HTTPURL = "https://nd-611-802-295.p2pify.com/05541dd996d9d812e580c32477f70b1a"
+            Name = "11155111_primary_Chainstack_0"
+            SendOnly = false
+            WSURL = "wss://ws-nd-611-802-295.p2pify.com/05541dd996d9d812e580c32477f70b1a"
+
+          [[EVM.Nodes]]
+            HTTPURL = "https://chainlinklabs-sepolia-geth-fullnode-01.bdnodes.net/?auth=waYM-neMbBEC2Nlg2u-8vcC6JFNWB5W-Yv-deQuHGAk"
+            Name = "11155111_primary_Blockdaemon_1"
+            SendOnly = false
+            WSURL = "wss://chainlinklabs-sepolia-geth-fullnode-01.bdnodes.net:8443/websocket?auth=waYM-neMbBEC2Nlg2u-8vcC6JFNWB5W-Yv-deQuHGAk"
+
+          [[EVM.Nodes]]
+            HTTPURL = "https://ethereum-sepolia-1.simplystaking.xyz/DFKJSDFKJNSD/rpc/"
+            Name = "11155111_primary_SimplyVC_2"
+            SendOnly = false
+            WSURL = "wss://ethereum-sepolia-1.simplystaking.xyz/DFKJSDFKJNSD/ws/"
+    kind: ConfigMap
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-bt-0
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-bt-0-cm-v2
+  7: |
+    apiVersion: v1
+    data:
+      00-defaults-node-config.toml: |
+        RootDir = '/home/chainlink'
+
+        [Database]
+          MaxIdleConns = 20
+          MaxOpenConns = 40
+          MigrateOnStartup = true
+
+        [Log]
+          Level = 'info'
+          JSONConsole = true
+
+        [Log.File]
+          MaxSize = '0b'
+
+        [WebServer]
+          AllowOrigins = '*'
+          HTTPPort = 6688
+          SecureCookies = false
+
+          [WebServer.RateLimit]
+            Authenticated = 2000
+            Unauthenticated = 100
+
+          [WebServer.TLS]
+            HTTPSPort = 0
+      01-networks.toml: |
+        [[EVM]]
+          ChainID = "11155111"
+
+          [[EVM.Nodes]]
+            HTTPURL = "https://nd-611-802-295.p2pify.com/05541dd996d9d812e580c32477f70b1a"
+            Name = "11155111_primary_Chainstack_0"
+            SendOnly = false
+            WSURL = "wss://ws-nd-611-802-295.p2pify.com/05541dd996d9d812e580c32477f70b1a"
+
+          [[EVM.Nodes]]
+            HTTPURL = "https://chainlinklabs-sepolia-geth-fullnode-01.bdnodes.net/?auth=waYM-neMbBEC2Nlg2u-8vcC6JFNWB5W-Yv-deQuHGAk"
+            Name = "11155111_primary_Blockdaemon_1"
+            SendOnly = false
+            WSURL = "wss://chainlinklabs-sepolia-geth-fullnode-01.bdnodes.net:8443/websocket?auth=waYM-neMbBEC2Nlg2u-8vcC6JFNWB5W-Yv-deQuHGAk"
+
+          [[EVM.Nodes]]
+            HTTPURL = "https://ethereum-sepolia-1.simplystaking.xyz/DFKJSDFKJNSD/rpc/"
+            Name = "11155111_primary_SimplyVC_2"
+            SendOnly = false
+            WSURL = "wss://ethereum-sepolia-1.simplystaking.xyz/DFKJSDFKJNSD/ws/"
+    kind: ConfigMap
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-0
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-0-cm-v2
+  8: |
+    apiVersion: v1
+    data:
+      00-defaults-node-config.toml: |
+        RootDir = '/home/chainlink'
+
+        [Database]
+          MaxIdleConns = 20
+          MaxOpenConns = 40
+          MigrateOnStartup = true
+
+        [Log]
+          Level = 'info'
+          JSONConsole = true
+
+        [Log.File]
+          MaxSize = '0b'
+
+        [WebServer]
+          AllowOrigins = '*'
+          HTTPPort = 6688
+          SecureCookies = false
+
+          [WebServer.RateLimit]
+            Authenticated = 2000
+            Unauthenticated = 100
+
+          [WebServer.TLS]
+            HTTPSPort = 0
+      01-networks.toml: |
+        [[EVM]]
+          ChainID = "11155111"
+
+          [[EVM.Nodes]]
+            HTTPURL = "https://nd-611-802-295.p2pify.com/05541dd996d9d812e580c32477f70b1a"
+            Name = "11155111_primary_Chainstack_0"
+            SendOnly = false
+            WSURL = "wss://ws-nd-611-802-295.p2pify.com/05541dd996d9d812e580c32477f70b1a"
+
+          [[EVM.Nodes]]
+            HTTPURL = "https://chainlinklabs-sepolia-geth-fullnode-01.bdnodes.net/?auth=waYM-neMbBEC2Nlg2u-8vcC6JFNWB5W-Yv-deQuHGAk"
+            Name = "11155111_primary_Blockdaemon_1"
+            SendOnly = false
+            WSURL = "wss://chainlinklabs-sepolia-geth-fullnode-01.bdnodes.net:8443/websocket?auth=waYM-neMbBEC2Nlg2u-8vcC6JFNWB5W-Yv-deQuHGAk"
+
+          [[EVM.Nodes]]
+            HTTPURL = "https://ethereum-sepolia-1.simplystaking.xyz/DFKJSDFKJNSD/rpc/"
+            Name = "11155111_primary_SimplyVC_2"
+            SendOnly = false
+            WSURL = "wss://ethereum-sepolia-1.simplystaking.xyz/DFKJSDFKJNSD/ws/"
+    kind: ConfigMap
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-1
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-1-cm-v2
+  9: |
+    apiVersion: v1
+    data:
+      00-defaults-node-config.toml: |
+        RootDir = '/home/chainlink'
+
+        [Database]
+          MaxIdleConns = 20
+          MaxOpenConns = 40
+          MigrateOnStartup = true
+
+        [Log]
+          Level = 'info'
+          JSONConsole = true
+
+        [Log.File]
+          MaxSize = '0b'
+
+        [WebServer]
+          AllowOrigins = '*'
+          HTTPPort = 6688
+          SecureCookies = false
+
+          [WebServer.RateLimit]
+            Authenticated = 2000
+            Unauthenticated = 100
+
+          [WebServer.TLS]
+            HTTPSPort = 0
+      01-networks.toml: |
+        [[EVM]]
+          ChainID = "11155111"
+
+          [[EVM.Nodes]]
+            HTTPURL = "https://nd-611-802-295.p2pify.com/05541dd996d9d812e580c32477f70b1a"
+            Name = "11155111_primary_Chainstack_0"
+            SendOnly = false
+            WSURL = "wss://ws-nd-611-802-295.p2pify.com/05541dd996d9d812e580c32477f70b1a"
+
+          [[EVM.Nodes]]
+            HTTPURL = "https://chainlinklabs-sepolia-geth-fullnode-01.bdnodes.net/?auth=waYM-neMbBEC2Nlg2u-8vcC6JFNWB5W-Yv-deQuHGAk"
+            Name = "11155111_primary_Blockdaemon_1"
+            SendOnly = false
+            WSURL = "wss://chainlinklabs-sepolia-geth-fullnode-01.bdnodes.net:8443/websocket?auth=waYM-neMbBEC2Nlg2u-8vcC6JFNWB5W-Yv-deQuHGAk"
+
+          [[EVM.Nodes]]
+            HTTPURL = "https://ethereum-sepolia-1.simplystaking.xyz/DFKJSDFKJNSD/rpc/"
+            Name = "11155111_primary_SimplyVC_2"
+            SendOnly = false
+            WSURL = "wss://ethereum-sepolia-1.simplystaking.xyz/DFKJSDFKJNSD/ws/"
+    kind: ConfigMap
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-2
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-2-cm-v2
+  10: |
+    apiVersion: v1
+    data:
+      00-defaults-node-config.toml: |
+        RootDir = '/home/chainlink'
+
+        [Database]
+          MaxIdleConns = 20
+          MaxOpenConns = 40
+          MigrateOnStartup = true
+
+        [Log]
+          Level = 'info'
+          JSONConsole = true
+
+        [Log.File]
+          MaxSize = '0b'
+
+        [WebServer]
+          AllowOrigins = '*'
+          HTTPPort = 6688
+          SecureCookies = false
+
+          [WebServer.RateLimit]
+            Authenticated = 2000
+            Unauthenticated = 100
+
+          [WebServer.TLS]
+            HTTPSPort = 0
+      01-networks.toml: |
+        [[EVM]]
+          ChainID = "11155111"
+
+          [[EVM.Nodes]]
+            HTTPURL = "https://nd-611-802-295.p2pify.com/05541dd996d9d812e580c32477f70b1a"
+            Name = "11155111_primary_Chainstack_0"
+            SendOnly = false
+            WSURL = "wss://ws-nd-611-802-295.p2pify.com/05541dd996d9d812e580c32477f70b1a"
+
+          [[EVM.Nodes]]
+            HTTPURL = "https://chainlinklabs-sepolia-geth-fullnode-01.bdnodes.net/?auth=waYM-neMbBEC2Nlg2u-8vcC6JFNWB5W-Yv-deQuHGAk"
+            Name = "11155111_primary_Blockdaemon_1"
+            SendOnly = false
+            WSURL = "wss://chainlinklabs-sepolia-geth-fullnode-01.bdnodes.net:8443/websocket?auth=waYM-neMbBEC2Nlg2u-8vcC6JFNWB5W-Yv-deQuHGAk"
+
+          [[EVM.Nodes]]
+            HTTPURL = "https://ethereum-sepolia-1.simplystaking.xyz/DFKJSDFKJNSD/rpc/"
+            Name = "11155111_primary_SimplyVC_2"
+            SendOnly = false
+            WSURL = "wss://ethereum-sepolia-1.simplystaking.xyz/DFKJSDFKJNSD/ws/"
+    kind: ConfigMap
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-3
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-3-cm-v2
+  11: |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-bt-0
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-bt-0
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/instance: clc-m-n-s-b-bt-0
+          app.kubernetes.io/name: clc-misc-m-n-s-b
+      template:
+        metadata:
+          annotations:
+            checksum/config-v2: 8356c8f2158dd6075f39f56e6f9e5bf65be770a8ac941af28002f6b703dea497
+          labels:
+            app.chain.link/blockchain: ethereum
+            app.chain.link/network: sepolia
+            app.chain.link/network_type: testnet
+            app.chain.link/product: example
+            app.chain.link/team: infra
+            app.kubernetes.io/component: chainlink-example-node
+            app.kubernetes.io/instance: clc-m-n-s-b-bt-0
+            app.kubernetes.io/managed-by: Helm
+            app.kubernetes.io/name: clc-misc-m-n-s-b
+            app.kubernetes.io/version: 2.5.0
+        spec:
+          containers:
+            - image: linuxserver/wireguard:1.0.20210914
+              imagePullPolicy: IfNotPresent
+              name: chainlink-cluster-vpn-client
+              securityContext:
+                capabilities:
+                  add:
+                    - NET_ADMIN
+                fsGroup: 1000
+                runAsGroup: 1000
+                runAsUser: 1000
+              volumeMounts:
+                - mountPath: /etc/wireguard/wg0.conf
+                  name: clc-m-n-s-b-bt-0-vpn-secret
+                  readOnly: true
+                  subPath: wg0.conf
+            - args:
+                - -c
+                - /v2Config/00-defaults-node-config.toml
+                - -c
+                - /v2Config/01-networks.toml
+                - -s
+                - /v2Secret/secret.toml
+                - local
+                - "n"
+                - -a
+                - /v2Secret/.api
+              image: public.ecr.aws/chainlink/chainlink:2.5.0
+              imagePullPolicy: IfNotPresent
+              name: chainlink-cluster
+              ports:
+                - containerPort: 6690
+                  name: p2pv1
+                  protocol: TCP
+                - containerPort: 5001
+                  name: p2pv2
+                  protocol: TCP
+                - containerPort: 6688
+                  name: http
+                  protocol: TCP
+              resources:
+                limits:
+                  cpu: 500m
+                  memory: 1024Mi
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+              volumeMounts:
+                - mountPath: /v2Config
+                  name: clc-m-n-s-b-bt-0-cm-v2
+                  readOnly: true
+                - mountPath: /v2Secret
+                  name: clc-m-n-s-b-bt-0-v2
+                  readOnly: true
+          enableServiceLinks: false
+          initContainers:
+            - args:
+                - -c
+                - |
+                  while ! pg_isready -d $POSTGRES_DB -h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER; do sleep 1; done;
+              command:
+                - /bin/bash
+              envFrom:
+                - secretRef:
+                    name: clc-m-n-s-b-bt-0-db
+              image: docker.io/bitnami/postgresql:16.6.0
+              imagePullPolicy: IfNotPresent
+              name: init-db-check
+          topologySpreadConstraints:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: clc-misc-m-n-s-b
+              maxSkew: 1
+              topologyKey: topology.kubernetes.io/zone
+              whenUnsatisfiable: ScheduleAnyway
+          volumes:
+            - configMap:
+                name: clc-m-n-s-b-bt-0-cm-v2
+              name: clc-m-n-s-b-bt-0-cm-v2
+            - name: clc-m-n-s-b-bt-0-v2
+              secret:
+                secretName: clc-m-n-s-b-bt-0-v2
+            - emptyDir: {}
+              name: clc-m-n-s-b-bt-0-vpn
+            - name: clc-m-n-s-b-bt-0-vpn-secret
+              secret:
+                secretName: clc-m-n-s-b-bt-0-vpn-secret
+  12: |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-0
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-0
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/instance: clc-m-n-s-b-0
+          app.kubernetes.io/name: clc-misc-m-n-s-b
+      template:
+        metadata:
+          annotations:
+            checksum/config-v2: 8356c8f2158dd6075f39f56e6f9e5bf65be770a8ac941af28002f6b703dea497
+          labels:
+            app.chain.link/blockchain: ethereum
+            app.chain.link/network: sepolia
+            app.chain.link/network_type: testnet
+            app.chain.link/product: example
+            app.chain.link/team: infra
+            app.kubernetes.io/component: chainlink-example-node
+            app.kubernetes.io/instance: clc-m-n-s-b-0
+            app.kubernetes.io/managed-by: Helm
+            app.kubernetes.io/name: clc-misc-m-n-s-b
+            app.kubernetes.io/version: 2.5.0
+        spec:
+          containers:
+            - image: linuxserver/wireguard:1.0.20210914
+              imagePullPolicy: IfNotPresent
+              name: chainlink-cluster-vpn-client
+              securityContext:
+                capabilities:
+                  add:
+                    - NET_ADMIN
+                fsGroup: 1000
+                runAsGroup: 1000
+                runAsUser: 1000
+              volumeMounts:
+                - mountPath: /etc/wireguard/wg0.conf
+                  name: clc-m-n-s-b-0-vpn-secret
+                  readOnly: true
+                  subPath: wg0.conf
+            - args:
+                - -c
+                - /v2Config/00-defaults-node-config.toml
+                - -c
+                - /v2Config/01-networks.toml
+                - -s
+                - /v2Secret/secret.toml
+                - local
+                - "n"
+                - -a
+                - /v2Secret/.api
+              image: public.ecr.aws/chainlink/chainlink:2.5.0
+              imagePullPolicy: IfNotPresent
+              name: chainlink-cluster
+              ports:
+                - containerPort: 6690
+                  name: p2pv1
+                  protocol: TCP
+                - containerPort: 5001
+                  name: p2pv2
+                  protocol: TCP
+                - containerPort: 6688
+                  name: http
+                  protocol: TCP
+              resources:
+                limits:
+                  cpu: 500m
+                  memory: 1024Mi
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+              volumeMounts:
+                - mountPath: /v2Config
+                  name: clc-m-n-s-b-0-cm-v2
+                  readOnly: true
+                - mountPath: /v2Secret
+                  name: clc-m-n-s-b-0-v2
+                  readOnly: true
+          enableServiceLinks: false
+          initContainers:
+            - args:
+                - -c
+                - |
+                  while ! pg_isready -d $POSTGRES_DB -h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER; do sleep 1; done;
+              command:
+                - /bin/bash
+              envFrom:
+                - secretRef:
+                    name: clc-m-n-s-b-0-db
+              image: docker.io/bitnami/postgresql:16.6.0
+              imagePullPolicy: IfNotPresent
+              name: init-db-check
+          topologySpreadConstraints:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: clc-misc-m-n-s-b
+              maxSkew: 1
+              topologyKey: topology.kubernetes.io/zone
+              whenUnsatisfiable: ScheduleAnyway
+          volumes:
+            - configMap:
+                name: clc-m-n-s-b-0-cm-v2
+              name: clc-m-n-s-b-0-cm-v2
+            - name: clc-m-n-s-b-0-v2
+              secret:
+                secretName: clc-m-n-s-b-0-v2
+            - emptyDir: {}
+              name: clc-m-n-s-b-0-vpn
+            - name: clc-m-n-s-b-0-vpn-secret
+              secret:
+                secretName: clc-m-n-s-b-0-vpn-secret
+  13: |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-1
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-1
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/instance: clc-m-n-s-b-1
+          app.kubernetes.io/name: clc-misc-m-n-s-b
+      template:
+        metadata:
+          annotations:
+            checksum/config-v2: 8356c8f2158dd6075f39f56e6f9e5bf65be770a8ac941af28002f6b703dea497
+          labels:
+            app.chain.link/blockchain: ethereum
+            app.chain.link/network: sepolia
+            app.chain.link/network_type: testnet
+            app.chain.link/product: example
+            app.chain.link/team: infra
+            app.kubernetes.io/component: chainlink-example-node
+            app.kubernetes.io/instance: clc-m-n-s-b-1
+            app.kubernetes.io/managed-by: Helm
+            app.kubernetes.io/name: clc-misc-m-n-s-b
+            app.kubernetes.io/version: 2.5.0
+        spec:
+          containers:
+            - image: linuxserver/wireguard:1.0.20210914
+              imagePullPolicy: IfNotPresent
+              name: chainlink-cluster-vpn-client
+              securityContext:
+                capabilities:
+                  add:
+                    - NET_ADMIN
+                fsGroup: 1000
+                runAsGroup: 1000
+                runAsUser: 1000
+              volumeMounts:
+                - mountPath: /etc/wireguard/wg0.conf
+                  name: clc-m-n-s-b-1-vpn-secret
+                  readOnly: true
+                  subPath: wg0.conf
+            - args:
+                - -c
+                - /v2Config/00-defaults-node-config.toml
+                - -c
+                - /v2Config/01-networks.toml
+                - -s
+                - /v2Secret/secret.toml
+                - local
+                - "n"
+                - -a
+                - /v2Secret/.api
+              image: public.ecr.aws/chainlink/chainlink:2.5.0
+              imagePullPolicy: IfNotPresent
+              name: chainlink-cluster
+              ports:
+                - containerPort: 6690
+                  name: p2pv1
+                  protocol: TCP
+                - containerPort: 5001
+                  name: p2pv2
+                  protocol: TCP
+                - containerPort: 6688
+                  name: http
+                  protocol: TCP
+              resources:
+                limits:
+                  cpu: 500m
+                  memory: 1024Mi
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+              volumeMounts:
+                - mountPath: /v2Config
+                  name: clc-m-n-s-b-1-cm-v2
+                  readOnly: true
+                - mountPath: /v2Secret
+                  name: clc-m-n-s-b-1-v2
+                  readOnly: true
+          enableServiceLinks: false
+          initContainers:
+            - args:
+                - -c
+                - |
+                  while ! pg_isready -d $POSTGRES_DB -h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER; do sleep 1; done;
+              command:
+                - /bin/bash
+              envFrom:
+                - secretRef:
+                    name: clc-m-n-s-b-1-db
+              image: docker.io/bitnami/postgresql:16.6.0
+              imagePullPolicy: IfNotPresent
+              name: init-db-check
+          topologySpreadConstraints:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: clc-misc-m-n-s-b
+              maxSkew: 1
+              topologyKey: topology.kubernetes.io/zone
+              whenUnsatisfiable: ScheduleAnyway
+          volumes:
+            - configMap:
+                name: clc-m-n-s-b-1-cm-v2
+              name: clc-m-n-s-b-1-cm-v2
+            - name: clc-m-n-s-b-1-v2
+              secret:
+                secretName: clc-m-n-s-b-1-v2
+            - emptyDir: {}
+              name: clc-m-n-s-b-1-vpn
+            - name: clc-m-n-s-b-1-vpn-secret
+              secret:
+                secretName: clc-m-n-s-b-1-vpn-secret
+  14: |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-2
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-2
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/instance: clc-m-n-s-b-2
+          app.kubernetes.io/name: clc-misc-m-n-s-b
+      template:
+        metadata:
+          annotations:
+            checksum/config-v2: 8356c8f2158dd6075f39f56e6f9e5bf65be770a8ac941af28002f6b703dea497
+          labels:
+            app.chain.link/blockchain: ethereum
+            app.chain.link/network: sepolia
+            app.chain.link/network_type: testnet
+            app.chain.link/product: example
+            app.chain.link/team: infra
+            app.kubernetes.io/component: chainlink-example-node
+            app.kubernetes.io/instance: clc-m-n-s-b-2
+            app.kubernetes.io/managed-by: Helm
+            app.kubernetes.io/name: clc-misc-m-n-s-b
+            app.kubernetes.io/version: 2.5.0
+        spec:
+          containers:
+            - image: linuxserver/wireguard:1.0.20210914
+              imagePullPolicy: IfNotPresent
+              name: chainlink-cluster-vpn-client
+              securityContext:
+                capabilities:
+                  add:
+                    - NET_ADMIN
+                fsGroup: 1000
+                runAsGroup: 1000
+                runAsUser: 1000
+              volumeMounts:
+                - mountPath: /etc/wireguard/wg0.conf
+                  name: clc-m-n-s-b-2-vpn-secret
+                  readOnly: true
+                  subPath: wg0.conf
+            - args:
+                - -c
+                - /v2Config/00-defaults-node-config.toml
+                - -c
+                - /v2Config/01-networks.toml
+                - -s
+                - /v2Secret/secret.toml
+                - local
+                - "n"
+                - -a
+                - /v2Secret/.api
+              image: public.ecr.aws/chainlink/chainlink:2.5.0
+              imagePullPolicy: IfNotPresent
+              name: chainlink-cluster
+              ports:
+                - containerPort: 6690
+                  name: p2pv1
+                  protocol: TCP
+                - containerPort: 5001
+                  name: p2pv2
+                  protocol: TCP
+                - containerPort: 6688
+                  name: http
+                  protocol: TCP
+              resources:
+                limits:
+                  cpu: 500m
+                  memory: 1024Mi
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+              volumeMounts:
+                - mountPath: /v2Config
+                  name: clc-m-n-s-b-2-cm-v2
+                  readOnly: true
+                - mountPath: /v2Secret
+                  name: clc-m-n-s-b-2-v2
+                  readOnly: true
+          enableServiceLinks: false
+          initContainers:
+            - args:
+                - -c
+                - |
+                  while ! pg_isready -d $POSTGRES_DB -h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER; do sleep 1; done;
+              command:
+                - /bin/bash
+              envFrom:
+                - secretRef:
+                    name: clc-m-n-s-b-2-db
+              image: docker.io/bitnami/postgresql:16.6.0
+              imagePullPolicy: IfNotPresent
+              name: init-db-check
+          topologySpreadConstraints:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: clc-misc-m-n-s-b
+              maxSkew: 1
+              topologyKey: topology.kubernetes.io/zone
+              whenUnsatisfiable: ScheduleAnyway
+          volumes:
+            - configMap:
+                name: clc-m-n-s-b-2-cm-v2
+              name: clc-m-n-s-b-2-cm-v2
+            - name: clc-m-n-s-b-2-v2
+              secret:
+                secretName: clc-m-n-s-b-2-v2
+            - emptyDir: {}
+              name: clc-m-n-s-b-2-vpn
+            - name: clc-m-n-s-b-2-vpn-secret
+              secret:
+                secretName: clc-m-n-s-b-2-vpn-secret
+  15: |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-3
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-3
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/instance: clc-m-n-s-b-3
+          app.kubernetes.io/name: clc-misc-m-n-s-b
+      template:
+        metadata:
+          annotations:
+            checksum/config-v2: 8356c8f2158dd6075f39f56e6f9e5bf65be770a8ac941af28002f6b703dea497
+          labels:
+            app.chain.link/blockchain: ethereum
+            app.chain.link/network: sepolia
+            app.chain.link/network_type: testnet
+            app.chain.link/product: example
+            app.chain.link/team: infra
+            app.kubernetes.io/component: chainlink-example-node
+            app.kubernetes.io/instance: clc-m-n-s-b-3
+            app.kubernetes.io/managed-by: Helm
+            app.kubernetes.io/name: clc-misc-m-n-s-b
+            app.kubernetes.io/version: 2.5.0
+        spec:
+          containers:
+            - image: linuxserver/wireguard:1.0.20210914
+              imagePullPolicy: IfNotPresent
+              name: chainlink-cluster-vpn-client
+              securityContext:
+                capabilities:
+                  add:
+                    - NET_ADMIN
+                fsGroup: 1000
+                runAsGroup: 1000
+                runAsUser: 1000
+              volumeMounts:
+                - mountPath: /etc/wireguard/wg0.conf
+                  name: clc-m-n-s-b-3-vpn-secret
+                  readOnly: true
+                  subPath: wg0.conf
+            - args:
+                - -c
+                - /v2Config/00-defaults-node-config.toml
+                - -c
+                - /v2Config/01-networks.toml
+                - -s
+                - /v2Secret/secret.toml
+                - local
+                - "n"
+                - -a
+                - /v2Secret/.api
+              image: public.ecr.aws/chainlink/chainlink:2.5.0
+              imagePullPolicy: IfNotPresent
+              name: chainlink-cluster
+              ports:
+                - containerPort: 6690
+                  name: p2pv1
+                  protocol: TCP
+                - containerPort: 5001
+                  name: p2pv2
+                  protocol: TCP
+                - containerPort: 6688
+                  name: http
+                  protocol: TCP
+              resources:
+                limits:
+                  cpu: 500m
+                  memory: 1024Mi
+                requests:
+                  cpu: 250m
+                  memory: 512Mi
+              volumeMounts:
+                - mountPath: /v2Config
+                  name: clc-m-n-s-b-3-cm-v2
+                  readOnly: true
+                - mountPath: /v2Secret
+                  name: clc-m-n-s-b-3-v2
+                  readOnly: true
+          enableServiceLinks: false
+          initContainers:
+            - args:
+                - -c
+                - |
+                  while ! pg_isready -d $POSTGRES_DB -h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER; do sleep 1; done;
+              command:
+                - /bin/bash
+              envFrom:
+                - secretRef:
+                    name: clc-m-n-s-b-3-db
+              image: docker.io/bitnami/postgresql:16.6.0
+              imagePullPolicy: IfNotPresent
+              name: init-db-check
+          topologySpreadConstraints:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: clc-misc-m-n-s-b
+              maxSkew: 1
+              topologyKey: topology.kubernetes.io/zone
+              whenUnsatisfiable: ScheduleAnyway
+          volumes:
+            - configMap:
+                name: clc-m-n-s-b-3-cm-v2
+              name: clc-m-n-s-b-3-cm-v2
+            - name: clc-m-n-s-b-3-v2
+              secret:
+                secretName: clc-m-n-s-b-3-v2
+            - emptyDir: {}
+              name: clc-m-n-s-b-3-vpn
+            - name: clc-m-n-s-b-3-vpn-secret
+              secret:
+                secretName: clc-m-n-s-b-3-vpn-secret
+  16: |
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-bt-0
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-bt-0-vpn-secret
+    stringData:
+      wg0.conf: |
+        [Interface]
+        Address = 10.22.32.60/32
+        PrivateKey = REDACTED-0
+        PostUp = ping -c1 10.22.32.1
+        [Peer]
+        PublicKey = 8dW3a6xAq9Kg20EUZrvhDtXrabIWCTTBxh4FUPRpa1o=
+        AllowedIPs = 10.22.32.0/24
+        Endpoint = 54.148.105.56:51820
+        PersistentKeepalive = 25
+    type: Opaque
+  17: |
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-0
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-0-vpn-secret
+    stringData:
+      wg0.conf: |
+        [Interface]
+        Address = 10.22.32.60/32
+        PrivateKey = REDACTED-1
+        PostUp = ping -c1 10.22.32.1
+        [Peer]
+        PublicKey = 8dW3a6xAq9Kg20EUZrvhDtXrabIWCTTBxh4FUPRpa1o=
+        AllowedIPs = 10.22.32.0/24
+        Endpoint = 54.148.105.56:51820
+        PersistentKeepalive = 25
+    type: Opaque
+  18: |
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-1
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-1-vpn-secret
+    stringData:
+      wg0.conf: |
+        [Interface]
+        Address = 10.22.32.60/32
+        PrivateKey = REDACTED-2
+        PostUp = ping -c1 10.22.32.1
+        [Peer]
+        PublicKey = 8dW3a6xAq9Kg20EUZrvhDtXrabIWCTTBxh4FUPRpa1o=
+        AllowedIPs = 10.22.32.0/24
+        Endpoint = 54.148.105.56:51820
+        PersistentKeepalive = 25
+    type: Opaque
+  19: |
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-2
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-2-vpn-secret
+    stringData:
+      wg0.conf: |
+        [Interface]
+        Address = 10.22.32.60/32
+        PrivateKey = REDACTED-3
+        PostUp = ping -c1 10.22.32.1
+        [Peer]
+        PublicKey = 8dW3a6xAq9Kg20EUZrvhDtXrabIWCTTBxh4FUPRpa1o=
+        AllowedIPs = 10.22.32.0/24
+        Endpoint = 54.148.105.56:51820
+        PersistentKeepalive = 25
+    type: Opaque
+  20: |
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-3
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-3-vpn-secret
+    stringData:
+      wg0.conf: |
+        [Interface]
+        Address = 10.22.32.60/32
+        PrivateKey = REDACTED-4
+        PostUp = ping -c1 10.22.32.1
+        [Peer]
+        PublicKey = 8dW3a6xAq9Kg20EUZrvhDtXrabIWCTTBxh4FUPRpa1o=
+        AllowedIPs = 10.22.32.0/24
+        Endpoint = 54.148.105.56:51820
+        PersistentKeepalive = 25
+    type: Opaque
+  21: |
+    apiVersion: v1
+    kind: Service
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-bt-0
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-bt-0
+    spec:
+      ports:
+        - name: http
+          port: 6688
+          protocol: TCP
+          targetPort: http
+        - name: p2pv1
+          port: 6690
+          protocol: TCP
+          targetPort: p2pv1
+        - name: p2pv2
+          port: 5001
+          protocol: TCP
+          targetPort: p2pv2
+      selector:
+        app.kubernetes.io/instance: clc-m-n-s-b-bt-0
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+      type: ClusterIP
+  22: |
+    apiVersion: v1
+    kind: Service
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-0
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-0
+    spec:
+      ports:
+        - name: http
+          port: 6688
+          protocol: TCP
+          targetPort: http
+        - name: p2pv1
+          port: 6690
+          protocol: TCP
+          targetPort: p2pv1
+        - name: p2pv2
+          port: 5001
+          protocol: TCP
+          targetPort: p2pv2
+      selector:
+        app.kubernetes.io/instance: clc-m-n-s-b-0
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+      type: ClusterIP
+  23: |
+    apiVersion: v1
+    kind: Service
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-1
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-1
+    spec:
+      ports:
+        - name: http
+          port: 6688
+          protocol: TCP
+          targetPort: http
+        - name: p2pv1
+          port: 6690
+          protocol: TCP
+          targetPort: p2pv1
+        - name: p2pv2
+          port: 5001
+          protocol: TCP
+          targetPort: p2pv2
+      selector:
+        app.kubernetes.io/instance: clc-m-n-s-b-1
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+      type: ClusterIP
+  24: |
+    apiVersion: v1
+    kind: Service
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-2
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-2
+    spec:
+      ports:
+        - name: http
+          port: 6688
+          protocol: TCP
+          targetPort: http
+        - name: p2pv1
+          port: 6690
+          protocol: TCP
+          targetPort: p2pv1
+        - name: p2pv2
+          port: 5001
+          protocol: TCP
+          targetPort: p2pv2
+      selector:
+        app.kubernetes.io/instance: clc-m-n-s-b-2
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+      type: ClusterIP
+  25: |
+    apiVersion: v1
+    kind: Service
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-3
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+      name: clc-m-n-s-b-3
+    spec:
+      ports:
+        - name: http
+          port: 6688
+          protocol: TCP
+          targetPort: http
+        - name: p2pv1
+          port: 6690
+          protocol: TCP
+          targetPort: p2pv1
+        - name: p2pv2
+          port: 5001
+          protocol: TCP
+          targetPort: p2pv2
+      selector:
+        app.kubernetes.io/instance: clc-m-n-s-b-3
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+      type: ClusterIP
+  26: |
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-bt-0
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+        release: grafana-agent
+      name: clc-m-n-s-b-bt-0
+    spec:
+      endpoints:
+        - path: /metrics
+          port: http
+          relabelings:
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_kubernetes_io_component
+              targetLabel: component
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_kubernetes_io_version
+              targetLabel: version
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_team
+              targetLabel: team
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_product
+              targetLabel: product
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_blockchain
+              targetLabel: blockchain
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_network
+              targetLabel: network
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_network_type
+              targetLabel: network_type
+      selector:
+        matchLabels:
+          app.kubernetes.io/instance: clc-m-n-s-b-bt-0
+          app.kubernetes.io/name: clc-misc-m-n-s-b
+  27: |
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-0
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+        release: grafana-agent
+      name: clc-m-n-s-b-0
+    spec:
+      endpoints:
+        - path: /metrics
+          port: http
+          relabelings:
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_kubernetes_io_component
+              targetLabel: component
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_kubernetes_io_version
+              targetLabel: version
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_team
+              targetLabel: team
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_product
+              targetLabel: product
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_blockchain
+              targetLabel: blockchain
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_network
+              targetLabel: network
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_network_type
+              targetLabel: network_type
+      selector:
+        matchLabels:
+          app.kubernetes.io/instance: clc-m-n-s-b-0
+          app.kubernetes.io/name: clc-misc-m-n-s-b
+  28: |
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-1
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+        release: grafana-agent
+      name: clc-m-n-s-b-1
+    spec:
+      endpoints:
+        - path: /metrics
+          port: http
+          relabelings:
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_kubernetes_io_component
+              targetLabel: component
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_kubernetes_io_version
+              targetLabel: version
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_team
+              targetLabel: team
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_product
+              targetLabel: product
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_blockchain
+              targetLabel: blockchain
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_network
+              targetLabel: network
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_network_type
+              targetLabel: network_type
+      selector:
+        matchLabels:
+          app.kubernetes.io/instance: clc-m-n-s-b-1
+          app.kubernetes.io/name: clc-misc-m-n-s-b
+  29: |
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-2
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+        release: grafana-agent
+      name: clc-m-n-s-b-2
+    spec:
+      endpoints:
+        - path: /metrics
+          port: http
+          relabelings:
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_kubernetes_io_component
+              targetLabel: component
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_kubernetes_io_version
+              targetLabel: version
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_team
+              targetLabel: team
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_product
+              targetLabel: product
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_blockchain
+              targetLabel: blockchain
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_network
+              targetLabel: network
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_network_type
+              targetLabel: network_type
+      selector:
+        matchLabels:
+          app.kubernetes.io/instance: clc-m-n-s-b-2
+          app.kubernetes.io/name: clc-misc-m-n-s-b
+  30: |
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: clc-m-n-s-b-3
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-s-b
+        app.kubernetes.io/version: 2.5.0
+        release: grafana-agent
+      name: clc-m-n-s-b-3
+    spec:
+      endpoints:
+        - path: /metrics
+          port: http
+          relabelings:
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_kubernetes_io_component
+              targetLabel: component
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_kubernetes_io_version
+              targetLabel: version
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_team
+              targetLabel: team
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_product
+              targetLabel: product
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_blockchain
+              targetLabel: blockchain
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_network
+              targetLabel: network
+            - action: replace
+              sourceLabels:
+                - __meta_kubernetes_service_label_app_chain_link_network_type
+              targetLabel: network_type
+      selector:
+        matchLabels:
+          app.kubernetes.io/instance: clc-m-n-s-b-3
+          app.kubernetes.io/name: clc-misc-m-n-s-b

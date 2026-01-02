@@ -1,0 +1,36 @@
+{{- $global := . -}}
+{{- range until (include "chainlink-cluster.clusterSize" . | int) }}
+  {{- if $global.Values.enabled }}
+  {{- $merged := dict "common" $global.Values.common "overrides" $global.Values.overrides "idx" . | include "chainlink-cluster.merged" | fromYaml -}}
+  {{- $nodeName :=  dict "global" $global "merged" $merged "idx" . | include "chainlink-cluster.nodeName" -}}
+  {{- $labels := dict "global" $global "merged" $merged "nodeName" $nodeName | include "chainlink-cluster.labelMachine" | fromYaml }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $nodeName }}
+  labels: {{ $labels.instance | nindent 4 }}
+spec:
+  type: {{ $merged.service.private.type }}
+  selector: {{ $labels.instanceSelector | nindent 4 }}
+  {{- include "chainlink-cluster.privatePorts" $global | nindent 2 }}
+  {{- if $merged.db_access.enabled }}
+  - port: 3001
+    targetPort: 3001
+    name: db-access
+    protocol: TCP
+  {{- end }}
+---
+{{- if $global.Values.rollout.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $nodeName }}-preview
+  labels: {{ $labels.instance | nindent 4 }}
+spec:
+  type: {{ $merged.service.private.type }}
+  selector: {{ $labels.instanceSelector | nindent 4 }}
+  {{- include "chainlink-cluster.privatePorts" $global | nindent 2 }}
+{{- end }}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,63 @@
+nodeCount: 16
+bootNodeCount: 0
+rollout:
+  enabled: false
+networkPolicy:
+  enabled: false
+common:
+  requiredLabels:
+    app.kubernetes.io/component: chainlink-ccip-node
+    app.chain.link/team: ccip
+    app.chain.link/product: ccip
+    app.chain.link/blockchain: multichain
+    app.chain.link/network: testnet
+    app.chain.link/network-type: testnet
+  otel:
+    enabled: true
+    gatewayURL: https://staging.telemetry.chain.link:443
+    chipIngressURL: staging.telemetry.chain.link:443
+    resourceAttributes:
+      platformEnv: staging-testnet
+      product: ccip
+  resources:
+    requests:
+      cpu: "0.1"
+      memory: "512Mi"
+    limits:
+      cpu: "1"
+      memory: "3Gi"
+  tolerations:
+    - key: "node-role"
+      operator: "Equal"
+      value: "nodes"
+      effect: "NoSchedule"
+  chainlinkNode:
+    metadata:
+      annotations:
+        chainlinknode.k8s.chain.link/init-rds: "true"
+        chainlinknode.k8s.chain.link/init-rds-idx: "15" # chainlink-ccv staging
+  chainlink:
+    configEnv:
+      CL_EVM_CMD: ""
+    v2Config:
+      01-defaults-environment.toml: |
+        [Database]
+        MaxIdleConns = 20
+        MaxOpenConns = 40
+      # this doubles default database connection pool size to help with slow
+      # queries on some nodes/clusters (mainly keepers). Talk in infra-nodes,
+      # or infra-reliability or Jordan K. if you want to change/alter these
+      02-common.toml: |
+        [Log]
+        Level = 'info'
+        JSONConsole = true
+
+        [Feature]
+        FeedsManager = true
+        LogPoller = true
+        UICSAKeys = true
+        MultiFeedsManagers = true
+  extraSelectorLabels:
+    group: chainlink
+  nodeSelector:
+    node-role: nodes

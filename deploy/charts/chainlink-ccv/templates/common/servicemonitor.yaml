@@ -1,0 +1,51 @@
+{{- $global := . -}}
+{{- range until (include "chainlink-cluster.clusterSize" . | int) }}
+  {{- $merged := dict "common" $global.Values.common "overrides" $global.Values.overrides "idx" . | include "chainlink-cluster.merged" | fromYaml -}}
+  {{- if and ($global.Values.enabled) ($merged.servicemonitor.enabled) }}
+  {{- $nodeName :=  dict "global" $global "merged" $merged "idx" . | include "chainlink-cluster.nodeName" -}}
+  {{- $labels := dict "global" $global "merged" $merged "nodeName" $nodeName | include "chainlink-cluster.labelMachine" | fromYaml }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $nodeName }}
+  labels: {{ $labels.instance | nindent 4 }}
+    release: grafana-agent
+spec:
+  selector:
+    matchLabels: {{ $labels.instanceSelector | nindent 6 }}
+  endpoints:
+  - port: http
+    path: /metrics
+    # Relabel metrics labels transferred from the service
+    relabelings:
+      - action: replace
+        sourceLabels:
+          - __meta_kubernetes_service_label_app_kubernetes_io_component
+        targetLabel: component
+      - action: replace
+        sourceLabels:
+          - __meta_kubernetes_service_label_app_kubernetes_io_version
+        targetLabel: version
+      - action: replace
+        sourceLabels:
+          - __meta_kubernetes_service_label_app_chain_link_team
+        targetLabel: team
+      - action: replace
+        sourceLabels:
+          - __meta_kubernetes_service_label_app_chain_link_product
+        targetLabel: product
+      - action: replace
+        sourceLabels:
+          - __meta_kubernetes_service_label_app_chain_link_blockchain
+        targetLabel: blockchain
+      - action: replace
+        sourceLabels:
+          - __meta_kubernetes_service_label_app_chain_link_network
+        targetLabel: network
+      - action: replace
+        sourceLabels:
+          - __meta_kubernetes_service_label_app_chain_link_network_type
+        targetLabel: network_type
+  {{- end }}
+{{- end }}

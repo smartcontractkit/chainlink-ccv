@@ -1,0 +1,41 @@
+{{- $global := . -}}
+{{- $common := $global.Values.common | default dict -}}
+{{- if and ($global.Values.enabled) ($global.Values.networkPolicy.enabled) }}
+{{- $labels := dict "global" $global "merged" $global.Values.common "nodeName" "stub" | include "chainlink-cluster.labelMachine" | fromYaml }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "chainlink-cluster.fullname" . }}-netpol
+  namespace: {{ .Release.Namespace }}
+  labels: {{ $labels.instance | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: {{ $labels.clusterSelector | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    {{- if $common.service.public.enabled }}
+    # p2p from external network
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports: {{- include "chainlink-cluster.policyPublicPorts" $global | indent 8 }}
+    {{- end }}
+    {{- if .Values.gatewayMode.enabled }}
+    # gateway ports access - it's exposed via separate Ingress chart, not via Service object
+    - from:
+        - ipBlock:
+          {{- if .Values.gatewayMode.public }}
+            cidr: 0.0.0.0/0
+          {{- else }}
+            cidr: {{ .Values.networkPolicy.internalCidr }}
+          {{- end }}
+      ports: {{- include "chainlink-cluster.policyGatewayPorts" . | indent 8 }}
+    {{- end }}
+    # http(s) access from internal network
+    - from:
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.internalCidr }}
+      ports: {{- include "chainlink-cluster.policyPrivatePorts" $global | indent 8 }}
+{{- end }}

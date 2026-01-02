@@ -1,0 +1,41 @@
+name: "Deployment help"
+
+on:
+  pull_request:
+    types: [opened]
+    branches:
+      - main
+
+permissions:
+  pull-requests: write
+  contents: read
+  id-token: write
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    if: ${{ contains(github.event.pull_request.head.ref, 'deploy/')}}
+    steps:
+      - uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043 # v4.0.0
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ### Deployment Help 🚦
+
+            #### How to start
+
+            In order to proceed with this deployment,  you will need to comment `.deploy <env>` in this **PR** where env is the target environment of your choice e.g: `dev, stage, prod`
+
+            After you comment you will need to verify by reacting with 👍 on the **Deployment Confirmation Required** comment. If you fail to react then the deployment will be cancelled. If you want to cancel but don't want to wait, you can react with 👎.
+
+            Keep in mind you will need to follow the proper environment progression of `dev -> stage -> prod` and you will not be able to proceed without respecting it.
+
+            You will also need some reviews before you deploy to stage and prod but you don't if you are trying to deploy to dev.
+
+            #### Rollback
+
+            Rollback is available only from the `main` branch and it is super easy to use. Just comment `.deploy main to <env>` where env is the target environment you want to rollback.
+
+            > In case you need more help please comment `.help` and a comment with all options will be posted.
+
+            Enjoy!

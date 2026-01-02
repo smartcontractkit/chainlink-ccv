@@ -1,0 +1,46 @@
+{{- $global := . -}}
+{{- range until (include "chainlink-cluster.clusterSize" . | int) }}
+  {{- $merged := dict "common" $global.Values.common "overrides" $global.Values.overrides "idx" . | include "chainlink-cluster.merged" | fromYaml -}}
+  {{- if and ($global.Values.enabled) ($merged.chainlink.v2Config) }}
+  {{- $syncPhase :=  dict "global" $global "merged" $merged "idx" . | include "chainlink-cluster.syncPhase" -}}
+  {{- $nodeName :=  dict "global" $global "merged" $merged "idx" . | include "chainlink-cluster.nodeName" -}}
+  {{- $labels := dict "global" $global "merged" $merged "nodeName" $nodeName | include "chainlink-cluster.labelMachine" | fromYaml }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $nodeName }}-cm-v2
+  labels: {{ $labels.instance | nindent 4 }}
+  {{- if $global.Values.syncPhases.enabled }}
+  # object's .metadata.annotations exist under this conditional since its only currently used in .Values.syncPhases.enabled
+  annotations:
+      argocd.argoproj.io/sync-wave: {{ $syncPhase | quote }}
+  {{- end }}
+data:
+  {{- range $key, $value := $merged.chainlink.v2Config }}
+  {{ $key }}: {{- $value | toYaml | indent 1 }}
+  {{- end }}
+  {{- if $merged.otel.enabled }}
+  otel-config.toml: |
+    [Telemetry]
+      Enabled = true # Enabled turns telemetry collection on or off.
+      Endpoint = 'localhost:{{ $merged.otel.ports.grpc }}' # Endpoint of the OTEL Collector.
+      InsecureConnection = true # Default
+      TraceSampleRatio = {{ $merged.otel.telemetry.traceSampleRatio }} # TraceSampleRatio is the rate at which to sample traces. Must be between 0 and 1.
+      {{- if $merged.otel.chipIngressURL }}
+      ChipIngressEndpoint = '{{ $merged.otel.chipIngressURL }}' # ChipIngressEndpoint is the endpoint for the chip ingress service.
+      {{- end }}
+      {{- if $merged.otel.LogStreamingEnabled }}
+      LogStreamingEnabled = {{ $merged.otel.LogStreamingEnabled }} # LogStreamingEnabled enables log streaming functionality.
+      {{- end }}
+      {{- if $merged.otel.LogLevel }}
+      LogLevel = {{ $merged.otel.LogLevel | quote }} # LogLevel sets the log level for telemetry.
+      {{- end }}
+    [Telemetry.ResourceAttributes]
+      deployed_by = {{ $merged.otel.deployedBy | quote }} # DeployedBy is the name of the entity that deployed the service.
+      {{- range $key, $value := $merged.otel.resourceAttributes }}
+      {{ $key }} = {{ $value | quote }}
+      {{- end }}
+  {{- end }}
+{{- end }}
+{{- end }}

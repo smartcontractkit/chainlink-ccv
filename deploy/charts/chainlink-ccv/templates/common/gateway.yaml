@@ -1,0 +1,62 @@
+{{- $global := . -}}
+{{- range until (include "chainlink-cluster.clusterSize" . | int) }}
+  {{- $idx := . -}}
+  {{- $merged := dict "common" $global.Values.common "overrides" $global.Values.overrides "idx" . | include "chainlink-cluster.merged" | fromYaml -}}
+  {{- if and ($global.Values.enabled) ($merged.gateway.enabled) }}
+  {{- if not $merged.gateway.hosts }}
+  {{- fail "At least one host must be defined in .Values.common.gateway.hosts when gateway is enabled" }}
+  {{- end }}
+  {{- $nodeName :=  dict "global" $global "merged" $merged "idx" . | include "chainlink-cluster.nodeName" -}}
+  {{- $labels := dict "global" $global "merged" $merged "nodeName" $nodeName | include "chainlink-cluster.labelMachine" | fromYaml }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $nodeName }}
+  labels: {{ $labels.instance | nindent 4 }}
+  {{- with $merged.gateway.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: {{ $merged.gateway.name | required ".Values.common.gateway.name is required when gateway is enabled" }}
+      namespace: {{ $merged.gateway.namespace | required ".Values.common.gateway.namespace is required when gateway is enabled" }}
+  {{- if $merged.gateway.hosts }}
+  hostnames:
+    {{- range $merged.gateway.hosts }}
+      {{- $strTpl := ternary $nodeName ($idx|toString) .useNodeName }}
+    - {{ printf .host $strTpl | quote }}
+    {{- end }}
+  {{- end }}
+  rules:
+    {{- range $merged.gateway.hosts }}
+      {{- range .paths }}
+    - matches:
+        - path:
+            type: {{ default "PathPrefix" .pathType }}
+            value: {{ .path }}
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ $nodeName }}
+          port: {{ include "chainlink-cluster.uiPort" $ }}
+          weight: 1
+      {{- end }}
+      {{- if $merged.db_access.enabled }}
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /db-access
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: {{ $nodeName }}
+          port: {{ $merged.db_access.port | default 5432 }}
+          weight: 1
+      {{- end }}
+    {{- end }}
+  {{- end }}
+{{- end }}

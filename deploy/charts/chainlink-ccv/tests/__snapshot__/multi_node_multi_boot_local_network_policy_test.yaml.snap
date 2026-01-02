@@ -1,0 +1,31 @@
+manifest should match snapshot:
+  1: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: stub
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: clc-misc-m-n-m-b
+        app.kubernetes.io/version: local
+      name: clc-m-n-m-b-netpol
+      namespace: chainlink
+    spec:
+      ingress:
+        - from:
+            - ipBlock:
+                cidr: 10.0.0.0/8
+          ports:
+            - port: 6688
+              protocol: TCP
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: clc-misc-m-n-m-b
+      policyTypes:
+        - Ingress

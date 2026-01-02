@@ -1,0 +1,514 @@
+# -- node size / count
+nodeCount: 1
+# -- boot node size / count
+bootNodeCount: 0
+# -- boot name suffix
+bootNodeSuffix: bt
+
+# -- enable cluster
+enabled: true
+
+nameOverride: ''
+fullnameOverride: ''
+appLabelOverride: ''
+
+# -- custom network policy for CRIB Environments
+cribNetworkPolicy:
+  enabled: false
+  egress:
+    # Set additional custom rules for egress
+    # - to:
+    #     - namespaceSelector:
+    #         matchLabels:
+    #           project: myproject
+    #     - podSelector:
+    #         matchLabels:
+    #           role: backend
+    #     - ipBlock:
+    #         cidr: 10.0.0.0/24
+    #   ports:
+    #     - protocol: TCP
+    #       port: 5978
+    extraEgressRules: []
+
+  ingress:
+    # When using cribNetworkPolicy you need pass at least one CIDR, otherwise it will block whole ingress traffic
+    #
+    # Example:
+    # customCidrs:
+    #  - 10.0.0.0/16
+    #  - 192.168.0.1/24
+    customCidrs: []
+    # Allows to pass additional ingress selectors, can be useful to add more restrictive filtering based on kubernetes
+    # metadata
+    extraIngressSelectors: []
+
+# -- network policy configuration
+networkPolicy:
+  enabled: true
+  internalCidr: 10.0.0.0/8
+
+# -- gateway configuration
+gatewayMode:
+  enabled: false
+  public: false
+  rdsCidr: null
+  serviceType: NodePort
+  allowEgressToJobDistributor: false
+
+  # WARNING:
+  # This will disable the default gateway policy and it should be used only in test and local development environments.
+  # Please never disable this in any other environment.
+  enableEgressNetworkPolicy: true
+
+# -- argo rollouts configuration
+rollout:
+  enabled: false
+  analysisConsecutiveErrorLimit: 24
+  analysisInitialDelay: 10s
+  analysisInterval: 10s
+  progressDeadlineSeconds: 180
+
+# -- incremental rollout sync phases for deployment/configmap
+syncPhases:
+  enabled: false
+  phases: 1
+
+# -- common values for each node
+# @default -- `{}`
+common:
+  # -- node image configuration
+  image:
+    repository: public.ecr.aws/chainlink/chainlink
+    pullPolicy: IfNotPresent
+    tag: null
+
+  # -- required selector labels used by Prometheus and Loki, see templates/_helpers.tpl
+  requiredLabels:
+    # There are all required and usually set by infra-k8s/projects/chainlink/files/*
+    app.kubernetes.io/component: null
+    app.chain.link/team: null
+    app.chain.link/product: null
+    app.chain.link/blockchain: null
+    app.chain.link/network: null
+    app.chain.link/network-type: null
+
+  # optionalLabels such as chain.link/product and chain.link/cost-center used for attribution
+  optionalLabels: {}
+
+  # -- image pull secrets if using private docker registry
+  imagePullSecrets: []
+
+  # -- node pods annotations
+  podAnnotations: {}
+
+  # -- node pods security context
+  podSecurityContext: {}
+
+  # -- node container security context
+  securityContext:
+    {}
+    # runAsNonRoot: true
+    # runAsUser: 1000
+    # allowPrivilegeEscalation: false
+    # capabilities:
+    #   drop:
+    #     - ALL
+
+  service:
+    # -- node private service
+    private:
+      type: ClusterIP
+    # -- node public service
+    public:
+      # WARNING: enables public-facing ports
+      enabled: false
+      host: chainlink-cluster-%s.public
+
+  # -- node ports, defaults defined under common/_helpers.tpl
+  ports:
+    # default 6688
+    ui: null
+    # default 6690
+    p2pv1: null
+    # default 5001
+    p2pv2: null
+    # default 51820
+    vpn: null
+
+  # -- node ingress configuration
+  ingress:
+    enabled: false
+    ingressClassName: alb
+    annotations:
+      {}
+      # kubernetes.io/tls-acme: "true"
+    hosts:
+      # must be string template with one %s for index
+      - host: chainlink-node-%s.local
+        paths:
+          - path: /
+            pathType: ImplementationSpecific
+        useNodeName: false
+    tls: []
+    #  - secretName: chainlink-node-tls
+    #    hosts:
+    #      - chainlink-node.local
+
+  # -- gateway configuration (Gateway API HTTPRoute)
+  gateway:
+    enabled: false
+    annotations:
+      {}
+      # gateway.networking.k8s.io/app-protocol: "http"
+    name: internal
+    namespace: envoy-gateway-system
+    hosts: []
+      # - host: chainlink-node-%s.local
+      #   paths:
+      #     - path: /
+      #       pathType: PathPrefix  # Optional, defaults to PathPrefix if not set
+      #   useNodeName: false
+
+  # -- node resource configuration
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1024Mi
+
+  # -- prometheus servicemonitor to scrape metrics
+  servicemonitor:
+    enabled: true
+
+  # -- prometheus scrapeconfig to scrap metrics
+  scrapeconfig:
+    enabled: false
+
+  # -- node labels for node pods assignment
+  nodeSelector: {}
+
+  # -- tolerations for node pods assignment
+  tolerations: []
+
+  # -- affinity for node pods
+  affinity: {}
+
+  # -- vpn node configuration
+  vpn:
+    enabled: false
+    image:
+      repository: 804282218731.dkr.ecr.us-west-2.amazonaws.com/wireguard-client
+      pullPolicy: IfNotPresent
+      tag: sha-f3e053c
+    config: {}
+    rdsCidr: null
+    vpnCidr: null
+    awsDNS: null
+    vpnEndpoint: null
+    securityContext:
+      runAsUser: 1000  # Wireguard user
+      runAsGroup: 1000  # Wireguard group
+      fsGroup: 1000  # Mount volumes with wireguard user permissions
+      capabilities:
+        add:
+          - NET_ADMIN
+
+  db_access:
+    enabled: false
+    image:
+      repository: 804282218731.dkr.ecr.us-west-2.amazonaws.com/chainlink-db-access
+      tag: 6d50c46a
+      pullPolicy: IfNotPresent
+    serviceType: ClusterIP
+    servicePort: 3001
+    env:
+      - name: DB_ACCESS_PORT
+        value: '3001'
+    resources:
+      requests:
+        cpu: 125m
+        memory: 128Mi
+      limits:
+        cpu: 250m
+        memory: 256Mi
+    securityContext:
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000
+
+  otel:
+    # -- otel sidecar enable container
+    enabled: false
+    # -- logical configuration version tag injected as resource attribute `config_version`.
+    # Bump this (without needing a chart release) to correlate telemetry with config rollouts.
+    # Example overrides: --set common.otel.configVersion=v2 or via a values file.
+    configVersion: v1
+    # -- otel config overrides
+    configOverrides:
+      service:
+        telemetry:
+          logs:
+            level: INFO
+            encoding: json
+        pipelines:
+          logs:
+            exporters:
+              debug: false
+          metrics:
+            exporters:
+              debug: false
+          traces:
+            exporters:
+              debug: false
+    # -- otel resource attributes
+    resourceAttributes: {}
+    # -- otel resource attributes overrides
+    resourceAttributesOverrides: {}
+    # -- value of enforced resource attribute to differentiate internal vs external NOPs
+    deployedBy: chainlink-labs
+    # -- otel sidecar OTLP exporter endpoint
+    gatewayURL: https://staging.telemetry.chain.link:443
+    # -- chip ingress url default
+    chipIngressURL: ''
+    # -- enable log streaming
+    LogStreamingEnabled: false
+    # -- log level for telemetry
+    LogLevel: ''
+    # -- otel sidecar image
+    image:
+      repository: otel/opentelemetry-collector-contrib
+      tag: 0.126.0
+      pullPolicy: IfNotPresent
+    # -- otel sidecar resource request and limits
+    resources:
+      requests:
+        cpu: 125m
+        memory: 128Mi
+      limits:
+        cpu: 250m
+        memory: 256Mi
+    # -- node otel traceSampleRatio config
+    telemetry:
+      traceSampleRatio: 0.01
+    # -- otel sidecar container security context
+    securityContext: {}
+    # -- otel sidecar ports numbers
+    ports:
+      metrics: 8888
+      grpc: 4317
+      http: 4318
+    # -- otel receiver max message size configuration
+    receivers:
+      grpc:
+        # -- maximum receive message size in MiB for gRPC receiver (default: 4 MiB)
+        max_recv_msg_size_mib: 16
+    # -- otel sidecar env vars
+    env:
+      - name: POD_IP
+        valueFrom:
+          fieldRef:
+            apiVersion: v1
+            fieldPath: status.podIP
+      - name: POD_NAME
+        valueFrom:
+          fieldRef:
+            apiVersion: v1
+            fieldPath: metadata.name
+      - name: OTEL_RESOURCE_ATTRIBUTES_POD_NAME
+        valueFrom:
+          fieldRef:
+            apiVersion: v1
+            fieldPath: metadata.name
+      - name: OTEL_RESOURCE_ATTRIBUTES_POD_UID
+        valueFrom:
+          fieldRef:
+            apiVersion: v1
+            fieldPath: metadata.uid
+      - name: OTEL_RESOURCE_ATTRIBUTES_NODE_NAME
+        valueFrom:
+          fieldRef:
+            apiVersion: v1
+            fieldPath: spec.nodeName
+
+  # -- persistence
+  persistence:
+    enabled: false
+    size: 1Gi
+    mountPath: "/home/chainlink/data"
+
+  # -- chainlink node configuration
+  # @default -- `{}`
+  chainlink:
+    # -- node toml configuration
+    v2Config:
+      {}
+      # 00-default.toml: |
+      #   RootDir = '/home/chainlink'
+      #   [Database]
+      #   MaxIdleConns = 20
+      #   MaxOpenConns = 40
+      #   MigrateOnStartup = true
+      #   [Log]
+      #   Level = 'debug'
+      #   JSONConsole = true
+      #   [Log.File]
+      #   MaxSize = '0b'
+      #   [WebServer]
+      #   AllowOrigins = '*'
+      #   HTTPPort = 6688
+      #   SecureCookies = false
+      #   [WebServer.RateLimit]
+      #   Authenticated = 2000
+      #   Unauthenticated = 100
+      #   [WebServer.TLS]
+      #   HTTPSPort = 0
+    # -- node secret toml configuration
+    v2Secret:
+      {}
+      # user-secret.toml: |
+      #   [Mercury.Credentials.server0]
+      #   LegacyURL = "https://mercury.legacy.url"
+      #   URL = "https://mercury.url"
+      #   Username = "d3b1cea7"
+      #   Password = "REDACTED"
+      #   [Mercury.Credentials.server1]
+      #   LegacyURL = "https://mercury1.legacy.url"
+      #   URL = "https://mercury1.url"
+      #   Username = "aag3fvws"
+      #   Password = "REDACTED"
+    # -- node env configuration
+    configEnv:
+      {}
+      # ### Login Info ###
+      # ROOT: /home/chainlink
+      # CHAINLINK_USER: chainlink
+
+      # ### HTTP Security ###
+      # ALLOW_ORIGINS: '*'
+      # SECURE_COOKIES: 'false'
+      # CHAINLINK_PORT: '6688'
+      # CHAINLINK_TLS_PORT: '0'
+
+      # ### Database ###
+      # # DATABASE_URL: ""
+      # DATABASE_TIMEOUT: '0'
+      # DATABASE_LOCKING_MODE: lease
+      # MIGRATE_DATABASE: 'true'
+      # SKIP_DATABASE_PASSWORD_COMPLEXITY_CHECK: 'true'
+
+      # ### Ethereum ###
+      # # ETH_URL: ws://host.docker.internal:4000
+      # # ETH_CHAIN_ID: "4"
+      # # LINK_CONTRACT_ADDRESS: 0x01BE23585060835E02B77ef475b0Cc51aA1e0709
+
+      # ### Logging ###
+      # JSON_CONSOLE: 'true'
+      # LOG_LEVEL: debug
+      # LOG_FILE_MAX_SIZE: '0'
+
+      # ### Secondary Ethereum Node ###
+      # # ETH_SECONDARY_URL: ""
+
+      # ### Chainlink Explorer ###
+      # # EXPLORER_ACCESS_KEY: ""
+      # # EXPLORER_SECRET: ""
+      # # EXPLORER_URL: wss://explorer.chain.link
+
+      # ### Gas Bumper ###
+      # # GAS_UPDATER_ENABLED: "true"
+      # # GAS_UPDATER_TRANSACTION_PERCENTILE: "71"
+      # # ETH_GAS_PRICE_DEFAULT: "1000000000"
+      # # ETH_GAS_BUMP_THRESHOLD: "5"
+      # # ETH_GAS_BUMP_WEI: "20000000000"
+      # # ETH_GAS_BUMP_PERCENT: "20"
+      # # ETH_MAX_GAS_PRICE_WEI: "2500000000000"
+
+      # ### Transaction Manager ###
+      # # CHAINLINK_TX_ATTEMPT_LIMIT: "25"
+      # # ETH_MAX_IN_FLIGHT_TRANSACTIONS: "128"
+      # MIN_OUTGOING_CONFIRMATIONS: '3'
+      # # MINIMUM_CONTRACT_PAYMENT: "50000000000000000"
+
+      # ### Fluxmonitor Variables ###
+      # # ORACLE_CONTRACT_ADDRESS: ""
+      # # FLAGS_CONTRACT_ADDRESS: ""
+
+      # ### OCR Variables ###
+      # # OCR_TRACE_LOGGING: "true"
+      # # FEATURE_OFFCHAIN_REPORTING: "true"
+      # # P2P_LISTEN_PORT: "30668"
+      # # P2P_ANNOUNCE_PORT: "30668"
+      # # P2P_ANNOUNCE_IP: "YOUR_NODE_IP"
+
+      # ### OCR Default job config ###
+      # # OCR_KEY_BUNDLE_ID: ""
+      # # P2P_PEER_ID: ""
+      # # OCR_TRANSMITTER_ADDRESS: ""
+      # # P2P_BOOTSTRAP_PEERS: ""
+
+    # -- node extra configuration files
+    extraConfig:
+      {}
+      # config-file.yaml: |
+      #   key: value
+
+  # -- chainlinkNode custom resource configuration
+  chainlinkNode:
+    enabled: true
+    existingSecret: false
+    metadata:
+      annotations:
+        chainlinknode.k8s.chain.link/preserve-ssm: 'true'
+    spec:
+      database:
+        secretName: ''
+        storageType: 'aws:ssm'
+        config:
+          database: ''
+          host: ''
+          password: ''
+          port: '5432'
+          user: ''
+      credentials:
+        secretName: ''
+        storageType: 'aws:ssm'
+        config:
+          api:
+            key: .api
+            user: 'admin@chain.link'
+            password: ''
+          keystore:
+            key: .keystore
+            password: ''
+          vrf:
+            key: .vrf
+            password: ''
+
+  # -- oraclestore custom resource configuration
+  oraclestore:
+    enabled: false
+    metadata:
+      annotations:
+        k8s.chain.link/disable-pg-creation: 'false'
+    spec:
+      type: 'aws:ps'
+      dbAlias: debug
+
+  # -- init containers
+  initContainers:
+    initDbCheck:
+      image:
+        repository: 925774240219.dkr.ecr.us-west-2.amazonaws.com/containers/debian-12/postgresql
+        tag: "16.10.0-debian-12-r9"
+        pullPolicy: IfNotPresent
+      securityContext:
+        {}
+        # runAsUser: 1001
+        # runAsNonRoot: true
+        # allowPrivilegeEscalation: false
+
+# -- override values array
+overrides: []

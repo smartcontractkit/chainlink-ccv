@@ -1,0 +1,45 @@
+suite: test single node with network policies
+values:
+  - ../shared.v2Config-defaults.yaml
+  - ../shared.v2Config-rpc-ethereum-sepolia.yaml
+  - ../values.single-node.yaml
+  - ../shared.deploy-eks.yaml
+set:
+  cribNetworkPolicy:
+    enabled: true
+    egress:
+      extraEgressRules:
+        - to:
+            - namespaceSelector:
+                matchLabels:
+                  project: myproject
+            - podSelector:
+                matchLabels:
+                  role: backend
+            - ipBlock:
+                cidr: 10.0.0.0/24
+          ports:
+            - protocol: TCP
+              port: 5978
+    ingress:
+      customCidrs:
+        - '10.0.0.0/8'
+      extraIngressSelectors:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gap-nginx
+templates:
+  - templates/networkpolicy.yaml
+  - templates/networkpolicy-egress-gateway.yaml
+  - templates/networkpolicy-vpn.yaml
+  - templates/networkpolicy-crib.yaml
+release:
+  name: cln-crib-netpol
+  namespace: crib-namespace
+chart:
+  version: 1.99.1
+  appVersion: 2.5.0
+tests:
+  - it: manifest should match snapshot
+    asserts:
+      - matchSnapshot: {}
