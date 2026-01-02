@@ -31,6 +31,6 @@ service:
   port: 50051
 managedDB:
   enabled: true
-  engineVersion: "15.4"
+  engineVersion: "17.4"
   instanceCount: 1
   instanceClass: db.t4g.medium

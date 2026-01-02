@@ -1,4 +1,4 @@
-name: chainlink-ccv-indexer-2
+name: chainlink-ccv-indexer-1
 # envFromSecretsKeyRef:
 #   - envName: secrets.toml
 #     secretName: tbd
