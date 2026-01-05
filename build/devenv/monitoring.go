@@ -139,8 +139,9 @@ func (i *IndexerClient) WaitForVerificationsForMessageID(
 
 // GetVerificationsForMessageID fetches the verifications for a given messageID from the indexer.
 func (i *IndexerClient) GetVerificationsForMessageID(ctx context.Context, messageID [32]byte) (GetVerificationsForMessageIDResponse, error) {
+	// TODO: Use indexer/pkg/client/client.go
 	msgIDHex := common.BytesToHash(messageID[:]).Hex()
-	url := fmt.Sprintf("%s/v1/messageid/%s", i.url, msgIDHex)
+	url := fmt.Sprintf("%s/v1/verifierresults/%s", i.url, msgIDHex)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return GetVerificationsForMessageIDResponse{}, fmt.Errorf("failed to create request: %w", err)

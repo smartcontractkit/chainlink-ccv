@@ -105,8 +105,8 @@ func parseMessagesParams(queryData v1.MessagesInput) *iclient.MessagesParams {
 	return &params
 }
 
-// GetMessages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message.
-func (ic *IndexerClient) GetMessages(ctx context.Context, queryData v1.MessagesInput) (v1.MessagesResponse, error) {
+// Messages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message.
+func (ic *IndexerClient) Messages(ctx context.Context, queryData v1.MessagesInput) (v1.MessagesResponse, error) {
 	resp, err := ic.client.Messages(ctx, parseMessagesParams(queryData))
 	if err != nil {
 		ic.lggr.Errorw("Indexer ReadMessages request error", "error", err)
@@ -114,7 +114,7 @@ func (ic *IndexerClient) GetMessages(ctx context.Context, queryData v1.MessagesI
 
 	var messagesResponse v1.MessagesResponse
 	if err = processResponse(resp, &messagesResponse); err != nil {
-		ic.lggr.Errorw("Indexer GetMessages returned error", "error", err)
+		ic.lggr.Errorw("Indexer Messages returned error", "error", err)
 		return v1.MessagesResponse{}, err
 	}
 
@@ -122,8 +122,8 @@ func (ic *IndexerClient) GetMessages(ctx context.Context, queryData v1.MessagesI
 	return messagesResponse, nil
 }
 
-// MessageByID returns all verifierResults for a given messageID.
-func (ic *IndexerClient) MessageByID(ctx context.Context, queryData v1.VerifierResultsByMessageIDInput) (v1.VerifierResultsByMessageIDResponse, error) {
+// VerifierResultsByMessageID returns all verifierResults for a given messageID.
+func (ic *IndexerClient) VerifierResultsByMessageID(ctx context.Context, queryData v1.VerifierResultsByMessageIDInput) (v1.VerifierResultsByMessageIDResponse, error) {
 	resp, err := ic.client.VerifierResultsByMessageId(ctx, queryData.MessageID)
 	if err != nil {
 		ic.lggr.Errorw("Indexer GetVerifierResults request error", "error", err)

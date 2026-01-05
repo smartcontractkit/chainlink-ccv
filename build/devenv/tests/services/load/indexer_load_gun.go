@@ -231,8 +231,9 @@ func (i *IndexerLoadGun) verifyMessage(messageID protocol.Bytes32) bool {
 		<-i.verifySemaphore
 	}()
 
+	// TODO: Use the IndexerClient instead of raw HTTP calls
 	// Build the URL
-	url := fmt.Sprintf("http://localhost:8102/v1/messageid/%s", messageID.String())
+	url := fmt.Sprintf("http://localhost:8102/v1/verifierresults/%s", messageID.String())
 
 	// Make GET request to indexer using shared HTTP client with connection pooling
 	resp, err := i.httpClient.Get(url)

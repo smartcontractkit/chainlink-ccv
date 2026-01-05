@@ -76,7 +76,7 @@ func (h *VerifierResultsHandler) Handle(c *gin.Context) {
 		return
 	}
 
-	h.lggr.Debugw("/v1/verifierresult", "number of messages returned", len(verifierResponse))
+	h.lggr.Debugw("/v1/verifierresults", "number of messages returned", len(verifierResponse))
 	c.JSON(http.StatusOK, VerifierResultsResponse{
 		Success:         true,
 		VerifierResults: verifierResponse,
