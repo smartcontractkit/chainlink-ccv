@@ -1,0 +1,340 @@
+{{- $global := . -}}
+{{- range until (include "chainlink-cluster.clusterSize" . | int) }}
+  {{- $merged := dict "common" $global.Values.common "overrides" $global.Values.overrides "idx" . | include "chainlink-cluster.merged" | fromYaml -}}
+  {{- if $global.Values.enabled }}
+  {{- $nodeName :=  dict "global" $global "merged" $merged "idx" . | include "chainlink-cluster.nodeName" -}}
+  {{- $syncPhase :=  dict "global" $global "merged" $merged "idx" . | include "chainlink-cluster.syncPhase" -}}
+  {{- $labels := dict "global" $global "merged" $merged "nodeName" $nodeName | include "chainlink-cluster.labelMachine" | fromYaml }}
+  {{- $credsSecretName := (printf "%s-%s" ($nodeName) "creds") }}
+  {{- $dbSecretName := (printf "%s-%s" ($nodeName) "db") }}
+---
+{{- if $global.Values.rollout.enabled }}
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+{{- else }}
+apiVersion: apps/v1
+kind: Deployment
+{{- end }}
+metadata:
+  name: {{ $nodeName }}
+  labels: {{ $labels.instance | nindent 4 }}
+  {{- if $global.Values.syncPhases.enabled }}
+  # object's .metadata.annotations exist under this conditional since its only currently used in .Values.syncPhases.enabled
+  annotations:
+      argocd.argoproj.io/sync-wave: {{ $syncPhase | quote }}
+  {{- end }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {{ $labels.instanceSelector | nindent 6 }}
+  # By default we use a RollingUpdate strategy which will start the new node before terminating the old one.
+  # This is incompatible with persistent storage which can only be mounted to a single node at a time.
+  # To work around this, if persistence is enabled, we switch to the Recreate strategy.
+  {{- if $merged.persistence.enabled }}
+  strategy:
+    type: Recreate
+  {{- end }}
+{{- if $global.Values.rollout.enabled }}
+  # limits the number of successful/unsuccessful analysis runs and experiments to be stored in a history
+  analysis:
+    successfulRunHistoryLimit: 0
+    unsuccessfulRunHistoryLimit: 1
+
+  # The number of old ReplicaSets to retain.
+  # Refer to best practices here: https://argoproj.github.io/argo-rollouts/best-practices/
+  revisionHistoryLimit: 5
+
+  # The maximum time in seconds in which a rollout must make progress during an update, before it is considered to be failed.
+  progressDeadlineSeconds: {{ $global.Values.rollout.progressDeadlineSeconds }}
+  # Whether to abort the update when ProgressDeadlineSeconds is exceeded.
+  progressDeadlineAbort: true
+
+  strategy:
+    canary:
+      # This will helps retain the previous healthy pods in case new pods in crash loop
+      maxUnavailable: 0
+
+      # Need to use canary service to perform analysis
+      canaryService: {{ $nodeName }}-preview
+      stableService: {{ $nodeName }}
+
+      steps:
+      - setWeight: 100
+      # In-line analysis, run only after the canary step is performed successfully (pods are created and ready).
+      # In case pod cannot start and in-line analysis cannot run, Rollout will wait for progressDeadlineSeconds to mark rollout as fail.
+      - analysis:
+          templates:
+          - templateName: {{ $nodeName }}-hc
+{{- end }}
+  template:
+    metadata:
+      annotations:
+      {{- with $merged.chainlink.configEnv }}
+        checksum/config-env: {{ printf "%s" (.|toString) | sha256sum }}
+      {{- end }}
+      {{- with $merged.chainlink.v2Config }}
+        checksum/config-v2: {{ printf "%s" (.|toString) | sha256sum }}
+      {{- end }}
+      {{- with $merged.chainlink.v2Secret }}
+        checksum/secret-usr-v2: {{ printf "%s" (.|toString) | sha256sum }}
+      {{- end }}
+      {{- with $merged.chainlink.extraConfig }}
+        checksum/config-extra: {{ printf "%s" (.|toString) | sha256sum }}
+      {{- end }}
+      {{- with $merged.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels: {{ $labels.instance | nindent 8 }}
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {{ $labels.clusterSelector | nindent 14 }}
+      {{- with $merged.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $merged.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      initContainers:
+        - name: init-db-check
+          image: "{{ $merged.initContainers.initDbCheck.image.repository }}:{{ $merged.initContainers.initDbCheck.image.tag }}"
+          imagePullPolicy: {{ $merged.initContainers.initDbCheck.image.pullPolicy }}
+          {{- with $merged.initContainers.initDbCheck.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          command: ["/bin/bash"]
+          args:
+            - "-c"
+            - |
+              while ! pg_isready -d $POSTGRES_DB -h $POSTGRES_HOST -p $POSTGRES_PORT -U $POSTGRES_USER; do sleep 1; done;
+          envFrom:
+            - secretRef:
+                name: {{ $dbSecretName }}
+      containers:
+        {{- if $merged.vpn.enabled }}
+        - name: {{ $global.Chart.Name }}-vpn-client
+          image: "{{ $merged.vpn.image.repository }}:{{ $merged.vpn.image.tag }}"
+          imagePullPolicy: {{ $merged.vpn.image.pullPolicy }}
+          {{- with $merged.vpn.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: {{ $nodeName }}-vpn-secret
+              mountPath: /etc/wireguard/wg0.conf
+              subPath: wg0.conf
+              readOnly: true
+        {{- end}}
+        {{- if $merged.db_access.enabled }}
+        - name: {{ $global.Chart.Name }}-db-access
+          image: "{{ $merged.db_access.image.repository }}:{{ $merged.db_access.image.tag }}"
+          imagePullPolicy: {{ $merged.db_access.image.pullPolicy }}
+          {{- with $merged.db_access.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - containerPort: 3001
+              name: db-access
+              protocol: TCP
+          env:
+            - name: CONFIG_TOML_PATH
+              value: /v2Secret/secret.toml
+          volumeMounts:
+            - name: {{ $nodeName }}-v2
+              mountPath: /v2Secret
+              readOnly: true
+          resources:
+            {{- toYaml $merged.db_access.resources | nindent 12 }}
+        {{- end}}
+        - name: {{ $global.Chart.Name }}
+          {{- with $merged.securityContext }}
+          securityContext:
+            {{- toYaml .| nindent 12 }}
+          {{- end }}
+          image: "{{ $merged.image.repository }}:{{ $merged.image.tag }}"
+          {{- if $global.Values.common.chainlink.v2Config }}
+          {{/* TODO: Move this logic into _helpers.tpl */}}
+           {{- $configArguments := list -}}
+           {{- $arguments := list (printf "'-s', '/v2Secret/secret.toml', 'local', 'n', '-a', '/v2Secret/%v'" $merged.chainlinkNode.spec.credentials.config.api.key) -}}
+           {{- $keys := keys $merged.chainlink.v2Config | sortAlpha }}
+           {{- range $keys }}
+            {{- $configArguments = append $configArguments ("-c" | squote) }}
+            {{- $configArguments = append $configArguments "," }}
+            {{- $configArguments = append $configArguments (printf "/v2Config/%s" . | squote) }}
+            {{- $configArguments = append $configArguments "," }}
+           {{- end }}
+           {{- if $merged.otel.enabled }}
+            {{- $configArguments = append $configArguments ("-c" | squote) }}
+            {{- $configArguments = append $configArguments "," }}
+            {{- $configArguments = append $configArguments ("/v2Config/otel-config.toml" | squote) }}
+            {{- $configArguments = append $configArguments "," }}
+           {{- end }}
+           {{- if $merged.chainlink.v2Secret }}
+           {{- $secretKeys := keys $merged.chainlink.v2Secret | sortAlpha }}
+           {{- range $secretKeys }}
+            {{- $configArguments = append $configArguments ("-s" | squote) }}
+            {{- $configArguments = append $configArguments "," }}
+            {{- $configArguments = append $configArguments (printf "/v2UserSecret/%s" . | squote) }}
+            {{- $configArguments = append $configArguments "," }}
+           {{- end }}
+           {{- end }}
+          args: {{ concat $configArguments $arguments }}
+          {{- else }}
+          args: ["local", "n", "-p", "/creds/{{ $merged.chainlinkNode.spec.credentials.config.keystore.key }}", "-a", "/creds/{{ $merged.chainlinkNode.spec.credentials.config.api.key }}"]
+          {{- end }}
+          imagePullPolicy: {{ $merged.image.pullPolicy }}
+          ports:
+            {{- include "chainlink-cluster.mapContainerPorts" $global | indent 12 }}
+          {{- with $merged.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if $merged.chainlink.configEnv }}
+          envFrom:
+            - configMapRef:
+                name: {{ $nodeName }}-cm-env
+            {{- if not $merged.chainlink.v2Config }}
+            - secretRef:
+                name: {{ $dbSecretName }}
+            {{- end }}
+          {{- end }}
+          volumeMounts:
+            {{- if $merged.persistence.enabled }}
+            - name: {{ $nodeName }}-pv
+              mountPath: {{ $merged.persistence.mountPath }}
+            {{- end }}
+            {{- if $merged.chainlink.v2Config }}
+            - name: {{ $nodeName }}-cm-v2
+              mountPath: /v2Config
+              readOnly: true
+            - name: {{ $nodeName }}-v2
+              mountPath: /v2Secret
+              readOnly: true
+            {{- if $merged.chainlink.v2Secret }}
+            - name: {{ $nodeName }}-usr-v2
+              mountPath: /v2UserSecret
+              readOnly: true
+            {{- end }}
+            {{- else }}
+            - name: {{ $credsSecretName }}
+              mountPath: /creds
+              readOnly: true
+            {{- end }}
+            {{- if $merged.chainlink.extraConfig }}
+            - name: {{ $nodeName }}-cm-extra
+              mountPath: /extraConfig
+              readOnly: true
+            {{- end }}
+        {{- if $merged.otel.enabled }}
+        - name: {{ $global.Chart.Name }}-otel-sidecar
+          image: "{{ $merged.otel.image.repository }}:{{ $merged.otel.image.tag }}"
+          imagePullPolicy: {{ $merged.otel.image.pullPolicy }}
+          resources:
+            {{- toYaml $merged.otel.resources | nindent 12 }}
+          {{- with $merged.otel.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          args:
+            - '--config=/conf/sidecar.yaml'
+          volumeMounts:
+            - name: {{ $nodeName }}-cm-otel
+              mountPath: /conf
+          {{- with $merged.otel.ports }}
+          ports:
+            - containerPort: {{ $merged.otel.ports.metrics }}
+              name: metrics
+              protocol: TCP
+            - containerPort: {{ $merged.otel.ports.grpc }}
+              name: otlp-grpc
+              protocol: TCP
+            - containerPort: {{ $merged.otel.ports.http }}
+              name: otlp-http
+              protocol: TCP
+          {{- end }}
+          {{- with $merged.otel.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- end}}
+      {{- with $merged.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $merged.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $merged.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      enableServiceLinks: false
+      volumes:
+      {{- if $merged.persistence.enabled }}
+        - name: {{ $nodeName}}-pv
+          persistentVolumeClaim:
+            claimName: {{ $nodeName }}-pvc
+      {{- end }}
+      {{- if $merged.chainlink.v2Config }}
+        - name: {{ $nodeName }}-cm-v2
+          configMap:
+            name: {{ $nodeName }}-cm-v2
+        - name: {{ $nodeName }}-v2
+          secret:
+            secretName: {{ $nodeName }}-v2
+        {{- if $merged.chainlink.configEnv }}
+        - name: {{ $nodeName }}-cm-env
+          configMap:
+            name: {{ $nodeName }}-cm-env
+        {{- end }}
+        {{- if $merged.chainlink.v2Secret }}
+        - name: {{ $nodeName }}-usr-v2
+          secret:
+            secretName: {{ $nodeName }}-usr-v2
+        {{- end }}
+        {{- if $merged.chainlink.extraConfig }}
+        - name: {{ $nodeName }}-cm-extra
+          configMap:
+            name: {{ $nodeName }}-cm-extra
+        {{- end }}
+        {{- if $merged.vpn.enabled }}
+        - name: {{ $nodeName }}-vpn
+          emptyDir: {}
+        - name: {{ $nodeName }}-vpn-secret
+          secret:
+            secretName: {{ $nodeName }}-vpn-secret
+        {{- end }}
+        {{- if $merged.otel.enabled }}
+        - name: {{ $nodeName }}-cm-otel
+          configMap:
+            name: {{ $nodeName }}-cm-otel
+            defaultMode: 420
+            items:
+              - key: sidecar
+                path: sidecar.yaml
+        {{- end }}
+      {{- else }}
+        - name: {{ $credsSecretName }}
+          projected:
+            sources:
+              - secret:
+                  name: {{ $credsSecretName }}
+                  items:
+                    - key: {{ $merged.chainlinkNode.spec.credentials.config.api.key }}
+                      path: {{ $merged.chainlinkNode.spec.credentials.config.api.key }}
+                    - key: {{ $merged.chainlinkNode.spec.credentials.config.keystore.key }}
+                      path: {{ $merged.chainlinkNode.spec.credentials.config.keystore.key }}
+                    - key: {{ $merged.chainlinkNode.spec.credentials.config.vrf.key }}
+                      path: {{ $merged.chainlinkNode.spec.credentials.config.vrf.key }}
+      {{- end }}
+  {{- end }}
+{{- end }}

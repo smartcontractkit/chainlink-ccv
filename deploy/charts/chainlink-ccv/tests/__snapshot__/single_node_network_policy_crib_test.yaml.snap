@@ -1,0 +1,72 @@
+manifest should match snapshot:
+  1: |
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    metadata:
+      labels:
+        app.chain.link/blockchain: ethereum
+        app.chain.link/network: sepolia
+        app.chain.link/network_type: testnet
+        app.chain.link/product: example
+        app.chain.link/team: infra
+        app.kubernetes.io/component: chainlink-example-node
+        app.kubernetes.io/instance: cln-misc-s-n
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: cln-crib-netpol
+        app.kubernetes.io/version: 2.5.0
+        helm.sh/chart: chainlink-cluster-1.99.1
+      name: cln-misc-s-n-netpol-crib
+      namespace: crib-namespace
+    spec:
+      egress:
+        - ports:
+            - port: 5978
+              protocol: TCP
+          to:
+            - namespaceSelector:
+                matchLabels:
+                  project: myproject
+            - podSelector:
+                matchLabels:
+                  role: backend
+            - ipBlock:
+                cidr: 10.0.0.0/24
+        - to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: crib-namespace
+        - ports:
+            - port: 53
+              protocol: TCP
+            - port: 53
+              protocol: UDP
+          to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: kube-system
+              podSelector:
+                matchLabels:
+                  k8s-app: kube-dns
+        - ports:
+            - port: 443
+              protocol: TCP
+      ingress:
+        - from:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: gap-nginx
+            - ipBlock:
+                cidr: 10.0.0.0/8
+          ports:
+            - port: 6688
+              protocol: TCP
+            - port: 6690
+              protocol: TCP
+            - port: 5001
+              protocol: TCP
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: cln-crib-netpol
+      policyTypes:
+        - Ingress
+        - Egress

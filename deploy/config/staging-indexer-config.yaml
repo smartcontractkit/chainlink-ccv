@@ -1,0 +1,66 @@
+configMap:
+  indexer.toml: |
+    LogLevel = "debug"
+
+    [Monitoring]
+    Enabled = true
+    Type = "beholder"
+
+    [Monitoring.Beholder]
+    InsecureConnection = true
+    OtelExporterHTTPEndpoint = "staging.telemetry.chain.link:443"
+    LogStreamingEnabled = true
+    MetricReaderInterval = 5
+    TraceSampleRatio = 1.0
+    TraceBatchTimeout = 10
+
+    [Discovery]
+    Address = "chainlink-ccv-aggregator:50051"
+    Since = 0
+    APIKey = "6b9b1d0e-1547-47cd-9302-3a55b13080a0" # TODO: move to encrypted secrets
+    Secret = "a60d0dcc-f475-43ca-8b23-02acf7d9ea2d" # TODO: move to encrypted secrets
+    PollInterval = 500
+    Timeout = 5000
+    NtpServer = "time.google.com"
+
+    [Scheduler]
+    TickerInterval = 50
+    VerificationVisibilityWindow = 28800
+    BaseDelay = 100
+    MaxDelay = 30_000
+
+    [Pool]
+    ConcurrentWorkers = 1000
+    WorkerTimeout = 300
+
+    [[Verifier]]
+    Type = "aggregator"
+    IssuerAddresses = [
+      "0x6079D713025a0A87F4901371253a1d4193b630e0", # ResolverProxy on 16015286601757825753
+      "0x8FB4c06dE17cEFca5a89b013AC003E51445BAC81", # ResolverProxy on 14767482510784806043
+      "0x92E7A444E560eFf1b0499CCB5c52Fd3a4Df848c9", # ResolverProxy on 10344971235874465080
+      "0x26059Bbc7Ffc2B3E38FdF68d0b0988Ce8465E236", # ResolverProxy on 3478487238524512106
+      "0x3027b47E7B5B14f93C9D714066f580B9A461e7e3", # ResolverProxy on 16281711391670634445
+    ]
+    Name = "CommiteeVerifier (Default)"
+    Address = "chainlink-ccv-aggregator:50051"
+    BatchSize = 100
+    MaxBatchWaitTime = 50
+    Since = 0
+    APIKey = "6b9b1d0e-1547-47cd-9302-3a55b13080a0" # TODO: move to encrypted secrets
+    Secret = "a60d0dcc-f475-43ca-8b23-02acf7d9ea2d" # TODO: move to encrypted secrets
+
+    [Storage]
+    Strategy = "sink"
+    [Storage.Sink]
+
+    [[Storage.Sink.Storages]]
+    Type = "memory"
+    [Storage.Sink.Storages.Memory]
+    TTL = 3600
+    MaxSize = 10000
+    CleanupInterval = 300
+
+    [API]
+    [API.RateLimit]
+    Enabled = false

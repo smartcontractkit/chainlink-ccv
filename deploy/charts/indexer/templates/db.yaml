@@ -1,0 +1,12 @@
+{{- if .Values.managedDB.enabled }}
+apiVersion: aws.platform.smartcontract.com/v1alpha1
+kind: DatabaseCluster
+metadata:
+  name: {{ .Values.name }}-aurora-psql
+spec:
+  engine: aurora-postgresql
+  engineVersion: {{ .Values.managedDB.engineVersion }}
+  instances:
+    count: {{ .Values.managedDB.instanceCount }}
+    instanceClass: {{ .Values.managedDB.instanceClass }}
+{{ end }}
