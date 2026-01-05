@@ -7,7 +7,10 @@ name: Finish griddle deployment
 on:
   repository_dispatch:
     types:
-      - HelmRelease/app-instance-1.workload-ns
+      - HelmRelease/aggregator-1.chainlink-ccv
+      - HelmRelease/aggregator-2.chainlink-ccv
+      - HelmRelease/indexer-1.chainlink-ccv
+      - HelmRelease/indexer-2.chainlink-ccv
 
 permissions:
   pull-requests: write
