@@ -1,8 +1,8 @@
 apiVersion: v2
-name: generic-app
-description: A Helm chart for generic chainlink service.
+name: chainlink-ccv-indexer
+description: A Helm chart for Chainlink CCV indexer.
 maintainers:
   - name: Chainlink
     url: chain.link
 type: application
-version: 1.6.0
+version: 0.1.0
