@@ -1,9 +1,0 @@
-root = ".."
-
-[build]
-cmd = "go build -o /tmp/pricereporter /app/pricereporter/cmd"
-bin = "/tmp/pricereporter"
-include_dir = ["app"]
-include_ext = ["go", "mod", "sum"]
-exclude_dir = ["tmp", "vendor", "testdata", ".git"]
-

@@ -1,6 +1,6 @@
-## Price reporter 
+## Pricer
 
-Price reporter is a standalone service for updating gas/token prices on various chains 
+Pricer is a standalone service for updating gas/token prices on various chains 
 in CCIP 1.7. 
 
 It aims to serve as the first concrete example of a product specific binary (PSB), i.e.

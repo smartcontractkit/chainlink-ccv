@@ -1,0 +1,11 @@
+interval = "10s"
+loglevel = "info"
+
+[EVM]
+ChainID = "1"
+
+[[EVM.Nodes]]
+Name = "primary"
+WSURL = "wss://localhost:8546"
+HTTPURL = "https://localhost:8545"
+

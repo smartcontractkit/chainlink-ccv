@@ -1,0 +1,16 @@
+set fallback
+
+import '../tools/lib/utils.justfile'
+
+# Default: show available recipes
+default:
+    just --list
+
+build:
+    docker build -f Dockerfile -t pricer:latest ..
+
+run config="config.example.toml": build
+    docker run --rm -v {{justfile_directory()}}/{{config}}:/config.toml pricer:latest --config /config.toml
+
+clean:
+    docker rmi pricer:latest
