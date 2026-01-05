@@ -23,3 +23,6 @@ ensure-buf:
 
 ensure-mockery:
 	@mockery --version | grep -q "v$VERSION_MOCKERY" || (echo "Please use mockery v$VERSION_MOCKERY (just install-go-tools)" && exit 1)
+
+ensure-oapi-codegen:
+	@oapi-codegen --version | grep -q "$VERSION_OAPI_CODEGEN" || (echo "Please use oapi-codegen v$VERSION_OAPI_CODEGEN (just install-go-tools)" && exit 1)

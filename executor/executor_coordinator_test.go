@@ -11,11 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
-	"github.com/smartcontractkit/chainlink-ccv/executor/internal/executor_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
-	icommon "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -45,9 +44,9 @@ func TestConstructor(t *testing.T) {
 			name: "happy",
 			args: args{
 				lggr: lggr,
-				exec: executor_mocks.NewMockExecutor(t),
-				sub:  executor_mocks.NewMockMessageSubscriber(t),
-				le:   executor_mocks.NewMockLeaderElector(t),
+				exec: mocks.NewMockExecutor(t),
+				sub:  mocks.NewMockMessageSubscriber(t),
+				le:   mocks.NewMockLeaderElector(t),
 				mon:  monitoring.NewNoopExecutorMonitoring(),
 			},
 			expectErr: false,
@@ -56,8 +55,8 @@ func TestConstructor(t *testing.T) {
 			name: "missing executor",
 			args: args{
 				lggr: lggr,
-				sub:  executor_mocks.NewMockMessageSubscriber(t),
-				le:   executor_mocks.NewMockLeaderElector(t),
+				sub:  mocks.NewMockMessageSubscriber(t),
+				le:   mocks.NewMockLeaderElector(t),
 				mon:  monitoring.NewNoopExecutorMonitoring(),
 			},
 			expectErr: true,
@@ -65,9 +64,9 @@ func TestConstructor(t *testing.T) {
 		{
 			name: "missing logger",
 			args: args{
-				exec: executor_mocks.NewMockExecutor(t),
-				sub:  executor_mocks.NewMockMessageSubscriber(t),
-				le:   executor_mocks.NewMockLeaderElector(t),
+				exec: mocks.NewMockExecutor(t),
+				sub:  mocks.NewMockMessageSubscriber(t),
+				le:   mocks.NewMockLeaderElector(t),
 				mon:  monitoring.NewNoopExecutorMonitoring(),
 			},
 			expectErr: true,
@@ -76,8 +75,8 @@ func TestConstructor(t *testing.T) {
 			name: "missing leaderElector",
 			args: args{
 				lggr: lggr,
-				exec: executor_mocks.NewMockExecutor(t),
-				sub:  executor_mocks.NewMockMessageSubscriber(t),
+				exec: mocks.NewMockExecutor(t),
+				sub:  mocks.NewMockMessageSubscriber(t),
 				mon:  monitoring.NewNoopExecutorMonitoring(),
 			},
 			expectErr: true,
@@ -86,8 +85,8 @@ func TestConstructor(t *testing.T) {
 			name: "missing MessageSubscriber",
 			args: args{
 				lggr: lggr,
-				exec: executor_mocks.NewMockExecutor(t),
-				le:   executor_mocks.NewMockLeaderElector(t),
+				exec: mocks.NewMockExecutor(t),
+				le:   mocks.NewMockLeaderElector(t),
 				mon:  monitoring.NewNoopExecutorMonitoring(),
 			},
 			expectErr: true,
@@ -96,9 +95,9 @@ func TestConstructor(t *testing.T) {
 			name: "missing Monitoring",
 			args: args{
 				lggr: lggr,
-				exec: executor_mocks.NewMockExecutor(t),
-				sub:  executor_mocks.NewMockMessageSubscriber(t),
-				le:   executor_mocks.NewMockLeaderElector(t),
+				exec: mocks.NewMockExecutor(t),
+				sub:  mocks.NewMockMessageSubscriber(t),
+				le:   mocks.NewMockLeaderElector(t),
 			},
 			expectErr: true,
 		},
@@ -106,7 +105,7 @@ func TestConstructor(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := executor.NewCoordinator(tc.args.lggr, tc.args.exec, tc.args.sub, tc.args.le, tc.args.mon, 8*time.Hour, common.NewMockTimeProvider(t), 100)
+			_, err := executor.NewCoordinator(tc.args.lggr, tc.args.exec, tc.args.sub, tc.args.le, tc.args.mon, 8*time.Hour, mocks.NewMockTimeProvider(t), 100)
 
 			if tc.expectErr {
 				require.Error(t, err)
@@ -120,20 +119,20 @@ func TestConstructor(t *testing.T) {
 func TestLifecycle(t *testing.T) {
 	lggr := logger.Test(t)
 
-	ccvDataReader := executor_mocks.NewMockMessageSubscriber(t)
+	ccvDataReader := mocks.NewMockMessageSubscriber(t)
 	ccvDataReader.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
-	executorMock := executor_mocks.NewMockExecutor(t)
+	executorMock := mocks.NewMockExecutor(t)
 	executorMock.EXPECT().Start(mock.Anything).Return(nil)
 
 	ec, err := executor.NewCoordinator(
 		lggr,
 		executorMock,
 		ccvDataReader,
-		executor_mocks.NewMockLeaderElector(t),
+		mocks.NewMockLeaderElector(t),
 		monitoring.NewNoopExecutorMonitoring(),
 		8*time.Hour,
-		common.NewMockTimeProvider(t),
+		mocks.NewMockTimeProvider(t),
 		100,
 	)
 	require.NoError(t, err)
@@ -149,20 +148,20 @@ func TestSubscribeMessagesError(t *testing.T) {
 	lggr, hook := logger.TestObserved(t, zapcore.InfoLevel)
 
 	// Generate an error when SubscribeMessages() is called during Start().
-	messageSubscriber := executor_mocks.NewMockMessageSubscriber(t)
+	messageSubscriber := mocks.NewMockMessageSubscriber(t)
 	sentinelError := fmt.Errorf("lilo & stitch")
 	messageSubscriber.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything).Return(sentinelError)
-	timeProvider := common.NewMockTimeProvider(t)
+	timeProvider := mocks.NewMockTimeProvider(t)
 	timeProvider.EXPECT().GetTime().Return(time.Now().UTC()).Maybe()
 
-	mockExecutor := executor_mocks.NewMockExecutor(t)
+	mockExecutor := mocks.NewMockExecutor(t)
 	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
 
 	ec, err := executor.NewCoordinator(
 		lggr,
 		mockExecutor,
 		messageSubscriber,
-		executor_mocks.NewMockLeaderElector(t),
+		mocks.NewMockLeaderElector(t),
 		monitoring.NewNoopExecutorMonitoring(),
 		8*time.Hour,
 		timeProvider,
@@ -194,12 +193,12 @@ func TestStopNotRunning(t *testing.T) {
 
 	ec, err := executor.NewCoordinator(
 		lggr,
-		executor_mocks.NewMockExecutor(t),
-		executor_mocks.NewMockMessageSubscriber(t),
-		executor_mocks.NewMockLeaderElector(t),
+		mocks.NewMockExecutor(t),
+		mocks.NewMockMessageSubscriber(t),
+		mocks.NewMockLeaderElector(t),
 		monitoring.NewNoopExecutorMonitoring(),
 		8*time.Hour,
-		common.NewMockTimeProvider(t),
+		mocks.NewMockTimeProvider(t),
 		100,
 	)
 	require.NoError(t, err)
@@ -298,24 +297,24 @@ func TestMessageExpiration(t *testing.T) {
 			lggr, hook := logger.TestObserved(t, zapcore.InfoLevel)
 
 			currentTime := time.Now().UTC()
-			mockTimeProvider := common.NewMockTimeProvider(t)
+			mockTimeProvider := mocks.NewMockTimeProvider(t)
 			mockTimeProvider.EXPECT().GetTime().Return(currentTime.Add(tc.mockedTimeDifference)).Maybe()
 
 			// Create a test message
-			testMessage := icommon.MessageWithMetadata{
+			testMessage := common.MessageWithMetadata{
 				Message: protocol.Message{
 					DestChainSelector:   1,
 					SourceChainSelector: 2,
 					SequenceNumber:      1,
 				},
-				Metadata: icommon.MessageMetadata{
+				Metadata: common.MessageMetadata{
 					IngestionTimestamp: currentTime,
 				},
 			}
 
 			// Set up message subscriber to send one message
-			messageSubscriber := executor_mocks.NewMockMessageSubscriber(t)
-			messageSubscriber.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything).Return(nil).Run(func(ctx context.Context, results chan icommon.MessageWithMetadata, errors chan error) {
+			messageSubscriber := mocks.NewMockMessageSubscriber(t)
+			messageSubscriber.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything).Return(nil).Run(func(ctx context.Context, results chan common.MessageWithMetadata, errors chan error) {
 				// Send the test message to the channel
 				go func() {
 					results <- testMessage
@@ -323,13 +322,13 @@ func TestMessageExpiration(t *testing.T) {
 			})
 
 			// Set up executor mock
-			mockExecutor := executor_mocks.NewMockExecutor(t)
+			mockExecutor := mocks.NewMockExecutor(t)
 			mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
 			mockExecutor.EXPECT().CheckValidMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
 			mockExecutor.EXPECT().HandleMessage(mock.Anything, mock.Anything).Return(false, nil).Maybe()
 
 			// Set up leader elector mock
-			leaderElector := executor_mocks.NewMockLeaderElector(t)
+			leaderElector := mocks.NewMockLeaderElector(t)
 			leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything, mock.Anything).Return(currentTime.Add(tc.initialReadyDelay)).Maybe()
 			leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(tc.retryDelay).Maybe()
 

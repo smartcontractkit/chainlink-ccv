@@ -14,9 +14,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
@@ -49,7 +49,7 @@ type testSetup struct {
 	cancel             context.CancelFunc
 	logger             logger.Logger
 	storage            *common.InMemoryOffchainStorage
-	chainStatusManager *protocol_mocks.MockChainStatusManager
+	chainStatusManager *mocks.MockChainStatusManager
 	signerAddr         protocol.UnknownAddress
 	signer             verifier.MessageSigner
 }
@@ -59,7 +59,7 @@ const (
 	finalizedBlockHeight = 950
 )
 
-func mockLatestBlocks(reader *protocol_mocks.MockSourceReader) *protocol_mocks.MockSourceReader {
+func mockLatestBlocks(reader *mocks.MockSourceReader) *mocks.MockSourceReader {
 	latestHeader := &protocol.BlockHeader{
 		Number:     latestBlockHeight,
 		Hash:       protocol.Bytes32{byte(latestBlockHeight % 256)},
@@ -82,7 +82,7 @@ func newTestSetup(t *testing.T) *testSetup {
 	lggr := logger.Test(t)
 	storage := common.NewInMemoryOffchainStorage(lggr)
 	signer, addr := createTestSigner(t)
-	chainStatusManager := protocol_mocks.NewMockChainStatusManager(t)
+	chainStatusManager := mocks.NewMockChainStatusManager(t)
 	chainStatusManager.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).Return(nil, nil)
 	chainStatusManager.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).Return(nil).Maybe()
 

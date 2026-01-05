@@ -11,9 +11,9 @@ import (
 
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	coordinator "github.com/smartcontractkit/chainlink-ccv/executor"
-	"github.com/smartcontractkit/chainlink-ccv/executor/internal/executor_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -21,9 +21,9 @@ import (
 // setupTestExecutor creates a test executor with the provided mocks.
 func setupTestExecutor(
 	t *testing.T,
-	ct map[protocol.ChainSelector]*executor_mocks.MockContractTransmitter,
-	dr map[protocol.ChainSelector]*executor_mocks.MockDestinationReader,
-	vr *executor_mocks.MockVerifierResultReader,
+	ct map[protocol.ChainSelector]*mocks.MockContractTransmitter,
+	dr map[protocol.ChainSelector]*mocks.MockDestinationReader,
+	vr *mocks.MockVerifierResultReader,
 	address1, address2 protocol.UnknownAddress,
 	sourceChainSelector protocol.ChainSelector,
 ) *ChainlinkExecutor {
@@ -90,19 +90,19 @@ func Test_ChainlinkExecutor_Validate(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			ct := make(map[protocol.ChainSelector]*executor_mocks.MockContractTransmitter)
+			ct := make(map[protocol.ChainSelector]*mocks.MockContractTransmitter)
 			for _, chain := range tc.ctChains {
-				mockCT := executor_mocks.NewMockContractTransmitter(t)
+				mockCT := mocks.NewMockContractTransmitter(t)
 				ct[chain] = mockCT
 			}
 
-			dr := make(map[protocol.ChainSelector]*executor_mocks.MockDestinationReader)
+			dr := make(map[protocol.ChainSelector]*mocks.MockDestinationReader)
 			for _, chain := range tc.drChains {
-				mockDR := executor_mocks.NewMockDestinationReader(t)
+				mockDR := mocks.NewMockDestinationReader(t)
 				dr[chain] = mockDR
 			}
 
-			vr := executor_mocks.NewMockVerifierResultReader(t)
+			vr := mocks.NewMockVerifierResultReader(t)
 			executor := setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
 
 			err := executor.Validate()
@@ -138,16 +138,16 @@ func Test_ChainlinkExecutor_HandleMessage_CurseCheck(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			ct := map[protocol.ChainSelector]*executor_mocks.MockContractTransmitter{
-				1: executor_mocks.NewMockContractTransmitter(t),
+			ct := map[protocol.ChainSelector]*mocks.MockContractTransmitter{
+				1: mocks.NewMockContractTransmitter(t),
 			}
-			dr := map[protocol.ChainSelector]*executor_mocks.MockDestinationReader{
-				1: executor_mocks.NewMockDestinationReader(t),
+			dr := map[protocol.ChainSelector]*mocks.MockDestinationReader{
+				1: mocks.NewMockDestinationReader(t),
 			}
-			vr := executor_mocks.NewMockVerifierResultReader(t)
+			vr := mocks.NewMockVerifierResultReader(t)
 			msg := generateFakeMessage(1, 2, 1, nil, address2)
 
-			curseChecker := ccvcommon.NewMockCurseChecker(t)
+			curseChecker := mocks.NewMockCurseChecker(t)
 			curseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(tc.isCursed).Once()
 			executor := setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
 			executor.curseChecker = curseChecker
@@ -228,12 +228,12 @@ func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			ct := map[protocol.ChainSelector]*executor_mocks.MockContractTransmitter{
-				1: executor_mocks.NewMockContractTransmitter(t),
+			ct := map[protocol.ChainSelector]*mocks.MockContractTransmitter{
+				1: mocks.NewMockContractTransmitter(t),
 			}
 
-			dr := map[protocol.ChainSelector]*executor_mocks.MockDestinationReader{
-				1: executor_mocks.NewMockDestinationReader(t),
+			dr := map[protocol.ChainSelector]*mocks.MockDestinationReader{
+				1: mocks.NewMockDestinationReader(t),
 			}
 			dr[1].EXPECT().GetRMNCursedSubjects(mock.Anything).Return([]protocol.Bytes16{}, nil).Once()
 			dr[1].EXPECT().GetMessageSuccess(mock.Anything, mock.Anything).Return(false, nil).Once()
@@ -241,7 +241,7 @@ func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
 			// GetCCVSForMessage is called in parallel with GetVerifierResults, so we need to set it up even if verifier results error
 			dr[1].EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(tc.ccvInfo, tc.ccvInfoErr).Maybe()
 
-			vr := executor_mocks.NewMockVerifierResultReader(t)
+			vr := mocks.NewMockVerifierResultReader(t)
 			msg := generateFakeMessage(1, 2, 1, nil, address2)
 			messageID, _ := msg.MessageID()
 
@@ -323,19 +323,19 @@ func Test_ChainlinkExecutor_HandleMessage_OrderCCVData(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			ct := map[protocol.ChainSelector]*executor_mocks.MockContractTransmitter{
-				1: executor_mocks.NewMockContractTransmitter(t),
+			ct := map[protocol.ChainSelector]*mocks.MockContractTransmitter{
+				1: mocks.NewMockContractTransmitter(t),
 			}
 
-			dr := map[protocol.ChainSelector]*executor_mocks.MockDestinationReader{
-				1: executor_mocks.NewMockDestinationReader(t),
+			dr := map[protocol.ChainSelector]*mocks.MockDestinationReader{
+				1: mocks.NewMockDestinationReader(t),
 			}
 			dr[1].EXPECT().GetRMNCursedSubjects(mock.Anything).Return([]protocol.Bytes16{}, nil).Once()
 			dr[1].EXPECT().GetMessageSuccess(mock.Anything, mock.Anything).Return(false, nil).Once()
 			dr[1].EXPECT().GetExecutionAttempts(mock.Anything, mock.Anything).Return([]coordinator.ExecutionAttempt{}, nil).Maybe()
 			dr[1].EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(tc.ccvInfo, nil).Maybe()
 
-			vr := executor_mocks.NewMockVerifierResultReader(t)
+			vr := mocks.NewMockVerifierResultReader(t)
 			msg := generateFakeMessage(1, 2, 1, address1, address2)
 			messageID, _ := msg.MessageID()
 
@@ -405,12 +405,12 @@ func Test_ChainlinkExecutor_HandleMessage_ConvertAndWrite(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			ct := map[protocol.ChainSelector]*executor_mocks.MockContractTransmitter{
-				1: executor_mocks.NewMockContractTransmitter(t),
+			ct := map[protocol.ChainSelector]*mocks.MockContractTransmitter{
+				1: mocks.NewMockContractTransmitter(t),
 			}
 
-			dr := map[protocol.ChainSelector]*executor_mocks.MockDestinationReader{
-				1: executor_mocks.NewMockDestinationReader(t),
+			dr := map[protocol.ChainSelector]*mocks.MockDestinationReader{
+				1: mocks.NewMockDestinationReader(t),
 			}
 			dr[1].EXPECT().GetRMNCursedSubjects(mock.Anything).Return([]protocol.Bytes16{}, nil).Once()
 			dr[1].EXPECT().GetMessageSuccess(mock.Anything, mock.Anything).Return(false, nil).Once()
@@ -420,7 +420,7 @@ func Test_ChainlinkExecutor_HandleMessage_ConvertAndWrite(t *testing.T) {
 				OptionalThreshold: 1,
 			}, nil).Maybe()
 
-			vr := executor_mocks.NewMockVerifierResultReader(t)
+			vr := mocks.NewMockVerifierResultReader(t)
 			msg := generateFakeMessage(1, 2, 1, address1, address2)
 			messageID, _ := msg.MessageID()
 

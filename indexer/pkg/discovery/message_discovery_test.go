@@ -10,13 +10,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/discovery/internal"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -28,7 +29,7 @@ type testSetup struct {
 	Monitor    common.IndexerMonitoring
 	Storage    common.IndexerStorage
 	Reader     *readers.ResilientReader
-	MockReader *readers.MockReader
+	MockReader *internal.MockReader
 	Context    context.Context
 	Cancel     context.CancelFunc
 }
@@ -69,11 +70,11 @@ func setupMessageDiscoveryTestWithTimeout(t *testing.T, config config.DiscoveryC
 	store := storage.NewInMemoryStorage(lggr, mon)
 
 	// Create a mock reader that emits messages immediately
-	mockReader := readers.NewMockReader(readers.MockReaderConfig{
+	mockReader := internal.NewMockReader(internal.MockReaderConfig{
 		EmitEmptyResponses: true, // Return empty slice when no messages ready
 	})
 
-	timeProvider := ccvcommon.NewMockTimeProvider(t)
+	timeProvider := mocks.NewMockTimeProvider(t)
 	timeProvider.EXPECT().GetTime().Return(time.Now().UTC()).Maybe()
 
 	// Wrap mock reader with ResilientReader for testing
@@ -113,9 +114,9 @@ func setupMessageDiscoveryTestNoTimeout(t *testing.T, config config.DiscoveryCon
 	mon := monitoring.NewNoopIndexerMonitoring()
 	store := storage.NewInMemoryStorage(lggr, mon)
 
-	timeProvider := ccvcommon.NewMockTimeProvider(t)
+	timeProvider := mocks.NewMockTimeProvider(t)
 	timeProvider.EXPECT().GetTime().Return(time.Now().UTC()).Maybe()
-	mockReader := readers.NewMockReader(readers.MockReaderConfig{
+	mockReader := internal.NewMockReader(internal.MockReaderConfig{
 		EmitEmptyResponses: true,
 	})
 
@@ -157,7 +158,7 @@ func TestNewAggregatorMessageDiscovery(t *testing.T) {
 	lggr := logger.Test(t)
 	mon := monitoring.NewNoopIndexerMonitoring()
 	store := storage.NewInMemoryStorage(lggr, mon)
-	mockReader := readers.NewMockReader(readers.MockReaderConfig{})
+	mockReader := internal.NewMockReader(internal.MockReaderConfig{})
 	resilientReader := readers.NewResilientReader(mockReader, lggr, readers.DefaultResilienceConfig())
 	config := defaultTestConfig()
 	registry := registry.NewVerifierRegistry()
@@ -166,7 +167,7 @@ func TestNewAggregatorMessageDiscovery(t *testing.T) {
 		WithLogger(lggr),
 		WithMonitoring(mon),
 		WithRegistry(registry),
-		WithTimeProvider(ccvcommon.NewMockTimeProvider(t)),
+		WithTimeProvider(mocks.NewMockTimeProvider(t)),
 		WithStorage(store),
 		WithAggregator(resilientReader),
 		WithConfig(config),
@@ -286,7 +287,7 @@ func TestMessageDiscovery_SingleMessage(t *testing.T) {
 
 	// Configure mock to return one message
 	ccvData := createTestCCVData(1, time.Now().UnixMilli(), 1, 2)
-	ts.MockReader = readers.NewMockReader(readers.MockReaderConfig{
+	ts.MockReader = internal.NewMockReader(internal.MockReaderConfig{
 		MessageGenerator: func(messageNumber int) common.VerifierResultWithMetadata {
 			return ccvData
 		},
@@ -331,14 +332,14 @@ func TestMessageDiscovery_MultipleMessages(t *testing.T) {
 	}
 
 	messageIndex := 0
-	ts.MockReader = readers.NewMockReader(readers.MockReaderConfig{
+	ts.MockReader = internal.NewMockReader(internal.MockReaderConfig{
 		MessageGenerator: func(messageNumber int) common.VerifierResultWithMetadata {
 			if messageIndex < len(messages) {
 				msg := messages[messageIndex]
 				messageIndex++
 				return msg
 			}
-			return readers.DefaultMessageGenerator(messageNumber)
+			return internal.DefaultMessageGenerator(messageNumber)
 		},
 		EmitEmptyResponses: false,
 		MaxMessages:        len(messages),
@@ -382,7 +383,7 @@ func TestMessageDiscovery_EmptyResponse(t *testing.T) {
 
 	// Create a reader that has already reached max messages (will return empty)
 	// We do this by creating a reader, calling it once to consume the message, then using it
-	ts.MockReader = readers.NewMockReader(readers.MockReaderConfig{
+	ts.MockReader = internal.NewMockReader(internal.MockReaderConfig{
 		EmitEmptyResponses: true,
 		MaxMessages:        1, // Only 1 message available
 	})
@@ -413,7 +414,7 @@ func TestMessageDiscovery_ContinuesAfterEmptyResponse(t *testing.T) {
 	defer ts.Cleanup()
 
 	callCount := 0
-	ts.MockReader = readers.NewMockReader(readers.MockReaderConfig{
+	ts.MockReader = internal.NewMockReader(internal.MockReaderConfig{
 		EmitEmptyResponses: true,
 		MessageGenerator: func(messageNumber int) common.VerifierResultWithMetadata {
 			callCount++
@@ -421,7 +422,7 @@ func TestMessageDiscovery_ContinuesAfterEmptyResponse(t *testing.T) {
 			if callCount >= 3 {
 				return createTestCCVData(1, time.Now().UnixMilli(), 1, 2)
 			}
-			return readers.DefaultMessageGenerator(messageNumber)
+			return internal.DefaultMessageGenerator(messageNumber)
 		},
 		MaxMessages: 1,
 	})
@@ -449,7 +450,7 @@ func TestErrorHandling_ReaderError(t *testing.T) {
 	defer ts.Cleanup()
 
 	expectedError := errors.New("reader error")
-	ts.MockReader = readers.NewMockReader(readers.MockReaderConfig{
+	ts.MockReader = internal.NewMockReader(internal.MockReaderConfig{
 		ErrorAfterCalls:    1,
 		Error:              expectedError,
 		EmitEmptyResponses: true,
@@ -485,7 +486,7 @@ func TestErrorHandling_CircuitBreakerOpen(t *testing.T) {
 	defer ts.Cleanup()
 
 	// Create a reader that will open circuit breaker after failures
-	ts.MockReader = readers.NewMockReader(readers.MockReaderConfig{
+	ts.MockReader = internal.NewMockReader(internal.MockReaderConfig{
 		ErrorAfterCalls:    1,
 		Error:              errors.New("simulated error"),
 		EmitEmptyResponses: true,
@@ -534,7 +535,7 @@ func TestConsumeReader_MultipleBatches(t *testing.T) {
 	// MockReader by default returns one message per call, so we configure it
 	// to return multiple messages before going empty
 	callCount := 0
-	ts.MockReader = readers.NewMockReader(readers.MockReaderConfig{
+	ts.MockReader = internal.NewMockReader(internal.MockReaderConfig{
 		EmitEmptyResponses: false,
 		MessageGenerator: func(messageNumber int) common.VerifierResultWithMetadata {
 			return createTestCCVData(messageNumber, time.Now().UnixMilli(), 1, 2)
@@ -627,7 +628,7 @@ func TestMessageDiscovery_NewMessageEmittedAndSaved(t *testing.T) {
 	ccvData := createTestCCVData(1, time.Now().UnixMilli(), 1, 2)
 
 	// Configure mock reader to return this message
-	ts.MockReader = readers.NewMockReader(readers.MockReaderConfig{
+	ts.MockReader = internal.NewMockReader(internal.MockReaderConfig{
 		MessageGenerator: func(messageNumber int) common.VerifierResultWithMetadata {
 			return ccvData
 		},
@@ -691,12 +692,12 @@ func setupMessageDiscoveryTestWithSequenceNumberSupportAndConfig(t *testing.T, c
 	require.NoError(t, err)
 
 	// Create a mock reader that supports sequence numbers
-	mockReader := readers.NewMockReader(readers.MockReaderConfig{
+	mockReader := internal.NewMockReader(internal.MockReaderConfig{
 		EmitEmptyResponses: true,
 	})
 	mockReader.SetSinceValue(initialSequenceNumber)
 
-	timeProvider := ccvcommon.NewMockTimeProvider(t)
+	timeProvider := mocks.NewMockTimeProvider(t)
 	timeProvider.EXPECT().GetTime().Return(time.Now().UTC()).Maybe()
 
 	// Wrap mock reader with ResilientReader for testing

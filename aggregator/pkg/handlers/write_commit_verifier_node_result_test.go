@@ -10,10 +10,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/internal/aggregation_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -127,9 +127,9 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			lggr := logger.TestSugared(t)
 
 			// Mocks
-			store := aggregation_mocks.NewMockCommitVerificationStore(t)
-			agg := aggregation_mocks.NewMockAggregationTriggerer(t)
-			sig := aggregation_mocks.NewMockSignatureValidator(t)
+			store := mocks.NewMockCommitVerificationStore(t)
+			agg := mocks.NewMockAggregationTriggerer(t)
+			sig := mocks.NewMockSignatureValidator(t)
 
 			sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil).Maybe()
 

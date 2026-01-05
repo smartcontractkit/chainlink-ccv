@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -269,7 +269,7 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 
 type coordinatorTestSetup struct {
 	coordinator           *Coordinator
-	mockSourceReader      *protocol_mocks.MockSourceReader
+	mockSourceReader      *mocks.MockSourceReader
 	mockVerifier          *TestVerifier
 	sentEventsCh          chan protocol.MessageSentEvent
 	currentFinalizedBlock *big.Int      // to control the return value of LatestFinalizedBlockHeight
@@ -300,7 +300,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	mockSourceReader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 
 	// Mock ChainStatusManager to prevent initialization hangs
-	mockChainStatusManager := protocol_mocks.NewMockChainStatusManager(t)
+	mockChainStatusManager := mocks.NewMockChainStatusManager(t)
 	// Return empty map to indicate no prior chain status (forces fallback to lookback calculation)
 	mockChainStatusManager.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).Return(make(map[protocol.ChainSelector]*protocol.ChainStatusInfo), nil).Maybe()
 	// Allow writes for chain status updates
