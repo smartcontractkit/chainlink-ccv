@@ -82,19 +82,13 @@ func ValidateTimestamp(timestampStr string) error {
 	return nil
 }
 
-// ValidateSignature checks if the provided signature matches any of the client's secrets.
-// Returns true if signature is valid with any of the secrets.
+// ValidateSignature checks if the provided signature matches the client's secret.
+// Returns true if signature is valid.
 //
 // This function is primarily used by the server to validate incoming requests.
-func ValidateSignature(stringToSign, providedSig string, secrets map[string]string) bool {
-	for _, secret := range secrets {
-		expectedSig := ComputeHMAC(secret, stringToSign)
-
-		if bytes.Equal([]byte(expectedSig), []byte(providedSig)) {
-			return true
-		}
-	}
-	return false
+func ValidateSignature(stringToSign, providedSig, secret string) bool {
+	expectedSig := ComputeHMAC(secret, stringToSign)
+	return bytes.Equal([]byte(expectedSig), []byte(providedSig))
 }
 
 // GenerateSignature is a convenience function that generates a complete HMAC signature

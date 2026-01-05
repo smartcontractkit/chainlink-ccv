@@ -70,8 +70,17 @@ func TestServiceAggregator(t *testing.T) {
 			RedisAddress:  "default-aggregator-redis:6379",
 			RedisPassword: "",
 			RedisDB:       "0",
-			APIKeysJSON:   `{"clients":{"test-key":{"clientId":"test","enabled":true,"groups":[],"secrets":{"primary":"test-secret"}}}}`,
 		},
+		APIClients: []*services.AggregatorClientConfig{{
+			ClientID:    "test",
+			Description: "Test client",
+			Enabled:     true,
+			Groups:      []string{},
+			APIKeyPairs: []*services.AggregatorAPIKeyPair{{
+				APIKey: "test-key",
+				Secret: "test-secret",
+			}},
+		}},
 	}, []*services.VerifierInput{{
 		SourceCodePath:   "../../../verifier",
 		RootPath:         "../../../../",
@@ -121,7 +130,18 @@ func TestAggregatorAuthentication(t *testing.T) {
 			RedisAddress:  "auth-test-aggregator-redis:6379",
 			RedisPassword: "",
 			RedisDB:       "0",
-			APIKeysJSON:   `{"clients":{"test-key":{"clientId":"test","enabled":true,"groups":[],"secrets":{"primary":"test-secret"}}}}`,
+		},
+		APIClients: []*services.AggregatorClientConfig{
+			{
+				ClientID:    "test",
+				Description: "Test client",
+				Enabled:     true,
+				Groups:      []string{},
+				APIKeyPairs: []*services.AggregatorAPIKeyPair{{
+					APIKey: "test-key",
+					Secret: "test-secret",
+				}},
+			},
 		},
 	}, []*services.VerifierInput{{
 		SourceCodePath:   "../../../verifier",

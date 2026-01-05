@@ -775,15 +775,19 @@ func launchCLNodes(
 			Int("index", index).
 			Str("verifier", ver.ContainerName).
 			Str("committee", ver.CommitteeName).
-			Any("apiKeys", apiKeys.Clients).
+			Any("apiKeys", apiKeys).
 			Msg("getting API keys for verifier")
 		var found bool
-		for apiKey, apiClient := range apiKeys.Clients {
+		for _, apiClient := range apiKeys {
 			if apiClient.ClientID == ver.ContainerName {
+				if len(apiClient.APIKeyPairs) == 0 {
+					return nil, fmt.Errorf("no API key pairs found for client %s", apiClient.ClientID)
+				}
+				apiKeyPair := apiClient.APIKeyPairs[0]
 				aggSecretsPerNode[index] = append(aggSecretsPerNode[index], AggregatorSecret{
 					VerifierID: ver.ContainerName,
-					APIKey:     apiKey,
-					APISecret:  apiClient.Secrets["primary"],
+					APIKey:     apiKeyPair.APIKey,
+					APISecret:  apiKeyPair.Secret,
 				})
 				found = true
 				break

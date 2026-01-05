@@ -14,7 +14,6 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
@@ -26,7 +25,48 @@ const (
 	testSecretCurrent1 = "secret-current-1"
 )
 
-// Test helper: generates HMAC signature for a gRPC request following Data Streams pattern.
+type mockAPIKeyPair struct {
+	apiKey string
+	secret string
+}
+
+func (m *mockAPIKeyPair) GetAPIKey() string { return m.apiKey }
+func (m *mockAPIKeyPair) GetSecret() string { return m.secret }
+
+type mockClientConfig struct {
+	clientID string
+	groups   []string
+	enabled  bool
+}
+
+func (m *mockClientConfig) GetClientID() string { return m.clientID }
+func (m *mockClientConfig) GetGroups() []string { return m.groups }
+func (m *mockClientConfig) IsEnabled() bool     { return m.enabled }
+
+type mockClientProvider struct {
+	clientsByAPIKey map[string]*mockClientEntry
+	clientsByID     map[string]auth.ClientConfig
+}
+
+type mockClientEntry struct {
+	config auth.ClientConfig
+	pair   auth.APIKeyPair
+}
+
+func (m *mockClientProvider) GetClientByAPIKey(apiKey string) (auth.ClientConfig, auth.APIKeyPair, bool) {
+	if entry, ok := m.clientsByAPIKey[apiKey]; ok {
+		return entry.config, entry.pair, true
+	}
+	return nil, nil, false
+}
+
+func (m *mockClientProvider) GetClientByClientID(clientID string) (auth.ClientConfig, bool) {
+	if config, ok := m.clientsByID[clientID]; ok {
+		return config, true
+	}
+	return nil, false
+}
+
 func generateTestSignature(
 	t *testing.T,
 	secret, method string,
@@ -39,32 +79,36 @@ func generateTestSignature(
 	return signature
 }
 
-// Test helper: creates test API key configuration.
-func createTestAPIKeyConfig() *model.APIKeyConfig {
-	return &model.APIKeyConfig{
-		Clients: map[string]*model.APIClient{
+func createTestClientProvider() *mockClientProvider {
+	client1 := &mockClientConfig{
+		clientID: "client-1",
+		groups:   nil,
+		enabled:  true,
+	}
+	client2 := &mockClientConfig{
+		clientID: "client-2",
+		groups:   nil,
+		enabled:  true,
+	}
+
+	return &mockClientProvider{
+		clientsByAPIKey: map[string]*mockClientEntry{
 			testAPIKey1: {
-				ClientID:    "client-1",
-				Description: "Test client 1",
-				Enabled:     true,
-				Secrets: map[string]string{
-					"current":  testSecretCurrent1,
-					"previous": "secret-old-1",
-				},
+				config: client1,
+				pair:   &mockAPIKeyPair{apiKey: testAPIKey1, secret: testSecretCurrent1},
 			},
 			"test-api-key-2": {
-				ClientID:    "client-2",
-				Description: "Test client 2",
-				Enabled:     true,
-				Secrets: map[string]string{
-					"current": "secret-current-2",
-				},
+				config: client2,
+				pair:   &mockAPIKeyPair{apiKey: "test-api-key-2", secret: "secret-current-2"},
 			},
+		},
+		clientsByID: map[string]auth.ClientConfig{
+			"client-1": client1,
+			"client-2": client2,
 		},
 	}
 }
 
-// Test helper: mock handler that captures context for identity verification.
 type contextCapturingHandler struct {
 	capturedCtx context.Context //nolint:containedctx // test helper needs to capture context for assertion
 }
@@ -75,9 +119,9 @@ func (h *contextCapturingHandler) Handle(ctx context.Context, req any) (any, err
 }
 
 func TestHMACAuthMiddleware(t *testing.T) {
-	config := createTestAPIKeyConfig()
+	clientProvider := createTestClientProvider()
 	lggr := logger.Test(t)
-	middleware := NewHMACAuthMiddleware(config, lggr)
+	middleware := NewHMACAuthMiddleware(clientProvider, lggr)
 
 	req := &committeepb.ReadChainStatusRequest{}
 	method := "/Aggregator/ReadChainStatus"
@@ -217,23 +261,6 @@ func TestHMACAuthMiddleware(t *testing.T) {
 			expectedErrorCode: codes.Unauthenticated,
 			expectedErrorMsg:  "invalid or expired timestamp",
 			validateIdentity:  false,
-		},
-		{
-			name: "key rotation - valid signature with previous secret and sets correct identity",
-			setupMetadata: func() metadata.MD {
-				timestampMs := time.Now().UnixMilli()
-				apiKey := testAPIKey1
-				oldSecret := "secret-old-1"
-				signature := generateTestSignature(t, oldSecret, method, req, apiKey, timestampMs)
-				return metadata.New(map[string]string{
-					hmacutil.HeaderAuthorization: apiKey,
-					hmacutil.HeaderTimestamp:     strconv.FormatInt(timestampMs, 10),
-					hmacutil.HeaderSignature:     signature,
-				})
-			},
-			expectError:      false,
-			validateIdentity: true,
-			expectedClientID: "client-1",
 		},
 		{
 			name: "different client with different secret sets correct identity",

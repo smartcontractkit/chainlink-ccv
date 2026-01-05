@@ -317,7 +317,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	scopingMiddleware := middlewares.NewScopingMiddleware()
 
 	// Initialize authentication middlewares
-	hmacAuthMiddleware := middlewares.NewHMACAuthMiddleware(&config.APIKeys, l)
+	hmacAuthMiddleware := middlewares.NewHMACAuthMiddleware(config, l)
 	anonymousAuthMiddleware, err := middlewares.NewAnonymousAuthMiddleware(config.AnonymousAuth.TrustedProxies, l)
 	if err != nil {
 		l.Fatalf("Failed to initialize anonymous auth middleware: %v", err)
@@ -325,7 +325,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	requireAuthMiddleware := middlewares.NewRequireAuthMiddleware(l)
 
 	// Initialize rate limiting middleware
-	rateLimitingMiddleware, err := middlewares.NewRateLimitingMiddlewareFromConfig(config.RateLimiting, config.APIKeys, l)
+	rateLimitingMiddleware, err := middlewares.NewRateLimitingMiddlewareFromConfig(config.RateLimiting, config, l)
 	if err != nil {
 		l.Fatalf("Failed to initialize rate limiting middleware: %v", err)
 	}
