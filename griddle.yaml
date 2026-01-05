@@ -79,5 +79,4 @@ deploy:
         install_timeout: 5m0s
         rollback_timeout: 5m0s
         upgrade_timeout: 5m0s
-    path: ""
 settings: {}
