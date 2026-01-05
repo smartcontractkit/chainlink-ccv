@@ -1,4 +1,5 @@
 name: chainlink-ccv-aggregator-2
+environment: stage
 envFromSecretsKeyRef:
   - envName: AGGREGATOR_STORAGE_CONNECTION_URL
     secretName: tbd

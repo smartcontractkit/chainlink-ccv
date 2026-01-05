@@ -3,20 +3,4 @@ name: chainlink-ccv-indexer-2
 #   - envName: secrets.toml
 #     secretName: tbd
 #     secretKey: tbd
-ingress:
-  enabled: true
-  className: alb
-  annotations:
-    kubernetes.io/ingress.class: alb
-    alb.ingress.kubernetes.io/scheme: internal
-    alb.ingress.kubernetes.io/target-type: "ip"
-    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-west-2:323150190480:certificate/edd19542-7c7c-42dc-ba00-507c4b962ed3
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
-    alb.ingress.kubernetes.io/ssl-redirect: "443"
-    alb.ingress.kubernetes.io/healthcheck-path: /
-    alb.ingress.kubernetes.io/group.name: ccv-indexer-2
-  hosts:
-    - host: ccv-indexer-2.main.stage.cldev.sh
-      paths:
-        - path: /
-          pathType: Prefix
+environment: stage
