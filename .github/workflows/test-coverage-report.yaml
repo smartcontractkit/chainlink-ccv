@@ -51,15 +51,7 @@ jobs:
           git fetch origin ${{ github.base_ref }}
           git branch -a
           git checkout ${{ github.base_ref }}
-          # TODO: enable after available on base branch.
-          # just test-coverage coverage_file=coverage_target.out short
-          go test -shuffle on -v -short -coverprofile=coverage_target.out ./...
-          go test -v -race -fullpath -shuffle on -short -coverprofile=coverage_target.out ./...
-          # Filter mockery-generated files (mock_*.go) from coverage profile
-          { head -n1 coverage_target.out; tail -n +2 coverage_target.out | grep -v -E '(/mock_.*\.go:|/_mocks/.*:|/mocks/.*:)' || true; } > coverage_target.out.filtered
-          mv coverage_target.out.filtered coverage_target.out
-          # TODO: replace until here.
-
+          just test-coverage coverage_target.out short
           total=$(go tool cover -func=coverage_target.out | grep total | awk '{print $3}')
           echo "coverage_target=$total" >> $GITHUB_ENV
           cp ${{ runner.temp }}/cov_compare.sh cov_compare.sh
