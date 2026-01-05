@@ -205,13 +205,13 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 	tempSince := a.since.Load()
 	for i, resultWithSeq := range resp.Results {
 		if resultWithSeq.VerifierResult == nil {
-			return nil, fmt.Errorf("nil VerifierResult at index %d", i)
+			return nil, fmt.Errorf("nil VerifierResults at index %d", i)
 		}
 
 		result := v1.VerifierResult{VerifierResult: resultWithSeq.VerifierResult}
 		verifierResult, err1 := result.ToVerifierResult()
 		if err1 != nil {
-			return nil, fmt.Errorf("error converting VerifierResult at index %d: %w", i, err1)
+			return nil, fmt.Errorf("error converting VerifierResults at index %d: %w", i, err1)
 		}
 
 		sequence := resultWithSeq.Sequence

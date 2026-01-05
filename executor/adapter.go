@@ -21,7 +21,7 @@ func NewIndexerReaderAdapter(client *client.IndexerClient) *IndexerReaderAdapter
 }
 
 func (ira *IndexerReaderAdapter) GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error) {
-	res, err := ira.client.MessageByID(ctx, v1.MessageIDInput{MessageID: messageID.String()})
+	res, err := ira.client.MessageByID(ctx, v1.VerifierResultsByMessageIDInput{MessageID: messageID.String()})
 	if err != nil {
 		return nil, err
 	}

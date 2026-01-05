@@ -1024,12 +1024,12 @@ func TestVerifierResult_RoundTrip(t *testing.T) {
 			// Step 1: Get original message ID
 			originalID := tt.verifierResult.MessageID
 
-			// Step 2: Convert protocol.VerifierResult to VerifierResult
+			// Step 2: Convert protocol.VerifierResults to VerifierResults
 			verifierResult, err := NewVerifierResult(tt.verifierResult)
 			require.NoError(t, err)
 			require.NotNil(t, verifierResult.VerifierResult)
 
-			// Step 3: Convert back to protocol.VerifierResult
+			// Step 3: Convert back to protocol.VerifierResults
 			convertedResult, err := verifierResult.ToVerifierResult()
 			require.NoError(t, err)
 
@@ -1215,13 +1215,13 @@ func TestVerifierResultsResponse_NilChecks(t *testing.T) {
 }
 
 func TestVerifierResult_NilChecks(t *testing.T) {
-	t.Run("MarshalJSON returns error when VerifierResult is nil", func(t *testing.T) {
+	t.Run("MarshalJSON returns error when VerifierResults is nil", func(t *testing.T) {
 		result := &VerifierResult{VerifierResult: nil}
 		_, err := result.MarshalJSON()
 		require.Error(t, err)
 	})
 
-	t.Run("ToVerifierResult returns error when VerifierResult is nil", func(t *testing.T) {
+	t.Run("ToVerifierResult returns error when VerifierResults is nil", func(t *testing.T) {
 		result := &VerifierResult{VerifierResult: nil}
 		_, err := result.ToVerifierResult()
 		require.Error(t, err)

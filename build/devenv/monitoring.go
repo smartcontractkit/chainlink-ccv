@@ -92,7 +92,7 @@ func NewIndexerClient(logger zerolog.Logger, url string) *IndexerClient {
 }
 
 type GetVerificationsForMessageIDResponse struct {
-	v1.MessageIDResponse
+	v1.VerifierResultsByMessageIDResponse
 }
 
 func (g GetVerificationsForMessageIDResponse) SourceVerifierAddresses() []protocol.UnknownAddress {
