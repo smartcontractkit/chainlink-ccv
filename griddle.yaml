@@ -80,6 +80,4 @@ deploy:
         rollback_timeout: 5m0s
         upgrade_timeout: 5m0s
     path: ""
-observability:
-  dashboards: []
 settings: {}
