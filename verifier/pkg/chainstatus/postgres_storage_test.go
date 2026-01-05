@@ -20,6 +20,9 @@ import (
 )
 
 func setupTestDB(t *testing.T) *sqlx.DB {
+	if testing.Short() {
+		t.Skip("skipping docker test in short mode")
+	}
 	t.Helper()
 	ctx := context.Background()
 
