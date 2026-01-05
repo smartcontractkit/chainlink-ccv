@@ -56,7 +56,7 @@ jobs:
       matrix:
         directory: ${{ fromJson(needs.detect-changes.outputs.changed_dirs) }}
         environment:
-          - dev
+          - stage
       max-parallel: 6
     steps:
       - uses: smartcontractkit/.github-internal/actions/push-helm@push-helm/1.1.0 # v1.1.0
@@ -66,4 +66,4 @@ jobs:
           ref: ${{ github.head_ref }}
           path: ${{ matrix.directory }}
           environment: ${{ matrix.environment }}
-          role: ga-my-project-my-service-deployer
+          role: ga-ccip2-ccip2-deployer
