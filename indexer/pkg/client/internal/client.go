@@ -24,6 +24,9 @@ type ErrorResponse struct {
 
 	// Status HTTP status code
 	Status int64 `json:"status"`
+
+	// Success Indicates whether the request was successful or not.
+	Success bool `json:"success"`
 }
 
 // Message defines model for Message.
@@ -107,22 +110,44 @@ type VerifierResultWithMetadata struct {
 
 // MessagesParams defines parameters for Messages.
 type MessagesParams struct {
+	// SourceChainSelectors Source chain selectors to filter results by. If empty, results from all source chains will be returned.
 	SourceChainSelectors *[]protocol.ChainSelector `form:"sourceChainSelectors,omitempty" json:"sourceChainSelectors,omitempty"`
-	DestChainSelectors   *[]protocol.ChainSelector `form:"destChainSelectors,omitempty" json:"destChainSelectors,omitempty"`
-	Start                *int64                    `form:"start,omitempty" json:"start,omitempty"`
-	End                  *int64                    `form:"end,omitempty" json:"end,omitempty"`
-	Limit                *uint64                   `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset               *uint64                   `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// DestChainSelectors Destination chain selectors to filter results by. If empty, results from all destination chains will be returned.
+	DestChainSelectors *[]protocol.ChainSelector `form:"destChainSelectors,omitempty" json:"destChainSelectors,omitempty"`
+
+	// Start Start timestamp (in milliseconds) to filter results by. If not provided, defaults to 0.
+	Start *int64 `form:"start,omitempty" json:"start,omitempty"`
+
+	// End End timestamp (in milliseconds) to filter results by. If not provided, defaults to the current time.
+	End *int64 `form:"end,omitempty" json:"end,omitempty"`
+
+	// Limit Maximum number of results to return. If not provided, defaults to 100.
+	Limit *uint64 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset Number of results to skip before starting to return results. If not provided, defaults to 0.
+	Offset *uint64 `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
 // VerifierResultsParams defines parameters for VerifierResults.
 type VerifierResultsParams struct {
+	// SourceChainSelectors Source chain selectors to filter results by. If empty, results from all source chains will be returned.
 	SourceChainSelectors *[]protocol.ChainSelector `form:"sourceChainSelectors,omitempty" json:"sourceChainSelectors,omitempty"`
-	DestChainSelectors   *[]protocol.ChainSelector `form:"destChainSelectors,omitempty" json:"destChainSelectors,omitempty"`
-	Start                *int64                    `form:"start,omitempty" json:"start,omitempty"`
-	End                  *int64                    `form:"end,omitempty" json:"end,omitempty"`
-	Limit                *uint64                   `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset               *uint64                   `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// DestChainSelectors Destination chain selectors to filter results by. If empty, results from all destination chains will be returned.
+	DestChainSelectors *[]protocol.ChainSelector `form:"destChainSelectors,omitempty" json:"destChainSelectors,omitempty"`
+
+	// Start Start timestamp (in milliseconds) to filter results by. If not provided, defaults to 0.
+	Start *int64 `form:"start,omitempty" json:"start,omitempty"`
+
+	// End End timestamp (in milliseconds) to filter results by. If not provided, defaults to the current time.
+	End *int64 `form:"end,omitempty" json:"end,omitempty"`
+
+	// Limit Maximum number of results to return. If not provided, defaults to 100.
+	Limit *uint64 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset Number of results to skip before starting to return results. If not provided, defaults to 0.
+	Offset *uint64 `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
 // RequestEditorFn  is the function signature for the RequestEditor callback function
