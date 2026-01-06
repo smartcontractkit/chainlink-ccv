@@ -39,7 +39,7 @@ func Command() *cobra.Command {
 			messageIDBytes := hexutil.MustDecode(a.messageID)
 			copy(messageIDBytes32[:], messageIDBytes)
 
-			var resp v1.MessageIDResponse
+			var resp v1.VerifierResultsByMessageIDResponse
 			err = json.Unmarshal([]byte(a.indexerResultJSON), &resp)
 			if err != nil {
 				return fmt.Errorf("failed to unmarshal indexer result JSON: %w", err)

@@ -23,26 +23,26 @@ type VerifierResultsInput struct {
 	Offset               uint64                   `form:"offset"                query:"offset"`
 }
 
-type VerifierResultResponse struct {
+type VerifierResultsResponse struct {
 	Success         bool                                           `json:"success"`
 	VerifierResults map[string][]common.VerifierResultWithMetadata `json:"verifierResults"`
 }
 
-type VerifierResultHandler struct {
+type VerifierResultsHandler struct {
 	storage    common.IndexerStorage
 	lggr       logger.Logger
 	monitoring common.IndexerMonitoring
 }
 
-func NewVerifierResultHandler(storage common.IndexerStorage, lggr logger.Logger, monitoring common.IndexerMonitoring) *VerifierResultHandler {
-	return &VerifierResultHandler{
+func NewVerifierResultsHandler(storage common.IndexerStorage, lggr logger.Logger, monitoring common.IndexerMonitoring) *VerifierResultsHandler {
+	return &VerifierResultsHandler{
 		storage:    storage,
 		lggr:       lggr,
 		monitoring: monitoring,
 	}
 }
 
-func (h *VerifierResultHandler) Handle(c *gin.Context) {
+func (h *VerifierResultsHandler) Handle(c *gin.Context) {
 	req := VerifierResultsInput{
 		Start:                0,
 		End:                  time.Now().UnixMilli(),
@@ -76,8 +76,8 @@ func (h *VerifierResultHandler) Handle(c *gin.Context) {
 		return
 	}
 
-	h.lggr.Debugw("/v1/verifierresult", "number of messages returned", len(verifierResponse))
-	c.JSON(http.StatusOK, VerifierResultResponse{
+	h.lggr.Debugw("/v1/verifierresults", "number of messages returned", len(verifierResponse))
+	c.JSON(http.StatusOK, VerifierResultsResponse{
 		Success:         true,
 		VerifierResults: verifierResponse,
 	})

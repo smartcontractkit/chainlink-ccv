@@ -1590,7 +1590,7 @@ func TestGetMessagesSince_ReturnsNilMetadataWhenSourceVerifierNotInCCVAddresses(
 			require.Len(collect, resp.Results, 1, "should have 1 result")
 
 			result := resp.Results[0]
-			require.NotNil(collect, result.VerifierResult, "VerifierResult should not be nil")
+			require.NotNil(collect, result.VerifierResult, "VerifierResults should not be nil")
 			require.NotNil(collect, result.VerifierResult.Metadata, "Metadata should not be nil")
 
 			// Verify metadata addresses are nil because source verifier is not in ccvAddresses
