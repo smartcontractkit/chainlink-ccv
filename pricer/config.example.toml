@@ -4,6 +4,10 @@ loglevel = "info"
 [EVM]
 ChainID = "1"
 
+[EVM.Transactions.TransactionManagerV2]
+Enabled = true
+BlockTime = "12s"
+
 [[EVM.Nodes]]
 Name = "primary"
 WSURL = "wss://localhost:8546"
