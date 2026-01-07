@@ -100,7 +100,7 @@ join -a1 -a2 -e "0.00" -o 0,1.2,2.2 "$tmp1" "$tmp2" \
 
 # Emit errors AFTER results, separated by a blank line
 if [ -s "$err1" ] || [ -s "$err2" ]; then
-  echo >&2
+  echo
   if [ -s "$err1" ]; then
     echo "WARNING: go tool cover failed for $COV1"
     cat "$err1"
