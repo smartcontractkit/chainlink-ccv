@@ -102,11 +102,11 @@ join -a1 -a2 -e "0.00" -o 0,1.2,2.2 "$tmp1" "$tmp2" \
 if [ -s "$err1" ] || [ -s "$err2" ]; then
   echo >&2
   if [ -s "$err1" ]; then
-    echo "WARNING: go tool cover failed for $COV1" >&2
-    cat "$err1" >&2
+    echo "WARNING: go tool cover failed for $COV1"
+    cat "$err1"
   fi
   if [ -s "$err2" ]; then
-    echo "WARNING: go tool cover failed for $COV2" >&2
-    cat "$err2" >&2
+    echo "WARNING: go tool cover failed for $COV2"
+    cat "$err2"
   fi
 fi
