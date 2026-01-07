@@ -357,7 +357,7 @@ func TestSRS_Readiness_DefaultFinality_ReadyWhenBelowFinalized(t *testing.T) {
 
 	// Receive ready batch
 	select {
-	case batch := <-srs.readyTasksCh:
+	case batch := <-srs.readyTasksBatcher.OutChannel():
 		require.NoError(t, batch.Error)
 		require.Len(t, batch.Items, 1)
 		require.Equal(t, task.MessageID, batch.Items[0].MessageID)
@@ -432,7 +432,7 @@ func TestSRS_Readiness_CustomFinality_ReadyAgainstLatest(t *testing.T) {
 	go srs.sendReadyMessages(ctx, latest, finalized)
 
 	select {
-	case batch := <-srs.readyTasksCh:
+	case batch := <-srs.readyTasksBatcher.OutChannel():
 		require.NoError(t, batch.Error)
 		require.Len(t, batch.Items, 1)
 		require.Equal(t, task.MessageID, batch.Items[0].MessageID)
@@ -1004,7 +1004,7 @@ func TestSRS_ReorgTracker_RemovedAfterFinalization(t *testing.T) {
 
 	// Receive ready batch
 	select {
-	case batch := <-srs.readyTasksCh:
+	case batch := <-srs.readyTasksBatcher.OutChannel():
 		require.NoError(t, batch.Error)
 		require.Len(t, batch.Items, 1)
 	case <-time.After(time.Second):
@@ -1182,7 +1182,7 @@ func TestSRS_FailureRetriesNextTick(t *testing.T) {
 	srs.lastProcessedFinalizedBlock.Store(big.NewInt(99))
 
 	go func() {
-		<-srs.readyTasksCh
+		<-srs.readyTasksBatcher.OutChannel()
 	}()
 
 	// Cycle 1: fails
@@ -1246,7 +1246,7 @@ func TestSRS_NoNewBlocksStaysAtSameProgress(t *testing.T) {
 	srs.lastProcessedFinalizedBlock.Store(big.NewInt(100))
 
 	go func() {
-		<-srs.readyTasksCh
+		<-srs.readyTasksBatcher.OutChannel()
 	}()
 
 	srs.processEventCycle(ctx, latest, finalized)
@@ -1293,7 +1293,7 @@ func TestSRS_FailureDoesNotDeleteExistingTasks(t *testing.T) {
 	srs.lastProcessedFinalizedBlock.Store(big.NewInt(99))
 
 	go func() {
-		<-srs.readyTasksCh
+		<-srs.readyTasksBatcher.OutChannel()
 	}()
 
 	// Pre-seed a pending task
@@ -1309,7 +1309,7 @@ func TestSRS_FailureDoesNotDeleteExistingTasks(t *testing.T) {
 	srs.mu.Unlock()
 
 	go func() {
-		<-srs.readyTasksCh
+		<-srs.readyTasksBatcher.OutChannel()
 	}()
 
 	srs.processEventCycle(ctx, latest, finalized)
@@ -1425,7 +1425,7 @@ func TestSRS_FromBlockAheadOfLatestResetsToFinalized(t *testing.T) {
 	srs.lastProcessedFinalizedBlock.Store(big.NewInt(1000))
 
 	go func() {
-		<-srs.readyTasksCh
+		<-srs.readyTasksBatcher.OutChannel()
 	}()
 
 	srs.processEventCycle(ctx, latest, finalized)

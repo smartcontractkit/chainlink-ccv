@@ -78,16 +78,17 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 		t.Cleanup(cancel)
 
 		fakeStorage := NewFakeCCVNodeDataWriter()
-
-		batchedCCVDataCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
-		processor := &StorageWriterProcessor{
-			lggr:             lggr,
-			verifierID:       "test-verifier",
-			messageTracker:   NoopLatencyTracker{},
-			storage:          fakeStorage,
-			batchedCCVDataCh: batchedCCVDataCh,
-			retryDelay:       100 * time.Millisecond,
-		}
+		processor, processorBatcher, err := NewStorageBatcherProcessor(
+			ctx,
+			lggr,
+			"test-verifier",
+			NoopLatencyTracker{},
+			fakeStorage,
+			CoordinatorConfig{
+				StorageRetryDelay: 100 * time.Millisecond,
+			},
+		)
+		require.NoError(t, err)
 
 		batch1 := []protocol.VerifierNodeResult{
 			createTestVerifierNodeResult(1),
@@ -112,22 +113,25 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 		}()
 
 		// Send batches
-		batchedCCVDataCh <- batcher.BatchResult[protocol.VerifierNodeResult]{
+		err = processorBatcher.AddImmediate(batcher.BatchResult[protocol.VerifierNodeResult]{
 			Items: batch1,
 			Error: nil,
-		}
-		batchedCCVDataCh <- batcher.BatchResult[protocol.VerifierNodeResult]{
+		})
+		require.NoError(t, err)
+		err = processorBatcher.AddImmediate(batcher.BatchResult[protocol.VerifierNodeResult]{
 			Items: batch2,
 			Error: nil,
-		}
-		batchedCCVDataCh <- batcher.BatchResult[protocol.VerifierNodeResult]{
+		})
+		require.NoError(t, err)
+		err = processorBatcher.AddImmediate(batcher.BatchResult[protocol.VerifierNodeResult]{
 			Items: batch3,
 			Error: nil,
-		}
+		})
+		require.NoError(t, err)
 
 		// Give processor time to process all batches
 		time.Sleep(100 * time.Millisecond)
-		close(batchedCCVDataCh)
+		processorCancel()
 
 		// Wait for processor to finish
 		select {
@@ -157,15 +161,17 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
-		batchedCCVDataCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
-		processor := &StorageWriterProcessor{
-			lggr:             lggr,
-			verifierID:       "test-verifier",
-			messageTracker:   NoopLatencyTracker{},
-			storage:          fakeStorage,
-			batchedCCVDataCh: batchedCCVDataCh,
-			retryDelay:       100 * time.Millisecond,
-		}
+		processor, processorBatcher, err := NewStorageBatcherProcessor(
+			ctx,
+			lggr,
+			"test-verifier",
+			NoopLatencyTracker{},
+			fakeStorage,
+			CoordinatorConfig{
+				StorageRetryDelay: 100 * time.Millisecond,
+			},
+		)
+		require.NoError(t, err)
 
 		done := make(chan struct{})
 		go func() {
@@ -173,21 +179,23 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 			close(done)
 		}()
 
-		batchedCCVDataCh <- batcher.BatchResult[protocol.VerifierNodeResult]{
+		err = processorBatcher.AddImmediate(batcher.BatchResult[protocol.VerifierNodeResult]{
 			Items: []protocol.VerifierNodeResult{},
 			Error: nil,
-		}
+		})
+		require.NoError(t, err)
 		validBatch := []protocol.VerifierNodeResult{
 			createTestVerifierNodeResult(1),
 		}
 
-		batchedCCVDataCh <- batcher.BatchResult[protocol.VerifierNodeResult]{
+		err = processorBatcher.AddImmediate(batcher.BatchResult[protocol.VerifierNodeResult]{
 			Items: validBatch,
 			Error: nil,
-		}
+		})
+		require.NoError(t, err)
 
 		time.Sleep(100 * time.Millisecond)
-		close(batchedCCVDataCh)
+		cancel()
 
 		select {
 		case <-done:
@@ -211,16 +219,17 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
-		batchedCCVDataCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
-
-		processor := &StorageWriterProcessor{
-			lggr:             lggr,
-			verifierID:       "test-verifier",
-			messageTracker:   NoopLatencyTracker{},
-			storage:          fakeStorage,
-			batchedCCVDataCh: batchedCCVDataCh,
-			retryDelay:       100 * time.Millisecond,
-		}
+		processor, processorBatcher, err := NewStorageBatcherProcessor(
+			ctx,
+			lggr,
+			"test-verifier",
+			NoopLatencyTracker{},
+			fakeStorage,
+			CoordinatorConfig{
+				StorageRetryDelay: 100 * time.Millisecond,
+			},
+		)
+		require.NoError(t, err)
 
 		done := make(chan struct{})
 		go func() {
@@ -229,13 +238,14 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 		}()
 
 		// Send batch with error
-		batchedCCVDataCh <- batcher.BatchResult[protocol.VerifierNodeResult]{
+		err = processorBatcher.AddImmediate(batcher.BatchResult[protocol.VerifierNodeResult]{
 			Items: nil,
 			Error: errors.New("batcher internal error"),
-		}
+		})
+		require.NoError(t, err)
 
 		time.Sleep(100 * time.Millisecond)
-		close(batchedCCVDataCh)
+		cancel()
 
 		select {
 		case <-done:
@@ -258,24 +268,21 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
 		// Create batcher with real channel
-		batchedCCVDataCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 100)
 		batcherCtx, batcherCancel := context.WithCancel(ctx)
-
-		testBatcher := batcher.NewBatcher(
+		testBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](
 			batcherCtx,
 			10,
 			100*time.Millisecond,
-			batchedCCVDataCh,
+			100,
 		)
 
 		processor := &StorageWriterProcessor{
-			lggr:             lggr,
-			verifierID:       "test-verifier",
-			messageTracker:   NoopLatencyTracker{},
-			storage:          fakeStorage,
-			batcher:          testBatcher,
-			batchedCCVDataCh: batchedCCVDataCh,
-			retryDelay:       50 * time.Millisecond,
+			lggr:           lggr,
+			verifierID:     "test-verifier",
+			messageTracker: NoopLatencyTracker{},
+			storage:        fakeStorage,
+			batcher:        testBatcher,
+			retryDelay:     50 * time.Millisecond,
 		}
 
 		batch := []protocol.VerifierNodeResult{
@@ -292,10 +299,11 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 			close(done)
 		}()
 
-		batchedCCVDataCh <- batcher.BatchResult[protocol.VerifierNodeResult]{
+		err := testBatcher.AddImmediate(batcher.BatchResult[protocol.VerifierNodeResult]{
 			Items: batch,
 			Error: nil,
-		}
+		})
+		require.NoError(t, err)
 
 		// Wait a bit for initial failure
 		time.Sleep(30 * time.Millisecond)
@@ -308,7 +316,7 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 
 		// Close everything
 		batcherCancel()
-		err := testBatcher.Close()
+		err = testBatcher.Close()
 		require.NoError(t, err)
 
 		select {
@@ -334,23 +342,21 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
-		batchedCCVDataCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 100)
 		batcherCtx, batcherCancel := context.WithCancel(ctx)
-		testBatcher := batcher.NewBatcher(
+		testBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](
 			batcherCtx,
 			10,
 			100*time.Millisecond,
-			batchedCCVDataCh,
+			100,
 		)
 
 		processor := &StorageWriterProcessor{
-			lggr:             lggr,
-			verifierID:       "test-verifier",
-			messageTracker:   NoopLatencyTracker{},
-			storage:          fakeStorage,
-			batcher:          testBatcher,
-			batchedCCVDataCh: batchedCCVDataCh,
-			retryDelay:       50 * time.Millisecond,
+			lggr:           lggr,
+			verifierID:     "test-verifier",
+			messageTracker: NoopLatencyTracker{},
+			storage:        fakeStorage,
+			batcher:        testBatcher,
+			retryDelay:     50 * time.Millisecond,
 		}
 
 		failingBatch := []protocol.VerifierNodeResult{createTestVerifierNodeResult(1)}
@@ -369,20 +375,22 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 			close(done)
 		}()
 
-		batchedCCVDataCh <- batcher.BatchResult[protocol.VerifierNodeResult]{
+		err := testBatcher.AddImmediate(batcher.BatchResult[protocol.VerifierNodeResult]{
 			Items: failingBatch,
 			Error: nil,
-		}
+		})
+		require.NoError(t, err)
 
 		// Wait a moment
 		time.Sleep(20 * time.Millisecond)
 		// Clear error so next batch succeeds
 		fakeStorage.ClearError()
 
-		batchedCCVDataCh <- batcher.BatchResult[protocol.VerifierNodeResult]{
+		err = testBatcher.AddImmediate(batcher.BatchResult[protocol.VerifierNodeResult]{
 			Items: successBatch,
 			Error: nil,
-		}
+		})
+		require.NoError(t, err)
 
 		time.Sleep(100 * time.Millisecond)
 
@@ -391,7 +399,7 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 
 		// Then close batcher
 		batcherCancel()
-		err := testBatcher.Close()
+		err = testBatcher.Close()
 		require.NoError(t, err)
 
 		select {
@@ -420,16 +428,17 @@ func TestStorageWriterProcessor_ContextCancellation(t *testing.T) {
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
-		batchedCCVDataCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
-
-		processor := &StorageWriterProcessor{
-			lggr:             lggr,
-			verifierID:       "test-verifier",
-			messageTracker:   NoopLatencyTracker{},
-			storage:          fakeStorage,
-			batchedCCVDataCh: batchedCCVDataCh,
-			retryDelay:       100 * time.Millisecond,
-		}
+		processor, _, err := NewStorageBatcherProcessor(
+			ctx,
+			lggr,
+			"test-verifier",
+			NoopLatencyTracker{},
+			fakeStorage,
+			CoordinatorConfig{
+				StorageRetryDelay: 100 * time.Millisecond,
+			},
+		)
+		require.NoError(t, err)
 
 		processorCtx, processorCancel := context.WithCancel(ctx)
 

@@ -52,7 +52,7 @@ type retryItem[T any] struct {
 // The batcher will automatically flush when ctx is canceled.
 // maxSize: maximum number of items before triggering a flush
 // maxWait: maximum duration to wait before flushing incomplete batch
-// outCh: channel to send flushed batches to (user is responsible for reading from this channel and
+// outChannelSize: size of the output channel buffer (0 for unbuffered, consider your use case
 // providing it the right buffer if needed).
 func NewBatcher[T any](ctx context.Context, maxSize int, maxWait time.Duration, outChannelSize int) *Batcher[T] {
 	b := &Batcher[T]{
@@ -85,6 +85,8 @@ func (b *Batcher[T]) Add(item ...T) error {
 	}
 }
 
+// AddImmediate sends a batch result immediately to the output channel.
+// This method is thread-safe and non-blocking.
 func (b *Batcher[T]) AddImmediate(item BatchResult[T]) error {
 	select {
 	case b.outCh <- item:

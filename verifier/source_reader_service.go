@@ -63,6 +63,7 @@ type SourceReaderService struct {
 
 // NewSourceReaderService Constructor: same style as SRS.
 func NewSourceReaderService(
+	ctx context.Context,
 	sourceReader chainaccess.SourceReader,
 	chainSelector protocol.ChainSelector,
 	chainStatusManager protocol.ChainStatusManager,
@@ -112,6 +113,14 @@ func NewSourceReaderService(
 		pollTimeout = DefaultPollTimeout
 	}
 
+	batchSize, batchTimeout := readerConfigWithDefaults(logger.With(lggr, "component", "SourceReaderService", "chain", chainSelector), sourceCfg)
+	readyTaskBatcher := batcher.NewBatcher[VerificationTask](
+		ctx,
+		batchSize,
+		batchTimeout,
+		0,
+	)
+
 	return &SourceReaderService{
 		logger:             logger.With(lggr, "component", "SourceReaderService", "chain", chainSelector),
 		sourceReader:       sourceReader,
@@ -128,6 +137,7 @@ func NewSourceReaderService(
 		reorgTracker:       NewReorgTracker(logger.With(lggr, "component", "ReorgTracker"), metrics),
 		stopCh:             make(chan struct{}),
 		filter:             filter,
+		readyTasksBatcher:  readyTaskBatcher,
 	}, nil
 }
 
@@ -141,15 +151,6 @@ func (r *SourceReaderService) ReadyTasksChannel() <-chan batcher.BatchResult[Ver
 
 func (r *SourceReaderService) Start(ctx context.Context) error {
 	return r.StartOnce(r.Name(), func() error {
-		batchSize, batchTimeout := readerConfigWithDefaults(r.logger, r.sourceCfg)
-		readyTaskBatcher := batcher.NewBatcher[VerificationTask](
-			ctx,
-			batchSize,
-			batchTimeout,
-			0,
-		)
-		r.readyTasksBatcher = readyTaskBatcher
-
 		r.logger.Infow("Starting SourceReaderService")
 
 		startBlock, err := r.initializeStartBlock(ctx)
