@@ -55,6 +55,10 @@ jobs:
           #total=$(go tool cover -func=coverage_target.out | grep total | awk '{print $3}')
           #echo "coverage_target=$total" >> $GITHUB_ENV
           #cp ${{ runner.temp }}/cov_compare.sh cov_compare.sh
+          echo "Coverage..."
+          ./cov_compare.sh coverage_target.out coverage.out
+          echo "Coverage... no header"
+          ./cov_compare.sh --no-header coverage_target.out coverage.out
           {
             echo 'coverage_report<<COVERAGE_REPORT_DELIM'
             ./cov_compare.sh --no-header coverage_target.out coverage.out
