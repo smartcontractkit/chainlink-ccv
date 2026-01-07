@@ -113,7 +113,7 @@ func NewSourceReaderService(
 		pollTimeout = DefaultPollTimeout
 	}
 
-	batchSize, batchTimeout := readerConfigWithDefaults(logger.With(lggr, "component", "SourceReaderService", "chain", chainSelector), sourceCfg)
+	batchSize, batchTimeout := readerConfigWithDefaults(lggr, sourceCfg)
 	readyTaskBatcher := batcher.NewBatcher[VerificationTask](
 		ctx,
 		batchSize,
