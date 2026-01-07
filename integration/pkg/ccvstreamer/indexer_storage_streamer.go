@@ -86,15 +86,13 @@ func (oss *IndexerStorageStreamer) Start(
 
 	results := make(chan icommon.MessageWithMetadata)
 	errors := make(chan error)
-	defer func() {
-		close(results)
-		close(errors)
-	}()
 	go func() {
 		defer func() {
 			oss.mu.Lock()
 			oss.running = false
 			oss.mu.Unlock()
+			close(results)
+			close(errors)
 		}()
 		ticker := time.NewTicker(oss.cleanInterval)
 		defer ticker.Stop()

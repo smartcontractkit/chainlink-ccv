@@ -20,7 +20,6 @@ type StreamerResult struct {
 type MessageSubscriber interface {
 	// Start a streamer as a background process, it should send data to the
 	// message channel as it becomes available.
-	// TODO: this function signature is really odd, we shouldn't be passing in a pointer to a waitgroup.
 	Start(
 		ctx context.Context,
 	) (<-chan common.MessageWithMetadata, <-chan error, error)

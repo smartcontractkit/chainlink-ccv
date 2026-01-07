@@ -140,11 +140,13 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 		case e, ok := <-componentErrors:
 			if !ok {
 				ec.lggr.Errorw("coordinator component errors channel closed")
+			} else {
+				ec.lggr.Errorw("error in coordinator component", "error", e)
 			}
-			ec.lggr.Errorw("error in coordinator component", "error", e)
 		case streamResult, ok := <-indexerResults:
 			if !ok {
 				ec.lggr.Warnw("streamerResults closed")
+				continue
 				// TODO: handle reconnection logic
 			}
 
