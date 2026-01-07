@@ -67,8 +67,8 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 		verifierIDPrefix                   = "default-verifier-"
 		executorIDPrefix                   = "default-executor-"
 		committeeName                      = "default"
-		monitoringOtelExporterHTTPEndpoint = "prod.telemetry.chain.link:443"
-		aggregatorAddress                  = "http://chainlink-ccv-aggregator:50051"
+		monitoringOtelExporterHTTPEndpoint = "staging.telemetry.chain.link:443"
+		aggregatorAddress                  = "chainlink-ccv-aggregator:50051"
 		indexerAddress                     = "http://chainlink-ccv-indexer:8100"
 	)
 
@@ -123,6 +123,7 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 			RMNRemoteAddresses:                 rmnRemoteAddresses,
 			CommitteeName:                      committeeName,
 			MonitoringOtelExporterHTTPEndpoint: monitoringOtelExporterHTTPEndpoint,
+			InsecureAggregatorConnection:       true,
 		})
 	}
 
