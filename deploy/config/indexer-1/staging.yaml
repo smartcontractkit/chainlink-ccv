@@ -1,6 +1,0 @@
-name: chainlink-ccv-indexer-1
-# envFromSecretsKeyRef:
-#   - envName: secrets.toml
-#     secretName: tbd
-#     secretKey: tbd
-environment: stage

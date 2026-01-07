@@ -1,8 +1,0 @@
-apiVersion: v2
-name: chainlink-ccv-aggregator
-description: A Helm chart for Chainlink CCV aggregator.
-maintainers:
-  - name: Chainlink
-    url: chain.link
-type: application
-version: 0.1.0
