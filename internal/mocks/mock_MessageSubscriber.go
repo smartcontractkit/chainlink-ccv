@@ -68,22 +68,43 @@ func (_c *MockMessageSubscriber_IsRunning_Call) RunAndReturn(run func() bool) *M
 	return _c
 }
 
-// Start provides a mock function with given fields: ctx, results, errors
-func (_m *MockMessageSubscriber) Start(ctx context.Context, results chan common.MessageWithMetadata, errors chan error) error {
-	ret := _m.Called(ctx, results, errors)
+// Start provides a mock function with given fields: ctx
+func (_m *MockMessageSubscriber) Start(ctx context.Context) (<-chan common.MessageWithMetadata, <-chan error, error) {
+	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Start")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, chan common.MessageWithMetadata, chan error) error); ok {
-		r0 = rf(ctx, results, errors)
+	var r0 <-chan common.MessageWithMetadata
+	var r1 <-chan error
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context) (<-chan common.MessageWithMetadata, <-chan error, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) <-chan common.MessageWithMetadata); ok {
+		r0 = rf(ctx)
 	} else {
-		r0 = ret.Error(0)
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(<-chan common.MessageWithMetadata)
+		}
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context) <-chan error); ok {
+		r1 = rf(ctx)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(<-chan error)
+		}
+	}
+
+	if rf, ok := ret.Get(2).(func(context.Context) error); ok {
+		r2 = rf(ctx)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
 }
 
 // MockMessageSubscriber_Start_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Start'
@@ -93,25 +114,23 @@ type MockMessageSubscriber_Start_Call struct {
 
 // Start is a helper method to define mock.On call
 //   - ctx context.Context
-//   - results chan common.MessageWithMetadata
-//   - errors chan error
-func (_e *MockMessageSubscriber_Expecter) Start(ctx interface{}, results interface{}, errors interface{}) *MockMessageSubscriber_Start_Call {
-	return &MockMessageSubscriber_Start_Call{Call: _e.mock.On("Start", ctx, results, errors)}
+func (_e *MockMessageSubscriber_Expecter) Start(ctx interface{}) *MockMessageSubscriber_Start_Call {
+	return &MockMessageSubscriber_Start_Call{Call: _e.mock.On("Start", ctx)}
 }
 
-func (_c *MockMessageSubscriber_Start_Call) Run(run func(ctx context.Context, results chan common.MessageWithMetadata, errors chan error)) *MockMessageSubscriber_Start_Call {
+func (_c *MockMessageSubscriber_Start_Call) Run(run func(ctx context.Context)) *MockMessageSubscriber_Start_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(chan common.MessageWithMetadata), args[2].(chan error))
+		run(args[0].(context.Context))
 	})
 	return _c
 }
 
-func (_c *MockMessageSubscriber_Start_Call) Return(_a0 error) *MockMessageSubscriber_Start_Call {
-	_c.Call.Return(_a0)
+func (_c *MockMessageSubscriber_Start_Call) Return(_a0 <-chan common.MessageWithMetadata, _a1 <-chan error, _a2 error) *MockMessageSubscriber_Start_Call {
+	_c.Call.Return(_a0, _a1, _a2)
 	return _c
 }
 
-func (_c *MockMessageSubscriber_Start_Call) RunAndReturn(run func(context.Context, chan common.MessageWithMetadata, chan error) error) *MockMessageSubscriber_Start_Call {
+func (_c *MockMessageSubscriber_Start_Call) RunAndReturn(run func(context.Context) (<-chan common.MessageWithMetadata, <-chan error, error)) *MockMessageSubscriber_Start_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -71,20 +71,25 @@ func (oss *IndexerStorageStreamer) IsRunning() bool {
 }
 
 // Start implements the MessageSubscriber interface.
+// It returns a channel of messages and a channel of errors, and an error if the reader is not set or the streamer is already running.
 func (oss *IndexerStorageStreamer) Start(
 	ctx context.Context,
-	results chan icommon.MessageWithMetadata,
-	errors chan error,
-) error {
+) (<-chan icommon.MessageWithMetadata, <-chan error, error) {
 	if oss.reader == nil {
-		return fmt.Errorf("reader not set")
+		return nil, nil, fmt.Errorf("reader not set")
 	}
 	if oss.running {
-		return fmt.Errorf("IndexerStorageStreamer already running")
+		return nil, nil, fmt.Errorf("IndexerStorageStreamer already running")
 	}
 
 	oss.running = true
 
+	results := make(chan icommon.MessageWithMetadata)
+	errors := make(chan error)
+	defer func() {
+		close(results)
+		close(errors)
+	}()
 	go func() {
 		defer func() {
 			oss.mu.Lock()
@@ -147,5 +152,5 @@ func (oss *IndexerStorageStreamer) Start(
 		}
 	}()
 
-	return nil
+	return results, errors, nil
 }

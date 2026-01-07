@@ -23,9 +23,7 @@ type MessageSubscriber interface {
 	// TODO: this function signature is really odd, we shouldn't be passing in a pointer to a waitgroup.
 	Start(
 		ctx context.Context,
-		results chan common.MessageWithMetadata,
-		errors chan error,
-	) error
+	) (<-chan common.MessageWithMetadata, <-chan error, error)
 
 	// IsRunning returns whether the streamer is running.
 	IsRunning() bool
