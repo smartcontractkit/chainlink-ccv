@@ -2,9 +2,7 @@ package services
 
 import (
 	"context"
-	"crypto/rand"
 	_ "embed"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,7 +11,6 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
-	"github.com/google/uuid"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -22,6 +19,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/configuration"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
+	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
@@ -48,34 +46,7 @@ const (
 	DefaultNginxImage                  = "nginx:alpine"
 	DefaultNginxTLSPort                = "443/tcp"
 	DefaultAggregatorGRPCPort          = 50051
-
-	// HMAC secret generation constants.
-	DefaultHMACSecretBytes = 32
 )
-
-type HMACCredentials struct {
-	APIKey string
-	Secret string
-}
-
-func GenerateHMACCredentials() (HMACCredentials, error) {
-	secret, err := GenerateHMACSecret(DefaultHMACSecretBytes)
-	if err != nil {
-		return HMACCredentials{}, fmt.Errorf("failed to generate HMAC secret: %w", err)
-	}
-	return HMACCredentials{
-		APIKey: uuid.New().String(),
-		Secret: secret,
-	}, nil
-}
-
-func GenerateHMACSecret(numBytes int) (string, error) {
-	secret := make([]byte, numBytes)
-	if _, err := rand.Read(secret); err != nil {
-		return "", fmt.Errorf("failed to generate random bytes: %w", err)
-	}
-	return hex.EncodeToString(secret), nil
-}
 
 type AggregatorDBInput struct {
 	Image string `toml:"image"`
@@ -150,19 +121,19 @@ type AggregatorOutput struct {
 	ThresholdPerSource map[uint64]uint8 `toml:"threshold_per_source"`
 	// ClientCredentials maps ClientID to generated HMAC credentials.
 	// Used by verifiers to automatically obtain their credentials.
-	ClientCredentials map[string]HMACCredentials `toml:"-"`
+	ClientCredentials map[string]hmacutil.Credentials `toml:"-"`
 }
 
-func (o *AggregatorOutput) GetCredentialsForClient(clientID string) (HMACCredentials, bool) {
+func (o *AggregatorOutput) GetCredentialsForClient(clientID string) (hmacutil.Credentials, bool) {
 	if o == nil || o.ClientCredentials == nil {
-		return HMACCredentials{}, false
+		return hmacutil.Credentials{}, false
 	}
 	creds, ok := o.ClientCredentials[clientID]
 	return creds, ok
 }
 
-func (a *AggregatorInput) EnsureClientCredentials() (map[string]HMACCredentials, error) {
-	credentialsMap := make(map[string]HMACCredentials)
+func (a *AggregatorInput) EnsureClientCredentials() (map[string]hmacutil.Credentials, error) {
+	credentialsMap := make(map[string]hmacutil.Credentials)
 
 	for _, client := range a.APIClients {
 		if len(client.APIKeyPairs) == 0 {
@@ -171,14 +142,14 @@ func (a *AggregatorInput) EnsureClientCredentials() (map[string]HMACCredentials,
 
 		for _, pair := range client.APIKeyPairs {
 			if pair.APIKey == "" || pair.Secret == "" {
-				creds, err := GenerateHMACCredentials()
+				creds, err := hmacutil.GenerateCredentials()
 				if err != nil {
 					return nil, fmt.Errorf("failed to generate credentials for client %s: %w", client.ClientID, err)
 				}
 				pair.APIKey = creds.APIKey
 				pair.Secret = creds.Secret
 			}
-			credentialsMap[client.ClientID] = HMACCredentials{
+			credentialsMap[client.ClientID] = hmacutil.Credentials{
 				APIKey: pair.APIKey,
 				Secret: pair.Secret,
 			}

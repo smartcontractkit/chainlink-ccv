@@ -13,10 +13,12 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
+var testCredentials = MustGenerateCredentials()
+
 func TestNewClientInterceptor(t *testing.T) {
 	config := &ClientConfig{
-		APIKey: "00000000-0000-0000-0000-000000000001",
-		Secret: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		APIKey: testCredentials.APIKey,
+		Secret: testCredentials.Secret,
 	}
 
 	t.Run("adds HMAC headers to request", func(t *testing.T) {

@@ -20,9 +20,9 @@ import (
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 )
 
-const (
-	testAPIKey1        = "00000000-0000-0000-0000-000000000001"
-	testSecretCurrent1 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+var (
+	testCredentials1 = hmacutil.MustGenerateCredentials()
+	testCredentials2 = hmacutil.MustGenerateCredentials()
 )
 
 type mockAPIKeyPair struct {
@@ -93,13 +93,13 @@ func createTestClientProvider() *mockClientProvider {
 
 	return &mockClientProvider{
 		clientsByAPIKey: map[string]*mockClientEntry{
-			testAPIKey1: {
+			testCredentials1.APIKey: {
 				config: client1,
-				pair:   &mockAPIKeyPair{apiKey: testAPIKey1, secret: testSecretCurrent1},
+				pair:   &mockAPIKeyPair{apiKey: testCredentials1.APIKey, secret: testCredentials1.Secret},
 			},
-			"00000000-0000-0000-0000-000000000002": {
+			testCredentials2.APIKey: {
 				config: client2,
-				pair:   &mockAPIKeyPair{apiKey: "00000000-0000-0000-0000-000000000002", secret: "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"},
+				pair:   &mockAPIKeyPair{apiKey: testCredentials2.APIKey, secret: testCredentials2.Secret},
 			},
 		},
 		clientsByID: map[string]auth.ClientConfig{
@@ -140,8 +140,8 @@ func TestHMACAuthMiddleware(t *testing.T) {
 			name: "valid signature passes authentication and sets caller identity",
 			setupMetadata: func() metadata.MD {
 				timestampMs := time.Now().UnixMilli()
-				apiKey := testAPIKey1
-				secret := testSecretCurrent1
+				apiKey := testCredentials1.APIKey
+				secret := testCredentials1.Secret
 				signature := generateTestSignature(t, secret, method, req, apiKey, timestampMs)
 				return metadata.New(map[string]string{
 					hmacutil.HeaderAuthorization: apiKey,
@@ -157,7 +157,7 @@ func TestHMACAuthMiddleware(t *testing.T) {
 			name: "invalid signature returns Unauthenticated error",
 			setupMetadata: func() metadata.MD {
 				timestampMs := time.Now().UnixMilli()
-				apiKey := testAPIKey1
+				apiKey := testCredentials1.APIKey
 				return metadata.New(map[string]string{
 					hmacutil.HeaderAuthorization: apiKey,
 					hmacutil.HeaderTimestamp:     strconv.FormatInt(timestampMs, 10),
@@ -203,7 +203,7 @@ func TestHMACAuthMiddleware(t *testing.T) {
 			name: "missing timestamp header returns Unauthenticated",
 			setupMetadata: func() metadata.MD {
 				return metadata.New(map[string]string{
-					hmacutil.HeaderAuthorization: testAPIKey1,
+					hmacutil.HeaderAuthorization: testCredentials1.APIKey,
 					hmacutil.HeaderSignature:     "some-signature",
 				})
 			},
@@ -217,7 +217,7 @@ func TestHMACAuthMiddleware(t *testing.T) {
 			setupMetadata: func() metadata.MD {
 				timestampMs := time.Now().UnixMilli()
 				return metadata.New(map[string]string{
-					hmacutil.HeaderAuthorization: testAPIKey1,
+					hmacutil.HeaderAuthorization: testCredentials1.APIKey,
 					hmacutil.HeaderTimestamp:     strconv.FormatInt(timestampMs, 10),
 				})
 			},
@@ -231,7 +231,7 @@ func TestHMACAuthMiddleware(t *testing.T) {
 			setupMetadata: func() metadata.MD {
 				timestampMs := time.Now().UnixMilli()
 				apiKey := "invalid-api-key"
-				secret := "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+				secret := testCredentials1.Secret
 				signature := generateTestSignature(t, secret, method, req, apiKey, timestampMs)
 				return metadata.New(map[string]string{
 					hmacutil.HeaderAuthorization: apiKey,
@@ -248,8 +248,8 @@ func TestHMACAuthMiddleware(t *testing.T) {
 			name: "expired timestamp returns Unauthenticated",
 			setupMetadata: func() metadata.MD {
 				expiredTimestamp := time.Now().Add(-20 * time.Second).UnixMilli()
-				apiKey := testAPIKey1
-				secret := testSecretCurrent1
+				apiKey := testCredentials1.APIKey
+				secret := testCredentials1.Secret
 				signature := generateTestSignature(t, secret, method, req, apiKey, expiredTimestamp)
 				return metadata.New(map[string]string{
 					hmacutil.HeaderAuthorization: apiKey,
@@ -266,8 +266,8 @@ func TestHMACAuthMiddleware(t *testing.T) {
 			name: "different client with different secret sets correct identity",
 			setupMetadata: func() metadata.MD {
 				timestampMs := time.Now().UnixMilli()
-				apiKey := "00000000-0000-0000-0000-000000000002"
-				secret := "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+				apiKey := testCredentials2.APIKey
+				secret := testCredentials2.Secret
 				signature := generateTestSignature(t, secret, method, req, apiKey, timestampMs)
 				return metadata.New(map[string]string{
 					hmacutil.HeaderAuthorization: apiKey,

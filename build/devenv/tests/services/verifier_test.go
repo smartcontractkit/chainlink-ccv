@@ -6,7 +6,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
+	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 )
+
+var verifierTestCredentials = hmacutil.MustGenerateCredentials()
 
 func TestServiceVerifier(t *testing.T) {
 	in := services.ApplyVerifierDefaults(services.VerifierInput{
@@ -15,8 +18,8 @@ func TestServiceVerifier(t *testing.T) {
 		CommitteeName:  "default",
 		NodeIndex:      0,
 		Env: &services.VerifierEnvConfig{
-			AggregatorAPIKey:    "00000000-0000-0000-0000-000000000001",
-			AggregatorSecretKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			AggregatorAPIKey:    verifierTestCredentials.APIKey,
+			AggregatorSecretKey: verifierTestCredentials.Secret,
 		},
 	})
 	out, err := services.NewVerifier(&in)

@@ -180,6 +180,193 @@ func TestConstants(t *testing.T) {
 	require.Equal(t, "POST", HTTPMethodPost)
 }
 
+func TestGenerateSecret(t *testing.T) {
+	t.Run("generates hex-encoded secret of correct length", func(t *testing.T) {
+		secret, err := GenerateSecret(32)
+		require.NoError(t, err)
+		require.Len(t, secret, 64, "32 bytes should produce 64 hex characters")
+	})
+
+	t.Run("generates unique secrets", func(t *testing.T) {
+		secret1, err := GenerateSecret(32)
+		require.NoError(t, err)
+		secret2, err := GenerateSecret(32)
+		require.NoError(t, err)
+		require.NotEqual(t, secret1, secret2, "consecutive secrets should be unique")
+	})
+
+	t.Run("generates valid hex-encoded output", func(t *testing.T) {
+		secret, err := GenerateSecret(32)
+		require.NoError(t, err)
+		require.Len(t, secret, 64, "32 bytes should produce 64 hex characters")
+		require.NoError(t, ValidateSecret(secret), "generated secret should pass validation")
+	})
+}
+
+func TestGenerateCredentials(t *testing.T) {
+	t.Run("generates valid credentials", func(t *testing.T) {
+		creds, err := GenerateCredentials()
+		require.NoError(t, err)
+		require.NotEmpty(t, creds.APIKey)
+		require.NotEmpty(t, creds.Secret)
+	})
+
+	t.Run("API key is valid UUID", func(t *testing.T) {
+		creds, err := GenerateCredentials()
+		require.NoError(t, err)
+		require.NoError(t, ValidateAPIKey(creds.APIKey))
+	})
+
+	t.Run("secret is valid hex with correct length", func(t *testing.T) {
+		creds, err := GenerateCredentials()
+		require.NoError(t, err)
+		require.Len(t, creds.Secret, DefaultSecretBytes*2, "secret should be 64 hex chars (32 bytes)")
+		require.NoError(t, ValidateSecret(creds.Secret))
+	})
+
+	t.Run("generates unique credentials", func(t *testing.T) {
+		creds1, err := GenerateCredentials()
+		require.NoError(t, err)
+		creds2, err := GenerateCredentials()
+		require.NoError(t, err)
+		require.NotEqual(t, creds1.APIKey, creds2.APIKey)
+		require.NotEqual(t, creds1.Secret, creds2.Secret)
+	})
+}
+
+func TestMustGenerateCredentials(t *testing.T) {
+	t.Run("returns valid credentials without panic", func(t *testing.T) {
+		require.NotPanics(t, func() {
+			creds := MustGenerateCredentials()
+			require.NotEmpty(t, creds.APIKey)
+			require.NotEmpty(t, creds.Secret)
+		})
+	})
+
+	t.Run("credentials pass validation", func(t *testing.T) {
+		creds := MustGenerateCredentials()
+		require.NoError(t, ValidateAPIKey(creds.APIKey))
+		require.NoError(t, ValidateSecret(creds.Secret))
+	})
+}
+
+func TestValidateAPIKey(t *testing.T) {
+	tests := []struct {
+		name    string
+		apiKey  string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "valid UUID",
+			apiKey:  "550e8400-e29b-41d4-a716-446655440000",
+			wantErr: false,
+		},
+		{
+			name:    "valid UUID v4",
+			apiKey:  testAPIKey,
+			wantErr: false,
+		},
+		{
+			name:    "empty string returns error",
+			apiKey:  "",
+			wantErr: true,
+			errMsg:  "must be a valid UUID",
+		},
+		{
+			name:    "invalid format returns error",
+			apiKey:  "not-a-uuid",
+			wantErr: true,
+			errMsg:  "must be a valid UUID",
+		},
+		{
+			name:    "malformed UUID returns error",
+			apiKey:  "550e8400-e29b-41d4-a716",
+			wantErr: true,
+			errMsg:  "must be a valid UUID",
+		},
+		{
+			name:    "UUID with invalid characters returns error",
+			apiKey:  "550e8400-e29b-41d4-a716-44665544000g",
+			wantErr: true,
+			errMsg:  "must be a valid UUID",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateAPIKey(tt.apiKey)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateSecret(t *testing.T) {
+	tests := []struct {
+		name    string
+		secret  string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "valid 32-byte hex secret",
+			secret:  testHexSecret,
+			wantErr: false,
+		},
+		{
+			name:    "valid 64-byte hex secret",
+			secret:  testHexSecret + testHexSecret,
+			wantErr: false,
+		},
+		{
+			name:    "empty string returns error",
+			secret:  "",
+			wantErr: true,
+			errMsg:  "must be at least",
+		},
+		{
+			name:    "non-hex string returns error",
+			secret:  "not-valid-hex-string-at-all!!!!",
+			wantErr: true,
+			errMsg:  "must be hex-encoded",
+		},
+		{
+			name:    "hex secret too short returns error",
+			secret:  "0123456789abcdef",
+			wantErr: true,
+			errMsg:  "must be at least 32 bytes",
+		},
+		{
+			name:    "31 bytes (62 hex chars) returns error",
+			secret:  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd",
+			wantErr: true,
+			errMsg:  "must be at least 32 bytes",
+		},
+		{
+			name:    "exactly 32 bytes (64 hex chars) is valid",
+			secret:  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateSecret(tt.secret)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 // Helper function to convert int64 to string.
 func toString(i int64) string {
 	return fmt.Sprintf("%d", i)

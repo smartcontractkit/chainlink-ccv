@@ -4,17 +4,21 @@
 // This package is shared between:
 // - Aggregator server: for validating incoming request signatures
 // - Client applications: for generating signatures when making requests
+// - Devenv services: for generating HMAC credentials
+// - Tests: for consistent test credentials
 package hmac
 
 import (
 	"bytes"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -31,7 +35,74 @@ const (
 
 	// DefaultTimeWindow is the default acceptable time window for request timestamps.
 	DefaultTimeWindow = 15 * time.Second
+
+	// DefaultSecretBytes is the default number of bytes for generated HMAC secrets.
+	// 32 bytes = 256 bits of entropy, resulting in a 64-character hex string.
+	DefaultSecretBytes = 32
+
+	// MinSecretBytes is the minimum required length for HMAC secrets.
+	// Secrets must be at least 32 bytes (256 bits) for adequate security.
+	MinSecretBytes = 32
 )
+
+// Credentials holds an API key and its associated HMAC secret.
+type Credentials struct {
+	APIKey string
+	Secret string
+}
+
+// GenerateSecret generates a cryptographically secure random secret.
+// The secret is returned as a hex-encoded string.
+// numBytes specifies the number of random bytes (e.g., 32 bytes = 64 hex chars).
+func GenerateSecret(numBytes int) (string, error) {
+	secret := make([]byte, numBytes)
+	if _, err := rand.Read(secret); err != nil {
+		return "", fmt.Errorf("failed to generate random bytes: %w", err)
+	}
+	return hex.EncodeToString(secret), nil
+}
+
+// GenerateCredentials generates a new API key (UUID) and HMAC secret pair.
+func GenerateCredentials() (Credentials, error) {
+	secret, err := GenerateSecret(DefaultSecretBytes)
+	if err != nil {
+		return Credentials{}, fmt.Errorf("failed to generate HMAC secret: %w", err)
+	}
+	return Credentials{
+		APIKey: uuid.New().String(),
+		Secret: secret,
+	}, nil
+}
+
+// MustGenerateCredentials generates a new API key (UUID) and HMAC secret pair and panics if an error occurs.
+func MustGenerateCredentials() Credentials {
+	creds, err := GenerateCredentials()
+	if err != nil {
+		panic(err)
+	}
+	return creds
+}
+
+// ValidateAPIKey validates that the API key is a valid UUID.
+func ValidateAPIKey(apiKey string) error {
+	if _, err := uuid.Parse(apiKey); err != nil {
+		return fmt.Errorf("API key must be a valid UUID, got %q", apiKey)
+	}
+	return nil
+}
+
+// ValidateSecret validates that the secret is hex-encoded and at least MinSecretBytes long.
+func ValidateSecret(secret string) error {
+	decoded, err := hex.DecodeString(secret)
+	if err != nil {
+		return fmt.Errorf("secret must be hex-encoded: %w", err)
+	}
+	if len(decoded) < MinSecretBytes {
+		return fmt.Errorf("secret must be at least %d bytes (%d hex chars), got %d bytes",
+			MinSecretBytes, MinSecretBytes*2, len(decoded))
+	}
+	return nil
+}
 
 // SerializeRequestBody marshals a protobuf message to bytes.
 func SerializeRequestBody(req any) ([]byte, error) {

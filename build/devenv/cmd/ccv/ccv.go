@@ -23,6 +23,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/gencfg"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
@@ -505,7 +506,7 @@ var generateHMACSecretCmd = &cobra.Command{
 		}
 
 		for i := 0; i < count; i++ {
-			creds, err := services.GenerateHMACCredentials()
+			creds, err := hmacutil.GenerateCredentials()
 			if err != nil {
 				return fmt.Errorf("failed to generate HMAC credentials: %w", err)
 			}

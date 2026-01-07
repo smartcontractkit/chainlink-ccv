@@ -85,11 +85,19 @@ func main() {
 		lggr.Errorw("VERIFIER_AGGREGATOR_API_KEY environment variable is required")
 		os.Exit(1)
 	}
+	if err := hmac.ValidateAPIKey(apiKey); err != nil {
+		lggr.Errorw("Invalid VERIFIER_AGGREGATOR_API_KEY", "error", err)
+		os.Exit(1)
+	}
 	lggr.Infow("Loaded VERIFIER_AGGREGATOR_API_KEY from environment")
 
 	secretKey := os.Getenv("VERIFIER_AGGREGATOR_SECRET_KEY")
 	if secretKey == "" {
 		lggr.Errorw("VERIFIER_AGGREGATOR_SECRET_KEY environment variable is required")
+		os.Exit(1)
+	}
+	if err := hmac.ValidateSecret(secretKey); err != nil {
+		lggr.Errorw("Invalid VERIFIER_AGGREGATOR_SECRET_KEY", "error", err)
 		os.Exit(1)
 	}
 	lggr.Infow("Loaded VERIFIER_AGGREGATOR_SECRET_KEY from environment")

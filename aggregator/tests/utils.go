@@ -28,10 +28,7 @@ import (
 
 const bufSize = 1024 * 1024
 
-var (
-	defaultAPIKey = "00000000-0000-0000-0000-000000000001"
-	defaultSecret = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-)
+var defaultCredentials = hmacutil.MustGenerateCredentials()
 
 // ClientConfig holds configuration for test client behavior.
 type ClientConfig struct {
@@ -83,8 +80,8 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (committeepb.C
 
 	clientConfig := &ClientConfig{
 		SkipAuth: false,
-		APIKey:   defaultAPIKey,
-		Secret:   defaultSecret,
+		APIKey:   defaultCredentials.APIKey,
+		Secret:   defaultCredentials.Secret,
 	}
 
 	dummyConfig := &model.AggregatorConfig{
@@ -118,8 +115,8 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 	sugaredLggr := logger.Sugared(lggr)
 
 	// Set environment variables for test API keys
-	require.NoError(t, os.Setenv("TEST_API_KEY", defaultAPIKey))
-	require.NoError(t, os.Setenv("TEST_API_SECRET", defaultSecret))
+	require.NoError(t, os.Setenv("TEST_API_KEY", defaultCredentials.APIKey))
+	require.NoError(t, os.Setenv("TEST_API_SECRET", defaultCredentials.Secret))
 
 	// Create base config with PostgreSQL storage as default
 	config := &model.AggregatorConfig{
@@ -165,8 +162,8 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 
 	clientConfig := &ClientConfig{
 		SkipAuth: false,
-		APIKey:   defaultAPIKey,
-		Secret:   defaultSecret,
+		APIKey:   defaultCredentials.APIKey,
+		Secret:   defaultCredentials.Secret,
 	}
 
 	for _, option := range options {
@@ -197,8 +194,8 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 func CreateAuthenticatedClient(t *testing.T, listener *bufconn.Listener, options ...ConfigOption) (committeepb.CommitteeVerifierClient, verifierpb.VerifierClient, msgdiscoverypb.MessageDiscoveryClient, func()) {
 	clientConfig := &ClientConfig{
 		SkipAuth: false,
-		APIKey:   defaultAPIKey,
-		Secret:   defaultSecret,
+		APIKey:   defaultCredentials.APIKey,
+		Secret:   defaultCredentials.Secret,
 	}
 
 	dummyConfig := &model.AggregatorConfig{

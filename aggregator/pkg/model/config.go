@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -9,14 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/google/uuid"
-
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-)
-
-const (
-	MinHMACSecretBytes = 32
+	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 )
 
 // Signer represents a participant in the commit verification process.
@@ -334,7 +328,7 @@ func (c *APIKeyPairEnv) Validate() error {
 	if !ok {
 		return fmt.Errorf("environment variable %s not found", c.APIKeyEnvVar)
 	}
-	if err := ValidateAPIKey(apiKey); err != nil {
+	if err := hmacutil.ValidateAPIKey(apiKey); err != nil {
 		return fmt.Errorf("invalid API key in %s: %w", c.APIKeyEnvVar, err)
 	}
 
@@ -342,29 +336,10 @@ func (c *APIKeyPairEnv) Validate() error {
 	if !ok {
 		return fmt.Errorf("environment variable %s not found", c.SecretEnvVar)
 	}
-	if err := ValidateHMACSecret(secret); err != nil {
+	if err := hmacutil.ValidateSecret(secret); err != nil {
 		return fmt.Errorf("invalid secret in %s: %w", c.SecretEnvVar, err)
 	}
 
-	return nil
-}
-
-func ValidateAPIKey(apiKey string) error {
-	if _, err := uuid.Parse(apiKey); err != nil {
-		return fmt.Errorf("API key must be a valid UUID, got %q", apiKey)
-	}
-	return nil
-}
-
-func ValidateHMACSecret(secret string) error {
-	decoded, err := hex.DecodeString(secret)
-	if err != nil {
-		return fmt.Errorf("secret must be hex-encoded: %w", err)
-	}
-	if len(decoded) < MinHMACSecretBytes {
-		return fmt.Errorf("secret must be at least %d bytes (%d hex chars), got %d bytes",
-			MinHMACSecretBytes, MinHMACSecretBytes*2, len(decoded))
-	}
 	return nil
 }
 
