@@ -18,8 +18,11 @@ import (
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
+	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 )
+
+var testCredentials = hmacutil.MustGenerateCredentials()
 
 // generateTestSigningKey generates a deterministic signing key for testing.
 func generateTestSigningKey(committeeName string, nodeIndex int) (privateKey, publicKey string, err error) {
@@ -77,8 +80,8 @@ func TestServiceAggregator(t *testing.T) {
 			Enabled:     true,
 			Groups:      []string{},
 			APIKeyPairs: []*services.AggregatorAPIKeyPair{{
-				APIKey: "test-key",
-				Secret: "test-secret",
+				APIKey: testCredentials.APIKey,
+				Secret: testCredentials.Secret,
 			}},
 		}},
 	}, []*services.VerifierInput{{
@@ -138,8 +141,8 @@ func TestAggregatorAuthentication(t *testing.T) {
 				Enabled:     true,
 				Groups:      []string{},
 				APIKeyPairs: []*services.AggregatorAPIKeyPair{{
-					APIKey: "test-key",
-					Secret: "test-secret",
+					APIKey: testCredentials.APIKey,
+					Secret: testCredentials.Secret,
 				}},
 			},
 		},

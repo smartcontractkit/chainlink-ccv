@@ -19,6 +19,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/configuration"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
+	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
@@ -118,6 +119,44 @@ type AggregatorOutput struct {
 	TLSCACertFile      string `toml:"tls_ca_cert_file"`
 	// Source chain selector -> threshold mapping.
 	ThresholdPerSource map[uint64]uint8 `toml:"threshold_per_source"`
+	// ClientCredentials maps ClientID to generated HMAC credentials.
+	// Used by verifiers to automatically obtain their credentials.
+	ClientCredentials map[string]hmacutil.Credentials `toml:"-"`
+}
+
+func (o *AggregatorOutput) GetCredentialsForClient(clientID string) (hmacutil.Credentials, bool) {
+	if o == nil || o.ClientCredentials == nil {
+		return hmacutil.Credentials{}, false
+	}
+	creds, ok := o.ClientCredentials[clientID]
+	return creds, ok
+}
+
+func (a *AggregatorInput) EnsureClientCredentials() (map[string]hmacutil.Credentials, error) {
+	credentialsMap := make(map[string]hmacutil.Credentials)
+
+	for _, client := range a.APIClients {
+		if len(client.APIKeyPairs) == 0 {
+			client.APIKeyPairs = []*AggregatorAPIKeyPair{{}}
+		}
+
+		for _, pair := range client.APIKeyPairs {
+			if pair.APIKey == "" || pair.Secret == "" {
+				creds, err := hmacutil.GenerateCredentials()
+				if err != nil {
+					return nil, fmt.Errorf("failed to generate credentials for client %s: %w", client.ClientID, err)
+				}
+				pair.APIKey = creds.APIKey
+				pair.Secret = creds.Secret
+			}
+			credentialsMap[client.ClientID] = hmacutil.Credentials{
+				APIKey: pair.APIKey,
+				Secret: pair.Secret,
+			}
+		}
+	}
+
+	return credentialsMap, nil
 }
 
 func validateAggregatorInput(in *AggregatorInput, inV []*VerifierInput) error {
@@ -268,6 +307,12 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 	if err := validateAggregatorInput(in, inV); err != nil {
 		return nil, err
 	}
+
+	clientCredentials, err := in.EnsureClientCredentials()
+	if err != nil {
+		return nil, fmt.Errorf("failed to ensure client credentials: %w", err)
+	}
+
 	ctx := context.Background()
 	p, err := CwdSourcePath(in.SourceCodePath)
 	if err != nil {
@@ -504,6 +549,7 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 		ExternalHTTPSUrl:   fmt.Sprintf("%s:%d", host, in.HostPort),
 		TLSCACertFile:      tlsCerts.CACertFile,
 		ThresholdPerSource: thresholdPerSource,
+		ClientCredentials:  clientCredentials,
 	}
 	return in.Out, nil
 }

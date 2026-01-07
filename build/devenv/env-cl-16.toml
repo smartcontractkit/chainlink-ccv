@@ -242,10 +242,6 @@ cl_nodes_funding_link = 50
     name = "default-verifier-1-db"
     port = 8432
   
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-verifier-1"
-    aggregator_secret_key = "dev-secret-verifier-1"
 
 [[verifier]]
   mode = "cl"
@@ -262,10 +258,6 @@ cl_nodes_funding_link = 50
     name = "default-verifier-2-db"
     port = 8433
   
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-verifier-2"
-    aggregator_secret_key = "dev-secret-verifier-2"
 
 [[verifier]]
   mode = "cl"
@@ -282,10 +274,6 @@ cl_nodes_funding_link = 50
     name = "default-verifier-3-db"
     port = 8434
   
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-verifier-3"
-    aggregator_secret_key = "dev-secret-verifier-3"
 
 [[verifier]]
   mode = "cl"
@@ -302,10 +290,6 @@ cl_nodes_funding_link = 50
     name = "default-verifier-4-db"
     port = 8435
   
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-verifier-4"
-    aggregator_secret_key = "dev-secret-verifier-4"
 
 [[verifier]]
   mode = "cl"
@@ -322,10 +306,6 @@ cl_nodes_funding_link = 50
     name = "default-verifier-5-db"
     port = 8436
   
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-verifier-5"
-    aggregator_secret_key = "dev-secret-verifier-5"
 
 [[verifier]]
   mode = "cl"
@@ -342,10 +322,6 @@ cl_nodes_funding_link = 50
     name = "default-verifier-6-db"
     port = 8437
   
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-verifier-6"
-    aggregator_secret_key = "dev-secret-verifier-6"
 
 [[verifier]]
   mode = "cl"
@@ -362,10 +338,6 @@ cl_nodes_funding_link = 50
     name = "default-verifier-7-db"
     port = 8438
   
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-verifier-7"
-    aggregator_secret_key = "dev-secret-verifier-7"
 
 [[verifier]]
   mode = "cl"
@@ -382,10 +354,6 @@ cl_nodes_funding_link = 50
     name = "default-verifier-8-db"
     port = 8439
   
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-verifier-8"
-    aggregator_secret_key = "dev-secret-verifier-8"
 
 [[verifier]]
   mode = "cl"
@@ -402,10 +370,6 @@ cl_nodes_funding_link = 50
     name = "default-verifier-9-db"
     port = 8440
   
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-verifier-9"
-    aggregator_secret_key = "dev-secret-verifier-9"
 
 [[verifier]]
   mode = "cl"
@@ -422,10 +386,6 @@ cl_nodes_funding_link = 50
     name = "default-verifier-10-db"
     port = 8441
   
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-verifier-10"
-    aggregator_secret_key = "dev-secret-verifier-10"
 
 [[verifier]]
   mode = "cl"
@@ -442,10 +402,6 @@ cl_nodes_funding_link = 50
     name = "default-verifier-11-db"
     port = 8442
   
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-verifier-11"
-    aggregator_secret_key = "dev-secret-verifier-11"
 
 [[verifier]]
   mode = "cl"
@@ -462,10 +418,6 @@ cl_nodes_funding_link = 50
     name = "default-verifier-12-db"
     port = 8443
   
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-verifier-12"
-    aggregator_secret_key = "dev-secret-verifier-12"
 
 [[verifier]]
   mode = "cl"
@@ -482,10 +434,6 @@ cl_nodes_funding_link = 50
     name = "default-verifier-13-db"
     port = 8444
   
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-verifier-13"
-    aggregator_secret_key = "dev-secret-verifier-13"
 
 [[verifier]]
   mode = "cl"
@@ -502,10 +450,6 @@ cl_nodes_funding_link = 50
     name = "default-verifier-14-db"
     port = 8445
   
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-verifier-14"
-    aggregator_secret_key = "dev-secret-verifier-14"
 
 [[verifier]]
   mode = "cl"
@@ -522,10 +466,6 @@ cl_nodes_funding_link = 50
     name = "default-verifier-15-db"
     port = 8446
   
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-verifier-15"
-    aggregator_secret_key = "dev-secret-verifier-15"
 
 [[verifier]]
   mode = "cl"
@@ -542,10 +482,6 @@ cl_nodes_funding_link = 50
     name = "default-verifier-16-db"
     port = 8447
   
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-verifier-16"
-    aggregator_secret_key = "dev-secret-verifier-16"
 
 # Secondary Verifier Setup
 [[verifier]]
@@ -563,10 +499,6 @@ cl_nodes_funding_link = 50
     name = "secondary-verifier-1-db"
     port = 8448
   
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-secondary-verifier-1"
-    aggregator_secret_key = "dev-secret-secondary-verifier-1"
 
 [[verifier]]
   mode = "cl"
@@ -583,10 +515,6 @@ cl_nodes_funding_link = 50
     name = "secondary-verifier-2-db"
     port = 8449
   
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-secondary-verifier-2"
-    aggregator_secret_key = "dev-secret-secondary-verifier-2"
 
 # Tertiary Verifier Setup
 [[verifier]]
@@ -604,10 +532,6 @@ cl_nodes_funding_link = 50
     name = "tertiary-verifier-1-db"
     port = 8450
   
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-tertiary-verifier-1"
-    aggregator_secret_key = "dev-secret-tertiary-verifier-1"
 
 [[verifier]]
   mode = "cl"
@@ -624,10 +548,6 @@ cl_nodes_funding_link = 50
     name = "tertiary-verifier-2-db"
     port = 8451
   
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-tertiary-verifier-2"
-    aggregator_secret_key = "dev-secret-tertiary-verifier-2"
 
 [[executor]]
   mode = "cl"
@@ -799,8 +719,8 @@ TraceBatchTimeout = 10
 [indexer.indexer_config.Discovery]
 Address = "default-aggregator:50051"
 Since = 0
-APIKey = "dev-api-key-indexer"
-Secret = "dev-secret-indexer"
+
+
 PollInterval = 500
 Timeout = 5000
 
@@ -823,8 +743,8 @@ Address = "default-aggregator:50051"
 BatchSize = 100
 MaxBatchWaitTime = 50
 Since = 0
-APIKey = "dev-api-key-indexer"
-Secret = "dev-secret-indexer"
+
+
 
 [[indexer.indexer_config.Verifier]]
 Type = "aggregator"
@@ -835,8 +755,8 @@ Address = "secondary-aggregator:50051"
 BatchSize = 100
 MaxBatchWaitTime = 50
 Since = 0
-APIKey = "dev-api-key-indexer"
-Secret = "dev-secret-indexer"
+
+
 
 [[indexer.indexer_config.Verifier]]
 Type = "aggregator"
@@ -847,8 +767,8 @@ Address = "tertiary-aggregator:50051"
 BatchSize = 100
 MaxBatchWaitTime = 50
 Since = 0
-APIKey = "dev-api-key-indexer"
-Secret = "dev-secret-indexer"
+
+
 
 [indexer.indexer_config.Storage]
 Strategy = "sink" 
@@ -891,162 +811,108 @@ LockTimeout = 30
   description = "Development default verifier 1"
   enabled = true
   groups = ["verifiers"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-verifier-1"
-    secret = "dev-secret-verifier-1"
 
   [[aggregator.api_clients]]
   client_id = "default-verifier-2"
   description = "Development default verifier 2"
   enabled = true
   groups = ["verifiers"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-verifier-2"
-    secret = "dev-secret-verifier-2"
 
   [[aggregator.api_clients]]
   client_id = "default-verifier-3"
   description = "Development default verifier 3"
   enabled = true
   groups = ["verifiers"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-verifier-3"
-    secret = "dev-secret-verifier-3"
 
   [[aggregator.api_clients]]
   client_id = "default-verifier-4"
   description = "Development default verifier 4"
   enabled = true
   groups = ["verifiers"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-verifier-4"
-    secret = "dev-secret-verifier-4"
 
   [[aggregator.api_clients]]
   client_id = "default-verifier-5"
   description = "Development default verifier 5"
   enabled = true
   groups = ["verifiers"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-verifier-5"
-    secret = "dev-secret-verifier-5"
 
   [[aggregator.api_clients]]
   client_id = "default-verifier-6"
   description = "Development default verifier 6"
   enabled = true
   groups = ["verifiers"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-verifier-6"
-    secret = "dev-secret-verifier-6"
 
   [[aggregator.api_clients]]
   client_id = "default-verifier-7"
   description = "Development default verifier 7"
   enabled = true
   groups = ["verifiers"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-verifier-7"
-    secret = "dev-secret-verifier-7"
 
   [[aggregator.api_clients]]
   client_id = "default-verifier-8"
   description = "Development default verifier 8"
   enabled = true
   groups = ["verifiers"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-verifier-8"
-    secret = "dev-secret-verifier-8"
 
   [[aggregator.api_clients]]
   client_id = "default-verifier-9"
   description = "Development default verifier 9"
   enabled = true
   groups = ["verifiers"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-verifier-9"
-    secret = "dev-secret-verifier-9"
 
   [[aggregator.api_clients]]
   client_id = "default-verifier-10"
   description = "Development default verifier 10"
   enabled = true
   groups = ["verifiers"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-verifier-10"
-    secret = "dev-secret-verifier-10"
 
   [[aggregator.api_clients]]
   client_id = "default-verifier-11"
   description = "Development default verifier 11"
   enabled = true
   groups = ["verifiers"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-verifier-11"
-    secret = "dev-secret-verifier-11"
 
   [[aggregator.api_clients]]
   client_id = "default-verifier-12"
   description = "Development default verifier 12"
   enabled = true
   groups = ["verifiers"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-verifier-12"
-    secret = "dev-secret-verifier-12"
 
   [[aggregator.api_clients]]
   client_id = "default-verifier-13"
   description = "Development default verifier 13"
   enabled = true
   groups = ["verifiers"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-verifier-13"
-    secret = "dev-secret-verifier-13"
 
   [[aggregator.api_clients]]
   client_id = "default-verifier-14"
   description = "Development default verifier 14"
   enabled = true
   groups = ["verifiers"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-verifier-14"
-    secret = "dev-secret-verifier-14"
 
   [[aggregator.api_clients]]
   client_id = "default-verifier-15"
   description = "Development default verifier 15"
   enabled = true
   groups = ["verifiers"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-verifier-15"
-    secret = "dev-secret-verifier-15"
 
   [[aggregator.api_clients]]
   client_id = "default-verifier-16"
   description = "Development default verifier 16"
   enabled = true
   groups = ["verifiers"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-verifier-16"
-    secret = "dev-secret-verifier-16"
 
   [[aggregator.api_clients]]
   client_id = "monitoring"
   description = "Monitoring and infrastructure client"
   enabled = true
   groups = ["monitoring"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-monitoring"
-    secret = "dev-secret-monitoring"
 
   [[aggregator.api_clients]]
   client_id = "indexer"
   description = "Development Indexer"
   enabled = true
   groups = ["indexer"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-indexer"
-    secret = "dev-secret-indexer"
 
   # Environment variables for sensitive configuration
   [aggregator.env]
@@ -1075,36 +941,24 @@ LockTimeout = 30
   description = "Development secondary verifier 1"
   enabled = true
   groups = ["verifiers"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-secondary-verifier-1"
-    secret = "dev-secret-secondary-verifier-1"
 
   [[aggregator.api_clients]]
   client_id = "secondary-verifier-2"
   description = "Development secondary verifier 2"
   enabled = true
   groups = ["verifiers"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-secondary-verifier-2"
-    secret = "dev-secret-secondary-verifier-2"
 
   [[aggregator.api_clients]]
   client_id = "monitoring"
   description = "Monitoring and infrastructure client"
   enabled = true
   groups = ["monitoring"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-monitoring"
-    secret = "dev-secret-monitoring"
 
   [[aggregator.api_clients]]
   client_id = "indexer"
   description = "Development Indexer"
   enabled = true
   groups = ["indexer"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-indexer"
-    secret = "dev-secret-indexer"
 
   # Environment variables for sensitive configuration
   [aggregator.env]
@@ -1133,36 +987,24 @@ LockTimeout = 30
   description = "Development tertiary verifier 1"
   enabled = true
   groups = ["verifiers"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-tertiary-verifier-1"
-    secret = "dev-secret-tertiary-verifier-1"
 
   [[aggregator.api_clients]]
   client_id = "tertiary-verifier-2"
   description = "Development tertiary verifier 2"
   enabled = true
   groups = ["verifiers"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-tertiary-verifier-2"
-    secret = "dev-secret-tertiary-verifier-2"
 
   [[aggregator.api_clients]]
   client_id = "monitoring"
   description = "Monitoring and infrastructure client"
   enabled = true
   groups = ["monitoring"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-monitoring"
-    secret = "dev-secret-monitoring"
 
   [[aggregator.api_clients]]
   client_id = "indexer"
   description = "Development Indexer"
   enabled = true
   groups = ["indexer"]
-  [[aggregator.api_clients.api_key_pairs]]
-    api_key = "dev-api-key-indexer"
-    secret = "dev-secret-indexer"
 
   # Environment variables for sensitive configuration
   [aggregator.env]

@@ -10,6 +10,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 )
 
 // Signer represents a participant in the commit verification process.
@@ -322,12 +323,23 @@ func (c *APIKeyPairEnv) Validate() error {
 	if c.SecretEnvVar == "" {
 		return errors.New("secretEnvVar cannot be empty")
 	}
-	if _, ok := os.LookupEnv(c.APIKeyEnvVar); !ok {
-		return errors.New("apiKeyEnvVar not found in environment")
+
+	apiKey, ok := os.LookupEnv(c.APIKeyEnvVar)
+	if !ok {
+		return fmt.Errorf("environment variable %s not found", c.APIKeyEnvVar)
 	}
-	if _, ok := os.LookupEnv(c.SecretEnvVar); !ok {
-		return errors.New("secretEnvVar not found in environment")
+	if err := hmacutil.ValidateAPIKey(apiKey); err != nil {
+		return fmt.Errorf("invalid API key in %s: %w", c.APIKeyEnvVar, err)
 	}
+
+	secret, ok := os.LookupEnv(c.SecretEnvVar)
+	if !ok {
+		return fmt.Errorf("environment variable %s not found", c.SecretEnvVar)
+	}
+	if err := hmacutil.ValidateSecret(secret); err != nil {
+		return fmt.Errorf("invalid secret in %s: %w", c.SecretEnvVar, err)
+	}
+
 	return nil
 }
 
