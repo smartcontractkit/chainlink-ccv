@@ -9,10 +9,16 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
+const (
+	testHexSecret    = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	testHexSecretAlt = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+	testAPIKey       = "00000000-0000-0000-0000-000000000001"
+)
+
 func TestGenerateSignature(t *testing.T) {
-	secret := "test-secret-key"
+	secret := testHexSecret
 	method := "/Aggregator/ReadChainStatus"
-	apiKey := "test-api-key"
+	apiKey := testAPIKey
 	timestampMs := time.Now().UnixMilli()
 
 	// Use an empty proto message for testing
@@ -67,20 +73,42 @@ func TestGenerateStringToSign(t *testing.T) {
 }
 
 func TestComputeHMAC(t *testing.T) {
-	secret := "test-secret"
 	stringToSign := "POST /path body-hash api-key timestamp"
 
-	signature := ComputeHMAC(secret, stringToSign)
-	require.NotEmpty(t, signature, "HMAC should not be empty")
-	require.Len(t, signature, 64, "HMAC-SHA256 hex should be 64 characters")
+	t.Run("hex-encoded secret is decoded before use", func(t *testing.T) {
+		signature, err := ComputeHMAC(testHexSecret, stringToSign)
+		require.NoError(t, err)
+		require.NotEmpty(t, signature, "HMAC should not be empty")
+		require.Len(t, signature, 64, "HMAC-SHA256 hex should be 64 characters")
 
-	// Same inputs should produce same signature
-	signature2 := ComputeHMAC(secret, stringToSign)
-	require.Equal(t, signature, signature2, "Same inputs should produce same HMAC")
+		// Same inputs should produce same signature
+		signature2, err := ComputeHMAC(testHexSecret, stringToSign)
+		require.NoError(t, err)
+		require.Equal(t, signature, signature2, "Same inputs should produce same HMAC")
 
-	// Different secret should produce different signature
-	differentSignature := ComputeHMAC("different-secret", stringToSign)
-	require.NotEqual(t, signature, differentSignature, "Different secret should produce different HMAC")
+		// Different secret should produce different signature
+		differentSignature, err := ComputeHMAC(testHexSecretAlt, stringToSign)
+		require.NoError(t, err)
+		require.NotEqual(t, signature, differentSignature, "Different secret should produce different HMAC")
+	})
+
+	t.Run("non-hex secret returns error", func(t *testing.T) {
+		_, err := ComputeHMAC("not-valid-hex", stringToSign)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "HMAC secret must be hex-encoded")
+	})
+
+	t.Run("different hex secrets produce different signatures", func(t *testing.T) {
+		hexSecret1 := "0a0b0c0d0e0f0a0b0c0d0e0f0a0b0c0d0a0b0c0d0e0f0a0b0c0d0e0f0a0b0c0d"
+		hexSecret2 := "1a1b1c1d1e1f1a1b1c1d1e1f1a1b1c1d1a1b1c1d1e1f1a1b1c1d1e1f1a1b1c1d"
+
+		sig1, err := ComputeHMAC(hexSecret1, stringToSign)
+		require.NoError(t, err)
+		sig2, err := ComputeHMAC(hexSecret2, stringToSign)
+		require.NoError(t, err)
+
+		require.NotEqual(t, sig1, sig2, "Different secrets should produce different signatures")
+	})
 }
 
 func TestValidateTimestamp(t *testing.T) {
@@ -118,24 +146,30 @@ func TestValidateTimestamp(t *testing.T) {
 }
 
 func TestValidateSignature(t *testing.T) {
-	secret := "test-secret"
 	stringToSign := "POST /path body-hash api-key timestamp"
-	validSignature := ComputeHMAC(secret, stringToSign)
+	validSignature, err := ComputeHMAC(testHexSecret, stringToSign)
+	require.NoError(t, err)
 
 	t.Run("valid signature", func(t *testing.T) {
-		isValid := ValidateSignature(stringToSign, validSignature, secret)
+		isValid := ValidateSignature(stringToSign, validSignature, testHexSecret)
 		require.True(t, isValid, "Valid signature should be accepted")
 	})
 
 	t.Run("invalid signature", func(t *testing.T) {
-		isValid := ValidateSignature(stringToSign, "invalid-signature", secret)
+		isValid := ValidateSignature(stringToSign, "invalid-signature", testHexSecret)
 		require.False(t, isValid, "Invalid signature should be rejected")
 	})
 
 	t.Run("signature with wrong secret", func(t *testing.T) {
-		wrongSignature := ComputeHMAC("wrong-secret", stringToSign)
-		isValid := ValidateSignature(stringToSign, wrongSignature, secret)
+		wrongSignature, err := ComputeHMAC(testHexSecretAlt, stringToSign)
+		require.NoError(t, err)
+		isValid := ValidateSignature(stringToSign, wrongSignature, testHexSecret)
 		require.False(t, isValid, "Signature with wrong secret should be rejected")
+	})
+
+	t.Run("invalid hex secret returns false", func(t *testing.T) {
+		isValid := ValidateSignature(stringToSign, validSignature, "not-hex")
+		require.False(t, isValid, "Invalid hex secret should return false")
 	})
 }
 

@@ -14,6 +14,10 @@ func TestServiceVerifier(t *testing.T) {
 		RootPath:       "../../../../",
 		CommitteeName:  "default",
 		NodeIndex:      0,
+		Env: &services.VerifierEnvConfig{
+			AggregatorAPIKey:    "00000000-0000-0000-0000-000000000001",
+			AggregatorSecretKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		},
 	})
 	out, err := services.NewVerifier(&in)
 	require.NoError(t, err)

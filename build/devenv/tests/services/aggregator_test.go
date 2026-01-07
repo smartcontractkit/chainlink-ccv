@@ -77,8 +77,8 @@ func TestServiceAggregator(t *testing.T) {
 			Enabled:     true,
 			Groups:      []string{},
 			APIKeyPairs: []*services.AggregatorAPIKeyPair{{
-				APIKey: "test-key",
-				Secret: "test-secret",
+				APIKey: "00000000-0000-0000-0000-000000000001",
+				Secret: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 			}},
 		}},
 	}, []*services.VerifierInput{{
@@ -138,8 +138,8 @@ func TestAggregatorAuthentication(t *testing.T) {
 				Enabled:     true,
 				Groups:      []string{},
 				APIKeyPairs: []*services.AggregatorAPIKeyPair{{
-					APIKey: "test-key",
-					Secret: "test-secret",
+					APIKey: "00000000-0000-0000-0000-000000000001",
+					Secret: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 				}},
 			},
 		},

@@ -2,7 +2,9 @@ package services
 
 import (
 	"context"
+	"crypto/rand"
 	_ "embed"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
+	"github.com/google/uuid"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -45,7 +48,34 @@ const (
 	DefaultNginxImage                  = "nginx:alpine"
 	DefaultNginxTLSPort                = "443/tcp"
 	DefaultAggregatorGRPCPort          = 50051
+
+	// HMAC secret generation constants.
+	DefaultHMACSecretBytes = 32
 )
+
+type HMACCredentials struct {
+	APIKey string
+	Secret string
+}
+
+func GenerateHMACCredentials() (HMACCredentials, error) {
+	secret, err := GenerateHMACSecret(DefaultHMACSecretBytes)
+	if err != nil {
+		return HMACCredentials{}, fmt.Errorf("failed to generate HMAC secret: %w", err)
+	}
+	return HMACCredentials{
+		APIKey: uuid.New().String(),
+		Secret: secret,
+	}, nil
+}
+
+func GenerateHMACSecret(numBytes int) (string, error) {
+	secret := make([]byte, numBytes)
+	if _, err := rand.Read(secret); err != nil {
+		return "", fmt.Errorf("failed to generate random bytes: %w", err)
+	}
+	return hex.EncodeToString(secret), nil
+}
 
 type AggregatorDBInput struct {
 	Image string `toml:"image"`
@@ -118,6 +148,44 @@ type AggregatorOutput struct {
 	TLSCACertFile      string `toml:"tls_ca_cert_file"`
 	// Source chain selector -> threshold mapping.
 	ThresholdPerSource map[uint64]uint8 `toml:"threshold_per_source"`
+	// ClientCredentials maps ClientID to generated HMAC credentials.
+	// Used by verifiers to automatically obtain their credentials.
+	ClientCredentials map[string]HMACCredentials `toml:"-"`
+}
+
+func (o *AggregatorOutput) GetCredentialsForClient(clientID string) (HMACCredentials, bool) {
+	if o == nil || o.ClientCredentials == nil {
+		return HMACCredentials{}, false
+	}
+	creds, ok := o.ClientCredentials[clientID]
+	return creds, ok
+}
+
+func (a *AggregatorInput) EnsureClientCredentials() (map[string]HMACCredentials, error) {
+	credentialsMap := make(map[string]HMACCredentials)
+
+	for _, client := range a.APIClients {
+		if len(client.APIKeyPairs) == 0 {
+			client.APIKeyPairs = []*AggregatorAPIKeyPair{{}}
+		}
+
+		for _, pair := range client.APIKeyPairs {
+			if pair.APIKey == "" || pair.Secret == "" {
+				creds, err := GenerateHMACCredentials()
+				if err != nil {
+					return nil, fmt.Errorf("failed to generate credentials for client %s: %w", client.ClientID, err)
+				}
+				pair.APIKey = creds.APIKey
+				pair.Secret = creds.Secret
+			}
+			credentialsMap[client.ClientID] = HMACCredentials{
+				APIKey: pair.APIKey,
+				Secret: pair.Secret,
+			}
+		}
+	}
+
+	return credentialsMap, nil
 }
 
 func validateAggregatorInput(in *AggregatorInput, inV []*VerifierInput) error {
@@ -268,6 +336,12 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 	if err := validateAggregatorInput(in, inV); err != nil {
 		return nil, err
 	}
+
+	clientCredentials, err := in.EnsureClientCredentials()
+	if err != nil {
+		return nil, fmt.Errorf("failed to ensure client credentials: %w", err)
+	}
+
 	ctx := context.Background()
 	p, err := CwdSourcePath(in.SourceCodePath)
 	if err != nil {
@@ -504,6 +578,7 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 		ExternalHTTPSUrl:   fmt.Sprintf("%s:%d", host, in.HostPort),
 		TLSCACertFile:      tlsCerts.CACertFile,
 		ThresholdPerSource: thresholdPerSource,
+		ClientCredentials:  clientCredentials,
 	}
 	return in.Out, nil
 }

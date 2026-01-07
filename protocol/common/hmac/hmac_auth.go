@@ -59,10 +59,15 @@ func GenerateStringToSign(method, fullPath, bodyHash, apiKey, timestamp string) 
 }
 
 // ComputeHMAC computes the HMAC-SHA256 signature and returns it as a hex-encoded string.
-func ComputeHMAC(secret, stringToSign string) string {
-	h := hmac.New(sha256.New, []byte(secret))
+// The secret must be a hex-encoded string which will be decoded before use as the HMAC key.
+func ComputeHMAC(secret, stringToSign string) (string, error) {
+	secretBytes, err := hex.DecodeString(secret)
+	if err != nil {
+		return "", fmt.Errorf("HMAC secret must be hex-encoded: %w", err)
+	}
+	h := hmac.New(sha256.New, secretBytes)
 	_, _ = h.Write([]byte(stringToSign)) // hash.Hash.Write never returns an error
-	return hex.EncodeToString(h.Sum(nil))
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // ValidateTimestamp checks if the timestamp is within acceptable window.
@@ -83,11 +88,14 @@ func ValidateTimestamp(timestampStr string) error {
 }
 
 // ValidateSignature checks if the provided signature matches the client's secret.
-// Returns true if signature is valid.
+// Returns true if signature is valid, false if invalid or if there's an error computing the signature.
 //
 // This function is primarily used by the server to validate incoming requests.
 func ValidateSignature(stringToSign, providedSig, secret string) bool {
-	expectedSig := ComputeHMAC(secret, stringToSign)
+	expectedSig, err := ComputeHMAC(secret, stringToSign)
+	if err != nil {
+		return false
+	}
 	return bytes.Equal([]byte(expectedSig), []byte(providedSig))
 }
 
@@ -119,7 +127,10 @@ func GenerateSignature(secret, method string, req proto.Message, apiKey string, 
 	stringToSign := GenerateStringToSign(HTTPMethodPost, method, bodyHash, apiKey, timestamp)
 
 	// 4. Compute HMAC signature
-	signature := ComputeHMAC(secret, stringToSign)
+	signature, err := ComputeHMAC(secret, stringToSign)
+	if err != nil {
+		return "", fmt.Errorf("failed to compute HMAC: %w", err)
+	}
 
 	return signature, nil
 }

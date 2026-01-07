@@ -495,6 +495,30 @@ var generateConfigsCmd = &cobra.Command{
 	},
 }
 
+var generateHMACSecretCmd = &cobra.Command{
+	Use:   "generate-hmac-secret",
+	Short: "Generate cryptographically secure HMAC credentials (API key and secret) for aggregator authentication",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		count, err := cmd.Flags().GetInt("count")
+		if err != nil {
+			return err
+		}
+
+		for i := 0; i < count; i++ {
+			creds, err := services.GenerateHMACCredentials()
+			if err != nil {
+				return fmt.Errorf("failed to generate HMAC credentials: %w", err)
+			}
+			fmt.Printf("api_key = %q\n", creds.APIKey)
+			fmt.Printf("secret  = %q\n", creds.Secret)
+			if i < count-1 {
+				fmt.Println()
+			}
+		}
+		return nil
+	},
+}
+
 var fundAddressesCmd = &cobra.Command{
 	Use:   "fund-addresses --env <env>--chain-id <chain-id> --addresses <address1,address2,...> --amount <amount>",
 	Short: "Fund addresses with ETH",
@@ -706,6 +730,10 @@ func init() {
 	_ = generateConfigsCmd.MarkFlagRequired("cld-domain")
 	_ = generateConfigsCmd.MarkFlagRequired("verifier-pubkeys")
 	_ = generateConfigsCmd.MarkFlagRequired("num-executors")
+
+	// HMAC secret generation
+	rootCmd.AddCommand(generateHMACSecretCmd)
+	generateHMACSecretCmd.Flags().Int("count", 1, "Number of HMAC credential pairs to generate")
 
 	// dump logs
 	rootCmd.AddCommand(dumpLogsCmd)

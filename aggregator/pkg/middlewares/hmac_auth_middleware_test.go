@@ -21,8 +21,8 @@ import (
 )
 
 const (
-	testAPIKey1        = "test-api-key-1"
-	testSecretCurrent1 = "secret-current-1"
+	testAPIKey1        = "00000000-0000-0000-0000-000000000001"
+	testSecretCurrent1 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 )
 
 type mockAPIKeyPair struct {
@@ -97,9 +97,9 @@ func createTestClientProvider() *mockClientProvider {
 				config: client1,
 				pair:   &mockAPIKeyPair{apiKey: testAPIKey1, secret: testSecretCurrent1},
 			},
-			"test-api-key-2": {
+			"00000000-0000-0000-0000-000000000002": {
 				config: client2,
-				pair:   &mockAPIKeyPair{apiKey: "test-api-key-2", secret: "secret-current-2"},
+				pair:   &mockAPIKeyPair{apiKey: "00000000-0000-0000-0000-000000000002", secret: "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"},
 			},
 		},
 		clientsByID: map[string]auth.ClientConfig{
@@ -231,7 +231,7 @@ func TestHMACAuthMiddleware(t *testing.T) {
 			setupMetadata: func() metadata.MD {
 				timestampMs := time.Now().UnixMilli()
 				apiKey := "invalid-api-key"
-				secret := "some-secret"
+				secret := "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
 				signature := generateTestSignature(t, secret, method, req, apiKey, timestampMs)
 				return metadata.New(map[string]string{
 					hmacutil.HeaderAuthorization: apiKey,
@@ -266,8 +266,8 @@ func TestHMACAuthMiddleware(t *testing.T) {
 			name: "different client with different secret sets correct identity",
 			setupMetadata: func() metadata.MD {
 				timestampMs := time.Now().UnixMilli()
-				apiKey := "test-api-key-2"
-				secret := "secret-current-2"
+				apiKey := "00000000-0000-0000-0000-000000000002"
+				secret := "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
 				signature := generateTestSignature(t, secret, method, req, apiKey, timestampMs)
 				return metadata.New(map[string]string{
 					hmacutil.HeaderAuthorization: apiKey,

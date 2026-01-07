@@ -15,8 +15,8 @@ import (
 
 func TestNewClientInterceptor(t *testing.T) {
 	config := &ClientConfig{
-		APIKey: "test-api-key",
-		Secret: "test-secret",
+		APIKey: "00000000-0000-0000-0000-000000000001",
+		Secret: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 	}
 
 	t.Run("adds HMAC headers to request", func(t *testing.T) {
@@ -153,7 +153,8 @@ func TestNewClientInterceptor(t *testing.T) {
 
 		bodyHash := ComputeBodyHash(body)
 		stringToSign := GenerateStringToSign(HTTPMethodPost, "/test.Service/Method", bodyHash, apiKey, timestamp)
-		expectedSignature := ComputeHMAC(config.Secret, stringToSign)
+		expectedSignature, err := ComputeHMAC(config.Secret, stringToSign)
+		require.NoError(t, err)
 
 		require.Equal(t, expectedSignature, signature, "signature should be valid")
 	})

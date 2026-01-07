@@ -29,8 +29,8 @@ import (
 const bufSize = 1024 * 1024
 
 var (
-	defaultAPIKey = "test-api-key"
-	defaultSecret = "test-secret-key"
+	defaultAPIKey = "00000000-0000-0000-0000-000000000001"
+	defaultSecret = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 )
 
 // ClientConfig holds configuration for test client behavior.
