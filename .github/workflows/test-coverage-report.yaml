@@ -53,7 +53,7 @@ jobs:
           git checkout ${{ github.head_ref }}
           {
             echo 'coverage_report<<COVERAGE_REPORT_DELIM'
-            ./cov_compare.sh --no-header coverage_target.out coverage.out
+            ./tools/bin/cov_compare.sh --no-header coverage_target.out coverage.out
             echo 'COVERAGE_REPORT_DELIM'
           } >> "$GITHUB_ENV"
       - name: Remove previous coverage comments
