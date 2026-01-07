@@ -339,7 +339,7 @@ func setupMockAndCall(mockCli *mocksiclient.MockClientInterface, ic *IndexerClie
 	}
 }
 
-// helper ptr functions
+// helper ptr functions.
 func ptrInt64(v int64) *int64 { return &v }
 
 func ptrUint64(v uint64) *uint64 { return &v }
