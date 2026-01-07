@@ -78,30 +78,35 @@ if ! extract_top_pkg_coverage "$COV2" "$err2" | sort > "$tmp2"; then
   ok2=0
 fi
 
-# Emit errors (if any)
-if [ -s "$err1" ]; then
-  echo "WARNING: go tool cover failed for $COV1" >&2
-  cat "$err1" >&2
-fi
-
-if [ -s "$err2" ]; then
-  echo "WARNING: go tool cover failed for $COV2" >&2
-  cat "$err2" >&2
-fi
-
-# If both failed, abort
+# If both failed, abort early (still print errors)
 if [ "$ok1" -eq 0 ] && [ "$ok2" -eq 0 ]; then
   echo "ERROR: coverage extraction failed for both inputs" >&2
+  cat "$err1" "$err2" >&2
   exit 1
 fi
 
+# Markdown header
 if [ "$NO_HEADER" -eq 0 ]; then
-  echo "Top Package | Coverage 1 | Coverage 2 | Diff"
-  echo "-------------------------------------------"
+  echo "| Top Package | Coverage 1 | Coverage 2 | Diff |"
 fi
 
+# Results
+echo "|------------|------------|------------|------|"
 join -a1 -a2 -e "0.00" -o 0,1.2,2.2 "$tmp1" "$tmp2" \
   | awk '{
       diff = $3 - $2
-      printf "%s | %.2f%% | %.2f%% | %+0.2f%%\n", $1, $2, $3, diff
+      printf "| %s | %.2f%% | %.2f%% | %+0.2f%% |\n", $1, $2, $3, diff
     }'
+
+# Emit errors AFTER results, separated by a blank line
+if [ -s "$err1" ] || [ -s "$err2" ]; then
+  echo >&2
+  if [ -s "$err1" ]; then
+    echo "WARNING: go tool cover failed for $COV1" >&2
+    cat "$err1" >&2
+  fi
+  if [ -s "$err2" ]; then
+    echo "WARNING: go tool cover failed for $COV2" >&2
+    cat "$err2" >&2
+  fi
+fi
