@@ -10,11 +10,10 @@ import (
 
 func TestBatcher_RetryBasic(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
-	outCh := make(chan BatchResult[int], 10)
 	maxSize := 10
 	maxWait := 50 * time.Millisecond // Short maxWait so retry ticker runs every 100ms
 
-	batcher := NewBatcher(ctx, maxSize, maxWait, outCh)
+	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
 	t.Cleanup(func() {
 		cancel()
 		_ = batcher.Close()
@@ -33,7 +32,7 @@ func TestBatcher_RetryBasic(t *testing.T) {
 
 	// Should receive a batch with the retried items
 	select {
-	case batch := <-outCh:
+	case batch := <-batcher.OutChannel():
 		require.NoError(t, batch.Error)
 		require.Len(t, batch.Items, len(itemsToRetry))
 		require.Equal(t, itemsToRetry, batch.Items)
@@ -45,11 +44,10 @@ func TestBatcher_RetryBasic(t *testing.T) {
 func TestBatcher_RetryWithSizeBasedFlush(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 
-	outCh := make(chan BatchResult[int], 10)
 	maxSize := 5
 	maxWait := 50 * time.Millisecond // Short wait for retry ticker
 
-	batcher := NewBatcher(ctx, maxSize, maxWait, outCh)
+	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
 	t.Cleanup(func() {
 		cancel()
 		_ = batcher.Close()
@@ -67,7 +65,7 @@ func TestBatcher_RetryWithSizeBasedFlush(t *testing.T) {
 
 	// Should receive a batch immediately when retry buffer moves to main buffer
 	select {
-	case batch := <-outCh:
+	case batch := <-batcher.OutChannel():
 		require.NoError(t, batch.Error)
 		require.Len(t, batch.Items, maxSize)
 		require.Equal(t, itemsToRetry, batch.Items)
@@ -79,11 +77,10 @@ func TestBatcher_RetryWithSizeBasedFlush(t *testing.T) {
 func TestBatcher_RetryMixedWithAdd(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	outCh := make(chan BatchResult[int], 10)
 	maxSize := 10
 	maxWait := 100 * time.Millisecond
 
-	batcher := NewBatcher(ctx, maxSize, maxWait, outCh)
+	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
 	t.Cleanup(func() {
 		cancel()
 		_ = batcher.Close()
@@ -105,7 +102,7 @@ func TestBatcher_RetryMixedWithAdd(t *testing.T) {
 
 	// First batch: immediate items should flush after maxWait
 	select {
-	case batch := <-outCh:
+	case batch := <-batcher.OutChannel():
 		require.NoError(t, batch.Error)
 		require.Len(t, batch.Items, len(immediateItems))
 		require.Equal(t, immediateItems, batch.Items)
@@ -118,7 +115,7 @@ func TestBatcher_RetryMixedWithAdd(t *testing.T) {
 
 	// Second batch: retried items
 	select {
-	case batch := <-outCh:
+	case batch := <-batcher.OutChannel():
 		require.NoError(t, batch.Error)
 		require.Len(t, batch.Items, len(retryItems))
 		require.Equal(t, retryItems, batch.Items)
@@ -130,11 +127,10 @@ func TestBatcher_RetryMixedWithAdd(t *testing.T) {
 func TestBatcher_RetryMultipleBatchesWithDifferentDelays(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	outCh := make(chan BatchResult[int], 10)
 	maxSize := 10
 	maxWait := 50 * time.Millisecond
 
-	batcher := NewBatcher(ctx, maxSize, maxWait, outCh)
+	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
 
 	// Schedule first retry batch with short delay
 	firstRetry := []int{1, 2}
@@ -155,7 +151,7 @@ func TestBatcher_RetryMultipleBatchesWithDifferentDelays(t *testing.T) {
 
 	// Should receive first batch
 	select {
-	case batch := <-outCh:
+	case batch := <-batcher.OutChannel():
 		require.NoError(t, batch.Error)
 		require.Len(t, batch.Items, len(firstRetry))
 		require.Equal(t, firstRetry, batch.Items)
@@ -168,7 +164,7 @@ func TestBatcher_RetryMultipleBatchesWithDifferentDelays(t *testing.T) {
 
 	// Should receive second batch
 	select {
-	case batch := <-outCh:
+	case batch := <-batcher.OutChannel():
 		require.NoError(t, batch.Error)
 		require.Len(t, batch.Items, len(secondRetry))
 		require.Equal(t, secondRetry, batch.Items)
@@ -185,11 +181,10 @@ func TestBatcher_RetryMultipleBatchesWithDifferentDelays(t *testing.T) {
 func TestBatcher_RetryPreservesOrder(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	outCh := make(chan BatchResult[int], 10)
 	maxSize := 10
 	maxWait := 100 * time.Millisecond
 
-	batcher := NewBatcher(ctx, maxSize, maxWait, outCh)
+	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
 
 	// Retry items in specific order
 	retryItems := []int{5, 3, 9, 1, 7}
@@ -203,7 +198,7 @@ func TestBatcher_RetryPreservesOrder(t *testing.T) {
 
 	// Should receive items in the same order they were retried
 	select {
-	case batch := <-outCh:
+	case batch := <-batcher.OutChannel():
 		require.NoError(t, batch.Error)
 		require.Equal(t, retryItems, batch.Items)
 	case <-time.After(500 * time.Millisecond):
@@ -219,11 +214,10 @@ func TestBatcher_RetryPreservesOrder(t *testing.T) {
 func TestBatcher_RetryWithContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	outCh := make(chan BatchResult[int], 10)
 	maxSize := 10
 	maxWait := 50 * time.Millisecond
 
-	batcher := NewBatcher(ctx, maxSize, maxWait, outCh)
+	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
 
 	// Schedule items for retry with a long delay
 	retryItems := []int{1, 2, 3}
@@ -242,7 +236,7 @@ func TestBatcher_RetryWithContextCancellation(t *testing.T) {
 	// On context cancellation, ALL items (including pending retries) should be flushed
 	// to prevent data loss during shutdown
 	select {
-	case batch, ok := <-outCh:
+	case batch, ok := <-batcher.OutChannel():
 		require.True(t, ok, "expected to receive a batch")
 		require.Len(t, batch.Items, len(retryItems), "all retry items should be flushed on shutdown")
 		require.Equal(t, retryItems, batch.Items)
@@ -263,11 +257,10 @@ func TestBatcher_RetryWithContextCancellation(t *testing.T) {
 func TestBatcher_RetryEmptySlice(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	outCh := make(chan BatchResult[int], 10)
 	maxSize := 10
 	maxWait := 100 * time.Millisecond
 
-	batcher := NewBatcher(ctx, maxSize, maxWait, outCh)
+	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
 
 	// Retry empty slice should not cause issues
 	err := batcher.Retry(50 * time.Millisecond)
@@ -278,7 +271,7 @@ func TestBatcher_RetryEmptySlice(t *testing.T) {
 
 	// Should not receive any batch
 	select {
-	case batch := <-outCh:
+	case batch := <-batcher.OutChannel():
 		t.Fatalf("unexpected batch received with %d items", len(batch.Items))
 	case <-time.After(100 * time.Millisecond):
 		// Correct - no batch
@@ -293,11 +286,10 @@ func TestBatcher_RetryEmptySlice(t *testing.T) {
 func TestBatcher_RetryZeroDelay(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	outCh := make(chan BatchResult[int], 10)
 	maxSize := 10
 	maxWait := 50 * time.Millisecond // Short maxWait so retry ticker runs every 100ms
 
-	batcher := NewBatcher(ctx, maxSize, maxWait, outCh)
+	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
 
 	// Retry with zero delay - should be processed on next retry ticker
 	retryItems := []int{1, 2, 3}
@@ -310,7 +302,7 @@ func TestBatcher_RetryZeroDelay(t *testing.T) {
 
 	// Should receive batch with retried items
 	select {
-	case batch := <-outCh:
+	case batch := <-batcher.OutChannel():
 		require.NoError(t, batch.Error)
 		require.Equal(t, retryItems, batch.Items)
 	case <-time.After(500 * time.Millisecond):
@@ -326,11 +318,10 @@ func TestBatcher_RetryZeroDelay(t *testing.T) {
 func TestBatcher_ConcurrentRetries(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	outCh := make(chan BatchResult[int], 100)
 	maxSize := 50
 	maxWait := 100 * time.Millisecond
 
-	batcher := NewBatcher(ctx, maxSize, maxWait, outCh)
+	batcher := NewBatcher[int](ctx, maxSize, maxWait, 100)
 
 	// Concurrently schedule retries from multiple goroutines
 	numGoroutines := 5
@@ -365,7 +356,7 @@ func TestBatcher_ConcurrentRetries(t *testing.T) {
 
 	// Collect all received items
 	totalReceived := 0
-	for batch := range outCh {
+	for batch := range batcher.OutChannel() {
 		require.NoError(t, batch.Error)
 		totalReceived += len(batch.Items)
 	}

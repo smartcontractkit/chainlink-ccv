@@ -20,7 +20,7 @@ var (
 
 func ReadResultsFromChannel(
 	t *testing.T,
-	outCh chan batcher.BatchResult[protocol.VerifierNodeResult],
+	outCh <-chan batcher.BatchResult[protocol.VerifierNodeResult],
 ) []protocol.VerifierNodeResult {
 	var results []protocol.VerifierNodeResult
 	select {

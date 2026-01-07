@@ -36,8 +36,7 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 		Return(testAttestation, nil).
 		Once()
 
-	outCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
-	ccvDataBatcher := batcher.NewBatcher(ctx, 1, 1*time.Minute, outCh)
+	ccvDataBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](ctx, 1, 1*time.Minute, 10)
 
 	v := cctp.NewVerifier(lggr, mockAttestationService)
 	vErrors := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
@@ -51,7 +50,7 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 		_ = ccvDataBatcher.Close()
 	})
 
-	results := internal.ReadResultsFromChannel(t, outCh)
+	results := internal.ReadResultsFromChannel(t, ccvDataBatcher.OutChannel())
 	require.Len(t, results, 1, "Expected one result in batcher")
 
 	attestation, err := testAttestation.ToVerifierFormat()
@@ -77,8 +76,7 @@ func TestVerifier_VerifyMessages_AttestationServiceFailure(t *testing.T) {
 		Return(cctp.Attestation{}, expectedErr).
 		Once()
 
-	outCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
-	ccvDataBatcher := batcher.NewBatcher(ctx, 100, 1*time.Minute, outCh)
+	ccvDataBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](ctx, 100, 1*time.Minute, 10)
 
 	v := cctp.NewVerifier(lggr, mockAttestationService)
 	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
@@ -114,8 +112,7 @@ func TestVerifier_VerifyMessages_BatcherFailure(t *testing.T) {
 		Return(testAttestation, nil).
 		Once()
 
-	outCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
-	ccvDataBatcher := batcher.NewBatcher(ctx, 100, 1*time.Minute, outCh)
+	ccvDataBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](ctx, 100, 1*time.Minute, 10)
 
 	v := cctp.NewVerifier(lggr, mockAttestationService)
 	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
@@ -165,8 +162,7 @@ func TestVerifier_VerifyMessages_MultipleTasksWithMixedResults(t *testing.T) {
 		Return(testAttestation, nil).
 		Once()
 
-	outCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
-	ccvDataBatcher := batcher.NewBatcher(ctx, 2, 1*time.Minute, outCh)
+	ccvDataBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](ctx, 2, 1*time.Minute, 10)
 
 	v := cctp.NewVerifier(lggr, mockAttestationService)
 	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
@@ -184,7 +180,7 @@ func TestVerifier_VerifyMessages_MultipleTasksWithMixedResults(t *testing.T) {
 	assert.Equal(t, task2.MessageID, verificationError.Task.MessageID)
 	mockAttestationService.AssertExpectations(t)
 
-	results := internal.ReadResultsFromChannel(t, outCh)
+	results := internal.ReadResultsFromChannel(t, ccvDataBatcher.OutChannel())
 	require.Len(t, results, 2, "Expected two results in batcher")
 	assert.Equal(t, task1.MessageID, results[0].MessageID.String())
 	assert.Equal(t, task3.MessageID, results[1].MessageID.String())
