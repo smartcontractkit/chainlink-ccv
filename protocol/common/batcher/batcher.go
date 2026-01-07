@@ -16,7 +16,7 @@ type Batcher[T any] struct {
 
 	addCh   chan []T
 	retryCh chan []retryItem[T]
-	outCh   chan<- BatchResult[T]
+	outCh   chan BatchResult[T]
 
 	ctx context.Context
 	wg  sync.WaitGroup
@@ -52,13 +52,13 @@ type retryItem[T any] struct {
 // The batcher will automatically flush when ctx is canceled.
 // maxSize: maximum number of items before triggering a flush
 // maxWait: maximum duration to wait before flushing incomplete batch
-// outCh: channel to send flushed batches to (user is responsible for reading from this channel and
+// outChannelSize: size of the output channel buffer (0 for unbuffered, consider your use case
 // providing it the right buffer if needed).
-func NewBatcher[T any](ctx context.Context, maxSize int, maxWait time.Duration, outCh chan<- BatchResult[T]) *Batcher[T] {
+func NewBatcher[T any](ctx context.Context, maxSize int, maxWait time.Duration, outChannelSize int) *Batcher[T] {
 	b := &Batcher[T]{
 		maxSize: maxSize,
 		maxWait: maxWait,
-		outCh:   outCh,
+		outCh:   make(chan BatchResult[T], outChannelSize),
 		addCh:   make(chan []T),
 		retryCh: make(chan []retryItem[T]),
 		ctx:     ctx,
@@ -70,11 +70,26 @@ func NewBatcher[T any](ctx context.Context, maxSize int, maxWait time.Duration, 
 	return b
 }
 
+func (b *Batcher[T]) OutChannel() <-chan BatchResult[T] {
+	return b.outCh
+}
+
 // Add adds an item to the batcher. It may trigger a flush if the batch size is reached.
 // This method is thread-safe and non-blocking.
 func (b *Batcher[T]) Add(item ...T) error {
 	select {
 	case b.addCh <- item:
+		return nil
+	case <-b.ctx.Done():
+		return b.ctx.Err()
+	}
+}
+
+// AddImmediate sends a batch result immediately to the output channel.
+// This method is thread-safe and non-blocking.
+func (b *Batcher[T]) AddImmediate(item BatchResult[T]) error {
+	select {
+	case b.outCh <- item:
 		return nil
 	case <-b.ctx.Done():
 		return b.ctx.Err()

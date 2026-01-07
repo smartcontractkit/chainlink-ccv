@@ -20,7 +20,6 @@ import (
 // this channel will emit a message once the batch has been completed.
 type VerifierReader struct {
 	demux         *common.Demultiplexer[protocol.Bytes32, protocol.VerifierResult]
-	batchCh       chan batcher.BatchResult[protocol.Bytes32]
 	batcher       *batcher.Batcher[protocol.Bytes32]
 	batcherCtx    context.Context
 	batcherCancel context.CancelFunc
@@ -35,14 +34,17 @@ type VerifierReader struct {
 // asynchronously. The context is used to control the lifetime of the internal
 // batcher goroutine.
 func NewVerifierReader(ctx context.Context, verifier protocol.VerifierResultsAPI, config *config.VerifierConfig) *VerifierReader {
-	batchCh := make(chan batcher.BatchResult[protocol.Bytes32])
 	batcherCtx, batcherCancel := context.WithCancel(ctx)
 
 	return &VerifierReader{
-		verifier:      verifier,
-		demux:         common.NewDemultiplexer[protocol.Bytes32, protocol.VerifierResult](),
-		batchCh:       batchCh,
-		batcher:       batcher.NewBatcher(batcherCtx, config.BatchSize, time.Duration(config.MaxBatchWaitTime)*time.Millisecond, batchCh),
+		verifier: verifier,
+		demux:    common.NewDemultiplexer[protocol.Bytes32, protocol.VerifierResult](),
+		batcher: batcher.NewBatcher[protocol.Bytes32](
+			batcherCtx,
+			config.BatchSize,
+			time.Duration(config.MaxBatchWaitTime)*time.Millisecond,
+			0,
+		),
 		batcherCtx:    batcherCtx,
 		batcherCancel: batcherCancel,
 	}
@@ -96,7 +98,7 @@ func (v *VerifierReader) Start(ctx context.Context) error {
 func (v *VerifierReader) run(ctx context.Context) {
 	for {
 		select {
-		case batch, ok := <-v.batchCh:
+		case batch, ok := <-v.batcher.OutChannel():
 			if !ok {
 				// Channel closed, exit gracefully
 				return
@@ -114,7 +116,7 @@ func (v *VerifierReader) run(ctx context.Context) {
 			// Drain any remaining batches to ensure all results are delivered
 			for {
 				select {
-				case batch, ok := <-v.batchCh:
+				case batch, ok := <-v.batcher.OutChannel():
 					if !ok {
 						// Channel closed, exit gracefully
 						return

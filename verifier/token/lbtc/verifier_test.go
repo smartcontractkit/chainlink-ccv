@@ -50,8 +50,7 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 		Return(attestations, nil).
 		Once()
 
-	outCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
-	ccvDataBatcher := batcher.NewBatcher(ctx, 2, 1*time.Minute, outCh)
+	ccvDataBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](ctx, 2, 1*time.Minute, 10)
 
 	v := lbtc.NewVerifier(lggr, mockAttestationService)
 	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
@@ -65,7 +64,7 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	assert.Empty(t, result.Items, "Expected no verification errors")
 	mockAttestationService.AssertExpectations(t)
 
-	results := internal.ReadResultsFromChannel(t, outCh)
+	results := internal.ReadResultsFromChannel(t, ccvDataBatcher.OutChannel())
 	require.Len(t, results, 2, "Expected two results in batcher")
 
 	assert.Equal(t, task1.MessageID, results[0].MessageID.String())
@@ -115,8 +114,7 @@ func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
 		Return(attestations, nil).
 		Once()
 
-	outCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
-	ccvDataBatcher := batcher.NewBatcher(ctx, 1, 1*time.Minute, outCh)
+	ccvDataBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](ctx, 1, 1*time.Minute, 10)
 
 	v := lbtc.NewVerifier(lggr, mockAttestationService)
 	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
@@ -136,7 +134,7 @@ func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
 	assert.EqualError(t, result.Items[1].Error, "attestation not found for message ID: "+task3.MessageID)
 
 	mockAttestationService.AssertExpectations(t)
-	results := internal.ReadResultsFromChannel(t, outCh)
+	results := internal.ReadResultsFromChannel(t, ccvDataBatcher.OutChannel())
 	require.Len(t, results, 1, "Expected one result in batcher")
 
 	assert.Equal(t, task1.MessageID, results[0].MessageID.String())
