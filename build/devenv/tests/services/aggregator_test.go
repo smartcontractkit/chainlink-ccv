@@ -53,8 +53,8 @@ func TestServiceAggregator(t *testing.T) {
 		HostPort:       8103,
 		SourceCodePath: "../../../aggregator",
 		RootPath:       "../../../../",
-		CommitteeVerifierResolverAddresses: map[uint64]string{
-			12922642891491394802: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
+		CommitteeVerifierResolverAddresses: map[string]string{
+			"12922642891491394802": "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
 		},
 		DB: &services.AggregatorDBInput{
 			Image:    "postgres:16-alpine",
@@ -113,8 +113,8 @@ func TestAggregatorAuthentication(t *testing.T) {
 		HostPort:       8104,
 		SourceCodePath: "../../../aggregator",
 		RootPath:       "../../../../",
-		CommitteeVerifierResolverAddresses: map[uint64]string{
-			12922642891491394802: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
+		CommitteeVerifierResolverAddresses: map[string]string{
+			"12922642891491394802": "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
 		},
 		DB: &services.AggregatorDBInput{
 			Image:    "postgres:16-alpine",

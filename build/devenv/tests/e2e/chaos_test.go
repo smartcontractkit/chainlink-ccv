@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -79,7 +80,7 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 	}
 	require.NotEmpty(t, defaultVerifierInputs, "default verifier inputs not found")
 
-	var thresholdPerSource map[uint64]uint8
+	var thresholdPerSource map[string]uint8
 	for _, aggregator := range setup.in.Aggregator {
 		if aggregator.CommitteeName == evm.DefaultCommitteeVerifierQualifier {
 			thresholdPerSource = aggregator.Out.ThresholdPerSource
@@ -89,9 +90,10 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 	require.NotNil(t, thresholdPerSource, "threshold per source nil for default aggregator, need it for this test")
 
 	fromSelector, toSelector := setup.chains[0].Details.ChainSelector, setup.chains[1].Details.ChainSelector
+	fromSelectorStr := strconv.FormatUint(fromSelector, 10)
 
-	require.Contains(t, thresholdPerSource, fromSelector, "threshold per source not found for source chain %d", fromSelector)
-	threshold := thresholdPerSource[fromSelector]
+	require.Contains(t, thresholdPerSource, fromSelectorStr, "threshold per source not found for source chain %d", fromSelector)
+	threshold := thresholdPerSource[fromSelectorStr]
 	require.GreaterOrEqual(t, len(defaultVerifierInputs), int(threshold), "number of default verifiers must be greater than or equal to the threshold for this test")
 	numVerifiersToStop := len(defaultVerifierInputs) - int(threshold) + 1
 	require.Greater(t, numVerifiersToStop, 0, "number of verifiers to stop must be greater than 0 for this test")

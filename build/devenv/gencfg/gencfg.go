@@ -75,13 +75,13 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 	var (
 		onRampAddresses                      = make(map[string]string)
 		committeeVerifierAddresses           = make(map[string]string)
-		committeeVerifierResolverAddresses   = make(map[uint64]string)
+		committeeVerifierResolverAddresses   = make(map[string]string)
 		defaultExecutorOnRampAddresses       = make(map[string]string)
 		defaultExecutorOnRampAddressesUint64 = make(map[uint64]string)
 		rmnRemoteAddresses                   = make(map[string]string)
 		rmnRemoteAddressesUint64             = make(map[uint64]string)
 		offRampAddresses                     = make(map[uint64]string)
-		thresholdPerSource                   = make(map[uint64]uint8)
+		thresholdPerSource                   = make(map[string]uint8)
 	)
 
 	for _, ref := range addressRefs {
@@ -91,7 +91,7 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 			onRampAddresses[chainSelectorStr] = ref.Address
 		case datastore.ContractType(committee_verifier.ResolverType):
 			committeeVerifierAddresses[chainSelectorStr] = ref.Address
-			committeeVerifierResolverAddresses[ref.ChainSelector] = ref.Address
+			committeeVerifierResolverAddresses[chainSelectorStr] = ref.Address
 		case datastore.ContractType(executor_operations.ContractType):
 			defaultExecutorOnRampAddresses[chainSelectorStr] = ref.Address
 			defaultExecutorOnRampAddressesUint64[ref.ChainSelector] = ref.Address
@@ -101,7 +101,7 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 		case datastore.ContractType(offrampoperations.ContractType):
 			offRampAddresses[ref.ChainSelector] = ref.Address
 		}
-		thresholdPerSource[ref.ChainSelector] = ocrThreshold(len(verifierPubKeys))
+		thresholdPerSource[chainSelectorStr] = ocrThreshold(len(verifierPubKeys))
 	}
 
 	tempDir, err := os.MkdirTemp("", "ccv-configs")

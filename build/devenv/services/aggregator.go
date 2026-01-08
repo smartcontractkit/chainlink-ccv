@@ -96,10 +96,10 @@ type AggregatorInput struct {
 	CommitteeName  string                    `toml:"committee_name"`
 
 	// Chain selector -> Committee Verifier Resolver Address
-	CommitteeVerifierResolverAddresses map[uint64]string `toml:"committee_verifier_resolver_addresses"`
+	CommitteeVerifierResolverAddresses map[string]string `toml:"committee_verifier_resolver_addresses"`
 	// Source chain selector -> threshold mapping
 	// If not available we default to a full quorum, i.e. all verifiers must sign.
-	ThresholdPerSource map[uint64]uint8 `toml:"threshold_per_source"`
+	ThresholdPerSource map[string]uint8 `toml:"threshold_per_source"`
 	// Maps to Monitoring.Beholder.OtelExporterHTTPEndpoint in the aggregator config toml.
 	MonitoringOtelExporterHTTPEndpoint string `toml:"monitoring_otel_exporter_http_endpoint"`
 
@@ -118,7 +118,7 @@ type AggregatorOutput struct {
 	DBConnectionString string `toml:"db_connection_string"`
 	TLSCACertFile      string `toml:"tls_ca_cert_file"`
 	// Source chain selector -> threshold mapping.
-	ThresholdPerSource map[uint64]uint8 `toml:"threshold_per_source"`
+	ThresholdPerSource map[string]uint8 `toml:"threshold_per_source"`
 	// ClientCredentials maps ClientID to generated HMAC credentials.
 	// Used by verifiers to automatically obtain their credentials.
 	ClientCredentials map[string]hmacutil.Credentials `toml:"-"`
@@ -211,8 +211,8 @@ func validateAggregatorInput(in *AggregatorInput, inV []*VerifierInput) error {
 }
 
 // generateConfigs generates the aggregator service configuration using the inputs.
-func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) (tomlConfig []byte, thresholdPerSource map[uint64]uint8, err error) {
-	thresholdPerSource = make(map[uint64]uint8)
+func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) (tomlConfig []byte, thresholdPerSource map[string]uint8, err error) {
+	thresholdPerSource = make(map[string]uint8)
 	committeeName := a.CommitteeName
 
 	config, err := configuration.LoadConfigString(aggregatorConfigTemplate)
@@ -237,16 +237,14 @@ func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) (tomlConfig []byt
 	defaultThreshold := uint8(len(signers))
 
 	// Create quorum configs per source chain and destination verifiers mapping
-	for chainSelector, verifierAddress := range a.CommitteeVerifierResolverAddresses {
-		chainSelStr := strconv.FormatUint(chainSelector, 10)
-
+	for chainSelStr, verifierAddress := range a.CommitteeVerifierResolverAddresses {
 		// Add destination verifier mapping
 		committeeConfig.DestinationVerifiers[chainSelStr] = verifierAddress
 
 		// Determine threshold for this source
 		sourceThreshold := defaultThreshold
 		if a.ThresholdPerSource != nil {
-			if t, exists := a.ThresholdPerSource[chainSelector]; exists {
+			if t, exists := a.ThresholdPerSource[chainSelStr]; exists {
 				sourceThreshold = t
 			}
 		}
@@ -257,7 +255,7 @@ func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) (tomlConfig []byt
 			Signers:               signers,
 			Threshold:             sourceThreshold,
 		}
-		thresholdPerSource[chainSelector] = sourceThreshold
+		thresholdPerSource[chainSelStr] = sourceThreshold
 	}
 
 	config.Committee = committeeConfig

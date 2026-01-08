@@ -412,7 +412,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		// Initialize proxy addresses from datastore.
 		addrs, _ := e.DataStore.Addresses().Fetch()
 		if aggregatorInput.CommitteeVerifierResolverAddresses == nil {
-			aggregatorInput.CommitteeVerifierResolverAddresses = make(map[uint64]string)
+			aggregatorInput.CommitteeVerifierResolverAddresses = make(map[string]string)
 		}
 		for _, addr := range addrs {
 			if addr.Qualifier != aggregatorInput.CommitteeName {
@@ -421,10 +421,11 @@ func NewEnvironment() (in *Cfg, err error) {
 			if addr.Type != "CommitteeVerifierResolver" {
 				continue
 			}
-			if _, ok := aggregatorInput.CommitteeVerifierResolverAddresses[addr.ChainSelector]; ok {
+			chainSelStr := strconv.FormatUint(addr.ChainSelector, 10)
+			if _, ok := aggregatorInput.CommitteeVerifierResolverAddresses[chainSelStr]; ok {
 				return nil, fmt.Errorf("duplicate committee verifier resolver address for committee %s on chain selector %d", aggregatorInput.CommitteeName, addr.ChainSelector)
 			}
-			aggregatorInput.CommitteeVerifierResolverAddresses[addr.ChainSelector] = addr.Address
+			aggregatorInput.CommitteeVerifierResolverAddresses[chainSelStr] = addr.Address
 		}
 
 		out, err := services.NewAggregator(aggregatorInput, in.Verifier)
