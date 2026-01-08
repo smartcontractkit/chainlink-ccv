@@ -19,8 +19,6 @@ packages:
     interfaces:
       ChainStatusManager:
       FinalityViolationChecker:
-  github.com/smartcontractkit/chainlink-ccv/protocol/common:
-    interfaces:
       VerifierResultsAPI:
 
   github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess:

@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
-	testmock "github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
@@ -56,7 +58,7 @@ func TestTask_GetExistingAndMissingVerifiers(t *testing.T) {
 	}
 
 	// Expect GetCCVData called and return one entry
-	ms.On("GetCCVData", testmock.Anything, testmock.Anything).Return([]common.VerifierResultWithMetadata{vr}, nil)
+	ms.On("GetCCVData", mock.Anything, mock.Anything).Return([]common.VerifierResultWithMetadata{vr}, nil)
 
 	tsk := &Task{
 		logger:    lggr,
@@ -106,7 +108,7 @@ func TestTask_SetMessageStatus_DelegatesToStorage(t *testing.T) {
 	ms := mocks.NewMockIndexerStorage(t)
 	msgID := protocol.Bytes32{}
 	// Expect UpdateMessageStatus to be called with the messageID and status
-	ms.On("UpdateMessageStatus", testmock.Anything, msgID, common.MessageSuccessful, "").Return(nil)
+	ms.On("UpdateMessageStatus", mock.Anything, msgID, common.MessageSuccessful, "").Return(nil)
 
 	tsk := &Task{storage: ms, messageID: msgID, logger: lggr}
 	err := tsk.SetMessageStatus(context.Background(), common.MessageSuccessful, "")
@@ -137,9 +139,96 @@ func TestLoadVerifierReaders_InvalidAndLoaded(t *testing.T) {
 func TestGetExistingVerifiers_StorageError(t *testing.T) {
 	lggr := logger.Test(t)
 	ms := mocks.NewMockIndexerStorage(t)
-	ms.On("GetCCVData", testmock.Anything, testmock.Anything).Return(nil, errors.New("db"))
+	ms.On("GetCCVData", mock.Anything, mock.Anything).Return(nil, errors.New("db"))
 	tsk := &Task{storage: ms, messageID: protocol.Bytes32{}, logger: lggr}
 
 	_, err := tsk.getExistingVerifiers(context.Background())
 	require.Error(t, err)
+}
+
+// makeReader creates and starts a VerifierReader wired to the provided
+// VerifierResultsAPI. Tests use a small batch size so ProcessMessage
+// returns quickly and deterministically.
+func makeReader(vf protocol.VerifierResultsAPI) *readers.VerifierReader {
+	cfg := &config.VerifierConfig{BatchSize: 1, MaxBatchWaitTime: 1}
+	r := readers.NewVerifierReader(context.Background(), vf, cfg)
+	_ = r.Start(context.Background())
+	// Allow the background goroutine to start and begin reading batches.
+	// This small sleep avoids a race where ProcessMessage adds to the batch
+	// before the reader's run goroutine is listening, which can cause
+	// undeterministic timing and intermittent deadlocks in tests.
+	time.Sleep(10 * time.Millisecond)
+	return r
+}
+
+// TestCollectVerifierResults verifies Task.collectVerifierResults behavior
+// across several scenarios:
+//   - no readers: expect nil result
+//   - single successful reader: reader returns a verification and the result
+//     is returned with the correct VerifierName metadata
+//   - multiple readers where one returns data and another returns an error:
+//     ensure successful results are still collected and named correctly
+func TestCollectVerifierResults(t *testing.T) {
+	lggr := logger.Test(t)
+	msg := protocol.VerifierResult{}
+	task, err := NewTask(lggr, msg, registry.NewVerifierRegistry(), nil, time.Second)
+	require.NoError(t, err)
+
+	mid := task.messageID
+
+	t.Run("no readers", func(t *testing.T) {
+		res := task.collectVerifierResults(context.Background(), nil)
+		require.Nil(t, res)
+	})
+
+	t.Run("single successful reader", func(t *testing.T) {
+		// use generated mock for VerifierResultsAPI
+		mv := mocks.NewMockVerifierResultsAPI(t)
+		vr := protocol.VerifierResult{MessageID: mid, VerifierSourceAddress: protocol.UnknownAddress([]byte{0x1})}
+		mv.On("GetVerifications", mock.Anything, mock.Anything).Return(map[protocol.Bytes32]protocol.VerifierResult{mid: vr}, nil)
+
+		r := makeReader(mv)
+		defer func() { _ = r.Close() }()
+
+		// register reader name in registry so metadata.VerifierName is set
+		reg := registry.NewVerifierRegistry()
+		addr, aerr := protocol.NewUnknownAddressFromHex("0x01")
+		require.NoError(t, aerr)
+		require.NoError(t, reg.AddVerifier(addr, "test-verifier", r))
+
+		// create task with our registry
+		task2, err := NewTask(lggr, msg, reg, nil, time.Second)
+		require.NoError(t, err)
+
+		res := task2.collectVerifierResults(context.Background(), []*readers.VerifierReader{r})
+		require.Len(t, res, 1)
+		require.Equal(t, "test-verifier", res[0].Metadata.VerifierName)
+		require.Equal(t, mid, res[0].VerifierResult.MessageID)
+	})
+
+	t.Run("multiple readers mixed success and error", func(t *testing.T) {
+		mv1 := mocks.NewMockVerifierResultsAPI(t)
+		vr1 := protocol.VerifierResult{MessageID: mid, VerifierSourceAddress: protocol.UnknownAddress([]byte{0x2})}
+		mv1.On("GetVerifications", mock.Anything, mock.Anything).Return(map[protocol.Bytes32]protocol.VerifierResult{mid: vr1}, nil)
+
+		mv2 := mocks.NewMockVerifierResultsAPI(t)
+		mv2.On("GetVerifications", mock.Anything, mock.Anything).Return(nil, context.DeadlineExceeded)
+
+		r1 := makeReader(mv1)
+		defer func() { _ = r1.Close() }()
+		r2 := makeReader(mv2)
+		defer func() { _ = r2.Close() }()
+
+		reg := registry.NewVerifierRegistry()
+		addr2, aerr := protocol.NewUnknownAddressFromHex("0x02")
+		require.NoError(t, aerr)
+		require.NoError(t, reg.AddVerifier(addr2, "verifier-2", r1))
+
+		task3, err := NewTask(lggr, msg, reg, nil, time.Second)
+		require.NoError(t, err)
+
+		res := task3.collectVerifierResults(context.Background(), []*readers.VerifierReader{r1, r2})
+		require.Len(t, res, 1)
+		require.Equal(t, "verifier-2", res[0].Metadata.VerifierName)
+	})
 }
