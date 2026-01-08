@@ -20,7 +20,7 @@ import (
 // TODO: Move this to chainlink-evm/pkg/client.
 func NewEvmClientFromConfig(lggr logger.Logger, cfg evmtoml.EVMConfig) (client.Client, error) {
 	chainScopedCfg := evmconfig.NewTOMLChainScopedConfig(&cfg)
-	nodePoolCfg := &evmconfig.NodePoolConfig{C: cfg.Chain.NodePool}
+	nodePoolCfg := &evmconfig.NodePoolConfig{C: cfg.NodePool}
 
 	return client.NewEvmClient(
 		nodePoolCfg,

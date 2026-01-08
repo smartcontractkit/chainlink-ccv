@@ -6,14 +6,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zapcore"
+
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 	evmtoml "github.com/smartcontractkit/chainlink-evm/pkg/config/toml"
 	evmkeys "github.com/smartcontractkit/chainlink-evm/pkg/keys/v2"
 	"github.com/smartcontractkit/chainlink-evm/pkg/utils/big"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/zap/zapcore"
 )
 
 func ptr[T any](t T) *T { return &t }
@@ -45,7 +46,7 @@ func TestPricer(t *testing.T) {
 	defaults.SetFrom(&evmCfg.Chain)
 	evmCfg.Chain = defaults
 	// TODO: why don't defaults work here?
-	evmCfg.Chain.Transactions.TransactionManagerV2.BlockTime = commonconfig.MustNewDuration(12 * time.Second)
+	evmCfg.Transactions.TransactionManagerV2.BlockTime = commonconfig.MustNewDuration(12 * time.Second)
 	for _, n := range evmCfg.Nodes {
 		_ = n.ValidateConfig()
 	}

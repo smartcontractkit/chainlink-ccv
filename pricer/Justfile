@@ -9,8 +9,14 @@ default:
 build:
     docker build -f Dockerfile -t pricer:latest ..
 
+# Run pricer locally. Requires KEYSTORE_DATA (base64) and KEYSTORE_PASSWORD env vars.
+# Example: KEYSTORE_DATA=$(cat keystore.json | base64) KEYSTORE_PASSWORD=pass just run
 run config="config.example.toml": build
-    docker run --rm -v {{justfile_directory()}}/{{config}}:/config.toml pricer:latest --config /config.toml
+    docker run --rm \
+        -e KEYSTORE_DATA \
+        -e KEYSTORE_PASSWORD \
+        -v {{justfile_directory()}}/{{config}}:/config.toml \
+        pricer:latest run --config /config.toml
 
 clean:
     docker rmi pricer:latest

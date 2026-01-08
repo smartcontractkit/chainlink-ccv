@@ -63,11 +63,11 @@ func NewRunCmd() *cobra.Command {
 }
 
 func run(configFile string, keystoreData []byte, keystorePassword string) error {
-	f, err := os.Open(configFile)
+	f, err := os.Open(configFile) //nolint:gosec // configFile is from CLI flag, not user input
 	if err != nil {
 		return fmt.Errorf("failed to open config %s: %w", configFile, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var cfg pricer.Config
 	if err := commonconfig.DecodeTOML(f, &cfg); err != nil {
