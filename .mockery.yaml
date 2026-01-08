@@ -52,6 +52,9 @@ packages:
     interfaces:
       QuorumValidator:
 
+  github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common:
+    interfaces:
+      IndexerStorage:
   github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client/internal:
     interfaces:
       ClientInterface:
