@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/pkg/errors"
 	testmock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -110,4 +111,35 @@ func TestTask_SetMessageStatus_DelegatesToStorage(t *testing.T) {
 	tsk := &Task{storage: ms, messageID: msgID, logger: lggr}
 	err := tsk.SetMessageStatus(context.Background(), common.MessageSuccessful, "")
 	require.NoError(t, err)
+}
+
+func TestLoadVerifierReaders_InvalidAndLoaded(t *testing.T) {
+	lggr := logger.Test(t)
+	reg := registry.NewVerifierRegistry()
+
+	addr := mustAddr(t, "0x3333333333333333333333333333333333333333")
+	// create a dummy verifier reader and add
+	r := &readers.VerifierReader{}
+	_ = reg.AddVerifier(addr, "v1", r)
+
+	tsk := &Task{registry: reg, logger: lggr}
+
+	addrs := []string{"not-a-hex", addr.String()}
+	readersList, loaded, missing := tsk.loadVerifierReaders(addrs)
+
+	require.Len(t, readersList, 1)
+	require.Len(t, loaded, 1)
+	require.Len(t, missing, 1)
+	require.Equal(t, addr.String(), loaded[0])
+	require.Equal(t, "not-a-hex", missing[0])
+}
+
+func TestGetExistingVerifiers_StorageError(t *testing.T) {
+	lggr := logger.Test(t)
+	ms := mocks.NewMockIndexerStorage(t)
+	ms.On("GetCCVData", testmock.Anything, testmock.Anything).Return(nil, errors.New("db"))
+	tsk := &Task{storage: ms, messageID: protocol.Bytes32{}, logger: lggr}
+
+	_, err := tsk.getExistingVerifiers(context.Background())
+	require.Error(t, err)
 }
