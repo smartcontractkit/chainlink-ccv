@@ -58,6 +58,7 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
 	evmchangesets "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/changesets"
 	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/offramp"
@@ -858,6 +859,8 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, field
 	}
 
 	l.Info().
+		Str("TxHash", messageSentEvent.Raw.TxHash.String()).
+		Uint64("BlockNumber", messageSentEvent.Raw.BlockNumber).
 		Bool("Executed", receipt != nil).
 		Uint64("SrcChainSelector", srcChain.Selector).
 		Uint64("DestChainSelector", dest).
