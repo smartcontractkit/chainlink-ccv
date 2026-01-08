@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/aggregation"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/handlers"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -172,7 +171,7 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 
 // processOrphanedRecord attempts to re-aggregate an orphaned verification record.
 func (o *OrphanRecoverer) processOrphanedRecord(record model.OrphanedKey) error {
-	err := o.aggregator.CheckAggregation(record.MessageID, record.AggregationKey, aggregation.OrphanRecoveryClientID, o.config.OrphanRecovery.CheckAggregationTimeout)
+	err := o.aggregator.CheckAggregation(record.MessageID, record.AggregationKey, model.OrphanRecoveryChannelKey, o.config.OrphanRecovery.CheckAggregationTimeout)
 	if err != nil {
 		return fmt.Errorf("failed to trigger aggregation check: %w", err)
 	}

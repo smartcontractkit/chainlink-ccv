@@ -43,6 +43,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 	t.Parallel()
 
 	const testCallerID = "test-caller"
+	const testChannelKey model.ChannelKey = "test-caller"
 
 	signer1 := &model.SignerIdentifier{
 		Identifier: []byte{0xAA},
@@ -161,7 +162,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			var lastMsgID model.MessageID
 			var lastAggregation model.AggregationKey
 			if tc.expectAggCalls > 0 {
-				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, testCallerID, time.Millisecond).Run(func(m model.MessageID, a model.AggregationKey, c string, d time.Duration) {
+				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, testChannelKey, time.Millisecond).Run(func(m model.MessageID, a model.AggregationKey, c model.ChannelKey, d time.Duration) {
 					aggCalled++
 					lastMsgID = m
 					lastAggregation = a

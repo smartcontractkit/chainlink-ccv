@@ -30,6 +30,12 @@ type DestinationSelector = string
 // SourceSelector represents a source chain selector as a string.
 type SourceSelector = string
 
+// ChannelKey identifies a client's aggregation channel for fair scheduling.
+type ChannelKey string
+
+// OrphanRecoveryChannelKey is the channel key used for orphan recovery operations.
+const OrphanRecoveryChannelKey ChannelKey = "orphan_recovery"
+
 // Committee represents a group of signers participating in the commit verification process.
 type Committee struct {
 	// QuorumConfigs stores a QuorumConfig for each source chain selector.

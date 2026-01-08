@@ -5,6 +5,7 @@ package mocks
 import (
 	time "time"
 
+	model "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -22,7 +23,7 @@ func (_m *MockAggregationTriggerer) EXPECT() *MockAggregationTriggerer_Expecter 
 }
 
 // CheckAggregation provides a mock function with given fields: _a0, _a1, _a2, _a3
-func (_m *MockAggregationTriggerer) CheckAggregation(_a0 []byte, _a1 string, _a2 string, _a3 time.Duration) error {
+func (_m *MockAggregationTriggerer) CheckAggregation(_a0 []byte, _a1 string, _a2 model.ChannelKey, _a3 time.Duration) error {
 	ret := _m.Called(_a0, _a1, _a2, _a3)
 
 	if len(ret) == 0 {
@@ -30,7 +31,7 @@ func (_m *MockAggregationTriggerer) CheckAggregation(_a0 []byte, _a1 string, _a2
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func([]byte, string, string, time.Duration) error); ok {
+	if rf, ok := ret.Get(0).(func([]byte, string, model.ChannelKey, time.Duration) error); ok {
 		r0 = rf(_a0, _a1, _a2, _a3)
 	} else {
 		r0 = ret.Error(0)
@@ -47,15 +48,15 @@ type MockAggregationTriggerer_CheckAggregation_Call struct {
 // CheckAggregation is a helper method to define mock.On call
 //   - _a0 []byte
 //   - _a1 string
-//   - _a2 string
+//   - _a2 model.ChannelKey
 //   - _a3 time.Duration
 func (_e *MockAggregationTriggerer_Expecter) CheckAggregation(_a0 interface{}, _a1 interface{}, _a2 interface{}, _a3 interface{}) *MockAggregationTriggerer_CheckAggregation_Call {
 	return &MockAggregationTriggerer_CheckAggregation_Call{Call: _e.mock.On("CheckAggregation", _a0, _a1, _a2, _a3)}
 }
 
-func (_c *MockAggregationTriggerer_CheckAggregation_Call) Run(run func(_a0 []byte, _a1 string, _a2 string, _a3 time.Duration)) *MockAggregationTriggerer_CheckAggregation_Call {
+func (_c *MockAggregationTriggerer_CheckAggregation_Call) Run(run func(_a0 []byte, _a1 string, _a2 model.ChannelKey, _a3 time.Duration)) *MockAggregationTriggerer_CheckAggregation_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].([]byte), args[1].(string), args[2].(string), args[3].(time.Duration))
+		run(args[0].([]byte), args[1].(string), args[2].(model.ChannelKey), args[3].(time.Duration))
 	})
 	return _c
 }
@@ -65,7 +66,7 @@ func (_c *MockAggregationTriggerer_CheckAggregation_Call) Return(_a0 error) *Moc
 	return _c
 }
 
-func (_c *MockAggregationTriggerer_CheckAggregation_Call) RunAndReturn(run func([]byte, string, string, time.Duration) error) *MockAggregationTriggerer_CheckAggregation_Call {
+func (_c *MockAggregationTriggerer_CheckAggregation_Call) RunAndReturn(run func([]byte, string, model.ChannelKey, time.Duration) error) *MockAggregationTriggerer_CheckAggregation_Call {
 	_c.Call.Return(run)
 	return _c
 }

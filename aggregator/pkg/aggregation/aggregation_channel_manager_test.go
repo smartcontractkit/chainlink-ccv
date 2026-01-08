@@ -14,53 +14,53 @@ import (
 func TestNewChannelManager_CreatesChannelsForAllClients(t *testing.T) {
 	tests := []struct {
 		name       string
-		clientIDs  []string
+		keys       []model.ChannelKey
 		bufferSize int
 	}{
 		{
 			name:       "single client",
-			clientIDs:  []string{"client1"},
+			keys:       []model.ChannelKey{"client1"},
 			bufferSize: 10,
 		},
 		{
 			name:       "multiple clients",
-			clientIDs:  []string{"client1", "client2", "client3"},
+			keys:       []model.ChannelKey{"client1", "client2", "client3"},
 			bufferSize: 5,
 		},
 		{
 			name:       "empty client list",
-			clientIDs:  []string{},
+			keys:       []model.ChannelKey{},
 			bufferSize: 10,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			manager := NewChannelManager(tc.clientIDs, tc.bufferSize)
+			manager := NewChannelManager(tc.keys, tc.bufferSize)
 
 			require.NotNil(t, manager)
-			require.NotNil(t, manager.aggregationChannel)
-			assert.Len(t, manager.clientChannel, len(tc.clientIDs))
-			assert.Len(t, manager.clientOrder, len(tc.clientIDs))
+			require.NotNil(t, manager.AggregationChannel)
+			assert.Len(t, manager.clientChannel, len(tc.keys))
+			assert.Len(t, manager.clientOrder, len(tc.keys))
 			require.NotNil(t, manager.wakeUp)
 
-			for _, clientID := range tc.clientIDs {
-				ch, ok := manager.clientChannel[clientID]
+			for _, key := range tc.keys {
+				ch, ok := manager.clientChannel[key]
 				assert.True(t, ok)
 				assert.NotNil(t, ch)
 				assert.Equal(t, tc.bufferSize, cap(ch))
 			}
 
-			assert.Equal(t, len(tc.clientIDs), cap(manager.aggregationChannel))
+			assert.Equal(t, len(tc.keys), cap(manager.AggregationChannel))
 		})
 	}
 }
 
 func TestNewChannelManagerFromConfig_ExtractsClientIDsAndAddsOrphanRecovery(t *testing.T) {
 	tests := []struct {
-		name              string
-		config            *model.AggregatorConfig
-		expectedClientIDs []string
+		name         string
+		config       *model.AggregatorConfig
+		expectedKeys []model.ChannelKey
 	}{
 		{
 			name: "config with multiple clients",
@@ -73,7 +73,7 @@ func TestNewChannelManagerFromConfig_ExtractsClientIDsAndAddsOrphanRecovery(t *t
 					ChannelBufferSize: 10,
 				},
 			},
-			expectedClientIDs: []string{"client1", "client2", OrphanRecoveryClientID},
+			expectedKeys: []model.ChannelKey{"client1", "client2", model.OrphanRecoveryChannelKey},
 		},
 		{
 			name: "config with no clients adds only orphan_recovery",
@@ -83,7 +83,7 @@ func TestNewChannelManagerFromConfig_ExtractsClientIDsAndAddsOrphanRecovery(t *t
 					ChannelBufferSize: 5,
 				},
 			},
-			expectedClientIDs: []string{OrphanRecoveryClientID},
+			expectedKeys: []model.ChannelKey{model.OrphanRecoveryChannelKey},
 		},
 		{
 			name: "config with single client",
@@ -95,7 +95,7 @@ func TestNewChannelManagerFromConfig_ExtractsClientIDsAndAddsOrphanRecovery(t *t
 					ChannelBufferSize: 20,
 				},
 			},
-			expectedClientIDs: []string{"verifier-1", OrphanRecoveryClientID},
+			expectedKeys: []model.ChannelKey{"verifier-1", model.OrphanRecoveryChannelKey},
 		},
 	}
 
@@ -104,11 +104,11 @@ func TestNewChannelManagerFromConfig_ExtractsClientIDsAndAddsOrphanRecovery(t *t
 			manager := NewChannelManagerFromConfig(tc.config)
 
 			require.NotNil(t, manager)
-			assert.Len(t, manager.clientChannel, len(tc.expectedClientIDs))
+			assert.Len(t, manager.clientChannel, len(tc.expectedKeys))
 
-			for _, clientID := range tc.expectedClientIDs {
-				ch, ok := manager.clientChannel[clientID]
-				assert.True(t, ok, "expected channel for client %s", clientID)
+			for _, key := range tc.expectedKeys {
+				ch, ok := manager.clientChannel[key]
+				assert.True(t, ok, "expected channel for key %s", key)
 				assert.NotNil(t, ch)
 				assert.Equal(t, tc.config.Aggregation.ChannelBufferSize, cap(ch))
 			}
@@ -116,43 +116,41 @@ func TestNewChannelManagerFromConfig_ExtractsClientIDsAndAddsOrphanRecovery(t *t
 	}
 }
 
-func TestEnqueue_SucceedsForExistingClient(t *testing.T) {
-	manager := NewChannelManager([]string{"client1", "client2"}, 10)
+func TestEnqueue_SucceedsForExistingKey(t *testing.T) {
+	manager := NewChannelManager([]model.ChannelKey{"client1", "client2"}, 10)
 
-	err := manager.Enqueue("client1", aggregationRequest{ClientID: "client1"}, time.Millisecond)
+	err := manager.Enqueue("client1", aggregationRequest{ChannelKey: "client1"}, time.Millisecond)
 
 	assert.NoError(t, err)
 }
 
-func TestEnqueue_ReturnsErrorForNonExistingClient(t *testing.T) {
-	manager := NewChannelManager([]string{"client1"}, 10)
+func TestEnqueue_ReturnsErrorForNonExistingKey(t *testing.T) {
+	manager := NewChannelManager([]model.ChannelKey{"client1"}, 10)
 
-	err := manager.Enqueue("non_existing_client", aggregationRequest{ClientID: "non_existing_client"}, time.Millisecond)
+	err := manager.Enqueue("non_existing_key", aggregationRequest{ChannelKey: "non_existing_key"}, time.Millisecond)
 
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "client channel not found")
+	assert.Contains(t, err.Error(), "channel not found")
 }
 
 func TestEnqueue_ReturnsErrorWhenChannelFull(t *testing.T) {
-	manager := NewChannelManager([]string{"client1"}, 1)
+	manager := NewChannelManager([]model.ChannelKey{"client1"}, 1)
 
-	err1 := manager.Enqueue("client1", aggregationRequest{ClientID: "client1"}, time.Millisecond)
+	err1 := manager.Enqueue("client1", aggregationRequest{ChannelKey: "client1"}, time.Millisecond)
 	assert.NoError(t, err1)
 
-	err2 := manager.Enqueue("client1", aggregationRequest{ClientID: "client1"}, time.Millisecond)
+	err2 := manager.Enqueue("client1", aggregationRequest{ChannelKey: "client1"}, time.Millisecond)
 	assert.Error(t, err2)
 }
 
 func TestGetAggregationChannel_ReturnsNonNilChannel(t *testing.T) {
-	manager := NewChannelManager([]string{"client1"}, 10)
+	manager := NewChannelManager([]model.ChannelKey{"client1"}, 10)
 
-	channel := manager.getAggregationChannel()
-
-	assert.NotNil(t, channel)
+	assert.NotNil(t, manager.AggregationChannel)
 }
 
 func TestStart_ForwardsRequestsFromClientChannelToAggregationChannel(t *testing.T) {
-	manager := NewChannelManager([]string{"client1", "client2"}, 10)
+	manager := NewChannelManager([]model.ChannelKey{"client1", "client2"}, 10)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -168,14 +166,14 @@ func TestStart_ForwardsRequestsFromClientChannelToAggregationChannel(t *testing.
 	expectedRequest := aggregationRequest{
 		AggregationKey: "test-aggregation-key",
 		MessageID:      model.MessageID{4, 5, 6},
-		ClientID:       "client1",
+		ChannelKey:     "client1",
 	}
 
 	err := manager.Enqueue("client1", expectedRequest, time.Millisecond)
 	require.NoError(t, err)
 
 	select {
-	case receivedRequest := <-manager.getAggregationChannel():
+	case receivedRequest := <-manager.AggregationChannel:
 		assert.Equal(t, expectedRequest, receivedRequest)
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("timeout waiting for request on aggregation channel")
@@ -191,7 +189,7 @@ func TestStart_ForwardsRequestsFromClientChannelToAggregationChannel(t *testing.
 }
 
 func TestStart_StopsOnContextCancellation(t *testing.T) {
-	manager := NewChannelManager([]string{"client1"}, 10)
+	manager := NewChannelManager([]model.ChannelKey{"client1"}, 10)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -212,7 +210,7 @@ func TestStart_StopsOnContextCancellation(t *testing.T) {
 }
 
 func TestStart_ReceivesMultipleRequestsFromMultipleClients(t *testing.T) {
-	manager := NewChannelManager([]string{"client1", "client2"}, 20)
+	manager := NewChannelManager([]model.ChannelKey{"client1", "client2"}, 20)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -229,7 +227,7 @@ func TestStart_ReceivesMultipleRequestsFromMultipleClients(t *testing.T) {
 		err := manager.Enqueue("client1", aggregationRequest{
 			AggregationKey: "key-client1",
 			MessageID:      model.MessageID{byte(i)},
-			ClientID:       "client1",
+			ChannelKey:     "client1",
 		}, time.Millisecond)
 		require.NoError(t, err)
 	}
@@ -238,7 +236,7 @@ func TestStart_ReceivesMultipleRequestsFromMultipleClients(t *testing.T) {
 		err := manager.Enqueue("client2", aggregationRequest{
 			AggregationKey: "key-client2",
 			MessageID:      model.MessageID{byte(i + 100)},
-			ClientID:       "client2",
+			ChannelKey:     "client2",
 		}, time.Millisecond)
 		require.NoError(t, err)
 	}
@@ -248,7 +246,7 @@ func TestStart_ReceivesMultipleRequestsFromMultipleClients(t *testing.T) {
 
 	for len(received) < totalExpected {
 		select {
-		case req := <-manager.getAggregationChannel():
+		case req := <-manager.AggregationChannel:
 			received = append(received, req)
 		case <-timeout:
 			t.Fatalf("timeout: received only %d of %d expected requests", len(received), totalExpected)
@@ -260,7 +258,7 @@ func TestStart_ReceivesMultipleRequestsFromMultipleClients(t *testing.T) {
 	client1Received := 0
 	client2Received := 0
 	for _, req := range received {
-		switch req.ClientID {
+		switch req.ChannelKey {
 		case "client1":
 			client1Received++
 		case "client2":
@@ -275,7 +273,7 @@ func TestStart_ReceivesMultipleRequestsFromMultipleClients(t *testing.T) {
 // The aggregationChannel size is 2 so the maximum a busy client can enqueue is 2.
 // The quiet client will then be picked up by the round robin scheduling at 3.
 func TestStart_FairSchedulingPreventsBusyClientStarvation(t *testing.T) {
-	manager := NewChannelManager([]string{"busy", "quiet"}, 100)
+	manager := NewChannelManager([]model.ChannelKey{"busy", "quiet"}, 100)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -284,15 +282,15 @@ func TestStart_FairSchedulingPreventsBusyClientStarvation(t *testing.T) {
 
 	for i := 0; i < 50; i++ {
 		err := manager.Enqueue("busy", aggregationRequest{
-			ClientID:  "busy",
-			MessageID: model.MessageID{byte(i)},
+			ChannelKey: "busy",
+			MessageID:  model.MessageID{byte(i)},
 		}, time.Millisecond)
 		require.NoError(t, err)
 	}
 
 	err := manager.Enqueue("quiet", aggregationRequest{
-		ClientID:  "quiet",
-		MessageID: model.MessageID{0xFF},
+		ChannelKey: "quiet",
+		MessageID:  model.MessageID{0xFF},
 	}, time.Millisecond)
 	require.NoError(t, err)
 
@@ -301,7 +299,7 @@ func TestStart_FairSchedulingPreventsBusyClientStarvation(t *testing.T) {
 
 	for len(received) <= 3 {
 		select {
-		case req := <-manager.getAggregationChannel():
+		case req := <-manager.AggregationChannel:
 			received = append(received, req)
 		case <-timeout:
 			t.Fatalf("timeout: received only %d of %d expected requests", len(received), 10)
@@ -309,7 +307,7 @@ func TestStart_FairSchedulingPreventsBusyClientStarvation(t *testing.T) {
 	}
 
 	assert.Contains(t, received, aggregationRequest{
-		ClientID:  "quiet",
-		MessageID: model.MessageID{0xFF},
+		ChannelKey: "quiet",
+		MessageID:  model.MessageID{0xFF},
 	}, "quiet client request should be received")
 }

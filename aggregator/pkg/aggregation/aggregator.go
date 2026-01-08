@@ -43,21 +43,21 @@ type CommitReportAggregator struct {
 type aggregationRequest struct {
 	AggregationKey model.AggregationKey
 	MessageID      model.MessageID
-	ClientID       string
+	ChannelKey     model.ChannelKey
 }
 
 // CheckAggregation enqueues a new aggregation request for the specified message ID.
-func (c *CommitReportAggregator) CheckAggregation(messageID model.MessageID, aggregationKey model.AggregationKey, clientID string, maxBlockTime time.Duration) error {
+func (c *CommitReportAggregator) CheckAggregation(messageID model.MessageID, aggregationKey model.AggregationKey, channelKey model.ChannelKey, maxBlockTime time.Duration) error {
 	request := aggregationRequest{
 		MessageID:      messageID,
 		AggregationKey: aggregationKey,
-		ClientID:       clientID,
+		ChannelKey:     channelKey,
 	}
-	err := c.channelManager.Enqueue(clientID, request, maxBlockTime)
+	err := c.channelManager.Enqueue(channelKey, request, maxBlockTime)
 	if err != nil {
 		return err
 	}
-	c.metrics(context.Background()).With("client_id", clientID).IncrementPendingAggregationsChannelBuffer(context.Background(), 1)
+	c.metrics(context.Background()).With("channel_key", string(channelKey)).IncrementPendingAggregationsChannelBuffer(context.Background(), 1)
 	return nil
 }
 
@@ -169,7 +169,7 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 	c.done = make(chan struct{})
 	go func() { _ = c.channelManager.Start(ctx) }()
 	c.mu.Unlock()
-	aggregationChannel := c.channelManager.getAggregationChannel()
+	aggregationChannel := c.channelManager.AggregationChannel
 	p := pool.New().WithMaxGoroutines(c.backgroundWorkerCount).WithContext(ctx)
 	go func() {
 		defer close(c.done)
@@ -177,7 +177,7 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 			select {
 			case request := <-aggregationChannel:
 				p.Go(func(poolCtx context.Context) error {
-					c.metrics(poolCtx).With("client_id", request.ClientID).DecrementPendingAggregationsChannelBuffer(poolCtx, 1)
+					c.metrics(poolCtx).With("channel_key", string(request.ChannelKey)).DecrementPendingAggregationsChannelBuffer(poolCtx, 1)
 					poolCtx = scope.WithAggregationKey(poolCtx, request.AggregationKey)
 					poolCtx = scope.WithMessageID(poolCtx, request.MessageID)
 
@@ -219,9 +219,8 @@ func (c *CommitReportAggregator) Ready() error {
 	}
 
 	lggr := c.logger(context.Background())
-	aggregationChannel := c.channelManager.getAggregationChannel()
-	pending := len(aggregationChannel)
-	capacity := cap(aggregationChannel)
+	pending := len(c.channelManager.AggregationChannel)
+	capacity := cap(c.channelManager.AggregationChannel)
 	if pending >= capacity {
 		lggr.Warnw("aggregation queue full", "capacity", capacity, "pending", pending)
 		return nil

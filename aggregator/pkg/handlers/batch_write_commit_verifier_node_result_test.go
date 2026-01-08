@@ -22,6 +22,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_BatchSizeValidation(t *testing.T) {
 	t.Parallel()
 
 	const testCallerID = "test-caller"
+	const testChannelKey model.ChannelKey = "test-caller"
 
 	tests := []struct {
 		name           string
@@ -74,7 +75,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_BatchSizeValidation(t *testing.T) {
 					Signer: signer,
 				}, nil).Maybe()
 				sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil).Maybe()
-				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, testCallerID, time.Millisecond).Return(nil).Maybe()
+				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, testChannelKey, time.Millisecond).Return(nil).Maybe()
 				store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 			}
 
@@ -109,6 +110,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 	t.Parallel()
 
 	const testCallerID = "test-caller"
+	const testChannelKey model.ChannelKey = "test-caller"
 
 	lggr := logger.TestSugared(t)
 	store := mocks.NewMockCommitVerificationStore(t)
@@ -123,7 +125,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 	}, nil)
 	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil)
 
-	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, testCallerID, time.Millisecond).Return(nil).Maybe()
+	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, testChannelKey, time.Millisecond).Return(nil).Maybe()
 
 	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 

@@ -9,42 +9,40 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 )
 
-var OrphanRecoveryClientID = "orphan_recovery"
-
 type ChannelManager struct {
-	clientChannel      map[string]chan aggregationRequest
-	clientOrder        []string
-	aggregationChannel chan aggregationRequest
+	clientChannel      map[model.ChannelKey]chan aggregationRequest
+	clientOrder        []model.ChannelKey
+	AggregationChannel chan aggregationRequest
 	wakeUp             chan struct{}
 }
 
-func NewChannelManager(clientIDs []string, bufferSize int) *ChannelManager {
+func NewChannelManager(keys []model.ChannelKey, bufferSize int) *ChannelManager {
 	manager := &ChannelManager{
-		clientChannel:      make(map[string]chan aggregationRequest),
-		clientOrder:        make([]string, 0, len(clientIDs)),
-		aggregationChannel: make(chan aggregationRequest, len(clientIDs)),
+		clientChannel:      make(map[model.ChannelKey]chan aggregationRequest),
+		clientOrder:        make([]model.ChannelKey, 0, len(keys)),
+		AggregationChannel: make(chan aggregationRequest, len(keys)),
 		wakeUp:             make(chan struct{}, 1),
 	}
-	for _, clientID := range clientIDs {
-		manager.clientChannel[clientID] = make(chan aggregationRequest, bufferSize)
-		manager.clientOrder = append(manager.clientOrder, clientID)
+	for _, key := range keys {
+		manager.clientChannel[key] = make(chan aggregationRequest, bufferSize)
+		manager.clientOrder = append(manager.clientOrder, key)
 	}
 	return manager
 }
 
 func NewChannelManagerFromConfig(config *model.AggregatorConfig) *ChannelManager {
-	clientIDs := make([]string, 0)
+	keys := make([]model.ChannelKey, 0)
 	for _, client := range config.APIClients {
-		clientIDs = append(clientIDs, client.ClientID)
+		keys = append(keys, model.ChannelKey(client.ClientID))
 	}
-	clientIDs = append(clientIDs, OrphanRecoveryClientID)
-	return NewChannelManager(clientIDs, config.Aggregation.ChannelBufferSize)
+	keys = append(keys, model.OrphanRecoveryChannelKey)
+	return NewChannelManager(keys, config.Aggregation.ChannelBufferSize)
 }
 
-func (m *ChannelManager) Enqueue(clientID string, req aggregationRequest, maxBlockTime time.Duration) error {
-	ch, ok := m.clientChannel[clientID]
+func (m *ChannelManager) Enqueue(key model.ChannelKey, req aggregationRequest, maxBlockTime time.Duration) error {
+	ch, ok := m.clientChannel[key]
 	if !ok {
-		return fmt.Errorf("client channel not found: %s", clientID)
+		return fmt.Errorf("channel not found for key: %s", key)
 	}
 	select {
 	case ch <- req:
@@ -58,10 +56,11 @@ func (m *ChannelManager) Enqueue(clientID string, req aggregationRequest, maxBlo
 	}
 }
 
-func (m *ChannelManager) getAggregationChannel() chan aggregationRequest {
-	return m.aggregationChannel
-}
-
+// Start runs the fair scheduling loop in a single goroutine.
+// Using a single goroutine ensures deterministic round-robin ordering across client channels,
+// preventing any client from starving others regardless of request volume.
+// The wakeUp channel avoids busy-waiting when all client channels are empty -
+// Enqueue signals it after adding work, allowing Start to sleep until there's something to process.
 func (m *ChannelManager) Start(ctx context.Context) error {
 	if len(m.clientOrder) == 0 {
 		<-ctx.Done()
@@ -78,7 +77,7 @@ func (m *ChannelManager) Start(ctx context.Context) error {
 			if len(ch) > 0 {
 				req := <-ch
 				select {
-				case m.aggregationChannel <- req:
+				case m.AggregationChannel <- req:
 				case <-ctx.Done():
 					return nil
 				}
