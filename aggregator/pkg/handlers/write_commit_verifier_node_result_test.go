@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
@@ -39,6 +41,8 @@ func makeValidProtoRequest() *committeepb.WriteCommitteeVerifierNodeResultReques
 
 func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 	t.Parallel()
+
+	const testCallerID = "test-caller"
 
 	signer1 := &model.SignerIdentifier{
 		Identifier: []byte{0xAA},
@@ -157,18 +161,19 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			var lastMsgID model.MessageID
 			var lastAggregation model.AggregationKey
 			if tc.expectAggCalls > 0 {
-				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything).Run(func(m model.MessageID, a model.AggregationKey) {
+				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, testCallerID, time.Millisecond).Run(func(m model.MessageID, a model.AggregationKey, c string, d time.Duration) {
 					aggCalled++
 					lastMsgID = m
 					lastAggregation = a
 				}).Return(tc.aggErr).Times(tc.expectAggCalls)
 			} else {
-				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything).Maybe()
+				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe()
 			}
 
-			handler := NewWriteCommitCCVNodeDataHandler(store, agg, lggr, sig)
+			handler := NewWriteCommitCCVNodeDataHandler(store, agg, lggr, sig, time.Millisecond)
 
-			resp, err := handler.Handle(context.Background(), tc.req)
+			ctx := auth.ToContext(context.Background(), auth.CreateCallerIdentity(testCallerID, false))
+			resp, err := handler.Handle(ctx, tc.req)
 
 			// gRPC status code assertions
 			if tc.expectGRPCCode == codes.OK {

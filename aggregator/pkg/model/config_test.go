@@ -3,6 +3,7 @@ package model
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -76,6 +77,8 @@ func TestSetDefaults(t *testing.T) {
 		assert.Equal(t, 168, cfg.OrphanRecovery.MaxAgeHours)
 		assert.Equal(t, "8080", cfg.HealthCheck.Port)
 		assert.Equal(t, 10, cfg.Server.RequestTimeoutSeconds)
+		assert.Equal(t, 5*time.Second, cfg.Aggregation.CheckAggregationTimeout)
+		assert.Equal(t, 5*time.Second, cfg.OrphanRecovery.CheckAggregationTimeout)
 	})
 
 	t.Run("does not override existing values", func(t *testing.T) {
@@ -258,38 +261,44 @@ func TestValidateAggregationConfig(t *testing.T) {
 	}{
 		{
 			name:        "valid config",
-			config:      AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 10},
+			config:      AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 10, CheckAggregationTimeout: 5 * time.Second},
 			expectError: false,
 		},
 		{
 			name:        "zero channel buffer size fails",
-			config:      AggregationConfig{ChannelBufferSize: 0, BackgroundWorkerCount: 10},
+			config:      AggregationConfig{ChannelBufferSize: 0, BackgroundWorkerCount: 10, CheckAggregationTimeout: 5 * time.Second},
 			expectError: true,
 			errorMsg:    "channelBufferSize must be greater than 0",
 		},
 		{
 			name:        "channel buffer size exceeds limit fails",
-			config:      AggregationConfig{ChannelBufferSize: 100001, BackgroundWorkerCount: 10},
+			config:      AggregationConfig{ChannelBufferSize: 100001, BackgroundWorkerCount: 10, CheckAggregationTimeout: 5 * time.Second},
 			expectError: true,
 			errorMsg:    "channelBufferSize cannot exceed 100000",
 		},
 		{
 			name:        "zero worker count fails",
-			config:      AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 0},
+			config:      AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 0, CheckAggregationTimeout: 5 * time.Second},
 			expectError: true,
 			errorMsg:    "backgroundWorkerCount must be greater than 0",
 		},
 		{
 			name:        "worker count exceeds limit fails",
-			config:      AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 101},
+			config:      AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 101, CheckAggregationTimeout: 5 * time.Second},
 			expectError: true,
 			errorMsg:    "backgroundWorkerCount cannot exceed 100",
 		},
 		{
 			name:        "negative operation timeout fails",
-			config:      AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 10, OperationTimeoutSeconds: -1},
+			config:      AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 10, OperationTimeoutSeconds: -1, CheckAggregationTimeout: 5 * time.Second},
 			expectError: true,
 			errorMsg:    "operationTimeoutSeconds cannot be negative",
+		},
+		{
+			name:        "negative check aggregation timeout fails",
+			config:      AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 10, CheckAggregationTimeout: -1},
+			expectError: true,
+			errorMsg:    "aggregation.checkAggregationTimeout must be greater than 0",
 		},
 	}
 
@@ -388,31 +397,37 @@ func TestValidateOrphanRecoveryConfig(t *testing.T) {
 	}{
 		{
 			name:        "valid enabled config",
-			config:      OrphanRecoveryConfig{Enabled: true, IntervalSeconds: 60, MaxAgeHours: 24},
+			config:      OrphanRecoveryConfig{Enabled: true, IntervalSeconds: 60, MaxAgeHours: 24, CheckAggregationTimeout: 5 * time.Second},
 			expectError: false,
 		},
 		{
 			name:        "disabled config skips validation",
-			config:      OrphanRecoveryConfig{Enabled: false, IntervalSeconds: 0, MaxAgeHours: 0},
+			config:      OrphanRecoveryConfig{Enabled: false, IntervalSeconds: 0, MaxAgeHours: 0, CheckAggregationTimeout: 5 * time.Second},
 			expectError: false,
 		},
 		{
 			name:        "negative scan timeout fails",
-			config:      OrphanRecoveryConfig{Enabled: false, ScanTimeoutSeconds: -1},
+			config:      OrphanRecoveryConfig{Enabled: false, ScanTimeoutSeconds: -1, CheckAggregationTimeout: 5 * time.Second},
 			expectError: true,
 			errorMsg:    "scanTimeoutSeconds cannot be negative",
 		},
 		{
 			name:        "max age hours less than 1 fails when enabled",
-			config:      OrphanRecoveryConfig{Enabled: true, IntervalSeconds: 60, MaxAgeHours: 0},
+			config:      OrphanRecoveryConfig{Enabled: true, IntervalSeconds: 60, MaxAgeHours: 0, CheckAggregationTimeout: 5 * time.Second},
 			expectError: true,
 			errorMsg:    "maxAgeHours must be at least 1",
 		},
 		{
 			name:        "interval seconds less than 5 fails when enabled",
-			config:      OrphanRecoveryConfig{Enabled: true, IntervalSeconds: 4, MaxAgeHours: 24},
+			config:      OrphanRecoveryConfig{Enabled: true, IntervalSeconds: 4, MaxAgeHours: 24, CheckAggregationTimeout: 5 * time.Second},
 			expectError: true,
 			errorMsg:    "intervalSeconds must be at least 5",
+		},
+		{
+			name:        "negative check aggregation timeout fails",
+			config:      OrphanRecoveryConfig{Enabled: true, IntervalSeconds: 60, MaxAgeHours: 24, CheckAggregationTimeout: -1},
+			expectError: true,
+			errorMsg:    "orphanRecovery.checkAggregationTimeout must be greater than 0",
 		},
 	}
 

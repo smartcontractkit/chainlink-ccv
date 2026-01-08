@@ -29,7 +29,7 @@ type CommitReportAggregator struct {
 	storage               common.CommitVerificationStore
 	aggregatedStore       common.CommitVerificationAggregatedStore
 	sink                  common.Sink
-	aggregationKeyChan    chan aggregationRequest
+	channelManager        *ChannelManager
 	backgroundWorkerCount int
 	operationTimeout      time.Duration
 	quorum                QuorumValidator
@@ -43,20 +43,21 @@ type CommitReportAggregator struct {
 type aggregationRequest struct {
 	AggregationKey model.AggregationKey
 	MessageID      model.MessageID
+	ClientID       string
 }
 
 // CheckAggregation enqueues a new aggregation request for the specified message ID.
-func (c *CommitReportAggregator) CheckAggregation(messageID model.MessageID, aggregationKey model.AggregationKey) error {
+func (c *CommitReportAggregator) CheckAggregation(messageID model.MessageID, aggregationKey model.AggregationKey, clientID string, maxBlockTime time.Duration) error {
 	request := aggregationRequest{
 		MessageID:      messageID,
 		AggregationKey: aggregationKey,
+		ClientID:       clientID,
 	}
-	select {
-	case c.aggregationKeyChan <- request:
-		c.metrics(context.Background()).IncrementPendingAggregationsChannelBuffer(context.Background(), 1)
-	default:
-		return common.ErrAggregationChannelFull
+	err := c.channelManager.Enqueue(clientID, request, maxBlockTime)
+	if err != nil {
+		return err
 	}
+	c.metrics(context.Background()).With("client_id", clientID).IncrementPendingAggregationsChannelBuffer(context.Background(), 1)
 	return nil
 }
 
@@ -166,16 +167,17 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 	c.mu.Lock()
 	c.done = make(chan struct{})
+	go func() { _ = c.channelManager.Start(ctx) }()
 	c.mu.Unlock()
-
+	aggregationChannel := c.channelManager.getAggregationChannel()
 	p := pool.New().WithMaxGoroutines(c.backgroundWorkerCount).WithContext(ctx)
 	go func() {
 		defer close(c.done)
 		for {
 			select {
-			case request := <-c.aggregationKeyChan:
+			case request := <-aggregationChannel:
 				p.Go(func(poolCtx context.Context) error {
-					c.metrics(poolCtx).DecrementPendingAggregationsChannelBuffer(poolCtx, 1)
+					c.metrics(poolCtx).With("client_id", request.ClientID).DecrementPendingAggregationsChannelBuffer(poolCtx, 1)
 					poolCtx = scope.WithAggregationKey(poolCtx, request.AggregationKey)
 					poolCtx = scope.WithMessageID(poolCtx, request.MessageID)
 
@@ -217,8 +219,9 @@ func (c *CommitReportAggregator) Ready() error {
 	}
 
 	lggr := c.logger(context.Background())
-	pending := len(c.aggregationKeyChan)
-	capacity := cap(c.aggregationKeyChan)
+	aggregationChannel := c.channelManager.getAggregationChannel()
+	pending := len(aggregationChannel)
+	capacity := cap(aggregationChannel)
 	if pending >= capacity {
 		lggr.Warnw("aggregation queue full", "capacity", capacity, "pending", pending)
 		return nil
@@ -256,12 +259,12 @@ func (c *CommitReportAggregator) Name() string {
 //   - *CommitReportAggregator: A new aggregator instance ready to process commit reports
 //
 // The returned aggregator must have StartBackground called to begin processing aggregation requests.
-func NewCommitReportAggregator(storage common.CommitVerificationStore, aggregatedStore common.CommitVerificationAggregatedStore, sink common.Sink, quorum QuorumValidator, config *model.AggregatorConfig, logger logger.SugaredLogger, monitoring common.AggregatorMonitoring) *CommitReportAggregator {
+func NewCommitReportAggregator(storage common.CommitVerificationStore, aggregatedStore common.CommitVerificationAggregatedStore, sink common.Sink, quorum QuorumValidator, config *model.AggregatorConfig, logger logger.SugaredLogger, monitoring common.AggregatorMonitoring, channelManager *ChannelManager) *CommitReportAggregator {
 	return &CommitReportAggregator{
 		storage:               storage,
 		aggregatedStore:       aggregatedStore,
 		sink:                  sink,
-		aggregationKeyChan:    make(chan aggregationRequest, config.Aggregation.ChannelBufferSize),
+		channelManager:        channelManager,
 		backgroundWorkerCount: config.Aggregation.BackgroundWorkerCount,
 		operationTimeout:      time.Duration(config.Aggregation.OperationTimeoutSeconds) * time.Second,
 		quorum:                quorum,

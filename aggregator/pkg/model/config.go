@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -114,6 +115,10 @@ type AggregationConfig struct {
 	BackgroundWorkerCount int `toml:"backgroundWorkerCount"`
 	// OperationTimeoutSeconds is the timeout for each aggregation operation (0 = no timeout)
 	OperationTimeoutSeconds int `toml:"operationTimeoutSeconds"`
+	// CheckAggregationTimeout is the timeout for each check aggregation operation in the write commit verifier node result handler.
+	// Consider the batch size when setting this value. A larger batch size will require a longer timeout.
+	// Example: "5s", "100ms", "1m"
+	CheckAggregationTimeout time.Duration `toml:"checkAggregationTimeout"`
 }
 
 type OrphanRecoveryConfig struct {
@@ -126,6 +131,9 @@ type OrphanRecoveryConfig struct {
 	MaxAgeHours int `toml:"maxAgeHours"`
 	// ScanTimeoutSeconds is the timeout for each orphan recovery scan (0 = no timeout)
 	ScanTimeoutSeconds int `toml:"scanTimeoutSeconds"`
+	// CheckAggregationTimeout is the timeout for each check aggregation operation.
+	// Example: "5s", "100ms", "1m"
+	CheckAggregationTimeout time.Duration `toml:"checkAggregationTimeout"`
 }
 
 type HealthCheckConfig struct {
@@ -407,6 +415,10 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.Aggregation.BackgroundWorkerCount == 0 {
 		c.Aggregation.BackgroundWorkerCount = 10
 	}
+	// Default check aggregation timeout: 5 seconds
+	if c.Aggregation.CheckAggregationTimeout == 0 {
+		c.Aggregation.CheckAggregationTimeout = 5 * time.Second
+	}
 	// Initialize Storage config if nil
 	if c.Storage == nil {
 		c.Storage = &StorageConfig{}
@@ -430,6 +442,10 @@ func (c *AggregatorConfig) SetDefaults() {
 	// Default orphan recovery: enabled with 5 minute interval
 	if c.OrphanRecovery.IntervalSeconds == 0 {
 		c.OrphanRecovery.IntervalSeconds = 300 // 5 minutes
+	}
+	// Default check aggregation timeout: 5 seconds
+	if c.OrphanRecovery.CheckAggregationTimeout == 0 {
+		c.OrphanRecovery.CheckAggregationTimeout = 5 * time.Second
 	}
 	// Default max age: 7 days
 	if c.OrphanRecovery.MaxAgeHours == 0 {
@@ -526,6 +542,9 @@ func (c *AggregatorConfig) ValidateAggregationConfig() error {
 	if c.Aggregation.OperationTimeoutSeconds < 0 {
 		return errors.New("aggregation.operationTimeoutSeconds cannot be negative")
 	}
+	if c.Aggregation.CheckAggregationTimeout <= 0 {
+		return errors.New("aggregation.checkAggregationTimeout must be greater than 0")
+	}
 
 	return nil
 }
@@ -561,6 +580,9 @@ func (c *AggregatorConfig) ValidateStorageConfig() error {
 func (c *AggregatorConfig) ValidateOrphanRecoveryConfig() error {
 	if c.OrphanRecovery.ScanTimeoutSeconds < 0 {
 		return errors.New("orphanRecovery.scanTimeoutSeconds cannot be negative")
+	}
+	if c.OrphanRecovery.CheckAggregationTimeout <= 0 {
+		return errors.New("orphanRecovery.checkAggregationTimeout must be greater than 0")
 	}
 	if !c.OrphanRecovery.Enabled {
 		return nil
