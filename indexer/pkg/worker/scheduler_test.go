@@ -109,6 +109,8 @@ func TestScheduler_DLQOnTTLExpired(t *testing.T) {
 	// mock expectations will be asserted on test cleanup
 }
 
+// TestScheduler_Backoff_NegativeAttempt validates backoff calculation lower-bounds
+// the delay when an invalid negative attempt value is provided.
 func TestScheduler_Backoff_NegativeAttempt(t *testing.T) {
 	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.DebugLevel))
 	require.NoError(t, err)
@@ -121,6 +123,8 @@ func TestScheduler_Backoff_NegativeAttempt(t *testing.T) {
 	require.GreaterOrEqual(t, int(d.Milliseconds()), scfg.BaseDelay)
 }
 
+// TestScheduler_Enqueue_TTLExpired_DLQ asserts Enqueue returns an error for
+// tasks whose TTL is already expired and that such tasks are placed on DLQ.
 func TestScheduler_Enqueue_TTLExpired_DLQ(t *testing.T) {
 	lggr := logger.Test(t)
 	scfg := config.SchedulerConfig{TickerInterval: 50, BaseDelay: 10, MaxDelay: 1000, VerificationVisibilityWindow: 60}
@@ -145,6 +149,8 @@ func TestScheduler_Enqueue_TTLExpired_DLQ(t *testing.T) {
 	}
 }
 
+// TestScheduler_Enqueue_PushesToHeapWhenDelayed verifies tasks with non-zero delay
+// are pushed to the scheduler's heap instead of Ready.
 func TestScheduler_Enqueue_PushesToHeapWhenDelayed(t *testing.T) {
 	lggr := logger.Test(t)
 	scfg := config.SchedulerConfig{TickerInterval: 500, BaseDelay: 10, MaxDelay: 1000, VerificationVisibilityWindow: 60}
@@ -163,6 +169,8 @@ func TestScheduler_Enqueue_PushesToHeapWhenDelayed(t *testing.T) {
 	require.GreaterOrEqual(t, heapLen, 1)
 }
 
+// TestScheduler_RunMovesDelayedToReady ensures the scheduler's run loop moves
+// delayed tasks from the heap to the Ready channel on tick.
 func TestScheduler_RunMovesDelayedToReady(t *testing.T) {
 	lggr := logger.Test(t)
 	scfg := config.SchedulerConfig{TickerInterval: 10, BaseDelay: 10, MaxDelay: 1000, VerificationVisibilityWindow: 60}

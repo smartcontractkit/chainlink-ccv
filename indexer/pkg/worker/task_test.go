@@ -25,6 +25,8 @@ func mustAddr(t *testing.T, hex string) protocol.UnknownAddress {
 	return addr
 }
 
+// TestTask_GetVerifiers verifies getVerifiers returns the lower-cased hex strings
+// for MessageCCVAddresses on the task's message.
 func TestTask_GetVerifiers(t *testing.T) {
 	lggr := logger.Test(t)
 
@@ -44,6 +46,8 @@ func TestTask_GetVerifiers(t *testing.T) {
 	require.Equal(t, got[1], addr2.String())
 }
 
+// TestTask_GetExistingAndMissingVerifiers verifies getExistingVerifiers and
+// getMissingVerifiers return the correct sets based on storage results.
 func TestTask_GetExistingAndMissingVerifiers(t *testing.T) {
 	lggr := logger.Test(t)
 
@@ -80,6 +84,8 @@ func TestTask_GetExistingAndMissingVerifiers(t *testing.T) {
 	require.Equal(t, addr2.String(), missing[0])
 }
 
+// TestTask_LoadVerifierReaders checks loadVerifierReaders correctly loads readers
+// from the registry and reports which addresses were loaded vs missing.
 func TestTask_LoadVerifierReaders(t *testing.T) {
 	lggr := logger.Test(t)
 
@@ -102,6 +108,8 @@ func TestTask_LoadVerifierReaders(t *testing.T) {
 	require.Equal(t, addr2.String(), missing[0])
 }
 
+// TestTask_SetMessageStatus_DelegatesToStorage asserts that SetMessageStatus
+// correctly calls UpdateMessageStatus on the underlying storage.
 func TestTask_SetMessageStatus_DelegatesToStorage(t *testing.T) {
 	lggr := logger.Test(t)
 
@@ -115,6 +123,8 @@ func TestTask_SetMessageStatus_DelegatesToStorage(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestLoadVerifierReaders_InvalidAndLoaded ensures invalid hex addresses are
+// treated as missing, while valid addresses that are registered are loaded.
 func TestLoadVerifierReaders_InvalidAndLoaded(t *testing.T) {
 	lggr := logger.Test(t)
 	reg := registry.NewVerifierRegistry()
@@ -136,6 +146,8 @@ func TestLoadVerifierReaders_InvalidAndLoaded(t *testing.T) {
 	require.Equal(t, "not-a-hex", missing[0])
 }
 
+// TestGetExistingVerifiers_StorageError verifies that getExistingVerifiers
+// returns an error when the storage backend fails.
 func TestGetExistingVerifiers_StorageError(t *testing.T) {
 	lggr := logger.Test(t)
 	ms := mocks.NewMockIndexerStorage(t)

@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+// TestExecute_StorageError ensures Execute returns an error when storage GetCCVData fails.
 func TestExecute_StorageError(t *testing.T) {
 	lggr := logger.Test(t)
 
@@ -29,6 +30,8 @@ func TestExecute_StorageError(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestExecute_NoMissingVerifiers_NoBatchInsert verifies Execute doesn't call BatchInsertCCVData
+// when the storage already contains the necessary verifier results.
 func TestExecute_NoMissingVerifiers_NoBatchInsert(t *testing.T) {
 	lggr := logger.Test(t)
 
@@ -56,6 +59,8 @@ func TestExecute_NoMissingVerifiers_NoBatchInsert(t *testing.T) {
 	ms.AssertNotCalled(t, "BatchInsertCCVData", mock.Anything, mock.Anything)
 }
 
+// TestExecute_MissingUnknownCCVs verifies Execute correctly counts unknown CCV addresses
+// when no verifiers are present in the registry.
 func TestExecute_MissingUnknownCCVs(t *testing.T) {
 	lggr := logger.Test(t)
 
