@@ -34,7 +34,7 @@ func createMinimalValidConfig() *AggregatorConfig {
 	return &AggregatorConfig{
 		Committee: createValidCommittee(),
 		Server: ServerConfig{
-			RequestTimeoutSeconds: 10,
+			RequestTimeout: 10 * time.Second,
 		},
 	}
 }
@@ -71,12 +71,12 @@ func TestSetDefaults(t *testing.T) {
 		assert.Equal(t, 100, cfg.Storage.PageSize)
 		assert.Equal(t, 25, cfg.Storage.MaxOpenConns)
 		assert.Equal(t, 5, cfg.Storage.MaxIdleConns)
-		assert.Equal(t, 3600, cfg.Storage.ConnMaxLifetime)
-		assert.Equal(t, 300, cfg.Storage.ConnMaxIdleTime)
-		assert.Equal(t, 300, cfg.OrphanRecovery.IntervalSeconds)
-		assert.Equal(t, 168, cfg.OrphanRecovery.MaxAgeHours)
+		assert.Equal(t, time.Hour, cfg.Storage.ConnMaxLifetime)
+		assert.Equal(t, 5*time.Minute, cfg.Storage.ConnMaxIdleTime)
+		assert.Equal(t, 5*time.Minute, cfg.OrphanRecovery.Interval)
+		assert.Equal(t, 168*time.Hour, cfg.OrphanRecovery.MaxAge)
 		assert.Equal(t, "8080", cfg.HealthCheck.Port)
-		assert.Equal(t, 10, cfg.Server.RequestTimeoutSeconds)
+		assert.Equal(t, 10*time.Second, cfg.Server.RequestTimeout)
 		assert.Equal(t, 5*time.Second, cfg.Aggregation.CheckAggregationTimeout)
 		assert.Equal(t, 5*time.Second, cfg.OrphanRecovery.CheckAggregationTimeout)
 	})
@@ -88,14 +88,14 @@ func TestSetDefaults(t *testing.T) {
 				PageSize: 200,
 			},
 			Server: ServerConfig{
-				RequestTimeoutSeconds: 30,
+				RequestTimeout: 30 * time.Second,
 			},
 		}
 		cfg.SetDefaults()
 
 		assert.Equal(t, 50, cfg.MaxMessageIDsPerBatch)
 		assert.Equal(t, 200, cfg.Storage.PageSize)
-		assert.Equal(t, 30, cfg.Server.RequestTimeoutSeconds)
+		assert.Equal(t, 30*time.Second, cfg.Server.RequestTimeout)
 	})
 }
 
@@ -108,72 +108,72 @@ func TestValidateServerConfig(t *testing.T) {
 	}{
 		{
 			name:        "valid config",
-			config:      ServerConfig{RequestTimeoutSeconds: 10},
+			config:      ServerConfig{RequestTimeout: 10 * time.Second},
 			expectError: false,
 		},
 		{
 			name:        "zero request timeout fails",
-			config:      ServerConfig{RequestTimeoutSeconds: 0},
+			config:      ServerConfig{RequestTimeout: 0},
 			expectError: true,
-			errorMsg:    "requestTimeoutSeconds must be greater than 0",
+			errorMsg:    "requestTimeout must be greater than 0",
 		},
 		{
 			name:        "negative request timeout fails",
-			config:      ServerConfig{RequestTimeoutSeconds: -1},
+			config:      ServerConfig{RequestTimeout: -1 * time.Second},
 			expectError: true,
-			errorMsg:    "requestTimeoutSeconds must be greater than 0",
+			errorMsg:    "requestTimeout must be greater than 0",
 		},
 		{
 			name:        "negative connection timeout fails",
-			config:      ServerConfig{RequestTimeoutSeconds: 10, ConnectionTimeoutSeconds: -1},
+			config:      ServerConfig{RequestTimeout: 10 * time.Second, ConnectionTimeout: -1 * time.Second},
 			expectError: true,
-			errorMsg:    "connectionTimeoutSeconds cannot be negative",
+			errorMsg:    "connectionTimeout cannot be negative",
 		},
 		{
 			name:        "negative keepalive min time fails",
-			config:      ServerConfig{RequestTimeoutSeconds: 10, KeepaliveMinTimeSeconds: -1},
+			config:      ServerConfig{RequestTimeout: 10 * time.Second, KeepaliveMinTime: -1 * time.Second},
 			expectError: true,
-			errorMsg:    "keepaliveMinTimeSeconds cannot be negative",
+			errorMsg:    "keepaliveMinTime cannot be negative",
 		},
 		{
 			name:        "negative keepalive time fails",
-			config:      ServerConfig{RequestTimeoutSeconds: 10, KeepaliveTimeSeconds: -1},
+			config:      ServerConfig{RequestTimeout: 10 * time.Second, KeepaliveTime: -1 * time.Second},
 			expectError: true,
-			errorMsg:    "keepaliveTimeSeconds cannot be negative",
+			errorMsg:    "keepaliveTime cannot be negative",
 		},
 		{
 			name:        "negative keepalive timeout fails",
-			config:      ServerConfig{RequestTimeoutSeconds: 10, KeepaliveTimeoutSeconds: -1},
+			config:      ServerConfig{RequestTimeout: 10 * time.Second, KeepaliveTimeout: -1 * time.Second},
 			expectError: true,
-			errorMsg:    "keepaliveTimeoutSeconds cannot be negative",
+			errorMsg:    "keepaliveTimeout cannot be negative",
 		},
 		{
 			name:        "negative max connection age fails",
-			config:      ServerConfig{RequestTimeoutSeconds: 10, MaxConnectionAgeSeconds: -1},
+			config:      ServerConfig{RequestTimeout: 10 * time.Second, MaxConnectionAge: -1 * time.Second},
 			expectError: true,
-			errorMsg:    "maxConnectionAgeSeconds cannot be negative",
+			errorMsg:    "maxConnectionAge cannot be negative",
 		},
 		{
 			name:        "negative max recv msg size fails",
-			config:      ServerConfig{RequestTimeoutSeconds: 10, MaxRecvMsgSizeBytes: -1},
+			config:      ServerConfig{RequestTimeout: 10 * time.Second, MaxRecvMsgSizeBytes: -1},
 			expectError: true,
 			errorMsg:    "maxRecvMsgSizeBytes cannot be negative",
 		},
 		{
 			name:        "max recv msg size exceeds limit fails",
-			config:      ServerConfig{RequestTimeoutSeconds: 10, MaxRecvMsgSizeBytes: 101 * 1024 * 1024},
+			config:      ServerConfig{RequestTimeout: 10 * time.Second, MaxRecvMsgSizeBytes: 101 * 1024 * 1024},
 			expectError: true,
 			errorMsg:    "maxRecvMsgSizeBytes cannot exceed 100MB",
 		},
 		{
 			name:        "negative max send msg size fails",
-			config:      ServerConfig{RequestTimeoutSeconds: 10, MaxSendMsgSizeBytes: -1},
+			config:      ServerConfig{RequestTimeout: 10 * time.Second, MaxSendMsgSizeBytes: -1},
 			expectError: true,
 			errorMsg:    "maxSendMsgSizeBytes cannot be negative",
 		},
 		{
 			name:        "max send msg size exceeds limit fails",
-			config:      ServerConfig{RequestTimeoutSeconds: 10, MaxSendMsgSizeBytes: 101 * 1024 * 1024},
+			config:      ServerConfig{RequestTimeout: 10 * time.Second, MaxSendMsgSizeBytes: 101 * 1024 * 1024},
 			expectError: true,
 			errorMsg:    "maxSendMsgSizeBytes cannot exceed 100MB",
 		},
@@ -290,9 +290,9 @@ func TestValidateAggregationConfig(t *testing.T) {
 		},
 		{
 			name:        "negative operation timeout fails",
-			config:      AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 10, OperationTimeoutSeconds: -1, CheckAggregationTimeout: 5 * time.Second},
+			config:      AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 10, OperationTimeout: -1 * time.Second, CheckAggregationTimeout: 5 * time.Second},
 			expectError: true,
-			errorMsg:    "operationTimeoutSeconds cannot be negative",
+			errorMsg:    "operationTimeout cannot be negative",
 		},
 		{
 			name:        "negative check aggregation timeout fails",
@@ -361,13 +361,13 @@ func TestValidateStorageConfig(t *testing.T) {
 		},
 		{
 			name:        "negative conn max lifetime fails",
-			config:      &StorageConfig{PageSize: 100, MaxOpenConns: 25, MaxIdleConns: 5, ConnMaxLifetime: -1},
+			config:      &StorageConfig{PageSize: 100, MaxOpenConns: 25, MaxIdleConns: 5, ConnMaxLifetime: -1 * time.Second},
 			expectError: true,
 			errorMsg:    "connMaxLifetime cannot be negative",
 		},
 		{
 			name:        "negative conn max idle time fails",
-			config:      &StorageConfig{PageSize: 100, MaxOpenConns: 25, MaxIdleConns: 5, ConnMaxIdleTime: -1},
+			config:      &StorageConfig{PageSize: 100, MaxOpenConns: 25, MaxIdleConns: 5, ConnMaxIdleTime: -1 * time.Second},
 			expectError: true,
 			errorMsg:    "connMaxIdleTime cannot be negative",
 		},
@@ -397,35 +397,35 @@ func TestValidateOrphanRecoveryConfig(t *testing.T) {
 	}{
 		{
 			name:        "valid enabled config",
-			config:      OrphanRecoveryConfig{Enabled: true, IntervalSeconds: 60, MaxAgeHours: 24, CheckAggregationTimeout: 5 * time.Second},
+			config:      OrphanRecoveryConfig{Enabled: true, Interval: 60 * time.Second, MaxAge: 24 * time.Hour, CheckAggregationTimeout: 5 * time.Second},
 			expectError: false,
 		},
 		{
 			name:        "disabled config skips validation",
-			config:      OrphanRecoveryConfig{Enabled: false, IntervalSeconds: 0, MaxAgeHours: 0, CheckAggregationTimeout: 5 * time.Second},
+			config:      OrphanRecoveryConfig{Enabled: false, Interval: 0, MaxAge: 0, CheckAggregationTimeout: 5 * time.Second},
 			expectError: false,
 		},
 		{
 			name:        "negative scan timeout fails",
-			config:      OrphanRecoveryConfig{Enabled: false, ScanTimeoutSeconds: -1, CheckAggregationTimeout: 5 * time.Second},
+			config:      OrphanRecoveryConfig{Enabled: false, ScanTimeout: -1 * time.Second, CheckAggregationTimeout: 5 * time.Second},
 			expectError: true,
-			errorMsg:    "scanTimeoutSeconds cannot be negative",
+			errorMsg:    "scanTimeout cannot be negative",
 		},
 		{
-			name:        "max age hours less than 1 fails when enabled",
-			config:      OrphanRecoveryConfig{Enabled: true, IntervalSeconds: 60, MaxAgeHours: 0, CheckAggregationTimeout: 5 * time.Second},
+			name:        "max age less than 1 hour fails when enabled",
+			config:      OrphanRecoveryConfig{Enabled: true, Interval: 60 * time.Second, MaxAge: 0, CheckAggregationTimeout: 5 * time.Second},
 			expectError: true,
-			errorMsg:    "maxAgeHours must be at least 1",
+			errorMsg:    "maxAge must be at least 1 hour",
 		},
 		{
-			name:        "interval seconds less than 5 fails when enabled",
-			config:      OrphanRecoveryConfig{Enabled: true, IntervalSeconds: 4, MaxAgeHours: 24, CheckAggregationTimeout: 5 * time.Second},
+			name:        "interval less than 5 seconds fails when enabled",
+			config:      OrphanRecoveryConfig{Enabled: true, Interval: 4 * time.Second, MaxAge: 24 * time.Hour, CheckAggregationTimeout: 5 * time.Second},
 			expectError: true,
-			errorMsg:    "intervalSeconds must be at least 5",
+			errorMsg:    "interval must be at least 5 seconds",
 		},
 		{
 			name:        "negative check aggregation timeout fails",
-			config:      OrphanRecoveryConfig{Enabled: true, IntervalSeconds: 60, MaxAgeHours: 24, CheckAggregationTimeout: -1},
+			config:      OrphanRecoveryConfig{Enabled: true, Interval: 60 * time.Second, MaxAge: 24 * time.Hour, CheckAggregationTimeout: -1},
 			expectError: true,
 			errorMsg:    "orphanRecovery.checkAggregationTimeout must be greater than 0",
 		},
@@ -718,7 +718,7 @@ func TestValidate_IntegrationWithAllValidators(t *testing.T) {
 
 	t.Run("invalid server config fails", func(t *testing.T) {
 		cfg := createMinimalValidConfig()
-		cfg.Server.RequestTimeoutSeconds = -1
+		cfg.Server.RequestTimeout = -1 * time.Second
 		err := cfg.Validate()
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "server configuration error")

@@ -266,7 +266,7 @@ func NewCommitReportAggregator(storage common.CommitVerificationStore, aggregate
 		sink:                  sink,
 		channelManager:        channelManager,
 		backgroundWorkerCount: config.Aggregation.BackgroundWorkerCount,
-		operationTimeout:      time.Duration(config.Aggregation.OperationTimeoutSeconds) * time.Second,
+		operationTimeout:      config.Aggregation.OperationTimeout,
 		quorum:                quorum,
 		monitoring:            monitoring,
 		l:                     logger,

@@ -20,8 +20,8 @@ const (
 	postgresDriver         = "postgres"
 	defaultMaxOpenConns    = 25
 	defaultMaxIdleConns    = 10
-	defaultConnMaxLifetime = 3600 // 1 hour in seconds
-	defaultConnMaxIdleTime = 300  // 5 minutes in seconds
+	defaultConnMaxLifetime = time.Hour
+	defaultConnMaxIdleTime = 5 * time.Minute
 )
 
 // CommitVerificationStorage combines all storage interfaces for production use.
@@ -79,13 +79,13 @@ func (f *Factory) createPostgreSQLStorage(config *model.StorageConfig) (CommitVe
 	if connMaxLifetime <= 0 {
 		connMaxLifetime = defaultConnMaxLifetime
 	}
-	db.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
+	db.SetConnMaxLifetime(connMaxLifetime)
 
 	connMaxIdleTime := config.ConnMaxIdleTime
 	if connMaxIdleTime <= 0 {
 		connMaxIdleTime = defaultConnMaxIdleTime
 	}
-	db.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Second)
+	db.SetConnMaxIdleTime(connMaxIdleTime)
 
 	f.logger.Infow("Database connection pool configured",
 		"maxOpenConns", maxOpenConns,
