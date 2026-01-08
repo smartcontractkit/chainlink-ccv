@@ -156,3 +156,72 @@ done:
 	// small sleep to allow goroutine to exit
 	time.Sleep(50 * time.Millisecond)
 }
+
+func TestWorkerPool_StartStop_ClosedDiscovery(t *testing.T) {
+	lggr := logger.Test(t)
+
+	// closed discovery channel should cause enqueueMessages to exit immediately
+	discoveryCh := make(chan common.VerifierResultWithMetadata)
+	close(discoveryCh)
+
+	schedCfg := config.SchedulerConfig{TickerInterval: 50, BaseDelay: 0, MaxDelay: 0, VerificationVisibilityWindow: 60}
+	scheduler, err := NewScheduler(lggr, schedCfg)
+	require.NoError(t, err)
+
+	poolCfg := config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}
+	reg := registry.NewVerifierRegistry()
+	storage := mocks.NewMockIndexerStorage(t)
+
+	p := NewWorkerPool(lggr, poolCfg, discoveryCh, scheduler, reg, storage)
+
+	// Start the pool
+	p.Start(context.Background())
+
+	// Call Stop in a goroutine and ensure it returns within a reasonable timeout
+	done := make(chan struct{})
+	go func() {
+		p.Stop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// success
+	case <-time.After(1 * time.Second):
+		t.Fatalf("Stop did not return in time for closed discovery channel")
+	}
+}
+
+func TestWorkerPool_StartStop_Cancel(t *testing.T) {
+	lggr := logger.Test(t)
+
+	// open discovery channel - Stop should cancel the child context and exit goroutines
+	discoveryCh := make(chan common.VerifierResultWithMetadata, 1)
+
+	schedCfg := config.SchedulerConfig{TickerInterval: 50, BaseDelay: 0, MaxDelay: 0, VerificationVisibilityWindow: 60}
+	scheduler, err := NewScheduler(lggr, schedCfg)
+	require.NoError(t, err)
+
+	poolCfg := config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}
+	reg := registry.NewVerifierRegistry()
+	storage := mocks.NewMockIndexerStorage(t)
+
+	p := NewWorkerPool(lggr, poolCfg, discoveryCh, scheduler, reg, storage)
+
+	// Start the pool
+	p.Start(context.Background())
+
+	// Call Stop in a goroutine and ensure it returns within a reasonable timeout
+	done := make(chan struct{})
+	go func() {
+		p.Stop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// success
+	case <-time.After(1 * time.Second):
+		t.Fatalf("Stop did not return in time when canceling child context")
+	}
+}
