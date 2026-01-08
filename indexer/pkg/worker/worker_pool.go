@@ -13,10 +13,17 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+// poolWorker is a minimal interface extracted for easier testing. It matches
+// the subset of methods from *ants.Pool that we use.
+type poolWorker interface {
+	Submit(func()) error
+	Release()
+}
+
 type Pool struct {
 	config           config.PoolConfig
 	logger           logger.Logger
-	pool             *ants.Pool
+	pool             poolWorker
 	discoveryChannel <-chan common.VerifierResultWithMetadata
 	scheduler        *Scheduler
 	registry         *registry.VerifierRegistry
@@ -27,7 +34,7 @@ type Pool struct {
 
 // NewWorkerPool creates a new WorkerPool with the given configuration.
 func NewWorkerPool(logger logger.Logger, config config.PoolConfig, discoveryChannel <-chan common.VerifierResultWithMetadata, scheduler *Scheduler, registry *registry.VerifierRegistry, storage common.IndexerStorage) *Pool {
-	pool, err := ants.NewPool(config.ConcurrentWorkers, ants.WithMaxBlockingTasks(1024), ants.WithNonblocking(false))
+	antsPool, err := ants.NewPool(config.ConcurrentWorkers, ants.WithMaxBlockingTasks(1024), ants.WithNonblocking(false))
 	if err != nil {
 		logger.Fatalf("Unable to start worker pool: %v", err)
 	}
@@ -35,7 +42,7 @@ func NewWorkerPool(logger logger.Logger, config config.PoolConfig, discoveryChan
 	return &Pool{
 		config:           config,
 		logger:           logger,
-		pool:             pool,
+		pool:             antsPool,
 		discoveryChannel: discoveryChannel,
 		scheduler:        scheduler,
 		registry:         registry,
