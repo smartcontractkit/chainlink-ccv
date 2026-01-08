@@ -12,14 +12,13 @@ LoadCache[T] is used if you need to write outputs the second time.
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/BurntSushi/toml"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/pelletier/go-toml/v2"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
@@ -53,14 +52,10 @@ func Load[T any](paths []string) (*T, error) {
 		}
 
 		decoder := toml.NewDecoder(strings.NewReader(string(data)))
-		decoder.DisallowUnknownFields()
 
-		if err := decoder.Decode(&config); err != nil {
-			var details *toml.StrictMissingError
-			if errors.As(err, &details) {
-				fmt.Println(details.String())
-			}
-			return nil, fmt.Errorf("failed to decode TOML config, strict mode: %s", err)
+		_, err = decoder.Decode(&config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode TOML config: %w", err)
 		}
 	}
 	if L.GetLevel() == zerolog.TraceLevel {
