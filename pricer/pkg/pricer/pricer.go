@@ -2,14 +2,12 @@ package pricer
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/keystore"
-	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
@@ -18,74 +16,43 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-var DefaultInterval = commonconfig.MustNewDuration(10 * time.Second)
-
-type PricerConfig struct {
-	Interval *commonconfig.Duration `toml:"interval"`
-}
-
-func (c *PricerConfig) Validate() error {
-	if c.Interval == nil || c.Interval.Duration() <= 0 {
-		return errors.New("interval must be positive")
-	}
-	return nil
-}
-
-func (c *PricerConfig) SetDefaults() {
-	if c.Interval == nil {
-		c.Interval = DefaultInterval
-	}
-}
-
 type Config struct {
-	// Product specific config.
-	PricerConfig
+	// TODO: Actual pricerconfig.
+	Interval time.Duration `toml:"interval"`
 	// TODO: Should be able to use chainlink-common/pkg/logger Config struct.
 	LogLevel zapcore.Level `toml:"loglevel"`
-	// EVM chain configuration.
+	// Chain write connectivity config,
+	// common to read/write.
 	EVM evmtoml.EVMConfig `toml:"EVM"`
 }
 
 func (c *Config) Validate() error {
-	if err := c.PricerConfig.Validate(); err != nil {
-		return fmt.Errorf("invalid pricer config: %w", err)
+	if c.Interval <= 0 {
+		return fmt.Errorf("interval must be positive")
 	}
 	if err := c.EVM.ValidateConfig(); err != nil {
-		return fmt.Errorf("invalid EVM config: %w", err)
+		return fmt.Errorf("invalid EVM chain config: %w", err)
 	}
 	return nil
 }
 
 func (c *Config) SetDefaults() {
-	c.PricerConfig.SetDefaults()
 	if c.LogLevel == zapcore.Level(0) {
 		c.LogLevel = zapcore.InfoLevel
 	}
-	// Apply chain-specific defaults based on ChainID.
-	if c.EVM.ChainID != nil {
-		defaults := evmtoml.Defaults(c.EVM.ChainID)
-		defaults.SetFrom(&c.EVM.Chain)
-		c.EVM.Chain = defaults
-	}
-	// Node.ValidateConfig() sets defaults for Order, IsLoadBalancedRPC, etc.
-	for _, n := range c.EVM.Nodes {
-		_ = n.ValidateConfig()
-	}
 }
 
-// Family specific writer
-// List of abstract data sources.
 type Pricer struct {
 	services.StateMachine
 	lggr   logger.Logger
 	client client.Client
 	txm    *txm.Txm
-	cfg    PricerConfig
+	cfg    Config
 	done   chan struct{}
 	wg     sync.WaitGroup
 }
 
-func NewPricerFromConfig(ctx context.Context, cfg Config, keystorePassword string, ksFile string) (*Pricer, error) {
+func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, keystorePassword string) (*Pricer, error) {
 	cfg.SetDefaults()
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
@@ -96,21 +63,25 @@ func NewPricerFromConfig(ctx context.Context, cfg Config, keystorePassword strin
 	}
 	lggr = logger.Named(lggr, "pricer")
 
-	// Build the EVM client from config.
-	// TODO: Move this to chainlink-evm/pkg/client.
 	evmClient, err := NewEvmClientFromConfig(lggr, cfg.EVM)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create EVM client: %w", err)
 	}
-	ks, err := keystore.LoadKeystore(ctx, keystore.NewFileStorage(ksFile), keystorePassword)
+
+	// Use in-memory keystore storage populated from env var data.
+	memStorage := keystore.NewMemoryStorage()
+	if err := memStorage.PutEncryptedKeystore(ctx, keystoreData); err != nil {
+		return nil, fmt.Errorf("failed to populate keystore storage: %w", err)
+	}
+	ks, err := keystore.LoadKeystore(ctx, memStorage, keystorePassword)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load keystore: %w", err)
 	}
 	txm := NewStatelessTxmV2FromConfig(lggr, cfg.EVM, evmClient, ks, nil)
-	return New(lggr, cfg.PricerConfig, evmClient, txm), nil
+	return New(lggr, cfg, evmClient, txm), nil
 }
 
-func New(lggr logger.Logger, cfg PricerConfig, evmClient client.Client, txm *txm.Txm) *Pricer {
+func New(lggr logger.Logger, cfg Config, evmClient client.Client, txm *txm.Txm) *Pricer {
 	return &Pricer{
 		StateMachine: services.StateMachine{},
 		lggr:         lggr,
@@ -125,7 +96,6 @@ func New(lggr logger.Logger, cfg PricerConfig, evmClient client.Client, txm *txm
 func (p *Pricer) Start(ctx context.Context) error {
 	return p.StartOnce("Pricer", func() error {
 		p.lggr.Infow("starting",
-			"interval", p.cfg.Interval.Duration(),
 			"chainID", p.client.ConfiguredChainID(),
 		)
 		p.wg.Add(1)
@@ -136,7 +106,7 @@ func (p *Pricer) Start(ctx context.Context) error {
 
 func (p *Pricer) run(ctx context.Context) {
 	defer p.wg.Done()
-	ticker := time.NewTicker(p.cfg.Interval.Duration())
+	ticker := time.NewTicker(p.cfg.Interval)
 	defer ticker.Stop()
 
 	for {

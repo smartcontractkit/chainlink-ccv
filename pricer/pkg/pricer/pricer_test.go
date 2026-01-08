@@ -50,26 +50,27 @@ func TestPricer(t *testing.T) {
 		_ = n.ValidateConfig()
 	}
 
+	// Create a keystore and populate it with a key.
 	tmpfile, err := os.CreateTemp("", "keystore.json")
 	require.NoError(t, err)
 	defer os.Remove(tmpfile.Name())
-	ks, err := keystore.LoadKeystore(ctx, keystore.NewFileStorage(tmpfile.Name()), "password")
+	fileStorage := keystore.NewFileStorage(tmpfile.Name())
+	ks, err := keystore.LoadKeystore(ctx, fileStorage, "password")
 	require.NoError(t, err)
 	txKey, err := evmkeys.CreateTxKey(ks, "key1")
 	require.NoError(t, err)
 	t.Logf("txKey address: %s", txKey.Address())
 
+	// Read the keystore data to simulate env var input.
+	keystoreData, err := fileStorage.GetEncryptedKeystore(ctx)
+	require.NoError(t, err)
+
 	svc, err := NewPricerFromConfig(ctx,
 		Config{
-			PricerConfig: PricerConfig{
-				Interval: commonconfig.MustNewDuration(1 * time.Second),
-			},
+			Interval: 1 * time.Second,
 			LogLevel: zapcore.DebugLevel,
 			EVM:      evmCfg,
-		},
-		"password",
-		tmpfile.Name(),
-	)
+		}, keystoreData, "password")
 	require.NoError(t, err)
 	require.NoError(t, svc.Start(ctx))
 	// Let it run for a few ticks.

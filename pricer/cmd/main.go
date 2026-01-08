@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/signal"
@@ -11,7 +12,14 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/smartcontractkit/chainlink-ccv/pricer/pkg/pricer"
+	kscli "github.com/smartcontractkit/chainlink-common/keystore/cli"
 	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
+)
+
+const (
+	// Environment variable names for keystore configuration.
+	EnvKeystoreData     = "KEYSTORE_DATA"     // Base64-encoded encrypted keystore
+	EnvKeystorePassword = "KEYSTORE_PASSWORD" // Password to decrypt keystore
 )
 
 func main() {
@@ -25,20 +33,36 @@ func NewRootCmd() *cobra.Command {
 		Use:          "pricer",
 		Short:        "Pricer service",
 		SilenceUsage: true,
+	}
+	cmd.AddCommand(NewRunCmd(), kscli.NewRootCmd())
+	return cmd
+}
+
+func NewRunCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "run",
+		Short: "Run the pricer service",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			configFile, err := cmd.Flags().GetString("config")
 			if err != nil {
 				return err
 			}
-			// TODO: Pull from env var.
-			return run(configFile, "password", "keystore.json")
+			keystoreData, err := base64.StdEncoding.DecodeString(os.Getenv(EnvKeystoreData))
+			if err != nil {
+				return fmt.Errorf("failed to decode %s: %w", EnvKeystoreData, err)
+			}
+			keystorePassword := os.Getenv(EnvKeystorePassword)
+			if keystorePassword == "" {
+				return fmt.Errorf("%s environment variable is required", EnvKeystorePassword)
+			}
+			return run(configFile, keystoreData, keystorePassword)
 		},
 	}
 	cmd.Flags().String("config", "config.toml", "path to config file")
 	return cmd
 }
 
-func run(configFile string, keystorePassword string, ksFile string) error {
+func run(configFile string, keystoreData []byte, keystorePassword string) error {
 	f, err := os.Open(configFile)
 	if err != nil {
 		return fmt.Errorf("failed to open config %s: %w", configFile, err)
@@ -53,7 +77,7 @@ func run(configFile string, keystorePassword string, ksFile string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	svc, err := pricer.NewPricerFromConfig(ctx, cfg, keystorePassword, ksFile)
+	svc, err := pricer.NewPricerFromConfig(ctx, cfg, keystoreData, keystorePassword)
 	if err != nil {
 		return fmt.Errorf("failed to create pricer: %w", err)
 	}

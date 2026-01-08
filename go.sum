@@ -612,10 +612,8 @@ github.com/smartcontractkit/chainlink-common/keystore v0.1.0 h1:9CkrA738ZOmMCllc
 github.com/smartcontractkit/chainlink-common/keystore v0.1.0/go.mod h1:BD+xgKmV9sDK8iqU7grU5U7z/nPqTBy1U6iGXwX8z2w=
 github.com/smartcontractkit/chainlink-common/pkg/chipingress v0.0.10 h1:FJAFgXS9oqASnkS03RE1HQwYQQxrO4l46O5JSzxqLgg=
 github.com/smartcontractkit/chainlink-common/pkg/chipingress v0.0.10/go.mod h1:oiDa54M0FwxevWwyAX773lwdWvFYYlYHHQV1LQ5HpWY=
-github.com/smartcontractkit/chainlink-evm v0.3.4-0.20260106170943-5b93930ce72a h1:sktJKv0q8+UdrpvP+30P/Els2Mj+5hem/aJFvHKuboQ=
-github.com/smartcontractkit/chainlink-evm v0.3.4-0.20260106170943-5b93930ce72a/go.mod h1:9VcrUs+H/f9ekkqAdfUd70Pk2dA1Zc3KykJVFBfJNHs=
-github.com/smartcontractkit/chainlink-evm v0.3.4-0.20260106212846-9e79dff39bf6 h1:GinOoh7XOi45gdvemGYZjhyDqCpxi53/gm5FqDiIUPQ=
-github.com/smartcontractkit/chainlink-evm v0.3.4-0.20260106212846-9e79dff39bf6/go.mod h1:9VcrUs+H/f9ekkqAdfUd70Pk2dA1Zc3KykJVFBfJNHs=
+github.com/smartcontractkit/chainlink-evm v0.3.4-0.20260108163552-cebb824f0ae7 h1:4NPm5T6eD7xxZluDot+9owgaR3W5BhWVZ9cWR+49AKU=
+github.com/smartcontractkit/chainlink-evm v0.3.4-0.20260108163552-cebb824f0ae7/go.mod h1:9VcrUs+H/f9ekkqAdfUd70Pk2dA1Zc3KykJVFBfJNHs=
 github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20251022073203-7d8ae8cf67c1 h1:NTODgwAil7BLoijS7y6KnEuNbQ9v60VUhIR9FcAzIhg=
 github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20251022073203-7d8ae8cf67c1/go.mod h1:oyfOm4k0uqmgZIfxk1elI/59B02shbbJQiiUdPdbMgI=
 github.com/smartcontractkit/chainlink-framework/chains v0.0.0-20251210101658-1c5c8e4c4f15 h1:Mf+IRvrXutcKAKpuOxq5Ae+AAw4Z5vc66q1xI7qimZQ=
