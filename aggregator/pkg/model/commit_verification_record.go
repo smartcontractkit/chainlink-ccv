@@ -36,7 +36,7 @@ type CommitVerificationRecordIdentifier struct {
 
 // ToIdentifier converts the CommitVerificationRecordIdentifier to a string identifier.
 func (c CommitVerificationRecordIdentifier) ToIdentifier() string {
-	return fmt.Sprintf("%x:%x", c.MessageID, c.Address)
+	return fmt.Sprintf("%x:%x", c.MessageID, []byte(c.Address))
 }
 
 // CommitVerificationRecord represents a record of a commit verification.

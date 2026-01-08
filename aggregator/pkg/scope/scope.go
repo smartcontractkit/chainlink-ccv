@@ -54,6 +54,16 @@ func WithAggregationKey(ctx context.Context, key string) context.Context {
 	return context.WithValue(ctx, aggregationKey, key)
 }
 
+func RequestIDFromContext(ctx context.Context) (string, bool) {
+	value, ok := ctx.Value(requestIDKey).(string)
+	return value, ok
+}
+
+func APINameFromContext(ctx context.Context) (string, bool) {
+	value, ok := ctx.Value(apiName).(string)
+	return value, ok
+}
+
 func AugmentLogger(ctx context.Context, logger logger.SugaredLogger) logger.SugaredLogger {
 	for _, key := range loggerContextKeys {
 		logger = augmentLoggerIfOk(ctx, logger, key)
