@@ -90,3 +90,6 @@ env:
         key: keystore-password
 ```
 They will be encrypted with SOPS so they are passed securely to the service.
+
+Coming soon: KMS support as opposed to full keystore in k8s secrets for improved
+security.
