@@ -403,6 +403,8 @@ func (f *aggregatorTestFixture) assertHonestQuorumReached(t *testing.T, ctx cont
 // setupAggregatorTestFixture creates the test infrastructure with 2-of-3 quorum.
 func setupAggregatorTestFixture(t *testing.T) *aggregatorTestFixture {
 	committeeName := "test"
+	// 2337: selector: 12922642891491394802
+	sourceChainId := "2337"
 	sourceChainSel := uint64(12922642891491394802)
 	destChainSel := uint64(2)
 	verifierAddress := "0x68B1D87F95878fE05B998F19b66F4baba5De1aed"
@@ -429,8 +431,8 @@ func setupAggregatorTestFixture(t *testing.T) *aggregatorTestFixture {
 		CommitteeVerifierResolverAddresses: map[uint64]string{
 			sourceChainSel: verifierAddress,
 		},
-		ThresholdPerSource: map[uint64]uint8{
-			sourceChainSel: 2, // 2-of-3 threshold
+		ThresholdPerSource: map[string]uint8{
+			sourceChainId: 2, // 2-of-3 threshold
 		},
 		AggregationChannelBufferSize: 1, // Minimal buffer for channel exhaustion tests
 		BackgroundWorkerCount:        1, // Single worker = slow drain for deterministic tests

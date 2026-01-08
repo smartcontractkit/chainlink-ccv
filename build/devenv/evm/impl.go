@@ -88,6 +88,8 @@ const (
 
 	QuaternaryReceiverQualifier = "quaternary"
 
+	QuinaryReceiverQualifier = "quinary"
+
 	CustomExecutorQualifier = "custom"
 
 	CommitteeVerifierGasForVerification = 500_000
@@ -1089,6 +1091,15 @@ func toCommitteeVerifierParams(committees []cciptestinterfaces.OnChainCommittees
 	return params
 }
 
+// convert signer public key byte array to the EVM address string representations.
+func signersBytesToStrings(bs [][]byte) []string {
+	s := make([]string, 0, len(bs))
+	for _, b := range bs {
+		s = append(s, common.BytesToAddress(b).String())
+	}
+	return s
+}
+
 func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, committees []cciptestinterfaces.OnChainCommittees) (datastore.DataStore, error) {
 	l := m.logger
 	l.Info().Msg("Configuring contracts for selector")
@@ -1255,6 +1266,20 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 						},
 						OptionalThreshold: 1,
 						Qualifier:         QuaternaryReceiverQualifier,
+					},
+					{
+						// single required verifier (tertiary), no optional verifiers, no optional threshold
+						// used to test NOP downsizing e2e
+						Version: semver.MustParse(mock_receiver.Deploy.Version()),
+						RequiredVerifiers: []datastore.AddressRef{
+							{
+								Type:          datastore.ContractType(committee_verifier.ResolverType),
+								Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+								ChainSelector: selector,
+								Qualifier:     TertiaryCommitteeVerifierQualifier,
+							},
+						},
+						Qualifier: QuinaryReceiverQualifier,
 					},
 				},
 			},
@@ -1456,20 +1481,27 @@ func (m *CCIP17EVMConfig) configureTokenForTransfer(
 	return nil
 }
 
-func toComitteeVerifier(selector uint64, committees []cciptestinterfaces.OnChainCommittees, remoteChainConfigs map[uint64]adapters.CommitteeVerifierRemoteChainConfig) []adapters.CommitteeVerifierConfig[datastore.AddressRef] {
+func toCommitteeVerifier(selector uint64, committees []cciptestinterfaces.OnChainCommittees, remoteChainConfigs map[uint64]adapters.CommitteeVerifierRemoteChainConfig) []adapters.CommitteeVerifierConfig[datastore.AddressRef] {
+	// chainIDStr, _ := chainsel.GetChainIDFromSelector(selector)
+	// fmt.Printf("toCommitteeVerifier: creating committee verifiers for selector %d/%s\n", selector, chainIDStr)
 	committeeVerifiers := make([]adapters.CommitteeVerifierConfig[datastore.AddressRef], 0, len(committees))
 	for _, committee := range committees {
 		remoteChainConfigWithSignatureConfig := make(map[uint64]adapters.CommitteeVerifierRemoteChainConfig, len(remoteChainConfigs))
 		for remoteChainSelector, remoteChainConfig := range remoteChainConfigs {
-			signers := make([]string, 0, len(committee.Signers))
-			for _, signer := range committee.Signers {
-				signers = append(signers, common.BytesToAddress(signer).String())
+			// Check if this committee has signers for this source chain
+			signerData, ok := committee.SignersBySourceChain[remoteChainSelector]
+			if !ok {
+				continue
 			}
+			signers := signersBytesToStrings(signerData.Signers)
 			remoteChainConfig.SignatureConfig = adapters.CommitteeVerifierSignatureQuorumConfig{
-				Threshold: committee.Threshold,
+				Threshold: signerData.Threshold,
 				Signers:   signers,
 			}
 			remoteChainConfigWithSignatureConfig[remoteChainSelector] = remoteChainConfig
+			// remoteChainIDStr, _ := chainsel.GetChainIDFromSelector(remoteChainSelector)
+			// fmt.Printf("committeeVerifiers[%s]: for source chain %d/%s -> %+v\n", committee.CommitteeQualifier, remoteChainSelector, remoteChainIDStr, remoteChainConfig.SignatureConfig)
+			// TODO set PayloadSizeBytes calculated from signers list
 		}
 		committeeVerifiers = append(committeeVerifiers, adapters.CommitteeVerifierConfig[datastore.AddressRef]{
 			CommitteeVerifier: []datastore.AddressRef{
@@ -1489,6 +1521,9 @@ func toComitteeVerifier(selector uint64, committees []cciptestinterfaces.OnChain
 			RemoteChains: remoteChainConfigWithSignatureConfig,
 		})
 	}
+
+	// fmt.Printf("committeeVerifiers:\n%+v\n", committeeVerifiers)
+
 	return committeeVerifiers
 }
 
@@ -1575,8 +1610,8 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		committeeVerifierRemoteChainConfigs[rs] = adapters.CommitteeVerifierRemoteChainConfig{
 			AllowlistEnabled:   false,
 			GasForVerification: CommitteeVerifierGasForVerification,
-			FeeUSDCents:        0, // TODO: set proper fee
-			PayloadSizeBytes:   0, // TODO: set proper payload size
+			FeeUSDCents:        50, // Copied from CLD/deploy_ccip.go
+			PayloadSizeBytes:   0,  // will be set later after we gather the # of signatures
 		}
 	}
 
@@ -1604,7 +1639,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 					Type:    datastore.ContractType(routeroperations.ContractType),
 					Version: semver.MustParse(routeroperations.Deploy.Version()),
 				},
-				CommitteeVerifiers: toComitteeVerifier(selector, committees, committeeVerifierRemoteChainConfigs),
+				CommitteeVerifiers: toCommitteeVerifier(selector, committees, committeeVerifierRemoteChainConfigs),
 			},
 		},
 	})

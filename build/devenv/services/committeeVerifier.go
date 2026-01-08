@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"time"
 
@@ -13,6 +14,8 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -32,6 +35,8 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
+var Slog = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel).With().Fields(map[string]any{"component": "services"}).Logger()
+
 //go:embed committeeVerifier.template.toml
 var committeeVerifierConfigTemplate string
 
@@ -49,36 +54,6 @@ const (
 
 var DefaultVerifierDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
 	DefaultVerifierName, DefaultVerifierName, DefaultVerifierDBPort, DefaultVerifierName)
-
-// ConvertBlockchainOutputsToInfo converts blockchain.Output to BlockchainInfo.
-func ConvertBlockchainOutputsToInfo(outputs []*blockchain.Output) map[string]*protocol.BlockchainInfo {
-	infos := make(map[string]*protocol.BlockchainInfo)
-	for _, output := range outputs {
-		info := &protocol.BlockchainInfo{
-			ChainID:         output.ChainID,
-			Type:            output.Type,
-			Family:          output.Family,
-			UniqueChainName: output.ContainerName,
-			Nodes:           make([]*protocol.Node, 0, len(output.Nodes)),
-		}
-
-		// Convert all nodes
-		for _, node := range output.Nodes {
-			if node != nil {
-				convertedNode := &protocol.Node{
-					ExternalHTTPUrl: node.ExternalHTTPUrl,
-					InternalHTTPUrl: node.InternalHTTPUrl,
-					ExternalWSUrl:   node.ExternalWSUrl,
-					InternalWSUrl:   node.InternalWSUrl,
-				}
-				info.Nodes = append(info.Nodes, convertedNode)
-			}
-		}
-
-		infos[output.ChainID] = info
-	}
-	return infos
-}
 
 type VerifierDBInput struct {
 	Image string `toml:"image"`
@@ -112,6 +87,9 @@ type VerifierInput struct {
 	// SigningKeyPublic is generated during the deploy step.
 	// Maps to signer_address in the verifier config toml.
 	SigningKeyPublic string `toml:"signing_key_public"`
+
+	// The optional list of chain selectors this verifier enables
+	EnabledChains []string `toml:"enabled_chains"`
 
 	// Contract addresses used to generate configs
 	// Maps to on_ramp_addresses in the verifier config toml.
@@ -449,6 +427,10 @@ func ResolveContractsForVerifier(ds datastore.DataStore, blockchains []*blockcha
 		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(chain.ChainID, chainsel.FamilyEVM)
 		if err != nil {
 			return VerifierInput{}, err
+		}
+		if ver.EnabledChains != nil && !slices.Contains(ver.EnabledChains, chain.ChainID) {
+			Slog.Info().Str("service", "CommitteeVerifier").Msgf("Verifier %s will NOT secure chain %s", ver.ContainerName, chain.ChainID)
+			continue
 		}
 		selectorStr := strconv.FormatUint(networkInfo.ChainSelector, 10)
 
