@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/go-github/v68/github"
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"golang.org/x/oauth2"
 	"gopkg.in/yaml.v2"
 
@@ -81,11 +82,12 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 		rmnRemoteAddresses                   = make(map[string]string)
 		rmnRemoteAddressesUint64             = make(map[uint64]string)
 		offRampAddresses                     = make(map[uint64]string)
-		thresholdPerSource                   = make(map[uint64]uint8)
+		thresholdPerSource                   = make(map[string]uint8)
 	)
 
 	for _, ref := range addressRefs {
 		chainSelectorStr := strconv.FormatUint(ref.ChainSelector, 10)
+		chainID, _ := chainsel.GetChainIDFromSelector(ref.ChainSelector)
 		switch ref.Type {
 		case datastore.ContractType(onrampoperations.ContractType):
 			onRampAddresses[chainSelectorStr] = ref.Address
@@ -101,7 +103,7 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 		case datastore.ContractType(offrampoperations.ContractType):
 			offRampAddresses[ref.ChainSelector] = ref.Address
 		}
-		thresholdPerSource[ref.ChainSelector] = ocrThreshold(len(verifierPubKeys))
+		thresholdPerSource[chainID] = ocrThreshold(len(verifierPubKeys))
 	}
 
 	tempDir, err := os.MkdirTemp("", "ccv-configs")

@@ -138,10 +138,14 @@ type Chain interface {
 	Uncurse(ctx context.Context, subjects [][16]byte) error
 }
 
+type Signers struct {
+	Signers   [][]byte
+	Threshold uint8
+}
+
 type OnChainCommittees struct {
-	CommitteeQualifier string
-	Signers            [][]byte
-	Threshold          uint8
+	CommitteeQualifier   string
+	SignersBySourceChain map[uint64]Signers
 }
 
 // OnChainConfigurable defines methods that allows devenv to
