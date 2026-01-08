@@ -30,6 +30,12 @@ type DestinationSelector = string
 // SourceSelector represents a source chain selector as a string.
 type SourceSelector = string
 
+// ChannelKey identifies a client's aggregation channel for fair scheduling.
+type ChannelKey string
+
+// OrphanRecoveryChannelKey is the channel key used for orphan recovery operations.
+const OrphanRecoveryChannelKey ChannelKey = "orphan_recovery"
+
 // Committee represents a group of signers participating in the commit verification process.
 type Committee struct {
 	// QuorumConfigs stores a QuorumConfig for each source chain selector.
@@ -113,6 +119,10 @@ type AggregationConfig struct {
 	ChannelBufferSize int `toml:"channelBufferSize"`
 	// BackgroundWorkerCount controls the number of background workers processing aggregation requests
 	BackgroundWorkerCount int `toml:"backgroundWorkerCount"`
+	// CheckAggregationTimeout is the timeout for each check aggregation operation in the write commit verifier node result handler.
+	// Consider the batch size when setting this value. A larger batch size will require a longer timeout.
+	// Example: "5s", "100ms", "1m"
+	CheckAggregationTimeout time.Duration `toml:"checkAggregationTimeout"`
 	// OperationTimeout is the timeout for each aggregation operation (0 = no timeout)
 	OperationTimeout time.Duration `toml:"operationTimeout"`
 }
@@ -122,6 +132,9 @@ type OrphanRecoveryConfig struct {
 	Enabled bool `toml:"enabled"`
 	// Interval controls how often orphan recovery runs
 	Interval time.Duration `toml:"interval"`
+	// CheckAggregationTimeout is the timeout for each check aggregation operation.
+	// Example: "5s", "100ms", "1m"
+	CheckAggregationTimeout time.Duration `toml:"checkAggregationTimeout"`
 	// MaxAge is the maximum age of orphan records to consider for recovery.
 	// Records older than this are filtered out from recovery attempts.
 	MaxAge time.Duration `toml:"maxAge"`
@@ -408,6 +421,10 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.Aggregation.BackgroundWorkerCount == 0 {
 		c.Aggregation.BackgroundWorkerCount = 10
 	}
+	// Default check aggregation timeout: 5 seconds
+	if c.Aggregation.CheckAggregationTimeout == 0 {
+		c.Aggregation.CheckAggregationTimeout = 5 * time.Second
+	}
 	// Initialize Storage config if nil
 	if c.Storage == nil {
 		c.Storage = &StorageConfig{}
@@ -431,6 +448,10 @@ func (c *AggregatorConfig) SetDefaults() {
 	// Default orphan recovery: enabled with 5 minute interval
 	if c.OrphanRecovery.Interval == 0 {
 		c.OrphanRecovery.Interval = 5 * time.Minute
+	}
+	// Default check aggregation timeout: 5 seconds
+	if c.OrphanRecovery.CheckAggregationTimeout == 0 {
+		c.OrphanRecovery.CheckAggregationTimeout = 5 * time.Second
 	}
 	// Default max age: 7 days
 	if c.OrphanRecovery.MaxAge == 0 {
@@ -527,6 +548,9 @@ func (c *AggregatorConfig) ValidateAggregationConfig() error {
 	if c.Aggregation.OperationTimeout < 0 {
 		return errors.New("aggregation.operationTimeout cannot be negative")
 	}
+	if c.Aggregation.CheckAggregationTimeout <= 0 {
+		return errors.New("aggregation.checkAggregationTimeout must be greater than 0")
+	}
 
 	return nil
 }
@@ -562,6 +586,9 @@ func (c *AggregatorConfig) ValidateStorageConfig() error {
 func (c *AggregatorConfig) ValidateOrphanRecoveryConfig() error {
 	if c.OrphanRecovery.ScanTimeout < 0 {
 		return errors.New("orphanRecovery.scanTimeout cannot be negative")
+	}
+	if c.OrphanRecovery.CheckAggregationTimeout <= 0 {
+		return errors.New("orphanRecovery.checkAggregationTimeout must be greater than 0")
 	}
 	if !c.OrphanRecovery.Enabled {
 		return nil

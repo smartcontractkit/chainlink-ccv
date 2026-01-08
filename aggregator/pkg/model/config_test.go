@@ -77,6 +77,8 @@ func TestSetDefaults(t *testing.T) {
 		assert.Equal(t, 168*time.Hour, cfg.OrphanRecovery.MaxAge)
 		assert.Equal(t, "8080", cfg.HealthCheck.Port)
 		assert.Equal(t, 10*time.Second, cfg.Server.RequestTimeout)
+		assert.Equal(t, 5*time.Second, cfg.Aggregation.CheckAggregationTimeout)
+		assert.Equal(t, 5*time.Second, cfg.OrphanRecovery.CheckAggregationTimeout)
 	})
 
 	t.Run("does not override existing values", func(t *testing.T) {
@@ -259,38 +261,44 @@ func TestValidateAggregationConfig(t *testing.T) {
 	}{
 		{
 			name:        "valid config",
-			config:      AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 10},
+			config:      AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 10, CheckAggregationTimeout: 5 * time.Second},
 			expectError: false,
 		},
 		{
 			name:        "zero channel buffer size fails",
-			config:      AggregationConfig{ChannelBufferSize: 0, BackgroundWorkerCount: 10},
+			config:      AggregationConfig{ChannelBufferSize: 0, BackgroundWorkerCount: 10, CheckAggregationTimeout: 5 * time.Second},
 			expectError: true,
 			errorMsg:    "channelBufferSize must be greater than 0",
 		},
 		{
 			name:        "channel buffer size exceeds limit fails",
-			config:      AggregationConfig{ChannelBufferSize: 100001, BackgroundWorkerCount: 10},
+			config:      AggregationConfig{ChannelBufferSize: 100001, BackgroundWorkerCount: 10, CheckAggregationTimeout: 5 * time.Second},
 			expectError: true,
 			errorMsg:    "channelBufferSize cannot exceed 100000",
 		},
 		{
 			name:        "zero worker count fails",
-			config:      AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 0},
+			config:      AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 0, CheckAggregationTimeout: 5 * time.Second},
 			expectError: true,
 			errorMsg:    "backgroundWorkerCount must be greater than 0",
 		},
 		{
 			name:        "worker count exceeds limit fails",
-			config:      AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 101},
+			config:      AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 101, CheckAggregationTimeout: 5 * time.Second},
 			expectError: true,
 			errorMsg:    "backgroundWorkerCount cannot exceed 100",
 		},
 		{
 			name:        "negative operation timeout fails",
-			config:      AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 10, OperationTimeout: -1 * time.Second},
+			config:      AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 10, OperationTimeout: -1 * time.Second, CheckAggregationTimeout: 5 * time.Second},
 			expectError: true,
 			errorMsg:    "operationTimeout cannot be negative",
+		},
+		{
+			name:        "negative check aggregation timeout fails",
+			config:      AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 10, CheckAggregationTimeout: -1},
+			expectError: true,
+			errorMsg:    "aggregation.checkAggregationTimeout must be greater than 0",
 		},
 	}
 
@@ -389,31 +397,37 @@ func TestValidateOrphanRecoveryConfig(t *testing.T) {
 	}{
 		{
 			name:        "valid enabled config",
-			config:      OrphanRecoveryConfig{Enabled: true, Interval: 60 * time.Second, MaxAge: 24 * time.Hour},
+			config:      OrphanRecoveryConfig{Enabled: true, Interval: 60 * time.Second, MaxAge: 24 * time.Hour, CheckAggregationTimeout: 5 * time.Second},
 			expectError: false,
 		},
 		{
 			name:        "disabled config skips validation",
-			config:      OrphanRecoveryConfig{Enabled: false, Interval: 0, MaxAge: 0},
+			config:      OrphanRecoveryConfig{Enabled: false, Interval: 0, MaxAge: 0, CheckAggregationTimeout: 5 * time.Second},
 			expectError: false,
 		},
 		{
 			name:        "negative scan timeout fails",
-			config:      OrphanRecoveryConfig{Enabled: false, ScanTimeout: -1 * time.Second},
+			config:      OrphanRecoveryConfig{Enabled: false, ScanTimeout: -1 * time.Second, CheckAggregationTimeout: 5 * time.Second},
 			expectError: true,
 			errorMsg:    "scanTimeout cannot be negative",
 		},
 		{
 			name:        "max age less than 1 hour fails when enabled",
-			config:      OrphanRecoveryConfig{Enabled: true, Interval: 60 * time.Second, MaxAge: 0},
+			config:      OrphanRecoveryConfig{Enabled: true, Interval: 60 * time.Second, MaxAge: 0, CheckAggregationTimeout: 5 * time.Second},
 			expectError: true,
 			errorMsg:    "maxAge must be at least 1 hour",
 		},
 		{
 			name:        "interval less than 5 seconds fails when enabled",
-			config:      OrphanRecoveryConfig{Enabled: true, Interval: 4 * time.Second, MaxAge: 24 * time.Hour},
+			config:      OrphanRecoveryConfig{Enabled: true, Interval: 4 * time.Second, MaxAge: 24 * time.Hour, CheckAggregationTimeout: 5 * time.Second},
 			expectError: true,
 			errorMsg:    "interval must be at least 5 seconds",
+		},
+		{
+			name:        "negative check aggregation timeout fails",
+			config:      OrphanRecoveryConfig{Enabled: true, Interval: 60 * time.Second, MaxAge: 24 * time.Hour, CheckAggregationTimeout: -1},
+			expectError: true,
+			errorMsg:    "orphanRecovery.checkAggregationTimeout must be greater than 0",
 		},
 	}
 

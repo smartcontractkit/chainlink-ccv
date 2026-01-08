@@ -3,12 +3,14 @@ package handlers
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -18,6 +20,9 @@ import (
 
 func TestBatchWriteCommitCCVNodeDataHandler_BatchSizeValidation(t *testing.T) {
 	t.Parallel()
+
+	const testCallerID = "test-caller"
+	const testChannelKey model.ChannelKey = "test-caller"
 
 	tests := []struct {
 		name           string
@@ -70,11 +75,11 @@ func TestBatchWriteCommitCCVNodeDataHandler_BatchSizeValidation(t *testing.T) {
 					Signer: signer,
 				}, nil).Maybe()
 				sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil).Maybe()
-				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything).Return(nil).Maybe()
+				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, testChannelKey, time.Millisecond).Return(nil).Maybe()
 				store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 			}
 
-			writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, lggr, sig)
+			writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, lggr, sig, time.Millisecond)
 			batchHandler := NewBatchWriteCommitVerifierNodeResultHandler(writeHandler, tc.maxBatchSize)
 
 			requests := make([]*committeepb.WriteCommitteeVerifierNodeResultRequest, tc.numRequests)
@@ -82,7 +87,8 @@ func TestBatchWriteCommitCCVNodeDataHandler_BatchSizeValidation(t *testing.T) {
 				requests[i] = makeValidProtoRequest()
 			}
 
-			resp, err := batchHandler.Handle(context.Background(), &committeepb.BatchWriteCommitteeVerifierNodeResultRequest{
+			ctx := auth.ToContext(context.Background(), auth.CreateCallerIdentity(testCallerID, false))
+			resp, err := batchHandler.Handle(ctx, &committeepb.BatchWriteCommitteeVerifierNodeResultRequest{
 				Requests: requests,
 			})
 
@@ -103,6 +109,9 @@ func TestBatchWriteCommitCCVNodeDataHandler_BatchSizeValidation(t *testing.T) {
 func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *testing.T) {
 	t.Parallel()
 
+	const testCallerID = "test-caller"
+	const testChannelKey model.ChannelKey = "test-caller"
+
 	lggr := logger.TestSugared(t)
 	store := mocks.NewMockCommitVerificationStore(t)
 	agg := mocks.NewMockAggregationTriggerer(t)
@@ -116,18 +125,19 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 	}, nil)
 	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil)
 
-	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything).Return(nil).Maybe()
+	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, testChannelKey, time.Millisecond).Return(nil).Maybe()
 
 	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
-	writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, lggr, sig)
+	writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, lggr, sig, time.Millisecond)
 	batchHandler := NewBatchWriteCommitVerifierNodeResultHandler(writeHandler, 10)
 
 	validReq := makeValidProtoRequest()
 	invalidReq := makeValidProtoRequest()
 	invalidReq.CommitteeVerifierNodeResult = nil
 
-	resp, err := batchHandler.Handle(context.Background(), &committeepb.BatchWriteCommitteeVerifierNodeResultRequest{
+	ctx := auth.ToContext(context.Background(), auth.CreateCallerIdentity(testCallerID, false))
+	resp, err := batchHandler.Handle(ctx, &committeepb.BatchWriteCommitteeVerifierNodeResultRequest{
 		Requests: []*committeepb.WriteCommitteeVerifierNodeResultRequest{validReq, invalidReq},
 	})
 

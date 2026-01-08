@@ -2,10 +2,12 @@ package handlers
 
 import (
 	"context"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
@@ -24,15 +26,16 @@ type SignatureValidator interface {
 // AggregationTriggerer defines an interface for triggering aggregation checks.
 type AggregationTriggerer interface {
 	// CheckAggregation triggers the aggregation process for the specified aggregation key.
-	CheckAggregation(model.MessageID, model.AggregationKey) error
+	CheckAggregation(model.MessageID, model.AggregationKey, model.ChannelKey, time.Duration) error
 }
 
 // WriteCommitVerifierNodeResultHandler handles requests to write commit verification records.
 type WriteCommitVerifierNodeResultHandler struct {
-	storage            common.CommitVerificationStore
-	aggregator         AggregationTriggerer
-	l                  logger.SugaredLogger
-	signatureValidator SignatureValidator
+	storage                 common.CommitVerificationStore
+	aggregator              AggregationTriggerer
+	l                       logger.SugaredLogger
+	signatureValidator      SignatureValidator
+	checkAggregationTimeout time.Duration
 }
 
 func (h *WriteCommitVerifierNodeResultHandler) logger(ctx context.Context) logger.SugaredLogger {
@@ -41,6 +44,12 @@ func (h *WriteCommitVerifierNodeResultHandler) logger(ctx context.Context) logge
 
 // Handle processes the write request and saves the commit verification record.
 func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *committeepb.WriteCommitteeVerifierNodeResultRequest) (*committeepb.WriteCommitteeVerifierNodeResultResponse, error) {
+	identity, ok := auth.IdentityFromContext(ctx)
+	if !ok {
+		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
+			Status: committeepb.WriteStatus_FAILED,
+		}, status.Error(codes.Unauthenticated, "unauthenticated: no caller identity in context")
+	}
 	reqLogger := h.logger(ctx)
 	if err := validateWriteRequest(req); err != nil {
 		reqLogger.Warnw("validation error", "error", err)
@@ -91,7 +100,7 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 	}
 	h.logger(signerCtx).Infof("Successfully saved commit verification record")
 
-	if err := h.aggregator.CheckAggregation(record.MessageID, aggregationKey); err != nil {
+	if err := h.aggregator.CheckAggregation(record.MessageID, aggregationKey, model.ChannelKey(identity.CallerID), h.checkAggregationTimeout); err != nil {
 		if err == common.ErrAggregationChannelFull {
 			reqLogger.Errorf("Aggregation channel is full")
 			return &committeepb.WriteCommitteeVerifierNodeResultResponse{
@@ -112,11 +121,12 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 }
 
 // NewWriteCommitCCVNodeDataHandler creates a new instance of WriteCommitCCVNodeDataHandler.
-func NewWriteCommitCCVNodeDataHandler(store common.CommitVerificationStore, aggregator AggregationTriggerer, l logger.SugaredLogger, signatureValidator SignatureValidator) *WriteCommitVerifierNodeResultHandler {
+func NewWriteCommitCCVNodeDataHandler(store common.CommitVerificationStore, aggregator AggregationTriggerer, l logger.SugaredLogger, signatureValidator SignatureValidator, checkAggregationTimeout time.Duration) *WriteCommitVerifierNodeResultHandler {
 	return &WriteCommitVerifierNodeResultHandler{
-		storage:            store,
-		aggregator:         aggregator,
-		l:                  l,
-		signatureValidator: signatureValidator,
+		storage:                 store,
+		aggregator:              aggregator,
+		l:                       l,
+		signatureValidator:      signatureValidator,
+		checkAggregationTimeout: checkAggregationTimeout,
 	}
 }
