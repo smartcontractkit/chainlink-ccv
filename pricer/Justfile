@@ -9,6 +9,10 @@ default:
 build:
     docker build -f Dockerfile -t pricer:latest ..
 
+publish registry version:
+    docker tag pricer:latest {{registry}}/chainlink-ccv-pricer:{{version}}
+    docker push {{registry}}/chainlink-ccv-pricer:{{version}}
+
 # Run pricer locally. Requires KEYSTORE_DATA (base64) and KEYSTORE_PASSWORD env vars.
 # Example: KEYSTORE_DATA=$(cat keystore.json | base64) KEYSTORE_PASSWORD=pass just run
 run config="config.example.toml": build
