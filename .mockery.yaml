@@ -56,6 +56,8 @@ packages:
   github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common:
     interfaces:
       IndexerStorage:
+      IndexerMonitoring:
+      IndexerMetricLabeler:
   github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client/internal:
     interfaces:
       ClientInterface:
