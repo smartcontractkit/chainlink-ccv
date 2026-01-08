@@ -214,28 +214,27 @@ func createAggregator(storage common.CommitVerificationStore, aggregatedStore co
 func buildGRPCServerOptions(serverConfig model.ServerConfig) []grpc.ServerOption {
 	var opts []grpc.ServerOption
 
-	if serverConfig.ConnectionTimeoutSeconds > 0 {
-		opts = append(opts, grpc.ConnectionTimeout(
-			time.Duration(serverConfig.ConnectionTimeoutSeconds)*time.Second))
+	if serverConfig.ConnectionTimeout > 0 {
+		opts = append(opts, grpc.ConnectionTimeout(serverConfig.ConnectionTimeout))
 	}
 
-	if serverConfig.KeepaliveMinTimeSeconds > 0 {
+	if serverConfig.KeepaliveMinTime > 0 {
 		opts = append(opts, grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
-			MinTime:             time.Duration(serverConfig.KeepaliveMinTimeSeconds) * time.Second,
+			MinTime:             serverConfig.KeepaliveMinTime,
 			PermitWithoutStream: true,
 		}))
 	}
 
-	if serverConfig.KeepaliveTimeSeconds > 0 || serverConfig.KeepaliveTimeoutSeconds > 0 || serverConfig.MaxConnectionAgeSeconds > 0 {
+	if serverConfig.KeepaliveTime > 0 || serverConfig.KeepaliveTimeout > 0 || serverConfig.MaxConnectionAge > 0 {
 		params := keepalive.ServerParameters{}
-		if serverConfig.KeepaliveTimeSeconds > 0 {
-			params.Time = time.Duration(serverConfig.KeepaliveTimeSeconds) * time.Second
+		if serverConfig.KeepaliveTime > 0 {
+			params.Time = serverConfig.KeepaliveTime
 		}
-		if serverConfig.KeepaliveTimeoutSeconds > 0 {
-			params.Timeout = time.Duration(serverConfig.KeepaliveTimeoutSeconds) * time.Second
+		if serverConfig.KeepaliveTimeout > 0 {
+			params.Timeout = serverConfig.KeepaliveTimeout
 		}
-		if serverConfig.MaxConnectionAgeSeconds > 0 {
-			params.MaxConnectionAge = time.Duration(serverConfig.MaxConnectionAgeSeconds) * time.Second
+		if serverConfig.MaxConnectionAge > 0 {
+			params.MaxConnectionAge = serverConfig.MaxConnectionAge
 		}
 		opts = append(opts, grpc.KeepaliveParams(params))
 	}
@@ -367,8 +366,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	}
 
 	// Add request timeout interceptor as first in chain
-	timeoutMiddleware := middlewares.NewRequestTimeoutMiddleware(
-		time.Duration(config.Server.RequestTimeoutSeconds) * time.Second)
+	timeoutMiddleware := middlewares.NewRequestTimeoutMiddleware(config.Server.RequestTimeout)
 	interceptorChain = append([]grpc.UnaryServerInterceptor{timeoutMiddleware.Intercept}, interceptorChain...)
 
 	grpcOpts = append(grpcOpts, grpc.ChainUnaryInterceptor(interceptorChain...))
