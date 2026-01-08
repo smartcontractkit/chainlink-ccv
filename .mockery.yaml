@@ -51,3 +51,12 @@ packages:
   github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/aggregation:
     interfaces:
       QuorumValidator:
+
+  github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common:
+    interfaces:
+      IndexerStorage:
+  github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client/internal:
+    interfaces:
+      ClientInterface:
+        configs:
+          - dir: ./indexer/pkg/client/internal/mocks
