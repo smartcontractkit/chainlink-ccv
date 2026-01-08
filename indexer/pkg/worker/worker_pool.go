@@ -74,7 +74,7 @@ func (p *Pool) run(ctx context.Context) {
 			return
 		case task, ok := <-p.scheduler.Ready():
 			if !ok {
-				p.logger.Info("Scheduler ready channel closed; exiting worker pool run loop")
+				p.logger.Error("Scheduler ready channel closed; exiting worker pool run loop")
 				return
 			}
 
@@ -123,7 +123,7 @@ func (p *Pool) enqueueMessages(ctx context.Context) {
 			return
 		case message, ok := <-p.discoveryChannel:
 			if !ok {
-				p.logger.Info("Discovery channel closed; exiting enqueueMessages")
+				p.logger.Error("Discovery channel closed; exiting enqueueMessages")
 				return
 			}
 			p.logger.Infow("Enqueueing new Message", "messageID", message.VerifierResult.MessageID.String())
@@ -153,7 +153,7 @@ func (p *Pool) handleDLQ(ctx context.Context) {
 			return
 		case task, ok := <-p.scheduler.DLQ():
 			if !ok {
-				p.logger.Info("DLQ channel closed; exiting handleDLQ")
+				p.logger.Error("DLQ channel closed; exiting handleDLQ")
 				return
 			}
 			p.logger.Warnf("Message %s entered DLQ. Partial verifications may have been recieved", task.messageID.String())
