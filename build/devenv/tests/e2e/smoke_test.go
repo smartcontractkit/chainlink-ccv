@@ -16,7 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc677"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
@@ -416,8 +416,8 @@ func getContractAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64, con
 
 func getTokenAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64, qualifier string) protocol.UnknownAddress {
 	return getContractAddress(t, ccvCfg, chainSelector,
-		datastore.ContractType(burn_mint_erc677.ContractType),
-		burn_mint_erc677.Deploy.Version(),
+		datastore.ContractType(burn_mint_erc20_with_drip.ContractType),
+		burn_mint_erc20_with_drip.Deploy.Version(),
 		qualifier,
 		"burn mint erc677")
 }
