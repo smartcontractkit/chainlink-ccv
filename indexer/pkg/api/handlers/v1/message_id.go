@@ -46,16 +46,15 @@ func (h *VerifierResultsByMessageIDHandler) Handle(c *gin.Context) {
 
 	// Get all verifications for the messageID
 	verifications, err := h.storage.GetCCVData(c.Request.Context(), messageIDBytes32)
-	if err != nil {
-		h.lggr.Errorf("Error retrieving CCV data for MessageID %s: %v", messageID, err)
-	}
-
-	switch {
-	case errors.Is(err, storage.ErrCCVDataNotFound):
+	if errors.Is(err, storage.ErrCCVDataNotFound) {
+		// Not found is not an internal error; record at Info level and return 404
+		h.lggr.Infow("CCV data not found for MessageID", "messageID", messageID)
 		c.JSON(http.StatusNotFound, makeErrorResponse(http.StatusNotFound, "MessageID not found"))
 		return
-	case err == nil:
-	default:
+	}
+	if err != nil {
+		// Unexpected storage error -> log and return 500
+		h.lggr.Errorf("Error retrieving CCV data for MessageID %s: %v", messageID, err)
 		c.JSON(http.StatusInternalServerError, makeErrorResponse(http.StatusInternalServerError, "Internal Server Error"))
 		return
 	}

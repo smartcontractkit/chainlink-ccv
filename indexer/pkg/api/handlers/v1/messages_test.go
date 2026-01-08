@@ -72,3 +72,42 @@ func TestMessagesHandler_Handle(t *testing.T) {
 		})
 	}
 }
+
+// TestMessagesHandler_SkipsInvalidMessageIDs ensures messages with encoding
+// errors (so MessageID() fails) are skipped and don't cause the handler to fail.
+func TestMessagesHandler_SkipsInvalidMessageIDs(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	lggr := logger.Test(t)
+
+	// valid message: zero-values satisfy length checks and should produce a valid ID
+	valid := common.MessageWithMetadata{Message: protocol.Message{}, Metadata: common.MessageMetadata{}}
+	validID, err := valid.Message.MessageID()
+	require.NoError(t, err)
+	validKey := validID.String()
+
+	// invalid message: set DataLength != len(Data) to force Encode() to fail
+	invalid := common.MessageWithMetadata{Message: protocol.Message{DataLength: 1}, Metadata: common.MessageMetadata{}}
+
+	ms := mocks.NewMockIndexerStorage(t)
+	mm := mocks.NewMockIndexerMonitoring(t)
+	mm.On("Metrics").Return(mocks.NewMockIndexerMetricLabeler(t)).Maybe()
+
+	ms.On("QueryMessages", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return([]common.MessageWithMetadata{valid, invalid}, nil)
+
+	h := v1.NewMessagesHandler(ms, lggr, mm)
+	r := gin.New()
+	r.GET("/messages", h.Handle)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/messages", nil)
+	r.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp v1.MessagesResponse
+	err = json.Unmarshal(rec.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	// only the valid message should be present
+	require.Equal(t, 1, len(resp.Messages))
+	require.Contains(t, resp.Messages, validKey)
+}
