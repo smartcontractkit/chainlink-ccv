@@ -10,8 +10,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
-	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
+	mocks "github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 func mustAddr(t *testing.T, hex string) protocol.UnknownAddress {
@@ -22,10 +23,13 @@ func mustAddr(t *testing.T, hex string) protocol.UnknownAddress {
 }
 
 func TestTask_GetVerifiers(t *testing.T) {
+	lggr := logger.Test(t)
+
 	addr1 := mustAddr(t, "0x1111111111111111111111111111111111111111")
 	addr2 := mustAddr(t, "0x2222222222222222222222222222222222222222")
 
 	tsk := &Task{
+		logger: lggr,
 		message: protocol.VerifierResult{
 			MessageCCVAddresses: []protocol.UnknownAddress{addr1, addr2},
 		},
@@ -33,13 +37,13 @@ func TestTask_GetVerifiers(t *testing.T) {
 
 	got := tsk.getVerifiers()
 	require.Len(t, got, 2)
-	require.Equal(t, addr1.String(), protocol.UnknownAddress(mustAddr(t, addr1.String())).String())
-	// ensure returned strings are lowercased
 	require.Equal(t, got[0], addr1.String())
 	require.Equal(t, got[1], addr2.String())
 }
 
 func TestTask_GetExistingAndMissingVerifiers(t *testing.T) {
+	lggr := logger.Test(t)
+
 	ms := mocks.NewMockIndexerStorage(t)
 	// storage will return one existing verifier
 	addr1 := mustAddr(t, "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
@@ -54,6 +58,7 @@ func TestTask_GetExistingAndMissingVerifiers(t *testing.T) {
 	ms.On("GetCCVData", testmock.Anything, testmock.Anything).Return([]common.VerifierResultWithMetadata{vr}, nil)
 
 	tsk := &Task{
+		logger:    lggr,
 		storage:   ms,
 		messageID: protocol.Bytes32{},
 		message: protocol.VerifierResult{
@@ -73,6 +78,8 @@ func TestTask_GetExistingAndMissingVerifiers(t *testing.T) {
 }
 
 func TestTask_LoadVerifierReaders(t *testing.T) {
+	lggr := logger.Test(t)
+
 	reg := registry.NewVerifierRegistry()
 	addr1 := mustAddr(t, "0x3333333333333333333333333333333333333333")
 	addr2 := mustAddr(t, "0x4444444444444444444444444444444444444444")
@@ -80,7 +87,7 @@ func TestTask_LoadVerifierReaders(t *testing.T) {
 	// Add a verifier for addr1 only
 	_ = reg.AddVerifier(addr1, "v1", &readers.VerifierReader{})
 
-	tsk := &Task{registry: reg}
+	tsk := &Task{registry: reg, logger: lggr}
 
 	addrs := []string{addr1.String(), addr2.String()}
 	readersList, loaded, missing := tsk.loadVerifierReaders(addrs)
@@ -93,12 +100,14 @@ func TestTask_LoadVerifierReaders(t *testing.T) {
 }
 
 func TestTask_SetMessageStatus_DelegatesToStorage(t *testing.T) {
+	lggr := logger.Test(t)
+
 	ms := mocks.NewMockIndexerStorage(t)
 	msgID := protocol.Bytes32{}
 	// Expect UpdateMessageStatus to be called with the messageID and status
 	ms.On("UpdateMessageStatus", testmock.Anything, msgID, common.MessageSuccessful, "").Return(nil)
 
-	tsk := &Task{storage: ms, messageID: msgID}
+	tsk := &Task{storage: ms, messageID: msgID, logger: lggr}
 	err := tsk.SetMessageStatus(context.Background(), common.MessageSuccessful, "")
 	require.NoError(t, err)
 }

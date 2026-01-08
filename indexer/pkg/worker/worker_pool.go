@@ -56,7 +56,9 @@ func (p *Pool) Start(ctx context.Context) {
 
 func (p *Pool) Stop() {
 	p.logger.Info("Stopping WorkerPool")
-	p.cancelFunc()
+	if p.cancelFunc != nil {
+		p.cancelFunc()
+	}
 	p.wg.Wait()
 	p.logger.Info("Stopepd WorkerPool")
 }
@@ -72,8 +74,8 @@ func (p *Pool) run(ctx context.Context) {
 			return
 		case task, ok := <-p.scheduler.Ready():
 			if !ok {
-				p.logger.Error("Scheduler ready channel closed! worker pool will no longer function")
-				continue
+				p.logger.Info("Scheduler ready channel closed; exiting worker pool run loop")
+				return
 			}
 
 			workerCtx, cancel := context.WithTimeout(ctx, time.Duration(p.config.WorkerTimeout)*time.Second)
@@ -83,13 +85,15 @@ func (p *Pool) run(ctx context.Context) {
 				defer cancel()
 				result, err := Execute(workerCtx, task)
 
-				if p.wasSuccessful(result) {
+				// Mark success only if we have a result and no error
+				if err == nil && result != nil && result.UnavailableCCVs == 0 {
 					if err := task.SetMessageStatus(ctx, common.MessageSuccessful, ""); err != nil {
 						p.logger.Errorf("Unable to update Message Status for MessageID %s", task.messageID.String())
 					}
 				}
 
-				if p.shouldRetry(result, err) {
+				// Decide whether to retry
+				if err != nil || (result != nil && result.UnavailableCCVs > 0) {
 					if err != nil {
 						task.lastErr = err
 					}
@@ -119,8 +123,8 @@ func (p *Pool) enqueueMessages(ctx context.Context) {
 			return
 		case message, ok := <-p.discoveryChannel:
 			if !ok {
-				p.logger.Error("Discovery Channel closed, worker pool will no longer be able to enqueue messages correctly")
-				continue
+				p.logger.Info("Discovery channel closed; exiting enqueueMessages")
+				return
 			}
 			p.logger.Infow("Enqueueing new Message", "messageID", message.VerifierResult.MessageID.String())
 			task, err := NewTask(p.logger, message.VerifierResult, p.registry, p.storage, p.scheduler.VerificationVisibilityWindow())
@@ -149,19 +153,11 @@ func (p *Pool) handleDLQ(ctx context.Context) {
 			return
 		case task, ok := <-p.scheduler.DLQ():
 			if !ok {
-				p.logger.Error("DLQ Queue closed, worker pool will be unable to continue processing")
-				continue
+				p.logger.Info("DLQ channel closed; exiting handleDLQ")
+				return
 			}
 			p.logger.Warnf("Message %s entered DLQ. Partial verifications may have been recieved", task.messageID.String())
 			// TODO: DLQ Logic here..
 		}
 	}
-}
-
-func (p *Pool) shouldRetry(result *TaskResult, err error) bool {
-	return err != nil || result.UnavailableCCVs > 0
-}
-
-func (p *Pool) wasSuccessful(result *TaskResult) bool {
-	return result.UnavailableCCVs == 0
 }
