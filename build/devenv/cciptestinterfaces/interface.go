@@ -3,6 +3,7 @@ package cciptestinterfaces
 import (
 	"context"
 	"math/big"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -120,6 +121,10 @@ type Chain interface {
 	GetSenderAddress() (protocol.UnknownAddress, error)
 	// SendMessage sends a CCIP message to the specified destination chain with the specified message options.
 	SendMessage(ctx context.Context, dest uint64, fields MessageFields, opts MessageOptions) (MessageSentEvent, error)
+	// SendMessageWithNonce sends a CCIP message to the specified destination chain with the specified message options and nonce.
+	SendMessageWithNonce(ctx context.Context, dest uint64, fields MessageFields, opts MessageOptions, nonce *atomic.Uint64, disableTokenAmountCheck bool) (MessageSentEvent, error)
+	// GetSenderNonce gets the nonce for the sender address for the specified chain.
+	GetSenderNonce(ctx context.Context, chainSelector uint64) (uint64, error)
 	// GetExpectedNextSequenceNumber gets an expected sequence number for message to the specified destination chain.
 	GetExpectedNextSequenceNumber(ctx context.Context, to uint64) (uint64, error)
 	// WaitOneSentEventBySeqNo waits until exactly one event for CCIP message sent is emitted on-chain for the specified destination chain and sequence number.

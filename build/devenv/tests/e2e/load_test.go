@@ -54,9 +54,6 @@ type GasTestCase struct {
 }
 
 func assertMessagesAsync(tc TestingContext, gun *EVMTXGun, overallTimeout time.Duration) func() ([]metrics.MessageMetrics, metrics.MessageTotals) {
-	fromSelector := gun.src.Selector
-	toSelector := gun.dest.Selector
-
 	var wg sync.WaitGroup
 	var totalSent, totalReceived atomic.Int32
 
@@ -87,12 +84,12 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun, overallTimeout time.D
 
 				msgIDHex := common.BytesToHash(msg.MessageID[:]).Hex()
 
-				if _, ok := tc.Impl[toSelector]; !ok {
+				if _, ok := tc.Impl[msg.ChainPair.Dest]; !ok {
 					tc.T.Logf("No implementation available to verify message %d", msg.SeqNo)
 					return
 				}
 
-				execEvent, err := tc.Impl[toSelector].WaitOneExecEventBySeqNo(verifyCtx, fromSelector, msg.SeqNo, 0)
+				execEvent, err := tc.Impl[msg.ChainPair.Dest].WaitOneExecEventBySeqNo(verifyCtx, msg.ChainPair.Src, msg.SeqNo, 0)
 				if err != nil {
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						tc.T.Logf("Message %d verification cancelled or timed out", msg.SeqNo)
@@ -251,7 +248,7 @@ func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
 }
 
 func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, selectors []uint64, impl map[uint64]cciptestinterfaces.CCIP17ProductConfiguration, s, d cldfevm.Chain) (*wasp.Profile, *EVMTXGun) {
-	gun := NewEVMTransactionGun(in, e, selectors, impl, s, d)
+	gun := NewEVMTransactionGun(in, e, selectors, impl, []uint64{s.Selector}, []uint64{d.Selector})
 	profile := wasp.NewProfile().
 		Add(wasp.NewGenerator(&wasp.Config{
 			LoadType: wasp.RPS,
@@ -265,7 +262,7 @@ func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *de
 				"branch":       "test",
 				"commit":       "test",
 			},
-			LokiConfig: wasp.NewEnvLokiConfig(),
+			LokiConfig: nil,
 		}))
 	return profile, gun
 }
