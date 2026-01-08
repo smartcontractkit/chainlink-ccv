@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/panjf2000/ants/v2"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -223,5 +224,234 @@ func TestWorkerPool_StartStop_Cancel(t *testing.T) {
 		// success
 	case <-time.After(1 * time.Second):
 		t.Fatalf("Stop did not return in time when canceling child context")
+	}
+}
+
+func TestRun_ExitsWhenSchedulerReadyClosed(t *testing.T) {
+	lggr := logger.Test(t)
+
+	// Construct a scheduler with a ready channel that we'll close to simulate the closed condition
+	s := &Scheduler{
+		lggr: lggr,
+		// small buffered channels, but we'll close ready immediately
+		ready: make(chan *Task, 1),
+		dlq:   make(chan *Task, 1),
+	}
+	close(s.ready)
+
+	poolCfg := config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}
+	p := NewWorkerPool(lggr, poolCfg, nil, s, registry.NewVerifierRegistry(), mocks.NewMockIndexerStorage(t))
+
+	// Run p.run in a goroutine and ensure it returns when Ready is closed
+	done := make(chan struct{})
+	p.wg.Add(1)
+	go func() {
+		p.run(context.Background())
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// success
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("p.run did not exit when scheduler.Ready was closed")
+	}
+}
+
+func TestHandleDLQ_ExitsWhenDLQClosed(t *testing.T) {
+	lggr := logger.Test(t)
+
+	// Construct a scheduler with a closed DLQ channel
+	s := &Scheduler{
+		lggr:   lggr,
+		ready:  make(chan *Task, 1),
+		dlq:    make(chan *Task, 1),
+		config: config.SchedulerConfig{TickerInterval: 50, BaseDelay: 0, MaxDelay: 0, VerificationVisibilityWindow: 60},
+	}
+	close(s.dlq)
+
+	p := NewWorkerPool(lggr, config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}, nil, s, registry.NewVerifierRegistry(), mocks.NewMockIndexerStorage(t))
+
+	done := make(chan struct{})
+	// account for waitgroup since we're starting the goroutine manually
+	p.wg.Add(1)
+	go func() {
+		p.handleDLQ(context.Background())
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// success
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("handleDLQ did not exit when DLQ was closed")
+	}
+}
+
+func TestEnqueueMessages_ExitsWhenDiscoveryClosed(t *testing.T) {
+	lggr := logger.Test(t)
+
+	// closed discovery channel
+	discoveryCh := make(chan common.VerifierResultWithMetadata)
+	close(discoveryCh)
+
+	schedCfg := config.SchedulerConfig{TickerInterval: 50, BaseDelay: 0, MaxDelay: 0, VerificationVisibilityWindow: 60}
+	scheduler, err := NewScheduler(lggr, schedCfg)
+	require.NoError(t, err)
+
+	p := NewWorkerPool(lggr, config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}, discoveryCh, scheduler, registry.NewVerifierRegistry(), mocks.NewMockIndexerStorage(t))
+
+	done := make(chan struct{})
+	// account for waitgroup since we're starting the goroutine manually
+	p.wg.Add(1)
+	go func() {
+		p.enqueueMessages(context.Background())
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// success
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("enqueueMessages did not exit when discovery channel was closed")
+	}
+}
+
+func TestRun_PoolFull_EnqueuesTask(t *testing.T) {
+	lggr := logger.Test(t)
+
+	// Create a scheduler with ready channel
+	s := &Scheduler{
+		lggr:   lggr,
+		ready:  make(chan *Task, 1),
+		dlq:    make(chan *Task, 1),
+		config: config.SchedulerConfig{TickerInterval: 50, BaseDelay: 0, MaxDelay: 0, VerificationVisibilityWindow: 60},
+	}
+
+	// Create an ants pool with 1 worker, non-blocking, no blocking tasks so Submit will fail when worker busy
+	pool, err := ants.NewPool(1, ants.WithNonblocking(true), ants.WithMaxBlockingTasks(0))
+	require.NoError(t, err)
+	// do not defer pool.Release() because p.run will Release()
+
+	p := &Pool{
+		config:    config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1},
+		logger:    lggr,
+		pool:      pool,
+		scheduler: s,
+		registry:  registry.NewVerifierRegistry(),
+		storage:   mocks.NewMockIndexerStorage(t),
+	}
+
+	// Occupy the single worker with a long-running task
+	err = pool.Submit(func() {
+		time.Sleep(400 * time.Millisecond)
+	})
+	require.NoError(t, err)
+
+	// Create a task and place it into ready before starting run
+	msg := protocol.VerifierResult{}
+	task, err := NewTask(lggr, msg, p.registry, p.storage, time.Second)
+	require.NoError(t, err)
+
+	// put the task into ready so p.run will pick it up and attempt to Submit
+	s.ready <- task
+
+	// run p.run in goroutine with cancellable context so we can stop it when assertion is done
+	done := make(chan struct{})
+	p.wg.Add(1)
+	runCtx, runCancel := context.WithCancel(context.Background())
+	go func() {
+		p.run(runCtx)
+		close(done)
+	}()
+
+	// Expect the task to be re-enqueued due to pool full
+	select {
+	case rt := <-s.Ready():
+		require.Equal(t, task, rt)
+	case <-time.After(1 * time.Second):
+		t.Fatalf("timed out waiting for re-enqueued task when pool is full")
+	}
+
+	// Release the ants pool (free the occupied worker), cancel run loop and wait for exit
+	pool.Release()
+	runCancel()
+	select {
+	case <-done:
+		// ok
+	case <-time.After(2 * time.Second):
+		t.Fatalf("p.run did not exit in time")
+	}
+}
+
+func TestRun_PoolFull_EnqueueToDLQOnTTLExpired(t *testing.T) {
+	lggr := logger.Test(t)
+
+	// Create a scheduler with ready channel
+	s := &Scheduler{
+		lggr:   lggr,
+		ready:  make(chan *Task, 1),
+		dlq:    make(chan *Task, 1),
+		config: config.SchedulerConfig{TickerInterval: 50, BaseDelay: 0, MaxDelay: 0, VerificationVisibilityWindow: 60},
+	}
+
+	// Create an ants pool with 1 worker, non-blocking, no blocking tasks so Submit will fail when worker busy
+	pool, err := ants.NewPool(1, ants.WithNonblocking(true), ants.WithMaxBlockingTasks(0))
+	require.NoError(t, err)
+
+	storageMock := mocks.NewMockIndexerStorage(t)
+	p := &Pool{
+		config:    config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1},
+		logger:    lggr,
+		pool:      pool,
+		scheduler: s,
+		registry:  registry.NewVerifierRegistry(),
+		storage:   storageMock,
+	}
+
+	// Occupy the single worker with a long-running task
+	err = pool.Submit(func() {
+		time.Sleep(400 * time.Millisecond)
+	})
+	require.NoError(t, err)
+
+	// Create a task and mark its TTL expired so Enqueue will send it to DLQ and return error
+	msg := protocol.VerifierResult{}
+	task, err := NewTask(lggr, msg, p.registry, p.storage, time.Second)
+	require.NoError(t, err)
+	// expire TTL
+	task.ttl = time.Now().Add(-time.Minute)
+
+	// put the task into ready so p.run will pick it up and attempt to Submit
+	s.ready <- task
+
+	// Expect UpdateMessageStatus called when Enqueue sends to DLQ due to TTL expired
+	storageMock.On("UpdateMessageStatus", mock.Anything, mock.Anything, common.MessageTimeout, mock.Anything).Return(nil)
+
+	// run p.run in goroutine with cancellable context
+	done := make(chan struct{})
+	p.wg.Add(1)
+	runCtx, runCancel := context.WithCancel(context.Background())
+	go func() {
+		p.run(runCtx)
+		close(done)
+	}()
+
+	// Expect the task to be sent to DLQ due to TTL expired
+	select {
+	case dl := <-s.DLQ():
+		require.Equal(t, task, dl)
+	case <-time.After(1 * time.Second):
+		t.Fatalf("timed out waiting for task in DLQ when pool full and TTL expired")
+	}
+
+	// Release the ants pool (free the occupied worker), cancel the run loop and wait for exit
+	pool.Release()
+	runCancel()
+	select {
+	case <-done:
+		// ok
+	case <-time.After(2 * time.Second):
+		t.Fatalf("p.run did not exit in time")
 	}
 }

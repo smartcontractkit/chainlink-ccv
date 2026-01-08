@@ -60,11 +60,14 @@ func (p *Pool) Stop() {
 		p.cancelFunc()
 	}
 	p.wg.Wait()
-	p.logger.Info("Stopepd WorkerPool")
+	// Release the underlying worker pool after all goroutines have exited.
+	if p.pool != nil {
+		p.pool.Release()
+	}
+	p.logger.Info("Stopped WorkerPool")
 }
 
 func (p *Pool) run(ctx context.Context) {
-	defer p.pool.Release()
 	defer p.wg.Done()
 
 	for {
@@ -106,9 +109,14 @@ func (p *Pool) run(ctx context.Context) {
 			}); err != nil {
 				cancel()
 				p.logger.Errorf("Pool full! Unable to execute message %s retrying", task.messageID.String())
-				if err := p.scheduler.Enqueue(ctx, task); err != nil {
-					p.logger.Errorf("Unable to enqueue: %v", err)
-				}
+				// Enqueue asynchronously after a short sleep to avoid immediate re-consumption
+				go func(t *Task) {
+					// small backoff to avoid tight loop when Scheduler BaseDelay==0
+					time.Sleep(100 * time.Millisecond)
+					if enqErr := p.scheduler.Enqueue(context.Background(), t); enqErr != nil {
+						p.logger.Errorf("Unable to enqueue: %v", enqErr)
+					}
+				}(task)
 			}
 		}
 	}
