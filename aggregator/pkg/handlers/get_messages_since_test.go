@@ -66,3 +66,19 @@ func TestGetMessagesSinceHandler_StorageError(t *testing.T) {
 	require.Equal(t, codes.Internal, status.Code(err))
 	require.Nil(t, resp)
 }
+
+func TestGetMessagesSinceHandler_NegativeSequence(t *testing.T) {
+	t.Parallel()
+
+	lggr := logger.TestSugared(t)
+	store := mocks.NewMockCommitVerificationAggregatedStore(t)
+	mon := mocks.NewMockAggregatorMonitoring(t)
+
+	h := NewGetMessagesSinceHandler(store, &model.Committee{}, lggr, mon)
+
+	resp, err := h.Handle(context.Background(), &msgdiscoverypb.GetMessagesSinceRequest{SinceSequence: -1})
+	require.Error(t, err)
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+	require.Contains(t, err.Error(), "since_sequence cannot be negative")
+	require.Nil(t, resp)
+}

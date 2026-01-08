@@ -17,13 +17,25 @@ func makeValidWriteReq() *committeepb.WriteCommitteeVerifierNodeResultRequest {
 	if err != nil {
 		panic(err)
 	}
+
+	executorAddr := makeTestExecutorAddress()
+	ccvAddresses := [][]byte{make([]byte, 20)} // 20 bytes for EVM address
+	hash, err := protocol.ComputeCCVAndExecutorHash(
+		[]protocol.UnknownAddress{ccvAddresses[0]},
+		executorAddr,
+	)
+	if err != nil {
+		panic(err)
+	}
+	pbMsg.CcvAndExecutorHash = hash[:]
+
 	return &committeepb.WriteCommitteeVerifierNodeResultRequest{
 		CommitteeVerifierNodeResult: &committeepb.CommitteeVerifierNodeResult{
 			Signature:       []byte{0x1},
 			CcvVersion:      []byte{0x1, 0x2, 0x3, 0x4},
 			Message:         pbMsg,
-			CcvAddresses:    [][]byte{},
-			ExecutorAddress: makeTestExecutorAddress(),
+			CcvAddresses:    ccvAddresses,
+			ExecutorAddress: executorAddr,
 		},
 	}
 }
@@ -49,6 +61,42 @@ func TestValidateWriteRequest_Errors(t *testing.T) {
 		req := makeValidWriteReq()
 		req.CommitteeVerifierNodeResult.Signature = nil
 		require.Error(t, validateWriteRequest(req))
+	})
+
+	t.Run("empty_ccv_addresses", func(t *testing.T) {
+		req := makeValidWriteReq()
+		req.CommitteeVerifierNodeResult.CcvAddresses = [][]byte{}
+		err := validateWriteRequest(req)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "ccv_addresses cannot be empty")
+	})
+
+	t.Run("source_equals_destination_chain_selector", func(t *testing.T) {
+		msg := makeTestMessage(protocol.ChainSelector(1), protocol.ChainSelector(1), protocol.SequenceNumber(1), []byte{})
+		pbMsg, err := ccvcommon.MapProtocolMessageToProtoMessage(msg)
+		require.NoError(t, err)
+
+		executorAddr := makeTestExecutorAddress()
+		ccvAddresses := [][]byte{make([]byte, 20)} // 20 bytes for EVM address
+		hash, err := protocol.ComputeCCVAndExecutorHash(
+			[]protocol.UnknownAddress{ccvAddresses[0]},
+			executorAddr,
+		)
+		require.NoError(t, err)
+		pbMsg.CcvAndExecutorHash = hash[:]
+
+		req := &committeepb.WriteCommitteeVerifierNodeResultRequest{
+			CommitteeVerifierNodeResult: &committeepb.CommitteeVerifierNodeResult{
+				Signature:       []byte{0x1},
+				CcvVersion:      []byte{0x1, 0x2, 0x3, 0x4},
+				Message:         pbMsg,
+				CcvAddresses:    ccvAddresses,
+				ExecutorAddress: executorAddr,
+			},
+		}
+		err = validateWriteRequest(req)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "source_chain_selector and dest_chain_selector cannot be equal")
 	})
 }
 
