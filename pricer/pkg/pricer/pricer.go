@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-common/keystore"
+	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 	"github.com/smartcontractkit/chainlink-evm/pkg/assets"
@@ -27,7 +28,7 @@ import (
 
 type Config struct {
 	// TODO: Actual pricerconfig.
-	Interval time.Duration `toml:"interval"`
+	Interval commonconfig.Duration `toml:"interval"`
 	// TODO: Should be able to use chainlink-common/pkg/logger Config struct.
 	LogLevel zapcore.Level `toml:"loglevel"`
 	// Chain write connectivity config,
@@ -36,7 +37,7 @@ type Config struct {
 }
 
 func (c *Config) Validate() error {
-	if c.Interval <= 0 {
+	if c.Interval.Duration() <= 0 {
 		return fmt.Errorf("interval must be positive")
 	}
 	if err := c.EVM.ValidateConfig(); err != nil {
@@ -48,6 +49,16 @@ func (c *Config) Validate() error {
 func (c *Config) SetDefaults() {
 	if c.LogLevel == zapcore.Level(0) {
 		c.LogLevel = zapcore.InfoLevel
+	}
+	// Apply EVM chain defaults based on chainID.
+	if c.EVM.ChainID != nil {
+		defaults := evmtoml.Defaults(c.EVM.ChainID)
+		defaults.SetFrom(&c.EVM.Chain)
+		c.EVM.Chain = defaults
+	}
+	// Validate nodes to populate their defaults.
+	for _, n := range c.EVM.Nodes {
+		_ = n.ValidateConfig()
 	}
 }
 
@@ -101,7 +112,17 @@ func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, k
 	txKeyCoreKeystore := evmkeys.NewTxKeyCoreKeystore(keyStore)
 	txmKeyStore := keys.NewStore(txKeyCoreKeystore)
 
+	// Get enabled addresses from keystore to register with the store manager.
+	addresses, err := txmKeyStore.EnabledAddresses(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get enabled addresses: %w", err)
+	}
+
 	inMemoryStoreManager := storage.NewInMemoryStoreManager(lggr, evmClient.ConfiguredChainID())
+	// Register addresses with the in-memory store so TXM can manage transactions.
+	if err := inMemoryStoreManager.Add(addresses...); err != nil {
+		return nil, fmt.Errorf("failed to add addresses to store manager: %w", err)
+	}
 	txmClient := clientwrappers.NewChainClient(evmClient)
 	priceMaxKey := func(addr common.Address) *assets.Wei {
 		return chainScopedCfg.EVM().GasEstimator().PriceMax()
@@ -141,6 +162,10 @@ func New(lggr logger.Logger, cfg Config, evmClient client.Client, txm *txm.Txm, 
 
 func (p *Pricer) Start(ctx context.Context) error {
 	return p.StartOnce("Pricer", func() error {
+		// Dial the EVM client to start the connection pool.
+		if err := p.client.Dial(ctx); err != nil {
+			return fmt.Errorf("failed to dial EVM client: %w", err)
+		}
 		if err := p.txm.Start(ctx); err != nil {
 			return fmt.Errorf("failed to start Txm: %w", err)
 		}
@@ -160,7 +185,7 @@ func (p *Pricer) Start(ctx context.Context) error {
 
 func (p *Pricer) run(ctx context.Context) {
 	defer p.wg.Done()
-	ticker := time.NewTicker(p.cfg.Interval)
+	ticker := time.NewTicker(p.cfg.Interval.Duration())
 	defer ticker.Stop()
 
 	for {
@@ -172,7 +197,18 @@ func (p *Pricer) run(ctx context.Context) {
 			p.lggr.Info("context cancelled")
 			return
 		case <-ticker.C:
-			p.lggr.Debug("tick")
+			p.lggr.Info("tick")
+			address, err := p.txmKeyStore.GetNextAddress(ctx)
+			if err != nil {
+				p.lggr.Error("failed to get next address", "error", err)
+				continue
+			}
+			balance, err := p.client.BalanceAt(ctx, address, nil)
+			if err != nil {
+				p.lggr.Error("failed to get balance", "error", err)
+				continue
+			}
+			p.lggr.Infow("balance", "address", address, "balance", balance)
 
 			/*
 				// TODO: fetch and report prices

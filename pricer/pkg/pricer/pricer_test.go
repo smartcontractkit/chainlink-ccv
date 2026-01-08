@@ -68,7 +68,7 @@ func TestPricer(t *testing.T) {
 
 	svc, err := NewPricerFromConfig(ctx,
 		Config{
-			Interval: 1 * time.Second,
+			Interval: *commonconfig.MustNewDuration(1 * time.Second),
 			LogLevel: zapcore.DebugLevel,
 			EVM:      evmCfg,
 		}, keystoreData, "password")
