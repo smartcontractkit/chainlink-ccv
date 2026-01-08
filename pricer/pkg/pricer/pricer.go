@@ -6,14 +6,21 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
+	"github.com/smartcontractkit/chainlink-evm/pkg/assets"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
+	evmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
 	evmtoml "github.com/smartcontractkit/chainlink-evm/pkg/config/toml"
+	"github.com/smartcontractkit/chainlink-evm/pkg/keys"
+	evmkeys "github.com/smartcontractkit/chainlink-evm/pkg/keys/v2"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txm"
+	"github.com/smartcontractkit/chainlink-evm/pkg/txm/clientwrappers"
+	"github.com/smartcontractkit/chainlink-evm/pkg/txm/storage"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 )
@@ -46,12 +53,13 @@ func (c *Config) SetDefaults() {
 
 type Pricer struct {
 	services.StateMachine
-	lggr   logger.Logger
-	client client.Client
-	txm    *txm.Txm
-	cfg    Config
-	done   chan struct{}
-	wg     sync.WaitGroup
+	lggr        logger.Logger
+	client      client.Client
+	txm         *txm.Txm
+	txmKeyStore keys.Store
+	cfg         Config
+	done        chan struct{}
+	wg          sync.WaitGroup
 }
 
 func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, keystorePassword string) (*Pricer, error) {
@@ -65,7 +73,18 @@ func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, k
 	}
 	lggr = logger.Named(lggr, "pricer")
 
-	evmClient, err := NewEvmClientFromConfig(lggr, cfg.EVM)
+	chainScopedCfg := evmconfig.NewTOMLChainScopedConfig(&cfg.EVM)
+	nodePoolCfg := &evmconfig.NodePoolConfig{C: cfg.EVM.NodePool}
+
+	evmClient, err := client.NewEvmClient(
+		nodePoolCfg,
+		chainScopedCfg.EVM(),
+		nodePoolCfg.Errors(),
+		lggr,
+		chainScopedCfg.EVM().ChainID(),
+		chainScopedCfg.Nodes(),
+		chainScopedCfg.EVM().ChainType(),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create EVM client: %w", err)
 	}
@@ -75,15 +94,39 @@ func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, k
 	if err := memStorage.PutEncryptedKeystore(ctx, keystoreData); err != nil {
 		return nil, fmt.Errorf("failed to populate keystore storage: %w", err)
 	}
-	ks, err := keystore.LoadKeystore(ctx, memStorage, keystorePassword)
+	keyStore, err := keystore.LoadKeystore(ctx, memStorage, keystorePassword)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load keystore: %w", err)
 	}
-	txm := NewStatelessTxmV2FromConfig(lggr, cfg.EVM, evmClient, ks, nil)
-	return New(lggr, cfg, evmClient, txm), nil
+	txKeyCoreKeystore := evmkeys.NewTxKeyCoreKeystore(keyStore)
+	txmKeyStore := keys.NewStore(txKeyCoreKeystore)
+
+	inMemoryStoreManager := storage.NewInMemoryStoreManager(lggr, evmClient.ConfiguredChainID())
+	txmClient := clientwrappers.NewChainClient(evmClient)
+	priceMaxKey := func(addr common.Address) *assets.Wei {
+		return chainScopedCfg.EVM().GasEstimator().PriceMax()
+	}
+	chainStore := keys.NewChainStore(txKeyCoreKeystore, evmClient.ConfiguredChainID())
+	attemptBuilder := txm.NewAttemptBuilder(priceMaxKey, nil, chainStore, 0)
+
+	txm := txm.NewTxm(
+		lggr,
+		evmClient.ConfiguredChainID(),
+		txmClient,
+		attemptBuilder,
+		inMemoryStoreManager,
+		nil, // stuckTxDetector
+		txm.Config{
+			EIP1559:   chainScopedCfg.EVM().GasEstimator().EIP1559DynamicFees(),
+			BlockTime: *chainScopedCfg.EVM().Transactions().TransactionManagerV2().BlockTime(),
+		},
+		txmKeyStore,
+		nil, // errorHandler
+	)
+	return New(lggr, cfg, evmClient, txm, txmKeyStore), nil
 }
 
-func New(lggr logger.Logger, cfg Config, evmClient client.Client, txm *txm.Txm) *Pricer {
+func New(lggr logger.Logger, cfg Config, evmClient client.Client, txm *txm.Txm, txmKeyStore keys.Store) *Pricer {
 	return &Pricer{
 		StateMachine: services.StateMachine{},
 		lggr:         lggr,
@@ -92,13 +135,22 @@ func New(lggr logger.Logger, cfg Config, evmClient client.Client, txm *txm.Txm) 
 		done:         make(chan struct{}),
 		wg:           sync.WaitGroup{},
 		txm:          txm,
+		txmKeyStore:  txmKeyStore,
 	}
 }
 
 func (p *Pricer) Start(ctx context.Context) error {
 	return p.StartOnce("Pricer", func() error {
+		if err := p.txm.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start Txm: %w", err)
+		}
+		addresses, err := p.txmKeyStore.EnabledAddresses(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get enabled addresses: %w", err)
+		}
 		p.lggr.Infow("starting",
 			"chainID", p.client.ConfiguredChainID(),
+			"addresses", addresses,
 		)
 		p.wg.Add(1)
 		go p.run(ctx)
