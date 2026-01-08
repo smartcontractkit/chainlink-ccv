@@ -47,6 +47,17 @@ func NewRunCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			f, err := os.Open(configFile) //nolint:gosec // configFile is from CLI flag, not user input
+			if err != nil {
+				return fmt.Errorf("failed to open config %s: %w", configFile, err)
+			}
+			var cfg pricer.Config
+			if err := commonconfig.DecodeTOML(f, &cfg); err != nil {
+				f.Close()
+				return fmt.Errorf("failed to load config %s: %w", configFile, err)
+			}
+			f.Close()
+
 			keystoreData, err := base64.StdEncoding.DecodeString(os.Getenv(EnvKeystoreData))
 			if err != nil {
 				return fmt.Errorf("failed to decode %s: %w", EnvKeystoreData, err)
@@ -55,35 +66,21 @@ func NewRunCmd() *cobra.Command {
 			if keystorePassword == "" {
 				return fmt.Errorf("%s environment variable is required", EnvKeystorePassword)
 			}
-			return run(configFile, keystoreData, keystorePassword)
+
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+
+			svc, err := pricer.NewPricerFromConfig(ctx, cfg, keystoreData, keystorePassword)
+			if err != nil {
+				return fmt.Errorf("failed to create pricer: %w", err)
+			}
+			if err := svc.Start(ctx); err != nil {
+				return fmt.Errorf("failed to start: %w", err)
+			}
+			<-ctx.Done()
+			return svc.Close()
 		},
 	}
 	cmd.Flags().String("config", "config.toml", "path to config file")
 	return cmd
-}
-
-func run(configFile string, keystoreData []byte, keystorePassword string) error {
-	f, err := os.Open(configFile) //nolint:gosec // configFile is from CLI flag, not user input
-	if err != nil {
-		return fmt.Errorf("failed to open config %s: %w", configFile, err)
-	}
-	defer func() { _ = f.Close() }()
-
-	var cfg pricer.Config
-	if err := commonconfig.DecodeTOML(f, &cfg); err != nil {
-		return fmt.Errorf("failed to load config %s: %w", configFile, err)
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	svc, err := pricer.NewPricerFromConfig(ctx, cfg, keystoreData, keystorePassword)
-	if err != nil {
-		return fmt.Errorf("failed to create pricer: %w", err)
-	}
-	if err := svc.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start: %w", err)
-	}
-	<-ctx.Done()
-	return svc.Close()
 }
