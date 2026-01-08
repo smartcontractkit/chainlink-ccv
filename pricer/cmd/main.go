@@ -53,10 +53,10 @@ func NewRunCmd() *cobra.Command {
 			}
 			var cfg pricer.Config
 			if err := commonconfig.DecodeTOML(f, &cfg); err != nil {
-				f.Close()
+				_ = f.Close()
 				return fmt.Errorf("failed to load config %s: %w", configFile, err)
 			}
-			f.Close()
+			_ = f.Close()
 
 			keystoreData, err := base64.StdEncoding.DecodeString(os.Getenv(EnvKeystoreData))
 			if err != nil {
