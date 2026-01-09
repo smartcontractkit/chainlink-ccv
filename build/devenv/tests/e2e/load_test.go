@@ -18,6 +18,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/load"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
 	cldfevm "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -54,9 +55,6 @@ type GasTestCase struct {
 }
 
 func assertMessagesAsync(tc TestingContext, gun *EVMTXGun, overallTimeout time.Duration) func() ([]metrics.MessageMetrics, metrics.MessageTotals) {
-	fromSelector := gun.src.Selector
-	toSelector := gun.dest.Selector
-
 	var wg sync.WaitGroup
 	var totalSent, totalReceived atomic.Int32
 
@@ -87,12 +85,12 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun, overallTimeout time.D
 
 				msgIDHex := common.BytesToHash(msg.MessageID[:]).Hex()
 
-				if _, ok := tc.Impl[toSelector]; !ok {
+				if _, ok := tc.Impl[msg.ChainPair.Dest]; !ok {
 					tc.T.Logf("No implementation available to verify message %d", msg.SeqNo)
 					return
 				}
 
-				execEvent, err := tc.Impl[toSelector].WaitOneExecEventBySeqNo(verifyCtx, fromSelector, msg.SeqNo, 0)
+				execEvent, err := tc.Impl[msg.ChainPair.Dest].WaitOneExecEventBySeqNo(verifyCtx, msg.ChainPair.Src, msg.SeqNo, 0)
 				if err != nil {
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						tc.T.Logf("Message %d verification cancelled or timed out", msg.SeqNo)
@@ -251,7 +249,7 @@ func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
 }
 
 func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, selectors []uint64, impl map[uint64]cciptestinterfaces.CCIP17ProductConfiguration, s, d cldfevm.Chain) (*wasp.Profile, *EVMTXGun) {
-	gun := NewEVMTransactionGun(in, e, selectors, impl, s, d)
+	gun := NewEVMTransactionGun(in, e, selectors, impl, []uint64{s.Selector}, []uint64{d.Selector})
 	profile := wasp.NewProfile().
 		Add(wasp.NewGenerator(&wasp.Config{
 			LoadType: wasp.RPS,
@@ -265,7 +263,7 @@ func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *de
 				"branch":       "test",
 				"commit":       "test",
 			},
-			LokiConfig: wasp.NewEnvLokiConfig(),
+			LokiConfig: nil,
 		}))
 	return profile, gun
 }
@@ -284,8 +282,6 @@ func TestE2ELoad(t *testing.T) {
 	if os.Getenv("LOKI_URL") == "" {
 		_ = os.Setenv("LOKI_URL", ccv.DefaultLokiURL)
 	}
-	srcRPCURL := in.Blockchains[0].Out.Nodes[0].ExternalHTTPUrl
-	dstRPCURL := in.Blockchains[1].Out.Nodes[0].ExternalHTTPUrl
 
 	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
 	require.NoError(t, err)
@@ -397,6 +393,9 @@ func TestE2ELoad(t *testing.T) {
 	})
 
 	t.Run("gas", func(t *testing.T) {
+		srcRPCURL := in.Blockchains[0].Out.Nodes[0].ExternalHTTPUrl
+		dstRPCURL := in.Blockchains[1].Out.Nodes[0].ExternalHTTPUrl
+
 		rps := int64(1)
 		testDuration := 5 * time.Minute
 
@@ -472,6 +471,9 @@ func TestE2ELoad(t *testing.T) {
 	})
 
 	t.Run("reorgs", func(t *testing.T) {
+		srcRPCURL := in.Blockchains[0].Out.Nodes[0].ExternalHTTPUrl
+		dstRPCURL := in.Blockchains[1].Out.Nodes[0].ExternalHTTPUrl
+
 		rps := int64(1)
 		testDuration := 5 * time.Minute
 
@@ -674,5 +676,62 @@ func TestE2ELoad(t *testing.T) {
 
 		summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
 		metrics.PrintMetricsSummary(t, summary)
+	})
+
+	// multi chain mesh load test with config file
+	t.Run("multi_chain_load", func(t *testing.T) {
+		// Load test config
+		testconfigFile := os.Getenv("LOAD_CONFIG_FILE")
+		if testconfigFile == "" {
+			testconfigFile = "../../steady-mesh.toml"
+		}
+		var testConfig *load.TOMLLoadTestRoot
+		testConfig, err = load.LoadTestConfigFromTomlFile(testconfigFile)
+		if err != nil {
+			t.Logf("failed to load test config: %v", err)
+			return
+		}
+
+		t.Logf("testConfig: %+v", testConfig)
+		err = verifyTestConfig(e, testConfig)
+		require.NoError(t, err)
+		testProfile := testConfig.TestProfiles[0]
+
+		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
+		tc.Timeout = testProfile.TestDuration
+
+		gun := NewEVMTransactionGunFromTestConfig(in, &testProfile, e, chainImpls)
+		p := wasp.NewProfile().Add(
+			wasp.NewGenerator(
+				&wasp.Config{
+					LoadType:   wasp.RPS,
+					GenName:    "multi-chain-mesh-load-test",
+					Schedule:   wasp.Plain(testProfile.MessagesPerSecond, testProfile.LoadDuration),
+					Gun:        gun,
+					Labels:     map[string]string{"go_test_name": "multi-chain-load"},
+					LokiConfig: nil,
+				}),
+		)
+		waitForMetrics := assertMessagesAsync(tc, gun, testProfile.TestDuration)
+
+		_, err = p.Run(true)
+		require.NoError(t, err)
+
+		p.Wait()
+		time.Sleep(postTestVerificationDelay)
+		// Close the channel to signal no more messages will be sent
+		gun.CloseSentChannel()
+
+		// Wait for all messages to be verified and collect metrics
+		metrics_datum, totals := waitForMetrics()
+
+		// Enrich metrics with log data collected during test
+		tc.enrichMetrics(metrics_datum)
+
+		summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
+		metrics.PrintMetricsSummary(t, summary)
+
+		require.Equal(t, summary.TotalSent, summary.TotalReceived)
+		require.LessOrEqual(t, summary.P90Latency, 8*time.Second)
 	})
 }

@@ -385,6 +385,8 @@ var testCmd = &cobra.Command{
 			testPattern = "TestE2ELoad/chaos"
 		case "indexer-load":
 			testPattern = "TestIndexerLoad"
+		case "multi_chain_load":
+			testPattern = "TestE2ELoad/multi_chain_load"
 		default:
 			return fmt.Errorf("test suite %s is unknown, choose between smoke or load", args[0])
 		}

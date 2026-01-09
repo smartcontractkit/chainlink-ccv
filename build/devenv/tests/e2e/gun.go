@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,42 +15,45 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	cldfevm "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/wasp"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/load"
 )
 
 const sentMessageChannelBufferSize = 1000
+
+type SrcDest struct {
+	Src  uint64
+	Dest uint64
+}
 
 // SentMessage represents a message that was sent and needs verification.
 type SentMessage struct {
 	SeqNo     uint64
 	MessageID [32]byte
 	SentTime  time.Time
+	ChainPair SrcDest
 }
 
 type EVMTXGun struct {
-	cfg        *ccv.Cfg
-	e          *deployment.Environment
-	selectors  []uint64
-	impl       map[uint64]cciptestinterfaces.CCIP17ProductConfiguration
-	src        cldfevm.Chain
-	dest       cldfevm.Chain
-	sentSeqNos []uint64
-	sentTimes  map[uint64]time.Time
-	msgIDs     map[uint64][32]byte
-	seqNosMu   sync.Mutex
-	sentMsgCh  chan SentMessage // Channel for real-time message notifications
-	closeOnce  sync.Once        // Ensure channel is closed only once
-	nonceMu    sync.Mutex
-	nonce      *atomic.Int64
-	nonceErr   error
+	cfg           *ccv.Cfg
+	testConfig    *load.TestProfileConfig
+	e             *deployment.Environment
+	selectors     []uint64
+	impl          map[uint64]cciptestinterfaces.CCIP17ProductConfiguration
+	sentMsgSet    map[SentMessage]struct{}
+	srcSelectors  []uint64
+	destSelectors []uint64
+	seqNosMu      sync.Mutex
+	sentMsgCh     chan SentMessage // Channel for real-time message notifications
+	closeOnce     sync.Once        // Ensure channel is closed only once
+	nonceMu       sync.Mutex
+	nonce         map[uint64]*atomic.Uint64
 }
 
 // CloseSentChannel closes the sent messages channel to signal no more messages will be sent.
@@ -59,45 +63,72 @@ func (m *EVMTXGun) CloseSentChannel() {
 	})
 }
 
-func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impls map[uint64]cciptestinterfaces.CCIP17ProductConfiguration, s, d cldfevm.Chain) *EVMTXGun {
+func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impls map[uint64]cciptestinterfaces.CCIP17ProductConfiguration, srcSelectors, destSelectors []uint64) *EVMTXGun {
 	return &EVMTXGun{
-		cfg:        cfg,
-		e:          e,
-		selectors:  selectors,
-		impl:       impls,
-		src:        s,
-		dest:       d,
-		sentSeqNos: make([]uint64, 0),
-		sentTimes:  make(map[uint64]time.Time),
-		msgIDs:     make(map[uint64][32]byte),
-		sentMsgCh:  make(chan SentMessage, sentMessageChannelBufferSize),
+		cfg:           cfg,
+		e:             e,
+		selectors:     selectors,
+		impl:          impls,
+		sentMsgSet:    make(map[SentMessage]struct{}),
+		sentMsgCh:     make(chan SentMessage, sentMessageChannelBufferSize),
+		nonce:         make(map[uint64]*atomic.Uint64),
+		srcSelectors:  srcSelectors,
+		destSelectors: destSelectors,
 	}
 }
 
-func (m *EVMTXGun) initNonce() error {
+func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testConfig *load.TestProfileConfig, e *deployment.Environment, impls map[uint64]cciptestinterfaces.CCIP17ProductConfiguration) *EVMTXGun {
+	selectors := make([]uint64, 0)
+	srcSelectors := make([]uint64, 0, len(testConfig.ChainsAsSource))
+	destSelectors := make([]uint64, 0, len(testConfig.ChainsAsDest))
+	for _, chain := range testConfig.ChainsAsSource {
+		chainSelector, _ := strconv.ParseUint(chain, 10, 64)
+		selectors = append(selectors, chainSelector)
+		srcSelectors = append(srcSelectors, chainSelector)
+	}
+	for _, chain := range testConfig.ChainsAsDest {
+		chainSelector, _ := strconv.ParseUint(chain, 10, 64)
+		selectors = append(selectors, chainSelector)
+		destSelectors = append(destSelectors, chainSelector)
+	}
+	return &EVMTXGun{
+		cfg:           cfg,
+		testConfig:    testConfig,
+		e:             e,
+		selectors:     selectors,
+		impl:          impls,
+		sentMsgSet:    make(map[SentMessage]struct{}),
+		sentMsgCh:     make(chan SentMessage, sentMessageChannelBufferSize),
+		nonce:         make(map[uint64]*atomic.Uint64),
+		srcSelectors:  srcSelectors,
+		destSelectors: destSelectors,
+	}
+}
+
+func (m *EVMTXGun) initNonce(chainSelector uint64) error {
 	m.nonceMu.Lock()
 	defer m.nonceMu.Unlock()
 
-	if m.nonce != nil {
+	if m.nonce[chainSelector] != nil {
 		return nil
 	}
-	if m.nonceErr != nil {
-		return m.nonceErr
+
+	n, err := m.impl[chainSelector].GetUserNonce(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to get pending nonce for selector %d: %w", chainSelector, err)
 	}
 
-	nonce, err := m.src.Client.PendingNonceAt(context.Background(), m.src.DeployerKey.From)
-	if err != nil {
-		m.nonceErr = fmt.Errorf("failed to get pending nonce: %w", err)
-		return m.nonceErr
-	}
-	m.nonce = &atomic.Int64{}
-	m.nonce.Store(int64(nonce))
+	m.nonce[chainSelector] = &atomic.Uint64{}
+	m.nonce[chainSelector].Store(n)
 	return nil
 }
 
 // Call implements example gun call, assertions on response bodies should be done here.
 func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
-	if err := m.initNonce(); err != nil {
+	srcSelector := m.SelectSourceSelector()
+	destSelector := m.SelectDestinationSelector(srcSelector)
+
+	if err := m.initNonce(srcSelector); err != nil {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}
 
@@ -105,21 +136,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	m.e.OperationsBundle = b
 	ctx := context.Background()
 
-	chainIDs := make([]string, 0)
-	for _, bc := range m.cfg.Blockchains {
-		chainIDs = append(chainIDs, bc.ChainID)
-	}
-
-	srcChain, err := chainsel.GetChainDetailsByChainIDAndFamily(chainIDs[0], chainsel.FamilyEVM)
-	if err != nil {
-		return &wasp.Response{Error: err.Error(), Failed: true}
-	}
-	dstChain, err := chainsel.GetChainDetailsByChainIDAndFamily(chainIDs[1], chainsel.FamilyEVM)
-	if err != nil {
-		return &wasp.Response{Error: err.Error(), Failed: true}
-	}
-
-	c, ok := m.impl[dstChain.ChainSelector].(*evm.CCIP17EVM)
+	c, ok := m.impl[srcSelector]
 	if !ok {
 		return &wasp.Response{Error: "impl is not CCIP17EVM", Failed: true}
 	}
@@ -128,7 +145,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 
 	mockReceiverRef, err := m.e.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
-			dstChain.ChainSelector,
+			destSelector,
 			datastore.ContractType(mock_receiver.ContractType),
 			semver.MustParse(mock_receiver.Deploy.Version()),
 			evm.DefaultReceiverQualifier))
@@ -137,7 +154,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	}
 	committeeVerifierProxyRef, err := m.e.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
-			srcChain.ChainSelector,
+			srcSelector,
 			datastore.ContractType(committee_verifier.ResolverType),
 			semver.MustParse(committee_verifier.Deploy.Version()),
 			evm.DefaultCommitteeVerifierQualifier))
@@ -147,7 +164,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 
 	wethContract, err := m.e.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
-			srcChain.ChainSelector,
+			srcSelector,
 			datastore.ContractType(weth.ContractType),
 			semver.MustParse(weth.Deploy.Version()),
 			""))
@@ -155,7 +172,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: fmt.Errorf("could not find WETH address in datastore: %w", err).Error(), Failed: true}
 	}
 
-	sentEvent, err := c.SendMessageWithNonce(ctx, dstChain.ChainSelector, cciptestinterfaces.MessageFields{
+	sentEvent, err := c.SendMessageWithNonce(ctx, destSelector, cciptestinterfaces.MessageFields{
 		Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
 		Data:     []byte{},
 		FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),
@@ -169,20 +186,26 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 				ArgsLen:    0,
 			},
 		},
-	}, m.nonce, true)
+	}, m.nonce[srcSelector], true)
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("failed to send message: %w", err).Error(), Failed: true}
 	}
 
 	// Record the actual sequence number from the sent event
 	m.seqNosMu.Lock()
-	m.sentSeqNos = append(m.sentSeqNos, uint64(sentEvent.Message.SequenceNumber))
-	m.sentTimes[uint64(sentEvent.Message.SequenceNumber)] = sentTime
-	m.msgIDs[uint64(sentEvent.Message.SequenceNumber)] = sentEvent.MessageID
+	m.sentMsgSet[SentMessage{SeqNo: uint64(sentEvent.Message.SequenceNumber), MessageID: sentEvent.MessageID, SentTime: sentTime, ChainPair: SrcDest{Src: srcSelector, Dest: destSelector}}] = struct{}{}
 	m.seqNosMu.Unlock()
 
 	// Push to channel for verification
-	m.sentMsgCh <- SentMessage{SeqNo: uint64(sentEvent.Message.SequenceNumber), MessageID: sentEvent.MessageID, SentTime: sentTime}
+	m.sentMsgCh <- SentMessage{SeqNo: uint64(sentEvent.Message.SequenceNumber), MessageID: sentEvent.MessageID, SentTime: sentTime, ChainPair: SrcDest{Src: srcSelector, Dest: destSelector}}
 
 	return &wasp.Response{Data: "ok"}
+}
+
+func (m *EVMTXGun) SelectSourceSelector() uint64 {
+	return m.srcSelectors[0]
+}
+
+func (m *EVMTXGun) SelectDestinationSelector(srcSelector uint64) uint64 {
+	return m.destSelectors[0]
 }
