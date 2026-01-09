@@ -264,15 +264,26 @@ func verifyTestConfig(e *deployment.Environment, testConfig *load.TOMLLoadTestRo
 	chainsInTestConfig := make(map[uint64]struct{})
 	for _, testProfile := range testConfig.TestProfiles {
 		for _, chain := range testProfile.ChainsAsSource {
-			chainSelector, _ := strconv.ParseUint(chain, 10, 64)
+			chainSelector, _ := strconv.ParseUint(chain.Selector, 10, 64)
 			chainsInTestConfig[chainSelector] = struct{}{}
 		}
 		for _, chain := range testProfile.ChainsAsDest {
-			chainSelector, _ := strconv.ParseUint(chain, 10, 64)
+			chainSelector, _ := strconv.ParseUint(chain.Selector, 10, 64)
 			chainsInTestConfig[chainSelector] = struct{}{}
 		}
 	}
 
+	messageProfileNames := make(map[string]struct{})
+	for _, messageProfile := range testConfig.MessageProfiles {
+		messageProfileNames[messageProfile.Name] = struct{}{}
+	}
+	for _, testProfile := range testConfig.TestProfiles {
+		for _, message := range testProfile.Messages {
+			if _, ok := messageProfileNames[message.MessageProfile]; !ok {
+				err = errors.Join(err, fmt.Errorf("message profile %s not found in test config", message.MessageProfile))
+			}
+		}
+	}
 	chainsInEnv := e.BlockChains.EVMChains()
 
 	for chain := range chainsInTestConfig {

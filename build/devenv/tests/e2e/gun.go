@@ -82,12 +82,12 @@ func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testConfig *load.TestProfi
 	srcSelectors := make([]uint64, 0, len(testConfig.ChainsAsSource))
 	destSelectors := make([]uint64, 0, len(testConfig.ChainsAsDest))
 	for _, chain := range testConfig.ChainsAsSource {
-		chainSelector, _ := strconv.ParseUint(chain, 10, 64)
+		chainSelector, _ := strconv.ParseUint(chain.Selector, 10, 64)
 		selectors = append(selectors, chainSelector)
 		srcSelectors = append(srcSelectors, chainSelector)
 	}
 	for _, chain := range testConfig.ChainsAsDest {
-		chainSelector, _ := strconv.ParseUint(chain, 10, 64)
+		chainSelector, _ := strconv.ParseUint(chain.Selector, 10, 64)
 		selectors = append(selectors, chainSelector)
 		destSelectors = append(destSelectors, chainSelector)
 	}
@@ -125,8 +125,21 @@ func (m *EVMTXGun) initNonce(chainSelector uint64) error {
 
 // Call implements example gun call, assertions on response bodies should be done here.
 func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
-	srcSelector := m.SelectSourceSelector()
-	destSelector := m.SelectDestinationSelector(srcSelector)
+	ctx := context.Background()
+	sentTime := time.Now()
+	srcSelector, err := m.SelectSourceSelector()
+	if err != nil {
+		return &wasp.Response{Error: fmt.Errorf("failed to select source selector: %w", err).Error(), Failed: true}
+	}
+	destSelector, err := m.SelectDestSelector(srcSelector)
+	if err != nil {
+		return &wasp.Response{Error: fmt.Errorf("failed to select dest selector: %w", err).Error(), Failed: true}
+	}
+
+	fields, opts, err := m.selectMessageProfile(srcSelector, destSelector)
+	if err != nil {
+		return &wasp.Response{Error: fmt.Errorf("failed to select message profile: %w", err).Error(), Failed: true}
+	}
 
 	if err := m.initNonce(srcSelector); err != nil {
 		return &wasp.Response{Error: err.Error(), Failed: true}
@@ -134,59 +147,13 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 
 	b := ccv.NewDefaultCLDFBundle(m.e)
 	m.e.OperationsBundle = b
-	ctx := context.Background()
 
 	c, ok := m.impl[srcSelector]
 	if !ok {
 		return &wasp.Response{Error: "impl is not CCIP17EVM", Failed: true}
 	}
 
-	sentTime := time.Now()
-
-	mockReceiverRef, err := m.e.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(
-			destSelector,
-			datastore.ContractType(mock_receiver.ContractType),
-			semver.MustParse(mock_receiver.Deploy.Version()),
-			evm.DefaultReceiverQualifier))
-	if err != nil {
-		return &wasp.Response{Error: fmt.Errorf("could not find mock receiver address in datastore: %w", err).Error(), Failed: true}
-	}
-	committeeVerifierProxyRef, err := m.e.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(
-			srcSelector,
-			datastore.ContractType(committee_verifier.ResolverType),
-			semver.MustParse(committee_verifier.Deploy.Version()),
-			evm.DefaultCommitteeVerifierQualifier))
-	if err != nil {
-		return &wasp.Response{Error: fmt.Errorf("could not find committee verifier proxy address in datastore: %w", err).Error(), Failed: true}
-	}
-
-	wethContract, err := m.e.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(
-			srcSelector,
-			datastore.ContractType(weth.ContractType),
-			semver.MustParse(weth.Deploy.Version()),
-			""))
-	if err != nil {
-		return &wasp.Response{Error: fmt.Errorf("could not find WETH address in datastore: %w", err).Error(), Failed: true}
-	}
-
-	sentEvent, err := c.SendMessageWithNonce(ctx, destSelector, cciptestinterfaces.MessageFields{
-		Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
-		Data:     []byte{},
-		FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),
-	}, cciptestinterfaces.MessageOptions{
-		Version:        3,
-		FinalityConfig: uint16(1),
-		CCVs: []protocol.CCV{
-			{
-				CCVAddress: common.HexToAddress(committeeVerifierProxyRef.Address).Bytes(),
-				Args:       []byte{},
-				ArgsLen:    0,
-			},
-		},
-	}, m.nonce[srcSelector], true)
+	sentEvent, err := c.SendMessageWithNonce(ctx, destSelector, fields, opts, m.nonce[srcSelector], true)
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("failed to send message: %w", err).Error(), Failed: true}
 	}
@@ -202,10 +169,76 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	return &wasp.Response{Data: "ok"}
 }
 
-func (m *EVMTXGun) SelectSourceSelector() uint64 {
-	return m.srcSelectors[0]
+// SelectSourceSelectorByRatio selects an element from m.srcSelectors according to the source ratio in the chain_profiles.
+func (m *EVMTXGun) SelectSourceSelector() (uint64, error) {
+	if m.testConfig == nil {
+		return m.srcSelectors[0], nil
+	}
+	return load.GetSelectorByRatio(
+		m.testConfig.ChainsAsSource,
+	)
 }
 
-func (m *EVMTXGun) SelectDestinationSelector(srcSelector uint64) uint64 {
-	return m.destSelectors[0]
+// SelectDestSelectorByRatio selects an element from m.destSelectors according to the dest ratio in the chain_profiles.
+func (m *EVMTXGun) SelectDestSelector(excludeSelector uint64) (uint64, error) {
+	if m.testConfig == nil {
+		return m.destSelectors[0], nil
+	}
+	choices := make([]load.ChainProfileConfig, 0, len(m.testConfig.ChainsAsDest))
+	for _, chain := range m.testConfig.ChainsAsDest {
+		if chain.Selector != strconv.FormatUint(excludeSelector, 10) {
+			choices = append(choices, chain)
+		}
+	}
+	return load.GetSelectorByRatio(choices)
+}
+
+func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (cciptestinterfaces.MessageFields, cciptestinterfaces.MessageOptions, error) {
+	mockReceiverRef, err := m.e.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(
+			destSelector,
+			datastore.ContractType(mock_receiver.ContractType),
+			semver.MustParse(mock_receiver.Deploy.Version()),
+			evm.DefaultReceiverQualifier))
+	if err != nil {
+		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("could not find mock receiver address in datastore: %w", err)
+	}
+
+	wethContract, err := m.e.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(
+			srcSelector,
+			datastore.ContractType(weth.ContractType),
+			semver.MustParse(weth.Deploy.Version()),
+			""))
+	if err != nil {
+		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("could not find WETH address in datastore: %w", err)
+	}
+
+	committeeVerifierProxyRef, err := m.e.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(
+			srcSelector,
+			datastore.ContractType(committee_verifier.ResolverType),
+			semver.MustParse(committee_verifier.Deploy.Version()),
+			evm.DefaultCommitteeVerifierQualifier))
+	if err != nil {
+		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("could not find committee verifier proxy address in datastore: %w", err)
+	}
+
+	fields := cciptestinterfaces.MessageFields{
+		Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
+		Data:     []byte{},
+		FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),
+	}
+	opts := cciptestinterfaces.MessageOptions{
+		Version:        3,
+		FinalityConfig: uint16(1),
+		CCVs: []protocol.CCV{
+			{
+				CCVAddress: common.HexToAddress(committeeVerifierProxyRef.Address).Bytes(),
+				Args:       []byte{},
+				ArgsLen:    0,
+			},
+		},
+	}
+	return fields, opts, nil
 }
