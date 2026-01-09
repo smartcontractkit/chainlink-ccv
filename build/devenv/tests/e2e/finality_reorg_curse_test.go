@@ -97,8 +97,8 @@ func TestE2EReorg(t *testing.T) {
 	receiver := mustGetEOAReceiverAddress(t, destImpl)
 
 	executorAddr := getContractAddress(t, in, srcSelector,
-		datastore.ContractType(executor.ContractType),
-		executor.Deploy.Version(),
+		datastore.ContractType(executor.ProxyType),
+		executor.DeployProxy.Version(),
 		evm.DefaultExecutorQualifier,
 		"executor")
 

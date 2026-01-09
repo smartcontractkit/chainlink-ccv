@@ -1138,7 +1138,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 				},
 				Executors: []sequences.ExecutorParams{
 					{
-						Version:       semver.MustParse(executor.Deploy.Version()),
+						Version:       semver.MustParse(executor.DeployProxy.Version()),
 						MaxCCVsPerMsg: 10,
 						DynamicConfig: executor.SetDynamicConfigArgs{
 							FeeAggregator:         common.HexToAddress("0x01"),
@@ -1148,7 +1148,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 						Qualifier: DefaultExecutorQualifier,
 					},
 					{
-						Version:       semver.MustParse(executor.Deploy.Version()),
+						Version:       semver.MustParse(executor.DeployProxy.Version()),
 						MaxCCVsPerMsg: 10,
 						DynamicConfig: executor.SetDynamicConfigArgs{
 							FeeAggregator:         common.HexToAddress("0x01"),
