@@ -42,7 +42,6 @@ func TestMessagesHandler_Handle(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			ms := mocks.NewMockIndexerStorage(t)
 			mm := mocks.NewMockIndexerMonitoring(t)
