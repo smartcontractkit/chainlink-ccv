@@ -5,8 +5,7 @@ message_profiles=[
 [[test_profiles]]
     chains_as_source=[
         {selector="3379446385462418246", ratio=1},
-        {selector="4793464827907405086", ratio=1},
-        {selector="12922642891491394802", ratio=1}
+        {selector="4793464827907405086", ratio=10},
     ]
     chains_as_dest=[
         {selector="3379446385462418246", ratio=1},
