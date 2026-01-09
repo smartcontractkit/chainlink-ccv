@@ -514,6 +514,9 @@ func TestHTTPPolling_ContinuousRPCFailures(t *testing.T) {
 	// Waits until context timeout (100 ms)
 	<-ctx.Done()
 
+	// Wait for the polling goroutine to finish to avoid logging after test completion
+	require.NoError(t, poller.Close())
+
 	// Verify poller fields are set correctly
 	assert.Equal(t, uint64(startBlock), poller.startBlock, "Poller should maintain start block")
 	assert.Equal(t, uint64(startBlock), poller.lastPolledBlock, "Poller should maintain last polled block")
