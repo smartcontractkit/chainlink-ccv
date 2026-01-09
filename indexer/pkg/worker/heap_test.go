@@ -12,6 +12,8 @@ func newTestTaskAt(t time.Time) *Task {
 	return &Task{runAt: t}
 }
 
+// TestDelayHeap_PushPopPeekOrdering verifies ordering semantics of the delay heap
+// when pushing and popping tasks with different runAt times.
 func TestDelayHeap_PushPopPeekOrdering(t *testing.T) {
 	h := &DelayHeap{}
 	heap.Init(h)
@@ -44,12 +46,15 @@ func TestDelayHeap_PushPopPeekOrdering(t *testing.T) {
 	require.Equal(t, -1, p2.index)
 }
 
+// TestDelayHeap_PeekEmpty ensures Peek returns nil for an empty heap.
 func TestDelayHeap_PeekEmpty(t *testing.T) {
 	h := &DelayHeap{}
 	heap.Init(h)
 	require.Nil(t, h.Peek())
 }
 
+// TestDelayHeap_PopAllReady verifies PopAllReady returns all tasks whose runAt is <= now
+// and preserves their ordering.
 func TestDelayHeap_PopAllReady(t *testing.T) {
 	h := &DelayHeap{}
 	heap.Init(h)
@@ -76,6 +81,7 @@ func TestDelayHeap_PopAllReady(t *testing.T) {
 	require.Equal(t, future.runAt, p.runAt)
 }
 
+// TestDelayHeap_PushWrongTypePanics verifies that pushing a non-*Task panics.
 func TestDelayHeap_PushWrongTypePanics(t *testing.T) {
 	defer func() {
 		recover()

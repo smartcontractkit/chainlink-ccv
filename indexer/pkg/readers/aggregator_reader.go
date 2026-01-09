@@ -31,7 +31,7 @@ func aggregatorRetryPolicyErrorHandler(response []protocol.QueryResponse, err er
 		return false
 	}
 
-	if isNonRetryableError(err) {
+	if isConnectionError(err) {
 		return false
 	}
 
@@ -47,7 +47,7 @@ func aggregatorCircuitBreakerErrorHandler(response []protocol.QueryResponse, err
 	}
 
 	// Count connection errors towards circuit breaker
-	if isNonRetryableError(err) {
+	if isConnectionError(err) {
 		return true
 	}
 
@@ -55,8 +55,11 @@ func aggregatorCircuitBreakerErrorHandler(response []protocol.QueryResponse, err
 	return true
 }
 
-// isNonRetryableError checks if an error is a connection-related error.
-func isNonRetryableError(err error) bool {
+// isConnectionError checks if an error is a connection-related error.
+func isConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
 	errMsg := strings.ToLower(err.Error())
 	return strings.Contains(errMsg, "produced zero addresses") ||
 		strings.Contains(errMsg, "dial tcp")
