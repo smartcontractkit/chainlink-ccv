@@ -521,10 +521,7 @@ func (i *InMemoryStorage) intersectIndices(slice1, slice2 []int) []int {
 // intersectTimestampAndChainIndices finds data that is both in timestamp range AND chain selector set (optimized).
 func (i *InMemoryStorage) intersectTimestampAndChainIndices(startIdx, endIdx int, chainIndices []int) []common.VerifierResultWithMetadata {
 	// Pre-allocate with expected capacity
-	expectedSize := len(chainIndices)
-	if expectedSize > endIdx-startIdx {
-		expectedSize = endIdx - startIdx
-	}
+	expectedSize := min(len(chainIndices), endIdx-startIdx)
 	candidates := make([]common.VerifierResultWithMetadata, 0, expectedSize)
 
 	// Create a set of valid indices for O(1) lookup
@@ -704,10 +701,7 @@ func (i *InMemoryStorage) collectMessageIndices(index map[protocol.ChainSelector
 
 // intersectMessageTimestampAndChainIndices finds messages that are both in timestamp range AND chain selector set.
 func (i *InMemoryStorage) intersectMessageTimestampAndChainIndices(startIdx, endIdx int, chainIndices []int) []common.MessageWithMetadata {
-	expectedSize := len(chainIndices)
-	if expectedSize > endIdx-startIdx {
-		expectedSize = endIdx - startIdx
-	}
+	expectedSize := min(len(chainIndices), endIdx-startIdx)
 	candidates := make([]common.MessageWithMetadata, 0, expectedSize)
 
 	chainIndexSet := make(map[int]bool, len(chainIndices))

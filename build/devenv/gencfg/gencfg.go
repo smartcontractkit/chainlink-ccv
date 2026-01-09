@@ -142,10 +142,10 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 	// Executor inputs
 	executorInputs := make([]services.ExecutorInput, 0, numExecutors)
 	executorPool := make([]string, 0, numExecutors)
-	for i := 0; i < numExecutors; i++ {
+	for i := range numExecutors {
 		executorPool = append(executorPool, fmt.Sprintf("%s%d", executorIDPrefix, i))
 	}
-	for i := 0; i < numExecutors; i++ {
+	for i := range numExecutors {
 		executorInputs = append(executorInputs, services.ExecutorInput{
 			ExecutorID:                         fmt.Sprintf("%s%d", executorIDPrefix, i),
 			ExecutorPool:                       executorPool,

@@ -199,7 +199,7 @@ func NewAnvilRPCHelper(client *ethclient.Client, logger zerolog.Logger) *AnvilRP
 
 // Mine mines the specified number of blocks.
 func (a *AnvilRPCHelper) Mine(ctx context.Context, numBlocks int) error {
-	for i := 0; i < numBlocks; i++ {
+	for range numBlocks {
 		var result any
 		err := a.client.Client().CallContext(ctx, &result, "evm_mine")
 		if err != nil {

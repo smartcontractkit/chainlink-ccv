@@ -84,11 +84,9 @@ func (s *PollerService) Start(ctx context.Context) error {
 		s.pollAllChains(c)
 
 		s.running.Store(true)
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
+		s.wg.Go(func() {
 			s.pollLoop(c)
-		}()
+		})
 
 		s.lggr.Infow("Curse detector service started",
 			"pollInterval", s.pollInterval,

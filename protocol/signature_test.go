@@ -78,7 +78,7 @@ func TestRecoverSigners(t *testing.T) {
 	// Create multiple test private keys
 	privateKeys := make([]*ecdsa.PrivateKey, 3)
 	expectedAddresses := make([]common.Address, 3)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		pk, err := crypto.GenerateKey()
 		require.NoError(t, err)
 		privateKeys[i] = pk
@@ -295,7 +295,7 @@ func TestLeftPad32_InputTooLong(t *testing.T) {
 				expectedStart := 32 - len(tt.input)
 				require.Equal(t, tt.input, result[expectedStart:])
 				// Verify left padding is zeros
-				for i := 0; i < expectedStart; i++ {
+				for i := range expectedStart {
 					require.Equal(t, byte(0), result[i])
 				}
 			}
