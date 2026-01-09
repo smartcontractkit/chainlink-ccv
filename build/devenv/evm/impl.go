@@ -99,7 +99,7 @@ var (
 	ccipMessageSentTopic = onramp.OnRampCCIPMessageSent{}.Topic()
 
 	tokenPoolVersions = []string{
-		// "1.6.1", // TODO: Re-enable when chainlink-ccip supports 1.6.1 token pool deployments.
+		"1.6.1",
 		"1.7.0",
 	}
 )
@@ -164,48 +164,32 @@ func (s TokenCombination) FinalityConfig() uint16 {
 // allTokenCombinations returns all possible token combinations.
 func AllTokenCombinations() []TokenCombination {
 	return []TokenCombination{
-		/*
-			TODO: Re-enable when chainlink-ccip supports 1.6.1 token pool deployments.
-
-			{ // 1.6.1 burn -> 1.6.1 mint
-				sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
-				sourcePoolVersion:       "1.6.1",
-				destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
-				destPoolVersion:         "1.6.1",
-				expectedReceiptIssuers:  3, // default CCV, token pool, executor
-				expectedVerifierResults: 1, // default CCV
-			},
-			{ // 1.6.1 burn -> 1.7.0 mint
-				sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
-				sourcePoolVersion:       "1.6.1",
-				destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
-				destPoolVersion:         "1.7.0",
-				destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
-				expectedReceiptIssuers:  3, // default CCV, token pool, executor
-				expectedVerifierResults: 1, // default CCV
-			},
-			{ // 1.7.0 burn -> 1.6.1 mint
-				sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
-				sourcePoolVersion:       "1.7.0",
-				sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
-				destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
-				destPoolVersion:         "1.6.1",
-				expectedReceiptIssuers:  3, // default CCV, token pool, executor
-				expectedVerifierResults: 1, // default CCV
-			},
-		*/
-
-		// TODO: Re-enable when chainlink-ccip repo adds ERC20LockBox deployment support
-		// { // 1.7.0 lock -> 1.7.0 release
-		// 	sourcePoolType:          string(lock_release_token_pool.ContractType),
-		// 	sourcePoolVersion:       "1.7.0",
-		// 	sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
-		// 	destPoolType:            string(lock_release_token_pool.ContractType),
-		// 	destPoolVersion:         "1.7.0",
-		// 	destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
-		// 	expectedReceiptIssuers:  3, // default CCV, token pool, executor
-		// 	expectedVerifierResults: 1, // default CCV
-		// },
+		{ // 1.6.1 burn -> 1.6.1 mint
+			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
+			sourcePoolVersion:       "1.6.1",
+			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
+			destPoolVersion:         "1.6.1",
+			expectedReceiptIssuers:  3, // default CCV, token pool, executor
+			expectedVerifierResults: 1, // default CCV
+		},
+		{ // 1.6.1 burn -> 1.7.0 mint
+			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
+			sourcePoolVersion:       "1.6.1",
+			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
+			destPoolVersion:         "1.7.0",
+			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
+			expectedReceiptIssuers:  3, // default CCV, token pool, executor
+			expectedVerifierResults: 1, // default CCV
+		},
+		{ // 1.7.0 burn -> 1.6.1 mint
+			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
+			sourcePoolVersion:       "1.7.0",
+			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
+			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
+			destPoolVersion:         "1.6.1",
+			expectedReceiptIssuers:  3, // default CCV, token pool, executor
+			expectedVerifierResults: 1, // default CCV
+		},
 
 		{ // 1.7.0 burn -> 1.7.0 mint
 			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
