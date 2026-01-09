@@ -117,6 +117,8 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun, overallTimeout time.D
 				metricsData.Store(msg.SeqNo, metrics.MessageMetrics{
 					SeqNo:           msg.SeqNo,
 					MessageID:       msgIDHex,
+					SourceChain:     msg.ChainPair.Src,
+					DestChain:       msg.ChainPair.Dest,
 					SentTime:        msg.SentTime,
 					ExecutedTime:    executedTime,
 					LatencyDuration: latency,
@@ -743,6 +745,7 @@ func TestE2ELoad(t *testing.T) {
 
 		summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
 		metrics.PrintMetricsSummary(t, summary)
+		metrics.PrintMessageSummary(t, summary)
 
 		require.Equal(t, summary.TotalSent, summary.TotalReceived)
 		require.LessOrEqual(t, summary.P90Latency, 8*time.Second)
