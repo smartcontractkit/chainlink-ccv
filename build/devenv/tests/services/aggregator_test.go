@@ -22,6 +22,7 @@ import (
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 
 	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
@@ -351,32 +352,12 @@ func (f *aggregatorTestFixture) signMessage(t *testing.T, signer *testSigner, ms
 	signature, err := protocol.EncodeSingleECDSASignature(sigData)
 	require.NoError(t, err)
 
+	pbMessage, err := ccvcommon.MapProtocolMessageToProtoMessage(msg)
+	require.NoError(t, err)
+
 	return &committeepb.WriteCommitteeVerifierNodeResultRequest{
 		CommitteeVerifierNodeResult: &committeepb.CommitteeVerifierNodeResult{
-			Message: &verifierpb.Message{
-				Version:              uint32(msg.Version),
-				SourceChainSelector:  uint64(msg.SourceChainSelector),
-				DestChainSelector:    uint64(msg.DestChainSelector),
-				SequenceNumber:       uint64(msg.SequenceNumber),
-				OnRampAddressLength:  uint32(msg.OnRampAddressLength),
-				OnRampAddress:        msg.OnRampAddress,
-				OffRampAddressLength: uint32(msg.OffRampAddressLength),
-				OffRampAddress:       msg.OffRampAddress,
-				Finality:             uint32(msg.Finality),
-				ExecutionGasLimit:    msg.ExecutionGasLimit,
-				CcipReceiveGasLimit:  msg.CcipReceiveGasLimit,
-				CcvAndExecutorHash:   msg.CcvAndExecutorHash[:],
-				SenderLength:         uint32(msg.SenderLength),
-				Sender:               msg.Sender,
-				ReceiverLength:       uint32(msg.ReceiverLength),
-				Receiver:             msg.Receiver,
-				DestBlobLength:       uint32(msg.DestBlobLength),
-				DestBlob:             msg.DestBlob,
-				TokenTransferLength:  uint32(msg.TokenTransferLength),
-				TokenTransfer:        nil,
-				DataLength:           uint32(msg.DataLength),
-				Data:                 msg.Data,
-			},
+			Message:         pbMessage,
 			CcvVersion:      ccvVersion,
 			CcvAddresses:    [][]byte{ccvAddr.Bytes()},
 			ExecutorAddress: executorAddr,
