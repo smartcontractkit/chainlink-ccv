@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/panjf2000/ants/v2"
+	"github.com/sourcegraph/conc/pool"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
@@ -13,17 +13,10 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// poolWorker is a minimal interface extracted for easier testing. It matches
-// the subset of methods from *ants.Pool that we use.
-type poolWorker interface {
-	Submit(func()) error
-	Release()
-}
-
 type Pool struct {
 	config           config.PoolConfig
 	logger           logger.Logger
-	pool             poolWorker
+	pool             *pool.Pool
 	discoveryChannel <-chan common.VerifierResultWithMetadata
 	scheduler        *Scheduler
 	registry         *registry.VerifierRegistry
@@ -34,15 +27,13 @@ type Pool struct {
 
 // NewWorkerPool creates a new WorkerPool with the given configuration.
 func NewWorkerPool(logger logger.Logger, config config.PoolConfig, discoveryChannel <-chan common.VerifierResultWithMetadata, scheduler *Scheduler, registry *registry.VerifierRegistry, storage common.IndexerStorage) *Pool {
-	antsPool, err := ants.NewPool(config.ConcurrentWorkers, ants.WithMaxBlockingTasks(1024), ants.WithNonblocking(false))
-	if err != nil {
-		logger.Fatalf("Unable to start worker pool: %v", err)
-	}
+	// create a conc pool with the requested max goroutines
+	concPool := pool.New().WithMaxGoroutines(config.ConcurrentWorkers)
 
 	return &Pool{
 		config:           config,
 		logger:           logger,
-		pool:             antsPool,
+		pool:             concPool,
 		discoveryChannel: discoveryChannel,
 		scheduler:        scheduler,
 		registry:         registry,
@@ -67,10 +58,6 @@ func (p *Pool) Stop() {
 		p.cancelFunc()
 	}
 	p.wg.Wait()
-	// Release the underlying worker pool after all goroutines have exited.
-	if p.pool != nil {
-		p.pool.Release()
-	}
 	p.logger.Info("Stopped WorkerPool")
 }
 
@@ -91,7 +78,7 @@ func (p *Pool) run(ctx context.Context) {
 			workerCtx, cancel := context.WithTimeout(ctx, time.Duration(p.config.WorkerTimeout)*time.Second)
 			p.logger.Infof("Starting Worker for %s", task.messageID.String())
 
-			if err := p.pool.Submit(func() {
+			p.pool.Go(func() {
 				defer cancel()
 				result, err := Execute(workerCtx, task)
 
@@ -113,18 +100,7 @@ func (p *Pool) run(ctx context.Context) {
 						p.logger.Error(err)
 					}
 				}
-			}); err != nil {
-				cancel()
-				p.logger.Errorf("Pool full! Unable to execute message %s retrying", task.messageID.String())
-				// Enqueue asynchronously after a short sleep to avoid immediate re-consumption
-				go func(t *Task) {
-					// small backoff to avoid tight loop when Scheduler BaseDelay==0
-					time.Sleep(100 * time.Millisecond)
-					if enqErr := p.scheduler.Enqueue(context.Background(), t); enqErr != nil {
-						p.logger.Errorf("Unable to enqueue: %v", enqErr)
-					}
-				}(task)
-			}
+			})
 		}
 	}
 }

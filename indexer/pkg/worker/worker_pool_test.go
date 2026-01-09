@@ -18,29 +18,6 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// fakePool is a deterministic test double implementing poolWorker. It will
-// return an error for the first N Submit calls (failCount), then execute
-// submitted functions asynchronously.
-type fakePool struct {
-	mu        sync.Mutex
-	failCount int
-}
-
-func (f *fakePool) Submit(fn func()) error {
-	f.mu.Lock()
-	if f.failCount > 0 {
-		f.failCount--
-		f.mu.Unlock()
-		return errors.New("pool full")
-	}
-	f.mu.Unlock()
-	// Execute synchronously to keep test deterministic and avoid goroutine scheduling races.
-	fn()
-	return nil
-}
-
-func (f *fakePool) Release() {}
-
 func TestPool_EnqueueMessagesCreatesTask(t *testing.T) {
 	lggr := logger.Test(t)
 
@@ -351,59 +328,68 @@ func TestRun_PoolFull_EnqueuesTask(t *testing.T) {
 		config: config.SchedulerConfig{TickerInterval: 50, BaseDelay: 0, MaxDelay: 0, VerificationVisibilityWindow: 60},
 	}
 
-	// Use fakePool that fails the first Submit, then allows execution
-	f := &fakePool{failCount: 1}
-
+	// Use a real conc.Pool via NewWorkerPool and block the first GetCCVData to
+	// occupy the worker goroutine so we can ensure the second task executes later.
 	storageMock := mocks.NewMockIndexerStorage(t)
-	// When the task is later executed by a worker, GetCCVData should return empty and signal
+	var mu sync.Mutex
+	callCount := 0
+	firstBlock := make(chan struct{})
 	execCalled := make(chan struct{})
+
 	storageMock.On("GetCCVData", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		mu.Lock()
+		callCount++
+		c := callCount
+		mu.Unlock()
+		if c == 1 {
+			// block first call until we release it
+			<-firstBlock
+			return
+		}
+		// on second call, signal the test and return
 		select {
 		case <-execCalled:
 		default:
 			close(execCalled)
 		}
 	}).Return([]common.VerifierResultWithMetadata{}, nil)
-	// Allow UpdateMessageStatus calls caused by successful execution
 	storageMock.On("UpdateMessageStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
-	p := &Pool{
-		config:    config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1},
-		logger:    lggr,
-		pool:      f,
-		scheduler: s,
-		registry:  registry.NewVerifierRegistry(),
-		storage:   storageMock,
-	}
+	p := NewWorkerPool(lggr, config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}, nil, s, registry.NewVerifierRegistry(), storageMock)
 
-	// Create a task and place it into ready before starting run
+	// Create two tasks
 	msg := protocol.VerifierResult{}
-	task, err := NewTask(lggr, msg, p.registry, p.storage, time.Second)
+	task1, err := NewTask(lggr, msg, p.registry, p.storage, time.Second)
+	require.NoError(t, err)
+	task2, err := NewTask(lggr, msg, p.registry, p.storage, time.Second)
 	require.NoError(t, err)
 
-	// put the task into ready so p.run will pick it up and attempt to Submit
-	s.ready <- task
-
-	// Start the pool (which starts run/enqueue/handleDLQ goroutines)
+	// Start the pool
 	p.Start(context.Background())
 
-	// The pool's internal async re-enqueue is timing sensitive in tests. To keep the
-	// behavior deterministic, manually re-enqueue the task after a short delay to
-	// simulate the retry and allow the fakePool to execute it.
-	time.Sleep(100 * time.Millisecond)
-	s.ready <- task
+	// Enqueue first task (will block inside GetCCVData)
+	require.NoError(t, s.Enqueue(context.Background(), task1))
 
-	// Wait for the worker to execute the task (GetCCVData) which confirms the task was executed
+	// Give run a moment to pick the first task
+	time.Sleep(50 * time.Millisecond)
+
+	// Enqueue second task; because the pool has 1 worker, p.pool.Go will block
+	// until the first finishes. We expect the second to execute only after we
+	// release the first.
+	require.NoError(t, s.Enqueue(context.Background(), task2))
+
+	// release the first task so it can complete and free the worker
+	close(firstBlock)
+
+	// wait for second task execution
 	select {
 	case <-execCalled:
-		// executed
+		// success
 	case <-time.After(5 * time.Second):
-		// Stop pool to clean up before failing assertion
 		p.Stop()
-		t.Fatalf("timed out waiting for task execution after re-enqueue")
+		t.Fatalf("timed out waiting for second task execution")
 	}
 
-	// Stop the pool (cancels context, waits and releases underlying ants pool)
 	p.Stop()
 }
 
@@ -418,30 +404,16 @@ func TestRun_PoolFull_EnqueueToDLQOnTTLExpired(t *testing.T) {
 		config: config.SchedulerConfig{TickerInterval: 50, BaseDelay: 0, MaxDelay: 0, VerificationVisibilityWindow: 60},
 	}
 
-	// Use fakePool that fails the first Submit, then allows execution
-	f2 := &fakePool{failCount: 1}
-
+	// DLQ behavior: directly enqueue an expired task and ensure scheduler sends it to DLQ
 	storageMock := mocks.NewMockIndexerStorage(t)
-	p := &Pool{
-		config:    config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1},
-		logger:    lggr,
-		pool:      f2,
-		scheduler: s,
-		registry:  registry.NewVerifierRegistry(),
-		storage:   storageMock,
-	}
+	p2 := NewWorkerPool(lggr, config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}, nil, s, registry.NewVerifierRegistry(), storageMock)
 
-	// Create a task and mark its TTL expired so Enqueue will send it to DLQ and return error
 	msg := protocol.VerifierResult{}
-	task, err := NewTask(lggr, msg, p.registry, p.storage, time.Second)
+	task, err := NewTask(lggr, msg, p2.registry, p2.storage, time.Second)
 	require.NoError(t, err)
-	// expire TTL
 	task.ttl = time.Now().Add(-time.Minute)
 
-	// put the task into ready so p.run will pick it up and attempt to Submit
-	s.ready <- task
-
-	// Expect UpdateMessageStatus called when Enqueue sends to DLQ due to TTL expired and signal when called
+	// Expect UpdateMessageStatus called when sent to DLQ
 	dlqCalled := make(chan struct{})
 	storageMock.On("UpdateMessageStatus", mock.Anything, mock.Anything, common.MessageTimeout, mock.Anything).Run(func(args mock.Arguments) {
 		select {
@@ -451,27 +423,23 @@ func TestRun_PoolFull_EnqueueToDLQOnTTLExpired(t *testing.T) {
 		}
 	}).Return(nil)
 
-	// Start the pool
-	p.Start(context.Background())
+	err = s.Enqueue(context.Background(), task)
+	require.Error(t, err)
 
-	// Expect the task to be sent to DLQ due to TTL expired
+	// task should be on DLQ channel
 	select {
 	case dl := <-s.DLQ():
 		require.Equal(t, task, dl)
 	case <-time.After(3 * time.Second):
-		p.Stop()
-		t.Fatalf("timed out waiting for task in DLQ when pool full and TTL expired")
+		t.Fatalf("timed out waiting for task in DLQ")
 	}
 
-	// Ensure UpdateMessageStatus was called prior to shutdown
 	select {
 	case <-dlqCalled:
 		// ok
 	case <-time.After(3 * time.Second):
-		p.Stop()
 		t.Fatalf("timed out waiting for UpdateMessageStatus for DLQ task")
 	}
-
-	// Stop the pool and release resources
-	p.Stop()
+	// stop p2 if started (it's unused)
+	_ = p2
 }
