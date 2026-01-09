@@ -92,7 +92,7 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 		case datastore.ContractType(committee_verifier.ResolverType):
 			committeeVerifierAddresses[chainSelectorStr] = ref.Address
 			committeeVerifierResolverAddresses[ref.ChainSelector] = ref.Address
-		case datastore.ContractType(executor_operations.ContractType):
+		case datastore.ContractType(executor_operations.ProxyType):
 			defaultExecutorOnRampAddresses[chainSelectorStr] = ref.Address
 			defaultExecutorOnRampAddressesUint64[ref.ChainSelector] = ref.Address
 		case datastore.ContractType(rmn_remote.ContractType):
