@@ -1,17 +1,20 @@
 chain_profiles=[
-    {ratio_as_source=16, ratio_as_dest=16},
-    {ratio_as_source=8, ratio_as_dest=8}
+    {ratio_as_source=16, ratio_as_dest=16, name="heavy"},
+    {ratio_as_source=8, ratio_as_dest=8, name="light"}
 ]
 
 message_profiles=[
-    {type="Data", finality=1}
+    {type="Data", finality=1, name="data only"}
 ]
 
 [[test_profiles]]
     chains_as_source=["3379446385462418246"]
     chains_as_dest=["12922642891491394802"]
+    chains=[
+        {selector="3379446385462418246", chain_profile="heavy"}
+    ]
     messages=[
-        {ratio=1, message_profile_index=0},
+        {ratio=1, message_profile="data only"},
     ]
     test_duration = "5m"
     messages_per_second = 1
