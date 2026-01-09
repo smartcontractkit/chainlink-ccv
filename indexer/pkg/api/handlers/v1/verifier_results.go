@@ -15,17 +15,17 @@ import (
 )
 
 type VerifierResultsInput struct {
-	SourceChainSelectors []protocol.ChainSelector `query:"sourceChainSelectors"` // Excluded from form due to gin parsing
-	DestChainSelectors   []protocol.ChainSelector `query:"destChainSelectors"`   // Excluded from form due to gin parsing
-	Start                int64                    `form:"start"                 query:"start"`
-	End                  int64                    `form:"end"                   query:"end"`
-	Limit                uint64                   `form:"limit"                 query:"limit"`
-	Offset               uint64                   `form:"offset"                query:"offset"`
+	SourceChainSelectors []protocol.ChainSelector `doc:"Source chain selectors to filter results by. If empty, results from all source chains will be returned."           query:"sourceChainSelectors"`
+	DestChainSelectors   []protocol.ChainSelector `doc:"Destination chain selectors to filter results by. If empty, results from all destination chains will be returned." query:"destChainSelectors"`
+	Start                int64                    `doc:"Start timestamp (in milliseconds) to filter results by. If not provided, defaults to 0."                           form:"start"                 query:"start"`
+	End                  int64                    `doc:"End timestamp (in milliseconds) to filter results by. If not provided, defaults to the current time."              form:"end"                   query:"end"`
+	Limit                uint64                   `doc:"Maximum number of results to return. If not provided, defaults to 100."                                            form:"limit"                 query:"limit"`
+	Offset               uint64                   `doc:"Number of results to skip before starting to return results. If not provided, defaults to 0."                      form:"offset"                query:"offset"`
 }
 
 type VerifierResultsResponse struct {
-	Success         bool                                           `json:"success"`
-	VerifierResults map[string][]common.VerifierResultWithMetadata `json:"verifierResults"`
+	Success         bool                                           `json:"success"         doc:"Indicates whether the request was successful."`
+	VerifierResults map[string][]common.VerifierResultWithMetadata `json:"verifierResults" doc:"A map of message IDs to their corresponding verifier results. Each key is a message ID, and the value is a list of verifier results associated with that message."`
 }
 
 type VerifierResultsHandler struct {

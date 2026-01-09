@@ -13,17 +13,11 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-type MessagesInput struct {
-	SourceChainSelectors []protocol.ChainSelector `query:"sourceChainSelectors"` // Excluded from form due to gin parsing
-	DestChainSelectors   []protocol.ChainSelector `query:"destChainSelectors"`   // Excluded from form due to gin parsing
-	Start                int64                    `form:"start"                 query:"start"`
-	End                  int64                    `form:"end"                   query:"end"`
-	Limit                uint64                   `form:"limit"                 query:"limit"`
-	Offset               uint64                   `form:"offset"                query:"offset"`
-}
+type MessagesInput = VerifierResultsInput
+
 type MessagesResponse struct {
-	Success  bool                                  `json:"success"`
-	Messages map[string]common.MessageWithMetadata `json:"messages"`
+	Success  bool                                  `json:"success"  doc:"Indicates whether the request was successful."`
+	Messages map[string]common.MessageWithMetadata `json:"messages" doc:"A map of message IDs to their corresponding messages. Each key is a message ID, and the value is the message along with its metadata."`
 }
 type MessagesHandler struct {
 	storage    common.IndexerStorage

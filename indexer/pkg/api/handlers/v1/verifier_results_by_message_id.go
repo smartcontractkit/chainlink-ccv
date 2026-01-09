@@ -17,9 +17,9 @@ type VerifierResultsByMessageIDInput struct {
 }
 
 type VerifierResultsByMessageIDResponse struct {
-	Success   bool                                `json:"success"`
-	Results   []common.VerifierResultWithMetadata `json:"results"`
-	MessageID protocol.Bytes32                    `json:"messageID"`
+	Success   bool                                `json:"success"   doc:"Indicates whether the request was successful."`
+	Results   []common.VerifierResultWithMetadata `json:"results"   doc:"A list of verifier results associated with the specified message ID."`
+	MessageID protocol.Bytes32                    `json:"messageID" doc:"The message ID for which the verifier results are being returned."`
 }
 
 type VerifierResultsByMessageIDHandler struct {
