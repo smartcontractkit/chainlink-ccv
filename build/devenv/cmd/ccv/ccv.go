@@ -279,7 +279,7 @@ var deployReceiverCmd = &cobra.Command{
 		var required, optional []common.Address
 		var optionalThreshold uint64
 		if len(components) >= 2 {
-			for _, addr := range strings.Split(components[1], ";") {
+			for addr := range strings.SplitSeq(components[1], ";") {
 				if !common.IsHexAddress(addr) {
 					return fmt.Errorf("invalid required verifier address: %s", addr)
 				}
@@ -293,7 +293,7 @@ var deployReceiverCmd = &cobra.Command{
 			}
 		}
 		if len(components) >= 4 {
-			for _, addr := range strings.Split(components[3], ";") {
+			for addr := range strings.SplitSeq(components[3], ";") {
 				if !common.IsHexAddress(addr) {
 					return fmt.Errorf("invalid optional verifier address: %s", addr)
 				}
@@ -505,7 +505,7 @@ var generateHMACSecretCmd = &cobra.Command{
 			return err
 		}
 
-		for i := 0; i < count; i++ {
+		for i := range count {
 			creds, err := hmacutil.GenerateCredentials()
 			if err != nil {
 				return fmt.Errorf("failed to generate HMAC credentials: %w", err)

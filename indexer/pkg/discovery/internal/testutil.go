@@ -212,7 +212,7 @@ func (m *MockReader) capMessagesToEmit(messagesToEmit int) int {
 func (m *MockReader) generateResponses(messagesToEmit int, now time.Time) []protocol.QueryResponse {
 	responses := make([]protocol.QueryResponse, 0, messagesToEmit)
 
-	for i := 0; i < messagesToEmit; i++ {
+	for i := range messagesToEmit {
 		m.messagesEmitted++
 
 		messageTime := m.calculateMessageTime(i, now)

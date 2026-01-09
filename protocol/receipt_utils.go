@@ -45,7 +45,7 @@ func ParseReceiptStructure(receipts []ReceiptWithBlob, numCCVBlobs, numTokenTran
 	}
 
 	// Extract CCV receipts (first numCCVBlobs)
-	for i := 0; i < numCCVBlobs; i++ {
+	for i := range numCCVBlobs {
 		result.CCVReceipts = append(result.CCVReceipts, receipts[i])
 		result.CCVAddresses = append(result.CCVAddresses, receipts[i].Issuer)
 	}

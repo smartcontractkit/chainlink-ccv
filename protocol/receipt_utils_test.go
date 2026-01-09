@@ -214,7 +214,7 @@ func TestParseReceiptStructure(t *testing.T) {
 				assert.Len(t, result.CCVAddresses, 3)
 
 				// Validate CCV receipts and addresses
-				for i := 0; i < 3; i++ {
+				for i := range 3 {
 					expectedIssuer := UnknownAddress([]byte{0xCC, byte(i + 1)})
 					assert.Equal(t, expectedIssuer, result.CCVReceipts[i].Issuer)
 					assert.Equal(t, expectedIssuer.Bytes(), []byte(result.CCVAddresses[i]))
@@ -262,7 +262,7 @@ func TestParseReceiptStructure(t *testing.T) {
 			name: "edge case - many CCVs",
 			receipts: func() []ReceiptWithBlob {
 				receipts := make([]ReceiptWithBlob, 12) // 10 CCVs + 1 executor + 1 network fee
-				for i := 0; i < 10; i++ {
+				for i := range 10 {
 					receipts[i] = ReceiptWithBlob{
 						Issuer:       UnknownAddress([]byte{0xCC, byte(i)}),
 						Blob:         []byte{byte(i)},

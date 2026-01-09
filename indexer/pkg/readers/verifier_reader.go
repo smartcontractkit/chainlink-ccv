@@ -84,11 +84,9 @@ func (v *VerifierReader) ProcessMessage(messageID protocol.Bytes32) (chan common
 func (v *VerifierReader) Start(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(ctx)
 	v.runCancel = cancel
-	v.runWg.Add(1)
-	go func() {
-		defer v.runWg.Done()
+	v.runWg.Go(func() {
 		v.run(runCtx)
-	}()
+	})
 	return nil
 }
 

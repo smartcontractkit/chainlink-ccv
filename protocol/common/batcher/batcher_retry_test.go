@@ -328,10 +328,10 @@ func TestBatcher_ConcurrentRetries(t *testing.T) {
 	itemsPerGoroutine := 10
 	done := make(chan struct{})
 
-	for g := 0; g < numGoroutines; g++ {
+	for g := range numGoroutines {
 		go func(offset int) {
 			items := make([]int, itemsPerGoroutine)
-			for i := 0; i < itemsPerGoroutine; i++ {
+			for i := range itemsPerGoroutine {
 				items[i] = offset*itemsPerGoroutine + i
 			}
 			_ = batcher.Retry(50*time.Millisecond, items...)
@@ -340,7 +340,7 @@ func TestBatcher_ConcurrentRetries(t *testing.T) {
 	}
 
 	// Wait for all goroutines to finish
-	for g := 0; g < numGoroutines; g++ {
+	for range numGoroutines {
 		<-done
 	}
 

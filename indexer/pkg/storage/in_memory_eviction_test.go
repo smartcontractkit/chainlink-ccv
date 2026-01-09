@@ -85,7 +85,7 @@ func TestInMemoryStorage_SizeBasedEviction(t *testing.T) {
 
 	// Insert 10 items
 	now := time.Now().Unix()
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		data := createTestCCVDataForEviction(
 			fmt.Sprintf("0x%03d", i),
 			time.Unix(now+int64(i), 0), // incrementing timestamps
@@ -113,7 +113,7 @@ func TestInMemoryStorage_SizeBasedEviction(t *testing.T) {
 	assert.LessOrEqual(t, count, 5, "Expected storage to be trimmed to max size")
 
 	// Verify that the oldest items were evicted (items 0-4)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		msgID, _ := protocol.NewBytes32FromString(fmt.Sprintf("0x%064s", fmt.Sprintf("%03d", i)))
 		_, err := storage.GetCCVData(ctx, msgID)
 		assert.ErrorIs(t, err, ErrCCVDataNotFound, "Expected old item %d to be evicted", i)
@@ -178,7 +178,7 @@ func TestInMemoryStorage_CombinedTTLAndSizeEviction(t *testing.T) {
 	assert.LessOrEqual(t, count, 5, "Expected storage to respect max size")
 
 	// First two should be evicted due to TTL
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		msgID, _ := protocol.NewBytes32FromString(fmt.Sprintf("0x%064s", fmt.Sprintf("%03d", i)))
 		_, err := storage.GetCCVData(ctx, msgID)
 		assert.ErrorIs(t, err, ErrCCVDataNotFound, "Expected expired item %d to be evicted", i)
@@ -198,7 +198,7 @@ func TestInMemoryStorage_NoEviction(t *testing.T) {
 
 	// Insert some test data
 	now := time.Now().Unix()
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		data := createTestCCVDataForEviction(
 			fmt.Sprintf("0x%03d", i),
 			time.Unix(now-int64(i*10), 0), // Old timestamps

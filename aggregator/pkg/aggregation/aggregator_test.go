@@ -456,8 +456,7 @@ func TestHealthCheck_RecoversPanicEmitsMetricAndKeepsRunning(t *testing.T) {
 	channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
 	a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	a.StartBackground(ctx)
 
 	require.NoError(t, a.Ready())

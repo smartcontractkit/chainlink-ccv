@@ -68,8 +68,7 @@ func TestEventPollerCache(t *testing.T) {
 
 		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
 
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		resultCh1 := poller.register(ctx, 1, 100)
 		resultCh2 := poller.register(ctx, 1, 100)

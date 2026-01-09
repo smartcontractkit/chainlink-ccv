@@ -62,7 +62,7 @@ func TestRateLimitingMiddleware_DefaultLimits(t *testing.T) {
 	info := mockServerInfo("/test.Service/Method")
 
 	// First 5 requests should succeed
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		resp, err := middleware.Intercept(ctx, nil, info, mockHandler)
 		require.NoError(t, err, "request %d should succeed", i+1)
 		require.Equal(t, "success", resp)
@@ -111,7 +111,7 @@ func TestRateLimitingMiddleware_GroupLimits(t *testing.T) {
 	info := mockServerInfo("/test.Service/Method")
 
 	// First 3 requests should succeed (group limit)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		resp, err := middleware.Intercept(ctx, nil, info, mockHandler)
 		require.NoError(t, err, "request %d should succeed", i+1)
 		require.Equal(t, "success", resp)
@@ -163,7 +163,7 @@ func TestRateLimitingMiddleware_MostRestrictiveGroup(t *testing.T) {
 	info := mockServerInfo("/test.Service/Method")
 
 	// First 2 requests should succeed (most restrictive group limit)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		resp, err := middleware.Intercept(ctx, nil, info, mockHandler)
 		require.NoError(t, err, "request %d should succeed", i+1)
 		require.Equal(t, "success", resp)

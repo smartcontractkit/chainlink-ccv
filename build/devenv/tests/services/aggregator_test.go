@@ -762,10 +762,8 @@ func TestServiceAggregatorSecurityFeatures(t *testing.T) {
 
 			// Malicious client uses service-tests group with 50/min limit
 			numRequests := 100
-			for i := 0; i < numRequests; i++ {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
+			for range numRequests {
+				wg.Go(func() {
 					msg := fixture.createValidMessage(t)
 					req := fixture.signMessage(t, fixture.maliciousSigner, msg)
 					_, err := fixture.maliciousCommitteeClient.WriteCommitteeVerifierNodeResult(ctx, req)
@@ -776,7 +774,7 @@ func TestServiceAggregatorSecurityFeatures(t *testing.T) {
 						successCount++
 					}
 					mu.Unlock()
-				}()
+				})
 			}
 			wg.Wait()
 
@@ -788,7 +786,7 @@ func TestServiceAggregatorSecurityFeatures(t *testing.T) {
 			// Create a batch of 100 requests (max allowed)
 			// Uses honest client to avoid rate limit issues
 			requests := make([]*committeepb.WriteCommitteeVerifierNodeResultRequest, 100)
-			for i := 0; i < 100; i++ {
+			for i := range 100 {
 				msg := fixture.createValidMessage(t)
 				requests[i] = fixture.signMessage(t, fixture.honestSigner1, msg)
 			}
@@ -806,7 +804,7 @@ func TestServiceAggregatorSecurityFeatures(t *testing.T) {
 			// Create a batch exceeding the 100 limit
 			// Uses honest client to avoid rate limit issues
 			requests := make([]*committeepb.WriteCommitteeVerifierNodeResultRequest, 101)
-			for i := 0; i < 101; i++ {
+			for i := range 101 {
 				msg := fixture.createValidMessage(t)
 				requests[i] = fixture.signMessage(t, fixture.honestSigner1, msg)
 			}
@@ -824,7 +822,7 @@ func TestServiceAggregatorSecurityFeatures(t *testing.T) {
 		t.Run("rate_limit_should_be_per_client_isolated", func(t *testing.T) {
 			// Exhaust malicious client's rate limit
 			numRequests := 100
-			for i := 0; i < numRequests; i++ {
+			for range numRequests {
 				go func() {
 					msg := fixture.createValidMessage(t)
 					req := fixture.signMessage(t, fixture.maliciousSigner, msg)
@@ -861,13 +859,13 @@ func TestServiceAggregatorSecurityFeatures(t *testing.T) {
 
 			// Pre-create all messages and requests
 			maliciousReqs := make([]*committeepb.WriteCommitteeVerifierNodeResultRequest, numMalicious)
-			for i := 0; i < numMalicious; i++ {
+			for i := range numMalicious {
 				msg := fixture.createValidMessage(t)
 				maliciousReqs[i] = fixture.signMessage(t, fixture.maliciousSigner, msg)
 			}
 
 			// Launch all malicious submissions concurrently
-			for i := 0; i < numMalicious; i++ {
+			for i := range numMalicious {
 				wg.Add(1)
 				go func(idx int) {
 					defer wg.Done()
@@ -891,7 +889,7 @@ func TestServiceAggregatorSecurityFeatures(t *testing.T) {
 			// With the fix, each client has their own channel, so batch requests
 			// should succeed regardless of channel buffer size
 			var requests []*committeepb.WriteCommitteeVerifierNodeResultRequest
-			for i := 0; i < 10; i++ {
+			for range 10 {
 				msg := fixture.createValidMessage(t)
 				req := fixture.signMessage(t, fixture.honestSigner1, msg)
 				requests = append(requests, req)

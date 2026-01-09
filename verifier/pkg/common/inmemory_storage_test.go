@@ -2,7 +2,7 @@ package common
 
 import (
 	"context"
-	"sort"
+	"slices"
 	"testing"
 	"time"
 
@@ -234,9 +234,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 			}
 
 			// Sort actual nonces for comparison
-			sort.Slice(actualNonces, func(i, j int) bool {
-				return actualNonces[i] < actualNonces[j]
-			})
+			slices.Sort(actualNonces)
 
 			require.Equal(t, tt.expectedNonces, actualNonces)
 		})
@@ -484,7 +482,7 @@ func setupReaderWithMessagesfunc(t *testing.T, baseTime int64, numMessages int, 
 		lggr, timeProvider, []protocol.ChainSelector{2}, []protocol.ChainSelector{1}, limit, 0, baseTime-1)
 
 	// create numMessages, each 10 seconds apart
-	for i := 0; i < numMessages; i++ {
+	for i := range numMessages {
 		storage.timeProvider = func() int64 { return baseTime + (10 * int64(i)) }
 		testData1 := []protocol.VerifierNodeResult{
 			{

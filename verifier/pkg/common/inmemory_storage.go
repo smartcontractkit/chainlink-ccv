@@ -3,6 +3,7 @@ package common
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -182,13 +183,7 @@ func (s *InMemoryOffchainStorage) ReadCCVData(ctx context.Context) ([]protocol.Q
 
 		if len(s.destChainSelectors) > 0 {
 			// Filter by destination chain
-			found := false
-			for _, destChain := range s.destChainSelectors {
-				if entry.CCVData.Message.DestChainSelector == destChain {
-					found = true
-					break
-				}
-			}
+			found := slices.Contains(s.destChainSelectors, entry.CCVData.Message.DestChainSelector)
 			if !found {
 				continue
 			}
@@ -196,13 +191,7 @@ func (s *InMemoryOffchainStorage) ReadCCVData(ctx context.Context) ([]protocol.Q
 
 		// Filter by source chain if specified
 		if len(s.sourceChainSelectors) > 0 {
-			found := false
-			for _, sourceChain := range s.sourceChainSelectors {
-				if entry.CCVData.Message.SourceChainSelector == sourceChain {
-					found = true
-					break
-				}
-			}
+			found := slices.Contains(s.sourceChainSelectors, entry.CCVData.Message.SourceChainSelector)
 			if !found {
 				continue
 			}
@@ -215,10 +204,7 @@ func (s *InMemoryOffchainStorage) ReadCCVData(ctx context.Context) ([]protocol.Q
 	totalFiltered := uint64(len(filteredEntries))
 	var paginatedEntries []StorageEntry
 	if s.offset < totalFiltered {
-		end := s.offset + s.limit
-		if end > totalFiltered {
-			end = totalFiltered
-		}
+		end := min(s.offset+s.limit, totalFiltered)
 		paginatedEntries = filteredEntries[s.offset:end]
 	}
 
@@ -309,9 +295,7 @@ func (s *InMemoryOffchainStorage) ListDestChains() []protocol.ChainSelector {
 		result = append(result, destChain)
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i] < result[j]
-	})
+	slices.Sort(result)
 
 	return result
 }
@@ -332,9 +316,7 @@ func (s *InMemoryOffchainStorage) ListSourceChains(destChainSelector protocol.Ch
 		result = append(result, sourceChain)
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i] < result[j]
-	})
+	slices.Sort(result)
 
 	return result
 }

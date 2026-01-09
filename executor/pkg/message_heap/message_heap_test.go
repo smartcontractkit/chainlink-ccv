@@ -204,7 +204,7 @@ func TestMessageHeap_InternalHeapIntegration(t *testing.T) {
 	// Pop all messages and verify they come out in timestamp order
 	expectedOrder := []int{0, 2, 3, 1}
 
-	for i := 0; i < len(expectedOrder); i++ {
+	for i := range expectedOrder {
 		if mh.Len() == 0 {
 			t.Errorf("Heap is empty at iteration %v", i)
 			break

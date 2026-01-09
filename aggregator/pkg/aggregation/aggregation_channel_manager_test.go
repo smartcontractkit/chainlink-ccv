@@ -212,8 +212,7 @@ func TestStart_StopsOnContextCancellation(t *testing.T) {
 func TestStart_ReceivesMultipleRequestsFromMultipleClients(t *testing.T) {
 	manager := NewChannelManager([]model.ChannelKey{"client1", "client2"}, 20)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	go func() { _ = manager.Start(ctx) }()
 
@@ -223,7 +222,7 @@ func TestStart_ReceivesMultipleRequestsFromMultipleClients(t *testing.T) {
 	client2RequestCount := 10
 	totalExpected := client1RequestCount + client2RequestCount
 
-	for i := 0; i < client1RequestCount; i++ {
+	for i := range client1RequestCount {
 		err := manager.Enqueue("client1", aggregationRequest{
 			AggregationKey: "key-client1",
 			MessageID:      model.MessageID{byte(i)},
@@ -232,7 +231,7 @@ func TestStart_ReceivesMultipleRequestsFromMultipleClients(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	for i := 0; i < client2RequestCount; i++ {
+	for i := range client2RequestCount {
 		err := manager.Enqueue("client2", aggregationRequest{
 			AggregationKey: "key-client2",
 			MessageID:      model.MessageID{byte(i + 100)},
@@ -275,12 +274,11 @@ func TestStart_ReceivesMultipleRequestsFromMultipleClients(t *testing.T) {
 func TestStart_FairSchedulingPreventsBusyClientStarvation(t *testing.T) {
 	manager := NewChannelManager([]model.ChannelKey{"busy", "quiet"}, 100)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go func() { _ = manager.Start(ctx) }()
 	time.Sleep(10 * time.Millisecond)
 
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		err := manager.Enqueue("busy", aggregationRequest{
 			ChannelKey: "busy",
 			MessageID:  model.MessageID{byte(i)},

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -270,7 +271,8 @@ func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 	defer d.mu.Unlock()
 
 	// Build batch insert query with multiple value sets
-	query := `
+	var query strings.Builder
+	query.WriteString(`
 		INSERT INTO indexer.verifier_results (
 			message_id,
 			verifier_source_address,
@@ -284,7 +286,7 @@ func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 			message_ccv_addresses,
 			message_executor_address
 		) VALUES
-	`
+	`)
 
 	args := make([]any, 0, len(ccvDataList)*11)
 	valueClauses := make([]string, 0, len(ccvDataList))
@@ -329,14 +331,14 @@ func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 	// Complete the query with all value clauses and conflict resolution
 	for i, vc := range valueClauses {
 		if i > 0 {
-			query += ", "
+			query.WriteString(", ")
 		}
-		query += vc
+		query.WriteString(vc)
 	}
-	query += " ON CONFLICT (message_id, verifier_source_address, verifier_dest_address) DO NOTHING"
+	query.WriteString(" ON CONFLICT (message_id, verifier_source_address, verifier_dest_address) DO NOTHING")
 
 	// Execute the batch insert
-	result, err := d.execContext(ctx, query, args...)
+	result, err := d.execContext(ctx, query.String(), args...)
 	if err != nil {
 		d.lggr.Errorw("Failed to batch insert CCV data", "error", err, "count", len(ccvDataList))
 		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
@@ -388,7 +390,8 @@ func (d *PostgresStorage) BatchInsertMessages(ctx context.Context, messages []co
 	defer d.mu.Unlock()
 
 	// Build batch insert query with multiple value sets
-	query := `
+	var query strings.Builder
+	query.WriteString(`
 		INSERT INTO indexer.messages (
 			message_id,
 			message,
@@ -398,7 +401,7 @@ func (d *PostgresStorage) BatchInsertMessages(ctx context.Context, messages []co
 			dest_chain_selector,
 			ingestion_timestamp
 		) VALUES
-	`
+	`)
 
 	args := make([]any, 0, len(messages)*7)
 	valueClauses := make([]string, 0, len(messages))
@@ -432,14 +435,14 @@ func (d *PostgresStorage) BatchInsertMessages(ctx context.Context, messages []co
 	// Complete the query with all value clauses and conflict resolution
 	for i, vc := range valueClauses {
 		if i > 0 {
-			query += ", "
+			query.WriteString(", ")
 		}
-		query += vc
+		query.WriteString(vc)
 	}
-	query += " ON CONFLICT (message_id) DO NOTHING"
+	query.WriteString(" ON CONFLICT (message_id) DO NOTHING")
 
 	// Execute the batch insert
-	result, err := d.execContext(ctx, query, args...)
+	result, err := d.execContext(ctx, query.String(), args...)
 	if err != nil {
 		d.lggr.Errorw("Failed to batch insert messages", "error", err, "count", len(messages))
 		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
