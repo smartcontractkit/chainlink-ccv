@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,6 +22,7 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/load"
 )
 
 const sentMessageChannelBufferSize = 1000
@@ -40,12 +42,11 @@ type SentMessage struct {
 
 type EVMTXGun struct {
 	cfg           *ccv.Cfg
+	testConfig    *load.TestProfileConfig
 	e             *deployment.Environment
 	selectors     []uint64
 	impl          map[uint64]cciptestinterfaces.CCIP17ProductConfiguration
-	sentSeqNos    []uint64
-	sentTimes     map[uint64]time.Time
-	msgIDs        map[uint64][32]byte
+	sentMsgSet    map[SentMessage]struct{}
 	srcSelectors  []uint64
 	destSelectors []uint64
 	seqNosMu      sync.Mutex
@@ -68,9 +69,35 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []u
 		e:             e,
 		selectors:     selectors,
 		impl:          impls,
-		sentSeqNos:    make([]uint64, 0),
-		sentTimes:     make(map[uint64]time.Time),
-		msgIDs:        make(map[uint64][32]byte),
+		sentMsgSet:    make(map[SentMessage]struct{}),
+		sentMsgCh:     make(chan SentMessage, sentMessageChannelBufferSize),
+		nonce:         make(map[uint64]*atomic.Uint64),
+		srcSelectors:  srcSelectors,
+		destSelectors: destSelectors,
+	}
+}
+
+func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testConfig *load.TestProfileConfig, e *deployment.Environment, impls map[uint64]cciptestinterfaces.CCIP17ProductConfiguration) *EVMTXGun {
+	selectors := make([]uint64, 0)
+	srcSelectors := make([]uint64, 0, len(testConfig.ChainsAsSource))
+	destSelectors := make([]uint64, 0, len(testConfig.ChainsAsDest))
+	for _, chain := range testConfig.ChainsAsSource {
+		chainSelector, _ := strconv.ParseUint(chain, 10, 64)
+		selectors = append(selectors, chainSelector)
+		srcSelectors = append(srcSelectors, chainSelector)
+	}
+	for _, chain := range testConfig.ChainsAsDest {
+		chainSelector, _ := strconv.ParseUint(chain, 10, 64)
+		selectors = append(selectors, chainSelector)
+		destSelectors = append(destSelectors, chainSelector)
+	}
+	return &EVMTXGun{
+		cfg:           cfg,
+		testConfig:    testConfig,
+		e:             e,
+		selectors:     selectors,
+		impl:          impls,
+		sentMsgSet:    make(map[SentMessage]struct{}),
 		sentMsgCh:     make(chan SentMessage, sentMessageChannelBufferSize),
 		nonce:         make(map[uint64]*atomic.Uint64),
 		srcSelectors:  srcSelectors,
@@ -86,7 +113,7 @@ func (m *EVMTXGun) initNonce(chainSelector uint64) error {
 		return nil
 	}
 
-	n, err := m.impl[chainSelector].GetSenderNonce(context.Background(), chainSelector)
+	n, err := m.impl[chainSelector].GetUserNonce(context.Background())
 	if err != nil {
 		return fmt.Errorf("failed to get pending nonce for selector %d: %w", chainSelector, err)
 	}
@@ -166,9 +193,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 
 	// Record the actual sequence number from the sent event
 	m.seqNosMu.Lock()
-	m.sentSeqNos = append(m.sentSeqNos, uint64(sentEvent.Message.SequenceNumber))
-	m.sentTimes[uint64(sentEvent.Message.SequenceNumber)] = sentTime
-	m.msgIDs[uint64(sentEvent.Message.SequenceNumber)] = sentEvent.MessageID
+	m.sentMsgSet[SentMessage{SeqNo: uint64(sentEvent.Message.SequenceNumber), MessageID: sentEvent.MessageID, SentTime: sentTime, ChainPair: SrcDest{Src: srcSelector, Dest: destSelector}}] = struct{}{}
 	m.seqNosMu.Unlock()
 
 	// Push to channel for verification

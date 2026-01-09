@@ -799,14 +799,13 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, field
 		Nonce:  loadNonce,
 		Value:  msgValue,
 	}
-	if nonce != nil {
-		nonce.Add(1)
-	}
 	tx, err := rout.CcipSend(deployerKeyCopy, dest, msg)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to send CCIP message: %w, extraArgs: %x", err, extraArgs)
 	}
-
+	if nonce != nil {
+		nonce.Add(1)
+	}
 	txHash := tx.Hash()
 
 	_, err = srcChain.Confirm(tx)
@@ -879,7 +878,7 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, field
 	return result, nil
 }
 
-func (m *CCIP17EVM) GetSenderNonce(ctx context.Context, chainSelector uint64) (uint64, error) {
+func (m *CCIP17EVM) GetUserNonce(ctx context.Context) (uint64, error) {
 	return m.chain.Client.PendingNonceAt(ctx, m.chain.DeployerKey.From)
 }
 

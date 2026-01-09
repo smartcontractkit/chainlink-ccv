@@ -3,8 +3,10 @@ package e2e
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -12,8 +14,10 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/load"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/logasserter"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
+	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
@@ -253,4 +257,28 @@ func (a *AnvilRPCHelper) GetAutomine(ctx context.Context) (bool, error) {
 	}
 	a.logger.Info().Bool("automine", automine).Msg("Got automine status")
 	return automine, nil
+}
+
+func verifyTestConfig(e *deployment.Environment, testConfig *load.TOMLLoadTestRoot) error {
+	var err error
+	chainsInTestConfig := make(map[uint64]struct{})
+	for _, testProfile := range testConfig.TestProfiles {
+		for _, chain := range testProfile.ChainsAsSource {
+			chainSelector, _ := strconv.ParseUint(chain, 10, 64)
+			chainsInTestConfig[chainSelector] = struct{}{}
+		}
+		for _, chain := range testProfile.ChainsAsDest {
+			chainSelector, _ := strconv.ParseUint(chain, 10, 64)
+			chainsInTestConfig[chainSelector] = struct{}{}
+		}
+	}
+
+	chainsInEnv := e.BlockChains.EVMChains()
+
+	for chain := range chainsInTestConfig {
+		if _, ok := chainsInEnv[chain]; !ok {
+			err = errors.Join(err, fmt.Errorf("chain %d not found in environment", chain))
+		}
+	}
+	return err
 }

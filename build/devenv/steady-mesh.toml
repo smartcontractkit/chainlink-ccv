@@ -1,0 +1,18 @@
+chain_profiles=[
+    {ratio_as_source=16, ratio_as_dest=16},
+    {ratio_as_source=8, ratio_as_dest=8}
+]
+
+message_profiles=[
+    {type="Data", finality=1}
+]
+
+[[test_profiles]]
+    chains_as_source=["3379446385462418246"]
+    chains_as_dest=["12922642891491394802"]
+    messages=[
+        {ratio=1, message_profile_index=0},
+    ]
+    test_duration = "5m"
+    messages_per_second = 1
+    load_duration = "10s"
