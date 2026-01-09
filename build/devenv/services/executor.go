@@ -368,8 +368,8 @@ func ResolveContractsForExecutor(ds datastore.DataStore, blockchains []*blockcha
 
 			defaultExecutorAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
 				networkInfo.ChainSelector,
-				datastore.ContractType(execcontract.ContractType),
-				semver.MustParse(execcontract.Deploy.Version()),
+				datastore.ContractType(execcontract.ProxyType),
+				semver.MustParse(execcontract.DeployProxy.Version()),
 				exec.ExecutorQualifier,
 			))
 			if err != nil {

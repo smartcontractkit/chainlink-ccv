@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -20,6 +21,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -206,6 +208,20 @@ func NewEnvironment() (in *Cfg, err error) {
 	/////////////////////////////
 	// END: Deploy blockchains //
 	/////////////////////////////
+
+	///////////////////////////////////////////
+	// START: Generate Aggregator Credentials //
+	// Generate HMAC credentials for all aggregator clients before launching
+	// CL nodes, so they can receive the credentials via secrets.
+	///////////////////////////////////////////
+	for _, agg := range in.Aggregator {
+		if _, err := agg.EnsureClientCredentials(); err != nil {
+			return nil, fmt.Errorf("failed to ensure client credentials for aggregator %s: %w", agg.CommitteeName, err)
+		}
+	}
+	/////////////////////////////////////////
+	// END: Generate Aggregator Credentials //
+	/////////////////////////////////////////
 
 	////////////////////////////
 	// START: Launch CL Nodes //
@@ -484,6 +500,34 @@ func NewEnvironment() (in *Cfg, err error) {
 		// Update discovery config to use nginx TLS proxy
 		if len(in.Aggregator) > 0 && in.Aggregator[0].Out != nil {
 			in.Indexer.IndexerConfig.Discovery.Address = in.Aggregator[0].Out.Address
+		}
+	}
+
+	// Inject generated credentials into indexer secrets for aggregator connections
+	if in.Indexer.Secrets == nil {
+		in.Indexer.Secrets = &config.SecretsConfig{
+			Verifier: make(map[string]config.VerifierSecrets),
+		}
+	}
+	if in.Indexer.Secrets.Verifier == nil {
+		in.Indexer.Secrets.Verifier = make(map[string]config.VerifierSecrets)
+	}
+
+	// Discovery uses the first aggregator's indexer credentials
+	if len(in.Aggregator) > 0 {
+		if creds, ok := in.Aggregator[0].Out.GetCredentialsForClient("indexer"); ok {
+			in.Indexer.Secrets.Discovery.APIKey = creds.APIKey
+			in.Indexer.Secrets.Discovery.Secret = creds.Secret
+		}
+	}
+
+	// Each verifier config needs credentials from its corresponding aggregator
+	for idx, agg := range in.Aggregator {
+		if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
+			in.Indexer.Secrets.Verifier[strconv.Itoa(idx)] = config.VerifierSecrets{
+				APIKey: creds.APIKey,
+				Secret: creds.Secret,
+			}
 		}
 	}
 
@@ -888,10 +932,20 @@ func launchStandaloneExecutors(in []*services.ExecutorInput) ([]*services.Execut
 }
 
 func launchStandaloneVerifiers(in *Cfg) ([]*services.VerifierOutput, error) {
+	aggregatorOutputByCommittee := make(map[string]*services.AggregatorOutput)
+	for _, agg := range in.Aggregator {
+		if agg.Out != nil {
+			aggregatorOutputByCommittee[agg.CommitteeName] = agg.Out
+		}
+	}
+
 	var outs []*services.VerifierOutput
 	// Start standalone verifiers if in standalone mode.
 	for _, ver := range in.Verifier {
 		if ver.Mode == services.Standalone {
+			if aggOut, ok := aggregatorOutputByCommittee[ver.CommitteeName]; ok {
+				ver.AggregatorOutput = aggOut
+			}
 			out, err := services.NewVerifier(ver)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create verifier service: %w", err)

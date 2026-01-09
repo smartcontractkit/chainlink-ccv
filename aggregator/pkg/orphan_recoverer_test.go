@@ -21,9 +21,9 @@ func TestOrphanRecoverer_HealthCheck_NotStarted(t *testing.T) {
 
 	config := &model.AggregatorConfig{
 		OrphanRecovery: model.OrphanRecoveryConfig{
-			Enabled:         true,
-			IntervalSeconds: 60,
-			MaxAgeHours:     24,
+			Enabled:  true,
+			Interval: 60 * time.Second,
+			MaxAge:   24 * time.Hour,
 		},
 	}
 
@@ -53,9 +53,9 @@ func TestOrphanRecoverer_HealthCheck_ReportsStoppedAfterContextCancellation(t *t
 
 	config := &model.AggregatorConfig{
 		OrphanRecovery: model.OrphanRecoveryConfig{
-			Enabled:         true,
-			IntervalSeconds: 1,
-			MaxAgeHours:     24,
+			Enabled:  true,
+			Interval: 1 * time.Second,
+			MaxAge:   24 * time.Hour,
 		},
 	}
 
@@ -112,9 +112,9 @@ func TestOrphanRecoverer_RecoversPanicEmitsMetricAndKeepsRunning(t *testing.T) {
 
 	config := &model.AggregatorConfig{
 		OrphanRecovery: model.OrphanRecoveryConfig{
-			Enabled:         true,
-			IntervalSeconds: 1,
-			MaxAgeHours:     24,
+			Enabled:  true,
+			Interval: 1 * time.Second,
+			MaxAge:   24 * time.Hour,
 		},
 	}
 

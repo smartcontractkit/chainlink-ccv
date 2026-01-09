@@ -6,6 +6,8 @@ import (
 	"os"
 
 	"github.com/BurntSushi/toml"
+
+	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 )
 
 // Config provides all configuration for the indexer.
@@ -425,6 +427,17 @@ func (a *AggregatorReaderConfig) Validate(index int) error {
 
 	if a.Since < 0 {
 		return fmt.Errorf("reader %d aggregator since must be non-negative, got %d", index, a.Since)
+	}
+
+	if a.APIKey != "" {
+		if err := hmacutil.ValidateAPIKey(a.APIKey); err != nil {
+			return fmt.Errorf("reader %d: %w", index, err)
+		}
+	}
+	if a.Secret != "" {
+		if err := hmacutil.ValidateSecret(a.Secret); err != nil {
+			return fmt.Errorf("reader %d: %w", index, err)
+		}
 	}
 
 	return nil

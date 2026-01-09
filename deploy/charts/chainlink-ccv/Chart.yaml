@@ -1,6 +1,0 @@
-apiVersion: v2
-name: chainlink-cluster
-description: A Helm chart for Chainlink in Kubernetes
-type: application
-version: 2.12.2
-appVersion: 2.14.0

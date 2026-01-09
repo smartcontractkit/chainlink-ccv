@@ -10,11 +10,10 @@ import (
 
 func TestBatcher_SizeBasedFlush(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
-	outCh := make(chan BatchResult[int], 10)
 	maxSize := 5
 	maxWait := 1 * time.Second
 
-	batcher := NewBatcher(ctx, maxSize, maxWait, outCh)
+	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
 
 	// Add exactly maxSize items
 	for i := 0; i < maxSize; i++ {
@@ -24,7 +23,7 @@ func TestBatcher_SizeBasedFlush(t *testing.T) {
 
 	// Should receive a batch immediately
 	select {
-	case batch := <-outCh:
+	case batch := <-batcher.OutChannel():
 		require.NoError(t, batch.Error)
 		require.Len(t, batch.Items, maxSize)
 		// Verify order is preserved
@@ -43,11 +42,10 @@ func TestBatcher_SizeBasedFlush(t *testing.T) {
 
 func TestBatcher_TimeBasedFlush(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
-	outCh := make(chan BatchResult[int], 10)
 	maxSize := 100
 	maxWait := 50 * time.Millisecond
 
-	batcher := NewBatcher(ctx, maxSize, maxWait, outCh)
+	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
 
 	// Add just 3 items (well below maxSize)
 	for i := 0; i < 3; i++ {
@@ -57,7 +55,7 @@ func TestBatcher_TimeBasedFlush(t *testing.T) {
 
 	// Should receive a batch after maxWait expires
 	select {
-	case batch := <-outCh:
+	case batch := <-batcher.OutChannel():
 		require.NoError(t, batch.Error)
 		require.Len(t, batch.Items, 3)
 		// Verify order is preserved
@@ -76,11 +74,10 @@ func TestBatcher_TimeBasedFlush(t *testing.T) {
 
 func TestBatcher_GracefulClose(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
-	outCh := make(chan BatchResult[int], 10)
 	maxSize := 100
 	maxWait := 10 * time.Second
 
-	batcher := NewBatcher(ctx, maxSize, maxWait, outCh)
+	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
 
 	// Add some items (not enough to trigger size-based flush)
 	for i := 0; i < 7; i++ {
@@ -96,7 +93,7 @@ func TestBatcher_GracefulClose(t *testing.T) {
 
 	// Should receive the remaining batch
 	select {
-	case batch := <-outCh:
+	case batch := <-batcher.OutChannel():
 		require.NoError(t, batch.Error)
 		require.Len(t, batch.Items, 7)
 		// Verify order is preserved
@@ -114,11 +111,10 @@ func TestBatcher_GracefulClose(t *testing.T) {
 
 func TestBatcher_InsertionOrder(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
-	outCh := make(chan BatchResult[int], 10)
 	maxSize := 10
 	maxWait := 1 * time.Second
 
-	batcher := NewBatcher(ctx, maxSize, maxWait, outCh)
+	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
 
 	// Add items in specific order
 	expectedOrder := []int{5, 3, 9, 1, 7, 2, 8, 4, 6, 0}
@@ -129,7 +125,7 @@ func TestBatcher_InsertionOrder(t *testing.T) {
 
 	// Receive batch and verify order
 	select {
-	case batch := <-outCh:
+	case batch := <-batcher.OutChannel():
 		require.NoError(t, batch.Error)
 		require.Equal(t, expectedOrder, batch.Items)
 	case <-time.After(100 * time.Millisecond):
@@ -144,11 +140,10 @@ func TestBatcher_InsertionOrder(t *testing.T) {
 
 func TestBatcher_MultipleBatches(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
-	outCh := make(chan BatchResult[int], 10)
 	maxSize := 3
 	maxWait := 1 * time.Second
 
-	batcher := NewBatcher(ctx, maxSize, maxWait, outCh)
+	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
 
 	// Add items that will trigger multiple batches
 	totalItems := 9
@@ -160,7 +155,7 @@ func TestBatcher_MultipleBatches(t *testing.T) {
 	// Should receive 3 full batches
 	for batchNum := 0; batchNum < 3; batchNum++ {
 		select {
-		case batch := <-outCh:
+		case batch := <-batcher.OutChannel():
 			require.NoError(t, batch.Error)
 			require.Len(t, batch.Items, maxSize)
 			// Verify order within batch
@@ -180,18 +175,17 @@ func TestBatcher_MultipleBatches(t *testing.T) {
 
 func TestBatcher_EmptyClose(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
-	outCh := make(chan BatchResult[int], 10)
 	maxSize := 10
 	maxWait := 1 * time.Second
 
-	batcher := NewBatcher(ctx, maxSize, maxWait, outCh)
+	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
 
 	// Cancel context first
 	cancel()
 
 	// Should not receive any batch (empty batcher doesn't flush)
 	select {
-	case batch, ok := <-outCh:
+	case batch, ok := <-batcher.OutChannel():
 		if ok {
 			t.Fatalf("expected no batch when closing empty batcher, got batch with %d items", len(batch.Items))
 		}
@@ -207,11 +201,10 @@ func TestBatcher_EmptyClose(t *testing.T) {
 
 func TestBatcher_ConcurrentAdds(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
-	outCh := make(chan BatchResult[int], 100)
 	maxSize := 50
 	maxWait := 100 * time.Millisecond
 
-	batcher := NewBatcher(ctx, maxSize, maxWait, outCh)
+	batcher := NewBatcher[int](ctx, maxSize, maxWait, 100)
 
 	// Concurrently add items from multiple goroutines
 	numGoroutines := 10
@@ -236,7 +229,7 @@ func TestBatcher_ConcurrentAdds(t *testing.T) {
 	cancel()
 	_ = batcher.Close()
 
-	totalReceived := countBatchItems(outCh, 500*time.Millisecond)
+	totalReceived := countBatchItems(batcher.OutChannel(), 500*time.Millisecond)
 	expectedTotal := numGoroutines * itemsPerGoroutine
 	require.Equal(t, expectedTotal, totalReceived, "should receive all items across all batches")
 }
@@ -247,11 +240,10 @@ func TestBatcher_ChannelBufferAdequate(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 
 	// Large enough buffer to hold all batches
-	outCh := make(chan BatchResult[int], 20)
 	maxSize := 5
 	maxWait := 100 * time.Millisecond
 
-	batcher := NewBatcher(ctx, maxSize, maxWait, outCh)
+	batcher := NewBatcher[int](ctx, maxSize, maxWait, 20)
 
 	// Add items to main buffer (not enough to trigger size-based flush)
 	mainItems := []int{1, 2, 3}
@@ -274,7 +266,7 @@ func TestBatcher_ChannelBufferAdequate(t *testing.T) {
 	require.NoError(t, err)
 
 	// Collect all batches
-	allItems := collectBatches(outCh, 500*time.Millisecond)
+	allItems := collectBatches(batcher.OutChannel(), 500*time.Millisecond)
 
 	// Should have received all items (main + retry)
 	expectedTotal := len(mainItems) + len(retryItems)
@@ -292,11 +284,10 @@ func TestBatcher_ChannelBufferTooSmall(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 
 	// Very small buffer - will cause drops
-	outCh := make(chan BatchResult[int], 1)
 	maxSize := 3
 	maxWait := 10 * time.Millisecond // Short wait to trigger frequent flushes
 
-	batcher := NewBatcher(ctx, maxSize, maxWait, outCh)
+	batcher := NewBatcher[int](ctx, maxSize, maxWait, 1)
 
 	// Add many items rapidly to trigger multiple flushes
 	totalItemsAdded := 0
@@ -316,7 +307,7 @@ func TestBatcher_ChannelBufferTooSmall(t *testing.T) {
 	require.NoError(t, err)
 
 	// Collect received items (without blocking on empty channel)
-	allItems := collectBatches(outCh, 100*time.Millisecond)
+	allItems := collectBatches(batcher.OutChannel(), 100*time.Millisecond)
 	receivedCount := len(allItems)
 
 	// With a buffer of 1 and rapid batching, we expect drops
@@ -338,11 +329,10 @@ func TestBatcher_ChannelBufferMultipleBatchesWithRetry(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 
 	// Medium buffer that can hold several batches
-	outCh := make(chan BatchResult[int], 10)
 	maxSize := 5
 	maxWait := 50 * time.Millisecond
 
-	batcher := NewBatcher(ctx, maxSize, maxWait, outCh)
+	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
 
 	// Scenario 1: Add items that will trigger size-based flush
 	for i := 0; i < 5; i++ {
@@ -380,7 +370,7 @@ func TestBatcher_ChannelBufferMultipleBatchesWithRetry(t *testing.T) {
 	require.NoError(t, err)
 
 	// Collect all batches
-	allItems := collectBatches(outCh, 500*time.Millisecond)
+	allItems := collectBatches(batcher.OutChannel(), 500*time.Millisecond)
 
 	// Verify we got all the items we added
 	expectedItems := []int{

@@ -43,9 +43,8 @@ func ActiveRequestsMiddleware(monitoring common.IndexerMonitoring, lggr logger.L
 
 func removeMessageIDFromPath(path string) string {
 	if strings.Contains(path, "/verifierresults/") {
-		parts := strings.Split(path, "/")[0:3]
-		parts = append(parts, ":messageID")
-		return strings.Join(parts, "/")
+		// Normalize to a canonical path with a placeholder for the message ID.
+		return "/verifierresults/:messageID"
 	}
 
 	return path

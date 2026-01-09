@@ -34,31 +34,45 @@ func (h DelayHeap) Less(i, j int) bool { return h[i].runAt.Before(h[j].runAt) }
 func (h DelayHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i]; h[i].index, h[j].index = i, j }
 
 // Push adds a task to the heap. The task's index field will be updated
-// by subsequent heap operations. Push should be called through heap.Push,
+// by this method before appending. Push should be called through heap.Push,
 // not directly.
 func (h *DelayHeap) Push(x any) {
 	task, ok := x.(*Task)
 	if !ok {
-		return
+		panic("DelayHeap.Push: expected *Task")
 	}
+	// assign index to the new element's position (append position)
+	task.index = len(*h)
 	*h = append(*h, task)
 }
 
 // Pop removes and returns the task at the end of the heap slice.
 // Pop should be called through heap.Pop, not directly, to ensure
 // proper heap ordering. The returned task will be the one with the
-// earliest runAt time after heap reordering.
+// earliest runAt time after heap reordering. The popped task's index
+// is reset to -1 to indicate it's no longer in the heap.
 func (h *DelayHeap) Pop() any {
 	old := *h
 	n := len(old)
 	it := old[n-1]
 	*h = old[:n-1]
+	if it != nil {
+		it.index = -1
+	}
 	return it
 }
 
 func (h *DelayHeap) PopAllReady() []*Task {
 	var ready []*Task
-	for h.Len() > 0 && h.Peek().runAt.Before(time.Now()) {
+	for h.Len() > 0 {
+		p := h.Peek()
+		if p == nil {
+			break
+		}
+		// treat tasks with runAt <= now as ready
+		if p.runAt.After(time.Now()) {
+			break
+		}
 		t, ok := heap.Pop(h).(*Task)
 		if !ok {
 			continue

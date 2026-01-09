@@ -44,7 +44,6 @@ type SourceReaderService struct {
 
 	// exposed channel to coordinator: READY tasks
 	readyTasksBatcher *batcher.Batcher[VerificationTask]
-	readyTasksCh      chan batcher.BatchResult[VerificationTask]
 
 	// mutable per-chain state
 	mu                          sync.RWMutex
@@ -64,6 +63,7 @@ type SourceReaderService struct {
 
 // NewSourceReaderService Constructor: same style as SRS.
 func NewSourceReaderService(
+	ctx context.Context,
 	sourceReader chainaccess.SourceReader,
 	chainSelector protocol.ChainSelector,
 	chainStatusManager protocol.ChainStatusManager,
@@ -113,6 +113,14 @@ func NewSourceReaderService(
 		pollTimeout = DefaultPollTimeout
 	}
 
+	batchSize, batchTimeout := readerConfigWithDefaults(lggr, sourceCfg)
+	readyTaskBatcher := batcher.NewBatcher[VerificationTask](
+		ctx,
+		batchSize,
+		batchTimeout,
+		0,
+	)
+
 	return &SourceReaderService{
 		logger:             logger.With(lggr, "component", "SourceReaderService", "chain", chainSelector),
 		sourceReader:       sourceReader,
@@ -124,12 +132,12 @@ func NewSourceReaderService(
 		pollTimeout:        pollTimeout,
 		sourceCfg:          sourceCfg,
 		maxBlockRange:      maxBlockRange,
-		readyTasksCh:       make(chan batcher.BatchResult[VerificationTask]),
 		pendingTasks:       make(map[string]VerificationTask),
 		sentTasks:          make(map[string]VerificationTask),
 		reorgTracker:       NewReorgTracker(logger.With(lggr, "component", "ReorgTracker"), metrics),
 		stopCh:             make(chan struct{}),
 		filter:             filter,
+		readyTasksBatcher:  readyTaskBatcher,
 	}, nil
 }
 
@@ -138,20 +146,11 @@ func (r *SourceReaderService) RetryTasks(minDelay time.Duration, tasks ...Verifi
 }
 
 func (r *SourceReaderService) ReadyTasksChannel() <-chan batcher.BatchResult[VerificationTask] {
-	return r.readyTasksCh
+	return r.readyTasksBatcher.OutChannel()
 }
 
 func (r *SourceReaderService) Start(ctx context.Context) error {
 	return r.StartOnce(r.Name(), func() error {
-		batchSize, batchTimeout := readerConfigWithDefaults(r.logger, r.sourceCfg)
-		readyTaskBatcher := batcher.NewBatcher(
-			ctx,
-			batchSize,
-			batchTimeout,
-			r.readyTasksCh,
-		)
-		r.readyTasksBatcher = readyTaskBatcher
-
 		r.logger.Infow("Starting SourceReaderService")
 
 		startBlock, err := r.initializeStartBlock(ctx)
@@ -239,13 +238,13 @@ func (r *SourceReaderService) readyToQuery(ctx context.Context) (bool, *protocol
 	if err != nil {
 		r.logger.Errorw("Failed to get latest block", "error", err)
 		// Send batch-level error to coordinator
-		r.sendBatchError(ctx, fmt.Errorf("failed to get finalized block: %w", err))
+		r.sendBatchError(fmt.Errorf("failed to get finalized block: %w", err))
 		return false, nil, nil
 	}
 	if finalized == nil || latest == nil {
 		r.logger.Errorw("nil block found during latest/finalized retrieval",
 			"finalized=Nil", finalized == nil, "latest=Nil", latest == nil)
-		r.sendBatchError(ctx, fmt.Errorf("finalized block is nil"))
+		r.sendBatchError(fmt.Errorf("finalized block is nil"))
 		return false, nil, nil
 	}
 
@@ -316,7 +315,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context, latest, fin
 			"fromBlock", fromBlock.String(),
 			"toBlock", "latest")
 		// Send batch-level error to coordinator
-		r.sendBatchError(ctx, fmt.Errorf("failed to query logs from block %s to latest: %w",
+		r.sendBatchError(fmt.Errorf("failed to query logs from block %s to latest: %w",
 			fromBlock.String(), err))
 		return
 	}
@@ -737,17 +736,14 @@ func (r *SourceReaderService) handleFinalityViolation(ctx context.Context) {
 }
 
 // sendBatchError sends a batch-level error to the coordinator.
-func (r *SourceReaderService) sendBatchError(ctx context.Context, err error) {
+func (r *SourceReaderService) sendBatchError(err error) {
 	batch := batcher.BatchResult[VerificationTask]{
 		Items: nil,
 		Error: err,
 	}
 
-	select {
-	case r.readyTasksCh <- batch:
-		r.logger.Debugw("Batch error sent to coordinator", "error", err)
-	case <-ctx.Done():
-		r.logger.Debugw("Context cancelled while sending batch error")
+	if err1 := r.readyTasksBatcher.AddImmediate(batch); err1 != nil {
+		r.logger.Debugw("Failed to add immediate tasks to batcher", "error", err1)
 	}
 }
 

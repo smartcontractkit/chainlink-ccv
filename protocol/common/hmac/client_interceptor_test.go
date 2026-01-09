@@ -13,10 +13,12 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
+var testCredentials = MustGenerateCredentials()
+
 func TestNewClientInterceptor(t *testing.T) {
 	config := &ClientConfig{
-		APIKey: "test-api-key",
-		Secret: "test-secret",
+		APIKey: testCredentials.APIKey,
+		Secret: testCredentials.Secret,
 	}
 
 	t.Run("adds HMAC headers to request", func(t *testing.T) {
@@ -153,7 +155,8 @@ func TestNewClientInterceptor(t *testing.T) {
 
 		bodyHash := ComputeBodyHash(body)
 		stringToSign := GenerateStringToSign(HTTPMethodPost, "/test.Service/Method", bodyHash, apiKey, timestamp)
-		expectedSignature := ComputeHMAC(config.Secret, stringToSign)
+		expectedSignature, err := ComputeHMAC(config.Secret, stringToSign)
+		require.NoError(t, err)
 
 		require.Equal(t, expectedSignature, signature, "signature should be valid")
 	})

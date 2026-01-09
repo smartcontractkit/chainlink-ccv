@@ -120,7 +120,7 @@ func TestLifecycle(t *testing.T) {
 	lggr := logger.Test(t)
 
 	ccvDataReader := mocks.NewMockMessageSubscriber(t)
-	ccvDataReader.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	ccvDataReader.EXPECT().Start(mock.Anything).Return(nil, nil, nil)
 
 	executorMock := mocks.NewMockExecutor(t)
 	executorMock.EXPECT().Start(mock.Anything).Return(nil)
@@ -150,7 +150,7 @@ func TestSubscribeMessagesError(t *testing.T) {
 	// Generate an error when SubscribeMessages() is called during Start().
 	messageSubscriber := mocks.NewMockMessageSubscriber(t)
 	sentinelError := fmt.Errorf("lilo & stitch")
-	messageSubscriber.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything).Return(sentinelError)
+	messageSubscriber.EXPECT().Start(mock.Anything).Return(nil, nil, sentinelError)
 	timeProvider := mocks.NewMockTimeProvider(t)
 	timeProvider.EXPECT().GetTime().Return(time.Now().UTC()).Maybe()
 
@@ -314,7 +314,9 @@ func TestMessageExpiration(t *testing.T) {
 
 			// Set up message subscriber to send one message
 			messageSubscriber := mocks.NewMockMessageSubscriber(t)
-			messageSubscriber.EXPECT().Start(mock.Anything, mock.Anything, mock.Anything).Return(nil).Run(func(ctx context.Context, results chan common.MessageWithMetadata, errors chan error) {
+			results := make(chan common.MessageWithMetadata)
+
+			messageSubscriber.EXPECT().Start(mock.Anything).Return(results, nil, nil).Run(func(ctx context.Context) {
 				// Send the test message to the channel
 				go func() {
 					results <- testMessage

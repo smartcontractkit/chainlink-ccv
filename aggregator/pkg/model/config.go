@@ -7,9 +7,11 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 )
 
 // Signer represents a participant in the commit verification process.
@@ -27,6 +29,12 @@ type DestinationSelector = string
 
 // SourceSelector represents a source chain selector as a string.
 type SourceSelector = string
+
+// ChannelKey identifies a client's aggregation channel for fair scheduling.
+type ChannelKey string
+
+// OrphanRecoveryChannelKey is the channel key used for orphan recovery operations.
+const OrphanRecoveryChannelKey ChannelKey = "orphan_recovery"
 
 // Committee represents a group of signers participating in the commit verification process.
 type Committee struct {
@@ -75,30 +83,30 @@ const (
 
 // StorageConfig represents the configuration for the storage backend.
 type StorageConfig struct {
-	StorageType     StorageType `toml:"type"`
-	ConnectionURL   string      `toml:"-"`
-	PageSize        int         `toml:"pageSize"`
-	MaxOpenConns    int         `toml:"maxOpenConns"`
-	MaxIdleConns    int         `toml:"maxIdleConns"`
-	ConnMaxLifetime int         `toml:"connMaxLifetime"` // in seconds
-	ConnMaxIdleTime int         `toml:"connMaxIdleTime"` // in seconds
+	StorageType     StorageType   `toml:"type"`
+	ConnectionURL   string        `toml:"-"`
+	PageSize        int           `toml:"pageSize"`
+	MaxOpenConns    int           `toml:"maxOpenConns"`
+	MaxIdleConns    int           `toml:"maxIdleConns"`
+	ConnMaxLifetime time.Duration `toml:"connMaxLifetime"`
+	ConnMaxIdleTime time.Duration `toml:"connMaxIdleTime"`
 }
 
 // ServerConfig represents the configuration for the server.
 type ServerConfig struct {
 	Address string `toml:"address"`
-	// RequestTimeoutSeconds is the max duration for any GRPC request (default: 10s)
-	RequestTimeoutSeconds int `toml:"requestTimeoutSeconds"`
-	// ConnectionTimeoutSeconds is the timeout for connection establishment (0 = no timeout, GRPC default)
-	ConnectionTimeoutSeconds int `toml:"connectionTimeoutSeconds"`
-	// KeepaliveMinTimeSeconds is the minimum time between client pings (0 = 5 min, GRPC default)
-	KeepaliveMinTimeSeconds int `toml:"keepaliveMinTimeSeconds"`
-	// KeepaliveTimeSeconds is the time after which server pings idle clients (0 = 2 hours, GRPC default)
-	KeepaliveTimeSeconds int `toml:"keepaliveTimeSeconds"`
-	// KeepaliveTimeoutSeconds is the timeout for ping ack before closing connection (0 = 20s, GRPC default)
-	KeepaliveTimeoutSeconds int `toml:"keepaliveTimeoutSeconds"`
-	// MaxConnectionAgeSeconds forces connections to be closed after this duration (0 = infinite, GRPC default)
-	MaxConnectionAgeSeconds int `toml:"maxConnectionAgeSeconds"`
+	// RequestTimeout is the max duration for any GRPC request (default: 10s)
+	RequestTimeout time.Duration `toml:"requestTimeout"`
+	// ConnectionTimeout is the timeout for connection establishment (0 = no timeout, GRPC default)
+	ConnectionTimeout time.Duration `toml:"connectionTimeout"`
+	// KeepaliveMinTime is the minimum time between client pings (0 = 5 min, GRPC default)
+	KeepaliveMinTime time.Duration `toml:"keepaliveMinTime"`
+	// KeepaliveTime is the time after which server pings idle clients (0 = 2 hours, GRPC default)
+	KeepaliveTime time.Duration `toml:"keepaliveTime"`
+	// KeepaliveTimeout is the timeout for ping ack before closing connection (0 = 20s, GRPC default)
+	KeepaliveTimeout time.Duration `toml:"keepaliveTimeout"`
+	// MaxConnectionAge forces connections to be closed after this duration (0 = infinite, GRPC default)
+	MaxConnectionAge time.Duration `toml:"maxConnectionAge"`
 	// MaxRecvMsgSizeBytes is the maximum message size in bytes the server can receive (default: 4MB)
 	MaxRecvMsgSizeBytes int `toml:"maxRecvMsgSizeBytes"`
 	// MaxSendMsgSizeBytes is the maximum message size in bytes the server can send (default: 4MB)
@@ -111,20 +119,27 @@ type AggregationConfig struct {
 	ChannelBufferSize int `toml:"channelBufferSize"`
 	// BackgroundWorkerCount controls the number of background workers processing aggregation requests
 	BackgroundWorkerCount int `toml:"backgroundWorkerCount"`
-	// OperationTimeoutSeconds is the timeout for each aggregation operation (0 = no timeout)
-	OperationTimeoutSeconds int `toml:"operationTimeoutSeconds"`
+	// CheckAggregationTimeout is the timeout for each check aggregation operation in the write commit verifier node result handler.
+	// Consider the batch size when setting this value. A larger batch size will require a longer timeout.
+	// Example: "5s", "100ms", "1m"
+	CheckAggregationTimeout time.Duration `toml:"checkAggregationTimeout"`
+	// OperationTimeout is the timeout for each aggregation operation (0 = no timeout)
+	OperationTimeout time.Duration `toml:"operationTimeout"`
 }
 
 type OrphanRecoveryConfig struct {
 	// Enabled controls whether orphan recovery is enabled
 	Enabled bool `toml:"enabled"`
-	// IntervalSeconds controls how often orphan recovery runs (in seconds)
-	IntervalSeconds int `toml:"intervalSeconds"`
-	// MaxAgeHours is the maximum age of orphan records to consider for recovery.
+	// Interval controls how often orphan recovery runs
+	Interval time.Duration `toml:"interval"`
+	// CheckAggregationTimeout is the timeout for each check aggregation operation.
+	// Example: "5s", "100ms", "1m"
+	CheckAggregationTimeout time.Duration `toml:"checkAggregationTimeout"`
+	// MaxAge is the maximum age of orphan records to consider for recovery.
 	// Records older than this are filtered out from recovery attempts.
-	MaxAgeHours int `toml:"maxAgeHours"`
-	// ScanTimeoutSeconds is the timeout for each orphan recovery scan (0 = no timeout)
-	ScanTimeoutSeconds int `toml:"scanTimeoutSeconds"`
+	MaxAge time.Duration `toml:"maxAge"`
+	// ScanTimeout is the timeout for each orphan recovery scan (0 = no timeout)
+	ScanTimeout time.Duration `toml:"scanTimeout"`
 }
 
 type HealthCheckConfig struct {
@@ -322,12 +337,23 @@ func (c *APIKeyPairEnv) Validate() error {
 	if c.SecretEnvVar == "" {
 		return errors.New("secretEnvVar cannot be empty")
 	}
-	if _, ok := os.LookupEnv(c.APIKeyEnvVar); !ok {
-		return errors.New("apiKeyEnvVar not found in environment")
+
+	apiKey, ok := os.LookupEnv(c.APIKeyEnvVar)
+	if !ok {
+		return fmt.Errorf("environment variable %s not found", c.APIKeyEnvVar)
 	}
-	if _, ok := os.LookupEnv(c.SecretEnvVar); !ok {
-		return errors.New("secretEnvVar not found in environment")
+	if err := hmacutil.ValidateAPIKey(apiKey); err != nil {
+		return fmt.Errorf("invalid API key in %s: %w", c.APIKeyEnvVar, err)
 	}
+
+	secret, ok := os.LookupEnv(c.SecretEnvVar)
+	if !ok {
+		return fmt.Errorf("environment variable %s not found", c.SecretEnvVar)
+	}
+	if err := hmacutil.ValidateSecret(secret); err != nil {
+		return fmt.Errorf("invalid secret in %s: %w", c.SecretEnvVar, err)
+	}
+
 	return nil
 }
 
@@ -395,6 +421,10 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.Aggregation.BackgroundWorkerCount == 0 {
 		c.Aggregation.BackgroundWorkerCount = 10
 	}
+	// Default check aggregation timeout: 5 seconds
+	if c.Aggregation.CheckAggregationTimeout == 0 {
+		c.Aggregation.CheckAggregationTimeout = 5 * time.Second
+	}
 	// Initialize Storage config if nil
 	if c.Storage == nil {
 		c.Storage = &StorageConfig{}
@@ -410,26 +440,30 @@ func (c *AggregatorConfig) SetDefaults() {
 		c.Storage.MaxIdleConns = 5
 	}
 	if c.Storage.ConnMaxLifetime == 0 {
-		c.Storage.ConnMaxLifetime = 3600 // 1 hour
+		c.Storage.ConnMaxLifetime = time.Hour
 	}
 	if c.Storage.ConnMaxIdleTime == 0 {
-		c.Storage.ConnMaxIdleTime = 300 // 5 minutes
+		c.Storage.ConnMaxIdleTime = 5 * time.Minute
 	}
 	// Default orphan recovery: enabled with 5 minute interval
-	if c.OrphanRecovery.IntervalSeconds == 0 {
-		c.OrphanRecovery.IntervalSeconds = 300 // 5 minutes
+	if c.OrphanRecovery.Interval == 0 {
+		c.OrphanRecovery.Interval = 5 * time.Minute
+	}
+	// Default check aggregation timeout: 5 seconds
+	if c.OrphanRecovery.CheckAggregationTimeout == 0 {
+		c.OrphanRecovery.CheckAggregationTimeout = 5 * time.Second
 	}
 	// Default max age: 7 days
-	if c.OrphanRecovery.MaxAgeHours == 0 {
-		c.OrphanRecovery.MaxAgeHours = 168 // 7 days
+	if c.OrphanRecovery.MaxAge == 0 {
+		c.OrphanRecovery.MaxAge = 168 * time.Hour
 	}
 	// Health check defaults
 	if c.HealthCheck.Port == "" {
 		c.HealthCheck.Port = "8080"
 	}
 	// Server defaults
-	if c.Server.RequestTimeoutSeconds == 0 {
-		c.Server.RequestTimeoutSeconds = 10
+	if c.Server.RequestTimeout == 0 {
+		c.Server.RequestTimeout = 10 * time.Second
 	}
 }
 
@@ -464,23 +498,23 @@ func (c *AggregatorConfig) ValidateBatchConfig() error {
 
 // ValidateServerConfig validates the server configuration.
 func (c *AggregatorConfig) ValidateServerConfig() error {
-	if c.Server.RequestTimeoutSeconds <= 0 {
-		return errors.New("server.requestTimeoutSeconds must be greater than 0")
+	if c.Server.RequestTimeout <= 0 {
+		return errors.New("server.requestTimeout must be greater than 0")
 	}
-	if c.Server.ConnectionTimeoutSeconds < 0 {
-		return errors.New("server.connectionTimeoutSeconds cannot be negative")
+	if c.Server.ConnectionTimeout < 0 {
+		return errors.New("server.connectionTimeout cannot be negative")
 	}
-	if c.Server.KeepaliveMinTimeSeconds < 0 {
-		return errors.New("server.keepaliveMinTimeSeconds cannot be negative")
+	if c.Server.KeepaliveMinTime < 0 {
+		return errors.New("server.keepaliveMinTime cannot be negative")
 	}
-	if c.Server.KeepaliveTimeSeconds < 0 {
-		return errors.New("server.keepaliveTimeSeconds cannot be negative")
+	if c.Server.KeepaliveTime < 0 {
+		return errors.New("server.keepaliveTime cannot be negative")
 	}
-	if c.Server.KeepaliveTimeoutSeconds < 0 {
-		return errors.New("server.keepaliveTimeoutSeconds cannot be negative")
+	if c.Server.KeepaliveTimeout < 0 {
+		return errors.New("server.keepaliveTimeout cannot be negative")
 	}
-	if c.Server.MaxConnectionAgeSeconds < 0 {
-		return errors.New("server.maxConnectionAgeSeconds cannot be negative")
+	if c.Server.MaxConnectionAge < 0 {
+		return errors.New("server.maxConnectionAge cannot be negative")
 	}
 	if c.Server.MaxRecvMsgSizeBytes < 0 {
 		return errors.New("server.maxRecvMsgSizeBytes cannot be negative")
@@ -511,8 +545,11 @@ func (c *AggregatorConfig) ValidateAggregationConfig() error {
 	if c.Aggregation.BackgroundWorkerCount > 100 {
 		return errors.New("aggregation.backgroundWorkerCount cannot exceed 100")
 	}
-	if c.Aggregation.OperationTimeoutSeconds < 0 {
-		return errors.New("aggregation.operationTimeoutSeconds cannot be negative")
+	if c.Aggregation.OperationTimeout < 0 {
+		return errors.New("aggregation.operationTimeout cannot be negative")
+	}
+	if c.Aggregation.CheckAggregationTimeout <= 0 {
+		return errors.New("aggregation.checkAggregationTimeout must be greater than 0")
 	}
 
 	return nil
@@ -547,17 +584,20 @@ func (c *AggregatorConfig) ValidateStorageConfig() error {
 
 // ValidateOrphanRecoveryConfig validates the orphan recovery configuration.
 func (c *AggregatorConfig) ValidateOrphanRecoveryConfig() error {
-	if c.OrphanRecovery.ScanTimeoutSeconds < 0 {
-		return errors.New("orphanRecovery.scanTimeoutSeconds cannot be negative")
+	if c.OrphanRecovery.ScanTimeout < 0 {
+		return errors.New("orphanRecovery.scanTimeout cannot be negative")
+	}
+	if c.OrphanRecovery.CheckAggregationTimeout <= 0 {
+		return errors.New("orphanRecovery.checkAggregationTimeout must be greater than 0")
 	}
 	if !c.OrphanRecovery.Enabled {
 		return nil
 	}
-	if c.OrphanRecovery.MaxAgeHours < 1 {
-		return errors.New("orphanRecovery.maxAgeHours must be at least 1")
+	if c.OrphanRecovery.MaxAge < time.Hour {
+		return errors.New("orphanRecovery.maxAge must be at least 1 hour")
 	}
-	if c.OrphanRecovery.IntervalSeconds < 5 {
-		return errors.New("orphanRecovery.intervalSeconds must be at least 5")
+	if c.OrphanRecovery.Interval < 5*time.Second {
+		return errors.New("orphanRecovery.interval must be at least 5 seconds")
 	}
 	return nil
 }

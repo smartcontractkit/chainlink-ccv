@@ -37,7 +37,7 @@ func NewIndexerClient(lggr logger.Logger, indexerURI string, httpClient *http.Cl
 }
 
 type IndexerClient struct {
-	client     *iclient.Client
+	client     iclient.ClientInterface
 	lggr       logger.Logger
 	indexerURI string
 }

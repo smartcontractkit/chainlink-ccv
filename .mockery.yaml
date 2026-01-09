@@ -19,6 +19,7 @@ packages:
     interfaces:
       ChainStatusManager:
       FinalityViolationChecker:
+      VerifierResultsAPI:
 
   github.com/smartcontractkit/chainlink-ccv/protocol/common/chainaccess:
     interfaces:
@@ -51,3 +52,14 @@ packages:
   github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/aggregation:
     interfaces:
       QuorumValidator:
+
+  github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common:
+    interfaces:
+      IndexerStorage:
+      IndexerMonitoring:
+      IndexerMetricLabeler:
+  github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client/internal:
+    interfaces:
+      ClientInterface:
+        configs:
+          - dir: ./indexer/pkg/client/internal/mocks

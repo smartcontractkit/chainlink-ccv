@@ -405,3 +405,80 @@ func TestCheckQuorum_HashMismatchDetection(t *testing.T) {
 	assert.Contains(t, err.Error(), "verification hash mismatch")
 	assert.Contains(t, err.Error(), "possible data tampering")
 }
+
+func TestDeriveAggregationKey(t *testing.T) {
+	sourceVerifierAddress, destVerifierAddress := fixtures.GenerateVerifierAddresses(t)
+	signerFixture := fixtures.NewSignerFixture(t, "signer1")
+
+	config := &model.AggregatorConfig{
+		Committee: &model.Committee{
+			QuorumConfigs: map[string]*model.QuorumConfig{
+				sourceSelector: {
+					Signers:   []model.Signer{signerFixture.Signer},
+					Threshold: 1,
+				},
+			},
+			DestinationVerifiers: map[string]string{
+				destSelector: common.Bytes2Hex(destVerifierAddress),
+			},
+		},
+	}
+
+	validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
+
+	t.Run("derives aggregation key as hex encoded hash", func(t *testing.T) {
+		protocolMessage := fixtures.NewProtocolMessage(t)
+		messageData, _ := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, sourceVerifierAddress,
+			fixtures.WithSignatureFrom(t, signerFixture))
+
+		record, err := model.CommitVerificationRecordFromProto(messageData)
+		require.NoError(t, err)
+
+		key, err := validator.DeriveAggregationKey(context.Background(), record)
+		require.NoError(t, err)
+		assert.NotEmpty(t, key)
+		assert.Len(t, key, 64) // 32 bytes = 64 hex chars
+	})
+
+	t.Run("same message produces same key", func(t *testing.T) {
+		protocolMessage := fixtures.NewProtocolMessage(t)
+		messageData1, _ := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, sourceVerifierAddress,
+			fixtures.WithSignatureFrom(t, signerFixture))
+		messageData2, _ := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, sourceVerifierAddress,
+			fixtures.WithSignatureFrom(t, signerFixture))
+
+		record1, err := model.CommitVerificationRecordFromProto(messageData1)
+		require.NoError(t, err)
+		record2, err := model.CommitVerificationRecordFromProto(messageData2)
+		require.NoError(t, err)
+
+		key1, err := validator.DeriveAggregationKey(context.Background(), record1)
+		require.NoError(t, err)
+		key2, err := validator.DeriveAggregationKey(context.Background(), record2)
+		require.NoError(t, err)
+
+		assert.Equal(t, key1, key2)
+	})
+
+	t.Run("different messages produce different keys", func(t *testing.T) {
+		protocolMessage1 := fixtures.NewProtocolMessage(t, fixtures.WithSequenceNumber(1))
+		protocolMessage2 := fixtures.NewProtocolMessage(t, fixtures.WithSequenceNumber(2))
+
+		messageData1, _ := fixtures.NewMessageWithCCVNodeData(t, protocolMessage1, sourceVerifierAddress,
+			fixtures.WithSignatureFrom(t, signerFixture))
+		messageData2, _ := fixtures.NewMessageWithCCVNodeData(t, protocolMessage2, sourceVerifierAddress,
+			fixtures.WithSignatureFrom(t, signerFixture))
+
+		record1, err := model.CommitVerificationRecordFromProto(messageData1)
+		require.NoError(t, err)
+		record2, err := model.CommitVerificationRecordFromProto(messageData2)
+		require.NoError(t, err)
+
+		key1, err := validator.DeriveAggregationKey(context.Background(), record1)
+		require.NoError(t, err)
+		key2, err := validator.DeriveAggregationKey(context.Background(), record2)
+		require.NoError(t, err)
+
+		assert.NotEqual(t, key1, key2)
+	})
+}

@@ -70,7 +70,19 @@ func (h *MessagesHandler) Handle(c *gin.Context) {
 	// Convert the messages to a map of messageID to message
 	messageMap := make(map[string]common.MessageWithMetadata)
 	for _, msg := range messages {
-		messageMap[msg.Message.MustMessageID().String()] = msg
+		// Use the safe MessageID accessor to avoid panics and handle encoding errors.
+		id, err := msg.Message.MessageID()
+		if err != nil {
+			// Log and skip messages that cannot be encoded into an ID
+			h.lggr.Warnw("skipping message with invalid ID", "err", err)
+			continue
+		}
+		if id.IsEmpty() {
+			// Skip messages with an empty ID
+			h.lggr.Warnw("skipping message with empty ID")
+			continue
+		}
+		messageMap[id.String()] = msg
 	}
 
 	h.lggr.Debugw("/v1/messages", "number of messages returned", len(messageMap))
