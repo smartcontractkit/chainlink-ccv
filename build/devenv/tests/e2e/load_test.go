@@ -709,8 +709,9 @@ func TestE2ELoad(t *testing.T) {
 					Schedule:   wasp.Plain(testProfile.MessagesPerSecond, testProfile.LoadDuration),
 					Gun:        gun,
 					Labels:     map[string]string{"go_test_name": "multi-chain-load"},
-					LokiConfig: nil}))
-
+					LokiConfig: nil,
+				}),
+		)
 		waitForMetrics := assertMessagesAsync(tc, gun, testProfile.TestDuration)
 
 		_, err = p.Run(true)
