@@ -108,17 +108,21 @@ func TestServiceAggregator(t *testing.T) {
 // TestAggregatorAuthentication verifies the authentication behavior of the aggregator.
 // This test requires a real network connection (not bufconn) because the
 // anonymous auth middleware validates peer IP addresses.
-func TestAggregatorAuthentication(t *testing.T) {
+func TestServiceAggregatorAuthentication(t *testing.T) {
 	committeeName := "auth-test"
 	privateKey, publicKey, err := generateTestSigningKey(committeeName, 0)
 	require.NoError(t, err)
 
+	grpcHostPort := 50251
+	grpcAddress := fmt.Sprintf("localhost:%d", grpcHostPort)
+
 	out, err := services.NewAggregator(&services.AggregatorInput{
-		CommitteeName:  committeeName,
-		Image:          "aggregator:dev",
-		HostPort:       8104,
-		SourceCodePath: "../../../aggregator",
-		RootPath:       "../../../../",
+		CommitteeName:   committeeName,
+		Image:           "aggregator:dev",
+		HostPort:        8104,
+		ExposedHostPort: grpcHostPort,
+		SourceCodePath:  "../../../aggregator",
+		RootPath:        "../../../../",
 		CommitteeVerifierResolverAddresses: map[uint64]string{
 			12922642891491394802: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
 		},
@@ -167,7 +171,7 @@ func TestAggregatorAuthentication(t *testing.T) {
 
 	// Connect to aggregator without authentication
 	// Use ExternalHTTPUrl which contains host:port accessible from outside Docker
-	conn, err := grpc.NewClient(out.ExternalHTTPSUrl, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(grpcAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	defer conn.Close()
 
