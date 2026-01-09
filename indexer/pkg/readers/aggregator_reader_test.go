@@ -10,10 +10,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-// TestIsNonRetryableError verifies that connection-related errors and
+// TestIsConnectionError verifies that connection-related errors and
 // specific aggregator errors (e.g. "produced zero addresses") are treated
 // as non-retryable while other errors are retryable.
-func TestIsNonRetryableError(t *testing.T) {
+func TestIsConnectionError(t *testing.T) {
 	cases := []struct {
 		name string
 		err  error
