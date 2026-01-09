@@ -508,14 +508,14 @@ func TestHTTPPolling_ContinuousRPCFailures(t *testing.T) {
 		return nil, errors.New("RPC continuously unavailable")
 	}
 
-	// Start polling
+	// Start polling, note this spawns a goroutine.
 	poller.startHTTPMode(ctx)
 
 	// Waits until context timeout (100 ms)
 	<-ctx.Done()
 
-	// Wait for the polling goroutine to finish to avoid logging after test completion
-	require.NoError(t, poller.Close())
+	// Wait for the goroutine to finish.
+	poller.runWg.Wait()
 
 	// Verify poller fields are set correctly
 	assert.Equal(t, uint64(startBlock), poller.startBlock, "Poller should maintain start block")
