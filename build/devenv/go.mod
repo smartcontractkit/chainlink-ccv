@@ -16,9 +16,9 @@ require (
 	github.com/prometheus/client_golang v1.23.0
 	github.com/rs/zerolog v1.34.0
 	github.com/smartcontractkit/chain-selectors v1.0.81
-	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20251229170147-e243de8c69ad
-	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20251229170147-e243de8c69ad
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20251229170147-e243de8c69ad
+	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20260106133207-186303387c0d
+	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20260106133207-186303387c0d
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260106133207-186303387c0d
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20251107181740-8b842a2f1192
 	github.com/smartcontractkit/chainlink-deployments-framework v0.66.0
 	github.com/smartcontractkit/chainlink-testing-framework/framework v0.12.5
@@ -34,10 +34,10 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lib/pq v1.10.9
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20251229170147-e243de8c69ad
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20251229170147-e243de8c69ad
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260106133207-186303387c0d
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260106133207-186303387c0d
 	github.com/smartcontractkit/chainlink-ccv v0.0.0-00010101000000-000000000000
-	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20251022073203-7d8ae8cf67c1
+	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20251222115927-36a18321243c
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier v0.0.0-20251211142334-5c3421fe2c8d
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery v0.0.0-20251211142334-5c3421fe2c8d
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier v0.0.0-20251211142334-5c3421fe2c8d

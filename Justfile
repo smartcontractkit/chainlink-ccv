@@ -27,12 +27,15 @@ install-pre-commit:
     brew install pre-commit
     pre-commit install
 
-generate:
-	find . -name 'go.mod' -execdir go generate ./... \;
+generate: ensure-oapi-codegen
+    rm -f indexer/indexer_openapi_v1.yaml
+    rm -f indexer/pkg/client/internal/client.go
+    find . -name 'go.mod' -execdir go generate ./... \;
 
 mock: ensure-mockery
     @echo "Cleaning existing mocks..."
-    find . -path "*/*_mocks/*.go"
+    # remove standalone mock_*.go files created by mockery
+    find . -type f -name 'mock_*.go' -print -delete
     @echo "Generating mocks with mockery..."
     find . -type f -name .mockery.yaml -execdir mockery \;
 
@@ -73,7 +76,7 @@ bump-chainlink-ccip sha:
     (cd build/devenv && go get github.com/smartcontractkit/chainlink-ccip@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/deployment@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm@{{sha}})
 
     @just tidy
-    
+
 sh:
     @just ccv sh
 

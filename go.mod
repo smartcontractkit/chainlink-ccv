@@ -25,10 +25,10 @@ require (
 	github.com/pressly/goose/v3 v3.26.0
 	github.com/prometheus/client_golang v1.23.0 // indirect
 	github.com/smartcontractkit/chain-selectors v1.0.72
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20251229170147-e243de8c69ad
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260106133207-186303387c0d
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20251107181740-8b842a2f1192
 	github.com/smartcontractkit/chainlink-evm v0.3.4-0.20260108163552-cebb824f0ae7
-	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20251022073203-7d8ae8cf67c1 // indirect
+	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20251222115927-36a18321243c // indirect
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.39.0
 	github.com/ulule/limiter/v3 v3.11.2

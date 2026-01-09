@@ -9,8 +9,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/internal/aggregation_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -21,7 +21,7 @@ func TestGetBatchCCVDataForMessageHandler_ValidationErrors(t *testing.T) {
 	t.Parallel()
 
 	lggr := logger.TestSugared(t)
-	store := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
+	store := mocks.NewMockCommitVerificationAggregatedStore(t)
 	committee := &model.Committee{}
 
 	h := NewGetVerifierResultsForMessageHandler(store, committee, 2, lggr)
@@ -41,7 +41,7 @@ func TestGetBatchCCVDataForMessageHandler_MixedResults(t *testing.T) {
 	t.Parallel()
 
 	lggr := logger.TestSugared(t)
-	store := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
+	store := mocks.NewMockCommitVerificationAggregatedStore(t)
 
 	const (
 		sourceSel = uint64(1)
@@ -96,7 +96,7 @@ func TestGetBatchCCVDataForMessageHandler_StorageError(t *testing.T) {
 	t.Parallel()
 
 	lggr := logger.TestSugared(t)
-	store := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
+	store := mocks.NewMockCommitVerificationAggregatedStore(t)
 	committee := &model.Committee{}
 	h := NewGetVerifierResultsForMessageHandler(store, committee, 10, lggr)
 

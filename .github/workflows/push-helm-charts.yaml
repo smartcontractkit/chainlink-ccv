@@ -1,0 +1,69 @@
+name: Push Helm Charts to ECR
+
+# This workflow is triggered by pull requests to the default branch and is responsible for
+# detecting changes in Helm charts and pushing them to ECR.
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'deploy/charts/**'
+
+permissions:
+  id-token: write
+  contents: read
+  packages: read
+  pull-requests: write
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      changed_dirs: ${{ steps.changed-dirs.outputs.all_changed_files }}
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Get changed files
+        id: changed-dirs
+        uses: smartcontractkit/changed-files@2f7c5bfce28377bc069a65ba478de0a74aa0ca32 # v46.0.1
+        with:
+          dir_names_max_depth: 3
+          dir_names: "true"
+          matrix: "true"
+          files_ignore: |
+            deploy/charts/*
+          files: |
+            deploy/charts/**
+  check-versions:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        directory: ${{ fromJson(needs.detect-changes.outputs.changed_dirs) }}
+    steps:
+      - uses: smartcontractkit/.github-internal/actions/check-chart-version@check-chart-version/1.1.0
+        with:
+          chart-dir: ${{ matrix.directory }}
+  push-to-ecr:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        directory: ${{ fromJson(needs.detect-changes.outputs.changed_dirs) }}
+        environment:
+          - stage
+      max-parallel: 6
+    steps:
+      - uses: smartcontractkit/.github-internal/actions/push-helm@push-helm/1.1.0 # v1.1.0
+        id: push-helm
+        with:
+          use-ref: 'true'
+          ref: ${{ github.head_ref }}
+          path: ${{ matrix.directory }}
+          environment: ${{ matrix.environment }}
+          role: ga-ccip2-ccip2-deployer

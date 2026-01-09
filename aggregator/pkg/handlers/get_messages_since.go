@@ -27,6 +27,10 @@ func (h *GetMessagesSinceHandler) logger(ctx context.Context) logger.SugaredLogg
 
 // Handle processes the get request and retrieves the commit verification data since the specified time.
 func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *msgdiscoverypb.GetMessagesSinceRequest) (*msgdiscoverypb.GetMessagesSinceResponse, error) {
+	if req.SinceSequence < 0 {
+		return nil, status.Error(codes.InvalidArgument, "since_sequence cannot be negative")
+	}
+
 	h.logger(ctx).Tracef("Received GetMessagesSinceRequest, sinceSequence: %d", req.SinceSequence)
 	batch, err := h.storage.QueryAggregatedReports(ctx, req.SinceSequence)
 	if err != nil {

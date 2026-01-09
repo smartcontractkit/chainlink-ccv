@@ -10,8 +10,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/internal/aggregation_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
@@ -20,7 +20,7 @@ import (
 func TestReadCommitCCVNodeDataHandler_InvalidRequest_ReturnsInvalidArgument(t *testing.T) {
 	t.Parallel()
 	lggr := logger.TestSugared(t)
-	store := aggregation_mocks.NewMockCommitVerificationStore(t)
+	store := mocks.NewMockCommitVerificationStore(t)
 	h := NewReadCommitVerifierNodeResultHandler(store, lggr)
 
 	resp, err := h.Handle(context.Background(), &committeepb.ReadCommitteeVerifierNodeResultRequest{MessageId: []byte{0x1}}) // too short
@@ -32,7 +32,7 @@ func TestReadCommitCCVNodeDataHandler_InvalidRequest_ReturnsInvalidArgument(t *t
 func TestReadCommitCCVNodeDataHandler_StorageError_Propagates(t *testing.T) {
 	t.Parallel()
 	lggr := logger.TestSugared(t)
-	store := aggregation_mocks.NewMockCommitVerificationStore(t)
+	store := mocks.NewMockCommitVerificationStore(t)
 	h := NewReadCommitVerifierNodeResultHandler(store, lggr)
 	msgID := make([]byte, 32)
 
@@ -45,7 +45,7 @@ func TestReadCommitCCVNodeDataHandler_StorageError_Propagates(t *testing.T) {
 func TestReadCommitCCVNodeDataHandler_Success_MapsToProto(t *testing.T) {
 	t.Parallel()
 	lggr := logger.TestSugared(t)
-	store := aggregation_mocks.NewMockCommitVerificationStore(t)
+	store := mocks.NewMockCommitVerificationStore(t)
 	h := NewReadCommitVerifierNodeResultHandler(store, lggr)
 	msgID := make([]byte, 32)
 

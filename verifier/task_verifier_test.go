@@ -25,23 +25,20 @@ func Test_ProcessingReadyTasks(t *testing.T) {
 	messageID2 := message2.MustMessageID()
 	task2 := verifier.VerificationTask{MessageID: messageID2.String()}
 
-	fanoutCh := make(chan batcher.BatchResult[verifier.VerificationTask], 10)
 	fakeFanout := FakeSourceReaderFanout{
-		batcher: batcher.NewBatcher(
+		batcher: batcher.NewBatcher[verifier.VerificationTask](
 			t.Context(),
 			2,
 			100*time.Millisecond,
-			fanoutCh,
+			10,
 		),
-		outCh: fanoutCh,
 	}
 
-	storageOutCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult], 10)
-	storageBatcher := batcher.NewBatcher(
+	storageBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](
 		t.Context(),
 		2,
 		100*time.Millisecond,
-		storageOutCh,
+		10,
 	)
 
 	mockVerifier := &fakeVerifier{}
@@ -65,7 +62,7 @@ func Test_ProcessingReadyTasks(t *testing.T) {
 		require.NoError(t, fakeFanout.batcher.Add(task1, task2))
 
 		select {
-		case res, ok := <-storageOutCh:
+		case res, ok := <-storageBatcher.OutChannel():
 			require.True(t, ok)
 			require.Len(t, res.Items, 2)
 			require.Equal(t, res.Items[0].MessageID, messageID1)
@@ -90,7 +87,7 @@ func Test_ProcessingReadyTasks(t *testing.T) {
 		}, tests.WaitTimeout(t), 10*time.Millisecond)
 
 		select {
-		case res, ok := <-storageOutCh:
+		case res, ok := <-storageBatcher.OutChannel():
 			require.True(t, ok)
 			require.Len(t, res.Items, 2)
 			require.Equal(t, res.Items[0].MessageID, messageID1)
@@ -103,7 +100,6 @@ func Test_ProcessingReadyTasks(t *testing.T) {
 
 type FakeSourceReaderFanout struct {
 	batcher *batcher.Batcher[verifier.VerificationTask]
-	outCh   chan batcher.BatchResult[verifier.VerificationTask]
 }
 
 func (f FakeSourceReaderFanout) RetryTasks(minDelay time.Duration, tasks ...verifier.VerificationTask) error {
@@ -111,7 +107,7 @@ func (f FakeSourceReaderFanout) RetryTasks(minDelay time.Duration, tasks ...veri
 }
 
 func (f FakeSourceReaderFanout) ReadyTasksChannel() <-chan batcher.BatchResult[verifier.VerificationTask] {
-	return f.outCh
+	return f.batcher.OutChannel()
 }
 
 type fakeVerifier struct {

@@ -38,6 +38,11 @@ const (
 	// maxFilterBlockRange is the maximum block range for filter queries to avoid RPC limits.
 	// Common Ethereum RPC limits are around 10,000 blocks, using a conservative value here.
 	maxFilterBlockRange = 5000
+	// maxSubscriptionReconnectAttempts is the maximum number of times to attempt reconnecting the subscription
+	// before falling back to HTTP polling mode.
+	maxSubscriptionReconnectAttempts = 5
+	// baseReconnectBackoffDuration is the base duration for exponential backoff when reconnecting subscriptions.
+	baseReconnectBackoffDuration = 1 * time.Second
 )
 
 var (
@@ -125,7 +130,7 @@ func (p *EvmExecutionAttemptPoller) Start(ctx context.Context) error {
 		err := p.startWSMode(runCtx)
 		if err != nil {
 			// if WS unavailable, we'll poll via HTTP
-			return p.startHTTPMode(runCtx)
+			p.startHTTPMode(runCtx)
 		}
 
 		return nil
@@ -302,7 +307,7 @@ func (p *EvmExecutionAttemptPoller) verifyAndSetStartBlock(ctx context.Context, 
 	return nil
 }
 
-func (p *EvmExecutionAttemptPoller) startHTTPMode(ctx context.Context) error {
+func (p *EvmExecutionAttemptPoller) startHTTPMode(ctx context.Context) {
 	p.lggr.Infow("WebSocket subscription not available, falling back to HTTP polling", "startBlock", p.startBlock)
 	p.lastPolledBlock = p.startBlock
 
@@ -311,7 +316,6 @@ func (p *EvmExecutionAttemptPoller) startHTTPMode(ctx context.Context) error {
 	})
 
 	p.lggr.Infow("Execution attempt poller started in polling mode")
-	return nil
 }
 
 func (p *EvmExecutionAttemptPoller) startWSMode(ctx context.Context) error {
@@ -400,20 +404,110 @@ func (p *EvmExecutionAttemptPoller) run(ctx context.Context) {
 	}
 }
 
-// monitorSubscription monitors the subscription for errors and logs them.
+// monitorSubscription monitors the subscription for errors and implements exponential backoff
+// to reconnect. If max reconnect attempts are reached, it falls back to HTTP polling mode.
 // Only used in WebSocket mode.
 func (p *EvmExecutionAttemptPoller) monitorSubscription(ctx context.Context) {
-	for {
-		select {
-		case err := <-p.subscription.Err():
-			if err != nil {
-				p.lggr.Errorw("Subscription error occurred", "error", err)
-			}
-			return
-		case <-ctx.Done():
+	subscription := p.subscription
+
+	select {
+	case err := <-subscription.Err():
+		if err == nil {
+			p.lggr.Debug("Subscription closed successfully")
 			return
 		}
+
+		p.lggr.Errorw("Subscription error occurred, will attempt to reconnect", "error", err)
+		if err := p.handleReconnection(ctx); err != nil {
+			p.lggr.Warn("Unable to reconnect to WS, falling back to HTTP polling")
+			p.startHTTPMode(ctx)
+			return
+		}
+
+		// Handle reconnection starts anothing monitoring session with the new subscription
+		return
+	case <-ctx.Done():
+		p.lggr.Warn("Context cancelled, stopping monitoring subscription")
+		return
 	}
+}
+
+func (p *EvmExecutionAttemptPoller) handleReconnection(ctx context.Context) error {
+	reconnectAttempts := 0
+
+	for {
+		if reconnectAttempts >= maxSubscriptionReconnectAttempts {
+			p.lggr.Warnw("Max subscription reconnect attempts reached, falling back to HTTP polling mode", "maxAttempts", maxSubscriptionReconnectAttempts)
+			return errors.New("unable to reconnect, max attempts reached")
+		}
+
+		// Attempt to reconnect
+		backoffDuration := p.calculateReconnectBackoff(reconnectAttempts)
+		p.lggr.Infow("No active subscription, attempting to reconnect", "backoffDuration", backoffDuration, "reconnectAttempt", reconnectAttempts+1)
+
+		select {
+		case <-time.After(backoffDuration):
+			if err := p.reconnectSubscription(ctx); err != nil {
+				p.lggr.Errorw("Failed to reconnect subscription", "error", err, "reconnectAttempt", reconnectAttempts+1)
+				reconnectAttempts++
+				continue
+			}
+
+			p.lggr.Infow("Successfully reconnected subscription", "reconnectAttempt", reconnectAttempts+1)
+
+			// Restart the processing and subscription monitoring
+			p.runWg.Go(func() {
+				p.run(ctx)
+			})
+			p.runWg.Go(func() {
+				p.monitorSubscription(ctx)
+			})
+			return nil
+		case <-ctx.Done():
+			return nil
+		}
+	}
+}
+
+// calculateReconnectBackoff calculates the exponential backoff duration for reconnection attempts.
+// Uses formula: baseDuration * 2^attempt, with a maximum cap to prevent excessive delays.
+func (p *EvmExecutionAttemptPoller) calculateReconnectBackoff(attempt int) time.Duration {
+	// Exponential backoff: baseDuration * 2^attempt
+	backoffDuration := baseReconnectBackoffDuration * time.Duration(1<<attempt)
+
+	// Cap at 30 seconds to prevent excessive delays
+	maxBackoff := 30 * time.Second
+	if backoffDuration > maxBackoff {
+		backoffDuration = maxBackoff
+	}
+
+	return backoffDuration
+}
+
+// reconnectSubscription attempts to reconnect the WebSocket subscription.
+// It safely replaces the old subscription with a new one.
+func (p *EvmExecutionAttemptPoller) reconnectSubscription(ctx context.Context) error {
+	// Unsubscribe the old subscription if it exists
+	if p.subscription != nil {
+		p.subscription.Unsubscribe()
+		p.subscription = nil
+	}
+
+	// Get the current block to resume from where we left off
+	// We'll use the last polled block or start block as the starting point
+	startBlock := max(p.lastPolledBlock, p.startBlock)
+
+	// Create a new subscription
+	subscription, err := p.offRampFilterer.WatchExecutionStateChanged(
+		&bind.WatchOpts{Start: &startBlock, Context: ctx},
+		p.eventCh, nil, nil, nil,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to reconnect subscription: %w", err)
+	}
+
+	p.subscription = subscription
+	return nil
 }
 
 // runPolling runs the polling loop for HTTP RPC mode.

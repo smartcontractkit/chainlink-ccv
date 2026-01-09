@@ -2,10 +2,12 @@ package destinationreader
 
 import (
 	"context"
+	"errors"
 	"math/big"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/stretchr/testify/assert"
@@ -20,11 +22,17 @@ import (
 // It only implements HeaderByNumber which is what we need for these tests.
 type mockClient struct {
 	mock.Mock
-	client.Client                                     // Embed to satisfy interface (will panic if other methods called)
-	headerFunc    func(blockNum uint64) *types.Header // Optional: function to generate headers dynamically
+	client.Client                                                                   // Embed to satisfy interface (will panic if other methods called)
+	headerFunc    func(blockNum uint64) *types.Header                               // Optional: function to generate headers dynamically
+	dynamicFunc   func(ctx context.Context, number *big.Int) (*types.Header, error) // Optional: dynamic function for complex scenarios
 }
 
 func (m *mockClient) HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error) {
+	// If dynamicFunc is set, use it (for reconnection tests)
+	if m.dynamicFunc != nil {
+		return m.dynamicFunc(ctx, number)
+	}
+
 	// If headerFunc is set and number is not nil, use it to generate header
 	if m.headerFunc != nil && number != nil {
 		header := m.headerFunc(number.Uint64())
@@ -38,6 +46,18 @@ func (m *mockClient) HeaderByNumber(ctx context.Context, number *big.Int) (*type
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*types.Header), args.Error(1)
+}
+
+// FilterLogs is a stub implementation needed for FilterExecutionStateChanged.
+// Returns empty results for testing purposes.
+func (m *mockClient) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+	return []types.Log{}, nil
+}
+
+// TransactionByHash is a stub implementation needed for processExecutionStateChanged.
+// Returns nil for testing purposes (won't be called in reconnection tests).
+func (m *mockClient) TransactionByHash(ctx context.Context, txHash common.Hash) (*types.Transaction, error) {
+	return nil, errors.New("not implemented in mock")
 }
 
 // blockTimeCalculator calculates block timestamps based on block number and block time interval.
@@ -466,4 +486,35 @@ func TestBinarySearchBlockByTime(t *testing.T) {
 	maxVariance := 3 * blockInterval
 	assert.True(t, timeDiff >= -maxVariance && timeDiff <= 24*time.Hour,
 		"Found block should be close to target time, got diff: %v", timeDiff)
+}
+
+// TestHTTPPolling_ContinuousRPCFailures tests that HTTP polling continues
+// to retry even when RPC is continuously failing, without crashing.
+func TestHTTPPolling_ContinuousRPCFailures(t *testing.T) {
+	const lookbackWindow = 24 * time.Hour
+	const startBlock = 1000
+
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, lookbackWindow)
+	poller.startBlock = startBlock
+	poller.lastPolledBlock = startBlock
+	poller.pollInterval = 10 * time.Millisecond
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	// Use dynamic function to simulate RPC always failing
+	mockCli.dynamicFunc = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		return nil, errors.New("RPC continuously unavailable")
+	}
+
+	// Start polling
+	poller.startHTTPMode(ctx)
+
+	// Waits until context timeout (100 ms)
+	<-ctx.Done()
+
+	// Verify poller fields are set correctly
+	assert.Equal(t, uint64(startBlock), poller.startBlock, "Poller should maintain start block")
+	assert.Equal(t, uint64(startBlock), poller.lastPolledBlock, "Poller should maintain last polled block")
 }

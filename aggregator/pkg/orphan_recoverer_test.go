@@ -9,21 +9,21 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	aggregation_mocks "github.com/smartcontractkit/chainlink-ccv/aggregator/internal/aggregation_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 func TestOrphanRecoverer_HealthCheck_NotStarted(t *testing.T) {
-	store := aggregation_mocks.NewMockCommitVerificationStore(t)
-	agg := aggregation_mocks.NewMockAggregationTriggerer(t)
-	metrics := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
+	store := mocks.NewMockCommitVerificationStore(t)
+	agg := mocks.NewMockAggregationTriggerer(t)
+	metrics := mocks.NewMockAggregatorMetricLabeler(t)
 
 	config := &model.AggregatorConfig{
 		OrphanRecovery: model.OrphanRecoveryConfig{
-			Enabled:         true,
-			IntervalSeconds: 60,
-			MaxAgeHours:     24,
+			Enabled:  true,
+			Interval: 60 * time.Second,
+			MaxAge:   24 * time.Hour,
 		},
 	}
 
@@ -35,9 +35,9 @@ func TestOrphanRecoverer_HealthCheck_NotStarted(t *testing.T) {
 }
 
 func TestOrphanRecoverer_HealthCheck_ReportsStoppedAfterContextCancellation(t *testing.T) {
-	store := aggregation_mocks.NewMockCommitVerificationStore(t)
-	agg := aggregation_mocks.NewMockAggregationTriggerer(t)
-	metrics := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
+	store := mocks.NewMockCommitVerificationStore(t)
+	agg := mocks.NewMockAggregationTriggerer(t)
+	metrics := mocks.NewMockAggregatorMetricLabeler(t)
 
 	orphansChan := make(chan model.OrphanedKey)
 	errChan := make(chan error)
@@ -53,9 +53,9 @@ func TestOrphanRecoverer_HealthCheck_ReportsStoppedAfterContextCancellation(t *t
 
 	config := &model.AggregatorConfig{
 		OrphanRecovery: model.OrphanRecoveryConfig{
-			Enabled:         true,
-			IntervalSeconds: 1,
-			MaxAgeHours:     24,
+			Enabled:  true,
+			Interval: 1 * time.Second,
+			MaxAge:   24 * time.Hour,
 		},
 	}
 
@@ -85,9 +85,9 @@ func TestOrphanRecoverer_HealthCheck_ReportsStoppedAfterContextCancellation(t *t
 }
 
 func TestOrphanRecoverer_RecoversPanicEmitsMetricAndKeepsRunning(t *testing.T) {
-	store := aggregation_mocks.NewMockCommitVerificationStore(t)
-	agg := aggregation_mocks.NewMockAggregationTriggerer(t)
-	metrics := aggregation_mocks.NewMockAggregatorMetricLabeler(t)
+	store := mocks.NewMockCommitVerificationStore(t)
+	agg := mocks.NewMockAggregationTriggerer(t)
+	metrics := mocks.NewMockAggregatorMetricLabeler(t)
 
 	panicCount := 0
 	store.EXPECT().OrphanedKeyStats(mock.Anything, mock.Anything).
@@ -112,9 +112,9 @@ func TestOrphanRecoverer_RecoversPanicEmitsMetricAndKeepsRunning(t *testing.T) {
 
 	config := &model.AggregatorConfig{
 		OrphanRecovery: model.OrphanRecoveryConfig{
-			Enabled:         true,
-			IntervalSeconds: 1,
-			MaxAgeHours:     24,
+			Enabled:  true,
+			Interval: 1 * time.Second,
+			MaxAge:   24 * time.Hour,
 		},
 	}
 

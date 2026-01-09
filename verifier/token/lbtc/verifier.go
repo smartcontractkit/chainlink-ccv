@@ -127,11 +127,11 @@ func (v *Verifier) VerifyMessages(
 
 		// 2.1 Add to batcher one by one
 		if err = ccvDataBatcher.Add(*result); err != nil {
-			lggr.Errorw("VerifierResult: Failed to add to batcher", "err", err)
+			lggr.Errorw("VerifierResults: Failed to add to batcher", "err", err)
 			errors = append(errors, v.errorRetry(err, task))
 			continue
 		}
-		lggr.Infow("VerifierResult: Successfully added to the batcher", "signature", result.Signature)
+		lggr.Infow("VerifierResults: Successfully added to the batcher", "signature", result.Signature)
 	}
 
 	return batcher.BatchResult[verifier.VerificationError]{
