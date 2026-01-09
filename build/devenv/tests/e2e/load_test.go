@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -692,10 +693,22 @@ func TestE2ELoad(t *testing.T) {
 			return
 		}
 
-		t.Logf("testConfig: %+v", testConfig)
 		err = verifyTestConfig(e, testConfig)
 		require.NoError(t, err)
 		testProfile := testConfig.TestProfiles[0]
+
+		for _, testProfile := range testConfig.TestProfiles {
+			for _, chain := range testProfile.ChainsAsSource {
+				chainSelector, err := strconv.ParseUint(chain.Selector, 10, 64)
+				if err != nil {
+					t.Logf("failed to parse chain selector: %v", err)
+					return
+				}
+				chain := e.BlockChains.EVMChains()[chainSelector]
+				ensureWETHBalanceAndApproval(ctx, t, *l, e, chain, big.NewInt(requiredWETHBalance))
+			}
+
+		}
 
 		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
 		tc.Timeout = testProfile.TestDuration
