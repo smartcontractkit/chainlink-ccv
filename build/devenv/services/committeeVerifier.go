@@ -476,8 +476,8 @@ func ResolveContractsForVerifier(ds datastore.DataStore, blockchains []*blockcha
 
 		defaultExecutorOnRampAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
 			networkInfo.ChainSelector,
-			datastore.ContractType(executor.ContractType),
-			semver.MustParse(executor.Deploy.Version()),
+			datastore.ContractType(executor.ProxyType),
+			semver.MustParse(executor.DeployProxy.Version()),
 			evm.DefaultExecutorQualifier,
 		))
 		if err != nil {
