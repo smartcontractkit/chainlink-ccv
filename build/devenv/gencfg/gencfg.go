@@ -170,25 +170,35 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 	}
 
 	// Aggregator config
+	generatedConfigFileName := "aggregator-generated.toml"
 	aggregatorInput := services.AggregatorInput{
 		CommitteeName:                      committeeName,
 		CommitteeVerifierResolverAddresses: committeeVerifierResolverAddresses,
 		ThresholdPerSource:                 thresholdPerSource,
 		MonitoringOtelExporterHTTPEndpoint: monitoringOtelExporterHTTPEndpoint,
 	}
-	aggregatorConfig, _, err := aggregatorInput.GenerateConfig(verifierInputs)
+	configResult, err := aggregatorInput.GenerateConfigs(verifierInputs, generatedConfigFileName)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate aggregator config: %w", err)
+		return "", fmt.Errorf("failed to generate aggregator configs: %w", err)
 	}
-	ccv.Plog.Info().Msg("Generated aggregator config:")
+	ccv.Plog.Info().Msg("Generated aggregator configs")
+
+	// Write main config
 	filePath := filepath.Join(tempDir, "aggregator-config.toml")
-	if err := os.WriteFile(filePath, aggregatorConfig, 0o644); err != nil {
+	if err := os.WriteFile(filePath, configResult.MainConfig, 0o644); err != nil {
 		return "", fmt.Errorf("failed to write aggregator config to file: %w", err)
 	}
 	ccv.Plog.Info().Str("file-path", filePath).Msg("Wrote aggregator config to file")
 
+	// Write generated config (committee)
+	generatedFilePath := filepath.Join(tempDir, generatedConfigFileName)
+	if err := os.WriteFile(generatedFilePath, configResult.GeneratedConfig, 0o644); err != nil {
+		return "", fmt.Errorf("failed to write aggregator generated config to file: %w", err)
+	}
+	ccv.Plog.Info().Str("file-path", generatedFilePath).Msg("Wrote aggregator generated config to file")
+
 	if createPR {
-		prURL, err := createConfigPR(gh, ctx, cldDomain, aggregatorConfig)
+		prURL, err := createConfigPR(gh, ctx, cldDomain, configResult.MainConfig, configResult.GeneratedConfig)
 		if err != nil {
 			return "", fmt.Errorf("failed to create config PR: %w", err)
 		}
@@ -198,7 +208,7 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 	return tempDir, nil
 }
 
-func createConfigPR(gh *github.Client, ctx context.Context, cldDomain string, aggregatorConfig []byte) (string, error) {
+func createConfigPR(gh *github.Client, ctx context.Context, cldDomain string, aggregatorConfig, generatedConfig []byte) (string, error) {
 	// Create a new branch, add the aggregator config file and open a PR
 	owner := "smartcontractkit"
 	repo := "infra-k8s"
@@ -237,12 +247,13 @@ func createConfigPR(gh *github.Client, ctx context.Context, cldDomain string, ag
 	// Create file on the new branch
 	commitMsg := "Update ccv configuration"
 
-	// Marshal aggregator config into YAML under configMap.aggregator.\.toml
+	// Marshal aggregator config into YAML under configMap with both main and generated configs
 	aggYaml := map[string]any{
 		"main": map[string]any{
 			"stage": map[string]any{
 				"configMap": map[string]string{
-					"aggregator.toml": string(aggregatorConfig),
+					"aggregator.toml":           string(aggregatorConfig),
+					"aggregator-generated.toml": string(generatedConfig),
 				},
 			},
 		},
