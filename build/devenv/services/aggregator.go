@@ -85,15 +85,19 @@ type AggregatorInput struct {
 	Image string `toml:"image"`
 	// HostPort is the port on the host machine that the aggregator will be exposed on.
 	// This should be unique across all containers.
-	HostPort       int                       `toml:"host_port"`
-	SourceCodePath string                    `toml:"source_code_path"`
-	RootPath       string                    `toml:"root_path"`
-	DB             *AggregatorDBInput        `toml:"db"`
-	Redis          *AggregatorRedisInput     `toml:"redis"`
-	Out            *AggregatorOutput         `toml:"out"`
-	Env            *AggregatorEnvConfig      `toml:"env"`
-	APIClients     []*AggregatorClientConfig `toml:"api_clients"`
-	CommitteeName  string                    `toml:"committee_name"`
+	HostPort int `toml:"host_port"`
+	// ExposedHostPort is the port on the host machine that the gRPC server will be exposed on.
+	// If set, the gRPC port (50051) will be directly accessible on localhost.
+	// This is useful for testing without going through the nginx TLS proxy.
+	ExposedHostPort int                       `toml:"grpc_host_port"`
+	SourceCodePath  string                    `toml:"source_code_path"`
+	RootPath        string                    `toml:"root_path"`
+	DB              *AggregatorDBInput        `toml:"db"`
+	Redis           *AggregatorRedisInput     `toml:"redis"`
+	Out             *AggregatorOutput         `toml:"out"`
+	Env             *AggregatorEnvConfig      `toml:"env"`
+	APIClients      []*AggregatorClientConfig `toml:"api_clients"`
+	CommitteeName   string                    `toml:"committee_name"`
 
 	// Chain selector -> Committee Verifier Resolver Address
 	CommitteeVerifierResolverAddresses map[uint64]string `toml:"committee_verifier_resolver_addresses"`
@@ -102,6 +106,14 @@ type AggregatorInput struct {
 	ThresholdPerSource map[uint64]uint8 `toml:"threshold_per_source"`
 	// Maps to Monitoring.Beholder.OtelExporterHTTPEndpoint in the aggregator config toml.
 	MonitoringOtelExporterHTTPEndpoint string `toml:"monitoring_otel_exporter_http_endpoint"`
+
+	// AggregationChannelBufferSize controls the size of the aggregation request channel buffer for individual client.
+	// If 0, the default (10) is used. Useful for pentest scenarios to trigger channel exhaustion.
+	AggregationChannelBufferSize int `toml:"aggregation_channel_buffer_size"`
+
+	// BackgroundWorkerCount controls the number of aggregation workers.
+	// If 0, the default (10) is used. Set to 1 for channel exhaustion tests.
+	BackgroundWorkerCount int `toml:"background_worker_count"`
 
 	// SharedTLSCerts contains shared TLS certificates for all aggregators.
 	// If set, these certs will be used instead of generating new ones.
@@ -264,6 +276,16 @@ func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) (tomlConfig []byt
 
 	if a.MonitoringOtelExporterHTTPEndpoint != "" {
 		config.Monitoring.Beholder.OtelExporterHTTPEndpoint = a.MonitoringOtelExporterHTTPEndpoint
+	}
+
+	// Override aggregation channel buffer size if specified (useful for pentest)
+	if a.AggregationChannelBufferSize > 0 {
+		config.Aggregation.ChannelBufferSize = a.AggregationChannelBufferSize
+	}
+
+	// Override background worker count if specified (useful for channel exhaustion tests)
+	if a.BackgroundWorkerCount > 0 {
+		config.Aggregation.BackgroundWorkerCount = a.BackgroundWorkerCount
 	}
 
 	for _, client := range a.APIClients {
@@ -465,6 +487,17 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 		// Aggregator listens on 50051 internally, nginx proxies TLS to it
 		ExposedPorts: []string{"50051/tcp", "8080/tcp"},
 		WaitingFor:   wait.ForHTTP("/health/live").WithPort("8080/tcp"),
+	}
+
+	// If ExposedHostPort is set, expose the gRPC port directly to the host
+	if in.ExposedHostPort > 0 {
+		req.HostConfigModifier = func(h *container.HostConfig) {
+			h.PortBindings = nat.PortMap{
+				"50051/tcp": []nat.PortBinding{
+					{HostPort: strconv.Itoa(in.ExposedHostPort)},
+				},
+			}
+		}
 	}
 
 	// Note: identical code to verifier.go/executor.go -- will indexer be identical as well?

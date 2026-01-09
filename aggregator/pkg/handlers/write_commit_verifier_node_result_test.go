@@ -28,13 +28,25 @@ func makeValidProtoRequest() *committeepb.WriteCommitteeVerifierNodeResultReques
 	if err != nil {
 		panic(err)
 	}
+
+	executorAddr := makeTestExecutorAddress()
+	ccvAddresses := [][]byte{make([]byte, 20)}
+	hash, err := protocol.ComputeCCVAndExecutorHash(
+		[]protocol.UnknownAddress{ccvAddresses[0]},
+		executorAddr,
+	)
+	if err != nil {
+		panic(err)
+	}
+	pbMsg.CcvAndExecutorHash = hash[:]
+
 	return &committeepb.WriteCommitteeVerifierNodeResultRequest{
 		CommitteeVerifierNodeResult: &committeepb.CommitteeVerifierNodeResult{
 			Signature:       []byte("signature_bytes"),
 			CcvVersion:      []byte{0x1, 0x2, 0x3, 0x4},
 			Message:         pbMsg,
-			CcvAddresses:    [][]byte{},
-			ExecutorAddress: makeTestExecutorAddress(),
+			CcvAddresses:    ccvAddresses,
+			ExecutorAddress: executorAddr,
 		},
 	}
 }
