@@ -25,6 +25,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
+	adapters_1_6_1 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/adapters"
 	changesets_1_6_1 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/changesets"
 	rmn_remote_binding "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 
@@ -1601,7 +1602,13 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 
 	tokenAdapterRegistry := tokenscore.NewTokenAdapterRegistry()
 	for _, poolVersion := range tokenPoolVersions {
-		tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(poolVersion), &evmadapters.TokenAdapter{})
+		var tokenAdapter tokenscore.TokenAdapter
+
+		tokenAdapter = &evmadapters.TokenAdapter{}
+		if poolVersion == "1.6.1" {
+			tokenAdapter = &adapters_1_6_1.TokenAdapter{}
+		}
+		tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(poolVersion), tokenAdapter)
 	}
 
 	for _, combo := range AllTokenCombinations() {
