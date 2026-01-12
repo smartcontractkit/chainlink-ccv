@@ -510,7 +510,7 @@ func TestQueryAggregatedReports_Pagination(t *testing.T) {
 
 	signer := newTestSigner(t)
 
-	for i := 0; i < 15; i++ {
+	for i := range 15 {
 		message := createTestProtocolMessage()
 		message.SequenceNumber = protocol.SequenceNumber(i)
 		msgWithCCV := createTestMessageWithCCV(t, message, signer)
@@ -747,7 +747,7 @@ func TestListOrphanedKeys_FiltersRecordsOlderThanCutoff(t *testing.T) {
 	}
 	orphans := make([]recordData, 3)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		message := createTestProtocolMessage()
 		message.SequenceNumber = protocol.SequenceNumber(i + 1)
 		msgWithCCV := createTestMessageWithCCV(t, message, signer)
@@ -764,7 +764,7 @@ func TestListOrphanedKeys_FiltersRecordsOlderThanCutoff(t *testing.T) {
 	}
 
 	twoHoursAgo := time.Now().Add(-2 * time.Hour)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		_, err := ds.ExecContext(ctx,
 			"UPDATE commit_verification_records SET created_at = $1 WHERE message_id = $2",
 			twoHoursAgo,
@@ -865,7 +865,7 @@ func TestQueryAggregatedReports_SinceSequence(t *testing.T) {
 
 	var firstReportSeq int64
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		message := createTestProtocolMessage()
 		message.SequenceNumber = protocol.SequenceNumber(i)
 		msgWithCCV := createTestMessageWithCCV(t, message, signer)

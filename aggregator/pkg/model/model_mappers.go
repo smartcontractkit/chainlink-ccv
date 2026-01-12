@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -15,12 +16,7 @@ import (
 )
 
 func IsSourceVerifierInCCVAddresses(sourceVerifierAddr protocol.UnknownAddress, ccvAddresses []protocol.UnknownAddress) bool {
-	for _, addr := range ccvAddresses {
-		if sourceVerifierAddr.Equal(addr) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(ccvAddresses, sourceVerifierAddr.Equal)
 }
 
 func getAllSignatureByAddress(report *CommitAggregatedReport) (map[string]protocol.Data, error) {

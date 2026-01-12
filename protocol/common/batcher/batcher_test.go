@@ -16,7 +16,7 @@ func TestBatcher_SizeBasedFlush(t *testing.T) {
 	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
 
 	// Add exactly maxSize items
-	for i := 0; i < maxSize; i++ {
+	for i := range maxSize {
 		err := batcher.Add(i)
 		require.NoError(t, err)
 	}
@@ -27,7 +27,7 @@ func TestBatcher_SizeBasedFlush(t *testing.T) {
 		require.NoError(t, batch.Error)
 		require.Len(t, batch.Items, maxSize)
 		// Verify order is preserved
-		for i := 0; i < maxSize; i++ {
+		for i := range maxSize {
 			require.Equal(t, i, batch.Items[i])
 		}
 	case <-time.After(100 * time.Millisecond):
@@ -48,7 +48,7 @@ func TestBatcher_TimeBasedFlush(t *testing.T) {
 	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
 
 	// Add just 3 items (well below maxSize)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		err := batcher.Add(i)
 		require.NoError(t, err)
 	}
@@ -59,7 +59,7 @@ func TestBatcher_TimeBasedFlush(t *testing.T) {
 		require.NoError(t, batch.Error)
 		require.Len(t, batch.Items, 3)
 		// Verify order is preserved
-		for i := 0; i < 3; i++ {
+		for i := range 3 {
 			require.Equal(t, i, batch.Items[i])
 		}
 	case <-time.After(maxWait + 50*time.Millisecond):
@@ -80,7 +80,7 @@ func TestBatcher_GracefulClose(t *testing.T) {
 	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
 
 	// Add some items (not enough to trigger size-based flush)
-	for i := 0; i < 7; i++ {
+	for i := range 7 {
 		err := batcher.Add(i)
 		require.NoError(t, err)
 	}
@@ -97,7 +97,7 @@ func TestBatcher_GracefulClose(t *testing.T) {
 		require.NoError(t, batch.Error)
 		require.Len(t, batch.Items, 7)
 		// Verify order is preserved
-		for i := 0; i < 7; i++ {
+		for i := range 7 {
 			require.Equal(t, i, batch.Items[i])
 		}
 	case <-time.After(100 * time.Millisecond):
@@ -147,19 +147,19 @@ func TestBatcher_MultipleBatches(t *testing.T) {
 
 	// Add items that will trigger multiple batches
 	totalItems := 9
-	for i := 0; i < totalItems; i++ {
+	for i := range totalItems {
 		err := batcher.Add(i)
 		require.NoError(t, err)
 	}
 
 	// Should receive 3 full batches
-	for batchNum := 0; batchNum < 3; batchNum++ {
+	for batchNum := range 3 {
 		select {
 		case batch := <-batcher.OutChannel():
 			require.NoError(t, batch.Error)
 			require.Len(t, batch.Items, maxSize)
 			// Verify order within batch
-			for i := 0; i < maxSize; i++ {
+			for i := range maxSize {
 				expectedVal := batchNum*maxSize + i
 				require.Equal(t, expectedVal, batch.Items[i])
 			}
@@ -211,9 +211,9 @@ func TestBatcher_ConcurrentAdds(t *testing.T) {
 	itemsPerGoroutine := 20
 	done := make(chan struct{})
 
-	for g := 0; g < numGoroutines; g++ {
+	for range numGoroutines {
 		go func() {
-			for i := 0; i < itemsPerGoroutine; i++ {
+			for i := range itemsPerGoroutine {
 				_ = batcher.Add(i)
 			}
 			done <- struct{}{}
@@ -221,7 +221,7 @@ func TestBatcher_ConcurrentAdds(t *testing.T) {
 	}
 
 	// Wait for all goroutines to finish
-	for g := 0; g < numGoroutines; g++ {
+	for range numGoroutines {
 		<-done
 	}
 
@@ -291,7 +291,7 @@ func TestBatcher_ChannelBufferTooSmall(t *testing.T) {
 
 	// Add many items rapidly to trigger multiple flushes
 	totalItemsAdded := 0
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		// Add items in batches
 		err := batcher.Add(i*10, i*10+1, i*10+2)
 		require.NoError(t, err)
@@ -335,7 +335,7 @@ func TestBatcher_ChannelBufferMultipleBatchesWithRetry(t *testing.T) {
 	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
 
 	// Scenario 1: Add items that will trigger size-based flush
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		err := batcher.Add(i)
 		require.NoError(t, err)
 	}

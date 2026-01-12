@@ -9,13 +9,13 @@ import (
 var data = []byte("The quick brown fox jumps over the lazy dogThe quick brown fox jumps over the lazy dogThe quick brown fox jumps over the lazy dogThe quick brown fox jumps over the lazy dogThe quick brown fox jumps over the lazy dogThe quick brown fox jumps over the lazy dog")
 
 func BenchmarkHashing(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		Keccak256(data)
 	}
 }
 
 func BenchmarkHashinbBaseline(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		h := sha3.NewLegacyKeccak256()
 		h.Write(data)
 		var out [32]byte

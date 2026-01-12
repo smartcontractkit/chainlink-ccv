@@ -1,7 +1,7 @@
 package metrics
 
 import (
-	"sort"
+	"slices"
 	"testing"
 	"time"
 )
@@ -89,9 +89,7 @@ func calculatePercentiles(durations []time.Duration) PercentileStats {
 		return PercentileStats{}
 	}
 
-	sort.Slice(durations, func(i, j int) bool {
-		return durations[i] < durations[j]
-	})
+	slices.Sort(durations)
 
 	p90Index := int(float64(len(durations)) * 0.90)
 	p95Index := int(float64(len(durations)) * 0.95)

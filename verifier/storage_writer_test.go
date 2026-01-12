@@ -3,6 +3,7 @@ package verifier
 import (
 	"context"
 	"errors"
+	"maps"
 	"sync"
 	"testing"
 	"time"
@@ -506,9 +507,7 @@ func (f *FakeCCVNodeDataWriter) GetStored() map[protocol.Bytes32]protocol.Verifi
 	defer f.mu.RUnlock()
 
 	result := make(map[protocol.Bytes32]protocol.VerifierNodeResult, len(f.stored))
-	for k, v := range f.stored {
-		result[k] = v
-	}
+	maps.Copy(result, f.stored)
 	return result
 }
 

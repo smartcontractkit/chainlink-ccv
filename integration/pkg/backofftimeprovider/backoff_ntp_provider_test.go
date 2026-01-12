@@ -329,9 +329,7 @@ func TestBackoffNTPProvider_GetTime_ConcurrentCalls(t *testing.T) {
 			var mu sync.Mutex
 
 			for i := 0; i < tt.numGoroutines; i++ {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
+				wg.Go(func() {
 					for j := 0; j < tt.callsPerGo; j++ {
 						result := provider.GetTime()
 						mu.Lock()
@@ -339,7 +337,7 @@ func TestBackoffNTPProvider_GetTime_ConcurrentCalls(t *testing.T) {
 						resultIdx++
 						mu.Unlock()
 					}
-				}()
+				})
 			}
 
 			wg.Wait()
