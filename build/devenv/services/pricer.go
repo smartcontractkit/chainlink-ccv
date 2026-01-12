@@ -16,7 +16,7 @@ import (
 const (
 	DefaultPricerName  = "pricer"
 	DefaultPricerImage = "pricer:dev"
-	// default vars for a local devenv src chain: 1337
+	// default vars for a local devenv src chain: 1337.
 	DefaultKeystoreAddress      = "0x9221E2E83903C731C2927CCd84e5fa02B22Bb1E2"
 	DefaultKeystoreFilePath     = "../pricer/keystore.json"
 	DefaultTestKeystorePassword = "keystore_test_password"
@@ -33,7 +33,6 @@ type PricerInput struct {
 	SourceCodePath string        `toml:"source_code_path"`
 	RootPath       string        `toml:"root_path"`
 	ContainerName  string        `toml:"container_name"`
-	Port           int           `toml:"port"`
 	UseCache       bool          `toml:"use_cache"`
 	Keystore       *KeystoreCfg  `toml:"keystore"`
 	Out            *PricerOutput `toml:"out"`
@@ -73,11 +72,11 @@ func NewPricer(in *PricerInput) (*PricerOutput, error) {
 		return in.Out, err
 	}
 
-	f, err := os.ReadFile(filepath.Join(p, in.Keystore.FilePath))
+	keystoreData, err := os.ReadFile(filepath.Join(p, in.Keystore.FilePath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read keystore")
 	}
-	keystoreBase64 := base64.StdEncoding.EncodeToString([]byte(f))
+	keystoreBase64 := base64.StdEncoding.EncodeToString(keystoreData)
 
 	/* Service */
 	req := testcontainers.ContainerRequest{

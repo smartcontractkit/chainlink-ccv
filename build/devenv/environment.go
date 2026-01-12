@@ -82,7 +82,7 @@ const (
 
 type Cfg struct {
 	CLDF               CLDF                           `toml:"cldf"                  validate:"required"`
-	Pricer             *services.PricerInput          `toml:"pricer" validate:"required"`
+	Pricer             *services.PricerInput          `toml:"pricer"                validate:"required"`
 	Fake               *services.FakeInput            `toml:"fake"                  validate:"required"`
 	Verifier           []*services.VerifierInput      `toml:"verifier"              validate:"required"`
 	TokenVerifier      []*services.TokenVerifierInput `toml:"token_verifier"`
