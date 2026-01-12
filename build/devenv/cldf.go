@@ -81,7 +81,8 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input, dataStore datastore.Da
 						PreferredURLScheme: rpcclient.URLSchemePreferenceHTTP,
 					},
 				},
-				ConfirmFunctor: confirmer,
+				UsersTransactorGen: GenerateUserTransactors(getUserPrivateKeys()),
+				ConfirmFunctor:     confirmer,
 			},
 		).Initialize(context.Background())
 		if err != nil {
@@ -113,4 +114,12 @@ func NewDefaultCLDFBundle(e *deployment.Environment) operations.Bundle {
 		e.Logger,
 		operations.NewMemoryReporter(),
 	)
+}
+
+func GenerateUserTransactors(privateKeys []string) []cldf_evm_provider.SignerGenerator {
+	transactors := make([]cldf_evm_provider.SignerGenerator, 0)
+	for _, pk := range privateKeys {
+		transactors = append(transactors, cldf_evm_provider.TransactorFromRaw(pk))
+	}
+	return transactors
 }

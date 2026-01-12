@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -36,13 +37,13 @@ type ChainTestConfig struct {
 
 // TestProfileConfig represents each [test_profiles] block in the TOML config file.
 type TestProfileConfig struct {
-	ChainsAsSource    []ChainProfileConfig `toml:"chains_as_source"`
-	ChainsAsDest      []ChainProfileConfig `toml:"chains_as_dest"`
-	Chains            []ChainTestConfig    `toml:"chains"`
-	Messages          []MessageTestRatio   `toml:"messages"`
-	TestDuration      time.Duration        `toml:"test_duration"`
-	LoadDuration      time.Duration        `toml:"load_duration"`
-	MessagesPerSecond int64                `toml:"messages_per_second"`
+	ChainsAsSource []ChainProfileConfig `toml:"chains_as_source"`
+	ChainsAsDest   []ChainProfileConfig `toml:"chains_as_dest"`
+	Chains         []ChainTestConfig    `toml:"chains"`
+	Messages       []MessageTestRatio   `toml:"messages"`
+	TestDuration   time.Duration        `toml:"test_duration"`
+	LoadDuration   time.Duration        `toml:"load_duration"`
+	MessageRate    string               `toml:"message_rate"`
 }
 
 // TOMLLoadTestRoot matches the structure of the TOML file for decoding.
@@ -86,4 +87,42 @@ func GetSelectorByRatio(profiles []ChainProfileConfig) (uint64, error) {
 		}
 	}
 	return 0, fmt.Errorf("no selector found after weighted random selection")
+}
+
+func GetMessageByRatio(profiles []MessageTestRatio, messageProfiles []MessageProfileConfig) (MessageProfileConfig, error) {
+	if len(profiles) == 0 {
+		return MessageProfileConfig{}, fmt.Errorf("no profiles provided")
+	}
+
+	totalWeight := 0
+	for _, p := range profiles {
+		totalWeight += p.Ratio
+	}
+
+	r := rand.Intn(totalWeight)
+	accum := 0
+	for _, p := range profiles {
+		accum += p.Ratio
+		if r < accum {
+			for _, mp := range messageProfiles {
+				if mp.Name == p.MessageProfile {
+					return mp, nil
+				}
+			}
+		}
+	}
+	return MessageProfileConfig{}, fmt.Errorf("no message profile found after weighted random selection")
+}
+
+func ParseMessageRate(messageRate string) (int64, time.Duration) {
+	parts := strings.Split(messageRate, "/")
+	if len(parts) != 2 {
+		return 0, 0
+	}
+	rate, err := strconv.ParseInt(strings.Trim(parts[0], " "), 10, 64)
+	if err != nil {
+		return 0, 0
+	}
+	duration, err := time.ParseDuration(strings.Trim(parts[1], " "))
+	return rate, duration
 }

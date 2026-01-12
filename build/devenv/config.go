@@ -140,3 +140,17 @@ func getNetworkPrivateKey() string {
 	}
 	return pk
 }
+
+func getUserPrivateKeys() []string {
+	userPrivateKeys := []string{}
+	var idx int = 0
+	for {
+		idx++
+		pk := os.Getenv(fmt.Sprintf("PRIVATE_KEY_%d", idx))
+		if pk == "" {
+			break
+		}
+		userPrivateKeys = append(userPrivateKeys, pk)
+	}
+	return userPrivateKeys
+}
