@@ -30,7 +30,7 @@ const DefaultLokiURL = "ws://localhost:3030"
 type TestingContext struct {
 	T                *testing.T
 	Ctx              context.Context
-	Impl             map[uint64]cciptestinterfaces.CCIP17ProductConfiguration
+	Impl             map[uint64]cciptestinterfaces.CCIP17
 	AggregatorClient *ccv.AggregatorClient
 	IndexerClient    *ccv.IndexerClient
 	LogAsserter      *logasserter.LogAsserter
@@ -38,7 +38,7 @@ type TestingContext struct {
 	logger           zerolog.Logger
 }
 
-func NewTestingContext(t *testing.T, ctx context.Context, impl map[uint64]cciptestinterfaces.CCIP17ProductConfiguration, aggregatorClient *ccv.AggregatorClient, indexerClient *ccv.IndexerClient) TestingContext {
+func NewTestingContext(t *testing.T, ctx context.Context, impl map[uint64]cciptestinterfaces.CCIP17, aggregatorClient *ccv.AggregatorClient, indexerClient *ccv.IndexerClient) TestingContext {
 	lokiURL := os.Getenv("LOKI_QUERY_URL")
 	if lokiURL == "" {
 		lokiURL = DefaultLokiURL

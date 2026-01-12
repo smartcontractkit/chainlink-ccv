@@ -227,7 +227,7 @@ func TestChaos_IndexerDown(t *testing.T) {
 type chaosSetup struct {
 	in                      *ccv.Cfg
 	chains                  []ccv.ChainImpl
-	chainMap                map[uint64]cciptestinterfaces.CCIP17ProductConfiguration
+	chainMap                map[uint64]cciptestinterfaces.CCIP17
 	defaultAggregatorClient *ccv.AggregatorClient
 	indexerClient           *ccv.IndexerClient
 	l                       *zerolog.Logger

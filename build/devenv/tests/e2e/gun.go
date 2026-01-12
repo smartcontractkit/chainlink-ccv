@@ -45,7 +45,7 @@ type EVMTXGun struct {
 	testConfig    *load.TestProfileConfig
 	e             *deployment.Environment
 	selectors     []uint64
-	impl          map[uint64]cciptestinterfaces.CCIP17ProductConfiguration
+	impl          map[uint64]cciptestinterfaces.CCIP17
 	sentMsgSet    map[SentMessage]struct{}
 	srcSelectors  []uint64
 	destSelectors []uint64
@@ -63,7 +63,7 @@ func (m *EVMTXGun) CloseSentChannel() {
 	})
 }
 
-func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impls map[uint64]cciptestinterfaces.CCIP17ProductConfiguration, srcSelectors, destSelectors []uint64) *EVMTXGun {
+func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impls map[uint64]cciptestinterfaces.CCIP17, srcSelectors, destSelectors []uint64) *EVMTXGun {
 	return &EVMTXGun{
 		cfg:           cfg,
 		e:             e,
@@ -77,7 +77,7 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []u
 	}
 }
 
-func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testConfig *load.TestProfileConfig, e *deployment.Environment, impls map[uint64]cciptestinterfaces.CCIP17ProductConfiguration) *EVMTXGun {
+func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testConfig *load.TestProfileConfig, e *deployment.Environment, impls map[uint64]cciptestinterfaces.CCIP17) *EVMTXGun {
 	selectors := make([]uint64, 0)
 	srcSelectors := make([]uint64, 0, len(testConfig.ChainsAsSource))
 	destSelectors := make([]uint64, 0, len(testConfig.ChainsAsDest))

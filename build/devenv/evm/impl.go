@@ -256,6 +256,10 @@ func All17TokenCombinations() []TokenCombination {
 	return combinations
 }
 
+type CCIP17EVMConfig struct {
+	logger zerolog.Logger
+}
+
 type CCIP17EVM struct {
 	e             *deployment.Environment
 	ds            datastore.DataStore
@@ -271,8 +275,8 @@ type CCIP17EVM struct {
 }
 
 // NewEmptyCCIP17EVM creates a new CCIP17EVM with a logger that logs to the console.
-func NewEmptyCCIP17EVM() *CCIP17EVM {
-	return &CCIP17EVM{
+func NewEmptyCCIP17EVM() *CCIP17EVMConfig {
+	return &CCIP17EVMConfig{
 		logger: log.
 			Output(zerolog.ConsoleWriter{Out: os.Stderr}).
 			Level(zerolog.DebugLevel).
@@ -1029,7 +1033,7 @@ func (m *CCIP17EVM) ExposeMetrics(
 	return []string{}, reg, nil
 }
 
-func (m *CCIP17EVM) DeployLocalNetwork(ctx context.Context, bc *blockchain.Input) (*blockchain.Output, error) {
+func (m *CCIP17EVMConfig) DeployLocalNetwork(ctx context.Context, bc *blockchain.Input) (*blockchain.Output, error) {
 	l := m.logger
 	l.Info().Msg("Deploying EVM networks")
 	out, err := blockchain.NewBlockchainNetwork(bc)
@@ -1039,7 +1043,7 @@ func (m *CCIP17EVM) DeployLocalNetwork(ctx context.Context, bc *blockchain.Input
 	return out, nil
 }
 
-func (m *CCIP17EVM) ConfigureNodes(ctx context.Context, bc *blockchain.Input) (string, error) {
+func (m *CCIP17EVMConfig) ConfigureNodes(ctx context.Context, bc *blockchain.Input) (string, error) {
 	l := m.logger
 	l.Info().Msg("Configuring CL nodes")
 	name := fmt.Sprintf("node-evm-%s", uuid.New().String()[0:5])
@@ -1081,7 +1085,7 @@ func toCommitteeVerifierParams(committees []cciptestinterfaces.OnChainCommittees
 	return params
 }
 
-func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, committees []cciptestinterfaces.OnChainCommittees) (datastore.DataStore, error) {
+func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, committees []cciptestinterfaces.OnChainCommittees) (datastore.DataStore, error) {
 	l := m.logger
 	l.Info().Msg("Configuring contracts for selector")
 	l.Info().Any("Selector", selector).Msg("Deploying for chain selectors")
@@ -1274,7 +1278,7 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 	return runningDS.Seal(), nil
 }
 
-func (m *CCIP17EVM) deployTokenAndPool(
+func (m *CCIP17EVMConfig) deployTokenAndPool(
 	env *deployment.Environment,
 	mcmsReaderRegistry *changesetscore.MCMSReaderRegistry,
 	runningDS *datastore.MemoryDataStore,
@@ -1379,7 +1383,7 @@ func (m *CCIP17EVM) GetMaxDataBytes(ctx context.Context, remoteChainSelector uin
 	return destChainConfig.MaxDataBytes, nil
 }
 
-func (m *CCIP17EVM) configureTokenForTransfer(
+func (m *CCIP17EVMConfig) configureTokenForTransfer(
 	e *deployment.Environment,
 	tokenAdapterRegistry *tokenscore.TokenAdapterRegistry,
 	mcmsReaderRegistry *changesetscore.MCMSReaderRegistry,
@@ -1485,7 +1489,7 @@ func toComitteeVerifier(selector uint64, committees []cciptestinterfaces.OnChain
 }
 
 // TODO: How to generate all the default/secondary/tertiary things from the committee param?
-func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, committees []cciptestinterfaces.OnChainCommittees) error {
+func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, committees []cciptestinterfaces.OnChainCommittees) error {
 	// TODO: how does this even work?
 	/*
 		if selector != m.chain.ChainSelector() {
@@ -1668,7 +1672,7 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 	return nil
 }
 
-func (m *CCIP17EVM) FundAddresses(ctx context.Context, bc *blockchain.Input, addresses []protocol.UnknownAddress, nativeAmount *big.Int) error {
+func (m *CCIP17EVMConfig) FundAddresses(ctx context.Context, bc *blockchain.Input, addresses []protocol.UnknownAddress, nativeAmount *big.Int) error {
 	client, _, _, err := ETHClient(ctx, bc.Out.Nodes[0].ExternalWSUrl, &GasSettings{
 		FeeCapMultiplier: 2,
 		TipCapMultiplier: 2,
@@ -1696,7 +1700,7 @@ func (m *CCIP17EVM) FundAddresses(ctx context.Context, bc *blockchain.Input, add
 	return nil
 }
 
-func (m *CCIP17EVM) FundNodes(ctx context.Context, ns []*simple_node_set.Input, bc *blockchain.Input, linkAmount, nativeAmount *big.Int) error {
+func (m *CCIP17EVMConfig) FundNodes(ctx context.Context, ns []*simple_node_set.Input, bc *blockchain.Input, linkAmount, nativeAmount *big.Int) error {
 	l := m.logger
 	l.Info().Msg("Funding CL nodes with ETH and LINK")
 	nodeClients := make([]*clclient.ChainlinkClient, 0)
@@ -1754,7 +1758,7 @@ func GetContractAddrForSelector(addresses []string, selector uint64, contractTyp
 }
 
 // fundLockReleaseTokenPool funds a lock/release token pool by transferring tokens from deployer.
-func (m *CCIP17EVM) fundLockReleaseTokenPool(
+func (m *CCIP17EVMConfig) fundLockReleaseTokenPool(
 	env *deployment.Environment,
 	selector uint64,
 	tokenPoolRef datastore.AddressRef,
