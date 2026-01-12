@@ -41,19 +41,20 @@ type SentMessage struct {
 }
 
 type EVMTXGun struct {
-	cfg           *ccv.Cfg
-	testConfig    *load.TestProfileConfig
-	e             *deployment.Environment
-	selectors     []uint64
-	impl          map[uint64]cciptestinterfaces.CCIP17ProductConfiguration
-	sentMsgSet    map[SentMessage]struct{}
-	srcSelectors  []uint64
-	destSelectors []uint64
-	seqNosMu      sync.Mutex
-	sentMsgCh     chan SentMessage // Channel for real-time message notifications
-	closeOnce     sync.Once        // Ensure channel is closed only once
-	nonceMu       sync.Mutex
-	nonce         map[uint64]*atomic.Uint64
+	cfg             *ccv.Cfg
+	testConfig      *load.TestProfileConfig
+	e               *deployment.Environment
+	selectors       []uint64
+	impl            map[uint64]cciptestinterfaces.CCIP17ProductConfiguration
+	sentMsgSet      map[SentMessage]struct{}
+	srcSelectors    []uint64
+	destSelectors   []uint64
+	seqNosMu        sync.Mutex
+	sentMsgCh       chan SentMessage // Channel for real-time message notifications
+	closeOnce       sync.Once        // Ensure channel is closed only once
+	nonceMu         sync.Mutex
+	nonce           map[uint64]*atomic.Uint64
+	messageProfiles []load.MessageProfileConfig
 }
 
 // CloseSentChannel closes the sent messages channel to signal no more messages will be sent.
@@ -77,31 +78,33 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []u
 	}
 }
 
-func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testConfig *load.TestProfileConfig, e *deployment.Environment, impls map[uint64]cciptestinterfaces.CCIP17ProductConfiguration) *EVMTXGun {
+func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testConfig *load.TOMLLoadTestRoot, e *deployment.Environment, impls map[uint64]cciptestinterfaces.CCIP17ProductConfiguration) *EVMTXGun {
+	testProfile := testConfig.TestProfiles[0]
 	selectors := make([]uint64, 0)
-	srcSelectors := make([]uint64, 0, len(testConfig.ChainsAsSource))
-	destSelectors := make([]uint64, 0, len(testConfig.ChainsAsDest))
-	for _, chain := range testConfig.ChainsAsSource {
+	srcSelectors := make([]uint64, 0, len(testProfile.ChainsAsSource))
+	destSelectors := make([]uint64, 0, len(testProfile.ChainsAsDest))
+	for _, chain := range testProfile.ChainsAsSource {
 		chainSelector, _ := strconv.ParseUint(chain.Selector, 10, 64)
 		selectors = append(selectors, chainSelector)
 		srcSelectors = append(srcSelectors, chainSelector)
 	}
-	for _, chain := range testConfig.ChainsAsDest {
+	for _, chain := range testProfile.ChainsAsDest {
 		chainSelector, _ := strconv.ParseUint(chain.Selector, 10, 64)
 		selectors = append(selectors, chainSelector)
 		destSelectors = append(destSelectors, chainSelector)
 	}
 	return &EVMTXGun{
-		cfg:           cfg,
-		testConfig:    testConfig,
-		e:             e,
-		selectors:     selectors,
-		impl:          impls,
-		sentMsgSet:    make(map[SentMessage]struct{}),
-		sentMsgCh:     make(chan SentMessage, sentMessageChannelBufferSize),
-		nonce:         make(map[uint64]*atomic.Uint64),
-		srcSelectors:  srcSelectors,
-		destSelectors: destSelectors,
+		cfg:             cfg,
+		testConfig:      &testProfile,
+		e:               e,
+		selectors:       selectors,
+		impl:            impls,
+		sentMsgSet:      make(map[SentMessage]struct{}),
+		sentMsgCh:       make(chan SentMessage, sentMessageChannelBufferSize),
+		nonce:           make(map[uint64]*atomic.Uint64),
+		srcSelectors:    srcSelectors,
+		destSelectors:   destSelectors,
+		messageProfiles: testConfig.MessageProfiles,
 	}
 }
 
@@ -224,6 +227,28 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("could not find committee verifier proxy address in datastore: %w", err)
 	}
 
+	if m.testConfig.Messages == nil {
+		return cciptestinterfaces.MessageFields{
+				Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
+				Data:     []byte{},
+				FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),
+			}, cciptestinterfaces.MessageOptions{
+				Version:        3,
+				FinalityConfig: uint16(1),
+				CCVs: []protocol.CCV{
+					{
+						CCVAddress: common.HexToAddress(committeeVerifierProxyRef.Address).Bytes(),
+						Args:       []byte{},
+						ArgsLen:    0,
+					},
+				},
+			},
+			nil
+	}
+	messageProfile, err := load.GetMessageByRatio(m.testConfig.Messages, m.messageProfiles)
+	if err != nil {
+		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to get message profile: %w", err)
+	}
 	fields := cciptestinterfaces.MessageFields{
 		Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
 		Data:     []byte{},
@@ -231,14 +256,8 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 	}
 	opts := cciptestinterfaces.MessageOptions{
 		Version:        3,
-		FinalityConfig: uint16(1),
-		CCVs: []protocol.CCV{
-			{
-				CCVAddress: common.HexToAddress(committeeVerifierProxyRef.Address).Bytes(),
-				Args:       []byte{},
-				ArgsLen:    0,
-			},
-		},
+		FinalityConfig: uint16(messageProfile.Finality),
 	}
+
 	return fields, opts, nil
 }

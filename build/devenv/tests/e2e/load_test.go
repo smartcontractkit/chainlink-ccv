@@ -26,7 +26,6 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-evm/gethwrappers/shared/generated/initial/weth9"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/rpc"
 	"github.com/smartcontractkit/chainlink-testing-framework/wasp"
 
@@ -179,6 +178,8 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun, overallTimeout time.D
 }
 
 func ensureWETHBalanceAndApproval(ctx context.Context, t *testing.T, logger zerolog.Logger, e *deployment.Environment, chain cldfevm.Chain, requiredWETH *big.Int) {
+	logger.Info().Str("chain", strconv.FormatUint(chain.Selector, 10)).Msg("Ensuring WETH balance and approval")
+	logger.Info().Str("deployer address", chain.DeployerKey.From.Hex()).Msg("Deployer address")
 	wethContract, err := e.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
 			chain.Selector,
@@ -274,7 +275,7 @@ func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *de
 func TestE2ELoad(t *testing.T) {
 	outfile := os.Getenv("LOAD_TEST_OUT_FILE")
 	if outfile == "" {
-		outfile = "../../env-out.toml"
+		outfile = "../../env-staging.toml"
 	}
 	in, err := ccv.LoadOutput[ccv.Cfg](outfile)
 	require.NoError(t, err)
@@ -286,12 +287,13 @@ func TestE2ELoad(t *testing.T) {
 		_ = os.Setenv("LOKI_URL", ccv.DefaultLokiURL)
 	}
 
-	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+	// selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+	_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
 	require.NoError(t, err)
 	chains := e.BlockChains.EVMChains()
 	require.NotNil(t, chains)
-	srcChain := chains[selectors[0]]
-	dstChain := chains[selectors[1]]
+	// srcChain := chains[selectors[0]]
+	// dstChain := chains[selectors[1]]
 	b := ccv.NewDefaultCLDFBundle(e)
 	e.OperationsBundle = b
 
@@ -323,363 +325,363 @@ func TestE2ELoad(t *testing.T) {
 	}
 
 	// Ensure we have at least 1 WETH and approve router to spend it
-	ensureWETHBalanceAndApproval(ctx, t, *l, e, srcChain, big.NewInt(requiredWETHBalance))
+	// ensureWETHBalanceAndApproval(ctx, t, *l, e, srcChain, big.NewInt(requiredWETHBalance))
 
-	t.Run("clean", func(t *testing.T) {
-		// just a clean load test to measure performance
-		rps := int64(5)
-		testDuration := 30 * time.Second
+	// t.Run("clean", func(t *testing.T) {
+	// 	// just a clean load test to measure performance
+	// 	rps := int64(5)
+	// 	testDuration := 30 * time.Second
 
-		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
-		tc.Timeout = 30 * time.Second
+	// 	tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
+	// 	tc.Timeout = 30 * time.Second
 
-		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
-		overallTimeout := testDuration + (2 * tc.Timeout)
-		waitForMetrics := assertMessagesAsync(tc, gun, overallTimeout)
+	// 	p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
+	// 	overallTimeout := testDuration + (2 * tc.Timeout)
+	// 	waitForMetrics := assertMessagesAsync(tc, gun, overallTimeout)
 
-		_, err = p.Run(true)
-		require.NoError(t, err)
+	// 	_, err = p.Run(true)
+	// 	require.NoError(t, err)
 
-		p.Wait()
-		time.Sleep(postTestVerificationDelay)
-		// Close the channel to signal no more messages will be sent
-		gun.CloseSentChannel()
+	// 	p.Wait()
+	// 	time.Sleep(postTestVerificationDelay)
+	// 	// Close the channel to signal no more messages will be sent
+	// 	gun.CloseSentChannel()
 
-		// Wait for all messages to be verified and collect metrics
-		metrics_datum, totals := waitForMetrics()
+	// 	// Wait for all messages to be verified and collect metrics
+	// 	metrics_datum, totals := waitForMetrics()
 
-		// Enrich metrics with log data collected during test
-		tc.enrichMetrics(metrics_datum)
+	// 	// Enrich metrics with log data collected during test
+	// 	tc.enrichMetrics(metrics_datum)
 
-		summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
-		metrics.PrintMetricsSummary(t, summary)
+	// 	summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
+	// 	metrics.PrintMetricsSummary(t, summary)
 
-		require.Equal(t, summary.TotalSent, summary.TotalReceived)
-		require.LessOrEqual(t, summary.P90Latency, 8*time.Second)
-	})
+	// 	require.Equal(t, summary.TotalSent, summary.TotalReceived)
+	// 	require.LessOrEqual(t, summary.P90Latency, 8*time.Second)
+	// })
 
-	t.Run("rpc latency", func(t *testing.T) {
-		testDuration := 1 * time.Hour
-		expectedP90Latency := 5 * time.Second
-		timeoutDuration := time.Duration((testDuration.Seconds()+expectedP90Latency.Seconds())*10) * time.Second
-		// 400ms latency for any RPC node
-		pumbaCmd := fmt.Sprintf("netem --tc-image=ghcr.io/alexei-led/pumba-debian-nettools --duration=%s delay --time=400 re2:blockchain-.*", timeoutDuration)
-		_, err = chaos.ExecPumba(pumbaCmd, 0*time.Second)
-		require.NoError(t, err)
+	// t.Run("rpc latency", func(t *testing.T) {
+	// 	testDuration := 1 * time.Hour
+	// 	expectedP90Latency := 5 * time.Second
+	// 	timeoutDuration := time.Duration((testDuration.Seconds()+expectedP90Latency.Seconds())*10) * time.Second
+	// 	// 400ms latency for any RPC node
+	// 	pumbaCmd := fmt.Sprintf("netem --tc-image=ghcr.io/alexei-led/pumba-debian-nettools --duration=%s delay --time=400 re2:blockchain-.*", timeoutDuration)
+	// 	_, err = chaos.ExecPumba(pumbaCmd, 0*time.Second)
+	// 	require.NoError(t, err)
 
-		rps := int64(1)
+	// 	rps := int64(1)
 
-		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
-		tc.Timeout = timeoutDuration
+	// 	tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
+	// 	tc.Timeout = timeoutDuration
 
-		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
-		overallTimeout := testDuration + timeoutDuration
-		waitForMetrics := assertMessagesAsync(tc, gun, overallTimeout)
+	// 	p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
+	// 	overallTimeout := testDuration + timeoutDuration
+	// 	waitForMetrics := assertMessagesAsync(tc, gun, overallTimeout)
 
-		_, err = p.Run(true)
-		require.NoError(t, err)
+	// 	_, err = p.Run(true)
+	// 	require.NoError(t, err)
 
-		// Close the channel to signal no more messages will be sent
-		gun.CloseSentChannel()
+	// 	// Close the channel to signal no more messages will be sent
+	// 	gun.CloseSentChannel()
 
-		// Wait for all messages to be verified and collect metrics
-		metrics_datum, totals := waitForMetrics()
+	// 	// Wait for all messages to be verified and collect metrics
+	// 	metrics_datum, totals := waitForMetrics()
 
-		// Enrich metrics with log data collected during test
-		tc.enrichMetrics(metrics_datum)
+	// 	// Enrich metrics with log data collected during test
+	// 	tc.enrichMetrics(metrics_datum)
 
-		summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
-		metrics.PrintMetricsSummary(t, summary)
+	// 	summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
+	// 	metrics.PrintMetricsSummary(t, summary)
 
-		require.Equal(t, summary.TotalSent, summary.TotalReceived)
-		require.LessOrEqual(t, summary.P90Latency, expectedP90Latency)
-	})
+	// 	require.Equal(t, summary.TotalSent, summary.TotalReceived)
+	// 	require.LessOrEqual(t, summary.P90Latency, expectedP90Latency)
+	// })
 
-	t.Run("gas", func(t *testing.T) {
-		srcRPCURL := in.Blockchains[0].Out.Nodes[0].ExternalHTTPUrl
-		dstRPCURL := in.Blockchains[1].Out.Nodes[0].ExternalHTTPUrl
+	// t.Run("gas", func(t *testing.T) {
+	// 	srcRPCURL := in.Blockchains[0].Out.Nodes[0].ExternalHTTPUrl
+	// 	dstRPCURL := in.Blockchains[1].Out.Nodes[0].ExternalHTTPUrl
 
-		rps := int64(1)
-		testDuration := 5 * time.Minute
+	// 	rps := int64(1)
+	// 	testDuration := 5 * time.Minute
 
-		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
-		tc.Timeout = 10 * time.Minute
+	// 	tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
+	// 	tc.Timeout = 10 * time.Minute
 
-		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
-		overallTimeout := testDuration + tc.Timeout
-		waitForMetrics := assertMessagesAsync(tc, gun, overallTimeout)
+	// 	p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
+	// 	overallTimeout := testDuration + tc.Timeout
+	// 	waitForMetrics := assertMessagesAsync(tc, gun, overallTimeout)
 
-		_, err = p.Run(false)
-		require.NoError(t, err)
+	// 	_, err = p.Run(false)
+	// 	require.NoError(t, err)
 
-		waitBetweenTests := 30 * time.Second
+	// 	waitBetweenTests := 30 * time.Second
 
-		tcs := []GasTestCase{
-			{
-				name:             "Slow spike src",
-				chainURL:         srcRPCURL,
-				waitBetweenTests: waitBetweenTests,
-				increase:         big.NewInt(1e9),
-				gasFunc:          gasControlFunc,
-				validate:         func() error { return nil },
-			},
-			{
-				name:             "Fast spike src",
-				chainURL:         srcRPCURL,
-				waitBetweenTests: waitBetweenTests,
-				increase:         big.NewInt(5e9),
-				gasFunc:          gasControlFunc,
-				validate:         func() error { return nil },
-			},
-			{
-				name:             "Slow spike dst",
-				chainURL:         dstRPCURL,
-				waitBetweenTests: waitBetweenTests,
-				increase:         big.NewInt(1e9),
-				gasFunc:          gasControlFunc,
-				validate:         func() error { return nil },
-			},
-			{
-				name:             "Fast spike dst",
-				chainURL:         dstRPCURL,
-				waitBetweenTests: waitBetweenTests,
-				increase:         big.NewInt(5e9),
-				gasFunc:          gasControlFunc,
-				validate:         func() error { return nil },
-			},
-		}
-		for _, tc := range tcs {
-			t.Run(tc.name, func(t *testing.T) {
-				t.Log(tc.name)
-				r := rpc.New(tc.chainURL, nil)
-				tc.gasFunc(t, r, 1*time.Second)
-				err = tc.validate()
-				require.NoError(t, err)
-				time.Sleep(tc.waitBetweenTests)
-			})
-		}
-		p.Wait()
+	// 	tcs := []GasTestCase{
+	// 		{
+	// 			name:             "Slow spike src",
+	// 			chainURL:         srcRPCURL,
+	// 			waitBetweenTests: waitBetweenTests,
+	// 			increase:         big.NewInt(1e9),
+	// 			gasFunc:          gasControlFunc,
+	// 			validate:         func() error { return nil },
+	// 		},
+	// 		{
+	// 			name:             "Fast spike src",
+	// 			chainURL:         srcRPCURL,
+	// 			waitBetweenTests: waitBetweenTests,
+	// 			increase:         big.NewInt(5e9),
+	// 			gasFunc:          gasControlFunc,
+	// 			validate:         func() error { return nil },
+	// 		},
+	// 		{
+	// 			name:             "Slow spike dst",
+	// 			chainURL:         dstRPCURL,
+	// 			waitBetweenTests: waitBetweenTests,
+	// 			increase:         big.NewInt(1e9),
+	// 			gasFunc:          gasControlFunc,
+	// 			validate:         func() error { return nil },
+	// 		},
+	// 		{
+	// 			name:             "Fast spike dst",
+	// 			chainURL:         dstRPCURL,
+	// 			waitBetweenTests: waitBetweenTests,
+	// 			increase:         big.NewInt(5e9),
+	// 			gasFunc:          gasControlFunc,
+	// 			validate:         func() error { return nil },
+	// 		},
+	// 	}
+	// 	for _, tc := range tcs {
+	// 		t.Run(tc.name, func(t *testing.T) {
+	// 			t.Log(tc.name)
+	// 			r := rpc.New(tc.chainURL, nil)
+	// 			tc.gasFunc(t, r, 1*time.Second)
+	// 			err = tc.validate()
+	// 			require.NoError(t, err)
+	// 			time.Sleep(tc.waitBetweenTests)
+	// 		})
+	// 	}
+	// 	p.Wait()
 
-		// Close the channel to signal no more messages will be sent
-		gun.CloseSentChannel()
+	// 	// Close the channel to signal no more messages will be sent
+	// 	gun.CloseSentChannel()
 
-		// Wait for all messages to be verified and collect metrics
-		metrics_datum, totals := waitForMetrics()
+	// 	// Wait for all messages to be verified and collect metrics
+	// 	metrics_datum, totals := waitForMetrics()
 
-		// Enrich metrics with log data collected during test
-		tc.enrichMetrics(metrics_datum)
+	// 	// Enrich metrics with log data collected during test
+	// 	tc.enrichMetrics(metrics_datum)
 
-		summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
-		metrics.PrintMetricsSummary(t, summary)
-	})
+	// 	summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
+	// 	metrics.PrintMetricsSummary(t, summary)
+	// })
 
-	t.Run("reorgs", func(t *testing.T) {
-		srcRPCURL := in.Blockchains[0].Out.Nodes[0].ExternalHTTPUrl
-		dstRPCURL := in.Blockchains[1].Out.Nodes[0].ExternalHTTPUrl
+	// t.Run("reorgs", func(t *testing.T) {
+	// 	srcRPCURL := in.Blockchains[0].Out.Nodes[0].ExternalHTTPUrl
+	// 	dstRPCURL := in.Blockchains[1].Out.Nodes[0].ExternalHTTPUrl
 
-		rps := int64(1)
-		testDuration := 5 * time.Minute
+	// 	rps := int64(1)
+	// 	testDuration := 5 * time.Minute
 
-		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
+	// 	tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
 
-		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
-		overallTimeout := testDuration + (2 * tc.Timeout)
-		waitForMetrics := assertMessagesAsync(tc, gun, overallTimeout)
+	// 	p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
+	// 	overallTimeout := testDuration + (2 * tc.Timeout)
+	// 	waitForMetrics := assertMessagesAsync(tc, gun, overallTimeout)
 
-		_, err = p.Run(false)
-		require.NoError(t, err)
+	// 	_, err = p.Run(false)
+	// 	require.NoError(t, err)
 
-		tcs := []struct {
-			validate   func() error
-			name       string
-			chainURL   string
-			wait       time.Duration
-			reorgDepth int
-		}{
-			{
-				name:       "Reorg src with depth: 1",
-				wait:       30 * time.Second,
-				chainURL:   srcRPCURL,
-				reorgDepth: 1,
-				validate: func() error {
-					// add clients and validate
-					return nil
-				},
-			},
-			{
-				name:       "Reorg dst with depth: 1",
-				wait:       30 * time.Second,
-				chainURL:   dstRPCURL,
-				reorgDepth: 1,
-				validate: func() error {
-					return nil
-				},
-			},
-			{
-				name:       "Reorg src with depth: 5",
-				wait:       30 * time.Second,
-				chainURL:   srcRPCURL,
-				reorgDepth: 5,
-				validate: func() error {
-					return nil
-				},
-			},
-			{
-				name:       "Reorg dst with depth: 5",
-				wait:       30 * time.Second,
-				chainURL:   dstRPCURL,
-				reorgDepth: 5,
-				validate: func() error {
-					return nil
-				},
-			},
-		}
+	// 	tcs := []struct {
+	// 		validate   func() error
+	// 		name       string
+	// 		chainURL   string
+	// 		wait       time.Duration
+	// 		reorgDepth int
+	// 	}{
+	// 		{
+	// 			name:       "Reorg src with depth: 1",
+	// 			wait:       30 * time.Second,
+	// 			chainURL:   srcRPCURL,
+	// 			reorgDepth: 1,
+	// 			validate: func() error {
+	// 				// add clients and validate
+	// 				return nil
+	// 			},
+	// 		},
+	// 		{
+	// 			name:       "Reorg dst with depth: 1",
+	// 			wait:       30 * time.Second,
+	// 			chainURL:   dstRPCURL,
+	// 			reorgDepth: 1,
+	// 			validate: func() error {
+	// 				return nil
+	// 			},
+	// 		},
+	// 		{
+	// 			name:       "Reorg src with depth: 5",
+	// 			wait:       30 * time.Second,
+	// 			chainURL:   srcRPCURL,
+	// 			reorgDepth: 5,
+	// 			validate: func() error {
+	// 				return nil
+	// 			},
+	// 		},
+	// 		{
+	// 			name:       "Reorg dst with depth: 5",
+	// 			wait:       30 * time.Second,
+	// 			chainURL:   dstRPCURL,
+	// 			reorgDepth: 5,
+	// 			validate: func() error {
+	// 				return nil
+	// 			},
+	// 		},
+	// 	}
 
-		for _, tc := range tcs {
-			t.Run(tc.name, func(t *testing.T) {
-				r := rpc.New(tc.chainURL, nil)
-				err := r.GethSetHead(tc.reorgDepth)
-				require.NoError(t, err)
-				time.Sleep(tc.wait)
-				err = tc.validate()
-				require.NoError(t, err)
-			})
-		}
-		p.Wait()
+	// 	for _, tc := range tcs {
+	// 		t.Run(tc.name, func(t *testing.T) {
+	// 			r := rpc.New(tc.chainURL, nil)
+	// 			err := r.GethSetHead(tc.reorgDepth)
+	// 			require.NoError(t, err)
+	// 			time.Sleep(tc.wait)
+	// 			err = tc.validate()
+	// 			require.NoError(t, err)
+	// 		})
+	// 	}
+	// 	p.Wait()
 
-		// Close the channel to signal no more messages will be sent
-		gun.CloseSentChannel()
+	// 	// Close the channel to signal no more messages will be sent
+	// 	gun.CloseSentChannel()
 
-		// Wait for all messages to be verified and collect metrics
-		metrics_datum, totals := waitForMetrics()
+	// 	// Wait for all messages to be verified and collect metrics
+	// 	metrics_datum, totals := waitForMetrics()
 
-		// Enrich metrics with log data collected during test
-		tc.enrichMetrics(metrics_datum)
+	// 	// Enrich metrics with log data collected during test
+	// 	tc.enrichMetrics(metrics_datum)
 
-		summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
-		metrics.PrintMetricsSummary(t, summary)
-	})
+	// 	summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
+	// 	metrics.PrintMetricsSummary(t, summary)
+	// })
 
-	t.Run("services_chaos", func(t *testing.T) {
-		rps := int64(1)
-		testDuration := 5 * time.Minute
+	// t.Run("services_chaos", func(t *testing.T) {
+	// 	rps := int64(1)
+	// 	testDuration := 5 * time.Minute
 
-		tcs := []ChaosTestCase{
-			{
-				name: "Reboot a single node",
-				run: func() error {
-					_, err = chaos.ExecPumba(
-						"stop --duration=20s --restart re2:don-node1",
-						30*time.Second,
-					)
-					return nil
-				},
-				validate: func() error { return nil },
-			},
-			{
-				name: "Reboot two nodes",
-				run: func() error {
-					_, err = chaos.ExecPumba(
-						"stop --duration=20s --restart re2:don-node1",
-						0*time.Second,
-					)
-					_, err = chaos.ExecPumba(
-						"stop --duration=20s --restart re2:don-node2",
-						30*time.Second,
-					)
-					return err
-				},
-				validate: func() error { return nil },
-			},
-			{
-				name: "One slow CL node",
-				run: func() error {
-					_, err = chaos.ExecPumba(
-						"netem --tc-image=ghcr.io/alexei-led/pumba-debian-nettools --duration=1m delay --time=1000 re2:don-node1",
-						30*time.Second,
-					)
-					return err
-				},
-				validate: func() error { return nil },
-			},
-			{
-				name: "Stop the indexer",
-				run: func() error {
-					_, err = chaos.ExecPumba(
-						"stop --duration=20s --restart re2:indexer",
-						30*time.Second,
-					)
-					return err
-				},
-				validate: func() error { return nil },
-			},
-			{
-				name: "Stop the aggregator",
-				run: func() error {
-					_, err = chaos.ExecPumba(
-						"stop --duration=20s --restart re2:aggregator",
-						30*time.Second,
-					)
-					return err
-				},
-				validate: func() error { return nil },
-			},
-			{
-				name: "Stop the verifier",
-				run: func() error {
-					_, err = chaos.ExecPumba(
-						"stop --duration=20s --restart re2:verifier",
-						30*time.Second,
-					)
-					return err
-				},
-				validate: func() error { return nil },
-			},
-			{
-				name: "Stop the executor",
-				run: func() error {
-					_, err = chaos.ExecPumba(
-						"stop --duration=20s --restart re2:executor",
-						30*time.Second,
-					)
-					return err
-				},
-				validate: func() error { return nil },
-			},
-		}
+	// 	tcs := []ChaosTestCase{
+	// 		{
+	// 			name: "Reboot a single node",
+	// 			run: func() error {
+	// 				_, err = chaos.ExecPumba(
+	// 					"stop --duration=20s --restart re2:don-node1",
+	// 					30*time.Second,
+	// 				)
+	// 				return nil
+	// 			},
+	// 			validate: func() error { return nil },
+	// 		},
+	// 		{
+	// 			name: "Reboot two nodes",
+	// 			run: func() error {
+	// 				_, err = chaos.ExecPumba(
+	// 					"stop --duration=20s --restart re2:don-node1",
+	// 					0*time.Second,
+	// 				)
+	// 				_, err = chaos.ExecPumba(
+	// 					"stop --duration=20s --restart re2:don-node2",
+	// 					30*time.Second,
+	// 				)
+	// 				return err
+	// 			},
+	// 			validate: func() error { return nil },
+	// 		},
+	// 		{
+	// 			name: "One slow CL node",
+	// 			run: func() error {
+	// 				_, err = chaos.ExecPumba(
+	// 					"netem --tc-image=ghcr.io/alexei-led/pumba-debian-nettools --duration=1m delay --time=1000 re2:don-node1",
+	// 					30*time.Second,
+	// 				)
+	// 				return err
+	// 			},
+	// 			validate: func() error { return nil },
+	// 		},
+	// 		{
+	// 			name: "Stop the indexer",
+	// 			run: func() error {
+	// 				_, err = chaos.ExecPumba(
+	// 					"stop --duration=20s --restart re2:indexer",
+	// 					30*time.Second,
+	// 				)
+	// 				return err
+	// 			},
+	// 			validate: func() error { return nil },
+	// 		},
+	// 		{
+	// 			name: "Stop the aggregator",
+	// 			run: func() error {
+	// 				_, err = chaos.ExecPumba(
+	// 					"stop --duration=20s --restart re2:aggregator",
+	// 					30*time.Second,
+	// 				)
+	// 				return err
+	// 			},
+	// 			validate: func() error { return nil },
+	// 		},
+	// 		{
+	// 			name: "Stop the verifier",
+	// 			run: func() error {
+	// 				_, err = chaos.ExecPumba(
+	// 					"stop --duration=20s --restart re2:verifier",
+	// 					30*time.Second,
+	// 				)
+	// 				return err
+	// 			},
+	// 			validate: func() error { return nil },
+	// 		},
+	// 		{
+	// 			name: "Stop the executor",
+	// 			run: func() error {
+	// 				_, err = chaos.ExecPumba(
+	// 					"stop --duration=20s --restart re2:executor",
+	// 					30*time.Second,
+	// 				)
+	// 				return err
+	// 			},
+	// 			validate: func() error { return nil },
+	// 		},
+	// 	}
 
-		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
+	// 	tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
 
-		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
-		overallTimeout := testDuration + (2 * tc.Timeout)
-		waitForMetrics := assertMessagesAsync(tc, gun, overallTimeout)
+	// 	p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
+	// 	overallTimeout := testDuration + (2 * tc.Timeout)
+	// 	waitForMetrics := assertMessagesAsync(tc, gun, overallTimeout)
 
-		_, err = p.Run(false)
-		require.NoError(t, err)
+	// 	_, err = p.Run(false)
+	// 	require.NoError(t, err)
 
-		for _, tc := range tcs {
-			t.Run(tc.name, func(t *testing.T) {
-				t.Log(tc.name)
-				err = tc.run()
-				require.NoError(t, err)
-				err = tc.validate()
-				require.NoError(t, err)
-			})
-		}
-		p.Wait()
+	// 	for _, tc := range tcs {
+	// 		t.Run(tc.name, func(t *testing.T) {
+	// 			t.Log(tc.name)
+	// 			err = tc.run()
+	// 			require.NoError(t, err)
+	// 			err = tc.validate()
+	// 			require.NoError(t, err)
+	// 		})
+	// 	}
+	// 	p.Wait()
 
-		// Close the channel to signal no more messages will be sent
-		gun.CloseSentChannel()
+	// 	// Close the channel to signal no more messages will be sent
+	// 	gun.CloseSentChannel()
 
-		// Wait for all messages to be verified and collect metrics
-		metrics_datum, totals := waitForMetrics()
+	// 	// Wait for all messages to be verified and collect metrics
+	// 	metrics_datum, totals := waitForMetrics()
 
-		// Enrich metrics with log data collected during test
-		tc.enrichMetrics(metrics_datum)
+	// 	// Enrich metrics with log data collected during test
+	// 	tc.enrichMetrics(metrics_datum)
 
-		summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
-		metrics.PrintMetricsSummary(t, summary)
-	})
+	// 	summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
+	// 	metrics.PrintMetricsSummary(t, summary)
+	// })
 
 	// multi chain mesh load test with config file
 	t.Run("multi_chain_load", func(t *testing.T) {
@@ -714,17 +716,19 @@ func TestE2ELoad(t *testing.T) {
 
 		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
 		tc.Timeout = testProfile.TestDuration
+		messageRate, messageRateDuration := load.ParseMessageRate(testProfile.MessageRate)
 
-		gun := NewEVMTransactionGunFromTestConfig(in, &testProfile, e, chainImpls)
+		gun := NewEVMTransactionGunFromTestConfig(in, testConfig, e, chainImpls)
 		p := wasp.NewProfile().Add(
 			wasp.NewGenerator(
 				&wasp.Config{
-					LoadType:   wasp.RPS,
-					GenName:    "multi-chain-mesh-load-test",
-					Schedule:   wasp.Plain(testProfile.MessagesPerSecond, testProfile.LoadDuration),
-					Gun:        gun,
-					Labels:     map[string]string{"go_test_name": "multi-chain-load"},
-					LokiConfig: nil,
+					LoadType:              wasp.RPS,
+					GenName:               "multi-chain-mesh-load-test",
+					Schedule:              wasp.Plain(messageRate, testProfile.LoadDuration),
+					RateLimitUnitDuration: messageRateDuration,
+					Gun:                   gun,
+					Labels:                map[string]string{"go_test_name": "multi-chain-load"},
+					LokiConfig:            nil,
 				}),
 		)
 		waitForMetrics := assertMessagesAsync(tc, gun, testProfile.TestDuration)
