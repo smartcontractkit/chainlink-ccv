@@ -26,6 +26,7 @@ pre-commit:
 # Remove all the dev images
 clean-docker-dev:
     just ../../build/devenv/fakes/clean-dev >/dev/null 2>&1 || true
+    just ../../pricer/clean-dev >/dev/null 2>&1 || true
     just ../../verifier/clean-dev >/dev/null 2>&1 || true
     just ../../executor/clean-dev >/dev/null 2>&1 || true
     just ../../indexer/clean-dev >/dev/null 2>&1 || true
@@ -35,6 +36,7 @@ clean-docker-dev:
 # Build all the services (hot-reload dev mode)
 build-docker-dev:
     @just ../../build/devenv/fakes/build-dev
+    @just ../../pricer/build-dev
     @just ../../verifier/build-dev
     @just ../../executor/build-dev
     @just ../../indexer/build-dev
