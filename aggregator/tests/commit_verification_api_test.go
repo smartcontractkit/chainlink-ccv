@@ -4,6 +4,7 @@ package tests
 import (
 	"bytes"
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -382,13 +383,7 @@ func validateSignatures(t *assert.CollectT, ccvData []byte, messageId protocol.B
 	}
 
 	for expectedAddr := range expectedAddresses {
-		found := false
-		for _, recoveredAddr := range recoveredAddresses {
-			if recoveredAddr == expectedAddr {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(recoveredAddresses, expectedAddr)
 		require.True(t, found, "expected signer %s not found in recovered addresses", expectedAddr.Hex())
 	}
 
@@ -587,7 +582,7 @@ func runPaginationTest(t *testing.T, numMessages, pageSize int, storageType stri
 
 	expectedMessageIds := make(map[string]bool)
 
-	for i := 0; i < numMessages; i++ {
+	for i := range numMessages {
 		message := NewProtocolMessage(t)
 		message.SequenceNumber = protocol.SequenceNumber(i + 1)
 

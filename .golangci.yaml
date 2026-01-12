@@ -23,6 +23,7 @@ linters:
     - grouper
     - importas
     - misspell
+    - modernize
     - nakedret
     - nestif
     - nolintlint

@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -516,9 +516,7 @@ func (d *DatabaseStorage) SubmitAggregatedReport(ctx context.Context, report *mo
 		verificationRecordIDs = append(verificationRecordIDs, recordID)
 	}
 
-	sort.Slice(verificationRecordIDs, func(i, j int) bool {
-		return verificationRecordIDs[i] < verificationRecordIDs[j]
-	})
+	slices.Sort(verificationRecordIDs)
 
 	stmt := `INSERT INTO commit_aggregated_reports 
 		(message_id, verification_record_ids) 

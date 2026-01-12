@@ -205,7 +205,7 @@ func DecodeSignatures(data []byte) ([][32]byte, [][32]byte, error) {
 	ss := make([][32]byte, numSignatures)
 
 	offset := 2
-	for i := 0; i < numSignatures; i++ {
+	for i := range numSignatures {
 		copy(rs[i][:], data[offset:offset+32])
 		offset += 32
 		copy(ss[i][:], data[offset:offset+32])
@@ -223,7 +223,7 @@ func RecoverECDSASigners(hash [32]byte, rs, ss [][32]byte) ([]common.Address, er
 	}
 
 	signers := make([]common.Address, len(rs))
-	for i := 0; i < len(rs); i++ {
+	for i := range rs {
 		signer, err := RecoverECDSASigner(hash, rs[i], ss[i])
 		if err != nil {
 			return nil, fmt.Errorf("failed to recover signer for signature %d: %w", i, err)

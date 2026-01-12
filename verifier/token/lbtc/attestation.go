@@ -147,10 +147,7 @@ func splitSlice[T any](s []T, chunkSize int) [][]T {
 	}
 
 	for i := 0; i < len(s); i += chunkSize {
-		end := i + chunkSize
-		if end > len(s) {
-			end = len(s)
-		}
+		end := min(i+chunkSize, len(s))
 		result = append(result, s[i:end])
 	}
 

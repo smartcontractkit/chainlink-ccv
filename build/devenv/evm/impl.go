@@ -25,6 +25,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
+	adapters_1_6_1 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/adapters"
+	changesets_1_6_1 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/changesets"
 	rmn_remote_binding "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/burn_mint_token_pool"
@@ -99,7 +101,7 @@ var (
 	ccipMessageSentTopic = onramp.OnRampCCIPMessageSent{}.Topic()
 
 	tokenPoolVersions = []string{
-		// "1.6.1", // TODO: Re-enable when chainlink-ccip supports 1.6.1 token pool deployments.
+		"1.6.1",
 		"1.7.0",
 	}
 )
@@ -164,37 +166,32 @@ func (s TokenCombination) FinalityConfig() uint16 {
 // allTokenCombinations returns all possible token combinations.
 func AllTokenCombinations() []TokenCombination {
 	return []TokenCombination{
-		/*
-			TODO: Re-enable when chainlink-ccip supports 1.6.1 token pool deployments.
-
-			{ // 1.6.1 burn -> 1.6.1 mint
-				sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
-				sourcePoolVersion:       "1.6.1",
-				destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
-				destPoolVersion:         "1.6.1",
-				expectedReceiptIssuers:  3, // default CCV, token pool, executor
-				expectedVerifierResults: 1, // default CCV
-			},
-			{ // 1.6.1 burn -> 1.7.0 mint
-				sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
-				sourcePoolVersion:       "1.6.1",
-				destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
-				destPoolVersion:         "1.7.0",
-				destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
-				expectedReceiptIssuers:  3, // default CCV, token pool, executor
-				expectedVerifierResults: 1, // default CCV
-			},
-			{ // 1.7.0 burn -> 1.6.1 mint
-				sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
-				sourcePoolVersion:       "1.7.0",
-				sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
-				destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
-				destPoolVersion:         "1.6.1",
-				expectedReceiptIssuers:  3, // default CCV, token pool, executor
-				expectedVerifierResults: 1, // default CCV
-			},
-		*/
-
+		{ // 1.6.1 burn -> 1.6.1 mint
+			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
+			sourcePoolVersion:       "1.6.1",
+			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
+			destPoolVersion:         "1.6.1",
+			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
+			expectedVerifierResults: 1, // default CCV
+		},
+		{ // 1.6.1 burn -> 1.7.0 mint
+			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
+			sourcePoolVersion:       "1.6.1",
+			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
+			destPoolVersion:         "1.7.0",
+			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
+			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
+			expectedVerifierResults: 1, // default CCV
+		},
+		{ // 1.7.0 burn -> 1.6.1 mint
+			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
+			sourcePoolVersion:       "1.7.0",
+			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
+			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
+			destPoolVersion:         "1.6.1",
+			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
+			expectedVerifierResults: 1, // default CCV
+		},
 		// TODO: Re-enable when chainlink-ccip repo adds ERC20LockBox deployment support
 		// { // 1.7.0 lock -> 1.7.0 release
 		// 	sourcePoolType:          string(lock_release_token_pool.ContractType),
@@ -206,7 +203,6 @@ func AllTokenCombinations() []TokenCombination {
 		// 	expectedReceiptIssuers:  3, // default CCV, token pool, executor
 		// 	expectedVerifierResults: 1, // default CCV
 		// },
-
 		{ // 1.7.0 burn -> 1.7.0 mint
 			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
 			sourcePoolVersion:       "1.7.0",
@@ -1295,23 +1291,44 @@ func (m *CCIP17EVM) deployTokenAndPool(
 		return errors.New("failed to parse deployer balance")
 	}
 
-	out, err := evmchangesets.DeployTokenAndPool(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[evmchangesets.DeployTokenAndPoolCfg]{
-		Cfg: evmchangesets.DeployTokenAndPoolCfg{
-			Accounts: map[common.Address]*big.Int{
-				chain.DeployerKey.From: deployerBalance,
+	var out deployment.ChangesetOutput
+	var err error
+	if tokenPoolRef.Version.Equal(semver.MustParse("1.6.1")) {
+		out, err = changesets_1_6_1.DeployTokenAndPool(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[changesets_1_6_1.DeployTokenAndPoolCfg]{
+			Cfg: changesets_1_6_1.DeployTokenAndPoolCfg{
+				Accounts: map[common.Address]*big.Int{
+					chain.DeployerKey.From: deployerBalance,
+				},
+				ChainSel:         selector,
+				TokenPoolType:    tokenPoolRef.Type,
+				TokenPoolVersion: tokenPoolRef.Version,
+				TokenSymbol:      tokenPoolRef.Qualifier,
+				Decimals:         DefaultDecimals,
+				Router: datastore.AddressRef{
+					Type:    datastore.ContractType(routeroperations.ContractType),
+					Version: semver.MustParse(routeroperations.Deploy.Version()),
+				},
 			},
-			ChainSel:         selector,
-			TokenPoolType:    tokenPoolRef.Type,
-			TokenPoolVersion: tokenPoolRef.Version,
-			TokenSymbol:      tokenPoolRef.Qualifier,
-			Decimals:         DefaultDecimals,
-			Router: datastore.AddressRef{
-				Type:    datastore.ContractType(routeroperations.ContractType),
-				Version: semver.MustParse(routeroperations.Deploy.Version()),
+		})
+	} else {
+		out, err = evmchangesets.DeployTokenAndPool(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[evmchangesets.DeployTokenAndPoolCfg]{
+			Cfg: evmchangesets.DeployTokenAndPoolCfg{
+				Accounts: map[common.Address]*big.Int{
+					chain.DeployerKey.From: deployerBalance,
+				},
+				ChainSel:         selector,
+				TokenPoolType:    tokenPoolRef.Type,
+				TokenPoolVersion: tokenPoolRef.Version,
+				TokenSymbol:      tokenPoolRef.Qualifier,
+				Decimals:         DefaultDecimals,
+				Router: datastore.AddressRef{
+					Type:    datastore.ContractType(routeroperations.ContractType),
+					Version: semver.MustParse(routeroperations.Deploy.Version()),
+				},
+				ThresholdAmountForAdditionalCCVs: big.NewInt(0),
 			},
-			ThresholdAmountForAdditionalCCVs: big.NewInt(0),
-		},
-	})
+		})
+	}
 	if err != nil {
 		return fmt.Errorf("failed to deploy %s token and pool: %w", tokenPoolRef.Qualifier, err)
 	}
@@ -1589,7 +1606,13 @@ func (m *CCIP17EVM) ConnectContractsWithSelectors(ctx context.Context, e *deploy
 
 	tokenAdapterRegistry := tokenscore.NewTokenAdapterRegistry()
 	for _, poolVersion := range tokenPoolVersions {
-		tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(poolVersion), &evmadapters.TokenAdapter{})
+		var tokenAdapter tokenscore.TokenAdapter
+
+		tokenAdapter = &evmadapters.TokenAdapter{}
+		if poolVersion == "1.6.1" {
+			tokenAdapter = &adapters_1_6_1.TokenAdapter{}
+		}
+		tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(poolVersion), tokenAdapter)
 	}
 
 	for _, combo := range AllTokenCombinations() {
