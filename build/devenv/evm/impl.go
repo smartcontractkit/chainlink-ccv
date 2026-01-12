@@ -25,6 +25,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
+	changesets_1_6_1 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/changesets"
 	rmn_remote_binding "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/burn_mint_token_pool"
@@ -1285,23 +1286,44 @@ func (m *CCIP17EVM) deployTokenAndPool(
 		return errors.New("failed to parse deployer balance")
 	}
 
-	out, err := evmchangesets.DeployTokenAndPool(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[evmchangesets.DeployTokenAndPoolCfg]{
-		Cfg: evmchangesets.DeployTokenAndPoolCfg{
-			Accounts: map[common.Address]*big.Int{
-				chain.DeployerKey.From: deployerBalance,
+	var out deployment.ChangesetOutput
+	var err error
+	if tokenPoolRef.Version.Equal(semver.MustParse("1.6.1")) {
+		out, err = changesets_1_6_1.DeployTokenAndPool(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[changesets_1_6_1.DeployTokenAndPoolCfg]{
+			Cfg: changesets_1_6_1.DeployTokenAndPoolCfg{
+				Accounts: map[common.Address]*big.Int{
+					chain.DeployerKey.From: deployerBalance,
+				},
+				ChainSel:         selector,
+				TokenPoolType:    tokenPoolRef.Type,
+				TokenPoolVersion: tokenPoolRef.Version,
+				TokenSymbol:      tokenPoolRef.Qualifier,
+				Decimals:         DefaultDecimals,
+				Router: datastore.AddressRef{
+					Type:    datastore.ContractType(routeroperations.ContractType),
+					Version: semver.MustParse(routeroperations.Deploy.Version()),
+				},
 			},
-			ChainSel:         selector,
-			TokenPoolType:    tokenPoolRef.Type,
-			TokenPoolVersion: tokenPoolRef.Version,
-			TokenSymbol:      tokenPoolRef.Qualifier,
-			Decimals:         DefaultDecimals,
-			Router: datastore.AddressRef{
-				Type:    datastore.ContractType(routeroperations.ContractType),
-				Version: semver.MustParse(routeroperations.Deploy.Version()),
+		})
+	} else {
+		out, err = evmchangesets.DeployTokenAndPool(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[evmchangesets.DeployTokenAndPoolCfg]{
+			Cfg: evmchangesets.DeployTokenAndPoolCfg{
+				Accounts: map[common.Address]*big.Int{
+					chain.DeployerKey.From: deployerBalance,
+				},
+				ChainSel:         selector,
+				TokenPoolType:    tokenPoolRef.Type,
+				TokenPoolVersion: tokenPoolRef.Version,
+				TokenSymbol:      tokenPoolRef.Qualifier,
+				Decimals:         DefaultDecimals,
+				Router: datastore.AddressRef{
+					Type:    datastore.ContractType(routeroperations.ContractType),
+					Version: semver.MustParse(routeroperations.Deploy.Version()),
+				},
+				ThresholdAmountForAdditionalCCVs: big.NewInt(0),
 			},
-			ThresholdAmountForAdditionalCCVs: big.NewInt(0),
-		},
-	})
+		})
+	}
 	if err != nil {
 		return fmt.Errorf("failed to deploy %s token and pool: %w", tokenPoolRef.Qualifier, err)
 	}
