@@ -1,0 +1,14 @@
+interval = "5s"
+loglevel = "info"
+
+[EVM]
+ChainID = "1337"
+
+[EVM.Transactions.TransactionManagerV2]
+Enabled = true
+BlockTime = "1s"
+
+[[EVM.Nodes]]
+Name = "primary"
+WSURL = "ws://blockchain-src:8545"
+HTTPURL = "http://blockchain-src:8545"

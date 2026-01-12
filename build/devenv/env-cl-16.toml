@@ -7,6 +7,15 @@ cl_nodes_funding_link = 50
   csa_encryption_key = "d1093c0060d50a3c89c189b2e485da5a3ce57f3dcb38ab7e2c0d5f0bb2314a44" # any random 32 byte hex string
   image = "job-distributor:local"
 
+[pricer]
+  image = "pricer:dev"
+  source_code_path = "../pricer"
+  root_path = "../../"
+  [pricer.keystore]
+    address = "0x9221E2E83903C731C2927CCd84e5fa02B22Bb1E2"
+    file_path = "../pricer/keystore.json"
+    password = "keystore_test_password"
+
 [[blockchains]]
   container_name = "blockchain-src"
   chain_id = "1337"

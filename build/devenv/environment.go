@@ -14,6 +14,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/Masterminds/semver/v3"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/rs/zerolog"
 
@@ -81,13 +82,14 @@ const (
 
 type Cfg struct {
 	CLDF               CLDF                           `toml:"cldf"                  validate:"required"`
-	JD                 *jd.Input                      `toml:"jd"                    validate:"required"`
+	Pricer             *services.PricerInput          `toml:"pricer"                validate:"required"`
 	Fake               *services.FakeInput            `toml:"fake"                  validate:"required"`
 	Verifier           []*services.VerifierInput      `toml:"verifier"              validate:"required"`
 	TokenVerifier      []*services.TokenVerifierInput `toml:"token_verifier"`
 	Executor           []*services.ExecutorInput      `toml:"executor"              validate:"required"`
 	Indexer            *services.IndexerInput         `toml:"indexer"               validate:"required"`
 	Aggregator         []*services.AggregatorInput    `toml:"aggregator"            validate:"required"`
+	JD                 *jd.Input                      `toml:"jd"                    validate:"required"`
 	Blockchains        []*blockchain.Input            `toml:"blockchains"           validate:"required"`
 	NodeSets           []*ns.Input                    `toml:"nodesets"              validate:"required"`
 	CLNodesFundingETH  float64                        `toml:"cl_nodes_funding_eth"`
@@ -222,6 +224,31 @@ func NewEnvironment() (in *Cfg, err error) {
 	/////////////////////////////////////////
 	// END: Generate Aggregator Credentials //
 	/////////////////////////////////////////
+
+	///////////////////////////////
+	// START: Deploy Pricer service //
+	///////////////////////////////
+	if _, err := services.NewPricer(in.Pricer); err != nil {
+		return nil, fmt.Errorf("failed to setup pricer service")
+	}
+
+	for i, impl := range impls {
+		Plog.Info().Int("ImplIndex", i).Msg("Funding pricer key")
+		err = impl.FundAddresses(
+			ctx,
+			in.Blockchains[i],
+			[]protocol.UnknownAddress{common.HexToAddress(in.Pricer.Keystore.Address).Bytes()},
+			big.NewInt(5),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fund pricer address: %w", err)
+		}
+		Plog.Info().Int("ImplIndex", i).Msg("Funded pricer address")
+	}
+
+	///////////////////////////////
+	// END: Deploy Pricer service //
+	///////////////////////////////
 
 	////////////////////////////
 	// START: Launch CL Nodes //
