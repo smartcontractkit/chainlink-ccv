@@ -74,27 +74,5 @@ MetricReaderInterval = 5
 TraceSampleRatio = 1.0
 TraceBatchTimeout = 10
 
-# Append committee config.
-# [committee]
-#   [committee.quorumConfigs]
-#     # Format: [committee.quorumConfigs.DESTINATION_SELECTOR.SOURCE_SELECTOR]
-#     # Note: Source and destination selectors must be different
-#     [committee.quorumConfigs.12922642891491394802.3379446385462418246]
-#       committeeVerifierAddress = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"
-#       threshold = 2
-
-#       [[committee.quorumConfigs.12922642891491394802.3379446385462418246.signers]]
-#         address = "0x1745efc64c2e61f2e250b7ef79f34c4ec9af092b"
-
-#       [[committee.quorumConfigs.12922642891491394802.3379446385462418246.signers]]
-#         address = "0x313624fd004760c40323476003ac7789dd534f94"
-
-#     [committee.quorumConfigs.12922642891491394802.4793464827907405086]
-#       committeeVerifierAddress = "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"
-#       threshold = 2
-
-#       [[committee.quorumConfigs.12922642891491394802.4793464827907405086.signers]]
-#         address = "0x1745efc64c2e61f2e250b7ef79f34c4ec9af092b"
-
-#       [[committee.quorumConfigs.12922642891491394802.4793464827907405086.signers]]
-#         address = "0x313624fd004760c40323476003ac7789dd534f94"
+# Committee config is loaded from the generated config file.
+# generatedConfigPath is set dynamically during config generation.

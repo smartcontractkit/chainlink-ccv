@@ -1155,3 +1155,61 @@ func TestAPIKeyPairEnv_Getters(t *testing.T) {
 	assert.Equal(t, "test-api-key", pair.GetAPIKey())
 	assert.Equal(t, "test-secret", pair.GetSecret())
 }
+
+func TestMergeGeneratedConfig(t *testing.T) {
+	tests := []struct {
+		name            string
+		initialConfig   *AggregatorConfig
+		generatedConfig *GeneratedConfig
+		expectCommittee bool
+	}{
+		{
+			name:            "nil generated config does not modify main config",
+			initialConfig:   &AggregatorConfig{},
+			generatedConfig: nil,
+			expectCommittee: false,
+		},
+		{
+			name:            "generated config with nil committee does not modify main config",
+			initialConfig:   &AggregatorConfig{},
+			generatedConfig: &GeneratedConfig{Committee: nil},
+			expectCommittee: false,
+		},
+		{
+			name:          "generated config committee is merged into main config",
+			initialConfig: &AggregatorConfig{},
+			generatedConfig: &GeneratedConfig{
+				Committee: createValidCommittee(),
+			},
+			expectCommittee: true,
+		},
+		{
+			name: "generated config committee overwrites existing committee",
+			initialConfig: &AggregatorConfig{
+				Committee: &Committee{
+					QuorumConfigs: map[string]*QuorumConfig{
+						"999": {Threshold: 5},
+					},
+				},
+			},
+			generatedConfig: &GeneratedConfig{
+				Committee: createValidCommittee(),
+			},
+			expectCommittee: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.initialConfig.MergeGeneratedConfig(tt.generatedConfig)
+
+			if tt.expectCommittee {
+				require.NotNil(t, tt.initialConfig.Committee)
+				_, exists := tt.initialConfig.Committee.GetQuorumConfig(1)
+				assert.True(t, exists, "expected quorum config from generated committee")
+			} else if tt.generatedConfig == nil || tt.generatedConfig.Committee == nil {
+				assert.Nil(t, tt.initialConfig.Committee)
+			}
+		})
+	}
+}
