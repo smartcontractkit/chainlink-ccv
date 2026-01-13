@@ -863,6 +863,7 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, field
 	l.Info().
 		Str("TxHash", messageSentEvent.Raw.TxHash.String()).
 		Uint64("BlockNumber", messageSentEvent.Raw.BlockNumber).
+		Str("Sender", sender.From.String()).
 		Bool("Executed", receipt != nil).
 		Uint64("SrcChainSelector", srcChain.Selector).
 		Uint64("DestChainSelector", dest).
