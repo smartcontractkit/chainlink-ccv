@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
@@ -32,6 +33,11 @@ type SrcDest struct {
 	Dest uint64
 }
 
+type NonceKey struct {
+	Selector uint64
+	Address  string
+}
+
 // SentMessage represents a message that was sent and needs verification.
 type SentMessage struct {
 	SeqNo     uint64
@@ -53,8 +59,9 @@ type EVMTXGun struct {
 	sentMsgCh       chan SentMessage // Channel for real-time message notifications
 	closeOnce       sync.Once        // Ensure channel is closed only once
 	nonceMu         sync.Mutex
-	nonce           map[uint64]*atomic.Uint64
+	nonce           map[NonceKey]*atomic.Uint64
 	messageProfiles []load.MessageProfileConfig
+	userSelector    map[uint64]func() *bind.TransactOpts
 }
 
 // CloseSentChannel closes the sent messages channel to signal no more messages will be sent.
@@ -72,7 +79,7 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []u
 		impl:          impls,
 		sentMsgSet:    make(map[SentMessage]struct{}),
 		sentMsgCh:     make(chan SentMessage, sentMessageChannelBufferSize),
-		nonce:         make(map[uint64]*atomic.Uint64),
+		nonce:         make(map[NonceKey]*atomic.Uint64),
 		srcSelectors:  srcSelectors,
 		destSelectors: destSelectors,
 	}
@@ -93,6 +100,12 @@ func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testConfig *load.TestProfi
 		selectors = append(selectors, chainSelector)
 		destSelectors = append(destSelectors, chainSelector)
 	}
+
+	userSelector := make(map[uint64]func() *bind.TransactOpts)
+	for _, chain := range srcSelectors {
+		userSelector[chain] = impls[chain].GetRoundRobinUser()
+	}
+
 	return &EVMTXGun{
 		cfg:             cfg,
 		testConfig:      &testProfile,
@@ -101,28 +114,29 @@ func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testConfig *load.TestProfi
 		impl:            impls,
 		sentMsgSet:      make(map[SentMessage]struct{}),
 		sentMsgCh:       make(chan SentMessage, sentMessageChannelBufferSize),
-		nonce:           make(map[uint64]*atomic.Uint64),
+		nonce:           make(map[NonceKey]*atomic.Uint64),
 		srcSelectors:    srcSelectors,
 		destSelectors:   destSelectors,
 		messageProfiles: testConfig.MessageProfiles,
+		userSelector:    userSelector,
 	}
 }
 
-func (m *EVMTXGun) initNonce(chainSelector uint64) error {
+func (m *EVMTXGun) initNonce(key NonceKey) error {
 	m.nonceMu.Lock()
 	defer m.nonceMu.Unlock()
 
-	if m.nonce[chainSelector] != nil {
+	if m.nonce[key] != nil {
 		return nil
 	}
 
-	n, err := m.impl[chainSelector].GetUserNonce(context.Background())
+	n, err := m.impl[key.Selector].GetUserNonce(context.Background())
 	if err != nil {
-		return fmt.Errorf("failed to get pending nonce for selector %d: %w", chainSelector, err)
+		return fmt.Errorf("failed to get pending nonce for selector %d: %w", key.Selector, err)
 	}
 
-	m.nonce[chainSelector] = &atomic.Uint64{}
-	m.nonce[chainSelector].Store(n)
+	m.nonce[key] = &atomic.Uint64{}
+	m.nonce[key].Store(n)
 	return nil
 }
 
@@ -144,7 +158,10 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: fmt.Errorf("failed to select message profile: %w", err).Error(), Failed: true}
 	}
 
-	if err := m.initNonce(srcSelector); err != nil {
+	sender := m.userSelector[srcSelector]()
+	nonceKey := NonceKey{Selector: srcSelector, Address: sender.From.String()}
+
+	if err := m.initNonce(nonceKey); err != nil {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}
 
@@ -156,7 +173,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: "impl is not CCIP17EVM", Failed: true}
 	}
 
-	sentEvent, err := c.SendMessageWithNonce(ctx, destSelector, fields, opts, m.nonce[srcSelector], true)
+	sentEvent, err := c.SendMessageWithNonce(ctx, destSelector, fields, opts, sender, m.nonce[nonceKey], true)
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("failed to send message: %w", err).Error(), Failed: true}
 	}
