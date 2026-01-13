@@ -22,12 +22,17 @@ Since 1.6/1.7 CCIP versions are incompatible for the time being we'll have 2 set
 for CCIP16 and CCIP17
 */
 
-// CCIP17ProductConfiguration includes all the interfaces that if implemented allows us to run a standard test suite for 2+ chains
-// it deploys network-specific infrastructure, configures both CL nodes and contracts and returns
-// operations for testing and SLA/Metrics assertions.
-type CCIP17ProductConfiguration interface {
+// CCIP17 is the main interface for interacting with the CCIP17 protocol.
+type CCIP17 interface {
 	Chain
 	Observable
+}
+
+// CCIP17Configuration includes all the interfaces that if implemented allows us to deploy the
+// protocol.
+// It deploys network-specific infrastructure, configures both CL nodes and contracts and returns
+// operations for testing and SLA/Metrics assertions.
+type CCIP17Configuration interface {
 	OnChainConfigurable
 	OffChainConfigurable
 }

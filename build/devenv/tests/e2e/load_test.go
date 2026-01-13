@@ -248,7 +248,7 @@ func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
 	}
 }
 
-func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, selectors []uint64, impl map[uint64]cciptestinterfaces.CCIP17ProductConfiguration, s, d cldfevm.Chain) (*wasp.Profile, *EVMTXGun) {
+func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, selectors []uint64, impl map[uint64]cciptestinterfaces.CCIP17, s, d cldfevm.Chain) (*wasp.Profile, *EVMTXGun) {
 	gun := NewEVMTransactionGun(in, e, selectors, impl, []uint64{s.Selector}, []uint64{d.Selector})
 	profile := wasp.NewProfile().
 		Add(wasp.NewGenerator(&wasp.Config{
