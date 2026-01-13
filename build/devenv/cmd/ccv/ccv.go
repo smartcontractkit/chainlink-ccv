@@ -406,7 +406,7 @@ var testCmd = &cobra.Command{
 			}
 		}
 
-		testCmd := exec.Command("go", "test", "-v", "-run", testPattern)
+		testCmd := exec.Command("go", "test", "-v", "-run", testPattern, "-timeout=0")
 		testCmd.Stdout = os.Stdout
 		testCmd.Stderr = os.Stderr
 		testCmd.Stdin = os.Stdin

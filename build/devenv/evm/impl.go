@@ -734,12 +734,15 @@ func (m *CCIP17EVM) validateTokenBalances(ctx context.Context, srcChain evm.Chai
 }
 
 func (m *CCIP17EVM) SendMessage(ctx context.Context, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions) (cciptestinterfaces.MessageSentEvent, error) {
-	return m.SendMessageWithNonce(ctx, dest, fields, opts, nil, false)
+	return m.SendMessageWithNonce(ctx, dest, fields, opts, nil, nil, false)
 }
 
-func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions, nonce *atomic.Uint64, disableTokenAmountCheck bool) (cciptestinterfaces.MessageSentEvent, error) {
+func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions, sender *bind.TransactOpts, nonce *atomic.Uint64, disableTokenAmountCheck bool) (cciptestinterfaces.MessageSentEvent, error) {
 	l := m.logger
 	srcChain := m.chain
+	if sender == nil {
+		sender = m.chain.DeployerKey
+	}
 
 	destFamily, err := chainsel.GetSelectorFamily(dest)
 	if err != nil {
@@ -794,8 +797,8 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, field
 		loadNonce = big.NewInt(int64(nonce.Load()))
 	}
 	deployerKeyCopy := &bind.TransactOpts{
-		From:   srcChain.DeployerKey.From,
-		Signer: srcChain.DeployerKey.Signer,
+		From:   sender.From,
+		Signer: sender.Signer,
 		Nonce:  loadNonce,
 		Value:  msgValue,
 	}
@@ -1980,4 +1983,17 @@ func (m *CCIP17EVM) Uncurse(ctx context.Context, subjects [][16]byte) error {
 		Msg("Applied uncurse on chain")
 
 	return nil
+}
+
+func (m *CCIP17EVM) GetRoundRobinUser() func() *bind.TransactOpts {
+	if len(m.chain.Users) == 0 {
+		return func() *bind.TransactOpts {
+			return m.chain.DeployerKey
+		}
+	}
+	index := &atomic.Uint32{}
+	return func() *bind.TransactOpts {
+		index.Add(1)
+		return m.chain.Users[index.Load()%uint32(len(m.chain.Users))]
+	}
 }

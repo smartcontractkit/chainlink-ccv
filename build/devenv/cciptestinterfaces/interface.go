@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -122,7 +123,7 @@ type Chain interface {
 	// SendMessage sends a CCIP message to the specified destination chain with the specified message options.
 	SendMessage(ctx context.Context, dest uint64, fields MessageFields, opts MessageOptions) (MessageSentEvent, error)
 	// SendMessageWithNonce sends a CCIP message to the specified destination chain with the specified message options and nonce.
-	SendMessageWithNonce(ctx context.Context, dest uint64, fields MessageFields, opts MessageOptions, nonce *atomic.Uint64, disableTokenAmountCheck bool) (MessageSentEvent, error)
+	SendMessageWithNonce(ctx context.Context, dest uint64, fields MessageFields, opts MessageOptions, sender *bind.TransactOpts, nonce *atomic.Uint64, disableTokenAmountCheck bool) (MessageSentEvent, error)
 	// GetUserNonce returns the nonce for the user on this chain.
 	GetUserNonce(ctx context.Context) (uint64, error)
 	// GetExpectedNextSequenceNumber gets an expected sequence number for message to the specified destination chain.
@@ -141,6 +142,8 @@ type Chain interface {
 	Curse(ctx context.Context, subjects [][16]byte) error
 	// Uncurse uncurses a list of chains on this chain.
 	Uncurse(ctx context.Context, subjects [][16]byte) error
+	// GetRoundRobinSendingKey gets the round robin sending key for the chain.
+	GetRoundRobinUser() func() *bind.TransactOpts
 }
 
 type OnChainCommittees struct {
