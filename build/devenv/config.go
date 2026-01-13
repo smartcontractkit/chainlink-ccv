@@ -106,7 +106,7 @@ func LoadOutput[T any](outputPath string) (*T, error) {
 		return nil, fmt.Errorf("config is not a *Cfg")
 	}
 	if len(c.CLDF.Addresses) <= 0 {
-		return nil, fmt.Errorf("No addresses found in config")
+		return nil, fmt.Errorf("no addresses found in config")
 	}
 
 	ds := datastore.NewMemoryDataStore()
