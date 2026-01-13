@@ -72,6 +72,10 @@ func (m *EVMTXGun) CloseSentChannel() {
 }
 
 func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impls map[uint64]cciptestinterfaces.CCIP17, srcSelectors, destSelectors []uint64) *EVMTXGun {
+	userSelector := make(map[uint64]func() *bind.TransactOpts)
+	for _, chain := range srcSelectors {
+		userSelector[chain] = impls[chain].GetRoundRobinUser()
+	}
 	return &EVMTXGun{
 		cfg:           cfg,
 		e:             e,
@@ -82,6 +86,7 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []u
 		nonce:         make(map[NonceKey]*atomic.Uint64),
 		srcSelectors:  srcSelectors,
 		destSelectors: destSelectors,
+		userSelector:  userSelector,
 	}
 }
 
