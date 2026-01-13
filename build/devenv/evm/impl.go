@@ -41,7 +41,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/lock_release_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences/cctp"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
@@ -2031,63 +2030,42 @@ func (m *CCIP17EVM) deployUSDCTokenAndPool(
 		return fmt.Errorf("failed to deploy Circle-owned contracts on chain %d: %w", selector, err)
 	}
 
-	rmnRemoteAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
-		selector,
-		datastore.ContractType(rmn_remote.ContractType),
-		semver.MustParse(rmn_remote.Deploy.Version()),
-		"",
-	))
-	if err != nil {
-		return fmt.Errorf("failed to get rmn remote address for chain %d: %w", selector, err)
-	}
+	cctpChainRegistry := adapters.NewCCTPChainRegistry()
+	cctpChainRegistry.RegisterCCTPChain("evm", &evmadapters.CCTPChainAdapter{})
 
-	routerAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
-		selector,
-		datastore.ContractType(routeroperations.ContractType),
-		semver.MustParse(routeroperations.Deploy.Version()),
-		"",
-	))
+	_, err = changesets.DeployCCTPChains(cctpChainRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
+		Chains: []adapters.DeployCCTPInput[datastore.AddressRef, datastore.AddressRef]{
+			{
+				ChainSelector: selector,
+				TokenAdminRegistry: datastore.AddressRef{
+					Type:    datastore.ContractType(token_admin_registry.ContractType),
+					Version: semver.MustParse(token_admin_registry.Deploy.Version()),
+				},
+				TokenMessenger:   messenger.Hex(),
+				USDCToken:        usdc.Hex(),
+				MinFinalityValue: 1,
+				StorageLocations: []string{"https://test.chain.link.fake"},
+				FeeAggregator:    common.HexToAddress("0x04").Hex(),
+				AllowlistAdmin:   common.HexToAddress("0x05").Hex(),
+				FastFinalityBps:  100,
+				RMN: datastore.AddressRef{
+					Type:    datastore.ContractType(rmn_remote.ContractType),
+					Version: semver.MustParse(rmn_remote.Deploy.Version()),
+				},
+				Router: datastore.AddressRef{
+					Type:    datastore.ContractType(routeroperations.ContractType),
+					Version: semver.MustParse(routeroperations.Deploy.Version()),
+				},
+				DeployerContract:                 create2Factory.Address,
+				Allowlist:                        []string{common.HexToAddress("0x08").Hex()},
+				ThresholdAmountForAdditionalCCVs: big.NewInt(1e18),
+				RateLimitAdmin:                   chain.DeployerKey.From.Hex(),
+				RemoteChains:                     make(map[uint64]adapters.RemoteCCTPChainConfig[datastore.AddressRef, datastore.AddressRef]),
+			},
+		},
+	})
 	if err != nil {
-		return fmt.Errorf("failed to get router address for chain %d: %w", selector, err)
-	}
-
-	tokenAdminRegistryRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
-		selector,
-		datastore.ContractType(token_admin_registry.ContractType),
-		semver.MustParse(token_admin_registry.Deploy.Version()),
-		"",
-	))
-	if err != nil {
-		return fmt.Errorf("failed to get token admin registry address for chain %d: %w", selector, err)
-	}
-
-	input := adapters.DeployCCTPInput[string, []byte]{
-		ChainSelector:                    selector,
-		TokenAdminRegistry:               tokenAdminRegistryRef.Address,
-		TokenMessenger:                   messenger.Hex(),
-		USDCToken:                        usdc.Hex(),
-		MinFinalityValue:                 1,
-		StorageLocations:                 []string{"https://test.chain.link.fake"},
-		FeeAggregator:                    common.HexToAddress("0x04").Hex(),
-		AllowlistAdmin:                   common.HexToAddress("0x05").Hex(),
-		FastFinalityBps:                  100,
-		RMN:                              rmnRemoteAddressRef.Address,
-		Router:                           routerAddressRef.Address,
-		DeployerContract:                 create2Factory.Address,
-		Allowlist:                        []string{common.HexToAddress("0x08").Hex()},
-		ThresholdAmountForAdditionalCCVs: big.NewInt(1e18),
-		RateLimitAdmin:                   chain.DeployerKey.From.Hex(),
-		RemoteChains:                     make(map[uint64]adapters.RemoteCCTPChainConfig[string, []byte]),
-	}
-
-	_, err = operations.ExecuteSequence(
-		env.OperationsBundle,
-		cctp.DeployCCTPChain,
-		env.BlockChains,
-		input,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to deploy CCTP USDc token pool on chain %d: %w", selector, err)
+		return fmt.Errorf("failed to deploy CCTP chain registry on chain %d: %w", selector, err)
 	}
 	return nil
 }
