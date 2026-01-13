@@ -110,7 +110,7 @@ func SerializeRequestBody(req any) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("request is not a proto.Message")
 	}
-	return proto.Marshal(protoMsg)
+	return proto.MarshalOptions{Deterministic: true}.Marshal(protoMsg)
 }
 
 // ComputeBodyHash computes the SHA256 hash of the request body and returns it as a hex-encoded string.
