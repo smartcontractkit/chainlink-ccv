@@ -226,7 +226,6 @@ func ensureWETHBalanceAndApproval(ctx context.Context, t *testing.T, logger zero
 		require.NoError(t, err)
 		logger.Info().Str("approvedAmount", requiredWETH.String()).Msg("Approved WETH for router")
 	}
-
 }
 
 func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
