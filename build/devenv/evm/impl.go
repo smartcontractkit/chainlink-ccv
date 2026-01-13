@@ -25,9 +25,13 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_messenger"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_transmitter"
+
 	adapters_1_6_1 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/adapters"
 	changesets_1_6_1 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/changesets"
 	rmn_remote_binding "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
+	burn_mint_erc20_bindings "github.com/smartcontractkit/chainlink-evm/gethwrappers/shared/generated/initial/burn_mint_erc20"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/burn_mint_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
@@ -37,6 +41,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/lock_release_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences/cctp"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
@@ -1271,6 +1276,10 @@ func (m *CCIP17EVM) DeployContractsForSelector(ctx context.Context, env *deploym
 		}
 	}
 
+	if err := m.deployUSDCTokenAndPool(env, mcmsReaderRegistry, runningDS, create2FactoryRef, selector); err != nil {
+		return nil, fmt.Errorf("failed to deploy USDC token and pool: %w", err)
+	}
+
 	return runningDS.Seal(), nil
 }
 
@@ -2003,4 +2012,130 @@ func (m *CCIP17EVM) Uncurse(ctx context.Context, subjects [][16]byte) error {
 		Msg("Applied uncurse on chain")
 
 	return nil
+}
+
+func (m *CCIP17EVM) deployUSDCTokenAndPool(
+	env *deployment.Environment,
+	registry *changesetscore.MCMSReaderRegistry,
+	ds *datastore.MemoryDataStore,
+	create2Factory datastore.AddressRef,
+	selector uint64,
+) error {
+	chain, ok := env.BlockChains.EVMChains()[selector]
+	if !ok {
+		return fmt.Errorf("evm chain not found for selector %d", selector)
+	}
+
+	usdc, _, messenger, err := m.deployCircleOwnedContracts(chain)
+	if err != nil {
+		return fmt.Errorf("failed to deploy Circle-owned contracts on chain %d: %w", selector, err)
+	}
+
+	rmnRemoteAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+		selector,
+		datastore.ContractType(rmn_remote.ContractType),
+		semver.MustParse(rmn_remote.Deploy.Version()),
+		"",
+	))
+	if err != nil {
+		return fmt.Errorf("failed to get rmn remote address for chain %d: %w", selector, err)
+	}
+
+	routerAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+		selector,
+		datastore.ContractType(routeroperations.ContractType),
+		semver.MustParse(routeroperations.Deploy.Version()),
+		"",
+	))
+	if err != nil {
+		return fmt.Errorf("failed to get router address for chain %d: %w", selector, err)
+	}
+
+	tokenAdminRegistryRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+		selector,
+		datastore.ContractType(token_admin_registry.ContractType),
+		semver.MustParse(token_admin_registry.Deploy.Version()),
+		"",
+	))
+	if err != nil {
+		return fmt.Errorf("failed to get token admin registry address for chain %d: %w", selector, err)
+	}
+
+	input := adapters.DeployCCTPInput[string, []byte]{
+		ChainSelector:                    selector,
+		TokenAdminRegistry:               tokenAdminRegistryRef.Address,
+		TokenMessenger:                   messenger.Hex(),
+		USDCToken:                        usdc.Hex(),
+		MinFinalityValue:                 1,
+		StorageLocations:                 []string{"https://test.chain.link.fake"},
+		FeeAggregator:                    common.HexToAddress("0x04").Hex(),
+		AllowlistAdmin:                   common.HexToAddress("0x05").Hex(),
+		FastFinalityBps:                  100,
+		RMN:                              rmnRemoteAddressRef.Address,
+		Router:                           routerAddressRef.Address,
+		DeployerContract:                 create2Factory.Address,
+		Allowlist:                        []string{common.HexToAddress("0x08").Hex()},
+		ThresholdAmountForAdditionalCCVs: big.NewInt(1e18),
+		RateLimitAdmin:                   chain.DeployerKey.From.Hex(),
+		RemoteChains:                     make(map[uint64]adapters.RemoteCCTPChainConfig[string, []byte]),
+	}
+
+	_, err = operations.ExecuteSequence(
+		env.OperationsBundle,
+		cctp.DeployCCTPChain,
+		env.BlockChains,
+		input,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to deploy CCTP USDc token pool on chain %d: %w", selector, err)
+	}
+	return nil
+}
+
+func (m *CCIP17EVM) deployCircleOwnedContracts(chain evm.Chain) (common.Address, common.Address, common.Address, error) {
+	var empty common.Address
+	usdcTokenAddr, tx, _, err := burn_mint_erc20_bindings.DeployBurnMintERC20(
+		chain.DeployerKey,
+		chain.Client,
+		"USD Coin",
+		"USDC",
+		6,             // decimals
+		big.NewInt(0), // maxSupply
+		big.NewInt(0), // pre-mint amount
+	)
+	if err != nil {
+		return empty, empty, empty, fmt.Errorf("failed to deploy USDC token: %w", err)
+	}
+	if _, err1 := chain.Confirm(tx); err1 != nil {
+		return empty, empty, empty, fmt.Errorf("failed to confirm USDC token deployment tx: %w", err1)
+	}
+
+	messageTransmitterAddr, tx, _, err := mock_usdc_token_transmitter.DeployMockE2EUSDCTransmitter(
+		chain.DeployerKey,
+		chain.Client,
+		uint32(1),     // version (CCTP V2)
+		uint32(1),     // localDomain
+		usdcTokenAddr, // token
+	)
+	if err != nil {
+		return empty, empty, empty, fmt.Errorf("failed to deploy USDC message transmitter: %w", err)
+	}
+	if _, err1 := chain.Confirm(tx); err1 != nil {
+		return empty, empty, empty, fmt.Errorf("failed to confirm USDC message transmitter deployment tx: %w", err1)
+	}
+
+	tokenMessengerAddr, tx, _, err := mock_usdc_token_messenger.DeployMockE2EUSDCTokenMessenger(
+		chain.DeployerKey,
+		chain.Client,
+		uint32(1),              // version (CCTP V2)
+		messageTransmitterAddr, // transmitter
+	)
+	if err != nil {
+		return empty, empty, empty, fmt.Errorf("failed to deploy USDC token messenger: %w", err)
+	}
+	if _, err1 := chain.Confirm(tx); err1 != nil {
+		return empty, empty, empty, fmt.Errorf("failed to confirm USDC token messenger deployment tx: %w", err1)
+	}
+
+	return usdcTokenAddr, messageTransmitterAddr, tokenMessengerAddr, nil
 }
