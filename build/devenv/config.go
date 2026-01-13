@@ -145,7 +145,8 @@ func getNetworkPrivateKey() string {
 }
 
 func getUserPrivateKeys() []string {
-	userPrivateKeys, idx := []string{}, 0
+	// populate the first user with the deployer key
+	userPrivateKeys, idx := []string{getNetworkPrivateKey()}, 0
 	for {
 		idx++
 		pk := os.Getenv(fmt.Sprintf("PRIVATE_KEY_%d", idx))

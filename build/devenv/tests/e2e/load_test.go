@@ -180,7 +180,6 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun, overallTimeout time.D
 
 func ensureWETHBalanceAndApproval(ctx context.Context, t *testing.T, logger zerolog.Logger, e *deployment.Environment, chain cldfevm.Chain, requiredWETH *big.Int) {
 	logger.Info().Str("chain", strconv.FormatUint(chain.Selector, 10)).Msg("Ensuring WETH balance and approval")
-	logger.Info().Str("deployer address", chain.DeployerKey.From.Hex()).Msg("Deployer address")
 	wethContract, err := e.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
 			chain.Selector,
@@ -199,31 +198,35 @@ func ensureWETHBalanceAndApproval(ctx context.Context, t *testing.T, logger zero
 		""))
 	require.NoError(t, err)
 
-	balance, err := chain.Client.BalanceAt(ctx, chain.DeployerKey.From, nil)
-	require.NoError(t, err)
-	logger.Info().Str("balance", balance.String()).Msg("Deployer balance before deposit")
-
-	wethBalance, err := wethInstance.BalanceOf(nil, chain.DeployerKey.From)
-	require.NoError(t, err)
-	logger.Info().Str("wethBalance", wethBalance.String()).Str("requiredWETH", requiredWETH.String()).Msg("Deployer WETH balance before deposit")
-
-	if wethBalance.Cmp(requiredWETH) < 0 {
-		depositAmount := new(big.Int).Sub(requiredWETH, wethBalance)
-		oldValue := chain.DeployerKey.Value
-		chain.DeployerKey.Value = depositAmount
-		tx1, err := wethInstance.Deposit(chain.DeployerKey)
+	for _, user := range chain.Users {
+		logger.Info().Str("user address", user.From.String()).Msg("User address")
+		balance, err := chain.Client.BalanceAt(ctx, user.From, nil)
 		require.NoError(t, err)
-		_, err = chain.Confirm(tx1)
+		logger.Info().Str("balance", balance.String()).Msg("Deployer balance before deposit")
+
+		wethBalance, err := wethInstance.BalanceOf(nil, user.From)
 		require.NoError(t, err)
-		chain.DeployerKey.Value = oldValue
-		logger.Info().Str("depositAmount", depositAmount.String()).Msg("Deposited WETH")
+		logger.Info().Str("wethBalance", wethBalance.String()).Str("requiredWETH", requiredWETH.String()).Msg("Deployer WETH balance before deposit")
+
+		if wethBalance.Cmp(requiredWETH) < 0 {
+			depositAmount := new(big.Int).Sub(requiredWETH, wethBalance)
+			oldValue := user.Value
+			user.Value = depositAmount
+			tx1, err := wethInstance.Deposit(user)
+			require.NoError(t, err)
+			_, err = chain.Confirm(tx1)
+			require.NoError(t, err)
+			user.Value = oldValue
+			logger.Info().Str("depositAmount", depositAmount.String()).Msg("Deposited WETH")
+		}
+
+		tx, err := wethInstance.Approve(user, common.HexToAddress(routerInstance.Address), requiredWETH)
+		require.NoError(t, err)
+		_, err = chain.Confirm(tx)
+		require.NoError(t, err)
+		logger.Info().Str("approvedAmount", requiredWETH.String()).Msg("Approved WETH for router")
 	}
 
-	tx, err := wethInstance.Approve(chain.DeployerKey, common.HexToAddress(routerInstance.Address), requiredWETH)
-	require.NoError(t, err)
-	_, err = chain.Confirm(tx)
-	require.NoError(t, err)
-	logger.Info().Str("approvedAmount", requiredWETH.String()).Msg("Approved WETH for router")
 }
 
 func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
