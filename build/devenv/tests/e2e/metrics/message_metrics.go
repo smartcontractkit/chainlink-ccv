@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"slices"
+	"sort"
 	"testing"
 	"time"
 )
