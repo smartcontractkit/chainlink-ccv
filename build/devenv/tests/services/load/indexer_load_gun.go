@@ -12,9 +12,17 @@ import (
 	"sync"
 	"time"
 
+	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-testing-framework/wasp"
 )
+
+// TODO: Make these configurable via environment variables or test parameters
+const IndexerURI = "http://localhost:8102"
+
+// TODO: Figure out what is at localhost:9111
+const SomethingURI = "http://localhost:9111"
 
 type IndexerLoadGun struct {
 	sentTimes       map[protocol.Bytes32]time.Time
@@ -26,6 +34,7 @@ type IndexerLoadGun struct {
 	mu              sync.RWMutex
 	wg              sync.WaitGroup
 	httpClient      *http.Client
+	indexerClient   *client.IndexerClient
 	verifySemaphore chan struct{} // Limits concurrent verification requests
 }
 
@@ -36,7 +45,7 @@ type Metrics struct {
 	Latency        time.Duration
 }
 
-func NewIndexerLoadGun() *IndexerLoadGun {
+func NewIndexerLoadGun() (*IndexerLoadGun, error) {
 	// Create HTTP client with larger connection pool to prevent connection exhaustion
 	transport := &http.Transport{
 		MaxIdleConns:        200,
@@ -51,6 +60,16 @@ func NewIndexerLoadGun() *IndexerLoadGun {
 	maxConcurrentVerifications := 100
 	verifySemaphore := make(chan struct{}, maxConcurrentVerifications)
 
+	httpClient := &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: transport,
+	}
+
+	indexerClient, err := client.NewIndexerClient(IndexerURI, httpClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create IndexerClient: %v", err)
+	}
+
 	gun := &IndexerLoadGun{
 		sentTimes:       make(map[protocol.Bytes32]time.Time),
 		metrics:         make([]Metrics, 0),
@@ -61,13 +80,11 @@ func NewIndexerLoadGun() *IndexerLoadGun {
 		mu:              sync.RWMutex{},
 		wg:              sync.WaitGroup{},
 		verifySemaphore: verifySemaphore,
-		httpClient: &http.Client{
-			Timeout:   10 * time.Second,
-			Transport: transport,
-		},
+		httpClient:      httpClient,
+		indexerClient:   indexerClient,
 	}
 
-	return gun
+	return gun, nil
 }
 
 func (i *IndexerLoadGun) Call(gen *wasp.Generator) *wasp.Response {
@@ -89,7 +106,7 @@ func (i *IndexerLoadGun) Call(gen *wasp.Generator) *wasp.Response {
 		log.Fatal(err)
 	}
 
-	req, err := http.NewRequest("POST", "http://localhost:9111/message", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", SomethingURI, "message"), bytes.NewBuffer(jsonData))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -206,7 +223,7 @@ func (i *IndexerLoadGun) handleMessage(ctx context.Context, msg protocol.QueryRe
 			}
 
 			// Try to verify the message
-			if i.verifyMessage(messageID) {
+			if i.verifyMessage(ctx, messageID) {
 				// Message found! Calculate latency and record metrics
 				latency := time.Since(sentTime)
 				i.metricsCh <- Metrics{
@@ -224,39 +241,23 @@ func (i *IndexerLoadGun) handleMessage(ctx context.Context, msg protocol.QueryRe
 	}
 }
 
-func (i *IndexerLoadGun) verifyMessage(messageID protocol.Bytes32) bool {
+func (i *IndexerLoadGun) verifyMessage(ctx context.Context, messageID protocol.Bytes32) bool {
 	// Acquire semaphore to limit concurrent requests
 	i.verifySemaphore <- struct{}{}
 	defer func() {
 		<-i.verifySemaphore
 	}()
 
-	// TODO: Use the IndexerClient instead of raw HTTP calls
-	// Build the URL
-	url := fmt.Sprintf("http://localhost:8102/v1/verifierresults/%s", messageID.String())
-
-	// Make GET request to indexer using shared HTTP client with connection pooling
-	resp, err := i.httpClient.Get(url)
-	if err != nil {
-		log.Printf("ERROR: Verification failed for message %s: %v", messageID.String(), err)
-		return false
-	}
-
-	// Important: Must read and close body properly for connection reuse
-	// Not reading the body can cause EOF errors on subsequent requests
-	statusOK := resp.StatusCode == http.StatusOK
-
-	if resp.StatusCode == http.StatusTooManyRequests {
+	status, _, err := i.indexerClient.VerifierResultsByMessageID(ctx,
+		v1.VerifierResultsByMessageIDInput{MessageID: messageID.String()})
+	if status == http.StatusTooManyRequests {
 		log.Fatal("Rate Limit Exceeded, this should not happen. Cancelling test.")
 	}
+	if err != nil {
+		log.Fatalf("Error verifying message %s: %v", messageID.String(), err)
+	}
 
-	// Read and discard the body to allow connection reuse
-	// This is critical - closing without reading causes EOF errors
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
-
-	// Return true if message exists (status 200), false otherwise
-	return statusOK
+	return true
 }
 
 func (i *IndexerLoadGun) CloseSentChannel() {

@@ -2,6 +2,7 @@ package load
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -15,8 +16,12 @@ type MetricsSummary struct {
 	TotalVerified int64
 }
 
-func createLoadProfile(rps int64, testDuration time.Duration) (*wasp.Profile, *IndexerLoadGun) {
-	gun := NewIndexerLoadGun()
+func createLoadProfile(rps int64, testDuration time.Duration) (*wasp.Profile, *IndexerLoadGun, error) {
+	gun, err := NewIndexerLoadGun()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create load profile: %w", err)
+	}
+
 	profile := wasp.NewProfile().
 		Add(wasp.NewGenerator(&wasp.Config{
 			LoadType: wasp.RPS,
@@ -28,19 +33,20 @@ func createLoadProfile(rps int64, testDuration time.Duration) (*wasp.Profile, *I
 			// Disable Loki config to avoid connection errors
 			// LokiConfig: wasp.NewEnvLokiConfig(),
 		}))
-	return profile, gun
+	return profile, gun, nil
 }
 
 func TestIndexerLoad(t *testing.T) {
 	rps := int64(50)
 	testDuration := 1 * time.Minute
 
-	p, gun := createLoadProfile(rps, testDuration)
+	p, gun, err := createLoadProfile(rps, testDuration)
+	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), testDuration*2)
 	defer cancel()
 
 	verifyDoneCh := gun.VerifyMessagesAsync(ctx)
-	_, err := p.Run(true)
+	_, err = p.Run(true)
 	require.NoError(t, err)
 
 	// Close the sent message channel to signal no more messages are coming
