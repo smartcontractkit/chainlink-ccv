@@ -101,24 +101,27 @@ func LoadOutput[T any](outputPath string) (*T, error) {
 	}
 
 	// Load addresses into the datastore so that tests can query them appropriately.
-	if c, ok := any(config).(*Cfg); ok {
-		if len(c.CLDF.Addresses) > 0 {
-			ds := datastore.NewMemoryDataStore()
-			for _, addrRefJSON := range c.CLDF.Addresses {
-				var addrs []datastore.AddressRef
-				if err := json.Unmarshal([]byte(addrRefJSON), &addrs); err != nil {
-					return nil, fmt.Errorf("failed to unmarshal addresses from config: %w", err)
-				}
-				for _, addr := range addrs {
-					if err := ds.Addresses().Add(addr); err != nil {
-						return nil, fmt.Errorf("failed to set address in datastore: %w", err)
-					}
-				}
-			}
-			c.CLDF.DataStore = ds.Seal()
-		}
+	c, ok := any(config).(*Cfg)
+	if !ok {
+		return nil, fmt.Errorf("config is not a *Cfg")
+	}
+	if len(c.CLDF.Addresses) <= 0 {
+		return nil, fmt.Errorf("No addresses found in config")
 	}
 
+	ds := datastore.NewMemoryDataStore()
+	for _, addrRefJSON := range c.CLDF.Addresses {
+		var addrs []datastore.AddressRef
+		if err := json.Unmarshal([]byte(addrRefJSON), &addrs); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal addresses from config: %w", err)
+		}
+		for _, addr := range addrs {
+			if err := ds.Addresses().Add(addr); err != nil {
+				return nil, fmt.Errorf("failed to set address in datastore: %w", err)
+			}
+		}
+	}
+	c.CLDF.DataStore = ds.Seal()
 	return config, nil
 }
 
@@ -142,8 +145,7 @@ func getNetworkPrivateKey() string {
 }
 
 func getUserPrivateKeys() []string {
-	userPrivateKeys := []string{}
-	var idx int = 0
+	userPrivateKeys, idx := []string{}, 0
 	for {
 		idx++
 		pk := os.Getenv(fmt.Sprintf("PRIVATE_KEY_%d", idx))

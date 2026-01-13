@@ -244,7 +244,7 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("could not find committee verifier proxy address in datastore: %w", err)
 	}
 
-	if m.testConfig.Messages == nil {
+	if m.testConfig == nil || m.testConfig.Messages == nil {
 		return cciptestinterfaces.MessageFields{
 				Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
 				Data:     []byte{},

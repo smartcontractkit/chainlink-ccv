@@ -711,7 +711,6 @@ func TestE2ELoad(t *testing.T) {
 				chain := e.BlockChains.EVMChains()[chainSelector]
 				ensureWETHBalanceAndApproval(ctx, t, *l, e, chain, big.NewInt(requiredWETHBalance))
 			}
-
 		}
 
 		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)

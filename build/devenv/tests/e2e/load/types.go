@@ -2,7 +2,7 @@ package load
 
 import (
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"strconv"
 	"strings"
 	"time"
@@ -74,7 +74,7 @@ func GetSelectorByRatio(profiles []ChainProfileConfig) (uint64, error) {
 		totalWeight += p.Ratio
 	}
 	// Weighted random selection
-	r := rand.Intn(totalWeight)
+	r := rand.IntN(totalWeight)
 	accum := 0
 	for _, p := range profiles {
 		accum += p.Ratio
@@ -99,7 +99,7 @@ func GetMessageByRatio(profiles []MessageTestRatio, messageProfiles []MessagePro
 		totalWeight += p.Ratio
 	}
 
-	r := rand.Intn(totalWeight)
+	r := rand.IntN(totalWeight)
 	accum := 0
 	for _, p := range profiles {
 		accum += p.Ratio
@@ -124,5 +124,8 @@ func ParseMessageRate(messageRate string) (int64, time.Duration) {
 		return 0, 0
 	}
 	duration, err := time.ParseDuration(strings.Trim(parts[1], " "))
+	if err != nil {
+		return 0, 0
+	}
 	return rate, duration
 }

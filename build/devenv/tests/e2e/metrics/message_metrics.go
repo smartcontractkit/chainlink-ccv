@@ -2,7 +2,6 @@ package metrics
 
 import (
 	"slices"
-	"sort"
 	"testing"
 	"time"
 )
@@ -278,8 +277,6 @@ func sortedChainSelectors(chainCounts map[uint64]int) []uint64 {
 	for selector := range chainCounts {
 		selectors = append(selectors, selector)
 	}
-	sort.Slice(selectors, func(i, j int) bool {
-		return selectors[i] < selectors[j]
-	})
+	slices.Sort(selectors)
 	return selectors
 }
