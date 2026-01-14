@@ -17,7 +17,6 @@ import (
 	mocksiclient "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 func TestProcessResponse(t *testing.T) {
@@ -229,24 +228,27 @@ func TestNewIndexerClientAndMethods(t *testing.T) {
 	mockCli.EXPECT().Messages(mock.Anything, mock.Anything).Return(httpMessages, nil).Once()
 	mockCli.EXPECT().VerifierResultsByMessageId(mock.Anything, "0x00").Return(httpMid, nil).Once()
 
-	ic := &IndexerClient{client: mockCli, lggr: logger.Test(t), indexerURI: "http://example.com/"}
+	ic := &IndexerClient{client: mockCli, indexerURI: "http://example.com/"}
 
 	t.Run("verifierresults", func(t *testing.T) {
-		vrOut, err := ic.VerifierResults(context.Background(), v1.VerifierResultsInput{})
+		status, vrOut, err := ic.VerifierResults(context.Background(), v1.VerifierResultsInput{})
 		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, status)
 		require.Len(t, vrOut.VerifierResults, 1)
 	})
 
 	t.Run("messages", func(t *testing.T) {
-		msgOut, err := ic.Messages(context.Background(), v1.MessagesInput{})
+		status, msgOut, err := ic.Messages(context.Background(), v1.MessagesInput{})
 		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, status)
 		require.Len(t, msgOut.Messages, 1)
 		require.Contains(t, msgOut.Messages, "0x1")
 	})
 
 	t.Run("verifierresults_byid", func(t *testing.T) {
-		midOut, err := ic.VerifierResultsByMessageID(context.Background(), v1.VerifierResultsByMessageIDInput{MessageID: "0x00"})
+		status, midOut, err := ic.VerifierResultsByMessageID(context.Background(), v1.VerifierResultsByMessageIDInput{MessageID: "0x00"})
 		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, status)
 		require.Len(t, midOut.Results, 1)
 		require.Equal(t, "0x02", midOut.Results[0].VerifierResult.VerifierSourceAddress.String())
 	})
@@ -257,10 +259,12 @@ func TestClientMethods_ResponseProcessingErrors(t *testing.T) {
 	t.Run("verifierresults_non200", func(t *testing.T) {
 		httpResp := &http.Response{StatusCode: http.StatusInternalServerError, Body: io.NopCloser(bytes.NewReader([]byte("server error details"))), Header: http.Header{"Content-Type": []string{"application/json"}}}
 		mockCli := mocksiclient.NewMockClientInterface(t)
-		ic := &IndexerClient{client: mockCli, lggr: logger.Test(t), indexerURI: "http://example.com/"}
+		ic := &IndexerClient{client: mockCli, indexerURI: "http://example.com/"}
 		mockCli.EXPECT().VerifierResults(mock.Anything, mock.Anything).Return(httpResp, nil).Once()
-		err := func() error { _, e := ic.VerifierResults(context.Background(), v1.VerifierResultsInput{}); return e }()
+
+		status, _, err := ic.VerifierResults(context.Background(), v1.VerifierResultsInput{})
 		require.Error(t, err)
+		require.Equal(t, http.StatusInternalServerError, status)
 		require.Contains(t, err.Error(), "indexer returned status")
 	})
 
@@ -268,10 +272,12 @@ func TestClientMethods_ResponseProcessingErrors(t *testing.T) {
 	t.Run("messages_malformed_json", func(t *testing.T) {
 		httpResp := &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader([]byte("not-json"))), Header: http.Header{"Content-Type": []string{"application/json"}}}
 		mockCli := mocksiclient.NewMockClientInterface(t)
-		ic := &IndexerClient{client: mockCli, lggr: logger.Test(t), indexerURI: "http://example.com/"}
+		ic := &IndexerClient{client: mockCli, indexerURI: "http://example.com/"}
 		mockCli.EXPECT().Messages(mock.Anything, mock.Anything).Return(httpResp, nil).Once()
-		err := func() error { _, e := ic.Messages(context.Background(), v1.MessagesInput{}); return e }()
+
+		status, _, err := ic.Messages(context.Background(), v1.MessagesInput{})
 		require.Error(t, err)
+		require.Equal(t, http.StatusOK, status)
 		require.Contains(t, err.Error(), "failed to decode JSON response")
 	})
 
@@ -283,13 +289,12 @@ func TestClientMethods_ResponseProcessingErrors(t *testing.T) {
 		}
 		httpResp := &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(big)), Header: http.Header{"Content-Type": []string{"application/json"}}}
 		mockCli := mocksiclient.NewMockClientInterface(t)
-		ic := &IndexerClient{client: mockCli, lggr: logger.Test(t), indexerURI: "http://example.com/"}
+		ic := &IndexerClient{client: mockCli, indexerURI: "http://example.com/"}
 		mockCli.EXPECT().VerifierResultsByMessageId(mock.Anything, mock.Anything).Return(httpResp, nil).Once()
-		err := func() error {
-			_, e := ic.VerifierResultsByMessageID(context.Background(), v1.VerifierResultsByMessageIDInput{MessageID: "0x00"})
-			return e
-		}()
+
+		status, _, err := ic.VerifierResultsByMessageID(context.Background(), v1.VerifierResultsByMessageIDInput{MessageID: "0x00"})
 		require.Error(t, err)
+		require.Equal(t, http.StatusOK, status)
 		require.True(t, errors.Is(err, ErrResponseTooLarge), "expected ErrResponseTooLarge, got: %v", err)
 	})
 }
@@ -307,35 +312,40 @@ func TestClientMethods_TransportErrors(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			mockCli := mocksiclient.NewMockClientInterface(t)
-			ic := &IndexerClient{client: mockCli, lggr: logger.Test(t), indexerURI: "http://example.com/"}
+			ic := &IndexerClient{client: mockCli, indexerURI: "http://example.com/"}
 
 			call := setupMockAndCall(mockCli, ic, tc.method, nil, errors.New("network"))
-			require.Error(t, call())
+			st, err := call()
+			require.Equal(t, 0, st)
+			require.Error(t, err)
 		})
 	}
 }
 
 // setupMockAndCall centralizes mock expectation setup and returns a function that
 // executes the corresponding IndexerClient method and returns its error.
-func setupMockAndCall(mockCli *mocksiclient.MockClientInterface, ic *IndexerClient, method string, resp *http.Response, respErr error) func() error {
+func setupMockAndCall(mockCli *mocksiclient.MockClientInterface, ic *IndexerClient, method string, resp *http.Response, respErr error) func() (int, error) {
 	switch method {
 	case "verifierresults":
 		mockCli.EXPECT().VerifierResults(mock.Anything, mock.Anything).Return(resp, respErr).Once()
-		return func() error {
-			_, err := ic.VerifierResults(context.Background(), v1.VerifierResultsInput{})
-			return err
+		return func() (int, error) {
+			status, _, err := ic.VerifierResults(context.Background(), v1.VerifierResultsInput{})
+			return status, err
 		}
 	case "messages":
 		mockCli.EXPECT().Messages(mock.Anything, mock.Anything).Return(resp, respErr).Once()
-		return func() error { _, err := ic.Messages(context.Background(), v1.MessagesInput{}); return err }
+		return func() (int, error) {
+			status, _, err := ic.Messages(context.Background(), v1.MessagesInput{})
+			return status, err
+		}
 	case "byid":
 		mockCli.EXPECT().VerifierResultsByMessageId(mock.Anything, mock.Anything).Return(resp, respErr).Once()
-		return func() error {
-			_, err := ic.VerifierResultsByMessageID(context.Background(), v1.VerifierResultsByMessageIDInput{MessageID: "0x00"})
-			return err
+		return func() (int, error) {
+			status, _, err := ic.VerifierResultsByMessageID(context.Background(), v1.VerifierResultsByMessageIDInput{MessageID: "0x00"})
+			return status, err
 		}
 	default:
-		return func() error { return errors.New("unknown method") }
+		return func() (int, error) { return 0, errors.New("unknown method") }
 	}
 }
 
