@@ -339,7 +339,7 @@ func TestBatcher_BlockingOnFullChannel(t *testing.T) {
 
 func TestBatcher_ContextCancelFlushGuarantee(t *testing.T) {
 	// Regression test for the bug where context cancellation would drop buffered items
-	// This test validates that all items are flushed even when context is cancelled immediately
+	// This test validates that all items are flushed even when context is canceled immediately
 	ctx, cancel := context.WithCancel(t.Context())
 
 	// Use large maxWait so auto-flush won't happen
