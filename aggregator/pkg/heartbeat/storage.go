@@ -22,6 +22,9 @@ type Storage interface {
 	// StoreBlockHeight stores the block height for a caller on a specific chain
 	StoreBlockHeight(ctx context.Context, callerID string, chainSelector uint64, blockHeight uint64) error
 
+	// GetBlockHeights returns the block heights for all callers on a specific chain
+	GetBlockHeights(ctx context.Context, chainSelector uint64) (map[string]uint64, error)
+
 	// GetMaxBlockHeight returns the maximum block height across all callers for a specific chain
 	GetMaxBlockHeight(ctx context.Context, chainSelector uint64) (uint64, error)
 
@@ -59,6 +62,57 @@ func (s *RedisStorage) StoreBlockHeight(ctx context.Context, callerID string, ch
 		return fmt.Errorf("failed to store block height for caller %s chain %d: %w", callerID, chainSelector, err)
 	}
 	return nil
+}
+
+// GetBlockHeights returns the block heights for all callers on a specific chain.
+func (s *RedisStorage) GetBlockHeights(ctx context.Context, chainSelector uint64) (map[string]uint64, error) {
+	pattern := s.buildPattern(chainSelector)
+	result := make(map[string]uint64)
+	var cursor uint64
+
+	for {
+		// Scan for keys matching the pattern
+		keys, nextCursor, err := s.client.Scan(ctx, cursor, pattern, 100).Result()
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan keys for chain %d: %w", chainSelector, err)
+		}
+
+		// Get all values for the found keys
+		if len(keys) > 0 {
+			values, err := s.client.MGet(ctx, keys...).Result()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get values for chain %d: %w", chainSelector, err)
+			}
+
+			// Parse keys to extract caller IDs and map to block heights
+			for i, key := range keys {
+				if values[i] == nil {
+					continue
+				}
+				heightStr, ok := values[i].(string)
+				if !ok {
+					continue
+				}
+				height, err := strconv.ParseUint(heightStr, 10, 64)
+				if err != nil {
+					continue
+				}
+
+				// Extract caller ID from key (format: prefix:callerID:chainSelector)
+				callerID := s.extractCallerID(key)
+				if callerID != "" {
+					result[callerID] = height
+				}
+			}
+		}
+
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+
+	return result, nil
 }
 
 // GetMaxBlockHeight returns the maximum block height across all callers for a specific chain.
@@ -139,6 +193,32 @@ func (s *RedisStorage) buildPattern(chainSelector uint64) string {
 	return fmt.Sprintf("%s:*:%d", s.keyPrefix, chainSelector)
 }
 
+// extractCallerID extracts the caller ID from a Redis key.
+// Key format: <prefix>:<caller_id>:<chain_selector>
+func (s *RedisStorage) extractCallerID(key string) string {
+	// Remove prefix
+	prefixLen := len(s.keyPrefix) + 1 // +1 for the colon
+	if len(key) <= prefixLen {
+		return ""
+	}
+	remainder := key[prefixLen:]
+
+	// Find the last colon to separate caller ID from chain selector
+	lastColon := -1
+	for i := len(remainder) - 1; i >= 0; i-- {
+		if remainder[i] == ':' {
+			lastColon = i
+			break
+		}
+	}
+
+	if lastColon == -1 {
+		return ""
+	}
+
+	return remainder[:lastColon]
+}
+
 // InMemoryStorage implements Storage using in-memory maps with thread-safety.
 type InMemoryStorage struct {
 	mu sync.RWMutex
@@ -162,6 +242,26 @@ func (s *InMemoryStorage) StoreBlockHeight(ctx context.Context, callerID string,
 
 	s.data[key] = blockHeight
 	return nil
+}
+
+// GetBlockHeights returns the block heights for all callers on a specific chain.
+func (s *InMemoryStorage) GetBlockHeights(ctx context.Context, chainSelector uint64) (map[string]uint64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make(map[string]uint64)
+	suffix := fmt.Sprintf(":%d", chainSelector)
+
+	for key, height := range s.data {
+		// Check if this key belongs to the requested chain
+		if len(key) >= len(suffix) && key[len(key)-len(suffix):] == suffix {
+			// Extract caller ID (everything before the suffix)
+			callerID := key[:len(key)-len(suffix)]
+			result[callerID] = height
+		}
+	}
+
+	return result, nil
 }
 
 // GetMaxBlockHeight returns the maximum block height across all callers for a specific chain.
@@ -211,6 +311,10 @@ func NewNoopStorage() *NoopStorage {
 
 func (n *NoopStorage) StoreBlockHeight(ctx context.Context, callerID string, chainSelector uint64, blockHeight uint64) error {
 	return nil
+}
+
+func (n *NoopStorage) GetBlockHeights(ctx context.Context, chainSelector uint64) (map[string]uint64, error) {
+	return make(map[string]uint64), nil
 }
 
 func (n *NoopStorage) GetMaxBlockHeight(ctx context.Context, chainSelector uint64) (uint64, error) {
