@@ -40,6 +40,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/fee_quoter"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/lock_release_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/usdc_token_pool_proxy"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
@@ -114,9 +115,11 @@ var (
 type TokenCombination struct {
 	sourcePoolType          string
 	sourcePoolVersion       string
+	sourcePoolQualifier     string
 	sourcePoolCCVQualifiers []string
 	destPoolType            string
 	destPoolVersion         string
+	destPoolQualifier       string
 	destPoolCCVQualifiers   []string
 	expectedReceiptIssuers  int
 	expectedVerifierResults int
@@ -124,19 +127,27 @@ type TokenCombination struct {
 
 // SourcePoolAddressRef returns the address ref for the source token pool that can be used to query the datastore.
 func (s TokenCombination) SourcePoolAddressRef() datastore.AddressRef {
+	qualifier := s.sourcePoolQualifier
+	if qualifier == "" {
+		qualifier = fmt.Sprintf("TEST (%s %s %v to %s %s %v)", s.sourcePoolType, s.sourcePoolVersion, s.sourcePoolCCVQualifiers, s.destPoolType, s.destPoolVersion, s.destPoolCCVQualifiers)
+	}
 	return datastore.AddressRef{
 		Type:      datastore.ContractType(s.sourcePoolType),
 		Version:   semver.MustParse(s.sourcePoolVersion),
-		Qualifier: fmt.Sprintf("TEST (%s %s %v to %s %s %v)", s.sourcePoolType, s.sourcePoolVersion, s.sourcePoolCCVQualifiers, s.destPoolType, s.destPoolVersion, s.destPoolCCVQualifiers),
+		Qualifier: qualifier,
 	}
 }
 
 // DestPoolAddressRef returns the address ref for the destination token pool that can be used to query the datastore.
 func (s TokenCombination) DestPoolAddressRef() datastore.AddressRef {
+	qualifier := s.destPoolQualifier
+	if qualifier == "" {
+		qualifier = fmt.Sprintf("TEST (%s %s %v to %s %s %v)", s.destPoolType, s.destPoolVersion, s.destPoolCCVQualifiers, s.sourcePoolType, s.sourcePoolVersion, s.sourcePoolCCVQualifiers)
+	}
 	return datastore.AddressRef{
 		Type:      datastore.ContractType(s.destPoolType),
 		Version:   semver.MustParse(s.destPoolVersion),
-		Qualifier: fmt.Sprintf("TEST (%s %s %v to %s %s %v)", s.destPoolType, s.destPoolVersion, s.destPoolCCVQualifiers, s.sourcePoolType, s.sourcePoolVersion, s.sourcePoolCCVQualifiers),
+		Qualifier: qualifier,
 	}
 }
 
@@ -258,6 +269,21 @@ func All17TokenCombinations() []TokenCombination {
 		}
 	}
 	return combinations
+}
+
+func USDCTokenPoolCombination() TokenCombination {
+	return TokenCombination{ // 1.7.0 usdc -> 1.7.0 usdc
+		sourcePoolType:          string(usdc_token_pool_proxy.ContractType),
+		sourcePoolVersion:       "1.7.0",
+		sourcePoolQualifier:     "CCTP",
+		sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
+		destPoolType:            string(usdc_token_pool_proxy.ContractType),
+		destPoolVersion:         "1.7.0",
+		destPoolQualifier:       "CCTP",
+		destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
+		expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
+		expectedVerifierResults: 1, // default CCV
+	}
 }
 
 type CCIP17EVMConfig struct {
@@ -1643,6 +1669,15 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		}
 	}
 
+	//combo := USDCTokenPoolCombination()
+	//if err := m.configureTokenForTransfer(e, tokenAdapterRegistry, mcmsReaderRegistry, selector, remoteSelectors, combo.SourcePoolAddressRef(), combo.DestPoolAddressRef(), combo.SourcePoolCCVQualifiers()); err != nil {
+	//	return fmt.Errorf("failed to configure %s tokens for transfers: %w", combo.SourcePoolAddressRef().Qualifier, err)
+	//}
+	//l.Info().Str("Token", combo.DestPoolAddressRef().Qualifier).Msg("Configuring destination token for transfer")
+	//if err := m.configureTokenForTransfer(e, tokenAdapterRegistry, mcmsReaderRegistry, selector, remoteSelectors, combo.DestPoolAddressRef(), combo.SourcePoolAddressRef(), combo.DestPoolCCVQualifiers()); err != nil {
+	//	return fmt.Errorf("failed to configure %s tokens for transfers: %w", combo.DestPoolAddressRef().Qualifier, err)
+	//}
+
 	// Configure the custom executor for the dest chain manually.
 	customExecutor, err := e.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
@@ -2051,10 +2086,43 @@ func (m *CCIP17EVMConfig) deployUSDCTokenAndPool(
 		return fmt.Errorf("failed to deploy Circle-owned contracts on chain %d: %w", selector, err)
 	}
 
+	err = ds.Addresses().Add(datastore.AddressRef{
+		ChainSelector: selector,
+		Type:          datastore.ContractType(burnminterc677ops.ContractType),
+		Version:       burnminterc677ops.Version,
+		Address:       usdc.Hex(),
+		Qualifier:     "CCTP",
+	})
+	if err != nil {
+		return err
+	}
+
+	// Grant mint and burn roles to deployer
+	_, err = operations.ExecuteOperation(env.OperationsBundle, burnminterc677ops.GrantMintAndBurnRoles, chain, contract.FunctionInput[common.Address]{
+		ChainSelector: selector,
+		Address:       usdc,
+		Args:          chain.DeployerKey.From,
+	})
+	if err != nil {
+		return err
+	}
+
+	_, err = operations.ExecuteOperation(env.OperationsBundle, burnminterc677ops.Mint, chain, contract.FunctionInput[burnminterc677ops.MintArgs]{
+		ChainSelector: selector,
+		Address:       usdc,
+		Args: burnminterc677ops.MintArgs{
+			Account: chain.DeployerKey.From,
+			Amount:  big.NewInt(1000000 * 1e6), // Mint 1,000,000 USDC (6 decimals)
+		},
+	})
+	if err != nil {
+		return err
+	}
+
 	cctpChainRegistry := adapters.NewCCTPChainRegistry()
 	cctpChainRegistry.RegisterCCTPChain("evm", &evmadapters.CCTPChainAdapter{})
 
-	_, err = changesets.DeployCCTPChains(cctpChainRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
+	out, err := changesets.DeployCCTPChains(cctpChainRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
 		Chains: []adapters.DeployCCTPInput[datastore.AddressRef, datastore.AddressRef]{
 			{
 				ChainSelector: selector,
@@ -2087,6 +2155,11 @@ func (m *CCIP17EVMConfig) deployUSDCTokenAndPool(
 	})
 	if err != nil {
 		return fmt.Errorf("failed to deploy CCTP chain registry on chain %d: %w", selector, err)
+	}
+
+	err = ds.Merge(out.DataStore.Seal())
+	if err != nil {
+		return err
 	}
 	return nil
 }
