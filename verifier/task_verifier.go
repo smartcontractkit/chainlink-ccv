@@ -108,6 +108,21 @@ func (p *TaskVerifierProcessor) run(
 	for {
 		select {
 		case <-ctx.Done():
+			// Context canceled - drain all remaining batches until channel closes.
+			// We must wait for the batcher to close the channel (after flushing) rather than
+			// exiting early, otherwise the batcher's blocking send will deadlock.
+			// Use background context for drain operations to ensure they complete successfully.
+			drainCtx := context.Background()
+			for batch := range sourceFanout.ReadyTasksChannel() {
+				if batch.Error != nil {
+					p.lggr.Errorw("Error batch received from SourceReaderService during drain",
+						"error", batch.Error)
+					continue
+				}
+				p.processReadyTasks(drainCtx, selector, sourceFanout, batch.Items)
+			}
+			// Channel closed by batcher, exit gracefully
+			p.lggr.Infow("ReadyTasksChannel closed after drain; exiting readyTasksLoop")
 			return
 		case batch, ok := <-sourceFanout.ReadyTasksChannel():
 			if !ok {

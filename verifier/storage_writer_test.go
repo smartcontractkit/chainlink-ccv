@@ -134,6 +134,10 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 		processorCancel()
 
+		// Cancel batcher context and close to allow drain loop to complete
+		cancel()
+		processorBatcher.Close()
+
 		// Wait for processor to finish
 		select {
 		case <-done:
@@ -409,15 +413,17 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 			t.Fatal("processor did not finish in time")
 		}
 
-		// Verify that at least the success batch was stored
+		// Verify that both batches were stored
+		// Note: With drain using background context, retried items are processed successfully during shutdown
 		stored := fakeStorage.GetStored()
 		successItem, exists := stored[successBatch[0].MessageID]
 		require.True(t, exists, "success batch should be stored")
 		require.Equal(t, successBatch[0].Message.SequenceNumber, successItem.Message.SequenceNumber)
 
-		// The failing batch should not be stored
-		_, failedExists := stored[failingBatch[0].MessageID]
-		require.False(t, failedExists, "failing batch should not be stored")
+		// The initially-failing batch should also be stored during drain after retry
+		failedItem, failedExists := stored[failingBatch[0].MessageID]
+		require.True(t, failedExists, "initially-failing batch should be stored after retry during drain")
+		require.Equal(t, failingBatch[0].Message.SequenceNumber, failedItem.Message.SequenceNumber)
 	})
 }
 
@@ -429,7 +435,7 @@ func TestStorageWriterProcessor_ContextCancellation(t *testing.T) {
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
-		processor, _, err := NewStorageBatcherProcessor(
+		processor, processorBatcher, err := NewStorageBatcherProcessor(
 			ctx,
 			lggr,
 			"test-verifier",
@@ -449,15 +455,92 @@ func TestStorageWriterProcessor_ContextCancellation(t *testing.T) {
 			close(done)
 		}()
 
-		// Cancel context immediately
+		// Cancel processor context to trigger drain
 		processorCancel()
 
-		// Processor should exit
+		// Cancel batcher context and close to allow drain loop to complete
+		cancel()
+		processorBatcher.Close()
+
+		// Processor should exit after draining
 		select {
 		case <-done:
 			// Success
 		case <-time.After(500 * time.Millisecond):
 			t.Fatal("processor did not stop after context cancellation")
+		}
+	})
+
+	t.Run("drains pending batches on context cancel without deadlock", func(t *testing.T) {
+		// Regression test for deadlock when context is cancelled with pending batches
+		ctx, cancel := context.WithCancel(t.Context())
+		t.Cleanup(cancel)
+
+		lggr := logger.Test(t)
+		fakeStorage := NewFakeCCVNodeDataWriter()
+
+		// Create batcher with large maxWait and unbuffered channel
+		batcherCtx, batcherCancel := context.WithCancel(ctx)
+		testBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](
+			batcherCtx,
+			100,            // Large batch size
+			10*time.Second, // Large maxWait - won't auto-flush
+			0,              // Unbuffered channel to test blocking send
+		)
+
+		processor := &StorageWriterProcessor{
+			lggr:           lggr,
+			verifierID:     "test-verifier",
+			messageTracker: NoopLatencyTracker{},
+			storage:        fakeStorage,
+			batcher:        testBatcher,
+			retryDelay:     50 * time.Millisecond,
+		}
+
+		batch := []protocol.VerifierNodeResult{
+			createTestVerifierNodeResult(1),
+			createTestVerifierNodeResult(2),
+		}
+
+		processorCtx, processorCancel := context.WithCancel(ctx)
+
+		done := make(chan struct{})
+		go func() {
+			processor.run(processorCtx)
+			close(done)
+		}()
+
+		// Add items that won't trigger auto-flush
+		err := testBatcher.Add(batch...)
+		require.NoError(t, err)
+
+		// Cancel processor context immediately
+		processorCancel()
+
+		// Give time for drain to start
+		time.Sleep(50 * time.Millisecond)
+
+		// Close batcher - this should not deadlock
+		batcherCancel()
+		closeErr := testBatcher.Close()
+		require.NoError(t, closeErr)
+
+		// Processor should complete without deadlock
+		select {
+		case <-done:
+			// Success - no deadlock
+		case <-time.After(2 * time.Second):
+			t.Fatal("processor did not finish - DEADLOCK detected")
+		}
+
+		// Verify items were stored during drain
+		stored := fakeStorage.GetStored()
+		require.Equal(t, len(batch), len(stored), "all items should be stored during drain")
+
+		for _, item := range batch {
+			storedItem, exists := stored[item.MessageID]
+			require.True(t, exists, "item should be stored during drain")
+			require.Equal(t, item.Message.SequenceNumber, storedItem.Message.SequenceNumber)
 		}
 	})
 }

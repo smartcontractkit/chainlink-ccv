@@ -110,24 +110,19 @@ func (v *VerifierReader) run(ctx context.Context) {
 				v.demux.Resolve(msgID, verificationResult.Value(), verificationResult.Err())
 			}
 		case <-ctx.Done():
-			// Check if there are any pending batches before exiting
-			// Drain any remaining batches to ensure all results are delivered
-			for {
-				select {
-				case batch, ok := <-v.batcher.OutChannel():
-					if !ok {
-						// Channel closed, exit gracefully
-						return
-					}
-					respMap := v.callVerifier(ctx, batch.Items)
-					for msgID, verificationResult := range respMap {
-						v.demux.Resolve(msgID, verificationResult.Value(), verificationResult.Err())
-					}
-				default:
-					// No more batches, exit
-					return
+			// Context canceled - drain all remaining batches until channel closes.
+			// We must wait for the batcher to close the channel (after flushing) rather than
+			// exiting early, otherwise the batcher's blocking send will deadlock.
+			// Use background context for drain operations to ensure they complete successfully.
+			drainCtx := context.Background()
+			for batch := range v.batcher.OutChannel() {
+				respMap := v.callVerifier(drainCtx, batch.Items)
+				for msgID, verificationResult := range respMap {
+					v.demux.Resolve(msgID, verificationResult.Value(), verificationResult.Err())
 				}
 			}
+			// Channel closed by batcher, exit gracefully
+			return
 		}
 	}
 }

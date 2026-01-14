@@ -110,6 +110,98 @@ func (f FakeSourceReaderFanout) ReadyTasksChannel() <-chan batcher.BatchResult[v
 	return f.batcher.OutChannel()
 }
 
+func Test_TaskVerifierProcessor_ContextCancelFlushGuarantee(t *testing.T) {
+	// Regression test for deadlock when context is cancelled with pending batches
+	// Verifies that the processor drains all batches on shutdown using background context
+	message1 := protocol.Message{SequenceNumber: 1}
+	messageID1 := message1.MustMessageID()
+	task1 := verifier.VerificationTask{MessageID: messageID1.String()}
+
+	// Separate contexts: processor uses its own, batchers share another
+	// This simulates production where batchers may outlive individual processors
+	processorCtx, processorCancel := context.WithCancel(t.Context())
+	sourceBatcherCtx, sourceBatcherCancel := context.WithCancel(t.Context())
+	storageBatcherCtx, storageBatcherCancel := context.WithCancel(t.Context())
+	defer sourceBatcherCancel()
+	defer storageBatcherCancel()
+
+	// Create source batcher with its own context
+	fakeFanout := FakeSourceReaderFanout{
+		batcher: batcher.NewBatcher[verifier.VerificationTask](
+			sourceBatcherCtx,
+			100,            // Large batch size
+			10*time.Second, // Large maxWait
+			0,              // Unbuffered channel to test blocking send
+		),
+	}
+
+	// Storage batcher uses separate context to stay alive during drain
+	storageBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](
+		storageBatcherCtx,
+		100,
+		10*time.Second,
+		10,
+	)
+
+	mockVerifier := &fakeVerifier{}
+	mockVerifier.Set(0, nil) // All verifications succeed immediately
+
+	taskVerifier, err := verifier.NewTaskVerifierProcessorWithFanouts(
+		logger.Test(t),
+		"verifier-1",
+		mockVerifier,
+		monitoring.NewFakeVerifierMonitoring(),
+		map[protocol.ChainSelector]verifier.SourceReaderFanout{
+			chain2337: fakeFanout,
+		},
+		storageBatcher,
+	)
+	require.NoError(t, err)
+	require.NoError(t, taskVerifier.Start(processorCtx))
+
+	// Add task that won't trigger auto-flush
+	require.NoError(t, fakeFanout.batcher.Add(task1))
+
+	// Cancel processor context to trigger drain
+	// The drain loop should use background context to complete processing
+	processorCancel()
+
+	// Give time for drain to start
+	time.Sleep(10 * time.Millisecond)
+
+	// Cancel source batcher context to trigger flush
+	sourceBatcherCancel()
+
+	// Close source batcher to allow drain loop to complete
+	require.NoError(t, fakeFanout.batcher.Close())
+
+	// Close should complete without deadlock because drain loop uses background context
+	done := make(chan error, 1)
+	go func() {
+		done <- taskVerifier.Close()
+	}()
+
+	select {
+	case err := <-done:
+		require.NoError(t, err, "Close should complete without error")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close() did not complete - DEADLOCK detected")
+	}
+
+	// Cancel storage batcher context and close to flush results
+	storageBatcherCancel()
+	require.NoError(t, storageBatcher.Close())
+
+	// Verify the task was processed during drain
+	select {
+	case res := <-storageBatcher.OutChannel():
+		require.Len(t, res.Items, 1)
+		require.Equal(t, messageID1, res.Items[0].MessageID)
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Expected task to be processed during drain")
+	}
+}
+
 type fakeVerifier struct {
 	mu            sync.RWMutex
 	passThreshold int

@@ -44,7 +44,7 @@ func NewStorageBatcherProcessor(
 		ctx,
 		storageBatchSize,
 		storageBatchTimeout,
-		0,
+		1,
 	)
 
 	processor := &StorageWriterProcessor{
@@ -100,6 +100,39 @@ func (s *StorageWriterProcessor) run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			// Context canceled - drain all remaining batches until channel closes.
+			// We must wait for the batcher to close the channel (after flushing) rather than
+			// exiting early, otherwise the batcher's blocking send will deadlock.
+			// Use background context for drain operations to ensure they complete successfully.
+			drainCtx := context.Background()
+			for batch := range s.batcher.OutChannel() {
+				if batch.Error != nil {
+					s.lggr.Errorw("Batch-level error from CCVData batcher during drain",
+						"error", batch.Error,
+						"errorType", "batcher_failure")
+					continue
+				}
+
+				if len(batch.Items) == 0 {
+					continue
+				}
+
+				// Attempt to write even during shutdown to avoid data loss
+				if err := s.storage.WriteCCVNodeData(drainCtx, batch.Items); err != nil {
+					s.lggr.Errorw("Failed to write CCV data batch during shutdown drain",
+						"error", err,
+						"batchSize", len(batch.Items),
+					)
+					// Don't retry during shutdown, just log the loss
+				} else {
+					s.lggr.Infow("CCV data batch stored during shutdown drain",
+						"batchSize", len(batch.Items),
+					)
+					s.messageTracker.TrackMessageLatencies(drainCtx, batch.Items)
+				}
+			}
+			// Channel closed by batcher, exit gracefully
+			s.lggr.Infow("Storage batcher channel closed after drain")
 			return
 		case batch, ok := <-s.batcher.OutChannel():
 			if !ok {
