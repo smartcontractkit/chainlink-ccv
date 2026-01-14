@@ -198,7 +198,7 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 	}
 
 	am.verifierHeartbeatTimestamp, err = beholder.GetMeter().Float64Gauge(
-		"aggregator_verifier_heartbeat_timestamp",
+		"aggregator_heartbeat_verifier_heartbeat_timestamp",
 		metric.WithDescription("Timestamp of the last heartbeat received from verifiers"),
 	)
 	if err != nil {
@@ -206,7 +206,7 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 	}
 
 	am.verifierHeartbeatsTotal, err = beholder.GetMeter().Int64Counter(
-		"aggregator_verifier_heartbeats_total",
+		"aggregator_heartbeat_verifier_heartbeats_total",
 		metric.WithDescription("Total number of verifier heartbeats received"),
 	)
 	if err != nil {
@@ -214,7 +214,7 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 	}
 
 	am.verifierHeartbeatChainHeads, err = beholder.GetMeter().Int64Gauge(
-		"aggregator_verifier_heartbeat_chain_heads",
+		"aggregator_heartbeat_verifier_chain_heads",
 		metric.WithDescription("Latest chain head reported by verifiers"),
 	)
 	if err != nil {
@@ -222,7 +222,7 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 	}
 
 	am.verifierHeartbeatScore, err = beholder.GetMeter().Float64Gauge(
-		"aggregator_verifier_heartbeat_score",
+		"aggregator_heartbeat_verifier_score",
 		metric.WithDescription("Health score of verifiers based on heartbeats"),
 	)
 	if err != nil {
