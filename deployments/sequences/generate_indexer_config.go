@@ -11,16 +11,6 @@ import (
 	idxconfig "github.com/smartcontractkit/chainlink-ccv/deployments/operations/indexer_config"
 )
 
-// GenerateIndexerConfigInput contains the input for the indexer config generation sequence.
-type GenerateIndexerConfigInput struct {
-	// ServiceIdentifier is the identifier for this indexer service (e.g. "default-indexer")
-	ServiceIdentifier string
-	// CommitteeQualifiers are the committees to generate config for, in order matching [[Verifier]] entries
-	CommitteeQualifiers []string
-	// SourceChainSelectors are the source chains the indexer will monitor
-	SourceChainSelectors []uint64
-}
-
 // GenerateIndexerConfigOutput contains the output of the indexer config generation sequence.
 type GenerateIndexerConfigOutput struct {
 	ServiceIdentifier string
@@ -39,15 +29,11 @@ var GenerateIndexerConfig = operations.NewSequence(
 	"generate-indexer-config",
 	semver.MustParse("1.0.0"),
 	"Generates the indexer verifier configuration from on-chain state",
-	func(b operations.Bundle, deps GenerateIndexerConfigDeps, input GenerateIndexerConfigInput) (GenerateIndexerConfigOutput, error) {
+	func(b operations.Bundle, deps GenerateIndexerConfigDeps, input idxconfig.BuildConfigInput) (GenerateIndexerConfigOutput, error) {
 		// Execute the build config operation
 		result, err := operations.ExecuteOperation(b, idxconfig.BuildConfig, idxconfig.BuildConfigDeps{
 			Env: deps.Env,
-		}, idxconfig.BuildConfigInput{
-			ServiceIdentifier:   input.ServiceIdentifier,
-			CommitteeQualifiers: input.CommitteeQualifiers,
-			ChainSelectors:      input.SourceChainSelectors,
-		})
+		}, input)
 		if err != nil {
 			return GenerateIndexerConfigOutput{}, fmt.Errorf("failed to build indexer config: %w", err)
 		}

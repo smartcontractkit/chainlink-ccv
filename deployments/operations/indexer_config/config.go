@@ -6,10 +6,9 @@ import (
 	"github.com/Masterminds/semver/v3"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
-
-	"github.com/smartcontractkit/chainlink-ccv/deployments"
 )
 
 // GeneratedVerifier contains the on-chain derived configuration for a committee's verifiers.
@@ -25,7 +24,8 @@ type BuildConfigInput struct {
 	ServiceIdentifier string
 	// CommitteeQualifiers are the committees to generate config for, in order matching [[Verifier]] entries
 	CommitteeQualifiers []string
-	// ChainSelectors are the source chains the indexer will monitor
+	// ChainSelectors are the source chains the indexer will monitor.
+	// If empty, defaults to all chain selectors available in the environment.
 	ChainSelectors []uint64
 }
 
@@ -56,7 +56,7 @@ var BuildConfig = operations.NewOperation(
 		verifiers := make([]GeneratedVerifier, 0, len(input.CommitteeQualifiers))
 
 		for _, qualifier := range input.CommitteeQualifiers {
-			addresses, err := deployments.CollectContractAddresses(
+			addresses, err := collectUniqueAddresses(
 				ds, input.ChainSelectors, qualifier, committee_verifier.ResolverType)
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get resolver addresses for committee %q: %w", qualifier, err)
@@ -73,3 +73,32 @@ var BuildConfig = operations.NewOperation(
 		}, nil
 	},
 )
+
+func collectUniqueAddresses(
+	ds datastore.DataStore,
+	chainSelectors []uint64,
+	qualifier string,
+	contractType deployment.ContractType,
+) ([]string, error) {
+	seen := make(map[string]bool)
+	addresses := make([]string, 0)
+
+	for _, chainSelector := range chainSelectors {
+		refs := ds.Addresses().Filter(
+			datastore.AddressRefByChainSelector(chainSelector),
+			datastore.AddressRefByQualifier(qualifier),
+			datastore.AddressRefByType(datastore.ContractType(contractType)),
+		)
+		for _, r := range refs {
+			if !seen[r.Address] {
+				seen[r.Address] = true
+				addresses = append(addresses, r.Address)
+			}
+		}
+	}
+
+	if len(addresses) == 0 {
+		return nil, fmt.Errorf("no contracts found for qualifier %q and type %q", qualifier, contractType)
+	}
+	return addresses, nil
+}

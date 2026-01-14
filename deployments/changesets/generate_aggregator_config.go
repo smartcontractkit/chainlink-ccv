@@ -9,23 +9,14 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
+	aggconfig "github.com/smartcontractkit/chainlink-ccv/deployments/operations/aggregator_config"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/sequences"
 )
 
-// GenerateAggregatorConfigCfg is the configuration for the generate aggregator config changeset.
-type GenerateAggregatorConfigCfg struct {
-	// ServiceIdentifier is the identifier for this aggregator service (e.g. "default-aggregator")
-	ServiceIdentifier string
-	// CommitteeQualifier identifies which committee to generate config for
-	CommitteeQualifier string
-	// ChainSelectors are the chains the aggregator will support (both as source and destination)
-	ChainSelectors []uint64
-}
-
 // GenerateAggregatorConfig creates a changeset that generates the aggregator configuration
 // by scanning on-chain CommitteeVerifier contracts.
-func GenerateAggregatorConfig() deployment.ChangeSetV2[GenerateAggregatorConfigCfg] {
-	validate := func(e deployment.Environment, cfg GenerateAggregatorConfigCfg) error {
+func GenerateAggregatorConfig() deployment.ChangeSetV2[aggconfig.BuildConfigInput] {
+	validate := func(e deployment.Environment, cfg aggconfig.BuildConfigInput) error {
 		if cfg.ServiceIdentifier == "" {
 			return fmt.Errorf("service identifier is required")
 		}
@@ -41,19 +32,13 @@ func GenerateAggregatorConfig() deployment.ChangeSetV2[GenerateAggregatorConfigC
 		return nil
 	}
 
-	apply := func(e deployment.Environment, cfg GenerateAggregatorConfigCfg) (deployment.ChangesetOutput, error) {
-		selectors := cfg.ChainSelectors
-		if len(selectors) == 0 {
-			selectors = e.BlockChains.ListChainSelectors()
+	apply := func(e deployment.Environment, cfg aggconfig.BuildConfigInput) (deployment.ChangesetOutput, error) {
+		input := cfg
+		if len(input.ChainSelectors) == 0 {
+			input.ChainSelectors = e.BlockChains.ListChainSelectors()
 		}
 		deps := sequences.GenerateAggregatorConfigDeps{
 			Env: e,
-		}
-
-		input := sequences.GenerateAggregatorConfigInput{
-			ServiceIdentifier:  cfg.ServiceIdentifier,
-			CommitteeQualifier: cfg.CommitteeQualifier,
-			ChainSelectors:     selectors,
 		}
 
 		report, err := operations.ExecuteSequence(e.OperationsBundle, sequences.GenerateAggregatorConfig, deps, input)

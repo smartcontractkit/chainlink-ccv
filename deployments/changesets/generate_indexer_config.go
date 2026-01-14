@@ -13,20 +13,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/deployments/sequences"
 )
 
-// GenerateIndexerConfigCfg is the configuration for the generate indexer config changeset.
-type GenerateIndexerConfigCfg struct {
-	// ServiceIdentifier is the identifier for this indexer service (e.g. "default-indexer")
-	ServiceIdentifier string
-	// CommitteeQualifiers are the committees to generate config for, in order matching [[Verifier]] entries
-	CommitteeQualifiers []string
-	// ChainSelectors are the source chains the indexer will monitor
-	ChainSelectors []uint64
-}
-
 // GenerateIndexerConfig creates a changeset that generates the indexer configuration
 // by scanning on-chain CommitteeVerifier contracts.
-func GenerateIndexerConfig() deployment.ChangeSetV2[GenerateIndexerConfigCfg] {
-	validate := func(e deployment.Environment, cfg GenerateIndexerConfigCfg) error {
+func GenerateIndexerConfig() deployment.ChangeSetV2[idxconfig.BuildConfigInput] {
+	validate := func(e deployment.Environment, cfg idxconfig.BuildConfigInput) error {
 		if cfg.ServiceIdentifier == "" {
 			return fmt.Errorf("service identifier is required")
 		}
@@ -42,19 +32,13 @@ func GenerateIndexerConfig() deployment.ChangeSetV2[GenerateIndexerConfigCfg] {
 		return nil
 	}
 
-	apply := func(e deployment.Environment, cfg GenerateIndexerConfigCfg) (deployment.ChangesetOutput, error) {
-		selectors := cfg.ChainSelectors
-		if len(selectors) == 0 {
-			selectors = e.BlockChains.ListChainSelectors()
+	apply := func(e deployment.Environment, cfg idxconfig.BuildConfigInput) (deployment.ChangesetOutput, error) {
+		input := cfg
+		if len(input.ChainSelectors) == 0 {
+			input.ChainSelectors = e.BlockChains.ListChainSelectors()
 		}
 		deps := sequences.GenerateIndexerConfigDeps{
 			Env: e,
-		}
-
-		input := sequences.GenerateIndexerConfigInput{
-			ServiceIdentifier:    cfg.ServiceIdentifier,
-			CommitteeQualifiers:  cfg.CommitteeQualifiers,
-			SourceChainSelectors: selectors,
 		}
 
 		report, err := operations.ExecuteSequence(e.OperationsBundle, sequences.GenerateIndexerConfig, deps, input)

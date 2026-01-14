@@ -7,6 +7,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	dsutils "github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -40,6 +41,7 @@ type BuildConfigInput struct {
 	ServiceIdentifier  string
 	CommitteeQualifier string
 	// ChainSelectors are the chains the aggregator will support (both as source and destination).
+	// If empty, defaults to all chain selectors available in the environment.
 	ChainSelectors []uint64
 }
 
@@ -123,8 +125,12 @@ func buildQuorumConfigsFromOnChain(
 				continue
 			}
 
-			sourceVerifierAddr, err := deployments.ResolveContractAddress(
-				ds, sigConfig.SourceChainSelector, committeeQualifier, committee_verifier.ResolverType)
+			ref := datastore.AddressRef{
+				Qualifier: committeeQualifier,
+				Type:      datastore.ContractType(committee_verifier.ResolverType),
+			}
+			sourceVerifierAddr, err := dsutils.FindAndFormatRef(ds, ref, sigConfig.SourceChainSelector,
+				func(r datastore.AddressRef) (string, error) { return r.Address, nil })
 			if err != nil {
 				return nil, fmt.Errorf("failed to resolve source verifier for chain %d: %w", sigConfig.SourceChainSelector, err)
 			}
@@ -154,9 +160,14 @@ func buildDestinationVerifiers(
 ) (map[string]string, error) {
 	destVerifiers := make(map[string]string)
 
+	ref := datastore.AddressRef{
+		Qualifier: committeeQualifier,
+		Type:      datastore.ContractType(committee_verifier.ResolverType),
+	}
+
 	for _, chainSelector := range destChainSelectors {
-		addr, err := deployments.ResolveContractAddress(
-			ds, chainSelector, committeeQualifier, committee_verifier.ResolverType)
+		addr, err := dsutils.FindAndFormatRef(ds, ref, chainSelector,
+			func(r datastore.AddressRef) (string, error) { return r.Address, nil })
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve destination verifier for chain %d: %w", chainSelector, err)
 		}

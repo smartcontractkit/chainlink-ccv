@@ -17,6 +17,7 @@ require (
 	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260113145746-e2453d5c22f1
 	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260113145746-e2453d5c22f1
 	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20260110001823-6248663ac9c4
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260114195322-8b3a552b58ba
 	github.com/smartcontractkit/chainlink-ccv v0.0.0-20260114202525-ef65afb0c36f
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20251107181740-8b842a2f1192
 	github.com/smartcontractkit/chainlink-deployments-framework v0.74.2
