@@ -8,11 +8,12 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 // LoadConfig loads the aggregator configuration from a file.
 // If the config specifies a GeneratedConfigPath, it also loads and merges the generated config.
-func LoadConfig(filePath string) (*model.AggregatorConfig, error) {
+func LoadConfig(filePath string, lggr logger.SugaredLogger) (*model.AggregatorConfig, error) {
 	var config model.AggregatorConfig
 	if _, err := toml.DecodeFile(filePath, &config); err != nil {
 		return nil, fmt.Errorf("failed to load config from %s: %w", filePath, err)
@@ -23,12 +24,13 @@ func LoadConfig(filePath string) (*model.AggregatorConfig, error) {
 		if !filepath.IsAbs(generatedPath) {
 			generatedPath = filepath.Join(filepath.Dir(filePath), generatedPath)
 		}
-
+		lggr.Infow("Loading generated config from path", "path", generatedPath)
 		generated, err := LoadGeneratedConfig(generatedPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load generated config from %s: %w", generatedPath, err)
 		}
 		config.MergeGeneratedConfig(generated)
+		lggr.Infow("Merged generated config", "config", config)
 	}
 
 	return &config, nil
