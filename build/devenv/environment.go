@@ -126,7 +126,7 @@ func checkKeys(in *Cfg) error {
 	return nil
 }
 
-func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17ProductConfiguration, error) {
+func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Configuration, error) {
 	switch typ {
 	case "anvil":
 		return evm.NewEmptyCCIP17EVM(), nil
@@ -192,9 +192,9 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, err
 	}
 
-	impls := make([]cciptestinterfaces.CCIP17ProductConfiguration, 0)
+	impls := make([]cciptestinterfaces.CCIP17Configuration, 0)
 	for _, bc := range in.Blockchains {
-		var impl cciptestinterfaces.CCIP17ProductConfiguration
+		var impl cciptestinterfaces.CCIP17Configuration
 		impl, err = NewProductConfigurationFromNetwork(bc.Type)
 		if err != nil {
 			return nil, err
@@ -781,7 +781,7 @@ func createJobs(in *Cfg, vIn []*services.VerifierInput, executorIn []*services.E
 func launchCLNodes(
 	ctx context.Context,
 	in *Cfg,
-	impls []cciptestinterfaces.CCIP17ProductConfiguration,
+	impls []cciptestinterfaces.CCIP17Configuration,
 	vIn []*services.VerifierInput,
 	aggregators []*services.AggregatorInput,
 ) (map[string][]string, error) {

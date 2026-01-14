@@ -341,7 +341,7 @@ func TestE2ESmoke(t *testing.T) {
 func runV2TestCase(
 	t *testing.T,
 	tc v2TestCase,
-	chainMap map[uint64]cciptestinterfaces.CCIP17ProductConfiguration,
+	chainMap map[uint64]cciptestinterfaces.CCIP17,
 	defaultAggregatorClient *ccv.AggregatorClient,
 	indexerClient *ccv.IndexerClient,
 	assertMessageOptions AssertMessageOptions,
@@ -393,13 +393,13 @@ func runV2TestCase(
 	}
 }
 
-func mustGetEOAReceiverAddress(t *testing.T, c cciptestinterfaces.CCIP17ProductConfiguration) protocol.UnknownAddress {
+func mustGetEOAReceiverAddress(t *testing.T, c cciptestinterfaces.CCIP17) protocol.UnknownAddress {
 	receiver, err := c.GetEOAReceiverAddress()
 	require.NoError(t, err)
 	return receiver
 }
 
-func mustGetSenderAddress(t *testing.T, c cciptestinterfaces.CCIP17ProductConfiguration) protocol.UnknownAddress {
+func mustGetSenderAddress(t *testing.T, c cciptestinterfaces.CCIP17) protocol.UnknownAddress {
 	sender, err := c.GetSenderAddress()
 	require.NoError(t, err)
 	return sender
@@ -452,7 +452,7 @@ func customExecutorTestCase(t *testing.T, src, dest uint64, in *ccv.Cfg) v3TestC
 	}
 }
 
-func dataSizeTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[uint64]cciptestinterfaces.CCIP17ProductConfiguration) []v3TestCase {
+func dataSizeTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[uint64]cciptestinterfaces.CCIP17) []v3TestCase {
 	maxDataBytes, err := c[dest].GetMaxDataBytes(t.Context(), dest)
 	require.NoError(t, err)
 	return []v3TestCase{
@@ -487,7 +487,7 @@ func dataSizeTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[uint64
 }
 
 // multiVerifierTestCases returns a list of test cases for testing multi-verifier scenarios.
-func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[uint64]cciptestinterfaces.CCIP17ProductConfiguration) []v3TestCase {
+func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[uint64]cciptestinterfaces.CCIP17) []v3TestCase {
 	return []v3TestCase{
 		{
 			name:        "EOA receiver and default committee verifier",

@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -22,12 +23,17 @@ Since 1.6/1.7 CCIP versions are incompatible for the time being we'll have 2 set
 for CCIP16 and CCIP17
 */
 
-// CCIP17ProductConfiguration includes all the interfaces that if implemented allows us to run a standard test suite for 2+ chains
-// it deploys network-specific infrastructure, configures both CL nodes and contracts and returns
-// operations for testing and SLA/Metrics assertions.
-type CCIP17ProductConfiguration interface {
+// CCIP17 is the main interface for interacting with the CCIP17 protocol.
+type CCIP17 interface {
 	Chain
 	Observable
+}
+
+// CCIP17Configuration includes all the interfaces that if implemented allows us to deploy the
+// protocol.
+// It deploys network-specific infrastructure, configures both CL nodes and contracts and returns
+// operations for testing and SLA/Metrics assertions.
+type CCIP17Configuration interface {
 	OnChainConfigurable
 	OffChainConfigurable
 }
@@ -122,7 +128,7 @@ type Chain interface {
 	// SendMessage sends a CCIP message to the specified destination chain with the specified message options.
 	SendMessage(ctx context.Context, dest uint64, fields MessageFields, opts MessageOptions) (MessageSentEvent, error)
 	// SendMessageWithNonce sends a CCIP message to the specified destination chain with the specified message options and nonce.
-	SendMessageWithNonce(ctx context.Context, dest uint64, fields MessageFields, opts MessageOptions, nonce *atomic.Uint64, disableTokenAmountCheck bool) (MessageSentEvent, error)
+	SendMessageWithNonce(ctx context.Context, dest uint64, fields MessageFields, opts MessageOptions, sender *bind.TransactOpts, nonce *atomic.Uint64, disableTokenAmountCheck bool) (MessageSentEvent, error)
 	// GetUserNonce returns the nonce for the user on this chain.
 	GetUserNonce(ctx context.Context) (uint64, error)
 	// GetExpectedNextSequenceNumber gets an expected sequence number for message to the specified destination chain.
@@ -141,6 +147,8 @@ type Chain interface {
 	Curse(ctx context.Context, subjects [][16]byte) error
 	// Uncurse uncurses a list of chains on this chain.
 	Uncurse(ctx context.Context, subjects [][16]byte) error
+	// GetRoundRobinSendingKey gets the round robin sending key for the chain.
+	GetRoundRobinUser() func() *bind.TransactOpts
 }
 
 type OnChainCommittees struct {
