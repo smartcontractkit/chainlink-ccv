@@ -207,6 +207,28 @@ func defaults(in *IndexerInput) {
 	}
 }
 
+func GenerateIndexerConfig(i *config.Config, resolverAddresses []string, aggregatorAddress string) (tomlConfig []byte, err error) {
+	verifierConfig := make([]config.VerifierConfig, 0, 1)
+	verifierConfig = append(verifierConfig, config.VerifierConfig{
+		Type: config.ReaderTypeAggregator,
+		AggregatorReaderConfig: config.AggregatorReaderConfig{
+			Address: aggregatorAddress,
+			Since:   0,
+		},
+		IssuerAddresses:  resolverAddresses,
+		Name:             "CommiteeVerifier (Default)",
+		BatchSize:        100,
+		MaxBatchWaitTime: 50,
+	})
+	i.Verifiers = verifierConfig
+	cfg, err := toml.Marshal(i)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal indexer config to TOML: %w", err)
+	}
+
+	return cfg, nil
+}
+
 // NewIndexer creates and starts a new Service container using testcontainers.
 func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 	if in == nil {

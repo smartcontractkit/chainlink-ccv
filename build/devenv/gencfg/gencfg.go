@@ -21,6 +21,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
 
@@ -68,8 +69,8 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 		executorIDPrefix                   = "default-executor-"
 		committeeName                      = "default"
 		monitoringOtelExporterHTTPEndpoint = "prod.telemetry.chain.link:443"
-		aggregatorAddress                  = "http://chainlink-ccv-aggregator:50051"
-		indexerAddress                     = "http://chainlink-ccv-indexer:8100"
+		aggregatorAddress                  = "https://chainlink-ccv-aggregator.ccip.stage.external.griddle.sh/all"
+		indexerAddress                     = "https://chainlink-ccv-indexer.ccip.stage.external.griddle.sh/all"
 	)
 
 	var (
@@ -124,6 +125,11 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 			CommitteeName:                      committeeName,
 			MonitoringOtelExporterHTTPEndpoint: monitoringOtelExporterHTTPEndpoint,
 		})
+	}
+
+	resolverAddresses := make([]string, 0, len(committeeVerifierResolverAddresses))
+	for _, addr := range committeeVerifierResolverAddresses {
+		resolverAddresses = append(resolverAddresses, addr)
 	}
 
 	for _, verifierInput := range verifierInputs {
@@ -187,8 +193,61 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 	}
 	ccv.Plog.Info().Str("file-path", filePath).Msg("Wrote aggregator config to file")
 
+	// Indexer config
+	indexerInput := &config.Config{
+		LogLevel: "debug",
+		Monitoring: config.MonitoringConfig{
+			Enabled: true,
+			Type:    "beholder",
+			Beholder: config.BeholderConfig{
+				OtelExporterHTTPEndpoint: monitoringOtelExporterHTTPEndpoint,
+				LogStreamingEnabled:      true,
+				MetricReaderInterval:     5,
+				TraceSampleRatio:         1,
+				TraceBatchTimeout:        10,
+			},
+		},
+		Discovery: config.DiscoveryConfig{
+			AggregatorReaderConfig: config.AggregatorReaderConfig{
+				Address: "chainlink-ccv-aggregator:50051",
+				Since:   0,
+			},
+			PollInterval: 500,
+			Timeout:      5000,
+			NtpServer:    "time.google.com",
+		},
+		Scheduler: config.SchedulerConfig{
+			TickerInterval:               50,
+			VerificationVisibilityWindow: 28800,
+			BaseDelay:                    100,
+			MaxDelay:                     30_000,
+		},
+		Pool: config.PoolConfig{
+			ConcurrentWorkers: 1000,
+			WorkerTimeout:     300,
+		},
+		Verifiers: nil,
+		// Storages
+		API: config.APIConfig{
+			RateLimit: config.RateLimitConfig{
+				Enabled: false,
+			},
+		},
+	}
+
+	indexerConfig, err := services.GenerateIndexerConfig(indexerInput, resolverAddresses, aggregatorAddress)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate indexer config: %w", err)
+	}
+	ccv.Plog.Info().Msg("Generated indexer config:")
+	filePath = filepath.Join(tempDir, "indexer-config.toml")
+	if err := os.WriteFile(filePath, indexerConfig, 0o644); err != nil {
+		return "", fmt.Errorf("failed to write indexer config to file: %w", err)
+	}
+	ccv.Plog.Info().Str("file-path", filePath).Msg("Wrote indexer config to file")
+
 	if createPR {
-		prURL, err := createConfigPR(gh, ctx, cldDomain, aggregatorConfig)
+		prURL, err := createConfigPR(gh, ctx, cldDomain, aggregatorConfig, indexerConfig)
 		if err != nil {
 			return "", fmt.Errorf("failed to create config PR: %w", err)
 		}
@@ -198,10 +257,10 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 	return tempDir, nil
 }
 
-func createConfigPR(gh *github.Client, ctx context.Context, cldDomain string, aggregatorConfig []byte) (string, error) {
+func createConfigPR(gh *github.Client, ctx context.Context, cldDomain string, aggregatorConfig []byte, indexerConfig []byte) (string, error) {
 	// Create a new branch, add the aggregator config file and open a PR
 	owner := "smartcontractkit"
-	repo := "infra-k8s"
+	repo := "chainlink-ccv-deploy"
 
 	// Get repository to find default branch
 	repoInfo, _, err := gh.Repositories.Get(ctx, owner, repo)
@@ -232,38 +291,60 @@ func createConfigPR(gh *github.Client, ctx context.Context, cldDomain string, ag
 	}
 
 	// Path where to add the aggregator config in the repo
-	aggPath := "projects/chainlink-ccv/files/aggregator/aggregator-config.yaml"
+	aggPath := "deploy/config/staging-aggregator-config.yaml"
+	indexerPath := "deploy/config/staging-indexer-config.yaml"
 
 	// Create file on the new branch
 	commitMsg := "Update ccv configuration"
 
 	// Marshal aggregator config into YAML under configMap.aggregator.\.toml
 	aggYaml := map[string]any{
-		"main": map[string]any{
-			"stage": map[string]any{
-				"configMap": map[string]string{
-					"aggregator.toml": string(aggregatorConfig),
-				},
-			},
+		"aggregatorConfig": map[string]string{
+			"aggregator.toml": string(aggregatorConfig),
 		},
 	}
+	indexerYaml := map[string]any{
+		"indexerConfig": map[string]string{
+			"indexer.toml": string(indexerConfig),
+		},
+	}
+
 	aggFileContent, err := yaml.Marshal(aggYaml)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal aggregator config to YAML: %w", err)
 	}
+	indexerFileContent, err := yaml.Marshal(indexerYaml)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal indexer config to YAML: %w", err)
+	}
 
-	aggFile, _, _, _ := gh.Repositories.GetContents(ctx, "smartcontractkit", "infra-k8s", "projects/chainlink-ccv/files/aggregator/aggregator-config.yaml", &github.RepositoryContentGetOptions{})
+	// Create indexer config file
+	indexerFile, _, _, _ := gh.Repositories.GetContents(ctx, "smartcontractkit", "chainlink-ccv-deploy", "deploy/config/staging-indexer-config.yaml", &github.RepositoryContentGetOptions{})
+	indexerSHA := indexerFile.GetSHA()
+
+	aggFile, _, _, _ := gh.Repositories.GetContents(ctx, "smartcontractkit", "chainlink-ccv-deploy", "deploy/config/staging-aggregator-config.yaml", &github.RepositoryContentGetOptions{})
 	aggSHA := aggFile.GetSHA()
 
-	opts := &github.RepositoryContentFileOptions{
+	optsAgg := &github.RepositoryContentFileOptions{
 		Message: github.Ptr(commitMsg),
 		Content: aggFileContent,
 		Branch:  github.Ptr(branchName),
 		SHA:     github.Ptr(aggSHA),
 	}
-	_, _, err = gh.Repositories.CreateFile(ctx, owner, repo, aggPath, opts)
+	_, _, err = gh.Repositories.CreateFile(ctx, owner, repo, aggPath, optsAgg)
 	if err != nil {
 		return "", fmt.Errorf("failed to create file %s on branch %s: %w", aggPath, branchName, err)
+	}
+
+	optsIndexer := &github.RepositoryContentFileOptions{
+		Message: github.Ptr(commitMsg),
+		Content: indexerFileContent,
+		Branch:  github.Ptr(branchName),
+		SHA:     github.Ptr(indexerSHA),
+	}
+	_, _, err = gh.Repositories.CreateFile(ctx, owner, repo, indexerPath, optsIndexer)
+	if err != nil {
+		return "", fmt.Errorf("failed to create file %s on branch %s: %w", indexerPath, branchName, err)
 	}
 
 	// Open a PR from the new branch into default
