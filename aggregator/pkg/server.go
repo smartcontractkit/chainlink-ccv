@@ -28,6 +28,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/handlers"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/health"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/middlewares"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
@@ -37,6 +38,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
+	heartbeatpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/heartbeat/v1"
 	msgdiscoverypb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery/v1"
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
@@ -46,6 +48,7 @@ type Server struct {
 	committeepb.UnimplementedCommitteeVerifierServer
 	verifierpb.UnimplementedVerifierServer
 	msgdiscoverypb.UnimplementedMessageDiscoveryServer
+	heartbeatpb.UnimplementedHeartbeatServiceServer
 
 	l                                         logger.SugaredLogger
 	config                                    *model.AggregatorConfig
@@ -56,6 +59,7 @@ type Server struct {
 	writeCommitVerifierNodeResultHandler      *handlers.WriteCommitVerifierNodeResultHandler
 	getMessagesSinceHandler                   *handlers.GetMessagesSinceHandler
 	getVerifierResultsForMessageHandler       *handlers.GetVerifierResultsForMessageHandler
+	heartbeatHandler                          *handlers.HeartbeatHandler
 	grpcServer                                *grpc.Server
 	batchWriteCommitVerifierNodeResultHandler *handlers.BatchWriteCommitVerifierNodeResultHandler
 	httpHealthServer                          *health.HTTPHealthServer
@@ -86,6 +90,10 @@ func (s *Server) GetVerifierResultsForMessage(ctx context.Context, req *verifier
 
 func (s *Server) GetMessagesSince(ctx context.Context, req *msgdiscoverypb.GetMessagesSinceRequest) (*msgdiscoverypb.GetMessagesSinceResponse, error) {
 	return s.getMessagesSinceHandler.Handle(ctx, req)
+}
+
+func (s *Server) SendHeartbeat(ctx context.Context, req *heartbeatpb.HeartbeatRequest) (*heartbeatpb.HeartbeatResponse, error) {
+	return s.heartbeatHandler.Handle(ctx, req)
 }
 
 func (s *Server) Start(lis net.Listener) error {
@@ -310,6 +318,12 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	getVerifierResultsForMessageHandler := handlers.NewGetVerifierResultsForMessageHandler(store, config.Committee, config.MaxMessageIDsPerBatch, l)
 	batchWriteCommitVerifierNodeResultHandler := handlers.NewBatchWriteCommitVerifierNodeResultHandler(writeCommitVerifierNodeResultHandler, config.MaxCommitVerifierNodeResultRequestsPerBatch)
 
+	// Create in-memory heartbeat storage and handler
+	// TODO: switch to Redis-based storage when available
+	heartbeatStorage := heartbeat.NewInMemoryStorage()
+	heartbeatHandler := handlers.NewHeartbeatHandler(heartbeatStorage, l, aggMonitoring)
+	l.Info("Using in-memory heartbeat storage")
+
 	// Initialize middlewares
 	loggingMiddleware := middlewares.NewLoggingMiddleware(l)
 	metricsMiddleware := middlewares.NewMetricMiddleware(aggMonitoring)
@@ -401,6 +415,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		getMessagesSinceHandler:              getMessagesSinceHandler,
 		getVerifierResultsForMessageHandler:  getVerifierResultsForMessageHandler,
 		batchWriteCommitVerifierNodeResultHandler: batchWriteCommitVerifierNodeResultHandler,
+		heartbeatHandler: heartbeatHandler,
 		httpHealthServer: httpHealthServer,
 		healthManager:    healthManager,
 		grpcServer:       grpcServer,
@@ -411,6 +426,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	verifierpb.RegisterVerifierServer(grpcServer, server)
 	msgdiscoverypb.RegisterMessageDiscoveryServer(grpcServer, server)
 	committeepb.RegisterCommitteeVerifierServer(grpcServer, server)
+	heartbeatpb.RegisterHeartbeatServiceServer(grpcServer, server)
 
 	if os.Getenv("AGGREGATOR_GRPC_REFLECTION_ENABLED") == "true" {
 		reflection.Register(grpcServer)
