@@ -59,7 +59,7 @@ func TestChaos_AggregatorOutageRecovery(t *testing.T) {
 		numExpectedVerifications: 1,
 	}
 
-	runV2TestCase(t, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerClient, AssertMessageOptions{
+	runV2TestCase(t, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerMonitor, AssertMessageOptions{
 		TickInterval:            5 * time.Second,
 		Timeout:                 tests.WaitTimeout(t),
 		ExpectedVerifierResults: tc.numExpectedVerifications,
@@ -134,7 +134,7 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 		tc,
 		setup.chainMap,
 		setup.defaultAggregatorClient,
-		setup.indexerClient,
+		setup.indexerMonitor,
 		AssertMessageOptions{
 			TickInterval:            5 * time.Second,
 			Timeout:                 tests.WaitTimeout(t),
@@ -178,7 +178,7 @@ func TestChaos_AllExecutorsDown(t *testing.T) {
 		numExpectedVerifications: 1,
 	}
 
-	runV2TestCase(t, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerClient, AssertMessageOptions{
+	runV2TestCase(t, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerMonitor, AssertMessageOptions{
 		TickInterval:            5 * time.Second,
 		Timeout:                 tests.WaitTimeout(t),
 		ExpectedVerifierResults: tc.numExpectedVerifications,
@@ -215,7 +215,7 @@ func TestChaos_IndexerDown(t *testing.T) {
 		numExpectedVerifications: 1,
 	}
 
-	runV2TestCase(t, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerClient, AssertMessageOptions{
+	runV2TestCase(t, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerMonitor, AssertMessageOptions{
 		TickInterval:            5 * time.Second,
 		Timeout:                 tests.WaitTimeout(t),
 		ExpectedVerifierResults: tc.numExpectedVerifications,
@@ -229,7 +229,7 @@ type chaosSetup struct {
 	chains                  []ccv.ChainImpl
 	chainMap                map[uint64]cciptestinterfaces.CCIP17
 	defaultAggregatorClient *ccv.AggregatorClient
-	indexerClient           *ccv.IndexerClient
+	indexerMonitor          *ccv.IndexerMonitor
 	l                       *zerolog.Logger
 }
 
@@ -264,13 +264,14 @@ func setupChaos(t *testing.T, envOutPath string) *chaosSetup {
 		})
 	}
 
-	var indexerClient *ccv.IndexerClient
-	if in.IndexerEndpoint != "" {
-		indexerClient, err = ccv.NewIndexerClient(
+	var indexerMonitor *ccv.IndexerMonitor
+	indexerClient, err := lib.Indexer()
+	if err == nil {
+		indexerMonitor, err = ccv.NewIndexerMonitor(
 			zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
-			in.IndexerEndpoint)
+			indexerClient)
 		require.NoError(t, err)
-		require.NotNil(t, indexerClient)
+		require.NotNil(t, indexerMonitor)
 	}
 
 	return &chaosSetup{
@@ -278,7 +279,7 @@ func setupChaos(t *testing.T, envOutPath string) *chaosSetup {
 		chains:                  chains,
 		chainMap:                chainMap,
 		defaultAggregatorClient: defaultAggregatorClient,
-		indexerClient:           indexerClient,
+		indexerMonitor:          indexerMonitor,
 		l:                       l,
 	}
 }

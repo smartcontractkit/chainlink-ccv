@@ -3,12 +3,15 @@ package ccv
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"time"
 
 	"github.com/rs/zerolog"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
 
@@ -79,6 +82,22 @@ func (l *Lib) DataStore() (datastore.DataStore, error) {
 		return nil, fmt.Errorf("failed to initialize datastore: %w", err)
 	}
 	return l.cfg.CLDF.DataStore, nil
+}
+
+func (l *Lib) Indexer() (*client.IndexerClient, error) {
+	if err := l.verify(); err != nil {
+		return nil, fmt.Errorf("failed to initialize indexer client: %w", err)
+	}
+	httpClient := &http.Client{
+		Timeout: 10 * time.Second,
+	}
+
+	ic, err := client.NewIndexerClient(l.cfg.IndexerEndpoint, httpClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create IndexerMonitor: %w", err)
+	}
+
+	return ic, nil
 }
 
 // Chains returns a slice of Chains in Blockchain cfg order.
