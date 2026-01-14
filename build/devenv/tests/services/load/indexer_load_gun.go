@@ -18,10 +18,10 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/wasp"
 )
 
-// TODO: Make these configurable via environment variables or test parameters
+// TODO: Make these configurable via environment variables or test parameters.
 const IndexerURI = "http://localhost:8102"
 
-// TODO: Figure out what is at localhost:9111
+// TODO: Figure out what is at localhost:9111.
 const SomethingURI = "http://localhost:9111"
 
 type IndexerLoadGun struct {

@@ -62,7 +62,7 @@ func parseVerifierResultsParams(queryData v1.VerifierResultsInput) *iclient.Veri
 	return &params
 }
 
-func (ic *IndexerClient) VerifierResults(ctx context.Context, queryData v1.VerifierResultsInput) (int /*status*/, v1.VerifierResultsResponse, error) {
+func (ic *IndexerClient) VerifierResults(ctx context.Context, queryData v1.VerifierResultsInput) (int /* status */, v1.VerifierResultsResponse, error) {
 	resp, err := ic.client.VerifierResults(ctx, parseVerifierResultsParams(queryData))
 	if err != nil {
 		err = fmt.Errorf("indexer ReadVerifierResults request error: %w", err)
@@ -102,7 +102,7 @@ func parseMessagesParams(queryData v1.MessagesInput) *iclient.MessagesParams {
 }
 
 // Messages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message.
-func (ic *IndexerClient) Messages(ctx context.Context, queryData v1.MessagesInput) (int /*status*/, v1.MessagesResponse, error) {
+func (ic *IndexerClient) Messages(ctx context.Context, queryData v1.MessagesInput) (int /* status */, v1.MessagesResponse, error) {
 	resp, err := ic.client.Messages(ctx, parseMessagesParams(queryData))
 	if err != nil {
 		return 0, v1.MessagesResponse{}, fmt.Errorf("indexer Messages request error: %w", err)
@@ -117,7 +117,7 @@ func (ic *IndexerClient) Messages(ctx context.Context, queryData v1.MessagesInpu
 }
 
 // VerifierResultsByMessageID returns all verifierResults for a given messageID.
-func (ic *IndexerClient) VerifierResultsByMessageID(ctx context.Context, queryData v1.VerifierResultsByMessageIDInput) (int /*status*/, v1.VerifierResultsByMessageIDResponse, error) {
+func (ic *IndexerClient) VerifierResultsByMessageID(ctx context.Context, queryData v1.VerifierResultsByMessageIDInput) (int /* status */, v1.VerifierResultsByMessageIDResponse, error) {
 	resp, err := ic.client.VerifierResultsByMessageId(ctx, queryData.MessageID)
 	if err != nil {
 		return 0, v1.VerifierResultsByMessageIDResponse{},
@@ -130,18 +130,6 @@ func (ic *IndexerClient) VerifierResultsByMessageID(ctx context.Context, queryDa
 			fmt.Errorf("indexer VerifierResultsByMessageID error: %w", err)
 	}
 
-	addrs := make([]string, 0, len(messageIDResponse.Results))
-	for _, result := range messageIDResponse.Results {
-		addrs = append(addrs, result.VerifierResult.VerifierSourceAddress.String())
-	}
-
-	/*
-		ic.lggr.Infow("Successfully retrieved VerifierResults",
-			"messageID", queryData.MessageID,
-			"numberOfResults", len(addrs),
-			"verifierAddresses", addrs,
-		)
-	*/
 	return resp.StatusCode, messageIDResponse, nil
 }
 
