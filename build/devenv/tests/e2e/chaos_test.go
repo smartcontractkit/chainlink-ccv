@@ -79,19 +79,23 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 	}
 	require.NotEmpty(t, defaultVerifierInputs, "default verifier inputs not found")
 
-	var thresholdPerSource map[uint64]uint8
+	var defaultAggregator *services.AggregatorInput
 	for _, aggregator := range setup.in.Aggregator {
 		if aggregator.CommitteeName == evm.DefaultCommitteeVerifierQualifier {
-			thresholdPerSource = aggregator.Out.ThresholdPerSource
+			defaultAggregator = aggregator
 			break
 		}
 	}
-	require.NotNil(t, thresholdPerSource, "threshold per source nil for default aggregator, need it for this test")
+	require.NotNil(t, defaultAggregator, "default aggregator not found")
+	require.NotNil(t, defaultAggregator.Out, "Out nil for default aggregator")
+	require.NotNil(t, defaultAggregator.Out.GeneratedCommittee, "GeneratedCommittee nil for default aggregator, need it for this test")
 
 	fromSelector, toSelector := setup.chains[0].Details.ChainSelector, setup.chains[1].Details.ChainSelector
+	fromSelectorStr := fmt.Sprintf("%d", fromSelector)
 
-	require.Contains(t, thresholdPerSource, fromSelector, "threshold per source not found for source chain %d", fromSelector)
-	threshold := thresholdPerSource[fromSelector]
+	quorumConfig, ok := defaultAggregator.Out.GeneratedCommittee.QuorumConfigs[fromSelectorStr]
+	require.True(t, ok, "quorum config not found for source chain %d", fromSelector)
+	threshold := quorumConfig.Threshold
 	require.GreaterOrEqual(t, len(defaultVerifierInputs), int(threshold), "number of default verifiers must be greater than or equal to the threshold for this test")
 	numVerifiersToStop := len(defaultVerifierInputs) - int(threshold) + 1
 	require.Greater(t, numVerifiersToStop, 0, "number of verifiers to stop must be greater than 0 for this test")

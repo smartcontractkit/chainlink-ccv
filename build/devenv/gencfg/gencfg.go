@@ -19,6 +19,7 @@ import (
 	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/offramp"
 	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -169,15 +170,21 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 		ccv.Plog.Info().Str("file-path", filePath).Msg("Wrote executor job spec to file")
 	}
 
+	// Build committee config from address refs and verifier public keys
+	committeeConfig := buildCommitteeConfig(
+		verifierPubKeys,
+		committeeVerifierResolverAddresses,
+		thresholdPerSource,
+	)
+
 	// Aggregator config
 	generatedConfigFileName := "aggregator-generated.toml"
 	aggregatorInput := services.AggregatorInput{
 		CommitteeName:                      committeeName,
-		CommitteeVerifierResolverAddresses: committeeVerifierResolverAddresses,
-		ThresholdPerSource:                 thresholdPerSource,
 		MonitoringOtelExporterHTTPEndpoint: monitoringOtelExporterHTTPEndpoint,
+		GeneratedCommittee:                 committeeConfig,
 	}
-	configResult, err := aggregatorInput.GenerateConfigs(verifierInputs, generatedConfigFileName)
+	configResult, err := aggregatorInput.GenerateConfigs(generatedConfigFileName)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate aggregator configs: %w", err)
 	}
@@ -291,4 +298,40 @@ func createConfigPR(gh *github.Client, ctx context.Context, cldDomain string, ag
 		return "", fmt.Errorf("failed to create pull request: %w", err)
 	}
 	return pr.GetHTMLURL(), nil
+}
+
+func buildCommitteeConfig(
+	verifierPubKeys []string,
+	resolverAddresses map[uint64]string,
+	thresholdPerSource map[uint64]uint8,
+) *model.Committee {
+	signers := make([]model.Signer, 0, len(verifierPubKeys))
+	for _, pubKey := range verifierPubKeys {
+		signers = append(signers, model.Signer{Address: pubKey})
+	}
+
+	quorumConfigs := make(map[model.SourceSelector]*model.QuorumConfig)
+	destVerifiers := make(map[model.DestinationSelector]string)
+
+	for chainSelector, resolverAddr := range resolverAddresses {
+		chainSelStr := strconv.FormatUint(chainSelector, 10)
+
+		destVerifiers[chainSelStr] = resolverAddr
+
+		threshold := thresholdPerSource[chainSelector]
+		if threshold == 0 {
+			threshold = uint8(len(signers))
+		}
+
+		quorumConfigs[chainSelStr] = &model.QuorumConfig{
+			SourceVerifierAddress: resolverAddr,
+			Signers:               signers,
+			Threshold:             threshold,
+		}
+	}
+
+	return &model.Committee{
+		QuorumConfigs:        quorumConfigs,
+		DestinationVerifiers: destVerifiers,
+	}
 }
