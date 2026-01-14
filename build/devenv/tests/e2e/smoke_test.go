@@ -115,7 +115,7 @@ func TestE2ESmoke(t *testing.T) {
 	t.Run("extra args v2", func(t *testing.T) {
 		tcs := []v2TestCase{
 			{
-				name:                     "src->dst msg execution eoa receiver",
+				name:                     "1337->2337 msg execution eoa receiver",
 				fromSelector:             sel0,
 				toSelector:               sel1,
 				receiver:                 mustGetEOAReceiverAddress(t, chainMap[sel1]),
@@ -123,7 +123,7 @@ func TestE2ESmoke(t *testing.T) {
 				numExpectedVerifications: 1,
 			},
 			{
-				name:                     "dst->src msg execution eoa receiver",
+				name:                     "2337->1337 msg execution eoa receiver",
 				fromSelector:             sel1,
 				toSelector:               sel0,
 				receiver:                 mustGetEOAReceiverAddress(t, chainMap[sel0]),
@@ -162,6 +162,7 @@ func TestE2ESmoke(t *testing.T) {
 		tcs = append(tcs, mvtcsDestToSrc[0])
 		tcs = append(tcs, dataSizeTestCases(t, src, dest, in, chainMap)...)
 		tcs = append(tcs, customExecutorTestCase(t, src, dest, in))
+		tcs = append(tcs, downSizingV3MessagingTestCases(t, sel0, sel1, sel2, in)...)
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
 				var receiverStartBalance *big.Int
@@ -764,6 +765,125 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			// default executor, default and tertiary committee verifiers, and network fee.
 			numExpectedReceipts: 4,
 			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), evm.DefaultExecutorQualifier, "executor"),
+		},
+	}
+}
+
+func downSizingV3MessagingTestCases(t *testing.T, sel0, sel1, sel2 uint64, in *ccv.Cfg) []v3TestCase {
+	// the list is not exhaustive but not necessary to test all the permutations for correctness, we could add the
+	// remaining permutation e.g., 2337->3337, 1337->3337, 3337->1337, 2337->1337 but we would effectively be
+	// testing setup correctness, rather than functional correctness.
+	return []v3TestCase{
+		{
+			name:        "1337->2337 msg tertiary verifier secures 1337 with 2/3 verifiers",
+			srcSelector: sel0,
+			dstSelector: sel1,
+			finality:    1,
+			receiver: getContractAddress(
+				t,
+				in,
+				sel1,
+				datastore.ContractType(mock_receiver.ContractType),
+				mock_receiver.Deploy.Version(),
+				evm.QuinaryReceiverQualifier,
+				"quinary mock receiver",
+			),
+			ccvs: []protocol.CCV{
+				{
+					CCVAddress: getContractAddress(
+						t,
+						in,
+						sel0,
+						datastore.ContractType(committee_verifier.ResolverType),
+						committee_verifier.Deploy.Version(),
+						evm.TertiaryCommitteeVerifierQualifier,
+						"tertiary committee verifier resolver",
+					),
+					Args:    []byte{},
+					ArgsLen: 0,
+				},
+			},
+			// tertiary verifier only but additional verification by the default verifier which
+			// is the discovery mechanism
+			numExpectedVerifications: 2,
+			// default executor and secondary committee verifier and network fee.
+			numExpectedReceipts: 3,
+			executor:            getContractAddress(t, in, sel0, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), evm.DefaultExecutorQualifier, "executor"),
+			aggregatorQualifier: evm.TertiaryCommitteeVerifierQualifier,
+		},
+		{
+			name:        "3337->2337 msg tertiary verifier secures 3337 with 1/1 verifiers",
+			srcSelector: sel2,
+			dstSelector: sel1,
+			finality:    1,
+			receiver: getContractAddress(
+				t,
+				in,
+				sel1,
+				datastore.ContractType(mock_receiver.ContractType),
+				mock_receiver.Deploy.Version(),
+				evm.QuinaryReceiverQualifier,
+				"quinary mock receiver",
+			),
+			ccvs: []protocol.CCV{
+				{
+					CCVAddress: getContractAddress(
+						t,
+						in,
+						sel2,
+						datastore.ContractType(committee_verifier.ResolverType),
+						committee_verifier.Deploy.Version(),
+						evm.TertiaryCommitteeVerifierQualifier,
+						"tertiary committee verifier resolver",
+					),
+					Args:    []byte{},
+					ArgsLen: 0,
+				},
+			},
+			// tertiary verifier only but additional verification by the default verifier which
+			// is the discovery mechanism
+			numExpectedVerifications: 2,
+			// default executor and secondary committee verifier and network fee.
+			numExpectedReceipts: 3,
+			executor:            getContractAddress(t, in, sel2, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), evm.DefaultExecutorQualifier, "executor"),
+			aggregatorQualifier: evm.TertiaryCommitteeVerifierQualifier,
+		},
+		{
+			name:        "2337->3337 msg tertiary verifier secures 2337 with 1/2 verifiers",
+			srcSelector: sel2,
+			dstSelector: sel1,
+			finality:    1,
+			receiver: getContractAddress(
+				t,
+				in,
+				sel1,
+				datastore.ContractType(mock_receiver.ContractType),
+				mock_receiver.Deploy.Version(),
+				evm.QuinaryReceiverQualifier,
+				"quinary mock receiver",
+			),
+			ccvs: []protocol.CCV{
+				{
+					CCVAddress: getContractAddress(
+						t,
+						in,
+						sel2,
+						datastore.ContractType(committee_verifier.ResolverType),
+						committee_verifier.Deploy.Version(),
+						evm.TertiaryCommitteeVerifierQualifier,
+						"tertiary committee verifier resolver",
+					),
+					Args:    []byte{},
+					ArgsLen: 0,
+				},
+			},
+			// tertiary verifier only but additional verification by the default verifier which
+			// is the discovery mechanism
+			numExpectedVerifications: 2,
+			// default executor and secondary committee verifier and network fee.
+			numExpectedReceipts: 3,
+			executor:            getContractAddress(t, in, sel2, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), evm.DefaultExecutorQualifier, "executor"),
+			aggregatorQualifier: evm.TertiaryCommitteeVerifierQualifier,
 		},
 	}
 }

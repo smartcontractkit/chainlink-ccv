@@ -15,6 +15,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/configuration"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -102,8 +103,9 @@ type AggregatorInput struct {
 	// Chain selector -> Committee Verifier Resolver Address
 	CommitteeVerifierResolverAddresses map[uint64]string `toml:"committee_verifier_resolver_addresses"`
 	// Source chain selector -> threshold mapping
-	// If not available we default to a full quorum, i.e. all verifiers must sign.
-	ThresholdPerSource map[uint64]uint8 `toml:"threshold_per_source"`
+	// Accept TOML map with string keys (stringified chain selectors)
+	ThresholdPerSource map[string]uint8 `toml:"threshold_per_source"`
+
 	// Maps to Monitoring.Beholder.OtelExporterHTTPEndpoint in the aggregator config toml.
 	MonitoringOtelExporterHTTPEndpoint string `toml:"monitoring_otel_exporter_http_endpoint"`
 
@@ -244,17 +246,36 @@ func (a *AggregatorInput) GenerateConfigs(inV []*VerifierInput, generatedConfigF
 	committeeConfig.QuorumConfigs = make(map[string]*model.QuorumConfig)
 	committeeConfig.DestinationVerifiers = make(map[string]string)
 
-	// Build signers list from verifier inputs
-	signers := make([]model.Signer, 0, len(inV))
+	// Build signers map: chainSelector -> []model.Signer
+	signersPerChain := make(map[uint64][]model.Signer)
+
+	// Collect all source chain selectors
+	allChainSelectors := make([]uint64, 0, len(a.CommitteeVerifierResolverAddresses))
+	for cs := range a.CommitteeVerifierResolverAddresses {
+		allChainSelectors = append(allChainSelectors, cs)
+	}
+
 	for _, v := range inV {
 		if v.CommitteeName != committeeName {
 			continue
 		}
-		signers = append(signers, model.Signer{
-			Address: v.SigningKeyPublic,
-		})
+		// each verifier has an optional secures optional with the list of chain selectors it secures.
+		// If EnabledChains is nil, it secures all chains.
+		signer := model.Signer{Address: v.SigningKeyPublic}
+		if v.EnabledChains == nil {
+			for _, chainSelector := range allChainSelectors {
+				signersPerChain[chainSelector] = append(signersPerChain[chainSelector], signer)
+			}
+		} else {
+			for _, chainID := range v.EnabledChains {
+				networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(chainID, chainsel.FamilyEVM)
+				if err != nil {
+					return nil, fmt.Errorf("failed to get chain details for chain ID %s: %w", chainID, err)
+				}
+				signersPerChain[networkInfo.ChainSelector] = append(signersPerChain[networkInfo.ChainSelector], signer)
+			}
+		}
 	}
-	defaultThreshold := uint8(len(signers))
 
 	// Create quorum configs per source chain and destination verifiers mapping
 	for chainSelector, verifierAddress := range a.CommitteeVerifierResolverAddresses {
@@ -263,11 +284,30 @@ func (a *AggregatorInput) GenerateConfigs(inV []*VerifierInput, generatedConfigF
 		// Add destination verifier mapping
 		committeeConfig.DestinationVerifiers[chainSelStr] = verifierAddress
 
-		// Determine threshold for this source
+		// Determine signers for this source chain
+		signers := signersPerChain[chainSelector]
+		// Default threshold is full quorum for this chain (all signers for that chain)
+		var defaultThreshold uint8
+		if len(signers) > 0 {
+			defaultThreshold = uint8(len(signers))
+		} else {
+			// If no signers explicitly secure this chain, default to 0
+			defaultThreshold = 0
+		}
+
+		// Determine threshold for this source (override if provided)
 		sourceThreshold := defaultThreshold
 		if a.ThresholdPerSource != nil {
-			if t, exists := a.ThresholdPerSource[chainSelector]; exists {
+			// ThresholdPerSource is keyed by chainID
+			chainID, err := chainsel.GetChainIDFromSelector(chainSelector)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get chain ID from chain selector %d: %w", chainSelector, err)
+			}
+			if t, exists := a.ThresholdPerSource[chainID]; exists {
 				sourceThreshold = t
+			} else {
+				// if threshold per source is provided, but this source is missing, then aggregator will ignore it
+				continue
 			}
 		}
 
@@ -312,7 +352,6 @@ func (a *AggregatorInput) GenerateConfigs(inV []*VerifierInput, generatedConfigF
 			})
 		}
 	}
-
 	// Marshal main config (without committee - it's in the generated file)
 	mainCfg, err := toml.Marshal(config)
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -317,25 +318,6 @@ func NewEnvironment() (in *Cfg, err error) {
 	/////////////////////////////
 	// START: Deploy contracts //
 	/////////////////////////////
-	var committees []cciptestinterfaces.OnChainCommittees
-	{
-		addrs := make(map[string][][]byte)
-
-		for _, ver := range in.Verifier {
-			// At this point, SigningKeyPublic must be assigned -- either by keygen either manually or by the CL node.
-			addrs[ver.CommitteeName] = append(addrs[ver.CommitteeName], hexutil.MustDecode(ver.SigningKeyPublic))
-		}
-
-		for committeeName, signers := range addrs {
-			committees = append(committees, cciptestinterfaces.OnChainCommittees{
-				CommitteeQualifier: committeeName,
-				Signers:            signers,
-				// TODO: should this be pulled from the aggregator configuration, ThresholdPerSource?
-				// And if nothing in there, default to len(signers)?
-				Threshold: uint8(len(signers)),
-			})
-		}
-	}
 
 	var selectors []uint64
 	var e *deployment.Environment
@@ -347,6 +329,77 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("creating CLDF operations environment: %w", err)
 	}
 	L.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
+
+	// store one entry per committee, with signers per source chain
+	var committees []cciptestinterfaces.OnChainCommittees
+	{
+		// Map aggregator inputs by committee name for threshold lookup
+		aggByCommittee := make(map[string]*services.AggregatorInput)
+		for _, agg := range in.Aggregator {
+			aggByCommittee[agg.CommitteeName] = agg
+		}
+
+		// Collect unique committee names from verifiers
+		committeeSet := make(map[string]bool)
+		for _, ver := range in.Verifier {
+			committeeSet[ver.CommitteeName] = true
+		}
+
+		// For each committee, build an OnChainCommittees entry with signers per source chain
+		for committeeName := range committeeSet {
+			signersBySourceChain := make(map[uint64]cciptestinterfaces.Signers)
+
+			for _, selector := range selectors {
+				// Determine signers for this committee on this selector
+				signers := make([][]byte, 0)
+				chainIDStr, err := chainsel.GetChainIDFromSelector(selector)
+				if err != nil {
+					return nil, fmt.Errorf("failed to get chain ID from selector %d: %w", selector, err)
+				}
+
+				for _, ver := range in.Verifier {
+					if ver.CommitteeName != committeeName {
+						continue
+					}
+					// If EnabledChains is empty, verifier secures all chains.
+					if len(ver.EnabledChains) == 0 {
+						signers = append(signers, hexutil.MustDecode(ver.SigningKeyPublic))
+						continue
+					}
+					// Otherwise include only if this verifier enabled this chain (compare chain ID strings)
+					if slices.Contains(ver.EnabledChains, chainIDStr) {
+						signers = append(signers, hexutil.MustDecode(ver.SigningKeyPublic))
+					}
+				}
+
+				// Determine threshold for this committee+source chain
+				var threshold uint8
+				agg := aggByCommittee[committeeName]
+				if agg != nil && agg.ThresholdPerSource != nil {
+					// ThresholdPerSource is keyed by chain id string
+					if t, ok := agg.ThresholdPerSource[chainIDStr]; ok {
+						threshold = t
+					} else {
+						// If threshold map is present but this source is missing, skip this entry (aggregator ignores it)
+						continue
+					}
+				} else {
+					// default: full quorum (all signers for that chain)
+					threshold = uint8(len(signers))
+				}
+
+				signersBySourceChain[selector] = cciptestinterfaces.Signers{
+					Signers:   signers,
+					Threshold: threshold,
+				}
+			}
+
+			committees = append(committees, cciptestinterfaces.OnChainCommittees{
+				CommitteeQualifier:   committeeName,
+				SignersBySourceChain: signersBySourceChain,
+			})
+		}
+	}
 
 	timeTrack.Record("[infra] deploying blockchains")
 	ds := datastore.NewMemoryDataStore()
