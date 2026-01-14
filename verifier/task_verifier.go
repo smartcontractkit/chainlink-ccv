@@ -50,11 +50,11 @@ func NewTaskVerifierProcessor(
 	verifierID string,
 	verifier Verifier,
 	monitoring Monitoring,
-	sourceStates map[protocol.ChainSelector]*SourceReaderService,
+	sourceReaderServices map[protocol.ChainSelector]*SourceReaderService,
 	storageBatcher *batcher.Batcher[protocol.VerifierNodeResult],
 ) (*TaskVerifierProcessor, error) {
 	sourceFanouts := make(map[protocol.ChainSelector]SourceReaderFanout)
-	for chainSelector, srs := range sourceStates {
+	for chainSelector, srs := range sourceReaderServices {
 		sourceFanouts[chainSelector] = srs
 	}
 

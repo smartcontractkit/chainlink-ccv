@@ -2,6 +2,7 @@ package batcher
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -279,49 +280,110 @@ func TestBatcher_ChannelBufferAdequate(t *testing.T) {
 	}
 }
 
-func TestBatcher_ChannelBufferTooSmall(t *testing.T) {
-	// Test that when channel buffer is too small, some batches are dropped
+func TestBatcher_BlockingOnFullChannel(t *testing.T) {
+	// Test that when channel buffer is small, flush blocks until consumer reads
+	// This validates guaranteed delivery even with small buffers
 	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
 
-	// Very small buffer - will cause drops
-	maxSize := 3
-	maxWait := 10 * time.Millisecond // Short wait to trigger frequent flushes
+	// Small buffer - only 1 batch can be queued
+	maxSize := 5
+	maxWait := 10 * time.Millisecond
 
 	batcher := NewBatcher[int](ctx, maxSize, maxWait, 1)
 
-	// Add many items rapidly to trigger multiple flushes
-	totalItemsAdded := 0
-	for i := range 10 {
-		// Add items in batches
-		err := batcher.Add(i*10, i*10+1, i*10+2)
-		require.NoError(t, err)
-		totalItemsAdded += 3
-	}
+	// Start consuming batches in background BEFORE adding items
+	// This simulates a consumer that's ready to receive
+	done := make(chan struct{})
+	var allItems []int
+	var mu sync.Mutex
+	go func() {
+		defer close(done)
+		for batch := range batcher.OutChannel() {
+			mu.Lock()
+			allItems = append(allItems, batch.Items...)
+			mu.Unlock()
+			// Simulate slow consumer
+			time.Sleep(20 * time.Millisecond)
+		}
+	}()
 
-	// Wait for flushes to happen
-	time.Sleep(100 * time.Millisecond)
+	// Add items that will trigger multiple flushes
+	// With maxSize=5, this will create 6 batches
+	totalItemsAdded := 0
+	for i := range 30 {
+		err := batcher.Add(i)
+		require.NoError(t, err)
+		totalItemsAdded++
+	}
 
 	// Cancel and close
 	cancel()
 	err := batcher.Close()
 	require.NoError(t, err)
 
-	// Collect received items (without blocking on empty channel)
-	allItems := collectBatches(batcher.OutChannel(), 100*time.Millisecond)
+	// Wait for consumer to finish
+	<-done
+
+	// With blocking behavior, ALL items should be delivered
+	mu.Lock()
 	receivedCount := len(allItems)
+	mu.Unlock()
 
-	// With a buffer of 1 and rapid batching, we expect drops
-	// The exact number depends on timing, but we should receive less than sent
-	t.Logf("Added %d items, received %d items, dropped %d items",
-		totalItemsAdded, receivedCount, totalItemsAdded-receivedCount)
+	t.Logf("Added %d items, received %d items", totalItemsAdded, receivedCount)
 
-	// Assert that some items were dropped (fire & forget behavior)
-	require.Less(t, receivedCount, totalItemsAdded,
-		"expected some items to be dropped due to small channel buffer")
+	// Assert that ALL items were delivered (no drops)
+	require.Equal(t, totalItemsAdded, receivedCount,
+		"expected all items to be delivered with blocking send")
+}
 
-	// But we should still receive at least some items
-	require.Greater(t, receivedCount, 0,
-		"expected to receive at least some items")
+func TestBatcher_ContextCancelFlushGuarantee(t *testing.T) {
+	// Regression test for the bug where context cancellation would drop buffered items
+	// This test validates that all items are flushed even when context is cancelled immediately
+	ctx, cancel := context.WithCancel(t.Context())
+
+	// Use large maxWait so auto-flush won't happen
+	maxSize := 100
+	maxWait := 10 * time.Second
+
+	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
+
+	// Add items that won't trigger size-based flush
+	testItems := []int{1, 2, 3, 4, 5, 6, 7}
+	for _, item := range testItems {
+		err := batcher.Add(item)
+		require.NoError(t, err)
+	}
+
+	// Cancel context immediately
+	cancel()
+
+	// Give goroutine a moment to process cancellation
+	time.Sleep(10 * time.Millisecond)
+
+	// Read from output channel - should receive all items
+	select {
+	case batch := <-batcher.OutChannel():
+		require.NoError(t, batch.Error)
+		require.Len(t, batch.Items, len(testItems), "all items should be flushed on context cancel")
+		require.Equal(t, testItems, batch.Items, "items should match in order")
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected batch to be flushed after context cancellation - this is the BUG")
+	}
+
+	// Close and verify no more batches
+	err := batcher.Close()
+	require.NoError(t, err)
+
+	// Channel should be closed now
+	select {
+	case batch, ok := <-batcher.OutChannel():
+		if ok {
+			t.Fatalf("expected channel to be closed, got batch with %d items", len(batch.Items))
+		}
+	case <-time.After(50 * time.Millisecond):
+		t.Fatal("expected channel to be closed")
+	}
 }
 
 func TestBatcher_ChannelBufferMultipleBatchesWithRetry(t *testing.T) {
