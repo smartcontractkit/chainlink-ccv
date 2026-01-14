@@ -1,6 +1,10 @@
 interval = "5s"
 loglevel = "info"
 
+[KMS]
+profile= "blah"
+ecdsa_key_id = "yourkmskey"
+
 [EVM]
 ChainID = "11155111"  # Sepolia testnet
 
@@ -12,4 +16,11 @@ BlockTime = "12s"
 Name = "primary"
 WSURL = "wss://ethereum-sepolia-rpc.publicnode.com"
 HTTPURL = "https://ethereum-sepolia-rpc.publicnode.com"
+
+[SOL]
+ChainID = "testnet"
+
+[[SOL.Nodes]]
+Name = "primary"
+URL = "https://api.testnet.solana.com"
 
