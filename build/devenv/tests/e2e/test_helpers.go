@@ -30,7 +30,7 @@ const DefaultLokiURL = "ws://localhost:3030"
 type TestingContext struct {
 	T                *testing.T
 	Ctx              context.Context
-	Impl             map[uint64]cciptestinterfaces.CCIP17ProductConfiguration
+	Impl             map[uint64]cciptestinterfaces.CCIP17
 	AggregatorClient *ccv.AggregatorClient
 	IndexerClient    *ccv.IndexerClient
 	LogAsserter      *logasserter.LogAsserter
@@ -38,7 +38,7 @@ type TestingContext struct {
 	logger           zerolog.Logger
 }
 
-func NewTestingContext(t *testing.T, ctx context.Context, impl map[uint64]cciptestinterfaces.CCIP17ProductConfiguration, aggregatorClient *ccv.AggregatorClient, indexerClient *ccv.IndexerClient) TestingContext {
+func NewTestingContext(t *testing.T, ctx context.Context, impl map[uint64]cciptestinterfaces.CCIP17, aggregatorClient *ccv.AggregatorClient, indexerClient *ccv.IndexerClient) TestingContext {
 	lokiURL := os.Getenv("LOKI_QUERY_URL")
 	if lokiURL == "" {
 		lokiURL = DefaultLokiURL
@@ -264,15 +264,26 @@ func verifyTestConfig(e *deployment.Environment, testConfig *load.TOMLLoadTestRo
 	chainsInTestConfig := make(map[uint64]struct{})
 	for _, testProfile := range testConfig.TestProfiles {
 		for _, chain := range testProfile.ChainsAsSource {
-			chainSelector, _ := strconv.ParseUint(chain, 10, 64)
+			chainSelector, _ := strconv.ParseUint(chain.Selector, 10, 64)
 			chainsInTestConfig[chainSelector] = struct{}{}
 		}
 		for _, chain := range testProfile.ChainsAsDest {
-			chainSelector, _ := strconv.ParseUint(chain, 10, 64)
+			chainSelector, _ := strconv.ParseUint(chain.Selector, 10, 64)
 			chainsInTestConfig[chainSelector] = struct{}{}
 		}
 	}
 
+	messageProfileNames := make(map[string]struct{})
+	for _, messageProfile := range testConfig.MessageProfiles {
+		messageProfileNames[messageProfile.Name] = struct{}{}
+	}
+	for _, testProfile := range testConfig.TestProfiles {
+		for _, message := range testProfile.Messages {
+			if _, ok := messageProfileNames[message.MessageProfile]; !ok {
+				err = errors.Join(err, fmt.Errorf("message profile %s not found in test config", message.MessageProfile))
+			}
+		}
+	}
 	chainsInEnv := e.BlockChains.EVMChains()
 
 	for chain := range chainsInTestConfig {

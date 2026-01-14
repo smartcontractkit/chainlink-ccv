@@ -222,14 +222,22 @@ func validateAggregatorInput(in *AggregatorInput, inV []*VerifierInput) error {
 	return nil
 }
 
-// generateConfigs generates the aggregator service configuration using the inputs.
-func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) (tomlConfig []byte, thresholdPerSource map[uint64]uint8, err error) {
-	thresholdPerSource = make(map[uint64]uint8)
+// GenerateConfigResult holds the output of GenerateConfigs.
+type GenerateConfigResult struct {
+	MainConfig         []byte
+	GeneratedConfig    []byte
+	ThresholdPerSource map[uint64]uint8
+}
+
+// GenerateConfigs generates the aggregator service configuration using the inputs.
+// It returns two TOML configs: the main config and the generated (committee) config.
+func (a *AggregatorInput) GenerateConfigs(inV []*VerifierInput, generatedConfigFileName string) (*GenerateConfigResult, error) {
+	thresholdPerSource := make(map[uint64]uint8)
 	committeeName := a.CommitteeName
 
 	config, err := configuration.LoadConfigString(aggregatorConfigTemplate)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load aggregator config template: %w", err)
+		return nil, fmt.Errorf("failed to load aggregator config template: %w", err)
 	}
 
 	committeeConfig := &model.Committee{}
@@ -272,7 +280,8 @@ func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) (tomlConfig []byt
 		thresholdPerSource[chainSelector] = sourceThreshold
 	}
 
-	config.Committee = committeeConfig
+	// Set the path to the generated config file (relative to main config)
+	config.GeneratedConfigPath = generatedConfigFileName
 
 	if a.MonitoringOtelExporterHTTPEndpoint != "" {
 		config.Monitoring.Beholder.OtelExporterHTTPEndpoint = a.MonitoringOtelExporterHTTPEndpoint
@@ -303,12 +312,27 @@ func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) (tomlConfig []byt
 			})
 		}
 	}
-	cfg, err := toml.Marshal(config)
+
+	// Marshal main config (without committee - it's in the generated file)
+	mainCfg, err := toml.Marshal(config)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to marshal aggregator config to TOML: %w", err)
+		return nil, fmt.Errorf("failed to marshal aggregator config to TOML: %w", err)
 	}
 
-	return cfg, thresholdPerSource, nil
+	// Marshal generated config (committee only)
+	generatedCfg := &model.GeneratedConfig{
+		Committee: committeeConfig,
+	}
+	genCfgBytes, err := toml.Marshal(generatedCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal generated config to TOML: %w", err)
+	}
+
+	return &GenerateConfigResult{
+		MainConfig:         mainCfg,
+		GeneratedConfig:    genCfgBytes,
+		ThresholdPerSource: thresholdPerSource,
+	}, nil
 }
 
 func (a *AggregatorInput) GetAPIKeys() ([]AggregatorClientConfig, error) {
@@ -341,16 +365,22 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 		return in.Out, err
 	}
 
-	config, thresholdPerSource, err := in.GenerateConfig(inV)
+	confDir := util.CCVConfigDir()
+	generatedConfigFileName := fmt.Sprintf("aggregator-%s-generated.toml", in.CommitteeName)
+	configResult, err := in.GenerateConfigs(inV, generatedConfigFileName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate aggregator config: %w", err)
+		return nil, fmt.Errorf("failed to generate aggregator configs: %w", err)
 	}
 
-	confDir := util.CCVConfigDir()
 	configFilePath := filepath.Join(confDir,
 		fmt.Sprintf("aggregator-%s-config.toml", in.CommitteeName))
-	if err := os.WriteFile(configFilePath, config, 0o644); err != nil {
+	if err := os.WriteFile(configFilePath, configResult.MainConfig, 0o644); err != nil {
 		return nil, fmt.Errorf("failed to write aggregator config to file: %w", err)
+	}
+
+	generatedConfigFilePath := filepath.Join(confDir, generatedConfigFileName)
+	if err := os.WriteFile(generatedConfigFilePath, configResult.GeneratedConfig, 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write aggregator generated config to file: %w", err)
 	}
 
 	aggregatorContainerName := fmt.Sprintf("%s-%s", in.CommitteeName, AggregatorContainerNameSuffix)
@@ -511,6 +541,11 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 				ContainerFilePath: aggregator.DefaultConfigFile,
 				FileMode:          0o644,
 			},
+			{
+				HostFilePath:      generatedConfigFilePath,
+				ContainerFilePath: filepath.Join(filepath.Dir(aggregator.DefaultConfigFile), generatedConfigFileName),
+				FileMode:          0o644,
+			},
 		}
 		framework.L.Info().
 			Str("Service", aggregatorContainerName).
@@ -581,7 +616,7 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 		ExternalHTTPUrl:    fmt.Sprintf("%s:%d", aggregatorContainerName, DefaultAggregatorGRPCPort),
 		ExternalHTTPSUrl:   fmt.Sprintf("%s:%d", host, in.HostPort),
 		TLSCACertFile:      tlsCerts.CACertFile,
-		ThresholdPerSource: thresholdPerSource,
+		ThresholdPerSource: configResult.ThresholdPerSource,
 		ClientCredentials:  clientCredentials,
 	}
 	return in.Out, nil

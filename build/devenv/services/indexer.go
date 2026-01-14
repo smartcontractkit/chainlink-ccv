@@ -36,16 +36,17 @@ type DBInput struct {
 }
 
 type IndexerInput struct {
-	Image          string                `toml:"image"`
-	Port           int                   `toml:"port"`
-	SourceCodePath string                `toml:"source_code_path"`
-	RootPath       string                `toml:"root_path"`
-	DB             *DBInput              `toml:"db"`
-	ContainerName  string                `toml:"container_name"`
-	UseCache       bool                  `toml:"use_cache"`
-	Out            *IndexerOutput        `toml:"out"`
-	IndexerConfig  *config.Config        `toml:"indexer_config"`
-	Secrets        *config.SecretsConfig `toml:"secrets"`
+	Image          string                  `toml:"image"`
+	Port           int                     `toml:"port"`
+	SourceCodePath string                  `toml:"source_code_path"`
+	RootPath       string                  `toml:"root_path"`
+	DB             *DBInput                `toml:"db"`
+	ContainerName  string                  `toml:"container_name"`
+	UseCache       bool                    `toml:"use_cache"`
+	Out            *IndexerOutput          `toml:"out"`
+	IndexerConfig  *config.Config          `toml:"indexer_config"`
+	Secrets        *config.SecretsConfig   `toml:"secrets"`
+	GeneratedCfg   *config.GeneratedConfig `toml:"generated_config"`
 
 	// TLSCACertFile is the path to the CA certificate file for TLS verification.
 	// This is set by the aggregator service and used to trust the self-signed CA.
@@ -117,7 +118,6 @@ func defaults(in *IndexerInput) {
 						Address: "default-aggregator:50051",
 						Since:   0,
 					},
-					IssuerAddresses:  []string{"0x9A676e781A523b5d0C0e43731313A708CB607508"},
 					Name:             "CommiteeVerifier (Primary)",
 					BatchSize:        100,
 					MaxBatchWaitTime: 50,
@@ -128,7 +128,6 @@ func defaults(in *IndexerInput) {
 						Address: "secondary-aggregator:50051",
 						Since:   0,
 					},
-					IssuerAddresses:  []string{"0x68B1D87F95878fE05B998F19b66F4baba5De1aed"},
 					Name:             "CommiteeVerifier (Secondary)",
 					BatchSize:        100,
 					MaxBatchWaitTime: 50,
@@ -139,7 +138,6 @@ func defaults(in *IndexerInput) {
 						Address: "tertiary-aggregator:50051",
 						Since:   0,
 					},
-					IssuerAddresses:  []string{"0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"},
 					Name:             "CommiteeVerifier (Tertiary)",
 					BatchSize:        100,
 					MaxBatchWaitTime: 50,
@@ -205,6 +203,16 @@ func defaults(in *IndexerInput) {
 			},
 		}
 	}
+
+	if in.GeneratedCfg == nil {
+		in.GeneratedCfg = &config.GeneratedConfig{
+			Verifier: map[string]config.GeneratedVerifierConfig{
+				"0": {IssuerAddresses: []string{"0x9A676e781A523b5d0C0e43731313A708CB607508"}},
+				"1": {IssuerAddresses: []string{"0x68B1D87F95878fE05B998F19b66F4baba5De1aed"}},
+				"2": {IssuerAddresses: []string{"0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"}},
+			},
+		}
+	}
 }
 
 // NewIndexer creates and starts a new Service container using testcontainers.
@@ -217,6 +225,11 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 	}
 	ctx := context.Background()
 	defaults(in)
+
+	if in.GeneratedCfg == nil {
+		return nil, fmt.Errorf("GeneratedCfg is required for indexer")
+	}
+
 	p, err := CwdSourcePath(in.SourceCodePath)
 	if err != nil {
 		return in.Out, err
@@ -226,6 +239,9 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 	if !ok {
 		configPath = filepath.Join(p, "config.toml")
 	}
+
+	generatedConfigFileName := "generated.toml"
+	in.IndexerConfig.GeneratedConfigPath = generatedConfigFileName
 
 	buff := new(bytes.Buffer)
 	encoder := toml.NewEncoder(buff)
@@ -238,6 +254,20 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 	err = os.WriteFile(configPath, buff.Bytes(), 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write config: %w", err)
+	}
+
+	// Write generated config file
+	generatedConfigPath := filepath.Join(filepath.Dir(configPath), generatedConfigFileName)
+	genBuff := new(bytes.Buffer)
+	genEncoder := toml.NewEncoder(genBuff)
+	genEncoder.Indent = ""
+	err = genEncoder.Encode(in.GeneratedCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode generated config: %w", err)
+	}
+	err = os.WriteFile(generatedConfigPath, genBuff.Bytes(), 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("failed to write generated config: %w", err)
 	}
 
 	secretsPath, ok := os.LookupEnv("INDEXER_SECRETS_PATH")

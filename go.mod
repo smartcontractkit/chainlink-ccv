@@ -25,7 +25,7 @@ require (
 	github.com/pressly/goose/v3 v3.26.0
 	github.com/prometheus/client_golang v1.23.0 // indirect
 	github.com/smartcontractkit/chain-selectors v1.0.72
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260109171609-656f53592fe9
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260113145746-e2453d5c22f1
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20251107181740-8b842a2f1192
 	github.com/smartcontractkit/chainlink-evm v0.3.4-0.20260108163552-cebb824f0ae7
 	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20251222115927-36a18321243c // indirect
@@ -76,7 +76,7 @@ require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.24.0 // indirect
-	github.com/block-vision/sui-go-sdk v1.0.6 // indirect
+	github.com/block-vision/sui-go-sdk v1.0.9 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/bytedance/sonic v1.11.6 // indirect
 	github.com/bytedance/sonic/loader v0.1.1 // indirect
@@ -133,7 +133,7 @@ require (
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.26.0 // indirect
-	github.com/go-resty/resty/v2 v2.16.3 // indirect
+	github.com/go-resty/resty/v2 v2.16.5 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/gofrs/flock v0.12.1 // indirect

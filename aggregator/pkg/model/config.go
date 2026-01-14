@@ -302,6 +302,7 @@ type BeholderConfig struct {
 
 // AggregatorConfig is the root configuration for the pb.
 type AggregatorConfig struct {
+	GeneratedConfigPath                         string               `toml:"generatedConfigPath"`
 	Committee                                   *Committee           `toml:"committee"`
 	Server                                      ServerConfig         `toml:"server"`
 	Storage                                     *StorageConfig       `toml:"storage"`
