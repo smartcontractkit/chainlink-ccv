@@ -36,6 +36,15 @@ type AggregatorMetrics struct {
 
 	// Worker health metrics
 	panics metric.Int64Counter
+
+	// Verifiers health metrics
+	verifierHeartbeatTimestamp  metric.Float64Gauge
+	verifierHeartbeatsTotal     metric.Int64Counter
+	verifierHeartbeatChainHeads metric.Int64Gauge
+	verifierHeartbeatScore      metric.Float64Gauge
+
+	// Participation metrics
+	verificationsTotal metric.Int64Counter
 }
 
 func MetricViews() []sdkmetric.View {
@@ -188,6 +197,46 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 		return nil, fmt.Errorf("failed to register panics counter: %w", err)
 	}
 
+	am.verifierHeartbeatTimestamp, err = beholder.GetMeter().Float64Gauge(
+		"aggregator_verifier_heartbeat_timestamp",
+		metric.WithDescription("Timestamp of the last heartbeat received from verifiers"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register verifier heartbeat timestamp gauge: %w", err)
+	}
+
+	am.verifierHeartbeatsTotal, err = beholder.GetMeter().Int64Counter(
+		"aggregator_verifier_heartbeats_total",
+		metric.WithDescription("Total number of verifier heartbeats received"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register verifier heartbeats total counter: %w", err)
+	}
+
+	am.verifierHeartbeatChainHeads, err = beholder.GetMeter().Int64Gauge(
+		"aggregator_verifier_heartbeat_chain_heads",
+		metric.WithDescription("Latest chain head reported by verifiers"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register verifier heartbeat chain heads gauge: %w", err)
+	}
+
+	am.verifierHeartbeatScore, err = beholder.GetMeter().Float64Gauge(
+		"aggregator_verifier_heartbeat_score",
+		metric.WithDescription("Health score of verifiers based on heartbeats"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register verifier heartbeat score gauge: %w", err)
+	}
+
+	am.verificationsTotal, err = beholder.GetMeter().Int64Counter(
+		"aggregator_verifications_total",
+		metric.WithDescription("Total number of verification records processed"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register verifications total counter: %w", err)
+	}
+
 	return am, nil
 }
 
@@ -285,4 +334,29 @@ func (c *AggregatorMetricLabeler) IncrementOrphanRecoveryErrors(ctx context.Cont
 func (c *AggregatorMetricLabeler) IncrementPanics(ctx context.Context) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
 	c.am.panics.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) IncrementVerifierHeartbeatsTotal(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.am.verifierHeartbeatsTotal.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) SetVerifierHeartbeatChainHeads(ctx context.Context, blockHeight uint64) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.am.verifierHeartbeatChainHeads.Record(ctx, int64(blockHeight), metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) SetVerifierLastHeartbeatTimestamp(ctx context.Context, timestamp int64) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.am.verifierHeartbeatTimestamp.Record(ctx, float64(timestamp), metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) SetVerifierHeartbeatScore(ctx context.Context, score float64) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.am.verifierHeartbeatScore.Record(ctx, score, metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) IncrementVerificationsTotal(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.am.verificationsTotal.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }

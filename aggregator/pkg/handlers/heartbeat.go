@@ -86,6 +86,17 @@ func (h *HeartbeatHandler) Handle(ctx context.Context, req *heartbeatpb.Heartbea
 		}
 	}
 
+	metrics := h.m.Metrics().With("caller_id", callerID)
+	metrics.SetVerifierLastHeartbeatTimestamp(ctx, req.SendTimestamp)
+	metrics.IncrementVerifierHeartbeatsTotal(ctx)
+
+	// Record per-chain metrics
+	for chainSelector, benchmark := range chainBenchmarks {
+		chainMetrics := metrics.With("chain_selector", fmt.Sprintf("%d", chainSelector))
+		chainMetrics.SetVerifierHeartbeatScore(ctx, float64(benchmark.Score))
+		chainMetrics.SetVerifierHeartbeatChainHeads(ctx, benchmark.BlockHeight)
+	}
+
 	return &heartbeatpb.HeartbeatResponse{
 		AggregatorId:    "mock-aggregator-001",
 		Timestamp:       req.SendTimestamp,
