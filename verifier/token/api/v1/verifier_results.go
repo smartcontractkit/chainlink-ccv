@@ -86,7 +86,12 @@ func (h *VerifierResultsHandler) Handle(c *gin.Context) {
 			continue
 		}
 
-		apiResults = append(apiResults, v1.NewVerifierResult(result))
+		apiResult, err := v1.NewVerifierResult(result)
+		if err != nil {
+			errors = append(errors, "failed to convert result for "+messageID.String()+": "+err.Error())
+			continue
+		}
+		apiResults = append(apiResults, apiResult)
 	}
 
 	response := v1.NewVerifierResultsResponse(

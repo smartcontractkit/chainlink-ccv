@@ -82,6 +82,7 @@ func main() {
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "executor",
 		ServerAddress:   executorConfig.PyroscopeURL,
+		Logger:          nil, // Disable pyroscope logging - so noisy
 		ProfileTypes: []pyroscope.ProfileType{
 			pyroscope.ProfileCPU,
 			pyroscope.ProfileAllocObjects,
@@ -105,7 +106,7 @@ func main() {
 	// ------------------------------------------------------------------------------------------------
 	var executorMonitoring executor.Monitoring
 	if executorConfig.Monitoring.Enabled && executorConfig.Monitoring.Type == "beholder" {
-		executorMonitoring, err = monitoring.InitMonitoring(beholder.Config{
+		beholderConfig := beholder.Config{
 			InsecureConnection:       executorConfig.Monitoring.Beholder.InsecureConnection,
 			CACertFile:               executorConfig.Monitoring.Beholder.CACertFile,
 			OtelExporterHTTPEndpoint: executorConfig.Monitoring.Beholder.OtelExporterHTTPEndpoint,
@@ -114,7 +115,24 @@ func main() {
 			MetricReaderInterval:     time.Second * time.Duration(executorConfig.Monitoring.Beholder.MetricReaderInterval),
 			TraceSampleRatio:         executorConfig.Monitoring.Beholder.TraceSampleRatio,
 			TraceBatchTimeout:        time.Second * time.Duration(executorConfig.Monitoring.Beholder.TraceBatchTimeout),
-		})
+			// TODO add CSA auth when run in standalone mode
+			// AuthPublicKeyHex: ...,
+			// AuthHeaders: ...,
+			// Note: due to OTEL spec, all histogram buckets must be defined when the beholder client is created.
+			MetricViews: monitoring.MetricViews(),
+		}
+
+		// Create the beholder client
+		beholderClient, err := beholder.NewClient(beholderConfig)
+		if err != nil {
+			lggr.Fatalf("Failed to create beholder client: %v", err)
+		}
+
+		// Set the beholder client and global otel providers
+		beholder.SetClient(beholderClient)
+		beholder.SetGlobalOtelProviders()
+
+		executorMonitoring, err = monitoring.InitMonitoring()
 		if err != nil {
 			lggr.Fatalf("Failed to initialize indexer monitoring: %v", err)
 		}
@@ -157,7 +175,7 @@ func main() {
 				OfframpAddress:            chainConfig.OffRampAddress,
 				RmnRemoteAddress:          chainConfig.RmnAddress,
 				CacheExpiry:               executorConfig.ReaderCacheExpiry,
-				ExecutionVisabilityWindow: executorConfig.LookbackWindow,
+				ExecutionVisabilityWindow: executorConfig.MaxRetryDuration,
 			})
 		if err != nil {
 			lggr.Errorw("Failed to create destination reader", "error", err, "chainSelector", strSel)

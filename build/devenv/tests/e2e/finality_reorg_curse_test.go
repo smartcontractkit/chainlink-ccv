@@ -97,13 +97,13 @@ func TestE2EReorg(t *testing.T) {
 	receiver := mustGetEOAReceiverAddress(t, destImpl)
 
 	executorAddr := getContractAddress(t, in, srcSelector,
-		datastore.ContractType(executor.ContractType),
-		executor.Deploy.Version(),
+		datastore.ContractType(executor.ProxyType),
+		executor.DeployProxy.Version(),
 		evm.DefaultExecutorQualifier,
 		"executor")
 
 	ccvAddr := getContractAddress(t, in, srcSelector,
-		datastore.ContractType(committee_verifier.ResolverProxyType),
+		datastore.ContractType(committee_verifier.ResolverType),
 		committee_verifier.Deploy.Version(),
 		evm.DefaultCommitteeVerifierQualifier,
 		"committee verifier proxy")
@@ -136,7 +136,7 @@ func TestE2EReorg(t *testing.T) {
 	logSentMessage := func(event cciptestinterfaces.MessageSentEvent, description string) {
 		l.Info().
 			Str("messageID", fmt.Sprintf("%x", event.MessageID)).
-			Int("seqNumber", int(event.SequenceNumber)).
+			Int("seqNumber", int(event.Message.SequenceNumber)).
 			Msgf("📨 %s", description)
 	}
 

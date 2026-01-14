@@ -1,0 +1,15 @@
+interval = "5s"
+loglevel = "info"
+
+[EVM]
+ChainID = "11155111"  # Sepolia testnet
+
+[EVM.Transactions.TransactionManagerV2]
+Enabled = true
+BlockTime = "12s"
+
+[[EVM.Nodes]]
+Name = "primary"
+WSURL = "wss://ethereum-sepolia-rpc.publicnode.com"
+HTTPURL = "https://ethereum-sepolia-rpc.publicnode.com"
+

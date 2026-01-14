@@ -43,7 +43,7 @@ var executorConfigTemplate string
 
 type ExecutorInput struct {
 	Mode              Mode              `toml:"mode"`
-	Out               *ExecutorOutput   `toml:"-"`
+	Out               *ExecutorOutput   `toml:"out"`
 	Image             string            `toml:"image"`
 	SourceCodePath    string            `toml:"source_code_path"`
 	RootPath          string            `toml:"root_path"`
@@ -368,8 +368,8 @@ func ResolveContractsForExecutor(ds datastore.DataStore, blockchains []*blockcha
 
 			defaultExecutorAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
 				networkInfo.ChainSelector,
-				datastore.ContractType(execcontract.ContractType),
-				semver.MustParse(execcontract.Deploy.Version()),
+				datastore.ContractType(execcontract.ProxyType),
+				semver.MustParse(execcontract.DeployProxy.Version()),
 				exec.ExecutorQualifier,
 			))
 			if err != nil {

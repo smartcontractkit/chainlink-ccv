@@ -4,14 +4,13 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/internal/aggregation_mocks"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -22,7 +21,7 @@ func TestGetBatchCCVDataForMessageHandler_ValidationErrors(t *testing.T) {
 	t.Parallel()
 
 	lggr := logger.TestSugared(t)
-	store := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
+	store := mocks.NewMockCommitVerificationAggregatedStore(t)
 	committee := &model.Committee{}
 
 	h := NewGetVerifierResultsForMessageHandler(store, committee, 2, lggr)
@@ -42,7 +41,7 @@ func TestGetBatchCCVDataForMessageHandler_MixedResults(t *testing.T) {
 	t.Parallel()
 
 	lggr := logger.TestSugared(t)
-	store := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
+	store := mocks.NewMockCommitVerificationAggregatedStore(t)
 
 	const (
 		sourceSel = uint64(1)
@@ -68,8 +67,8 @@ func TestGetBatchCCVDataForMessageHandler_MixedResults(t *testing.T) {
 	report2 := makeAggregatedReport(m2WithWrongDest, m2ID[:], signerAddr)
 
 	store.EXPECT().GetBatchAggregatedReportByMessageIDs(mock.Anything, mock.Anything).Return(map[string]*model.CommitAggregatedReport{
-		common.Bytes2Hex(m1ID[:]): report1,
-		common.Bytes2Hex(m2ID[:]): report2, // will map error
+		protocol.ByteSlice(m1ID[:]).String(): report1,
+		protocol.ByteSlice(m2ID[:]).String(): report2, // will map error
 	}, nil)
 
 	resp, err := h.Handle(context.Background(), &verifierpb.GetVerifierResultsForMessageRequest{MessageIds: [][]byte{
@@ -97,7 +96,7 @@ func TestGetBatchCCVDataForMessageHandler_StorageError(t *testing.T) {
 	t.Parallel()
 
 	lggr := logger.TestSugared(t)
-	store := aggregation_mocks.NewMockCommitVerificationAggregatedStore(t)
+	store := mocks.NewMockCommitVerificationAggregatedStore(t)
 	committee := &model.Committee{}
 	h := NewGetVerifierResultsForMessageHandler(store, committee, 10, lggr)
 

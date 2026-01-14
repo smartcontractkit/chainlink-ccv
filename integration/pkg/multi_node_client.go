@@ -51,10 +51,11 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *protocol
 	finalityDepth := ptr(uint32(10))
 	safeDepth := ptr(uint32(6))
 	finalityTagEnabled := ptr(true)
+	safeTagSupported := ptr(true)
 	lggr.Infow("Testing multinode chain client", "chainSelector", blockchainInfo.ChainID, "wsURL", wsURL, "httpURL", httpURL)
 	chainCfg, nodePool, nodes, _ := client.NewClientConfigs(selectionMode, leaseDuration, chainTypeStr, nodeConfigs,
 		pollFailureThreshold, pollInterval, syncThreshold, nodeIsSyncingEnabled, noNewHeadsThreshold, finalityDepth,
-		finalityTagEnabled, finalizedBlockOffset, enforceRepeatableRead, deathDeclarationDelay, noNewFinalizedBlocksThreshold,
+		finalityTagEnabled, safeTagSupported, finalizedBlockOffset, enforceRepeatableRead, deathDeclarationDelay, noNewFinalizedBlocksThreshold,
 		finalizedBlockPollInterval, newHeadsPollInterval, confirmationTimeout, safeDepth)
 
 	idBigInt, _ := new(big.Int).SetString(blockchainInfo.ChainID, 10)

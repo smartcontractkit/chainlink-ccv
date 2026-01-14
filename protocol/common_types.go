@@ -62,7 +62,7 @@ func (a UnknownAddress) Bytes() []byte {
 
 // MarshalJSON returns the hex representation of the address.
 func (a UnknownAddress) MarshalJSON() ([]byte, error) {
-	return []byte(fmt.Sprintf(`"%s"`, a.String())), nil
+	return fmt.Appendf(nil, `"%s"`, a.String()), nil
 }
 
 // UnmarshalJSON decodes a hex string into an UnknownAddress.
@@ -127,7 +127,7 @@ func (h ByteSlice) MarshalJSON() ([]byte, error) {
 	if len(h) == 0 {
 		return []byte(`"0x"`), nil
 	}
-	return []byte(fmt.Sprintf(`"0x%s"`, hex.EncodeToString(h))), nil
+	return fmt.Appendf(nil, `"0x%s"`, hex.EncodeToString(h)), nil
 }
 
 // UnmarshalJSON decodes a hex string into HexBytes.
@@ -204,7 +204,7 @@ func (b Bytes16) IsEmpty() bool {
 }
 
 func (b Bytes16) MarshalJSON() ([]byte, error) {
-	return []byte(fmt.Sprintf(`"%s"`, b.String())), nil
+	return fmt.Appendf(nil, `"%s"`, b.String()), nil
 }
 
 func (b *Bytes16) UnmarshalJSON(data []byte) error {
@@ -259,7 +259,7 @@ func (b Bytes32) IsEmpty() bool {
 }
 
 func (b Bytes32) MarshalJSON() ([]byte, error) {
-	return []byte(fmt.Sprintf(`"%s"`, b.String())), nil
+	return fmt.Appendf(nil, `"%s"`, b.String()), nil
 }
 
 func (b *Bytes32) UnmarshalJSON(data []byte) error {
@@ -288,11 +288,9 @@ func (b *Bytes32) UnmarshalJSON(data []byte) error {
 // decoupled from chain-specific implementations.
 // Note: Message and ReceiptWithBlob types are defined in message_types.go.
 type MessageSentEvent struct {
-	DestChainSelector ChainSelector     // Destination chain for the message
-	SequenceNumber    uint64            // Sequential nonce for this message
-	MessageID         Bytes32           // Unique identifier for the message
-	Message           Message           // The decoded CCIP message
-	Receipts          []ReceiptWithBlob // Verifier receipts + executor receipt
-	BlockNumber       uint64            // Block number where event occurred
-	TxHash            ByteSlice         // Transaction hash of the event
+	MessageID   Bytes32           // Unique identifier for the message
+	Message     Message           // The decoded CCIP message
+	Receipts    []ReceiptWithBlob // Verifier receipts + executor receipt
+	BlockNumber uint64            // Block number where event occurred
+	TxHash      ByteSlice         // Transaction hash of the event
 }

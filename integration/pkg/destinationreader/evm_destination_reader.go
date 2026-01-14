@@ -63,7 +63,6 @@ type Params struct {
 	OfframpAddress            string
 	RmnRemoteAddress          string
 	CacheExpiry               time.Duration
-	StartBlock                uint64
 	ExecutionVisabilityWindow time.Duration
 }
 
@@ -81,7 +80,6 @@ func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
 	appendIfNil(params.CacheExpiry, "cacheExpiry")
 	appendIfNil(params.ChainClient, "chainClient")
 	appendIfNil(params.Lggr, "logger")
-	appendIfNil(params.StartBlock, "startBlock")
 	appendIfNil(params.ExecutionVisabilityWindow, "executionVisabilityWindow")
 
 	if len(errs) > 0 {
@@ -108,7 +106,6 @@ func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
 		offRampAddr,
 		params.ChainClient,
 		logger.With(params.Lggr, "component", "ExecutionAttemptPoller"),
-		params.StartBlock,
 		params.ExecutionVisabilityWindow,
 	)
 	if err != nil {
@@ -234,16 +231,13 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 
 // GetMessageSuccess checks the destination chain to verify if a message has been executed successfully.
 func (dr *EvmDestinationReader) GetMessageSuccess(ctx context.Context, message protocol.Message) (bool, error) {
-	rcv := common.BytesToAddress(message.Receiver)
 	execState, err := dr.offRampCaller.GetExecutionState(
 		&bind.CallOpts{
 			Context: ctx,
 			// TODO: Add FTF to this check
 		},
-		uint64(message.SourceChainSelector),
-		uint64(message.SequenceNumber),
-		message.Sender,
-		rcv)
+		message.MustMessageID(),
+	)
 	if err != nil {
 		// expect that the error is checked by the caller so it doesn't accidentally assume success
 		return false, fmt.Errorf("failed to call getExecutionState: %w", err)

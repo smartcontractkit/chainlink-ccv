@@ -9,14 +9,11 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	ccv_common "github.com/smartcontractkit/chainlink-ccv/common"
-
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 )
 
 // curseTestSetup contains the test fixtures for curse integration tests.
@@ -25,9 +22,9 @@ type curseTestSetup struct {
 	ctx                context.Context
 	cancel             context.CancelFunc
 	coordinator        *Coordinator
-	mockSourceReader   *protocol_mocks.MockSourceReader
-	mockCurseChecker   *ccv_common.MockCurseCheckerService
-	chainStatusManager *protocol_mocks.MockChainStatusManager
+	mockSourceReader   *mocks.MockSourceReader
+	mockCurseChecker   *mocks.MockCurseCheckerService
+	chainStatusManager *mocks.MockChainStatusManager
 	testVerifier       *TestVerifier
 	storage            *common.InMemoryOffchainStorage
 	sourceChain        protocol.ChainSelector
@@ -69,14 +66,14 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 	testVer := NewTestVerifier()
 
 	// Create mock curse detector
-	mockCurseDetector := ccv_common.NewMockCurseCheckerService(t)
+	mockCurseDetector := mocks.NewMockCurseCheckerService(t)
 
 	// Setup default behavior: no curses initially
 	mockCurseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
 	mockCurseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	mockCurseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	chainStatusMgr := protocol_mocks.NewMockChainStatusManager(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 	chainStatusMgr.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).Return(nil).Maybe()
 	chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).Return(make(map[protocol.ChainSelector]*protocol.ChainStatusInfo), nil).Maybe()
 	setup := &curseTestSetup{

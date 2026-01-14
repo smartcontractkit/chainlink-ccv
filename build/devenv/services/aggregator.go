@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,6 +19,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/configuration"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
+	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
@@ -67,42 +67,57 @@ type AggregatorEnvConfig struct {
 	RedisAddress         string `toml:"redis_address"`
 	RedisPassword        string `toml:"redis_password"`
 	RedisDB              string `toml:"redis_db"`
-	APIKeysJSON          string `toml:"api_keys_json"`
+}
+
+type AggregatorAPIKeyPair struct {
+	APIKey string `toml:"api_key"`
+	Secret string `toml:"secret"`
+}
+type AggregatorClientConfig struct {
+	ClientID    string                  `toml:"client_id"`
+	Description string                  `toml:"description"`
+	Enabled     bool                    `toml:"enabled"`
+	Groups      []string                `toml:"groups"`
+	APIKeyPairs []*AggregatorAPIKeyPair `toml:"api_key_pairs"`
 }
 
 type AggregatorInput struct {
 	Image string `toml:"image"`
 	// HostPort is the port on the host machine that the aggregator will be exposed on.
 	// This should be unique across all containers.
-	HostPort       int                   `toml:"host_port"`
-	SourceCodePath string                `toml:"source_code_path"`
-	RootPath       string                `toml:"root_path"`
-	DB             *AggregatorDBInput    `toml:"db"`
-	Redis          *AggregatorRedisInput `toml:"redis"`
-	Out            *AggregatorOutput     `toml:"out"`
-	Env            *AggregatorEnvConfig  `toml:"env"`
-	CommitteeName  string                `toml:"committee_name"`
+	HostPort int `toml:"host_port"`
+	// ExposedHostPort is the port on the host machine that the gRPC server will be exposed on.
+	// If set, the gRPC port (50051) will be directly accessible on localhost.
+	// This is useful for testing without going through the nginx TLS proxy.
+	ExposedHostPort int                       `toml:"grpc_host_port"`
+	SourceCodePath  string                    `toml:"source_code_path"`
+	RootPath        string                    `toml:"root_path"`
+	DB              *AggregatorDBInput        `toml:"db"`
+	Redis           *AggregatorRedisInput     `toml:"redis"`
+	Out             *AggregatorOutput         `toml:"out"`
+	Env             *AggregatorEnvConfig      `toml:"env"`
+	APIClients      []*AggregatorClientConfig `toml:"api_clients"`
+	CommitteeName   string                    `toml:"committee_name"`
 
-	// Chain selector -> Committee Verifier Resolver Proxy Address
-	CommitteeVerifierResolverProxyAddresses map[uint64]string `toml:"committee_verifier_resolver_proxy_addresses"`
+	// Chain selector -> Committee Verifier Resolver Address
+	CommitteeVerifierResolverAddresses map[uint64]string `toml:"committee_verifier_resolver_addresses"`
 	// Source chain selector -> threshold mapping
 	// If not available we default to a full quorum, i.e. all verifiers must sign.
 	ThresholdPerSource map[uint64]uint8 `toml:"threshold_per_source"`
 	// Maps to Monitoring.Beholder.OtelExporterHTTPEndpoint in the aggregator config toml.
 	MonitoringOtelExporterHTTPEndpoint string `toml:"monitoring_otel_exporter_http_endpoint"`
 
+	// AggregationChannelBufferSize controls the size of the aggregation request channel buffer for individual client.
+	// If 0, the default (10) is used. Useful for pentest scenarios to trigger channel exhaustion.
+	AggregationChannelBufferSize int `toml:"aggregation_channel_buffer_size"`
+
+	// BackgroundWorkerCount controls the number of aggregation workers.
+	// If 0, the default (10) is used. Set to 1 for channel exhaustion tests.
+	BackgroundWorkerCount int `toml:"background_worker_count"`
+
 	// SharedTLSCerts contains shared TLS certificates for all aggregators.
 	// If set, these certs will be used instead of generating new ones.
 	SharedTLSCerts *TLSCertPaths `toml:"-"`
-}
-
-func (a *AggregatorInput) GetAPIKeys() (model.APIKeyConfig, error) {
-	var apiKeyConfig model.APIKeyConfig
-	err := json.Unmarshal([]byte(a.Env.APIKeysJSON), &apiKeyConfig)
-	if err != nil {
-		return model.APIKeyConfig{}, fmt.Errorf("failed to unmarshal API keys JSON: %w", err)
-	}
-	return apiKeyConfig, nil
 }
 
 type AggregatorOutput struct {
@@ -114,37 +129,46 @@ type AggregatorOutput struct {
 	DBURL              string `toml:"db_url"`
 	DBConnectionString string `toml:"db_connection_string"`
 	TLSCACertFile      string `toml:"tls_ca_cert_file"`
+	// Source chain selector -> threshold mapping.
+	ThresholdPerSource map[uint64]uint8 `toml:"threshold_per_source"`
+	// ClientCredentials maps ClientID to generated HMAC credentials.
+	// Used by verifiers to automatically obtain their credentials.
+	ClientCredentials map[string]hmacutil.Credentials `toml:"-"`
 }
 
-type Signer struct {
-	Address string `toml:"address"`
+func (o *AggregatorOutput) GetCredentialsForClient(clientID string) (hmacutil.Credentials, bool) {
+	if o == nil || o.ClientCredentials == nil {
+		return hmacutil.Credentials{}, false
+	}
+	creds, ok := o.ClientCredentials[clientID]
+	return creds, ok
 }
 
-// QuorumConfig represents the configuration for a quorum of signers.
-type QuorumConfig struct {
-	CommitteeVerifierAddress string   `toml:"committeeVerifierAddress"`
-	Signers                  []Signer `toml:"signers"`
-	Threshold                uint8    `toml:"threshold"`
-}
+func (a *AggregatorInput) EnsureClientCredentials() (map[string]hmacutil.Credentials, error) {
+	credentialsMap := make(map[string]hmacutil.Credentials)
 
-// Committee represents a group of signers participating in the commit verification process.
-type Committee struct {
-	// QuorumConfigs stores a QuorumConfig for each chain selector
-	// there is a commit verifier for.
-	// The aggregator uses this to verify signatures from each chain's
-	// commit verifier set.
-	QuorumConfigs map[string]*QuorumConfig `toml:"quorumConfigs"`
-}
+	for _, client := range a.APIClients {
+		if len(client.APIKeyPairs) == 0 {
+			client.APIKeyPairs = []*AggregatorAPIKeyPair{{}}
+		}
 
-// StorageConfig represents the configuration for the storage backend.
-type StorageConfig struct {
-	StorageType   string `toml:"type"`
-	ConnectionURL string `toml:"connectionURL,omitempty"`
-}
+		for _, pair := range client.APIKeyPairs {
+			if pair.APIKey == "" || pair.Secret == "" {
+				creds, err := hmacutil.GenerateCredentials()
+				if err != nil {
+					return nil, fmt.Errorf("failed to generate credentials for client %s: %w", client.ClientID, err)
+				}
+				pair.APIKey = creds.APIKey
+				pair.Secret = creds.Secret
+			}
+			credentialsMap[client.ClientID] = hmacutil.Credentials{
+				APIKey: pair.APIKey,
+				Secret: pair.Secret,
+			}
+		}
+	}
 
-// ServerConfig represents the configuration for the server.
-type ServerConfig struct {
-	Address string `toml:"address"`
+	return credentialsMap, nil
 }
 
 func validateAggregatorInput(in *AggregatorInput, inV []*VerifierInput) error {
@@ -198,8 +222,17 @@ func validateAggregatorInput(in *AggregatorInput, inV []*VerifierInput) error {
 	return nil
 }
 
-// generateConfigs generates the aggregator service configuration using the inputs.
-func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) ([]byte, error) {
+// GenerateConfigResult holds the output of GenerateConfigs.
+type GenerateConfigResult struct {
+	MainConfig         []byte
+	GeneratedConfig    []byte
+	ThresholdPerSource map[uint64]uint8
+}
+
+// GenerateConfigs generates the aggregator service configuration using the inputs.
+// It returns two TOML configs: the main config and the generated (committee) config.
+func (a *AggregatorInput) GenerateConfigs(inV []*VerifierInput, generatedConfigFileName string) (*GenerateConfigResult, error) {
+	thresholdPerSource := make(map[uint64]uint8)
 	committeeName := a.CommitteeName
 
 	config, err := configuration.LoadConfigString(aggregatorConfigTemplate)
@@ -224,7 +257,7 @@ func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) ([]byte, error) {
 	defaultThreshold := uint8(len(signers))
 
 	// Create quorum configs per source chain and destination verifiers mapping
-	for chainSelector, verifierAddress := range a.CommitteeVerifierResolverProxyAddresses {
+	for chainSelector, verifierAddress := range a.CommitteeVerifierResolverAddresses {
 		chainSelStr := strconv.FormatUint(chainSelector, 10)
 
 		// Add destination verifier mapping
@@ -244,19 +277,70 @@ func (a *AggregatorInput) GenerateConfig(inV []*VerifierInput) ([]byte, error) {
 			Signers:               signers,
 			Threshold:             sourceThreshold,
 		}
+		thresholdPerSource[chainSelector] = sourceThreshold
 	}
 
-	config.Committee = committeeConfig
+	// Set the path to the generated config file (relative to main config)
+	config.GeneratedConfigPath = generatedConfigFileName
 
 	if a.MonitoringOtelExporterHTTPEndpoint != "" {
 		config.Monitoring.Beholder.OtelExporterHTTPEndpoint = a.MonitoringOtelExporterHTTPEndpoint
 	}
 
-	cfg, err := toml.Marshal(config)
+	// Override aggregation channel buffer size if specified (useful for pentest)
+	if a.AggregationChannelBufferSize > 0 {
+		config.Aggregation.ChannelBufferSize = a.AggregationChannelBufferSize
+	}
+
+	// Override background worker count if specified (useful for channel exhaustion tests)
+	if a.BackgroundWorkerCount > 0 {
+		config.Aggregation.BackgroundWorkerCount = a.BackgroundWorkerCount
+	}
+
+	for _, client := range a.APIClients {
+		config.APIClients = append(config.APIClients, &model.ClientConfig{
+			ClientID:    client.ClientID,
+			Description: client.Description,
+			Enabled:     client.Enabled,
+			Groups:      client.Groups,
+			APIKeyPairs: make([]*model.APIKeyPairEnv, 0, len(client.APIKeyPairs)),
+		})
+		for i := range client.APIKeyPairs {
+			config.APIClients[len(config.APIClients)-1].APIKeyPairs = append(config.APIClients[len(config.APIClients)-1].APIKeyPairs, &model.APIKeyPairEnv{
+				APIKeyEnvVar: fmt.Sprintf("AGGREGATOR_API_KEY_%s_%d", client.ClientID, i),
+				SecretEnvVar: fmt.Sprintf("AGGREGATOR_SECRET_%s_%d", client.ClientID, i),
+			})
+		}
+	}
+
+	// Marshal main config (without committee - it's in the generated file)
+	mainCfg, err := toml.Marshal(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal aggregator config to TOML: %w", err)
 	}
-	return cfg, nil
+
+	// Marshal generated config (committee only)
+	generatedCfg := &model.GeneratedConfig{
+		Committee: committeeConfig,
+	}
+	genCfgBytes, err := toml.Marshal(generatedCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal generated config to TOML: %w", err)
+	}
+
+	return &GenerateConfigResult{
+		MainConfig:         mainCfg,
+		GeneratedConfig:    genCfgBytes,
+		ThresholdPerSource: thresholdPerSource,
+	}, nil
+}
+
+func (a *AggregatorInput) GetAPIKeys() ([]AggregatorClientConfig, error) {
+	apiKeyConfigs := make([]AggregatorClientConfig, 0, len(a.APIClients))
+	for _, client := range a.APIClients {
+		apiKeyConfigs = append(apiKeyConfigs, *client)
+	}
+	return apiKeyConfigs, nil
 }
 
 func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput, error) {
@@ -269,22 +353,34 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 	if err := validateAggregatorInput(in, inV); err != nil {
 		return nil, err
 	}
+
+	clientCredentials, err := in.EnsureClientCredentials()
+	if err != nil {
+		return nil, fmt.Errorf("failed to ensure client credentials: %w", err)
+	}
+
 	ctx := context.Background()
 	p, err := CwdSourcePath(in.SourceCodePath)
 	if err != nil {
 		return in.Out, err
 	}
 
-	config, err := in.GenerateConfig(inV)
+	confDir := util.CCVConfigDir()
+	generatedConfigFileName := fmt.Sprintf("aggregator-%s-generated.toml", in.CommitteeName)
+	configResult, err := in.GenerateConfigs(inV, generatedConfigFileName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate aggregator config: %w", err)
+		return nil, fmt.Errorf("failed to generate aggregator configs: %w", err)
 	}
 
-	confDir := util.CCVConfigDir()
 	configFilePath := filepath.Join(confDir,
 		fmt.Sprintf("aggregator-%s-config.toml", in.CommitteeName))
-	if err := os.WriteFile(configFilePath, config, 0o644); err != nil {
+	if err := os.WriteFile(configFilePath, configResult.MainConfig, 0o644); err != nil {
 		return nil, fmt.Errorf("failed to write aggregator config to file: %w", err)
+	}
+
+	generatedConfigFilePath := filepath.Join(confDir, generatedConfigFileName)
+	if err := os.WriteFile(generatedConfigFilePath, configResult.GeneratedConfig, 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write aggregator generated config to file: %w", err)
 	}
 
 	aggregatorContainerName := fmt.Sprintf("%s-%s", in.CommitteeName, AggregatorContainerNameSuffix)
@@ -389,10 +485,12 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 		}
 		envVars["AGGREGATOR_STORAGE_CONNECTION_URL"] = in.Env.StorageConnectionURL
 
-		if in.Env.APIKeysJSON == "" {
-			return nil, fmt.Errorf("AGGREGATOR_API_KEYS_JSON is required in env config")
+		for _, client := range in.APIClients {
+			for i, apiKeyPair := range client.APIKeyPairs {
+				envVars[fmt.Sprintf("AGGREGATOR_API_KEY_%s_%d", client.ClientID, i)] = apiKeyPair.APIKey
+				envVars[fmt.Sprintf("AGGREGATOR_SECRET_%s_%d", client.ClientID, i)] = apiKeyPair.Secret
+			}
 		}
-		envVars["AGGREGATOR_API_KEYS_JSON"] = in.Env.APIKeysJSON
 
 		if in.Env.RedisAddress == "" {
 			return nil, fmt.Errorf("AGGREGATOR_REDIS_ADDRESS is required in env config")
@@ -402,6 +500,9 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 		envVars["AGGREGATOR_REDIS_PASSWORD"] = in.Env.RedisPassword
 		envVars["AGGREGATOR_REDIS_DB"] = in.Env.RedisDB
 	}
+
+	// Enable gRPC reflection in devenv for debugging
+	envVars["AGGREGATOR_GRPC_REFLECTION_ENABLED"] = "true"
 
 	// Start the aggregator container
 	req := testcontainers.ContainerRequest{
@@ -418,6 +519,17 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 		WaitingFor:   wait.ForHTTP("/health/live").WithPort("8080/tcp"),
 	}
 
+	// If ExposedHostPort is set, expose the gRPC port directly to the host
+	if in.ExposedHostPort > 0 {
+		req.HostConfigModifier = func(h *container.HostConfig) {
+			h.PortBindings = nat.PortMap{
+				"50051/tcp": []nat.PortBinding{
+					{HostPort: strconv.Itoa(in.ExposedHostPort)},
+				},
+			}
+		}
+	}
+
 	// Note: identical code to verifier.go/executor.go -- will indexer be identical as well?
 	if in.SourceCodePath != "" {
 		req.Mounts = testcontainers.Mounts()
@@ -427,6 +539,11 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 			{
 				HostFilePath:      configFilePath,
 				ContainerFilePath: aggregator.DefaultConfigFile,
+				FileMode:          0o644,
+			},
+			{
+				HostFilePath:      generatedConfigFilePath,
+				ContainerFilePath: filepath.Join(filepath.Dir(aggregator.DefaultConfigFile), generatedConfigFileName),
 				FileMode:          0o644,
 			},
 		}
@@ -494,11 +611,13 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 	}
 
 	in.Out = &AggregatorOutput{
-		ContainerName:    nginxContainerName,
-		Address:          fmt.Sprintf("%s:443", nginxContainerName),
-		ExternalHTTPUrl:  fmt.Sprintf("%s:%d", aggregatorContainerName, DefaultAggregatorGRPCPort),
-		ExternalHTTPSUrl: fmt.Sprintf("%s:%d", host, in.HostPort),
-		TLSCACertFile:    tlsCerts.CACertFile,
+		ContainerName:      nginxContainerName,
+		Address:            fmt.Sprintf("%s:443", nginxContainerName),
+		ExternalHTTPUrl:    fmt.Sprintf("%s:%d", aggregatorContainerName, DefaultAggregatorGRPCPort),
+		ExternalHTTPSUrl:   fmt.Sprintf("%s:%d", host, in.HostPort),
+		TLSCACertFile:      tlsCerts.CACertFile,
+		ThresholdPerSource: configResult.ThresholdPerSource,
+		ClientCredentials:  clientCredentials,
 	}
 	return in.Out, nil
 }

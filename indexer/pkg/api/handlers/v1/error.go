@@ -3,6 +3,7 @@ package v1
 import "fmt"
 
 type ErrorResponse struct {
+	Success bool   `json:"success"           doc:"Indicates whether the request was successful or not."`
 	Status  int    `json:"status"            doc:"HTTP status code"                                                         example:"400"`
 	Message string `json:"message,omitempty" doc:"A human-readable explanation specific to this occurrence of the problem." example:"Invalid chain selector"`
 }
@@ -23,6 +24,7 @@ func (er ErrorResponse) Error() string {
 
 func makeErrorResponse(status int, message string) ErrorResponse {
 	return ErrorResponse{
+		Success: false,
 		Status:  status,
 		Message: message,
 	}

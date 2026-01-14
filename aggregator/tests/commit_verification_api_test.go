@@ -4,6 +4,7 @@ package tests
 import (
 	"bytes"
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -13,7 +14,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
@@ -202,24 +202,26 @@ func TestKeyRotation(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp3.Status)
 
-		time.Sleep(100 * time.Millisecond)
-		getResp, err := messageDiscoveryClient.GetMessagesSince(t.Context(), &msgdiscoverypb.GetMessagesSinceRequest{
-			SinceSequence: 0,
-		})
-		require.NoError(t, err)
-		require.Len(t, getResp.Results, 2, "Should have 2 aggregation records after key rotation")
+		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+			getResp, err := messageDiscoveryClient.GetMessagesSince(t.Context(), &msgdiscoverypb.GetMessagesSinceRequest{
+				SinceSequence: 0,
+			})
+			require.NoError(collect, err)
+			require.Len(collect, getResp.Results, 2, "Should have 2 aggregation records after key rotation")
+		}, 5*time.Second, 100*time.Millisecond, "should have 2 aggregation records after key rotation")
 
 		ccvNodeData4, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1Rotated))
 		resp4, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData4))
 		require.NoError(t, err)
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp4.Status)
 
-		time.Sleep(100 * time.Millisecond)
-		getResp2, err := messageDiscoveryClient.GetMessagesSince(t.Context(), &msgdiscoverypb.GetMessagesSinceRequest{
-			SinceSequence: 0,
-		})
-		require.NoError(t, err)
-		require.Len(t, getResp2.Results, 2, "Should still have 2 aggregation records")
+		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+			getResp2, err := messageDiscoveryClient.GetMessagesSince(t.Context(), &msgdiscoverypb.GetMessagesSinceRequest{
+				SinceSequence: 0,
+			})
+			require.NoError(collect, err)
+			require.Len(collect, getResp2.Results, 2, "Should still have 2 aggregation records")
+		}, 5*time.Second, 100*time.Millisecond, "should still have 2 aggregation records")
 
 		readResp1, err := aggregatorClient.ReadCommitteeVerifierNodeResult(t.Context(), &committeepb.ReadCommitteeVerifierNodeResultRequest{
 			MessageId: messageId[:],
@@ -269,25 +271,25 @@ func WithValidSignatureFrom(signer *SignerFixture) SignatureValidationOption {
 }
 
 func assertCCVDataNotFound(t *testing.T, ctx context.Context, ccvDataClient verifierpb.VerifierClient, messageId protocol.Bytes32) {
-	// Wait a moment for the aggregation to process
-	time.Sleep(50 * time.Millisecond)
-	respCcvData, err := ccvDataClient.GetVerifierResultsForMessage(ctx, &verifierpb.GetVerifierResultsForMessageRequest{
-		MessageIds: [][]byte{messageId[:]},
-	})
-	if err != nil {
-		require.Error(t, err, "GetVerifierResultsForMessage failed")
-		require.Equal(t, codes.NotFound, status.Code(err), "expected NotFound error code")
-		require.Nil(t, respCcvData, "expected nil response")
-	} else {
-		require.NotNil(t, respCcvData, "response should not be nil")
-		require.Len(t, respCcvData.Results, 1, "expected 1:1 correspondence with input message IDs")
-		// Check if result is empty (protobuf may instantiate empty struct instead of nil)
-		if respCcvData.Results[0] != nil {
-			require.Nil(t, respCcvData.Results[0].Message, "expected empty result for not-found message")
+	require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+		respCcvData, err := ccvDataClient.GetVerifierResultsForMessage(ctx, &verifierpb.GetVerifierResultsForMessageRequest{
+			MessageIds: [][]byte{messageId[:]},
+		})
+		if err != nil {
+			require.Error(collect, err, "GetVerifierResultsForMessage failed")
+			require.Equal(collect, codes.NotFound, status.Code(err), "expected NotFound error code")
+			require.Nil(collect, respCcvData, "expected nil response")
+		} else {
+			require.NotNil(collect, respCcvData, "response should not be nil")
+			require.Len(collect, respCcvData.Results, 1, "expected 1:1 correspondence with input message IDs")
+			// Check if result is empty (protobuf may instantiate empty struct instead of nil)
+			if respCcvData.Results[0] != nil {
+				require.Nil(collect, respCcvData.Results[0].Message, "expected empty result for not-found message")
+			}
+			require.Len(collect, respCcvData.Errors, 1, "expected one error")
+			require.Equal(collect, int32(codes.NotFound), respCcvData.Errors[0].Code, "expected NotFound error code")
 		}
-		require.Len(t, respCcvData.Errors, 1, "expected one error")
-		require.Equal(t, int32(codes.NotFound), respCcvData.Errors[0].Code, "expected NotFound error code")
-	}
+	}, 500*time.Millisecond, 50*time.Millisecond, "CCV data should not be found")
 }
 
 func assertCCVDataFound(t *testing.T, ctx context.Context, ccvDataClient verifierpb.VerifierClient, messageId protocol.Bytes32, message *verifierpb.Message, sourceVerifierAddress, destVerifierAddress []byte, options ...SignatureValidationOption) *verifierpb.VerifierResult {
@@ -364,7 +366,7 @@ func validateSignatures(t *assert.CollectT, ccvData []byte, messageId protocol.B
 	// Recover signer addresses from the aggregated signatures
 	hash, err := committee.NewSignableHash(messageId, ccvData)
 	require.NoError(t, err, "failed to create signed hash")
-	recoveredAddresses, err := protocol.RecoverSigners(hash, rs, ss)
+	recoveredAddresses, err := protocol.RecoverECDSASigners(hash, rs, ss)
 	require.NoError(t, err, "failed to recover signer addresses")
 
 	// Create a map of expected signer addresses for easier lookup
@@ -381,13 +383,7 @@ func validateSignatures(t *assert.CollectT, ccvData []byte, messageId protocol.B
 	}
 
 	for expectedAddr := range expectedAddresses {
-		found := false
-		for _, recoveredAddr := range recoveredAddresses {
-			if recoveredAddr == expectedAddr {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(recoveredAddresses, expectedAddr)
 		require.True(t, found, "expected signer %s not found in recovered addresses", expectedAddr.Hex())
 	}
 
@@ -438,11 +434,7 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 		assertCCVDataNotFound(t, t.Context(), ccvDataClient, messageId)
 
 		// Change committee to remove signer1 and add signer3
-		committee.QuorumConfigs["1"] = &model.QuorumConfig{
-			Threshold:             2,
-			Signers:               []model.Signer{signer2.Signer, signer3.Signer},
-			SourceVerifierAddress: common.BytesToAddress(sourceVerifierAddress).Hex(),
-		}
+		UpdateCommitteeQuorum(committee, sourceVerifierAddress, signer2.Signer, signer3.Signer)
 
 		ccvNodeData2, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2))
 
@@ -504,11 +496,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 		assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer1), WithValidSignatureFrom(signer2), WithExactNumberOfSignatures(2))
 
 		// Change committee to remove signer1 and add signer3
-		committee.QuorumConfigs["1"] = &model.QuorumConfig{
-			Threshold:             2,
-			Signers:               []model.Signer{signer2.Signer, signer3.Signer},
-			SourceVerifierAddress: common.BytesToAddress(sourceVerifierAddress).Hex(),
-		}
+		UpdateCommitteeQuorum(committee, sourceVerifierAddress, signer2.Signer, signer3.Signer)
 
 		assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer2), WithExactNumberOfSignatures(1))
 
@@ -594,7 +582,7 @@ func runPaginationTest(t *testing.T, numMessages, pageSize int, storageType stri
 
 	expectedMessageIds := make(map[string]bool)
 
-	for i := 0; i < numMessages; i++ {
+	for i := range numMessages {
 		message := NewProtocolMessage(t)
 		message.SequenceNumber = protocol.SequenceNumber(i + 1)
 
@@ -950,10 +938,7 @@ func TestBatchGetVerifierResult_HappyPath(t *testing.T) {
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed for message2/signer3")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2_3.Status, "expected WriteStatus_SUCCESS")
 
-		// Wait for aggregation to complete
-		time.Sleep(100 * time.Millisecond)
-
-		// Test batch retrieval with both message IDs
+		// Test batch retrieval with both message IDs - wait for aggregation to complete
 		batchReq := &verifierpb.GetVerifierResultsForMessageRequest{
 			MessageIds: [][]byte{
 				messageId1[:],
@@ -961,35 +946,37 @@ func TestBatchGetVerifierResult_HappyPath(t *testing.T) {
 			},
 		}
 
-		batchResp, err := ccvDataClient.GetVerifierResultsForMessage(t.Context(), batchReq)
-		require.NoError(t, err, "GetVerifierResultsForMessage failed")
-		require.NotNil(t, batchResp, "batch response should not be nil")
+		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+			batchResp, err := ccvDataClient.GetVerifierResultsForMessage(t.Context(), batchReq)
+			require.NoError(collect, err, "GetVerifierResultsForMessage failed")
+			require.NotNil(collect, batchResp, "batch response should not be nil")
 
-		// Verify we got results for both messages with 1:1 correspondence
-		require.Len(t, batchResp.Results, 2, "should have 2 results")
-		require.Len(t, batchResp.Errors, 2, "should have 2 errors (1:1 correspondence)")
+			// Verify we got results for both messages with 1:1 correspondence
+			require.Len(collect, batchResp.Results, 2, "should have 2 results")
+			require.Len(collect, batchResp.Errors, 2, "should have 2 errors (1:1 correspondence)")
 
-		// All errors should be success (Code: 0)
-		for i, errStatus := range batchResp.Errors {
-			require.NotNil(t, errStatus, "error status at index %d should not be nil", i)
-			require.Equal(t, int32(0), errStatus.Code, "error at index %d should be success (Code: 0)", i)
-		}
+			// All errors should be success (Code: 0)
+			for i, errStatus := range batchResp.Errors {
+				require.NotNil(collect, errStatus, "error status at index %d should not be nil", i)
+				require.Equal(collect, int32(0), errStatus.Code, "error at index %d should be success (Code: 0)", i)
+			}
 
-		// Verify both messages are present
-		resultsByNonce := make(map[uint64]*verifierpb.VerifierResult)
-		for _, result := range batchResp.Results {
-			resultsByNonce[result.GetMessage().GetSequenceNumber()] = result
-		}
+			// Verify both messages are present
+			resultsByNonce := make(map[uint64]*verifierpb.VerifierResult)
+			for _, result := range batchResp.Results {
+				resultsByNonce[result.GetMessage().GetSequenceNumber()] = result
+			}
 
-		result1, found := resultsByNonce[1001]
-		require.True(t, found, "message1 should be found in batch results")
-		require.Equal(t, destVerifierAddress, result1.Metadata.VerifierDestAddress, "dest verifier address should match")
-		require.NotNil(t, result1.CcvData, "CCV data should not be nil")
+			result1, found := resultsByNonce[1001]
+			require.True(collect, found, "message1 should be found in batch results")
+			require.Equal(collect, destVerifierAddress, result1.Metadata.VerifierDestAddress, "dest verifier address should match")
+			require.NotNil(collect, result1.CcvData, "CCV data should not be nil")
 
-		result2, found := resultsByNonce[2002]
-		require.True(t, found, "message2 should be found in batch results")
-		require.Equal(t, destVerifierAddress, result2.Metadata.VerifierDestAddress, "dest verifier address should match")
-		require.NotNil(t, result2.CcvData, "CCV data should not be nil")
+			result2, found := resultsByNonce[2002]
+			require.True(collect, found, "message2 should be found in batch results")
+			require.Equal(collect, destVerifierAddress, result2.Metadata.VerifierDestAddress, "dest verifier address should match")
+			require.NotNil(collect, result2.CcvData, "CCV data should not be nil")
+		}, 5*time.Second, 100*time.Millisecond, "batch retrieval with both messages should succeed")
 	}
 
 	for _, storageType := range storageTypes {
@@ -1026,9 +1013,7 @@ func TestBatchGetVerifierResult_DuplicateMessageIDs(t *testing.T) {
 		_, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed for signer2")
 
-		time.Sleep(100 * time.Millisecond)
-
-		// Test batch request with duplicate message IDs
+		// Test batch request with duplicate message IDs - wait for aggregation to complete
 		batchReqWithDuplicates := &verifierpb.GetVerifierResultsForMessageRequest{
 			MessageIds: [][]byte{
 				messageId[:],
@@ -1037,25 +1022,27 @@ func TestBatchGetVerifierResult_DuplicateMessageIDs(t *testing.T) {
 			},
 		}
 
-		batchResp, err := ccvDataClient.GetVerifierResultsForMessage(t.Context(), batchReqWithDuplicates)
-		require.NoError(t, err, "GetVerifierResultsForMessage with duplicates should not error")
-		require.NotNil(t, batchResp, "batch response with duplicates should not be nil")
+		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+			batchResp, err := ccvDataClient.GetVerifierResultsForMessage(t.Context(), batchReqWithDuplicates)
+			require.NoError(collect, err, "GetVerifierResultsForMessage with duplicates should not error")
+			require.NotNil(collect, batchResp, "batch response with duplicates should not be nil")
 
-		// Should have 3 results (1:1 correspondence with requests) and 3 errors (all successful)
-		require.Len(t, batchResp.Results, 3, "should have 3 results (1:1 correspondence)")
-		require.Len(t, batchResp.Errors, 3, "should have 3 errors (1:1 correspondence)")
+			// Should have 3 results (1:1 correspondence with requests) and 3 errors (all successful)
+			require.Len(collect, batchResp.Results, 3, "should have 3 results (1:1 correspondence)")
+			require.Len(collect, batchResp.Errors, 3, "should have 3 errors (1:1 correspondence)")
 
-		// All errors should be success (Code: 0)
-		for i, errStatus := range batchResp.Errors {
-			require.NotNil(t, errStatus, "error status at index %d should not be nil", i)
-			require.Equal(t, int32(0), errStatus.Code, "error at index %d should be success (Code: 0)", i)
-		}
+			// All errors should be success (Code: 0)
+			for i, errStatus := range batchResp.Errors {
+				require.NotNil(collect, errStatus, "error status at index %d should not be nil", i)
+				require.Equal(collect, int32(0), errStatus.Code, "error at index %d should be success (Code: 0)", i)
+			}
 
-		// Verify all results are correct and identical (since they're duplicates)
-		for i, result := range batchResp.Results {
-			require.Equal(t, uint64(1001), result.GetMessage().GetSequenceNumber(), "nonce should match for result %d", i)
-			require.Equal(t, destVerifierAddress, result.Metadata.VerifierDestAddress, "dest verifier address should match for result %d", i)
-		}
+			// Verify all results are correct and identical (since they're duplicates)
+			for i, result := range batchResp.Results {
+				require.Equal(collect, uint64(1001), result.GetMessage().GetSequenceNumber(), "nonce should match for result %d", i)
+				require.Equal(collect, destVerifierAddress, result.Metadata.VerifierDestAddress, "dest verifier address should match for result %d", i)
+			}
+		}, 5*time.Second, 100*time.Millisecond, "batch retrieval with duplicate message IDs should succeed")
 	}
 
 	for _, storageType := range storageTypes {
@@ -1092,15 +1079,13 @@ func TestBatchGetVerifierResult_MissingMessages(t *testing.T) {
 		_, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed for signer2")
 
-		time.Sleep(100 * time.Millisecond)
-
 		// Create a non-existent message ID
 		nonExistentMessage := NewProtocolMessage(t)
 		nonExistentMessage.SequenceNumber = protocol.SequenceNumber(9999)
 		nonExistentMsgId, err := nonExistentMessage.MessageID()
 		require.NoError(t, err, "failed to compute non-existent message ID")
 
-		// Test batch request with mix of existing and non-existing messages
+		// Test batch request with mix of existing and non-existing messages - wait for aggregation to complete
 		batchReqWithMissing := &verifierpb.GetVerifierResultsForMessageRequest{
 			MessageIds: [][]byte{
 				existingMessageId[:], // exists
@@ -1108,32 +1093,34 @@ func TestBatchGetVerifierResult_MissingMessages(t *testing.T) {
 			},
 		}
 
-		batchResp, err := ccvDataClient.GetVerifierResultsForMessage(t.Context(), batchReqWithMissing)
-		require.NoError(t, err, "GetVerifierResultsForMessage with missing should not error")
-		require.NotNil(t, batchResp, "batch response with missing should not be nil")
+		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+			batchResp, err := ccvDataClient.GetVerifierResultsForMessage(t.Context(), batchReqWithMissing)
+			require.NoError(collect, err, "GetVerifierResultsForMessage with missing should not error")
+			require.NotNil(collect, batchResp, "batch response with missing should not be nil")
 
-		// Should have 2 results and 2 errors (1:1 correspondence with requests)
-		require.Len(t, batchResp.Results, 2, "should have 2 results (1:1 with message IDs)")
-		require.Len(t, batchResp.Errors, 2, "should have 2 errors (1:1 with requests)")
+			// Should have 2 results and 2 errors (1:1 correspondence with requests)
+			require.Len(collect, batchResp.Results, 2, "should have 2 results (1:1 with message IDs)")
+			require.Len(collect, batchResp.Errors, 2, "should have 2 errors (1:1 with requests)")
 
-		// First request (existing) should have Status with Code 0
-		require.NotNil(t, batchResp.Errors[0], "existing message should have Status with Code 0")
-		require.Equal(t, int32(codes.OK), batchResp.Errors[0].Code, "existing message should have Code 0")
+			// First request (existing) should have Status with Code 0
+			require.NotNil(collect, batchResp.Errors[0], "existing message should have Status with Code 0")
+			require.Equal(collect, int32(codes.OK), batchResp.Errors[0].Code, "existing message should have Code 0")
 
-		// Second request (missing) should have NotFound error
-		require.NotNil(t, batchResp.Errors[1], "missing message should have error")
-		require.Equal(t, int32(codes.NotFound), batchResp.Errors[1].Code, "missing message should have NotFound error")
+			// Second request (missing) should have NotFound error
+			require.NotNil(collect, batchResp.Errors[1], "missing message should have error")
+			require.Equal(collect, int32(codes.NotFound), batchResp.Errors[1].Code, "missing message should have NotFound error")
 
-		// Verify the first result is correct (existing message)
-		require.NotNil(t, batchResp.Results[0], "first result should not be nil")
-		require.NotNil(t, batchResp.Results[0].Message, "first result should have message")
-		result := batchResp.Results[0]
-		require.Equal(t, uint64(1001), result.GetMessage().GetSequenceNumber(), "nonce should match")
+			// Verify the first result is correct (existing message)
+			require.NotNil(collect, batchResp.Results[0], "first result should not be nil")
+			require.NotNil(collect, batchResp.Results[0].Message, "first result should have message")
+			result := batchResp.Results[0]
+			require.Equal(collect, uint64(1001), result.GetMessage().GetSequenceNumber(), "nonce should match")
 
-		// Second result should be empty (not found) - protobuf may instantiate empty struct
-		if batchResp.Results[1] != nil {
-			require.Nil(t, batchResp.Results[1].Message, "second result should be empty for not-found message")
-		}
+			// Second result should be empty (not found) - protobuf may instantiate empty struct
+			if batchResp.Results[1] != nil {
+				require.Nil(collect, batchResp.Results[1].Message, "second result should be empty for not-found message")
+			}
+		}, 5*time.Second, 100*time.Millisecond, "batch retrieval with missing messages should return partial results")
 	}
 
 	for _, storageType := range storageTypes {
@@ -1279,15 +1266,13 @@ func TestBatchGetVerifierResult_MixedSuccessFailure(t *testing.T) {
 		_, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 
-		time.Sleep(500 * time.Millisecond)
-
 		// Create a non-existent message ID
 		nonExistentMessageId := make([]byte, 32)
 		for i := range nonExistentMessageId {
 			nonExistentMessageId[i] = 0xFF
 		}
 
-		// Test batch request with mix of existing and non-existing messages
+		// Test batch request with mix of existing and non-existing messages - wait for aggregation to complete
 		batchReq := &verifierpb.GetVerifierResultsForMessageRequest{
 			MessageIds: [][]byte{
 				messageId1[:],        // Should succeed
@@ -1296,41 +1281,41 @@ func TestBatchGetVerifierResult_MixedSuccessFailure(t *testing.T) {
 			},
 		}
 
-		batchResp, err := ccvDataClient.GetVerifierResultsForMessage(t.Context(), batchReq)
-		require.NoError(t, err, "GetVerifierResultsForMessage should not error")
-		require.NotNil(t, batchResp, "batch response should not be nil")
+		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+			batchResp, err := ccvDataClient.GetVerifierResultsForMessage(t.Context(), batchReq)
+			require.NoError(collect, err, "GetVerifierResultsForMessage should not error")
+			require.NotNil(collect, batchResp, "batch response should not be nil")
 
-		// Verify 1:1 correspondence between requests and errors
-		require.Len(t, batchResp.Errors, 3, "should have 3 errors (1:1 with requests)")
+			// Verify 1:1 correspondence between requests and errors
+			require.Len(collect, batchResp.Errors, 3, "should have 3 errors (1:1 with requests)")
 
-		// First request should succeed (Status with Code 0)
-		require.NotNil(t, batchResp.Errors[0], "successful request should have Status with Code 0")
-		require.Equal(t, int32(codes.OK), batchResp.Errors[0].Code, "successful request should have Code 0")
+			// First request should succeed (Status with Code 0)
+			require.NotNil(collect, batchResp.Errors[0], "successful request should have Status with Code 0")
+			require.Equal(collect, int32(codes.OK), batchResp.Errors[0].Code, "successful request should have Code 0")
 
-		// Second and third requests should fail with NotFound
-		for i := 1; i <= 2; i++ {
-			require.NotNil(t, batchResp.Errors[i], "failed request should have error")
-			require.Equal(t, int32(codes.NotFound), batchResp.Errors[i].Code, "failed request should have NotFound error")
-		}
+			// Second and third requests should fail with NotFound
+			for i := 1; i <= 2; i++ {
+				require.NotNil(collect, batchResp.Errors[i], "failed request should have error")
+				require.Equal(collect, int32(codes.NotFound), batchResp.Errors[i].Code, "failed request should have NotFound error")
+			}
 
-		// Should have exactly 3 results (1:1 correspondence with message IDs)
-		require.Len(t, batchResp.Results, 3, "should have 3 results (1:1 with message IDs)")
+			// Should have exactly 3 results (1:1 correspondence with message IDs)
+			require.Len(collect, batchResp.Results, 3, "should have 3 results (1:1 with message IDs)")
 
-		// Verify the first result is correct (successful)
-		require.NotNil(t, batchResp.Results[0], "first result should not be nil")
-		require.NotNil(t, batchResp.Results[0].Message, "first result should have message")
-		result := batchResp.Results[0]
-		require.Equal(t, uint64(message1.SequenceNumber), result.GetMessage().GetSequenceNumber(), "nonce should match")
+			// Verify the first result is correct (successful)
+			require.NotNil(collect, batchResp.Results[0], "first result should not be nil")
+			require.NotNil(collect, batchResp.Results[0].Message, "first result should have message")
+			result := batchResp.Results[0]
+			require.Equal(collect, uint64(message1.SequenceNumber), result.GetMessage().GetSequenceNumber(), "nonce should match")
 
-		// Second and third results should be empty (not found) - protobuf may instantiate empty structs
-		if batchResp.Results[1] != nil {
-			require.Nil(t, batchResp.Results[1].Message, "second result should be empty for not-found message")
-		}
-		if batchResp.Results[2] != nil {
-			require.Nil(t, batchResp.Results[2].Message, "third result should be empty for not-found message")
-		}
-
-		t.Logf("✅ Batch mixed success/failure test completed: 1 success, 2 failures with 1:1 error correspondence")
+			// Second and third results should be empty (not found) - protobuf may instantiate empty structs
+			if batchResp.Results[1] != nil {
+				require.Nil(collect, batchResp.Results[1].Message, "second result should be empty for not-found message")
+			}
+			if batchResp.Results[2] != nil {
+				require.Nil(collect, batchResp.Results[2].Message, "third result should be empty for not-found message")
+			}
+		}, 5*time.Second, 100*time.Millisecond, "batch mixed success/failure test should complete with 1:1 error correspondence")
 	}
 
 	for _, storageType := range storageTypes {
@@ -1463,11 +1448,7 @@ func TestKeyRotation_StopAggregationAfterQuorumThenRotate(t *testing.T) {
 
 		// Phase 3: Committee rotation - remove signer1, keep signer2 and signer3
 		t.Log("Phase 3: Rotate committee - remove signer1, keep signer2 and signer3")
-		committee.QuorumConfigs["1"] = &model.QuorumConfig{
-			Threshold:             2,
-			Signers:               []model.Signer{signer2.Signer, signer3.Signer},
-			SourceVerifierAddress: common.BytesToAddress(sourceVerifierAddress).Hex(),
-		}
+		UpdateCommitteeQuorum(committee, sourceVerifierAddress, signer2.Signer, signer3.Signer)
 
 		// Phase 4: Signer3 verifies again → re-aggregation happens with new committee
 		t.Log("Phase 4: Signer3 verifies again (should trigger re-aggregation)")
@@ -1531,22 +1512,19 @@ func TestGetVerifierResultsForMessage_ReturnsNotFoundWhenSourceVerifierNotInCCVA
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
 
-		// Wait for aggregation
-		time.Sleep(100 * time.Millisecond)
-
 		// GetVerifierResultsForMessage should return NotFound because source verifier is not in ccvAddresses
-		batchResp, err := ccvDataClient.GetVerifierResultsForMessage(t.Context(), &verifierpb.GetVerifierResultsForMessageRequest{
-			MessageIds: [][]byte{messageId[:]},
-		})
-		require.NoError(t, err, "GetVerifierResultsForMessage should not return error")
-		require.NotNil(t, batchResp, "response should not be nil")
-		require.Len(t, batchResp.Results, 1, "should have 1 result slot")
-		require.Len(t, batchResp.Errors, 1, "should have 1 error slot")
+		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+			batchResp, err := ccvDataClient.GetVerifierResultsForMessage(t.Context(), &verifierpb.GetVerifierResultsForMessageRequest{
+				MessageIds: [][]byte{messageId[:]},
+			})
+			require.NoError(collect, err, "GetVerifierResultsForMessage should not return error")
+			require.NotNil(collect, batchResp, "response should not be nil")
+			require.Len(collect, batchResp.Results, 1, "should have 1 result slot")
+			require.Len(collect, batchResp.Errors, 1, "should have 1 error slot")
 
-		// Verify it returns NotFound
-		require.Equal(t, int32(codes.NotFound), batchResp.Errors[0].Code, "should return NotFound when source verifier not in ccvAddresses")
-
-		t.Log("✅ GetVerifierResultsForMessage returns NotFound when source verifier not in ccvAddresses")
+			// Verify it returns NotFound
+			require.Equal(collect, int32(codes.NotFound), batchResp.Errors[0].Code, "should return NotFound when source verifier not in ccvAddresses")
+		}, 5*time.Second, 100*time.Millisecond, "should return NotFound when source verifier not in ccvAddresses")
 	}
 
 	for _, storageType := range storageTypes {
@@ -1598,29 +1576,26 @@ func TestGetMessagesSince_ReturnsNilMetadataWhenSourceVerifierNotInCCVAddresses(
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
 
-		// Wait for aggregation
-		time.Sleep(100 * time.Millisecond)
-
 		// GetMessagesSince should return the message but with nil metadata addresses
-		resp, err := messageDiscoveryClient.GetMessagesSince(t.Context(), &msgdiscoverypb.GetMessagesSinceRequest{
-			SinceSequence: 0,
-		})
-		require.NoError(t, err, "GetMessagesSince should succeed")
-		require.Len(t, resp.Results, 1, "should have 1 result")
+		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+			resp, err := messageDiscoveryClient.GetMessagesSince(t.Context(), &msgdiscoverypb.GetMessagesSinceRequest{
+				SinceSequence: 0,
+			})
+			require.NoError(collect, err, "GetMessagesSince should succeed")
+			require.Len(collect, resp.Results, 1, "should have 1 result")
 
-		result := resp.Results[0]
-		require.NotNil(t, result.VerifierResult, "VerifierResult should not be nil")
-		require.NotNil(t, result.VerifierResult.Metadata, "Metadata should not be nil")
+			result := resp.Results[0]
+			require.NotNil(collect, result.VerifierResult, "VerifierResults should not be nil")
+			require.NotNil(collect, result.VerifierResult.Metadata, "Metadata should not be nil")
 
-		// Verify metadata addresses are nil because source verifier is not in ccvAddresses
-		require.Nil(t, result.VerifierResult.Metadata.VerifierSourceAddress, "VerifierSourceAddress should be nil when source verifier not in ccvAddresses")
-		require.Nil(t, result.VerifierResult.Metadata.VerifierDestAddress, "VerifierDestAddress should be nil when source verifier not in ccvAddresses")
+			// Verify metadata addresses are nil because source verifier is not in ccvAddresses
+			require.Nil(collect, result.VerifierResult.Metadata.VerifierSourceAddress, "VerifierSourceAddress should be nil when source verifier not in ccvAddresses")
+			require.Nil(collect, result.VerifierResult.Metadata.VerifierDestAddress, "VerifierDestAddress should be nil when source verifier not in ccvAddresses")
 
-		// Verify the rest of the data is still present
-		require.NotNil(t, result.VerifierResult.Message, "Message should still be present")
-		require.NotNil(t, result.VerifierResult.CcvData, "CcvData should still be present")
-
-		t.Log("✅ GetMessagesSince returns nil metadata addresses when source verifier not in ccvAddresses")
+			// Verify the rest of the data is still present
+			require.NotNil(collect, result.VerifierResult.Message, "Message should still be present")
+			require.NotNil(collect, result.VerifierResult.CcvData, "CcvData should still be present")
+		}, 5*time.Second, 100*time.Millisecond, "should return nil metadata addresses when source verifier not in ccvAddresses")
 	}
 
 	for _, storageType := range storageTypes {
@@ -1663,37 +1638,36 @@ func TestSourceVerifierInCCVAddresses_MetadataPopulated(t *testing.T) {
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
 
-		// Wait for aggregation
-		time.Sleep(100 * time.Millisecond)
-
 		// Test GetVerifierResultsForMessage - should return OK with populated metadata
-		batchResp, err := ccvDataClient.GetVerifierResultsForMessage(t.Context(), &verifierpb.GetVerifierResultsForMessageRequest{
-			MessageIds: [][]byte{messageId[:]},
-		})
-		require.NoError(t, err, "GetVerifierResultsForMessage should succeed")
-		require.NotNil(t, batchResp, "response should not be nil")
-		require.Len(t, batchResp.Results, 1, "should have 1 result")
-		require.Len(t, batchResp.Errors, 1, "should have 1 error slot")
-		require.Equal(t, int32(codes.OK), batchResp.Errors[0].Code, "should return OK")
+		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+			batchResp, err := ccvDataClient.GetVerifierResultsForMessage(t.Context(), &verifierpb.GetVerifierResultsForMessageRequest{
+				MessageIds: [][]byte{messageId[:]},
+			})
+			require.NoError(collect, err, "GetVerifierResultsForMessage should succeed")
+			require.NotNil(collect, batchResp, "response should not be nil")
+			require.Len(collect, batchResp.Results, 1, "should have 1 result")
+			require.Len(collect, batchResp.Errors, 1, "should have 1 error slot")
+			require.Equal(collect, int32(codes.OK), batchResp.Errors[0].Code, "should return OK")
 
-		result := batchResp.Results[0]
-		require.NotNil(t, result.Metadata, "Metadata should not be nil")
-		require.Equal(t, sourceVerifierAddress, result.Metadata.VerifierSourceAddress, "VerifierSourceAddress should be populated")
-		require.Equal(t, destVerifierAddress, result.Metadata.VerifierDestAddress, "VerifierDestAddress should be populated")
+			result := batchResp.Results[0]
+			require.NotNil(collect, result.Metadata, "Metadata should not be nil")
+			require.Equal(collect, sourceVerifierAddress, result.Metadata.VerifierSourceAddress, "VerifierSourceAddress should be populated")
+			require.Equal(collect, destVerifierAddress, result.Metadata.VerifierDestAddress, "VerifierDestAddress should be populated")
+		}, 5*time.Second, 100*time.Millisecond, "GetVerifierResultsForMessage should return OK with populated metadata")
 
 		// Test GetMessagesSince - should also have populated metadata
-		msgResp, err := messageDiscoveryClient.GetMessagesSince(t.Context(), &msgdiscoverypb.GetMessagesSinceRequest{
-			SinceSequence: 0,
-		})
-		require.NoError(t, err, "GetMessagesSince should succeed")
-		require.Len(t, msgResp.Results, 1, "should have 1 result")
+		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+			msgResp, err := messageDiscoveryClient.GetMessagesSince(t.Context(), &msgdiscoverypb.GetMessagesSinceRequest{
+				SinceSequence: 0,
+			})
+			require.NoError(collect, err, "GetMessagesSince should succeed")
+			require.Len(collect, msgResp.Results, 1, "should have 1 result")
 
-		msgResult := msgResp.Results[0]
-		require.NotNil(t, msgResult.VerifierResult.Metadata, "Metadata should not be nil")
-		require.Equal(t, sourceVerifierAddress, msgResult.VerifierResult.Metadata.VerifierSourceAddress, "VerifierSourceAddress should be populated")
-		require.Equal(t, destVerifierAddress, msgResult.VerifierResult.Metadata.VerifierDestAddress, "VerifierDestAddress should be populated")
-
-		t.Log("✅ Both APIs return populated metadata when source verifier is in ccvAddresses")
+			msgResult := msgResp.Results[0]
+			require.NotNil(collect, msgResult.VerifierResult.Metadata, "Metadata should not be nil")
+			require.Equal(collect, sourceVerifierAddress, msgResult.VerifierResult.Metadata.VerifierSourceAddress, "VerifierSourceAddress should be populated")
+			require.Equal(collect, destVerifierAddress, msgResult.VerifierResult.Metadata.VerifierDestAddress, "VerifierDestAddress should be populated")
+		}, 5*time.Second, 100*time.Millisecond, "GetMessagesSince should return populated metadata")
 	}
 
 	for _, storageType := range storageTypes {

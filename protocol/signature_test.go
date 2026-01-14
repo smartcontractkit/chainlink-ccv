@@ -78,7 +78,7 @@ func TestRecoverSigners(t *testing.T) {
 	// Create multiple test private keys
 	privateKeys := make([]*ecdsa.PrivateKey, 3)
 	expectedAddresses := make([]common.Address, 3)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		pk, err := crypto.GenerateKey()
 		require.NoError(t, err)
 		privateKeys[i] = pk
@@ -101,7 +101,7 @@ func TestRecoverSigners(t *testing.T) {
 	}
 
 	// Recover signers
-	recoveredAddresses, err := RecoverSigners(hashArray, rs, ss)
+	recoveredAddresses, err := RecoverECDSASigners(hashArray, rs, ss)
 	require.NoError(t, err)
 	require.Len(t, recoveredAddresses, 3)
 
@@ -119,9 +119,9 @@ func TestEncodeSingleSignature(t *testing.T) {
 			Signer: common.HexToAddress("0x1234567890123456789012345678901234567890"),
 		}
 
-		encoded, err := EncodeSingleSignature(sig)
+		encoded, err := EncodeSingleECDSASignature(sig)
 		require.NoError(t, err)
-		require.Len(t, encoded, 96)
+		require.Len(t, encoded, SingleECDSASignatureSize)
 		require.Equal(t, sig.R[:], encoded[0:32])
 		require.Equal(t, sig.S[:], encoded[32:64])
 		require.Equal(t, sig.Signer[:], encoded[64:84])
@@ -134,7 +134,7 @@ func TestEncodeSingleSignature(t *testing.T) {
 			Signer: common.HexToAddress("0x1234567890123456789012345678901234567890"),
 		}
 
-		_, err := EncodeSingleSignature(sig)
+		_, err := EncodeSingleECDSASignature(sig)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "signature R and S cannot be zero")
 	})
@@ -146,7 +146,7 @@ func TestEncodeSingleSignature(t *testing.T) {
 			Signer: common.HexToAddress("0x1234567890123456789012345678901234567890"),
 		}
 
-		_, err := EncodeSingleSignature(sig)
+		_, err := EncodeSingleECDSASignature(sig)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "signature R and S cannot be zero")
 	})
@@ -158,7 +158,7 @@ func TestEncodeSingleSignature(t *testing.T) {
 			Signer: common.Address{},
 		}
 
-		_, err := EncodeSingleSignature(sig)
+		_, err := EncodeSingleECDSASignature(sig)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "signer address cannot be zero")
 	})
@@ -170,12 +170,12 @@ func TestDecodeSingleSignature(t *testing.T) {
 		expectedS := [32]byte{0x02}
 		expectedSigner := common.HexToAddress("0x1234567890123456789012345678901234567890")
 
-		data := make([]byte, 96)
+		data := make([]byte, SingleECDSASignatureSize)
 		copy(data[0:32], expectedR[:])
 		copy(data[32:64], expectedS[:])
 		copy(data[64:84], expectedSigner[:])
 
-		r, s, signer, err := DecodeSingleSignature(data)
+		r, s, signer, err := DecodeSingleECDSASignature(data)
 		require.NoError(t, err)
 		require.Equal(t, expectedR, r)
 		require.Equal(t, expectedS, s)
@@ -183,44 +183,44 @@ func TestDecodeSingleSignature(t *testing.T) {
 	})
 
 	t.Run("wrong length", func(t *testing.T) {
-		data := make([]byte, 95)
-		_, _, _, err := DecodeSingleSignature(data)
+		data := make([]byte, SingleECDSASignatureSize-1)
+		_, _, _, err := DecodeSingleECDSASignature(data)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "signature data must be exactly 96 bytes")
+		require.Contains(t, err.Error(), "signature data must be exactly 84 bytes")
 	})
 
 	t.Run("zero R", func(t *testing.T) {
-		data := make([]byte, 96)
+		data := make([]byte, SingleECDSASignatureSize)
 		s := [32]byte{0x02}
 		copy(data[32:64], s[:])
 		signer := common.HexToAddress("0x1234567890123456789012345678901234567890")
 		copy(data[64:84], signer[:])
 
-		_, _, _, err := DecodeSingleSignature(data)
+		_, _, _, err := DecodeSingleECDSASignature(data)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "signature R and S cannot be zero")
 	})
 
 	t.Run("zero S", func(t *testing.T) {
-		data := make([]byte, 96)
+		data := make([]byte, SingleECDSASignatureSize)
 		r := [32]byte{0x01}
 		copy(data[0:32], r[:])
 		signer := common.HexToAddress("0x1234567890123456789012345678901234567890")
 		copy(data[64:84], signer[:])
 
-		_, _, _, err := DecodeSingleSignature(data)
+		_, _, _, err := DecodeSingleECDSASignature(data)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "signature R and S cannot be zero")
 	})
 
 	t.Run("zero signer", func(t *testing.T) {
-		data := make([]byte, 96)
+		data := make([]byte, SingleECDSASignatureSize)
 		r := [32]byte{0x01}
 		copy(data[0:32], r[:])
 		s := [32]byte{0x02}
 		copy(data[32:64], s[:])
 
-		_, _, _, err := DecodeSingleSignature(data)
+		_, _, _, err := DecodeSingleECDSASignature(data)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "signer address cannot be zero")
 	})
@@ -241,13 +241,64 @@ func TestSingleSignatureRoundTrip(t *testing.T) {
 		Signer: addr,
 	}
 
-	encoded, err := EncodeSingleSignature(sig)
+	encoded, err := EncodeSingleECDSASignature(sig)
 	require.NoError(t, err)
 
-	decodedR, decodedS, decodedSigner, err := DecodeSingleSignature(encoded)
+	decodedR, decodedS, decodedSigner, err := DecodeSingleECDSASignature(encoded)
 	require.NoError(t, err)
 
 	require.Equal(t, sig.R, decodedR)
 	require.Equal(t, sig.S, decodedS)
 	require.Equal(t, sig.Signer, decodedSigner)
+}
+
+// TestLeftPad32_InputTooLong verifies that leftPad32 returns an error when input exceeds 32 bytes.
+func TestLeftPad32_InputTooLong(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       []byte
+		expectError bool
+	}{
+		{
+			name:        "32_bytes_valid",
+			input:       make([]byte, 32),
+			expectError: false,
+		},
+		{
+			name:        "1_byte_valid",
+			input:       []byte{0x01},
+			expectError: false,
+		},
+		{
+			name:        "empty_valid",
+			input:       []byte{},
+			expectError: false,
+		},
+		{
+			name:        "33_bytes_invalid",
+			input:       make([]byte, 33),
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := leftPad32(tt.input)
+			if tt.expectError {
+				require.Error(t, err)
+				require.Nil(t, result)
+				require.Contains(t, err.Error(), "slice too long")
+			} else {
+				require.NoError(t, err)
+				require.Len(t, result, 32)
+				// Verify the input is right-aligned in the output
+				expectedStart := 32 - len(tt.input)
+				require.Equal(t, tt.input, result[expectedStart:])
+				// Verify left padding is zeros
+				for i := range expectedStart {
+					require.Equal(t, byte(0), result[i])
+				}
+			}
+		})
+	}
 }

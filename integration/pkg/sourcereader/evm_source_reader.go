@@ -10,10 +10,9 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
-
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/rmn_remote"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -134,7 +133,7 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 
 	// Process found events
 	for _, log := range logs {
-		r.lggr.Infow("🎉 Found CCIPMessageSent event!",
+		r.lggr.Infow("Found CCIPMessageSent event!",
 			"chainSelector", r.chainSelector,
 			"blockNumber", log.BlockNumber,
 			"txHash", log.TxHash.Hex(),
@@ -142,18 +141,18 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 
 		// Parse indexed topics
 		var destChainSelector uint64
-		var nonce uint64
+		var sender common.Address
 		var messageID [32]byte
 
 		if len(log.Topics) >= 4 {
 			destChainSelector = binary.BigEndian.Uint64(log.Topics[1][24:]) // Last 8 bytes
-			nonce = binary.BigEndian.Uint64(log.Topics[2][24:])             // Last 8 bytes
+			sender = common.BytesToAddress(log.Topics[2][12:])              // Last 20 bytes for address
 			copy(messageID[:], log.Topics[3][:])                            // Full 32 bytes
 
-			r.lggr.Infow("📊 Event details",
+			r.lggr.Infow("Event details",
 				"sourceChainSelector", r.chainSelector,
 				"destChainSelector", destChainSelector,
-				"nonce", nonce,
+				"sender", sender,
 				"messageId", common.Bytes2Hex(messageID[:]))
 		}
 
@@ -161,7 +160,7 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 		event := &onramp.OnRampCCIPMessageSent{}
 		event.DestChainSelector = destChainSelector
 		event.MessageId = messageID
-		event.SequenceNumber = nonce
+		event.Sender = sender
 		abi, err := onramp.OnRampMetaData.GetAbi()
 		if err != nil {
 			r.lggr.Errorw("Failed to get ABI", "error", err)
@@ -175,20 +174,20 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 		// Log the event structure using the fixed bindings
 		r.lggr.Infow("OnRamp Event Structure",
 			"destChainSelector", event.DestChainSelector,
-			"nonce", event.SequenceNumber,
+			"sender", event.Sender,
 			"messageId", common.Bytes2Hex(event.MessageId[:]),
 			"ReceiptsCount", len(event.Receipts),
 			"verifierBlobsCount", len(event.VerifierBlobs))
 
-		if len(event.Receipts) < 1 {
-			// The executor receipt is at Receipts[len-1], so we need at least one receipt
+		if len(event.Receipts) < 2 {
+			// The executor receipt is at Receipts[len-2], so we need at least two receipts
 			r.lggr.Errorw("Executor receipt is missing.", "count", len(event.Receipts))
 			continue // to next message
 		}
 
 		// Log verifier receipts
 		for i, vr := range event.Receipts {
-			r.lggr.Infow("🧾 Verifier Receipt",
+			r.lggr.Infow("Verifier Receipt",
 				"index", i,
 				"issuer", vr.Issuer.Hex(),
 				"destGasLimit", vr.DestGasLimit,
@@ -198,7 +197,7 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 		}
 
 		// Log executor receipt
-		executorReceipt := event.Receipts[len(event.Receipts)-1]
+		executorReceipt := event.Receipts[len(event.Receipts)-2]
 		r.lggr.Infow("Executor Receipt",
 			"issuer", executorReceipt.Issuer.Hex(),
 			"destGasLimit", executorReceipt.DestGasLimit,
@@ -220,28 +219,47 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 		// Validate that ccvAndExecutorHash is not zero - it's required
 		if decodedMsg.CcvAndExecutorHash == (protocol.Bytes32{}) {
 			r.lggr.Errorw("ccvAndExecutorHash is zero in decoded message",
-				"sequenceNumber", event.SequenceNumber,
+				"messageID", common.Bytes2Hex(event.MessageId[:]),
 				"blockNumber", log.BlockNumber)
 			continue // to next message
 		}
+
+		if !decodedMsg.OnRampAddress.Equal(expectedSourceAddressBytes(r.onRampAddress)) {
+			r.lggr.Errorw("onRampAddress must match the value configured. This should never happen, if it does something is seriously wrong. Escalate immediately", "messageId", common.Bytes2Hex(event.MessageId[:]))
+			continue // to next message
+		}
+
+		if !decodedMsg.Sender.Equal(expectedSourceAddressBytes(event.Sender)) {
+			r.lggr.Errorw("sender must match the value emitted from the on-chain event. This should never happen.", "messageId", common.Bytes2Hex(event.Sender[:]))
+			continue // to next message
+		}
+
+		if decodedMsg.MustMessageID() != event.MessageId {
+			r.lggr.Errorw("computed messageID must match the value emitted from the on-chain event. This should never happen, if it does escalate immediately.", "messageId", common.Bytes2Hex(event.MessageId[:]))
+			continue // to the next message
+		}
+
+		if decodedMsg.DestChainSelector != protocol.ChainSelector(event.DestChainSelector) {
+			r.lggr.Errorw("destination chain selector must match the value emited from the on-chain event. This should never happen", "messageId", common.Bytes2Hex(event.MessageId[:]))
+			continue // to the next message
+		}
+
 		allReceipts := receiptBlobsFromEvent(event.Receipts, event.VerifierBlobs) // Validate the receipt structure matches expectations
 		// Validate ccvAndExecutorHash
 		if err := validateCCVAndExecutorHash(*decodedMsg, allReceipts); err != nil {
 			r.lggr.Errorw("ccvAndExecutorHash validation failed",
 				"error", err,
-				"sequenceNumber", event.SequenceNumber,
+				"messageID", common.Bytes2Hex(event.MessageId[:]),
 				"blockNumber", log.BlockNumber)
 			continue // to next message
 		}
 
 		results = append(results, protocol.MessageSentEvent{
-			DestChainSelector: protocol.ChainSelector(event.DestChainSelector),
-			SequenceNumber:    event.SequenceNumber,
-			MessageID:         protocol.Bytes32(event.MessageId),
-			Message:           *decodedMsg,
-			Receipts:          allReceipts, // Keep original order from OnRamp event
-			BlockNumber:       log.BlockNumber,
-			TxHash:            protocol.ByteSlice(log.TxHash.Bytes()),
+			MessageID:   protocol.Bytes32(event.MessageId),
+			Message:     *decodedMsg,
+			Receipts:    allReceipts, // Keep original order from OnRamp event
+			BlockNumber: log.BlockNumber,
+			TxHash:      protocol.ByteSlice(log.TxHash.Bytes()),
 		})
 	}
 	return results, nil
@@ -324,11 +342,11 @@ func validateCCVAndExecutorHash(message protocol.Message, receiptBlobs []protoco
 	if message.TokenTransferLength != 0 {
 		numTokenTransfers = 1
 	}
-	numCCVBlobs := len(receiptBlobs) - numTokenTransfers - 1
+	numCCVBlobs := len(receiptBlobs) - numTokenTransfers - 2 // Executor + network fee
 
 	if numCCVBlobs < 0 {
-		return fmt.Errorf("invalid receipt structure: insufficient receipts (got %d, need at least %d for tokens + executor)",
-			len(receiptBlobs), numTokenTransfers+1)
+		return fmt.Errorf("invalid receipt structure: insufficient receipts (got %d, need at least %d for tokens + executor + network fee)",
+			len(receiptBlobs), numTokenTransfers+2)
 	}
 
 	// Parse receipt structure
@@ -342,4 +360,9 @@ func validateCCVAndExecutorHash(message protocol.Message, receiptBlobs []protoco
 	}
 
 	return message.ValidateCCVAndExecutorHash(receiptStructure.CCVAddresses, receiptStructure.ExecutorAddress)
+}
+
+// expectedSourceAddressBytes returns the byte representation of a source address as emitted by the on-chain event.
+func expectedSourceAddressBytes(sourceAddress common.Address) []byte {
+	return common.LeftPadBytes(sourceAddress[:], 32)
 }

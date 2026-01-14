@@ -13,7 +13,7 @@ import (
 )
 
 type ChainImpl struct {
-	cciptestinterfaces.CCIP17ProductConfiguration
+	cciptestinterfaces.CCIP17
 	Details chain_selectors.ChainDetails
 }
 type Lib struct {
@@ -42,7 +42,7 @@ func NewLib(logger *zerolog.Logger, envOutFile string) (*Lib, error) {
 }
 
 // NewImpl is a convenience function that fetches a specific impl from the library.
-func NewImpl(logger *zerolog.Logger, envOutFile string, selector uint64) (cciptestinterfaces.CCIP17ProductConfiguration, error) {
+func NewImpl(logger *zerolog.Logger, envOutFile string, selector uint64) (cciptestinterfaces.CCIP17, error) {
 	lib, err := NewLib(logger, envOutFile)
 	if err != nil {
 		return ChainImpl{}, fmt.Errorf("failed to create CCV library: %w", err)
@@ -105,20 +105,20 @@ func (l *Lib) Chains(ctx context.Context) ([]ChainImpl, error) {
 			return nil, fmt.Errorf("creating CCIP17 EVM implementation for chain ID %s: %w", chainID, err)
 		}
 		impls[i] = ChainImpl{
-			CCIP17ProductConfiguration: impl,
-			Details:                    details,
+			CCIP17:  impl,
+			Details: details,
 		}
 	}
 
 	return impls, nil
 }
 
-func (l *Lib) ChainsMap(ctx context.Context) (map[uint64]cciptestinterfaces.CCIP17ProductConfiguration, error) {
+func (l *Lib) ChainsMap(ctx context.Context) (map[uint64]cciptestinterfaces.CCIP17, error) {
 	impls, err := l.Chains(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get chain implementations: %w", err)
 	}
-	chainMap := make(map[uint64]cciptestinterfaces.CCIP17ProductConfiguration)
+	chainMap := make(map[uint64]cciptestinterfaces.CCIP17)
 	for _, impl := range impls {
 		chainMap[impl.Details.ChainSelector] = impl
 	}

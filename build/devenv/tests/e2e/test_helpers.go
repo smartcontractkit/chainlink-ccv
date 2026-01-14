@@ -3,8 +3,10 @@ package e2e
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -12,10 +14,13 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/load"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/logasserter"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
+	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
+	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
@@ -25,7 +30,7 @@ const DefaultLokiURL = "ws://localhost:3030"
 type TestingContext struct {
 	T                *testing.T
 	Ctx              context.Context
-	Impl             map[uint64]cciptestinterfaces.CCIP17ProductConfiguration
+	Impl             map[uint64]cciptestinterfaces.CCIP17
 	AggregatorClient *ccv.AggregatorClient
 	IndexerClient    *ccv.IndexerClient
 	LogAsserter      *logasserter.LogAsserter
@@ -33,7 +38,7 @@ type TestingContext struct {
 	logger           zerolog.Logger
 }
 
-func NewTestingContext(t *testing.T, ctx context.Context, impl map[uint64]cciptestinterfaces.CCIP17ProductConfiguration, aggregatorClient *ccv.AggregatorClient, indexerClient *ccv.IndexerClient) TestingContext {
+func NewTestingContext(t *testing.T, ctx context.Context, impl map[uint64]cciptestinterfaces.CCIP17, aggregatorClient *ccv.AggregatorClient, indexerClient *ccv.IndexerClient) TestingContext {
 	lokiURL := os.Getenv("LOKI_QUERY_URL")
 	if lokiURL == "" {
 		lokiURL = DefaultLokiURL
@@ -83,6 +88,9 @@ type AssertionResult struct {
 	SentToChainFound     bool
 	AggregatedResult     *verifierpb.VerifierResult
 	IndexedVerifications ccv.GetVerificationsForMessageIDResponse
+
+	// This is only surfaced if ExpectedSignerAddresses is provided in AssertMessageOptions.
+	CommitteeVerifierNodeResults []*committeepb.CommitteeVerifierNodeResult
 }
 
 type AssertMessageOptions struct {
@@ -195,7 +203,7 @@ func NewAnvilRPCHelper(client *ethclient.Client, logger zerolog.Logger) *AnvilRP
 
 // Mine mines the specified number of blocks.
 func (a *AnvilRPCHelper) Mine(ctx context.Context, numBlocks int) error {
-	for i := 0; i < numBlocks; i++ {
+	for range numBlocks {
 		var result any
 		err := a.client.Client().CallContext(ctx, &result, "evm_mine")
 		if err != nil {
@@ -249,4 +257,39 @@ func (a *AnvilRPCHelper) GetAutomine(ctx context.Context) (bool, error) {
 	}
 	a.logger.Info().Bool("automine", automine).Msg("Got automine status")
 	return automine, nil
+}
+
+func verifyTestConfig(e *deployment.Environment, testConfig *load.TOMLLoadTestRoot) error {
+	var err error
+	chainsInTestConfig := make(map[uint64]struct{})
+	for _, testProfile := range testConfig.TestProfiles {
+		for _, chain := range testProfile.ChainsAsSource {
+			chainSelector, _ := strconv.ParseUint(chain.Selector, 10, 64)
+			chainsInTestConfig[chainSelector] = struct{}{}
+		}
+		for _, chain := range testProfile.ChainsAsDest {
+			chainSelector, _ := strconv.ParseUint(chain.Selector, 10, 64)
+			chainsInTestConfig[chainSelector] = struct{}{}
+		}
+	}
+
+	messageProfileNames := make(map[string]struct{})
+	for _, messageProfile := range testConfig.MessageProfiles {
+		messageProfileNames[messageProfile.Name] = struct{}{}
+	}
+	for _, testProfile := range testConfig.TestProfiles {
+		for _, message := range testProfile.Messages {
+			if _, ok := messageProfileNames[message.MessageProfile]; !ok {
+				err = errors.Join(err, fmt.Errorf("message profile %s not found in test config", message.MessageProfile))
+			}
+		}
+	}
+	chainsInEnv := e.BlockChains.EVMChains()
+
+	for chain := range chainsInTestConfig {
+		if _, ok := chainsInEnv[chain]; !ok {
+			err = errors.Join(err, fmt.Errorf("chain %d not found in environment", chain))
+		}
+	}
+	return err
 }

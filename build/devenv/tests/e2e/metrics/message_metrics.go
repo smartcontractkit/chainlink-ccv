@@ -1,7 +1,7 @@
 package metrics
 
 import (
-	"sort"
+	"slices"
 	"testing"
 	"time"
 )
@@ -9,6 +9,8 @@ import (
 type MessageMetrics struct {
 	SeqNo           uint64
 	MessageID       string
+	SourceChain     uint64
+	DestChain       uint64
 	SentTime        time.Time
 	ExecutedTime    time.Time
 	LatencyDuration time.Duration
@@ -80,6 +82,9 @@ type MetricsSummary struct {
 	ReachedExecutorMessages       map[uint64]string
 	SentToChainInExecutorMessages map[uint64]string
 	ReceivedMessages              map[uint64]string
+	// Chain distribution tracking
+	SourceChainCounts map[uint64]int // chainSelector -> count of messages from this source
+	DestChainCounts   map[uint64]int // chainSelector -> count of messages to this dest
 }
 
 // calculatePercentiles computes percentile statistics from a slice of durations.
@@ -89,9 +94,7 @@ func calculatePercentiles(durations []time.Duration) PercentileStats {
 		return PercentileStats{}
 	}
 
-	sort.Slice(durations, func(i, j int) bool {
-		return durations[i] < durations[j]
-	})
+	slices.Sort(durations)
 
 	p90Index := int(float64(len(durations)) * 0.90)
 	p95Index := int(float64(len(durations)) * 0.95)
@@ -135,10 +138,22 @@ func CalculateMetricsSummary(metrics []MessageMetrics, totals MessageTotals) Met
 		ReachedExecutorMessages:       totals.ReachedExecutorMessages,
 		SentToChainInExecutorMessages: totals.SentToChainInExecutorMessages,
 		ReceivedMessages:              totals.ReceivedMessages,
+		SourceChainCounts:             make(map[uint64]int),
+		DestChainCounts:               make(map[uint64]int),
 	}
 
 	if len(metrics) == 0 {
 		return summary
+	}
+
+	// Calculate chain distribution counts
+	for _, m := range metrics {
+		if m.SourceChain != 0 {
+			summary.SourceChainCounts[m.SourceChain]++
+		}
+		if m.DestChain != 0 {
+			summary.DestChainCounts[m.DestChain]++
+		}
 	}
 
 	// Extract latencies for end-to-end metrics
@@ -206,4 +221,62 @@ func PrintMetricsSummary(t *testing.T, summary MetricsSummary) {
 		summary.P95Latency,
 		summary.P99Latency,
 	)
+}
+
+// PrintMessageSummary outputs chain distribution statistics in a readable format.
+func PrintMessageSummary(t *testing.T, summary MetricsSummary) {
+	totalMessages := summary.TotalReceived
+
+	t.Logf("\n" +
+		"========================================\n" +
+		"       Message Chain Distribution      \n" +
+		"========================================\n")
+
+	t.Logf("Total Messages: %d\n", totalMessages)
+
+	// Print source chain distribution
+	t.Logf("----------------------------------------\n")
+	t.Logf("Source Chain Distribution:\n")
+	if len(summary.SourceChainCounts) == 0 {
+		t.Logf("  No source chain data available\n")
+	} else {
+		sourceChains := sortedChainSelectors(summary.SourceChainCounts)
+		for _, chainSelector := range sourceChains {
+			count := summary.SourceChainCounts[chainSelector]
+			percentage := 0.0
+			if totalMessages > 0 {
+				percentage = float64(count) / float64(totalMessages) * 100
+			}
+			t.Logf("  Chain %d: %d messages (%.2f%%)\n", chainSelector, count, percentage)
+		}
+	}
+
+	// Print destination chain distribution
+	t.Logf("----------------------------------------\n")
+	t.Logf("Destination Chain Distribution:\n")
+	if len(summary.DestChainCounts) == 0 {
+		t.Logf("  No destination chain data available\n")
+	} else {
+		destChains := sortedChainSelectors(summary.DestChainCounts)
+		for _, chainSelector := range destChains {
+			count := summary.DestChainCounts[chainSelector]
+			percentage := 0.0
+			if totalMessages > 0 {
+				percentage = float64(count) / float64(totalMessages) * 100
+			}
+			t.Logf("  Chain %d: %d messages (%.2f%%)\n", chainSelector, count, percentage)
+		}
+	}
+
+	t.Logf("========================================\n")
+}
+
+// sortedChainSelectors returns the chain selectors from a map sorted in ascending order.
+func sortedChainSelectors(chainCounts map[uint64]int) []uint64 {
+	selectors := make([]uint64, 0, len(chainCounts))
+	for selector := range chainCounts {
+		selectors = append(selectors, selector)
+	}
+	slices.Sort(selectors)
+	return selectors
 }

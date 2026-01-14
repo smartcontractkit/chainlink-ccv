@@ -19,11 +19,11 @@ func TestEventPollerCache(t *testing.T) {
 
 		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
 
-		key := eventKey{chainSelector: 1, seqNo: 100}
+		key := eventKey{chainSelector: 1, msgNum: 100}
 		expectedEvent := cciptestinterfaces.ExecutionStateChangedEvent{
-			MessageID:      [32]byte{1, 2, 3},
-			SequenceNumber: 100,
-			State:          cciptestinterfaces.MessageExecutionState(1),
+			MessageID:     [32]byte{1, 2, 3},
+			MessageNumber: 100,
+			State:         cciptestinterfaces.MessageExecutionState(1),
 		}
 		poller.cachedEvents[key] = pollerResult[cciptestinterfaces.ExecutionStateChangedEvent]{event: expectedEvent}
 
@@ -34,7 +34,7 @@ func TestEventPollerCache(t *testing.T) {
 		case result := <-resultCh:
 			require.NoError(t, result.err)
 			require.Equal(t, expectedEvent.MessageID, result.event.MessageID)
-			require.Equal(t, expectedEvent.SequenceNumber, result.event.SequenceNumber)
+			require.Equal(t, expectedEvent.MessageNumber, result.event.MessageNumber)
 		case <-time.After(100 * time.Millisecond):
 			t.Fatal("expected to receive cached result immediately")
 		}
@@ -68,8 +68,7 @@ func TestEventPollerCache(t *testing.T) {
 
 		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
 
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		resultCh1 := poller.register(ctx, 1, 100)
 		resultCh2 := poller.register(ctx, 1, 100)
@@ -84,10 +83,10 @@ func TestEventPollerCache(t *testing.T) {
 
 		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
 
-		key := eventKey{chainSelector: 1, seqNo: 100}
+		key := eventKey{chainSelector: 1, msgNum: 100}
 		expectedEvent := cciptestinterfaces.ExecutionStateChangedEvent{
-			MessageID:      [32]byte{1, 2, 3},
-			SequenceNumber: 100,
+			MessageID:     [32]byte{1, 2, 3},
+			MessageNumber: 100,
 		}
 		poller.cachedEvents[key] = pollerResult[cciptestinterfaces.ExecutionStateChangedEvent]{event: expectedEvent}
 
@@ -113,10 +112,9 @@ func TestEventPollerMessageSent(t *testing.T) {
 
 		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
 
-		key := eventKey{chainSelector: 1, seqNo: 100}
+		key := eventKey{chainSelector: 1, msgNum: 100}
 		expectedEvent := cciptestinterfaces.MessageSentEvent{
-			MessageID:      [32]byte{1, 2, 3},
-			SequenceNumber: 100,
+			MessageID: [32]byte{1, 2, 3},
 		}
 		poller.cachedEvents[key] = pollerResult[cciptestinterfaces.MessageSentEvent]{event: expectedEvent}
 
@@ -127,7 +125,7 @@ func TestEventPollerMessageSent(t *testing.T) {
 		case result := <-resultCh:
 			require.NoError(t, result.err)
 			require.Equal(t, expectedEvent.MessageID, result.event.MessageID)
-			require.Equal(t, expectedEvent.SequenceNumber, result.event.SequenceNumber)
+			require.Equal(t, expectedEvent.Sender, result.event.Sender)
 		case <-time.After(100 * time.Millisecond):
 			t.Fatal("expected to receive cached result immediately")
 		}

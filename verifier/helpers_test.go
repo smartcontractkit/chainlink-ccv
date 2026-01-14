@@ -13,9 +13,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	ccv_common "github.com/smartcontractkit/chainlink-ccv/common"
-	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
-
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
@@ -83,18 +81,15 @@ func CreateTestMessage(t *testing.T, sequenceNumber protocol.SequenceNumber, sou
 
 // MockSourceReaderSetup contains a mock source Reader and its Channel.
 type MockSourceReaderSetup struct {
-	Reader  *protocol_mocks.MockSourceReader
+	Reader  *mocks.MockSourceReader
 	Channel chan protocol.MessageSentEvent
 }
 
 // SetupMockSourceReader creates a mock source Reader with expectations.
 func SetupMockSourceReader(t *testing.T) *MockSourceReaderSetup {
-	mockReader := protocol_mocks.NewMockSourceReader(t)
+	mockReader := mocks.NewMockSourceReader(t)
 	channel := make(chan protocol.MessageSentEvent, 10)
 
-	now := time.Now().Unix()
-
-	mockReader.EXPECT().BlockTime(mock.Anything, mock.Anything).Return(uint64(now), nil).Maybe()
 	mockReader.EXPECT().GetRMNCursedSubjects(mock.Anything).Return(nil, nil).Maybe()
 
 	// Mock GetBlocksHeaders to return proper block headers for the reorg detector
@@ -203,7 +198,7 @@ func (t *TestVerifier) VerifyMessages(
 			if verificationTask.Message.TokenTransferLength > 0 {
 				numTokenTransfers = 1
 			}
-			numCCVBlobs := len(verificationTask.ReceiptBlobs) - numTokenTransfers - 1
+			numCCVBlobs := len(verificationTask.ReceiptBlobs) - numTokenTransfers - 2
 
 			receiptStructure, err := protocol.ParseReceiptStructure(
 				verificationTask.ReceiptBlobs,
@@ -282,6 +277,9 @@ func createTestMessageSentEvents(
 	executorAddr := make([]byte, 20)
 	executorAddr[0] = 0x22 // Must match CreateTestMessage
 
+	routerAddr := make([]byte, 20)
+	routerAddr[0] = 0x44
+
 	events := make([]protocol.MessageSentEvent, len(blockNumbers))
 	for i, blockNum := range blockNumbers {
 		sequenceNumber := startNonce + uint64(i)
@@ -289,10 +287,8 @@ func createTestMessageSentEvents(
 		messageID, _ := message.MessageID()
 
 		events[i] = protocol.MessageSentEvent{
-			DestChainSelector: message.DestChainSelector,
-			SequenceNumber:    uint64(message.SequenceNumber),
-			MessageID:         messageID,
-			Message:           message,
+			MessageID: messageID,
+			Message:   message,
 			Receipts: []protocol.ReceiptWithBlob{
 				{
 					Issuer: protocol.UnknownAddress(ccvAddr),
@@ -301,7 +297,11 @@ func createTestMessageSentEvents(
 				{
 					Issuer: protocol.UnknownAddress(executorAddr),
 					Blob:   []byte{},
-				}, // Executor receipt at the end
+				}, // Executor receipt
+				{
+					Issuer: protocol.UnknownAddress(routerAddr),
+					Blob:   []byte("router-blob"),
+				}, // Network fee receipt
 			},
 			BlockNumber: blockNum,
 		}
@@ -318,33 +318,31 @@ func (n *noopFilter) Filter(msg protocol.MessageSentEvent) bool {
 func newTestSRS(
 	t *testing.T,
 	chainSelector protocol.ChainSelector,
-	reader *protocol_mocks.MockSourceReader,
+	reader *mocks.MockSourceReader,
 	chainStatusMgr protocol.ChainStatusManager,
-	curseDetector *ccv_common.MockCurseCheckerService,
+	curseDetector *mocks.MockCurseCheckerService,
 	pollInterval time.Duration,
-) (*SourceReaderService, *protocol_mocks.MockFinalityViolationChecker) {
+	maxBlockRange uint64,
+) (*SourceReaderService, *mocks.MockFinalityViolationChecker) {
 	t.Helper()
 
 	lggr := logger.Test(t)
 
 	srs, err := NewSourceReaderService(
+		t.Context(),
 		reader,
 		chainSelector,
 		chainStatusMgr,
 		lggr,
-		SourceConfig{PollInterval: pollInterval},
+		SourceConfig{PollInterval: pollInterval, MaxBlockRange: maxBlockRange},
 		curseDetector,
 		&noopFilter{},
 		&noopMetricLabeler{},
 	)
 	require.NoError(t, err)
 
-	srs.readyTasksBatcher = batcher.NewBatcher[VerificationTask](
-		t.Context(), 1, 100*time.Millisecond, srs.readyTasksCh,
-	)
-
 	// Override the internal finalityChecker with a mock.
-	mockFC := protocol_mocks.NewMockFinalityViolationChecker(t)
+	mockFC := mocks.NewMockFinalityViolationChecker(t)
 	srs.finalityChecker = mockFC
 	mockFC.EXPECT().UpdateFinalized(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockFC.EXPECT().IsFinalityViolated().Return(false).Maybe()

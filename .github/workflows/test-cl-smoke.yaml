@@ -20,11 +20,14 @@ jobs:
     runs-on: runs-on=${{ github.run_id }}-${{ strategy.job-index }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
     strategy:
       matrix:
-        test: [
-          { name: "TestE2ESmoke", config: "env.toml,env-cl.toml,env-cl-ci.toml" },
+        test:
+          - name: TestE2ESmoke
+            config: "env.toml,env-cl.toml,env-cl-ci.toml"
+            timeout: 15m
           # We need to configure HeadTracker for the CL tests to have finality depth. Otherwise, it does instant finality.
-#          { name: "TestE2EReorg", config: "env.toml,env-src-auto-mine.toml,env-cl.toml,env-cl-ci.toml" },
-        ]
+          # - name: TestE2EReorg
+          #   config: "env.toml,env-src-auto-mine.toml,env-cl.toml,env-cl-ci.toml"
+          #   timeout: 5m
       fail-fast: false
     steps:
       - name: Enable S3 Cache for Self-Hosted Runners
@@ -92,16 +95,44 @@ jobs:
           ccv u ${{ matrix.test.config }}
 
       - name: Run Smoke Test
+        id: test_run
         working-directory: build/devenv/tests/e2e
         env:
           LOKI_URL: http://localhost:3030/loki/api/v1/push
         run: |
-          go test -v -timeout 15m -count=1 -run ${{ matrix.test.name }}
+          set -o pipefail
+          go test -v -timeout ${{ matrix.test.timeout }} -count=1 -run ${{ matrix.test.name }}
+        continue-on-error: true
       
+      - name: Dump logs if they're not already dumped
+        if: always()
+        working-directory: build/devenv/tests/e2e
+        run: |
+          if [ ! -d "logs" ] || [ -z "$(ls -A logs)" ]; then
+            echo "Logs not found or empty. Dumping logs manually..."
+            ccv dl --dir-suffix "${{ matrix.test.name }}"
+          else
+            echo "Logs already exist. Skipping manual dump."
+          fi
+      
+      - name: Sanitize test name for log artifact name
+        if: always()
+        id: sanitize_name
+        run: |
+          # The vertical bar is invalid in the uploaded artifact name, so we replace it with an underscore.
+          SANITIZED_NAME=$(echo "${{ matrix.test.name }}" | sed 's/[()|]/_/g')
+          echo "name=$SANITIZED_NAME" >> $GITHUB_OUTPUT
+
       - name: Upload Logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: container-logs-cl-${{ matrix.test.name }}
+          name: container-logs-cl-${{ steps.sanitize_name.outputs.name }}
           path: build/devenv/tests/e2e/logs
           retention-days: 1
+      
+      - name: Check test results
+        if: always() && steps.test_run.outcome == 'failure'
+        run: |
+          echo "${{ matrix.test.name }} tests failed."
+          exit 1

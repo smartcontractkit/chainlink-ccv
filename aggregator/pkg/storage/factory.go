@@ -10,6 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/postgres"
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	_ "github.com/lib/pq" // PostgreSQL driver
@@ -19,8 +20,8 @@ const (
 	postgresDriver         = "postgres"
 	defaultMaxOpenConns    = 25
 	defaultMaxIdleConns    = 10
-	defaultConnMaxLifetime = 3600 // 1 hour in seconds
-	defaultConnMaxIdleTime = 300  // 5 minutes in seconds
+	defaultConnMaxLifetime = time.Hour
+	defaultConnMaxIdleTime = 5 * time.Minute
 )
 
 // CommitVerificationStorage combines all storage interfaces for production use.
@@ -78,15 +79,22 @@ func (f *Factory) createPostgreSQLStorage(config *model.StorageConfig) (CommitVe
 	if connMaxLifetime <= 0 {
 		connMaxLifetime = defaultConnMaxLifetime
 	}
-	db.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
+	db.SetConnMaxLifetime(connMaxLifetime)
 
 	connMaxIdleTime := config.ConnMaxIdleTime
 	if connMaxIdleTime <= 0 {
 		connMaxIdleTime = defaultConnMaxIdleTime
 	}
-	db.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Second)
+	db.SetConnMaxIdleTime(connMaxIdleTime)
 
-	if err := db.Ping(); err != nil {
+	f.logger.Infow("Database connection pool configured",
+		"maxOpenConns", maxOpenConns,
+		"maxIdleConns", maxIdleConns,
+		"connMaxLifetime", connMaxLifetime,
+		"connMaxIdleTime", connMaxIdleTime,
+	)
+
+	if err := ccvcommon.EnsureDBConnection(f.logger, db); err != nil {
 		return nil, fmt.Errorf("failed to ping PostgreSQL database: %w", err)
 	}
 

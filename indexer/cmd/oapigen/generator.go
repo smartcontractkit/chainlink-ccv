@@ -14,7 +14,6 @@ import (
 	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 )
 
-//go:generate go run generator.go ../../indexer_opanapi_v1.yaml
 func main() {
 	// Expect a single argument: output file path. Writing to stdout is NOT supported.
 	if len(os.Args) != 2 {
@@ -47,25 +46,25 @@ func main() {
 	grp := huma.NewGroup(api, "/v1")
 
 	huma.Register(grp, huma.Operation{
-		OperationID: "verifier-result",
+		OperationID: "verifier-results",
 		Method:      http.MethodGet,
-		Path:        "/verifierresult",
+		Path:        "/verifierresults",
 		Description: "Get verifier results",
-	}, func(ctx context.Context, input *v1.VerifierResultsInput) (*v1.VerifierResultResponse, error) {
+	}, func(ctx context.Context, input *v1.VerifierResultsInput) (*v1.VerifierResultsResponse, error) {
 		return nil, nil
 	})
 
 	huma.Register(grp, huma.Operation{
-		OperationID: "message-by-id",
+		OperationID: "verifier-results-by-message-id",
 		Method:      http.MethodGet,
-		Path:        "/messageid/{messageID}",
+		Path:        "/verifierresults/{messageID}",
 		Description: "Get message by ID",
-	}, func(ctx context.Context, input *v1.MessageIDInput) (*v1.MessageIDResponse, error) {
+	}, func(ctx context.Context, input *v1.VerifierResultsByMessageIDInput) (*v1.VerifierResultsByMessageIDResponse, error) {
 		return nil, nil
 	})
 
 	huma.Register(grp, huma.Operation{
-		OperationID: "get-messages",
+		OperationID: "messages",
 		Method:      http.MethodGet,
 		Path:        "/messages",
 		Description: "Get messages",

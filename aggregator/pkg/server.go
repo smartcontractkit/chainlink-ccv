@@ -208,36 +208,43 @@ func (s *Server) Stop() error {
 }
 
 func createAggregator(storage common.CommitVerificationStore, aggregatedStore common.CommitVerificationAggregatedStore, sink common.Sink, validator aggregation.QuorumValidator, config *model.AggregatorConfig, lggr logger.SugaredLogger, monitoring common.AggregatorMonitoring) *aggregation.CommitReportAggregator {
-	return aggregation.NewCommitReportAggregator(storage, aggregatedStore, sink, validator, config, lggr, monitoring)
+	return aggregation.NewCommitReportAggregator(storage, aggregatedStore, sink, validator, config, lggr, monitoring, aggregation.NewChannelManagerFromConfig(config))
 }
 
 func buildGRPCServerOptions(serverConfig model.ServerConfig) []grpc.ServerOption {
 	var opts []grpc.ServerOption
 
-	if serverConfig.ConnectionTimeoutSeconds > 0 {
-		opts = append(opts, grpc.ConnectionTimeout(
-			time.Duration(serverConfig.ConnectionTimeoutSeconds)*time.Second))
+	if serverConfig.ConnectionTimeout > 0 {
+		opts = append(opts, grpc.ConnectionTimeout(serverConfig.ConnectionTimeout))
 	}
 
-	if serverConfig.KeepaliveMinTimeSeconds > 0 {
+	if serverConfig.KeepaliveMinTime > 0 {
 		opts = append(opts, grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
-			MinTime:             time.Duration(serverConfig.KeepaliveMinTimeSeconds) * time.Second,
+			MinTime:             serverConfig.KeepaliveMinTime,
 			PermitWithoutStream: true,
 		}))
 	}
 
-	if serverConfig.KeepaliveTimeSeconds > 0 || serverConfig.KeepaliveTimeoutSeconds > 0 || serverConfig.MaxConnectionAgeSeconds > 0 {
+	if serverConfig.KeepaliveTime > 0 || serverConfig.KeepaliveTimeout > 0 || serverConfig.MaxConnectionAge > 0 {
 		params := keepalive.ServerParameters{}
-		if serverConfig.KeepaliveTimeSeconds > 0 {
-			params.Time = time.Duration(serverConfig.KeepaliveTimeSeconds) * time.Second
+		if serverConfig.KeepaliveTime > 0 {
+			params.Time = serverConfig.KeepaliveTime
 		}
-		if serverConfig.KeepaliveTimeoutSeconds > 0 {
-			params.Timeout = time.Duration(serverConfig.KeepaliveTimeoutSeconds) * time.Second
+		if serverConfig.KeepaliveTimeout > 0 {
+			params.Timeout = serverConfig.KeepaliveTimeout
 		}
-		if serverConfig.MaxConnectionAgeSeconds > 0 {
-			params.MaxConnectionAge = time.Duration(serverConfig.MaxConnectionAgeSeconds) * time.Second
+		if serverConfig.MaxConnectionAge > 0 {
+			params.MaxConnectionAge = serverConfig.MaxConnectionAge
 		}
 		opts = append(opts, grpc.KeepaliveParams(params))
+	}
+
+	if serverConfig.MaxRecvMsgSizeBytes > 0 {
+		opts = append(opts, grpc.MaxRecvMsgSize(serverConfig.MaxRecvMsgSizeBytes))
+	}
+
+	if serverConfig.MaxSendMsgSizeBytes > 0 {
+		opts = append(opts, grpc.MaxSendMsgSize(serverConfig.MaxSendMsgSizeBytes))
 	}
 
 	return opts
@@ -250,8 +257,9 @@ type SignatureAndQuorumValidator interface {
 
 // NewServer creates a new aggregator server with the specified logger and configuration.
 func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
-	// Set defaults for configuration
-	config.SetDefaults()
+	if err := config.Validate(); err != nil {
+		l.Fatalf("Failed to validate server configuration: %v", err)
+	}
 
 	l.Infow("Server configuration loaded",
 		"storage_type", config.Storage.StorageType,
@@ -296,7 +304,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 	agg := createAggregator(store, store, store, validator, config, l, aggMonitoring)
 
-	writeCommitVerifierNodeResultHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, l, validator)
+	writeCommitVerifierNodeResultHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, l, validator, config.Aggregation.CheckAggregationTimeout)
 	readCommitVerifierNodeResultHandler := handlers.NewReadCommitVerifierNodeResultHandler(store, l)
 	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committee, l, aggMonitoring)
 	getVerifierResultsForMessageHandler := handlers.NewGetVerifierResultsForMessageHandler(store, config.Committee, config.MaxMessageIDsPerBatch, l)
@@ -308,7 +316,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	scopingMiddleware := middlewares.NewScopingMiddleware()
 
 	// Initialize authentication middlewares
-	hmacAuthMiddleware := middlewares.NewHMACAuthMiddleware(&config.APIKeys, l)
+	hmacAuthMiddleware := middlewares.NewHMACAuthMiddleware(config, l)
 	anonymousAuthMiddleware, err := middlewares.NewAnonymousAuthMiddleware(config.AnonymousAuth.TrustedProxies, l)
 	if err != nil {
 		l.Fatalf("Failed to initialize anonymous auth middleware: %v", err)
@@ -316,7 +324,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	requireAuthMiddleware := middlewares.NewRequireAuthMiddleware(l)
 
 	// Initialize rate limiting middleware
-	rateLimitingMiddleware, err := middlewares.NewRateLimitingMiddlewareFromConfig(config.RateLimiting, config.APIKeys, l)
+	rateLimitingMiddleware, err := middlewares.NewRateLimitingMiddlewareFromConfig(config.RateLimiting, config, l)
 	if err != nil {
 		l.Fatalf("Failed to initialize rate limiting middleware: %v", err)
 	}
@@ -358,8 +366,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	}
 
 	// Add request timeout interceptor as first in chain
-	timeoutMiddleware := middlewares.NewRequestTimeoutMiddleware(
-		time.Duration(config.Server.RequestTimeoutSeconds) * time.Second)
+	timeoutMiddleware := middlewares.NewRequestTimeoutMiddleware(config.Server.RequestTimeout)
 	interceptorChain = append([]grpc.UnaryServerInterceptor{timeoutMiddleware.Intercept}, interceptorChain...)
 
 	grpcOpts = append(grpcOpts, grpc.ChainUnaryInterceptor(interceptorChain...))
@@ -404,7 +411,11 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	verifierpb.RegisterVerifierServer(grpcServer, server)
 	msgdiscoverypb.RegisterMessageDiscoveryServer(grpcServer, server)
 	committeepb.RegisterCommitteeVerifierServer(grpcServer, server)
-	reflection.Register(grpcServer)
+
+	if os.Getenv("AGGREGATOR_GRPC_REFLECTION_ENABLED") == "true" {
+		reflection.Register(grpcServer)
+		l.Info("gRPC reflection enabled")
+	}
 
 	return server
 }

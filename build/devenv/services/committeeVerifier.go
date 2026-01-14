@@ -136,6 +136,10 @@ type VerifierInput struct {
 	// InsecureAggregatorConnection disables TLS for the aggregator gRPC connection.
 	// Only use for CL node tests where certificates cannot be injected.
 	InsecureAggregatorConnection bool `toml:"insecure_aggregator_connection"`
+
+	// AggregatorOutput is optionally set to automatically obtain credentials.
+	// If Env is nil or has empty credentials, credentials will be looked up from here.
+	AggregatorOutput *AggregatorOutput `toml:"-"`
 }
 
 func (v *VerifierInput) GenerateJobSpec() (verifierJobSpec string, err error) {
@@ -301,22 +305,25 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 
 	envVars := make(map[string]string)
 
-	if in.Env != nil {
-		// Use explicit configuration from env.toml
-		if in.Env.AggregatorAPIKey == "" {
-			return nil, fmt.Errorf("VERIFIER_AGGREGATOR_API_KEY is required in env config")
-		}
-		envVars["VERIFIER_AGGREGATOR_API_KEY"] = in.Env.AggregatorAPIKey
+	var apiKey, secretKey string
 
-		if in.Env.AggregatorSecretKey == "" {
-			return nil, fmt.Errorf("VERIFIER_AGGREGATOR_SECRET_KEY is required in env config")
+	if in.Env != nil && in.Env.AggregatorAPIKey != "" && in.Env.AggregatorSecretKey != "" {
+		apiKey = in.Env.AggregatorAPIKey
+		secretKey = in.Env.AggregatorSecretKey
+	} else if in.AggregatorOutput != nil {
+		creds, ok := in.AggregatorOutput.GetCredentialsForClient(in.ContainerName)
+		if ok {
+			apiKey = creds.APIKey
+			secretKey = creds.Secret
 		}
-		envVars["VERIFIER_AGGREGATOR_SECRET_KEY"] = in.Env.AggregatorSecretKey
-	} else {
-		// Inject default HMAC credentials for testing
-		envVars["VERIFIER_AGGREGATOR_API_KEY"] = "test-api-key"
-		envVars["VERIFIER_AGGREGATOR_SECRET_KEY"] = "test-secret-key"
 	}
+
+	if apiKey == "" || secretKey == "" {
+		return nil, fmt.Errorf("failed to get HMAC credentials for verifier %s: no credentials provided via Env or AggregatorOutput", in.ContainerName)
+	}
+
+	envVars["VERIFIER_AGGREGATOR_API_KEY"] = apiKey
+	envVars["VERIFIER_AGGREGATOR_SECRET_KEY"] = secretKey
 
 	if in.SigningKey != "" {
 		envVars["VERIFIER_SIGNER_PRIVATE_KEY"] = in.SigningKey
@@ -458,7 +465,7 @@ func ResolveContractsForVerifier(ds datastore.DataStore, blockchains []*blockcha
 
 		committeeVerifierAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
 			networkInfo.ChainSelector,
-			datastore.ContractType(committee_verifier.ResolverProxyType),
+			datastore.ContractType(committee_verifier.ResolverType),
 			semver.MustParse(committee_verifier.Deploy.Version()),
 			ver.CommitteeName,
 		))
@@ -469,8 +476,8 @@ func ResolveContractsForVerifier(ds datastore.DataStore, blockchains []*blockcha
 
 		defaultExecutorOnRampAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
 			networkInfo.ChainSelector,
-			datastore.ContractType(executor.ContractType),
-			semver.MustParse(executor.Deploy.Version()),
+			datastore.ContractType(executor.ProxyType),
+			semver.MustParse(executor.DeployProxy.Version()),
 			evm.DefaultExecutorQualifier,
 		))
 		if err != nil {

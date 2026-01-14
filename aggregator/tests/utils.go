@@ -3,6 +3,7 @@ package tests
 import (
 	"context"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -27,10 +28,7 @@ import (
 
 const bufSize = 1024 * 1024
 
-var (
-	defaultAPIKey = "test-api-key"
-	defaultSecret = "test-secret-key"
-)
+var defaultCredentials = hmacutil.MustGenerateCredentials()
 
 // ClientConfig holds configuration for test client behavior.
 type ClientConfig struct {
@@ -82,15 +80,12 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (committeepb.C
 
 	clientConfig := &ClientConfig{
 		SkipAuth: false,
-		APIKey:   defaultAPIKey,
-		Secret:   defaultSecret,
+		APIKey:   defaultCredentials.APIKey,
+		Secret:   defaultCredentials.Secret,
 	}
 
 	dummyConfig := &model.AggregatorConfig{
 		Storage: &model.StorageConfig{},
-		APIKeys: model.APIKeyConfig{
-			Clients: make(map[string]*model.APIClient),
-		},
 	}
 	for _, option := range options {
 		_, clientConfig = option(dummyConfig, clientConfig)
@@ -119,6 +114,10 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 	// Use SugaredLogger for better API
 	sugaredLggr := logger.Sugared(lggr)
 
+	// Set environment variables for test API keys
+	require.NoError(t, os.Setenv("TEST_API_KEY", defaultCredentials.APIKey))
+	require.NoError(t, os.Setenv("TEST_API_SECRET", defaultCredentials.Secret))
+
 	// Create base config with PostgreSQL storage as default
 	config := &model.AggregatorConfig{
 		Server: model.ServerConfig{
@@ -130,8 +129,18 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 		Monitoring: model.MonitoringConfig{
 			Enabled: false,
 		},
-		APIKeys: model.APIKeyConfig{
-			Clients: make(map[string]*model.APIClient),
+		APIClients: []*model.ClientConfig{
+			{
+				ClientID:    "test-client",
+				Description: "Test client for integration tests",
+				Enabled:     true,
+				APIKeyPairs: []*model.APIKeyPairEnv{
+					{
+						APIKeyEnvVar: "TEST_API_KEY",
+						SecretEnvVar: "TEST_API_SECRET",
+					},
+				},
+			},
 		},
 		RateLimiting: model.RateLimitingConfig{
 			Enabled: true,
@@ -151,19 +160,10 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 		},
 	}
 
-	config.APIKeys.Clients[defaultAPIKey] = &model.APIClient{
-		ClientID:    "test-client",
-		Description: "Test client for integration tests",
-		Enabled:     true,
-		Secrets: map[string]string{
-			"current": defaultSecret,
-		},
-	}
-
 	clientConfig := &ClientConfig{
 		SkipAuth: false,
-		APIKey:   defaultAPIKey,
-		Secret:   defaultSecret,
+		APIKey:   defaultCredentials.APIKey,
+		Secret:   defaultCredentials.Secret,
 	}
 
 	for _, option := range options {
@@ -194,15 +194,12 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 func CreateAuthenticatedClient(t *testing.T, listener *bufconn.Listener, options ...ConfigOption) (committeepb.CommitteeVerifierClient, verifierpb.VerifierClient, msgdiscoverypb.MessageDiscoveryClient, func()) {
 	clientConfig := &ClientConfig{
 		SkipAuth: false,
-		APIKey:   defaultAPIKey,
-		Secret:   defaultSecret,
+		APIKey:   defaultCredentials.APIKey,
+		Secret:   defaultCredentials.Secret,
 	}
 
 	dummyConfig := &model.AggregatorConfig{
 		Storage: &model.StorageConfig{},
-		APIKeys: model.APIKeyConfig{
-			Clients: make(map[string]*model.APIClient),
-		},
 	}
 	for _, option := range options {
 		_, clientConfig = option(dummyConfig, clientConfig)
@@ -260,6 +257,9 @@ func createSimpleHMACClientInterceptor(config *hmacutil.ClientConfig) grpc.Unary
 }
 
 func setupPostgresStorage(t *testing.T, existingConfig *model.StorageConfig) (*model.StorageConfig, func(), error) {
+	if testing.Short() {
+		t.Skip("skipping docker test in short mode")
+	}
 	// Start PostgreSQL testcontainer
 	postgresContainer, err := postgres.Run(t.Context(),
 		"postgres:15-alpine",

@@ -73,15 +73,15 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 	)
 
 	var (
-		onRampAddresses                         = make(map[string]string)
-		committeeVerifierAddresses              = make(map[string]string)
-		committeeVerifierResolverProxyAddresses = make(map[uint64]string)
-		defaultExecutorOnRampAddresses          = make(map[string]string)
-		defaultExecutorOnRampAddressesUint64    = make(map[uint64]string)
-		rmnRemoteAddresses                      = make(map[string]string)
-		rmnRemoteAddressesUint64                = make(map[uint64]string)
-		offRampAddresses                        = make(map[uint64]string)
-		thresholdPerSource                      = make(map[uint64]uint8)
+		onRampAddresses                      = make(map[string]string)
+		committeeVerifierAddresses           = make(map[string]string)
+		committeeVerifierResolverAddresses   = make(map[uint64]string)
+		defaultExecutorOnRampAddresses       = make(map[string]string)
+		defaultExecutorOnRampAddressesUint64 = make(map[uint64]string)
+		rmnRemoteAddresses                   = make(map[string]string)
+		rmnRemoteAddressesUint64             = make(map[uint64]string)
+		offRampAddresses                     = make(map[uint64]string)
+		thresholdPerSource                   = make(map[uint64]uint8)
 	)
 
 	for _, ref := range addressRefs {
@@ -89,9 +89,9 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 		switch ref.Type {
 		case datastore.ContractType(onrampoperations.ContractType):
 			onRampAddresses[chainSelectorStr] = ref.Address
-		case datastore.ContractType(committee_verifier.ResolverProxyType):
+		case datastore.ContractType(committee_verifier.ResolverType):
 			committeeVerifierAddresses[chainSelectorStr] = ref.Address
-			committeeVerifierResolverProxyAddresses[ref.ChainSelector] = ref.Address
+			committeeVerifierResolverAddresses[ref.ChainSelector] = ref.Address
 		case datastore.ContractType(executor_operations.ContractType):
 			defaultExecutorOnRampAddresses[chainSelectorStr] = ref.Address
 			defaultExecutorOnRampAddressesUint64[ref.ChainSelector] = ref.Address
@@ -142,10 +142,10 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 	// Executor inputs
 	executorInputs := make([]services.ExecutorInput, 0, numExecutors)
 	executorPool := make([]string, 0, numExecutors)
-	for i := 0; i < numExecutors; i++ {
+	for i := range numExecutors {
 		executorPool = append(executorPool, fmt.Sprintf("%s%d", executorIDPrefix, i))
 	}
-	for i := 0; i < numExecutors; i++ {
+	for i := range numExecutors {
 		executorInputs = append(executorInputs, services.ExecutorInput{
 			ExecutorID:                         fmt.Sprintf("%s%d", executorIDPrefix, i),
 			ExecutorPool:                       executorPool,
@@ -170,25 +170,35 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 	}
 
 	// Aggregator config
+	generatedConfigFileName := "aggregator-generated.toml"
 	aggregatorInput := services.AggregatorInput{
-		CommitteeName:                           committeeName,
-		CommitteeVerifierResolverProxyAddresses: committeeVerifierResolverProxyAddresses,
-		ThresholdPerSource:                      thresholdPerSource,
-		MonitoringOtelExporterHTTPEndpoint:      monitoringOtelExporterHTTPEndpoint,
+		CommitteeName:                      committeeName,
+		CommitteeVerifierResolverAddresses: committeeVerifierResolverAddresses,
+		ThresholdPerSource:                 thresholdPerSource,
+		MonitoringOtelExporterHTTPEndpoint: monitoringOtelExporterHTTPEndpoint,
 	}
-	aggregatorConfig, err := aggregatorInput.GenerateConfig(verifierInputs)
+	configResult, err := aggregatorInput.GenerateConfigs(verifierInputs, generatedConfigFileName)
 	if err != nil {
-		return "", fmt.Errorf("failed to generate aggregator config: %w", err)
+		return "", fmt.Errorf("failed to generate aggregator configs: %w", err)
 	}
-	ccv.Plog.Info().Msg("Generated aggregator config:")
+	ccv.Plog.Info().Msg("Generated aggregator configs")
+
+	// Write main config
 	filePath := filepath.Join(tempDir, "aggregator-config.toml")
-	if err := os.WriteFile(filePath, aggregatorConfig, 0o644); err != nil {
+	if err := os.WriteFile(filePath, configResult.MainConfig, 0o644); err != nil {
 		return "", fmt.Errorf("failed to write aggregator config to file: %w", err)
 	}
 	ccv.Plog.Info().Str("file-path", filePath).Msg("Wrote aggregator config to file")
 
+	// Write generated config (committee)
+	generatedFilePath := filepath.Join(tempDir, generatedConfigFileName)
+	if err := os.WriteFile(generatedFilePath, configResult.GeneratedConfig, 0o644); err != nil {
+		return "", fmt.Errorf("failed to write aggregator generated config to file: %w", err)
+	}
+	ccv.Plog.Info().Str("file-path", generatedFilePath).Msg("Wrote aggregator generated config to file")
+
 	if createPR {
-		prURL, err := createConfigPR(gh, ctx, cldDomain, aggregatorConfig)
+		prURL, err := createConfigPR(gh, ctx, cldDomain, configResult.MainConfig, configResult.GeneratedConfig)
 		if err != nil {
 			return "", fmt.Errorf("failed to create config PR: %w", err)
 		}
@@ -198,7 +208,7 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 	return tempDir, nil
 }
 
-func createConfigPR(gh *github.Client, ctx context.Context, cldDomain string, aggregatorConfig []byte) (string, error) {
+func createConfigPR(gh *github.Client, ctx context.Context, cldDomain string, aggregatorConfig, generatedConfig []byte) (string, error) {
 	// Create a new branch, add the aggregator config file and open a PR
 	owner := "smartcontractkit"
 	repo := "infra-k8s"
@@ -237,12 +247,13 @@ func createConfigPR(gh *github.Client, ctx context.Context, cldDomain string, ag
 	// Create file on the new branch
 	commitMsg := "Update ccv configuration"
 
-	// Marshal aggregator config into YAML under configMap.aggregator.\.toml
+	// Marshal aggregator config into YAML under configMap with both main and generated configs
 	aggYaml := map[string]any{
 		"main": map[string]any{
 			"stage": map[string]any{
 				"configMap": map[string]string{
-					"aggregator.toml": string(aggregatorConfig),
+					"aggregator.toml":           string(aggregatorConfig),
+					"aggregator-generated.toml": string(generatedConfig),
 				},
 			},
 		},

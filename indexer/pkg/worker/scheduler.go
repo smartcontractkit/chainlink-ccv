@@ -4,6 +4,7 @@ import (
 	"container/heap"
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -23,6 +24,12 @@ type Scheduler struct {
 }
 
 func NewScheduler(lggr logger.Logger, config config.SchedulerConfig) (*Scheduler, error) {
+	// Require a non-nil logger to avoid scattered nil-checks and to make
+	// the dependency explicit for production code.
+	if lggr == nil {
+		return nil, fmt.Errorf("logger is required")
+	}
+
 	delayHeap := &DelayHeap{}
 	heap.Init(delayHeap)
 
@@ -52,6 +59,8 @@ func (s *Scheduler) run(ctx context.Context) {
 	for {
 		select {
 		case <-s.stopCh:
+			s.lggr.Info("Scheduler Exiting")
+			return
 		case <-ctx.Done():
 			s.lggr.Info("Scheduler Exiting")
 			return
@@ -60,10 +69,9 @@ func (s *Scheduler) run(ctx context.Context) {
 			tasks := s.delayHeap.PopAllReady()
 			s.mu.Unlock()
 			for _, task := range tasks {
-				go func() {
-					task := task
-					s.ready <- task
-				}()
+				go func(t *Task) {
+					s.ready <- t
+				}(task)
 			}
 		}
 	}
@@ -94,10 +102,10 @@ func (s *Scheduler) backoff(attempt int) time.Duration {
 		d = s.config.MaxDelay
 	}
 
-	// Invairant check to ensure only positive integers are returned
+	// Invariant check to ensure only positive integers are returned
 	// Shouldn't ever be triggered but to prevent downstream issues, we'll just assert on it.
 	if d < 0 {
-		s.lggr.Warn("Invairant Check triggered in Scheduler, messages will still be scheduled however no delay will be added.")
+		s.lggr.Warn("Invariant Check triggered in Scheduler, messages will still be scheduled however no delay will be added.")
 		d = s.config.BaseDelay
 	}
 
@@ -131,18 +139,19 @@ func (s *Scheduler) Enqueue(ctx context.Context, t *Task) error {
 	t.attempt++
 	t.runAt = time.Now().Add(delay)
 
+	// If there is no delay, the task is ready immediately and should be sent to the ready channel.
 	if delay == 0 {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		heap.Push(s.delayHeap, t)
-		return nil
+		select {
+		case s.ready <- t:
+			return nil
+		case <-ctx.Done():
+			return errors.New("unable to enqueue, context deadline exceeded")
+		}
 	}
 
-	select {
-	case s.ready <- t:
-	case <-ctx.Done():
-		return errors.New("unable to enqueue, context deadline exceeded")
-	}
-
+	// Otherwise schedule for future execution on the delay heap
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	heap.Push(s.delayHeap, t)
 	return nil
 }

@@ -9,20 +9,21 @@ import (
 	"sync/atomic"
 	"time"
 
-	vservices "github.com/smartcontractkit/chainlink-ccv/verifier/services"
-
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
+	vservices "github.com/smartcontractkit/chainlink-ccv/verifier/services"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
 const (
 	// ChainStatusInterval is how often to write statuses.
-	ChainStatusInterval = 300 * time.Second
-	DefaultPollInterval = 2100 * time.Millisecond
+	ChainStatusInterval  = 300 * time.Second
+	DefaultPollInterval  = 2100 * time.Millisecond
+	DefaultPollTimeout   = 10 * time.Second
+	DefaultMaxBlockRange = 5000
 )
 
 type SourceReaderService struct {
@@ -37,11 +38,12 @@ type SourceReaderService struct {
 	curseDetector   common.CurseCheckerService
 	finalityChecker protocol.FinalityViolationChecker
 	pollInterval    time.Duration
+	pollTimeout     time.Duration
+	maxBlockRange   uint64
 	sourceCfg       SourceConfig
 
 	// exposed channel to coordinator: READY tasks
 	readyTasksBatcher *batcher.Batcher[VerificationTask]
-	readyTasksCh      chan batcher.BatchResult[VerificationTask]
 
 	// mutable per-chain state
 	mu                          sync.RWMutex
@@ -61,6 +63,7 @@ type SourceReaderService struct {
 
 // NewSourceReaderService Constructor: same style as SRS.
 func NewSourceReaderService(
+	ctx context.Context,
 	sourceReader chainaccess.SourceReader,
 	chainSelector protocol.ChainSelector,
 	chainStatusManager protocol.ChainStatusManager,
@@ -99,6 +102,25 @@ func NewSourceReaderService(
 	if sourceCfg.PollInterval <= 0 {
 		interval = DefaultPollInterval
 	}
+
+	maxBlockRange := sourceCfg.MaxBlockRange
+	if maxBlockRange <= 0 {
+		maxBlockRange = DefaultMaxBlockRange
+	}
+
+	pollTimeout := sourceCfg.PollTimeout
+	if pollTimeout <= 0 {
+		pollTimeout = DefaultPollTimeout
+	}
+
+	batchSize, batchTimeout := readerConfigWithDefaults(lggr, sourceCfg)
+	readyTaskBatcher := batcher.NewBatcher[VerificationTask](
+		ctx,
+		batchSize,
+		batchTimeout,
+		0,
+	)
+
 	return &SourceReaderService{
 		logger:             logger.With(lggr, "component", "SourceReaderService", "chain", chainSelector),
 		sourceReader:       sourceReader,
@@ -107,31 +129,28 @@ func NewSourceReaderService(
 		curseDetector:      curseDetector,
 		finalityChecker:    finalityChecker,
 		pollInterval:       interval,
+		pollTimeout:        pollTimeout,
 		sourceCfg:          sourceCfg,
-		readyTasksCh:       make(chan batcher.BatchResult[VerificationTask]),
+		maxBlockRange:      maxBlockRange,
 		pendingTasks:       make(map[string]VerificationTask),
 		sentTasks:          make(map[string]VerificationTask),
 		reorgTracker:       NewReorgTracker(logger.With(lggr, "component", "ReorgTracker"), metrics),
 		stopCh:             make(chan struct{}),
 		filter:             filter,
+		readyTasksBatcher:  readyTaskBatcher,
 	}, nil
 }
 
+func (r *SourceReaderService) RetryTasks(minDelay time.Duration, tasks ...VerificationTask) error {
+	return r.readyTasksBatcher.Retry(minDelay, tasks...)
+}
+
 func (r *SourceReaderService) ReadyTasksChannel() <-chan batcher.BatchResult[VerificationTask] {
-	return r.readyTasksCh
+	return r.readyTasksBatcher.OutChannel()
 }
 
 func (r *SourceReaderService) Start(ctx context.Context) error {
 	return r.StartOnce(r.Name(), func() error {
-		batchSize, batchTimeout := readerConfigWithDefaults(r.logger, r.sourceCfg)
-		readyTaskBatcher := batcher.NewBatcher[VerificationTask](
-			ctx,
-			batchSize,
-			batchTimeout,
-			r.readyTasksCh,
-		)
-		r.readyTasksBatcher = readyTaskBatcher
-
 		r.logger.Infow("Starting SourceReaderService")
 
 		startBlock, err := r.initializeStartBlock(ctx)
@@ -142,11 +161,9 @@ func (r *SourceReaderService) Start(ctx context.Context) error {
 		r.lastProcessedFinalizedBlock.Store(startBlock)
 		r.logger.Infow("Initialized start block", "block", startBlock.String())
 
-		r.wg.Add(1)
-		go func() {
-			defer r.wg.Done()
+		r.wg.Go(func() {
 			r.eventMonitoringLoop()
-		}()
+		})
 
 		r.logger.Infow("SourceReaderService started")
 		return nil
@@ -221,17 +238,61 @@ func (r *SourceReaderService) readyToQuery(ctx context.Context) (bool, *protocol
 	if err != nil {
 		r.logger.Errorw("Failed to get latest block", "error", err)
 		// Send batch-level error to coordinator
-		r.sendBatchError(ctx, fmt.Errorf("failed to get finalized block: %w", err))
+		r.sendBatchError(fmt.Errorf("failed to get finalized block: %w", err))
 		return false, nil, nil
 	}
 	if finalized == nil || latest == nil {
 		r.logger.Errorw("nil block found during latest/finalized retrieval",
 			"finalized=Nil", finalized == nil, "latest=Nil", latest == nil)
-		r.sendBatchError(ctx, fmt.Errorf("finalized block is nil"))
+		r.sendBatchError(fmt.Errorf("finalized block is nil"))
 		return false, nil, nil
 	}
 
 	return true, latest, finalized
+}
+
+type blockRange struct {
+	fromBlock *big.Int
+	toBlock   *big.Int
+}
+
+func (r *SourceReaderService) getBlockRanges(fromBlock, latest uint64) []blockRange {
+	if fromBlock >= latest {
+		return []blockRange{{fromBlock: new(big.Int).SetUint64(fromBlock), toBlock: nil}}
+	}
+
+	var blockRanges []blockRange
+	for fromBlock <= latest {
+		toBlock := fromBlock + r.maxBlockRange
+		if toBlock >= latest {
+			blockRanges = append(blockRanges, blockRange{
+				fromBlock: new(big.Int).SetUint64(fromBlock),
+				toBlock:   nil,
+			})
+			break
+		}
+		blockRanges = append(blockRanges, blockRange{
+			fromBlock: new(big.Int).SetUint64(fromBlock),
+			toBlock:   new(big.Int).SetUint64(toBlock),
+		})
+		fromBlock = toBlock + 1
+	}
+
+	return blockRanges
+}
+
+func (r *SourceReaderService) loadEvents(ctx context.Context, fromBlock *big.Int, latest *protocol.BlockHeader) ([]protocol.MessageSentEvent, error) {
+	blockRanges := r.getBlockRanges(fromBlock.Uint64(), latest.Number)
+
+	allEvents := make([]protocol.MessageSentEvent, 0)
+	for _, blockRange := range blockRanges {
+		events, err := r.sourceReader.FetchMessageSentEvents(ctx, blockRange.fromBlock, blockRange.toBlock)
+		if err != nil {
+			return nil, err
+		}
+		allEvents = append(allEvents, events...)
+	}
+	return allEvents, nil
 }
 
 // processEventCycle processes a single cycle of event monitoring.
@@ -241,20 +302,20 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context, latest, fin
 	r.logger.Infow("processEventCycle starting",
 		"latestBlock", latest.Number,
 		"finalizedBlock", finalized.Number)
-	logsCtx, cancel := context.WithTimeout(ctx, r.pollInterval)
+	logsCtx, cancel := context.WithTimeout(ctx, r.pollTimeout)
 	defer cancel()
 
 	fromBlock := r.lastProcessedFinalizedBlock.Load()
 
 	r.logger.Infow("Querying from block", "fromBlock", fromBlock.String())
 	// Fetch message events from blockchain
-	events, err := r.sourceReader.FetchMessageSentEvents(logsCtx, fromBlock, nil)
+	events, err := r.loadEvents(logsCtx, fromBlock, latest)
 	if err != nil {
 		r.logger.Errorw("Failed to query logs", "error", err,
 			"fromBlock", fromBlock.String(),
 			"toBlock", "latest")
 		// Send batch-level error to coordinator
-		r.sendBatchError(ctx, fmt.Errorf("failed to query logs from block %s to latest: %w",
+		r.sendBatchError(fmt.Errorf("failed to query logs from block %s to latest: %w",
 			fromBlock.String(), err))
 		return
 	}
@@ -675,17 +736,14 @@ func (r *SourceReaderService) handleFinalityViolation(ctx context.Context) {
 }
 
 // sendBatchError sends a batch-level error to the coordinator.
-func (r *SourceReaderService) sendBatchError(ctx context.Context, err error) {
+func (r *SourceReaderService) sendBatchError(err error) {
 	batch := batcher.BatchResult[VerificationTask]{
 		Items: nil,
 		Error: err,
 	}
 
-	select {
-	case r.readyTasksCh <- batch:
-		r.logger.Debugw("Batch error sent to coordinator", "error", err)
-	case <-ctx.Done():
-		r.logger.Debugw("Context cancelled while sending batch error")
+	if err1 := r.readyTasksBatcher.AddImmediate(batch); err1 != nil {
+		r.logger.Debugw("Failed to add immediate tasks to batcher", "error", err1)
 	}
 }
 

@@ -147,7 +147,7 @@ func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptest
 	committeeVerifierProxyRef, err := addrs.Get(
 		datastore.NewAddressRefKey(
 			args.srcSel,
-			datastore.ContractType(committee_verifier.ResolverProxyType),
+			datastore.ContractType(committee_verifier.ResolverType),
 			semver.MustParse(committee_verifier.Deploy.Version()),
 			evm.DefaultCommitteeVerifierQualifier))
 	if err != nil {
@@ -156,8 +156,8 @@ func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptest
 	executorRef, err := addrs.Get(
 		datastore.NewAddressRefKey(
 			args.srcSel,
-			datastore.ContractType(executor_operations.ContractType),
-			semver.MustParse(executor_operations.Deploy.Version()),
+			datastore.ContractType(executor_operations.ProxyType),
+			semver.MustParse(executor_operations.DeployProxy.Version()),
 			""))
 	if err != nil {
 		return cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to get executor address: %w", err)

@@ -15,14 +15,12 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// mockServerInfo returns a pointer to grpc.UnaryServerInfo for testing.
 func mockServerInfo(fullMethod string) *grpc.UnaryServerInfo {
 	return &grpc.UnaryServerInfo{
 		FullMethod: fullMethod,
 	}
 }
 
-// mockHandler is a simple handler that returns success.
 func mockHandler(ctx context.Context, req any) (any, error) {
 	return "success", nil
 }
@@ -45,22 +43,26 @@ func TestRateLimitingMiddleware_DefaultLimits(t *testing.T) {
 			"/test.Service/Method": {LimitPerMinute: 5},
 		},
 	}
-	apiConfig := model.APIKeyConfig{
-		Clients: map[string]*model.APIClient{
-			"test-key": {
-				ClientID: "test-caller",
-				Enabled:  true,
-			},
+
+	client := &mockClientConfig{
+		clientID: "test-caller",
+		groups:   nil,
+		enabled:  true,
+	}
+	clientProvider := &mockClientProvider{
+		clientsByAPIKey: map[string]*mockClientEntry{},
+		clientsByID: map[string]auth.ClientConfig{
+			"test-caller": client,
 		},
 	}
 
-	middleware := NewRateLimitingMiddleware(store, config, apiConfig, logger.TestSugared(t))
+	middleware := NewRateLimitingMiddleware(store, config, clientProvider, logger.TestSugared(t))
 	identity := auth.CreateCallerIdentity("test-caller", false)
 	ctx := auth.ToContext(context.Background(), identity)
 	info := mockServerInfo("/test.Service/Method")
 
 	// First 5 requests should succeed
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		resp, err := middleware.Intercept(ctx, nil, info, mockHandler)
 		require.NoError(t, err, "request %d should succeed", i+1)
 		require.Equal(t, "success", resp)
@@ -90,23 +92,26 @@ func TestRateLimitingMiddleware_GroupLimits(t *testing.T) {
 			"/test.Service/Method": {LimitPerMinute: 10},
 		},
 	}
-	apiConfig := model.APIKeyConfig{
-		Clients: map[string]*model.APIClient{
-			"test-key": {
-				ClientID: "test-caller",
-				Enabled:  true,
-				Groups:   []string{"verifiers"},
-			},
+
+	client := &mockClientConfig{
+		clientID: "test-caller",
+		groups:   []string{"verifiers"},
+		enabled:  true,
+	}
+	clientProvider := &mockClientProvider{
+		clientsByAPIKey: map[string]*mockClientEntry{},
+		clientsByID: map[string]auth.ClientConfig{
+			"test-caller": client,
 		},
 	}
 
-	middleware := NewRateLimitingMiddleware(store, config, apiConfig, logger.TestSugared(t))
+	middleware := NewRateLimitingMiddleware(store, config, clientProvider, logger.TestSugared(t))
 	identity := auth.CreateCallerIdentity("test-caller", false)
 	ctx := auth.ToContext(context.Background(), identity)
 	info := mockServerInfo("/test.Service/Method")
 
 	// First 3 requests should succeed (group limit)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		resp, err := middleware.Intercept(ctx, nil, info, mockHandler)
 		require.NoError(t, err, "request %d should succeed", i+1)
 		require.Equal(t, "success", resp)
@@ -139,23 +144,26 @@ func TestRateLimitingMiddleware_MostRestrictiveGroup(t *testing.T) {
 			"/test.Service/Method": {LimitPerMinute: 10},
 		},
 	}
-	apiConfig := model.APIKeyConfig{
-		Clients: map[string]*model.APIClient{
-			"test-key": {
-				ClientID: "test-caller",
-				Enabled:  true,
-				Groups:   []string{"group1", "group2"}, // Multiple groups
-			},
+
+	client := &mockClientConfig{
+		clientID: "test-caller",
+		groups:   []string{"group1", "group2"}, // Multiple groups
+		enabled:  true,
+	}
+	clientProvider := &mockClientProvider{
+		clientsByAPIKey: map[string]*mockClientEntry{},
+		clientsByID: map[string]auth.ClientConfig{
+			"test-caller": client,
 		},
 	}
 
-	middleware := NewRateLimitingMiddleware(store, config, apiConfig, logger.TestSugared(t))
+	middleware := NewRateLimitingMiddleware(store, config, clientProvider, logger.TestSugared(t))
 	identity := auth.CreateCallerIdentity("test-caller", false)
 	ctx := auth.ToContext(context.Background(), identity)
 	info := mockServerInfo("/test.Service/Method")
 
 	// First 2 requests should succeed (most restrictive group limit)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		resp, err := middleware.Intercept(ctx, nil, info, mockHandler)
 		require.NoError(t, err, "request %d should succeed", i+1)
 		require.Equal(t, "success", resp)
@@ -190,17 +198,20 @@ func TestRateLimitingMiddleware_CallerSpecificOverridesGroup(t *testing.T) {
 			"/test.Service/Method": {LimitPerMinute: 10},
 		},
 	}
-	apiConfig := model.APIKeyConfig{
-		Clients: map[string]*model.APIClient{
-			"test-key": {
-				ClientID: "test-caller",
-				Enabled:  true,
-				Groups:   []string{"verifiers"},
-			},
+
+	client := &mockClientConfig{
+		clientID: "test-caller",
+		groups:   []string{"verifiers"},
+		enabled:  true,
+	}
+	clientProvider := &mockClientProvider{
+		clientsByAPIKey: map[string]*mockClientEntry{},
+		clientsByID: map[string]auth.ClientConfig{
+			"test-caller": client,
 		},
 	}
 
-	middleware := NewRateLimitingMiddleware(store, config, apiConfig, logger.TestSugared(t))
+	middleware := NewRateLimitingMiddleware(store, config, clientProvider, logger.TestSugared(t))
 	identity := auth.CreateCallerIdentity("test-caller", false)
 	ctx := auth.ToContext(context.Background(), identity)
 	info := mockServerInfo("/test.Service/Method")

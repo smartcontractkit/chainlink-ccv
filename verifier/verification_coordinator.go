@@ -10,7 +10,6 @@ import (
 	cursecheckerimpl "github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
@@ -31,7 +30,6 @@ type Coordinator struct {
 	taskVerifierProcessor *TaskVerifierProcessor
 	// 3rd step processor: storage writer
 	storageWriterProcessor *StorageWriterProcessor
-	storageBatcher         *batcher.Batcher[protocol.VerifierNodeResult]
 }
 
 func NewCoordinator(
@@ -45,7 +43,18 @@ func NewCoordinator(
 	monitoring Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 ) (*Coordinator, error) {
-	return NewCoordinatorWithDetector(ctx, lggr, verifier, sourceReaders, storage, config, messageTracker, monitoring, chainStatusManager, nil)
+	return NewCoordinatorWithDetector(
+		ctx,
+		lggr,
+		verifier,
+		sourceReaders,
+		storage,
+		config,
+		messageTracker,
+		monitoring,
+		chainStatusManager,
+		nil,
+	)
 }
 
 func NewCoordinatorWithDetector(
@@ -60,7 +69,10 @@ func NewCoordinatorWithDetector(
 	chainStatusManager protocol.ChainStatusManager,
 	detector common.CurseCheckerService,
 ) (*Coordinator, error) {
-	enabledSourceReaders := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, chainStatusManager)
+	enabledSourceReaders, err := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, chainStatusManager)
+	if err != nil {
+		return nil, fmt.Errorf("failed to filter enabled source readers: %w", err)
+	}
 	if len(enabledSourceReaders) == 0 {
 		return nil, errors.New("no enabled/initialized chain sources, nothing to coordinate")
 	}
@@ -71,7 +83,7 @@ func NewCoordinatorWithDetector(
 	}
 
 	sourceReaderServices := createSourceReaders(
-		lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders,
+		ctx, lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders,
 	)
 
 	storageWriterProcessor, storageBatcher, err := NewStorageBatcherProcessor(
@@ -93,7 +105,6 @@ func NewCoordinatorWithDetector(
 		sourceReadersServices:  sourceReaderServices,
 		curseDetector:          curseDetector,
 		storageWriterProcessor: storageWriterProcessor,
-		storageBatcher:         storageBatcher,
 		taskVerifierProcessor:  taskVerifierProcessor,
 	}, nil
 }
@@ -113,7 +124,19 @@ func (vc *Coordinator) Start(_ context.Context) error {
 			}
 		}
 
-		// Start source readers - 1st step processor
+		// Start consumers before producers to ensure channel sends don't block at startup.
+
+		// Start storage writer processor (consumes from taskVerifierProcessor)
+		if err := vc.storageWriterProcessor.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start storage writer processor: %w", err)
+		}
+
+		// Start task verifier processor (consumes from SRS, produces to storage writer)
+		if err := vc.taskVerifierProcessor.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start task verifier processor: %w", err)
+		}
+
+		// Start source readers (producers) - now consumers are ready to drain
 		for _, srs := range vc.sourceReadersServices {
 			if err := srs.Start(ctx); err != nil {
 				vc.lggr.Errorw("Failed to start SourceReaderService",
@@ -123,22 +146,12 @@ func (vc *Coordinator) Start(_ context.Context) error {
 			}
 		}
 
-		// Start task verifier processor - 2nd step processor
-		if err := vc.taskVerifierProcessor.Start(ctx); err != nil {
-			return fmt.Errorf("failed to start task verifier processor: %w", err)
-		}
-
-		// Start storage writer processor - 3rd step processor
-		if err := vc.storageWriterProcessor.Start(ctx); err != nil {
-			return fmt.Errorf("failed to start storage writer processor: %w", err)
-		}
-
 		vc.lggr.Infow("Coordinator started successfully")
 		return nil
 	})
 }
 
-func createSourceReaders(lggr logger.Logger, config CoordinatorConfig, chainStatusManager protocol.ChainStatusManager, curseDetector common.CurseCheckerService, monitoring Monitoring, enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader) map[protocol.ChainSelector]*SourceReaderService {
+func createSourceReaders(ctx context.Context, lggr logger.Logger, config CoordinatorConfig, chainStatusManager protocol.ChainStatusManager, curseDetector common.CurseCheckerService, monitoring Monitoring, enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader) map[protocol.ChainSelector]*SourceReaderService {
 	sourceReaderServices := make(map[protocol.ChainSelector]*SourceReaderService)
 	for chainSelector := range enabledSourceReaders {
 		sourceReader := enabledSourceReaders[chainSelector]
@@ -152,6 +165,7 @@ func createSourceReaders(lggr logger.Logger, config CoordinatorConfig, chainStat
 		lggr.Infow("PollInterval: ", "chainSelector", chainSelector, "interval", sourceCfg.PollInterval)
 		readerLogger := logger.With(lggr, "component", "SourceReader", "chainID", chainSelector)
 		srs, err := NewSourceReaderService(
+			ctx,
 			sourceReader,
 			chainSelector,
 			chainStatusManager,
@@ -178,7 +192,7 @@ func filterOnlyEnabledSourceReaders(
 	config CoordinatorConfig,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	chainStatusManager protocol.ChainStatusManager,
-) map[protocol.ChainSelector]chainaccess.SourceReader {
+) (map[protocol.ChainSelector]chainaccess.SourceReader, error) {
 	allSelectors := make([]protocol.ChainSelector, 0, len(sourceReaders))
 	for selector := range sourceReaders {
 		allSelectors = append(allSelectors, selector)
@@ -186,8 +200,7 @@ func filterOnlyEnabledSourceReaders(
 
 	statusMap, err := chainStatusManager.ReadChainStatuses(ctx, allSelectors)
 	if err != nil {
-		statusMap = make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
-		lggr.Errorw("Failed to read chain statuses, proceeding with all chains", "error", err)
+		return nil, fmt.Errorf("failed to read chain statuses from storage: %w", err)
 	}
 
 	enabledSourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
@@ -214,7 +227,7 @@ func filterOnlyEnabledSourceReaders(
 		}
 		enabledSourceReaders[chainSelector] = sourceReader
 	}
-	return enabledSourceReaders
+	return enabledSourceReaders, nil
 }
 
 // Close stops the verification coordinator processing.

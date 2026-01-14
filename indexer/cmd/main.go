@@ -5,11 +5,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/pressly/goose/v3"
 	"go.uber.org/zap/zapcore"
 
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
@@ -49,7 +52,8 @@ func main() {
 	// Use SugaredLogger for better API
 	lggr = logger.Sugared(lggr)
 
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	// Setup OTEL Monitoring (via beholder)
 	indexerMonitoring, err := monitoring.InitMonitoring(beholder.Config{
@@ -290,6 +294,11 @@ func runMigrations(lggr logger.Logger, dbURI, migrationsDir string) error {
 	db, err := sql.Open("postgres", dbURI)
 	if err != nil {
 		return err
+	}
+
+	err = ccvcommon.EnsureDBConnection(lggr, db)
+	if err != nil {
+		return fmt.Errorf("could not connect to database: %w", err)
 	}
 
 	defer func() {

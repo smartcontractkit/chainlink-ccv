@@ -13,17 +13,11 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-type MessagesInput struct {
-	SourceChainSelectors []protocol.ChainSelector `query:"sourceChainSelectors"` // Excluded from form due to gin parsing
-	DestChainSelectors   []protocol.ChainSelector `query:"destChainSelectors"`   // Excluded from form due to gin parsing
-	Start                int64                    `form:"start"                 query:"start"`
-	End                  int64                    `form:"end"                   query:"end"`
-	Limit                uint64                   `form:"limit"                 query:"limit"`
-	Offset               uint64                   `form:"offset"                query:"offset"`
-}
+type MessagesInput = VerifierResultsInput
+
 type MessagesResponse struct {
-	Success  bool                                  `json:"success"`
-	Messages map[string]common.MessageWithMetadata `json:"messages"`
+	Success  bool                                  `json:"success"  doc:"Indicates whether the request was successful."`
+	Messages map[string]common.MessageWithMetadata `json:"messages" doc:"A map of message IDs to their corresponding messages. Each key is a message ID, and the value is the message along with its metadata."`
 }
 type MessagesHandler struct {
 	storage    common.IndexerStorage
@@ -76,7 +70,19 @@ func (h *MessagesHandler) Handle(c *gin.Context) {
 	// Convert the messages to a map of messageID to message
 	messageMap := make(map[string]common.MessageWithMetadata)
 	for _, msg := range messages {
-		messageMap[msg.Message.MustMessageID().String()] = msg
+		// Use the safe MessageID accessor to avoid panics and handle encoding errors.
+		id, err := msg.Message.MessageID()
+		if err != nil {
+			// Log and skip messages that cannot be encoded into an ID
+			h.lggr.Warnw("skipping message with invalid ID", "err", err)
+			continue
+		}
+		if id.IsEmpty() {
+			// Skip messages with an empty ID
+			h.lggr.Warnw("skipping message with empty ID")
+			continue
+		}
+		messageMap[id.String()] = msg
 	}
 
 	h.lggr.Debugw("/v1/messages", "number of messages returned", len(messageMap))

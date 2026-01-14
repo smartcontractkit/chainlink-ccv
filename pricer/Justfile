@@ -1,0 +1,35 @@
+set fallback
+
+import '../tools/lib/utils.justfile'
+
+# Default: show available recipes
+default:
+    just --list
+
+build:
+    docker build -f Dockerfile -t pricer:latest ..
+
+build-dev:
+    docker build -f Dockerfile.dev -t pricer:dev ..
+
+build-rc:
+    docker build -f Dockerfile -t pricer:rc ..
+
+clean-dev:
+    docker rmi pricer:dev
+
+publish-rc registry version:
+    docker tag pricer:rc {{registry}}/chainlink-ccv-pricer:{{version}}-rc
+    docker push {{registry}}/chainlink-ccv-pricer:{{version}}-rc
+
+# Run pricer locally. Requires KEYSTORE_DATA (base64) and KEYSTORE_PASSWORD env vars.
+# Example: KEYSTORE_DATA=$(cat keystore.json | base64) KEYSTORE_PASSWORD=pass just run
+run config="config.example.toml": build
+    docker run --rm \
+        -e KEYSTORE_DATA \
+        -e KEYSTORE_PASSWORD \
+        -v {{justfile_directory()}}/{{config}}:/config.toml \
+        pricer:latest run --config /config.toml
+
+clean:
+    docker rmi pricer:latest

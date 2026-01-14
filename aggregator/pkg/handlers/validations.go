@@ -40,9 +40,18 @@ func validateWriteRequest(req *committeepb.WriteCommitteeVerifierNodeResultReque
 	if err != nil {
 		return fmt.Errorf("failed to map proto message: %w", err)
 	}
+
+	if message.SourceChainSelector == message.DestChainSelector {
+		return fmt.Errorf("source_chain_selector and dest_chain_selector cannot be equal")
+	}
+
 	_, err = message.MessageID()
 	if err != nil {
 		return fmt.Errorf("failed to compute message ID: %w", err)
+	}
+
+	if len(verificationRecord.CcvAddresses) == 0 {
+		return fmt.Errorf("ccv_addresses cannot be empty")
 	}
 
 	// Validate the hash from the verifier matches the computed hash

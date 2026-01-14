@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -35,6 +36,9 @@ type TaskResult struct {
 }
 
 func NewTask(lggr logger.Logger, message protocol.VerifierResult, registry *registry.VerifierRegistry, storage common.IndexerStorage, verificationVisabilityWindow time.Duration) (*Task, error) {
+	if lggr == nil {
+		return nil, fmt.Errorf("logger is required")
+	}
 	return &Task{
 		logger:    logger.Named(logger.With(lggr, "messageID", message.MessageID), "Task"),
 		messageID: message.MessageID,
@@ -118,7 +122,8 @@ func (t *Task) loadVerifierReaders(verifierAddresses []string) (readers []*reade
 		}
 
 		readers = append(readers, reader)
-		loadedReaders = append(loadedReaders, unknownAddress.String())
+		// normalize casing to lower-case hex strings to match getExistingVerifiers/getVerifiers
+		loadedReaders = append(loadedReaders, strings.ToLower(unknownAddress.String()))
 	}
 	return readers, loadedReaders, missingReaders
 }

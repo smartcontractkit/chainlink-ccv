@@ -17,6 +17,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
@@ -84,11 +85,19 @@ func main() {
 		lggr.Errorw("VERIFIER_AGGREGATOR_API_KEY environment variable is required")
 		os.Exit(1)
 	}
+	if err := hmac.ValidateAPIKey(apiKey); err != nil {
+		lggr.Errorw("Invalid VERIFIER_AGGREGATOR_API_KEY", "error", err)
+		os.Exit(1)
+	}
 	lggr.Infow("Loaded VERIFIER_AGGREGATOR_API_KEY from environment")
 
 	secretKey := os.Getenv("VERIFIER_AGGREGATOR_SECRET_KEY")
 	if secretKey == "" {
 		lggr.Errorw("VERIFIER_AGGREGATOR_SECRET_KEY environment variable is required")
+		os.Exit(1)
+	}
+	if err := hmac.ValidateSecret(secretKey); err != nil {
+		lggr.Errorw("Invalid VERIFIER_AGGREGATOR_SECRET_KEY", "error", err)
 		os.Exit(1)
 	}
 	lggr.Infow("Loaded VERIFIER_AGGREGATOR_SECRET_KEY from environment")
@@ -193,7 +202,7 @@ func main() {
 	}
 	lggr.Infow("Using signer address", "address", publicKey)
 
-	verifierMonitoring := cmd.SetupOTEL(lggr, config.Monitoring)
+	verifierMonitoring := cmd.SetupMonitoring(lggr, config.Monitoring)
 
 	// Create commit verifier
 	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, publicKey, signer, lggr, verifierMonitoring)
@@ -333,7 +342,7 @@ func createChainStatusManager(lggr logger.Logger) (protocol.ChainStatusManager, 
 	db.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
 	db.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Second)
 
-	if err := db.Ping(); err != nil {
+	if err := ccvcommon.EnsureDBConnection(lggr, db); err != nil {
 		_ = db.Close()
 		return nil, nil, fmt.Errorf("failed to ping postgres database: %w", err)
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/gencfg"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
@@ -239,10 +240,14 @@ var deployCommitVerifierCmd = &cobra.Command{
 			return fmt.Errorf("creating CLDF operations environment: %w", err)
 		}
 
-		allAddrs, err := evm.DeployAndConfigureNewCommitCCV(ctx, e, in.CLDF.Addresses, selectors, committee_verifier.SetSignatureConfigArgs{
-			Threshold: uint8(threshold),
-			Signers:   addresses,
-		})
+		signatureConfigBySelector := make(map[uint64]committee_verifier.SignatureConfig)
+		for _, selector := range selectors {
+			signatureConfigBySelector[selector] = committee_verifier.SignatureConfig{
+				Threshold: uint8(threshold),
+				Signers:   addresses,
+			}
+		}
+		allAddrs, err := evm.DeployAndConfigureNewCommitCCV(ctx, e, in.CLDF.Addresses, signatureConfigBySelector)
 		if err != nil {
 			return fmt.Errorf("deploying commit verifier contracts: %w", err)
 		}
@@ -274,7 +279,7 @@ var deployReceiverCmd = &cobra.Command{
 		var required, optional []common.Address
 		var optionalThreshold uint64
 		if len(components) >= 2 {
-			for _, addr := range strings.Split(components[1], ";") {
+			for addr := range strings.SplitSeq(components[1], ";") {
 				if !common.IsHexAddress(addr) {
 					return fmt.Errorf("invalid required verifier address: %s", addr)
 				}
@@ -288,7 +293,7 @@ var deployReceiverCmd = &cobra.Command{
 			}
 		}
 		if len(components) >= 4 {
-			for _, addr := range strings.Split(components[3], ";") {
+			for addr := range strings.SplitSeq(components[3], ";") {
 				if !common.IsHexAddress(addr) {
 					return fmt.Errorf("invalid optional verifier address: %s", addr)
 				}
@@ -380,6 +385,8 @@ var testCmd = &cobra.Command{
 			testPattern = "TestE2ELoad/chaos"
 		case "indexer-load":
 			testPattern = "TestIndexerLoad"
+		case "multi_chain_load":
+			testPattern = "TestE2ELoad/multi_chain_load"
 		default:
 			return fmt.Errorf("test suite %s is unknown, choose between smoke or load", args[0])
 		}
@@ -399,7 +406,7 @@ var testCmd = &cobra.Command{
 			}
 		}
 
-		testCmd := exec.Command("go", "test", "-v", "-run", testPattern)
+		testCmd := exec.Command("go", "test", "-v", "-run", testPattern, "-timeout=0")
 		testCmd.Stdout = os.Stdout
 		testCmd.Stderr = os.Stderr
 		testCmd.Stdin = os.Stdin
@@ -486,6 +493,30 @@ var generateConfigsCmd = &cobra.Command{
 		_, err = gencfg.GenerateConfigs(cldDomain, verifierPubKeys, numExecutors, createPR)
 		if err != nil {
 			return fmt.Errorf("failed to generate configs: %w", err)
+		}
+		return nil
+	},
+}
+
+var generateHMACSecretCmd = &cobra.Command{
+	Use:   "generate-hmac-secret",
+	Short: "Generate cryptographically secure HMAC credentials (API key and secret) for aggregator authentication",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		count, err := cmd.Flags().GetInt("count")
+		if err != nil {
+			return err
+		}
+
+		for i := range count {
+			creds, err := hmacutil.GenerateCredentials()
+			if err != nil {
+				return fmt.Errorf("failed to generate HMAC credentials: %w", err)
+			}
+			fmt.Printf("api_key = %q\n", creds.APIKey)
+			fmt.Printf("secret  = %q\n", creds.Secret)
+			if i < count-1 {
+				fmt.Println()
+			}
 		}
 		return nil
 	},
@@ -702,6 +733,10 @@ func init() {
 	_ = generateConfigsCmd.MarkFlagRequired("cld-domain")
 	_ = generateConfigsCmd.MarkFlagRequired("verifier-pubkeys")
 	_ = generateConfigsCmd.MarkFlagRequired("num-executors")
+
+	// HMAC secret generation
+	rootCmd.AddCommand(generateHMACSecretCmd)
+	generateHMACSecretCmd.Flags().Int("count", 1, "Number of HMAC credential pairs to generate")
 
 	// dump logs
 	rootCmd.AddCommand(dumpLogsCmd)

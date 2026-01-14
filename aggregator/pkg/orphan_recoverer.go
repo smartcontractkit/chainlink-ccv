@@ -46,7 +46,7 @@ func (o *OrphanRecoverer) Start(ctx context.Context) error {
 	orphanRecoveryConfig := o.config.OrphanRecovery
 
 	o.logger.Infow("Starting orphan recovery process",
-		"interval", orphanRecoveryConfig.IntervalSeconds)
+		"interval", orphanRecoveryConfig.Interval)
 
 	for {
 		now := time.Now()
@@ -76,8 +76,8 @@ func (o *OrphanRecoverer) Start(ctx context.Context) error {
 		o.metrics(ctx).RecordOrphanRecoveryDuration(ctx, duration)
 		o.logger.Infow("Orphan recovery scan finished",
 			"duration", duration)
-		if duration < time.Duration(orphanRecoveryConfig.IntervalSeconds)*time.Second {
-			sleepDuration := time.Duration(orphanRecoveryConfig.IntervalSeconds)*time.Second - duration
+		if duration < orphanRecoveryConfig.Interval {
+			sleepDuration := orphanRecoveryConfig.Interval - duration
 			o.logger.Infow("Sleeping until next orphan recovery scan",
 				"sleepDuration", sleepDuration)
 			select {
@@ -91,17 +91,16 @@ func (o *OrphanRecoverer) Start(ctx context.Context) error {
 }
 
 func (o *OrphanRecoverer) calculateCutoffFromNow() time.Time {
-	return time.Now().Add(-time.Duration(o.config.OrphanRecovery.MaxAgeHours) * time.Hour)
+	return time.Now().Add(-o.config.OrphanRecovery.MaxAge)
 }
 
 // RecoverOrphans scans for orphaned verification records and attempts to re-aggregate them.
 // This method is designed to be called periodically to recover from cases where verifications
 // were submitted but aggregation failed due to transient errors.
 func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
-	if o.config.OrphanRecovery.ScanTimeoutSeconds > 0 {
-		scanTimeout := time.Duration(o.config.OrphanRecovery.ScanTimeoutSeconds) * time.Second
+	if o.config.OrphanRecovery.ScanTimeout > 0 {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, scanTimeout)
+		ctx, cancel = context.WithTimeout(ctx, o.config.OrphanRecovery.ScanTimeout)
 		defer cancel()
 	}
 
@@ -172,7 +171,7 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 
 // processOrphanedRecord attempts to re-aggregate an orphaned verification record.
 func (o *OrphanRecoverer) processOrphanedRecord(record model.OrphanedKey) error {
-	err := o.aggregator.CheckAggregation(record.MessageID, record.AggregationKey)
+	err := o.aggregator.CheckAggregation(record.MessageID, record.AggregationKey, model.OrphanRecoveryChannelKey, o.config.OrphanRecovery.CheckAggregationTimeout)
 	if err != nil {
 		return fmt.Errorf("failed to trigger aggregation check: %w", err)
 	}

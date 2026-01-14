@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 // Please see lbtc/attestation.go to see how the CCV data is created and how TokenTransfer.ExtraData is used
@@ -114,8 +115,14 @@ func Test_LBTCMessages_Success(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = v.Close() })
 
-	msg1 := createTestMessageSentEventWithToken(t, 100, chain1337, chain2337, 0, 300_000, 900, &protocol.TokenTransfer{ExtraData: extraData1})
-	msg2 := createTestMessageSentEventWithToken(t, 200, chain1337, chain2337, 0, 300_000, 901, &protocol.TokenTransfer{ExtraData: extraData2})
+	msg1 := createTestMessageSentEventWithToken(t, 100, chain1337, chain2337, 0, 300_000, 900, &protocol.TokenTransfer{
+		ExtraData:       extraData1,
+		ExtraDataLength: uint16(len(extraData1)),
+	})
+	msg2 := createTestMessageSentEventWithToken(t, 200, chain1337, chain2337, 0, 300_000, 901, &protocol.TokenTransfer{
+		ExtraData:       extraData2,
+		ExtraDataLength: uint16(len(extraData2)),
+	})
 	testEvents := []protocol.MessageSentEvent{msg1, msg2}
 
 	var messagesSent atomic.Int32
@@ -132,7 +139,7 @@ func Test_LBTCMessages_Success(t *testing.T) {
 			return false
 		}
 		return len(results) == 2
-	}, waitTimeout(t), 500*time.Millisecond, "waiting for messages to land in ccv storage")
+	}, tests.WaitTimeout(t), 500*time.Millisecond, "waiting for messages to land in ccv storage")
 
 	assertResultMatchesMessage(t, results[msg1.MessageID], msg1, ccvData1, testCCVAddr, destVerifier)
 	assertResultMatchesMessage(t, results[msg2.MessageID], msg2, ccvData2, testCCVAddr, destVerifier)
@@ -210,8 +217,14 @@ func Test_LBTCMessages_RetryingAttestation(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = v.Close() })
 
-	msg1 := createTestMessageSentEventWithToken(t, 100, chain1337, chain2337, 0, 300_000, 900, &protocol.TokenTransfer{ExtraData: extraData1})
-	msg2 := createTestMessageSentEventWithToken(t, 200, chain1337, chain2337, 0, 300_000, 901, &protocol.TokenTransfer{ExtraData: extraData2})
+	msg1 := createTestMessageSentEventWithToken(t, 100, chain1337, chain2337, 0, 300_000, 900, &protocol.TokenTransfer{
+		ExtraData:       extraData1,
+		ExtraDataLength: uint16(len(extraData1)),
+	})
+	msg2 := createTestMessageSentEventWithToken(t, 200, chain1337, chain2337, 0, 300_000, 901, &protocol.TokenTransfer{
+		ExtraData:       extraData2,
+		ExtraDataLength: uint16(len(extraData2)),
+	})
 	testEvents := []protocol.MessageSentEvent{msg1, msg2}
 
 	var messagesSent atomic.Int32
@@ -228,7 +241,7 @@ func Test_LBTCMessages_RetryingAttestation(t *testing.T) {
 			return false
 		}
 		return len(results) == 2
-	}, waitTimeout(t), 200*time.Millisecond, "waiting for messages to land in ccv storage")
+	}, tests.WaitTimeout(t), 200*time.Millisecond, "waiting for messages to land in ccv storage")
 
 	assertResultMatchesMessage(t, results[msg1.MessageID], msg1, ccvData1, testCCVAddr, destVerifier)
 	assertResultMatchesMessage(t, results[msg2.MessageID], msg2, ccvData2, testCCVAddr, destVerifier)

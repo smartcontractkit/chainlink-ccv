@@ -49,7 +49,7 @@ func (ct *TXMEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.C
 		contractCcvs = append(contractCcvs, common.HexToAddress(ccv.String()))
 	}
 
-	payload, err := offrampABI.Pack("execute", encodedMsg, contractCcvs, report.CCVData)
+	payload, err := offrampABI.Pack("execute", encodedMsg, contractCcvs, report.CCVData, DefaultGasLimitOverride)
 	if err != nil {
 		ct.lggr.Errorw("failed to abi encode execute payload", "error", err)
 		return err

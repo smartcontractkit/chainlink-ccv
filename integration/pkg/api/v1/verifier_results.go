@@ -18,9 +18,9 @@ import (
 // Wrapping is required to implement marshalJSON/unmarshalJSON methods without modifying the generated code.
 //
 // Additionally, types here are convertible to protocol ones (and back)
-// * VerifierResultsResponse -- ToVerifierResults() --> map[protocol.Bytes32]protocol.VerifierResult
-// * VerifierResult -- ToVerifierResult() --> protocol.VerifierResult
-// * VerifierResult <-- NewVerifierResult() -- protocol.VerifierResult
+// * VerifierResultsResponse -- ToVerifierResults() --> map[protocol.Bytes32]protocol.VerifierResults
+// * VerifierResults -- ToVerifierResult() --> protocol.VerifierResults
+// * VerifierResults <-- NewVerifierResult() -- protocol.VerifierResults
 // * VerifierResultMessage -- ToMessage() -> protocol.VerifierResultMessage
 // * VerifierResultMessage <-- NewVerifierResultMessage() -- protocol.VerifierResultMessage
 
@@ -161,13 +161,16 @@ func (r *VerifierResultsResponse) ToVerifierResults() (map[protocol.Bytes32]prot
 	return mappedResults, nil
 }
 
-func NewVerifierResult(r protocol.VerifierResult) VerifierResult {
+func NewVerifierResult(r protocol.VerifierResult) (VerifierResult, error) {
 	addresses := make([][]byte, len(r.MessageCCVAddresses))
 	for i, addr := range r.MessageCCVAddresses {
 		addresses[i] = addr.Bytes()
 	}
 
-	message := NewVerifierResultMessage(r.Message)
+	message, err := NewVerifierResultMessage(r.Message)
+	if err != nil {
+		return VerifierResult{}, fmt.Errorf("failed to create verifier result message: %w", err)
+	}
 	return VerifierResult{
 		&v1.VerifierResult{
 			Message:                message.Message,
@@ -180,12 +183,12 @@ func NewVerifierResult(r protocol.VerifierResult) VerifierResult {
 				VerifierDestAddress:   r.VerifierDestAddress,
 			},
 		},
-	}
+	}, nil
 }
 
 func (r *VerifierResult) MarshalJSON() ([]byte, error) {
 	if r.VerifierResult == nil {
-		return nil, fmt.Errorf("VerifierResult is nil")
+		return nil, fmt.Errorf("VerifierResults is nil")
 	}
 
 	messageCcvAddresses := make([]protocol.UnknownAddress, len(r.MessageCcvAddresses))
@@ -236,7 +239,7 @@ func (r *VerifierResult) UnmarshalJSON(data []byte) error {
 
 func (r *VerifierResult) ToVerifierResult() (protocol.VerifierResult, error) {
 	if r.VerifierResult == nil {
-		return protocol.VerifierResult{}, fmt.Errorf("VerifierResult is nil")
+		return protocol.VerifierResult{}, fmt.Errorf("VerifierResults is nil")
 	}
 
 	message, err := (&VerifierResultMessage{Message: r.Message}).ToMessage()
@@ -303,10 +306,14 @@ func (r *VerifierResultsMetadata) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func NewVerifierResultMessage(message protocol.Message) VerifierResultMessage {
+func NewVerifierResultMessage(message protocol.Message) (VerifierResultMessage, error) {
 	var tokenTransferBytes []byte
 	if message.TokenTransfer != nil {
-		tokenTransferBytes = message.TokenTransfer.Encode()
+		var err error
+		tokenTransferBytes, err = message.TokenTransfer.Encode()
+		if err != nil {
+			return VerifierResultMessage{}, fmt.Errorf("failed to encode token transfer: %w", err)
+		}
 	}
 
 	return VerifierResultMessage{
@@ -334,7 +341,7 @@ func NewVerifierResultMessage(message protocol.Message) VerifierResultMessage {
 			DataLength:           uint32(message.DataLength),
 			TokenTransferLength:  uint32(message.TokenTransferLength),
 		},
-	}
+	}, nil
 }
 
 func (r *VerifierResultMessage) MarshalJSON() ([]byte, error) {
@@ -351,7 +358,10 @@ func (r *VerifierResultMessage) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	resultMessage := NewVerifierResultMessage(aux)
+	resultMessage, err := NewVerifierResultMessage(aux)
+	if err != nil {
+		return fmt.Errorf("failed to create verifier result message: %w", err)
+	}
 	r.Message = resultMessage.Message
 	return nil
 }

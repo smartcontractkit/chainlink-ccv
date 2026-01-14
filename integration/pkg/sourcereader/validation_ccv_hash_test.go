@@ -19,6 +19,8 @@ func TestValidateCCVAndExecutorHash(t *testing.T) {
 		require.NoError(t, err)
 		executorAddr, err := hex.DecodeString("2222222222222222222222222222222222222222")
 		require.NoError(t, err)
+		routerAddr, err := hex.DecodeString("4444444444444444444444444444444444444444")
+		require.NoError(t, err)
 
 		// Compute the expected hash
 		ccvAddresses := []protocol.UnknownAddress{
@@ -56,6 +58,13 @@ func TestValidateCCVAndExecutorHash(t *testing.T) {
 				Blob:              []byte{}, // Executor has empty blob
 				ExtraArgs:         []byte{},
 			},
+			{
+				Issuer:            protocol.UnknownAddress(routerAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte{}, // Router has empty blob
+				ExtraArgs:         []byte{},
+			},
 		}
 
 		// Should validate successfully
@@ -67,6 +76,8 @@ func TestValidateCCVAndExecutorHash(t *testing.T) {
 		ccvAddr, err := hex.DecodeString("1111111111111111111111111111111111111111")
 		require.NoError(t, err)
 		executorAddr, err := hex.DecodeString("2222222222222222222222222222222222222222")
+		require.NoError(t, err)
+		routerAddr, err := hex.DecodeString("4444444444444444444444444444444444444444")
 		require.NoError(t, err)
 
 		message := protocol.Message{
@@ -89,6 +100,13 @@ func TestValidateCCVAndExecutorHash(t *testing.T) {
 				Blob:              []byte{}, // Executor has empty blob
 				ExtraArgs:         []byte{},
 			},
+			{
+				Issuer:            protocol.UnknownAddress(routerAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte{}, // Router has empty blob
+				ExtraArgs:         []byte{},
+			},
 		}
 
 		// Should fail validation
@@ -101,6 +119,8 @@ func TestValidateCCVAndExecutorHash(t *testing.T) {
 		ccvAddr, err := hex.DecodeString("1111111111111111111111111111111111111111")
 		require.NoError(t, err)
 		executorAddr, err := hex.DecodeString("2222222222222222222222222222222222222222")
+		require.NoError(t, err)
+		routerAddr, err := hex.DecodeString("4444444444444444444444444444444444444444")
 		require.NoError(t, err)
 
 		// Compute the expected hash
@@ -129,6 +149,13 @@ func TestValidateCCVAndExecutorHash(t *testing.T) {
 				Blob:              []byte{}, // Executor has empty blob
 				ExtraArgs:         []byte{},
 			},
+			{
+				Issuer:            protocol.UnknownAddress(routerAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte{}, // Router has empty blob
+				ExtraArgs:         []byte{},
+			},
 		}
 
 		err = validateCCVAndExecutorHash(message, receiptBlobs)
@@ -153,6 +180,8 @@ func TestValidateMessage_WithCCVAndExecutorHash(t *testing.T) {
 	t.Run("zero hash skips validation", func(t *testing.T) {
 		verifierAddr, err := protocol.RandomAddress()
 		require.NoError(t, err)
+		routerAddr, err := hex.DecodeString("4444444444444444444444444444444444444444")
+		require.NoError(t, err)
 
 		message := protocol.Message{
 			Version:            protocol.MessageVersion,
@@ -167,6 +196,13 @@ func TestValidateMessage_WithCCVAndExecutorHash(t *testing.T) {
 				Blob:              []byte("blob"),
 				ExtraArgs:         []byte{},
 			},
+			{
+				Issuer:            protocol.UnknownAddress(routerAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte{}, // Router has empty blob
+				ExtraArgs:         []byte{},
+			},
 		}
 
 		// Zero hash causes validation error
@@ -179,6 +215,8 @@ func TestValidateMessage_WithCCVAndExecutorHash(t *testing.T) {
 		ccvAddr, err := hex.DecodeString("1111111111111111111111111111111111111111")
 		require.NoError(t, err)
 		executorAddr, err := hex.DecodeString("2222222222222222222222222222222222222222")
+		require.NoError(t, err)
+		routerAddr, err := hex.DecodeString("4444444444444444444444444444444444444444")
 		require.NoError(t, err)
 
 		// Compute correct hash
@@ -205,6 +243,13 @@ func TestValidateMessage_WithCCVAndExecutorHash(t *testing.T) {
 				DestGasLimit:      100000,
 				DestBytesOverhead: 25,
 				Blob:              []byte{}, // Executor has empty blob
+				ExtraArgs:         []byte{},
+			},
+			{
+				Issuer:            protocol.UnknownAddress(routerAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte{}, // Router has empty blob
 				ExtraArgs:         []byte{},
 			},
 		}

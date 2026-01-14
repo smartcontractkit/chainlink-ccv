@@ -4,14 +4,13 @@ import (
 	"context"
 
 	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	ethcommon "github.com/ethereum/go-ethereum/common"
-	grpcstatus "google.golang.org/grpc/status"
 
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
@@ -49,8 +48,8 @@ func (h *GetVerifierResultsForMessageHandler) Handle(ctx context.Context, req *v
 	// Call storage for efficient batch retrieval
 	results, err := h.storage.GetBatchAggregatedReportByMessageIDs(ctx, messageIDs)
 	if err != nil {
-		reqLogger.Errorf("Failed to retrieve batch CCV data: %v", err)
-		return nil, grpcstatus.Errorf(codes.Internal, "failed to retrieve batch data: %v", err)
+		reqLogger.Errorw("Failed to retrieve batch CCV data", "error", err)
+		return nil, grpcstatus.Error(codes.Internal, "failed to retrieve verification results")
 	}
 
 	// Prepare response with 1:1 correspondence between message IDs and errors
@@ -61,7 +60,7 @@ func (h *GetVerifierResultsForMessageHandler) Handle(ctx context.Context, req *v
 
 	// Process each message ID in order to maintain index correspondence
 	for i, messageID := range req.GetMessageIds() {
-		messageIDHex := ethcommon.Bytes2Hex(messageID)
+		messageIDHex := protocol.ByteSlice(messageID).String()
 
 		if report, found := results[messageIDHex]; found {
 			// Get quorum config and validate source verifier is in ccvAddresses
@@ -72,7 +71,7 @@ func (h *GetVerifierResultsForMessageHandler) Handle(ctx context.Context, req *v
 				continue
 			}
 
-			if !model.IsSourceVerifierInCCVAddresses(quorumConfig.GetSourceVerifierAddressBytes(), report.GetMessageCCVAddresses()) {
+			if !model.IsSourceVerifierInCCVAddresses(quorumConfig.GetSourceVerifierAddress(), report.GetMessageCCVAddresses()) {
 				reqLogger.Debugf("Source verifier address not in ccvAddresses for message ID %s", messageIDHex)
 				SetBatchError(response.Errors, i, codes.NotFound, "message ID not found")
 				continue
@@ -81,8 +80,8 @@ func (h *GetVerifierResultsForMessageHandler) Handle(ctx context.Context, req *v
 			// Map aggregated report to proto
 			ccvData, err := model.MapAggregatedReportToVerifierResultProto(report, h.committee)
 			if err != nil {
-				reqLogger.Errorf("Failed to map aggregated report to proto for message ID %s: %v", messageIDHex, err)
-				SetBatchError(response.Errors, i, codes.Internal, "failed to map aggregated report")
+				reqLogger.Errorw("Failed to map aggregated report to proto", "messageID", messageIDHex, "error", err)
+				SetBatchError(response.Errors, i, codes.Internal, "internal error")
 				continue
 			}
 

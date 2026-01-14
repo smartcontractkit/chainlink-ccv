@@ -20,7 +20,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
 	"github.com/smartcontractkit/chainlink-evm/pkg/keys"
@@ -35,7 +34,7 @@ var (
 	// this combines with indexerGarbageCollectionInterval to avoid memory leak in the streamer.
 	// We store messages for messageContextWindow, cleaning up old messages every indexerGarbageCollectionInterval.
 	// These values should be set based on the indexer's message retry duration.
-	messageContextWindow = 9 * time.Hour
+	messageContextWindow = 24 * time.Hour
 )
 
 // NewExecutorCoordinator initializes the executor coordinator object.
@@ -97,12 +96,13 @@ func NewExecutorCoordinator(
 
 		evmDestReader, err := destinationreader.NewEvmDestinationReader(
 			destinationreader.Params{
-				Lggr:             logger.With(lggr, "component", "DestinationReader"),
-				ChainSelector:    sel,
-				ChainClient:      chain.Client(),
-				OfframpAddress:   offRampAddresses[sel].String(), // TODO: use UnknownAddress instead of string?
-				RmnRemoteAddress: rmnAddresses[sel].String(),
-				CacheExpiry:      cfg.ReaderCacheExpiry,
+				Lggr:                      logger.With(lggr, "component", "DestinationReader"),
+				ChainSelector:             sel,
+				ChainClient:               chain.Client(),
+				OfframpAddress:            offRampAddresses[sel].String(), // TODO: use UnknownAddress instead of string?
+				RmnRemoteAddress:          rmnAddresses[sel].String(),
+				CacheExpiry:               cfg.ReaderCacheExpiry,
+				ExecutionVisabilityWindow: cfg.MaxRetryDuration,
 			})
 		if err != nil {
 			lggr.Errorw("Failed to create destination reader", "error", err, "chainSelector", sel)
@@ -119,17 +119,7 @@ func NewExecutorCoordinator(
 		CacheExpiry: cfg.ReaderCacheExpiry,
 	})
 
-	// TODO: monitoring config home
-	executorMonitoring, err := monitoring.InitMonitoring(beholder.Config{
-		InsecureConnection:       cfg.Monitoring.Beholder.InsecureConnection,
-		CACertFile:               cfg.Monitoring.Beholder.CACertFile,
-		OtelExporterHTTPEndpoint: cfg.Monitoring.Beholder.OtelExporterHTTPEndpoint,
-		OtelExporterGRPCEndpoint: cfg.Monitoring.Beholder.OtelExporterGRPCEndpoint,
-		LogStreamingEnabled:      cfg.Monitoring.Beholder.LogStreamingEnabled,
-		MetricReaderInterval:     time.Second * time.Duration(cfg.Monitoring.Beholder.MetricReaderInterval),
-		TraceSampleRatio:         cfg.Monitoring.Beholder.TraceSampleRatio,
-		TraceBatchTimeout:        time.Second * time.Duration(cfg.Monitoring.Beholder.TraceBatchTimeout),
-	})
+	executorMonitoring, err := monitoring.InitMonitoring()
 	if err != nil {
 		lggr.Errorw("Failed to initialize executor monitoring", "error", err)
 		return nil, fmt.Errorf("failed to initialize executor monitoring: %w", err)

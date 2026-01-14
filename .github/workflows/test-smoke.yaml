@@ -25,10 +25,16 @@ jobs:
         test:
           - name: TestE2ESmoke
             config: env.toml
+            timeout: 15m
           - name: TestE2EReorg
             config: env.toml,env-src-auto-mine.toml
+            timeout: 5m
           - name: TestChaos_AggregatorOutageRecovery
             config: env.toml
+            timeout: 5m
+          - name: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_AllExecutorsDown|TestChaos_IndexerDown)
+            config: env.toml
+            timeout: 5m
     steps:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
@@ -89,7 +95,7 @@ jobs:
         working-directory: build/devenv/tests/e2e
         run: |
           set -o pipefail
-          go test -v -timeout 15m -count=1 -run '${{ matrix.test.name }}'
+          go test -v -timeout ${{ matrix.test.timeout }} -count=1 -run '${{ matrix.test.name }}'
         continue-on-error: true
 
       - name: Dump logs if they're not already dumped
@@ -98,16 +104,24 @@ jobs:
         run: |
           if [ ! -d "logs" ] || [ -z "$(ls -A logs)" ]; then
             echo "Logs not found or empty. Dumping logs manually..."
-            ccv dl --dir-suffix ${{ matrix.test.name }}
+            ccv dl --dir-suffix "${{ matrix.test.name }}"
           else
             echo "Logs already exist. Skipping manual dump."
           fi
+
+      - name: Sanitize test name for log artifact name
+        if: always()
+        id: sanitize_name
+        run: |
+          # The vertical bar is invalid in the uploaded artifact name, so we replace it with an underscore.
+          SANITIZED_NAME=$(echo "${{ matrix.test.name }}" | sed 's/[()|]/_/g')
+          echo "name=$SANITIZED_NAME" >> $GITHUB_OUTPUT
 
       - name: Upload Logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: container-logs-standalone-${{ matrix.test.name }}
+          name: container-logs-standalone-${{ steps.sanitize_name.outputs.name }}
           path: build/devenv/tests/e2e/logs
           retention-days: 1
 

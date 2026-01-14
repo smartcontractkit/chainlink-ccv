@@ -348,7 +348,7 @@ func TestTXMEVMContractTransmitter_ABIEncoding(t *testing.T) {
 				}
 				expectedCCVData := tc.report.CCVData
 
-				expectedPayload, err := offrampABI.Pack("execute", expectedMsg, expectedCCVs, expectedCCVData)
+				expectedPayload, err := offrampABI.Pack("execute", expectedMsg, expectedCCVs, expectedCCVData, DefaultGasLimitOverride)
 				require.NoError(t, err)
 
 				// Compare the payloads for byte-level equality

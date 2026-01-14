@@ -12,6 +12,12 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
+// StorageWriterProcessor handles batching and writing CCVNodeData to the offchain storage.
+// It represents the final stage (3rd step) in the verifier processing pipeline.
+//
+// We assume here that all failures are transient and can be retried. (e.g. network issues).
+// Therefore, on failure to write a batch, we schedule a retry after a configured retryDelay.
+// Retry logic is handled by the batcher component and for now we follow linear backoff.
 type StorageWriterProcessor struct {
 	services.StateMachine
 	wg sync.WaitGroup
@@ -20,10 +26,9 @@ type StorageWriterProcessor struct {
 	verifierID     string
 	messageTracker MessageLatencyTracker
 
-	retryDelay       time.Duration
-	storage          protocol.CCVNodeDataWriter
-	batcher          *batcher.Batcher[protocol.VerifierNodeResult]
-	batchedCCVDataCh chan batcher.BatchResult[protocol.VerifierNodeResult]
+	retryDelay time.Duration
+	storage    protocol.CCVNodeDataWriter
+	batcher    *batcher.Batcher[protocol.VerifierNodeResult]
 }
 
 func NewStorageBatcherProcessor(
@@ -35,22 +40,20 @@ func NewStorageBatcherProcessor(
 	config CoordinatorConfig,
 ) (*StorageWriterProcessor, *batcher.Batcher[protocol.VerifierNodeResult], error) {
 	storageBatchSize, storageBatchTimeout, retryDelay := configWithDefaults(lggr, config)
-	batchedCCVDataCh := make(chan batcher.BatchResult[protocol.VerifierNodeResult])
-	storageBatcher := batcher.NewBatcher(
+	storageBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](
 		ctx,
 		storageBatchSize,
 		storageBatchTimeout,
-		batchedCCVDataCh,
+		0,
 	)
 
 	processor := &StorageWriterProcessor{
-		lggr:             lggr,
-		verifierID:       verifierID,
-		messageTracker:   messageTracker,
-		storage:          storage,
-		batcher:          storageBatcher,
-		batchedCCVDataCh: batchedCCVDataCh,
-		retryDelay:       retryDelay,
+		lggr:           lggr,
+		verifierID:     verifierID,
+		messageTracker: messageTracker,
+		storage:        storage,
+		batcher:        storageBatcher,
+		retryDelay:     retryDelay,
 	}
 	return processor, storageBatcher, nil
 }
@@ -98,13 +101,14 @@ func (s *StorageWriterProcessor) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case batch, ok := <-s.batchedCCVDataCh:
+		case batch, ok := <-s.batcher.OutChannel():
 			if !ok {
 				s.lggr.Infow("Storage batcher channel closed")
 				return
 			}
 
 			// Handle batch-level errors from batcher (should be rare)
+			// TODO In this case we don't retry the batch, should we?
 			if batch.Error != nil {
 				s.lggr.Errorw("Batch-level error from CCVData batcher",
 					"error", batch.Error,

@@ -21,25 +21,25 @@ import (
 var _ protocol.HealthReporter = (*RateLimitingMiddleware)(nil)
 
 type RateLimitingMiddleware struct {
-	store     limiter.Store
-	config    model.RateLimitingConfig
-	apiConfig model.APIKeyConfig
-	enabled   bool
-	lggr      logger.SugaredLogger
+	store          limiter.Store
+	config         model.RateLimitingConfig
+	clientProvider auth.ClientProvider
+	enabled        bool
+	lggr           logger.SugaredLogger
 }
 
 // NewRateLimitingMiddleware creates a new rate limiting middleware with the given store and configuration.
-func NewRateLimitingMiddleware(store limiter.Store, config model.RateLimitingConfig, apiConfig model.APIKeyConfig, lggr logger.SugaredLogger) *RateLimitingMiddleware {
+func NewRateLimitingMiddleware(store limiter.Store, config model.RateLimitingConfig, clientProvider auth.ClientProvider, lggr logger.SugaredLogger) *RateLimitingMiddleware {
 	if store == nil {
 		return &RateLimitingMiddleware{enabled: false}
 	}
 
 	return &RateLimitingMiddleware{
-		store:     store,
-		config:    config,
-		apiConfig: apiConfig,
-		enabled:   true,
-		lggr:      lggr,
+		store:          store,
+		config:         config,
+		clientProvider: clientProvider,
+		enabled:        true,
+		lggr:           lggr,
 	}
 }
 
@@ -49,13 +49,7 @@ func (m *RateLimitingMiddleware) buildKey(callerID, method string) string {
 
 func (m *RateLimitingMiddleware) getLimitConfig(callerID, method string) (model.RateLimitConfig, bool) {
 	// Get the API client configuration for the caller
-	var apiClient *model.APIClient
-	for _, client := range m.apiConfig.Clients {
-		if client.ClientID == callerID {
-			apiClient = client
-			break
-		}
-	}
+	apiClient, _ := m.clientProvider.GetClientByClientID(callerID)
 
 	// Use the new GetEffectiveLimit method to resolve the rate limit
 	effectiveLimit := m.config.GetEffectiveLimit(callerID, method, apiClient)
@@ -91,6 +85,10 @@ func (m *RateLimitingMiddleware) Intercept(ctx context.Context, req any, info *g
 
 	limiterCtx, err := limiter.New(m.store, rate).Get(ctx, key)
 	if err != nil {
+		m.lggr.Errorw("Rate limiter store error - allowing request (fail-open). Health check will fail.",
+			"error", err,
+			"callerID", identity.CallerID,
+			"method", info.FullMethod)
 		return handler(ctx, req)
 	}
 
@@ -119,7 +117,7 @@ func (m *RateLimitingMiddleware) Intercept(ctx context.Context, req any, info *g
 }
 
 // NewRateLimitingMiddlewareFromConfig creates a rate limiting middleware from configuration.
-func NewRateLimitingMiddlewareFromConfig(config model.RateLimitingConfig, apiConfig model.APIKeyConfig, lggr logger.SugaredLogger) (*RateLimitingMiddleware, error) {
+func NewRateLimitingMiddlewareFromConfig(config model.RateLimitingConfig, clientProvider auth.ClientProvider, lggr logger.SugaredLogger) (*RateLimitingMiddleware, error) {
 	if !config.Enabled {
 		return &RateLimitingMiddleware{enabled: false}, nil
 	}
@@ -136,7 +134,7 @@ func NewRateLimitingMiddlewareFromConfig(config model.RateLimitingConfig, apiCon
 		return nil, fmt.Errorf("failed to create rate limiter storage: %w", err)
 	}
 
-	return NewRateLimitingMiddleware(store, config, apiConfig, lggr), nil
+	return NewRateLimitingMiddleware(store, config, clientProvider, lggr), nil
 }
 
 func (m *RateLimitingMiddleware) Ready() error {

@@ -52,10 +52,14 @@ func MapProtoMessageToProtocolMessage(m *verifierpb.Message) (*protocol.Message,
 }
 
 // MapProtocolMessageToProtoMessage converts a protocol.Message to verifierpb.Message.
-func MapProtocolMessageToProtoMessage(m *protocol.Message) *verifierpb.Message {
+func MapProtocolMessageToProtoMessage(m *protocol.Message) (*verifierpb.Message, error) {
 	var tokenTransferBytes []byte
 	if m.TokenTransfer != nil {
-		tokenTransferBytes = m.TokenTransfer.Encode()
+		var err error
+		tokenTransferBytes, err = m.TokenTransfer.Encode()
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode token transfer: %w", err)
+		}
 	}
 
 	return &verifierpb.Message{
@@ -81,5 +85,5 @@ func MapProtocolMessageToProtoMessage(m *protocol.Message) *verifierpb.Message {
 		TokenTransfer:        tokenTransferBytes,
 		DataLength:           uint32(m.DataLength),
 		Data:                 m.Data,
-	}
+	}, nil
 }

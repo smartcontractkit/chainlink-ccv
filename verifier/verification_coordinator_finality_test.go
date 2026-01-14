@@ -11,11 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	protocol_mocks "github.com/smartcontractkit/chainlink-ccv/protocol/common/mocks"
 )
 
 const (
@@ -48,11 +47,12 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 	executorAddr := make([]byte, 20)
 	executorAddr[0] = 0x22
 
+	routerAddr := make([]byte, 20)
+	routerAddr[0] = 0x44
+
 	finalizedEvent := protocol.MessageSentEvent{
-		DestChainSelector: finalizedMessage.DestChainSelector,
-		SequenceNumber:    uint64(finalizedMessage.SequenceNumber),
-		MessageID:         messageID,
-		Message:           finalizedMessage,
+		MessageID: messageID,
+		Message:   finalizedMessage,
 		Receipts: []protocol.ReceiptWithBlob{
 			{
 				Issuer:            protocol.UnknownAddress(ccvAddr),
@@ -62,11 +62,19 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 				ExtraArgs:         []byte{}, // Empty = default finality
 			},
 			{
-				// Executor receipt - always at the end
+				// Executor receipt
 				Issuer:            protocol.UnknownAddress(executorAddr),
 				DestGasLimit:      0,
 				DestBytesOverhead: 0,
 				Blob:              []byte{},
+				ExtraArgs:         []byte{},
+			},
+			{
+				// Network fee receipt
+				Issuer:            protocol.UnknownAddress(routerAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte("router-blob"),
 				ExtraArgs:         []byte{},
 			},
 		},
@@ -110,11 +118,12 @@ func TestFinality_CustomFinality(t *testing.T) {
 	executorAddr := make([]byte, 20)
 	executorAddr[0] = 0x22
 
+	routerAddr := make([]byte, 20)
+	routerAddr[0] = 0x44
+
 	readyEvent := protocol.MessageSentEvent{
-		DestChainSelector: readyMessage.DestChainSelector,
-		SequenceNumber:    uint64(readyMessage.SequenceNumber),
-		MessageID:         messageID,
-		Message:           readyMessage,
+		MessageID: messageID,
+		Message:   readyMessage,
 		Receipts: []protocol.ReceiptWithBlob{
 			{
 				Issuer:            protocol.UnknownAddress(ccvAddr),
@@ -124,11 +133,19 @@ func TestFinality_CustomFinality(t *testing.T) {
 				ExtraArgs:         []byte{},
 			},
 			{
-				// Executor receipt - always at the end
+				// Executor receipt
 				Issuer:            protocol.UnknownAddress(executorAddr),
 				DestGasLimit:      0,
 				DestBytesOverhead: 0,
 				Blob:              []byte{},
+				ExtraArgs:         []byte{},
+			},
+			{
+				// Network fee receipt
+				Issuer:            protocol.UnknownAddress(routerAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte("router-blob"),
 				ExtraArgs:         []byte{},
 			},
 		},
@@ -172,11 +189,12 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 	executorAddr := make([]byte, 20)
 	executorAddr[0] = 0x22
 
+	routerAddr := make([]byte, 20)
+	routerAddr[0] = 0x44
+
 	nonFinalizedEvent := protocol.MessageSentEvent{
-		DestChainSelector: nonFinalizedMessage.DestChainSelector,
-		SequenceNumber:    uint64(nonFinalizedMessage.SequenceNumber),
-		MessageID:         messageID,
-		Message:           nonFinalizedMessage,
+		MessageID: messageID,
+		Message:   nonFinalizedMessage,
 		Receipts: []protocol.ReceiptWithBlob{
 			{
 				Issuer:            protocol.UnknownAddress(ccvAddr),
@@ -186,11 +204,19 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 				ExtraArgs:         []byte{}, // Empty = default finality
 			},
 			{
-				// Executor receipt - always at the end
+				// Executor receipt
 				Issuer:            protocol.UnknownAddress(executorAddr),
 				DestGasLimit:      0,
 				DestBytesOverhead: 0,
 				Blob:              []byte{},
+				ExtraArgs:         []byte{},
+			},
+			{
+				// Network fee receipt
+				Issuer:            protocol.UnknownAddress(routerAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte("router-blob"),
 				ExtraArgs:         []byte{},
 			},
 		},
@@ -243,7 +269,7 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 
 type coordinatorTestSetup struct {
 	coordinator           *Coordinator
-	mockSourceReader      *protocol_mocks.MockSourceReader
+	mockSourceReader      *mocks.MockSourceReader
 	mockVerifier          *TestVerifier
 	sentEventsCh          chan protocol.MessageSentEvent
 	currentFinalizedBlock *big.Int      // to control the return value of LatestFinalizedBlockHeight
@@ -274,7 +300,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	mockSourceReader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 
 	// Mock ChainStatusManager to prevent initialization hangs
-	mockChainStatusManager := protocol_mocks.NewMockChainStatusManager(t)
+	mockChainStatusManager := mocks.NewMockChainStatusManager(t)
 	// Return empty map to indicate no prior chain status (forces fallback to lookback calculation)
 	mockChainStatusManager.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).Return(make(map[protocol.ChainSelector]*protocol.ChainStatusInfo), nil).Maybe()
 	// Allow writes for chain status updates

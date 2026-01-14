@@ -19,6 +19,9 @@ const (
 	anyErrorRetry            = 5 * time.Second
 )
 
+// Verifier is responsible for verifying LBTC messages by fetching their attestations
+// and preparing VerifierNodeResult for storage. Retries are handled by the upper-layer processor,
+// but Verifier indicates whether an error is retriable or not.
 type Verifier struct {
 	lggr logger.Logger
 
@@ -33,7 +36,13 @@ func NewVerifier(
 	lggr logger.Logger,
 	attestationService AttestationService,
 ) verifier.Verifier {
-	return NewVerifierWithConfig(lggr, attestationService, CCVVerifierVersion, attestationNotReadyRetry, anyErrorRetry)
+	return NewVerifierWithConfig(
+		lggr,
+		attestationService,
+		CCVVerifierVersion,
+		attestationNotReadyRetry,
+		anyErrorRetry,
+	)
 }
 
 func NewVerifierWithConfig(
@@ -118,11 +127,11 @@ func (v *Verifier) VerifyMessages(
 
 		// 2.1 Add to batcher one by one
 		if err = ccvDataBatcher.Add(*result); err != nil {
-			lggr.Errorw("VerifierResult: Failed to add to batcher", "err", err)
+			lggr.Errorw("VerifierResults: Failed to add to batcher", "err", err)
 			errors = append(errors, v.errorRetry(err, task))
 			continue
 		}
-		lggr.Infow("VerifierResult: Successfully added to the batcher", "signature", result.Signature)
+		lggr.Infow("VerifierResults: Successfully added to the batcher", "signature", result.Signature)
 	}
 
 	return batcher.BatchResult[verifier.VerificationError]{

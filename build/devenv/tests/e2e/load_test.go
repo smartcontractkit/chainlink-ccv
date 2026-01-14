@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/load"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
 	cldfevm "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -54,9 +56,6 @@ type GasTestCase struct {
 }
 
 func assertMessagesAsync(tc TestingContext, gun *EVMTXGun, overallTimeout time.Duration) func() ([]metrics.MessageMetrics, metrics.MessageTotals) {
-	fromSelector := gun.src.Selector
-	toSelector := gun.dest.Selector
-
 	var wg sync.WaitGroup
 	var totalSent, totalReceived atomic.Int32
 
@@ -87,12 +86,12 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun, overallTimeout time.D
 
 				msgIDHex := common.BytesToHash(msg.MessageID[:]).Hex()
 
-				if _, ok := tc.Impl[toSelector]; !ok {
+				if _, ok := tc.Impl[msg.ChainPair.Dest]; !ok {
 					tc.T.Logf("No implementation available to verify message %d", msg.SeqNo)
 					return
 				}
 
-				execEvent, err := tc.Impl[toSelector].WaitOneExecEventBySeqNo(verifyCtx, fromSelector, msg.SeqNo, 0)
+				execEvent, err := tc.Impl[msg.ChainPair.Dest].WaitOneExecEventBySeqNo(verifyCtx, msg.ChainPair.Src, msg.SeqNo, 0)
 				if err != nil {
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						tc.T.Logf("Message %d verification cancelled or timed out", msg.SeqNo)
@@ -118,6 +117,8 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun, overallTimeout time.D
 				metricsData.Store(msg.SeqNo, metrics.MessageMetrics{
 					SeqNo:           msg.SeqNo,
 					MessageID:       msgIDHex,
+					SourceChain:     msg.ChainPair.Src,
+					DestChain:       msg.ChainPair.Dest,
 					SentTime:        msg.SentTime,
 					ExecutedTime:    executedTime,
 					LatencyDuration: latency,
@@ -178,6 +179,7 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun, overallTimeout time.D
 }
 
 func ensureWETHBalanceAndApproval(ctx context.Context, t *testing.T, logger zerolog.Logger, e *deployment.Environment, chain cldfevm.Chain, requiredWETH *big.Int) {
+	logger.Info().Str("chain", strconv.FormatUint(chain.Selector, 10)).Msg("Ensuring WETH balance and approval")
 	wethContract, err := e.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
 			chain.Selector,
@@ -196,37 +198,40 @@ func ensureWETHBalanceAndApproval(ctx context.Context, t *testing.T, logger zero
 		""))
 	require.NoError(t, err)
 
-	balance, err := chain.Client.BalanceAt(ctx, chain.DeployerKey.From, nil)
-	require.NoError(t, err)
-	logger.Info().Str("balance", balance.String()).Msg("Deployer balance before deposit")
-
-	wethBalance, err := wethInstance.BalanceOf(nil, chain.DeployerKey.From)
-	require.NoError(t, err)
-	logger.Info().Str("wethBalance", wethBalance.String()).Str("requiredWETH", requiredWETH.String()).Msg("Deployer WETH balance before deposit")
-
-	if wethBalance.Cmp(requiredWETH) < 0 {
-		depositAmount := new(big.Int).Sub(requiredWETH, wethBalance)
-		oldValue := chain.DeployerKey.Value
-		chain.DeployerKey.Value = depositAmount
-		tx1, err := wethInstance.Deposit(chain.DeployerKey)
+	for _, user := range chain.Users {
+		logger.Info().Str("user address", user.From.String()).Msg("User address")
+		balance, err := chain.Client.BalanceAt(ctx, user.From, nil)
 		require.NoError(t, err)
-		_, err = chain.Confirm(tx1)
+		logger.Info().Str("balance", balance.String()).Msg("Deployer balance before deposit")
+
+		wethBalance, err := wethInstance.BalanceOf(nil, user.From)
 		require.NoError(t, err)
-		chain.DeployerKey.Value = oldValue
-		logger.Info().Str("depositAmount", depositAmount.String()).Msg("Deposited WETH")
+		logger.Info().Str("wethBalance", wethBalance.String()).Str("requiredWETH", requiredWETH.String()).Msg("Deployer WETH balance before deposit")
+
+		if wethBalance.Cmp(requiredWETH) < 0 {
+			depositAmount := new(big.Int).Sub(requiredWETH, wethBalance)
+			oldValue := user.Value
+			user.Value = depositAmount
+			tx1, err := wethInstance.Deposit(user)
+			require.NoError(t, err)
+			_, err = chain.Confirm(tx1)
+			require.NoError(t, err)
+			user.Value = oldValue
+			logger.Info().Str("depositAmount", depositAmount.String()).Msg("Deposited WETH")
+		}
+
+		tx, err := wethInstance.Approve(user, common.HexToAddress(routerInstance.Address), requiredWETH)
+		require.NoError(t, err)
+		_, err = chain.Confirm(tx)
+		require.NoError(t, err)
+		logger.Info().Str("approvedAmount", requiredWETH.String()).Msg("Approved WETH for router")
 	}
-
-	tx, err := wethInstance.Approve(chain.DeployerKey, common.HexToAddress(routerInstance.Address), requiredWETH)
-	require.NoError(t, err)
-	_, err = chain.Confirm(tx)
-	require.NoError(t, err)
-	logger.Info().Str("approvedAmount", requiredWETH.String()).Msg("Approved WETH for router")
 }
 
 func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
 	startGasPrice := big.NewInt(2e9)
 	// ramp
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		err := r.PrintBlockBaseFee()
 		require.NoError(t, err)
 		err = r.AnvilSetNextBlockBaseFeePerGas(startGasPrice)
@@ -235,7 +240,7 @@ func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
 		time.Sleep(blockPace)
 	}
 	// hold
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		err := r.PrintBlockBaseFee()
 		require.NoError(t, err)
 		time.Sleep(blockPace)
@@ -243,15 +248,15 @@ func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
 		require.NoError(t, err)
 	}
 	// release
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		err := r.PrintBlockBaseFee()
 		require.NoError(t, err)
 		time.Sleep(blockPace)
 	}
 }
 
-func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, selectors []uint64, impl map[uint64]cciptestinterfaces.CCIP17ProductConfiguration, s, d cldfevm.Chain) (*wasp.Profile, *EVMTXGun) {
-	gun := NewEVMTransactionGun(in, e, selectors, impl, s, d)
+func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, selectors []uint64, impl map[uint64]cciptestinterfaces.CCIP17, s, d cldfevm.Chain) (*wasp.Profile, *EVMTXGun) {
+	gun := NewEVMTransactionGun(in, e, selectors, impl, []uint64{s.Selector}, []uint64{d.Selector})
 	profile := wasp.NewProfile().
 		Add(wasp.NewGenerator(&wasp.Config{
 			LoadType: wasp.RPS,
@@ -265,7 +270,7 @@ func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *de
 				"branch":       "test",
 				"commit":       "test",
 			},
-			LokiConfig: wasp.NewEnvLokiConfig(),
+			LokiConfig: nil,
 		}))
 	return profile, gun
 }
@@ -284,8 +289,6 @@ func TestE2ELoad(t *testing.T) {
 	if os.Getenv("LOKI_URL") == "" {
 		_ = os.Setenv("LOKI_URL", ccv.DefaultLokiURL)
 	}
-	srcRPCURL := in.Blockchains[0].Out.Nodes[0].ExternalHTTPUrl
-	dstRPCURL := in.Blockchains[1].Out.Nodes[0].ExternalHTTPUrl
 
 	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
 	require.NoError(t, err)
@@ -397,6 +400,9 @@ func TestE2ELoad(t *testing.T) {
 	})
 
 	t.Run("gas", func(t *testing.T) {
+		srcRPCURL := in.Blockchains[0].Out.Nodes[0].ExternalHTTPUrl
+		dstRPCURL := in.Blockchains[1].Out.Nodes[0].ExternalHTTPUrl
+
 		rps := int64(1)
 		testDuration := 5 * time.Minute
 
@@ -472,6 +478,9 @@ func TestE2ELoad(t *testing.T) {
 	})
 
 	t.Run("reorgs", func(t *testing.T) {
+		srcRPCURL := in.Blockchains[0].Out.Nodes[0].ExternalHTTPUrl
+		dstRPCURL := in.Blockchains[1].Out.Nodes[0].ExternalHTTPUrl
+
 		rps := int64(1)
 		testDuration := 5 * time.Minute
 
@@ -674,5 +683,76 @@ func TestE2ELoad(t *testing.T) {
 
 		summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
 		metrics.PrintMetricsSummary(t, summary)
+	})
+
+	// multi chain mesh load test with config file
+	t.Run("multi_chain_load", func(t *testing.T) {
+		// Load test config
+		testconfigFile := os.Getenv("LOAD_CONFIG_FILE")
+		if testconfigFile == "" {
+			testconfigFile = "../../steady-mesh.toml"
+		}
+		var testConfig *load.TOMLLoadTestRoot
+		testConfig, err = load.LoadTestConfigFromTomlFile(testconfigFile)
+		if err != nil {
+			t.Logf("failed to load test config: %v", err)
+			return
+		}
+
+		err = verifyTestConfig(e, testConfig)
+		require.NoError(t, err)
+		testProfile := testConfig.TestProfiles[0]
+
+		for _, testProfile := range testConfig.TestProfiles {
+			for _, chain := range testProfile.ChainsAsSource {
+				chainSelector, err := strconv.ParseUint(chain.Selector, 10, 64)
+				if err != nil {
+					t.Logf("failed to parse chain selector: %v", err)
+					return
+				}
+				chain := e.BlockChains.EVMChains()[chainSelector]
+				ensureWETHBalanceAndApproval(ctx, t, *l, e, chain, big.NewInt(requiredWETHBalance))
+			}
+		}
+
+		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
+		tc.Timeout = testProfile.TestDuration
+		messageRate, messageRateDuration := load.ParseMessageRate(testProfile.MessageRate)
+
+		gun := NewEVMTransactionGunFromTestConfig(in, testConfig, e, chainImpls)
+		p := wasp.NewProfile().Add(
+			wasp.NewGenerator(
+				&wasp.Config{
+					LoadType:              wasp.RPS,
+					GenName:               "multi-chain-mesh-load-test",
+					Schedule:              wasp.Plain(messageRate, testProfile.LoadDuration),
+					RateLimitUnitDuration: messageRateDuration,
+					Gun:                   gun,
+					Labels:                map[string]string{"go_test_name": "multi-chain-load"},
+					LokiConfig:            nil,
+				}),
+		)
+		waitForMetrics := assertMessagesAsync(tc, gun, testProfile.TestDuration)
+
+		_, err = p.Run(true)
+		require.NoError(t, err)
+
+		p.Wait()
+		time.Sleep(postTestVerificationDelay)
+		// Close the channel to signal no more messages will be sent
+		gun.CloseSentChannel()
+
+		// Wait for all messages to be verified and collect metrics
+		metrics_datum, totals := waitForMetrics()
+
+		// Enrich metrics with log data collected during test
+		tc.enrichMetrics(metrics_datum)
+
+		summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
+		metrics.PrintMetricsSummary(t, summary)
+		metrics.PrintMessageSummary(t, summary)
+
+		require.Equal(t, summary.TotalSent, summary.TotalReceived)
+		require.LessOrEqual(t, summary.P90Latency, 8*time.Second)
 	})
 }

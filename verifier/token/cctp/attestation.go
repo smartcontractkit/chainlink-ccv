@@ -15,6 +15,7 @@ type AttestationService interface {
 
 // Attestation represents a CCTP attestation along with related data
 // allowing creating proper payload for the verifier on the destination chain.
+// Please see ToVerifierFormat for more details on the format.
 type Attestation struct {
 	ccvVerifierVersion protocol.ByteSlice
 	attestation        string
@@ -94,7 +95,7 @@ func (h *HTTPAttestationService) Fetch(
 		return Attestation{}, fmt.Errorf("unsupported source chain selector: %d", message.SourceChainSelector)
 	}
 
-	response, err := h.client.GetMessages(ctx, message.SourceChainSelector, sourceDomain, txHash.String())
+	response, err := h.client.GetMessages(ctx, sourceDomain, txHash.String())
 	if err != nil {
 		return Attestation{}, fmt.Errorf(
 			"error fetching messages for chain selector %d and tx hash %s: %s",

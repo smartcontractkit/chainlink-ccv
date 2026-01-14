@@ -1,0 +1,9 @@
+root = ".."
+
+[build]
+cmd = "go build -o /tmp/pricer /app/pricer/cmd"
+bin = "/tmp/pricer"
+args_bin = ["run"]
+include_dir = ["app"]
+include_ext = ["go", "mod", "sum"]
+exclude_dir = ["tmp", "vendor", "testdata", ".git"]

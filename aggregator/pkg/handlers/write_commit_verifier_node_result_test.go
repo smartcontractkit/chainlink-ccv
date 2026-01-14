@@ -4,16 +4,18 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/internal/aggregation_mocks"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -22,14 +24,29 @@ import (
 
 func makeValidProtoRequest() *committeepb.WriteCommitteeVerifierNodeResultRequest {
 	msg := makeTestMessage(protocol.ChainSelector(1), protocol.ChainSelector(2), protocol.SequenceNumber(1), []byte{})
-	pbMsg := ccvcommon.MapProtocolMessageToProtoMessage(msg)
+	pbMsg, err := ccvcommon.MapProtocolMessageToProtoMessage(msg)
+	if err != nil {
+		panic(err)
+	}
+
+	executorAddr := makeTestExecutorAddress()
+	ccvAddresses := [][]byte{make([]byte, 20)}
+	hash, err := protocol.ComputeCCVAndExecutorHash(
+		[]protocol.UnknownAddress{ccvAddresses[0]},
+		executorAddr,
+	)
+	if err != nil {
+		panic(err)
+	}
+	pbMsg.CcvAndExecutorHash = hash[:]
+
 	return &committeepb.WriteCommitteeVerifierNodeResultRequest{
 		CommitteeVerifierNodeResult: &committeepb.CommitteeVerifierNodeResult{
 			Signature:       []byte("signature_bytes"),
 			CcvVersion:      []byte{0x1, 0x2, 0x3, 0x4},
 			Message:         pbMsg,
-			CcvAddresses:    [][]byte{},
-			ExecutorAddress: makeTestExecutorAddress(),
+			CcvAddresses:    ccvAddresses,
+			ExecutorAddress: executorAddr,
 		},
 	}
 }
@@ -37,14 +54,17 @@ func makeValidProtoRequest() *committeepb.WriteCommitteeVerifierNodeResultReques
 func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 	t.Parallel()
 
-	signer1 := &model.IdentifierSigner{
-		Address: []byte{0xAA},
+	const testCallerID = "test-caller"
+	const testChannelKey model.ChannelKey = "test-caller"
+
+	signer1 := &model.SignerIdentifier{
+		Identifier: []byte{0xAA},
 	}
 
 	type testCase struct {
 		name             string
 		req              *committeepb.WriteCommitteeVerifierNodeResultRequest
-		signer           *model.IdentifierSigner
+		signer           *model.SignerIdentifier
 		sigErr           error
 		saveErr          error
 		aggErr           error
@@ -76,11 +96,11 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			expectAggCalls:   0,
 		},
 		{
-			name:             "signature_validator_error_returns_internal",
+			name:             "signature_validator_error_returns_invalid_argument",
 			req:              makeValidProtoRequest(),
 			signer:           nil,
 			sigErr:           errors.New("sig-fail"),
-			expectGRPCCode:   codes.Internal,
+			expectGRPCCode:   codes.InvalidArgument,
 			expectStatus:     committeepb.WriteStatus_FAILED,
 			expectStoreCalls: 0,
 			expectAggCalls:   0,
@@ -124,17 +144,19 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			lggr := logger.TestSugared(t)
 
 			// Mocks
-			store := aggregation_mocks.NewMockCommitVerificationStore(t)
-			agg := aggregation_mocks.NewMockAggregationTriggerer(t)
-			sig := aggregation_mocks.NewMockSignatureValidator(t)
+			store := mocks.NewMockCommitVerificationStore(t)
+			agg := mocks.NewMockAggregationTriggerer(t)
+			sig := mocks.NewMockSignatureValidator(t)
 
 			sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil).Maybe()
 
 			// Signature validator expectation
 			if tc.sigErr != nil {
-				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(nil, nil, tc.sigErr)
+				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(nil, tc.sigErr)
 			} else {
-				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(tc.signer, nil, nil).Maybe()
+				sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(&model.SignatureValidationResult{
+					Signer: tc.signer,
+				}, nil).Maybe()
 			}
 
 			// Save expectations with counter
@@ -152,18 +174,19 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			var lastMsgID model.MessageID
 			var lastAggregation model.AggregationKey
 			if tc.expectAggCalls > 0 {
-				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything).Run(func(m model.MessageID, a model.AggregationKey) {
+				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, testChannelKey, time.Millisecond).Run(func(m model.MessageID, a model.AggregationKey, c model.ChannelKey, d time.Duration) {
 					aggCalled++
 					lastMsgID = m
 					lastAggregation = a
 				}).Return(tc.aggErr).Times(tc.expectAggCalls)
 			} else {
-				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything).Maybe()
+				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe()
 			}
 
-			handler := NewWriteCommitCCVNodeDataHandler(store, agg, lggr, sig)
+			handler := NewWriteCommitCCVNodeDataHandler(store, agg, lggr, sig, time.Millisecond)
 
-			resp, err := handler.Handle(context.Background(), tc.req)
+			ctx := auth.ToContext(context.Background(), auth.CreateCallerIdentity(testCallerID, false))
+			resp, err := handler.Handle(ctx, tc.req)
 
 			// gRPC status code assertions
 			if tc.expectGRPCCode == codes.OK {

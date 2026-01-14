@@ -15,6 +15,9 @@ type AttestationService interface {
 	Fetch(ctx context.Context, message []protocol.Message) (map[string]Attestation, error)
 }
 
+// Attestation represents a LBTC attestation along with related data
+// allowing creating proper payload for the verifier on the destination chain.
+// Please see ToVerifierFormat for more details on the format.
 type Attestation struct {
 	ccvVerifierVersion protocol.ByteSlice
 	attestation        string
@@ -144,10 +147,7 @@ func splitSlice[T any](s []T, chunkSize int) [][]T {
 	}
 
 	for i := 0; i < len(s); i += chunkSize {
-		end := i + chunkSize
-		if end > len(s) {
-			end = len(s)
-		}
+		end := min(i+chunkSize, len(s))
 		result = append(result, s[i:end])
 	}
 
