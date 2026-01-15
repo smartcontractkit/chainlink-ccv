@@ -185,7 +185,8 @@ func loadEVM(ctx context.Context, cfg Config, lggr logger.Logger, keystoreData [
 func loadKMSKeystore(ctx context.Context, profile string) (interface {
 	ks.Reader
 	ks.Signer
-}, error) {
+}, error,
+) {
 	kmsClient, err := kms.NewClient(ctx, kms.ClientOptions{
 		Profile: profile,
 	})
@@ -198,7 +199,8 @@ func loadKMSKeystore(ctx context.Context, profile string) (interface {
 func loadMemoryKeystore(ctx context.Context, keystoreData []byte, keystorePassword string) (interface {
 	ks.Reader
 	ks.Signer
-}, error) {
+}, error,
+) {
 	memStorage := ks.NewMemoryStorage()
 	if err := memStorage.PutEncryptedKeystore(ctx, keystoreData); err != nil {
 		return nil, fmt.Errorf("failed to populate keystore storage: %w", err)
