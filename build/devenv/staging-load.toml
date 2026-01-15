@@ -1,5 +1,5 @@
 message_profiles=[
-    {name="data only", finality=1, hasData=true},
+    {name="data only", hasData=true},
     {name="PTT", hasData=true, hasToken=true},
     {name="token only", hasToken=true},
 ]

@@ -726,14 +726,9 @@ func TestStaging(t *testing.T) {
 		})
 	}
 
-	var indexerClient *ccv.IndexerClient
-	if in.IndexerEndpoint != "" {
-		indexerClient, err = ccv.NewIndexerClient(
-			zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
-			in.IndexerEndpoint)
-		require.NotNil(t, indexerClient)
-		require.NoError(t, err)
-	}
+	indexerClient, err := lib.Indexer()
+	require.NotNil(t, indexerClient)
+	require.NoError(t, err)
 
 	// multi chain mesh load test with config file
 	t.Run("multi_chain_load", func(t *testing.T) {
