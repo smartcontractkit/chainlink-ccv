@@ -74,27 +74,16 @@ func ExposePrometheusMetricsFor(reg *prometheus.Registry, interval time.Duration
 	return nil
 }
 
-// TODO: Rename IndexerClient to IndexerMonitor to clarify the difference between this helper and the http client.
-type IndexerClient struct {
+type IndexerMonitor struct {
 	logger        zerolog.Logger
-	url           string
 	indexerClient *client.IndexerClient
 }
 
-// NewIndexerClient creates a new IndexerClient with a default HTTP client.
-func NewIndexerClient(logger zerolog.Logger, url string) (*IndexerClient, error) {
-	httpClient := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-	ic, err := client.NewIndexerClient(url, httpClient)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create IndexerClient: %w", err)
-	}
-
-	return &IndexerClient{
+// NewIndexerMonitor creates a new IndexerMonitor with a default HTTP client.
+func NewIndexerMonitor(logger zerolog.Logger, indexerClient *client.IndexerClient) (*IndexerMonitor, error) {
+	return &IndexerMonitor{
 		logger:        logger,
-		url:           url,
-		indexerClient: ic,
+		indexerClient: indexerClient,
 	}, nil
 }
 
@@ -110,7 +99,7 @@ func (g GetVerificationsForMessageIDResponse) SourceVerifierAddresses() []protoc
 	return sourceVerifierAddresses
 }
 
-func (i *IndexerClient) WaitForVerificationsForMessageID(
+func (i *IndexerMonitor) WaitForVerificationsForMessageID(
 	ctx context.Context,
 	messageID [32]byte,
 	tickInterval time.Duration,
@@ -145,7 +134,7 @@ func (i *IndexerClient) WaitForVerificationsForMessageID(
 }
 
 // GetVerificationsForMessageID fetches the verifications for a given messageID from the indexer.
-func (i *IndexerClient) GetVerificationsForMessageID(ctx context.Context, messageID protocol.Bytes32) (GetVerificationsForMessageIDResponse, error) {
+func (i *IndexerMonitor) GetVerificationsForMessageID(ctx context.Context, messageID protocol.Bytes32) (GetVerificationsForMessageIDResponse, error) {
 	status, resp, err := i.indexerClient.VerifierResultsByMessageID(ctx, v1.VerifierResultsByMessageIDInput{
 		MessageID: messageID.String(),
 	})

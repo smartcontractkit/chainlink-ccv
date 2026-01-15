@@ -13,6 +13,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/deployments/sequences"
 )
 
+// GenerateAggregatorConfigCfg is an alias for the changeset input type.
+type GenerateAggregatorConfigCfg = aggconfig.BuildConfigInput
+
 // GenerateAggregatorConfig creates a changeset that generates the aggregator configuration
 // by scanning on-chain CommitteeVerifier contracts.
 func GenerateAggregatorConfig() deployment.ChangeSetV2[aggconfig.BuildConfigInput] {
@@ -48,10 +51,15 @@ func GenerateAggregatorConfig() deployment.ChangeSetV2[aggconfig.BuildConfigInpu
 			}, fmt.Errorf("failed to generate aggregator config: %w", err)
 		}
 
-		// Create a new datastore to return with the generated config
 		outputDS := datastore.NewMemoryDataStore()
+		if e.DataStore != nil {
+			if err := outputDS.Merge(e.DataStore); err != nil {
+				return deployment.ChangesetOutput{
+					Reports: report.ExecutionReports,
+				}, fmt.Errorf("failed to merge existing datastore: %w", err)
+			}
+		}
 
-		// Save the generated config to the datastore's env metadata
 		aggCfg := report.Output.Committee.ToModelCommittee()
 		if err := deployments.SaveAggregatorConfig(outputDS, report.Output.ServiceIdentifier, aggCfg); err != nil {
 			return deployment.ChangesetOutput{
