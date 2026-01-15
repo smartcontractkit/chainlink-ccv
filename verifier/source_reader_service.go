@@ -118,7 +118,7 @@ func NewSourceReaderService(
 		ctx,
 		batchSize,
 		batchTimeout,
-		0,
+		1,
 	)
 
 	return &SourceReaderService{

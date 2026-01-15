@@ -43,7 +43,7 @@ func NewVerifierReader(ctx context.Context, verifier protocol.VerifierResultsAPI
 			batcherCtx,
 			config.BatchSize,
 			time.Duration(config.MaxBatchWaitTime)*time.Millisecond,
-			0,
+			1,
 		),
 		batcherCtx:    batcherCtx,
 		batcherCancel: batcherCancel,
