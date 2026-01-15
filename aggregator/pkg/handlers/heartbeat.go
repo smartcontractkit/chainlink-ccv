@@ -9,15 +9,18 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/heartbeat"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	heartbeatpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/heartbeat/v1"
 )
 
 type HeartbeatHandler struct {
-	storage heartbeat.Storage
-	l       logger.SugaredLogger
-	m       common.AggregatorMonitoring
+	storage      heartbeat.Storage
+	aggregatorID string
+	committee    *model.Committee
+	l            logger.SugaredLogger
+	m            common.AggregatorMonitoring
 }
 
 func (h *HeartbeatHandler) logger(ctx context.Context) logger.SugaredLogger {
@@ -98,18 +101,20 @@ func (h *HeartbeatHandler) Handle(ctx context.Context, req *heartbeatpb.Heartbea
 	}
 
 	return &heartbeatpb.HeartbeatResponse{
-		AggregatorId:    "mock-aggregator-001",
+		AggregatorId:    h.aggregatorID,
 		Timestamp:       req.SendTimestamp,
 		ChainBenchmarks: chainBenchmarks,
 	}, nil
 }
 
 // NewHeartbeatHandler creates a new instance of HeartbeatHandler.
-func NewHeartbeatHandler(storage heartbeat.Storage, l logger.SugaredLogger, m common.AggregatorMonitoring) *HeartbeatHandler {
+func NewHeartbeatHandler(storage heartbeat.Storage, aggregatorID string, committee *model.Committee, l logger.SugaredLogger, m common.AggregatorMonitoring) *HeartbeatHandler {
 	return &HeartbeatHandler{
-		storage: storage,
-		l:       l,
-		m:       m,
+		storage:      storage,
+		aggregatorID: aggregatorID,
+		committee:    committee,
+		l:            l,
+		m:            m,
 	}
 }
 
