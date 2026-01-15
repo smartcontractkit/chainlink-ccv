@@ -203,16 +203,6 @@ func defaults(in *IndexerInput) {
 			},
 		}
 	}
-
-	if in.GeneratedCfg == nil {
-		in.GeneratedCfg = &config.GeneratedConfig{
-			Verifier: map[string]config.GeneratedVerifierConfig{
-				"0": {IssuerAddresses: []string{"0x9A676e781A523b5d0C0e43731313A708CB607508"}},
-				"1": {IssuerAddresses: []string{"0x68B1D87F95878fE05B998F19b66F4baba5De1aed"}},
-				"2": {IssuerAddresses: []string{"0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1"}},
-			},
-		}
-	}
 }
 
 // NewIndexer creates and starts a new Service container using testcontainers.

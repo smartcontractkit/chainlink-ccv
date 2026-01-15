@@ -745,8 +745,6 @@ WorkerTimeout = 300
 
 [[indexer.indexer_config.Verifier]]
 Type = "aggregator"
-# Filled in dynamically after contract deployments
-IssuerAddresses = [""]
 Name = "CommiteeVerifier (Primary)"
 Address = "default-aggregator:50051"
 BatchSize = 100
@@ -757,8 +755,6 @@ Since = 0
 
 [[indexer.indexer_config.Verifier]]
 Type = "aggregator"
-# Filled in dynamically after contract deployments
-IssuerAddresses = [""]
 Name = "CommiteeVerifier (Secondary)"
 Address = "secondary-aggregator:50051"
 BatchSize = 100
@@ -769,8 +765,6 @@ Since = 0
 
 [[indexer.indexer_config.Verifier]]
 Type = "aggregator"
-# Filled in dynamically after contract deployments
-IssuerAddresses = [""]
 Name = "CommiteeVerifier (Tertiary)"
 Address = "tertiary-aggregator:50051"
 BatchSize = 100

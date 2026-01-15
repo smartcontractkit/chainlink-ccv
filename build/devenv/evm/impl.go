@@ -30,6 +30,7 @@ import (
 	rmn_remote_binding "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/burn_mint_token_pool"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_through_ccv_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/create2_factory"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
@@ -110,9 +111,11 @@ var (
 type TokenCombination struct {
 	sourcePoolType          string
 	sourcePoolVersion       string
+	sourcePoolQualifier     string
 	sourcePoolCCVQualifiers []string
 	destPoolType            string
 	destPoolVersion         string
+	destPoolQualifier       string
 	destPoolCCVQualifiers   []string
 	expectedReceiptIssuers  int
 	expectedVerifierResults int
@@ -120,19 +123,27 @@ type TokenCombination struct {
 
 // SourcePoolAddressRef returns the address ref for the source token pool that can be used to query the datastore.
 func (s TokenCombination) SourcePoolAddressRef() datastore.AddressRef {
+	qualifier := s.sourcePoolQualifier
+	if qualifier == "" {
+		qualifier = fmt.Sprintf("TEST (%s %s %v to %s %s %v)", s.sourcePoolType, s.sourcePoolVersion, s.sourcePoolCCVQualifiers, s.destPoolType, s.destPoolVersion, s.destPoolCCVQualifiers)
+	}
 	return datastore.AddressRef{
 		Type:      datastore.ContractType(s.sourcePoolType),
 		Version:   semver.MustParse(s.sourcePoolVersion),
-		Qualifier: fmt.Sprintf("TEST (%s %s %v to %s %s %v)", s.sourcePoolType, s.sourcePoolVersion, s.sourcePoolCCVQualifiers, s.destPoolType, s.destPoolVersion, s.destPoolCCVQualifiers),
+		Qualifier: qualifier,
 	}
 }
 
 // DestPoolAddressRef returns the address ref for the destination token pool that can be used to query the datastore.
 func (s TokenCombination) DestPoolAddressRef() datastore.AddressRef {
+	qualifier := s.destPoolQualifier
+	if qualifier == "" {
+		qualifier = fmt.Sprintf("TEST (%s %s %v to %s %s %v)", s.destPoolType, s.destPoolVersion, s.destPoolCCVQualifiers, s.sourcePoolType, s.sourcePoolVersion, s.sourcePoolCCVQualifiers)
+	}
 	return datastore.AddressRef{
 		Type:      datastore.ContractType(s.destPoolType),
 		Version:   semver.MustParse(s.destPoolVersion),
-		Qualifier: fmt.Sprintf("TEST (%s %s %v to %s %s %v)", s.destPoolType, s.destPoolVersion, s.destPoolCCVQualifiers, s.sourcePoolType, s.sourcePoolVersion, s.sourcePoolCCVQualifiers),
+		Qualifier: qualifier,
 	}
 }
 
@@ -254,6 +265,21 @@ func All17TokenCombinations() []TokenCombination {
 		}
 	}
 	return combinations
+}
+
+func USDCTokenPoolCombination() TokenCombination {
+	return TokenCombination{ // 1.7.0 usdc -> 1.7.0 usdc
+		sourcePoolType:          string(cctp_through_ccv_token_pool.ContractType),
+		sourcePoolVersion:       "1.7.0",
+		sourcePoolQualifier:     "CCTP",
+		sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
+		destPoolType:            string(cctp_through_ccv_token_pool.ContractType),
+		destPoolVersion:         "1.7.0",
+		destPoolQualifier:       "CCTP",
+		destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
+		expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
+		expectedVerifierResults: 1, // default CCV
+	}
 }
 
 type CCIP17EVMConfig struct {
@@ -1112,22 +1138,28 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 		return nil, errors.New("failed to parse USDPerWETH")
 	}
 
-	create2FactoryRef, err := contract.MaybeDeployContract(env.OperationsBundle, create2_factory.Deploy, env.BlockChains.EVMChains()[selector], contract.DeployInput[create2_factory.ConstructorArgs]{
-		TypeAndVersion: deployment.NewTypeAndVersion(create2_factory.ContractType, *semver.MustParse("1.7.0")),
-		ChainSelector:  selector,
-		Args: create2_factory.ConstructorArgs{
-			AllowList: []common.Address{env.BlockChains.EVMChains()[selector].DeployerKey.From},
-		},
-	}, nil)
+	create2FactoryRep, err := operations.ExecuteOperation(env.OperationsBundle, create2_factory.Deploy, env.BlockChains.EVMChains()[selector],
+		contract.DeployInput[create2_factory.ConstructorArgs]{
+			ChainSelector:  selector,
+			TypeAndVersion: deployment.NewTypeAndVersion(create2_factory.ContractType, *create2_factory.Version),
+			Args: create2_factory.ConstructorArgs{
+				AllowList: []common.Address{env.BlockChains.EVMChains()[selector].DeployerKey.From},
+			},
+		})
 	if err != nil {
 		return nil, fmt.Errorf("failed to deploy/create2 factory: %w", err)
 	}
 
-	mcmsReaderRegistry := changesetscore.NewMCMSReaderRegistry() // TODO: Integrate actual registry if MCMS support is required.
+	err = runningDS.Addresses().Add(create2FactoryRep.Output)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add create2 factory to datastore: %w", err)
+	}
+
+	mcmsReaderRegistry := changesetscore.GetRegistry() // TODO: Integrate actual registry if MCMS support is required.
 	out, err := evmchangesets.DeployChainContracts(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[evmchangesets.DeployChainContractsCfg]{
 		Cfg: evmchangesets.DeployChainContractsCfg{
 			ChainSel:       selector,
-			CREATE2Factory: common.HexToAddress(create2FactoryRef.Address),
+			CREATE2Factory: common.HexToAddress(create2FactoryRep.Output.Address),
 			Params: sequences.ContractParams{
 				// TODO: Router contract implementation is missing
 				RMNRemote: sequences.RMNRemoteParams{
@@ -1277,6 +1309,10 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 		if err := m.deployTokenAndPool(env, mcmsReaderRegistry, runningDS, selector, combo.DestPoolAddressRef()); err != nil {
 			return nil, fmt.Errorf("failed to deploy %s token: %w", combo.DestPoolAddressRef().Qualifier, err)
 		}
+	}
+
+	if err := m.deployUSDCTokenAndPool(env, mcmsReaderRegistry, runningDS, create2FactoryRep.Output, selector); err != nil {
+		return nil, fmt.Errorf("failed to deploy USDC token and pool: %w", err)
 	}
 
 	return runningDS.Seal(), nil
@@ -1580,7 +1616,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		}
 	}
 
-	mcmsReaderRegistry := changesetscore.NewMCMSReaderRegistry()
+	mcmsReaderRegistry := changesetscore.GetRegistry()
 	chainFamilyRegistry := adapters.NewChainFamilyRegistry()
 	chainFamilyRegistry.RegisterChainFamily("evm", &evmadapters.ChainFamilyAdapter{})
 	_, err := changesets.ConfigureChainsForLanes(chainFamilyRegistry, mcmsReaderRegistry).Apply(*e, changesets.ConfigureChainsForLanesConfig{
@@ -1633,6 +1669,22 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		if err := m.configureTokenForTransfer(e, tokenAdapterRegistry, mcmsReaderRegistry, selector, remoteSelectors, combo.DestPoolAddressRef(), combo.SourcePoolAddressRef(), combo.DestPoolCCVQualifiers()); err != nil {
 			return fmt.Errorf("failed to configure %s tokens for transfers: %w", combo.DestPoolAddressRef().Qualifier, err)
 		}
+	}
+
+	create2, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+		selector,
+		datastore.ContractType(create2_factory.ContractType),
+		semver.MustParse(create2_factory.Deploy.Version()),
+		"",
+	))
+	if err != nil {
+		return err
+	}
+
+	cctpChainRegistry := adapters.NewCCTPChainRegistry()
+	cctpChainRegistry.RegisterCCTPChain("evm", &evmadapters.CCTPChainAdapter{})
+	if err := m.configureUSDCForTransfer(e, cctpChainRegistry, mcmsReaderRegistry, create2, selector, remoteSelectors); err != nil {
+		return fmt.Errorf("failed to configure USDC tokens for transfers: %w", err)
 	}
 
 	// Configure the custom executor for the dest chain manually.

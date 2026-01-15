@@ -26,7 +26,7 @@ func (_m *MockMessageReader) EXPECT() *MockMessageReader_Expecter {
 }
 
 // ReadMessages provides a mock function with given fields: ctx, queryData
-func (_m *MockMessageReader) ReadMessages(ctx context.Context, queryData v1.MessagesInput) (map[string]common.MessageWithMetadata, error) {
+func (_m *MockMessageReader) ReadMessages(ctx context.Context, queryData v1.VerifierResultsInput) (map[string]common.MessageWithMetadata, error) {
 	ret := _m.Called(ctx, queryData)
 
 	if len(ret) == 0 {
@@ -35,10 +35,10 @@ func (_m *MockMessageReader) ReadMessages(ctx context.Context, queryData v1.Mess
 
 	var r0 map[string]common.MessageWithMetadata
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, v1.MessagesInput) (map[string]common.MessageWithMetadata, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, v1.VerifierResultsInput) (map[string]common.MessageWithMetadata, error)); ok {
 		return rf(ctx, queryData)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, v1.MessagesInput) map[string]common.MessageWithMetadata); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, v1.VerifierResultsInput) map[string]common.MessageWithMetadata); ok {
 		r0 = rf(ctx, queryData)
 	} else {
 		if ret.Get(0) != nil {
@@ -46,7 +46,7 @@ func (_m *MockMessageReader) ReadMessages(ctx context.Context, queryData v1.Mess
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, v1.MessagesInput) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, v1.VerifierResultsInput) error); ok {
 		r1 = rf(ctx, queryData)
 	} else {
 		r1 = ret.Error(1)
@@ -62,14 +62,14 @@ type MockMessageReader_ReadMessages_Call struct {
 
 // ReadMessages is a helper method to define mock.On call
 //   - ctx context.Context
-//   - queryData v1.MessagesInput
+//   - queryData v1.VerifierResultsInput
 func (_e *MockMessageReader_Expecter) ReadMessages(ctx interface{}, queryData interface{}) *MockMessageReader_ReadMessages_Call {
 	return &MockMessageReader_ReadMessages_Call{Call: _e.mock.On("ReadMessages", ctx, queryData)}
 }
 
-func (_c *MockMessageReader_ReadMessages_Call) Run(run func(ctx context.Context, queryData v1.MessagesInput)) *MockMessageReader_ReadMessages_Call {
+func (_c *MockMessageReader_ReadMessages_Call) Run(run func(ctx context.Context, queryData v1.VerifierResultsInput)) *MockMessageReader_ReadMessages_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(v1.MessagesInput))
+		run(args[0].(context.Context), args[1].(v1.VerifierResultsInput))
 	})
 	return _c
 }
@@ -79,7 +79,7 @@ func (_c *MockMessageReader_ReadMessages_Call) Return(_a0 map[string]common.Mess
 	return _c
 }
 
-func (_c *MockMessageReader_ReadMessages_Call) RunAndReturn(run func(context.Context, v1.MessagesInput) (map[string]common.MessageWithMetadata, error)) *MockMessageReader_ReadMessages_Call {
+func (_c *MockMessageReader_ReadMessages_Call) RunAndReturn(run func(context.Context, v1.VerifierResultsInput) (map[string]common.MessageWithMetadata, error)) *MockMessageReader_ReadMessages_Call {
 	_c.Call.Return(run)
 	return _c
 }
