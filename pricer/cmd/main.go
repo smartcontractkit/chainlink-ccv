@@ -3,12 +3,11 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
-
-	"encoding/base64"
 
 	"github.com/spf13/cobra"
 

@@ -9,7 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"go.uber.org/zap/zapcore"
 
-	solanaGo "github.com/gagliardetto/solana-go"
+	solanago "github.com/gagliardetto/solana-go"
 	ks "github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/keystore/kms"
 	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
@@ -145,29 +145,9 @@ func loadEVM(ctx context.Context, cfg Config, lggr logger.Logger, keystoreData [
 	if err != nil {
 		return nil, fmt.Errorf("failed to create EVM client: %w", err)
 	}
-	var evmTxKeyStore core.Keystore
-	if cfg.KMS.EcdsaKeyID != "" {
-		kmsClient, err := kms.NewClient(ctx, kms.ClientOptions{
-			Profile: cfg.KMS.Profile,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to create KMS client: %w", err)
-		}
-		keyStore, err := kms.NewKeystore(kmsClient)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create KMS keystore: %w", err)
-		}
-		evmTxKeyStore = evmkeys.NewTxKeyCoreKeystore(keyStore, evmkeys.WithAllowedKeyNames([]string{cfg.KMS.EcdsaKeyID}))
-	} else {
-		memStorage := ks.NewMemoryStorage()
-		if err := memStorage.PutEncryptedKeystore(ctx, keystoreData); err != nil {
-			return nil, fmt.Errorf("failed to populate keystore storage: %w", err)
-		}
-		keyStore, err := ks.LoadKeystore(ctx, memStorage, keystorePassword)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load keystore: %w", err)
-		}
-		evmTxKeyStore = evmkeys.NewTxKeyCoreKeystore(keyStore)
+	evmTxKeyStore, err := createEVMKeystore(ctx, cfg, keystoreData, keystorePassword)
+	if err != nil {
+		return nil, err
 	}
 	txmKeyStore := keys.NewStore(evmTxKeyStore)
 	addresses, err := txmKeyStore.EnabledAddresses(ctx)
@@ -202,18 +182,32 @@ func loadEVM(ctx context.Context, cfg Config, lggr logger.Logger, keystoreData [
 	}, nil
 }
 
-func loadSolana(ctx context.Context, lggr logger.Logger, cfg Config, keystoreData []byte, keystorePassword string) (*solanaChain, error) {
-	solClient, err := solclient.NewMultiNodeClient(
-		cfg.SOL.ListNodes()[0].URL.String(),
-		&cfg.SOL,
-		time.Second*10,
-		lggr,
-	)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Solana client: %w", err)
+func createEVMKeystore(ctx context.Context, cfg Config, keystoreData []byte, keystorePassword string) (core.Keystore, error) {
+	if cfg.KMS.EcdsaKeyID != "" {
+		kmsClient, err := kms.NewClient(ctx, kms.ClientOptions{
+			Profile: cfg.KMS.Profile,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create KMS client: %w", err)
+		}
+		keyStore, err := kms.NewKeystore(kmsClient)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create KMS keystore: %w", err)
+		}
+		return evmkeys.NewTxKeyCoreKeystore(keyStore, evmkeys.WithAllowedKeyNames([]string{cfg.KMS.EcdsaKeyID})), nil
 	}
-	var solTxKeyStore core.Keystore
+	memStorage := ks.NewMemoryStorage()
+	if err := memStorage.PutEncryptedKeystore(ctx, keystoreData); err != nil {
+		return nil, fmt.Errorf("failed to populate keystore storage: %w", err)
+	}
+	keyStore, err := ks.LoadKeystore(ctx, memStorage, keystorePassword)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load keystore: %w", err)
+	}
+	return evmkeys.NewTxKeyCoreKeystore(keyStore), nil
+}
+
+func createSolanaKeystore(ctx context.Context, cfg Config, keystoreData []byte, keystorePassword string) (core.Keystore, error) {
 	if cfg.KMS.Ed25519KeyID != "" {
 		kmsClient, err := kms.NewClient(ctx, kms.ClientOptions{
 			Profile: cfg.KMS.Profile,
@@ -225,17 +219,32 @@ func loadSolana(ctx context.Context, lggr logger.Logger, cfg Config, keystoreDat
 		if err != nil {
 			return nil, fmt.Errorf("failed to create KMS keystore: %w", err)
 		}
-		solTxKeyStore = solkeys.NewTxKeyCoreKeystore(keyStore, solkeys.WithAllowedKeyNames([]string{cfg.KMS.Ed25519KeyID}))
-	} else {
-		memStorage := ks.NewMemoryStorage()
-		if err := memStorage.PutEncryptedKeystore(ctx, keystoreData); err != nil {
-			return nil, fmt.Errorf("failed to populate keystore storage: %w", err)
-		}
-		keyStore, err := ks.LoadKeystore(ctx, memStorage, keystorePassword)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load keystore: %w", err)
-		}
-		solTxKeyStore = solkeys.NewTxKeyCoreKeystore(keyStore)
+		return solkeys.NewTxKeyCoreKeystore(keyStore, solkeys.WithAllowedKeyNames([]string{cfg.KMS.Ed25519KeyID})), nil
+	}
+	memStorage := ks.NewMemoryStorage()
+	if err := memStorage.PutEncryptedKeystore(ctx, keystoreData); err != nil {
+		return nil, fmt.Errorf("failed to populate keystore storage: %w", err)
+	}
+	keyStore, err := ks.LoadKeystore(ctx, memStorage, keystorePassword)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load keystore: %w", err)
+	}
+	return solkeys.NewTxKeyCoreKeystore(keyStore), nil
+}
+
+func loadSolana(ctx context.Context, lggr logger.Logger, cfg Config, keystoreData []byte, keystorePassword string) (*solanaChain, error) {
+	solClient, err := solclient.NewMultiNodeClient(
+		cfg.SOL.ListNodes()[0].URL.String(),
+		&cfg.SOL,
+		time.Second*10,
+		lggr,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Solana client: %w", err)
+	}
+	solTxKeyStore, err := createSolanaKeystore(ctx, cfg, keystoreData, keystorePassword)
+	if err != nil {
+		return nil, err
 	}
 	solClientLoader := solutils.NewOnceLoader[solclient.ReaderWriter](func(ctx context.Context) (solclient.ReaderWriter, error) {
 		return solClient, nil
@@ -243,7 +252,7 @@ func loadSolana(ctx context.Context, lggr logger.Logger, cfg Config, keystoreDat
 	solTxm, err := soltxm.NewTxm(
 		*cfg.SOL.ChainID,
 		solClientLoader,
-		func(ctx context.Context, tx *solanaGo.Transaction) (solanaGo.Signature, error) {
+		func(ctx context.Context, tx *solanago.Transaction) (solanago.Signature, error) {
 			return solClient.SendTx(ctx, tx)
 		},
 		&cfg.SOL,
@@ -356,7 +365,7 @@ func (p *Pricer) run(ctx context.Context) {
 					p.lggr.Warn("no Solana addresses found in keystore")
 					continue
 				}
-				balance, err := p.solChain.client.Balance(ctx, solanaGo.MustPublicKeyFromBase58(addresses[0]))
+				balance, err := p.solChain.client.Balance(ctx, solanago.MustPublicKeyFromBase58(addresses[0]))
 				if err != nil {
 					p.lggr.Error("failed to get balance", "error", err)
 					continue
