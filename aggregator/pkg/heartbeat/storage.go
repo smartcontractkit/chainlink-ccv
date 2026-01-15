@@ -11,24 +11,21 @@ import (
 )
 
 const (
-	// DefaultKeyPrefix is the default Redis key prefix for heartbeat data
+	// DefaultKeyPrefix is the default Redis key prefix for heartbeat data.
 	DefaultKeyPrefix = "heartbeat"
-	// DefaultTTL is the default TTL for heartbeat data (7 days)
+	// DefaultTTL is the default TTL for heartbeat data (7 days).
 	DefaultTTL = 7 * 24 * time.Hour
 )
 
 // Storage defines the interface for storing and retrieving heartbeat data.
 type Storage interface {
-	// StoreBlockHeight stores the block height for a caller on a specific chain
+	// StoreBlockHeight stores the block height for a caller on a specific chain.
 	StoreBlockHeight(ctx context.Context, callerID string, chainSelector uint64, blockHeight uint64) error
-
-	// GetBlockHeights returns the block heights for all callers on a specific chain
+	// GetBlockHeights returns the block heights for all callers on a specific chain.
 	GetBlockHeights(ctx context.Context, chainSelector uint64) (map[string]uint64, error)
-
-	// GetMaxBlockHeight returns the maximum block height across all callers for a specific chain
+	// GetMaxBlockHeight returns the maximum block height across all callers for a specific chain.
 	GetMaxBlockHeight(ctx context.Context, chainSelector uint64) (uint64, error)
-
-	// GetMaxBlockHeights returns the maximum block heights across all callers for multiple chains
+	// GetMaxBlockHeights returns the maximum block heights across all callers for multiple chains.
 	GetMaxBlockHeights(ctx context.Context, chainSelectors []uint64) (map[uint64]uint64, error)
 }
 
@@ -182,19 +179,19 @@ func (s *RedisStorage) GetMaxBlockHeights(ctx context.Context, chainSelectors []
 }
 
 // buildKey creates a Redis key for a specific caller and chain.
-// Format: <prefix>:<caller_id>:<chain_selector>
+// Format: <prefix>:<caller_id>:<chain_selector>.
 func (s *RedisStorage) buildKey(callerID string, chainSelector uint64) string {
 	return fmt.Sprintf("%s:%s:%d", s.keyPrefix, callerID, chainSelector)
 }
 
 // buildPattern creates a Redis key pattern for scanning all callers on a specific chain.
-// Format: <prefix>:*:<chain_selector>
+// Format: <prefix>:*:<chain_selector>.
 func (s *RedisStorage) buildPattern(chainSelector uint64) string {
 	return fmt.Sprintf("%s:*:%d", s.keyPrefix, chainSelector)
 }
 
 // extractCallerID extracts the caller ID from a Redis key.
-// Key format: <prefix>:<caller_id>:<chain_selector>
+// Key format: <prefix>:<caller_id>:<chain_selector>.
 func (s *RedisStorage) extractCallerID(key string) string {
 	// Remove prefix
 	prefixLen := len(s.keyPrefix) + 1 // +1 for the colon
@@ -301,7 +298,7 @@ func (s *InMemoryStorage) GetMaxBlockHeights(ctx context.Context, chainSelectors
 	return result, nil
 }
 
-// NoopStorage is a no-op implementation of Storage
+// NoopStorage is a no-op implementation of Storage.
 type NoopStorage struct{}
 
 // NewNoopStorage creates a new no-op storage.

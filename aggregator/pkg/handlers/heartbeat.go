@@ -70,8 +70,7 @@ func (h *HeartbeatHandler) Handle(ctx context.Context, req *heartbeatpb.Heartbea
 	}
 
 	// Get the list of chain selectors to query
-	var chainSelectors []uint64
-	chainSelectors = make([]uint64, 0, len(chainDetails.BlockHeightsByChain))
+	chainSelectors := make([]uint64, 0, len(chainDetails.BlockHeightsByChain))
 	for chainSelector := range chainDetails.BlockHeightsByChain {
 		chainSelectors = append(chainSelectors, chainSelector)
 	}
@@ -94,14 +93,14 @@ func (h *HeartbeatHandler) Handle(ctx context.Context, req *heartbeatpb.Heartbea
 			continue
 		}
 
-		var headsFlat []int64
+		headsFlat := make([]int64, 0, len(headsAcrossCallers))
 		for _, height := range headsAcrossCallers {
-			headsFlat = append(headsFlat, int64(height))
+			headsFlat = append(headsFlat, int64(height)) // #nosec G115 -- block heights are within int64 range
 		}
 
 		// Calculate adaptive score
 		currentHeight := req.ChainDetails.BlockHeightsByChain[chainSelector]
-		score := CalculateAdaptiveScore(int64(currentHeight), headsFlat)
+		score := CalculateAdaptiveScore(int64(currentHeight), headsFlat) // #nosec G115 -- block heights are within int64 range
 		chainBenchmarks[chainSelector] = &heartbeatpb.ChainBenchmark{
 			BlockHeight: maxBlockHeight,
 			Score:       float32(score),
@@ -142,9 +141,9 @@ func NewHeartbeatHandler(storage heartbeat.Storage, aggregatorID string, committ
 // Using MAD is much more robust to outliers compared to standard deviation as it uses median instead of mean.
 // This helps prevent a few nodes with very low block heights from skewing the score for everyone else.
 // Example scores
-// 1.0 -> Leading
-// 2.0 -> 1 MAD behind
-// 4.0 -> 3 MADs behind
+// 1.0 -> Leading.
+// 2.0 -> 1 MAD behind.
+// 4.0 -> 3 MADs behind.
 func CalculateAdaptiveScore(scoreBlock int64, allBlocks []int64) float64 {
 	n := len(allBlocks)
 	if n == 0 {
@@ -154,12 +153,12 @@ func CalculateAdaptiveScore(scoreBlock int64, allBlocks []int64) float64 {
 	// 1. Find Median
 	sorted := make([]int64, n)
 	copy(sorted, allBlocks)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	slices.Sort(sorted)
 	median := sorted[n/2]
 
-	// 2. Find MAD (Median Absolute Deviation)
-	// This calculates the median of gaps from the median
-	var deviations []float64
+	// 2. Find MAD (Median Absolute Deviation).
+	// This calculates the median of gaps from the median.
+	deviations := make([]float64, 0, n)
 	for _, b := range sorted {
 		dev := math.Abs(float64(b - median))
 		deviations = append(deviations, dev)

@@ -343,7 +343,7 @@ func (c *AggregatorMetricLabeler) IncrementVerifierHeartbeatsTotal(ctx context.C
 
 func (c *AggregatorMetricLabeler) SetVerifierHeartbeatChainHeads(ctx context.Context, blockHeight uint64) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.am.verifierHeartbeatChainHeads.Record(ctx, int64(blockHeight), metric.WithAttributes(otelLabels...))
+	c.am.verifierHeartbeatChainHeads.Record(ctx, int64(blockHeight), metric.WithAttributes(otelLabels...)) // #nosec G115 -- block heights are within int64 range
 }
 
 func (c *AggregatorMetricLabeler) SetVerifierLastHeartbeatTimestamp(ctx context.Context, timestamp int64) {

@@ -106,6 +106,7 @@ func (c *NoopAggregatorMetricLabeler) IncrementVerifierHeartbeatsTotal(ctx conte
 func (c *NoopAggregatorMetricLabeler) SetVerifierHeartbeatChainHeads(ctx context.Context, blockHeight uint64) {
 	// No-op
 }
+
 func (c *NoopAggregatorMetricLabeler) IncrementVerificationsTotal(ctx context.Context) {
 	// No-op
 }
