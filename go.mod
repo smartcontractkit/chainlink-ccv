@@ -56,7 +56,7 @@ require (
 	github.com/redis/go-redis/v9 v9.7.0
 	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20260110001823-6248663ac9c4
 	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260107102015-5d25a8a55ec6
-	github.com/smartcontractkit/chainlink-common/keystore v0.1.1-0.20260115184711-803ff5ecdc46
+	github.com/smartcontractkit/chainlink-common/keystore v0.1.1-0.20260115223730-5b1627d94b6e
 	github.com/smartcontractkit/chainlink-deployments-framework v0.56.0
 	github.com/smartcontractkit/chainlink-framework/chains v0.0.0-20251210101658-1c5c8e4c4f15
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier v0.0.0-20251211142334-5c3421fe2c8d
