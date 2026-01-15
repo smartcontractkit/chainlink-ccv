@@ -13,12 +13,12 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/rs/zerolog"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccv/deployments"
+	"github.com/smartcontractkit/chainlink-ccv/deployments/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
@@ -434,27 +434,29 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
+	// Generate aggregator configs using changesets (on-chain state as source of truth)
 	for _, aggregatorInput := range in.Aggregator {
 		aggregatorInput.SharedTLSCerts = sharedTLSCerts
-		// Initialize proxy addresses from datastore.
-		addrs, _ := e.DataStore.Addresses().Fetch()
-		if aggregatorInput.CommitteeVerifierResolverAddresses == nil {
-			aggregatorInput.CommitteeVerifierResolverAddresses = make(map[uint64]string)
-		}
-		for _, addr := range addrs {
-			if addr.Qualifier != aggregatorInput.CommitteeName {
-				continue
-			}
-			if addr.Type != "CommitteeVerifierResolver" {
-				continue
-			}
-			if _, ok := aggregatorInput.CommitteeVerifierResolverAddresses[addr.ChainSelector]; ok {
-				return nil, fmt.Errorf("duplicate committee verifier resolver address for committee %s on chain selector %d", aggregatorInput.CommitteeName, addr.ChainSelector)
-			}
-			aggregatorInput.CommitteeVerifierResolverAddresses[addr.ChainSelector] = addr.Address
+
+		// Use changeset to generate committee config from on-chain state
+		cs := changesets.GenerateAggregatorConfig()
+		output, err := cs.Apply(*e, changesets.GenerateAggregatorConfigCfg{
+			ServiceIdentifier:  aggregatorInput.CommitteeName + "-aggregator",
+			CommitteeQualifier: aggregatorInput.CommitteeName,
+			ChainSelectors:     selectors,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate aggregator config for committee %s: %w", aggregatorInput.CommitteeName, err)
 		}
 
-		out, err := services.NewAggregator(aggregatorInput, in.Verifier)
+		// Get generated config from output datastore
+		aggCfg, err := deployments.GetAggregatorConfig(output.DataStore.Seal(), aggregatorInput.CommitteeName+"-aggregator")
+		if err != nil {
+			return nil, fmt.Errorf("failed to get aggregator config from output: %w", err)
+		}
+		aggregatorInput.GeneratedCommittee = aggCfg
+
+		out, err := services.NewAggregator(aggregatorInput)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create aggregator service for committee %s: %w", aggregatorInput.CommitteeName, err)
 		}
@@ -473,52 +475,35 @@ func NewEnvironment() (in *Cfg, err error) {
 	// start up the indexer after the aggregators are up to avoid spamming of errors
 	// in the logs when it starts before the aggregators are up.
 	///////////////////////////
-	// Need to update the addresses in the indexer config due to contract deployment nondeterminism.
-	for _, agg := range in.Aggregator {
-		// XXX: in theory addresses should be matching across chains
-		chain := in.Blockchains[0]
-		chainInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(chain.ChainID, chainsel.FamilyEVM)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get chain details for chain %s: %w", chain.ChainID, err)
+	// Generate indexer config using changeset (on-chain state as source of truth)
+	if len(in.Aggregator) > 0 && in.Indexer != nil {
+		committeeQualifiers := make([]string, 0, len(in.Aggregator))
+		for _, agg := range in.Aggregator {
+			committeeQualifiers = append(committeeQualifiers, agg.CommitteeName)
 		}
 
-		address, err := e.DataStore.Addresses().Get(
-			datastore.NewAddressRefKey(
-				chainInfo.ChainSelector,
-				datastore.ContractType(committee_verifier.ResolverType),
-				semver.MustParse(committee_verifier.Deploy.Version()),
-				agg.CommitteeName,
-			))
+		cs := changesets.GenerateIndexerConfig()
+		output, err := cs.Apply(*e, changesets.GenerateIndexerConfigCfg{
+			ServiceIdentifier:   "indexer",
+			CommitteeQualifiers: committeeQualifiers,
+			ChainSelectors:      selectors,
+		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to get committee verifier resolver address for committee %s on chain %s: %w", agg.CommitteeName, chain.ChainID, err)
+			return nil, fmt.Errorf("failed to generate indexer config: %w", err)
 		}
 
-		// find the verifier in the indexer config that references this aggregator
-		idx := -1
-		for i, ver := range in.Indexer.IndexerConfig.Verifiers {
-			if strings.HasPrefix(ver.Address, agg.CommitteeName) {
-				idx = i
-				break
+		idxCfg, err := deployments.GetIndexerConfig(output.DataStore.Seal(), "indexer")
+		if err != nil {
+			return nil, fmt.Errorf("failed to get indexer config from output: %w", err)
+		}
+		in.Indexer.GeneratedCfg = idxCfg
+
+		// Update verifier addresses to use nginx TLS proxy (Later will be pulled from env metadata and added to job spec)
+		for idx, agg := range in.Aggregator {
+			if agg.Out != nil && idx < len(in.Indexer.IndexerConfig.Verifiers) {
+				in.Indexer.IndexerConfig.Verifiers[idx].Address = agg.Out.Address
 			}
 		}
-
-		if idx == -1 {
-			return nil, fmt.Errorf("failed to find verifier in indexer config that references committee verifier resolver address for committee %s on chain %s", agg.CommitteeName, chain.ChainID)
-		}
-
-		in.Indexer.IndexerConfig.Verifiers[idx].IssuerAddresses = []string{
-			address.Address,
-		}
-
-		// Update verifier address to use nginx TLS proxy
-		if agg.Out != nil {
-			in.Indexer.IndexerConfig.Verifiers[idx].Address = agg.Out.Address
-		}
-
-		Plog.Info().
-			Str("committee", agg.CommitteeName).
-			Str("address", address.Address).
-			Msg("assigned issuer address to verifier in indexer config")
 	}
 
 	// Set TLS CA cert for indexer (all aggregators share the same CA)

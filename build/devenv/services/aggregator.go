@@ -98,12 +98,6 @@ type AggregatorInput struct {
 	Env             *AggregatorEnvConfig      `toml:"env"`
 	APIClients      []*AggregatorClientConfig `toml:"api_clients"`
 	CommitteeName   string                    `toml:"committee_name"`
-
-	// Chain selector -> Committee Verifier Resolver Address
-	CommitteeVerifierResolverAddresses map[uint64]string `toml:"committee_verifier_resolver_addresses"`
-	// Source chain selector -> threshold mapping
-	// If not available we default to a full quorum, i.e. all verifiers must sign.
-	ThresholdPerSource map[uint64]uint8 `toml:"threshold_per_source"`
 	// Maps to Monitoring.Beholder.OtelExporterHTTPEndpoint in the aggregator config toml.
 	MonitoringOtelExporterHTTPEndpoint string `toml:"monitoring_otel_exporter_http_endpoint"`
 
@@ -118,6 +112,10 @@ type AggregatorInput struct {
 	// SharedTLSCerts contains shared TLS certificates for all aggregators.
 	// If set, these certs will be used instead of generating new ones.
 	SharedTLSCerts *TLSCertPaths `toml:"-"`
+
+	// GeneratedCommittee is the pre-generated committee config from the deployments changesets.
+	// This is set by environment.go after scanning on-chain state.
+	GeneratedCommittee *model.Committee `toml:"-"`
 }
 
 type AggregatorOutput struct {
@@ -129,11 +127,12 @@ type AggregatorOutput struct {
 	DBURL              string `toml:"db_url"`
 	DBConnectionString string `toml:"db_connection_string"`
 	TLSCACertFile      string `toml:"tls_ca_cert_file"`
-	// Source chain selector -> threshold mapping.
-	ThresholdPerSource map[uint64]uint8 `toml:"threshold_per_source"`
 	// ClientCredentials maps ClientID to generated HMAC credentials.
 	// Used by verifiers to automatically obtain their credentials.
 	ClientCredentials map[string]hmacutil.Credentials `toml:"-"`
+	// GeneratedCommittee is copied from AggregatorInput after config generation.
+	// Saved here so tests can access it after loading from env-out.toml.
+	GeneratedCommittee *model.Committee `toml:"generated_committee"`
 }
 
 func (o *AggregatorOutput) GetCredentialsForClient(clientID string) (hmacutil.Credentials, bool) {
@@ -171,7 +170,7 @@ func (a *AggregatorInput) EnsureClientCredentials() (map[string]hmacutil.Credent
 	return credentialsMap, nil
 }
 
-func validateAggregatorInput(in *AggregatorInput, inV []*VerifierInput) error {
+func validateAggregatorInput(in *AggregatorInput) error {
 	if in.Image == "" {
 		return fmt.Errorf("image is required for aggregator")
 	}
@@ -212,73 +211,33 @@ func validateAggregatorInput(in *AggregatorInput, inV []*VerifierInput) error {
 	if in.Env.RedisDB == "" {
 		return fmt.Errorf("redis DB is required for aggregator")
 	}
-
-	if inV == nil {
-		return fmt.Errorf("at least one verifier input is required for aggregator")
-	}
-	for range inV {
-		// TODO: Validate verifier input?
+	if in.GeneratedCommittee == nil {
+		return fmt.Errorf("GeneratedCommittee is required - run config generation changeset first")
 	}
 	return nil
 }
 
 // GenerateConfigResult holds the output of GenerateConfigs.
 type GenerateConfigResult struct {
-	MainConfig         []byte
-	GeneratedConfig    []byte
-	ThresholdPerSource map[uint64]uint8
+	MainConfig      []byte
+	GeneratedConfig []byte
 }
 
 // GenerateConfigs generates the aggregator service configuration using the inputs.
 // It returns two TOML configs: the main config and the generated (committee) config.
-func (a *AggregatorInput) GenerateConfigs(inV []*VerifierInput, generatedConfigFileName string) (*GenerateConfigResult, error) {
-	thresholdPerSource := make(map[uint64]uint8)
-	committeeName := a.CommitteeName
+// If GeneratedCommittee is set, it uses that instead of building from verifier inputs.
+func (a *AggregatorInput) GenerateConfigs(generatedConfigFileName string) (*GenerateConfigResult, error) {
+	if a.GeneratedCommittee == nil {
+		return nil, fmt.Errorf("GeneratedCommittee is required - run config generation changeset first")
+	}
 
 	config, err := configuration.LoadConfigString(aggregatorConfigTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load aggregator config template: %w", err)
 	}
 
-	committeeConfig := &model.Committee{}
-	committeeConfig.QuorumConfigs = make(map[string]*model.QuorumConfig)
-	committeeConfig.DestinationVerifiers = make(map[string]string)
-
-	// Build signers list from verifier inputs
-	signers := make([]model.Signer, 0, len(inV))
-	for _, v := range inV {
-		if v.CommitteeName != committeeName {
-			continue
-		}
-		signers = append(signers, model.Signer{
-			Address: v.SigningKeyPublic,
-		})
-	}
-	defaultThreshold := uint8(len(signers))
-
-	// Create quorum configs per source chain and destination verifiers mapping
-	for chainSelector, verifierAddress := range a.CommitteeVerifierResolverAddresses {
-		chainSelStr := strconv.FormatUint(chainSelector, 10)
-
-		// Add destination verifier mapping
-		committeeConfig.DestinationVerifiers[chainSelStr] = verifierAddress
-
-		// Determine threshold for this source
-		sourceThreshold := defaultThreshold
-		if a.ThresholdPerSource != nil {
-			if t, exists := a.ThresholdPerSource[chainSelector]; exists {
-				sourceThreshold = t
-			}
-		}
-
-		// Add quorum config for this source
-		committeeConfig.QuorumConfigs[chainSelStr] = &model.QuorumConfig{
-			SourceVerifierAddress: verifierAddress,
-			Signers:               signers,
-			Threshold:             sourceThreshold,
-		}
-		thresholdPerSource[chainSelector] = sourceThreshold
-	}
+	// Use the pre-generated committee config from the changeset
+	committeeConfig := a.GeneratedCommittee
 
 	// Set the path to the generated config file (relative to main config)
 	config.GeneratedConfigPath = generatedConfigFileName
@@ -329,9 +288,8 @@ func (a *AggregatorInput) GenerateConfigs(inV []*VerifierInput, generatedConfigF
 	}
 
 	return &GenerateConfigResult{
-		MainConfig:         mainCfg,
-		GeneratedConfig:    genCfgBytes,
-		ThresholdPerSource: thresholdPerSource,
+		MainConfig:      mainCfg,
+		GeneratedConfig: genCfgBytes,
 	}, nil
 }
 
@@ -343,14 +301,14 @@ func (a *AggregatorInput) GetAPIKeys() ([]AggregatorClientConfig, error) {
 	return apiKeyConfigs, nil
 }
 
-func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput, error) {
+func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	if in == nil {
 		return nil, nil
 	}
 	if in.Out != nil && in.Out.UseCache {
 		return in.Out, nil
 	}
-	if err := validateAggregatorInput(in, inV); err != nil {
+	if err := validateAggregatorInput(in); err != nil {
 		return nil, err
 	}
 
@@ -367,7 +325,7 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 
 	confDir := util.CCVConfigDir()
 	generatedConfigFileName := fmt.Sprintf("aggregator-%s-generated.toml", in.CommitteeName)
-	configResult, err := in.GenerateConfigs(inV, generatedConfigFileName)
+	configResult, err := in.GenerateConfigs(generatedConfigFileName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate aggregator configs: %w", err)
 	}
@@ -616,8 +574,8 @@ func NewAggregator(in *AggregatorInput, inV []*VerifierInput) (*AggregatorOutput
 		ExternalHTTPUrl:    fmt.Sprintf("%s:%d", aggregatorContainerName, DefaultAggregatorGRPCPort),
 		ExternalHTTPSUrl:   fmt.Sprintf("%s:%d", host, in.HostPort),
 		TLSCACertFile:      tlsCerts.CACertFile,
-		ThresholdPerSource: configResult.ThresholdPerSource,
 		ClientCredentials:  clientCredentials,
+		GeneratedCommittee: in.GeneratedCommittee,
 	}
 	return in.Out, nil
 }

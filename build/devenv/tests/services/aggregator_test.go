@@ -21,6 +21,7 @@ import (
 	msgdiscoverypb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery/v1"
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
@@ -51,7 +52,7 @@ func generateTestSigningKey(committeeName string, nodeIndex int) (privateKey, pu
 
 func TestServiceAggregator(t *testing.T) {
 	committeeName := "default"
-	privateKey, publicKey, err := generateTestSigningKey(committeeName, 0)
+	_, publicKey, err := generateTestSigningKey(committeeName, 0)
 	require.NoError(t, err)
 
 	out, err := services.NewAggregator(&services.AggregatorInput{
@@ -60,9 +61,6 @@ func TestServiceAggregator(t *testing.T) {
 		HostPort:       8103,
 		SourceCodePath: "../../../aggregator",
 		RootPath:       "../../../../",
-		CommitteeVerifierResolverAddresses: map[uint64]string{
-			12922642891491394802: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
-		},
 		DB: &services.AggregatorDBInput{
 			Image:    "postgres:16-alpine",
 			HostPort: 7432,
@@ -91,14 +89,21 @@ func TestServiceAggregator(t *testing.T) {
 				Secret: testCredentials.Secret,
 			}},
 		}},
-	}, []*services.VerifierInput{{
-		SourceCodePath:   "../../../verifier",
-		RootPath:         "../../../../",
-		CommitteeName:    committeeName,
-		NodeIndex:        0,
-		SigningKey:       privateKey,
-		SigningKeyPublic: publicKey,
-	}})
+		GeneratedCommittee: &model.Committee{
+			QuorumConfigs: map[string]*model.QuorumConfig{
+				"12922642891491394802": {
+					SourceVerifierAddress: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
+					Signers: []model.Signer{
+						{Address: publicKey},
+					},
+					Threshold: 1,
+				},
+			},
+			DestinationVerifiers: map[string]string{
+				"12922642891491394802": "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
+			},
+		},
+	})
 	require.NoError(t, err)
 	t.Run("test #1", func(t *testing.T) {
 		_ = out
@@ -111,7 +116,7 @@ func TestServiceAggregator(t *testing.T) {
 // anonymous auth middleware validates peer IP addresses.
 func TestServiceAggregatorAuthentication(t *testing.T) {
 	committeeName := "auth-test"
-	privateKey, publicKey, err := generateTestSigningKey(committeeName, 0)
+	_, publicKey, err := generateTestSigningKey(committeeName, 0)
 	require.NoError(t, err)
 
 	grpcHostPort := 50251
@@ -124,9 +129,6 @@ func TestServiceAggregatorAuthentication(t *testing.T) {
 		ExposedHostPort: grpcHostPort,
 		SourceCodePath:  "../../../aggregator",
 		RootPath:        "../../../../",
-		CommitteeVerifierResolverAddresses: map[uint64]string{
-			12922642891491394802: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
-		},
 		DB: &services.AggregatorDBInput{
 			Image:    "postgres:16-alpine",
 			HostPort: 7433,
@@ -157,14 +159,21 @@ func TestServiceAggregatorAuthentication(t *testing.T) {
 				}},
 			},
 		},
-	}, []*services.VerifierInput{{
-		SourceCodePath:   "../../../verifier",
-		RootPath:         "../../../../",
-		CommitteeName:    committeeName,
-		NodeIndex:        0,
-		SigningKey:       privateKey,
-		SigningKeyPublic: publicKey,
-	}})
+		GeneratedCommittee: &model.Committee{
+			QuorumConfigs: map[string]*model.QuorumConfig{
+				"12922642891491394802": {
+					SourceVerifierAddress: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
+					Signers: []model.Signer{
+						{Address: publicKey},
+					},
+					Threshold: 1,
+				},
+			},
+			DestinationVerifiers: map[string]string{
+				"12922642891491394802": "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
+			},
+		},
+	})
 	require.NoError(t, err)
 	require.NotNil(t, out)
 
@@ -419,19 +428,14 @@ func setupAggregatorTestFixture(t *testing.T) *aggregatorTestFixture {
 	maliciousCredentials := hmacutil.MustGenerateCredentials()
 
 	// Setup aggregator with 2-of-3 threshold
+	sourceChainSelStr := fmt.Sprintf("%d", sourceChainSel)
 	out, err := services.NewAggregator(&services.AggregatorInput{
-		CommitteeName:   committeeName,
-		Image:           "aggregator:dev",
-		HostPort:        8110,
-		ExposedHostPort: grpcHostPort, // Expose gRPC port directly for test
-		SourceCodePath:  "../../../aggregator",
-		RootPath:        "../../../../",
-		CommitteeVerifierResolverAddresses: map[uint64]string{
-			sourceChainSel: verifierAddress,
-		},
-		ThresholdPerSource: map[uint64]uint8{
-			sourceChainSel: 2, // 2-of-3 threshold
-		},
+		CommitteeName:                committeeName,
+		Image:                        "aggregator:dev",
+		HostPort:                     8110,
+		ExposedHostPort:              grpcHostPort, // Expose gRPC port directly for test
+		SourceCodePath:               "../../../aggregator",
+		RootPath:                     "../../../../",
 		AggregationChannelBufferSize: 1, // Minimal buffer for channel exhaustion tests
 		BackgroundWorkerCount:        1, // Single worker = slow drain for deterministic tests
 		DB: &services.AggregatorDBInput{
@@ -484,31 +488,21 @@ func setupAggregatorTestFixture(t *testing.T) *aggregatorTestFixture {
 				}},
 			},
 		},
-	}, []*services.VerifierInput{
-		// All 3 signers are in the committee
-		{
-			SourceCodePath:   "../../../verifier",
-			RootPath:         "../../../../",
-			CommitteeName:    committeeName,
-			NodeIndex:        0,
-			SigningKey:       honest1.privateKeyHex,
-			SigningKeyPublic: honest1.publicKeyHex,
-		},
-		{
-			SourceCodePath:   "../../../verifier",
-			RootPath:         "../../../../",
-			CommitteeName:    committeeName,
-			NodeIndex:        1,
-			SigningKey:       honest2.privateKeyHex,
-			SigningKeyPublic: honest2.publicKeyHex,
-		},
-		{
-			SourceCodePath:   "../../../verifier",
-			RootPath:         "../../../../",
-			CommitteeName:    committeeName,
-			NodeIndex:        2,
-			SigningKey:       malicious.privateKeyHex,
-			SigningKeyPublic: malicious.publicKeyHex,
+		GeneratedCommittee: &model.Committee{
+			QuorumConfigs: map[string]*model.QuorumConfig{
+				sourceChainSelStr: {
+					SourceVerifierAddress: verifierAddress,
+					Signers: []model.Signer{
+						{Address: honest1.publicKeyHex},
+						{Address: honest2.publicKeyHex},
+						{Address: malicious.publicKeyHex},
+					},
+					Threshold: 2, // 2-of-3 threshold
+				},
+			},
+			DestinationVerifiers: map[string]string{
+				sourceChainSelStr: verifierAddress,
+			},
 		},
 	})
 	require.NoError(t, err)

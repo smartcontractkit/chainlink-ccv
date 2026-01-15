@@ -102,9 +102,10 @@ func TestE2ESmoke(t *testing.T) {
 
 	var indexerClient *ccv.IndexerClient
 	if in.IndexerEndpoint != "" {
-		indexerClient = ccv.NewIndexerClient(
+		indexerClient, err = ccv.NewIndexerClient(
 			zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
 			in.IndexerEndpoint)
+		require.NoError(t, err)
 		require.NotNil(t, indexerClient)
 	}
 
