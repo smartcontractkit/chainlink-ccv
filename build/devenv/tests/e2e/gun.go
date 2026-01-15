@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"strconv"
 	"sync"
@@ -27,6 +28,7 @@ import (
 )
 
 const sentMessageChannelBufferSize = 1000
+const avgMsgDataSize = 1000 // bytes
 
 type SrcDest struct {
 	Src  uint64
@@ -127,7 +129,7 @@ func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testConfig *load.TOMLLoadT
 	}
 }
 
-func (m *EVMTXGun) initNonce(key NonceKey) error {
+func (m *EVMTXGun) initNonce(key NonceKey, userAddress common.Address) error {
 	m.nonceMu.Lock()
 	defer m.nonceMu.Unlock()
 
@@ -135,7 +137,7 @@ func (m *EVMTXGun) initNonce(key NonceKey) error {
 		return nil
 	}
 
-	n, err := m.impl[key.Selector].GetUserNonce(context.Background())
+	n, err := m.impl[key.Selector].GetUserNonce(context.Background(), protocol.UnknownAddress(userAddress.Bytes()))
 	if err != nil {
 		return fmt.Errorf("failed to get pending nonce for selector %d: %w", key.Selector, err)
 	}
@@ -166,7 +168,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	sender := m.userSelector[srcSelector]()
 	nonceKey := NonceKey{Selector: srcSelector, Address: sender.From.String()}
 
-	if err := m.initNonce(nonceKey); err != nil {
+	if err := m.initNonce(nonceKey, sender.From); err != nil {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}
 
@@ -281,5 +283,21 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 		FinalityConfig: uint16(messageProfile.Finality),
 	}
 
+	if messageProfile.HasData {
+		data := make([]byte, avgMsgDataSize)
+		_, err2 := rand.Read(data)
+		if err2 != nil {
+			return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to generate data: %w", err2)
+		}
+		fields.Data = data
+	}
+	if messageProfile.HasToken {
+		// token transfers not yet supported in staging, skip for now
+		return fields, opts, nil
+		// fields.TokenAmount = cciptestinterfaces.TokenAmount{
+		// 	Amount:       big.NewInt(1),
+		// 	TokenAddress: protocol.UnknownAddress(wethContract.Address),
+		// }
+	}
 	return fields, opts, nil
 }

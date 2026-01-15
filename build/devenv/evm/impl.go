@@ -822,13 +822,14 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, field
 	if nonce != nil {
 		loadNonce = big.NewInt(int64(nonce.Load()))
 	}
-	deployerKeyCopy := &bind.TransactOpts{
+	senderKeyCopy := &bind.TransactOpts{
 		From:   sender.From,
 		Signer: sender.Signer,
 		Nonce:  loadNonce,
 		Value:  msgValue,
 	}
-	tx, err := rout.CcipSend(deployerKeyCopy, dest, msg)
+	fmt.Printf("sender: %s, srcChain: %d, nonce: %s\n", senderKeyCopy.From.String(), srcChain.Selector, loadNonce.String())
+	tx, err := rout.CcipSend(senderKeyCopy, dest, msg)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to send CCIP message: %w, extraArgs: %x", err, extraArgs)
 	}
@@ -908,8 +909,8 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, field
 	return result, nil
 }
 
-func (m *CCIP17EVM) GetUserNonce(ctx context.Context) (uint64, error) {
-	return m.chain.Client.PendingNonceAt(ctx, m.chain.DeployerKey.From)
+func (m *CCIP17EVM) GetUserNonce(ctx context.Context, userAddress protocol.UnknownAddress) (uint64, error) {
+	return m.chain.Client.PendingNonceAt(ctx, common.HexToAddress(userAddress.String()))
 }
 
 func serializeExtraArgs(opts cciptestinterfaces.MessageOptions, destFamily string) []byte {
@@ -2073,7 +2074,8 @@ func (m *CCIP17EVM) GetRoundRobinUser() func() *bind.TransactOpts {
 	}
 	index := &atomic.Uint32{}
 	return func() *bind.TransactOpts {
+		selectedSender := m.chain.Users[index.Load()%uint32(len(m.chain.Users))]
 		index.Add(1)
-		return m.chain.Users[index.Load()%uint32(len(m.chain.Users))]
+		return selectedSender
 	}
 }
