@@ -175,7 +175,7 @@ func (r *SourceReaderService) Close() error {
 		r.logger.Infow("Stopping SourceReaderService")
 		close(r.stopCh)
 		r.wg.Wait()
-		r.readyTasksBatcher.Close()
+		_ = r.readyTasksBatcher.Close()
 
 		// Note: We don't explicitly close the batcher here because it shares the same context
 		// as the coordinator. When the coordinator cancels the context, the batcher will

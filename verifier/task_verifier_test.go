@@ -111,7 +111,7 @@ func (f FakeSourceReaderFanout) ReadyTasksChannel() <-chan batcher.BatchResult[v
 }
 
 func Test_TaskVerifierProcessor_ContextCancelFlushGuarantee(t *testing.T) {
-	// Regression test for deadlock when context is cancelled with pending batches
+	// Regression test for deadlock when context is canceled with pending batches
 	// Verifies that the processor drains all batches on shutdown using background context
 	message1 := protocol.Message{SequenceNumber: 1}
 	messageID1 := message1.MustMessageID()

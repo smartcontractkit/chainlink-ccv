@@ -472,7 +472,7 @@ func TestStorageWriterProcessor_ContextCancellation(t *testing.T) {
 	})
 
 	t.Run("drains pending batches on context cancel without deadlock", func(t *testing.T) {
-		// Regression test for deadlock when context is cancelled with pending batches
+		// Regression test for deadlock when context is canceled with pending batches
 		ctx, cancel := context.WithCancel(t.Context())
 		t.Cleanup(cancel)
 
