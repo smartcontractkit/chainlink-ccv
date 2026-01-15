@@ -13,6 +13,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/deployments/sequences"
 )
 
+// GenerateIndexerConfigCfg is an alias for the changeset input type.
+type GenerateIndexerConfigCfg = idxconfig.BuildConfigInput
+
 // GenerateIndexerConfig creates a changeset that generates the indexer configuration
 // by scanning on-chain CommitteeVerifier contracts.
 func GenerateIndexerConfig() deployment.ChangeSetV2[idxconfig.BuildConfigInput] {
@@ -48,10 +51,15 @@ func GenerateIndexerConfig() deployment.ChangeSetV2[idxconfig.BuildConfigInput] 
 			}, fmt.Errorf("failed to generate indexer config: %w", err)
 		}
 
-		// Create a new datastore to return with the generated config
 		outputDS := datastore.NewMemoryDataStore()
+		if e.DataStore != nil {
+			if err := outputDS.Merge(e.DataStore); err != nil {
+				return deployment.ChangesetOutput{
+					Reports: report.ExecutionReports,
+				}, fmt.Errorf("failed to merge existing datastore: %w", err)
+			}
+		}
 
-		// Save the generated config to the datastore's env metadata
 		idxCfg := idxconfig.GeneratedVerifiersToGeneratedConfig(report.Output.Verifiers)
 		if err := deployments.SaveIndexerConfig(outputDS, report.Output.ServiceIdentifier, idxCfg); err != nil {
 			return deployment.ChangesetOutput{

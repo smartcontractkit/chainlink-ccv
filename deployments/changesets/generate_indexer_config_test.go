@@ -12,10 +12,13 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/testutils"
 )
+
+const testCommitteeQualifier = "test-committee"
 
 func TestGenerateIndexerConfig_ValidatesServiceIdentifier(t *testing.T) {
 	changeset := changesets.GenerateIndexerConfig()
@@ -102,4 +105,61 @@ func TestGenerateIndexerConfig_GeneratesCorrectConfigWithMultipleCommittees(t *t
 		assert.Len(t, verifierCfg.IssuerAddresses, len(chainSelectors),
 			"verifier %s should have %d issuer addresses", idxStr, len(chainSelectors))
 	}
+}
+
+func TestGenerateIndexerConfig_PreservesExistingAggregatorConfig(t *testing.T) {
+	chainSelectors := []uint64{1001, 1002}
+	committee := testCommitteeQualifier
+
+	ds := datastore.NewMemoryDataStore()
+	for _, sel := range chainSelectors {
+		err := ds.Addresses().Add(datastore.AddressRef{
+			ChainSelector: sel,
+			Qualifier:     committee,
+			Type:          datastore.ContractType(committee_verifier.ResolverType),
+			Address:       fmt.Sprintf("0xverifier_%d", sel),
+			Version:       semver.MustParse("1.0.0"),
+		})
+		require.NoError(t, err)
+	}
+
+	existingAggregatorConfig := &model.Committee{
+		DestinationVerifiers: map[model.DestinationSelector]string{
+			"1001": "0xdest_1001",
+			"1002": "0xdest_1002",
+		},
+		QuorumConfigs: map[model.SourceSelector]*model.QuorumConfig{
+			"1001": {
+				SourceVerifierAddress: "0xsource_1001",
+				Signers:               []model.Signer{{Address: "0xsigner1"}},
+				Threshold:             1,
+			},
+		},
+	}
+	err := deployments.SaveAggregatorConfig(ds, "existing-aggregator", existingAggregatorConfig)
+	require.NoError(t, err)
+
+	env := deployment.Environment{
+		OperationsBundle: testutils.NewTestBundle(),
+		BlockChains:      testutils.NewStubBlockChains(chainSelectors),
+		DataStore:        ds.Seal(),
+	}
+
+	cs := changesets.GenerateIndexerConfig()
+	output, err := cs.Apply(env, changesets.GenerateIndexerConfigCfg{
+		ServiceIdentifier:   "new-indexer",
+		CommitteeQualifiers: []string{committee},
+		ChainSelectors:      chainSelectors,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, output.DataStore)
+
+	outputSealed := output.DataStore.Seal()
+
+	_, err = deployments.GetIndexerConfig(outputSealed, "new-indexer")
+	require.NoError(t, err, "new indexer config should be present")
+
+	retrievedAggregatorConfig, err := deployments.GetAggregatorConfig(outputSealed, "existing-aggregator")
+	require.NoError(t, err, "existing aggregator config should be preserved")
+	assert.Equal(t, existingAggregatorConfig, retrievedAggregatorConfig, "aggregator config should be unchanged")
 }
