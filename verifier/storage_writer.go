@@ -92,6 +92,7 @@ func (s *StorageWriterProcessor) Start(ctx context.Context) error {
 func (s *StorageWriterProcessor) Close() error {
 	return s.StopOnce(s.Name(), func() error {
 		s.wg.Wait()
+		s.batcher.Close()
 		return nil
 	})
 }
