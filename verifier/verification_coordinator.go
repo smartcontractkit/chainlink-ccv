@@ -16,6 +16,7 @@ import (
 
 type Coordinator struct {
 	services.StateMachine
+	ctx    context.Context
 	cancel context.CancelFunc
 
 	lggr       logger.Logger
@@ -58,7 +59,7 @@ func NewCoordinator(
 }
 
 func NewCoordinatorWithDetector(
-	ctx context.Context,
+	_ context.Context, // Context unused - coordinator manages its own lifecycle
 	lggr logger.Logger,
 	verifier Verifier,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
@@ -69,19 +70,26 @@ func NewCoordinatorWithDetector(
 	chainStatusManager protocol.ChainStatusManager,
 	detector common.CurseCheckerService,
 ) (*Coordinator, error) {
+	// Create the coordinator's working context that will be used by all components
+	ctx, cancel := context.WithCancel(context.Background())
+
 	enabledSourceReaders, err := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, chainStatusManager)
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("failed to filter enabled source readers: %w", err)
 	}
 	if len(enabledSourceReaders) == 0 {
+		cancel()
 		return nil, errors.New("no enabled/initialized chain sources, nothing to coordinate")
 	}
 
 	curseDetector, err := createCurseDetector(lggr, config, detector, enabledSourceReaders)
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("failed to create curse detector: %w", err)
 	}
 
+	// Create batchers with the coordinator's context
 	sourceReaderServices := createSourceReaders(
 		ctx, lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders,
 	)
@@ -90,6 +98,7 @@ func NewCoordinatorWithDetector(
 		ctx, lggr, config.VerifierID, messageTracker, storage, config,
 	)
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("failed to create or/and start storage batcher storageWriterProcessor: %w", err)
 	}
 
@@ -97,11 +106,15 @@ func NewCoordinatorWithDetector(
 		lggr, config.VerifierID, verifier, monitoring, sourceReaderServices, storageBatcher,
 	)
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("failed to create or/and start task verifier service: %w", err)
 	}
 
 	return &Coordinator{
+		ctx:                    ctx,
+		cancel:                 cancel,
 		lggr:                   lggr,
+		verifierID:             config.VerifierID,
 		sourceReadersServices:  sourceReaderServices,
 		curseDetector:          curseDetector,
 		storageWriterProcessor: storageWriterProcessor,
@@ -113,8 +126,9 @@ func (vc *Coordinator) Start(_ context.Context) error {
 	return vc.StartOnce(vc.Name(), func() error {
 		vc.lggr.Infow("Starting verifier coordinator")
 
-		ctx, cancel := context.WithCancel(context.Background())
-		vc.cancel = cancel
+		// Use the coordinator's context that was created in the constructor
+		// and is shared by all batchers and components
+		ctx := vc.ctx
 
 		// Curse detector is optional so only start if it's set
 		if vc.curseDetector != nil {

@@ -118,7 +118,7 @@ func NewSourceReaderService(
 		ctx,
 		batchSize,
 		batchTimeout,
-		1,
+		0,
 	)
 
 	return &SourceReaderService{
@@ -176,11 +176,10 @@ func (r *SourceReaderService) Close() error {
 		close(r.stopCh)
 		r.wg.Wait()
 
-		// Close the batcher to signal downstream consumers (TaskVerifierProcessor)
-		// that no more batches will be sent
-		if err := r.readyTasksBatcher.Close(); err != nil {
-			r.logger.Errorw("Failed to close ready tasks batcher", "error", err)
-		}
+		// Note: We don't explicitly close the batcher here because it shares the same context
+		// as the coordinator. When the coordinator cancels the context, the batcher will
+		// automatically flush and close its output channel, allowing downstream consumers
+		// (TaskVerifierProcessor) to complete their drain loops.
 
 		r.logger.Infow("SourceReaderService stopped")
 		return nil
