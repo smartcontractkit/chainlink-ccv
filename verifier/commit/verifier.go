@@ -227,10 +227,10 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 
 	// Record successful message processing
 	cv.monitoring.Metrics().
-		With("source_chain", message.SourceChainSelector.String(), "dest_chain", message.DestChainSelector.String(), "verifier_id", cv.config.VerifierID).
+		With("source_chain", message.SourceChainSelector.Name(), "dest_chain", message.DestChainSelector.Name(), "verifier_id", cv.config.VerifierID).
 		IncrementMessagesProcessed(ctx)
 	cv.monitoring.Metrics().
-		With("source_chain", message.SourceChainSelector.String(), "verifier_id", cv.config.VerifierID).
+		With("source_chain", message.SourceChainSelector.Name(), "verifier_id", cv.config.VerifierID).
 		RecordMessageVerificationDuration(ctx, time.Since(start))
 
 	cv.lggr.Infow("CCV data added to batcher for writing to storage",

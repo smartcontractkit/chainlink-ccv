@@ -6,10 +6,17 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	sel "github.com/smartcontractkit/chain-selectors"
 )
 
 // ChainSelector represents chainlink-specific chain id.
 type ChainSelector uint64
+
+func (c ChainSelector) Name() string {
+	chain, _ := sel.ChainBySelector(uint64(c))
+	return chain.Name
+}
 
 func (c ChainSelector) String() string {
 	return fmt.Sprintf("ChainSelector(%d)", c)

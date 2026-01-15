@@ -143,7 +143,7 @@ func (p *TaskVerifierProcessor) processReadyTasks(
 		if !task.QueuedAt.IsZero() && p.monitoring != nil {
 			finalityWaitDuration := time.Since(task.QueuedAt)
 			p.monitoring.Metrics().
-				With("source_chain", task.Message.SourceChainSelector.String(), "verifier_id", p.verifierID).
+				With("source_chain", task.Message.SourceChainSelector.Name(), "verifier_id", p.verifierID).
 				RecordFinalityWaitDuration(ctx, finalityWaitDuration)
 		}
 	}
@@ -178,8 +178,8 @@ func (p *TaskVerifierProcessor) handleVerificationErrors(
 
 		p.monitoring.Metrics().
 			With(
-				"source_chain", message.SourceChainSelector.String(),
-				"dest_chain", message.DestChainSelector.String(),
+				"source_chain", message.SourceChainSelector.Name(),
+				"dest_chain", message.DestChainSelector.Name(),
 				"verifier_id", p.verifierID,
 			).
 			IncrementMessagesVerificationFailed(ctx)
