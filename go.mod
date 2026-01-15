@@ -53,7 +53,7 @@ require (
 	github.com/smartcontractkit/chainlink-common/keystore v0.1.1-0.20260108190337-7f47b3ae8537
 	github.com/smartcontractkit/chainlink-framework/chains v0.0.0-20251210101658-1c5c8e4c4f15
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier v0.0.0-20251211142334-5c3421fe2c8d
-	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/heartbeat v0.0.0-20260114145935-031f7d3f04e6
+	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/heartbeat v0.0.0-20260115142640-f6b99095c12e
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery v0.0.0-20251211142334-5c3421fe2c8d
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier v0.0.0-20251211142334-5c3421fe2c8d
 	github.com/smartcontractkit/chainlink-testing-framework/framework v0.12.5

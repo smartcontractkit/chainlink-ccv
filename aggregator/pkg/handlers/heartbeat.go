@@ -54,7 +54,7 @@ func (h *HeartbeatHandler) Handle(ctx context.Context, req *heartbeatpb.Heartbea
 	// filter for allowed chains only
 	chainDetails := filterHeartbeatChainDetails(req.ChainDetails, allowedChains)
 	if chainDetails == nil || len(chainDetails.BlockHeightsByChain) == 0 {
-		h.logger(ctx).Warn("No valid chain details provided in heartbeat request")
+		h.logger(ctx).Info("No valid chain details provided in heartbeat request")
 		return &heartbeatpb.HeartbeatResponse{
 			AggregatorId:    h.aggregatorID,
 			Timestamp:       req.SendTimestamp,
@@ -71,11 +71,9 @@ func (h *HeartbeatHandler) Handle(ctx context.Context, req *heartbeatpb.Heartbea
 
 	// Get the list of chain selectors to query
 	var chainSelectors []uint64
-	if chainDetails != nil && len(chainDetails.BlockHeightsByChain) > 0 {
-		chainSelectors = make([]uint64, 0, len(chainDetails.BlockHeightsByChain))
-		for chainSelector := range chainDetails.BlockHeightsByChain {
-			chainSelectors = append(chainSelectors, chainSelector)
-		}
+	chainSelectors = make([]uint64, 0, len(chainDetails.BlockHeightsByChain))
+	for chainSelector := range chainDetails.BlockHeightsByChain {
+		chainSelectors = append(chainSelectors, chainSelector)
 	}
 
 	maxBlockHeights, err := h.storage.GetMaxBlockHeights(ctx, chainSelectors)
@@ -87,27 +85,26 @@ func (h *HeartbeatHandler) Handle(ctx context.Context, req *heartbeatpb.Heartbea
 
 	// Create chain benchmarks based on max block heights
 	chainBenchmarks := make(map[uint64]*heartbeatpb.ChainBenchmark)
-	if chainDetails != nil {
-		for chainSelector, maxBlockHeight := range maxBlockHeights {
-			// Collect all block heights for this chain across all callers
-			headsAcrossCallers, err := h.storage.GetBlockHeights(ctx, chainSelector)
-			if err != nil {
-				h.logger(ctx).Warnf("Failed to get block heights for chain %d: %v", chainSelector, err)
-				continue
-			}
 
-			var headsFlat []int64
-			for _, height := range headsAcrossCallers {
-				headsFlat = append(headsFlat, int64(height))
-			}
+	for chainSelector, maxBlockHeight := range maxBlockHeights {
+		// Collect all block heights for this chain across all callers
+		headsAcrossCallers, err := h.storage.GetBlockHeights(ctx, chainSelector)
+		if err != nil {
+			h.logger(ctx).Warnf("Failed to get block heights for chain %d: %v", chainSelector, err)
+			continue
+		}
 
-			// Calculate adaptive score
-			currentHeight := req.ChainDetails.BlockHeightsByChain[chainSelector]
-			score := CalculateAdaptiveScore(int64(currentHeight), headsFlat)
-			chainBenchmarks[chainSelector] = &heartbeatpb.ChainBenchmark{
-				BlockHeight: maxBlockHeight,
-				Score:       float32(score),
-			}
+		var headsFlat []int64
+		for _, height := range headsAcrossCallers {
+			headsFlat = append(headsFlat, int64(height))
+		}
+
+		// Calculate adaptive score
+		currentHeight := req.ChainDetails.BlockHeightsByChain[chainSelector]
+		score := CalculateAdaptiveScore(int64(currentHeight), headsFlat)
+		chainBenchmarks[chainSelector] = &heartbeatpb.ChainBenchmark{
+			BlockHeight: maxBlockHeight,
+			Score:       float32(score),
 		}
 	}
 
