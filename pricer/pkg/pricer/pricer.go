@@ -250,6 +250,9 @@ func loadSolana(ctx context.Context, lggr logger.Logger, cfg Config, keystoreDat
 		solTxKeyStore,
 		lggr,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Solana txm: %w", err)
+	}
 	return &solanaChain{
 		client:   solClient,
 		txm:      solTxm,
