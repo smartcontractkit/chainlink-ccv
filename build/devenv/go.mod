@@ -19,7 +19,7 @@ require (
 	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20260114163016-71296eac66c1
 	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20260114163016-71296eac66c1
 	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260114163016-71296eac66c1
-	github.com/smartcontractkit/chainlink-common v0.9.6-0.20260107095648-223976d2b9f1
+	github.com/smartcontractkit/chainlink-common v0.9.6-0.20260114190811-74301cd99dc3
 	github.com/smartcontractkit/chainlink-deployments-framework v0.74.2
 	github.com/smartcontractkit/chainlink-testing-framework/framework v0.12.6
 	github.com/stretchr/testify v1.11.1
