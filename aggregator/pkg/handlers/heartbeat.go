@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
+	"strconv"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
@@ -37,21 +39,41 @@ func (h *HeartbeatHandler) Handle(ctx context.Context, req *heartbeatpb.Heartbea
 	callerID := identity.CallerID
 	h.logger(ctx).Infof("Received HeartbeatRequest from caller: %s", callerID)
 
+	// get Allowed chains from committee config
+	allowedChains := make([]uint64, 0, len(h.committee.QuorumConfigs))
+
+	for chainSelector := range h.committee.QuorumConfigs {
+		chainSelectorUint, err := strconv.ParseUint(chainSelector, 10, 64)
+		if err != nil {
+			h.logger(ctx).Warnf("Error parsing chain selector '%s': %v", chainSelector, err)
+			continue
+		}
+		allowedChains = append(allowedChains, chainSelectorUint)
+	}
+
+	// filter for allowed chains only
+	chainDetails := filterHeartbeatChainDetails(req.ChainDetails, allowedChains)
+	if chainDetails == nil || len(chainDetails.BlockHeightsByChain) == 0 {
+		h.logger(ctx).Warn("No valid chain details provided in heartbeat request")
+		return &heartbeatpb.HeartbeatResponse{
+			AggregatorId:    h.aggregatorID,
+			Timestamp:       req.SendTimestamp,
+			ChainBenchmarks: make(map[uint64]*heartbeatpb.ChainBenchmark),
+		}, nil
+	}
+
 	// Store the block heights from the incoming request
-	if req.ChainDetails != nil {
-		for chainSelector, blockHeight := range req.ChainDetails.BlockHeightsByChain {
-			if err := h.storage.StoreBlockHeight(ctx, callerID, chainSelector, blockHeight); err != nil {
-				h.logger(ctx).Warnf("Failed to store block height for chain %d: %v", chainSelector, err)
-			}
+	for chainSelector, blockHeight := range chainDetails.BlockHeightsByChain {
+		if err := h.storage.StoreBlockHeight(ctx, callerID, chainSelector, blockHeight); err != nil {
+			h.logger(ctx).Warnf("Failed to store block height for chain %d: %v", chainSelector, err)
 		}
 	}
 
-	// TODO: get the SoT list of blockchains to report on. For now, just report on those sent in the request.
 	// Get the list of chain selectors to query
 	var chainSelectors []uint64
-	if req.ChainDetails != nil && len(req.ChainDetails.BlockHeightsByChain) > 0 {
-		chainSelectors = make([]uint64, 0, len(req.ChainDetails.BlockHeightsByChain))
-		for chainSelector := range req.ChainDetails.BlockHeightsByChain {
+	if chainDetails != nil && len(chainDetails.BlockHeightsByChain) > 0 {
+		chainSelectors = make([]uint64, 0, len(chainDetails.BlockHeightsByChain))
+		for chainSelector := range chainDetails.BlockHeightsByChain {
 			chainSelectors = append(chainSelectors, chainSelector)
 		}
 	}
@@ -65,7 +87,7 @@ func (h *HeartbeatHandler) Handle(ctx context.Context, req *heartbeatpb.Heartbea
 
 	// Create chain benchmarks based on max block heights
 	chainBenchmarks := make(map[uint64]*heartbeatpb.ChainBenchmark)
-	if req.ChainDetails != nil {
+	if chainDetails != nil {
 		for chainSelector, maxBlockHeight := range maxBlockHeights {
 			// Collect all block heights for this chain across all callers
 			headsAcrossCallers, err := h.storage.GetBlockHeights(ctx, chainSelector)
@@ -162,4 +184,22 @@ func CalculateAdaptiveScore(scoreBlock int64, allBlocks []int64) float64 {
 	// 4. Calculate Divergence Index
 	// Formula: 1 + (Lag / MAD)
 	return 1.0 + (lag / mad)
+}
+
+func filterHeartbeatChainDetails(details *heartbeatpb.ChainHealthDetails, allowedChains []uint64) *heartbeatpb.ChainHealthDetails {
+	if details == nil {
+		return nil
+	}
+
+	filtered := &heartbeatpb.ChainHealthDetails{
+		BlockHeightsByChain: make(map[uint64]uint64),
+	}
+
+	for chainSelector, blockHeight := range details.BlockHeightsByChain {
+		if slices.Contains(allowedChains, chainSelector) {
+			filtered.BlockHeightsByChain[chainSelector] = blockHeight
+		}
+	}
+
+	return filtered
 }
