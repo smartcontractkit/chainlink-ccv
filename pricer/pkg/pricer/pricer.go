@@ -10,6 +10,8 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	solanago "github.com/gagliardetto/solana-go"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	ks "github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/keystore/kms"
 	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
@@ -30,8 +32,6 @@ import (
 	solkeys "github.com/smartcontractkit/chainlink-solana/pkg/solana/keys"
 	soltxm "github.com/smartcontractkit/chainlink-solana/pkg/solana/txm"
 	solutils "github.com/smartcontractkit/chainlink-solana/pkg/solana/utils"
-
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 )
 
 type KMSConfig struct {
@@ -182,52 +182,56 @@ func loadEVM(ctx context.Context, cfg Config, lggr logger.Logger, keystoreData [
 	}, nil
 }
 
-func createEVMKeystore(ctx context.Context, cfg Config, keystoreData []byte, keystorePassword string) (core.Keystore, error) {
-	if cfg.KMS.EcdsaKeyID != "" {
-		kmsClient, err := kms.NewClient(ctx, kms.ClientOptions{
-			Profile: cfg.KMS.Profile,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to create KMS client: %w", err)
-		}
-		keyStore, err := kms.NewKeystore(kmsClient)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create KMS keystore: %w", err)
-		}
-		return evmkeys.NewTxKeyCoreKeystore(keyStore, evmkeys.WithAllowedKeyNames([]string{cfg.KMS.EcdsaKeyID})), nil
+func loadKMSKeystore(ctx context.Context, profile string) (interface {
+	ks.Reader
+	ks.Signer
+}, error) {
+	kmsClient, err := kms.NewClient(ctx, kms.ClientOptions{
+		Profile: profile,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create KMS client: %w", err)
 	}
+	return kms.NewKeystore(kmsClient)
+}
+
+func loadMemoryKeystore(ctx context.Context, keystoreData []byte, keystorePassword string) (interface {
+	ks.Reader
+	ks.Signer
+}, error) {
 	memStorage := ks.NewMemoryStorage()
 	if err := memStorage.PutEncryptedKeystore(ctx, keystoreData); err != nil {
 		return nil, fmt.Errorf("failed to populate keystore storage: %w", err)
 	}
-	keyStore, err := ks.LoadKeystore(ctx, memStorage, keystorePassword)
+	return ks.LoadKeystore(ctx, memStorage, keystorePassword)
+}
+
+func createEVMKeystore(ctx context.Context, cfg Config, keystoreData []byte, keystorePassword string) (core.Keystore, error) {
+	if cfg.KMS.EcdsaKeyID != "" {
+		keyStore, err := loadKMSKeystore(ctx, cfg.KMS.Profile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load KMS keystore: %w", err)
+		}
+		return evmkeys.NewTxKeyCoreKeystore(keyStore, evmkeys.WithAllowedKeyNames([]string{cfg.KMS.EcdsaKeyID})), nil
+	}
+	keyStore, err := loadMemoryKeystore(ctx, keystoreData, keystorePassword)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load keystore: %w", err)
+		return nil, fmt.Errorf("failed to load memory keystore: %w", err)
 	}
 	return evmkeys.NewTxKeyCoreKeystore(keyStore), nil
 }
 
 func createSolanaKeystore(ctx context.Context, cfg Config, keystoreData []byte, keystorePassword string) (core.Keystore, error) {
 	if cfg.KMS.Ed25519KeyID != "" {
-		kmsClient, err := kms.NewClient(ctx, kms.ClientOptions{
-			Profile: cfg.KMS.Profile,
-		})
+		keyStore, err := loadKMSKeystore(ctx, cfg.KMS.Profile)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create KMS client: %w", err)
-		}
-		keyStore, err := kms.NewKeystore(kmsClient)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create KMS keystore: %w", err)
+			return nil, fmt.Errorf("failed to load KMS keystore: %w", err)
 		}
 		return solkeys.NewTxKeyCoreKeystore(keyStore, solkeys.WithAllowedKeyNames([]string{cfg.KMS.Ed25519KeyID})), nil
 	}
-	memStorage := ks.NewMemoryStorage()
-	if err := memStorage.PutEncryptedKeystore(ctx, keystoreData); err != nil {
-		return nil, fmt.Errorf("failed to populate keystore storage: %w", err)
-	}
-	keyStore, err := ks.LoadKeystore(ctx, memStorage, keystorePassword)
+	keyStore, err := loadMemoryKeystore(ctx, keystoreData, keystorePassword)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load keystore: %w", err)
+		return nil, fmt.Errorf("failed to load memory keystore: %w", err)
 	}
 	return solkeys.NewTxKeyCoreKeystore(keyStore), nil
 }
