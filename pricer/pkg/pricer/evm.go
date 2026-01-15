@@ -3,9 +3,11 @@ package pricer
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 
+	"github.com/smartcontractkit/chainlink-ccv/pricer/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/types/core"
 	"github.com/smartcontractkit/chainlink-evm/pkg/assets"
@@ -29,6 +31,7 @@ type evmChain struct {
 	client   client.Client
 	txm      *txm.Txm
 	keystore core.Keystore
+	metrics  *monitoring.PricerMetricLabeler
 }
 
 func (c *evmChain) Start(ctx context.Context) error {
@@ -40,6 +43,12 @@ func (c *evmChain) Start(ctx context.Context) error {
 }
 
 func (c *evmChain) Tick(ctx context.Context) error {
+	startTime := time.Now()
+	defer func() {
+		duration := time.Since(startTime)
+		c.metrics.RecordEVMTickDuration(ctx, duration)
+	}()
+
 	c.lggr.Infow("getting evm addresses")
 	addresses, err := c.keystore.Accounts(ctx)
 	if err != nil {
@@ -82,7 +91,7 @@ func createEVMKeystore(ctx context.Context, cfg Config, keystoreData []byte, key
 	return evmkeys.NewTxKeyCoreKeystore(keyStore), nil
 }
 
-func loadEVM(ctx context.Context, cfg Config, lggr logger.Logger, keystoreData []byte, keystorePassword string) (*evmChain, error) {
+func loadEVM(ctx context.Context, cfg Config, lggr logger.Logger, keystoreData []byte, keystorePassword string, pricerMonitoring monitoring.Monitoring) (*evmChain, error) {
 	chainScopedCfg := evmconfig.NewTOMLChainScopedConfig(&cfg.EVM.EVMConfig)
 	nodePoolCfg := &evmconfig.NodePoolConfig{C: cfg.EVM.NodePool}
 	evmClient, err := client.NewEvmClient(
@@ -127,10 +136,12 @@ func loadEVM(ctx context.Context, cfg Config, lggr logger.Logger, keystoreData [
 		txmKeyStore,
 		nil, // errorHandler
 	)
+
 	return &evmChain{
 		lggr:     logger.Named(lggr, "evm"),
 		client:   evmClient,
 		txm:      evmTxm,
 		keystore: evmTxKeyStore,
+		metrics:  pricerMonitoring.Metrics(),
 	}, nil
 }

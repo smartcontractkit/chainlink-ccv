@@ -8,9 +8,11 @@ import (
 
 	"go.uber.org/zap/zapcore"
 
+	"github.com/smartcontractkit/chainlink-ccv/pricer/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	ks "github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/keystore/kms"
+	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -169,10 +171,33 @@ func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, k
 	}
 	lggr = logger.Named(lggr, "pricer")
 
+	// Setup OTEL Monitoring (via beholder) if enabled
+	var pricerMonitoring monitoring.Monitoring
+	if cfg.Monitoring.Enabled {
+		beholderConfig := beholder.Config{
+			InsecureConnection:       cfg.Monitoring.InsecureConnection,
+			CACertFile:               cfg.Monitoring.CACertFile,
+			OtelExporterHTTPEndpoint: cfg.Monitoring.OtelExporterHTTPEndpoint,
+			OtelExporterGRPCEndpoint: cfg.Monitoring.OtelExporterGRPCEndpoint,
+			LogStreamingEnabled:      cfg.Monitoring.LogStreamingEnabled,
+			MetricReaderInterval:     time.Second * time.Duration(cfg.Monitoring.MetricReaderInterval),
+			TraceSampleRatio:         cfg.Monitoring.TraceSampleRatio,
+			TraceBatchTimeout:        time.Second * time.Duration(cfg.Monitoring.TraceBatchTimeout),
+		}
+
+		var err error
+		pricerMonitoring, err = monitoring.InitMonitoring(beholderConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize monitoring: %w", err)
+		}
+	} else {
+		pricerMonitoring = monitoring.NewNoopPricerMonitoring()
+	}
+
 	var evmChain *evmChain
 	var solChain *solanaChain
 	if cfg.EVM.ChainID != nil {
-		evmChain, err = loadEVM(ctx, cfg, lggr, keystoreData, keystorePassword)
+		evmChain, err = loadEVM(ctx, cfg, lggr, keystoreData, keystorePassword, pricerMonitoring)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load EVM: %w", err)
 		}
