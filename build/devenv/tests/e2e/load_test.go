@@ -700,6 +700,7 @@ func TestStaging(t *testing.T) {
 	})
 
 	_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+	require.NoError(t, err)
 	chains := e.BlockChains.EVMChains()
 	require.NotNil(t, chains)
 	b := ccv.NewDefaultCLDFBundle(e)
@@ -769,10 +770,7 @@ func TestStaging(t *testing.T) {
 		}
 		wg.Wait()
 
-		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
-		tc.Timeout = testProfile.TestDuration
 		messageRate, messageRateDuration := load.ParseMessageRate(testProfile.MessageRate)
-
 		gun := NewEVMTransactionGunFromTestConfig(in, testConfig, e, chainImpls)
 		p := wasp.NewProfile().Add(
 			wasp.NewGenerator(

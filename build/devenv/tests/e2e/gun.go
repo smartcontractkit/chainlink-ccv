@@ -27,8 +27,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/load"
 )
 
-const sentMessageChannelBufferSize = 1000
-const avgMsgDataSize = 1000 // bytes
+const (
+	sentMessageChannelBufferSize = 1000
+	avgMsgDataSize               = 1000 // bytes
+)
 
 type SrcDest struct {
 	Src  uint64
