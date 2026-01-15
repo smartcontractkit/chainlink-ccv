@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	AdapterMinTLSVersion = tls.VersionTLS13
+	AdapterMinTLSVersion = tls.VersionTLS12
 )
 
 type AggregatorWriter struct {

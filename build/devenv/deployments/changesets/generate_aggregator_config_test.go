@@ -18,9 +18,9 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/deployments"
-	"github.com/smartcontractkit/chainlink-ccv/deployments/changesets"
-	"github.com/smartcontractkit/chainlink-ccv/deployments/testutils"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/deployments"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/deployments/changesets"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/deployments/testutils"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 )
 
