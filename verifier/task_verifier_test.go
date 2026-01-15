@@ -54,6 +54,9 @@ func Test_ProcessingReadyTasks(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.NoError(t, taskVerifier.Start(t.Context()))
+	t.Cleanup(func() {
+		require.NoError(t, taskVerifier.Close())
+	})
 
 	t.Run("successful verification works", func(t *testing.T) {
 		// Set the verifier to pass all verifications immediately

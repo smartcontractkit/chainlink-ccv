@@ -21,7 +21,8 @@ import (
 // That way we give Verifier who is aware of the business logic more control over retry behavior.
 type TaskVerifierProcessor struct {
 	services.StateMachine
-	wg sync.WaitGroup
+	wg     sync.WaitGroup
+	cancel context.CancelFunc
 
 	lggr       logger.Logger
 	verifierID string
@@ -84,9 +85,11 @@ func NewTaskVerifierProcessorWithFanouts(
 
 func (p *TaskVerifierProcessor) Start(ctx context.Context) error {
 	return p.StartOnce(p.Name(), func() error {
+		cancelCtx, cancel := context.WithCancel(ctx)
+		p.cancel = cancel
 		for sourceChainSelector, fanout := range p.sourceFanouts {
 			p.wg.Go(func() {
-				p.run(ctx, sourceChainSelector, fanout)
+				p.run(cancelCtx, sourceChainSelector, fanout)
 			})
 		}
 		return nil
@@ -95,6 +98,7 @@ func (p *TaskVerifierProcessor) Start(ctx context.Context) error {
 
 func (p *TaskVerifierProcessor) Close() error {
 	return p.StopOnce(p.Name(), func() error {
+		p.cancel()
 		p.wg.Wait()
 		return nil
 	})
