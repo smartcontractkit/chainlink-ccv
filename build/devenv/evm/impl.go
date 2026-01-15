@@ -1123,7 +1123,7 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 		return nil, fmt.Errorf("failed to deploy/create2 factory: %w", err)
 	}
 
-	mcmsReaderRegistry := changesetscore.NewMCMSReaderRegistry() // TODO: Integrate actual registry if MCMS support is required.
+	mcmsReaderRegistry := changesetscore.GetRegistry() // TODO: Integrate actual registry if MCMS support is required.
 	out, err := evmchangesets.DeployChainContracts(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[evmchangesets.DeployChainContractsCfg]{
 		Cfg: evmchangesets.DeployChainContractsCfg{
 			ChainSel:       selector,
@@ -1580,7 +1580,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		}
 	}
 
-	mcmsReaderRegistry := changesetscore.NewMCMSReaderRegistry()
+	mcmsReaderRegistry := changesetscore.GetRegistry()
 	chainFamilyRegistry := adapters.NewChainFamilyRegistry()
 	chainFamilyRegistry.RegisterChainFamily("evm", &evmadapters.ChainFamilyAdapter{})
 	_, err := changesets.ConfigureChainsForLanes(chainFamilyRegistry, mcmsReaderRegistry).Apply(*e, changesets.ConfigureChainsForLanesConfig{
