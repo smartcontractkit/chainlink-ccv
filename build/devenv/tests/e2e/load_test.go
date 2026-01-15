@@ -318,13 +318,14 @@ func TestE2ELoad(t *testing.T) {
 		})
 	}
 
-	var indexerClient *ccv.IndexerClient
-	if in.IndexerEndpoint != "" {
-		indexerClient, err = ccv.NewIndexerClient(
+	var indexerMonitor *ccv.IndexerMonitor
+	indexerClient, err := lib.Indexer()
+	if err == nil {
+		indexerMonitor, err = ccv.NewIndexerMonitor(
 			zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
-			in.IndexerEndpoint)
+			indexerClient)
 		require.NoError(t, err)
-		require.NotNil(t, indexerClient)
+		require.NotNil(t, indexerMonitor)
 	}
 
 	// Ensure we have at least 1 WETH and approve router to spend it
@@ -335,7 +336,7 @@ func TestE2ELoad(t *testing.T) {
 		rps := int64(5)
 		testDuration := 30 * time.Second
 
-		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
+		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerMonitor)
 		tc.Timeout = 30 * time.Second
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
@@ -374,7 +375,7 @@ func TestE2ELoad(t *testing.T) {
 
 		rps := int64(1)
 
-		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
+		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerMonitor)
 		tc.Timeout = timeoutDuration
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
@@ -407,7 +408,7 @@ func TestE2ELoad(t *testing.T) {
 		rps := int64(1)
 		testDuration := 5 * time.Minute
 
-		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
+		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerMonitor)
 		tc.Timeout = 10 * time.Minute
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
@@ -485,7 +486,7 @@ func TestE2ELoad(t *testing.T) {
 		rps := int64(1)
 		testDuration := 5 * time.Minute
 
-		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
+		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerMonitor)
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
 		overallTimeout := testDuration + (2 * tc.Timeout)
@@ -653,7 +654,7 @@ func TestE2ELoad(t *testing.T) {
 			},
 		}
 
-		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerClient)
+		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerMonitor)
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
 		overallTimeout := testDuration + (2 * tc.Timeout)

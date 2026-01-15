@@ -21,7 +21,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/testutils"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 )
+
+const testCommittee = "test-committee"
 
 func TestGenerateAggregatorConfig_ValidatesServiceIdentifier(t *testing.T) {
 	changeset := changesets.GenerateAggregatorConfig()
@@ -78,7 +81,7 @@ func TestGenerateAggregatorConfig_GeneratesCorrectConfigFromOnChainState(t *test
 		chainsel.TEST_90000002.Selector,
 		chainsel.TEST_90000003.Selector,
 	}
-	targetCommittee := "test-committee"
+	targetCommittee := testCommittee
 	otherCommittee := "other-committee"
 
 	env, evmChains := testutils.NewSimulatedEVMEnvironment(t, selectors)
@@ -285,4 +288,63 @@ func generateTestSigners(t *testing.T, count int) []common.Address {
 		signers = append(signers, crypto.PubkeyToAddress(key.PublicKey))
 	}
 	return signers
+}
+
+func TestGenerateAggregatorConfig_PreservesExistingIndexerConfig(t *testing.T) {
+	selectors := []uint64{
+		chainsel.TEST_90000001.Selector,
+		chainsel.TEST_90000002.Selector,
+	}
+	committee := testCommittee
+
+	env, evmChains := testutils.NewSimulatedEVMEnvironment(t, selectors)
+	require.Len(t, evmChains, 2)
+
+	chain1, chain2 := evmChains[0], evmChains[1]
+	sel1, sel2 := selectors[0], selectors[1]
+
+	signers := generateTestSigners(t, 2)
+	threshold := uint8(1)
+
+	ds := datastore.NewMemoryDataStore()
+
+	addr1 := deployAndConfigureVerifier(t, env.OperationsBundle, chain1, committee, []sourceChainConfig{
+		{selector: sel2, signers: signers, threshold: threshold},
+	})
+	addVerifierToDatastore(t, ds, sel1, committee, addr1)
+
+	addr2 := deployAndConfigureVerifier(t, env.OperationsBundle, chain2, committee, []sourceChainConfig{
+		{selector: sel1, signers: signers, threshold: threshold},
+	})
+	addVerifierToDatastore(t, ds, sel2, committee, addr2)
+
+	existingIndexerConfig := &config.GeneratedConfig{
+		Verifier: map[string]config.GeneratedVerifierConfig{
+			"0": {
+				IssuerAddresses: []string{"0xissuer_1001", "0xissuer_1002"},
+			},
+		},
+	}
+	err := deployments.SaveIndexerConfig(ds, "existing-indexer", existingIndexerConfig)
+	require.NoError(t, err)
+
+	env.DataStore = ds.Seal()
+
+	cs := changesets.GenerateAggregatorConfig()
+	output, err := cs.Apply(env, changesets.GenerateAggregatorConfigCfg{
+		ServiceIdentifier:  "new-aggregator",
+		CommitteeQualifier: committee,
+		ChainSelectors:     selectors,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, output.DataStore)
+
+	outputSealed := output.DataStore.Seal()
+
+	_, err = deployments.GetAggregatorConfig(outputSealed, "new-aggregator")
+	require.NoError(t, err, "new aggregator config should be present")
+
+	retrievedIndexerConfig, err := deployments.GetIndexerConfig(outputSealed, "existing-indexer")
+	require.NoError(t, err, "existing indexer config should be preserved")
+	assert.Equal(t, existingIndexerConfig, retrievedIndexerConfig, "indexer config should be unchanged")
 }

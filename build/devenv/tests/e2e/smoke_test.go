@@ -100,13 +100,14 @@ func TestE2ESmoke(t *testing.T) {
 	}
 	defaultAggregatorClient := aggregatorClients[evm.DefaultCommitteeVerifierQualifier]
 
-	var indexerClient *ccv.IndexerClient
-	if in.IndexerEndpoint != "" {
-		indexerClient, err = ccv.NewIndexerClient(
+	var indexerMonitor *ccv.IndexerMonitor
+	indexerClient, err := lib.Indexer()
+	if err == nil {
+		indexerMonitor, err = ccv.NewIndexerMonitor(
 			zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
-			in.IndexerEndpoint)
+			indexerClient)
 		require.NoError(t, err)
-		require.NotNil(t, indexerClient)
+		require.NotNil(t, indexerMonitor)
 	}
 
 	sel0, sel1, sel2 := chains[0].Details.ChainSelector,
@@ -142,7 +143,7 @@ func TestE2ESmoke(t *testing.T) {
 		}
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
-				runV2TestCase(t, tc, chainMap, defaultAggregatorClient, indexerClient, AssertMessageOptions{
+				runV2TestCase(t, tc, chainMap, defaultAggregatorClient, indexerMonitor, AssertMessageOptions{
 					TickInterval:            1 * time.Second,
 					Timeout:                 defaultExecTimeout,
 					ExpectedVerifierResults: tc.numExpectedVerifications,
@@ -203,7 +204,7 @@ func TestE2ESmoke(t *testing.T) {
 						aggregatorClient = client
 					}
 				}
-				testCtx := NewTestingContext(t, t.Context(), chainMap, aggregatorClient, indexerClient)
+				testCtx := NewTestingContext(t, t.Context(), chainMap, aggregatorClient, indexerMonitor)
 				result, err := testCtx.AssertMessage(messageID, AssertMessageOptions{
 					TickInterval:            1 * time.Second,
 					ExpectedVerifierResults: tc.numExpectedVerifications,
@@ -284,7 +285,7 @@ func TestE2ESmoke(t *testing.T) {
 			require.NoError(t, err)
 			msgID := sentEvt.MessageID
 
-			testCtx := NewTestingContext(t, ctx, chainMap, defaultAggregatorClient, indexerClient)
+			testCtx := NewTestingContext(t, ctx, chainMap, defaultAggregatorClient, indexerMonitor)
 
 			res, err := testCtx.AssertMessage(msgID, AssertMessageOptions{
 				TickInterval:            1 * time.Second,
@@ -352,7 +353,7 @@ func runV2TestCase(
 	tc v2TestCase,
 	chainMap map[uint64]cciptestinterfaces.CCIP17,
 	defaultAggregatorClient *ccv.AggregatorClient,
-	indexerClient *ccv.IndexerClient,
+	indexerClient *ccv.IndexerMonitor,
 	assertMessageOptions AssertMessageOptions,
 ) {
 	ctx := ccv.Plog.WithContext(t.Context())
