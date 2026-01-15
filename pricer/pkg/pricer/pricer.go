@@ -107,6 +107,7 @@ type Pricer struct {
 }
 
 type evmChain struct {
+	lggr     logger.Logger
 	client   client.Client
 	txm      *txm.Txm
 	keystore core.Keystore
@@ -121,12 +122,16 @@ func (c *evmChain) Start(ctx context.Context) error {
 }
 
 type solanaChain struct {
+	lggr     logger.Logger
 	client   *solclient.MultiNodeClient
 	txm      *soltxm.Txm
 	keystore core.Keystore
 }
 
 func (c *solanaChain) Start(ctx context.Context) error {
+	if err := c.client.Dial(ctx); err != nil {
+		return fmt.Errorf("failed to dial Solana client: %w", err)
+	}
 	return c.txm.Start(ctx)
 }
 
@@ -176,6 +181,7 @@ func loadEVM(ctx context.Context, cfg Config, lggr logger.Logger, keystoreData [
 		nil, // errorHandler
 	)
 	return &evmChain{
+		lggr:     logger.Named(lggr, "evm"),
 		client:   evmClient,
 		txm:      evmTxm,
 		keystore: evmTxKeyStore,
@@ -269,6 +275,7 @@ func loadSolana(ctx context.Context, lggr logger.Logger, cfg Config, keystoreDat
 		return nil, fmt.Errorf("failed to create Solana txm: %w", err)
 	}
 	return &solanaChain{
+		lggr:     logger.Named(lggr, "solana"),
 		client:   solClient,
 		txm:      solTxm,
 		keystore: solTxKeyStore,
@@ -293,12 +300,18 @@ func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, k
 		if err != nil {
 			return nil, fmt.Errorf("failed to load EVM: %w", err)
 		}
+		lggr.Infow("loaded EVM chain", "chainID", cfg.EVM.ChainID)
+	} else {
+		lggr.Infow("no EVM chain configured")
 	}
 	if cfg.SOL.ChainID != nil {
 		solChain, err = loadSolana(ctx, lggr, cfg, keystoreData, keystorePassword)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load Solana: %w", err)
+			return nil, fmt.Errorf("failed to load solana: %w", err)
 		}
+		lggr.Infow("loaded solana chain", "chainID", cfg.SOL.ChainID)
+	} else {
+		lggr.Infow("no solana chain configured")
 	}
 	return &Pricer{
 		StateMachine: services.StateMachine{},
@@ -317,11 +330,13 @@ func (p *Pricer) Start(ctx context.Context) error {
 			if err := p.evmChain.Start(ctx); err != nil {
 				return fmt.Errorf("failed to start EVM chain: %w", err)
 			}
+			p.evmChain.lggr.Infow("started evm chain")
 		}
 		if p.solChain != nil {
 			if err := p.solChain.Start(ctx); err != nil {
 				return fmt.Errorf("failed to start Solana chain: %w", err)
 			}
+			p.solChain.lggr.Infow("started solana chain")
 		}
 		p.wg.Add(1)
 		go p.run(ctx)
@@ -345,38 +360,39 @@ func (p *Pricer) run(ctx context.Context) {
 		case <-ticker.C:
 			p.lggr.Info("tick")
 			if p.evmChain != nil {
+				p.evmChain.lggr.Infow("getting evm addresses")
 				addresses, err := p.evmChain.keystore.Accounts(ctx)
 				if err != nil {
-					p.lggr.Error("failed to get addresses", "error", err)
+					p.evmChain.lggr.Error("failed to get addresses", "error", err)
 					continue
 				}
 				if len(addresses) == 0 {
-					p.lggr.Warn("no EVM addresses found in keystore")
+					p.evmChain.lggr.Warn("no EVM addresses found in keystore")
 					continue
 				}
 				balance, err := p.evmChain.client.BalanceAt(ctx, common.HexToAddress(addresses[0]), nil)
 				if err != nil {
-					p.lggr.Error("failed to get balance", "error", err)
+					p.evmChain.lggr.Error("failed to get balance", "error", err)
 					continue
 				}
-				p.lggr.Infow("balance", "address", addresses[0], "balance", balance)
+				p.evmChain.lggr.Infow("got balance", "address", addresses[0], "balance", balance)
 			}
 			if p.solChain != nil {
 				addresses, err := p.solChain.keystore.Accounts(ctx)
 				if err != nil {
-					p.lggr.Error("failed to get addresses", "error", err)
+					p.solChain.lggr.Error("failed to get addresses", "error", err)
 					continue
 				}
 				if len(addresses) == 0 {
-					p.lggr.Warn("no Solana addresses found in keystore")
+					p.solChain.lggr.Warn("no Solana addresses found in keystore")
 					continue
 				}
 				balance, err := p.solChain.client.Balance(ctx, solanago.MustPublicKeyFromBase58(addresses[0]))
 				if err != nil {
-					p.lggr.Error("failed to get balance", "error", err)
+					p.solChain.lggr.Error("failed to get balance", "error", err)
 					continue
 				}
-				p.lggr.Infow("balance", "address", addresses[0], "balance", balance)
+				p.solChain.lggr.Infow("got balance", "address", addresses[0], "balance", balance)
 			}
 
 			/*

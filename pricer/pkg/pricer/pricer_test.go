@@ -14,6 +14,9 @@ import (
 	evmtoml "github.com/smartcontractkit/chainlink-evm/pkg/config/toml"
 	evmkeys "github.com/smartcontractkit/chainlink-evm/pkg/keys/v2"
 	"github.com/smartcontractkit/chainlink-evm/pkg/utils/big"
+	"github.com/smartcontractkit/chainlink-solana/pkg/solana/config"
+	solkeys "github.com/smartcontractkit/chainlink-solana/pkg/solana/keys"
+	soltesting "github.com/smartcontractkit/chainlink-solana/pkg/solana/testing"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
@@ -31,9 +34,9 @@ func TestPricer(t *testing.T) {
 	require.NoError(t, err)
 
 	// TODO: Move this to chainlink-evm/pkg/config/toml.
-	chainID := big.NewI(1337)
+	evmChainID := big.NewI(1337)
 	evmCfg := evmtoml.EVMConfig{
-		ChainID: chainID,
+		ChainID: evmChainID,
 		Nodes: []*evmtoml.Node{
 			{
 				Name:    ptr("test-pricer-geth"),
@@ -42,7 +45,7 @@ func TestPricer(t *testing.T) {
 			},
 		},
 	}
-	defaults := evmtoml.Defaults(chainID)
+	defaults := evmtoml.Defaults(evmChainID)
 	defaults.SetFrom(&evmCfg.Chain)
 	evmCfg.Chain = defaults
 	// TODO: why don't defaults work here?
@@ -51,16 +54,36 @@ func TestPricer(t *testing.T) {
 		_ = n.ValidateConfig()
 	}
 
-	// Create a keystore and populate it with a key.
+	solURL, _ := soltesting.SetupLocalSolNodeWithFlags(t)
+	solChainID := "localnet"
+	solCfg := config.TOMLConfig{
+		ChainID: &solChainID,
+		Nodes: []*config.Node{
+			{
+				Name:     ptr("test-pricer-solana"),
+				URL:      commonconfig.MustParseURL(solURL),
+				Order:    ptr(int32(1)),
+				SendOnly: false,
+			},
+		},
+	}
+	solCfg.SetDefaults()
+	for _, n := range solCfg.Nodes {
+		_ = n.ValidateConfig()
+	}
+
+	// Create a keystore and populate it with keys.
 	tmpfile, err := os.CreateTemp("", "keystore.json")
 	require.NoError(t, err)
 	defer os.Remove(tmpfile.Name())
 	fileStorage := keystore.NewFileStorage(tmpfile.Name())
 	ks, err := keystore.LoadKeystore(ctx, fileStorage, "password")
 	require.NoError(t, err)
-	txKey, err := evmkeys.CreateTxKey(ks, "key1")
+
+	_, err = evmkeys.CreateTxKey(ks, "evm-key1")
 	require.NoError(t, err)
-	t.Logf("txKey address: %s", txKey.Address())
+	_, err = solkeys.CreateTxKey(ks, "sol-key1")
+	require.NoError(t, err)
 
 	// Read the keystore data to simulate env var input.
 	keystoreData, err := fileStorage.GetEncryptedKeystore(ctx)
@@ -71,10 +94,11 @@ func TestPricer(t *testing.T) {
 			Interval: *commonconfig.MustNewDuration(1 * time.Second),
 			LogLevel: zapcore.DebugLevel,
 			EVM:      evmCfg,
+			SOL:      solCfg,
 		}, keystoreData, "password")
 	require.NoError(t, err)
 	require.NoError(t, svc.Start(ctx))
 	// Let it run for a few ticks.
-	time.Sleep(3 * time.Second)
+	time.Sleep(5 * time.Second)
 	svc.Close()
 }
