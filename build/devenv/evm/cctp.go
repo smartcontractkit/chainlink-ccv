@@ -49,6 +49,7 @@ func (m *CCIP17EVMConfig) deployUSDCTokenAndPool(
 		return fmt.Errorf("failed to deploy Circle-owned contracts on chain %d: %w", selector, err)
 	}
 
+	// Register USDC ERC20 token in datastore for transfers in tests
 	err = ds.Addresses().Add(datastore.AddressRef{
 		ChainSelector: selector,
 		Type:          datastore.ContractType(burnminterc677ops.ContractType),
@@ -129,6 +130,8 @@ func (m *CCIP17EVMConfig) deployUSDCTokenAndPool(
 
 func (m *CCIP17EVMConfig) deployCircleOwnedContracts(chain evm.Chain) (common.Address, common.Address, common.Address, error) {
 	var empty common.Address
+	// We need a custom number of decimals (6) for USDC so we can't deploy erc20_with_drip here
+	// which has hardcoded 18 decimals.
 	usdcTokenAddr, tx, _, err := burn_mint_erc20_bindings.DeployBurnMintERC20(
 		chain.DeployerKey,
 		chain.Client,

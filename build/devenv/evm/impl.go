@@ -1138,18 +1138,19 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 		return nil, errors.New("failed to parse USDPerWETH")
 	}
 
-	create2FactoryRef, err := contract.MaybeDeployContract(env.OperationsBundle, create2_factory.Deploy, env.BlockChains.EVMChains()[selector], contract.DeployInput[create2_factory.ConstructorArgs]{
-		TypeAndVersion: deployment.NewTypeAndVersion(create2_factory.ContractType, *create2_factory.Version),
-		ChainSelector:  selector,
-		Args: create2_factory.ConstructorArgs{
-			AllowList: []common.Address{env.BlockChains.EVMChains()[selector].DeployerKey.From},
-		},
-	}, nil)
+	create2FactoryRep, err := operations.ExecuteOperation(env.OperationsBundle, create2_factory.Deploy, env.BlockChains.EVMChains()[selector],
+		contract.DeployInput[create2_factory.ConstructorArgs]{
+			ChainSelector:  selector,
+			TypeAndVersion: deployment.NewTypeAndVersion(create2_factory.ContractType, *create2_factory.Version),
+			Args: create2_factory.ConstructorArgs{
+				AllowList: []common.Address{env.BlockChains.EVMChains()[selector].DeployerKey.From},
+			},
+		})
 	if err != nil {
 		return nil, fmt.Errorf("failed to deploy/create2 factory: %w", err)
 	}
 
-	err = runningDS.Addresses().Add(create2FactoryRef)
+	err = runningDS.Addresses().Add(create2FactoryRep.Output)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add create2 factory to datastore: %w", err)
 	}
@@ -1158,7 +1159,7 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 	out, err := evmchangesets.DeployChainContracts(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[evmchangesets.DeployChainContractsCfg]{
 		Cfg: evmchangesets.DeployChainContractsCfg{
 			ChainSel:       selector,
-			CREATE2Factory: common.HexToAddress(create2FactoryRef.Address),
+			CREATE2Factory: common.HexToAddress(create2FactoryRep.Output.Address),
 			Params: sequences.ContractParams{
 				// TODO: Router contract implementation is missing
 				RMNRemote: sequences.RMNRemoteParams{
@@ -1310,7 +1311,7 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 		}
 	}
 
-	if err := m.deployUSDCTokenAndPool(env, mcmsReaderRegistry, runningDS, create2FactoryRef, selector); err != nil {
+	if err := m.deployUSDCTokenAndPool(env, mcmsReaderRegistry, runningDS, create2FactoryRep.Output, selector); err != nil {
 		return nil, fmt.Errorf("failed to deploy USDC token and pool: %w", err)
 	}
 
