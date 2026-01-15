@@ -11,6 +11,7 @@ import (
 
 // Monitoring provides monitoring capabilities for the pricer service.
 type Monitoring interface {
+	// Metrics returns the metric labeler for recording metrics.
 	Metrics() *PricerMetricLabeler
 }
 
