@@ -6,10 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	"go.uber.org/zap/zapcore"
-
-	solanago "github.com/gagliardetto/solana-go"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	ks "github.com/smartcontractkit/chainlink-common/keystore"
@@ -17,40 +14,46 @@ import (
 	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
-	"github.com/smartcontractkit/chainlink-common/pkg/types/core"
-	"github.com/smartcontractkit/chainlink-evm/pkg/assets"
-	"github.com/smartcontractkit/chainlink-evm/pkg/client"
-	evmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
 	evmtoml "github.com/smartcontractkit/chainlink-evm/pkg/config/toml"
-	"github.com/smartcontractkit/chainlink-evm/pkg/keys"
-	evmkeys "github.com/smartcontractkit/chainlink-evm/pkg/keys/v2"
-	"github.com/smartcontractkit/chainlink-evm/pkg/txm"
-	"github.com/smartcontractkit/chainlink-evm/pkg/txm/clientwrappers"
-	"github.com/smartcontractkit/chainlink-evm/pkg/txm/storage"
-	solclient "github.com/smartcontractkit/chainlink-solana/pkg/solana/client"
 	solcfg "github.com/smartcontractkit/chainlink-solana/pkg/solana/config"
-	solkeys "github.com/smartcontractkit/chainlink-solana/pkg/solana/keys"
-	soltxm "github.com/smartcontractkit/chainlink-solana/pkg/solana/txm"
-	solutils "github.com/smartcontractkit/chainlink-solana/pkg/solana/utils"
 )
 
+// KMSConfig provides global KMS configuration for the pricer service.
+// Global as we imagine key re-use across chains.
 type KMSConfig struct {
 	Profile      string `toml:"profile"`
 	EcdsaKeyID   string `toml:"ecdsa_key_id"`
 	Ed25519KeyID string `toml:"ed25519_key_id"`
 }
 
+// MonitoringConfig provides monitoring configuration for the pricer service.
+type MonitoringConfig struct {
+	Enabled                  bool    `toml:"Enabled"`
+	InsecureConnection       bool    `toml:"InsecureConnection"`
+	CACertFile               string  `toml:"CACertFile"`
+	OtelExporterGRPCEndpoint string  `toml:"OtelExporterGRPCEndpoint"`
+	OtelExporterHTTPEndpoint string  `toml:"OtelExporterHTTPEndpoint"`
+	LogStreamingEnabled      bool    `toml:"LogStreamingEnabled"`
+	MetricReaderInterval     int64   `toml:"MetricReaderInterval"`
+	TraceSampleRatio         float64 `toml:"TraceSampleRatio"`
+	TraceBatchTimeout        int64   `toml:"TraceBatchTimeout"`
+}
+
 type Config struct {
-	// TODO: Actual pricerconfig.
-	Interval commonconfig.Duration `toml:"interval"`
 	// TODO: Should be able to use chainlink-common/pkg/logger Config struct.
 	LogLevel zapcore.Level `toml:"loglevel"`
-	// Chain write connectivity config,
-	// common to read/write.
-	EVM evmtoml.EVMConfig `toml:"EVM"`
-	SOL solcfg.TOMLConfig `toml:"SOL"`
 	// KMS configuration for transaction signing
 	KMS KMSConfig `toml:"KMS"`
+	// Monitoring configuration for OpenTelemetry
+	Monitoring MonitoringConfig `toml:"Monitoring"`
+
+	// TODO: Other global pricerconfig.
+	Interval commonconfig.Duration `toml:"interval"`
+	// TODO: These will become lists of chains.
+	// Chain write connectivity config,
+	// common to read/write.
+	EVM EVMChainConfig `toml:"EVM"`
+	SOL SOLChainConfig `toml:"SOL"`
 }
 
 func (c *Config) Validate() error {
@@ -65,6 +68,29 @@ func (c *Config) Validate() error {
 	if c.SOL.ChainID != nil {
 		if err := c.SOL.ValidateConfig(); err != nil {
 			return fmt.Errorf("invalid Solana chain config: %w", err)
+		}
+	}
+	if c.Monitoring.Enabled {
+		if err := c.Monitoring.Validate(); err != nil {
+			return fmt.Errorf("invalid monitoring config: %w", err)
+		}
+	}
+	return nil
+}
+
+// Validate performs validation on the monitoring configuration.
+func (m *MonitoringConfig) Validate() error {
+	if m.Enabled {
+		if m.MetricReaderInterval <= 0 {
+			return fmt.Errorf("metric_reader_interval must be positive, got %d", m.MetricReaderInterval)
+		}
+
+		if m.TraceSampleRatio < 0 || m.TraceSampleRatio > 1 {
+			return fmt.Errorf("trace_sample_ratio must be between 0 and 1, got %f", m.TraceSampleRatio)
+		}
+
+		if m.TraceBatchTimeout <= 0 {
+			return fmt.Errorf("trace_batch_timeout must be positive, got %d", m.TraceBatchTimeout)
 		}
 	}
 	return nil
@@ -87,8 +113,8 @@ func (c *Config) SetDefaults() {
 	// Apply Solana chain defaults.
 	if c.SOL.ChainID != nil {
 		defaults := solcfg.Defaults()
-		defaults.SetFrom(&c.SOL)
-		c.SOL = defaults
+		defaults.SetFrom(&c.SOL.TOMLConfig)
+		c.SOL.TOMLConfig = defaults
 	}
 	// Validate Solana nodes to populate their defaults.
 	for _, n := range c.SOL.Nodes {
@@ -104,88 +130,6 @@ type Pricer struct {
 	cfg      Config
 	done     chan struct{}
 	wg       sync.WaitGroup
-}
-
-type evmChain struct {
-	lggr     logger.Logger
-	client   client.Client
-	txm      *txm.Txm
-	keystore core.Keystore
-}
-
-func (c *evmChain) Start(ctx context.Context) error {
-	// Dial the EVM client to start the connection pool.
-	if err := c.client.Dial(ctx); err != nil {
-		return fmt.Errorf("failed to dial EVM client: %w", err)
-	}
-	return c.txm.Start(ctx)
-}
-
-type solanaChain struct {
-	lggr     logger.Logger
-	client   *solclient.MultiNodeClient
-	txm      *soltxm.Txm
-	keystore core.Keystore
-}
-
-func (c *solanaChain) Start(ctx context.Context) error {
-	if err := c.client.Dial(ctx); err != nil {
-		return fmt.Errorf("failed to dial Solana client: %w", err)
-	}
-	return c.txm.Start(ctx)
-}
-
-func loadEVM(ctx context.Context, cfg Config, lggr logger.Logger, keystoreData []byte, keystorePassword string) (*evmChain, error) {
-	chainScopedCfg := evmconfig.NewTOMLChainScopedConfig(&cfg.EVM)
-	nodePoolCfg := &evmconfig.NodePoolConfig{C: cfg.EVM.NodePool}
-	evmClient, err := client.NewEvmClient(
-		nodePoolCfg,
-		chainScopedCfg.EVM(),
-		nodePoolCfg.Errors(),
-		lggr,
-		chainScopedCfg.EVM().ChainID(),
-		chainScopedCfg.Nodes(),
-		chainScopedCfg.EVM().ChainType(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create EVM client: %w", err)
-	}
-	evmTxKeyStore, err := createEVMKeystore(ctx, cfg, keystoreData, keystorePassword)
-	if err != nil {
-		return nil, err
-	}
-	txmKeyStore := keys.NewStore(evmTxKeyStore)
-	addresses, err := txmKeyStore.EnabledAddresses(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get enabled addresses: %w", err)
-	}
-	inMemoryStoreManager := storage.NewInMemoryStoreManager(lggr, evmClient.ConfiguredChainID())
-	if err := inMemoryStoreManager.Add(addresses...); err != nil {
-		return nil, fmt.Errorf("failed to add addresses to store manager: %w", err)
-	}
-	txmClient := clientwrappers.NewChainClient(evmClient)
-	priceMaxKey := func(addr common.Address) *assets.Wei {
-		return chainScopedCfg.EVM().GasEstimator().PriceMax()
-	}
-	chainStore := keys.NewChainStore(evmTxKeyStore, evmClient.ConfiguredChainID())
-	attemptBuilder := txm.NewAttemptBuilder(priceMaxKey, nil, chainStore, 0)
-	evmTxm := txm.NewTxm(
-		lggr,
-		evmClient.ConfiguredChainID(),
-		txmClient,
-		attemptBuilder,
-		inMemoryStoreManager,
-		nil, // stuckTxDetector
-		txm.Config{},
-		txmKeyStore,
-		nil, // errorHandler
-	)
-	return &evmChain{
-		lggr:     logger.Named(lggr, "evm"),
-		client:   evmClient,
-		txm:      evmTxm,
-		keystore: evmTxKeyStore,
-	}, nil
 }
 
 func loadKMSKeystore(ctx context.Context, profile string) (interface {
@@ -212,74 +156,6 @@ func loadMemoryKeystore(ctx context.Context, keystoreData []byte, keystorePasswo
 		return nil, fmt.Errorf("failed to populate keystore storage: %w", err)
 	}
 	return ks.LoadKeystore(ctx, memStorage, keystorePassword)
-}
-
-func createEVMKeystore(ctx context.Context, cfg Config, keystoreData []byte, keystorePassword string) (core.Keystore, error) {
-	if cfg.KMS.EcdsaKeyID != "" {
-		keyStore, err := loadKMSKeystore(ctx, cfg.KMS.Profile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load KMS keystore: %w", err)
-		}
-		return evmkeys.NewTxKeyCoreKeystore(keyStore, evmkeys.WithAllowedKeyNames([]string{cfg.KMS.EcdsaKeyID})), nil
-	}
-	keyStore, err := loadMemoryKeystore(ctx, keystoreData, keystorePassword)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load memory keystore: %w", err)
-	}
-	return evmkeys.NewTxKeyCoreKeystore(keyStore), nil
-}
-
-func createSolanaKeystore(ctx context.Context, cfg Config, keystoreData []byte, keystorePassword string) (core.Keystore, error) {
-	if cfg.KMS.Ed25519KeyID != "" {
-		keyStore, err := loadKMSKeystore(ctx, cfg.KMS.Profile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load KMS keystore: %w", err)
-		}
-		return solkeys.NewTxKeyCoreKeystore(keyStore, solkeys.WithAllowedKeyNames([]string{cfg.KMS.Ed25519KeyID})), nil
-	}
-	keyStore, err := loadMemoryKeystore(ctx, keystoreData, keystorePassword)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load memory keystore: %w", err)
-	}
-	return solkeys.NewTxKeyCoreKeystore(keyStore), nil
-}
-
-func loadSolana(ctx context.Context, lggr logger.Logger, cfg Config, keystoreData []byte, keystorePassword string) (*solanaChain, error) {
-	solClient, err := solclient.NewMultiNodeClient(
-		cfg.SOL.ListNodes()[0].URL.String(),
-		&cfg.SOL,
-		time.Second*10,
-		lggr,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Solana client: %w", err)
-	}
-	solTxKeyStore, err := createSolanaKeystore(ctx, cfg, keystoreData, keystorePassword)
-	if err != nil {
-		return nil, err
-	}
-	solClientLoader := solutils.NewOnceLoader[solclient.ReaderWriter](func(ctx context.Context) (solclient.ReaderWriter, error) {
-		return solClient, nil
-	})
-	solTxm, err := soltxm.NewTxm(
-		*cfg.SOL.ChainID,
-		solClientLoader,
-		func(ctx context.Context, tx *solanago.Transaction) (solanago.Signature, error) {
-			return solClient.SendTx(ctx, tx)
-		},
-		&cfg.SOL,
-		solTxKeyStore,
-		lggr,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Solana txm: %w", err)
-	}
-	return &solanaChain{
-		lggr:     logger.Named(lggr, "solana"),
-		client:   solClient,
-		txm:      solTxm,
-		keystore: solTxKeyStore,
-	}, nil
 }
 
 func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, keystorePassword string) (*Pricer, error) {
@@ -360,39 +236,16 @@ func (p *Pricer) run(ctx context.Context) {
 		case <-ticker.C:
 			p.lggr.Info("tick")
 			if p.evmChain != nil {
-				p.evmChain.lggr.Infow("getting evm addresses")
-				addresses, err := p.evmChain.keystore.Accounts(ctx)
-				if err != nil {
-					p.evmChain.lggr.Error("failed to get addresses", "error", err)
+				if err := p.evmChain.Tick(ctx); err != nil {
+					p.lggr.Error("failed to tick EVM chain", "error", err)
 					continue
 				}
-				if len(addresses) == 0 {
-					p.evmChain.lggr.Warn("no EVM addresses found in keystore")
-					continue
-				}
-				balance, err := p.evmChain.client.BalanceAt(ctx, common.HexToAddress(addresses[0]), nil)
-				if err != nil {
-					p.evmChain.lggr.Error("failed to get balance", "error", err)
-					continue
-				}
-				p.evmChain.lggr.Infow("got balance", "address", addresses[0], "balance", balance)
 			}
 			if p.solChain != nil {
-				addresses, err := p.solChain.keystore.Accounts(ctx)
-				if err != nil {
-					p.solChain.lggr.Error("failed to get addresses", "error", err)
+				if err := p.solChain.Tick(ctx); err != nil {
+					p.lggr.Error("failed to tick Solana chain", "error", err)
 					continue
 				}
-				if len(addresses) == 0 {
-					p.solChain.lggr.Warn("no Solana addresses found in keystore")
-					continue
-				}
-				balance, err := p.solChain.client.Balance(ctx, solanago.MustPublicKeyFromBase58(addresses[0]))
-				if err != nil {
-					p.solChain.lggr.Error("failed to get balance", "error", err)
-					continue
-				}
-				p.solChain.lggr.Infow("got balance", "address", addresses[0], "balance", balance)
 			}
 
 			/*
@@ -414,16 +267,14 @@ func (p *Pricer) Close() error {
 		close(p.done)
 		p.wg.Wait()
 		if p.evmChain != nil {
-			if err := p.evmChain.txm.Close(); err != nil {
+			if err := p.evmChain.Close(); err != nil {
 				return fmt.Errorf("failed to close EVM txm: %w", err)
 			}
-			p.evmChain.client.Close()
 		}
 		if p.solChain != nil {
-			if err := p.solChain.txm.Close(); err != nil {
+			if err := p.solChain.Close(); err != nil {
 				return fmt.Errorf("failed to close Solana txm: %w", err)
 			}
-			p.solChain.client.Close()
 		}
 		return nil
 	})

@@ -8,11 +8,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/grafana/pyroscope-go"
 	"github.com/spf13/cobra"
 
 	"github.com/smartcontractkit/chainlink-ccv/pricer/pkg/pricer"
 	kscli "github.com/smartcontractkit/chainlink-common/keystore/cli"
+	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 )
 
@@ -66,6 +69,46 @@ func NewRunCmd() *cobra.Command {
 
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+
+			// Setup OTEL Monitoring (via beholder) if enabled
+			if cfg.Monitoring.Enabled {
+				beholderConfig := beholder.Config{
+					InsecureConnection:       cfg.Monitoring.InsecureConnection,
+					CACertFile:               cfg.Monitoring.CACertFile,
+					OtelExporterHTTPEndpoint: cfg.Monitoring.OtelExporterHTTPEndpoint,
+					OtelExporterGRPCEndpoint: cfg.Monitoring.OtelExporterGRPCEndpoint,
+					LogStreamingEnabled:      cfg.Monitoring.LogStreamingEnabled,
+					MetricReaderInterval:     time.Second * time.Duration(cfg.Monitoring.MetricReaderInterval),
+					TraceSampleRatio:         cfg.Monitoring.TraceSampleRatio,
+					TraceBatchTimeout:        time.Second * time.Duration(cfg.Monitoring.TraceBatchTimeout),
+				}
+
+				// Create the beholder client
+				client, err := beholder.NewClient(beholderConfig)
+				if err != nil {
+					return fmt.Errorf("failed to create beholder client: %w", err)
+				}
+
+				// Set the beholder client and global otel providers
+				beholder.SetClient(client)
+				beholder.SetGlobalOtelProviders()
+
+				// Initialize Pyroscope for profiling
+				if _, err := pyroscope.Start(pyroscope.Config{
+					ApplicationName: "pricer",
+					ServerAddress:   "http://pyroscope:4040",
+					ProfileTypes: []pyroscope.ProfileType{
+						pyroscope.ProfileCPU,
+						pyroscope.ProfileAllocObjects,
+						pyroscope.ProfileAllocSpace,
+						pyroscope.ProfileGoroutines,
+						pyroscope.ProfileBlockDuration,
+						pyroscope.ProfileMutexDuration,
+					},
+				}); err != nil {
+					return fmt.Errorf("failed to initialize pyroscope client: %w", err)
+				}
+			}
 
 			svc, err := pricer.NewPricerFromConfig(ctx, cfg, keystoreData, keystorePassword)
 			if err != nil {

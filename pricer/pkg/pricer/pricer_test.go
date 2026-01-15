@@ -93,12 +93,12 @@ func TestPricer(t *testing.T) {
 		Config{
 			Interval: *commonconfig.MustNewDuration(1 * time.Second),
 			LogLevel: zapcore.DebugLevel,
-			EVM:      evmCfg,
-			SOL:      solCfg,
+			EVM:      EVMChainConfig{EVMConfig: evmCfg},
+			SOL:      SOLChainConfig{TOMLConfig: solCfg},
 		}, keystoreData, "password")
 	require.NoError(t, err)
 	require.NoError(t, svc.Start(ctx))
 	// Let it run for a few ticks.
 	time.Sleep(5 * time.Second)
-	svc.Close()
+	require.NoError(t, svc.Close())
 }
