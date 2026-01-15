@@ -6,6 +6,7 @@ import (
 	"time"
 
 	solanago "github.com/gagliardetto/solana-go"
+
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/types/core"
 	solclient "github.com/smartcontractkit/chainlink-solana/pkg/solana/client"
@@ -61,6 +62,7 @@ func (c *solanaChain) Tick(ctx context.Context) error {
 	c.lggr.Infow("got balance", "address", addresses[0], "balance", balance)
 	return nil
 }
+
 func createSolanaKeystore(ctx context.Context, cfg Config, keystoreData []byte, keystorePassword string) (core.Keystore, error) {
 	if cfg.KMS.Ed25519KeyID != "" {
 		keyStore, err := loadKMSKeystore(ctx, cfg.KMS.Profile)
