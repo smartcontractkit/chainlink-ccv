@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -20,6 +19,7 @@ import (
 	"google.golang.org/grpc/credentials"
 
 	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
@@ -74,21 +74,17 @@ func ExposePrometheusMetricsFor(reg *prometheus.Registry, interval time.Duration
 	return nil
 }
 
-type IndexerClient struct {
-	logger     zerolog.Logger
-	url        string
-	httpClient *http.Client
+type IndexerMonitor struct {
+	logger        zerolog.Logger
+	indexerClient *client.IndexerClient
 }
 
-// NewIndexerClient creates a new IndexerClient with a default HTTP client.
-func NewIndexerClient(logger zerolog.Logger, url string) *IndexerClient {
-	return &IndexerClient{
-		logger: logger,
-		url:    url,
-		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
-		},
-	}
+// NewIndexerMonitor creates a new IndexerMonitor with a default HTTP client.
+func NewIndexerMonitor(logger zerolog.Logger, indexerClient *client.IndexerClient) (*IndexerMonitor, error) {
+	return &IndexerMonitor{
+		logger:        logger,
+		indexerClient: indexerClient,
+	}, nil
 }
 
 type GetVerificationsForMessageIDResponse struct {
@@ -103,7 +99,7 @@ func (g GetVerificationsForMessageIDResponse) SourceVerifierAddresses() []protoc
 	return sourceVerifierAddresses
 }
 
-func (i *IndexerClient) WaitForVerificationsForMessageID(
+func (i *IndexerMonitor) WaitForVerificationsForMessageID(
 	ctx context.Context,
 	messageID [32]byte,
 	tickInterval time.Duration,
@@ -138,34 +134,20 @@ func (i *IndexerClient) WaitForVerificationsForMessageID(
 }
 
 // GetVerificationsForMessageID fetches the verifications for a given messageID from the indexer.
-func (i *IndexerClient) GetVerificationsForMessageID(ctx context.Context, messageID [32]byte) (GetVerificationsForMessageIDResponse, error) {
-	// TODO: Use indexer/pkg/client/client.go
-	msgIDHex := common.BytesToHash(messageID[:]).Hex()
-	url := fmt.Sprintf("%s/v1/verifierresults/%s", i.url, msgIDHex)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+func (i *IndexerMonitor) GetVerificationsForMessageID(ctx context.Context, messageID protocol.Bytes32) (GetVerificationsForMessageIDResponse, error) {
+	status, resp, err := i.indexerClient.VerifierResultsByMessageID(ctx, v1.VerifierResultsByMessageIDInput{
+		MessageID: messageID.String(),
+	})
 	if err != nil {
-		return GetVerificationsForMessageIDResponse{}, fmt.Errorf("failed to create request: %w", err)
+		return GetVerificationsForMessageIDResponse{}, fmt.Errorf("failed to get verifications for messageID: %w", err)
 	}
-	resp, err := i.httpClient.Do(req)
-	if err != nil {
-		return GetVerificationsForMessageIDResponse{}, fmt.Errorf("failed to make request: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return GetVerificationsForMessageIDResponse{}, fmt.Errorf("non-200 status: %d, %+v", resp.StatusCode, resp.Body)
+	if status != http.StatusOK {
+		return GetVerificationsForMessageIDResponse{}, fmt.Errorf("non-200 status: %d, response: %+v", status, resp)
 	}
 
-	defer resp.Body.Close()
-	var response GetVerificationsForMessageIDResponse
-	err = json.NewDecoder(resp.Body).Decode(&response)
-	if err != nil {
-		return GetVerificationsForMessageIDResponse{}, fmt.Errorf("failed to decode response into struct: %w", err)
-	}
-
-	if response.MessageID.String() != msgIDHex {
-		return GetVerificationsForMessageIDResponse{}, fmt.Errorf("messageID mismatch: got %s, wanted %s", response.MessageID, msgIDHex)
-	}
-
-	return response, nil
+	return GetVerificationsForMessageIDResponse{
+		VerifierResultsByMessageIDResponse: resp,
+	}, nil
 }
 
 type AggregatorClient struct {

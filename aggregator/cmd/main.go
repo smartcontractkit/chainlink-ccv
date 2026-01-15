@@ -45,11 +45,12 @@ func main() {
 	if len(os.Args) > 1 {
 		filePath = os.Args[1]
 	}
-	config, err := configuration.LoadConfig(filePath)
+	config, err := configuration.LoadConfig(filePath, sugaredLggr)
 	if err != nil {
 		lggr.Errorw("Failed to load configuration", "error", err)
 		os.Exit(1)
 	}
+	lggr.Infow("Loaded configuration", "config", config)
 
 	if err := config.LoadFromEnvironment(); err != nil {
 		lggr.Errorw("Failed to load configuration from environment", "error", err)

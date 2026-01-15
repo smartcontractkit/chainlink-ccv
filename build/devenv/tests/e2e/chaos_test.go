@@ -59,7 +59,7 @@ func TestChaos_AggregatorOutageRecovery(t *testing.T) {
 		numExpectedVerifications: 1,
 	}
 
-	runV2TestCase(t, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerClient, AssertMessageOptions{
+	runV2TestCase(t, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerMonitor, AssertMessageOptions{
 		TickInterval:            5 * time.Second,
 		Timeout:                 tests.WaitTimeout(t),
 		ExpectedVerifierResults: tc.numExpectedVerifications,
@@ -79,19 +79,23 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 	}
 	require.NotEmpty(t, defaultVerifierInputs, "default verifier inputs not found")
 
-	var thresholdPerSource map[uint64]uint8
+	var defaultAggregator *services.AggregatorInput
 	for _, aggregator := range setup.in.Aggregator {
 		if aggregator.CommitteeName == evm.DefaultCommitteeVerifierQualifier {
-			thresholdPerSource = aggregator.Out.ThresholdPerSource
+			defaultAggregator = aggregator
 			break
 		}
 	}
-	require.NotNil(t, thresholdPerSource, "threshold per source nil for default aggregator, need it for this test")
+	require.NotNil(t, defaultAggregator, "default aggregator not found")
+	require.NotNil(t, defaultAggregator.Out, "Out nil for default aggregator")
+	require.NotNil(t, defaultAggregator.Out.GeneratedCommittee, "GeneratedCommittee nil for default aggregator, need it for this test")
 
 	fromSelector, toSelector := setup.chains[0].Details.ChainSelector, setup.chains[1].Details.ChainSelector
+	fromSelectorStr := fmt.Sprintf("%d", fromSelector)
 
-	require.Contains(t, thresholdPerSource, fromSelector, "threshold per source not found for source chain %d", fromSelector)
-	threshold := thresholdPerSource[fromSelector]
+	quorumConfig, ok := defaultAggregator.Out.GeneratedCommittee.QuorumConfigs[fromSelectorStr]
+	require.True(t, ok, "quorum config not found for source chain %d", fromSelector)
+	threshold := quorumConfig.Threshold
 	require.GreaterOrEqual(t, len(defaultVerifierInputs), int(threshold), "number of default verifiers must be greater than or equal to the threshold for this test")
 	numVerifiersToStop := len(defaultVerifierInputs) - int(threshold) + 1
 	require.Greater(t, numVerifiersToStop, 0, "number of verifiers to stop must be greater than 0 for this test")
@@ -134,7 +138,7 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 		tc,
 		setup.chainMap,
 		setup.defaultAggregatorClient,
-		setup.indexerClient,
+		setup.indexerMonitor,
 		AssertMessageOptions{
 			TickInterval:            5 * time.Second,
 			Timeout:                 tests.WaitTimeout(t),
@@ -178,7 +182,7 @@ func TestChaos_AllExecutorsDown(t *testing.T) {
 		numExpectedVerifications: 1,
 	}
 
-	runV2TestCase(t, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerClient, AssertMessageOptions{
+	runV2TestCase(t, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerMonitor, AssertMessageOptions{
 		TickInterval:            5 * time.Second,
 		Timeout:                 tests.WaitTimeout(t),
 		ExpectedVerifierResults: tc.numExpectedVerifications,
@@ -215,7 +219,7 @@ func TestChaos_IndexerDown(t *testing.T) {
 		numExpectedVerifications: 1,
 	}
 
-	runV2TestCase(t, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerClient, AssertMessageOptions{
+	runV2TestCase(t, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerMonitor, AssertMessageOptions{
 		TickInterval:            5 * time.Second,
 		Timeout:                 tests.WaitTimeout(t),
 		ExpectedVerifierResults: tc.numExpectedVerifications,
@@ -229,7 +233,7 @@ type chaosSetup struct {
 	chains                  []ccv.ChainImpl
 	chainMap                map[uint64]cciptestinterfaces.CCIP17
 	defaultAggregatorClient *ccv.AggregatorClient
-	indexerClient           *ccv.IndexerClient
+	indexerMonitor          *ccv.IndexerMonitor
 	l                       *zerolog.Logger
 }
 
@@ -264,12 +268,14 @@ func setupChaos(t *testing.T, envOutPath string) *chaosSetup {
 		})
 	}
 
-	var indexerClient *ccv.IndexerClient
-	if in.IndexerEndpoint != "" {
-		indexerClient = ccv.NewIndexerClient(
+	var indexerMonitor *ccv.IndexerMonitor
+	indexerClient, err := lib.Indexer()
+	if err == nil {
+		indexerMonitor, err = ccv.NewIndexerMonitor(
 			zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
-			in.IndexerEndpoint)
-		require.NotNil(t, indexerClient)
+			indexerClient)
+		require.NoError(t, err)
+		require.NotNil(t, indexerMonitor)
 	}
 
 	return &chaosSetup{
@@ -277,7 +283,7 @@ func setupChaos(t *testing.T, envOutPath string) *chaosSetup {
 		chains:                  chains,
 		chainMap:                chainMap,
 		defaultAggregatorClient: defaultAggregatorClient,
-		indexerClient:           indexerClient,
+		indexerMonitor:          indexerMonitor,
 		l:                       l,
 	}
 }
