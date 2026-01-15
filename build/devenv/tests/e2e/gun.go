@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"math/big"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -253,6 +254,11 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("could not find committee verifier proxy address in datastore: %w", err)
 	}
 
+	// generate a random finality between 0 (chain default finality) and 1 (custom finality)
+	finality, err := rand.Int(rand.Reader, big.NewInt(2))
+	if err != nil {
+		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to generate finality: %w", err)
+	}
 	if m.testConfig == nil || m.testConfig.Messages == nil {
 		return cciptestinterfaces.MessageFields{
 				Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
@@ -260,7 +266,7 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 				FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),
 			}, cciptestinterfaces.MessageOptions{
 				Version:        3,
-				FinalityConfig: uint16(1),
+				FinalityConfig: uint16(finality.Int64()),
 				CCVs: []protocol.CCV{
 					{
 						CCVAddress: common.HexToAddress(committeeVerifierProxyRef.Address).Bytes(),
