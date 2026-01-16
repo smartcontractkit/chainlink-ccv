@@ -125,12 +125,14 @@ func GenerateVerifierConfig() deployment.ChangeSetV2[GenerateVerifierConfigCfg] 
 			}
 		}
 
-		// Track expected job spec IDs for cleanup
+		// Track expected NOPs and job spec IDs for cleanup
+		expectedNOPs := make(map[string]bool)
 		expectedJobSpecIDs := make(map[string]bool)
 		verifierSuffix := fmt.Sprintf("-%s-verifier", committee.Qualifier)
 
 		for _, nopAlias := range nopAliases {
 			nop := envCfg.NOPTopology.NOPs[nopAlias]
+			expectedNOPs[nopAlias] = true
 
 			for _, agg := range committee.Aggregators {
 				verifierID := fmt.Sprintf("%s-%s-verifier", agg.Name, committee.Qualifier)
@@ -195,7 +197,12 @@ committeeVerifierConfig = """
 			}
 			for jobSpecID := range jobSpecs {
 				// Check if this job spec matches the pattern for this committee's verifier
-				if strings.HasSuffix(jobSpecID, verifierSuffix) && !expectedJobSpecIDs[jobSpecID] {
+				if !strings.HasSuffix(jobSpecID, verifierSuffix) {
+					continue
+				}
+				// Delete if: 1) job spec ID is not expected, OR 2) NOP is not expected to have verifier jobs
+				shouldDelete := !expectedJobSpecIDs[jobSpecID] || !expectedNOPs[nopAlias]
+				if shouldDelete {
 					if err := deployments.DeleteNOPJobSpec(outputDS, nopAlias, jobSpecID); err != nil {
 						return deployment.ChangesetOutput{
 							Reports: report.ExecutionReports,

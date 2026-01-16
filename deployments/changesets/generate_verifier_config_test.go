@@ -145,13 +145,13 @@ func TestGenerateVerifierConfig_GeneratesCorrectJobSpec(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
 
-	jobSpec, err := deployments.GetNOPJobSpec(output.DataStore.Seal(), "nop-1", "nop-1-instance-1-test-committee-verifier")
+	jobSpec, err := deployments.GetNOPJobSpec(output.DataStore.Seal(), "nop-1", "instance-1-test-committee-verifier")
 	require.NoError(t, err)
 
 	assert.Contains(t, jobSpec, `schemaVersion = 1`)
 	assert.Contains(t, jobSpec, `type = "ccvcommitteeverifier"`)
 	assert.Contains(t, jobSpec, `committeeVerifierConfig = """`)
-	assert.Contains(t, jobSpec, `verifier_id = "nop-1-instance-1-test-committee-verifier"`)
+	assert.Contains(t, jobSpec, `verifier_id = "instance-1-test-committee-verifier"`)
 	assert.Contains(t, jobSpec, `aggregator_address = "aggregator-1:443"`)
 	assert.Contains(t, jobSpec, `signer_address = "0xABCDEF1234567890ABCDEF1234567890ABCDEF12"`)
 	assert.Contains(t, jobSpec, `pyroscope_url = "http://pyroscope:4040"`)
@@ -233,7 +233,7 @@ func TestGenerateVerifierConfig_PreservesExistingConfigs(t *testing.T) {
 
 	outputSealed := output.DataStore.Seal()
 
-	_, err = deployments.GetNOPJobSpec(outputSealed, "nop-1", "nop-1-instance-1-test-committee-verifier")
+	_, err = deployments.GetNOPJobSpec(outputSealed, "nop-1", "instance-1-test-committee-verifier")
 	require.NoError(t, err, "new verifier job spec should be present")
 
 	retrievedExecutorJobSpec, err := deployments.GetNOPJobSpec(outputSealed, "existing-nop", "existing-executor")
@@ -291,15 +291,15 @@ func TestGenerateVerifierConfig_MultipleAggregatorsPerCommittee(t *testing.T) {
 
 	// Should generate one job spec per (NOP, aggregator) combination
 	// With 1 NOP and 3 aggregators, we expect 3 job specs
-	jobSpec1, err := deployments.GetNOPJobSpec(outputSealed, "nop-1", "nop-1-agg-primary-test-committee-verifier")
+	jobSpec1, err := deployments.GetNOPJobSpec(outputSealed, "nop-1", "agg-primary-test-committee-verifier")
 	require.NoError(t, err, "job spec for primary aggregator should exist")
 	assert.Contains(t, jobSpec1, `aggregator_address = "aggregator-primary:443"`)
 
-	jobSpec2, err := deployments.GetNOPJobSpec(outputSealed, "nop-1", "nop-1-agg-secondary-test-committee-verifier")
+	jobSpec2, err := deployments.GetNOPJobSpec(outputSealed, "nop-1", "agg-secondary-test-committee-verifier")
 	require.NoError(t, err, "job spec for secondary aggregator should exist")
 	assert.Contains(t, jobSpec2, `aggregator_address = "aggregator-secondary:443"`)
 
-	jobSpec3, err := deployments.GetNOPJobSpec(outputSealed, "nop-1", "nop-1-agg-tertiary-test-committee-verifier")
+	jobSpec3, err := deployments.GetNOPJobSpec(outputSealed, "nop-1", "agg-tertiary-test-committee-verifier")
 	require.NoError(t, err, "job spec for tertiary aggregator should exist")
 	assert.Contains(t, jobSpec3, `aggregator_address = "aggregator-tertiary:443"`)
 
@@ -341,7 +341,7 @@ func TestGenerateVerifierConfig_RemovesOrphanedJobSpecs(t *testing.T) {
 	addContractToDatastore(t, ds, sel2, "", rmn_remote.ContractType, rmnAddr2)
 
 	// Pre-populate with a verifier job spec for a NOP that will be removed from committee
-	err := deployments.SaveNOPJobSpec(ds, "nop-removed", "nop-removed-instance-1-test-committee-verifier", "old-job-spec")
+	err := deployments.SaveNOPJobSpec(ds, "nop-removed", "instance-1-test-committee-verifier", "old-job-spec")
 	require.NoError(t, err)
 
 	env.DataStore = ds.Seal()
@@ -362,14 +362,14 @@ func TestGenerateVerifierConfig_RemovesOrphanedJobSpecs(t *testing.T) {
 	outputSealed := output.DataStore.Seal()
 
 	// The orphaned job spec should be deleted
-	_, err = deployments.GetNOPJobSpec(outputSealed, "nop-removed", "nop-removed-instance-1-test-committee-verifier")
+	_, err = deployments.GetNOPJobSpec(outputSealed, "nop-removed", "instance-1-test-committee-verifier")
 	require.Error(t, err, "orphaned verifier job spec should be deleted")
 
 	// Active NOPs should still have their job specs
-	_, err = deployments.GetNOPJobSpec(outputSealed, "nop-1", "nop-1-instance-1-test-committee-verifier")
+	_, err = deployments.GetNOPJobSpec(outputSealed, "nop-1", "instance-1-test-committee-verifier")
 	require.NoError(t, err, "nop-1 verifier job spec should exist")
 
-	_, err = deployments.GetNOPJobSpec(outputSealed, "nop-2", "nop-2-instance-1-test-committee-verifier")
+	_, err = deployments.GetNOPJobSpec(outputSealed, "nop-2", "instance-1-test-committee-verifier")
 	require.NoError(t, err, "nop-2 verifier job spec should exist")
 }
 
@@ -405,7 +405,7 @@ func TestGenerateVerifierConfig_PreservesOtherCommitteeJobSpecs(t *testing.T) {
 	addContractToDatastore(t, ds, sel2, "", rmn_remote.ContractType, rmnAddr2)
 
 	// Pre-populate with a verifier job spec for a DIFFERENT committee
-	err := deployments.SaveNOPJobSpec(ds, "nop-1", "nop-1-instance-1-other-committee-verifier", "other-committee-job-spec")
+	err := deployments.SaveNOPJobSpec(ds, "nop-1", "instance-1-other-committee-verifier", "other-committee-job-spec")
 	require.NoError(t, err)
 
 	env.DataStore = ds.Seal()
@@ -426,12 +426,12 @@ func TestGenerateVerifierConfig_PreservesOtherCommitteeJobSpecs(t *testing.T) {
 	outputSealed := output.DataStore.Seal()
 
 	// The job spec for a different committee should be preserved
-	otherCommitteeJobSpec, err := deployments.GetNOPJobSpec(outputSealed, "nop-1", "nop-1-instance-1-other-committee-verifier")
+	otherCommitteeJobSpec, err := deployments.GetNOPJobSpec(outputSealed, "nop-1", "instance-1-other-committee-verifier")
 	require.NoError(t, err, "job spec for other committee should be preserved")
 	assert.Equal(t, "other-committee-job-spec", otherCommitteeJobSpec)
 
 	// Current committee job spec should exist
-	_, err = deployments.GetNOPJobSpec(outputSealed, "nop-1", "nop-1-instance-1-test-committee-verifier")
+	_, err = deployments.GetNOPJobSpec(outputSealed, "nop-1", "instance-1-test-committee-verifier")
 	require.NoError(t, err, "nop-1 test-committee verifier job spec should exist")
 }
 
@@ -467,9 +467,9 @@ func TestGenerateVerifierConfig_ScopedNOPAliasesPreservesOtherNOPs(t *testing.T)
 	addContractToDatastore(t, ds, sel2, "", rmn_remote.ContractType, rmnAddr2)
 
 	// Pre-populate with verifier job specs for BOTH nop-1 and nop-2
-	err := deployments.SaveNOPJobSpec(ds, "nop-1", "nop-1-instance-1-test-committee-verifier", "nop-1-job-spec")
+	err := deployments.SaveNOPJobSpec(ds, "nop-1", "instance-1-test-committee-verifier", "nop-1-job-spec")
 	require.NoError(t, err)
-	err = deployments.SaveNOPJobSpec(ds, "nop-2", "nop-2-instance-1-test-committee-verifier", "nop-2-job-spec")
+	err = deployments.SaveNOPJobSpec(ds, "nop-2", "instance-1-test-committee-verifier", "nop-2-job-spec")
 	require.NoError(t, err)
 
 	env.DataStore = ds.Seal()
@@ -491,11 +491,11 @@ func TestGenerateVerifierConfig_ScopedNOPAliasesPreservesOtherNOPs(t *testing.T)
 	outputSealed := output.DataStore.Seal()
 
 	// nop-1 job spec should be regenerated
-	_, err = deployments.GetNOPJobSpec(outputSealed, "nop-1", "nop-1-instance-1-test-committee-verifier")
+	_, err = deployments.GetNOPJobSpec(outputSealed, "nop-1", "instance-1-test-committee-verifier")
 	require.NoError(t, err, "nop-1 verifier job spec should exist")
 
 	// nop-2 job spec should be PRESERVED (not deleted) since nop-2 was not in scope
-	nop2JobSpec, err := deployments.GetNOPJobSpec(outputSealed, "nop-2", "nop-2-instance-1-test-committee-verifier")
+	nop2JobSpec, err := deployments.GetNOPJobSpec(outputSealed, "nop-2", "instance-1-test-committee-verifier")
 	require.NoError(t, err, "nop-2 verifier job spec should be preserved when not in scope")
 	assert.Equal(t, "nop-2-job-spec", nop2JobSpec, "nop-2 job spec should be unchanged")
 }

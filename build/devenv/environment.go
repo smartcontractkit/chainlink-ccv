@@ -340,7 +340,6 @@ func generateExecutorJobSpecs(
 		cs := changesets.GenerateExecutorConfig()
 		output, err := cs.Apply(*e, changesets.GenerateExecutorConfigCfg{
 			EnvConfigPath:     envConfigPath,
-			ServiceIdentifier: qualifier + "-executor",
 			ExecutorQualifier: qualifier,
 			ChainSelectors:    selectors,
 			NOPAliases:        execNOPAliases,
@@ -350,8 +349,8 @@ func generateExecutorJobSpecs(
 		}
 
 		for _, exec := range qualifierExecutors {
-			jobSpecID := fmt.Sprintf("%s-executor", exec.ContainerName)
-			jobSpec, err := deployments.GetExecutorJobSpec(output.DataStore.Seal(), jobSpecID)
+			jobSpecID := fmt.Sprintf("%s-%s-executor", exec.ContainerName, qualifier)
+			jobSpec, err := deployments.GetNOPJobSpec(output.DataStore.Seal(), exec.ContainerName, jobSpecID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get executor job spec for %s: %w", exec.ContainerName, err)
 			}
@@ -428,7 +427,6 @@ func generateVerifierJobSpecs(
 		cs := changesets.GenerateVerifierConfig()
 		output, err := cs.Apply(*e, changesets.GenerateVerifierConfigCfg{
 			EnvConfigPath:      envConfigPath,
-			ServiceIdentifier:  committeeName + "-verifier",
 			CommitteeQualifier: committeeName,
 			ExecutorQualifier:  evm.DefaultExecutorQualifier,
 			ChainSelectors:     selectors,
@@ -439,8 +437,9 @@ func generateVerifierJobSpecs(
 		}
 
 		for _, ver := range committeeVerifiers {
-			jobSpecID := fmt.Sprintf("%s-default-verifier", ver.ContainerName)
-			jobSpec, err := deployments.GetVerifierJobSpec(output.DataStore.Seal(), jobSpecID)
+			// Aggregator name is "default" as configured in the env config
+			jobSpecID := fmt.Sprintf("default-%s-verifier", committeeName)
+			jobSpec, err := deployments.GetNOPJobSpec(output.DataStore.Seal(), ver.ContainerName, jobSpecID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get verifier job spec for %s: %w", ver.ContainerName, err)
 			}
