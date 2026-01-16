@@ -2,10 +2,15 @@ package pricer
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/pricer/pkg/monitoring"
@@ -31,6 +36,7 @@ type KMSConfig struct {
 // Prometheus metrics are always enabled and exposed via the standard /metrics endpoint.
 type MonitoringConfig struct {
 	Enabled bool `toml:"Enabled"`
+	Port    int  `toml:"Port"`
 }
 
 type Config struct {
@@ -82,6 +88,10 @@ func (c *Config) SetDefaults() {
 	if c.LogLevel == zapcore.Level(0) {
 		c.LogLevel = zapcore.InfoLevel
 	}
+	// Set default monitoring port
+	if c.Monitoring.Port == 0 {
+		c.Monitoring.Port = 4141
+	}
 	// Apply EVM chain defaults based on chainID.
 	if c.EVM.ChainID != nil {
 		defaults := evmtoml.Defaults(c.EVM.ChainID)
@@ -106,12 +116,13 @@ func (c *Config) SetDefaults() {
 
 type Pricer struct {
 	services.StateMachine
-	lggr     logger.Logger
-	evmChain *evmChain
-	solChain *solanaChain
-	cfg      Config
-	done     chan struct{}
-	wg       sync.WaitGroup
+	lggr       logger.Logger
+	evmChain   *evmChain
+	solChain   *solanaChain
+	cfg        Config
+	done       chan struct{}
+	wg         sync.WaitGroup
+	httpServer *http.Server
 }
 
 func loadKMSKeystore(ctx context.Context, profile string) (interface {
@@ -184,6 +195,17 @@ func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, k
 	} else {
 		lggr.Infow("no solana chain configured")
 	}
+
+	// Setup HTTP server for Prometheus metrics
+	lggr.Infow("setting up HTTP server for Prometheus metrics", "port", cfg.Monitoring.Port)
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.HandlerFor(
+		prometheus.DefaultGatherer,
+		promhttp.HandlerOpts{
+			EnableOpenMetrics: true,
+		},
+	))
+
 	return &Pricer{
 		StateMachine: services.StateMachine{},
 		lggr:         lggr,
@@ -192,11 +214,28 @@ func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, k
 		wg:           sync.WaitGroup{},
 		evmChain:     evmChain,
 		solChain:     solChain,
+		httpServer: &http.Server{
+			Addr:              fmt.Sprintf(":%d", cfg.Monitoring.Port),
+			Handler:           mux,
+			ReadHeaderTimeout: 10 * time.Second,
+		},
 	}, nil
 }
 
 func (p *Pricer) Start(ctx context.Context) error {
 	return p.StartOnce("Pricer", func() error {
+		// Start HTTP server for metrics
+		listener, err := net.Listen("tcp", p.httpServer.Addr)
+		if err != nil {
+			return fmt.Errorf("failed to listen on %s: %w", p.httpServer.Addr, err)
+		}
+		p.wg.Go(func() {
+			p.lggr.Infow("starting metrics HTTP server", "addr", p.httpServer.Addr)
+			if err := p.httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				p.lggr.Errorw("metrics HTTP server error", "error", err)
+			}
+		})
+
 		if p.evmChain != nil {
 			if err := p.evmChain.Start(ctx); err != nil {
 				return fmt.Errorf("failed to start EVM chain: %w", err)
@@ -209,14 +248,14 @@ func (p *Pricer) Start(ctx context.Context) error {
 			}
 			p.solChain.lggr.Infow("started solana chain")
 		}
-		p.wg.Add(1)
-		go p.run(ctx)
+		p.wg.Go(func() {
+			p.run(ctx)
+		})
 		return nil
 	})
 }
 
 func (p *Pricer) run(ctx context.Context) {
-	defer p.wg.Done()
 	ticker := time.NewTicker(p.cfg.Interval.Duration())
 	defer ticker.Stop()
 
@@ -260,6 +299,12 @@ func (p *Pricer) run(ctx context.Context) {
 func (p *Pricer) Close() error {
 	return p.StopOnce("Pricer", func() error {
 		close(p.done)
+		// Shutdown HTTP server first, then wait for goroutines to finish
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := p.httpServer.Shutdown(shutdownCtx); err != nil {
+			p.lggr.Warnw("failed to shutdown metrics HTTP server", "error", err)
+		}
 		p.wg.Wait()
 		if p.evmChain != nil {
 			if err := p.evmChain.Close(); err != nil {
