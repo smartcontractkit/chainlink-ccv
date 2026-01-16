@@ -5,23 +5,29 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/rs/zerolog"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
@@ -32,9 +38,6 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/clnode"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/jd"
-
-	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
 
@@ -98,7 +101,10 @@ type Cfg struct {
 	AggregatorEndpoints map[string]string `toml:"aggregator_endpoints"`
 	// AggregatorCACertFiles map the verifier qualifier to the CA cert file path for TLS verification.
 	AggregatorCACertFiles map[string]string `toml:"aggregator_ca_cert_files"`
-	IndexerEndpoint       string            `toml:"indexer_endpoint"`
+	// IndexerEndpoint is the external URL (localhost:port) for host access.
+	IndexerEndpoint string `toml:"indexer_endpoint"`
+	// IndexerInternalEndpoint is the internal Docker network URL for container-to-container access.
+	IndexerInternalEndpoint string `toml:"indexer_internal_endpoint"`
 }
 
 // NewAggregatorClientForCommittee creates an AggregatorClient for the specified committee.
@@ -136,6 +142,329 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Co
 	default:
 		return nil, errors.New("unknown devenv network type " + typ)
 	}
+}
+
+// buildEnvConfig constructs an EnvConfig from devenv inputs.
+// This creates the NOP topology, committee configurations, and executor pools
+// based on the verifier and executor inputs.
+func buildEnvConfig(
+	verifiers []*services.VerifierInput,
+	executors []*services.ExecutorInput,
+	aggregators []*services.AggregatorInput,
+	indexerEndpoint string,
+	selectors []uint64,
+) deployments.EnvConfig {
+	nops := make(map[string]deployments.NOPConfig)
+	committees := make(map[string]deployments.CommitteeConfig)
+	executorPools := make(map[string]deployments.ExecutorPoolConfig)
+
+	// Build NOPs from verifiers (each verifier container is a NOP)
+	for _, ver := range verifiers {
+		nops[ver.ContainerName] = deployments.NOPConfig{
+			Alias:         ver.ContainerName,
+			Name:          ver.ContainerName,
+			SignerAddress: ver.SigningKeyPublic,
+		}
+	}
+
+	// Build set of committee names that have verifiers
+	committeeNames := make(map[string]struct{})
+	for _, ver := range verifiers {
+		committeeNames[ver.CommitteeName] = struct{}{}
+	}
+
+	// Build committees only for those that have verifiers
+	for _, agg := range aggregators {
+		// Skip committees that don't have verifiers in the input
+		if _, ok := committeeNames[agg.CommitteeName]; !ok {
+			continue
+		}
+
+		// Find all verifiers for this committee
+		var memberAliases []string
+		for _, ver := range verifiers {
+			if ver.CommitteeName == agg.CommitteeName {
+				memberAliases = append(memberAliases, ver.ContainerName)
+			}
+		}
+
+		// Build chain configs (same members for all chains in devenv)
+		chainConfigs := make(map[string]deployments.ChainCommitteeConfig)
+		for _, sel := range selectors {
+			chainConfigs[strconv.FormatUint(sel, 10)] = deployments.ChainCommitteeConfig{
+				NOPAliases: memberAliases,
+				Threshold:  uint8(len(memberAliases)),
+			}
+		}
+
+		// Determine aggregator address
+		aggAddress := ""
+		insecure := false
+		if agg.Out != nil {
+			// Use the nginx TLS proxy address by default
+			aggAddress = agg.Out.Address
+		} else {
+			aggAddress = fmt.Sprintf("%s-aggregator-nginx:443", agg.CommitteeName)
+		}
+
+		// Check if any verifier wants insecure connection
+		for _, ver := range verifiers {
+			if ver.CommitteeName == agg.CommitteeName && ver.InsecureAggregatorConnection {
+				insecure = true
+				if agg.Out != nil {
+					aggAddress = agg.Out.ExternalHTTPUrl
+				} else {
+					aggAddress = fmt.Sprintf("%s-aggregator:50051", agg.CommitteeName)
+				}
+				break
+			}
+		}
+
+		committees[agg.CommitteeName] = deployments.CommitteeConfig{
+			Qualifier:       agg.CommitteeName,
+			VerifierVersion: "1.7.0",
+			ChainConfigs:    chainConfigs,
+			Aggregators: []deployments.AggregatorConfig{
+				{
+					Name:                         "default",
+					Address:                      aggAddress,
+					InsecureAggregatorConnection: insecure,
+				},
+			},
+		}
+	}
+
+	// Build executor pools from executors, grouped by qualifier
+	if len(executors) > 0 {
+		poolsByQualifier := make(map[string][]string)
+		for _, exec := range executors {
+			// Add executor as NOP
+			nops[exec.ContainerName] = deployments.NOPConfig{
+				Alias: exec.ContainerName,
+				Name:  exec.ContainerName,
+			}
+
+			// Group by qualifier
+			qualifier := exec.ExecutorQualifier
+			if qualifier == "" {
+				qualifier = evm.DefaultExecutorQualifier
+			}
+			poolsByQualifier[qualifier] = append(poolsByQualifier[qualifier], exec.ContainerName)
+		}
+
+		// Create executor pool for each qualifier
+		for qualifier, poolAliases := range poolsByQualifier {
+			executorPools[qualifier] = deployments.ExecutorPoolConfig{
+				NOPAliases:        poolAliases,
+				ExecutionInterval: 15 * time.Second,
+			}
+		}
+	}
+
+	return deployments.EnvConfig{
+		IndexerAddress: indexerEndpoint,
+		PyroscopeURL:   "http://host.docker.internal:4040",
+		Monitoring: deployments.MonitoringConfig{
+			Enabled: true,
+			Type:    "beholder",
+			Beholder: deployments.BeholderConfig{
+				InsecureConnection:       true,
+				OtelExporterHTTPEndpoint: "host.docker.internal:4318",
+				MetricReaderInterval:     5,
+				TraceSampleRatio:         1.0,
+				TraceBatchTimeout:        10,
+			},
+		},
+		NOPTopology: deployments.NOPTopology{
+			NOPs:       nops,
+			Committees: committees,
+		},
+		ExecutorPools: executorPools,
+	}
+}
+
+// buildAndWriteEnvConfig builds the shared EnvConfig from all devenv inputs and writes it to a file.
+// This is used by both executor and verifier changesets as the single source of truth.
+// Uses the internal Docker network endpoint for container-to-container communication.
+func buildAndWriteEnvConfig(in *Cfg, selectors []uint64) (string, error) {
+	envCfg := buildEnvConfig(in.Verifier, in.Executor, in.Aggregator, in.IndexerInternalEndpoint, selectors)
+
+	configDir := filepath.Join(util.CCVConfigDir(), "env-config")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		return "", fmt.Errorf("failed to create env config directory: %w", err)
+	}
+
+	configPath := filepath.Join(configDir, "env.toml")
+	if err := deployments.WriteEnvConfig(configPath, envCfg); err != nil {
+		return "", fmt.Errorf("failed to write env config: %w", err)
+	}
+
+	Plog.Info().Str("path", configPath).Msg("Wrote shared EnvConfig")
+	return configPath, nil
+}
+
+// generateExecutorJobSpecs generates job specs for all executors using the EnvConfig-based changeset.
+// It returns a map of container name -> job spec for use in CL mode.
+// For standalone mode, it also sets GeneratedConfig on each executor.
+func generateExecutorJobSpecs(
+	ctx context.Context,
+	e *deployment.Environment,
+	in *Cfg,
+	selectors []uint64,
+	impls []cciptestinterfaces.CCIP17Configuration,
+	envConfigPath string,
+) (map[string]string, error) {
+	executorJobSpecs := make(map[string]string)
+
+	if len(in.Executor) == 0 {
+		return executorJobSpecs, nil
+	}
+
+	// Group executors by qualifier
+	executorsByQualifier := make(map[string][]*services.ExecutorInput)
+	for _, exec := range in.Executor {
+		qualifier := exec.ExecutorQualifier
+		if qualifier == "" {
+			qualifier = evm.DefaultExecutorQualifier
+		}
+		executorsByQualifier[qualifier] = append(executorsByQualifier[qualifier], exec)
+	}
+
+	// Generate configs for each qualifier group
+	for qualifier, qualifierExecutors := range executorsByQualifier {
+		execNOPAliases := make([]string, 0, len(qualifierExecutors))
+		for _, exec := range qualifierExecutors {
+			execNOPAliases = append(execNOPAliases, exec.ContainerName)
+		}
+
+		cs := changesets.GenerateExecutorConfig()
+		output, err := cs.Apply(*e, changesets.GenerateExecutorConfigCfg{
+			EnvConfigPath:     envConfigPath,
+			ExecutorQualifier: qualifier,
+			ChainSelectors:    selectors,
+			NOPAliases:        execNOPAliases,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate executor configs for qualifier %s: %w", qualifier, err)
+		}
+
+		for _, exec := range qualifierExecutors {
+			jobSpecID := fmt.Sprintf("%s-%s-executor", exec.ContainerName, qualifier)
+			jobSpec, err := deployments.GetNOPJobSpec(output.DataStore.Seal(), exec.ContainerName, jobSpecID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get executor job spec for %s: %w", exec.ContainerName, err)
+			}
+			executorJobSpecs[exec.ContainerName] = jobSpec
+
+			// Extract inner config from job spec for standalone mode
+			execCfg, err := ParseExecutorConfigFromJobSpec(jobSpec)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse executor config from job spec: %w", err)
+			}
+
+			// Marshal the inner config back to TOML for standalone mode
+			configBytes, err := toml.Marshal(execCfg)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal executor config: %w", err)
+			}
+			exec.GeneratedConfig = string(configBytes)
+		}
+	}
+
+	// Set transmitter keys for standalone mode
+	_, err := services.SetTransmitterPrivateKey(in.Executor)
+	if err != nil {
+		return nil, fmt.Errorf("failed to set transmitter private key: %w", err)
+	}
+
+	// Fund executor addresses for standalone mode
+	addresses := make([]protocol.UnknownAddress, 0, len(in.Executor))
+	for _, exec := range in.Executor {
+		addresses = append(addresses, exec.GetTransmitterAddress())
+	}
+	Plog.Info().Any("Addresses", addresses).Int("ImplsLen", len(impls)).Msg("Funding executors")
+	for i, impl := range impls {
+		Plog.Info().Int("ImplIndex", i).Msg("Funding executor")
+		err = impl.FundAddresses(ctx, in.Blockchains[i], addresses, big.NewInt(5))
+		if err != nil {
+			return nil, fmt.Errorf("failed to fund addresses for executors: %w", err)
+		}
+		Plog.Info().Int("ImplIndex", i).Msg("Funded executors")
+	}
+
+	return executorJobSpecs, nil
+}
+
+// generateVerifierJobSpecs generates job specs for all verifiers using the EnvConfig-based changeset.
+// It returns a map of container name -> job spec for use in CL mode.
+// For standalone mode, it also sets GeneratedConfig on each verifier.
+func generateVerifierJobSpecs(
+	e *deployment.Environment,
+	in *Cfg,
+	selectors []uint64,
+	envConfigPath string,
+	sharedTLSCerts *services.TLSCertPaths,
+) (map[string]string, error) {
+	verifierJobSpecs := make(map[string]string)
+
+	if len(in.Verifier) == 0 {
+		return verifierJobSpecs, nil
+	}
+
+	// Group verifiers by committee for batch generation
+	verifiersByCommittee := make(map[string][]*services.VerifierInput)
+	for _, ver := range in.Verifier {
+		verifiersByCommittee[ver.CommitteeName] = append(verifiersByCommittee[ver.CommitteeName], ver)
+	}
+
+	// Generate verifier configs per committee
+	for committeeName, committeeVerifiers := range verifiersByCommittee {
+		verNOPAliases := make([]string, 0, len(committeeVerifiers))
+		for _, ver := range committeeVerifiers {
+			verNOPAliases = append(verNOPAliases, ver.ContainerName)
+		}
+
+		cs := changesets.GenerateVerifierConfig()
+		output, err := cs.Apply(*e, changesets.GenerateVerifierConfigCfg{
+			EnvConfigPath:      envConfigPath,
+			CommitteeQualifier: committeeName,
+			ExecutorQualifier:  evm.DefaultExecutorQualifier,
+			ChainSelectors:     selectors,
+			NOPAliases:         verNOPAliases,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate verifier configs for committee %s: %w", committeeName, err)
+		}
+
+		for _, ver := range committeeVerifiers {
+			// Aggregator name is "default" as configured in the env config
+			jobSpecID := fmt.Sprintf("default-%s-verifier", committeeName)
+			jobSpec, err := deployments.GetNOPJobSpec(output.DataStore.Seal(), ver.ContainerName, jobSpecID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get verifier job spec for %s: %w", ver.ContainerName, err)
+			}
+			verifierJobSpecs[ver.ContainerName] = jobSpec
+
+			// Extract inner config from job spec for standalone mode
+			verCfg, err := ParseVerifierConfigFromJobSpec(jobSpec)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse verifier config from job spec: %w", err)
+			}
+
+			// Marshal the inner config back to TOML for standalone mode
+			configBytes, err := toml.Marshal(verCfg)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal verifier config: %w", err)
+			}
+			ver.GeneratedConfig = string(configBytes)
+
+			if sharedTLSCerts != nil && !ver.InsecureAggregatorConnection {
+				ver.TLSCACertFile = sharedTLSCerts.CACertFile
+			}
+		}
+	}
+
+	return verifierJobSpecs, nil
 }
 
 // NewEnvironment creates a new CCIP CCV environment locally in Docker.
@@ -217,8 +546,16 @@ func NewEnvironment() (in *Cfg, err error) {
 	// CL nodes, so they can receive the credentials via secrets.
 	///////////////////////////////////////////
 	for _, agg := range in.Aggregator {
-		if _, err := agg.EnsureClientCredentials(); err != nil {
+		creds, err := agg.EnsureClientCredentials()
+		if err != nil {
 			return nil, fmt.Errorf("failed to ensure client credentials for aggregator %s: %w", agg.CommitteeName, err)
+		}
+		for clientID, c := range creds {
+			Plog.Debug().
+				Str("aggregator", agg.CommitteeName).
+				Str("clientID", clientID).
+				Str("apiKey", c.APIKey[:8]+"...").
+				Msg("Generated aggregator credentials")
 		}
 	}
 	/////////////////////////////////////////
@@ -477,13 +814,29 @@ func NewEnvironment() (in *Cfg, err error) {
 	///////////////////////////
 	// Generate indexer config using changeset (on-chain state as source of truth)
 	if len(in.Aggregator) > 0 && in.Indexer != nil {
+		// Build indexer verifier configs FIRST from aggregator topology
+		// Each aggregator becomes a separate verifier entry for HA
+		verifierConfigs := make([]config.VerifierConfig, 0, len(in.Aggregator))
 		verifierNameToQualifier := make(map[string]string, len(in.Aggregator))
-		for idx, agg := range in.Aggregator {
-			if idx < len(in.Indexer.IndexerConfig.Verifiers) {
-				verifierName := in.Indexer.IndexerConfig.Verifiers[idx].Name
-				verifierNameToQualifier[verifierName] = agg.CommitteeName
+
+		for _, agg := range in.Aggregator {
+			if agg.Out == nil {
+				continue
 			}
+			verifierName := fmt.Sprintf("CommitteeVerifier (%s)", agg.CommitteeName)
+			verifierConfigs = append(verifierConfigs, config.VerifierConfig{
+				Type: config.ReaderTypeAggregator,
+				AggregatorReaderConfig: config.AggregatorReaderConfig{
+					Address: agg.Out.Address,
+					Since:   0,
+				},
+				Name:             verifierName,
+				BatchSize:        100,
+				MaxBatchWaitTime: 50,
+			})
+			verifierNameToQualifier[verifierName] = agg.CommitteeName
 		}
+		in.Indexer.IndexerConfig.Verifiers = verifierConfigs
 
 		cs := changesets.GenerateIndexerConfig()
 		output, err := cs.Apply(*e, changesets.GenerateIndexerConfigCfg{
@@ -500,13 +853,6 @@ func NewEnvironment() (in *Cfg, err error) {
 			return nil, fmt.Errorf("failed to get indexer config from output: %w", err)
 		}
 		in.Indexer.GeneratedCfg = idxCfg
-
-		// Update verifier addresses to use nginx TLS proxy (Later will be pulled from env metadata and added to job spec)
-		for idx, agg := range in.Aggregator {
-			if agg.Out != nil && idx < len(in.Indexer.IndexerConfig.Verifiers) {
-				in.Indexer.IndexerConfig.Verifiers[idx].Address = agg.Out.Address
-			}
-		}
 	}
 
 	// Set TLS CA cert for indexer (all aggregators share the same CA)
@@ -552,46 +898,32 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	in.IndexerEndpoint = indexerOut.ExternalHTTPURL
+	in.IndexerInternalEndpoint = indexerOut.InternalHTTPURL
 
 	/////////////////////////
 	// END: Launch indexer //
 	/////////////////////////
 
+	/////////////////////////////////////////
+	// START: Build shared EnvConfig      //
+	// Used by both executor and verifier //
+	// changesets as single source of truth //
+	/////////////////////////////////////////
+
+	envConfigPath, err := buildAndWriteEnvConfig(in, selectors)
+	if err != nil {
+		return nil, err
+	}
+
 	/////////////////////////////
 	// START: Launch executors //
 	/////////////////////////////
 
-	if len(in.Executor) > 0 {
-		execs, err := services.ResolveContractsForExecutor(e.DataStore, in.Blockchains, in.Executor)
-		if err != nil {
-			return nil, fmt.Errorf("failed to lookup contracts for executor: %w", err)
-		}
-		execs, err = services.SetExecutorPoolAndID(execs)
-		if err != nil {
-			return nil, fmt.Errorf("failed to set executor pool and ID: %w", err)
-		}
-		execs, err = services.SetTransmitterPrivateKey(execs)
-		if err != nil {
-			return nil, fmt.Errorf("failed to set transmitter private key: %w", err)
-		}
-
-		// fund the keys used by the executors to send transactions in standalone mode.
-		addresses := make([]protocol.UnknownAddress, 0, len(execs))
-		for _, exec := range execs {
-			addresses = append(addresses, exec.GetTransmitterAddress())
-		}
-		Plog.Info().Any("Addresses", addresses).Int("ImplsLen", len(impls)).Msg("Funding executors")
-		for i, impl := range impls {
-			Plog.Info().Int("ImplIndex", i).Msg("Funding executor")
-			err = impl.FundAddresses(ctx, in.Blockchains[i], addresses, big.NewInt(5))
-			if err != nil {
-				return nil, fmt.Errorf("failed to fund addresses for executors: %w", err)
-			}
-			Plog.Info().Int("ImplIndex", i).Msg("Funded executors")
-		}
-
-		in.Executor = execs
+	executorJobSpecs, err := generateExecutorJobSpecs(ctx, e, in, selectors, impls, envConfigPath)
+	if err != nil {
+		return nil, err
 	}
+
 	_, err = launchStandaloneExecutors(in.Executor)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create standalone executor: %w", err)
@@ -604,40 +936,10 @@ func NewEnvironment() (in *Cfg, err error) {
 	/////////////////////////////
 	// START: Launch verifiers //
 	/////////////////////////////
-	// Populate verifier input with contract addresses from the CLDF datastore.
-	for i := range in.Verifier {
-		ver, err := services.ResolveContractsForVerifier(e.DataStore, in.Blockchains, *in.Verifier[i])
-		if err != nil {
-			return nil, fmt.Errorf("failed to lookup contracts for verifier %s: %w", in.Verifier[i].CommitteeName, err)
-		}
 
-		// Find aggregator output for this verifier's committee
-		for _, agg := range in.Aggregator {
-			if agg.CommitteeName == ver.CommitteeName && agg.Out != nil {
-				if ver.InsecureAggregatorConnection {
-					// CL node tests can't inject certs, use direct insecure connection
-					ver.AggregatorAddress = agg.Out.ExternalHTTPUrl
-				} else {
-					ver.AggregatorAddress = agg.Out.Address
-				}
-				break
-			}
-		}
-		if ver.AggregatorAddress == "" {
-			if ver.InsecureAggregatorConnection {
-				ver.AggregatorAddress = fmt.Sprintf("%s-aggregator:50051", ver.CommitteeName)
-			} else {
-				ver.AggregatorAddress = fmt.Sprintf("%s-aggregator-nginx:443", ver.CommitteeName)
-			}
-		}
-
-		// Use shared TLS CA cert for all verifiers (not needed for insecure connections)
-		if sharedTLSCerts != nil && !ver.InsecureAggregatorConnection {
-			ver.TLSCACertFile = sharedTLSCerts.CACertFile
-		}
-
-		// Apply changes back to input.
-		in.Verifier[i] = &ver
+	verifierJobSpecs, err := generateVerifierJobSpecs(e, in, selectors, envConfigPath, sharedTLSCerts)
+	if err != nil {
+		return nil, err
 	}
 
 	_, err = launchStandaloneVerifiers(in)
@@ -677,7 +979,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// there would be no CL nodes and this would be a no-op.
 	////////////////////////////////////////////////////
 
-	err = createJobs(in, in.Verifier, in.Executor)
+	err = createJobs(in, in.Verifier, in.Executor, verifierJobSpecs, executorJobSpecs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create jobs: %w", err)
 	}
@@ -695,7 +997,14 @@ func NewEnvironment() (in *Cfg, err error) {
 }
 
 // createJobs creates the jobs for the verifiers and executors on the CL nodes if they're in CL mode.
-func createJobs(in *Cfg, vIn []*services.VerifierInput, executorIn []*services.ExecutorInput) error {
+// Uses pre-generated job specs from changesets instead of generating them on the fly.
+func createJobs(
+	in *Cfg,
+	vIn []*services.VerifierInput,
+	executorIn []*services.ExecutorInput,
+	verifierJobSpecs map[string]string,
+	executorJobSpecs map[string]string,
+) error {
 	// Exit early, there are no nodes configured.
 	if len(in.NodeSets) == 0 {
 		return nil
@@ -715,16 +1024,32 @@ func createJobs(in *Cfg, vIn []*services.VerifierInput, executorIn []*services.E
 		case services.CL:
 			index, clClient := roundRobin.GetNext()
 
-			jobSpec, err := ver.GenerateJobSpec()
-			if err != nil {
-				return fmt.Errorf("failed to generate verifier config: %w", err)
+			jobSpec, ok := verifierJobSpecs[ver.ContainerName]
+			if !ok {
+				return fmt.Errorf("job spec not found for verifier %s", ver.ContainerName)
 			}
+			Plog.Debug().
+				Str("ContainerName", ver.ContainerName).
+				Str("JobSpec", jobSpec).
+				Msg("Submitting verifier job spec to CL node")
 			jb, resp, err := clClient.CreateJobRaw(jobSpec)
 			if err != nil {
+				Plog.Error().
+					Err(err).
+					Str("ContainerName", ver.ContainerName).
+					Str("JobSpec", jobSpec).
+					Msg("Failed to create committee verifier job")
 				return fmt.Errorf("failed to create committee verifier job: %w", err)
 			}
 			if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-				return fmt.Errorf("failed to create committee verifier job: %s", resp.Status)
+				bodyBytes, _ := io.ReadAll(resp.Body)
+				Plog.Error().
+					Str("Status", resp.Status).
+					Str("ContainerName", ver.ContainerName).
+					Str("JobSpec", jobSpec).
+					Str("ResponseBody", string(bodyBytes)).
+					Msg("Failed to create committee verifier job - bad status")
+				return fmt.Errorf("failed to create committee verifier job: %s - %s", resp.Status, string(bodyBytes))
 			}
 			Plog.Info().
 				Int("CurrentIndex", index).
@@ -740,9 +1065,9 @@ func createJobs(in *Cfg, vIn []*services.VerifierInput, executorIn []*services.E
 		case services.CL:
 			index, clClient := roundRobin.GetNext()
 
-			jobSpec, err := exec.GenerateJobSpec()
-			if err != nil {
-				return fmt.Errorf("failed to generate executor config: %w", err)
+			jobSpec, ok := executorJobSpecs[exec.ContainerName]
+			if !ok {
+				return fmt.Errorf("job spec not found for executor %s", exec.ContainerName)
 			}
 
 			jb, resp, err := clClient.CreateJobRaw(jobSpec)
@@ -843,6 +1168,12 @@ func launchCLNodes(
 					return nil, fmt.Errorf("no API key pairs found for client %s", apiClient.ClientID)
 				}
 				apiKeyPair := apiClient.APIKeyPairs[0]
+				Plog.Debug().
+					Int("nodeIndex", index).
+					Str("verifier", ver.ContainerName).
+					Str("committee", ver.CommitteeName).
+					Str("apiKey", apiKeyPair.APIKey[:8]+"...").
+					Msg("Passing aggregator credentials to CL node")
 				aggSecretsPerNode[index] = append(aggSecretsPerNode[index], AggregatorSecret{
 					VerifierID: ver.ContainerName,
 					APIKey:     apiKeyPair.APIKey,
@@ -1048,4 +1379,48 @@ type AggregatorSecret struct {
 type IndexerSecret struct {
 	APIKey    string `toml:",omitempty"`
 	APISecret string `toml:",omitempty"`
+}
+
+// VerifierJobSpec represents the structure of a verifier job spec TOML.
+type VerifierJobSpec struct {
+	SchemaVersion           int    `toml:"schemaVersion"`
+	Type                    string `toml:"type"`
+	CommitteeVerifierConfig string `toml:"committeeVerifierConfig"`
+}
+
+// ParseVerifierConfigFromJobSpec extracts the inner commit.Config from a verifier job spec.
+func ParseVerifierConfigFromJobSpec(jobSpec string) (*commit.Config, error) {
+	var spec VerifierJobSpec
+	if err := toml.Unmarshal([]byte(jobSpec), &spec); err != nil {
+		return nil, fmt.Errorf("failed to parse job spec: %w", err)
+	}
+
+	var cfg commit.Config
+	if err := toml.Unmarshal([]byte(spec.CommitteeVerifierConfig), &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse verifier config from job spec: %w", err)
+	}
+
+	return &cfg, nil
+}
+
+// ExecutorJobSpec represents the structure of an executor job spec TOML.
+type ExecutorJobSpec struct {
+	SchemaVersion  int    `toml:"schemaVersion"`
+	Type           string `toml:"type"`
+	ExecutorConfig string `toml:"executorConfig"`
+}
+
+// ParseExecutorConfigFromJobSpec extracts the inner executor.Configuration from an executor job spec.
+func ParseExecutorConfigFromJobSpec(jobSpec string) (*executor.Configuration, error) {
+	var spec ExecutorJobSpec
+	if err := toml.Unmarshal([]byte(jobSpec), &spec); err != nil {
+		return nil, fmt.Errorf("failed to parse job spec: %w", err)
+	}
+
+	var cfg executor.Configuration
+	if err := toml.Unmarshal([]byte(spec.ExecutorConfig), &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse executor config from job spec: %w", err)
+	}
+
+	return &cfg, nil
 }
