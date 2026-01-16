@@ -82,7 +82,9 @@ func Test_AttestationFetch(t *testing.T) {
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v2/messages/100?transactionHash="+stringTxHash {
+		expectedPath := "/v2/messages/100"
+		expectedQuery := "transactionHash=" + stringTxHash
+		if r.URL.Path == expectedPath && r.URL.RawQuery == expectedQuery {
 			_, err := w.Write(attestationResponseBody)
 			require.NoError(t, err)
 		} else {

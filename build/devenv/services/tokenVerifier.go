@@ -220,9 +220,9 @@ func (v *TokenVerifierInput) buildVerifierConfiguration(config *token.Config) er
 			Type:    "cctp",
 			Version: "2.0",
 			CCTPConfig: &cctp.CCTPConfig{
-				AttestationAPI:         "localhost:8080",
-				AttestationAPIInterval: 60 * time.Second,
-				AttestationAPITimeout:  10 * time.Second,
+				AttestationAPI:         "http://fake:9111/cctp",
+				AttestationAPIInterval: 100 * time.Millisecond,
+				AttestationAPITimeout:  1 * time.Second,
 				Verifiers:              verifiers,
 			},
 		})
