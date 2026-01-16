@@ -269,6 +269,7 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
 		// Create batcher with real channel
+		// Note: retry ticker fires every 2*maxWait = 200ms
 		batcherCtx, batcherCancel := context.WithCancel(ctx)
 		testBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](
 			batcherCtx,
@@ -312,10 +313,14 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 		// Clear error so retry succeeds
 		fakeStorage.ClearError()
 
-		// Wait for retry
-		time.Sleep(150 * time.Millisecond)
+		// Wait for retry to be processed:
+		// - retryDelay = 50ms (items become ready at ~50ms)
+		// - retry ticker fires at 200ms (2*maxWait)
+		// - items move to buffer, then timer-based flush at +100ms (maxWait)
+		// Total: need to wait at least 300ms for items to be flushed and re-processed
+		time.Sleep(400 * time.Millisecond)
 
-		// Close everything
+		// Close everything - items should already be stored
 		batcherCancel()
 		err = testBatcher.Close()
 		require.NoError(t, err)
