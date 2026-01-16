@@ -22,12 +22,16 @@ publish-rc registry version:
     docker tag pricer:rc {{registry}}/chainlink-ccv-pricer:{{version}}-rc
     docker push {{registry}}/chainlink-ccv-pricer:{{version}}-rc
 
-# Run pricer locally. Requires KEYSTORE_DATA (base64) and KEYSTORE_PASSWORD env vars.
-# Example: KEYSTORE_DATA=$(cat keystore.json | base64) KEYSTORE_PASSWORD=pass just run
+
+# Run pricer locally. 
+# Requires either: 
+# - KEYSTORE_DATA (base64) and KEYSTORE_PASSWORD env vars. E.g. export KEYSTORE_DATA=$(base64 -i keystore.json)
+# - KMS_KEY_NAME and KMS_PROFILE env variable specifying a KMS key and AWS profile to use. 
 run config="config.example.toml": build
     docker run --rm \
         -e KEYSTORE_DATA \
         -e KEYSTORE_PASSWORD \
+        -v ~/.aws:/root/.aws \
         -v {{justfile_directory()}}/{{config}}:/config.toml \
         pricer:latest run --config /config.toml
 

@@ -1,6 +1,9 @@
 interval = "5s"
 loglevel = "info"
 
+[Monitoring]
+Enabled = false
+
 [EVM]
 ChainID = "1337"
 
