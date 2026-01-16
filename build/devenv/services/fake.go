@@ -25,7 +25,7 @@ type FakeInput struct {
 	RootPath       string      `toml:"root_path"`
 	ContainerName  string      `toml:"container_name"`
 	UseCache       bool        `toml:"use_cache"`
-	Out            *FakeOutput `toml:"-"`
+	Out            *FakeOutput `toml:"out"`
 }
 
 type FakeOutput struct {
