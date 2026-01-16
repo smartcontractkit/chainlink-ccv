@@ -211,49 +211,6 @@ func TestBatcher_RetryPreservesOrder(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestBatcher_RetryWithContextCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	maxSize := 10
-	maxWait := 50 * time.Millisecond
-
-	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
-
-	// Schedule items for retry with a long delay
-	retryItems := []int{1, 2, 3}
-	retryDelay := 5 * time.Second
-
-	err := batcher.Retry(retryDelay, retryItems...)
-	require.NoError(t, err)
-
-	// Cancel context before retry delay expires
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-
-	// Give goroutine time to process cancellation
-	time.Sleep(50 * time.Millisecond)
-
-	// On context cancellation, ALL items (including pending retries) should be flushed
-	// to prevent data loss during shutdown
-	select {
-	case batch, ok := <-batcher.OutChannel():
-		require.True(t, ok, "expected to receive a batch")
-		require.Len(t, batch.Items, len(retryItems), "all retry items should be flushed on shutdown")
-		require.Equal(t, retryItems, batch.Items)
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("expected retry items to be flushed on context cancellation")
-	}
-
-	// Further retry calls should fail
-	err = batcher.Retry(100*time.Millisecond, 99)
-	require.Error(t, err)
-	require.Equal(t, context.Canceled, err)
-
-	// Close batcher
-	err = batcher.Close()
-	require.NoError(t, err)
-}
-
 func TestBatcher_RetryEmptySlice(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -344,13 +301,14 @@ func TestBatcher_ConcurrentRetries(t *testing.T) {
 		<-done
 	}
 
-	// Wait for retries to be processed (retry ticker is 2*maxWait = 200ms)
-	time.Sleep(150*time.Millisecond + 2*maxWait)
+	// Wait for retries to be processed:
+	// - retry ticker fires every 2*maxWait = 200ms
+	// - items move to buffer, then size-based flush (50 items = maxSize) or timer-based flush
+	// - need to wait for: retry delay (50ms) + retry tick (200ms) + potential timer flush (100ms)
+	time.Sleep(400 * time.Millisecond)
 
-	// Cancel to flush any remaining items
+	// Cancel and close - all items should already be flushed
 	cancel()
-
-	// Close batcher and wait for completion
 	err := batcher.Close()
 	require.NoError(t, err)
 

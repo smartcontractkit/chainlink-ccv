@@ -324,7 +324,7 @@ func TestE2ESmoke(t *testing.T) {
 			t.Skip("not implemented yet")
 			usdcCombo := evm.USDCTokenPoolCombination()
 			receiver := mustGetEOAReceiverAddress(t, destChain)
-			runTokenTransferTestCase(t, usdcCombo, usdcCombo.FinalityConfig(), receiver)
+			runTokenTransferTestCase(t, usdcCombo, 0, receiver)
 		})
 
 		for _, combo := range evm.All17TokenCombinations() {
