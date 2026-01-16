@@ -7,21 +7,21 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-var _ Storage = &InMemory{}
+var _ CCVStorage = &InMemoryCCVStorage{}
 
-type InMemory struct {
+type InMemoryCCVStorage struct {
 	mu   sync.RWMutex
 	data map[protocol.Bytes32]Entry
 }
 
-func NewInMemory() *InMemory {
-	return &InMemory{
+func NewInMemory() *InMemoryCCVStorage {
+	return &InMemoryCCVStorage{
 		data: make(map[protocol.Bytes32]Entry),
 		mu:   sync.RWMutex{},
 	}
 }
 
-func (s *InMemory) Get(_ context.Context, key []protocol.Bytes32) (map[protocol.Bytes32]Entry, error) {
+func (s *InMemoryCCVStorage) Get(_ context.Context, key []protocol.Bytes32) (map[protocol.Bytes32]Entry, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -34,7 +34,7 @@ func (s *InMemory) Get(_ context.Context, key []protocol.Bytes32) (map[protocol.
 	return result, nil
 }
 
-func (s *InMemory) Set(_ context.Context, entries []Entry) error {
+func (s *InMemoryCCVStorage) Set(_ context.Context, entries []Entry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

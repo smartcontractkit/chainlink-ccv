@@ -12,22 +12,21 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
 
-var _ Storage = &Postgres{}
+var _ CCVStorage = &PostgresCCVStorage{}
 
-type Postgres struct {
+type PostgresCCVStorage struct {
 	ds   sqlutil.DataSource
 	lggr logger.Logger
 }
 
-func NewPostgres(ds sqlutil.DataSource, lggr logger.Logger) *Postgres {
-	return &Postgres{
+func NewPostgres(ds sqlutil.DataSource, lggr logger.Logger) *PostgresCCVStorage {
+	return &PostgresCCVStorage{
 		ds:   ds,
 		lggr: lggr,
 	}
 }
 
-// Get retrieves entries by their message IDs.
-func (p *Postgres) Get(ctx context.Context, keys []protocol.Bytes32) (map[protocol.Bytes32]Entry, error) {
+func (p *PostgresCCVStorage) Get(ctx context.Context, keys []protocol.Bytes32) (map[protocol.Bytes32]Entry, error) {
 	result := make(map[protocol.Bytes32]Entry)
 
 	if len(keys) == 0 {
@@ -112,7 +111,7 @@ func (p *Postgres) Get(ctx context.Context, keys []protocol.Bytes32) (map[protoc
 	return result, nil
 }
 
-func (p *Postgres) Set(ctx context.Context, entries []Entry) error {
+func (p *PostgresCCVStorage) Set(ctx context.Context, entries []Entry) error {
 	if len(entries) == 0 {
 		return nil
 	}
