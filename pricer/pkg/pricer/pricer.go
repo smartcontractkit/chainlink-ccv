@@ -197,6 +197,7 @@ func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, k
 	}
 
 	// Setup HTTP server for Prometheus metrics
+	lggr.Infow("setting up HTTP server for Prometheus metrics", "port", cfg.Monitoring.Port)
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.HandlerFor(
 		prometheus.DefaultGatherer,
