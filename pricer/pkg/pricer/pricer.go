@@ -90,7 +90,7 @@ func (c *Config) SetDefaults() {
 	}
 	// Set default monitoring port
 	if c.Monitoring.Port == 0 {
-		c.Monitoring.Port = 9090
+		c.Monitoring.Port = 4141
 	}
 	// Apply EVM chain defaults based on chainID.
 	if c.EVM.ChainID != nil {
