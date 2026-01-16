@@ -277,7 +277,7 @@ func USDCTokenPoolCombination() TokenCombination {
 		destPoolVersion:         "1.7.0",
 		destPoolQualifier:       "CCTP",
 		destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
-		expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
+		expectedReceiptIssuers:  5, // default CCV, CCTP CCV, token pool, executor, network fee
 		expectedVerifierResults: 1, // default CCV
 	}
 }

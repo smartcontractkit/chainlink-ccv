@@ -61,6 +61,16 @@ func (m *CCIP17EVMConfig) deployUSDCTokenAndPool(
 		return err
 	}
 
+	// Grant mint and burn roles to token messenger
+	_, err = operations.ExecuteOperation(env.OperationsBundle, burnminterc677ops.GrantMintAndBurnRoles, chain, contract.FunctionInput[common.Address]{
+		ChainSelector: selector,
+		Address:       usdc,
+		Args:          messenger,
+	})
+	if err != nil {
+		return err
+	}
+
 	// Grant mint and burn roles to deployer
 	_, err = operations.ExecuteOperation(env.OperationsBundle, burnminterc677ops.GrantMintAndBurnRoles, chain, contract.FunctionInput[common.Address]{
 		ChainSelector: selector,
@@ -199,10 +209,19 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(env *deployment.Environment, 
 			PayloadSizeBytes:    1000,
 			LockOrBurnMechanism: "CCTP_V2_WITH_CCV",
 			RemoteDomain: adapters.RemoteDomain[datastore.AddressRef]{
-				AllowedCallerOnDest:   pool,
-				AllowedCallerOnSource: pool,
-				MintRecipientOnDest:   pool,
-				DomainIdentifier:      domains[rs],
+				AllowedCallerOnDest: datastore.AddressRef{
+					ChainSelector: rs,
+					Type:          datastore.ContractType(cctp_message_transmitter_proxy.ContractType),
+					Version:       semver.MustParse(cctp_message_transmitter_proxy.Deploy.Version()),
+					Qualifier:     "CCTP",
+				},
+				AllowedCallerOnSource: datastore.AddressRef{
+					ChainSelector: rs,
+					Type:          datastore.ContractType(cctp_verifier.ContractType),
+					Version:       semver.MustParse(cctp_verifier.Deploy.Version()),
+					Qualifier:     "CCTP",
+				},
+				DomainIdentifier: domains[rs],
 			},
 			TokenPoolConfig: tokenscore.RemoteChainConfig[datastore.AddressRef, datastore.AddressRef]{
 				RemotePool: pool,
@@ -224,6 +243,10 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(env *deployment.Environment, 
 		Chains: []adapters.DeployCCTPInput[datastore.AddressRef, datastore.AddressRef]{
 			{
 				ChainSelector: selector,
+				Router: datastore.AddressRef{
+					Type:    datastore.ContractType(routeroperations.ContractType),
+					Version: semver.MustParse(routeroperations.Deploy.Version()),
+				},
 				MessageTransmitterProxy: datastore.AddressRef{
 					ChainSelector: selector,
 					Type:          datastore.ContractType(cctp_message_transmitter_proxy.ContractType),
