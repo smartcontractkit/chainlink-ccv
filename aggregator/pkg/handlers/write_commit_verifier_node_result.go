@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -33,6 +34,7 @@ type AggregationTriggerer interface {
 type WriteCommitVerifierNodeResultHandler struct {
 	storage                 common.CommitVerificationStore
 	aggregator              AggregationTriggerer
+	m                       common.AggregatorMonitoring
 	l                       logger.SugaredLogger
 	signatureValidator      SignatureValidator
 	checkAggregationTimeout time.Duration
@@ -100,6 +102,12 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 	}
 	h.logger(signerCtx).Infof("Successfully saved commit verification record")
 
+	metrics := h.m.Metrics().With(
+		"caller_id", identity.CallerID,
+		"chainselector", strconv.FormatUint(uint64(record.Message.SourceChainSelector), 10),
+	)
+	metrics.IncrementVerificationsTotal(ctx)
+
 	if err := h.aggregator.CheckAggregation(record.MessageID, aggregationKey, model.ChannelKey(identity.CallerID), h.checkAggregationTimeout); err != nil {
 		if err == common.ErrAggregationChannelFull {
 			reqLogger.Errorf("Aggregation channel is full")
@@ -121,10 +129,11 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 }
 
 // NewWriteCommitCCVNodeDataHandler creates a new instance of WriteCommitCCVNodeDataHandler.
-func NewWriteCommitCCVNodeDataHandler(store common.CommitVerificationStore, aggregator AggregationTriggerer, l logger.SugaredLogger, signatureValidator SignatureValidator, checkAggregationTimeout time.Duration) *WriteCommitVerifierNodeResultHandler {
+func NewWriteCommitCCVNodeDataHandler(store common.CommitVerificationStore, aggregator AggregationTriggerer, m common.AggregatorMonitoring, l logger.SugaredLogger, signatureValidator SignatureValidator, checkAggregationTimeout time.Duration) *WriteCommitVerifierNodeResultHandler {
 	return &WriteCommitVerifierNodeResultHandler{
 		storage:                 store,
 		aggregator:              aggregator,
+		m:                       m,
 		l:                       l,
 		signatureValidator:      signatureValidator,
 		checkAggregationTimeout: checkAggregationTimeout,

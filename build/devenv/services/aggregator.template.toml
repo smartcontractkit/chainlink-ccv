@@ -42,11 +42,13 @@ key_prefix = "ratelimit"
 [rateLimiting.defaultLimits]
 "/chainlink_ccv.message_discovery.v1.MessageDiscovery/GetMessagesSince" = { limit_per_minute = 1200 }
 "/chainlink_ccv.verifier.v1.Verifier/GetVerifierResultsForMessage" = { limit_per_minute = 6000 }
+"/chainlink_ccv.heartbeat.v1.HeartbeatService/SendHeartbeat" = { limit_per_minute = 6000 }
 
 # Group-based rate limits (more restrictive than defaults for specific groups)
 [rateLimiting.groupLimits.verifiers]
 "/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/WriteCommitteeVerifierNodeResult" = { limit_per_minute = 6000 }
 "/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/BatchWriteCommitteeVerifierNodeResult" = { limit_per_minute = 150 }
+"/chainlink_ccv.heartbeat.v1.HeartbeatService/SendHeartbeat" = { limit_per_minute = 6000 }
 
 # Low rate limit group for service tests
 [rateLimiting.groupLimits.service-tests]

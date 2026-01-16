@@ -90,3 +90,23 @@ func (c *NoopAggregatorMetricLabeler) IncrementOrphanRecoveryErrors(ctx context.
 func (c *NoopAggregatorMetricLabeler) IncrementPanics(ctx context.Context) {
 	// No-op
 }
+
+func (c *NoopAggregatorMetricLabeler) SetVerifierHeartbeatScore(ctx context.Context, score float64) {
+	// No-op
+}
+
+func (c *NoopAggregatorMetricLabeler) SetVerifierLastHeartbeatTimestamp(ctx context.Context, timestamp int64) {
+	// No-op
+}
+
+func (c *NoopAggregatorMetricLabeler) IncrementVerifierHeartbeatsTotal(ctx context.Context) {
+	// No-op
+}
+
+func (c *NoopAggregatorMetricLabeler) SetVerifierHeartbeatChainHeads(ctx context.Context, blockHeight uint64) {
+	// No-op
+}
+
+func (c *NoopAggregatorMetricLabeler) IncrementVerificationsTotal(ctx context.Context) {
+	// No-op
+}

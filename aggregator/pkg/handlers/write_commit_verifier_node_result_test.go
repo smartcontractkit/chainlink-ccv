@@ -183,7 +183,13 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe()
 			}
 
-			handler := NewWriteCommitCCVNodeDataHandler(store, agg, lggr, sig, time.Millisecond)
+			mon := mocks.NewMockAggregatorMonitoring(t)
+			labeler := mocks.NewMockAggregatorMetricLabeler(t)
+			mon.EXPECT().Metrics().Return(labeler).Maybe()
+			labeler.EXPECT().With(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(labeler).Maybe()
+			labeler.EXPECT().IncrementVerificationsTotal(mock.Anything).Maybe()
+
+			handler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, time.Millisecond)
 
 			ctx := auth.ToContext(context.Background(), auth.CreateCallerIdentity(testCallerID, false))
 			resp, err := handler.Handle(ctx, tc.req)
