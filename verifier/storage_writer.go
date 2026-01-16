@@ -44,7 +44,7 @@ func NewStorageBatcherProcessor(
 		ctx,
 		storageBatchSize,
 		storageBatchTimeout,
-		0,
+		1,
 	)
 
 	processor := &StorageWriterProcessor{

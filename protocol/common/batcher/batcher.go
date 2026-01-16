@@ -186,15 +186,12 @@ func (b *Batcher[T]) flush(buffer *[]T, timer *time.Timer) {
 		Error: nil,
 	}
 
-	// Send batch - non-blocking send without context cancellation check
-	// If channel is full, the batch is dropped (fire & forget pattern)
-	// This prevents blocking and allows the batcher to continue processing
 	select {
 	case b.outCh <- batch:
 		// Successfully sent
-	default:
-		// Channel full - drop the batch
-		// Consumer should ensure channel has adequate buffer or process faster
+	case <-b.ctx.Done():
+		// Context canceled during send, drop batch
+		return
 	}
 
 	// Reset buffer for next batch
