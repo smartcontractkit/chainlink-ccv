@@ -33,7 +33,7 @@ import (
 
 func main() {
 	// Load in the config from './config.toml'
-	config, err := config.LoadConfig()
+	config, unmatchedVerifierNames, err := config.LoadConfig()
 	if err != nil {
 		panic(err)
 	}
@@ -51,6 +51,11 @@ func main() {
 	lggr = logger.Named(lggr, "indexer")
 	// Use SugaredLogger for better API
 	lggr = logger.Sugared(lggr)
+
+	for _, name := range unmatchedVerifierNames {
+		lggr.Warnw("Generated config verifier has no matching verifier in main config",
+			"name", name)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
