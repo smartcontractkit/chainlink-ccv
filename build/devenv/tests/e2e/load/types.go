@@ -12,9 +12,10 @@ import (
 
 // MessageProfileConfig corresponds to a message profile in the TOML config.
 type MessageProfileConfig struct {
-	Type     string `toml:"type"`     // "TT", "PTT", "Data"
-	Finality int    `toml:"finality"` // e.g., 1
-	Name     string `toml:"name"`     // e.g., "data only"
+	Finality int    `toml:"finality"`  // e.g., 1
+	Name     string `toml:"name"`      // e.g., "data only"
+	HasData  bool   `toml:"has_data"`  // e.g., true
+	HasToken bool   `toml:"has_token"` // e.g., true
 }
 
 // ChainProfileConfig represents an chain in the test profile config.
