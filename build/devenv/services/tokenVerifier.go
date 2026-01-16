@@ -9,6 +9,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_verifier"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
+
 	"github.com/BurntSushi/toml"
 	"github.com/Masterminds/semver/v3"
 
@@ -50,6 +53,8 @@ type TokenVerifierInput struct {
 	DefaultExecutorOnRampAddresses map[string]string `toml:"default_executor_on_ramp_addresses"`
 	// Maps to rmn_remote_addresses in the verifier config toml.
 	RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
+
+	CCTPVerifierAddresses map[string]string `toml:"cctp_verifier_addresses"`
 }
 
 type TokenVerifierOutput struct {
@@ -202,6 +207,26 @@ func (v *TokenVerifierInput) buildVerifierConfiguration(config *token.Config) er
 	config.VerifierID = v.ContainerName
 	config.OnRampAddresses = v.OnRampAddresses
 	config.RMNRemoteAddresses = v.RMNRemoteAddresses
+	if len(config.TokenVerifiers) == 0 {
+		config.TokenVerifiers = make([]token.VerifierConfig, 0)
+	}
+
+	if len(v.CCTPVerifierAddresses) > 0 {
+		verifiers := make(map[string]any)
+		for k, addr := range v.CCTPVerifierAddresses {
+			verifiers[k] = addr
+		}
+		config.TokenVerifiers = append(config.TokenVerifiers, token.VerifierConfig{
+			Type:    "cctp",
+			Version: "2.0",
+			CCTPConfig: &cctp.CCTPConfig{
+				AttestationAPI:         "localhost:8080",
+				AttestationAPIInterval: 60 * time.Second,
+				AttestationAPITimeout:  10 * time.Second,
+				Verifiers:              verifiers,
+			},
+		})
+	}
 
 	return nil
 }
@@ -210,6 +235,7 @@ func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blo
 	ver.OnRampAddresses = make(map[string]string)
 	ver.DefaultExecutorOnRampAddresses = make(map[string]string)
 	ver.RMNRemoteAddresses = make(map[string]string)
+	ver.CCTPVerifierAddresses = make(map[string]string)
 
 	for _, chain := range blockchains {
 		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(chain.ChainID, chainsel.FamilyEVM)
@@ -217,6 +243,20 @@ func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blo
 			return TokenVerifierInput{}, err
 		}
 		selectorStr := strconv.FormatUint(networkInfo.ChainSelector, 10)
+
+		cctpTokenVerifierAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+			networkInfo.ChainSelector,
+			datastore.ContractType(cctp_verifier.ResolverType),
+			semver.MustParse(cctp_verifier.Deploy.Version()),
+			"CCTP",
+		))
+		if err != nil {
+			framework.L.Info().
+				Str("chainID", chain.ChainID).
+				Msg("Failed to get CCTP Verifier address from datastore")
+		} else {
+			ver.CCTPVerifierAddresses[selectorStr] = cctpTokenVerifierAddressRef.Address
+		}
 
 		onRampAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
 			networkInfo.ChainSelector,

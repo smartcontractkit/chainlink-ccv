@@ -55,7 +55,12 @@ func ParseAddressesMap(val any) (map[protocol.ChainSelector]protocol.UnknownAddr
 				return nil, nil, fmt.Errorf("invalid verifier address for chain selector %s: expected string, got %T", key, value)
 			}
 
-			result[protocol.ChainSelector(chainSelector)] = protocol.UnknownAddress(address)
+			addr, err := protocol.NewUnknownAddressFromHex(address)
+			if err != nil {
+				return nil, nil, fmt.Errorf("invalid verifier address for chain selector %s: %w", key, err)
+			}
+
+			result[protocol.ChainSelector(chainSelector)] = addr
 		}
 		return result, v, nil
 	}
