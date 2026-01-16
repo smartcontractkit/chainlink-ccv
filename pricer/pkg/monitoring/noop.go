@@ -1,14 +1,4 @@
 package monitoring
 
-import (
-	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
-)
-
-// NewNoopPricerMetricLabeler creates a new noop metric labeler.
-// The PricerMetricLabeler methods already handle nil metrics gracefully.
-func NewNoopPricerMetricLabeler() *PricerMetricLabeler {
-	return &PricerMetricLabeler{
-		Labeler: metrics.NewLabeler(),
-		pm:      nil, // nil metrics means no-op
-	}
-}
+// This file is kept for backwards compatibility but is no longer needed
+// as the PricerMetricLabeler methods handle nil gracefully.

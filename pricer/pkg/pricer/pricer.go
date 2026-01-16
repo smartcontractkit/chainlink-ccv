@@ -12,7 +12,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	ks "github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/keystore/kms"
-	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -29,16 +28,9 @@ type KMSConfig struct {
 }
 
 // MonitoringConfig provides monitoring configuration for the pricer service.
+// Prometheus metrics are always enabled and exposed via the standard /metrics endpoint.
 type MonitoringConfig struct {
-	Enabled                  bool    `toml:"Enabled"`
-	InsecureConnection       bool    `toml:"InsecureConnection"`
-	CACertFile               string  `toml:"CACertFile"`
-	OtelExporterGRPCEndpoint string  `toml:"OtelExporterGRPCEndpoint"`
-	OtelExporterHTTPEndpoint string  `toml:"OtelExporterHTTPEndpoint"`
-	LogStreamingEnabled      bool    `toml:"LogStreamingEnabled"`
-	MetricReaderInterval     int64   `toml:"MetricReaderInterval"`
-	TraceSampleRatio         float64 `toml:"TraceSampleRatio"`
-	TraceBatchTimeout        int64   `toml:"TraceBatchTimeout"`
+	Enabled bool `toml:"Enabled"`
 }
 
 type Config struct {
@@ -82,19 +74,7 @@ func (c *Config) Validate() error {
 
 // Validate performs validation on the monitoring configuration.
 func (m *MonitoringConfig) Validate() error {
-	if m.Enabled {
-		if m.MetricReaderInterval <= 0 {
-			return fmt.Errorf("metric_reader_interval must be positive, got %d", m.MetricReaderInterval)
-		}
-
-		if m.TraceSampleRatio < 0 || m.TraceSampleRatio > 1 {
-			return fmt.Errorf("trace_sample_ratio must be between 0 and 1, got %f", m.TraceSampleRatio)
-		}
-
-		if m.TraceBatchTimeout <= 0 {
-			return fmt.Errorf("trace_batch_timeout must be positive, got %d", m.TraceBatchTimeout)
-		}
-	}
+	// No validation needed for Prometheus metrics
 	return nil
 }
 
@@ -171,31 +151,21 @@ func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, k
 	}
 	lggr = logger.Named(lggr, "pricer")
 
-	// Setup OTEL Monitoring (via beholder) if enabled
+	var evmChain *evmChain
+	var solChain *solanaChain
+
+	// Setup Prometheus monitoring if enabled
 	var pricerMonitoring monitoring.Monitoring
 	if cfg.Monitoring.Enabled {
-		beholderConfig := beholder.Config{
-			InsecureConnection:       cfg.Monitoring.InsecureConnection,
-			CACertFile:               cfg.Monitoring.CACertFile,
-			OtelExporterHTTPEndpoint: cfg.Monitoring.OtelExporterHTTPEndpoint,
-			OtelExporterGRPCEndpoint: cfg.Monitoring.OtelExporterGRPCEndpoint,
-			LogStreamingEnabled:      cfg.Monitoring.LogStreamingEnabled,
-			MetricReaderInterval:     time.Second * time.Duration(cfg.Monitoring.MetricReaderInterval),
-			TraceSampleRatio:         cfg.Monitoring.TraceSampleRatio,
-			TraceBatchTimeout:        time.Second * time.Duration(cfg.Monitoring.TraceBatchTimeout),
+		chainID := "unknown"
+		if cfg.EVM.ChainID != nil {
+			chainID = cfg.EVM.ChainID.String()
 		}
-
-		var err error
-		pricerMonitoring, err = monitoring.InitMonitoring(beholderConfig)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize monitoring: %w", err)
-		}
+		pricerMonitoring = monitoring.NewPricerMonitoring(chainID)
 	} else {
 		pricerMonitoring = monitoring.NewNoopPricerMonitoring()
 	}
 
-	var evmChain *evmChain
-	var solChain *solanaChain
 	if cfg.EVM.ChainID != nil {
 		evmChain, err = loadEVM(ctx, cfg, lggr, keystoreData, keystorePassword, pricerMonitoring)
 		if err != nil {

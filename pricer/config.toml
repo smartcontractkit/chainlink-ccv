@@ -3,14 +3,6 @@ loglevel = "info"
 
 [Monitoring]
 Enabled = false
-InsecureConnection = true
-CACertFile = ""
-OtelExporterGRPCEndpoint = ""
-OtelExporterHTTPEndpoint = "otel-collector:4318"
-LogStreamingEnabled = true
-MetricReaderInterval = 5
-TraceSampleRatio = 1.0
-TraceBatchTimeout = 10
 
 [EVM]
 ChainID = "1337"

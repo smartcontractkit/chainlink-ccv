@@ -46,7 +46,7 @@ func (c *evmChain) Tick(ctx context.Context) error {
 	startTime := time.Now()
 	defer func() {
 		duration := time.Since(startTime)
-		c.metrics.RecordEVMTickDuration(ctx, duration)
+		c.metrics.RecordEVMTickDuration(duration)
 	}()
 
 	c.lggr.Infow("getting evm addresses")
