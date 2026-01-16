@@ -1,4 +1,4 @@
-interval = "5s"
+interval = "30s"
 loglevel = "info"
 
 [Monitoring]

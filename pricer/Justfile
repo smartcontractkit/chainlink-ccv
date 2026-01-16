@@ -29,6 +29,7 @@ publish-rc registry version:
 # - KMS_KEY_NAME and KMS_PROFILE env variable specifying a KMS key and AWS profile to use. 
 run config="config.example.toml": build
     docker run --rm \
+        -p 9090:9090 \
         -e KEYSTORE_DATA \
         -e KEYSTORE_PASSWORD \
         -v ~/.aws:/root/.aws \
