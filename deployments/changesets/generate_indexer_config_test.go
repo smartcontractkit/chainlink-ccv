@@ -26,24 +26,24 @@ func TestGenerateIndexerConfig_ValidatesServiceIdentifier(t *testing.T) {
 	env := createTestEnvironmentForValidation(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateIndexerConfigCfg{
-		ServiceIdentifier:   "",
-		CommitteeQualifiers: []string{"default"},
+		ServiceIdentifier:  "",
+		VerifierQualifiers: []string{"default"},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "service identifier is required")
 }
 
-func TestGenerateIndexerConfig_ValidatesCommitteeQualifiers(t *testing.T) {
+func TestGenerateIndexerConfig_ValidatesVerifierQualifiers(t *testing.T) {
 	changeset := changesets.GenerateIndexerConfig()
 
 	env := createTestEnvironmentForValidation(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateIndexerConfigCfg{
-		ServiceIdentifier:   "default-indexer",
-		CommitteeQualifiers: []string{},
+		ServiceIdentifier:  "default-indexer",
+		VerifierQualifiers: []string{},
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "at least one committee qualifier is required")
+	assert.Contains(t, err.Error(), "at least one verifier qualifier is required")
 }
 
 func TestGenerateIndexerConfig_ValidatesSourceChainSelectors(t *testing.T) {
@@ -52,26 +52,26 @@ func TestGenerateIndexerConfig_ValidatesSourceChainSelectors(t *testing.T) {
 	env := createTestEnvironmentForValidation(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateIndexerConfigCfg{
-		ServiceIdentifier:   "default-indexer",
-		CommitteeQualifiers: []string{"default"},
-		ChainSelectors:      []uint64{1234},
+		ServiceIdentifier:  "default-indexer",
+		VerifierQualifiers: []string{"default"},
+		ChainSelectors:     []uint64{1234},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "selector 1234 is not available in environment")
 }
 
-func TestGenerateIndexerConfig_GeneratesCorrectConfigWithMultipleCommittees(t *testing.T) {
+func TestGenerateIndexerConfig_GeneratesCorrectConfigWithMultipleVerifiers(t *testing.T) {
 	chainSelectors := []uint64{1001, 1002}
-	committees := []string{"committee-a", "committee-b"}
+	verifiers := []string{"verifier-a", "verifier-b"}
 
 	ds := datastore.NewMemoryDataStore()
-	for _, committee := range committees {
+	for _, verifier := range verifiers {
 		for _, sel := range chainSelectors {
 			err := ds.Addresses().Add(datastore.AddressRef{
 				ChainSelector: sel,
-				Qualifier:     committee,
+				Qualifier:     verifier,
 				Type:          datastore.ContractType(committee_verifier.ResolverType),
-				Address:       fmt.Sprintf("0x%s_%d", committee, sel),
+				Address:       fmt.Sprintf("0x%s_%d", verifier, sel),
 				Version:       semver.MustParse("1.0.0"),
 			})
 			require.NoError(t, err)
@@ -86,9 +86,9 @@ func TestGenerateIndexerConfig_GeneratesCorrectConfigWithMultipleCommittees(t *t
 
 	cs := changesets.GenerateIndexerConfig()
 	output, err := cs.Apply(env, changesets.GenerateIndexerConfigCfg{
-		ServiceIdentifier:   "test-indexer",
-		CommitteeQualifiers: committees,
-		ChainSelectors:      chainSelectors,
+		ServiceIdentifier:  "test-indexer",
+		VerifierQualifiers: verifiers,
+		ChainSelectors:     chainSelectors,
 	})
 	require.NoError(t, err)
 
@@ -96,14 +96,13 @@ func TestGenerateIndexerConfig_GeneratesCorrectConfigWithMultipleCommittees(t *t
 	cfg, err := deployments.GetIndexerConfig(output.DataStore.Seal(), "test-indexer")
 	require.NoError(t, err)
 
-	assert.Len(t, cfg.Verifier, len(committees))
+	assert.Len(t, cfg.Verifier, len(verifiers))
 
-	for idx := range committees {
-		idxStr := fmt.Sprintf("%d", idx)
-		verifierCfg, ok := cfg.Verifier[idxStr]
-		require.True(t, ok, "expected verifier config at index %s", idxStr)
+	for _, qualifier := range verifiers {
+		verifierCfg, ok := cfg.Verifier[qualifier]
+		require.True(t, ok, "expected verifier config for qualifier %s", qualifier)
 		assert.Len(t, verifierCfg.IssuerAddresses, len(chainSelectors),
-			"verifier %s should have %d issuer addresses", idxStr, len(chainSelectors))
+			"verifier %s should have %d issuer addresses", qualifier, len(chainSelectors))
 	}
 }
 
@@ -147,9 +146,9 @@ func TestGenerateIndexerConfig_PreservesExistingAggregatorConfig(t *testing.T) {
 
 	cs := changesets.GenerateIndexerConfig()
 	output, err := cs.Apply(env, changesets.GenerateIndexerConfigCfg{
-		ServiceIdentifier:   "new-indexer",
-		CommitteeQualifiers: []string{committee},
-		ChainSelectors:      chainSelectors,
+		ServiceIdentifier:  "new-indexer",
+		VerifierQualifiers: []string{committee},
+		ChainSelectors:     chainSelectors,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)

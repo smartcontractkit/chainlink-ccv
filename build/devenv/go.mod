@@ -4,6 +4,8 @@ go 1.25.5
 
 replace github.com/smartcontractkit/chainlink-ccv => ../..
 
+replace github.com/smartcontractkit/chainlink-ccv/deployments => ../../deployments
+
 require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/Masterminds/semver/v3 v3.4.0
@@ -36,7 +38,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260116110203-68d767f52164
 	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260116110203-68d767f52164
-	github.com/smartcontractkit/chainlink-ccv v0.0.0-00010101000000-000000000000
+	github.com/smartcontractkit/chainlink-ccv v0.0.0-20260114202525-ef65afb0c36f
 	github.com/smartcontractkit/chainlink-ccv/deployments v0.0.0-20260114162625-70cae15c5548
 	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20251222115927-36a18321243c
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier v0.0.0-20251211142334-5c3421fe2c8d

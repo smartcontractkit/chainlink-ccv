@@ -172,7 +172,11 @@ type DiscoveryConfig struct {
 type VerifierConfig struct {
 	Type            ReaderType `toml:"Type"`
 	IssuerAddresses []string   `toml:"IssuerAddresses"`
-	Name            string     `toml:"Name"`
+	// IssuerAddressesQualifier is the qualifier used to match this verifier with the generated config.
+	// The generated config uses qualifiers as keys (e.g., "default", "CCTP") to map issuer addresses
+	// to verifiers. This field must match a key in the generated config's Verifier map.
+	IssuerAddressesQualifier string `toml:"IssuerAddressesQualifier"`
+	Name                     string `toml:"Name"`
 	// BatchSize is the maximum batch size to send to the verifier.
 	BatchSize int `toml:"BatchSize"`
 	// MaxBatchWaitTime is the maximum time to wait in milliseconds before sending a batch to the verifier.
@@ -216,46 +220,46 @@ type RestReaderConfig struct {
 // It also loads and merges generated config (if GeneratedConfigPath is set) and secrets from secrets.toml.
 // It returns an error if the config file cannot be read or parsed.
 // Secrets and generated config are optional - if the files don't exist, the config will load without them.
-func LoadConfig() (*Config, error) {
+// The third return value contains qualifiers from the generated config that had no matching verifier
+// in the main config
+func LoadConfig() (*Config, []string, error) {
 	configPath, ok := os.LookupEnv("INDEXER_CONFIG_PATH")
 	if !ok {
 		configPath = "config.toml"
 	}
 	data, err := os.ReadFile(configPath) //nolint:gosec // file is either config.toml or set by user through env var
 	if err != nil {
-		return nil, fmt.Errorf("failed to read config file config.toml: %w", err)
+		return nil, nil, fmt.Errorf("failed to read config file config.toml: %w", err)
 	}
 
 	config, err := LoadConfigFromBytes(data)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Load and merge generated config
 	generated, err := LoadGeneratedConfig(configPath, config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load generated config: %w", err)
+		return nil, nil, fmt.Errorf("failed to load generated config: %w", err)
 	}
 
-	if err := MergeGeneratedConfig(config, generated); err != nil {
-		return nil, fmt.Errorf("failed to merge generated config: %w", err)
-	}
+	unmatchedQualifiers := MergeGeneratedConfig(config, generated)
 
 	// Load and merge secrets
 	secrets, err := LoadSecrets()
 	if err != nil {
-		return nil, fmt.Errorf("failed to load secrets: %w", err)
+		return nil, nil, fmt.Errorf("failed to load secrets: %w", err)
 	}
 
 	if err := MergeSecrets(config, secrets); err != nil {
-		return nil, fmt.Errorf("failed to merge secrets: %w", err)
+		return nil, nil, fmt.Errorf("failed to merge secrets: %w", err)
 	}
 
 	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("config validation failed: %w", err)
+		return nil, nil, fmt.Errorf("config validation failed: %w", err)
 	}
 
-	return config, nil
+	return config, unmatchedQualifiers, nil
 }
 
 // LoadConfigFromBytes loads configuration from TOML bytes.
