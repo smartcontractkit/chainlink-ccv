@@ -57,6 +57,8 @@ func NewRunCmd() *cobra.Command {
 				return fmt.Errorf("failed to load config %s: %w", configFile, err)
 			}
 			_ = f.Close()
+			// Debug: log port before SetDefaults
+			fmt.Printf("DEBUG: Port from TOML before SetDefaults: %d\n", cfg.Monitoring.Port)
 
 			keystoreData, err := base64.StdEncoding.DecodeString(os.Getenv(EnvKeystoreData))
 			if err != nil {

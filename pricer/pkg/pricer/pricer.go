@@ -152,7 +152,10 @@ func loadMemoryKeystore(ctx context.Context, keystoreData []byte, keystorePasswo
 }
 
 func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, keystorePassword string) (*Pricer, error) {
+	// Debug: log port before SetDefaults
+	fmt.Printf("DEBUG: Port before SetDefaults: %d\n", cfg.Monitoring.Port)
 	cfg.SetDefaults()
+	fmt.Printf("DEBUG: Port after SetDefaults: %d\n", cfg.Monitoring.Port)
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
