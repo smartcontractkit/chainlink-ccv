@@ -41,8 +41,8 @@ type DecodedMessageBody struct {
 
 type RegisterAttestationRequest struct {
 	SourceDomain string `json:"sourceDomain" binding:"required"`
-	HookData     string `json:"hookData" binding:"required"`
-	Status       string `json:"status" binding:"required"`
+	MessageID    string `json:"messageID"    binding:"required"`
+	Status       string `json:"status"       binding:"required"`
 }
 
 type AttestationAPI struct {
@@ -56,10 +56,18 @@ func NewAttestationAPI() *AttestationAPI {
 	}
 }
 
-// RegisterAttestation registers a new attestation response for a given sourceDomain
-func (a *AttestationAPI) RegisterAttestation(sourceDomain, hookData, status string) AttestationResponse {
+// RegisterAttestation registers a new attestation response for a given sourceDomain.
+func (a *AttestationAPI) RegisterAttestation(sourceDomain, messageID, status string) AttestationResponse {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+
+	// Construct hookData as 0x8e1d1a9d + messageID (without 0x prefix)
+	// Strip 0x prefix from messageID if present
+	cleanMessageID := messageID
+	if len(messageID) > 2 && messageID[:2] == "0x" {
+		cleanMessageID = messageID[2:]
+	}
+	hookData := "0x8e1d1a9d" + cleanMessageID
 
 	// Create a response based on the example attestation but with the provided sourceDomain, hookData and status
 	response := AttestationResponse{
@@ -99,7 +107,7 @@ func (a *AttestationAPI) Register() error {
 			return
 		}
 
-		response := a.RegisterAttestation(req.SourceDomain, req.HookData, req.Status)
+		response := a.RegisterAttestation(req.SourceDomain, req.MessageID, req.Status)
 		ctx.JSON(http.StatusOK, response)
 	})
 	if err != nil {
@@ -119,8 +127,11 @@ func (a *AttestationAPI) Register() error {
 			return
 		}
 
-		// Return as an array to match the expected format
-		responseBytes, err := json.Marshal([]AttestationResponse{response})
+		// Return wrapped in "messages" array to match the expected format
+		wrappedResponse := map[string][]AttestationResponse{
+			"messages": {response},
+		}
+		responseBytes, err := json.Marshal(wrappedResponse)
 		if err != nil {
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

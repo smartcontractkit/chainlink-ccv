@@ -66,14 +66,14 @@ type v2TestCase struct {
 	numExpectedVerifications int
 }
 
-// registerCCTPAttestation registers a CCTP attestation response with the fake service
+// registerCCTPAttestation registers a CCTP attestation response with the fake service.
 func registerCCTPAttestation(t *testing.T, messageID [32]byte, status string) {
-	// Convert messageID to hex string (without 0x prefix)
-	hookData := "0x" + hex.EncodeToString(messageID[:])
+	// Convert messageID to hex string
+	messageIDHex := "0x" + hex.EncodeToString(messageID[:])
 
 	reqBody := map[string]string{
 		"sourceDomain": "100",
-		"hookData":     hookData,
+		"messageID":    messageIDHex,
 		"status":       status,
 	}
 	reqJSON, err := json.Marshal(reqBody)
@@ -81,7 +81,7 @@ func registerCCTPAttestation(t *testing.T, messageID [32]byte, status string) {
 
 	// The fake service runs on port 9111
 	resp, err := http.Post(
-		"http://fake:9111/cctp/v2/attestations",
+		"http://localhost:9111/cctp/v2/attestations",
 		"application/json",
 		bytes.NewBuffer(reqJSON),
 	)
