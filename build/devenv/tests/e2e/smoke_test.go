@@ -2,8 +2,11 @@ package e2e
 
 import (
 	"bytes"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math/big"
+	"net/http"
 	"os"
 	"testing"
 	"time"
@@ -61,6 +64,31 @@ type v2TestCase struct {
 	expectFail               bool
 	assertExecuted           bool
 	numExpectedVerifications int
+}
+
+// registerCCTPAttestation registers a CCTP attestation response with the fake service
+func registerCCTPAttestation(t *testing.T, messageID [32]byte, status string) {
+	// Convert messageID to hex string (without 0x prefix)
+	hookData := "0x" + hex.EncodeToString(messageID[:])
+
+	reqBody := map[string]string{
+		"sourceDomain": "100",
+		"hookData":     hookData,
+		"status":       status,
+	}
+	reqJSON, err := json.Marshal(reqBody)
+	require.NoError(t, err)
+
+	// The fake service runs on port 9111
+	resp, err := http.Post(
+		"http://fake:9111/cctp/v2/attestations",
+		"application/json",
+		bytes.NewBuffer(reqJSON),
+	)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode, "Failed to register CCTP attestation")
 }
 
 func TestE2ESmoke(t *testing.T) {
@@ -241,6 +269,84 @@ func TestE2ESmoke(t *testing.T) {
 			destSelector   = sel1
 			destChain      = chainMap[destSelector]
 		)
+		runUSDCTestCase := func(t *testing.T, combo evm.TokenCombination, finalityConfig uint16, receiver protocol.UnknownAddress) {
+			sender := mustGetSenderAddress(t, sourceChain)
+
+			srcToken := getTokenAddress(t, in, sourceSelector, combo.SourcePoolAddressRef().Qualifier)
+			destToken := getTokenAddress(t, in, destSelector, combo.DestPoolAddressRef().Qualifier)
+
+			startBal, err := destChain.GetTokenBalance(ctx, receiver, destToken)
+			require.NoError(t, err)
+			l.Info().Str("Receiver", receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", combo.DestPoolAddressRef().Qualifier).Msg("receiver start balance")
+
+			srcStartBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
+			require.NoError(t, err)
+			l.Info().Str("Sender", sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("sender start balance")
+
+			seqNo, err := sourceChain.GetExpectedNextSequenceNumber(ctx, destSelector)
+			require.NoError(t, err)
+			l.Info().Uint64("SeqNo", seqNo).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("expecting sequence number")
+
+			messageOptions := cciptestinterfaces.MessageOptions{
+				Version:           3,
+				ExecutionGasLimit: 200_000,
+				FinalityConfig:    finalityConfig,
+				Executor:          getContractAddress(t, in, sel0, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), evm.DefaultExecutorQualifier, "executor"),
+			}
+
+			sendRes, err := sourceChain.SendMessage(
+				ctx, destSelector,
+				cciptestinterfaces.MessageFields{
+					Receiver: receiver,
+					TokenAmount: cciptestinterfaces.TokenAmount{
+						Amount:       big.NewInt(1000),
+						TokenAddress: srcToken,
+					},
+				},
+				messageOptions,
+			)
+			require.NoError(t, err)
+			require.NotNil(t, sendRes)
+			require.Len(t, sendRes.ReceiptIssuers, combo.ExpectedReceiptIssuers(), "expected %d receipt issuers for %s token", combo.ExpectedReceiptIssuers(), combo.SourcePoolAddressRef().Qualifier)
+
+			sentEvt, err := sourceChain.WaitOneSentEventBySeqNo(ctx, destSelector, seqNo, defaultSentTimeout)
+			require.NoError(t, err)
+			msgID := sentEvt.MessageID
+
+			// Register CCTP attestation response with the fake service
+			// Use the messageID as hookData and set status to "complete" for success
+			registerCCTPAttestation(t, msgID, "complete")
+			l.Info().Str("MessageID", hex.EncodeToString(msgID[:])).Msg("Registered CCTP attestation")
+
+			testCtx := NewTestingContext(t, ctx, chainMap, defaultAggregatorClient, indexerMonitor)
+
+			res, err := testCtx.AssertMessage(msgID, AssertMessageOptions{
+				TickInterval:            1 * time.Second,
+				Timeout:                 45 * time.Second,
+				ExpectedVerifierResults: combo.ExpectedVerifierResults(),
+				AssertVerifierLogs:      false,
+				AssertExecutorLogs:      false,
+			})
+
+			require.NoError(t, err)
+			require.NotNil(t, res.AggregatedResult)
+
+			execEvt, err := destChain.WaitOneExecEventBySeqNo(ctx, sourceSelector, seqNo, 45*time.Second)
+			require.NoError(t, err)
+			require.NotNil(t, execEvt)
+			require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected state, return data: %x", execEvt.ReturnData)
+
+			endBal, err := destChain.GetTokenBalance(ctx, receiver, destToken)
+			require.NoError(t, err)
+			require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), big.NewInt(1000)), endBal)
+			l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", combo.DestPoolAddressRef().Qualifier).Msg("receiver end balance")
+
+			srcEndBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
+			require.NoError(t, err)
+			require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), big.NewInt(1000)), srcEndBal)
+			l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("sender end balance")
+		}
+
 		runTokenTransferTestCase := func(t *testing.T, combo evm.TokenCombination, finalityConfig uint16, receiver protocol.UnknownAddress) {
 			sender := mustGetSenderAddress(t, sourceChain)
 
@@ -323,7 +429,7 @@ func TestE2ESmoke(t *testing.T) {
 		t.Run("USDC", func(t *testing.T) {
 			usdcCombo := evm.USDCTokenPoolCombination()
 			receiver := mustGetEOAReceiverAddress(t, destChain)
-			runTokenTransferTestCase(t, usdcCombo, 0, receiver)
+			runUSDCTestCase(t, usdcCombo, 0, receiver)
 		})
 
 		for _, combo := range evm.All17TokenCombinations() {
