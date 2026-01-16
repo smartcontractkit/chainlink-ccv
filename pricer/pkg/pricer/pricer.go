@@ -215,8 +215,9 @@ func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, k
 		evmChain:     evmChain,
 		solChain:     solChain,
 		httpServer: &http.Server{
-			Addr:    fmt.Sprintf(":%d", cfg.Monitoring.Port),
-			Handler: mux,
+			Addr:              fmt.Sprintf(":%d", cfg.Monitoring.Port),
+			Handler:           mux,
+			ReadHeaderTimeout: 10 * time.Second,
 		},
 	}, nil
 }
@@ -228,14 +229,12 @@ func (p *Pricer) Start(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to listen on %s: %w", p.httpServer.Addr, err)
 		}
-		p.wg.Add(1)
-		go func() {
-			defer p.wg.Done()
+		p.wg.Go(func() {
 			p.lggr.Infow("starting metrics HTTP server", "addr", p.httpServer.Addr)
 			if err := p.httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				p.lggr.Errorw("metrics HTTP server error", "error", err)
 			}
-		}()
+		})
 
 		if p.evmChain != nil {
 			if err := p.evmChain.Start(ctx); err != nil {
@@ -249,14 +248,14 @@ func (p *Pricer) Start(ctx context.Context) error {
 			}
 			p.solChain.lggr.Infow("started solana chain")
 		}
-		p.wg.Add(1)
-		go p.run(ctx)
+		p.wg.Go(func() {
+			p.run(ctx)
+		})
 		return nil
 	})
 }
 
 func (p *Pricer) run(ctx context.Context) {
-	defer p.wg.Done()
 	ticker := time.NewTicker(p.cfg.Interval.Duration())
 	defer ticker.Stop()
 
