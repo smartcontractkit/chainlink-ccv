@@ -157,8 +157,8 @@ func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptest
 		datastore.NewAddressRefKey(
 			args.srcSel,
 			datastore.ContractType(executor_operations.ProxyType),
-			semver.MustParse(executor_operations.DeployProxy.Version()),
-			""))
+			semver.MustParse(executor_operations.Deploy.Version()),
+			evm.DefaultExecutorQualifier))
 	if err != nil {
 		return cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to get executor address: %w", err)
 	}

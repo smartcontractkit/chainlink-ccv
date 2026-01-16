@@ -68,9 +68,9 @@ func GenerateConfigs(cldDomain string, verifierPubKeys []string, numExecutors in
 		verifierIDPrefix                   = "default-verifier-"
 		executorIDPrefix                   = "default-executor-"
 		committeeName                      = "default"
-		monitoringOtelExporterHTTPEndpoint = "prod.telemetry.chain.link:443"
-		aggregatorAddress                  = "http://chainlink-ccv-aggregator:50051"
-		indexerAddress                     = "http://chainlink-ccv-indexer:8100"
+		monitoringOtelExporterHTTPEndpoint = "staging.telemetry.chain.link:443"
+		aggregatorAddress                  = "chainlink-ccv-aggregator.ccip.stage.external.griddle.sh/instance-1:50051"
+		indexerAddress                     = "http://chainlink-ccv-indexer.ccip.stage.external.griddle.sh/all"
 	)
 
 	var (
