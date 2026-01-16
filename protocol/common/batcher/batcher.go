@@ -137,12 +137,6 @@ func (b *Batcher[T]) run() {
 	for {
 		select {
 		case <-b.ctx.Done():
-			// Context canceled, move all retry items to buffer (ignore retry times)
-			// and flush everything before exit to prevent data loss
-			for _, retry := range retryBuffer {
-				buffer = append(buffer, retry.item)
-			}
-			b.flush(&buffer, timer)
 			return
 		case items := <-b.addCh:
 			// Reset timer if this is the first item
@@ -186,15 +180,12 @@ func (b *Batcher[T]) flush(buffer *[]T, timer *time.Timer) {
 		Error: nil,
 	}
 
-	// Send batch - non-blocking send without context cancellation check
-	// If channel is full, the batch is dropped (fire & forget pattern)
-	// This prevents blocking and allows the batcher to continue processing
 	select {
 	case b.outCh <- batch:
 		// Successfully sent
-	default:
-		// Channel full - drop the batch
-		// Consumer should ensure channel has adequate buffer or process faster
+	case <-b.ctx.Done():
+		// Context canceled during send, drop batch
+		return
 	}
 
 	// Reset buffer for next batch
