@@ -112,7 +112,6 @@ func (p *Postgres) Get(ctx context.Context, keys []protocol.Bytes32) (map[protoc
 	return result, nil
 }
 
-// Set inserts or updates entries in the database.
 func (p *Postgres) Set(ctx context.Context, entries []Entry) error {
 	if len(entries) == 0 {
 		return nil
@@ -146,13 +145,11 @@ func (p *Postgres) Set(ctx context.Context, entries []Entry) error {
 				return fmt.Errorf("failed to compute message ID: %w", err)
 			}
 
-			// Marshal message to JSON
 			messageJSON, err := json.Marshal(entry.value.Message)
 			if err != nil {
 				return fmt.Errorf("failed to marshal message: %w", err)
 			}
 
-			// Marshal CCV addresses to JSON
 			ccvAddressesJSON, err := json.Marshal(entry.value.CCVAddresses)
 			if err != nil {
 				return fmt.Errorf("failed to marshal ccv addresses: %w", err)

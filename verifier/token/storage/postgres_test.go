@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"testing"
 	"time"
@@ -10,23 +11,58 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+func setupTestDB(t *testing.T) *sqlx.DB {
+	if testing.Short() {
+		t.Skip("skipping docker test in short mode")
+	}
+	t.Helper()
+	ctx := context.Background()
+
+	postgresContainer, err := postgres.Run(ctx,
+		"postgres:15-alpine",
+		postgres.WithDatabase("test_chainstatus_db"),
+		postgres.WithUsername("test_user"),
+		postgres.WithPassword("test_password"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").
+				WithOccurrence(2).
+				WithStartupTimeout(30*time.Second)),
+	)
+	require.NoError(t, err)
+
+	connectionString, err := postgresContainer.ConnectionString(ctx, "sslmode=disable")
+	require.NoError(t, err)
+
+	db, err := sql.Open("postgres", connectionString)
+	require.NoError(t, err)
+
+	sqlxDB := sqlx.NewDb(db, "postgres")
+
+	err = chainstatus.RunPostgresMigrations(sqlxDB)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_ = sqlxDB.Close()
+		if err := postgresContainer.Terminate(context.Background()); err != nil {
+			t.Logf("failed to terminate postgres container: %v", err)
+		}
+	})
+
+	return sqlxDB
+}
+
 func TestPostgresStorage(t *testing.T) {
-	t.Skip("Skipping integration test - requires PostgreSQL database")
-
-	// This test requires a running PostgreSQL database
-	// Run with: docker run -p 5432:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=testdb postgres:latest
-	dsn := "postgres://postgres:postgres@localhost:5432/testdb?sslmode=disable"
-	db, err := sqlx.Connect("postgres", dsn)
-	require.NoError(t, err)
-	defer db.Close()
-
-	lggr, err := logger.New()
-	require.NoError(t, err)
+	db := setupTestDB(t)
+	lggr := logger.Test(t)
 
 	storage := NewPostgres(db, lggr)
 
