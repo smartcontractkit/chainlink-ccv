@@ -19,11 +19,12 @@ import (
 )
 
 const (
-	DefaultIndexerName     = "indexer"
-	DefaultIndexerDBName   = "indexer-db"
-	DefaultIndexerImage    = "indexer:dev"
-	DefaultIndexerHTTPPort = 8102
-	DefaultIndexerDBPort   = 6432
+	DefaultIndexerName         = "indexer"
+	DefaultIndexerDBName       = "indexer-db"
+	DefaultIndexerImage        = "indexer:dev"
+	DefaultIndexerHTTPPort     = 8102
+	DefaultIndexerInternalPort = 8100
+	DefaultIndexerDBPort       = 6432
 
 	DefaultIndexerDBImage = "postgres:16-alpine"
 )
@@ -111,38 +112,8 @@ func defaults(in *IndexerInput) {
 				Timeout:      5000,
 				NtpServer:    "time.google.com",
 			},
-			Verifiers: []config.VerifierConfig{
-				{
-					Type: config.ReaderTypeAggregator,
-					AggregatorReaderConfig: config.AggregatorReaderConfig{
-						Address: "default-aggregator:50051",
-						Since:   0,
-					},
-					Name:             "CommiteeVerifier (Primary)",
-					BatchSize:        100,
-					MaxBatchWaitTime: 50,
-				},
-				{
-					Type: config.ReaderTypeAggregator,
-					AggregatorReaderConfig: config.AggregatorReaderConfig{
-						Address: "secondary-aggregator:50051",
-						Since:   0,
-					},
-					Name:             "CommiteeVerifier (Secondary)",
-					BatchSize:        100,
-					MaxBatchWaitTime: 50,
-				},
-				{
-					Type: config.ReaderTypeAggregator,
-					AggregatorReaderConfig: config.AggregatorReaderConfig{
-						Address: "tertiary-aggregator:50051",
-						Since:   0,
-					},
-					Name:             "CommiteeVerifier (Tertiary)",
-					BatchSize:        100,
-					MaxBatchWaitTime: 50,
-				},
-			},
+			// Verifiers are built dynamically from aggregator topology in environment.go
+			Verifiers: []config.VerifierConfig{},
 			Storage: config.StorageConfig{
 				Strategy: config.StorageStrategySink,
 				Sink: &config.SinkStorageConfig{
@@ -187,20 +158,8 @@ func defaults(in *IndexerInput) {
 					},
 				},
 			},
-			Verifier: map[string]config.VerifierSecrets{
-				"0": {
-					APIKey: "dev-api-key-indexer",
-					Secret: "dev-secret-indexer",
-				},
-				"1": {
-					APIKey: "dev-api-key-indexer",
-					Secret: "dev-secret-indexer",
-				},
-				"2": {
-					APIKey: "dev-api-key-indexer",
-					Secret: "dev-secret-indexer",
-				},
-			},
+			// Verifier secrets are built dynamically from aggregator topology in environment.go
+			Verifier: map[string]config.VerifierSecrets{},
 		}
 	}
 }
@@ -363,7 +322,7 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 	out := &IndexerOutput{
 		ContainerName:      in.ContainerName,
 		ExternalHTTPURL:    fmt.Sprintf("http://%s:%d", host, in.Port),
-		InternalHTTPURL:    fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
+		InternalHTTPURL:    fmt.Sprintf("http://%s:%d", in.ContainerName, DefaultIndexerInternalPort),
 		DBConnectionString: DefaultIndexerDBConnectionString,
 	}
 	in.Out = out

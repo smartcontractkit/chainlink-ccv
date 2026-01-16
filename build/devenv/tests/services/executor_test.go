@@ -9,14 +9,27 @@ import (
 )
 
 func TestServiceExecutor(t *testing.T) {
+	// Minimal valid executor config for testing
+	generatedConfig := `
+executor_id = "executor-test"
+indexer_address = "http://localhost:8100"
+
+[chain_configuration]
+[chain_configuration."1"]
+off_ramp_address = "0x0000000000000000000000000000000000000001"
+rmn_address = "0x0000000000000000000000000000000000000002"
+default_executor_address = "0x0000000000000000000000000000000000000003"
+execution_interval = "15s"
+executor_pool = ["executor-test"]
+`
+
 	out, err := services.NewExecutor(&services.ExecutorInput{
-		SourceCodePath: "../../../executor",
-		RootPath:       "../../../../",
-		ContainerName:  "executor-test",
-		Port:           8101,
-		Mode:           services.Standalone,
-		ExecutorID:     "executor-test",
-		ExecutorPool:   []string{"executor-test"},
+		SourceCodePath:  "../../../executor",
+		RootPath:        "../../../../",
+		ContainerName:   "executor-test",
+		Port:            8101,
+		Mode:            services.Standalone,
+		GeneratedConfig: generatedConfig,
 	})
 	require.NoError(t, err)
 	t.Run("test #1", func(t *testing.T) {
