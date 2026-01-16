@@ -221,7 +221,7 @@ type RestReaderConfig struct {
 // It returns an error if the config file cannot be read or parsed.
 // Secrets and generated config are optional - if the files don't exist, the config will load without them.
 // The third return value contains qualifiers from the generated config that had no matching verifier
-// in the main config
+// in the main config.
 func LoadConfig() (*Config, []string, error) {
 	configPath, ok := os.LookupEnv("INDEXER_CONFIG_PATH")
 	if !ok {
