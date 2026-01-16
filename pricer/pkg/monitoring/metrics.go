@@ -7,17 +7,15 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-var (
-	PromPricerEVMTickDuration = promauto.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name: "pricer_evm_tick_duration_seconds",
-			Help: "Duration of EVM tick operations in seconds",
-			Buckets: []float64{
-				0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10,
-			},
+var PromPricerEVMTickDuration = promauto.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name: "pricer_evm_tick_duration_seconds",
+		Help: "Duration of EVM tick operations in seconds",
+		Buckets: []float64{
+			0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10,
 		},
-		[]string{"chainID"},
-	)
+	},
+	[]string{"chainID"},
 )
 
 // PricerMetricLabeler provides a simple interface for recording metrics.
