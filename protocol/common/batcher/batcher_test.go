@@ -201,25 +201,6 @@ func TestBatcher_ConcurrentAdds(t *testing.T) {
 	require.Equal(t, expectedTotal, totalReceived, "should receive all items across all batches")
 }
 
-// collectBatches drains the output channel and returns all items from all batches.
-func collectBatches(outCh <-chan BatchResult[int], timeout time.Duration) []int {
-	var allItems []int
-	timeoutCh := time.After(timeout)
-
-	for {
-		select {
-		case batch, ok := <-outCh:
-			if !ok {
-				// Channel closed
-				return allItems
-			}
-			allItems = append(allItems, batch.Items...)
-		case <-timeoutCh:
-			return allItems
-		}
-	}
-}
-
 // countBatchItems drains the output channel and counts total items received.
 func countBatchItems(outCh <-chan BatchResult[int], timeout time.Duration) int {
 	count := 0
