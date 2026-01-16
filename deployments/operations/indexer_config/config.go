@@ -11,10 +11,10 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 )
 
-// GeneratedVerifier contains the on-chain derived configuration for a committee's verifiers.
-// Each entry represents one committee with all its IssuerAddresses across all chains.
+// GeneratedVerifier contains the on-chain derived configuration for a verifier.
+// Each entry represents one verifier with all its IssuerAddresses across all chains.
 type GeneratedVerifier struct {
-	// IssuerAddresses are all CommitteeVerifier contract addresses for this committee across all chains
+	// IssuerAddresses are all verifier contract addresses for this verifier across all chains
 	IssuerAddresses []string
 }
 
@@ -22,8 +22,10 @@ type GeneratedVerifier struct {
 type BuildConfigInput struct {
 	// ServiceIdentifier is the identifier for this indexer service (e.g. "default-indexer")
 	ServiceIdentifier string
-	// CommitteeQualifiers are the committees to generate config for, in order matching [[Verifier]] entries
-	CommitteeQualifiers []string
+	// VerifierQualifiers are the qualifiers for verifiers to generate config for.
+	// The qualifier is used as the key in the generated config, matching the
+	// IssuerAddressesQualifier field in the indexer's VerifierConfig.
+	VerifierQualifiers []string
 	// ChainSelectors are the source chains the indexer will monitor.
 	// If empty, defaults to all chain selectors available in the environment.
 	ChainSelectors []uint64
@@ -33,8 +35,8 @@ type BuildConfigInput struct {
 type BuildConfigOutput struct {
 	// ServiceIdentifier is echoed back for use in storing the config
 	ServiceIdentifier string
-	// Verifiers contains the on-chain derived config (IssuerAddresses) per chain
-	Verifiers []GeneratedVerifier
+	// Verifiers maps qualifier to on-chain derived config (IssuerAddresses)
+	Verifiers map[string]GeneratedVerifier
 }
 
 // BuildConfigDeps contains the dependencies for building the indexer config.
@@ -45,7 +47,7 @@ type BuildConfigDeps struct {
 
 // BuildConfig is an operation that generates the indexer verifier configuration
 // by querying the datastore for CommitteeVerifierResolver addresses. It generates one entry
-// per committee with all IssuerAddresses (resolver addresses) for that committee across all chains.
+// per verifier qualifier with all IssuerAddresses (resolver addresses) for that verifier across all chains.
 var BuildConfig = operations.NewOperation(
 	"build-indexer-config",
 	semver.MustParse("1.0.0"),
@@ -53,18 +55,18 @@ var BuildConfig = operations.NewOperation(
 	func(b operations.Bundle, deps BuildConfigDeps, input BuildConfigInput) (BuildConfigOutput, error) {
 		ds := deps.Env.DataStore
 
-		verifiers := make([]GeneratedVerifier, 0, len(input.CommitteeQualifiers))
+		verifiers := make(map[string]GeneratedVerifier, len(input.VerifierQualifiers))
 
-		for _, qualifier := range input.CommitteeQualifiers {
+		for _, qualifier := range input.VerifierQualifiers {
 			addresses, err := collectUniqueAddresses(
 				ds, input.ChainSelectors, qualifier, committee_verifier.ResolverType)
 			if err != nil {
-				return BuildConfigOutput{}, fmt.Errorf("failed to get resolver addresses for committee %q: %w", qualifier, err)
+				return BuildConfigOutput{}, fmt.Errorf("failed to get resolver addresses for verifier %q: %w", qualifier, err)
 			}
 
-			verifiers = append(verifiers, GeneratedVerifier{
+			verifiers[qualifier] = GeneratedVerifier{
 				IssuerAddresses: addresses,
-			})
+			}
 		}
 
 		return BuildConfigOutput{

@@ -484,9 +484,9 @@ func NewEnvironment() (in *Cfg, err error) {
 
 		cs := changesets.GenerateIndexerConfig()
 		output, err := cs.Apply(*e, changesets.GenerateIndexerConfigCfg{
-			ServiceIdentifier:   "indexer",
-			CommitteeQualifiers: committeeQualifiers,
-			ChainSelectors:      selectors,
+			ServiceIdentifier:  "indexer",
+			VerifierQualifiers: committeeQualifiers,
+			ChainSelectors:     selectors,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate indexer config: %w", err)
