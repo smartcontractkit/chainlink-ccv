@@ -20,7 +20,7 @@ const (
 // Storage defines the interface for storing and retrieving heartbeat data.
 type Storage interface {
 	// StoreBlockHeight stores the block height for a caller on a specific chain.
-	StoreBlockHeight(ctx context.Context, callerID string, chainSelector uint64, blockHeight uint64) error
+	StoreBlockHeight(ctx context.Context, callerID string, chainSelector, blockHeight uint64) error
 	// GetBlockHeights returns the block heights for all callers on a specific chain.
 	GetBlockHeights(ctx context.Context, chainSelector uint64) (map[string]uint64, error)
 	// GetMaxBlockHeight returns the maximum block height across all callers for a specific chain.
@@ -52,7 +52,7 @@ func NewRedisStorage(client *redis.Client, keyPrefix string, ttl time.Duration) 
 }
 
 // StoreBlockHeight stores the block height for a caller on a specific chain.
-func (s *RedisStorage) StoreBlockHeight(ctx context.Context, callerID string, chainSelector uint64, blockHeight uint64) error {
+func (s *RedisStorage) StoreBlockHeight(ctx context.Context, callerID string, chainSelector, blockHeight uint64) error {
 	key := s.buildKey(callerID, chainSelector)
 	err := s.client.Set(ctx, key, blockHeight, s.ttl).Err()
 	if err != nil {
@@ -75,7 +75,7 @@ func (s *RedisStorage) GetBlockHeights(ctx context.Context, chainSelector uint64
 		}
 
 		// Get all values for the found keys
-		if len(keys) > 0 {
+		if len(keys) > 0 { //nolint:nestif // Reasonable complexity for Redis scan pattern
 			values, err := s.client.MGet(ctx, keys...).Result()
 			if err != nil {
 				return nil, fmt.Errorf("failed to get values for chain %d: %w", chainSelector, err)
@@ -127,7 +127,7 @@ func (s *RedisStorage) GetMaxBlockHeight(ctx context.Context, chainSelector uint
 		}
 
 		// Get all values for the found keys
-		if len(keys) > 0 {
+		if len(keys) > 0 { //nolint:nestif // Reasonable complexity
 			values, err := s.client.MGet(ctx, keys...).Result()
 			if err != nil {
 				return 0, fmt.Errorf("failed to get values for chain %d: %w", chainSelector, err)
@@ -231,7 +231,7 @@ func NewInMemoryStorage() *InMemoryStorage {
 }
 
 // StoreBlockHeight stores the block height for a caller on a specific chain.
-func (s *InMemoryStorage) StoreBlockHeight(ctx context.Context, callerID string, chainSelector uint64, blockHeight uint64) error {
+func (s *InMemoryStorage) StoreBlockHeight(ctx context.Context, callerID string, chainSelector, blockHeight uint64) error {
 	key := fmt.Sprintf("%s:%d", callerID, chainSelector)
 
 	s.mu.Lock()
@@ -306,7 +306,7 @@ func NewNoopStorage() *NoopStorage {
 	return &NoopStorage{}
 }
 
-func (n *NoopStorage) StoreBlockHeight(ctx context.Context, callerID string, chainSelector uint64, blockHeight uint64) error {
+func (n *NoopStorage) StoreBlockHeight(ctx context.Context, callerID string, chainSelector, blockHeight uint64) error {
 	return nil
 }
 
