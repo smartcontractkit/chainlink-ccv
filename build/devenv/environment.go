@@ -477,16 +477,19 @@ func NewEnvironment() (in *Cfg, err error) {
 	///////////////////////////
 	// Generate indexer config using changeset (on-chain state as source of truth)
 	if len(in.Aggregator) > 0 && in.Indexer != nil {
-		committeeQualifiers := make([]string, 0, len(in.Aggregator))
-		for _, agg := range in.Aggregator {
-			committeeQualifiers = append(committeeQualifiers, agg.CommitteeName)
+		verifierNameToQualifier := make(map[string]string, len(in.Aggregator))
+		for idx, agg := range in.Aggregator {
+			if idx < len(in.Indexer.IndexerConfig.Verifiers) {
+				verifierName := in.Indexer.IndexerConfig.Verifiers[idx].Name
+				verifierNameToQualifier[verifierName] = agg.CommitteeName
+			}
 		}
 
 		cs := changesets.GenerateIndexerConfig()
 		output, err := cs.Apply(*e, changesets.GenerateIndexerConfigCfg{
-			ServiceIdentifier:  "indexer",
-			VerifierQualifiers: committeeQualifiers,
-			ChainSelectors:     selectors,
+			ServiceIdentifier:       "indexer",
+			VerifierNameToQualifier: verifierNameToQualifier,
+			ChainSelectors:          selectors,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate indexer config: %w", err)

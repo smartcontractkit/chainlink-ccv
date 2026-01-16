@@ -14,8 +14,8 @@ func TestServiceIndexer(t *testing.T) {
 		SourceCodePath: "../../../indexer",
 		RootPath:       "../../../../",
 		GeneratedCfg: &config.GeneratedConfig{
-			Verifier: map[string]config.GeneratedVerifierConfig{
-				"default": {IssuerAddresses: []string{"0x9A676e781A523b5d0C0e43731313A708CB607508"}},
+			Verifier: []config.GeneratedVerifierConfig{
+				{Name: "CommiteeVerifier (Primary)", IssuerAddresses: []string{"0x9A676e781A523b5d0C0e43731313A708CB607508"}},
 			},
 		},
 	})

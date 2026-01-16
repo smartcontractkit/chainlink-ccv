@@ -33,7 +33,7 @@ import (
 
 func main() {
 	// Load in the config from './config.toml'
-	config, unmatchedQualifiers, err := config.LoadConfig()
+	config, unmatchedVerifierNames, err := config.LoadConfig()
 	if err != nil {
 		panic(err)
 	}
@@ -52,9 +52,9 @@ func main() {
 	// Use SugaredLogger for better API
 	lggr = logger.Sugared(lggr)
 
-	for _, qualifier := range unmatchedQualifiers {
-		lggr.Warnw("Generated config qualifier has no matching verifier in main config",
-			"qualifier", qualifier)
+	for _, name := range unmatchedVerifierNames {
+		lggr.Warnw("Generated config verifier has no matching verifier in main config",
+			"name", name)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

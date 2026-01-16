@@ -14,6 +14,7 @@ import (
 // GeneratedVerifier contains the on-chain derived configuration for a verifier.
 // Each entry represents one verifier with all its IssuerAddresses across all chains.
 type GeneratedVerifier struct {
+	Name string
 	// IssuerAddresses are all verifier contract addresses for this verifier across all chains
 	IssuerAddresses []string
 }
@@ -22,10 +23,9 @@ type GeneratedVerifier struct {
 type BuildConfigInput struct {
 	// ServiceIdentifier is the identifier for this indexer service (e.g. "default-indexer")
 	ServiceIdentifier string
-	// VerifierQualifiers are the qualifiers for verifiers to generate config for.
-	// The qualifier is used as the key in the generated config, matching the
-	// IssuerAddressesQualifier field in the indexer's VerifierConfig.
-	VerifierQualifiers []string
+	// VerifierNameToQualifier maps verifier names (matching VerifierConfig.Name) to qualifiers
+	// used for looking up addresses in the datastore.
+	VerifierNameToQualifier map[string]string
 	// ChainSelectors are the source chains the indexer will monitor.
 	// If empty, defaults to all chain selectors available in the environment.
 	ChainSelectors []uint64
@@ -35,8 +35,8 @@ type BuildConfigInput struct {
 type BuildConfigOutput struct {
 	// ServiceIdentifier is echoed back for use in storing the config
 	ServiceIdentifier string
-	// Verifiers maps qualifier to on-chain derived config (IssuerAddresses)
-	Verifiers map[string]GeneratedVerifier
+	// Verifiers contains the on-chain derived config (IssuerAddresses) per verifier name
+	Verifiers []GeneratedVerifier
 }
 
 // BuildConfigDeps contains the dependencies for building the indexer config.
@@ -47,7 +47,7 @@ type BuildConfigDeps struct {
 
 // BuildConfig is an operation that generates the indexer verifier configuration
 // by querying the datastore for CommitteeVerifierResolver addresses. It generates one entry
-// per verifier qualifier with all IssuerAddresses (resolver addresses) for that verifier across all chains.
+// per verifier name with all IssuerAddresses (resolver addresses) for that verifier across all chains.
 var BuildConfig = operations.NewOperation(
 	"build-indexer-config",
 	semver.MustParse("1.0.0"),
@@ -55,18 +55,19 @@ var BuildConfig = operations.NewOperation(
 	func(b operations.Bundle, deps BuildConfigDeps, input BuildConfigInput) (BuildConfigOutput, error) {
 		ds := deps.Env.DataStore
 
-		verifiers := make(map[string]GeneratedVerifier, len(input.VerifierQualifiers))
+		verifiers := make([]GeneratedVerifier, 0, len(input.VerifierNameToQualifier))
 
-		for _, qualifier := range input.VerifierQualifiers {
+		for name, qualifier := range input.VerifierNameToQualifier {
 			addresses, err := collectUniqueAddresses(
 				ds, input.ChainSelectors, qualifier, committee_verifier.ResolverType)
 			if err != nil {
-				return BuildConfigOutput{}, fmt.Errorf("failed to get resolver addresses for verifier %q: %w", qualifier, err)
+				return BuildConfigOutput{}, fmt.Errorf("failed to get resolver addresses for verifier %q (qualifier %q): %w", name, qualifier, err)
 			}
 
-			verifiers[qualifier] = GeneratedVerifier{
+			verifiers = append(verifiers, GeneratedVerifier{
+				Name:            name,
 				IssuerAddresses: addresses,
-			}
+			})
 		}
 
 		return BuildConfigOutput{

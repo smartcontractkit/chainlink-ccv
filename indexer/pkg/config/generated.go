@@ -40,29 +40,34 @@ func LoadGeneratedConfigFromBytes(data []byte) (*GeneratedConfig, error) {
 }
 
 // MergeGeneratedConfig merges the generated configuration into the main configuration.
-// It merges IssuerAddresses from the generated config into verifier configs by qualifier.
-// Each verifier's IssuerAddressesQualifier field is matched against the keys in the generated config.
+// It merges IssuerAddresses from the generated config into verifier configs by Name.
+// Each verifier's Name field is matched against the Name field in the generated config entries.
 // Addresses from the generated config are appended to existing addresses (with deduplication).
-// Returns a list of qualifiers from the generated config that had no matching verifier in the main config.
+// Returns a list of verifier names from the generated config that had no matching verifier in the main config.
 func MergeGeneratedConfig(cfg *Config, generated *GeneratedConfig) []string {
 	if generated == nil {
 		return nil
 	}
 
-	matchedQualifiers := make(map[string]bool)
+	generatedByName := make(map[string]GeneratedVerifierConfig, len(generated.Verifier))
+	for _, v := range generated.Verifier {
+		generatedByName[v.Name] = v
+	}
+
+	matchedNames := make(map[string]bool)
 
 	for i := range cfg.Verifiers {
-		qualifier := cfg.Verifiers[i].IssuerAddressesQualifier
-		if qualifier == "" {
+		name := cfg.Verifiers[i].Name
+		if name == "" {
 			continue
 		}
 
-		verifierGenerated, ok := generated.Verifier[qualifier]
+		verifierGenerated, ok := generatedByName[name]
 		if !ok {
 			continue
 		}
 
-		matchedQualifiers[qualifier] = true
+		matchedNames[name] = true
 
 		if len(verifierGenerated.IssuerAddresses) > 0 {
 			cfg.Verifiers[i].IssuerAddresses = mergeAddresses(
@@ -72,14 +77,14 @@ func MergeGeneratedConfig(cfg *Config, generated *GeneratedConfig) []string {
 		}
 	}
 
-	var unmatchedQualifiers []string
-	for qualifier := range generated.Verifier {
-		if !matchedQualifiers[qualifier] {
-			unmatchedQualifiers = append(unmatchedQualifiers, qualifier)
+	var unmatchedNames []string
+	for _, v := range generated.Verifier {
+		if !matchedNames[v.Name] {
+			unmatchedNames = append(unmatchedNames, v.Name)
 		}
 	}
 
-	return unmatchedQualifiers
+	return unmatchedNames
 }
 
 // mergeAddresses merges two slices of addresses, deduplicating by lowercase comparison.
