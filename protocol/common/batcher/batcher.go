@@ -137,12 +137,6 @@ func (b *Batcher[T]) run() {
 	for {
 		select {
 		case <-b.ctx.Done():
-			// Context canceled, move all retry items to buffer (ignore retry times)
-			// and flush everything before exit to prevent data loss
-			for _, retry := range retryBuffer {
-				buffer = append(buffer, retry.item)
-			}
-			b.flush(&buffer, timer)
 			return
 		case items := <-b.addCh:
 			// Reset timer if this is the first item
