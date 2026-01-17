@@ -13,28 +13,6 @@ MetricReaderInterval = 5
 TraceSampleRatio = 1.0
 TraceBatchTimeout = 10
 
-[[token_verifiers]]
-type = "lbtc"
-version = "1.0"
-attestation_api = "https://lbtc-api.example.com"
-attestation_api_timeout = "10s"
-attestation_api_interval = "100ms"
-
-[token_verifiers.addresses]
-3379446385462418246 = "0x9ac06ca36bb3dfd6a70eeb508ea5a33dadecca55"
-12922642891491394802 = "0xabb9d2d6f21b2be4d7250de972bd9f778accb3c5"
-
-[[token_verifiers]]
-type = "cctp"
-version = "2.0"
-attestation_api = "https://cctp-api.example.com"
-attestation_api_timeout = "10s"
-attestation_api_interval = "100ms"
-
-[token_verifiers.addresses]
-3379446385462418246 = "0x9ac06ca36bb3dfd6a70eeb508ea5a33dadecca55"
-12922642891491394802 = "0xabb9d2d6f21b2be4d7250de972bd9f778accb3c5"
-
 
 #[blockchain_infos]
 #  [blockchain_infos.3379446385462418246]

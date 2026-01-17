@@ -142,6 +142,16 @@ func defaults(in *IndexerInput) {
 					BatchSize:        100,
 					MaxBatchWaitTime: 50,
 				},
+				{
+					Type: config.ReaderTypeRest,
+					RestReaderConfig: config.RestReaderConfig{
+						BaseURL:        "token-verifier-1:8700/v1/verification/results",
+						RequestTimeout: 10,
+					},
+					Name:             "Token Verifier (Primary)",
+					BatchSize:        10,
+					MaxBatchWaitTime: 100,
+				},
 			},
 			Storage: config.StorageConfig{
 				Strategy: config.StorageStrategySink,

@@ -116,8 +116,10 @@ func newHTTPClient(
 }
 
 func (h *httpClient) Get(ctx context.Context, requestPath string) (protocol.ByteSlice, Status, error) {
-	requestURL := *h.apiURL
-	requestURL.Path = path.Join(requestURL.Path, requestPath)
+	requestURL, err := h.buildRequestURL(requestPath)
+	if err != nil {
+		return nil, http.StatusBadRequest, err
+	}
 
 	response, httpStatus, err := h.callAPI(ctx, h.lggr, http.MethodGet, requestURL, nil)
 	h.lggr.Debugw(
@@ -135,8 +137,10 @@ func (h *httpClient) Post(
 	requestPath string,
 	requestData protocol.ByteSlice,
 ) (protocol.ByteSlice, Status, error) {
-	requestURL := *h.apiURL
-	requestURL.Path = path.Join(requestURL.Path, requestPath)
+	requestURL, err := h.buildRequestURL(requestPath)
+	if err != nil {
+		return nil, http.StatusBadRequest, err
+	}
 
 	response, httpStatus, err := h.callAPI(ctx, h.lggr, http.MethodPost, requestURL, bytes.NewBuffer(requestData))
 	h.lggr.Debugw(
@@ -148,6 +152,27 @@ func (h *httpClient) Post(
 		"err", err,
 	)
 	return response, httpStatus, err
+}
+
+// buildRequestURL combines the base API URL with the request path, properly handling query parameters.
+func (h *httpClient) buildRequestURL(requestPath string) (url.URL, error) {
+	requestURL := *h.apiURL
+
+	// Parse the requestPath to separate path and query components
+	parsedPath, err := url.Parse(requestPath)
+	if err != nil {
+		return url.URL{}, err
+	}
+
+	// Join the base path with the request path
+	requestURL.Path = path.Join(requestURL.Path, parsedPath.Path)
+
+	// Preserve query parameters from the request path
+	if parsedPath.RawQuery != "" {
+		requestURL.RawQuery = parsedPath.RawQuery
+	}
+
+	return requestURL, nil
 }
 
 func (h *httpClient) callAPI(
