@@ -453,7 +453,7 @@ func createCCTPCoordinator(
 	cctpConfig *cctp.CCTPConfig,
 	config verifier.CoordinatorConfig,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
-	inMemStorage *storage.InMemory,
+	inMemStorage *storage.InMemoryCCVStorage,
 ) (*verifier.Coordinator, error) {
 	noopMonitoring := monitoring.NewFakeVerifierMonitoring()
 	noopLatencyTracker := verifier.NoopLatencyTracker{}

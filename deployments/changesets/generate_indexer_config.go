@@ -23,8 +23,8 @@ func GenerateIndexerConfig() deployment.ChangeSetV2[idxconfig.BuildConfigInput] 
 		if cfg.ServiceIdentifier == "" {
 			return fmt.Errorf("service identifier is required")
 		}
-		if len(cfg.CommitteeQualifiers) == 0 {
-			return fmt.Errorf("at least one committee qualifier is required")
+		if len(cfg.VerifierNameToQualifier) == 0 {
+			return fmt.Errorf("at least one verifier name to qualifier mapping is required")
 		}
 		envSelectors := e.BlockChains.ListChainSelectors()
 		for _, s := range cfg.ChainSelectors {

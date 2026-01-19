@@ -686,13 +686,56 @@ func TestE2ELoad(t *testing.T) {
 		summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
 		metrics.PrintMetricsSummary(t, summary)
 	})
+}
+
+func TestStaging(t *testing.T) {
+	outfile := os.Getenv("LOAD_TEST_OUT_FILE")
+	if outfile == "" {
+		outfile = "../../env-staging.toml"
+	}
+	in, err := ccv.LoadOutput[ccv.Cfg](outfile)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
+		require.NoError(t, err)
+	})
+
+	_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+	require.NoError(t, err)
+	chains := e.BlockChains.EVMChains()
+	require.NotNil(t, chains)
+	b := ccv.NewDefaultCLDFBundle(e)
+	e.OperationsBundle = b
+
+	ctx := ccv.Plog.WithContext(context.Background())
+	l := zerolog.Ctx(ctx)
+	lib, err := ccv.NewLib(l, outfile)
+	require.NoError(t, err)
+	chainImpls, err := lib.ChainsMap(ctx)
+	require.NoError(t, err)
+
+	var defaultAggregatorClient *ccv.AggregatorClient
+	if _, ok := in.AggregatorEndpoints[evm.DefaultCommitteeVerifierQualifier]; ok {
+		defaultAggregatorClient, err = in.NewAggregatorClientForCommittee(
+			zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
+			evm.DefaultCommitteeVerifierQualifier)
+		require.NoError(t, err)
+		require.NotNil(t, defaultAggregatorClient)
+		t.Cleanup(func() {
+			defaultAggregatorClient.Close()
+		})
+	}
+
+	indexerClient, err := lib.Indexer()
+	require.NotNil(t, indexerClient)
+	require.NoError(t, err)
 
 	// multi chain mesh load test with config file
 	t.Run("multi_chain_load", func(t *testing.T) {
 		// Load test config
 		testconfigFile := os.Getenv("LOAD_CONFIG_FILE")
 		if testconfigFile == "" {
-			testconfigFile = "../../steady-mesh.toml"
+			testconfigFile = "../../staging-load.toml"
 		}
 		var testConfig *load.TOMLLoadTestRoot
 		testConfig, err = load.LoadTestConfigFromTomlFile(testconfigFile)
@@ -705,22 +748,25 @@ func TestE2ELoad(t *testing.T) {
 		require.NoError(t, err)
 		testProfile := testConfig.TestProfiles[0]
 
+		var wg sync.WaitGroup
 		for _, testProfile := range testConfig.TestProfiles {
-			for _, chain := range testProfile.ChainsAsSource {
-				chainSelector, err := strconv.ParseUint(chain.Selector, 10, 64)
-				if err != nil {
-					t.Logf("failed to parse chain selector: %v", err)
-					return
-				}
-				chain := e.BlockChains.EVMChains()[chainSelector]
-				ensureWETHBalanceAndApproval(ctx, t, *l, e, chain, big.NewInt(requiredWETHBalance))
+			for _, chainInfo := range testProfile.ChainsAsSource {
+				wg.Add(1)
+				go func(chainInfo load.ChainProfileConfig) {
+					defer wg.Done()
+					chainSelector, err := strconv.ParseUint(chainInfo.Selector, 10, 64)
+					if err != nil {
+						t.Logf("failed to parse chain selector: %v", err)
+						return
+					}
+					chain := e.BlockChains.EVMChains()[chainSelector]
+					ensureWETHBalanceAndApproval(ctx, t, *l, e, chain, big.NewInt(requiredWETHBalance))
+				}(chainInfo)
 			}
 		}
+		wg.Wait()
 
-		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerMonitor)
-		tc.Timeout = testProfile.TestDuration
 		messageRate, messageRateDuration := load.ParseMessageRate(testProfile.MessageRate)
-
 		gun := NewEVMTransactionGunFromTestConfig(in, testConfig, e, chainImpls)
 		p := wasp.NewProfile().Add(
 			wasp.NewGenerator(
@@ -734,27 +780,13 @@ func TestE2ELoad(t *testing.T) {
 					LokiConfig:            nil,
 				}),
 		)
-		waitForMetrics := assertMessagesAsync(tc, gun, testProfile.TestDuration)
 
 		_, err = p.Run(true)
 		require.NoError(t, err)
 
 		p.Wait()
 		time.Sleep(postTestVerificationDelay)
-		// Close the channel to signal no more messages will be sent
 		gun.CloseSentChannel()
-
-		// Wait for all messages to be verified and collect metrics
-		metrics_datum, totals := waitForMetrics()
-
-		// Enrich metrics with log data collected during test
-		tc.enrichMetrics(metrics_datum)
-
-		summary := metrics.CalculateMetricsSummary(metrics_datum, totals)
-		metrics.PrintMetricsSummary(t, summary)
-		metrics.PrintMessageSummary(t, summary)
-
-		require.Equal(t, summary.TotalSent, summary.TotalReceived)
-		require.LessOrEqual(t, summary.P90Latency, 8*time.Second)
+		// we don't need to wait for metrics because we can rely on staging metrics
 	})
 }

@@ -1,0 +1,30 @@
+message_profiles=[
+    {name="data only", hasData=true},
+    {name="PTT", hasData=true, hasToken=true},
+    {name="token only", hasToken=true},
+]
+
+[[test_profiles]]
+    chains_as_source=[
+        {selector="16015286601757825753", ratio=1},
+        {selector="14767482510784806043", ratio=1},
+        # {selector="3478487238524512106", ratio=1}, # arbitrum sepolia
+        {selector="16281711391670634445", ratio=1},
+        # {selector="10344971235874465080", ratio=1}, # base sepolia
+    ]
+    chains_as_dest=[
+        {selector="16015286601757825753", ratio=1},
+        {selector="14767482510784806043", ratio=1},
+        {selector="10344971235874465080", ratio=1},
+        {selector="3478487238524512106", ratio=1},
+        {selector="16281711391670634445", ratio=1},
+    ]
+    messages=[
+        {ratio=12, message_profile="data only"},
+        {ratio=35, message_profile="PTT"},
+        {ratio=53, message_profile="token only"}
+    ]
+    test_duration = "20m"
+    # Should be "integer/duration" like "1/1s" or "10/5m"
+    message_rate = "10/s"
+    load_duration = "1m"

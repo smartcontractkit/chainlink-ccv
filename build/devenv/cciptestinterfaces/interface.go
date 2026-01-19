@@ -129,8 +129,8 @@ type Chain interface {
 	SendMessage(ctx context.Context, dest uint64, fields MessageFields, opts MessageOptions) (MessageSentEvent, error)
 	// SendMessageWithNonce sends a CCIP message to the specified destination chain with the specified message options and nonce.
 	SendMessageWithNonce(ctx context.Context, dest uint64, fields MessageFields, opts MessageOptions, sender *bind.TransactOpts, nonce *atomic.Uint64, disableTokenAmountCheck bool) (MessageSentEvent, error)
-	// GetUserNonce returns the nonce for the user on this chain.
-	GetUserNonce(ctx context.Context) (uint64, error)
+	// GetUserNonce returns the nonce for the given user address on this chain.
+	GetUserNonce(ctx context.Context, userAddress protocol.UnknownAddress) (uint64, error)
 	// GetExpectedNextSequenceNumber gets an expected sequence number for message to the specified destination chain.
 	GetExpectedNextSequenceNumber(ctx context.Context, to uint64) (uint64, error)
 	// WaitOneSentEventBySeqNo waits until exactly one event for CCIP message sent is emitted on-chain for the specified destination chain and sequence number.
