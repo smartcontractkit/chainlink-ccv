@@ -145,7 +145,7 @@ func defaults(in *IndexerInput) {
 				{
 					Type: config.ReaderTypeRest,
 					RestReaderConfig: config.RestReaderConfig{
-						BaseURL:        "token-verifier-1:8700/v1/verification/results",
+						BaseURL:        "token-verifier-1:8700/v1",
 						RequestTimeout: 10,
 					},
 					Name:             "Token Verifier (Primary)",
