@@ -11,6 +11,13 @@ import (
 )
 
 func Test_TryParsing(t *testing.T) {
+	testAddr1Hex := "0x1111111111111111111111111111111111111111"
+	testAddr2Hex := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	testAddr1, err := protocol.NewUnknownAddressFromHex(testAddr1Hex)
+	require.NoError(t, err)
+	testAddr2, err := protocol.NewUnknownAddressFromHex(testAddr2Hex)
+	require.NoError(t, err)
+
 	tests := []struct {
 		name    string
 		t       string
@@ -30,8 +37,8 @@ func Test_TryParsing(t *testing.T) {
 				"attestation_api_interval":   "200ms",
 				"attestation_api_batch_size": 50,
 				"addresses": map[string]any{
-					"1": "0xabcdef1234567890abcdef1234567890abcdef12",
-					"2": "0x12345678901234567890abcdef12abcdefabcdef",
+					"1": testAddr1Hex,
+					"2": testAddr2Hex,
 				},
 			},
 			want: &LBTCConfig{
@@ -40,8 +47,8 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPIInterval:  200 * time.Millisecond,
 				AttestationAPIBatchSize: 50,
 				ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
-					1: protocol.UnknownAddress("0xabcdef1234567890abcdef1234567890abcdef12"),
-					2: protocol.UnknownAddress("0x12345678901234567890abcdef12abcdefabcdef"),
+					1: testAddr1,
+					2: testAddr2,
 				},
 			},
 			wantErr: false,
@@ -53,7 +60,7 @@ func Test_TryParsing(t *testing.T) {
 			data: map[string]any{
 				"attestation_api": "https://lbtc-api.example.com",
 				"addresses": map[string]any{
-					"1": "0xabcdef1234567890abcdef1234567890abcdef12",
+					"1": testAddr1Hex,
 				},
 			},
 			want: &LBTCConfig{
@@ -62,7 +69,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPIBatchSize: 20,
 				ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
-					1: protocol.UnknownAddress("0xabcdef1234567890abcdef1234567890abcdef12"),
+					1: testAddr1,
 				},
 			},
 			wantErr: false,
@@ -75,7 +82,7 @@ func Test_TryParsing(t *testing.T) {
 				"attestation_api":            "https://lbtc-api.example.com",
 				"attestation_api_batch_size": "30",
 				"addresses": map[string]any{
-					"1": "0xabcdef1234567890abcdef1234567890abcdef12",
+					"1": testAddr1Hex,
 				},
 			},
 			want: &LBTCConfig{
@@ -84,7 +91,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPIBatchSize: 30,
 				ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
-					1: protocol.UnknownAddress("0xabcdef1234567890abcdef1234567890abcdef12"),
+					1: testAddr1,
 				},
 			},
 			wantErr: false,
@@ -117,7 +124,7 @@ func Test_TryParsing(t *testing.T) {
 			v:    "1.0",
 			data: map[string]any{
 				"addresses": map[string]any{
-					"1": "0xabcdef1234567890abcdef1234567890abcdef12",
+					"1": testAddr1Hex,
 				},
 			},
 			want:    nil,

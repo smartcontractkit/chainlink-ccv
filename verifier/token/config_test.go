@@ -33,8 +33,8 @@ func Test_Config_Deserialization(t *testing.T) {
 		attestation_api = "https://iris-api.circle.com"
 
 		[token_verifiers.addresses]
-		"1" = "0xabcdef1234567890abcdef1234567890abcdef12"
-		2 = "0x12345678901234567890abcdef12abcdefabcdef"
+		"1" = "0x1111111111111111111111111111111111111111"
+		2 = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 		[[token_verifiers]]
 		type = "lbtc"
@@ -44,8 +44,8 @@ func Test_Config_Deserialization(t *testing.T) {
 		attestation_api_interval = 20
 
 		[token_verifiers.addresses]
-		1 = "0xabcdef1234567890abcdef1234567890abcdef12"
-		2 = "0x12345678901234567890abcdef12abcdefabcdef"
+		1 = "0x2222222222222222222222222222222222222222"
+		2 = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	`
 
 	assertContent := func(config Config) {
@@ -62,9 +62,11 @@ func Test_Config_Deserialization(t *testing.T) {
 		assert.Equal(t, "2.0", cctpVerifier.Version)
 		assert.Equal(t, 11*time.Millisecond, cctpVerifier.CCTPConfig.AttestationAPITimeout)
 		assert.Equal(t, "https://iris-api.circle.com", cctpVerifier.CCTPConfig.AttestationAPI)
-		expectedAddr1, _ := protocol.NewUnknownAddressFromHex("0xabcdef1234567890abcdef1234567890abcdef12")
+		expectedAddr1, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
+		require.NoError(t, err)
 		assert.Equal(t, expectedAddr1, cctpVerifier.CCTPConfig.ParsedVerifiers[1])
-		expectedAddr2, _ := protocol.NewUnknownAddressFromHex("0x12345678901234567890abcdef12abcdefabcdef")
+		expectedAddr2, err := protocol.NewUnknownAddressFromHex("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+		require.NoError(t, err)
 		assert.Equal(t, expectedAddr2, cctpVerifier.CCTPConfig.ParsedVerifiers[2])
 
 		lbtcVerifier := config.TokenVerifiers[1]
@@ -73,9 +75,11 @@ func Test_Config_Deserialization(t *testing.T) {
 		assert.Equal(t, 10*time.Second, lbtcVerifier.LBTCConfig.AttestationAPITimeout)
 		assert.Equal(t, 100*time.Millisecond, lbtcVerifier.LBTCConfig.AttestationAPIInterval)
 		assert.Equal(t, "https://lbtc-api.example.com", lbtcVerifier.LBTCConfig.AttestationAPI)
-		expectedAddr3, _ := protocol.NewUnknownAddressFromHex("0xabcdef1234567890abcdef1234567890abcdef12")
+		expectedAddr3, err := protocol.NewUnknownAddressFromHex("0x2222222222222222222222222222222222222222")
+		require.NoError(t, err)
 		assert.Equal(t, expectedAddr3, lbtcVerifier.LBTCConfig.ParsedVerifiers[1])
-		expectedAddr4, _ := protocol.NewUnknownAddressFromHex("0x12345678901234567890abcdef12abcdefabcdef")
+		expectedAddr4, err := protocol.NewUnknownAddressFromHex("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+		require.NoError(t, err)
 		assert.Equal(t, expectedAddr4, lbtcVerifier.LBTCConfig.ParsedVerifiers[2])
 	}
 
@@ -114,12 +118,14 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				attestation_api_cooldown = "5m"
 
 				[addresses]
-				1 = "0xabcdef1234567890abcdef1234567890abcdef12"
-				2 = "0x12345678901234567890abcdef12abcdefabcdef"
+				1 = "0x1111111111111111111111111111111111111111"
+				2 = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 			`,
 			expected: func() VerifierConfig {
-				addr1, _ := protocol.NewUnknownAddressFromHex("0xabcdef1234567890abcdef1234567890abcdef12")
-				addr2, _ := protocol.NewUnknownAddressFromHex("0x12345678901234567890abcdef12abcdefabcdef")
+				addr1, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
+				require.NoError(t, err)
+				addr2, err := protocol.NewUnknownAddressFromHex("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+				require.NoError(t, err)
 				return VerifierConfig{
 					Type:    "cctp",
 					Version: "2.0",
@@ -144,10 +150,11 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				attestation_api = "http://circle.com/attestation"
 
 				[addresses]
-				"1" = "0xabcdef1234567890abcdef1234567890abcdef12"
+				"1" = "0x1111111111111111111111111111111111111111"
 			`,
 			expected: func() VerifierConfig {
-				addr1, _ := protocol.NewUnknownAddressFromHex("0xabcdef1234567890abcdef1234567890abcdef12")
+				addr1, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
+				require.NoError(t, err)
 				return VerifierConfig{
 					Type:    "cctp",
 					Version: "2.0",
@@ -171,7 +178,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				attestation_api_timeout = "not-a-duration"
 
 				[addresses]
-				1 = "0xabcdef1234567890abcdef1234567890abcdef12"
+				1 = "0x1111111111111111111111111111111111111111"
 			`,
 			wantErr: true,
 		},
@@ -186,12 +193,14 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				attestation_api_batch_size = 50
 
 				[addresses]
-				1 = "0x1234567890123456789012345678901234567890"
-				2 = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+				1 = "0x2222222222222222222222222222222222222222"
+				2 = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 			`,
 			expected: func() VerifierConfig {
-				addr1, _ := protocol.NewUnknownAddressFromHex("0x1234567890123456789012345678901234567890")
-				addr2, _ := protocol.NewUnknownAddressFromHex("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd")
+				addr1, err := protocol.NewUnknownAddressFromHex("0x2222222222222222222222222222222222222222")
+				require.NoError(t, err)
+				addr2, err := protocol.NewUnknownAddressFromHex("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+				require.NoError(t, err)
 				return VerifierConfig{
 					Type:    "lbtc",
 					Version: "1.0",
@@ -216,10 +225,11 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				attestation_api = "http://lbtc.com/gohere"
 
 				[addresses]
-				1 = "0x1234567890123456789012345678901234567890"
+				1 = "0x2222222222222222222222222222222222222222"
 			`,
 			expected: func() VerifierConfig {
-				addr1, _ := protocol.NewUnknownAddressFromHex("0x1234567890123456789012345678901234567890")
+				addr1, err := protocol.NewUnknownAddressFromHex("0x2222222222222222222222222222222222222222")
+				require.NoError(t, err)
 				return VerifierConfig{
 					Type:    "lbtc",
 					Version: "1.0",
@@ -243,7 +253,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				attestation_api_dur = "10s"
 
 				[addresses]
-				1 = "0x1234567890123456789012345678901234567890"
+				1 = "0x2222222222222222222222222222222222222222"
 			`,
 			wantErr: true,
 		},

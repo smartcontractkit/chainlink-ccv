@@ -11,6 +11,13 @@ import (
 )
 
 func Test_TryParsing(t *testing.T) {
+	testAddr1Hex := "0x1111111111111111111111111111111111111111"
+	testAddr2Hex := "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	testAddr1, err := protocol.NewUnknownAddressFromHex(testAddr1Hex)
+	require.NoError(t, err)
+	testAddr2, err := protocol.NewUnknownAddressFromHex(testAddr2Hex)
+	require.NoError(t, err)
+
 	tests := []struct {
 		name    string
 		t       string
@@ -30,8 +37,8 @@ func Test_TryParsing(t *testing.T) {
 				"attestation_api_interval": "200ms",
 				"attestation_api_cooldown": "10m",
 				"addresses": map[string]any{
-					"1": "0xabcdef1234567890abcdef1234567890abcdef12",
-					"2": "0x12345678901234567890abcdef12abcdefabcdef",
+					"1": testAddr1Hex,
+					"2": testAddr2Hex,
 				},
 			},
 			want: &CCTPConfig{
@@ -40,8 +47,8 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPIInterval: 200 * time.Millisecond,
 				AttestationAPICooldown: 10 * time.Minute,
 				ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
-					1: protocol.UnknownAddress("0xabcdef1234567890abcdef1234567890abcdef12"),
-					2: protocol.UnknownAddress("0x12345678901234567890abcdef12abcdefabcdef"),
+					1: testAddr1,
+					2: testAddr2,
 				},
 			},
 			wantErr: false,
@@ -53,7 +60,7 @@ func Test_TryParsing(t *testing.T) {
 			data: map[string]any{
 				"attestation_api": "https://iris-api.circle.com",
 				"addresses": map[string]any{
-					"1": "0xabcdef1234567890abcdef1234567890abcdef12",
+					"1": testAddr1Hex,
 				},
 			},
 			want: &CCTPConfig{
@@ -62,7 +69,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPIInterval: 100 * time.Millisecond,
 				AttestationAPICooldown: 5 * time.Minute,
 				ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
-					1: protocol.UnknownAddress("0xabcdef1234567890abcdef1234567890abcdef12"),
+					1: testAddr1,
 				},
 			},
 			wantErr: false,
@@ -95,7 +102,7 @@ func Test_TryParsing(t *testing.T) {
 			v:    "2.0",
 			data: map[string]any{
 				"addresses": map[string]any{
-					"1": "0xabcdef1234567890abcdef1234567890abcdef12",
+					"1": testAddr1Hex,
 				},
 			},
 			want:    nil,
