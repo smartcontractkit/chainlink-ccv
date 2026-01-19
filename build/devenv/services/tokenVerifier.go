@@ -109,11 +109,11 @@ func NewTokenVerifier(in *TokenVerifierInput) (*TokenVerifierOutput, error) {
 		Env: envVars,
 		// ExposedPorts
 		// add more internal ports here with /tcp suffix, ex.: 9222/tcp
-		ExposedPorts: []string{"8200/tcp"},
+		ExposedPorts: []string{"8100/tcp"},
 		HostConfigModifier: func(h *container.HostConfig) {
 			h.PortBindings = nat.PortMap{
 				// add more internal/external pairs here, ex.: 9222/tcp as a key and HostPort is the exposed port (no /tcp prefix!)
-				"8200/tcp": []nat.PortBinding{
+				"8100/tcp": []nat.PortBinding{
 					{HostPort: strconv.Itoa(in.Port)},
 				},
 			}
