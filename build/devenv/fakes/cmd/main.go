@@ -3,9 +3,10 @@ package main
 import (
 	"log"
 
-	"github.com/smartcontractkit/devenv/ccip17/fakes/pkg/offchainstorage"
-
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/fake"
+
+	"github.com/smartcontractkit/devenv/ccip17/fakes/pkg/cctp"
+	"github.com/smartcontractkit/devenv/ccip17/fakes/pkg/offchainstorage"
 )
 
 func main() {
@@ -16,15 +17,17 @@ func main() {
 	}
 
 	// Create and configure the offchain storage API
-	api := offchainstorage.NewOffChainStorageAPI()
-
-	// Register the API endpoints
-	err = api.Register()
-	if err != nil {
+	offchainStorage := offchainstorage.NewOffChainStorageAPI()
+	if err = offchainStorage.Register(); err != nil {
 		panic(err)
 	}
-
 	log.Printf("Fake offchain storage API running on port %d", fake.DefaultFakeServicePort)
+
+	cctpAttestations := cctp.NewAttestationAPI()
+	if err = cctpAttestations.Register(); err != nil {
+		panic(err)
+	}
+	log.Printf("Fake CCTP Attestation API running on port %d", fake.DefaultFakeServicePort)
 
 	// Keep the server running
 	select {}
