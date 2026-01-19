@@ -494,7 +494,11 @@ func createFakeCCTPServer(t *testing.T, attestations []attestationMock) *httptes
 	}
 
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if response, exists := supportedUrls[r.URL.Path]; exists {
+		fullURL := r.URL.Path
+		if r.URL.RawQuery != "" {
+			fullURL = r.URL.Path + "?" + r.URL.RawQuery
+		}
+		if response, exists := supportedUrls[fullURL]; exists {
 			_, err := w.Write([]byte(response))
 			require.NoError(t, err)
 		} else {

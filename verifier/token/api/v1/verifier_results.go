@@ -30,27 +30,27 @@ func NewVerifierResultsHandler(
 	}
 }
 
-// Handle processes GET requests with message_ids as query parameters
-// Expected query parameter format: ?message_ids=0x123abc,0x456def,...
+// Handle processes GET requests with messageID as query parameters
+// Expected query parameter format: ?messageID=0x123abc,0x456def,...
 func (h *VerifierResultsHandler) Handle(c *gin.Context) {
-	// Get message_ids from query parameters
-	messageIDsParam := c.Query("message_ids")
+	// Get messageID from query parameters
+	messageIDsParam := c.Query("messageID")
 	if messageIDsParam == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "message_ids query parameter is required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "messageID query parameter is required"})
 		return
 	}
 
 	// Split by comma to get individual message IDs
 	messageIDStrings := strings.Split(messageIDsParam, ",")
 	if len(messageIDStrings) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "message_ids cannot be empty"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "messageID cannot be empty"})
 		return
 	}
 
 	if len(messageIDStrings) > h.maxMessageIDsPerBatch {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": fmt.Sprintf(
-				"too many message_ids: %d, maximum allowed: %d",
+				"too many messageIDs: %d, maximum allowed: %d",
 				len(messageIDStrings),
 				h.maxMessageIDsPerBatch),
 		})

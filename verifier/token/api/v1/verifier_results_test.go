@@ -54,11 +54,11 @@ func Test_VerifierResultsHandler(t *testing.T) {
 
 	t.Run("successful request - messageID prefixed with 0x", func(t *testing.T) {
 		router := gin.New()
-		router.GET("/verifier/results", handler.Handle)
+		router.GET("/verifications", handler.Handle)
 
 		req, _ := http.NewRequest(
 			"GET",
-			"/verifier/results?message_ids="+messageID1.String(),
+			"/verifications?messageID="+messageID1.String(),
 			nil,
 		)
 		w := httptest.NewRecorder()
@@ -118,10 +118,10 @@ func Test_VerifierResultsHandler(t *testing.T) {
 
 	t.Run("bad request - raw messageID string", func(t *testing.T) {
 		router := gin.New()
-		router.GET("/verifier/results", handler.Handle)
+		router.GET("/verifications", handler.Handle)
 
 		req, _ := http.NewRequest(
-			"GET", "/verifier/results?message_ids="+hex.EncodeToString(messageID2[:]),
+			"GET", "/verifications?messageID="+hex.EncodeToString(messageID2[:]),
 			nil,
 		)
 		w := httptest.NewRecorder()
@@ -131,24 +131,24 @@ func Test_VerifierResultsHandler(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
-	t.Run("missing message_ids parameter", func(t *testing.T) {
+	t.Run("missing messageID parameter", func(t *testing.T) {
 		router := gin.New()
-		router.GET("/verifier/results", handler.Handle)
+		router.GET("/verifications", handler.Handle)
 
-		req, _ := http.NewRequest("GET", "/verifier/results", nil)
+		req, _ := http.NewRequest("GET", "/verifications", nil)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
-		assert.JSONEq(t, `{"error":"message_ids query parameter is required"}`, w.Body.String())
+		assert.JSONEq(t, `{"error":"messageID query parameter is required"}`, w.Body.String())
 	})
 
 	t.Run("invalid hex format", func(t *testing.T) {
 		router := gin.New()
-		router.GET("/verifier/results", handler.Handle)
+		router.GET("/verifications", handler.Handle)
 
-		req, _ := http.NewRequest("GET", "/verifier/results?message_ids=invalid_hex", nil)
+		req, _ := http.NewRequest("GET", "/verifications?messageID=invalid_hex", nil)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
@@ -159,11 +159,11 @@ func Test_VerifierResultsHandler(t *testing.T) {
 
 	t.Run("multiple message IDs", func(t *testing.T) {
 		router := gin.New()
-		router.GET("/verifier/results", handler.Handle)
+		router.GET("/verifications", handler.Handle)
 
 		messageID1Hex := messageID1.String()
 		messageID2Hex := messageID2.String()
-		req, _ := http.NewRequest("GET", "/verifier/results?message_ids="+messageID1Hex+","+messageID2Hex, nil)
+		req, _ := http.NewRequest("GET", "/verifications?messageID="+messageID1Hex+","+messageID2Hex, nil)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
@@ -255,12 +255,12 @@ func Test_VerifierResultsHandler(t *testing.T) {
 
 	t.Run("message not found", func(t *testing.T) {
 		router := gin.New()
-		router.GET("/verifier/results", handler.Handle)
+		router.GET("/verifications", handler.Handle)
 
 		messageID, _ := createSampleMessage(100, 200, 200)
 		messageIDHex := messageID.String()
 
-		req, _ := http.NewRequest("GET", "/verifier/results?message_ids="+messageIDHex, nil)
+		req, _ := http.NewRequest("GET", "/verifications?messageID="+messageIDHex, nil)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)

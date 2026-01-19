@@ -28,7 +28,7 @@ func NewHTTPAPI(
 	// Consider adding middleware similar to the one in Indexer endpoints
 	v1Group := router.Group("/v1")
 	verifierResultsHandler := v1.NewVerifierResultsHandler(lggr, storage)
-	v1Group.GET("/verification/results", verifierResultsHandler.Handle)
+	v1Group.GET("/verifications", verifierResultsHandler.Handle)
 
 	return router
 }

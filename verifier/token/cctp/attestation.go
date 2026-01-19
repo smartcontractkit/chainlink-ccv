@@ -109,7 +109,7 @@ func (h *HTTPAttestationService) extractAttestationFromResponse(response Message
 	for _, msg := range response.Messages {
 		err := cctpMatchesMessage(h.ccvVerifierVersion, h.ccvAddresses, msg, message)
 		if err != nil {
-			h.lggr.Debugw(
+			h.lggr.Infow(
 				"skipping CCTP message as it doesn't match CCIP message",
 				"message", msg,
 				"reason", err,
