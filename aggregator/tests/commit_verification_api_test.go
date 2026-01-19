@@ -195,7 +195,7 @@ func TestKeyRotation(t *testing.T) {
 		signer1Address2 := common.HexToAddress(signer1Rotated.Signer.Address)
 		require.NotEqual(t, signer1Address1, signer1Address2)
 
-		committee.QuorumConfigs["1"].Signers[0] = signer1Rotated.Signer
+		UpdateCommitteeQuorum(committee, sourceVerifierAddress, signer1Rotated.Signer, signer2.Signer)
 
 		ccvNodeData3, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1Rotated))
 		resp3, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData3))
@@ -792,7 +792,7 @@ func TestStopAggregationAfterQuorum(t *testing.T) {
 
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer, signer3.Signer)
 		// Override threshold to 2 (out of 3 signers)
-		committee.QuorumConfigs["1"].Threshold = 2
+		UpdateCommitteeQuorumWithThreshold(committee, sourceVerifierAddress, 2, signer1.Signer, signer2.Signer, signer3.Signer)
 
 		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(
 			t,
@@ -898,7 +898,7 @@ func TestBatchGetVerifierResult_HappyPath(t *testing.T) {
 		signer3 := NewSignerFixture(t, "node3")
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer, signer3.Signer)
 		// Set threshold to 2 so we can have quorum with just 2 signatures
-		committee.QuorumConfigs["1"].Threshold = 2
+		UpdateCommitteeQuorumWithThreshold(committee, sourceVerifierAddress, 2, signer1.Signer, signer2.Signer, signer3.Signer)
 		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
@@ -1407,7 +1407,7 @@ func TestKeyRotation_StopAggregationAfterQuorumThenRotate(t *testing.T) {
 
 		// Start with all 3 signers in committee, threshold = 2
 		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer, signer3.Signer)
-		committee.QuorumConfigs["1"].Threshold = 2
+		UpdateCommitteeQuorumWithThreshold(committee, sourceVerifierAddress, 2, signer1.Signer, signer2.Signer, signer3.Signer)
 
 		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
