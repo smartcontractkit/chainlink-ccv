@@ -80,7 +80,7 @@ func (c *Committee) SetQuorumConfig(sourceSelector SourceSelector, quorumConfig 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.QuorumConfigs == nil {
-		c.QuorumConfigs = map[SourceSelector]*QuorumConfig{}
+		c.QuorumConfigs = make(map[SourceSelector]*QuorumConfig)
 	}
 	c.QuorumConfigs[sourceSelector] = quorumConfig
 }
