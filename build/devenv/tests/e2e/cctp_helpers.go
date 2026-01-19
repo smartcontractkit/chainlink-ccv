@@ -11,8 +11,12 @@ import (
 )
 
 // registerCCTPAttestation registers a CCTP attestation response with the fake service.
-func registerCCTPAttestation(t *testing.T, messageID [32]byte, status string) {
-	// Convert messageID to hex string
+func registerCCTPAttestation(
+	t *testing.T,
+	httpUrl string,
+	messageID [32]byte,
+	status string,
+) {
 	messageIDHex := "0x" + hex.EncodeToString(messageID[:])
 
 	reqBody := map[string]string{
@@ -23,9 +27,8 @@ func registerCCTPAttestation(t *testing.T, messageID [32]byte, status string) {
 	reqJSON, err := json.Marshal(reqBody)
 	require.NoError(t, err)
 
-	// The fake service runs on port 9111
 	resp, err := http.Post(
-		"http://localhost:9111/cctp/v2/attestations",
+		httpUrl+"/cctp/v2/attestations",
 		"application/json",
 		bytes.NewBuffer(reqJSON),
 	)

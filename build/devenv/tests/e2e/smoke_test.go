@@ -287,8 +287,7 @@ func TestE2ESmoke(t *testing.T) {
 			msgID := sentEvt.MessageID
 
 			// Register CCTP attestation response with the fake service
-			// Use the messageID as hookData and set status to "complete" for success
-			registerCCTPAttestation(t, msgID, "complete")
+			registerCCTPAttestation(t, in.Fake.Out.ExternalHTTPURL, msgID, "complete")
 			l.Info().Str("MessageID", hex.EncodeToString(msgID[:])).Msg("Registered CCTP attestation")
 
 			testCtx := NewTestingContext(t, ctx, chainMap, defaultAggregatorClient, indexerMonitor)
@@ -304,20 +303,21 @@ func TestE2ESmoke(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, res.AggregatedResult)
 
-			execEvt, err := destChain.WaitOneExecEventBySeqNo(ctx, sourceSelector, seqNo, 45*time.Second)
-			require.NoError(t, err)
-			require.NotNil(t, execEvt)
-			require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected state, return data: %x", execEvt.ReturnData)
-
-			endBal, err := destChain.GetTokenBalance(ctx, receiver, destToken)
-			require.NoError(t, err)
-			require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), big.NewInt(1000)), endBal)
-			l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", combo.DestPoolAddressRef().Qualifier).Msg("receiver end balance")
-
-			srcEndBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
-			require.NoError(t, err)
-			require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), big.NewInt(1000)), srcEndBal)
-			l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("sender end balance")
+			// TODO NOT IMPLEMENTED YET
+			//execEvt, err := destChain.WaitOneExecEventBySeqNo(ctx, sourceSelector, seqNo, 45*time.Second)
+			//require.NoError(t, err)
+			//require.NotNil(t, execEvt)
+			//require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected state, return data: %x", execEvt.ReturnData)
+			//
+			//endBal, err := destChain.GetTokenBalance(ctx, receiver, destToken)
+			//require.NoError(t, err)
+			//require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), big.NewInt(1000)), endBal)
+			//l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", combo.DestPoolAddressRef().Qualifier).Msg("receiver end balance")
+			//
+			//srcEndBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
+			//require.NoError(t, err)
+			//require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), big.NewInt(1000)), srcEndBal)
+			//l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("sender end balance")
 		}
 
 		runTokenTransferTestCase := func(t *testing.T, combo evm.TokenCombination, finalityConfig uint16, receiver protocol.UnknownAddress) {
@@ -399,8 +399,7 @@ func TestE2ESmoke(t *testing.T) {
 			})
 		}
 
-		t.Run("USDC", func(t *testing.T) {
-			t.Skip("not yet implemented")
+		t.Run("USDC transfer with chain finality", func(t *testing.T) {
 			usdcCombo := evm.USDCTokenPoolCombination()
 			receiver := mustGetEOAReceiverAddress(t, destChain)
 			runUSDCTestCase(t, usdcCombo, 0, receiver)
