@@ -26,8 +26,8 @@ func TestGenerateIndexerConfig_ValidatesServiceIdentifier(t *testing.T) {
 	env := createTestEnvironmentForValidation(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateIndexerConfigCfg{
-		ServiceIdentifier:       "",
-		VerifierNameToQualifier: map[string]string{"verifier": "default"},
+		ServiceIdentifier:                "",
+		CommitteeVerifierNameToQualifier: map[string]string{"verifier": "default"},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "service identifier is required")
@@ -39,8 +39,8 @@ func TestGenerateIndexerConfig_ValidatesVerifierNameToQualifier(t *testing.T) {
 	env := createTestEnvironmentForValidation(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateIndexerConfigCfg{
-		ServiceIdentifier:       "default-indexer",
-		VerifierNameToQualifier: map[string]string{},
+		ServiceIdentifier:                "default-indexer",
+		CommitteeVerifierNameToQualifier: map[string]string{},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "at least one verifier name to qualifier mapping is required")
@@ -52,9 +52,9 @@ func TestGenerateIndexerConfig_ValidatesSourceChainSelectors(t *testing.T) {
 	env := createTestEnvironmentForValidation(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateIndexerConfigCfg{
-		ServiceIdentifier:       "default-indexer",
-		VerifierNameToQualifier: map[string]string{"verifier": "default"},
-		ChainSelectors:          []uint64{1234},
+		ServiceIdentifier:                "default-indexer",
+		CommitteeVerifierNameToQualifier: map[string]string{"verifier": "default"},
+		ChainSelectors:                   []uint64{1234},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "selector 1234 is not available in environment")
@@ -89,9 +89,9 @@ func TestGenerateIndexerConfig_GeneratesCorrectConfigWithMultipleVerifiers(t *te
 
 	cs := changesets.GenerateIndexerConfig()
 	output, err := cs.Apply(env, changesets.GenerateIndexerConfigCfg{
-		ServiceIdentifier:       "test-indexer",
-		VerifierNameToQualifier: verifierNameToQualifier,
-		ChainSelectors:          chainSelectors,
+		ServiceIdentifier:                "test-indexer",
+		CommitteeVerifierNameToQualifier: verifierNameToQualifier,
+		ChainSelectors:                   chainSelectors,
 	})
 	require.NoError(t, err)
 
@@ -153,9 +153,9 @@ func TestGenerateIndexerConfig_PreservesExistingAggregatorConfig(t *testing.T) {
 
 	cs := changesets.GenerateIndexerConfig()
 	output, err := cs.Apply(env, changesets.GenerateIndexerConfigCfg{
-		ServiceIdentifier:       "new-indexer",
-		VerifierNameToQualifier: map[string]string{"Test Verifier": committee},
-		ChainSelectors:          chainSelectors,
+		ServiceIdentifier:                "new-indexer",
+		CommitteeVerifierNameToQualifier: map[string]string{"Test Verifier": committee},
+		ChainSelectors:                   chainSelectors,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
