@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
@@ -38,6 +39,7 @@ const OrphanRecoveryChannelKey ChannelKey = "orphan_recovery"
 
 // Committee represents a group of signers participating in the commit verification process.
 type Committee struct {
+	mu sync.RWMutex
 	// QuorumConfigs stores a QuorumConfig for each source chain selector.
 	// The aggregator uses this to verify signatures from each chain's
 	// commit verifier set.
@@ -50,15 +52,37 @@ type Committee struct {
 }
 
 func (c *Committee) GetQuorumConfig(sourceChainSelector uint64) (*QuorumConfig, bool) {
+	if c == nil {
+		return nil, false
+	}
 	sourceSelectorStr := new(big.Int).SetUint64(sourceChainSelector).String()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	qc, exists := c.QuorumConfigs[sourceSelectorStr]
 	return qc, exists
 }
 
 func (c *Committee) GetDestinationVerifierAddress(destChainSelector uint64) (protocol.UnknownAddress, bool) {
+	if c == nil {
+		return nil, false
+	}
 	destSelectorStr := new(big.Int).SetUint64(destChainSelector).String()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	addr, exists := c.destinationVerifiersParsed[destSelectorStr]
 	return addr, exists
+}
+
+func (c *Committee) SetQuorumConfig(sourceSelector SourceSelector, quorumConfig *QuorumConfig) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.QuorumConfigs == nil {
+		c.QuorumConfigs = make(map[SourceSelector]*QuorumConfig)
+	}
+	c.QuorumConfigs[sourceSelector] = quorumConfig
 }
 
 // QuorumConfig represents the configuration for a quorum of signers.
@@ -608,6 +632,8 @@ func (c *AggregatorConfig) ValidateCommitteeConfig() error {
 	if c.Committee == nil {
 		return errors.New("committee configuration cannot be nil")
 	}
+	c.Committee.mu.Lock()
+	defer c.Committee.mu.Unlock()
 
 	if len(c.Committee.QuorumConfigs) == 0 {
 		return errors.New("committee must have at least one quorum configuration")
