@@ -12,7 +12,7 @@ COPY . .
 WORKDIR /pricer/cmd
 RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
     --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
-    CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/pricer main.go
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags='-s -w' -o /bin/pricer main.go
 
 # Release on alpine to keep size small
 FROM alpine:latest

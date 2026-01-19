@@ -63,9 +63,6 @@ func NewRunCmd() *cobra.Command {
 				return fmt.Errorf("failed to decode %s: %w", EnvKeystoreData, err)
 			}
 			keystorePassword := os.Getenv(EnvKeystorePassword)
-			if keystorePassword == "" {
-				return fmt.Errorf("%s environment variable is required", EnvKeystorePassword)
-			}
 
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()

@@ -24,20 +24,24 @@ func TestLoadGeneratedConfigFromBytes(t *testing.T) {
 			},
 		},
 		{
-			name: "valid verifier config parses successfully",
+			name: "valid verifier config parses successfully with Name and IssuerAddresses",
 			data: `
-[Verifier.0]
+[[Verifier]]
+Name = "Verifier A"
 IssuerAddresses = ["0x1234567890abcdef1234567890abcdef12345678"]
 
-[Verifier.1]
+[[Verifier]]
+Name = "Verifier B"
 IssuerAddresses = ["0xabcdef1234567890abcdef1234567890abcdef12", "0x9876543210fedcba9876543210fedcba98765432"]
 `,
 			expectError: false,
 			validate: func(t *testing.T, cfg *GeneratedConfig) {
 				require.NotNil(t, cfg.Verifier)
 				assert.Len(t, cfg.Verifier, 2)
-				assert.Len(t, cfg.Verifier["0"].IssuerAddresses, 1)
-				assert.Len(t, cfg.Verifier["1"].IssuerAddresses, 2)
+				assert.Equal(t, "Verifier A", cfg.Verifier[0].Name)
+				assert.Len(t, cfg.Verifier[0].IssuerAddresses, 1)
+				assert.Equal(t, "Verifier B", cfg.Verifier[1].Name)
+				assert.Len(t, cfg.Verifier[1].IssuerAddresses, 2)
 			},
 		},
 		{
@@ -70,31 +74,30 @@ IssuerAddresses = ["0xabcdef1234567890abcdef1234567890abcdef12", "0x9876543210fe
 
 func TestMergeGeneratedConfig(t *testing.T) {
 	tests := []struct {
-		name        string
-		mainConfig  *Config
-		generated   *GeneratedConfig
-		expectError bool
-		errorMsg    string
-		validate    func(t *testing.T, cfg *Config)
+		name              string
+		mainConfig        *Config
+		generated         *GeneratedConfig
+		expectedUnmatched []string
+		validate          func(t *testing.T, cfg *Config)
 	}{
 		{
-			name:        "nil generated config does not modify main config",
-			mainConfig:  &Config{Verifiers: []VerifierConfig{{}}},
-			generated:   nil,
-			expectError: false,
+			name:              "nil generated config does not modify main config",
+			mainConfig:        &Config{Verifiers: []VerifierConfig{{Name: "Verifier A"}}},
+			generated:         nil,
+			expectedUnmatched: nil,
 			validate: func(t *testing.T, cfg *Config) {
 				assert.Empty(t, cfg.Verifiers[0].IssuerAddresses)
 			},
 		},
 		{
-			name:       "generated addresses are added to empty main config",
-			mainConfig: &Config{Verifiers: []VerifierConfig{{}}},
+			name:       "generated addresses are added to verifier with matching name",
+			mainConfig: &Config{Verifiers: []VerifierConfig{{Name: "Verifier A"}}},
 			generated: &GeneratedConfig{
-				Verifier: map[string]GeneratedVerifierConfig{
-					"0": {IssuerAddresses: []string{"0xaaa", "0xbbb"}},
+				Verifier: []GeneratedVerifierConfig{
+					{Name: "Verifier A", IssuerAddresses: []string{"0xaaa", "0xbbb"}},
 				},
 			},
-			expectError: false,
+			expectedUnmatched: nil,
 			validate: func(t *testing.T, cfg *Config) {
 				assert.Equal(t, []string{"0xaaa", "0xbbb"}, cfg.Verifiers[0].IssuerAddresses)
 			},
@@ -103,15 +106,15 @@ func TestMergeGeneratedConfig(t *testing.T) {
 			name: "generated addresses are merged with existing addresses",
 			mainConfig: &Config{
 				Verifiers: []VerifierConfig{
-					{IssuerAddresses: []string{"0xexisting1", "0xexisting2"}},
+					{Name: "Verifier A", IssuerAddresses: []string{"0xexisting1", "0xexisting2"}},
 				},
 			},
 			generated: &GeneratedConfig{
-				Verifier: map[string]GeneratedVerifierConfig{
-					"0": {IssuerAddresses: []string{"0xgenerated1", "0xgenerated2"}},
+				Verifier: []GeneratedVerifierConfig{
+					{Name: "Verifier A", IssuerAddresses: []string{"0xgenerated1", "0xgenerated2"}},
 				},
 			},
-			expectError: false,
+			expectedUnmatched: nil,
 			validate: func(t *testing.T, cfg *Config) {
 				assert.Len(t, cfg.Verifiers[0].IssuerAddresses, 4)
 				assert.Contains(t, cfg.Verifiers[0].IssuerAddresses, "0xexisting1")
@@ -124,15 +127,15 @@ func TestMergeGeneratedConfig(t *testing.T) {
 			name: "duplicate addresses are deduplicated case-insensitively",
 			mainConfig: &Config{
 				Verifiers: []VerifierConfig{
-					{IssuerAddresses: []string{"0xAAA", "0xBBB"}},
+					{Name: "Verifier A", IssuerAddresses: []string{"0xAAA", "0xBBB"}},
 				},
 			},
 			generated: &GeneratedConfig{
-				Verifier: map[string]GeneratedVerifierConfig{
-					"0": {IssuerAddresses: []string{"0xaaa", "0xccc"}},
+				Verifier: []GeneratedVerifierConfig{
+					{Name: "Verifier A", IssuerAddresses: []string{"0xaaa", "0xccc"}},
 				},
 			},
-			expectError: false,
+			expectedUnmatched: nil,
 			validate: func(t *testing.T, cfg *Config) {
 				assert.Len(t, cfg.Verifiers[0].IssuerAddresses, 3)
 				assert.Equal(t, "0xAAA", cfg.Verifiers[0].IssuerAddresses[0])
@@ -144,91 +147,97 @@ func TestMergeGeneratedConfig(t *testing.T) {
 			name: "original address casing is preserved on deduplication",
 			mainConfig: &Config{
 				Verifiers: []VerifierConfig{
-					{IssuerAddresses: []string{"0xAbCdEf"}},
+					{Name: "Verifier A", IssuerAddresses: []string{"0xAbCdEf"}},
 				},
 			},
 			generated: &GeneratedConfig{
-				Verifier: map[string]GeneratedVerifierConfig{
-					"0": {IssuerAddresses: []string{"0xABCDEF"}},
+				Verifier: []GeneratedVerifierConfig{
+					{Name: "Verifier A", IssuerAddresses: []string{"0xABCDEF"}},
 				},
 			},
-			expectError: false,
+			expectedUnmatched: nil,
 			validate: func(t *testing.T, cfg *Config) {
 				assert.Len(t, cfg.Verifiers[0].IssuerAddresses, 1)
 				assert.Equal(t, "0xAbCdEf", cfg.Verifiers[0].IssuerAddresses[0])
 			},
 		},
 		{
-			name:       "invalid verifier index returns error",
-			mainConfig: &Config{Verifiers: []VerifierConfig{{}}},
+			name: "verifier without name is not modified and generated verifier is unmatched",
+			mainConfig: &Config{Verifiers: []VerifierConfig{
+				{IssuerAddresses: []string{"0xoriginal"}},
+			}},
 			generated: &GeneratedConfig{
-				Verifier: map[string]GeneratedVerifierConfig{
-					"invalid": {IssuerAddresses: []string{"0xaaa"}},
+				Verifier: []GeneratedVerifierConfig{
+					{Name: "Verifier A", IssuerAddresses: []string{"0xaaa"}},
 				},
 			},
-			expectError: true,
-			errorMsg:    "invalid verifier index in generated config",
+			expectedUnmatched: []string{"Verifier A"},
+			validate: func(t *testing.T, cfg *Config) {
+				assert.Equal(t, []string{"0xoriginal"}, cfg.Verifiers[0].IssuerAddresses)
+			},
 		},
 		{
-			name:       "out of range verifier index returns error",
-			mainConfig: &Config{Verifiers: []VerifierConfig{{}}},
+			name: "unmatched verifier name in generated config is returned",
+			mainConfig: &Config{Verifiers: []VerifierConfig{
+				{Name: "Verifier A", IssuerAddresses: []string{"0xoriginal"}},
+			}},
 			generated: &GeneratedConfig{
-				Verifier: map[string]GeneratedVerifierConfig{
-					"5": {IssuerAddresses: []string{"0xaaa"}},
+				Verifier: []GeneratedVerifierConfig{
+					{Name: "Unknown Verifier", IssuerAddresses: []string{"0xaaa"}},
 				},
 			},
-			expectError: true,
-			errorMsg:    "verifier index 5 in generated config is out of range",
-		},
-		{
-			name:       "negative verifier index returns error",
-			mainConfig: &Config{Verifiers: []VerifierConfig{{}}},
-			generated: &GeneratedConfig{
-				Verifier: map[string]GeneratedVerifierConfig{
-					"-1": {IssuerAddresses: []string{"0xaaa"}},
-				},
+			expectedUnmatched: []string{"Unknown Verifier"},
+			validate: func(t *testing.T, cfg *Config) {
+				assert.Equal(t, []string{"0xoriginal"}, cfg.Verifiers[0].IssuerAddresses)
 			},
-			expectError: true,
-			errorMsg:    "verifier index -1 in generated config is out of range",
 		},
 		{
-			name: "multiple verifiers can be merged",
+			name: "multiple verifiers can be merged by name",
 			mainConfig: &Config{
 				Verifiers: []VerifierConfig{
-					{IssuerAddresses: []string{"0xv0"}},
-					{IssuerAddresses: []string{"0xv1"}},
-					{},
+					{Name: "Verifier A", IssuerAddresses: []string{"0xv0"}},
+					{Name: "Verifier B", IssuerAddresses: []string{"0xv1"}},
+					{Name: "Verifier C"},
 				},
 			},
 			generated: &GeneratedConfig{
-				Verifier: map[string]GeneratedVerifierConfig{
-					"0": {IssuerAddresses: []string{"0xv0-gen"}},
-					"2": {IssuerAddresses: []string{"0xv2-gen"}},
+				Verifier: []GeneratedVerifierConfig{
+					{Name: "Verifier A", IssuerAddresses: []string{"0xv0-gen"}},
+					{Name: "Verifier C", IssuerAddresses: []string{"0xv2-gen"}},
 				},
 			},
-			expectError: false,
+			expectedUnmatched: nil,
 			validate: func(t *testing.T, cfg *Config) {
 				assert.Equal(t, []string{"0xv0", "0xv0-gen"}, cfg.Verifiers[0].IssuerAddresses)
 				assert.Equal(t, []string{"0xv1"}, cfg.Verifiers[1].IssuerAddresses)
 				assert.Equal(t, []string{"0xv2-gen"}, cfg.Verifiers[2].IssuerAddresses)
 			},
 		},
+		{
+			name: "multiple unmatched verifier names are all returned",
+			mainConfig: &Config{Verifiers: []VerifierConfig{
+				{Name: "Verifier A"},
+			}},
+			generated: &GeneratedConfig{
+				Verifier: []GeneratedVerifierConfig{
+					{Name: "Verifier A", IssuerAddresses: []string{"0xaaa"}},
+					{Name: "Unknown", IssuerAddresses: []string{"0xbbb"}},
+					{Name: "Missing", IssuerAddresses: []string{"0xccc"}},
+				},
+			},
+			expectedUnmatched: []string{"Unknown", "Missing"},
+			validate: func(t *testing.T, cfg *Config) {
+				assert.Equal(t, []string{"0xaaa"}, cfg.Verifiers[0].IssuerAddresses)
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := MergeGeneratedConfig(tt.mainConfig, tt.generated)
-
-			if tt.expectError {
-				require.Error(t, err)
-				if tt.errorMsg != "" {
-					assert.Contains(t, err.Error(), tt.errorMsg)
-				}
-			} else {
-				require.NoError(t, err)
-				if tt.validate != nil {
-					tt.validate(t, tt.mainConfig)
-				}
+			unmatched := MergeGeneratedConfig(tt.mainConfig, tt.generated)
+			assert.ElementsMatch(t, tt.expectedUnmatched, unmatched)
+			if tt.validate != nil {
+				tt.validate(t, tt.mainConfig)
 			}
 		})
 	}

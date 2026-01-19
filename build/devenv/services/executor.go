@@ -124,6 +124,7 @@ func (v *ExecutorInput) buildExecutorConfiguration(config *executor.Configuratio
 
 	// Set executor ID
 	config.ExecutorID = v.ExecutorID
+	config.NtpServer = "time.google.com"
 
 	// Apply optional overrides from input
 	if v.IndexerAddress != "" {

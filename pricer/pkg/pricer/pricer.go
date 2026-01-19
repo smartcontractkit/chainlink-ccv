@@ -2,53 +2,95 @@ package pricer
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/smartcontractkit/chainlink-common/keystore"
+	"github.com/smartcontractkit/chainlink-ccv/pricer/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
+	ks "github.com/smartcontractkit/chainlink-common/keystore"
+	"github.com/smartcontractkit/chainlink-common/keystore/kms"
 	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
-	"github.com/smartcontractkit/chainlink-evm/pkg/assets"
-	"github.com/smartcontractkit/chainlink-evm/pkg/client"
-	evmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
 	evmtoml "github.com/smartcontractkit/chainlink-evm/pkg/config/toml"
-	"github.com/smartcontractkit/chainlink-evm/pkg/keys"
-	evmkeys "github.com/smartcontractkit/chainlink-evm/pkg/keys/v2"
-	"github.com/smartcontractkit/chainlink-evm/pkg/txm"
-	"github.com/smartcontractkit/chainlink-evm/pkg/txm/clientwrappers"
-	"github.com/smartcontractkit/chainlink-evm/pkg/txm/storage"
-
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
+	solcfg "github.com/smartcontractkit/chainlink-solana/pkg/solana/config"
 )
 
+// KMSConfig provides global KMS configuration for the pricer service.
+// Global as we imagine key re-use across chains.
+type KMSConfig struct {
+	Profile      string `toml:"profile"`
+	EcdsaKeyID   string `toml:"ecdsa_key_id"`
+	Ed25519KeyID string `toml:"ed25519_key_id"`
+}
+
+// MonitoringConfig provides monitoring configuration for the pricer service.
+// Prometheus metrics are always enabled and exposed via the standard /metrics endpoint.
+type MonitoringConfig struct {
+	Enabled bool `toml:"Enabled"`
+	Port    int  `toml:"Port"`
+}
+
 type Config struct {
-	// TODO: Actual pricerconfig.
-	Interval commonconfig.Duration `toml:"interval"`
 	// TODO: Should be able to use chainlink-common/pkg/logger Config struct.
 	LogLevel zapcore.Level `toml:"loglevel"`
+	// KMS configuration for transaction signing
+	KMS KMSConfig `toml:"KMS"`
+	// Monitoring configuration for OpenTelemetry
+	Monitoring MonitoringConfig `toml:"Monitoring"`
+
+	// TODO: Other global pricerconfig.
+	Interval commonconfig.Duration `toml:"interval"`
+	// TODO: These will become lists of chains.
 	// Chain write connectivity config,
 	// common to read/write.
-	EVM evmtoml.EVMConfig `toml:"EVM"`
+	EVM EVMChainConfig `toml:"EVM"`
+	SOL SOLChainConfig `toml:"SOL"`
 }
 
 func (c *Config) Validate() error {
 	if c.Interval.Duration() <= 0 {
 		return fmt.Errorf("interval must be positive")
 	}
-	if err := c.EVM.ValidateConfig(); err != nil {
-		return fmt.Errorf("invalid EVM chain config: %w", err)
+	if c.EVM.ChainID != nil {
+		if err := c.EVM.ValidateConfig(); err != nil {
+			return fmt.Errorf("invalid EVM chain config: %w", err)
+		}
 	}
+	if c.SOL.ChainID != nil {
+		if err := c.SOL.ValidateConfig(); err != nil {
+			return fmt.Errorf("invalid Solana chain config: %w", err)
+		}
+	}
+	if c.Monitoring.Enabled {
+		if err := c.Monitoring.Validate(); err != nil {
+			return fmt.Errorf("invalid monitoring config: %w", err)
+		}
+	}
+	return nil
+}
+
+// Validate performs validation on the monitoring configuration.
+func (m *MonitoringConfig) Validate() error {
+	// No validation needed for Prometheus metrics
 	return nil
 }
 
 func (c *Config) SetDefaults() {
 	if c.LogLevel == zapcore.Level(0) {
 		c.LogLevel = zapcore.InfoLevel
+	}
+	// Set default monitoring port
+	if c.Monitoring.Port == 0 {
+		c.Monitoring.Port = 4141
 	}
 	// Apply EVM chain defaults based on chainID.
 	if c.EVM.ChainID != nil {
@@ -60,17 +102,53 @@ func (c *Config) SetDefaults() {
 	for _, n := range c.EVM.Nodes {
 		_ = n.ValidateConfig()
 	}
+	// Apply Solana chain defaults.
+	if c.SOL.ChainID != nil {
+		defaults := solcfg.Defaults()
+		defaults.SetFrom(&c.SOL.TOMLConfig)
+		c.SOL.TOMLConfig = defaults
+	}
+	// Validate Solana nodes to populate their defaults.
+	for _, n := range c.SOL.Nodes {
+		_ = n.ValidateConfig()
+	}
 }
 
 type Pricer struct {
 	services.StateMachine
-	lggr        logger.Logger
-	client      client.Client
-	txm         *txm.Txm
-	txmKeyStore keys.Store
-	cfg         Config
-	done        chan struct{}
-	wg          sync.WaitGroup
+	lggr       logger.Logger
+	evmChain   *evmChain
+	solChain   *solanaChain
+	cfg        Config
+	done       chan struct{}
+	wg         sync.WaitGroup
+	httpServer *http.Server
+}
+
+func loadKMSKeystore(ctx context.Context, profile string) (interface {
+	ks.Reader
+	ks.Signer
+}, error,
+) {
+	kmsClient, err := kms.NewClient(ctx, kms.ClientOptions{
+		Profile: profile,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create KMS client: %w", err)
+	}
+	return kms.NewKeystore(kmsClient)
+}
+
+func loadMemoryKeystore(ctx context.Context, keystoreData []byte, keystorePassword string) (interface {
+	ks.Reader
+	ks.Signer
+}, error,
+) {
+	memStorage := ks.NewMemoryStorage()
+	if err := memStorage.PutEncryptedKeystore(ctx, keystoreData); err != nil {
+		return nil, fmt.Errorf("failed to populate keystore storage: %w", err)
+	}
+	return ks.LoadKeystore(ctx, memStorage, keystorePassword)
 }
 
 func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, keystorePassword string) (*Pricer, error) {
@@ -84,107 +162,100 @@ func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, k
 	}
 	lggr = logger.Named(lggr, "pricer")
 
-	chainScopedCfg := evmconfig.NewTOMLChainScopedConfig(&cfg.EVM)
-	nodePoolCfg := &evmconfig.NodePoolConfig{C: cfg.EVM.NodePool}
+	var evmChain *evmChain
+	var solChain *solanaChain
 
-	evmClient, err := client.NewEvmClient(
-		nodePoolCfg,
-		chainScopedCfg.EVM(),
-		nodePoolCfg.Errors(),
-		lggr,
-		chainScopedCfg.EVM().ChainID(),
-		chainScopedCfg.Nodes(),
-		chainScopedCfg.EVM().ChainType(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create EVM client: %w", err)
-	}
-
-	// Use in-memory keystore storage populated from env var data.
-	memStorage := keystore.NewMemoryStorage()
-	if err := memStorage.PutEncryptedKeystore(ctx, keystoreData); err != nil {
-		return nil, fmt.Errorf("failed to populate keystore storage: %w", err)
-	}
-	keyStore, err := keystore.LoadKeystore(ctx, memStorage, keystorePassword)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load keystore: %w", err)
-	}
-	txKeyCoreKeystore := evmkeys.NewTxKeyCoreKeystore(keyStore)
-	txmKeyStore := keys.NewStore(txKeyCoreKeystore)
-
-	// Get enabled addresses from keystore to register with the store manager.
-	addresses, err := txmKeyStore.EnabledAddresses(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get enabled addresses: %w", err)
+	// Setup Prometheus monitoring if enabled
+	var pricerMonitoring monitoring.Monitoring
+	if cfg.Monitoring.Enabled {
+		chainID := "unknown"
+		if cfg.EVM.ChainID != nil {
+			chainID = cfg.EVM.ChainID.String()
+		}
+		pricerMonitoring = monitoring.NewPricerMonitoring(chainID)
+	} else {
+		pricerMonitoring = monitoring.NewNoopPricerMonitoring()
 	}
 
-	inMemoryStoreManager := storage.NewInMemoryStoreManager(lggr, evmClient.ConfiguredChainID())
-	// Register addresses with the in-memory store so TXM can manage transactions.
-	if err := inMemoryStoreManager.Add(addresses...); err != nil {
-		return nil, fmt.Errorf("failed to add addresses to store manager: %w", err)
+	if cfg.EVM.ChainID != nil {
+		evmChain, err = loadEVM(ctx, cfg, lggr, keystoreData, keystorePassword, pricerMonitoring)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load EVM: %w", err)
+		}
+		lggr.Infow("loaded EVM chain", "chainID", cfg.EVM.ChainID)
+	} else {
+		lggr.Infow("no EVM chain configured")
 	}
-	txmClient := clientwrappers.NewChainClient(evmClient)
-	priceMaxKey := func(addr common.Address) *assets.Wei {
-		return chainScopedCfg.EVM().GasEstimator().PriceMax()
+	if cfg.SOL.ChainID != nil {
+		solChain, err = loadSolana(ctx, lggr, cfg, keystoreData, keystorePassword)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load solana: %w", err)
+		}
+		lggr.Infow("loaded solana chain", "chainID", cfg.SOL.ChainID)
+	} else {
+		lggr.Infow("no solana chain configured")
 	}
-	chainStore := keys.NewChainStore(txKeyCoreKeystore, evmClient.ConfiguredChainID())
-	attemptBuilder := txm.NewAttemptBuilder(priceMaxKey, nil, chainStore, 0)
 
-	txm := txm.NewTxm(
-		lggr,
-		evmClient.ConfiguredChainID(),
-		txmClient,
-		attemptBuilder,
-		inMemoryStoreManager,
-		nil, // stuckTxDetector
-		txm.Config{
-			EIP1559:   chainScopedCfg.EVM().GasEstimator().EIP1559DynamicFees(),
-			BlockTime: *chainScopedCfg.EVM().Transactions().TransactionManagerV2().BlockTime(),
+	// Setup HTTP server for Prometheus metrics
+	lggr.Infow("setting up HTTP server for Prometheus metrics", "port", cfg.Monitoring.Port)
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.HandlerFor(
+		prometheus.DefaultGatherer,
+		promhttp.HandlerOpts{
+			EnableOpenMetrics: true,
 		},
-		txmKeyStore,
-		nil, // errorHandler
-	)
-	return New(lggr, cfg, evmClient, txm, txmKeyStore), nil
-}
+	))
 
-func New(lggr logger.Logger, cfg Config, evmClient client.Client, txm *txm.Txm, txmKeyStore keys.Store) *Pricer {
 	return &Pricer{
 		StateMachine: services.StateMachine{},
 		lggr:         lggr,
-		client:       evmClient,
 		cfg:          cfg,
 		done:         make(chan struct{}),
 		wg:           sync.WaitGroup{},
-		txm:          txm,
-		txmKeyStore:  txmKeyStore,
-	}
+		evmChain:     evmChain,
+		solChain:     solChain,
+		httpServer: &http.Server{
+			Addr:              fmt.Sprintf(":%d", cfg.Monitoring.Port),
+			Handler:           mux,
+			ReadHeaderTimeout: 10 * time.Second,
+		},
+	}, nil
 }
 
 func (p *Pricer) Start(ctx context.Context) error {
 	return p.StartOnce("Pricer", func() error {
-		// Dial the EVM client to start the connection pool.
-		if err := p.client.Dial(ctx); err != nil {
-			return fmt.Errorf("failed to dial EVM client: %w", err)
-		}
-		if err := p.txm.Start(ctx); err != nil {
-			return fmt.Errorf("failed to start Txm: %w", err)
-		}
-		addresses, err := p.txmKeyStore.EnabledAddresses(ctx)
+		// Start HTTP server for metrics
+		listener, err := net.Listen("tcp", p.httpServer.Addr)
 		if err != nil {
-			return fmt.Errorf("failed to get enabled addresses: %w", err)
+			return fmt.Errorf("failed to listen on %s: %w", p.httpServer.Addr, err)
 		}
-		p.lggr.Infow("starting",
-			"chainID", p.client.ConfiguredChainID(),
-			"addresses", addresses,
-		)
-		p.wg.Add(1)
-		go p.run(ctx)
+		p.wg.Go(func() {
+			p.lggr.Infow("starting metrics HTTP server", "addr", p.httpServer.Addr)
+			if err := p.httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				p.lggr.Errorw("metrics HTTP server error", "error", err)
+			}
+		})
+
+		if p.evmChain != nil {
+			if err := p.evmChain.Start(ctx); err != nil {
+				return fmt.Errorf("failed to start EVM chain: %w", err)
+			}
+			p.evmChain.lggr.Infow("started evm chain")
+		}
+		if p.solChain != nil {
+			if err := p.solChain.Start(ctx); err != nil {
+				return fmt.Errorf("failed to start Solana chain: %w", err)
+			}
+			p.solChain.lggr.Infow("started solana chain")
+		}
+		p.wg.Go(func() {
+			p.run(ctx)
+		})
 		return nil
 	})
 }
 
 func (p *Pricer) run(ctx context.Context) {
-	defer p.wg.Done()
 	ticker := time.NewTicker(p.cfg.Interval.Duration())
 	defer ticker.Stop()
 
@@ -198,17 +269,18 @@ func (p *Pricer) run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			p.lggr.Info("tick")
-			address, err := p.txmKeyStore.GetNextAddress(ctx)
-			if err != nil {
-				p.lggr.Error("failed to get next address", "error", err)
-				continue
+			if p.evmChain != nil {
+				if err := p.evmChain.Tick(ctx); err != nil {
+					p.lggr.Error("failed to tick EVM chain", "error", err)
+					continue
+				}
 			}
-			balance, err := p.client.BalanceAt(ctx, address, nil)
-			if err != nil {
-				p.lggr.Error("failed to get balance", "error", err)
-				continue
+			if p.solChain != nil {
+				if err := p.solChain.Tick(ctx); err != nil {
+					p.lggr.Error("failed to tick Solana chain", "error", err)
+					continue
+				}
 			}
-			p.lggr.Infow("balance", "address", address, "balance", balance)
 
 			/*
 				// TODO: fetch and report prices
@@ -227,8 +299,23 @@ func (p *Pricer) run(ctx context.Context) {
 func (p *Pricer) Close() error {
 	return p.StopOnce("Pricer", func() error {
 		close(p.done)
+		// Shutdown HTTP server first, then wait for goroutines to finish
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := p.httpServer.Shutdown(shutdownCtx); err != nil {
+			p.lggr.Warnw("failed to shutdown metrics HTTP server", "error", err)
+		}
 		p.wg.Wait()
-		p.client.Close()
+		if p.evmChain != nil {
+			if err := p.evmChain.Close(); err != nil {
+				return fmt.Errorf("failed to close EVM txm: %w", err)
+			}
+		}
+		if p.solChain != nil {
+			if err := p.solChain.Close(); err != nil {
+				return fmt.Errorf("failed to close Solana txm: %w", err)
+			}
+		}
 		return nil
 	})
 }

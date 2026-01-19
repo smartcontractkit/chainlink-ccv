@@ -14,12 +14,12 @@ require (
 	github.com/ethereum/go-ethereum v1.16.8
 	github.com/evanphx/json-patch/v5 v5.9.11
 	github.com/smartcontractkit/chain-selectors v1.0.85
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260113145746-e2453d5c22f1
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260116110203-68d767f52164
 	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260113145746-e2453d5c22f1
 	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20260110001823-6248663ac9c4
 	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260113130254-8ce3b210bc66
-	github.com/smartcontractkit/chainlink-ccv v0.0.0-20260114202525-ef65afb0c36f
-	github.com/smartcontractkit/chainlink-common v0.9.6-0.20251107181740-8b842a2f1192
+	github.com/smartcontractkit/chainlink-ccv v0.0.0-20260116152026-295e4f116719
+	github.com/smartcontractkit/chainlink-common v0.9.6-0.20260114190811-74301cd99dc3
 	github.com/smartcontractkit/chainlink-deployments-framework v0.74.2
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/sync v0.19.0
