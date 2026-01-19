@@ -326,6 +326,7 @@ type BeholderConfig struct {
 
 // AggregatorConfig is the root configuration for the pb.
 type AggregatorConfig struct {
+	AggregatorID                                string               `toml:"aggregatorID"`
 	GeneratedConfigPath                         string               `toml:"generatedConfigPath"`
 	Committee                                   *Committee           `toml:"committee"`
 	Server                                      ServerConfig         `toml:"server"`
@@ -431,6 +432,14 @@ func (c *AggregatorConfig) GetClientByClientID(clientID string) (auth.ClientConf
 
 // SetDefaults sets default values for the configuration.
 func (c *AggregatorConfig) SetDefaults() {
+	// AggregatorID defaults to hostname if not set
+	if c.AggregatorID == "" {
+		hostname, err := os.Hostname()
+		if err != nil {
+			hostname = "unknown"
+		}
+		c.AggregatorID = hostname
+	}
 	// Batch verifier result defaults
 	if c.MaxMessageIDsPerBatch == 0 {
 		c.MaxMessageIDsPerBatch = 100
