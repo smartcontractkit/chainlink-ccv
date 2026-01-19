@@ -378,6 +378,10 @@ func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Envi
 	}, nil
 }
 
+func (m *CCIP17EVM) Family() string {
+	return chainsel.FamilyEVM
+}
+
 func (m *CCIP17EVM) getOrCreateOnRampPoller() (*eventPoller[cciptestinterfaces.MessageSentEvent], error) {
 	m.pollersMu.Lock()
 	defer m.pollersMu.Unlock()
@@ -1114,6 +1118,10 @@ func toCommitteeVerifierParams(committees []cciptestinterfaces.OnChainCommittees
 	}
 
 	return params
+}
+
+func (m *CCIP17EVMConfig) ChainFamily() string {
+	return chainsel.FamilyEVM
 }
 
 func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, committees []cciptestinterfaces.OnChainCommittees) (datastore.DataStore, error) {

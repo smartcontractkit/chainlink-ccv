@@ -6,6 +6,8 @@ replace github.com/smartcontractkit/chainlink-ccv => ../..
 
 replace github.com/smartcontractkit/chainlink-ccv/deployments => ../../deployments
 
+replace github.com/smartcontractkit/chainlink-canton-internal => ../../../chainlink-canton-internal
+
 require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/Masterminds/semver/v3 v3.4.0
@@ -17,12 +19,12 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/prometheus/client_golang v1.23.0
 	github.com/rs/zerolog v1.34.0
-	github.com/smartcontractkit/chain-selectors v1.0.85
+	github.com/smartcontractkit/chain-selectors v1.0.89
 	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20260116110203-68d767f52164
 	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20260116110203-68d767f52164
 	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260116110203-68d767f52164
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20260114190811-74301cd99dc3
-	github.com/smartcontractkit/chainlink-deployments-framework v0.74.2
+	github.com/smartcontractkit/chainlink-deployments-framework v0.75.2-0.20260119185452-46c713898510
 	github.com/smartcontractkit/chainlink-testing-framework/framework v0.13.3
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.39.0
@@ -31,11 +33,13 @@ require (
 )
 
 require (
-	github.com/go-resty/resty/v2 v2.16.5
+	github.com/go-resty/resty/v2 v2.17.1
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lib/pq v1.10.9
+	github.com/noders-team/go-daml v0.5.0
+	github.com/smartcontractkit/chainlink-canton-internal v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260116110203-68d767f52164
 	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260116110203-68d767f52164
 	github.com/smartcontractkit/chainlink-ccv v0.0.0-20260116152026-295e4f116719
@@ -45,13 +49,14 @@ require (
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery v0.0.0-20251211142334-5c3421fe2c8d
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier v0.0.0-20251211142334-5c3421fe2c8d
 	github.com/smartcontractkit/chainlink-testing-framework/wasp v1.51.1
-	github.com/spf13/cobra v1.8.1
-	google.golang.org/grpc v1.77.0
+	github.com/spf13/cobra v1.10.1
+	google.golang.org/grpc v1.78.0
 )
 
 require (
 	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20251001021608-1fe7b43fc4d6 // indirect
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
+	github.com/digital-asset/dazl-client/v8 v8.7.1 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/oapi-codegen/runtime v1.1.2 // indirect
@@ -183,7 +188,7 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/gogo/status v1.1.1 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
-	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/btree v1.1.3 // indirect
@@ -295,7 +300,6 @@ require (
 	github.com/oklog/ulid v1.3.1 // indirect
 	github.com/olekukonko/tablewriter v0.0.5 // indirect
 	github.com/onsi/ginkgo/v2 v2.22.1 // indirect
-	github.com/onsi/gomega v1.36.2 // indirect
 	github.com/open-telemetry/opentelemetry-collector-contrib/internal/exp/metrics v0.116.0 // indirect
 	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/pdatautil v0.116.0 // indirect
 	github.com/open-telemetry/opentelemetry-collector-contrib/processor/deltatocumulativeprocessor v0.116.0 // indirect
@@ -433,8 +437,8 @@ require (
 	golang.org/x/time v0.12.0 // indirect
 	golang.org/x/tools v0.39.0 // indirect
 	google.golang.org/api v0.221.0 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20251022142026-3a174f9686a8 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20251022142026-3a174f9686a8 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20251029180050-ab9386a59fda // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260114163908-3f89685c29c3 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/guregu/null.v4 v4.0.0 // indirect

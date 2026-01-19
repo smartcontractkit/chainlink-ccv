@@ -19,6 +19,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/changesets"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/canton"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
@@ -34,6 +35,7 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/jd"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
@@ -131,8 +133,7 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Co
 	case "anvil":
 		return evm.NewEmptyCCIP17EVM(), nil
 	case "canton":
-		// see devenv-evm implementation and add Canton
-		return nil, errors.New("canton is not supported yet")
+		return canton.NewEmptyCCIP17Canton(), nil
 	default:
 		return nil, errors.New("unknown devenv network type " + typ)
 	}
@@ -229,7 +230,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Deploy Pricer service //
 	///////////////////////////////
 	if _, err := services.NewPricer(in.Pricer); err != nil {
-		return nil, fmt.Errorf("failed to setup pricer service")
+		return nil, fmt.Errorf("failed to setup pricer service: %w", err)
 	}
 
 	for i, impl := range impls {
@@ -352,7 +353,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	ds := datastore.NewMemoryDataStore()
 	for i, impl := range impls {
 		var networkInfo chainsel.ChainDetails
-		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, chainsel.FamilyEVM)
+		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
 		if err != nil {
 			return nil, err
 		}

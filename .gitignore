@@ -13,3 +13,7 @@ indexer/secrets.toml
 
 # Ignore all tmp directories
 **/tmp/
+
+# Go workspace file
+go.work
+go.work.sum

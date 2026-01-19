@@ -121,6 +121,8 @@ type ExecutionStateChangedEvent struct {
 
 // Chain provides methods to interact with a single chain that has CCIP deployed.
 type Chain interface {
+	// Family returns the family of the chain.
+	Family() string
 	// GetEOAReceiverAddress gets an EOA receiver address for this chain.
 	GetEOAReceiverAddress() (protocol.UnknownAddress, error)
 	// GetSenderAddress gets the sender address for this chain.
@@ -160,6 +162,7 @@ type OnChainCommittees struct {
 // OnChainConfigurable defines methods that allows devenv to
 // deploy, configure Chainlink product and connect on-chain part with other chains.
 type OnChainConfigurable interface {
+	ChainFamily() string // TODO
 	// DeployContractsForSelector configures contracts for chain X
 	// returns all the contract addresses and metadata as datastore.DataStore
 	DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, committees []OnChainCommittees) (datastore.DataStore, error)
