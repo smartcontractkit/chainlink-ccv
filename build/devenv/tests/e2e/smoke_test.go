@@ -14,6 +14,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
@@ -287,7 +288,16 @@ func TestE2ESmoke(t *testing.T) {
 			msgID := sentEvt.MessageID
 
 			// Register CCTP attestation response with the fake service
-			registerCCTPAttestation(t, in.Fake.Out.ExternalHTTPURL, msgID, "complete")
+			cctpMessageSender := getContractAddress(
+				t,
+				in,
+				sourceSelector,
+				datastore.ContractType(cctp_verifier.ResolverType),
+				cctp_verifier.Deploy.Version(),
+				"CCTP",
+				"",
+			)
+			registerCCTPAttestation(t, in.Fake.Out.ExternalHTTPURL, msgID, cctpMessageSender, "complete")
 			l.Info().Str("MessageID", hex.EncodeToString(msgID[:])).Msg("Registered CCTP attestation")
 
 			testCtx := NewTestingContext(t, ctx, chainMap, defaultAggregatorClient, indexerMonitor)
