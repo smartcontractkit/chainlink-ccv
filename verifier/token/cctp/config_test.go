@@ -30,8 +30,8 @@ func Test_TryParsing(t *testing.T) {
 				"attestation_api_interval": "200ms",
 				"attestation_api_cooldown": "10m",
 				"addresses": map[string]any{
-					"1": "0xVerifier1",
-					"2": "0xVerifier2",
+					"1": "0xabcdef1234567890abcdef1234567890abcdef12",
+					"2": "0x12345678901234567890abcdef12abcdefabcdef",
 				},
 			},
 			want: &CCTPConfig{
@@ -40,8 +40,8 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPIInterval: 200 * time.Millisecond,
 				AttestationAPICooldown: 10 * time.Minute,
 				ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
-					1: protocol.UnknownAddress("0xVerifier1"),
-					2: protocol.UnknownAddress("0xVerifier2"),
+					1: protocol.UnknownAddress("0xabcdef1234567890abcdef1234567890abcdef12"),
+					2: protocol.UnknownAddress("0x12345678901234567890abcdef12abcdefabcdef"),
 				},
 			},
 			wantErr: false,
@@ -53,7 +53,7 @@ func Test_TryParsing(t *testing.T) {
 			data: map[string]any{
 				"attestation_api": "https://iris-api.circle.com",
 				"addresses": map[string]any{
-					"1": "0xVerifier1",
+					"1": "0xabcdef1234567890abcdef1234567890abcdef12",
 				},
 			},
 			want: &CCTPConfig{
@@ -62,7 +62,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPIInterval: 100 * time.Millisecond,
 				AttestationAPICooldown: 5 * time.Minute,
 				ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
-					1: protocol.UnknownAddress("0xVerifier1"),
+					1: protocol.UnknownAddress("0xabcdef1234567890abcdef1234567890abcdef12"),
 				},
 			},
 			wantErr: false,
@@ -95,7 +95,7 @@ func Test_TryParsing(t *testing.T) {
 			v:    "2.0",
 			data: map[string]any{
 				"addresses": map[string]any{
-					"1": "0xVerifier1",
+					"1": "0xabcdef1234567890abcdef1234567890abcdef12",
 				},
 			},
 			want:    nil,

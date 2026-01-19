@@ -30,8 +30,8 @@ func Test_TryParsing(t *testing.T) {
 				"attestation_api_interval":   "200ms",
 				"attestation_api_batch_size": 50,
 				"addresses": map[string]any{
-					"1": "0xVerifier1",
-					"2": "0xVerifier2",
+					"1": "0xabcdef1234567890abcdef1234567890abcdef12",
+					"2": "0x12345678901234567890abcdef12abcdefabcdef",
 				},
 			},
 			want: &LBTCConfig{
@@ -40,8 +40,8 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPIInterval:  200 * time.Millisecond,
 				AttestationAPIBatchSize: 50,
 				ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
-					1: protocol.UnknownAddress("0xVerifier1"),
-					2: protocol.UnknownAddress("0xVerifier2"),
+					1: protocol.UnknownAddress("0xabcdef1234567890abcdef1234567890abcdef12"),
+					2: protocol.UnknownAddress("0x12345678901234567890abcdef12abcdefabcdef"),
 				},
 			},
 			wantErr: false,
@@ -53,7 +53,7 @@ func Test_TryParsing(t *testing.T) {
 			data: map[string]any{
 				"attestation_api": "https://lbtc-api.example.com",
 				"addresses": map[string]any{
-					"1": "0xVerifier1",
+					"1": "0xabcdef1234567890abcdef1234567890abcdef12",
 				},
 			},
 			want: &LBTCConfig{
@@ -62,7 +62,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPIBatchSize: 20,
 				ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
-					1: protocol.UnknownAddress("0xVerifier1"),
+					1: protocol.UnknownAddress("0xabcdef1234567890abcdef1234567890abcdef12"),
 				},
 			},
 			wantErr: false,
@@ -75,7 +75,7 @@ func Test_TryParsing(t *testing.T) {
 				"attestation_api":            "https://lbtc-api.example.com",
 				"attestation_api_batch_size": "30",
 				"addresses": map[string]any{
-					"1": "0xVerifier1",
+					"1": "0xabcdef1234567890abcdef1234567890abcdef12",
 				},
 			},
 			want: &LBTCConfig{
@@ -84,7 +84,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPIBatchSize: 30,
 				ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
-					1: protocol.UnknownAddress("0xVerifier1"),
+					1: protocol.UnknownAddress("0xabcdef1234567890abcdef1234567890abcdef12"),
 				},
 			},
 			wantErr: false,
@@ -117,7 +117,7 @@ func Test_TryParsing(t *testing.T) {
 			v:    "1.0",
 			data: map[string]any{
 				"addresses": map[string]any{
-					"1": "0xVerifier1",
+					"1": "0xabcdef1234567890abcdef1234567890abcdef12",
 				},
 			},
 			want:    nil,

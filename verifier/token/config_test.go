@@ -33,8 +33,8 @@ func Test_Config_Deserialization(t *testing.T) {
 		attestation_api = "https://iris-api.circle.com"
 
 		[token_verifiers.addresses]
-		"1" = "0xCCTPVerifier1"
-		2 = "0xCCTPVerifier2"
+		"1" = "0xabcdef1234567890abcdef1234567890abcdef12"
+		2 = "0x12345678901234567890abcdef12abcdefabcdef"
 
 		[[token_verifiers]]
 		type = "lbtc"
@@ -44,8 +44,8 @@ func Test_Config_Deserialization(t *testing.T) {
 		attestation_api_interval = 20
 
 		[token_verifiers.addresses]
-		1 = "0xLBTCVerifier1"
-		2 = "0xLBTCVerifier2"
+		1 = "0xabcdef1234567890abcdef1234567890abcdef12"
+		2 = "0x12345678901234567890abcdef12abcdefabcdef"
 	`
 
 	assertContent := func(config Config) {
@@ -62,8 +62,10 @@ func Test_Config_Deserialization(t *testing.T) {
 		assert.Equal(t, "2.0", cctpVerifier.Version)
 		assert.Equal(t, 11*time.Millisecond, cctpVerifier.CCTPConfig.AttestationAPITimeout)
 		assert.Equal(t, "https://iris-api.circle.com", cctpVerifier.CCTPConfig.AttestationAPI)
-		assert.Equal(t, protocol.UnknownAddress("0xCCTPVerifier1"), cctpVerifier.CCTPConfig.ParsedVerifiers[1])
-		assert.Equal(t, protocol.UnknownAddress("0xCCTPVerifier2"), cctpVerifier.CCTPConfig.ParsedVerifiers[2])
+		expectedAddr1, _ := protocol.NewUnknownAddressFromHex("0xabcdef1234567890abcdef1234567890abcdef12")
+		assert.Equal(t, expectedAddr1, cctpVerifier.CCTPConfig.ParsedVerifiers[1])
+		expectedAddr2, _ := protocol.NewUnknownAddressFromHex("0x12345678901234567890abcdef12abcdefabcdef")
+		assert.Equal(t, expectedAddr2, cctpVerifier.CCTPConfig.ParsedVerifiers[2])
 
 		lbtcVerifier := config.TokenVerifiers[1]
 		assert.Equal(t, "lbtc", lbtcVerifier.Type)
@@ -71,8 +73,10 @@ func Test_Config_Deserialization(t *testing.T) {
 		assert.Equal(t, 10*time.Second, lbtcVerifier.LBTCConfig.AttestationAPITimeout)
 		assert.Equal(t, 100*time.Millisecond, lbtcVerifier.LBTCConfig.AttestationAPIInterval)
 		assert.Equal(t, "https://lbtc-api.example.com", lbtcVerifier.LBTCConfig.AttestationAPI)
-		assert.Equal(t, protocol.UnknownAddress("0xLBTCVerifier1"), lbtcVerifier.LBTCConfig.ParsedVerifiers[1])
-		assert.Equal(t, protocol.UnknownAddress("0xLBTCVerifier2"), lbtcVerifier.LBTCConfig.ParsedVerifiers[2])
+		expectedAddr3, _ := protocol.NewUnknownAddressFromHex("0xabcdef1234567890abcdef1234567890abcdef12")
+		assert.Equal(t, expectedAddr3, lbtcVerifier.LBTCConfig.ParsedVerifiers[1])
+		expectedAddr4, _ := protocol.NewUnknownAddressFromHex("0x12345678901234567890abcdef12abcdefabcdef")
+		assert.Equal(t, expectedAddr4, lbtcVerifier.LBTCConfig.ParsedVerifiers[2])
 	}
 
 	var config Config
@@ -110,23 +114,27 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				attestation_api_cooldown = "5m"
 
 				[addresses]
-				1 = "0xVerifier1"
-				2 = "0xVerifier2"
+				1 = "0xabcdef1234567890abcdef1234567890abcdef12"
+				2 = "0x12345678901234567890abcdef12abcdefabcdef"
 			`,
-			expected: VerifierConfig{
-				Type:    "cctp",
-				Version: "2.0",
-				CCTPConfig: &cctp.CCTPConfig{
-					AttestationAPI:         "http://circle.com/attestation",
-					AttestationAPITimeout:  100 * time.Second,
-					AttestationAPIInterval: 300 * time.Millisecond,
-					AttestationAPICooldown: 5 * time.Minute,
-					ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
-						1: protocol.UnknownAddress("0xVerifier1"),
-						2: protocol.UnknownAddress("0xVerifier2"),
+			expected: func() VerifierConfig {
+				addr1, _ := protocol.NewUnknownAddressFromHex("0xabcdef1234567890abcdef1234567890abcdef12")
+				addr2, _ := protocol.NewUnknownAddressFromHex("0x12345678901234567890abcdef12abcdefabcdef")
+				return VerifierConfig{
+					Type:    "cctp",
+					Version: "2.0",
+					CCTPConfig: &cctp.CCTPConfig{
+						AttestationAPI:         "http://circle.com/attestation",
+						AttestationAPITimeout:  100 * time.Second,
+						AttestationAPIInterval: 300 * time.Millisecond,
+						AttestationAPICooldown: 5 * time.Minute,
+						ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+							1: addr1,
+							2: addr2,
+						},
 					},
-				},
-			},
+				}
+			}(),
 		},
 		{
 			name: "valid cctp config with missing optional values",
@@ -136,21 +144,24 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				attestation_api = "http://circle.com/attestation"
 
 				[addresses]
-				"1" = "0xVerifier1"
+				"1" = "0xabcdef1234567890abcdef1234567890abcdef12"
 			`,
-			expected: VerifierConfig{
-				Type:    "cctp",
-				Version: "2.0",
-				CCTPConfig: &cctp.CCTPConfig{
-					AttestationAPI:         "http://circle.com/attestation",
-					AttestationAPITimeout:  1 * time.Second,
-					AttestationAPIInterval: 100 * time.Millisecond,
-					AttestationAPICooldown: 5 * time.Minute,
-					ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
-						1: protocol.UnknownAddress("0xVerifier1"),
+			expected: func() VerifierConfig {
+				addr1, _ := protocol.NewUnknownAddressFromHex("0xabcdef1234567890abcdef1234567890abcdef12")
+				return VerifierConfig{
+					Type:    "cctp",
+					Version: "2.0",
+					CCTPConfig: &cctp.CCTPConfig{
+						AttestationAPI:         "http://circle.com/attestation",
+						AttestationAPITimeout:  1 * time.Second,
+						AttestationAPIInterval: 100 * time.Millisecond,
+						AttestationAPICooldown: 5 * time.Minute,
+						ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+							1: addr1,
+						},
 					},
-				},
-			},
+				}
+			}(),
 		},
 		{
 			name: "malformed cctp config returns error",
@@ -160,7 +171,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				attestation_api_timeout = "not-a-duration"
 
 				[addresses]
-				1 = "0xVerifier1"
+				1 = "0xabcdef1234567890abcdef1234567890abcdef12"
 			`,
 			wantErr: true,
 		},
@@ -175,23 +186,27 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				attestation_api_batch_size = 50
 
 				[addresses]
-				1 = "0xLBTCVerifier1"
-				2 = "0xLBTCVerifier2"
+				1 = "0x1234567890123456789012345678901234567890"
+				2 = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"
 			`,
-			expected: VerifierConfig{
-				Type:    "lbtc",
-				Version: "1.0",
-				LBTCConfig: &lbtc.LBTCConfig{
-					AttestationAPI:          "http://lbtc.com/gohere",
-					AttestationAPITimeout:   2 * time.Second,
-					AttestationAPIInterval:  500 * time.Millisecond,
-					AttestationAPIBatchSize: 50,
-					ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
-						1: protocol.UnknownAddress("0xLBTCVerifier1"),
-						2: protocol.UnknownAddress("0xLBTCVerifier2"),
+			expected: func() VerifierConfig {
+				addr1, _ := protocol.NewUnknownAddressFromHex("0x1234567890123456789012345678901234567890")
+				addr2, _ := protocol.NewUnknownAddressFromHex("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd")
+				return VerifierConfig{
+					Type:    "lbtc",
+					Version: "1.0",
+					LBTCConfig: &lbtc.LBTCConfig{
+						AttestationAPI:          "http://lbtc.com/gohere",
+						AttestationAPITimeout:   2 * time.Second,
+						AttestationAPIInterval:  500 * time.Millisecond,
+						AttestationAPIBatchSize: 50,
+						ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+							1: addr1,
+							2: addr2,
+						},
 					},
-				},
-			},
+				}
+			}(),
 		},
 		{
 			name: "valid lbtc config with missing optional values",
@@ -201,21 +216,24 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				attestation_api = "http://lbtc.com/gohere"
 
 				[addresses]
-				1 = "0xLBTCVerifier1"
+				1 = "0x1234567890123456789012345678901234567890"
 			`,
-			expected: VerifierConfig{
-				Type:    "lbtc",
-				Version: "1.0",
-				LBTCConfig: &lbtc.LBTCConfig{
-					AttestationAPI:          "http://lbtc.com/gohere",
-					AttestationAPITimeout:   1 * time.Second,
-					AttestationAPIInterval:  100 * time.Millisecond,
-					AttestationAPIBatchSize: 20,
-					ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
-						1: protocol.UnknownAddress("0xLBTCVerifier1"),
+			expected: func() VerifierConfig {
+				addr1, _ := protocol.NewUnknownAddressFromHex("0x1234567890123456789012345678901234567890")
+				return VerifierConfig{
+					Type:    "lbtc",
+					Version: "1.0",
+					LBTCConfig: &lbtc.LBTCConfig{
+						AttestationAPI:          "http://lbtc.com/gohere",
+						AttestationAPITimeout:   1 * time.Second,
+						AttestationAPIInterval:  100 * time.Millisecond,
+						AttestationAPIBatchSize: 20,
+						ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+							1: addr1,
+						},
 					},
-				},
-			},
+				}
+			}(),
 		},
 		{
 			name: "malformed lbtc config returns error",
@@ -225,7 +243,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				attestation_api_dur = "10s"
 
 				[addresses]
-				1 = "0xLBTCVerifier1"
+				1 = "0x1234567890123456789012345678901234567890"
 			`,
 			wantErr: true,
 		},
