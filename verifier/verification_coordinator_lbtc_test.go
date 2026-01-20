@@ -269,7 +269,7 @@ func createLBTCCoordinator(
 	return verifier.NewCoordinator(
 		ts.ctx,
 		ts.logger,
-		lbtc.NewVerifierWithConfig(ts.logger, attestationService, lbtc.CCVVerifierVersion, 100*time.Millisecond, 100*time.Millisecond),
+		lbtc.NewVerifierWithConfig(ts.logger, attestationService, lbtc.VerifierVersion, 100*time.Millisecond, 100*time.Millisecond),
 		sourceReaders,
 		ccvWriter,
 		config,
