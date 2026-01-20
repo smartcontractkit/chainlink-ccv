@@ -127,6 +127,8 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 		&noopMonitoring{},
 		setup.chainStatusManager,
 		setup.mockCurseChecker,
+		nil,            // heartbeatClient - not used in curse detection tests
+		10*time.Second, // heartbeatInterval
 	)
 	require.NoError(t, err)
 	setup.coordinator = coordinator

@@ -161,6 +161,8 @@ func NewVerificationCoordinator(
 		messageTracker,
 		verifierMonitoring,
 		chainStatusManager,
+		nil,            // heartbeatClient - not used in integration tests
+		10*time.Second, // heartbeatInterval
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

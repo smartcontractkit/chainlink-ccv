@@ -477,6 +477,8 @@ func createCCTPCoordinator(
 		noopLatencyTracker,
 		noopMonitoring,
 		ts.chainStatusManager,
+		nil,            // heartbeatClient - not used in tests
+		10*time.Second, // heartbeatInterval
 	)
 }
 

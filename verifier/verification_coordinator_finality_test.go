@@ -355,6 +355,8 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		&NoopLatencyTracker{},
 		&noopMonitoring{},
 		mockChainStatusManager,
+		nil,            // heartbeatClient - not used in finality tests
+		10*time.Second, // heartbeatInterval
 	)
 	require.NoError(t, err)
 
