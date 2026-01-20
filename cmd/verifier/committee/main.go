@@ -18,6 +18,7 @@ import (
 
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
@@ -221,6 +222,31 @@ func main() {
 		verifierMonitoring,
 	)
 
+	// TODO: make heartbeat interval configurable
+	heartbeatInterval := 10 * time.Second
+	heartbeatClient, err := heartbeatclient.NewHeartbeatClient(
+		config.AggregatorAddress,
+		lggr,
+		hmacConfig,
+		config.InsecureAggregatorConnection,
+	)
+	if err != nil {
+		lggr.Errorw("Failed to create heartbeat client", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if heartbeatClient != nil {
+			_ = heartbeatClient.Close()
+		}
+	}()
+
+	observedHeartbeatClient := heartbeatclient.NewObservedHeartbeatClient(
+		heartbeatClient,
+		config.VerifierID,
+		lggr,
+		verifierMonitoring,
+	)
+
 	messageTracker := monitoring.NewMessageLatencyTracker(
 		lggr,
 		config.VerifierID,
@@ -238,6 +264,8 @@ func main() {
 		messageTracker,
 		verifierMonitoring,
 		chainStatusManager,
+		observedHeartbeatClient,
+		heartbeatInterval,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

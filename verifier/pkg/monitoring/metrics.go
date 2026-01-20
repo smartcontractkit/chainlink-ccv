@@ -35,6 +35,15 @@ type VerifierMetrics struct {
 	// Error Tracking
 	storageWriteErrorsCounter metric.Int64Counter
 
+	// Heartbeat Tracking
+	heartbeatsSentCounter           metric.Int64Counter
+	heartbeatsFailedCounter         metric.Int64Counter
+	heartbeatDurationSeconds        metric.Float64Histogram
+	verifierHeartbeatTimestamp      metric.Float64Gauge
+	verifierHeartbeatSentChainHeads metric.Int64Gauge
+	verifierHeartbeatChainHeads     metric.Int64Gauge
+	verifierHeartbeatScore          metric.Float64Gauge
+
 	// Chain State
 	sourceChainLatestBlockGauge    metric.Int64Gauge
 	sourceChainFinalizedBlockGauge metric.Int64Gauge
@@ -127,6 +136,64 @@ func InitMetrics() (*VerifierMetrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register storage write errors counter: %w", err)
+	}
+
+	// Heartbeat Tracking
+	vm.heartbeatsSentCounter, err = beholder.GetMeter().Int64Counter(
+		"verifier_heartbeats_sent_total",
+		metric.WithDescription("Total number of successfully sent heartbeats"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register heartbeats sent counter: %w", err)
+	}
+
+	vm.heartbeatsFailedCounter, err = beholder.GetMeter().Int64Counter(
+		"verifier_heartbeats_failed_total",
+		metric.WithDescription("Total number of failed heartbeat attempts"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register heartbeats failed counter: %w", err)
+	}
+
+	vm.heartbeatDurationSeconds, err = beholder.GetMeter().Float64Histogram(
+		"verifier_heartbeat_duration_seconds",
+		metric.WithDescription("Duration of heartbeat requests"),
+		metric.WithUnit("seconds"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register heartbeat duration histogram: %w", err)
+	}
+
+	vm.verifierHeartbeatTimestamp, err = beholder.GetMeter().Float64Gauge(
+		"verifier_heartbeat_timestamp",
+		metric.WithDescription("Timestamp from the heartbeat response"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register verifier heartbeat timestamp gauge: %w", err)
+	}
+
+	vm.verifierHeartbeatSentChainHeads, err = beholder.GetMeter().Int64Gauge(
+		"verifier_heartbeat_sent_chain_heads",
+		metric.WithDescription("Block height sent in the heartbeat request for a chain"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register verifier heartbeat sent chain heads gauge: %w", err)
+	}
+
+	vm.verifierHeartbeatChainHeads, err = beholder.GetMeter().Int64Gauge(
+		"verifier_heartbeat_chain_heads",
+		metric.WithDescription("Block height for a chain from the heartbeat response"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register verifier heartbeat chain heads gauge: %w", err)
+	}
+
+	vm.verifierHeartbeatScore, err = beholder.GetMeter().Float64Gauge(
+		"verifier_heartbeat_score",
+		metric.WithDescription("Score for a chain from the heartbeat response"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register verifier heartbeat score gauge: %w", err)
 	}
 
 	// Chain State
@@ -254,6 +321,41 @@ func (v *VerifierMetricLabeler) RecordCCVDataChannelSize(ctx context.Context, si
 func (v *VerifierMetricLabeler) IncrementStorageWriteErrors(ctx context.Context) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.storageWriteErrorsCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) IncrementHeartbeatsSent(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.heartbeatsSentCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) IncrementHeartbeatsFailed(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.heartbeatsFailedCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) RecordHeartbeatDuration(ctx context.Context, duration time.Duration) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.heartbeatDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) SetVerifierHeartbeatTimestamp(ctx context.Context, timestamp int64) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.verifierHeartbeatTimestamp.Record(ctx, float64(timestamp), metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) SetVerifierHeartbeatSentChainHeads(ctx context.Context, blockHeight uint64) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.verifierHeartbeatSentChainHeads.Record(ctx, int64(blockHeight), metric.WithAttributes(otelLabels...)) // #nosec G115 -- block heights are within int64 range
+}
+
+func (v *VerifierMetricLabeler) SetVerifierHeartbeatChainHeads(ctx context.Context, blockHeight uint64) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.verifierHeartbeatChainHeads.Record(ctx, int64(blockHeight), metric.WithAttributes(otelLabels...)) // #nosec G115 -- block heights are within int64 range
+}
+
+func (v *VerifierMetricLabeler) SetVerifierHeartbeatScore(ctx context.Context, score float64) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.verifierHeartbeatScore.Record(ctx, score, metric.WithAttributes(otelLabels...))
 }
 
 func (v *VerifierMetricLabeler) RecordSourceChainLatestBlock(ctx context.Context, blockNum int64) {

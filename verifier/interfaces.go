@@ -75,6 +75,23 @@ type MetricLabeler interface {
 	// IncrementStorageWriteErrors increments the counter for storage write errors.
 	IncrementStorageWriteErrors(ctx context.Context)
 
+	// Heartbeat tracking
+
+	// IncrementHeartbeatsSent increments the counter for successfully sent heartbeats.
+	IncrementHeartbeatsSent(ctx context.Context)
+	// IncrementHeartbeatsFailed increments the counter for failed heartbeat attempts.
+	IncrementHeartbeatsFailed(ctx context.Context)
+	// RecordHeartbeatDuration records the duration of a heartbeat request.
+	RecordHeartbeatDuration(ctx context.Context, duration time.Duration)
+	// SetVerifierHeartbeatTimestamp sets the timestamp from the heartbeat response.
+	SetVerifierHeartbeatTimestamp(ctx context.Context, timestamp int64)
+	// SetVerifierHeartbeatSentChainHeads sets the block height sent in the heartbeat request for a chain.
+	SetVerifierHeartbeatSentChainHeads(ctx context.Context, blockHeight uint64)
+	// SetVerifierHeartbeatChainHeads sets the block height for a chain from the heartbeat response.
+	SetVerifierHeartbeatChainHeads(ctx context.Context, blockHeight uint64)
+	// SetVerifierHeartbeatScore sets the score for a chain from the heartbeat response.
+	SetVerifierHeartbeatScore(ctx context.Context, score float64)
+
 	// Chain state tracking (for multi-chain monitoring)
 
 	// RecordSourceChainLatestBlock records the latest block number for a source chain.
