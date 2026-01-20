@@ -102,7 +102,7 @@ func main() {
 				rmnRemoteAddresses,
 				storage.NewAttestationCCVWriter(
 					lggr,
-					verifierConfig.LBTCConfig.ParsedVerifiers,
+					verifierConfig.LBTCConfig.ParsedVerifierResolvers,
 					inmemoryStorage,
 				),
 				messageTracker,
@@ -118,7 +118,7 @@ func main() {
 				rmnRemoteAddresses,
 				storage.NewAttestationCCVWriter(
 					lggr,
-					verifierConfig.CCTPConfig.ParsedVerifiers,
+					verifierConfig.CCTPConfig.ParsedVerifierResolvers,
 					inmemoryStorage,
 				),
 				messageTracker,
@@ -192,7 +192,7 @@ func createCCTPCoordinator(
 	messageTracker verifier.MessageLatencyTracker,
 	verifierMonitoring verifier.Monitoring,
 ) *verifier.Coordinator {
-	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifiers, rmnRemoteAddresses)
+	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifierResolvers, rmnRemoteAddresses)
 
 	attestationService, err := cctp.NewAttestationService(lggr, *cctpConfig)
 	if err != nil {
@@ -238,7 +238,7 @@ func createLBTCCoordinator(
 	messageTracker verifier.MessageLatencyTracker,
 	verifierMonitoring verifier.Monitoring,
 ) *verifier.Coordinator {
-	sourceConfigs := createSourceConfigs(lbtcConfig.ParsedVerifiers, rmnRemoteAddresses)
+	sourceConfigs := createSourceConfigs(lbtcConfig.ParsedVerifierResolvers, rmnRemoteAddresses)
 
 	attestationService, err := lbtc.NewAttestationService(lggr, *lbtcConfig)
 	if err != nil {

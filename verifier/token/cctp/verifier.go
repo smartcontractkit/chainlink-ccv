@@ -97,7 +97,7 @@ func (v *Verifier) VerifyMessages(
 		result, err := commit.CreateVerifierNodeResult(
 			&task,
 			attestationPayload,
-			attestation.ccvVerifierVersion,
+			attestation.verifierVersion,
 		)
 		if err != nil {
 			lggr.Errorw("CreateVerifierNodeResult: Failed to create VerifierNodeResult", "err", err)
