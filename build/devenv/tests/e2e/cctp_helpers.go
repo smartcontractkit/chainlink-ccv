@@ -83,16 +83,16 @@ func buildCCTPMessage(messageID [32]byte, messageSender, receiver protocol.Unkno
 	// Most fields filled with zeros for testing
 	// We only set the required fields according to the spec
 
-	// Fill mintRecipient field (offset 148 + 36, left-padded to 32 bytes)
-	// Solidity extraction: address(bytes20(message[148 + 36 + 12:148 + 36 + 12 + 20]))
+	// Fill mintRecipient field (offset 116 + 36, left-padded to 32 bytes)
+	// Solidity extraction: address(bytes20(message[116 + 36 + 12:116 + 36 + 12 + 20]))
 	// This corresponds to mintRecipient in the message body, offset by 12 bytes for left-padding
 	receiverBytes := receiver.Bytes()
 	if len(receiverBytes) == 20 {
-		// Left-pad the 20-byte address to 32 bytes (offset 148 + 36 + 12 = 196)
-		copy(message[196:216], receiverBytes[:])
+		// Left-pad the 20-byte address to 32 bytes (offset 116 + 36 + 12 = 164)
+		copy(message[164:184], receiverBytes[:])
 	} else {
 		// For non-standard address lengths, copy as-is
-		copy(message[184:216], receiverBytes[:])
+		copy(message[152:184], receiverBytes[:])
 	}
 
 	// Verifier version at the start (4 bytes) - NOT part of the 412 bytes, but part of verifier results
