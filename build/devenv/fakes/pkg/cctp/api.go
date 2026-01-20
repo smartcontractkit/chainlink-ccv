@@ -17,8 +17,8 @@ type RegisterAttestationRequest struct {
 	MessageID     string `json:"messageID"     binding:"required"`
 	Status        string `json:"status"        binding:"required"`
 	MessageSender string `json:"messageSender" binding:"required"`
-	Message       string `json:"message"`
-	Attestation   string `json:"attestation"`
+	Message       string `json:"message"       binding:"required"`
+	Attestation   string `json:"attestation"   binding:"required"`
 }
 
 type AttestationAPI struct {
@@ -44,14 +44,6 @@ func (a *AttestationAPI) RegisterAttestation(sourceDomain, messageID, status, me
 		cleanMessageID = messageID[2:]
 	}
 	hookData := "0x8e1d1a9d" + cleanMessageID
-
-	// Use provided values or defaults
-	if message == "" {
-		message = "0xbbbbbbbb"
-	}
-	if attestation == "" {
-		attestation = "0xaaaaaaaa"
-	}
 
 	// Create a response based on the example attestation but with the provided sourceDomain, hookData and status
 	response := cctpclient.Message{
