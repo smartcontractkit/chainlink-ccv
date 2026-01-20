@@ -15,8 +15,9 @@ import (
 )
 
 type sourceReader struct {
-	stateServiceClient ledgerv2.StateServiceClient
-	jwt                string
+	stateServiceClient  ledgerv2.StateServiceClient
+	updateServiceClient ledgerv2.UpdateServiceClient
+	jwt                 string
 }
 
 func NewSourceReader(grpcEndpoint, jwt string, opts ...grpc.DialOption) (chainaccess.SourceReader, error) {
@@ -24,7 +25,12 @@ func NewSourceReader(grpcEndpoint, jwt string, opts ...grpc.DialOption) (chainac
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gRPC connection to canton node: %w", err)
 	}
-	return &sourceReader{stateServiceClient: ledgerv2.NewStateServiceClient(conn), jwt: jwt}, nil
+
+	return &sourceReader{
+		stateServiceClient:  ledgerv2.NewStateServiceClient(conn),
+		updateServiceClient: ledgerv2.NewUpdateServiceClient(conn),
+		jwt:                 jwt,
+	}, nil
 }
 
 // FetchMessageSentEvents implements chainaccess.SourceReader.

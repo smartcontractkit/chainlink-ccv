@@ -630,6 +630,43 @@ var monitorContractsCmd = &cobra.Command{
 	},
 }
 
+var startBlockchainsCmd = &cobra.Command{
+	Use:   "start-blockchains",
+	Short: "Start the blockchains defined in the provided env toml file",
+	Args:  cobra.RangeArgs(1, 1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if len(args) != 1 {
+			return fmt.Errorf("expected 1 argument (env file), got %d", len(args))
+		}
+		envFile := args[0]
+		in, err := ccv.Load[ccv.Cfg]([]string{envFile})
+		if err != nil {
+			return fmt.Errorf("failed to load environment output: %w", err)
+		}
+
+		_ = os.Setenv("CTF_CONFIGS", envFile)
+		_ = os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
+
+		framework.L.Info().Str("Config", envFile).Msg("Starting blockchains")
+		for _, bc := range in.Blockchains {
+			bcOutput, err := blockchain.NewBlockchainNetwork(bc)
+			if err != nil {
+				return fmt.Errorf("failed to create blockchain network: %w", err)
+			}
+			bc.Out = bcOutput
+		}
+
+		// save to envFile-out.toml
+		err = ccv.Store(in)
+		if err != nil {
+			return fmt.Errorf("failed to store environment output: %w", err)
+		}
+		ccv.Plog.Info().Msgf("Blockchains started and saved to %s-out.toml", envFile)
+
+		return nil
+	},
+}
+
 var txInfoCmd = &cobra.Command{
 	Use:   "tx-receipt <tx hash>",
 	Short: "Get transaction receipt information",
@@ -707,6 +744,7 @@ func init() {
 	rootCmd.AddCommand(upCmd)
 	rootCmd.AddCommand(restartCmd)
 	rootCmd.AddCommand(downCmd)
+	rootCmd.AddCommand(startBlockchainsCmd)
 
 	// utility
 	rootCmd.AddCommand(testCmd)
