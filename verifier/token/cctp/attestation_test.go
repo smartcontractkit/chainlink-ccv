@@ -290,25 +290,25 @@ func Test_cctpMatchesMessage(t *testing.T) {
 			expectError:      true,
 			expectedErrorMsg: "no CCV address configured for source chain selector",
 		},
-		//{
-		//	name: "sender address mismatch",
-		//	cctpMessage: Message{
-		//		Message:     "0xaabbcc",
-		//		Attestation: "0xddeeff",
-		//		CCTPVersion: 2,
-		//		Status:      attestationStatusSuccess,
-		//		DecodedMessage: DecodedMessage{
-		//			DecodedMessageBody: DecodedMessageBody{
-		//				HookData:      hookData,
-		//				MessageSender: "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
-		//			},
-		//		},
-		//	},
-		//	ccipMessage:      *ccipMessage,
-		//	ccvAddresses:     ccvAddresses,
-		//	expectError:      true,
-		//	expectedErrorMsg: "sender address mismatch",
-		//},
+		{
+			name: "sender address mismatch",
+			cctpMessage: Message{
+				Message:     "0xaabbcc",
+				Attestation: "0xddeeff",
+				CCTPVersion: 2,
+				Status:      attestationStatusSuccess,
+				DecodedMessage: DecodedMessage{
+					DecodedMessageBody: DecodedMessageBody{
+						HookData:      hookData,
+						MessageSender: "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+					},
+				},
+			},
+			ccipMessage:      *ccipMessage,
+			ccvAddresses:     ccvAddresses,
+			expectError:      true,
+			expectedErrorMsg: "sender address mismatch",
+		},
 		{
 			name: "invalid sender address hex",
 			cctpMessage: Message{

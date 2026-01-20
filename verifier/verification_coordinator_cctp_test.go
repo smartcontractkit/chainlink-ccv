@@ -190,10 +190,11 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 		AttestationAPITimeout:  1 * time.Minute,
 		AttestationAPICooldown: 1 * time.Second,
 		AttestationAPIInterval: 1 * time.Millisecond,
-		ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+		ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 			chain1337: testCCVAddr,
 			chain2337: destVerifier,
 		},
+		ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{},
 	}
 
 	// Set up mock head tracker
@@ -286,10 +287,11 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 		AttestationAPITimeout:  1 * time.Minute,
 		AttestationAPICooldown: 1 * time.Second,
 		AttestationAPIInterval: 1 * time.Millisecond,
-		ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+		ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 			chain1337: testCCVAddr,
 			chain2337: destVerifier,
 		},
+		ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{},
 	}
 
 	// Set up mock head tracker
@@ -385,10 +387,11 @@ func Test_CCTPMessages_RetryingAttestation(t *testing.T) {
 		AttestationAPITimeout:  1 * time.Minute,
 		AttestationAPICooldown: 1 * time.Second,
 		AttestationAPIInterval: 1 * time.Millisecond,
-		ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+		ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 			chain1337: testCCVAddr,
 			chain2337: destVerifier,
 		},
+		ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{},
 	}
 
 	// Set up mock head tracker
@@ -463,7 +466,7 @@ func createCCTPCoordinator(
 
 	ccvWriter := storage.NewAttestationCCVWriter(
 		ts.logger,
-		cctpConfig.ParsedVerifiers,
+		cctpConfig.ParsedVerifierResolvers,
 		inMemStorage,
 	)
 

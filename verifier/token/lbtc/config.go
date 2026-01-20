@@ -18,10 +18,10 @@ type LBTCConfig struct {
 	// Default set according to the APIs documentated 10 requests per second rate limit.
 	AttestationAPIInterval  time.Duration `toml:"attestation_api_interval"`
 	AttestationAPIBatchSize int           `toml:"attestation_api_batch_size"`
-	// Verifiers is a map of chain selectors to verifier addresses. It's only used for TOML marshall/unmarshall and then
-	// final values, properly cast to domain values are stored in ParsedVerifiers
-	Verifiers       map[string]any                                     `toml:"addresses"`
-	ParsedVerifiers map[protocol.ChainSelector]protocol.UnknownAddress `toml:"-"`
+	// VerifierResolvers is a map of chain selectors to verifier resolver addresses. It's only used for TOML marshall/unmarshall and then
+	// final values, properly cast to domain values are stored in ParsedVerifierResolvers
+	VerifierResolvers       map[string]any                                     `toml:"verifier_resolver_addresses"`
+	ParsedVerifierResolvers map[protocol.ChainSelector]protocol.UnknownAddress `toml:"-"`
 }
 
 func TryParsing(t, v string, data map[string]any) (*LBTCConfig, error) {
@@ -53,9 +53,9 @@ func TryParsing(t, v string, data map[string]any) (*LBTCConfig, error) {
 		return nil, fmt.Errorf("invalid attestation_api_batch_size: %w", err)
 	}
 
-	c.ParsedVerifiers, c.Verifiers, err = common.ParseAddressesMap(data[("addresses")])
+	c.ParsedVerifierResolvers, c.VerifierResolvers, err = common.ParseAddressesMap(data[("verifier_resolver_addresses")])
 	if err != nil {
-		return nil, fmt.Errorf("invalid addresses: %w", err)
+		return nil, fmt.Errorf("invalid verifier_resolver_addresses: %w", err)
 	}
 
 	return c, nil
