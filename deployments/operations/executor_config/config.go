@@ -9,7 +9,8 @@ import (
 	execcontract "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
-	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
+	dsutil "github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 )
@@ -50,26 +51,31 @@ var BuildConfig = operations.NewOperation(
 	"Builds the executor configuration from datastore contract addresses",
 	func(b operations.Bundle, deps BuildConfigDeps, input BuildConfigInput) (BuildConfigOutput, error) {
 		ds := deps.Env.DataStore
+		toAddress := func(ref datastore.AddressRef) (string, error) { return ref.Address, nil }
 
 		chainConfigs := make(map[string]ExecutorChainConfig)
 
 		for _, chainSelector := range input.ChainSelectors {
 			chainSelectorStr := strconv.FormatUint(chainSelector, 10)
 
-			offRampAddr, err := shared.ResolveContractAddress(
-				ds, chainSelector, "", offrampoperations.ContractType)
+			offRampAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
+				Type: datastore.ContractType(offrampoperations.ContractType),
+			}, chainSelector, toAddress)
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get off ramp address for chain %d: %w", chainSelector, err)
 			}
 
-			rmnRemoteAddr, err := shared.ResolveContractAddress(
-				ds, chainSelector, "", rmn_remote.ContractType)
+			rmnRemoteAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
+				Type: datastore.ContractType(rmn_remote.ContractType),
+			}, chainSelector, toAddress)
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get rmn remote address for chain %d: %w", chainSelector, err)
 			}
 
-			executorAddr, err := shared.ResolveContractAddress(
-				ds, chainSelector, input.ExecutorQualifier, execcontract.ProxyType)
+			executorAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
+				Type:      datastore.ContractType(execcontract.ProxyType),
+				Qualifier: input.ExecutorQualifier,
+			}, chainSelector, toAddress)
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get executor proxy address for chain %d: %w", chainSelector, err)
 			}

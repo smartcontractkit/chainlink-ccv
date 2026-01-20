@@ -10,7 +10,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
-	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
+	dsutil "github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 )
@@ -48,6 +49,7 @@ var BuildConfig = operations.NewOperation(
 	"Builds the verifier configuration from datastore contract addresses",
 	func(b operations.Bundle, deps BuildConfigDeps, input BuildConfigInput) (BuildConfigOutput, error) {
 		ds := deps.Env.DataStore
+		toAddress := func(ref datastore.AddressRef) (string, error) { return ref.Address, nil }
 
 		committeeVerifierAddresses := make(map[string]string)
 		onRampAddresses := make(map[string]string)
@@ -57,29 +59,35 @@ var BuildConfig = operations.NewOperation(
 		for _, chainSelector := range input.ChainSelectors {
 			chainSelectorStr := strconv.FormatUint(chainSelector, 10)
 
-			committeeVerifierAddr, err := shared.ResolveContractAddress(
-				ds, chainSelector, input.CommitteeQualifier, committee_verifier.ResolverType)
+			committeeVerifierAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
+				Type:      datastore.ContractType(committee_verifier.ResolverType),
+				Qualifier: input.CommitteeQualifier,
+			}, chainSelector, toAddress)
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get committee verifier address for chain %d: %w", chainSelector, err)
 			}
 			committeeVerifierAddresses[chainSelectorStr] = committeeVerifierAddr
 
-			onRampAddr, err := shared.ResolveContractAddress(
-				ds, chainSelector, "", onrampoperations.ContractType)
+			onRampAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
+				Type: datastore.ContractType(onrampoperations.ContractType),
+			}, chainSelector, toAddress)
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get on ramp address for chain %d: %w", chainSelector, err)
 			}
 			onRampAddresses[chainSelectorStr] = onRampAddr
 
-			executorAddr, err := shared.ResolveContractAddress(
-				ds, chainSelector, input.ExecutorQualifier, executor.ProxyType)
+			executorAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
+				Type:      datastore.ContractType(executor.ProxyType),
+				Qualifier: input.ExecutorQualifier,
+			}, chainSelector, toAddress)
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get executor proxy address for chain %d: %w", chainSelector, err)
 			}
 			defaultExecutorOnRampAddresses[chainSelectorStr] = executorAddr
 
-			rmnRemoteAddr, err := shared.ResolveContractAddress(
-				ds, chainSelector, "", rmn_remote.ContractType)
+			rmnRemoteAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
+				Type: datastore.ContractType(rmn_remote.ContractType),
+			}, chainSelector, toAddress)
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get rmn remote address for chain %d: %w", chainSelector, err)
 			}
