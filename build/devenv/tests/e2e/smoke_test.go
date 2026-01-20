@@ -297,7 +297,7 @@ func TestE2ESmoke(t *testing.T) {
 				"CCTP",
 				"",
 			)
-			registerCCTPAttestation(t, in.Fake.Out.ExternalHTTPURL, msgID, cctpMessageSender, "complete")
+			registerCCTPAttestation(t, in.Fake.Out.ExternalHTTPURL, msgID, cctpMessageSender, receiver, "complete")
 			l.Info().Str("MessageID", hex.EncodeToString(msgID[:])).Msg("Registered CCTP attestation")
 
 			testCtx := NewTestingContext(t, ctx, chainMap, defaultAggregatorClient, indexerMonitor)
@@ -320,7 +320,8 @@ func TestE2ESmoke(t *testing.T) {
 
 			endBal, err := destChain.GetTokenBalance(ctx, receiver, destToken)
 			require.NoError(t, err)
-			require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), big.NewInt(1000)), endBal)
+			// We always mint 1 tiny coin on a dest from CCTPTokenMessenger
+			require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), big.NewInt(1)), endBal)
 			l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", combo.DestPoolAddressRef().Qualifier).Msg("receiver end balance")
 
 			srcEndBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)

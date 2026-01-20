@@ -18,13 +18,14 @@ func registerCCTPAttestation(
 	httpUrl string,
 	messageID [32]byte,
 	messageSender protocol.UnknownAddress,
+	receiver protocol.UnknownAddress,
 	status string,
 ) {
 	messageIDHex := "0x" + hex.EncodeToString(messageID[:])
 
 	// Build CCTP message (412 bytes total)
 	// Verifier version (4 bytes) + CCTP message header (148 bytes) + message body (228 bytes) + hook data (36 bytes)
-	message := buildCCTPMessage(messageID, messageSender)
+	message := buildCCTPMessage(messageID, messageSender, receiver)
 
 	// Build attestation (65 bytes minimum - ECDSA signature with recovery byte)
 	// For testing purposes, we can use a dummy signature
@@ -76,11 +77,23 @@ func registerCCTPAttestation(
 //   - hookData (36 bytes):
 //   - verifierVersion (4 bytes): 0x8e1d1a9d
 //   - messageId (32 bytes): bytes32
-func buildCCTPMessage(messageID [32]byte, messageSender protocol.UnknownAddress) string {
+func buildCCTPMessage(messageID [32]byte, messageSender, receiver protocol.UnknownAddress) string {
 	message := make([]byte, 412)
 
 	// Most fields filled with zeros for testing
 	// We only set the required fields according to the spec
+
+	// Fill mintRecipient field (offset 148 + 36, left-padded to 32 bytes)
+	// Solidity extraction: address(bytes20(message[148 + 36 + 12:148 + 36 + 12 + 20]))
+	// This corresponds to mintRecipient in the message body, offset by 12 bytes for left-padding
+	receiverBytes := receiver.Bytes()
+	if len(receiverBytes) == 20 {
+		// Left-pad the 20-byte address to 32 bytes (offset 148 + 36 + 12 = 196)
+		copy(message[196:216], receiverBytes[:])
+	} else {
+		// For non-standard address lengths, copy as-is
+		copy(message[184:216], receiverBytes[:])
+	}
 
 	// Verifier version at the start (4 bytes) - NOT part of the 412 bytes, but part of verifier results
 	// So we start with the CCTP message header

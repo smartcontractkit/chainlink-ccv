@@ -15,7 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/usdc_token_pool_proxy"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/testsetup"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_messenger"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_transmitter"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_transmitter_v2"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	routeroperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	burnminterc677ops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
@@ -44,7 +44,7 @@ func (m *CCIP17EVMConfig) deployUSDCTokenAndPool(
 		return fmt.Errorf("evm chain not found for selector %d", selector)
 	}
 
-	usdc, _, messenger, err := m.deployCircleOwnedContracts(chain)
+	usdc, transmitter, messenger, err := m.deployCircleOwnedContracts(chain)
 	if err != nil {
 		return fmt.Errorf("failed to deploy Circle-owned contracts on chain %d: %w", selector, err)
 	}
@@ -66,6 +66,16 @@ func (m *CCIP17EVMConfig) deployUSDCTokenAndPool(
 		ChainSelector: selector,
 		Address:       usdc,
 		Args:          messenger,
+	})
+	if err != nil {
+		return err
+	}
+
+	// Grant mint and burn roles to token transmitter
+	_, err = operations.ExecuteOperation(env.OperationsBundle, burnminterc677ops.GrantMintAndBurnRoles, chain, contract.FunctionInput[common.Address]{
+		ChainSelector: selector,
+		Address:       usdc,
+		Args:          transmitter,
 	})
 	if err != nil {
 		return err
@@ -158,7 +168,7 @@ func (m *CCIP17EVMConfig) deployCircleOwnedContracts(chain evm.Chain) (common.Ad
 		return empty, empty, empty, fmt.Errorf("failed to confirm USDC token deployment tx: %w", err1)
 	}
 
-	messageTransmitterAddr, tx, _, err := mock_usdc_token_transmitter.DeployMockE2EUSDCTransmitter(
+	messageTransmitterAddr, tx, _, err := mock_usdc_token_transmitter_v2.DeployMockE2EUSDCTransmitterCCTPV2(
 		chain.DeployerKey,
 		chain.Client,
 		uint32(1),     // version (CCTP V2)
