@@ -19,8 +19,8 @@ import (
 	heartbeatpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/heartbeat/v1"
 )
 
-// mockHeartbeatClient is a mock implementation of HeartbeatServiceClient for testing
-// Note: This is a gRPC client interface from protobuf, so we mock it manually rather than using mockery
+// mockHeartbeatClient is a mock implementation of HeartbeatServiceClient for testing.
+// Note: This is a gRPC client interface from protobuf, so we mock it manually rather than using mockery.
 type mockHeartbeatClient struct {
 	mock.Mock
 }

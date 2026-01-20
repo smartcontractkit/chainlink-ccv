@@ -114,19 +114,7 @@ func TestHeartbeatClient_SendHeartbeat_NilRequest(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// mockHeartbeatServer is a mock implementation of HeartbeatServiceServer for testing
-type mockHeartbeatServer struct {
-	sendHeartbeatFunc func(ctx context.Context, req *heartbeatpb.HeartbeatRequest) (*heartbeatpb.HeartbeatResponse, error)
-}
-
-func (m *mockHeartbeatServer) SendHeartbeat(ctx context.Context, req *heartbeatpb.HeartbeatRequest) (*heartbeatpb.HeartbeatResponse, error) {
-	if m.sendHeartbeatFunc != nil {
-		return m.sendHeartbeatFunc(ctx, req)
-	}
-	return &heartbeatpb.HeartbeatResponse{Timestamp: time.Now().Unix()}, nil
-}
-
-// TestHeartbeatClient_WithCallOptions tests that call options are properly passed through
+// TestHeartbeatClient_WithCallOptions tests that call options are properly passed through.
 func TestHeartbeatClient_WithCallOptions(t *testing.T) {
 	lggr := logger.Test(t)
 
