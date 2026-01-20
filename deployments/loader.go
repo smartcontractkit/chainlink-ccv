@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"strings"
 
 	jsonpatch "github.com/evanphx/json-patch/v5"
 
@@ -245,6 +246,80 @@ func DeleteNOPJobSpec(ds datastore.MutableDataStore, nopAlias, jobSpecID string)
 
 	// Use full replacement instead of merge patch to properly handle deletions
 	return replaceCCVEnvMetadata(ds, ccvMeta)
+}
+
+// SaveNOPJobSpecs saves multiple job specs to the datastore in a single operation.
+// The input is a map of NOP alias to a map of job spec ID to job spec content.
+func SaveNOPJobSpecs(ds datastore.MutableDataStore, jobSpecs map[string]map[string]string) error {
+	if len(jobSpecs) == 0 {
+		return nil
+	}
+
+	ccvMeta, err := loadOrCreateCCVEnvMetadata(ds)
+	if err != nil {
+		return err
+	}
+
+	if ccvMeta.OffchainConfigs == nil {
+		ccvMeta.OffchainConfigs = &OffchainConfigs{}
+	}
+	if ccvMeta.OffchainConfigs.NOPJobSpecs == nil {
+		ccvMeta.OffchainConfigs.NOPJobSpecs = make(map[string]map[string]string)
+	}
+
+	for nopAlias, specs := range jobSpecs {
+		if ccvMeta.OffchainConfigs.NOPJobSpecs[nopAlias] == nil {
+			ccvMeta.OffchainConfigs.NOPJobSpecs[nopAlias] = make(map[string]string)
+		}
+		maps.Copy(ccvMeta.OffchainConfigs.NOPJobSpecs[nopAlias], specs)
+	}
+
+	return saveCCVEnvMetadata(ds, ccvMeta)
+}
+
+// CleanupOrphanedJobSpecs removes job specs that match the given suffix but are not in the expected set.
+// Parameters:
+//   - ds: the datastore to modify
+//   - suffix: the suffix pattern to match (e.g., "-default-executor")
+//   - expectedJobSpecIDs: set of job spec IDs that should be kept
+//   - scopedNOPs: if non-nil, only cleanup NOPs in this set; if nil, cleanup all NOPs
+//   - expectedNOPs: if non-nil, delete job specs for NOPs not in this set (for verifier cleanup)
+func CleanupOrphanedJobSpecs(
+	ds datastore.MutableDataStore,
+	suffix string,
+	expectedJobSpecIDs map[string]bool,
+	scopedNOPs map[string]bool,
+	expectedNOPs map[string]bool,
+) error {
+	allNOPJobSpecs, err := GetAllNOPJobSpecs(ds.Seal())
+	if err != nil {
+		return fmt.Errorf("failed to get all NOP job specs for cleanup: %w", err)
+	}
+
+	for nopAlias, jobSpecs := range allNOPJobSpecs {
+		if scopedNOPs != nil && !scopedNOPs[nopAlias] {
+			continue
+		}
+
+		for jobSpecID := range jobSpecs {
+			if !strings.HasSuffix(jobSpecID, suffix) {
+				continue
+			}
+
+			shouldDelete := !expectedJobSpecIDs[jobSpecID]
+			if expectedNOPs != nil && !expectedNOPs[nopAlias] {
+				shouldDelete = true
+			}
+
+			if shouldDelete {
+				if err := DeleteNOPJobSpec(ds, nopAlias, jobSpecID); err != nil {
+					return fmt.Errorf("failed to delete orphaned job spec %q for NOP %q: %w", jobSpecID, nopAlias, err)
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // replaceCCVEnvMetadata replaces the CCV metadata completely (not merge).

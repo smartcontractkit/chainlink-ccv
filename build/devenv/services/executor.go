@@ -34,7 +34,7 @@ type ExecutorInput struct {
 	SourceCodePath string          `toml:"source_code_path"`
 	RootPath       string          `toml:"root_path"`
 	ContainerName  string          `toml:"container_name"`
-	NOPAlias       string          `toml:"nop_alias"        validate:"required"`
+	NOPAlias       string          `toml:"nop_alias"`
 	Port           int             `toml:"port"`
 	UseCache       bool            `toml:"use_cache"`
 

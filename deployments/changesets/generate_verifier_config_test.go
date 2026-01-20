@@ -27,17 +27,17 @@ import (
 
 const testDefaultQualifier = "default"
 
-func TestGenerateVerifierConfig_ValidatesEnvConfigPath(t *testing.T) {
+func TestGenerateVerifierConfig_ValidatesTopologyPath(t *testing.T) {
 	changeset := changesets.GenerateVerifierConfig()
 
 	env := createVerifierTestEnvironment(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateVerifierConfigCfg{
-		EnvConfigPath:      "",
+		TopologyPath:       "",
 		CommitteeQualifier: "test-committee",
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "env config path is required")
+	assert.Contains(t, err.Error(), "topology path is required")
 }
 
 func TestGenerateVerifierConfig_ValidatesCommitteeQualifier(t *testing.T) {
@@ -47,7 +47,7 @@ func TestGenerateVerifierConfig_ValidatesCommitteeQualifier(t *testing.T) {
 	envConfigPath := createVerifierTestEnvConfig(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateVerifierConfigCfg{
-		EnvConfigPath:      envConfigPath,
+		TopologyPath:       envConfigPath,
 		CommitteeQualifier: "",
 	})
 	require.Error(t, err)
@@ -58,10 +58,10 @@ func TestGenerateVerifierConfig_ValidatesNOPSignerAddress(t *testing.T) {
 	changeset := changesets.GenerateVerifierConfig()
 
 	env := createVerifierTestEnvironment(t)
-	envConfigPath := createEnvConfigWithoutSignerAddress(t)
+	envConfigPath := createTopologyWithoutSignerAddress(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateVerifierConfigCfg{
-		EnvConfigPath:      envConfigPath,
+		TopologyPath:       envConfigPath,
 		CommitteeQualifier: "test-committee",
 	})
 	require.Error(t, err)
@@ -75,11 +75,11 @@ func TestGenerateVerifierConfig_ValidatesCommitteeExists(t *testing.T) {
 	envConfigPath := createVerifierTestEnvConfig(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateVerifierConfigCfg{
-		EnvConfigPath:      envConfigPath,
+		TopologyPath:       envConfigPath,
 		CommitteeQualifier: "unknown-committee",
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), `committee "unknown-committee" not found in env config`)
+	assert.Contains(t, err.Error(), `committee "unknown-committee" not found in environment topology`)
 }
 
 func TestGenerateVerifierConfig_ValidatesChainSelectors(t *testing.T) {
@@ -89,7 +89,7 @@ func TestGenerateVerifierConfig_ValidatesChainSelectors(t *testing.T) {
 	envConfigPath := createVerifierTestEnvConfig(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateVerifierConfigCfg{
-		EnvConfigPath:      envConfigPath,
+		TopologyPath:       envConfigPath,
 		CommitteeQualifier: "test-committee",
 		ChainSelectors:     []uint64{1234},
 	})
@@ -136,7 +136,7 @@ func TestGenerateVerifierConfig_GeneratesCorrectJobSpec(t *testing.T) {
 
 	cs := changesets.GenerateVerifierConfig()
 	output, err := cs.Apply(env, changesets.GenerateVerifierConfigCfg{
-		EnvConfigPath:      envConfigPath,
+		TopologyPath:       envConfigPath,
 		CommitteeQualifier: committee,
 		ExecutorQualifier:  executorQualifier,
 		ChainSelectors:     selectors,
@@ -222,7 +222,7 @@ func TestGenerateVerifierConfig_PreservesExistingConfigs(t *testing.T) {
 
 	cs := changesets.GenerateVerifierConfig()
 	output, err := cs.Apply(env, changesets.GenerateVerifierConfigCfg{
-		EnvConfigPath:      envConfigPath,
+		TopologyPath:       envConfigPath,
 		CommitteeQualifier: committee,
 		ExecutorQualifier:  executorQualifier,
 		ChainSelectors:     selectors,
@@ -274,11 +274,11 @@ func TestGenerateVerifierConfig_MultipleAggregatorsPerCommittee(t *testing.T) {
 
 	env.DataStore = ds.Seal()
 
-	envConfigPath := createEnvConfigWithMultipleAggregators(t)
+	envConfigPath := createTopologyWithMultipleAggregators(t)
 
 	cs := changesets.GenerateVerifierConfig()
 	output, err := cs.Apply(env, changesets.GenerateVerifierConfigCfg{
-		EnvConfigPath:      envConfigPath,
+		TopologyPath:       envConfigPath,
 		CommitteeQualifier: committee,
 		ExecutorQualifier:  executorQualifier,
 		ChainSelectors:     selectors,
@@ -351,7 +351,7 @@ func TestGenerateVerifierConfig_RemovesOrphanedJobSpecs(t *testing.T) {
 
 	cs := changesets.GenerateVerifierConfig()
 	output, err := cs.Apply(env, changesets.GenerateVerifierConfigCfg{
-		EnvConfigPath:      envConfigPath,
+		TopologyPath:       envConfigPath,
 		CommitteeQualifier: committee,
 		ExecutorQualifier:  executorQualifier,
 		ChainSelectors:     selectors,
@@ -414,7 +414,7 @@ func TestGenerateVerifierConfig_PreservesOtherCommitteeJobSpecs(t *testing.T) {
 
 	cs := changesets.GenerateVerifierConfig()
 	output, err := cs.Apply(env, changesets.GenerateVerifierConfigCfg{
-		EnvConfigPath:      envConfigPath,
+		TopologyPath:       envConfigPath,
 		CommitteeQualifier: committee,
 		ExecutorQualifier:  executorQualifier,
 		ChainSelectors:     selectors,
@@ -479,7 +479,7 @@ func TestGenerateVerifierConfig_ScopedNOPAliasesPreservesOtherNOPs(t *testing.T)
 	// Run the changeset with only nop-1 in scope
 	cs := changesets.GenerateVerifierConfig()
 	output, err := cs.Apply(env, changesets.GenerateVerifierConfigCfg{
-		EnvConfigPath:      envConfigPath,
+		TopologyPath:       envConfigPath,
 		CommitteeQualifier: committee,
 		ExecutorQualifier:  executorQualifier,
 		ChainSelectors:     selectors,
@@ -517,7 +517,7 @@ func createVerifierTestEnvConfig(t *testing.T) string {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "env.toml")
 
-	cfg := deployments.EnvConfig{
+	cfg := deployments.EnvironmentTopology{
 		IndexerAddress: "http://indexer:8100",
 		PyroscopeURL:   "http://pyroscope:4040",
 		Monitoring: deployments.MonitoringConfig{
@@ -532,9 +532,9 @@ func createVerifierTestEnvConfig(t *testing.T) string {
 			},
 		},
 		NOPTopology: deployments.NOPTopology{
-			NOPs: map[string]deployments.NOPConfig{
-				"nop-1": {Alias: "nop-1", Name: "NOP One", SignerAddress: "0xABCDEF1234567890ABCDEF1234567890ABCDEF12"},
-				"nop-2": {Alias: "nop-2", Name: "NOP Two", SignerAddress: "0x1234567890ABCDEF1234567890ABCDEF12345678"},
+			NOPs: []deployments.NOPConfig{
+				{Alias: "nop-1", Name: "NOP One", SignerAddress: "0xABCDEF1234567890ABCDEF1234567890ABCDEF12"},
+				{Alias: "nop-2", Name: "NOP Two", SignerAddress: "0x1234567890ABCDEF1234567890ABCDEF12345678"},
 			},
 			Committees: map[string]deployments.CommitteeConfig{
 				"test-committee": {
@@ -557,19 +557,19 @@ func createVerifierTestEnvConfig(t *testing.T) string {
 		},
 	}
 
-	err := deployments.WriteEnvConfig(configPath, cfg)
+	err := deployments.WriteEnvironmentTopology(configPath, cfg)
 	require.NoError(t, err)
 
 	return configPath
 }
 
-func createEnvConfigWithoutSignerAddress(t *testing.T) string {
+func createTopologyWithoutSignerAddress(t *testing.T) string {
 	t.Helper()
 
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "env.toml")
 
-	// Write raw TOML to avoid validation errors during WriteEnvConfig
+	// Write raw TOML to avoid validation errors during WriteEnvironmentTopology
 	// This tests that the changeset validates signer_address presence
 	configContent := `
 indexer_address = "http://indexer:8100"
@@ -582,11 +582,11 @@ Type = "beholder"
 [monitoring.Beholder]
 InsecureConnection = true
 
-[nop_topology.nops.nop-1]
+[[nop_topology.nops]]
 alias = "nop-1"
 name = "NOP One"
 
-[nop_topology.nops.nop-2]
+[[nop_topology.nops]]
 alias = "nop-2"
 name = "NOP Two"
 
@@ -613,13 +613,13 @@ execution_interval = "15s"
 	return configPath
 }
 
-func createEnvConfigWithMultipleAggregators(t *testing.T) string {
+func createTopologyWithMultipleAggregators(t *testing.T) string {
 	t.Helper()
 
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "env.toml")
 
-	cfg := deployments.EnvConfig{
+	cfg := deployments.EnvironmentTopology{
 		IndexerAddress: "http://indexer:8100",
 		PyroscopeURL:   "http://pyroscope:4040",
 		Monitoring: deployments.MonitoringConfig{
@@ -634,9 +634,9 @@ func createEnvConfigWithMultipleAggregators(t *testing.T) string {
 			},
 		},
 		NOPTopology: deployments.NOPTopology{
-			NOPs: map[string]deployments.NOPConfig{
-				"nop-1": {Alias: "nop-1", Name: "NOP One", SignerAddress: "0xABCDEF1234567890ABCDEF1234567890ABCDEF12"},
-				"nop-2": {Alias: "nop-2", Name: "NOP Two", SignerAddress: "0x1234567890ABCDEF1234567890ABCDEF12345678"},
+			NOPs: []deployments.NOPConfig{
+				{Alias: "nop-1", Name: "NOP One", SignerAddress: "0xABCDEF1234567890ABCDEF1234567890ABCDEF12"},
+				{Alias: "nop-2", Name: "NOP Two", SignerAddress: "0x1234567890ABCDEF1234567890ABCDEF12345678"},
 			},
 			Committees: map[string]deployments.CommitteeConfig{
 				"test-committee": {
@@ -661,7 +661,7 @@ func createEnvConfigWithMultipleAggregators(t *testing.T) string {
 		},
 	}
 
-	err := deployments.WriteEnvConfig(configPath, cfg)
+	err := deployments.WriteEnvironmentTopology(configPath, cfg)
 	require.NoError(t, err)
 
 	return configPath

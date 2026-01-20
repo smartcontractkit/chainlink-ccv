@@ -23,16 +23,16 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/deployments/testutils"
 )
 
-func TestGenerateExecutorConfig_ValidatesEnvConfigPath(t *testing.T) {
+func TestGenerateExecutorConfig_ValidatesTopologyPath(t *testing.T) {
 	changeset := changesets.GenerateExecutorConfig()
 
 	env := createExecutorTestEnvironment(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateExecutorConfigCfg{
-		EnvConfigPath: "",
+		TopologyPath: "",
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "env config path is required")
+	assert.Contains(t, err.Error(), "topology path is required")
 }
 
 func TestGenerateExecutorConfig_ValidatesNOPAliases(t *testing.T) {
@@ -42,11 +42,11 @@ func TestGenerateExecutorConfig_ValidatesNOPAliases(t *testing.T) {
 	envConfigPath := createTestEnvConfig(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateExecutorConfigCfg{
-		EnvConfigPath: envConfigPath,
-		NOPAliases:    []string{"unknown-nop"},
+		TopologyPath: envConfigPath,
+		NOPAliases:   []string{"unknown-nop"},
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), `NOP alias "unknown-nop" not found in env config`)
+	assert.Contains(t, err.Error(), `NOP alias "unknown-nop" not found in environment topology`)
 }
 
 func TestGenerateExecutorConfig_ValidatesChainSelectors(t *testing.T) {
@@ -56,7 +56,7 @@ func TestGenerateExecutorConfig_ValidatesChainSelectors(t *testing.T) {
 	envConfigPath := createTestEnvConfig(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateExecutorConfigCfg{
-		EnvConfigPath:  envConfigPath,
+		TopologyPath:   envConfigPath,
 		ChainSelectors: []uint64{1234},
 	})
 	require.Error(t, err)
@@ -97,7 +97,7 @@ func TestGenerateExecutorConfig_GeneratesCorrectJobSpec(t *testing.T) {
 
 	cs := changesets.GenerateExecutorConfig()
 	output, err := cs.Apply(env, changesets.GenerateExecutorConfigCfg{
-		EnvConfigPath:     envConfigPath,
+		TopologyPath:      envConfigPath,
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
 		NOPAliases:        []string{"nop-1"},
@@ -164,7 +164,7 @@ func TestGenerateExecutorConfig_PreservesExistingConfigs(t *testing.T) {
 
 	cs := changesets.GenerateExecutorConfig()
 	output, err := cs.Apply(env, changesets.GenerateExecutorConfigCfg{
-		EnvConfigPath:     envConfigPath,
+		TopologyPath:      envConfigPath,
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
 		NOPAliases:        []string{"nop-1"},
@@ -219,7 +219,7 @@ func TestGenerateExecutorConfig_RemovesOrphanedJobSpecs(t *testing.T) {
 
 	cs := changesets.GenerateExecutorConfig()
 	output, err := cs.Apply(env, changesets.GenerateExecutorConfigCfg{
-		EnvConfigPath:     envConfigPath,
+		TopologyPath:      envConfigPath,
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
 	})
@@ -276,7 +276,7 @@ func TestGenerateExecutorConfig_PreservesOtherQualifierJobSpecs(t *testing.T) {
 
 	cs := changesets.GenerateExecutorConfig()
 	output, err := cs.Apply(env, changesets.GenerateExecutorConfigCfg{
-		EnvConfigPath:     envConfigPath,
+		TopologyPath:      envConfigPath,
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
 		NOPAliases:        []string{"nop-1"},
@@ -335,7 +335,7 @@ func TestGenerateExecutorConfig_ScopedNOPAliasesPreservesOtherNOPs(t *testing.T)
 	// Run the changeset with only nop-1 in scope
 	cs := changesets.GenerateExecutorConfig()
 	output, err := cs.Apply(env, changesets.GenerateExecutorConfigCfg{
-		EnvConfigPath:     envConfigPath,
+		TopologyPath:      envConfigPath,
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
 		NOPAliases:        []string{"nop-1"}, // Scoped to only nop-1
@@ -361,7 +361,7 @@ func createTestEnvConfig(t *testing.T) string {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "env.toml")
 
-	cfg := deployments.EnvConfig{
+	cfg := deployments.EnvironmentTopology{
 		IndexerAddress: "http://indexer:8100",
 		PyroscopeURL:   "http://pyroscope:4040",
 		Monitoring: deployments.MonitoringConfig{
@@ -376,9 +376,9 @@ func createTestEnvConfig(t *testing.T) string {
 			},
 		},
 		NOPTopology: deployments.NOPTopology{
-			NOPs: map[string]deployments.NOPConfig{
-				"nop-1": {Alias: "nop-1", Name: "NOP One", SignerAddress: "0xABCDEF1234567890ABCDEF1234567890ABCDEF12"},
-				"nop-2": {Alias: "nop-2", Name: "NOP Two", SignerAddress: "0x1234567890ABCDEF1234567890ABCDEF12345678"},
+			NOPs: []deployments.NOPConfig{
+				{Alias: "nop-1", Name: "NOP One", SignerAddress: "0xABCDEF1234567890ABCDEF1234567890ABCDEF12"},
+				{Alias: "nop-2", Name: "NOP Two", SignerAddress: "0x1234567890ABCDEF1234567890ABCDEF12345678"},
 			},
 			Committees: map[string]deployments.CommitteeConfig{
 				"test-committee": {
@@ -401,7 +401,7 @@ func createTestEnvConfig(t *testing.T) string {
 		},
 	}
 
-	err := deployments.WriteEnvConfig(configPath, cfg)
+	err := deployments.WriteEnvironmentTopology(configPath, cfg)
 	require.NoError(t, err)
 
 	return configPath

@@ -104,8 +104,8 @@ type Cfg struct {
 	IndexerEndpoint string `toml:"indexer_endpoint"`
 	// IndexerInternalEndpoint is the internal Docker network URL for container-to-container access.
 	IndexerInternalEndpoint string `toml:"indexer_internal_endpoint"`
-	// EnvConfig is the shared environment configuration for NOPs, committees, and executor pools.
-	EnvConfig *deployments.EnvConfig `toml:"env_config" validate:"required"`
+	// EnvironmentTopology is the shared environment configuration for NOPs, committees, and executor pools.
+	EnvironmentTopology *deployments.EnvironmentTopology `toml:"environment_topology" validate:"required"`
 }
 
 // NewAggregatorClientForCommittee creates an AggregatorClient for the specified committee.
@@ -145,38 +145,32 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Co
 	}
 }
 
-// enrichEnvConfig injects SignerAddress values from verifier inputs into the EnvConfig.
+// enrichEnvironmentTopology injects SignerAddress values from verifier inputs into the EnvironmentTopology.
 // This is needed because signer addresses are only known after key generation or CL node launch.
 // Each verifier's NOPAlias identifies which NOP in the topology it belongs to.
 // Only the first verifier for each NOP sets the signer address (subsequent verifiers with the
 // same NOPAlias are ignored to avoid overwriting with wrong keys due to round-robin wrap-around).
-func enrichEnvConfig(cfg *deployments.EnvConfig, verifiers []*services.VerifierInput) {
+func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers []*services.VerifierInput) {
+	seenAliases := make(map[string]struct{})
 	for _, ver := range verifiers {
-		if nop, ok := cfg.NOPTopology.NOPs[ver.NOPAlias]; ok {
+		if _, seen := seenAliases[ver.NOPAlias]; seen {
+			continue
+		}
+		if nop, ok := cfg.NOPTopology.GetNOP(ver.NOPAlias); ok {
 			if nop.SignerAddress == "" {
-				nop.SignerAddress = ver.SigningKeyPublic
-				cfg.NOPTopology.NOPs[ver.NOPAlias] = nop
+				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, ver.SigningKeyPublic)
+				seenAliases[ver.NOPAlias] = struct{}{}
 			}
 		}
 	}
 }
 
-// parseNodeIndexFromNOPAlias extracts the node index from a NOPAlias.
-// Expected format: "node-N" where N is the zero-based node index.
-func parseNodeIndexFromNOPAlias(nopAlias string) (int, error) {
-	if !strings.HasPrefix(nopAlias, "node-") {
-		return -1, fmt.Errorf("invalid NOP alias format: %s, expected node-N", nopAlias)
-	}
-	indexStr := strings.TrimPrefix(nopAlias, "node-")
-	return strconv.Atoi(indexStr)
-}
-
-// buildAndWriteEnvConfig loads the EnvConfig from the Cfg, enriches it with signer addresses,
+// buildAndWriteEnvironmentTopology loads the EnvironmentTopology from the Cfg, enriches it with signer addresses,
 // and writes it to a file. This is used by both executor and verifier changesets as the
 // single source of truth.
-func buildAndWriteEnvConfig(in *Cfg) (string, error) {
-	envCfg := *in.EnvConfig
-	enrichEnvConfig(&envCfg, in.Verifier)
+func buildAndWriteEnvironmentTopology(in *Cfg) (string, error) {
+	envCfg := *in.EnvironmentTopology
+	enrichEnvironmentTopology(&envCfg, in.Verifier)
 
 	configDir := filepath.Join(util.CCVConfigDir(), "env-config")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
@@ -184,15 +178,15 @@ func buildAndWriteEnvConfig(in *Cfg) (string, error) {
 	}
 
 	configPath := filepath.Join(configDir, "env.toml")
-	if err := deployments.WriteEnvConfig(configPath, envCfg); err != nil {
-		return "", fmt.Errorf("failed to write env config: %w", err)
+	if err := deployments.WriteEnvironmentTopology(configPath, envCfg); err != nil {
+		return "", fmt.Errorf("failed to write environment topology: %w", err)
 	}
 
-	Plog.Info().Str("path", configPath).Msg("Wrote shared EnvConfig")
+	Plog.Info().Str("path", configPath).Msg("Wrote shared EnvironmentTopology")
 	return configPath, nil
 }
 
-// generateExecutorJobSpecs generates job specs for all executors using the EnvConfig-based changeset.
+// generateExecutorJobSpecs generates job specs for all executors using the EnvironmentTopology-based changeset.
 // It returns a map of container name -> job spec for use in CL mode.
 // For standalone mode, it also sets GeneratedConfig on each executor.
 func generateExecutorJobSpecs(
@@ -228,7 +222,7 @@ func generateExecutorJobSpecs(
 
 		cs := changesets.GenerateExecutorConfig()
 		output, err := cs.Apply(*e, changesets.GenerateExecutorConfigCfg{
-			EnvConfigPath:     envConfigPath,
+			TopologyPath:      envConfigPath,
 			ExecutorQualifier: qualifier,
 			ChainSelectors:    selectors,
 			NOPAliases:        execNOPAliases,
@@ -284,7 +278,7 @@ func generateExecutorJobSpecs(
 	return executorJobSpecs, nil
 }
 
-// generateVerifierJobSpecs generates job specs for all verifiers using the EnvConfig-based changeset.
+// generateVerifierJobSpecs generates job specs for all verifiers using the EnvironmentTopology-based changeset.
 // It returns a map of container name -> job spec for use in CL mode.
 // For standalone mode, it also sets GeneratedConfig on each verifier.
 func generateVerifierJobSpecs(
@@ -315,7 +309,7 @@ func generateVerifierJobSpecs(
 
 		cs := changesets.GenerateVerifierConfig()
 		output, err := cs.Apply(*e, changesets.GenerateVerifierConfigCfg{
-			EnvConfigPath:      envConfigPath,
+			TopologyPath:       envConfigPath,
 			CommitteeQualifier: committeeName,
 			ExecutorQualifier:  evm.DefaultExecutorQualifier,
 			ChainSelectors:     selectors,
@@ -505,9 +499,9 @@ func NewEnvironment() (in *Cfg, err error) {
 
 		switch ver.Mode {
 		case services.CL:
-			nodeIndex, err := parseNodeIndexFromNOPAlias(ver.NOPAlias)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse node index for verifier %s: %w", ver.ContainerName, err)
+			nodeIndex, ok := in.EnvironmentTopology.NOPTopology.GetNOPIndex(ver.NOPAlias)
+			if !ok {
+				return nil, fmt.Errorf("NOP alias %q not found in topology for verifier %s", ver.NOPAlias, ver.ContainerName)
 			}
 			if nodeIndex >= len(clNodeKeys) {
 				return nil, fmt.Errorf("node index %d from NOPAlias %s exceeds available CL node keys (%d)",
@@ -777,12 +771,12 @@ func NewEnvironment() (in *Cfg, err error) {
 	/////////////////////////
 
 	/////////////////////////////////////////
-	// START: Build shared EnvConfig      //
+	// START: Build shared EnvironmentTopology //
 	// Used by both executor and verifier //
 	// changesets as single source of truth //
 	/////////////////////////////////////////
 
-	envConfigPath, err := buildAndWriteEnvConfig(in)
+	envConfigPath, err := buildAndWriteEnvironmentTopology(in)
 	if err != nil {
 		return nil, err
 	}
@@ -894,9 +888,9 @@ func createJobs(
 	for _, ver := range vIn {
 		switch ver.Mode {
 		case services.CL:
-			nodeIndex, err := parseNodeIndexFromNOPAlias(ver.NOPAlias)
-			if err != nil {
-				return fmt.Errorf("failed to parse node index for verifier %s: %w", ver.ContainerName, err)
+			nodeIndex, ok := in.EnvironmentTopology.NOPTopology.GetNOPIndex(ver.NOPAlias)
+			if !ok {
+				return fmt.Errorf("NOP alias %q not found in topology for verifier %s", ver.NOPAlias, ver.ContainerName)
 			}
 			if nodeIndex >= len(clClients) {
 				return fmt.Errorf("node index %d from NOPAlias %s exceeds available CL nodes (%d)",
@@ -945,9 +939,9 @@ func createJobs(
 	for _, exec := range executorIn {
 		switch exec.Mode {
 		case services.CL:
-			nodeIndex, err := parseNodeIndexFromNOPAlias(exec.NOPAlias)
-			if err != nil {
-				return fmt.Errorf("failed to parse node index for executor %s: %w", exec.ContainerName, err)
+			nodeIndex, ok := in.EnvironmentTopology.NOPTopology.GetNOPIndex(exec.NOPAlias)
+			if !ok {
+				return fmt.Errorf("NOP alias %q not found in topology for executor %s", exec.NOPAlias, exec.ContainerName)
 			}
 			if nodeIndex >= len(clClients) {
 				return fmt.Errorf("node index %d from NOPAlias %s exceeds available CL nodes (%d)",
@@ -1043,9 +1037,9 @@ func launchCLNodes(
 	}
 	aggSecretsPerNode := make(map[int][]AggregatorSecret)
 	for _, ver := range vIn {
-		index, err := parseNodeIndexFromNOPAlias(ver.NOPAlias)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse node index for verifier %s: %w", ver.ContainerName, err)
+		index, ok := in.EnvironmentTopology.NOPTopology.GetNOPIndex(ver.NOPAlias)
+		if !ok {
+			return nil, fmt.Errorf("NOP alias %q not found in topology for verifier %s", ver.NOPAlias, ver.ContainerName)
 		}
 		if index >= len(nodeSpecs) {
 			return nil, fmt.Errorf("node index %d from NOPAlias %s exceeds available nodes (%d)",

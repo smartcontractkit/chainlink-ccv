@@ -244,7 +244,7 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 	out := &IndexerOutput{
 		ContainerName:      in.ContainerName,
 		ExternalHTTPURL:    fmt.Sprintf("http://%s:%d", host, in.Port),
-		InternalHTTPURL:    fmt.Sprintf("http://%s:%d", in.ContainerName, DefaultIndexerInternalPort),
+		InternalHTTPURL:    fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
 		DBConnectionString: DefaultIndexerDBConnectionString,
 	}
 	in.Out = out

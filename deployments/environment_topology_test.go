@@ -12,7 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 )
 
-func TestLoadEnvConfig_LoadsValidConfig(t *testing.T) {
+func TestLoadEnvironmentTopology_LoadsValidConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "env.toml")
 
@@ -35,11 +35,11 @@ TraceBatchTimeout = 10
 nop_aliases = ["nop-1", "nop-2"]
 execution_interval = "15s"
 
-[nop_topology.nops.nop-1]
+[[nop_topology.nops]]
 alias = "nop-1"
 name = "NOP One"
 
-[nop_topology.nops.nop-2]
+[[nop_topology.nops]]
 alias = "nop-2"
 name = "NOP Two"
 
@@ -59,7 +59,7 @@ insecure_connection = false
 	err := os.WriteFile(configPath, []byte(configContent), 0o600)
 	require.NoError(t, err)
 
-	cfg, err := deployments.LoadEnvConfig(configPath)
+	cfg, err := deployments.LoadEnvironmentTopology(configPath)
 	require.NoError(t, err)
 
 	assert.Equal(t, "http://indexer:8100", cfg.IndexerAddress)
@@ -68,8 +68,12 @@ insecure_connection = false
 	assert.Equal(t, "beholder", cfg.Monitoring.Type)
 
 	require.Len(t, cfg.NOPTopology.NOPs, 2)
-	assert.Equal(t, "NOP One", cfg.NOPTopology.NOPs["nop-1"].Name)
-	assert.Equal(t, "NOP Two", cfg.NOPTopology.NOPs["nop-2"].Name)
+	nop1, ok := cfg.NOPTopology.GetNOP("nop-1")
+	require.True(t, ok)
+	assert.Equal(t, "NOP One", nop1.Name)
+	nop2, ok := cfg.NOPTopology.GetNOP("nop-2")
+	require.True(t, ok)
+	assert.Equal(t, "NOP Two", nop2.Name)
 
 	require.Len(t, cfg.NOPTopology.Committees, 1)
 	committee := cfg.NOPTopology.Committees["default"]
@@ -83,11 +87,11 @@ insecure_connection = false
 	assert.Equal(t, 15*time.Second, pool.ExecutionInterval)
 }
 
-func TestWriteEnvConfig_WritesValidConfig(t *testing.T) {
+func TestWriteEnvironmentTopology_WritesValidConfig(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "env.toml")
 
-	cfg := deployments.EnvConfig{
+	cfg := deployments.EnvironmentTopology{
 		IndexerAddress: "http://indexer:8100",
 		PyroscopeURL:   "http://pyroscope:4040",
 		Monitoring: deployments.MonitoringConfig{
@@ -102,9 +106,9 @@ func TestWriteEnvConfig_WritesValidConfig(t *testing.T) {
 			},
 		},
 		NOPTopology: deployments.NOPTopology{
-			NOPs: map[string]deployments.NOPConfig{
-				"nop-1": {Alias: "nop-1", Name: "NOP One"},
-				"nop-2": {Alias: "nop-2", Name: "NOP Two"},
+			NOPs: []deployments.NOPConfig{
+				{Alias: "nop-1", Name: "NOP One"},
+				{Alias: "nop-2", Name: "NOP Two"},
 			},
 			Committees: map[string]deployments.CommitteeConfig{
 				"default": {
@@ -127,10 +131,10 @@ func TestWriteEnvConfig_WritesValidConfig(t *testing.T) {
 		},
 	}
 
-	err := deployments.WriteEnvConfig(configPath, cfg)
+	err := deployments.WriteEnvironmentTopology(configPath, cfg)
 	require.NoError(t, err)
 
-	loaded, err := deployments.LoadEnvConfig(configPath)
+	loaded, err := deployments.LoadEnvironmentTopology(configPath)
 	require.NoError(t, err)
 
 	assert.Equal(t, cfg.IndexerAddress, loaded.IndexerAddress)
@@ -140,13 +144,13 @@ func TestWriteEnvConfig_WritesValidConfig(t *testing.T) {
 	assert.Len(t, loaded.ExecutorPools, 1)
 }
 
-func TestEnvConfig_GetNOPsForPool(t *testing.T) {
-	cfg := deployments.EnvConfig{
+func TestEnvironmentTopology_GetNOPsForPool(t *testing.T) {
+	cfg := deployments.EnvironmentTopology{
 		IndexerAddress: "http://indexer:8100",
 		NOPTopology: deployments.NOPTopology{
-			NOPs: map[string]deployments.NOPConfig{
-				"nop-1": {Alias: "nop-1", Name: "NOP One"},
-				"nop-2": {Alias: "nop-2", Name: "NOP Two"},
+			NOPs: []deployments.NOPConfig{
+				{Alias: "nop-1", Name: "NOP One"},
+				{Alias: "nop-2", Name: "NOP Two"},
 			},
 			Committees: map[string]deployments.CommitteeConfig{},
 		},
@@ -163,14 +167,14 @@ func TestEnvConfig_GetNOPsForPool(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestEnvConfig_GetNOPsForCommittee(t *testing.T) {
-	cfg := deployments.EnvConfig{
+func TestEnvironmentTopology_GetNOPsForCommittee(t *testing.T) {
+	cfg := deployments.EnvironmentTopology{
 		IndexerAddress: "http://indexer:8100",
 		NOPTopology: deployments.NOPTopology{
-			NOPs: map[string]deployments.NOPConfig{
-				"nop-1": {Alias: "nop-1", Name: "NOP One"},
-				"nop-2": {Alias: "nop-2", Name: "NOP Two"},
-				"nop-3": {Alias: "nop-3", Name: "NOP Three"},
+			NOPs: []deployments.NOPConfig{
+				{Alias: "nop-1", Name: "NOP One"},
+				{Alias: "nop-2", Name: "NOP Two"},
+				{Alias: "nop-3", Name: "NOP Three"},
 			},
 			Committees: map[string]deployments.CommitteeConfig{
 				"default": {
@@ -194,12 +198,12 @@ func TestEnvConfig_GetNOPsForCommittee(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestEnvConfig_GetCommitteesForNOP(t *testing.T) {
-	cfg := deployments.EnvConfig{
+func TestEnvironmentTopology_GetCommitteesForNOP(t *testing.T) {
+	cfg := deployments.EnvironmentTopology{
 		IndexerAddress: "http://indexer:8100",
 		NOPTopology: deployments.NOPTopology{
-			NOPs: map[string]deployments.NOPConfig{
-				"nop-1": {Alias: "nop-1", Name: "NOP One"},
+			NOPs: []deployments.NOPConfig{
+				{Alias: "nop-1", Name: "NOP One"},
 			},
 			Committees: map[string]deployments.CommitteeConfig{
 				"committee-a": {
@@ -228,12 +232,12 @@ func TestEnvConfig_GetCommitteesForNOP(t *testing.T) {
 	assert.Empty(t, committees)
 }
 
-func TestEnvConfig_GetPoolsForNOP(t *testing.T) {
-	cfg := deployments.EnvConfig{
+func TestEnvironmentTopology_GetPoolsForNOP(t *testing.T) {
+	cfg := deployments.EnvironmentTopology{
 		IndexerAddress: "http://indexer:8100",
 		NOPTopology: deployments.NOPTopology{
-			NOPs: map[string]deployments.NOPConfig{
-				"nop-1": {Alias: "nop-1", Name: "NOP One"},
+			NOPs: []deployments.NOPConfig{
+				{Alias: "nop-1", Name: "NOP One"},
 			},
 			Committees: map[string]deployments.CommitteeConfig{},
 		},
@@ -250,8 +254,8 @@ func TestEnvConfig_GetPoolsForNOP(t *testing.T) {
 	assert.Empty(t, pools)
 }
 
-func TestEnvConfig_Validate_RequiresIndexerAddress(t *testing.T) {
-	cfg := deployments.EnvConfig{
+func TestEnvironmentTopology_Validate_RequiresIndexerAddress(t *testing.T) {
+	cfg := deployments.EnvironmentTopology{
 		IndexerAddress: "",
 	}
 
@@ -260,12 +264,13 @@ func TestEnvConfig_Validate_RequiresIndexerAddress(t *testing.T) {
 	assert.Contains(t, err.Error(), "indexer_address is required")
 }
 
-func TestEnvConfig_Validate_NOPAliasMismatch(t *testing.T) {
-	cfg := deployments.EnvConfig{
+func TestEnvironmentTopology_Validate_DuplicateNOPAlias(t *testing.T) {
+	cfg := deployments.EnvironmentTopology{
 		IndexerAddress: "http://indexer:8100",
 		NOPTopology: deployments.NOPTopology{
-			NOPs: map[string]deployments.NOPConfig{
-				"wrong-key": {Alias: "correct-alias", Name: "NOP"},
+			NOPs: []deployments.NOPConfig{
+				{Alias: "nop-1", Name: "NOP One"},
+				{Alias: "nop-1", Name: "Duplicate NOP"},
 			},
 			Committees: map[string]deployments.CommitteeConfig{},
 		},
@@ -273,15 +278,15 @@ func TestEnvConfig_Validate_NOPAliasMismatch(t *testing.T) {
 
 	err := cfg.Validate()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "NOP alias mismatch")
+	assert.Contains(t, err.Error(), "duplicate NOP alias")
 }
 
-func TestEnvConfig_Validate_CommitteeReferencesUnknownNOP(t *testing.T) {
-	cfg := deployments.EnvConfig{
+func TestEnvironmentTopology_Validate_CommitteeReferencesUnknownNOP(t *testing.T) {
+	cfg := deployments.EnvironmentTopology{
 		IndexerAddress: "http://indexer:8100",
 		NOPTopology: deployments.NOPTopology{
-			NOPs: map[string]deployments.NOPConfig{
-				"nop-1": {Alias: "nop-1", Name: "NOP One"},
+			NOPs: []deployments.NOPConfig{
+				{Alias: "nop-1", Name: "NOP One"},
 			},
 			Committees: map[string]deployments.CommitteeConfig{
 				"default": {
@@ -300,12 +305,12 @@ func TestEnvConfig_Validate_CommitteeReferencesUnknownNOP(t *testing.T) {
 	assert.Contains(t, err.Error(), "unknown NOP alias")
 }
 
-func TestEnvConfig_Validate_ThresholdExceedsNOPCount(t *testing.T) {
-	cfg := deployments.EnvConfig{
+func TestEnvironmentTopology_Validate_ThresholdExceedsNOPCount(t *testing.T) {
+	cfg := deployments.EnvironmentTopology{
 		IndexerAddress: "http://indexer:8100",
 		NOPTopology: deployments.NOPTopology{
-			NOPs: map[string]deployments.NOPConfig{
-				"nop-1": {Alias: "nop-1", Name: "NOP One"},
+			NOPs: []deployments.NOPConfig{
+				{Alias: "nop-1", Name: "NOP One"},
 			},
 			Committees: map[string]deployments.CommitteeConfig{
 				"default": {
@@ -322,4 +327,48 @@ func TestEnvConfig_Validate_ThresholdExceedsNOPCount(t *testing.T) {
 	err := cfg.Validate()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "threshold 5 exceeds NOP count 1")
+}
+
+func TestNOPTopology_GetNOPIndex_ReturnsCorrectIndex(t *testing.T) {
+	topology := &deployments.NOPTopology{
+		NOPs: []deployments.NOPConfig{
+			{Alias: "nop-a", Name: "NOP A"},
+			{Alias: "nop-b", Name: "NOP B"},
+			{Alias: "nop-c", Name: "NOP C"},
+		},
+	}
+
+	idx, ok := topology.GetNOPIndex("nop-a")
+	require.True(t, ok)
+	assert.Equal(t, 0, idx)
+
+	idx, ok = topology.GetNOPIndex("nop-b")
+	require.True(t, ok)
+	assert.Equal(t, 1, idx)
+
+	idx, ok = topology.GetNOPIndex("nop-c")
+	require.True(t, ok)
+	assert.Equal(t, 2, idx)
+
+	_, ok = topology.GetNOPIndex("nonexistent")
+	assert.False(t, ok)
+}
+
+func TestNOPTopology_SetNOPSignerAddress(t *testing.T) {
+	topology := &deployments.NOPTopology{
+		NOPs: []deployments.NOPConfig{
+			{Alias: "nop-1", Name: "NOP One"},
+			{Alias: "nop-2", Name: "NOP Two"},
+		},
+	}
+
+	ok := topology.SetNOPSignerAddress("nop-1", "0x123")
+	require.True(t, ok)
+
+	nop, ok := topology.GetNOP("nop-1")
+	require.True(t, ok)
+	assert.Equal(t, "0x123", nop.SignerAddress)
+
+	ok = topology.SetNOPSignerAddress("nonexistent", "0x456")
+	assert.False(t, ok)
 }

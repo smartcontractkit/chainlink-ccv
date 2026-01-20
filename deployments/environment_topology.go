@@ -9,10 +9,10 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// EnvConfig holds all environment-specific configuration that cannot be inferred
+// EnvironmentTopology holds all environment-specific configuration that cannot be inferred
 // from the datastore. This serves as the single source of truth for both off-chain
 // (job specs) and on-chain (committee contracts) configuration.
-type EnvConfig struct {
+type EnvironmentTopology struct {
 	IndexerAddress string                        `toml:"indexer_address"`
 	PyroscopeURL   string                        `toml:"pyroscope_url"`
 	Monitoring     MonitoringConfig              `toml:"monitoring"`
@@ -23,9 +23,62 @@ type EnvConfig struct {
 // NOPTopology defines the node operator structure and committee membership.
 // This is the single source of truth for both off-chain (job specs) and
 // on-chain (committee contracts) configuration.
+// NOPs are stored as a slice to preserve declaration order, which determines
+// the node index for CL node assignment.
 type NOPTopology struct {
-	NOPs       map[string]NOPConfig       `toml:"nops"`
+	NOPs       []NOPConfig                `toml:"nops"`
 	Committees map[string]CommitteeConfig `toml:"committees"`
+
+	nopIndex map[string]int // internal index lookups, built on first access
+}
+
+// GetNOP returns the NOPConfig for the given alias.
+func (t *NOPTopology) GetNOP(alias string) (NOPConfig, bool) {
+	t.ensureIndex()
+	idx, ok := t.nopIndex[alias]
+	if !ok {
+		return NOPConfig{}, false
+	}
+	return t.NOPs[idx], true
+}
+
+// GetNOPIndex returns the index of the NOP with the given alias.
+// The index corresponds to the declaration order in the topology config,
+// which maps to CL node indices.
+func (t *NOPTopology) GetNOPIndex(alias string) (int, bool) {
+	t.ensureIndex()
+	idx, ok := t.nopIndex[alias]
+	return idx, ok
+}
+
+// SetNOPSignerAddress sets the signer address for the NOP with the given alias.
+// Returns true if the NOP was found and updated, false otherwise.
+func (t *NOPTopology) SetNOPSignerAddress(alias, addr string) bool {
+	t.ensureIndex()
+	idx, ok := t.nopIndex[alias]
+	if !ok {
+		return false
+	}
+	t.NOPs[idx].SignerAddress = addr
+	return true
+}
+
+// HasNOP returns true if a NOP with the given alias exists.
+func (t *NOPTopology) HasNOP(alias string) bool {
+	t.ensureIndex()
+	_, ok := t.nopIndex[alias]
+	return ok
+}
+
+// ensureIndex builds the internal alias-to-index map if not already built.
+func (t *NOPTopology) ensureIndex() {
+	if t.nopIndex != nil {
+		return
+	}
+	t.nopIndex = make(map[string]int, len(t.NOPs))
+	for i, nop := range t.NOPs {
+		t.nopIndex[nop.Alias] = i
+	}
 }
 
 // NOPConfig defines a Node Operator.
@@ -91,45 +144,45 @@ type BeholderConfig struct {
 	TraceBatchTimeout        int64   `toml:"TraceBatchTimeout"`
 }
 
-// LoadEnvConfig loads an EnvConfig from a TOML file.
-func LoadEnvConfig(path string) (*EnvConfig, error) {
+// LoadEnvironmentTopology loads an EnvironmentTopology from a TOML file.
+func LoadEnvironmentTopology(path string) (*EnvironmentTopology, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // G304: path is provided by trusted caller
 	if err != nil {
-		return nil, fmt.Errorf("failed to read env config file: %w", err)
+		return nil, fmt.Errorf("failed to read environment topology file: %w", err)
 	}
 
-	var cfg EnvConfig
+	var cfg EnvironmentTopology
 	if err := toml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse env config TOML: %w", err)
+		return nil, fmt.Errorf("failed to parse environment topology TOML: %w", err)
 	}
 
 	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("env config validation failed: %w", err)
+		return nil, fmt.Errorf("environment topology validation failed: %w", err)
 	}
 
 	return &cfg, nil
 }
 
-// WriteEnvConfig writes an EnvConfig to a TOML file.
-func WriteEnvConfig(path string, cfg EnvConfig) error {
+// WriteEnvironmentTopology writes an EnvironmentTopology to a TOML file.
+func WriteEnvironmentTopology(path string, cfg EnvironmentTopology) error {
 	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("env config validation failed: %w", err)
+		return fmt.Errorf("environment topology validation failed: %w", err)
 	}
 
 	data, err := toml.Marshal(cfg)
 	if err != nil {
-		return fmt.Errorf("failed to marshal env config to TOML: %w", err)
+		return fmt.Errorf("failed to marshal environment topology to TOML: %w", err)
 	}
 
 	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return fmt.Errorf("failed to write env config file: %w", err)
+		return fmt.Errorf("failed to write environment topology file: %w", err)
 	}
 
 	return nil
 }
 
-// Validate validates the EnvConfig.
-func (c *EnvConfig) Validate() error {
+// Validate validates the EnvironmentTopology.
+func (c *EnvironmentTopology) Validate() error {
 	if c.IndexerAddress == "" {
 		return fmt.Errorf("indexer_address is required")
 	}
@@ -139,7 +192,7 @@ func (c *EnvConfig) Validate() error {
 	}
 
 	for poolName, pool := range c.ExecutorPools {
-		if err := pool.Validate(poolName, c.NOPTopology.NOPs); err != nil {
+		if err := pool.Validate(poolName, &c.NOPTopology); err != nil {
 			return fmt.Errorf("executor_pool %q validation failed: %w", poolName, err)
 		}
 	}
@@ -149,12 +202,17 @@ func (c *EnvConfig) Validate() error {
 
 // Validate validates the NOPTopology.
 func (t *NOPTopology) Validate() error {
-	for alias, nop := range t.NOPs {
-		if nop.Alias != alias {
-			return fmt.Errorf("NOP alias mismatch: key %q != alias %q", alias, nop.Alias)
+	seen := make(map[string]struct{}, len(t.NOPs))
+	for _, nop := range t.NOPs {
+		if nop.Alias == "" {
+			return fmt.Errorf("NOP alias is required")
 		}
+		if _, exists := seen[nop.Alias]; exists {
+			return fmt.Errorf("duplicate NOP alias %q", nop.Alias)
+		}
+		seen[nop.Alias] = struct{}{}
 		if nop.Name == "" {
-			return fmt.Errorf("NOP %q name is required", alias)
+			return fmt.Errorf("NOP %q name is required", nop.Alias)
 		}
 	}
 
@@ -162,7 +220,7 @@ func (t *NOPTopology) Validate() error {
 		if committee.Qualifier != qualifier {
 			return fmt.Errorf("committee qualifier mismatch: key %q != qualifier %q", qualifier, committee.Qualifier)
 		}
-		if err := committee.Validate(t.NOPs); err != nil {
+		if err := committee.Validate(t); err != nil {
 			return fmt.Errorf("committee %q validation failed: %w", qualifier, err)
 		}
 	}
@@ -171,7 +229,7 @@ func (t *NOPTopology) Validate() error {
 }
 
 // Validate validates the CommitteeConfig.
-func (c *CommitteeConfig) Validate(nops map[string]NOPConfig) error {
+func (c *CommitteeConfig) Validate(topology *NOPTopology) error {
 	if len(c.Aggregators) == 0 {
 		return fmt.Errorf("at least one aggregator is required")
 	}
@@ -190,7 +248,7 @@ func (c *CommitteeConfig) Validate(nops map[string]NOPConfig) error {
 			return fmt.Errorf("chain %q requires at least one NOP", chainSelector)
 		}
 		for _, alias := range chainCfg.NOPAliases {
-			if _, ok := nops[alias]; !ok {
+			if !topology.HasNOP(alias) {
 				return fmt.Errorf("chain %q references unknown NOP alias %q", chainSelector, alias)
 			}
 		}
@@ -206,13 +264,13 @@ func (c *CommitteeConfig) Validate(nops map[string]NOPConfig) error {
 }
 
 // Validate validates the ExecutorPoolConfig.
-func (p *ExecutorPoolConfig) Validate(poolName string, nops map[string]NOPConfig) error {
+func (p *ExecutorPoolConfig) Validate(poolName string, topology *NOPTopology) error {
 	if len(p.NOPAliases) == 0 {
 		return fmt.Errorf("executor pool requires at least one NOP")
 	}
 
 	for _, alias := range p.NOPAliases {
-		if _, ok := nops[alias]; !ok {
+		if !topology.HasNOP(alias) {
 			return fmt.Errorf("executor pool references unknown NOP alias %q", alias)
 		}
 	}
@@ -221,7 +279,7 @@ func (p *ExecutorPoolConfig) Validate(poolName string, nops map[string]NOPConfig
 }
 
 // GetNOPsForPool returns the NOP aliases for a given executor pool.
-func (c *EnvConfig) GetNOPsForPool(poolName string) ([]string, error) {
+func (c *EnvironmentTopology) GetNOPsForPool(poolName string) ([]string, error) {
 	pool, ok := c.ExecutorPools[poolName]
 	if !ok {
 		return nil, fmt.Errorf("executor pool %q not found", poolName)
@@ -230,7 +288,7 @@ func (c *EnvConfig) GetNOPsForPool(poolName string) ([]string, error) {
 }
 
 // GetNOPsForCommittee returns the NOP aliases that are members of a committee on any chain.
-func (c *EnvConfig) GetNOPsForCommittee(committeeQualifier string) ([]string, error) {
+func (c *EnvironmentTopology) GetNOPsForCommittee(committeeQualifier string) ([]string, error) {
 	committee, ok := c.NOPTopology.Committees[committeeQualifier]
 	if !ok {
 		return nil, fmt.Errorf("committee %q not found", committeeQualifier)
@@ -252,7 +310,7 @@ func (c *EnvConfig) GetNOPsForCommittee(committeeQualifier string) ([]string, er
 }
 
 // GetCommitteesForNOP returns the committee qualifiers that include a NOP on any chain.
-func (c *EnvConfig) GetCommitteesForNOP(nopAlias string) []string {
+func (c *EnvironmentTopology) GetCommitteesForNOP(nopAlias string) []string {
 	var committees []string
 	for qualifier, committee := range c.NOPTopology.Committees {
 		for _, chainCfg := range committee.ChainConfigs {
@@ -266,7 +324,7 @@ func (c *EnvConfig) GetCommitteesForNOP(nopAlias string) []string {
 }
 
 // GetPoolsForNOP returns the executor pool names that include a NOP.
-func (c *EnvConfig) GetPoolsForNOP(nopAlias string) []string {
+func (c *EnvironmentTopology) GetPoolsForNOP(nopAlias string) []string {
 	var pools []string
 	for poolName, pool := range c.ExecutorPools {
 		if slices.Contains(pool.NOPAliases, nopAlias) {
