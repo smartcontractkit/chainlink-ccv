@@ -19,11 +19,12 @@ import (
 )
 
 const (
-	DefaultIndexerName     = "indexer"
-	DefaultIndexerDBName   = "indexer-db"
-	DefaultIndexerImage    = "indexer:dev"
-	DefaultIndexerHTTPPort = 8102
-	DefaultIndexerDBPort   = 6432
+	DefaultIndexerName         = "indexer"
+	DefaultIndexerDBName       = "indexer-db"
+	DefaultIndexerImage        = "indexer:dev"
+	DefaultIndexerHTTPPort     = 8102
+	DefaultIndexerInternalPort = 8100
+	DefaultIndexerDBPort       = 6432
 
 	DefaultIndexerDBImage = "postgres:16-alpine"
 )
@@ -77,40 +78,6 @@ func defaults(in *IndexerInput) {
 	if in.DB == nil {
 		in.DB = &DBInput{
 			Image: DefaultIndexerDBImage,
-		}
-	}
-
-	if in.Secrets == nil {
-		in.Secrets = &config.SecretsConfig{
-			Discovery: config.DiscoverySecrets{
-				APIKey: "dev-api-key-indexer",
-				Secret: "dev-secret-indexer",
-			},
-			Storage: config.StorageSecrets{
-				Sink: config.SinkStorageSecrets{
-					Storages: map[string]config.StorageBackendSecrets{
-						"1": {
-							Postgres: config.PostgresSecrets{
-								URI: "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable",
-							},
-						},
-					},
-				},
-			},
-			Verifier: map[string]config.VerifierSecrets{
-				"0": {
-					APIKey: "dev-api-key-indexer",
-					Secret: "dev-secret-indexer",
-				},
-				"1": {
-					APIKey: "dev-api-key-indexer",
-					Secret: "dev-secret-indexer",
-				},
-				"2": {
-					APIKey: "dev-api-key-indexer",
-					Secret: "dev-secret-indexer",
-				},
-			},
 		}
 	}
 }
@@ -277,7 +244,7 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 	out := &IndexerOutput{
 		ContainerName:      in.ContainerName,
 		ExternalHTTPURL:    fmt.Sprintf("http://%s:%d", host, in.Port),
-		InternalHTTPURL:    fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
+		InternalHTTPURL:    fmt.Sprintf("http://%s:%d", in.ContainerName, DefaultIndexerInternalPort),
 		DBConnectionString: DefaultIndexerDBConnectionString,
 	}
 	in.Out = out

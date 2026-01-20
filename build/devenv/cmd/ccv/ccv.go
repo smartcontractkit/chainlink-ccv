@@ -20,7 +20,6 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/gencfg"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
@@ -469,35 +468,6 @@ var printAddressesCmd = &cobra.Command{
 	},
 }
 
-var generateConfigsCmd = &cobra.Command{
-	Use:   "generate-configs",
-	Short: "Generate the verifier and executor jobspecs (CL deployment only), and the aggregator and indexer TOML configuration files for the environment. Requires gh tool to authenticate to CLD repo.",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cldDomain, err := cmd.Flags().GetString("cld-domain")
-		if err != nil {
-			return err
-		}
-		verifierPubKeys, err := cmd.Flags().GetStringSlice("verifier-pubkeys")
-		if err != nil {
-			return err
-		}
-		numExecutors, err := cmd.Flags().GetInt("num-executors")
-		if err != nil {
-			return err
-		}
-		createPR, err := cmd.Flags().GetBool("create-pr")
-		if err != nil {
-			return err
-		}
-
-		_, err = gencfg.GenerateConfigs(cldDomain, verifierPubKeys, numExecutors, createPR)
-		if err != nil {
-			return fmt.Errorf("failed to generate configs: %w", err)
-		}
-		return nil
-	},
-}
-
 var generateHMACSecretCmd = &cobra.Command{
 	Use:   "generate-hmac-secret",
 	Short: "Generate cryptographically secure HMAC credentials (API key and secret) for aggregator authentication",
@@ -722,17 +692,6 @@ func init() {
 	// contract management
 	rootCmd.AddCommand(deployCommitVerifierCmd)
 	rootCmd.AddCommand(deployReceiverCmd)
-
-	// config generation
-	rootCmd.AddCommand(generateConfigsCmd)
-	generateConfigsCmd.Flags().String("cld-domain", "", "CLD Domain to target for config generation. Current options: staging_testnet")
-	generateConfigsCmd.Flags().StringSlice("verifier-pubkeys", []string{}, "List of verifier public keys (hex encoded) to include in the generated configs")
-	generateConfigsCmd.Flags().Int("num-executors", 1, "Number of executor jobspecs to generate")
-	generateConfigsCmd.Flags().Bool("create-pr", false, "Create a pull request with the generated configs")
-
-	_ = generateConfigsCmd.MarkFlagRequired("cld-domain")
-	_ = generateConfigsCmd.MarkFlagRequired("verifier-pubkeys")
-	_ = generateConfigsCmd.MarkFlagRequired("num-executors")
 
 	// HMAC secret generation
 	rootCmd.AddCommand(generateHMACSecretCmd)
