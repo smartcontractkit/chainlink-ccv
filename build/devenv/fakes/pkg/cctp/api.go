@@ -47,10 +47,10 @@ func (a *AttestationAPI) RegisterAttestation(sourceDomain, messageID, status, me
 
 	// Use provided values or defaults
 	if message == "" {
-		message = "0xbbbbbbbb"
+		message = "0x00000000000000050000000300000000000194c2a65fc943419a5ad590042fd67c9791fd015acf53a54cc823edb8ff81b9ed722e00000000000000000000000019330d10d9cc8751218eaf51e8885d058642e08a000000000000000000000000fc05ad74c6fe2e7046e091d6ad4f660d2a15976200000000c6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0e47ca60203452f5d610000000000000000000000002d475f4746419c83be23056309a8e2ac33b30e3b0000000000000000000000000000000000000000000000000000000002b67df0feae5e08f5e6bf04d8c1de7dada9235c56996f4420b14371d6c6f3ddd2f2da78"
 	}
 	if attestation == "" {
-		attestation = "0xaaaaaaaa"
+		attestation = "0x6edd90f4a0ad0212fd9fbbd5058a25aa8ee10ce77e4fc143567bbe73fb6e164f384a3e14d350c8a4fc50b781177297e03c16b304e8d7656391df0f59a75a271f1b"
 	}
 
 	// Create a response based on the example attestation but with the provided sourceDomain, hookData and status
