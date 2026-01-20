@@ -9,55 +9,49 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
+	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
+	verifierconfig "github.com/smartcontractkit/chainlink-ccv/deployments/operations/verifier_config"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/sequences"
 )
 
-// GenerateVerifierConfigCfg is the configuration for the generate verifier config changeset.
 type GenerateVerifierConfigCfg struct {
-	TopologyPath       string
 	CommitteeQualifier string
 	ExecutorQualifier  string
 	ChainSelectors     []uint64
 	NOPAliases         []string
+	NOPs               []verifierconfig.NOPInput
+	Committee          verifierconfig.CommitteeInput
+	PyroscopeURL       string
+	Monitoring         shared.MonitoringInput
 }
 
-// GenerateVerifierConfig creates a changeset that generates verifier configurations
-// for NOPs that are part of committees. It iterates over specified NOPs (or all if empty)
-// and generates a job spec for each (NOP, committee, aggregator) combination for HA support.
-// The SignerAddress for each NOP is read from the NOPConfig in the EnvironmentTopology.
 func GenerateVerifierConfig() deployment.ChangeSetV2[GenerateVerifierConfigCfg] {
 	validate := func(e deployment.Environment, cfg GenerateVerifierConfigCfg) error {
-		if cfg.TopologyPath == "" {
-			return fmt.Errorf("topology path is required")
-		}
 		if cfg.CommitteeQualifier == "" {
 			return fmt.Errorf("committee qualifier is required")
 		}
 
-		topology, err := deployments.LoadEnvironmentTopology(cfg.TopologyPath)
-		if err != nil {
-			return fmt.Errorf("failed to load environment topology: %w", err)
+		if len(cfg.Committee.Aggregators) == 0 {
+			return fmt.Errorf("at least one aggregator is required")
 		}
 
-		if _, ok := topology.NOPTopology.Committees[cfg.CommitteeQualifier]; !ok {
-			return fmt.Errorf("committee %q not found in environment topology", cfg.CommitteeQualifier)
+		nopSet := make(map[string]verifierconfig.NOPInput, len(cfg.NOPs))
+		for _, nop := range cfg.NOPs {
+			nopSet[nop.Alias] = nop
 		}
 
 		nopAliases := cfg.NOPAliases
 		if len(nopAliases) == 0 {
-			nopAliases, err = topology.GetNOPsForCommittee(cfg.CommitteeQualifier)
-			if err != nil {
-				return fmt.Errorf("failed to get NOPs for committee: %w", err)
-			}
+			nopAliases = cfg.Committee.NOPAliases
 		}
 
 		for _, alias := range nopAliases {
-			nop, ok := topology.NOPTopology.GetNOP(alias)
+			nop, ok := nopSet[alias]
 			if !ok {
-				return fmt.Errorf("NOP alias %q not found in environment topology", alias)
+				return fmt.Errorf("NOP alias %q not found in NOPs input", alias)
 			}
 			if nop.SignerAddress == "" {
-				return fmt.Errorf("NOP %q missing signer_address in env config", alias)
+				return fmt.Errorf("NOP %q missing signer_address", alias)
 			}
 		}
 
@@ -71,19 +65,13 @@ func GenerateVerifierConfig() deployment.ChangeSetV2[GenerateVerifierConfigCfg] 
 	}
 
 	apply := func(e deployment.Environment, cfg GenerateVerifierConfigCfg) (deployment.ChangesetOutput, error) {
-		topology, err := deployments.LoadEnvironmentTopology(cfg.TopologyPath)
-		if err != nil {
-			return deployment.ChangesetOutput{}, fmt.Errorf("failed to load environment topology: %w", err)
-		}
-
 		selectors := cfg.ChainSelectors
 		if len(selectors) == 0 {
 			selectors = e.BlockChains.ListChainSelectors()
 		}
 
 		deps := sequences.GenerateVerifierConfigDeps{
-			Env:      e,
-			Topology: topology,
+			Env: e,
 		}
 
 		input := sequences.GenerateVerifierConfigInput{
@@ -91,6 +79,10 @@ func GenerateVerifierConfig() deployment.ChangeSetV2[GenerateVerifierConfigCfg] 
 			ExecutorQualifier:  cfg.ExecutorQualifier,
 			ChainSelectors:     selectors,
 			NOPAliases:         cfg.NOPAliases,
+			NOPs:               cfg.NOPs,
+			Committee:          cfg.Committee,
+			PyroscopeURL:       cfg.PyroscopeURL,
+			Monitoring:         cfg.Monitoring,
 		}
 
 		report, err := operations.ExecuteSequence(e.OperationsBundle, sequences.GenerateVerifierConfig, deps, input)

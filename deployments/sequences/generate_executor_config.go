@@ -8,36 +8,35 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
-	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	executorconfig "github.com/smartcontractkit/chainlink-ccv/deployments/operations/executor_config"
+	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 )
 
-// GenerateExecutorConfigInput contains the input for the executor config generation sequence.
 type GenerateExecutorConfigInput struct {
 	ExecutorQualifier string
 	ChainSelectors    []uint64
 	NOPAliases        []string
+	NOPs              []executorconfig.NOPInput
+	ExecutorPool      executorconfig.ExecutorPoolInput
+	IndexerAddress    string
+	PyroscopeURL      string
+	Monitoring        shared.MonitoringInput
 }
 
-// GenerateExecutorConfigOutput contains the output of the executor config generation sequence.
 type GenerateExecutorConfigOutput struct {
-	JobSpecs           executorconfig.NOPJobSpecs
+	JobSpecs           shared.NOPJobSpecs
 	ExpectedJobSpecIDs map[string]bool
 	ExecutorSuffix     string
 }
 
-// GenerateExecutorConfigDeps contains the dependencies for the sequence.
 type GenerateExecutorConfigDeps struct {
-	Env      deployment.Environment
-	Topology *deployments.EnvironmentTopology
+	Env deployment.Environment
 }
 
-// GenerateExecutorConfig is a sequence that generates executor job specs
-// by querying the datastore for contract addresses and building job specs for NOPs.
 var GenerateExecutorConfig = operations.NewSequence(
 	"generate-executor-config",
 	semver.MustParse("1.0.0"),
-	"Generates executor job specs from datastore contract addresses and environment topology",
+	"Generates executor job specs from datastore contract addresses and explicit input",
 	func(b operations.Bundle, deps GenerateExecutorConfigDeps, input GenerateExecutorConfigInput) (GenerateExecutorConfigOutput, error) {
 		buildResult, err := operations.ExecuteOperation(b, executorconfig.BuildConfig, executorconfig.BuildConfigDeps{
 			Env: deps.Env,
@@ -49,12 +48,15 @@ var GenerateExecutorConfig = operations.NewSequence(
 			return GenerateExecutorConfigOutput{}, fmt.Errorf("failed to build executor config: %w", err)
 		}
 
-		jobSpecsResult, err := operations.ExecuteOperation(b, executorconfig.BuildJobSpecs, executorconfig.BuildJobSpecsDeps{
-			Topology: deps.Topology,
-		}, executorconfig.BuildJobSpecsInput{
+		jobSpecsResult, err := operations.ExecuteOperation(b, executorconfig.BuildJobSpecs, struct{}{}, executorconfig.BuildJobSpecsInput{
 			GeneratedConfig:   buildResult.Output.Config,
 			ExecutorQualifier: input.ExecutorQualifier,
 			NOPAliases:        input.NOPAliases,
+			NOPs:              input.NOPs,
+			ExecutorPool:      input.ExecutorPool,
+			IndexerAddress:    input.IndexerAddress,
+			PyroscopeURL:      input.PyroscopeURL,
+			Monitoring:        input.Monitoring,
 		})
 		if err != nil {
 			return GenerateExecutorConfigOutput{}, fmt.Errorf("failed to build executor job specs: %w", err)

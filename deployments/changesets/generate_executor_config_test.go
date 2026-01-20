@@ -1,7 +1,6 @@
 package changesets_test
 
 import (
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -20,43 +19,63 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/changesets"
+	executorconfig "github.com/smartcontractkit/chainlink-ccv/deployments/operations/executor_config"
+	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/testutils"
 )
 
-func TestGenerateExecutorConfig_ValidatesTopologyPath(t *testing.T) {
+func TestGenerateExecutorConfig_ValidatesIndexerAddress(t *testing.T) {
 	changeset := changesets.GenerateExecutorConfig()
 
 	env := createExecutorTestEnvironment(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateExecutorConfigCfg{
-		TopologyPath: "",
+		IndexerAddress: "",
+		ExecutorPool:   testExecutorPool(),
+		NOPs:           testNOPs(),
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "topology path is required")
+	assert.Contains(t, err.Error(), "indexer address is required")
+}
+
+func TestGenerateExecutorConfig_ValidatesExecutorPoolNOPs(t *testing.T) {
+	changeset := changesets.GenerateExecutorConfig()
+
+	env := createExecutorTestEnvironment(t)
+
+	err := changeset.VerifyPreconditions(env, changesets.GenerateExecutorConfigCfg{
+		IndexerAddress: "http://indexer:8100",
+		ExecutorPool:   executorconfig.ExecutorPoolInput{NOPAliases: []string{}},
+		NOPs:           testNOPs(),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "executor pool NOPs are required")
 }
 
 func TestGenerateExecutorConfig_ValidatesNOPAliases(t *testing.T) {
 	changeset := changesets.GenerateExecutorConfig()
 
 	env := createExecutorTestEnvironment(t)
-	envConfigPath := createTestEnvConfig(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateExecutorConfigCfg{
-		TopologyPath: envConfigPath,
-		NOPAliases:   []string{"unknown-nop"},
+		IndexerAddress: "http://indexer:8100",
+		ExecutorPool:   testExecutorPool(),
+		NOPs:           testNOPs(),
+		NOPAliases:     []string{"unknown-nop"},
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), `NOP alias "unknown-nop" not found in environment topology`)
+	assert.Contains(t, err.Error(), `NOP alias "unknown-nop" not found in NOPs input`)
 }
 
 func TestGenerateExecutorConfig_ValidatesChainSelectors(t *testing.T) {
 	changeset := changesets.GenerateExecutorConfig()
 
 	env := createExecutorTestEnvironment(t)
-	envConfigPath := createTestEnvConfig(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateExecutorConfigCfg{
-		TopologyPath:   envConfigPath,
+		IndexerAddress: "http://indexer:8100",
+		ExecutorPool:   testExecutorPool(),
+		NOPs:           testNOPs(),
 		ChainSelectors: []uint64{1234},
 	})
 	require.Error(t, err)
@@ -93,14 +112,16 @@ func TestGenerateExecutorConfig_GeneratesCorrectJobSpec(t *testing.T) {
 
 	env.DataStore = ds.Seal()
 
-	envConfigPath := createTestEnvConfig(t)
-
 	cs := changesets.GenerateExecutorConfig()
 	output, err := cs.Apply(env, changesets.GenerateExecutorConfigCfg{
-		TopologyPath:      envConfigPath,
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
 		NOPAliases:        []string{"nop-1"},
+		NOPs:              testNOPs(),
+		ExecutorPool:      testExecutorPool(),
+		IndexerAddress:    "http://indexer:8100",
+		PyroscopeURL:      "http://pyroscope:4040",
+		Monitoring:        testMonitoring(),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
@@ -160,14 +181,16 @@ func TestGenerateExecutorConfig_PreservesExistingConfigs(t *testing.T) {
 
 	env.DataStore = ds.Seal()
 
-	envConfigPath := createTestEnvConfig(t)
-
 	cs := changesets.GenerateExecutorConfig()
 	output, err := cs.Apply(env, changesets.GenerateExecutorConfigCfg{
-		TopologyPath:      envConfigPath,
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
 		NOPAliases:        []string{"nop-1"},
+		NOPs:              testNOPs(),
+		ExecutorPool:      testExecutorPool(),
+		IndexerAddress:    "http://indexer:8100",
+		PyroscopeURL:      "http://pyroscope:4040",
+		Monitoring:        testMonitoring(),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
@@ -208,31 +231,29 @@ func TestGenerateExecutorConfig_RemovesOrphanedJobSpecs(t *testing.T) {
 	addContractToDatastore(t, ds, sel1, executorQualifier, execcontract.ProxyType, executorAddr1)
 	addContractToDatastore(t, ds, sel2, executorQualifier, execcontract.ProxyType, executorAddr2)
 
-	// Pre-populate with an executor job spec that will become orphaned
 	err := deployments.SaveNOPJobSpec(ds, "nop-removed", "nop-removed-default-executor", "old-job-spec")
 	require.NoError(t, err)
 
 	env.DataStore = ds.Seal()
 
-	// Create config where nop-removed is NOT in the pool (only nop-1, nop-2)
-	envConfigPath := createTestEnvConfig(t)
-
 	cs := changesets.GenerateExecutorConfig()
 	output, err := cs.Apply(env, changesets.GenerateExecutorConfigCfg{
-		TopologyPath:      envConfigPath,
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
+		NOPs:              testNOPs(),
+		ExecutorPool:      testExecutorPool(),
+		IndexerAddress:    "http://indexer:8100",
+		PyroscopeURL:      "http://pyroscope:4040",
+		Monitoring:        testMonitoring(),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
 
 	outputSealed := output.DataStore.Seal()
 
-	// The orphaned job spec should be deleted
 	_, err = deployments.GetNOPJobSpec(outputSealed, "nop-removed", "nop-removed-default-executor")
 	require.Error(t, err, "orphaned executor job spec should be deleted")
 
-	// Active NOPs should still have their job specs
 	_, err = deployments.GetNOPJobSpec(outputSealed, "nop-1", "nop-1-default-executor")
 	require.NoError(t, err, "nop-1 executor job spec should exist")
 
@@ -266,32 +287,31 @@ func TestGenerateExecutorConfig_PreservesOtherQualifierJobSpecs(t *testing.T) {
 	addContractToDatastore(t, ds, sel1, executorQualifier, execcontract.ProxyType, executorAddr1)
 	addContractToDatastore(t, ds, sel2, executorQualifier, execcontract.ProxyType, executorAddr2)
 
-	// Pre-populate with an executor job spec for a DIFFERENT qualifier
 	err := deployments.SaveNOPJobSpec(ds, "nop-1", "nop-1-other-pool-executor", "other-pool-job-spec")
 	require.NoError(t, err)
 
 	env.DataStore = ds.Seal()
 
-	envConfigPath := createTestEnvConfig(t)
-
 	cs := changesets.GenerateExecutorConfig()
 	output, err := cs.Apply(env, changesets.GenerateExecutorConfigCfg{
-		TopologyPath:      envConfigPath,
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
 		NOPAliases:        []string{"nop-1"},
+		NOPs:              testNOPs(),
+		ExecutorPool:      testExecutorPool(),
+		IndexerAddress:    "http://indexer:8100",
+		PyroscopeURL:      "http://pyroscope:4040",
+		Monitoring:        testMonitoring(),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
 
 	outputSealed := output.DataStore.Seal()
 
-	// The job spec for a different qualifier should be preserved
 	otherPoolJobSpec, err := deployments.GetNOPJobSpec(outputSealed, "nop-1", "nop-1-other-pool-executor")
 	require.NoError(t, err, "job spec for other pool should be preserved")
 	assert.Equal(t, "other-pool-job-spec", otherPoolJobSpec)
 
-	// Current qualifier job spec should exist
 	_, err = deployments.GetNOPJobSpec(outputSealed, "nop-1", "nop-1-default-executor")
 	require.NoError(t, err, "nop-1 default executor job spec should exist")
 }
@@ -322,7 +342,6 @@ func TestGenerateExecutorConfig_ScopedNOPAliasesPreservesOtherNOPs(t *testing.T)
 	addContractToDatastore(t, ds, sel1, executorQualifier, execcontract.ProxyType, executorAddr1)
 	addContractToDatastore(t, ds, sel2, executorQualifier, execcontract.ProxyType, executorAddr2)
 
-	// Pre-populate with executor job specs for BOTH nop-1 and nop-2
 	err := deployments.SaveNOPJobSpec(ds, "nop-1", "nop-1-default-executor", "nop-1-job-spec")
 	require.NoError(t, err)
 	err = deployments.SaveNOPJobSpec(ds, "nop-2", "nop-2-default-executor", "nop-2-job-spec")
@@ -330,81 +349,56 @@ func TestGenerateExecutorConfig_ScopedNOPAliasesPreservesOtherNOPs(t *testing.T)
 
 	env.DataStore = ds.Seal()
 
-	envConfigPath := createTestEnvConfig(t)
-
-	// Run the changeset with only nop-1 in scope
 	cs := changesets.GenerateExecutorConfig()
 	output, err := cs.Apply(env, changesets.GenerateExecutorConfigCfg{
-		TopologyPath:      envConfigPath,
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
-		NOPAliases:        []string{"nop-1"}, // Scoped to only nop-1
+		NOPAliases:        []string{"nop-1"},
+		NOPs:              testNOPs(),
+		ExecutorPool:      testExecutorPool(),
+		IndexerAddress:    "http://indexer:8100",
+		PyroscopeURL:      "http://pyroscope:4040",
+		Monitoring:        testMonitoring(),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
 
 	outputSealed := output.DataStore.Seal()
 
-	// nop-1 job spec should be regenerated
 	_, err = deployments.GetNOPJobSpec(outputSealed, "nop-1", "nop-1-default-executor")
 	require.NoError(t, err, "nop-1 executor job spec should exist")
 
-	// nop-2 job spec should be PRESERVED (not deleted) since nop-2 was not in scope
 	nop2JobSpec, err := deployments.GetNOPJobSpec(outputSealed, "nop-2", "nop-2-default-executor")
 	require.NoError(t, err, "nop-2 executor job spec should be preserved when not in scope")
 	assert.Equal(t, "nop-2-job-spec", nop2JobSpec, "nop-2 job spec should be unchanged")
 }
 
-func createTestEnvConfig(t *testing.T) string {
-	t.Helper()
+func testNOPs() []executorconfig.NOPInput {
+	return []executorconfig.NOPInput{
+		{Alias: "nop-1"},
+		{Alias: "nop-2"},
+	}
+}
 
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "env.toml")
+func testExecutorPool() executorconfig.ExecutorPoolInput {
+	return executorconfig.ExecutorPoolInput{
+		NOPAliases:        []string{"nop-1", "nop-2"},
+		ExecutionInterval: 15 * time.Second,
+	}
+}
 
-	cfg := deployments.EnvironmentTopology{
-		IndexerAddress: "http://indexer:8100",
-		PyroscopeURL:   "http://pyroscope:4040",
-		Monitoring: deployments.MonitoringConfig{
-			Enabled: true,
-			Type:    "beholder",
-			Beholder: deployments.BeholderConfig{
-				InsecureConnection:       true,
-				OtelExporterHTTPEndpoint: "otel:4318",
-				MetricReaderInterval:     5,
-				TraceSampleRatio:         1.0,
-				TraceBatchTimeout:        10,
-			},
-		},
-		NOPTopology: deployments.NOPTopology{
-			NOPs: []deployments.NOPConfig{
-				{Alias: "nop-1", Name: "NOP One", SignerAddress: "0xABCDEF1234567890ABCDEF1234567890ABCDEF12"},
-				{Alias: "nop-2", Name: "NOP Two", SignerAddress: "0x1234567890ABCDEF1234567890ABCDEF12345678"},
-			},
-			Committees: map[string]deployments.CommitteeConfig{
-				"test-committee": {
-					Qualifier:       "test-committee",
-					VerifierVersion: "1.7.0",
-					ChainConfigs: map[string]deployments.ChainCommitteeConfig{
-						"16015286601757825753": {NOPAliases: []string{"nop-1", "nop-2"}, Threshold: 2},
-					},
-					Aggregators: []deployments.AggregatorConfig{
-						{Name: "instance-1", Address: "aggregator-1:443"},
-					},
-				},
-			},
-		},
-		ExecutorPools: map[string]deployments.ExecutorPoolConfig{
-			"default": {
-				NOPAliases:        []string{"nop-1", "nop-2"},
-				ExecutionInterval: 15 * time.Second,
-			},
+func testMonitoring() shared.MonitoringInput {
+	return shared.MonitoringInput{
+		Enabled: true,
+		Type:    "beholder",
+		Beholder: shared.BeholderInput{
+			InsecureConnection:       true,
+			OtelExporterHTTPEndpoint: "otel:4318",
+			MetricReaderInterval:     5,
+			TraceSampleRatio:         1.0,
+			TraceBatchTimeout:        10,
 		},
 	}
-
-	err := deployments.WriteEnvironmentTopology(configPath, cfg)
-	require.NoError(t, err)
-
-	return configPath
 }
 
 func createExecutorTestEnvironment(t *testing.T) deployment.Environment {

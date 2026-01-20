@@ -8,68 +8,74 @@ import (
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
-	"github.com/smartcontractkit/chainlink-ccv/deployments"
+	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 )
 
-// NOPJobSpecs maps NOP alias to a map of job spec ID to job spec content.
-type NOPJobSpecs map[string]map[string]string
-
-// BuildJobSpecsDeps contains the dependencies for building verifier job specs.
-type BuildJobSpecsDeps struct {
-	Topology *deployments.EnvironmentTopology
+type NOPInput struct {
+	Alias         string
+	SignerAddress string
 }
 
-// BuildJobSpecsInput contains the input parameters for building verifier job specs.
+type AggregatorInput struct {
+	Name                         string
+	Address                      string
+	InsecureAggregatorConnection bool
+}
+
+type CommitteeInput struct {
+	Qualifier   string
+	Aggregators []AggregatorInput
+	NOPAliases  []string
+}
+
 type BuildJobSpecsInput struct {
 	GeneratedConfig    *VerifierGeneratedConfig
 	CommitteeQualifier string
 	NOPAliases         []string
+	NOPs               []NOPInput
+	Committee          CommitteeInput
+	PyroscopeURL       string
+	Monitoring         shared.MonitoringInput
 }
 
-// BuildJobSpecsOutput contains the generated job specs and metadata for cleanup.
 type BuildJobSpecsOutput struct {
-	JobSpecs           NOPJobSpecs
+	JobSpecs           shared.NOPJobSpecs
 	ExpectedJobSpecIDs map[string]bool
 	ExpectedNOPs       map[string]bool
 	VerifierSuffix     string
 }
 
-// BuildJobSpecs is an operation that generates verifier job specs for the specified NOPs.
 var BuildJobSpecs = operations.NewOperation(
 	"build-verifier-job-specs",
 	semver.MustParse("1.0.0"),
-	"Builds verifier job specs from generated config and environment topology",
-	func(b operations.Bundle, deps BuildJobSpecsDeps, input BuildJobSpecsInput) (BuildJobSpecsOutput, error) {
-		committee, ok := deps.Topology.NOPTopology.Committees[input.CommitteeQualifier]
-		if !ok {
-			return BuildJobSpecsOutput{}, fmt.Errorf("committee %q not found in topology", input.CommitteeQualifier)
+	"Builds verifier job specs from generated config and explicit input",
+	func(b operations.Bundle, deps struct{}, input BuildJobSpecsInput) (BuildJobSpecsOutput, error) {
+		nopByAlias := make(map[string]NOPInput, len(input.NOPs))
+		for _, nop := range input.NOPs {
+			nopByAlias[nop.Alias] = nop
 		}
 
-		jobSpecs := make(NOPJobSpecs)
+		jobSpecs := make(shared.NOPJobSpecs)
 		expectedJobSpecIDs := make(map[string]bool)
 		expectedNOPs := make(map[string]bool)
-		verifierSuffix := fmt.Sprintf("-%s-verifier", committee.Qualifier)
+		verifierSuffix := fmt.Sprintf("-%s-verifier", input.Committee.Qualifier)
 
 		nopAliases := input.NOPAliases
 		if len(nopAliases) == 0 {
-			nopsForCommittee, err := deps.Topology.GetNOPsForCommittee(input.CommitteeQualifier)
-			if err != nil {
-				return BuildJobSpecsOutput{}, fmt.Errorf("failed to get NOPs for committee: %w", err)
-			}
-			nopAliases = nopsForCommittee
+			nopAliases = input.Committee.NOPAliases
 		}
 
 		for _, nopAlias := range nopAliases {
-			nop, ok := deps.Topology.NOPTopology.GetNOP(nopAlias)
+			nop, ok := nopByAlias[nopAlias]
 			if !ok {
-				return BuildJobSpecsOutput{}, fmt.Errorf("NOP %q not found in topology", nopAlias)
+				return BuildJobSpecsOutput{}, fmt.Errorf("NOP %q not found in input", nopAlias)
 			}
 			expectedNOPs[nopAlias] = true
 
-			for _, agg := range committee.Aggregators {
-				verifierID := fmt.Sprintf("%s-%s-verifier", agg.Name, committee.Qualifier)
+			for _, agg := range input.Committee.Aggregators {
+				verifierID := fmt.Sprintf("%s-%s-verifier", agg.Name, input.Committee.Qualifier)
 				expectedJobSpecIDs[verifierID] = true
 
 				verifierCfg := commit.Config{
@@ -77,12 +83,12 @@ var BuildJobSpecs = operations.NewOperation(
 					AggregatorAddress:              agg.Address,
 					InsecureAggregatorConnection:   agg.InsecureAggregatorConnection,
 					SignerAddress:                  nop.SignerAddress,
-					PyroscopeURL:                   deps.Topology.PyroscopeURL,
+					PyroscopeURL:                   input.PyroscopeURL,
 					CommitteeVerifierAddresses:     input.GeneratedConfig.CommitteeVerifierAddresses,
 					OnRampAddresses:                input.GeneratedConfig.OnRampAddresses,
 					DefaultExecutorOnRampAddresses: input.GeneratedConfig.DefaultExecutorOnRampAddresses,
 					RMNRemoteAddresses:             input.GeneratedConfig.RMNRemoteAddresses,
-					Monitoring:                     convertMonitoringConfig(deps.Topology.Monitoring),
+					Monitoring:                     convertMonitoringInput(input.Monitoring),
 				}
 
 				configBytes, err := toml.Marshal(verifierCfg)
@@ -112,7 +118,7 @@ committeeVerifierConfig = """
 	},
 )
 
-func convertMonitoringConfig(cfg deployments.MonitoringConfig) verifier.MonitoringConfig {
+func convertMonitoringInput(cfg shared.MonitoringInput) verifier.MonitoringConfig {
 	return verifier.MonitoringConfig{
 		Enabled: cfg.Enabled,
 		Type:    cfg.Type,

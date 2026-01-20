@@ -3,63 +3,68 @@ package executor_config
 import (
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/Masterminds/semver/v3"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
-	"github.com/smartcontractkit/chainlink-ccv/deployments"
+	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 )
 
-// NOPJobSpecs maps NOP alias to a map of job spec ID to job spec content.
-type NOPJobSpecs map[string]map[string]string
-
-// BuildJobSpecsDeps contains the dependencies for building executor job specs.
-type BuildJobSpecsDeps struct {
-	Topology *deployments.EnvironmentTopology
+type NOPInput struct {
+	Alias string
 }
 
-// BuildJobSpecsInput contains the input parameters for building executor job specs.
+type ExecutorPoolInput struct {
+	NOPAliases        []string
+	ExecutionInterval time.Duration
+	NtpServer         string
+	IndexerQueryLimit uint64
+	BackoffDuration   time.Duration
+	LookbackWindow    time.Duration
+	ReaderCacheExpiry time.Duration
+	MaxRetryDuration  time.Duration
+	WorkerCount       int
+}
+
 type BuildJobSpecsInput struct {
 	GeneratedConfig   *ExecutorGeneratedConfig
 	ExecutorQualifier string
 	NOPAliases        []string
+	NOPs              []NOPInput
+	ExecutorPool      ExecutorPoolInput
+	IndexerAddress    string
+	PyroscopeURL      string
+	Monitoring        shared.MonitoringInput
 }
 
-// BuildJobSpecsOutput contains the generated job specs and metadata for cleanup.
 type BuildJobSpecsOutput struct {
-	JobSpecs           NOPJobSpecs
+	JobSpecs           shared.NOPJobSpecs
 	ExpectedJobSpecIDs map[string]bool
 	ExecutorSuffix     string
 }
 
-// BuildJobSpecs is an operation that generates executor job specs for the specified NOPs.
 var BuildJobSpecs = operations.NewOperation(
 	"build-executor-job-specs",
 	semver.MustParse("1.0.0"),
-	"Builds executor job specs from generated config and environment topology",
-	func(b operations.Bundle, deps BuildJobSpecsDeps, input BuildJobSpecsInput) (BuildJobSpecsOutput, error) {
-		jobSpecs := make(NOPJobSpecs)
+	"Builds executor job specs from generated config and explicit input",
+	func(b operations.Bundle, deps struct{}, input BuildJobSpecsInput) (BuildJobSpecsOutput, error) {
+		jobSpecs := make(shared.NOPJobSpecs)
 		expectedJobSpecIDs := make(map[string]bool)
 		executorSuffix := fmt.Sprintf("-%s-executor", input.ExecutorQualifier)
 
 		nopAliases := input.NOPAliases
 		if len(nopAliases) == 0 {
-			for _, nop := range deps.Topology.NOPTopology.NOPs {
+			for _, nop := range input.NOPs {
 				nopAliases = append(nopAliases, nop.Alias)
 			}
 		}
 
 		for _, nopAlias := range nopAliases {
-			pools := deps.Topology.GetPoolsForNOP(nopAlias)
-			if !slices.Contains(pools, input.ExecutorQualifier) {
-				continue
-			}
-
-			pool, ok := deps.Topology.ExecutorPools[input.ExecutorQualifier]
-			if !ok {
+			if !slices.Contains(input.ExecutorPool.NOPAliases, nopAlias) {
 				continue
 			}
 
@@ -69,8 +74,8 @@ var BuildJobSpecs = operations.NewOperation(
 					OffRampAddress:         genCfg.OffRampAddress,
 					RmnAddress:             genCfg.RmnAddress,
 					DefaultExecutorAddress: genCfg.DefaultExecutorAddress,
-					ExecutorPool:           pool.NOPAliases,
-					ExecutionInterval:      pool.ExecutionInterval,
+					ExecutorPool:           input.ExecutorPool.NOPAliases,
+					ExecutionInterval:      input.ExecutorPool.ExecutionInterval,
 				}
 			}
 
@@ -78,17 +83,17 @@ var BuildJobSpecs = operations.NewOperation(
 			expectedJobSpecIDs[jobSpecID] = true
 
 			executorCfg := executor.Configuration{
-				IndexerAddress:     deps.Topology.IndexerAddress,
+				IndexerAddress:     input.IndexerAddress,
 				ExecutorID:         nopAlias,
-				PyroscopeURL:       deps.Topology.PyroscopeURL,
-				NtpServer:          pool.NtpServer,
-				IndexerQueryLimit:  pool.IndexerQueryLimit,
-				BackoffDuration:    pool.BackoffDuration,
-				LookbackWindow:     pool.LookbackWindow,
-				ReaderCacheExpiry:  pool.ReaderCacheExpiry,
-				MaxRetryDuration:   pool.MaxRetryDuration,
-				WorkerCount:        pool.WorkerCount,
-				Monitoring:         convertMonitoringConfig(deps.Topology.Monitoring),
+				PyroscopeURL:       input.PyroscopeURL,
+				NtpServer:          input.ExecutorPool.NtpServer,
+				IndexerQueryLimit:  input.ExecutorPool.IndexerQueryLimit,
+				BackoffDuration:    input.ExecutorPool.BackoffDuration,
+				LookbackWindow:     input.ExecutorPool.LookbackWindow,
+				ReaderCacheExpiry:  input.ExecutorPool.ReaderCacheExpiry,
+				MaxRetryDuration:   input.ExecutorPool.MaxRetryDuration,
+				WorkerCount:        input.ExecutorPool.WorkerCount,
+				Monitoring:         convertMonitoringInput(input.Monitoring),
 				ChainConfiguration: chainConfigs,
 			}
 
@@ -117,7 +122,7 @@ executorConfig = """
 	},
 )
 
-func convertMonitoringConfig(cfg deployments.MonitoringConfig) executor.MonitoringConfig {
+func convertMonitoringInput(cfg shared.MonitoringInput) executor.MonitoringConfig {
 	return executor.MonitoringConfig{
 		Enabled: cfg.Enabled,
 		Type:    cfg.Type,

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -22,6 +23,9 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/changesets"
+	executorconfig "github.com/smartcontractkit/chainlink-ccv/deployments/operations/executor_config"
+	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
+	verifierconfig "github.com/smartcontractkit/chainlink-ccv/deployments/operations/verifier_config"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
@@ -165,28 +169,16 @@ func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers [
 	}
 }
 
-// buildAndWriteEnvironmentTopology loads the EnvironmentTopology from the Cfg, enriches it with signer addresses,
-// and writes it to a file. This is used by both executor and verifier changesets as the
-// single source of truth.
-func buildAndWriteEnvironmentTopology(in *Cfg) (string, error) {
+// buildEnvironmentTopology creates a copy of the EnvironmentTopology from the Cfg,
+// enriches it with signer addresses, and returns it. This is used by both executor
+// and verifier changesets as the single source of truth.
+func buildEnvironmentTopology(in *Cfg) *deployments.EnvironmentTopology {
 	envCfg := *in.EnvironmentTopology
 	enrichEnvironmentTopology(&envCfg, in.Verifier)
-
-	configDir := filepath.Join(util.CCVConfigDir(), "env-config")
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		return "", fmt.Errorf("failed to create env config directory: %w", err)
-	}
-
-	configPath := filepath.Join(configDir, "env.toml")
-	if err := deployments.WriteEnvironmentTopology(configPath, envCfg); err != nil {
-		return "", fmt.Errorf("failed to write environment topology: %w", err)
-	}
-
-	Plog.Info().Str("path", configPath).Msg("Wrote shared EnvironmentTopology")
-	return configPath, nil
+	return &envCfg
 }
 
-// generateExecutorJobSpecs generates job specs for all executors using the EnvironmentTopology-based changeset.
+// generateExecutorJobSpecs generates job specs for all executors using the changeset.
 // It returns a map of container name -> job spec for use in CL mode.
 // For standalone mode, it also sets GeneratedConfig on each executor.
 func generateExecutorJobSpecs(
@@ -195,7 +187,7 @@ func generateExecutorJobSpecs(
 	in *Cfg,
 	selectors []uint64,
 	impls []cciptestinterfaces.CCIP17Configuration,
-	envConfigPath string,
+	topology *deployments.EnvironmentTopology,
 ) (map[string]string, error) {
 	executorJobSpecs := make(map[string]string)
 
@@ -220,12 +212,21 @@ func generateExecutorJobSpecs(
 			execNOPAliases = append(execNOPAliases, exec.NOPAlias)
 		}
 
+		executorPool, ok := topology.ExecutorPools[qualifier]
+		if !ok {
+			return nil, fmt.Errorf("executor pool %q not found in topology", qualifier)
+		}
+
 		cs := changesets.GenerateExecutorConfig()
 		output, err := cs.Apply(*e, changesets.GenerateExecutorConfigCfg{
-			TopologyPath:      envConfigPath,
 			ExecutorQualifier: qualifier,
 			ChainSelectors:    selectors,
 			NOPAliases:        execNOPAliases,
+			NOPs:              convertNOPsToExecutorInput(topology.NOPTopology.NOPs),
+			ExecutorPool:      convertExecutorPoolConfig(executorPool),
+			IndexerAddress:    topology.IndexerAddress,
+			PyroscopeURL:      topology.PyroscopeURL,
+			Monitoring:        convertMonitoringConfig(topology.Monitoring),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate executor configs for qualifier %s: %w", qualifier, err)
@@ -278,14 +279,14 @@ func generateExecutorJobSpecs(
 	return executorJobSpecs, nil
 }
 
-// generateVerifierJobSpecs generates job specs for all verifiers using the EnvironmentTopology-based changeset.
+// generateVerifierJobSpecs generates job specs for all verifiers using the changeset.
 // It returns a map of container name -> job spec for use in CL mode.
 // For standalone mode, it also sets GeneratedConfig on each verifier.
 func generateVerifierJobSpecs(
 	e *deployment.Environment,
 	in *Cfg,
 	selectors []uint64,
-	envConfigPath string,
+	topology *deployments.EnvironmentTopology,
 	sharedTLSCerts *services.TLSCertPaths,
 ) (map[string]string, error) {
 	verifierJobSpecs := make(map[string]string)
@@ -307,13 +308,21 @@ func generateVerifierJobSpecs(
 			verNOPAliases = append(verNOPAliases, ver.NOPAlias)
 		}
 
+		committee, ok := topology.NOPTopology.Committees[committeeName]
+		if !ok {
+			return nil, fmt.Errorf("committee %q not found in topology", committeeName)
+		}
+
 		cs := changesets.GenerateVerifierConfig()
 		output, err := cs.Apply(*e, changesets.GenerateVerifierConfigCfg{
-			TopologyPath:       envConfigPath,
 			CommitteeQualifier: committeeName,
 			ExecutorQualifier:  evm.DefaultExecutorQualifier,
 			ChainSelectors:     selectors,
 			NOPAliases:         verNOPAliases,
+			NOPs:               convertNOPsToVerifierInput(topology.NOPTopology.NOPs),
+			Committee:          convertCommitteeConfig(committee),
+			PyroscopeURL:       topology.PyroscopeURL,
+			Monitoring:         convertMonitoringConfig(topology.Monitoring),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate verifier configs for committee %s: %w", committeeName, err)
@@ -348,6 +357,84 @@ func generateVerifierJobSpecs(
 	}
 
 	return verifierJobSpecs, nil
+}
+
+func convertNOPsToExecutorInput(nops []deployments.NOPConfig) []executorconfig.NOPInput {
+	result := make([]executorconfig.NOPInput, len(nops))
+	for i, nop := range nops {
+		result[i] = executorconfig.NOPInput{
+			Alias: nop.Alias,
+		}
+	}
+	return result
+}
+
+func convertNOPsToVerifierInput(nops []deployments.NOPConfig) []verifierconfig.NOPInput {
+	result := make([]verifierconfig.NOPInput, len(nops))
+	for i, nop := range nops {
+		result[i] = verifierconfig.NOPInput{
+			Alias:         nop.Alias,
+			SignerAddress: nop.SignerAddress,
+		}
+	}
+	return result
+}
+
+func convertExecutorPoolConfig(pool deployments.ExecutorPoolConfig) executorconfig.ExecutorPoolInput {
+	return executorconfig.ExecutorPoolInput{
+		NOPAliases:        pool.NOPAliases,
+		ExecutionInterval: pool.ExecutionInterval,
+		NtpServer:         pool.NtpServer,
+		IndexerQueryLimit: pool.IndexerQueryLimit,
+		BackoffDuration:   pool.BackoffDuration,
+		LookbackWindow:    pool.LookbackWindow,
+		ReaderCacheExpiry: pool.ReaderCacheExpiry,
+		MaxRetryDuration:  pool.MaxRetryDuration,
+		WorkerCount:       pool.WorkerCount,
+	}
+}
+
+func convertCommitteeConfig(committee deployments.CommitteeConfig) verifierconfig.CommitteeInput {
+	aggregators := make([]verifierconfig.AggregatorInput, len(committee.Aggregators))
+	for i, agg := range committee.Aggregators {
+		aggregators[i] = verifierconfig.AggregatorInput{
+			Name:                         agg.Name,
+			Address:                      agg.Address,
+			InsecureAggregatorConnection: agg.InsecureAggregatorConnection,
+		}
+	}
+
+	var nopAliases []string
+	for _, chainCfg := range committee.ChainConfigs {
+		for _, alias := range chainCfg.NOPAliases {
+			if !slices.Contains(nopAliases, alias) {
+				nopAliases = append(nopAliases, alias)
+			}
+		}
+	}
+
+	return verifierconfig.CommitteeInput{
+		Qualifier:   committee.Qualifier,
+		Aggregators: aggregators,
+		NOPAliases:  nopAliases,
+	}
+}
+
+func convertMonitoringConfig(cfg deployments.MonitoringConfig) shared.MonitoringInput {
+	return shared.MonitoringInput{
+		Enabled: cfg.Enabled,
+		Type:    cfg.Type,
+		Beholder: shared.BeholderInput{
+			InsecureConnection:       cfg.Beholder.InsecureConnection,
+			CACertFile:               cfg.Beholder.CACertFile,
+			OtelExporterGRPCEndpoint: cfg.Beholder.OtelExporterGRPCEndpoint,
+			OtelExporterHTTPEndpoint: cfg.Beholder.OtelExporterHTTPEndpoint,
+			LogStreamingEnabled:      cfg.Beholder.LogStreamingEnabled,
+			MetricReaderInterval:     cfg.Beholder.MetricReaderInterval,
+			TraceSampleRatio:         cfg.Beholder.TraceSampleRatio,
+			TraceBatchTimeout:        cfg.Beholder.TraceBatchTimeout,
+		},
+	}
 }
 
 // NewEnvironment creates a new CCIP CCV environment locally in Docker.
@@ -776,16 +863,13 @@ func NewEnvironment() (in *Cfg, err error) {
 	// changesets as single source of truth //
 	/////////////////////////////////////////
 
-	envConfigPath, err := buildAndWriteEnvironmentTopology(in)
-	if err != nil {
-		return nil, err
-	}
+	topology := buildEnvironmentTopology(in)
 
 	/////////////////////////////
 	// START: Launch executors //
 	/////////////////////////////
 
-	executorJobSpecs, err := generateExecutorJobSpecs(ctx, e, in, selectors, impls, envConfigPath)
+	executorJobSpecs, err := generateExecutorJobSpecs(ctx, e, in, selectors, impls, topology)
 	if err != nil {
 		return nil, err
 	}
@@ -803,7 +887,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch verifiers //
 	/////////////////////////////
 
-	verifierJobSpecs, err := generateVerifierJobSpecs(e, in, selectors, envConfigPath, sharedTLSCerts)
+	verifierJobSpecs, err := generateVerifierJobSpecs(e, in, selectors, topology, sharedTLSCerts)
 	if err != nil {
 		return nil, err
 	}

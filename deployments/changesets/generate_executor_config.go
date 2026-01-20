@@ -9,34 +9,40 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
+	executorconfig "github.com/smartcontractkit/chainlink-ccv/deployments/operations/executor_config"
+	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/sequences"
 )
 
-// GenerateExecutorConfigCfg is the configuration for the generate executor config changeset.
 type GenerateExecutorConfigCfg struct {
-	TopologyPath      string
 	ExecutorQualifier string
 	ChainSelectors    []uint64
 	NOPAliases        []string
+	NOPs              []executorconfig.NOPInput
+	ExecutorPool      executorconfig.ExecutorPoolInput
+	IndexerAddress    string
+	PyroscopeURL      string
+	Monitoring        shared.MonitoringInput
 }
 
-// GenerateExecutorConfig creates a changeset that generates executor configurations
-// for NOPs that are part of an executor pool. It iterates over specified NOPs (or all if empty)
-// and generates a job spec for each NOP.
 func GenerateExecutorConfig() deployment.ChangeSetV2[GenerateExecutorConfigCfg] {
 	validate := func(e deployment.Environment, cfg GenerateExecutorConfigCfg) error {
-		if cfg.TopologyPath == "" {
-			return fmt.Errorf("topology path is required")
+		if cfg.IndexerAddress == "" {
+			return fmt.Errorf("indexer address is required")
 		}
 
-		topology, err := deployments.LoadEnvironmentTopology(cfg.TopologyPath)
-		if err != nil {
-			return fmt.Errorf("failed to load environment topology: %w", err)
+		if len(cfg.ExecutorPool.NOPAliases) == 0 {
+			return fmt.Errorf("executor pool NOPs are required")
+		}
+
+		nopSet := make(map[string]bool, len(cfg.NOPs))
+		for _, nop := range cfg.NOPs {
+			nopSet[nop.Alias] = true
 		}
 
 		for _, alias := range cfg.NOPAliases {
-			if !topology.NOPTopology.HasNOP(alias) {
-				return fmt.Errorf("NOP alias %q not found in environment topology", alias)
+			if !nopSet[alias] {
+				return fmt.Errorf("NOP alias %q not found in NOPs input", alias)
 			}
 		}
 
@@ -50,25 +56,24 @@ func GenerateExecutorConfig() deployment.ChangeSetV2[GenerateExecutorConfigCfg] 
 	}
 
 	apply := func(e deployment.Environment, cfg GenerateExecutorConfigCfg) (deployment.ChangesetOutput, error) {
-		topology, err := deployments.LoadEnvironmentTopology(cfg.TopologyPath)
-		if err != nil {
-			return deployment.ChangesetOutput{}, fmt.Errorf("failed to load environment topology: %w", err)
-		}
-
 		selectors := cfg.ChainSelectors
 		if len(selectors) == 0 {
 			selectors = e.BlockChains.ListChainSelectors()
 		}
 
 		deps := sequences.GenerateExecutorConfigDeps{
-			Env:      e,
-			Topology: topology,
+			Env: e,
 		}
 
 		input := sequences.GenerateExecutorConfigInput{
 			ExecutorQualifier: cfg.ExecutorQualifier,
 			ChainSelectors:    selectors,
 			NOPAliases:        cfg.NOPAliases,
+			NOPs:              cfg.NOPs,
+			ExecutorPool:      cfg.ExecutorPool,
+			IndexerAddress:    cfg.IndexerAddress,
+			PyroscopeURL:      cfg.PyroscopeURL,
+			Monitoring:        cfg.Monitoring,
 		}
 
 		report, err := operations.ExecuteSequence(e.OperationsBundle, sequences.GenerateExecutorConfig, deps, input)
