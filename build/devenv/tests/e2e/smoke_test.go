@@ -292,7 +292,7 @@ func TestE2ESmoke(t *testing.T) {
 				t,
 				in,
 				sourceSelector,
-				datastore.ContractType(cctp_verifier.ResolverType),
+				datastore.ContractType(cctp_verifier.ContractType),
 				cctp_verifier.Deploy.Version(),
 				"CCTP",
 				"",
