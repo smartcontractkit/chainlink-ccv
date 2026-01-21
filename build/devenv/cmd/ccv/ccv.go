@@ -644,6 +644,10 @@ var startBlockchainsCmd = &cobra.Command{
 			return fmt.Errorf("failed to load environment output: %w", err)
 		}
 
+		if err := framework.DefaultNetwork(nil); err != nil {
+			return fmt.Errorf("failed to create default network: %w", err)
+		}
+
 		_ = os.Setenv("CTF_CONFIGS", envFile)
 		_ = os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
 

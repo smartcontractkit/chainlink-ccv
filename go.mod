@@ -59,7 +59,7 @@ require (
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery v0.0.0-20251211142334-5c3421fe2c8d
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier v0.0.0-20251211142334-5c3421fe2c8d
 	github.com/smartcontractkit/chainlink-solana v1.1.2-0.20260115213541-c4ca2e53370b
-	github.com/smartcontractkit/chainlink-testing-framework/framework v0.13.6-0.20260121161312-806a170f313c
+	github.com/smartcontractkit/chainlink-testing-framework/framework v0.13.3
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8
 	github.com/spf13/cobra v1.8.1
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.39.0
