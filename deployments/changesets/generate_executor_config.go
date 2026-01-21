@@ -15,14 +15,20 @@ import (
 )
 
 type GenerateExecutorConfigCfg struct {
+	// ExecutorQualifier is the qualifier of the executor that is configured as part of the changeset.
 	ExecutorQualifier string
-	ChainSelectors    []uint64
-	NOPAliases        []string
-	NOPs              []executorconfig.NOPInput
-	ExecutorPool      executorconfig.ExecutorPoolInput
-	IndexerAddress    string
-	PyroscopeURL      string
-	Monitoring        shared.MonitoringInput
+	// ChainSelectors is the list of chain selectors that will be considered. Defaults to all chain selectors in the environment.
+	ChainSelectors []uint64
+	// NOPAliases is the scope of nop that are affected by the changeset. Defaults to all nop aliases in the executor pool.
+	NOPAliases []string
+	// ExecutorPool is the executor pool configuration.
+	ExecutorPool executorconfig.ExecutorPoolInput
+	// IndexerAddress is the address of the indexer to use for the executor.
+	IndexerAddress string
+	// PyroscopeURL is the URL of the Pyroscope server.
+	PyroscopeURL string
+	// Monitoring is the monitoring configuration. It contains the beholder configuration.
+	Monitoring shared.MonitoringInput
 }
 
 func GenerateExecutorConfig() deployment.ChangeSetV2[GenerateExecutorConfigCfg] {
@@ -35,17 +41,11 @@ func GenerateExecutorConfig() deployment.ChangeSetV2[GenerateExecutorConfigCfg] 
 			return fmt.Errorf("executor pool NOPs are required")
 		}
 
-		nopSet := make(map[string]bool, len(cfg.NOPs))
-		for _, nop := range cfg.NOPs {
-			nopSet[nop.Alias] = true
-		}
-
 		for _, alias := range cfg.NOPAliases {
-			if !nopSet[alias] {
-				return fmt.Errorf("NOP alias %q not found in NOPs input", alias)
+			if !slices.Contains(cfg.ExecutorPool.NOPAliases, alias) {
+				return fmt.Errorf("NOP alias %q not found in executor pool", alias)
 			}
 		}
-
 		envSelectors := e.BlockChains.ListChainSelectors()
 		for _, s := range cfg.ChainSelectors {
 			if !slices.Contains(envSelectors, s) {
@@ -69,7 +69,6 @@ func GenerateExecutorConfig() deployment.ChangeSetV2[GenerateExecutorConfigCfg] 
 			ExecutorQualifier: cfg.ExecutorQualifier,
 			ChainSelectors:    selectors,
 			NOPAliases:        cfg.NOPAliases,
-			NOPs:              cfg.NOPs,
 			ExecutorPool:      cfg.ExecutorPool,
 			IndexerAddress:    cfg.IndexerAddress,
 			PyroscopeURL:      cfg.PyroscopeURL,

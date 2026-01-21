@@ -2,7 +2,6 @@ package executor_config
 
 import (
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -34,7 +33,6 @@ type BuildJobSpecsInput struct {
 	GeneratedConfig   *ExecutorGeneratedConfig
 	ExecutorQualifier string
 	NOPAliases        []string
-	NOPs              []NOPInput
 	ExecutorPool      ExecutorPoolInput
 	IndexerAddress    string
 	PyroscopeURL      string
@@ -58,16 +56,10 @@ var BuildJobSpecs = operations.NewOperation(
 
 		nopAliases := input.NOPAliases
 		if len(nopAliases) == 0 {
-			for _, nop := range input.NOPs {
-				nopAliases = append(nopAliases, nop.Alias)
-			}
+			nopAliases = input.ExecutorPool.NOPAliases
 		}
 
 		for _, nopAlias := range nopAliases {
-			if !slices.Contains(input.ExecutorPool.NOPAliases, nopAlias) {
-				continue
-			}
-
 			chainConfigs := make(map[string]executor.ChainConfiguration)
 			for chainSelectorStr, genCfg := range input.GeneratedConfig.ChainConfigs {
 				chainConfigs[chainSelectorStr] = executor.ChainConfiguration{

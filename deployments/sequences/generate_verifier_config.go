@@ -13,14 +13,13 @@ import (
 )
 
 type GenerateVerifierConfigInput struct {
-	CommitteeQualifier string
-	ExecutorQualifier  string
-	ChainSelectors     []uint64
-	NOPAliases         []string
-	NOPs               []verifierconfig.NOPInput
-	Committee          verifierconfig.CommitteeInput
-	PyroscopeURL       string
-	Monitoring         shared.MonitoringInput
+	DefaultExecutorQualifier string
+	ChainSelectors           []uint64
+	NOPAliases               []string
+	NOPs                     []verifierconfig.NOPInput
+	Committee                verifierconfig.CommitteeInput
+	PyroscopeURL             string
+	Monitoring               shared.MonitoringInput
 }
 
 type GenerateVerifierConfigOutput struct {
@@ -42,8 +41,8 @@ var GenerateVerifierConfig = operations.NewSequence(
 		buildResult, err := operations.ExecuteOperation(b, verifierconfig.BuildConfig, verifierconfig.BuildConfigDeps{
 			Env: deps.Env,
 		}, verifierconfig.BuildConfigInput{
-			CommitteeQualifier: input.CommitteeQualifier,
-			ExecutorQualifier:  input.ExecutorQualifier,
+			CommitteeQualifier: input.Committee.Qualifier,
+			ExecutorQualifier:  input.DefaultExecutorQualifier,
 			ChainSelectors:     input.ChainSelectors,
 		})
 		if err != nil {
@@ -52,7 +51,7 @@ var GenerateVerifierConfig = operations.NewSequence(
 
 		jobSpecsResult, err := operations.ExecuteOperation(b, verifierconfig.BuildJobSpecs, struct{}{}, verifierconfig.BuildJobSpecsInput{
 			GeneratedConfig:    buildResult.Output.Config,
-			CommitteeQualifier: input.CommitteeQualifier,
+			CommitteeQualifier: input.Committee.Qualifier,
 			NOPAliases:         input.NOPAliases,
 			NOPs:               input.NOPs,
 			Committee:          input.Committee,

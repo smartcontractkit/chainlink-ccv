@@ -16,7 +16,6 @@ type GenerateExecutorConfigInput struct {
 	ExecutorQualifier string
 	ChainSelectors    []uint64
 	NOPAliases        []string
-	NOPs              []executorconfig.NOPInput
 	ExecutorPool      executorconfig.ExecutorPoolInput
 	IndexerAddress    string
 	PyroscopeURL      string
@@ -52,7 +51,6 @@ var GenerateExecutorConfig = operations.NewSequence(
 			GeneratedConfig:   buildResult.Output.Config,
 			ExecutorQualifier: input.ExecutorQualifier,
 			NOPAliases:        input.NOPAliases,
-			NOPs:              input.NOPs,
 			ExecutorPool:      input.ExecutorPool,
 			IndexerAddress:    input.IndexerAddress,
 			PyroscopeURL:      input.PyroscopeURL,

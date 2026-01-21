@@ -32,7 +32,6 @@ func TestGenerateExecutorConfig_ValidatesIndexerAddress(t *testing.T) {
 	err := changeset.VerifyPreconditions(env, changesets.GenerateExecutorConfigCfg{
 		IndexerAddress: "",
 		ExecutorPool:   testExecutorPool(),
-		NOPs:           testNOPs(),
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "indexer address is required")
@@ -46,7 +45,6 @@ func TestGenerateExecutorConfig_ValidatesExecutorPoolNOPs(t *testing.T) {
 	err := changeset.VerifyPreconditions(env, changesets.GenerateExecutorConfigCfg{
 		IndexerAddress: "http://indexer:8100",
 		ExecutorPool:   executorconfig.ExecutorPoolInput{NOPAliases: []string{}},
-		NOPs:           testNOPs(),
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "executor pool NOPs are required")
@@ -60,11 +58,10 @@ func TestGenerateExecutorConfig_ValidatesNOPAliases(t *testing.T) {
 	err := changeset.VerifyPreconditions(env, changesets.GenerateExecutorConfigCfg{
 		IndexerAddress: "http://indexer:8100",
 		ExecutorPool:   testExecutorPool(),
-		NOPs:           testNOPs(),
 		NOPAliases:     []string{"unknown-nop"},
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), `NOP alias "unknown-nop" not found in NOPs input`)
+	assert.Contains(t, err.Error(), `not found in executor pool`)
 }
 
 func TestGenerateExecutorConfig_ValidatesChainSelectors(t *testing.T) {
@@ -75,7 +72,6 @@ func TestGenerateExecutorConfig_ValidatesChainSelectors(t *testing.T) {
 	err := changeset.VerifyPreconditions(env, changesets.GenerateExecutorConfigCfg{
 		IndexerAddress: "http://indexer:8100",
 		ExecutorPool:   testExecutorPool(),
-		NOPs:           testNOPs(),
 		ChainSelectors: []uint64{1234},
 	})
 	require.Error(t, err)
@@ -117,7 +113,6 @@ func TestGenerateExecutorConfig_GeneratesCorrectJobSpec(t *testing.T) {
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
 		NOPAliases:        []string{"nop-1"},
-		NOPs:              testNOPs(),
 		ExecutorPool:      testExecutorPool(),
 		IndexerAddress:    "http://indexer:8100",
 		PyroscopeURL:      "http://pyroscope:4040",
@@ -186,7 +181,6 @@ func TestGenerateExecutorConfig_PreservesExistingConfigs(t *testing.T) {
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
 		NOPAliases:        []string{"nop-1"},
-		NOPs:              testNOPs(),
 		ExecutorPool:      testExecutorPool(),
 		IndexerAddress:    "http://indexer:8100",
 		PyroscopeURL:      "http://pyroscope:4040",
@@ -240,7 +234,6 @@ func TestGenerateExecutorConfig_RemovesOrphanedJobSpecs(t *testing.T) {
 	output, err := cs.Apply(env, changesets.GenerateExecutorConfigCfg{
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
-		NOPs:              testNOPs(),
 		ExecutorPool:      testExecutorPool(),
 		IndexerAddress:    "http://indexer:8100",
 		PyroscopeURL:      "http://pyroscope:4040",
@@ -297,7 +290,6 @@ func TestGenerateExecutorConfig_PreservesOtherQualifierJobSpecs(t *testing.T) {
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
 		NOPAliases:        []string{"nop-1"},
-		NOPs:              testNOPs(),
 		ExecutorPool:      testExecutorPool(),
 		IndexerAddress:    "http://indexer:8100",
 		PyroscopeURL:      "http://pyroscope:4040",
@@ -354,7 +346,6 @@ func TestGenerateExecutorConfig_ScopedNOPAliasesPreservesOtherNOPs(t *testing.T)
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
 		NOPAliases:        []string{"nop-1"},
-		NOPs:              testNOPs(),
 		ExecutorPool:      testExecutorPool(),
 		IndexerAddress:    "http://indexer:8100",
 		PyroscopeURL:      "http://pyroscope:4040",
@@ -371,13 +362,6 @@ func TestGenerateExecutorConfig_ScopedNOPAliasesPreservesOtherNOPs(t *testing.T)
 	nop2JobSpec, err := deployments.GetNOPJobSpec(outputSealed, "nop-2", "nop-2-default-executor")
 	require.NoError(t, err, "nop-2 executor job spec should be preserved when not in scope")
 	assert.Equal(t, "nop-2-job-spec", nop2JobSpec, "nop-2 job spec should be unchanged")
-}
-
-func testNOPs() []executorconfig.NOPInput {
-	return []executorconfig.NOPInput{
-		{Alias: "nop-1"},
-		{Alias: "nop-2"},
-	}
 }
 
 func testExecutorPool() executorconfig.ExecutorPoolInput {

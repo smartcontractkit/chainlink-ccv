@@ -15,19 +15,24 @@ import (
 )
 
 type GenerateVerifierConfigCfg struct {
-	CommitteeQualifier string
-	ExecutorQualifier  string
-	ChainSelectors     []uint64
-	NOPAliases         []string
-	NOPs               []verifierconfig.NOPInput
-	Committee          verifierconfig.CommitteeInput
-	PyroscopeURL       string
-	Monitoring         shared.MonitoringInput
+	// ExecutorQualifier is the qualifier of the executor that will be considered the default executor.
+	DefaultExecutorQualifier string
+	// ChainSelectors is the list of chain selectors that will be considered. Defaults to all chain selectors in the environment.
+	ChainSelectors []uint64
+	// NOPAliases is the scope of nop that are affected by the changeset. Defaults to all nop aliases in the committee.
+	NOPAliases []string
+	// NOP is the list of nop configurations across the environment.
+	NOPs      []verifierconfig.NOPInput
+	Committee verifierconfig.CommitteeInput
+	// PyroscopeURL is the URL of the Pyroscope server.
+	PyroscopeURL string
+	// Monitoring is the monitoring configuration. It contains the beholder configuration.
+	Monitoring shared.MonitoringInput
 }
 
 func GenerateVerifierConfig() deployment.ChangeSetV2[GenerateVerifierConfigCfg] {
 	validate := func(e deployment.Environment, cfg GenerateVerifierConfigCfg) error {
-		if cfg.CommitteeQualifier == "" {
+		if cfg.Committee.Qualifier == "" {
 			return fmt.Errorf("committee qualifier is required")
 		}
 
@@ -75,14 +80,13 @@ func GenerateVerifierConfig() deployment.ChangeSetV2[GenerateVerifierConfigCfg] 
 		}
 
 		input := sequences.GenerateVerifierConfigInput{
-			CommitteeQualifier: cfg.CommitteeQualifier,
-			ExecutorQualifier:  cfg.ExecutorQualifier,
-			ChainSelectors:     selectors,
-			NOPAliases:         cfg.NOPAliases,
-			NOPs:               cfg.NOPs,
-			Committee:          cfg.Committee,
-			PyroscopeURL:       cfg.PyroscopeURL,
-			Monitoring:         cfg.Monitoring,
+			DefaultExecutorQualifier: cfg.DefaultExecutorQualifier,
+			ChainSelectors:           selectors,
+			NOPAliases:               cfg.NOPAliases,
+			NOPs:                     cfg.NOPs,
+			Committee:                cfg.Committee,
+			PyroscopeURL:             cfg.PyroscopeURL,
+			Monitoring:               cfg.Monitoring,
 		}
 
 		report, err := operations.ExecuteSequence(e.OperationsBundle, sequences.GenerateVerifierConfig, deps, input)

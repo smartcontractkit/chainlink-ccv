@@ -222,7 +222,6 @@ func generateExecutorJobSpecs(
 			ExecutorQualifier: qualifier,
 			ChainSelectors:    selectors,
 			NOPAliases:        execNOPAliases,
-			NOPs:              convertNOPsToExecutorInput(topology.NOPTopology.NOPs),
 			ExecutorPool:      convertExecutorPoolConfig(executorPool),
 			IndexerAddress:    topology.IndexerAddress,
 			PyroscopeURL:      topology.PyroscopeURL,
@@ -315,14 +314,12 @@ func generateVerifierJobSpecs(
 
 		cs := changesets.GenerateVerifierConfig()
 		output, err := cs.Apply(*e, changesets.GenerateVerifierConfigCfg{
-			CommitteeQualifier: committeeName,
-			ExecutorQualifier:  evm.DefaultExecutorQualifier,
-			ChainSelectors:     selectors,
-			NOPAliases:         verNOPAliases,
-			NOPs:               convertNOPsToVerifierInput(topology.NOPTopology.NOPs),
-			Committee:          convertCommitteeConfig(committee),
-			PyroscopeURL:       topology.PyroscopeURL,
-			Monitoring:         convertMonitoringConfig(topology.Monitoring),
+			DefaultExecutorQualifier: evm.DefaultExecutorQualifier,
+			ChainSelectors:           selectors,
+			NOPAliases:               verNOPAliases,
+			Committee:                convertCommitteeConfig(committee),
+			PyroscopeURL:             topology.PyroscopeURL,
+			Monitoring:               convertMonitoringConfig(topology.Monitoring),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate verifier configs for committee %s: %w", committeeName, err)

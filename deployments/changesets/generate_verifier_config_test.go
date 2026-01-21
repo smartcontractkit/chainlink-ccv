@@ -31,10 +31,12 @@ func TestGenerateVerifierConfig_ValidatesCommitteeQualifier(t *testing.T) {
 
 	env := createVerifierTestEnvironment(t)
 
+	committee := testCommitteeInput()
+	committee.Qualifier = ""
 	err := changeset.VerifyPreconditions(env, changesets.GenerateVerifierConfigCfg{
-		CommitteeQualifier: "",
-		NOPs:               testVerifierNOPs(),
-		Committee:          testCommitteeInput(),
+		DefaultExecutorQualifier: "",
+		NOPs:                     testVerifierNOPs(),
+		Committee:                committee,
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "committee qualifier is required")
@@ -46,8 +48,7 @@ func TestGenerateVerifierConfig_ValidatesAggregators(t *testing.T) {
 	env := createVerifierTestEnvironment(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateVerifierConfigCfg{
-		CommitteeQualifier: testCommittee,
-		NOPs:               testVerifierNOPs(),
+		NOPs: testVerifierNOPs(),
 		Committee: verifierconfig.CommitteeInput{
 			Qualifier:   testCommittee,
 			Aggregators: []verifierconfig.AggregatorInput{},
@@ -64,7 +65,6 @@ func TestGenerateVerifierConfig_ValidatesNOPSignerAddress(t *testing.T) {
 	env := createVerifierTestEnvironment(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateVerifierConfigCfg{
-		CommitteeQualifier: testCommittee,
 		NOPs: []verifierconfig.NOPInput{
 			{Alias: "nop-1", SignerAddress: ""},
 			{Alias: "nop-2", SignerAddress: "0x1234567890ABCDEF1234567890ABCDEF12345678"},
@@ -81,10 +81,9 @@ func TestGenerateVerifierConfig_ValidatesNOPAliasesExist(t *testing.T) {
 	env := createVerifierTestEnvironment(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateVerifierConfigCfg{
-		CommitteeQualifier: testCommittee,
-		NOPs:               testVerifierNOPs(),
-		Committee:          testCommitteeInput(),
-		NOPAliases:         []string{"unknown-nop"},
+		NOPs:       testVerifierNOPs(),
+		Committee:  testCommitteeInput(),
+		NOPAliases: []string{"unknown-nop"},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `NOP alias "unknown-nop" not found in NOPs input`)
@@ -96,10 +95,9 @@ func TestGenerateVerifierConfig_ValidatesChainSelectors(t *testing.T) {
 	env := createVerifierTestEnvironment(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateVerifierConfigCfg{
-		CommitteeQualifier: testCommittee,
-		NOPs:               testVerifierNOPs(),
-		Committee:          testCommitteeInput(),
-		ChainSelectors:     []uint64{1234},
+		NOPs:           testVerifierNOPs(),
+		Committee:      testCommitteeInput(),
+		ChainSelectors: []uint64{1234},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "selector 1234 is not available in environment")
@@ -142,14 +140,13 @@ func TestGenerateVerifierConfig_GeneratesCorrectJobSpec(t *testing.T) {
 
 	cs := changesets.GenerateVerifierConfig()
 	output, err := cs.Apply(env, changesets.GenerateVerifierConfigCfg{
-		CommitteeQualifier: committee,
-		ExecutorQualifier:  executorQualifier,
-		ChainSelectors:     selectors,
-		NOPAliases:         []string{"nop-1"},
-		NOPs:               testVerifierNOPs(),
-		Committee:          testCommitteeInput(),
-		PyroscopeURL:       "http://pyroscope:4040",
-		Monitoring:         testVerifierMonitoring(),
+		DefaultExecutorQualifier: executorQualifier,
+		ChainSelectors:           selectors,
+		NOPAliases:               []string{"nop-1"},
+		NOPs:                     testVerifierNOPs(),
+		Committee:                testCommitteeInput(),
+		PyroscopeURL:             "http://pyroscope:4040",
+		Monitoring:               testVerifierMonitoring(),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
@@ -229,14 +226,13 @@ func TestGenerateVerifierConfig_PreservesExistingConfigs(t *testing.T) {
 
 	cs := changesets.GenerateVerifierConfig()
 	output, err := cs.Apply(env, changesets.GenerateVerifierConfigCfg{
-		CommitteeQualifier: committee,
-		ExecutorQualifier:  executorQualifier,
-		ChainSelectors:     selectors,
-		NOPAliases:         []string{"nop-1"},
-		NOPs:               testVerifierNOPs(),
-		Committee:          testCommitteeInput(),
-		PyroscopeURL:       "http://pyroscope:4040",
-		Monitoring:         testVerifierMonitoring(),
+		DefaultExecutorQualifier: executorQualifier,
+		ChainSelectors:           selectors,
+		NOPAliases:               []string{"nop-1"},
+		NOPs:                     testVerifierNOPs(),
+		Committee:                testCommitteeInput(),
+		PyroscopeURL:             "http://pyroscope:4040",
+		Monitoring:               testVerifierMonitoring(),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
@@ -296,14 +292,13 @@ func TestGenerateVerifierConfig_MultipleAggregatorsPerCommittee(t *testing.T) {
 
 	cs := changesets.GenerateVerifierConfig()
 	output, err := cs.Apply(env, changesets.GenerateVerifierConfigCfg{
-		CommitteeQualifier: committee,
-		ExecutorQualifier:  executorQualifier,
-		ChainSelectors:     selectors,
-		NOPAliases:         []string{"nop-1"},
-		NOPs:               testVerifierNOPs(),
-		Committee:          multiAggCommittee,
-		PyroscopeURL:       "http://pyroscope:4040",
-		Monitoring:         testVerifierMonitoring(),
+		DefaultExecutorQualifier: executorQualifier,
+		ChainSelectors:           selectors,
+		NOPAliases:               []string{"nop-1"},
+		NOPs:                     testVerifierNOPs(),
+		Committee:                multiAggCommittee,
+		PyroscopeURL:             "http://pyroscope:4040",
+		Monitoring:               testVerifierMonitoring(),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
@@ -365,13 +360,12 @@ func TestGenerateVerifierConfig_RemovesOrphanedJobSpecs(t *testing.T) {
 
 	cs := changesets.GenerateVerifierConfig()
 	output, err := cs.Apply(env, changesets.GenerateVerifierConfigCfg{
-		CommitteeQualifier: committee,
-		ExecutorQualifier:  executorQualifier,
-		ChainSelectors:     selectors,
-		NOPs:               testVerifierNOPs(),
-		Committee:          testCommitteeInput(),
-		PyroscopeURL:       "http://pyroscope:4040",
-		Monitoring:         testVerifierMonitoring(),
+		DefaultExecutorQualifier: executorQualifier,
+		ChainSelectors:           selectors,
+		NOPs:                     testVerifierNOPs(),
+		Committee:                testCommitteeInput(),
+		PyroscopeURL:             "http://pyroscope:4040",
+		Monitoring:               testVerifierMonitoring(),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
@@ -426,14 +420,13 @@ func TestGenerateVerifierConfig_PreservesOtherCommitteeJobSpecs(t *testing.T) {
 
 	cs := changesets.GenerateVerifierConfig()
 	output, err := cs.Apply(env, changesets.GenerateVerifierConfigCfg{
-		CommitteeQualifier: committee,
-		ExecutorQualifier:  executorQualifier,
-		ChainSelectors:     selectors,
-		NOPAliases:         []string{"nop-1"},
-		NOPs:               testVerifierNOPs(),
-		Committee:          testCommitteeInput(),
-		PyroscopeURL:       "http://pyroscope:4040",
-		Monitoring:         testVerifierMonitoring(),
+		DefaultExecutorQualifier: executorQualifier,
+		ChainSelectors:           selectors,
+		NOPAliases:               []string{"nop-1"},
+		NOPs:                     testVerifierNOPs(),
+		Committee:                testCommitteeInput(),
+		PyroscopeURL:             "http://pyroscope:4040",
+		Monitoring:               testVerifierMonitoring(),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
@@ -488,14 +481,13 @@ func TestGenerateVerifierConfig_ScopedNOPAliasesPreservesOtherNOPs(t *testing.T)
 
 	cs := changesets.GenerateVerifierConfig()
 	output, err := cs.Apply(env, changesets.GenerateVerifierConfigCfg{
-		CommitteeQualifier: committee,
-		ExecutorQualifier:  executorQualifier,
-		ChainSelectors:     selectors,
-		NOPAliases:         []string{"nop-1"},
-		NOPs:               testVerifierNOPs(),
-		Committee:          testCommitteeInput(),
-		PyroscopeURL:       "http://pyroscope:4040",
-		Monitoring:         testVerifierMonitoring(),
+		DefaultExecutorQualifier: executorQualifier,
+		ChainSelectors:           selectors,
+		NOPAliases:               []string{"nop-1"},
+		NOPs:                     testVerifierNOPs(),
+		Committee:                testCommitteeInput(),
+		PyroscopeURL:             "http://pyroscope:4040",
+		Monitoring:               testVerifierMonitoring(),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
