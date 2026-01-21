@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -40,6 +41,7 @@ var tokenVerifierConfigTemplate string
 
 type TokenVerifierInput struct {
 	Mode           Mode                 `toml:"mode"`
+	DB             *VerifierDBInput     `toml:"db"`
 	Out            *TokenVerifierOutput `toml:"-"`
 	Image          string               `toml:"image"`
 	SourceCodePath string               `toml:"source_code_path"`
@@ -62,10 +64,11 @@ type TokenVerifierInput struct {
 }
 
 type TokenVerifierOutput struct {
-	ContainerName   string `toml:"container_name"`
-	ExternalHTTPURL string `toml:"http_url"`
-	InternalHTTPURL string `toml:"internal_http_url"`
-	UseCache        bool   `toml:"use_cache"`
+	ContainerName      string `toml:"container_name"`
+	ExternalHTTPURL    string `toml:"http_url"`
+	InternalHTTPURL    string `toml:"internal_http_url"`
+	UseCache           bool   `toml:"use_cache"`
+	DBConnectionString string `toml:"db_connection_string"`
 }
 
 func NewTokenVerifier(in *TokenVerifierInput, fakeAttestationServiceURL string) (*TokenVerifierOutput, error) {
@@ -88,6 +91,40 @@ func NewTokenVerifier(in *TokenVerifierInput, fakeAttestationServiceURL string) 
 		return nil, fmt.Errorf("failed to generate blockchain infos: %w", err)
 	}
 
+	/* Database */
+	_, err = postgres.Run(ctx,
+		in.DB.Image,
+		testcontainers.WithName(in.DB.Name),
+		postgres.WithDatabase(in.ContainerName),
+		postgres.WithUsername(in.ContainerName),
+		postgres.WithPassword(in.ContainerName),
+		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
+			ContainerRequest: testcontainers.ContainerRequest{
+				Name:         in.DB.Name,
+				ExposedPorts: []string{"5432/tcp"},
+				Networks:     []string{framework.DefaultNetworkName},
+				NetworkAliases: map[string][]string{
+					framework.DefaultNetworkName: {in.DB.Name},
+				},
+				Labels: framework.DefaultTCLabels(),
+				HostConfigModifier: func(h *container.HostConfig) {
+					h.PortBindings = nat.PortMap{
+						"5432/tcp": []nat.PortBinding{
+							{HostPort: strconv.Itoa(in.DB.Port)},
+						},
+					}
+				},
+				WaitingFor: wait.ForAll(
+					wait.ForLog("database system is ready to accept connections"),
+					wait.ForListeningPort("5432/tcp"),
+				),
+			},
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create database: %w", err)
+	}
+
 	// Generate and store config file.
 	config, err := in.GenerateConfigWithBlockchainInfos(blockchainInfos, fakeAttestationServiceURL)
 	if err != nil {
@@ -101,6 +138,11 @@ func NewTokenVerifier(in *TokenVerifierInput, fakeAttestationServiceURL string) 
 	}
 
 	envVars := make(map[string]string)
+	// Database connection for chain status (internal docker network address)
+	internalDBConnectionString := fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
+		in.ContainerName, in.ContainerName, in.DB.Name, in.ContainerName)
+	envVars["CL_DATABASE_URL"] = internalDBConnectionString
+
 	/* Service */
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
@@ -180,6 +222,8 @@ func NewTokenVerifier(in *TokenVerifierInput, fakeAttestationServiceURL string) 
 		ContainerName:   in.ContainerName,
 		ExternalHTTPURL: fmt.Sprintf("http://%s:%d", host, in.Port),
 		InternalHTTPURL: fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
+		DBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
+			in.ContainerName, in.ContainerName, in.DB.Port, in.ContainerName),
 	}, nil
 }
 
@@ -279,7 +323,7 @@ func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blo
 			networkInfo.ChainSelector,
 			datastore.ContractType(cctp_verifier.ResolverType),
 			semver.MustParse(cctp_verifier.Deploy.Version()),
-			"CCTP",
+			evm.CCTPContractsQualifier,
 		))
 		if err != nil {
 			framework.L.Info().
@@ -293,7 +337,7 @@ func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blo
 			networkInfo.ChainSelector,
 			datastore.ContractType(cctp_verifier.ContractType),
 			semver.MustParse(cctp_verifier.Deploy.Version()),
-			"CCTP",
+			evm.CCTPContractsQualifier,
 		))
 		if err != nil {
 			framework.L.Info().

@@ -38,10 +38,11 @@ type Committee struct {
 
 // BuildConfigInput contains the input parameters for building the aggregator config.
 type BuildConfigInput struct {
-	ServiceIdentifier  string
+	// ServiceIdentifier is the identifier for this aggregator service (e.g. "default-aggregator")
+	ServiceIdentifier string
+	// CommitteeQualifier is the unique identifier for this committee.
 	CommitteeQualifier string
-	// ChainSelectors are the chains the aggregator will support (both as source and destination).
-	// If empty, defaults to all chain selectors available in the environment.
+	// ChainSelectors are the chain selectors that will be considered. Defaults to all chain selectors in the environment.
 	ChainSelectors []uint64
 }
 
