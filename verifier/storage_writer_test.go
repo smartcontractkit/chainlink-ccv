@@ -16,6 +16,25 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+// noopChainStatusManager is a no-op implementation for testing
+type noopChainStatusManager struct{}
+
+func (n *noopChainStatusManager) GetChainStatus(ctx context.Context, chain protocol.ChainSelector) (protocol.ChainStatusInfo, error) {
+	return protocol.ChainStatusInfo{}, nil
+}
+
+func (n *noopChainStatusManager) SetChainStatus(ctx context.Context, statuses []protocol.ChainStatusInfo) error {
+	return nil
+}
+
+func (n *noopChainStatusManager) ReadChainStatuses(ctx context.Context, chains []protocol.ChainSelector) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
+	return make(map[protocol.ChainSelector]*protocol.ChainStatusInfo), nil
+}
+
+func (n *noopChainStatusManager) WriteChainStatuses(ctx context.Context, statuses []protocol.ChainStatusInfo) error {
+	return nil
+}
+
 func TestConfigWithDefaults(t *testing.T) {
 	tests := []struct {
 		name               string
@@ -88,6 +107,8 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 			CoordinatorConfig{
 				StorageRetryDelay: 100 * time.Millisecond,
 			},
+			NewPendingWritingTracker(),
+			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
 
@@ -171,6 +192,8 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 			CoordinatorConfig{
 				StorageRetryDelay: 100 * time.Millisecond,
 			},
+			NewPendingWritingTracker(),
+			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
 
@@ -229,6 +252,8 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 			CoordinatorConfig{
 				StorageRetryDelay: 100 * time.Millisecond,
 			},
+			NewPendingWritingTracker(),
+			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
 
@@ -285,6 +310,7 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 			storage:        fakeStorage,
 			batcher:        testBatcher,
 			retryDelay:     50 * time.Millisecond,
+			writingTracker: NewPendingWritingTracker(),
 		}
 
 		batch := []protocol.VerifierNodeResult{
@@ -363,6 +389,7 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 			storage:        fakeStorage,
 			batcher:        testBatcher,
 			retryDelay:     50 * time.Millisecond,
+			writingTracker: NewPendingWritingTracker(),
 		}
 
 		failingBatch := []protocol.VerifierNodeResult{createTestVerifierNodeResult(1)}
@@ -443,6 +470,8 @@ func TestStorageWriterProcessor_ContextCancellation(t *testing.T) {
 			CoordinatorConfig{
 				StorageRetryDelay: 100 * time.Millisecond,
 			},
+			NewPendingWritingTracker(),
+			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
 
