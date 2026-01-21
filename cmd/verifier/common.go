@@ -2,24 +2,45 @@ package verifier
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
+	"os"
 	"strconv"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/grafana/pyroscope-go"
+	"github.com/jmoiron/sqlx"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
+)
+
+const (
+	// Database environment variables.
+	DatabaseURLEnvVar             = "CL_DATABASE_URL"
+	DatabaseMaxOpenConnsEnvVar    = "CL_DATABASE_MAX_OPEN_CONNS"
+	DatabaseMaxIdleConnsEnvVar    = "CL_DATABASE_MAX_IDLE_CONNS"
+	DatabaseConnMaxLifetimeEnvVar = "CL_DATABASE_CONN_MAX_LIFETIME"
+	DatabaseConnMaxIdleTimeEnvVar = "CL_DATABASE_CONN_MAX_IDLE_TIME"
+
+	// Database defaults.
+	defaultMaxOpenConns    = 2
+	defaultMaxIdleConns    = 1
+	defaultConnMaxLifetime = 300 // seconds
+	defaultConnMaxIdleTime = 60  // seconds
 )
 
 func SetupMonitoring(lggr logger.Logger, config verifier.MonitoringConfig) verifier.Monitoring {
@@ -140,6 +161,49 @@ func LoadBlockchainReadersForCommit(
 	return sourceReaders
 }
 
+func ConnectToPostgresDB(lggr logger.Logger) (*sqlx.DB, error) {
+	dbURL := os.Getenv(DatabaseURLEnvVar)
+	if dbURL == "" {
+		return nil, nil
+	}
+
+	maxOpenConns := getEnvInt(DatabaseMaxOpenConnsEnvVar, defaultMaxOpenConns)
+	maxIdleConns := getEnvInt(DatabaseMaxIdleConnsEnvVar, defaultMaxIdleConns)
+	connMaxLifetime := getEnvInt(DatabaseConnMaxLifetimeEnvVar, defaultConnMaxLifetime)
+	connMaxIdleTime := getEnvInt(DatabaseConnMaxIdleTimeEnvVar, defaultConnMaxIdleTime)
+
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		return nil, nil
+	}
+
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxIdleConns)
+	db.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
+	db.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Second)
+
+	if err := ccvcommon.EnsureDBConnection(lggr, db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("failed to ping postgres database: %w", err)
+	}
+
+	sqlxDB := sqlx.NewDb(db, "postgres")
+
+	if err := chainstatus.RunPostgresMigrations(sqlxDB); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("failed to run postgres migrations: %w", err)
+	}
+
+	lggr.Infow("Using PostgreSQL chain status storage",
+		"maxOpenConns", maxOpenConns,
+		"maxIdleConns", maxIdleConns,
+		"connMaxLifetime", connMaxLifetime,
+		"connMaxIdleTime", connMaxIdleTime,
+	)
+
+	return sqlxDB, nil
+}
+
 func createEvmChainReader(
 	lggr logger.Logger,
 	chainClients map[protocol.ChainSelector]client.Client,
@@ -231,4 +295,16 @@ func logChainInfo(blockchainHelper *protocol.BlockchainHelper, chainSelector pro
 	if nodes, err := blockchainHelper.GetAllNodes(chainSelector); err == nil {
 		lggr.Infow("📡 All nodes", "chainSelector", chainSelector, "nodeCount", len(nodes))
 	}
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	val := os.Getenv(key)
+	if val == "" {
+		return defaultValue
+	}
+	intVal, err := strconv.Atoi(val)
+	if err != nil {
+		return defaultValue
+	}
+	return intVal
 }
