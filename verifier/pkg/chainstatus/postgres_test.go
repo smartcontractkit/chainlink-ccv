@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	db2 "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db"
+
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
@@ -46,7 +48,7 @@ func setupTestDB(t *testing.T) *sqlx.DB {
 
 	sqlxDB := sqlx.NewDb(db, "postgres")
 
-	err = RunPostgresMigrations(sqlxDB)
+	err = db2.RunPostgresMigrations(sqlxDB)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {

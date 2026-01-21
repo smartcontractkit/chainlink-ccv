@@ -65,7 +65,6 @@ var BuildConfig = operations.NewOperation(
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get resolver addresses for verifier %q (qualifier %q): %w", name, qualifier, err)
 			}
-
 			verifiers = append(verifiers, GeneratedVerifier{
 				Name:            name,
 				IssuerAddresses: addresses,

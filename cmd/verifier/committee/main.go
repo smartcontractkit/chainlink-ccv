@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
@@ -33,19 +32,6 @@ import (
 const (
 	PkEnvVar   = "VERIFIER_SIGNER_PRIVATE_KEY"
 	ConfigPath = "VERIFIER_CONFIG_PATH"
-
-	// Database environment variables.
-	DatabaseURLEnvVar             = "CL_DATABASE_URL"
-	DatabaseMaxOpenConnsEnvVar    = "CL_DATABASE_MAX_OPEN_CONNS"
-	DatabaseMaxIdleConnsEnvVar    = "CL_DATABASE_MAX_IDLE_CONNS"
-	DatabaseConnMaxLifetimeEnvVar = "CL_DATABASE_CONN_MAX_LIFETIME"
-	DatabaseConnMaxIdleTimeEnvVar = "CL_DATABASE_CONN_MAX_IDLE_TIME"
-
-	// Database defaults.
-	defaultMaxOpenConns    = 2
-	defaultMaxIdleConns    = 1
-	defaultConnMaxLifetime = 300 // seconds
-	defaultConnMaxIdleTime = 60  // seconds
 )
 
 func main() {
@@ -348,56 +334,9 @@ func loadConfiguration(filepath string) (*commit.Config, map[string]*protocol.Bl
 }
 
 func createChainStatusManager(lggr logger.Logger) (protocol.ChainStatusManager, *sqlx.DB, error) {
-	dbURL := os.Getenv(DatabaseURLEnvVar)
-	if dbURL == "" {
-		return nil, nil, fmt.Errorf("%s environment variable is required", DatabaseURLEnvVar)
-	}
-
-	maxOpenConns := getEnvInt(DatabaseMaxOpenConnsEnvVar, defaultMaxOpenConns)
-	maxIdleConns := getEnvInt(DatabaseMaxIdleConnsEnvVar, defaultMaxIdleConns)
-	connMaxLifetime := getEnvInt(DatabaseConnMaxLifetimeEnvVar, defaultConnMaxLifetime)
-	connMaxIdleTime := getEnvInt(DatabaseConnMaxIdleTimeEnvVar, defaultConnMaxIdleTime)
-
-	db, err := sql.Open("postgres", dbURL)
+	sqlDB, err := cmd.ConnectToPostgresDB(lggr)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to open postgres database: %w", err)
+		return nil, nil, fmt.Errorf("failed to connect to Postgres DB: %w", err)
 	}
-
-	db.SetMaxOpenConns(maxOpenConns)
-	db.SetMaxIdleConns(maxIdleConns)
-	db.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
-	db.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Second)
-
-	if err := ccvcommon.EnsureDBConnection(lggr, db); err != nil {
-		_ = db.Close()
-		return nil, nil, fmt.Errorf("failed to ping postgres database: %w", err)
-	}
-
-	sqlxDB := sqlx.NewDb(db, "postgres")
-
-	if err := chainstatus.RunPostgresMigrations(sqlxDB); err != nil {
-		_ = db.Close()
-		return nil, nil, fmt.Errorf("failed to run postgres migrations: %w", err)
-	}
-
-	lggr.Infow("Using PostgreSQL chain status storage",
-		"maxOpenConns", maxOpenConns,
-		"maxIdleConns", maxIdleConns,
-		"connMaxLifetime", connMaxLifetime,
-		"connMaxIdleTime", connMaxIdleTime,
-	)
-
-	return chainstatus.NewPostgresChainStatusManager(sqlxDB, lggr), sqlxDB, nil
-}
-
-func getEnvInt(key string, defaultValue int) int {
-	val := os.Getenv(key)
-	if val == "" {
-		return defaultValue
-	}
-	intVal, err := strconv.Atoi(val)
-	if err != nil {
-		return defaultValue
-	}
-	return intVal
+	return chainstatus.NewPostgresChainStatusManager(sqlDB, lggr), sqlDB, nil
 }

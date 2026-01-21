@@ -50,8 +50,5 @@ pods.tmp.yml
 dctl
 job-distributor/
 env-*out.toml
-dashboards/*
-!dashboards/ccv.json
-!dashboards/heartbeat*.json
 fakes/tmp
 tests/e2e/logs

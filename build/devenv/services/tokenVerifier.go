@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -40,6 +41,7 @@ var tokenVerifierConfigTemplate string
 
 type TokenVerifierInput struct {
 	Mode           Mode                 `toml:"mode"`
+	DB             *VerifierDBInput     `toml:"db"`
 	Out            *TokenVerifierOutput `toml:"-"`
 	Image          string               `toml:"image"`
 	SourceCodePath string               `toml:"source_code_path"`
@@ -54,16 +56,19 @@ type TokenVerifierInput struct {
 	// Maps to rmn_remote_addresses in the verifier config toml.
 	RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
 
-	CCTPVerifierAddresses map[string]string `toml:"cctp_verifier_addresses"`
+	CCTPVerifierAddresses map[string]string `toml:"cctp_verifier_resolver_addresses"`
+
+	CCTPVerifierResolverAddresses map[string]string `toml:"cctp_verifier_resolver_addresses"`
 
 	LBTCVerifierAddresses map[string]string `toml:"lbtc_verifier_addresses"`
 }
 
 type TokenVerifierOutput struct {
-	ContainerName   string `toml:"container_name"`
-	ExternalHTTPURL string `toml:"http_url"`
-	InternalHTTPURL string `toml:"internal_http_url"`
-	UseCache        bool   `toml:"use_cache"`
+	ContainerName      string `toml:"container_name"`
+	ExternalHTTPURL    string `toml:"http_url"`
+	InternalHTTPURL    string `toml:"internal_http_url"`
+	UseCache           bool   `toml:"use_cache"`
+	DBConnectionString string `toml:"db_connection_string"`
 }
 
 func NewTokenVerifier(in *TokenVerifierInput, fakeAttestationServiceURL string) (*TokenVerifierOutput, error) {
@@ -86,6 +91,40 @@ func NewTokenVerifier(in *TokenVerifierInput, fakeAttestationServiceURL string) 
 		return nil, fmt.Errorf("failed to generate blockchain infos: %w", err)
 	}
 
+	/* Database */
+	_, err = postgres.Run(ctx,
+		in.DB.Image,
+		testcontainers.WithName(in.DB.Name),
+		postgres.WithDatabase(in.ContainerName),
+		postgres.WithUsername(in.ContainerName),
+		postgres.WithPassword(in.ContainerName),
+		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
+			ContainerRequest: testcontainers.ContainerRequest{
+				Name:         in.DB.Name,
+				ExposedPorts: []string{"5432/tcp"},
+				Networks:     []string{framework.DefaultNetworkName},
+				NetworkAliases: map[string][]string{
+					framework.DefaultNetworkName: {in.DB.Name},
+				},
+				Labels: framework.DefaultTCLabels(),
+				HostConfigModifier: func(h *container.HostConfig) {
+					h.PortBindings = nat.PortMap{
+						"5432/tcp": []nat.PortBinding{
+							{HostPort: strconv.Itoa(in.DB.Port)},
+						},
+					}
+				},
+				WaitingFor: wait.ForAll(
+					wait.ForLog("database system is ready to accept connections"),
+					wait.ForListeningPort("5432/tcp"),
+				),
+			},
+		}),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create database: %w", err)
+	}
+
 	// Generate and store config file.
 	config, err := in.GenerateConfigWithBlockchainInfos(blockchainInfos, fakeAttestationServiceURL)
 	if err != nil {
@@ -99,6 +138,11 @@ func NewTokenVerifier(in *TokenVerifierInput, fakeAttestationServiceURL string) 
 	}
 
 	envVars := make(map[string]string)
+	// Database connection for chain status (internal docker network address)
+	internalDBConnectionString := fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
+		in.ContainerName, in.ContainerName, in.DB.Name, in.ContainerName)
+	envVars["CL_DATABASE_URL"] = internalDBConnectionString
+
 	/* Service */
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
@@ -178,6 +222,8 @@ func NewTokenVerifier(in *TokenVerifierInput, fakeAttestationServiceURL string) 
 		ContainerName:   in.ContainerName,
 		ExternalHTTPURL: fmt.Sprintf("http://%s:%d", host, in.Port),
 		InternalHTTPURL: fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
+		DBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
+			in.ContainerName, in.ContainerName, in.DB.Port, in.ContainerName),
 	}, nil
 }
 
@@ -213,11 +259,16 @@ func (v *TokenVerifierInput) buildVerifierConfiguration(config *token.Config, fa
 		config.TokenVerifiers = make([]token.VerifierConfig, 0)
 	}
 
-	if len(v.CCTPVerifierAddresses) > 0 {
+	if len(v.CCTPVerifierResolverAddresses) > 0 {
 		verifiers := make(map[string]any)
+		verifierResolvers := make(map[string]any)
 		for k, addr := range v.CCTPVerifierAddresses {
 			verifiers[k] = addr
 		}
+		for k, addr := range v.CCTPVerifierResolverAddresses {
+			verifierResolvers[k] = addr
+		}
+
 		config.TokenVerifiers = append(config.TokenVerifiers, token.VerifierConfig{
 			Type:    "cctp",
 			Version: "2.0",
@@ -227,14 +278,15 @@ func (v *TokenVerifierInput) buildVerifierConfiguration(config *token.Config, fa
 				AttestationAPITimeout:  1 * time.Second,
 				AttestationAPICooldown: 1 * time.Millisecond,
 				Verifiers:              verifiers,
+				VerifierResolvers:      verifierResolvers,
 			},
 		})
 	}
 
 	if len(v.LBTCVerifierAddresses) > 0 {
-		verifiers := make(map[string]any)
+		verifierResolvers := make(map[string]any)
 		for k, addr := range v.LBTCVerifierAddresses {
-			verifiers[k] = addr
+			verifierResolvers[k] = addr
 		}
 		config.TokenVerifiers = append(config.TokenVerifiers, token.VerifierConfig{
 			Type:    "lbtc",
@@ -244,7 +296,7 @@ func (v *TokenVerifierInput) buildVerifierConfiguration(config *token.Config, fa
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPITimeout:   1 * time.Second,
 				AttestationAPIBatchSize: 20,
-				Verifiers:               verifiers,
+				VerifierResolvers:       verifierResolvers,
 			},
 		})
 	}
@@ -257,6 +309,7 @@ func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blo
 	ver.DefaultExecutorOnRampAddresses = make(map[string]string)
 	ver.RMNRemoteAddresses = make(map[string]string)
 	ver.CCTPVerifierAddresses = make(map[string]string)
+	ver.CCTPVerifierResolverAddresses = make(map[string]string)
 	ver.LBTCVerifierAddresses = make(map[string]string)
 
 	for _, chain := range blockchains {
@@ -266,18 +319,32 @@ func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blo
 		}
 		selectorStr := strconv.FormatUint(networkInfo.ChainSelector, 10)
 
-		cctpTokenVerifierAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+		cctpTokenVerifierResolverAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
 			networkInfo.ChainSelector,
 			datastore.ContractType(cctp_verifier.ResolverType),
 			semver.MustParse(cctp_verifier.Deploy.Version()),
-			"CCTP",
+			evm.CCTPContractsQualifier,
+		))
+		if err != nil {
+			framework.L.Info().
+				Str("chainID", chain.ChainID).
+				Msg("Failed to get CCTP Verifier Resolver address from datastore")
+		} else {
+			ver.CCTPVerifierResolverAddresses[selectorStr] = cctpTokenVerifierResolverAddressRef.Address
+		}
+
+		cctpTokenAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+			networkInfo.ChainSelector,
+			datastore.ContractType(cctp_verifier.ContractType),
+			semver.MustParse(cctp_verifier.Deploy.Version()),
+			evm.CCTPContractsQualifier,
 		))
 		if err != nil {
 			framework.L.Info().
 				Str("chainID", chain.ChainID).
 				Msg("Failed to get CCTP Verifier address from datastore")
 		} else {
-			ver.CCTPVerifierAddresses[selectorStr] = cctpTokenVerifierAddressRef.Address
+			ver.CCTPVerifierAddresses[selectorStr] = cctpTokenAddressRef.Address
 		}
 
 		onRampAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(

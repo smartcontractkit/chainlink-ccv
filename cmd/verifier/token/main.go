@@ -19,6 +19,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/ccvstorage"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
 	tokenapi "github.com/smartcontractkit/chainlink-ccv/verifier/token/api"
@@ -88,7 +90,14 @@ func main() {
 		rmnRemoteAddresses[selector] = addr
 	}
 
-	inmemoryStorage := storage.NewInMemory()
+	sqlDB, err := cmd.ConnectToPostgresDB(lggr)
+	if err != nil {
+		lggr.Errorw("Failed to connect to Postgres database", "error", err)
+		os.Exit(1)
+	}
+
+	chainStatusManager := chainstatus.NewPostgresChainStatusManager(sqlDB, lggr)
+	postgresStorage := ccvstorage.NewPostgres(sqlDB, lggr)
 
 	coordinators := make([]*verifier.Coordinator, 0, len(config.TokenVerifiers))
 	for _, verifierConfig := range config.TokenVerifiers {
@@ -103,11 +112,12 @@ func main() {
 				rmnRemoteAddresses,
 				storage.NewAttestationCCVWriter(
 					lggr,
-					verifierConfig.LBTCConfig.ParsedVerifiers,
-					inmemoryStorage,
+					verifierConfig.LBTCConfig.ParsedVerifierResolvers,
+					postgresStorage,
 				),
 				messageTracker,
 				verifierMonitoring,
+				chainStatusManager,
 			)
 		} else if verifierConfig.IsCCTP() {
 			coordinator = createCCTPCoordinator(
@@ -119,11 +129,12 @@ func main() {
 				rmnRemoteAddresses,
 				storage.NewAttestationCCVWriter(
 					lggr,
-					verifierConfig.CCTPConfig.ParsedVerifiers,
-					inmemoryStorage,
+					verifierConfig.CCTPConfig.ParsedVerifierResolvers,
+					postgresStorage,
 				),
 				messageTracker,
 				verifierMonitoring,
+				chainStatusManager,
 			)
 		} else {
 			lggr.Fatalw("Unknown verifier type", "type", verifierConfig.Type)
@@ -142,7 +153,7 @@ func main() {
 	for i, coordinator := range coordinators {
 		healthReporters[i] = coordinator
 	}
-	ginRouter := tokenapi.NewHTTPAPI(lggr, storage.NewAttestationCCVReader(inmemoryStorage), healthReporters)
+	ginRouter := tokenapi.NewHTTPAPI(lggr, storage.NewAttestationCCVReader(postgresStorage), healthReporters)
 
 	// Start HTTP server with Gin router
 	httpServer := &http.Server{
@@ -192,8 +203,9 @@ func createCCTPCoordinator(
 	ccvStorage protocol.CCVNodeDataWriter,
 	messageTracker verifier.MessageLatencyTracker,
 	verifierMonitoring verifier.Monitoring,
+	chainStatusManager protocol.ChainStatusManager,
 ) *verifier.Coordinator {
-	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifiers, rmnRemoteAddresses)
+	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifierResolvers, rmnRemoteAddresses)
 
 	attestationService, err := cctp.NewAttestationService(lggr, *cctpConfig)
 	if err != nil {
@@ -218,7 +230,7 @@ func createCCTPCoordinator(
 		},
 		messageTracker,
 		verifierMonitoring,
-		storage.NewChainStatusManager(),
+		chainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
 	)
 	if err != nil {
@@ -239,8 +251,9 @@ func createLBTCCoordinator(
 	ccvStorage protocol.CCVNodeDataWriter,
 	messageTracker verifier.MessageLatencyTracker,
 	verifierMonitoring verifier.Monitoring,
+	chainStatusManager protocol.ChainStatusManager,
 ) *verifier.Coordinator {
-	sourceConfigs := createSourceConfigs(lbtcConfig.ParsedVerifiers, rmnRemoteAddresses)
+	sourceConfigs := createSourceConfigs(lbtcConfig.ParsedVerifierResolvers, rmnRemoteAddresses)
 
 	attestationService, err := lbtc.NewAttestationService(lggr, *lbtcConfig)
 	if err != nil {
@@ -265,7 +278,7 @@ func createLBTCCoordinator(
 		},
 		messageTracker,
 		verifierMonitoring,
-		storage.NewChainStatusManager(),
+		chainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
 	)
 	if err != nil {

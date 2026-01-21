@@ -1,3 +1,110 @@
+## CL mode environment topology for 2-node setup
+[environment_topology]
+indexer_address = "http://indexer:8100"
+pyroscope_url = "http://host.docker.internal:4040"
+
+[environment_topology.monitoring]
+Enabled = true
+Type = "beholder"
+
+[environment_topology.monitoring.Beholder]
+InsecureConnection = true
+OtelExporterHTTPEndpoint = "host.docker.internal:4318"
+LogStreamingEnabled = false
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+
+[[environment_topology.nop_topology.nops]]
+alias = "node-0"
+name = "node-0"
+
+[[environment_topology.nop_topology.nops]]
+alias = "node-1"
+name = "node-1"
+
+[environment_topology.nop_topology.committees.default]
+qualifier = "default"
+
+[[environment_topology.nop_topology.committees.default.aggregators]]
+name = "default"
+address = "default-aggregator:50051"
+insecure_connection = true
+
+[environment_topology.nop_topology.committees.default.chain_configs.16015286601757825753]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+
+[environment_topology.nop_topology.committees.default.chain_configs.3478487238524512106]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+
+[environment_topology.nop_topology.committees.default.chain_configs.9284632837123596123]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+
+[environment_topology.nop_topology.committees.secondary]
+qualifier = "secondary"
+
+[[environment_topology.nop_topology.committees.secondary.aggregators]]
+name = "default"
+address = "secondary-aggregator:50051"
+insecure_connection = true
+
+[environment_topology.nop_topology.committees.secondary.chain_configs.16015286601757825753]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+
+[environment_topology.nop_topology.committees.secondary.chain_configs.3478487238524512106]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+
+[environment_topology.nop_topology.committees.secondary.chain_configs.9284632837123596123]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+
+[environment_topology.nop_topology.committees.tertiary]
+qualifier = "tertiary"
+
+[[environment_topology.nop_topology.committees.tertiary.aggregators]]
+name = "default"
+address = "tertiary-aggregator:50051"
+insecure_connection = true
+
+[environment_topology.nop_topology.committees.tertiary.chain_configs.16015286601757825753]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+
+[environment_topology.nop_topology.committees.tertiary.chain_configs.3478487238524512106]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+
+[environment_topology.nop_topology.committees.tertiary.chain_configs.9284632837123596123]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+
+[environment_topology.executor_pools.default]
+nop_aliases = ["node-0", "node-1"]
+execution_interval = 15_000_000_000
+indexer_query_limit = 100
+backoff_duration = 15_000_000_000
+lookback_window = 3_600_000_000_000
+reader_cache_expiry = 300_000_000_000
+max_retry_duration = 28_800_000_000_000
+worker_count = 100
+ntp_server = "time.google.com"
+
+[environment_topology.executor_pools.custom]
+nop_aliases = ["node-0"]
+execution_interval = 15_000_000_000
+indexer_query_limit = 100
+backoff_duration = 15_000_000_000
+lookback_window = 3_600_000_000_000
+reader_cache_expiry = 300_000_000_000
+max_retry_duration = 28_800_000_000_000
+worker_count = 100
+ntp_server = "time.google.com"
+
 [[nodesets]]
   name = "don"
   nodes = 2
@@ -13,7 +120,6 @@
       docker_file = "plugins/chainlink.Dockerfile"
 
     [nodesets.node_specs.node.env_vars]
-      # XXX: this is required for the integration to work
       CL_EVM_CMD=""
 
   [[nodesets.node_specs]]
@@ -23,16 +129,15 @@
       docker_file = "plugins/chainlink.Dockerfile"
 
     [nodesets.node_specs.node.env_vars]
-      # XXX: this is required for the integration to work
       CL_EVM_CMD=""
 
-## Default Verifier Setup
+## Default Verifier Setup (2 nodes)
 [[verifier]]
   mode = "cl"
   image = "verifier:dev"
   container_name = "default-verifier-1"
+  nop_alias = "node-0"
   port = 8100
-  # path is relative from "devenv" dir
   source_code_path = "../verifier"
   root_path = "../../"
   committee_name = "default"
@@ -42,16 +147,12 @@
     image = "postgres:16-alpine"
     name = "default-verifier-1-db"
     port = 8432
-  
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-verifier-1"
-    aggregator_secret_key = "dev-secret-verifier-1"
 
 [[verifier]]
   mode = "cl"
   image = "verifier:dev"
   container_name = "default-verifier-2"
+  nop_alias = "node-1"
   port = 8200
   source_code_path = "../verifier"
   root_path = "../../"
@@ -62,17 +163,13 @@
     image = "postgres:16-alpine"
     name = "default-verifier-2-db"
     port = 8433
-  
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-verifier-2"
-    aggregator_secret_key = "dev-secret-verifier-2"
 
-# Secondary Verifier Setup
+# Secondary Verifier Setup (shares same 2 nodes)
 [[verifier]]
   mode = "cl"
   image = "verifier:dev"
   container_name = "secondary-verifier-1"
+  nop_alias = "node-0"
   port = 8300
   source_code_path = "../verifier"
   root_path = "../../"
@@ -83,16 +180,12 @@
     image = "postgres:16-alpine"
     name = "secondary-verifier-1-db"
     port = 8434
-  
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-secondary-verifier-1"
-    aggregator_secret_key = "dev-secret-secondary-verifier-1"
 
 [[verifier]]
   mode = "cl"
   image = "verifier:dev"
   container_name = "secondary-verifier-2"
+  nop_alias = "node-1"
   port = 8400
   source_code_path = "../verifier"
   root_path = "../../"
@@ -103,17 +196,13 @@
     image = "postgres:16-alpine"
     name = "secondary-verifier-2-db"
     port = 8435
-  
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-secondary-verifier-2"
-    aggregator_secret_key = "dev-secret-secondary-verifier-2"
 
-# Tertiary Verifier Setup
+# Tertiary Verifier Setup (shares same 2 nodes)
 [[verifier]]
   mode = "cl"
   image = "verifier:dev"
   container_name = "tertiary-verifier-1"
+  nop_alias = "node-0"
   port = 8500
   source_code_path = "../verifier"
   root_path = "../../"
@@ -124,16 +213,12 @@
     image = "postgres:16-alpine"
     name = "tertiary-verifier-1-db"
     port = 8436
-  
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-tertiary-verifier-1"
-    aggregator_secret_key = "dev-secret-tertiary-verifier-1"
 
 [[verifier]]
   mode = "cl"
   image = "verifier:dev"
   container_name = "tertiary-verifier-2"
+  nop_alias = "node-1"
   port = 8600
   source_code_path = "../verifier"
   root_path = "../../"
@@ -144,11 +229,6 @@
     image = "postgres:16-alpine"
     name = "tertiary-verifier-2-db"
     port = 8437
-  
-  # Environment variables for sensitive configuration
-  [verifier.env]
-    aggregator_api_key = "dev-api-key-tertiary-verifier-2"
-    aggregator_secret_key = "dev-secret-tertiary-verifier-2"
 
 [[executor]]
   mode = "cl"
@@ -157,6 +237,7 @@
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-1"
+  nop_alias = "node-0"
   executor_qualifier = "default"
 
 [[executor]]
@@ -166,6 +247,7 @@
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-2"
+  nop_alias = "node-1"
   executor_qualifier = "default"
 
 [[executor]]
@@ -175,4 +257,5 @@
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "custom-executor-1"
+  nop_alias = "node-0"
   executor_qualifier = "custom"
