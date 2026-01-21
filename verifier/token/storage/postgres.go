@@ -91,7 +91,7 @@ func (p *PostgresCCVStorage) Get(ctx context.Context, keys []protocol.Bytes32) (
 		}
 
 		entry := Entry{
-			value: protocol.VerifierNodeResult{
+			Value: protocol.VerifierNodeResult{
 				MessageID:       msgID,
 				Message:         message,
 				CCVVersion:      protocol.ByteSlice(r.CCVVersion),
@@ -99,9 +99,9 @@ func (p *PostgresCCVStorage) Get(ctx context.Context, keys []protocol.Bytes32) (
 				ExecutorAddress: protocol.UnknownAddress(r.ExecutorAddress),
 				Signature:       protocol.ByteSlice(r.Signature),
 			},
-			verifierSourceAddress: protocol.UnknownAddress(r.VerifierSourceAddress),
-			verifierDestAddress:   protocol.UnknownAddress(r.VerifierDestAddress),
-			timestamp:             r.Timestamp,
+			VerifierSourceAddress: protocol.UnknownAddress(r.VerifierSourceAddress),
+			VerifierDestAddress:   protocol.UnknownAddress(r.VerifierDestAddress),
+			Timestamp:             r.Timestamp,
 		}
 
 		result[msgID] = entry
@@ -139,17 +139,17 @@ func (p *PostgresCCVStorage) Set(ctx context.Context, entries []Entry) error {
 			timestamp = EXCLUDED.timestamp`
 
 		for _, entry := range entries {
-			msgID, err := entry.value.Message.MessageID()
+			msgID, err := entry.Value.Message.MessageID()
 			if err != nil {
 				return fmt.Errorf("failed to compute message ID: %w", err)
 			}
 
-			messageJSON, err := json.Marshal(entry.value.Message)
+			messageJSON, err := json.Marshal(entry.Value.Message)
 			if err != nil {
 				return fmt.Errorf("failed to marshal message: %w", err)
 			}
 
-			ccvAddressesJSON, err := json.Marshal(entry.value.CCVAddresses)
+			ccvAddressesJSON, err := json.Marshal(entry.Value.CCVAddresses)
 			if err != nil {
 				return fmt.Errorf("failed to marshal ccv addresses: %w", err)
 			}
@@ -157,13 +157,13 @@ func (p *PostgresCCVStorage) Set(ctx context.Context, entries []Entry) error {
 			_, err = tx.ExecContext(ctx, stmt,
 				msgID[:],
 				messageJSON,
-				[]byte(entry.value.CCVVersion),
+				[]byte(entry.Value.CCVVersion),
 				ccvAddressesJSON,
-				[]byte(entry.value.ExecutorAddress),
-				[]byte(entry.value.Signature),
-				[]byte(entry.verifierSourceAddress),
-				[]byte(entry.verifierDestAddress),
-				entry.timestamp,
+				[]byte(entry.Value.ExecutorAddress),
+				[]byte(entry.Value.Signature),
+				[]byte(entry.VerifierSourceAddress),
+				[]byte(entry.VerifierDestAddress),
+				entry.Timestamp,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to insert verifier node result for message %s: %w", msgID.String(), err)

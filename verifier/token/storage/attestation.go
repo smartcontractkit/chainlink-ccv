@@ -40,10 +40,10 @@ func (a *AttestationCCVWriter) WriteCCVNodeData(
 	for i, ccvData := range ccvDataList {
 		source, dest := a.addresses(ccvData.Message)
 		entries[i] = Entry{
-			value:                 ccvData,
-			verifierSourceAddress: source,
-			verifierDestAddress:   dest,
-			timestamp:             time.Now(),
+			Value:                 ccvData,
+			VerifierSourceAddress: source,
+			VerifierDestAddress:   dest,
+			Timestamp:             time.Now(),
 		}
 	}
 	return a.storage.Set(ctx, entries)
@@ -89,14 +89,14 @@ func (a *AttestationCCVReader) GetVerifications(
 	results := make(map[protocol.Bytes32]protocol.VerifierResult)
 	for msgID, entry := range storageOutput {
 		results[msgID] = protocol.VerifierResult{
-			MessageID:              entry.value.MessageID,
-			Message:                entry.value.Message,
-			MessageCCVAddresses:    entry.value.CCVAddresses,
-			MessageExecutorAddress: entry.value.ExecutorAddress,
-			CCVData:                entry.value.Signature,
-			Timestamp:              entry.timestamp,
-			VerifierSourceAddress:  entry.verifierSourceAddress,
-			VerifierDestAddress:    entry.verifierDestAddress,
+			MessageID:              entry.Value.MessageID,
+			Message:                entry.Value.Message,
+			MessageCCVAddresses:    entry.Value.CCVAddresses,
+			MessageExecutorAddress: entry.Value.ExecutorAddress,
+			CCVData:                entry.Value.Signature,
+			Timestamp:              entry.Timestamp,
+			VerifierSourceAddress:  entry.VerifierSourceAddress,
+			VerifierDestAddress:    entry.VerifierDestAddress,
 		}
 	}
 	return results, nil

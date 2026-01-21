@@ -1,31 +1,32 @@
-package storage
+package chainstatus
 
 import (
 	"context"
 	"sync"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
 )
 
-var _ CCVStorage = &InMemoryCCVStorage{}
+var _ storage.CCVStorage = &InMemoryCCVStorage{}
 
 type InMemoryCCVStorage struct {
 	mu   sync.RWMutex
-	data map[protocol.Bytes32]Entry
+	data map[protocol.Bytes32]storage.Entry
 }
 
 func NewInMemory() *InMemoryCCVStorage {
 	return &InMemoryCCVStorage{
-		data: make(map[protocol.Bytes32]Entry),
+		data: make(map[protocol.Bytes32]storage.Entry),
 		mu:   sync.RWMutex{},
 	}
 }
 
-func (s *InMemoryCCVStorage) Get(_ context.Context, key []protocol.Bytes32) (map[protocol.Bytes32]Entry, error) {
+func (s *InMemoryCCVStorage) Get(_ context.Context, key []protocol.Bytes32) (map[protocol.Bytes32]storage.Entry, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	result := make(map[protocol.Bytes32]Entry)
+	result := make(map[protocol.Bytes32]storage.Entry)
 	for _, k := range key {
 		if entry, exists := s.data[k]; exists {
 			result[k] = entry
@@ -34,12 +35,12 @@ func (s *InMemoryCCVStorage) Get(_ context.Context, key []protocol.Bytes32) (map
 	return result, nil
 }
 
-func (s *InMemoryCCVStorage) Set(_ context.Context, entries []Entry) error {
+func (s *InMemoryCCVStorage) Set(_ context.Context, entries []storage.Entry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	for _, entry := range entries {
-		msgID, err := entry.value.Message.MessageID()
+		msgID, err := entry.Value.Message.MessageID()
 		if err != nil {
 			return err
 		}

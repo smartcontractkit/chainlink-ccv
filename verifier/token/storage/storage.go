@@ -9,10 +9,10 @@ import (
 
 // Entry represents a stored verifier node result with additional metadata.
 type Entry struct {
-	value                 protocol.VerifierNodeResult
-	verifierSourceAddress protocol.UnknownAddress
-	verifierDestAddress   protocol.UnknownAddress
-	timestamp             time.Time
+	Value                 protocol.VerifierNodeResult
+	VerifierSourceAddress protocol.UnknownAddress
+	VerifierDestAddress   protocol.UnknownAddress
+	Timestamp             time.Time
 }
 
 // CCVStorage defines the interface for storing and retrieving verifier node results.

@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
+
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
@@ -101,7 +103,7 @@ func Test_LBTCMessages_Success(t *testing.T) {
 	// Set up mock head tracker
 	mockLatestBlocks(mockSetup.Reader)
 
-	inMem := storage.NewInMemory()
+	inMem := chainstatus.NewInMemory()
 	v, err := createLBTCCoordinator(
 		ts,
 		&lbtcConfig,
@@ -203,7 +205,7 @@ func Test_LBTCMessages_RetryingAttestation(t *testing.T) {
 	// Set up mock head tracker
 	mockLatestBlocks(mockSetup.Reader)
 
-	inMem := storage.NewInMemory()
+	inMem := chainstatus.NewInMemory()
 	v, err := createLBTCCoordinator(
 		ts,
 		&lbtcConfig,
@@ -252,7 +254,7 @@ func createLBTCCoordinator(
 	lbtcConfig *lbtc.LBTCConfig,
 	config verifier.CoordinatorConfig,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
-	inMemStorage *storage.InMemoryCCVStorage,
+	inMemStorage *chainstatus.InMemoryCCVStorage,
 ) (*verifier.Coordinator, error) {
 	noopMonitoring := monitoring.NewFakeVerifierMonitoring()
 	noopLatencyTracker := verifier.NoopLatencyTracker{}
