@@ -40,14 +40,18 @@ func (c *chainPendingState) add(msgID string, finalizedBlock uint64) {
 	c.byFinalized[finalizedBlock][msgID] = struct{}{}
 }
 
-func (c *chainPendingState) remove(msgID string, finalizedBlock uint64) {
+func (c *chainPendingState) remove(msgID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if msgSet, ok := c.byFinalized[finalizedBlock]; ok {
-		delete(msgSet, msgID)
-		if len(msgSet) == 0 {
-			delete(c.byFinalized, finalizedBlock)
+	// Search through all finalized blocks to find and remove the message
+	for finalizedBlock, msgSet := range c.byFinalized {
+		if _, exists := msgSet[msgID]; exists {
+			delete(msgSet, msgID)
+			if len(msgSet) == 0 {
+				delete(c.byFinalized, finalizedBlock)
+			}
+			return
 		}
 	}
 }
@@ -129,8 +133,8 @@ func (t *PendingWritingTracker) Add(chain protocol.ChainSelector, msgID string, 
 // - A message is successfully written to storage (SWP)
 // - A message is reorged out (SRS)
 // - A message fails verification with unretryable error (TVP)
-func (t *PendingWritingTracker) Remove(chain protocol.ChainSelector, msgID string, finalizedBlock uint64) {
-	t.getOrCreate(chain).remove(msgID, finalizedBlock)
+func (t *PendingWritingTracker) Remove(chain protocol.ChainSelector, msgID string) {
+	t.getOrCreate(chain).remove(msgID)
 }
 
 // CheckpointIfAdvanced computes the safe checkpoint for a chain.

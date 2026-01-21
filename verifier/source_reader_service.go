@@ -44,7 +44,7 @@ type SourceReaderService struct {
 	readyTasksBatcher *batcher.Batcher[VerificationTask]
 
 	// Pending writing tracker (shared with TVP and SWP)
-	tracker *PendingWritingTracker
+	writingTracker *PendingWritingTracker
 
 	// mutable per-chain state
 	mu                          sync.RWMutex
@@ -71,7 +71,7 @@ func NewSourceReaderService(
 	curseDetector common.CurseCheckerService,
 	filter chainaccess.MessageFilter,
 	metrics MetricLabeler,
-	tracker *PendingWritingTracker,
+	writingTracker *PendingWritingTracker,
 ) (*SourceReaderService, error) {
 	if sourceReader == nil {
 		return nil, fmt.Errorf("sourceReader cannot be nil")
@@ -88,8 +88,8 @@ func NewSourceReaderService(
 	if metrics == nil {
 		return nil, fmt.Errorf("metrics cannot be nil")
 	}
-	if tracker == nil {
-		return nil, fmt.Errorf("tracker cannot be nil")
+	if writingTracker == nil {
+		return nil, fmt.Errorf("writingTracker cannot be nil")
 	}
 	finalityChecker, err := vservices.NewFinalityViolationCheckerService(
 		sourceReader,
@@ -141,7 +141,7 @@ func NewSourceReaderService(
 		stopCh:             make(chan struct{}),
 		filter:             filter,
 		readyTasksBatcher:  readyTaskBatcher,
-		tracker:            tracker,
+		writingTracker:     writingTracker,
 	}, nil
 }
 
@@ -357,7 +357,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context, latest, fin
 		tasks = append(tasks, task)
 
 		// Add to tracker immediately when read
-		r.tracker.Add(r.chainSelector, onchainMessageID, finalized.Number)
+		r.writingTracker.Add(r.chainSelector, onchainMessageID, finalized.Number)
 	}
 
 	r.addToPendingQueueHandleReorg(tasks, fromBlock)
@@ -469,7 +469,7 @@ func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationT
 					"fromBlock", fromBlock.String(),
 				)
 				// Reorged out - remove from tracker
-				r.tracker.Remove(r.chainSelector, msgID, existing.FinalizedBlockAtRead)
+				r.writingTracker.Remove(r.chainSelector, msgID)
 				r.reorgTracker.Track(existing.Message.DestChainSelector, existing.Message.SequenceNumber)
 				delete(r.pendingTasks, msgID)
 			}
@@ -487,7 +487,7 @@ func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationT
 					"destChain", task.Message.DestChainSelector,
 				)
 				// Reorged out - remove from tracker
-				r.tracker.Remove(r.chainSelector, msgID, task.FinalizedBlockAtRead)
+				r.writingTracker.Remove(r.chainSelector, msgID)
 				r.reorgTracker.Track(task.Message.DestChainSelector, task.Message.SequenceNumber)
 				delete(r.sentTasks, msgID)
 			}

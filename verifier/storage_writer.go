@@ -32,7 +32,7 @@ type StorageWriterProcessor struct {
 	batcher    *batcher.Batcher[protocol.VerifierNodeResult]
 
 	// Pending writing tracker (shared with SRS and TVP)
-	tracker *PendingWritingTracker
+	writingTracker *PendingWritingTracker
 
 	// ChainStatus management for checkpoint writing
 	chainStatusManager protocol.ChainStatusManager
@@ -45,7 +45,7 @@ func NewStorageBatcherProcessor(
 	messageTracker MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
 	config CoordinatorConfig,
-	tracker *PendingWritingTracker,
+	writingTracker *PendingWritingTracker,
 	chainStatusManager protocol.ChainStatusManager,
 ) (*StorageWriterProcessor, *batcher.Batcher[protocol.VerifierNodeResult], error) {
 	storageBatchSize, storageBatchTimeout, retryDelay := configWithDefaults(lggr, config)
@@ -63,7 +63,7 @@ func NewStorageBatcherProcessor(
 		storage:            storage,
 		batcher:            storageBatcher,
 		retryDelay:         retryDelay,
-		tracker:            tracker,
+		writingTracker:     writingTracker,
 		chainStatusManager: chainStatusManager,
 	}
 	return processor, storageBatcher, nil
@@ -158,7 +158,7 @@ func (s *StorageWriterProcessor) run(ctx context.Context) {
 			affectedChains := make(map[protocol.ChainSelector]struct{})
 			for _, item := range batch.Items {
 				chain := item.Message.SourceChainSelector
-				s.tracker.Remove(chain, item.MessageID.String(), item.FinalizedBlockAtRead)
+				s.writingTracker.Remove(chain, item.MessageID.String())
 				affectedChains[chain] = struct{}{}
 			}
 
@@ -172,7 +172,7 @@ func (s *StorageWriterProcessor) updateCheckpoints(ctx context.Context, chains m
 	var statuses []protocol.ChainStatusInfo
 
 	for chain := range chains {
-		checkpoint, shouldWrite := s.tracker.CheckpointIfAdvanced(chain)
+		checkpoint, shouldWrite := s.writingTracker.CheckpointIfAdvanced(chain)
 		if !shouldWrite {
 			continue
 		}

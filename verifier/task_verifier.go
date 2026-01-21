@@ -30,7 +30,7 @@ type TaskVerifierProcessor struct {
 	verifier   Verifier
 
 	// Pending writing tracker (shared with SRS and SWP)
-	tracker *PendingWritingTracker
+	writingTracker *PendingWritingTracker
 
 	// Consumes from
 	sourceFanouts map[protocol.ChainSelector]SourceReaderFanout
@@ -56,7 +56,7 @@ func NewTaskVerifierProcessor(
 	monitoring Monitoring,
 	sourceStates map[protocol.ChainSelector]*SourceReaderService,
 	storageBatcher *batcher.Batcher[protocol.VerifierNodeResult],
-	tracker *PendingWritingTracker,
+	writingTracker *PendingWritingTracker,
 ) (*TaskVerifierProcessor, error) {
 	sourceFanouts := make(map[protocol.ChainSelector]SourceReaderFanout)
 	for chainSelector, srs := range sourceStates {
@@ -64,7 +64,7 @@ func NewTaskVerifierProcessor(
 	}
 
 	return NewTaskVerifierProcessorWithFanouts(
-		lggr, verifierID, verifier, monitoring, sourceFanouts, storageBatcher, tracker,
+		lggr, verifierID, verifier, monitoring, sourceFanouts, storageBatcher, writingTracker,
 	)
 }
 
@@ -75,7 +75,7 @@ func NewTaskVerifierProcessorWithFanouts(
 	monitoring Monitoring,
 	sourceFanouts map[protocol.ChainSelector]SourceReaderFanout,
 	storageBatcher *batcher.Batcher[protocol.VerifierNodeResult],
-	tracker *PendingWritingTracker,
+	writingTracker *PendingWritingTracker,
 ) (*TaskVerifierProcessor, error) {
 	p := &TaskVerifierProcessor{
 		lggr:           lggr,
@@ -84,7 +84,7 @@ func NewTaskVerifierProcessorWithFanouts(
 		verifier:       verifier,
 		sourceFanouts:  sourceFanouts,
 		storageBatcher: storageBatcher,
-		tracker:        tracker,
+		writingTracker: writingTracker,
 	}
 	return p, nil
 }
@@ -222,10 +222,9 @@ func (p *TaskVerifierProcessor) handleVerificationErrors(
 			}
 		} else {
 			// Permanent failure - remove from tracker
-			p.tracker.Remove(
+			p.writingTracker.Remove(
 				chainSelector,
 				verificationError.Task.MessageID,
-				verificationError.Task.FinalizedBlockAtRead,
 			)
 		}
 	}
