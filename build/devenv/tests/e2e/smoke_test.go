@@ -409,11 +409,18 @@ func TestE2ESmoke(t *testing.T) {
 			})
 		}
 
-		t.Run("USDC transfer with chain finality", func(t *testing.T) {
+		{
 			usdcCombo := evm.USDCTokenPoolCombination()
 			receiver := mustGetEOAReceiverAddress(t, destChain)
-			runUSDCTestCase(t, usdcCombo, 0, receiver)
-		})
+
+			t.Run("USDC transfer with chain finality", func(t *testing.T) {
+				runUSDCTestCase(t, usdcCombo, 0, receiver)
+			})
+
+			t.Run("USDC transfer with fast finality", func(t *testing.T) {
+				runUSDCTestCase(t, usdcCombo, 1, receiver)
+			})
+		}
 
 		for _, combo := range evm.All17TokenCombinations() {
 			receiver := mustGetEOAReceiverAddress(t, destChain)

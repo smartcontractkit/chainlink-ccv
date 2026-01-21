@@ -252,7 +252,8 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(env *deployment.Environment, 
 	_, err := changesets.DeployCCTPChains(cctpChainRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
 		Chains: []adapters.DeployCCTPInput[datastore.AddressRef, datastore.AddressRef]{
 			{
-				ChainSelector: selector,
+				ChainSelector:    selector,
+				MinFinalityValue: 1,
 				Router: datastore.AddressRef{
 					Type:    datastore.ContractType(routeroperations.ContractType),
 					Version: semver.MustParse(routeroperations.Deploy.Version()),
