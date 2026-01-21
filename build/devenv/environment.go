@@ -161,8 +161,8 @@ func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers [
 			continue
 		}
 		if nop, ok := cfg.NOPTopology.GetNOP(ver.NOPAlias); ok {
-			if nop.SignerAddress == "" {
-				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, ver.SigningKeyPublic)
+			if nop.SignerAddressByFamily[chainsel.FamilyEVM] == "" {
+				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, ver.SigningKeyPublic)
 				seenAliases[ver.NOPAlias] = struct{}{}
 			}
 		}
@@ -365,8 +365,8 @@ func convertNOPsToVerifierInput(nops []deployments.NOPConfig) []verifierconfig.N
 	result := make([]verifierconfig.NOPInput, len(nops))
 	for i, nop := range nops {
 		result[i] = verifierconfig.NOPInput{
-			Alias:         shared.NOPAlias(nop.Alias),
-			SignerAddress: nop.SignerAddress,
+			Alias:                 shared.NOPAlias(nop.Alias),
+			SignerAddressByFamily: nop.SignerAddressByFamily,
 		}
 	}
 	return result

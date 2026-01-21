@@ -13,7 +13,7 @@ import (
 )
 
 type GenerateVerifierConfigInput struct {
-	// DefaultExecutorQualifier is the qualifier of the executor considered as the default executor.
+	// DefaultExecutorQualifier is the qualifier of the executor considered as the default executor. The executor proxy address is used for the verifier.
 	DefaultExecutorQualifier string
 	// ChainSelectors is the list of chain selectors to consider. Defaults to all chain selectors in the environment.
 	ChainSelectors []uint64

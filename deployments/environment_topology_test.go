@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 )
 
@@ -360,13 +361,13 @@ func TestNOPTopology_SetNOPSignerAddress(t *testing.T) {
 		},
 	}
 
-	ok := topology.SetNOPSignerAddress("nop-1", "0x123")
+	ok := topology.SetNOPSignerAddress("nop-1", chainsel.FamilyEVM, "0x123")
 	require.True(t, ok)
 
 	nop, ok := topology.GetNOP("nop-1")
 	require.True(t, ok)
-	assert.Equal(t, "0x123", nop.SignerAddress)
+	assert.Equal(t, "0x123", nop.SignerAddressByFamily[chainsel.FamilyEVM])
 
-	ok = topology.SetNOPSignerAddress("nonexistent", "0x456")
+	ok = topology.SetNOPSignerAddress("nonexistent", chainsel.FamilyEVM, "0x456")
 	assert.False(t, ok)
 }

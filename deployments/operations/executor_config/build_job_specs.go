@@ -72,7 +72,7 @@ var BuildJobSpecs = operations.NewOperation(
 				chainConfigs[chainSelectorStr] = executor.ChainConfiguration{
 					OffRampAddress:         genCfg.OffRampAddress,
 					RmnAddress:             genCfg.RmnAddress,
-					DefaultExecutorAddress: genCfg.DefaultExecutorAddress,
+					DefaultExecutorAddress: genCfg.ExecutorProxyAddress,
 					ExecutorPool:           shared.ConvertNopAliasToString(input.ExecutorPool.NOPAliases),
 					ExecutionInterval:      input.ExecutorPool.ExecutionInterval,
 				}

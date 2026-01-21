@@ -127,3 +127,7 @@ func ConvertStringToNopAliases(strs []string) []NOPAlias {
 	}
 	return aliases
 }
+
+func IsProductionEnvironment(env string) bool {
+	return env == "mainnet"
+}

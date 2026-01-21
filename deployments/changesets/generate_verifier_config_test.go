@@ -54,6 +54,21 @@ func TestGenerateVerifierConfig_ValidatesCommitteeQualifier(t *testing.T) {
 	assert.Contains(t, err.Error(), "committee qualifier is required")
 }
 
+func TestPyroscopeURLIsNotSupportedForProductionEnvironmentsForVerifierConfig(t *testing.T) {
+	changeset := changesets.GenerateVerifierConfig()
+
+	env := createVerifierTestEnvironment(t)
+	env.Name = "mainnet"
+	err := changeset.VerifyPreconditions(env, changesets.GenerateVerifierConfigCfg{
+		DefaultExecutorQualifier: testDefaultQualifier,
+		EnvironmentNOPs:          testVerifierNOPs(),
+		Committee:                testCommitteeInput(),
+		PyroscopeURL:             "http://pyroscope:4040",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pyroscope URL is not supported for production environments")
+}
+
 func TestGenerateVerifierConfig_ValidatesAggregators(t *testing.T) {
 	changeset := changesets.GenerateVerifierConfig()
 
@@ -80,8 +95,8 @@ func TestGenerateVerifierConfig_ValidatesNOPSignerAddress(t *testing.T) {
 	err := changeset.VerifyPreconditions(env, changesets.GenerateVerifierConfigCfg{
 		DefaultExecutorQualifier: testDefaultQualifier,
 		EnvironmentNOPs: []verifierconfig.NOPInput{
-			{Alias: "nop-1", SignerAddress: ""},
-			{Alias: "nop-2", SignerAddress: "0x1234567890ABCDEF1234567890ABCDEF12345678"},
+			{Alias: "nop-1", SignerAddressByFamily: map[string]string{chainsel.FamilyEVM: ""}},
+			{Alias: "nop-2", SignerAddressByFamily: map[string]string{chainsel.FamilyEVM: "0x1234567890ABCDEF1234567890ABCDEF12345678"}},
 		},
 		Committee: testCommitteeInput(),
 	})
@@ -520,8 +535,8 @@ func TestGenerateVerifierConfig_ScopedNOPAliasesPreservesOtherNOPs(t *testing.T)
 
 func testVerifierNOPs() []verifierconfig.NOPInput {
 	return []verifierconfig.NOPInput{
-		{Alias: "nop-1", SignerAddress: "0xABCDEF1234567890ABCDEF1234567890ABCDEF12"},
-		{Alias: "nop-2", SignerAddress: "0x1234567890ABCDEF1234567890ABCDEF12345678"},
+		{Alias: "nop-1", SignerAddressByFamily: map[string]string{chainsel.FamilyEVM: "0xABCDEF1234567890ABCDEF1234567890ABCDEF12"}},
+		{Alias: "nop-2", SignerAddressByFamily: map[string]string{chainsel.FamilyEVM: "0x1234567890ABCDEF1234567890ABCDEF12345678"}},
 	}
 }
 

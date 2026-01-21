@@ -55,13 +55,13 @@ func (t *NOPTopology) GetNOPIndex(alias string) (int, bool) {
 
 // SetNOPSignerAddress sets the signer address for the NOP with the given alias.
 // Returns true if the NOP was found and updated, false otherwise.
-func (t *NOPTopology) SetNOPSignerAddress(alias, addr string) bool {
+func (t *NOPTopology) SetNOPSignerAddress(alias, family, addr string) bool {
 	t.ensureIndex()
 	idx, ok := t.nopIndex[alias]
 	if !ok {
 		return false
 	}
-	t.NOPs[idx].SignerAddress = addr
+	t.NOPs[idx].SignerAddressByFamily[family] = addr
 	return true
 }
 
@@ -88,9 +88,9 @@ func (t *NOPTopology) ensureIndex() {
 // For production: SignerAddress is resolved from e.Nodes at deployment time.
 // For devenv: SignerAddress can be set directly in the config.
 type NOPConfig struct {
-	Alias         string `toml:"alias"`
-	Name          string `toml:"name"`
-	SignerAddress string `toml:"signer_address,omitempty"`
+	Alias                 string            `toml:"alias"`
+	Name                  string            `toml:"name"`
+	SignerAddressByFamily map[string]string `toml:"signer_address_by_family,omitempty"`
 }
 
 // CommitteeConfig defines a committee and its per-chain membership.

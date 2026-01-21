@@ -8,6 +8,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
@@ -18,7 +19,7 @@ type NOPInput struct {
 	// Alias is the unique identifier for this NOP.
 	Alias shared.NOPAlias
 	// SignerAddress is the address used by this NOP for signing attestations.
-	SignerAddress string
+	SignerAddressByFamily map[string]string
 }
 
 // AggregatorInput defines the configuration for an aggregator instance.
@@ -86,10 +87,11 @@ var BuildJobSpecs = operations.NewOperation(
 				verifierJobID := shared.NewVerifierJobID(agg.Name, scope)
 
 				verifierCfg := commit.Config{
-					VerifierID:                     verifierJobID.GetVerifierID(),
-					AggregatorAddress:              agg.Address,
-					InsecureAggregatorConnection:   agg.InsecureAggregatorConnection,
-					SignerAddress:                  nop.SignerAddress,
+					VerifierID:                   verifierJobID.GetVerifierID(),
+					AggregatorAddress:            agg.Address,
+					InsecureAggregatorConnection: agg.InsecureAggregatorConnection,
+					// TODO: Change this when verifier supports multiple families
+					SignerAddress:                  nop.SignerAddressByFamily[chainsel.FamilyEVM],
 					PyroscopeURL:                   input.PyroscopeURL,
 					CommitteeVerifierAddresses:     input.GeneratedConfig.CommitteeVerifierAddresses,
 					OnRampAddresses:                input.GeneratedConfig.OnRampAddresses,

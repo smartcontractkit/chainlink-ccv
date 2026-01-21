@@ -17,9 +17,9 @@ import (
 
 // ExecutorChainConfig contains the per-chain configuration for the executor.
 type ExecutorChainConfig struct {
-	OffRampAddress         string `json:"off_ramp_address"`
-	RmnAddress             string `json:"rmn_address"`
-	DefaultExecutorAddress string `json:"default_executor_address"`
+	OffRampAddress       string `json:"off_ramp_address"`
+	RmnAddress           string `json:"rmn_address"`
+	ExecutorProxyAddress string `json:"executor_proxy_address"`
 }
 
 // ExecutorGeneratedConfig contains the contract addresses resolved from the datastore.
@@ -81,9 +81,9 @@ var BuildConfig = operations.NewOperation(
 			}
 
 			chainConfigs[chainSelectorStr] = ExecutorChainConfig{
-				OffRampAddress:         offRampAddr,
-				RmnAddress:             rmnRemoteAddr,
-				DefaultExecutorAddress: executorAddr,
+				OffRampAddress:       offRampAddr,
+				RmnAddress:           rmnRemoteAddr,
+				ExecutorProxyAddress: executorAddr,
 			}
 		}
 

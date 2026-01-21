@@ -8,6 +8,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 	verifierconfig "github.com/smartcontractkit/chainlink-ccv/deployments/operations/verifier_config"
@@ -40,22 +41,40 @@ func GenerateVerifierConfig() deployment.ChangeSetV2[GenerateVerifierConfigCfg] 
 			nopAliases = cfg.Committee.NOPAliases
 		}
 
-		for _, alias := range nopAliases {
-			nop, ok := nopSet[alias]
-			if !ok {
-				return fmt.Errorf("NOP alias %q not found in NOPs input", alias)
-			}
-			if nop.SignerAddress == "" {
-				return fmt.Errorf("NOP %q missing signer_address", alias)
-			}
-		}
-
 		envSelectors := e.BlockChains.ListChainSelectors()
 		for _, s := range cfg.ChainSelectors {
 			if !slices.Contains(envSelectors, s) {
 				return fmt.Errorf("selector %d is not available in environment", s)
 			}
 		}
+
+		targetSelectors := cfg.ChainSelectors
+		if len(targetSelectors) == 0 {
+			targetSelectors = envSelectors
+		}
+
+		for _, alias := range nopAliases {
+			nop, ok := nopSet[alias]
+			if !ok {
+				return fmt.Errorf("NOP alias %q not found in NOPs input", alias)
+			}
+			for _, s := range targetSelectors {
+				family, err := chainsel.GetSelectorFamily(s)
+				if err != nil {
+					return fmt.Errorf("failed to get selector family for selector %d: %w", s, err)
+				}
+				if nop.SignerAddressByFamily[family] == "" {
+					return fmt.Errorf("NOP %q missing signer_address for family %s", alias, family)
+				}
+			}
+		}
+
+		if shared.IsProductionEnvironment(e.Name) {
+			if cfg.PyroscopeURL != "" {
+				return fmt.Errorf("pyroscope URL is not supported for production environments")
+			}
+		}
+
 		return nil
 	}
 

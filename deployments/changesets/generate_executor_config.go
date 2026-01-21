@@ -40,6 +40,12 @@ func GenerateExecutorConfig() deployment.ChangeSetV2[GenerateExecutorConfigCfg] 
 				return fmt.Errorf("selector %d is not available in environment", s)
 			}
 		}
+
+		if shared.IsProductionEnvironment(e.Name) {
+			if cfg.PyroscopeURL != "" {
+				return fmt.Errorf("pyroscope URL is not supported for production environments")
+			}
+		}
 		return nil
 	}
 

@@ -24,6 +24,21 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/deployments/testutils"
 )
 
+func TestPyroscopeURLIsNotSupportedForProductionEnvironmentsForExecutorConfig(t *testing.T) {
+	changeset := changesets.GenerateExecutorConfig()
+
+	env := createExecutorTestEnvironment(t)
+	env.Name = "mainnet"
+	err := changeset.VerifyPreconditions(env, changesets.GenerateExecutorConfigCfg{
+		ExecutorQualifier: testDefaultQualifier,
+		PyroscopeURL:      "http://pyroscope:4040",
+		IndexerAddress:    "http://indexer:8100",
+		ExecutorPool:      testExecutorPool(),
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pyroscope URL is not supported for production environments")
+}
+
 func TestGenerateExecutorConfig_ValidatesExecutorQualifer(t *testing.T) {
 	changeset := changesets.GenerateExecutorConfig()
 
