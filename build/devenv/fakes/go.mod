@@ -78,7 +78,7 @@ require (
 	github.com/smartcontractkit/chain-selectors v1.0.79 // indirect
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20260114190811-74301cd99dc3 // indirect
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier v0.0.0-20251211142334-5c3421fe2c8d // indirect
-	github.com/smartcontractkit/chainlink-testing-framework/framework v0.13.6-0.20260121154451-34d55399a584 // indirect
+	github.com/smartcontractkit/chainlink-testing-framework/framework v0.13.6-0.20260121160307-6d9a2604293c // indirect
 	github.com/smartcontractkit/libocr v0.0.0-20250912173940-f3ab0246e23d // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/testcontainers/testcontainers-go v0.39.0 // indirect
