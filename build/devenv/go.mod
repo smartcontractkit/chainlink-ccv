@@ -332,6 +332,7 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1 // indirect
 	github.com/scylladb/go-reflectx v1.0.1 // indirect
 	github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 // indirect
+	github.com/segmentio/ksuid v1.0.4 // indirect
 	github.com/sercand/kuberesolver/v5 v5.1.1 // indirect
 	github.com/sethvargo/go-retry v0.3.0 // indirect
 	github.com/shirou/gopsutil v3.21.11+incompatible // indirect
