@@ -463,7 +463,7 @@ func TestE2ESmoke(t *testing.T) {
 			{
 				name:                    "USDC transfer to EOA receiver with chain finality",
 				finalityConfig:          0,
-				transferAmount:          big.NewInt(1000),
+				transferAmount:          big.NewInt(100),
 				expectedReceiptIssuers:  4, // CCTP CCV, token pool, executor, network fee
 				expectedVerifierResults: 2, // only CCTP CCV, but for some reason Indexer returns 2
 				shouldCheckAggregator:   false,
@@ -471,7 +471,7 @@ func TestE2ESmoke(t *testing.T) {
 			{
 				name:                    "USDC transfer to EOA receiver with fast finality",
 				finalityConfig:          1,
-				transferAmount:          big.NewInt(1000),
+				transferAmount:          big.NewInt(500),
 				expectedReceiptIssuers:  4, // CCTP CCV, token pool, executor, network fee
 				expectedVerifierResults: 2, // only CCTP CCV, but for some reason Indexer returns 2
 				shouldCheckAggregator:   false,
