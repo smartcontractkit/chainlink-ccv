@@ -345,10 +345,28 @@ func TestE2ESmoke(t *testing.T) {
 
 	t.Run("USDC v3 token transfer", func(t *testing.T) {
 		var (
-			sourceSelector = sel0
-			sourceChain    = chainMap[sourceSelector]
-			destSelector   = sel1
-			destChain      = chainMap[destSelector]
+			sourceSelector  = sel0
+			sourceChain     = chainMap[sourceSelector]
+			destSelector    = sel1
+			destChain       = chainMap[destSelector]
+			cctpOnlyReciver = getContractAddress(
+				t,
+				in,
+				destSelector,
+				datastore.ContractType(mock_receiver.ContractType),
+				mock_receiver.Deploy.Version(),
+				evm.CCTPPrimaryReceiverQualifier,
+				"",
+			)
+			cctpAndCommiteeReciver = getContractAddress(
+				t,
+				in,
+				destSelector,
+				datastore.ContractType(mock_receiver.ContractType),
+				mock_receiver.Deploy.Version(),
+				evm.CCTPSecondaryReceiverQualifier,
+				"",
+			)
 		)
 
 		type testCase struct {
@@ -356,6 +374,7 @@ func TestE2ESmoke(t *testing.T) {
 			finalityConfig          uint16
 			executionGasLimit       uint32
 			transferAmount          *big.Int
+			receiver                protocol.UnknownAddress
 			shouldCheckAggregator   bool
 			expectedReceiptIssuers  int
 			expectedVerifierResults int
@@ -364,24 +383,23 @@ func TestE2ESmoke(t *testing.T) {
 		runUSDCTestCase := func(
 			t *testing.T,
 			tc testCase,
-			receiver protocol.UnknownAddress,
 		) {
 			sender := mustGetSenderAddress(t, sourceChain)
 
-			srcToken := getTokenAddress(t, in, sourceSelector, "CCTP")
-			destToken := getTokenAddress(t, in, destSelector, "CCTP")
+			srcToken := getTokenAddress(t, in, sourceSelector, evm.CCTPContractsQualifier)
+			destToken := getTokenAddress(t, in, destSelector, evm.CCTPContractsQualifier)
 
-			startBal, err := destChain.GetTokenBalance(ctx, receiver, destToken)
+			startBal, err := destChain.GetTokenBalance(ctx, tc.receiver, destToken)
 			require.NoError(t, err)
-			l.Info().Str("Receiver", receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", "CCTP").Msg("receiver start balance")
+			l.Info().Str("Receiver", tc.receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", evm.CCTPContractsQualifier).Msg("receiver start balance")
 
 			srcStartBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
 			require.NoError(t, err)
-			l.Info().Str("Sender", sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Str("Token", "CCTP").Msg("sender start balance")
+			l.Info().Str("Sender", sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Str("Token", evm.CCTPContractsQualifier).Msg("sender start balance")
 
 			seqNo, err := sourceChain.GetExpectedNextSequenceNumber(ctx, destSelector)
 			require.NoError(t, err)
-			l.Info().Uint64("SeqNo", seqNo).Str("Token", "CCTP").Msg("expecting sequence number")
+			l.Info().Uint64("SeqNo", seqNo).Str("Token", evm.CCTPContractsQualifier).Msg("expecting sequence number")
 
 			messageOptions := cciptestinterfaces.MessageOptions{
 				Version:           3,
@@ -393,7 +411,7 @@ func TestE2ESmoke(t *testing.T) {
 			sendRes, err := sourceChain.SendMessage(
 				ctx, destSelector,
 				cciptestinterfaces.MessageFields{
-					Receiver: receiver,
+					Receiver: tc.receiver,
 					TokenAmount: cciptestinterfaces.TokenAmount{
 						Amount:       tc.transferAmount,
 						TokenAddress: srcToken,
@@ -403,7 +421,7 @@ func TestE2ESmoke(t *testing.T) {
 			)
 			require.NoError(t, err)
 			require.NotNil(t, sendRes)
-			require.Len(t, sendRes.ReceiptIssuers, tc.expectedReceiptIssuers, "expected %d receipt issuers for %s token", tc.expectedReceiptIssuers, "CCTP")
+			require.Len(t, sendRes.ReceiptIssuers, tc.expectedReceiptIssuers, "expected %d receipt issuers for %s token", tc.expectedReceiptIssuers, evm.CCTPContractsQualifier)
 
 			sentEvt, err := sourceChain.WaitOneSentEventBySeqNo(ctx, destSelector, seqNo, defaultSentTimeout)
 			require.NoError(t, err)
@@ -416,10 +434,10 @@ func TestE2ESmoke(t *testing.T) {
 				sourceSelector,
 				datastore.ContractType(cctp_verifier.ContractType),
 				cctp_verifier.Deploy.Version(),
-				"CCTP",
+				evm.CCTPContractsQualifier,
 				"",
 			)
-			registerCCTPAttestation(t, in.Fake.Out.ExternalHTTPURL, msgID, cctpMessageSender, receiver, "complete")
+			registerCCTPAttestation(t, in.Fake.Out.ExternalHTTPURL, msgID, cctpMessageSender, tc.receiver, "complete")
 			l.Info().Str("MessageID", hex.EncodeToString(msgID[:])).Msg("Registered CCTP attestation")
 
 			var aggregatorClient *ccv.AggregatorClient
@@ -446,52 +464,64 @@ func TestE2ESmoke(t *testing.T) {
 			require.NotNil(t, execEvt)
 			require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected state, return data: %x", execEvt.ReturnData)
 
-			endBal, err := destChain.GetTokenBalance(ctx, receiver, destToken)
+			endBal, err := destChain.GetTokenBalance(ctx, tc.receiver, destToken)
 			require.NoError(t, err)
 
 			// We always mint 1 tiny coin on a dest from CCTPTokenMessenger
 			require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), big.NewInt(1)), endBal)
-			l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", "CCTP").Msg("receiver end balance")
+			l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", evm.CCTPContractsQualifier).Msg("receiver end balance")
 
 			srcEndBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
 			require.NoError(t, err)
 			require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), tc.transferAmount), srcEndBal)
-			l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", "CCTP").Msg("sender end balance")
+			l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", evm.CCTPContractsQualifier).Msg("sender end balance")
 		}
 
 		tcs := []testCase{
 			{
 				name:                    "USDC transfer to EOA receiver with chain finality",
 				finalityConfig:          0,
-				transferAmount:          big.NewInt(1000),
+				transferAmount:          big.NewInt(100),
+				receiver:                mustGetEOAReceiverAddress(t, destChain),
 				expectedReceiptIssuers:  4, // CCTP CCV, token pool, executor, network fee
-				expectedVerifierResults: 2, // only CCTP CCV, but for some reason Indexer returns 2
+				expectedVerifierResults: 2, // FIXME only CCTP CCV, but for some reason Indexer returns 2
 				shouldCheckAggregator:   false,
 			},
 			{
 				name:                    "USDC transfer to EOA receiver with fast finality",
 				finalityConfig:          1,
-				transferAmount:          big.NewInt(1000),
+				transferAmount:          big.NewInt(500),
+				receiver:                mustGetEOAReceiverAddress(t, destChain),
 				expectedReceiptIssuers:  4, // CCTP CCV, token pool, executor, network fee
-				expectedVerifierResults: 2, // only CCTP CCV, but for some reason Indexer returns 2
+				expectedVerifierResults: 2, // FIXME only CCTP CCV, but for some reason Indexer returns 2
 				shouldCheckAggregator:   false,
 			},
 			{
-				// passing executionGasLimits makes the OnRamp think it's a PTT so it will add the committee verifier
-				name:                    "USDC transfer to EOA receiver with fast finality and committee verifier",
-				finalityConfig:          5,
-				transferAmount:          big.NewInt(1000),
+				name:              "USDC transfer to receiver contract but only CCTP verifier is required on dest",
+				finalityConfig:    0,
+				transferAmount:    big.NewInt(2),
+				receiver:          cctpOnlyReciver,
+				executionGasLimit: 200_000,
+				// Onramp does include default CCV even if not required when either execGas or data is not empty
+				expectedReceiptIssuers:  5, // default ccv, CCTP ccv, token pool, executor, network fee
+				expectedVerifierResults: 2, // default ccv, CCTP ccv
+				shouldCheckAggregator:   true,
+			},
+			{
+				name:                    "USDC transfer to receiver contract but commit and CCTP verifiers are required on dest",
+				finalityConfig:          1,
+				transferAmount:          big.NewInt(10),
+				receiver:                cctpAndCommiteeReciver,
 				executionGasLimit:       200_000,
-				expectedReceiptIssuers:  5, // CCTP CCV, token pool, executor, network fee
-				expectedVerifierResults: 2, // default ccv, CCTP CCV
+				expectedReceiptIssuers:  5, // default ccv, CCTP ccv, token pool, executor, network fee
+				expectedVerifierResults: 2, // default ccv, CCTP ccv
 				shouldCheckAggregator:   true,
 			},
 		}
 
 		for _, tc := range tcs {
-			receiver := mustGetEOAReceiverAddress(t, destChain)
 			t.Run(tc.name, func(t *testing.T) {
-				runUSDCTestCase(t, tc, receiver)
+				runUSDCTestCase(t, tc)
 			})
 		}
 	})
