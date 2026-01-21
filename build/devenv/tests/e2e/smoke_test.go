@@ -345,10 +345,28 @@ func TestE2ESmoke(t *testing.T) {
 
 	t.Run("USDC v3 token transfer", func(t *testing.T) {
 		var (
-			sourceSelector = sel0
-			sourceChain    = chainMap[sourceSelector]
-			destSelector   = sel1
-			destChain      = chainMap[destSelector]
+			sourceSelector  = sel0
+			sourceChain     = chainMap[sourceSelector]
+			destSelector    = sel1
+			destChain       = chainMap[destSelector]
+			cctpOnlyReciver = getContractAddress(
+				t,
+				in,
+				destSelector,
+				datastore.ContractType(mock_receiver.ContractType),
+				mock_receiver.Deploy.Version(),
+				evm.CCTPPrimaryReceiverQualifier,
+				"",
+			)
+			cctpAndCommiteeReciver = getContractAddress(
+				t,
+				in,
+				destSelector,
+				datastore.ContractType(mock_receiver.ContractType),
+				mock_receiver.Deploy.Version(),
+				evm.CCTPSecondaryReceiverQualifier,
+				"",
+			)
 		)
 
 		type testCase struct {
@@ -466,7 +484,7 @@ func TestE2ESmoke(t *testing.T) {
 				transferAmount:          big.NewInt(100),
 				receiver:                mustGetEOAReceiverAddress(t, destChain),
 				expectedReceiptIssuers:  4, // CCTP CCV, token pool, executor, network fee
-				expectedVerifierResults: 2, // only CCTP CCV, but for some reason Indexer returns 2
+				expectedVerifierResults: 2, // FIXME only CCTP CCV, but for some reason Indexer returns 2
 				shouldCheckAggregator:   false,
 			},
 			{
@@ -475,18 +493,28 @@ func TestE2ESmoke(t *testing.T) {
 				transferAmount:          big.NewInt(500),
 				receiver:                mustGetEOAReceiverAddress(t, destChain),
 				expectedReceiptIssuers:  4, // CCTP CCV, token pool, executor, network fee
-				expectedVerifierResults: 2, // only CCTP CCV, but for some reason Indexer returns 2
+				expectedVerifierResults: 2, // FIXME only CCTP CCV, but for some reason Indexer returns 2
 				shouldCheckAggregator:   false,
 			},
 			{
-				// passing executionGasLimits makes the OnRamp think it's a PTT so it will add the committee verifier
-				name:                    "USDC transfer to EOA receiver with fast finality and committee verifier",
-				finalityConfig:          5,
-				transferAmount:          big.NewInt(1000),
-				receiver:                mustGetEOAReceiverAddress(t, destChain),
+				name:              "USDC transfer to receiver contract but only CCTP verifier is required on dest",
+				finalityConfig:    0,
+				transferAmount:    big.NewInt(2),
+				receiver:          cctpOnlyReciver,
+				executionGasLimit: 200_000,
+				// Onramp does include default CCV even if not required when either execGas or data is not empty
+				expectedReceiptIssuers:  5, // default ccv, CCTP ccv, token pool, executor, network fee
+				expectedVerifierResults: 2, // default ccv, CCTP ccv
+				shouldCheckAggregator:   true,
+			},
+			{
+				name:                    "USDC transfer to receiver contract but commit and CCTP verifiers are required on dest",
+				finalityConfig:          1,
+				transferAmount:          big.NewInt(10),
+				receiver:                cctpAndCommiteeReciver,
 				executionGasLimit:       200_000,
-				expectedReceiptIssuers:  5, // CCTP CCV, token pool, executor, network fee
-				expectedVerifierResults: 2, // default ccv, CCTP CCV
+				expectedReceiptIssuers:  5, // default ccv, CCTP ccv, token pool, executor, network fee
+				expectedVerifierResults: 2, // default ccv, CCTP ccv
 				shouldCheckAggregator:   true,
 			},
 		}
