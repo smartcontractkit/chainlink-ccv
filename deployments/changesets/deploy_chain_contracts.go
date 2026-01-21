@@ -2,7 +2,6 @@ package changesets
 
 import (
 	"fmt"
-	"path/filepath"
 	"slices"
 
 	"github.com/Masterminds/semver/v3"
@@ -13,7 +12,6 @@ import (
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
-	cldf_domain "github.com/smartcontractkit/chainlink-deployments-framework/engine/cld/domain"
 )
 
 // DeployChainContractsFromTopologyCfg is the configuration for deploying chain contracts
@@ -32,16 +30,6 @@ type DeployChainContractsFromTopologyCfg struct {
 	MockReceivers []sequences.MockReceiverParams
 }
 
-func buildInputFilePath(env, filename string) string {
-	return filepath.Join(
-		cldf_domain.ProjectRoot,
-		"domains",
-		"ccv",
-		env,
-		filename,
-	)
-}
-
 // DeployChainContractsFromTopology creates a changeset that deploys all chain contracts
 // with CommitteeVerifier configuration derived from the topology.
 // This wraps the chainlink-ccip DeployChainContracts changeset, reading committee
@@ -51,17 +39,11 @@ func DeployChainContractsFromTopology(
 	mcmsReaderRegistry *changesetscore.MCMSReaderRegistry,
 ) deployment.ChangeSetV2[changesetscore.WithMCMS[DeployChainContractsFromTopologyCfg]] {
 	validate := func(e deployment.Environment, cfg changesetscore.WithMCMS[DeployChainContractsFromTopologyCfg]) error {
-		topology := cfg.Cfg.Topology
-		if topology == nil {
-			inputFilePath := buildInputFilePath(e.Name, "topology.toml")
-			var err error
-			topology, err = deployments.LoadEnvironmentTopology(inputFilePath)
-			if err != nil {
-				return fmt.Errorf("failed to load environment topology: %w", err)
-			}
+		if cfg.Cfg.Topology == nil {
+			return fmt.Errorf("topology is required")
 		}
 
-		if len(topology.NOPTopology.Committees) == 0 {
+		if len(cfg.Cfg.Topology.NOPTopology.Committees) == 0 {
 			return fmt.Errorf("no committees defined in topology")
 		}
 
@@ -78,17 +60,11 @@ func DeployChainContractsFromTopology(
 	}
 
 	apply := func(e deployment.Environment, cfg changesetscore.WithMCMS[DeployChainContractsFromTopologyCfg]) (deployment.ChangesetOutput, error) {
-		topology := cfg.Cfg.Topology
-		if topology == nil {
-			inputFilePath := buildInputFilePath(e.Name, "topology.toml")
-			var err error
-			topology, err = deployments.LoadEnvironmentTopology(inputFilePath)
-			if err != nil {
-				return deployment.ChangesetOutput{}, fmt.Errorf("failed to load environment topology: %w", err)
-			}
+		if cfg.Cfg.Topology == nil {
+			return deployment.ChangesetOutput{}, fmt.Errorf("topology is required")
 		}
 
-		committeeVerifiers, err := BuildCommitteeVerifierParams(topology)
+		committeeVerifiers, err := BuildCommitteeVerifierParams(cfg.Cfg.Topology)
 		if err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to build committee verifier params: %w", err)
 		}

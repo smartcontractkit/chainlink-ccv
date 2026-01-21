@@ -71,15 +71,12 @@ type ConfigureChainsForLanesFromTopologyConfig struct {
 // CommitteeVerifier contracts with signers and thresholds from the topology.
 func ConfigureChainsForLanesFromTopology(chainFamilyRegistry *adapters.ChainFamilyRegistry, mcmsRegistry *changesets_core.MCMSReaderRegistry) deployment.ChangeSetV2[ConfigureChainsForLanesFromTopologyConfig] {
 	validate := func(e deployment.Environment, cfg ConfigureChainsForLanesFromTopologyConfig) error {
-		topology := cfg.Topology
-		if topology == nil {
-			inputFilePath := buildInputFilePath(e.Name, "topology.toml")
-			var err error
-			topology, err = deployments.LoadEnvironmentTopology(inputFilePath)
-			if err != nil {
-				return fmt.Errorf("failed to load environment topology: %w", err)
-			}
-			cfg.Topology = topology
+		if cfg.Topology == nil {
+			return fmt.Errorf("topology is required")
+		}
+
+		if len(cfg.Topology.NOPTopology.Committees) == 0 {
+			return fmt.Errorf("no committees defined in topology")
 		}
 
 		for _, chain := range cfg.Chains {
@@ -92,15 +89,8 @@ func ConfigureChainsForLanesFromTopology(chainFamilyRegistry *adapters.ChainFami
 	}
 
 	apply := func(e deployment.Environment, cfg ConfigureChainsForLanesFromTopologyConfig) (deployment.ChangesetOutput, error) {
-		topology := cfg.Topology
-		if topology == nil {
-			inputFilePath := buildInputFilePath(e.Name, "topology.toml")
-			var err error
-			topology, err = deployments.LoadEnvironmentTopology(inputFilePath)
-			if err != nil {
-				return deployment.ChangesetOutput{}, fmt.Errorf("failed to load environment topology: %w", err)
-			}
-			cfg.Topology = topology
+		if cfg.Topology == nil {
+			return deployment.ChangesetOutput{}, fmt.Errorf("topology is required")
 		}
 
 		chains := make([]changesets_1_7_0.ChainConfig, 0, len(cfg.Chains))
@@ -109,7 +99,7 @@ func ConfigureChainsForLanesFromTopology(chainFamilyRegistry *adapters.ChainFami
 			for _, committeeVerifier := range chain.CommitteeVerifiers {
 				remoteChains := make(map[uint64]adapters.CommitteeVerifierRemoteChainConfig, len(committeeVerifier.RemoteChains))
 				for remoteChainSelector, remoteChainConfig := range committeeVerifier.RemoteChains {
-					signatureConfig, err := getSignatureConfigForSourceChain(topology, committeeVerifier.CommitteeQualifier, remoteChainSelector)
+					signatureConfig, err := getSignatureConfigForSourceChain(cfg.Topology, committeeVerifier.CommitteeQualifier, remoteChainSelector)
 					if err != nil {
 						return deployment.ChangesetOutput{}, fmt.Errorf("failed to get signature config for source chain %d: %w", remoteChainSelector, err)
 					}
@@ -129,12 +119,18 @@ func ConfigureChainsForLanesFromTopology(chainFamilyRegistry *adapters.ChainFami
 					datastore.AddressRefByType(datastore.ContractType(committee_verifier.ContractType)),
 					datastore.AddressRefByQualifier(committeeVerifier.CommitteeQualifier),
 				)
+				if len(committeeVerifierAddresses) == 0 {
+					return deployment.ChangesetOutput{}, fmt.Errorf("no committee verifier addresses found for chain %d and committee qualifier %q", chain.ChainSelector, committeeVerifier.CommitteeQualifier)
+				}
 
 				committeeVerifierResolverAddresses := e.DataStore.Addresses().Filter(
 					datastore.AddressRefByChainSelector(chain.ChainSelector),
 					datastore.AddressRefByType(datastore.ContractType(committee_verifier.ResolverType)),
 					datastore.AddressRefByQualifier(committeeVerifier.CommitteeQualifier),
 				)
+				if len(committeeVerifierResolverAddresses) == 0 {
+					return deployment.ChangesetOutput{}, fmt.Errorf("no committee verifier resolver addresses found for chain %d and committee qualifier %q", chain.ChainSelector, committeeVerifier.CommitteeQualifier)
+				}
 
 				committeeVerifiers = append(committeeVerifiers, adapters.CommitteeVerifierConfig[datastore.AddressRef]{
 					CommitteeVerifier: []datastore.AddressRef{
