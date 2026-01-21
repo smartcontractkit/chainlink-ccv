@@ -17,6 +17,11 @@ type GenerateVerifierConfigCfg = sequences.GenerateVerifierConfigInput
 
 func GenerateVerifierConfig() deployment.ChangeSetV2[GenerateVerifierConfigCfg] {
 	validate := func(e deployment.Environment, cfg GenerateVerifierConfigCfg) error {
+
+		if cfg.DefaultExecutorQualifier == "" {
+			return fmt.Errorf("default executor qualifier is required")
+		}
+
 		if cfg.Committee.Qualifier == "" {
 			return fmt.Errorf("committee qualifier is required")
 		}

@@ -26,6 +26,18 @@ import (
 
 const testDefaultQualifier = "default"
 
+func TestGenerateVerifierConfig_ValidatesDefaultExecutorQualifier(t *testing.T) {
+	changeset := changesets.GenerateVerifierConfig()
+
+	env := createVerifierTestEnvironment(t)
+
+	err := changeset.VerifyPreconditions(env, changesets.GenerateVerifierConfigCfg{
+		DefaultExecutorQualifier: "",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "default executor qualifier is required")
+}
+
 func TestGenerateVerifierConfig_ValidatesCommitteeQualifier(t *testing.T) {
 	changeset := changesets.GenerateVerifierConfig()
 
@@ -48,7 +60,8 @@ func TestGenerateVerifierConfig_ValidatesAggregators(t *testing.T) {
 	env := createVerifierTestEnvironment(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateVerifierConfigCfg{
-		NOPs: testVerifierNOPs(),
+		DefaultExecutorQualifier: testDefaultQualifier,
+		NOPs:                     testVerifierNOPs(),
 		Committee: verifierconfig.CommitteeInput{
 			Qualifier:   testCommittee,
 			Aggregators: []verifierconfig.AggregatorInput{},
@@ -65,6 +78,7 @@ func TestGenerateVerifierConfig_ValidatesNOPSignerAddress(t *testing.T) {
 	env := createVerifierTestEnvironment(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateVerifierConfigCfg{
+		DefaultExecutorQualifier: testDefaultQualifier,
 		NOPs: []verifierconfig.NOPInput{
 			{Alias: "nop-1", SignerAddress: ""},
 			{Alias: "nop-2", SignerAddress: "0x1234567890ABCDEF1234567890ABCDEF12345678"},
@@ -81,9 +95,10 @@ func TestGenerateVerifierConfig_ValidatesNOPAliasesExist(t *testing.T) {
 	env := createVerifierTestEnvironment(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateVerifierConfigCfg{
-		NOPs:      testVerifierNOPs(),
-		Committee: testCommitteeInput(),
-		TargetNOPs:     []string{"unknown-nop"},
+		DefaultExecutorQualifier: testDefaultQualifier,
+		NOPs:                     testVerifierNOPs(),
+		Committee:                testCommitteeInput(),
+		TargetNOPs:               []string{"unknown-nop"},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `NOP alias "unknown-nop" not found in NOPs input`)
@@ -95,9 +110,10 @@ func TestGenerateVerifierConfig_ValidatesChainSelectors(t *testing.T) {
 	env := createVerifierTestEnvironment(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateVerifierConfigCfg{
-		NOPs:           testVerifierNOPs(),
-		Committee:      testCommitteeInput(),
-		ChainSelectors: []uint64{1234},
+		DefaultExecutorQualifier: testDefaultQualifier,
+		NOPs:                     testVerifierNOPs(),
+		Committee:                testCommitteeInput(),
+		ChainSelectors:           []uint64{1234},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "selector 1234 is not available in environment")
@@ -142,7 +158,7 @@ func TestGenerateVerifierConfig_GeneratesCorrectJobSpec(t *testing.T) {
 	output, err := cs.Apply(env, changesets.GenerateVerifierConfigCfg{
 		DefaultExecutorQualifier: executorQualifier,
 		ChainSelectors:           selectors,
-		TargetNOPs:                    []string{"nop-1"},
+		TargetNOPs:               []string{"nop-1"},
 		NOPs:                     testVerifierNOPs(),
 		Committee:                testCommitteeInput(),
 		PyroscopeURL:             "http://pyroscope:4040",
@@ -228,7 +244,7 @@ func TestGenerateVerifierConfig_PreservesExistingConfigs(t *testing.T) {
 	output, err := cs.Apply(env, changesets.GenerateVerifierConfigCfg{
 		DefaultExecutorQualifier: executorQualifier,
 		ChainSelectors:           selectors,
-		TargetNOPs:                    []string{"nop-1"},
+		TargetNOPs:               []string{"nop-1"},
 		NOPs:                     testVerifierNOPs(),
 		Committee:                testCommitteeInput(),
 		PyroscopeURL:             "http://pyroscope:4040",
@@ -294,7 +310,7 @@ func TestGenerateVerifierConfig_MultipleAggregatorsPerCommittee(t *testing.T) {
 	output, err := cs.Apply(env, changesets.GenerateVerifierConfigCfg{
 		DefaultExecutorQualifier: executorQualifier,
 		ChainSelectors:           selectors,
-		TargetNOPs:                    []string{"nop-1"},
+		TargetNOPs:               []string{"nop-1"},
 		NOPs:                     testVerifierNOPs(),
 		Committee:                multiAggCommittee,
 		PyroscopeURL:             "http://pyroscope:4040",
@@ -422,7 +438,7 @@ func TestGenerateVerifierConfig_PreservesOtherCommitteeJobSpecs(t *testing.T) {
 	output, err := cs.Apply(env, changesets.GenerateVerifierConfigCfg{
 		DefaultExecutorQualifier: executorQualifier,
 		ChainSelectors:           selectors,
-		TargetNOPs:                    []string{"nop-1"},
+		TargetNOPs:               []string{"nop-1"},
 		NOPs:                     testVerifierNOPs(),
 		Committee:                testCommitteeInput(),
 		PyroscopeURL:             "http://pyroscope:4040",
@@ -483,7 +499,7 @@ func TestGenerateVerifierConfig_ScopedNOPAliasesPreservesOtherNOPs(t *testing.T)
 	output, err := cs.Apply(env, changesets.GenerateVerifierConfigCfg{
 		DefaultExecutorQualifier: executorQualifier,
 		ChainSelectors:           selectors,
-		TargetNOPs:                    []string{"nop-1"},
+		TargetNOPs:               []string{"nop-1"},
 		NOPs:                     testVerifierNOPs(),
 		Committee:                testCommitteeInput(),
 		PyroscopeURL:             "http://pyroscope:4040",

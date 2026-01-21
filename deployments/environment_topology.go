@@ -10,7 +10,7 @@ import (
 )
 
 // EnvironmentTopology holds all environment-specific configuration that cannot be inferred
-// from the datastore. This serves as the single source of truth for both off-chain
+// from the datastore. This serves as the single source of truth for the desired state of both off-chain
 // (job specs) and on-chain (committee contracts) configuration.
 type EnvironmentTopology struct {
 	IndexerAddress string                        `toml:"indexer_address"`
