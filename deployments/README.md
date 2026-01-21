@@ -24,7 +24,6 @@ name = "Some name"
 
 [environment_topology.nop_topology.committees.default]
 qualifier = "default"
-verifier_version = "1.7.0"
 
 [[environment_topology.nop_topology.committees.default.aggregators]]
 name = "default"

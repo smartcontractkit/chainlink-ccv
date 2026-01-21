@@ -45,7 +45,6 @@ name = "NOP Two"
 
 [nop_topology.committees.default]
 qualifier = "default"
-verifier_version = "1.7.0"
 
 [nop_topology.committees.default.chain_configs."16015286601757825753"]
 nop_aliases = ["nop-1", "nop-2"]
@@ -112,8 +111,7 @@ func TestWriteEnvironmentTopology_WritesValidConfig(t *testing.T) {
 			},
 			Committees: map[string]deployments.CommitteeConfig{
 				"default": {
-					Qualifier:       "default",
-					VerifierVersion: "1.7.0",
+					Qualifier: "default",
 					ChainConfigs: map[string]deployments.ChainCommitteeConfig{
 						"16015286601757825753": {NOPAliases: []string{"nop-1", "nop-2"}, Threshold: 2},
 					},

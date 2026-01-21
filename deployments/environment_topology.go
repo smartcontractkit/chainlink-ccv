@@ -95,10 +95,9 @@ type NOPConfig struct {
 
 // CommitteeConfig defines a committee and its per-chain membership.
 type CommitteeConfig struct {
-	Qualifier       string                          `toml:"qualifier"`
-	VerifierVersion string                          `toml:"verifier_version"`
-	ChainConfigs    map[string]ChainCommitteeConfig `toml:"chain_configs"`
-	Aggregators     []AggregatorConfig              `toml:"aggregators"`
+	Qualifier    string                          `toml:"qualifier"`
+	ChainConfigs map[string]ChainCommitteeConfig `toml:"chain_configs"`
+	Aggregators  []AggregatorConfig              `toml:"aggregators"`
 }
 
 // ChainCommitteeConfig defines committee membership for a specific chain.

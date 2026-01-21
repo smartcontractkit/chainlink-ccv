@@ -25,7 +25,6 @@ name = "node-1"
 
 [environment_topology.nop_topology.committees.default]
 qualifier = "default"
-verifier_version = "1.7.0"
 
 [[environment_topology.nop_topology.committees.default.aggregators]]
 name = "default"
@@ -46,7 +45,6 @@ threshold = 2
 
 [environment_topology.nop_topology.committees.secondary]
 qualifier = "secondary"
-verifier_version = "1.7.0"
 
 [[environment_topology.nop_topology.committees.secondary.aggregators]]
 name = "default"
@@ -67,7 +65,6 @@ threshold = 2
 
 [environment_topology.nop_topology.committees.tertiary]
 qualifier = "tertiary"
-verifier_version = "1.7.0"
 
 [[environment_topology.nop_topology.committees.tertiary.aggregators]]
 name = "default"
