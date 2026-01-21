@@ -243,92 +243,6 @@ func TestE2ESmoke(t *testing.T) {
 			destSelector   = sel1
 			destChain      = chainMap[destSelector]
 		)
-		runUSDCTestCase := func(t *testing.T, combo evm.TokenCombination, finalityConfig uint16, receiver protocol.UnknownAddress) {
-			sender := mustGetSenderAddress(t, sourceChain)
-
-			srcToken := getTokenAddress(t, in, sourceSelector, combo.SourcePoolAddressRef().Qualifier)
-			destToken := getTokenAddress(t, in, destSelector, combo.DestPoolAddressRef().Qualifier)
-
-			startBal, err := destChain.GetTokenBalance(ctx, receiver, destToken)
-			require.NoError(t, err)
-			l.Info().Str("Receiver", receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", combo.DestPoolAddressRef().Qualifier).Msg("receiver start balance")
-
-			srcStartBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
-			require.NoError(t, err)
-			l.Info().Str("Sender", sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("sender start balance")
-
-			seqNo, err := sourceChain.GetExpectedNextSequenceNumber(ctx, destSelector)
-			require.NoError(t, err)
-			l.Info().Uint64("SeqNo", seqNo).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("expecting sequence number")
-
-			messageOptions := cciptestinterfaces.MessageOptions{
-				Version:           3,
-				ExecutionGasLimit: 200_000,
-				FinalityConfig:    finalityConfig,
-				Executor:          getContractAddress(t, in, sel0, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), evm.DefaultExecutorQualifier, "executor"),
-			}
-
-			sendRes, err := sourceChain.SendMessage(
-				ctx, destSelector,
-				cciptestinterfaces.MessageFields{
-					Receiver: receiver,
-					TokenAmount: cciptestinterfaces.TokenAmount{
-						Amount:       big.NewInt(1000),
-						TokenAddress: srcToken,
-					},
-				},
-				messageOptions,
-			)
-			require.NoError(t, err)
-			require.NotNil(t, sendRes)
-			require.Len(t, sendRes.ReceiptIssuers, combo.ExpectedReceiptIssuers(), "expected %d receipt issuers for %s token", combo.ExpectedReceiptIssuers(), combo.SourcePoolAddressRef().Qualifier)
-
-			sentEvt, err := sourceChain.WaitOneSentEventBySeqNo(ctx, destSelector, seqNo, defaultSentTimeout)
-			require.NoError(t, err)
-			msgID := sentEvt.MessageID
-
-			// Register CCTP attestation response with the fake service
-			cctpMessageSender := getContractAddress(
-				t,
-				in,
-				sourceSelector,
-				datastore.ContractType(cctp_verifier.ContractType),
-				cctp_verifier.Deploy.Version(),
-				"CCTP",
-				"",
-			)
-			registerCCTPAttestation(t, in.Fake.Out.ExternalHTTPURL, msgID, cctpMessageSender, receiver, "complete")
-			l.Info().Str("MessageID", hex.EncodeToString(msgID[:])).Msg("Registered CCTP attestation")
-
-			testCtx := NewTestingContext(t, ctx, chainMap, defaultAggregatorClient, indexerMonitor)
-
-			res, err := testCtx.AssertMessage(msgID, AssertMessageOptions{
-				TickInterval:            1 * time.Second,
-				Timeout:                 45 * time.Second,
-				ExpectedVerifierResults: combo.ExpectedVerifierResults(),
-				AssertVerifierLogs:      false,
-				AssertExecutorLogs:      false,
-			})
-
-			require.NoError(t, err)
-			require.NotNil(t, res.AggregatedResult)
-
-			execEvt, err := destChain.WaitOneExecEventBySeqNo(ctx, sourceSelector, seqNo, 45*time.Second)
-			require.NoError(t, err)
-			require.NotNil(t, execEvt)
-			require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected state, return data: %x", execEvt.ReturnData)
-
-			endBal, err := destChain.GetTokenBalance(ctx, receiver, destToken)
-			require.NoError(t, err)
-			// We always mint 1 tiny coin on a dest from CCTPTokenMessenger
-			require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), big.NewInt(1)), endBal)
-			l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", combo.DestPoolAddressRef().Qualifier).Msg("receiver end balance")
-
-			srcEndBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
-			require.NoError(t, err)
-			require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), big.NewInt(1000)), srcEndBal)
-			l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("sender end balance")
-		}
 
 		runTokenTransferTestCase := func(t *testing.T, combo evm.TokenCombination, finalityConfig uint16, receiver protocol.UnknownAddress) {
 			sender := mustGetSenderAddress(t, sourceChain)
@@ -409,12 +323,6 @@ func TestE2ESmoke(t *testing.T) {
 			})
 		}
 
-		t.Run("USDC transfer with chain finality", func(t *testing.T) {
-			usdcCombo := evm.USDCTokenPoolCombination()
-			receiver := mustGetEOAReceiverAddress(t, destChain)
-			runUSDCTestCase(t, usdcCombo, 0, receiver)
-		})
-
 		for _, combo := range evm.All17TokenCombinations() {
 			receiver := mustGetEOAReceiverAddress(t, destChain)
 			mockReceiver := getContractAddress(
@@ -431,6 +339,159 @@ func TestE2ESmoke(t *testing.T) {
 			})
 			t.Run(fmt.Sprintf("src_dst msg execution with mock receiver and token transfer 1.7.0 (%s) default finality", combo.SourcePoolAddressRef().Qualifier), func(t *testing.T) {
 				runTokenTransferTestCase(t, combo, 0, mockReceiver)
+			})
+		}
+	})
+
+	t.Run("USDC v3 token transfer", func(t *testing.T) {
+		var (
+			sourceSelector = sel0
+			sourceChain    = chainMap[sourceSelector]
+			destSelector   = sel1
+			destChain      = chainMap[destSelector]
+		)
+
+		type testCase struct {
+			name                    string
+			finalityConfig          uint16
+			executionGasLimit       uint32
+			transferAmount          *big.Int
+			shouldCheckAggregator   bool
+			expectedReceiptIssuers  int
+			expectedVerifierResults int
+		}
+
+		runUSDCTestCase := func(
+			t *testing.T,
+			tc testCase,
+			receiver protocol.UnknownAddress,
+		) {
+			sender := mustGetSenderAddress(t, sourceChain)
+
+			srcToken := getTokenAddress(t, in, sourceSelector, "CCTP")
+			destToken := getTokenAddress(t, in, destSelector, "CCTP")
+
+			startBal, err := destChain.GetTokenBalance(ctx, receiver, destToken)
+			require.NoError(t, err)
+			l.Info().Str("Receiver", receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", "CCTP").Msg("receiver start balance")
+
+			srcStartBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
+			require.NoError(t, err)
+			l.Info().Str("Sender", sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Str("Token", "CCTP").Msg("sender start balance")
+
+			seqNo, err := sourceChain.GetExpectedNextSequenceNumber(ctx, destSelector)
+			require.NoError(t, err)
+			l.Info().Uint64("SeqNo", seqNo).Str("Token", "CCTP").Msg("expecting sequence number")
+
+			messageOptions := cciptestinterfaces.MessageOptions{
+				Version:           3,
+				FinalityConfig:    tc.finalityConfig,
+				ExecutionGasLimit: tc.executionGasLimit,
+				Executor:          getContractAddress(t, in, sel0, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), evm.DefaultExecutorQualifier, "executor"),
+			}
+
+			sendRes, err := sourceChain.SendMessage(
+				ctx, destSelector,
+				cciptestinterfaces.MessageFields{
+					Receiver: receiver,
+					TokenAmount: cciptestinterfaces.TokenAmount{
+						Amount:       tc.transferAmount,
+						TokenAddress: srcToken,
+					},
+				},
+				messageOptions,
+			)
+			require.NoError(t, err)
+			require.NotNil(t, sendRes)
+			require.Len(t, sendRes.ReceiptIssuers, tc.expectedReceiptIssuers, "expected %d receipt issuers for %s token", tc.expectedReceiptIssuers, "CCTP")
+
+			sentEvt, err := sourceChain.WaitOneSentEventBySeqNo(ctx, destSelector, seqNo, defaultSentTimeout)
+			require.NoError(t, err)
+			msgID := sentEvt.MessageID
+
+			// Register CCTP attestation response with the fake service
+			cctpMessageSender := getContractAddress(
+				t,
+				in,
+				sourceSelector,
+				datastore.ContractType(cctp_verifier.ContractType),
+				cctp_verifier.Deploy.Version(),
+				"CCTP",
+				"",
+			)
+			registerCCTPAttestation(t, in.Fake.Out.ExternalHTTPURL, msgID, cctpMessageSender, receiver, "complete")
+			l.Info().Str("MessageID", hex.EncodeToString(msgID[:])).Msg("Registered CCTP attestation")
+
+			var aggregatorClient *ccv.AggregatorClient
+			if tc.shouldCheckAggregator {
+				aggregatorClient = defaultAggregatorClient
+			}
+
+			testCtx := NewTestingContext(t, ctx, chainMap, aggregatorClient, indexerMonitor)
+			res, err := testCtx.AssertMessage(msgID, AssertMessageOptions{
+				TickInterval:            1 * time.Second,
+				Timeout:                 45 * time.Second,
+				ExpectedVerifierResults: tc.expectedVerifierResults,
+				AssertVerifierLogs:      false,
+				AssertExecutorLogs:      false,
+			})
+
+			require.NoError(t, err)
+			if tc.shouldCheckAggregator {
+				require.NotNil(t, res.AggregatedResult)
+			}
+
+			execEvt, err := destChain.WaitOneExecEventBySeqNo(ctx, sourceSelector, seqNo, 45*time.Second)
+			require.NoError(t, err)
+			require.NotNil(t, execEvt)
+			require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected state, return data: %x", execEvt.ReturnData)
+
+			endBal, err := destChain.GetTokenBalance(ctx, receiver, destToken)
+			require.NoError(t, err)
+
+			// We always mint 1 tiny coin on a dest from CCTPTokenMessenger
+			require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), big.NewInt(1)), endBal)
+			l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", "CCTP").Msg("receiver end balance")
+
+			srcEndBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
+			require.NoError(t, err)
+			require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), tc.transferAmount), srcEndBal)
+			l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", "CCTP").Msg("sender end balance")
+		}
+
+		tcs := []testCase{
+			{
+				name:                    "USDC transfer to EOA receiver with chain finality",
+				finalityConfig:          0,
+				transferAmount:          big.NewInt(1000),
+				expectedReceiptIssuers:  4, // CCTP CCV, token pool, executor, network fee
+				expectedVerifierResults: 2, // only CCTP CCV, but for some reason Indexer returns 2
+				shouldCheckAggregator:   false,
+			},
+			{
+				name:                    "USDC transfer to EOA receiver with fast finality",
+				finalityConfig:          1,
+				transferAmount:          big.NewInt(1000),
+				expectedReceiptIssuers:  4, // CCTP CCV, token pool, executor, network fee
+				expectedVerifierResults: 2, // only CCTP CCV, but for some reason Indexer returns 2
+				shouldCheckAggregator:   false,
+			},
+			{
+				// passing executionGasLimits makes the OnRamp think it's a PTT so it will add the committee verifier
+				name:                    "USDC transfer to EOA receiver with fast finality and committee verifier",
+				finalityConfig:          5,
+				transferAmount:          big.NewInt(1000),
+				executionGasLimit:       200_000,
+				expectedReceiptIssuers:  5, // CCTP CCV, token pool, executor, network fee
+				expectedVerifierResults: 2, // default ccv, CCTP CCV
+				shouldCheckAggregator:   true,
+			},
+		}
+
+		for _, tc := range tcs {
+			receiver := mustGetEOAReceiverAddress(t, destChain)
+			t.Run(tc.name, func(t *testing.T) {
+				runUSDCTestCase(t, tc, receiver)
 			})
 		}
 	})
