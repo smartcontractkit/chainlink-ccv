@@ -15,7 +15,8 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/ccvstorage"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -41,12 +42,12 @@ func setupTestDB(t *testing.T) *sqlx.DB {
 	connectionString, err := postgresContainer.ConnectionString(ctx, "sslmode=disable")
 	require.NoError(t, err)
 
-	db, err := sql.Open("postgres", connectionString)
+	dbx, err := sql.Open("postgres", connectionString)
 	require.NoError(t, err)
 
-	sqlxDB := sqlx.NewDb(db, "postgres")
+	sqlxDB := sqlx.NewDb(dbx, "postgres")
 
-	err = chainstatus.RunPostgresMigrations(sqlxDB)
+	err = db.RunPostgresMigrations(sqlxDB)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
@@ -63,7 +64,7 @@ func TestAttestationCCVWriterAndReader_Postgres(t *testing.T) {
 	db := setupTestDB(t)
 	lggr := logger.Test(t)
 
-	storage := NewPostgres(db, lggr)
+	storage := ccvstorage.NewPostgres(db, lggr)
 
 	// Setup verifier addresses for test chains
 	verifierAddresses := map[protocol.ChainSelector]protocol.UnknownAddress{

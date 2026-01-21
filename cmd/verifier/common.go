@@ -20,7 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
@@ -172,25 +172,25 @@ func ConnectToPostgresDB(lggr logger.Logger) (*sqlx.DB, error) {
 	connMaxLifetime := getEnvInt(DatabaseConnMaxLifetimeEnvVar, defaultConnMaxLifetime)
 	connMaxIdleTime := getEnvInt(DatabaseConnMaxIdleTimeEnvVar, defaultConnMaxIdleTime)
 
-	db, err := sql.Open("postgres", dbURL)
+	dbx, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		return nil, nil
 	}
 
-	db.SetMaxOpenConns(maxOpenConns)
-	db.SetMaxIdleConns(maxIdleConns)
-	db.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
-	db.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Second)
+	dbx.SetMaxOpenConns(maxOpenConns)
+	dbx.SetMaxIdleConns(maxIdleConns)
+	dbx.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
+	dbx.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Second)
 
-	if err := ccvcommon.EnsureDBConnection(lggr, db); err != nil {
-		_ = db.Close()
+	if err := ccvcommon.EnsureDBConnection(lggr, dbx); err != nil {
+		_ = dbx.Close()
 		return nil, fmt.Errorf("failed to ping postgres database: %w", err)
 	}
 
-	sqlxDB := sqlx.NewDb(db, "postgres")
+	sqlxDB := sqlx.NewDb(dbx, "postgres")
 
-	if err := chainstatus.RunPostgresMigrations(sqlxDB); err != nil {
-		_ = db.Close()
+	if err := db.RunPostgresMigrations(sqlxDB); err != nil {
+		_ = dbx.Close()
 		return nil, fmt.Errorf("failed to run postgres migrations: %w", err)
 	}
 

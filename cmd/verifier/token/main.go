@@ -18,6 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/ccvstorage"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
@@ -95,7 +96,7 @@ func main() {
 	}
 
 	chainStatusManager := chainstatus.NewPostgresChainStatusManager(sqlDB, lggr)
-	postgresStorage := storage.NewPostgres(sqlDB, lggr)
+	postgresStorage := ccvstorage.NewPostgres(sqlDB, lggr)
 
 	coordinators := make([]*verifier.Coordinator, 0, len(config.TokenVerifiers))
 	for _, verifierConfig := range config.TokenVerifiers {
