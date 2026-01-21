@@ -50,7 +50,7 @@ func TestPendingWritingTracker_MultipleMessages(t *testing.T) {
 	tracker.Remove(chain, "msg2")
 
 	// Checkpoint should still be 99 (min still=100)
-	checkpoint, advanced = tracker.CheckpointIfAdvanced(chain)
+	_, advanced = tracker.CheckpointIfAdvanced(chain)
 	require.False(t, advanced) // Not advanced from last checkpoint
 
 	// Remove msg1 (100)
@@ -73,14 +73,14 @@ func TestPendingWritingTracker_CheckpointOnlyAdvances(t *testing.T) {
 	require.Equal(t, uint64(99), checkpoint)
 
 	// Try to get checkpoint again without changes
-	checkpoint, advanced = tracker.CheckpointIfAdvanced(chain)
+	_, advanced = tracker.CheckpointIfAdvanced(chain)
 	require.False(t, advanced) // Not advanced
 
 	// Add message at level 105
 	tracker.Add(chain, "msg2", 105)
 
 	// Checkpoint should still be 99 (min still=100)
-	checkpoint, advanced = tracker.CheckpointIfAdvanced(chain)
+	_, advanced = tracker.CheckpointIfAdvanced(chain)
 	require.False(t, advanced)
 
 	// Remove msg1
@@ -109,7 +109,7 @@ func TestPendingWritingTracker_IdempotentAdd(t *testing.T) {
 	// Single remove should clear it
 	tracker.Remove(chain, "msg1")
 
-	checkpoint, advanced = tracker.CheckpointIfAdvanced(chain)
+	_, advanced = tracker.CheckpointIfAdvanced(chain)
 	require.False(t, advanced)
 }
 
@@ -131,21 +131,21 @@ func TestPendingWritingTracker_MultipleLevels(t *testing.T) {
 	tracker.Remove(chain, "msg1")
 
 	// Checkpoint should still be 99 (other messages at 100 still pending)
-	checkpoint, advanced = tracker.CheckpointIfAdvanced(chain)
+	_, advanced = tracker.CheckpointIfAdvanced(chain)
 	require.False(t, advanced)
 
 	// Remove second message
 	tracker.Remove(chain, "msg2")
 
 	// Still 99
-	checkpoint, advanced = tracker.CheckpointIfAdvanced(chain)
+	_, advanced = tracker.CheckpointIfAdvanced(chain)
 	require.False(t, advanced)
 
 	// Remove last message
 	tracker.Remove(chain, "msg3")
 
 	// Now no more pending
-	checkpoint, advanced = tracker.CheckpointIfAdvanced(chain)
+	_, advanced = tracker.CheckpointIfAdvanced(chain)
 	require.False(t, advanced)
 }
 
@@ -172,11 +172,11 @@ func TestPendingWritingTracker_MultipleChains(t *testing.T) {
 	tracker.Remove(chain1, "msg1")
 
 	// Chain1 should have no more pending
-	checkpoint, advanced = tracker.CheckpointIfAdvanced(chain1)
+	_, advanced = tracker.CheckpointIfAdvanced(chain1)
 	require.False(t, advanced)
 
 	// Chain2 should be unaffected
-	checkpoint, advanced = tracker.CheckpointIfAdvanced(chain2)
+	_, advanced = tracker.CheckpointIfAdvanced(chain2)
 	require.False(t, advanced) // Already at 199, no new advancement
 }
 
@@ -202,7 +202,7 @@ func TestPendingWritingTracker_RetryScenario(t *testing.T) {
 	tracker.Remove(chain, "msg1")
 
 	// No more pending
-	checkpoint, advanced = tracker.CheckpointIfAdvanced(chain)
+	_, advanced = tracker.CheckpointIfAdvanced(chain)
 	require.False(t, advanced)
 }
 
@@ -224,7 +224,7 @@ func TestPendingWritingTracker_ReorgScenario(t *testing.T) {
 	tracker.Remove(chain, "msg1")
 
 	// Checkpoint still at 99 (msg2 still at 100)
-	checkpoint, advanced = tracker.CheckpointIfAdvanced(chain)
+	_, advanced = tracker.CheckpointIfAdvanced(chain)
 	require.False(t, advanced)
 
 	// msg2 written successfully

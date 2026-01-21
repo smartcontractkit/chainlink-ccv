@@ -169,7 +169,7 @@ func (s *StorageWriterProcessor) run(ctx context.Context) {
 }
 
 func (s *StorageWriterProcessor) updateCheckpoints(ctx context.Context, chains map[protocol.ChainSelector]struct{}) {
-	var statuses []protocol.ChainStatusInfo
+	statuses := make([]protocol.ChainStatusInfo, 0, len(chains))
 
 	for chain := range chains {
 		checkpoint, shouldWrite := s.writingTracker.CheckpointIfAdvanced(chain)
@@ -177,9 +177,12 @@ func (s *StorageWriterProcessor) updateCheckpoints(ctx context.Context, chains m
 			continue
 		}
 
+		// Safely convert uint64 to *big.Int to avoid overflow issues
+		checkpointBig := new(big.Int).SetUint64(checkpoint)
+
 		statuses = append(statuses, protocol.ChainStatusInfo{
 			ChainSelector:        chain,
-			FinalizedBlockHeight: big.NewInt(int64(checkpoint)),
+			FinalizedBlockHeight: checkpointBig,
 		})
 
 		s.lggr.Infow("Checkpoint advanced",

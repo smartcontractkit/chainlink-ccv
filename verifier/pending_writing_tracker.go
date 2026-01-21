@@ -101,14 +101,20 @@ func NewPendingWritingTracker() *PendingWritingTracker {
 func (t *PendingWritingTracker) getOrCreate(chain protocol.ChainSelector) *chainPendingState {
 	// Fast path: load existing state
 	if state, exists := t.chainState.Load(chain); exists {
-		return state.(*chainPendingState)
+		if chainState, ok := state.(*chainPendingState); ok {
+			return chainState
+		}
 	}
 
 	// Slow path: create new state
 	// LoadOrStore handles race conditions automatically
 	state := newChainPendingState()
 	actual, _ := t.chainState.LoadOrStore(chain, state)
-	return actual.(*chainPendingState)
+	if chainState, ok := actual.(*chainPendingState); ok {
+		return chainState
+	}
+	// Type assertion failed - return the newly created state as fallback
+	return state
 }
 
 // Add tracks a message as pending for writing.
