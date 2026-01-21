@@ -1,4 +1,4 @@
-
+## CI-specific override: use pre-built local images instead of building from Dockerfile
 [[nodesets]]
   name = "don"
   nodes = 2
@@ -13,7 +13,6 @@
       image = "docker.io/library/local:latest"
     
     [nodesets.node_specs.node.env_vars]
-      # XXX: this is required for the integration to work
       CL_EVM_CMD=""
 
   [[nodesets.node_specs]]
@@ -22,5 +21,4 @@
       image = "docker.io/library/local:latest"
     
     [nodesets.node_specs.node.env_vars]
-      # XXX: this is required for the integration to work
       CL_EVM_CMD=""
