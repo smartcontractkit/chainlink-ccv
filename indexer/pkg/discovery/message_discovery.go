@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"sync"
@@ -250,7 +251,8 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 
 	ingestionTimestamp := a.timeProvider.GetTime()
 	messages := []common.MessageWithMetadata{}
-	verifications := []common.VerifierResultWithMetadata{}
+	persistedVerifications := []common.VerifierResultWithMetadata{}
+	allVerifications := []common.VerifierResultWithMetadata{}
 	for _, response := range queryResponse {
 		a.logger.Infof("Found new Message %s", response.Data.MessageID)
 
@@ -270,8 +272,13 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 			},
 		}
 
-		verifications = append(verifications, verifierResultWithMetadata)
+		// If the verification is valid on-chain we'll persist it.
+		if !a.isDiscoveryOnly(verifierResultWithMetadata) {
+			persistedVerifications = append(persistedVerifications, verifierResultWithMetadata)
+		}
+
 		messages = append(messages, message)
+		allVerifications = append(allVerifications, verifierResultWithMetadata)
 	}
 
 	// Save all messages we've seen from the discovery source, if we're unable to persist them.
@@ -287,15 +294,18 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 		return false, err
 	}
 
-	if err := a.storageSink.BatchInsertCCVData(ctx, verifications); err != nil {
-		a.logger.Warn("Unable to save verifications to storage, will retry")
-		if ableToSetSinceValue {
-			a.aggregatorReader.SetSinceValue(startingSequence)
+	if len(persistedVerifications) > 0 {
+		err := a.storageSink.BatchInsertCCVData(ctx, persistedVerifications)
+		if err != nil {
+			a.logger.Warn("Unable to save verifications to storage, will retry")
+			if ableToSetSinceValue {
+				a.aggregatorReader.SetSinceValue(startingSequence)
+			}
+			return false, err
 		}
-		return false, err
 	}
 
-	for _, verifierResultWithMetadata := range verifications {
+	for _, verifierResultWithMetadata := range allVerifications {
 		// Emit the Message into the message channel for downstream components to consume
 		a.messageCh <- verifierResultWithMetadata
 	}
@@ -306,4 +316,22 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 
 func (a *AggregatorMessageDiscovery) isCircuitBreakerOpen() bool {
 	return a.aggregatorReader.GetDiscoveryCircuitBreakerState() == circuitbreaker.OpenState
+}
+
+func (a *AggregatorMessageDiscovery) isDiscoveryOnly(verifierResult common.VerifierResultWithMetadata) bool {
+	// Sanity Check: This should never happen, but in case of a discovery message that is smaller then the version
+	// This can never be valid on-chain and therefore MUST be a discovery only message.
+	if len(verifierResult.VerifierResult.CCVData) <= protocol.MessageDiscoveryVersionLength {
+		return true
+	}
+
+	// If the 4-byte version at the start of the data is equal to the message discovery version
+	// This verfication is invalid on-chain and we won't persist the verification.
+	version := verifierResult.VerifierResult.CCVData[:protocol.MessageDiscoveryVersionLength]
+	if bytes.Equal(version, protocol.MessageDiscoveryVersion) {
+		return true
+	}
+
+	// All other curcimstances, it's a valid verification.
+	return false
 }
