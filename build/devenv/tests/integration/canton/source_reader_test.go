@@ -2,9 +2,9 @@ package canton
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"math/big"
 	"os"
 	"slices"
 	"strings"
@@ -82,6 +82,19 @@ func TestCantonSourceReader(t *testing.T) {
 	require.True(t, slices.ContainsFunc(knownPackages, func(p *ledgerv2admin.PackageDetails) bool {
 		return p.GetName() == "json-tests"
 	}))
+	var ccipMessageSentTemplateID *ledgerv2.Identifier
+	for _, pkg := range knownPackages {
+		if pkg.GetName() == "json-tests" {
+			ccipMessageSentTemplateID = &ledgerv2.Identifier{
+				PackageId:  pkg.GetPackageId(),
+				ModuleName: "Main",
+				EntityName: "CCIPMessageSent",
+			}
+			break
+		}
+	}
+	require.NotNil(t, ccipMessageSentTemplateID)
+	t.Logf("ccipMessageSentTemplateID being used: %s", ccipMessageSentTemplateID.String())
 
 	// Deploy the TestRouter contract.
 	// TODO: ideally ccipOwner and partyOwner are separate parties, but we need to figure out the auth for that.
@@ -89,35 +102,94 @@ func TestCantonSourceReader(t *testing.T) {
 	createResp := ts.createTestRouter(t, ccipOwner, partyOwner)
 	require.NotNil(t, createResp)
 
-	contractID := ts.getContractID(t, createResp.GetUpdateId(), party)
-
-	// Create a few CCIPMessageSent "events" by exercising the appropriate choice on the TestRouter contract.
-	seqNr := int64(1)
-	for range numMessages {
-		var messageID protocol.Bytes32
-		binary.BigEndian.PutUint64(messageID[:], uint64(seqNr))
-		encodedMessage := fmt.Appendf(nil, "message %d", seqNr)
-		verifierBlobs := [][]byte{
-			fmt.Appendf(nil, "verifier blob A for message %d", seqNr),
-			fmt.Appendf(nil, "verifier blob B for message %d", seqNr),
-		}
-		ts.ccipSend(t, contractID, partyOwner, destChainSelector, seqNr, messageID, encodedMessage, verifierBlobs)
-		seqNr++
-	}
-
 	sourceReader, err := canton.NewSourceReader(
 		grpcURL,
 		jwt,
+		ccipOwner,
+		ccipMessageSentTemplateID,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	require.NoError(t, err)
 
-	latest, finalized, err := sourceReader.LatestAndFinalizedBlock(t.Context())
+	latestBefore, finalizedBefore, err := sourceReader.LatestAndFinalizedBlock(t.Context())
 	require.NoError(t, err)
-	require.NotNil(t, latest)
-	require.NotNil(t, finalized)
-	t.Logf("latest block: %d", latest.Number)
-	t.Logf("finalized block: %d", finalized.Number)
+	require.NotNil(t, latestBefore)
+	require.NotNil(t, finalizedBefore)
+	t.Logf("latest block: %d, finalized block: %d before sending messages", latestBefore.Number, finalizedBefore.Number)
+
+	// Create a few CCIPMessageSent "events" by exercising the appropriate choice on the TestRouter contract.
+	seqNr := int64(1)
+	contractID := ts.getContractID(t, createResp.GetUpdateId(), party)
+	messages := make([]protocol.Message, numMessages)
+	for i := range numMessages {
+		msg := newMessage(t, seqNr)
+		messages[i] = msg
+		verifierBlobs := [][]byte{
+			fmt.Appendf(nil, "verifier blob A for message %d", seqNr),
+			fmt.Appendf(nil, "verifier blob B for message %d", seqNr),
+		}
+		ts.ccipSend(t,
+			contractID,
+			partyOwner,
+			destChainSelector,
+			seqNr,
+			msg.MustMessageID(),
+			mustEncodeMessage(t, msg),
+			verifierBlobs,
+		)
+		seqNr++
+	}
+
+	latestAfter, finalizedAfter, err := sourceReader.LatestAndFinalizedBlock(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, latestAfter)
+	require.NotNil(t, finalizedAfter)
+	t.Logf("latest block: %d, finalized block: %d after sending messages", latestAfter.Number, finalizedAfter.Number)
+
+	// query for the CCIPMessageSent events in between before and after
+	events, err := sourceReader.FetchMessageSentEvents(t.Context(), new(big.Int).SetUint64(latestBefore.Number), new(big.Int).SetUint64(latestAfter.Number))
+	require.NoError(t, err)
+	require.Equal(t, len(events), numMessages)
+
+	// assert that we can find the messages in the events
+	for _, event := range events {
+		found := false
+		for _, msg := range messages {
+			if msg.MustMessageID() == event.MessageID {
+				found = true
+				break
+			}
+		}
+		require.True(t, found)
+	}
+}
+
+func newMessage(t *testing.T, seqNr int64) protocol.Message {
+	msg, err := protocol.NewMessage(
+		protocol.ChainSelector(1337),
+		protocol.ChainSelector(2337),
+		protocol.SequenceNumber(seqNr),
+		protocol.UnknownAddress([]byte("onramp address")),
+		protocol.UnknownAddress([]byte("offramp address")),
+		10,
+		200_000,
+		100_000,
+		protocol.Bytes32{},
+		protocol.UnknownAddress([]byte("sender address")),
+		protocol.UnknownAddress([]byte("receiver address")),
+		[]byte("dest blob"),
+		[]byte("message data payload"),
+		nil,
+	)
+	require.NoError(t, err)
+
+	return *msg
+}
+
+func mustEncodeMessage(t *testing.T, msg protocol.Message) []byte {
+	encoded, err := msg.Encode()
+	require.NoError(t, err)
+	return encoded
 }
 
 func getSub(t *testing.T, jwt string) string {
