@@ -58,6 +58,10 @@ jobs:
         run: |
           go mod download
       
+      - name: Install ccv cli
+        run: |
+          just cli
+      
       - name: Start canton blockchain
         run: |
           ccv start-blockchains env-canton-single-validator.toml
