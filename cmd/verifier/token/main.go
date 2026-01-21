@@ -10,10 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/ccvstorage"
-
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
-
 	"github.com/BurntSushi/toml"
 	"go.uber.org/zap/zapcore"
 
@@ -22,6 +18,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/ccvstorage"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
 	tokenapi "github.com/smartcontractkit/chainlink-ccv/verifier/token/api"

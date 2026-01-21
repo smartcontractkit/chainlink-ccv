@@ -10,8 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
-
 	"github.com/BurntSushi/toml"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
@@ -24,6 +22,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
