@@ -664,18 +664,6 @@ func TestSRS_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 }
 
 // ----------------------
-// ChainStatus: monotonic updates
-// ----------------------
-
-func TestSRS_ChainStatus_MonotonicUpdates(t *testing.T) {
-	// NOTE: Chain status management has been moved to StorageWriterProcessor.
-	// This test is no longer relevant as SRS doesn't manage checkpoints directly.
-	// Checkpoint logic is now tested in storage_writer_test.go
-
-	t.Skip("Chain status updates are now handled by StorageWriterProcessor, not SourceReaderService")
-}
-
-// ----------------------
 // Reorg tracking tests
 // ----------------------
 
