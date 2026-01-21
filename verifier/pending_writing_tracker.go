@@ -85,40 +85,30 @@ func (c *chainPendingState) checkpointIfAdvanced() (uint64, bool) {
 // It tracks messages that have been read but not yet successfully written to storage.
 // This enables safe checkpoint management: checkpoints only advance once all messages
 // at a given finalized block level have been written.
+//
+// Uses sync.Map for lock-free chain state lookup, eliminating contention between chains.
 type PendingWritingTracker struct {
-	chainStateMu sync.RWMutex
-	chainState   map[protocol.ChainSelector]*chainPendingState
+	// chainState maps ChainSelector -> *chainPendingState
+	// Using sync.Map eliminates lock contention for chain lookups
+	chainState sync.Map
 }
 
 // NewPendingWritingTracker creates a new PendingWritingTracker instance.
 func NewPendingWritingTracker() *PendingWritingTracker {
-	return &PendingWritingTracker{
-		chainState: make(map[protocol.ChainSelector]*chainPendingState),
-	}
+	return &PendingWritingTracker{}
 }
 
 func (t *PendingWritingTracker) getOrCreate(chain protocol.ChainSelector) *chainPendingState {
-	// Fast path: read lock
-	t.chainStateMu.RLock()
-	state, exists := t.chainState[chain]
-	t.chainStateMu.RUnlock()
-
-	if exists {
-		return state
+	// Fast path: load existing state
+	if state, exists := t.chainState.Load(chain); exists {
+		return state.(*chainPendingState)
 	}
 
-	// Slow path: write lock to create
-	t.chainStateMu.Lock()
-	defer t.chainStateMu.Unlock()
-
-	// Double-check after acquiring write lock
-	if state, exists = t.chainState[chain]; exists {
-		return state
-	}
-
-	state = newChainPendingState()
-	t.chainState[chain] = state
-	return state
+	// Slow path: create new state
+	// LoadOrStore handles race conditions automatically
+	state := newChainPendingState()
+	actual, _ := t.chainState.LoadOrStore(chain, state)
+	return actual.(*chainPendingState)
 }
 
 // Add tracks a message as pending for writing.
