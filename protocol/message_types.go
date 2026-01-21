@@ -570,12 +570,13 @@ type VerifierResult struct {
 
 // VerifierNodeResult represents node-level verification data (corresponds to CommitteeVerifierNodeResult proto).
 type VerifierNodeResult struct {
-	MessageID       Bytes32          `json:"message_id"`
-	Message         Message          `json:"message"`
-	CCVVersion      ByteSlice        `json:"ccv_version"`
-	CCVAddresses    []UnknownAddress `json:"ccv_addresses"`
-	ExecutorAddress UnknownAddress   `json:"executor_address"`
-	Signature       ByteSlice        `json:"signature"`
+	MessageID            Bytes32          `json:"message_id"`
+	Message              Message          `json:"message"`
+	CCVVersion           ByteSlice        `json:"ccv_version"`
+	CCVAddresses         []UnknownAddress `json:"ccv_addresses"`
+	ExecutorAddress      UnknownAddress   `json:"executor_address"`
+	Signature            ByteSlice        `json:"signature"`
+	FinalizedBlockAtRead uint64           `json:"finalized_block_at_read"` // Finalized block number when the event was read from chain
 }
 
 func (vr *VerifierResult) ValidateFieldsConsistent() error {
