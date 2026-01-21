@@ -52,21 +52,9 @@ func (m *CCIP17EVMConfig) deployUSDCTokenAndPool(
 		return fmt.Errorf("evm chain not found for selector %d", selector)
 	}
 
-	usdc, transmitter, messenger, err := m.deployCircleContracts(chain)
+	usdc, transmitter, messenger, err := m.deployCircleContracts(chain, ds, selector)
 	if err != nil {
 		return fmt.Errorf("failed to deploy Circle-owned contracts on chain %d: %w", selector, err)
-	}
-
-	// Register USDC ERC20 token in datastore for transfers in tests
-	err = ds.Addresses().Add(datastore.AddressRef{
-		ChainSelector: selector,
-		Type:          datastore.ContractType(burnminterc677ops.ContractType),
-		Version:       burnminterc677ops.Version,
-		Address:       usdc.Hex(),
-		Qualifier:     CCTPContractsQualifier,
-	})
-	if err != nil {
-		return err
 	}
 
 	err = m.configureCircleContracts(env, chain, selector, usdc, messenger, transmitter)
@@ -95,7 +83,6 @@ func (m *CCIP17EVMConfig) configureCircleContracts(
 	messenger common.Address,
 	transmitter common.Address,
 ) error {
-	// Grant mint and burn roles to token messenger
 	_, err := operations.ExecuteOperation(env.OperationsBundle, burnminterc677ops.GrantMintAndBurnRoles, chain, contract.FunctionInput[common.Address]{
 		ChainSelector: selector,
 		Address:       usdc,
@@ -105,7 +92,6 @@ func (m *CCIP17EVMConfig) configureCircleContracts(
 		return fmt.Errorf("failed to grant burn mint permissions to usdc messenger %s: %w", messenger.String(), err)
 	}
 
-	// Grant mint and burn roles to token transmitter
 	_, err = operations.ExecuteOperation(env.OperationsBundle, burnminterc677ops.GrantMintAndBurnRoles, chain, contract.FunctionInput[common.Address]{
 		ChainSelector: selector,
 		Address:       usdc,
@@ -115,7 +101,6 @@ func (m *CCIP17EVMConfig) configureCircleContracts(
 		return fmt.Errorf("failed to grant burn mint permissions to usdc transmitter %s: %w", transmitter.String(), err)
 	}
 
-	// Grant mint and burn roles to deployer
 	_, err = operations.ExecuteOperation(env.OperationsBundle, burnminterc677ops.GrantMintAndBurnRoles, chain, contract.FunctionInput[common.Address]{
 		ChainSelector: selector,
 		Address:       usdc,
@@ -268,7 +253,11 @@ func (m *CCIP17EVMConfig) deployMockReceivers(
 	return nil
 }
 
-func (m *CCIP17EVMConfig) deployCircleContracts(chain evm.Chain) (common.Address, common.Address, common.Address, error) {
+func (m *CCIP17EVMConfig) deployCircleContracts(
+	chain evm.Chain,
+	ds *datastore.MemoryDataStore,
+	selector uint64,
+) (common.Address, common.Address, common.Address, error) {
 	var empty common.Address
 	// We need a custom number of decimals (6) for USDC so we can't deploy erc20_with_drip here
 	// which has hardcoded 18 decimals.
@@ -287,6 +276,16 @@ func (m *CCIP17EVMConfig) deployCircleContracts(chain evm.Chain) (common.Address
 	if _, err1 := chain.Confirm(tx); err1 != nil {
 		return empty, empty, empty, fmt.Errorf("failed to confirm USDC token deployment tx: %w", err1)
 	}
+	err = ds.Addresses().Add(datastore.AddressRef{
+		ChainSelector: selector,
+		Type:          datastore.ContractType(burnminterc677ops.ContractType),
+		Version:       burnminterc677ops.Version,
+		Address:       usdcTokenAddr.Hex(),
+		Qualifier:     CCTPContractsQualifier,
+	})
+	if err != nil {
+		return empty, empty, empty, fmt.Errorf("failed to add USDC token contract: %w", err)
+	}
 
 	messageTransmitterAddr, tx, _, err := mock_usdc_token_transmitter.DeployMockE2EUSDCTransmitter(
 		chain.DeployerKey,
@@ -301,6 +300,16 @@ func (m *CCIP17EVMConfig) deployCircleContracts(chain evm.Chain) (common.Address
 	if _, err1 := chain.Confirm(tx); err1 != nil {
 		return empty, empty, empty, fmt.Errorf("failed to confirm USDC message transmitter deployment tx: %w", err1)
 	}
+	err = ds.Addresses().Add(datastore.AddressRef{
+		ChainSelector: selector,
+		Type:          "MockE2EUSDCTransmitter",
+		Version:       semver.MustParse("1.0.0"),
+		Address:       messageTransmitterAddr.Hex(),
+		Qualifier:     CCTPContractsQualifier,
+	})
+	if err != nil {
+		return empty, empty, empty, fmt.Errorf("failed to add USDC message transmitter contract: %w", err)
+	}
 
 	tokenMessengerAddr, tx, _, err := mock_usdc_token_messenger.DeployMockE2EUSDCTokenMessenger(
 		chain.DeployerKey,
@@ -313,6 +322,16 @@ func (m *CCIP17EVMConfig) deployCircleContracts(chain evm.Chain) (common.Address
 	}
 	if _, err1 := chain.Confirm(tx); err1 != nil {
 		return empty, empty, empty, fmt.Errorf("failed to confirm USDC token messenger deployment tx: %w", err1)
+	}
+	err = ds.Addresses().Add(datastore.AddressRef{
+		ChainSelector: selector,
+		Type:          "MockE2EUSDCTokenMessenger",
+		Version:       semver.MustParse("1.0.0"),
+		Address:       tokenMessengerAddr.Hex(),
+		Qualifier:     CCTPContractsQualifier,
+	})
+	if err != nil {
+		return empty, empty, empty, fmt.Errorf("failed to add USDC tijen messenger contract: %w", err)
 	}
 
 	return usdcTokenAddr, messageTransmitterAddr, tokenMessengerAddr, nil
