@@ -28,7 +28,7 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 
 	attestations := map[string]lbtc.Attestation{
 		task1.Message.MustMessageID().String(): lbtc.NewAttestation(
-			lbtc.CCVVerifierVersion,
+			lbtc.VerifierVersion,
 			lbtc.AttestationResponse{
 				MessageHash: "0xdeadbeef",
 				Status:      lbtc.AttestationStatusApproved,
@@ -36,7 +36,7 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 			},
 		),
 		task2.Message.MustMessageID().String(): lbtc.NewAttestation(
-			lbtc.CCVVerifierVersion,
+			lbtc.VerifierVersion,
 			lbtc.AttestationResponse{
 				MessageHash: "0xdeadbeef",
 				Status:      lbtc.AttestationStatusApproved,
@@ -71,13 +71,13 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	assert.Equal(t, "0xf0f3a135abcdef", results[0].Signature.String())
 	assert.Equal(t, []protocol.UnknownAddress{internal.CCVAddress1, internal.CCVAddress2}, results[0].CCVAddresses)
 	assert.Equal(t, internal.ExecutorAddress, results[0].ExecutorAddress)
-	assert.Equal(t, lbtc.CCVVerifierVersion, results[0].CCVVersion)
+	assert.Equal(t, lbtc.VerifierVersion, results[0].CCVVersion)
 
 	assert.Equal(t, task2.MessageID, results[1].MessageID.String())
 	assert.Equal(t, "0xf0f3a135123456", results[1].Signature.String())
 	assert.Equal(t, []protocol.UnknownAddress{internal.CCVAddress1, internal.CCVAddress2}, results[1].CCVAddresses)
 	assert.Equal(t, internal.ExecutorAddress, results[1].ExecutorAddress)
-	assert.Equal(t, lbtc.CCVVerifierVersion, results[1].CCVVersion)
+	assert.Equal(t, lbtc.VerifierVersion, results[1].CCVVersion)
 }
 
 func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
@@ -92,7 +92,7 @@ func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
 
 	attestations := map[string]lbtc.Attestation{
 		task1.Message.MustMessageID().String(): lbtc.NewAttestation(
-			lbtc.CCVVerifierVersion,
+			lbtc.VerifierVersion,
 			lbtc.AttestationResponse{
 				MessageHash: "0xdeadbeef",
 				Status:      lbtc.AttestationStatusApproved,
@@ -100,7 +100,7 @@ func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
 			},
 		),
 		task2.Message.MustMessageID().String(): lbtc.NewAttestation(
-			lbtc.CCVVerifierVersion,
+			lbtc.VerifierVersion,
 			lbtc.AttestationResponse{
 				MessageHash: "0xdeadbeef",
 				Status:      lbtc.AttestationStatusPending,

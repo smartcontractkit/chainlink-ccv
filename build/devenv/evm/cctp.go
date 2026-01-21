@@ -44,7 +44,7 @@ func (m *CCIP17EVMConfig) deployUSDCTokenAndPool(
 		return fmt.Errorf("evm chain not found for selector %d", selector)
 	}
 
-	usdc, _, messenger, err := m.deployCircleOwnedContracts(chain)
+	usdc, transmitter, messenger, err := m.deployCircleOwnedContracts(chain)
 	if err != nil {
 		return fmt.Errorf("failed to deploy Circle-owned contracts on chain %d: %w", selector, err)
 	}
@@ -66,6 +66,16 @@ func (m *CCIP17EVMConfig) deployUSDCTokenAndPool(
 		ChainSelector: selector,
 		Address:       usdc,
 		Args:          messenger,
+	})
+	if err != nil {
+		return err
+	}
+
+	// Grant mint and burn roles to token transmitter
+	_, err = operations.ExecuteOperation(env.OperationsBundle, burnminterc677ops.GrantMintAndBurnRoles, chain, contract.FunctionInput[common.Address]{
+		ChainSelector: selector,
+		Address:       usdc,
+		Args:          transmitter,
 	})
 	if err != nil {
 		return err
@@ -242,7 +252,8 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(env *deployment.Environment, 
 	_, err := changesets.DeployCCTPChains(cctpChainRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
 		Chains: []adapters.DeployCCTPInput[datastore.AddressRef, datastore.AddressRef]{
 			{
-				ChainSelector: selector,
+				ChainSelector:    selector,
+				MinFinalityValue: 1,
 				Router: datastore.AddressRef{
 					Type:    datastore.ContractType(routeroperations.ContractType),
 					Version: semver.MustParse(routeroperations.Deploy.Version()),

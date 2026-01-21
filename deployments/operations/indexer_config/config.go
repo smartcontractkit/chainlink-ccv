@@ -5,6 +5,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -25,7 +26,8 @@ type BuildConfigInput struct {
 	ServiceIdentifier string
 	// VerifierNameToQualifier maps verifier names (matching VerifierConfig.Name) to qualifiers
 	// used for looking up addresses in the datastore.
-	VerifierNameToQualifier map[string]string
+	CommitteeVerifierNameToQualifier map[string]string
+	CCTPVerifierNameToQualifier      map[string]string
 	// ChainSelectors are the source chains the indexer will monitor.
 	// If empty, defaults to all chain selectors available in the environment.
 	ChainSelectors []uint64
@@ -55,15 +57,27 @@ var BuildConfig = operations.NewOperation(
 	func(b operations.Bundle, deps BuildConfigDeps, input BuildConfigInput) (BuildConfigOutput, error) {
 		ds := deps.Env.DataStore
 
-		verifiers := make([]GeneratedVerifier, 0, len(input.VerifierNameToQualifier))
+		verifiers := make([]GeneratedVerifier, 0, len(input.CommitteeVerifierNameToQualifier)+len(input.CCTPVerifierNameToQualifier))
 
-		for name, qualifier := range input.VerifierNameToQualifier {
+		for name, qualifier := range input.CommitteeVerifierNameToQualifier {
 			addresses, err := collectUniqueAddresses(
 				ds, input.ChainSelectors, qualifier, committee_verifier.ResolverType)
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get resolver addresses for verifier %q (qualifier %q): %w", name, qualifier, err)
 			}
 
+			verifiers = append(verifiers, GeneratedVerifier{
+				Name:            name,
+				IssuerAddresses: addresses,
+			})
+		}
+
+		for name, qualifier := range input.CCTPVerifierNameToQualifier {
+			addresses, err := collectUniqueAddresses(
+				ds, input.ChainSelectors, qualifier, cctp_verifier.ResolverType)
+			if err != nil {
+				return BuildConfigOutput{}, fmt.Errorf("failed to get resolver addresses for verifier %q (qualifier %q): %w", name, qualifier, err)
+			}
 			verifiers = append(verifiers, GeneratedVerifier{
 				Name:            name,
 				IssuerAddresses: addresses,

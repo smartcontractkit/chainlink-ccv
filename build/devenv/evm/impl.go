@@ -30,7 +30,6 @@ import (
 	rmn_remote_binding "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/burn_mint_token_pool"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_through_ccv_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/create2_factory"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
@@ -265,21 +264,6 @@ func All17TokenCombinations() []TokenCombination {
 		}
 	}
 	return combinations
-}
-
-func USDCTokenPoolCombination() TokenCombination {
-	return TokenCombination{ // 1.7.0 usdc -> 1.7.0 usdc
-		sourcePoolType:          string(cctp_through_ccv_token_pool.ContractType),
-		sourcePoolVersion:       "1.7.0",
-		sourcePoolQualifier:     "CCTP",
-		sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
-		destPoolType:            string(cctp_through_ccv_token_pool.ContractType),
-		destPoolVersion:         "1.7.0",
-		destPoolQualifier:       "CCTP",
-		destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
-		expectedReceiptIssuers:  5, // default CCV, CCTP CCV, token pool, executor, network fee
-		expectedVerifierResults: 1, // default CCV
-	}
 }
 
 type CCIP17EVMConfig struct {

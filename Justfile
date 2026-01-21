@@ -50,7 +50,6 @@ fmt: ensure-golangci-lint
 lint fix="": ensure-golangci-lint
     find . -type f -name go.mod -execdir golangci-lint run {{ if fix != "" { "--fix" } else { "" } }} \;
 
-
 mod-download: ensure-go
     go mod download
 

@@ -79,7 +79,13 @@ func TestBatchWriteCommitCCVNodeDataHandler_BatchSizeValidation(t *testing.T) {
 				store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 			}
 
-			writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, lggr, sig, time.Millisecond)
+			mon := mocks.NewMockAggregatorMonitoring(t)
+			labeler := mocks.NewMockAggregatorMetricLabeler(t)
+			mon.EXPECT().Metrics().Return(labeler).Maybe()
+			labeler.EXPECT().With(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(labeler).Maybe()
+			labeler.EXPECT().IncrementVerificationsTotal(mock.Anything).Maybe()
+
+			writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, time.Millisecond)
 			batchHandler := NewBatchWriteCommitVerifierNodeResultHandler(writeHandler, tc.maxBatchSize)
 
 			requests := make([]*committeepb.WriteCommitteeVerifierNodeResultRequest, tc.numRequests)
@@ -129,7 +135,13 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 
 	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
-	writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, lggr, sig, time.Millisecond)
+	mon := mocks.NewMockAggregatorMonitoring(t)
+	labeler := mocks.NewMockAggregatorMetricLabeler(t)
+	mon.EXPECT().Metrics().Return(labeler).Maybe()
+	labeler.EXPECT().With(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(labeler).Maybe()
+	labeler.EXPECT().IncrementVerificationsTotal(mock.Anything).Maybe()
+
+	writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, time.Millisecond)
 	batchHandler := NewBatchWriteCommitVerifierNodeResultHandler(writeHandler, 10)
 
 	validReq := makeValidProtoRequest()

@@ -179,7 +179,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	/////////////////////////////
 
 	// Start fake data provider. This isn't really used, but may be useful in the future.
-	_, err = services.NewFake(in.Fake)
+	fakeOut, err := services.NewFake(in.Fake)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create fake data provider: %w", err)
 	}
@@ -477,19 +477,12 @@ func NewEnvironment() (in *Cfg, err error) {
 	///////////////////////////
 	// Generate indexer config using changeset (on-chain state as source of truth)
 	if len(in.Aggregator) > 0 && in.Indexer != nil {
-		verifierNameToQualifier := make(map[string]string, len(in.Aggregator))
-		for idx, agg := range in.Aggregator {
-			if idx < len(in.Indexer.IndexerConfig.Verifiers) {
-				verifierName := in.Indexer.IndexerConfig.Verifiers[idx].Name
-				verifierNameToQualifier[verifierName] = agg.CommitteeName
-			}
-		}
-
 		cs := changesets.GenerateIndexerConfig()
 		output, err := cs.Apply(*e, changesets.GenerateIndexerConfigCfg{
-			ServiceIdentifier:       "indexer",
-			VerifierNameToQualifier: verifierNameToQualifier,
-			ChainSelectors:          selectors,
+			ServiceIdentifier:                "indexer",
+			CommitteeVerifierNameToQualifier: in.Indexer.CommitteeVerifierNameToQualifier,
+			CCTPVerifierNameToQualifier:      in.Indexer.CCTPVerifierNameToQualifier,
+			ChainSelectors:                   selectors,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate indexer config: %w", err)
@@ -662,7 +655,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		in.TokenVerifier[i] = &ver
 	}
 
-	_, err = launchStandaloneTokenVerifiers(in)
+	_, err = launchStandaloneTokenVerifiers(in, fakeOut.InternalHTTPURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create standalone token verifiers: %w", err)
 	}
@@ -972,11 +965,11 @@ func launchStandaloneVerifiers(in *Cfg) ([]*services.VerifierOutput, error) {
 	return outs, nil
 }
 
-func launchStandaloneTokenVerifiers(in *Cfg) ([]*services.TokenVerifierOutput, error) {
+func launchStandaloneTokenVerifiers(in *Cfg, fakeAttestationServiceURL string) ([]*services.TokenVerifierOutput, error) {
 	var outs []*services.TokenVerifierOutput
 	for _, ver := range in.TokenVerifier {
 		if ver.Mode == services.Standalone {
-			out, err := services.NewTokenVerifier(ver)
+			out, err := services.NewTokenVerifier(ver, fakeAttestationServiceURL)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create token verifier service: %w", err)
 			}

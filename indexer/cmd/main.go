@@ -155,6 +155,7 @@ func createReader(lggr logger.Logger, cfg *config.VerifierConfig) (*readers.Resi
 		return readers.NewRestReader(readers.RestReaderConfig{
 			BaseURL:        cfg.BaseURL,
 			RequestTimeout: time.Duration(cfg.RequestTimeout),
+			Logger:         lggr,
 		}), nil
 	default:
 		return nil, errors.New("unknown verifier type")
