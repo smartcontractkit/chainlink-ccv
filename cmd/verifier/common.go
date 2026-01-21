@@ -37,8 +37,8 @@ const (
 	DatabaseConnMaxIdleTimeEnvVar = "CL_DATABASE_CONN_MAX_IDLE_TIME"
 
 	// Database defaults.
-	defaultMaxOpenConns    = 2
-	defaultMaxIdleConns    = 1
+	defaultMaxOpenConns    = 20
+	defaultMaxIdleConns    = 10
 	defaultConnMaxLifetime = 300 // seconds
 	defaultConnMaxIdleTime = 60  // seconds
 )
