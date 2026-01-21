@@ -18,6 +18,13 @@ func Test_TryParsing(t *testing.T) {
 	testAddr2, err := protocol.NewUnknownAddressFromHex(testAddr2Hex)
 	require.NoError(t, err)
 
+	testResolverAddr1Hex := "0x3333333333333333333333333333333333333333"
+	testResolverAddr2Hex := "0x4444444444444444444444444444444444444444"
+	testResolverAddr1, err := protocol.NewUnknownAddressFromHex(testResolverAddr1Hex)
+	require.NoError(t, err)
+	testResolverAddr2, err := protocol.NewUnknownAddressFromHex(testResolverAddr2Hex)
+	require.NoError(t, err)
+
 	tests := []struct {
 		name    string
 		t       string
@@ -36,9 +43,13 @@ func Test_TryParsing(t *testing.T) {
 				"attestation_api_timeout":  "5s",
 				"attestation_api_interval": "200ms",
 				"attestation_api_cooldown": "10m",
-				"addresses": map[string]any{
+				"verifier_resolver_addresses": map[string]any{
 					"1": testAddr1Hex,
 					"2": testAddr2Hex,
+				},
+				"verifier_addresses": map[string]any{
+					"1": testResolverAddr1Hex,
+					"2": testResolverAddr2Hex,
 				},
 			},
 			want: &CCTPConfig{
@@ -46,9 +57,13 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPITimeout:  5 * time.Second,
 				AttestationAPIInterval: 200 * time.Millisecond,
 				AttestationAPICooldown: 10 * time.Minute,
-				ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: testAddr1,
 					2: testAddr2,
+				},
+				ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+					1: testResolverAddr1,
+					2: testResolverAddr2,
 				},
 			},
 			wantErr: false,
@@ -59,7 +74,7 @@ func Test_TryParsing(t *testing.T) {
 			v:    "2.0",
 			data: map[string]any{
 				"attestation_api": "https://iris-api.circle.com",
-				"addresses": map[string]any{
+				"verifier_resolver_addresses": map[string]any{
 					"1": testAddr1Hex,
 				},
 			},
@@ -68,9 +83,10 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPITimeout:  1 * time.Second,
 				AttestationAPIInterval: 100 * time.Millisecond,
 				AttestationAPICooldown: 5 * time.Minute,
-				ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: testAddr1,
 				},
+				ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{},
 			},
 			wantErr: false,
 		},
@@ -146,16 +162,28 @@ func Test_TryParsing(t *testing.T) {
 			errMsg:  "invalid attestation_api_cooldown",
 		},
 		{
-			name: "invalid addresses",
+			name: "invalid verifier_resolver_addresses",
 			t:    "cctp",
 			v:    "2.0",
 			data: map[string]any{
-				"attestation_api": "https://iris-api.circle.com",
-				"addresses":       "not-a-map",
+				"attestation_api":             "https://iris-api.circle.com",
+				"verifier_resolver_addresses": "not-a-map",
 			},
 			want:    nil,
 			wantErr: true,
-			errMsg:  "invalid addresses",
+			errMsg:  "invalid verifier_resolver_addresses",
+		},
+		{
+			name: "invalid verifier_addresses",
+			t:    "cctp",
+			v:    "2.0",
+			data: map[string]any{
+				"attestation_api":    "https://iris-api.circle.com",
+				"verifier_addresses": "not-a-map",
+			},
+			want:    nil,
+			wantErr: true,
+			errMsg:  "invalid verifier_addresses",
 		},
 	}
 
@@ -176,6 +204,7 @@ func Test_TryParsing(t *testing.T) {
 				assert.Equal(t, tt.want.AttestationAPITimeout, got.AttestationAPITimeout)
 				assert.Equal(t, tt.want.AttestationAPIInterval, got.AttestationAPIInterval)
 				assert.Equal(t, tt.want.AttestationAPICooldown, got.AttestationAPICooldown)
+				assert.Equal(t, tt.want.ParsedVerifierResolvers, got.ParsedVerifierResolvers)
 				assert.Equal(t, tt.want.ParsedVerifiers, got.ParsedVerifiers)
 			}
 		})

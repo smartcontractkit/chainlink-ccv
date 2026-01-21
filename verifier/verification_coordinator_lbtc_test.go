@@ -92,7 +92,7 @@ func Test_LBTCMessages_Success(t *testing.T) {
 		AttestationAPITimeout:   1 * time.Minute,
 		AttestationAPIInterval:  1 * time.Millisecond,
 		AttestationAPIBatchSize: 10,
-		ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+		ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 			chain1337: testCCVAddr,
 			chain2337: destVerifier,
 		},
@@ -194,7 +194,7 @@ func Test_LBTCMessages_RetryingAttestation(t *testing.T) {
 		AttestationAPITimeout:   1 * time.Minute,
 		AttestationAPIInterval:  1 * time.Millisecond,
 		AttestationAPIBatchSize: 10,
-		ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+		ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 			chain1337: testCCVAddr,
 			chain2337: destVerifier,
 		},
@@ -262,14 +262,14 @@ func createLBTCCoordinator(
 
 	ccvWriter := storage.NewAttestationCCVWriter(
 		ts.logger,
-		lbtcConfig.ParsedVerifiers,
+		lbtcConfig.ParsedVerifierResolvers,
 		inMemStorage,
 	)
 
 	return verifier.NewCoordinator(
 		ts.ctx,
 		ts.logger,
-		lbtc.NewVerifierWithConfig(ts.logger, attestationService, lbtc.CCVVerifierVersion, 100*time.Millisecond, 100*time.Millisecond),
+		lbtc.NewVerifierWithConfig(ts.logger, attestationService, lbtc.VerifierVersion, 100*time.Millisecond, 100*time.Millisecond),
 		sourceReaders,
 		ccvWriter,
 		config,

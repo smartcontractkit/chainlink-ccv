@@ -39,7 +39,7 @@ func NewVerifier(
 	return NewVerifierWithConfig(
 		lggr,
 		attestationService,
-		CCVVerifierVersion,
+		VerifierVersion,
 		attestationNotReadyRetry,
 		anyErrorRetry,
 	)
