@@ -153,7 +153,6 @@ func createVerificationCoordinator(
 		noopMonitoring,
 		ts.chainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
-		10*time.Second, // heartbeatInterval
 	)
 }
 

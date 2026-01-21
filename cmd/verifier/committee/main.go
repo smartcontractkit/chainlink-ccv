@@ -183,7 +183,8 @@ func main() {
 		StorageBatchSize:    50,
 		StorageBatchTimeout: 100 * time.Millisecond,
 		StorageRetryDelay:   2 * time.Second,
-		CursePollInterval:   2 * time.Second, // Poll RMN Remotes for curse status every 2s
+		CursePollInterval:   2 * time.Second,  // Poll RMN Remotes for curse status every 2s
+		HeartbeatInterval:   10 * time.Second, // Send heartbeat to aggregator every 10s
 	}
 
 	pk := os.Getenv(PkEnvVar)
@@ -222,8 +223,6 @@ func main() {
 		verifierMonitoring,
 	)
 
-	// TODO: make heartbeat interval configurable
-	heartbeatInterval := 10 * time.Second
 	heartbeatClient, err := heartbeatclient.NewHeartbeatClient(
 		config.AggregatorAddress,
 		lggr,
@@ -265,7 +264,6 @@ func main() {
 		verifierMonitoring,
 		chainStatusManager,
 		observedHeartbeatClient,
-		heartbeatInterval,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

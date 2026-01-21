@@ -135,6 +135,7 @@ func NewVerificationCoordinator(
 		StorageBatchSize:    50,
 		StorageBatchTimeout: 100 * time.Millisecond,
 		StorageRetryDelay:   2 * time.Second,
+		HeartbeatInterval:   0, // Disabled by default
 	}
 
 	// Create commit verifier (with ECDSA signer)
@@ -163,7 +164,6 @@ func NewVerificationCoordinator(
 		verifierMonitoring,
 		chainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
-		0*time.Second, // not used
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

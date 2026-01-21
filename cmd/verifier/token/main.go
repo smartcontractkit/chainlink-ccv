@@ -220,7 +220,6 @@ func createCCTPCoordinator(
 		verifierMonitoring,
 		storage.NewChainStatusManager(),
 		heartbeatclient.NewNoopHeartbeatClient(),
-		10*time.Second, // heartbeatInterval
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator for cctp", "error", err)
@@ -268,7 +267,6 @@ func createLBTCCoordinator(
 		verifierMonitoring,
 		storage.NewChainStatusManager(),
 		heartbeatclient.NewNoopHeartbeatClient(),
-		0*time.Second, // heartbeatInterval
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator for lbtc", "error", err)

@@ -130,7 +130,6 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 		setup.chainStatusManager,
 		setup.mockCurseChecker,
 		heartbeatclient.NewNoopHeartbeatClient(),
-		10*time.Second, // heartbeatInterval
 	)
 	require.NoError(t, err)
 	setup.coordinator = coordinator

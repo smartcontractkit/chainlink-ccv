@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	cursecheckerimpl "github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
@@ -47,7 +46,6 @@ func NewCoordinator(
 	monitoring Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	heartbeatClient heartbeatpb.HeartbeatServiceClient,
-	heartbeatInterval time.Duration,
 ) (*Coordinator, error) {
 	return NewCoordinatorWithDetector(
 		ctx,
@@ -61,7 +59,6 @@ func NewCoordinator(
 		chainStatusManager,
 		nil,
 		heartbeatClient,
-		heartbeatInterval,
 	)
 }
 
@@ -77,7 +74,6 @@ func NewCoordinatorWithDetector(
 	chainStatusManager protocol.ChainStatusManager,
 	detector common.CurseCheckerService,
 	heartbeatClient heartbeatpb.HeartbeatServiceClient,
-	heartbeatInterval time.Duration,
 ) (*Coordinator, error) {
 	enabledSourceReaders, err := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, chainStatusManager)
 	if err != nil {
@@ -112,7 +108,7 @@ func NewCoordinatorWithDetector(
 
 	var heartbeatReporter *HeartbeatReporter
 
-	if heartbeatClient != nil {
+	if heartbeatClient != nil && config.HeartbeatInterval > 0 {
 		// Collect all chain selectors from source readers.
 		allSelectors := make([]protocol.ChainSelector, 0, len(sourceReaders))
 		for selector := range sourceReaders {
@@ -125,7 +121,7 @@ func NewCoordinatorWithDetector(
 			heartbeatClient,
 			allSelectors,
 			config.VerifierID,
-			heartbeatInterval,
+			config.HeartbeatInterval,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create heartbeat reporter: %w", err)

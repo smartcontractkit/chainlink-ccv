@@ -480,7 +480,6 @@ func createCCTPCoordinator(
 		noopMonitoring,
 		ts.chainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
-		10*time.Second, // heartbeatInterval
 	)
 }
 

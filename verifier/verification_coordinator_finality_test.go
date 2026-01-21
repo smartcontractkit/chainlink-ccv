@@ -357,7 +357,6 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		&noopMonitoring{},
 		mockChainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
-		10*time.Second, // heartbeatInterval
 	)
 	require.NoError(t, err)
 
