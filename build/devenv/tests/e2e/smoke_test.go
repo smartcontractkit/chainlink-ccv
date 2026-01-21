@@ -682,10 +682,8 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 					ArgsLen: 0,
 				},
 			},
-			// default verifier and secondary verifier will verify so should be two verifications.
-			// default verifies because its the message discovery mechanism, despite there being no onchain
-			// receipt for the default verifier.
-			numExpectedVerifications: 2,
+			// secondary verifier will verify however the default will not.
+			numExpectedVerifications: 1,
 			// default executor and secondary committee verifier and network fee.
 			numExpectedReceipts: 3,
 			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), evm.DefaultExecutorQualifier, "executor"),
