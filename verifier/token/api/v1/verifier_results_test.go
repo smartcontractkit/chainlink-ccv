@@ -8,8 +8,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
-
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,13 +16,14 @@ import (
 
 	v1 "github.com/smartcontractkit/chainlink-ccv/integration/pkg/api/v1"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/ccvstorage"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
 )
 
 func Test_VerifierResultsHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	inmemoryStorage := chainstatus.NewInMemory()
+	inmemoryStorage := ccvstorage.NewInMemory()
 	ccvWriter := storage.NewAttestationCCVWriter(
 		logger.Test(t),
 		map[protocol.ChainSelector]protocol.UnknownAddress{

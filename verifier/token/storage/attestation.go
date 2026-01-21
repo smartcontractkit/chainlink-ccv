@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/ccvstorage"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -17,13 +19,13 @@ var (
 type AttestationCCVWriter struct {
 	lggr                      logger.Logger
 	verifierResolverAddresses map[protocol.ChainSelector]protocol.UnknownAddress
-	storage                   CCVStorage
+	storage                   ccvstorage.CCVStorage
 }
 
 func NewAttestationCCVWriter(
 	lggr logger.Logger,
 	verifierResolverAddresses map[protocol.ChainSelector]protocol.UnknownAddress,
-	storage CCVStorage,
+	storage ccvstorage.CCVStorage,
 ) *AttestationCCVWriter {
 	return &AttestationCCVWriter{
 		lggr:                      lggr,
@@ -36,10 +38,10 @@ func (a *AttestationCCVWriter) WriteCCVNodeData(
 	ctx context.Context,
 	ccvDataList []protocol.VerifierNodeResult,
 ) error {
-	entries := make([]Entry, len(ccvDataList))
+	entries := make([]ccvstorage.Entry, len(ccvDataList))
 	for i, ccvData := range ccvDataList {
 		source, dest := a.addresses(ccvData.Message)
-		entries[i] = Entry{
+		entries[i] = ccvstorage.Entry{
 			Value:                 ccvData,
 			VerifierSourceAddress: source,
 			VerifierDestAddress:   dest,
@@ -66,11 +68,11 @@ func (a *AttestationCCVWriter) addresses(message protocol.Message) (protocol.Unk
 }
 
 type AttestationCCVReader struct {
-	storage CCVStorage
+	storage ccvstorage.CCVStorage
 }
 
 func NewAttestationCCVReader(
-	storage CCVStorage,
+	storage ccvstorage.CCVStorage,
 ) *AttestationCCVReader {
 	return &AttestationCCVReader{
 		storage: storage,

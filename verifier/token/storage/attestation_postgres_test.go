@@ -15,6 +15,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/ccvstorage"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -63,7 +64,7 @@ func TestAttestationCCVWriterAndReader_Postgres(t *testing.T) {
 	db := setupTestDB(t)
 	lggr := logger.Test(t)
 
-	storage := NewPostgres(db, lggr)
+	storage := ccvstorage.NewPostgres(db, lggr)
 
 	// Setup verifier addresses for test chains
 	verifierAddresses := map[protocol.ChainSelector]protocol.UnknownAddress{

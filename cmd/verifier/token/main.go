@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/ccvstorage"
+
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 
 	"github.com/BurntSushi/toml"
@@ -96,7 +98,7 @@ func main() {
 	}
 
 	chainStatusManager := chainstatus.NewPostgresChainStatusManager(sqlDB, lggr)
-	postgresStorage := storage.NewPostgres(sqlDB, lggr)
+	postgresStorage := ccvstorage.NewPostgres(sqlDB, lggr)
 
 	coordinators := make([]*verifier.Coordinator, 0, len(config.TokenVerifiers))
 	for _, verifierConfig := range config.TokenVerifiers {
