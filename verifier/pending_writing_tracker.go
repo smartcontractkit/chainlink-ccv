@@ -7,7 +7,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-// chainPendingState tracks pending writes for a single chain
+// chainPendingState tracks pending writes for a single chain.
 type chainPendingState struct {
 	mu sync.RWMutex
 
@@ -122,7 +122,7 @@ func (t *PendingWritingTracker) Add(chain protocol.ChainSelector, msgID string, 
 // This should be called when:
 // - A message is successfully written to storage (SWP)
 // - A message is reorged out (SRS)
-// - A message fails verification with unretryable error (TVP)
+// - A message fails verification with unretryable error (TVP).
 func (t *PendingWritingTracker) Remove(chain protocol.ChainSelector, msgID string) {
 	t.getOrCreate(chain).remove(msgID)
 }

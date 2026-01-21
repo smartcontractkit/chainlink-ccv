@@ -16,7 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// noopChainStatusManager is a no-op implementation for testing
+// noopChainStatusManager is a no-op implementation for testing.
 type noopChainStatusManager struct{}
 
 func (n *noopChainStatusManager) GetChainStatus(ctx context.Context, chain protocol.ChainSelector) (protocol.ChainStatusInfo, error) {
