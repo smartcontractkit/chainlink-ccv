@@ -9,27 +9,10 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
-	executorconfig "github.com/smartcontractkit/chainlink-ccv/deployments/operations/executor_config"
-	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/sequences"
 )
 
-type GenerateExecutorConfigCfg struct {
-	// ExecutorQualifier is the qualifier of the executor that is configured as part of the changeset.
-	ExecutorQualifier string
-	// ChainSelectors is the list of chain selectors that will be considered. Defaults to all chain selectors in the environment.
-	ChainSelectors []uint64
-	// NOPAliases is the scope of nop that are affected by the changeset. Defaults to all nop aliases in the executor pool.
-	NOPAliases []string
-	// ExecutorPool is the executor pool configuration.
-	ExecutorPool executorconfig.ExecutorPoolInput
-	// IndexerAddress is the address of the indexer to use for the executor.
-	IndexerAddress string
-	// PyroscopeURL is the URL of the Pyroscope server.
-	PyroscopeURL string
-	// Monitoring is the monitoring configuration. It contains the beholder configuration.
-	Monitoring shared.MonitoringInput
-}
+type GenerateExecutorConfigCfg = sequences.GenerateExecutorConfigInput
 
 func GenerateExecutorConfig() deployment.ChangeSetV2[GenerateExecutorConfigCfg] {
 	validate := func(e deployment.Environment, cfg GenerateExecutorConfigCfg) error {
@@ -41,7 +24,7 @@ func GenerateExecutorConfig() deployment.ChangeSetV2[GenerateExecutorConfigCfg] 
 			return fmt.Errorf("executor pool NOPs are required")
 		}
 
-		for _, alias := range cfg.NOPAliases {
+		for _, alias := range cfg.TargetNOPs {
 			if !slices.Contains(cfg.ExecutorPool.NOPAliases, alias) {
 				return fmt.Errorf("NOP alias %q not found in executor pool", alias)
 			}
@@ -61,21 +44,10 @@ func GenerateExecutorConfig() deployment.ChangeSetV2[GenerateExecutorConfigCfg] 
 			selectors = e.BlockChains.ListChainSelectors()
 		}
 
-		deps := sequences.GenerateExecutorConfigDeps{
-			Env: e,
-		}
+		input := cfg
+		input.ChainSelectors = selectors
 
-		input := sequences.GenerateExecutorConfigInput{
-			ExecutorQualifier: cfg.ExecutorQualifier,
-			ChainSelectors:    selectors,
-			NOPAliases:        cfg.NOPAliases,
-			ExecutorPool:      cfg.ExecutorPool,
-			IndexerAddress:    cfg.IndexerAddress,
-			PyroscopeURL:      cfg.PyroscopeURL,
-			Monitoring:        cfg.Monitoring,
-		}
-
-		report, err := operations.ExecuteSequence(e.OperationsBundle, sequences.GenerateExecutorConfig, deps, input)
+		report, err := operations.ExecuteSequence(e.OperationsBundle, sequences.GenerateExecutorConfig, sequences.GenerateExecutorConfigDeps{Env: e}, input)
 		if err != nil {
 			return deployment.ChangesetOutput{
 				Reports: report.ExecutionReports,
@@ -98,9 +70,9 @@ func GenerateExecutorConfig() deployment.ChangeSetV2[GenerateExecutorConfigCfg] 
 		}
 
 		var scopedNOPs map[string]bool
-		if len(cfg.NOPAliases) > 0 {
+		if len(cfg.TargetNOPs) > 0 {
 			scopedNOPs = make(map[string]bool)
-			for _, nopAlias := range cfg.NOPAliases {
+			for _, nopAlias := range cfg.TargetNOPs {
 				scopedNOPs[nopAlias] = true
 			}
 		}

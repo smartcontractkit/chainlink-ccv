@@ -13,31 +13,42 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 )
 
+// NOPInput defines the configuration for a single NOP (Node Operator).
 type NOPInput struct {
-	Alias         string
+	// Alias is the unique identifier for this NOP.
+	Alias string
+	// SignerAddress is the address used by this NOP for signing attestations.
 	SignerAddress string
 }
 
+// AggregatorInput defines the configuration for an aggregator instance.
 type AggregatorInput struct {
-	Name                         string
-	Address                      string
+	// Name is the unique identifier for this aggregator instance.
+	Name string
+	// Address is the network endpoint of the aggregator service.
+	Address string
+	// InsecureAggregatorConnection disables TLS verification when connecting to the aggregator.
 	InsecureAggregatorConnection bool
 }
 
+// CommitteeInput defines the configuration for a verifier committee.
 type CommitteeInput struct {
-	Qualifier   string
+	// Qualifier is the unique identifier for this committee.
+	Qualifier string
+	// Aggregators is the list of aggregator instances that serve this committee.
 	Aggregators []AggregatorInput
-	NOPAliases  []string
+	// NOPAliases is the list of NOP aliases that are members of this committee.
+	NOPAliases []string
 }
 
 type BuildJobSpecsInput struct {
-	GeneratedConfig    *VerifierGeneratedConfig
-	CommitteeQualifier string
-	NOPAliases         []string
-	NOPs               []NOPInput
-	Committee          CommitteeInput
-	PyroscopeURL       string
-	Monitoring         shared.MonitoringInput
+	GeneratedConfig *VerifierGeneratedConfig
+	// TargetNOPs limits which NOPs will have their job specs updated. Defaults to all NOPs in the committee when empty.
+	TargetNOPs   []string
+	NOPs         []NOPInput
+	Committee    CommitteeInput
+	PyroscopeURL string
+	Monitoring   shared.MonitoringInput
 }
 
 type BuildJobSpecsOutput struct {
@@ -62,7 +73,7 @@ var BuildJobSpecs = operations.NewOperation(
 		expectedNOPs := make(map[string]bool)
 		verifierSuffix := fmt.Sprintf("-%s-verifier", input.Committee.Qualifier)
 
-		nopAliases := input.NOPAliases
+		nopAliases := input.TargetNOPs
 		if len(nopAliases) == 0 {
 			nopAliases = input.Committee.NOPAliases
 		}

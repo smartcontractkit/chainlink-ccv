@@ -9,26 +9,11 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
-	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 	verifierconfig "github.com/smartcontractkit/chainlink-ccv/deployments/operations/verifier_config"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/sequences"
 )
 
-type GenerateVerifierConfigCfg struct {
-	// ExecutorQualifier is the qualifier of the executor that will be considered the default executor.
-	DefaultExecutorQualifier string
-	// ChainSelectors is the list of chain selectors that will be considered. Defaults to all chain selectors in the environment.
-	ChainSelectors []uint64
-	// NOPAliases is the scope of nop that are affected by the changeset. Defaults to all nop aliases in the committee.
-	NOPAliases []string
-	// NOP is the list of nop configurations across the environment.
-	NOPs      []verifierconfig.NOPInput
-	Committee verifierconfig.CommitteeInput
-	// PyroscopeURL is the URL of the Pyroscope server.
-	PyroscopeURL string
-	// Monitoring is the monitoring configuration. It contains the beholder configuration.
-	Monitoring shared.MonitoringInput
-}
+type GenerateVerifierConfigCfg = sequences.GenerateVerifierConfigInput
 
 func GenerateVerifierConfig() deployment.ChangeSetV2[GenerateVerifierConfigCfg] {
 	validate := func(e deployment.Environment, cfg GenerateVerifierConfigCfg) error {
@@ -45,7 +30,7 @@ func GenerateVerifierConfig() deployment.ChangeSetV2[GenerateVerifierConfigCfg] 
 			nopSet[nop.Alias] = nop
 		}
 
-		nopAliases := cfg.NOPAliases
+		nopAliases := cfg.TargetNOPs
 		if len(nopAliases) == 0 {
 			nopAliases = cfg.Committee.NOPAliases
 		}
@@ -75,21 +60,10 @@ func GenerateVerifierConfig() deployment.ChangeSetV2[GenerateVerifierConfigCfg] 
 			selectors = e.BlockChains.ListChainSelectors()
 		}
 
-		deps := sequences.GenerateVerifierConfigDeps{
-			Env: e,
-		}
+		input := cfg
+		input.ChainSelectors = selectors
 
-		input := sequences.GenerateVerifierConfigInput{
-			DefaultExecutorQualifier: cfg.DefaultExecutorQualifier,
-			ChainSelectors:           selectors,
-			NOPAliases:               cfg.NOPAliases,
-			NOPs:                     cfg.NOPs,
-			Committee:                cfg.Committee,
-			PyroscopeURL:             cfg.PyroscopeURL,
-			Monitoring:               cfg.Monitoring,
-		}
-
-		report, err := operations.ExecuteSequence(e.OperationsBundle, sequences.GenerateVerifierConfig, deps, input)
+		report, err := operations.ExecuteSequence(e.OperationsBundle, sequences.GenerateVerifierConfig, sequences.GenerateVerifierConfigDeps{Env: e}, input)
 		if err != nil {
 			return deployment.ChangesetOutput{
 				Reports: report.ExecutionReports,
@@ -112,9 +86,9 @@ func GenerateVerifierConfig() deployment.ChangeSetV2[GenerateVerifierConfigCfg] 
 		}
 
 		var scopedNOPs map[string]bool
-		if len(cfg.NOPAliases) > 0 {
+		if len(cfg.TargetNOPs) > 0 {
 			scopedNOPs = make(map[string]bool)
-			for _, nopAlias := range cfg.NOPAliases {
+			for _, nopAlias := range cfg.TargetNOPs {
 				scopedNOPs[nopAlias] = true
 			}
 		}

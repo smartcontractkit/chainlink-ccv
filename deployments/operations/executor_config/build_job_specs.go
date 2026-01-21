@@ -13,27 +13,34 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 )
 
-type NOPInput struct {
-	Alias string
-}
-
+// ExecutorPoolInput defines the configuration for an executor pool.
 type ExecutorPoolInput struct {
-	NOPAliases        []string
+	// NOPAliases is the list of NOP aliases that are members of this executor pool.
+	NOPAliases []string
+	// ExecutionInterval is the interval between execution cycles.
 	ExecutionInterval time.Duration
-	NtpServer         string
+	// NtpServer is the NTP server address for time synchronization (optional).
+	NtpServer string
+	// IndexerQueryLimit is the maximum number of records to fetch from the indexer per query.
 	IndexerQueryLimit uint64
-	BackoffDuration   time.Duration
-	LookbackWindow    time.Duration
+	// BackoffDuration is the duration to wait before retrying after a failure.
+	BackoffDuration time.Duration
+	// LookbackWindow is the time window for looking back at historical data.
+	LookbackWindow time.Duration
+	// ReaderCacheExpiry is the TTL for cached chain reader data.
 	ReaderCacheExpiry time.Duration
-	MaxRetryDuration  time.Duration
-	WorkerCount       int
+	// MaxRetryDuration is the maximum duration to retry failed operations.
+	MaxRetryDuration time.Duration
+	// WorkerCount is the number of concurrent workers for processing executions.
+	WorkerCount int
 }
 
 type BuildJobSpecsInput struct {
 	GeneratedConfig   *ExecutorGeneratedConfig
 	ExecutorQualifier string
-	NOPAliases        []string
-	ExecutorPool      ExecutorPoolInput
+	// TargetNOPs limits which NOPs will have their job specs updated. Defaults to all NOPs in the executor pool when empty.
+	TargetNOPs   []string
+	ExecutorPool ExecutorPoolInput
 	IndexerAddress    string
 	PyroscopeURL      string
 	Monitoring        shared.MonitoringInput
@@ -54,7 +61,7 @@ var BuildJobSpecs = operations.NewOperation(
 		expectedJobSpecIDs := make(map[string]bool)
 		executorSuffix := fmt.Sprintf("-%s-executor", input.ExecutorQualifier)
 
-		nopAliases := input.NOPAliases
+		nopAliases := input.TargetNOPs
 		if len(nopAliases) == 0 {
 			nopAliases = input.ExecutorPool.NOPAliases
 		}

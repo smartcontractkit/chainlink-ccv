@@ -13,13 +13,20 @@ import (
 )
 
 type GenerateExecutorConfigInput struct {
+	// ExecutorQualifier is the qualifier of the executor that is configured as part of this operation.
 	ExecutorQualifier string
-	ChainSelectors    []uint64
-	NOPAliases        []string
-	ExecutorPool      executorconfig.ExecutorPoolInput
-	IndexerAddress    string
-	PyroscopeURL      string
-	Monitoring        shared.MonitoringInput
+	// ChainSelectors is the list of chain selectors to consider. Defaults to all chain selectors in the environment.
+	ChainSelectors []uint64
+	// TargetNOPs limits which NOPs will have their job specs updated. Defaults to all NOPs in the executor pool when empty.
+	TargetNOPs []string
+	// ExecutorPool is the executor pool configuration containing pool membership and execution parameters.
+	ExecutorPool executorconfig.ExecutorPoolInput
+	// IndexerAddress is the address of the indexer service used by executors.
+	IndexerAddress string
+	// PyroscopeURL is the URL of the Pyroscope server for profiling (optional).
+	PyroscopeURL string
+	// Monitoring is the monitoring configuration containing beholder settings.
+	Monitoring shared.MonitoringInput
 }
 
 type GenerateExecutorConfigOutput struct {
@@ -50,7 +57,7 @@ var GenerateExecutorConfig = operations.NewSequence(
 		jobSpecsResult, err := operations.ExecuteOperation(b, executorconfig.BuildJobSpecs, struct{}{}, executorconfig.BuildJobSpecsInput{
 			GeneratedConfig:   buildResult.Output.Config,
 			ExecutorQualifier: input.ExecutorQualifier,
-			NOPAliases:        input.NOPAliases,
+			TargetNOPs:        input.TargetNOPs,
 			ExecutorPool:      input.ExecutorPool,
 			IndexerAddress:    input.IndexerAddress,
 			PyroscopeURL:      input.PyroscopeURL,

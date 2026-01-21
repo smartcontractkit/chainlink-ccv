@@ -221,7 +221,7 @@ func generateExecutorJobSpecs(
 		output, err := cs.Apply(*e, changesets.GenerateExecutorConfigCfg{
 			ExecutorQualifier: qualifier,
 			ChainSelectors:    selectors,
-			NOPAliases:        execNOPAliases,
+			TargetNOPs:        execNOPAliases,
 			ExecutorPool:      convertExecutorPoolConfig(executorPool),
 			IndexerAddress:    topology.IndexerAddress,
 			PyroscopeURL:      topology.PyroscopeURL,
@@ -316,7 +316,8 @@ func generateVerifierJobSpecs(
 		output, err := cs.Apply(*e, changesets.GenerateVerifierConfigCfg{
 			DefaultExecutorQualifier: evm.DefaultExecutorQualifier,
 			ChainSelectors:           selectors,
-			NOPAliases:               verNOPAliases,
+			TargetNOPs:               verNOPAliases,
+			NOPs:                     convertNOPsToVerifierInput(topology.NOPTopology.NOPs),
 			Committee:                convertCommitteeConfig(committee),
 			PyroscopeURL:             topology.PyroscopeURL,
 			Monitoring:               convertMonitoringConfig(topology.Monitoring),
@@ -354,16 +355,6 @@ func generateVerifierJobSpecs(
 	}
 
 	return verifierJobSpecs, nil
-}
-
-func convertNOPsToExecutorInput(nops []deployments.NOPConfig) []executorconfig.NOPInput {
-	result := make([]executorconfig.NOPInput, len(nops))
-	for i, nop := range nops {
-		result[i] = executorconfig.NOPInput{
-			Alias: nop.Alias,
-		}
-	}
-	return result
 }
 
 func convertNOPsToVerifierInput(nops []deployments.NOPConfig) []verifierconfig.NOPInput {

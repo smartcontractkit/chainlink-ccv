@@ -13,13 +13,20 @@ import (
 )
 
 type GenerateVerifierConfigInput struct {
+	// DefaultExecutorQualifier is the qualifier of the executor considered as the default executor.
 	DefaultExecutorQualifier string
-	ChainSelectors           []uint64
-	NOPAliases               []string
-	NOPs                     []verifierconfig.NOPInput
-	Committee                verifierconfig.CommitteeInput
-	PyroscopeURL             string
-	Monitoring               shared.MonitoringInput
+	// ChainSelectors is the list of chain selectors to consider. Defaults to all chain selectors in the environment.
+	ChainSelectors []uint64
+	// TargetNOPs limits which NOPs will have their job specs updated. Defaults to all NOPs in the committee when empty.
+	TargetNOPs []string
+	// NOPs is the list of NOP configurations containing signing addresses for each NOP.
+	NOPs []verifierconfig.NOPInput
+	// Committee contains the committee configuration including aggregators and membership.
+	Committee verifierconfig.CommitteeInput
+	// PyroscopeURL is the URL of the Pyroscope server for profiling (optional).
+	PyroscopeURL string
+	// Monitoring is the monitoring configuration containing beholder settings.
+	Monitoring shared.MonitoringInput
 }
 
 type GenerateVerifierConfigOutput struct {
@@ -50,13 +57,12 @@ var GenerateVerifierConfig = operations.NewSequence(
 		}
 
 		jobSpecsResult, err := operations.ExecuteOperation(b, verifierconfig.BuildJobSpecs, struct{}{}, verifierconfig.BuildJobSpecsInput{
-			GeneratedConfig:    buildResult.Output.Config,
-			CommitteeQualifier: input.Committee.Qualifier,
-			NOPAliases:         input.NOPAliases,
-			NOPs:               input.NOPs,
-			Committee:          input.Committee,
-			PyroscopeURL:       input.PyroscopeURL,
-			Monitoring:         input.Monitoring,
+			GeneratedConfig: buildResult.Output.Config,
+			TargetNOPs:      input.TargetNOPs,
+			NOPs:            input.NOPs,
+			Committee:       input.Committee,
+			PyroscopeURL:    input.PyroscopeURL,
+			Monitoring:      input.Monitoring,
 		})
 		if err != nil {
 			return GenerateVerifierConfigOutput{}, fmt.Errorf("failed to build verifier job specs: %w", err)

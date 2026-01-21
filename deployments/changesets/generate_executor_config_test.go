@@ -58,7 +58,7 @@ func TestGenerateExecutorConfig_ValidatesNOPAliases(t *testing.T) {
 	err := changeset.VerifyPreconditions(env, changesets.GenerateExecutorConfigCfg{
 		IndexerAddress: "http://indexer:8100",
 		ExecutorPool:   testExecutorPool(),
-		NOPAliases:     []string{"unknown-nop"},
+		TargetNOPs:          []string{"unknown-nop"},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `not found in executor pool`)
@@ -112,7 +112,7 @@ func TestGenerateExecutorConfig_GeneratesCorrectJobSpec(t *testing.T) {
 	output, err := cs.Apply(env, changesets.GenerateExecutorConfigCfg{
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
-		NOPAliases:        []string{"nop-1"},
+		TargetNOPs:             []string{"nop-1"},
 		ExecutorPool:      testExecutorPool(),
 		IndexerAddress:    "http://indexer:8100",
 		PyroscopeURL:      "http://pyroscope:4040",
@@ -180,7 +180,7 @@ func TestGenerateExecutorConfig_PreservesExistingConfigs(t *testing.T) {
 	output, err := cs.Apply(env, changesets.GenerateExecutorConfigCfg{
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
-		NOPAliases:        []string{"nop-1"},
+		TargetNOPs:             []string{"nop-1"},
 		ExecutorPool:      testExecutorPool(),
 		IndexerAddress:    "http://indexer:8100",
 		PyroscopeURL:      "http://pyroscope:4040",
@@ -289,7 +289,7 @@ func TestGenerateExecutorConfig_PreservesOtherQualifierJobSpecs(t *testing.T) {
 	output, err := cs.Apply(env, changesets.GenerateExecutorConfigCfg{
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
-		NOPAliases:        []string{"nop-1"},
+		TargetNOPs:             []string{"nop-1"},
 		ExecutorPool:      testExecutorPool(),
 		IndexerAddress:    "http://indexer:8100",
 		PyroscopeURL:      "http://pyroscope:4040",
@@ -345,7 +345,7 @@ func TestGenerateExecutorConfig_ScopedNOPAliasesPreservesOtherNOPs(t *testing.T)
 	output, err := cs.Apply(env, changesets.GenerateExecutorConfigCfg{
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
-		NOPAliases:        []string{"nop-1"},
+		TargetNOPs:             []string{"nop-1"},
 		ExecutorPool:      testExecutorPool(),
 		IndexerAddress:    "http://indexer:8100",
 		PyroscopeURL:      "http://pyroscope:4040",
