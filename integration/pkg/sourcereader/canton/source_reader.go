@@ -27,7 +27,7 @@ const (
 	// labels for the CCIPMessageSentEvent template.
 	ccipMessageSentEventDestChainSelectorLabel = "destChainSelector"
 	ccipMessageSentEventSequenceNumberLabel    = "sequenceNumber"
-	ccipMessageSentEventMessageIdLabel         = "messageId"
+	ccipMessageSentEventMessageIDLabel         = "messageId"
 	ccipMessageSentEventEncodedMessageLabel    = "encodedMessage"
 	ccipMessageSentEventVerifierBlobsLabel     = "verifierBlobs"
 )
@@ -48,7 +48,8 @@ func NewSourceReader(
 	jwt string,
 	ccipOwnerParty string,
 	ccipMessageSentTemplateID *ledgerv2.Identifier,
-	opts ...grpc.DialOption) (chainaccess.SourceReader, error) {
+	opts ...grpc.DialOption,
+) (chainaccess.SourceReader, error) {
 	conn, err := grpc.NewClient(grpcEndpoint, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gRPC connection to canton node: %w", err)
@@ -113,7 +114,7 @@ func (c *sourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 		transactions = append(transactions, update.GetTransaction())
 	}
 
-	events, err := c.extractEvents(transactions)
+	events, err := extractEvents(transactions, c.ccipOwnerParty, c.ccipMessageSentTemplateID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract events: %w", err)
 	}
@@ -121,7 +122,7 @@ func (c *sourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 	return events, nil
 }
 
-func (c *sourceReader) extractEvents(transactions []*ledgerv2.Transaction) ([]protocol.MessageSentEvent, error) {
+func extractEvents(transactions []*ledgerv2.Transaction, ccipOwnerParty string, ccipMessageSentTemplateID *ledgerv2.Identifier) ([]protocol.MessageSentEvent, error) {
 	var events []protocol.MessageSentEvent
 	for _, tx := range transactions {
 		if tx == nil {
@@ -129,46 +130,65 @@ func (c *sourceReader) extractEvents(transactions []*ledgerv2.Transaction) ([]pr
 		}
 
 		for _, event := range tx.GetEvents() {
-			if created := event.GetCreated(); created != nil {
-				if !identifiersEqual(created.GetTemplateId(), c.ccipMessageSentTemplateID) {
-					continue
-				}
-
-				for _, field := range created.GetCreateArguments().GetFields() {
-					switch field.GetLabel() {
-					case ccipMessageSentSenderLabel:
-					case ccipMessageSentObserversLabel:
-					case ccipMessageSentCCIPOwnerLabel:
-						if field.GetValue().GetParty() != c.ccipOwnerParty {
-							continue
-						}
-					case ccipMessageSentEventLabel:
-						if field.GetValue().GetRecord() == nil {
-							continue
-						}
-
-						messageSentEvent, err := processCCIPMessageSentEvent(field)
-						if err != nil {
-							return nil, fmt.Errorf("failed to process CCIPMessageSent event: %w", err)
-						}
-
-						messageSentEvent.BlockNumber = uint64(tx.GetOffset()) //nolint:gosec // offset is always non-negative
-						txHash, err := protocol.NewByteSliceFromHex(tx.GetUpdateId())
-						if err != nil {
-							return nil, fmt.Errorf("failed to parse tx hash from update ID %s: %w", tx.GetUpdateId(), err)
-						}
-						messageSentEvent.TxHash = txHash
-
-						events = append(events, *messageSentEvent)
-					default:
-						return nil, fmt.Errorf("unknown CCIPMessageSent event field, possibly mismatched contract/template? : %s", field.GetLabel())
-					}
-				}
+			created := event.GetCreated()
+			if created == nil {
+				continue
+			}
+			messageSentEvent, err := processCreatedEvent(tx, created, ccipOwnerParty, ccipMessageSentTemplateID)
+			if err != nil {
+				return nil, err
+			}
+			if messageSentEvent != nil {
+				events = append(events, *messageSentEvent)
 			}
 		}
 	}
 
 	return events, nil
+}
+
+func processCreatedEvent(
+	tx *ledgerv2.Transaction,
+	created *ledgerv2.CreatedEvent,
+	ccipOwnerParty string,
+	ccipMessageSentTemplateID *ledgerv2.Identifier,
+) (*protocol.MessageSentEvent, error) {
+	if !identifiersEqual(created.GetTemplateId(), ccipMessageSentTemplateID) {
+		return nil, nil
+	}
+
+	for _, field := range created.GetCreateArguments().GetFields() {
+		switch field.GetLabel() {
+		case ccipMessageSentSenderLabel:
+		case ccipMessageSentObserversLabel:
+		case ccipMessageSentCCIPOwnerLabel:
+			if field.GetValue().GetParty() != ccipOwnerParty {
+				continue
+			}
+		case ccipMessageSentEventLabel:
+			if field.GetValue().GetRecord() == nil {
+				continue
+			}
+
+			messageSentEvent, err := processCCIPMessageSentEvent(field)
+			if err != nil {
+				return nil, fmt.Errorf("failed to process CCIPMessageSent event: %w", err)
+			}
+
+			messageSentEvent.BlockNumber = uint64(tx.GetOffset()) //nolint:gosec // offset is always non-negative
+			txHash, err := protocol.NewByteSliceFromHex(tx.GetUpdateId())
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse tx hash from update ID %s: %w", tx.GetUpdateId(), err)
+			}
+			messageSentEvent.TxHash = txHash
+
+			return messageSentEvent, nil
+		default:
+			return nil, fmt.Errorf("unknown CCIPMessageSent event field, possibly mismatched contract/template? : %s", field.GetLabel())
+		}
+	}
+
+	return nil, nil
 }
 
 func processCCIPMessageSentEvent(field *ledgerv2.RecordField) (*protocol.MessageSentEvent, error) {
@@ -177,7 +197,7 @@ func processCCIPMessageSentEvent(field *ledgerv2.RecordField) (*protocol.Message
 		switch eventField.GetLabel() {
 		case ccipMessageSentEventDestChainSelectorLabel:
 		case ccipMessageSentEventSequenceNumberLabel:
-		case ccipMessageSentEventMessageIdLabel:
+		case ccipMessageSentEventMessageIDLabel:
 			messageID, err := hex.DecodeString(eventField.GetValue().GetText())
 			if err != nil {
 				return nil, fmt.Errorf("failed to decode message ID: %w, input: %s", err, eventField.GetValue().GetText())
