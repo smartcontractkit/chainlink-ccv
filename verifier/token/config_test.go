@@ -32,7 +32,7 @@ func Test_Config_Deserialization(t *testing.T) {
 		attestation_api_timeout = "11ms"
 		attestation_api = "https://iris-api.circle.com"
 
-		[token_verifiers.addresses]
+		[token_verifiers.verifier_resolver_addresses]
 		"1" = "0x1111111111111111111111111111111111111111"
 		2 = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
@@ -43,7 +43,7 @@ func Test_Config_Deserialization(t *testing.T) {
 		attestation_api_timeout = "10s"
 		attestation_api_interval = 20
 
-		[token_verifiers.addresses]
+		[token_verifiers.verifier_resolver_addresses]
 		1 = "0x2222222222222222222222222222222222222222"
 		2 = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	`
@@ -64,10 +64,10 @@ func Test_Config_Deserialization(t *testing.T) {
 		assert.Equal(t, "https://iris-api.circle.com", cctpVerifier.CCTPConfig.AttestationAPI)
 		expectedAddr1, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
 		require.NoError(t, err)
-		assert.Equal(t, expectedAddr1, cctpVerifier.CCTPConfig.ParsedVerifiers[1])
+		assert.Equal(t, expectedAddr1, cctpVerifier.CCTPConfig.ParsedVerifierResolvers[1])
 		expectedAddr2, err := protocol.NewUnknownAddressFromHex("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 		require.NoError(t, err)
-		assert.Equal(t, expectedAddr2, cctpVerifier.CCTPConfig.ParsedVerifiers[2])
+		assert.Equal(t, expectedAddr2, cctpVerifier.CCTPConfig.ParsedVerifierResolvers[2])
 
 		lbtcVerifier := config.TokenVerifiers[1]
 		assert.Equal(t, "lbtc", lbtcVerifier.Type)
@@ -77,10 +77,10 @@ func Test_Config_Deserialization(t *testing.T) {
 		assert.Equal(t, "https://lbtc-api.example.com", lbtcVerifier.LBTCConfig.AttestationAPI)
 		expectedAddr3, err := protocol.NewUnknownAddressFromHex("0x2222222222222222222222222222222222222222")
 		require.NoError(t, err)
-		assert.Equal(t, expectedAddr3, lbtcVerifier.LBTCConfig.ParsedVerifiers[1])
+		assert.Equal(t, expectedAddr3, lbtcVerifier.LBTCConfig.ParsedVerifierResolvers[1])
 		expectedAddr4, err := protocol.NewUnknownAddressFromHex("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 		require.NoError(t, err)
-		assert.Equal(t, expectedAddr4, lbtcVerifier.LBTCConfig.ParsedVerifiers[2])
+		assert.Equal(t, expectedAddr4, lbtcVerifier.LBTCConfig.ParsedVerifierResolvers[2])
 	}
 
 	var config Config
@@ -117,7 +117,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				attestation_api_interval = "300ms"
 				attestation_api_cooldown = "5m"
 
-				[addresses]
+				[verifier_resolver_addresses]
 				1 = "0x1111111111111111111111111111111111111111"
 				2 = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 			`,
@@ -134,10 +134,11 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 						AttestationAPITimeout:  100 * time.Second,
 						AttestationAPIInterval: 300 * time.Millisecond,
 						AttestationAPICooldown: 5 * time.Minute,
-						ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+						ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 							1: addr1,
 							2: addr2,
 						},
+						ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{},
 					},
 				}
 			}(),
@@ -149,7 +150,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				version = "2.0"
 				attestation_api = "http://circle.com/attestation"
 
-				[addresses]
+				[verifier_resolver_addresses]
 				"1" = "0x1111111111111111111111111111111111111111"
 			`,
 			expected: func() VerifierConfig {
@@ -163,9 +164,10 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 						AttestationAPITimeout:  1 * time.Second,
 						AttestationAPIInterval: 100 * time.Millisecond,
 						AttestationAPICooldown: 5 * time.Minute,
-						ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+						ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 							1: addr1,
 						},
+						ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{},
 					},
 				}
 			}(),
@@ -177,7 +179,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				version = "2.0"
 				attestation_api_timeout = "not-a-duration"
 
-				[addresses]
+				[verifier_resolver_addresses]
 				1 = "0x1111111111111111111111111111111111111111"
 			`,
 			wantErr: true,
@@ -192,7 +194,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				attestation_api_interval = "500ms"
 				attestation_api_batch_size = 50
 
-				[addresses]
+				[verifier_resolver_addresses]
 				1 = "0x2222222222222222222222222222222222222222"
 				2 = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 			`,
@@ -209,7 +211,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 						AttestationAPITimeout:   2 * time.Second,
 						AttestationAPIInterval:  500 * time.Millisecond,
 						AttestationAPIBatchSize: 50,
-						ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+						ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 							1: addr1,
 							2: addr2,
 						},
@@ -224,7 +226,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				version = "1.0"
 				attestation_api = "http://lbtc.com/gohere"
 
-				[addresses]
+				[verifier_resolver_addresses]
 				1 = "0x2222222222222222222222222222222222222222"
 			`,
 			expected: func() VerifierConfig {
@@ -238,7 +240,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 						AttestationAPITimeout:   1 * time.Second,
 						AttestationAPIInterval:  100 * time.Millisecond,
 						AttestationAPIBatchSize: 20,
-						ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+						ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 							1: addr1,
 						},
 					},
@@ -252,7 +254,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				version = "1.0"
 				attestation_api_dur = "10s"
 
-				[addresses]
+				[verifier_resolver_addresses]
 				1 = "0x2222222222222222222222222222222222222222"
 			`,
 			wantErr: true,
@@ -277,7 +279,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				assert.Equal(t, tt.expected.CCTPConfig.AttestationAPI, result.CCTPConfig.AttestationAPI)
 				assert.Equal(t, tt.expected.CCTPConfig.AttestationAPIInterval, result.CCTPConfig.AttestationAPIInterval)
 				assert.Equal(t, tt.expected.AttestationAPICooldown, result.AttestationAPICooldown)
-				assert.Equal(t, tt.expected.CCTPConfig.ParsedVerifiers, result.CCTPConfig.ParsedVerifiers)
+				assert.Equal(t, tt.expected.CCTPConfig.ParsedVerifierResolvers, result.CCTPConfig.ParsedVerifierResolvers)
 			} else {
 				assert.Nil(t, result.CCTPConfig)
 			}
@@ -288,7 +290,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				assert.Equal(t, tt.expected.LBTCConfig.AttestationAPITimeout, result.LBTCConfig.AttestationAPITimeout)
 				assert.Equal(t, tt.expected.LBTCConfig.AttestationAPIInterval, result.LBTCConfig.AttestationAPIInterval)
 				assert.Equal(t, tt.expected.AttestationAPIBatchSize, result.AttestationAPIBatchSize)
-				assert.Equal(t, tt.expected.LBTCConfig.ParsedVerifiers, result.LBTCConfig.ParsedVerifiers)
+				assert.Equal(t, tt.expected.LBTCConfig.ParsedVerifierResolvers, result.LBTCConfig.ParsedVerifierResolvers)
 			} else {
 				assert.Nil(t, result.LBTCConfig)
 			}

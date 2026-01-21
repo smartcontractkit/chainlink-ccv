@@ -19,9 +19,9 @@ type AttestationService interface {
 // allowing creating proper payload for the verifier on the destination chain.
 // Please see ToVerifierFormat for more details on the format.
 type Attestation struct {
-	ccvVerifierVersion protocol.ByteSlice
-	attestation        string
-	status             AttestationStatus
+	verifierVersion protocol.ByteSlice
+	attestation     string
+	status          AttestationStatus
 }
 
 func NewAttestation(
@@ -29,9 +29,9 @@ func NewAttestation(
 	resp AttestationResponse,
 ) Attestation {
 	return Attestation{
-		ccvVerifierVersion: ccvVerifierVersion,
-		attestation:        resp.Data,
-		status:             resp.Status,
+		verifierVersion: ccvVerifierVersion,
+		attestation:     resp.Data,
+		status:          resp.Status,
 	}
 }
 
@@ -39,8 +39,8 @@ func NewMissingAttestation(
 	ccvVerifierVersion protocol.ByteSlice,
 ) Attestation {
 	return Attestation{
-		ccvVerifierVersion: ccvVerifierVersion,
-		status:             AttestationStatusUnspecified,
+		verifierVersion: ccvVerifierVersion,
+		status:          AttestationStatusUnspecified,
 	}
 }
 
@@ -58,7 +58,7 @@ func (a *Attestation) ToVerifierFormat() (protocol.ByteSlice, error) {
 	}
 
 	var output protocol.ByteSlice
-	output = append(output, a.ccvVerifierVersion...)
+	output = append(output, a.verifierVersion...)
 	output = append(output, attestationBytes...)
 	return output, nil
 }
@@ -68,9 +68,9 @@ func (a *Attestation) IsReady() bool {
 }
 
 type HTTPAttestationService struct {
-	lggr               logger.Logger
-	client             HTTPClient
-	ccvVerifierVersion protocol.ByteSlice
+	lggr            logger.Logger
+	client          HTTPClient
+	verifierVersion protocol.ByteSlice
 	// batchSize defines maximum number of messages to request in a single API call.
 	// 0 or negative value means no limit.
 	batchSize int
@@ -89,7 +89,7 @@ func NewAttestationService(
 		client:    client,
 		batchSize: config.AttestationAPIBatchSize,
 		// TODO Make that configurable per chain / per address CCIP-8521
-		ccvVerifierVersion: CCVVerifierVersion,
+		verifierVersion: VerifierVersion,
 	}, nil
 }
 
@@ -128,10 +128,10 @@ func (h *HTTPAttestationService) Fetch(
 			return attestation.MessageHash == extraData
 		})
 		if idx != -1 {
-			result[id.String()] = NewAttestation(h.ccvVerifierVersion, attestations[idx])
+			result[id.String()] = NewAttestation(h.verifierVersion, attestations[idx])
 		} else {
 			h.lggr.Errorw("Failed to find attestation for message in the response", "id", id)
-			result[id.String()] = NewMissingAttestation(h.ccvVerifierVersion)
+			result[id.String()] = NewMissingAttestation(h.verifierVersion)
 		}
 	}
 	return result, nil

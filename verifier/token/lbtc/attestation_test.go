@@ -85,7 +85,7 @@ func Test_AttestationFetch(t *testing.T) {
 		LBTCConfig{
 			AttestationAPI:        server.URL,
 			AttestationAPITimeout: 1 * time.Minute,
-			ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+			ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 				sourceChain: internal.MustUnknownAddressFromHex("0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350"),
 			},
 		})

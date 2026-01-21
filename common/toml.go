@@ -44,6 +44,11 @@ func ParseDurationOrDefault(val any, defaultVal time.Duration) (time.Duration, e
 
 func ParseAddressesMap(val any) (map[protocol.ChainSelector]protocol.UnknownAddress, map[string]any, error) {
 	result := make(map[protocol.ChainSelector]protocol.UnknownAddress)
+
+	if val == nil {
+		return result, nil, nil
+	}
+
 	if v, ok := val.(map[string]any); ok {
 		for key, value := range v {
 			chainSelector, err := strconv.ParseUint(key, 10, 64)

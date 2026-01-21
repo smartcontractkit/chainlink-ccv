@@ -36,7 +36,7 @@ func Test_TryParsing(t *testing.T) {
 				"attestation_api_timeout":    "5s",
 				"attestation_api_interval":   "200ms",
 				"attestation_api_batch_size": 50,
-				"addresses": map[string]any{
+				"verifier_resolver_addresses": map[string]any{
 					"1": testAddr1Hex,
 					"2": testAddr2Hex,
 				},
@@ -46,7 +46,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPITimeout:   5 * time.Second,
 				AttestationAPIInterval:  200 * time.Millisecond,
 				AttestationAPIBatchSize: 50,
-				ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: testAddr1,
 					2: testAddr2,
 				},
@@ -59,7 +59,7 @@ func Test_TryParsing(t *testing.T) {
 			v:    "1.0",
 			data: map[string]any{
 				"attestation_api": "https://lbtc-api.example.com",
-				"addresses": map[string]any{
+				"verifier_resolver_addresses": map[string]any{
 					"1": testAddr1Hex,
 				},
 			},
@@ -68,7 +68,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPITimeout:   1 * time.Second,
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPIBatchSize: 20,
-				ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: testAddr1,
 				},
 			},
@@ -81,7 +81,7 @@ func Test_TryParsing(t *testing.T) {
 			data: map[string]any{
 				"attestation_api":            "https://lbtc-api.example.com",
 				"attestation_api_batch_size": "30",
-				"addresses": map[string]any{
+				"verifier_resolver_addresses": map[string]any{
 					"1": testAddr1Hex,
 				},
 			},
@@ -90,7 +90,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPITimeout:   1 * time.Second,
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPIBatchSize: 30,
-				ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: testAddr1,
 				},
 			},
@@ -168,31 +168,31 @@ func Test_TryParsing(t *testing.T) {
 			errMsg:  "invalid attestation_api_batch_size",
 		},
 		{
-			name: "invalid addresses",
+			name: "invalid verifier_resolver_addresses",
 			t:    "lbtc",
 			v:    "1.0",
 			data: map[string]any{
-				"attestation_api": "https://lbtc-api.example.com",
-				"addresses":       "not-a-map",
+				"attestation_api":             "https://lbtc-api.example.com",
+				"verifier_resolver_addresses": "not-a-map",
 			},
 			want:    nil,
 			wantErr: true,
-			errMsg:  "invalid addresses",
+			errMsg:  "invalid verifier_resolver_addresses",
 		},
 		{
-			name: "empty addresses map",
+			name: "empty verifier_resolver_addresses map",
 			t:    "lbtc",
 			v:    "1.0",
 			data: map[string]any{
-				"attestation_api": "https://lbtc-api.example.com",
-				"addresses":       map[string]any{},
+				"attestation_api":             "https://lbtc-api.example.com",
+				"verifier_resolver_addresses": map[string]any{},
 			},
 			want: &LBTCConfig{
 				AttestationAPI:          "https://lbtc-api.example.com",
 				AttestationAPITimeout:   1 * time.Second,
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPIBatchSize: 20,
-				ParsedVerifiers:         map[protocol.ChainSelector]protocol.UnknownAddress{},
+				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{},
 			},
 			wantErr: false,
 		},
@@ -215,7 +215,7 @@ func Test_TryParsing(t *testing.T) {
 				assert.Equal(t, tt.want.AttestationAPITimeout, got.AttestationAPITimeout)
 				assert.Equal(t, tt.want.AttestationAPIInterval, got.AttestationAPIInterval)
 				assert.Equal(t, tt.want.AttestationAPIBatchSize, got.AttestationAPIBatchSize)
-				assert.Equal(t, tt.want.ParsedVerifiers, got.ParsedVerifiers)
+				assert.Equal(t, tt.want.ParsedVerifierResolvers, got.ParsedVerifierResolvers)
 			}
 		})
 	}

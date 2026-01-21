@@ -176,7 +176,7 @@ func TestNewAttestationErrors(t *testing.T) {
 
 func TestAttestation_ToVerifierFormat(t *testing.T) {
 	att := Attestation{
-		ccvVerifierVersion: internal.MustByteSliceFromHex("0x01020304"),
+		verifierVersion:    internal.MustByteSliceFromHex("0x01020304"),
 		encodedCCTPMessage: "0xdeadbeef",
 		attestation:        "0xcafec0ffee",
 		status:             attestationStatusSuccess,
