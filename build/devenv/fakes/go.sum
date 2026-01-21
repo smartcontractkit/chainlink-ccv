@@ -252,8 +252,8 @@ github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier v0
 github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier v0.0.0-20251211142334-5c3421fe2c8d/go.mod h1:oNFoKHRIerxuaANa8ASNejtHrdsG26LqGtQ2XhSac2g=
 github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier v0.0.0-20251211142334-5c3421fe2c8d h1:AJy55QJ/pBhXkZjc7N+ATnWfxrcjq9BI9DmdtdjwDUQ=
 github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier v0.0.0-20251211142334-5c3421fe2c8d/go.mod h1:5JdppgngCOUS76p61zCinSCgOhPeYQ+OcDUuome5THQ=
-github.com/smartcontractkit/chainlink-testing-framework/framework v0.13.3 h1:DvwlMbAz5xMRjtvJsa0LgM+DwT9kAwt7LTdsGaJvXOk=
-github.com/smartcontractkit/chainlink-testing-framework/framework v0.13.3/go.mod h1:RAr+u340HtgzqHcZhAR7qi3ILgaJmh3nNRqS9nOms6E=
+github.com/smartcontractkit/chainlink-testing-framework/framework v0.13.5 h1:jKUZOPWbwfOnI4jQIzG2INEX5V3+IyWNIllCRBlghdk=
+github.com/smartcontractkit/chainlink-testing-framework/framework v0.13.5/go.mod h1:RAr+u340HtgzqHcZhAR7qi3ILgaJmh3nNRqS9nOms6E=
 github.com/smartcontractkit/chainlink-testing-framework/framework/components/fake v0.10.1-0.20250711120409-5078050f9db4 h1:6iIj+U1SA19xftdEJwubATHBoGm4yc8q+MwWz6rlBDc=
 github.com/smartcontractkit/chainlink-testing-framework/framework/components/fake v0.10.1-0.20250711120409-5078050f9db4/go.mod h1:YEQbZRHFojvlQKeuckG/70t0WkAqOBmArSbkacgHSbc=
 github.com/smartcontractkit/libocr v0.0.0-20250912173940-f3ab0246e23d h1:LokA9PoCNb8mm8mDT52c3RECPMRsGz1eCQORq+J3n74=
