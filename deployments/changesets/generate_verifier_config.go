@@ -30,8 +30,8 @@ func GenerateVerifierConfig() deployment.ChangeSetV2[GenerateVerifierConfigCfg] 
 			return fmt.Errorf("at least one aggregator is required")
 		}
 
-		nopSet := make(map[shared.NOPAlias]verifierconfig.NOPInput, len(cfg.NOPs))
-		for _, nop := range cfg.NOPs {
+		nopSet := make(map[shared.NOPAlias]verifierconfig.NOPInput, len(cfg.EnvironmentNOPs))
+		for _, nop := range cfg.EnvironmentNOPs {
 			nopSet[nop.Alias] = nop
 		}
 
@@ -103,7 +103,7 @@ func GenerateVerifierConfig() deployment.ChangeSetV2[GenerateVerifierConfigCfg] 
 			report.Output.AffectedScope,
 			shared.ExtractJobIDFromJobSpecMap(report.Output.JobSpecs),
 			scopedNOPs,
-			report.Output.ExpectedNOPs,
+			getEnvironmentNOPs(cfg.EnvironmentNOPs),
 		); err != nil {
 			return deployment.ChangesetOutput{
 				Reports: report.ExecutionReports,
@@ -117,4 +117,12 @@ func GenerateVerifierConfig() deployment.ChangeSetV2[GenerateVerifierConfigCfg] 
 	}
 
 	return deployment.CreateChangeSet(apply, validate)
+}
+
+func getEnvironmentNOPs(environmentNOPs []verifierconfig.NOPInput) map[shared.NOPAlias]bool {
+	nopSet := make(map[shared.NOPAlias]bool, len(environmentNOPs))
+	for _, nop := range environmentNOPs {
+		nopSet[nop.Alias] = true
+	}
+	return nopSet
 }

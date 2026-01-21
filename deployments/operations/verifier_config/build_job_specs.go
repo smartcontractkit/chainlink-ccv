@@ -44,17 +44,16 @@ type CommitteeInput struct {
 type BuildJobSpecsInput struct {
 	GeneratedConfig *VerifierGeneratedConfig
 	// TargetNOPs limits which NOPs will have their job specs updated. Defaults to all NOPs in the committee when empty.
-	TargetNOPs   []shared.NOPAlias
-	NOPs         []NOPInput
-	Committee    CommitteeInput
-	PyroscopeURL string
-	Monitoring   shared.MonitoringInput
+	TargetNOPs      []shared.NOPAlias
+	EnvironmentNOPs []NOPInput
+	Committee       CommitteeInput
+	PyroscopeURL    string
+	Monitoring      shared.MonitoringInput
 }
 
 type BuildJobSpecsOutput struct {
 	JobSpecs      shared.NOPJobSpecs
 	AffectedScope shared.VerifierJobScope
-	ExpectedNOPs  map[shared.NOPAlias]bool
 }
 
 var BuildJobSpecs = operations.NewOperation(
@@ -62,13 +61,12 @@ var BuildJobSpecs = operations.NewOperation(
 	semver.MustParse("1.0.0"),
 	"Builds verifier job specs from generated config and explicit input",
 	func(b operations.Bundle, deps struct{}, input BuildJobSpecsInput) (BuildJobSpecsOutput, error) {
-		nopByAlias := make(map[shared.NOPAlias]NOPInput, len(input.NOPs))
-		for _, nop := range input.NOPs {
+		nopByAlias := make(map[shared.NOPAlias]NOPInput, len(input.EnvironmentNOPs))
+		for _, nop := range input.EnvironmentNOPs {
 			nopByAlias[nop.Alias] = nop
 		}
 
 		jobSpecs := make(shared.NOPJobSpecs)
-		expectedNOPs := make(map[shared.NOPAlias]bool)
 		scope := shared.VerifierJobScope{
 			CommitteeQualifier: input.Committee.Qualifier,
 		}
@@ -83,7 +81,6 @@ var BuildJobSpecs = operations.NewOperation(
 			if !ok {
 				return BuildJobSpecsOutput{}, fmt.Errorf("NOP %q not found in input", nopAlias)
 			}
-			expectedNOPs[nopAlias] = true
 
 			for _, agg := range input.Committee.Aggregators {
 				verifierJobID := shared.NewVerifierJobID(agg.Name, scope)
@@ -122,7 +119,6 @@ committeeVerifierConfig = """
 		return BuildJobSpecsOutput{
 			JobSpecs:      jobSpecs,
 			AffectedScope: scope,
-			ExpectedNOPs:  expectedNOPs,
 		}, nil
 	},
 )

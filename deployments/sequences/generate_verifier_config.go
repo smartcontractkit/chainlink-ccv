@@ -19,8 +19,8 @@ type GenerateVerifierConfigInput struct {
 	ChainSelectors []uint64
 	// TargetNOPs limits which NOPs will have their job specs updated. Defaults to all NOPs in the committee when empty.
 	TargetNOPs []shared.NOPAlias
-	// NOPs is the list of NOP configurations containing signing addresses for each NOP.
-	NOPs []verifierconfig.NOPInput
+	// EnvironmentNOPs is the list of NOP configurations containing signing addresses for each NOP.
+	EnvironmentNOPs []verifierconfig.NOPInput
 	// Committee contains the committee configuration including aggregators and membership.
 	Committee verifierconfig.CommitteeInput
 	// PyroscopeURL is the URL of the Pyroscope server for profiling (optional).
@@ -32,7 +32,6 @@ type GenerateVerifierConfigInput struct {
 type GenerateVerifierConfigOutput struct {
 	JobSpecs      shared.NOPJobSpecs
 	AffectedScope shared.VerifierJobScope
-	ExpectedNOPs  map[shared.NOPAlias]bool
 }
 
 type GenerateVerifierConfigDeps struct {
@@ -58,7 +57,7 @@ var GenerateVerifierConfig = operations.NewSequence(
 		jobSpecsResult, err := operations.ExecuteOperation(b, verifierconfig.BuildJobSpecs, struct{}{}, verifierconfig.BuildJobSpecsInput{
 			GeneratedConfig: buildResult.Output.Config,
 			TargetNOPs:      input.TargetNOPs,
-			NOPs:            input.NOPs,
+			EnvironmentNOPs: input.EnvironmentNOPs,
 			Committee:       input.Committee,
 			PyroscopeURL:    input.PyroscopeURL,
 			Monitoring:      input.Monitoring,
@@ -70,7 +69,6 @@ var GenerateVerifierConfig = operations.NewSequence(
 		return GenerateVerifierConfigOutput{
 			JobSpecs:      jobSpecsResult.Output.JobSpecs,
 			AffectedScope: jobSpecsResult.Output.AffectedScope,
-			ExpectedNOPs:  jobSpecsResult.Output.ExpectedNOPs,
 		}, nil
 	},
 )

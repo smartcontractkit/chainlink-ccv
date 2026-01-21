@@ -284,13 +284,12 @@ func SaveNOPJobSpecs(ds datastore.MutableDataStore, jobSpecs shared.NOPJobSpecs)
 //   - suffix: the suffix pattern to match (e.g., "-default-executor")
 //   - expectedJobSpecIDs: set of job spec IDs that should be kept
 //   - scopedNOPs: if non-nil, only cleanup NOPs in this set; if nil, cleanup all NOPs
-//   - expectedNOPs: if non-nil, delete job specs for NOPs not in this set (for verifier cleanup)
 func CleanupOrphanedJobSpecs(
 	ds datastore.MutableDataStore,
 	scope shared.JobScope,
 	expectedJobIDs []shared.JobID,
 	scopedNOPs map[shared.NOPAlias]bool,
-	expectedNOPs map[shared.NOPAlias]bool,
+	environmentNOPs map[shared.NOPAlias]bool,
 ) error {
 	allNOPJobSpecs, err := GetAllNOPJobSpecs(ds.Seal())
 	if err != nil {
@@ -308,7 +307,7 @@ func CleanupOrphanedJobSpecs(
 			}
 
 			shouldDelete := !slices.Contains(expectedJobIDs, jobSpecID)
-			if expectedNOPs != nil && !expectedNOPs[nopAlias] {
+			if environmentNOPs != nil && !environmentNOPs[nopAlias] {
 				shouldDelete = true
 			}
 

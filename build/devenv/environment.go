@@ -317,7 +317,7 @@ func generateVerifierJobSpecs(
 			DefaultExecutorQualifier: evm.DefaultExecutorQualifier,
 			ChainSelectors:           selectors,
 			TargetNOPs:               verNOPAliases,
-			NOPs:                     convertNOPsToVerifierInput(topology.NOPTopology.NOPs),
+			EnvironmentNOPs:          convertNOPsToVerifierInput(topology.NOPTopology.NOPs),
 			Committee:                convertCommitteeConfig(committee),
 			PyroscopeURL:             topology.PyroscopeURL,
 			Monitoring:               convertMonitoringConfig(topology.Monitoring),
