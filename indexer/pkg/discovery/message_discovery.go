@@ -326,12 +326,12 @@ func (a *AggregatorMessageDiscovery) isDiscoveryOnly(verifierResult common.Verif
 	}
 
 	// If the 4-byte version at the start of the data is equal to the message discovery version
-	// This verfication is invalid on-chain and we won't persist the verification.
+	// This verification is invalid on-chain and we won't persist the verification.
 	version := verifierResult.VerifierResult.CCVData[:protocol.MessageDiscoveryVersionLength]
 	if bytes.Equal(version, protocol.MessageDiscoveryVersion) {
 		return true
 	}
 
-	// All other curcimstances, it's a valid verification.
+	// All other circumstances, it's a valid verification.
 	return false
 }
