@@ -356,6 +356,7 @@ func TestE2ESmoke(t *testing.T) {
 			finalityConfig          uint16
 			executionGasLimit       uint32
 			transferAmount          *big.Int
+			receiver                protocol.UnknownAddress
 			shouldCheckAggregator   bool
 			expectedReceiptIssuers  int
 			expectedVerifierResults int
@@ -364,16 +365,15 @@ func TestE2ESmoke(t *testing.T) {
 		runUSDCTestCase := func(
 			t *testing.T,
 			tc testCase,
-			receiver protocol.UnknownAddress,
 		) {
 			sender := mustGetSenderAddress(t, sourceChain)
 
 			srcToken := getTokenAddress(t, in, sourceSelector, "CCTP")
 			destToken := getTokenAddress(t, in, destSelector, "CCTP")
 
-			startBal, err := destChain.GetTokenBalance(ctx, receiver, destToken)
+			startBal, err := destChain.GetTokenBalance(ctx, tc.receiver, destToken)
 			require.NoError(t, err)
-			l.Info().Str("Receiver", receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", "CCTP").Msg("receiver start balance")
+			l.Info().Str("Receiver", tc.receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", "CCTP").Msg("receiver start balance")
 
 			srcStartBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
 			require.NoError(t, err)
@@ -393,7 +393,7 @@ func TestE2ESmoke(t *testing.T) {
 			sendRes, err := sourceChain.SendMessage(
 				ctx, destSelector,
 				cciptestinterfaces.MessageFields{
-					Receiver: receiver,
+					Receiver: tc.receiver,
 					TokenAmount: cciptestinterfaces.TokenAmount{
 						Amount:       tc.transferAmount,
 						TokenAddress: srcToken,
@@ -419,7 +419,7 @@ func TestE2ESmoke(t *testing.T) {
 				"CCTP",
 				"",
 			)
-			registerCCTPAttestation(t, in.Fake.Out.ExternalHTTPURL, msgID, cctpMessageSender, receiver, "complete")
+			registerCCTPAttestation(t, in.Fake.Out.ExternalHTTPURL, msgID, cctpMessageSender, tc.receiver, "complete")
 			l.Info().Str("MessageID", hex.EncodeToString(msgID[:])).Msg("Registered CCTP attestation")
 
 			var aggregatorClient *ccv.AggregatorClient
@@ -446,7 +446,7 @@ func TestE2ESmoke(t *testing.T) {
 			require.NotNil(t, execEvt)
 			require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected state, return data: %x", execEvt.ReturnData)
 
-			endBal, err := destChain.GetTokenBalance(ctx, receiver, destToken)
+			endBal, err := destChain.GetTokenBalance(ctx, tc.receiver, destToken)
 			require.NoError(t, err)
 
 			// We always mint 1 tiny coin on a dest from CCTPTokenMessenger
@@ -464,6 +464,7 @@ func TestE2ESmoke(t *testing.T) {
 				name:                    "USDC transfer to EOA receiver with chain finality",
 				finalityConfig:          0,
 				transferAmount:          big.NewInt(100),
+				receiver:                mustGetEOAReceiverAddress(t, destChain),
 				expectedReceiptIssuers:  4, // CCTP CCV, token pool, executor, network fee
 				expectedVerifierResults: 2, // only CCTP CCV, but for some reason Indexer returns 2
 				shouldCheckAggregator:   false,
@@ -472,6 +473,7 @@ func TestE2ESmoke(t *testing.T) {
 				name:                    "USDC transfer to EOA receiver with fast finality",
 				finalityConfig:          1,
 				transferAmount:          big.NewInt(500),
+				receiver:                mustGetEOAReceiverAddress(t, destChain),
 				expectedReceiptIssuers:  4, // CCTP CCV, token pool, executor, network fee
 				expectedVerifierResults: 2, // only CCTP CCV, but for some reason Indexer returns 2
 				shouldCheckAggregator:   false,
@@ -481,6 +483,7 @@ func TestE2ESmoke(t *testing.T) {
 				name:                    "USDC transfer to EOA receiver with fast finality and committee verifier",
 				finalityConfig:          5,
 				transferAmount:          big.NewInt(1000),
+				receiver:                mustGetEOAReceiverAddress(t, destChain),
 				executionGasLimit:       200_000,
 				expectedReceiptIssuers:  5, // CCTP CCV, token pool, executor, network fee
 				expectedVerifierResults: 2, // default ccv, CCTP CCV
@@ -489,9 +492,8 @@ func TestE2ESmoke(t *testing.T) {
 		}
 
 		for _, tc := range tcs {
-			receiver := mustGetEOAReceiverAddress(t, destChain)
 			t.Run(tc.name, func(t *testing.T) {
-				runUSDCTestCase(t, tc, receiver)
+				runUSDCTestCase(t, tc)
 			})
 		}
 	})
