@@ -17,10 +17,11 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    runs-on: runs-on=${{ github.run_id }}-${{ strategy.job-index }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
+    # runs-on: runs-on=${{ github.run_id }}-${{ strategy.job-index }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
+    runs-on: ubuntu-latest
     steps:
-      - name: Enable S3 Cache for Self-Hosted Runners
-        uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
+      # - name: Enable S3 Cache for Self-Hosted Runners
+      #   uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
 
       - name: Checkout code
         uses: actions/checkout@v5
