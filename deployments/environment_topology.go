@@ -61,6 +61,11 @@ func (t *NOPTopology) SetNOPSignerAddress(alias, family, addr string) bool {
 	if !ok {
 		return false
 	}
+
+	if t.NOPs[idx].SignerAddressByFamily == nil {
+		t.NOPs[idx].SignerAddressByFamily = make(map[string]string)
+	}
+
 	t.NOPs[idx].SignerAddressByFamily[family] = addr
 	return true
 }
