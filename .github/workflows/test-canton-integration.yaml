@@ -67,21 +67,19 @@ jobs:
           TESTCONTAINERS_LOG_LEVEL: debug
         run: |
           ccv start-blockchains env-canton-single-validator.toml
-
-      - name: Dump docker state on failure
-        if: failure()
-        run: |
-          docker ps -a
-          for id in $(docker ps -aq); do
-            echo "---- logs for $id ----"
-            docker logs --tail 200 "$id" || true
-          done
       
       - name: Run Canton integration test
+        id: test_run
         run: |
-          go test -count 1 -v -run TestCantonSourceReader ./integration/pkg/sourcereader/canton/source_reader_test.go
+          go test -count 1 -v -run TestCantonSourceReader ./tests/integration/canton/source_reader_test.go
         continue-on-error: true
       
       - name: Stop canton containers
         run: |
           docker stop $(docker ps -aq) && docker rm $(docker ps -aq)
+      
+      - name: Fail the workflow if the test failed
+        if: always() && steps.test_run.outcome == 'failure'
+        run: |
+          echo "Canton integration tests failed."
+          exit 1
