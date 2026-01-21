@@ -63,8 +63,19 @@ jobs:
           just cli
       
       - name: Start canton blockchain
+        env:
+          TESTCONTAINERS_LOG_LEVEL: debug
         run: |
           ccv start-blockchains env-canton-single-validator.toml
+
+      - name: Dump docker state on failure
+        if: failure()
+        run: |
+          docker ps -a
+          for id in $(docker ps -aq); do
+            echo "---- logs for $id ----"
+            docker logs --tail 200 "$id" || true
+          done
       
       - name: Run Canton integration test
         run: |
