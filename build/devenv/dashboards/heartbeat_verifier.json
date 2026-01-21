@@ -227,7 +227,7 @@
               },
               {
                 "color": "red",
-                "value": 80
+                "value": 3
               }
             ]
           },
@@ -441,7 +441,7 @@
             "uid": "PBFA97CFB590B2093"
           },
           "editorMode": "code",
-          "expr": "round(\n  clamp_max(\n    (rate(verifier_heartbeat_duration_seconds_count[$__range]) / 0.1) * 100,\n    100\n  )\n)",
+          "expr": "round(\n  clamp_max(\n    (rate(verifier_heartbeats_sent_total{host_name=\"$hostname\"}[$__range]) / 0.1) * 100,\n    100\n  )\n)",
           "legendFormat": "{{verifier_id}}",
           "range": true,
           "refId": "A"
@@ -535,7 +535,8 @@
             "uid": "PBFA97CFB590B2093"
           },
           "editorMode": "code",
-          "expr": "round(\n  clamp_max(\n    (rate(verifier_heartbeat_duration_seconds_count[$__range]) / 0.1) * 100,\n    100\n  )\n)",
+          "expr": "round(\n  clamp_max(\n    (rate(verifier_heartbeats_sent_total[$__range]) / 0.1) * 100,\n    100\n  )\n)",
+          "hide": false,
           "legendFormat": "{{verifier_id}}",
           "range": true,
           "refId": "A"
@@ -554,21 +555,21 @@
       {
         "current": {
           "selected": false,
-          "text": "06aab07a7a9f",
-          "value": "06aab07a7a9f"
+          "text": "124d04d2d422",
+          "value": "124d04d2d422"
         },
         "datasource": {
           "type": "prometheus",
           "uid": "PBFA97CFB590B2093"
         },
-        "definition": "label_values(verifier_heartbeats_sent_total,host_name)",
+        "definition": "label_values(verifier_heartbeat_score,host_name)",
         "hide": 0,
         "includeAll": false,
         "multi": false,
         "name": "hostname",
         "options": [],
         "query": {
-          "query": "label_values(verifier_heartbeats_sent_total,host_name)",
+          "query": "label_values(verifier_heartbeat_score,host_name)",
           "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,
