@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -19,14 +20,14 @@ func NewHealthHandler(storage common.IndexerStorage, lggr logger.Logger, monitor
 	return &HealthHandler{storage: storage, lggr: lggr, monitoring: monitoring}
 }
 
-// Handle responds to /health with HTTP 200
+// Handle responds to /health with HTTP 200.
 func (h *HealthHandler) Handle(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
-// HandleReady responds to /ready with HTTP 200 after checking DB connectivity
+// HandleReady responds to /ready with HTTP 200 after checking storage functionality.
 func (h *HealthHandler) HandleReady(c *gin.Context) {
-	// Try a lightweight storage call to verify DB connectivity.
+	// Try a lightweight storage call to verify storage functionality.
 	// QueryMessages with a small limit is a simple read check.
 	_, err := h.storage.QueryMessages(c.Request.Context(), 0, 0, []protocol.ChainSelector{}, []protocol.ChainSelector{}, 1, 0)
 	if err != nil {
