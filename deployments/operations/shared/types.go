@@ -1,7 +1,14 @@
 package shared
 
+import (
+	"fmt"
+	"strings"
+)
+
+type NOPAlias string
+
 // NOPJobSpecs maps NOP alias -> job spec ID -> job spec content.
-type NOPJobSpecs map[string]map[string]string
+type NOPJobSpecs map[NOPAlias]map[JobID]string
 
 // MonitoringInput defines the monitoring configuration.
 type MonitoringInput struct {
@@ -31,4 +38,92 @@ type BeholderInput struct {
 	TraceSampleRatio float64
 	// TraceBatchTimeout is the timeout in seconds for batching traces.
 	TraceBatchTimeout int64
+}
+
+type JobID string
+
+type JobScope interface {
+	IsJobInScope(jobID JobID) bool
+}
+
+type ExecutorJobID struct {
+	NOPAlias NOPAlias
+	Scope    ExecutorJobScope
+}
+
+type ExecutorJobScope struct {
+	ExecutorQualifier string
+}
+
+func NewExecutorJobID(nopAlias NOPAlias, scope ExecutorJobScope) ExecutorJobID {
+	return ExecutorJobID{
+		NOPAlias: nopAlias,
+		Scope:    scope,
+	}
+}
+
+func (id ExecutorJobID) ToJobID() JobID {
+	return JobID(fmt.Sprintf("%s-%s-executor", string(id.NOPAlias), id.Scope.ExecutorQualifier))
+}
+
+func (id ExecutorJobID) GetExecutorID() string {
+	return string(id.NOPAlias)
+}
+
+func (scope ExecutorJobScope) IsJobInScope(jobID JobID) bool {
+	return strings.HasSuffix(string(jobID), fmt.Sprintf("-%s-executor", scope.ExecutorQualifier))
+}
+
+type VerifierJobScope struct {
+	CommitteeQualifier string
+}
+
+type VerifierJobID struct {
+	CommitteeQualifier string
+	AggregatorName     string
+}
+
+func NewVerifierJobID(aggregatorName string, scope VerifierJobScope) VerifierJobID {
+	return VerifierJobID{
+		CommitteeQualifier: scope.CommitteeQualifier,
+		AggregatorName:     aggregatorName,
+	}
+}
+
+func (id VerifierJobID) GetVerifierID() string {
+	return fmt.Sprintf("%s-%s-verifier", id.AggregatorName, id.CommitteeQualifier)
+}
+
+func (id VerifierJobID) ToJobID() JobID {
+	return JobID(fmt.Sprintf("%s-%s-verifier", id.AggregatorName, id.CommitteeQualifier))
+}
+
+func (scope VerifierJobScope) IsJobInScope(jobID JobID) bool {
+	return strings.HasSuffix(string(jobID), fmt.Sprintf("-%s-verifier", scope.CommitteeQualifier))
+}
+
+func ExtractJobIDFromJobSpecMap(jobSpecs NOPJobSpecs) []JobID {
+	jobIDs := make([]JobID, 0)
+	for _, jobSpec := range jobSpecs {
+		for jobID := range jobSpec {
+			jobIDs = append(jobIDs, jobID)
+		}
+	}
+	return jobIDs
+}
+
+func ConvertNopAliasToString(aliases []NOPAlias) []string {
+	str := make([]string, 0)
+	for _, alias := range aliases {
+		str = append(str, string(alias))
+	}
+	return str
+}
+
+func ConvertStringToNopAliases(strs []string) []NOPAlias {
+	aliases := make([]NOPAlias, 0)
+	for _, alias := range strs {
+		aliases = append(aliases, NOPAlias(alias))
+	}
+	return aliases
 }

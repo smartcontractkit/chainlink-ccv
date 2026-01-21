@@ -16,7 +16,7 @@ import (
 // ExecutorPoolInput defines the configuration for an executor pool.
 type ExecutorPoolInput struct {
 	// NOPAliases is the list of NOP aliases that are members of this executor pool.
-	NOPAliases []string
+	NOPAliases []shared.NOPAlias
 	// ExecutionInterval is the interval between execution cycles.
 	ExecutionInterval time.Duration
 	// NtpServer is the NTP server address for time synchronization (optional).
@@ -39,17 +39,16 @@ type BuildJobSpecsInput struct {
 	GeneratedConfig   *ExecutorGeneratedConfig
 	ExecutorQualifier string
 	// TargetNOPs limits which NOPs will have their job specs updated. Defaults to all NOPs in the executor pool when empty.
-	TargetNOPs   []string
-	ExecutorPool ExecutorPoolInput
-	IndexerAddress    string
-	PyroscopeURL      string
-	Monitoring        shared.MonitoringInput
+	TargetNOPs     []shared.NOPAlias
+	ExecutorPool   ExecutorPoolInput
+	IndexerAddress string
+	PyroscopeURL   string
+	Monitoring     shared.MonitoringInput
 }
 
 type BuildJobSpecsOutput struct {
-	JobSpecs           shared.NOPJobSpecs
-	ExpectedJobSpecIDs map[string]bool
-	ExecutorSuffix     string
+	JobSpecs      shared.NOPJobSpecs
+	AffectedScope shared.ExecutorJobScope
 }
 
 var BuildJobSpecs = operations.NewOperation(
@@ -58,8 +57,9 @@ var BuildJobSpecs = operations.NewOperation(
 	"Builds executor job specs from generated config and explicit input",
 	func(b operations.Bundle, deps struct{}, input BuildJobSpecsInput) (BuildJobSpecsOutput, error) {
 		jobSpecs := make(shared.NOPJobSpecs)
-		expectedJobSpecIDs := make(map[string]bool)
-		executorSuffix := fmt.Sprintf("-%s-executor", input.ExecutorQualifier)
+		scope := shared.ExecutorJobScope{
+			ExecutorQualifier: input.ExecutorQualifier,
+		}
 
 		nopAliases := input.TargetNOPs
 		if len(nopAliases) == 0 {
@@ -73,17 +73,16 @@ var BuildJobSpecs = operations.NewOperation(
 					OffRampAddress:         genCfg.OffRampAddress,
 					RmnAddress:             genCfg.RmnAddress,
 					DefaultExecutorAddress: genCfg.DefaultExecutorAddress,
-					ExecutorPool:           input.ExecutorPool.NOPAliases,
+					ExecutorPool:           shared.ConvertNopAliasToString(input.ExecutorPool.NOPAliases),
 					ExecutionInterval:      input.ExecutorPool.ExecutionInterval,
 				}
 			}
 
-			jobSpecID := fmt.Sprintf("%s-%s-executor", nopAlias, input.ExecutorQualifier)
-			expectedJobSpecIDs[jobSpecID] = true
+			jobSpecID := shared.NewExecutorJobID(nopAlias, scope)
 
 			executorCfg := executor.Configuration{
 				IndexerAddress:     input.IndexerAddress,
-				ExecutorID:         nopAlias,
+				ExecutorID:         jobSpecID.GetExecutorID(),
 				PyroscopeURL:       input.PyroscopeURL,
 				NtpServer:          input.ExecutorPool.NtpServer,
 				IndexerQueryLimit:  input.ExecutorPool.IndexerQueryLimit,
@@ -108,15 +107,14 @@ executorConfig = """
 `, string(configBytes))
 
 			if jobSpecs[nopAlias] == nil {
-				jobSpecs[nopAlias] = make(map[string]string)
+				jobSpecs[nopAlias] = make(map[shared.JobID]string)
 			}
-			jobSpecs[nopAlias][jobSpecID] = jobSpec
+			jobSpecs[nopAlias][jobSpecID.ToJobID()] = jobSpec
 		}
 
 		return BuildJobSpecsOutput{
-			JobSpecs:           jobSpecs,
-			ExpectedJobSpecIDs: expectedJobSpecIDs,
-			ExecutorSuffix:     executorSuffix,
+			JobSpecs:      jobSpecs,
+			AffectedScope: scope,
 		}, nil
 	},
 )

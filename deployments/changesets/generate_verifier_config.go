@@ -9,6 +9,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
+	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 	verifierconfig "github.com/smartcontractkit/chainlink-ccv/deployments/operations/verifier_config"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/sequences"
 )
@@ -17,7 +18,6 @@ type GenerateVerifierConfigCfg = sequences.GenerateVerifierConfigInput
 
 func GenerateVerifierConfig() deployment.ChangeSetV2[GenerateVerifierConfigCfg] {
 	validate := func(e deployment.Environment, cfg GenerateVerifierConfigCfg) error {
-
 		if cfg.DefaultExecutorQualifier == "" {
 			return fmt.Errorf("default executor qualifier is required")
 		}
@@ -30,7 +30,7 @@ func GenerateVerifierConfig() deployment.ChangeSetV2[GenerateVerifierConfigCfg] 
 			return fmt.Errorf("at least one aggregator is required")
 		}
 
-		nopSet := make(map[string]verifierconfig.NOPInput, len(cfg.NOPs))
+		nopSet := make(map[shared.NOPAlias]verifierconfig.NOPInput, len(cfg.NOPs))
 		for _, nop := range cfg.NOPs {
 			nopSet[nop.Alias] = nop
 		}
@@ -90,9 +90,9 @@ func GenerateVerifierConfig() deployment.ChangeSetV2[GenerateVerifierConfigCfg] 
 			}, fmt.Errorf("failed to save verifier job specs: %w", err)
 		}
 
-		var scopedNOPs map[string]bool
+		var scopedNOPs map[shared.NOPAlias]bool
 		if len(cfg.TargetNOPs) > 0 {
-			scopedNOPs = make(map[string]bool)
+			scopedNOPs = make(map[shared.NOPAlias]bool)
 			for _, nopAlias := range cfg.TargetNOPs {
 				scopedNOPs[nopAlias] = true
 			}
@@ -100,8 +100,8 @@ func GenerateVerifierConfig() deployment.ChangeSetV2[GenerateVerifierConfigCfg] 
 
 		if err := deployments.CleanupOrphanedJobSpecs(
 			outputDS,
-			report.Output.VerifierSuffix,
-			report.Output.ExpectedJobSpecIDs,
+			report.Output.AffectedScope,
+			shared.ExtractJobIDFromJobSpecMap(report.Output.JobSpecs),
 			scopedNOPs,
 			report.Output.ExpectedNOPs,
 		); err != nil {

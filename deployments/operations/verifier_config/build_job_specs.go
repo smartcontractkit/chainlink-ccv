@@ -16,7 +16,7 @@ import (
 // NOPInput defines the configuration for a single NOP (Node Operator).
 type NOPInput struct {
 	// Alias is the unique identifier for this NOP.
-	Alias string
+	Alias shared.NOPAlias
 	// SignerAddress is the address used by this NOP for signing attestations.
 	SignerAddress string
 }
@@ -38,13 +38,13 @@ type CommitteeInput struct {
 	// Aggregators is the list of aggregator instances that serve this committee.
 	Aggregators []AggregatorInput
 	// NOPAliases is the list of NOP aliases that are members of this committee.
-	NOPAliases []string
+	NOPAliases []shared.NOPAlias
 }
 
 type BuildJobSpecsInput struct {
 	GeneratedConfig *VerifierGeneratedConfig
 	// TargetNOPs limits which NOPs will have their job specs updated. Defaults to all NOPs in the committee when empty.
-	TargetNOPs   []string
+	TargetNOPs   []shared.NOPAlias
 	NOPs         []NOPInput
 	Committee    CommitteeInput
 	PyroscopeURL string
@@ -52,10 +52,9 @@ type BuildJobSpecsInput struct {
 }
 
 type BuildJobSpecsOutput struct {
-	JobSpecs           shared.NOPJobSpecs
-	ExpectedJobSpecIDs map[string]bool
-	ExpectedNOPs       map[string]bool
-	VerifierSuffix     string
+	JobSpecs      shared.NOPJobSpecs
+	AffectedScope shared.VerifierJobScope
+	ExpectedNOPs  map[shared.NOPAlias]bool
 }
 
 var BuildJobSpecs = operations.NewOperation(
@@ -63,22 +62,23 @@ var BuildJobSpecs = operations.NewOperation(
 	semver.MustParse("1.0.0"),
 	"Builds verifier job specs from generated config and explicit input",
 	func(b operations.Bundle, deps struct{}, input BuildJobSpecsInput) (BuildJobSpecsOutput, error) {
-		nopByAlias := make(map[string]NOPInput, len(input.NOPs))
+		nopByAlias := make(map[shared.NOPAlias]NOPInput, len(input.NOPs))
 		for _, nop := range input.NOPs {
 			nopByAlias[nop.Alias] = nop
 		}
 
 		jobSpecs := make(shared.NOPJobSpecs)
-		expectedJobSpecIDs := make(map[string]bool)
-		expectedNOPs := make(map[string]bool)
-		verifierSuffix := fmt.Sprintf("-%s-verifier", input.Committee.Qualifier)
-
-		nopAliases := input.TargetNOPs
-		if len(nopAliases) == 0 {
-			nopAliases = input.Committee.NOPAliases
+		expectedNOPs := make(map[shared.NOPAlias]bool)
+		scope := shared.VerifierJobScope{
+			CommitteeQualifier: input.Committee.Qualifier,
 		}
 
-		for _, nopAlias := range nopAliases {
+		targetNOPs := input.TargetNOPs
+		if len(targetNOPs) == 0 {
+			targetNOPs = input.Committee.NOPAliases
+		}
+
+		for _, nopAlias := range targetNOPs {
 			nop, ok := nopByAlias[nopAlias]
 			if !ok {
 				return BuildJobSpecsOutput{}, fmt.Errorf("NOP %q not found in input", nopAlias)
@@ -86,11 +86,10 @@ var BuildJobSpecs = operations.NewOperation(
 			expectedNOPs[nopAlias] = true
 
 			for _, agg := range input.Committee.Aggregators {
-				verifierID := fmt.Sprintf("%s-%s-verifier", agg.Name, input.Committee.Qualifier)
-				expectedJobSpecIDs[verifierID] = true
+				verifierJobID := shared.NewVerifierJobID(agg.Name, scope)
 
 				verifierCfg := commit.Config{
-					VerifierID:                     verifierID,
+					VerifierID:                     verifierJobID.GetVerifierID(),
 					AggregatorAddress:              agg.Address,
 					InsecureAggregatorConnection:   agg.InsecureAggregatorConnection,
 					SignerAddress:                  nop.SignerAddress,
@@ -114,17 +113,16 @@ committeeVerifierConfig = """
 `, string(configBytes))
 
 				if jobSpecs[nopAlias] == nil {
-					jobSpecs[nopAlias] = make(map[string]string)
+					jobSpecs[nopAlias] = make(map[shared.JobID]string)
 				}
-				jobSpecs[nopAlias][verifierID] = jobSpec
+				jobSpecs[nopAlias][verifierJobID.ToJobID()] = jobSpec
 			}
 		}
 
 		return BuildJobSpecsOutput{
-			JobSpecs:           jobSpecs,
-			ExpectedJobSpecIDs: expectedJobSpecIDs,
-			ExpectedNOPs:       expectedNOPs,
-			VerifierSuffix:     verifierSuffix,
+			JobSpecs:      jobSpecs,
+			AffectedScope: scope,
+			ExpectedNOPs:  expectedNOPs,
 		}, nil
 	},
 )

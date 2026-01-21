@@ -9,6 +9,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
+	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/sequences"
 )
 
@@ -16,6 +17,10 @@ type GenerateExecutorConfigCfg = sequences.GenerateExecutorConfigInput
 
 func GenerateExecutorConfig() deployment.ChangeSetV2[GenerateExecutorConfigCfg] {
 	validate := func(e deployment.Environment, cfg GenerateExecutorConfigCfg) error {
+		if cfg.ExecutorQualifier == "" {
+			return fmt.Errorf("executor qualifier is required")
+		}
+
 		if cfg.IndexerAddress == "" {
 			return fmt.Errorf("indexer address is required")
 		}
@@ -69,9 +74,9 @@ func GenerateExecutorConfig() deployment.ChangeSetV2[GenerateExecutorConfigCfg] 
 			}, fmt.Errorf("failed to save executor job specs: %w", err)
 		}
 
-		var scopedNOPs map[string]bool
+		var scopedNOPs map[shared.NOPAlias]bool
 		if len(cfg.TargetNOPs) > 0 {
-			scopedNOPs = make(map[string]bool)
+			scopedNOPs = make(map[shared.NOPAlias]bool)
 			for _, nopAlias := range cfg.TargetNOPs {
 				scopedNOPs[nopAlias] = true
 			}
@@ -79,8 +84,8 @@ func GenerateExecutorConfig() deployment.ChangeSetV2[GenerateExecutorConfigCfg] 
 
 		if err := deployments.CleanupOrphanedJobSpecs(
 			outputDS,
-			report.Output.ExecutorSuffix,
-			report.Output.ExpectedJobSpecIDs,
+			report.Output.AffectedScope,
+			shared.ExtractJobIDFromJobSpecMap(report.Output.JobSpecs),
 			scopedNOPs,
 			nil,
 		); err != nil {

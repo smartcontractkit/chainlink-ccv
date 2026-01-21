@@ -18,7 +18,7 @@ type GenerateExecutorConfigInput struct {
 	// ChainSelectors is the list of chain selectors to consider. Defaults to all chain selectors in the environment.
 	ChainSelectors []uint64
 	// TargetNOPs limits which NOPs will have their job specs updated. Defaults to all NOPs in the executor pool when empty.
-	TargetNOPs []string
+	TargetNOPs []shared.NOPAlias
 	// ExecutorPool is the executor pool configuration containing pool membership and execution parameters.
 	ExecutorPool executorconfig.ExecutorPoolInput
 	// IndexerAddress is the address of the indexer service used by executors.
@@ -30,9 +30,8 @@ type GenerateExecutorConfigInput struct {
 }
 
 type GenerateExecutorConfigOutput struct {
-	JobSpecs           shared.NOPJobSpecs
-	ExpectedJobSpecIDs map[string]bool
-	ExecutorSuffix     string
+	JobSpecs      shared.NOPJobSpecs
+	AffectedScope shared.ExecutorJobScope
 }
 
 type GenerateExecutorConfigDeps struct {
@@ -68,9 +67,8 @@ var GenerateExecutorConfig = operations.NewSequence(
 		}
 
 		return GenerateExecutorConfigOutput{
-			JobSpecs:           jobSpecsResult.Output.JobSpecs,
-			ExpectedJobSpecIDs: jobSpecsResult.Output.ExpectedJobSpecIDs,
-			ExecutorSuffix:     jobSpecsResult.Output.ExecutorSuffix,
+			JobSpecs:      jobSpecsResult.Output.JobSpecs,
+			AffectedScope: jobSpecsResult.Output.AffectedScope,
 		}, nil
 	},
 )

@@ -6,6 +6,8 @@ import (
 	"slices"
 	"time"
 
+	"strings"
+
 	"github.com/BurntSushi/toml"
 )
 
@@ -332,4 +334,17 @@ func (c *EnvironmentTopology) GetPoolsForNOP(nopAlias string) []string {
 		}
 	}
 	return pools
+}
+
+func (c *EnvironmentTopology) GetAggregatorNamesForCommittee(name string) ([]string, error) {
+	for _, committee := range c.NOPTopology.Committees {
+		if strings.EqualFold(committee.Qualifier, name) {
+			names := make([]string, 0)
+			for _, agg := range committee.Aggregators {
+				names = append(names, agg.Name)
+			}
+			return names, nil
+		}
+	}
+	return nil, fmt.Errorf("No aggregators found for committee: %s", name)
 }

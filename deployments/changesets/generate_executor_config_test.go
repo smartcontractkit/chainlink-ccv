@@ -24,14 +24,27 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/deployments/testutils"
 )
 
+func TestGenerateExecutorConfig_ValidatesExecutorQualifer(t *testing.T) {
+	changeset := changesets.GenerateExecutorConfig()
+
+	env := createExecutorTestEnvironment(t)
+
+	err := changeset.VerifyPreconditions(env, changesets.GenerateExecutorConfigCfg{
+		ExecutorQualifier: "",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "executor qualifier is required")
+}
+
 func TestGenerateExecutorConfig_ValidatesIndexerAddress(t *testing.T) {
 	changeset := changesets.GenerateExecutorConfig()
 
 	env := createExecutorTestEnvironment(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateExecutorConfigCfg{
-		IndexerAddress: "",
-		ExecutorPool:   testExecutorPool(),
+		ExecutorQualifier: testDefaultQualifier,
+		IndexerAddress:    "",
+		ExecutorPool:      testExecutorPool(),
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "indexer address is required")
@@ -43,8 +56,9 @@ func TestGenerateExecutorConfig_ValidatesExecutorPoolNOPs(t *testing.T) {
 	env := createExecutorTestEnvironment(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateExecutorConfigCfg{
-		IndexerAddress: "http://indexer:8100",
-		ExecutorPool:   executorconfig.ExecutorPoolInput{NOPAliases: []string{}},
+		ExecutorQualifier: testDefaultQualifier,
+		IndexerAddress:    "http://indexer:8100",
+		ExecutorPool:      executorconfig.ExecutorPoolInput{NOPAliases: []shared.NOPAlias{}},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "executor pool NOPs are required")
@@ -56,9 +70,10 @@ func TestGenerateExecutorConfig_ValidatesNOPAliases(t *testing.T) {
 	env := createExecutorTestEnvironment(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateExecutorConfigCfg{
-		IndexerAddress: "http://indexer:8100",
-		ExecutorPool:   testExecutorPool(),
-		TargetNOPs:          []string{"unknown-nop"},
+		ExecutorQualifier: testDefaultQualifier,
+		IndexerAddress:    "http://indexer:8100",
+		ExecutorPool:      testExecutorPool(),
+		TargetNOPs:        []shared.NOPAlias{"unknown-nop"},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `not found in executor pool`)
@@ -70,9 +85,10 @@ func TestGenerateExecutorConfig_ValidatesChainSelectors(t *testing.T) {
 	env := createExecutorTestEnvironment(t)
 
 	err := changeset.VerifyPreconditions(env, changesets.GenerateExecutorConfigCfg{
-		IndexerAddress: "http://indexer:8100",
-		ExecutorPool:   testExecutorPool(),
-		ChainSelectors: []uint64{1234},
+		ExecutorQualifier: testDefaultQualifier,
+		IndexerAddress:    "http://indexer:8100",
+		ExecutorPool:      testExecutorPool(),
+		ChainSelectors:    []uint64{1234},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "selector 1234 is not available in environment")
@@ -112,7 +128,7 @@ func TestGenerateExecutorConfig_GeneratesCorrectJobSpec(t *testing.T) {
 	output, err := cs.Apply(env, changesets.GenerateExecutorConfigCfg{
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
-		TargetNOPs:             []string{"nop-1"},
+		TargetNOPs:        []shared.NOPAlias{"nop-1"},
 		ExecutorPool:      testExecutorPool(),
 		IndexerAddress:    "http://indexer:8100",
 		PyroscopeURL:      "http://pyroscope:4040",
@@ -180,7 +196,7 @@ func TestGenerateExecutorConfig_PreservesExistingConfigs(t *testing.T) {
 	output, err := cs.Apply(env, changesets.GenerateExecutorConfigCfg{
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
-		TargetNOPs:             []string{"nop-1"},
+		TargetNOPs:        []shared.NOPAlias{"nop-1"},
 		ExecutorPool:      testExecutorPool(),
 		IndexerAddress:    "http://indexer:8100",
 		PyroscopeURL:      "http://pyroscope:4040",
@@ -289,7 +305,7 @@ func TestGenerateExecutorConfig_PreservesOtherQualifierJobSpecs(t *testing.T) {
 	output, err := cs.Apply(env, changesets.GenerateExecutorConfigCfg{
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
-		TargetNOPs:             []string{"nop-1"},
+		TargetNOPs:        []shared.NOPAlias{"nop-1"},
 		ExecutorPool:      testExecutorPool(),
 		IndexerAddress:    "http://indexer:8100",
 		PyroscopeURL:      "http://pyroscope:4040",
@@ -345,7 +361,7 @@ func TestGenerateExecutorConfig_ScopedNOPAliasesPreservesOtherNOPs(t *testing.T)
 	output, err := cs.Apply(env, changesets.GenerateExecutorConfigCfg{
 		ExecutorQualifier: executorQualifier,
 		ChainSelectors:    selectors,
-		TargetNOPs:             []string{"nop-1"},
+		TargetNOPs:        []shared.NOPAlias{"nop-1"},
 		ExecutorPool:      testExecutorPool(),
 		IndexerAddress:    "http://indexer:8100",
 		PyroscopeURL:      "http://pyroscope:4040",
@@ -366,7 +382,7 @@ func TestGenerateExecutorConfig_ScopedNOPAliasesPreservesOtherNOPs(t *testing.T)
 
 func testExecutorPool() executorconfig.ExecutorPoolInput {
 	return executorconfig.ExecutorPoolInput{
-		NOPAliases:        []string{"nop-1", "nop-2"},
+		NOPAliases:        []shared.NOPAlias{"nop-1", "nop-2"},
 		ExecutionInterval: 15 * time.Second,
 	}
 }

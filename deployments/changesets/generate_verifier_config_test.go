@@ -46,7 +46,7 @@ func TestGenerateVerifierConfig_ValidatesCommitteeQualifier(t *testing.T) {
 	committee := testCommitteeInput()
 	committee.Qualifier = ""
 	err := changeset.VerifyPreconditions(env, changesets.GenerateVerifierConfigCfg{
-		DefaultExecutorQualifier: "",
+		DefaultExecutorQualifier: testDefaultQualifier,
 		NOPs:                     testVerifierNOPs(),
 		Committee:                committee,
 	})
@@ -65,7 +65,7 @@ func TestGenerateVerifierConfig_ValidatesAggregators(t *testing.T) {
 		Committee: verifierconfig.CommitteeInput{
 			Qualifier:   testCommittee,
 			Aggregators: []verifierconfig.AggregatorInput{},
-			NOPAliases:  []string{"nop-1", "nop-2"},
+			NOPAliases:  []shared.NOPAlias{"nop-1", "nop-2"},
 		},
 	})
 	require.Error(t, err)
@@ -98,7 +98,7 @@ func TestGenerateVerifierConfig_ValidatesNOPAliasesExist(t *testing.T) {
 		DefaultExecutorQualifier: testDefaultQualifier,
 		NOPs:                     testVerifierNOPs(),
 		Committee:                testCommitteeInput(),
-		TargetNOPs:               []string{"unknown-nop"},
+		TargetNOPs:               []shared.NOPAlias{"unknown-nop"},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `NOP alias "unknown-nop" not found in NOPs input`)
@@ -158,7 +158,7 @@ func TestGenerateVerifierConfig_GeneratesCorrectJobSpec(t *testing.T) {
 	output, err := cs.Apply(env, changesets.GenerateVerifierConfigCfg{
 		DefaultExecutorQualifier: executorQualifier,
 		ChainSelectors:           selectors,
-		TargetNOPs:               []string{"nop-1"},
+		TargetNOPs:               []shared.NOPAlias{"nop-1"},
 		NOPs:                     testVerifierNOPs(),
 		Committee:                testCommitteeInput(),
 		PyroscopeURL:             "http://pyroscope:4040",
@@ -244,7 +244,7 @@ func TestGenerateVerifierConfig_PreservesExistingConfigs(t *testing.T) {
 	output, err := cs.Apply(env, changesets.GenerateVerifierConfigCfg{
 		DefaultExecutorQualifier: executorQualifier,
 		ChainSelectors:           selectors,
-		TargetNOPs:               []string{"nop-1"},
+		TargetNOPs:               []shared.NOPAlias{"nop-1"},
 		NOPs:                     testVerifierNOPs(),
 		Committee:                testCommitteeInput(),
 		PyroscopeURL:             "http://pyroscope:4040",
@@ -303,14 +303,14 @@ func TestGenerateVerifierConfig_MultipleAggregatorsPerCommittee(t *testing.T) {
 			{Name: "agg-secondary", Address: "aggregator-secondary:443"},
 			{Name: "agg-tertiary", Address: "aggregator-tertiary:443"},
 		},
-		NOPAliases: []string{"nop-1", "nop-2"},
+		NOPAliases: []shared.NOPAlias{"nop-1", "nop-2"},
 	}
 
 	cs := changesets.GenerateVerifierConfig()
 	output, err := cs.Apply(env, changesets.GenerateVerifierConfigCfg{
 		DefaultExecutorQualifier: executorQualifier,
 		ChainSelectors:           selectors,
-		TargetNOPs:               []string{"nop-1"},
+		TargetNOPs:               []shared.NOPAlias{"nop-1"},
 		NOPs:                     testVerifierNOPs(),
 		Committee:                multiAggCommittee,
 		PyroscopeURL:             "http://pyroscope:4040",
@@ -438,7 +438,7 @@ func TestGenerateVerifierConfig_PreservesOtherCommitteeJobSpecs(t *testing.T) {
 	output, err := cs.Apply(env, changesets.GenerateVerifierConfigCfg{
 		DefaultExecutorQualifier: executorQualifier,
 		ChainSelectors:           selectors,
-		TargetNOPs:               []string{"nop-1"},
+		TargetNOPs:               []shared.NOPAlias{"nop-1"},
 		NOPs:                     testVerifierNOPs(),
 		Committee:                testCommitteeInput(),
 		PyroscopeURL:             "http://pyroscope:4040",
@@ -499,7 +499,7 @@ func TestGenerateVerifierConfig_ScopedNOPAliasesPreservesOtherNOPs(t *testing.T)
 	output, err := cs.Apply(env, changesets.GenerateVerifierConfigCfg{
 		DefaultExecutorQualifier: executorQualifier,
 		ChainSelectors:           selectors,
-		TargetNOPs:               []string{"nop-1"},
+		TargetNOPs:               []shared.NOPAlias{"nop-1"},
 		NOPs:                     testVerifierNOPs(),
 		Committee:                testCommitteeInput(),
 		PyroscopeURL:             "http://pyroscope:4040",
@@ -531,7 +531,7 @@ func testCommitteeInput() verifierconfig.CommitteeInput {
 		Aggregators: []verifierconfig.AggregatorInput{
 			{Name: "instance-1", Address: "aggregator-1:443"},
 		},
-		NOPAliases: []string{"nop-1", "nop-2"},
+		NOPAliases: []shared.NOPAlias{"nop-1", "nop-2"},
 	}
 }
 

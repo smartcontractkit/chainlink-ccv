@@ -4,13 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"strings"
+	"slices"
 
 	jsonpatch "github.com/evanphx/json-patch/v5"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 )
 
@@ -23,7 +24,7 @@ type OffchainConfigs struct {
 	Indexers map[string]*config.GeneratedConfig `json:"indexers,omitempty"`
 	// NOPJobSpecs maps NOP alias to a map of job spec ID to job spec TOML.
 	// This groups all job specs (verifier, executor) for a given NOP together.
-	NOPJobSpecs map[string]map[string]string `json:"nopJobSpecs,omitempty"`
+	NOPJobSpecs shared.NOPJobSpecs `json:"nopJobSpecs,omitempty"`
 }
 
 // CCVEnvMetadata represents the expected structure of env_metadata.json for CCV.
@@ -136,7 +137,7 @@ func GetIndexerConfig(ds datastore.DataStore, serviceIdentifier string) (*config
 
 // SaveNOPJobSpec saves a job spec to the datastore under the given NOP alias and job spec ID.
 // This allows grouping all job specs (verifier, executor) for a given NOP together.
-func SaveNOPJobSpec(ds datastore.MutableDataStore, nopAlias, jobSpecID, jobSpec string) error {
+func SaveNOPJobSpec(ds datastore.MutableDataStore, nopAlias shared.NOPAlias, jobSpecID shared.JobID, jobSpec string) error {
 	ccvMeta, err := loadOrCreateCCVEnvMetadata(ds)
 	if err != nil {
 		return err
@@ -146,10 +147,10 @@ func SaveNOPJobSpec(ds datastore.MutableDataStore, nopAlias, jobSpecID, jobSpec 
 		ccvMeta.OffchainConfigs = &OffchainConfigs{}
 	}
 	if ccvMeta.OffchainConfigs.NOPJobSpecs == nil {
-		ccvMeta.OffchainConfigs.NOPJobSpecs = make(map[string]map[string]string)
+		ccvMeta.OffchainConfigs.NOPJobSpecs = make(shared.NOPJobSpecs)
 	}
 	if ccvMeta.OffchainConfigs.NOPJobSpecs[nopAlias] == nil {
-		ccvMeta.OffchainConfigs.NOPJobSpecs[nopAlias] = make(map[string]string)
+		ccvMeta.OffchainConfigs.NOPJobSpecs[nopAlias] = make(map[shared.JobID]string)
 	}
 
 	ccvMeta.OffchainConfigs.NOPJobSpecs[nopAlias][jobSpecID] = jobSpec
@@ -158,7 +159,7 @@ func SaveNOPJobSpec(ds datastore.MutableDataStore, nopAlias, jobSpecID, jobSpec 
 }
 
 // GetNOPJobSpec retrieves a specific job spec from the datastore by NOP alias and job spec ID.
-func GetNOPJobSpec(ds datastore.DataStore, nopAlias, jobSpecID string) (string, error) {
+func GetNOPJobSpec(ds datastore.DataStore, nopAlias shared.NOPAlias, jobSpecID shared.JobID) (string, error) {
 	ccvMeta, err := loadCCVEnvMetadata(ds)
 	if err != nil {
 		return "", err
@@ -182,7 +183,7 @@ func GetNOPJobSpec(ds datastore.DataStore, nopAlias, jobSpecID string) (string, 
 }
 
 // GetNOPJobSpecs retrieves all job specs for a given NOP alias.
-func GetNOPJobSpecs(ds datastore.DataStore, nopAlias string) (map[string]string, error) {
+func GetNOPJobSpecs(ds datastore.DataStore, nopAlias shared.NOPAlias) (map[shared.JobID]string, error) {
 	ccvMeta, err := loadCCVEnvMetadata(ds)
 	if err != nil {
 		return nil, err
@@ -203,22 +204,22 @@ func GetNOPJobSpecs(ds datastore.DataStore, nopAlias string) (map[string]string,
 // GetAllNOPJobSpecs retrieves all NOP job specs from the datastore.
 // Returns a map of NOP alias to map of job spec ID to job spec content.
 // Returns an empty map (not error) if no job specs exist.
-func GetAllNOPJobSpecs(ds datastore.DataStore) (map[string]map[string]string, error) {
+func GetAllNOPJobSpecs(ds datastore.DataStore) (shared.NOPJobSpecs, error) {
 	ccvMeta, err := loadCCVEnvMetadata(ds)
 	if err != nil {
 		return nil, err
 	}
 
 	if ccvMeta.OffchainConfigs == nil || ccvMeta.OffchainConfigs.NOPJobSpecs == nil {
-		return make(map[string]map[string]string), nil
+		return make(shared.NOPJobSpecs), nil
 	}
 
-	return ccvMeta.OffchainConfigs.NOPJobSpecs, nil
+	return shared.NOPJobSpecs(ccvMeta.OffchainConfigs.NOPJobSpecs), nil
 }
 
 // DeleteNOPJobSpec removes a specific job spec from the datastore by NOP alias and job spec ID.
 // Returns nil if the job spec doesn't exist (idempotent delete).
-func DeleteNOPJobSpec(ds datastore.MutableDataStore, nopAlias, jobSpecID string) error {
+func DeleteNOPJobSpec(ds datastore.MutableDataStore, nopAlias shared.NOPAlias, jobSpecID shared.JobID) error {
 	ccvMeta, err := loadOrCreateCCVEnvMetadata(ds)
 	if err != nil {
 		return err
@@ -250,7 +251,7 @@ func DeleteNOPJobSpec(ds datastore.MutableDataStore, nopAlias, jobSpecID string)
 
 // SaveNOPJobSpecs saves multiple job specs to the datastore in a single operation.
 // The input is a map of NOP alias to a map of job spec ID to job spec content.
-func SaveNOPJobSpecs(ds datastore.MutableDataStore, jobSpecs map[string]map[string]string) error {
+func SaveNOPJobSpecs(ds datastore.MutableDataStore, jobSpecs shared.NOPJobSpecs) error {
 	if len(jobSpecs) == 0 {
 		return nil
 	}
@@ -264,12 +265,12 @@ func SaveNOPJobSpecs(ds datastore.MutableDataStore, jobSpecs map[string]map[stri
 		ccvMeta.OffchainConfigs = &OffchainConfigs{}
 	}
 	if ccvMeta.OffchainConfigs.NOPJobSpecs == nil {
-		ccvMeta.OffchainConfigs.NOPJobSpecs = make(map[string]map[string]string)
+		ccvMeta.OffchainConfigs.NOPJobSpecs = make(shared.NOPJobSpecs)
 	}
 
 	for nopAlias, specs := range jobSpecs {
 		if ccvMeta.OffchainConfigs.NOPJobSpecs[nopAlias] == nil {
-			ccvMeta.OffchainConfigs.NOPJobSpecs[nopAlias] = make(map[string]string)
+			ccvMeta.OffchainConfigs.NOPJobSpecs[nopAlias] = make(map[shared.JobID]string)
 		}
 		maps.Copy(ccvMeta.OffchainConfigs.NOPJobSpecs[nopAlias], specs)
 	}
@@ -286,10 +287,10 @@ func SaveNOPJobSpecs(ds datastore.MutableDataStore, jobSpecs map[string]map[stri
 //   - expectedNOPs: if non-nil, delete job specs for NOPs not in this set (for verifier cleanup)
 func CleanupOrphanedJobSpecs(
 	ds datastore.MutableDataStore,
-	suffix string,
-	expectedJobSpecIDs map[string]bool,
-	scopedNOPs map[string]bool,
-	expectedNOPs map[string]bool,
+	scope shared.JobScope,
+	expectedJobIDs []shared.JobID,
+	scopedNOPs map[shared.NOPAlias]bool,
+	expectedNOPs map[shared.NOPAlias]bool,
 ) error {
 	allNOPJobSpecs, err := GetAllNOPJobSpecs(ds.Seal())
 	if err != nil {
@@ -302,11 +303,11 @@ func CleanupOrphanedJobSpecs(
 		}
 
 		for jobSpecID := range jobSpecs {
-			if !strings.HasSuffix(jobSpecID, suffix) {
+			if !scope.IsJobInScope(jobSpecID) {
 				continue
 			}
 
-			shouldDelete := !expectedJobSpecIDs[jobSpecID]
+			shouldDelete := !slices.Contains(expectedJobIDs, jobSpecID)
 			if expectedNOPs != nil && !expectedNOPs[nopAlias] {
 				shouldDelete = true
 			}

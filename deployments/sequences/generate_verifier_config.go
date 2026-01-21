@@ -18,7 +18,7 @@ type GenerateVerifierConfigInput struct {
 	// ChainSelectors is the list of chain selectors to consider. Defaults to all chain selectors in the environment.
 	ChainSelectors []uint64
 	// TargetNOPs limits which NOPs will have their job specs updated. Defaults to all NOPs in the committee when empty.
-	TargetNOPs []string
+	TargetNOPs []shared.NOPAlias
 	// NOPs is the list of NOP configurations containing signing addresses for each NOP.
 	NOPs []verifierconfig.NOPInput
 	// Committee contains the committee configuration including aggregators and membership.
@@ -30,10 +30,9 @@ type GenerateVerifierConfigInput struct {
 }
 
 type GenerateVerifierConfigOutput struct {
-	JobSpecs           shared.NOPJobSpecs
-	ExpectedJobSpecIDs map[string]bool
-	ExpectedNOPs       map[string]bool
-	VerifierSuffix     string
+	JobSpecs      shared.NOPJobSpecs
+	AffectedScope shared.VerifierJobScope
+	ExpectedNOPs  map[shared.NOPAlias]bool
 }
 
 type GenerateVerifierConfigDeps struct {
@@ -69,10 +68,9 @@ var GenerateVerifierConfig = operations.NewSequence(
 		}
 
 		return GenerateVerifierConfigOutput{
-			JobSpecs:           jobSpecsResult.Output.JobSpecs,
-			ExpectedJobSpecIDs: jobSpecsResult.Output.ExpectedJobSpecIDs,
-			ExpectedNOPs:       jobSpecsResult.Output.ExpectedNOPs,
-			VerifierSuffix:     jobSpecsResult.Output.VerifierSuffix,
+			JobSpecs:      jobSpecsResult.Output.JobSpecs,
+			AffectedScope: jobSpecsResult.Output.AffectedScope,
+			ExpectedNOPs:  jobSpecsResult.Output.ExpectedNOPs,
 		}, nil
 	},
 )
