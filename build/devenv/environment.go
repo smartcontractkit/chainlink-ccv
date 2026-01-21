@@ -221,7 +221,7 @@ func generateExecutorJobSpecs(
 		output, err := cs.Apply(*e, changesets.GenerateExecutorConfigCfg{
 			ExecutorQualifier: qualifier,
 			ChainSelectors:    selectors,
-			TargetNOPs:        execNOPAliases,
+			TargetNOPs:        shared.ConvertStringToNopAliases(execNOPAliases),
 			ExecutorPool:      convertExecutorPoolConfig(executorPool),
 			IndexerAddress:    topology.IndexerAddress,
 			PyroscopeURL:      topology.PyroscopeURL,
@@ -232,8 +232,8 @@ func generateExecutorJobSpecs(
 		}
 
 		for _, exec := range qualifierExecutors {
-			jobSpecID := fmt.Sprintf("%s-%s-executor", exec.NOPAlias, qualifier)
-			jobSpec, err := deployments.GetNOPJobSpec(output.DataStore.Seal(), exec.NOPAlias, jobSpecID)
+			jobSpecID := shared.NewExecutorJobID(shared.NOPAlias(exec.NOPAlias), shared.ExecutorJobScope{ExecutorQualifier: qualifier})
+			jobSpec, err := deployments.GetNOPJobSpec(output.DataStore.Seal(), shared.NOPAlias(exec.NOPAlias), jobSpecID.ToJobID())
 			if err != nil {
 				return nil, fmt.Errorf("failed to get executor job spec for %s: %w", exec.ContainerName, err)
 			}
@@ -302,9 +302,9 @@ func generateVerifierJobSpecs(
 
 	// Generate verifier configs per committee
 	for committeeName, committeeVerifiers := range verifiersByCommittee {
-		verNOPAliases := make([]string, 0, len(committeeVerifiers))
+		verNOPAliases := make([]shared.NOPAlias, 0, len(committeeVerifiers))
 		for _, ver := range committeeVerifiers {
-			verNOPAliases = append(verNOPAliases, ver.NOPAlias)
+			verNOPAliases = append(verNOPAliases, shared.NOPAlias(ver.NOPAlias))
 		}
 
 		committee, ok := topology.NOPTopology.Committees[committeeName]
@@ -327,9 +327,13 @@ func generateVerifierJobSpecs(
 		}
 
 		for _, ver := range committeeVerifiers {
-			// Aggregator name is "default" as configured in the env config
-			jobSpecID := fmt.Sprintf("default-%s-verifier", committeeName)
-			jobSpec, err := deployments.GetNOPJobSpec(output.DataStore.Seal(), ver.NOPAlias, jobSpecID)
+			aggNames, err := topology.GetAggregatorNamesForCommittee(committeeName)
+			if err != nil {
+				return nil, err
+			}
+			// TODO: We assume that there is only one agg per committee, no HA setup support
+			jobSpecID := shared.NewVerifierJobID(aggNames[0], shared.VerifierJobScope{CommitteeQualifier: committeeName})
+			jobSpec, err := deployments.GetNOPJobSpec(output.DataStore.Seal(), shared.NOPAlias(ver.NOPAlias), jobSpecID.ToJobID())
 			if err != nil {
 				return nil, fmt.Errorf("failed to get verifier job spec for %s: %w", ver.ContainerName, err)
 			}
@@ -361,7 +365,7 @@ func convertNOPsToVerifierInput(nops []deployments.NOPConfig) []verifierconfig.N
 	result := make([]verifierconfig.NOPInput, len(nops))
 	for i, nop := range nops {
 		result[i] = verifierconfig.NOPInput{
-			Alias:         nop.Alias,
+			Alias:         shared.NOPAlias(nop.Alias),
 			SignerAddress: nop.SignerAddress,
 		}
 	}
@@ -370,7 +374,7 @@ func convertNOPsToVerifierInput(nops []deployments.NOPConfig) []verifierconfig.N
 
 func convertExecutorPoolConfig(pool deployments.ExecutorPoolConfig) executorconfig.ExecutorPoolInput {
 	return executorconfig.ExecutorPoolInput{
-		NOPAliases:        pool.NOPAliases,
+		NOPAliases:        shared.ConvertStringToNopAliases(pool.NOPAliases),
 		ExecutionInterval: pool.ExecutionInterval,
 		NtpServer:         pool.NtpServer,
 		IndexerQueryLimit: pool.IndexerQueryLimit,
@@ -404,7 +408,7 @@ func convertCommitteeConfig(committee deployments.CommitteeConfig) verifierconfi
 	return verifierconfig.CommitteeInput{
 		Qualifier:   committee.Qualifier,
 		Aggregators: aggregators,
-		NOPAliases:  nopAliases,
+		NOPAliases:  shared.ConvertStringToNopAliases(nopAliases),
 	}
 }
 
