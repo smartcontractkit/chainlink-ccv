@@ -386,20 +386,20 @@ func TestE2ESmoke(t *testing.T) {
 		) {
 			sender := mustGetSenderAddress(t, sourceChain)
 
-			srcToken := getTokenAddress(t, in, sourceSelector, "CCTP")
-			destToken := getTokenAddress(t, in, destSelector, "CCTP")
+			srcToken := getTokenAddress(t, in, sourceSelector, evm.CCTPContractsQualifier)
+			destToken := getTokenAddress(t, in, destSelector, evm.CCTPContractsQualifier)
 
 			startBal, err := destChain.GetTokenBalance(ctx, tc.receiver, destToken)
 			require.NoError(t, err)
-			l.Info().Str("Receiver", tc.receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", "CCTP").Msg("receiver start balance")
+			l.Info().Str("Receiver", tc.receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", evm.CCTPContractsQualifier).Msg("receiver start balance")
 
 			srcStartBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
 			require.NoError(t, err)
-			l.Info().Str("Sender", sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Str("Token", "CCTP").Msg("sender start balance")
+			l.Info().Str("Sender", sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Str("Token", evm.CCTPContractsQualifier).Msg("sender start balance")
 
 			seqNo, err := sourceChain.GetExpectedNextSequenceNumber(ctx, destSelector)
 			require.NoError(t, err)
-			l.Info().Uint64("SeqNo", seqNo).Str("Token", "CCTP").Msg("expecting sequence number")
+			l.Info().Uint64("SeqNo", seqNo).Str("Token", evm.CCTPContractsQualifier).Msg("expecting sequence number")
 
 			messageOptions := cciptestinterfaces.MessageOptions{
 				Version:           3,
@@ -421,7 +421,7 @@ func TestE2ESmoke(t *testing.T) {
 			)
 			require.NoError(t, err)
 			require.NotNil(t, sendRes)
-			require.Len(t, sendRes.ReceiptIssuers, tc.expectedReceiptIssuers, "expected %d receipt issuers for %s token", tc.expectedReceiptIssuers, "CCTP")
+			require.Len(t, sendRes.ReceiptIssuers, tc.expectedReceiptIssuers, "expected %d receipt issuers for %s token", tc.expectedReceiptIssuers, evm.CCTPContractsQualifier)
 
 			sentEvt, err := sourceChain.WaitOneSentEventBySeqNo(ctx, destSelector, seqNo, defaultSentTimeout)
 			require.NoError(t, err)
@@ -434,7 +434,7 @@ func TestE2ESmoke(t *testing.T) {
 				sourceSelector,
 				datastore.ContractType(cctp_verifier.ContractType),
 				cctp_verifier.Deploy.Version(),
-				"CCTP",
+				evm.CCTPContractsQualifier,
 				"",
 			)
 			registerCCTPAttestation(t, in.Fake.Out.ExternalHTTPURL, msgID, cctpMessageSender, tc.receiver, "complete")
@@ -469,12 +469,12 @@ func TestE2ESmoke(t *testing.T) {
 
 			// We always mint 1 tiny coin on a dest from CCTPTokenMessenger
 			require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), big.NewInt(1)), endBal)
-			l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", "CCTP").Msg("receiver end balance")
+			l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", evm.CCTPContractsQualifier).Msg("receiver end balance")
 
 			srcEndBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
 			require.NoError(t, err)
 			require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), tc.transferAmount), srcEndBal)
-			l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", "CCTP").Msg("sender end balance")
+			l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", evm.CCTPContractsQualifier).Msg("sender end balance")
 		}
 
 		tcs := []testCase{
