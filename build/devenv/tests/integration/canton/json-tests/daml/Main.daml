@@ -1,0 +1,63 @@
+module Main where
+
+import DA.Crypto.Text (BytesHex, byteCount)
+import DA.Text qualified as Text
+
+template TestRouter
+  with
+    ccipOwner : Party
+    partyOwner : Party
+  where
+    signatory ccipOwner
+    observer partyOwner
+
+    nonconsuming choice CCIPSend : CCIPSendResult
+      with
+        destChainSelector : Numeric 0
+        sequenceNumber : Numeric 0
+        messageId : BytesHex
+        encodedMessage : BytesHex
+        verifierBlobs : [BytesHex]
+      controller partyOwner
+      do
+        ccipMessageSentCid <- create CCIPMessageSent with
+          ccipOwner = ccipOwner
+          sender = partyOwner
+          observers = [partyOwner]
+          event = CCIPMessageSentEvent with
+            destChainSelector = destChainSelector
+            sequenceNumber = sequenceNumber
+            messageId = messageId
+            encodedMessage = encodedMessage
+            verifierBlobs = verifierBlobs
+
+        pure CCIPSendResult with
+          router = self
+          ccipMessageSent = ccipMessageSentCid
+          messageId = messageId
+
+data CCIPSendResult = CCIPSendResult
+    with
+        router : ContractId TestRouter
+        ccipMessageSent : ContractId CCIPMessageSent
+        messageId : BytesHex
+    deriving (Eq, Show)
+
+template CCIPMessageSent
+    with
+        ccipOwner : Party
+        sender : Party
+        observers : [Party]
+        event : CCIPMessageSentEvent
+    where
+        signatory ccipOwner
+        observer sender, observers
+
+data CCIPMessageSentEvent = CCIPMessageSentEvent
+    with
+        destChainSelector : Numeric 0
+        sequenceNumber : Numeric 0
+        messageId : BytesHex
+        encodedMessage : BytesHex
+        verifierBlobs : [BytesHex]
+    deriving (Eq, Show)
