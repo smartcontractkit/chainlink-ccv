@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"math/big"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -107,7 +110,7 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 			CoordinatorConfig{
 				StorageRetryDelay: 100 * time.Millisecond,
 			},
-			NewPendingWritingTracker(),
+			NewPendingWritingTracker(lggr),
 			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
@@ -192,7 +195,7 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 			CoordinatorConfig{
 				StorageRetryDelay: 100 * time.Millisecond,
 			},
-			NewPendingWritingTracker(),
+			NewPendingWritingTracker(lggr),
 			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
@@ -252,7 +255,7 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 			CoordinatorConfig{
 				StorageRetryDelay: 100 * time.Millisecond,
 			},
-			NewPendingWritingTracker(),
+			NewPendingWritingTracker(lggr),
 			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
@@ -310,7 +313,7 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 			storage:        fakeStorage,
 			batcher:        testBatcher,
 			retryDelay:     50 * time.Millisecond,
-			writingTracker: NewPendingWritingTracker(),
+			writingTracker: NewPendingWritingTracker(lggr),
 		}
 
 		batch := []protocol.VerifierNodeResult{
@@ -389,7 +392,7 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 			storage:        fakeStorage,
 			batcher:        testBatcher,
 			retryDelay:     50 * time.Millisecond,
-			writingTracker: NewPendingWritingTracker(),
+			writingTracker: NewPendingWritingTracker(lggr),
 		}
 
 		failingBatch := []protocol.VerifierNodeResult{createTestVerifierNodeResult(1)}
@@ -470,7 +473,7 @@ func TestStorageWriterProcessor_ContextCancellation(t *testing.T) {
 			CoordinatorConfig{
 				StorageRetryDelay: 100 * time.Millisecond,
 			},
-			NewPendingWritingTracker(),
+			NewPendingWritingTracker(lggr),
 			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
@@ -563,4 +566,247 @@ func createTestVerifierNodeResult(sequenceNumber uint64) protocol.VerifierNodeRe
 		ExecutorAddress: protocol.UnknownAddress{},
 		Signature:       []byte{4, 5, 6},
 	}
+}
+
+// ----------------------
+// Checkpoint Test Helpers
+// ----------------------
+
+// createTrackedMessage creates a message and tracks it properly
+// Returns the VerifierNodeResult with correct MessageID that matches tracker entry
+func createTrackedMessage(chain protocol.ChainSelector, seqNum uint64, finalizedBlock uint64, tracker *PendingWritingTracker) protocol.VerifierNodeResult {
+	msg := protocol.Message{
+		SourceChainSelector: chain,
+		SequenceNumber:      protocol.SequenceNumber(seqNum),
+	}
+	msgID := msg.MustMessageID()
+
+	// Track with actual MessageID string - this will match what SWP calls Remove() with
+	tracker.Add(chain, msgID.String(), finalizedBlock)
+
+	return protocol.VerifierNodeResult{
+		MessageID:       msgID,
+		Message:         msg,
+		CCVVersion:      []byte{1, 2, 3},
+		CCVAddresses:    []protocol.UnknownAddress{},
+		ExecutorAddress: protocol.UnknownAddress{},
+		Signature:       []byte{4, 5, 6},
+	}
+}
+
+type checkpointTestSetup struct {
+	processor       *StorageWriterProcessor
+	batcher         *batcher.Batcher[protocol.VerifierNodeResult]
+	storage         *FakeCCVNodeDataWriter
+	mockChainStatus *mocks.MockChainStatusManager
+	tracker         *PendingWritingTracker
+	ctx             context.Context
+	cancel          context.CancelFunc
+}
+
+func setupCheckpointTest(t *testing.T) *checkpointTestSetup {
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+
+	lggr := logger.Test(t)
+	fakeStorage := NewFakeCCVNodeDataWriter()
+	mockChainStatus := mocks.NewMockChainStatusManager(t)
+	tracker := NewPendingWritingTracker(lggr)
+
+	processor, processorBatcher, err := NewStorageBatcherProcessor(
+		ctx,
+		lggr,
+		"test-verifier",
+		NoopLatencyTracker{},
+		fakeStorage,
+		CoordinatorConfig{
+			StorageRetryDelay: 100 * time.Millisecond,
+		},
+		tracker,
+		mockChainStatus,
+	)
+	require.NoError(t, err)
+
+	return &checkpointTestSetup{
+		processor:       processor,
+		batcher:         processorBatcher,
+		storage:         fakeStorage,
+		mockChainStatus: mockChainStatus,
+		tracker:         tracker,
+		ctx:             ctx,
+		cancel:          cancel,
+	}
+}
+
+func (s *checkpointTestSetup) sendBatch(t *testing.T, items []protocol.VerifierNodeResult) {
+	err := s.batcher.AddImmediate(batcher.BatchResult[protocol.VerifierNodeResult]{
+		Items: items,
+		Error: nil,
+	})
+	require.NoError(t, err)
+}
+
+// ----------------------
+// Checkpoint Management Tests
+// ----------------------
+
+func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
+	t.Run("writes checkpoint after successful storage write", func(t *testing.T) {
+		setup := setupCheckpointTest(t)
+		chain1 := protocol.ChainSelector(1)
+
+		// Create and track message at finalized block 100
+		msg1 := createTrackedMessage(chain1, 100, 100, setup.tracker)
+
+		// Expect checkpoint at 99 (100 - 1) after msg1 is written and removed
+		setup.mockChainStatus.EXPECT().
+			WriteChainStatuses(mock.Anything, mock.MatchedBy(func(statuses []protocol.ChainStatusInfo) bool {
+				return len(statuses) == 1 &&
+					statuses[0].ChainSelector == chain1 &&
+					statuses[0].FinalizedBlockHeight.Cmp(big.NewInt(99)) == 0
+			})).
+			Return(nil).
+			Once()
+
+		go func() {
+			setup.processor.run(setup.ctx)
+		}()
+		setup.sendBatch(t, []protocol.VerifierNodeResult{msg1})
+		time.Sleep(200 * time.Millisecond)
+		setup.mockChainStatus.AssertExpectations(t)
+	})
+
+	t.Run("checkpoint advances monotonically", func(t *testing.T) {
+		setup := setupCheckpointTest(t)
+		chain1 := protocol.ChainSelector(1)
+
+		// Create messages at different finalized levels
+		msg1 := createTrackedMessage(chain1, 100, 100, setup.tracker)
+		msg2 := createTrackedMessage(chain1, 105, 105, setup.tracker)
+		msg3 := createTrackedMessage(chain1, 110, 110, setup.tracker)
+
+		// Expect checkpoints in order: 104, 109
+		callCount := 0
+		setup.mockChainStatus.EXPECT().
+			WriteChainStatuses(mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, statuses []protocol.ChainStatusInfo) error {
+				require.Len(t, statuses, 1)
+				require.Equal(t, chain1, statuses[0].ChainSelector)
+
+				callCount++
+				expectedCheckpoints := map[int]int64{1: 104, 2: 109}
+				require.Equal(t, expectedCheckpoints[callCount], statuses[0].FinalizedBlockHeight.Int64())
+				return nil
+			}).
+			Times(2)
+
+		go func() {
+			setup.processor.run(setup.ctx)
+		}()
+		// Write messages one by one
+		setup.sendBatch(t, []protocol.VerifierNodeResult{msg1})
+		time.Sleep(150 * time.Millisecond)
+
+		setup.sendBatch(t, []protocol.VerifierNodeResult{msg2})
+		time.Sleep(150 * time.Millisecond)
+
+		setup.sendBatch(t, []protocol.VerifierNodeResult{msg3})
+		time.Sleep(150 * time.Millisecond)
+
+		setup.mockChainStatus.AssertExpectations(t)
+		require.Equal(t, 2, callCount, "expected 2 checkpoint writes")
+	})
+
+	t.Run("no redundant checkpoint writes for same level", func(t *testing.T) {
+		setup := setupCheckpointTest(t)
+		chain1 := protocol.ChainSelector(1)
+
+		// Create multiple messages at same finalized level
+		msg1 := createTrackedMessage(chain1, 100, 100, setup.tracker)
+		msg2 := createTrackedMessage(chain1, 101, 100, setup.tracker)
+		msg3 := createTrackedMessage(chain1, 102, 100, setup.tracker)
+
+		// Expect only ONE checkpoint write at 99 after all messages are written
+		setup.mockChainStatus.EXPECT().
+			WriteChainStatuses(mock.Anything, mock.MatchedBy(func(statuses []protocol.ChainStatusInfo) bool {
+				return len(statuses) == 1 &&
+					statuses[0].ChainSelector == chain1 &&
+					statuses[0].FinalizedBlockHeight.Cmp(big.NewInt(99)) == 0
+			})).
+			Return(nil).
+			Once()
+
+		go func() {
+			setup.processor.run(setup.ctx)
+		}()
+		setup.sendBatch(t, []protocol.VerifierNodeResult{msg1, msg2, msg3})
+		time.Sleep(300 * time.Millisecond)
+		setup.mockChainStatus.AssertExpectations(t)
+	})
+
+	t.Run("multiple chains handled independently", func(t *testing.T) {
+		setup := setupCheckpointTest(t)
+		chain1 := protocol.ChainSelector(1)
+		chain2 := protocol.ChainSelector(2)
+
+		// Create messages on different chains
+		msg1 := createTrackedMessage(chain1, 100, 100, setup.tracker)
+		msg2 := createTrackedMessage(chain2, 200, 200, setup.tracker)
+
+		// Expect checkpoints for both chains
+		chain1Written, chain2Written := false, false
+		setup.mockChainStatus.EXPECT().
+			WriteChainStatuses(mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, statuses []protocol.ChainStatusInfo) error {
+				for _, status := range statuses {
+					if status.ChainSelector == chain1 {
+						require.Equal(t, int64(99), status.FinalizedBlockHeight.Int64())
+						chain1Written = true
+					} else if status.ChainSelector == chain2 {
+						require.Equal(t, int64(199), status.FinalizedBlockHeight.Int64())
+						chain2Written = true
+					}
+				}
+				return nil
+			}).
+			Maybe()
+
+		go func() {
+			setup.processor.run(setup.ctx)
+		}()
+		setup.sendBatch(t, []protocol.VerifierNodeResult{msg1, msg2})
+		time.Sleep(300 * time.Millisecond)
+
+		setup.mockChainStatus.AssertExpectations(t)
+
+		require.True(t, chain1Written, "chain1 checkpoint should be written")
+		require.True(t, chain2Written, "chain2 checkpoint should be written")
+	})
+
+	t.Run("checkpoint respects pending messages at lower blocks", func(t *testing.T) {
+		setup := setupCheckpointTest(t)
+		chain1 := protocol.ChainSelector(1)
+
+		// Create messages: one at 100, one at 110
+		_ = createTrackedMessage(chain1, 100, 100, setup.tracker) // msg1 - stays pending
+		msg2 := createTrackedMessage(chain1, 110, 110, setup.tracker)
+
+		// Expect only checkpoint at 99 (msg1 at 100 is still pending)
+		setup.mockChainStatus.EXPECT().
+			WriteChainStatuses(mock.Anything, mock.MatchedBy(func(statuses []protocol.ChainStatusInfo) bool {
+				return len(statuses) == 1 &&
+					statuses[0].ChainSelector == chain1 &&
+					statuses[0].FinalizedBlockHeight.Cmp(big.NewInt(99)) == 0
+			})).
+			Return(nil).
+			Once()
+
+		go func() {
+			setup.processor.run(setup.ctx)
+		}()
+		// Write only msg2 - msg1 stays pending
+		setup.sendBatch(t, []protocol.VerifierNodeResult{msg2})
+		time.Sleep(300 * time.Millisecond)
+		setup.mockChainStatus.AssertExpectations(t)
+	})
 }

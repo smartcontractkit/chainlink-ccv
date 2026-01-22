@@ -20,6 +20,10 @@ type chainPendingState struct {
 
 	// Last checkpoint written (avoid redundant writes)
 	lastCheckpoint uint64
+
+	// The finalized block that made byFinalized empty
+	// Used to advance checkpoint when no messages remain pending
+	lastFullyClearedBlock uint64
 }
 
 func newChainPendingState(lggr logger.Logger, chain protocol.ChainSelector) *chainPendingState {
@@ -37,7 +41,7 @@ func (c *chainPendingState) add(msgID string, finalizedBlock uint64) {
 	// Check if message already tracked (deduplication)
 	for _, msgSet := range c.byFinalized {
 		if _, exists := msgSet[msgID]; exists {
-			c.lggr.Debugw("Message already tracked, skipping duplicate add",
+			c.lggr.Infow("Message already tracked, skipping duplicate add",
 				"chain", c.chain,
 				"msgID", msgID,
 				"finalizedBlock", finalizedBlock)
@@ -50,7 +54,7 @@ func (c *chainPendingState) add(msgID string, finalizedBlock uint64) {
 	}
 	c.byFinalized[finalizedBlock][msgID] = struct{}{}
 
-	c.lggr.Debugw("Message added to pending tracker",
+	c.lggr.Infow("Message added to pending tracker",
 		"chain", c.chain,
 		"msgID", msgID,
 		"finalizedBlock", finalizedBlock,
@@ -68,9 +72,13 @@ func (c *chainPendingState) remove(msgID string) {
 			levelCleared := len(msgSet) == 0
 			if levelCleared {
 				delete(c.byFinalized, finalizedBlock)
+				// If map is now empty, remember this block for checkpointing
+				if len(c.byFinalized) == 0 {
+					c.lastFullyClearedBlock = finalizedBlock
+				}
 			}
 
-			c.lggr.Debugw("Message removed from pending tracker",
+			c.lggr.Infow("Message removed from pending tracker",
 				"chain", c.chain,
 				"msgID", msgID,
 				"finalizedBlock", finalizedBlock,
@@ -81,7 +89,7 @@ func (c *chainPendingState) remove(msgID string) {
 	}
 
 	// Message not found - this can happen for retried messages or reorgs
-	c.lggr.Debugw("Message not found in pending tracker during remove",
+	c.lggr.Infow("Message not found in pending tracker during remove",
 		"chain", c.chain,
 		"msgID", msgID)
 }
@@ -90,38 +98,58 @@ func (c *chainPendingState) checkpointIfAdvanced() (uint64, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	var checkpoint uint64
+
 	if len(c.byFinalized) == 0 {
-		c.lggr.Debugw("No pending messages, skipping checkpoint",
-			"chain", c.chain,
-			"lastCheckpoint", c.lastCheckpoint)
-		return 0, false
-	}
-
-	// Find minimum pending level
-	minLevel := uint64(math.MaxUint64)
-	for level := range c.byFinalized {
-		if level < minLevel {
-			minLevel = level
+		// No pending messages - checkpoint at lastFullyClearedBlock - 1
+		if c.lastFullyClearedBlock == 0 {
+			c.lggr.Infow("No pending messages, skipping checkpoint",
+				"chain", c.chain,
+				"lastCheckpoint", c.lastCheckpoint,
+				"lastFullyClearedBlock", c.lastFullyClearedBlock)
+			return 0, false
 		}
-	}
-
-	checkpoint := minLevel - 1
-	if checkpoint <= c.lastCheckpoint {
-		c.lggr.Debugw("Checkpoint has not advanced, skipping write",
+		checkpoint = c.lastFullyClearedBlock - 1
+		if checkpoint <= c.lastCheckpoint {
+			c.lggr.Infow("No pending messages, skipping checkpoint",
+				"chain", c.chain,
+				"lastCheckpoint", c.lastCheckpoint,
+				"lastFullyClearedBlock", c.lastFullyClearedBlock,
+				"checkpoint", checkpoint)
+			return 0, false
+		}
+		c.lggr.Infow("Checkpoint advanced (all messages cleared)",
 			"chain", c.chain,
-			"currentCheckpoint", checkpoint,
-			"lastCheckpoint", c.lastCheckpoint,
+			"previousCheckpoint", c.lastCheckpoint,
+			"newCheckpoint", checkpoint,
+			"lastFullyClearedBlock", c.lastFullyClearedBlock)
+	} else {
+		// Find minimum pending level
+		minLevel := uint64(math.MaxUint64)
+		for level := range c.byFinalized {
+			if level < minLevel {
+				minLevel = level
+			}
+		}
+
+		checkpoint = minLevel - 1
+		if checkpoint <= c.lastCheckpoint {
+			c.lggr.Infow("Checkpoint has not advanced, skipping write",
+				"chain", c.chain,
+				"currentCheckpoint", checkpoint,
+				"lastCheckpoint", c.lastCheckpoint,
+				"minPendingLevel", minLevel,
+				"totalPendingLevels", len(c.byFinalized))
+			return 0, false
+		}
+
+		c.lggr.Infow("Checkpoint advanced",
+			"chain", c.chain,
+			"previousCheckpoint", c.lastCheckpoint,
+			"newCheckpoint", checkpoint,
 			"minPendingLevel", minLevel,
 			"totalPendingLevels", len(c.byFinalized))
-		return 0, false
 	}
-
-	c.lggr.Infow("Checkpoint advanced",
-		"chain", c.chain,
-		"previousCheckpoint", c.lastCheckpoint,
-		"newCheckpoint", checkpoint,
-		"minPendingLevel", minLevel,
-		"totalPendingLevels", len(c.byFinalized))
 
 	c.lastCheckpoint = checkpoint
 	return checkpoint, true
