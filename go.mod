@@ -45,6 +45,7 @@ require (
 
 require (
 	github.com/beevik/ntp v1.5.0
+	github.com/digital-asset/dazl-client/v8 v8.8.0
 	github.com/gagliardetto/solana-go v1.13.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lib/pq v1.10.9
@@ -58,7 +59,7 @@ require (
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery v0.0.0-20251211142334-5c3421fe2c8d
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier v0.0.0-20251211142334-5c3421fe2c8d
 	github.com/smartcontractkit/chainlink-solana v1.1.2-0.20260115213541-c4ca2e53370b
-	github.com/smartcontractkit/chainlink-testing-framework/framework v0.12.5
+	github.com/smartcontractkit/chainlink-testing-framework/framework v0.13.6
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8
 	github.com/spf13/cobra v1.8.1
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.39.0
@@ -165,6 +166,7 @@ require (
 	github.com/gofrs/flock v0.12.1 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect

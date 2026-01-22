@@ -23,7 +23,7 @@ require (
 	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260116110203-68d767f52164
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20260114190811-74301cd99dc3
 	github.com/smartcontractkit/chainlink-deployments-framework v0.74.2
-	github.com/smartcontractkit/chainlink-testing-framework/framework v0.13.5
+	github.com/smartcontractkit/chainlink-testing-framework/framework v0.13.6
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.39.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.39.0
@@ -31,6 +31,7 @@ require (
 )
 
 require (
+	github.com/digital-asset/dazl-client/v8 v8.8.0
 	github.com/go-resty/resty/v2 v2.16.5
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
@@ -184,7 +185,7 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/gogo/status v1.1.1 // indirect
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
-	github.com/golang-jwt/jwt/v5 v5.3.0 // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/btree v1.1.3 // indirect

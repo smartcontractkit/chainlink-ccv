@@ -17,6 +17,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
@@ -25,6 +26,7 @@ import (
 	executorconfig "github.com/smartcontractkit/chainlink-ccv/deployments/operations/executor_config"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 	verifierconfig "github.com/smartcontractkit/chainlink-ccv/deployments/operations/verifier_config"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/canton"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
@@ -127,12 +129,24 @@ func (c *Cfg) NewAggregatorClientForCommittee(logger zerolog.Logger, committeeNa
 // checkKeys performs basic sanity checks on the private key being used depending on which chain is in
 // the provided configuration.
 func checkKeys(in *Cfg) error {
-	if getNetworkPrivateKey() != DefaultAnvilKey && in.Blockchains[0].ChainID == "1337" && in.Blockchains[1].ChainID == "2337" {
-		return errors.New("you are trying to run simulated chains with a key that do not belong to Anvil, please run 'unset PRIVATE_KEY'")
+	evmSimChainIDs := []string{"1337", "2337", "3337"}
+
+	// get the blockchains that are evm chains
+	evmBlockchains := make([]*blockchain.Input, 0)
+	for _, bc := range in.Blockchains {
+		if bc.Type == "anvil" {
+			evmBlockchains = append(evmBlockchains, bc)
+		}
 	}
-	if getNetworkPrivateKey() == DefaultAnvilKey && in.Blockchains[0].ChainID != "1337" && in.Blockchains[1].ChainID != "2337" {
-		return errors.New("you are trying to run on real networks but is not using the Anvil private key, export your private key 'export PRIVATE_KEY=...'")
+	for _, bc := range evmBlockchains {
+		if getNetworkPrivateKey() != DefaultAnvilKey && slices.Contains(evmSimChainIDs, bc.ChainID) {
+			return errors.New("you are trying to run simulated chains with a key that do not belong to Anvil, please run 'unset PRIVATE_KEY'")
+		}
+		if getNetworkPrivateKey() == DefaultAnvilKey && !slices.Contains(evmSimChainIDs, bc.ChainID) {
+			return errors.New("you are trying to run on real networks but is not using the Anvil private key, export your private key 'export PRIVATE_KEY=...'")
+		}
 	}
+
 	return nil
 }
 
@@ -141,8 +155,14 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Co
 	case "anvil":
 		return evm.NewEmptyCCIP17EVM(), nil
 	case "canton":
-		// see devenv-evm implementation and add Canton
-		return nil, errors.New("canton is not supported yet")
+		return canton.New(
+			log.
+				Output(zerolog.ConsoleWriter{Out: os.Stderr}).
+				Level(zerolog.DebugLevel).
+				With().
+				Fields(map[string]any{"component": "Canton"}).
+				Logger(),
+		), nil
 	default:
 		return nil, errors.New("unknown devenv network type " + typ)
 	}
@@ -172,6 +192,9 @@ func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers [
 // enriches it with signer addresses, and returns it. This is used by both executor
 // and verifier changesets as the single source of truth.
 func buildEnvironmentTopology(in *Cfg) *deployments.EnvironmentTopology {
+	if in.EnvironmentTopology == nil {
+		return nil
+	}
 	envCfg := *in.EnvironmentTopology
 	enrichEnvironmentTopology(&envCfg, in.Verifier)
 	return &envCfg
@@ -530,18 +553,23 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("failed to setup pricer service")
 	}
 
-	for i, impl := range impls {
-		Plog.Info().Int("ImplIndex", i).Msg("Funding pricer key")
-		err = impl.FundAddresses(
-			ctx,
-			in.Blockchains[i],
-			[]protocol.UnknownAddress{common.HexToAddress(in.Pricer.Keystore.Address).Bytes()},
-			big.NewInt(5),
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fund pricer address: %w", err)
+	if in.Pricer != nil {
+		for i, impl := range impls {
+			if in.Blockchains[i].Type == blockchain.TypeCanton {
+				continue
+			}
+			Plog.Info().Int("ImplIndex", i).Msg("Funding pricer key")
+			err = impl.FundAddresses(
+				ctx,
+				in.Blockchains[i],
+				[]protocol.UnknownAddress{common.HexToAddress(in.Pricer.Keystore.Address).Bytes()},
+				big.NewInt(5),
+			)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fund pricer address: %w", err)
+			}
+			Plog.Info().Int("ImplIndex", i).Msg("Funded pricer address")
 		}
-		Plog.Info().Int("ImplIndex", i).Msg("Funded pricer address")
 	}
 
 	///////////////////////////////
@@ -642,6 +670,10 @@ func NewEnvironment() (in *Cfg, err error) {
 	timeTrack.Record("[infra] deploying blockchains")
 	ds := datastore.NewMemoryDataStore()
 	for i, impl := range impls {
+		if in.Blockchains[i].Type == blockchain.TypeCanton {
+			continue
+		}
+
 		var networkInfo chainsel.ChainDetails
 		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, chainsel.FamilyEVM)
 		if err != nil {
@@ -678,6 +710,10 @@ func NewEnvironment() (in *Cfg, err error) {
 	/////////////////////////////////////////
 
 	for i, impl := range impls {
+		if in.Blockchains[i].Type == blockchain.TypeCanton {
+			continue
+		}
+
 		var networkInfo chainsel.ChainDetails
 		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, chainsel.FamilyEVM)
 		if err != nil {
@@ -796,12 +832,12 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	// Inject generated credentials into indexer secrets for aggregator connections
-	if in.Indexer.Secrets == nil {
+	if in.Indexer != nil && in.Indexer.Secrets == nil {
 		in.Indexer.Secrets = &config.SecretsConfig{
 			Verifier: make(map[string]config.VerifierSecrets),
 		}
 	}
-	if in.Indexer.Secrets.Verifier == nil {
+	if in.Indexer != nil && in.Indexer.Secrets != nil && in.Indexer.Secrets.Verifier == nil {
 		in.Indexer.Secrets.Verifier = make(map[string]config.VerifierSecrets)
 	}
 
@@ -828,8 +864,10 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("failed to create indexer service: %w", err)
 	}
 
-	in.IndexerEndpoint = indexerOut.ExternalHTTPURL
-	in.IndexerInternalEndpoint = indexerOut.InternalHTTPURL
+	if in.Indexer != nil {
+		in.IndexerEndpoint = indexerOut.ExternalHTTPURL
+		in.IndexerInternalEndpoint = indexerOut.InternalHTTPURL
+	}
 
 	/////////////////////////
 	// END: Launch indexer //
@@ -884,9 +922,11 @@ func NewEnvironment() (in *Cfg, err error) {
 		in.TokenVerifier[i] = &ver
 	}
 
-	_, err = launchStandaloneTokenVerifiers(in, fakeOut.InternalHTTPURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create standalone token verifiers: %w", err)
+	if fakeOut != nil {
+		_, err = launchStandaloneTokenVerifiers(in, fakeOut.InternalHTTPURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create standalone token verifiers: %w", err)
+		}
 	}
 
 	///////////////////////////////////

@@ -6,10 +6,21 @@ import (
 
 // BlockHeader represents blockchain block header metadata.
 type BlockHeader struct {
-	Number     uint64
-	Hash       Bytes32
+	// Number is the block number of this block.
+	// Critical: This is used when querying for MessageSent events.
+	Number uint64
+
+	// Hash is the block hash of this block.
+	// NOTE: this is only used for re-org detection and finality violation detection.
+	Hash Bytes32
+
+	// ParentHash is the block hash of the parent of this block.
+	// NOTE: this is only used for re-org detection and finality violation detection.
 	ParentHash Bytes32
-	Timestamp  time.Time
+
+	// Timestamp of when this block was minted/mined.
+	// NOTE: does not seem to be read.
+	Timestamp time.Time
 }
 
 // ReorgType indicates the type of reorg detected.
