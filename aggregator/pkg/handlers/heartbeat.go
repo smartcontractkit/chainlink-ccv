@@ -111,7 +111,7 @@ func (h *HeartbeatHandler) Handle(ctx context.Context, req *heartbeatpb.Heartbea
 
 		// publish per-chain current max head metric
 		h.m.Metrics().With("chain_selector", fmt.Sprintf("%d", chainSelector)).
-			SetVerifierHeartbeatCurrentMaxChainHead(ctx, int64(maxBlockHeight))
+			SetVerifierHeartbeatCurrentMaxChainHead(ctx, int64(maxBlockHeight)) // #nosec G115 -- block heights are within int64 range
 	}
 
 	metrics := h.m.Metrics().With("caller_id", callerID)
