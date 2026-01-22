@@ -666,8 +666,8 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		setup.mockChainStatus.EXPECT().
 			WriteChainStatuses(mock.Anything, mock.MatchedBy(func(statuses []protocol.ChainStatusInfo) bool {
 				mu.Lock()
-				defer mu.Unlock()
 				callCount++
+				mu.Unlock()
 				return len(statuses) == 1 &&
 					statuses[0].ChainSelector == chain1 &&
 					statuses[0].FinalizedBlockHeight.Cmp(big.NewInt(99)) == 0
@@ -699,12 +699,11 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		setup.mockChainStatus.EXPECT().
 			WriteChainStatuses(mock.Anything, mock.Anything).
 			RunAndReturn(func(_ context.Context, statuses []protocol.ChainStatusInfo) error {
-				mu.Lock()
-				defer mu.Unlock()
 				require.Len(t, statuses, 1)
 				require.Equal(t, chain1, statuses[0].ChainSelector)
-
+				mu.Lock()
 				callCount++
+				mu.Unlock()
 				expectedCheckpoints := map[int]int64{1: 104, 2: 109}
 				require.Equal(t, expectedCheckpoints[callCount], statuses[0].FinalizedBlockHeight.Int64())
 				return nil
@@ -740,8 +739,8 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		setup.mockChainStatus.EXPECT().
 			WriteChainStatuses(mock.Anything, mock.MatchedBy(func(statuses []protocol.ChainStatusInfo) bool {
 				mu.Lock()
-				defer mu.Unlock()
 				callCount++
+				mu.Unlock()
 				return len(statuses) == 1 &&
 					statuses[0].ChainSelector == chain1 &&
 					statuses[0].FinalizedBlockHeight.Cmp(big.NewInt(99)) == 0
@@ -774,7 +773,6 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 			WriteChainStatuses(mock.Anything, mock.Anything).
 			RunAndReturn(func(_ context.Context, statuses []protocol.ChainStatusInfo) error {
 				mu.Lock()
-				defer mu.Unlock()
 				for _, status := range statuses {
 					switch status.ChainSelector {
 					case chain1:
@@ -785,6 +783,7 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 						chain2Written = true
 					}
 				}
+				mu.Unlock()
 				return nil
 			}).
 			Maybe()
@@ -812,8 +811,8 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		setup.mockChainStatus.EXPECT().
 			WriteChainStatuses(mock.Anything, mock.MatchedBy(func(statuses []protocol.ChainStatusInfo) bool {
 				mu.Lock()
-				defer mu.Unlock()
 				callCount++
+				mu.Unlock()
 				return len(statuses) == 1 &&
 					statuses[0].ChainSelector == chain1 &&
 					statuses[0].FinalizedBlockHeight.Cmp(big.NewInt(99)) == 0
