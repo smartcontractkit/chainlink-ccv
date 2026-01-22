@@ -16,6 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/ccvstorage"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
@@ -203,7 +204,7 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 	// Set up mock head tracker
 	mockLatestBlocks(mockSetup.Reader)
 
-	inMem := storage.NewInMemory()
+	inMem := ccvstorage.NewInMemory()
 	v, err := createCCTPCoordinator(
 		ts,
 		&cctpConfig,
@@ -304,7 +305,7 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 	mockLatestBlocks(reader1337.Reader)
 	mockLatestBlocks(reader2337.Reader)
 
-	inMem := storage.NewInMemory()
+	inMem := ccvstorage.NewInMemory()
 	v, err := createCCTPCoordinator(
 		ts,
 		&cctpConfig,
@@ -406,7 +407,7 @@ func Test_CCTPMessages_RetryingAttestation(t *testing.T) {
 	// Set up mock head tracker
 	mockLatestBlocks(mockSetup.Reader)
 
-	inMem := storage.NewInMemory()
+	inMem := ccvstorage.NewInMemory()
 	v, err := createCCTPCoordinator(
 		ts,
 		&cctpConfig,
@@ -465,7 +466,7 @@ func createCCTPCoordinator(
 	cctpConfig *cctp.CCTPConfig,
 	config verifier.CoordinatorConfig,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
-	inMemStorage *storage.InMemoryCCVStorage,
+	inMemStorage ccvstorage.CCVStorage,
 ) (*verifier.Coordinator, error) {
 	noopMonitoring := monitoring.NewFakeVerifierMonitoring()
 	noopLatencyTracker := verifier.NoopLatencyTracker{}

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
@@ -17,7 +16,6 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
-	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
@@ -32,19 +30,6 @@ import (
 const (
 	PkEnvVar   = "VERIFIER_SIGNER_PRIVATE_KEY"
 	ConfigPath = "VERIFIER_CONFIG_PATH"
-
-	// Database environment variables.
-	DatabaseURLEnvVar             = "CL_DATABASE_URL"
-	DatabaseMaxOpenConnsEnvVar    = "CL_DATABASE_MAX_OPEN_CONNS"
-	DatabaseMaxIdleConnsEnvVar    = "CL_DATABASE_MAX_IDLE_CONNS"
-	DatabaseConnMaxLifetimeEnvVar = "CL_DATABASE_CONN_MAX_LIFETIME"
-	DatabaseConnMaxIdleTimeEnvVar = "CL_DATABASE_CONN_MAX_IDLE_TIME"
-
-	// Database defaults.
-	defaultMaxOpenConns    = 2
-	defaultMaxIdleConns    = 1
-	defaultConnMaxLifetime = 300 // seconds
-	defaultConnMaxIdleTime = 60  // seconds
 )
 
 func main() {
@@ -137,7 +122,7 @@ func main() {
 	}
 
 	// Create chain status manager (PostgreSQL storage).
-	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr)
+	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr, config.VerifierID)
 	if err != nil {
 		lggr.Errorw("Failed to create chain status manager", "error", err)
 		os.Exit(1)
@@ -321,57 +306,10 @@ func loadConfiguration(filepath string) (*commit.Config, map[string]*protocol.Bl
 	return &config.Config, config.BlockchainInfos, nil
 }
 
-func createChainStatusManager(lggr logger.Logger) (protocol.ChainStatusManager, *sqlx.DB, error) {
-	dbURL := os.Getenv(DatabaseURLEnvVar)
-	if dbURL == "" {
-		return nil, nil, fmt.Errorf("%s environment variable is required", DatabaseURLEnvVar)
-	}
-
-	maxOpenConns := getEnvInt(DatabaseMaxOpenConnsEnvVar, defaultMaxOpenConns)
-	maxIdleConns := getEnvInt(DatabaseMaxIdleConnsEnvVar, defaultMaxIdleConns)
-	connMaxLifetime := getEnvInt(DatabaseConnMaxLifetimeEnvVar, defaultConnMaxLifetime)
-	connMaxIdleTime := getEnvInt(DatabaseConnMaxIdleTimeEnvVar, defaultConnMaxIdleTime)
-
-	db, err := sql.Open("postgres", dbURL)
+func createChainStatusManager(lggr logger.Logger, verifierID string) (protocol.ChainStatusManager, *sqlx.DB, error) {
+	sqlDB, err := cmd.ConnectToPostgresDB(lggr)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to open postgres database: %w", err)
+		return nil, nil, fmt.Errorf("failed to connect to Postgres DB: %w", err)
 	}
-
-	db.SetMaxOpenConns(maxOpenConns)
-	db.SetMaxIdleConns(maxIdleConns)
-	db.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
-	db.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Second)
-
-	if err := ccvcommon.EnsureDBConnection(lggr, db); err != nil {
-		_ = db.Close()
-		return nil, nil, fmt.Errorf("failed to ping postgres database: %w", err)
-	}
-
-	sqlxDB := sqlx.NewDb(db, "postgres")
-
-	if err := chainstatus.RunPostgresMigrations(sqlxDB); err != nil {
-		_ = db.Close()
-		return nil, nil, fmt.Errorf("failed to run postgres migrations: %w", err)
-	}
-
-	lggr.Infow("Using PostgreSQL chain status storage",
-		"maxOpenConns", maxOpenConns,
-		"maxIdleConns", maxIdleConns,
-		"connMaxLifetime", connMaxLifetime,
-		"connMaxIdleTime", connMaxIdleTime,
-	)
-
-	return chainstatus.NewPostgresChainStatusManager(sqlxDB, lggr), sqlxDB, nil
-}
-
-func getEnvInt(key string, defaultValue int) int {
-	val := os.Getenv(key)
-	if val == "" {
-		return defaultValue
-	}
-	intVal, err := strconv.Atoi(val)
-	if err != nil {
-		return defaultValue
-	}
-	return intVal
+	return chainstatus.NewPostgresChainStatusManager(sqlDB, lggr, verifierID), sqlDB, nil
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -163,11 +164,12 @@ type OnChainCommittees struct {
 // deploy, configure Chainlink product and connect on-chain part with other chains.
 type OnChainConfigurable interface {
 	ChainFamily() string // TODO
-	// DeployContractsForSelector configures contracts for chain X
-	// returns all the contract addresses and metadata as datastore.DataStore
-	DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, committees []OnChainCommittees) (datastore.DataStore, error)
+	// DeployContractsForSelector deploys contracts for chain X using topology for CommitteeVerifier configuration.
+	// Returns all the contract addresses and metadata as datastore.DataStore.
+	DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *deployments.EnvironmentTopology) (datastore.DataStore, error)
 	// ConnectContractsWithSelectors connects this chain onRamp to one or multiple offRamps for remote selectors (other chains)
-	ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, committees []OnChainCommittees) error
+	// and configures CommitteeVerifiers with signers from topology.
+	ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, topology *deployments.EnvironmentTopology) error
 }
 
 // OffChainConfigurable defines methods that allows to
