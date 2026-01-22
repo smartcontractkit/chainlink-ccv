@@ -22,6 +22,7 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
 const (
@@ -40,11 +41,18 @@ const (
 )
 
 // Start the environment required for this test using:
-// ccv start-blockchains env-canton-single-validator.toml
+// ccv up env-canton-single-validator.toml
 // from the build/devenv directory.
 func TestCantonSourceReader(t *testing.T) {
 	in, err := ccv.Load[ccv.Cfg]([]string{"../../../env-canton-single-validator-out.toml"})
 	require.NoError(t, err)
+
+	require.GreaterOrEqual(t, len(in.Blockchains), 1, "need at least one canton chain for this test")
+
+	t.Cleanup(func() {
+		_, err := framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
+		require.NoError(t, err)
+	})
 
 	bcOutput := in.Blockchains[0].Out
 

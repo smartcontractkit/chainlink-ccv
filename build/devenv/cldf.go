@@ -47,6 +47,11 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input, dataStore datastore.Da
 	selectors := make([]uint64, 0)
 	defaultTxTimeout := 30 * time.Second
 	for _, b := range bc {
+		if b.Type == blockchain.TypeCanton {
+			// Canton CLDF is not supported yet
+			continue
+		}
+
 		chainID := b.Out.ChainID
 		rpcWSURL := b.Out.Nodes[0].ExternalWSUrl
 		rpcHTTPURL := b.Out.Nodes[0].ExternalHTTPUrl

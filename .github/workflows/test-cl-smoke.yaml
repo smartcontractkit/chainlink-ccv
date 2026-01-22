@@ -24,6 +24,11 @@ jobs:
           - name: TestE2ESmoke
             config: "env.toml,env-cl.toml,env-cl-ci.toml"
             timeout: 15m
+            working-directory: build/devenv/tests/e2e
+          - name: TestCantonSourceReader
+            config: "env-canton-single-validator.toml"
+            timeout: 2m
+            working-directory: build/devenv/tests/integration/canton
           # We need to configure HeadTracker for the CL tests to have finality depth. Otherwise, it does instant finality.
           # - name: TestE2EReorg
           #   config: "env.toml,env-src-auto-mine.toml,env-cl.toml,env-cl-ci.toml"
@@ -94,9 +99,9 @@ jobs:
         run: |
           ccv u ${{ matrix.test.config }}
 
-      - name: Run Smoke Test
+      - name: Run Test ${{ matrix.test.name }}
         id: test_run
-        working-directory: build/devenv/tests/e2e
+        working-directory: ${{ matrix.test.working-directory }}
         env:
           LOKI_URL: http://localhost:3030/loki/api/v1/push
         run: |
@@ -106,7 +111,7 @@ jobs:
       
       - name: Dump logs if they're not already dumped
         if: always()
-        working-directory: build/devenv/tests/e2e
+        working-directory: ${{ matrix.test.working-directory }}
         run: |
           if [ ! -d "logs" ] || [ -z "$(ls -A logs)" ]; then
             echo "Logs not found or empty. Dumping logs manually..."
