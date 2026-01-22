@@ -38,10 +38,13 @@ type AggregatorMetrics struct {
 	panics metric.Int64Counter
 
 	// Verifiers health metrics
-	verifierHeartbeatTimestamp  metric.Float64Gauge
-	verifierHeartbeatsTotal     metric.Int64Counter
-	verifierHeartbeatChainHeads metric.Int64Gauge
-	verifierHeartbeatScore      metric.Float64Gauge
+	verifierHeartbeatTimestamp          metric.Float64Gauge
+	verifierHeartbeatsTotal             metric.Int64Counter
+	verifierHeartbeatReportedChainHeads metric.Int64Gauge
+	verifierHeartbeatScore              metric.Float64Gauge
+
+	// Verifier health benchmarks
+	verifierHeartbeatCurrentMaxChainHead metric.Int64Gauge
 
 	// Participation metrics
 	verificationsTotal metric.Int64Counter
@@ -213,12 +216,12 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 		return nil, fmt.Errorf("failed to register verifier heartbeats total counter: %w", err)
 	}
 
-	am.verifierHeartbeatChainHeads, err = beholder.GetMeter().Int64Gauge(
-		"aggregator_heartbeat_verifier_chain_heads",
+	am.verifierHeartbeatReportedChainHeads, err = beholder.GetMeter().Int64Gauge(
+		"aggregator_heartbeat_verifier_reported_chain_heads",
 		metric.WithDescription("Latest chain head reported by verifiers"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to register verifier heartbeat chain heads gauge: %w", err)
+		return nil, fmt.Errorf("failed to register verifier heartbeat reported chain heads gauge: %w", err)
 	}
 
 	am.verifierHeartbeatScore, err = beholder.GetMeter().Float64Gauge(
@@ -227,6 +230,14 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register verifier heartbeat score gauge: %w", err)
+	}
+
+	am.verifierHeartbeatCurrentMaxChainHead, err = beholder.GetMeter().Int64Gauge(
+		"aggregator_heartbeat_verifier_current_max_chain_head",
+		metric.WithDescription("Maximum block height across all verifiers on a specific chain"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register verifier heartbeat current max chain head gauge: %w", err)
 	}
 
 	am.verificationsTotal, err = beholder.GetMeter().Int64Counter(
@@ -341,9 +352,9 @@ func (c *AggregatorMetricLabeler) IncrementVerifierHeartbeatsTotal(ctx context.C
 	c.am.verifierHeartbeatsTotal.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
-func (c *AggregatorMetricLabeler) SetVerifierHeartbeatChainHeads(ctx context.Context, blockHeight uint64) {
+func (c *AggregatorMetricLabeler) SetVerifierHeartbeatReportedChainHeads(ctx context.Context, blockHeight uint64) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.am.verifierHeartbeatChainHeads.Record(ctx, int64(blockHeight), metric.WithAttributes(otelLabels...)) // #nosec G115 -- block heights are within int64 range
+	c.am.verifierHeartbeatReportedChainHeads.Record(ctx, int64(blockHeight), metric.WithAttributes(otelLabels...)) // #nosec G115 -- block heights are within int64 range
 }
 
 func (c *AggregatorMetricLabeler) SetVerifierLastHeartbeatTimestamp(ctx context.Context, timestamp int64) {
@@ -354,6 +365,11 @@ func (c *AggregatorMetricLabeler) SetVerifierLastHeartbeatTimestamp(ctx context.
 func (c *AggregatorMetricLabeler) SetVerifierHeartbeatScore(ctx context.Context, score float64) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
 	c.am.verifierHeartbeatScore.Record(ctx, score, metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) SetVerifierHeartbeatCurrentMaxChainHead(ctx context.Context, blockHeight int64) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.am.verifierHeartbeatCurrentMaxChainHead.Record(ctx, blockHeight, metric.WithAttributes(otelLabels...))
 }
 
 func (c *AggregatorMetricLabeler) IncrementVerificationsTotal(ctx context.Context) {

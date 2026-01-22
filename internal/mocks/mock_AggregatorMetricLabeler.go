@@ -628,36 +628,70 @@ func (_c *MockAggregatorMetricLabeler_SetOrphanExpiredBacklog_Call) RunAndReturn
 	return _c
 }
 
-// SetVerifierHeartbeatChainHeads provides a mock function with given fields: ctx, blockHeight
-func (_m *MockAggregatorMetricLabeler) SetVerifierHeartbeatChainHeads(ctx context.Context, blockHeight uint64) {
+// SetVerifierHeartbeatCurrentMaxChainHead provides a mock function with given fields: ctx, blockHeight
+func (_m *MockAggregatorMetricLabeler) SetVerifierHeartbeatCurrentMaxChainHead(ctx context.Context, blockHeight int64) {
 	_m.Called(ctx, blockHeight)
 }
 
-// MockAggregatorMetricLabeler_SetVerifierHeartbeatChainHeads_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetVerifierHeartbeatChainHeads'
-type MockAggregatorMetricLabeler_SetVerifierHeartbeatChainHeads_Call struct {
+// MockAggregatorMetricLabeler_SetVerifierHeartbeatCurrentMaxChainHead_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetVerifierHeartbeatCurrentMaxChainHead'
+type MockAggregatorMetricLabeler_SetVerifierHeartbeatCurrentMaxChainHead_Call struct {
 	*mock.Call
 }
 
-// SetVerifierHeartbeatChainHeads is a helper method to define mock.On call
+// SetVerifierHeartbeatCurrentMaxChainHead is a helper method to define mock.On call
 //   - ctx context.Context
-//   - blockHeight uint64
-func (_e *MockAggregatorMetricLabeler_Expecter) SetVerifierHeartbeatChainHeads(ctx interface{}, blockHeight interface{}) *MockAggregatorMetricLabeler_SetVerifierHeartbeatChainHeads_Call {
-	return &MockAggregatorMetricLabeler_SetVerifierHeartbeatChainHeads_Call{Call: _e.mock.On("SetVerifierHeartbeatChainHeads", ctx, blockHeight)}
+//   - blockHeight int64
+func (_e *MockAggregatorMetricLabeler_Expecter) SetVerifierHeartbeatCurrentMaxChainHead(ctx interface{}, blockHeight interface{}) *MockAggregatorMetricLabeler_SetVerifierHeartbeatCurrentMaxChainHead_Call {
+	return &MockAggregatorMetricLabeler_SetVerifierHeartbeatCurrentMaxChainHead_Call{Call: _e.mock.On("SetVerifierHeartbeatCurrentMaxChainHead", ctx, blockHeight)}
 }
 
-func (_c *MockAggregatorMetricLabeler_SetVerifierHeartbeatChainHeads_Call) Run(run func(ctx context.Context, blockHeight uint64)) *MockAggregatorMetricLabeler_SetVerifierHeartbeatChainHeads_Call {
+func (_c *MockAggregatorMetricLabeler_SetVerifierHeartbeatCurrentMaxChainHead_Call) Run(run func(ctx context.Context, blockHeight int64)) *MockAggregatorMetricLabeler_SetVerifierHeartbeatCurrentMaxChainHead_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int64))
+	})
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_SetVerifierHeartbeatCurrentMaxChainHead_Call) Return() *MockAggregatorMetricLabeler_SetVerifierHeartbeatCurrentMaxChainHead_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_SetVerifierHeartbeatCurrentMaxChainHead_Call) RunAndReturn(run func(context.Context, int64)) *MockAggregatorMetricLabeler_SetVerifierHeartbeatCurrentMaxChainHead_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetVerifierHeartbeatReportedChainHeads provides a mock function with given fields: ctx, blockHeight
+func (_m *MockAggregatorMetricLabeler) SetVerifierHeartbeatReportedChainHeads(ctx context.Context, blockHeight uint64) {
+	_m.Called(ctx, blockHeight)
+}
+
+// MockAggregatorMetricLabeler_SetVerifierHeartbeatReportedChainHeads_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetVerifierHeartbeatReportedChainHeads'
+type MockAggregatorMetricLabeler_SetVerifierHeartbeatReportedChainHeads_Call struct {
+	*mock.Call
+}
+
+// SetVerifierHeartbeatReportedChainHeads is a helper method to define mock.On call
+//   - ctx context.Context
+//   - blockHeight uint64
+func (_e *MockAggregatorMetricLabeler_Expecter) SetVerifierHeartbeatReportedChainHeads(ctx interface{}, blockHeight interface{}) *MockAggregatorMetricLabeler_SetVerifierHeartbeatReportedChainHeads_Call {
+	return &MockAggregatorMetricLabeler_SetVerifierHeartbeatReportedChainHeads_Call{Call: _e.mock.On("SetVerifierHeartbeatReportedChainHeads", ctx, blockHeight)}
+}
+
+func (_c *MockAggregatorMetricLabeler_SetVerifierHeartbeatReportedChainHeads_Call) Run(run func(ctx context.Context, blockHeight uint64)) *MockAggregatorMetricLabeler_SetVerifierHeartbeatReportedChainHeads_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(uint64))
 	})
 	return _c
 }
 
-func (_c *MockAggregatorMetricLabeler_SetVerifierHeartbeatChainHeads_Call) Return() *MockAggregatorMetricLabeler_SetVerifierHeartbeatChainHeads_Call {
+func (_c *MockAggregatorMetricLabeler_SetVerifierHeartbeatReportedChainHeads_Call) Return() *MockAggregatorMetricLabeler_SetVerifierHeartbeatReportedChainHeads_Call {
 	_c.Call.Return()
 	return _c
 }
 
-func (_c *MockAggregatorMetricLabeler_SetVerifierHeartbeatChainHeads_Call) RunAndReturn(run func(context.Context, uint64)) *MockAggregatorMetricLabeler_SetVerifierHeartbeatChainHeads_Call {
+func (_c *MockAggregatorMetricLabeler_SetVerifierHeartbeatReportedChainHeads_Call) RunAndReturn(run func(context.Context, uint64)) *MockAggregatorMetricLabeler_SetVerifierHeartbeatReportedChainHeads_Call {
 	_c.Run(run)
 	return _c
 }

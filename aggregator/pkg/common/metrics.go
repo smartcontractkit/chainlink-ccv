@@ -54,8 +54,10 @@ type AggregatorMetricLabeler interface {
 	SetVerifierLastHeartbeatTimestamp(ctx context.Context, timestamp int64)
 	// IncrementVerifierHeartbeatsTotal increments the total number of heartbeats received.
 	IncrementVerifierHeartbeatsTotal(ctx context.Context)
-	// SetVerifierHeartbeatChainHeads sets the block height gauge for a verifier on a specific chain.
-	SetVerifierHeartbeatChainHeads(ctx context.Context, blockHeight uint64)
+	// SetVerifierHeartbeatReportedChainHeads sets the block height gauge for a verifier on a specific chain.
+	SetVerifierHeartbeatReportedChainHeads(ctx context.Context, blockHeight uint64)
+	// SetVerifierHeartbeatCurrentMaxChainHead sets the maximum block height benchmark across all verifiers on a specific chain.
+	SetVerifierHeartbeatCurrentMaxChainHead(ctx context.Context, blockHeight int64)
 	// IncrementVerificationsTotal increments the total number of commit verifications received.
 	IncrementVerificationsTotal(ctx context.Context)
 }
