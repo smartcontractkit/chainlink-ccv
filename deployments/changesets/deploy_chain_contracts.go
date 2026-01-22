@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/common"
 
 	evmchangesets "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/changesets"
@@ -112,7 +111,7 @@ func BuildCommitteeVerifierParams(
 		}
 
 		params = append(params, sequences.CommitteeVerifierParams{
-			Version:          semver.MustParse("1.7.0"),
+			Version:          committee.VerifierVersion,
 			FeeAggregator:    common.HexToAddress(committee.FeeAggregator),
 			AllowlistAdmin:   common.HexToAddress(committee.AllowlistAdmin),
 			StorageLocations: committee.StorageLocations,
