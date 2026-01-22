@@ -653,6 +653,7 @@ func (s *checkpointTestSetup) sendBatch(t *testing.T, items []protocol.VerifierN
 // ----------------------
 
 func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
+	var mu sync.Mutex
 	t.Run("writes checkpoint after successful storage write", func(t *testing.T) {
 		setup := setupCheckpointTest(t)
 		chain1 := protocol.ChainSelector(1)
@@ -664,6 +665,8 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		// Expect checkpoint at 99 (100 - 1) after msg1 is written and removed
 		setup.mockChainStatus.EXPECT().
 			WriteChainStatuses(mock.Anything, mock.MatchedBy(func(statuses []protocol.ChainStatusInfo) bool {
+				mu.Lock()
+				defer mu.Unlock()
 				callCount++
 				return len(statuses) == 1 &&
 					statuses[0].ChainSelector == chain1 &&
@@ -678,6 +681,8 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		setup.sendBatch(t, []protocol.VerifierNodeResult{msg1})
 
 		require.Eventually(t, func() bool {
+			mu.Lock()
+			defer mu.Unlock()
 			return callCount == 1 && setup.mockChainStatus.AssertExpectations(t)
 		}, tests.WaitTimeout(t), 500*time.Millisecond)
 	})
@@ -696,6 +701,8 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		setup.mockChainStatus.EXPECT().
 			WriteChainStatuses(mock.Anything, mock.Anything).
 			RunAndReturn(func(_ context.Context, statuses []protocol.ChainStatusInfo) error {
+				mu.Lock()
+				defer mu.Unlock()
 				require.Len(t, statuses, 1)
 				require.Equal(t, chain1, statuses[0].ChainSelector)
 
@@ -715,6 +722,8 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		setup.sendBatch(t, []protocol.VerifierNodeResult{msg3})
 
 		require.Eventually(t, func() bool {
+			mu.Lock()
+			defer mu.Unlock()
 			return callCount == 2 && setup.mockChainStatus.AssertExpectations(t)
 		}, tests.WaitTimeout(t), 500*time.Millisecond)
 
@@ -734,6 +743,8 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		// Expect only ONE checkpoint write at 99 after all messages are written
 		setup.mockChainStatus.EXPECT().
 			WriteChainStatuses(mock.Anything, mock.MatchedBy(func(statuses []protocol.ChainStatusInfo) bool {
+				mu.Lock()
+				defer mu.Unlock()
 				callCount++
 				return len(statuses) == 1 &&
 					statuses[0].ChainSelector == chain1 &&
@@ -748,6 +759,8 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		setup.sendBatch(t, []protocol.VerifierNodeResult{msg1, msg2, msg3})
 
 		require.Eventually(t, func() bool {
+			mu.Lock()
+			defer mu.Unlock()
 			return callCount == 1 && setup.mockChainStatus.AssertExpectations(t)
 		}, tests.WaitTimeout(t), 500*time.Millisecond)
 	})
@@ -766,6 +779,8 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		setup.mockChainStatus.EXPECT().
 			WriteChainStatuses(mock.Anything, mock.Anything).
 			RunAndReturn(func(_ context.Context, statuses []protocol.ChainStatusInfo) error {
+				mu.Lock()
+				defer mu.Unlock()
 				for _, status := range statuses {
 					switch status.ChainSelector {
 					case chain1:
@@ -786,6 +801,8 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		setup.sendBatch(t, []protocol.VerifierNodeResult{msg1, msg2})
 
 		require.Eventually(t, func() bool {
+			mu.Lock()
+			defer mu.Unlock()
 			return chain1Written && chain2Written && setup.mockChainStatus.AssertExpectations(t)
 		}, tests.WaitTimeout(t), 500*time.Millisecond)
 	})
@@ -802,6 +819,8 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		// Expect only checkpoint at 99 (msg1 at 100 is still pending)
 		setup.mockChainStatus.EXPECT().
 			WriteChainStatuses(mock.Anything, mock.MatchedBy(func(statuses []protocol.ChainStatusInfo) bool {
+				mu.Lock()
+				defer mu.Unlock()
 				callCount++
 				return len(statuses) == 1 &&
 					statuses[0].ChainSelector == chain1 &&
@@ -817,6 +836,8 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		setup.sendBatch(t, []protocol.VerifierNodeResult{msg2})
 
 		require.Eventually(t, func() bool {
+			mu.Lock()
+			defer mu.Unlock()
 			return callCount == 1 && setup.mockChainStatus.AssertExpectations(t)
 		}, tests.WaitTimeout(t), 500*time.Millisecond)
 	})
