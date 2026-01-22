@@ -214,7 +214,7 @@ func GetAllNOPJobSpecs(ds datastore.DataStore) (shared.NOPJobSpecs, error) {
 		return make(shared.NOPJobSpecs), nil
 	}
 
-	return shared.NOPJobSpecs(ccvMeta.OffchainConfigs.NOPJobSpecs), nil
+	return ccvMeta.OffchainConfigs.NOPJobSpecs, nil
 }
 
 // DeleteNOPJobSpec removes a specific job spec from the datastore by NOP alias and job spec ID.

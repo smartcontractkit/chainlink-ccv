@@ -356,5 +356,5 @@ func (c *EnvironmentTopology) GetAggregatorNamesForCommittee(name string) ([]str
 			return names, nil
 		}
 	}
-	return nil, fmt.Errorf("No aggregators found for committee: %s", name)
+	return nil, fmt.Errorf("no aggregators found for committee: %s", name)
 }
