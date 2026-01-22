@@ -258,7 +258,6 @@ func identifiersEqual(a, b *ledgerv2.Identifier) bool {
 
 // GetBlocksHeaders implements chainaccess.SourceReader.
 // The blockNumbers passed in are offset numbers, since that's all we ever return from LatestAndFinalizedBlock.
-// So there's no need to do a network call here.
 func (c *sourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
 	latest, _, err := c.LatestAndFinalizedBlock(ctx)
 	if err != nil {
