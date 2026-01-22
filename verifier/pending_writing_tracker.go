@@ -98,61 +98,52 @@ func (c *chainPendingState) checkpointIfAdvanced() (uint64, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	var checkpoint uint64
-
-	if len(c.byFinalized) == 0 {
-		// No pending messages - checkpoint at lastFullyClearedBlock - 1
-		if c.lastFullyClearedBlock == 0 {
-			c.lggr.Infow("No pending messages, skipping checkpoint",
-				"chain", c.chain,
-				"lastCheckpoint", c.lastCheckpoint,
-				"lastFullyClearedBlock", c.lastFullyClearedBlock)
-			return 0, false
-		}
-		checkpoint = c.lastFullyClearedBlock - 1
-		if checkpoint <= c.lastCheckpoint {
-			c.lggr.Infow("No pending messages, skipping checkpoint",
-				"chain", c.chain,
-				"lastCheckpoint", c.lastCheckpoint,
-				"lastFullyClearedBlock", c.lastFullyClearedBlock,
-				"checkpoint", checkpoint)
-			return 0, false
-		}
-		c.lggr.Infow("Checkpoint advanced (all messages cleared)",
-			"chain", c.chain,
-			"previousCheckpoint", c.lastCheckpoint,
-			"newCheckpoint", checkpoint,
-			"lastFullyClearedBlock", c.lastFullyClearedBlock)
-	} else {
-		// Find minimum pending level
-		minLevel := uint64(math.MaxUint64)
-		for level := range c.byFinalized {
-			if level < minLevel {
-				minLevel = level
-			}
-		}
-
-		checkpoint = minLevel - 1
-		if checkpoint <= c.lastCheckpoint {
-			c.lggr.Infow("Checkpoint has not advanced, skipping write",
-				"chain", c.chain,
-				"currentCheckpoint", checkpoint,
-				"lastCheckpoint", c.lastCheckpoint,
-				"minPendingLevel", minLevel,
-				"totalPendingLevels", len(c.byFinalized))
-			return 0, false
-		}
-
-		c.lggr.Infow("Checkpoint advanced",
-			"chain", c.chain,
-			"previousCheckpoint", c.lastCheckpoint,
-			"newCheckpoint", checkpoint,
-			"minPendingLevel", minLevel,
-			"totalPendingLevels", len(c.byFinalized))
+	checkpoint := c.calculateCheckpoint()
+	if checkpoint == 0 || checkpoint <= c.lastCheckpoint {
+		return 0, false
 	}
+
+	c.lggr.Infow("Checkpoint advanced",
+		"chain", c.chain,
+		"previousCheckpoint", c.lastCheckpoint,
+		"newCheckpoint", checkpoint,
+		"totalPendingLevels", len(c.byFinalized))
 
 	c.lastCheckpoint = checkpoint
 	return checkpoint, true
+}
+
+// calculateCheckpoint computes the safe checkpoint based on current state.
+// Returns 0 if no checkpoint is available.
+func (c *chainPendingState) calculateCheckpoint() uint64 {
+	if len(c.byFinalized) == 0 {
+		// No pending messages - checkpoint at lastFullyClearedBlock - 1
+		if c.lastFullyClearedBlock == 0 {
+			c.lggr.Infow("No pending messages, no cleared block tracked",
+				"chain", c.chain,
+				"lastCheckpoint", c.lastCheckpoint)
+			return 0
+		}
+		c.lggr.Infow("All messages cleared, checkpoint available",
+			"chain", c.chain,
+			"lastFullyClearedBlock", c.lastFullyClearedBlock)
+		return c.lastFullyClearedBlock - 1
+	}
+
+	// Find minimum pending level
+	minLevel := uint64(math.MaxUint64)
+	for level := range c.byFinalized {
+		if level < minLevel {
+			minLevel = level
+		}
+	}
+
+	c.lggr.Debugw("Checkpoint calculation",
+		"chain", c.chain,
+		"minPendingLevel", minLevel,
+		"totalPendingLevels", len(c.byFinalized))
+
+	return minLevel - 1
 }
 
 // PendingWritingTracker is shared between SRS, TVP, and SWP.

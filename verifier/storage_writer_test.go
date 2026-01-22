@@ -573,8 +573,8 @@ func createTestVerifierNodeResult(sequenceNumber uint64) protocol.VerifierNodeRe
 // ----------------------
 
 // createTrackedMessage creates a message and tracks it properly
-// Returns the VerifierNodeResult with correct MessageID that matches tracker entry
-func createTrackedMessage(chain protocol.ChainSelector, seqNum uint64, finalizedBlock uint64, tracker *PendingWritingTracker) protocol.VerifierNodeResult {
+// Returns the VerifierNodeResult with correct MessageID that matches tracker entry.
+func createTrackedMessage(chain protocol.ChainSelector, seqNum, finalizedBlock uint64, tracker *PendingWritingTracker) protocol.VerifierNodeResult {
 	msg := protocol.Message{
 		SourceChainSelector: chain,
 		SequenceNumber:      protocol.SequenceNumber(seqNum),
@@ -759,10 +759,11 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 			WriteChainStatuses(mock.Anything, mock.Anything).
 			RunAndReturn(func(_ context.Context, statuses []protocol.ChainStatusInfo) error {
 				for _, status := range statuses {
-					if status.ChainSelector == chain1 {
+					switch status.ChainSelector {
+					case chain1:
 						require.Equal(t, int64(99), status.FinalizedBlockHeight.Int64())
 						chain1Written = true
-					} else if status.ChainSelector == chain2 {
+					case chain2:
 						require.Equal(t, int64(199), status.FinalizedBlockHeight.Int64())
 						chain2Written = true
 					}
