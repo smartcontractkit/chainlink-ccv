@@ -16,7 +16,6 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
@@ -647,28 +646,15 @@ func NewEnvironment() (in *Cfg, err error) {
 	// END: Assign signing keys to verifiers //
 	/////////////////////////////////////////////
 
+	/////////////////////////////////////////
+	// START: Build shared EnvironmentTopology //
+	// Used by contract deployment and off-chain config //
+	/////////////////////////////////////////
+	topology := buildEnvironmentTopology(in)
+
 	/////////////////////////////
 	// START: Deploy contracts //
 	/////////////////////////////
-	var committees []cciptestinterfaces.OnChainCommittees
-	{
-		addrs := make(map[string][][]byte)
-
-		for _, ver := range in.Verifier {
-			// At this point, SigningKeyPublic must be assigned -- either by keygen either manually or by the CL node.
-			addrs[ver.CommitteeName] = append(addrs[ver.CommitteeName], hexutil.MustDecode(ver.SigningKeyPublic))
-		}
-
-		for committeeName, signers := range addrs {
-			committees = append(committees, cciptestinterfaces.OnChainCommittees{
-				CommitteeQualifier: committeeName,
-				Signers:            signers,
-				// TODO: should this be pulled from the aggregator configuration, ThresholdPerSource?
-				// And if nothing in there, default to len(signers)?
-				Threshold: uint8(len(signers)),
-			})
-		}
-	}
 
 	var selectors []uint64
 	var e *deployment.Environment
@@ -695,7 +681,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 		L.Info().Uint64("Selector", networkInfo.ChainSelector).Msg("Deployed chain selector")
 		var dsi datastore.DataStore
-		dsi, err = impl.DeployContractsForSelector(ctx, e, networkInfo.ChainSelector, committees)
+		dsi, err = impl.DeployContractsForSelector(ctx, e, networkInfo.ChainSelector, topology)
 		if err != nil {
 			return nil, err
 		}
@@ -739,7 +725,7 @@ func NewEnvironment() (in *Cfg, err error) {
 				selsToConnect = append(selsToConnect, sel)
 			}
 		}
-		err = impl.ConnectContractsWithSelectors(ctx, e, networkInfo.ChainSelector, selsToConnect, committees)
+		err = impl.ConnectContractsWithSelectors(ctx, e, networkInfo.ChainSelector, selsToConnect, topology)
 		if err != nil {
 			return nil, err
 		}
@@ -886,14 +872,6 @@ func NewEnvironment() (in *Cfg, err error) {
 	/////////////////////////
 	// END: Launch indexer //
 	/////////////////////////
-
-	/////////////////////////////////////////
-	// START: Build shared EnvironmentTopology //
-	// Used by both executor and verifier //
-	// changesets as single source of truth //
-	/////////////////////////////////////////
-
-	topology := buildEnvironmentTopology(in)
 
 	/////////////////////////////
 	// START: Launch executors //

@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
-	"strings"
-
 	"github.com/BurntSushi/toml"
+	"github.com/Masterminds/semver/v3"
 )
 
 // EnvironmentTopology holds all environment-specific configuration that cannot be inferred
@@ -99,10 +99,16 @@ type NOPConfig struct {
 }
 
 // CommitteeConfig defines a committee and its per-chain membership.
+// It contains both off-chain (aggregators, chain configs) and on-chain
+// (fee_aggregator, allowlist_admin, storage_locations) configuration.
 type CommitteeConfig struct {
-	Qualifier    string                          `toml:"qualifier"`
-	ChainConfigs map[string]ChainCommitteeConfig `toml:"chain_configs"`
-	Aggregators  []AggregatorConfig              `toml:"aggregators"`
+	Qualifier        string                          `toml:"qualifier"`
+	VerifierVersion  *semver.Version                 `toml:"verifier_version"`
+	FeeAggregator    string                          `toml:"fee_aggregator,omitempty"`
+	AllowlistAdmin   string                          `toml:"allowlist_admin,omitempty"`
+	StorageLocations []string                        `toml:"storage_locations,omitempty"`
+	ChainConfigs     map[string]ChainCommitteeConfig `toml:"chain_configs"`
+	Aggregators      []AggregatorConfig              `toml:"aggregators"`
 }
 
 // ChainCommitteeConfig defines committee membership for a specific chain.

@@ -116,15 +116,15 @@ type VerifierInput struct {
 
 // GenerateConfigWithBlockchainInfos combines the pre-generated config with blockchain infos
 // for standalone mode deployment.
-func (v *VerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*protocol.BlockchainInfo) ([]byte, error) {
+func (v *VerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*protocol.BlockchainInfo) (string, []byte, error) {
 	if v.GeneratedConfig == "" {
-		return nil, fmt.Errorf("GeneratedConfig is empty - must be set from changeset output")
+		return "", nil, fmt.Errorf("GeneratedConfig is empty - must be set from changeset output")
 	}
 
 	// Parse the generated config
 	var baseConfig commit.Config
 	if _, err := toml.Decode(v.GeneratedConfig, &baseConfig); err != nil {
-		return nil, fmt.Errorf("failed to parse generated config: %w", err)
+		return "", nil, fmt.Errorf("failed to parse generated config: %w", err)
 	}
 
 	// Wrap with blockchain infos for standalone mode
@@ -135,13 +135,14 @@ func (v *VerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[st
 
 	cfg, err := toml.Marshal(config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal verifier config to TOML: %w", err)
+		return "", nil, fmt.Errorf("failed to marshal verifier config to TOML: %w", err)
 	}
 
-	return cfg, nil
+	return config.VerifierID, cfg, nil
 }
 
 type VerifierOutput struct {
+	VerifierID         string `toml:"verifier_id"`
 	ContainerName      string `toml:"container_name"`
 	ExternalHTTPURL    string `toml:"http_url"`
 	InternalHTTPURL    string `toml:"internal_http_url"`
@@ -260,7 +261,7 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 	envVars["CL_DATABASE_URL"] = internalDBConnectionString
 
 	// Generate and store config file.
-	config, err := in.GenerateConfigWithBlockchainInfos(blockchainInfos)
+	verifierID, config, err := in.GenerateConfigWithBlockchainInfos(blockchainInfos)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate verifier config for committee %s: %w", in.CommitteeName, err)
 	}
@@ -356,6 +357,7 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 	}
 
 	return &VerifierOutput{
+		VerifierID:      verifierID,
 		ContainerName:   in.ContainerName,
 		ExternalHTTPURL: fmt.Sprintf("http://%s:%d", host, in.Port),
 		InternalHTTPURL: fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
