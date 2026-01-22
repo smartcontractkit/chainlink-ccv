@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
@@ -66,7 +67,17 @@ func TestE2EReorg(t *testing.T) {
 	verifierDBConnectionString := in.Verifier[0].Out.DBConnectionString
 	chainStatusDB, err := sqlx.Connect("postgres", verifierDBConnectionString)
 	require.NoError(t, err, "should be able to connect to verifier's postgres database")
-	chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusDB, chainStatusLggr, "test-verifier-e2e")
+
+	// Extract verifier_id from the GeneratedConfig TOML
+	var verifierConfig struct {
+		VerifierID string `toml:"verifier_id"`
+	}
+	_, err = toml.Decode(in.Verifier[0].GeneratedConfig, &verifierConfig)
+	require.NoError(t, err, "should be able to parse verifier config")
+	require.NotEmpty(t, verifierConfig.VerifierID, "verifier ID should be set in generated config")
+	l.Info().Str("verifierID", verifierConfig.VerifierID).Msg("Using verifier ID from generated config")
+
+	chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusDB, chainStatusLggr, verifierConfig.VerifierID)
 	t.Cleanup(func() {
 		_ = chainStatusDB.Close()
 	})
