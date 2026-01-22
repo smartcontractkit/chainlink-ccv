@@ -176,6 +176,7 @@ func main() {
 				RmnRemoteAddress:          chainConfig.RmnAddress,
 				CacheExpiry:               executorConfig.ReaderCacheExpiry,
 				ExecutionVisabilityWindow: executorConfig.MaxRetryDuration,
+				Monitoring:                executorMonitoring,
 			})
 		if err != nil {
 			lggr.Errorw("Failed to create destination reader", "error", err, "chainSelector", strSel)

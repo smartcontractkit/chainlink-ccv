@@ -65,6 +65,7 @@ type Params struct {
 	RmnRemoteAddress          string
 	CacheExpiry               time.Duration
 	ExecutionVisabilityWindow time.Duration
+	Monitoring                executor.Monitoring
 }
 
 func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
@@ -121,6 +122,7 @@ func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
 		client:                 params.ChainClient,
 		ccvCache:               ccvCache,
 		executionAttemptPoller: executionAttemptPoller,
+		monitoring:             params.Monitoring,
 	}, nil
 }
 

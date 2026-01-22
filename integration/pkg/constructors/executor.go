@@ -76,6 +76,12 @@ func NewExecutorCoordinator(
 		}
 	}
 
+	executorMonitoring, err := monitoring.InitMonitoring()
+	if err != nil {
+		lggr.Errorw("Failed to initialize executor monitoring", "error", err)
+		return nil, fmt.Errorf("failed to initialize executor monitoring: %w", err)
+	}
+
 	transmitters := make(map[protocol.ChainSelector]executor.ContractTransmitter)
 	destReaders := make(map[protocol.ChainSelector]executor.DestinationReader)
 	rmnReaders := make(map[protocol.ChainSelector]ccvcommon.RMNRemoteReader)
@@ -103,6 +109,7 @@ func NewExecutorCoordinator(
 				RmnRemoteAddress:          rmnAddresses[sel].String(),
 				CacheExpiry:               cfg.ReaderCacheExpiry,
 				ExecutionVisabilityWindow: cfg.MaxRetryDuration,
+				Monitoring:                executorMonitoring,
 			})
 		if err != nil {
 			lggr.Errorw("Failed to create destination reader", "error", err, "chainSelector", sel)
@@ -118,12 +125,6 @@ func NewExecutorCoordinator(
 		RmnReaders:  rmnReaders,
 		CacheExpiry: cfg.ReaderCacheExpiry,
 	})
-
-	executorMonitoring, err := monitoring.InitMonitoring()
-	if err != nil {
-		lggr.Errorw("Failed to initialize executor monitoring", "error", err)
-		return nil, fmt.Errorf("failed to initialize executor monitoring: %w", err)
-	}
 
 	// create indexer client which implements MessageReader and VerifierResultReader
 	indexerClient, err := client.NewIndexerClient(cfg.IndexerAddress, &http.Client{
