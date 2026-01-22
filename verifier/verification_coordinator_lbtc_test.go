@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 
 	"github.com/stretchr/testify/require"
