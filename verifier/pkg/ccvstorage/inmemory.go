@@ -1,4 +1,4 @@
-package storage
+package ccvstorage
 
 import (
 	"context"
@@ -39,7 +39,7 @@ func (s *InMemoryCCVStorage) Set(_ context.Context, entries []Entry) error {
 	defer s.mu.Unlock()
 
 	for _, entry := range entries {
-		msgID, err := entry.value.Message.MessageID()
+		msgID, err := entry.Value.Message.MessageID()
 		if err != nil {
 			return err
 		}

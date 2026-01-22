@@ -1,4 +1,4 @@
-package chainstatus
+package db
 
 import (
 	"embed"

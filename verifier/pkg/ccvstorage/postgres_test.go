@@ -1,4 +1,4 @@
-package storage
+package ccvstorage
 
 import (
 	"encoding/json"
