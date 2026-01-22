@@ -41,11 +41,9 @@ const (
 	destChainSelector = 1337
 )
 
-var (
-	// version in hex: 0x49ff34ed
-	// obtained from https://github.com/smartcontractkit/chainlink-ccip/blob/de2b2252d2003c99abeb98d122fc9fbe248009bb/chains/evm/contracts/ccvs/CommitteeVerifier.sol#L35-L36.
-	committeeVerifierVersion = []byte{0x49, 0xff, 0x34, 0xed}
-)
+// version in hex: 0x49ff34ed
+// obtained from https://github.com/smartcontractkit/chainlink-ccip/blob/de2b2252d2003c99abeb98d122fc9fbe248009bb/chains/evm/contracts/ccvs/CommitteeVerifier.sol#L35-L36.
+var committeeVerifierVersion = []byte{0x49, 0xff, 0x34, 0xed}
 
 // Start the environment required for this test using:
 // ccv up env-canton-single-validator.toml
