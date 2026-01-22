@@ -68,12 +68,12 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input, dataStore datastore.Da
 
 			var confirmer cldf_evm_provider.ConfirmFunctor
 			switch b.Type {
-			case "anvil":
+			case blockchain.TypeAnvil:
 				confirmer = cldf_evm_provider.ConfirmFuncGeth(defaultTxTimeout, cldf_evm_provider.WithTickInterval(5*time.Millisecond))
-			case "geth":
+			case blockchain.TypeGeth:
 				confirmer = cldf_evm_provider.ConfirmFuncGeth(defaultTxTimeout)
 			default:
-				panic("EVM blockchain type is not 'anvil' or 'geth', no other types are supported right now")
+				panic(fmt.Sprintf("EVM blockchain type %s is not supported", b.Type))
 			}
 
 			p, err := cldf_evm_provider.NewRPCChainProvider(

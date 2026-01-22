@@ -6,10 +6,10 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
-	changesets_core "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
+	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
-	changesets_1_7_0 "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
+	changesetsv170 "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -69,7 +69,7 @@ type ConfigureChainsForLanesFromTopologyConfig struct {
 
 // ConfigureCommitteeVerifiersFromTopology creates a changeset that configures
 // CommitteeVerifier contracts with signers and thresholds from the topology.
-func ConfigureChainsForLanesFromTopology(chainFamilyRegistry *adapters.ChainFamilyRegistry, mcmsRegistry *changesets_core.MCMSReaderRegistry) deployment.ChangeSetV2[ConfigureChainsForLanesFromTopologyConfig] {
+func ConfigureChainsForLanesFromTopology(chainFamilyRegistry *adapters.ChainFamilyRegistry, mcmsRegistry *changesetscore.MCMSReaderRegistry) deployment.ChangeSetV2[ConfigureChainsForLanesFromTopologyConfig] {
 	validate := func(e deployment.Environment, cfg ConfigureChainsForLanesFromTopologyConfig) error {
 		if cfg.Topology == nil {
 			return fmt.Errorf("topology is required")
@@ -93,7 +93,7 @@ func ConfigureChainsForLanesFromTopology(chainFamilyRegistry *adapters.ChainFami
 			return deployment.ChangesetOutput{}, fmt.Errorf("topology is required")
 		}
 
-		chains := make([]changesets_1_7_0.ChainConfig, 0, len(cfg.Chains))
+		chains := make([]changesetsv170.ChainConfig, 0, len(cfg.Chains))
 		for _, chain := range cfg.Chains {
 			committeeVerifiers := make([]adapters.CommitteeVerifierConfig[datastore.AddressRef], 0, len(chain.CommitteeVerifiers))
 			for _, committeeVerifier := range chain.CommitteeVerifiers {
@@ -148,7 +148,7 @@ func ConfigureChainsForLanesFromTopology(chainFamilyRegistry *adapters.ChainFami
 					RemoteChains: remoteChains,
 				})
 			}
-			chains = append(chains, changesets_1_7_0.ChainConfig{
+			chains = append(chains, changesetsv170.ChainConfig{
 				ChainSelector:      chain.ChainSelector,
 				RemoteChains:       chain.RemoteChains,
 				FeeQuoter:          chain.FeeQuoter,
@@ -159,7 +159,7 @@ func ConfigureChainsForLanesFromTopology(chainFamilyRegistry *adapters.ChainFami
 			})
 		}
 
-		return changesets_1_7_0.ConfigureChainsForLanes(chainFamilyRegistry, mcmsRegistry).Apply(e, changesets_1_7_0.ConfigureChainsForLanesConfig{
+		return changesetsv170.ConfigureChainsForLanes(chainFamilyRegistry, mcmsRegistry).Apply(e, changesetsv170.ConfigureChainsForLanesConfig{
 			Chains: chains,
 			MCMS:   cfg.MCMS,
 		})

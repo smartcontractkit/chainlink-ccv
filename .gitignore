@@ -14,6 +14,9 @@ indexer/secrets.toml
 # Ignore all tmp directories
 **/tmp/
 
+# Ignore all log directories
+**/logs/
+
 # Go workspace file
 go.work
 go.work.sum
