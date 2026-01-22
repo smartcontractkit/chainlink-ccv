@@ -43,6 +43,9 @@ type BeholderInput struct {
 type JobID string
 
 type JobScope interface {
+	// IsJobInScope returns true if the given JobID falls within this scope.
+	// This is primarily used during cleanup to ensure that operations only affect
+	// jobs matching the specific scope criteria (e.g., specific executor or verifier type).
 	IsJobInScope(jobID JobID) bool
 }
 
