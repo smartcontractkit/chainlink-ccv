@@ -681,8 +681,6 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		setup.sendBatch(t, []protocol.VerifierNodeResult{msg1})
 
 		require.Eventually(t, func() bool {
-			mu.Lock()
-			defer mu.Unlock()
 			return callCount == 1 && setup.mockChainStatus.AssertExpectations(t)
 		}, tests.WaitTimeout(t), 500*time.Millisecond)
 	})
@@ -722,8 +720,6 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		setup.sendBatch(t, []protocol.VerifierNodeResult{msg3})
 
 		require.Eventually(t, func() bool {
-			mu.Lock()
-			defer mu.Unlock()
 			return callCount == 2 && setup.mockChainStatus.AssertExpectations(t)
 		}, tests.WaitTimeout(t), 500*time.Millisecond)
 
@@ -759,8 +755,6 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		setup.sendBatch(t, []protocol.VerifierNodeResult{msg1, msg2, msg3})
 
 		require.Eventually(t, func() bool {
-			mu.Lock()
-			defer mu.Unlock()
 			return callCount == 1 && setup.mockChainStatus.AssertExpectations(t)
 		}, tests.WaitTimeout(t), 500*time.Millisecond)
 	})
@@ -801,8 +795,6 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		setup.sendBatch(t, []protocol.VerifierNodeResult{msg1, msg2})
 
 		require.Eventually(t, func() bool {
-			mu.Lock()
-			defer mu.Unlock()
 			return chain1Written && chain2Written && setup.mockChainStatus.AssertExpectations(t)
 		}, tests.WaitTimeout(t), 500*time.Millisecond)
 	})
@@ -836,8 +828,6 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		setup.sendBatch(t, []protocol.VerifierNodeResult{msg2})
 
 		require.Eventually(t, func() bool {
-			mu.Lock()
-			defer mu.Unlock()
 			return callCount == 1 && setup.mockChainStatus.AssertExpectations(t)
 		}, tests.WaitTimeout(t), 500*time.Millisecond)
 	})

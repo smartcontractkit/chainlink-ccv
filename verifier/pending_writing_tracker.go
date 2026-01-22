@@ -146,7 +146,7 @@ func (c *chainPendingState) calculateCheckpoint() uint64 {
 	return minLevel - 1
 }
 
-// PendingWritingTracker is shared between SRS, TVP, and SWP.
+// PendingWritingTracker is shared between SourceReaderService, TaskVerifierProcessor, and StorageWriterProcessor.
 // It tracks messages that have been read but not yet successfully written to storage.
 // This enables safe checkpoint management: checkpoints only advance once all messages
 // at a given finalized block level have been written.
