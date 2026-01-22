@@ -653,7 +653,6 @@ func (s *checkpointTestSetup) sendBatch(t *testing.T, items []protocol.VerifierN
 // ----------------------
 
 func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
-	var mu sync.Mutex
 	t.Run("writes checkpoint after successful storage write", func(t *testing.T) {
 		setup := setupCheckpointTest(t)
 		chain1 := protocol.ChainSelector(1)
@@ -661,6 +660,7 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		// Create and track message at finalized block 100
 		msg1 := createTrackedMessage(chain1, 100, 100, setup.tracker)
 
+		var mu sync.Mutex
 		callCount := 0
 		// Expect checkpoint at 99 (100 - 1) after msg1 is written and removed
 		setup.mockChainStatus.EXPECT().
@@ -681,7 +681,10 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		setup.sendBatch(t, []protocol.VerifierNodeResult{msg1})
 
 		require.Eventually(t, func() bool {
-			return callCount == 1 && setup.mockChainStatus.AssertExpectations(t)
+			mu.Lock()
+			count := callCount
+			mu.Unlock()
+			return count == 1 && setup.mockChainStatus.AssertExpectations(t)
 		}, tests.WaitTimeout(t), 500*time.Millisecond)
 	})
 
@@ -694,18 +697,21 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		msg2 := createTrackedMessage(chain1, 105, 105, setup.tracker)
 		msg3 := createTrackedMessage(chain1, 110, 110, setup.tracker)
 
+		var mu sync.Mutex
 		// Expect checkpoints in order: 104, 109
 		callCount := 0
 		setup.mockChainStatus.EXPECT().
 			WriteChainStatuses(mock.Anything, mock.Anything).
 			RunAndReturn(func(_ context.Context, statuses []protocol.ChainStatusInfo) error {
-				require.Len(t, statuses, 1)
-				require.Equal(t, chain1, statuses[0].ChainSelector)
 				mu.Lock()
 				callCount++
+				currentCount := callCount
 				mu.Unlock()
+				require.Len(t, statuses, 1)
+				require.Equal(t, chain1, statuses[0].ChainSelector)
+
 				expectedCheckpoints := map[int]int64{1: 104, 2: 109}
-				require.Equal(t, expectedCheckpoints[callCount], statuses[0].FinalizedBlockHeight.Int64())
+				require.Equal(t, expectedCheckpoints[currentCount], statuses[0].FinalizedBlockHeight.Int64())
 				return nil
 			}).
 			Times(2)
@@ -719,10 +725,16 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		setup.sendBatch(t, []protocol.VerifierNodeResult{msg3})
 
 		require.Eventually(t, func() bool {
-			return callCount == 2 && setup.mockChainStatus.AssertExpectations(t)
+			mu.Lock()
+			count := callCount
+			mu.Unlock()
+			return count == 2 && setup.mockChainStatus.AssertExpectations(t)
 		}, tests.WaitTimeout(t), 500*time.Millisecond)
 
-		require.Equal(t, 2, callCount, "expected 2 checkpoint writes")
+		mu.Lock()
+		finalCount := callCount
+		mu.Unlock()
+		require.Equal(t, 2, finalCount, "expected 2 checkpoint writes")
 	})
 
 	t.Run("no redundant checkpoint writes for same level", func(t *testing.T) {
@@ -734,6 +746,7 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		msg2 := createTrackedMessage(chain1, 101, 100, setup.tracker)
 		msg3 := createTrackedMessage(chain1, 102, 100, setup.tracker)
 
+		var mu sync.Mutex
 		callCount := 0
 		// Expect only ONE checkpoint write at 99 after all messages are written
 		setup.mockChainStatus.EXPECT().
@@ -754,7 +767,10 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		setup.sendBatch(t, []protocol.VerifierNodeResult{msg1, msg2, msg3})
 
 		require.Eventually(t, func() bool {
-			return callCount == 1 && setup.mockChainStatus.AssertExpectations(t)
+			mu.Lock()
+			count := callCount
+			mu.Unlock()
+			return count == 1 && setup.mockChainStatus.AssertExpectations(t)
 		}, tests.WaitTimeout(t), 500*time.Millisecond)
 	})
 
@@ -768,6 +784,7 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		msg2 := createTrackedMessage(chain2, 200, 200, setup.tracker)
 
 		// Expect checkpoints for both chains
+		var mu sync.Mutex
 		chain1Written, chain2Written := false, false
 		setup.mockChainStatus.EXPECT().
 			WriteChainStatuses(mock.Anything, mock.Anything).
@@ -794,7 +811,11 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		setup.sendBatch(t, []protocol.VerifierNodeResult{msg1, msg2})
 
 		require.Eventually(t, func() bool {
-			return chain1Written && chain2Written && setup.mockChainStatus.AssertExpectations(t)
+			mu.Lock()
+			c1 := chain1Written
+			c2 := chain2Written
+			mu.Unlock()
+			return c1 && c2 && setup.mockChainStatus.AssertExpectations(t)
 		}, tests.WaitTimeout(t), 500*time.Millisecond)
 	})
 
@@ -806,6 +827,7 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		_ = createTrackedMessage(chain1, 100, 100, setup.tracker) // msg1 - stays pending
 		msg2 := createTrackedMessage(chain1, 110, 110, setup.tracker)
 
+		var mu sync.Mutex
 		callCount := 0
 		// Expect only checkpoint at 99 (msg1 at 100 is still pending)
 		setup.mockChainStatus.EXPECT().
@@ -827,7 +849,10 @@ func TestStorageWriterProcessor_CheckpointManagement(t *testing.T) {
 		setup.sendBatch(t, []protocol.VerifierNodeResult{msg2})
 
 		require.Eventually(t, func() bool {
-			return callCount == 1 && setup.mockChainStatus.AssertExpectations(t)
+			mu.Lock()
+			count := callCount
+			mu.Unlock()
+			return count == 1 && setup.mockChainStatus.AssertExpectations(t)
 		}, tests.WaitTimeout(t), 500*time.Millisecond)
 	})
 }
