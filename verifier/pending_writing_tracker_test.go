@@ -6,10 +6,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 func TestPendingWritingTracker_AddRemove(t *testing.T) {
-	tracker := NewPendingWritingTracker()
+	tracker := NewPendingWritingTracker(logger.Test(t))
 	chain := protocol.ChainSelector(1)
 
 	// Add a message
@@ -33,7 +34,7 @@ func TestPendingWritingTracker_AddRemove(t *testing.T) {
 }
 
 func TestPendingWritingTracker_MultipleMessages(t *testing.T) {
-	tracker := NewPendingWritingTracker()
+	tracker := NewPendingWritingTracker(logger.Test(t))
 	chain := protocol.ChainSelector(1)
 
 	// Add messages at different finalized levels
@@ -63,7 +64,7 @@ func TestPendingWritingTracker_MultipleMessages(t *testing.T) {
 }
 
 func TestPendingWritingTracker_CheckpointOnlyAdvances(t *testing.T) {
-	tracker := NewPendingWritingTracker()
+	tracker := NewPendingWritingTracker(logger.Test(t))
 	chain := protocol.ChainSelector(1)
 
 	// Add message at level 100
@@ -93,7 +94,7 @@ func TestPendingWritingTracker_CheckpointOnlyAdvances(t *testing.T) {
 }
 
 func TestPendingWritingTracker_IdempotentAdd(t *testing.T) {
-	tracker := NewPendingWritingTracker()
+	tracker := NewPendingWritingTracker(logger.Test(t))
 	chain := protocol.ChainSelector(1)
 
 	// Add message multiple times
@@ -114,7 +115,7 @@ func TestPendingWritingTracker_IdempotentAdd(t *testing.T) {
 }
 
 func TestPendingWritingTracker_MultipleLevels(t *testing.T) {
-	tracker := NewPendingWritingTracker()
+	tracker := NewPendingWritingTracker(logger.Test(t))
 	chain := protocol.ChainSelector(1)
 
 	// Add multiple messages at same level
@@ -150,7 +151,7 @@ func TestPendingWritingTracker_MultipleLevels(t *testing.T) {
 }
 
 func TestPendingWritingTracker_MultipleChains(t *testing.T) {
-	tracker := NewPendingWritingTracker()
+	tracker := NewPendingWritingTracker(logger.Test(t))
 	chain1 := protocol.ChainSelector(1)
 	chain2 := protocol.ChainSelector(2)
 
@@ -181,7 +182,7 @@ func TestPendingWritingTracker_MultipleChains(t *testing.T) {
 }
 
 func TestPendingWritingTracker_RetryScenario(t *testing.T) {
-	tracker := NewPendingWritingTracker()
+	tracker := NewPendingWritingTracker(logger.Test(t))
 	chain := protocol.ChainSelector(1)
 
 	// SRS reads and adds message
@@ -207,7 +208,7 @@ func TestPendingWritingTracker_RetryScenario(t *testing.T) {
 }
 
 func TestPendingWritingTracker_ReorgScenario(t *testing.T) {
-	tracker := NewPendingWritingTracker()
+	tracker := NewPendingWritingTracker(logger.Test(t))
 	chain := protocol.ChainSelector(1)
 
 	// Add messages

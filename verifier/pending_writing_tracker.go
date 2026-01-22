@@ -5,11 +5,15 @@ import (
 	"sync"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 // chainPendingState tracks pending writes for a single chain.
 type chainPendingState struct {
-	mu sync.RWMutex
+	mu   sync.RWMutex
+	lggr logger.Logger
+
+	chain protocol.ChainSelector
 
 	// finalizedBlock -> set of messageIDs
 	byFinalized map[uint64]map[string]struct{}
@@ -18,8 +22,10 @@ type chainPendingState struct {
 	lastCheckpoint uint64
 }
 
-func newChainPendingState() *chainPendingState {
+func newChainPendingState(lggr logger.Logger, chain protocol.ChainSelector) *chainPendingState {
 	return &chainPendingState{
+		lggr:        lggr,
+		chain:       chain,
 		byFinalized: make(map[uint64]map[string]struct{}),
 	}
 }
@@ -28,8 +34,13 @@ func (c *chainPendingState) add(msgID string, finalizedBlock uint64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// Check if message already tracked (deduplication)
 	for _, msgSet := range c.byFinalized {
 		if _, exists := msgSet[msgID]; exists {
+			c.lggr.Debugw("Message already tracked, skipping duplicate add",
+				"chain", c.chain,
+				"msgID", msgID,
+				"finalizedBlock", finalizedBlock)
 			return
 		}
 	}
@@ -38,6 +49,12 @@ func (c *chainPendingState) add(msgID string, finalizedBlock uint64) {
 		c.byFinalized[finalizedBlock] = make(map[string]struct{})
 	}
 	c.byFinalized[finalizedBlock][msgID] = struct{}{}
+
+	c.lggr.Debugw("Message added to pending tracker",
+		"chain", c.chain,
+		"msgID", msgID,
+		"finalizedBlock", finalizedBlock,
+		"totalPendingLevels", len(c.byFinalized))
 }
 
 func (c *chainPendingState) remove(msgID string) {
@@ -48,12 +65,25 @@ func (c *chainPendingState) remove(msgID string) {
 	for finalizedBlock, msgSet := range c.byFinalized {
 		if _, exists := msgSet[msgID]; exists {
 			delete(msgSet, msgID)
-			if len(msgSet) == 0 {
+			levelCleared := len(msgSet) == 0
+			if levelCleared {
 				delete(c.byFinalized, finalizedBlock)
 			}
+
+			c.lggr.Debugw("Message removed from pending tracker",
+				"chain", c.chain,
+				"msgID", msgID,
+				"finalizedBlock", finalizedBlock,
+				"levelCleared", levelCleared,
+				"totalPendingLevels", len(c.byFinalized))
 			return
 		}
 	}
+
+	// Message not found - this can happen for retried messages or reorgs
+	c.lggr.Debugw("Message not found in pending tracker during remove",
+		"chain", c.chain,
+		"msgID", msgID)
 }
 
 func (c *chainPendingState) checkpointIfAdvanced() (uint64, bool) {
@@ -61,6 +91,9 @@ func (c *chainPendingState) checkpointIfAdvanced() (uint64, bool) {
 	defer c.mu.Unlock()
 
 	if len(c.byFinalized) == 0 {
+		c.lggr.Debugw("No pending messages, skipping checkpoint",
+			"chain", c.chain,
+			"lastCheckpoint", c.lastCheckpoint)
 		return 0, false
 	}
 
@@ -74,8 +107,21 @@ func (c *chainPendingState) checkpointIfAdvanced() (uint64, bool) {
 
 	checkpoint := minLevel - 1
 	if checkpoint <= c.lastCheckpoint {
+		c.lggr.Debugw("Checkpoint has not advanced, skipping write",
+			"chain", c.chain,
+			"currentCheckpoint", checkpoint,
+			"lastCheckpoint", c.lastCheckpoint,
+			"minPendingLevel", minLevel,
+			"totalPendingLevels", len(c.byFinalized))
 		return 0, false
 	}
+
+	c.lggr.Infow("Checkpoint advanced",
+		"chain", c.chain,
+		"previousCheckpoint", c.lastCheckpoint,
+		"newCheckpoint", checkpoint,
+		"minPendingLevel", minLevel,
+		"totalPendingLevels", len(c.byFinalized))
 
 	c.lastCheckpoint = checkpoint
 	return checkpoint, true
@@ -88,14 +134,18 @@ func (c *chainPendingState) checkpointIfAdvanced() (uint64, bool) {
 //
 // Uses sync.Map for lock-free chain state lookup, eliminating contention between chains.
 type PendingWritingTracker struct {
+	lggr logger.Logger
+
 	// chainState maps ChainSelector -> *chainPendingState
 	// Using sync.Map eliminates lock contention for chain lookups
 	chainState sync.Map
 }
 
 // NewPendingWritingTracker creates a new PendingWritingTracker instance.
-func NewPendingWritingTracker() *PendingWritingTracker {
-	return &PendingWritingTracker{}
+func NewPendingWritingTracker(lggr logger.Logger) *PendingWritingTracker {
+	return &PendingWritingTracker{
+		lggr: logger.With(lggr, "component", "PendingWritingTracker"),
+	}
 }
 
 func (t *PendingWritingTracker) getOrCreate(chain protocol.ChainSelector) *chainPendingState {
@@ -108,7 +158,7 @@ func (t *PendingWritingTracker) getOrCreate(chain protocol.ChainSelector) *chain
 
 	// Slow path: create new state
 	// LoadOrStore handles race conditions automatically
-	state := newChainPendingState()
+	state := newChainPendingState(t.lggr, chain)
 	actual, _ := t.chainState.LoadOrStore(chain, state)
 	if chainState, ok := actual.(*chainPendingState); ok {
 		return chainState

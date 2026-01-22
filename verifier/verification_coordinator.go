@@ -83,7 +83,7 @@ func NewCoordinatorWithDetector(
 	}
 
 	// Create shared writingTracker (single instance shared by SRS, TVP, and SWP)
-	writingTracker := NewPendingWritingTracker()
+	writingTracker := NewPendingWritingTracker(lggr)
 
 	sourceReaderServices := createSourceReaders(
 		ctx, lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, writingTracker,

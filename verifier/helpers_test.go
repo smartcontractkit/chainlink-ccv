@@ -338,7 +338,7 @@ func newTestSRS(
 		curseDetector,
 		&noopFilter{},
 		&noopMetricLabeler{},
-		NewPendingWritingTracker(),
+		NewPendingWritingTracker(lggr),
 	)
 	require.NoError(t, err)
 
