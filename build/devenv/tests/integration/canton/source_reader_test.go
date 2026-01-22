@@ -33,7 +33,7 @@ const (
 	// TODO: this is hardcoded for now but should be derived from the deployment somehow.
 	partyName = "participant1-localparty-1"
 
-	packageID         = "#json-tests"
+	packageID         = "json-tests"
 	moduleName        = "Main"
 	entityName        = "TestRouter"
 	ccipSendChoice    = "CCIPSend"
@@ -96,13 +96,13 @@ func TestCantonSourceReader(t *testing.T) {
 	knownPackages := ts.listKnownPackages(t)
 	require.GreaterOrEqual(t, len(knownPackages), 1)
 	require.True(t, slices.ContainsFunc(knownPackages, func(p *ledgerv2admin.PackageDetails) bool {
-		return p.GetName() == "json-tests"
+		return p.GetName() == packageID
 	}))
 	var ccipMessageSentTemplateID *ledgerv2.Identifier
 	for _, pkg := range knownPackages {
-		if pkg.GetName() == "json-tests" {
+		if pkg.GetName() == packageID {
 			ccipMessageSentTemplateID = &ledgerv2.Identifier{
-				PackageId:  pkg.GetPackageId(),
+				PackageId:  "#" + pkg.GetName(),
 				ModuleName: "Main",
 				EntityName: "CCIPMessageSent",
 			}
@@ -293,7 +293,7 @@ func (ts *testSetup) ccipSend(
 					Command: &ledgerv2.Command_Exercise{
 						Exercise: &ledgerv2.ExerciseCommand{
 							TemplateId: &ledgerv2.Identifier{
-								PackageId:  packageID,
+								PackageId:  "#" + packageID,
 								ModuleName: moduleName,
 								EntityName: entityName,
 							},
@@ -372,7 +372,7 @@ func (ts *testSetup) createTestRouter(t *testing.T, ccipOwnerParty, partyOwnerPa
 					Command: &ledgerv2.Command_Create{
 						Create: &ledgerv2.CreateCommand{
 							TemplateId: &ledgerv2.Identifier{
-								PackageId:  packageID,
+								PackageId:  "#" + packageID,
 								ModuleName: moduleName,
 								EntityName: entityName,
 							},

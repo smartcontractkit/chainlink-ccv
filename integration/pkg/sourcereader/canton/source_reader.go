@@ -84,8 +84,9 @@ func (c *sourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 						c.ccipOwnerParty: {
 							Cumulative: []*ledgerv2.CumulativeFilter{
 								{
-									IdentifierFilter: &ledgerv2.CumulativeFilter_WildcardFilter{
-										WildcardFilter: &ledgerv2.WildcardFilter{
+									IdentifierFilter: &ledgerv2.CumulativeFilter_TemplateFilter{
+										TemplateFilter: &ledgerv2.TemplateFilter{
+											TemplateId:              c.ccipMessageSentTemplateID,
 											IncludeCreatedEventBlob: true,
 										},
 									},
@@ -153,7 +154,7 @@ func processCreatedEvent(
 	expectedCCIPOwnerParty string,
 	ccipMessageSentTemplateID *ledgerv2.Identifier,
 ) (*protocol.MessageSentEvent, error) {
-	if !identifiersEqual(created.GetTemplateId(), ccipMessageSentTemplateID) {
+	if !identifiersClose(created.GetTemplateId(), ccipMessageSentTemplateID) {
 		return nil, nil
 	}
 
@@ -245,7 +246,7 @@ func processCCIPMessageSentEvent(field *ledgerv2.RecordField) (*protocol.Message
 	return messageSentEvent, nil
 }
 
-func identifiersEqual(a, b *ledgerv2.Identifier) bool {
+func identifiersClose(a, b *ledgerv2.Identifier) bool {
 	// handle nil cases
 	if a == nil && b == nil {
 		return true
@@ -253,7 +254,9 @@ func identifiersEqual(a, b *ledgerv2.Identifier) bool {
 	if a == nil || b == nil {
 		return false
 	}
-	return a.GetPackageId() == b.GetPackageId() && a.GetModuleName() == b.GetModuleName() && a.GetEntityName() == b.GetEntityName()
+	// Note: we don't check package ID because what is returned from the server is not the package name
+	// but the package hex ID. Since this hex ID may change frequently, we don't want to rely on it.
+	return a.GetModuleName() == b.GetModuleName() && a.GetEntityName() == b.GetEntityName()
 }
 
 // GetBlocksHeaders implements chainaccess.SourceReader.
