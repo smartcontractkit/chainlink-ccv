@@ -40,6 +40,11 @@ func NewV1API(lggr logger.Logger, cfg *config.Config, storage common.IndexerStor
 	messagesHandler := v1.NewMessagesHandler(storage, lggr, monitoring)
 	v1Group.GET("/messages", messagesHandler.Handle)
 
+	// App readiness and health endpoints
+	healthHandler := v1.NewHealthHandler(storage, lggr, monitoring)
+	router.GET("/health", healthHandler.Handle)
+	router.GET("/ready", healthHandler.HandleReady)
+
 	return router
 }
 
