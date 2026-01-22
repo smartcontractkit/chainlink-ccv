@@ -276,7 +276,7 @@ func (cle *ChainlinkExecutor) getVerifierResultsAndQuorum(ctx context.Context, m
 			return fmt.Errorf("failed to get Verifier Quorum for message %s: %w", messageID.String(), err)
 		}
 		ccvInfo = res
-		cle.monitoring.Metrics().GetCCVLatency(errGroupCtx, time.Since(time.Unix(start, 0)), destinationChain)
+		cle.monitoring.Metrics().RecordCCVLatency(errGroupCtx, time.Since(time.Unix(start, 0)), destinationChain)
 		return nil
 	})
 

@@ -20,7 +20,7 @@ import (
 type ExecutorMetrics struct {
 	// Latency
 	messageExecutionLatency metric.Float64Histogram
-	getCCVLatency           metric.Float64Histogram
+	RecordCCVLatency        metric.Float64Histogram
 
 	// Message Processing Counters
 	messagesProcessedCounter        metric.Int64Counter
@@ -128,9 +128,9 @@ func (v *ExecutorMetricLabeler) IncrementCCVInfoCacheHits(ctx context.Context) {
 	v.vm.ccvInfoCacheMissesCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
-func (v *ExecutorMetricLabeler) GetCCVLatency(ctx context.Context, duration time.Duration, destSelector protocol.ChainSelector) {
+func (v *ExecutorMetricLabeler) RecordCCVLatency(ctx context.Context, duration time.Duration, destSelector protocol.ChainSelector) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
-	v.vm.getCCVLatency.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
+	v.vm.RecordCCVLatency.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
 }
 
 func (v *ExecutorMetricLabeler) IncrementExpiredMessages(ctx context.Context) {

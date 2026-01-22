@@ -99,15 +99,19 @@ type MetricLabeler interface {
 	IncrementMessagesProcessingFailed(ctx context.Context)
 
 	// destination reader metrics
-	// CCV Info Cache Metrics
+	// IncrementCCVInfoCacheHits increments the counter for cache hits in the destination reader.
 	IncrementCCVInfoCacheHits(ctx context.Context)
+	// IncrementCCVInfoCacheMisses increments the counter for cache misses in the destination reader.
 	IncrementCCVInfoCacheMisses(ctx context.Context)
 
-	// GetCCVLatency records the duration of the GetCCVSForMessage operation.
-	GetCCVLatency(ctx context.Context, duration time.Duration, destSelector protocol.ChainSelector)
+	// RecordCCVLatency records the duration of the GetCCVSForMessage operation.
+	RecordCCVLatency(ctx context.Context, duration time.Duration, destSelector protocol.ChainSelector)
 
 	// executor coordinator
+	// IncrementExpiredMessages increments the counter for expired messages.
 	IncrementExpiredMessages(ctx context.Context)
+	// IncrementAlreadyExecutedMessages increments the counter for already executed messages.
 	IncrementAlreadyExecutedMessages(ctx context.Context)
+	// RecordMessageHeapSize records the size of the message heap.
 	RecordMessageHeapSize(ctx context.Context, size int64)
 }

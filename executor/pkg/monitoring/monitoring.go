@@ -78,7 +78,7 @@ func (n *NoopExecutorMetricLabeler) IncrementCCVInfoCacheHits(ctx context.Contex
 
 func (n *NoopExecutorMetricLabeler) IncrementCCVInfoCacheMisses(ctx context.Context) {}
 
-func (n *NoopExecutorMetricLabeler) GetCCVLatency(ctx context.Context, duration time.Duration, destSelector protocol.ChainSelector) {
+func (n *NoopExecutorMetricLabeler) RecordCCVLatency(ctx context.Context, duration time.Duration, destSelector protocol.ChainSelector) {
 }
 
 func (n *NoopExecutorMetricLabeler) IncrementExpiredMessages(ctx context.Context) {}

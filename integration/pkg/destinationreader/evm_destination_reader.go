@@ -179,9 +179,9 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 			receiverAddress.String(), tokenTransferAddress.String(), sourceSelector)
 		dr.monitoring.Metrics().IncrementCCVInfoCacheHits(ctx)
 		return ccvInfo, nil
-	} else {
-		dr.monitoring.Metrics().IncrementCCVInfoCacheMisses(ctx)
 	}
+
+	dr.monitoring.Metrics().IncrementCCVInfoCacheMisses(ctx)
 	encodedMsg, err := message.Encode()
 	if err != nil {
 		return executor.CCVAddressInfo{}, fmt.Errorf("failed to encode message: %w", err)
