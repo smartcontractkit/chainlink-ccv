@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
+
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -18,8 +19,10 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
 
-var _ cciptestinterfaces.CCIP17 = &Chain{}
-var _ cciptestinterfaces.CCIP17Configuration = &Chain{}
+var (
+	_ cciptestinterfaces.CCIP17              = &Chain{}
+	_ cciptestinterfaces.CCIP17Configuration = &Chain{}
+)
 
 type Chain struct {
 	logger zerolog.Logger
@@ -65,7 +68,7 @@ func (c *Chain) FundAddresses(ctx context.Context, bc *blockchain.Input, address
 }
 
 // FundNodes implements cciptestinterfaces.CCIP17Configuration.
-func (c *Chain) FundNodes(ctx context.Context, cls []*simple_node_set.Input, bc *blockchain.Input, linkAmount *big.Int, nativeAmount *big.Int) error {
+func (c *Chain) FundNodes(ctx context.Context, cls []*simple_node_set.Input, bc *blockchain.Input, linkAmount, nativeAmount *big.Int) error {
 	return nil // TODO: implement
 }
 
@@ -75,7 +78,7 @@ func (c *Chain) Curse(ctx context.Context, subjects [][16]byte) error {
 }
 
 // ExposeMetrics implements cciptestinterfaces.CCIP17.
-func (c *Chain) ExposeMetrics(ctx context.Context, source uint64, dest uint64) ([]string, *prometheus.Registry, error) {
+func (c *Chain) ExposeMetrics(ctx context.Context, source, dest uint64) ([]string, *prometheus.Registry, error) {
 	return nil, nil, nil // TODO: implement
 }
 
@@ -105,7 +108,7 @@ func (c *Chain) GetSenderAddress() (protocol.UnknownAddress, error) {
 }
 
 // GetTokenBalance implements cciptestinterfaces.CCIP17.
-func (c *Chain) GetTokenBalance(ctx context.Context, address protocol.UnknownAddress, tokenAddress protocol.UnknownAddress) (*big.Int, error) {
+func (c *Chain) GetTokenBalance(ctx context.Context, address, tokenAddress protocol.UnknownAddress) (*big.Int, error) {
 	return nil, nil // TODO: implement
 }
 
@@ -135,11 +138,11 @@ func (c *Chain) Uncurse(ctx context.Context, subjects [][16]byte) error {
 }
 
 // WaitOneExecEventBySeqNo implements cciptestinterfaces.CCIP17.
-func (c *Chain) WaitOneExecEventBySeqNo(ctx context.Context, from uint64, seq uint64, timeout time.Duration) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
+func (c *Chain) WaitOneExecEventBySeqNo(ctx context.Context, from, seq uint64, timeout time.Duration) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
 	return cciptestinterfaces.ExecutionStateChangedEvent{}, nil // TODO: implement
 }
 
 // WaitOneSentEventBySeqNo implements cciptestinterfaces.CCIP17.
-func (c *Chain) WaitOneSentEventBySeqNo(ctx context.Context, to uint64, seq uint64, timeout time.Duration) (cciptestinterfaces.MessageSentEvent, error) {
+func (c *Chain) WaitOneSentEventBySeqNo(ctx context.Context, to, seq uint64, timeout time.Duration) (cciptestinterfaces.MessageSentEvent, error) {
 	return cciptestinterfaces.MessageSentEvent{}, nil // TODO: implement
 }
