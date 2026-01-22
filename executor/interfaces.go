@@ -101,7 +101,7 @@ type MetricLabeler interface {
 	IncrementCCVInfoCacheHits(ctx context.Context)
 	// IncrementCCVInfoCacheMisses increments the counter for cache misses in the destination reader.
 	IncrementCCVInfoCacheMisses(ctx context.Context)
-	// queryCCVAddressesLatency records the duration of the GetCCVSForMessage operation.
+	// RecordQueryCCVInfoLatency records the duration of the GetCCVSForMessage operation, including cache hits and chain queries.
 	RecordQueryCCVInfoLatency(ctx context.Context, duration time.Duration, destSelector protocol.ChainSelector)
 	// IncrementExpiredMessages increments the counter for expired messages.
 	IncrementExpiredMessages(ctx context.Context)
