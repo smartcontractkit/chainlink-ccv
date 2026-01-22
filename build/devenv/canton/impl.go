@@ -8,9 +8,13 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/google/uuid"
+	"github.com/noders-team/go-daml/pkg/client"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
+	chainsel "github.com/smartcontractkit/chain-selectors"
 
+	"github.com/smartcontractkit/chainlink-canton-internal/contracts"
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -35,6 +39,53 @@ func New(logger zerolog.Logger) *Chain {
 	}
 }
 
+func (c *Chain) Family() string {
+	return chainsel.FamilyCanton
+}
+
+func (c *Chain) ChainFamily() string {
+	return chainsel.FamilyCanton
+}
+
+// DeployContractsForSelector implements cciptestinterfaces.CCIP17Configuration.
+func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, committees *deployments.EnvironmentTopology) (datastore.DataStore, error) {
+	l := c.logger
+	l.Info().Msg("Configuring contracts for selector")
+	l.Info().Any("Selector", selector).Msg("Deploying for chain selector")
+	cc := env.BlockChains.CantonChains()[selector]
+	participant1 := cc.Participants[0]
+	jwToken, err := participant1.JWTProvider.Token(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get JWT for participant 1: %w", err)
+	}
+	c1, err := client.NewDamlClient(jwToken, participant1.Endpoints.GRPCLedgerAPIURL).
+		WithAdminAddress(participant1.Endpoints.AdminAPIURL).
+		Build(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create client for participant 1: %w", err)
+	}
+	defer c1.Close()
+
+	runningDs := datastore.NewMemoryDataStore()
+
+	// Deploy contracts
+
+	// Using the Coin dar file as an example
+	coinDar, err := contracts.GetDar(contracts.Coin, contracts.CurrentVersion)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile Coin contract: %w", err)
+	}
+	err = c1.PackageMng.UploadDarFile(ctx, coinDar, uuid.New().String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload Dar file: %w", err)
+	}
+	l.Info().Msg("Uploaded Coin Dar file")
+
+	// TODO Deploy contracts
+
+	return runningDs.Seal(), nil
+}
+
 // ConfigureNodes implements cciptestinterfaces.CCIP17Configuration.
 func (c *Chain) ConfigureNodes(ctx context.Context, blockchain *blockchain.Input) (string, error) {
 	return "", nil // TODO: implement
@@ -43,11 +94,6 @@ func (c *Chain) ConfigureNodes(ctx context.Context, blockchain *blockchain.Input
 // ConnectContractsWithSelectors implements cciptestinterfaces.CCIP17Configuration.
 func (c *Chain) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, committees *deployments.EnvironmentTopology) error {
 	return nil // TODO: implement
-}
-
-// DeployContractsForSelector implements cciptestinterfaces.CCIP17Configuration.
-func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, committees *deployments.EnvironmentTopology) (datastore.DataStore, error) {
-	return datastore.NewMemoryDataStore().Seal(), nil // TODO: implement
 }
 
 // DeployLocalNetwork implements cciptestinterfaces.CCIP17Configuration.
