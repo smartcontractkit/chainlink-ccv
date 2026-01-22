@@ -19,8 +19,8 @@ import (
 // ExecutorMetrics provides all metrics for the verifier.
 type ExecutorMetrics struct {
 	// Latency
-	messageExecutionLatency metric.Float64Histogram
-	RecordCCVLatency        metric.Float64Histogram
+	messageExecutionLatency    metric.Float64Histogram
+	messageCCVInfoQueryLatency metric.Float64Histogram
 
 	// Message Processing Counters
 	messagesProcessedCounter        metric.Int64Counter
@@ -41,10 +41,19 @@ func InitMetrics() (*ExecutorMetrics, error) {
 	vm.messageExecutionLatency, err = beholder.GetMeter().Float64Histogram(
 		"executor_message_execution_duration_seconds",
 		metric.WithDescription("Full message lifecycle latency from source read to storage write"),
-		metric.WithUnit("milliseconds"),
+		metric.WithUnit("seconds"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register message e2e latency histogram: %w", err)
+	}
+
+	vm.messageCCVInfoQueryLatency, err = beholder.GetMeter().Float64Histogram(
+		"executor_get_ccv_info_latency_seconds",
+		metric.WithDescription("Duration of the GetCCVSForMessage operation, including cache hits and chain queries"),
+		metric.WithUnit("seconds"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register get ccv latency histogram: %w", err)
 	}
 
 	// Message Processing Counters
@@ -61,6 +70,46 @@ func InitMetrics() (*ExecutorMetrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register messages processing errors counter: %w", err)
+	}
+
+	vm.ccvInfoCacheHitsCounter, err = beholder.GetMeter().Int64Counter(
+		"executor_ccv_info_cache_hits_total",
+		metric.WithDescription("Total number of cache hits for CCV info"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register ccv info cache hits counter: %w", err)
+	}
+
+	vm.ccvInfoCacheMissesCounter, err = beholder.GetMeter().Int64Counter(
+		"executor_ccv_info_cache_misses_total",
+		metric.WithDescription("Total number of cache misses for CCV info"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register ccv info cache misses counter: %w", err)
+	}
+
+	vm.messageExpiryCounter, err = beholder.GetMeter().Int64Counter(
+		"executor_message_expiry_total",
+		metric.WithDescription("Total number of messages expired and not attempted due to being too old"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register message expiry counter: %w", err)
+	}
+
+	vm.messageHeapSizeGauge, err = beholder.GetMeter().Int64Gauge(
+		"executor_message_heap_size",
+		metric.WithDescription("Current size of the heap of messages to potentially attempt"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register message heap size gauge: %w", err)
+	}
+
+	vm.alreadyExecutedMessagesCounter, err = beholder.GetMeter().Int64Counter(
+		"executor_already_executed_messages_total",
+		metric.WithDescription("Total number of times an executor skips a message due to it being already executed by a different executor"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register already executed messages counter: %w", err)
 	}
 
 	return vm, nil
@@ -128,9 +177,9 @@ func (v *ExecutorMetricLabeler) IncrementCCVInfoCacheHits(ctx context.Context) {
 	v.vm.ccvInfoCacheMissesCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
-func (v *ExecutorMetricLabeler) RecordCCVLatency(ctx context.Context, duration time.Duration, destSelector protocol.ChainSelector) {
+func (v *ExecutorMetricLabeler) RecordQueryCCVInfoLatency(ctx context.Context, duration time.Duration, destSelector protocol.ChainSelector) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
-	v.vm.RecordCCVLatency.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
+	v.vm.messageCCVInfoQueryLatency.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
 }
 
 func (v *ExecutorMetricLabeler) IncrementExpiredMessages(ctx context.Context) {
