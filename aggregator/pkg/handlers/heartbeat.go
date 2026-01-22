@@ -67,6 +67,9 @@ func (h *HeartbeatHandler) Handle(ctx context.Context, req *heartbeatpb.Heartbea
 		if err := h.storage.StoreBlockHeight(ctx, callerID, chainSelector, blockHeight); err != nil {
 			h.logger(ctx).Warnf("Failed to store block height for chain %d: %v", chainSelector, err)
 		}
+		// Publish metric per caller per chain for received block height
+		h.m.Metrics().With("caller_id", callerID, "chain_selector", fmt.Sprintf("%d", chainSelector)).
+			SetVerifierHeartbeatReportedChainHeads(ctx, blockHeight)
 	}
 
 	// Get the list of chain selectors to query
@@ -105,6 +108,10 @@ func (h *HeartbeatHandler) Handle(ctx context.Context, req *heartbeatpb.Heartbea
 			BlockHeight: maxBlockHeight,
 			Score:       float32(score),
 		}
+
+		// publish per-chain current max head metric
+		h.m.Metrics().With("chain_selector", fmt.Sprintf("%d", chainSelector)).
+			SetVerifierHeartbeatCurrentMaxChainHead(ctx, int64(maxBlockHeight))
 	}
 
 	metrics := h.m.Metrics().With("caller_id", callerID)
@@ -115,7 +122,6 @@ func (h *HeartbeatHandler) Handle(ctx context.Context, req *heartbeatpb.Heartbea
 	for chainSelector, benchmark := range chainBenchmarks {
 		chainMetrics := metrics.With("chain_selector", fmt.Sprintf("%d", chainSelector))
 		chainMetrics.SetVerifierHeartbeatScore(ctx, float64(benchmark.Score))
-		chainMetrics.SetVerifierHeartbeatChainHeads(ctx, benchmark.BlockHeight)
 	}
 
 	return &heartbeatpb.HeartbeatResponse{

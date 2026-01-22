@@ -4,9 +4,8 @@ import (
 	"fmt"
 	"os"
 	"slices"
-	"time"
-
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
