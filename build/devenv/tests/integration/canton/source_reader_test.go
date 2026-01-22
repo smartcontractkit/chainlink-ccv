@@ -23,6 +23,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
 const (
@@ -32,7 +33,7 @@ const (
 	// TODO: this is hardcoded for now but should be derived from the deployment somehow.
 	partyName = "participant1-localparty-1"
 
-	packageId         = "#json-tests"
+	packageID         = "#json-tests"
 	moduleName        = "Main"
 	entityName        = "TestRouter"
 	ccipSendChoice    = "CCIPSend"
@@ -48,6 +49,7 @@ func TestCantonSourceReader(t *testing.T) {
 	require.NoError(t, err)
 
 	require.GreaterOrEqual(t, len(in.Blockchains), 1, "need at least one canton chain for this test")
+	require.Equal(t, in.Blockchains[0].Type, blockchain.TypeCanton, "expected canton chain")
 
 	t.Cleanup(func() {
 		_, err := framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
@@ -219,9 +221,7 @@ type testSetup struct {
 }
 
 func (ts *testSetup) getContractID(t *testing.T, updateID, party string) string {
-	ctx := ts.authCtx(t)
-
-	resp, err := ts.updatesClient.GetUpdateById(ctx, &ledgerv2.GetUpdateByIdRequest{
+	resp, err := ts.updatesClient.GetUpdateById(ts.authCtx(t), &ledgerv2.GetUpdateByIdRequest{
 		UpdateId: updateID,
 		UpdateFormat: &ledgerv2.UpdateFormat{
 			IncludeTransactions: &ledgerv2.TransactionFormat{
@@ -278,9 +278,7 @@ func (ts *testSetup) ccipSend(
 		}
 	}
 
-	ctx := ts.authCtx(t)
-
-	resp, err := ts.commandClient.SubmitAndWait(ctx, &ledgerv2.SubmitAndWaitRequest{
+	resp, err := ts.commandClient.SubmitAndWait(ts.authCtx(t), &ledgerv2.SubmitAndWaitRequest{
 		Commands: &ledgerv2.Commands{
 			CommandId: uuid.New().String(),
 			UserId:    ts.userID,
@@ -291,7 +289,7 @@ func (ts *testSetup) ccipSend(
 					Command: &ledgerv2.Command_Exercise{
 						Exercise: &ledgerv2.ExerciseCommand{
 							TemplateId: &ledgerv2.Identifier{
-								PackageId:  packageId,
+								PackageId:  packageID,
 								ModuleName: moduleName,
 								EntityName: entityName,
 							},
@@ -359,9 +357,7 @@ func (ts *testSetup) ccipSend(
 }
 
 func (ts *testSetup) createTestRouter(t *testing.T, ccipOwnerParty, partyOwnerParty string) *ledgerv2.SubmitAndWaitResponse {
-	ctx := ts.authCtx(t)
-
-	resp, err := ts.commandClient.SubmitAndWait(ctx, &ledgerv2.SubmitAndWaitRequest{
+	resp, err := ts.commandClient.SubmitAndWait(ts.authCtx(t), &ledgerv2.SubmitAndWaitRequest{
 		Commands: &ledgerv2.Commands{
 			CommandId: uuid.New().String(),
 			UserId:    ts.userID,
@@ -372,7 +368,7 @@ func (ts *testSetup) createTestRouter(t *testing.T, ccipOwnerParty, partyOwnerPa
 					Command: &ledgerv2.Command_Create{
 						Create: &ledgerv2.CreateCommand{
 							TemplateId: &ledgerv2.Identifier{
-								PackageId:  packageId,
+								PackageId:  packageID,
 								ModuleName: moduleName,
 								EntityName: entityName,
 							},
@@ -408,21 +404,17 @@ func (ts *testSetup) createTestRouter(t *testing.T, ccipOwnerParty, partyOwnerPa
 }
 
 func (ts *testSetup) listKnownParties(t *testing.T) []*ledgerv2admin.PartyDetails {
-	ctx := ts.authCtx(t)
-
-	resp, err := ts.partyMgmtClient.ListKnownParties(ctx, &ledgerv2admin.ListKnownPartiesRequest{})
+	resp, err := ts.partyMgmtClient.ListKnownParties(ts.authCtx(t), &ledgerv2admin.ListKnownPartiesRequest{})
 	require.NoError(t, err)
 
 	return resp.GetPartyDetails()
 }
 
 func (ts *testSetup) uploadDar(t *testing.T, darPath string) {
-	ctx := ts.authCtx(t)
-
 	dar, err := os.ReadFile(darPath)
 	require.NoError(t, err)
 
-	_, err = ts.pkgMgmtClient.UploadDarFile(ctx, &ledgerv2admin.UploadDarFileRequest{
+	_, err = ts.pkgMgmtClient.UploadDarFile(ts.authCtx(t), &ledgerv2admin.UploadDarFileRequest{
 		DarFile:      dar,
 		SubmissionId: uuid.New().String(),
 	})
@@ -430,9 +422,7 @@ func (ts *testSetup) uploadDar(t *testing.T, darPath string) {
 }
 
 func (ts *testSetup) listKnownPackages(t *testing.T) []*ledgerv2admin.PackageDetails {
-	ctx := ts.authCtx(t)
-
-	resp, err := ts.pkgMgmtClient.ListKnownPackages(ctx, &ledgerv2admin.ListKnownPackagesRequest{})
+	resp, err := ts.pkgMgmtClient.ListKnownPackages(ts.authCtx(t), &ledgerv2admin.ListKnownPackagesRequest{})
 	require.NoError(t, err)
 
 	return resp.GetPackageDetails()

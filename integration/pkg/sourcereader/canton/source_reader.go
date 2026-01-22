@@ -150,45 +150,50 @@ func extractEvents(transactions []*ledgerv2.Transaction, ccipOwnerParty string, 
 func processCreatedEvent(
 	tx *ledgerv2.Transaction,
 	created *ledgerv2.CreatedEvent,
-	ccipOwnerParty string,
+	expectedCCIPOwnerParty string,
 	ccipMessageSentTemplateID *ledgerv2.Identifier,
 ) (*protocol.MessageSentEvent, error) {
 	if !identifiersEqual(created.GetTemplateId(), ccipMessageSentTemplateID) {
 		return nil, nil
 	}
 
+	var eventRecordField *ledgerv2.RecordField
+	var ccipOwnerParty string
+
 	for _, field := range created.GetCreateArguments().GetFields() {
 		switch field.GetLabel() {
-		case ccipMessageSentSenderLabel:
-		case ccipMessageSentObserversLabel:
+		case ccipMessageSentSenderLabel, ccipMessageSentObserversLabel:
+			// known fields, ignore
 		case ccipMessageSentCCIPOwnerLabel:
-			if field.GetValue().GetParty() != ccipOwnerParty {
-				continue
-			}
+			ccipOwnerParty = field.GetValue().GetParty()
 		case ccipMessageSentEventLabel:
-			if field.GetValue().GetRecord() == nil {
-				continue
-			}
-
-			messageSentEvent, err := processCCIPMessageSentEvent(field)
-			if err != nil {
-				return nil, fmt.Errorf("failed to process CCIPMessageSent event: %w", err)
-			}
-
-			messageSentEvent.BlockNumber = uint64(tx.GetOffset()) //nolint:gosec // offset is always non-negative
-			txHash, err := protocol.NewByteSliceFromHex(tx.GetUpdateId())
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse tx hash from update ID %s: %w", tx.GetUpdateId(), err)
-			}
-			messageSentEvent.TxHash = txHash
-
-			return messageSentEvent, nil
+			eventRecordField = field
 		default:
 			return nil, fmt.Errorf("unknown CCIPMessageSent event field, possibly mismatched contract/template? : %s", field.GetLabel())
 		}
 	}
 
-	return nil, nil
+	if ccipOwnerParty != expectedCCIPOwnerParty {
+		return nil, nil
+	}
+
+	if eventRecordField == nil || eventRecordField.GetValue().GetRecord() == nil {
+		return nil, nil
+	}
+
+	messageSentEvent, err := processCCIPMessageSentEvent(eventRecordField)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process CCIPMessageSent event: %w", err)
+	}
+
+	messageSentEvent.BlockNumber = uint64(tx.GetOffset()) //nolint:gosec // offset is always non-negative
+	txHash, err := protocol.NewByteSliceFromHex(tx.GetUpdateId())
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse tx hash from update ID %s: %w", tx.GetUpdateId(), err)
+	}
+	messageSentEvent.TxHash = txHash
+
+	return messageSentEvent, nil
 }
 
 func processCCIPMessageSentEvent(field *ledgerv2.RecordField) (*protocol.MessageSentEvent, error) {
