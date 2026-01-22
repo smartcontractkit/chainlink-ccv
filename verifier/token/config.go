@@ -15,9 +15,6 @@ type ConfigWithBlockchainInfos struct {
 }
 
 type Config struct {
-	VerifierID    string `toml:"verifier_id"`
-	SignerAddress string `toml:"signer_address"`
-
 	// TODO: remove from verifier config, readers need to be initialized separately.
 	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
 	PyroscopeURL    string                              `toml:"pyroscope_url"`
@@ -35,6 +32,9 @@ type Config struct {
 // implementation to use. Whenever you want to add a new token verifier type, you need to add a new struct and embed that
 // in the VerifierConfig similarly to how cctp.Config is embedded in the VerifierConfig.
 type VerifierConfig struct {
+	// VerifierID is the unique identifier for this token verifier instance.
+	// This allows multiple token verifiers to run on the same node with isolated state.
+	VerifierID string `toml:"verifier_id"`
 	// Type is the type of the token verifier. You can think of different token verifiers as different
 	// strategies for processing token data. For example, you can have a token verifiers for USDC tokens using CCTP
 	// and different one for processing LINK token.
@@ -82,6 +82,11 @@ func (o *VerifierConfig) UnmarshalTOML(data any) error {
 	castedData, ok := data.(map[string]any)
 	if !ok {
 		return fmt.Errorf("expected map[string]any, got %T", castedData)
+	}
+
+	o.VerifierID, ok = castedData["verifier_id"].(string)
+	if !ok {
+		return fmt.Errorf("verifier_id field is required for VerifierConfig")
 	}
 
 	o.Type, ok = castedData["type"].(string)

@@ -15,14 +15,16 @@ import (
 var _ protocol.ChainStatusManager = (*PostgresChainStatusManager)(nil)
 
 type PostgresChainStatusManager struct {
-	ds   sqlutil.DataSource
-	lggr logger.Logger
+	ds         sqlutil.DataSource
+	lggr       logger.Logger
+	verifierID string
 }
 
-func NewPostgresChainStatusManager(ds sqlutil.DataSource, lggr logger.Logger) *PostgresChainStatusManager {
+func NewPostgresChainStatusManager(ds sqlutil.DataSource, lggr logger.Logger, verifierID string) *PostgresChainStatusManager {
 	return &PostgresChainStatusManager{
-		ds:   ds,
-		lggr: logger.With(lggr, "component", "PostgresChainStatusManager"),
+		ds:         ds,
+		lggr:       logger.With(lggr, "component", "PostgresChainStatusManager"),
+		verifierID: verifierID,
 	}
 }
 
@@ -39,15 +41,15 @@ func (m *PostgresChainStatusManager) WriteChainStatuses(ctx context.Context, sta
 				return fmt.Errorf("finalized block height cannot be nil for chain %s", chainSelectorStr)
 			}
 
-			stmt := `INSERT INTO ccv_chain_statuses (chain_selector, finalized_block_height, disabled)
-				VALUES ($1, $2, $3)
-				ON CONFLICT (chain_selector) DO UPDATE SET
+			stmt := `INSERT INTO ccv_chain_statuses (chain_selector, verifier_id, finalized_block_height, disabled)
+				VALUES ($1, $2, $3, $4)
+				ON CONFLICT (chain_selector, verifier_id) DO UPDATE SET
 					finalized_block_height = EXCLUDED.finalized_block_height,
 					disabled = EXCLUDED.disabled,
 					updated_at = NOW()`
 
 			blockHeightStr := status.FinalizedBlockHeight.String()
-			_, err := tx.ExecContext(ctx, stmt, chainSelectorStr, blockHeightStr, status.Disabled)
+			_, err := tx.ExecContext(ctx, stmt, chainSelectorStr, m.verifierID, blockHeightStr, status.Disabled)
 			if err != nil {
 				return fmt.Errorf("failed to upsert chain status for chain %s: %w", chainSelectorStr, err)
 			}
@@ -64,15 +66,16 @@ func (m *PostgresChainStatusManager) ReadChainStatuses(ctx context.Context, chai
 	}
 
 	placeholders := make([]string, len(chainSelectors))
-	args := make([]any, len(chainSelectors))
+	args := make([]any, len(chainSelectors)+1)
 	for i, sel := range chainSelectors {
-		placeholders[i] = fmt.Sprintf("$%d", i+1)
-		args[i] = strconv.FormatUint(uint64(sel), 10)
+		placeholders[i] = fmt.Sprintf("$%d", i+2)
+		args[i+1] = strconv.FormatUint(uint64(sel), 10)
 	}
+	args[0] = m.verifierID
 
 	stmt := fmt.Sprintf(`SELECT chain_selector, finalized_block_height, disabled 
 		FROM ccv_chain_statuses 
-		WHERE chain_selector IN (%s)`,
+		WHERE verifier_id = $1 AND chain_selector IN (%s)`,
 		strings.Join(placeholders, ","))
 
 	type chainStatusRow struct {

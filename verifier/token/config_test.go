@@ -15,8 +15,6 @@ import (
 
 func Test_Config_Deserialization(t *testing.T) {
 	tomLBTCConfig := `
-		verifier_id = "verifier-1"
-		signer_address = "0x1234567890abcdef"
 		pyroscope_url = "http://localhost:4040"
 
 		[on_ramp_addresses]
@@ -27,6 +25,7 @@ func Test_Config_Deserialization(t *testing.T) {
 		"2" = "0xRMN2"
 
 		[[token_verifiers]]
+		verifier_id = "cctp-verifier-1"
 		type = "cctp"
 		version = "2.0"
 		attestation_api_timeout = "11ms"
@@ -37,6 +36,7 @@ func Test_Config_Deserialization(t *testing.T) {
 		2 = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 		[[token_verifiers]]
+		verifier_id = "lbtc-verifier-1"
 		type = "lbtc"
 		version = "1.0"
 		attestation_api = "https://lbtc-api.example.com"
@@ -49,8 +49,6 @@ func Test_Config_Deserialization(t *testing.T) {
 	`
 
 	assertContent := func(config Config) {
-		assert.Equal(t, "verifier-1", config.VerifierID)
-		assert.Equal(t, "0x1234567890abcdef", config.SignerAddress)
 		assert.Equal(t, "http://localhost:4040", config.PyroscopeURL)
 		assert.Equal(t, "0xOnRamp1", config.OnRampAddresses["1"])
 		assert.Equal(t, "0xRMN1", config.RMNRemoteAddresses["1"])
@@ -58,6 +56,7 @@ func Test_Config_Deserialization(t *testing.T) {
 
 		require.Len(t, config.TokenVerifiers, 2)
 		cctpVerifier := config.TokenVerifiers[0]
+		assert.Equal(t, "cctp-verifier-1", cctpVerifier.VerifierID)
 		assert.Equal(t, "cctp", cctpVerifier.Type)
 		assert.Equal(t, "2.0", cctpVerifier.Version)
 		assert.Equal(t, 11*time.Millisecond, cctpVerifier.CCTPConfig.AttestationAPITimeout)
@@ -70,6 +69,7 @@ func Test_Config_Deserialization(t *testing.T) {
 		assert.Equal(t, expectedAddr2, cctpVerifier.CCTPConfig.ParsedVerifierResolvers[2])
 
 		lbtcVerifier := config.TokenVerifiers[1]
+		assert.Equal(t, "lbtc-verifier-1", lbtcVerifier.VerifierID)
 		assert.Equal(t, "lbtc", lbtcVerifier.Type)
 		assert.Equal(t, "1.0", lbtcVerifier.Version)
 		assert.Equal(t, 10*time.Second, lbtcVerifier.LBTCConfig.AttestationAPITimeout)
@@ -110,6 +110,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 		{
 			name: "valid cctp config with all values provided",
 			toml: `
+				verifier_id = "cctp-test-1"
 				type = "cctp"
 				version = "2.0"
 				attestation_api = "http://circle.com/attestation"
@@ -127,8 +128,9 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				addr2, err := protocol.NewUnknownAddressFromHex("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 				require.NoError(t, err)
 				return VerifierConfig{
-					Type:    "cctp",
-					Version: "2.0",
+					VerifierID: "cctp-test-1",
+					Type:       "cctp",
+					Version:    "2.0",
 					CCTPConfig: &cctp.CCTPConfig{
 						AttestationAPI:         "http://circle.com/attestation",
 						AttestationAPITimeout:  100 * time.Second,
@@ -146,6 +148,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 		{
 			name: "valid cctp config with missing optional values",
 			toml: `
+				verifier_id = "cctp-test-2"
 				type = "cctp"
 				version = "2.0"
 				attestation_api = "http://circle.com/attestation"
@@ -157,8 +160,9 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				addr1, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
 				require.NoError(t, err)
 				return VerifierConfig{
-					Type:    "cctp",
-					Version: "2.0",
+					VerifierID: "cctp-test-2",
+					Type:       "cctp",
+					Version:    "2.0",
 					CCTPConfig: &cctp.CCTPConfig{
 						AttestationAPI:         "http://circle.com/attestation",
 						AttestationAPITimeout:  1 * time.Second,
@@ -175,6 +179,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 		{
 			name: "malformed cctp config returns error",
 			toml: `
+				verifier_id = "cctp-test-bad"
 				type = "cctp"
 				version = "2.0"
 				attestation_api_timeout = "not-a-duration"
@@ -187,6 +192,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 		{
 			name: "valid lbtc config with all values provided",
 			toml: `
+				verifier_id = "lbtc-test-1"
 				type = "lbtc"
 				version = "1.0"
 				attestation_api = "http://lbtc.com/gohere"
@@ -204,8 +210,9 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				addr2, err := protocol.NewUnknownAddressFromHex("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 				require.NoError(t, err)
 				return VerifierConfig{
-					Type:    "lbtc",
-					Version: "1.0",
+					VerifierID: "lbtc-test-1",
+					Type:       "lbtc",
+					Version:    "1.0",
 					LBTCConfig: &lbtc.LBTCConfig{
 						AttestationAPI:          "http://lbtc.com/gohere",
 						AttestationAPITimeout:   2 * time.Second,
@@ -222,6 +229,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 		{
 			name: "valid lbtc config with missing optional values",
 			toml: `
+				verifier_id = "lbtc-test-2"
 				type = "lbtc"
 				version = "1.0"
 				attestation_api = "http://lbtc.com/gohere"
@@ -233,8 +241,9 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				addr1, err := protocol.NewUnknownAddressFromHex("0x2222222222222222222222222222222222222222")
 				require.NoError(t, err)
 				return VerifierConfig{
-					Type:    "lbtc",
-					Version: "1.0",
+					VerifierID: "lbtc-test-2",
+					Type:       "lbtc",
+					Version:    "1.0",
 					LBTCConfig: &lbtc.LBTCConfig{
 						AttestationAPI:          "http://lbtc.com/gohere",
 						AttestationAPITimeout:   1 * time.Second,
@@ -250,6 +259,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 		{
 			name: "malformed lbtc config returns error",
 			toml: `
+				verifier_id = "lbtc-test-bad"
 				type = "lbtc"
 				version = "1.0"
 				attestation_api_dur = "10s"
