@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 
@@ -18,10 +20,16 @@ import (
 type ExecutorMetrics struct {
 	// Latency
 	messageExecutionLatency metric.Float64Histogram
+	getCCVLatency           metric.Float64Histogram
 
 	// Message Processing Counters
 	messagesProcessedCounter        metric.Int64Counter
 	messagesProcessingErrorsCounter metric.Int64Counter
+	ccvInfoCacheHitsCounter         metric.Int64Counter
+	ccvInfoCacheMissesCounter       metric.Int64Counter
+	messageExpiryCounter            metric.Int64Counter
+	messageHeapSizeGauge            metric.Int64Gauge
+	alreadyExecutedMessagesCounter  metric.Int64Counter
 }
 
 // InitMetrics initializes all verifier metrics.
@@ -91,9 +99,13 @@ func (v *ExecutorMetricLabeler) With(keyValues ...string) executor.MetricLabeler
 	return &ExecutorMetricLabeler{v.Labeler.With(keyValues...), v.vm}
 }
 
-func (v *ExecutorMetricLabeler) RecordMessageExecutionLatency(ctx context.Context, duration time.Duration) {
+func (v *ExecutorMetricLabeler) RecordMessageExecutionLatency(ctx context.Context, duration time.Duration, destSelector protocol.ChainSelector) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.messageExecutionLatency.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
+
+	v.vm.messageExecutionLatency.Record(ctx, duration.Seconds(), metric.WithAttributes([]attribute.KeyValue{
+		attribute.String("destSelector", destSelector.String()),
+	}...), metric.WithAttributes(otelLabels...))
 }
 
 func (v *ExecutorMetricLabeler) IncrementMessagesProcessed(ctx context.Context) {
@@ -104,4 +116,34 @@ func (v *ExecutorMetricLabeler) IncrementMessagesProcessed(ctx context.Context) 
 func (v *ExecutorMetricLabeler) IncrementMessagesProcessingFailed(ctx context.Context) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.messagesProcessingErrorsCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *ExecutorMetricLabeler) IncrementCCVInfoCacheMisses(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.ccvInfoCacheHitsCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *ExecutorMetricLabeler) IncrementCCVInfoCacheHits(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.ccvInfoCacheMissesCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *ExecutorMetricLabeler) GetCCVLatency(ctx context.Context, duration time.Duration, destSelector protocol.ChainSelector) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.getCCVLatency.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
+}
+
+func (v *ExecutorMetricLabeler) IncrementExpiredMessages(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.messageExpiryCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *ExecutorMetricLabeler) RecordMessageHeapSize(ctx context.Context, size int64) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.messageHeapSizeGauge.Record(ctx, size, metric.WithAttributes(otelLabels...))
+}
+
+func (v *ExecutorMetricLabeler) IncrementAlreadyExecutedMessages(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.alreadyExecutedMessagesCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }

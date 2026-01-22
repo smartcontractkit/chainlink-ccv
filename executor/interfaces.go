@@ -92,9 +92,22 @@ type MetricLabeler interface {
 	// With returns a new metrics labeler with the given key-value pairs.
 	With(keyValues ...string) MetricLabeler
 	// RecordMessageExecutionLatency records the duration of the full ExecuteMessage operation.
-	RecordMessageExecutionLatency(ctx context.Context, duration time.Duration)
+	RecordMessageExecutionLatency(ctx context.Context, duration time.Duration, destSelector protocol.ChainSelector)
 	// IncrementMessagesProcessed increments the counter for successfully processed messages.
 	IncrementMessagesProcessed(ctx context.Context)
 	// IncrementMessagesProcessingFailed increments the counter for failed message executions.
 	IncrementMessagesProcessingFailed(ctx context.Context)
+
+	// destination reader metrics
+	// CCV Info Cache Metrics
+	IncrementCCVInfoCacheHits(ctx context.Context)
+	IncrementCCVInfoCacheMisses(ctx context.Context)
+
+	// GetCCVLatency records the duration of the GetCCVSForMessage operation.
+	GetCCVLatency(ctx context.Context, duration time.Duration, destSelector protocol.ChainSelector)
+
+	// executor coordinator
+	IncrementExpiredMessages(ctx context.Context)
+	IncrementAlreadyExecutedMessages(ctx context.Context)
+	RecordMessageHeapSize(ctx context.Context, size int64)
 }
