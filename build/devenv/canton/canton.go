@@ -16,8 +16,8 @@ import (
 
 	"github.com/noders-team/go-daml/pkg/client"
 
-	"github.com/smartcontractkit/chainlink-canton-internal/bindings/compile"
 	"github.com/smartcontractkit/chainlink-canton-internal/contracts"
+	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/canton"
@@ -124,7 +124,7 @@ func (c CCIP17Canton) ChainFamily() string {
 	return chainsel.FamilyCanton
 }
 
-func (c CCIP17Canton) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, committees []cciptestinterfaces.OnChainCommittees) (datastore.DataStore, error) {
+func (c CCIP17Canton) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *deployments.EnvironmentTopology) (datastore.DataStore, error) {
 	l := c.logger
 	l.Info().Msg("Configuring contracts for selector")
 	l.Info().Any("Selector", selector).Msg("Deploying for chain selector")
@@ -147,11 +147,11 @@ func (c CCIP17Canton) DeployContractsForSelector(ctx context.Context, env *deplo
 	// Deploy contracts
 
 	// Using the Coin dar file as an example
-	coinDar, err := compile.Package(contracts.Coin)
+	coinDar, err := contracts.GetDar(contracts.Coin, contracts.CurrentVersion)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile Coin contract: %w", err)
 	}
-	err = c1.PackageMng.UploadDarFile(ctx, coinDar.Dar, uuid.New().String())
+	err = c1.PackageMng.UploadDarFile(ctx, coinDar, uuid.New().String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to upload Dar file: %w", err)
 	}
@@ -162,7 +162,7 @@ func (c CCIP17Canton) DeployContractsForSelector(ctx context.Context, env *deplo
 	return runningDs.Seal(), nil
 }
 
-func (c CCIP17Canton) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, committees []cciptestinterfaces.OnChainCommittees) error {
+func (c CCIP17Canton) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, topology *deployments.EnvironmentTopology) error {
 	// TODO implement me
 	panic("implement me")
 }

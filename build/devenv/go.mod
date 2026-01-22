@@ -8,6 +8,8 @@ replace github.com/smartcontractkit/chainlink-ccv/deployments => ../../deploymen
 
 replace github.com/smartcontractkit/chainlink-canton-internal => ../../../chainlink-canton-internal
 
+replace github.com/digital-asset/dazl-client/v8 => github.com/noders-team/dazl-client/v8 v8.7.1-2
+
 require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/Masterminds/semver/v3 v3.4.0
@@ -62,6 +64,7 @@ require (
 	github.com/oapi-codegen/runtime v1.1.2 // indirect
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/heartbeat v0.0.0-20260115142640-f6b99095c12e // indirect
 	github.com/smartcontractkit/chainlink-protos/linking-service/go v0.0.0-20251002192024-d2ad9222409b // indirect
+	github.com/smartcontractkit/chainlink-ton v0.0.0-20260115170733-b16e9683d4d5 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 )
 
