@@ -15,8 +15,6 @@ import (
 
 func Test_Config_Deserialization(t *testing.T) {
 	tomLBTCConfig := `
-		verifier_id = "verifier-1"
-		signer_address = "0x1234567890abcdef"
 		pyroscope_url = "http://localhost:4040"
 
 		[on_ramp_addresses]
@@ -27,30 +25,30 @@ func Test_Config_Deserialization(t *testing.T) {
 		"2" = "0xRMN2"
 
 		[[token_verifiers]]
+		verifier_id = "cctp-verifier-1"
 		type = "cctp"
 		version = "2.0"
 		attestation_api_timeout = "11ms"
 		attestation_api = "https://iris-api.circle.com"
 
-		[token_verifiers.addresses]
-		"1" = "0xCCTPVerifier1"
-		2 = "0xCCTPVerifier2"
+		[token_verifiers.verifier_resolver_addresses]
+		"1" = "0x1111111111111111111111111111111111111111"
+		2 = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 		[[token_verifiers]]
+		verifier_id = "lbtc-verifier-1"
 		type = "lbtc"
 		version = "1.0"
 		attestation_api = "https://lbtc-api.example.com"
 		attestation_api_timeout = "10s"
 		attestation_api_interval = 20
 
-		[token_verifiers.addresses]
-		1 = "0xLBTCVerifier1"
-		2 = "0xLBTCVerifier2"
+		[token_verifiers.verifier_resolver_addresses]
+		1 = "0x2222222222222222222222222222222222222222"
+		2 = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	`
 
 	assertContent := func(config Config) {
-		assert.Equal(t, "verifier-1", config.VerifierID)
-		assert.Equal(t, "0x1234567890abcdef", config.SignerAddress)
 		assert.Equal(t, "http://localhost:4040", config.PyroscopeURL)
 		assert.Equal(t, "0xOnRamp1", config.OnRampAddresses["1"])
 		assert.Equal(t, "0xRMN1", config.RMNRemoteAddresses["1"])
@@ -58,21 +56,31 @@ func Test_Config_Deserialization(t *testing.T) {
 
 		require.Len(t, config.TokenVerifiers, 2)
 		cctpVerifier := config.TokenVerifiers[0]
+		assert.Equal(t, "cctp-verifier-1", cctpVerifier.VerifierID)
 		assert.Equal(t, "cctp", cctpVerifier.Type)
 		assert.Equal(t, "2.0", cctpVerifier.Version)
 		assert.Equal(t, 11*time.Millisecond, cctpVerifier.CCTPConfig.AttestationAPITimeout)
 		assert.Equal(t, "https://iris-api.circle.com", cctpVerifier.CCTPConfig.AttestationAPI)
-		assert.Equal(t, protocol.UnknownAddress("0xCCTPVerifier1"), cctpVerifier.CCTPConfig.ParsedVerifiers[1])
-		assert.Equal(t, protocol.UnknownAddress("0xCCTPVerifier2"), cctpVerifier.CCTPConfig.ParsedVerifiers[2])
+		expectedAddr1, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
+		require.NoError(t, err)
+		assert.Equal(t, expectedAddr1, cctpVerifier.CCTPConfig.ParsedVerifierResolvers[1])
+		expectedAddr2, err := protocol.NewUnknownAddressFromHex("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+		require.NoError(t, err)
+		assert.Equal(t, expectedAddr2, cctpVerifier.CCTPConfig.ParsedVerifierResolvers[2])
 
 		lbtcVerifier := config.TokenVerifiers[1]
+		assert.Equal(t, "lbtc-verifier-1", lbtcVerifier.VerifierID)
 		assert.Equal(t, "lbtc", lbtcVerifier.Type)
 		assert.Equal(t, "1.0", lbtcVerifier.Version)
 		assert.Equal(t, 10*time.Second, lbtcVerifier.LBTCConfig.AttestationAPITimeout)
 		assert.Equal(t, 100*time.Millisecond, lbtcVerifier.LBTCConfig.AttestationAPIInterval)
 		assert.Equal(t, "https://lbtc-api.example.com", lbtcVerifier.LBTCConfig.AttestationAPI)
-		assert.Equal(t, protocol.UnknownAddress("0xLBTCVerifier1"), lbtcVerifier.LBTCConfig.ParsedVerifiers[1])
-		assert.Equal(t, protocol.UnknownAddress("0xLBTCVerifier2"), lbtcVerifier.LBTCConfig.ParsedVerifiers[2])
+		expectedAddr3, err := protocol.NewUnknownAddressFromHex("0x2222222222222222222222222222222222222222")
+		require.NoError(t, err)
+		assert.Equal(t, expectedAddr3, lbtcVerifier.LBTCConfig.ParsedVerifierResolvers[1])
+		expectedAddr4, err := protocol.NewUnknownAddressFromHex("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+		require.NoError(t, err)
+		assert.Equal(t, expectedAddr4, lbtcVerifier.LBTCConfig.ParsedVerifierResolvers[2])
 	}
 
 	var config Config
@@ -102,6 +110,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 		{
 			name: "valid cctp config with all values provided",
 			toml: `
+				verifier_id = "cctp-test-1"
 				type = "cctp"
 				version = "2.0"
 				attestation_api = "http://circle.com/attestation"
@@ -109,64 +118,81 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				attestation_api_interval = "300ms"
 				attestation_api_cooldown = "5m"
 
-				[addresses]
-				1 = "0xVerifier1"
-				2 = "0xVerifier2"
+				[verifier_resolver_addresses]
+				1 = "0x1111111111111111111111111111111111111111"
+				2 = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 			`,
-			expected: VerifierConfig{
-				Type:    "cctp",
-				Version: "2.0",
-				CCTPConfig: &cctp.CCTPConfig{
-					AttestationAPI:         "http://circle.com/attestation",
-					AttestationAPITimeout:  100 * time.Second,
-					AttestationAPIInterval: 300 * time.Millisecond,
-					AttestationAPICooldown: 5 * time.Minute,
-					ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
-						1: protocol.UnknownAddress("0xVerifier1"),
-						2: protocol.UnknownAddress("0xVerifier2"),
+			expected: func() VerifierConfig {
+				addr1, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
+				require.NoError(t, err)
+				addr2, err := protocol.NewUnknownAddressFromHex("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+				require.NoError(t, err)
+				return VerifierConfig{
+					VerifierID: "cctp-test-1",
+					Type:       "cctp",
+					Version:    "2.0",
+					CCTPConfig: &cctp.CCTPConfig{
+						AttestationAPI:         "http://circle.com/attestation",
+						AttestationAPITimeout:  100 * time.Second,
+						AttestationAPIInterval: 300 * time.Millisecond,
+						AttestationAPICooldown: 5 * time.Minute,
+						ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
+							1: addr1,
+							2: addr2,
+						},
+						ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{},
 					},
-				},
-			},
+				}
+			}(),
 		},
 		{
 			name: "valid cctp config with missing optional values",
 			toml: `
+				verifier_id = "cctp-test-2"
 				type = "cctp"
 				version = "2.0"
 				attestation_api = "http://circle.com/attestation"
 
-				[addresses]
-				"1" = "0xVerifier1"
+				[verifier_resolver_addresses]
+				"1" = "0x1111111111111111111111111111111111111111"
 			`,
-			expected: VerifierConfig{
-				Type:    "cctp",
-				Version: "2.0",
-				CCTPConfig: &cctp.CCTPConfig{
-					AttestationAPI:         "http://circle.com/attestation",
-					AttestationAPITimeout:  1 * time.Second,
-					AttestationAPIInterval: 100 * time.Millisecond,
-					AttestationAPICooldown: 5 * time.Minute,
-					ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
-						1: protocol.UnknownAddress("0xVerifier1"),
+			expected: func() VerifierConfig {
+				addr1, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
+				require.NoError(t, err)
+				return VerifierConfig{
+					VerifierID: "cctp-test-2",
+					Type:       "cctp",
+					Version:    "2.0",
+					CCTPConfig: &cctp.CCTPConfig{
+						AttestationAPI:         "http://circle.com/attestation",
+						AttestationAPITimeout:  1 * time.Second,
+						AttestationAPIInterval: 100 * time.Millisecond,
+						AttestationAPICooldown: 5 * time.Minute,
+						ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
+							1: addr1,
+						},
+						ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{},
 					},
-				},
-			},
+				}
+			}(),
 		},
 		{
 			name: "malformed cctp config returns error",
 			toml: `
+				verifier_id = "cctp-test-bad"
 				type = "cctp"
 				version = "2.0"
 				attestation_api_timeout = "not-a-duration"
 
-				[addresses]
-				1 = "0xVerifier1"
+				[verifier_resolver_addresses]
+				1 = "0x1111111111111111111111111111111111111111"
 			`,
 			wantErr: true,
 		},
 		{
 			name: "valid lbtc config with all values provided",
 			toml: `
+				verifier_id = "lbtc-test-1"
 				type = "lbtc"
 				version = "1.0"
 				attestation_api = "http://lbtc.com/gohere"
@@ -174,58 +200,72 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				attestation_api_interval = "500ms"
 				attestation_api_batch_size = 50
 
-				[addresses]
-				1 = "0xLBTCVerifier1"
-				2 = "0xLBTCVerifier2"
+				[verifier_resolver_addresses]
+				1 = "0x2222222222222222222222222222222222222222"
+				2 = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 			`,
-			expected: VerifierConfig{
-				Type:    "lbtc",
-				Version: "1.0",
-				LBTCConfig: &lbtc.LBTCConfig{
-					AttestationAPI:          "http://lbtc.com/gohere",
-					AttestationAPITimeout:   2 * time.Second,
-					AttestationAPIInterval:  500 * time.Millisecond,
-					AttestationAPIBatchSize: 50,
-					ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
-						1: protocol.UnknownAddress("0xLBTCVerifier1"),
-						2: protocol.UnknownAddress("0xLBTCVerifier2"),
+			expected: func() VerifierConfig {
+				addr1, err := protocol.NewUnknownAddressFromHex("0x2222222222222222222222222222222222222222")
+				require.NoError(t, err)
+				addr2, err := protocol.NewUnknownAddressFromHex("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+				require.NoError(t, err)
+				return VerifierConfig{
+					VerifierID: "lbtc-test-1",
+					Type:       "lbtc",
+					Version:    "1.0",
+					LBTCConfig: &lbtc.LBTCConfig{
+						AttestationAPI:          "http://lbtc.com/gohere",
+						AttestationAPITimeout:   2 * time.Second,
+						AttestationAPIInterval:  500 * time.Millisecond,
+						AttestationAPIBatchSize: 50,
+						ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
+							1: addr1,
+							2: addr2,
+						},
 					},
-				},
-			},
+				}
+			}(),
 		},
 		{
 			name: "valid lbtc config with missing optional values",
 			toml: `
+				verifier_id = "lbtc-test-2"
 				type = "lbtc"
 				version = "1.0"
 				attestation_api = "http://lbtc.com/gohere"
 
-				[addresses]
-				1 = "0xLBTCVerifier1"
+				[verifier_resolver_addresses]
+				1 = "0x2222222222222222222222222222222222222222"
 			`,
-			expected: VerifierConfig{
-				Type:    "lbtc",
-				Version: "1.0",
-				LBTCConfig: &lbtc.LBTCConfig{
-					AttestationAPI:          "http://lbtc.com/gohere",
-					AttestationAPITimeout:   1 * time.Second,
-					AttestationAPIInterval:  100 * time.Millisecond,
-					AttestationAPIBatchSize: 20,
-					ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
-						1: protocol.UnknownAddress("0xLBTCVerifier1"),
+			expected: func() VerifierConfig {
+				addr1, err := protocol.NewUnknownAddressFromHex("0x2222222222222222222222222222222222222222")
+				require.NoError(t, err)
+				return VerifierConfig{
+					VerifierID: "lbtc-test-2",
+					Type:       "lbtc",
+					Version:    "1.0",
+					LBTCConfig: &lbtc.LBTCConfig{
+						AttestationAPI:          "http://lbtc.com/gohere",
+						AttestationAPITimeout:   1 * time.Second,
+						AttestationAPIInterval:  100 * time.Millisecond,
+						AttestationAPIBatchSize: 20,
+						ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
+							1: addr1,
+						},
 					},
-				},
-			},
+				}
+			}(),
 		},
 		{
 			name: "malformed lbtc config returns error",
 			toml: `
+				verifier_id = "lbtc-test-bad"
 				type = "lbtc"
 				version = "1.0"
 				attestation_api_dur = "10s"
 
-				[addresses]
-				1 = "0xLBTCVerifier1"
+				[verifier_resolver_addresses]
+				1 = "0x2222222222222222222222222222222222222222"
 			`,
 			wantErr: true,
 		},
@@ -249,7 +289,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				assert.Equal(t, tt.expected.CCTPConfig.AttestationAPI, result.CCTPConfig.AttestationAPI)
 				assert.Equal(t, tt.expected.CCTPConfig.AttestationAPIInterval, result.CCTPConfig.AttestationAPIInterval)
 				assert.Equal(t, tt.expected.AttestationAPICooldown, result.AttestationAPICooldown)
-				assert.Equal(t, tt.expected.CCTPConfig.ParsedVerifiers, result.CCTPConfig.ParsedVerifiers)
+				assert.Equal(t, tt.expected.CCTPConfig.ParsedVerifierResolvers, result.CCTPConfig.ParsedVerifierResolvers)
 			} else {
 				assert.Nil(t, result.CCTPConfig)
 			}
@@ -260,7 +300,7 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				assert.Equal(t, tt.expected.LBTCConfig.AttestationAPITimeout, result.LBTCConfig.AttestationAPITimeout)
 				assert.Equal(t, tt.expected.LBTCConfig.AttestationAPIInterval, result.LBTCConfig.AttestationAPIInterval)
 				assert.Equal(t, tt.expected.AttestationAPIBatchSize, result.AttestationAPIBatchSize)
-				assert.Equal(t, tt.expected.LBTCConfig.ParsedVerifiers, result.LBTCConfig.ParsedVerifiers)
+				assert.Equal(t, tt.expected.LBTCConfig.ParsedVerifierResolvers, result.LBTCConfig.ParsedVerifierResolvers)
 			} else {
 				assert.Nil(t, result.LBTCConfig)
 			}

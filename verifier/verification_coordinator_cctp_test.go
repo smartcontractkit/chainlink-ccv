@@ -16,6 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/ccvstorage"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
@@ -190,6 +191,10 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 		AttestationAPITimeout:  1 * time.Minute,
 		AttestationAPICooldown: 1 * time.Second,
 		AttestationAPIInterval: 1 * time.Millisecond,
+		ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
+			chain1337: testCCVAddr,
+			chain2337: destVerifier,
+		},
 		ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
 			chain1337: testCCVAddr,
 			chain2337: destVerifier,
@@ -199,7 +204,7 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 	// Set up mock head tracker
 	mockLatestBlocks(mockSetup.Reader)
 
-	inMem := storage.NewInMemory()
+	inMem := ccvstorage.NewInMemory()
 	v, err := createCCTPCoordinator(
 		ts,
 		&cctpConfig,
@@ -286,6 +291,10 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 		AttestationAPITimeout:  1 * time.Minute,
 		AttestationAPICooldown: 1 * time.Second,
 		AttestationAPIInterval: 1 * time.Millisecond,
+		ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
+			chain1337: testCCVAddr,
+			chain2337: destVerifier,
+		},
 		ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
 			chain1337: testCCVAddr,
 			chain2337: destVerifier,
@@ -296,7 +305,7 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 	mockLatestBlocks(reader1337.Reader)
 	mockLatestBlocks(reader2337.Reader)
 
-	inMem := storage.NewInMemory()
+	inMem := ccvstorage.NewInMemory()
 	v, err := createCCTPCoordinator(
 		ts,
 		&cctpConfig,
@@ -389,12 +398,16 @@ func Test_CCTPMessages_RetryingAttestation(t *testing.T) {
 			chain1337: testCCVAddr,
 			chain2337: destVerifier,
 		},
+		ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
+			chain1337: testCCVAddr,
+			chain2337: destVerifier,
+		},
 	}
 
 	// Set up mock head tracker
 	mockLatestBlocks(mockSetup.Reader)
 
-	inMem := storage.NewInMemory()
+	inMem := ccvstorage.NewInMemory()
 	v, err := createCCTPCoordinator(
 		ts,
 		&cctpConfig,
@@ -453,7 +466,7 @@ func createCCTPCoordinator(
 	cctpConfig *cctp.CCTPConfig,
 	config verifier.CoordinatorConfig,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
-	inMemStorage *storage.InMemory,
+	inMemStorage ccvstorage.CCVStorage,
 ) (*verifier.Coordinator, error) {
 	noopMonitoring := monitoring.NewFakeVerifierMonitoring()
 	noopLatencyTracker := verifier.NoopLatencyTracker{}
@@ -463,7 +476,7 @@ func createCCTPCoordinator(
 
 	ccvWriter := storage.NewAttestationCCVWriter(
 		ts.logger,
-		cctpConfig.ParsedVerifiers,
+		cctpConfig.ParsedVerifierResolvers,
 		inMemStorage,
 	)
 
@@ -494,7 +507,11 @@ func createFakeCCTPServer(t *testing.T, attestations []attestationMock) *httptes
 	}
 
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if response, exists := supportedUrls[r.URL.Path]; exists {
+		fullURL := r.URL.Path
+		if r.URL.RawQuery != "" {
+			fullURL = r.URL.Path + "?" + r.URL.RawQuery
+		}
+		if response, exists := supportedUrls[fullURL]; exists {
 			_, err := w.Write([]byte(response))
 			require.NoError(t, err)
 		} else {

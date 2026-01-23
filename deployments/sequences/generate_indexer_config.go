@@ -14,7 +14,7 @@ import (
 // GenerateIndexerConfigOutput contains the output of the indexer config generation sequence.
 type GenerateIndexerConfigOutput struct {
 	ServiceIdentifier string
-	// Verifiers contains one entry per committee with all IssuerAddresses for that committee
+	// Verifiers contains verifier config with Name and IssuerAddresses for each verifier
 	Verifiers []idxconfig.GeneratedVerifier
 }
 

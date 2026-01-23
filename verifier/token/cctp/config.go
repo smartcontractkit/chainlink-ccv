@@ -21,8 +21,13 @@ type CCTPConfig struct {
 	AttestationAPICooldown time.Duration `toml:"attestation_api_cooldown"`
 	// Verifiers is a map of chain selectors to verifier addresses. It's only used for TOML marshall/unmarshall and then
 	// final values, properly cast to domain values are stored in ParsedVerifiers
-	Verifiers       map[string]any                                     `toml:"addresses"`
+	// That configuration field is required to match against messageSender from the CCTPMessage returned from AttestationAPI
+	Verifiers       map[string]any                                     `toml:"verifier_addresses"`
 	ParsedVerifiers map[protocol.ChainSelector]protocol.UnknownAddress `toml:"-"`
+	// VerifierResolvers is a map of chain selectors to verifier resolver addresses. It's only used for TOML marshall/unmarshall and then
+	// final values, properly cast to domain values are stored in ParsedVerifierResolvers
+	VerifierResolvers       map[string]any                                     `toml:"verifier_resolver_addresses"`
+	ParsedVerifierResolvers map[protocol.ChainSelector]protocol.UnknownAddress `toml:"-"`
 }
 
 func TryParsing(t, v string, data map[string]any) (*CCTPConfig, error) {
@@ -54,9 +59,14 @@ func TryParsing(t, v string, data map[string]any) (*CCTPConfig, error) {
 		return nil, fmt.Errorf("invalid attestation_api_cooldown: %w", err)
 	}
 
-	c.ParsedVerifiers, c.Verifiers, err = common.ParseAddressesMap(data["addresses"])
+	c.ParsedVerifierResolvers, c.VerifierResolvers, err = common.ParseAddressesMap(data["verifier_resolver_addresses"])
 	if err != nil {
-		return nil, fmt.Errorf("invalid addresses: %w", err)
+		return nil, fmt.Errorf("invalid verifier_resolver_addresses: %w", err)
+	}
+
+	c.ParsedVerifiers, c.Verifiers, err = common.ParseAddressesMap(data["verifier_addresses"])
+	if err != nil {
+		return nil, fmt.Errorf("invalid verifier_addresses: %w", err)
 	}
 
 	return c, nil

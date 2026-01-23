@@ -82,7 +82,9 @@ func Test_AttestationFetch(t *testing.T) {
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v2/messages/100?transactionHash="+stringTxHash {
+		expectedPath := "/v2/messages/100"
+		expectedQuery := "transactionHash=" + stringTxHash
+		if r.URL.Path == expectedPath && r.URL.RawQuery == expectedQuery {
 			_, err := w.Write(attestationResponseBody)
 			require.NoError(t, err)
 		} else {
@@ -174,7 +176,7 @@ func TestNewAttestationErrors(t *testing.T) {
 
 func TestAttestation_ToVerifierFormat(t *testing.T) {
 	att := Attestation{
-		ccvVerifierVersion: internal.MustByteSliceFromHex("0x01020304"),
+		verifierVersion:    internal.MustByteSliceFromHex("0x01020304"),
 		encodedCCTPMessage: "0xdeadbeef",
 		attestation:        "0xcafec0ffee",
 		status:             attestationStatusSuccess,

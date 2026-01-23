@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -129,8 +130,8 @@ type Chain interface {
 	SendMessage(ctx context.Context, dest uint64, fields MessageFields, opts MessageOptions) (MessageSentEvent, error)
 	// SendMessageWithNonce sends a CCIP message to the specified destination chain with the specified message options and nonce.
 	SendMessageWithNonce(ctx context.Context, dest uint64, fields MessageFields, opts MessageOptions, sender *bind.TransactOpts, nonce *atomic.Uint64, disableTokenAmountCheck bool) (MessageSentEvent, error)
-	// GetUserNonce returns the nonce for the user on this chain.
-	GetUserNonce(ctx context.Context) (uint64, error)
+	// GetUserNonce returns the nonce for the given user address on this chain.
+	GetUserNonce(ctx context.Context, userAddress protocol.UnknownAddress) (uint64, error)
 	// GetExpectedNextSequenceNumber gets an expected sequence number for message to the specified destination chain.
 	GetExpectedNextSequenceNumber(ctx context.Context, to uint64) (uint64, error)
 	// WaitOneSentEventBySeqNo waits until exactly one event for CCIP message sent is emitted on-chain for the specified destination chain and sequence number.
@@ -160,11 +161,12 @@ type OnChainCommittees struct {
 // OnChainConfigurable defines methods that allows devenv to
 // deploy, configure Chainlink product and connect on-chain part with other chains.
 type OnChainConfigurable interface {
-	// DeployContractsForSelector configures contracts for chain X
-	// returns all the contract addresses and metadata as datastore.DataStore
-	DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, committees []OnChainCommittees) (datastore.DataStore, error)
+	// DeployContractsForSelector deploys contracts for chain X using topology for CommitteeVerifier configuration.
+	// Returns all the contract addresses and metadata as datastore.DataStore.
+	DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *deployments.EnvironmentTopology) (datastore.DataStore, error)
 	// ConnectContractsWithSelectors connects this chain onRamp to one or multiple offRamps for remote selectors (other chains)
-	ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, committees []OnChainCommittees) error
+	// and configures CommitteeVerifiers with signers from topology.
+	ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, topology *deployments.EnvironmentTopology) error
 }
 
 // OffChainConfigurable defines methods that allows to

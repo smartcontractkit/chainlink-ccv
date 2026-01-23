@@ -19,11 +19,12 @@ import (
 )
 
 const (
-	DefaultIndexerName     = "indexer"
-	DefaultIndexerDBName   = "indexer-db"
-	DefaultIndexerImage    = "indexer:dev"
-	DefaultIndexerHTTPPort = 8102
-	DefaultIndexerDBPort   = 6432
+	DefaultIndexerName         = "indexer"
+	DefaultIndexerDBName       = "indexer-db"
+	DefaultIndexerImage        = "indexer:dev"
+	DefaultIndexerHTTPPort     = 8102
+	DefaultIndexerInternalPort = 8100
+	DefaultIndexerDBPort       = 6432
 
 	DefaultIndexerDBImage = "postgres:16-alpine"
 )
@@ -36,17 +37,19 @@ type DBInput struct {
 }
 
 type IndexerInput struct {
-	Image          string                  `toml:"image"`
-	Port           int                     `toml:"port"`
-	SourceCodePath string                  `toml:"source_code_path"`
-	RootPath       string                  `toml:"root_path"`
-	DB             *DBInput                `toml:"db"`
-	ContainerName  string                  `toml:"container_name"`
-	UseCache       bool                    `toml:"use_cache"`
-	Out            *IndexerOutput          `toml:"out"`
-	IndexerConfig  *config.Config          `toml:"indexer_config"`
-	Secrets        *config.SecretsConfig   `toml:"secrets"`
-	GeneratedCfg   *config.GeneratedConfig `toml:"generated_config"`
+	Image                            string                  `toml:"image"`
+	Port                             int                     `toml:"port"`
+	SourceCodePath                   string                  `toml:"source_code_path"`
+	RootPath                         string                  `toml:"root_path"`
+	DB                               *DBInput                `toml:"db"`
+	ContainerName                    string                  `toml:"container_name"`
+	UseCache                         bool                    `toml:"use_cache"`
+	Out                              *IndexerOutput          `toml:"out"`
+	IndexerConfig                    *config.Config          `toml:"indexer_config"`
+	Secrets                          *config.SecretsConfig   `toml:"secrets"`
+	GeneratedCfg                     *config.GeneratedConfig `toml:"generated_config"`
+	CommitteeVerifierNameToQualifier map[string]string       `toml:"committee_verifier_name_to_qualifier"`
+	CCTPVerifierNameToQualifier      map[string]string       `toml:"cctp_verifier_name_to_qualifier"`
 
 	// TLSCACertFile is the path to the CA certificate file for TLS verification.
 	// This is set by the aggregator service and used to trust the self-signed CA.
@@ -77,132 +80,6 @@ func defaults(in *IndexerInput) {
 			Image: DefaultIndexerDBImage,
 		}
 	}
-	if in.IndexerConfig == nil {
-		in.IndexerConfig = &config.Config{
-			LogLevel: "info",
-			Monitoring: config.MonitoringConfig{
-				Enabled: true,
-				Type:    "beholder",
-				Beholder: config.BeholderConfig{
-					InsecureConnection:       true,
-					OtelExporterHTTPEndpoint: "otel-collector:4318",
-					LogStreamingEnabled:      true,
-					MetricReaderInterval:     5,
-					TraceSampleRatio:         1.0,
-					TraceBatchTimeout:        10,
-				},
-			},
-			Scheduler: config.SchedulerConfig{
-				TickerInterval:               50,
-				VerificationVisibilityWindow: 28800,
-				BaseDelay:                    50,        // 50 milliseconds
-				MaxDelay:                     30 * 1000, // 30 Seconds
-			},
-			Pool: config.PoolConfig{
-				ConcurrentWorkers: 1000,   // 1000 concurrent messages
-				WorkerTimeout:     5 * 60, // 5 Minutes
-			},
-			Discovery: config.DiscoveryConfig{
-				AggregatorReaderConfig: config.AggregatorReaderConfig{
-					Address: "aggregator:50051",
-					Since:   0,
-				},
-				PollInterval: 500,
-				Timeout:      5000,
-				NtpServer:    "time.google.com",
-			},
-			Verifiers: []config.VerifierConfig{
-				{
-					Type: config.ReaderTypeAggregator,
-					AggregatorReaderConfig: config.AggregatorReaderConfig{
-						Address: "default-aggregator:50051",
-						Since:   0,
-					},
-					Name:             "CommiteeVerifier (Primary)",
-					BatchSize:        100,
-					MaxBatchWaitTime: 50,
-				},
-				{
-					Type: config.ReaderTypeAggregator,
-					AggregatorReaderConfig: config.AggregatorReaderConfig{
-						Address: "secondary-aggregator:50051",
-						Since:   0,
-					},
-					Name:             "CommiteeVerifier (Secondary)",
-					BatchSize:        100,
-					MaxBatchWaitTime: 50,
-				},
-				{
-					Type: config.ReaderTypeAggregator,
-					AggregatorReaderConfig: config.AggregatorReaderConfig{
-						Address: "tertiary-aggregator:50051",
-						Since:   0,
-					},
-					Name:             "CommiteeVerifier (Tertiary)",
-					BatchSize:        100,
-					MaxBatchWaitTime: 50,
-				},
-			},
-			Storage: config.StorageConfig{
-				Strategy: config.StorageStrategySink,
-				Sink: &config.SinkStorageConfig{
-					Storages: []config.StorageBackendConfig{
-						{
-							Type: "memory",
-							Memory: &config.InMemoryStorageConfig{
-								TTL:             3600,
-								MaxSize:         10000,
-								CleanupInterval: 300,
-							},
-						},
-						{
-							Type: "postgres",
-							Postgres: &config.PostgresConfig{
-								MaxOpenConnections:     20,
-								MaxIdleConnections:     5,
-								IdleInTxSessionTimeout: 60,
-								LockTimeout:            30,
-							},
-						},
-					},
-				},
-			},
-		}
-	}
-
-	if in.Secrets == nil {
-		in.Secrets = &config.SecretsConfig{
-			Discovery: config.DiscoverySecrets{
-				APIKey: "dev-api-key-indexer",
-				Secret: "dev-secret-indexer",
-			},
-			Storage: config.StorageSecrets{
-				Sink: config.SinkStorageSecrets{
-					Storages: map[string]config.StorageBackendSecrets{
-						"1": {
-							Postgres: config.PostgresSecrets{
-								URI: "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable",
-							},
-						},
-					},
-				},
-			},
-			Verifier: map[string]config.VerifierSecrets{
-				"0": {
-					APIKey: "dev-api-key-indexer",
-					Secret: "dev-secret-indexer",
-				},
-				"1": {
-					APIKey: "dev-api-key-indexer",
-					Secret: "dev-secret-indexer",
-				},
-				"2": {
-					APIKey: "dev-api-key-indexer",
-					Secret: "dev-secret-indexer",
-				},
-			},
-		}
-	}
 }
 
 // NewIndexer creates and starts a new Service container using testcontainers.
@@ -218,6 +95,10 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 
 	if in.GeneratedCfg == nil {
 		return nil, fmt.Errorf("GeneratedCfg is required for indexer")
+	}
+
+	if in.IndexerConfig == nil {
+		return nil, fmt.Errorf("IndexerConfig is required for indexer")
 	}
 
 	p, err := CwdSourcePath(in.SourceCodePath)

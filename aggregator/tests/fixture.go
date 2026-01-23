@@ -76,11 +76,18 @@ func NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress []byte, sign
 // UpdateCommitteeQuorum updates the quorum config for source chain selector "1" and re-validates.
 // This should be used instead of directly modifying committee.QuorumConfigs to ensure parsed addresses are populated.
 func UpdateCommitteeQuorum(committee *model.Committee, sourceVerifierAddress []byte, signers ...model.Signer) {
-	committee.QuorumConfigs["1"] = &model.QuorumConfig{
-		Threshold:             uint8(len(signers)), //nolint:gosec // Test fixture with controlled values
-		Signers:               signers,
+	UpdateCommitteeQuorumWithThreshold(committee, sourceVerifierAddress, uint8(len(signers)), signers...) //nolint:gosec // Test fixture with controlled values
+}
+
+// UpdateCommitteeQuorumWithThreshold updates the quorum config for source chain selector "1" and re-validates.
+// This should be used instead of directly modifying committee.QuorumConfigs to avoid data races.
+func UpdateCommitteeQuorumWithThreshold(committee *model.Committee, sourceVerifierAddress []byte, threshold uint8, signers ...model.Signer) {
+	copiedSigners := append([]model.Signer(nil), signers...)
+	committee.SetQuorumConfig("1", &model.QuorumConfig{
+		Threshold:             threshold,
+		Signers:               copiedSigners,
 		SourceVerifierAddress: common.BytesToAddress(sourceVerifierAddress).Hex(),
-	}
+	})
 	// Re-validate to populate parsed addresses
 	config := &model.AggregatorConfig{Committee: committee}
 	_ = config.ValidateCommitteeConfig()

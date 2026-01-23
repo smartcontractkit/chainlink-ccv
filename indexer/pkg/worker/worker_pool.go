@@ -58,6 +58,9 @@ func (p *Pool) Stop() {
 		p.cancelFunc()
 	}
 	p.wg.Wait()
+	if p.pool != nil {
+		p.pool.Wait()
+	}
 	p.logger.Info("Stopped WorkerPool")
 }
 

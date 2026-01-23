@@ -105,8 +105,18 @@ func TestRun_MarksSuccessful(t *testing.T) {
 
 	// cleanup
 	cancel()
-	// small sleep to allow goroutine to exit
-	time.Sleep(50 * time.Millisecond)
+	waitDone := make(chan struct{})
+	go func() {
+		p.wg.Wait()
+		close(waitDone)
+	}()
+	select {
+	case <-waitDone:
+		// ok
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("timed out waiting for worker run loop to exit")
+	}
+	p.pool.Wait()
 }
 
 func TestRun_RetriesOnError(t *testing.T) {
@@ -256,6 +266,7 @@ func TestRun_ExitsWhenSchedulerReadyClosed(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Fatalf("p.run did not exit when scheduler.Ready was closed")
 	}
+	p.pool.Wait()
 }
 
 func TestHandleDLQ_ExitsWhenDLQClosed(t *testing.T) {

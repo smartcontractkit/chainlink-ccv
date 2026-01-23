@@ -48,4 +48,16 @@ type AggregatorMetricLabeler interface {
 	IncrementOrphanRecoveryErrors(ctx context.Context)
 	// IncrementPanics increments the counter for panics recovered by background workers.
 	IncrementPanics(ctx context.Context)
+	// SetVerifierHeartbeatScore sets the adaptive heartbeat score gauge for a verifier on a specific chain.
+	SetVerifierHeartbeatScore(ctx context.Context, score float64)
+	// SetVerifierLastHeartbeatTimestamp sets the timestamp gauge of the last heartbeat from a verifier.
+	SetVerifierLastHeartbeatTimestamp(ctx context.Context, timestamp int64)
+	// IncrementVerifierHeartbeatsTotal increments the total number of heartbeats received.
+	IncrementVerifierHeartbeatsTotal(ctx context.Context)
+	// SetVerifierHeartbeatReportedChainHeads sets the block height gauge for a verifier on a specific chain.
+	SetVerifierHeartbeatReportedChainHeads(ctx context.Context, blockHeight uint64)
+	// SetVerifierHeartbeatCurrentMaxChainHead sets the maximum block height benchmark across all verifiers on a specific chain.
+	SetVerifierHeartbeatCurrentMaxChainHead(ctx context.Context, blockHeight int64)
+	// IncrementVerificationsTotal increments the total number of commit verifications received.
+	IncrementVerificationsTotal(ctx context.Context)
 }

@@ -319,8 +319,9 @@ func TestGenerateAggregatorConfig_PreservesExistingIndexerConfig(t *testing.T) {
 	addVerifierToDatastore(t, ds, sel2, committee, addr2)
 
 	existingIndexerConfig := &config.GeneratedConfig{
-		Verifier: map[string]config.GeneratedVerifierConfig{
-			"0": {
+		Verifier: []config.GeneratedVerifierConfig{
+			{
+				Name:            "Existing Verifier",
 				IssuerAddresses: []string{"0xissuer_1001", "0xissuer_1002"},
 			},
 		},

@@ -376,3 +376,74 @@ func Test_HTTPClient_RateLimiting_Parallel(t *testing.T) {
 		})
 	}
 }
+
+func Test_HTTPClient_QueryStringHandling(t *testing.T) {
+	tests := []struct {
+		name          string
+		requestPath   string
+		expectedPath  string
+		expectedQuery string
+		method        string
+	}{
+		{
+			name:          "GET with query parameters",
+			requestPath:   "v2/messages/100?transactionHash=0x1234567890abcdef",
+			expectedPath:  "/v2/messages/100",
+			expectedQuery: "transactionHash=0x1234567890abcdef",
+			method:        http.MethodGet,
+		},
+		{
+			name:          "GET with multiple query parameters",
+			requestPath:   "api/data?param1=value1&param2=value2",
+			expectedPath:  "/api/data",
+			expectedQuery: "param1=value1&param2=value2",
+			method:        http.MethodGet,
+		},
+		{
+			name:          "POST with query parameters",
+			requestPath:   "v2/messages/100?transactionHash=0xabcdef",
+			expectedPath:  "/v2/messages/100",
+			expectedQuery: "transactionHash=0xabcdef",
+			method:        http.MethodPost,
+		},
+		{
+			name:          "GET without query parameters",
+			requestPath:   "v2/messages/100",
+			expectedPath:  "/v2/messages/100",
+			expectedQuery: "",
+			method:        http.MethodGet,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create a test server that validates the URL components
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, tc.expectedPath, r.URL.Path, "path mismatch")
+				assert.Equal(t, tc.expectedQuery, r.URL.RawQuery, "query mismatch")
+				w.WriteHeader(http.StatusOK)
+				_, err := w.Write(validAttestationResponse)
+				require.NoError(t, err)
+			}))
+			defer ts.Close()
+
+			client, err := newHTTPClient(logger.Nop(), ts.URL, time.Millisecond, longTimeout, 0)
+			require.NoError(t, err)
+
+			var response protocol.ByteSlice
+			var statusCode Status
+			switch tc.method {
+			case http.MethodGet:
+				response, statusCode, err = client.Get(context.Background(), tc.requestPath)
+			case http.MethodPost:
+				response, statusCode, err = client.Post(context.Background(), tc.requestPath, []byte("{}"))
+			default:
+				t.Fatalf("unknown method %s", tc.method)
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, int(statusCode))
+			require.Equal(t, protocol.ByteSlice(validAttestationResponse), response)
+		})
+	}
+}

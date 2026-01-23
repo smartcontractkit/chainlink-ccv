@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -41,32 +40,51 @@ func LoadGeneratedConfigFromBytes(data []byte) (*GeneratedConfig, error) {
 }
 
 // MergeGeneratedConfig merges the generated configuration into the main configuration.
-// It merges IssuerAddresses from the generated config into verifier configs by index.
+// It merges IssuerAddresses from the generated config into verifier configs by Name.
+// Each verifier's Name field is matched against the Name field in the generated config entries.
 // Addresses from the generated config are appended to existing addresses (with deduplication).
-func MergeGeneratedConfig(cfg *Config, generated *GeneratedConfig) error {
+// Returns a list of verifier names from the generated config that had no matching verifier in the main config.
+func MergeGeneratedConfig(cfg *Config, generated *GeneratedConfig) []string {
 	if generated == nil {
 		return nil
 	}
 
-	for indexStr, verifierGenerated := range generated.Verifier {
-		index, err := strconv.Atoi(indexStr)
-		if err != nil {
-			return fmt.Errorf("invalid verifier index in generated config: %s (must be numeric)", indexStr)
+	generatedByName := make(map[string]GeneratedVerifierConfig, len(generated.Verifier))
+	for _, v := range generated.Verifier {
+		generatedByName[v.Name] = v
+	}
+
+	matchedNames := make(map[string]bool)
+
+	for i := range cfg.Verifiers {
+		name := cfg.Verifiers[i].Name
+		if name == "" {
+			continue
 		}
 
-		if index < 0 || index >= len(cfg.Verifiers) {
-			return fmt.Errorf("verifier index %d in generated config is out of range (config has %d verifiers)", index, len(cfg.Verifiers))
+		verifierGenerated, ok := generatedByName[name]
+		if !ok {
+			continue
 		}
+
+		matchedNames[name] = true
 
 		if len(verifierGenerated.IssuerAddresses) > 0 {
-			cfg.Verifiers[index].IssuerAddresses = mergeAddresses(
-				cfg.Verifiers[index].IssuerAddresses,
+			cfg.Verifiers[i].IssuerAddresses = mergeAddresses(
+				cfg.Verifiers[i].IssuerAddresses,
 				verifierGenerated.IssuerAddresses,
 			)
 		}
 	}
 
-	return nil
+	var unmatchedNames []string
+	for _, v := range generated.Verifier {
+		if !matchedNames[v.Name] {
+			unmatchedNames = append(unmatchedNames, v.Name)
+		}
+	}
+
+	return unmatchedNames
 }
 
 // mergeAddresses merges two slices of addresses, deduplicating by lowercase comparison.

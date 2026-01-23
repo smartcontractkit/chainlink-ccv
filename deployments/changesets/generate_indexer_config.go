@@ -13,18 +13,29 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/deployments/sequences"
 )
 
-// GenerateIndexerConfigCfg is an alias for the changeset input type.
-type GenerateIndexerConfigCfg = idxconfig.BuildConfigInput
+// GenerateIndexerConfigCfg contains the configuration for the generate indexer config changeset.
+type GenerateIndexerConfigCfg struct {
+	// ServiceIdentifier is the identifier for this indexer service (e.g. "default-indexer")
+	ServiceIdentifier string
+	// VerifierNameToQualifier maps verifier names (matching VerifierConfig.Name) to qualifiers
+	// used for looking up addresses in the datastore.
+	CommitteeVerifierNameToQualifier map[string]string
+	CCTPVerifierNameToQualifier      map[string]string
+	// ChainSelectors are the source chains the indexer will monitor.
+	// If empty, defaults to all chain selectors available in the environment.
+	ChainSelectors []uint64
+}
 
 // GenerateIndexerConfig creates a changeset that generates the indexer configuration
-// by scanning on-chain CommitteeVerifier contracts.
-func GenerateIndexerConfig() deployment.ChangeSetV2[idxconfig.BuildConfigInput] {
-	validate := func(e deployment.Environment, cfg idxconfig.BuildConfigInput) error {
+// by scanning on-chain CommitteeVerifier contracts. It generates one entry per verifier name
+// with all IssuerAddresses (resolver addresses) for that verifier across all chains.
+func GenerateIndexerConfig() deployment.ChangeSetV2[GenerateIndexerConfigCfg] {
+	validate := func(e deployment.Environment, cfg GenerateIndexerConfigCfg) error {
 		if cfg.ServiceIdentifier == "" {
 			return fmt.Errorf("service identifier is required")
 		}
-		if len(cfg.CommitteeQualifiers) == 0 {
-			return fmt.Errorf("at least one committee qualifier is required")
+		if len(cfg.CommitteeVerifierNameToQualifier) == 0 && len(cfg.CCTPVerifierNameToQualifier) == 0 {
+			return fmt.Errorf("at least one verifier name to qualifier mapping is required")
 		}
 		envSelectors := e.BlockChains.ListChainSelectors()
 		for _, s := range cfg.ChainSelectors {
@@ -32,14 +43,23 @@ func GenerateIndexerConfig() deployment.ChangeSetV2[idxconfig.BuildConfigInput] 
 				return fmt.Errorf("selector %d is not available in environment", s)
 			}
 		}
+
 		return nil
 	}
 
-	apply := func(e deployment.Environment, cfg idxconfig.BuildConfigInput) (deployment.ChangesetOutput, error) {
-		input := cfg
-		if len(input.ChainSelectors) == 0 {
-			input.ChainSelectors = e.BlockChains.ListChainSelectors()
+	apply := func(e deployment.Environment, cfg GenerateIndexerConfigCfg) (deployment.ChangesetOutput, error) {
+		selectors := cfg.ChainSelectors
+		if len(selectors) == 0 {
+			selectors = e.BlockChains.ListChainSelectors()
 		}
+
+		input := idxconfig.BuildConfigInput{
+			ServiceIdentifier:                cfg.ServiceIdentifier,
+			CommitteeVerifierNameToQualifier: cfg.CommitteeVerifierNameToQualifier,
+			CCTPVerifierNameToQualifier:      cfg.CCTPVerifierNameToQualifier,
+			ChainSelectors:                   selectors,
+		}
+
 		deps := sequences.GenerateIndexerConfigDeps{
 			Env: e,
 		}
@@ -61,6 +81,7 @@ func GenerateIndexerConfig() deployment.ChangeSetV2[idxconfig.BuildConfigInput] 
 		}
 
 		idxCfg := idxconfig.GeneratedVerifiersToGeneratedConfig(report.Output.Verifiers)
+
 		if err := deployments.SaveIndexerConfig(outputDS, report.Output.ServiceIdentifier, idxCfg); err != nil {
 			return deployment.ChangesetOutput{
 				Reports: report.ExecutionReports,

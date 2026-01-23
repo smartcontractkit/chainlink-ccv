@@ -12,6 +12,8 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	v1 "github.com/smartcontractkit/chainlink-ccv/integration/pkg/api/v1"
 )
 
 const (
@@ -56,6 +58,7 @@ func NewRestReader(config RestReaderConfig) *ResilientReader {
 
 func (r *restReader) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.VerifierResult, error) {
 	url := r.buildRequestURL(messageIDs)
+	r.lggr.Debugw("REST reader calling token verifier", "url", url)
 
 	// Create HTTP request
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -69,12 +72,14 @@ func (r *restReader) GetVerifications(ctx context.Context, messageIDs []protocol
 	// Execute HTTP request
 	response, err := r.httpClient.Do(req)
 	if err != nil {
+		r.lggr.Errorw("REST reader HTTP request failed", "url", url, "error", err)
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
 	defer closeHTTPResponse(response)
 
 	// Validate status code
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		r.lggr.Errorw("REST reader unexpected status", "url", url, "status", response.StatusCode)
 		return nil, fmt.Errorf("unexpected status code: %d", response.StatusCode)
 	}
 
@@ -84,12 +89,13 @@ func (r *restReader) GetVerifications(ctx context.Context, messageIDs []protocol
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	var queryResponses map[protocol.Bytes32]protocol.VerifierResult
+	var queryResponses v1.VerifierResultsResponse
 	if err := json.Unmarshal(body, &queryResponses); err != nil {
+		r.lggr.Errorw("REST reader parse failed", "url", url, "body", string(body), "error", err)
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	return queryResponses, nil
+	return queryResponses.ToVerifierResults()
 }
 
 // buildRequestURL constructs the URL for fetching CCV data.

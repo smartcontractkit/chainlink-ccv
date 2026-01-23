@@ -30,7 +30,6 @@ import (
 	rmn_remote_binding "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/burn_mint_token_pool"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_through_ccv_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/create2_factory"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
@@ -47,7 +46,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/token_admin_registry"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
+	"github.com/smartcontractkit/chainlink-ccv/deployments"
+	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployments/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
@@ -265,21 +265,6 @@ func All17TokenCombinations() []TokenCombination {
 		}
 	}
 	return combinations
-}
-
-func USDCTokenPoolCombination() TokenCombination {
-	return TokenCombination{ // 1.7.0 usdc -> 1.7.0 usdc
-		sourcePoolType:          string(cctp_through_ccv_token_pool.ContractType),
-		sourcePoolVersion:       "1.7.0",
-		sourcePoolQualifier:     "CCTP",
-		sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
-		destPoolType:            string(cctp_through_ccv_token_pool.ContractType),
-		destPoolVersion:         "1.7.0",
-		destPoolQualifier:       "CCTP",
-		destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
-		expectedReceiptIssuers:  5, // default CCV, CCTP CCV, token pool, executor, network fee
-		expectedVerifierResults: 1, // default CCV
-	}
 }
 
 type CCIP17EVMConfig struct {
@@ -822,13 +807,14 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, field
 	if nonce != nil {
 		loadNonce = big.NewInt(int64(nonce.Load()))
 	}
-	deployerKeyCopy := &bind.TransactOpts{
+	senderKeyCopy := &bind.TransactOpts{
 		From:   sender.From,
 		Signer: sender.Signer,
 		Nonce:  loadNonce,
 		Value:  msgValue,
 	}
-	tx, err := rout.CcipSend(deployerKeyCopy, dest, msg)
+	fmt.Printf("sender: %s, srcChain: %d, nonce: %s\n", senderKeyCopy.From.String(), srcChain.Selector, loadNonce.String())
+	tx, err := rout.CcipSend(senderKeyCopy, dest, msg)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to send CCIP message: %w, extraArgs: %x", err, extraArgs)
 	}
@@ -908,8 +894,8 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, field
 	return result, nil
 }
 
-func (m *CCIP17EVM) GetUserNonce(ctx context.Context) (uint64, error) {
-	return m.chain.Client.PendingNonceAt(ctx, m.chain.DeployerKey.From)
+func (m *CCIP17EVM) GetUserNonce(ctx context.Context, userAddress protocol.UnknownAddress) (uint64, error) {
+	return m.chain.Client.PendingNonceAt(ctx, common.HexToAddress(userAddress.String()))
 }
 
 func serializeExtraArgs(opts cciptestinterfaces.MessageOptions, destFamily string) []byte {
@@ -1099,23 +1085,7 @@ func (m *CCIP17EVMConfig) ConfigureNodes(ctx context.Context, bc *blockchain.Inp
 	), nil
 }
 
-func toCommitteeVerifierParams(committees []cciptestinterfaces.OnChainCommittees) []sequences.CommitteeVerifierParams {
-	params := make([]sequences.CommitteeVerifierParams, 0, len(committees))
-
-	// TODO: deploy the offchain verifiers that correspond to these contracts.
-	for _, c := range committees {
-		params = append(params, sequences.CommitteeVerifierParams{
-			Version: semver.MustParse(committee_verifier.Deploy.Version()),
-			// TODO: add mocked contract here
-			FeeAggregator: common.HexToAddress("0x01"),
-			Qualifier:     c.CommitteeQualifier,
-		})
-	}
-
-	return params
-}
-
-func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, committees []cciptestinterfaces.OnChainCommittees) (datastore.DataStore, error) {
+func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *deployments.EnvironmentTopology) (datastore.DataStore, error) {
 	l := m.logger
 	l.Info().Msg("Configuring contracts for selector")
 	l.Info().Any("Selector", selector).Msg("Deploying for chain selectors")
@@ -1156,138 +1126,134 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 	}
 
 	mcmsReaderRegistry := changesetscore.GetRegistry() // TODO: Integrate actual registry if MCMS support is required.
-	out, err := evmchangesets.DeployChainContracts(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[evmchangesets.DeployChainContractsCfg]{
-		Cfg: evmchangesets.DeployChainContractsCfg{
-			ChainSel:       selector,
+	out, err := ccvchangesets.DeployChainContractsFromTopology(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[ccvchangesets.DeployChainContractsFromTopologyCfg]{
+		Cfg: ccvchangesets.DeployChainContractsFromTopologyCfg{
+			Topology:       topology,
+			ChainSelector:  selector,
 			CREATE2Factory: common.HexToAddress(create2FactoryRep.Output.Address),
-			Params: sequences.ContractParams{
-				// TODO: Router contract implementation is missing
-				RMNRemote: sequences.RMNRemoteParams{
-					Version: semver.MustParse(rmn_remote.Deploy.Version()),
+			// TODO: Router contract implementation is missing
+			RMNRemote: sequences.RMNRemoteParams{
+				Version: semver.MustParse(rmn_remote.Deploy.Version()),
+			},
+			OffRamp: sequences.OffRampParams{
+				Version:                   semver.MustParse(offrampoperations.Deploy.Version()),
+				GasForCallExactCheck:      5_000,
+				MaxGasBufferToUpdateState: 12_000,
+			},
+			OnRamp: sequences.OnRampParams{
+				Version:               semver.MustParse(onrampoperations.Deploy.Version()),
+				FeeAggregator:         common.HexToAddress("0x01"),
+				MaxUSDCentsPerMessage: 100_00, // $100
+			},
+			Executors: []sequences.ExecutorParams{
+				{
+					Version:       semver.MustParse(executor.DeployProxy.Version()),
+					MaxCCVsPerMsg: 10,
+					DynamicConfig: executor.SetDynamicConfigArgs{
+						FeeAggregator:         common.HexToAddress("0x01"),
+						MinBlockConfirmations: 0,
+						CcvAllowlistEnabled:   false,
+					},
+					Qualifier: DefaultExecutorQualifier,
 				},
-				OffRamp: sequences.OffRampParams{
-					Version:                   semver.MustParse(offrampoperations.Deploy.Version()),
-					GasForCallExactCheck:      5_000,
-					MaxGasBufferToUpdateState: 12_000,
+				{
+					Version:       semver.MustParse(executor.DeployProxy.Version()),
+					MaxCCVsPerMsg: 10,
+					DynamicConfig: executor.SetDynamicConfigArgs{
+						FeeAggregator:         common.HexToAddress("0x01"),
+						MinBlockConfirmations: 0,
+						CcvAllowlistEnabled:   false,
+					},
+					Qualifier: CustomExecutorQualifier,
 				},
-				// Deploy multiple committee verifiers in order to test different receiver
-				// configurations.
-				CommitteeVerifiers: toCommitteeVerifierParams(committees),
-				OnRamp: sequences.OnRampParams{
-					Version:               semver.MustParse(onrampoperations.Deploy.Version()),
-					FeeAggregator:         common.HexToAddress("0x01"),
-					MaxUSDCentsPerMessage: 100_00, // $100
+			},
+			FeeQuoter: sequences.FeeQuoterParams{
+				Version: semver.MustParse(fee_quoter.Deploy.Version()),
+				// expose in TOML config
+				MaxFeeJuelsPerMsg:              big.NewInt(2e18),
+				LINKPremiumMultiplierWeiPerEth: 9e17, // 0.9 ETH
+				WETHPremiumMultiplierWeiPerEth: 1e18, // 1.0 ETH
+				USDPerLINK:                     usdPerLink,
+				USDPerWETH:                     usdPerWeth,
+			},
+			// TODO: How to generate this from the committees param?
+			MockReceivers: []sequences.MockReceiverParams{
+				{
+					// single required verifier (default), no optional verifiers, no optional threshold
+					Version: semver.MustParse(mock_receiver.Deploy.Version()),
+					RequiredVerifiers: []datastore.AddressRef{
+						{
+							Type:          datastore.ContractType(committee_verifier.ResolverType),
+							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+							ChainSelector: selector,
+							Qualifier:     DefaultCommitteeVerifierQualifier,
+						},
+					},
+					Qualifier: DefaultReceiverQualifier,
 				},
-				Executors: []sequences.ExecutorParams{
-					{
-						Version:       semver.MustParse(executor.DeployProxy.Version()),
-						MaxCCVsPerMsg: 10,
-						DynamicConfig: executor.SetDynamicConfigArgs{
-							FeeAggregator:         common.HexToAddress("0x01"),
-							MinBlockConfirmations: 0,
-							CcvAllowlistEnabled:   false,
+				{
+					// single required verifier (secondary), no optional verifiers, no optional threshold
+					Version: semver.MustParse(mock_receiver.Deploy.Version()),
+					RequiredVerifiers: []datastore.AddressRef{
+						{
+							Type:          datastore.ContractType(committee_verifier.ResolverType),
+							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+							ChainSelector: selector,
+							Qualifier:     SecondaryCommitteeVerifierQualifier,
 						},
-						Qualifier: DefaultExecutorQualifier,
 					},
-					{
-						Version:       semver.MustParse(executor.DeployProxy.Version()),
-						MaxCCVsPerMsg: 10,
-						DynamicConfig: executor.SetDynamicConfigArgs{
-							FeeAggregator:         common.HexToAddress("0x01"),
-							MinBlockConfirmations: 0,
-							CcvAllowlistEnabled:   false,
-						},
-						Qualifier: CustomExecutorQualifier,
-					},
+					Qualifier: SecondaryReceiverQualifier,
 				},
-				FeeQuoter: sequences.FeeQuoterParams{
-					Version: semver.MustParse(fee_quoter.Deploy.Version()),
-					// expose in TOML config
-					MaxFeeJuelsPerMsg:              big.NewInt(2e18),
-					LINKPremiumMultiplierWeiPerEth: 9e17, // 0.9 ETH
-					WETHPremiumMultiplierWeiPerEth: 1e18, // 1.0 ETH
-					USDPerLINK:                     usdPerLink,
-					USDPerWETH:                     usdPerWeth,
+				{
+					// single required verifier (secondary), single optional verifier (tertiary), optional threshold=1
+					// this means that the message should only be executed after the required and optional verifiers have signed.
+					// optional threshold being 1, with one optional, means that it must be retrieved.
+					Version: semver.MustParse(mock_receiver.Deploy.Version()),
+					RequiredVerifiers: []datastore.AddressRef{
+						{
+							Type:          datastore.ContractType(committee_verifier.ResolverType),
+							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+							ChainSelector: selector,
+							Qualifier:     SecondaryCommitteeVerifierQualifier,
+						},
+					},
+					OptionalVerifiers: []datastore.AddressRef{
+						{
+							Type:          datastore.ContractType(committee_verifier.ResolverType),
+							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+							ChainSelector: selector,
+							Qualifier:     TertiaryCommitteeVerifierQualifier,
+						},
+					},
+					OptionalThreshold: 1,
+					Qualifier:         TertiaryReceiverQualifier,
 				},
-				// TODO: How to generate this from the committees param?
-				MockReceivers: []sequences.MockReceiverParams{
-					{
-						// single required verifier (default), no optional verifiers, no optional threshold
-						Version: semver.MustParse(mock_receiver.Deploy.Version()),
-						RequiredVerifiers: []datastore.AddressRef{
-							{
-								Type:          datastore.ContractType(committee_verifier.ResolverType),
-								Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-								ChainSelector: selector,
-								Qualifier:     DefaultCommitteeVerifierQualifier,
-							},
+				{
+					Version: semver.MustParse(mock_receiver.Deploy.Version()),
+					RequiredVerifiers: []datastore.AddressRef{
+						{
+							Type:          datastore.ContractType(committee_verifier.ResolverType),
+							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+							ChainSelector: selector,
+							Qualifier:     DefaultCommitteeVerifierQualifier,
 						},
-						Qualifier: DefaultReceiverQualifier,
 					},
-					{
-						// single required verifier (secondary), no optional verifiers, no optional threshold
-						Version: semver.MustParse(mock_receiver.Deploy.Version()),
-						RequiredVerifiers: []datastore.AddressRef{
-							{
-								Type:          datastore.ContractType(committee_verifier.ResolverType),
-								Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-								ChainSelector: selector,
-								Qualifier:     SecondaryCommitteeVerifierQualifier,
-							},
+					OptionalVerifiers: []datastore.AddressRef{
+						{
+							Type:          datastore.ContractType(committee_verifier.ResolverType),
+							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+							ChainSelector: selector,
+							Qualifier:     SecondaryCommitteeVerifierQualifier,
 						},
-						Qualifier: SecondaryReceiverQualifier,
+						{
+							Type:          datastore.ContractType(committee_verifier.ResolverType),
+							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+							ChainSelector: selector,
+							Qualifier:     TertiaryCommitteeVerifierQualifier,
+						},
 					},
-					{
-						// single required verifier (secondary), single optional verifier (tertiary), optional threshold=1
-						// this means that the message should only be executed after the required and optional verifiers have signed.
-						// optional threshold being 1, with one optional, means that it must be retrieved.
-						Version: semver.MustParse(mock_receiver.Deploy.Version()),
-						RequiredVerifiers: []datastore.AddressRef{
-							{
-								Type:          datastore.ContractType(committee_verifier.ResolverType),
-								Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-								ChainSelector: selector,
-								Qualifier:     SecondaryCommitteeVerifierQualifier,
-							},
-						},
-						OptionalVerifiers: []datastore.AddressRef{
-							{
-								Type:          datastore.ContractType(committee_verifier.ResolverType),
-								Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-								ChainSelector: selector,
-								Qualifier:     TertiaryCommitteeVerifierQualifier,
-							},
-						},
-						OptionalThreshold: 1,
-						Qualifier:         TertiaryReceiverQualifier,
-					},
-					{
-						Version: semver.MustParse(mock_receiver.Deploy.Version()),
-						RequiredVerifiers: []datastore.AddressRef{
-							{
-								Type:          datastore.ContractType(committee_verifier.ResolverType),
-								Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-								ChainSelector: selector,
-								Qualifier:     DefaultCommitteeVerifierQualifier,
-							},
-						},
-						OptionalVerifiers: []datastore.AddressRef{
-							{
-								Type:          datastore.ContractType(committee_verifier.ResolverType),
-								Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-								ChainSelector: selector,
-								Qualifier:     SecondaryCommitteeVerifierQualifier,
-							},
-							{
-								Type:          datastore.ContractType(committee_verifier.ResolverType),
-								Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-								ChainSelector: selector,
-								Qualifier:     TertiaryCommitteeVerifierQualifier,
-							},
-						},
-						OptionalThreshold: 1,
-						Qualifier:         QuaternaryReceiverQualifier,
-					},
+					OptionalThreshold: 1,
+					Qualifier:         QuaternaryReceiverQualifier,
 				},
 			},
 		},
@@ -1492,44 +1458,8 @@ func (m *CCIP17EVMConfig) configureTokenForTransfer(
 	return nil
 }
 
-func toComitteeVerifier(selector uint64, committees []cciptestinterfaces.OnChainCommittees, remoteChainConfigs map[uint64]adapters.CommitteeVerifierRemoteChainConfig) []adapters.CommitteeVerifierConfig[datastore.AddressRef] {
-	committeeVerifiers := make([]adapters.CommitteeVerifierConfig[datastore.AddressRef], 0, len(committees))
-	for _, committee := range committees {
-		remoteChainConfigWithSignatureConfig := make(map[uint64]adapters.CommitteeVerifierRemoteChainConfig, len(remoteChainConfigs))
-		for remoteChainSelector, remoteChainConfig := range remoteChainConfigs {
-			signers := make([]string, 0, len(committee.Signers))
-			for _, signer := range committee.Signers {
-				signers = append(signers, common.BytesToAddress(signer).String())
-			}
-			remoteChainConfig.SignatureConfig = adapters.CommitteeVerifierSignatureQuorumConfig{
-				Threshold: committee.Threshold,
-				Signers:   signers,
-			}
-			remoteChainConfigWithSignatureConfig[remoteChainSelector] = remoteChainConfig
-		}
-		committeeVerifiers = append(committeeVerifiers, adapters.CommitteeVerifierConfig[datastore.AddressRef]{
-			CommitteeVerifier: []datastore.AddressRef{
-				{
-					Type:          datastore.ContractType(committee_verifier.ContractType),
-					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-					ChainSelector: selector,
-					Qualifier:     committee.CommitteeQualifier,
-				},
-				{
-					Type:          datastore.ContractType(committee_verifier.ResolverType),
-					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-					ChainSelector: selector,
-					Qualifier:     committee.CommitteeQualifier,
-				},
-			},
-			RemoteChains: remoteChainConfigWithSignatureConfig,
-		})
-	}
-	return committeeVerifiers
-}
-
 // TODO: How to generate all the default/secondary/tertiary things from the committee param?
-func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, committees []cciptestinterfaces.OnChainCommittees) error {
+func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, topology *deployments.EnvironmentTopology) error {
 	// TODO: how does this even work?
 	/*
 		if selector != m.chain.ChainSelector() {
@@ -1606,9 +1536,9 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		}
 	}
 
-	committeeVerifierRemoteChainConfigs := make(map[uint64]adapters.CommitteeVerifierRemoteChainConfig)
+	committeeVerifierRemoteChainConfigs := make(map[uint64]ccvchangesets.CommitteeVerifierRemoteChainConfig)
 	for _, rs := range remoteSelectors {
-		committeeVerifierRemoteChainConfigs[rs] = adapters.CommitteeVerifierRemoteChainConfig{
+		committeeVerifierRemoteChainConfigs[rs] = ccvchangesets.CommitteeVerifierRemoteChainConfig{
 			AllowlistEnabled:   false,
 			GasForVerification: CommitteeVerifierGasForVerification,
 			FeeUSDCents:        0, // TODO: set proper fee
@@ -1616,14 +1546,24 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		}
 	}
 
+	committeeVerifiers := make([]ccvchangesets.CommitteeVerifierConfig, 0, len(topology.NOPTopology.Committees))
+	for qualifier := range topology.NOPTopology.Committees {
+		committeeVerifiers = append(committeeVerifiers, ccvchangesets.CommitteeVerifierConfig{
+			CommitteeQualifier: qualifier,
+			RemoteChains:       committeeVerifierRemoteChainConfigs,
+		})
+	}
+
 	mcmsReaderRegistry := changesetscore.GetRegistry()
 	chainFamilyRegistry := adapters.NewChainFamilyRegistry()
 	chainFamilyRegistry.RegisterChainFamily("evm", &evmadapters.ChainFamilyAdapter{})
-	_, err := changesets.ConfigureChainsForLanes(chainFamilyRegistry, mcmsReaderRegistry).Apply(*e, changesets.ConfigureChainsForLanesConfig{
-		Chains: []changesets.ChainConfig{
+	_, err := ccvchangesets.ConfigureChainsForLanesFromTopology(chainFamilyRegistry, mcmsReaderRegistry).Apply(*e, ccvchangesets.ConfigureChainsForLanesFromTopologyConfig{
+		Topology: topology,
+		Chains: []ccvchangesets.PartialChainConfig{
 			{
-				ChainSelector: selector,
-				RemoteChains:  remoteChains,
+				ChainSelector:      selector,
+				RemoteChains:       remoteChains,
+				CommitteeVerifiers: committeeVerifiers,
 				FeeQuoter: datastore.AddressRef{
 					Type:    datastore.ContractType(fee_quoter.ContractType),
 					Version: semver.MustParse(fee_quoter.Deploy.Version()),
@@ -1640,7 +1580,6 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 					Type:    datastore.ContractType(routeroperations.ContractType),
 					Version: semver.MustParse(routeroperations.Deploy.Version()),
 				},
-				CommitteeVerifiers: toComitteeVerifier(selector, committees, committeeVerifierRemoteChainConfigs),
 			},
 		},
 	})
@@ -2073,7 +2012,8 @@ func (m *CCIP17EVM) GetRoundRobinUser() func() *bind.TransactOpts {
 	}
 	index := &atomic.Uint32{}
 	return func() *bind.TransactOpts {
+		selectedSender := m.chain.Users[index.Load()%uint32(len(m.chain.Users))]
 		index.Add(1)
-		return m.chain.Users[index.Load()%uint32(len(m.chain.Users))]
+		return selectedSender
 	}
 }

@@ -1,33 +1,27 @@
-package storage
+package ccvstorage
 
 import (
 	"context"
 	"sync"
-	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-type InMemory struct {
+var _ CCVStorage = &InMemoryCCVStorage{}
+
+type InMemoryCCVStorage struct {
 	mu   sync.RWMutex
 	data map[protocol.Bytes32]Entry
 }
 
-func NewInMemory() *InMemory {
-	return &InMemory{
+func NewInMemory() *InMemoryCCVStorage {
+	return &InMemoryCCVStorage{
 		data: make(map[protocol.Bytes32]Entry),
 		mu:   sync.RWMutex{},
 	}
 }
 
-type Entry struct {
-	value                 protocol.VerifierNodeResult
-	verifierSourceAddress protocol.UnknownAddress
-	verifierDestAddress   protocol.UnknownAddress
-	timestamp             time.Time
-}
-
-func (s *InMemory) Get(_ context.Context, key []protocol.Bytes32) map[protocol.Bytes32]Entry {
+func (s *InMemoryCCVStorage) Get(_ context.Context, key []protocol.Bytes32) (map[protocol.Bytes32]Entry, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -37,15 +31,15 @@ func (s *InMemory) Get(_ context.Context, key []protocol.Bytes32) map[protocol.B
 			result[k] = entry
 		}
 	}
-	return result
+	return result, nil
 }
 
-func (s *InMemory) Set(_ context.Context, entries []Entry) error {
+func (s *InMemoryCCVStorage) Set(_ context.Context, entries []Entry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	for _, entry := range entries {
-		msgID, err := entry.value.Message.MessageID()
+		msgID, err := entry.Value.Message.MessageID()
 		if err != nil {
 			return err
 		}

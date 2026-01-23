@@ -17,15 +17,15 @@ type AttestationService interface {
 // allowing creating proper payload for the verifier on the destination chain.
 // Please see ToVerifierFormat for more details on the format.
 type Attestation struct {
-	ccvVerifierVersion protocol.ByteSlice
+	verifierVersion    protocol.ByteSlice
 	attestation        string
 	encodedCCTPMessage string
 	status             AttestationStatus
 }
 
-func NewAttestation(ccvVerifierVersion protocol.ByteSlice, msg Message) Attestation {
+func NewAttestation(verifierVersion protocol.ByteSlice, msg Message) Attestation {
 	return Attestation{
-		ccvVerifierVersion: ccvVerifierVersion,
+		verifierVersion:    verifierVersion,
 		attestation:        msg.Attestation,
 		encodedCCTPMessage: msg.Message,
 		status:             msg.Status,
@@ -48,7 +48,7 @@ func (a *Attestation) ToVerifierFormat() (protocol.ByteSlice, error) {
 	}
 
 	var output protocol.ByteSlice
-	output = append(output, a.ccvVerifierVersion...)
+	output = append(output, a.verifierVersion...)
 	output = append(output, encodedCCTPMessage...)
 	output = append(output, attestation...)
 	return output, nil
@@ -59,10 +59,10 @@ func (a *Attestation) IsReady() bool {
 }
 
 type HTTPAttestationService struct {
-	lggr               logger.Logger
-	client             HTTPClient
-	ccvVerifierVersion protocol.ByteSlice
-	ccvAddresses       map[protocol.ChainSelector]protocol.UnknownAddress
+	lggr              logger.Logger
+	client            HTTPClient
+	verifierVersion   protocol.ByteSlice
+	verifierAddresses map[protocol.ChainSelector]protocol.UnknownAddress
 }
 
 func NewAttestationService(
@@ -77,8 +77,8 @@ func NewAttestationService(
 		lggr:   lggr,
 		client: client,
 		// TODO Make that configurable per chain / per address CCIP-8521
-		ccvVerifierVersion: CCVVerifierVersion,
-		ccvAddresses:       config.ParsedVerifiers,
+		verifierVersion:   VerifierVersion,
+		verifierAddresses: config.ParsedVerifiers,
 	}, nil
 }
 
@@ -107,23 +107,23 @@ func (h *HTTPAttestationService) Fetch(
 
 func (h *HTTPAttestationService) extractAttestationFromResponse(response Messages, message protocol.Message) (Attestation, error) {
 	for _, msg := range response.Messages {
-		err := cctpMatchesMessage(h.ccvVerifierVersion, h.ccvAddresses, msg, message)
+		err := cctpMatchesMessage(h.verifierVersion, h.verifierAddresses, msg, message)
 		if err != nil {
-			h.lggr.Debugw(
+			h.lggr.Infow(
 				"skipping CCTP message as it doesn't match CCIP message",
 				"message", msg,
 				"reason", err,
 			)
 			continue
 		}
-		return NewAttestation(h.ccvVerifierVersion, msg), nil
+		return NewAttestation(h.verifierVersion, msg), nil
 	}
 	return Attestation{}, fmt.Errorf("no matching message found in response")
 }
 
 func cctpMatchesMessage(
-	ccvVerifierVersion protocol.ByteSlice,
-	ccvAddresses map[protocol.ChainSelector]protocol.UnknownAddress,
+	verifierVersion protocol.ByteSlice,
+	verifierAddresses map[protocol.ChainSelector]protocol.UnknownAddress,
 	cctpMessage Message,
 	ccipMessage protocol.Message,
 ) error {
@@ -136,7 +136,7 @@ func cctpMatchesMessage(
 		return fmt.Errorf("unsupported CCTP version")
 	}
 
-	ccvAddress, ok := ccvAddresses[ccipMessage.SourceChainSelector]
+	verifierAddress, ok := verifierAddresses[ccipMessage.SourceChainSelector]
 	if !ok {
 		return fmt.Errorf("no CCV address configured for source chain selector: %s", ccipMessage.SourceChainSelector)
 	}
@@ -145,8 +145,8 @@ func cctpMatchesMessage(
 	if err != nil {
 		return fmt.Errorf("invalid sender address: %w", err)
 	}
-	if !ccvAddress.Equal(senderAddress) {
-		return fmt.Errorf("sender address mismatch: expected %s, got %s", ccvAddress.String(), senderAddress.String())
+	if !verifierAddress.Equal(senderAddress) {
+		return fmt.Errorf("sender address mismatch: expected %s, got %s", verifierAddress.String(), senderAddress.String())
 	}
 
 	actualHookData, err := protocol.NewByteSliceFromHex(cctpMessage.DecodedMessage.DecodedMessageBody.HookData)
@@ -156,7 +156,7 @@ func cctpMatchesMessage(
 
 	// <4 byte verifier version><32 byte msg ID>
 	var expectedHookData protocol.ByteSlice
-	expectedHookData = append(expectedHookData, ccvVerifierVersion...)
+	expectedHookData = append(expectedHookData, verifierVersion...)
 	expectedHookData = append(expectedHookData, messageID[:]...)
 	if actualHookData.String() != expectedHookData.String() {
 		return fmt.Errorf("hook data mismatch: expected %s, got %s", expectedHookData.String(), actualHookData.String())

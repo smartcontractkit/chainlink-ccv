@@ -105,6 +105,7 @@ func NewCoordinatorWithDetector(
 
 	return &Coordinator{
 		lggr:                   lggr,
+		verifierID:             config.VerifierID,
 		sourceReadersServices:  sourceReaderServices,
 		curseDetector:          curseDetector,
 		storageWriterProcessor: storageWriterProcessor,

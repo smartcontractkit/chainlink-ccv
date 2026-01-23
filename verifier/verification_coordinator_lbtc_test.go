@@ -7,15 +7,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/ccvstorage"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lbtc"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
-
-	"github.com/stretchr/testify/require"
-
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
@@ -92,7 +92,7 @@ func Test_LBTCMessages_Success(t *testing.T) {
 		AttestationAPITimeout:   1 * time.Minute,
 		AttestationAPIInterval:  1 * time.Millisecond,
 		AttestationAPIBatchSize: 10,
-		ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+		ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 			chain1337: testCCVAddr,
 			chain2337: destVerifier,
 		},
@@ -101,7 +101,7 @@ func Test_LBTCMessages_Success(t *testing.T) {
 	// Set up mock head tracker
 	mockLatestBlocks(mockSetup.Reader)
 
-	inMem := storage.NewInMemory()
+	inMem := ccvstorage.NewInMemory()
 	v, err := createLBTCCoordinator(
 		ts,
 		&lbtcConfig,
@@ -194,7 +194,7 @@ func Test_LBTCMessages_RetryingAttestation(t *testing.T) {
 		AttestationAPITimeout:   1 * time.Minute,
 		AttestationAPIInterval:  1 * time.Millisecond,
 		AttestationAPIBatchSize: 10,
-		ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
+		ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 			chain1337: testCCVAddr,
 			chain2337: destVerifier,
 		},
@@ -203,7 +203,7 @@ func Test_LBTCMessages_RetryingAttestation(t *testing.T) {
 	// Set up mock head tracker
 	mockLatestBlocks(mockSetup.Reader)
 
-	inMem := storage.NewInMemory()
+	inMem := ccvstorage.NewInMemory()
 	v, err := createLBTCCoordinator(
 		ts,
 		&lbtcConfig,
@@ -252,7 +252,7 @@ func createLBTCCoordinator(
 	lbtcConfig *lbtc.LBTCConfig,
 	config verifier.CoordinatorConfig,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
-	inMemStorage *storage.InMemory,
+	inMemStorage *ccvstorage.InMemoryCCVStorage,
 ) (*verifier.Coordinator, error) {
 	noopMonitoring := monitoring.NewFakeVerifierMonitoring()
 	noopLatencyTracker := verifier.NoopLatencyTracker{}
@@ -262,14 +262,14 @@ func createLBTCCoordinator(
 
 	ccvWriter := storage.NewAttestationCCVWriter(
 		ts.logger,
-		lbtcConfig.ParsedVerifiers,
+		lbtcConfig.ParsedVerifierResolvers,
 		inMemStorage,
 	)
 
 	return verifier.NewCoordinator(
 		ts.ctx,
 		ts.logger,
-		lbtc.NewVerifierWithConfig(ts.logger, attestationService, lbtc.CCVVerifierVersion, 100*time.Millisecond, 100*time.Millisecond),
+		lbtc.NewVerifierWithConfig(ts.logger, attestationService, lbtc.VerifierVersion, 100*time.Millisecond, 100*time.Millisecond),
 		sourceReaders,
 		ccvWriter,
 		config,
