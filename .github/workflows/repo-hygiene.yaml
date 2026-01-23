@@ -8,7 +8,7 @@ on:
       - main
 
 jobs:
-  mod-tidy-all:
+  hygiene-checks:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
