@@ -7,7 +7,9 @@ All URIs are relative to *http://localhost*
 
 | Class | Method | HTTP request | Description |
 |------------ | ------------- | ------------- | -------------|
-| *DefaultApi* | [**messages**](Apis/DefaultApi.md#messages) | **GET** /v1/messages | Get messages |
+| *DefaultApi* | [**health**](Apis/DefaultApi.md#health) | **GET** /health | Liveness probe that returns a plain 200. |
+*DefaultApi* | [**messages**](Apis/DefaultApi.md#messages) | **GET** /v1/messages | Get messages |
+*DefaultApi* | [**ready**](Apis/DefaultApi.md#ready) | **GET** /ready | Readiness probe that returns 200 if the service has storage access. |
 *DefaultApi* | [**verifierResults**](Apis/DefaultApi.md#verifierResults) | **GET** /v1/verifierresults | Get verifier results |
 *DefaultApi* | [**verifierResultsByMessageId**](Apis/DefaultApi.md#verifierResultsByMessageId) | **GET** /v1/verifierresults/{messageID} | Get message by ID |
 
