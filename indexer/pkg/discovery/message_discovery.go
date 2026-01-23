@@ -322,6 +322,7 @@ func (a *AggregatorMessageDiscovery) isDiscoveryOnly(verifierResult common.Verif
 	// Sanity Check: This should never happen, but in case of a discovery message that is smaller then the version
 	// This can never be valid on-chain and therefore MUST be a discovery only message.
 	if len(verifierResult.VerifierResult.CCVData) <= protocol.MessageDiscoveryVersionLength {
+		a.logger.Infow("Discovery only message, we will not persist the CCVData", "messageID", verifierResult.VerifierResult.MessageID)
 		return true
 	}
 
@@ -329,6 +330,7 @@ func (a *AggregatorMessageDiscovery) isDiscoveryOnly(verifierResult common.Verif
 	// This verification is invalid on-chain and we won't persist the verification.
 	version := verifierResult.VerifierResult.CCVData[:protocol.MessageDiscoveryVersionLength]
 	if bytes.Equal(version, protocol.MessageDiscoveryVersion) {
+		a.logger.Infow("Discovery only message, we will not persist the CCVData", "messageID", verifierResult.VerifierResult.MessageID)
 		return true
 	}
 

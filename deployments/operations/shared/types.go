@@ -43,6 +43,7 @@ type BeholderInput struct {
 type JobID string
 
 type JobScope interface {
+	// IsJobInScope returns a boolean value if the job is in the current scope.
 	IsJobInScope(jobID JobID) bool
 }
 
