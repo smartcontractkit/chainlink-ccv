@@ -606,7 +606,7 @@ func createTestCCVData(uniqueID int, timestamp int64, sourceChain, destChain pro
 			Timestamp:              time.UnixMilli(timestamp),
 			MessageCCVAddresses:    []protocol.UnknownAddress{{0x22, 0x23, 0x24}},
 			MessageExecutorAddress: protocol.UnknownAddress{0x22, 0x23, 0x25},
-			CCVData:                []byte{0x07, 0x08, 0x09},
+			CCVData:                []byte{0x00, 0x01, 0x02, 0x03, 0x04}, // >4 bytes, not discovery-only
 			Message:                message,
 			VerifierSourceAddress:  protocol.UnknownAddress{0x22, 0x23, 0x26},
 			VerifierDestAddress:    protocol.UnknownAddress{0x22, 0x23, 0x27},
@@ -772,6 +772,93 @@ func TestUpdateSequenceNumber_UpdatesPeriodically(t *testing.T) {
 	updatedSeq, err := ts.Storage.GetDiscoverySequenceNumber(ts.Context, discoveryAddress)
 	require.NoError(t, err)
 	assert.Equal(t, int(newSequenceNumber), updatedSeq, "sequence number should be updated in storage")
+}
+
+// TestMessageDiscovery_DiscoveryOnlyNotPersisted tests that discovery-only verifications
+// (those with MessageDiscoveryVersion prefix in CCVData) are emitted and saved as messages,
+// but NOT persisted as verifications.
+func TestMessageDiscovery_DiscoveryOnlyNotPersisted(t *testing.T) {
+	ts := setupMessageDiscoveryTest(t)
+	defer ts.Cleanup()
+
+	// Create a discovery-only verification with MessageDiscoveryVersion prefix
+	discoveryOnlyData := createTestCCVDataWithCCVData(
+		1,
+		time.Now().UnixMilli(),
+		1, 2,
+		append(protocol.MessageDiscoveryVersion, []byte{0xaa, 0xbb}...), // starts with version prefix
+	)
+
+	ts.MockReader = internal.NewMockReader(internal.MockReaderConfig{
+		MessageGenerator: func(_ int) common.VerifierResultWithMetadata {
+			return discoveryOnlyData
+		},
+		EmitEmptyResponses: false,
+		MaxMessages:        1,
+	})
+	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, readers.DefaultResilienceConfig())
+	ts.Discovery.aggregatorReader = ts.Reader
+
+	messageCh := ts.Discovery.Start(ts.Context)
+
+	// Verify message IS emitted to channel
+	select {
+	case msg := <-messageCh:
+		assert.Equal(t, discoveryOnlyData.VerifierResult.MessageID, msg.VerifierResult.MessageID)
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("timeout waiting for discovery-only message to be emitted")
+	}
+
+	// Verify verification was NOT persisted as CCVData
+	stored, err := ts.Storage.GetCCVData(ts.Context, discoveryOnlyData.VerifierResult.MessageID)
+	assert.ErrorIs(t, err, storage.ErrCCVDataNotFound, "discovery-only verification should not be persisted as CCVData")
+	assert.Empty(t, stored)
+
+	// Verify message WAS saved
+	savedMsg, err := ts.Storage.GetMessage(ts.Context, discoveryOnlyData.VerifierResult.MessageID)
+	require.NoError(t, err)
+	assert.Equal(t, discoveryOnlyData.VerifierResult.Message.MustMessageID(), savedMsg.Message.MustMessageID())
+}
+
+// createTestCCVDataWithCCVData creates test data with custom CCVData bytes.
+func createTestCCVDataWithCCVData(uniqueID int, timestamp int64, sourceChain, destChain protocol.ChainSelector, ccvData []byte) common.VerifierResultWithMetadata {
+	message := protocol.Message{
+		Sender:               []byte{0x0d, 0x0e, 0x0f},
+		Data:                 []byte{0x10, 0x11, 0x12},
+		OnRampAddress:        []byte{0x13, 0x14, 0x15},
+		OffRampAddress:       []byte{0x19, 0x1a, 0x1b},
+		DestBlob:             []byte{0x1c, 0x1d, 0x1e},
+		Receiver:             []byte{0x1f, 0x20, 0x21},
+		SourceChainSelector:  sourceChain,
+		DestChainSelector:    destChain,
+		SequenceNumber:       protocol.SequenceNumber(uniqueID),
+		Finality:             1,
+		DestBlobLength:       3,
+		DataLength:           3,
+		ReceiverLength:       3,
+		SenderLength:         3,
+		Version:              1,
+		OffRampAddressLength: 3,
+		OnRampAddressLength:  3,
+	}
+	messageID, _ := message.MessageID()
+
+	return common.VerifierResultWithMetadata{
+		VerifierResult: protocol.VerifierResult{
+			MessageID:              messageID,
+			Timestamp:              time.UnixMilli(timestamp),
+			MessageCCVAddresses:    []protocol.UnknownAddress{{0x22, 0x23, 0x24}},
+			MessageExecutorAddress: protocol.UnknownAddress{0x22, 0x23, 0x25},
+			CCVData:                ccvData,
+			Message:                message,
+			VerifierSourceAddress:  protocol.UnknownAddress{0x22, 0x23, 0x26},
+			VerifierDestAddress:    protocol.UnknownAddress{0x22, 0x23, 0x27},
+		},
+		Metadata: common.VerifierResultMetadata{
+			AttestationTimestamp: time.UnixMilli(timestamp),
+			IngestionTimestamp:   time.UnixMilli(timestamp),
+		},
+	}
 }
 
 // TestUpdateSequenceNumber_StopsOnContextCancellation tests that the update goroutine stops on context cancellation.
