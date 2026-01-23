@@ -137,7 +137,7 @@ func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, message pro
 // 5. Order the CCV data to match the order expected by the receiver contract.
 // 6. Create the aggregated report and transmit it to the chain.
 func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protocol.Message) (shouldRetry bool, err error) {
-	start := time.Now().Unix()
+	start := time.Now()
 	destinationChain := message.DestChainSelector
 	messageID := message.MustMessageID()
 
@@ -226,7 +226,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	}
 
 	// Record the message execution latency.
-	cle.monitoring.Metrics().RecordMessageExecutionLatency(ctx, time.Since(time.Unix(start, 0)), destinationChain)
+	cle.monitoring.Metrics().RecordMessageExecutionLatency(ctx, time.Since(start), destinationChain)
 
 	return false, nil
 }
