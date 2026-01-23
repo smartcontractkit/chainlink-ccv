@@ -16,17 +16,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Read Go version
-        id: tool_versions
-        shell: bash
-        run: |
-          echo "go_version=$(grep -E '^VERSION_GO=' tool-versions.env | cut -d= -f2)" >> $GITHUB_OUTPUT
-
       - name: Set up Go
         uses: actions/setup-go@v6 # v6
         with:
           cache: true
-          go-version: ${{ steps.tool_versions.outputs.go_version }}
+          go-version-file: 'go.mod'
 
       - name: Populate go envs
         run: |
