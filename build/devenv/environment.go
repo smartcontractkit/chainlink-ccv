@@ -57,6 +57,7 @@ const (
 			HTTPWriteTimeout = '3m'
 			SecureCookies = false
 			HTTPPort = 6688
+			AllowOrigins = 'http://localhost:3000'
 			[WebServer.TLS]
 			HTTPSPort = 0
 			[WebServer.RateLimit]
@@ -528,7 +529,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Deploy Pricer service //
 	///////////////////////////////
 	if _, err := services.NewPricer(in.Pricer); err != nil {
-		return nil, fmt.Errorf("failed to setup pricer service")
+		return nil, fmt.Errorf("failed to setup pricer service: %w", err)
 	}
 
 	for i, impl := range impls {
