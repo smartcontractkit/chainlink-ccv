@@ -273,12 +273,12 @@ func (f *FinalityViolationCheckerService) fetchBlockRange(ctx context.Context, s
 // NoOpFinalityViolationChecker is a dummy implementation that does nothing.
 type NoOpFinalityViolationChecker struct{}
 
-// UpdateFinalized implements protocol.FinalityViolationChecker
+// UpdateFinalized implements protocol.FinalityViolationChecker.
 func (n *NoOpFinalityViolationChecker) UpdateFinalized(ctx context.Context, finalizedBlock uint64) error {
 	return nil
 }
 
-// IsFinalityViolated implements protocol.FinalityViolationChecker
+// IsFinalityViolated implements protocol.FinalityViolationChecker.
 func (n *NoOpFinalityViolationChecker) IsFinalityViolated() bool {
 	return false
 }
