@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	ledgerv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2"
+
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -62,8 +63,8 @@ func parseTemplateID(id string) (*ledgerv2.Identifier, error) {
 		return nil, fmt.Errorf("invalid template ID format, expected packageId:moduleName:entityName, got: %s", id)
 	}
 	return &ledgerv2.Identifier{
-		PackageId:   parts[0],
-		ModuleName:  parts[1],
-		EntityName:  parts[2],
+		PackageId:  parts[0],
+		ModuleName: parts[1],
+		EntityName: parts[2],
 	}, nil
 }

@@ -9,31 +9,32 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-// SourceReaderFactory creates a SourceReader for a specific chain.
-type SourceReaderFactory interface {
+// Factory creates a SourceReader for a specific chain.
+type Factory interface {
+	// GetSourceReader returns a SourceReader for the given chain selector.
 	GetSourceReader(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.SourceReader, error)
 }
 
-// Registry holds SourceReaderFactories for different chain families.
+// Registry holds Factories for different chain families.
 type Registry struct {
 	blockchainHelper *blockchain.Helper
-	factories        map[string]SourceReaderFactory
+	factories        map[string]Factory
 }
 
 // NewRegistry creates a new Registry.
 func NewRegistry(helper *blockchain.Helper) *Registry {
 	return &Registry{
 		blockchainHelper: helper,
-		factories:        make(map[string]SourceReaderFactory),
+		factories:        make(map[string]Factory),
 	}
 }
 
 // Register registers a factory for a given chain family.
-func (r *Registry) Register(family string, factory SourceReaderFactory) {
+func (r *Registry) Register(family string, factory Factory) {
 	r.factories[family] = factory
 }
 
-// GetSourceReader creates a SourceReader for the given chain selector using the registered factory.
+// GetSourceReader creates a SourceReader for the given chain selector using the registered Factory.
 func (r *Registry) GetSourceReader(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.SourceReader, error) {
 	info, err := r.blockchainHelper.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
