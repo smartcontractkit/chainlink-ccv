@@ -484,7 +484,7 @@ func TestE2ESmoke(t *testing.T) {
 				transferAmount:          big.NewInt(100),
 				receiver:                mustGetEOAReceiverAddress(t, destChain),
 				expectedReceiptIssuers:  4, // CCTP CCV, token pool, executor, network fee
-				expectedVerifierResults: 2, // FIXME only CCTP CCV, but for some reason Indexer returns 2
+				expectedVerifierResults: 1,
 				shouldCheckAggregator:   false,
 			},
 			{
@@ -493,7 +493,7 @@ func TestE2ESmoke(t *testing.T) {
 				transferAmount:          big.NewInt(500),
 				receiver:                mustGetEOAReceiverAddress(t, destChain),
 				expectedReceiptIssuers:  4, // CCTP CCV, token pool, executor, network fee
-				expectedVerifierResults: 2, // FIXME only CCTP CCV, but for some reason Indexer returns 2
+				expectedVerifierResults: 1,
 				shouldCheckAggregator:   false,
 			},
 			{
