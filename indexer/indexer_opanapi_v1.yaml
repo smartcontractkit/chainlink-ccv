@@ -279,6 +279,32 @@ info:
   version: 1.0.0
 openapi: 3.0.3
 paths:
+  /health:
+    get:
+      description: Liveness probe that returns a plain 200.
+      operationId: health
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Error
+  /ready:
+    get:
+      description: Readiness probe that returns 200 if the service has storage access.
+      operationId: ready
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Error
   /v1/messages:
     get:
       description: Get messages
