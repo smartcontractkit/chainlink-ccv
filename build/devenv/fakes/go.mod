@@ -75,7 +75,7 @@ require (
 	github.com/rs/zerolog v1.34.0 // indirect
 	github.com/shirou/gopsutil/v4 v4.25.9 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
-	github.com/smartcontractkit/chain-selectors v1.0.79 // indirect
+	github.com/smartcontractkit/chain-selectors v1.0.90 // indirect
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20260114190811-74301cd99dc3 // indirect
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier v0.0.0-20251211142334-5c3421fe2c8d // indirect
 	github.com/smartcontractkit/chainlink-testing-framework/framework v0.13.6 // indirect

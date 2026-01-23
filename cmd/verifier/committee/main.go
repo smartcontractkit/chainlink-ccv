@@ -90,7 +90,7 @@ func main() {
 	lggr.Infow("Loaded VERIFIER_AGGREGATOR_SECRET_KEY from environment")
 
 	cmd.StartPyroscope(lggr, config.PyroscopeURL, "verifier")
-	blockchainHelper, chainClients := cmd.LoadBlockchainInfo(ctx, lggr, blockchainInfos)
+	blockchainHelper := cmd.LoadBlockchainInfo(ctx, lggr, blockchainInfos)
 
 	// Create verifier addresses before source readers setup
 	verifierAddresses := make(map[string]protocol.UnknownAddress)
@@ -135,7 +135,11 @@ func main() {
 		}
 	}()
 
-	sourceReaders := cmd.LoadBlockchainReadersForCommit(lggr, blockchainHelper, chainClients, *config)
+	sourceReaders, err := cmd.CreateSourceReaders(ctx, lggr, blockchainHelper, *config)
+	if err != nil {
+		lggr.Errorw("Failed to create source readers", "error", err)
+		os.Exit(1)
+	}
 
 	// Create coordinator configuration
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)

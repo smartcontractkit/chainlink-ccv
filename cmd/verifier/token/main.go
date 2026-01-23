@@ -68,9 +68,9 @@ func main() {
 	}
 
 	cmd.StartPyroscope(lggr, config.PyroscopeURL, "tokenVerifier")
-	blockchainHelper, chainClients := cmd.LoadBlockchainInfo(ctx, lggr, blockchainInfos)
+	blockchainHelper := cmd.LoadBlockchainInfo(ctx, lggr, blockchainInfos)
 
-	sourceReaders := cmd.LoadBlockchainReadersForToken(lggr, blockchainHelper, chainClients, *config)
+	sourceReaders := cmd.LoadBlockchainReadersForToken(ctx, lggr, blockchainHelper, *config)
 
 	verifierMonitoring := cmd.SetupMonitoring(lggr, config.Monitoring)
 
