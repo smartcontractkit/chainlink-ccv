@@ -5,7 +5,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 )
 
 const (
@@ -21,7 +21,7 @@ const (
 
 type ConfigWithBlockchainInfo struct {
 	Configuration
-	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
+	BlockchainInfos map[string]*blockchain.Info `toml:"blockchain_infos"`
 }
 
 // Configuration is the complete set of information an executor needs to operate normally.

@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -75,7 +76,7 @@ func SetupMonitoring(lggr logger.Logger, config verifier.MonitoringConfig) verif
 
 func LoadBlockchainReadersForToken(
 	lggr logger.Logger,
-	blockchainHelper *protocol.BlockchainHelper,
+	blockchainHelper *blockchain.Helper,
 	chainClients map[protocol.ChainSelector]client.Client,
 	config token.Config,
 ) map[protocol.ChainSelector]chainaccess.SourceReader {
@@ -117,7 +118,7 @@ func LoadBlockchainReadersForToken(
 
 func LoadBlockchainReadersForCommit(
 	lggr logger.Logger,
-	blockchainHelper *protocol.BlockchainHelper,
+	blockchainHelper *blockchain.Helper,
 	chainClients map[protocol.ChainSelector]client.Client,
 	config commit.Config,
 ) map[protocol.ChainSelector]chainaccess.SourceReader {
@@ -231,15 +232,15 @@ func createEvmChainReader(
 func LoadBlockchainInfo(
 	ctx context.Context,
 	lggr logger.Logger,
-	config map[string]*protocol.BlockchainInfo,
-) (*protocol.BlockchainHelper, map[protocol.ChainSelector]client.Client) {
+	config map[string]*blockchain.Info,
+) (*blockchain.Helper, map[protocol.ChainSelector]client.Client) {
 	// Use actual blockchain information from configuration
-	var blockchainHelper *protocol.BlockchainHelper
+	var blockchainHelper *blockchain.Helper
 	chainClients := make(map[protocol.ChainSelector]client.Client)
 	if len(config) == 0 {
 		lggr.Warnw("No blockchain information in config")
 	} else {
-		blockchainHelper = protocol.NewBlockchainHelper(config)
+		blockchainHelper = blockchain.NewHelper(config)
 		lggr.Infow("Using real blockchain information from environment",
 			"chainCount", len(config))
 		logBlockchainInfo(blockchainHelper, lggr)
@@ -269,13 +270,13 @@ func StartPyroscope(lggr logger.Logger, pyroscopeAddress, serviceName string) {
 	}
 }
 
-func logBlockchainInfo(blockchainHelper *protocol.BlockchainHelper, lggr logger.Logger) {
+func logBlockchainInfo(blockchainHelper *blockchain.Helper, lggr logger.Logger) {
 	for _, chainID := range blockchainHelper.GetAllChainSelectors() {
 		logChainInfo(blockchainHelper, chainID, lggr)
 	}
 }
 
-func logChainInfo(blockchainHelper *protocol.BlockchainHelper, chainSelector protocol.ChainSelector, lggr logger.Logger) {
+func logChainInfo(blockchainHelper *blockchain.Helper, chainSelector protocol.ChainSelector, lggr logger.Logger) {
 	if info, err := blockchainHelper.GetBlockchainInfo(chainSelector); err == nil {
 		lggr.Infow("🔗 Blockchain available", "chainSelector", chainSelector, "info", info)
 	}

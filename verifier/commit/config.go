@@ -3,13 +3,13 @@ package commit
 import (
 	"fmt"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
 type ConfigWithBlockchainInfos struct {
 	Config
-	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
+	BlockchainInfos map[string]*blockchain.Info `toml:"blockchain_infos"`
 }
 
 type Config struct {

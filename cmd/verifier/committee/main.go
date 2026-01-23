@@ -17,6 +17,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
@@ -300,7 +301,7 @@ func main() {
 	lggr.Infow("Committee service stopped gracefully")
 }
 
-func loadConfiguration(filepath string) (*commit.Config, map[string]*protocol.BlockchainInfo, error) {
+func loadConfiguration(filepath string) (*commit.Config, map[string]*blockchain.Info, error) {
 	var config commit.ConfigWithBlockchainInfos
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
 		return nil, nil, err

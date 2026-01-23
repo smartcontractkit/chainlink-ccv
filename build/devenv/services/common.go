@@ -10,7 +10,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/testcontainers/testcontainers-go"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 )
 
 type Mode string
@@ -92,13 +92,13 @@ func GoCacheMounts() testcontainers.ContainerMounts {
 var blockchainInfosTemplate string
 
 type BlockchainConfig struct {
-	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
+	BlockchainInfos map[string]*blockchain.Info `toml:"blockchain_infos"`
 }
 
 // GetBlockchainInfoFromTemplate creates blockchain infos from ExecutorInput.
 // This is only used for standalone mode executors/verifiers where RPC connections are managed
 // independently and when the standalone container is configured with real blockchain node URLs.
-func GetBlockchainInfoFromTemplate() (map[string]*protocol.BlockchainInfo, error) {
+func GetBlockchainInfoFromTemplate() (map[string]*blockchain.Info, error) {
 	chainConfig := BlockchainConfig{}
 	// Decode template into base config
 	if _, err := toml.Decode(blockchainInfosTemplate, &chainConfig); err != nil {
