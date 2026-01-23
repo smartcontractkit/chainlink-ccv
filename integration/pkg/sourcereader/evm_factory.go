@@ -8,11 +8,12 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-evm/pkg/client"
+	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 )
 
 type EVMFactory struct {
@@ -20,14 +21,25 @@ type EVMFactory struct {
 	helper             *blockchain.Helper
 	onRampAddresses    map[string]string
 	rmnRemoteAddresses map[string]string
+	headTrackers       map[protocol.ChainSelector]heads.Tracker
+	chainClients       map[protocol.ChainSelector]client.Client
 }
 
-func NewEVMFactory(lggr logger.Logger, helper *blockchain.Helper, onRampAddresses, rmnRemoteAddresses map[string]string) *EVMFactory {
+func NewEVMFactory(
+	lggr logger.Logger,
+	helper *blockchain.Helper,
+	onRampAddresses,
+	rmnRemoteAddresses map[string]string,
+	headTrackers map[protocol.ChainSelector]heads.Tracker,
+	chainClients map[protocol.ChainSelector]client.Client,
+) *EVMFactory {
 	return &EVMFactory{
 		lggr:               lggr,
 		helper:             helper,
 		onRampAddresses:    onRampAddresses,
 		rmnRemoteAddresses: rmnRemoteAddresses,
+		headTrackers:       headTrackers,
+		chainClients:       chainClients,
 	}
 }
 
@@ -42,13 +54,16 @@ func (f *EVMFactory) GetSourceReader(ctx context.Context, chainSelector protocol
 	}
 
 	// Create chain client
-	chainClient := pkg.CreateHealthyMultiNodeClient(ctx, f.helper, f.lggr, chainSelector)
-	if chainClient == nil {
-		return nil, fmt.Errorf("failed to create chain client for chain %d", chainSelector)
+	chainClient, ok := f.chainClients[chainSelector]
+	if !ok {
+		return nil, fmt.Errorf("chain client is not set for chain %d", chainSelector)
 	}
 
 	// Create head tracker wrapper
-	headTracker := NewSimpleHeadTrackerWrapper(chainClient, f.lggr)
+	headTracker, ok := f.headTrackers[chainSelector]
+	if !ok {
+		return nil, fmt.Errorf("head tracker is not set for chain %d", chainSelector)
+	}
 
 	evmSourceReader, err := NewEVMSourceReader(
 		chainClient,

@@ -18,6 +18,7 @@ import (
 
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
@@ -135,7 +136,11 @@ func main() {
 		}
 	}()
 
-	sourceReaders, err := cmd.CreateSourceReaders(ctx, lggr, blockchainHelper, *config)
+	registry := sourcereader.NewRegistry(blockchainHelper)
+	cmd.RegisterEVM(ctx, registry, lggr, blockchainHelper, config.OnRampAddresses, config.RMNRemoteAddresses)
+	cmd.RegisterCanton(ctx, registry, lggr, blockchainHelper, config.CantonConfigs)
+
+	sourceReaders, err := cmd.CreateSourceReaders(ctx, lggr, registry, blockchainHelper, *config)
 	if err != nil {
 		lggr.Errorw("Failed to create source readers", "error", err)
 		os.Exit(1)

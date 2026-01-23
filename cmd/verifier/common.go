@@ -13,6 +13,7 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
@@ -25,6 +26,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-evm/pkg/client"
+	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 )
 
 const (
@@ -75,12 +78,11 @@ func SetupMonitoring(lggr logger.Logger, config verifier.MonitoringConfig) verif
 func LoadBlockchainReadersForToken(
 	ctx context.Context,
 	lggr logger.Logger,
+	registry *sourcereader.Registry,
 	blockchainHelper *blockchain.Helper,
 	config token.Config,
 ) map[protocol.ChainSelector]chainaccess.SourceReader {
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
-
-	evmFactory := sourcereader.NewEVMFactory(lggr, blockchainHelper, config.OnRampAddresses, config.RMNRemoteAddresses)
 
 	for _, selector := range blockchainHelper.GetAllChainSelectors() {
 		info, err := blockchainHelper.GetBlockchainByChainSelector(selector)
@@ -89,12 +91,13 @@ func LoadBlockchainReadersForToken(
 			continue
 		}
 		if info.Family != chainsel.FamilyEVM {
+			lggr.Errorw("Skipping chain, only EVM is supported", "chainSelector", selector, "family", info.Family)
 			continue
 		}
 
 		lggr.Infow("⏳ Creating source reader for chain", "chainSelector", selector, "strSelector", uint64(selector))
 
-		reader, err := evmFactory.GetSourceReader(ctx, selector)
+		reader, err := registry.GetSourceReader(ctx, selector)
 		if err != nil {
 			lggr.Errorw("❌ Failed to create source reader for chain", "chainSelector", selector, "error", err)
 			continue
@@ -107,19 +110,36 @@ func LoadBlockchainReadersForToken(
 	return sourceReaders
 }
 
+func RegisterEVM(ctx context.Context, registry *sourcereader.Registry, lggr logger.Logger, helper *blockchain.Helper, onRampAddresses, rmnRemoteAddresses map[string]string) {
+	// Create the chain clients then the head trackers
+	chainClients := make(map[protocol.ChainSelector]client.Client)
+	for _, selector := range helper.GetAllChainSelectors() {
+		chainClient := pkg.CreateHealthyMultiNodeClient(ctx, helper, lggr, selector)
+		chainClients[selector] = chainClient
+	}
+	headTrackers := make(map[protocol.ChainSelector]heads.Tracker)
+	for _, selector := range helper.GetAllChainSelectors() {
+		headTracker := sourcereader.NewSimpleHeadTrackerWrapper(chainClients[selector], lggr)
+		headTrackers[selector] = headTracker
+	}
+
+	registry.Register(chainsel.FamilyEVM, sourcereader.NewEVMFactory(lggr, helper, onRampAddresses, rmnRemoteAddresses, headTrackers, chainClients))
+}
+
+func RegisterCanton(ctx context.Context, registry *sourcereader.Registry, lggr logger.Logger, helper *blockchain.Helper, cantonConfigs map[string]commit.CantonConfig) {
+	registry.Register(chainsel.FamilyCanton, canton.NewFactory(lggr, helper, cantonConfigs))
+}
+
 func CreateSourceReaders(
 	ctx context.Context,
 	lggr logger.Logger,
+	registry *sourcereader.Registry,
 	helper *blockchain.Helper,
 	config commit.Config,
 ) (map[protocol.ChainSelector]chainaccess.SourceReader, error) {
-	reg := sourcereader.NewRegistry(helper)
-	reg.Register(chainsel.FamilyEVM, sourcereader.NewEVMFactory(lggr, helper, config.OnRampAddresses, config.RMNRemoteAddresses))
-	reg.Register(chainsel.FamilyCanton, canton.NewFactory(lggr, helper, config.CantonConfigs))
-
 	readers := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	for _, selector := range helper.GetAllChainSelectors() {
-		reader, err := reg.GetSourceReader(ctx, selector)
+		reader, err := registry.GetSourceReader(ctx, selector)
 		if err != nil {
 			lggr.Errorw("❌ Failed to create source reader", "chainSelector", selector, "error", err)
 			continue
