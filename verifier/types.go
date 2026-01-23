@@ -29,6 +29,7 @@ type SourceConfig struct {
 	BatchTimeout           time.Duration           `json:"batch_timeout"`      // Maximum duration to wait before flushing incomplete verifier batch (default: 100ms)
 	RMNRemoteAddress       protocol.UnknownAddress `json:"rmn_remote_address"` // RMN Remote contract address for curse detection
 	MaxBlockRange          uint64                  `json:"max_block_range"`    // Max blocks per RPC query (default: 5000)
+	DisableFinalityChecker bool                    `json:"disable_finality_checker"`
 }
 
 // CoordinatorConfig contains configuration for the verification coordinator.

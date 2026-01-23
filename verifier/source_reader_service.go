@@ -88,13 +88,22 @@ func NewSourceReaderService(
 	if metrics == nil {
 		return nil, fmt.Errorf("metrics cannot be nil")
 	}
-	finalityChecker, err := vservices.NewFinalityViolationCheckerService(
-		sourceReader,
-		chainSelector,
-		logger.With(lggr, "component", "FinalityChecker", "chainID", chainSelector),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create finality checker: %w", err)
+
+	var finalityChecker protocol.FinalityViolationChecker
+	var err error
+
+	if sourceCfg.DisableFinalityChecker {
+		lggr.Infow("FinalityViolationChecker is disabled by config", "chainSelector", chainSelector)
+		finalityChecker = &vservices.NoOpFinalityViolationChecker{}
+	} else {
+		finalityChecker, err = vservices.NewFinalityViolationCheckerService(
+			sourceReader,
+			chainSelector,
+			logger.With(lggr, "component", "FinalityChecker", "chainID", chainSelector),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create finality checker: %w", err)
+		}
 	}
 
 	var interval time.Duration
