@@ -1493,6 +1493,7 @@ func TestSRS_DisableFinalityChecker(t *testing.T) {
 		curseDetector,
 		&noopFilter{},
 		&noopMetricLabeler{},
+		NewPendingWritingTracker(lggr),
 	)
 	require.NoError(t, err)
 
