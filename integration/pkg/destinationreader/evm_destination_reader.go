@@ -47,6 +47,7 @@ type EvmDestinationReader struct {
 	chainSelector          protocol.ChainSelector
 	ccvCache               *expirable.LRU[verifierQuorumCacheKey, executor.CCVAddressInfo]
 	executionAttemptPoller *EvmExecutionAttemptPoller
+	monitoring             executor.Monitoring
 }
 
 func (dr *EvmDestinationReader) HealthReport() map[string]error {
@@ -64,6 +65,7 @@ type Params struct {
 	RmnRemoteAddress          string
 	CacheExpiry               time.Duration
 	ExecutionVisabilityWindow time.Duration
+	Monitoring                executor.Monitoring
 }
 
 func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
@@ -120,6 +122,7 @@ func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
 		client:                 params.ChainClient,
 		ccvCache:               ccvCache,
 		executionAttemptPoller: executionAttemptPoller,
+		monitoring:             params.Monitoring,
 	}, nil
 }
 
@@ -176,8 +179,10 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 	if found {
 		dr.lggr.Debugf("CCV info retrieved from cache for receiver %s and dest token %s on source chain %d",
 			receiverAddress.String(), tokenTransferAddress.String(), sourceSelector)
+		dr.monitoring.Metrics().IncrementCCVInfoCacheHits(ctx)
 		return ccvInfo, nil
 	}
+	dr.monitoring.Metrics().IncrementCCVInfoCacheMisses(ctx)
 
 	encodedMsg, err := message.Encode()
 	if err != nil {
