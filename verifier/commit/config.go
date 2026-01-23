@@ -33,9 +33,9 @@ type Config struct {
 	// RMNRemoteAddresses is a map of RMN Remote contract addresses for each chain selector.
 	// Required for curse detection.
 	RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
-	// DisableFinalityCheckers is a map of chain selectors to boolean flags to disable the finality violation checker.
-	// If true, the finality violation checker will be disabled for that chain.
-	DisableFinalityCheckers map[string]bool           `toml:"disable_finality_checkers"`
+	// DisableFinalityCheckers is a list of chain selectors for which the finality violation checker should be disabled.
+	// The chain selectors are formatted as strings of the chain selector.
+	DisableFinalityCheckers []string                  `toml:"disable_finality_checkers"`
 	Monitoring              verifier.MonitoringConfig `toml:"monitoring"`
 }
 

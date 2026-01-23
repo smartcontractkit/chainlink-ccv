@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strconv"
 	"syscall"
 	"time"
@@ -156,7 +157,7 @@ func main() {
 			PollInterval:           1 * time.Second,
 			ChainSelector:          selector,
 			RMNRemoteAddress:       rmnRemoteAddresses[strSelector],
-			DisableFinalityChecker: config.DisableFinalityCheckers[strSelector],
+			DisableFinalityChecker: slices.Contains(config.DisableFinalityCheckers, strSelector),
 		}
 
 		lggr.Infow("Configured source chain", "chainSelector", selector)
