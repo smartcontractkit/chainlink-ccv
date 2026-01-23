@@ -9,27 +9,21 @@ import (
 	ledgerv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-type Factory struct {
+type factory struct {
 	lggr   logger.Logger
 	helper *blockchain.Helper
 	config map[string]commit.CantonConfig
 }
 
-func NewFactory(lggr logger.Logger, helper *blockchain.Helper, config map[string]commit.CantonConfig) *Factory {
-	return &Factory{
-		lggr:   lggr,
-		helper: helper,
-		config: config,
-	}
-}
-
-func (f *Factory) GetSourceReader(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.SourceReader, error) {
+// GetAccessor implements chainaccess.AccessorFactory.
+func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.Accessor, error) {
 	strSelector := strconv.FormatUint(uint64(chainSelector), 10)
 	cantonConfig, ok := f.config[strSelector]
 	if !ok {
@@ -49,12 +43,17 @@ func (f *Factory) GetSourceReader(ctx context.Context, chainSelector protocol.Ch
 		return nil, fmt.Errorf("failed to parse template ID: %w", err)
 	}
 
-	return NewSourceReader(
+	sourceReader, err := canton.NewSourceReader(
 		netData.CantonEndpoints.GRPCLedgerAPIURL,
 		netData.CantonEndpoints.JWT,
 		cantonConfig.CCIPOwnerParty,
 		templateID,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create source reader: %w", err)
+	}
+
+	return newAccessor(sourceReader), nil
 }
 
 func parseTemplateID(id string) (*ledgerv2.Identifier, error) {
@@ -67,4 +66,26 @@ func parseTemplateID(id string) (*ledgerv2.Identifier, error) {
 		ModuleName: parts[1],
 		EntityName: parts[2],
 	}, nil
+}
+
+func NewFactory(lggr logger.Logger, helper *blockchain.Helper, config map[string]commit.CantonConfig) chainaccess.AccessorFactory {
+	return &factory{
+		lggr:   lggr,
+		helper: helper,
+		config: config,
+	}
+}
+
+type accessor struct {
+	sourceReader chainaccess.SourceReader
+}
+
+func newAccessor(sourceReader chainaccess.SourceReader) chainaccess.Accessor {
+	return &accessor{
+		sourceReader: sourceReader,
+	}
+}
+
+func (a *accessor) SourceReader() chainaccess.SourceReader {
+	return a.sourceReader
 }

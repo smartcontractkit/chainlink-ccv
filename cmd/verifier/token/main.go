@@ -14,8 +14,8 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
@@ -71,7 +71,7 @@ func main() {
 	cmd.StartPyroscope(lggr, config.PyroscopeURL, "tokenVerifier")
 	blockchainHelper := cmd.LoadBlockchainInfo(ctx, lggr, blockchainInfos)
 
-	registry := sourcereader.NewRegistry(blockchainHelper)
+	registry := accessors.NewRegistry(blockchainHelper)
 	cmd.RegisterEVM(ctx, registry, lggr, blockchainHelper, config.OnRampAddresses, config.RMNRemoteAddresses)
 
 	sourceReaders := cmd.LoadBlockchainReadersForToken(ctx, lggr, registry, blockchainHelper, *config)

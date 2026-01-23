@@ -61,3 +61,17 @@ type MessageFilter interface {
 	// Filter returns true if the given MessageSentEvent should be processed, false to skip it.
 	Filter(msg protocol.MessageSentEvent) bool
 }
+
+// Accessor provides objects that in turn provide specific kinds of blockchain access.
+// It is scoped to a particular chain selector.
+type Accessor interface {
+	// SourceReader returns the SourceReader for the chain selector.
+	SourceReader() SourceReader
+	// TODO: add other readers as needed, e.g. DestinationReader for executor.
+}
+
+// AccessorFactory creates Accessors for specific chain selectors.
+type AccessorFactory interface {
+	// GetAccessor returns the Accessor for the given chain selector.
+	GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (Accessor, error)
+}

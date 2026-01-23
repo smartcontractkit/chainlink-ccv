@@ -14,9 +14,11 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
+	cantonaccessor "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/canton"
+	evmaccessor "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
@@ -78,7 +80,7 @@ func SetupMonitoring(lggr logger.Logger, config verifier.MonitoringConfig) verif
 func LoadBlockchainReadersForToken(
 	ctx context.Context,
 	lggr logger.Logger,
-	registry *sourcereader.Registry,
+	registry *accessors.Registry,
 	blockchainHelper *blockchain.Helper,
 	config token.Config,
 ) map[protocol.ChainSelector]chainaccess.SourceReader {
@@ -97,9 +99,15 @@ func LoadBlockchainReadersForToken(
 
 		lggr.Infow("⏳ Creating source reader for chain", "chainSelector", selector, "strSelector", uint64(selector))
 
-		reader, err := registry.GetSourceReader(ctx, selector)
+		accessor, err := registry.GetAccessor(ctx, selector)
 		if err != nil {
 			lggr.Errorw("❌ Failed to create source reader for chain", "chainSelector", selector, "error", err)
+			continue
+		}
+
+		reader := accessor.SourceReader()
+		if reader == nil {
+			lggr.Errorw("❌ Failed to get source reader for chain", "chainSelector", selector)
 			continue
 		}
 
@@ -110,7 +118,7 @@ func LoadBlockchainReadersForToken(
 	return sourceReaders
 }
 
-func RegisterEVM(ctx context.Context, registry *sourcereader.Registry, lggr logger.Logger, helper *blockchain.Helper, onRampAddresses, rmnRemoteAddresses map[string]string) {
+func RegisterEVM(ctx context.Context, registry *accessors.Registry, lggr logger.Logger, helper *blockchain.Helper, onRampAddresses, rmnRemoteAddresses map[string]string) {
 	// Create the chain clients then the head trackers
 	chainClients := make(map[protocol.ChainSelector]client.Client)
 	for _, selector := range helper.GetAllChainSelectors() {
@@ -123,27 +131,34 @@ func RegisterEVM(ctx context.Context, registry *sourcereader.Registry, lggr logg
 		headTrackers[selector] = headTracker
 	}
 
-	registry.Register(chainsel.FamilyEVM, sourcereader.NewEVMFactory(lggr, helper, onRampAddresses, rmnRemoteAddresses, headTrackers, chainClients))
+	registry.Register(chainsel.FamilyEVM, evmaccessor.NewFactory(lggr, helper, onRampAddresses, rmnRemoteAddresses, headTrackers, chainClients))
 }
 
-func RegisterCanton(ctx context.Context, registry *sourcereader.Registry, lggr logger.Logger, helper *blockchain.Helper, cantonConfigs map[string]commit.CantonConfig) {
-	registry.Register(chainsel.FamilyCanton, canton.NewFactory(lggr, helper, cantonConfigs))
+func RegisterCanton(ctx context.Context, registry *accessors.Registry, lggr logger.Logger, helper *blockchain.Helper, cantonConfigs map[string]commit.CantonConfig) {
+	registry.Register(chainsel.FamilyCanton, cantonaccessor.NewFactory(lggr, helper, cantonConfigs))
 }
 
 func CreateSourceReaders(
 	ctx context.Context,
 	lggr logger.Logger,
-	registry *sourcereader.Registry,
+	registry *accessors.Registry,
 	helper *blockchain.Helper,
 	config commit.Config,
 ) (map[protocol.ChainSelector]chainaccess.SourceReader, error) {
 	readers := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	for _, selector := range helper.GetAllChainSelectors() {
-		reader, err := registry.GetSourceReader(ctx, selector)
+		accessor, err := registry.GetAccessor(ctx, selector)
 		if err != nil {
 			lggr.Errorw("❌ Failed to create source reader", "chainSelector", selector, "error", err)
 			continue
 		}
+
+		reader := accessor.SourceReader()
+		if reader == nil {
+			lggr.Errorw("❌ Failed to get source reader for chain", "chainSelector", selector)
+			continue
+		}
+
 		readers[selector] = reader
 		lggr.Infow("🚀 Created source reader for chain", "chainSelector", selector)
 	}
