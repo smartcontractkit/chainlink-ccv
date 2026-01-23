@@ -12,6 +12,8 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/services"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
@@ -1468,4 +1470,32 @@ func TestSRS_FinalizedBehindLastProcessed_QueriesAndUpdatesToFinalized(t *testin
 	// Progress updates to current finalized (safe restart point)
 	require.Equal(t, int64(50), srs.lastProcessedFinalizedBlock.Load().Int64(),
 		"progress should update to finalized after querying all blocks")
+}
+
+func TestSRS_DisableFinalityChecker(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+	reader := mocks.NewMockSourceReader(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+	lggr := logger.Test(t)
+
+	srs, err := NewSourceReaderService(
+		context.Background(),
+		reader,
+		chain,
+		chainStatusMgr,
+		lggr,
+		SourceConfig{
+			PollInterval:           10 * time.Millisecond,
+			MaxBlockRange:          5000,
+			DisableFinalityChecker: true,
+		},
+		curseDetector,
+		&noopFilter{},
+		&noopMetricLabeler{},
+	)
+	require.NoError(t, err)
+
+	_, ok := srs.finalityChecker.(*services.NoOpFinalityViolationChecker)
+	require.True(t, ok, "finalityChecker should be NoOpFinalityViolationChecker when disabled")
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -156,6 +157,20 @@ func TestGetExistingVerifiers_StorageError(t *testing.T) {
 
 	_, err := tsk.getExistingVerifiers(context.Background())
 	require.Error(t, err)
+}
+
+// TestGetExistingVerifiers_NotFoundReturnsEmpty verifies that getExistingVerifiers
+// returns an empty result without error when the storage returns ErrCCVDataNotFound.
+// This handles the "discovery only" message case where no verifications exist yet.
+func TestGetExistingVerifiers_NotFoundReturnsEmpty(t *testing.T) {
+	lggr := logger.Test(t)
+	ms := mocks.NewMockIndexerStorage(t)
+	ms.On("GetCCVData", mock.Anything, mock.Anything).Return(nil, storage.ErrCCVDataNotFound)
+	tsk := &Task{storage: ms, messageID: protocol.Bytes32{}, logger: lggr}
+
+	existing, err := tsk.getExistingVerifiers(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, existing)
 }
 
 // makeReader creates and starts a VerifierReader wired to the provided

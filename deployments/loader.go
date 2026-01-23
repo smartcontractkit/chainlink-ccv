@@ -8,11 +8,10 @@ import (
 
 	jsonpatch "github.com/evanphx/json-patch/v5"
 
-	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
-
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
 
 // OffchainConfigs contains generated configurations for offchain services.

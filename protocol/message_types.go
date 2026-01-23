@@ -23,10 +23,12 @@ const (
 
 var (
 	vHash = Keccak256([]byte("CCIP1.7_MessageDiscovery_Version"))
+	// MessageDiscoveryVersionLength is a 4 byte identifier.
+	MessageDiscoveryVersionLength = 4
 	// MessageDiscoveryVersion is the version used by the committee verifier to sign messages
 	// that only need to be discovered, and not verified onchain.
 	// 0x3c4605eb in hex.
-	MessageDiscoveryVersion = vHash[:4]
+	MessageDiscoveryVersion = vHash[:MessageDiscoveryVersionLength]
 )
 
 // TokenTransfer represents a chain-agnostic token transfer with canonical encoding.
