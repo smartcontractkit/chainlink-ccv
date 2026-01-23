@@ -32,8 +32,11 @@ type Config struct {
 	DefaultExecutorOnRampAddresses map[string]string `toml:"default_executor_on_ramp_addresses"`
 	// RMNRemoteAddresses is a map of RMN Remote contract addresses for each chain selector.
 	// Required for curse detection.
-	RMNRemoteAddresses map[string]string         `toml:"rmn_remote_addresses"`
-	Monitoring         verifier.MonitoringConfig `toml:"monitoring"`
+	RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
+	// DisableFinalityCheckers is a map of chain selectors to boolean flags to disable the finality violation checker.
+	// If true, the finality violation checker will be disabled for that chain.
+	DisableFinalityCheckers map[string]bool           `toml:"disable_finality_checkers"`
+	Monitoring              verifier.MonitoringConfig `toml:"monitoring"`
 }
 
 func (c *Config) Validate() error {

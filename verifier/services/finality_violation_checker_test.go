@@ -320,3 +320,20 @@ func TestFinalityViolationChecker_ParentHashMismatch(t *testing.T) {
 	assert.Contains(t, err.Error(), "parent hash")
 	assert.True(t, checker.IsFinalityViolated())
 }
+
+func TestNoOpFinalityViolationChecker(t *testing.T) {
+	checker := &NoOpFinalityViolationChecker{}
+	ctx := context.Background()
+
+	// Should always return nil error
+	err := checker.UpdateFinalized(ctx, 100)
+	require.NoError(t, err)
+
+	// Should always return false for violation
+	assert.False(t, checker.IsFinalityViolated())
+
+	// Even with different blocks
+	err = checker.UpdateFinalized(ctx, 200)
+	require.NoError(t, err)
+	assert.False(t, checker.IsFinalityViolated())
+}
