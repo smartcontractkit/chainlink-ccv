@@ -666,70 +666,6 @@ func TestSRS_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 }
 
 // ----------------------
-// ChainStatus: monotonic updates
-// ----------------------
-
-func TestSRS_ChainStatus_MonotonicUpdates(t *testing.T) {
-	ctx := context.Background()
-	chain := protocol.ChainSelector(1337)
-	reader := mocks.NewMockSourceReader(t)
-
-	// We won't use readerService here
-	chainStatusMgr := mocks.NewMockChainStatusManager(t)
-
-	// ReadChainStatuses for initializeStartBlock
-	chainStatusMgr.EXPECT().
-		ReadChainStatuses(mock.Anything, mock.Anything).
-		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{}, nil).
-		Maybe()
-
-	// We expect exactly two writes with increasing FinalizedBlockHeight
-	callCount := 0
-	chainStatusMgr.EXPECT().
-		WriteChainStatuses(mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, infos []protocol.ChainStatusInfo) error {
-			require.Len(t, infos, 1)
-			callCount++
-			switch callCount {
-			case 1:
-				require.Equal(t, big.NewInt(100), infos[0].FinalizedBlockHeight)
-			case 2:
-				require.Equal(t, big.NewInt(200), infos[0].FinalizedBlockHeight)
-			default:
-				t.Fatalf("unexpected number of WriteChainStatuses calls: %d", callCount)
-			}
-			return nil
-		}).
-		Times(2)
-
-	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
-	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
-	curseDetector.EXPECT().Close().Return(nil).Maybe()
-
-	srs, _ := newTestSRS(
-		t,
-		chain,
-		reader,
-		chainStatusMgr,
-		curseDetector,
-		10*time.Millisecond,
-		5000,
-	)
-
-	// Force lastChainStatusTime very old to bypass ChainStatusInterval check
-	srs.lastChainStatusTime = time.Now().Add(-2 * ChainStatusInterval)
-
-	// First update at 100
-	srs.updateChainStatus(ctx, big.NewInt(100))
-	// Force another time shift to avoid interval throttle
-	srs.lastChainStatusTime = time.Now().Add(-2 * ChainStatusInterval)
-	srs.updateChainStatus(ctx, big.NewInt(200))
-
-	require.Equal(t, 2, callCount, "expected exactly 2 chain status writes")
-}
-
-// ----------------------
 // Reorg tracking tests
 // ----------------------
 
@@ -1557,6 +1493,7 @@ func TestSRS_DisableFinalityChecker(t *testing.T) {
 		curseDetector,
 		&noopFilter{},
 		&noopMetricLabeler{},
+		NewPendingWritingTracker(lggr),
 	)
 	require.NoError(t, err)
 

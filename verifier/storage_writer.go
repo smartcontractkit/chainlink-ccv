@@ -3,6 +3,7 @@ package verifier
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"sync"
 	"time"
 
@@ -29,6 +30,12 @@ type StorageWriterProcessor struct {
 	retryDelay time.Duration
 	storage    protocol.CCVNodeDataWriter
 	batcher    *batcher.Batcher[protocol.VerifierNodeResult]
+
+	// Pending writing tracker (shared with SRS and TVP)
+	writingTracker *PendingWritingTracker
+
+	// ChainStatus management for checkpoint writing
+	chainStatusManager protocol.ChainStatusManager
 }
 
 func NewStorageBatcherProcessor(
@@ -38,6 +45,8 @@ func NewStorageBatcherProcessor(
 	messageTracker MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
 	config CoordinatorConfig,
+	writingTracker *PendingWritingTracker,
+	chainStatusManager protocol.ChainStatusManager,
 ) (*StorageWriterProcessor, *batcher.Batcher[protocol.VerifierNodeResult], error) {
 	storageBatchSize, storageBatchTimeout, retryDelay := configWithDefaults(lggr, config)
 	storageBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](
@@ -48,12 +57,14 @@ func NewStorageBatcherProcessor(
 	)
 
 	processor := &StorageWriterProcessor{
-		lggr:           lggr,
-		verifierID:     verifierID,
-		messageTracker: messageTracker,
-		storage:        storage,
-		batcher:        storageBatcher,
-		retryDelay:     retryDelay,
+		lggr:               lggr,
+		verifierID:         verifierID,
+		messageTracker:     messageTracker,
+		storage:            storage,
+		batcher:            storageBatcher,
+		retryDelay:         retryDelay,
+		writingTracker:     writingTracker,
+		chainStatusManager: chainStatusManager,
 	}
 	return processor, storageBatcher, nil
 }
@@ -142,7 +153,46 @@ func (s *StorageWriterProcessor) run(ctx context.Context) {
 			s.lggr.Infow("CCV data batch stored successfully",
 				"batchSize", len(batch.Items),
 			)
+
+			// Success: remove from tracker and update checkpoints
+			affectedChains := make(map[protocol.ChainSelector]struct{})
+			for _, item := range batch.Items {
+				chain := item.Message.SourceChainSelector
+				s.writingTracker.Remove(chain, item.MessageID.String())
+				affectedChains[chain] = struct{}{}
+			}
+
+			s.updateCheckpoints(ctx, affectedChains)
 			s.messageTracker.TrackMessageLatencies(ctx, batch.Items)
+		}
+	}
+}
+
+func (s *StorageWriterProcessor) updateCheckpoints(ctx context.Context, chains map[protocol.ChainSelector]struct{}) {
+	statuses := make([]protocol.ChainStatusInfo, 0, len(chains))
+
+	for chain := range chains {
+		checkpoint, shouldWrite := s.writingTracker.CheckpointIfAdvanced(chain)
+		if !shouldWrite {
+			continue
+		}
+
+		// Safely convert uint64 to *big.Int to avoid overflow issues
+		checkpointBig := new(big.Int).SetUint64(checkpoint)
+
+		statuses = append(statuses, protocol.ChainStatusInfo{
+			ChainSelector:        chain,
+			FinalizedBlockHeight: checkpointBig,
+		})
+
+		s.lggr.Infow("Checkpoint advanced",
+			"chain", chain,
+			"checkpoint", checkpoint)
+	}
+
+	if len(statuses) > 0 {
+		if err := s.chainStatusManager.WriteChainStatuses(ctx, statuses); err != nil {
+			s.lggr.Errorw("Failed to write checkpoint", "error", err)
 		}
 	}
 }
