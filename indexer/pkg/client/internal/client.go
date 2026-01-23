@@ -223,6 +223,12 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+	// Health request
+	Health(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// Ready request
+	Ready(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// Messages request
 	Messages(ctx context.Context, params *MessagesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -231,6 +237,30 @@ type ClientInterface interface {
 
 	// VerifierResultsByMessageId request
 	VerifierResultsByMessageId(ctx context.Context, messageID string, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+func (c *Client) Health(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewHealthRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) Ready(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReadyRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 func (c *Client) Messages(ctx context.Context, params *MessagesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -267,6 +297,60 @@ func (c *Client) VerifierResultsByMessageId(ctx context.Context, messageID strin
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewHealthRequest generates requests for Health
+func NewHealthRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/health")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewReadyRequest generates requests for Ready
+func NewReadyRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/ready")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
 }
 
 // NewMessagesRequest generates requests for Messages
@@ -604,6 +688,12 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
+	// HealthWithResponse request
+	HealthWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*HealthResponse, error)
+
+	// ReadyWithResponse request
+	ReadyWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ReadyResponse, error)
+
 	// MessagesWithResponse request
 	MessagesWithResponse(ctx context.Context, params *MessagesParams, reqEditors ...RequestEditorFn) (*MessagesResponse, error)
 
@@ -612,6 +702,50 @@ type ClientWithResponsesInterface interface {
 
 	// VerifierResultsByMessageIdWithResponse request
 	VerifierResultsByMessageIdWithResponse(ctx context.Context, messageID string, reqEditors ...RequestEditorFn) (*VerifierResultsByMessageIdResponse, error)
+}
+
+type HealthResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSONDefault  *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r HealthResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r HealthResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+type ReadyResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSONDefault  *ErrorResponse
+}
+
+// Status returns HTTPResponse.Status
+func (r ReadyResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReadyResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
 }
 
 type MessagesResponse struct {
@@ -680,6 +814,24 @@ func (r VerifierResultsByMessageIdResponse) StatusCode() int {
 	return 0
 }
 
+// HealthWithResponse request returning *HealthResponse
+func (c *ClientWithResponses) HealthWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*HealthResponse, error) {
+	rsp, err := c.Health(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseHealthResponse(rsp)
+}
+
+// ReadyWithResponse request returning *ReadyResponse
+func (c *ClientWithResponses) ReadyWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ReadyResponse, error) {
+	rsp, err := c.Ready(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReadyResponse(rsp)
+}
+
 // MessagesWithResponse request returning *MessagesResponse
 func (c *ClientWithResponses) MessagesWithResponse(ctx context.Context, params *MessagesParams, reqEditors ...RequestEditorFn) (*MessagesResponse, error) {
 	rsp, err := c.Messages(ctx, params, reqEditors...)
@@ -705,6 +857,58 @@ func (c *ClientWithResponses) VerifierResultsByMessageIdWithResponse(ctx context
 		return nil, err
 	}
 	return ParseVerifierResultsByMessageIdResponse(rsp)
+}
+
+// ParseHealthResponse parses an HTTP response from a HealthWithResponse call
+func ParseHealthResponse(rsp *http.Response) (*HealthResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &HealthResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseReadyResponse parses an HTTP response from a ReadyWithResponse call
+func ParseReadyResponse(rsp *http.Response) (*ReadyResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReadyResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseMessagesResponse parses an HTTP response from a MessagesWithResponse call

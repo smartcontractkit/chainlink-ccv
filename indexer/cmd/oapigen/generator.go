@@ -45,6 +45,26 @@ func main() {
 	}
 	grp := huma.NewGroup(api, "/v1")
 
+	// Register root-level health and readiness endpoints (explicit type args)
+	huma.Register(api, huma.Operation{
+		OperationID: "health",
+		Method:      http.MethodGet,
+		Path:        "/health",
+		Description: "Liveness probe that returns a plain 200.",
+	}, func(ctx context.Context, _ *struct{}) (*struct{}, error) {
+		return nil, nil
+	})
+
+	huma.Register(api, huma.Operation{
+		OperationID: "ready",
+		Method:      http.MethodGet,
+		Path:        "/ready",
+		Description: "Readiness probe that returns 200 if the service has storage access.",
+	}, func(ctx context.Context, _ *struct{}) (*struct{}, error) {
+		return nil, nil
+	})
+
+	// Register v1 endpoints
 	huma.Register(grp, huma.Operation{
 		OperationID: "verifier-results",
 		Method:      http.MethodGet,

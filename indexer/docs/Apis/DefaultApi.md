@@ -4,10 +4,36 @@ All URIs are relative to *http://localhost*
 
 | Method | HTTP request | Description |
 |------------- | ------------- | -------------|
+| [**health**](DefaultApi.md#health) | **GET** /health |  |
 | [**messages**](DefaultApi.md#messages) | **GET** /v1/messages |  |
+| [**ready**](DefaultApi.md#ready) | **GET** /ready |  |
 | [**verifierResults**](DefaultApi.md#verifierResults) | **GET** /v1/verifierresults |  |
 | [**verifierResultsByMessageId**](DefaultApi.md#verifierResultsByMessageId) | **GET** /v1/verifierresults/{messageID} |  |
 
+
+<a name="health"></a>
+# **health**
+> health()
+
+
+
+    Liveness probe that returns a plain 200.
+
+### Parameters
+This endpoint does not need any parameter.
+
+### Return type
+
+null (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
 
 <a name="messages"></a>
 # **messages**
@@ -27,6 +53,30 @@ All URIs are relative to *http://localhost*
 | **end** | **Long**| End timestamp (in milliseconds) to filter results by. If not provided, defaults to the current time. | [optional] [default to null] |
 | **limit** | **Long**| Maximum number of results to return. If not provided, defaults to 100. | [optional] [default to null] |
 | **offset** | **Long**| Number of results to skip before starting to return results. If not provided, defaults to 0. | [optional] [default to null] |
+
+### Return type
+
+null (empty response body)
+
+### Authorization
+
+No authorization required
+
+### HTTP request headers
+
+- **Content-Type**: Not defined
+- **Accept**: application/json
+
+<a name="ready"></a>
+# **ready**
+> ready()
+
+
+
+    Readiness probe that returns 200 if the service has storage access.
+
+### Parameters
+This endpoint does not need any parameter.
 
 ### Return type
 
