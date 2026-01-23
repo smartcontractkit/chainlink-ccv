@@ -66,7 +66,7 @@ func TestPostgresChainStatusManager_WriteAndReadChainStatuses(t *testing.T) {
 	lggr, err := logger.New()
 	require.NoError(t, err)
 
-	manager := NewPostgresChainStatusManager(db, lggr)
+	manager := NewPostgresChainStatusManager(db, lggr, "test-verifier-1")
 	ctx := context.Background()
 
 	tests := []struct {
@@ -222,7 +222,7 @@ func TestPostgresChainStatusManager_WriteChainStatuses_Errors(t *testing.T) {
 	lggr, err := logger.New()
 	require.NoError(t, err)
 
-	manager := NewPostgresChainStatusManager(db, lggr)
+	manager := NewPostgresChainStatusManager(db, lggr, "test-verifier-errors")
 	ctx := context.Background()
 
 	tests := []struct {
@@ -252,4 +252,58 @@ func TestPostgresChainStatusManager_WriteChainStatuses_Errors(t *testing.T) {
 			assert.Contains(t, err.Error(), tt.expectedErrText)
 		})
 	}
+}
+
+func TestPostgresChainStatusManager_MultipleVerifiers_Isolation(t *testing.T) {
+	db := setupTestDB(t)
+	lggr, err := logger.New()
+	require.NoError(t, err)
+
+	// Create two different verifier IDs
+	verifierID1 := "verifier-1"
+	verifierID2 := "verifier-2"
+
+	manager1 := NewPostgresChainStatusManager(db, lggr, verifierID1)
+	manager2 := NewPostgresChainStatusManager(db, lggr, verifierID2)
+	ctx := context.Background()
+
+	chainSelector := protocol.ChainSelector(1337)
+
+	// Write status for verifier 1
+	err = manager1.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+		{
+			ChainSelector:        chainSelector,
+			FinalizedBlockHeight: big.NewInt(100),
+			Disabled:             false,
+		},
+	})
+	require.NoError(t, err)
+
+	// Write different status for verifier 2 on same chain
+	err = manager2.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+		{
+			ChainSelector:        chainSelector,
+			FinalizedBlockHeight: big.NewInt(200),
+			Disabled:             true,
+		},
+	})
+	require.NoError(t, err)
+
+	// Read from verifier 1
+	result1, err := manager1.ReadChainStatuses(ctx, []protocol.ChainSelector{chainSelector})
+	require.NoError(t, err)
+	require.Len(t, result1, 1)
+	assert.Equal(t, big.NewInt(100), result1[chainSelector].FinalizedBlockHeight)
+	assert.False(t, result1[chainSelector].Disabled)
+
+	// Read from verifier 2
+	result2, err := manager2.ReadChainStatuses(ctx, []protocol.ChainSelector{chainSelector})
+	require.NoError(t, err)
+	require.Len(t, result2, 1)
+	assert.Equal(t, big.NewInt(200), result2[chainSelector].FinalizedBlockHeight)
+	assert.True(t, result2[chainSelector].Disabled)
+
+	// Verify they don't interfere with each other
+	assert.NotEqual(t, result1[chainSelector].FinalizedBlockHeight, result2[chainSelector].FinalizedBlockHeight)
+	assert.NotEqual(t, result1[chainSelector].Disabled, result2[chainSelector].Disabled)
 }

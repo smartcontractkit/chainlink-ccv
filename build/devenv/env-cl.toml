@@ -25,61 +25,64 @@ name = "node-1"
 
 [environment_topology.nop_topology.committees.default]
 qualifier = "default"
+verifier_version = "1.7.0"
 
 [[environment_topology.nop_topology.committees.default.aggregators]]
 name = "default"
 address = "default-aggregator:50051"
 insecure_connection = true
 
-[environment_topology.nop_topology.committees.default.chain_configs.16015286601757825753]
+[environment_topology.nop_topology.committees.default.chain_configs.3379446385462418246]
 nop_aliases = ["node-0", "node-1"]
 threshold = 2
 
-[environment_topology.nop_topology.committees.default.chain_configs.3478487238524512106]
+[environment_topology.nop_topology.committees.default.chain_configs.12922642891491394802]
 nop_aliases = ["node-0", "node-1"]
 threshold = 2
 
-[environment_topology.nop_topology.committees.default.chain_configs.9284632837123596123]
+[environment_topology.nop_topology.committees.default.chain_configs.4793464827907405086]
 nop_aliases = ["node-0", "node-1"]
 threshold = 2
 
 [environment_topology.nop_topology.committees.secondary]
 qualifier = "secondary"
+verifier_version = "1.7.0"
 
 [[environment_topology.nop_topology.committees.secondary.aggregators]]
 name = "default"
 address = "secondary-aggregator:50051"
 insecure_connection = true
 
-[environment_topology.nop_topology.committees.secondary.chain_configs.16015286601757825753]
+[environment_topology.nop_topology.committees.secondary.chain_configs.3379446385462418246]
 nop_aliases = ["node-0", "node-1"]
 threshold = 2
 
-[environment_topology.nop_topology.committees.secondary.chain_configs.3478487238524512106]
+[environment_topology.nop_topology.committees.secondary.chain_configs.12922642891491394802]
 nop_aliases = ["node-0", "node-1"]
 threshold = 2
 
-[environment_topology.nop_topology.committees.secondary.chain_configs.9284632837123596123]
+[environment_topology.nop_topology.committees.secondary.chain_configs.4793464827907405086]
 nop_aliases = ["node-0", "node-1"]
 threshold = 2
 
 [environment_topology.nop_topology.committees.tertiary]
 qualifier = "tertiary"
+verifier_version = "1.7.0"
 
 [[environment_topology.nop_topology.committees.tertiary.aggregators]]
 name = "default"
 address = "tertiary-aggregator:50051"
 insecure_connection = true
 
-[environment_topology.nop_topology.committees.tertiary.chain_configs.16015286601757825753]
+[environment_topology.nop_topology.committees.tertiary.chain_configs.3379446385462418246]
 nop_aliases = ["node-0", "node-1"]
 threshold = 2
 
-[environment_topology.nop_topology.committees.tertiary.chain_configs.3478487238524512106]
+[environment_topology.nop_topology.committees.tertiary.chain_configs.12922642891491394802]
 nop_aliases = ["node-0", "node-1"]
 threshold = 2
 
-[environment_topology.nop_topology.committees.tertiary.chain_configs.9284632837123596123]
+[environment_topology.nop_topology.committees.tertiary.chain_configs.4793464827907405086]
 nop_aliases = ["node-0", "node-1"]
 threshold = 2
 

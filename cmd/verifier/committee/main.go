@@ -122,7 +122,7 @@ func main() {
 	}
 
 	// Create chain status manager (PostgreSQL storage).
-	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr)
+	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr, config.VerifierID)
 	if err != nil {
 		lggr.Errorw("Failed to create chain status manager", "error", err)
 		os.Exit(1)
@@ -306,10 +306,10 @@ func loadConfiguration(filepath string) (*commit.Config, map[string]*protocol.Bl
 	return &config.Config, config.BlockchainInfos, nil
 }
 
-func createChainStatusManager(lggr logger.Logger) (protocol.ChainStatusManager, *sqlx.DB, error) {
+func createChainStatusManager(lggr logger.Logger, verifierID string) (protocol.ChainStatusManager, *sqlx.DB, error) {
 	sqlDB, err := cmd.ConnectToPostgresDB(lggr)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect to Postgres DB: %w", err)
 	}
-	return chainstatus.NewPostgresChainStatusManager(sqlDB, lggr), sqlDB, nil
+	return chainstatus.NewPostgresChainStatusManager(sqlDB, lggr, verifierID), sqlDB, nil
 }
