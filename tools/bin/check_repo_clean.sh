@@ -4,8 +4,15 @@ set -euo pipefail
 # Script to run repository hygiene commands and fail if they modify the repo.
 # Exits non-zero and prints modified files if any step fails or changes the working tree.
 
-# List of just targets to run for checks.
+# Default list of just targets to run for checks (fallback).
 just_targets_to_run=(tidy mock generate shellcheck)
+
+# If the script is invoked with positional arguments, use those as the targets
+# instead of the default list. Example:
+#   ./tools/bin/check_repo_clean.sh tidy mock generate
+if [ "$#" -gt 0 ]; then
+  just_targets_to_run=("$@")
+fi
 
 # Ensure we are inside a git repository
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then

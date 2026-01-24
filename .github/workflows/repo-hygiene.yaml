@@ -29,4 +29,4 @@ jobs:
         run: just install-go-tools
 
       - name: Run repo hygiene checks
-        run: tools/bin/check_repo_clean.sh
+        run: tools/bin/check_repo_clean.sh tidy mock generate shellcheck
