@@ -51,6 +51,13 @@ fmt: ensure-golangci-lint
 lint fix="": ensure-golangci-lint
     find . -type f -name go.mod -execdir golangci-lint run {{ if fix != "" { "--fix" } else { "" } }} \;
 
+shellcheck:
+    @command -v shellcheck >/dev/null 2>&1 || { \
+        echo "shellcheck is not installed. Please install it first."; \
+        exit 1; \
+    }
+    find . -type f -name *.sh -execdir shellcheck {} +
+
 mod-download: ensure-go
     go mod download
 
