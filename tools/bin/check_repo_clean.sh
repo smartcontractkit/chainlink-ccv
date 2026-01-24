@@ -18,11 +18,10 @@ if ! command -v just >/dev/null 2>&1; then
 fi
 
 run_and_check() {
-  local name="$1"; shift
   local before
   local after
 
-  echo "--- Running: just $* (${name}) ---"
+  echo "--- Running: just $* ---"
   before=$(git status --porcelain)
 
   if ! just "$@"; then
@@ -33,20 +32,23 @@ run_and_check() {
   after=$(git status --porcelain)
 
   if [ "${before}" != "${after}" ]; then
-    echo "\nERROR: Repository changed after 'just $*' (${name})." >&2
+    echo ""
+    echo "ERROR: Repository changed after 'just $*'." >&2
     echo "Changed files (git status --porcelain):" >&2
     git --no-pager status --porcelain >&2
-    echo "\nYou should inspect and commit or revert these changes." >&2
+    echo ""
+    echo "You should inspect and commit or revert these changes." >&2
     exit 1
   fi
 
-  echo "OK: no repo changes after 'just $*' (${name}).\n"
+  echo "OK: no repo changes after 'just $*'."
+  echo ""
 }
 
 # Run tasks in order
-run_and_check "mod-tidy" tidy
-run_and_check "mock" mock
-run_and_check "generate" generate
+run_and_check tidy
+run_and_check mock
+run_and_check generate
 
 echo "All checks passed: repository unchanged by tidy, mock, and generate."
 exit 0

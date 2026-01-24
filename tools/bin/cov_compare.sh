@@ -23,7 +23,7 @@ for arg in "$@"; do
 done
 
 # Reset positional parameters
-set -- $ARGS
+set -- "$ARGS"
 
 if [ "$#" -ne 2 ]; then
   echo "Usage: $0 [--no-header] coverage1.out coverage2.out" >&2

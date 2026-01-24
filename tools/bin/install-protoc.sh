@@ -13,7 +13,7 @@ os=$(uname)
 arch=$(uname -m)
 
 install_dir=/usr/local
-$install_dir/bin/protoc --version | grep $VERSION
+$install_dir/bin/protoc --version | grep "$VERSION"
 rc=$?
 if [ $rc -eq 0 ]; then
     # we have the current VERSION
@@ -38,12 +38,12 @@ else
 fi
 
 workdir=$(mktemp -d)
-pushd $workdir
+pushd "$workdir" || exit 1
 pb_url="https://github.com/protocolbuffers/protobuf/releases"
 artifact=protoc-$VERSION-$os-$arch.zip
-curl -LO $pb_url/download/v${VERSION}/$artifact
-unzip -o $artifact -d $install_dir
-rm $artifact
+curl -LO "$pb_url/download/v${VERSION}/$artifact"
+unzip -o "$artifact" -d "$install_dir"
+rm "$artifact"
 
 echo "protoc $VERSION installed in $install_dir"
-popd
+popd || exit 1
