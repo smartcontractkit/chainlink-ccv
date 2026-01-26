@@ -58,12 +58,10 @@ jobs:
           # switch back to the head ref
           git checkout ${{ github.head_ref }}
           set -x
-          ./tools/bin/cov_compare.sh --no-header coverage_target.out coverage.out > table
-          echo "Table:"
-          echo table
+          ./tools/bin/cov_compare.sh --no-header coverage_target.out coverage.out > table.txt
           {
             echo 'coverage_report<<COVERAGE_REPORT_DELIM'
-            cat table
+            cat table.txt
             echo 'COVERAGE_REPORT_DELIM'
           } >> "$GITHUB_ENV"
       - name: Remove previous coverage comments
