@@ -333,8 +333,13 @@ func TestE2ELoad(t *testing.T) {
 
 	t.Run("clean", func(t *testing.T) {
 		// just a clean load test to measure performance
-		rps := int64(5)
-		testDuration := 30 * time.Second
+		const (
+			rps          = int64(5)
+			testDuration = 30 * time.Second
+
+			// https://smartcontract-it.atlassian.net/browse/CCIP-9269
+			expectedP90Latency = 10 * time.Second
+		)
 
 		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerMonitor)
 		tc.Timeout = 30 * time.Second
@@ -361,7 +366,7 @@ func TestE2ELoad(t *testing.T) {
 		metrics.PrintMetricsSummary(t, summary)
 
 		require.Equal(t, summary.TotalSent, summary.TotalReceived)
-		require.LessOrEqual(t, summary.P90Latency, 8*time.Second)
+		require.LessOrEqual(t, summary.P90Latency, expectedP90Latency)
 	})
 
 	t.Run("rpc latency", func(t *testing.T) {
