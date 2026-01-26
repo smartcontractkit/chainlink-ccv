@@ -515,12 +515,17 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 		impls = append(impls, impl)
 	}
+
+	blockchainOutputs := make([]*blockchain.Output, len(impls))
 	for i, impl := range impls {
-		_, err = impl.DeployLocalNetwork(ctx, in.Blockchains[i])
+		out, err := impl.DeployLocalNetwork(ctx, in.Blockchains[i])
 		if err != nil {
 			return nil, fmt.Errorf("failed to deploy local networks: %w", err)
 		}
+
+		blockchainOutputs[i] = out
 	}
+
 	/////////////////////////////
 	// END: Deploy blockchains //
 	/////////////////////////////
@@ -883,7 +888,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, err
 	}
 
-	_, err = launchStandaloneExecutors(in.Executor)
+	_, err = launchStandaloneExecutors(in.Executor, blockchainOutputs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create standalone executor: %w", err)
 	}
@@ -901,7 +906,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, err
 	}
 
-	_, err = launchStandaloneVerifiers(in)
+	_, err = launchStandaloneVerifiers(in, blockchainOutputs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create standalone verifiers: %w", err)
 	}
@@ -924,7 +929,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	if fakeOut != nil {
-		_, err = launchStandaloneTokenVerifiers(in, fakeOut.InternalHTTPURL)
+		_, err = launchStandaloneTokenVerifiers(in, fakeOut.InternalHTTPURL, blockchainOutputs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create standalone token verifiers: %w", err)
 		}
@@ -1254,12 +1259,12 @@ func launchCLNodes(
 	return onchainPublicKeys, nil
 }
 
-func launchStandaloneExecutors(in []*services.ExecutorInput) ([]*services.ExecutorOutput, error) {
+func launchStandaloneExecutors(in []*services.ExecutorInput, blockchainOutputs []*blockchain.Output) ([]*services.ExecutorOutput, error) {
 	var outs []*services.ExecutorOutput
 	// Start standalone executors if they are in standalone mode.
 	for _, exec := range in {
 		if exec != nil && exec.Mode == services.Standalone {
-			out, err := services.NewExecutor(exec)
+			out, err := services.NewExecutor(exec, blockchainOutputs)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create executor service: %w", err)
 			}
@@ -1269,7 +1274,7 @@ func launchStandaloneExecutors(in []*services.ExecutorInput) ([]*services.Execut
 	return outs, nil
 }
 
-func launchStandaloneVerifiers(in *Cfg) ([]*services.VerifierOutput, error) {
+func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) ([]*services.VerifierOutput, error) {
 	aggregatorOutputByCommittee := make(map[string]*services.AggregatorOutput)
 	for _, agg := range in.Aggregator {
 		if agg.Out != nil {
@@ -1284,7 +1289,7 @@ func launchStandaloneVerifiers(in *Cfg) ([]*services.VerifierOutput, error) {
 			if aggOut, ok := aggregatorOutputByCommittee[ver.CommitteeName]; ok {
 				ver.AggregatorOutput = aggOut
 			}
-			out, err := services.NewVerifier(ver)
+			out, err := services.NewVerifier(ver, blockchainOutputs)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create verifier service: %w", err)
 			}
@@ -1295,11 +1300,11 @@ func launchStandaloneVerifiers(in *Cfg) ([]*services.VerifierOutput, error) {
 	return outs, nil
 }
 
-func launchStandaloneTokenVerifiers(in *Cfg, fakeAttestationServiceURL string) ([]*services.TokenVerifierOutput, error) {
+func launchStandaloneTokenVerifiers(in *Cfg, fakeAttestationServiceURL string, blockchainOutputs []*blockchain.Output) ([]*services.TokenVerifierOutput, error) {
 	var outs []*services.TokenVerifierOutput
 	for _, ver := range in.TokenVerifier {
 		if ver.Mode == services.Standalone {
-			out, err := services.NewTokenVerifier(ver, fakeAttestationServiceURL)
+			out, err := services.NewTokenVerifier(ver, fakeAttestationServiceURL, blockchainOutputs)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create token verifier service: %w", err)
 			}

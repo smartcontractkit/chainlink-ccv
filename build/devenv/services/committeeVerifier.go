@@ -38,36 +38,6 @@ const (
 var DefaultVerifierDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
 	DefaultVerifierName, DefaultVerifierName, DefaultVerifierDBPort, DefaultVerifierName)
 
-// ConvertBlockchainOutputsToInfo converts blockchain.Output to BlockchainInfo.
-func ConvertBlockchainOutputsToInfo(outputs []*blockchain.Output) map[string]*ccvblockchain.Info {
-	infos := make(map[string]*ccvblockchain.Info)
-	for _, output := range outputs {
-		info := &ccvblockchain.Info{
-			ChainID:         output.ChainID,
-			Type:            output.Type,
-			Family:          output.Family,
-			UniqueChainName: output.ContainerName,
-			Nodes:           make([]*ccvblockchain.Node, 0, len(output.Nodes)),
-		}
-
-		// Convert all nodes
-		for _, node := range output.Nodes {
-			if node != nil {
-				convertedNode := &ccvblockchain.Node{
-					ExternalHTTPUrl: node.ExternalHTTPUrl,
-					InternalHTTPUrl: node.InternalHTTPUrl,
-					ExternalWSUrl:   node.ExternalWSUrl,
-					InternalWSUrl:   node.InternalWSUrl,
-				}
-				info.Nodes = append(info.Nodes, convertedNode)
-			}
-		}
-
-		infos[output.ChainID] = info
-	}
-	return infos
-}
-
 type VerifierDBInput struct {
 	Image string `toml:"image"`
 	Name  string `toml:"name"`
@@ -174,7 +144,7 @@ func ApplyVerifierDefaults(in VerifierInput) VerifierInput {
 	return in
 }
 
-func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
+func NewVerifier(in *VerifierInput, outputs []*blockchain.Output) (*VerifierOutput, error) {
 	if in == nil {
 		return nil, nil
 	}
@@ -189,9 +159,9 @@ func NewVerifier(in *VerifierInput) (*VerifierOutput, error) {
 	}
 
 	// Generate blockchain infos for standalone mode
-	blockchainInfos, err := GetBlockchainInfoFromTemplate()
+	blockchainInfos, err := ConvertBlockchainOutputsToInfo(outputs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate blockchain infos: %w", err)
+		return in.Out, fmt.Errorf("failed to convert blockchain outputs to infos: %w", err)
 	}
 
 	/* Database */
