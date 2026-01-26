@@ -116,11 +116,11 @@ type MessagesParams struct {
 	// DestChainSelectors Destination chain selectors to filter results by. If empty, results from all destination chains will be returned.
 	DestChainSelectors *[]protocol.ChainSelector `form:"destChainSelectors,omitempty" json:"destChainSelectors,omitempty"`
 
-	// Start Start timestamp (in milliseconds) to filter results by. If not provided, defaults to 0.
-	Start *int64 `form:"start,omitempty" json:"start,omitempty"`
+	// Start Start time used to filter results. If not provided, results start from the beginning. Accepted formats: RFC3339, unix epoch time (in milliseconds).
+	Start *string `form:"start,omitempty" json:"start,omitempty"`
 
-	// End End timestamp (in milliseconds) to filter results by. If not provided, defaults to the current time.
-	End *int64 `form:"end,omitempty" json:"end,omitempty"`
+	// End End time used to filter results. If not provided, the current server time is used. Accepted formats: RFC3339, unix epoch time (in milliseconds).
+	End *string `form:"end,omitempty" json:"end,omitempty"`
 
 	// Limit Maximum number of results to return. If not provided, defaults to 100.
 	Limit *uint64 `form:"limit,omitempty" json:"limit,omitempty"`
@@ -137,11 +137,11 @@ type VerifierResultsParams struct {
 	// DestChainSelectors Destination chain selectors to filter results by. If empty, results from all destination chains will be returned.
 	DestChainSelectors *[]protocol.ChainSelector `form:"destChainSelectors,omitempty" json:"destChainSelectors,omitempty"`
 
-	// Start Start timestamp (in milliseconds) to filter results by. If not provided, defaults to 0.
-	Start *int64 `form:"start,omitempty" json:"start,omitempty"`
+	// Start Start time used to filter results. If not provided, results start from the beginning. Accepted formats: RFC3339, unix epoch time (in milliseconds).
+	Start *string `form:"start,omitempty" json:"start,omitempty"`
 
-	// End End timestamp (in milliseconds) to filter results by. If not provided, defaults to the current time.
-	End *int64 `form:"end,omitempty" json:"end,omitempty"`
+	// End End time used to filter results. If not provided, the current server time is used. Accepted formats: RFC3339, unix epoch time (in milliseconds).
+	End *string `form:"end,omitempty" json:"end,omitempty"`
 
 	// Limit Maximum number of results to return. If not provided, defaults to 100.
 	Limit *uint64 `form:"limit,omitempty" json:"limit,omitempty"`

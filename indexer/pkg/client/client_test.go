@@ -141,16 +141,16 @@ func TestParseVerifierResultsParams(t *testing.T) {
 			in: v1.VerifierResultsInput{
 				SourceChainSelectors: []protocol.ChainSelector{1, 2},
 				DestChainSelectors:   []protocol.ChainSelector{3},
-				Start:                100,
-				End:                  200,
+				Start:                "100",
+				End:                  "200",
 				Limit:                10,
 				Offset:               5,
 			},
 			want: &iclient.VerifierResultsParams{
 				SourceChainSelectors: &[]protocol.ChainSelector{1, 2},
 				DestChainSelectors:   &[]protocol.ChainSelector{3},
-				Start:                ptrInt64(100),
-				End:                  ptrInt64(200),
+				Start:                ptrString("100"),
+				End:                  ptrString("200"),
 				Limit:                ptrUint64(10),
 				Offset:               ptrUint64(5),
 			},
@@ -181,16 +181,16 @@ func TestParseMessagesParams(t *testing.T) {
 			in: v1.MessagesInput{
 				SourceChainSelectors: []protocol.ChainSelector{4},
 				DestChainSelectors:   []protocol.ChainSelector{5, 6},
-				Start:                1000,
-				End:                  2000,
+				Start:                "1000",
+				End:                  "2000",
 				Limit:                20,
 				Offset:               2,
 			},
 			want: &iclient.MessagesParams{
 				SourceChainSelectors: &[]protocol.ChainSelector{4},
 				DestChainSelectors:   &[]protocol.ChainSelector{5, 6},
-				Start:                ptrInt64(1000),
-				End:                  ptrInt64(2000),
+				Start:                ptrString("1000"),
+				End:                  ptrString("2000"),
 				Limit:                ptrUint64(20),
 				Offset:               ptrUint64(2),
 			},
@@ -350,6 +350,8 @@ func setupMockAndCall(mockCli *mocksiclient.MockClientInterface, ic *IndexerClie
 }
 
 // helper ptr functions.
-func ptrInt64(v int64) *int64 { return &v }
-
 func ptrUint64(v uint64) *uint64 { return &v }
+
+func ptrString(s string) *string {
+	return &s
+}

@@ -110,7 +110,7 @@ func (oss *IndexerStorageStreamer) Start(
 				}
 				responses, err := oss.reader.ReadMessages(ctx, v1.MessagesInput{
 					Limit:                oss.queryLimit,
-					Start:                oss.lastQueryTime.UnixMilli(),
+					Start:                oss.lastQueryTime.Format(time.RFC3339),
 					Offset:               oss.offset,
 					SourceChainSelectors: nil,
 					DestChainSelectors:   nil,
