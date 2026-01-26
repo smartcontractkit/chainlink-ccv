@@ -230,7 +230,7 @@ func main() {
 		heartbeatClient,
 		config.VerifierID,
 		lggr,
-		verifierMonitoring,
+		verifier.NewHeartbeatMonitoringAdapter(verifierMonitoring),
 	)
 
 	messageTracker := monitoring.NewMessageLatencyTracker(

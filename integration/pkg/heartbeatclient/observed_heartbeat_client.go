@@ -12,12 +12,13 @@ import (
 )
 
 // Monitoring provides monitoring functionality for heartbeat clients.
+// Services using the heartbeat client should provide an adapter implementing this interface.
 type Monitoring interface {
 	// Metrics returns the metrics labeler.
 	Metrics() MetricLabeler
 }
 
-// MetricLabeler provides metric recording functionality.
+// MetricLabeler provides metric recording functionality for heartbeat operations.
 type MetricLabeler interface {
 	// With returns a new metrics labeler with the given key-value pairs.
 	With(keyValues ...string) MetricLabeler
