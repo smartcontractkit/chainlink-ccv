@@ -3,7 +3,7 @@ package token
 import (
 	"fmt"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lbtc"
@@ -11,13 +11,13 @@ import (
 
 type ConfigWithBlockchainInfos struct {
 	Config
-	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
+	BlockchainInfos map[string]*blockchain.Info `toml:"blockchain_infos"`
 }
 
 type Config struct {
 	// TODO: remove from verifier config, readers need to be initialized separately.
-	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
-	PyroscopeURL    string                              `toml:"pyroscope_url"`
+	BlockchainInfos map[string]*blockchain.Info `toml:"blockchain_infos"`
+	PyroscopeURL    string                      `toml:"pyroscope_url"`
 	// OnRampAddresses is a map the addresses of the on ramps for each chain selector.
 	OnRampAddresses map[string]string `toml:"on_ramp_addresses"`
 	// RMNRemoteAddresses is a map of RMN Remote contract addresses for each chain selector.

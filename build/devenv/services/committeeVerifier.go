@@ -17,7 +17,7 @@ import (
 
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -39,21 +39,21 @@ var DefaultVerifierDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhos
 	DefaultVerifierName, DefaultVerifierName, DefaultVerifierDBPort, DefaultVerifierName)
 
 // ConvertBlockchainOutputsToInfo converts blockchain.Output to BlockchainInfo.
-func ConvertBlockchainOutputsToInfo(outputs []*blockchain.Output) map[string]*protocol.BlockchainInfo {
-	infos := make(map[string]*protocol.BlockchainInfo)
+func ConvertBlockchainOutputsToInfo(outputs []*blockchain.Output) map[string]*ccvblockchain.Info {
+	infos := make(map[string]*ccvblockchain.Info)
 	for _, output := range outputs {
-		info := &protocol.BlockchainInfo{
+		info := &ccvblockchain.Info{
 			ChainID:         output.ChainID,
 			Type:            output.Type,
 			Family:          output.Family,
 			UniqueChainName: output.ContainerName,
-			Nodes:           make([]*protocol.Node, 0, len(output.Nodes)),
+			Nodes:           make([]*ccvblockchain.Node, 0, len(output.Nodes)),
 		}
 
 		// Convert all nodes
 		for _, node := range output.Nodes {
 			if node != nil {
-				convertedNode := &protocol.Node{
+				convertedNode := &ccvblockchain.Node{
 					ExternalHTTPUrl: node.ExternalHTTPUrl,
 					InternalHTTPUrl: node.InternalHTTPUrl,
 					ExternalWSUrl:   node.ExternalWSUrl,
@@ -116,7 +116,7 @@ type VerifierInput struct {
 
 // GenerateConfigWithBlockchainInfos combines the pre-generated config with blockchain infos
 // for standalone mode deployment.
-func (v *VerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*protocol.BlockchainInfo) (string, []byte, error) {
+func (v *VerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*ccvblockchain.Info) (string, []byte, error) {
 	if v.GeneratedConfig == "" {
 		return "", nil, fmt.Errorf("GeneratedConfig is empty - must be set from changeset output")
 	}

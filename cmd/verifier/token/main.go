@@ -15,6 +15,8 @@ import (
 
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
+  "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
@@ -68,9 +70,12 @@ func main() {
 	}
 
 	cmd.StartPyroscope(lggr, config.PyroscopeURL, "tokenVerifier")
-	blockchainHelper, chainClients := cmd.LoadBlockchainInfo(ctx, lggr, blockchainInfos)
+	blockchainHelper := cmd.LoadBlockchainInfo(ctx, lggr, blockchainInfos)
 
-	sourceReaders := cmd.LoadBlockchainReadersForToken(lggr, blockchainHelper, chainClients, *config)
+	registry := accessors.NewRegistry(blockchainHelper)
+	cmd.RegisterEVM(ctx, registry, lggr, blockchainHelper, config.OnRampAddresses, config.RMNRemoteAddresses)
+
+	sourceReaders := cmd.LoadBlockchainReadersForToken(ctx, lggr, registry, blockchainHelper, *config)
 
 	verifierMonitoring := cmd.SetupMonitoring(lggr, config.Monitoring)
 
@@ -307,7 +312,7 @@ func createSourceConfigs(
 	return sourceConfigs
 }
 
-func loadConfiguration(filepath string) (*token.Config, map[string]*protocol.BlockchainInfo, error) {
+func loadConfiguration(filepath string) (*token.Config, map[string]*blockchain.Info, error) {
 	var config token.ConfigWithBlockchainInfos
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
 		return nil, nil, err

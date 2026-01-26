@@ -17,7 +17,9 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient
+  "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
@@ -90,7 +92,7 @@ func main() {
 	lggr.Infow("Loaded VERIFIER_AGGREGATOR_SECRET_KEY from environment")
 
 	cmd.StartPyroscope(lggr, config.PyroscopeURL, "verifier")
-	blockchainHelper, chainClients := cmd.LoadBlockchainInfo(ctx, lggr, blockchainInfos)
+	blockchainHelper := cmd.LoadBlockchainInfo(ctx, lggr, blockchainInfos)
 
 	// Create verifier addresses before source readers setup
 	verifierAddresses := make(map[string]protocol.UnknownAddress)
@@ -135,7 +137,15 @@ func main() {
 		}
 	}()
 
-	sourceReaders := cmd.LoadBlockchainReadersForCommit(lggr, blockchainHelper, chainClients, *config)
+	registry := accessors.NewRegistry(blockchainHelper)
+	cmd.RegisterEVM(ctx, registry, lggr, blockchainHelper, config.OnRampAddresses, config.RMNRemoteAddresses)
+	cmd.RegisterCanton(ctx, registry, lggr, blockchainHelper, config.CantonConfigs)
+
+	sourceReaders, err := cmd.CreateSourceReaders(ctx, lggr, registry, blockchainHelper, *config)
+	if err != nil {
+		lggr.Errorw("Failed to create source readers", "error", err)
+		os.Exit(1)
+	}
 
 	// Create coordinator configuration
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
@@ -326,7 +336,7 @@ func main() {
 	lggr.Infow("Committee service stopped gracefully")
 }
 
-func loadConfiguration(filepath string) (*commit.Config, map[string]*protocol.BlockchainInfo, error) {
+func loadConfiguration(filepath string) (*commit.Config, map[string]*blockchain.Info, error) {
 	var config commit.ConfigWithBlockchainInfos
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
 		return nil, nil, err

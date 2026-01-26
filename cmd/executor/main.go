@@ -23,6 +23,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
@@ -320,7 +321,7 @@ func main() {
 	lggr.Infow("✅ Execution service stopped gracefully")
 }
 
-func loadConfiguration(filepath string) (*executor.Configuration, map[string]*protocol.BlockchainInfo, error) {
+func loadConfiguration(filepath string) (*executor.Configuration, map[string]*blockchain.Info, error) {
 	var config executor.ConfigWithBlockchainInfo
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
 		return nil, nil, err
