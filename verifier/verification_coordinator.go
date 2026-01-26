@@ -8,11 +8,11 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	cursecheckerimpl "github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
-	heartbeatpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/heartbeat/v1"
 )
 
 type Coordinator struct {
@@ -45,7 +45,7 @@ func NewCoordinator(
 	messageTracker MessageLatencyTracker,
 	monitoring Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
-	heartbeatClient heartbeatpb.HeartbeatServiceClient,
+	heartbeatClient heartbeatclient.HeartbeatSender,
 ) (*Coordinator, error) {
 	return NewCoordinatorWithDetector(
 		ctx,
@@ -73,7 +73,7 @@ func NewCoordinatorWithDetector(
 	monitoring Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	detector common.CurseCheckerService,
-	heartbeatClient heartbeatpb.HeartbeatServiceClient,
+	heartbeatClient heartbeatclient.HeartbeatSender,
 ) (*Coordinator, error) {
 	enabledSourceReaders, err := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, chainStatusManager)
 	if err != nil {

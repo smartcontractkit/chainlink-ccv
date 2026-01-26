@@ -5,11 +5,31 @@ import (
 	"fmt"
 	"time"
 
-	"google.golang.org/grpc"
-
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	heartbeatpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/heartbeat/v1"
 )
+
+// HeartbeatSender defines the interface for sending heartbeats to the aggregator.
+type HeartbeatSender interface {
+	// SendHeartbeat sends chain status information to the aggregator.
+	// Returns the aggregator's response containing benchmarks and timestamp.
+	SendHeartbeat(ctx context.Context, blockHeightsByChain map[uint64]uint64) (HeartbeatResponse, error)
+	// Close closes the heartbeat client connection.
+	Close() error
+}
+
+// HeartbeatResponse contains the aggregator's response to a heartbeat.
+type HeartbeatResponse struct {
+	AggregatorID    string
+	Timestamp       int64
+	ChainBenchmarks map[uint64]ChainBenchmark
+}
+
+// ChainBenchmark contains benchmark information for a specific chain.
+type ChainBenchmark struct {
+	BlockHeight uint64
+	Score       float32
+}
 
 // Monitoring provides monitoring functionality for heartbeat clients.
 // Services using the heartbeat client should provide an adapter implementing this interface.
@@ -69,10 +89,18 @@ func NewObservedHeartbeatClient(
 }
 
 // SendHeartbeat sends a heartbeat request with observability.
-func (o *ObservedHeartbeatClient) SendHeartbeat(ctx context.Context, req *heartbeatpb.HeartbeatRequest, opts ...grpc.CallOption) (*heartbeatpb.HeartbeatResponse, error) {
+func (o *ObservedHeartbeatClient) SendHeartbeat(ctx context.Context, blockHeightsByChain map[uint64]uint64) (HeartbeatResponse, error) {
 	start := time.Now()
 
-	resp, err := o.delegate.SendHeartbeat(ctx, req, opts...)
+	// Build proto request
+	req := &heartbeatpb.HeartbeatRequest{
+		SendTimestamp: time.Now().Unix(),
+		ChainDetails: &heartbeatpb.ChainHealthDetails{
+			BlockHeightsByChain: blockHeightsByChain,
+		},
+	}
+
+	resp, err := o.delegate.SendHeartbeat(ctx, req)
 
 	duration := time.Since(start)
 
@@ -80,7 +108,7 @@ func (o *ObservedHeartbeatClient) SendHeartbeat(ctx context.Context, req *heartb
 	metrics.RecordHeartbeatDuration(ctx, duration)
 
 	// Record what we're sending in the request. It will be used for monitoring of the lag.
-	for chainSelector, blockHeight := range req.ChainDetails.BlockHeightsByChain {
+	for chainSelector, blockHeight := range blockHeightsByChain {
 		chainMetrics := metrics.With("chain_selector", fmt.Sprintf("%d", chainSelector))
 		chainMetrics.SetVerifierHeartbeatSentChainHeads(ctx, blockHeight)
 	}
@@ -91,15 +119,22 @@ func (o *ObservedHeartbeatClient) SendHeartbeat(ctx context.Context, req *heartb
 			"error", err,
 			"duration", duration,
 		)
-		return nil, err
+		return HeartbeatResponse{}, err
 	}
 
 	metrics.IncrementHeartbeatsSent(ctx)
 
 	metrics.SetVerifierHeartbeatTimestamp(ctx, resp.Timestamp)
 
-	// Record per-chain benchmarks from the response.
+	// Convert proto response to domain response
+	chainBenchmarks := make(map[uint64]ChainBenchmark, len(resp.ChainBenchmarks))
 	for chainSelector, benchmark := range resp.ChainBenchmarks {
+		chainBenchmarks[chainSelector] = ChainBenchmark{
+			BlockHeight: benchmark.BlockHeight,
+			Score:       benchmark.Score,
+		}
+
+		// Record metrics
 		chainMetrics := metrics.With("chain_selector", fmt.Sprintf("%d", chainSelector))
 		chainMetrics.SetVerifierHeartbeatChainHeads(ctx, benchmark.BlockHeight)
 		chainMetrics.SetVerifierHeartbeatScore(ctx, float64(benchmark.Score))
@@ -107,11 +142,15 @@ func (o *ObservedHeartbeatClient) SendHeartbeat(ctx context.Context, req *heartb
 
 	o.lggr.Debugw("Heartbeat succeeded",
 		"duration", duration,
-		"chainCount", len(req.ChainDetails.BlockHeightsByChain),
-		"chainBenchmarkCount", len(resp.ChainBenchmarks),
+		"chainCount", len(blockHeightsByChain),
+		"chainBenchmarkCount", len(chainBenchmarks),
 	)
 
-	return resp, nil
+	return HeartbeatResponse{
+		AggregatorID:    resp.AggregatorId,
+		Timestamp:       resp.Timestamp,
+		ChainBenchmarks: chainBenchmarks,
+	}, nil
 }
 
 // Close closes the underlying heartbeat client.

@@ -10,27 +10,27 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
 
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	heartbeatpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/heartbeat/v1"
 )
 
-// mockHeartbeatClient is a mock implementation of HeartbeatServiceClient for testing.
-// Note: This is a gRPC client interface from protobuf, so we mock it manually rather than using mockery.
+// mockHeartbeatClient is a mock implementation of heartbeatclient.HeartbeatSender for testing.
 type mockHeartbeatClient struct {
 	mock.Mock
 }
 
-func (m *mockHeartbeatClient) SendHeartbeat(ctx context.Context, in *heartbeatpb.HeartbeatRequest, opts ...grpc.CallOption) (*heartbeatpb.HeartbeatResponse, error) {
-	args := m.Called(ctx, in, opts)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*heartbeatpb.HeartbeatResponse), args.Error(1)
+func (m *mockHeartbeatClient) SendHeartbeat(ctx context.Context, blockHeightsByChain map[uint64]uint64) (heartbeatclient.HeartbeatResponse, error) {
+	args := m.Called(ctx, blockHeightsByChain)
+	return args.Get(0).(heartbeatclient.HeartbeatResponse), args.Error(1)
+}
+
+func (m *mockHeartbeatClient) Close() error {
+	args := m.Called()
+	return args.Error(0)
 }
 
 func TestNewHeartbeatReporter_Success(t *testing.T) {
@@ -182,12 +182,12 @@ func TestHeartbeatReporter_StartAndStop(t *testing.T) {
 
 	mockClient.On("SendHeartbeat", mock.MatchedBy(func(c context.Context) bool {
 		return c != nil
-	}), mock.MatchedBy(func(req *heartbeatpb.HeartbeatRequest) bool {
-		return req.SendTimestamp > 0 && len(req.ChainDetails.BlockHeightsByChain) > 0
-	}), mock.Anything).Return(&heartbeatpb.HeartbeatResponse{
+	}), mock.MatchedBy(func(blockHeights map[uint64]uint64) bool {
+		return len(blockHeights) > 0
+	})).Return(heartbeatclient.HeartbeatResponse{
 		Timestamp:       time.Now().Unix(),
-		AggregatorId:    "test-aggregator",
-		ChainBenchmarks: map[uint64]*heartbeatpb.ChainBenchmark{},
+		AggregatorID:    "test-aggregator",
+		ChainBenchmarks: map[uint64]heartbeatclient.ChainBenchmark{},
 	}, nil)
 
 	reporter, err := verifier.NewHeartbeatReporter(
@@ -235,9 +235,9 @@ func TestHeartbeatReporter_SendHeartbeatFailure(t *testing.T) {
 	// Mock client returns error
 	mockClient.On("SendHeartbeat", mock.MatchedBy(func(c context.Context) bool {
 		return c != nil
-	}), mock.MatchedBy(func(req *heartbeatpb.HeartbeatRequest) bool {
-		return req.SendTimestamp > 0
-	}), mock.Anything).Return(nil, errors.New("connection refused"))
+	}), mock.MatchedBy(func(blockHeights map[uint64]uint64) bool {
+		return true
+	})).Return(heartbeatclient.HeartbeatResponse{}, errors.New("connection refused"))
 
 	reporter, err := verifier.NewHeartbeatReporter(
 		lggr,
@@ -322,15 +322,12 @@ func TestHeartbeatReporter_MultipleChains(t *testing.T) {
 	// Verify the request has all chain heights
 	mockClient.On("SendHeartbeat", mock.MatchedBy(func(c context.Context) bool {
 		return c != nil
-	}), mock.MatchedBy(func(req *heartbeatpb.HeartbeatRequest) bool {
-		if req == nil || req.ChainDetails == nil {
-			return false
-		}
-		return len(req.ChainDetails.BlockHeightsByChain) == len(selectors)
-	}), mock.Anything).Return(&heartbeatpb.HeartbeatResponse{
+	}), mock.MatchedBy(func(blockHeights map[uint64]uint64) bool {
+		return len(blockHeights) == len(selectors)
+	})).Return(heartbeatclient.HeartbeatResponse{
 		Timestamp:       time.Now().Unix(),
-		AggregatorId:    "test-aggregator",
-		ChainBenchmarks: map[uint64]*heartbeatpb.ChainBenchmark{},
+		AggregatorID:    "test-aggregator",
+		ChainBenchmarks: map[uint64]heartbeatclient.ChainBenchmark{},
 	}, nil)
 
 	reporter, err := verifier.NewHeartbeatReporter(
@@ -354,9 +351,9 @@ func TestHeartbeatReporter_MultipleChains(t *testing.T) {
 	// Verify SendHeartbeat was called with all chains
 	mockClient.AssertCalled(t, "SendHeartbeat", mock.MatchedBy(func(c context.Context) bool {
 		return c != nil
-	}), mock.MatchedBy(func(req *heartbeatpb.HeartbeatRequest) bool {
-		return len(req.ChainDetails.BlockHeightsByChain) == len(selectors)
-	}), mock.Anything)
+	}), mock.MatchedBy(func(blockHeights map[uint64]uint64) bool {
+		return len(blockHeights) == len(selectors)
+	}))
 }
 
 func TestHeartbeatReporter_Name(t *testing.T) {
@@ -423,12 +420,12 @@ func TestHeartbeatReporter_ContextCancellation(t *testing.T) {
 
 	mockClient.On("SendHeartbeat", mock.MatchedBy(func(c context.Context) bool {
 		return c != nil
-	}), mock.MatchedBy(func(req *heartbeatpb.HeartbeatRequest) bool {
-		return req.SendTimestamp > 0
-	}), mock.Anything).Return(&heartbeatpb.HeartbeatResponse{
+	}), mock.MatchedBy(func(blockHeights map[uint64]uint64) bool {
+		return true
+	})).Return(heartbeatclient.HeartbeatResponse{
 		Timestamp:       time.Now().Unix(),
-		AggregatorId:    "test-aggregator",
-		ChainBenchmarks: map[uint64]*heartbeatpb.ChainBenchmark{},
+		AggregatorID:    "test-aggregator",
+		ChainBenchmarks: map[uint64]heartbeatclient.ChainBenchmark{},
 	}, nil)
 
 	reporter, err := verifier.NewHeartbeatReporter(
@@ -480,13 +477,13 @@ func TestHeartbeatReporter_MissingChainStatus(t *testing.T) {
 	// Should send heartbeat with only the available chain
 	mockClient.On("SendHeartbeat", mock.MatchedBy(func(c context.Context) bool {
 		return c != nil
-	}), mock.MatchedBy(func(req *heartbeatpb.HeartbeatRequest) bool {
+	}), mock.MatchedBy(func(blockHeights map[uint64]uint64) bool {
 		// Should only have 1 chain since the other one is missing
-		return len(req.ChainDetails.BlockHeightsByChain) == 1
-	}), mock.Anything).Return(&heartbeatpb.HeartbeatResponse{
+		return len(blockHeights) == 1
+	})).Return(heartbeatclient.HeartbeatResponse{
 		Timestamp:       time.Now().Unix(),
-		AggregatorId:    "test-aggregator",
-		ChainBenchmarks: map[uint64]*heartbeatpb.ChainBenchmark{},
+		AggregatorID:    "test-aggregator",
+		ChainBenchmarks: map[uint64]heartbeatclient.ChainBenchmark{},
 	}, nil)
 
 	reporter, err := verifier.NewHeartbeatReporter(

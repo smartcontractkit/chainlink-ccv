@@ -2,14 +2,9 @@ package heartbeatclient
 
 import (
 	"context"
-	"time"
-
-	"google.golang.org/grpc"
-
-	heartbeatpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/heartbeat/v1"
 )
 
-// NoopHeartbeatClient is a no-op implementation of HeartbeatServiceClient.
+// NoopHeartbeatClient is a no-op implementation of HeartbeatSender.
 type NoopHeartbeatClient struct{}
 
 // NewNoopHeartbeatClient creates a new no-op heartbeat client.
@@ -18,12 +13,17 @@ func NewNoopHeartbeatClient() *NoopHeartbeatClient {
 }
 
 // SendHeartbeat is a no-op implementation that returns a dummy response.
-func (n *NoopHeartbeatClient) SendHeartbeat(ctx context.Context, in *heartbeatpb.HeartbeatRequest, opts ...grpc.CallOption) (*heartbeatpb.HeartbeatResponse, error) {
-	return &heartbeatpb.HeartbeatResponse{
-		Timestamp:       time.Now().Unix(),
-		AggregatorId:    "noop",
-		ChainBenchmarks: make(map[uint64]*heartbeatpb.ChainBenchmark),
+func (n *NoopHeartbeatClient) SendHeartbeat(ctx context.Context, blockHeightsByChain map[uint64]uint64) (HeartbeatResponse, error) {
+	return HeartbeatResponse{
+		AggregatorID:    "noop",
+		Timestamp:       0,
+		ChainBenchmarks: make(map[uint64]ChainBenchmark),
 	}, nil
 }
 
-var _ heartbeatpb.HeartbeatServiceClient = (*NoopHeartbeatClient)(nil)
+// Close is a no-op implementation.
+func (n *NoopHeartbeatClient) Close() error {
+	return nil
+}
+
+var _ HeartbeatSender = (*NoopHeartbeatClient)(nil)

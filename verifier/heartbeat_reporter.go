@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
-	heartbeatpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/heartbeat/v1"
 )
 
 const (
@@ -25,7 +25,7 @@ type HeartbeatReporter struct {
 
 	logger             logger.Logger
 	chainStatusManager protocol.ChainStatusManager
-	heartbeatClient    heartbeatpb.HeartbeatServiceClient
+	heartbeatClient    heartbeatclient.HeartbeatSender
 	allSelectors       []protocol.ChainSelector
 	verifierID         string
 	interval           time.Duration
@@ -35,7 +35,7 @@ type HeartbeatReporter struct {
 func NewHeartbeatReporter(
 	lggr logger.Logger,
 	chainStatusManager protocol.ChainStatusManager,
-	heartbeatClient heartbeatpb.HeartbeatServiceClient,
+	heartbeatClient heartbeatclient.HeartbeatSender,
 	allSelectors []protocol.ChainSelector,
 	verifierID string,
 	interval time.Duration,
@@ -153,15 +153,8 @@ func (hr *HeartbeatReporter) sendHeartbeat(ctx context.Context) {
 		}
 	}
 
-	// Create and send heartbeat request.
-	req := &heartbeatpb.HeartbeatRequest{
-		SendTimestamp: time.Now().Unix(),
-		ChainDetails: &heartbeatpb.ChainHealthDetails{
-			BlockHeightsByChain: blockHeightsByChain,
-		},
-	}
-
-	resp, err := hr.heartbeatClient.SendHeartbeat(ctx, req)
+	// Send heartbeat request.
+	resp, err := hr.heartbeatClient.SendHeartbeat(ctx, blockHeightsByChain)
 	if err != nil {
 		hr.logger.Errorw("Failed to send heartbeat", "error", err)
 		return
@@ -169,14 +162,14 @@ func (hr *HeartbeatReporter) sendHeartbeat(ctx context.Context) {
 
 	hr.logger.Infow("Heartbeat sent successfully",
 		"verifierId", hr.verifierID,
-		"aggregatorId", resp.AggregatorId,
+		"aggregatorId", resp.AggregatorID,
 		"chainCount", len(blockHeightsByChain),
 	)
 	hr.logger.Debugw("Heartbeat details",
 		"verifierId", hr.verifierID,
 		"blockHeightsByChain", blockHeightsByChain,
 		"chainBenchmarks", resp.ChainBenchmarks,
-		"aggregatorId", resp.AggregatorId,
+		"aggregatorId", resp.AggregatorID,
 		"respTimestamp", resp.Timestamp,
 	)
 }
