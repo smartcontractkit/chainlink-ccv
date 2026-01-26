@@ -47,10 +47,10 @@ func parseVerifierResultsParams(queryData v1.VerifierResultsInput) *iclient.Veri
 	if len(queryData.DestChainSelectors) > 0 {
 		params.DestChainSelectors = &queryData.DestChainSelectors
 	}
-	if queryData.Start != 0 {
+	if queryData.Start != "" {
 		params.Start = &queryData.Start
 	}
-	if queryData.End != 0 {
+	if queryData.End != "" {
 		params.End = &queryData.End
 	}
 	if queryData.Limit != 0 {
@@ -79,26 +79,8 @@ func (ic *IndexerClient) VerifierResults(ctx context.Context, queryData v1.Verif
 }
 
 func parseMessagesParams(queryData v1.MessagesInput) *iclient.MessagesParams {
-	var params iclient.MessagesParams
-	if len(queryData.SourceChainSelectors) > 0 {
-		params.SourceChainSelectors = &queryData.SourceChainSelectors
-	}
-	if len(queryData.DestChainSelectors) > 0 {
-		params.DestChainSelectors = &queryData.DestChainSelectors
-	}
-	if queryData.Start != 0 {
-		params.Start = &queryData.Start
-	}
-	if queryData.End != 0 {
-		params.End = &queryData.End
-	}
-	if queryData.Limit != 0 {
-		params.Limit = &queryData.Limit
-	}
-	if queryData.Offset != 0 {
-		params.Offset = &queryData.Offset
-	}
-	return &params
+	results := parseVerifierResultsParams(queryData)
+	return (*iclient.MessagesParams)(results)
 }
 
 // Messages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message.

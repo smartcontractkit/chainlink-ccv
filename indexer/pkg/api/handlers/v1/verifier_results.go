@@ -15,12 +15,12 @@ import (
 )
 
 type VerifierResultsInput struct {
-	SourceChainSelectors []protocol.ChainSelector `doc:"Source chain selectors to filter results by. If empty, results from all source chains will be returned."           query:"sourceChainSelectors"`
-	DestChainSelectors   []protocol.ChainSelector `doc:"Destination chain selectors to filter results by. If empty, results from all destination chains will be returned." query:"destChainSelectors"`
-	Start                int64                    `doc:"Start timestamp (in milliseconds) to filter results by. If not provided, defaults to 0."                           form:"start"                 query:"start"`
-	End                  int64                    `doc:"End timestamp (in milliseconds) to filter results by. If not provided, defaults to the current time."              form:"end"                   query:"end"`
-	Limit                uint64                   `doc:"Maximum number of results to return. If not provided, defaults to 100."                                            form:"limit"                 query:"limit"`
-	Offset               uint64                   `doc:"Number of results to skip before starting to return results. If not provided, defaults to 0."                      form:"offset"                query:"offset"`
+	SourceChainSelectors []protocol.ChainSelector `doc:"Source chain selectors to filter results by. If empty, results from all source chains will be returned."                                             query:"sourceChainSelectors"`
+	DestChainSelectors   []protocol.ChainSelector `doc:"Destination chain selectors to filter results by. If empty, results from all destination chains will be returned."                                   query:"destChainSelectors"`
+	Start                string                   `doc:"Start time used to filter results. If not provided, results start from the beginning. Accepted formats: RFC3339, unix epoch time (in milliseconds)." form:"start"                 query:"start"`
+	End                  string                   `doc:"End time used to filter results. If not provided, the current server time is used. Accepted formats: RFC3339, unix epoch time (in milliseconds)."    form:"end"                   query:"end"`
+	Limit                uint64                   `doc:"Maximum number of results to return. If not provided, defaults to 100."                                                                              form:"limit"                 query:"limit"`
+	Offset               uint64                   `doc:"Number of results to skip before starting to return results. If not provided, defaults to 0."                                                        form:"offset"                query:"offset"`
 }
 
 type VerifierResultsResponse struct {
@@ -44,8 +44,7 @@ func NewVerifierResultsHandler(storage common.IndexerStorage, lggr logger.Logger
 
 func (h *VerifierResultsHandler) Handle(c *gin.Context) {
 	req := VerifierResultsInput{
-		Start:                0,
-		End:                  time.Now().UnixMilli(),
+		End:                  time.Now().Format(time.RFC3339),
 		SourceChainSelectors: []protocol.ChainSelector{},
 		DestChainSelectors:   []protocol.ChainSelector{},
 		Limit:                100,
@@ -70,7 +69,18 @@ func (h *VerifierResultsHandler) Handle(c *gin.Context) {
 	req.SourceChainSelectors = sourceChainSelectors
 	req.DestChainSelectors = destChainSelectors
 
-	verifierResponse, err := h.storage.QueryCCVData(c.Request.Context(), req.Start, req.End, req.SourceChainSelectors, req.DestChainSelectors, req.Limit, req.Offset)
+	startTime, err := parseTime(req.Start)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, makeErrorResponse(http.StatusBadRequest, fmt.Sprintf("bad start time: %s", err.Error())))
+		return
+	}
+	endTime, err := parseTime(req.End)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, makeErrorResponse(http.StatusBadRequest, fmt.Sprintf("bad end time: %s", err.Error())))
+		return
+	}
+
+	verifierResponse, err := h.storage.QueryCCVData(c.Request.Context(), startTime, endTime, req.SourceChainSelectors, req.DestChainSelectors, req.Limit, req.Offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, makeErrorResponse(http.StatusInternalServerError, err.Error()))
 		return
