@@ -147,10 +147,7 @@ func (m *CCIP17EVMConfig) deployCCTPChain(
 				},
 				TokenMessenger:   messenger.Hex(),
 				USDCToken:        usdc.Hex(),
-				MinFinalityValue: 1,
 				StorageLocations: []string{"https://test.chain.link.fake"},
-				FeeAggregator:    common.HexToAddress("0x04").Hex(),
-				AllowlistAdmin:   common.HexToAddress("0x05").Hex(),
 				FastFinalityBps:  100,
 				RMN: datastore.AddressRef{
 					Type:    datastore.ContractType(rmn_remote.ContractType),
@@ -161,7 +158,6 @@ func (m *CCIP17EVMConfig) deployCCTPChain(
 					Version: semver.MustParse(routeroperations.Deploy.Version()),
 				},
 				DeployerContract:                 create2Factory.Address,
-				Allowlist:                        []string{common.HexToAddress("0x08").Hex()},
 				ThresholdAmountForAdditionalCCVs: big.NewInt(1e18),
 				RateLimitAdmin:                   chain.DeployerKey.From.Hex(),
 				RemoteChains:                     make(map[uint64]adapters.RemoteCCTPChainConfig[datastore.AddressRef, datastore.AddressRef]),
