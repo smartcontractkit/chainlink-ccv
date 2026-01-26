@@ -7,6 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
@@ -47,6 +48,18 @@ func NewFactory(
 }
 
 func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.Accessor, error) {
+	if f.onRampAddresses == nil || f.rmnRemoteAddresses == nil || f.chainClients == nil || f.headTrackers == nil {
+		return nil, fmt.Errorf("evm accessor factory is not fully initialized - can't get accessor for chain %d", chainSelector)
+	}
+
+	family, err := chainsel.GetSelectorFamily(uint64(chainSelector))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get selector family for %d - update chain-selectors library?: %w", chainSelector, err)
+	}
+	if family != chainsel.FamilyEVM {
+		return nil, fmt.Errorf("skipping chain, only evm is supported for chain %d, family %s", chainSelector, family)
+	}
+
 	strSelector := strconv.FormatUint(uint64(chainSelector), 10)
 
 	if f.onRampAddresses[strSelector] == "" {
@@ -56,13 +69,11 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		return nil, fmt.Errorf("RMN Remote address is not set for chain %d", chainSelector)
 	}
 
-	// Create chain client
 	chainClient, ok := f.chainClients[chainSelector]
 	if !ok {
 		return nil, fmt.Errorf("chain client is not set for chain %d", chainSelector)
 	}
 
-	// Create head tracker wrapper
 	headTracker, ok := f.headTrackers[chainSelector]
 	if !ok {
 		return nil, fmt.Errorf("head tracker is not set for chain %d", chainSelector)

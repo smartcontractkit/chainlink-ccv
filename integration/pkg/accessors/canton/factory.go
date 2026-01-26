@@ -8,6 +8,7 @@ import (
 
 	ledgerv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -24,6 +25,18 @@ type factory struct {
 
 // GetAccessor implements chainaccess.AccessorFactory.
 func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.Accessor, error) {
+	if f.config == nil {
+		return nil, fmt.Errorf("canton config is not set - can't get accessor for chain %d", chainSelector)
+	}
+
+	family, err := chainsel.GetSelectorFamily(uint64(chainSelector))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get selector family for %d - update chain-selectors library?: %w", chainSelector, err)
+	}
+	if family != chainsel.FamilyCanton {
+		return nil, fmt.Errorf("skipping chain, only canton is supported for chain %d, family %s", chainSelector, family)
+	}
+
 	strSelector := strconv.FormatUint(uint64(chainSelector), 10)
 	cantonConfig, ok := f.config[strSelector]
 	if !ok {

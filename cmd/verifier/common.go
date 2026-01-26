@@ -122,11 +122,30 @@ func RegisterEVM(ctx context.Context, registry *accessors.Registry, lggr logger.
 	// Create the chain clients then the head trackers
 	chainClients := make(map[protocol.ChainSelector]client.Client)
 	for _, selector := range helper.GetAllChainSelectors() {
+		family, err := chainsel.GetSelectorFamily(uint64(selector))
+		if err != nil {
+			lggr.Errorw("❌ Failed to get selector family - update chain-selectors library?", "chainSelector", selector, "error", err)
+			continue
+		}
+		if family != chainsel.FamilyEVM {
+			// Skip non-EVM chains in EVM registration.
+			continue
+		}
 		chainClient := pkg.CreateHealthyMultiNodeClient(ctx, helper, lggr, selector)
 		chainClients[selector] = chainClient
 	}
+
 	headTrackers := make(map[protocol.ChainSelector]heads.Tracker)
 	for _, selector := range helper.GetAllChainSelectors() {
+		family, err := chainsel.GetSelectorFamily(uint64(selector))
+		if err != nil {
+			lggr.Errorw("❌ Failed to get selector family - update chain-selectors library?", "chainSelector", selector, "error", err)
+			continue
+		}
+		if family != chainsel.FamilyEVM {
+			// Skip non-EVM chains in EVM registration.
+			continue
+		}
 		headTracker := sourcereader.NewSimpleHeadTrackerWrapper(chainClients[selector], lggr)
 		headTrackers[selector] = headTracker
 	}
