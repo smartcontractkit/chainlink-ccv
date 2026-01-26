@@ -152,6 +152,12 @@ func (t *Task) getExistingVerifiers(ctx context.Context) (existing []string, err
 		results, err = t.storage.GetCCVData(ctx, t.messageID)
 	}
 
+	// If the data is not found, it must be a discovery only message
+	// We'll safely return here knowing we don't have any verifications.
+	if err == storage.ErrCCVDataNotFound {
+		return existing, nil
+	}
+
 	if err != nil {
 		return nil, err
 	}

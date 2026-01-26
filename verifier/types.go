@@ -9,13 +9,14 @@ import (
 // VerificationTask represents the complete CCIPMessageSent event data from the onRamp/proxy.
 type VerificationTask struct {
 	// TODO: Rename ReceiptBlobs to VerifierBlobs to match with onchain code.
-	ReceiptBlobs []protocol.ReceiptWithBlob `json:"receipt_blobs"`
-	MessageID    string                     `json:"message_id"`
-	Message      protocol.Message           `json:"message"`
-	TxHash       protocol.ByteSlice         `json:"tx_hash"`
-	BlockNumber  uint64                     `json:"block_number"`  // Block number when the message was included
-	FirstSeenAt  time.Time                  `json:"first_seen_at"` // When message first entered the system (for E2E latency)
-	QueuedAt     time.Time                  `json:"queued_at"`     // When added to finality queue (for finality wait duration)
+	ReceiptBlobs         []protocol.ReceiptWithBlob `json:"receipt_blobs"`
+	MessageID            string                     `json:"message_id"`
+	Message              protocol.Message           `json:"message"`
+	TxHash               protocol.ByteSlice         `json:"tx_hash"`
+	BlockNumber          uint64                     `json:"block_number"`            // Block number when the message was included
+	FirstSeenAt          time.Time                  `json:"first_seen_at"`           // When message first entered the system (for E2E latency)
+	QueuedAt             time.Time                  `json:"queued_at"`               // When added to finality queue (for finality wait duration)
+	FinalizedBlockAtRead uint64                     `json:"finalized_block_at_read"` // Finalized block number when the event was read from chain
 }
 
 // SourceConfig contains configuration for a single source chain.
@@ -29,6 +30,7 @@ type SourceConfig struct {
 	BatchTimeout           time.Duration           `json:"batch_timeout"`      // Maximum duration to wait before flushing incomplete verifier batch (default: 100ms)
 	RMNRemoteAddress       protocol.UnknownAddress `json:"rmn_remote_address"` // RMN Remote contract address for curse detection
 	MaxBlockRange          uint64                  `json:"max_block_range"`    // Max blocks per RPC query (default: 5000)
+	DisableFinalityChecker bool                    `json:"disable_finality_checker"`
 }
 
 // CoordinatorConfig contains configuration for the verification coordinator.

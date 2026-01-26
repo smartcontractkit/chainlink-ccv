@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 )
 
@@ -66,9 +67,22 @@ func (n *NoopExecutorMetricLabeler) With(keyValues ...string) executor.MetricLab
 	return n
 }
 
-func (n *NoopExecutorMetricLabeler) RecordMessageExecutionLatency(ctx context.Context, duration time.Duration) {
+func (n *NoopExecutorMetricLabeler) RecordMessageExecutionLatency(ctx context.Context, duration time.Duration, destSelector protocol.ChainSelector) {
 }
 
 func (n *NoopExecutorMetricLabeler) IncrementMessagesProcessed(ctx context.Context) {}
 
 func (n *NoopExecutorMetricLabeler) IncrementMessagesProcessingFailed(ctx context.Context) {}
+
+func (n *NoopExecutorMetricLabeler) IncrementCCVInfoCacheHits(ctx context.Context) {}
+
+func (n *NoopExecutorMetricLabeler) IncrementCCVInfoCacheMisses(ctx context.Context) {}
+
+func (n *NoopExecutorMetricLabeler) RecordQueryCCVInfoLatency(ctx context.Context, duration time.Duration, destSelector protocol.ChainSelector) {
+}
+
+func (n *NoopExecutorMetricLabeler) IncrementExpiredMessages(ctx context.Context) {}
+
+func (n *NoopExecutorMetricLabeler) IncrementAlreadyExecutedMessages(ctx context.Context) {}
+
+func (n *NoopExecutorMetricLabeler) RecordMessageHeapSize(ctx context.Context, size int64) {}

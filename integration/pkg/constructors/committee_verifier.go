@@ -127,7 +127,7 @@ func NewVerificationCoordinator(
 	}
 
 	// Create chain status manager using postgres
-	chainStatusManager := chainstatus.NewPostgresChainStatusManager(ds, lggr)
+	chainStatusManager := chainstatus.NewPostgresChainStatusManager(ds, lggr, cfg.VerifierID)
 
 	coordinatorConfig := verifier.CoordinatorConfig{
 		VerifierID:          cfg.VerifierID,

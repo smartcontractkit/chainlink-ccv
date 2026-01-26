@@ -51,6 +51,7 @@ func Test_ProcessingReadyTasks(t *testing.T) {
 			chain2337: fakeFanout,
 		},
 		storageBatcher,
+		verifier.NewPendingWritingTracker(logger.Test(t)),
 	)
 	require.NoError(t, err)
 	require.NoError(t, taskVerifier.Start(t.Context()))

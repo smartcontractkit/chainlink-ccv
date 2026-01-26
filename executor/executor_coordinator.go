@@ -189,6 +189,7 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 
 func (ec *Coordinator) runProcessingLoop(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Second)
+	reportingTicker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 	for {
 		select {
@@ -208,6 +209,8 @@ func (ec *Coordinator) runProcessingLoop(ctx context.Context) {
 				// If the channel is full, we will block here, but messages will continue to be accumulate in the heap.
 				ec.workerPoolTasks <- payload
 			}
+		case <-reportingTicker.C:
+			ec.monitoring.Metrics().RecordMessageHeapSize(ctx, int64(ec.delayedMessageHeap.Len()))
 		}
 	}
 }
@@ -224,6 +227,7 @@ func (ec *Coordinator) handleMessage(ctx context.Context) {
 			currentTime := ec.timeProvider.GetTime()
 			if currentTime.After(payload.ExpiryTime) {
 				ec.lggr.Infow("message has expired", "messageID", payload.MessageID)
+				ec.monitoring.Metrics().IncrementExpiredMessages(ctx)
 				continue
 			}
 
@@ -246,6 +250,9 @@ func (ec *Coordinator) handleMessage(ctx context.Context) {
 			}
 			if err != nil {
 				ec.lggr.Errorw("failed to handle message", "messageID", id, "error", err)
+				ec.monitoring.Metrics().IncrementMessagesProcessingFailed(ctx)
+			} else {
+				ec.monitoring.Metrics().IncrementMessagesProcessed(ctx)
 			}
 		}
 	}

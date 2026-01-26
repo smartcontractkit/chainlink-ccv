@@ -484,7 +484,7 @@ func TestE2ESmoke(t *testing.T) {
 				transferAmount:          big.NewInt(100),
 				receiver:                mustGetEOAReceiverAddress(t, destChain),
 				expectedReceiptIssuers:  4, // CCTP CCV, token pool, executor, network fee
-				expectedVerifierResults: 2, // FIXME only CCTP CCV, but for some reason Indexer returns 2
+				expectedVerifierResults: 1,
 				shouldCheckAggregator:   false,
 			},
 			{
@@ -493,7 +493,7 @@ func TestE2ESmoke(t *testing.T) {
 				transferAmount:          big.NewInt(500),
 				receiver:                mustGetEOAReceiverAddress(t, destChain),
 				expectedReceiptIssuers:  4, // CCTP CCV, token pool, executor, network fee
-				expectedVerifierResults: 2, // FIXME only CCTP CCV, but for some reason Indexer returns 2
+				expectedVerifierResults: 1,
 				shouldCheckAggregator:   false,
 			},
 			{
@@ -773,10 +773,8 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 					ArgsLen: 0,
 				},
 			},
-			// default verifier and secondary verifier will verify so should be two verifications.
-			// default verifies because its the message discovery mechanism, despite there being no onchain
-			// receipt for the default verifier.
-			numExpectedVerifications: 2,
+			// secondary verifier will verify however the default will not.
+			numExpectedVerifications: 1,
 			// default executor and secondary committee verifier and network fee.
 			numExpectedReceipts: 3,
 			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), evm.DefaultExecutorQualifier, "executor"),
@@ -817,10 +815,8 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 					ArgsLen: 0,
 				},
 			},
-			// default, secondary and tertiary verifiers will verify so should be three verifications.
-			// default verifies because its the message discovery mechanism, despite there being no onchain
-			// receipt for the default verifier.
-			numExpectedVerifications: 3,
+			// secondary and tertiary verifiers will verify so should be three verifications.
+			numExpectedVerifications: 2,
 			// default executor, secondary and tertiary committee verifiers, and network fee.
 			numExpectedReceipts: 4,
 			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), evm.DefaultExecutorQualifier, "executor"),

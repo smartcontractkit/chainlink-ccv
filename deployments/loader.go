@@ -8,11 +8,10 @@ import (
 
 	jsonpatch "github.com/evanphx/json-patch/v5"
 
-	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
-
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
 
 // OffchainConfigs contains generated configurations for offchain services.
@@ -214,7 +213,7 @@ func GetAllNOPJobSpecs(ds datastore.DataStore) (shared.NOPJobSpecs, error) {
 		return make(shared.NOPJobSpecs), nil
 	}
 
-	return shared.NOPJobSpecs(ccvMeta.OffchainConfigs.NOPJobSpecs), nil
+	return ccvMeta.OffchainConfigs.NOPJobSpecs, nil
 }
 
 // DeleteNOPJobSpec removes a specific job spec from the datastore by NOP alias and job spec ID.

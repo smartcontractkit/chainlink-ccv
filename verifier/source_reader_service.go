@@ -19,8 +19,6 @@ import (
 )
 
 const (
-	// ChainStatusInterval is how often to write statuses.
-	ChainStatusInterval  = 300 * time.Second
 	DefaultPollInterval  = 2100 * time.Millisecond
 	DefaultPollTimeout   = 10 * time.Second
 	DefaultMaxBlockRange = 5000
@@ -45,6 +43,9 @@ type SourceReaderService struct {
 	// exposed channel to coordinator: READY tasks
 	readyTasksBatcher *batcher.Batcher[VerificationTask]
 
+	// Pending writing tracker (shared with TVP and SWP)
+	writingTracker *PendingWritingTracker
+
 	// mutable per-chain state
 	mu                          sync.RWMutex
 	lastProcessedFinalizedBlock atomic.Pointer[big.Int]
@@ -54,9 +55,7 @@ type SourceReaderService struct {
 	disabled                    atomic.Bool
 
 	// ChainStatus management
-	chainStatusManager   protocol.ChainStatusManager
-	lastChainStatusTime  time.Time
-	lastChainStatusBlock *big.Int
+	chainStatusManager protocol.ChainStatusManager
 
 	filter chainaccess.MessageFilter
 }
@@ -72,6 +71,7 @@ func NewSourceReaderService(
 	curseDetector common.CurseCheckerService,
 	filter chainaccess.MessageFilter,
 	metrics MetricLabeler,
+	writingTracker *PendingWritingTracker,
 ) (*SourceReaderService, error) {
 	if sourceReader == nil {
 		return nil, fmt.Errorf("sourceReader cannot be nil")
@@ -88,13 +88,26 @@ func NewSourceReaderService(
 	if metrics == nil {
 		return nil, fmt.Errorf("metrics cannot be nil")
 	}
-	finalityChecker, err := vservices.NewFinalityViolationCheckerService(
-		sourceReader,
-		chainSelector,
-		logger.With(lggr, "component", "FinalityChecker", "chainID", chainSelector),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create finality checker: %w", err)
+
+	if writingTracker == nil {
+		return nil, fmt.Errorf("writingTracker cannot be nil")
+	}
+
+	var finalityChecker protocol.FinalityViolationChecker
+	var err error
+
+	if sourceCfg.DisableFinalityChecker {
+		lggr.Infow("FinalityViolationChecker is disabled by config", "chainSelector", chainSelector)
+		finalityChecker = &vservices.NoOpFinalityViolationChecker{}
+	} else {
+		finalityChecker, err = vservices.NewFinalityViolationCheckerService(
+			sourceReader,
+			chainSelector,
+			logger.With(lggr, "component", "FinalityChecker", "chainID", chainSelector),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create finality checker: %w", err)
+		}
 	}
 
 	var interval time.Duration
@@ -138,6 +151,7 @@ func NewSourceReaderService(
 		stopCh:             make(chan struct{}),
 		filter:             filter,
 		readyTasksBatcher:  readyTaskBatcher,
+		writingTracker:     writingTracker,
 	}, nil
 }
 
@@ -342,14 +356,18 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context, latest, fin
 			continue
 		}
 		task := VerificationTask{
-			Message:      event.Message,
-			ReceiptBlobs: event.Receipts,
-			BlockNumber:  event.BlockNumber,
-			MessageID:    onchainMessageID,
-			TxHash:       event.TxHash,
-			FirstSeenAt:  now,
+			Message:              event.Message,
+			ReceiptBlobs:         event.Receipts,
+			BlockNumber:          event.BlockNumber,
+			MessageID:            onchainMessageID,
+			TxHash:               event.TxHash,
+			FirstSeenAt:          now,
+			FinalizedBlockAtRead: finalized.Number,
 		}
 		tasks = append(tasks, task)
+
+		// Add to tracker immediately when read
+		r.writingTracker.Add(r.chainSelector, onchainMessageID, finalized.Number)
 	}
 
 	r.addToPendingQueueHandleReorg(tasks, fromBlock)
@@ -364,52 +382,11 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context, latest, fin
 	newBlock := new(big.Int).SetUint64(finalized.Number)
 	r.lastProcessedFinalizedBlock.Store(newBlock)
 
-	r.updateChainStatus(ctx, newBlock)
-
 	r.logger.Debugw("Processed block range",
 		"fromBlock", fromBlock.String(),
 		"toBlock", "latest",
 		"advancedTo", newBlock.String(),
 		"eventsFound", len(events))
-}
-
-// updateChainStatus writes a chain status every ChainStatusInterval.
-func (r *SourceReaderService) updateChainStatus(ctx context.Context, latestFinalized *big.Int) {
-	// Only chain status periodically
-	if time.Since(r.lastChainStatusTime) < ChainStatusInterval {
-		return
-	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Don't re-chain status the same block
-	if r.lastChainStatusBlock != nil &&
-		latestFinalized.Cmp(r.lastChainStatusBlock) <= 0 {
-		r.logger.Debugw("Skipping chainStatus - no progress",
-			"chainStatusBlock", latestFinalized.String(),
-			"lastChainStatus", r.lastChainStatusBlock.String())
-		return
-	}
-
-	// Write chain status (fire-and-forget, just log errors)
-	err := r.chainStatusManager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
-		{
-			ChainSelector:        r.chainSelector,
-			FinalizedBlockHeight: latestFinalized,
-		},
-	})
-	if err != nil {
-		r.logger.Errorw("Failed to write chainStatus",
-			"error", err,
-		)
-	} else {
-		r.logger.Infow("ChainStatus updated",
-			"latestFinalized", latestFinalized.String(),
-		)
-		r.lastChainStatusTime = time.Now()
-		r.lastChainStatusBlock = new(big.Int).Set(latestFinalized)
-	}
 }
 
 // initializeStartBlock determines the starting block for event monitoring.
@@ -501,6 +478,8 @@ func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationT
 					"destChain", existing.Message.DestChainSelector,
 					"fromBlock", fromBlock.String(),
 				)
+				// Reorged out - remove from tracker
+				r.writingTracker.Remove(r.chainSelector, msgID)
 				r.reorgTracker.Track(existing.Message.DestChainSelector, existing.Message.SequenceNumber)
 				delete(r.pendingTasks, msgID)
 			}
@@ -517,6 +496,8 @@ func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationT
 					"seqNum", task.Message.SequenceNumber,
 					"destChain", task.Message.DestChainSelector,
 				)
+				// Reorged out - remove from tracker
+				r.writingTracker.Remove(r.chainSelector, msgID)
 				r.reorgTracker.Track(task.Message.DestChainSelector, task.Message.SequenceNumber)
 				delete(r.sentTasks, msgID)
 			}

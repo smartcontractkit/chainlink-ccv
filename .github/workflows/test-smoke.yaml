@@ -26,15 +26,23 @@ jobs:
           - name: TestE2ESmoke
             config: env.toml
             timeout: 15m
+            working-directory: build/devenv/tests/e2e
           - name: TestE2EReorg
             config: env.toml,env-src-auto-mine.toml
             timeout: 5m
+            working-directory: build/devenv/tests/e2e
           - name: TestChaos_AggregatorOutageRecovery
             config: env.toml
             timeout: 5m
+            working-directory: build/devenv/tests/e2e
           - name: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_AllExecutorsDown|TestChaos_IndexerDown)
             config: env.toml
             timeout: 5m
+            working-directory: build/devenv/tests/e2e
+          - name: TestCantonSourceReader
+            config: env-canton-single-validator.toml
+            timeout: 2m
+            working-directory: build/devenv/tests/integration/canton
     steps:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
@@ -90,9 +98,9 @@ jobs:
           cd cmd/ccv && go install . && cd -
           ccv u ${{ matrix.test.config }} && ccv obs up -m loki
 
-      - name: Run tests
+      - name: Run Test ${{ matrix.test.name }}
         id: test_run
-        working-directory: build/devenv/tests/e2e
+        working-directory: ${{ matrix.test.working-directory }}
         run: |
           set -o pipefail
           go test -v -timeout ${{ matrix.test.timeout }} -count=1 -run '${{ matrix.test.name }}'
@@ -100,7 +108,7 @@ jobs:
 
       - name: Dump logs if they're not already dumped
         if: always()
-        working-directory: build/devenv/tests/e2e
+        working-directory: ${{ matrix.test.working-directory }}
         run: |
           if [ ! -d "logs" ] || [ -z "$(ls -A logs)" ]; then
             echo "Logs not found or empty. Dumping logs manually..."
@@ -122,7 +130,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: container-logs-standalone-${{ steps.sanitize_name.outputs.name }}
-          path: build/devenv/tests/e2e/logs
+          path: ${{ matrix.test.working-directory }}/logs
           retention-days: 1
 
       - name: Check test results

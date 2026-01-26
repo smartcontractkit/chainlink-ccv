@@ -25,6 +25,79 @@ func (_m *MockClientInterface) EXPECT() *MockClientInterface_Expecter {
 	return &MockClientInterface_Expecter{mock: &_m.Mock}
 }
 
+// Health provides a mock function with given fields: ctx, reqEditors
+func (_m *MockClientInterface) Health(ctx context.Context, reqEditors ...client.RequestEditorFn) (*http.Response, error) {
+	_va := make([]interface{}, len(reqEditors))
+	for _i := range reqEditors {
+		_va[_i] = reqEditors[_i]
+	}
+	var _ca []interface{}
+	_ca = append(_ca, ctx)
+	_ca = append(_ca, _va...)
+	ret := _m.Called(_ca...)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Health")
+	}
+
+	var r0 *http.Response
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, ...client.RequestEditorFn) (*http.Response, error)); ok {
+		return rf(ctx, reqEditors...)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, ...client.RequestEditorFn) *http.Response); ok {
+		r0 = rf(ctx, reqEditors...)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*http.Response)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, ...client.RequestEditorFn) error); ok {
+		r1 = rf(ctx, reqEditors...)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockClientInterface_Health_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Health'
+type MockClientInterface_Health_Call struct {
+	*mock.Call
+}
+
+// Health is a helper method to define mock.On call
+//   - ctx context.Context
+//   - reqEditors ...client.RequestEditorFn
+func (_e *MockClientInterface_Expecter) Health(ctx interface{}, reqEditors ...interface{}) *MockClientInterface_Health_Call {
+	return &MockClientInterface_Health_Call{Call: _e.mock.On("Health",
+		append([]interface{}{ctx}, reqEditors...)...)}
+}
+
+func (_c *MockClientInterface_Health_Call) Run(run func(ctx context.Context, reqEditors ...client.RequestEditorFn)) *MockClientInterface_Health_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		variadicArgs := make([]client.RequestEditorFn, len(args)-1)
+		for i, a := range args[1:] {
+			if a != nil {
+				variadicArgs[i] = a.(client.RequestEditorFn)
+			}
+		}
+		run(args[0].(context.Context), variadicArgs...)
+	})
+	return _c
+}
+
+func (_c *MockClientInterface_Health_Call) Return(_a0 *http.Response, _a1 error) *MockClientInterface_Health_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockClientInterface_Health_Call) RunAndReturn(run func(context.Context, ...client.RequestEditorFn) (*http.Response, error)) *MockClientInterface_Health_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Messages provides a mock function with given fields: ctx, params, reqEditors
 func (_m *MockClientInterface) Messages(ctx context.Context, params *client.MessagesParams, reqEditors ...client.RequestEditorFn) (*http.Response, error) {
 	_va := make([]interface{}, len(reqEditors))
@@ -95,6 +168,79 @@ func (_c *MockClientInterface_Messages_Call) Return(_a0 *http.Response, _a1 erro
 }
 
 func (_c *MockClientInterface_Messages_Call) RunAndReturn(run func(context.Context, *client.MessagesParams, ...client.RequestEditorFn) (*http.Response, error)) *MockClientInterface_Messages_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Ready provides a mock function with given fields: ctx, reqEditors
+func (_m *MockClientInterface) Ready(ctx context.Context, reqEditors ...client.RequestEditorFn) (*http.Response, error) {
+	_va := make([]interface{}, len(reqEditors))
+	for _i := range reqEditors {
+		_va[_i] = reqEditors[_i]
+	}
+	var _ca []interface{}
+	_ca = append(_ca, ctx)
+	_ca = append(_ca, _va...)
+	ret := _m.Called(_ca...)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Ready")
+	}
+
+	var r0 *http.Response
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, ...client.RequestEditorFn) (*http.Response, error)); ok {
+		return rf(ctx, reqEditors...)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, ...client.RequestEditorFn) *http.Response); ok {
+		r0 = rf(ctx, reqEditors...)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*http.Response)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, ...client.RequestEditorFn) error); ok {
+		r1 = rf(ctx, reqEditors...)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockClientInterface_Ready_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Ready'
+type MockClientInterface_Ready_Call struct {
+	*mock.Call
+}
+
+// Ready is a helper method to define mock.On call
+//   - ctx context.Context
+//   - reqEditors ...client.RequestEditorFn
+func (_e *MockClientInterface_Expecter) Ready(ctx interface{}, reqEditors ...interface{}) *MockClientInterface_Ready_Call {
+	return &MockClientInterface_Ready_Call{Call: _e.mock.On("Ready",
+		append([]interface{}{ctx}, reqEditors...)...)}
+}
+
+func (_c *MockClientInterface_Ready_Call) Run(run func(ctx context.Context, reqEditors ...client.RequestEditorFn)) *MockClientInterface_Ready_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		variadicArgs := make([]client.RequestEditorFn, len(args)-1)
+		for i, a := range args[1:] {
+			if a != nil {
+				variadicArgs[i] = a.(client.RequestEditorFn)
+			}
+		}
+		run(args[0].(context.Context), variadicArgs...)
+	})
+	return _c
+}
+
+func (_c *MockClientInterface_Ready_Call) Return(_a0 *http.Response, _a1 error) *MockClientInterface_Ready_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockClientInterface_Ready_Call) RunAndReturn(run func(context.Context, ...client.RequestEditorFn) (*http.Response, error)) *MockClientInterface_Ready_Call {
 	_c.Call.Return(run)
 	return _c
 }

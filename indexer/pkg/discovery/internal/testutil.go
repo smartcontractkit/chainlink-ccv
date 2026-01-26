@@ -329,7 +329,7 @@ func DefaultMessageGenerator(messageNumber int) common.VerifierResultWithMetadat
 			VerifierDestAddress:    destAddr,
 			Message:                message,
 			MessageID:              messageID,
-			CCVData:                []byte{},
+			CCVData:                []byte{0x00, 0x01, 0x02, 0x03, 0x04}, // >4 bytes, not discovery-only
 			MessageCCVAddresses:    []protocol.UnknownAddress{},
 			MessageExecutorAddress: protocol.UnknownAddress{},
 			Timestamp:              time.Now(),

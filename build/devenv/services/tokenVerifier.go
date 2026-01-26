@@ -252,7 +252,6 @@ func (v *TokenVerifierInput) buildVerifierConfiguration(config *token.Config, fa
 		return fmt.Errorf("failed to decode verifier config template: %w", err)
 	}
 
-	config.VerifierID = v.ContainerName
 	config.OnRampAddresses = v.OnRampAddresses
 	config.RMNRemoteAddresses = v.RMNRemoteAddresses
 	if len(config.TokenVerifiers) == 0 {
@@ -270,8 +269,9 @@ func (v *TokenVerifierInput) buildVerifierConfiguration(config *token.Config, fa
 		}
 
 		config.TokenVerifiers = append(config.TokenVerifiers, token.VerifierConfig{
-			Type:    "cctp",
-			Version: "2.0",
+			VerifierID: v.ContainerName + "-cctp",
+			Type:       "cctp",
+			Version:    "2.0",
 			CCTPConfig: &cctp.CCTPConfig{
 				AttestationAPI:         fakeAttestationServiceURL + "/cctp",
 				AttestationAPIInterval: 100 * time.Millisecond,
@@ -289,8 +289,9 @@ func (v *TokenVerifierInput) buildVerifierConfiguration(config *token.Config, fa
 			verifierResolvers[k] = addr
 		}
 		config.TokenVerifiers = append(config.TokenVerifiers, token.VerifierConfig{
-			Type:    "lbtc",
-			Version: "1.0",
+			VerifierID: v.ContainerName + "-lbtc",
+			Type:       "lbtc",
+			Version:    "1.0",
 			LBTCConfig: &lbtc.LBTCConfig{
 				AttestationAPI:          fakeAttestationServiceURL + "/lbtc",
 				AttestationAPIInterval:  100 * time.Millisecond,

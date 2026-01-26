@@ -47,6 +47,11 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input, dataStore datastore.Da
 	selectors := make([]uint64, 0)
 	defaultTxTimeout := 30 * time.Second
 	for _, b := range bc {
+		if b.Type == blockchain.TypeCanton {
+			// Canton CLDF is not supported yet
+			continue
+		}
+
 		chainID := b.Out.ChainID
 		rpcWSURL := b.Out.Nodes[0].ExternalWSUrl
 		rpcHTTPURL := b.Out.Nodes[0].ExternalHTTPUrl
@@ -59,12 +64,12 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input, dataStore datastore.Da
 
 		var confirmer cldf_evm_provider.ConfirmFunctor
 		switch b.Type {
-		case "anvil":
+		case blockchain.TypeAnvil:
 			confirmer = cldf_evm_provider.ConfirmFuncGeth(defaultTxTimeout, cldf_evm_provider.WithTickInterval(5*time.Millisecond))
-		case "geth":
+		case blockchain.TypeGeth:
 			confirmer = cldf_evm_provider.ConfirmFuncGeth(defaultTxTimeout)
 		default:
-			panic("blockchain type is not 'anvil' or 'geth', no other types are supported right now")
+			panic(fmt.Sprintf("blockchain type %s is not supported", b.Type))
 		}
 
 		p, err := cldf_evm_provider.NewRPCChainProvider(

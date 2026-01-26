@@ -74,12 +74,6 @@ func main() {
 
 	verifierMonitoring := cmd.SetupMonitoring(lggr, config.Monitoring)
 
-	messageTracker := monitoring.NewMessageLatencyTracker(
-		lggr,
-		config.VerifierID,
-		verifierMonitoring,
-	)
-
 	rmnRemoteAddresses := make(map[string]protocol.UnknownAddress)
 	for selector, address := range config.RMNRemoteAddresses {
 		addr, err := protocol.NewUnknownAddressFromHex(address)
@@ -96,16 +90,22 @@ func main() {
 		os.Exit(1)
 	}
 
-	chainStatusManager := chainstatus.NewPostgresChainStatusManager(sqlDB, lggr)
 	postgresStorage := ccvstorage.NewPostgres(sqlDB, lggr)
 
 	coordinators := make([]*verifier.Coordinator, 0, len(config.TokenVerifiers))
 	for _, verifierConfig := range config.TokenVerifiers {
+		chainStatusManager := chainstatus.NewPostgresChainStatusManager(sqlDB, lggr, verifierConfig.VerifierID)
+		messageTracker := monitoring.NewMessageLatencyTracker(
+			lggr,
+			verifierConfig.VerifierID,
+			verifierMonitoring,
+		)
+
 		var coordinator *verifier.Coordinator
 		if verifierConfig.IsLBTC() {
 			coordinator = createLBTCCoordinator(
 				ctx,
-				config.VerifierID,
+				verifierConfig.VerifierID,
 				verifierConfig.LBTCConfig,
 				lggr,
 				sourceReaders,
@@ -122,7 +122,7 @@ func main() {
 		} else if verifierConfig.IsCCTP() {
 			coordinator = createCCTPCoordinator(
 				ctx,
-				config.VerifierID,
+				verifierConfig.VerifierID,
 				verifierConfig.CCTPConfig,
 				lggr,
 				sourceReaders,
