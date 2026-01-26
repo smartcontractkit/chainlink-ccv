@@ -26,7 +26,7 @@ import (
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lbtc"
@@ -227,7 +227,7 @@ func NewTokenVerifier(in *TokenVerifierInput, fakeAttestationServiceURL string) 
 	}, nil
 }
 
-func (v *TokenVerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*protocol.BlockchainInfo, fakeAttestationServiceURL string) (verifierTomlConfig []byte, err error) {
+func (v *TokenVerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*ccvblockchain.Info, fakeAttestationServiceURL string) (verifierTomlConfig []byte, err error) {
 	// Build base configuration
 	var baseConfig token.Config
 	if err := v.buildVerifierConfiguration(&baseConfig, fakeAttestationServiceURL); err != nil {

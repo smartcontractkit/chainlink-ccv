@@ -8,13 +8,16 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
+	cantonaccessor "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/canton"
+	evmaccessor "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -26,6 +29,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
+	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 )
 
 const (
@@ -74,91 +78,110 @@ func SetupMonitoring(lggr logger.Logger, config verifier.MonitoringConfig) verif
 }
 
 func LoadBlockchainReadersForToken(
+	ctx context.Context,
 	lggr logger.Logger,
-	blockchainHelper *protocol.BlockchainHelper,
-	chainClients map[protocol.ChainSelector]client.Client,
+	registry *accessors.Registry,
+	blockchainHelper *blockchain.Helper,
 	config token.Config,
 ) map[protocol.ChainSelector]chainaccess.SourceReader {
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 
 	for _, selector := range blockchainHelper.GetAllChainSelectors() {
-		lggr.Infow("Creating source reader", "chainSelector", selector, "strSelector", uint64(selector))
-		strSelector := strconv.FormatUint(uint64(selector), 10)
-
-		if config.OnRampAddresses[strSelector] == "" {
-			lggr.Errorw("On ramp address is not set", "chainSelector", selector)
-			continue
-		}
-		if config.RMNRemoteAddresses[strSelector] == "" {
-			lggr.Errorw("RMN Remote address is not set", "chainSelector", selector)
-			continue
-		}
-
-		evmSourceReader, err := createEvmChainReader(
-			lggr,
-			chainClients,
-			selector,
-			config.OnRampAddresses[strSelector],
-			config.RMNRemoteAddresses[strSelector],
-		)
+		info, err := blockchainHelper.GetBlockchainByChainSelector(selector)
 		if err != nil {
-			lggr.Errorw("Failed to create EVM source reader", "selector", selector, "error", err)
+			lggr.Errorw("Failed to get blockchain info", "chainSelector", selector, "error", err)
+			continue
+		}
+		if info.Family != chainsel.FamilyEVM {
+			lggr.Errorw("Skipping chain, only EVM is supported", "chainSelector", selector, "family", info.Family)
 			continue
 		}
 
-		// EVMSourceReader implements both SourceReader and HeadTracker interfaces
-		sourceReaders[selector] = evmSourceReader
+		lggr.Infow("⏳ Creating source reader for chain", "chainSelector", selector, "strSelector", uint64(selector))
 
-		lggr.Infow("Created blockchain source reader", "chain", selector)
+		accessor, err := registry.GetAccessor(ctx, selector)
+		if err != nil {
+			lggr.Errorw("❌ Failed to create source reader for chain", "chainSelector", selector, "error", err)
+			continue
+		}
+
+		reader := accessor.SourceReader()
+		if reader == nil {
+			lggr.Errorw("❌ Failed to get source reader for chain", "chainSelector", selector)
+			continue
+		}
+
+		sourceReaders[selector] = reader
+		lggr.Infow("🚀 Created source reader for chain", "chainSelector", selector)
 	}
 
 	return sourceReaders
 }
 
-func LoadBlockchainReadersForCommit(
-	lggr logger.Logger,
-	blockchainHelper *protocol.BlockchainHelper,
-	chainClients map[protocol.ChainSelector]client.Client,
-	config commit.Config,
-) map[protocol.ChainSelector]chainaccess.SourceReader {
-	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
-
-	for _, selector := range blockchainHelper.GetAllChainSelectors() {
-		lggr.Infow("Creating source reader", "chainSelector", selector, "strSelector", uint64(selector))
-		strSelector := strconv.FormatUint(uint64(selector), 10)
-
-		if config.CommitteeVerifierAddresses[strSelector] == "" {
-			lggr.Errorw("Committee verifier address is not set", "chainSelector", selector)
-			continue
-		}
-		if config.OnRampAddresses[strSelector] == "" {
-			lggr.Errorw("On ramp address is not set", "chainSelector", selector)
-			continue
-		}
-		if config.RMNRemoteAddresses[strSelector] == "" {
-			lggr.Errorw("RMN Remote address is not set", "chainSelector", selector)
-			continue
-		}
-
-		evmSourceReader, err := createEvmChainReader(
-			lggr,
-			chainClients,
-			selector,
-			config.OnRampAddresses[strSelector],
-			config.RMNRemoteAddresses[strSelector],
-		)
+func RegisterEVM(ctx context.Context, registry *accessors.Registry, lggr logger.Logger, helper *blockchain.Helper, onRampAddresses, rmnRemoteAddresses map[string]string) {
+	// Create the chain clients then the head trackers
+	chainClients := make(map[protocol.ChainSelector]client.Client)
+	for _, selector := range helper.GetAllChainSelectors() {
+		family, err := chainsel.GetSelectorFamily(uint64(selector))
 		if err != nil {
-			lggr.Errorw("Failed to create EVM source reader", "selector", selector, "error", err)
+			lggr.Errorw("❌ Failed to get selector family - update chain-selectors library?", "chainSelector", selector, "error", err)
 			continue
 		}
-
-		// EVMSourceReader implements both SourceReader and HeadTracker interfaces
-		sourceReaders[selector] = evmSourceReader
-
-		lggr.Infow("Created blockchain source reader", "chain", selector)
+		if family != chainsel.FamilyEVM {
+			// Skip non-EVM chains in EVM registration.
+			continue
+		}
+		chainClient := pkg.CreateHealthyMultiNodeClient(ctx, helper, lggr, selector)
+		chainClients[selector] = chainClient
 	}
 
-	return sourceReaders
+	headTrackers := make(map[protocol.ChainSelector]heads.Tracker)
+	for _, selector := range helper.GetAllChainSelectors() {
+		family, err := chainsel.GetSelectorFamily(uint64(selector))
+		if err != nil {
+			lggr.Errorw("❌ Failed to get selector family - update chain-selectors library?", "chainSelector", selector, "error", err)
+			continue
+		}
+		if family != chainsel.FamilyEVM {
+			// Skip non-EVM chains in EVM registration.
+			continue
+		}
+		headTracker := sourcereader.NewSimpleHeadTrackerWrapper(chainClients[selector], lggr)
+		headTrackers[selector] = headTracker
+	}
+
+	registry.Register(chainsel.FamilyEVM, evmaccessor.NewFactory(lggr, helper, onRampAddresses, rmnRemoteAddresses, headTrackers, chainClients))
+}
+
+func RegisterCanton(ctx context.Context, registry *accessors.Registry, lggr logger.Logger, helper *blockchain.Helper, cantonConfigs map[string]commit.CantonConfig) {
+	registry.Register(chainsel.FamilyCanton, cantonaccessor.NewFactory(lggr, helper, cantonConfigs))
+}
+
+func CreateSourceReaders(
+	ctx context.Context,
+	lggr logger.Logger,
+	registry *accessors.Registry,
+	helper *blockchain.Helper,
+	config commit.Config,
+) (map[protocol.ChainSelector]chainaccess.SourceReader, error) {
+	readers := make(map[protocol.ChainSelector]chainaccess.SourceReader)
+	for _, selector := range helper.GetAllChainSelectors() {
+		accessor, err := registry.GetAccessor(ctx, selector)
+		if err != nil {
+			lggr.Errorw("❌ Failed to create source reader", "chainSelector", selector, "error", err)
+			continue
+		}
+
+		reader := accessor.SourceReader()
+		if reader == nil {
+			lggr.Errorw("❌ Failed to get source reader for chain", "chainSelector", selector)
+			continue
+		}
+
+		readers[selector] = reader
+		lggr.Infow("🚀 Created source reader for chain", "chainSelector", selector)
+	}
+	return readers, nil
 }
 
 func ConnectToPostgresDB(lggr logger.Logger) (*sqlx.DB, error) {
@@ -204,51 +227,21 @@ func ConnectToPostgresDB(lggr logger.Logger) (*sqlx.DB, error) {
 	return sqlxDB, nil
 }
 
-func createEvmChainReader(
-	lggr logger.Logger,
-	chainClients map[protocol.ChainSelector]client.Client,
-	selector protocol.ChainSelector,
-	onRampAddress string,
-	rmnRemoteAddress string,
-) (chainaccess.SourceReader, error) {
-	// Create head tracker wrapper (uses hardcoded confirmation depth of 10 internally)
-	// This is only for standalone mode and for testing purposes.
-	// In CL node it'll be using HeadTracker which already abstracts away this per chain.
-	headTracker := NewSimpleHeadTrackerWrapper(chainClients[selector], lggr)
-
-	evmSourceReader, err := sourcereader.NewEVMSourceReader(
-		chainClients[selector],
-		headTracker,
-		common.HexToAddress(onRampAddress),
-		common.HexToAddress(rmnRemoteAddress),
-		onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
-		selector,
-		lggr,
-	)
-	return evmSourceReader, err
-}
-
 func LoadBlockchainInfo(
 	ctx context.Context,
 	lggr logger.Logger,
-	config map[string]*protocol.BlockchainInfo,
-) (*protocol.BlockchainHelper, map[protocol.ChainSelector]client.Client) {
+	config map[string]*blockchain.Info,
+) *blockchain.Helper {
 	// Use actual blockchain information from configuration
-	var blockchainHelper *protocol.BlockchainHelper
-	chainClients := make(map[protocol.ChainSelector]client.Client)
 	if len(config) == 0 {
 		lggr.Warnw("No blockchain information in config")
-	} else {
-		blockchainHelper = protocol.NewBlockchainHelper(config)
-		lggr.Infow("Using real blockchain information from environment",
-			"chainCount", len(config))
-		logBlockchainInfo(blockchainHelper, lggr)
-		for _, selector := range blockchainHelper.GetAllChainSelectors() {
-			lggr.Infow("Creating chain client", "chainSelector", selector)
-			chainClients[selector] = pkg.CreateHealthyMultiNodeClient(ctx, blockchainHelper, lggr, selector)
-		}
+		return nil
 	}
-	return blockchainHelper, chainClients
+	blockchainHelper := blockchain.NewHelper(config)
+	lggr.Infow("Using real blockchain information from environment",
+		"chainCount", len(config))
+	logBlockchainInfo(blockchainHelper, lggr)
+	return blockchainHelper
 }
 
 func StartPyroscope(lggr logger.Logger, pyroscopeAddress, serviceName string) {
@@ -269,13 +262,13 @@ func StartPyroscope(lggr logger.Logger, pyroscopeAddress, serviceName string) {
 	}
 }
 
-func logBlockchainInfo(blockchainHelper *protocol.BlockchainHelper, lggr logger.Logger) {
+func logBlockchainInfo(blockchainHelper *blockchain.Helper, lggr logger.Logger) {
 	for _, chainID := range blockchainHelper.GetAllChainSelectors() {
 		logChainInfo(blockchainHelper, chainID, lggr)
 	}
 }
 
-func logChainInfo(blockchainHelper *protocol.BlockchainHelper, chainSelector protocol.ChainSelector, lggr logger.Logger) {
+func logChainInfo(blockchainHelper *blockchain.Helper, chainSelector protocol.ChainSelector, lggr logger.Logger) {
 	if info, err := blockchainHelper.GetBlockchainInfo(chainSelector); err == nil {
 		lggr.Infow("🔗 Blockchain available", "chainSelector", chainSelector, "info", info)
 	}

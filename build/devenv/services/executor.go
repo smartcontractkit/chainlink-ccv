@@ -16,6 +16,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
@@ -58,7 +59,7 @@ type ExecutorOutput struct {
 
 // GenerateConfigWithBlockchainInfos combines the pre-generated config with blockchain infos
 // for standalone mode deployment.
-func (v *ExecutorInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*protocol.BlockchainInfo) ([]byte, error) {
+func (v *ExecutorInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*blockchain.Info) ([]byte, error) {
 	if v.GeneratedConfig == "" {
 		return nil, fmt.Errorf("GeneratedConfig is empty - must be set from changeset output")
 	}
