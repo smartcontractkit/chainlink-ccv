@@ -6,11 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 
-	"github.com/BurntSushi/toml"
 	"github.com/testcontainers/testcontainers-go"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
+	chainsel "github.com/smartcontractkit/chain-selectors"
+	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
+	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
 type Mode string
@@ -88,22 +90,39 @@ func GoCacheMounts() testcontainers.ContainerMounts {
 	return mounts
 }
 
-//go:embed blockchaininfos.template.toml
-var blockchainInfosTemplate string
+// ConvertBlockchainOutputsToInfo converts blockchain.Output to a map of chain selector to BlockchainInfo.
+func ConvertBlockchainOutputsToInfo(outputs []*ctfblockchain.Output) (map[string]*ccvblockchain.Info, error) {
+	infos := make(map[string]*ccvblockchain.Info)
+	for _, output := range outputs {
+		info := &ccvblockchain.Info{
+			ChainID:         output.ChainID,
+			Type:            output.Type,
+			Family:          output.Family,
+			UniqueChainName: output.ContainerName,
+			Nodes:           make([]*ccvblockchain.Node, 0, len(output.Nodes)),
+		}
 
-type BlockchainConfig struct {
-	BlockchainInfos map[string]*blockchain.Info `toml:"blockchain_infos"`
-}
+		// Convert all nodes
+		for _, node := range output.Nodes {
+			if node != nil {
+				info.Nodes = append(info.Nodes, &ccvblockchain.Node{
+					ExternalHTTPUrl: node.ExternalHTTPUrl,
+					InternalHTTPUrl: node.InternalHTTPUrl,
+					ExternalWSUrl:   node.ExternalWSUrl,
+					InternalWSUrl:   node.InternalWSUrl,
+				})
+			}
+		}
 
-// GetBlockchainInfoFromTemplate creates blockchain infos from ExecutorInput.
-// This is only used for standalone mode executors/verifiers where RPC connections are managed
-// independently and when the standalone container is configured with real blockchain node URLs.
-func GetBlockchainInfoFromTemplate() (map[string]*blockchain.Info, error) {
-	chainConfig := BlockchainConfig{}
-	// Decode template into base config
-	if _, err := toml.Decode(blockchainInfosTemplate, &chainConfig); err != nil {
-		return nil, fmt.Errorf("failed to decode blockchain infos template: %w", err)
+		details, err := chainsel.GetChainDetailsByChainIDAndFamily(output.ChainID, output.Family)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get chain details for chain %s, family %s: %w", output.ChainID, output.Family, err)
+		}
+
+		strSelector := strconv.FormatUint(details.ChainSelector, 10)
+
+		infos[strSelector] = info
 	}
 
-	return chainConfig.BlockchainInfos, nil
+	return infos, nil
 }

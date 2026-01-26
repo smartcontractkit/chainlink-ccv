@@ -19,6 +19,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
+	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
 const (
@@ -108,7 +109,7 @@ func ApplyExecutorDefaults(in *ExecutorInput) {
 	}
 }
 
-func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
+func NewExecutor(in *ExecutorInput, blockchainOutputs []*ctfblockchain.Output) (*ExecutorOutput, error) {
 	if in == nil {
 		return nil, nil
 	}
@@ -123,9 +124,9 @@ func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
 	}
 
 	// Generate blockchain infos for standalone mode
-	blockchainInfos, err := GetBlockchainInfoFromTemplate()
+	blockchainInfos, err := ConvertBlockchainOutputsToInfo(blockchainOutputs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate blockchain infos: %w", err)
+		return nil, fmt.Errorf("failed to generate blockchain infos from blockchain outputs: %w", err)
 	}
 
 	// Generate and store config file with blockchain infos for standalone mode

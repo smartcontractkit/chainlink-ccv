@@ -71,7 +71,7 @@ type TokenVerifierOutput struct {
 	DBConnectionString string `toml:"db_connection_string"`
 }
 
-func NewTokenVerifier(in *TokenVerifierInput, fakeAttestationServiceURL string) (*TokenVerifierOutput, error) {
+func NewTokenVerifier(in *TokenVerifierInput, fakeAttestationServiceURL string, blockchainOutputs []*blockchain.Output) (*TokenVerifierOutput, error) {
 	if in == nil {
 		return nil, nil
 	}
@@ -86,9 +86,9 @@ func NewTokenVerifier(in *TokenVerifierInput, fakeAttestationServiceURL string) 
 	}
 
 	// Generate blockchain infos for standalone mode
-	blockchainInfos, err := GetBlockchainInfoFromTemplate()
+	blockchainInfos, err := ConvertBlockchainOutputsToInfo(blockchainOutputs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate blockchain infos: %w", err)
+		return nil, fmt.Errorf("failed to generate blockchain infos from blockchain outputs: %w", err)
 	}
 
 	/* Database */
