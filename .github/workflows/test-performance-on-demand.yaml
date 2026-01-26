@@ -37,8 +37,6 @@ jobs:
 
       - name: Install Just
         uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
-        with:
-          just-version: '1.40.0'
 
       - name: Authenticate to AWS ECR
         uses: ./.github/actions/aws-ecr-auth
@@ -46,7 +44,7 @@ jobs:
           role-to-assume: ${{ secrets.CCV_IAM_ROLE }}
           aws-region: us-east-1
           registry-type: public
-      
+
       - name: Authenticate to AWS ECR (JD)
         uses: ./.github/actions/aws-ecr-auth
         with:
