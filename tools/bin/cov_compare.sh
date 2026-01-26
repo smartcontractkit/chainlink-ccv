@@ -8,7 +8,10 @@
 #   ./cov_compare.sh --no-header coverage.out coverage_new.out
 
 NO_HEADER=0
-ARGS=""
+
+# Collect non-flag arguments in an array so they remain separate when
+# resetting positional parameters with `set --`.
+ARGS=()
 
 # Parse optional flags
 for arg in "$@"; do
@@ -17,13 +20,13 @@ for arg in "$@"; do
       NO_HEADER=1
       ;;
     *)
-      ARGS="$ARGS $arg"
+      ARGS+=("$arg")
       ;;
   esac
 done
 
 # Reset positional parameters
-set -- "$ARGS"
+set -- "${ARGS[@]}"
 
 if [ "$#" -ne 2 ]; then
   echo "Usage: $0 [--no-header] coverage1.out coverage2.out" >&2
