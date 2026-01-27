@@ -1887,7 +1887,7 @@ func getMockReceiverParams(topology *deployments.EnvironmentTopology, selector u
 	return receivers
 }
 
-// TODO: move this to chainlink-ccip/deployment
+// TODO: move this to chainlink-ccip/deployment.
 type CantonTokenAdapter struct {
 	evmadapters.TokenAdapter
 }
