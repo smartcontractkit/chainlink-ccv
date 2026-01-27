@@ -120,6 +120,7 @@ var ManageJobProposals = operations.NewSequence(
 					revoke_jobs.RevokeJobsDeps{
 						JDClient: e.Offchain,
 						Logger:   e.Logger,
+						NodeIDs:  e.NodeIDs,
 					},
 					revoke_jobs.RevokeJobsInput{
 						Jobs: clOrphanedJobs,

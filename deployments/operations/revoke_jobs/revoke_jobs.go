@@ -1,6 +1,8 @@
 package revoke_jobs
 
 import (
+	"fmt"
+
 	"github.com/Masterminds/semver/v3"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -33,6 +35,7 @@ type RevokeError struct {
 type RevokeJobsDeps struct {
 	JDClient shared.JDClient
 	Logger   logger.Logger
+	NodeIDs  []string
 }
 
 var RevokeJobs = operations.NewOperation(
@@ -50,6 +53,20 @@ var RevokeJobs = operations.NewOperation(
 
 		if len(input.Jobs) == 0 {
 			return output, nil
+		}
+
+		allowedNodeIDs := shared.NodeIDsToSet(deps.NodeIDs)
+		if allowedNodeIDs == nil {
+			return output, fmt.Errorf("NodeIDs must be specified")
+		}
+
+		for _, job := range input.Jobs {
+			if job.NodeID == "" {
+				return output, fmt.Errorf("job %s has no NodeID - cannot validate node ownership", job.JobID)
+			}
+			if !allowedNodeIDs[job.NodeID] {
+				return output, fmt.Errorf("job %s has NodeID %s which is not in the allowed node list", job.JobID, job.NodeID)
+			}
 		}
 
 		for _, job := range input.Jobs {
