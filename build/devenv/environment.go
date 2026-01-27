@@ -244,10 +244,22 @@ func generateExecutorJobSpecs(
 			return nil, fmt.Errorf("executor pool %q not found in topology", qualifier)
 		}
 
+		// Currently only EVM is supported for executors.
+		var filteredSelectors []uint64
+		for _, selector := range selectors {
+			family, err := chainsel.GetSelectorFamily(selector)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get selector family for selector %d: %w", selector, err)
+			}
+			if family == chainsel.FamilyEVM {
+				filteredSelectors = append(filteredSelectors, selector)
+			}
+		}
+
 		cs := changesets.GenerateExecutorConfig()
 		output, err := cs.Apply(*e, changesets.GenerateExecutorConfigCfg{
 			ExecutorQualifier: qualifier,
-			ChainSelectors:    selectors,
+			ChainSelectors:    filteredSelectors,
 			TargetNOPs:        shared.ConvertStringToNopAliases(execNOPAliases),
 			ExecutorPool:      convertExecutorPoolConfig(executorPool),
 			IndexerAddress:    topology.IndexerAddress,

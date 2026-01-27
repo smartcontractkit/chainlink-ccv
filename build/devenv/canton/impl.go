@@ -17,11 +17,13 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_message_transmitter_proxy"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/offramp"
 	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/usdc_token_pool_proxy"
 	routeroperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	burnminterc677ops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
@@ -157,6 +159,28 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 			ChainSelector: selector,
 		})
 	}
+	// Add executor refs
+	ds.AddressRefStore.Add(datastore.AddressRef{
+		Address:       common.Bytes2Hex(common.LeftPadBytes([]byte("canton executor"), 20)),
+		Type:          datastore.ContractType(executor.ContractType),
+		Version:       semver.MustParse(executor.Deploy.Version()),
+		Qualifier:     devenvcommon.DefaultExecutorQualifier,
+		ChainSelector: selector,
+	})
+	ds.AddressRefStore.Add(datastore.AddressRef{
+		Address:       common.Bytes2Hex(common.LeftPadBytes([]byte("canton executor proxy"), 20)),
+		Type:          datastore.ContractType(executor.ProxyType),
+		Version:       semver.MustParse(executor.DeployProxy.Version()),
+		Qualifier:     devenvcommon.DefaultExecutorQualifier,
+		ChainSelector: selector,
+	})
+	// Add rmn remote refs
+	ds.AddressRefStore.Add(datastore.AddressRef{
+		Address:       common.Bytes2Hex(common.LeftPadBytes([]byte("canton rmn remote"), 20)),
+		Type:          datastore.ContractType(rmn_remote.ContractType),
+		Version:       semver.MustParse(rmn_remote.Deploy.Version()),
+		ChainSelector: selector,
+	})
 
 	return ds.Seal(), nil
 }
