@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/ethereum/go-ethereum/common"
+	gethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
@@ -21,6 +21,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -100,7 +101,7 @@ func TestE2ESmoke(t *testing.T) {
 			client.Close()
 		})
 	}
-	defaultAggregatorClient := aggregatorClients[evm.DefaultCommitteeVerifierQualifier]
+	defaultAggregatorClient := aggregatorClients[common.DefaultCommitteeVerifierQualifier]
 
 	var indexerMonitor *ccv.IndexerMonitor
 	indexerClient, err := lib.Indexer()
@@ -138,7 +139,7 @@ func TestE2ESmoke(t *testing.T) {
 				name:                     "1337->3337 msg execution mock receiver",
 				fromSelector:             sel0,
 				toSelector:               sel2,
-				receiver:                 getContractAddress(t, in, sel2, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), evm.DefaultReceiverQualifier, "mock receiver"),
+				receiver:                 getContractAddress(t, in, sel2, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), common.DefaultReceiverQualifier, "mock receiver"),
 				expectFail:               false,
 				numExpectedVerifications: 1,
 			},
@@ -204,7 +205,7 @@ func TestE2ESmoke(t *testing.T) {
 
 				// Select the appropriate aggregator client based on the test case's aggregatorQualifier
 				aggregatorClient := defaultAggregatorClient
-				if tc.aggregatorQualifier != "" && tc.aggregatorQualifier != evm.DefaultCommitteeVerifierQualifier {
+				if tc.aggregatorQualifier != "" && tc.aggregatorQualifier != common.DefaultCommitteeVerifierQualifier {
 					if client, ok := aggregatorClients[tc.aggregatorQualifier]; ok {
 						aggregatorClient = client
 					}
@@ -247,7 +248,7 @@ func TestE2ESmoke(t *testing.T) {
 			destChain      = chainMap[destSelector]
 		)
 
-		runTokenTransferTestCase := func(t *testing.T, combo evm.TokenCombination, finalityConfig uint16, receiver protocol.UnknownAddress) {
+		runTokenTransferTestCase := func(t *testing.T, combo common.TokenCombination, finalityConfig uint16, receiver protocol.UnknownAddress) {
 			sender := mustGetSenderAddress(t, sourceChain)
 
 			srcToken := getTokenAddress(t, in, sourceSelector, combo.SourcePoolAddressRef().Qualifier)
@@ -269,7 +270,7 @@ func TestE2ESmoke(t *testing.T) {
 				Version:           3,
 				ExecutionGasLimit: 200_000,
 				FinalityConfig:    finalityConfig,
-				Executor:          getContractAddress(t, in, sel0, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), evm.DefaultExecutorQualifier, "executor"),
+				Executor:          getContractAddress(t, in, sel0, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
 			}
 
 			sendRes, err := sourceChain.SendMessage(
@@ -319,14 +320,14 @@ func TestE2ESmoke(t *testing.T) {
 			require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), big.NewInt(1000)), srcEndBal)
 			l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("sender end balance")
 		}
-		for _, combo := range evm.AllTokenCombinations() {
+		for _, combo := range common.AllTokenCombinations() {
 			receiver := mustGetEOAReceiverAddress(t, destChain)
 			t.Run(fmt.Sprintf("src_dst msg execution with EOA receiver and token transfer (%s)", combo.SourcePoolAddressRef().Qualifier), func(t *testing.T) {
 				runTokenTransferTestCase(t, combo, combo.FinalityConfig(), receiver)
 			})
 		}
 
-		for _, combo := range evm.All17TokenCombinations() {
+		for _, combo := range common.All17TokenCombinations() {
 			receiver := mustGetEOAReceiverAddress(t, destChain)
 			mockReceiver := getContractAddress(
 				t,
@@ -334,7 +335,7 @@ func TestE2ESmoke(t *testing.T) {
 				destSelector,
 				datastore.ContractType(mock_receiver.ContractType),
 				mock_receiver.Deploy.Version(),
-				evm.DefaultReceiverQualifier,
+				common.DefaultReceiverQualifier,
 				"default mock receiver",
 			)
 			t.Run(fmt.Sprintf("src_dst msg execution with EOA receiver and token transfer 1.7.0 (%s) default finality", combo.SourcePoolAddressRef().Qualifier), func(t *testing.T) {
@@ -408,7 +409,7 @@ func TestE2ESmoke(t *testing.T) {
 				Version:           3,
 				FinalityConfig:    tc.finalityConfig,
 				ExecutionGasLimit: tc.executionGasLimit,
-				Executor:          getContractAddress(t, in, sel0, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), evm.DefaultExecutorQualifier, "executor"),
+				Executor:          getContractAddress(t, in, sel0, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
 			}
 
 			sendRes, err := sourceChain.SendMessage(
@@ -603,7 +604,7 @@ func getContractAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64, con
 	)
 	require.NoErrorf(t, err, "failed to get %s address for chain selector %d, ContractType: %s, ContractVersion: %s",
 		contractName, chainSelector, contractType, version)
-	return protocol.UnknownAddress(common.HexToAddress(ref.Address).Bytes())
+	return protocol.UnknownAddress(gethcommon.HexToAddress(ref.Address).Bytes())
 }
 
 func getTokenAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64, qualifier string) protocol.UnknownAddress {
@@ -626,13 +627,13 @@ func customExecutorTestCase(t *testing.T, src, dest uint64, in *ccv.Cfg) v3TestC
 			dest,
 			datastore.ContractType(mock_receiver.ContractType),
 			mock_receiver.Deploy.Version(),
-			evm.DefaultReceiverQualifier,
+			common.DefaultReceiverQualifier,
 			"default mock receiver",
 		),
 		msgData: []byte("custom executor test"),
 		ccvs: []protocol.CCV{
 			{
-				CCVAddress: getContractAddress(t, in, src, datastore.ContractType(committee_verifier.ResolverType), committee_verifier.Deploy.Version(), evm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
+				CCVAddress: getContractAddress(t, in, src, datastore.ContractType(committee_verifier.ResolverType), committee_verifier.Deploy.Version(), common.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
 				Args:       []byte{},
 				ArgsLen:    0,
 			},
@@ -640,7 +641,7 @@ func customExecutorTestCase(t *testing.T, src, dest uint64, in *ccv.Cfg) v3TestC
 		numExpectedReceipts:      3,
 		expectFail:               false,
 		numExpectedVerifications: 1,
-		executor:                 getContractAddress(t, in, src, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), evm.CustomExecutorQualifier, "executor"),
+		executor:                 getContractAddress(t, in, src, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.CustomExecutorQualifier, "executor"),
 	}
 }
 
@@ -659,13 +660,13 @@ func dataSizeTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[uint64
 				dest,
 				datastore.ContractType(mock_receiver.ContractType),
 				mock_receiver.Deploy.Version(),
-				evm.DefaultReceiverQualifier,
+				common.DefaultReceiverQualifier,
 				"default mock receiver",
 			),
 			msgData: bytes.Repeat([]byte("a"), int(maxDataBytes)),
 			ccvs: []protocol.CCV{
 				{
-					CCVAddress: getContractAddress(t, in, src, datastore.ContractType(committee_verifier.ResolverType), committee_verifier.Deploy.Version(), evm.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
+					CCVAddress: getContractAddress(t, in, src, datastore.ContractType(committee_verifier.ResolverType), committee_verifier.Deploy.Version(), common.DefaultCommitteeVerifierQualifier, "committee verifier proxy"),
 					Args:       []byte{},
 					ArgsLen:    0,
 				},
@@ -673,7 +674,7 @@ func dataSizeTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[uint64
 			numExpectedReceipts:      3,
 			expectFail:               false,
 			numExpectedVerifications: 1,
-			executor:                 getContractAddress(t, in, src, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), evm.DefaultExecutorQualifier, "executor"),
+			executor:                 getContractAddress(t, in, src, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
 		},
 	}
 }
@@ -695,7 +696,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						src,
 						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
-						evm.DefaultCommitteeVerifierQualifier,
+						common.DefaultCommitteeVerifierQualifier,
 						"committee verifier proxy",
 					),
 					Args:    []byte{},
@@ -706,7 +707,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			numExpectedVerifications: 1,
 			// default executor and default committee verifier
 			numExpectedReceipts: 3,
-			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), evm.DefaultExecutorQualifier, "executor"),
+			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
 		},
 		{
 			name:        "EOA receiver and secondary committee verifier",
@@ -722,7 +723,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						src,
 						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
-						evm.SecondaryCommitteeVerifierQualifier,
+						common.SecondaryCommitteeVerifierQualifier,
 						"secondary committee verifier proxy",
 					),
 					Args:    []byte{},
@@ -736,7 +737,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						src,
 						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
-						evm.DefaultCommitteeVerifierQualifier,
+						common.DefaultCommitteeVerifierQualifier,
 						"default committee verifier proxy",
 					),
 				},
@@ -745,7 +746,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			numExpectedVerifications: 2,
 			// default executor, default and secondary committee verifiers, network fee.
 			numExpectedReceipts: 4,
-			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), evm.DefaultExecutorQualifier, "executor"),
+			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
 		},
 		{
 			name:        "receiver w/ secondary verifier required",
@@ -758,7 +759,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 				dest,
 				datastore.ContractType(mock_receiver.ContractType),
 				mock_receiver.Deploy.Version(),
-				evm.SecondaryReceiverQualifier,
+				common.SecondaryReceiverQualifier,
 				"secondary mock receiver",
 			),
 			ccvs: []protocol.CCV{
@@ -769,7 +770,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						src,
 						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
-						evm.SecondaryCommitteeVerifierQualifier,
+						common.SecondaryCommitteeVerifierQualifier,
 						"secondary committee verifier proxy",
 					),
 					Args:    []byte{},
@@ -780,15 +781,15 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			numExpectedVerifications: 1,
 			// default executor and secondary committee verifier and network fee.
 			numExpectedReceipts: 3,
-			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), evm.DefaultExecutorQualifier, "executor"),
-			aggregatorQualifier: evm.SecondaryCommitteeVerifierQualifier,
+			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
+			aggregatorQualifier: common.SecondaryCommitteeVerifierQualifier,
 		},
 		{
 			name:        "receiver w/ secondary required and tertiary optional threshold=1",
 			srcSelector: src,
 			dstSelector: dest,
 			finality:    1,
-			receiver:    getContractAddress(t, in, dest, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), evm.SecondaryReceiverQualifier, "secondary mock receiver"),
+			receiver:    getContractAddress(t, in, dest, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), common.SecondaryReceiverQualifier, "secondary mock receiver"),
 			ccvs: []protocol.CCV{
 				// secondary is required, so it should be retrieved.
 				{
@@ -798,7 +799,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						src,
 						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
-						evm.SecondaryCommitteeVerifierQualifier, "secondary committee verifier proxy",
+						common.SecondaryCommitteeVerifierQualifier, "secondary committee verifier proxy",
 					),
 					Args:    []byte{},
 					ArgsLen: 0,
@@ -811,7 +812,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						src,
 						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
-						evm.TertiaryCommitteeVerifierQualifier,
+						common.TertiaryCommitteeVerifierQualifier,
 						"tertiary committee verifier proxy",
 					),
 					Args:    []byte{},
@@ -822,15 +823,15 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			numExpectedVerifications: 2,
 			// default executor, secondary and tertiary committee verifiers, and network fee.
 			numExpectedReceipts: 4,
-			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), evm.DefaultExecutorQualifier, "executor"),
-			aggregatorQualifier: evm.SecondaryCommitteeVerifierQualifier,
+			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
+			aggregatorQualifier: common.SecondaryCommitteeVerifierQualifier,
 		},
 		{
 			name:        "receiver w/ default required, secondary and tertiary optional, threshold=1, message specifies all three",
 			srcSelector: src,
 			dstSelector: dest,
 			finality:    1,
-			receiver:    getContractAddress(t, in, dest, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), evm.QuaternaryReceiverQualifier, "quaternary mock receiver"),
+			receiver:    getContractAddress(t, in, dest, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), common.QuaternaryReceiverQualifier, "quaternary mock receiver"),
 			ccvs: []protocol.CCV{
 				// default is required, so it should be retrieved.
 				{
@@ -840,7 +841,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						src,
 						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
-						evm.DefaultCommitteeVerifierQualifier,
+						common.DefaultCommitteeVerifierQualifier,
 						"default committee verifier proxy",
 					),
 				},
@@ -853,7 +854,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						src,
 						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
-						evm.SecondaryCommitteeVerifierQualifier,
+						common.SecondaryCommitteeVerifierQualifier,
 						"secondary committee verifier proxy",
 					),
 				},
@@ -864,7 +865,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						src,
 						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
-						evm.TertiaryCommitteeVerifierQualifier,
+						common.TertiaryCommitteeVerifierQualifier,
 						"tertiary committee verifier proxy",
 					),
 				},
@@ -873,14 +874,14 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			numExpectedVerifications: 3,
 			// default executor and default, secondary and tertiary committee verifiers, and network fee.
 			numExpectedReceipts: 5,
-			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), evm.DefaultExecutorQualifier, "executor"),
+			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
 		},
 		{
 			name:        "receiver w/ default required, secondary and tertiary optional, threshold=1, message specifies default and secondary",
 			srcSelector: src,
 			dstSelector: dest,
 			finality:    1,
-			receiver:    getContractAddress(t, in, dest, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), evm.QuaternaryReceiverQualifier, "quaternary mock receiver"),
+			receiver:    getContractAddress(t, in, dest, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), common.QuaternaryReceiverQualifier, "quaternary mock receiver"),
 			ccvs: []protocol.CCV{
 				// default is required, so it should be retrieved.
 				{
@@ -890,7 +891,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						src,
 						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
-						evm.DefaultCommitteeVerifierQualifier,
+						common.DefaultCommitteeVerifierQualifier,
 						"default committee verifier proxy",
 					),
 				},
@@ -903,7 +904,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						src,
 						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
-						evm.SecondaryCommitteeVerifierQualifier,
+						common.SecondaryCommitteeVerifierQualifier,
 						"secondary committee verifier proxy",
 					),
 				},
@@ -912,14 +913,14 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			numExpectedVerifications: 2,
 			// default executor, default and secondary committee verifiers, and network fee.
 			numExpectedReceipts: 4,
-			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), evm.DefaultExecutorQualifier, "executor"),
+			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
 		},
 		{
 			name:        "receiver w/ default required, secondary and tertiary optional, threshold=1, message specifies default and tertiary",
 			srcSelector: src,
 			dstSelector: dest,
 			finality:    1,
-			receiver:    getContractAddress(t, in, dest, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), evm.QuaternaryReceiverQualifier, "quaternary mock receiver"),
+			receiver:    getContractAddress(t, in, dest, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), common.QuaternaryReceiverQualifier, "quaternary mock receiver"),
 			ccvs: []protocol.CCV{
 				// default is required, so it should be retrieved.
 				{
@@ -929,7 +930,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						src,
 						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
-						evm.DefaultCommitteeVerifierQualifier,
+						common.DefaultCommitteeVerifierQualifier,
 						"default committee verifier proxy",
 					),
 				},
@@ -942,7 +943,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						src,
 						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
-						evm.TertiaryCommitteeVerifierQualifier,
+						common.TertiaryCommitteeVerifierQualifier,
 						"tertiary committee verifier proxy",
 					),
 				},
@@ -951,7 +952,7 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 			numExpectedVerifications: 2,
 			// default executor, default and tertiary committee verifiers, and network fee.
 			numExpectedReceipts: 4,
-			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), evm.DefaultExecutorQualifier, "executor"),
+			executor:            getContractAddress(t, in, src, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
 		},
 	}
 }

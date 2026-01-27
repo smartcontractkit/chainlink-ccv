@@ -24,7 +24,7 @@ import (
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/load"
 )
 
@@ -229,7 +229,7 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 			destSelector,
 			datastore.ContractType(mock_receiver.ContractType),
 			semver.MustParse(mock_receiver.Deploy.Version()),
-			evm.DefaultReceiverQualifier))
+			devenvcommon.DefaultReceiverQualifier))
 	if err != nil {
 		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("could not find mock receiver address in datastore: %w", err)
 	}
@@ -249,7 +249,7 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 			srcSelector,
 			datastore.ContractType(committee_verifier.ResolverType),
 			semver.MustParse(committee_verifier.Deploy.Version()),
-			evm.DefaultCommitteeVerifierQualifier))
+			devenvcommon.DefaultCommitteeVerifierQualifier))
 	if err != nil {
 		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("could not find committee verifier proxy address in datastore: %w", err)
 	}

@@ -22,6 +22,8 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
+	cldf_canton "github.com/smartcontractkit/chainlink-deployments-framework/chain/canton"
+	cldf_canton_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/canton/provider"
 	cldf_evm_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider"
 )
 
@@ -62,53 +64,82 @@ func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint
 	selectors := make([]uint64, 0)
 	defaultTxTimeout := 30 * time.Second
 	for _, b := range cfg.Blockchains {
-		if b.Type == blockchain.TypeCanton {
-			// Canton CLDF is not supported yet
-			continue
-		}
+		switch b.Out.Family {
+		case blockchain.FamilyEVM:
+			chainID := b.Out.ChainID
+			rpcWSURL := b.Out.Nodes[0].ExternalWSUrl
+			rpcHTTPURL := b.Out.Nodes[0].ExternalHTTPUrl
 
-		chainID := b.Out.ChainID
-		rpcWSURL := b.Out.Nodes[0].ExternalWSUrl
-		rpcHTTPURL := b.Out.Nodes[0].ExternalHTTPUrl
+			d, err := chainsel.GetChainDetailsByChainIDAndFamily(chainID, chainsel.FamilyEVM)
+			if err != nil {
+				return nil, nil, err
+			}
+			selectors = append(selectors, d.ChainSelector)
 
-		d, err := chainsel.GetChainDetailsByChainIDAndFamily(chainID, chainsel.FamilyEVM)
-		if err != nil {
-			return nil, nil, err
-		}
-		selectors = append(selectors, d.ChainSelector)
+			var confirmer cldf_evm_provider.ConfirmFunctor
+			switch b.Type {
+			case blockchain.TypeAnvil:
+				confirmer = cldf_evm_provider.ConfirmFuncGeth(defaultTxTimeout, cldf_evm_provider.WithTickInterval(5*time.Millisecond))
+			case blockchain.TypeGeth:
+				confirmer = cldf_evm_provider.ConfirmFuncGeth(defaultTxTimeout)
+			default:
+				panic(fmt.Sprintf("EVM blockchain type %s is not supported", b.Type))
+			}
 
-		var confirmer cldf_evm_provider.ConfirmFunctor
-		switch b.Type {
-		case blockchain.TypeAnvil:
-			confirmer = cldf_evm_provider.ConfirmFuncGeth(defaultTxTimeout, cldf_evm_provider.WithTickInterval(5*time.Millisecond))
-		case blockchain.TypeGeth:
-			confirmer = cldf_evm_provider.ConfirmFuncGeth(defaultTxTimeout)
-		default:
-			panic(fmt.Sprintf("blockchain type %s is not supported", b.Type))
-		}
-
-		p, err := cldf_evm_provider.NewRPCChainProvider(
-			d.ChainSelector,
-			cldf_evm_provider.RPCChainProviderConfig{
-				DeployerTransactorGen: cldf_evm_provider.TransactorFromRaw(
-					getNetworkPrivateKey(),
-				),
-				RPCs: []rpcclient.RPC{
-					{
-						Name:               "default",
-						WSURL:              rpcWSURL,
-						HTTPURL:            rpcHTTPURL,
-						PreferredURLScheme: rpcclient.URLSchemePreferenceHTTP,
+			p, err := cldf_evm_provider.NewRPCChainProvider(
+				d.ChainSelector,
+				cldf_evm_provider.RPCChainProviderConfig{
+					DeployerTransactorGen: cldf_evm_provider.TransactorFromRaw(
+						getNetworkPrivateKey(),
+					),
+					RPCs: []rpcclient.RPC{
+						{
+							Name:               "default",
+							WSURL:              rpcWSURL,
+							HTTPURL:            rpcHTTPURL,
+							PreferredURLScheme: rpcclient.URLSchemePreferenceHTTP,
+						},
 					},
+					UsersTransactorGen: GenerateUserTransactors(getUserPrivateKeys()),
+					ConfirmFunctor:     confirmer,
 				},
-				UsersTransactorGen: GenerateUserTransactors(getUserPrivateKeys()),
-				ConfirmFunctor:     confirmer,
-			},
-		).Initialize(context.Background())
-		if err != nil {
-			return nil, nil, err
+			).Initialize(context.Background())
+			if err != nil {
+				return nil, nil, err
+			}
+			providers = append(providers, p)
+		case blockchain.FamilyCanton:
+			d, err := chainsel.GetChainDetailsByChainIDAndFamily(b.Out.ChainID, chainsel.FamilyCanton)
+			if err != nil {
+				return nil, nil, err
+			}
+			selectors = append(selectors, d.ChainSelector)
+
+			var (
+				endpoints    []cldf_canton.ParticipantEndpoints
+				jwtProviders []cldf_canton.JWTProvider
+			)
+			for _, p := range b.Out.NetworkSpecificData.CantonEndpoints.Participants {
+				endpoints = append(endpoints, cldf_canton.ParticipantEndpoints{
+					JSONLedgerAPIURL: p.JSONLedgerAPIURL,
+					GRPCLedgerAPIURL: p.GRPCLedgerAPIURL,
+					AdminAPIURL:      p.AdminAPIURL,
+					ValidatorAPIURL:  p.ValidatorAPIURL,
+				})
+				jwtProviders = append(jwtProviders, cldf_canton.NewStaticJWTProvider(p.JWT))
+			}
+
+			p, err := cldf_canton_provider.NewRPCChainProvider(d.ChainSelector, cldf_canton_provider.RPCChainProviderConfig{
+				Endpoints:    endpoints,
+				JWTProviders: jwtProviders,
+			}).Initialize(context.TODO())
+			if err != nil {
+				return nil, nil, err
+			}
+			providers = append(providers, p)
+		default:
+			return nil, nil, fmt.Errorf("unsupported blockchain family: %s", b.Out.Family)
 		}
-		providers = append(providers, p)
 	}
 
 	blockchains := cldf_chain.NewBlockChainsFromSlice(providers)
