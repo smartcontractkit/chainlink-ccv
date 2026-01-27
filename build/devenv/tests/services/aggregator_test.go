@@ -882,7 +882,7 @@ func TestServiceAggregatorSecurityFeatures(t *testing.T) {
 
 			// With the fix, each client has their own channel, so batch requests
 			// should succeed regardless of channel buffer size
-			var requests []*committeepb.WriteCommitteeVerifierNodeResultRequest
+			requests := make([]*committeepb.WriteCommitteeVerifierNodeResultRequest, 0, 10)
 			for range 10 {
 				msg := fixture.createValidMessage(t)
 				req := fixture.signMessage(t, fixture.honestSigner1, msg)

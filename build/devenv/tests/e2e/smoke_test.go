@@ -157,15 +157,18 @@ func TestE2ESmoke(t *testing.T) {
 	})
 
 	t.Run("extra args v3 messaging", func(t *testing.T) {
-		var tcs []v3TestCase
 		src, dest := chains[0].Details.ChainSelector, chains[1].Details.ChainSelector
 		mvtcsSrcToDest := multiVerifierTestCases(t, src, dest, in, chainMap)
-		tcs = append(tcs, mvtcsSrcToDest...)
 		// add one test case the other way around (dest->src) to test the reverse lane.
 		mvtcsDestToSrc := multiVerifierTestCases(t, dest, src, in, chainMap)
+		dataSizeTcs := dataSizeTestCases(t, src, dest, in, chainMap)
+		customExecTc := customExecutorTestCase(t, src, dest, in)
+
+		tcs := make([]v3TestCase, 0, len(mvtcsSrcToDest)+1+len(dataSizeTcs)+1)
+		tcs = append(tcs, mvtcsSrcToDest...)
 		tcs = append(tcs, mvtcsDestToSrc[0])
-		tcs = append(tcs, dataSizeTestCases(t, src, dest, in, chainMap)...)
-		tcs = append(tcs, customExecutorTestCase(t, src, dest, in))
+		tcs = append(tcs, dataSizeTcs...)
+		tcs = append(tcs, customExecTc)
 		for _, tc := range tcs {
 			t.Run(tc.name, func(t *testing.T) {
 				var receiverStartBalance *big.Int

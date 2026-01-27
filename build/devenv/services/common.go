@@ -44,7 +44,7 @@ func GoSourcePathMounts(rootPath, containerDirTarget string) testcontainers.Cont
 		return testcontainers.Mounts()
 	}
 
-	mounts := make([]testcontainers.ContainerMount, 0)
+	mounts := make([]testcontainers.ContainerMount, 0, 1)
 	mounts = append(mounts,
 		testcontainers.BindMount( //nolint:staticcheck // we're still using it...
 			absRootPath,
