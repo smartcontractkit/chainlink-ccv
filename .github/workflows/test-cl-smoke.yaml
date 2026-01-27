@@ -91,6 +91,8 @@ jobs:
           ccv obs u -m loki
 
       - name: Run CCV environment with config
+        env:
+          JD_IMAGE: ${{ secrets.JD_IMAGE }}
         run: |
           ccv u ${{ matrix.test.config }}
 

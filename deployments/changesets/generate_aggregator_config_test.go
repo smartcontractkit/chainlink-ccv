@@ -24,8 +24,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 )
 
-const testCommittee = "test-committee"
-
 func TestGenerateAggregatorConfig_ValidatesServiceIdentifier(t *testing.T) {
 	changeset := changesets.GenerateAggregatorConfig()
 

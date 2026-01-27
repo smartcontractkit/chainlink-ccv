@@ -302,7 +302,7 @@ func FetchAllVerifications(ctx context.Context, aggregatorAddress string, aggreg
 }
 
 func addSentMetadata(msgs []*onramp.OnRampCCIPMessageSent) []*SentEventPlusMeta {
-	events := make([]*SentEventPlusMeta, 0)
+	events := make([]*SentEventPlusMeta, 0, len(msgs))
 	for _, msg := range msgs {
 		events = append(events, &SentEventPlusMeta{
 			OnRampCCIPMessageSent: msg,
@@ -313,7 +313,7 @@ func addSentMetadata(msgs []*onramp.OnRampCCIPMessageSent) []*SentEventPlusMeta 
 }
 
 func addExecMetadata(msgs []*offramp.OffRampExecutionStateChanged) []*ExecEventPlusMeta {
-	events := make([]*ExecEventPlusMeta, 0)
+	events := make([]*ExecEventPlusMeta, 0, len(msgs))
 	for _, msg := range msgs {
 		events = append(events, &ExecEventPlusMeta{
 			OffRampExecutionStateChanged: msg,
