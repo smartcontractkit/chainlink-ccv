@@ -18,8 +18,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/deployments/testutils"
 )
 
-const testCommitteeQualifier = "test-committee"
-
 func TestGenerateIndexerConfig_ValidatesServiceIdentifier(t *testing.T) {
 	changeset := changesets.GenerateIndexerConfig()
 
@@ -115,7 +113,7 @@ func TestGenerateIndexerConfig_GeneratesCorrectConfigWithMultipleVerifiers(t *te
 
 func TestGenerateIndexerConfig_PreservesExistingAggregatorConfig(t *testing.T) {
 	chainSelectors := []uint64{1001, 1002}
-	committee := testCommitteeQualifier
+	committee := testCommittee
 
 	ds := datastore.NewMemoryDataStore()
 	for _, sel := range chainSelectors {

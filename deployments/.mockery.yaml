@@ -1,0 +1,9 @@
+with-expecter: true
+
+dir: ./internal/mocks
+outpkg: deploymocks
+
+packages:
+  github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared:
+    interfaces:
+      JDClient:

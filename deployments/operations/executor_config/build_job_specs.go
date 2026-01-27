@@ -100,16 +100,19 @@ var BuildJobSpecs = operations.NewOperation(
 				return BuildJobSpecsOutput{}, fmt.Errorf("failed to marshal executor config to TOML for NOP %q: %w", nopAlias, err)
 			}
 
+			jobID := jobSpecID.ToJobID()
 			jobSpec := fmt.Sprintf(`schemaVersion = 1
 type = "ccvexecutor"
+name = "%s"
+externalJobID = "%s"
 executorConfig = """
 %s"""
-`, string(configBytes))
+`, string(jobID), jobID.ToExternalJobID(), string(configBytes))
 
 			if jobSpecs[nopAlias] == nil {
 				jobSpecs[nopAlias] = make(map[shared.JobID]string)
 			}
-			jobSpecs[nopAlias][jobSpecID.ToJobID()] = jobSpec
+			jobSpecs[nopAlias][jobID] = jobSpec
 		}
 
 		return BuildJobSpecsOutput{

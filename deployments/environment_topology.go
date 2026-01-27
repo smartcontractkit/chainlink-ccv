@@ -9,6 +9,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/Masterminds/semver/v3"
+
+	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 )
 
 // EnvironmentTopology holds all environment-specific configuration that cannot be inferred
@@ -18,7 +20,7 @@ type EnvironmentTopology struct {
 	IndexerAddress string                        `toml:"indexer_address"`
 	PyroscopeURL   string                        `toml:"pyroscope_url"`
 	Monitoring     MonitoringConfig              `toml:"monitoring"`
-	NOPTopology    NOPTopology                   `toml:"nop_topology"`
+	NOPTopology    *NOPTopology                  `toml:"nop_topology"`
 	ExecutorPools  map[string]ExecutorPoolConfig `toml:"executor_pools"`
 }
 
@@ -96,6 +98,14 @@ type NOPConfig struct {
 	Alias                 string            `toml:"alias"`
 	Name                  string            `toml:"name"`
 	SignerAddressByFamily map[string]string `toml:"signer_address_by_family,omitempty"`
+	Mode                  shared.NOPMode    `toml:"mode,omitempty"`
+}
+
+func (n *NOPConfig) GetMode() shared.NOPMode {
+	if n.Mode == "" {
+		return shared.NOPModeCL
+	}
+	return n.Mode
 }
 
 // CommitteeConfig defines a committee and its per-chain membership.
@@ -204,7 +214,7 @@ func (c *EnvironmentTopology) Validate() error {
 	}
 
 	for poolName, pool := range c.ExecutorPools {
-		if err := pool.Validate(poolName, &c.NOPTopology); err != nil {
+		if err := pool.Validate(poolName, c.NOPTopology); err != nil {
 			return fmt.Errorf("executor_pool %q validation failed: %w", poolName, err)
 		}
 	}
