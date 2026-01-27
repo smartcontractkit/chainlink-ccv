@@ -97,7 +97,7 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []u
 
 func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testConfig *load.TOMLLoadTestRoot, e *deployment.Environment, impls map[uint64]cciptestinterfaces.CCIP17) *EVMTXGun {
 	testProfile := testConfig.TestProfiles[0]
-	selectors := make([]uint64, 0)
+	selectors := make([]uint64, 0, len(testProfile.ChainsAsSource)+len(testProfile.ChainsAsDest))
 	srcSelectors := make([]uint64, 0, len(testProfile.ChainsAsSource))
 	destSelectors := make([]uint64, 0, len(testProfile.ChainsAsDest))
 	for _, chain := range testProfile.ChainsAsSource {

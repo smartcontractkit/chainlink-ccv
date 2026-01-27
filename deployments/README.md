@@ -17,10 +17,12 @@ pyroscope_url = "http://host.docker.internal:4040"
 [[environment_topology.nop_topology.nops]]
 alias = "node-0"
 name = "Node 0"
+mode = "cl"  # Managed via Job Distributor
 
 [[environment_topology.nop_topology.nops]]
 alias = "node-1"
-name = "Some name"
+name = "Node 1"
+mode = "standalone"  # Running as standalone binary
 
 [environment_topology.nop_topology.committees.default]
 qualifier = "default"
@@ -42,6 +44,17 @@ threshold = 2
 nop_aliases = ["node-0", "default-executor-2"]
 ```
 
+### NOP Modes
+
+Each NOP can operate in one of two modes:
+
+| Mode | Description |
+|------|-------------|
+| `cl` | Managed via Job Distributor (JD). Job specs are proposed to JD and require approval on the Chainlink node. |
+| `standalone` | Running as standalone binary. Job specs are generated but not proposed to JD. |
+
+If no mode is specified, `cl` is used by default.
+
 ## Design Principles
 
 Off-chain changesets use on-chain state as the source of truth wherever possible:
@@ -59,6 +72,7 @@ Certain fields must come from topology input because they represent concepts tha
 | Aggregator endpoints | Infrastructure endpoints, not stored on-chain |
 | Executor pool membership | Organizational grouping, not an on-chain concept |
 | NOP aliases | Maps nodes to job specs; used before on-chain registration |
+| NOP modes | Determines whether jobs are managed via JD or standalone |
 | Indexer address | Infrastructure endpoint for executor communication |
 | PyroscopeURL, Monitoring | Observability infrastructure configuration |
 
@@ -66,15 +80,17 @@ Certain fields must come from topology input because they represent concepts tha
 
 ### Generate Aggregator Config
 
+Generates the aggregator configuration for a committee by reading on-chain state from CommitteeVerifier contracts.
+
 #### Input
 ```go
 type BuildConfigInput struct {
-	// ServiceIdentifier is the identifier for this aggregator service (e.g. "default-aggregator")
-	ServiceIdentifier string
-	// CommitteeQualifier is the unique identifier for this committee.
-	CommitteeQualifier string
-	// ChainSelectors are the chain selectors that will be considered. Defaults to all chain selectors in the environment.
-	ChainSelectors []uint64
+    // ServiceIdentifier is the identifier for this aggregator service (e.g. "default-aggregator")
+    ServiceIdentifier string
+    // CommitteeQualifier is the unique identifier for this committee.
+    CommitteeQualifier string
+    // ChainSelectors are the chain selectors that will be considered. Defaults to all chain selectors in the environment.
+    ChainSelectors []uint64
 }
 ```
 
@@ -121,27 +137,20 @@ verifiers = [
 ]
 ```
 
-### Generate Verifier Config
-
-Generates job specs for verifier nodes. Contract addresses are read from the datastore; committee topology and infrastructure endpoints come from input.
+Generates and applies verifier job specs for nodes in a committee. For `cl` mode NOPs, job specs are proposed to JD. For `standalone` mode NOPs, specs are saved to the datastore only.
 
 #### Input
 ```go
-type GenerateVerifierConfigInput struct {
-	// DefaultExecutorQualifier is the qualifier of the executor considered as the default executor.
-	DefaultExecutorQualifier string
-	// ChainSelectors is the list of chain selectors to consider. Defaults to all chain selectors in the environment.
-	ChainSelectors []uint64
-	// TargetNOPs limits which NOPs will have their job specs updated. Defaults to all NOPs in the committee when empty.
-	TargetNOPs []string
-	// NOPs is the list of NOP configurations containing signing addresses for each NOP.
-	NOPs []verifierconfig.NOPInput
-	// Committee contains the committee configuration including aggregators and membership.
-	Committee verifierconfig.CommitteeInput
-	// PyroscopeURL is the URL of the Pyroscope server for profiling (optional).
-	PyroscopeURL string
-	// Monitoring is the monitoring configuration containing beholder settings.
-	Monitoring shared.MonitoringInput
+type ApplyVerifierConfigCfg struct {
+    Topology *deployments.EnvironmentTopology
+    // CommitteeQualifier identifies which committee from topology to use
+    CommitteeQualifier string
+    // DefaultExecutorQualifier is the qualifier of the default executor
+    DefaultExecutorQualifier string
+    // ChainSelectors limits which chains to configure. Defaults to all.
+    ChainSelectors []uint64
+    // TargetNOPs limits which NOPs to update. Defaults to all in committee.
+    TargetNOPs []shared.NOPAlias
 }
 ```
 
@@ -153,57 +162,31 @@ type GenerateVerifierConfigInput struct {
 | OnRamp addresses | Datastore | Deployed contract addresses |
 | DefaultExecutor addresses | Datastore | Deployed contract addresses |
 | RMNRemote addresses | Datastore | Deployed contract addresses |
-| `NOPs[].SignerAddress` | Input | Temporarily while JD is not supported, links NOP alias to signing key; enables job spec generation before on-chain registration |
-| `Committee.Aggregators` | Input | Aggregator endpoints are infrastructure, not stored on-chain |
-| `Committee.NOPAliases` | Input | Determines which nodes receive job specs |
-| `PyroscopeURL`, `Monitoring` | Input | Observability infrastructure configuration |
+| `SignerAddress` | JD or Topology | Fetched from JD chain configs if not set in topology |
+| `Committee.Aggregators` | Topology | Aggregator endpoints are infrastructure |
+| `PyroscopeURL`, `Monitoring` | Topology | Observability infrastructure configuration |
 
-#### Output
+#### Behavior
+1. Generates job specs for all target NOPs
+2. For `cl` mode NOPs: Proposes jobs to JD
+3. For `standalone` mode NOPs: Saves specs to datastore only
+4. Detects and revokes orphaned jobs (NOPs removed from committee)
+5. Skips unchanged job specs to avoid unnecessary proposals
 
-Job specs are saved to the datastore under `nop_job_specs/<nop_alias>/<job_spec_id>`.
+### Apply Executor Config
 
-### Generate Executor Config
-
-Generates job specs for executor nodes. Contract addresses are read from the datastore; executor pool membership and infrastructure endpoints come from input.
+Generates and applies executor job specs for nodes in an executor pool.
 
 #### Input
 ```go
-type GenerateExecutorConfigInput struct {
-	// ExecutorQualifier is the qualifier of the executor that is configured as part of this operation.
-	ExecutorQualifier string
-	// ChainSelectors is the list of chain selectors to consider. Defaults to all chain selectors in the environment.
-	ChainSelectors []uint64
-	// TargetNOPs limits which NOPs will have their job specs updated. Defaults to all NOPs in the executor pool when empty.
-	TargetNOPs []string
-	// ExecutorPool is the executor pool configuration containing pool membership and execution parameters.
-	ExecutorPool ExecutorPoolInput
-	// IndexerAddress is the address of the indexer service used by executors.
-	IndexerAddress string
-	// PyroscopeURL is the URL of the Pyroscope server for profiling (optional).
-	PyroscopeURL string
-	// Monitoring is the monitoring configuration containing beholder settings.
-	Monitoring shared.MonitoringInput
-}
-
-type ExecutorPoolInput struct {
-	// NOPAliases is the list of NOP aliases that are members of this executor pool.
-	NOPAliases []string
-	// ExecutionInterval is the interval between execution cycles.
-	ExecutionInterval time.Duration
-	// NtpServer is the NTP server address for time synchronization (optional).
-	NtpServer string
-	// IndexerQueryLimit is the maximum number of records to fetch from the indexer per query.
-	IndexerQueryLimit uint64
-	// BackoffDuration is the duration to wait before retrying after a failure.
-	BackoffDuration time.Duration
-	// LookbackWindow is the time window for looking back at historical data.
-	LookbackWindow time.Duration
-	// ReaderCacheExpiry is the TTL for cached chain reader data.
-	ReaderCacheExpiry time.Duration
-	// MaxRetryDuration is the maximum duration to retry failed operations.
-	MaxRetryDuration time.Duration
-	// WorkerCount is the number of concurrent workers for processing executions.
-	WorkerCount int
+type ApplyExecutorConfigCfg struct {
+    Topology *deployments.EnvironmentTopology
+    // ExecutorQualifier identifies which executor pool from topology to use
+    ExecutorQualifier string
+    // ChainSelectors limits which chains to configure. Defaults to all.
+    ChainSelectors []uint64
+    // TargetNOPs limits which NOPs to update. Defaults to all in pool.
+    TargetNOPs []shared.NOPAlias
 }
 ```
 
@@ -214,11 +197,32 @@ type ExecutorPoolInput struct {
 | OffRamp addresses | Datastore | Deployed contract addresses |
 | RMNRemote addresses | Datastore | Deployed contract addresses |
 | DefaultExecutor addresses | Datastore | Deployed contract addresses |
-| `ExecutorPool.NOPAliases` | Input | Executor pool membership is an organizational concept, not on-chain |
-| `ExecutorPool.*` parameters | Input | Operational tuning parameters, not stored on-chain |
-| `IndexerAddress` | Input | Infrastructure endpoint for executor-indexer communication |
-| `PyroscopeURL`, `Monitoring` | Input | Observability infrastructure configuration |
+| `ExecutorPool.NOPAliases` | Topology | Executor pool membership |
+| `ExecutorPool.*` parameters | Topology | Operational tuning parameters |
+| `IndexerAddress` | Topology | Infrastructure endpoint |
+| `PyroscopeURL`, `Monitoring` | Topology | Observability infrastructure configuration |
 
-#### Output
+#### Behavior
+1. Generates job specs for all target NOPs in the pool
+2. For `cl` mode NOPs: Proposes jobs to JD
+3. For `standalone` mode NOPs: Saves specs to datastore only
+4. Detects and revokes orphaned jobs (NOPs removed from pool)
 
-Job specs are saved to the datastore under `nop_job_specs/<nop_alias>/<job_spec_id>`.
+### Sync Job Proposals
+
+Synchronizes job proposal statuses from JD and detects spec drift.
+
+#### Input
+```go
+type SyncJobProposalsCfg struct {
+    NOPAliases []shared.NOPAlias
+}
+```
+
+#### Behavior
+1. Fetches proposal status for all `cl` mode jobs from JD
+2. Updates local status (pending, approved, revoked, rejected)
+3. Detects spec drift (local spec differs from JD spec)
+4. Removes orphaned jobs (jobs that no longer exist in JD)
+5. Reports status changes and drift for visibility
+

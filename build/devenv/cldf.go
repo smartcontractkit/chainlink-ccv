@@ -16,6 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider/rpcclient"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+	"github.com/smartcontractkit/chainlink-deployments-framework/offchain"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
@@ -42,11 +43,25 @@ func (c *CLDF) AddAddresses(addresses string) {
 	c.Addresses = append(c.Addresses, addresses)
 }
 
+type CLDFEnvironmentConfig struct {
+	Blockchains    []*blockchain.Input
+	DataStore      datastore.DataStore
+	OffchainClient offchain.Client
+	NodeIDs        []string
+}
+
 func NewCLDFOperationsEnvironment(bc []*blockchain.Input, dataStore datastore.DataStore) ([]uint64, *deployment.Environment, error) {
+	return NewCLDFOperationsEnvironmentWithOffchain(CLDFEnvironmentConfig{
+		Blockchains: bc,
+		DataStore:   dataStore,
+	})
+}
+
+func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint64, *deployment.Environment, error) {
 	providers := make([]cldf_chain.BlockChain, 0)
 	selectors := make([]uint64, 0)
 	defaultTxTimeout := 30 * time.Second
-	for _, b := range bc {
+	for _, b := range cfg.Blockchains {
 		if b.Type == blockchain.TypeCanton {
 			// Canton CLDF is not supported yet
 			continue
@@ -103,11 +118,19 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input, dataStore datastore.Da
 		return nil, nil, fmt.Errorf("failed to create logger: %w", err)
 	}
 
+	getCtx := func() context.Context { return context.Background() }
 	e := deployment.Environment{
-		GetContext:  func() context.Context { return context.Background() },
+		GetContext:  getCtx,
 		Logger:      lggr,
 		BlockChains: blockchains,
-		DataStore:   dataStore,
+		DataStore:   cfg.DataStore,
+		Offchain:    cfg.OffchainClient,
+		NodeIDs:     cfg.NodeIDs,
+		OperationsBundle: operations.NewBundle(
+			getCtx,
+			lggr,
+			operations.NewMemoryReporter(),
+		),
 	}
 	return selectors, &e, nil
 }
@@ -122,7 +145,7 @@ func NewDefaultCLDFBundle(e *deployment.Environment) operations.Bundle {
 }
 
 func GenerateUserTransactors(privateKeys []string) []cldf_evm_provider.SignerGenerator {
-	transactors := make([]cldf_evm_provider.SignerGenerator, 0)
+	transactors := make([]cldf_evm_provider.SignerGenerator, 0, len(privateKeys))
 	for _, pk := range privateKeys {
 		transactors = append(transactors, cldf_evm_provider.TransactorFromRaw(pk))
 	}
