@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -329,6 +330,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		&NoopLatencyTracker{},
 		&noopMonitoring{},
 		mockChainStatusManager,
+		heartbeatclient.NewNoopHeartbeatClient(),
 	)
 	require.NoError(t, err)
 

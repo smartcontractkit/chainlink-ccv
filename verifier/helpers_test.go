@@ -158,6 +158,13 @@ func (m *noopMetricLabeler) IncrementStorageWriteErrors(ctx context.Context)    
 func (m *noopMetricLabeler) RecordSourceChainLatestBlock(ctx context.Context, blockNum int64)       {}
 func (m *noopMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64)    {}
 func (m *noopMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64)             {}
+func (m *noopMetricLabeler) IncrementHeartbeatsSent(ctx context.Context)                            {}
+func (m *noopMetricLabeler) IncrementHeartbeatsFailed(ctx context.Context)                          {}
+func (m *noopMetricLabeler) RecordHeartbeatDuration(ctx context.Context, duration time.Duration)    {}
+func (m *noopMetricLabeler) SetVerifierHeartbeatTimestamp(ctx context.Context, timestamp int64)     {}
+func (m *noopMetricLabeler) SetVerifierHeartbeatSentChainHeads(ctx context.Context, height uint64)  {}
+func (m *noopMetricLabeler) SetVerifierHeartbeatChainHeads(ctx context.Context, height uint64)      {}
+func (m *noopMetricLabeler) SetVerifierHeartbeatScore(ctx context.Context, score float64)           {}
 
 type NoopLatencyTracker struct{}
 

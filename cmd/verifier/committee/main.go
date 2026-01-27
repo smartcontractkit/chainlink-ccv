@@ -19,6 +19,7 @@ import (
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
@@ -179,7 +180,8 @@ func main() {
 		StorageBatchSize:    50,
 		StorageBatchTimeout: 100 * time.Millisecond,
 		StorageRetryDelay:   2 * time.Second,
-		CursePollInterval:   2 * time.Second, // Poll RMN Remotes for curse status every 2s
+		CursePollInterval:   2 * time.Second,  // Poll RMN Remotes for curse status every 2s
+		HeartbeatInterval:   10 * time.Second, // Send heartbeat to aggregator every 10s
 	}
 
 	pk := os.Getenv(PkEnvVar)
@@ -218,6 +220,29 @@ func main() {
 		verifierMonitoring,
 	)
 
+	heartbeatClient, err := heartbeatclient.NewHeartbeatClient(
+		config.AggregatorAddress,
+		lggr,
+		hmacConfig,
+		config.InsecureAggregatorConnection,
+	)
+	if err != nil {
+		lggr.Errorw("Failed to create heartbeat client", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if heartbeatClient != nil {
+			_ = heartbeatClient.Close()
+		}
+	}()
+
+	observedHeartbeatClient := heartbeatclient.NewObservedHeartbeatClient(
+		heartbeatClient,
+		config.VerifierID,
+		lggr,
+		verifier.NewHeartbeatMonitoringAdapter(verifierMonitoring),
+	)
+
 	messageTracker := monitoring.NewMessageLatencyTracker(
 		lggr,
 		config.VerifierID,
@@ -235,6 +260,7 @@ func main() {
 		messageTracker,
 		verifierMonitoring,
 		chainStatusManager,
+		observedHeartbeatClient,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

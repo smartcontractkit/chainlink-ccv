@@ -8,6 +8,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	cursecheckerimpl "github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -30,6 +31,8 @@ type Coordinator struct {
 	taskVerifierProcessor *TaskVerifierProcessor
 	// 3rd step processor: storage writer
 	storageWriterProcessor *StorageWriterProcessor
+	// Heartbeat reporter: periodically sends chain statuses to aggregator
+	heartbeatReporter *HeartbeatReporter
 }
 
 func NewCoordinator(
@@ -42,6 +45,7 @@ func NewCoordinator(
 	messageTracker MessageLatencyTracker,
 	monitoring Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
+	heartbeatClient heartbeatclient.HeartbeatSender,
 ) (*Coordinator, error) {
 	return NewCoordinatorWithDetector(
 		ctx,
@@ -54,6 +58,7 @@ func NewCoordinator(
 		monitoring,
 		chainStatusManager,
 		nil,
+		heartbeatClient,
 	)
 }
 
@@ -68,6 +73,7 @@ func NewCoordinatorWithDetector(
 	monitoring Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	detector common.CurseCheckerService,
+	heartbeatClient heartbeatclient.HeartbeatSender,
 ) (*Coordinator, error) {
 	enabledSourceReaders, err := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, chainStatusManager)
 	if err != nil {
@@ -103,6 +109,28 @@ func NewCoordinatorWithDetector(
 		return nil, fmt.Errorf("failed to create or/and start task verifier service: %w", err)
 	}
 
+	var heartbeatReporter *HeartbeatReporter
+
+	if heartbeatClient != nil && config.HeartbeatInterval > 0 {
+		// Collect all chain selectors from source readers.
+		allSelectors := make([]protocol.ChainSelector, 0, len(sourceReaders))
+		for selector := range sourceReaders {
+			allSelectors = append(allSelectors, selector)
+		}
+
+		heartbeatReporter, err = NewHeartbeatReporter(
+			logger.With(lggr, "component", "HeartbeatReporter"),
+			chainStatusManager,
+			heartbeatClient,
+			allSelectors,
+			config.VerifierID,
+			config.HeartbeatInterval,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create heartbeat reporter: %w", err)
+		}
+	}
+
 	return &Coordinator{
 		lggr:                   lggr,
 		verifierID:             config.VerifierID,
@@ -110,6 +138,7 @@ func NewCoordinatorWithDetector(
 		curseDetector:          curseDetector,
 		storageWriterProcessor: storageWriterProcessor,
 		taskVerifierProcessor:  taskVerifierProcessor,
+		heartbeatReporter:      heartbeatReporter,
 	}, nil
 }
 
@@ -147,6 +176,13 @@ func (vc *Coordinator) Start(_ context.Context) error {
 					"chainSelector", srs.chainSelector,
 					"error", err)
 				return fmt.Errorf("failed to start SourceReaderService for chain %s: %w", srs.chainSelector, err)
+			}
+		}
+
+		if vc.heartbeatReporter != nil {
+			if err := vc.heartbeatReporter.Start(ctx); err != nil {
+				vc.lggr.Errorw("Failed to start heartbeat reporter", "error", err)
+				return fmt.Errorf("failed to start heartbeat reporter: %w", err)
 			}
 		}
 
@@ -243,6 +279,14 @@ func (vc *Coordinator) Close() error {
 		vc.cancel()
 
 		errs := make([]error, 0)
+
+		if vc.heartbeatReporter != nil {
+			if err := vc.heartbeatReporter.Close(); err != nil {
+				vc.lggr.Errorw("Failed to stop heartbeat reporter", "error", err)
+				errs = append(errs, fmt.Errorf("failed to stop heartbeat reporter: %w", err))
+			}
+		}
+
 		if vc.curseDetector != nil {
 			if err := vc.curseDetector.Close(); err != nil {
 				vc.lggr.Errorw("Failed to stop curse detector", "error", err)

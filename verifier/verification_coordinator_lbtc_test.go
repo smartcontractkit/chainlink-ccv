@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -276,6 +278,7 @@ func createLBTCCoordinator(
 		noopLatencyTracker,
 		noopMonitoring,
 		ts.chainStatusManager,
+		heartbeatclient.NewNoopHeartbeatClient(),
 	)
 }
 

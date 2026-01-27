@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
+
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -127,6 +129,7 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 		&noopMonitoring{},
 		setup.chainStatusManager,
 		setup.mockCurseChecker,
+		heartbeatclient.NewNoopHeartbeatClient(),
 	)
 	require.NoError(t, err)
 	setup.coordinator = coordinator

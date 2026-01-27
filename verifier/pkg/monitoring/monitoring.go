@@ -98,6 +98,20 @@ func (f *FakeVerifierMetricLabeler) IncrementMessagesProcessed(context.Context) 
 
 func (f *FakeVerifierMetricLabeler) IncrementMessagesVerificationFailed(context.Context) {}
 
+func (f *FakeVerifierMetricLabeler) IncrementHeartbeatsSent(context.Context) {}
+
+func (f *FakeVerifierMetricLabeler) IncrementHeartbeatsFailed(context.Context) {}
+
+func (f *FakeVerifierMetricLabeler) RecordHeartbeatDuration(context.Context, time.Duration) {}
+
+func (f *FakeVerifierMetricLabeler) SetVerifierHeartbeatTimestamp(context.Context, int64) {}
+
+func (f *FakeVerifierMetricLabeler) SetVerifierHeartbeatSentChainHeads(context.Context, uint64) {}
+
+func (f *FakeVerifierMetricLabeler) SetVerifierHeartbeatChainHeads(context.Context, uint64) {}
+
+func (f *FakeVerifierMetricLabeler) SetVerifierHeartbeatScore(context.Context, float64) {}
+
 func (f *FakeVerifierMetricLabeler) RecordFinalityWaitDuration(context.Context, time.Duration) {}
 
 func (f *FakeVerifierMetricLabeler) RecordMessageVerificationDuration(context.Context, time.Duration) {
