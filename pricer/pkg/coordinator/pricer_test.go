@@ -95,8 +95,8 @@ func TestPricer(t *testing.T) {
 		Config{
 			Interval: *commonconfig.MustNewDuration(1 * time.Second),
 			LogLevel: zapcore.DebugLevel,
-			EVM:      evmchain.EVMChainConfig{EVMConfig: evmCfg},
-			SOL:      solchain.SOLChainConfig{TOMLConfig: solCfg},
+			EVM:      evmchain.ChainConfig{EVMConfig: evmCfg},
+			SOL:      solchain.ChainConfig{TOMLConfig: solCfg},
 		}, keystoreData, "password")
 	require.NoError(t, err)
 	require.NoError(t, svc.Start(ctx))

@@ -17,19 +17,19 @@ import (
 	solutils "github.com/smartcontractkit/chainlink-solana/pkg/solana/utils"
 )
 
-type SOLChainConfig struct {
+type ChainConfig struct {
 	solcfg.TOMLConfig
 	// Extend with pricer-specific config here if needed.
 }
 
-type SolanaChain struct {
+type Chain struct {
 	lggr     logger.Logger
 	client   *solclient.MultiNodeClient
 	txm      *soltxm.Txm
 	keystore core.Keystore
 }
 
-func (c *SolanaChain) Start(ctx context.Context) error {
+func (c *Chain) Start(ctx context.Context) error {
 	if err := c.client.Dial(ctx); err != nil {
 		return fmt.Errorf("failed to dial Solana client: %w", err)
 	}
@@ -41,7 +41,7 @@ func (c *SolanaChain) Start(ctx context.Context) error {
 	return nil
 }
 
-func (c *SolanaChain) Close() error {
+func (c *Chain) Close() error {
 	if err := c.txm.Close(); err != nil {
 		return fmt.Errorf("failed to close Solana txm: %w", err)
 	}
@@ -49,7 +49,7 @@ func (c *SolanaChain) Close() error {
 	return nil
 }
 
-func (c *SolanaChain) Tick(ctx context.Context) error {
+func (c *Chain) Tick(ctx context.Context) error {
 	c.lggr.Infow("getting solana addresses")
 	addresses, err := c.keystore.Accounts(ctx)
 	if err != nil {
@@ -69,7 +69,7 @@ func (c *SolanaChain) Tick(ctx context.Context) error {
 	return nil
 }
 
-func (c *SolanaChain) CreateKeystore(ctx context.Context, cfg ks.KMSConfig, keystoreData []byte, keystorePassword string) (core.Keystore, error) {
+func (c *Chain) CreateKeystore(ctx context.Context, cfg ks.KMSConfig, keystoreData []byte, keystorePassword string) (core.Keystore, error) {
 	if cfg.Ed25519KeyID != "" {
 		keyStore, err := ks.LoadKMSKeystore(ctx, cfg.Profile)
 		if err != nil {
@@ -84,7 +84,7 @@ func (c *SolanaChain) CreateKeystore(ctx context.Context, cfg ks.KMSConfig, keys
 	return solkeys.NewTxKeyCoreKeystore(keyStore), nil
 }
 
-func LoadSolana(ctx context.Context, lggr logger.Logger, cfg SOLChainConfig, solTxKeyStore core.Keystore, keystoreData []byte, keystorePassword string) (*SolanaChain, error) {
+func LoadSolana(ctx context.Context, lggr logger.Logger, cfg ChainConfig, solTxKeyStore core.Keystore, keystoreData []byte, keystorePassword string) (*Chain, error) {
 	solClient, err := solclient.NewMultiNodeClient(
 		cfg.ListNodes()[0].URL.String(),
 		&cfg.TOMLConfig,
@@ -110,7 +110,7 @@ func LoadSolana(ctx context.Context, lggr logger.Logger, cfg SOLChainConfig, sol
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Solana txm: %w", err)
 	}
-	return &SolanaChain{
+	return &Chain{
 		lggr:     logger.Named(lggr, "solana"),
 		client:   solClient,
 		txm:      solTxm,

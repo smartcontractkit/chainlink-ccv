@@ -22,12 +22,12 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/txm/storage"
 )
 
-type EVMChainConfig struct {
+type ChainConfig struct {
 	evmtoml.EVMConfig
 	// Extend with pricer-specific config here if needed.
 }
 
-type EvmChain struct {
+type Chain struct {
 	lggr     logger.Logger
 	client   client.Client
 	txm      *txm.Txm
@@ -35,7 +35,7 @@ type EvmChain struct {
 	metrics  *monitoring.PricerMetricLabeler
 }
 
-func (c *EvmChain) Start(ctx context.Context) error {
+func (c *Chain) Start(ctx context.Context) error {
 	// Dial the EVM client to start the connection pool.
 	if err := c.client.Dial(ctx); err != nil {
 		return fmt.Errorf("failed to dial EVM client: %w", err)
@@ -48,7 +48,7 @@ func (c *EvmChain) Start(ctx context.Context) error {
 	return nil
 }
 
-func (c *EvmChain) Tick(ctx context.Context) error {
+func (c *Chain) Tick(ctx context.Context) error {
 	startTime := time.Now()
 	defer func() {
 		duration := time.Since(startTime)
@@ -74,7 +74,7 @@ func (c *EvmChain) Tick(ctx context.Context) error {
 	return nil
 }
 
-func (c *EvmChain) Close() error {
+func (c *Chain) Close() error {
 	if err := c.txm.Close(); err != nil {
 		return fmt.Errorf("failed to close EVM txm: %w", err)
 	}
@@ -82,7 +82,7 @@ func (c *EvmChain) Close() error {
 	return nil
 }
 
-func (c *EvmChain) CreateKeystore(ctx context.Context, cfg ks.KMSConfig, keystoreData []byte, keystorePassword string) (core.Keystore, error) {
+func (c *Chain) CreateKeystore(ctx context.Context, cfg ks.KMSConfig, keystoreData []byte, keystorePassword string) (core.Keystore, error) {
 	if cfg.EcdsaKeyID != "" {
 		keyStore, err := ks.LoadKMSKeystore(ctx, cfg.Profile)
 		if err != nil {
@@ -97,7 +97,7 @@ func (c *EvmChain) CreateKeystore(ctx context.Context, cfg ks.KMSConfig, keystor
 	return evmkeys.NewTxKeyCoreKeystore(keyStore), nil
 }
 
-func LoadEVM(ctx context.Context, cfg EVMChainConfig, lggr logger.Logger, evmTxKeyStore core.Keystore, keystoreData []byte, keystorePassword string, pricerMonitoring monitoring.Monitoring) (*EvmChain, error) {
+func LoadEVM(ctx context.Context, cfg ChainConfig, lggr logger.Logger, evmTxKeyStore core.Keystore, keystoreData []byte, keystorePassword string, pricerMonitoring monitoring.Monitoring) (*Chain, error) {
 	chainScopedCfg := evmconfig.NewTOMLChainScopedConfig(&cfg.EVMConfig)
 	nodePoolCfg := &evmconfig.NodePoolConfig{C: cfg.NodePool}
 	evmClient, err := client.NewEvmClient(
@@ -139,7 +139,7 @@ func LoadEVM(ctx context.Context, cfg EVMChainConfig, lggr logger.Logger, evmTxK
 		nil, // errorHandler
 	)
 
-	return &EvmChain{
+	return &Chain{
 		lggr:     logger.Named(lggr, "evm"),
 		client:   evmClient,
 		txm:      evmTxm,

@@ -15,14 +15,12 @@ import (
 
 	selectors "github.com/smartcontractkit/chain-selectors"
 	pricer "github.com/smartcontractkit/chainlink-ccv/pricer/pkg"
-	evmchain "github.com/smartcontractkit/chainlink-ccv/pricer/pkg/evm"
+	"github.com/smartcontractkit/chainlink-ccv/pricer/pkg/evm"
 	keys "github.com/smartcontractkit/chainlink-ccv/pricer/pkg/keystore"
 	"github.com/smartcontractkit/chainlink-ccv/pricer/pkg/monitoring"
-	solchain "github.com/smartcontractkit/chainlink-ccv/pricer/pkg/sol"
+	"github.com/smartcontractkit/chainlink-ccv/pricer/pkg/sol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
-	ks "github.com/smartcontractkit/chainlink-common/keystore"
-	"github.com/smartcontractkit/chainlink-common/keystore/kms"
 	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -50,8 +48,8 @@ type Config struct {
 	// TODO: These will become lists of chains.
 	// Chain write connectivity config,
 	// common to read/write.
-	EVM evmchain.EVMChainConfig `toml:"EVM"`
-	SOL solchain.SOLChainConfig `toml:"SOL"`
+	EVM evm.ChainConfig `toml:"EVM"`
+	SOL sol.ChainConfig `toml:"SOL"`
 }
 
 func (c *Config) Validate() error {
@@ -122,32 +120,6 @@ type Pricer struct {
 	chains     map[protocol.ChainSelector]pricer.Chain
 }
 
-func loadKMSKeystore(ctx context.Context, profile string) (interface {
-	ks.Reader
-	ks.Signer
-}, error,
-) {
-	kmsClient, err := kms.NewClient(ctx, kms.ClientOptions{
-		Profile: profile,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create KMS client: %w", err)
-	}
-	return kms.NewKeystore(kmsClient)
-}
-
-func loadMemoryKeystore(ctx context.Context, keystoreData []byte, keystorePassword string) (interface {
-	ks.Reader
-	ks.Signer
-}, error,
-) {
-	memStorage := ks.NewMemoryStorage()
-	if err := memStorage.PutEncryptedKeystore(ctx, keystoreData); err != nil {
-		return nil, fmt.Errorf("failed to populate keystore storage: %w", err)
-	}
-	return ks.LoadKeystore(ctx, memStorage, keystorePassword)
-}
-
 func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, keystorePassword string) (*Pricer, error) {
 	cfg.SetDefaults()
 	if err := cfg.Validate(); err != nil {
@@ -178,13 +150,13 @@ func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, k
 			return nil, fmt.Errorf("failed to get chain details for EVM chain: %w", err)
 		}
 		selector := chainDetails.ChainSelector
-		var evmChain *evmchain.EvmChain
+		var evmChain *evm.Chain
 
 		evmTxKeyStore, err := evmChain.CreateKeystore(ctx, cfg.KMS, keystoreData, keystorePassword)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create EVM keystore: %w", err)
 		}
-		evmChain, err = evmchain.LoadEVM(ctx, cfg.EVM, lggr, evmTxKeyStore, keystoreData, keystorePassword, pricerMonitoring)
+		evmChain, err = evm.LoadEVM(ctx, cfg.EVM, lggr, evmTxKeyStore, keystoreData, keystorePassword, pricerMonitoring)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load EVM: %w", err)
 		}
@@ -200,13 +172,13 @@ func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, k
 			return nil, fmt.Errorf("failed to get chain details for EVM chain: %w", err)
 		}
 		selector := chainDetails.ChainSelector
-		var solChain *solchain.SolanaChain
+		var solChain *sol.Chain
 
 		solTxKeyStore, err := solChain.CreateKeystore(ctx, cfg.KMS, keystoreData, keystorePassword)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Solana keystore: %w", err)
 		}
-		solChain, err = solchain.LoadSolana(ctx, lggr, cfg.SOL, solTxKeyStore, keystoreData, keystorePassword)
+		solChain, err = sol.LoadSolana(ctx, lggr, cfg.SOL, solTxKeyStore, keystoreData, keystorePassword)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load solana: %w", err)
 		}
