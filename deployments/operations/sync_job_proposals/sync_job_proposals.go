@@ -98,6 +98,31 @@ var SyncJobProposals = operations.NewOperation(
 
 		nopFilter := shared.NOPAliasSliceToSet(input.NOPAliases)
 
+		allowedNodeIDs := shared.NodeIDsToSet(e.NodeIDs)
+		if allowedNodeIDs == nil {
+			return SyncJobProposalsOutput{}, fmt.Errorf("NodeIDs must be specified")
+		}
+
+		for nopAlias, nopJobs := range allJobs {
+			if len(nopFilter) > 0 && !nopFilter[nopAlias] {
+				continue
+			}
+			for jobID, localJob := range nopJobs {
+				if localJob.Mode != shared.NOPModeCL {
+					continue
+				}
+				if localJob.JDJobID == "" {
+					continue
+				}
+				if localJob.NodeID == "" {
+					return SyncJobProposalsOutput{}, fmt.Errorf("job %s has no NodeID", jobID)
+				}
+				if !allowedNodeIDs[localJob.NodeID] {
+					return SyncJobProposalsOutput{}, fmt.Errorf("job %s has NodeID %s which is not in the allowed node list", jobID, localJob.NodeID)
+				}
+			}
+		}
+
 		for nopAlias, nopJobs := range allJobs {
 			if len(nopFilter) > 0 && !nopFilter[nopAlias] {
 				continue
