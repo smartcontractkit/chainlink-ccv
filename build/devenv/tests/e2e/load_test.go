@@ -32,7 +32,7 @@ import (
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 )
 
 const (
@@ -307,10 +307,10 @@ func TestE2ELoad(t *testing.T) {
 	require.NoError(t, err)
 
 	var defaultAggregatorClient *ccv.AggregatorClient
-	if _, ok := in.AggregatorEndpoints[evm.DefaultCommitteeVerifierQualifier]; ok {
+	if _, ok := in.AggregatorEndpoints[devenvcommon.DefaultCommitteeVerifierQualifier]; ok {
 		defaultAggregatorClient, err = in.NewAggregatorClientForCommittee(
 			zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
-			evm.DefaultCommitteeVerifierQualifier)
+			devenvcommon.DefaultCommitteeVerifierQualifier)
 		require.NoError(t, err)
 		require.NotNil(t, defaultAggregatorClient)
 		t.Cleanup(func() {
@@ -720,10 +720,10 @@ func TestStaging(t *testing.T) {
 	require.NoError(t, err)
 
 	var defaultAggregatorClient *ccv.AggregatorClient
-	if _, ok := in.AggregatorEndpoints[evm.DefaultCommitteeVerifierQualifier]; ok {
+	if _, ok := in.AggregatorEndpoints[devenvcommon.DefaultCommitteeVerifierQualifier]; ok {
 		defaultAggregatorClient, err = in.NewAggregatorClientForCommittee(
 			zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
-			evm.DefaultCommitteeVerifierQualifier)
+			devenvcommon.DefaultCommitteeVerifierQualifier)
 		require.NoError(t, err)
 		require.NotNil(t, defaultAggregatorClient)
 		t.Cleanup(func() {

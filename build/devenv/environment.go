@@ -24,6 +24,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/canton"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/jobs"
@@ -225,7 +226,7 @@ func generateExecutorJobSpecs(
 	for _, exec := range in.Executor {
 		qualifier := exec.ExecutorQualifier
 		if qualifier == "" {
-			qualifier = evm.DefaultExecutorQualifier
+			qualifier = devenvcommon.DefaultExecutorQualifier
 		}
 		executorsByQualifier[qualifier] = append(executorsByQualifier[qualifier], exec)
 	}
@@ -335,7 +336,7 @@ func generateVerifierJobSpecs(
 		output, err := cs.Apply(*e, changesets.ApplyVerifierConfigCfg{
 			Topology:                 topology,
 			CommitteeQualifier:       committeeName,
-			DefaultExecutorQualifier: evm.DefaultExecutorQualifier,
+			DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,
 			ChainSelectors:           selectors,
 			TargetNOPs:               verNOPAliases,
 		})
