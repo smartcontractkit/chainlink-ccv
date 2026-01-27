@@ -1,0 +1,246 @@
+# This environment sets up a single canton chain and a single EVM chain.
+# The verifiers will verify both EVM and Canton messages, however the executor
+# will only execute EVM messages.
+
+[[blockchains]]
+  container_name = "blockchain-src"
+  chain_id = "LocalNet"
+  port = "8545"
+  type = "canton"
+  number_of_canton_validators = 1
+
+[[blockchains]]
+  container_name = "blockchain-dst"
+  chain_id = "2337"
+  docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1"]
+  image = "ghcr.io/foundry-rs/foundry:latest"
+  port = "8555"
+  type = "anvil"
+
+## Environment configuration define the topology. Eventually the topology should be the only config that is needed.
+[environment_topology]
+indexer_address = "http://indexer:8100"
+pyroscope_url = "http://host.docker.internal:4040"
+
+[environment_topology.monitoring]
+Enabled = true
+Type = "beholder"
+
+[environment_topology.monitoring.Beholder]
+InsecureConnection = true
+OtelExporterHTTPEndpoint = "host.docker.internal:4318"
+LogStreamingEnabled = false
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+
+[[environment_topology.nop_topology.nops]]
+alias = "default-verifier-1"
+name = "default-verifier-1"
+
+[[environment_topology.nop_topology.nops]]
+alias = "default-verifier-2"
+name = "default-verifier-2"
+
+[[environment_topology.nop_topology.nops]]
+alias = "default-executor-1"
+name = "default-executor-1"
+
+[[environment_topology.nop_topology.nops]]
+alias = "default-executor-2"
+name = "default-executor-2"
+
+[environment_topology.nop_topology.committees.default]
+qualifier = "default"
+verifier_version = "1.7.0"
+
+[[environment_topology.nop_topology.committees.default.aggregators]]
+name = "default"
+address = "default-aggregator:50051"
+insecure_connection = true
+
+[environment_topology.nop_topology.committees.default.chain_configs.8706591216959472610]
+# Per-source configuration for the canton chain.
+nop_aliases = ["default-verifier-1", "default-verifier-2"]
+threshold = 2
+
+[environment_topology.nop_topology.committees.default.chain_configs.12922642891491394802]
+# Per-source configuration for the EVM chain.
+nop_aliases = ["default-verifier-1", "default-verifier-2"]
+threshold = 2
+
+[environment_topology.executor_pools.default]
+nop_aliases = ["default-executor-1", "default-executor-2"]
+execution_interval = 15_000_000_000
+
+## Default Verifier Setup
+[[verifier]]
+  image = "verifier:dev"
+  container_name = "default-verifier-1"
+  nop_alias = "default-verifier-1"
+  port = 8100
+  # path is relative from "devenv" dir
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 0
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-1-db"
+    port = 8432
+
+[[verifier]]
+  image = "verifier:dev"
+  container_name = "default-verifier-2"
+  nop_alias = "default-verifier-2"
+  port = 8200
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 1
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-2-db"
+    port = 8433
+
+[indexer]
+  image = "indexer:dev"
+  port = 8104
+  source_code_path = "../indexer"
+  root_path = "../../"
+  [indexer.db]
+    image = "postgres:16-alpine"
+
+[indexer.indexer_config]
+LogLevel = 'info'
+
+[indexer.indexer_config.Monitoring]
+Enabled = true
+Type = 'beholder'
+
+[indexer.indexer_config.Monitoring.Beholder]
+InsecureConnection = true
+CACertFile = ''
+OtelExporterGRPCEndpoint = ''
+OtelExporterHTTPEndpoint = 'otel-collector:4318'
+LogStreamingEnabled = true
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+
+[indexer.indexer_config.Discovery]
+Address = "default-aggregator:50051"
+Since = 0
+PollInterval = 500
+Timeout = 5000
+NtpServer = "time.google.com"
+
+[indexer.indexer_config.Scheduler]
+TickerInterval = 50
+VerificationVisibilityWindow = 28800
+BaseDelay = 100
+MaxDelay = 30_000
+
+[indexer.indexer_config.Pool]
+ConcurrentWorkers = 1000
+WorkerTimeout = 300
+
+[[indexer.indexer_config.Verifier]]
+Type = "aggregator"
+Name = "CommiteeVerifier (Primary)"
+Address = "default-aggregator:50051"
+InsecureConnection = true
+BatchSize = 100
+MaxBatchWaitTime = 50
+Since = 0
+
+[indexer.committee_verifier_name_to_qualifier]
+"CommiteeVerifier (Primary)" = "default"
+
+[indexer.indexer_config.Storage]
+Strategy = "sink"
+
+[[indexer.indexer_config.Storage.Sink.Storages]]
+Type = "memory"
+
+[indexer.indexer_config.Storage.Sink.Storages.Memory]
+TTL = 3600
+MaxSize = 10000
+CleanupInterval = 300
+
+[[indexer.indexer_config.Storage.Sink.Storages]]
+Type = "postgres"
+
+[indexer.indexer_config.Storage.Sink.Storages.Postgres]
+MaxOpenConnections = 20
+MaxIdleConnections = 5
+IdleInTxSessionTimeout = 60
+LockTimeout = 30
+
+
+[indexer.secrets.Storage.Sink.Storages.1.Postgres]
+URI = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"
+
+[[aggregator]]
+  committee_name = "default"
+  image = "aggregator:dev"
+  host_port = 50051
+  source_code_path = "../aggregator"
+  root_path = "../../"
+
+  [aggregator.db]
+    image = "postgres:16-alpine"
+    host_port  = 7432
+
+  [aggregator.redis]
+    image = "redis:7-alpine"
+    host_port  = 6379
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-1"
+  description = "Development default verifier 1"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-2"
+  description = "Development default verifier 2"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[aggregator.api_clients]]
+  client_id = "monitoring"
+  description = "Monitoring and infrastructure client"
+  enabled = true
+  groups = ["monitoring"]
+
+  [[aggregator.api_clients]]
+  client_id = "indexer"
+  description = "Development Indexer"
+  enabled = true
+  groups = ["indexer"]
+
+  # Environment variables for sensitive configuration
+  [aggregator.env]
+    storage_connection_url = "postgresql://aggregator:aggregator@default-aggregator-db:5432/aggregator?sslmode=disable"
+    redis_address = "default-aggregator-redis:6379"
+    redis_password = ""
+    redis_db = "0"
+
+[[executor]]
+  image = "executor:dev"
+  port = 8101
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-1"
+  nop_alias = "default-executor-1"
+  executor_qualifier = "default"
+
+[[executor]]
+  image = "executor:dev"
+  port = 8102
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-2"
+  nop_alias = "default-executor-2"
+  executor_qualifier = "default"

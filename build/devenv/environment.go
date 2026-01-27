@@ -28,6 +28,7 @@ import (
 	verifierconfig "github.com/smartcontractkit/chainlink-ccv/deployments/operations/verifier_config"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/canton"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
@@ -183,8 +184,11 @@ func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers [
 		if nop, ok := cfg.NOPTopology.GetNOP(ver.NOPAlias); ok {
 			if nop.SignerAddressByFamily[chainsel.FamilyEVM] == "" {
 				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, ver.SigningKeyPublic)
-				seenAliases[ver.NOPAlias] = struct{}{}
 			}
+			if nop.SignerAddressByFamily[chainsel.FamilyCanton] == "" {
+				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyCanton, ver.SigningKeyPublic)
+			}
+			seenAliases[ver.NOPAlias] = struct{}{}
 		}
 	}
 }
@@ -223,7 +227,7 @@ func generateExecutorJobSpecs(
 	for _, exec := range in.Executor {
 		qualifier := exec.ExecutorQualifier
 		if qualifier == "" {
-			qualifier = evm.DefaultExecutorQualifier
+			qualifier = devenvcommon.DefaultExecutorQualifier
 		}
 		executorsByQualifier[qualifier] = append(executorsByQualifier[qualifier], exec)
 	}
@@ -290,6 +294,11 @@ func generateExecutorJobSpecs(
 	}
 	Plog.Info().Any("Addresses", addresses).Int("ImplsLen", len(impls)).Msg("Funding executors")
 	for i, impl := range impls {
+		if in.Blockchains[i].Type == blockchain.TypeCanton {
+			// Executor doesn't support Canton.
+			continue
+		}
+
 		Plog.Info().Int("ImplIndex", i).Msg("Funding executor")
 		err = impl.FundAddresses(ctx, in.Blockchains[i], addresses, big.NewInt(5))
 		if err != nil {
@@ -337,7 +346,7 @@ func generateVerifierJobSpecs(
 
 		cs := changesets.GenerateVerifierConfig()
 		output, err := cs.Apply(*e, changesets.GenerateVerifierConfigCfg{
-			DefaultExecutorQualifier: evm.DefaultExecutorQualifier,
+			DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,
 			ChainSelectors:           selectors,
 			TargetNOPs:               verNOPAliases,
 			EnvironmentNOPs:          convertNOPsToVerifierInput(topology.NOPTopology.NOPs),
@@ -492,7 +501,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// END: Read Config toml //
 	/////////////////////////////
 
-	// Start fake data provider. This isn't really used, but may be useful in the future.
+	// Start fake data provider. Used for USDC verifier.
 	fakeOut, err := services.NewFake(in.Fake)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create fake data provider: %w", err)
@@ -676,12 +685,8 @@ func NewEnvironment() (in *Cfg, err error) {
 	timeTrack.Record("[infra] deploying blockchains")
 	ds := datastore.NewMemoryDataStore()
 	for i, impl := range impls {
-		if in.Blockchains[i].Type == blockchain.TypeCanton {
-			continue
-		}
-
 		var networkInfo chainsel.ChainDetails
-		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, chainsel.FamilyEVM)
+		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
 		if err != nil {
 			return nil, err
 		}
@@ -717,6 +722,7 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	for i, impl := range impls {
 		if in.Blockchains[i].Type == blockchain.TypeCanton {
+			// Canton contracts are not supported yet by the interface, tests need to connect them manually.
 			continue
 		}
 

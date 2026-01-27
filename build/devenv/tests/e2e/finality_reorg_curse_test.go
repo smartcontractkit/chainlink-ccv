@@ -18,7 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/logasserter"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
@@ -52,7 +52,7 @@ func TestE2EReorg(t *testing.T) {
 
 	defaultAggregatorClient, err := in.NewAggregatorClientForCommittee(
 		zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
-		evm.DefaultCommitteeVerifierQualifier)
+		devenvcommon.DefaultCommitteeVerifierQualifier)
 	require.NoError(t, err)
 	require.NotNil(t, defaultAggregatorClient)
 	t.Cleanup(func() {
@@ -100,13 +100,13 @@ func TestE2EReorg(t *testing.T) {
 	executorAddr := getContractAddress(t, in, srcSelector,
 		datastore.ContractType(executor.ProxyType),
 		executor.DeployProxy.Version(),
-		evm.DefaultExecutorQualifier,
+		devenvcommon.DefaultExecutorQualifier,
 		"executor")
 
 	ccvAddr := getContractAddress(t, in, srcSelector,
 		datastore.ContractType(committee_verifier.ResolverType),
 		committee_verifier.Deploy.Version(),
-		evm.DefaultCommitteeVerifierQualifier,
+		devenvcommon.DefaultCommitteeVerifierQualifier,
 		"committee verifier proxy")
 
 	// Get receiver for destSelector2 (chain2)

@@ -11,7 +11,7 @@ import (
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -31,7 +31,7 @@ func TestChaos_AggregatorOutageRecovery(t *testing.T) {
 
 	var defaultAggregatorContainerName string
 	for _, agg := range setup.in.Aggregator {
-		if agg.CommitteeName == evm.DefaultCommitteeVerifierQualifier {
+		if agg.CommitteeName == devenvcommon.DefaultCommitteeVerifierQualifier {
 			defaultAggregatorContainerName = agg.Out.ContainerName
 			break
 		}
@@ -73,7 +73,7 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 
 	var defaultVerifierInputs []*services.VerifierInput
 	for _, verifier := range setup.in.Verifier {
-		if verifier.CommitteeName == evm.DefaultCommitteeVerifierQualifier {
+		if verifier.CommitteeName == devenvcommon.DefaultCommitteeVerifierQualifier {
 			defaultVerifierInputs = append(defaultVerifierInputs, verifier)
 		}
 	}
@@ -81,7 +81,7 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 
 	var defaultAggregator *services.AggregatorInput
 	for _, aggregator := range setup.in.Aggregator {
-		if aggregator.CommitteeName == evm.DefaultCommitteeVerifierQualifier {
+		if aggregator.CommitteeName == devenvcommon.DefaultCommitteeVerifierQualifier {
 			defaultAggregator = aggregator
 			break
 		}
@@ -153,7 +153,7 @@ func TestChaos_AllExecutorsDown(t *testing.T) {
 
 	var defaultExecutorContainerNames []string
 	for _, executor := range setup.in.Executor {
-		if executor.ExecutorQualifier == evm.DefaultCommitteeVerifierQualifier {
+		if executor.ExecutorQualifier == devenvcommon.DefaultExecutorQualifier {
 			defaultExecutorContainerNames = append(defaultExecutorContainerNames, executor.Out.ContainerName)
 		}
 	}
@@ -257,10 +257,10 @@ func setupChaos(t *testing.T, envOutPath string) *chaosSetup {
 	require.NoError(t, err)
 
 	var defaultAggregatorClient *ccv.AggregatorClient
-	if _, ok := in.AggregatorEndpoints[evm.DefaultCommitteeVerifierQualifier]; ok {
+	if _, ok := in.AggregatorEndpoints[devenvcommon.DefaultCommitteeVerifierQualifier]; ok {
 		defaultAggregatorClient, err = in.NewAggregatorClientForCommittee(
 			zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
-			evm.DefaultCommitteeVerifierQualifier)
+			devenvcommon.DefaultCommitteeVerifierQualifier)
 		require.NoError(t, err)
 		require.NotNil(t, defaultAggregatorClient)
 		t.Cleanup(func() {

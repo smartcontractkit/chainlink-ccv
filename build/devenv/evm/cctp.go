@@ -27,17 +27,12 @@ import (
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	burn_mint_erc20_bindings "github.com/smartcontractkit/chainlink-evm/gethwrappers/shared/generated/initial/burn_mint_erc20"
-)
-
-const (
-	CCTPContractsQualifier         = "CCTP"
-	CCTPPrimaryReceiverQualifier   = "cctp-primary"
-	CCTPSecondaryReceiverQualifier = "cctp-secondary"
 )
 
 func (m *CCIP17EVMConfig) deployUSDCTokenAndPool(
@@ -188,7 +183,7 @@ func (m *CCIP17EVMConfig) deployMockReceivers(
 		selector,
 		datastore.ContractType(cctp_verifier.ResolverType),
 		semver.MustParse(cctp_verifier.Deploy.Version()),
-		CCTPContractsQualifier,
+		devenvcommon.CCTPContractsQualifier,
 	))
 	if err != nil {
 		return fmt.Errorf("failed to find CCTP verifier for chain %d: %w", selector, err)
@@ -198,7 +193,7 @@ func (m *CCIP17EVMConfig) deployMockReceivers(
 		selector,
 		datastore.ContractType(committee_verifier.ResolverType),
 		semver.MustParse(committee_verifier.Deploy.Version()),
-		DefaultCommitteeVerifierQualifier,
+		devenvcommon.DefaultCommitteeVerifierQualifier,
 	))
 	if err != nil {
 		return fmt.Errorf("failed to find committee verifier for chain %d: %w", selector, err)
@@ -209,13 +204,13 @@ func (m *CCIP17EVMConfig) deployMockReceivers(
 		RequiredVerifiers []datastore.AddressRef
 	}{
 		{
-			Qualifier: CCTPPrimaryReceiverQualifier,
+			Qualifier: devenvcommon.CCTPPrimaryReceiverQualifier,
 			RequiredVerifiers: []datastore.AddressRef{
 				cctpVerifier,
 			},
 		},
 		{
-			Qualifier: CCTPSecondaryReceiverQualifier,
+			Qualifier: devenvcommon.CCTPSecondaryReceiverQualifier,
 			RequiredVerifiers: []datastore.AddressRef{
 				cctpVerifier,
 				committeeVerifier,
@@ -281,7 +276,7 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 		Type:          datastore.ContractType(burnminterc677ops.ContractType),
 		Version:       burnminterc677ops.Version,
 		Address:       usdcTokenAddr.Hex(),
-		Qualifier:     CCTPContractsQualifier,
+		Qualifier:     devenvcommon.CCTPContractsQualifier,
 	})
 	if err != nil {
 		return empty, empty, empty, fmt.Errorf("failed to add USDC token contract: %w", err)
@@ -305,7 +300,7 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 		Type:          "MockE2EUSDCTransmitter",
 		Version:       semver.MustParse("1.0.0"),
 		Address:       messageTransmitterAddr.Hex(),
-		Qualifier:     CCTPContractsQualifier,
+		Qualifier:     devenvcommon.CCTPContractsQualifier,
 	})
 	if err != nil {
 		return empty, empty, empty, fmt.Errorf("failed to add USDC message transmitter contract: %w", err)
@@ -328,7 +323,7 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 		Type:          "MockE2EUSDCTokenMessenger",
 		Version:       semver.MustParse("1.0.0"),
 		Address:       tokenMessengerAddr.Hex(),
-		Qualifier:     CCTPContractsQualifier,
+		Qualifier:     devenvcommon.CCTPContractsQualifier,
 	})
 	if err != nil {
 		return empty, empty, empty, fmt.Errorf("failed to add USDC tijen messenger contract: %w", err)
@@ -350,7 +345,7 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(env *deployment.Environment, 
 			ChainSelector: rs,
 			Type:          datastore.ContractType(usdc_token_pool_proxy.ContractType),
 			Version:       semver.MustParse(usdc_token_pool_proxy.Deploy.Version()),
-			Qualifier:     CCTPContractsQualifier,
+			Qualifier:     devenvcommon.CCTPContractsQualifier,
 		}
 		remoteChains[rs] = adapters.RemoteCCTPChainConfig[datastore.AddressRef, datastore.AddressRef]{
 			FeeUSDCents:         10,
@@ -362,13 +357,13 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(env *deployment.Environment, 
 					ChainSelector: rs,
 					Type:          datastore.ContractType(cctp_message_transmitter_proxy.ContractType),
 					Version:       semver.MustParse(cctp_message_transmitter_proxy.Deploy.Version()),
-					Qualifier:     CCTPContractsQualifier,
+					Qualifier:     devenvcommon.CCTPContractsQualifier,
 				},
 				AllowedCallerOnSource: datastore.AddressRef{
 					ChainSelector: rs,
 					Type:          datastore.ContractType(cctp_verifier.ContractType),
 					Version:       semver.MustParse(cctp_verifier.Deploy.Version()),
-					Qualifier:     CCTPContractsQualifier,
+					Qualifier:     devenvcommon.CCTPContractsQualifier,
 				},
 				DomainIdentifier: domains[rs],
 			},
@@ -378,7 +373,7 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(env *deployment.Environment, 
 					ChainSelector: rs,
 					Type:          datastore.ContractType(burnminterc677ops.ContractType),
 					Version:       burnminterc677ops.Version,
-					Qualifier:     CCTPContractsQualifier,
+					Qualifier:     devenvcommon.CCTPContractsQualifier,
 				},
 				DefaultFinalityInboundRateLimiterConfig:  testsetup.CreateRateLimiterConfig(0, 0),
 				DefaultFinalityOutboundRateLimiterConfig: testsetup.CreateRateLimiterConfig(0, 0),

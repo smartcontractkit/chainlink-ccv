@@ -1,5 +1,6 @@
 [[blockchains]]
   container_name = "canton-test"
+  chain_id = "LocalNet"
   port = "8545"
   type = "canton"
   number_of_canton_validators = 1

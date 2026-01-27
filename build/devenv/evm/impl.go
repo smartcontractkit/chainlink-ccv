@@ -2,12 +2,14 @@ package evm
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"math/big"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -29,7 +31,6 @@ import (
 	changesets_1_6_1 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/changesets"
 	rmn_remote_binding "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/burn_mint_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/create2_factory"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
@@ -71,30 +72,13 @@ import (
 	routerwrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_2_0/router"
 	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 )
 
 const (
-	// These qualifiers are used to distinguish between multiple deployments of the committee verifier proxy and mock receiver
-	// on the same chain.
-	// In the smoke test deployments these are the qualifiers that are used by default.
-	DefaultCommitteeVerifierQualifier = "default"
-	DefaultReceiverQualifier          = "default"
-	DefaultExecutorQualifier          = "default"
-
-	SecondaryCommitteeVerifierQualifier = "secondary"
-	SecondaryReceiverQualifier          = "secondary"
-
-	TertiaryCommitteeVerifierQualifier = "tertiary"
-	TertiaryReceiverQualifier          = "tertiary"
-
-	QuaternaryReceiverQualifier = "quaternary"
-
-	CustomExecutorQualifier = "custom"
-
 	CommitteeVerifierGasForVerification = 500_000
 
-	TokenMaxSupply       = "100000000000000000000000000000" // 100 billion in 18 decimals
-	TokenDeployerBalance = "1000000000000000000000000000"   // 1 billion in 18 decimals
+	TokenDeployerBalance = "1000000000000000000000000000" // 1 billion in 18 decimals
 	DefaultDecimals      = 18
 )
 
@@ -106,166 +90,6 @@ var (
 		"1.7.0",
 	}
 )
-
-// TokenCombination represents a source and destination pool combination.
-type TokenCombination struct {
-	sourcePoolType          string
-	sourcePoolVersion       string
-	sourcePoolQualifier     string
-	sourcePoolCCVQualifiers []string
-	destPoolType            string
-	destPoolVersion         string
-	destPoolQualifier       string
-	destPoolCCVQualifiers   []string
-	expectedReceiptIssuers  int
-	expectedVerifierResults int
-}
-
-// SourcePoolAddressRef returns the address ref for the source token pool that can be used to query the datastore.
-func (s TokenCombination) SourcePoolAddressRef() datastore.AddressRef {
-	qualifier := s.sourcePoolQualifier
-	if qualifier == "" {
-		qualifier = fmt.Sprintf("TEST (%s %s %v to %s %s %v)", s.sourcePoolType, s.sourcePoolVersion, s.sourcePoolCCVQualifiers, s.destPoolType, s.destPoolVersion, s.destPoolCCVQualifiers)
-	}
-	return datastore.AddressRef{
-		Type:      datastore.ContractType(s.sourcePoolType),
-		Version:   semver.MustParse(s.sourcePoolVersion),
-		Qualifier: qualifier,
-	}
-}
-
-// DestPoolAddressRef returns the address ref for the destination token pool that can be used to query the datastore.
-func (s TokenCombination) DestPoolAddressRef() datastore.AddressRef {
-	qualifier := s.destPoolQualifier
-	if qualifier == "" {
-		qualifier = fmt.Sprintf("TEST (%s %s %v to %s %s %v)", s.destPoolType, s.destPoolVersion, s.destPoolCCVQualifiers, s.sourcePoolType, s.sourcePoolVersion, s.sourcePoolCCVQualifiers)
-	}
-	return datastore.AddressRef{
-		Type:      datastore.ContractType(s.destPoolType),
-		Version:   semver.MustParse(s.destPoolVersion),
-		Qualifier: qualifier,
-	}
-}
-
-// SourcePoolCCVQualifiers returns the CCV qualifiers for the source token pool.
-func (s TokenCombination) SourcePoolCCVQualifiers() []string {
-	return s.sourcePoolCCVQualifiers
-}
-
-// DestPoolCCVQualifiers returns the CCV qualifiers for the destination token pool.
-func (s TokenCombination) DestPoolCCVQualifiers() []string {
-	return s.destPoolCCVQualifiers
-}
-
-// ExpectedReceiptIssuers returns the expected number of receipt issuers for the token combination.
-func (s TokenCombination) ExpectedReceiptIssuers() int {
-	return s.expectedReceiptIssuers
-}
-
-// ExpectedVerifierResults returns the expected number of verifier results for the token combination.
-func (s TokenCombination) ExpectedVerifierResults() int {
-	return s.expectedVerifierResults
-}
-
-func (s TokenCombination) FinalityConfig() uint16 {
-	if semver.MustParse(s.sourcePoolVersion).GreaterThanEqual(semver.MustParse("1.7.0")) {
-		return 1 // We can use fast-finality if source pool is 1.7.0 or higher
-	}
-	return 0 // Otherwise use default finality
-}
-
-// allTokenCombinations returns all possible token combinations.
-func AllTokenCombinations() []TokenCombination {
-	return []TokenCombination{
-		{ // 1.6.1 burn -> 1.6.1 mint
-			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
-			sourcePoolVersion:       "1.6.1",
-			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
-			destPoolVersion:         "1.6.1",
-			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
-			expectedVerifierResults: 1, // default CCV
-		},
-		{ // 1.6.1 burn -> 1.7.0 mint
-			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
-			sourcePoolVersion:       "1.6.1",
-			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
-			destPoolVersion:         "1.7.0",
-			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
-			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
-			expectedVerifierResults: 1, // default CCV
-		},
-		{ // 1.7.0 burn -> 1.6.1 mint
-			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
-			sourcePoolVersion:       "1.7.0",
-			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
-			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
-			destPoolVersion:         "1.6.1",
-			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
-			expectedVerifierResults: 1, // default CCV
-		},
-		// TODO: Re-enable when chainlink-ccip repo adds ERC20LockBox deployment support
-		// { // 1.7.0 lock -> 1.7.0 release
-		// 	sourcePoolType:          string(lock_release_token_pool.ContractType),
-		// 	sourcePoolVersion:       "1.7.0",
-		// 	sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
-		// 	destPoolType:            string(lock_release_token_pool.ContractType),
-		// 	destPoolVersion:         "1.7.0",
-		// 	destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
-		// 	expectedReceiptIssuers:  3, // default CCV, token pool, executor
-		// 	expectedVerifierResults: 1, // default CCV
-		// },
-		{ // 1.7.0 burn -> 1.7.0 mint
-			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
-			sourcePoolVersion:       "1.7.0",
-			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
-			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
-			destPoolVersion:         "1.7.0",
-			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
-			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
-			expectedVerifierResults: 1, // default CCV
-		},
-		{ // 1.7.0 burn -> 1.7.0 mint (Default and Secondary CCV)
-			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
-			sourcePoolVersion:       "1.7.0",
-			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier, SecondaryCommitteeVerifierQualifier},
-			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
-			destPoolVersion:         "1.7.0",
-			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier, SecondaryCommitteeVerifierQualifier},
-			expectedReceiptIssuers:  5, // default CCV, secondary CCV, token pool, executor, network fee
-			expectedVerifierResults: 2, // default CCV, secondary CCV
-		},
-		{ // 1.7.0 burn -> 1.7.0 mint (No CCV)
-			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
-			sourcePoolVersion:       "1.7.0",
-			sourcePoolCCVQualifiers: []string{},
-			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
-			destPoolVersion:         "1.7.0",
-			destPoolCCVQualifiers:   []string{},
-			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
-			expectedVerifierResults: 1, // default CCV
-		},
-		{ // 1.7.0 burn -> 1.7.0 mint (Secondary CCV)
-			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
-			sourcePoolVersion:       "1.7.0",
-			sourcePoolCCVQualifiers: []string{SecondaryCommitteeVerifierQualifier},
-			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
-			destPoolVersion:         "1.7.0",
-			destPoolCCVQualifiers:   []string{SecondaryCommitteeVerifierQualifier},
-			expectedReceiptIssuers:  5, // secondary CCV, default CCV, token pool, executor, network fee
-			expectedVerifierResults: 2, // secondary CCV, default CCV (defaultCCV included because ccipReceiveGasLimit > 0)
-		},
-	}
-}
-
-func All17TokenCombinations() []TokenCombination {
-	combinations := []TokenCombination{}
-	for _, tc := range AllTokenCombinations() {
-		if semver.MustParse(tc.sourcePoolVersion).Equal(semver.MustParse("1.7.0")) && semver.MustParse(tc.destPoolVersion).Equal(semver.MustParse("1.7.0")) {
-			combinations = append(combinations, tc)
-		}
-	}
-	return combinations
-}
 
 type CCIP17EVMConfig struct {
 	logger zerolog.Logger
@@ -361,6 +185,11 @@ func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Envi
 		offRampPoller: &offRampPoller,
 		onRampPoller:  &onRampPoller,
 	}, nil
+}
+
+// ChainFamily implements cciptestinterfaces.CCIP17Configuration.
+func (m *CCIP17EVMConfig) ChainFamily() string {
+	return chainsel.FamilyEVM
 }
 
 func (m *CCIP17EVM) getOrCreateOnRampPoller() (*eventPoller[cciptestinterfaces.MessageSentEvent], error) {
@@ -1154,7 +983,7 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 						MinBlockConfirmations: 0,
 						CcvAllowlistEnabled:   false,
 					},
-					Qualifier: DefaultExecutorQualifier,
+					Qualifier: devenvcommon.DefaultExecutorQualifier,
 				},
 				{
 					Version:       semver.MustParse(executor.DeployProxy.Version()),
@@ -1164,7 +993,7 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 						MinBlockConfirmations: 0,
 						CcvAllowlistEnabled:   false,
 					},
-					Qualifier: CustomExecutorQualifier,
+					Qualifier: devenvcommon.CustomExecutorQualifier,
 				},
 			},
 			FeeQuoter: sequences.FeeQuoterParams{
@@ -1176,86 +1005,7 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 				USDPerLINK:                     usdPerLink,
 				USDPerWETH:                     usdPerWeth,
 			},
-			// TODO: How to generate this from the committees param?
-			MockReceivers: []sequences.MockReceiverParams{
-				{
-					// single required verifier (default), no optional verifiers, no optional threshold
-					Version: semver.MustParse(mock_receiver.Deploy.Version()),
-					RequiredVerifiers: []datastore.AddressRef{
-						{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     DefaultCommitteeVerifierQualifier,
-						},
-					},
-					Qualifier: DefaultReceiverQualifier,
-				},
-				{
-					// single required verifier (secondary), no optional verifiers, no optional threshold
-					Version: semver.MustParse(mock_receiver.Deploy.Version()),
-					RequiredVerifiers: []datastore.AddressRef{
-						{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     SecondaryCommitteeVerifierQualifier,
-						},
-					},
-					Qualifier: SecondaryReceiverQualifier,
-				},
-				{
-					// single required verifier (secondary), single optional verifier (tertiary), optional threshold=1
-					// this means that the message should only be executed after the required and optional verifiers have signed.
-					// optional threshold being 1, with one optional, means that it must be retrieved.
-					Version: semver.MustParse(mock_receiver.Deploy.Version()),
-					RequiredVerifiers: []datastore.AddressRef{
-						{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     SecondaryCommitteeVerifierQualifier,
-						},
-					},
-					OptionalVerifiers: []datastore.AddressRef{
-						{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     TertiaryCommitteeVerifierQualifier,
-						},
-					},
-					OptionalThreshold: 1,
-					Qualifier:         TertiaryReceiverQualifier,
-				},
-				{
-					Version: semver.MustParse(mock_receiver.Deploy.Version()),
-					RequiredVerifiers: []datastore.AddressRef{
-						{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     DefaultCommitteeVerifierQualifier,
-						},
-					},
-					OptionalVerifiers: []datastore.AddressRef{
-						{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     SecondaryCommitteeVerifierQualifier,
-						},
-						{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     TertiaryCommitteeVerifierQualifier,
-						},
-					},
-					OptionalThreshold: 1,
-					Qualifier:         QuaternaryReceiverQualifier,
-				},
-			},
+			MockReceivers: getMockReceiverParams(topology, selector),
 		},
 	})
 	if err != nil {
@@ -1267,7 +1017,7 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 	}
 	env.DataStore = runningDS.Seal()
 
-	for _, combo := range AllTokenCombinations() {
+	for _, combo := range devenvcommon.AllTokenCombinations() {
 		// For any given token combination, every chain needs to support the source and destination pools.
 		if err := m.deployTokenAndPool(env, mcmsReaderRegistry, runningDS, selector, combo.SourcePoolAddressRef()); err != nil {
 			return nil, fmt.Errorf("failed to deploy %s token: %w", combo.SourcePoolAddressRef().Qualifier, err)
@@ -1460,13 +1210,6 @@ func (m *CCIP17EVMConfig) configureTokenForTransfer(
 
 // TODO: How to generate all the default/secondary/tertiary things from the committee param?
 func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, topology *deployments.EnvironmentTopology) error {
-	// TODO: how does this even work?
-	/*
-		if selector != m.chain.ChainSelector() {
-			return fmt.Errorf("ConnectContractsWithSelectors: chain %d not found in environment chains %v", selector, m.chain.ChainSelector())
-		}
-	*/
-
 	l := m.logger
 	l.Info().Uint64("FromSelector", selector).Any("ToSelectors", remoteSelectors).Msg("Connecting contracts with selectors")
 	bundle := operations.NewBundle(
@@ -1495,7 +1238,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 					Type:          datastore.ContractType(committee_verifier.ResolverType),
 					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
 					ChainSelector: selector,
-					Qualifier:     DefaultCommitteeVerifierQualifier, // TODO: pull this from committees param?
+					Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier, // TODO: pull this from committees param?
 				},
 			},
 			// LaneMandatedInboundCCVs: []datastore.AddressRef{},
@@ -1504,14 +1247,14 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 					Type:          datastore.ContractType(committee_verifier.ResolverType),
 					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
 					ChainSelector: selector,
-					Qualifier:     DefaultCommitteeVerifierQualifier, // TODO: pull this from committees param?
+					Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier, // TODO: pull this from committees param?
 				},
 			},
 			// LaneMandatedOutboundCCVs: []datastore.AddressRef{},
 			DefaultExecutor: datastore.AddressRef{
 				Type:      datastore.ContractType(executor.ProxyType),
 				Version:   semver.MustParse(executor.DeployProxy.Version()),
-				Qualifier: DefaultExecutorQualifier,
+				Qualifier: devenvcommon.DefaultExecutorQualifier,
 			},
 			FeeQuoterDestChainConfig: adapters.FeeQuoterDestChainConfig{
 				IsEnabled:                   true,
@@ -1557,6 +1300,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 	mcmsReaderRegistry := changesetscore.GetRegistry()
 	chainFamilyRegistry := adapters.NewChainFamilyRegistry()
 	chainFamilyRegistry.RegisterChainFamily("evm", &evmadapters.ChainFamilyAdapter{})
+	chainFamilyRegistry.RegisterChainFamily("canton", &evmadapters.ChainFamilyAdapter{}) // TODO: remove this once Canton we have a Canton adapter.
 	_, err := ccvchangesets.ConfigureChainsForLanesFromTopology(chainFamilyRegistry, mcmsReaderRegistry).Apply(*e, ccvchangesets.ConfigureChainsForLanesFromTopologyConfig{
 		Topology: topology,
 		Chains: []ccvchangesets.PartialChainConfig{
@@ -1596,9 +1340,23 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 			tokenAdapter = &adapters_1_6_1.TokenAdapter{}
 		}
 		tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(poolVersion), tokenAdapter)
+		tokenAdapterRegistry.RegisterTokenAdapter("canton", semver.MustParse(poolVersion), &CantonTokenAdapter{})
 	}
 
-	for _, combo := range AllTokenCombinations() {
+	for _, combo := range devenvcommon.AllTokenCombinations() {
+		// Filter out token combinations that reference qualifiers that are not present in the topology.
+		hasAllQualifiers := func(qualifiers []string) bool {
+			for _, q := range qualifiers {
+				if _, ok := topology.NOPTopology.Committees[q]; !ok {
+					return false
+				}
+			}
+			return true
+		}
+		if !hasAllQualifiers(combo.SourcePoolCCVQualifiers()) || !hasAllQualifiers(combo.DestPoolCCVQualifiers()) {
+			continue
+		}
+
 		// For any given token combination, every chain needs to support the source and destination pools.
 		l.Info().Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("Configuring source token for transfer")
 		if err := m.configureTokenForTransfer(e, tokenAdapterRegistry, mcmsReaderRegistry, selector, remoteSelectors, combo.SourcePoolAddressRef(), combo.DestPoolAddressRef(), combo.SourcePoolCCVQualifiers()); err != nil {
@@ -1632,7 +1390,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 			selector,
 			datastore.ContractType(executor.ContractType),
 			semver.MustParse(executor.Deploy.Version()),
-			CustomExecutorQualifier,
+			devenvcommon.CustomExecutorQualifier,
 		),
 	)
 	if err != nil {
@@ -2016,4 +1774,131 @@ func (m *CCIP17EVM) GetRoundRobinUser() func() *bind.TransactOpts {
 		index.Add(1)
 		return selectedSender
 	}
+}
+
+// getMockReceiverParams generates the mock receiver params for a given chain selector.
+func getMockReceiverParams(topology *deployments.EnvironmentTopology, selector uint64) []sequences.MockReceiverParams {
+	var receivers []sequences.MockReceiverParams
+	committees := topology.NOPTopology.Committees
+
+	// Helper to check if all provided committees exist in the topology
+	hasCommittees := func(qualifiers ...string) bool {
+		for _, q := range qualifiers {
+			if _, ok := committees[q]; !ok {
+				return false
+			}
+		}
+		return true
+	}
+
+	// 1. Default Receiver: Requires "default" committee
+	if hasCommittees(devenvcommon.DefaultCommitteeVerifierQualifier) {
+		receivers = append(receivers, sequences.MockReceiverParams{
+			// single required verifier (default), no optional verifiers, no optional threshold
+			Version: semver.MustParse(mock_receiver.Deploy.Version()),
+			RequiredVerifiers: []datastore.AddressRef{
+				{
+					Type:          datastore.ContractType(committee_verifier.ResolverType),
+					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+					ChainSelector: selector,
+					Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
+				},
+			},
+			Qualifier: devenvcommon.DefaultReceiverQualifier,
+		})
+	}
+
+	// 2. Secondary Receiver: Requires "secondary" committee
+	if hasCommittees(devenvcommon.SecondaryCommitteeVerifierQualifier) {
+		receivers = append(receivers, sequences.MockReceiverParams{
+			// single required verifier (secondary), no optional verifiers, no optional threshold
+			Version: semver.MustParse(mock_receiver.Deploy.Version()),
+			RequiredVerifiers: []datastore.AddressRef{
+				{
+					Type:          datastore.ContractType(committee_verifier.ResolverType),
+					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+					ChainSelector: selector,
+					Qualifier:     devenvcommon.SecondaryCommitteeVerifierQualifier,
+				},
+			},
+			Qualifier: devenvcommon.SecondaryReceiverQualifier,
+		})
+	}
+
+	// 3. Tertiary Receiver: Requires "secondary" (required) and "tertiary" (optional) committees
+	if hasCommittees(devenvcommon.SecondaryCommitteeVerifierQualifier, devenvcommon.TertiaryCommitteeVerifierQualifier) {
+		receivers = append(receivers, sequences.MockReceiverParams{
+			// single required verifier (secondary), single optional verifier (tertiary), optional threshold=1
+			// this means that the message should only be executed after the required and optional verifiers have signed.
+			// optional threshold being 1, with one optional, means that it must be retrieved.
+			Version: semver.MustParse(mock_receiver.Deploy.Version()),
+			RequiredVerifiers: []datastore.AddressRef{
+				{
+					Type:          datastore.ContractType(committee_verifier.ResolverType),
+					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+					ChainSelector: selector,
+					Qualifier:     devenvcommon.SecondaryCommitteeVerifierQualifier,
+				},
+			},
+			OptionalVerifiers: []datastore.AddressRef{
+				{
+					Type:          datastore.ContractType(committee_verifier.ResolverType),
+					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+					ChainSelector: selector,
+					Qualifier:     devenvcommon.TertiaryCommitteeVerifierQualifier,
+				},
+			},
+			OptionalThreshold: 1,
+			Qualifier:         devenvcommon.TertiaryReceiverQualifier,
+		})
+	}
+
+	// 4. Quaternary Receiver: Requires "default" (req), "secondary" (opt), and "tertiary" (opt) committees
+	if hasCommittees(devenvcommon.DefaultCommitteeVerifierQualifier, devenvcommon.SecondaryCommitteeVerifierQualifier, devenvcommon.TertiaryCommitteeVerifierQualifier) {
+		receivers = append(receivers, sequences.MockReceiverParams{
+			Version: semver.MustParse(mock_receiver.Deploy.Version()),
+			RequiredVerifiers: []datastore.AddressRef{
+				{
+					Type:          datastore.ContractType(committee_verifier.ResolverType),
+					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+					ChainSelector: selector,
+					Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
+				},
+			},
+			OptionalVerifiers: []datastore.AddressRef{
+				{
+					Type:          datastore.ContractType(committee_verifier.ResolverType),
+					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+					ChainSelector: selector,
+					Qualifier:     devenvcommon.SecondaryCommitteeVerifierQualifier,
+				},
+				{
+					Type:          datastore.ContractType(committee_verifier.ResolverType),
+					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+					ChainSelector: selector,
+					Qualifier:     devenvcommon.TertiaryCommitteeVerifierQualifier,
+				},
+			},
+			OptionalThreshold: 1,
+			Qualifier:         devenvcommon.QuaternaryReceiverQualifier,
+		})
+	}
+
+	return receivers
+}
+
+// TODO: move this to chainlink-ccip/deployment
+type CantonTokenAdapter struct {
+	evmadapters.TokenAdapter
+}
+
+func (t *CantonTokenAdapter) DeriveTokenAddress(e deployment.Environment, chainSelector uint64, ref datastore.AddressRef) ([]byte, error) {
+	addr, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(chainSelector, ref.Type, ref.Version, ref.Qualifier))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get address for %v on chain %d: %w", ref, chainSelector, err)
+	}
+	// Address is stored as hex string
+	// Remove 0x prefix if present
+	cleanAddr := strings.TrimPrefix(addr.Address, "0x")
+	return hex.DecodeString(cleanAddr)
 }

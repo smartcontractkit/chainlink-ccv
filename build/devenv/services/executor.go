@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/testcontainers/testcontainers-go"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
@@ -109,6 +110,18 @@ func ApplyExecutorDefaults(in *ExecutorInput) {
 	}
 }
 
+// filterOutUnsupportedChains filters out chains that are not supported by the executor.
+// As of writing, only EVM is supported by the executor.
+func filterOutUnsupportedChains(blockchainInfos map[string]*blockchain.Info) map[string]*blockchain.Info {
+	filtered := make(map[string]*blockchain.Info)
+	for chainSelector, info := range blockchainInfos {
+		if info.Family == chainsel.FamilyEVM {
+			filtered[chainSelector] = info
+		}
+	}
+	return filtered
+}
+
 func NewExecutor(in *ExecutorInput, blockchainOutputs []*ctfblockchain.Output) (*ExecutorOutput, error) {
 	if in == nil {
 		return nil, nil
@@ -128,6 +141,8 @@ func NewExecutor(in *ExecutorInput, blockchainOutputs []*ctfblockchain.Output) (
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate blockchain infos from blockchain outputs: %w", err)
 	}
+
+	blockchainInfos = filterOutUnsupportedChains(blockchainInfos)
 
 	// Generate and store config file with blockchain infos for standalone mode
 	config, err := in.GenerateConfigWithBlockchainInfos(blockchainInfos)
