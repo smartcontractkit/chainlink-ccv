@@ -1,4 +1,4 @@
-package pricer
+package coordinator
 
 import (
 	"context"
@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
 
+	evmchain "github.com/smartcontractkit/chainlink-ccv/pricer/pkg/evm"
+	solchain "github.com/smartcontractkit/chainlink-ccv/pricer/pkg/sol"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 	evmtoml "github.com/smartcontractkit/chainlink-evm/pkg/config/toml"
@@ -55,7 +57,7 @@ func TestPricer(t *testing.T) {
 	}
 
 	solURL, _ := soltesting.SetupLocalSolNodeWithFlags(t)
-	solChainID := "localnet"
+	solChainID := "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
 	solCfg := config.TOMLConfig{
 		ChainID: &solChainID,
 		Nodes: []*config.Node{
@@ -93,8 +95,8 @@ func TestPricer(t *testing.T) {
 		Config{
 			Interval: *commonconfig.MustNewDuration(1 * time.Second),
 			LogLevel: zapcore.DebugLevel,
-			EVM:      EVMChainConfig{EVMConfig: evmCfg},
-			SOL:      SOLChainConfig{TOMLConfig: solCfg},
+			EVM:      evmchain.ChainConfig{EVMConfig: evmCfg},
+			SOL:      solchain.ChainConfig{TOMLConfig: solCfg},
 		}, keystoreData, "password")
 	require.NoError(t, err)
 	require.NoError(t, svc.Start(ctx))

@@ -16,3 +16,6 @@ indexer/secrets.toml
 
 # Ignore all log directories
 **/logs/
+
+# Ignore go version file for goenv version manager
+.go-version
