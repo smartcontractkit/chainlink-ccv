@@ -57,7 +57,7 @@ func TestPricer(t *testing.T) {
 	}
 
 	solURL, _ := soltesting.SetupLocalSolNodeWithFlags(t)
-	solChainID := "localnet"
+	solChainID := "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
 	solCfg := config.TOMLConfig{
 		ChainID: &solChainID,
 		Nodes: []*config.Node{

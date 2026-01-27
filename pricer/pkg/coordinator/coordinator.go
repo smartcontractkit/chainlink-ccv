@@ -169,7 +169,7 @@ func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, k
 	if cfg.SOL.ChainID != nil {
 		chainDetails, err := selectors.GetChainDetailsByChainIDAndFamily(*cfg.SOL.ChainID, selectors.FamilySolana)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get chain details for EVM chain: %w", err)
+			return nil, fmt.Errorf("failed to get chain details for Sol chain: %w", err)
 		}
 		selector := chainDetails.ChainSelector
 		var solChain *sol.Chain
