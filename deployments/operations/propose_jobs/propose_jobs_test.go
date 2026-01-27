@@ -285,3 +285,55 @@ func TestProposeJobs_EmptyNodeIDs_ReturnsError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "nodeIDs must be specified")
 }
+
+func TestProposeJobs_ListNodesCalledWithNodeIDsFilter(t *testing.T) {
+	mockClient := deploymocks.NewMockJDClient(t)
+
+	expectedNodeIDs := []string{"node-abc", "node-xyz"}
+
+	mockClient.EXPECT().ListNodes(mock.Anything, mock.MatchedBy(func(req *nodev1.ListNodesRequest) bool {
+		if req.Filter == nil {
+			return false
+		}
+		if len(req.Filter.Ids) != len(expectedNodeIDs) {
+			return false
+		}
+		for i, id := range req.Filter.Ids {
+			if id != expectedNodeIDs[i] {
+				return false
+			}
+		}
+		return true
+	})).Return(
+		&nodev1.ListNodesResponse{Nodes: []*nodev1.Node{
+			{Id: "node-abc", Name: "nop-1"},
+			{Id: "node-xyz", Name: "nop-2"},
+		}}, nil,
+	)
+	mockClient.EXPECT().ProposeJob(mock.Anything, mock.Anything).Return(
+		&jobv1.ProposeJobResponse{
+			Proposal: &jobv1.Proposal{
+				Id:     "proposal-1",
+				JobId:  "jd-job-1",
+				Spec:   "type = 'ccv'",
+				Status: jobv1.ProposalStatus_PROPOSAL_STATUS_PENDING,
+			},
+		}, nil,
+	)
+
+	bundle := newTestBundle(t)
+
+	input := ProposeJobsInput{
+		JobSpecs: []JobSpecInput{
+			{NOPAlias: "nop-1", InternalJobID: "job-1", Spec: "type = 'ccv'"},
+		},
+	}
+
+	report, err := operations.ExecuteOperation(bundle, ProposeJobs, ProposeJobsDeps{
+		JDClient: mockClient,
+		Logger:   newTestLogger(t),
+		NodeIDs:  expectedNodeIDs,
+	}, input)
+	require.NoError(t, err)
+	require.Len(t, report.Output.ProposedJobs, 1)
+}
