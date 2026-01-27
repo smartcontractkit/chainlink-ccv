@@ -11,7 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/smartcontractkit/chainlink-ccv/pricer/pkg/pricer"
+	"github.com/smartcontractkit/chainlink-ccv/pricer/pkg/coordinator"
 	kscli "github.com/smartcontractkit/chainlink-common/keystore/cli"
 	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 )
@@ -51,7 +51,7 @@ func NewRunCmd() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("failed to open config %s: %w", configFile, err)
 			}
-			var cfg pricer.Config
+			var cfg coordinator.Config
 			if err := commonconfig.DecodeTOML(f, &cfg); err != nil {
 				_ = f.Close()
 				return fmt.Errorf("failed to load config %s: %w", configFile, err)
@@ -67,7 +67,7 @@ func NewRunCmd() *cobra.Command {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
-			svc, err := pricer.NewPricerFromConfig(ctx, cfg, keystoreData, keystorePassword)
+			svc, err := coordinator.NewPricerFromConfig(ctx, cfg, keystoreData, keystorePassword)
 			if err != nil {
 				return fmt.Errorf("failed to create pricer: %w", err)
 			}

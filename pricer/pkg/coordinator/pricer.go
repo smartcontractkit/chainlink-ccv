@@ -1,4 +1,4 @@
-package pricer
+package coordinator
 
 import (
 	"context"
@@ -13,7 +13,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap/zapcore"
 
+	selectors "github.com/smartcontractkit/chain-selectors"
+	pricer "github.com/smartcontractkit/chainlink-ccv/pricer/pkg"
+	evmchain "github.com/smartcontractkit/chainlink-ccv/pricer/pkg/evm"
+	keys "github.com/smartcontractkit/chainlink-ccv/pricer/pkg/keystore"
 	"github.com/smartcontractkit/chainlink-ccv/pricer/pkg/monitoring"
+	solchain "github.com/smartcontractkit/chainlink-ccv/pricer/pkg/sol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	ks "github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/keystore/kms"
@@ -23,14 +29,6 @@ import (
 	evmtoml "github.com/smartcontractkit/chainlink-evm/pkg/config/toml"
 	solcfg "github.com/smartcontractkit/chainlink-solana/pkg/solana/config"
 )
-
-// KMSConfig provides global KMS configuration for the pricer service.
-// Global as we imagine key re-use across chains.
-type KMSConfig struct {
-	Profile      string `toml:"profile"`
-	EcdsaKeyID   string `toml:"ecdsa_key_id"`
-	Ed25519KeyID string `toml:"ed25519_key_id"`
-}
 
 // MonitoringConfig provides monitoring configuration for the pricer service.
 // Prometheus metrics are always enabled and exposed via the standard /metrics endpoint.
@@ -43,7 +41,7 @@ type Config struct {
 	// TODO: Should be able to use chainlink-common/pkg/logger Config struct.
 	LogLevel zapcore.Level `toml:"loglevel"`
 	// KMS configuration for transaction signing
-	KMS KMSConfig `toml:"KMS"`
+	KMS keys.KMSConfig `toml:"KMS"`
 	// Monitoring configuration for OpenTelemetry
 	Monitoring MonitoringConfig `toml:"Monitoring"`
 
@@ -52,8 +50,8 @@ type Config struct {
 	// TODO: These will become lists of chains.
 	// Chain write connectivity config,
 	// common to read/write.
-	EVM EVMChainConfig `toml:"EVM"`
-	SOL SOLChainConfig `toml:"SOL"`
+	EVM evmchain.EVMChainConfig `toml:"EVM"`
+	SOL solchain.SOLChainConfig `toml:"SOL"`
 }
 
 func (c *Config) Validate() error {
@@ -117,12 +115,11 @@ func (c *Config) SetDefaults() {
 type Pricer struct {
 	services.StateMachine
 	lggr       logger.Logger
-	evmChain   *evmChain
-	solChain   *solanaChain
 	cfg        Config
 	done       chan struct{}
 	wg         sync.WaitGroup
 	httpServer *http.Server
+	chains     map[protocol.ChainSelector]pricer.Chain
 }
 
 func loadKMSKeystore(ctx context.Context, profile string) (interface {
@@ -162,9 +159,7 @@ func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, k
 	}
 	lggr = logger.Named(lggr, "pricer")
 
-	var evmChain *evmChain
-	var solChain *solanaChain
-
+	priceChains := make(map[protocol.ChainSelector]pricer.Chain)
 	// Setup Prometheus monitoring if enabled
 	var pricerMonitoring monitoring.Monitoring
 	if cfg.Monitoring.Enabled {
@@ -178,19 +173,44 @@ func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, k
 	}
 
 	if cfg.EVM.ChainID != nil {
-		evmChain, err = loadEVM(ctx, cfg, lggr, keystoreData, keystorePassword, pricerMonitoring)
+		chainDetails, err := selectors.GetChainDetailsByChainIDAndFamily(cfg.EVM.ChainID.String(), selectors.FamilyEVM)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get chain details for EVM chain: %w", err)
+		}
+		selector := chainDetails.ChainSelector
+		var evmChain *evmchain.EvmChain
+
+		evmTxKeyStore, err := evmChain.CreateKeystore(ctx, cfg.KMS, keystoreData, keystorePassword)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create EVM keystore: %w", err)
+		}
+		evmChain, err = evmchain.LoadEVM(ctx, cfg.EVM, lggr, evmTxKeyStore, keystoreData, keystorePassword, pricerMonitoring)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load EVM: %w", err)
 		}
+		priceChains[protocol.ChainSelector(selector)] = evmChain
 		lggr.Infow("loaded EVM chain", "chainID", cfg.EVM.ChainID)
 	} else {
 		lggr.Infow("no EVM chain configured")
 	}
+
 	if cfg.SOL.ChainID != nil {
-		solChain, err = loadSolana(ctx, lggr, cfg, keystoreData, keystorePassword)
+		chainDetails, err := selectors.GetChainDetailsByChainIDAndFamily(*cfg.SOL.ChainID, selectors.FamilySolana)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get chain details for EVM chain: %w", err)
+		}
+		selector := chainDetails.ChainSelector
+		var solChain *solchain.SolanaChain
+
+		solTxKeyStore, err := solChain.CreateKeystore(ctx, cfg.KMS, keystoreData, keystorePassword)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Solana keystore: %w", err)
+		}
+		solChain, err = solchain.LoadSolana(ctx, lggr, cfg.SOL, solTxKeyStore, keystoreData, keystorePassword)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load solana: %w", err)
 		}
+		priceChains[protocol.ChainSelector(selector)] = solChain
 		lggr.Infow("loaded solana chain", "chainID", cfg.SOL.ChainID)
 	} else {
 		lggr.Infow("no solana chain configured")
@@ -212,13 +232,12 @@ func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, k
 		cfg:          cfg,
 		done:         make(chan struct{}),
 		wg:           sync.WaitGroup{},
-		evmChain:     evmChain,
-		solChain:     solChain,
 		httpServer: &http.Server{
 			Addr:              fmt.Sprintf(":%d", cfg.Monitoring.Port),
 			Handler:           mux,
 			ReadHeaderTimeout: 10 * time.Second,
 		},
+		chains: priceChains,
 	}, nil
 }
 
@@ -236,17 +255,10 @@ func (p *Pricer) Start(ctx context.Context) error {
 			}
 		})
 
-		if p.evmChain != nil {
-			if err := p.evmChain.Start(ctx); err != nil {
-				return fmt.Errorf("failed to start EVM chain: %w", err)
+		for _, chain := range p.chains {
+			if err := chain.Start(ctx); err != nil {
+				return fmt.Errorf("failed to start chain: %w", err)
 			}
-			p.evmChain.lggr.Infow("started evm chain")
-		}
-		if p.solChain != nil {
-			if err := p.solChain.Start(ctx); err != nil {
-				return fmt.Errorf("failed to start Solana chain: %w", err)
-			}
-			p.solChain.lggr.Infow("started solana chain")
 		}
 		p.wg.Go(func() {
 			p.run(ctx)
@@ -269,17 +281,14 @@ func (p *Pricer) run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			p.lggr.Info("tick")
-			if p.evmChain != nil {
-				if err := p.evmChain.Tick(ctx); err != nil {
-					p.lggr.Error("failed to tick EVM chain", "error", err)
-					continue
-				}
-			}
-			if p.solChain != nil {
-				if err := p.solChain.Tick(ctx); err != nil {
-					p.lggr.Error("failed to tick Solana chain", "error", err)
-					continue
-				}
+
+			for _, chain := range p.chains {
+				go func(chain pricer.Chain) {
+					if err := chain.Tick(ctx); err != nil {
+						p.lggr.Error("failed to tick chain", "error", err)
+						return
+					}
+				}(chain)
 			}
 
 			/*
@@ -306,14 +315,11 @@ func (p *Pricer) Close() error {
 			p.lggr.Warnw("failed to shutdown metrics HTTP server", "error", err)
 		}
 		p.wg.Wait()
-		if p.evmChain != nil {
-			if err := p.evmChain.Close(); err != nil {
-				return fmt.Errorf("failed to close EVM txm: %w", err)
-			}
-		}
-		if p.solChain != nil {
-			if err := p.solChain.Close(); err != nil {
-				return fmt.Errorf("failed to close Solana txm: %w", err)
+
+		// TODO: replace this with a done channel in the future
+		for _, chain := range p.chains {
+			if err := chain.Close(); err != nil {
+				return fmt.Errorf("failed to close chain: %w", err)
 			}
 		}
 		return nil
