@@ -1049,6 +1049,10 @@ func (m *CCIP17EVM) ExposeMetrics(
 	return []string{}, reg, nil
 }
 
+func (m *CCIP17EVMConfig) ChainFamily() string {
+	return chainsel.FamilyEVM
+}
+
 func (m *CCIP17EVMConfig) DeployLocalNetwork(ctx context.Context, bc *blockchain.Input) (*blockchain.Output, error) {
 	l := m.logger
 	l.Info().Msg("Deploying EVM networks")

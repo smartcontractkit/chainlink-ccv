@@ -11,6 +11,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -33,6 +34,11 @@ func New(logger zerolog.Logger) *Chain {
 	return &Chain{
 		logger: logger,
 	}
+}
+
+// ChainFamily implements cciptestinterfaces.CCIP17Configuration.
+func (c *Chain) ChainFamily() string {
+	return chainsel.FamilyCanton
 }
 
 // ConfigureNodes implements cciptestinterfaces.CCIP17Configuration.
