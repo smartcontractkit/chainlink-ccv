@@ -267,7 +267,7 @@ func waitForNodeConnection(ctx context.Context, jdClient offchain.Client, nodeID
 	}
 }
 
-func waitForChainConfigs(ctx context.Context, jdClient offchain.Client, nodeID string, timeout time.Duration) error {
+func waitForChainConfigs(ctx context.Context, jdClient offchain.Client, nodeID string, timeout time.Duration, chainIDs []string) error {
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
@@ -291,6 +291,11 @@ func waitForChainConfigs(ctx context.Context, jdClient offchain.Client, nodeID s
 				continue
 			}
 
+			foundChainConfigs := make(map[string]bool)
+			for _, chainID := range chainIDs {
+				foundChainConfigs[chainID] = false
+			}
+
 			for _, chainConfig := range chainConfigsResp.ChainConfigs {
 				if chainConfig.Ocr2Config != nil &&
 					chainConfig.Ocr2Config.OcrKeyBundle != nil &&
@@ -300,8 +305,20 @@ func waitForChainConfigs(ctx context.Context, jdClient offchain.Client, nodeID s
 						Str("chainType", chainConfig.Chain.Type.String()).
 						Str("signingAddress", chainConfig.Ocr2Config.OcrKeyBundle.OnchainSigningAddress).
 						Msg("Chain config with OCR2 keys available")
-					return nil
+					foundChainConfigs[chainConfig.Chain.Id] = true
 				}
+			}
+
+			allFound := true
+			for _, found := range foundChainConfigs {
+				if !found {
+					allFound = false
+					break
+				}
+			}
+
+			if allFound {
+				return nil
 			}
 
 			Plog.Debug().Str("nodeID", nodeID).Int("configCount", len(chainConfigsResp.ChainConfigs)).Msg("No OCR2 chain configs yet, waiting...")
@@ -368,7 +385,7 @@ func ConnectNodesToJD(ctx context.Context, infra *JDInfrastructure, clientLookup
 			continue
 		}
 
-		if err := waitForChainConfigs(ctx, infra.OffchainClient, nodeID, chainConfigTimeout); err != nil {
+		if err := waitForChainConfigs(ctx, infra.OffchainClient, nodeID, chainConfigTimeout, chainIDs); err != nil {
 			Plog.Warn().
 				Str("nopAlias", alias).
 				Str("nodeID", nodeID).
