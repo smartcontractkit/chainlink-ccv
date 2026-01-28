@@ -40,7 +40,7 @@ func newTestEnvironment(t *testing.T) deployment.Environment {
 	}
 }
 
-func newTestEnvironmentWithDataStore(t *testing.T, ds datastore.DataStore) deployment.Environment {
+func newTestEnvironmentWithDataStore(t *testing.T, ds datastore.DataStore, nodeIDs []string) deployment.Environment {
 	t.Helper()
 	lggr, err := logger.New()
 	require.NoError(t, err)
@@ -48,6 +48,7 @@ func newTestEnvironmentWithDataStore(t *testing.T, ds datastore.DataStore) deplo
 		GetContext: func() context.Context { return context.Background() },
 		Logger:     lggr,
 		DataStore:  ds,
+		NodeIDs:    nodeIDs,
 	}
 }
 
@@ -119,7 +120,7 @@ func TestSyncJobProposals_StatusChange_UpdatesDatastore(t *testing.T) {
 	)
 
 	bundle := newTestBundle(t)
-	env := newTestEnvironmentWithDataStore(t, ds.Seal())
+	env := newTestEnvironmentWithDataStore(t, ds.Seal(), []string{"node-1"})
 
 	report, err := operations.ExecuteOperation(bundle, SyncJobProposals, SyncJobProposalsDeps{
 		Env:      env,
@@ -180,7 +181,7 @@ func TestSyncJobProposals_SpecDrift_DetectedAndReported(t *testing.T) {
 	)
 
 	bundle := newTestBundle(t)
-	env := newTestEnvironmentWithDataStore(t, ds.Seal())
+	env := newTestEnvironmentWithDataStore(t, ds.Seal(), []string{"node-1"})
 
 	report, err := operations.ExecuteOperation(bundle, SyncJobProposals, SyncJobProposalsDeps{
 		Env:      env,
@@ -225,7 +226,7 @@ func TestSyncJobProposals_JobNotFoundInJD_MarkedAsOrphanedAndDeleted(t *testing.
 	)
 
 	bundle := newTestBundle(t)
-	env := newTestEnvironmentWithDataStore(t, ds.Seal())
+	env := newTestEnvironmentWithDataStore(t, ds.Seal(), []string{"node-1"})
 
 	report, err := operations.ExecuteOperation(bundle, SyncJobProposals, SyncJobProposalsDeps{
 		Env:      env,
@@ -251,6 +252,7 @@ func TestSyncJobProposals_NOPFilter_OnlySyncsFilteredNOPs(t *testing.T) {
 	job1 := shared.JobInfo{
 		Spec:     "type = 'ccv'",
 		JDJobID:  "jd-job-1",
+		NodeID:   "node-1",
 		JobID:    "nop-1-default-executor",
 		NOPAlias: "nop-1",
 		Mode:     shared.NOPModeCL,
@@ -261,6 +263,7 @@ func TestSyncJobProposals_NOPFilter_OnlySyncsFilteredNOPs(t *testing.T) {
 	job2 := shared.JobInfo{
 		Spec:     "type = 'ccv'",
 		JDJobID:  "jd-job-2",
+		NodeID:   "node-2",
 		JobID:    "nop-2-default-executor",
 		NOPAlias: "nop-2",
 		Mode:     shared.NOPModeCL,
@@ -281,7 +284,7 @@ func TestSyncJobProposals_NOPFilter_OnlySyncsFilteredNOPs(t *testing.T) {
 	).Once()
 
 	bundle := newTestBundle(t)
-	env := newTestEnvironmentWithDataStore(t, ds.Seal())
+	env := newTestEnvironmentWithDataStore(t, ds.Seal(), []string{"node-1", "node-2"})
 
 	report, err := operations.ExecuteOperation(bundle, SyncJobProposals, SyncJobProposalsDeps{
 		Env:      env,
@@ -310,7 +313,7 @@ func TestSyncJobProposals_StandaloneModeJobs_Skipped(t *testing.T) {
 	mockClient := deploymocks.NewMockJDClient(t)
 
 	bundle := newTestBundle(t)
-	env := newTestEnvironmentWithDataStore(t, ds.Seal())
+	env := newTestEnvironmentWithDataStore(t, ds.Seal(), []string{"node-1"})
 
 	report, err := operations.ExecuteOperation(bundle, SyncJobProposals, SyncJobProposalsDeps{
 		Env:      env,
@@ -339,7 +342,7 @@ func TestSyncJobProposals_JobWithoutJDJobID_Skipped(t *testing.T) {
 	mockClient := deploymocks.NewMockJDClient(t)
 
 	bundle := newTestBundle(t)
-	env := newTestEnvironmentWithDataStore(t, ds.Seal())
+	env := newTestEnvironmentWithDataStore(t, ds.Seal(), []string{"node-1"})
 
 	report, err := operations.ExecuteOperation(bundle, SyncJobProposals, SyncJobProposalsDeps{
 		Env:      env,
@@ -359,6 +362,7 @@ func TestSyncJobProposals_NewRevision_AddsToProposalHistory(t *testing.T) {
 	localJob := shared.JobInfo{
 		Spec:     "type = 'ccv'",
 		JDJobID:  "jd-job-1",
+		NodeID:   "node-1",
 		JobID:    "nop-1-default-executor",
 		NOPAlias: "nop-1",
 		Mode:     shared.NOPModeCL,
@@ -380,7 +384,7 @@ func TestSyncJobProposals_NewRevision_AddsToProposalHistory(t *testing.T) {
 	)
 
 	bundle := newTestBundle(t)
-	env := newTestEnvironmentWithDataStore(t, ds.Seal())
+	env := newTestEnvironmentWithDataStore(t, ds.Seal(), []string{"node-1"})
 
 	report, err := operations.ExecuteOperation(bundle, SyncJobProposals, SyncJobProposalsDeps{
 		Env:      env,
@@ -418,4 +422,85 @@ func TestMapJDStatusToLocal_AllStatusesMapped(t *testing.T) {
 			assert.Equal(t, tc.expected, result)
 		})
 	}
+}
+
+func TestSyncJobProposals_EmptyNodeIDs_ReturnsError(t *testing.T) {
+	ds := datastore.NewMemoryDataStore()
+
+	job := shared.JobInfo{
+		Spec:     "type = 'ccv'",
+		JDJobID:  "jd-job-1",
+		NodeID:   "node-1",
+		JobID:    "nop-1-default-executor",
+		NOPAlias: "nop-1",
+		Mode:     shared.NOPModeCL,
+	}
+	require.NoError(t, deployments.SaveJob(ds, job))
+
+	mockClient := deploymocks.NewMockJDClient(t)
+
+	bundle := newTestBundle(t)
+	env := newTestEnvironmentWithDataStore(t, ds.Seal(), nil)
+
+	_, err := operations.ExecuteOperation(bundle, SyncJobProposals, SyncJobProposalsDeps{
+		Env:      env,
+		JDClient: mockClient,
+	}, SyncJobProposalsInput{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "NodeIDs must be specified")
+}
+
+func TestSyncJobProposals_JobNodeIDNotInAllowedList_ReturnsError(t *testing.T) {
+	ds := datastore.NewMemoryDataStore()
+
+	job := shared.JobInfo{
+		Spec:     "type = 'ccv'",
+		JDJobID:  "jd-job-1",
+		NodeID:   "node-not-allowed",
+		JobID:    "nop-1-default-executor",
+		NOPAlias: "nop-1",
+		Mode:     shared.NOPModeCL,
+	}
+	require.NoError(t, deployments.SaveJob(ds, job))
+
+	mockClient := deploymocks.NewMockJDClient(t)
+
+	bundle := newTestBundle(t)
+	env := newTestEnvironmentWithDataStore(t, ds.Seal(), []string{"node-1", "node-2"})
+
+	_, err := operations.ExecuteOperation(bundle, SyncJobProposals, SyncJobProposalsDeps{
+		Env:      env,
+		JDClient: mockClient,
+	}, SyncJobProposalsInput{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not in the allowed node list")
+}
+
+func TestSyncJobProposals_JobMissingNodeID_ReturnsError(t *testing.T) {
+	ds := datastore.NewMemoryDataStore()
+
+	job := shared.JobInfo{
+		Spec:     "type = 'ccv'",
+		JDJobID:  "jd-job-1",
+		NodeID:   "",
+		JobID:    "nop-1-default-executor",
+		NOPAlias: "nop-1",
+		Mode:     shared.NOPModeCL,
+	}
+	require.NoError(t, deployments.SaveJob(ds, job))
+
+	mockClient := deploymocks.NewMockJDClient(t)
+
+	bundle := newTestBundle(t)
+	env := newTestEnvironmentWithDataStore(t, ds.Seal(), []string{"node-1"})
+
+	_, err := operations.ExecuteOperation(bundle, SyncJobProposals, SyncJobProposalsDeps{
+		Env:      env,
+		JDClient: mockClient,
+	}, SyncJobProposalsInput{})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "has no NodeID")
 }

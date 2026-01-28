@@ -719,7 +719,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 
 		var networkInfo chainsel.ChainDetails
-		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, chainsel.FamilyEVM)
+		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
 		if err != nil {
 			return nil, err
 		}

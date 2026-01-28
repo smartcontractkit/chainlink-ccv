@@ -99,7 +99,7 @@ func (s TokenCombination) FinalityConfig() uint16 {
 	return 0 // Otherwise use default finality
 }
 
-// allTokenCombinations returns all possible token combinations.
+// AllTokenCombinations returns all possible token combinations.
 func AllTokenCombinations() []TokenCombination {
 	return []TokenCombination{
 		{ // 1.6.1 burn -> 1.6.1 mint

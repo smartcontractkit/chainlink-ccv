@@ -35,11 +35,12 @@ func newTestLogger(t *testing.T) logger.Logger {
 	return lggr
 }
 
-func newJobWithProposal(jobID shared.JobID, jdJobID string, nopAlias shared.NOPAlias) shared.JobInfo {
+func newJobWithProposal(jobID shared.JobID, jdJobID string, nopAlias shared.NOPAlias, nodeID string) shared.JobInfo {
 	return shared.JobInfo{
 		JobID:    jobID,
 		JDJobID:  jdJobID,
 		NOPAlias: nopAlias,
+		NodeID:   nodeID,
 		Mode:     shared.NOPModeCL,
 	}
 }
@@ -71,13 +72,14 @@ func TestRevokeJobs_Success_RevokesLatestProposal(t *testing.T) {
 
 	input := RevokeJobsInput{
 		Jobs: []shared.JobInfo{
-			newJobWithProposal("nop-1-default-executor", "jd-proposal-123", "nop-1"),
+			newJobWithProposal("nop-1-default-executor", "jd-proposal-123", "nop-1", "node-1"),
 		},
 	}
 
 	report, err := operations.ExecuteOperation(bundle, RevokeJobs, RevokeJobsDeps{
 		JDClient: mockClient,
 		Logger:   newTestLogger(t),
+		NodeIDs:  []string{"node-1"},
 	}, input)
 	require.NoError(t, err)
 	require.Len(t, report.Output.RevokedJobs, 1)
@@ -96,15 +98,16 @@ func TestRevokeJobs_MultipleJobs_AllRevoked(t *testing.T) {
 
 	input := RevokeJobsInput{
 		Jobs: []shared.JobInfo{
-			newJobWithProposal("job-1", "proposal-1", "nop-1"),
-			newJobWithProposal("job-2", "proposal-2", "nop-2"),
-			newJobWithProposal("job-3", "proposal-3", "nop-1"),
+			newJobWithProposal("job-1", "proposal-1", "nop-1", "node-1"),
+			newJobWithProposal("job-2", "proposal-2", "nop-2", "node-2"),
+			newJobWithProposal("job-3", "proposal-3", "nop-1", "node-1"),
 		},
 	}
 
 	report, err := operations.ExecuteOperation(bundle, RevokeJobs, RevokeJobsDeps{
 		JDClient: mockClient,
 		Logger:   newTestLogger(t),
+		NodeIDs:  []string{"node-1", "node-2"},
 	}, input)
 	require.NoError(t, err)
 	require.Len(t, report.Output.RevokedJobs, 3)
@@ -121,14 +124,15 @@ func TestRevokeJobs_NoJDJobID_SkipsAndReportsError(t *testing.T) {
 
 	input := RevokeJobsInput{
 		Jobs: []shared.JobInfo{
-			{JobID: "job-1", NOPAlias: "nop-1"},
-			newJobWithProposal("job-2", "jd-job-2", "nop-2"),
+			{JobID: "job-1", NOPAlias: "nop-1", NodeID: "node-1"},
+			newJobWithProposal("job-2", "jd-job-2", "nop-2", "node-2"),
 		},
 	}
 
 	report, err := operations.ExecuteOperation(bundle, RevokeJobs, RevokeJobsDeps{
 		JDClient: mockClient,
 		Logger:   newTestLogger(t),
+		NodeIDs:  []string{"node-1", "node-2"},
 	}, input)
 	require.NoError(t, err)
 
@@ -150,14 +154,15 @@ func TestRevokeJobs_JDError_ReportsErrorAndContinues(t *testing.T) {
 
 	input := RevokeJobsInput{
 		Jobs: []shared.JobInfo{
-			newJobWithProposal("job-1", "proposal-1", "nop-1"),
-			newJobWithProposal("job-2", "proposal-2", "nop-2"),
+			newJobWithProposal("job-1", "proposal-1", "nop-1", "node-1"),
+			newJobWithProposal("job-2", "proposal-2", "nop-2", "node-2"),
 		},
 	}
 
 	report, err := operations.ExecuteOperation(bundle, RevokeJobs, RevokeJobsDeps{
 		JDClient: mockClient,
 		Logger:   newTestLogger(t),
+		NodeIDs:  []string{"node-1", "node-2"},
 	}, input)
 	require.NoError(t, err)
 
@@ -165,4 +170,88 @@ func TestRevokeJobs_JDError_ReportsErrorAndContinues(t *testing.T) {
 	require.Len(t, report.Output.Errors, 2)
 	assert.Contains(t, report.Output.Errors[0].Error, "JD unavailable")
 	assert.Contains(t, report.Output.Errors[1].Error, "JD unavailable")
+}
+
+func TestRevokeJobs_EmptyNodeIDsDeps_ReturnsError(t *testing.T) {
+	mockClient := deploymocks.NewMockJDClient(t)
+	bundle := newTestBundle(t)
+
+	input := RevokeJobsInput{
+		Jobs: []shared.JobInfo{
+			newJobWithProposal("job-1", "proposal-1", "nop-1", "node-1"),
+		},
+	}
+
+	_, err := operations.ExecuteOperation(bundle, RevokeJobs, RevokeJobsDeps{
+		JDClient: mockClient,
+		Logger:   newTestLogger(t),
+		NodeIDs:  nil,
+	}, input)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "NodeIDs must be specified")
+}
+
+func TestRevokeJobs_NodeNotInAllowedList_ReturnsError(t *testing.T) {
+	mockClient := deploymocks.NewMockJDClient(t)
+	bundle := newTestBundle(t)
+
+	input := RevokeJobsInput{
+		Jobs: []shared.JobInfo{
+			newJobWithProposal("job-1", "proposal-1", "nop-1", "node-1"),
+			newJobWithProposal("job-2", "proposal-2", "nop-2", "node-not-allowed"),
+		},
+	}
+
+	_, err := operations.ExecuteOperation(bundle, RevokeJobs, RevokeJobsDeps{
+		JDClient: mockClient,
+		Logger:   newTestLogger(t),
+		NodeIDs:  []string{"node-1", "node-2"},
+	}, input)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "node-not-allowed")
+	assert.Contains(t, err.Error(), "not in the allowed node list")
+}
+
+func TestRevokeJobs_EmptyNodeID_ReturnsError(t *testing.T) {
+	mockClient := deploymocks.NewMockJDClient(t)
+	bundle := newTestBundle(t)
+
+	input := RevokeJobsInput{
+		Jobs: []shared.JobInfo{
+			newJobWithProposal("job-1", "proposal-1", "nop-1", ""),
+		},
+	}
+
+	_, err := operations.ExecuteOperation(bundle, RevokeJobs, RevokeJobsDeps{
+		JDClient: mockClient,
+		Logger:   newTestLogger(t),
+		NodeIDs:  []string{"node-1"},
+	}, input)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "has no NodeID")
+}
+
+func TestRevokeJobs_WithNodeIDs_ValidatesBeforeRevoke(t *testing.T) {
+	mockClient := deploymocks.NewMockJDClient(t)
+	mockClient.EXPECT().RevokeJob(mock.Anything, mock.Anything).Return(
+		&jobv1.RevokeJobResponse{}, nil,
+	).Times(2)
+
+	bundle := newTestBundle(t)
+
+	input := RevokeJobsInput{
+		Jobs: []shared.JobInfo{
+			newJobWithProposal("job-1", "proposal-1", "nop-1", "node-1"),
+			newJobWithProposal("job-2", "proposal-2", "nop-2", "node-2"),
+		},
+	}
+
+	report, err := operations.ExecuteOperation(bundle, RevokeJobs, RevokeJobsDeps{
+		JDClient: mockClient,
+		Logger:   newTestLogger(t),
+		NodeIDs:  []string{"node-1", "node-2"},
+	}, input)
+	require.NoError(t, err)
+	require.Len(t, report.Output.RevokedJobs, 2)
+	assert.Empty(t, report.Output.Errors)
 }

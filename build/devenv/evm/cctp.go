@@ -5,7 +5,7 @@ import (
 	"math/big"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/ethereum/go-ethereum/common"
+	gethcommon "github.com/ethereum/go-ethereum/common"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
@@ -27,7 +27,7 @@ import (
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
-	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -74,11 +74,11 @@ func (m *CCIP17EVMConfig) configureCircleContracts(
 	env *deployment.Environment,
 	chain evm.Chain,
 	selector uint64,
-	usdc common.Address,
-	messenger common.Address,
-	transmitter common.Address,
+	usdc gethcommon.Address,
+	messenger gethcommon.Address,
+	transmitter gethcommon.Address,
 ) error {
-	_, err := operations.ExecuteOperation(env.OperationsBundle, burnminterc677ops.GrantMintAndBurnRoles, chain, contract.FunctionInput[common.Address]{
+	_, err := operations.ExecuteOperation(env.OperationsBundle, burnminterc677ops.GrantMintAndBurnRoles, chain, contract.FunctionInput[gethcommon.Address]{
 		ChainSelector: selector,
 		Address:       usdc,
 		Args:          messenger,
@@ -87,7 +87,7 @@ func (m *CCIP17EVMConfig) configureCircleContracts(
 		return fmt.Errorf("failed to grant burn mint permissions to usdc messenger %s: %w", messenger.String(), err)
 	}
 
-	_, err = operations.ExecuteOperation(env.OperationsBundle, burnminterc677ops.GrantMintAndBurnRoles, chain, contract.FunctionInput[common.Address]{
+	_, err = operations.ExecuteOperation(env.OperationsBundle, burnminterc677ops.GrantMintAndBurnRoles, chain, contract.FunctionInput[gethcommon.Address]{
 		ChainSelector: selector,
 		Address:       usdc,
 		Args:          transmitter,
@@ -96,7 +96,7 @@ func (m *CCIP17EVMConfig) configureCircleContracts(
 		return fmt.Errorf("failed to grant burn mint permissions to usdc transmitter %s: %w", transmitter.String(), err)
 	}
 
-	_, err = operations.ExecuteOperation(env.OperationsBundle, burnminterc677ops.GrantMintAndBurnRoles, chain, contract.FunctionInput[common.Address]{
+	_, err = operations.ExecuteOperation(env.OperationsBundle, burnminterc677ops.GrantMintAndBurnRoles, chain, contract.FunctionInput[gethcommon.Address]{
 		ChainSelector: selector,
 		Address:       usdc,
 		Args:          chain.DeployerKey.From,
@@ -125,8 +125,8 @@ func (m *CCIP17EVMConfig) deployCCTPChain(
 	ds *datastore.MemoryDataStore,
 	create2Factory datastore.AddressRef,
 	selector uint64,
-	messenger common.Address,
-	usdc common.Address,
+	messenger gethcommon.Address,
+	usdc gethcommon.Address,
 	chain evm.Chain,
 ) error {
 	cctpChainRegistry := adapters.NewCCTPChainRegistry()
@@ -144,8 +144,8 @@ func (m *CCIP17EVMConfig) deployCCTPChain(
 				USDCToken:        usdc.Hex(),
 				MinFinalityValue: 1,
 				StorageLocations: []string{"https://test.chain.link.fake"},
-				FeeAggregator:    common.HexToAddress("0x04").Hex(),
-				AllowlistAdmin:   common.HexToAddress("0x05").Hex(),
+				FeeAggregator:    gethcommon.HexToAddress("0x04").Hex(),
+				AllowlistAdmin:   gethcommon.HexToAddress("0x05").Hex(),
 				FastFinalityBps:  100,
 				RMN: datastore.AddressRef{
 					Type:    datastore.ContractType(rmn_remote.ContractType),
@@ -156,7 +156,7 @@ func (m *CCIP17EVMConfig) deployCCTPChain(
 					Version: semver.MustParse(routeroperations.Deploy.Version()),
 				},
 				DeployerContract:                 create2Factory.Address,
-				Allowlist:                        []string{common.HexToAddress("0x08").Hex()},
+				Allowlist:                        []string{gethcommon.HexToAddress("0x08").Hex()},
 				ThresholdAmountForAdditionalCCVs: big.NewInt(1e18),
 				RateLimitAdmin:                   chain.DeployerKey.From.Hex(),
 				RemoteChains:                     make(map[uint64]adapters.RemoteCCTPChainConfig[datastore.AddressRef, datastore.AddressRef]),
@@ -183,7 +183,7 @@ func (m *CCIP17EVMConfig) deployMockReceivers(
 		selector,
 		datastore.ContractType(cctp_verifier.ResolverType),
 		semver.MustParse(cctp_verifier.Deploy.Version()),
-		devenvcommon.CCTPContractsQualifier,
+		common.CCTPContractsQualifier,
 	))
 	if err != nil {
 		return fmt.Errorf("failed to find CCTP verifier for chain %d: %w", selector, err)
@@ -193,7 +193,7 @@ func (m *CCIP17EVMConfig) deployMockReceivers(
 		selector,
 		datastore.ContractType(committee_verifier.ResolverType),
 		semver.MustParse(committee_verifier.Deploy.Version()),
-		devenvcommon.DefaultCommitteeVerifierQualifier,
+		common.DefaultCommitteeVerifierQualifier,
 	))
 	if err != nil {
 		return fmt.Errorf("failed to find committee verifier for chain %d: %w", selector, err)
@@ -204,13 +204,13 @@ func (m *CCIP17EVMConfig) deployMockReceivers(
 		RequiredVerifiers []datastore.AddressRef
 	}{
 		{
-			Qualifier: devenvcommon.CCTPPrimaryReceiverQualifier,
+			Qualifier: common.CCTPPrimaryReceiverQualifier,
 			RequiredVerifiers: []datastore.AddressRef{
 				cctpVerifier,
 			},
 		},
 		{
-			Qualifier: devenvcommon.CCTPSecondaryReceiverQualifier,
+			Qualifier: common.CCTPSecondaryReceiverQualifier,
 			RequiredVerifiers: []datastore.AddressRef{
 				cctpVerifier,
 				committeeVerifier,
@@ -219,9 +219,9 @@ func (m *CCIP17EVMConfig) deployMockReceivers(
 	}
 
 	for _, r := range receivers {
-		requiredVerifiers := make([]common.Address, 0, len(r.RequiredVerifiers))
+		requiredVerifiers := make([]gethcommon.Address, 0, len(r.RequiredVerifiers))
 		for _, v := range r.RequiredVerifiers {
-			requiredVerifiers = append(requiredVerifiers, common.HexToAddress(v.Address))
+			requiredVerifiers = append(requiredVerifiers, gethcommon.HexToAddress(v.Address))
 		}
 
 		deployReceiverReport, err1 := operations.ExecuteOperation(
@@ -252,8 +252,8 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 	chain evm.Chain,
 	ds *datastore.MemoryDataStore,
 	selector uint64,
-) (common.Address, common.Address, common.Address, error) {
-	var empty common.Address
+) (gethcommon.Address, gethcommon.Address, gethcommon.Address, error) {
+	var empty gethcommon.Address
 	// We need a custom number of decimals (6) for USDC so we can't deploy erc20_with_drip here
 	// which has hardcoded 18 decimals.
 	usdcTokenAddr, tx, _, err := burn_mint_erc20_bindings.DeployBurnMintERC20(
@@ -276,7 +276,7 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 		Type:          datastore.ContractType(burnminterc677ops.ContractType),
 		Version:       burnminterc677ops.Version,
 		Address:       usdcTokenAddr.Hex(),
-		Qualifier:     devenvcommon.CCTPContractsQualifier,
+		Qualifier:     common.CCTPContractsQualifier,
 	})
 	if err != nil {
 		return empty, empty, empty, fmt.Errorf("failed to add USDC token contract: %w", err)
@@ -300,7 +300,7 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 		Type:          "MockE2EUSDCTransmitter",
 		Version:       semver.MustParse("1.0.0"),
 		Address:       messageTransmitterAddr.Hex(),
-		Qualifier:     devenvcommon.CCTPContractsQualifier,
+		Qualifier:     common.CCTPContractsQualifier,
 	})
 	if err != nil {
 		return empty, empty, empty, fmt.Errorf("failed to add USDC message transmitter contract: %w", err)
@@ -323,7 +323,7 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 		Type:          "MockE2EUSDCTokenMessenger",
 		Version:       semver.MustParse("1.0.0"),
 		Address:       tokenMessengerAddr.Hex(),
-		Qualifier:     devenvcommon.CCTPContractsQualifier,
+		Qualifier:     common.CCTPContractsQualifier,
 	})
 	if err != nil {
 		return empty, empty, empty, fmt.Errorf("failed to add USDC tijen messenger contract: %w", err)
@@ -345,7 +345,7 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(env *deployment.Environment, 
 			ChainSelector: rs,
 			Type:          datastore.ContractType(usdc_token_pool_proxy.ContractType),
 			Version:       semver.MustParse(usdc_token_pool_proxy.Deploy.Version()),
-			Qualifier:     devenvcommon.CCTPContractsQualifier,
+			Qualifier:     common.CCTPContractsQualifier,
 		}
 		remoteChains[rs] = adapters.RemoteCCTPChainConfig[datastore.AddressRef, datastore.AddressRef]{
 			FeeUSDCents:         10,
@@ -357,13 +357,13 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(env *deployment.Environment, 
 					ChainSelector: rs,
 					Type:          datastore.ContractType(cctp_message_transmitter_proxy.ContractType),
 					Version:       semver.MustParse(cctp_message_transmitter_proxy.Deploy.Version()),
-					Qualifier:     devenvcommon.CCTPContractsQualifier,
+					Qualifier:     common.CCTPContractsQualifier,
 				},
 				AllowedCallerOnSource: datastore.AddressRef{
 					ChainSelector: rs,
 					Type:          datastore.ContractType(cctp_verifier.ContractType),
 					Version:       semver.MustParse(cctp_verifier.Deploy.Version()),
-					Qualifier:     devenvcommon.CCTPContractsQualifier,
+					Qualifier:     common.CCTPContractsQualifier,
 				},
 				DomainIdentifier: domains[rs],
 			},
@@ -373,7 +373,7 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(env *deployment.Environment, 
 					ChainSelector: rs,
 					Type:          datastore.ContractType(burnminterc677ops.ContractType),
 					Version:       burnminterc677ops.Version,
-					Qualifier:     devenvcommon.CCTPContractsQualifier,
+					Qualifier:     common.CCTPContractsQualifier,
 				},
 				DefaultFinalityInboundRateLimiterConfig:  testsetup.CreateRateLimiterConfig(0, 0),
 				DefaultFinalityOutboundRateLimiterConfig: testsetup.CreateRateLimiterConfig(0, 0),

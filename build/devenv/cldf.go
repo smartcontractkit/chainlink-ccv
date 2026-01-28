@@ -64,11 +64,7 @@ func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint
 	selectors := make([]uint64, 0)
 	defaultTxTimeout := 30 * time.Second
 	for _, b := range cfg.Blockchains {
-		family, err := blockchain.TypeToFamily(b.Type)
-		if err != nil {
-			return nil, nil, fmt.Errorf("unable to determine blockchain type: %w", err)
-		}
-		switch family {
+		switch b.Out.Family {
 		case blockchain.FamilyEVM:
 			chainID := b.Out.ChainID
 			rpcWSURL := b.Out.Nodes[0].ExternalWSUrl
@@ -142,7 +138,7 @@ func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint
 			}
 			providers = append(providers, p)
 		default:
-			return nil, nil, fmt.Errorf("unsupported blockchain family: %s", family)
+			return nil, nil, fmt.Errorf("unsupported blockchain family: %s", b.Out.Family)
 		}
 	}
 
