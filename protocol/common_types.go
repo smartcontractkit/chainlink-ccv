@@ -3,6 +3,7 @@ package protocol
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -293,4 +294,38 @@ type MessageSentEvent struct {
 	Receipts    []ReceiptWithBlob // Verifier receipts + executor receipt
 	BlockNumber uint64            // Block number where event occurred
 	TxHash      ByteSlice         // Transaction hash of the event
+}
+
+// CCVAddressInfo represents the ccv verifier addresses needed to submit a message.
+// These addresses correspond to destination chain verifiers.
+type CCVAddressInfo struct {
+	RequiredCCVs      []UnknownAddress `json:"required_ccvs"`
+	OptionalCCVs      []UnknownAddress `json:"optional_ccvs"`
+	OptionalThreshold uint8            `json:"optional_threshold"`
+}
+
+// AbstractAggregatedReport represents the aggregated report for a message.
+// This is the protocol-level representation of the report to submit to destination chain.
+type AbstractAggregatedReport struct {
+	CCVS    []UnknownAddress
+	CCVData [][]byte
+	Message Message
+}
+
+// MarshalJSON implements the json.Marshaler interface for AbstractAggregatedReport.
+// CCVS and CCVData are marshaled as hex strings.
+func (a AbstractAggregatedReport) MarshalJSON() ([]byte, error) {
+	ccvData := make([]ByteSlice, len(a.CCVData))
+	for i, data := range a.CCVData {
+		ccvData[i] = ByteSlice(data)
+	}
+	return json.Marshal(struct {
+		CCVS    []UnknownAddress `json:"ccvs"`
+		CCVData []ByteSlice      `json:"ccv_data"`
+		Message Message          `json:"message"`
+	}{
+		CCVS:    a.CCVS,
+		CCVData: ccvData,
+		Message: a.Message,
+	})
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -27,7 +28,7 @@ func setupTestExecutor(
 	address1, address2 protocol.UnknownAddress,
 	sourceChainSelector protocol.ChainSelector,
 ) *ChainlinkExecutor {
-	allContractTransmitters := make(map[protocol.ChainSelector]coordinator.ContractTransmitter)
+	allContractTransmitters := make(map[protocol.ChainSelector]chainaccess.ContractTransmitter)
 	for chain, mockCT := range ct {
 		allContractTransmitters[chain] = mockCT
 	}
@@ -173,7 +174,7 @@ func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
 		name                 string
 		verifierResults      []protocol.VerifierResult
 		verifierResultsErr   error
-		ccvInfo              coordinator.CCVAddressInfo
+		ccvInfo              protocol.CCVAddressInfo
 		ccvInfoErr           error
 		expectedRetry        bool
 		expectedError        bool
@@ -184,7 +185,7 @@ func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
 			verifierResults: []protocol.VerifierResult{
 				{MessageID: protocol.Bytes32{}, Message: generateFakeMessage(1, 2, 1, nil, address2), MessageCCVAddresses: []protocol.UnknownAddress{}, MessageExecutorAddress: address2},
 			},
-			ccvInfo:       coordinator.CCVAddressInfo{},
+			ccvInfo:       protocol.CCVAddressInfo{},
 			expectedRetry: false,
 			expectedError: false,
 		},
@@ -197,7 +198,7 @@ func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
 		{
 			name:                 "no verifier results - should retry with error",
 			verifierResults:      []protocol.VerifierResult{},
-			ccvInfo:              coordinator.CCVAddressInfo{},
+			ccvInfo:              protocol.CCVAddressInfo{},
 			expectedRetry:        true,
 			expectedError:        true,
 			expectedNoResultsErr: true,
@@ -207,7 +208,7 @@ func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
 			verifierResults: []protocol.VerifierResult{
 				{MessageID: protocol.Bytes32{}, Message: generateFakeMessage(1, 2, 1, nil, address1), MessageCCVAddresses: []protocol.UnknownAddress{}, MessageExecutorAddress: address1}, // address1 doesn't match defaultExecutorAddress[2] = address2
 			},
-			ccvInfo:              coordinator.CCVAddressInfo{},
+			ccvInfo:              protocol.CCVAddressInfo{},
 			expectedRetry:        true,
 			expectedError:        true,
 			expectedNoResultsErr: true,
@@ -217,7 +218,7 @@ func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
 			verifierResults: []protocol.VerifierResult{
 				{MessageID: protocol.Bytes32{}, Message: generateFakeMessage(1, 2, 1, nil, address2), MessageCCVAddresses: []protocol.UnknownAddress{}, MessageExecutorAddress: address2},
 			},
-			ccvInfo: coordinator.CCVAddressInfo{
+			ccvInfo: protocol.CCVAddressInfo{
 				OptionalCCVs:      []protocol.UnknownAddress{address1},
 				OptionalThreshold: 1,
 			},
@@ -288,7 +289,7 @@ func Test_ChainlinkExecutor_HandleMessage_OrderCCVData(t *testing.T) {
 	testcases := []struct {
 		name            string
 		verifierResults []protocol.VerifierResult
-		ccvInfo         coordinator.CCVAddressInfo
+		ccvInfo         protocol.CCVAddressInfo
 		orderCCVDataErr bool
 		expectedRetry   bool
 		expectedError   bool
@@ -298,7 +299,7 @@ func Test_ChainlinkExecutor_HandleMessage_OrderCCVData(t *testing.T) {
 			verifierResults: []protocol.VerifierResult{
 				{MessageID: protocol.Bytes32{}, Message: generateFakeMessage(1, 2, 1, address1, address2), MessageCCVAddresses: []protocol.UnknownAddress{address1}, VerifierDestAddress: address1, CCVData: []byte("data1"), MessageExecutorAddress: address2},
 			},
-			ccvInfo: coordinator.CCVAddressInfo{
+			ccvInfo: protocol.CCVAddressInfo{
 				OptionalCCVs:      []protocol.UnknownAddress{address1},
 				OptionalThreshold: 1,
 			},
@@ -310,7 +311,7 @@ func Test_ChainlinkExecutor_HandleMessage_OrderCCVData(t *testing.T) {
 			verifierResults: []protocol.VerifierResult{
 				{MessageID: protocol.Bytes32{}, Message: generateFakeMessage(1, 2, 1, address1, address2), MessageCCVAddresses: []protocol.UnknownAddress{address1}, VerifierDestAddress: address1, CCVData: []byte("data1"), MessageExecutorAddress: address2},
 			},
-			ccvInfo: coordinator.CCVAddressInfo{
+			ccvInfo: protocol.CCVAddressInfo{
 				RequiredCCVs:      []protocol.UnknownAddress{address2}, // address2 not in verifier results
 				OptionalCCVs:      []protocol.UnknownAddress{address1},
 				OptionalThreshold: 0,
@@ -376,7 +377,7 @@ func Test_ChainlinkExecutor_HandleMessage_ConvertAndWrite(t *testing.T) {
 		convertAndWriteErr  error
 		expectedRetry       bool
 		expectedError       bool
-		expectedReportCheck func(*testing.T, coordinator.AbstractAggregatedReport) bool
+		expectedReportCheck func(*testing.T, protocol.AbstractAggregatedReport) bool
 	}{
 		{
 			name:               "ConvertAndWriteMessageToChain succeeds - should complete",
@@ -395,7 +396,7 @@ func Test_ChainlinkExecutor_HandleMessage_ConvertAndWrite(t *testing.T) {
 			convertAndWriteErr: nil,
 			expectedRetry:      false,
 			expectedError:      false,
-			expectedReportCheck: func(t *testing.T, report coordinator.AbstractAggregatedReport) bool {
+			expectedReportCheck: func(t *testing.T, report protocol.AbstractAggregatedReport) bool {
 				return len(report.CCVS) == 1 &&
 					len(report.CCVData) == 1 &&
 					string(report.CCVData[0]) == "data1"
@@ -415,7 +416,7 @@ func Test_ChainlinkExecutor_HandleMessage_ConvertAndWrite(t *testing.T) {
 			dr[1].EXPECT().GetRMNCursedSubjects(mock.Anything).Return([]protocol.Bytes16{}, nil).Once()
 			dr[1].EXPECT().GetMessageSuccess(mock.Anything, mock.Anything).Return(false, nil).Once()
 			dr[1].EXPECT().GetExecutionAttempts(mock.Anything, mock.Anything).Return([]coordinator.ExecutionAttempt{}, nil).Once()
-			dr[1].EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(coordinator.CCVAddressInfo{
+			dr[1].EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(protocol.CCVAddressInfo{
 				OptionalCCVs:      []protocol.UnknownAddress{address1},
 				OptionalThreshold: 1,
 			}, nil).Maybe()
@@ -429,7 +430,7 @@ func Test_ChainlinkExecutor_HandleMessage_ConvertAndWrite(t *testing.T) {
 			}, nil).Maybe()
 
 			if tc.expectedReportCheck != nil {
-				ct[1].EXPECT().ConvertAndWriteMessageToChain(mock.Anything, mock.MatchedBy(func(report coordinator.AbstractAggregatedReport) bool {
+				ct[1].EXPECT().ConvertAndWriteMessageToChain(mock.Anything, mock.MatchedBy(func(report protocol.AbstractAggregatedReport) bool {
 					return tc.expectedReportCheck(t, report)
 				})).Return(tc.convertAndWriteErr).Once()
 			} else {
@@ -473,7 +474,7 @@ func Test_orderCCVData(t *testing.T) {
 	testcases := []struct {
 		name                string
 		ccvDatas            []protocol.VerifierResult
-		receiverCCVInfo     coordinator.CCVAddressInfo
+		receiverCCVInfo     protocol.CCVAddressInfo
 		expectedOrderedData [][]byte
 		expectedOfframps    []protocol.UnknownAddress
 		expectedTimestamp   int64
@@ -483,7 +484,7 @@ func Test_orderCCVData(t *testing.T) {
 		{
 			name:     "happy path",
 			ccvDatas: []protocol.VerifierResult{reqData1, reqData2, optData1, optData2, optData3, otherData},
-			receiverCCVInfo: coordinator.CCVAddressInfo{
+			receiverCCVInfo: protocol.CCVAddressInfo{
 				RequiredCCVs:      []protocol.UnknownAddress{reqAddr1, reqAddr2},
 				OptionalCCVs:      []protocol.UnknownAddress{optAddr1, optAddr2, optAddr3},
 				OptionalThreshold: 2,
@@ -496,7 +497,7 @@ func Test_orderCCVData(t *testing.T) {
 		{
 			name:     "missing required ccv",
 			ccvDatas: []protocol.VerifierResult{reqData1, optData1, optData2, optData3},
-			receiverCCVInfo: coordinator.CCVAddressInfo{
+			receiverCCVInfo: protocol.CCVAddressInfo{
 				RequiredCCVs:      []protocol.UnknownAddress{reqAddr1, reqAddr2},
 				OptionalCCVs:      []protocol.UnknownAddress{optAddr1, optAddr2, optAddr3},
 				OptionalThreshold: 2,
@@ -507,7 +508,7 @@ func Test_orderCCVData(t *testing.T) {
 		{
 			name:     "insufficient optional ccvs",
 			ccvDatas: []protocol.VerifierResult{reqData1, reqData2, optData1},
-			receiverCCVInfo: coordinator.CCVAddressInfo{
+			receiverCCVInfo: protocol.CCVAddressInfo{
 				RequiredCCVs:      []protocol.UnknownAddress{reqAddr1, reqAddr2},
 				OptionalCCVs:      []protocol.UnknownAddress{optAddr1, optAddr2, optAddr3},
 				OptionalThreshold: 2,
@@ -518,7 +519,7 @@ func Test_orderCCVData(t *testing.T) {
 		{
 			name:     "optional threshold is 0",
 			ccvDatas: []protocol.VerifierResult{reqData1, reqData2, optData1, optData2, optData3},
-			receiverCCVInfo: coordinator.CCVAddressInfo{
+			receiverCCVInfo: protocol.CCVAddressInfo{
 				RequiredCCVs:      []protocol.UnknownAddress{reqAddr1, reqAddr2},
 				OptionalCCVs:      []protocol.UnknownAddress{optAddr1, optAddr2, optAddr3},
 				OptionalThreshold: 0,
@@ -531,7 +532,7 @@ func Test_orderCCVData(t *testing.T) {
 		{
 			name:     "no required ccvs",
 			ccvDatas: []protocol.VerifierResult{reqData1, reqData2, optData1, optData2, optData3},
-			receiverCCVInfo: coordinator.CCVAddressInfo{
+			receiverCCVInfo: protocol.CCVAddressInfo{
 				RequiredCCVs:      []protocol.UnknownAddress{},
 				OptionalCCVs:      []protocol.UnknownAddress{optAddr1, optAddr2, optAddr3},
 				OptionalThreshold: 2,
@@ -544,7 +545,7 @@ func Test_orderCCVData(t *testing.T) {
 		{
 			name:     "only takes up to threshold of optional ccvs",
 			ccvDatas: []protocol.VerifierResult{reqData1, reqData2, optData1, optData2, optData3},
-			receiverCCVInfo: coordinator.CCVAddressInfo{
+			receiverCCVInfo: protocol.CCVAddressInfo{
 				RequiredCCVs:      []protocol.UnknownAddress{reqAddr1, reqAddr2},
 				OptionalCCVs:      []protocol.UnknownAddress{optAddr1, optAddr2, optAddr3},
 				OptionalThreshold: 2,
@@ -557,7 +558,7 @@ func Test_orderCCVData(t *testing.T) {
 		{
 			name:     "correct timestamp calculation",
 			ccvDatas: []protocol.VerifierResult{reqData1, reqData2, optData1, optData2, optData3},
-			receiverCCVInfo: coordinator.CCVAddressInfo{
+			receiverCCVInfo: protocol.CCVAddressInfo{
 				RequiredCCVs:      []protocol.UnknownAddress{reqAddr1, reqAddr2},           // timestamps 10, 20. max is 20
 				OptionalCCVs:      []protocol.UnknownAddress{optAddr1, optAddr3, optAddr2}, // timestamps 5, 15, 25
 				OptionalThreshold: 2,

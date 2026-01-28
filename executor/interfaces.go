@@ -6,6 +6,7 @@ import (
 
 	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
@@ -50,13 +51,6 @@ type Executor interface {
 	CheckValidMessage(ctx context.Context, message protocol.Message) error
 }
 
-// ContractTransmitter is an interface for transmitting messages to destination chains
-// it should be implemented by chain-specific transmitters.
-type ContractTransmitter interface {
-	// ConvertAndWriteMessageToChain converts and transmits message to chain
-	ConvertAndWriteMessageToChain(ctx context.Context, report AbstractAggregatedReport) error
-}
-
 type LeaderElector interface {
 	// GetReadyTimestamp to determine when a message is ready to be executed by this executor
 	// We need chain selector as well as messageID because messageID is hashed and we cannot use it to get message information.
@@ -71,12 +65,8 @@ type LeaderElector interface {
 // When integrating with non-evms, the implementer only needs to add support for a single chain.
 type DestinationReader interface {
 	services.Service
-	// GetCCVSForMessage return cross-chain verifications for selected message
-	GetCCVSForMessage(ctx context.Context, message protocol.Message) (CCVAddressInfo, error)
-	// GetMessageSuccess returns true if message has on-chain success state.
-	GetMessageSuccess(ctx context.Context, message protocol.Message) (bool, error)
-	// GetRMNCursedSubjects returns the full list of cursed subjects for the chain. These can be Bytes16 ChainSelectors or the GlobalCurseSubject.
-	GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error)
+	// Embed chainaccess.DestinationReader to get the base functionality.
+	chainaccess.DestinationReader
 	// GetExecutionAttempts returns the full list of execution attempts for a given message within the executable window.
 	GetExecutionAttempts(ctx context.Context, message protocol.Message) ([]ExecutionAttempt, error)
 }

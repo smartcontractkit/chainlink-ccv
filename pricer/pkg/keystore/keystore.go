@@ -39,5 +39,5 @@ func LoadMemoryKeystore(ctx context.Context, keystoreData []byte, keystorePasswo
 	if err := memStorage.PutEncryptedKeystore(ctx, keystoreData); err != nil {
 		return nil, fmt.Errorf("failed to populate keystore storage: %w", err)
 	}
-	return ks.LoadKeystore(ctx, memStorage, keystorePassword)
+	return ks.LoadKeystore(ctx, memStorage, keystorePassword, ks.WithScryptParams(ks.FastScryptParams))
 }

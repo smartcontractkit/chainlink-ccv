@@ -53,9 +53,9 @@ func (m *mockDestinationReader) HealthReport() map[string]error {
 	return args.Get(0).(map[string]error)
 }
 
-func (m *mockDestinationReader) GetCCVSForMessage(ctx context.Context, message protocol.Message) (executor.CCVAddressInfo, error) {
+func (m *mockDestinationReader) GetCCVSForMessage(ctx context.Context, message protocol.Message) (protocol.CCVAddressInfo, error) {
 	args := m.Called(ctx, message)
-	return args.Get(0).(executor.CCVAddressInfo), args.Error(1)
+	return args.Get(0).(protocol.CCVAddressInfo), args.Error(1)
 }
 
 func (m *mockDestinationReader) GetMessageSuccess(ctx context.Context, message protocol.Message) (bool, error) {
@@ -152,7 +152,7 @@ func createTestVerifierResult(t *testing.T, message protocol.Message, verifierDe
 // createTestExecutionAttempt creates a test execution attempt.
 func createTestExecutionAttempt(message protocol.Message, ccvs []protocol.UnknownAddress, ccvData [][]byte, gasLimit *big.Int) executor.ExecutionAttempt {
 	return executor.ExecutionAttempt{
-		Report: executor.AbstractAggregatedReport{
+		Report: protocol.AbstractAggregatedReport{
 			CCVS:    ccvs,
 			CCVData: ccvData,
 			Message: message,
@@ -170,7 +170,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 
 		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
 		verifierResults := []protocol.VerifierResult{}
-		ccvInfo := executor.CCVAddressInfo{
+		ccvInfo := protocol.CCVAddressInfo{
 			RequiredCCVs:      []protocol.UnknownAddress{},
 			OptionalCCVs:      []protocol.UnknownAddress{},
 			OptionalThreshold: 0,
@@ -201,7 +201,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 		verifierResult := createTestVerifierResult(t, message, ccvAddr, ccvData)
 		verifierResults := []protocol.VerifierResult{verifierResult}
 
-		ccvInfo := executor.CCVAddressInfo{
+		ccvInfo := protocol.CCVAddressInfo{
 			RequiredCCVs:      []protocol.UnknownAddress{ccvAddr},
 			OptionalCCVs:      []protocol.UnknownAddress{},
 			OptionalThreshold: 0,
@@ -239,7 +239,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 		verifierResult := createTestVerifierResult(t, message, ccvAddr, ccvData)
 		verifierResults := []protocol.VerifierResult{verifierResult}
 
-		ccvInfo := executor.CCVAddressInfo{
+		ccvInfo := protocol.CCVAddressInfo{
 			RequiredCCVs:      []protocol.UnknownAddress{ccvAddr},
 			OptionalCCVs:      []protocol.UnknownAddress{},
 			OptionalThreshold: 0,
@@ -278,7 +278,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 		verifierResult := createTestVerifierResult(t, message, ccvAddr, ccvData)
 		verifierResults := []protocol.VerifierResult{verifierResult}
 
-		ccvInfo := executor.CCVAddressInfo{
+		ccvInfo := protocol.CCVAddressInfo{
 			RequiredCCVs:      []protocol.UnknownAddress{ccvAddr},
 			OptionalCCVs:      []protocol.UnknownAddress{},
 			OptionalThreshold: 0,
@@ -311,7 +311,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 
 		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
 		verifierResults := []protocol.VerifierResult{}
-		ccvInfo := executor.CCVAddressInfo{}
+		ccvInfo := protocol.CCVAddressInfo{}
 
 		mockReader.On("GetExecutionAttempts", mock.Anything, message).
 			Return(nil, assert.AnError)
@@ -338,7 +338,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 		verifierResult := createTestVerifierResult(t, message, ccvAddr, ccvData)
 		verifierResults := []protocol.VerifierResult{verifierResult}
 
-		ccvInfo := executor.CCVAddressInfo{
+		ccvInfo := protocol.CCVAddressInfo{
 			RequiredCCVs:      []protocol.UnknownAddress{ccvAddr},
 			OptionalCCVs:      []protocol.UnknownAddress{},
 			OptionalThreshold: 0,
@@ -387,7 +387,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 		verifierResult := createTestVerifierResult(t, message, ccvAddr, ccvData)
 		verifierResults := []protocol.VerifierResult{verifierResult}
 
-		ccvInfo := executor.CCVAddressInfo{
+		ccvInfo := protocol.CCVAddressInfo{
 			RequiredCCVs:      []protocol.UnknownAddress{ccvAddr},
 			OptionalCCVs:      []protocol.UnknownAddress{},
 			OptionalThreshold: 0,
@@ -431,7 +431,7 @@ func TestExecutionCheckerService_isHonestCallData(t *testing.T) {
 			createTestVerifierResult(t, message, optionalCCV, optionalCCVData),
 		}
 
-		ccvInfo := executor.CCVAddressInfo{
+		ccvInfo := protocol.CCVAddressInfo{
 			RequiredCCVs:      []protocol.UnknownAddress{requiredCCV},
 			OptionalCCVs:      []protocol.UnknownAddress{optionalCCV},
 			OptionalThreshold: 1,
@@ -462,7 +462,7 @@ func TestExecutionCheckerService_isHonestCallData(t *testing.T) {
 			createTestVerifierResult(t, message, requiredCCV, requiredCCVData),
 		}
 
-		ccvInfo := executor.CCVAddressInfo{
+		ccvInfo := protocol.CCVAddressInfo{
 			RequiredCCVs:      []protocol.UnknownAddress{requiredCCV},
 			OptionalCCVs:      []protocol.UnknownAddress{},
 			OptionalThreshold: 0,
@@ -499,7 +499,7 @@ func TestExecutionCheckerService_isHonestCallData(t *testing.T) {
 			createTestVerifierResult(t, message, optionalCCV, optionalCCVData),
 		}
 
-		ccvInfo := executor.CCVAddressInfo{
+		ccvInfo := protocol.CCVAddressInfo{
 			RequiredCCVs:      []protocol.UnknownAddress{requiredCCV},
 			OptionalCCVs:      []protocol.UnknownAddress{optionalCCV},
 			OptionalThreshold: 1, // Need at least 1 valid optional CCV
@@ -533,7 +533,7 @@ func TestExecutionCheckerService_isHonestCallData(t *testing.T) {
 			createTestVerifierResult(t, message, ccvAddr, ccvData),
 		}
 
-		ccvInfo := executor.CCVAddressInfo{
+		ccvInfo := protocol.CCVAddressInfo{
 			RequiredCCVs:      []protocol.UnknownAddress{ccvAddr},
 			OptionalCCVs:      []protocol.UnknownAddress{},
 			OptionalThreshold: 0,
@@ -573,7 +573,7 @@ func TestExecutionCheckerService_isHonestCallData(t *testing.T) {
 			createTestVerifierResult(t, message, optionalCCV2, optionalCCV2Data),
 		}
 
-		ccvInfo := executor.CCVAddressInfo{
+		ccvInfo := protocol.CCVAddressInfo{
 			RequiredCCVs:      []protocol.UnknownAddress{requiredCCV},
 			OptionalCCVs:      []protocol.UnknownAddress{optionalCCV1, optionalCCV2},
 			OptionalThreshold: 1, // Need at least 1 valid optional CCV

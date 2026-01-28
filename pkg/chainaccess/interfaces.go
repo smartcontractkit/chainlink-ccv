@@ -67,11 +67,26 @@ type MessageFilter interface {
 type Accessor interface {
 	// SourceReader returns the SourceReader for the chain selector.
 	SourceReader() SourceReader
-	// TODO: add other readers as needed, e.g. DestinationReader for executor.
 }
 
 // AccessorFactory creates Accessors for specific chain selectors.
 type AccessorFactory interface {
 	// GetAccessor returns the Accessor for the given chain selector.
 	GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (Accessor, error)
+}
+
+// DestinationReader is an interface for reading message status and data from a single destination chain.
+type DestinationReader interface {
+	// RMNCurseReader Embed RMNCurseReader for curse detection functionality. This can point to the same implementation as the SourceReader.
+	RMNCurseReader
+	// GetMessageSuccess returns true if message has on-chain success state.
+	GetMessageSuccess(ctx context.Context, message protocol.Message) (bool, error)
+	// GetCCVSForMessage return cross-chain verifications for selected message
+	GetCCVSForMessage(ctx context.Context, message protocol.Message) (protocol.CCVAddressInfo, error)
+}
+
+// ContractTransmitter is an interface for transmitting messages to destination chains that should be implemented by chain-specific transmitters.
+type ContractTransmitter interface {
+	// ConvertAndWriteMessageToChain takes an aggregated report and transmits it in the format expected by the destination chain.
+	ConvertAndWriteMessageToChain(ctx context.Context, report protocol.AbstractAggregatedReport) error
 }

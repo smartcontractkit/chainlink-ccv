@@ -5,7 +5,7 @@ package mocks
 import (
 	context "context"
 
-	executor "github.com/smartcontractkit/chainlink-ccv/executor"
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -23,7 +23,7 @@ func (_m *MockContractTransmitter) EXPECT() *MockContractTransmitter_Expecter {
 }
 
 // ConvertAndWriteMessageToChain provides a mock function with given fields: ctx, report
-func (_m *MockContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Context, report executor.AbstractAggregatedReport) error {
+func (_m *MockContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Context, report protocol.AbstractAggregatedReport) error {
 	ret := _m.Called(ctx, report)
 
 	if len(ret) == 0 {
@@ -31,7 +31,7 @@ func (_m *MockContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Con
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, executor.AbstractAggregatedReport) error); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.AbstractAggregatedReport) error); ok {
 		r0 = rf(ctx, report)
 	} else {
 		r0 = ret.Error(0)
@@ -47,14 +47,14 @@ type MockContractTransmitter_ConvertAndWriteMessageToChain_Call struct {
 
 // ConvertAndWriteMessageToChain is a helper method to define mock.On call
 //   - ctx context.Context
-//   - report executor.AbstractAggregatedReport
+//   - report protocol.AbstractAggregatedReport
 func (_e *MockContractTransmitter_Expecter) ConvertAndWriteMessageToChain(ctx interface{}, report interface{}) *MockContractTransmitter_ConvertAndWriteMessageToChain_Call {
 	return &MockContractTransmitter_ConvertAndWriteMessageToChain_Call{Call: _e.mock.On("ConvertAndWriteMessageToChain", ctx, report)}
 }
 
-func (_c *MockContractTransmitter_ConvertAndWriteMessageToChain_Call) Run(run func(ctx context.Context, report executor.AbstractAggregatedReport)) *MockContractTransmitter_ConvertAndWriteMessageToChain_Call {
+func (_c *MockContractTransmitter_ConvertAndWriteMessageToChain_Call) Run(run func(ctx context.Context, report protocol.AbstractAggregatedReport)) *MockContractTransmitter_ConvertAndWriteMessageToChain_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(executor.AbstractAggregatedReport))
+		run(args[0].(context.Context), args[1].(protocol.AbstractAggregatedReport))
 	})
 	return _c
 }
@@ -64,7 +64,7 @@ func (_c *MockContractTransmitter_ConvertAndWriteMessageToChain_Call) Return(_a0
 	return _c
 }
 
-func (_c *MockContractTransmitter_ConvertAndWriteMessageToChain_Call) RunAndReturn(run func(context.Context, executor.AbstractAggregatedReport) error) *MockContractTransmitter_ConvertAndWriteMessageToChain_Call {
+func (_c *MockContractTransmitter_ConvertAndWriteMessageToChain_Call) RunAndReturn(run func(context.Context, protocol.AbstractAggregatedReport) error) *MockContractTransmitter_ConvertAndWriteMessageToChain_Call {
 	_c.Call.Return(run)
 	return _c
 }

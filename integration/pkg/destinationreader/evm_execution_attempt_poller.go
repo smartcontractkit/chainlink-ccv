@@ -725,7 +725,7 @@ func (p *EvmExecutionAttemptPoller) decodeCallDataToExecutionAttempt(callData []
 		ccvs[i] = protocol.UnknownAddress(addr.Bytes())
 	}
 
-	report := executor.AbstractAggregatedReport{
+	report := protocol.AbstractAggregatedReport{
 		CCVS:    ccvs,
 		CCVData: ccvData,
 		Message: *message,

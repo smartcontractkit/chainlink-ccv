@@ -31,7 +31,7 @@ func NewAttemptChecker(lggr logger.Logger, destinationReaders map[protocol.Chain
 // HasHonestAttempt reports whether an honest execution attempt has been
 // made for the given message. It returns true if an honest execution attempt
 // already exists, false otherwise.
-func (e *AttemptCheckerService) HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo executor.CCVAddressInfo) (bool, error) {
+func (e *AttemptCheckerService) HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (bool, error) {
 	executionAttempts, err := e.destinationReaders[message.DestChainSelector].GetExecutionAttempts(ctx, message)
 	if err != nil {
 		return false, err
@@ -54,7 +54,7 @@ func (e *AttemptCheckerService) HasHonestAttempt(ctx context.Context, message pr
 
 // isHonestCallData reports whether the execution attempt's call data matches
 // the verifier results for all required CCVs and meets the optional CCV threshold.
-func (e *AttemptCheckerService) isHonestCallData(message protocol.Message, attempt executor.ExecutionAttempt, verifierResults []protocol.VerifierResult, ccvAddressInfo executor.CCVAddressInfo) (bool, error) {
+func (e *AttemptCheckerService) isHonestCallData(message protocol.Message, attempt executor.ExecutionAttempt, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (bool, error) {
 	err := assertMessageIDsMatch(message, attempt)
 	if err != nil {
 		return false, err
