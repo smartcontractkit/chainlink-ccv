@@ -95,7 +95,7 @@ var BuildJobSpecs = operations.NewOperation(
 			}
 
 			for _, agg := range input.Committee.Aggregators {
-				verifierJobID := shared.NewVerifierJobID(agg.Name, scope)
+				verifierJobID := shared.NewVerifierJobID(nopAlias, agg.Name, scope)
 
 				// TODO: This need to be updated once verifier support multiple families
 				signerAddress := nop.SignerAddressByFamily[chainsel.FamilyEVM]

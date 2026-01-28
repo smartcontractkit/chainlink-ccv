@@ -183,12 +183,14 @@ type VerifierJobScope struct {
 }
 
 type VerifierJobID struct {
+	NOPAlias           NOPAlias
 	CommitteeQualifier string
 	AggregatorName     string
 }
 
-func NewVerifierJobID(aggregatorName string, scope VerifierJobScope) VerifierJobID {
+func NewVerifierJobID(nopAlias NOPAlias, aggregatorName string, scope VerifierJobScope) VerifierJobID {
 	return VerifierJobID{
+		NOPAlias:           nopAlias,
 		CommitteeQualifier: scope.CommitteeQualifier,
 		AggregatorName:     aggregatorName,
 	}
@@ -199,7 +201,7 @@ func (id VerifierJobID) GetVerifierID() string {
 }
 
 func (id VerifierJobID) ToJobID() JobID {
-	return JobID(fmt.Sprintf("%s-%s-verifier", id.AggregatorName, id.CommitteeQualifier))
+	return JobID(fmt.Sprintf("%s-%s-%s-verifier", string(id.NOPAlias), id.AggregatorName, id.CommitteeQualifier))
 }
 
 func (scope VerifierJobScope) IsJobInScope(jobID JobID) bool {
