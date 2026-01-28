@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"strings"
 
 	ledgerv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2"
 	"google.golang.org/grpc"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 const (
@@ -32,61 +34,112 @@ const (
 	ccipMessageSentEventVerifierBlobsLabel     = "verifierBlobs"
 )
 
+// ReaderConfig is the configuration required to create a canton source reader.
+type ReaderConfig struct {
+	// CCIPOwnerParty is the party that we expect to be present in the CCIPMessageSent.ccipOwner field.
+	// This proves that the ccipOwner is a signatory on the CCIPMessageSent contract(event).
+	CCIPOwnerParty string `toml:"ccip_owner_party"`
+	// CCIPMessageSentTemplateID is the template ID of the CCIPMessageSent contract.
+	// Formatted as packageId:moduleName:entityName
+	CCIPMessageSentTemplateID string `toml:"ccip_message_sent_template_id"`
+	// Authority is the authority to use for the gRPC connection.
+	// Connecting to the gRPC API via nginx usually requires this to be set.
+	Authority string `toml:"authority"`
+}
+
+// GetTemplateID returns a ledgerv2.Identifier from the CCIPMessageSentTemplateID.
+// It expects the format to be packageId:moduleName:entityName.
+func (c *ReaderConfig) GetTemplateID() (*ledgerv2.Identifier, error) {
+	parts := strings.Split(c.CCIPMessageSentTemplateID, ":")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("invalid template ID format, expected packageId:moduleName:entityName, got: %s", c.CCIPMessageSentTemplateID)
+	}
+	return &ledgerv2.Identifier{
+		PackageId:  parts[0],
+		ModuleName: parts[1],
+		EntityName: parts[2],
+	}, nil
+}
+
 type sourceReader struct {
+	lggr                logger.Logger
 	stateServiceClient  ledgerv2.StateServiceClient
 	updateServiceClient ledgerv2.UpdateServiceClient
 	jwt                 string
 
-	// ccipOwnerParty is the party that we expect to be present in the CCIPMessageSent.ccipOwner field.
-	ccipOwnerParty string
-	// ccipMessageSentTemplateID is the template ID of the CCIPMessageSent contract.
-	ccipMessageSentTemplateID *ledgerv2.Identifier
+	config ReaderConfig
 }
 
 func NewSourceReader(
+	lggr logger.Logger,
 	grpcEndpoint,
 	jwt string,
-	ccipOwnerParty string,
-	ccipMessageSentTemplateID *ledgerv2.Identifier,
+	config ReaderConfig,
 	opts ...grpc.DialOption,
 ) (chainaccess.SourceReader, error) {
+	lggr.Infow("creating gRPC connection to canton node", "grpcEndpoint", grpcEndpoint, "config", config)
+
+	if config.Authority != "" {
+		opts = append(opts, grpc.WithAuthority(config.Authority))
+	}
+
 	conn, err := grpc.NewClient(grpcEndpoint, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gRPC connection to canton node: %w", err)
 	}
 
 	return &sourceReader{
-		stateServiceClient:        ledgerv2.NewStateServiceClient(conn),
-		updateServiceClient:       ledgerv2.NewUpdateServiceClient(conn),
-		jwt:                       jwt,
-		ccipOwnerParty:            ccipOwnerParty,
-		ccipMessageSentTemplateID: ccipMessageSentTemplateID,
+		lggr:                lggr,
+		stateServiceClient:  ledgerv2.NewStateServiceClient(conn),
+		updateServiceClient: ledgerv2.NewUpdateServiceClient(conn),
+		jwt:                 jwt,
+		config:              config,
 	}, nil
 }
 
 // FetchMessageSentEvents implements chainaccess.SourceReader.
 func (c *sourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock *big.Int) ([]protocol.MessageSentEvent, error) {
+	templateID, err := c.config.GetTemplateID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get template ID: %w", err)
+	}
+
 	// since begin is exclusive we need to subtract 1 from fromBlock
 	begin := new(big.Int).Sub(fromBlock, big.NewInt(1))
 	// check that begin is not negative
 	if begin.Sign() < 0 {
 		begin = big.NewInt(0)
 	}
-	end := toBlock.Int64()
+
+	var end *int64
+	if toBlock != nil {
+		e := toBlock.Int64()
+		end = &e
+	} else {
+		// If toBlock is nil, we need to get the latest ledger end to avoid streaming indefinitely
+		// and to ensure we return a slice as expected by the interface.
+		ledgerEnd, err := c.stateServiceClient.GetLedgerEnd(c.authCtx(ctx), &ledgerv2.GetLedgerEndRequest{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to get ledger end for open-ended query: %w", err)
+		}
+		e := ledgerEnd.GetOffset()
+		end = &e
+	}
+
 	updates, err := c.updateServiceClient.GetUpdates(c.authCtx(ctx), &ledgerv2.GetUpdatesRequest{
 		BeginExclusive: begin.Int64(),
-		EndInclusive:   &end,
+		EndInclusive:   end,
 		UpdateFormat: &ledgerv2.UpdateFormat{
 			IncludeTransactions: &ledgerv2.TransactionFormat{
 				TransactionShape: ledgerv2.TransactionShape_TRANSACTION_SHAPE_ACS_DELTA,
 				EventFormat: &ledgerv2.EventFormat{
 					FiltersByParty: map[string]*ledgerv2.Filters{
-						c.ccipOwnerParty: {
+						c.config.CCIPOwnerParty: {
 							Cumulative: []*ledgerv2.CumulativeFilter{
 								{
 									IdentifierFilter: &ledgerv2.CumulativeFilter_TemplateFilter{
 										TemplateFilter: &ledgerv2.TemplateFilter{
-											TemplateId:              c.ccipMessageSentTemplateID,
+											TemplateId:              templateID,
 											IncludeCreatedEventBlob: true,
 										},
 									},
@@ -115,7 +168,7 @@ func (c *sourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 		transactions = append(transactions, update.GetTransaction())
 	}
 
-	events, err := extractEvents(transactions, c.ccipOwnerParty, c.ccipMessageSentTemplateID)
+	events, err := extractEvents(transactions, c.config.CCIPOwnerParty, templateID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract events: %w", err)
 	}
@@ -290,7 +343,8 @@ func (c *sourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*big
 
 // GetRMNCursedSubjects implements chainaccess.SourceReader.
 func (c *sourceReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
-	panic("unimplemented")
+	// TODO: implement this.
+	return nil, nil
 }
 
 // LatestAndFinalizedBlock returns the latest offset of the canton validator we are connected to.

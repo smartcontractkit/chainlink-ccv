@@ -123,7 +123,7 @@ func ConvertBlockchainOutputsToInfo(outputs []*ctfblockchain.Output) (map[string
 				// TODO: support multiple participants?
 				// Different verifiers may connect to different participants, how do we best represent that?
 				info.NetworkSpecificData.CantonEndpoints = &canton.Endpoints{
-					GRPCLedgerAPIURL: output.NetworkSpecificData.CantonEndpoints.Participants[0].GRPCLedgerAPIURL,
+					GRPCLedgerAPIURL: fmt.Sprintf("%s:8080", output.ContainerName), // TODO: 8080 is hardcoded, should get it programmatically via blockchain.Output?
 					JWT:              output.NetworkSpecificData.CantonEndpoints.Participants[0].JWT,
 				}
 			default:

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"time"
 
@@ -41,6 +43,7 @@ var (
 
 type Chain struct {
 	logger zerolog.Logger
+	helper *Helper
 }
 
 func New(logger zerolog.Logger) *Chain {
@@ -66,6 +69,16 @@ func (c *Chain) ConnectContractsWithSelectors(ctx context.Context, e *deployment
 
 // DeployContractsForSelector implements cciptestinterfaces.CCIP17Configuration.
 func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, committees *deployments.EnvironmentTopology) (datastore.DataStore, error) {
+	// Deploy the json-tests DAR so that its available on the network.
+	// NOTE: this is hacky, but temporary, until we deploy the real CCIP contracts.
+	_, filename, _, _ := runtime.Caller(0)
+	dir := filepath.Dir(filename)
+	darPath := filepath.Join(dir, "../tests/integration/canton/json-tests-0.0.1.dar")
+	err := c.helper.UploadDar(ctx, darPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload json-tests DAR: %w", err)
+	}
+
 	// Mock out a Canton deployment for now.
 	ds := datastore.NewMemoryDataStore()
 	// Add Onramp
@@ -195,6 +208,13 @@ func (c *Chain) DeployLocalNetwork(ctx context.Context, bcs *blockchain.Input) (
 	if err != nil {
 		return nil, fmt.Errorf("failed to create blockchain network: %w", err)
 	}
+	grpcURL := bcs.Out.NetworkSpecificData.CantonEndpoints.Participants[0].GRPCLedgerAPIURL
+	jwt := bcs.Out.NetworkSpecificData.CantonEndpoints.Participants[0].JWT
+	h, err := NewHelperFromBlockchainInput(grpcURL, jwt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create helper: %w", err)
+	}
+	c.helper = h
 	return out, nil
 }
 
