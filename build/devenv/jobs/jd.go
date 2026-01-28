@@ -198,10 +198,7 @@ func createChainConfigsInNode(ctx context.Context, clClient *clclient.ChainlinkC
 			Ocr2Plugins:      `{"commit":false,"execute":false,"median":false,"mercury":false}`,
 		})
 		if err != nil {
-			Plog.Warn().
-				Str("chainID", chainID).
-				Err(err).
-				Msg("Failed to create chain config, continuing with other chains")
+			return fmt.Errorf("failed to create chain config for chain %s: %w", chainID, err)
 		}
 	}
 
@@ -366,7 +363,7 @@ func ConnectNodesToJD(ctx context.Context, infra *JDInfrastructure, clientLookup
 				Str("nodeID", nodeID).
 				Err(err).
 				Msg("Node failed to connect to JD within timeout")
-			continue
+			return fmt.Errorf("node %s failed to connect to JD within timeout", nodeID)
 		}
 
 		clClient, ok := clientLookup.GetClient(alias)
@@ -374,7 +371,7 @@ func ConnectNodesToJD(ctx context.Context, infra *JDInfrastructure, clientLookup
 			Plog.Warn().
 				Str("nopAlias", alias).
 				Msg("No CL client found for alias, skipping chain config creation")
-			continue
+			return fmt.Errorf("no CL client found for alias %s", alias)
 		}
 
 		if err := createChainConfigsInNode(ctx, clClient, chainIDs); err != nil {
@@ -382,7 +379,7 @@ func ConnectNodesToJD(ctx context.Context, infra *JDInfrastructure, clientLookup
 				Str("nopAlias", alias).
 				Err(err).
 				Msg("Failed to create chain configs in node")
-			continue
+			return fmt.Errorf("failed to create chain configs in node %s: %w", alias, err)
 		}
 
 		if err := waitForChainConfigs(ctx, infra.OffchainClient, nodeID, chainConfigTimeout, chainIDs); err != nil {
