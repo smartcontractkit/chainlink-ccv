@@ -158,7 +158,7 @@ func main() {
 	// Initialize executor components
 	// ------------------------------------------------------------------------------------------------
 	contractTransmitters := make(map[protocol.ChainSelector]chainaccess.ContractTransmitter)
-	destReaders := make(map[protocol.ChainSelector]executor.DestinationReader)
+	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
 	rmnReaders := make(map[protocol.ChainSelector]ccvcommon.RMNRemoteReader)
 	for strSel, chain := range blockchainInfo {
 		chainConfig := executorConfig.ChainConfiguration[strSel]

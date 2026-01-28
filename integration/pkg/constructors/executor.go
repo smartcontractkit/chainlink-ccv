@@ -84,7 +84,7 @@ func NewExecutorCoordinator(
 	}
 
 	transmitters := make(map[protocol.ChainSelector]chainaccess.ContractTransmitter)
-	destReaders := make(map[protocol.ChainSelector]executor.DestinationReader)
+	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
 	rmnReaders := make(map[protocol.ChainSelector]ccvcommon.RMNRemoteReader)
 	for sel, chain := range relayers {
 		if _, ok := offRampAddresses[sel]; !ok {

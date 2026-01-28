@@ -2,7 +2,6 @@ package executor
 
 import (
 	"fmt"
-	"math/big"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
@@ -21,12 +20,6 @@ type MessageWithCCVData struct {
 	CCVData           []protocol.VerifierResult
 	Message           protocol.Message
 	VerifiedTimestamp int64
-}
-
-// ExecutionAttempt represents a chain-agnostic on-chain attempt.
-type ExecutionAttempt struct {
-	Report              protocol.AbstractAggregatedReport
-	TransactionGasLimit *big.Int
 }
 
 type MessageExecutionState uint8

@@ -6,7 +6,6 @@ import (
 
 	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
-	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
@@ -58,17 +57,6 @@ type LeaderElector interface {
 	GetReadyTimestamp(messageID protocol.Bytes32, chainSel protocol.ChainSelector, baseTime time.Time) time.Time
 	// GetRetryDelay returns the delay in seconds to retry a message. It uses destination chain because some executors may not support all chains
 	GetRetryDelay(destinationChain protocol.ChainSelector) time.Duration
-}
-
-// DestinationReader is an interface for reading message status and data from a single destination chain
-// It's used to get the list of ccv addresses for each receiver, as well as check if messages have been executed
-// When integrating with non-evms, the implementer only needs to add support for a single chain.
-type DestinationReader interface {
-	services.Service
-	// Embed chainaccess.DestinationReader to get the base functionality.
-	chainaccess.DestinationReader
-	// GetExecutionAttempts returns the full list of execution attempts for a given message within the executable window.
-	GetExecutionAttempts(ctx context.Context, message protocol.Message) ([]ExecutionAttempt, error)
 }
 
 // Monitoring provides all core monitoring functionality for the executor. Also can be implemented as a no-op.

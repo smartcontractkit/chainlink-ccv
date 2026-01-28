@@ -33,7 +33,7 @@ func setupTestExecutor(
 		allContractTransmitters[chain] = mockCT
 	}
 
-	allDestinationReaders := make(map[protocol.ChainSelector]coordinator.DestinationReader)
+	allDestinationReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
 	allRMNReaders := make(map[protocol.ChainSelector]ccvcommon.RMNRemoteReader)
 	for chain, mockDR := range dr {
 		allDestinationReaders[chain] = mockDR
@@ -238,7 +238,7 @@ func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
 			}
 			dr[1].EXPECT().GetRMNCursedSubjects(mock.Anything).Return([]protocol.Bytes16{}, nil).Once()
 			dr[1].EXPECT().GetMessageSuccess(mock.Anything, mock.Anything).Return(false, nil).Once()
-			dr[1].EXPECT().GetExecutionAttempts(mock.Anything, mock.Anything).Return([]coordinator.ExecutionAttempt{}, nil).Maybe()
+			dr[1].EXPECT().GetExecutionAttempts(mock.Anything, mock.Anything).Return([]protocol.ExecutionAttempt{}, nil).Maybe()
 			// GetCCVSForMessage is called in parallel with GetVerifierResults, so we need to set it up even if verifier results error
 			dr[1].EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(tc.ccvInfo, tc.ccvInfoErr).Maybe()
 
@@ -333,7 +333,7 @@ func Test_ChainlinkExecutor_HandleMessage_OrderCCVData(t *testing.T) {
 			}
 			dr[1].EXPECT().GetRMNCursedSubjects(mock.Anything).Return([]protocol.Bytes16{}, nil).Once()
 			dr[1].EXPECT().GetMessageSuccess(mock.Anything, mock.Anything).Return(false, nil).Once()
-			dr[1].EXPECT().GetExecutionAttempts(mock.Anything, mock.Anything).Return([]coordinator.ExecutionAttempt{}, nil).Maybe()
+			dr[1].EXPECT().GetExecutionAttempts(mock.Anything, mock.Anything).Return([]protocol.ExecutionAttempt{}, nil).Maybe()
 			dr[1].EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(tc.ccvInfo, nil).Maybe()
 
 			vr := mocks.NewMockVerifierResultReader(t)
@@ -415,7 +415,7 @@ func Test_ChainlinkExecutor_HandleMessage_ConvertAndWrite(t *testing.T) {
 			}
 			dr[1].EXPECT().GetRMNCursedSubjects(mock.Anything).Return([]protocol.Bytes16{}, nil).Once()
 			dr[1].EXPECT().GetMessageSuccess(mock.Anything, mock.Anything).Return(false, nil).Once()
-			dr[1].EXPECT().GetExecutionAttempts(mock.Anything, mock.Anything).Return([]coordinator.ExecutionAttempt{}, nil).Once()
+			dr[1].EXPECT().GetExecutionAttempts(mock.Anything, mock.Anything).Return([]protocol.ExecutionAttempt{}, nil).Once()
 			dr[1].EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(protocol.CCVAddressInfo{
 				OptionalCCVs:      []protocol.UnknownAddress{address1},
 				OptionalThreshold: 1,

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"strconv"
 	"strings"
 )
@@ -328,4 +329,10 @@ func (a AbstractAggregatedReport) MarshalJSON() ([]byte, error) {
 		CCVData: ccvData,
 		Message: a.Message,
 	})
+}
+
+// ExecutionAttempt represents a chain-agnostic on-chain attempt.
+type ExecutionAttempt struct {
+	Report              AbstractAggregatedReport
+	TransactionGasLimit *big.Int
 }

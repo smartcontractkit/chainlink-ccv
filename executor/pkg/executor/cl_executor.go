@@ -32,7 +32,7 @@ type ChainlinkExecutor struct {
 	services.Service
 	lggr                   logger.Logger
 	contractTransmitters   map[protocol.ChainSelector]chainaccess.ContractTransmitter
-	destinationReaders     map[protocol.ChainSelector]executor.DestinationReader
+	destinationReaders     map[protocol.ChainSelector]chainaccess.DestinationReader
 	executionChecker       *executionchecker.AttemptCheckerService
 	curseChecker           common.CurseChecker
 	verifierResultsReader  executor.VerifierResultReader
@@ -43,7 +43,7 @@ type ChainlinkExecutor struct {
 func NewChainlinkExecutor(
 	lggr logger.Logger,
 	contractTransmitters map[protocol.ChainSelector]chainaccess.ContractTransmitter,
-	destinationReaders map[protocol.ChainSelector]executor.DestinationReader,
+	destinationReaders map[protocol.ChainSelector]chainaccess.DestinationReader,
 	curseChecker common.CurseChecker,
 	verifierResultReader executor.VerifierResultReader,
 	monitoring executor.Monitoring,

@@ -5,6 +5,7 @@ import (
 	"math/big"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
 // HeadTracker provides access to the latest blockchain head information.
@@ -76,13 +77,18 @@ type AccessorFactory interface {
 }
 
 // DestinationReader is an interface for reading message status and data from a single destination chain.
+// It's used to get the list of ccv addresses for each receiver, as well as check if messages have been executed
+// When integrating with non-evms, the implementer only needs to add support for a single chain.
 type DestinationReader interface {
+	services.Service
 	// RMNCurseReader Embed RMNCurseReader for curse detection functionality. This can point to the same implementation as the SourceReader.
 	RMNCurseReader
 	// GetMessageSuccess returns true if message has on-chain success state.
 	GetMessageSuccess(ctx context.Context, message protocol.Message) (bool, error)
 	// GetCCVSForMessage return cross-chain verifications for selected message
 	GetCCVSForMessage(ctx context.Context, message protocol.Message) (protocol.CCVAddressInfo, error)
+	// GetExecutionAttempts returns the full list of execution attempts for a given message within the executable window.
+	GetExecutionAttempts(ctx context.Context, message protocol.Message) ([]protocol.ExecutionAttempt, error)
 }
 
 // ContractTransmitter is an interface for transmitting messages to destination chains that should be implemented by chain-specific transmitters.

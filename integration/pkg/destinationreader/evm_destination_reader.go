@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -23,7 +24,7 @@ import (
 
 var (
 	// Ensure EvmDestinationReader implements the DestinationReader interface.
-	_ = executor.DestinationReader(&EvmDestinationReader{})
+	_ = chainaccess.DestinationReader(&EvmDestinationReader{})
 
 	// This 1000 number is arbitrary, it can be adjusted as needed depending on usage pattern.
 	VerifierQuorumCacheMaxEntries = 1000
@@ -264,6 +265,6 @@ func (dr *EvmDestinationReader) GetRMNCursedSubjects(ctx context.Context) ([]pro
 }
 
 // GetExecutionAttempts retrieves execution attempts for the given message from the poller cache.
-func (dr *EvmDestinationReader) GetExecutionAttempts(ctx context.Context, message protocol.Message) ([]executor.ExecutionAttempt, error) {
+func (dr *EvmDestinationReader) GetExecutionAttempts(ctx context.Context, message protocol.Message) ([]protocol.ExecutionAttempt, error) {
 	return dr.executionAttemptPoller.GetExecutionAttempts(ctx, message)
 }
