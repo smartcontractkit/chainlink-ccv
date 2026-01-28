@@ -8,7 +8,7 @@ import (
 	"math/big"
 	"slices"
 
-	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -17,11 +17,11 @@ import (
 // should be executed. It checks that existing attempts use honest call data and
 // gas limits before allowing new execution attempts.
 type AttemptCheckerService struct {
-	destinationReaders map[protocol.ChainSelector]executor.DestinationReader
+	destinationReaders map[protocol.ChainSelector]chainaccess.DestinationReader
 	lggr               logger.Logger
 }
 
-func NewAttemptChecker(lggr logger.Logger, destinationReaders map[protocol.ChainSelector]executor.DestinationReader) *AttemptCheckerService {
+func NewAttemptChecker(lggr logger.Logger, destinationReaders map[protocol.ChainSelector]chainaccess.DestinationReader) *AttemptCheckerService {
 	return &AttemptCheckerService{
 		destinationReaders: destinationReaders,
 		lggr:               lggr,
@@ -31,7 +31,7 @@ func NewAttemptChecker(lggr logger.Logger, destinationReaders map[protocol.Chain
 // HasHonestAttempt reports whether an honest execution attempt has been
 // made for the given message. It returns true if an honest execution attempt
 // already exists, false otherwise.
-func (e *AttemptCheckerService) HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo executor.CCVAddressInfo) (bool, error) {
+func (e *AttemptCheckerService) HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (bool, error) {
 	executionAttempts, err := e.destinationReaders[message.DestChainSelector].GetExecutionAttempts(ctx, message)
 	if err != nil {
 		return false, err
@@ -54,7 +54,7 @@ func (e *AttemptCheckerService) HasHonestAttempt(ctx context.Context, message pr
 
 // isHonestCallData reports whether the execution attempt's call data matches
 // the verifier results for all required CCVs and meets the optional CCV threshold.
-func (e *AttemptCheckerService) isHonestCallData(message protocol.Message, attempt executor.ExecutionAttempt, verifierResults []protocol.VerifierResult, ccvAddressInfo executor.CCVAddressInfo) (bool, error) {
+func (e *AttemptCheckerService) isHonestCallData(message protocol.Message, attempt protocol.ExecutionAttempt, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (bool, error) {
 	err := assertMessageIDsMatch(message, attempt)
 	if err != nil {
 		return false, err
@@ -73,14 +73,14 @@ func (e *AttemptCheckerService) isHonestCallData(message protocol.Message, attem
 
 // isHonestGasLimit reports whether the execution attempt's gas limit is at least
 // the message's execution gas limit.
-func (e *AttemptCheckerService) isHonestGasLimit(message protocol.Message, attempt executor.ExecutionAttempt) bool {
+func (e *AttemptCheckerService) isHonestGasLimit(message protocol.Message, attempt protocol.ExecutionAttempt) bool {
 	messageGasLimit := big.NewInt(int64(message.ExecutionGasLimit))
 	return messageGasLimit.Cmp(attempt.TransactionGasLimit) <= 0
 }
 
 // honestCCVs reports whether at least threshold CCVs in expectedCCVs have matching
 // call data in the execution attempt when compared against known verifier results.
-func honestCCVs(attempt executor.ExecutionAttempt, attemptCCVs, expectedCCVs []string, threshold int, expectedCCVsToKnownResults map[string][]protocol.VerifierResult) bool {
+func honestCCVs(attempt protocol.ExecutionAttempt, attemptCCVs, expectedCCVs []string, threshold int, expectedCCVsToKnownResults map[string][]protocol.VerifierResult) bool {
 	validCCVs := 0
 
 	for _, ccv := range expectedCCVs {
@@ -123,7 +123,7 @@ func mapResultsToCCVs(verifierResults []protocol.VerifierResult) map[string][]pr
 
 // assertMessageIDsMatch verifies that the message and execution attempt refer
 // to the same message by comparing their message IDs.
-func assertMessageIDsMatch(message protocol.Message, attempt executor.ExecutionAttempt) error {
+func assertMessageIDsMatch(message protocol.Message, attempt protocol.ExecutionAttempt) error {
 	msgID, err := message.MessageID()
 	if err != nil {
 		return errors.New("unable to construct msgid from message")

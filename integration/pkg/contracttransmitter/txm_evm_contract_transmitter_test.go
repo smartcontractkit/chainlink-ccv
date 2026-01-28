@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	txmgr "github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
@@ -46,14 +45,14 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 	testKey := "test-key"
 	testCases := []struct {
 		name              string
-		report            executor.AbstractAggregatedReport
+		report            protocol.AbstractAggregatedReport
 		setupMocks        func(*mockTxManager, *mockRoundRobin)
 		expectedError     string
 		expectedLogFields map[string]any
 	}{
 		{
 			name: "successful transmission",
-			report: executor.AbstractAggregatedReport{
+			report: protocol.AbstractAggregatedReport{
 				CCVS: []protocol.UnknownAddress{
 					protocol.UnknownAddress(common.HexToAddress("0x1111111111111111111111111111111111111111").Bytes()),
 					protocol.UnknownAddress(common.HexToAddress("0x2222222222222222222222222222222222222222").Bytes()),
@@ -82,7 +81,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 		},
 		{
 			name: "error getting round-robin address",
-			report: executor.AbstractAggregatedReport{
+			report: protocol.AbstractAggregatedReport{
 				CCVS: []protocol.UnknownAddress{
 					protocol.UnknownAddress(common.HexToAddress("0x1111111111111111111111111111111111111111").Bytes()),
 				},
@@ -98,7 +97,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 		},
 		{
 			name: "error creating transaction",
-			report: executor.AbstractAggregatedReport{
+			report: protocol.AbstractAggregatedReport{
 				CCVS: []protocol.UnknownAddress{
 					protocol.UnknownAddress(common.HexToAddress("0x1111111111111111111111111111111111111111").Bytes()),
 				},
@@ -120,7 +119,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 		},
 		{
 			name: "empty CCVs and CCVData",
-			report: executor.AbstractAggregatedReport{
+			report: protocol.AbstractAggregatedReport{
 				CCVS:    []protocol.UnknownAddress{},
 				CCVData: [][]byte{},
 				Message: mustCreateMessage(t, 1, 2, 100, 1000000),
@@ -143,7 +142,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 		},
 		{
 			name: "multiple CCVs with large gas limit",
-			report: executor.AbstractAggregatedReport{
+			report: protocol.AbstractAggregatedReport{
 				CCVS: []protocol.UnknownAddress{
 					protocol.UnknownAddress(common.HexToAddress("0x1111111111111111111111111111111111111111").Bytes()),
 					protocol.UnknownAddress(common.HexToAddress("0x2222222222222222222222222222222222222222").Bytes()),
@@ -283,12 +282,12 @@ func TestTXMEVMContractTransmitter_ABIEncoding(t *testing.T) {
 	testKey := "test-key"
 	testCases := []struct {
 		name          string
-		report        executor.AbstractAggregatedReport
+		report        protocol.AbstractAggregatedReport
 		validateError func(*testing.T, error)
 	}{
 		{
 			name: "valid report encodes successfully",
-			report: executor.AbstractAggregatedReport{
+			report: protocol.AbstractAggregatedReport{
 				CCVS: []protocol.UnknownAddress{
 					protocol.UnknownAddress(common.HexToAddress("0x1111111111111111111111111111111111111111").Bytes()),
 				},

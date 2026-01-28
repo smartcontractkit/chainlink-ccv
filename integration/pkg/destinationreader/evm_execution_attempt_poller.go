@@ -16,7 +16,6 @@ import (
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
-	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -63,7 +62,7 @@ type EvmExecutionAttemptPoller struct {
 	offRampFilterer offramp.OffRampFilterer
 	eventCh         chan *offramp.OffRampExecutionStateChanged
 	subscription    event.Subscription
-	attemptCache    *expirable.LRU[protocol.Bytes32, []executor.ExecutionAttempt]
+	attemptCache    *expirable.LRU[protocol.Bytes32, []protocol.ExecutionAttempt]
 	cancelFunc      context.CancelFunc
 	runWg           sync.WaitGroup
 	pollInterval    time.Duration
@@ -102,7 +101,7 @@ func NewEVMExecutionAttemptPoller(
 		return nil, fmt.Errorf("failed to create offramp filterer: %w", err)
 	}
 
-	attemptCache := expirable.NewLRU[protocol.Bytes32, []executor.ExecutionAttempt](0, nil, attemptCacheExpiration)
+	attemptCache := expirable.NewLRU[protocol.Bytes32, []protocol.ExecutionAttempt](0, nil, attemptCacheExpiration)
 	return &EvmExecutionAttemptPoller{
 		lggr:            lggr,
 		client:          client,
@@ -363,7 +362,7 @@ func (p *EvmExecutionAttemptPoller) Close() error {
 }
 
 // GetExecutionAttempts retrieves cached execution attempts for the given message.
-func (p *EvmExecutionAttemptPoller) GetExecutionAttempts(ctx context.Context, message protocol.Message) ([]executor.ExecutionAttempt, error) {
+func (p *EvmExecutionAttemptPoller) GetExecutionAttempts(ctx context.Context, message protocol.Message) ([]protocol.ExecutionAttempt, error) {
 	msgID, err := message.MessageID()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get message ID: %w", err)
@@ -375,7 +374,7 @@ func (p *EvmExecutionAttemptPoller) GetExecutionAttempts(ctx context.Context, me
 	}
 
 	// Return a copy to prevent external modification
-	result := make([]executor.ExecutionAttempt, len(attempts))
+	result := make([]protocol.ExecutionAttempt, len(attempts))
 	copy(result, attempts)
 	return result, nil
 }
@@ -668,7 +667,7 @@ func (p *EvmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Con
 
 // decodeCallDataToExecutionAttempt decodes the transaction call data into an ExecutionAttempt.
 // It validates the function selector, unpacks ABI-encoded parameters, and constructs the attempt.
-func (p *EvmExecutionAttemptPoller) decodeCallDataToExecutionAttempt(callData []byte, gasLimit uint64) (*executor.ExecutionAttempt, error) {
+func (p *EvmExecutionAttemptPoller) decodeCallDataToExecutionAttempt(callData []byte, gasLimit uint64) (*protocol.ExecutionAttempt, error) {
 	method, ok := offrampABI.Methods[executeMethodName]
 	if !ok {
 		return nil, fmt.Errorf("execute method not found in offramp ABI")
@@ -725,13 +724,13 @@ func (p *EvmExecutionAttemptPoller) decodeCallDataToExecutionAttempt(callData []
 		ccvs[i] = protocol.UnknownAddress(addr.Bytes())
 	}
 
-	report := executor.AbstractAggregatedReport{
+	report := protocol.AbstractAggregatedReport{
 		CCVS:    ccvs,
 		CCVData: ccvData,
 		Message: *message,
 	}
 
-	return &executor.ExecutionAttempt{
+	return &protocol.ExecutionAttempt{
 		Report:              report,
 		TransactionGasLimit: new(big.Int).SetUint64(gasLimit),
 	}, nil

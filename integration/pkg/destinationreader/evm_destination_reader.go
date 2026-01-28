@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -23,7 +24,7 @@ import (
 
 var (
 	// Ensure EvmDestinationReader implements the DestinationReader interface.
-	_ = executor.DestinationReader(&EvmDestinationReader{})
+	_ = chainaccess.DestinationReader(&EvmDestinationReader{})
 
 	// This 1000 number is arbitrary, it can be adjusted as needed depending on usage pattern.
 	VerifierQuorumCacheMaxEntries = 1000
@@ -45,7 +46,7 @@ type EvmDestinationReader struct {
 	lggr                   logger.Logger
 	client                 bind.ContractCaller
 	chainSelector          protocol.ChainSelector
-	ccvCache               *expirable.LRU[verifierQuorumCacheKey, executor.CCVAddressInfo]
+	ccvCache               *expirable.LRU[verifierQuorumCacheKey, protocol.CCVAddressInfo]
 	executionAttemptPoller *EvmExecutionAttemptPoller
 	monitoring             executor.Monitoring
 }
@@ -101,7 +102,7 @@ func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
 	}
 
 	// Create cache with max 1000 entries and configurable expiry for verifier quorum info.
-	ccvCache := expirable.NewLRU[verifierQuorumCacheKey, executor.CCVAddressInfo](VerifierQuorumCacheMaxEntries, nil, params.CacheExpiry)
+	ccvCache := expirable.NewLRU[verifierQuorumCacheKey, protocol.CCVAddressInfo](VerifierQuorumCacheMaxEntries, nil, params.CacheExpiry)
 
 	// Create execution attempt poller to track execution attempts
 	executionAttemptPoller, err := NewEVMExecutionAttemptPoller(
@@ -158,7 +159,7 @@ func (dr *EvmDestinationReader) Name() string {
 
 // GetCCVSForMessage implements the DestinationReader interface. It uses the chainlink-evm client to call the get_ccvs function on the receiver contract.
 // The ABI is defined here https://github.com/smartcontractkit/chainlink-ccip/blob/0e7fcfd20ab005d75d0eb863790470f91fa5b8d7/chains/evm/contracts/interfaces/IAny2EVMMessageReceiverV2.sol
-func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message protocol.Message) (executor.CCVAddressInfo, error) {
+func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message protocol.Message) (protocol.CCVAddressInfo, error) {
 	_ = ctx
 	receiverAddress, sourceSelector := message.Receiver, message.SourceChainSelector
 
@@ -186,11 +187,11 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 
 	encodedMsg, err := message.Encode()
 	if err != nil {
-		return executor.CCVAddressInfo{}, fmt.Errorf("failed to encode message: %w", err)
+		return protocol.CCVAddressInfo{}, fmt.Errorf("failed to encode message: %w", err)
 	}
 	chainCCVInfo, err := dr.offRampCaller.GetCCVsForMessage(nil, encodedMsg)
 	if err != nil {
-		return executor.CCVAddressInfo{}, fmt.Errorf("failed to call GetCCVSForMessage: %w", err)
+		return protocol.CCVAddressInfo{}, fmt.Errorf("failed to call GetCCVSForMessage: %w", err)
 	}
 
 	req, opt, optThreshold := chainCCVInfo.RequiredCCVs, chainCCVInfo.OptionalCCVs, chainCCVInfo.Threshold
@@ -205,7 +206,7 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 		optionalCCVs = append(optionalCCVs, protocol.UnknownAddress(addr.Bytes()))
 	}
 
-	ccvInfo = executor.CCVAddressInfo{
+	ccvInfo = protocol.CCVAddressInfo{
 		RequiredCCVs:      requiredCCVs,
 		OptionalCCVs:      optionalCCVs,
 		OptionalThreshold: optThreshold,
@@ -264,6 +265,6 @@ func (dr *EvmDestinationReader) GetRMNCursedSubjects(ctx context.Context) ([]pro
 }
 
 // GetExecutionAttempts retrieves execution attempts for the given message from the poller cache.
-func (dr *EvmDestinationReader) GetExecutionAttempts(ctx context.Context, message protocol.Message) ([]executor.ExecutionAttempt, error) {
+func (dr *EvmDestinationReader) GetExecutionAttempts(ctx context.Context, message protocol.Message) ([]protocol.ExecutionAttempt, error) {
 	return dr.executionAttemptPoller.GetExecutionAttempts(ctx, message)
 }

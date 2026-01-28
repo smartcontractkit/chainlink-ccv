@@ -10,12 +10,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// mockDestinationReader is a mock implementation of executor.DestinationReader.
+// mockDestinationReader is a mock implementation of chainaccess.DestinationReader.
 type mockDestinationReader struct {
 	mock.Mock
 }
@@ -53,9 +53,9 @@ func (m *mockDestinationReader) HealthReport() map[string]error {
 	return args.Get(0).(map[string]error)
 }
 
-func (m *mockDestinationReader) GetCCVSForMessage(ctx context.Context, message protocol.Message) (executor.CCVAddressInfo, error) {
+func (m *mockDestinationReader) GetCCVSForMessage(ctx context.Context, message protocol.Message) (protocol.CCVAddressInfo, error) {
 	args := m.Called(ctx, message)
-	return args.Get(0).(executor.CCVAddressInfo), args.Error(1)
+	return args.Get(0).(protocol.CCVAddressInfo), args.Error(1)
 }
 
 func (m *mockDestinationReader) GetMessageSuccess(ctx context.Context, message protocol.Message) (bool, error) {
@@ -71,12 +71,12 @@ func (m *mockDestinationReader) GetRMNCursedSubjects(ctx context.Context) ([]pro
 	return args.Get(0).([]protocol.Bytes16), args.Error(1)
 }
 
-func (m *mockDestinationReader) GetExecutionAttempts(ctx context.Context, message protocol.Message) ([]executor.ExecutionAttempt, error) {
+func (m *mockDestinationReader) GetExecutionAttempts(ctx context.Context, message protocol.Message) ([]protocol.ExecutionAttempt, error) {
 	args := m.Called(ctx, message)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]executor.ExecutionAttempt), args.Error(1)
+	return args.Get(0).([]protocol.ExecutionAttempt), args.Error(1)
 }
 
 const (
@@ -85,7 +85,7 @@ const (
 )
 
 // newTestExecutionCheckerService creates a new ExecutionCheckerService for testing.
-func newTestExecutionCheckerService(destReaders map[protocol.ChainSelector]executor.DestinationReader) *AttemptCheckerService {
+func newTestExecutionCheckerService(destReaders map[protocol.ChainSelector]chainaccess.DestinationReader) *AttemptCheckerService {
 	return &AttemptCheckerService{
 		destinationReaders: destReaders,
 		lggr:               logger.Nop(),
@@ -150,9 +150,9 @@ func createTestVerifierResult(t *testing.T, message protocol.Message, verifierDe
 }
 
 // createTestExecutionAttempt creates a test execution attempt.
-func createTestExecutionAttempt(message protocol.Message, ccvs []protocol.UnknownAddress, ccvData [][]byte, gasLimit *big.Int) executor.ExecutionAttempt {
-	return executor.ExecutionAttempt{
-		Report: executor.AbstractAggregatedReport{
+func createTestExecutionAttempt(message protocol.Message, ccvs []protocol.UnknownAddress, ccvData [][]byte, gasLimit *big.Int) protocol.ExecutionAttempt {
+	return protocol.ExecutionAttempt{
+		Report: protocol.AbstractAggregatedReport{
 			CCVS:    ccvs,
 			CCVData: ccvData,
 			Message: message,
@@ -164,20 +164,20 @@ func createTestExecutionAttempt(message protocol.Message, ccvs []protocol.Unknow
 func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 	t.Run("no execution attempts returns false", func(t *testing.T) {
 		mockReader := new(mockDestinationReader)
-		service := newTestExecutionCheckerService(map[protocol.ChainSelector]executor.DestinationReader{
+		service := newTestExecutionCheckerService(map[protocol.ChainSelector]chainaccess.DestinationReader{
 			testDestChain: mockReader,
 		})
 
 		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
 		verifierResults := []protocol.VerifierResult{}
-		ccvInfo := executor.CCVAddressInfo{
+		ccvInfo := protocol.CCVAddressInfo{
 			RequiredCCVs:      []protocol.UnknownAddress{},
 			OptionalCCVs:      []protocol.UnknownAddress{},
 			OptionalThreshold: 0,
 		}
 
 		mockReader.On("GetExecutionAttempts", mock.Anything, message).
-			Return([]executor.ExecutionAttempt{}, nil)
+			Return([]protocol.ExecutionAttempt{}, nil)
 
 		ctx := context.Background()
 		hasAttempt, err := service.HasHonestAttempt(ctx, message, verifierResults, ccvInfo)
@@ -189,7 +189,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 
 	t.Run("honest execution attempt found returns true", func(t *testing.T) {
 		mockReader := new(mockDestinationReader)
-		service := newTestExecutionCheckerService(map[protocol.ChainSelector]executor.DestinationReader{
+		service := newTestExecutionCheckerService(map[protocol.ChainSelector]chainaccess.DestinationReader{
 			testDestChain: mockReader,
 		})
 
@@ -201,7 +201,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 		verifierResult := createTestVerifierResult(t, message, ccvAddr, ccvData)
 		verifierResults := []protocol.VerifierResult{verifierResult}
 
-		ccvInfo := executor.CCVAddressInfo{
+		ccvInfo := protocol.CCVAddressInfo{
 			RequiredCCVs:      []protocol.UnknownAddress{ccvAddr},
 			OptionalCCVs:      []protocol.UnknownAddress{},
 			OptionalThreshold: 0,
@@ -215,7 +215,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 		)
 
 		mockReader.On("GetExecutionAttempts", mock.Anything, message).
-			Return([]executor.ExecutionAttempt{attempt}, nil)
+			Return([]protocol.ExecutionAttempt{attempt}, nil)
 
 		ctx := context.Background()
 		hasAttempt, err := service.HasHonestAttempt(ctx, message, verifierResults, ccvInfo)
@@ -227,7 +227,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 
 	t.Run("dishonest execution attempt returns false", func(t *testing.T) {
 		mockReader := new(mockDestinationReader)
-		service := newTestExecutionCheckerService(map[protocol.ChainSelector]executor.DestinationReader{
+		service := newTestExecutionCheckerService(map[protocol.ChainSelector]chainaccess.DestinationReader{
 			testDestChain: mockReader,
 		})
 
@@ -239,7 +239,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 		verifierResult := createTestVerifierResult(t, message, ccvAddr, ccvData)
 		verifierResults := []protocol.VerifierResult{verifierResult}
 
-		ccvInfo := executor.CCVAddressInfo{
+		ccvInfo := protocol.CCVAddressInfo{
 			RequiredCCVs:      []protocol.UnknownAddress{ccvAddr},
 			OptionalCCVs:      []protocol.UnknownAddress{},
 			OptionalThreshold: 0,
@@ -254,7 +254,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 		)
 
 		mockReader.On("GetExecutionAttempts", mock.Anything, message).
-			Return([]executor.ExecutionAttempt{attempt}, nil)
+			Return([]protocol.ExecutionAttempt{attempt}, nil)
 
 		ctx := context.Background()
 		hasAttempt, err := service.HasHonestAttempt(ctx, message, verifierResults, ccvInfo)
@@ -266,7 +266,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 
 	t.Run("dishonest gas limit returns false", func(t *testing.T) {
 		mockReader := new(mockDestinationReader)
-		service := newTestExecutionCheckerService(map[protocol.ChainSelector]executor.DestinationReader{
+		service := newTestExecutionCheckerService(map[protocol.ChainSelector]chainaccess.DestinationReader{
 			testDestChain: mockReader,
 		})
 
@@ -278,7 +278,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 		verifierResult := createTestVerifierResult(t, message, ccvAddr, ccvData)
 		verifierResults := []protocol.VerifierResult{verifierResult}
 
-		ccvInfo := executor.CCVAddressInfo{
+		ccvInfo := protocol.CCVAddressInfo{
 			RequiredCCVs:      []protocol.UnknownAddress{ccvAddr},
 			OptionalCCVs:      []protocol.UnknownAddress{},
 			OptionalThreshold: 0,
@@ -293,7 +293,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 		)
 
 		mockReader.On("GetExecutionAttempts", mock.Anything, message).
-			Return([]executor.ExecutionAttempt{attempt}, nil)
+			Return([]protocol.ExecutionAttempt{attempt}, nil)
 
 		ctx := context.Background()
 		hasAttempt, err := service.HasHonestAttempt(ctx, message, verifierResults, ccvInfo)
@@ -305,13 +305,13 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 
 	t.Run("error from GetExecutionAttempts returns error", func(t *testing.T) {
 		mockReader := new(mockDestinationReader)
-		service := newTestExecutionCheckerService(map[protocol.ChainSelector]executor.DestinationReader{
+		service := newTestExecutionCheckerService(map[protocol.ChainSelector]chainaccess.DestinationReader{
 			testDestChain: mockReader,
 		})
 
 		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
 		verifierResults := []protocol.VerifierResult{}
-		ccvInfo := executor.CCVAddressInfo{}
+		ccvInfo := protocol.CCVAddressInfo{}
 
 		mockReader.On("GetExecutionAttempts", mock.Anything, message).
 			Return(nil, assert.AnError)
@@ -326,7 +326,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 
 	t.Run("multiple attempts with mixed honesty", func(t *testing.T) {
 		mockReader := new(mockDestinationReader)
-		service := newTestExecutionCheckerService(map[protocol.ChainSelector]executor.DestinationReader{
+		service := newTestExecutionCheckerService(map[protocol.ChainSelector]chainaccess.DestinationReader{
 			testDestChain: mockReader,
 		})
 
@@ -338,7 +338,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 		verifierResult := createTestVerifierResult(t, message, ccvAddr, ccvData)
 		verifierResults := []protocol.VerifierResult{verifierResult}
 
-		ccvInfo := executor.CCVAddressInfo{
+		ccvInfo := protocol.CCVAddressInfo{
 			RequiredCCVs:      []protocol.UnknownAddress{ccvAddr},
 			OptionalCCVs:      []protocol.UnknownAddress{},
 			OptionalThreshold: 0,
@@ -361,7 +361,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 		)
 
 		mockReader.On("GetExecutionAttempts", mock.Anything, message).
-			Return([]executor.ExecutionAttempt{dishonestAttempt, honestAttempt}, nil)
+			Return([]protocol.ExecutionAttempt{dishonestAttempt, honestAttempt}, nil)
 
 		ctx := context.Background()
 		hasAttempt, err := service.HasHonestAttempt(ctx, message, verifierResults, ccvInfo)
@@ -373,7 +373,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 
 	t.Run("attempt with mismatched message ID is skipped", func(t *testing.T) {
 		mockReader := new(mockDestinationReader)
-		service := newTestExecutionCheckerService(map[protocol.ChainSelector]executor.DestinationReader{
+		service := newTestExecutionCheckerService(map[protocol.ChainSelector]chainaccess.DestinationReader{
 			testDestChain: mockReader,
 		})
 
@@ -387,7 +387,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 		verifierResult := createTestVerifierResult(t, message, ccvAddr, ccvData)
 		verifierResults := []protocol.VerifierResult{verifierResult}
 
-		ccvInfo := executor.CCVAddressInfo{
+		ccvInfo := protocol.CCVAddressInfo{
 			RequiredCCVs:      []protocol.UnknownAddress{ccvAddr},
 			OptionalCCVs:      []protocol.UnknownAddress{},
 			OptionalThreshold: 0,
@@ -402,7 +402,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 		)
 
 		mockReader.On("GetExecutionAttempts", mock.Anything, message).
-			Return([]executor.ExecutionAttempt{attempt}, nil)
+			Return([]protocol.ExecutionAttempt{attempt}, nil)
 
 		ctx := context.Background()
 		hasAttempt, err := service.HasHonestAttempt(ctx, message, verifierResults, ccvInfo)
@@ -415,7 +415,7 @@ func TestExecutionCheckerService_HasHonestAttempt(t *testing.T) {
 
 func TestExecutionCheckerService_isHonestCallData(t *testing.T) {
 	t.Run("valid required and optional CCVs", func(t *testing.T) {
-		service := newTestExecutionCheckerService(map[protocol.ChainSelector]executor.DestinationReader{})
+		service := newTestExecutionCheckerService(map[protocol.ChainSelector]chainaccess.DestinationReader{})
 
 		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
 		requiredCCV, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
@@ -431,7 +431,7 @@ func TestExecutionCheckerService_isHonestCallData(t *testing.T) {
 			createTestVerifierResult(t, message, optionalCCV, optionalCCVData),
 		}
 
-		ccvInfo := executor.CCVAddressInfo{
+		ccvInfo := protocol.CCVAddressInfo{
 			RequiredCCVs:      []protocol.UnknownAddress{requiredCCV},
 			OptionalCCVs:      []protocol.UnknownAddress{optionalCCV},
 			OptionalThreshold: 1,
@@ -451,7 +451,7 @@ func TestExecutionCheckerService_isHonestCallData(t *testing.T) {
 	})
 
 	t.Run("invalid required CCVs", func(t *testing.T) {
-		service := newTestExecutionCheckerService(map[protocol.ChainSelector]executor.DestinationReader{})
+		service := newTestExecutionCheckerService(map[protocol.ChainSelector]chainaccess.DestinationReader{})
 
 		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
 		requiredCCV, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
@@ -462,7 +462,7 @@ func TestExecutionCheckerService_isHonestCallData(t *testing.T) {
 			createTestVerifierResult(t, message, requiredCCV, requiredCCVData),
 		}
 
-		ccvInfo := executor.CCVAddressInfo{
+		ccvInfo := protocol.CCVAddressInfo{
 			RequiredCCVs:      []protocol.UnknownAddress{requiredCCV},
 			OptionalCCVs:      []protocol.UnknownAddress{},
 			OptionalThreshold: 0,
@@ -483,7 +483,7 @@ func TestExecutionCheckerService_isHonestCallData(t *testing.T) {
 	})
 
 	t.Run("invalid optional CCVs", func(t *testing.T) {
-		service := newTestExecutionCheckerService(map[protocol.ChainSelector]executor.DestinationReader{})
+		service := newTestExecutionCheckerService(map[protocol.ChainSelector]chainaccess.DestinationReader{})
 
 		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
 		requiredCCV, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
@@ -499,7 +499,7 @@ func TestExecutionCheckerService_isHonestCallData(t *testing.T) {
 			createTestVerifierResult(t, message, optionalCCV, optionalCCVData),
 		}
 
-		ccvInfo := executor.CCVAddressInfo{
+		ccvInfo := protocol.CCVAddressInfo{
 			RequiredCCVs:      []protocol.UnknownAddress{requiredCCV},
 			OptionalCCVs:      []protocol.UnknownAddress{optionalCCV},
 			OptionalThreshold: 1, // Need at least 1 valid optional CCV
@@ -520,7 +520,7 @@ func TestExecutionCheckerService_isHonestCallData(t *testing.T) {
 	})
 
 	t.Run("message IDs don't match", func(t *testing.T) {
-		service := newTestExecutionCheckerService(map[protocol.ChainSelector]executor.DestinationReader{})
+		service := newTestExecutionCheckerService(map[protocol.ChainSelector]chainaccess.DestinationReader{})
 
 		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
 		otherMessage := createTestMessage(t, 2, testSourceChain, testDestChain, 100000)
@@ -533,7 +533,7 @@ func TestExecutionCheckerService_isHonestCallData(t *testing.T) {
 			createTestVerifierResult(t, message, ccvAddr, ccvData),
 		}
 
-		ccvInfo := executor.CCVAddressInfo{
+		ccvInfo := protocol.CCVAddressInfo{
 			RequiredCCVs:      []protocol.UnknownAddress{ccvAddr},
 			OptionalCCVs:      []protocol.UnknownAddress{},
 			OptionalThreshold: 0,
@@ -553,7 +553,7 @@ func TestExecutionCheckerService_isHonestCallData(t *testing.T) {
 	})
 
 	t.Run("optional CCV threshold met", func(t *testing.T) {
-		service := newTestExecutionCheckerService(map[protocol.ChainSelector]executor.DestinationReader{})
+		service := newTestExecutionCheckerService(map[protocol.ChainSelector]chainaccess.DestinationReader{})
 
 		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
 		requiredCCV, err := protocol.NewUnknownAddressFromHex("0x1111111111111111111111111111111111111111")
@@ -573,7 +573,7 @@ func TestExecutionCheckerService_isHonestCallData(t *testing.T) {
 			createTestVerifierResult(t, message, optionalCCV2, optionalCCV2Data),
 		}
 
-		ccvInfo := executor.CCVAddressInfo{
+		ccvInfo := protocol.CCVAddressInfo{
 			RequiredCCVs:      []protocol.UnknownAddress{requiredCCV},
 			OptionalCCVs:      []protocol.UnknownAddress{optionalCCV1, optionalCCV2},
 			OptionalThreshold: 1, // Need at least 1 valid optional CCV
@@ -596,7 +596,7 @@ func TestExecutionCheckerService_isHonestCallData(t *testing.T) {
 
 func TestExecutionCheckerService_isHonestGasLimit(t *testing.T) {
 	t.Run("gas limit less than execution gas limit", func(t *testing.T) {
-		service := newTestExecutionCheckerService(map[protocol.ChainSelector]executor.DestinationReader{})
+		service := newTestExecutionCheckerService(map[protocol.ChainSelector]chainaccess.DestinationReader{})
 
 		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
 		attempt := createTestExecutionAttempt(
@@ -612,7 +612,7 @@ func TestExecutionCheckerService_isHonestGasLimit(t *testing.T) {
 	})
 
 	t.Run("gas limit equal to execution gas limit", func(t *testing.T) {
-		service := newTestExecutionCheckerService(map[protocol.ChainSelector]executor.DestinationReader{})
+		service := newTestExecutionCheckerService(map[protocol.ChainSelector]chainaccess.DestinationReader{})
 
 		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
 		attempt := createTestExecutionAttempt(
@@ -628,7 +628,7 @@ func TestExecutionCheckerService_isHonestGasLimit(t *testing.T) {
 	})
 
 	t.Run("gas limit greater than execution gas limit", func(t *testing.T) {
-		service := newTestExecutionCheckerService(map[protocol.ChainSelector]executor.DestinationReader{})
+		service := newTestExecutionCheckerService(map[protocol.ChainSelector]chainaccess.DestinationReader{})
 
 		message := createTestMessage(t, 1, testSourceChain, testDestChain, 100000)
 		attempt := createTestExecutionAttempt(

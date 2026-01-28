@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/executionchecker"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -30,8 +31,8 @@ type ChainlinkExecutor struct {
 	services.StateMachine
 	services.Service
 	lggr                   logger.Logger
-	contractTransmitters   map[protocol.ChainSelector]executor.ContractTransmitter
-	destinationReaders     map[protocol.ChainSelector]executor.DestinationReader
+	contractTransmitters   map[protocol.ChainSelector]chainaccess.ContractTransmitter
+	destinationReaders     map[protocol.ChainSelector]chainaccess.DestinationReader
 	executionChecker       *executionchecker.AttemptCheckerService
 	curseChecker           common.CurseChecker
 	verifierResultsReader  executor.VerifierResultReader
@@ -41,8 +42,8 @@ type ChainlinkExecutor struct {
 
 func NewChainlinkExecutor(
 	lggr logger.Logger,
-	contractTransmitters map[protocol.ChainSelector]executor.ContractTransmitter,
-	destinationReaders map[protocol.ChainSelector]executor.DestinationReader,
+	contractTransmitters map[protocol.ChainSelector]chainaccess.ContractTransmitter,
+	destinationReaders map[protocol.ChainSelector]chainaccess.DestinationReader,
 	curseChecker common.CurseChecker,
 	verifierResultReader executor.VerifierResultReader,
 	monitoring executor.Monitoring,
@@ -208,7 +209,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	}
 
 	// Create the aggregated report and transmit it to the chain.
-	aggregatedReport := executor.AbstractAggregatedReport{
+	aggregatedReport := protocol.AbstractAggregatedReport{
 		CCVS:    orderedCCVOfframps,
 		CCVData: orderedverifierResults,
 		Message: message,
@@ -231,7 +232,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	return false, nil
 }
 
-func (cle *ChainlinkExecutor) getVerifierResultsAndQuorum(ctx context.Context, message protocol.Message, messageID protocol.Bytes32) ([]protocol.VerifierResult, executor.CCVAddressInfo, error) {
+func (cle *ChainlinkExecutor) getVerifierResultsAndQuorum(ctx context.Context, message protocol.Message, messageID protocol.Bytes32) ([]protocol.VerifierResult, protocol.CCVAddressInfo, error) {
 	destinationChain, sourceSelector := message.DestChainSelector, message.SourceChainSelector
 
 	// Fetch CCV data from the indexer and CCV info from the destination reader concurrently.
@@ -265,7 +266,7 @@ func (cle *ChainlinkExecutor) getVerifierResultsAndQuorum(ctx context.Context, m
 		return nil
 	})
 
-	var ccvInfo executor.CCVAddressInfo
+	var ccvInfo protocol.CCVAddressInfo
 	g.Go(func() error {
 		start := time.Now().Unix()
 		res, err := cle.destinationReaders[destinationChain].GetCCVSForMessage(
@@ -322,7 +323,7 @@ func ccvDataSourceVerifiers(ccvDatas []protocol.VerifierResult) []string {
 // timestamp among all CCV datas for monitoring purposes.
 func orderCCVData(
 	ccvDatas []protocol.VerifierResult,
-	receiverCCVInfo executor.CCVAddressInfo,
+	receiverCCVInfo protocol.CCVAddressInfo,
 ) (
 	orderedCCVData [][]byte,
 	orderedCCVOfframps []protocol.UnknownAddress,
