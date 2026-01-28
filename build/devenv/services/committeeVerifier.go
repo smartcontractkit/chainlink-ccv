@@ -18,6 +18,7 @@ import (
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -64,6 +65,14 @@ type VerifierInput struct {
 	CommitteeName  string             `toml:"committee_name"`
 	NodeIndex      int                `toml:"node_index"`
 
+	// CantonConfig is the canton configuration to pass onto the verifier,
+	// only used in standalone mode and if Canton is enabled.
+	CantonConfig map[string]canton.ReaderConfig `toml:"canton_config"`
+
+	// DisableFinalityCheckers is a list of chain selectors for which the finality violation checker should be disabled.
+	// The chain selectors are formatted as strings of the chain selector.
+	DisableFinalityCheckers []string `toml:"disable_finality_checkers"`
+
 	// SigningKey is the private key for standalone mode signing.
 	SigningKey string `toml:"signing_key"`
 
@@ -95,6 +104,16 @@ func (v *VerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[st
 	var baseConfig commit.Config
 	if _, err := toml.Decode(v.GeneratedConfig, &baseConfig); err != nil {
 		return "", nil, fmt.Errorf("failed to parse generated config: %w", err)
+	}
+
+	// Apply canton config if provided.
+	if v.CantonConfig != nil {
+		baseConfig.CantonConfigs = v.CantonConfig
+	}
+
+	// Apply disable finality checkers if provided.
+	if len(v.DisableFinalityCheckers) > 0 {
+		baseConfig.DisableFinalityCheckers = v.DisableFinalityCheckers
 	}
 
 	// Wrap with blockchain infos for standalone mode

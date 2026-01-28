@@ -125,8 +125,10 @@ func TestCantonSourceReader(t *testing.T) {
 	sourceReader, err := canton.NewSourceReader(
 		grpcURL,
 		jwt,
-		ccipOwner,
-		ccipMessageSentTemplateID,
+		canton.ReaderConfig{
+			CCIPOwnerParty:            ccipOwner,
+			CCIPMessageSentTemplateID: fmt.Sprintf("%s:%s:%s", ccipMessageSentTemplateID.PackageId, ccipMessageSentTemplateID.ModuleName, ccipMessageSentTemplateID.EntityName),
+		},
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	require.NoError(t, err)

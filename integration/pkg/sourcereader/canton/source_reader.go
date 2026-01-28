@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"strings"
 
 	ledgerv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2"
 	"google.golang.org/grpc"
@@ -32,22 +33,42 @@ const (
 	ccipMessageSentEventVerifierBlobsLabel     = "verifierBlobs"
 )
 
+// ReaderConfig is the configuration required to create a canton source reader.
+type ReaderConfig struct {
+	// CCIPOwnerParty is the party that we expect to be present in the CCIPMessageSent.ccipOwner field.
+	// This proves that the ccipOwner is a signatory on the CCIPMessageSent contract(event).
+	CCIPOwnerParty string `toml:"ccip_owner_party"`
+	// CCIPMessageSentTemplateID is the template ID of the CCIPMessageSent contract.
+	// Formatted as packageId:moduleName:entityName
+	CCIPMessageSentTemplateID string `toml:"ccip_message_sent_template_id"`
+}
+
+// GetTemplateID returns a ledgerv2.Identifier from the CCIPMessageSentTemplateID.
+// It expects the format to be packageId:moduleName:entityName.
+func (c *ReaderConfig) GetTemplateID() (*ledgerv2.Identifier, error) {
+	parts := strings.Split(c.CCIPMessageSentTemplateID, ":")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("invalid template ID format, expected packageId:moduleName:entityName, got: %s", c.CCIPMessageSentTemplateID)
+	}
+	return &ledgerv2.Identifier{
+		PackageId:  parts[0],
+		ModuleName: parts[1],
+		EntityName: parts[2],
+	}, nil
+}
+
 type sourceReader struct {
 	stateServiceClient  ledgerv2.StateServiceClient
 	updateServiceClient ledgerv2.UpdateServiceClient
 	jwt                 string
 
-	// ccipOwnerParty is the party that we expect to be present in the CCIPMessageSent.ccipOwner field.
-	ccipOwnerParty string
-	// ccipMessageSentTemplateID is the template ID of the CCIPMessageSent contract.
-	ccipMessageSentTemplateID *ledgerv2.Identifier
+	config ReaderConfig
 }
 
 func NewSourceReader(
 	grpcEndpoint,
 	jwt string,
-	ccipOwnerParty string,
-	ccipMessageSentTemplateID *ledgerv2.Identifier,
+	config ReaderConfig,
 	opts ...grpc.DialOption,
 ) (chainaccess.SourceReader, error) {
 	conn, err := grpc.NewClient(grpcEndpoint, opts...)
@@ -56,16 +77,20 @@ func NewSourceReader(
 	}
 
 	return &sourceReader{
-		stateServiceClient:        ledgerv2.NewStateServiceClient(conn),
-		updateServiceClient:       ledgerv2.NewUpdateServiceClient(conn),
-		jwt:                       jwt,
-		ccipOwnerParty:            ccipOwnerParty,
-		ccipMessageSentTemplateID: ccipMessageSentTemplateID,
+		stateServiceClient:  ledgerv2.NewStateServiceClient(conn),
+		updateServiceClient: ledgerv2.NewUpdateServiceClient(conn),
+		jwt:                 jwt,
+		config:              config,
 	}, nil
 }
 
 // FetchMessageSentEvents implements chainaccess.SourceReader.
 func (c *sourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock *big.Int) ([]protocol.MessageSentEvent, error) {
+	templateID, err := c.config.GetTemplateID()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get template ID: %w", err)
+	}
+
 	// since begin is exclusive we need to subtract 1 from fromBlock
 	begin := new(big.Int).Sub(fromBlock, big.NewInt(1))
 	// check that begin is not negative
@@ -81,12 +106,12 @@ func (c *sourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 				TransactionShape: ledgerv2.TransactionShape_TRANSACTION_SHAPE_ACS_DELTA,
 				EventFormat: &ledgerv2.EventFormat{
 					FiltersByParty: map[string]*ledgerv2.Filters{
-						c.ccipOwnerParty: {
+						c.config.CCIPOwnerParty: {
 							Cumulative: []*ledgerv2.CumulativeFilter{
 								{
 									IdentifierFilter: &ledgerv2.CumulativeFilter_TemplateFilter{
 										TemplateFilter: &ledgerv2.TemplateFilter{
-											TemplateId:              c.ccipMessageSentTemplateID,
+											TemplateId:              templateID,
 											IncludeCreatedEventBlob: true,
 										},
 									},
@@ -115,7 +140,7 @@ func (c *sourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 		transactions = append(transactions, update.GetTransaction())
 	}
 
-	events, err := extractEvents(transactions, c.ccipOwnerParty, c.ccipMessageSentTemplateID)
+	events, err := extractEvents(transactions, c.config.CCIPOwnerParty, templateID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract events: %w", err)
 	}

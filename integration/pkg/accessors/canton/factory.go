@@ -4,23 +4,22 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
-
-	ledgerv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 type factory struct {
 	lggr   logger.Logger
 	helper *blockchain.Helper
-	config map[string]commit.CantonConfig
+
+	// map of chain selector to canton reader config
+	// this is used to create the canton source reader
+	config map[string]canton.ReaderConfig
 }
 
 // GetAccessor implements chainaccess.AccessorFactory.
@@ -51,16 +50,13 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		return nil, fmt.Errorf("canton endpoints not found for chain %d", chainSelector)
 	}
 
-	templateID, err := parseTemplateID(cantonConfig.CCIPMessageSentTemplateID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse template ID: %w", err)
-	}
-
 	sourceReader, err := canton.NewSourceReader(
 		netData.CantonEndpoints.GRPCLedgerAPIURL,
 		netData.CantonEndpoints.JWT,
-		cantonConfig.CCIPOwnerParty,
-		templateID,
+		canton.ReaderConfig{
+			CCIPOwnerParty:            cantonConfig.CCIPOwnerParty,
+			CCIPMessageSentTemplateID: cantonConfig.CCIPMessageSentTemplateID,
+		},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create source reader: %w", err)
@@ -69,19 +65,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	return newAccessor(sourceReader), nil
 }
 
-func parseTemplateID(id string) (*ledgerv2.Identifier, error) {
-	parts := strings.Split(id, ":")
-	if len(parts) != 3 {
-		return nil, fmt.Errorf("invalid template ID format, expected packageId:moduleName:entityName, got: %s", id)
-	}
-	return &ledgerv2.Identifier{
-		PackageId:  parts[0],
-		ModuleName: parts[1],
-		EntityName: parts[2],
-	}, nil
-}
-
-func NewFactory(lggr logger.Logger, helper *blockchain.Helper, config map[string]commit.CantonConfig) chainaccess.AccessorFactory {
+func NewFactory(lggr logger.Logger, helper *blockchain.Helper, config map[string]canton.ReaderConfig) chainaccess.AccessorFactory {
 	return &factory{
 		lggr:   lggr,
 		helper: helper,

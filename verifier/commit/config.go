@@ -4,17 +4,13 @@ import (
 	"fmt"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
 type ConfigWithBlockchainInfos struct {
 	Config
 	BlockchainInfos map[string]*blockchain.Info `toml:"blockchain_infos"`
-}
-
-type CantonConfig struct {
-	CCIPOwnerParty            string `toml:"ccip_owner_party"`
-	CCIPMessageSentTemplateID string `toml:"ccip_message_sent_template_id"`
 }
 
 type Config struct {
@@ -39,7 +35,7 @@ type Config struct {
 	// Required for curse detection.
 	RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
 	// CantonConfigs is a map of chain selector to Canton configuration.
-	CantonConfigs map[string]CantonConfig `toml:"canton_configs"`
+	CantonConfigs map[string]canton.ReaderConfig `toml:"canton_configs"`
 	// DisableFinalityCheckers is a list of chain selectors for which the finality violation checker should be disabled.
 	// The chain selectors are formatted as strings of the chain selector.
 	DisableFinalityCheckers []string                  `toml:"disable_finality_checkers"`

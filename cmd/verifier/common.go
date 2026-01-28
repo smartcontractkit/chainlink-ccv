@@ -19,6 +19,7 @@ import (
 	evmaccessor "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
@@ -153,7 +154,7 @@ func RegisterEVM(ctx context.Context, registry *accessors.Registry, lggr logger.
 	registry.Register(chainsel.FamilyEVM, evmaccessor.NewFactory(lggr, helper, onRampAddresses, rmnRemoteAddresses, headTrackers, chainClients))
 }
 
-func RegisterCanton(ctx context.Context, registry *accessors.Registry, lggr logger.Logger, helper *blockchain.Helper, cantonConfigs map[string]commit.CantonConfig) {
+func RegisterCanton(ctx context.Context, registry *accessors.Registry, lggr logger.Logger, helper *blockchain.Helper, cantonConfigs map[string]canton.ReaderConfig) {
 	registry.Register(chainsel.FamilyCanton, cantonaccessor.NewFactory(lggr, helper, cantonConfigs))
 }
 
