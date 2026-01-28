@@ -314,7 +314,7 @@ func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blo
 	ver.LBTCVerifierAddresses = make(map[string]string)
 
 	for _, chain := range blockchains {
-		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(chain.ChainID, chainsel.FamilyEVM)
+		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(chain.ChainID, chain.Out.Family)
 		if err != nil {
 			return TokenVerifierInput{}, err
 		}
