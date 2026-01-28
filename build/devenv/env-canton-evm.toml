@@ -209,6 +209,7 @@ execution_interval = 15_000_000_000
   root_path = "../../"
   committee_name = "default"
   node_index = 0
+  disable_finality_checkers = ["8706591216959472610"] # Disable finality detection on Canton.
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-1-db"
@@ -228,6 +229,7 @@ execution_interval = 15_000_000_000
   root_path = "../../"
   committee_name = "default"
   node_index = 1
+  disable_finality_checkers = ["8706591216959472610"] # Disable finality detection on Canton.
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-2-db"
@@ -248,6 +250,7 @@ execution_interval = 15_000_000_000
   root_path = "../../"
   committee_name = "secondary"
   node_index = 0
+  disable_finality_checkers = ["8706591216959472610"] # Disable finality detection on Canton.
   [verifier.db]
     image = "postgres:16-alpine"
     name = "secondary-verifier-1-db"
@@ -267,6 +270,7 @@ execution_interval = 15_000_000_000
   root_path = "../../"
   committee_name = "secondary"
   node_index = 1
+  disable_finality_checkers = ["8706591216959472610"] # Disable finality detection on Canton.
   [verifier.db]
     image = "postgres:16-alpine"
     name = "secondary-verifier-2-db"
@@ -287,6 +291,7 @@ execution_interval = 15_000_000_000
   root_path = "../../"
   committee_name = "tertiary"
   node_index = 0
+  disable_finality_checkers = ["8706591216959472610"] # Disable finality detection on Canton.
   [verifier.db]
     image = "postgres:16-alpine"
     name = "tertiary-verifier-1-db"
@@ -295,7 +300,6 @@ execution_interval = 15_000_000_000
     [verifier.canton_configs.8706591216959472610.reader_config]
       ccip_owner_party = "participant1-localparty-1"
       ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
-
 
 [[verifier]]
   image = "verifier:dev"
@@ -306,6 +310,7 @@ execution_interval = 15_000_000_000
   root_path = "../../"
   committee_name = "tertiary"
   node_index = 1
+  disable_finality_checkers = ["8706591216959472610"] # Disable finality detection on Canton.
   [verifier.db]
     image = "postgres:16-alpine"
     name = "tertiary-verifier-2-db"
@@ -314,7 +319,6 @@ execution_interval = 15_000_000_000
     [verifier.canton_configs.8706591216959472610.reader_config]
       ccip_owner_party = "participant1-localparty-1"
       ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
-
 
 [[token_verifier]]
   mode = "standalone"
