@@ -16,6 +16,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 const (
@@ -41,6 +42,9 @@ type ReaderConfig struct {
 	// CCIPMessageSentTemplateID is the template ID of the CCIPMessageSent contract.
 	// Formatted as packageId:moduleName:entityName
 	CCIPMessageSentTemplateID string `toml:"ccip_message_sent_template_id"`
+	// Authority is the authority to use for the gRPC connection.
+	// Connecting to the gRPC API via nginx usually requires this to be set.
+	Authority string `toml:"authority"`
 }
 
 // GetTemplateID returns a ledgerv2.Identifier from the CCIPMessageSentTemplateID.
@@ -58,6 +62,7 @@ func (c *ReaderConfig) GetTemplateID() (*ledgerv2.Identifier, error) {
 }
 
 type sourceReader struct {
+	lggr                logger.Logger
 	stateServiceClient  ledgerv2.StateServiceClient
 	updateServiceClient ledgerv2.UpdateServiceClient
 	jwt                 string
@@ -66,17 +71,25 @@ type sourceReader struct {
 }
 
 func NewSourceReader(
+	lggr logger.Logger,
 	grpcEndpoint,
 	jwt string,
 	config ReaderConfig,
 	opts ...grpc.DialOption,
 ) (chainaccess.SourceReader, error) {
+	lggr.Infow("creating gRPC connection to canton node", "grpcEndpoint", grpcEndpoint, "config", config)
+
+	if config.Authority != "" {
+		opts = append(opts, grpc.WithAuthority(config.Authority))
+	}
+
 	conn, err := grpc.NewClient(grpcEndpoint, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gRPC connection to canton node: %w", err)
 	}
 
 	return &sourceReader{
+		lggr:                lggr,
 		stateServiceClient:  ledgerv2.NewStateServiceClient(conn),
 		updateServiceClient: ledgerv2.NewUpdateServiceClient(conn),
 		jwt:                 jwt,
@@ -97,10 +110,25 @@ func (c *sourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 	if begin.Sign() < 0 {
 		begin = big.NewInt(0)
 	}
-	end := toBlock.Int64()
+
+	var end *int64
+	if toBlock != nil {
+		e := toBlock.Int64()
+		end = &e
+	} else {
+		// If toBlock is nil, we need to get the latest ledger end to avoid streaming indefinitely
+		// and to ensure we return a slice as expected by the interface.
+		ledgerEnd, err := c.stateServiceClient.GetLedgerEnd(c.authCtx(ctx), &ledgerv2.GetLedgerEndRequest{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to get ledger end for open-ended query: %w", err)
+		}
+		e := ledgerEnd.GetOffset()
+		end = &e
+	}
+
 	updates, err := c.updateServiceClient.GetUpdates(c.authCtx(ctx), &ledgerv2.GetUpdatesRequest{
 		BeginExclusive: begin.Int64(),
-		EndInclusive:   &end,
+		EndInclusive:   end,
 		UpdateFormat: &ledgerv2.UpdateFormat{
 			IncludeTransactions: &ledgerv2.TransactionFormat{
 				TransactionShape: ledgerv2.TransactionShape_TRANSACTION_SHAPE_ACS_DELTA,

@@ -13,6 +13,12 @@ type ConfigWithBlockchainInfos struct {
 	BlockchainInfos map[string]*blockchain.Info `toml:"blockchain_infos"`
 }
 
+// CantonConfig is the configuration required for verifiers that read from Canton.
+type CantonConfig struct {
+	// ReaderConfig is the configuration for the canton source reader.
+	ReaderConfig canton.ReaderConfig `toml:"reader_config"`
+}
+
 type Config struct {
 	VerifierID        string `toml:"verifier_id"`
 	AggregatorAddress string `toml:"aggregator_address"`
@@ -35,7 +41,7 @@ type Config struct {
 	// Required for curse detection.
 	RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
 	// CantonConfigs is a map of chain selector to Canton configuration.
-	CantonConfigs map[string]canton.ReaderConfig `toml:"canton_configs"`
+	CantonConfigs map[string]CantonConfig `toml:"canton_configs"`
 	// DisableFinalityCheckers is a list of chain selectors for which the finality violation checker should be disabled.
 	// The chain selectors are formatted as strings of the chain selector.
 	DisableFinalityCheckers []string                  `toml:"disable_finality_checkers"`

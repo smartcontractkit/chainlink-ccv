@@ -10,7 +10,6 @@ import (
 
 	ledgerv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2"
 	ledgerv2admin "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2/admin"
-	jwtv5 "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -20,6 +19,7 @@ import (
 	devenvcanton "github.com/smartcontractkit/chainlink-ccv/devenv/canton"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -71,7 +71,7 @@ func TestCantonSourceReader(t *testing.T) {
 
 	helper, err := devenvcanton.NewHelperFromBlockchainInput(grpcURL, jwt)
 	require.NoError(t, err)
-	ts := newTestSetup(t, helper)
+	ts := newTestSetup(helper)
 
 	// Assert that the parties were created and are known to the ledger.
 	knownParties, err := ts.helper.ListKnownParties(t.Context())
@@ -88,9 +88,7 @@ func TestCantonSourceReader(t *testing.T) {
 	require.NotEmpty(t, party)
 	t.Logf("found party: %s", party)
 
-	// Upload the DAR file containing the TestRouter contract and any required dependencies.
-	err = ts.helper.UploadDar(t.Context(), "json-tests-0.0.1.dar")
-	require.NoError(t, err)
+	// Check that the expected package is uploaded.
 	knownPackages, err := ts.helper.ListKnownPackages(t.Context())
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(knownPackages), 1)
@@ -118,6 +116,7 @@ func TestCantonSourceReader(t *testing.T) {
 	require.NotNil(t, createResp)
 
 	sourceReader, err := canton.NewSourceReader(
+		logger.Test(t),
 		grpcURL,
 		jwt,
 		canton.ReaderConfig{
@@ -205,15 +204,6 @@ func mustEncodeMessage(t *testing.T, msg protocol.Message) []byte {
 	encoded, err := msg.Encode()
 	require.NoError(t, err)
 	return encoded
-}
-
-func getSub(t *testing.T, jwt string) string {
-	claims := jwtv5.MapClaims{}
-	_, _, err := jwtv5.NewParser().ParseUnverified(jwt, claims)
-	require.NoError(t, err)
-	require.NotNil(t, claims["sub"])
-
-	return claims["sub"].(string)
 }
 
 type testSetup struct {
@@ -403,7 +393,7 @@ func (ts *testSetup) createTestRouter(t *testing.T, ccipOwnerParty, partyOwnerPa
 	return resp
 }
 
-func newTestSetup(t *testing.T, helper *devenvcanton.Helper) *testSetup {
+func newTestSetup(helper *devenvcanton.Helper) *testSetup {
 	return &testSetup{
 		helper: helper,
 	}

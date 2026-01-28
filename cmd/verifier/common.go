@@ -154,8 +154,12 @@ func RegisterEVM(ctx context.Context, registry *accessors.Registry, lggr logger.
 	registry.Register(chainsel.FamilyEVM, evmaccessor.NewFactory(lggr, helper, onRampAddresses, rmnRemoteAddresses, headTrackers, chainClients))
 }
 
-func RegisterCanton(ctx context.Context, registry *accessors.Registry, lggr logger.Logger, helper *blockchain.Helper, cantonConfigs map[string]canton.ReaderConfig) {
-	registry.Register(chainsel.FamilyCanton, cantonaccessor.NewFactory(lggr, helper, cantonConfigs))
+func RegisterCanton(ctx context.Context, registry *accessors.Registry, lggr logger.Logger, helper *blockchain.Helper, cantonConfigs map[string]commit.CantonConfig) {
+	readerConfigs := make(map[string]canton.ReaderConfig)
+	for selector, config := range cantonConfigs {
+		readerConfigs[selector] = config.ReaderConfig
+	}
+	registry.Register(chainsel.FamilyCanton, cantonaccessor.NewFactory(lggr, helper, readerConfigs))
 }
 
 func CreateSourceReaders(

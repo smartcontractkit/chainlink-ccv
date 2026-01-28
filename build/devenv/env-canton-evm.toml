@@ -213,6 +213,10 @@ execution_interval = 15_000_000_000
     image = "postgres:16-alpine"
     name = "default-verifier-1-db"
     port = 8432
+  [verifier.canton_configs]
+    [verifier.canton_configs.8706591216959472610.reader_config]
+      ccip_owner_party = "participant1-localparty-1"
+      ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
 
 
 [[verifier]]
@@ -228,6 +232,10 @@ execution_interval = 15_000_000_000
     image = "postgres:16-alpine"
     name = "default-verifier-2-db"
     port = 8433
+  [verifier.canton_configs]
+    [verifier.canton_configs.8706591216959472610.reader_config]
+      ccip_owner_party = "participant1-localparty-1"
+      ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
 
 
 # Secondary Verifier Setup
@@ -244,6 +252,10 @@ execution_interval = 15_000_000_000
     image = "postgres:16-alpine"
     name = "secondary-verifier-1-db"
     port = 8434
+  [verifier.canton_configs]
+    [verifier.canton_configs.8706591216959472610.reader_config]
+      ccip_owner_party = "participant1-localparty-1"
+      ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
 
 
 [[verifier]]
@@ -259,6 +271,10 @@ execution_interval = 15_000_000_000
     image = "postgres:16-alpine"
     name = "secondary-verifier-2-db"
     port = 8435
+  [verifier.canton_configs]
+    [verifier.canton_configs.8706591216959472610.reader_config]
+      ccip_owner_party = "participant1-localparty-1"
+      ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
 
 
 # Tertiary Verifier Setup
@@ -275,6 +291,10 @@ execution_interval = 15_000_000_000
     image = "postgres:16-alpine"
     name = "tertiary-verifier-1-db"
     port = 8436
+  [verifier.canton_configs]
+    [verifier.canton_configs.8706591216959472610.reader_config]
+      ccip_owner_party = "participant1-localparty-1"
+      ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
 
 
 [[verifier]]
@@ -290,6 +310,10 @@ execution_interval = 15_000_000_000
     image = "postgres:16-alpine"
     name = "tertiary-verifier-2-db"
     port = 8437
+  [verifier.canton_configs]
+    [verifier.canton_configs.8706591216959472610.reader_config]
+      ccip_owner_party = "participant1-localparty-1"
+      ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
 
 
 [[token_verifier]]

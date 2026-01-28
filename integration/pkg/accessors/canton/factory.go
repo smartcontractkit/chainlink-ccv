@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"strconv"
 
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
@@ -51,12 +54,15 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	}
 
 	sourceReader, err := canton.NewSourceReader(
+		logger.Named(f.lggr, fmt.Sprintf("CantonSourceReader.%d", chainSelector)),
 		netData.CantonEndpoints.GRPCLedgerAPIURL,
 		netData.CantonEndpoints.JWT,
 		canton.ReaderConfig{
 			CCIPOwnerParty:            cantonConfig.CCIPOwnerParty,
 			CCIPMessageSentTemplateID: cantonConfig.CCIPMessageSentTemplateID,
+			Authority:                 cantonConfig.Authority,
 		},
+		grpc.WithTransportCredentials(insecure.NewCredentials()), // TODO: make this configurable
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create source reader: %w", err)
