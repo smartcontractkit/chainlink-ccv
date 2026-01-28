@@ -46,21 +46,27 @@ const (
 var committeeVerifierVersion = []byte{0x49, 0xff, 0x34, 0xed}
 
 // Start the environment required for this test using:
-// ccv up env-canton-single-validator.toml
+// ccv up env-canton-evm.toml
 // from the build/devenv directory.
 func TestCantonSourceReader(t *testing.T) {
-	in, err := ccv.Load[ccv.Cfg]([]string{"../../../env-canton-single-validator-out.toml"})
+	in, err := ccv.Load[ccv.Cfg]([]string{"../../../env-canton-evm-out.toml"})
 	require.NoError(t, err)
 
-	require.GreaterOrEqual(t, len(in.Blockchains), 1, "need at least one canton chain for this test")
-	require.Equal(t, in.Blockchains[0].Type, blockchain.TypeCanton, "expected canton chain")
+	var cantonChain *blockchain.Input
+	for _, bc := range in.Blockchains {
+		if bc.Type == blockchain.TypeCanton {
+			cantonChain = bc
+			break
+		}
+	}
+	require.NotNil(t, cantonChain, "need at least one canton chain for this test")
 
 	t.Cleanup(func() {
 		_, err := framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
 		require.NoError(t, err)
 	})
 
-	bcOutput := in.Blockchains[0].Out
+	bcOutput := cantonChain.Out
 
 	jwt := bcOutput.NetworkSpecificData.CantonEndpoints.Participants[0].JWT
 	require.NotEmpty(t, jwt)

@@ -184,8 +184,11 @@ func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers [
 			}
 			if nop.SignerAddressByFamily[chainsel.FamilyEVM] == "" {
 				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, ver.SigningKeyPublic)
-				seenAliases[ver.NOPAlias] = struct{}{}
 			}
+			if nop.SignerAddressByFamily[chainsel.FamilyCanton] == "" {
+				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyCanton, ver.SigningKeyPublic)
+			}
+			seenAliases[ver.NOPAlias] = struct{}{}
 		}
 	}
 }
@@ -238,11 +241,23 @@ func generateExecutorJobSpecs(
 			execNOPAliases = append(execNOPAliases, exec.NOPAlias)
 		}
 
+		// Currently only EVM is supported for executors.
+		var filteredSelectors []uint64
+		for _, selector := range selectors {
+			family, err := chainsel.GetSelectorFamily(selector)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get selector family for selector %d: %w", selector, err)
+			}
+			if family == chainsel.FamilyEVM {
+				filteredSelectors = append(filteredSelectors, selector)
+			}
+		}
+
 		cs := changesets.ApplyExecutorConfig()
 		output, err := cs.Apply(*e, changesets.ApplyExecutorConfigCfg{
 			Topology:          topology,
 			ExecutorQualifier: qualifier,
-			ChainSelectors:    selectors,
+			ChainSelectors:    filteredSelectors,
 			TargetNOPs:        shared.ConvertStringToNopAliases(execNOPAliases),
 		})
 		if err != nil {
@@ -290,6 +305,11 @@ func generateExecutorJobSpecs(
 	}
 	Plog.Info().Any("Addresses", addresses).Int("ImplsLen", len(impls)).Msg("Funding executors")
 	for i, impl := range impls {
+		if in.Blockchains[i].Type == blockchain.TypeCanton {
+			// Executor doesn't support Canton.
+			continue
+		}
+
 		Plog.Info().Int("ImplIndex", i).Msg("Funding executor")
 		err = impl.FundAddresses(ctx, in.Blockchains[i], addresses, big.NewInt(5))
 		if err != nil {
@@ -424,7 +444,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// END: Read Config toml //
 	/////////////////////////////
 
-	// Start fake data provider. This isn't really used, but may be useful in the future.
+	// Start fake data provider. Used for USDC verifier.
 	fakeOut, err := services.NewFake(in.Fake)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create fake data provider: %w", err)
@@ -657,10 +677,6 @@ func NewEnvironment() (in *Cfg, err error) {
 	timeTrack.Record("[infra] deploying blockchains")
 	ds := datastore.NewMemoryDataStore()
 	for i, impl := range impls {
-		if in.Blockchains[i].Type == blockchain.TypeCanton {
-			continue
-		}
-
 		var networkInfo chainsel.ChainDetails
 		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
 		if err != nil {
@@ -698,6 +714,7 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	for i, impl := range impls {
 		if in.Blockchains[i].Type == blockchain.TypeCanton {
+			// Canton contracts are not supported yet by the interface, tests need to connect them manually.
 			continue
 		}
 

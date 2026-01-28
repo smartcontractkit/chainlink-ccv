@@ -40,7 +40,7 @@ jobs:
             timeout: 5m
             working-directory: build/devenv/tests/e2e
           - name: TestCantonSourceReader
-            config: env-canton-single-validator.toml
+            config: env-canton-evm.toml
             timeout: 2m
             working-directory: build/devenv/tests/integration/canton
     steps:

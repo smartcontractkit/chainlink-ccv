@@ -26,6 +26,10 @@ const (
 	QuaternaryReceiverQualifier = "quaternary"
 
 	CustomExecutorQualifier = "custom"
+
+	CCTPContractsQualifier         = "CCTP"
+	CCTPPrimaryReceiverQualifier   = "cctp-primary"
+	CCTPSecondaryReceiverQualifier = "cctp-secondary"
 )
 
 // TokenCombination represents a source and destination pool combination.

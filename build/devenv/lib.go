@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/rs/zerolog"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/canton"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
@@ -19,22 +21,28 @@ type ChainImpl struct {
 	cciptestinterfaces.CCIP17
 	Details chain_selectors.ChainDetails
 }
+
 type Lib struct {
-	envOutFile string
-	cfg        *Cfg
-	l          *zerolog.Logger
+	envOutFile     string
+	cfg            *Cfg
+	l              *zerolog.Logger
+	familiesToLoad []string
 }
 
-func NewLib(logger *zerolog.Logger, envOutFile string) (*Lib, error) {
+// NewLib creates a new Lib object given a logger and envOutFile.
+// If familiesToLoad is provided, only chains with the given families will be loaded.
+// If familiesToLoad is not provided, all chains will be loaded.
+func NewLib(logger *zerolog.Logger, envOutFile string, familiesToLoad ...string) (*Lib, error) {
 	cfg, err := LoadOutput[Cfg](envOutFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load environment output: %w", err)
 	}
 
 	lib := &Lib{
-		envOutFile: envOutFile,
-		cfg:        cfg,
-		l:          logger,
+		envOutFile:     envOutFile,
+		cfg:            cfg,
+		l:              logger,
+		familiesToLoad: familiesToLoad,
 	}
 
 	if err := lib.verify(); err != nil {
@@ -113,19 +121,43 @@ func (l *Lib) Chains(ctx context.Context) ([]ChainImpl, error) {
 
 	impls := make([]ChainImpl, len(l.cfg.Blockchains))
 	for i, bc := range l.cfg.Blockchains {
-		chainID := bc.ChainID
-		wsURL := bc.Out.Nodes[0].ExternalWSUrl
-		details, err := chain_selectors.GetChainDetailsByChainIDAndFamily(chainID, bc.Out.Family)
-		if err != nil {
-			return nil, fmt.Errorf("getting chain details for chain ID %s and family %s: %w", chainID, bc.Out.Family, err)
+		if len(l.familiesToLoad) > 0 && !slices.Contains(l.familiesToLoad, bc.Out.Family) {
+			l.l.Info().
+				Any("familiesToLoad", l.familiesToLoad).
+				Str("chainID", bc.ChainID).
+				Str("family", bc.Out.Family).
+				Msg("Skipping chain because it is not in the families to load")
+			continue
 		}
-		impl, err := evm.NewCCIP17EVM(ctx, *l.l, env, chainID, wsURL)
-		if err != nil {
-			return nil, fmt.Errorf("creating CCIP17 EVM implementation for chain ID %s: %w", chainID, err)
-		}
-		impls[i] = ChainImpl{
-			CCIP17:  impl,
-			Details: details,
+
+		switch bc.Out.Family {
+		case chain_selectors.FamilyEVM:
+			chainID := bc.ChainID
+			wsURL := bc.Out.Nodes[0].ExternalWSUrl
+			details, err := chain_selectors.GetChainDetailsByChainIDAndFamily(chainID, bc.Out.Family)
+			if err != nil {
+				return nil, fmt.Errorf("getting chain details for chain ID %s and family %s: %w", chainID, bc.Out.Family, err)
+			}
+			impl, err := evm.NewCCIP17EVM(ctx, *l.l, env, chainID, wsURL)
+			if err != nil {
+				return nil, fmt.Errorf("creating CCIP17 EVM implementation for chain ID %s: %w", chainID, err)
+			}
+			impls[i] = ChainImpl{
+				CCIP17:  impl,
+				Details: details,
+			}
+		case chain_selectors.FamilyCanton:
+			details, err := chain_selectors.GetChainDetailsByChainIDAndFamily(bc.ChainID, bc.Out.Family)
+			if err != nil {
+				return nil, fmt.Errorf("getting chain details for chain ID %s and family %s: %w", bc.ChainID, bc.Out.Family, err)
+			}
+			impl := canton.New(*l.l)
+			impls[i] = ChainImpl{
+				CCIP17:  impl,
+				Details: details,
+			}
+		default:
+			return nil, fmt.Errorf("unsupported family %s", bc.Out.Family)
 		}
 	}
 

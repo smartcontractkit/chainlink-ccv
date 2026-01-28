@@ -2,12 +2,14 @@ package evm
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"math/big"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -76,8 +78,7 @@ import (
 const (
 	CommitteeVerifierGasForVerification = 500_000
 
-	TokenMaxSupply       = "100000000000000000000000000000" // 100 billion in 18 decimals
-	TokenDeployerBalance = "1000000000000000000000000000"   // 1 billion in 18 decimals
+	TokenDeployerBalance = "1000000000000000000000000000" // 1 billion in 18 decimals
 	DefaultDecimals      = 18
 )
 
@@ -1287,13 +1288,6 @@ func (m *CCIP17EVMConfig) configureTokenForTransfer(
 
 // TODO: How to generate all the default/secondary/tertiary things from the committee param?
 func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, topology *deployments.EnvironmentTopology) error {
-	// TODO: how does this even work?
-	/*
-		if selector != m.chain.ChainSelector() {
-			return fmt.Errorf("ConnectContractsWithSelectors: chain %d not found in environment chains %v", selector, m.chain.ChainSelector())
-		}
-	*/
-
 	l := m.logger
 	l.Info().Uint64("FromSelector", selector).Any("ToSelectors", remoteSelectors).Msg("Connecting contracts with selectors")
 	bundle := operations.NewBundle(
@@ -1384,6 +1378,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 	mcmsReaderRegistry := changesetscore.GetRegistry()
 	chainFamilyRegistry := adapters.NewChainFamilyRegistry()
 	chainFamilyRegistry.RegisterChainFamily("evm", &evmadapters.ChainFamilyAdapter{})
+	chainFamilyRegistry.RegisterChainFamily("canton", &evmadapters.ChainFamilyAdapter{}) // TODO: remove this once Canton we have a Canton adapter.
 	_, err := ccvchangesets.ConfigureChainsForLanesFromTopology(chainFamilyRegistry, mcmsReaderRegistry).Apply(*e, ccvchangesets.ConfigureChainsForLanesFromTopologyConfig{
 		Topology: topology,
 		Chains: []ccvchangesets.PartialChainConfig{
@@ -1423,6 +1418,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 			tokenAdapter = &adapters_1_6_1.TokenAdapter{}
 		}
 		tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(poolVersion), tokenAdapter)
+		tokenAdapterRegistry.RegisterTokenAdapter("canton", semver.MustParse(poolVersion), &CantonTokenAdapter{})
 	}
 
 	for _, combo := range devenvcommon.AllTokenCombinations() {
@@ -1843,4 +1839,20 @@ func (m *CCIP17EVM) GetRoundRobinUser() func() *bind.TransactOpts {
 		index.Add(1)
 		return selectedSender
 	}
+}
+
+// TODO: move this to chainlink-ccip/deployment.
+type CantonTokenAdapter struct {
+	evmadapters.TokenAdapter
+}
+
+func (t *CantonTokenAdapter) DeriveTokenAddress(e deployment.Environment, chainSelector uint64, ref datastore.AddressRef) ([]byte, error) {
+	addr, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(chainSelector, ref.Type, ref.Version, ref.Qualifier))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get address for %v on chain %d: %w", ref, chainSelector, err)
+	}
+	// Address is stored as hex string
+	// Remove 0x prefix if present
+	cleanAddr := strings.TrimPrefix(addr.Address, "0x")
+	return hex.DecodeString(cleanAddr)
 }

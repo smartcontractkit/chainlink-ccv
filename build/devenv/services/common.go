@@ -12,6 +12,7 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain/canton"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
@@ -111,6 +112,22 @@ func ConvertBlockchainOutputsToInfo(outputs []*ctfblockchain.Output) (map[string
 					ExternalWSUrl:   node.ExternalWSUrl,
 					InternalWSUrl:   node.InternalWSUrl,
 				})
+			}
+		}
+
+		// Add network-specific data (e.g. Canton endpoints)
+		if output.NetworkSpecificData != nil {
+			info.NetworkSpecificData = &ccvblockchain.NetworkSpecificData{}
+			switch output.Family {
+			case chainsel.FamilyCanton:
+				// TODO: support multiple participants?
+				// Different verifiers may connect to different participants, how do we best represent that?
+				info.NetworkSpecificData.CantonEndpoints = &canton.Endpoints{
+					GRPCLedgerAPIURL: output.NetworkSpecificData.CantonEndpoints.Participants[0].GRPCLedgerAPIURL,
+					JWT:              output.NetworkSpecificData.CantonEndpoints.Participants[0].JWT,
+				}
+			default:
+				return nil, fmt.Errorf("unsupported family %s for network specific data", output.Family)
 			}
 		}
 

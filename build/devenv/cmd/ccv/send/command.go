@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
+	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	executor_operations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
@@ -79,7 +80,7 @@ func run(args sendArgs) error {
 	}
 
 	l := zerolog.Ctx(ctx)
-	lib, err := ccv.NewLib(l, envFile)
+	lib, err := ccv.NewLib(l, envFile, chain_selectors.FamilyEVM)
 	if err != nil {
 		return fmt.Errorf("no implementation found for source chain selector %d", args.srcSel)
 	}

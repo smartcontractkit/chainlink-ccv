@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
@@ -153,7 +154,7 @@ func TestChaos_AllExecutorsDown(t *testing.T) {
 
 	var defaultExecutorContainerNames []string
 	for _, executor := range setup.in.Executor {
-		if executor.ExecutorQualifier == devenvcommon.DefaultCommitteeVerifierQualifier {
+		if executor.ExecutorQualifier == devenvcommon.DefaultExecutorQualifier {
 			defaultExecutorContainerNames = append(defaultExecutorContainerNames, executor.Out.ContainerName)
 		}
 	}
@@ -248,7 +249,8 @@ func setupChaos(t *testing.T, envOutPath string) *chaosSetup {
 	ctx := ccv.Plog.WithContext(t.Context())
 	l := zerolog.Ctx(ctx)
 
-	lib, err := ccv.NewLib(l, envOutPath)
+	// Only load EVM chains for now, as more chains become supported we can add them.
+	lib, err := ccv.NewLib(l, envOutPath, chain_selectors.FamilyEVM)
 	require.NoError(t, err)
 	chains, err := lib.Chains(ctx)
 	require.NoError(t, err)

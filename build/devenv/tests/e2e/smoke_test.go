@@ -14,6 +14,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
@@ -22,7 +23,6 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/common"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -76,7 +76,8 @@ func TestE2ESmoke(t *testing.T) {
 	ctx := ccv.Plog.WithContext(t.Context())
 	l := zerolog.Ctx(ctx)
 
-	lib, err := ccv.NewLib(l, smokeTestConfig)
+	// Only load EVM chains for now, as more chains become supported we can add them.
+	lib, err := ccv.NewLib(l, smokeTestConfig, chain_selectors.FamilyEVM)
 	require.NoError(t, err)
 	chains, err := lib.Chains(ctx)
 	require.NoError(t, err)
@@ -359,7 +360,7 @@ func TestE2ESmoke(t *testing.T) {
 				destSelector,
 				datastore.ContractType(mock_receiver.ContractType),
 				mock_receiver.Deploy.Version(),
-				evm.CCTPPrimaryReceiverQualifier,
+				common.CCTPPrimaryReceiverQualifier,
 				"",
 			)
 			cctpAndCommiteeReciver = getContractAddress(
@@ -368,7 +369,7 @@ func TestE2ESmoke(t *testing.T) {
 				destSelector,
 				datastore.ContractType(mock_receiver.ContractType),
 				mock_receiver.Deploy.Version(),
-				evm.CCTPSecondaryReceiverQualifier,
+				common.CCTPSecondaryReceiverQualifier,
 				"",
 			)
 		)
@@ -390,20 +391,20 @@ func TestE2ESmoke(t *testing.T) {
 		) {
 			sender := mustGetSenderAddress(t, sourceChain)
 
-			srcToken := getTokenAddress(t, in, sourceSelector, evm.CCTPContractsQualifier)
-			destToken := getTokenAddress(t, in, destSelector, evm.CCTPContractsQualifier)
+			srcToken := getTokenAddress(t, in, sourceSelector, common.CCTPContractsQualifier)
+			destToken := getTokenAddress(t, in, destSelector, common.CCTPContractsQualifier)
 
 			startBal, err := destChain.GetTokenBalance(ctx, tc.receiver, destToken)
 			require.NoError(t, err)
-			l.Info().Str("Receiver", tc.receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", evm.CCTPContractsQualifier).Msg("receiver start balance")
+			l.Info().Str("Receiver", tc.receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", common.CCTPContractsQualifier).Msg("receiver start balance")
 
 			srcStartBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
 			require.NoError(t, err)
-			l.Info().Str("Sender", sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Str("Token", evm.CCTPContractsQualifier).Msg("sender start balance")
+			l.Info().Str("Sender", sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Str("Token", common.CCTPContractsQualifier).Msg("sender start balance")
 
 			seqNo, err := sourceChain.GetExpectedNextSequenceNumber(ctx, destSelector)
 			require.NoError(t, err)
-			l.Info().Uint64("SeqNo", seqNo).Str("Token", evm.CCTPContractsQualifier).Msg("expecting sequence number")
+			l.Info().Uint64("SeqNo", seqNo).Str("Token", common.CCTPContractsQualifier).Msg("expecting sequence number")
 
 			messageOptions := cciptestinterfaces.MessageOptions{
 				Version:           3,
@@ -425,7 +426,7 @@ func TestE2ESmoke(t *testing.T) {
 			)
 			require.NoError(t, err)
 			require.NotNil(t, sendRes)
-			require.Len(t, sendRes.ReceiptIssuers, tc.expectedReceiptIssuers, "expected %d receipt issuers for %s token", tc.expectedReceiptIssuers, evm.CCTPContractsQualifier)
+			require.Len(t, sendRes.ReceiptIssuers, tc.expectedReceiptIssuers, "expected %d receipt issuers for %s token", tc.expectedReceiptIssuers, common.CCTPContractsQualifier)
 
 			sentEvt, err := sourceChain.WaitOneSentEventBySeqNo(ctx, destSelector, seqNo, defaultSentTimeout)
 			require.NoError(t, err)
@@ -438,7 +439,7 @@ func TestE2ESmoke(t *testing.T) {
 				sourceSelector,
 				datastore.ContractType(cctp_verifier.ContractType),
 				cctp_verifier.Deploy.Version(),
-				evm.CCTPContractsQualifier,
+				common.CCTPContractsQualifier,
 				"",
 			)
 			registerCCTPAttestation(t, in.Fake.Out.ExternalHTTPURL, msgID, cctpMessageSender, tc.receiver, "complete")
@@ -473,12 +474,12 @@ func TestE2ESmoke(t *testing.T) {
 
 			// We always mint 1 tiny coin on a dest from CCTPTokenMessenger
 			require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), big.NewInt(1)), endBal)
-			l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", evm.CCTPContractsQualifier).Msg("receiver end balance")
+			l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", common.CCTPContractsQualifier).Msg("receiver end balance")
 
 			srcEndBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
 			require.NoError(t, err)
 			require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), tc.transferAmount), srcEndBal)
-			l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", evm.CCTPContractsQualifier).Msg("sender end balance")
+			l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", common.CCTPContractsQualifier).Msg("sender end balance")
 		}
 
 		tcs := []testCase{
@@ -799,7 +800,8 @@ func multiVerifierTestCases(t *testing.T, src, dest uint64, in *ccv.Cfg, c map[u
 						src,
 						datastore.ContractType(committee_verifier.ResolverType),
 						committee_verifier.Deploy.Version(),
-						common.SecondaryCommitteeVerifierQualifier, "secondary committee verifier proxy",
+						common.SecondaryCommitteeVerifierQualifier,
+						"secondary committee verifier proxy",
 					),
 					Args:    []byte{},
 					ArgsLen: 0,

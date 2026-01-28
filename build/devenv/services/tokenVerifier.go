@@ -25,7 +25,6 @@ import (
 
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
@@ -315,7 +314,7 @@ func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blo
 	ver.LBTCVerifierAddresses = make(map[string]string)
 
 	for _, chain := range blockchains {
-		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(chain.ChainID, chainsel.FamilyEVM)
+		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(chain.ChainID, chain.Out.Family)
 		if err != nil {
 			return TokenVerifierInput{}, err
 		}
@@ -325,7 +324,7 @@ func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blo
 			networkInfo.ChainSelector,
 			datastore.ContractType(cctp_verifier.ResolverType),
 			semver.MustParse(cctp_verifier.Deploy.Version()),
-			evm.CCTPContractsQualifier,
+			devenvcommon.CCTPContractsQualifier,
 		))
 		if err != nil {
 			framework.L.Info().
@@ -339,7 +338,7 @@ func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blo
 			networkInfo.ChainSelector,
 			datastore.ContractType(cctp_verifier.ContractType),
 			semver.MustParse(cctp_verifier.Deploy.Version()),
-			evm.CCTPContractsQualifier,
+			devenvcommon.CCTPContractsQualifier,
 		))
 		if err != nil {
 			framework.L.Info().

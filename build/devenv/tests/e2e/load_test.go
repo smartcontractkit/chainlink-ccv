@@ -17,6 +17,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/load"
@@ -301,7 +302,7 @@ func TestE2ELoad(t *testing.T) {
 
 	ctx := ccv.Plog.WithContext(context.Background())
 	l := zerolog.Ctx(ctx)
-	lib, err := ccv.NewLib(l, outfile)
+	lib, err := ccv.NewLib(l, outfile, chain_selectors.FamilyEVM)
 	require.NoError(t, err)
 	chainImpls, err := lib.ChainsMap(ctx)
 	require.NoError(t, err)
@@ -714,7 +715,7 @@ func TestStaging(t *testing.T) {
 
 	ctx := ccv.Plog.WithContext(context.Background())
 	l := zerolog.Ctx(ctx)
-	lib, err := ccv.NewLib(l, outfile)
+	lib, err := ccv.NewLib(l, outfile, chain_selectors.FamilyEVM)
 	require.NoError(t, err)
 	chainImpls, err := lib.ChainsMap(ctx)
 	require.NoError(t, err)
