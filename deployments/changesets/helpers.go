@@ -7,6 +7,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
+	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/fetch_signing_keys"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 )
 
@@ -89,4 +90,25 @@ func getExecutorDeployedChains(ds datastore.DataStore, qualifier string) []uint6
 		}
 	}
 	return chains
+}
+
+func signerFromJDIfMissing(
+	signerAddresses map[string]string,
+	nopAlias string,
+	family string,
+	signingKeysByNOP fetch_signing_keys.SigningKeysByNOP,
+) (string, bool) {
+	if signerAddresses != nil && signerAddresses[family] != "" {
+		return "", false
+	}
+
+	if signingKeysByNOP == nil {
+		return "", false
+	}
+
+	if signer := signingKeysByNOP[nopAlias][family]; signer != "" {
+		return signer, true
+	}
+
+	return "", false
 }

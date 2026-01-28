@@ -7,12 +7,15 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/changesets"
+	deploymocks "github.com/smartcontractkit/chainlink-ccv/deployments/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/testutils"
 )
@@ -693,4 +696,192 @@ func TestApplyVerifierConfig_CreatesJobWhenNOPAddedToCommittee(t *testing.T) {
 	require.NoError(t, err, "nop-2 should now have verifier job after being added to committee")
 	assert.Contains(t, nop2Job.Spec, sel1Str, "nop-2 job should include chain 1")
 	assert.Contains(t, nop2Job.Spec, sel2Str, "nop-2 job should include chain 2")
+}
+
+func TestApplyVerifierConfig_FailsWhenNOPMissingChainSupport(t *testing.T) {
+	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, defaultSelectors)
+	setupVerifierDatastore(t, ds, defaultSelectors, testCommittee, testDefaultQualifier)
+	env.DataStore = ds.Seal()
+
+	mockJD := deploymocks.NewMockJDClient(t)
+	mockJD.EXPECT().ListNodes(mock.Anything, mock.Anything).Return(
+		&nodev1.ListNodesResponse{
+			Nodes: []*nodev1.Node{
+				{Id: "node-1", Name: "nop-1"},
+				{Id: "node-2", Name: "nop-2"},
+			},
+		}, nil,
+	)
+	mockJD.EXPECT().ListNodeChainConfigs(mock.Anything, mock.Anything).Return(
+		&nodev1.ListNodeChainConfigsResponse{
+			ChainConfigs: []*nodev1.ChainConfig{
+				{
+					NodeId: "node-1",
+					Chain:  &nodev1.Chain{Type: nodev1.ChainType_CHAIN_TYPE_EVM, Id: "90000001"},
+					Ocr2Config: &nodev1.OCR2Config{
+						OcrKeyBundle: &nodev1.OCR2Config_OCRKeyBundle{OnchainSigningAddress: "0x123"},
+					},
+				},
+				{
+					NodeId: "node-2",
+					Chain:  &nodev1.Chain{Type: nodev1.ChainType_CHAIN_TYPE_EVM, Id: "90000001"},
+					Ocr2Config: &nodev1.OCR2Config{
+						OcrKeyBundle: &nodev1.OCR2Config_OCRKeyBundle{OnchainSigningAddress: "0x456"},
+					},
+				},
+				{
+					NodeId: "node-2",
+					Chain:  &nodev1.Chain{Type: nodev1.ChainType_CHAIN_TYPE_EVM, Id: "90000002"},
+					Ocr2Config: &nodev1.OCR2Config{
+						OcrKeyBundle: &nodev1.OCR2Config_OCRKeyBundle{OnchainSigningAddress: "0x456"},
+					},
+				},
+			},
+		}, nil,
+	)
+
+	deps := changesets.VerifierApplyDeps{
+		Env:      env,
+		JDClient: mockJD,
+		NodeIDs:  []string{"node-1", "node-2"},
+	}
+
+	cfg := changesets.ApplyVerifierConfigCfg{
+		Topology:                 newTestTopology(),
+		CommitteeQualifier:       testCommittee,
+		DefaultExecutorQualifier: testDefaultQualifier,
+		ChainSelectors:           defaultSelectors,
+	}
+
+	_, err := changesets.ApplyVerifierConfigWithDeps(deps, cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "chain support validation failed")
+	assert.Contains(t, err.Error(), "nop-1")
+}
+
+func TestApplyVerifierConfig_PassesWhenNOPSupportsExtraChains(t *testing.T) {
+	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, defaultSelectors)
+	setupVerifierDatastore(t, ds, defaultSelectors, testCommittee, testDefaultQualifier)
+	env.DataStore = ds.Seal()
+
+	mockJD := deploymocks.NewMockJDClient(t)
+	mockJD.EXPECT().ListNodes(mock.Anything, mock.Anything).Return(
+		&nodev1.ListNodesResponse{
+			Nodes: []*nodev1.Node{
+				{Id: "node-1", Name: "nop-1"},
+				{Id: "node-2", Name: "nop-2"},
+			},
+		}, nil,
+	)
+	mockJD.EXPECT().ListNodeChainConfigs(mock.Anything, mock.Anything).Return(
+		&nodev1.ListNodeChainConfigsResponse{
+			ChainConfigs: []*nodev1.ChainConfig{
+				{
+					NodeId: "node-1",
+					Chain:  &nodev1.Chain{Type: nodev1.ChainType_CHAIN_TYPE_EVM, Id: "90000001"},
+					Ocr2Config: &nodev1.OCR2Config{
+						OcrKeyBundle: &nodev1.OCR2Config_OCRKeyBundle{OnchainSigningAddress: "0x123"},
+					},
+				},
+				{
+					NodeId: "node-1",
+					Chain:  &nodev1.Chain{Type: nodev1.ChainType_CHAIN_TYPE_EVM, Id: "90000002"},
+					Ocr2Config: &nodev1.OCR2Config{
+						OcrKeyBundle: &nodev1.OCR2Config_OCRKeyBundle{OnchainSigningAddress: "0x123"},
+					},
+				},
+				{
+					NodeId: "node-1",
+					Chain:  &nodev1.Chain{Type: nodev1.ChainType_CHAIN_TYPE_EVM, Id: "90000003"},
+					Ocr2Config: &nodev1.OCR2Config{
+						OcrKeyBundle: &nodev1.OCR2Config_OCRKeyBundle{OnchainSigningAddress: "0x123"},
+					},
+				},
+				{
+					NodeId: "node-2",
+					Chain:  &nodev1.Chain{Type: nodev1.ChainType_CHAIN_TYPE_EVM, Id: "90000001"},
+					Ocr2Config: &nodev1.OCR2Config{
+						OcrKeyBundle: &nodev1.OCR2Config_OCRKeyBundle{OnchainSigningAddress: "0x456"},
+					},
+				},
+				{
+					NodeId: "node-2",
+					Chain:  &nodev1.Chain{Type: nodev1.ChainType_CHAIN_TYPE_EVM, Id: "90000002"},
+					Ocr2Config: &nodev1.OCR2Config{
+						OcrKeyBundle: &nodev1.OCR2Config_OCRKeyBundle{OnchainSigningAddress: "0x456"},
+					},
+				},
+			},
+		}, nil,
+	)
+
+	deps := changesets.VerifierApplyDeps{
+		Env:      env,
+		JDClient: mockJD,
+		NodeIDs:  []string{"node-1", "node-2"},
+	}
+
+	cfg := changesets.ApplyVerifierConfigCfg{
+		Topology:                 newTestTopology(),
+		CommitteeQualifier:       testCommittee,
+		DefaultExecutorQualifier: testDefaultQualifier,
+		ChainSelectors:           defaultSelectors,
+	}
+
+	output, err := changesets.ApplyVerifierConfigWithDeps(deps, cfg)
+	require.NoError(t, err)
+	require.NotNil(t, output.DataStore)
+}
+
+func TestApplyVerifierConfig_PassesWhenNonTargetNOPMissingChainSupport(t *testing.T) {
+	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, defaultSelectors)
+	setupVerifierDatastore(t, ds, defaultSelectors, testCommittee, testDefaultQualifier)
+	env.DataStore = ds.Seal()
+
+	mockJD := deploymocks.NewMockJDClient(t)
+	mockJD.EXPECT().ListNodes(mock.Anything, mock.Anything).Return(
+		&nodev1.ListNodesResponse{
+			Nodes: []*nodev1.Node{
+				{Id: "node-1", Name: "nop-1"},
+			},
+		}, nil,
+	)
+	mockJD.EXPECT().ListNodeChainConfigs(mock.Anything, mock.Anything).Return(
+		&nodev1.ListNodeChainConfigsResponse{
+			ChainConfigs: []*nodev1.ChainConfig{
+				{
+					NodeId: "node-1",
+					Chain:  &nodev1.Chain{Type: nodev1.ChainType_CHAIN_TYPE_EVM, Id: "90000001"},
+					Ocr2Config: &nodev1.OCR2Config{
+						OcrKeyBundle: &nodev1.OCR2Config_OCRKeyBundle{OnchainSigningAddress: "0x123"},
+					},
+				},
+				{
+					NodeId: "node-1",
+					Chain:  &nodev1.Chain{Type: nodev1.ChainType_CHAIN_TYPE_EVM, Id: "90000002"},
+					Ocr2Config: &nodev1.OCR2Config{
+						OcrKeyBundle: &nodev1.OCR2Config_OCRKeyBundle{OnchainSigningAddress: "0x123"},
+					},
+				},
+			},
+		}, nil,
+	)
+
+	deps := changesets.VerifierApplyDeps{
+		Env:      env,
+		JDClient: mockJD,
+		NodeIDs:  []string{"node-1", "node-2"},
+	}
+
+	cfg := changesets.ApplyVerifierConfigCfg{
+		Topology:                 newTestTopology(),
+		CommitteeQualifier:       testCommittee,
+		DefaultExecutorQualifier: testDefaultQualifier,
+		ChainSelectors:           defaultSelectors,
+		TargetNOPs:               []shared.NOPAlias{"nop-1"},
+	}
+
+	output, err := changesets.ApplyVerifierConfigWithDeps(deps, cfg)
+	require.NoError(t, err)
+	require.NotNil(t, output.DataStore)
 }
