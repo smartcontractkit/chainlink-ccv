@@ -315,7 +315,8 @@ func (c *sourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*big
 
 // GetRMNCursedSubjects implements chainaccess.SourceReader.
 func (c *sourceReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
-	panic("unimplemented")
+	// TODO: implement this.
+	return nil, nil
 }
 
 // LatestAndFinalizedBlock returns the latest offset of the canton validator we are connected to.
