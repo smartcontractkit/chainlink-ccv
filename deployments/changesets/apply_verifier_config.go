@@ -9,6 +9,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
+	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/fetch_node_chain_support"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/fetch_signing_keys"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 	verifierconfig "github.com/smartcontractkit/chainlink-ccv/deployments/operations/verifier_config"
@@ -25,6 +26,24 @@ type ApplyVerifierConfigCfg struct {
 	ChainSelectors []uint64
 	// TargetNOPs limits which NOPs to update. Defaults to all in committee.
 	TargetNOPs []shared.NOPAlias
+}
+
+type VerifierApplyDeps struct {
+	Env      deployment.Environment
+	JDClient shared.JDClient
+	NodeIDs  []string
+}
+
+func makeVerifierApply(
+	applyFn func(VerifierApplyDeps, ApplyVerifierConfigCfg) (deployment.ChangesetOutput, error),
+) func(deployment.Environment, ApplyVerifierConfigCfg) (deployment.ChangesetOutput, error) {
+	return func(e deployment.Environment, cfg ApplyVerifierConfigCfg) (deployment.ChangesetOutput, error) {
+		return applyFn(VerifierApplyDeps{
+			Env:      e,
+			JDClient: e.Offchain,
+			NodeIDs:  e.NodeIDs,
+		}, cfg)
+	}
 }
 
 func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigCfg] {
@@ -86,77 +105,87 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigCfg] {
 		return nil
 	}
 
-	apply := func(e deployment.Environment, cfg ApplyVerifierConfigCfg) (deployment.ChangesetOutput, error) {
-		committee := cfg.Topology.NOPTopology.Committees[cfg.CommitteeQualifier]
-		committeeChains := getCommitteeChainSelectors(committee)
-
-		selectors := cfg.ChainSelectors
-		if len(selectors) == 0 {
-			selectors = committeeChains
-		} else {
-			selectors = filterChains(selectors, committeeChains)
-		}
-		signingKeysByNOP := fetchSigningKeysForNOPs(e, cfg.Topology.NOPTopology.NOPs)
-		environmentNOPs := convertNOPsToVerifierInput(cfg.Topology.NOPTopology.NOPs, signingKeysByNOP)
-		committeeInput := convertTopologyCommittee(committee)
-		monitoring := convertTopologyMonitoring(&cfg.Topology.Monitoring)
-
-		input := sequences.GenerateVerifierConfigInput{
-			DefaultExecutorQualifier: cfg.DefaultExecutorQualifier,
-			ChainSelectors:           selectors,
-			TargetNOPs:               cfg.TargetNOPs,
-			EnvironmentNOPs:          environmentNOPs,
-			Committee:                committeeInput,
-			PyroscopeURL:             cfg.Topology.PyroscopeURL,
-			Monitoring:               monitoring,
-		}
-
-		report, err := operations.ExecuteSequence(e.OperationsBundle, sequences.GenerateVerifierConfig, sequences.GenerateVerifierConfigDeps{Env: e}, input)
-		if err != nil {
-			return deployment.ChangesetOutput{
-				Reports: report.ExecutionReports,
-			}, fmt.Errorf("failed to generate verifier config: %w", err)
-		}
-
-		manageReport, err := operations.ExecuteSequence(
-			e.OperationsBundle,
-			sequences.ManageJobProposals,
-			sequences.ManageJobProposalsDeps{Env: e},
-			sequences.ManageJobProposalsInput{
-				JobSpecs:      report.Output.JobSpecs,
-				AffectedScope: report.Output.AffectedScope,
-				Labels: map[string]string{
-					"job_type":  "verifier",
-					"committee": cfg.CommitteeQualifier,
-				},
-				NOPs: sequences.NOPContext{
-					Modes:      buildNOPModes(cfg.Topology.NOPTopology.NOPs),
-					TargetNOPs: cfg.TargetNOPs,
-					AllNOPs:    getAllNOPAliases(cfg.Topology.NOPTopology.NOPs),
-				},
-			},
-		)
-		if err != nil {
-			return deployment.ChangesetOutput{
-				Reports: report.ExecutionReports,
-			}, fmt.Errorf("failed to manage job proposals: %w", err)
-		}
-
-		e.Logger.Infow("Verifier config applied",
-			"jobsCount", len(manageReport.Output.Jobs),
-			"revokedCount", len(manageReport.Output.RevokedJobs))
-
-		return deployment.ChangesetOutput{
-			Reports:   report.ExecutionReports,
-			DataStore: manageReport.Output.DataStore,
-		}, nil
-	}
-
-	return deployment.CreateChangeSet(apply, validate)
+	return deployment.CreateChangeSet(makeVerifierApply(ApplyVerifierConfigWithDeps), validate)
 }
 
-func fetchSigningKeysForNOPs(e deployment.Environment, nops []deployments.NOPConfig) fetch_signing_keys.SigningKeysByNOP {
-	if e.Offchain == nil {
+func ApplyVerifierConfigWithDeps(deps VerifierApplyDeps, cfg ApplyVerifierConfigCfg) (deployment.ChangesetOutput, error) {
+	committee := cfg.Topology.NOPTopology.Committees[cfg.CommitteeQualifier]
+	committeeChains := getCommitteeChainSelectors(committee)
+
+	selectors := cfg.ChainSelectors
+	if len(selectors) == 0 {
+		selectors = committeeChains
+	} else {
+		selectors = filterChains(selectors, committeeChains)
+	}
+	signingKeysByNOP := fetchSigningKeysForNOPs(deps, cfg.Topology.NOPTopology.NOPs)
+
+	nopsToValidate := cfg.TargetNOPs
+	if len(nopsToValidate) == 0 {
+		nopsToValidate = shared.ConvertStringToNopAliases(getCommitteeNOPAliases(committee))
+	}
+
+	if err := validateVerifierChainSupport(deps, nopsToValidate, committee, selectors); err != nil {
+		return deployment.ChangesetOutput{}, err
+	}
+
+	environmentNOPs := convertNOPsToVerifierInput(cfg.Topology.NOPTopology.NOPs, signingKeysByNOP)
+	committeeInput := convertTopologyCommittee(committee)
+	monitoring := convertTopologyMonitoring(&cfg.Topology.Monitoring)
+
+	input := sequences.GenerateVerifierConfigInput{
+		DefaultExecutorQualifier: cfg.DefaultExecutorQualifier,
+		ChainSelectors:           selectors,
+		TargetNOPs:               cfg.TargetNOPs,
+		EnvironmentNOPs:          environmentNOPs,
+		Committee:                committeeInput,
+		PyroscopeURL:             cfg.Topology.PyroscopeURL,
+		Monitoring:               monitoring,
+	}
+
+	report, err := operations.ExecuteSequence(deps.Env.OperationsBundle, sequences.GenerateVerifierConfig, sequences.GenerateVerifierConfigDeps{Env: deps.Env}, input)
+	if err != nil {
+		return deployment.ChangesetOutput{
+			Reports: report.ExecutionReports,
+		}, fmt.Errorf("failed to generate verifier config: %w", err)
+	}
+
+	manageReport, err := operations.ExecuteSequence(
+		deps.Env.OperationsBundle,
+		sequences.ManageJobProposals,
+		sequences.ManageJobProposalsDeps{Env: deps.Env},
+		sequences.ManageJobProposalsInput{
+			JobSpecs:      report.Output.JobSpecs,
+			AffectedScope: report.Output.AffectedScope,
+			Labels: map[string]string{
+				"job_type":  "verifier",
+				"committee": cfg.CommitteeQualifier,
+			},
+			NOPs: sequences.NOPContext{
+				Modes:      buildNOPModes(cfg.Topology.NOPTopology.NOPs),
+				TargetNOPs: cfg.TargetNOPs,
+				AllNOPs:    getAllNOPAliases(cfg.Topology.NOPTopology.NOPs),
+			},
+		},
+	)
+	if err != nil {
+		return deployment.ChangesetOutput{
+			Reports: report.ExecutionReports,
+		}, fmt.Errorf("failed to manage job proposals: %w", err)
+	}
+
+	deps.Env.Logger.Infow("Verifier config applied",
+		"jobsCount", len(manageReport.Output.Jobs),
+		"revokedCount", len(manageReport.Output.RevokedJobs))
+
+	return deployment.ChangesetOutput{
+		Reports:   report.ExecutionReports,
+		DataStore: manageReport.Output.DataStore,
+	}, nil
+}
+
+func fetchSigningKeysForNOPs(deps VerifierApplyDeps, nops []deployments.NOPConfig) fetch_signing_keys.SigningKeysByNOP {
+	if deps.JDClient == nil {
 		return nil
 	}
 
@@ -171,53 +200,54 @@ func fetchSigningKeysForNOPs(e deployment.Environment, nops []deployments.NOPCon
 		return nil
 	}
 
-	if e.Offchain == nil {
-		e.Logger.Debugw("Offchain client not available, skipping signing key fetch")
-		return nil
-	}
-
 	report, err := operations.ExecuteOperation(
-		e.OperationsBundle,
+		deps.Env.OperationsBundle,
 		fetch_signing_keys.FetchNOPSigningKeys,
 		fetch_signing_keys.FetchSigningKeysDeps{
-			JDClient: e.Offchain,
-			Logger:   e.Logger,
-			NodeIDs:  e.NodeIDs,
+			JDClient: deps.JDClient,
+			Logger:   deps.Env.Logger,
+			NodeIDs:  deps.NodeIDs,
 		},
 		fetch_signing_keys.FetchSigningKeysInput{
 			NOPAliases: aliases,
 		},
 	)
 	if err != nil {
-		e.Logger.Warnw("Failed to fetch signing keys from JD", "error", err)
+		deps.Env.Logger.Warnw("Failed to fetch signing keys from JD", "error", err)
 		return nil
 	}
 
 	return report.Output.SigningKeysByNOP
 }
 
-func convertNOPsToVerifierInput(nops []deployments.NOPConfig, signingKeysByNOP fetch_signing_keys.SigningKeysByNOP) []verifierconfig.NOPInput {
+func convertNOPsToVerifierInput(
+	nops []deployments.NOPConfig,
+	signingKeysByNOP fetch_signing_keys.SigningKeysByNOP,
+) []verifierconfig.NOPInput {
 	result := make([]verifierconfig.NOPInput, len(nops))
-	for i, nop := range nops {
-		signerAddresses := nop.SignerAddressByFamily
 
-		if (signerAddresses == nil || signerAddresses[chainsel.FamilyEVM] == "") && signingKeysByNOP != nil {
-			if jdSigners, ok := signingKeysByNOP[nop.Alias]; ok {
-				if evmSigner, ok := jdSigners[chainsel.FamilyEVM]; ok && evmSigner != "" {
-					if signerAddresses == nil {
-						signerAddresses = make(map[string]string)
-					}
-					signerAddresses[chainsel.FamilyEVM] = evmSigner
-				}
+	for i, nop := range nops {
+		signerAddressesFromTopology := nop.SignerAddressByFamily
+
+		if signer, ok := signerFromJDIfMissing(
+			signerAddressesFromTopology,
+			nop.Alias,
+			chainsel.FamilyEVM,
+			signingKeysByNOP,
+		); ok {
+			if signerAddressesFromTopology == nil {
+				signerAddressesFromTopology = make(map[string]string)
 			}
+			signerAddressesFromTopology[chainsel.FamilyEVM] = signer
 		}
 
 		result[i] = verifierconfig.NOPInput{
 			Alias:                 shared.NOPAlias(nop.Alias),
-			SignerAddressByFamily: signerAddresses,
+			SignerAddressByFamily: signerAddressesFromTopology,
 			Mode:                  nop.GetMode(),
 		}
 	}
+
 	return result
 }
 
@@ -256,4 +286,93 @@ func getCommitteeNOPAliases(committee deployments.CommitteeConfig) []string {
 		aliases = append(aliases, alias)
 	}
 	return aliases
+}
+
+func validateVerifierChainSupport(
+	deps VerifierApplyDeps,
+	nopsToValidate []shared.NOPAlias,
+	committee deployments.CommitteeConfig,
+	selectors []uint64,
+) error {
+	if deps.JDClient == nil {
+		deps.Env.Logger.Debugw("Offchain client not available, skipping chain support validation")
+		return nil
+	}
+
+	nopAliasStrings := shared.ConvertNopAliasToString(nopsToValidate)
+	supportedChains := fetchNodeChainSupportForNOPs(deps, nopAliasStrings)
+	if supportedChains == nil {
+		return nil
+	}
+
+	var validationResults []shared.ChainValidationResult
+	for _, nopAlias := range nopsToValidate {
+		requiredChains := getRequiredChainsForNOP(string(nopAlias), committee, selectors)
+		result := shared.ValidateNOPChainSupport(
+			string(nopAlias),
+			requiredChains,
+			supportedChains[string(nopAlias)],
+		)
+		if result != nil {
+			validationResults = append(validationResults, *result)
+		}
+	}
+
+	return shared.FormatChainValidationError(validationResults)
+}
+
+func fetchNodeChainSupportForNOPs(deps VerifierApplyDeps, nopAliases []string) shared.ChainSupportByNOP {
+	if deps.JDClient == nil {
+		return nil
+	}
+
+	if len(nopAliases) == 0 {
+		return nil
+	}
+
+	report, err := operations.ExecuteOperation(
+		deps.Env.OperationsBundle,
+		fetch_node_chain_support.FetchNodeChainSupport,
+		fetch_node_chain_support.FetchNodeChainSupportDeps{
+			JDClient: deps.JDClient,
+			Logger:   deps.Env.Logger,
+			NodeIDs:  deps.NodeIDs,
+		},
+		fetch_node_chain_support.FetchNodeChainSupportInput{
+			NOPAliases: nopAliases,
+		},
+	)
+	if err != nil {
+		deps.Env.Logger.Warnw("Failed to fetch node chain support from JD", "error", err)
+		return nil
+	}
+
+	return report.Output.SupportedChains
+}
+
+func getRequiredChainsForNOP(nopAlias string, committee deployments.CommitteeConfig, selectors []uint64) []uint64 {
+	selectorSet := make(map[uint64]bool, len(selectors))
+	for _, s := range selectors {
+		selectorSet[s] = true
+	}
+
+	var requiredChains []uint64
+	for chainSelectorStr, chainConfig := range committee.ChainConfigs {
+		if slices.Contains(chainConfig.NOPAliases, nopAlias) {
+			chainSelector := parseChainSelector(chainSelectorStr)
+			if chainSelector != 0 && selectorSet[chainSelector] {
+				requiredChains = append(requiredChains, chainSelector)
+			}
+		}
+	}
+	return requiredChains
+}
+
+func parseChainSelector(s string) uint64 {
+	var selector uint64
+	_, err := fmt.Sscanf(s, "%d", &selector)
+	if err != nil {
+		return 0
+	}
+	return selector
 }

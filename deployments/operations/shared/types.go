@@ -20,6 +20,9 @@ var ProtoChainTypeToFamily = map[nodev1.ChainType]string{
 
 type NOPAlias string
 
+// ChainSupportByNOP maps NOP alias to the chain selectors that node supports.
+type ChainSupportByNOP map[string][]uint64
+
 // NOPJobSpecs maps NOP alias -> job ID -> job spec TOML.
 // Used for intermediate representation in sequences/operations.
 // For persistence, convert to NOPJobs.
@@ -180,12 +183,14 @@ type VerifierJobScope struct {
 }
 
 type VerifierJobID struct {
+	NOPAlias           NOPAlias
 	CommitteeQualifier string
 	AggregatorName     string
 }
 
-func NewVerifierJobID(aggregatorName string, scope VerifierJobScope) VerifierJobID {
+func NewVerifierJobID(nopAlias NOPAlias, aggregatorName string, scope VerifierJobScope) VerifierJobID {
 	return VerifierJobID{
+		NOPAlias:           nopAlias,
 		CommitteeQualifier: scope.CommitteeQualifier,
 		AggregatorName:     aggregatorName,
 	}
@@ -196,7 +201,7 @@ func (id VerifierJobID) GetVerifierID() string {
 }
 
 func (id VerifierJobID) ToJobID() JobID {
-	return JobID(fmt.Sprintf("%s-%s-verifier", id.AggregatorName, id.CommitteeQualifier))
+	return JobID(fmt.Sprintf("%s-%s-%s-verifier", string(id.NOPAlias), id.AggregatorName, id.CommitteeQualifier))
 }
 
 func (scope VerifierJobScope) IsJobInScope(jobID JobID) bool {
@@ -204,17 +209,17 @@ func (scope VerifierJobScope) IsJobInScope(jobID JobID) bool {
 }
 
 func ConvertNopAliasToString(aliases []NOPAlias) []string {
-	str := make([]string, 0)
-	for _, alias := range aliases {
-		str = append(str, string(alias))
+	str := make([]string, len(aliases))
+	for i, alias := range aliases {
+		str[i] = string(alias)
 	}
 	return str
 }
 
 func ConvertStringToNopAliases(strs []string) []NOPAlias {
-	aliases := make([]NOPAlias, 0)
-	for _, alias := range strs {
-		aliases = append(aliases, NOPAlias(alias))
+	aliases := make([]NOPAlias, len(strs))
+	for i, alias := range strs {
+		aliases[i] = NOPAlias(alias)
 	}
 	return aliases
 }

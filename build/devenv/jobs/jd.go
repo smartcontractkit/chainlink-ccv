@@ -2,11 +2,14 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/sethvargo/go-retry"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -144,7 +147,17 @@ func GetJDCSAPublicKey(ctx context.Context, jdClient offchain.Client) (string, e
 	return keypairResp.Keypair.PublicKey, nil
 }
 
-func createChainConfigsInNode(ctx context.Context, clClient *clclient.ChainlinkClient, chainIDs []string) error {
+func createChainConfigsInNode(
+	ctx context.Context,
+	clClient *clclient.ChainlinkClient,
+	jdClient offchain.Client,
+	nodeID string,
+	chainIDs []string,
+) error {
+	if len(chainIDs) == 0 {
+		return fmt.Errorf("no chain IDs provided")
+	}
+
 	gqlClient, err := NewSDKClient(ctx, clClient)
 	if err != nil {
 		return fmt.Errorf("failed to create SDK client: %w", err)
@@ -169,9 +182,6 @@ func createChainConfigsInNode(ctx context.Context, clClient *clclient.ChainlinkC
 		return fmt.Errorf("failed to get OCR2 key bundle ID: %w", err)
 	}
 
-	if len(chainIDs) == 0 {
-		return fmt.Errorf("no chain IDs provided")
-	}
 	accountAddr, err := gqlClient.FetchAccountAddress(ctx, chainIDs[0])
 	if err != nil {
 		return fmt.Errorf("failed to get EVM account address: %w", err)
@@ -182,30 +192,42 @@ func createChainConfigsInNode(ctx context.Context, clClient *clclient.ChainlinkC
 		Str("p2pPeerID", *p2pPeerID).
 		Str("ocr2KeyBundleID", ocr2KeyBundleID).
 		Str("accountAddr", *accountAddr).
+		Str("nodeID", nodeID).
 		Int("numChains", len(chainIDs)).
-		Msg("Creating chain configs in CL node")
+		Msg("Creating chain configs in CL node (parallel)")
 
+	g, gctx := errgroup.WithContext(ctx)
 	for _, chainID := range chainIDs {
-		_, err := gqlClient.CreateJobDistributorChainConfig(ctx, sdkclient.JobDistributorChainConfigInput{
-			JobDistributorID: fmID,
-			ChainID:          chainID,
-			ChainType:        "EVM",
-			AccountAddr:      *accountAddr,
-			AdminAddr:        *accountAddr,
-			Ocr2Enabled:      true,
-			Ocr2P2PPeerID:    *p2pPeerID,
-			Ocr2KeyBundleID:  ocr2KeyBundleID,
-			Ocr2Plugins:      `{"commit":false,"execute":false,"median":false,"mercury":false}`,
+		g.Go(func() error {
+			input := sdkclient.JobDistributorChainConfigInput{
+				JobDistributorID: fmID,
+				ChainID:          chainID,
+				ChainType:        "EVM",
+				AccountAddr:      *accountAddr,
+				AdminAddr:        *accountAddr,
+				Ocr2Enabled:      true,
+				Ocr2P2PPeerID:    *p2pPeerID,
+				Ocr2KeyBundleID:  ocr2KeyBundleID,
+				Ocr2Plugins:      `{"commit":false,"execute":false,"median":false,"mercury":false}`,
+			}
+			if err := createAndVerifyChainConfig(gctx, gqlClient, jdClient, nodeID, input); err != nil {
+				Plog.Warn().
+					Str("chainID", chainID).
+					Str("nodeID", nodeID).
+					Err(err).
+					Msg("Failed to create and verify chain config")
+				return fmt.Errorf("chain %s: %w", chainID, err)
+			}
+			return nil
 		})
-		if err != nil {
-			Plog.Warn().
-				Str("chainID", chainID).
-				Err(err).
-				Msg("Failed to create chain config, continuing with other chains")
-		}
+	}
+
+	if err := g.Wait(); err != nil {
+		return fmt.Errorf("failed to create chain configs: %w", err)
 	}
 
 	Plog.Info().
+		Str("nodeID", nodeID).
 		Int("numChains", len(chainIDs)).
 		Msg("Finished creating chain configs in CL node")
 
@@ -237,6 +259,58 @@ func CreateFeedsManagerInNode(ctx context.Context, clClient *clclient.ChainlinkC
 	return fmID, nil
 }
 
+func createAndVerifyChainConfig(
+	ctx context.Context,
+	gqlClient sdkclient.Client,
+	jdClient offchain.Client,
+	nodeID string,
+	input sdkclient.JobDistributorChainConfigInput,
+) error {
+	backoff := retry.WithMaxDuration(60*time.Second, retry.NewExponential(1*time.Second))
+	created := false
+
+	return retry.Do(ctx, backoff, func(ctx context.Context) error {
+		chainConfigsResp, err := jdClient.ListNodeChainConfigs(ctx, &nodev1.ListNodeChainConfigsRequest{
+			Filter: &nodev1.ListNodeChainConfigsRequest_Filter{
+				NodeIds: []string{nodeID},
+			},
+		})
+		if err != nil {
+			return retry.RetryableError(fmt.Errorf("failed to list chain configs: %w", err))
+		}
+
+		for _, cfg := range chainConfigsResp.ChainConfigs {
+			if cfg.Chain.Id == input.ChainID {
+				if cfg.Ocr2Config != nil &&
+					cfg.Ocr2Config.OcrKeyBundle != nil &&
+					cfg.Ocr2Config.OcrKeyBundle.OnchainSigningAddress != "" {
+					Plog.Debug().
+						Str("chainID", input.ChainID).
+						Str("nodeID", nodeID).
+						Str("signingAddress", cfg.Ocr2Config.OcrKeyBundle.OnchainSigningAddress).
+						Msg("Chain config with OCR2 keys verified")
+					return nil
+				}
+				return retry.RetryableError(errors.New("chain config exists but OCR2 keys not yet available"))
+			}
+		}
+
+		if !created {
+			_, err = gqlClient.CreateJobDistributorChainConfig(ctx, input)
+			if err != nil {
+				return fmt.Errorf("failed to create chain config for chain %s: %w", input.ChainID, err)
+			}
+			created = true
+			Plog.Debug().
+				Str("chainID", input.ChainID).
+				Str("nodeID", nodeID).
+				Msg("Created chain config, waiting for OCR2 keys")
+		}
+
+		return retry.RetryableError(errors.New("verifying chain config with OCR2 keys"))
+	})
+}
+
 func waitForNodeConnection(ctx context.Context, jdClient offchain.Client, nodeID string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(2 * time.Second)
@@ -263,48 +337,6 @@ func waitForNodeConnection(ctx context.Context, jdClient offchain.Client, nodeID
 			}
 
 			Plog.Debug().Str("nodeID", nodeID).Bool("isConnected", nodeResp.Node.IsConnected).Msg("Node not yet connected, waiting...")
-		}
-	}
-}
-
-func waitForChainConfigs(ctx context.Context, jdClient offchain.Client, nodeID string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			if time.Now().After(deadline) {
-				return fmt.Errorf("timeout waiting for chain configs for node %s", nodeID)
-			}
-
-			chainConfigsResp, err := jdClient.ListNodeChainConfigs(ctx, &nodev1.ListNodeChainConfigsRequest{
-				Filter: &nodev1.ListNodeChainConfigsRequest_Filter{
-					NodeIds: []string{nodeID},
-				},
-			})
-			if err != nil {
-				Plog.Debug().Str("nodeID", nodeID).Err(err).Msg("Failed to list chain configs, retrying...")
-				continue
-			}
-
-			for _, chainConfig := range chainConfigsResp.ChainConfigs {
-				if chainConfig.Ocr2Config != nil &&
-					chainConfig.Ocr2Config.OcrKeyBundle != nil &&
-					chainConfig.Ocr2Config.OcrKeyBundle.OnchainSigningAddress != "" {
-					Plog.Info().
-						Str("nodeID", nodeID).
-						Str("chainType", chainConfig.Chain.Type.String()).
-						Str("signingAddress", chainConfig.Ocr2Config.OcrKeyBundle.OnchainSigningAddress).
-						Msg("Chain config with OCR2 keys available")
-					return nil
-				}
-			}
-
-			Plog.Debug().Str("nodeID", nodeID).Int("configCount", len(chainConfigsResp.ChainConfigs)).Msg("No OCR2 chain configs yet, waiting...")
 		}
 	}
 }
@@ -341,7 +373,6 @@ func ConnectNodesToJD(ctx context.Context, infra *JDInfrastructure, clientLookup
 	Plog.Info().Msg("Waiting for all nodes to connect to JD...")
 
 	connectionTimeout := 60 * time.Second
-	chainConfigTimeout := 60 * time.Second
 	for alias, nodeID := range infra.NodeIDMap {
 		if err := waitForNodeConnection(ctx, infra.OffchainClient, nodeID, connectionTimeout); err != nil {
 			Plog.Warn().
@@ -349,7 +380,7 @@ func ConnectNodesToJD(ctx context.Context, infra *JDInfrastructure, clientLookup
 				Str("nodeID", nodeID).
 				Err(err).
 				Msg("Node failed to connect to JD within timeout")
-			continue
+			return fmt.Errorf("node %s failed to connect to JD within timeout", nodeID)
 		}
 
 		clClient, ok := clientLookup.GetClient(alias)
@@ -357,23 +388,16 @@ func ConnectNodesToJD(ctx context.Context, infra *JDInfrastructure, clientLookup
 			Plog.Warn().
 				Str("nopAlias", alias).
 				Msg("No CL client found for alias, skipping chain config creation")
-			continue
+			return fmt.Errorf("no CL client found for alias %s", alias)
 		}
 
-		if err := createChainConfigsInNode(ctx, clClient, chainIDs); err != nil {
-			Plog.Warn().
-				Str("nopAlias", alias).
-				Err(err).
-				Msg("Failed to create chain configs in node")
-			continue
-		}
-
-		if err := waitForChainConfigs(ctx, infra.OffchainClient, nodeID, chainConfigTimeout); err != nil {
+		if err := createChainConfigsInNode(ctx, clClient, infra.OffchainClient, nodeID, chainIDs); err != nil {
 			Plog.Warn().
 				Str("nopAlias", alias).
 				Str("nodeID", nodeID).
 				Err(err).
-				Msg("Chain configs not available within timeout - OCR keys won't be fetchable from JD")
+				Msg("Failed to create chain configs in node")
+			return fmt.Errorf("failed to create chain configs in node %s: %w", alias, err)
 		}
 	}
 

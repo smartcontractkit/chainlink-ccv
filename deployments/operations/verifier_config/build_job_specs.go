@@ -2,6 +2,7 @@ package verifier_config
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/BurntSushi/toml"
 	"github.com/Masterminds/semver/v3"
@@ -94,14 +95,19 @@ var BuildJobSpecs = operations.NewOperation(
 			}
 
 			for _, agg := range input.Committee.Aggregators {
-				verifierJobID := shared.NewVerifierJobID(agg.Name, scope)
+				verifierJobID := shared.NewVerifierJobID(nopAlias, agg.Name, scope)
+
+				// TODO: This need to be updated once verifier support multiple families
+				signerAddress := nop.SignerAddressByFamily[chainsel.FamilyEVM]
+				if signerAddress == "" {
+					return BuildJobSpecsOutput{}, fmt.Errorf("NOP %q missing signer address for family %s - ensure chain is configured on node", nop.Alias, chainsel.FamilyEVM)
+				}
 
 				verifierCfg := commit.Config{
-					VerifierID:                   verifierJobID.GetVerifierID(),
-					AggregatorAddress:            agg.Address,
-					InsecureAggregatorConnection: agg.InsecureAggregatorConnection,
-					// TODO: Change this when verifier supports multiple families
-					SignerAddress:                  nop.SignerAddressByFamily[chainsel.FamilyEVM],
+					VerifierID:                     verifierJobID.GetVerifierID(),
+					AggregatorAddress:              agg.Address,
+					InsecureAggregatorConnection:   agg.InsecureAggregatorConnection,
+					SignerAddress:                  signerAddress,
 					PyroscopeURL:                   input.PyroscopeURL,
 					CommitteeVerifierAddresses:     filterAddressesByChains(input.GeneratedConfig.CommitteeVerifierAddresses, nopChains),
 					OnRampAddresses:                filterAddressesByChains(input.GeneratedConfig.OnRampAddresses, nopChains),
@@ -161,11 +167,8 @@ func getNOPChainMembership(nopAlias shared.NOPAlias, chainNOPAliases map[string]
 		return chains
 	}
 	for chainSelector, nops := range chainNOPAliases {
-		for _, alias := range nops {
-			if alias == nopAlias {
-				chains[chainSelector] = true
-				break
-			}
+		if slices.Contains(nops, nopAlias) {
+			chains[chainSelector] = true
 		}
 	}
 	return chains

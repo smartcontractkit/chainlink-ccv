@@ -7,12 +7,15 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/changesets"
+	deploymocks "github.com/smartcontractkit/chainlink-ccv/deployments/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/testutils"
 )
@@ -535,4 +538,189 @@ func TestApplyExecutorConfig_AllNOPsUpdatedWhenMemberRemovedFromPool(t *testing.
 
 	_, err = deployments.GetJob(secondSealedDS, "nop-3", "nop-3-default-executor")
 	require.Error(t, err, "nop-3 job should be removed when NOP is removed from pool")
+}
+
+func TestApplyExecutorConfig_FailsWhenNOPMissingChainSupport(t *testing.T) {
+	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, defaultSelectors)
+	setupExecutorDatastore(t, ds, defaultSelectors, testDefaultQualifier)
+	env.DataStore = ds.Seal()
+
+	mockJD := deploymocks.NewMockJDClient(t)
+	mockJD.EXPECT().ListNodes(mock.Anything, mock.Anything).Return(
+		&nodev1.ListNodesResponse{
+			Nodes: []*nodev1.Node{
+				{Id: "node-1", Name: "nop-1"},
+				{Id: "node-2", Name: "nop-2"},
+			},
+		}, nil,
+	)
+	mockJD.EXPECT().ListNodeChainConfigs(mock.Anything, mock.Anything).Return(
+		&nodev1.ListNodeChainConfigsResponse{
+			ChainConfigs: []*nodev1.ChainConfig{
+				{
+					NodeId: "node-1",
+					Chain:  &nodev1.Chain{Type: nodev1.ChainType_CHAIN_TYPE_EVM, Id: "90000001"},
+					Ocr2Config: &nodev1.OCR2Config{
+						OcrKeyBundle: &nodev1.OCR2Config_OCRKeyBundle{OnchainSigningAddress: "0x123"},
+					},
+				},
+				{
+					NodeId: "node-2",
+					Chain:  &nodev1.Chain{Type: nodev1.ChainType_CHAIN_TYPE_EVM, Id: "90000001"},
+					Ocr2Config: &nodev1.OCR2Config{
+						OcrKeyBundle: &nodev1.OCR2Config_OCRKeyBundle{OnchainSigningAddress: "0x456"},
+					},
+				},
+				{
+					NodeId: "node-2",
+					Chain:  &nodev1.Chain{Type: nodev1.ChainType_CHAIN_TYPE_EVM, Id: "90000002"},
+					Ocr2Config: &nodev1.OCR2Config{
+						OcrKeyBundle: &nodev1.OCR2Config_OCRKeyBundle{OnchainSigningAddress: "0x456"},
+					},
+				},
+			},
+		}, nil,
+	)
+
+	deps := changesets.ExecutorApplyDeps{
+		Env:      env,
+		JDClient: mockJD,
+		NodeIDs:  []string{"node-1", "node-2"},
+	}
+
+	cfg := changesets.ApplyExecutorConfigCfg{
+		Topology:          newTestTopology(),
+		ExecutorQualifier: testDefaultQualifier,
+		ChainSelectors:    defaultSelectors,
+	}
+
+	_, err := changesets.ApplyExecutorConfigWithDeps(deps, cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "chain support validation failed")
+	assert.Contains(t, err.Error(), "nop-1")
+}
+
+func TestApplyExecutorConfig_PassesWhenNOPSupportsExtraChains(t *testing.T) {
+	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, defaultSelectors)
+	setupExecutorDatastore(t, ds, defaultSelectors, testDefaultQualifier)
+	env.DataStore = ds.Seal()
+
+	mockJD := deploymocks.NewMockJDClient(t)
+	mockJD.EXPECT().ListNodes(mock.Anything, mock.Anything).Return(
+		&nodev1.ListNodesResponse{
+			Nodes: []*nodev1.Node{
+				{Id: "node-1", Name: "nop-1"},
+				{Id: "node-2", Name: "nop-2"},
+			},
+		}, nil,
+	)
+	mockJD.EXPECT().ListNodeChainConfigs(mock.Anything, mock.Anything).Return(
+		&nodev1.ListNodeChainConfigsResponse{
+			ChainConfigs: []*nodev1.ChainConfig{
+				{
+					NodeId: "node-1",
+					Chain:  &nodev1.Chain{Type: nodev1.ChainType_CHAIN_TYPE_EVM, Id: "90000001"},
+					Ocr2Config: &nodev1.OCR2Config{
+						OcrKeyBundle: &nodev1.OCR2Config_OCRKeyBundle{OnchainSigningAddress: "0x123"},
+					},
+				},
+				{
+					NodeId: "node-1",
+					Chain:  &nodev1.Chain{Type: nodev1.ChainType_CHAIN_TYPE_EVM, Id: "90000002"},
+					Ocr2Config: &nodev1.OCR2Config{
+						OcrKeyBundle: &nodev1.OCR2Config_OCRKeyBundle{OnchainSigningAddress: "0x123"},
+					},
+				},
+				{
+					NodeId: "node-1",
+					Chain:  &nodev1.Chain{Type: nodev1.ChainType_CHAIN_TYPE_EVM, Id: "90000003"},
+					Ocr2Config: &nodev1.OCR2Config{
+						OcrKeyBundle: &nodev1.OCR2Config_OCRKeyBundle{OnchainSigningAddress: "0x123"},
+					},
+				},
+				{
+					NodeId: "node-2",
+					Chain:  &nodev1.Chain{Type: nodev1.ChainType_CHAIN_TYPE_EVM, Id: "90000001"},
+					Ocr2Config: &nodev1.OCR2Config{
+						OcrKeyBundle: &nodev1.OCR2Config_OCRKeyBundle{OnchainSigningAddress: "0x456"},
+					},
+				},
+				{
+					NodeId: "node-2",
+					Chain:  &nodev1.Chain{Type: nodev1.ChainType_CHAIN_TYPE_EVM, Id: "90000002"},
+					Ocr2Config: &nodev1.OCR2Config{
+						OcrKeyBundle: &nodev1.OCR2Config_OCRKeyBundle{OnchainSigningAddress: "0x456"},
+					},
+				},
+			},
+		}, nil,
+	)
+
+	deps := changesets.ExecutorApplyDeps{
+		Env:      env,
+		JDClient: mockJD,
+		NodeIDs:  []string{"node-1", "node-2"},
+	}
+
+	cfg := changesets.ApplyExecutorConfigCfg{
+		Topology:          newTestTopology(),
+		ExecutorQualifier: testDefaultQualifier,
+		ChainSelectors:    defaultSelectors,
+	}
+
+	output, err := changesets.ApplyExecutorConfigWithDeps(deps, cfg)
+	require.NoError(t, err)
+	require.NotNil(t, output.DataStore)
+}
+
+func TestApplyExecutorConfig_PassesWhenNonTargetNOPMissingChainSupport(t *testing.T) {
+	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, defaultSelectors)
+	setupExecutorDatastore(t, ds, defaultSelectors, testDefaultQualifier)
+	env.DataStore = ds.Seal()
+
+	mockJD := deploymocks.NewMockJDClient(t)
+	mockJD.EXPECT().ListNodes(mock.Anything, mock.Anything).Return(
+		&nodev1.ListNodesResponse{
+			Nodes: []*nodev1.Node{
+				{Id: "node-1", Name: "nop-1"},
+			},
+		}, nil,
+	)
+	mockJD.EXPECT().ListNodeChainConfigs(mock.Anything, mock.Anything).Return(
+		&nodev1.ListNodeChainConfigsResponse{
+			ChainConfigs: []*nodev1.ChainConfig{
+				{
+					NodeId: "node-1",
+					Chain:  &nodev1.Chain{Type: nodev1.ChainType_CHAIN_TYPE_EVM, Id: "90000001"},
+					Ocr2Config: &nodev1.OCR2Config{
+						OcrKeyBundle: &nodev1.OCR2Config_OCRKeyBundle{OnchainSigningAddress: "0x123"},
+					},
+				},
+				{
+					NodeId: "node-1",
+					Chain:  &nodev1.Chain{Type: nodev1.ChainType_CHAIN_TYPE_EVM, Id: "90000002"},
+					Ocr2Config: &nodev1.OCR2Config{
+						OcrKeyBundle: &nodev1.OCR2Config_OCRKeyBundle{OnchainSigningAddress: "0x123"},
+					},
+				},
+			},
+		}, nil,
+	)
+
+	deps := changesets.ExecutorApplyDeps{
+		Env:      env,
+		JDClient: mockJD,
+		NodeIDs:  []string{"node-1", "node-2"},
+	}
+
+	cfg := changesets.ApplyExecutorConfigCfg{
+		Topology:          newTestTopology(),
+		ExecutorQualifier: testDefaultQualifier,
+		ChainSelectors:    defaultSelectors,
+		TargetNOPs:        []shared.NOPAlias{"nop-1"},
+	}
+
+	output, err := changesets.ApplyExecutorConfigWithDeps(deps, cfg)
+	require.NoError(t, err)
+	require.NotNil(t, output.DataStore)
 }

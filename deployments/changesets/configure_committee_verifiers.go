@@ -3,6 +3,7 @@ package changesets
 import (
 	"fmt"
 	"slices"
+	"strconv"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
@@ -230,7 +231,7 @@ func getSignatureConfigForSourceChain(
 		return nil, fmt.Errorf("committee %q not found", committeeQualifier)
 	}
 
-	chainCfg, ok := committee.ChainConfigs[fmt.Sprintf("%d", chainSelector)]
+	chainCfg, ok := committee.ChainConfigs[strconv.FormatUint(chainSelector, 10)]
 	if !ok {
 		return nil, fmt.Errorf("chain selector %d not found in committee %q", chainSelector, committeeQualifier)
 	}
@@ -242,37 +243,60 @@ func getSignatureConfigForSourceChain(
 
 	signers := make([]string, 0, len(chainCfg.NOPAliases))
 	for _, alias := range chainCfg.NOPAliases {
-		nop, ok := topology.NOPTopology.GetNOP(alias)
-		if !ok {
-			return nil, fmt.Errorf("NOP alias %q not found for committee %q chain %d", alias, committeeQualifier, chainSelector)
+		signer, err := signerAddressForNOPAlias(e, topology, alias, family, committeeQualifier, chainSelector, signingKeysByNOP)
+		if err != nil {
+			return nil, err
 		}
-
-		var signerAddress string
-		if nop.SignerAddressByFamily != nil {
-			signerAddress, ok = nop.SignerAddressByFamily[family]
-		}
-		if !ok || signerAddress == "" {
-			if signingKeysByNOP != nil {
-				if jdSigners, jdOk := signingKeysByNOP[alias]; jdOk {
-					if familySigner, signerOk := jdSigners[family]; signerOk && familySigner != "" {
-						signerAddress = familySigner
-						e.Logger.Debugw("Using signing address from JD",
-							"nopAlias", alias,
-							"chainFamily", family,
-							"signerAddress", signerAddress)
-					}
-				}
-			}
-			if signerAddress == "" {
-				return nil, fmt.Errorf("NOP %q missing signer_address for family %s on committee %q chain %d", alias, family, committeeQualifier, chainSelector)
-			}
-		}
-		signers = append(signers, signerAddress)
+		signers = append(signers, signer)
 	}
 
-	signatureConfig := &adapters.CommitteeVerifierSignatureQuorumConfig{
+	return &adapters.CommitteeVerifierSignatureQuorumConfig{
 		Threshold: chainCfg.Threshold,
 		Signers:   signers,
+	}, nil
+}
+
+func signerAddressForNOPAlias(
+	e deployment.Environment,
+	topology *deployments.EnvironmentTopology,
+	alias string,
+	family string,
+	committeeQualifier string,
+	chainSelector uint64,
+	signingKeysByNOP fetch_signing_keys.SigningKeysByNOP,
+) (string, error) {
+	nop, ok := topology.NOPTopology.GetNOP(alias)
+	if !ok {
+		return "", fmt.Errorf(
+			"NOP alias %q not found for committee %q chain %d",
+			alias, committeeQualifier, chainSelector,
+		)
 	}
-	return signatureConfig, nil
+
+	// Config wins
+	if nop.SignerAddressByFamily != nil {
+		if addr := nop.SignerAddressByFamily[family]; addr != "" {
+			return addr, nil
+		}
+	}
+
+	// JD fallback via shared helper
+	if signer, ok := signerFromJDIfMissing(
+		nop.SignerAddressByFamily,
+		alias,
+		family,
+		signingKeysByNOP,
+	); ok {
+		e.Logger.Debugw("Using signing address from JD",
+			"nopAlias", alias,
+			"chainFamily", family,
+			"signerAddress", signer,
+		)
+		return signer, nil
+	}
+
+	return "", fmt.Errorf(
+		"NOP %q missing signer_address for family %s on committee %q chain %d",
+		alias, family, committeeQualifier, chainSelector,
+	)
 }

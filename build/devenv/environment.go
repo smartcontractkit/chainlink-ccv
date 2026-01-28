@@ -374,7 +374,7 @@ func generateVerifierJobSpecs(
 				return nil, err
 			}
 			// TODO: We assume that there is only one agg per committee, no HA setup support
-			jobSpecID := shared.NewVerifierJobID(aggNames[0], shared.VerifierJobScope{CommitteeQualifier: committeeName})
+			jobSpecID := shared.NewVerifierJobID(shared.NOPAlias(ver.NOPAlias), aggNames[0], shared.VerifierJobScope{CommitteeQualifier: committeeName})
 			job, err := deployments.GetJob(output.DataStore.Seal(), shared.NOPAlias(ver.NOPAlias), jobSpecID.ToJobID())
 			if err != nil {
 				return nil, fmt.Errorf("failed to get verifier job spec for %s: %w", ver.ContainerName, err)
@@ -795,6 +795,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		if out.TLSCACertFile != "" {
 			in.AggregatorCACertFiles[aggregatorInput.CommitteeName] = out.TLSCACertFile
 		}
+		e.DataStore = output.DataStore.Seal()
 	}
 
 	///////////////////////////////
@@ -824,6 +825,7 @@ func NewEnvironment() (in *Cfg, err error) {
 			return nil, fmt.Errorf("failed to get indexer config from output: %w", err)
 		}
 		in.Indexer.GeneratedCfg = idxCfg
+		e.DataStore = output.DataStore.Seal()
 	}
 
 	// Set TLS CA cert for indexer (all aggregators share the same CA)

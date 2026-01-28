@@ -359,9 +359,9 @@ func (c *EnvironmentTopology) GetPoolsForNOP(nopAlias string) []string {
 func (c *EnvironmentTopology) GetAggregatorNamesForCommittee(name string) ([]string, error) {
 	for _, committee := range c.NOPTopology.Committees {
 		if strings.EqualFold(committee.Qualifier, name) {
-			names := make([]string, 0)
-			for _, agg := range committee.Aggregators {
-				names = append(names, agg.Name)
+			names := make([]string, len(committee.Aggregators))
+			for i, agg := range committee.Aggregators {
+				names[i] = agg.Name
 			}
 			return names, nil
 		}

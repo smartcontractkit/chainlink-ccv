@@ -44,7 +44,10 @@ func SyncJobProposals() deployment.ChangeSetV2[SyncJobProposalsCfg] {
 			for _, drift := range report.Output.SpecDrifts {
 				e.Logger.Warnw("Spec drift detail",
 					"nopAlias", drift.NOPAlias,
-					"jobId", drift.JobID)
+					"jobId", drift.JobID,
+					"localSpec", drift.LocalSpec,
+					"jdSpec", drift.JDSpec,
+				)
 			}
 		}
 
