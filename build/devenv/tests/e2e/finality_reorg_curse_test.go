@@ -14,6 +14,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
@@ -35,7 +36,7 @@ import (
 func TestE2EReorg(t *testing.T) {
 	ctx := ccv.Plog.WithContext(context.Background())
 	l := zerolog.Ctx(ctx)
-	lib, err := ccv.NewLib(l, "../../env-out.toml")
+	lib, err := ccv.NewLib(l, "../../env-out.toml", chain_selectors.FamilyEVM)
 	require.NoError(t, err)
 
 	// TODO: put LoadOutput behind the lib.
