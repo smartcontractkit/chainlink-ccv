@@ -1,4 +1,4 @@
-package lbtc
+package lombard
 
 import (
 	"context"
@@ -15,7 +15,7 @@ type AttestationService interface {
 	Fetch(ctx context.Context, message []protocol.Message) (map[string]Attestation, error)
 }
 
-// Attestation represents a LBTC attestation along with related data
+// Attestation represents a Lombard attestation along with related data
 // allowing creating proper payload for the verifier on the destination chain.
 // Please see ToVerifierFormat for more details on the format.
 type Attestation struct {
@@ -78,7 +78,7 @@ type HTTPAttestationService struct {
 
 func NewAttestationService(
 	lggr logger.Logger,
-	config LBTCConfig,
+	config LombardConfig,
 ) (AttestationService, error) {
 	client, err := NewHTTPClient(lggr, config)
 	if err != nil {

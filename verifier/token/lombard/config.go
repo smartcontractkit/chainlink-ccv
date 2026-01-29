@@ -1,4 +1,4 @@
-package lbtc
+package lombard
 
 import (
 	"fmt"
@@ -10,7 +10,7 @@ import (
 )
 
 //nolint:revive // type has to be prefixed to avoid name clash in VerifierConfig
-type LBTCConfig struct {
+type LombardConfig struct {
 	AttestationAPI string `toml:"attestation_api"`
 	// AttestationAPITimeout defines the timeout for the attestation API.
 	AttestationAPITimeout time.Duration `toml:"attestation_api_timeout"`
@@ -24,18 +24,18 @@ type LBTCConfig struct {
 	ParsedVerifierResolvers map[protocol.ChainSelector]protocol.UnknownAddress `toml:"-"`
 }
 
-func TryParsing(t, v string, data map[string]any) (*LBTCConfig, error) {
-	if t != "lbtc" || v != "1.0" {
+func TryParsing(t, v string, data map[string]any) (*LombardConfig, error) {
+	if t != "lombard" || v != "1.0" {
 		return nil, fmt.Errorf("unsupported verifier type %s and version %s", t, v)
 	}
 
 	var ok bool
 	var err error
-	c := &LBTCConfig{}
+	c := &LombardConfig{}
 
 	c.AttestationAPI, ok = data[("attestation_api")].(string)
 	if !ok {
-		return nil, fmt.Errorf("attestation_api field is required for lbtc verifier")
+		return nil, fmt.Errorf("attestation_api field is required for lombard verifier")
 	}
 
 	c.AttestationAPITimeout, err = common.ParseDurationOrDefault(data[("attestation_api_timeout")], 1*time.Second)
