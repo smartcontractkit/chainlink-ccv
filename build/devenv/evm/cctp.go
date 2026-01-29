@@ -49,7 +49,14 @@ func (m *CCIP17EVMConfig) deployUSDCTokenAndPool(
 		return err
 	}
 
-	err = m.deployCCTPChain(env, registry, ds, create2Factory, selector, messenger, usdc, chain)
+	remoteSelectors := make([]uint64, 0)
+	for _, s := range env.BlockChains.All() {
+		if s.ChainSelector() != selector {
+			remoteSelectors = append(remoteSelectors, s.ChainSelector())
+		}
+	}
+
+	err = m.deployCCTPChain(env, registry, ds, create2Factory, selector, messenger, usdc, remoteSelectors)
 	if err != nil {
 		return err
 	}
@@ -119,10 +126,27 @@ func (m *CCIP17EVMConfig) deployCCTPChain(
 	selector uint64,
 	messenger gethcommon.Address,
 	usdc gethcommon.Address,
-	chain evm.Chain,
+	remoteSelectors []uint64,
 ) error {
 	cctpChainRegistry := adapters.NewCCTPChainRegistry()
 	cctpChainRegistry.RegisterCCTPChain("evm", &evmadapters.CCTPChainAdapter{})
+
+	domains := map[uint64]uint32{
+		chainsel.GETH_TESTNET.Selector:  101,
+		chainsel.GETH_DEVNET_2.Selector: 102,
+		chainsel.GETH_DEVNET_3.Selector: 104,
+	}
+
+	remoteChains := make(map[uint64]adapters.RemoteCCTPChainConfig)
+	for _, rs := range remoteSelectors {
+		remoteChains[rs] = adapters.RemoteCCTPChainConfig{
+			FeeUSDCents:         10,
+			GasForVerification:  100000,
+			PayloadSizeBytes:    1000,
+			LockOrBurnMechanism: "CCTP_V2_WITH_CCV",
+			DomainIdentifier:    domains[rs],
+		}
+	}
 
 	out, err := changesets.DeployCCTPChains(cctpChainRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
 		Chains: map[uint64]changesets.CCTPChainConfig{
@@ -304,51 +328,4 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 	}
 
 	return usdcTokenAddr, messageTransmitterAddr, tokenMessengerAddr, nil
-}
-
-func (m *CCIP17EVMConfig) configureUSDCForTransfer(
-	env *deployment.Environment,
-	cctpChainRegistry *adapters.CCTPChainRegistry,
-	registry *changesetscore.MCMSReaderRegistry,
-	create2 datastore.AddressRef,
-	messenger gethcommon.Address,
-	usdc gethcommon.Address,
-	selector uint64,
-	remoteSelectors []uint64,
-) error {
-	domains := map[uint64]uint32{
-		chainsel.GETH_TESTNET.Selector:  101,
-		chainsel.GETH_DEVNET_2.Selector: 102,
-		chainsel.GETH_DEVNET_3.Selector: 104,
-	}
-
-	remoteChains := make(map[uint64]adapters.RemoteCCTPChainConfig)
-	for _, rs := range remoteSelectors {
-		remoteChains[rs] = adapters.RemoteCCTPChainConfig{
-			FeeUSDCents:         10,
-			GasForVerification:  100000,
-			PayloadSizeBytes:    1000,
-			LockOrBurnMechanism: "CCTP_V2_WITH_CCV",
-			DomainIdentifier:    domains[rs],
-		}
-	}
-
-	_, err := changesets.DeployCCTPChains(cctpChainRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
-		Chains: map[uint64]changesets.CCTPChainConfig{
-			selector: {
-				TokenMessenger:   messenger.Hex(),
-				USDCToken:        usdc.Hex(),
-				StorageLocations: []string{"https://test.chain.link.fake"},
-				FeeAggregator:    gethcommon.HexToAddress("0x04").Hex(),
-				FastFinalityBps:  100,
-				DeployerContract: create2.Address,
-				RemoteChains:     remoteChains,
-			},
-		},
-	},
-	)
-	if err != nil {
-		return fmt.Errorf("failed to deploy CCTP chain registry on chain %d: %w", selector, err)
-	}
-	return nil
 }
