@@ -11,6 +11,7 @@ import (
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/create2_factory"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_messenger"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_transmitter"
@@ -131,6 +132,58 @@ func (m *CCIP17EVMConfig) deployCCTPChain(
 	cctpChainRegistry := adapters.NewCCTPChainRegistry()
 	cctpChainRegistry.RegisterCCTPChain("evm", &evmadapters.CCTPChainAdapter{})
 
+	out, err := changesets.DeployCCTPChains(cctpChainRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
+		Chains: map[uint64]changesets.CCTPChainConfig{
+			selector: {
+				TokenMessenger:   messenger.Hex(),
+				USDCToken:        usdc.Hex(),
+				StorageLocations: []string{"https://test.chain.link.fake"},
+				FeeAggregator:    gethcommon.HexToAddress("0x04").Hex(),
+				FastFinalityBps:  100,
+				DeployerContract: create2Factory.Address,
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to deploy CCTP chain registry on chain %d: %w", selector, err)
+	}
+
+	err = ds.Merge(out.DataStore.Seal())
+	if err != nil {
+		return err
+	}
+	return err
+}
+
+func (m *CCIP17EVMConfig) configureUSDCForTransfer(
+	env *deployment.Environment,
+	registry *changesetscore.MCMSReaderRegistry,
+	selector uint64,
+	remoteSelectors []uint64,
+) error {
+	cctpChainRegistry := adapters.NewCCTPChainRegistry()
+	cctpChainRegistry.RegisterCCTPChain("evm", &evmadapters.CCTPChainAdapter{})
+
+	create2, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+		selector,
+		datastore.ContractType(create2_factory.ContractType),
+		semver.MustParse(create2_factory.Deploy.Version()),
+		"",
+	))
+	if err != nil {
+		return err
+	}
+
+	usdc, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+		selector,
+		datastore.ContractType(burnminterc677ops.ContractType),
+		semver.MustParse(burnminterc677ops.Deploy.Version()),
+		common.CCTPContractsQualifier,
+	))
+	if err != nil {
+		return err
+	}
+
 	domains := map[uint64]uint32{
 		chainsel.GETH_TESTNET.Selector:  101,
 		chainsel.GETH_DEVNET_2.Selector: 102,
@@ -148,16 +201,15 @@ func (m *CCIP17EVMConfig) deployCCTPChain(
 		}
 	}
 
-	out, err := changesets.DeployCCTPChains(cctpChainRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
+	_, err = changesets.DeployCCTPChains(cctpChainRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
 		Chains: map[uint64]changesets.CCTPChainConfig{
 			selector: {
-				TokenMessenger:   messenger.Hex(),
-				USDCToken:        usdc.Hex(),
+				USDCToken:        usdc.Address,
 				StorageLocations: []string{"https://test.chain.link.fake"},
 				FeeAggregator:    gethcommon.HexToAddress("0x04").Hex(),
 				FastFinalityBps:  100,
-				DeployerContract: create2Factory.Address,
-				RemoteChains:     make(map[uint64]adapters.RemoteCCTPChainConfig),
+				DeployerContract: create2.Address,
+				RemoteChains:     remoteChains,
 			},
 		},
 	})
@@ -165,10 +217,6 @@ func (m *CCIP17EVMConfig) deployCCTPChain(
 		return fmt.Errorf("failed to deploy CCTP chain registry on chain %d: %w", selector, err)
 	}
 
-	err = ds.Merge(out.DataStore.Seal())
-	if err != nil {
-		return err
-	}
 	return err
 }
 
