@@ -131,6 +131,7 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 		ModuleName: "CCIP",
 		EntityName: "CCIPMessageSent",
 	}
+	templateIDStr := fmt.Sprintf("%s:%s:%s", templateID.PackageId, templateID.ModuleName, templateID.EntityName)
 	t.Run("returns parsed events from updates stream", func(t *testing.T) {
 		ctx := context.Background()
 
@@ -246,7 +247,7 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 			jwt:                 "token",
 			config: ReaderConfig{
 				CCIPOwnerParty:            ccipOwner,
-				CCIPMessageSentTemplateID: fmt.Sprintf("%s:%s:%s", templateID.PackageId, templateID.ModuleName, templateID.EntityName),
+				CCIPMessageSentTemplateID: templateIDStr,
 			},
 		}
 
@@ -361,7 +362,7 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 			jwt:                 "token",
 			config: ReaderConfig{
 				CCIPOwnerParty:            ccipOwner,
-				CCIPMessageSentTemplateID: fmt.Sprintf("%s:%s:%s", templateID.PackageId, templateID.ModuleName, templateID.EntityName),
+				CCIPMessageSentTemplateID: templateIDStr,
 			},
 		}
 
@@ -388,7 +389,7 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 			jwt:                 "token",
 			config: ReaderConfig{
 				CCIPOwnerParty:            ccipOwner,
-				CCIPMessageSentTemplateID: fmt.Sprintf("%s:%s:%s", templateID.PackageId, templateID.ModuleName, templateID.EntityName),
+				CCIPMessageSentTemplateID: templateIDStr,
 			},
 		}
 
@@ -420,7 +421,7 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 			jwt:                 "token",
 			config: ReaderConfig{
 				CCIPOwnerParty:            ccipOwner,
-				CCIPMessageSentTemplateID: fmt.Sprintf("%s:%s:%s", templateID.PackageId, templateID.ModuleName, templateID.EntityName),
+				CCIPMessageSentTemplateID: templateIDStr,
 			},
 		}
 

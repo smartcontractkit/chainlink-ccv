@@ -215,7 +215,7 @@ func hydrateCantonConfig(in *VerifierInput, outputs []*blockchain.Output) error 
 			return fmt.Errorf("failed to list known parties for chain %s: %w", strSelector, err)
 		}
 
-		// find the party that starts with the name that is party of the existing config
+		// find the party that starts with the prefix that is listed in the canton config.
 		var found bool
 		for _, partyDetail := range partyDetails {
 			if strings.HasPrefix(partyDetail.GetParty(), cantonConfig.ReaderConfig.CCIPOwnerParty) {
