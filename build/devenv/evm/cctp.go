@@ -9,21 +9,13 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_message_transmitter_proxy"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_through_ccv_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/usdc_token_pool_proxy"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/testsetup"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_messenger"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_transmitter"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
-	routeroperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	burnminterc677ops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/token_admin_registry"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
-	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
@@ -133,33 +125,15 @@ func (m *CCIP17EVMConfig) deployCCTPChain(
 	cctpChainRegistry.RegisterCCTPChain("evm", &evmadapters.CCTPChainAdapter{})
 
 	out, err := changesets.DeployCCTPChains(cctpChainRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
-		Chains: []adapters.DeployCCTPInput[datastore.AddressRef, datastore.AddressRef]{
-			{
-				ChainSelector: selector,
-				TokenAdminRegistry: datastore.AddressRef{
-					Type:    datastore.ContractType(token_admin_registry.ContractType),
-					Version: semver.MustParse(token_admin_registry.Deploy.Version()),
-				},
+		Chains: map[uint64]changesets.CCTPChainConfig{
+			selector: {
 				TokenMessenger:   messenger.Hex(),
 				USDCToken:        usdc.Hex(),
-				MinFinalityValue: 1,
 				StorageLocations: []string{"https://test.chain.link.fake"},
 				FeeAggregator:    gethcommon.HexToAddress("0x04").Hex(),
-				AllowlistAdmin:   gethcommon.HexToAddress("0x05").Hex(),
 				FastFinalityBps:  100,
-				RMN: datastore.AddressRef{
-					Type:    datastore.ContractType(rmn_remote.ContractType),
-					Version: semver.MustParse(rmn_remote.Deploy.Version()),
-				},
-				Router: datastore.AddressRef{
-					Type:    datastore.ContractType(routeroperations.ContractType),
-					Version: semver.MustParse(routeroperations.Deploy.Version()),
-				},
-				DeployerContract:                 create2Factory.Address,
-				Allowlist:                        []string{gethcommon.HexToAddress("0x08").Hex()},
-				ThresholdAmountForAdditionalCCVs: big.NewInt(1e18),
-				RateLimitAdmin:                   chain.DeployerKey.From.Hex(),
-				RemoteChains:                     make(map[uint64]adapters.RemoteCCTPChainConfig[datastore.AddressRef, datastore.AddressRef]),
+				DeployerContract: create2Factory.Address,
+				RemoteChains:     make(map[uint64]adapters.RemoteCCTPChainConfig),
 			},
 		},
 	})
@@ -332,100 +306,43 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 	return usdcTokenAddr, messageTransmitterAddr, tokenMessengerAddr, nil
 }
 
-func (m *CCIP17EVMConfig) configureUSDCForTransfer(env *deployment.Environment, cctpChainRegistry *adapters.CCTPChainRegistry, registry *changesetscore.MCMSReaderRegistry, create2 datastore.AddressRef, selector uint64, remoteSelectors []uint64) error {
+func (m *CCIP17EVMConfig) configureUSDCForTransfer(
+	env *deployment.Environment,
+	cctpChainRegistry *adapters.CCTPChainRegistry,
+	registry *changesetscore.MCMSReaderRegistry,
+	create2 datastore.AddressRef,
+	messenger gethcommon.Address,
+	usdc gethcommon.Address,
+	selector uint64,
+	remoteSelectors []uint64,
+) error {
 	domains := map[uint64]uint32{
 		chainsel.GETH_TESTNET.Selector:  101,
 		chainsel.GETH_DEVNET_2.Selector: 102,
 		chainsel.GETH_DEVNET_3.Selector: 104,
 	}
 
-	remoteChains := make(map[uint64]adapters.RemoteCCTPChainConfig[datastore.AddressRef, datastore.AddressRef])
+	remoteChains := make(map[uint64]adapters.RemoteCCTPChainConfig)
 	for _, rs := range remoteSelectors {
-		pool := datastore.AddressRef{
-			ChainSelector: rs,
-			Type:          datastore.ContractType(usdc_token_pool_proxy.ContractType),
-			Version:       semver.MustParse(usdc_token_pool_proxy.Deploy.Version()),
-			Qualifier:     common.CCTPContractsQualifier,
-		}
-		remoteChains[rs] = adapters.RemoteCCTPChainConfig[datastore.AddressRef, datastore.AddressRef]{
+		remoteChains[rs] = adapters.RemoteCCTPChainConfig{
 			FeeUSDCents:         10,
 			GasForVerification:  100000,
 			PayloadSizeBytes:    1000,
 			LockOrBurnMechanism: "CCTP_V2_WITH_CCV",
-			RemoteDomain: adapters.RemoteDomain[datastore.AddressRef]{
-				AllowedCallerOnDest: datastore.AddressRef{
-					ChainSelector: rs,
-					Type:          datastore.ContractType(cctp_message_transmitter_proxy.ContractType),
-					Version:       semver.MustParse(cctp_message_transmitter_proxy.Deploy.Version()),
-					Qualifier:     common.CCTPContractsQualifier,
-				},
-				AllowedCallerOnSource: datastore.AddressRef{
-					ChainSelector: rs,
-					Type:          datastore.ContractType(cctp_verifier.ContractType),
-					Version:       semver.MustParse(cctp_verifier.Deploy.Version()),
-					Qualifier:     common.CCTPContractsQualifier,
-				},
-				DomainIdentifier: domains[rs],
-			},
-			TokenPoolConfig: tokenscore.RemoteChainConfig[datastore.AddressRef, datastore.AddressRef]{
-				RemotePool: pool,
-				RemoteToken: datastore.AddressRef{
-					ChainSelector: rs,
-					Type:          datastore.ContractType(burnminterc677ops.ContractType),
-					Version:       burnminterc677ops.Version,
-					Qualifier:     common.CCTPContractsQualifier,
-				},
-				DefaultFinalityInboundRateLimiterConfig:  testsetup.CreateRateLimiterConfig(0, 0),
-				DefaultFinalityOutboundRateLimiterConfig: testsetup.CreateRateLimiterConfig(0, 0),
-				CustomFinalityInboundRateLimiterConfig:   testsetup.CreateRateLimiterConfig(0, 0),
-				CustomFinalityOutboundRateLimiterConfig:  testsetup.CreateRateLimiterConfig(0, 0),
-			},
+			DomainIdentifier:    domains[rs],
 		}
 	}
 
 	_, err := changesets.DeployCCTPChains(cctpChainRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
-		Chains: []adapters.DeployCCTPInput[datastore.AddressRef, datastore.AddressRef]{
-			{
-				ChainSelector:    selector,
-				MinFinalityValue: 1,
-				Router: datastore.AddressRef{
-					Type:    datastore.ContractType(routeroperations.ContractType),
-					Version: semver.MustParse(routeroperations.Deploy.Version()),
-				},
-				MessageTransmitterProxy: datastore.AddressRef{
-					ChainSelector: selector,
-					Type:          datastore.ContractType(cctp_message_transmitter_proxy.ContractType),
-					Version:       semver.MustParse(cctp_message_transmitter_proxy.Deploy.Version()),
-				},
-				TokenPool: []datastore.AddressRef{
-					{
-						ChainSelector: selector,
-						Type:          datastore.ContractType(usdc_token_pool_proxy.ContractType),
-						Version:       semver.MustParse(usdc_token_pool_proxy.Deploy.Version()),
-					},
-					{
-						ChainSelector: selector,
-						Type:          datastore.ContractType(cctp_through_ccv_token_pool.ContractType),
-						Version:       semver.MustParse(cctp_through_ccv_token_pool.Deploy.Version()),
-					},
-				},
-				CCTPVerifier: []datastore.AddressRef{
-					{
-						ChainSelector: selector,
-						Type:          datastore.ContractType(cctp_verifier.ContractType),
-						Version:       semver.MustParse(cctp_verifier.Deploy.Version()),
-					},
-					{
-						ChainSelector: selector,
-						Type:          datastore.ContractType(cctp_verifier.ResolverType),
-						Version:       semver.MustParse(cctp_verifier.Deploy.Version()),
-					},
-				},
-				TokenAdminRegistry: datastore.AddressRef{
-					Type:    datastore.ContractType(token_admin_registry.ContractType),
-					Version: semver.MustParse(token_admin_registry.Deploy.Version()),
-				},
-				RemoteChains: remoteChains,
+		Chains: map[uint64]changesets.CCTPChainConfig{
+			selector: {
+				TokenMessenger:   messenger.Hex(),
+				USDCToken:        usdc.Hex(),
+				StorageLocations: []string{"https://test.chain.link.fake"},
+				FeeAggregator:    gethcommon.HexToAddress("0x04").Hex(),
+				FastFinalityBps:  100,
+				DeployerContract: create2.Address,
+				RemoteChains:     remoteChains,
 			},
 		},
 	},

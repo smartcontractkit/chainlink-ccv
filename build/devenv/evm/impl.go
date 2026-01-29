@@ -1409,7 +1409,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		return err
 	}
 
-	tokenAdapterRegistry := tokenscore.NewTokenAdapterRegistry()
+	tokenAdapterRegistry := tokenscore.GetTokenAdapterRegistry()
 	for _, poolVersion := range tokenPoolVersions {
 		var tokenAdapter tokenscore.TokenAdapter
 
