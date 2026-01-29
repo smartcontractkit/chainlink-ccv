@@ -58,3 +58,7 @@ jobs:
           total=$(go tool cover -func=coverage.out | grep total | awk '{print $3}')
           echo "Total coverage: $total"
           echo "$total" | awk -v threshold="$COVERAGE_THRESHOLD" '{ pc=substr($0, 1, length($0)-1); if (pc < threshold) { print "Coverage (" pc "%) is less than " threshold "%"; exit 1 } }'
+      - name: Run deployments tests
+        working-directory: deployments
+        run: |
+          go test -v -race -fullpath -shuffle on ./...
