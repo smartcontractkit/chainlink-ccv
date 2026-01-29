@@ -1,27 +1,25 @@
 package canton
 
 import (
-	"context"
 	"encoding/hex"
 	"fmt"
 	"math/big"
-	"os"
 	"slices"
 	"strings"
 	"testing"
 
 	ledgerv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2"
 	ledgerv2admin "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2/admin"
-	jwtv5 "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/metadata"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
+	devenvcanton "github.com/smartcontractkit/chainlink-ccv/devenv/canton"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -66,23 +64,18 @@ func TestCantonSourceReader(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	bcOutput := cantonChain.Out
-
-	jwt := bcOutput.NetworkSpecificData.CantonEndpoints.Participants[0].JWT
+	grpcURL := cantonChain.Out.NetworkSpecificData.CantonEndpoints.Participants[0].GRPCLedgerAPIURL
+	require.NotEmpty(t, grpcURL)
+	jwt := cantonChain.Out.NetworkSpecificData.CantonEndpoints.Participants[0].JWT
 	require.NotEmpty(t, jwt)
 
-	// the subject in the jwt is the user id that will be used to submit the commands.
-	userID := getSub(t, jwt)
-	require.NotEmpty(t, userID)
-	t.Logf("sub (user id to use): %s", userID)
-
-	grpcURL := bcOutput.NetworkSpecificData.CantonEndpoints.Participants[0].GRPCLedgerAPIURL
-	require.NotEmpty(t, grpcURL)
-
-	ts := newTestSetup(t, grpcURL, jwt, userID)
+	helper, err := devenvcanton.NewHelperFromBlockchainInput(grpcURL, jwt)
+	require.NoError(t, err)
+	ts := newTestSetup(helper)
 
 	// Assert that the parties were created and are known to the ledger.
-	knownParties := ts.listKnownParties(t)
+	knownParties, err := ts.helper.ListKnownParties(t.Context())
+	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(knownParties), 1)
 	// Find the party that corresponds to the JWT token that we have
 	var party string
@@ -95,9 +88,9 @@ func TestCantonSourceReader(t *testing.T) {
 	require.NotEmpty(t, party)
 	t.Logf("found party: %s", party)
 
-	// Upload the DAR file containing the TestRouter contract and any required dependencies.
-	ts.uploadDar(t, "json-tests-0.0.1.dar")
-	knownPackages := ts.listKnownPackages(t)
+	// Check that the expected package is uploaded.
+	knownPackages, err := ts.helper.ListKnownPackages(t.Context())
+	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(knownPackages), 1)
 	require.True(t, slices.ContainsFunc(knownPackages, func(p *ledgerv2admin.PackageDetails) bool {
 		return p.GetName() == packageID
@@ -123,10 +116,13 @@ func TestCantonSourceReader(t *testing.T) {
 	require.NotNil(t, createResp)
 
 	sourceReader, err := canton.NewSourceReader(
+		logger.Test(t),
 		grpcURL,
 		jwt,
-		ccipOwner,
-		ccipMessageSentTemplateID,
+		canton.ReaderConfig{
+			CCIPOwnerParty:            ccipOwner,
+			CCIPMessageSentTemplateID: fmt.Sprintf("%s:%s:%s", ccipMessageSentTemplateID.PackageId, ccipMessageSentTemplateID.ModuleName, ccipMessageSentTemplateID.EntityName),
+		},
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	require.NoError(t, err)
@@ -210,26 +206,12 @@ func mustEncodeMessage(t *testing.T, msg protocol.Message) []byte {
 	return encoded
 }
 
-func getSub(t *testing.T, jwt string) string {
-	claims := jwtv5.MapClaims{}
-	_, _, err := jwtv5.NewParser().ParseUnverified(jwt, claims)
-	require.NoError(t, err)
-	require.NotNil(t, claims["sub"])
-
-	return claims["sub"].(string)
-}
-
 type testSetup struct {
-	partyMgmtClient ledgerv2admin.PartyManagementServiceClient
-	pkgMgmtClient   ledgerv2admin.PackageManagementServiceClient
-	commandClient   ledgerv2.CommandServiceClient
-	updatesClient   ledgerv2.UpdateServiceClient
-	jwt             string
-	userID          string
+	helper *devenvcanton.Helper
 }
 
 func (ts *testSetup) getContractID(t *testing.T, updateID, party string) string {
-	resp, err := ts.updatesClient.GetUpdateById(ts.authCtx(t), &ledgerv2.GetUpdateByIdRequest{
+	resp, err := ts.helper.GetUpdateServiceClient().GetUpdateById(ts.helper.AuthCtx(t.Context()), &ledgerv2.GetUpdateByIdRequest{
 		UpdateId: updateID,
 		UpdateFormat: &ledgerv2.UpdateFormat{
 			IncludeTransactions: &ledgerv2.TransactionFormat{
@@ -286,10 +268,10 @@ func (ts *testSetup) ccipSend(
 		}
 	}
 
-	resp, err := ts.commandClient.SubmitAndWait(ts.authCtx(t), &ledgerv2.SubmitAndWaitRequest{
+	resp, err := ts.helper.GetCommandServiceClient().SubmitAndWait(ts.helper.AuthCtx(t.Context()), &ledgerv2.SubmitAndWaitRequest{
 		Commands: &ledgerv2.Commands{
 			CommandId: uuid.New().String(),
-			UserId:    ts.userID,
+			UserId:    ts.helper.GetUserID(),
 			ActAs:     []string{partyOwnerParty},
 			ReadAs:    []string{partyOwnerParty},
 			Commands: []*ledgerv2.Command{
@@ -365,10 +347,10 @@ func (ts *testSetup) ccipSend(
 }
 
 func (ts *testSetup) createTestRouter(t *testing.T, ccipOwnerParty, partyOwnerParty string) *ledgerv2.SubmitAndWaitResponse {
-	resp, err := ts.commandClient.SubmitAndWait(ts.authCtx(t), &ledgerv2.SubmitAndWaitRequest{
+	resp, err := ts.helper.GetCommandServiceClient().SubmitAndWait(ts.helper.AuthCtx(t.Context()), &ledgerv2.SubmitAndWaitRequest{
 		Commands: &ledgerv2.Commands{
 			CommandId: uuid.New().String(),
-			UserId:    ts.userID,
+			UserId:    ts.helper.GetUserID(),
 			ActAs:     []string{ccipOwnerParty},
 			ReadAs:    []string{ccipOwnerParty},
 			Commands: []*ledgerv2.Command{
@@ -411,50 +393,8 @@ func (ts *testSetup) createTestRouter(t *testing.T, ccipOwnerParty, partyOwnerPa
 	return resp
 }
 
-func (ts *testSetup) listKnownParties(t *testing.T) []*ledgerv2admin.PartyDetails {
-	resp, err := ts.partyMgmtClient.ListKnownParties(ts.authCtx(t), &ledgerv2admin.ListKnownPartiesRequest{})
-	require.NoError(t, err)
-
-	return resp.GetPartyDetails()
-}
-
-func (ts *testSetup) uploadDar(t *testing.T, darPath string) {
-	dar, err := os.ReadFile(darPath)
-	require.NoError(t, err)
-
-	_, err = ts.pkgMgmtClient.UploadDarFile(ts.authCtx(t), &ledgerv2admin.UploadDarFileRequest{
-		DarFile:      dar,
-		SubmissionId: uuid.New().String(),
-	})
-	require.NoError(t, err)
-}
-
-func (ts *testSetup) listKnownPackages(t *testing.T) []*ledgerv2admin.PackageDetails {
-	resp, err := ts.pkgMgmtClient.ListKnownPackages(ts.authCtx(t), &ledgerv2admin.ListKnownPackagesRequest{})
-	require.NoError(t, err)
-
-	return resp.GetPackageDetails()
-}
-
-func (ts *testSetup) authCtx(t *testing.T) context.Context {
-	return metadata.NewOutgoingContext(t.Context(), metadata.Pairs("authorization", fmt.Sprintf("Bearer %s", ts.jwt)))
-}
-
-func newTestSetup(t *testing.T, grpcURL, jwt, userID string) *testSetup {
-	conn, err := grpc.NewClient(grpcURL, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	require.NoError(t, err)
-
-	pmsClient := ledgerv2admin.NewPartyManagementServiceClient(conn)
-	pkgMgmtClient := ledgerv2admin.NewPackageManagementServiceClient(conn)
-	commandClient := ledgerv2.NewCommandServiceClient(conn)
-	updatesClient := ledgerv2.NewUpdateServiceClient(conn)
-
+func newTestSetup(helper *devenvcanton.Helper) *testSetup {
 	return &testSetup{
-		partyMgmtClient: pmsClient,
-		pkgMgmtClient:   pkgMgmtClient,
-		commandClient:   commandClient,
-		updatesClient:   updatesClient,
-		jwt:             jwt,
-		userID:          userID,
+		helper: helper,
 	}
 }

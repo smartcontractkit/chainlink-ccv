@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -15,9 +16,12 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
+	devenvcanton "github.com/smartcontractkit/chainlink-ccv/devenv/canton"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -64,6 +68,17 @@ type VerifierInput struct {
 	CommitteeName  string             `toml:"committee_name"`
 	NodeIndex      int                `toml:"node_index"`
 
+	// CantonConfigs is the map of chain selectors to canton configurations to pass onto the verifier,
+	// only used in standalone mode and if Canton is enabled.
+	// Note that the full party ID (name + hex) is not expected in the TOML config,
+	// just the expected party name.
+	// The full party ID is hydrated from the blockchain output after the Canton participant is available.
+	CantonConfigs map[string]commit.CantonConfig `toml:"canton_configs"`
+
+	// DisableFinalityCheckers is a list of chain selectors for which the finality violation checker should be disabled.
+	// The chain selectors are formatted as strings of the chain selector.
+	DisableFinalityCheckers []string `toml:"disable_finality_checkers"`
+
 	// SigningKey is the private key for standalone mode signing.
 	SigningKey string `toml:"signing_key"`
 
@@ -95,6 +110,16 @@ func (v *VerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[st
 	var baseConfig commit.Config
 	if _, err := toml.Decode(v.GeneratedConfig, &baseConfig); err != nil {
 		return "", nil, fmt.Errorf("failed to parse generated config: %w", err)
+	}
+
+	// Apply canton config if provided.
+	if v.CantonConfigs != nil {
+		baseConfig.CantonConfigs = v.CantonConfigs
+	}
+
+	// Apply disable finality checkers if provided.
+	if len(v.DisableFinalityCheckers) > 0 {
+		baseConfig.DisableFinalityCheckers = v.DisableFinalityCheckers
 	}
 
 	// Wrap with blockchain infos for standalone mode
@@ -142,6 +167,75 @@ func ApplyVerifierDefaults(in VerifierInput) VerifierInput {
 		in.Mode = DefaultVerifierMode
 	}
 	return in
+}
+
+// hydrateCantonConfig hydrates the canton config with the full party ID for the CCIPOwnerParty.
+func hydrateCantonConfig(in *VerifierInput, outputs []*blockchain.Output) error {
+	for _, output := range outputs {
+		if output.Family != chainsel.FamilyCanton {
+			continue
+		}
+
+		chainDetails, err := chainsel.GetChainDetailsByChainIDAndFamily(output.ChainID, output.Family)
+		if err != nil {
+			return fmt.Errorf("failed to get chain details for chain %s, family %s: %w", output.ChainID, output.Family, err)
+		}
+
+		strSelector := strconv.FormatUint(chainDetails.ChainSelector, 10)
+		cantonConfig, ok := in.CantonConfigs[strSelector]
+		if !ok {
+			return fmt.Errorf("no canton config found for chain %s, please update the config appropriately if you're using canton", strSelector)
+		}
+		if cantonConfig.ReaderConfig.CCIPOwnerParty == "" {
+			return fmt.Errorf("CCIPOwnerParty is not set for chain %s, please update the config appropriately if you're using canton", strSelector)
+		}
+		if cantonConfig.ReaderConfig.CCIPMessageSentTemplateID == "" {
+			return fmt.Errorf("CCIPMessageSentTemplateID is not set for chain %s, please update the config appropriately if you're using canton", strSelector)
+		}
+
+		// Get the full party ID (name + hex id) from the canton participant.
+		// TODO: how to support multiple participants?
+		grpcURL := output.NetworkSpecificData.CantonEndpoints.Participants[0].GRPCLedgerAPIURL
+		jwt := output.NetworkSpecificData.CantonEndpoints.Participants[0].JWT
+		if grpcURL == "" || jwt == "" {
+			return fmt.Errorf("GRPC ledger API URL or JWT is not set for chain %s, please update the config appropriately if you're using canton", strSelector)
+		}
+
+		authority := grpcURL
+		if idx := strings.LastIndex(authority, ":"); idx != -1 {
+			authority = authority[:idx]
+		}
+
+		helper, err := devenvcanton.NewHelperFromBlockchainInput(grpcURL, jwt)
+		if err != nil {
+			return fmt.Errorf("failed to create helper for chain %s: %w", strSelector, err)
+		}
+		partyDetails, err := helper.ListKnownParties(context.Background())
+		if err != nil {
+			return fmt.Errorf("failed to list known parties for chain %s: %w", strSelector, err)
+		}
+
+		// find the party that starts with the prefix that is listed in the canton config.
+		var found bool
+		for _, partyDetail := range partyDetails {
+			if strings.HasPrefix(partyDetail.GetParty(), cantonConfig.ReaderConfig.CCIPOwnerParty) {
+				in.CantonConfigs[strSelector] = commit.CantonConfig{
+					ReaderConfig: canton.ReaderConfig{
+						CCIPOwnerParty:            partyDetail.GetParty(),
+						CCIPMessageSentTemplateID: cantonConfig.ReaderConfig.CCIPMessageSentTemplateID,
+						Authority:                 authority,
+					},
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("expected CCIPOwnerParty %s not found for canton chain %s, please update the config appropriately if you're using canton", cantonConfig.ReaderConfig.CCIPOwnerParty, strSelector)
+		}
+	}
+
+	return nil
 }
 
 func NewVerifier(in *VerifierInput, outputs []*blockchain.Output) (*VerifierOutput, error) {
@@ -229,6 +323,11 @@ func NewVerifier(in *VerifierInput, outputs []*blockchain.Output) (*VerifierOutp
 	internalDBConnectionString := fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
 		in.ContainerName, in.ContainerName, in.DB.Name, in.ContainerName)
 	envVars["CL_DATABASE_URL"] = internalDBConnectionString
+
+	err = hydrateCantonConfig(in, outputs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to hydrate canton config: %w", err)
+	}
 
 	// Generate and store config file.
 	verifierID, config, err := in.GenerateConfigWithBlockchainInfos(blockchainInfos)
