@@ -26,6 +26,9 @@ type ApplyVerifierConfigCfg struct {
 	ChainSelectors []uint64
 	// TargetNOPs limits which NOPs to update. Defaults to all in committee.
 	TargetNOPs []shared.NOPAlias
+	// DisableFinalityCheckers is a list of chain selectors (as strings) for which
+	// the finality violation checker should be disabled.
+	DisableFinalityCheckers []string
 }
 
 type VerifierApplyDeps struct {
@@ -141,6 +144,7 @@ func ApplyVerifierConfigWithDeps(deps VerifierApplyDeps, cfg ApplyVerifierConfig
 		Committee:                committeeInput,
 		PyroscopeURL:             cfg.Topology.PyroscopeURL,
 		Monitoring:               monitoring,
+		DisableFinalityCheckers:  cfg.DisableFinalityCheckers,
 	}
 
 	report, err := operations.ExecuteSequence(deps.Env.OperationsBundle, sequences.GenerateVerifierConfig, sequences.GenerateVerifierConfigDeps{Env: deps.Env}, input)
