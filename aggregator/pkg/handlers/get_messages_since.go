@@ -42,8 +42,8 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *msgdiscoveryp
 	for _, report := range batch.Reports {
 		verifierResult, err := model.MapAggregatedReportToVerifierResultProto(report, h.committee)
 		if err != nil {
-			h.logger(ctx).Errorw("failed to map aggregated report to proto", "messageID", report.MessageID, "error", err)
-			return nil, status.Error(codes.Internal, "failed to process messages")
+			h.logger(ctx).Errorw("failed to map aggregated report to proto. this is likely due to invalid configuration", "messageID", report.MessageID, "error", err)
+			continue
 		}
 
 		// If source verifier is not in ccvAddresses, nil out metadata addresses
