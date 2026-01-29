@@ -60,7 +60,7 @@ type TokenVerifierInput struct {
 
 	CCTPVerifierResolverAddresses map[string]string `toml:"cctp_verifier_resolver_addresses"`
 
-	LBTCVerifierAddresses map[string]string `toml:"lbtc_verifier_addresses"`
+	LombardVerifierAddresses map[string]string `toml:"lombard_verifier_addresses"`
 }
 
 type TokenVerifierOutput struct {
@@ -283,9 +283,9 @@ func (v *TokenVerifierInput) buildVerifierConfiguration(config *token.Config, fa
 		})
 	}
 
-	if len(v.LBTCVerifierAddresses) > 0 {
+	if len(v.LombardVerifierAddresses) > 0 {
 		verifierResolvers := make(map[string]any)
-		for k, addr := range v.LBTCVerifierAddresses {
+		for k, addr := range v.LombardVerifierAddresses {
 			verifierResolvers[k] = addr
 		}
 		config.TokenVerifiers = append(config.TokenVerifiers, token.VerifierConfig{
@@ -311,7 +311,7 @@ func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blo
 	ver.RMNRemoteAddresses = make(map[string]string)
 	ver.CCTPVerifierAddresses = make(map[string]string)
 	ver.CCTPVerifierResolverAddresses = make(map[string]string)
-	ver.LBTCVerifierAddresses = make(map[string]string)
+	ver.LombardVerifierAddresses = make(map[string]string)
 
 	for _, chain := range blockchains {
 		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(chain.ChainID, chain.Out.Family)
