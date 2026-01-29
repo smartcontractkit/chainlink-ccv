@@ -113,13 +113,10 @@ func (v *VerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[st
 	}
 
 	// Apply canton config if provided.
+	// Note: CantonConfigs requires runtime hydration (e.g., full party IDs from Canton participant),
+	// so it must be applied here rather than in the changeset generation process.
 	if v.CantonConfigs != nil {
 		baseConfig.CantonConfigs = v.CantonConfigs
-	}
-
-	// Apply disable finality checkers if provided.
-	if len(v.DisableFinalityCheckers) > 0 {
-		baseConfig.DisableFinalityCheckers = v.DisableFinalityCheckers
 	}
 
 	// Wrap with blockchain infos for standalone mode
