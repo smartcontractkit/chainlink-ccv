@@ -1,4 +1,4 @@
-package lbtc
+package lombard
 
 import (
 	"context"
@@ -19,7 +19,7 @@ const (
 	anyErrorRetry            = 5 * time.Second
 )
 
-// Verifier is responsible for verifying LBTC messages by fetching their attestations
+// Verifier is responsible for verifying Lombard messages by fetching their attestations
 // and preparing VerifierNodeResult for storage. Retries are handled by the upper-layer processor,
 // but Verifier indicates whether an error is retriable or not.
 type Verifier struct {

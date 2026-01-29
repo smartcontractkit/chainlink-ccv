@@ -1,4 +1,4 @@
-package lbtc
+package lombard
 
 import (
 	"net/http"
@@ -82,7 +82,7 @@ func Test_AttestationFetch(t *testing.T) {
 
 	attestationService, err := NewAttestationService(
 		logger.Test(t),
-		LBTCConfig{
+		LombardConfig{
 			AttestationAPI:        server.URL,
 			AttestationAPITimeout: 1 * time.Minute,
 			ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{

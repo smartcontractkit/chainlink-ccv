@@ -29,7 +29,7 @@ import (
 	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lbtc"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
@@ -289,11 +289,11 @@ func (v *TokenVerifierInput) buildVerifierConfiguration(config *token.Config, fa
 			verifierResolvers[k] = addr
 		}
 		config.TokenVerifiers = append(config.TokenVerifiers, token.VerifierConfig{
-			VerifierID: v.ContainerName + "-lbtc",
-			Type:       "lbtc",
+			VerifierID: v.ContainerName + "-lombard",
+			Type:       "lombard",
 			Version:    "1.0",
-			LBTCConfig: &lbtc.LBTCConfig{
-				AttestationAPI:          fakeAttestationServiceURL + "/lbtc",
+			LombardConfig: &lombard.LombardConfig{
+				AttestationAPI:          fakeAttestationServiceURL + "/lombard",
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPITimeout:   1 * time.Second,
 				AttestationAPIBatchSize: 20,

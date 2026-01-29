@@ -1,4 +1,4 @@
-package lbtc
+package lombard
 
 import (
 	"context"
@@ -38,7 +38,7 @@ type HTTPClientImpl struct {
 // NewHTTPClient creates a new HTTP-based Lombard attestation client.
 func NewHTTPClient(
 	lggr logger.Logger,
-	config LBTCConfig,
+	config LombardConfig,
 ) (*HTTPClientImpl, error) {
 	client, err := httputil.GetHTTPClient(
 		lggr,
