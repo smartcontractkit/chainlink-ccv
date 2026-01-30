@@ -382,11 +382,11 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 func filterOnlySupportedSelectors(remoteSelectors []uint64) []uint64 {
 	supportedRemoteSelectors := make([]uint64, 0)
 	for _, rs := range remoteSelectors {
-		if rs == chainsel.GETH_TESTNET.Selector ||
-			rs == chainsel.GETH_DEVNET_2.Selector ||
-			rs == chainsel.GETH_DEVNET_3.Selector {
-			supportedRemoteSelectors = append(supportedRemoteSelectors, rs)
+		family, err := chainsel.GetSelectorFamily(rs)
+		if err != nil || family != chainsel.FamilyEVM {
+			continue
 		}
+		supportedRemoteSelectors = append(supportedRemoteSelectors, rs)
 	}
 	return supportedRemoteSelectors
 }
