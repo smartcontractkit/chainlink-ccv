@@ -13,6 +13,7 @@ import (
 	ledgerv2admin "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2/admin"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -58,7 +59,8 @@ var committeeVerifierVersion = []byte{0x49, 0xff, 0x34, 0xed}
 // ccv up env-canton-evm.toml
 // from the build/devenv directory.
 func TestCantonSourceReader(t *testing.T) {
-	in, err := ccv.LoadOutput[ccv.Cfg]("../../../env-canton-evm-out.toml")
+	configPath := "../../../env-canton-evm-out.toml"
+	in, err := ccv.LoadOutput[ccv.Cfg](configPath)
 	require.NoError(t, err)
 
 	var cantonChain *blockchain.Input
@@ -84,6 +86,16 @@ func TestCantonSourceReader(t *testing.T) {
 
 	evmDetails, err := chain_selectors.GetChainDetailsByChainIDAndFamily(evmChain.ChainID, chain_selectors.FamilyEVM)
 	require.NoError(t, err)
+
+	ctx := ccv.Plog.WithContext(t.Context())
+	l := zerolog.Ctx(ctx)
+
+	lib, err := ccv.NewLib(l, configPath, chain_selectors.FamilyEVM)
+	require.NoError(t, err)
+	chains, err := lib.ChainsMap(ctx)
+	require.NoError(t, err)
+	destChain := chains[evmDetails.ChainSelector]
+	require.NotNil(t, destChain)
 
 	t.Cleanup(func() {
 		_, err := framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
@@ -241,6 +253,14 @@ func TestCantonSourceReader(t *testing.T) {
 		}
 		require.True(t, found)
 	}
+
+	// TODO(makramkd): tx is reverting onchain, figure out why.
+	// for _, msg := range messages {
+	// 	t.Logf("waiting for execution event for message %s, sequence number %d", msg.MustMessageID().String(), msg.SequenceNumber)
+	// 	ev, err := destChain.WaitOneExecEventBySeqNo(t.Context(), cantonDetails.ChainSelector, uint64(msg.SequenceNumber), tests.WaitTimeout(t))
+	// 	require.NoError(t, err)
+	// 	t.Logf("got execution event for message %s, state: %d", msg.MustMessageID().String(), ev.State)
+	// }
 }
 
 // relevantAddresses are the addresses required to construct a valid CCIP message from Canton -> EVM.
