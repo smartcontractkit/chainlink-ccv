@@ -276,7 +276,7 @@ type relevantAddresses struct {
 }
 
 // getRelevantAddresses returns the canton and evm addresses required to construct a valid CCIP message from Canton -> EVM.
-func getRelevantAddresses(t *testing.T, in *ccv.Cfg, cantonDetails chain_selectors.ChainDetails, evmDetails chain_selectors.ChainDetails) relevantAddresses {
+func getRelevantAddresses(t *testing.T, in *ccv.Cfg, cantonDetails, evmDetails chain_selectors.ChainDetails) relevantAddresses {
 	cantonOnRampRef, err := in.CLDF.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
 			cantonDetails.ChainSelector,

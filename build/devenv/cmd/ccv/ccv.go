@@ -601,7 +601,7 @@ var monitorContractsCmd = &cobra.Command{
 }
 
 var txInfoCmd = &cobra.Command{
-	Use:   "tx-receipt <tx hash>",
+	Use:   "tx-receipt --env <env> <tx hash>",
 	Short: "Get transaction receipt information",
 	Args:  cobra.RangeArgs(1, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -610,7 +610,11 @@ var txInfoCmd = &cobra.Command{
 		}
 		txHash := common.HexToHash(args[0])
 		ctx := ccv.Plog.WithContext(cmd.Context())
-		in, err := ccv.LoadOutput[ccv.Cfg]("env-out.toml")
+		env, err := cmd.Flags().GetString("env")
+		if err != nil {
+			return fmt.Errorf("failed to parse env: %w", err)
+		}
+		in, err := ccv.LoadOutput[ccv.Cfg](env)
 		if err != nil {
 			return fmt.Errorf("failed to load environment output: %w", err)
 		}
@@ -633,7 +637,7 @@ var txInfoCmd = &cobra.Command{
 				continue
 			}
 			// check gas specified in the transaction and gas used in the receipt
-			ccv.Plog.Info().Msgf("gas specified in tx: %d, gas used in receipt: %d", tx.Gas(), receipt.GasUsed)
+			ccv.Plog.Info().Msgf("success: %d, gas specified in tx: %d, gas used in receipt: %d", receipt.Status, tx.Gas(), receipt.GasUsed)
 			found = true
 		}
 		if !found {
@@ -688,6 +692,7 @@ func init() {
 	// on-chain monitoring
 	rootCmd.AddCommand(monitorContractsCmd)
 	rootCmd.AddCommand(txInfoCmd)
+	txInfoCmd.Flags().String("env", "env-out.toml", "Select environment file to use (defaults to env-out.toml)")
 
 	// contract management
 	rootCmd.AddCommand(deployCommitVerifierCmd)
