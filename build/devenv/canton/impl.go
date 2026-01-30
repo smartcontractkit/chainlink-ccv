@@ -11,7 +11,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 
@@ -35,6 +35,31 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
+
+// TODO: this is just for the mocked out addresses, not a real restriction on Canton.
+const addressLen = 20
+
+// leftPadBytesWithChar pads the input bytes on the left with the specified character
+// to reach the desired length. If data is already >= length, it truncates to length.
+func leftPadBytesWithChar(data []byte, length int, padChar byte) []byte {
+	if len(data) >= length {
+		return data[:length]
+	}
+	result := make([]byte, length)
+	padLen := length - len(data)
+	for i := range padLen {
+		result[i] = padChar
+	}
+	copy(result[padLen:], data)
+	return result
+}
+
+// cantonAddress creates a Canton mock address by padding with 'c' characters.
+func cantonAddress(name string) []byte {
+	// pad with 'c' because the canton server disallows 'null characters'
+	// in a string (i'm guessing this is just the '0' character that is problematic).
+	return leftPadBytesWithChar([]byte(name), addressLen, 'c')
+}
 
 var (
 	_ cciptestinterfaces.CCIP17              = &Chain{}
@@ -83,21 +108,21 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	ds := datastore.NewMemoryDataStore()
 	// Add Onramp
 	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       common.Bytes2Hex(common.LeftPadBytes([]byte("canton onramp"), 20)),
+		Address:       hexutil.Encode(cantonAddress("canton onramp")),
 		ChainSelector: selector,
 		Type:          datastore.ContractType(onrampoperations.ContractType),
 		Version:       semver.MustParse(onrampoperations.Deploy.Version()),
 	})
 	// Add OffRamp
 	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       common.Bytes2Hex(common.LeftPadBytes([]byte("canton offramp"), 20)),
+		Address:       hexutil.Encode(cantonAddress("canton offramp")),
 		ChainSelector: selector,
 		Type:          datastore.ContractType(offrampoperations.ContractType),
 		Version:       semver.MustParse(offrampoperations.Deploy.Version()),
 	})
 	// Add Router
 	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       common.Bytes2Hex(common.LeftPadBytes([]byte("canton router"), 20)),
+		Address:       hexutil.Encode(cantonAddress("canton router")),
 		ChainSelector: selector,
 		Type:          datastore.ContractType(routeroperations.ContractType),
 		Version:       semver.MustParse(routeroperations.Deploy.Version()),
@@ -106,7 +131,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	for i, combo := range devenvcommon.AllTokenCombinations() {
 		addressRef := combo.DestPoolAddressRef()
 		ds.AddressRefStore.Add(datastore.AddressRef{
-			Address:       common.Bytes2Hex(common.LeftPadBytes(fmt.Appendf(nil, "canton dst token %d", i), 20)),
+			Address:       hexutil.Encode(cantonAddress(fmt.Sprintf("canton dst token %d", i))),
 			Type:          addressRef.Type,
 			Version:       addressRef.Version,
 			Qualifier:     addressRef.Qualifier,
@@ -114,7 +139,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 		})
 		addressRef = combo.SourcePoolAddressRef()
 		ds.AddressRefStore.Add(datastore.AddressRef{
-			Address:       common.Bytes2Hex(common.LeftPadBytes(fmt.Appendf(nil, "canton src token %d", i), 20)),
+			Address:       hexutil.Encode(cantonAddress(fmt.Sprintf("canton src token %d", i))),
 			Type:          addressRef.Type,
 			Version:       addressRef.Version,
 			Qualifier:     addressRef.Qualifier,
@@ -123,35 +148,35 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	}
 	// Add CCTP refs
 	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       common.Bytes2Hex(common.LeftPadBytes([]byte("canton cctp mtp"), 20)),
+		Address:       hexutil.Encode(cantonAddress("canton cctp mtp")),
 		Type:          datastore.ContractType(cctp_message_transmitter_proxy.ContractType),
 		Version:       semver.MustParse(cctp_message_transmitter_proxy.Deploy.Version()),
 		Qualifier:     devenvcommon.CCTPContractsQualifier,
 		ChainSelector: selector,
 	})
 	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       common.Bytes2Hex(common.LeftPadBytes([]byte("canton cctp resolver"), 20)),
+		Address:       hexutil.Encode(cantonAddress("canton cctp rslvr")),
 		Type:          datastore.ContractType(cctp_verifier.ResolverType),
 		Version:       semver.MustParse(cctp_verifier.Deploy.Version()),
 		Qualifier:     devenvcommon.CCTPContractsQualifier,
 		ChainSelector: selector,
 	})
 	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       common.Bytes2Hex(common.LeftPadBytes([]byte("canton cctp verifier"), 20)),
+		Address:       hexutil.Encode(cantonAddress("canton cctp vrfr")),
 		Type:          datastore.ContractType(cctp_verifier.ContractType),
 		Version:       semver.MustParse(cctp_verifier.Deploy.Version()),
 		Qualifier:     devenvcommon.CCTPContractsQualifier,
 		ChainSelector: selector,
 	})
 	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       common.Bytes2Hex(common.LeftPadBytes([]byte("canton usdc token"), 20)),
+		Address:       hexutil.Encode(cantonAddress("canton usdc token")),
 		Type:          datastore.ContractType(burnminterc677ops.ContractType),
 		Version:       burnminterc677ops.Version,
 		Qualifier:     devenvcommon.CCTPContractsQualifier,
 		ChainSelector: selector,
 	})
 	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       common.Bytes2Hex(common.LeftPadBytes([]byte("usdc token pool proxy"), 20)),
+		Address:       hexutil.Encode(cantonAddress("usdc token pool prx")),
 		Type:          datastore.ContractType(usdc_token_pool_proxy.ContractType),
 		Version:       semver.MustParse(usdc_token_pool_proxy.Deploy.Version()),
 		Qualifier:     devenvcommon.CCTPContractsQualifier,
@@ -165,7 +190,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 		devenvcommon.QuaternaryReceiverQualifier,
 	} {
 		ds.AddressRefStore.Add(datastore.AddressRef{
-			Address:       common.Bytes2Hex(common.LeftPadBytes(fmt.Appendf(nil, "canton ccv %d", i), 20)),
+			Address:       hexutil.Encode(cantonAddress(fmt.Sprintf("canton ccv %d", i))),
 			Type:          datastore.ContractType(committee_verifier.ResolverType),
 			Version:       semver.MustParse(committee_verifier.Deploy.Version()),
 			Qualifier:     qualifier,
@@ -174,14 +199,14 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	}
 	// Add executor refs
 	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       common.Bytes2Hex(common.LeftPadBytes([]byte("canton executor"), 20)),
+		Address:       hexutil.Encode(cantonAddress("canton exec")),
 		Type:          datastore.ContractType(executor.ContractType),
 		Version:       semver.MustParse(executor.Deploy.Version()),
 		Qualifier:     devenvcommon.DefaultExecutorQualifier,
 		ChainSelector: selector,
 	})
 	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       common.Bytes2Hex(common.LeftPadBytes([]byte("canton executor proxy"), 20)),
+		Address:       hexutil.Encode(cantonAddress("canton exec prx")),
 		Type:          datastore.ContractType(executor.ProxyType),
 		Version:       semver.MustParse(executor.DeployProxy.Version()),
 		Qualifier:     devenvcommon.DefaultExecutorQualifier,
@@ -189,7 +214,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	})
 	// Add rmn remote refs
 	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       common.Bytes2Hex(common.LeftPadBytes([]byte("canton rmn remote"), 20)),
+		Address:       hexutil.Encode(cantonAddress("canton rmn remote")),
 		Type:          datastore.ContractType(rmn_remote.ContractType),
 		Version:       semver.MustParse(rmn_remote.Deploy.Version()),
 		ChainSelector: selector,

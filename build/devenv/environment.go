@@ -241,23 +241,11 @@ func generateExecutorJobSpecs(
 			execNOPAliases = append(execNOPAliases, exec.NOPAlias)
 		}
 
-		// Currently only EVM is supported for executors.
-		var filteredSelectors []uint64
-		for _, selector := range selectors {
-			family, err := chainsel.GetSelectorFamily(selector)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get selector family for selector %d: %w", selector, err)
-			}
-			if family == chainsel.FamilyEVM {
-				filteredSelectors = append(filteredSelectors, selector)
-			}
-		}
-
 		cs := changesets.ApplyExecutorConfig()
 		output, err := cs.Apply(*e, changesets.ApplyExecutorConfigCfg{
 			Topology:          topology,
 			ExecutorQualifier: qualifier,
-			ChainSelectors:    filteredSelectors,
+			ChainSelectors:    selectors,
 			TargetNOPs:        shared.ConvertStringToNopAliases(execNOPAliases),
 		})
 		if err != nil {

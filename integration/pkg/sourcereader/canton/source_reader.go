@@ -32,6 +32,14 @@ const (
 	ccipMessageSentEventMessageIDLabel         = "messageId"
 	ccipMessageSentEventEncodedMessageLabel    = "encodedMessage"
 	ccipMessageSentEventVerifierBlobsLabel     = "verifierBlobs"
+	ccipMessageSentEventReceiptsLabel          = "receipts"
+
+	// labels for the Receipt template.
+	ccipMessageSentEventReceiptIssuerLabel            = "issuer"
+	ccipMessageSentEventReceiptDestGasLimitLabel      = "destGasLimit"
+	ccipMessageSentEventReceiptDestBytesOverheadLabel = "destBytesOverhead"
+	ccipMessageSentEventReceiptFeeTokenAmountLabel    = "feeTokenAmount"
+	ccipMessageSentEventReceiptExtraArgsLabel         = "extraArgs"
 )
 
 // ReaderConfig is the configuration required to create a canton source reader.
@@ -252,6 +260,7 @@ func processCreatedEvent(
 
 func processCCIPMessageSentEvent(field *ledgerv2.RecordField) (*protocol.MessageSentEvent, error) {
 	messageSentEvent := &protocol.MessageSentEvent{}
+	var verifierBlobs [][]byte
 	for _, eventField := range field.GetValue().GetRecord().GetFields() {
 		switch eventField.GetLabel() {
 		case ccipMessageSentEventDestChainSelectorLabel:
@@ -278,15 +287,33 @@ func processCCIPMessageSentEvent(field *ledgerv2.RecordField) (*protocol.Message
 				if err != nil {
 					return nil, fmt.Errorf("failed to decode verifier blob: %w, input: %s", err, verifierBlob.GetText())
 				}
-				messageSentEvent.Receipts = append(messageSentEvent.Receipts, protocol.ReceiptWithBlob{
-					Blob: verifierBlobBytes,
-					// TODO: figure out the rest of the fields, we need at least the issuer address.
-					// Or should that be the ccvOwner party?
-				})
+				verifierBlobs = append(verifierBlobs, verifierBlobBytes)
 			}
+		case ccipMessageSentEventReceiptsLabel:
+			protoReceipts, err := processReceipts(eventField)
+			if err != nil {
+				return nil, fmt.Errorf("failed to process receipts: %w", err)
+			}
+			messageSentEvent.Receipts = append(messageSentEvent.Receipts, protoReceipts...)
 		default:
 			return nil, fmt.Errorf("unknown event field on CCIPMessageSentEvent, possibly mismatched contract/template? : %s", eventField.GetLabel())
 		}
+	}
+
+	// There are more receipts than verifierBlobs.
+	// https://github.com/smartcontractkit/chainlink-ccip/blob/f47d23c550cefae31f13ee7368b747018c5035f4/chains/evm/contracts/onRamp/OnRamp.sol#L129-L132
+	if len(messageSentEvent.Receipts) < len(verifierBlobs) {
+		return nil, fmt.Errorf(
+			"expected more receipts than verifier blobs, got %d receipts and %d verifier blobs",
+			len(messageSentEvent.Receipts), len(verifierBlobs),
+		)
+	}
+
+	// populate the receipts w/ the verifier blobs
+	// Note: we only populate the blobs for the receipts that have a corresponding verifier blob.
+	// The remaining receipts are the executor and network fee receipts.
+	for i, blob := range verifierBlobs {
+		messageSentEvent.Receipts[i].Blob = blob
 	}
 
 	// event validation like checking that message.ID() == messageId
@@ -297,6 +324,59 @@ func processCCIPMessageSentEvent(field *ledgerv2.RecordField) (*protocol.Message
 	}
 
 	return messageSentEvent, nil
+}
+
+// processReceipts processes the receipts from the CCIPMessageSentEvent.
+// The expected receipt record field structure is:
+/*
+data Receipt = Receipt
+    with
+        issuer : Text              -- CCV ID (e.g., "49ff34ed@party"), pool ID, or "network"
+        destGasLimit : Int         -- Gas allocated for dest chain execution
+        destBytesOverhead : Int    -- Data availability overhead in bytes
+        feeTokenAmount : Numeric 0 -- Fee amount in fee token units
+        extraArgs : BytesHex       -- Entity-specific arguments
+    deriving (Eq, Show)
+*/
+func processReceipts(receiptsField *ledgerv2.RecordField) ([]protocol.ReceiptWithBlob, error) {
+	elems := receiptsField.GetValue().GetList().GetElements()
+	protoReceipts := make([]protocol.ReceiptWithBlob, 0, len(elems))
+	for _, receipt := range elems {
+		var protoReceipt protocol.ReceiptWithBlob
+		for _, field := range receipt.GetRecord().GetFields() {
+			switch field.GetLabel() {
+			case ccipMessageSentEventReceiptIssuerLabel:
+				// issuer is emitted as Text, and its not a hex string.
+				// however, in order to make it fit into a protocol.UnknownAddress,
+				// we will interpret the string itself as bytes.
+				// Note: assume the Text is valid UTF-8.
+				protoReceipt.Issuer = protocol.UnknownAddress([]byte(field.GetValue().GetText()))
+			case ccipMessageSentEventReceiptDestGasLimitLabel:
+				protoReceipt.DestGasLimit = uint64(field.GetValue().GetInt64()) //nolint:gosec // int64 is always non-negative
+			case ccipMessageSentEventReceiptDestBytesOverheadLabel:
+				protoReceipt.DestBytesOverhead = uint32(field.GetValue().GetInt64()) //nolint:gosec // int64 is always non-negative
+			case ccipMessageSentEventReceiptFeeTokenAmountLabel:
+				// Numerics end in a decimal point, so we have to use big.Float to parse it and then convert to big.Int.
+				feeTokenAmountFloat, ok := new(big.Float).SetString(field.GetValue().GetNumeric())
+				if !ok {
+					return nil, fmt.Errorf("failed to parse fee token amount numeric, input: %s", field.GetValue().GetNumeric())
+				}
+				feeTokenAmount, _ := feeTokenAmountFloat.Int(nil)
+				protoReceipt.FeeTokenAmount = feeTokenAmount
+			case ccipMessageSentEventReceiptExtraArgsLabel:
+				extraArgs, err := hex.DecodeString(field.GetValue().GetText())
+				if err != nil {
+					return nil, fmt.Errorf("failed to decode extra args: %w, input: %s", err, field.GetValue().GetText())
+				}
+				protoReceipt.ExtraArgs = extraArgs
+			default:
+				return nil, fmt.Errorf("unknown receipt field: %s", field.GetLabel())
+			}
+		}
+		protoReceipts = append(protoReceipts, protoReceipt)
+	}
+
+	return protoReceipts, nil
 }
 
 func identifiersClose(a, b *ledgerv2.Identifier) bool {
