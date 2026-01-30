@@ -28,7 +28,6 @@ import (
 	routeroperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	devenvcanton "github.com/smartcontractkit/chainlink-ccv/devenv/canton"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
@@ -279,7 +278,7 @@ func TestCantonSourceReader(t *testing.T) {
 			client.Close()
 		})
 	}
-	defaultAggregatorClient := aggregatorClients[common.DefaultCommitteeVerifierQualifier]
+	defaultAggregatorClient := aggregatorClients[devenvcommon.DefaultCommitteeVerifierQualifier]
 
 	testCtx := e2e.NewTestingContext(t, t.Context(), chains, defaultAggregatorClient, indexerMonitor)
 	for _, msg := range messages {
