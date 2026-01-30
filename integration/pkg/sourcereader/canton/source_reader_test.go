@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"testing"
@@ -124,14 +125,15 @@ func TestSourceReader_GetBlocksHeaders(t *testing.T) {
 }
 
 func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
+	ccipOwner := "owner-party"
+	templateID := &ledgerv2.Identifier{
+		PackageId:  "pkg",
+		ModuleName: "CCIP",
+		EntityName: "CCIPMessageSent",
+	}
+	templateIDStr := fmt.Sprintf("%s:%s:%s", templateID.PackageId, templateID.ModuleName, templateID.EntityName)
 	t.Run("returns parsed events from updates stream", func(t *testing.T) {
 		ctx := context.Background()
-		ccipOwner := "owner-party"
-		templateID := &ledgerv2.Identifier{
-			PackageId:  "pkg",
-			ModuleName: "CCIP",
-			EntityName: "CCIPMessageSent",
-		}
 
 		msg, err := protocol.NewMessage(
 			protocol.ChainSelector(1),
@@ -241,10 +243,12 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 		).Return(stream, nil)
 
 		reader := &sourceReader{
-			updateServiceClient:       updateClient,
-			jwt:                       "token",
-			ccipOwnerParty:            ccipOwner,
-			ccipMessageSentTemplateID: templateID,
+			updateServiceClient: updateClient,
+			jwt:                 "token",
+			config: ReaderConfig{
+				CCIPOwnerParty:            ccipOwner,
+				CCIPMessageSentTemplateID: templateIDStr,
+			},
 		}
 
 		events, err := reader.FetchMessageSentEvents(ctx, big.NewInt(1), big.NewInt(5))
@@ -260,12 +264,6 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 
 	t.Run("ignores event when ccipOwner does not match", func(t *testing.T) {
 		ctx := context.Background()
-		ccipOwner := "owner-party"
-		templateID := &ledgerv2.Identifier{
-			PackageId:  "pkg",
-			ModuleName: "CCIP",
-			EntityName: "CCIPMessageSent",
-		}
 
 		msg, err := protocol.NewMessage(
 			protocol.ChainSelector(1),
@@ -360,10 +358,12 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 		).Return(stream, nil)
 
 		reader := &sourceReader{
-			updateServiceClient:       updateClient,
-			jwt:                       "token",
-			ccipOwnerParty:            ccipOwner,
-			ccipMessageSentTemplateID: templateID,
+			updateServiceClient: updateClient,
+			jwt:                 "token",
+			config: ReaderConfig{
+				CCIPOwnerParty:            ccipOwner,
+				CCIPMessageSentTemplateID: templateIDStr,
+			},
 		}
 
 		events, err := reader.FetchMessageSentEvents(ctx, big.NewInt(1), big.NewInt(5))
@@ -387,6 +387,10 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 		reader := &sourceReader{
 			updateServiceClient: updateClient,
 			jwt:                 "token",
+			config: ReaderConfig{
+				CCIPOwnerParty:            ccipOwner,
+				CCIPMessageSentTemplateID: templateIDStr,
+			},
 		}
 
 		_, err := reader.FetchMessageSentEvents(ctx, big.NewInt(1), big.NewInt(2))
@@ -415,6 +419,10 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 		reader := &sourceReader{
 			updateServiceClient: updateClient,
 			jwt:                 "token",
+			config: ReaderConfig{
+				CCIPOwnerParty:            ccipOwner,
+				CCIPMessageSentTemplateID: templateIDStr,
+			},
 		}
 
 		events, err := reader.FetchMessageSentEvents(ctx, big.NewInt(0), big.NewInt(2))

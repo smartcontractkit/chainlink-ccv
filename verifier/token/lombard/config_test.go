@@ -1,4 +1,4 @@
-package lbtc
+package lombard
 
 import (
 	"testing"
@@ -23,16 +23,16 @@ func Test_TryParsing(t *testing.T) {
 		t       string
 		v       string
 		data    map[string]any
-		want    *LBTCConfig
+		want    *LombardConfig
 		wantErr bool
 		errMsg  string
 	}{
 		{
 			name: "valid config with all fields",
-			t:    "lbtc",
+			t:    "lombard",
 			v:    "1.0",
 			data: map[string]any{
-				"attestation_api":            "https://lbtc-api.example.com",
+				"attestation_api":            "https://lombard-api.example.com",
 				"attestation_api_timeout":    "5s",
 				"attestation_api_interval":   "200ms",
 				"attestation_api_batch_size": 50,
@@ -41,8 +41,8 @@ func Test_TryParsing(t *testing.T) {
 					"2": testAddr2Hex,
 				},
 			},
-			want: &LBTCConfig{
-				AttestationAPI:          "https://lbtc-api.example.com",
+			want: &LombardConfig{
+				AttestationAPI:          "https://lombard-api.example.com",
 				AttestationAPITimeout:   5 * time.Second,
 				AttestationAPIInterval:  200 * time.Millisecond,
 				AttestationAPIBatchSize: 50,
@@ -55,16 +55,16 @@ func Test_TryParsing(t *testing.T) {
 		},
 		{
 			name: "valid config with default values",
-			t:    "lbtc",
+			t:    "lombard",
 			v:    "1.0",
 			data: map[string]any{
-				"attestation_api": "https://lbtc-api.example.com",
+				"attestation_api": "https://lombard-api.example.com",
 				"verifier_resolver_addresses": map[string]any{
 					"1": testAddr1Hex,
 				},
 			},
-			want: &LBTCConfig{
-				AttestationAPI:          "https://lbtc-api.example.com",
+			want: &LombardConfig{
+				AttestationAPI:          "https://lombard-api.example.com",
 				AttestationAPITimeout:   1 * time.Second,
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPIBatchSize: 20,
@@ -76,17 +76,17 @@ func Test_TryParsing(t *testing.T) {
 		},
 		{
 			name: "valid config with batch size as string",
-			t:    "lbtc",
+			t:    "lombard",
 			v:    "1.0",
 			data: map[string]any{
-				"attestation_api":            "https://lbtc-api.example.com",
+				"attestation_api":            "https://lombard-api.example.com",
 				"attestation_api_batch_size": "30",
 				"verifier_resolver_addresses": map[string]any{
 					"1": testAddr1Hex,
 				},
 			},
-			want: &LBTCConfig{
-				AttestationAPI:          "https://lbtc-api.example.com",
+			want: &LombardConfig{
+				AttestationAPI:          "https://lombard-api.example.com",
 				AttestationAPITimeout:   1 * time.Second,
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPIBatchSize: 30,
@@ -101,7 +101,7 @@ func Test_TryParsing(t *testing.T) {
 			t:    "invalid",
 			v:    "1.0",
 			data: map[string]any{
-				"attestation_api": "https://lbtc-api.example.com",
+				"attestation_api": "https://lombard-api.example.com",
 			},
 			want:    nil,
 			wantErr: true,
@@ -109,10 +109,10 @@ func Test_TryParsing(t *testing.T) {
 		},
 		{
 			name: "unsupported version",
-			t:    "lbtc",
+			t:    "lombard",
 			v:    "2.0",
 			data: map[string]any{
-				"attestation_api": "https://lbtc-api.example.com",
+				"attestation_api": "https://lombard-api.example.com",
 			},
 			want:    nil,
 			wantErr: true,
@@ -120,7 +120,7 @@ func Test_TryParsing(t *testing.T) {
 		},
 		{
 			name: "missing attestation_api",
-			t:    "lbtc",
+			t:    "lombard",
 			v:    "1.0",
 			data: map[string]any{
 				"addresses": map[string]any{
@@ -133,10 +133,10 @@ func Test_TryParsing(t *testing.T) {
 		},
 		{
 			name: "invalid attestation_api_timeout",
-			t:    "lbtc",
+			t:    "lombard",
 			v:    "1.0",
 			data: map[string]any{
-				"attestation_api":         "https://lbtc-api.example.com",
+				"attestation_api":         "https://lombard-api.example.com",
 				"attestation_api_timeout": "not-a-duration",
 			},
 			want:    nil,
@@ -145,10 +145,10 @@ func Test_TryParsing(t *testing.T) {
 		},
 		{
 			name: "invalid attestation_api_interval",
-			t:    "lbtc",
+			t:    "lombard",
 			v:    "1.0",
 			data: map[string]any{
-				"attestation_api":          "https://lbtc-api.example.com",
+				"attestation_api":          "https://lombard-api.example.com",
 				"attestation_api_interval": "invalid",
 			},
 			want:    nil,
@@ -157,10 +157,10 @@ func Test_TryParsing(t *testing.T) {
 		},
 		{
 			name: "invalid attestation_api_batch_size",
-			t:    "lbtc",
+			t:    "lombard",
 			v:    "1.0",
 			data: map[string]any{
-				"attestation_api":            "https://lbtc-api.example.com",
+				"attestation_api":            "https://lombard-api.example.com",
 				"attestation_api_batch_size": "invalid",
 			},
 			want:    nil,
@@ -169,10 +169,10 @@ func Test_TryParsing(t *testing.T) {
 		},
 		{
 			name: "invalid verifier_resolver_addresses",
-			t:    "lbtc",
+			t:    "lombard",
 			v:    "1.0",
 			data: map[string]any{
-				"attestation_api":             "https://lbtc-api.example.com",
+				"attestation_api":             "https://lombard-api.example.com",
 				"verifier_resolver_addresses": "not-a-map",
 			},
 			want:    nil,
@@ -181,14 +181,14 @@ func Test_TryParsing(t *testing.T) {
 		},
 		{
 			name: "empty verifier_resolver_addresses map",
-			t:    "lbtc",
+			t:    "lombard",
 			v:    "1.0",
 			data: map[string]any{
-				"attestation_api":             "https://lbtc-api.example.com",
+				"attestation_api":             "https://lombard-api.example.com",
 				"verifier_resolver_addresses": map[string]any{},
 			},
-			want: &LBTCConfig{
-				AttestationAPI:          "https://lbtc-api.example.com",
+			want: &LombardConfig{
+				AttestationAPI:          "https://lombard-api.example.com",
 				AttestationAPITimeout:   1 * time.Second,
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPIBatchSize: 20,

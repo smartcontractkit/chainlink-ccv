@@ -1,4 +1,4 @@
-package lbtc_test
+package lombard_test
 
 import (
 	"context"
@@ -13,33 +13,33 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/internal"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lbtc"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	lggr := logger.Test(t)
-	mockAttestationService := mocks.NewLBTCAttestationService(t)
+	mockAttestationService := mocks.NewLombardAttestationService(t)
 
 	task1 := internal.CreateTestVerificationTask(1)
 	task2 := internal.CreateTestVerificationTask(2)
 	tasks := []verifier.VerificationTask{task1, task2}
 
-	attestations := map[string]lbtc.Attestation{
-		task1.Message.MustMessageID().String(): lbtc.NewAttestation(
-			lbtc.VerifierVersion,
-			lbtc.AttestationResponse{
+	attestations := map[string]lombard.Attestation{
+		task1.Message.MustMessageID().String(): lombard.NewAttestation(
+			lombard.VerifierVersion,
+			lombard.AttestationResponse{
 				MessageHash: "0xdeadbeef",
-				Status:      lbtc.AttestationStatusApproved,
+				Status:      lombard.AttestationStatusApproved,
 				Data:        "0xabcdef",
 			},
 		),
-		task2.Message.MustMessageID().String(): lbtc.NewAttestation(
-			lbtc.VerifierVersion,
-			lbtc.AttestationResponse{
+		task2.Message.MustMessageID().String(): lombard.NewAttestation(
+			lombard.VerifierVersion,
+			lombard.AttestationResponse{
 				MessageHash: "0xdeadbeef",
-				Status:      lbtc.AttestationStatusApproved,
+				Status:      lombard.AttestationStatusApproved,
 				Data:        "0x123456",
 			},
 		),
@@ -52,7 +52,7 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 
 	ccvDataBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](ctx, 2, 1*time.Minute, 10)
 
-	v := lbtc.NewVerifier(lggr, mockAttestationService)
+	v := lombard.NewVerifier(lggr, mockAttestationService)
 	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
 
 	t.Cleanup(func() {
@@ -71,39 +71,39 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	assert.Equal(t, "0xf0f3a135abcdef", results[0].Signature.String())
 	assert.Equal(t, []protocol.UnknownAddress{internal.CCVAddress1, internal.CCVAddress2}, results[0].CCVAddresses)
 	assert.Equal(t, internal.ExecutorAddress, results[0].ExecutorAddress)
-	assert.Equal(t, lbtc.VerifierVersion, results[0].CCVVersion)
+	assert.Equal(t, lombard.VerifierVersion, results[0].CCVVersion)
 
 	assert.Equal(t, task2.MessageID, results[1].MessageID.String())
 	assert.Equal(t, "0xf0f3a135123456", results[1].Signature.String())
 	assert.Equal(t, []protocol.UnknownAddress{internal.CCVAddress1, internal.CCVAddress2}, results[1].CCVAddresses)
 	assert.Equal(t, internal.ExecutorAddress, results[1].ExecutorAddress)
-	assert.Equal(t, lbtc.VerifierVersion, results[1].CCVVersion)
+	assert.Equal(t, lombard.VerifierVersion, results[1].CCVVersion)
 }
 
 func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	lggr := logger.Test(t)
-	mockAttestationService := mocks.NewLBTCAttestationService(t)
+	mockAttestationService := mocks.NewLombardAttestationService(t)
 
 	task1 := internal.CreateTestVerificationTask(1)
 	task2 := internal.CreateTestVerificationTask(2)
 	task3 := internal.CreateTestVerificationTask(3)
 	tasks := []verifier.VerificationTask{task1, task2, task3}
 
-	attestations := map[string]lbtc.Attestation{
-		task1.Message.MustMessageID().String(): lbtc.NewAttestation(
-			lbtc.VerifierVersion,
-			lbtc.AttestationResponse{
+	attestations := map[string]lombard.Attestation{
+		task1.Message.MustMessageID().String(): lombard.NewAttestation(
+			lombard.VerifierVersion,
+			lombard.AttestationResponse{
 				MessageHash: "0xdeadbeef",
-				Status:      lbtc.AttestationStatusApproved,
+				Status:      lombard.AttestationStatusApproved,
 				Data:        "0xabcdef",
 			},
 		),
-		task2.Message.MustMessageID().String(): lbtc.NewAttestation(
-			lbtc.VerifierVersion,
-			lbtc.AttestationResponse{
+		task2.Message.MustMessageID().String(): lombard.NewAttestation(
+			lombard.VerifierVersion,
+			lombard.AttestationResponse{
 				MessageHash: "0xdeadbeef",
-				Status:      lbtc.AttestationStatusPending,
+				Status:      lombard.AttestationStatusPending,
 				Data:        "0x123456",
 			},
 		),
@@ -116,7 +116,7 @@ func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
 
 	ccvDataBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](ctx, 1, 1*time.Minute, 10)
 
-	v := lbtc.NewVerifier(lggr, mockAttestationService)
+	v := lombard.NewVerifier(lggr, mockAttestationService)
 	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
 
 	t.Cleanup(func() {

@@ -80,7 +80,7 @@ func TestFormatChainValidationError_SingleResult_FormatsCorrectly(t *testing.T) 
 	assert.Contains(t, err.Error(), "chain support validation failed")
 	assert.Contains(t, err.Error(), "nop-1")
 	assert.Contains(t, err.Error(), "16015286601757825753")
-	assert.Contains(t, err.Error(), "action: ensure feed configs are created")
+	assert.Contains(t, err.Error(), "action: ensure configs are created for the missing chains on the node")
 }
 
 func TestFormatChainValidationError_MultipleResults_FormatsAllNOPs(t *testing.T) {

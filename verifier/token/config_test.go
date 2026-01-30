@@ -10,11 +10,11 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lbtc"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
 )
 
 func Test_Config_Deserialization(t *testing.T) {
-	tomLBTCConfig := `
+	tomLombardConfig := `
 		pyroscope_url = "http://localhost:4040"
 
 		[on_ramp_addresses]
@@ -36,10 +36,10 @@ func Test_Config_Deserialization(t *testing.T) {
 		2 = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 		[[token_verifiers]]
-		verifier_id = "lbtc-verifier-1"
-		type = "lbtc"
+		verifier_id = "lombard-verifier-1"
+		type = "lombard"
 		version = "1.0"
-		attestation_api = "https://lbtc-api.example.com"
+		attestation_api = "https://lombard-api.example.com"
 		attestation_api_timeout = "10s"
 		attestation_api_interval = 20
 
@@ -68,23 +68,23 @@ func Test_Config_Deserialization(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, expectedAddr2, cctpVerifier.CCTPConfig.ParsedVerifierResolvers[2])
 
-		lbtcVerifier := config.TokenVerifiers[1]
-		assert.Equal(t, "lbtc-verifier-1", lbtcVerifier.VerifierID)
-		assert.Equal(t, "lbtc", lbtcVerifier.Type)
-		assert.Equal(t, "1.0", lbtcVerifier.Version)
-		assert.Equal(t, 10*time.Second, lbtcVerifier.LBTCConfig.AttestationAPITimeout)
-		assert.Equal(t, 100*time.Millisecond, lbtcVerifier.LBTCConfig.AttestationAPIInterval)
-		assert.Equal(t, "https://lbtc-api.example.com", lbtcVerifier.LBTCConfig.AttestationAPI)
+		lombardVerifier := config.TokenVerifiers[1]
+		assert.Equal(t, "lombard-verifier-1", lombardVerifier.VerifierID)
+		assert.Equal(t, "lombard", lombardVerifier.Type)
+		assert.Equal(t, "1.0", lombardVerifier.Version)
+		assert.Equal(t, 10*time.Second, lombardVerifier.LombardConfig.AttestationAPITimeout)
+		assert.Equal(t, 100*time.Millisecond, lombardVerifier.LombardConfig.AttestationAPIInterval)
+		assert.Equal(t, "https://lombard-api.example.com", lombardVerifier.LombardConfig.AttestationAPI)
 		expectedAddr3, err := protocol.NewUnknownAddressFromHex("0x2222222222222222222222222222222222222222")
 		require.NoError(t, err)
-		assert.Equal(t, expectedAddr3, lbtcVerifier.LBTCConfig.ParsedVerifierResolvers[1])
+		assert.Equal(t, expectedAddr3, lombardVerifier.LombardConfig.ParsedVerifierResolvers[1])
 		expectedAddr4, err := protocol.NewUnknownAddressFromHex("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 		require.NoError(t, err)
-		assert.Equal(t, expectedAddr4, lbtcVerifier.LBTCConfig.ParsedVerifierResolvers[2])
+		assert.Equal(t, expectedAddr4, lombardVerifier.LombardConfig.ParsedVerifierResolvers[2])
 	}
 
 	var config Config
-	err := toml.Unmarshal([]byte(tomLBTCConfig), &config)
+	err := toml.Unmarshal([]byte(tomLombardConfig), &config)
 	require.NoError(t, err)
 
 	assertContent(config)
@@ -190,12 +190,12 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "valid lbtc config with all values provided",
+			name: "valid lombard config with all values provided",
 			toml: `
-				verifier_id = "lbtc-test-1"
-				type = "lbtc"
+				verifier_id = "lombard-test-1"
+				type = "lombard"
 				version = "1.0"
-				attestation_api = "http://lbtc.com/gohere"
+				attestation_api = "http://lombard.com/gohere"
 				attestation_api_timeout = "2s"
 				attestation_api_interval = "500ms"
 				attestation_api_batch_size = 50
@@ -210,11 +210,11 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				addr2, err := protocol.NewUnknownAddressFromHex("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 				require.NoError(t, err)
 				return VerifierConfig{
-					VerifierID: "lbtc-test-1",
-					Type:       "lbtc",
+					VerifierID: "lombard-test-1",
+					Type:       "lombard",
 					Version:    "1.0",
-					LBTCConfig: &lbtc.LBTCConfig{
-						AttestationAPI:          "http://lbtc.com/gohere",
+					LombardConfig: &lombard.LombardConfig{
+						AttestationAPI:          "http://lombard.com/gohere",
 						AttestationAPITimeout:   2 * time.Second,
 						AttestationAPIInterval:  500 * time.Millisecond,
 						AttestationAPIBatchSize: 50,
@@ -227,12 +227,12 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 			}(),
 		},
 		{
-			name: "valid lbtc config with missing optional values",
+			name: "valid lombard config with missing optional values",
 			toml: `
-				verifier_id = "lbtc-test-2"
-				type = "lbtc"
+				verifier_id = "lombard-test-2"
+				type = "lombard"
 				version = "1.0"
-				attestation_api = "http://lbtc.com/gohere"
+				attestation_api = "http://lombard.com/gohere"
 
 				[verifier_resolver_addresses]
 				1 = "0x2222222222222222222222222222222222222222"
@@ -241,11 +241,11 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				addr1, err := protocol.NewUnknownAddressFromHex("0x2222222222222222222222222222222222222222")
 				require.NoError(t, err)
 				return VerifierConfig{
-					VerifierID: "lbtc-test-2",
-					Type:       "lbtc",
+					VerifierID: "lombard-test-2",
+					Type:       "lombard",
 					Version:    "1.0",
-					LBTCConfig: &lbtc.LBTCConfig{
-						AttestationAPI:          "http://lbtc.com/gohere",
+					LombardConfig: &lombard.LombardConfig{
+						AttestationAPI:          "http://lombard.com/gohere",
 						AttestationAPITimeout:   1 * time.Second,
 						AttestationAPIInterval:  100 * time.Millisecond,
 						AttestationAPIBatchSize: 20,
@@ -257,10 +257,10 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 			}(),
 		},
 		{
-			name: "malformed lbtc config returns error",
+			name: "malformed lombard config returns error",
 			toml: `
-				verifier_id = "lbtc-test-bad"
-				type = "lbtc"
+				verifier_id = "lombard-test-bad"
+				type = "lombard"
 				version = "1.0"
 				attestation_api_dur = "10s"
 
@@ -294,15 +294,15 @@ func Test_VerifierConfig_Deserialization(t *testing.T) {
 				assert.Nil(t, result.CCTPConfig)
 			}
 
-			if tt.expected.LBTCConfig != nil {
-				require.NotNil(t, result.LBTCConfig)
-				assert.Equal(t, tt.expected.LBTCConfig.AttestationAPI, result.LBTCConfig.AttestationAPI)
-				assert.Equal(t, tt.expected.LBTCConfig.AttestationAPITimeout, result.LBTCConfig.AttestationAPITimeout)
-				assert.Equal(t, tt.expected.LBTCConfig.AttestationAPIInterval, result.LBTCConfig.AttestationAPIInterval)
+			if tt.expected.LombardConfig != nil {
+				require.NotNil(t, result.LombardConfig)
+				assert.Equal(t, tt.expected.LombardConfig.AttestationAPI, result.LombardConfig.AttestationAPI)
+				assert.Equal(t, tt.expected.LombardConfig.AttestationAPITimeout, result.LombardConfig.AttestationAPITimeout)
+				assert.Equal(t, tt.expected.LombardConfig.AttestationAPIInterval, result.LombardConfig.AttestationAPIInterval)
 				assert.Equal(t, tt.expected.AttestationAPIBatchSize, result.AttestationAPIBatchSize)
-				assert.Equal(t, tt.expected.LBTCConfig.ParsedVerifierResolvers, result.LBTCConfig.ParsedVerifierResolvers)
+				assert.Equal(t, tt.expected.LombardConfig.ParsedVerifierResolvers, result.LombardConfig.ParsedVerifierResolvers)
 			} else {
-				assert.Nil(t, result.LBTCConfig)
+				assert.Nil(t, result.LombardConfig)
 			}
 		})
 	}

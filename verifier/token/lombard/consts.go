@@ -1,4 +1,4 @@
-package lbtc
+package lombard
 
 import (
 	"encoding/hex"

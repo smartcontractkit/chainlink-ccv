@@ -16,16 +16,16 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/ccvstorage"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lbtc"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
-// Please see lbtc/attestation.go to see how the CCV data is created and how TokenTransfer.ExtraData is used
+// Please see lombard/attestation.go to see how the CCV data is created and how TokenTransfer.ExtraData is used
 // CCVData: <4 byte verifier version><attestation> (set by offchain)
 // TokenTransfer.ExtraData: <message_hash> (set by onchain).
 const (
-	lbtcAttestation = `
+	lombardAttestation = `
 		{
 			"attestations": [
 				{
@@ -40,7 +40,7 @@ const (
 				}
 			]
 		}`
-	lbtcAttestationPending = `
+	lombardAttestationPending = `
 		{
 			"attestations": [
 				{
@@ -57,7 +57,7 @@ const (
 		}`
 )
 
-func Test_LBTCMessages_Success(t *testing.T) {
+func Test_LombardMessages_Success(t *testing.T) {
 	ts := newTestSetup(t)
 	t.Cleanup(ts.cleanup)
 
@@ -68,17 +68,17 @@ func Test_LBTCMessages_Success(t *testing.T) {
 	require.NoError(t, err)
 	extraData2, err := protocol.NewByteSliceFromHex("0x2222")
 	require.NoError(t, err)
-	// LBTC Verifier Version + attestation payload
+	// Lombard Verifier Version + attestation payload
 	ccvData1, err := protocol.NewByteSliceFromHex("0xf0f3a13500aa")
 	require.NoError(t, err)
 	ccvData2, err := protocol.NewByteSliceFromHex("0xf0f3a13500bb")
 	require.NoError(t, err)
 
-	server := createFakeLBTCServer(t, lbtcAttestation)
+	server := createFakeLombardServer(t, lombardAttestation)
 	t.Cleanup(server.Close)
 
 	config := createCoordinatorConfig(
-		"cctp-verifier",
+		"verifier",
 		map[protocol.ChainSelector]protocol.UnknownAddress{
 			chain1337: testCCVAddr,
 		})
@@ -89,7 +89,7 @@ func Test_LBTCMessages_Success(t *testing.T) {
 		chain1337: mockSetup.Reader,
 	}
 
-	lbtcConfig := lbtc.LBTCConfig{
+	lombardConfig := lombard.LombardConfig{
 		AttestationAPI:          server.URL,
 		AttestationAPITimeout:   1 * time.Minute,
 		AttestationAPIInterval:  1 * time.Millisecond,
@@ -104,9 +104,9 @@ func Test_LBTCMessages_Success(t *testing.T) {
 	mockLatestBlocks(mockSetup.Reader)
 
 	inMem := ccvstorage.NewInMemory()
-	v, err := createLBTCCoordinator(
+	v, err := createLombardCoordinator(
 		ts,
-		&lbtcConfig,
+		&lombardConfig,
 		config,
 		sourceReaders,
 		inMem,
@@ -147,7 +147,7 @@ func Test_LBTCMessages_Success(t *testing.T) {
 	assertResultMatchesMessage(t, results[msg2.MessageID], msg2, ccvData2, testCCVAddr, destVerifier)
 }
 
-func Test_LBTCMessages_RetryingAttestation(t *testing.T) {
+func Test_LombardMessages_RetryingAttestation(t *testing.T) {
 	ts := newTestSetup(t)
 	t.Cleanup(ts.cleanup)
 
@@ -158,7 +158,7 @@ func Test_LBTCMessages_RetryingAttestation(t *testing.T) {
 	require.NoError(t, err)
 	extraData2, err := protocol.NewByteSliceFromHex("0x2222")
 	require.NoError(t, err)
-	// LBTC Verifier Version + attestation payload
+	// Lombard Verifier Version + attestation payload
 	ccvData1, err := protocol.NewByteSliceFromHex("0xf0f3a13500aa")
 	require.NoError(t, err)
 	ccvData2, err := protocol.NewByteSliceFromHex("0xf0f3a13500bb")
@@ -168,19 +168,19 @@ func Test_LBTCMessages_RetryingAttestation(t *testing.T) {
 	var requestCounter atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if requestCounter.Load() >= 2 {
-			_, err := w.Write([]byte(lbtcAttestation))
+			_, err := w.Write([]byte(lombardAttestation))
 			require.NoError(t, err)
 			return
 		}
 
-		_, err := w.Write([]byte(lbtcAttestationPending))
+		_, err := w.Write([]byte(lombardAttestationPending))
 		requestCounter.Add(1)
 		require.NoError(t, err)
 	}))
 	t.Cleanup(server.Close)
 
 	config := createCoordinatorConfig(
-		"cctp-verifier",
+		"verifier",
 		map[protocol.ChainSelector]protocol.UnknownAddress{
 			chain1337: testCCVAddr,
 		})
@@ -191,7 +191,7 @@ func Test_LBTCMessages_RetryingAttestation(t *testing.T) {
 		chain1337: mockSetup.Reader,
 	}
 
-	lbtcConfig := lbtc.LBTCConfig{
+	lombardConfig := lombard.LombardConfig{
 		AttestationAPI:          server.URL,
 		AttestationAPITimeout:   1 * time.Minute,
 		AttestationAPIInterval:  1 * time.Millisecond,
@@ -206,9 +206,9 @@ func Test_LBTCMessages_RetryingAttestation(t *testing.T) {
 	mockLatestBlocks(mockSetup.Reader)
 
 	inMem := ccvstorage.NewInMemory()
-	v, err := createLBTCCoordinator(
+	v, err := createLombardCoordinator(
 		ts,
-		&lbtcConfig,
+		&lombardConfig,
 		config,
 		sourceReaders,
 		inMem,
@@ -249,9 +249,9 @@ func Test_LBTCMessages_RetryingAttestation(t *testing.T) {
 	assertResultMatchesMessage(t, results[msg2.MessageID], msg2, ccvData2, testCCVAddr, destVerifier)
 }
 
-func createLBTCCoordinator(
+func createLombardCoordinator(
 	ts *testSetup,
-	lbtcConfig *lbtc.LBTCConfig,
+	lombardConfig *lombard.LombardConfig,
 	config verifier.CoordinatorConfig,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	inMemStorage *ccvstorage.InMemoryCCVStorage,
@@ -259,19 +259,19 @@ func createLBTCCoordinator(
 	noopMonitoring := monitoring.NewFakeVerifierMonitoring()
 	noopLatencyTracker := verifier.NoopLatencyTracker{}
 
-	attestationService, err := lbtc.NewAttestationService(ts.logger, *lbtcConfig)
+	attestationService, err := lombard.NewAttestationService(ts.logger, *lombardConfig)
 	require.NoError(ts.t, err)
 
 	ccvWriter := storage.NewAttestationCCVWriter(
 		ts.logger,
-		lbtcConfig.ParsedVerifierResolvers,
+		lombardConfig.ParsedVerifierResolvers,
 		inMemStorage,
 	)
 
 	return verifier.NewCoordinator(
 		ts.ctx,
 		ts.logger,
-		lbtc.NewVerifierWithConfig(ts.logger, attestationService, lbtc.VerifierVersion, 100*time.Millisecond, 100*time.Millisecond),
+		lombard.NewVerifierWithConfig(ts.logger, attestationService, lombard.VerifierVersion, 100*time.Millisecond, 100*time.Millisecond),
 		sourceReaders,
 		ccvWriter,
 		config,
@@ -282,7 +282,7 @@ func createLBTCCoordinator(
 	)
 }
 
-func createFakeLBTCServer(t *testing.T, response string) *httptest.Server {
+func createFakeLombardServer(t *testing.T, response string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/bridge/v1/deposits/getByHash" {
 			_, err := w.Write([]byte(response))
