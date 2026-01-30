@@ -340,6 +340,13 @@ func generateVerifierJobSpecs(
 			verNOPAliases = append(verNOPAliases, shared.NOPAlias(ver.NOPAlias))
 		}
 
+		// Extract and validate DisableFinalityCheckers - all verifiers in the same
+		// committee must have the same setting since it's applied at the committee level.
+		disableFinalityCheckers, err := extractAndValidateDisableFinalityCheckers(committeeName, committeeVerifiers)
+		if err != nil {
+			return nil, err
+		}
+
 		cs := changesets.ApplyVerifierConfig()
 		output, err := cs.Apply(*e, changesets.ApplyVerifierConfigCfg{
 			Topology:                 topology,
@@ -347,6 +354,7 @@ func generateVerifierJobSpecs(
 			DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,
 			ChainSelectors:           selectors,
 			TargetNOPs:               verNOPAliases,
+			DisableFinalityCheckers:  disableFinalityCheckers,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate verifier configs for committee %s: %w", committeeName, err)
@@ -1269,4 +1277,40 @@ func ParseExecutorConfigFromJobSpec(jobSpec string) (*executor.Configuration, er
 	}
 
 	return &cfg, nil
+}
+
+// extractAndValidateDisableFinalityCheckers extracts DisableFinalityCheckers from verifiers
+// in a committee and validates that all verifiers have the same setting.
+func extractAndValidateDisableFinalityCheckers(committeeName string, verifiers []*services.VerifierInput) ([]string, error) {
+	if len(verifiers) == 0 {
+		return nil, nil
+	}
+
+	reference := verifiers[0].DisableFinalityCheckers
+	for i := 1; i < len(verifiers); i++ {
+		if !slicesEqual(reference, verifiers[i].DisableFinalityCheckers) {
+			return nil, fmt.Errorf(
+				"verifiers in committee %q have inconsistent disable_finality_checkers settings: "+
+					"verifier %q has %v, but verifier %q has %v",
+				committeeName,
+				verifiers[0].ContainerName, reference,
+				verifiers[i].ContainerName, verifiers[i].DisableFinalityCheckers,
+			)
+		}
+	}
+
+	return reference, nil
+}
+
+// slicesEqual compares two string slices for equality.
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

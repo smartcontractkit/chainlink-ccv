@@ -55,6 +55,9 @@ type BuildJobSpecsInput struct {
 	Committee       CommitteeInput
 	PyroscopeURL    string
 	Monitoring      shared.MonitoringInput
+	// DisableFinalityCheckers is a list of chain selectors (as strings) for which
+	// the finality violation checker should be disabled.
+	DisableFinalityCheckers []string
 }
 
 type BuildJobSpecsOutput struct {
@@ -113,6 +116,7 @@ var BuildJobSpecs = operations.NewOperation(
 					OnRampAddresses:                filterAddressesByChains(input.GeneratedConfig.OnRampAddresses, nopChains),
 					DefaultExecutorOnRampAddresses: filterAddressesByChains(input.GeneratedConfig.DefaultExecutorOnRampAddresses, nopChains),
 					RMNRemoteAddresses:             filterAddressesByChains(input.GeneratedConfig.RMNRemoteAddresses, nopChains),
+					DisableFinalityCheckers:        input.DisableFinalityCheckers,
 					Monitoring:                     convertMonitoringInput(input.Monitoring),
 				}
 

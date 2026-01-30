@@ -182,7 +182,7 @@ func TestApplyVerifierConfig_GeneratesValidJobSpec(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
 
-	job, err := deployments.GetJob(output.DataStore.Seal(), "nop-1", "instance-1-test-committee-verifier")
+	job, err := deployments.GetJob(output.DataStore.Seal(), "nop-1", "nop-1-instance-1-test-committee-verifier")
 	require.NoError(t, err)
 	jobSpec := job.Spec
 
@@ -230,7 +230,7 @@ func TestApplyVerifierConfig_PreservesExistingJobSpecs(t *testing.T) {
 
 	outputSealed := output.DataStore.Seal()
 
-	_, err = deployments.GetJob(outputSealed, "nop-1", "instance-1-test-committee-verifier")
+	_, err = deployments.GetJob(outputSealed, "nop-1", "nop-1-instance-1-test-committee-verifier")
 	require.NoError(t, err, "new verifier job spec should be present")
 
 	retrievedJob, err := deployments.GetJob(outputSealed, "existing-nop", "existing-executor")
@@ -274,15 +274,15 @@ func TestApplyVerifierConfig_MultipleAggregators(t *testing.T) {
 
 	outputSealed := output.DataStore.Seal()
 
-	job1, err := deployments.GetJob(outputSealed, "nop-1", "agg-primary-test-committee-verifier")
+	job1, err := deployments.GetJob(outputSealed, "nop-1", "nop-1-agg-primary-test-committee-verifier")
 	require.NoError(t, err)
 	assert.Contains(t, job1.Spec, `aggregator_address = "aggregator-primary:443"`)
 
-	job2, err := deployments.GetJob(outputSealed, "nop-1", "agg-secondary-test-committee-verifier")
+	job2, err := deployments.GetJob(outputSealed, "nop-1", "nop-1-agg-secondary-test-committee-verifier")
 	require.NoError(t, err)
 	assert.Contains(t, job2.Spec, `aggregator_address = "aggregator-secondary:443"`)
 
-	job3, err := deployments.GetJob(outputSealed, "nop-1", "agg-tertiary-test-committee-verifier")
+	job3, err := deployments.GetJob(outputSealed, "nop-1", "nop-1-agg-tertiary-test-committee-verifier")
 	require.NoError(t, err)
 	assert.Contains(t, job3.Spec, `aggregator_address = "aggregator-tertiary:443"`)
 }
@@ -293,7 +293,7 @@ func TestApplyVerifierConfig_RemovesOrphanedJobSpecs(t *testing.T) {
 
 	err := deployments.SaveJob(ds, shared.JobInfo{
 		Spec:     "orphaned-job-spec",
-		JobID:    "instance-1-test-committee-verifier",
+		JobID:    "removed-nop-instance-1-test-committee-verifier",
 		NOPAlias: "removed-nop",
 		Mode:     shared.NOPModeStandalone,
 	})
@@ -301,7 +301,7 @@ func TestApplyVerifierConfig_RemovesOrphanedJobSpecs(t *testing.T) {
 
 	err = deployments.SaveJob(ds, shared.JobInfo{
 		Spec:     "other-committee-job-spec",
-		JobID:    "instance-1-other-committee-verifier",
+		JobID:    "nop-1-instance-1-other-committee-verifier",
 		NOPAlias: "nop-1",
 		Mode:     shared.NOPModeStandalone,
 	})
@@ -321,10 +321,10 @@ func TestApplyVerifierConfig_RemovesOrphanedJobSpecs(t *testing.T) {
 
 	outputSealed := output.DataStore.Seal()
 
-	_, err = deployments.GetJob(outputSealed, "removed-nop", "instance-1-test-committee-verifier")
+	_, err = deployments.GetJob(outputSealed, "removed-nop", "removed-nop-instance-1-test-committee-verifier")
 	require.Error(t, err, "orphaned job spec should be removed")
 
-	otherCommitteeJob, err := deployments.GetJob(outputSealed, "nop-1", "instance-1-other-committee-verifier")
+	otherCommitteeJob, err := deployments.GetJob(outputSealed, "nop-1", "nop-1-instance-1-other-committee-verifier")
 	require.NoError(t, err, "job spec for other committee should be preserved")
 	assert.Equal(t, "other-committee-job-spec", otherCommitteeJob.Spec)
 }
@@ -335,13 +335,13 @@ func TestApplyVerifierConfig_TargetNOPsScoping(t *testing.T) {
 
 	err := deployments.SaveJob(ds, shared.JobInfo{
 		Spec:     "nop-1-job-spec",
-		JobID:    "instance-1-test-committee-verifier",
+		JobID:    "nop-1-instance-1-test-committee-verifier",
 		NOPAlias: "nop-1",
 	})
 	require.NoError(t, err)
 	err = deployments.SaveJob(ds, shared.JobInfo{
 		Spec:     "nop-2-job-spec",
-		JobID:    "instance-1-test-committee-verifier",
+		JobID:    "nop-2-instance-1-test-committee-verifier",
 		NOPAlias: "nop-2",
 	})
 	require.NoError(t, err)
@@ -361,11 +361,11 @@ func TestApplyVerifierConfig_TargetNOPsScoping(t *testing.T) {
 
 	outputSealed := output.DataStore.Seal()
 
-	job, err := deployments.GetJob(outputSealed, "nop-1", "instance-1-test-committee-verifier")
+	job, err := deployments.GetJob(outputSealed, "nop-1", "nop-1-instance-1-test-committee-verifier")
 	require.NoError(t, err, "nop-1 verifier job spec should exist")
 	assert.NotEqual(t, "nop-1-job-spec", job.Spec, "nop-1 job spec should be updated")
 
-	nop2Job, err := deployments.GetJob(outputSealed, "nop-2", "instance-1-test-committee-verifier")
+	nop2Job, err := deployments.GetJob(outputSealed, "nop-2", "nop-2-instance-1-test-committee-verifier")
 	require.NoError(t, err, "nop-2 verifier job spec should be preserved when not in scope")
 	assert.Equal(t, "nop-2-job-spec", nop2Job.Spec, "nop-2 job spec should be unchanged")
 }
@@ -393,7 +393,7 @@ func TestApplyVerifierConfig_UsesCommitteeChainsWhenEmptyChainSelectors(t *testi
 	})
 	require.NoError(t, err)
 
-	job, err := deployments.GetJob(output.DataStore.Seal(), "nop-1", "instance-1-test-committee-verifier")
+	job, err := deployments.GetJob(output.DataStore.Seal(), "nop-1", "nop-1-instance-1-test-committee-verifier")
 	require.NoError(t, err)
 
 	assert.Contains(t, job.Spec, sel1Str, "should include chain from committee config")
@@ -432,13 +432,13 @@ func TestApplyVerifierConfig_FiltersChainsPerNOPMembership(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	nop1Job, err := deployments.GetJob(output.DataStore.Seal(), "nop-1", "instance-1-test-committee-verifier")
+	nop1Job, err := deployments.GetJob(output.DataStore.Seal(), "nop-1", "nop-1-instance-1-test-committee-verifier")
 	require.NoError(t, err)
 
 	assert.Contains(t, nop1Job.Spec, sel1Str, "nop-1 should have chain 1 where they are member")
 	assert.NotContains(t, nop1Job.Spec, sel2Str, "nop-1 should NOT have chain 2 where they are NOT member")
 
-	nop2Job, err := deployments.GetJob(output.DataStore.Seal(), "nop-2", "instance-1-test-committee-verifier")
+	nop2Job, err := deployments.GetJob(output.DataStore.Seal(), "nop-2", "nop-2-instance-1-test-committee-verifier")
 	require.NoError(t, err)
 
 	assert.NotContains(t, nop2Job.Spec, sel1Str, "nop-2 should NOT have chain 1 where they are NOT member")
@@ -493,10 +493,10 @@ func TestApplyVerifierConfig_SkipsNOPsNotInAnyChainConfig(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = deployments.GetJob(output.DataStore.Seal(), "nop-1", "instance-1-test-committee-verifier")
+	_, err = deployments.GetJob(output.DataStore.Seal(), "nop-1", "nop-1-instance-1-test-committee-verifier")
 	require.NoError(t, err, "nop-1 should have a job since they are in the committee")
 
-	_, err = deployments.GetJob(output.DataStore.Seal(), "nop-not-in-committee", "instance-1-test-committee-verifier")
+	_, err = deployments.GetJob(output.DataStore.Seal(), "nop-not-in-committee", "nop-not-in-committee-instance-1-test-committee-verifier")
 	require.Error(t, err, "nop-not-in-committee should NOT have a job since they are not in any chain config")
 }
 
@@ -516,7 +516,7 @@ func TestApplyVerifierConfig_SkipsUnchangedJobSpecs(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	firstJob, err := deployments.GetJob(firstOutput.DataStore.Seal(), "nop-1", "instance-1-test-committee-verifier")
+	firstJob, err := deployments.GetJob(firstOutput.DataStore.Seal(), "nop-1", "nop-1-instance-1-test-committee-verifier")
 	require.NoError(t, err)
 	firstSpec := firstJob.Spec
 
@@ -529,7 +529,7 @@ func TestApplyVerifierConfig_SkipsUnchangedJobSpecs(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	secondJob, err := deployments.GetJob(secondOutput.DataStore.Seal(), "nop-1", "instance-1-test-committee-verifier")
+	secondJob, err := deployments.GetJob(secondOutput.DataStore.Seal(), "nop-1", "nop-1-instance-1-test-committee-verifier")
 	require.NoError(t, err)
 
 	assert.Equal(t, firstSpec, secondJob.Spec, "job spec should remain unchanged on re-run")
@@ -551,7 +551,7 @@ func TestApplyVerifierConfig_UpdatesJobsWhenChainRemoved(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	firstJob, err := deployments.GetJob(firstOutput.DataStore.Seal(), "nop-1", "instance-1-test-committee-verifier")
+	firstJob, err := deployments.GetJob(firstOutput.DataStore.Seal(), "nop-1", "nop-1-instance-1-test-committee-verifier")
 	require.NoError(t, err)
 
 	sel1Str := strconv.FormatUint(defaultSelectors[0], 10)
@@ -581,7 +581,7 @@ func TestApplyVerifierConfig_UpdatesJobsWhenChainRemoved(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	secondJob, err := deployments.GetJob(secondOutput.DataStore.Seal(), "nop-1", "instance-1-test-committee-verifier")
+	secondJob, err := deployments.GetJob(secondOutput.DataStore.Seal(), "nop-1", "nop-1-instance-1-test-committee-verifier")
 	require.NoError(t, err)
 
 	assert.Contains(t, secondJob.Spec, sel1Str, "updated job should contain chain 1")
@@ -607,9 +607,9 @@ func TestApplyVerifierConfig_RemovesJobWhenNOPRemovedFromCommittee(t *testing.T)
 	})
 	require.NoError(t, err)
 
-	_, err = deployments.GetJob(firstOutput.DataStore.Seal(), "nop-1", "instance-1-test-committee-verifier")
+	_, err = deployments.GetJob(firstOutput.DataStore.Seal(), "nop-1", "nop-1-instance-1-test-committee-verifier")
 	require.NoError(t, err, "nop-1 should have verifier job initially")
-	_, err = deployments.GetJob(firstOutput.DataStore.Seal(), "nop-2", "instance-1-test-committee-verifier")
+	_, err = deployments.GetJob(firstOutput.DataStore.Seal(), "nop-2", "nop-2-instance-1-test-committee-verifier")
 	require.NoError(t, err, "nop-2 should have verifier job initially")
 
 	topologyWithNOP1Only := newTestTopology(
@@ -635,10 +635,10 @@ func TestApplyVerifierConfig_RemovesJobWhenNOPRemovedFromCommittee(t *testing.T)
 	})
 	require.NoError(t, err)
 
-	_, err = deployments.GetJob(secondOutput.DataStore.Seal(), "nop-1", "instance-1-test-committee-verifier")
+	_, err = deployments.GetJob(secondOutput.DataStore.Seal(), "nop-1", "nop-1-instance-1-test-committee-verifier")
 	require.NoError(t, err, "nop-1 should still have verifier job")
 
-	_, err = deployments.GetJob(secondOutput.DataStore.Seal(), "nop-2", "instance-1-test-committee-verifier")
+	_, err = deployments.GetJob(secondOutput.DataStore.Seal(), "nop-2", "nop-2-instance-1-test-committee-verifier")
 	require.Error(t, err, "nop-2 verifier job should be removed after being removed from committee")
 }
 
@@ -673,9 +673,9 @@ func TestApplyVerifierConfig_CreatesJobWhenNOPAddedToCommittee(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = deployments.GetJob(firstOutput.DataStore.Seal(), "nop-1", "instance-1-test-committee-verifier")
+	_, err = deployments.GetJob(firstOutput.DataStore.Seal(), "nop-1", "nop-1-instance-1-test-committee-verifier")
 	require.NoError(t, err, "nop-1 should have verifier job")
-	_, err = deployments.GetJob(firstOutput.DataStore.Seal(), "nop-2", "instance-1-test-committee-verifier")
+	_, err = deployments.GetJob(firstOutput.DataStore.Seal(), "nop-2", "nop-2-instance-1-test-committee-verifier")
 	require.Error(t, err, "nop-2 should NOT have verifier job initially")
 
 	topologyWithBothNOPs := newTestTopology()
@@ -689,10 +689,10 @@ func TestApplyVerifierConfig_CreatesJobWhenNOPAddedToCommittee(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = deployments.GetJob(secondOutput.DataStore.Seal(), "nop-1", "instance-1-test-committee-verifier")
+	_, err = deployments.GetJob(secondOutput.DataStore.Seal(), "nop-1", "nop-1-instance-1-test-committee-verifier")
 	require.NoError(t, err, "nop-1 should still have verifier job")
 
-	nop2Job, err := deployments.GetJob(secondOutput.DataStore.Seal(), "nop-2", "instance-1-test-committee-verifier")
+	nop2Job, err := deployments.GetJob(secondOutput.DataStore.Seal(), "nop-2", "nop-2-instance-1-test-committee-verifier")
 	require.NoError(t, err, "nop-2 should now have verifier job after being added to committee")
 	assert.Contains(t, nop2Job.Spec, sel1Str, "nop-2 job should include chain 1")
 	assert.Contains(t, nop2Job.Spec, sel2Str, "nop-2 job should include chain 2")

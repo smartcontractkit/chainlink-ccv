@@ -53,3 +53,9 @@ jobs:
           version: "v${{ steps.tool-versions.outputs.golangci_lint_version }}"
           working-directory: build/devenv/fakes/
           args: --config ../../../.golangci.yaml ./...
+      - name: Check golangci-lint for deployments
+        uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9 #v8
+        with:
+          version: "v${{ steps.tool-versions.outputs.golangci_lint_version }}"
+          working-directory: deployments/
+          args: --config ../.golangci.yaml ./...
