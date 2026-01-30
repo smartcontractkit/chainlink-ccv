@@ -19,5 +19,5 @@ Make sure to replace the existing `json-tests-0.0.1.dar` with the newly built DA
 The `TestRouter` contract has only a single choice `CCIPSend` which "emits" a CCIPMessageSent
 event with the provided arguments.
 
-These arguments currently match what is currently being developed in the [real](https://github.com/smartcontractkit/chainlink-canton-internal/blob/cef577411578904a28fb6364e4ff1d3eecffc4d3/contracts/ccip/perpartyrouter/daml/CCIP/PerPartyRouter.daml#L137-L147) CCIP Canton
+These arguments currently match what is currently being developed in the [real](https://github.com/smartcontractkit/chainlink-canton-internal/blob/9e18f31c37f2b36ac25c9f15d90931fbe8ad4364/contracts/ccip/perpartyrouter/daml/CCIP/PerPartyRouter.daml#L298-L306) CCIP Canton
 contracts.

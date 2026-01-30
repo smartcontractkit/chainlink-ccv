@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	insecuregrpc "google.golang.org/grpc/credentials/insecure"
 
@@ -49,9 +50,11 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.VerifierNodeResult) (*committ
 			Message:         message.Message,
 		},
 	}, nil
-} // WriteCCVNodeData writes CCV data to the aggregator via gRPC.
+}
+
+// WriteCCVNodeData writes CCV data to the aggregator via gRPC.
 func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.VerifierNodeResult) error {
-	a.lggr.Info("Storing CCV data using aggregator ", "count", len(ccvDataList))
+	a.lggr.Infow("Storing CCV data using aggregator ", "count", len(ccvDataList))
 
 	requests := make([]*committeepb.WriteCommitteeVerifierNodeResultRequest, 0, len(ccvDataList))
 	for _, ccvData := range ccvDataList {
@@ -82,7 +85,20 @@ func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []p
 		}
 
 		if resp.Status != committeepb.WriteStatus_SUCCESS {
-			a.lggr.Error("BatchWriteCommitteeVerifierNodeResult", "status", resp.Status)
+			// Extract detailed error information from the Errors array if available
+			var errorCode string
+			var errorMessage string
+			if i < len(responses.Errors) && responses.Errors[i] != nil {
+				// Convert the int32 code to gRPC codes.Code for human-readable output
+				errorCode = codes.Code(responses.Errors[i].GetCode()).String() //nolint:gosec // gRPC error codes are always non-negative.
+				errorMessage = responses.Errors[i].GetMessage()
+			}
+			a.lggr.Errorw("BatchWriteCommitteeVerifierNodeResult failed",
+				"status", resp.Status.String(),
+				"messageID", messageID,
+				"errorCode", errorCode,
+				"errorMessage", errorMessage,
+			)
 			continue
 		}
 		a.lggr.Infow("Successfully stored CCV data", "messageID", messageID)
