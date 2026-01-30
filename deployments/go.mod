@@ -16,10 +16,10 @@ require (
 	github.com/evanphx/json-patch/v5 v5.9.11
 	github.com/google/uuid v1.6.0
 	github.com/smartcontractkit/chain-selectors v1.0.90
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260116110203-68d767f52164
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260113145746-e2453d5c22f1
-	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20260110001823-6248663ac9c4
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260113130254-8ce3b210bc66
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260130120223-3eaceba4edc0
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260130120223-3eaceba4edc0
+	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20260130120223-3eaceba4edc0
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260130120223-3eaceba4edc0
 	github.com/smartcontractkit/chainlink-ccv v0.0.0-20260129103857-fe36763e89c2
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20260114190811-74301cd99dc3
 	github.com/smartcontractkit/chainlink-deployments-framework v0.74.2
@@ -222,7 +222,7 @@ require (
 	github.com/sigurn/crc16 v0.0.0-20211026045750-20ab5afb07e3 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/smartcontractkit/chainlink-aptos v0.0.0-20251024142440-51f2ad2652a2 // indirect
-	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20260102183708-104df08b9bb1 // indirect
+	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20260130120223-3eaceba4edc0 // indirect
 	github.com/smartcontractkit/chainlink-ccip/chains/solana v0.0.0-20250908144012-8184001834b5 // indirect
 	github.com/smartcontractkit/chainlink-ccip/chains/solana/gobindings v0.0.0-20250908144012-8184001834b5 // indirect
 	github.com/smartcontractkit/chainlink-common/pkg/chipingress v0.0.10 // indirect
@@ -289,14 +289,14 @@ require (
 	go.uber.org/ratelimit v0.3.1 // indirect
 	go.uber.org/zap v1.27.1 // indirect
 	golang.org/x/arch v0.8.0 // indirect
-	golang.org/x/crypto v0.46.0 // indirect
+	golang.org/x/crypto v0.47.0 // indirect
 	golang.org/x/exp v0.0.0-20250711185948-6ae5c78190dc // indirect
-	golang.org/x/net v0.47.0 // indirect
-	golang.org/x/sys v0.39.0 // indirect
-	golang.org/x/term v0.38.0 // indirect
-	golang.org/x/text v0.32.0 // indirect
+	golang.org/x/net v0.48.0 // indirect
+	golang.org/x/sys v0.40.0 // indirect
+	golang.org/x/term v0.39.0 // indirect
+	golang.org/x/text v0.33.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
-	golang.org/x/tools v0.39.0 // indirect
+	golang.org/x/tools v0.40.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20251029180050-ab9386a59fda // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251029180050-ab9386a59fda // indirect
 	google.golang.org/protobuf v1.36.11 // indirect

@@ -1409,7 +1409,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		return err
 	}
 
-	tokenAdapterRegistry := tokenscore.NewTokenAdapterRegistry()
+	tokenAdapterRegistry := tokenscore.GetTokenAdapterRegistry()
 	for _, poolVersion := range tokenPoolVersions {
 		var tokenAdapter tokenscore.TokenAdapter
 
@@ -1417,8 +1417,14 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		if poolVersion == "1.6.1" {
 			tokenAdapter = &adapters_1_6_1.TokenAdapter{}
 		}
-		tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(poolVersion), tokenAdapter)
-		tokenAdapterRegistry.RegisterTokenAdapter("canton", semver.MustParse(poolVersion), &CantonTokenAdapter{})
+		_, ok := tokenAdapterRegistry.GetTokenAdapter("evm", semver.MustParse(poolVersion))
+		if !ok {
+			tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(poolVersion), tokenAdapter)
+		}
+		_, ok = tokenAdapterRegistry.GetTokenAdapter("canton", semver.MustParse(poolVersion))
+		if !ok {
+			tokenAdapterRegistry.RegisterTokenAdapter("canton", semver.MustParse(poolVersion), &CantonTokenAdapter{})
+		}
 	}
 
 	for _, combo := range devenvcommon.AllTokenCombinations() {
@@ -1433,19 +1439,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		}
 	}
 
-	create2, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
-		selector,
-		datastore.ContractType(create2_factory.ContractType),
-		semver.MustParse(create2_factory.Deploy.Version()),
-		"",
-	))
-	if err != nil {
-		return err
-	}
-
-	cctpChainRegistry := adapters.NewCCTPChainRegistry()
-	cctpChainRegistry.RegisterCCTPChain("evm", &evmadapters.CCTPChainAdapter{})
-	if err := m.configureUSDCForTransfer(e, cctpChainRegistry, mcmsReaderRegistry, create2, selector, remoteSelectors); err != nil {
+	if err := m.configureUSDCForTransfer(e, mcmsReaderRegistry, selector, remoteSelectors); err != nil {
 		return fmt.Errorf("failed to configure USDC tokens for transfers: %w", err)
 	}
 
