@@ -90,7 +90,7 @@ func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []p
 			var errorMessage string
 			if i < len(responses.Errors) && responses.Errors[i] != nil {
 				// Convert the int32 code to gRPC codes.Code for human-readable output
-				errorCode = codes.Code(responses.Errors[i].GetCode()).String()
+				errorCode = codes.Code(responses.Errors[i].GetCode()).String() //nolint:gosec // gRPC error codes are always non-negative.
 				errorMessage = responses.Errors[i].GetMessage()
 			}
 			a.lggr.Errorw("BatchWriteCommitteeVerifierNodeResult failed",
