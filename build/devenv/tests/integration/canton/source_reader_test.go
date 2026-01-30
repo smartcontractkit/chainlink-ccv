@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Masterminds/semver/v3"
 	ledgerv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2"
@@ -27,10 +28,13 @@ import (
 	routeroperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	devenvcanton "github.com/smartcontractkit/chainlink-ccv/devenv/canton"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -254,13 +258,42 @@ func TestCantonSourceReader(t *testing.T) {
 		require.True(t, found)
 	}
 
-	// TODO(makramkd): tx is reverting onchain, figure out why.
-	// for _, msg := range messages {
-	// 	t.Logf("waiting for execution event for message %s, sequence number %d", msg.MustMessageID().String(), msg.SequenceNumber)
-	// 	ev, err := destChain.WaitOneExecEventBySeqNo(t.Context(), cantonDetails.ChainSelector, uint64(msg.SequenceNumber), tests.WaitTimeout(t))
-	// 	require.NoError(t, err)
-	// 	t.Logf("got execution event for message %s, state: %d", msg.MustMessageID().String(), ev.State)
-	// }
+	var indexerMonitor *ccv.IndexerMonitor
+	indexerClient, err := lib.Indexer()
+	require.NoError(t, err)
+	indexerMonitor, err = ccv.NewIndexerMonitor(
+		zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
+		indexerClient)
+	require.NoError(t, err)
+	require.NotNil(t, indexerMonitor)
+
+	aggregatorClients := make(map[string]*ccv.AggregatorClient)
+	for qualifier := range in.AggregatorEndpoints {
+		client, err := in.NewAggregatorClientForCommittee(
+			zerolog.Ctx(ctx).With().Str("component", fmt.Sprintf("aggregator-client-%s", qualifier)).Logger(),
+			qualifier)
+		require.NoError(t, err)
+		require.NotNil(t, client)
+		aggregatorClients[qualifier] = client
+		t.Cleanup(func() {
+			client.Close()
+		})
+	}
+	defaultAggregatorClient := aggregatorClients[common.DefaultCommitteeVerifierQualifier]
+
+	testCtx := e2e.NewTestingContext(t, t.Context(), chains, defaultAggregatorClient, indexerMonitor)
+	for _, msg := range messages {
+		result, err := testCtx.AssertMessage(msg.MustMessageID(), e2e.AssertMessageOptions{
+			TickInterval:            1 * time.Second,
+			ExpectedVerifierResults: 1, // just committee verifier
+			Timeout:                 tests.WaitTimeout(t),
+			AssertVerifierLogs:      false,
+			AssertExecutorLogs:      false,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, result.AggregatedResult)
+		require.Len(t, result.IndexedVerifications.Results, 1)
+	}
 }
 
 // relevantAddresses are the addresses required to construct a valid CCIP message from Canton -> EVM.
