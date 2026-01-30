@@ -161,6 +161,7 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(
 	selector uint64,
 	remoteSelectors []uint64,
 ) error {
+	remoteSelectors = filterOnlySupportedSelectors(remoteSelectors)
 	cctpChainRegistry := adapters.NewCCTPChainRegistry()
 	cctpChainRegistry.RegisterCCTPChain("evm", &evmadapters.CCTPChainAdapter{})
 
@@ -376,4 +377,16 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 	}
 
 	return usdcTokenAddr, messageTransmitterAddr, tokenMessengerAddr, nil
+}
+
+func filterOnlySupportedSelectors(remoteSelectors []uint64) []uint64 {
+	supportedRemoteSelectors := make([]uint64, 0)
+	for _, rs := range remoteSelectors {
+		if rs == chainsel.GETH_TESTNET.Selector ||
+			rs == chainsel.GETH_DEVNET_2.Selector ||
+			rs == chainsel.GETH_DEVNET_3.Selector {
+			supportedRemoteSelectors = append(supportedRemoteSelectors, rs)
+		}
+	}
+	return supportedRemoteSelectors
 }
