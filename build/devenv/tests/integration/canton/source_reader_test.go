@@ -90,6 +90,173 @@ func TestCantonSourceReader(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	grpcURL := cantonChain.Out.NetworkSpecificData.CantonEndpoints.Participants[0].GRPCLedgerAPIURL
+	require.NotEmpty(t, grpcURL)
+	jwt := cantonChain.Out.NetworkSpecificData.CantonEndpoints.Participants[0].JWT
+	require.NotEmpty(t, jwt)
+
+	helper, err := devenvcanton.NewHelperFromBlockchainInput(grpcURL, jwt)
+	require.NoError(t, err)
+	ts := newTestSetup(helper)
+
+	// Assert that the parties were created and are known to the ledger.
+	knownParties, err := ts.helper.ListKnownParties(t.Context())
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(knownParties), 1)
+	// Find the party that corresponds to the JWT token that we have
+	var party string
+	for _, theParty := range knownParties {
+		if strings.HasPrefix(theParty.GetParty(), partyName) {
+			party = theParty.GetParty()
+			break
+		}
+	}
+	require.NotEmpty(t, party)
+	t.Logf("found party: %s", party)
+
+	// Check that the expected package is uploaded.
+	knownPackages, err := ts.helper.ListKnownPackages(t.Context())
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(knownPackages), 1)
+	require.True(t, slices.ContainsFunc(knownPackages, func(p *ledgerv2admin.PackageDetails) bool {
+		return p.GetName() == packageID
+	}))
+	var ccipMessageSentTemplateID *ledgerv2.Identifier
+	for _, pkg := range knownPackages {
+		if pkg.GetName() == packageID {
+			ccipMessageSentTemplateID = &ledgerv2.Identifier{
+				PackageId:  "#" + pkg.GetName(),
+				ModuleName: "Main",
+				EntityName: "CCIPMessageSent",
+			}
+			break
+		}
+	}
+	require.NotNil(t, ccipMessageSentTemplateID)
+	t.Logf("ccipMessageSentTemplateID being used: %s", ccipMessageSentTemplateID.String())
+
+	// Deploy the TestRouter contract.
+	// TODO: ideally ccipOwner and partyOwner are separate parties, but we need to figure out the auth for that.
+	ccipOwner, partyOwner := party, party
+	createResp := ts.createTestRouter(t, ccipOwner, partyOwner)
+	require.NotNil(t, createResp)
+
+	sourceReader, err := canton.NewSourceReader(
+		logger.Test(t),
+		grpcURL,
+		jwt,
+		canton.ReaderConfig{
+			CCIPOwnerParty:            ccipOwner,
+			CCIPMessageSentTemplateID: fmt.Sprintf("%s:%s:%s", ccipMessageSentTemplateID.PackageId, ccipMessageSentTemplateID.ModuleName, ccipMessageSentTemplateID.EntityName),
+		},
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.NoError(t, err)
+
+	latestBefore, finalizedBefore, err := sourceReader.LatestAndFinalizedBlock(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, latestBefore)
+	require.NotNil(t, finalizedBefore)
+	t.Logf("latest block: %d, finalized block: %d before sending messages", latestBefore.Number, finalizedBefore.Number)
+
+	// Create a few CCIPMessageSent "events" by exercising the appropriate choice on the TestRouter contract.
+	seqNr := int64(1)
+	contractID := ts.getContractID(t, createResp.GetUpdateId(), party)
+	messages := make([]protocol.Message, numMessages)
+
+	addresses := getRelevantAddresses(t, in, cantonDetails, evmDetails)
+	for i := range numMessages {
+		msg := newMessage(
+			t,
+			protocol.ChainSelector(cantonDetails.ChainSelector),
+			protocol.ChainSelector(evmDetails.ChainSelector),
+			seqNr,
+			addresses.cantonOnRamp,
+			addresses.evmOffRamp,
+			addresses.evmReceiver,
+			[]protocol.UnknownAddress{addresses.cantonDefaultVerifierAddress},
+			addresses.cantonExecutorAddress,
+		)
+		messages[i] = msg
+		t.Logf("sending message seqNr %d messageID %s", seqNr, msg.MustMessageID().String())
+		ts.ccipSend(t,
+			contractID,
+			partyOwner,
+			destChainSelector,
+			seqNr,
+			msg.MustMessageID(),
+			mustEncodeMessage(t, msg),
+			[][]byte{
+				committeeVerifierVersion, // committee verifier only returns the version in the verifierBlob.
+			},
+			[]testReceipt{
+				{
+					// TODO: this isn't correct, because for canton the issuer is the CCVId.
+					// We need to set the "verifier address" in the verifier to be the CCVId rather than
+					// the address of the committee_verifier.ResolverType from the DataStore.
+					Issuer:            addresses.defaultVerifierIssuer,
+					DestGasLimit:      100000,
+					DestBytesOverhead: 500,
+					FeeTokenAmount:    "1000000.",
+					ExtraArgs:         []byte{},
+				},
+				{
+					Issuer:            addresses.executorIssuer,
+					DestGasLimit:      0,
+					DestBytesOverhead: 0,
+					FeeTokenAmount:    "500000.",
+					ExtraArgs:         []byte{},
+				},
+				{
+					Issuer:            addresses.routerIssuer,
+					DestGasLimit:      0,
+					DestBytesOverhead: 0,
+					FeeTokenAmount:    "500000.",
+					ExtraArgs:         []byte{},
+				},
+			},
+		)
+		seqNr++
+	}
+
+	latestAfter, finalizedAfter, err := sourceReader.LatestAndFinalizedBlock(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, latestAfter)
+	require.NotNil(t, finalizedAfter)
+	t.Logf("latest block: %d, finalized block: %d after sending messages", latestAfter.Number, finalizedAfter.Number)
+
+	// query for the CCIPMessageSent events in between before and after
+	events, err := sourceReader.FetchMessageSentEvents(t.Context(), new(big.Int).SetUint64(latestBefore.Number), new(big.Int).SetUint64(latestAfter.Number))
+	require.NoError(t, err)
+	require.Equal(t, len(events), numMessages)
+
+	// assert that we can find the messages in the events
+	for _, event := range events {
+		found := false
+		for _, msg := range messages {
+			if msg.MustMessageID() == event.MessageID {
+				found = true
+				break
+			}
+		}
+		require.True(t, found)
+	}
+}
+
+// relevantAddresses are the addresses required to construct a valid CCIP message from Canton -> EVM.
+type relevantAddresses struct {
+	cantonOnRamp                 []byte
+	cantonExecutorAddress        []byte
+	cantonDefaultVerifierAddress []byte
+	evmOffRamp                   []byte
+	evmReceiver                  []byte
+	defaultVerifierIssuer        string
+	executorIssuer               string
+	routerIssuer                 string
+}
+
+// getRelevantAddresses returns the canton and evm addresses required to construct a valid CCIP message from Canton -> EVM.
+func getRelevantAddresses(t *testing.T, in *ccv.Cfg, cantonDetails chain_selectors.ChainDetails, evmDetails chain_selectors.ChainDetails) relevantAddresses {
 	cantonOnRampRef, err := in.CLDF.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
 			cantonDetails.ChainSelector,
@@ -173,155 +340,15 @@ func TestCantonSourceReader(t *testing.T) {
 	evmReceiver := hexutil.MustDecode(evmReceiverRef.Address)
 	require.Len(t, evmReceiver, 20) // done onchain, do it here just to catch it early
 
-	grpcURL := cantonChain.Out.NetworkSpecificData.CantonEndpoints.Participants[0].GRPCLedgerAPIURL
-	require.NotEmpty(t, grpcURL)
-	jwt := cantonChain.Out.NetworkSpecificData.CantonEndpoints.Participants[0].JWT
-	require.NotEmpty(t, jwt)
-
-	helper, err := devenvcanton.NewHelperFromBlockchainInput(grpcURL, jwt)
-	require.NoError(t, err)
-	ts := newTestSetup(helper)
-
-	// Assert that the parties were created and are known to the ledger.
-	knownParties, err := ts.helper.ListKnownParties(t.Context())
-	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(knownParties), 1)
-	// Find the party that corresponds to the JWT token that we have
-	var party string
-	for _, theParty := range knownParties {
-		if strings.HasPrefix(theParty.GetParty(), partyName) {
-			party = theParty.GetParty()
-			break
-		}
-	}
-	require.NotEmpty(t, party)
-	t.Logf("found party: %s", party)
-
-	// Check that the expected package is uploaded.
-	knownPackages, err := ts.helper.ListKnownPackages(t.Context())
-	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(knownPackages), 1)
-	require.True(t, slices.ContainsFunc(knownPackages, func(p *ledgerv2admin.PackageDetails) bool {
-		return p.GetName() == packageID
-	}))
-	var ccipMessageSentTemplateID *ledgerv2.Identifier
-	for _, pkg := range knownPackages {
-		if pkg.GetName() == packageID {
-			ccipMessageSentTemplateID = &ledgerv2.Identifier{
-				PackageId:  "#" + pkg.GetName(),
-				ModuleName: "Main",
-				EntityName: "CCIPMessageSent",
-			}
-			break
-		}
-	}
-	require.NotNil(t, ccipMessageSentTemplateID)
-	t.Logf("ccipMessageSentTemplateID being used: %s", ccipMessageSentTemplateID.String())
-
-	// Deploy the TestRouter contract.
-	// TODO: ideally ccipOwner and partyOwner are separate parties, but we need to figure out the auth for that.
-	ccipOwner, partyOwner := party, party
-	createResp := ts.createTestRouter(t, ccipOwner, partyOwner)
-	require.NotNil(t, createResp)
-
-	sourceReader, err := canton.NewSourceReader(
-		logger.Test(t),
-		grpcURL,
-		jwt,
-		canton.ReaderConfig{
-			CCIPOwnerParty:            ccipOwner,
-			CCIPMessageSentTemplateID: fmt.Sprintf("%s:%s:%s", ccipMessageSentTemplateID.PackageId, ccipMessageSentTemplateID.ModuleName, ccipMessageSentTemplateID.EntityName),
-		},
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	require.NoError(t, err)
-
-	latestBefore, finalizedBefore, err := sourceReader.LatestAndFinalizedBlock(t.Context())
-	require.NoError(t, err)
-	require.NotNil(t, latestBefore)
-	require.NotNil(t, finalizedBefore)
-	t.Logf("latest block: %d, finalized block: %d before sending messages", latestBefore.Number, finalizedBefore.Number)
-
-	// Create a few CCIPMessageSent "events" by exercising the appropriate choice on the TestRouter contract.
-	seqNr := int64(1)
-	contractID := ts.getContractID(t, createResp.GetUpdateId(), party)
-	messages := make([]protocol.Message, numMessages)
-
-	for i := range numMessages {
-		msg := newMessage(
-			t,
-			protocol.ChainSelector(cantonDetails.ChainSelector),
-			protocol.ChainSelector(evmDetails.ChainSelector),
-			seqNr,
-			cantonOnRamp,
-			evmOffRamp,
-			evmReceiver,
-			[]protocol.UnknownAddress{hexutil.MustDecode(cantonDefaultVerifierRef.Address)},
-			hexutil.MustDecode(cantonExecutorAddress.Address),
-		)
-		messages[i] = msg
-		t.Logf("sending message seqNr %d messageID %s", seqNr, msg.MustMessageID().String())
-		ts.ccipSend(t,
-			contractID,
-			partyOwner,
-			destChainSelector,
-			seqNr,
-			msg.MustMessageID(),
-			mustEncodeMessage(t, msg),
-			[][]byte{
-				committeeVerifierVersion, // committee verifier only returns the version in the verifierBlob.
-			},
-			[]testReceipt{
-				{
-					// TODO: this isn't correct, because for canton the issuer is the CCVId.
-					// We need to set the "verifier address" in the verifier to be the CCVId rather than
-					// the address of the committee_verifier.ResolverType from the DataStore.
-					Issuer:            defaultVerifierIssuer,
-					DestGasLimit:      100000,
-					DestBytesOverhead: 500,
-					FeeTokenAmount:    "1000000.",
-					ExtraArgs:         []byte{},
-				},
-				{
-					Issuer:            executorIssuer,
-					DestGasLimit:      0,
-					DestBytesOverhead: 0,
-					FeeTokenAmount:    "500000.",
-					ExtraArgs:         []byte{},
-				},
-				{
-					Issuer:            routerIssuer,
-					DestGasLimit:      0,
-					DestBytesOverhead: 0,
-					FeeTokenAmount:    "500000.",
-					ExtraArgs:         []byte{},
-				},
-			},
-		)
-		seqNr++
-	}
-
-	latestAfter, finalizedAfter, err := sourceReader.LatestAndFinalizedBlock(t.Context())
-	require.NoError(t, err)
-	require.NotNil(t, latestAfter)
-	require.NotNil(t, finalizedAfter)
-	t.Logf("latest block: %d, finalized block: %d after sending messages", latestAfter.Number, finalizedAfter.Number)
-
-	// query for the CCIPMessageSent events in between before and after
-	events, err := sourceReader.FetchMessageSentEvents(t.Context(), new(big.Int).SetUint64(latestBefore.Number), new(big.Int).SetUint64(latestAfter.Number))
-	require.NoError(t, err)
-	require.Equal(t, len(events), numMessages)
-
-	// assert that we can find the messages in the events
-	for _, event := range events {
-		found := false
-		for _, msg := range messages {
-			if msg.MustMessageID() == event.MessageID {
-				found = true
-				break
-			}
-		}
-		require.True(t, found)
+	return relevantAddresses{
+		cantonOnRamp:                 cantonOnRamp,
+		cantonExecutorAddress:        hexutil.MustDecode(cantonExecutorAddress.Address),
+		cantonDefaultVerifierAddress: hexutil.MustDecode(cantonDefaultVerifierRef.Address),
+		evmOffRamp:                   evmOffRamp,
+		evmReceiver:                  evmReceiver,
+		defaultVerifierIssuer:        defaultVerifierIssuer,
+		executorIssuer:               executorIssuer,
+		routerIssuer:                 routerIssuer,
 	}
 }
 
