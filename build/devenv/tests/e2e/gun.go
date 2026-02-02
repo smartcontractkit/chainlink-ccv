@@ -24,7 +24,7 @@ import (
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/load"
 )
 
@@ -97,7 +97,7 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []u
 
 func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testConfig *load.TOMLLoadTestRoot, e *deployment.Environment, impls map[uint64]cciptestinterfaces.CCIP17) *EVMTXGun {
 	testProfile := testConfig.TestProfiles[0]
-	selectors := make([]uint64, 0)
+	selectors := make([]uint64, 0, len(testProfile.ChainsAsSource)+len(testProfile.ChainsAsDest))
 	srcSelectors := make([]uint64, 0, len(testProfile.ChainsAsSource))
 	destSelectors := make([]uint64, 0, len(testProfile.ChainsAsDest))
 	for _, chain := range testProfile.ChainsAsSource {
@@ -229,7 +229,7 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 			destSelector,
 			datastore.ContractType(mock_receiver.ContractType),
 			semver.MustParse(mock_receiver.Deploy.Version()),
-			evm.DefaultReceiverQualifier))
+			devenvcommon.DefaultReceiverQualifier))
 	if err != nil {
 		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("could not find mock receiver address in datastore: %w", err)
 	}
@@ -249,7 +249,7 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 			srcSelector,
 			datastore.ContractType(committee_verifier.ResolverType),
 			semver.MustParse(committee_verifier.Deploy.Version()),
-			evm.DefaultCommitteeVerifierQualifier))
+			devenvcommon.DefaultCommitteeVerifierQualifier))
 	if err != nil {
 		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("could not find committee verifier proxy address in datastore: %w", err)
 	}

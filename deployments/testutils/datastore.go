@@ -41,6 +41,29 @@ func NewStubBlockChains(selectors []uint64) cldfchain.BlockChains {
 func NewSimulatedEVMEnvironment(t *testing.T, selectors []uint64) (deployment.Environment, []cldfevm.Chain) {
 	t.Helper()
 
+	evmChains, blockchains := loadSimulatedChains(t, selectors)
+	ds := datastore.NewMemoryDataStore()
+
+	env := newBaseEnvironment(blockchains)
+	env.DataStore = ds.Seal()
+
+	return env, evmChains
+}
+
+// NewSimulatedEVMEnvironmentWithDataStore creates a test environment with simulated EVM chains
+// and returns a mutable datastore that can be used to add contracts before sealing.
+func NewSimulatedEVMEnvironmentWithDataStore(t *testing.T, selectors []uint64) (deployment.Environment, datastore.MutableDataStore) {
+	t.Helper()
+
+	_, blockchains := loadSimulatedChains(t, selectors)
+	ds := datastore.NewMemoryDataStore()
+
+	env := newBaseEnvironment(blockchains)
+
+	return env, ds
+}
+
+func loadSimulatedChains(t *testing.T, selectors []uint64) ([]cldfevm.Chain, cldfchain.BlockChains) {
 	chains, err := onchain.NewEVMSimLoader().Load(t, selectors)
 	require.NoError(t, err)
 
@@ -51,11 +74,12 @@ func NewSimulatedEVMEnvironment(t *testing.T, selectors []uint64) (deployment.En
 		evmChains = append(evmChains, evmChain)
 	}
 
-	blockchains := cldfchain.NewBlockChainsFromSlice(chains)
-	ds := datastore.NewMemoryDataStore()
-	lggr, _ := logger.New()
+	return evmChains, cldfchain.NewBlockChainsFromSlice(chains)
+}
 
-	env := deployment.Environment{
+func newBaseEnvironment(blockchains cldfchain.BlockChains) deployment.Environment {
+	lggr, _ := logger.New()
+	return deployment.Environment{
 		GetContext: func() context.Context { return context.Background() },
 		Logger:     lggr,
 		OperationsBundle: operations.NewBundle(
@@ -64,8 +88,5 @@ func NewSimulatedEVMEnvironment(t *testing.T, selectors []uint64) (deployment.En
 			operations.NewMemoryReporter(),
 		),
 		BlockChains: blockchains,
-		DataStore:   ds.Seal(),
 	}
-
-	return env, evmChains
 }

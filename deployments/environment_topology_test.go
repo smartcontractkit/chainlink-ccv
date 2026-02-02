@@ -105,7 +105,7 @@ func TestWriteEnvironmentTopology_WritesValidConfig(t *testing.T) {
 				TraceBatchTimeout:        10,
 			},
 		},
-		NOPTopology: deployments.NOPTopology{
+		NOPTopology: &deployments.NOPTopology{
 			NOPs: []deployments.NOPConfig{
 				{Alias: "nop-1", Name: "NOP One"},
 				{Alias: "nop-2", Name: "NOP Two"},
@@ -146,7 +146,7 @@ func TestWriteEnvironmentTopology_WritesValidConfig(t *testing.T) {
 func TestEnvironmentTopology_GetNOPsForPool(t *testing.T) {
 	cfg := deployments.EnvironmentTopology{
 		IndexerAddress: "http://indexer:8100",
-		NOPTopology: deployments.NOPTopology{
+		NOPTopology: &deployments.NOPTopology{
 			NOPs: []deployments.NOPConfig{
 				{Alias: "nop-1", Name: "NOP One"},
 				{Alias: "nop-2", Name: "NOP Two"},
@@ -169,7 +169,7 @@ func TestEnvironmentTopology_GetNOPsForPool(t *testing.T) {
 func TestEnvironmentTopology_GetNOPsForCommittee(t *testing.T) {
 	cfg := deployments.EnvironmentTopology{
 		IndexerAddress: "http://indexer:8100",
-		NOPTopology: deployments.NOPTopology{
+		NOPTopology: &deployments.NOPTopology{
 			NOPs: []deployments.NOPConfig{
 				{Alias: "nop-1", Name: "NOP One"},
 				{Alias: "nop-2", Name: "NOP Two"},
@@ -200,7 +200,7 @@ func TestEnvironmentTopology_GetNOPsForCommittee(t *testing.T) {
 func TestEnvironmentTopology_GetCommitteesForNOP(t *testing.T) {
 	cfg := deployments.EnvironmentTopology{
 		IndexerAddress: "http://indexer:8100",
-		NOPTopology: deployments.NOPTopology{
+		NOPTopology: &deployments.NOPTopology{
 			NOPs: []deployments.NOPConfig{
 				{Alias: "nop-1", Name: "NOP One"},
 			},
@@ -234,7 +234,7 @@ func TestEnvironmentTopology_GetCommitteesForNOP(t *testing.T) {
 func TestEnvironmentTopology_GetPoolsForNOP(t *testing.T) {
 	cfg := deployments.EnvironmentTopology{
 		IndexerAddress: "http://indexer:8100",
-		NOPTopology: deployments.NOPTopology{
+		NOPTopology: &deployments.NOPTopology{
 			NOPs: []deployments.NOPConfig{
 				{Alias: "nop-1", Name: "NOP One"},
 			},
@@ -266,7 +266,7 @@ func TestEnvironmentTopology_Validate_RequiresIndexerAddress(t *testing.T) {
 func TestEnvironmentTopology_Validate_DuplicateNOPAlias(t *testing.T) {
 	cfg := deployments.EnvironmentTopology{
 		IndexerAddress: "http://indexer:8100",
-		NOPTopology: deployments.NOPTopology{
+		NOPTopology: &deployments.NOPTopology{
 			NOPs: []deployments.NOPConfig{
 				{Alias: "nop-1", Name: "NOP One"},
 				{Alias: "nop-1", Name: "Duplicate NOP"},
@@ -283,7 +283,7 @@ func TestEnvironmentTopology_Validate_DuplicateNOPAlias(t *testing.T) {
 func TestEnvironmentTopology_Validate_CommitteeReferencesUnknownNOP(t *testing.T) {
 	cfg := deployments.EnvironmentTopology{
 		IndexerAddress: "http://indexer:8100",
-		NOPTopology: deployments.NOPTopology{
+		NOPTopology: &deployments.NOPTopology{
 			NOPs: []deployments.NOPConfig{
 				{Alias: "nop-1", Name: "NOP One"},
 			},
@@ -307,7 +307,7 @@ func TestEnvironmentTopology_Validate_CommitteeReferencesUnknownNOP(t *testing.T
 func TestEnvironmentTopology_Validate_ThresholdExceedsNOPCount(t *testing.T) {
 	cfg := deployments.EnvironmentTopology{
 		IndexerAddress: "http://indexer:8100",
-		NOPTopology: deployments.NOPTopology{
+		NOPTopology: &deployments.NOPTopology{
 			NOPs: []deployments.NOPConfig{
 				{Alias: "nop-1", Name: "NOP One"},
 			},

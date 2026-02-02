@@ -17,6 +17,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/load"
@@ -32,7 +33,7 @@ import (
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 )
 
 const (
@@ -301,16 +302,16 @@ func TestE2ELoad(t *testing.T) {
 
 	ctx := ccv.Plog.WithContext(context.Background())
 	l := zerolog.Ctx(ctx)
-	lib, err := ccv.NewLib(l, outfile)
+	lib, err := ccv.NewLib(l, outfile, chain_selectors.FamilyEVM)
 	require.NoError(t, err)
 	chainImpls, err := lib.ChainsMap(ctx)
 	require.NoError(t, err)
 
 	var defaultAggregatorClient *ccv.AggregatorClient
-	if _, ok := in.AggregatorEndpoints[evm.DefaultCommitteeVerifierQualifier]; ok {
+	if _, ok := in.AggregatorEndpoints[devenvcommon.DefaultCommitteeVerifierQualifier]; ok {
 		defaultAggregatorClient, err = in.NewAggregatorClientForCommittee(
 			zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
-			evm.DefaultCommitteeVerifierQualifier)
+			devenvcommon.DefaultCommitteeVerifierQualifier)
 		require.NoError(t, err)
 		require.NotNil(t, defaultAggregatorClient)
 		t.Cleanup(func() {
@@ -333,8 +334,13 @@ func TestE2ELoad(t *testing.T) {
 
 	t.Run("clean", func(t *testing.T) {
 		// just a clean load test to measure performance
-		rps := int64(5)
-		testDuration := 30 * time.Second
+		const (
+			rps          = int64(5)
+			testDuration = 30 * time.Second
+
+			// https://smartcontract-it.atlassian.net/browse/CCIP-9269
+			expectedP90Latency = 10 * time.Second
+		)
 
 		tc := NewTestingContext(t, ctx, chainImpls, defaultAggregatorClient, indexerMonitor)
 		tc.Timeout = 30 * time.Second
@@ -361,7 +367,7 @@ func TestE2ELoad(t *testing.T) {
 		metrics.PrintMetricsSummary(t, summary)
 
 		require.Equal(t, summary.TotalSent, summary.TotalReceived)
-		require.LessOrEqual(t, summary.P90Latency, 8*time.Second)
+		require.LessOrEqual(t, summary.P90Latency, expectedP90Latency)
 	})
 
 	t.Run("rpc latency", func(t *testing.T) {
@@ -709,16 +715,16 @@ func TestStaging(t *testing.T) {
 
 	ctx := ccv.Plog.WithContext(context.Background())
 	l := zerolog.Ctx(ctx)
-	lib, err := ccv.NewLib(l, outfile)
+	lib, err := ccv.NewLib(l, outfile, chain_selectors.FamilyEVM)
 	require.NoError(t, err)
 	chainImpls, err := lib.ChainsMap(ctx)
 	require.NoError(t, err)
 
 	var defaultAggregatorClient *ccv.AggregatorClient
-	if _, ok := in.AggregatorEndpoints[evm.DefaultCommitteeVerifierQualifier]; ok {
+	if _, ok := in.AggregatorEndpoints[devenvcommon.DefaultCommitteeVerifierQualifier]; ok {
 		defaultAggregatorClient, err = in.NewAggregatorClientForCommittee(
 			zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
-			evm.DefaultCommitteeVerifierQualifier)
+			devenvcommon.DefaultCommitteeVerifierQualifier)
 		require.NoError(t, err)
 		require.NotNil(t, defaultAggregatorClient)
 		t.Cleanup(func() {

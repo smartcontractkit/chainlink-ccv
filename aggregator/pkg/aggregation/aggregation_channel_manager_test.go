@@ -119,7 +119,7 @@ func TestNewChannelManagerFromConfig_ExtractsClientIDsAndAddsOrphanRecovery(t *t
 func TestEnqueue_SucceedsForExistingKey(t *testing.T) {
 	manager := NewChannelManager([]model.ChannelKey{"client1", "client2"}, 10)
 
-	err := manager.Enqueue("client1", aggregationRequest{ChannelKey: "client1"}, time.Millisecond)
+	err := manager.Enqueue("client1", aggregationRequest{ChannelKey: "client1"}, time.Second)
 
 	assert.NoError(t, err)
 }
@@ -136,7 +136,7 @@ func TestEnqueue_ReturnsErrorForNonExistingKey(t *testing.T) {
 func TestEnqueue_ReturnsErrorWhenChannelFull(t *testing.T) {
 	manager := NewChannelManager([]model.ChannelKey{"client1"}, 1)
 
-	err1 := manager.Enqueue("client1", aggregationRequest{ChannelKey: "client1"}, time.Millisecond)
+	err1 := manager.Enqueue("client1", aggregationRequest{ChannelKey: "client1"}, time.Second)
 	assert.NoError(t, err1)
 
 	err2 := manager.Enqueue("client1", aggregationRequest{ChannelKey: "client1"}, time.Millisecond)
@@ -169,7 +169,7 @@ func TestStart_ForwardsRequestsFromClientChannelToAggregationChannel(t *testing.
 		ChannelKey:     "client1",
 	}
 
-	err := manager.Enqueue("client1", expectedRequest, time.Millisecond)
+	err := manager.Enqueue("client1", expectedRequest, time.Second)
 	require.NoError(t, err)
 
 	select {
@@ -227,7 +227,7 @@ func TestStart_ReceivesMultipleRequestsFromMultipleClients(t *testing.T) {
 			AggregationKey: "key-client1",
 			MessageID:      model.MessageID{byte(i)},
 			ChannelKey:     "client1",
-		}, time.Millisecond)
+		}, time.Second)
 		require.NoError(t, err)
 	}
 
@@ -236,7 +236,7 @@ func TestStart_ReceivesMultipleRequestsFromMultipleClients(t *testing.T) {
 			AggregationKey: "key-client2",
 			MessageID:      model.MessageID{byte(i + 100)},
 			ChannelKey:     "client2",
-		}, time.Millisecond)
+		}, time.Second)
 		require.NoError(t, err)
 	}
 
@@ -282,14 +282,14 @@ func TestStart_FairSchedulingPreventsBusyClientStarvation(t *testing.T) {
 		err := manager.Enqueue("busy", aggregationRequest{
 			ChannelKey: "busy",
 			MessageID:  model.MessageID{byte(i)},
-		}, time.Millisecond)
+		}, time.Second)
 		require.NoError(t, err)
 	}
 
 	err := manager.Enqueue("quiet", aggregationRequest{
 		ChannelKey: "quiet",
 		MessageID:  model.MessageID{0xFF},
-	}, time.Millisecond)
+	}, time.Second)
 	require.NoError(t, err)
 
 	received := make([]aggregationRequest, 0)

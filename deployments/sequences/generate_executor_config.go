@@ -27,6 +27,8 @@ type GenerateExecutorConfigInput struct {
 	PyroscopeURL string
 	// Monitoring is the monitoring configuration containing beholder settings.
 	Monitoring shared.MonitoringInput
+	// NOPModes maps NOP alias to job proposal mode (cl or standalone).
+	NOPModes map[shared.NOPAlias]shared.NOPMode
 }
 
 type GenerateExecutorConfigOutput struct {

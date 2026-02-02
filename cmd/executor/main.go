@@ -23,10 +23,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
@@ -155,8 +157,8 @@ func main() {
 	//
 	// Initialize executor components
 	// ------------------------------------------------------------------------------------------------
-	contractTransmitters := make(map[protocol.ChainSelector]executor.ContractTransmitter)
-	destReaders := make(map[protocol.ChainSelector]executor.DestinationReader)
+	contractTransmitters := make(map[protocol.ChainSelector]chainaccess.ContractTransmitter)
+	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
 	rmnReaders := make(map[protocol.ChainSelector]ccvcommon.RMNRemoteReader)
 	for strSel, chain := range blockchainInfo {
 		chainConfig := executorConfig.ChainConfiguration[strSel]
@@ -320,7 +322,7 @@ func main() {
 	lggr.Infow("✅ Execution service stopped gracefully")
 }
 
-func loadConfiguration(filepath string) (*executor.Configuration, map[string]*protocol.BlockchainInfo, error) {
+func loadConfiguration(filepath string) (*executor.Configuration, map[string]*blockchain.Info, error) {
 	var config executor.ConfigWithBlockchainInfo
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
 		return nil, nil, err

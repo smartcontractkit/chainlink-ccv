@@ -49,8 +49,8 @@ No authorization required
 |------------- | ------------- | ------------- | -------------|
 | **sourceChainSelectors** | [**List**](../Models/Long.md)| Source chain selectors to filter results by. If empty, results from all source chains will be returned. | [optional] [default to null] |
 | **destChainSelectors** | [**List**](../Models/Long.md)| Destination chain selectors to filter results by. If empty, results from all destination chains will be returned. | [optional] [default to null] |
-| **start** | **Long**| Start timestamp (in milliseconds) to filter results by. If not provided, defaults to 0. | [optional] [default to null] |
-| **end** | **Long**| End timestamp (in milliseconds) to filter results by. If not provided, defaults to the current time. | [optional] [default to null] |
+| **start** | **String**| Start time used to filter results. If not provided, results start from the beginning. Accepted formats: RFC3339, unix epoch time (in milliseconds). | [optional] [default to null] |
+| **end** | **String**| End time used to filter results. If not provided, the current server time is used. Accepted formats: RFC3339, unix epoch time (in milliseconds). | [optional] [default to null] |
 | **limit** | **Long**| Maximum number of results to return. If not provided, defaults to 100. | [optional] [default to null] |
 | **offset** | **Long**| Number of results to skip before starting to return results. If not provided, defaults to 0. | [optional] [default to null] |
 
@@ -105,8 +105,8 @@ No authorization required
 |------------- | ------------- | ------------- | -------------|
 | **sourceChainSelectors** | [**List**](../Models/Long.md)| Source chain selectors to filter results by. If empty, results from all source chains will be returned. | [optional] [default to null] |
 | **destChainSelectors** | [**List**](../Models/Long.md)| Destination chain selectors to filter results by. If empty, results from all destination chains will be returned. | [optional] [default to null] |
-| **start** | **Long**| Start timestamp (in milliseconds) to filter results by. If not provided, defaults to 0. | [optional] [default to null] |
-| **end** | **Long**| End timestamp (in milliseconds) to filter results by. If not provided, defaults to the current time. | [optional] [default to null] |
+| **start** | **String**| Start time used to filter results. If not provided, results start from the beginning. Accepted formats: RFC3339, unix epoch time (in milliseconds). | [optional] [default to null] |
+| **end** | **String**| End time used to filter results. If not provided, the current server time is used. Accepted formats: RFC3339, unix epoch time (in milliseconds). | [optional] [default to null] |
 | **limit** | **Long**| Maximum number of results to return. If not provided, defaults to 100. | [optional] [default to null] |
 | **offset** | **Long**| Number of results to skip before starting to return results. If not provided, defaults to 0. | [optional] [default to null] |
 

@@ -14,10 +14,13 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/testcontainers/testcontainers-go"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
+	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
 const (
@@ -58,7 +61,7 @@ type ExecutorOutput struct {
 
 // GenerateConfigWithBlockchainInfos combines the pre-generated config with blockchain infos
 // for standalone mode deployment.
-func (v *ExecutorInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*protocol.BlockchainInfo) ([]byte, error) {
+func (v *ExecutorInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*blockchain.Info) ([]byte, error) {
 	if v.GeneratedConfig == "" {
 		return nil, fmt.Errorf("GeneratedConfig is empty - must be set from changeset output")
 	}
@@ -107,7 +110,19 @@ func ApplyExecutorDefaults(in *ExecutorInput) {
 	}
 }
 
-func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
+// filterOutUnsupportedChains filters out chains that are not supported by the executor.
+// As of writing, only EVM is supported by the executor.
+func filterOutUnsupportedChains(blockchainInfos map[string]*blockchain.Info) map[string]*blockchain.Info {
+	filtered := make(map[string]*blockchain.Info)
+	for chainSelector, info := range blockchainInfos {
+		if info.Family == chainsel.FamilyEVM {
+			filtered[chainSelector] = info
+		}
+	}
+	return filtered
+}
+
+func NewExecutor(in *ExecutorInput, blockchainOutputs []*ctfblockchain.Output) (*ExecutorOutput, error) {
 	if in == nil {
 		return nil, nil
 	}
@@ -122,10 +137,12 @@ func NewExecutor(in *ExecutorInput) (*ExecutorOutput, error) {
 	}
 
 	// Generate blockchain infos for standalone mode
-	blockchainInfos, err := GetBlockchainInfoFromTemplate()
+	blockchainInfos, err := ConvertBlockchainOutputsToInfo(blockchainOutputs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate blockchain infos: %w", err)
+		return nil, fmt.Errorf("failed to generate blockchain infos from blockchain outputs: %w", err)
 	}
+
+	blockchainInfos = filterOutUnsupportedChains(blockchainInfos)
 
 	// Generate and store config file with blockchain infos for standalone mode
 	config, err := in.GenerateConfigWithBlockchainInfos(blockchainInfos)

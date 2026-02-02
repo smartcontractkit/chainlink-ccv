@@ -24,12 +24,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lbtc"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
@@ -60,7 +60,7 @@ type TokenVerifierInput struct {
 
 	CCTPVerifierResolverAddresses map[string]string `toml:"cctp_verifier_resolver_addresses"`
 
-	LBTCVerifierAddresses map[string]string `toml:"lbtc_verifier_addresses"`
+	LombardVerifierAddresses map[string]string `toml:"lombard_verifier_addresses"`
 }
 
 type TokenVerifierOutput struct {
@@ -71,7 +71,7 @@ type TokenVerifierOutput struct {
 	DBConnectionString string `toml:"db_connection_string"`
 }
 
-func NewTokenVerifier(in *TokenVerifierInput, fakeAttestationServiceURL string) (*TokenVerifierOutput, error) {
+func NewTokenVerifier(in *TokenVerifierInput, fakeAttestationServiceURL string, blockchainOutputs []*blockchain.Output) (*TokenVerifierOutput, error) {
 	if in == nil {
 		return nil, nil
 	}
@@ -86,9 +86,9 @@ func NewTokenVerifier(in *TokenVerifierInput, fakeAttestationServiceURL string) 
 	}
 
 	// Generate blockchain infos for standalone mode
-	blockchainInfos, err := GetBlockchainInfoFromTemplate()
+	blockchainInfos, err := ConvertBlockchainOutputsToInfo(blockchainOutputs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate blockchain infos: %w", err)
+		return nil, fmt.Errorf("failed to generate blockchain infos from blockchain outputs: %w", err)
 	}
 
 	/* Database */
@@ -227,7 +227,7 @@ func NewTokenVerifier(in *TokenVerifierInput, fakeAttestationServiceURL string) 
 	}, nil
 }
 
-func (v *TokenVerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*protocol.BlockchainInfo, fakeAttestationServiceURL string) (verifierTomlConfig []byte, err error) {
+func (v *TokenVerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*ccvblockchain.Info, fakeAttestationServiceURL string) (verifierTomlConfig []byte, err error) {
 	// Build base configuration
 	var baseConfig token.Config
 	if err := v.buildVerifierConfiguration(&baseConfig, fakeAttestationServiceURL); err != nil {
@@ -283,17 +283,17 @@ func (v *TokenVerifierInput) buildVerifierConfiguration(config *token.Config, fa
 		})
 	}
 
-	if len(v.LBTCVerifierAddresses) > 0 {
+	if len(v.LombardVerifierAddresses) > 0 {
 		verifierResolvers := make(map[string]any)
-		for k, addr := range v.LBTCVerifierAddresses {
+		for k, addr := range v.LombardVerifierAddresses {
 			verifierResolvers[k] = addr
 		}
 		config.TokenVerifiers = append(config.TokenVerifiers, token.VerifierConfig{
-			VerifierID: v.ContainerName + "-lbtc",
-			Type:       "lbtc",
+			VerifierID: v.ContainerName + "-lombard",
+			Type:       "lombard",
 			Version:    "1.0",
-			LBTCConfig: &lbtc.LBTCConfig{
-				AttestationAPI:          fakeAttestationServiceURL + "/lbtc",
+			LombardConfig: &lombard.LombardConfig{
+				AttestationAPI:          fakeAttestationServiceURL + "/lombard",
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPITimeout:   1 * time.Second,
 				AttestationAPIBatchSize: 20,
@@ -311,10 +311,10 @@ func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blo
 	ver.RMNRemoteAddresses = make(map[string]string)
 	ver.CCTPVerifierAddresses = make(map[string]string)
 	ver.CCTPVerifierResolverAddresses = make(map[string]string)
-	ver.LBTCVerifierAddresses = make(map[string]string)
+	ver.LombardVerifierAddresses = make(map[string]string)
 
 	for _, chain := range blockchains {
-		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(chain.ChainID, chainsel.FamilyEVM)
+		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(chain.ChainID, chain.Out.Family)
 		if err != nil {
 			return TokenVerifierInput{}, err
 		}
@@ -324,7 +324,7 @@ func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blo
 			networkInfo.ChainSelector,
 			datastore.ContractType(cctp_verifier.ResolverType),
 			semver.MustParse(cctp_verifier.Deploy.Version()),
-			evm.CCTPContractsQualifier,
+			devenvcommon.CCTPContractsQualifier,
 		))
 		if err != nil {
 			framework.L.Info().
@@ -338,7 +338,7 @@ func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blo
 			networkInfo.ChainSelector,
 			datastore.ContractType(cctp_verifier.ContractType),
 			semver.MustParse(cctp_verifier.Deploy.Version()),
-			evm.CCTPContractsQualifier,
+			devenvcommon.CCTPContractsQualifier,
 		))
 		if err != nil {
 			framework.L.Info().
@@ -363,7 +363,7 @@ func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blo
 			networkInfo.ChainSelector,
 			datastore.ContractType(executor.ProxyType),
 			semver.MustParse(executor.DeployProxy.Version()),
-			evm.DefaultExecutorQualifier,
+			devenvcommon.DefaultExecutorQualifier,
 		))
 		if err != nil {
 			return TokenVerifierInput{}, fmt.Errorf("failed to get default executor on ramp address for chain %s: %w", chain.ChainID, err)

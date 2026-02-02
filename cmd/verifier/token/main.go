@@ -14,6 +14,9 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
@@ -24,7 +27,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
 	tokenapi "github.com/smartcontractkit/chainlink-ccv/verifier/token/api"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lbtc"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -67,9 +70,12 @@ func main() {
 	}
 
 	cmd.StartPyroscope(lggr, config.PyroscopeURL, "tokenVerifier")
-	blockchainHelper, chainClients := cmd.LoadBlockchainInfo(ctx, lggr, blockchainInfos)
+	blockchainHelper := cmd.LoadBlockchainInfo(ctx, lggr, blockchainInfos)
 
-	sourceReaders := cmd.LoadBlockchainReadersForToken(lggr, blockchainHelper, chainClients, *config)
+	registry := accessors.NewRegistry(blockchainHelper)
+	cmd.RegisterEVM(ctx, registry, lggr, blockchainHelper, config.OnRampAddresses, config.RMNRemoteAddresses)
+
+	sourceReaders := cmd.LoadBlockchainReadersForToken(ctx, lggr, registry, blockchainHelper, *config)
 
 	verifierMonitoring := cmd.SetupMonitoring(lggr, config.Monitoring)
 
@@ -101,17 +107,17 @@ func main() {
 		)
 
 		var coordinator *verifier.Coordinator
-		if verifierConfig.IsLBTC() {
-			coordinator = createLBTCCoordinator(
+		if verifierConfig.IsLombard() {
+			coordinator = createLombardCoordinator(
 				ctx,
 				verifierConfig.VerifierID,
-				verifierConfig.LBTCConfig,
+				verifierConfig.LombardConfig,
 				lggr,
 				sourceReaders,
 				rmnRemoteAddresses,
 				storage.NewAttestationCCVWriter(
 					lggr,
-					verifierConfig.LBTCConfig.ParsedVerifierResolvers,
+					verifierConfig.LombardConfig.ParsedVerifierResolvers,
 					postgresStorage,
 				),
 				messageTracker,
@@ -191,7 +197,7 @@ func main() {
 	lggr.Infow("Token verifier service stopped gracefully")
 }
 
-//nolint:dupl // Similar to LBTC coordinator creation
+//nolint:dupl // Similar to Lombard coordinator creation
 func createCCTPCoordinator(
 	ctx context.Context,
 	verifierID string,
@@ -212,7 +218,7 @@ func createCCTPCoordinator(
 		os.Exit(1)
 	}
 
-	cctpCoordinator, err := verifier.NewCoordinator(
+	coordinator, err := verifier.NewCoordinator(
 		ctx,
 		lggr,
 		cctp.NewVerifier(lggr, attestationService),
@@ -230,19 +236,20 @@ func createCCTPCoordinator(
 		messageTracker,
 		verifierMonitoring,
 		chainStatusManager,
+		heartbeatclient.NewNoopHeartbeatClient(),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator for cctp", "error", err)
 		os.Exit(1)
 	}
-	return cctpCoordinator
+	return coordinator
 }
 
 //nolint:dupl // Similar to CCTP coordinator creation
-func createLBTCCoordinator(
+func createLombardCoordinator(
 	ctx context.Context,
 	verifierID string,
-	lbtcConfig *lbtc.LBTCConfig,
+	lombardConfig *lombard.LombardConfig,
 	lggr logger.Logger,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	rmnRemoteAddresses map[string]protocol.UnknownAddress,
@@ -251,18 +258,18 @@ func createLBTCCoordinator(
 	verifierMonitoring verifier.Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 ) *verifier.Coordinator {
-	sourceConfigs := createSourceConfigs(lbtcConfig.ParsedVerifierResolvers, rmnRemoteAddresses)
+	sourceConfigs := createSourceConfigs(lombardConfig.ParsedVerifierResolvers, rmnRemoteAddresses)
 
-	attestationService, err := lbtc.NewAttestationService(lggr, *lbtcConfig)
+	attestationService, err := lombard.NewAttestationService(lggr, *lombardConfig)
 	if err != nil {
-		lggr.Errorw("Failed to create LBTC attestation service", "error", err)
+		lggr.Errorw("Failed to create Lombard attestation service", "error", err)
 		os.Exit(1)
 	}
 
-	lbtcCoordinator, err := verifier.NewCoordinator(
+	coordinator, err := verifier.NewCoordinator(
 		ctx,
 		lggr,
-		lbtc.NewVerifier(lggr, attestationService),
+		lombard.NewVerifier(lggr, attestationService),
 		sourceReaders,
 		ccvStorage,
 		verifier.CoordinatorConfig{
@@ -277,13 +284,14 @@ func createLBTCCoordinator(
 		messageTracker,
 		verifierMonitoring,
 		chainStatusManager,
+		heartbeatclient.NewNoopHeartbeatClient(),
 	)
 	if err != nil {
-		lggr.Errorw("Failed to create verification coordinator for lbtc", "error", err)
+		lggr.Errorw("Failed to create verification coordinator for lombard", "error", err)
 		os.Exit(1)
 	}
 
-	return lbtcCoordinator
+	return coordinator
 }
 
 func createSourceConfigs(
@@ -304,7 +312,7 @@ func createSourceConfigs(
 	return sourceConfigs
 }
 
-func loadConfiguration(filepath string) (*token.Config, map[string]*protocol.BlockchainInfo, error) {
+func loadConfiguration(filepath string) (*token.Config, map[string]*blockchain.Info, error) {
 	var config token.ConfigWithBlockchainInfos
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
 		return nil, nil, err

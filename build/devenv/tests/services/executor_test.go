@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
 func TestServiceExecutor(t *testing.T) {
@@ -23,6 +24,20 @@ execution_interval = "15s"
 executor_pool = ["executor-test"]
 `
 
+	blockchainOutputs := make([]*blockchain.Output, 1)
+	blockchainOutputs[0] = &blockchain.Output{
+		ChainID: "1337",
+		Family:  "evm",
+		Type:    "anvil",
+		Nodes: []*blockchain.Node{
+			{
+				ExternalHTTPUrl: "http://host.docker.internal:8545",
+				InternalHTTPUrl: "http://blockchain-src:8545",
+				ExternalWSUrl:   "ws://host.docker.internal:8545",
+				InternalWSUrl:   "ws://blockchain-src:8545",
+			},
+		},
+	}
 	out, err := services.NewExecutor(&services.ExecutorInput{
 		SourceCodePath:  "../../../executor",
 		RootPath:        "../../../../",
@@ -30,7 +45,7 @@ executor_pool = ["executor-test"]
 		Port:            8101,
 		Mode:            services.Standalone,
 		GeneratedConfig: generatedConfig,
-	})
+	}, blockchainOutputs)
 	require.NoError(t, err)
 	t.Run("test #1", func(t *testing.T) {
 		_ = out

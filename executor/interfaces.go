@@ -50,13 +50,6 @@ type Executor interface {
 	CheckValidMessage(ctx context.Context, message protocol.Message) error
 }
 
-// ContractTransmitter is an interface for transmitting messages to destination chains
-// it should be implemented by chain-specific transmitters.
-type ContractTransmitter interface {
-	// ConvertAndWriteMessageToChain converts and transmits message to chain
-	ConvertAndWriteMessageToChain(ctx context.Context, report AbstractAggregatedReport) error
-}
-
 type LeaderElector interface {
 	// GetReadyTimestamp to determine when a message is ready to be executed by this executor
 	// We need chain selector as well as messageID because messageID is hashed and we cannot use it to get message information.
@@ -64,21 +57,6 @@ type LeaderElector interface {
 	GetReadyTimestamp(messageID protocol.Bytes32, chainSel protocol.ChainSelector, baseTime time.Time) time.Time
 	// GetRetryDelay returns the delay in seconds to retry a message. It uses destination chain because some executors may not support all chains
 	GetRetryDelay(destinationChain protocol.ChainSelector) time.Duration
-}
-
-// DestinationReader is an interface for reading message status and data from a single destination chain
-// It's used to get the list of ccv addresses for each receiver, as well as check if messages have been executed
-// When integrating with non-evms, the implementer only needs to add support for a single chain.
-type DestinationReader interface {
-	services.Service
-	// GetCCVSForMessage return cross-chain verifications for selected message
-	GetCCVSForMessage(ctx context.Context, message protocol.Message) (CCVAddressInfo, error)
-	// GetMessageSuccess returns true if message has on-chain success state.
-	GetMessageSuccess(ctx context.Context, message protocol.Message) (bool, error)
-	// GetRMNCursedSubjects returns the full list of cursed subjects for the chain. These can be Bytes16 ChainSelectors or the GlobalCurseSubject.
-	GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error)
-	// GetExecutionAttempts returns the full list of execution attempts for a given message within the executable window.
-	GetExecutionAttempts(ctx context.Context, message protocol.Message) ([]ExecutionAttempt, error)
 }
 
 // Monitoring provides all core monitoring functionality for the executor. Also can be implemented as a no-op.

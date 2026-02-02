@@ -18,6 +18,7 @@ template TestRouter
         messageId : BytesHex
         encodedMessage : BytesHex
         verifierBlobs : [BytesHex]
+        receipts: [Receipt]
       controller partyOwner
       do
         ccipMessageSentCid <- create CCIPMessageSent with
@@ -30,11 +31,23 @@ template TestRouter
             messageId = messageId
             encodedMessage = encodedMessage
             verifierBlobs = verifierBlobs
+            receipts = receipts
 
         pure CCIPSendResult with
           router = self
           ccipMessageSent = ccipMessageSentCid
           messageId = messageId
+
+-- | Fee/gas accounting for a single entity (CCV, pool, executor, or network).
+-- Matches EVM Receipt structure for cross-chain fee transparency.
+data Receipt = Receipt
+    with
+        issuer : Text              -- CCV ID (e.g., "49ff34ed@party"), pool ID, or "network"
+        destGasLimit : Int         -- Gas allocated for dest chain execution
+        destBytesOverhead : Int    -- Data availability overhead in bytes
+        feeTokenAmount : Numeric 0 -- Fee amount in fee token units
+        extraArgs : BytesHex       -- Entity-specific arguments
+    deriving (Eq, Show)
 
 data CCIPSendResult = CCIPSendResult
     with
@@ -60,4 +73,5 @@ data CCIPMessageSentEvent = CCIPMessageSentEvent
         messageId : BytesHex
         encodedMessage : BytesHex
         verifierBlobs : [BytesHex]
+        receipts : [Receipt]
     deriving (Eq, Show)

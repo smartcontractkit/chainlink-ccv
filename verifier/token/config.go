@@ -3,21 +3,21 @@ package token
 import (
 	"fmt"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lbtc"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
 )
 
 type ConfigWithBlockchainInfos struct {
 	Config
-	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
+	BlockchainInfos map[string]*blockchain.Info `toml:"blockchain_infos"`
 }
 
 type Config struct {
 	// TODO: remove from verifier config, readers need to be initialized separately.
-	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
-	PyroscopeURL    string                              `toml:"pyroscope_url"`
+	BlockchainInfos map[string]*blockchain.Info `toml:"blockchain_infos"`
+	PyroscopeURL    string                      `toml:"pyroscope_url"`
 	// OnRampAddresses is a map the addresses of the on ramps for each chain selector.
 	OnRampAddresses map[string]string `toml:"on_ramp_addresses"`
 	// RMNRemoteAddresses is a map of RMN Remote contract addresses for each chain selector.
@@ -56,9 +56,9 @@ type VerifierConfig struct {
 	//    "attestationAPIIntervalMilliseconds": "500ms"
 	//  },
 	//  {
-	//    "type": "lbtc",
+	//    "type": "lombard",
 	//    "version": "1.0",
-	//    "attestationAPI": "http://lbtc.com/gohere",
+	//    "attestationAPI": "http://lombard.com/gohere",
 	//    "attestationAPITimeout": "1s",
 	//    "attestationAPIIntervalMilliseconds": "500ms"
 	//  }
@@ -67,11 +67,11 @@ type VerifierConfig struct {
 	Version string `toml:"version"`
 
 	*cctp.CCTPConfig
-	*lbtc.LBTCConfig
+	*lombard.LombardConfig
 }
 
-func (o *VerifierConfig) IsLBTC() bool {
-	return o.LBTCConfig != nil
+func (o *VerifierConfig) IsLombard() bool {
+	return o.LombardConfig != nil
 }
 
 func (o *VerifierConfig) IsCCTP() bool {
@@ -105,7 +105,7 @@ func (o *VerifierConfig) UnmarshalTOML(data any) error {
 		return nil
 	}
 
-	o.LBTCConfig, err = lbtc.TryParsing(o.Type, o.Version, castedData)
+	o.LombardConfig, err = lombard.TryParsing(o.Type, o.Version, castedData)
 	if err == nil {
 		return nil
 	}

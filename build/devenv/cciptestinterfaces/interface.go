@@ -161,6 +161,8 @@ type OnChainCommittees struct {
 // OnChainConfigurable defines methods that allows devenv to
 // deploy, configure Chainlink product and connect on-chain part with other chains.
 type OnChainConfigurable interface {
+	// ChainFamily returns the family of the chain.
+	ChainFamily() string
 	// DeployContractsForSelector deploys contracts for chain X using topology for CommitteeVerifier configuration.
 	// Returns all the contract addresses and metadata as datastore.DataStore.
 	DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *deployments.EnvironmentTopology) (datastore.DataStore, error)

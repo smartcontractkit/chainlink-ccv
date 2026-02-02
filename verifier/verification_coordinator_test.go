@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
+
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -150,6 +152,7 @@ func createVerificationCoordinator(
 		noopLatencyTracker,
 		noopMonitoring,
 		ts.chainStatusManager,
+		heartbeatclient.NewNoopHeartbeatClient(),
 	)
 }
 

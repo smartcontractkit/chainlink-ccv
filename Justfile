@@ -51,6 +51,13 @@ fmt: ensure-golangci-lint
 lint fix="": ensure-golangci-lint
     find . -type f -name go.mod -execdir golangci-lint run {{ if fix != "" { "--fix" } else { "" } }} \;
 
+shellcheck:
+    @command -v shellcheck >/dev/null 2>&1 || { \
+        echo "shellcheck is not installed. Please install it first."; \
+        exit 1; \
+    }
+    find . -type f -name *.sh -execdir shellcheck {} +
+
 mod-download: ensure-go
     go mod download
 
@@ -66,10 +73,6 @@ test-coverage coverage_file="coverage.out" short="":
 
 bump-chainlink-ccip sha:
     @echo "Bumping chainlink-ccip dependencies in root..."
-    go get github.com/smartcontractkit/chainlink-ccip@{{sha}}
-    go get github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment@{{sha}}
-    go get github.com/smartcontractkit/chainlink-ccip/deployment@{{sha}}
-    go get github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment@{{sha}}
     go get github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm@{{sha}}
 
     @echo "Bumping chainlink-ccip dependencies in build/devenv..."

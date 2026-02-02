@@ -1,27 +1,40 @@
 package canton
 
 import (
-	"context"
 	"encoding/hex"
 	"fmt"
 	"math/big"
-	"os"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/Masterminds/semver/v3"
 	ledgerv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2"
 	ledgerv2admin "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2/admin"
-	jwtv5 "github.com/golang-jwt/jwt/v5"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/metadata"
 
+	chain_selectors "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/offramp"
+	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/onramp"
+	routeroperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
+	devenvcanton "github.com/smartcontractkit/chainlink-ccv/devenv/canton"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -46,37 +59,64 @@ const (
 var committeeVerifierVersion = []byte{0x49, 0xff, 0x34, 0xed}
 
 // Start the environment required for this test using:
-// ccv up env-canton-single-validator.toml
+// ccv up env-canton-evm.toml
 // from the build/devenv directory.
 func TestCantonSourceReader(t *testing.T) {
-	in, err := ccv.Load[ccv.Cfg]([]string{"../../../env-canton-single-validator-out.toml"})
+	configPath := "../../../env-canton-evm-out.toml"
+	in, err := ccv.LoadOutput[ccv.Cfg](configPath)
 	require.NoError(t, err)
 
-	require.GreaterOrEqual(t, len(in.Blockchains), 1, "need at least one canton chain for this test")
-	require.Equal(t, in.Blockchains[0].Type, blockchain.TypeCanton, "expected canton chain")
+	var cantonChain *blockchain.Input
+	for _, bc := range in.Blockchains {
+		if bc.Type == blockchain.TypeCanton {
+			cantonChain = bc
+			break
+		}
+	}
+	require.NotNil(t, cantonChain, "need at least one canton chain for this test")
+
+	var evmChain *blockchain.Input
+	for _, bc := range in.Blockchains {
+		if bc.Type == blockchain.TypeAnvil {
+			evmChain = bc
+			break
+		}
+	}
+	require.NotNil(t, evmChain, "need at least one evm chain for this test")
+
+	cantonDetails, err := chain_selectors.GetChainDetailsByChainIDAndFamily(cantonChain.ChainID, chain_selectors.FamilyCanton)
+	require.NoError(t, err)
+
+	evmDetails, err := chain_selectors.GetChainDetailsByChainIDAndFamily(evmChain.ChainID, chain_selectors.FamilyEVM)
+	require.NoError(t, err)
+
+	ctx := ccv.Plog.WithContext(t.Context())
+	l := zerolog.Ctx(ctx)
+
+	lib, err := ccv.NewLib(l, configPath, chain_selectors.FamilyEVM)
+	require.NoError(t, err)
+	chains, err := lib.ChainsMap(ctx)
+	require.NoError(t, err)
+	destChain := chains[evmDetails.ChainSelector]
+	require.NotNil(t, destChain)
 
 	t.Cleanup(func() {
 		_, err := framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
 		require.NoError(t, err)
 	})
 
-	bcOutput := in.Blockchains[0].Out
-
-	jwt := bcOutput.NetworkSpecificData.CantonEndpoints.Participants[0].JWT
+	grpcURL := cantonChain.Out.NetworkSpecificData.CantonEndpoints.Participants[0].GRPCLedgerAPIURL
+	require.NotEmpty(t, grpcURL)
+	jwt := cantonChain.Out.NetworkSpecificData.CantonEndpoints.Participants[0].JWT
 	require.NotEmpty(t, jwt)
 
-	// the subject in the jwt is the user id that will be used to submit the commands.
-	userID := getSub(t, jwt)
-	require.NotEmpty(t, userID)
-	t.Logf("sub (user id to use): %s", userID)
-
-	grpcURL := bcOutput.NetworkSpecificData.CantonEndpoints.Participants[0].GRPCLedgerAPIURL
-	require.NotEmpty(t, grpcURL)
-
-	ts := newTestSetup(t, grpcURL, jwt, userID)
+	helper, err := devenvcanton.NewHelperFromBlockchainInput(grpcURL, jwt)
+	require.NoError(t, err)
+	ts := newTestSetup(helper)
 
 	// Assert that the parties were created and are known to the ledger.
-	knownParties := ts.listKnownParties(t)
+	knownParties, err := ts.helper.ListKnownParties(t.Context())
+	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(knownParties), 1)
 	// Find the party that corresponds to the JWT token that we have
 	var party string
@@ -89,9 +129,9 @@ func TestCantonSourceReader(t *testing.T) {
 	require.NotEmpty(t, party)
 	t.Logf("found party: %s", party)
 
-	// Upload the DAR file containing the TestRouter contract and any required dependencies.
-	ts.uploadDar(t, "json-tests-0.0.1.dar")
-	knownPackages := ts.listKnownPackages(t)
+	// Check that the expected package is uploaded.
+	knownPackages, err := ts.helper.ListKnownPackages(t.Context())
+	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(knownPackages), 1)
 	require.True(t, slices.ContainsFunc(knownPackages, func(p *ledgerv2admin.PackageDetails) bool {
 		return p.GetName() == packageID
@@ -117,10 +157,13 @@ func TestCantonSourceReader(t *testing.T) {
 	require.NotNil(t, createResp)
 
 	sourceReader, err := canton.NewSourceReader(
+		logger.Test(t),
 		grpcURL,
 		jwt,
-		ccipOwner,
-		ccipMessageSentTemplateID,
+		canton.ReaderConfig{
+			CCIPOwnerParty:            ccipOwner,
+			CCIPMessageSentTemplateID: fmt.Sprintf("%s:%s:%s", ccipMessageSentTemplateID.PackageId, ccipMessageSentTemplateID.ModuleName, ccipMessageSentTemplateID.EntityName),
+		},
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
 	require.NoError(t, err)
@@ -135,9 +178,22 @@ func TestCantonSourceReader(t *testing.T) {
 	seqNr := int64(1)
 	contractID := ts.getContractID(t, createResp.GetUpdateId(), party)
 	messages := make([]protocol.Message, numMessages)
+
+	addresses := getRelevantAddresses(t, in, cantonDetails, evmDetails)
 	for i := range numMessages {
-		msg := newMessage(t, seqNr)
+		msg := newMessage(
+			t,
+			protocol.ChainSelector(cantonDetails.ChainSelector),
+			protocol.ChainSelector(evmDetails.ChainSelector),
+			seqNr,
+			addresses.cantonOnRamp,
+			addresses.evmOffRamp,
+			addresses.evmReceiver,
+			[]protocol.UnknownAddress{addresses.cantonDefaultVerifierAddress},
+			addresses.cantonExecutorAddress,
+		)
 		messages[i] = msg
+		t.Logf("sending message seqNr %d messageID %s", seqNr, msg.MustMessageID().String())
 		ts.ccipSend(t,
 			contractID,
 			partyOwner,
@@ -147,6 +203,32 @@ func TestCantonSourceReader(t *testing.T) {
 			mustEncodeMessage(t, msg),
 			[][]byte{
 				committeeVerifierVersion, // committee verifier only returns the version in the verifierBlob.
+			},
+			[]testReceipt{
+				{
+					// TODO: this isn't correct, because for canton the issuer is the CCVId.
+					// We need to set the "verifier address" in the verifier to be the CCVId rather than
+					// the address of the committee_verifier.ResolverType from the DataStore.
+					Issuer:            addresses.defaultVerifierIssuer,
+					DestGasLimit:      100000,
+					DestBytesOverhead: 500,
+					FeeTokenAmount:    "1000000.",
+					ExtraArgs:         []byte{},
+				},
+				{
+					Issuer:            addresses.executorIssuer,
+					DestGasLimit:      0,
+					DestBytesOverhead: 0,
+					FeeTokenAmount:    "500000.",
+					ExtraArgs:         []byte{},
+				},
+				{
+					Issuer:            addresses.routerIssuer,
+					DestGasLimit:      0,
+					DestBytesOverhead: 0,
+					FeeTokenAmount:    "500000.",
+					ExtraArgs:         []byte{},
+				},
 			},
 		)
 		seqNr++
@@ -174,24 +256,182 @@ func TestCantonSourceReader(t *testing.T) {
 		}
 		require.True(t, found)
 	}
+
+	var indexerMonitor *ccv.IndexerMonitor
+	indexerClient, err := lib.Indexer()
+	require.NoError(t, err)
+	indexerMonitor, err = ccv.NewIndexerMonitor(
+		zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
+		indexerClient)
+	require.NoError(t, err)
+	require.NotNil(t, indexerMonitor)
+
+	aggregatorClients := make(map[string]*ccv.AggregatorClient)
+	for qualifier := range in.AggregatorEndpoints {
+		client, err := in.NewAggregatorClientForCommittee(
+			zerolog.Ctx(ctx).With().Str("component", fmt.Sprintf("aggregator-client-%s", qualifier)).Logger(),
+			qualifier)
+		require.NoError(t, err)
+		require.NotNil(t, client)
+		aggregatorClients[qualifier] = client
+		t.Cleanup(func() {
+			client.Close()
+		})
+	}
+	defaultAggregatorClient := aggregatorClients[devenvcommon.DefaultCommitteeVerifierQualifier]
+
+	testCtx := e2e.NewTestingContext(t, t.Context(), chains, defaultAggregatorClient, indexerMonitor)
+	for _, msg := range messages {
+		result, err := testCtx.AssertMessage(msg.MustMessageID(), e2e.AssertMessageOptions{
+			TickInterval:            1 * time.Second,
+			ExpectedVerifierResults: 1, // just committee verifier
+			Timeout:                 tests.WaitTimeout(t),
+			AssertVerifierLogs:      false,
+			AssertExecutorLogs:      false,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, result.AggregatedResult)
+		require.Len(t, result.IndexedVerifications.Results, 1)
+	}
 }
 
-func newMessage(t *testing.T, seqNr int64) protocol.Message {
+// relevantAddresses are the addresses required to construct a valid CCIP message from Canton -> EVM.
+type relevantAddresses struct {
+	cantonOnRamp                 []byte
+	cantonExecutorAddress        []byte
+	cantonDefaultVerifierAddress []byte
+	evmOffRamp                   []byte
+	evmReceiver                  []byte
+	defaultVerifierIssuer        string
+	executorIssuer               string
+	routerIssuer                 string
+}
+
+// getRelevantAddresses returns the canton and evm addresses required to construct a valid CCIP message from Canton -> EVM.
+func getRelevantAddresses(t *testing.T, in *ccv.Cfg, cantonDetails, evmDetails chain_selectors.ChainDetails) relevantAddresses {
+	cantonOnRampRef, err := in.CLDF.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(
+			cantonDetails.ChainSelector,
+			datastore.ContractType(onrampoperations.ContractType),
+			semver.MustParse(onrampoperations.Deploy.Version()),
+			"",
+		),
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, cantonOnRampRef.Address)
+	t.Logf("canton on ramp address: %s", cantonOnRampRef.Address)
+
+	cantonRouterRef, err := in.CLDF.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(
+			cantonDetails.ChainSelector,
+			datastore.ContractType(routeroperations.ContractType),
+			semver.MustParse(routeroperations.Deploy.Version()),
+			"",
+		),
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, cantonRouterRef.Address)
+	t.Logf("canton router address: %s", cantonRouterRef.Address)
+	routerIssuer := string(hexutil.MustDecode(cantonRouterRef.Address))
+
+	cantonDefaultVerifierRef, err := in.CLDF.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(
+			cantonDetails.ChainSelector,
+			datastore.ContractType(committee_verifier.ResolverType),
+			semver.MustParse(committee_verifier.Deploy.Version()),
+			devenvcommon.DefaultCommitteeVerifierQualifier,
+		),
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, cantonDefaultVerifierRef.Address)
+	defaultVerifierIssuer := string(hexutil.MustDecode(cantonDefaultVerifierRef.Address))
+	t.Logf("decoded hex len: %d, string len: %d", len(hexutil.MustDecode(cantonDefaultVerifierRef.Address)), len(defaultVerifierIssuer))
+	t.Logf("canton default verifier address: %s, issuer: %s", cantonDefaultVerifierRef.Address, defaultVerifierIssuer)
+
+	cantonExecutorAddress, err := in.CLDF.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(
+			cantonDetails.ChainSelector,
+			datastore.ContractType(executor.ProxyType),
+			semver.MustParse(executor.DeployProxy.Version()),
+			devenvcommon.DefaultExecutorQualifier,
+		),
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, cantonExecutorAddress.Address)
+	t.Logf("canton executor address: %s", cantonExecutorAddress.Address)
+	executorIssuer := string(hexutil.MustDecode(cantonExecutorAddress.Address))
+
+	evmOffRampRef, err := in.CLDF.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(
+			evmDetails.ChainSelector,
+			datastore.ContractType(offrampoperations.ContractType),
+			semver.MustParse(offrampoperations.Deploy.Version()),
+			"",
+		),
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, evmOffRampRef.Address)
+	t.Logf("evm off ramp address: %s", evmOffRampRef.Address)
+
+	evmReceiverRef, err := in.CLDF.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(
+			evmDetails.ChainSelector,
+			datastore.ContractType(mock_receiver.ContractType),
+			semver.MustParse(mock_receiver.Deploy.Version()),
+			devenvcommon.DefaultReceiverQualifier,
+		),
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, evmReceiverRef.Address)
+	t.Logf("evm receiver address: %s", evmReceiverRef.Address)
+
+	// Convert refs to bytes
+	cantonOnRamp := hexutil.MustDecode(cantonOnRampRef.Address)
+	evmOffRamp := hexutil.MustDecode(evmOffRampRef.Address)
+	require.Len(t, evmOffRamp, 20) // done onchain, do it here just to catch it early
+	evmReceiver := hexutil.MustDecode(evmReceiverRef.Address)
+	require.Len(t, evmReceiver, 20) // done onchain, do it here just to catch it early
+
+	return relevantAddresses{
+		cantonOnRamp:                 cantonOnRamp,
+		cantonExecutorAddress:        hexutil.MustDecode(cantonExecutorAddress.Address),
+		cantonDefaultVerifierAddress: hexutil.MustDecode(cantonDefaultVerifierRef.Address),
+		evmOffRamp:                   evmOffRamp,
+		evmReceiver:                  evmReceiver,
+		defaultVerifierIssuer:        defaultVerifierIssuer,
+		executorIssuer:               executorIssuer,
+		routerIssuer:                 routerIssuer,
+	}
+}
+
+func newMessage(
+	t *testing.T,
+	sourceSelector,
+	destSelector protocol.ChainSelector,
+	seqNr int64,
+	cantonOnRamp, evmOffRamp, evmReceiver protocol.UnknownAddress,
+	ccvAddresses []protocol.UnknownAddress,
+	executorAddress protocol.UnknownAddress,
+) protocol.Message {
+	// Compute the CCV and executor hash for validation
+	ccvAndExecutorHash, err := protocol.ComputeCCVAndExecutorHash(ccvAddresses, executorAddress)
+	require.NoError(t, err)
+
 	msg, err := protocol.NewMessage(
-		protocol.ChainSelector(1337),
-		protocol.ChainSelector(2337),
+		sourceSelector,
+		destSelector,
 		protocol.SequenceNumber(seqNr),
-		protocol.UnknownAddress([]byte("onramp address")),
-		protocol.UnknownAddress([]byte("offramp address")),
-		10,
-		200_000,
-		100_000,
-		protocol.Bytes32{},
+		cantonOnRamp,
+		evmOffRamp,
+		1,                  // finality
+		200_000,            // execution gas limit
+		100_000,            // ccip receive gas limit
+		ccvAndExecutorHash, // ccv and executor hash
 		protocol.UnknownAddress([]byte("sender address")),
-		protocol.UnknownAddress([]byte("receiver address")),
-		[]byte("dest blob"),
-		[]byte("message data payload"),
-		nil,
+		evmReceiver,
+		[]byte{},                      // dest blob, not required for EVM.
+		[]byte("message from canton"), // message data, can be anything
+		nil,                           // token transfer
 	)
 	require.NoError(t, err)
 
@@ -204,26 +444,12 @@ func mustEncodeMessage(t *testing.T, msg protocol.Message) []byte {
 	return encoded
 }
 
-func getSub(t *testing.T, jwt string) string {
-	claims := jwtv5.MapClaims{}
-	_, _, err := jwtv5.NewParser().ParseUnverified(jwt, claims)
-	require.NoError(t, err)
-	require.NotNil(t, claims["sub"])
-
-	return claims["sub"].(string)
-}
-
 type testSetup struct {
-	partyMgmtClient ledgerv2admin.PartyManagementServiceClient
-	pkgMgmtClient   ledgerv2admin.PackageManagementServiceClient
-	commandClient   ledgerv2.CommandServiceClient
-	updatesClient   ledgerv2.UpdateServiceClient
-	jwt             string
-	userID          string
+	helper *devenvcanton.Helper
 }
 
 func (ts *testSetup) getContractID(t *testing.T, updateID, party string) string {
-	resp, err := ts.updatesClient.GetUpdateById(ts.authCtx(t), &ledgerv2.GetUpdateByIdRequest{
+	resp, err := ts.helper.GetUpdateServiceClient().GetUpdateById(ts.helper.AuthCtx(t.Context()), &ledgerv2.GetUpdateByIdRequest{
 		UpdateId: updateID,
 		UpdateFormat: &ledgerv2.UpdateFormat{
 			IncludeTransactions: &ledgerv2.TransactionFormat{
@@ -261,6 +487,16 @@ func (ts *testSetup) getContractID(t *testing.T, updateID, party string) string 
 	return contractID
 }
 
+// testReceipt represents a receipt for the ccipSend choice.
+// Matches the Daml Receipt structure.
+type testReceipt struct {
+	Issuer            string
+	DestGasLimit      int64
+	DestBytesOverhead int64
+	FeeTokenAmount    string // Numeric 0 as string
+	ExtraArgs         []byte
+}
+
 func (ts *testSetup) ccipSend(
 	t *testing.T,
 	contractID,
@@ -270,6 +506,7 @@ func (ts *testSetup) ccipSend(
 	messageID protocol.Bytes32,
 	encodedMessage []byte,
 	verifierBlobs [][]byte,
+	receipts []testReceipt,
 ) *ledgerv2.SubmitAndWaitResponse {
 	verifierBlobElements := make([]*ledgerv2.Value, len(verifierBlobs))
 	for i, blob := range verifierBlobs {
@@ -280,10 +517,42 @@ func (ts *testSetup) ccipSend(
 		}
 	}
 
-	resp, err := ts.commandClient.SubmitAndWait(ts.authCtx(t), &ledgerv2.SubmitAndWaitRequest{
+	receiptElements := make([]*ledgerv2.Value, len(receipts))
+	for i, receipt := range receipts {
+		receiptElements[i] = &ledgerv2.Value{
+			Sum: &ledgerv2.Value_Record{
+				Record: &ledgerv2.Record{
+					Fields: []*ledgerv2.RecordField{
+						{
+							Label: "issuer",
+							Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Text{Text: receipt.Issuer}},
+						},
+						{
+							Label: "destGasLimit",
+							Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Int64{Int64: receipt.DestGasLimit}},
+						},
+						{
+							Label: "destBytesOverhead",
+							Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Int64{Int64: receipt.DestBytesOverhead}},
+						},
+						{
+							Label: "feeTokenAmount",
+							Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Numeric{Numeric: receipt.FeeTokenAmount}},
+						},
+						{
+							Label: "extraArgs",
+							Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Text{Text: hex.EncodeToString(receipt.ExtraArgs)}},
+						},
+					},
+				},
+			},
+		}
+	}
+
+	resp, err := ts.helper.GetCommandServiceClient().SubmitAndWait(ts.helper.AuthCtx(t.Context()), &ledgerv2.SubmitAndWaitRequest{
 		Commands: &ledgerv2.Commands{
 			CommandId: uuid.New().String(),
-			UserId:    ts.userID,
+			UserId:    ts.helper.GetUserID(),
 			ActAs:     []string{partyOwnerParty},
 			ReadAs:    []string{partyOwnerParty},
 			Commands: []*ledgerv2.Command{
@@ -343,6 +612,16 @@ func (ts *testSetup) ccipSend(
 													},
 												},
 											},
+											{
+												Label: "receipts",
+												Value: &ledgerv2.Value{
+													Sum: &ledgerv2.Value_List{
+														List: &ledgerv2.List{
+															Elements: receiptElements,
+														},
+													},
+												},
+											},
 										},
 									},
 								},
@@ -359,10 +638,10 @@ func (ts *testSetup) ccipSend(
 }
 
 func (ts *testSetup) createTestRouter(t *testing.T, ccipOwnerParty, partyOwnerParty string) *ledgerv2.SubmitAndWaitResponse {
-	resp, err := ts.commandClient.SubmitAndWait(ts.authCtx(t), &ledgerv2.SubmitAndWaitRequest{
+	resp, err := ts.helper.GetCommandServiceClient().SubmitAndWait(ts.helper.AuthCtx(t.Context()), &ledgerv2.SubmitAndWaitRequest{
 		Commands: &ledgerv2.Commands{
 			CommandId: uuid.New().String(),
-			UserId:    ts.userID,
+			UserId:    ts.helper.GetUserID(),
 			ActAs:     []string{ccipOwnerParty},
 			ReadAs:    []string{ccipOwnerParty},
 			Commands: []*ledgerv2.Command{
@@ -405,50 +684,8 @@ func (ts *testSetup) createTestRouter(t *testing.T, ccipOwnerParty, partyOwnerPa
 	return resp
 }
 
-func (ts *testSetup) listKnownParties(t *testing.T) []*ledgerv2admin.PartyDetails {
-	resp, err := ts.partyMgmtClient.ListKnownParties(ts.authCtx(t), &ledgerv2admin.ListKnownPartiesRequest{})
-	require.NoError(t, err)
-
-	return resp.GetPartyDetails()
-}
-
-func (ts *testSetup) uploadDar(t *testing.T, darPath string) {
-	dar, err := os.ReadFile(darPath)
-	require.NoError(t, err)
-
-	_, err = ts.pkgMgmtClient.UploadDarFile(ts.authCtx(t), &ledgerv2admin.UploadDarFileRequest{
-		DarFile:      dar,
-		SubmissionId: uuid.New().String(),
-	})
-	require.NoError(t, err)
-}
-
-func (ts *testSetup) listKnownPackages(t *testing.T) []*ledgerv2admin.PackageDetails {
-	resp, err := ts.pkgMgmtClient.ListKnownPackages(ts.authCtx(t), &ledgerv2admin.ListKnownPackagesRequest{})
-	require.NoError(t, err)
-
-	return resp.GetPackageDetails()
-}
-
-func (ts *testSetup) authCtx(t *testing.T) context.Context {
-	return metadata.NewOutgoingContext(t.Context(), metadata.Pairs("authorization", fmt.Sprintf("Bearer %s", ts.jwt)))
-}
-
-func newTestSetup(t *testing.T, grpcURL, jwt, userID string) *testSetup {
-	conn, err := grpc.NewClient(grpcURL, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	require.NoError(t, err)
-
-	pmsClient := ledgerv2admin.NewPartyManagementServiceClient(conn)
-	pkgMgmtClient := ledgerv2admin.NewPackageManagementServiceClient(conn)
-	commandClient := ledgerv2.NewCommandServiceClient(conn)
-	updatesClient := ledgerv2.NewUpdateServiceClient(conn)
-
+func newTestSetup(helper *devenvcanton.Helper) *testSetup {
 	return &testSetup{
-		partyMgmtClient: pmsClient,
-		pkgMgmtClient:   pkgMgmtClient,
-		commandClient:   commandClient,
-		updatesClient:   updatesClient,
-		jwt:             jwt,
-		userID:          userID,
+		helper: helper,
 	}
 }

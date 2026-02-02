@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
+	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	executor_operations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
@@ -20,7 +21,7 @@ import (
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 )
 
 func Command() *cobra.Command {
@@ -42,7 +43,7 @@ func Command() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&args.receiverQualifier, "receiver-qualifier", evm.DefaultReceiverQualifier, "Receiver qualifier to use for the mock receiver contract")
+	cmd.Flags().StringVar(&args.receiverQualifier, "receiver-qualifier", devenvcommon.DefaultReceiverQualifier, "Receiver qualifier to use for the mock receiver contract")
 	cmd.Flags().StringVar(&args.receiverAddress, "receiver-address", "", "Receiver address to use, if not provided, will look up the mock receiver contract address from the datastore")
 	cmd.Flags().StringVar(&args.env, "env", "out", "Select environment file to use (e.g., 'staging' for env-staging.toml, defaults to 'out' for env-out.toml)")
 	cmd.Flags().StringVar(&token, "token", "", "Token amounts to send in the format <amount>:<tokenAddress>, e.g., 1000000000000000000:0xTokenAddress")
@@ -79,7 +80,7 @@ func run(args sendArgs) error {
 	}
 
 	l := zerolog.Ctx(ctx)
-	lib, err := ccv.NewLib(l, envFile)
+	lib, err := ccv.NewLib(l, envFile, chain_selectors.FamilyEVM)
 	if err != nil {
 		return fmt.Errorf("no implementation found for source chain selector %d", args.srcSel)
 	}
@@ -149,7 +150,7 @@ func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptest
 			args.srcSel,
 			datastore.ContractType(committee_verifier.ResolverType),
 			semver.MustParse(committee_verifier.Deploy.Version()),
-			evm.DefaultCommitteeVerifierQualifier))
+			devenvcommon.DefaultCommitteeVerifierQualifier))
 	if err != nil {
 		return cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to get committee verifier proxy address: %w", err)
 	}
@@ -158,7 +159,7 @@ func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptest
 			args.srcSel,
 			datastore.ContractType(executor_operations.ProxyType),
 			semver.MustParse(executor_operations.Deploy.Version()),
-			evm.DefaultExecutorQualifier))
+			devenvcommon.DefaultExecutorQualifier))
 	if err != nil {
 		return cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to get executor address: %w", err)
 	}

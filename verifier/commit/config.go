@@ -3,13 +3,20 @@ package commit
 import (
 	"fmt"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
 type ConfigWithBlockchainInfos struct {
 	Config
-	BlockchainInfos map[string]*protocol.BlockchainInfo `toml:"blockchain_infos"`
+	BlockchainInfos map[string]*blockchain.Info `toml:"blockchain_infos"`
+}
+
+// CantonConfig is the configuration required for verifiers that read from Canton.
+type CantonConfig struct {
+	// ReaderConfig is the configuration for the canton source reader.
+	ReaderConfig canton.ReaderConfig `toml:"reader_config"`
 }
 
 type Config struct {
@@ -33,6 +40,8 @@ type Config struct {
 	// RMNRemoteAddresses is a map of RMN Remote contract addresses for each chain selector.
 	// Required for curse detection.
 	RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
+	// CantonConfigs is a map of chain selector to Canton configuration.
+	CantonConfigs map[string]CantonConfig `toml:"canton_configs"`
 	// DisableFinalityCheckers is a list of chain selectors for which the finality violation checker should be disabled.
 	// The chain selectors are formatted as strings of the chain selector.
 	DisableFinalityCheckers []string                  `toml:"disable_finality_checkers"`
@@ -40,49 +49,25 @@ type Config struct {
 }
 
 func (c *Config) Validate() error {
-	// Collect chain selectors as sets (map[string]struct{})
-	onRampSet := make(map[string]struct{})
+	// Compare map lengths first
+	if len(c.OnRampAddresses) != len(c.CommitteeVerifierAddresses) ||
+		len(c.OnRampAddresses) != len(c.RMNRemoteAddresses) {
+		return fmt.Errorf(
+			"invalid verifier configuration, mismatched lengths for onramp (%d), committee verifier (%d), and RMN Remote addresses (%d)",
+			len(c.OnRampAddresses),
+			len(c.CommitteeVerifierAddresses),
+			len(c.RMNRemoteAddresses),
+		)
+	}
+
+	// Compare map keys (they should all be equal)
+	// Since lengths are equal, checking if all keys from one map exist in the others is sufficient.
 	for k := range c.OnRampAddresses {
-		onRampSet[k] = struct{}{}
-	}
-	committeeVerifierSet := make(map[string]struct{})
-	for k := range c.CommitteeVerifierAddresses {
-		committeeVerifierSet[k] = struct{}{}
-	}
-	rmnRemoteSet := make(map[string]struct{})
-	for k := range c.RMNRemoteAddresses {
-		rmnRemoteSet[k] = struct{}{}
-	}
-
-	// Compare set lengths first
-	if len(onRampSet) != len(committeeVerifierSet) ||
-		len(onRampSet) != len(rmnRemoteSet) {
-		return fmt.Errorf("invalid verifier configuration, mismatched chain selectors for onramp, committee verifier, and RMN Remote addresses")
-	}
-
-	// Compare set values (they should all be equal)
-	for k := range onRampSet {
-		if _, ok := committeeVerifierSet[k]; !ok {
+		if _, ok := c.CommitteeVerifierAddresses[k]; !ok {
 			return fmt.Errorf("invalid verifier configuration, chain selector in onramp (%s) not in committee verifier addresses", k)
 		}
-		if _, ok := rmnRemoteSet[k]; !ok {
+		if _, ok := c.RMNRemoteAddresses[k]; !ok {
 			return fmt.Errorf("invalid verifier configuration, chain selector in onramp (%s) not in RMN Remote addresses", k)
-		}
-	}
-	for k := range committeeVerifierSet {
-		if _, ok := onRampSet[k]; !ok {
-			return fmt.Errorf("invalid verifier configuration, chain selector in committee verifier (%s) not in onramp addresses", k)
-		}
-		if _, ok := rmnRemoteSet[k]; !ok {
-			return fmt.Errorf("invalid verifier configuration, chain selector in committee verifier (%s) not in RMN Remote addresses", k)
-		}
-	}
-	for k := range rmnRemoteSet {
-		if _, ok := onRampSet[k]; !ok {
-			return fmt.Errorf("invalid verifier configuration, chain selector in RMN Remote (%s) not in onramp addresses", k)
-		}
-		if _, ok := committeeVerifierSet[k]; !ok {
-			return fmt.Errorf("invalid verifier configuration, chain selector in RMN Remote (%s) not in committee verifier addresses", k)
 		}
 	}
 

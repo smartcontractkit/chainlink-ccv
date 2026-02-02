@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -134,6 +135,7 @@ func NewVerificationCoordinator(
 		StorageBatchSize:    50,
 		StorageBatchTimeout: 100 * time.Millisecond,
 		StorageRetryDelay:   2 * time.Second,
+		HeartbeatInterval:   0, // Disabled by default
 	}
 
 	// Create commit verifier (with ECDSA signer)
@@ -161,6 +163,7 @@ func NewVerificationCoordinator(
 		messageTracker,
 		verifierMonitoring,
 		chainStatusManager,
+		heartbeatclient.NewNoopHeartbeatClient(),
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

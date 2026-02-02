@@ -334,22 +334,20 @@ paths:
               type: integer
             nullable: true
             type: array
-        - description: Start timestamp (in milliseconds) to filter results by. If not provided, defaults to 0.
+        - description: "Start time used to filter results. If not provided, results start from the beginning. Accepted formats: RFC3339, unix epoch time (in milliseconds)."
           explode: false
           in: query
           name: start
           schema:
-            description: Start timestamp (in milliseconds) to filter results by. If not provided, defaults to 0.
-            format: int64
-            type: integer
-        - description: End timestamp (in milliseconds) to filter results by. If not provided, defaults to the current time.
+            description: "Start time used to filter results. If not provided, results start from the beginning. Accepted formats: RFC3339, unix epoch time (in milliseconds)."
+            type: string
+        - description: "End time used to filter results. If not provided, the current server time is used. Accepted formats: RFC3339, unix epoch time (in milliseconds)."
           explode: false
           in: query
           name: end
           schema:
-            description: End timestamp (in milliseconds) to filter results by. If not provided, defaults to the current time.
-            format: int64
-            type: integer
+            description: "End time used to filter results. If not provided, the current server time is used. Accepted formats: RFC3339, unix epoch time (in milliseconds)."
+            type: string
         - description: Maximum number of results to return. If not provided, defaults to 100.
           explode: false
           in: query
@@ -423,22 +421,20 @@ paths:
               type: integer
             nullable: true
             type: array
-        - description: Start timestamp (in milliseconds) to filter results by. If not provided, defaults to 0.
+        - description: "Start time used to filter results. If not provided, results start from the beginning. Accepted formats: RFC3339, unix epoch time (in milliseconds)."
           explode: false
           in: query
           name: start
           schema:
-            description: Start timestamp (in milliseconds) to filter results by. If not provided, defaults to 0.
-            format: int64
-            type: integer
-        - description: End timestamp (in milliseconds) to filter results by. If not provided, defaults to the current time.
+            description: "Start time used to filter results. If not provided, results start from the beginning. Accepted formats: RFC3339, unix epoch time (in milliseconds)."
+            type: string
+        - description: "End time used to filter results. If not provided, the current server time is used. Accepted formats: RFC3339, unix epoch time (in milliseconds)."
           explode: false
           in: query
           name: end
           schema:
-            description: End timestamp (in milliseconds) to filter results by. If not provided, defaults to the current time.
-            format: int64
-            type: integer
+            description: "End time used to filter results. If not provided, the current server time is used. Accepted formats: RFC3339, unix epoch time (in milliseconds)."
+            type: string
         - description: Maximum number of results to return. If not provided, defaults to 100.
           explode: false
           in: query

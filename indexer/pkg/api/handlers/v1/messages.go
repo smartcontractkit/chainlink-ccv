@@ -35,8 +35,7 @@ func NewMessagesHandler(storage common.IndexerStorage, lggr logger.Logger, monit
 
 func (h *MessagesHandler) Handle(c *gin.Context) {
 	req := MessagesInput{
-		Start:                0,
-		End:                  time.Now().UnixMilli(),
+		End:                  time.Now().Format(time.RFC3339),
 		SourceChainSelectors: []protocol.ChainSelector{},
 		DestChainSelectors:   []protocol.ChainSelector{},
 		Limit:                100,
@@ -61,7 +60,18 @@ func (h *MessagesHandler) Handle(c *gin.Context) {
 	req.SourceChainSelectors = sourceChainSelectors
 	req.DestChainSelectors = destChainSelectors
 
-	messages, err := h.storage.QueryMessages(c.Request.Context(), req.Start, req.End, req.SourceChainSelectors, req.DestChainSelectors, req.Limit, req.Offset)
+	startTime, err := parseTime(req.Start)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, makeErrorResponse(http.StatusBadRequest, fmt.Sprintf("bad start time: %s", err.Error())))
+		return
+	}
+	endTime, err := parseTime(req.End)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, makeErrorResponse(http.StatusBadRequest, fmt.Sprintf("bad end time: %s", err.Error())))
+		return
+	}
+
+	messages, err := h.storage.QueryMessages(c.Request.Context(), startTime, endTime, req.SourceChainSelectors, req.DestChainSelectors, req.Limit, req.Offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, makeErrorResponse(http.StatusInternalServerError, err.Error()))
 		return

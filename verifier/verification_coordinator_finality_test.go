@@ -11,10 +11,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 const (
@@ -165,11 +167,7 @@ func TestFinality_CustomFinality(t *testing.T) {
 func TestFinality_WaitingForFinality(t *testing.T) {
 	setup := initializeCoordinator(t, "test-finality-coordinator")
 
-	// Use a context with timeout to prevent hanging forever
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	err := setup.coordinator.Start(ctx)
+	err := setup.coordinator.Start(t.Context())
 	require.NoError(t, err)
 	defer func() {
 		// Ensure coordinator is stopped and all goroutines are cleaned up
@@ -224,16 +222,14 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 	}
 
 	// Send message with timeout
-	select {
-	case setup.sentEventsCh <- nonFinalizedEvent:
-		// Successfully sent
-	case <-ctx.Done():
-		t.Fatal("Timeout sending event to verification channel")
-	}
-
-	// Wait for task to be added to finality queue (poll interval is 50ms)
-	// Give it enough time to be picked up but not processed
-	time.Sleep(150 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		select {
+		case setup.sentEventsCh <- nonFinalizedEvent:
+			return true
+		case <-t.Context().Done():
+			return false
+		}
+	}, tests.WaitTimeout(t), 50*time.Millisecond, "Failed to send event to verification channel")
 
 	// Should NOT have processed the non-finalized message yet
 	processedCount := setup.mockVerifier.GetProcessedTaskCount()
@@ -241,30 +237,9 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 
 	// Update the shared variable to simulate finalized block advancing
 	setup.setFinalizedBlock(uint64(nonFinalizedBlock))
-	// TODO: This is a hack because the mock doesn't keep on returning the event if it's within range once it's sent to channel.
-	//  This is purely a mock limitation.
-	select {
-	case setup.sentEventsCh <- nonFinalizedEvent:
-		// Successfully sent
-	case <-ctx.Done():
-		t.Fatal("Timeout sending event to verification channel")
-	}
-
-	// Poll until message is processed or timeout
-	deadline := time.Now().Add(2 * time.Second)
-	processed := false
-	for time.Now().Before(deadline) {
-		time.Sleep(20 * time.Millisecond)
-		if setup.mockVerifier.GetProcessedTaskCount() == 1 {
-			processed = true
-			break
-		}
-	}
-
-	// Should have processed the now-finalized message
-	require.True(t, processed, "Message should have been processed after finality reached")
-	processedCount = setup.mockVerifier.GetProcessedTaskCount()
-	require.Equal(t, 1, processedCount, "Should have processed exactly 1 message")
+	require.Eventually(t, func() bool {
+		return setup.mockVerifier.GetProcessedTaskCount() == 1
+	}, tests.WaitTimeout(t), 50*time.Millisecond, "Message should have been processed after finality reached")
 }
 
 type coordinatorTestSetup struct {
@@ -355,6 +330,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		&NoopLatencyTracker{},
 		&noopMonitoring{},
 		mockChainStatusManager,
+		heartbeatclient.NewNoopHeartbeatClient(),
 	)
 	require.NoError(t, err)
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"testing"
@@ -124,14 +125,15 @@ func TestSourceReader_GetBlocksHeaders(t *testing.T) {
 }
 
 func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
+	ccipOwner := "owner-party"
+	templateID := &ledgerv2.Identifier{
+		PackageId:  "pkg",
+		ModuleName: "CCIP",
+		EntityName: "CCIPMessageSent",
+	}
+	templateIDStr := fmt.Sprintf("%s:%s:%s", templateID.PackageId, templateID.ModuleName, templateID.EntityName)
 	t.Run("returns parsed events from updates stream", func(t *testing.T) {
 		ctx := context.Background()
-		ccipOwner := "owner-party"
-		templateID := &ledgerv2.Identifier{
-			PackageId:  "pkg",
-			ModuleName: "CCIP",
-			EntityName: "CCIPMessageSent",
-		}
 
 		msg, err := protocol.NewMessage(
 			protocol.ChainSelector(1),
@@ -195,6 +197,14 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 												},
 											},
 										},
+										{
+											Label: ccipMessageSentEventReceiptsLabel,
+											Value: &ledgerv2.Value{
+												Sum: &ledgerv2.Value_List{
+													List: &ledgerv2.List{Elements: []*ledgerv2.Value{}},
+												},
+											},
+										},
 									},
 								},
 							},
@@ -241,10 +251,12 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 		).Return(stream, nil)
 
 		reader := &sourceReader{
-			updateServiceClient:       updateClient,
-			jwt:                       "token",
-			ccipOwnerParty:            ccipOwner,
-			ccipMessageSentTemplateID: templateID,
+			updateServiceClient: updateClient,
+			jwt:                 "token",
+			config: ReaderConfig{
+				CCIPOwnerParty:            ccipOwner,
+				CCIPMessageSentTemplateID: templateIDStr,
+			},
 		}
 
 		events, err := reader.FetchMessageSentEvents(ctx, big.NewInt(1), big.NewInt(5))
@@ -260,12 +272,6 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 
 	t.Run("ignores event when ccipOwner does not match", func(t *testing.T) {
 		ctx := context.Background()
-		ccipOwner := "owner-party"
-		templateID := &ledgerv2.Identifier{
-			PackageId:  "pkg",
-			ModuleName: "CCIP",
-			EntityName: "CCIPMessageSent",
-		}
 
 		msg, err := protocol.NewMessage(
 			protocol.ChainSelector(1),
@@ -329,6 +335,14 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 												},
 											},
 										},
+										{
+											Label: ccipMessageSentEventReceiptsLabel,
+											Value: &ledgerv2.Value{
+												Sum: &ledgerv2.Value_List{
+													List: &ledgerv2.List{Elements: []*ledgerv2.Value{}},
+												},
+											},
+										},
 									},
 								},
 							},
@@ -360,10 +374,12 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 		).Return(stream, nil)
 
 		reader := &sourceReader{
-			updateServiceClient:       updateClient,
-			jwt:                       "token",
-			ccipOwnerParty:            ccipOwner,
-			ccipMessageSentTemplateID: templateID,
+			updateServiceClient: updateClient,
+			jwt:                 "token",
+			config: ReaderConfig{
+				CCIPOwnerParty:            ccipOwner,
+				CCIPMessageSentTemplateID: templateIDStr,
+			},
 		}
 
 		events, err := reader.FetchMessageSentEvents(ctx, big.NewInt(1), big.NewInt(5))
@@ -387,6 +403,10 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 		reader := &sourceReader{
 			updateServiceClient: updateClient,
 			jwt:                 "token",
+			config: ReaderConfig{
+				CCIPOwnerParty:            ccipOwner,
+				CCIPMessageSentTemplateID: templateIDStr,
+			},
 		}
 
 		_, err := reader.FetchMessageSentEvents(ctx, big.NewInt(1), big.NewInt(2))
@@ -415,11 +435,417 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 		reader := &sourceReader{
 			updateServiceClient: updateClient,
 			jwt:                 "token",
+			config: ReaderConfig{
+				CCIPOwnerParty:            ccipOwner,
+				CCIPMessageSentTemplateID: templateIDStr,
+			},
 		}
 
 		events, err := reader.FetchMessageSentEvents(ctx, big.NewInt(0), big.NewInt(2))
 		require.NoError(t, err)
 		require.Empty(t, events)
+	})
+
+	t.Run("parses events with verifier blobs and receipts", func(t *testing.T) {
+		ctx := context.Background()
+
+		msg, err := protocol.NewMessage(
+			protocol.ChainSelector(1),
+			protocol.ChainSelector(2),
+			protocol.SequenceNumber(7),
+			protocol.UnknownAddress{0x01},
+			protocol.UnknownAddress{0x02},
+			1,
+			100,
+			200,
+			protocol.Bytes32{},
+			protocol.UnknownAddress{0x03},
+			protocol.UnknownAddress{0x04},
+			[]byte{0xAA},
+			[]byte{0xBB},
+			nil,
+		)
+		require.NoError(t, err)
+
+		encodedMsg, err := msg.Encode()
+		require.NoError(t, err)
+		msgID := msg.MustMessageID()
+		msgIDHex := hex.EncodeToString(msgID[:])
+		encodedMsgHex := hex.EncodeToString(encodedMsg)
+
+		verifierBlobHex := "deadbeef"
+		extraArgsHex := "cafebabe"
+
+		created := &ledgerv2.CreatedEvent{
+			TemplateId: templateID,
+			CreateArguments: &ledgerv2.Record{
+				Fields: []*ledgerv2.RecordField{
+					{
+						Label: ccipMessageSentCCIPOwnerLabel,
+						Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Party{Party: ccipOwner}},
+					},
+					{
+						Label: ccipMessageSentEventLabel,
+						Value: &ledgerv2.Value{
+							Sum: &ledgerv2.Value_Record{
+								Record: &ledgerv2.Record{
+									Fields: []*ledgerv2.RecordField{
+										{
+											Label: ccipMessageSentEventDestChainSelectorLabel,
+											Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Int64{Int64: 2}},
+										},
+										{
+											Label: ccipMessageSentEventSequenceNumberLabel,
+											Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Int64{Int64: 7}},
+										},
+										{
+											Label: ccipMessageSentEventMessageIDLabel,
+											Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Text{Text: msgIDHex}},
+										},
+										{
+											Label: ccipMessageSentEventEncodedMessageLabel,
+											Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Text{Text: encodedMsgHex}},
+										},
+										{
+											Label: ccipMessageSentEventVerifierBlobsLabel,
+											Value: &ledgerv2.Value{
+												Sum: &ledgerv2.Value_List{
+													List: &ledgerv2.List{Elements: []*ledgerv2.Value{
+														{Sum: &ledgerv2.Value_Text{Text: verifierBlobHex}},
+													}},
+												},
+											},
+										},
+										{
+											Label: ccipMessageSentEventReceiptsLabel,
+											Value: &ledgerv2.Value{
+												Sum: &ledgerv2.Value_List{
+													List: &ledgerv2.List{Elements: []*ledgerv2.Value{
+														// First receipt - has corresponding verifier blob
+														{Sum: &ledgerv2.Value_Record{Record: &ledgerv2.Record{
+															Fields: []*ledgerv2.RecordField{
+																{Label: ccipMessageSentEventReceiptIssuerLabel, Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Text{Text: "issuer1"}}},
+																{Label: ccipMessageSentEventReceiptDestGasLimitLabel, Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Int64{Int64: 100000}}},
+																{Label: ccipMessageSentEventReceiptDestBytesOverheadLabel, Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Int64{Int64: 500}}},
+																{Label: ccipMessageSentEventReceiptFeeTokenAmountLabel, Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Numeric{Numeric: "1000000."}}},
+																{Label: ccipMessageSentEventReceiptExtraArgsLabel, Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Text{Text: extraArgsHex}}},
+															},
+														}}},
+														// Second receipt - no verifier blob (e.g., network fee receipt)
+														{Sum: &ledgerv2.Value_Record{Record: &ledgerv2.Record{
+															Fields: []*ledgerv2.RecordField{
+																{Label: ccipMessageSentEventReceiptIssuerLabel, Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Text{Text: "network"}}},
+																{Label: ccipMessageSentEventReceiptDestGasLimitLabel, Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Int64{Int64: 0}}},
+																{Label: ccipMessageSentEventReceiptDestBytesOverheadLabel, Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Int64{Int64: 0}}},
+																{Label: ccipMessageSentEventReceiptFeeTokenAmountLabel, Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Numeric{Numeric: "500000."}}},
+																{Label: ccipMessageSentEventReceiptExtraArgsLabel, Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Text{Text: ""}}},
+															},
+														}}},
+													}},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		tx := &ledgerv2.Transaction{
+			UpdateId: "0xdeadbeef",
+			Offset:   10,
+			Events: []*ledgerv2.Event{
+				{Event: &ledgerv2.Event_Created{Created: created}},
+			},
+		}
+
+		stream := &fakeUpdateStream{
+			ctx: ctx,
+			responses: []*ledgerv2.GetUpdatesResponse{
+				{Update: &ledgerv2.GetUpdatesResponse_Transaction{Transaction: tx}},
+			},
+		}
+
+		updateClient := mocks.NewMockUpdateServiceClient(t)
+		updateClient.EXPECT().GetUpdates(mock.Anything, mock.Anything).Return(stream, nil)
+
+		reader := &sourceReader{
+			updateServiceClient: updateClient,
+			jwt:                 "token",
+			config: ReaderConfig{
+				CCIPOwnerParty:            ccipOwner,
+				CCIPMessageSentTemplateID: templateIDStr,
+			},
+		}
+
+		events, err := reader.FetchMessageSentEvents(ctx, big.NewInt(1), big.NewInt(5))
+		require.NoError(t, err)
+		require.Len(t, events, 1)
+		require.Equal(t, msg.MustMessageID(), events[0].MessageID)
+
+		// Assert receipts were properly parsed
+		require.Len(t, events[0].Receipts, 2)
+
+		// First receipt - should have verifier blob populated
+		receipt1 := events[0].Receipts[0]
+		require.Equal(t, protocol.UnknownAddress([]byte("issuer1")), receipt1.Issuer)
+		require.Equal(t, uint64(100000), receipt1.DestGasLimit)
+		require.Equal(t, uint32(500), receipt1.DestBytesOverhead)
+		require.Equal(t, big.NewInt(1000000), receipt1.FeeTokenAmount)
+		expectedExtraArgs, _ := hex.DecodeString(extraArgsHex)
+		require.Equal(t, protocol.ByteSlice(expectedExtraArgs), receipt1.ExtraArgs)
+		expectedBlob, _ := hex.DecodeString(verifierBlobHex)
+		require.Equal(t, protocol.ByteSlice(expectedBlob), receipt1.Blob)
+
+		// Second receipt - no verifier blob (network fee receipt)
+		receipt2 := events[0].Receipts[1]
+		require.Equal(t, protocol.UnknownAddress([]byte("network")), receipt2.Issuer)
+		require.Equal(t, uint64(0), receipt2.DestGasLimit)
+		require.Equal(t, uint32(0), receipt2.DestBytesOverhead)
+		require.Equal(t, big.NewInt(500000), receipt2.FeeTokenAmount)
+		require.Empty(t, receipt2.ExtraArgs)
+		require.Nil(t, receipt2.Blob) // No corresponding verifier blob
+	})
+
+	t.Run("returns error when receipts fewer than verifier blobs", func(t *testing.T) {
+		ctx := context.Background()
+
+		msg, err := protocol.NewMessage(
+			protocol.ChainSelector(1),
+			protocol.ChainSelector(2),
+			protocol.SequenceNumber(7),
+			protocol.UnknownAddress{0x01},
+			protocol.UnknownAddress{0x02},
+			1,
+			100,
+			200,
+			protocol.Bytes32{},
+			protocol.UnknownAddress{0x03},
+			protocol.UnknownAddress{0x04},
+			[]byte{0xAA},
+			[]byte{0xBB},
+			nil,
+		)
+		require.NoError(t, err)
+
+		encodedMsg, err := msg.Encode()
+		require.NoError(t, err)
+		msgID := msg.MustMessageID()
+		msgIDHex := hex.EncodeToString(msgID[:])
+		encodedMsgHex := hex.EncodeToString(encodedMsg)
+
+		// Two verifier blobs but zero receipts - should fail
+		created := &ledgerv2.CreatedEvent{
+			TemplateId: templateID,
+			CreateArguments: &ledgerv2.Record{
+				Fields: []*ledgerv2.RecordField{
+					{
+						Label: ccipMessageSentCCIPOwnerLabel,
+						Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Party{Party: ccipOwner}},
+					},
+					{
+						Label: ccipMessageSentEventLabel,
+						Value: &ledgerv2.Value{
+							Sum: &ledgerv2.Value_Record{
+								Record: &ledgerv2.Record{
+									Fields: []*ledgerv2.RecordField{
+										{
+											Label: ccipMessageSentEventDestChainSelectorLabel,
+											Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Int64{Int64: 2}},
+										},
+										{
+											Label: ccipMessageSentEventSequenceNumberLabel,
+											Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Int64{Int64: 7}},
+										},
+										{
+											Label: ccipMessageSentEventMessageIDLabel,
+											Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Text{Text: msgIDHex}},
+										},
+										{
+											Label: ccipMessageSentEventEncodedMessageLabel,
+											Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Text{Text: encodedMsgHex}},
+										},
+										{
+											Label: ccipMessageSentEventVerifierBlobsLabel,
+											Value: &ledgerv2.Value{
+												Sum: &ledgerv2.Value_List{
+													List: &ledgerv2.List{Elements: []*ledgerv2.Value{
+														{Sum: &ledgerv2.Value_Text{Text: "deadbeef"}},
+														{Sum: &ledgerv2.Value_Text{Text: "cafebabe"}},
+													}},
+												},
+											},
+										},
+										{
+											Label: ccipMessageSentEventReceiptsLabel,
+											Value: &ledgerv2.Value{
+												Sum: &ledgerv2.Value_List{
+													List: &ledgerv2.List{Elements: []*ledgerv2.Value{}},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		tx := &ledgerv2.Transaction{
+			UpdateId: "0xdeadbeef",
+			Offset:   10,
+			Events: []*ledgerv2.Event{
+				{Event: &ledgerv2.Event_Created{Created: created}},
+			},
+		}
+
+		stream := &fakeUpdateStream{
+			ctx: ctx,
+			responses: []*ledgerv2.GetUpdatesResponse{
+				{Update: &ledgerv2.GetUpdatesResponse_Transaction{Transaction: tx}},
+			},
+		}
+
+		updateClient := mocks.NewMockUpdateServiceClient(t)
+		updateClient.EXPECT().GetUpdates(mock.Anything, mock.Anything).Return(stream, nil)
+
+		reader := &sourceReader{
+			updateServiceClient: updateClient,
+			jwt:                 "token",
+			config: ReaderConfig{
+				CCIPOwnerParty:            ccipOwner,
+				CCIPMessageSentTemplateID: templateIDStr,
+			},
+		}
+
+		_, err = reader.FetchMessageSentEvents(ctx, big.NewInt(1), big.NewInt(5))
+		require.Error(t, err)
+		require.ErrorContains(t, err, "expected more receipts than verifier blobs")
+	})
+
+	t.Run("returns error on unknown receipt field", func(t *testing.T) {
+		ctx := context.Background()
+
+		msg, err := protocol.NewMessage(
+			protocol.ChainSelector(1),
+			protocol.ChainSelector(2),
+			protocol.SequenceNumber(7),
+			protocol.UnknownAddress{0x01},
+			protocol.UnknownAddress{0x02},
+			1,
+			100,
+			200,
+			protocol.Bytes32{},
+			protocol.UnknownAddress{0x03},
+			protocol.UnknownAddress{0x04},
+			[]byte{0xAA},
+			[]byte{0xBB},
+			nil,
+		)
+		require.NoError(t, err)
+
+		encodedMsg, err := msg.Encode()
+		require.NoError(t, err)
+		msgID := msg.MustMessageID()
+		msgIDHex := hex.EncodeToString(msgID[:])
+		encodedMsgHex := hex.EncodeToString(encodedMsg)
+
+		created := &ledgerv2.CreatedEvent{
+			TemplateId: templateID,
+			CreateArguments: &ledgerv2.Record{
+				Fields: []*ledgerv2.RecordField{
+					{
+						Label: ccipMessageSentCCIPOwnerLabel,
+						Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Party{Party: ccipOwner}},
+					},
+					{
+						Label: ccipMessageSentEventLabel,
+						Value: &ledgerv2.Value{
+							Sum: &ledgerv2.Value_Record{
+								Record: &ledgerv2.Record{
+									Fields: []*ledgerv2.RecordField{
+										{
+											Label: ccipMessageSentEventDestChainSelectorLabel,
+											Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Int64{Int64: 2}},
+										},
+										{
+											Label: ccipMessageSentEventSequenceNumberLabel,
+											Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Int64{Int64: 7}},
+										},
+										{
+											Label: ccipMessageSentEventMessageIDLabel,
+											Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Text{Text: msgIDHex}},
+										},
+										{
+											Label: ccipMessageSentEventEncodedMessageLabel,
+											Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Text{Text: encodedMsgHex}},
+										},
+										{
+											Label: ccipMessageSentEventVerifierBlobsLabel,
+											Value: &ledgerv2.Value{
+												Sum: &ledgerv2.Value_List{
+													List: &ledgerv2.List{Elements: []*ledgerv2.Value{}},
+												},
+											},
+										},
+										{
+											Label: ccipMessageSentEventReceiptsLabel,
+											Value: &ledgerv2.Value{
+												Sum: &ledgerv2.Value_List{
+													List: &ledgerv2.List{Elements: []*ledgerv2.Value{
+														{Sum: &ledgerv2.Value_Record{Record: &ledgerv2.Record{
+															Fields: []*ledgerv2.RecordField{
+																{Label: "unknownField", Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Text{Text: "value"}}},
+															},
+														}}},
+													}},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		tx := &ledgerv2.Transaction{
+			UpdateId: "0xdeadbeef",
+			Offset:   10,
+			Events: []*ledgerv2.Event{
+				{Event: &ledgerv2.Event_Created{Created: created}},
+			},
+		}
+
+		stream := &fakeUpdateStream{
+			ctx: ctx,
+			responses: []*ledgerv2.GetUpdatesResponse{
+				{Update: &ledgerv2.GetUpdatesResponse_Transaction{Transaction: tx}},
+			},
+		}
+
+		updateClient := mocks.NewMockUpdateServiceClient(t)
+		updateClient.EXPECT().GetUpdates(mock.Anything, mock.Anything).Return(stream, nil)
+
+		reader := &sourceReader{
+			updateServiceClient: updateClient,
+			jwt:                 "token",
+			config: ReaderConfig{
+				CCIPOwnerParty:            ccipOwner,
+				CCIPMessageSentTemplateID: templateIDStr,
+			},
+		}
+
+		_, err = reader.FetchMessageSentEvents(ctx, big.NewInt(1), big.NewInt(5))
+		require.Error(t, err)
+		require.ErrorContains(t, err, "unknown receipt field")
 	})
 }
 

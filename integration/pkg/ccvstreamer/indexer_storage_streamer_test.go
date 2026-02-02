@@ -11,6 +11,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 func TestNoReader(t *testing.T) {
@@ -48,13 +49,8 @@ func TestOffchainStorageStreamerLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, oss.IsRunning())
 
-	deadline, ok := t.Deadline()
-	if !ok {
-		deadline = time.Now().Add(10 * time.Second)
-	}
-	waitTimeout := time.Until(deadline)
 	cancel()
 	require.Eventually(t, func() bool {
 		return !oss.IsRunning()
-	}, waitTimeout, 50*time.Millisecond)
+	}, tests.WaitTimeout(t), 50*time.Millisecond)
 }

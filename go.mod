@@ -2,7 +2,7 @@ module github.com/smartcontractkit/chainlink-ccv
 
 go 1.25.5
 
-replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlink-tron/relayer/gotron-sdk v0.0.5-0.20250528121202-292529af39df
+replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlink-tron/relayer/gotron-sdk v0.0.5-0.20251014124537-af6b1684fe15
 
 replace (
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
@@ -24,8 +24,8 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pressly/goose/v3 v3.26.0
 	github.com/prometheus/client_golang v1.23.0
-	github.com/smartcontractkit/chain-selectors v1.0.89
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260126141111-2fe53a13a75d
+	github.com/smartcontractkit/chain-selectors v1.0.90
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260202123737-1804cbfd70dd
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20260114190811-74301cd99dc3
 	github.com/smartcontractkit/chainlink-evm v0.3.4-0.20260115212037-5e3a1db0e079
 	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20251222115927-36a18321243c // indirect
@@ -257,7 +257,6 @@ require (
 	github.com/shirou/gopsutil/v4 v4.25.9 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
-	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20260126141111-2fe53a13a75d // indirect
 	github.com/smartcontractkit/chainlink-common/pkg/chipingress v0.0.10 // indirect
 	github.com/smartcontractkit/chainlink-framework/metrics v0.0.0-20251020150604-8ab84f7bad1a // indirect
 	github.com/smartcontractkit/chainlink-framework/multinode v0.0.0-20251021173435-e86785845942 // indirect

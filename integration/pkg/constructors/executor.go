@@ -19,6 +19,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
@@ -82,8 +83,8 @@ func NewExecutorCoordinator(
 		return nil, fmt.Errorf("failed to initialize executor monitoring: %w", err)
 	}
 
-	transmitters := make(map[protocol.ChainSelector]executor.ContractTransmitter)
-	destReaders := make(map[protocol.ChainSelector]executor.DestinationReader)
+	transmitters := make(map[protocol.ChainSelector]chainaccess.ContractTransmitter)
+	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
 	rmnReaders := make(map[protocol.ChainSelector]ccvcommon.RMNRemoteReader)
 	for sel, chain := range relayers {
 		if _, ok := offRampAddresses[sel]; !ok {

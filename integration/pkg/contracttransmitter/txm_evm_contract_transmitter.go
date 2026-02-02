@@ -7,7 +7,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
-	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/keys"
@@ -18,8 +18,8 @@ import (
 )
 
 var (
-	_          executor.ContractTransmitter = &TXMEVMContractTransmitter{}
-	offrampABI                              = evmtypes.MustGetABI(offramp.OffRampABI)
+	_          chainaccess.ContractTransmitter = &TXMEVMContractTransmitter{}
+	offrampABI                                 = evmtypes.MustGetABI(offramp.OffRampABI)
 )
 
 type TXMEVMContractTransmitter struct {
@@ -42,7 +42,7 @@ func NewEVMContractTransmitterFromTxm(lggr logger.Logger, chainSelector protocol
 	}
 }
 
-func (ct *TXMEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Context, report executor.AbstractAggregatedReport) error {
+func (ct *TXMEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Context, report protocol.AbstractAggregatedReport) error {
 	encodedMsg, _ := report.Message.Encode()
 	contractCcvs := make([]common.Address, 0)
 	for _, ccv := range report.CCVS {
