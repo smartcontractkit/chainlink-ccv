@@ -57,7 +57,7 @@ func (m *CCIP17EVMConfig) deployUSDCTokenAndPool(
 		}
 	}
 
-	err = m.deployCCTPChain(env, registry, ds, create2Factory, selector, messenger, usdc, remoteSelectors)
+	err = m.deployCCTPChain(env, registry, ds, create2Factory, selector, messenger, usdc)
 	if err != nil {
 		return err
 	}
@@ -127,7 +127,6 @@ func (m *CCIP17EVMConfig) deployCCTPChain(
 	selector uint64,
 	messenger gethcommon.Address,
 	usdc gethcommon.Address,
-	remoteSelectors []uint64,
 ) error {
 	cctpChainRegistry := adapters.NewCCTPChainRegistry()
 	cctpChainRegistry.RegisterCCTPChain("evm", &evmadapters.CCTPChainAdapter{})
@@ -138,7 +137,6 @@ func (m *CCIP17EVMConfig) deployCCTPChain(
 				TokenMessenger:   messenger.Hex(),
 				USDCToken:        usdc.Hex(),
 				StorageLocations: []string{"https://test.chain.link.fake"},
-				FeeAggregator:    gethcommon.HexToAddress("0x04").Hex(),
 				FastFinalityBps:  100,
 				DeployerContract: create2Factory.Address,
 			},

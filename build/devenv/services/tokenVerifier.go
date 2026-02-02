@@ -20,6 +20,7 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/lombard_verifier"
 	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 
@@ -334,7 +335,7 @@ func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blo
 			ver.CCTPVerifierResolverAddresses[selectorStr] = cctpTokenVerifierResolverAddressRef.Address
 		}
 
-		cctpTokenAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+		cctpTokenVerifierAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
 			networkInfo.ChainSelector,
 			datastore.ContractType(cctp_verifier.ContractType),
 			semver.MustParse(cctp_verifier.Deploy.Version()),
@@ -345,7 +346,21 @@ func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blo
 				Str("chainID", chain.ChainID).
 				Msg("Failed to get CCTP Verifier address from datastore")
 		} else {
-			ver.CCTPVerifierAddresses[selectorStr] = cctpTokenAddressRef.Address
+			ver.CCTPVerifierAddresses[selectorStr] = cctpTokenVerifierAddressRef.Address
+		}
+
+		lombardTokenVerifier, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+			networkInfo.ChainSelector,
+			datastore.ContractType(lombard_verifier.ContractType),
+			semver.MustParse(lombard_verifier.Deploy.Version()),
+			devenvcommon.CCTPContractsQualifier,
+		))
+		if err != nil {
+			framework.L.Info().
+				Str("chainID", chain.ChainID).
+				Msg("Failed to get Lombard Verifier address from datastore")
+		} else {
+			ver.LombardVerifierAddresses[selectorStr] = lombardTokenVerifier.Address
 		}
 
 		onRampAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
