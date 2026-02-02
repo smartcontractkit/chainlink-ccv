@@ -21,9 +21,7 @@ import (
 	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
 )
 
-const (
-	LombardContractsQualifier = "lombard"
-)
+var LombardContractsQualifier = "Lombard"
 
 func (m *CCIP17EVMConfig) deployLombardTokenAndPool(
 	env *deployment.Environment,
@@ -65,6 +63,7 @@ func (m *CCIP17EVMConfig) deployLombardContracts(
 			Name:   "LBTC",
 			Symbol: "LBTC",
 		},
+		Qualifier: &LombardContractsQualifier,
 	})
 	if err != nil {
 		return empty, empty, fmt.Errorf("failed to deploy lombard burn mint token on chain %s: %w", chain, err)
@@ -87,7 +86,7 @@ func (m *CCIP17EVMConfig) deployLombardContracts(
 	err = ds.Addresses().Add(datastore.AddressRef{
 		ChainSelector: selector,
 		Type:          "MockLombardBridge",
-		Version:       semver.MustParse("1.0.0"),
+		Version:       semver.MustParse("1.7.0"),
 		Address:       lombardBridgeAddr.Hex(),
 		Qualifier:     LombardContractsQualifier,
 	})
