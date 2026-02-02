@@ -77,6 +77,7 @@ require (
 	github.com/smartcontractkit/chainlink/v2 v2.29.0 // indirect
 	github.com/sony/gobreaker/v2 v2.1.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
+	github.com/stellar/go-stellar-sdk v0.1.0 // indirect
 	github.com/tjhop/slog-gokit v0.1.4 // indirect
 	github.com/vektah/gqlparser/v2 v2.5.14 // indirect
 	go.opentelemetry.io/collector/confmap v1.30.0 // indirect

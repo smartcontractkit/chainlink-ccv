@@ -241,6 +241,7 @@ require (
 	github.com/smartcontractkit/libocr v0.0.0-20250912173940-f3ab0246e23d // indirect
 	github.com/smartcontractkit/mcms v0.31.1 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
+	github.com/stellar/go-stellar-sdk v0.1.0 // indirect
 	github.com/stephenlacy/go-ethereum-hdwallet v0.0.0-20230913225845-a4fa94429863 // indirect
 	github.com/streamingfast/logging v0.0.0-20230608130331-f22c91403091 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
