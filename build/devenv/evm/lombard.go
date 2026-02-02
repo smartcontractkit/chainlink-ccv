@@ -5,6 +5,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 
+	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_lombard_bridge"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
@@ -108,15 +109,15 @@ func (m *CCIP17EVMConfig) deployLombardChain(
 	chain evm.Chain,
 ) error {
 	lombardChainRegistry := adapters.NewLombardChainRegistry()
-	lombardChainRegistry.RegisterLombardChain("evm", nil)
+	lombardChainRegistry.RegisterLombardChain("evm", &evmadapters.LombardChainAdapter{})
 
 	out, err := changesets.DeployLombardChains(lombardChainRegistry, registry).Apply(*env, changesets.DeployLombardChainsConfig{
 		Chains: map[uint64]changesets.LombardChainConfig{
 			selector: {
-				Token:            lombardToken.Hex(),
 				Bridge:           bridgeV2.Hex(),
-				StorageLocations: []string{"https://test.chain.link.fake"},
+				Token:            lombardToken.Hex(),
 				DeployerContract: create2Factory.Address,
+				StorageLocations: []string{"https://test.chain.link.fake"},
 				RateLimitAdmin:   chain.DeployerKey.From.Hex(),
 			},
 		},

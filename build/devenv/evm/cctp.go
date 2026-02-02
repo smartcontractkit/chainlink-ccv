@@ -138,7 +138,6 @@ func (m *CCIP17EVMConfig) deployCCTPChain(
 				TokenMessenger:   messenger.Hex(),
 				USDCToken:        usdc.Hex(),
 				StorageLocations: []string{"https://test.chain.link.fake"},
-				FeeAggregator:    gethcommon.HexToAddress("0x04").Hex(),
 				FastFinalityBps:  100,
 				DeployerContract: create2Factory.Address,
 			},
