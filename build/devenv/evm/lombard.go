@@ -6,9 +6,6 @@ import (
 	"github.com/Masterminds/semver/v3"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_lombard_bridge"
-	routeroperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/token_admin_registry"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 
@@ -114,24 +111,11 @@ func (m *CCIP17EVMConfig) deployLombardChain(
 	lombardChainRegistry.RegisterLombardChain("evm", nil)
 
 	out, err := changesets.DeployLombardChains(lombardChainRegistry, registry).Apply(*env, changesets.DeployLombardChainsConfig{
-		Chains: []adapters.DeployLombardInput[datastore.AddressRef, datastore.AddressRef]{
-			{
-				ChainSelector: selector,
-				TokenAdminRegistry: datastore.AddressRef{
-					Type:    datastore.ContractType(token_admin_registry.ContractType),
-					Version: semver.MustParse(token_admin_registry.Deploy.Version()),
-				},
+		Chains: map[uint64]changesets.LombardChainConfig{
+			selector: {
 				Token:            lombardToken.Hex(),
 				Bridge:           bridgeV2.Hex(),
 				StorageLocations: []string{"https://test.chain.link.fake"},
-				RMN: datastore.AddressRef{
-					Type:    datastore.ContractType(rmn_remote.ContractType),
-					Version: semver.MustParse(rmn_remote.Deploy.Version()),
-				},
-				Router: datastore.AddressRef{
-					Type:    datastore.ContractType(routeroperations.ContractType),
-					Version: semver.MustParse(routeroperations.Deploy.Version()),
-				},
 				DeployerContract: create2Factory.Address,
 				RateLimitAdmin:   chain.DeployerKey.From.Hex(),
 			},

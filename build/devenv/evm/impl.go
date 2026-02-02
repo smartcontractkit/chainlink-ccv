@@ -1109,6 +1109,10 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 		return nil, fmt.Errorf("failed to deploy USDC token and pool: %w", err)
 	}
 
+	if err := m.deployLombardTokenAndPool(env, mcmsReaderRegistry, runningDS, create2FactoryRep.Output, selector); err != nil {
+		return nil, fmt.Errorf("failed to deploy Lombard token and pool: %w", err)
+	}
+
 	return runningDS.Seal(), nil
 }
 
