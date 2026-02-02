@@ -1,0 +1,433 @@
+cl_nodes_funding_eth = 50
+cl_nodes_funding_link = 50
+
+# TODO:
+# - Add Stellar chain selector to chain-selectors package - "STELLAR_CHAIN_SELECTOR"
+# - Add configs specific to Stellar (RPC URL, network passphrase, etc.) - "NOT_SET"
+
+## Environment configuration define the topology
+[environment_topology]
+indexer_address = "http://indexer:8100"
+pyroscope_url = "http://host.docker.internal:4040"
+
+[environment_topology.monitoring]
+Enabled = true
+Type = "beholder"
+
+[environment_topology.monitoring.Beholder]
+InsecureConnection = true
+OtelExporterHTTPEndpoint = "host.docker.internal:4318"
+LogStreamingEnabled = false
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+
+# NOPs for Stellar-EVM lanes
+[[environment_topology.nop_topology.nops]]
+alias = "default-verifier-1"
+name = "default-verifier-1"
+mode = "standalone"
+
+[[environment_topology.nop_topology.nops]]
+alias = "default-verifier-2"
+name = "default-verifier-2"
+mode = "standalone"
+
+[[environment_topology.nop_topology.nops]]
+alias = "default-executor-1"
+name = "default-executor-1"
+mode = "standalone"
+
+[[environment_topology.nop_topology.nops]]
+alias = "default-executor-2"
+name = "default-executor-2"
+mode = "standalone"
+
+# Committee configuration
+[environment_topology.nop_topology.committees.default]
+qualifier = "default"
+verifier_version = "1.7.0"
+
+[[environment_topology.nop_topology.committees.default.aggregators]]
+name = "default"
+address = "default-aggregator:50051"
+insecure_connection = true
+
+# EVM chain configs
+[environment_topology.nop_topology.committees.default.chain_configs.3379446385462418246]
+nop_aliases = ["default-verifier-1", "default-verifier-2"]
+threshold = 2
+
+[environment_topology.nop_topology.committees.default.chain_configs.12922642891491394802]
+nop_aliases = ["default-verifier-1", "default-verifier-2"]
+threshold = 2
+
+# Stellar chain config
+[environment_topology.nop_topology.committees.default.chain_configs.STELLAR_CHAIN_SELECTOR]
+nop_aliases = ["default-verifier-1", "default-verifier-2"]
+threshold = 2
+
+[environment_topology.executor_pools.default]
+nop_aliases = ["default-executor-1", "default-executor-2"]
+execution_interval = 15_000_000_000
+
+[cldf]
+
+[jd]
+  csa_encryption_key = "d1093c0060d50a3c89c189b2e485da5a3ce57f3dcb38ab7e2c0d5f0bb2314a44"
+  image = "job-distributor:local"
+
+# EVM blockchains (Anvil)
+[[blockchains]]
+  container_name = "blockchain-src"
+  chain_id = "1337"
+  docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1"]
+  image = "ghcr.io/foundry-rs/foundry:latest"
+  port = "8545"
+  type = "anvil"
+
+[[blockchains]]
+  container_name = "blockchain-dst"
+  chain_id = "2337"
+  docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1"]
+  image = "ghcr.io/foundry-rs/foundry:latest"
+  port = "8555"
+  type = "anvil"
+
+[[blockchains]]
+  container_name = "blockchain-stellar"
+  chain_id = "NOT_SET" 
+  port = "8000"
+  type = "stellar"
+  soroban_rpc_port = "8001"
+  network_passphrase = "NOT_SET"
+
+[fake]
+  image = "ccv-fakes:dev"
+  port = 9111
+  source_code_path = "../build/devenv/fakes"
+  root_path = "../../"
+
+[pricer]
+  image = "pricer:dev"
+  source_code_path = "../pricer"
+  root_path = "../../"
+  [pricer.keystore]
+    address = "0x9221E2E83903C731C2927CCd84e5fa02B22Bb1E2"
+    file_path = "../pricer/keystore.json"
+    password = "keystore_test_password"
+
+## Verifier Setup
+[[verifier]]
+  image = "verifier:dev"
+  container_name = "default-verifier-1"
+  nop_alias = "default-verifier-1"
+  port = 8100
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 0
+  disable_finality_checkers = ["STELLAR_CHAIN_SELECTOR"] # May not be needed for Stellar
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-1-db"
+    port = 8432
+  # Chain-specific configs config
+  [verifier.stellar_configs]
+    [verifier.stellar_configs.STELLAR_CHAIN_SELECTOR.reader_config]
+      network_passphrase = "NOT_SET"
+      onramp_contract_id = "NOT_SET"
+      soroban_rpc_url = "NOT_SET"
+
+[[verifier]]
+  image = "verifier:dev"
+  container_name = "default-verifier-2"
+  nop_alias = "default-verifier-2"
+  port = 8200
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 1
+  disable_finality_checkers = ["STELLAR_CHAIN_SELECTOR"]
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-2-db"
+    port = 8433
+  # Chain-specific configs config
+  [verifier.stellar_configs]
+    [verifier.stellar_configs.STELLAR_CHAIN_SELECTOR.reader_config]
+      network_passphrase = "NOT_SET"
+      onramp_contract_id = "NOT_SET"
+      soroban_rpc_url = "NOT_SET"
+
+[[executor]]
+  image = "executor:dev"
+  port = 8101
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-1"
+  nop_alias = "default-executor-1"
+  executor_qualifier = "default"
+
+[[executor]]
+  image = "executor:dev"
+  port = 8102
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-2"
+  nop_alias = "default-executor-2"
+  executor_qualifier = "default"
+
+[[executor]]
+  image = "executor:dev"
+  port = 8103
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "custom-executor-1"
+  nop_alias = "custom-executor-1"
+  executor_qualifier = "custom"
+
+[indexer]
+  image = "indexer:dev"
+  port = 8104
+  source_code_path = "../indexer"
+  root_path = "../../"
+  [indexer.db]
+    image = "postgres:16-alpine"
+
+[indexer.indexer_config]
+LogLevel = 'info'
+
+[indexer.indexer_config.Monitoring]
+Enabled = true
+Type = 'beholder'
+
+[indexer.indexer_config.Monitoring.Beholder]
+InsecureConnection = true
+CACertFile = ''
+OtelExporterGRPCEndpoint = ''
+OtelExporterHTTPEndpoint = 'otel-collector:4318'
+LogStreamingEnabled = true
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+
+[indexer.indexer_config.Discovery]
+Address = "default-aggregator:50051"
+Since = 0
+PollInterval = 500
+Timeout = 5000
+NtpServer = "time.google.com"
+
+[indexer.indexer_config.Scheduler]
+TickerInterval = 50
+VerificationVisibilityWindow = 28800
+BaseDelay = 100
+MaxDelay = 30_000
+
+[indexer.indexer_config.Pool]
+ConcurrentWorkers = 1000
+WorkerTimeout = 300
+
+[[indexer.indexer_config.Verifier]]
+Type = "aggregator"
+Name = "CommiteeVerifier (Primary)"
+Address = "default-aggregator:50051"
+InsecureConnection = true
+BatchSize = 100
+MaxBatchWaitTime = 50
+Since = 0
+
+[[indexer.indexer_config.Verifier]]
+Type = "aggregator"
+Name = "CommiteeVerifier (Secondary)"
+Address = "secondary-aggregator:50051"
+InsecureConnection = true
+BatchSize = 100
+MaxBatchWaitTime = 50
+Since = 0
+
+[[indexer.indexer_config.Verifier]]
+Type = "aggregator"
+Name = "CommiteeVerifier (Tertiary)"
+Address = "tertiary-aggregator:50051"
+InsecureConnection = true
+BatchSize = 100
+MaxBatchWaitTime = 50
+Since = 0
+
+[[indexer.indexer_config.Verifier]]
+Type = "rest"
+Name = "CCTP Verifier (Primary)"
+BaseURL = "http://token-verifier-1:8100/v1"
+BatchSize = 10
+MaxBatchWaitTime = 100
+Since = 0
+
+[indexer.committee_verifier_name_to_qualifier]
+"CommiteeVerifier (Primary)" = "default"
+"CommiteeVerifier (Secondary)" = "secondary"
+"CommiteeVerifier (Tertiary)" = "tertiary"
+
+[indexer.cctp_verifier_name_to_qualifier]
+"CCTP Verifier (Primary)" = "CCTP"
+
+[indexer.indexer_config.Storage]
+Strategy = "sink"
+
+[[indexer.indexer_config.Storage.Sink.Storages]]
+Type = "memory"
+
+[indexer.indexer_config.Storage.Sink.Storages.Memory]
+TTL = 3600
+MaxSize = 10000
+CleanupInterval = 300
+
+[[indexer.indexer_config.Storage.Sink.Storages]]
+Type = "postgres"
+
+[indexer.indexer_config.Storage.Sink.Storages.Postgres]
+MaxOpenConnections = 20
+MaxIdleConnections = 5
+IdleInTxSessionTimeout = 60
+LockTimeout = 30
+
+
+[indexer.secrets.Storage.Sink.Storages.1.Postgres]
+URI = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"
+
+[[aggregator]]
+  committee_name = "default"
+  image = "aggregator:dev"
+  host_port = 50051
+  source_code_path = "../aggregator"
+  root_path = "../../"
+
+  [aggregator.db]
+    image = "postgres:16-alpine"
+    host_port  = 7432
+
+  [aggregator.redis]
+    image = "redis:7-alpine"
+    host_port  = 6379
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-1"
+  description = "Development default verifier 1"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-2"
+  description = "Development default verifier 2"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[aggregator.api_clients]]
+  client_id = "monitoring"
+  description = "Monitoring and infrastructure client"
+  enabled = true
+  groups = ["monitoring"]
+
+  [[aggregator.api_clients]]
+  client_id = "indexer"
+  description = "Development Indexer"
+  enabled = true
+  groups = ["indexer"]
+
+  # Environment variables for sensitive configuration
+  [aggregator.env]
+    storage_connection_url = "postgresql://aggregator:aggregator@default-aggregator-db:5432/aggregator?sslmode=disable"
+    redis_address = "default-aggregator-redis:6379"
+    redis_password = ""
+    redis_db = "0"
+
+[[aggregator]]
+  committee_name = "secondary"
+  image = "aggregator:dev"
+  host_port = 50052
+  source_code_path = "../aggregator"
+  root_path = "../../"
+
+  [aggregator.db]
+    image = "postgres:16-alpine"
+    host_port  = 7433
+
+  [aggregator.redis]
+    image = "redis:7-alpine"
+    host_port  = 6380
+
+  [[aggregator.api_clients]]
+  client_id = "secondary-verifier-1"
+  description = "Development secondary verifier 1"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[aggregator.api_clients]]
+  client_id = "secondary-verifier-2"
+  description = "Development secondary verifier 2"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[aggregator.api_clients]]
+  client_id = "monitoring"
+  description = "Monitoring and infrastructure client"
+  enabled = true
+  groups = ["monitoring"]
+
+  [[aggregator.api_clients]]
+  client_id = "indexer"
+  description = "Development Indexer"
+  enabled = true
+  groups = ["indexer"]
+
+  [aggregator.env]
+    storage_connection_url = "postgresql://aggregator:aggregator@secondary-aggregator-db:5432/aggregator?sslmode=disable"
+    redis_address = "secondary-aggregator-redis:6379"
+    redis_password = ""
+    redis_db = "0"
+
+[[aggregator]]
+  committee_name = "tertiary"
+  image = "aggregator:dev"
+  host_port = 50053
+  source_code_path = "../aggregator"
+  root_path = "../../"
+
+  [aggregator.db]
+    image = "postgres:16-alpine"
+    host_port  = 7434
+
+  [aggregator.redis]
+    image = "redis:7-alpine"
+    host_port  = 6381
+
+  [[aggregator.api_clients]]
+  client_id = "tertiary-verifier-1"
+  description = "Development tertiary verifier 1"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[aggregator.api_clients]]
+  client_id = "tertiary-verifier-2"
+  description = "Development tertiary verifier 2"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[aggregator.api_clients]]
+  client_id = "monitoring"
+  description = "Monitoring and infrastructure client"
+  enabled = true
+  groups = ["monitoring"]
+
+  [[aggregator.api_clients]]
+  client_id = "indexer"
+  description = "Development Indexer"
+  enabled = true
+  groups = ["indexer"]
+  # Environment variables for sensitive configuration
+  [aggregator.env]
+    storage_connection_url = "postgresql://aggregator:aggregator@tertiary-aggregator-db:5432/aggregator?sslmode=disable"
+    redis_address = "tertiary-aggregator-redis:6379"
+    redis_password = ""
+    redis_db = "0"
