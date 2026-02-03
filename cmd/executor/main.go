@@ -228,7 +228,7 @@ func main() {
 		lggr.Errorw("Failed to create indexer client", "error", err)
 		os.Exit(1)
 	}
-	verifierResultReader := executor.NewIndexerReaderAdapter(indexerClient)
+	verifierResultReader := executor.NewIndexerReaderAdapter(indexerClient, executorMonitoring)
 
 	//
 	// Parse per chain configuration from executor configuration

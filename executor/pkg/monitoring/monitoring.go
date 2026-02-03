@@ -86,3 +86,9 @@ func (n *NoopExecutorMetricLabeler) IncrementExpiredMessages(ctx context.Context
 func (n *NoopExecutorMetricLabeler) IncrementAlreadyExecutedMessages(ctx context.Context) {}
 
 func (n *NoopExecutorMetricLabeler) RecordMessageHeapSize(ctx context.Context, size int64) {}
+
+func (n *NoopExecutorMetricLabeler) IncrementHeartbeatSuccess(ctx context.Context) {}
+
+func (n *NoopExecutorMetricLabeler) IncrementHeartbeatFailure(ctx context.Context) {}
+
+func (n *NoopExecutorMetricLabeler) SetLastHeartbeatTimestamp(ctx context.Context, timestamp int64) {}
