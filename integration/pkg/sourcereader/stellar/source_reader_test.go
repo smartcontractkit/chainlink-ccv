@@ -30,7 +30,7 @@ func TestNewSourceReaderWithClient(t *testing.T) {
 	})
 
 	t.Run("returns error when logger is nil", func(t *testing.T) {
-		mockClient := mocks.NewMockStellarRPCClient(t)
+		mockClient := mocks.NewMockRPCClient(t)
 		reader, err := NewSourceReaderWithClient(mockClient, "CADDR", "transfer", nil)
 		require.Error(t, err)
 		require.Nil(t, reader)
@@ -38,7 +38,7 @@ func TestNewSourceReaderWithClient(t *testing.T) {
 	})
 
 	t.Run("returns error when ccip onramp address is empty", func(t *testing.T) {
-		mockClient := mocks.NewMockStellarRPCClient(t)
+		mockClient := mocks.NewMockRPCClient(t)
 		reader, err := NewSourceReaderWithClient(mockClient, "", "transfer", lggr)
 		require.Error(t, err)
 		require.Nil(t, reader)
@@ -46,7 +46,7 @@ func TestNewSourceReaderWithClient(t *testing.T) {
 	})
 
 	t.Run("returns error when ccip message sent topic is empty", func(t *testing.T) {
-		mockClient := mocks.NewMockStellarRPCClient(t)
+		mockClient := mocks.NewMockRPCClient(t)
 		reader, err := NewSourceReaderWithClient(mockClient, "CADDR", "", lggr)
 		require.Error(t, err)
 		require.Nil(t, reader)
@@ -54,7 +54,7 @@ func TestNewSourceReaderWithClient(t *testing.T) {
 	})
 
 	t.Run("creates reader with mock client", func(t *testing.T) {
-		mockClient := mocks.NewMockStellarRPCClient(t)
+		mockClient := mocks.NewMockRPCClient(t)
 
 		reader, err := NewSourceReaderWithClient(mockClient, "CADDR", "transfer", lggr)
 		require.NoError(t, err)
@@ -90,7 +90,7 @@ func TestLatestAndFinalizedBlock(t *testing.T) {
 	}
 
 	t.Run("returns latest and finalized block on success", func(t *testing.T) {
-		mockClient := mocks.NewMockStellarRPCClient(t)
+		mockClient := mocks.NewMockRPCClient(t)
 
 		prevHash := xdr.Hash{0x01, 0x02, 0x03}
 		headerB64 := createLedgerHeaderB64(prevHash)
@@ -121,7 +121,7 @@ func TestLatestAndFinalizedBlock(t *testing.T) {
 	})
 
 	t.Run("returns error when GetLatestLedger fails", func(t *testing.T) {
-		mockClient := mocks.NewMockStellarRPCClient(t)
+		mockClient := mocks.NewMockRPCClient(t)
 
 		mockClient.On("GetLatestLedger", mock.Anything).Return(
 			protocolrpc.GetLatestLedgerResponse{},
@@ -165,7 +165,7 @@ func TestGetBlocksHeaders(t *testing.T) {
 	}
 
 	t.Run("returns headers for single ledger", func(t *testing.T) {
-		mockClient := mocks.NewMockStellarRPCClient(t)
+		mockClient := mocks.NewMockRPCClient(t)
 
 		prevHash := xdr.Hash{0xaa, 0xbb, 0xcc}
 		metaB64 := createLedgerMetaB64(100, prevHash)
@@ -201,7 +201,7 @@ func TestGetBlocksHeaders(t *testing.T) {
 	})
 
 	t.Run("returns headers for multiple ledgers", func(t *testing.T) {
-		mockClient := mocks.NewMockStellarRPCClient(t)
+		mockClient := mocks.NewMockRPCClient(t)
 
 		// Set up expectations for both ledgers
 		mockClient.On("GetLedgers", mock.Anything, mock.MatchedBy(func(req protocolrpc.GetLedgersRequest) bool {
@@ -246,7 +246,7 @@ func TestGetBlocksHeaders(t *testing.T) {
 	})
 
 	t.Run("returns error when ledger not found", func(t *testing.T) {
-		mockClient := mocks.NewMockStellarRPCClient(t)
+		mockClient := mocks.NewMockRPCClient(t)
 
 		mockClient.On("GetLedgers", mock.Anything, mock.Anything).Return(
 			protocolrpc.GetLedgersResponse{
@@ -266,7 +266,7 @@ func TestGetBlocksHeaders(t *testing.T) {
 	})
 
 	t.Run("returns error when GetLedgers fails", func(t *testing.T) {
-		mockClient := mocks.NewMockStellarRPCClient(t)
+		mockClient := mocks.NewMockRPCClient(t)
 
 		mockClient.On("GetLedgers", mock.Anything, mock.Anything).Return(
 			protocolrpc.GetLedgersResponse{},
@@ -284,7 +284,7 @@ func TestGetBlocksHeaders(t *testing.T) {
 	})
 
 	t.Run("returns error when ledger sequence mismatch", func(t *testing.T) {
-		mockClient := mocks.NewMockStellarRPCClient(t)
+		mockClient := mocks.NewMockRPCClient(t)
 
 		// Return a different sequence than requested
 		mockClient.On("GetLedgers", mock.Anything, mock.Anything).Return(
@@ -312,7 +312,7 @@ func TestGetBlocksHeaders(t *testing.T) {
 	})
 
 	t.Run("returns error when block number exceeds uint32 range", func(t *testing.T) {
-		mockClient := mocks.NewMockStellarRPCClient(t)
+		mockClient := mocks.NewMockRPCClient(t)
 
 		reader, err := NewSourceReaderWithClient(mockClient, "CADDR", "transfer", lggr)
 		require.NoError(t, err)

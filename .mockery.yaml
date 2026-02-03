@@ -4,6 +4,10 @@ dir: ./internal/mocks
 outpkg: mocks
 
 packages:
+  github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/stellar:
+    interfaces:
+      RPCClient:
+
   github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess:
     interfaces:
       SourceReader:
