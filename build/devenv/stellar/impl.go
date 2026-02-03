@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"net/http"
 	"sync/atomic"
 	"time"
 
@@ -241,38 +242,37 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 func (c *Chain) DeployLocalNetwork(ctx context.Context, input *blockchain.Input) (*blockchain.Output, error) {
 	c.logger.Info().Msg("Deploying Stellar local network")
 
-	// TODO: Start a local Stellar quickstart container or standalone node
-	// The blockchain.Input should contain Stellar-specific configuration like:
-	// - Network passphrase
-	// - Soroban RPC URL/port
-
-	// TODO: add stellar specific configuration to the input and to CTF
-
 	out, err := blockchain.NewBlockchainNetwork(input)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Stellar blockchain network: %w", err)
 	}
 
-	// TODO: Initialize the Stellar RPC client with the network endpoints
-	// sorobanRPCURL := ...
-	// networkPassphrase := ...
-	//
-	// c.rpcClient = rpcclient.NewClient(sorobanRPCURL, &http.Client{Timeout: 30 * time.Second})
-	// c.networkPassphrase = networkPassphrase
+	c.rpcClient = rpcclient.NewClient(input.Out.Nodes[0].ExternalHTTPUrl, &http.Client{Timeout: 60 * time.Second})
+	c.networkPassphrase = input.Out.NetworkSpecificData.StellarNetwork.NetworkPassphrase
 
 	return out, nil
 }
 
 // FundAddresses implements cciptestinterfaces.CCIP17Configuration.
 // Funds addresses with native Stellar Lumens (XLM).
-func (c *Chain) FundAddresses(ctx context.Context, bc *blockchain.Input, addresses []protocol.UnknownAddress, nativeAmount *big.Int) error {
-	// TODO: implement XLM funding for addresses
-	// Use the Stellar friendbot for testnet or direct transfers for local networks
-	// https://lab.stellar.org/account/fund?$=network$id=testnet&label=Testnet&horizonUrl=https:////horizon-testnet.stellar.org&rpcUrl=https:////soroban-testnet.stellar.org&passphrase=Test%20SDF%20Network%20/;%20September%202015;;
+func (c *Chain) FundAddresses(ctx context.Context, input *blockchain.Input, addresses []protocol.UnknownAddress, nativeAmount *big.Int) error {
+	for _, addr := range addresses {
+		addrStr := hexutil.Encode(addr)
+		faucetUrl := fmt.Sprintf("%s?addr=%s", input.Out.NetworkSpecificData.StellarNetwork.FriendbotURL, addrStr)
+		resp, err := http.Get(faucetUrl)
+		if err != nil {
+			return fmt.Errorf("failed to get faucet (friendbot) URL: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("failed to fund address %s: %s", addr.String(), resp.Status)
+		}
+	}
+
 	c.logger.Info().
 		Int("numAddresses", len(addresses)).
 		Str("amount", nativeAmount.String()).
-		Msg("Funding Stellar addresses (not implemented)")
+		Msg("Funded Stellar addresses")
 	return nil
 }
 

@@ -23,7 +23,7 @@ require (
 	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260130150424-3bf789a3bca3
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20260122165924-94e0fad14fe8
 	github.com/smartcontractkit/chainlink-deployments-framework v0.76.0
-	github.com/smartcontractkit/chainlink-testing-framework/framework v0.13.6
+	github.com/smartcontractkit/chainlink-testing-framework/framework v0.13.14-0.20260203120205-4ede1ad58ca1
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.39.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.39.0
@@ -47,7 +47,7 @@ require (
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery v0.0.0-20251211142334-5c3421fe2c8d
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier v0.0.0-20251211142334-5c3421fe2c8d
 	github.com/smartcontractkit/chainlink-protos/job-distributor v0.17.0
-	github.com/smartcontractkit/chainlink-testing-framework/wasp v1.51.1
+	github.com/smartcontractkit/chainlink-testing-framework/wasp v1.51.2
 	github.com/smartcontractkit/chainlink/deployment v0.0.0-20260126202327-6be9a05f0caf
 	github.com/spf13/cobra v1.10.1
 	github.com/stellar/go-stellar-sdk v0.1.0

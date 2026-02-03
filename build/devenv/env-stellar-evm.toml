@@ -96,7 +96,6 @@ execution_interval = 15_000_000_000
   chain_id = "baefd734b8d3e48472cff83912375fedbc7573701912fe308af730180f97d74a" 
   port = "8010"
   type = "stellar"
-  soroban_rpc_port = "8010"
   network_passphrase = "Standalone Network ; February 2017"
 
 [fake]
