@@ -21,7 +21,10 @@ import (
 	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
 )
 
-var LombardContractsQualifier = "Lombard"
+var (
+	LombardContractsQualifier = "Lombard"
+	LombardTokenQualifier     = "LBTC"
+)
 
 func (m *CCIP17EVMConfig) deployLombardTokenAndPool(
 	env *deployment.Environment,
@@ -115,6 +118,7 @@ func (m *CCIP17EVMConfig) deployLombardChain(
 			selector: {
 				Bridge:           bridgeV2.Hex(),
 				Token:            lombardToken.Hex(),
+				TokenQualifier:   LombardTokenQualifier,
 				DeployerContract: create2Factory.Address,
 				StorageLocations: []string{"https://test.chain.link.fake"},
 				RateLimitAdmin:   chain.DeployerKey.From.Hex(),
@@ -129,5 +133,40 @@ func (m *CCIP17EVMConfig) deployLombardChain(
 	if err != nil {
 		return err
 	}
+	return err
+}
+
+func (m *CCIP17EVMConfig) configureLombardForTransfer(
+	e *deployment.Environment,
+	registry *changesetscore.MCMSReaderRegistry,
+	selector uint64,
+	remoteSelectors []uint64,
+) error {
+	remoteSelectors = filterOnlySupportedSelectors(remoteSelectors)
+	lombardChainRegistry := adapters.NewLombardChainRegistry()
+	lombardChainRegistry.RegisterLombardChain("evm", &evmadapters.LombardChainAdapter{})
+
+	remoteChains := make(map[uint64]adapters.RemoteLombardChainConfig)
+	for _, rs := range remoteSelectors {
+		remoteChains[rs] = adapters.RemoteLombardChainConfig{
+			FeeUSDCents:        10,
+			GasForVerification: 100000,
+			PayloadSizeBytes:   1000,
+			LombardChainId:     uint32(rs),
+		}
+	}
+
+	_, err := changesets.DeployLombardChains(lombardChainRegistry, registry).Apply(*e, changesets.DeployLombardChainsConfig{
+		Chains: map[uint64]changesets.LombardChainConfig{
+			selector: {
+				TokenQualifier: LombardTokenQualifier,
+				RemoteChains:   remoteChains,
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to deploy CCTP chain registry on chain %d: %w", selector, err)
+	}
+
 	return err
 }
