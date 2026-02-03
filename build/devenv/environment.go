@@ -29,6 +29,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/stellar"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -159,6 +160,15 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Co
 				Level(zerolog.DebugLevel).
 				With().
 				Fields(map[string]any{"component": "Canton"}).
+				Logger(),
+		), nil
+	case "stellar":
+		return stellar.New(
+			log.
+				Output(zerolog.ConsoleWriter{Out: os.Stderr}).
+				Level(zerolog.DebugLevel).
+				With().
+				Fields(map[string]any{"component": "Stellar"}).
 				Logger(),
 		), nil
 	default:
