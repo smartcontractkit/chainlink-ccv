@@ -28,6 +28,7 @@ import (
 	routeroperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	devenvcanton "github.com/smartcontractkit/chainlink-ccv/devenv/canton"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
@@ -292,6 +293,17 @@ func TestCantonSourceReader(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, result.AggregatedResult)
 		require.Len(t, result.IndexedVerifications.Results, 1)
+
+		ev, err := destChain.WaitOneExecEventBySeqNo(t.Context(), cantonDetails.ChainSelector, uint64(msg.SequenceNumber), tests.WaitTimeout(t))
+		require.NoError(t, err)
+		require.Equalf(
+			t,
+			cciptestinterfaces.ExecutionStateSuccess,
+			ev.State,
+			"message %d should have been successfully executed, return data: %x",
+			msg.SequenceNumber,
+			ev.ReturnData,
+		)
 	}
 }
 
