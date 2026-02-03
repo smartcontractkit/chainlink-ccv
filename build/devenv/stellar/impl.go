@@ -31,7 +31,6 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
 
-// TODO: make sure its included in chain-selectors repo
 const FamilyStellar = "stellar"
 const stellarAddressLen = 32
 
@@ -216,13 +215,15 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 		Qualifier:     devenvcommon.DefaultExecutorQualifier,
 		ChainSelector: selector,
 	})
-	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       hexutil.Encode(stellarAddress("stellar exec prx")),
-		Type:          datastore.ContractType(executor.ProxyType),
-		Version:       semver.MustParse(executor.DeployProxy.Version()),
-		Qualifier:     devenvcommon.DefaultExecutorQualifier,
-		ChainSelector: selector,
-	})
+
+	// TODO: is an executor proxy needed for Stellar?
+	// ds.AddressRefStore.Add(datastore.AddressRef{
+	// 	Address:       hexutil.Encode(stellarAddress("stellar exec prx")),
+	// 	Type:          datastore.ContractType(executor.ProxyType),
+	// 	Version:       semver.MustParse(executor.DeployProxy.Version()),
+	// 	Qualifier:     devenvcommon.DefaultExecutorQualifier,
+	// 	ChainSelector: selector,
+	// })
 
 	// Add RMN remote refs
 	ds.AddressRefStore.Add(datastore.AddressRef{
@@ -405,9 +406,5 @@ func (c *Chain) WaitOneSentEventBySeqNo(ctx context.Context, to, seq uint64, tim
 // GetChainDetailsBySelectorAndFamily is a helper to get chain details for Stellar.
 // This wraps the chain-selectors call with Stellar family support.
 func GetChainDetailsBySelectorAndFamily(chainID string) (chainsel.ChainDetails, error) {
-	// TODO: Once Stellar is added to chain-selectors, use:
-	// return chainsel.GetChainDetailsByChainIDAndFamily(chainID, FamilyStellar)
-	//
-	// For now, return a placeholder
-	return chainsel.ChainDetails{}, fmt.Errorf("Stellar chain selector lookup not yet implemented for chainID: %s", chainID)
+	return chainsel.GetChainDetailsByChainIDAndFamily(chainID, FamilyStellar)
 }

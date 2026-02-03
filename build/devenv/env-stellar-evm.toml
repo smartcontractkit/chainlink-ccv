@@ -1,10 +1,6 @@
 cl_nodes_funding_eth = 50
 cl_nodes_funding_link = 50
 
-# TODO:
-# - Add Stellar chain selector to chain-selectors package - "STELLAR_CHAIN_SELECTOR"
-# - Add configs specific to Stellar (RPC URL, network passphrase, etc.) - "NOT_SET"
-
 ## Environment configuration define the topology
 [environment_topology]
 indexer_address = "http://indexer:8100"
@@ -63,7 +59,7 @@ nop_aliases = ["default-verifier-1", "default-verifier-2"]
 threshold = 2
 
 # Stellar chain config
-[environment_topology.nop_topology.committees.default.chain_configs.STELLAR_CHAIN_SELECTOR]
+[environment_topology.nop_topology.committees.default.chain_configs.17301180955411967724]
 nop_aliases = ["default-verifier-1", "default-verifier-2"]
 threshold = 2
 
@@ -94,13 +90,14 @@ execution_interval = 15_000_000_000
   port = "8555"
   type = "anvil"
 
+# Stellar (localnet)
 [[blockchains]]
   container_name = "blockchain-stellar"
-  chain_id = "NOT_SET" 
-  port = "8000"
+  chain_id = "baefd734b8d3e48472cff83912375fedbc7573701912fe308af730180f97d74a" 
+  port = "8010"
   type = "stellar"
-  soroban_rpc_port = "8001"
-  network_passphrase = "NOT_SET"
+  soroban_rpc_port = "8010"
+  network_passphrase = "Standalone Network ; February 2017"
 
 [fake]
   image = "ccv-fakes:dev"
@@ -127,17 +124,17 @@ execution_interval = 15_000_000_000
   root_path = "../../"
   committee_name = "default"
   node_index = 0
-  disable_finality_checkers = ["STELLAR_CHAIN_SELECTOR"] # May not be needed for Stellar
+  disable_finality_checkers = ["17301180955411967724"] # May not be needed for Stellar
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-1-db"
     port = 8432
-  # Chain-specific configs config
+  # Chain-specific configs
   [verifier.stellar_configs]
-    [verifier.stellar_configs.STELLAR_CHAIN_SELECTOR.reader_config]
-      network_passphrase = "NOT_SET"
-      onramp_contract_id = "NOT_SET"
-      soroban_rpc_url = "NOT_SET"
+    [verifier.stellar_configs.17301180955411967724.reader_config]
+      network_passphrase = "Standalone Network ; February 2017"
+      onramp_contract_id = "baefd734b8d3e48472cff83912375fedbc7573701912fe308af730180f97d74a"
+      soroban_rpc_url = "http://blockchain-stellar:8010/rpc"
 
 [[verifier]]
   image = "verifier:dev"
@@ -148,17 +145,17 @@ execution_interval = 15_000_000_000
   root_path = "../../"
   committee_name = "default"
   node_index = 1
-  disable_finality_checkers = ["STELLAR_CHAIN_SELECTOR"]
+  disable_finality_checkers = ["17301180955411967724"]
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-2-db"
     port = 8433
-  # Chain-specific configs config
+  # Chain-specific configs
   [verifier.stellar_configs]
-    [verifier.stellar_configs.STELLAR_CHAIN_SELECTOR.reader_config]
-      network_passphrase = "NOT_SET"
-      onramp_contract_id = "NOT_SET"
-      soroban_rpc_url = "NOT_SET"
+    [verifier.stellar_configs.17301180955411967724.reader_config]
+      network_passphrase = "Standalone Network ; February 2017"
+      onramp_contract_id = "baefd734b8d3e48472cff83912375fedbc7573701912fe308af730180f97d74a"
+      soroban_rpc_url = "http://blockchain-stellar:8010/rpc"
 
 [[executor]]
   image = "executor:dev"
