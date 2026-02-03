@@ -164,7 +164,7 @@ func (s *SourceReader) FetchTransferEvents(ctx context.Context, fromBlock, toBlo
 			)
 			continue
 		}
-		transfer.Ledger = uint32(e.Ledger) //nolint:gosec // checked above
+		transfer.Ledger = uint32(e.Ledger)
 		transfer.TransactionHash = e.TransactionHash
 		results = append(results, *transfer)
 	}
