@@ -2,6 +2,7 @@ package stellar
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -11,9 +12,12 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/stellar/go-stellar-sdk/clients/rpcclient"
+	"github.com/stellar/go-stellar-sdk/keypair"
+	"github.com/stellar/go-stellar-sdk/strkey"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
@@ -32,27 +36,36 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
 
-const FamilyStellar = "stellar"
+// stellarAddressLen is 32 bytes for ed25519 public key
 const stellarAddressLen = 32
 
-func leftPadBytesWithChar(data []byte, length int, padChar byte) []byte {
-	if len(data) >= length {
-		return data[:length]
-	}
-	result := make([]byte, length)
-	padLen := length - len(data)
-	for i := range padLen {
-		result[i] = padChar
-	}
-	copy(result[padLen:], data)
-	return result
+// generateContractAddress generates a deterministic Soroban contract address from a name and network passphrase.
+// Soroban contract addresses are derived from the network ID (SHA-256 of passphrase) and a unique identifier.
+// The resulting address is 32 bytes (the raw ed25519 public key format used internally).
+func generateContractAddress(name, networkPassphrase string) []byte {
+	// Network ID is SHA-256 of the network passphrase
+	networkID := sha256.Sum256([]byte(networkPassphrase))
+
+	// Combine network ID with name to create deterministic seed
+	combined := append(networkID[:], []byte(name)...)
+	hash := sha256.Sum256(combined)
+
+	return hash[:]
 }
 
-// stellarAddress creates a Stellar mock address from a name
-// TODO: addresses in Stellar are based on the Network ID and its sha-256 hash (over the Network passphrase).
-func stellarAddress(name string) []byte {
-	// pad with 's' for stellar to create unique mock addresses
-	return leftPadBytesWithChar([]byte(name), stellarAddressLen, 's')
+// generateAccountAddress generates a Stellar account address (G...) from a seed.
+// This uses the Stellar SDK's keypair package to create a proper strkey-encoded address.
+func generateAccountAddress(seed string) (string, error) {
+	// Create deterministic seed from input
+	hash := sha256.Sum256([]byte(seed))
+
+	// Create a keypair from the seed bytes
+	kp, err := keypair.FromRawSeed(hash)
+	if err != nil {
+		return "", fmt.Errorf("failed to create keypair from seed: %w", err)
+	}
+
+	return kp.Address(), nil
 }
 
 var (
@@ -65,6 +78,8 @@ type Chain struct {
 	logger            zerolog.Logger
 	rpcClient         *rpcclient.Client
 	networkPassphrase string
+	sorobanRPCURL     string
+	deployerKeypair   *keypair.Full
 }
 
 // New creates a new Stellar Chain instance.
@@ -74,20 +89,56 @@ func New(logger zerolog.Logger) *Chain {
 	}
 }
 
+// NetworkPassphrase returns the network passphrase for this chain.
+func (c *Chain) NetworkPassphrase() string {
+	return c.networkPassphrase
+}
+
+// SorobanRPCURL returns the Soroban RPC URL for this chain.
+func (c *Chain) SorobanRPCURL() string {
+	return c.sorobanRPCURL
+}
+
+// DeployerAddress returns the deployer's Stellar address.
+func (c *Chain) DeployerAddress() string {
+	if c.deployerKeypair == nil {
+		return ""
+	}
+	return c.deployerKeypair.Address()
+}
+
 // ChainFamily implements cciptestinterfaces.CCIP17Configuration.
 func (c *Chain) ChainFamily() string {
-	return FamilyStellar
+	return chainsel.FamilyStellar
 }
 
 // ConfigureNodes implements cciptestinterfaces.CCIP17Configuration.
 // Returns TOML configuration for Chainlink nodes to connect to Stellar.
-func (c *Chain) ConfigureNodes(ctx context.Context, blockchain *blockchain.Input) (string, error) {
-	// TODO: implement Stellar-specific node configuration
-	// This should return TOML config for:
-	// - Soroban RPC endpoint
-	// - Network passphrase
-	// - Any Stellar-specific settings
-	return "", nil
+func (c *Chain) ConfigureNodes(ctx context.Context, bc *blockchain.Input) (string, error) {
+	c.logger.Info().Msg("Configuring Chainlink nodes for Stellar")
+
+	name := fmt.Sprintf("node-stellar-%s", uuid.New().String()[0:5])
+
+	// Get Stellar-specific endpoints from the blockchain output
+	sorobanRPCURL := bc.Out.Nodes[0].InternalHTTPUrl
+	networkPassphrase := c.networkPassphrase
+
+	// Return TOML configuration for Chainlink nodes to connect to Stellar/Soroban
+	// NOTE: This assumes Chainlink nodes have Stellar plugin support.
+	// The actual TOML structure may need adjustment based on the Stellar plugin implementation.
+	return fmt.Sprintf(`
+       [[Stellar]]
+       NetworkPassphrase = '%s'
+       ChainID = '%s'
+
+       [[Stellar.Nodes]]
+       Name = '%s'
+       SorobanRPCUrl = '%s'`,
+		networkPassphrase,
+		bc.ChainID,
+		name,
+		sorobanRPCURL,
+	), nil
 }
 
 // ConnectContractsWithSelectors implements cciptestinterfaces.CCIP17Configuration.
@@ -107,13 +158,19 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	c.logger.Info().Uint64("selector", selector).Msg("Deploying Stellar CCIP contracts (mocked)")
 
 	// TODO: Deploy actual Soroban contracts from chainlink-stellar, mock for now
+	// Contract addresses are deterministically generated based on network passphrase
 
 	// Mock a Stellar deployment
 	ds := datastore.NewMemoryDataStore()
 
+	// Helper to generate contract address and encode it
+	contractAddr := func(name string) string {
+		return hexutil.Encode(generateContractAddress(name, c.networkPassphrase))
+	}
+
 	// Add OnRamp
 	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       hexutil.Encode(stellarAddress("stellar onramp")),
+		Address:       contractAddr("stellar-onramp"),
 		ChainSelector: selector,
 		Type:          datastore.ContractType(onrampoperations.ContractType),
 		Version:       semver.MustParse(onrampoperations.Deploy.Version()),
@@ -121,7 +178,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 
 	// Add OffRamp
 	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       hexutil.Encode(stellarAddress("stellar offramp")),
+		Address:       contractAddr("stellar-offramp"),
 		ChainSelector: selector,
 		Type:          datastore.ContractType(offrampoperations.ContractType),
 		Version:       semver.MustParse(offrampoperations.Deploy.Version()),
@@ -129,7 +186,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 
 	// Add Router
 	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       hexutil.Encode(stellarAddress("stellar router")),
+		Address:       contractAddr("stellar-router"),
 		ChainSelector: selector,
 		Type:          datastore.ContractType(routeroperations.ContractType),
 		Version:       semver.MustParse(routeroperations.Deploy.Version()),
@@ -139,7 +196,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	for i, combo := range devenvcommon.AllTokenCombinations() {
 		addressRef := combo.DestPoolAddressRef()
 		ds.AddressRefStore.Add(datastore.AddressRef{
-			Address:       hexutil.Encode(stellarAddress(fmt.Sprintf("stellar dst token %d", i))),
+			Address:       contractAddr(fmt.Sprintf("stellar-dst-token-%d", i)),
 			Type:          addressRef.Type,
 			Version:       addressRef.Version,
 			Qualifier:     addressRef.Qualifier,
@@ -147,7 +204,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 		})
 		addressRef = combo.SourcePoolAddressRef()
 		ds.AddressRefStore.Add(datastore.AddressRef{
-			Address:       hexutil.Encode(stellarAddress(fmt.Sprintf("stellar src token %d", i))),
+			Address:       contractAddr(fmt.Sprintf("stellar-src-token-%d", i)),
 			Type:          addressRef.Type,
 			Version:       addressRef.Version,
 			Qualifier:     addressRef.Qualifier,
@@ -155,9 +212,9 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 		})
 	}
 
-	// Add CCTP refs (keeping it here as a reference, will uncomment later)
+	// Add CCTP refs (keeping it here as a reference, will uncomment later when CCTP is supported on Stellar)
 	// ds.AddressRefStore.Add(datastore.AddressRef{
-	// 	Address:       hexutil.Encode(stellarAddress("stellar cctp mtp")),
+	// 	Address:       contractAddr("stellar-cctp-mtp"),
 	// 	Type:          datastore.ContractType(cctp_message_transmitter_proxy.ContractType),
 	// 	Version:       semver.MustParse(cctp_message_transmitter_proxy.Deploy.Version()),
 	// 	Qualifier:     devenvcommon.CCTPContractsQualifier,
@@ -200,7 +257,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 		devenvcommon.QuaternaryReceiverQualifier,
 	} {
 		ds.AddressRefStore.Add(datastore.AddressRef{
-			Address:       hexutil.Encode(stellarAddress(fmt.Sprintf("stellar ccv %d", i))),
+			Address:       contractAddr(fmt.Sprintf("stellar-ccv-%d", i)),
 			Type:          datastore.ContractType(committee_verifier.ResolverType),
 			Version:       semver.MustParse(committee_verifier.Deploy.Version()),
 			Qualifier:     qualifier,
@@ -210,7 +267,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 
 	// Add executor refs
 	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       hexutil.Encode(stellarAddress("stellar exec")),
+		Address:       contractAddr("stellar-executor"),
 		Type:          datastore.ContractType(executor.ContractType),
 		Version:       semver.MustParse(executor.Deploy.Version()),
 		Qualifier:     devenvcommon.DefaultExecutorQualifier,
@@ -219,7 +276,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 
 	// TODO: is an executor proxy needed for Stellar?
 	// ds.AddressRefStore.Add(datastore.AddressRef{
-	// 	Address:       hexutil.Encode(stellarAddress("stellar exec prx")),
+	// 	Address:       contractAddr("stellar-executor-proxy"),
 	// 	Type:          datastore.ContractType(executor.ProxyType),
 	// 	Version:       semver.MustParse(executor.DeployProxy.Version()),
 	// 	Qualifier:     devenvcommon.DefaultExecutorQualifier,
@@ -228,7 +285,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 
 	// Add RMN remote refs
 	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       hexutil.Encode(stellarAddress("stellar rmn remote")),
+		Address:       contractAddr("stellar-rmn-remote"),
 		Type:          datastore.ContractType(rmn_remote.ContractType),
 		Version:       semver.MustParse(rmn_remote.Deploy.Version()),
 		ChainSelector: selector,
@@ -247,8 +304,27 @@ func (c *Chain) DeployLocalNetwork(ctx context.Context, input *blockchain.Input)
 		return nil, fmt.Errorf("failed to create Stellar blockchain network: %w", err)
 	}
 
-	c.rpcClient = rpcclient.NewClient(input.Out.Nodes[0].ExternalHTTPUrl, &http.Client{Timeout: 60 * time.Second})
+	c.sorobanRPCURL = input.Out.Nodes[0].ExternalHTTPUrl
 	c.networkPassphrase = input.Out.NetworkSpecificData.StellarNetwork.NetworkPassphrase
+
+	// Initialize the Soroban RPC client
+	c.rpcClient = rpcclient.NewClient(c.sorobanRPCURL, &http.Client{Timeout: 60 * time.Second})
+
+	// Generate a deployer keypair for this network
+	// Use the network passphrase as part of the seed for deterministic key generation
+	deployerSeed := fmt.Sprintf("deployer-%s", c.networkPassphrase)
+	seedHash := sha256.Sum256([]byte(deployerSeed))
+	deployerKP, err := keypair.FromRawSeed(seedHash)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create deployer keypair: %w", err)
+	}
+	c.deployerKeypair = deployerKP
+
+	c.logger.Info().
+		Str("sorobanRPCURL", c.sorobanRPCURL).
+		Str("networkPassphrase", c.networkPassphrase).
+		Str("deployerAddress", c.deployerKeypair.Address()).
+		Msg("Stellar network deployed and configured")
 
 	return out, nil
 }
@@ -308,8 +384,20 @@ func (c *Chain) ExposeMetrics(ctx context.Context, source, dest uint64) ([]strin
 // GetEOAReceiverAddress implements cciptestinterfaces.CCIP17.
 // Gets an EOA receiver address for this chain.
 func (c *Chain) GetEOAReceiverAddress() (protocol.UnknownAddress, error) {
-	// TODO: implement - return a Stellar account address that can receive messages
-	return protocol.UnknownAddress{}, nil
+	// Generate a deterministic receiver address based on the network passphrase
+	// This ensures the same address is returned for the same network
+	receiverSeed := fmt.Sprintf("receiver-%s", c.networkPassphrase)
+	seedHash := sha256.Sum256([]byte(receiverSeed))
+	receiverKP, err := keypair.FromRawSeed(seedHash)
+	if err != nil {
+		return protocol.UnknownAddress{}, fmt.Errorf("failed to create receiver keypair: %w", err)
+	}
+	// Decode the strkey address to raw bytes
+	rawBytes, err := strkey.Decode(strkey.VersionByteAccountID, receiverKP.Address())
+	if err != nil {
+		return protocol.UnknownAddress{}, fmt.Errorf("failed to decode receiver address: %w", err)
+	}
+	return protocol.UnknownAddress(rawBytes), nil
 }
 
 // GetExpectedNextSequenceNumber implements cciptestinterfaces.CCIP17.
@@ -336,10 +424,17 @@ func (c *Chain) GetRoundRobinUser() func() *bind.TransactOpts {
 }
 
 // GetSenderAddress implements cciptestinterfaces.CCIP17.
-// Gets the sender address for this chain.
+// Gets the sender address for this chain (the deployer's address).
 func (c *Chain) GetSenderAddress() (protocol.UnknownAddress, error) {
-	// TODO: implement - return the default sender's Stellar address
-	return protocol.UnknownAddress{}, nil
+	if c.deployerKeypair == nil {
+		return protocol.UnknownAddress{}, fmt.Errorf("deployer keypair not initialized")
+	}
+	// Decode the strkey address to raw bytes
+	rawBytes, err := strkey.Decode(strkey.VersionByteAccountID, c.deployerKeypair.Address())
+	if err != nil {
+		return protocol.UnknownAddress{}, fmt.Errorf("failed to decode sender address: %w", err)
+	}
+	return protocol.UnknownAddress(rawBytes), nil
 }
 
 // GetTokenBalance implements cciptestinterfaces.CCIP17.
@@ -406,5 +501,5 @@ func (c *Chain) WaitOneSentEventBySeqNo(ctx context.Context, to, seq uint64, tim
 // GetChainDetailsBySelectorAndFamily is a helper to get chain details for Stellar.
 // This wraps the chain-selectors call with Stellar family support.
 func GetChainDetailsBySelectorAndFamily(chainID string) (chainsel.ChainDetails, error) {
-	return chainsel.GetChainDetailsByChainIDAndFamily(chainID, FamilyStellar)
+	return chainsel.GetChainDetailsByChainIDAndFamily(chainID, chainsel.FamilyStellar)
 }
