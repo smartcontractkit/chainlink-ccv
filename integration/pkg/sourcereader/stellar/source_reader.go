@@ -82,7 +82,7 @@ func (s *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 }
 
 // FetchTransferEvents fetches and decodes transfer events with signature (address, address, i128).
-// Event structure: topics=[Symbol("transfer"), Address(from), Address(to), ...], value=i128(amount)
+// Event structure: topics=[Symbol("transfer"), Address(from), Address(to), ...], value=i128(amount).
 func (s *SourceReader) FetchTransferEvents(ctx context.Context, fromBlock, toBlock *big.Int) ([]TransferEvent, error) {
 	fromSeq := fromBlock.Uint64()
 	if fromSeq > math.MaxUint32 {
@@ -152,8 +152,170 @@ func (s *SourceReader) FetchTransferEvents(ctx context.Context, fromBlock, toBlo
 	return results, nil
 }
 
+// // RawEvent represents a raw contract event.
+// type RawEvent struct {
+// 	ContractID      string
+// 	Ledger          uint32
+// 	TransactionHash string
+// 	EventType       string
+// 	TopicXDR        []string
+// 	ValueXDR        string
+// }
+
+// // FetchAllEvents fetches contract events in a ledger range.
+// // Filters by contract ID and the configured ccipMessageSentTopic.
+// func (s *SourceReader) FetchAllEvents(ctx context.Context, fromBlock, toBlock *big.Int, contractID string) ([]RawEvent, error) {
+// 	fromSeq := fromBlock.Uint64()
+// 	if fromSeq > math.MaxUint32 {
+// 		return nil, fmt.Errorf("block number exceeds uint32 range: %d", fromSeq)
+// 	}
+// 	fromLedger := uint32(fromSeq)
+
+// 	var toLedger uint32
+// 	if toBlock != nil {
+// 		toSeq := toBlock.Uint64()
+// 		if toSeq > math.MaxUint32 {
+// 			return nil, fmt.Errorf("block number exceeds uint32 range: %d", toSeq)
+// 		}
+// 		toLedger = uint32(toSeq)
+// 	} else {
+// 		latestLedger, err := s.client.GetLatestLedger(ctx)
+// 		if err != nil {
+// 			return nil, fmt.Errorf("failed to get latest ledger: %w", err)
+// 		}
+// 		toLedger = latestLedger.Sequence
+// 	}
+
+// 	// Build topic filter for ccipMessageSentTopic
+// 	topicScVal, err := symbolScVal(s.ccipMessageSentTopic)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("invalid topic symbol: %w", err)
+// 	}
+
+// 	// Use "**" wildcard to match events with more topics than we're filtering on
+// 	zeroOrMore := protocolrpc.WildCardZeroOrMore
+
+// 	// Build filter with contract ID and topic
+// 	filter := protocolrpc.EventFilter{
+// 		EventType: protocolrpc.EventTypeSet{protocolrpc.EventTypeContract: nil},
+// 		Topics: []protocolrpc.TopicFilter{
+// 			{
+// 				{ScVal: topicScVal},     // Match first topic (event name)
+// 				{Wildcard: &zeroOrMore}, // Match any remaining topics
+// 			},
+// 		},
+// 	}
+// 	if contractID != "" {
+// 		filter.ContractIDs = []string{contractID}
+// 	}
+
+// 	events, err := s.client.GetEvents(ctx, protocolrpc.GetEventsRequest{
+// 		StartLedger: fromLedger,
+// 		EndLedger:   toLedger,
+// 		Filters:     []protocolrpc.EventFilter{filter},
+// 	})
+// 	if err != nil {
+// 		return nil, fmt.Errorf("failed to get events: %w", err)
+// 	}
+
+// 	results := make([]RawEvent, 0, len(events.Events))
+// 	for _, e := range events.Events {
+// 		results = append(results, RawEvent{
+// 			ContractID:      e.ContractID,
+// 			Ledger:          uint32(e.Ledger),
+// 			TransactionHash: e.TransactionHash,
+// 			EventType:       e.EventType,
+// 			TopicXDR:        e.TopicXDR,
+// 			ValueXDR:        e.ValueXDR,
+// 		})
+// 	}
+// 	return results, nil
+// }
+
+// // DecodeScVal decodes a base64 XDR ScVal and returns a human-readable string.
+// func DecodeScVal(b64 string) (string, error) {
+// 	var scVal xdr.ScVal
+// 	if err := xdr.SafeUnmarshalBase64(b64, &scVal); err != nil {
+// 		return "", fmt.Errorf("unmarshal: %w", err)
+// 	}
+// 	return formatScVal(scVal), nil
+// }
+
+// func formatScVal(val xdr.ScVal) string {
+// 	switch val.Type {
+// 	case xdr.ScValTypeScvBool:
+// 		return fmt.Sprintf("bool(%v)", *val.B)
+// 	case xdr.ScValTypeScvVoid:
+// 		return "void"
+// 	case xdr.ScValTypeScvU32:
+// 		return fmt.Sprintf("u32(%d)", *val.U32)
+// 	case xdr.ScValTypeScvI32:
+// 		return fmt.Sprintf("i32(%d)", *val.I32)
+// 	case xdr.ScValTypeScvU64:
+// 		return fmt.Sprintf("u64(%d)", *val.U64)
+// 	case xdr.ScValTypeScvI64:
+// 		return fmt.Sprintf("i64(%d)", *val.I64)
+// 	case xdr.ScValTypeScvU128:
+// 		hi := big.NewInt(0).SetUint64(uint64(val.U128.Hi))
+// 		hi.Lsh(hi, 64)
+// 		lo := new(big.Int).SetUint64(uint64(val.U128.Lo))
+// 		return fmt.Sprintf("u128(%s)", hi.Add(hi, lo).String())
+// 	case xdr.ScValTypeScvI128:
+// 		hi := big.NewInt(int64(val.I128.Hi))
+// 		hi.Lsh(hi, 64)
+// 		lo := new(big.Int).SetUint64(uint64(val.I128.Lo))
+// 		return fmt.Sprintf("i128(%s)", hi.Add(hi, lo).String())
+// 	case xdr.ScValTypeScvBytes:
+// 		return fmt.Sprintf("bytes(%x)", *val.Bytes)
+// 	case xdr.ScValTypeScvString:
+// 		return fmt.Sprintf("string(%q)", string(*val.Str))
+// 	case xdr.ScValTypeScvSymbol:
+// 		return fmt.Sprintf("symbol(%s)", string(*val.Sym))
+// 	case xdr.ScValTypeScvAddress:
+// 		addr, _ := scAddressToStrkey(*val.Address)
+// 		return fmt.Sprintf("address(%s)", addr)
+// 	case xdr.ScValTypeScvVec:
+// 		if val.Vec == nil || *val.Vec == nil {
+// 			return "vec([])"
+// 		}
+// 		items := make([]string, len(**val.Vec))
+// 		for i, item := range **val.Vec {
+// 			items[i] = formatScVal(item)
+// 		}
+// 		return fmt.Sprintf("vec([%s])", strings.Join(items, ", "))
+// 	case xdr.ScValTypeScvMap:
+// 		if val.Map == nil || *val.Map == nil {
+// 			return "map({})"
+// 		}
+// 		items := make([]string, len(**val.Map))
+// 		for i, entry := range **val.Map {
+// 			items[i] = fmt.Sprintf("%s: %s", formatScVal(entry.Key), formatScVal(entry.Val))
+// 		}
+// 		return fmt.Sprintf("map({%s})", strings.Join(items, ", "))
+// 	default:
+// 		return fmt.Sprintf("%s(?)", val.Type)
+// 	}
+// }
+
+// func scAddressToStrkey(addr xdr.ScAddress) (string, error) {
+// 	switch addr.Type {
+// 	case xdr.ScAddressTypeScAddressTypeAccount:
+// 		accountID := addr.MustAccountId()
+// 		pubKey := accountID.Ed25519
+// 		if pubKey == nil {
+// 			return "", fmt.Errorf("no Ed25519 key")
+// 		}
+// 		return strkey.Encode(strkey.VersionByteAccountID, (*pubKey)[:])
+// 	case xdr.ScAddressTypeScAddressTypeContract:
+// 		contractID := addr.MustContractId()
+// 		return strkey.Encode(strkey.VersionByteContract, contractID[:])
+// 	default:
+// 		return fmt.Sprintf("unknown(%s)", addr.Type), nil
+// 	}
+// }
+
 // decodeTransferEvent decodes a transfer event from XDR topics and value.
-// Expected: topics[1]=Address(from), topics[2]=Address(to), value=i128(amount)
+// Expected: topics[1]=Address(from), topics[2]=Address(to), value=i128(amount).
 func decodeTransferEvent(topicsXDR []string, valueXDR string) (*TransferEvent, error) {
 	if len(topicsXDR) < 3 {
 		return nil, fmt.Errorf("transfer event requires at least 3 topics, got %d", len(topicsXDR))
