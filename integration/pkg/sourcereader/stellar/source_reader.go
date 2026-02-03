@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"net/http"
 	"strings"
 	"time"
 
@@ -22,6 +21,20 @@ import (
 
 // Compile-time check to ensure we satisfy the chainaccess.SourceReader interface.
 var _ chainaccess.SourceReader = (*SourceReader)(nil)
+
+// RPCClient defines the interface for Stellar RPC client methods used by SourceReader.
+// This interface allows for mocking in unit tests.
+type RPCClient interface {
+	// GetLatestLedger returns the latest ledger information.
+	GetLatestLedger(ctx context.Context) (protocolrpc.GetLatestLedgerResponse, error)
+	// GetLedgers returns ledger data for a range of ledgers.
+	GetLedgers(ctx context.Context, req protocolrpc.GetLedgersRequest) (protocolrpc.GetLedgersResponse, error)
+	// GetEvents returns contract events matching the specified filters.
+	GetEvents(ctx context.Context, req protocolrpc.GetEventsRequest) (protocolrpc.GetEventsResponse, error)
+}
+
+// Compile-time check to ensure rpcclient.Client satisfies our interface.
+var _ RPCClient = (*rpcclient.Client)(nil)
 
 // TransferEvent represents a decoded Stellar transfer event with signature (address, address, i128).
 type TransferEvent struct {
@@ -39,22 +52,21 @@ type TransferEvent struct {
 
 // SourceReader is the Stellar implementation of chainaccess.SourceReader.
 type SourceReader struct {
-	client               *rpcclient.Client
+	client               RPCClient
 	ccipOnrampAddress    string
 	ccipMessageSentTopic string
 	lggr                 logger.Logger
 }
 
-// NewSourceReader constructs a Stellar source reader backed by the RPC client.
-func NewSourceReader(
-	stellarRPCURL string,
-	httpClient *http.Client,
+// NewSourceReaderWithClient constructs a Stellar source reader with a RPC client.
+func NewSourceReaderWithClient(
+	client RPCClient,
 	ccipOnrampAddress string,
 	ccipMessageSentTopic string,
 	lggr logger.Logger,
 ) (*SourceReader, error) {
-	if stellarRPCURL == "" {
-		return nil, fmt.Errorf("stellar rpc url is required")
+	if client == nil {
+		return nil, fmt.Errorf("rpc client is required")
 	}
 	if lggr == nil {
 		return nil, fmt.Errorf("logger is required")
@@ -67,7 +79,7 @@ func NewSourceReader(
 	}
 
 	return &SourceReader{
-		client:               rpcclient.NewClient(stellarRPCURL, httpClient),
+		client:               client,
 		ccipOnrampAddress:    ccipOnrampAddress,
 		ccipMessageSentTopic: ccipMessageSentTopic,
 		lggr:                 lggr,
@@ -145,7 +157,14 @@ func (s *SourceReader) FetchTransferEvents(ctx context.Context, fromBlock, toBlo
 			continue
 		}
 
-		transfer.Ledger = uint32(e.Ledger)
+		if e.Ledger < 0 {
+			s.lggr.Warnw("Invalid negative ledger number, skipping",
+				"ledger", e.Ledger,
+				"txHash", e.TransactionHash,
+			)
+			continue
+		}
+		transfer.Ledger = uint32(e.Ledger) //nolint:gosec // checked above
 		transfer.TransactionHash = e.TransactionHash
 		results = append(results, *transfer)
 	}
