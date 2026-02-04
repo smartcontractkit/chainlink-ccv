@@ -532,7 +532,6 @@ func TestE2ESmoke(t *testing.T) {
 	})
 
 	t.Run("Lombard V3 token transfer", func(t *testing.T) {
-		t.Skip("not implemented yet")
 		var (
 			sourceSelector = sel0
 			sourceChain    = chainMap[sourceSelector]
@@ -571,10 +570,8 @@ func TestE2ESmoke(t *testing.T) {
 			l.Info().Uint64("SeqNo", seqNo).Str("Token", common.LombardContractsQualifier).Msg("expecting sequence number")
 
 			messageOptions := cciptestinterfaces.MessageOptions{
-				Version:           3,
-				FinalityConfig:    0,
-				ExecutionGasLimit: tc.executionGasLimit,
-				Executor:          getContractAddress(t, in, sel0, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
+				Version:  3,
+				Executor: getContractAddress(t, in, sel0, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
 			}
 
 			sendRes, err := sourceChain.SendMessage(
