@@ -68,7 +68,7 @@ func TestValidateCCVAndExecutorHash(t *testing.T) {
 		}
 
 		// Should validate successfully
-		err = ValidateCCVAndExecutorHash(message, receiptBlobs)
+		err = CCVAndExecutorHash(message, receiptBlobs)
 		assert.NoError(t, err)
 	})
 
@@ -110,7 +110,7 @@ func TestValidateCCVAndExecutorHash(t *testing.T) {
 		}
 
 		// Should fail validation
-		err = ValidateCCVAndExecutorHash(message, receiptBlobs)
+		err = CCVAndExecutorHash(message, receiptBlobs)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "ccvAndExecutorHash mismatch")
 	})
@@ -158,7 +158,7 @@ func TestValidateCCVAndExecutorHash(t *testing.T) {
 			},
 		}
 
-		err = ValidateCCVAndExecutorHash(message, receiptBlobs)
+		err = CCVAndExecutorHash(message, receiptBlobs)
 		assert.NoError(t, err)
 	})
 
@@ -170,7 +170,7 @@ func TestValidateCCVAndExecutorHash(t *testing.T) {
 
 		receiptBlobs := []protocol.ReceiptWithBlob{}
 
-		err := ValidateCCVAndExecutorHash(message, receiptBlobs)
+		err := CCVAndExecutorHash(message, receiptBlobs)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "no receipt blobs")
 	})
@@ -206,7 +206,7 @@ func TestValidateMessage_WithCCVAndExecutorHash(t *testing.T) {
 		}
 
 		// Zero hash causes validation error
-		err = ValidateCCVAndExecutorHash(message, receiptBlobs)
+		err = CCVAndExecutorHash(message, receiptBlobs)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "ccvAndExecutorHash mismatch")
 	})
@@ -255,7 +255,7 @@ func TestValidateMessage_WithCCVAndExecutorHash(t *testing.T) {
 		}
 
 		// Should pass validation
-		err = ValidateCCVAndExecutorHash(message, receiptBlobs)
+		err = CCVAndExecutorHash(message, receiptBlobs)
 		assert.NoError(t, err)
 	})
 }

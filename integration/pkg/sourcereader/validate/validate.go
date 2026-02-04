@@ -6,9 +6,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-// ValidateCCVAndExecutorHash validates that the message's ccvAndExecutorHash matches
+// CCVAndExecutorHash validates that the message's ccvAndExecutorHash matches
 // the hash computed from CCV addresses and executor address extracted from receipt blobs.
-func ValidateCCVAndExecutorHash(message protocol.Message, receiptBlobs []protocol.ReceiptWithBlob) error {
+func CCVAndExecutorHash(message protocol.Message, receiptBlobs []protocol.ReceiptWithBlob) error {
 	if len(receiptBlobs) == 0 {
 		return fmt.Errorf("no receipt blobs to extract CCV and executor addresses from")
 	}

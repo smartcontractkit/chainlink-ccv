@@ -247,7 +247,7 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 
 		allReceipts := receiptBlobsFromEvent(event.Receipts, event.VerifierBlobs) // Validate the receipt structure matches expectations
 		// Validate ccvAndExecutorHash
-		if err := validate.ValidateCCVAndExecutorHash(*decodedMsg, allReceipts); err != nil {
+		if err := validate.CCVAndExecutorHash(*decodedMsg, allReceipts); err != nil {
 			r.lggr.Errorw("ccvAndExecutorHash validation failed",
 				"error", err,
 				"messageID", common.Bytes2Hex(event.MessageId[:]),

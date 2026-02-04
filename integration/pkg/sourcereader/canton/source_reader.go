@@ -326,7 +326,7 @@ func processCCIPMessageSentEvent(field *ledgerv2.RecordField) (*protocol.Message
 	}
 
 	// Validate ccvAndExecutorHash
-	if err := validate.ValidateCCVAndExecutorHash(messageSentEvent.Message, messageSentEvent.Receipts); err != nil {
+	if err := validate.CCVAndExecutorHash(messageSentEvent.Message, messageSentEvent.Receipts); err != nil {
 		return nil, fmt.Errorf("ccvAndExecutorHash validation failed: %w", err)
 	}
 
