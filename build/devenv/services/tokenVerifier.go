@@ -381,9 +381,11 @@ func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blo
 			devenvcommon.DefaultExecutorQualifier,
 		))
 		if err != nil {
-			return TokenVerifierInput{}, fmt.Errorf("failed to get default executor on ramp address for chain %s: %w", chain.ChainID, err)
+			// TODO, no executor on Canton
+			// return TokenVerifierInput{}, fmt.Errorf("failed to get default executor on ramp address for chain %s: %w", chain.ChainID, err)
+		} else {
+			ver.DefaultExecutorOnRampAddresses[selectorStr] = defaultExecutorOnRampAddressRef.Address
 		}
-		ver.DefaultExecutorOnRampAddresses[selectorStr] = defaultExecutorOnRampAddressRef.Address
 
 		rmnRemoteAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
 			networkInfo.ChainSelector,
@@ -392,9 +394,11 @@ func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blo
 			"",
 		))
 		if err != nil {
-			return TokenVerifierInput{}, fmt.Errorf("failed to get rmn remote address for chain %s: %w", chain.ChainID, err)
+			// TODO, no RMN remote on Canton
+			// return TokenVerifierInput{}, fmt.Errorf("failed to get rmn remote address for chain %s: %w", chain.ChainID, err)
+		} else {
+			ver.RMNRemoteAddresses[selectorStr] = rmnRemoteAddressRef.Address
 		}
-		ver.RMNRemoteAddresses[selectorStr] = rmnRemoteAddressRef.Address
 	}
 
 	return ver, nil

@@ -12,20 +12,26 @@ import (
 	"github.com/Masterminds/semver/v3"
 	ledgerv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2"
 	ledgerv2admin "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2/admin"
-	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
+	"github.com/smartcontractkit/chainlink-canton/contracts"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
+	canton_committee_verifier "github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/offramp"
 	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/onramp"
-	routeroperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
+
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	devenvcanton "github.com/smartcontractkit/chainlink-ccv/devenv/canton"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
@@ -33,11 +39,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
-	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
 const (
@@ -187,11 +188,11 @@ func TestCantonSourceReader(t *testing.T) {
 			protocol.ChainSelector(cantonDetails.ChainSelector),
 			protocol.ChainSelector(evmDetails.ChainSelector),
 			seqNr,
-			addresses.cantonOnRamp,
-			addresses.evmOffRamp,
-			addresses.evmReceiver,
-			[]protocol.UnknownAddress{addresses.cantonDefaultVerifierAddress},
-			addresses.cantonExecutorAddress,
+			addresses.cantonOnRamp.Bytes(),
+			addresses.evmOffRamp.Bytes(),
+			addresses.evmReceiver.Bytes(),
+			[]protocol.UnknownAddress{addresses.cantonDefaultVerifier.Bytes()},
+			addresses.cantonExecutor.Bytes(),
 		)
 		messages[i] = msg
 		t.Logf("sending message seqNr %d messageID %s", seqNr, msg.MustMessageID().String())
@@ -207,24 +208,25 @@ func TestCantonSourceReader(t *testing.T) {
 			},
 			[]testReceipt{
 				{
+					// NOTE(ff): we've decided to drop CCVIds and use their InstanceAddresses instead.
 					// TODO: this isn't correct, because for canton the issuer is the CCVId.
 					// We need to set the "verifier address" in the verifier to be the CCVId rather than
 					// the address of the committee_verifier.ResolverType from the DataStore.
-					Issuer:            addresses.defaultVerifierIssuer,
+					Issuer:            addresses.cantonDefaultVerifier.Hex(),
 					DestGasLimit:      100000,
 					DestBytesOverhead: 500,
 					FeeTokenAmount:    "1000000.",
 					ExtraArgs:         []byte{},
 				},
 				{
-					Issuer:            addresses.executorIssuer,
+					Issuer:            addresses.cantonExecutor.Hex(),
 					DestGasLimit:      0,
 					DestBytesOverhead: 0,
 					FeeTokenAmount:    "500000.",
 					ExtraArgs:         []byte{},
 				},
 				{
-					Issuer:            addresses.routerIssuer,
+					Issuer:            addresses.cantonRouter.Hex(),
 					DestGasLimit:      0,
 					DestBytesOverhead: 0,
 					FeeTokenAmount:    "500000.",
@@ -309,18 +311,18 @@ func TestCantonSourceReader(t *testing.T) {
 
 // relevantAddresses are the addresses required to construct a valid CCIP message from Canton -> EVM.
 type relevantAddresses struct {
-	cantonOnRamp                 []byte
-	cantonExecutorAddress        []byte
-	cantonDefaultVerifierAddress []byte
-	evmOffRamp                   []byte
-	evmReceiver                  []byte
-	defaultVerifierIssuer        string
-	executorIssuer               string
-	routerIssuer                 string
+	cantonOnRamp          contracts.InstanceAddress
+	cantonExecutor        contracts.InstanceAddress
+	cantonDefaultVerifier contracts.InstanceAddress
+	cantonRouter          contracts.InstanceAddress
+	evmOffRamp            common.Address
+	evmReceiver           common.Address
 }
 
 // getRelevantAddresses returns the canton and evm addresses required to construct a valid CCIP message from Canton -> EVM.
 func getRelevantAddresses(t *testing.T, in *ccv.Cfg, cantonDetails, evmDetails chain_selectors.ChainDetails) relevantAddresses {
+	var addresses relevantAddresses
+
 	cantonOnRampRef, err := in.CLDF.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
 			cantonDetails.ChainSelector,
@@ -332,46 +334,46 @@ func getRelevantAddresses(t *testing.T, in *ccv.Cfg, cantonDetails, evmDetails c
 	require.NoError(t, err)
 	require.NotEmpty(t, cantonOnRampRef.Address)
 	t.Logf("canton on ramp address: %s", cantonOnRampRef.Address)
+	addresses.cantonOnRamp = contracts.HexToInstanceAddress(cantonOnRampRef.Address)
 
-	cantonRouterRef, err := in.CLDF.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(
-			cantonDetails.ChainSelector,
-			datastore.ContractType(routeroperations.ContractType),
-			semver.MustParse(routeroperations.Deploy.Version()),
-			"",
-		),
-	)
-	require.NoError(t, err)
-	require.NotEmpty(t, cantonRouterRef.Address)
-	t.Logf("canton router address: %s", cantonRouterRef.Address)
-	routerIssuer := string(hexutil.MustDecode(cantonRouterRef.Address))
+	// cantonRouterRef, err := in.CLDF.DataStore.Addresses().Get(
+	// 	datastore.NewAddressRefKey(
+	// 		cantonDetails.ChainSelector,
+	// 		datastore.ContractType(routeroperations.ContractType),
+	// 		semver.MustParse(routeroperations.Deploy.Version()),
+	// 		"",
+	// 	),
+	// )
+	// require.NoError(t, err)
+	// require.NotEmpty(t, cantonRouterRef.Address)
+	// t.Logf("canton router address: %s", cantonRouterRef.Address)
+	addresses.cantonRouter = contracts.HexToInstanceAddress(cantonOnRampRef.Address) // TODO: fix when router is deployed
 
 	cantonDefaultVerifierRef, err := in.CLDF.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
 			cantonDetails.ChainSelector,
-			datastore.ContractType(committee_verifier.ResolverType),
-			semver.MustParse(committee_verifier.Deploy.Version()),
+			datastore.ContractType(committee_verifier.ContractType),
+			canton_committee_verifier.Version,
 			devenvcommon.DefaultCommitteeVerifierQualifier,
 		),
 	)
 	require.NoError(t, err)
 	require.NotEmpty(t, cantonDefaultVerifierRef.Address)
-	defaultVerifierIssuer := string(hexutil.MustDecode(cantonDefaultVerifierRef.Address))
-	t.Logf("decoded hex len: %d, string len: %d", len(hexutil.MustDecode(cantonDefaultVerifierRef.Address)), len(defaultVerifierIssuer))
-	t.Logf("canton default verifier address: %s, issuer: %s", cantonDefaultVerifierRef.Address, defaultVerifierIssuer)
+	t.Logf("canton default verifier address: %s", cantonDefaultVerifierRef.Address)
+	addresses.cantonDefaultVerifier = contracts.HexToInstanceAddress(cantonDefaultVerifierRef.Address)
 
-	cantonExecutorAddress, err := in.CLDF.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(
-			cantonDetails.ChainSelector,
-			datastore.ContractType(executor.ProxyType),
-			semver.MustParse(executor.DeployProxy.Version()),
-			devenvcommon.DefaultExecutorQualifier,
-		),
-	)
-	require.NoError(t, err)
-	require.NotEmpty(t, cantonExecutorAddress.Address)
-	t.Logf("canton executor address: %s", cantonExecutorAddress.Address)
-	executorIssuer := string(hexutil.MustDecode(cantonExecutorAddress.Address))
+	// cantonExecutorAddress, err := in.CLDF.DataStore.Addresses().Get(
+	// 	datastore.NewAddressRefKey(
+	// 		cantonDetails.ChainSelector,
+	// 		datastore.ContractType(executor.ProxyType),
+	// 		semver.MustParse(executor.DeployProxy.Version()),
+	// 		devenvcommon.DefaultExecutorQualifier,
+	// 	),
+	// )
+	// require.NoError(t, err)
+	// require.NotEmpty(t, cantonExecutorAddress.Address)
+	// t.Logf("canton executor address: %s", cantonExecutorAddress.Address)
+	addresses.cantonExecutor = contracts.HexToInstanceAddress(cantonOnRampRef.Address) // TODO: fix when executor is deployed
 
 	evmOffRampRef, err := in.CLDF.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
@@ -384,6 +386,7 @@ func getRelevantAddresses(t *testing.T, in *ccv.Cfg, cantonDetails, evmDetails c
 	require.NoError(t, err)
 	require.NotEmpty(t, evmOffRampRef.Address)
 	t.Logf("evm off ramp address: %s", evmOffRampRef.Address)
+	addresses.evmOffRamp = common.HexToAddress(evmOffRampRef.Address)
 
 	evmReceiverRef, err := in.CLDF.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
@@ -396,24 +399,9 @@ func getRelevantAddresses(t *testing.T, in *ccv.Cfg, cantonDetails, evmDetails c
 	require.NoError(t, err)
 	require.NotEmpty(t, evmReceiverRef.Address)
 	t.Logf("evm receiver address: %s", evmReceiverRef.Address)
+	addresses.evmReceiver = common.HexToAddress(evmReceiverRef.Address)
 
-	// Convert refs to bytes
-	cantonOnRamp := hexutil.MustDecode(cantonOnRampRef.Address)
-	evmOffRamp := hexutil.MustDecode(evmOffRampRef.Address)
-	require.Len(t, evmOffRamp, 20) // done onchain, do it here just to catch it early
-	evmReceiver := hexutil.MustDecode(evmReceiverRef.Address)
-	require.Len(t, evmReceiver, 20) // done onchain, do it here just to catch it early
-
-	return relevantAddresses{
-		cantonOnRamp:                 cantonOnRamp,
-		cantonExecutorAddress:        hexutil.MustDecode(cantonExecutorAddress.Address),
-		cantonDefaultVerifierAddress: hexutil.MustDecode(cantonDefaultVerifierRef.Address),
-		evmOffRamp:                   evmOffRamp,
-		evmReceiver:                  evmReceiver,
-		defaultVerifierIssuer:        defaultVerifierIssuer,
-		executorIssuer:               executorIssuer,
-		routerIssuer:                 routerIssuer,
-	}
+	return addresses
 }
 
 func newMessage(

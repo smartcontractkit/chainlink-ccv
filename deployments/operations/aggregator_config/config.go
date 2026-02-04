@@ -126,6 +126,7 @@ func buildQuorumConfigsFromOnChain(
 				continue
 			}
 
+			// Lookup the committee verifier address by both the resolver type and the contract type
 			ref := datastore.AddressRef{
 				Qualifier: committeeQualifier,
 				Type:      datastore.ContractType(committee_verifier.ResolverType),
@@ -133,7 +134,12 @@ func buildQuorumConfigsFromOnChain(
 			sourceVerifierAddr, err := dsutils.FindAndFormatRef(ds, ref, sigConfig.SourceChainSelector,
 				func(r datastore.AddressRef) (string, error) { return r.Address, nil })
 			if err != nil {
-				return nil, fmt.Errorf("failed to resolve source verifier for chain %d: %w", sigConfig.SourceChainSelector, err)
+				ref.Type = datastore.ContractType(committee_verifier.ContractType)
+				sourceVerifierAddr, err = dsutils.FindAndFormatRef(ds, ref, sigConfig.SourceChainSelector,
+					func(r datastore.AddressRef) (string, error) { return r.Address, nil })
+				if err != nil {
+					return nil, fmt.Errorf("failed to resolve source verifier for chain %d: %w", sigConfig.SourceChainSelector, err)
+				}
 			}
 
 			configSigners := make([]Signer, 0, len(sigConfig.Signers))
@@ -167,10 +173,16 @@ func buildDestinationVerifiers(
 	}
 
 	for _, chainSelector := range destChainSelectors {
+		// Lookup the committee verifier address by both the resolver type and the contract type
 		addr, err := dsutils.FindAndFormatRef(ds, ref, chainSelector,
 			func(r datastore.AddressRef) (string, error) { return r.Address, nil })
 		if err != nil {
-			return nil, fmt.Errorf("failed to resolve destination verifier for chain %d: %w", chainSelector, err)
+			ref.Type = datastore.ContractType(committee_verifier.ContractType)
+			addr, err = dsutils.FindAndFormatRef(ds, ref, chainSelector,
+				func(r datastore.AddressRef) (string, error) { return r.Address, nil })
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve destination verifier for chain %d: %w", chainSelector, err)
+			}
 		}
 		destVerifiers[strconv.FormatUint(chainSelector, 10)] = addr
 	}

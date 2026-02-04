@@ -918,7 +918,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	for i := range in.TokenVerifier {
 		ver, err := services.ResolveContractsForTokenVerifier(e.DataStore, in.Blockchains, *in.TokenVerifier[i])
 		if err != nil {
-			return nil, fmt.Errorf("failed to lookup contracts %w", err)
+			return nil, fmt.Errorf("failed to lookup contracts: %w", err)
 		}
 
 		in.TokenVerifier[i] = &ver

@@ -6,34 +6,31 @@ import (
 	"math/big"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"sync/atomic"
 	"time"
 
-	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/noders-team/go-daml/pkg/client"
+	"github.com/noders-team/go-daml/pkg/types"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
-
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_message_transmitter_proxy"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
-	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/offramp"
-	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/onramp"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/usdc_token_pool_proxy"
-	routeroperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
-	burnminterc677ops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
+	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/ccvs"
+	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/common"
+	"github.com/smartcontractkit/chainlink-canton/contracts"
+	cantonChangesets "github.com/smartcontractkit/chainlink-canton/deployment/changesets"
+	"github.com/smartcontractkit/chainlink-canton/deployment/sequences"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
+
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
-	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
 
 // TODO: this is just for the mocked out addresses, not a real restriction on Canton.
@@ -93,8 +90,8 @@ func (c *Chain) ConnectContractsWithSelectors(ctx context.Context, e *deployment
 }
 
 // DeployContractsForSelector implements cciptestinterfaces.CCIP17Configuration.
-func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, committees *deployments.EnvironmentTopology) (datastore.DataStore, error) {
-	// Deploy the json-tests DAR so that its available on the network.
+func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *deployments.EnvironmentTopology) (datastore.DataStore, error) {
+	// Deploy the json-tests DAR so that it's available on the network.
 	// NOTE: this is hacky, but temporary, until we deploy the real CCIP contracts.
 	_, filename, _, _ := runtime.Caller(0)
 	dir := filepath.Dir(filename)
@@ -104,123 +101,313 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 		return nil, fmt.Errorf("failed to upload json-tests DAR: %w", err)
 	}
 
+	l := c.logger
+	l.Info().Msg("Configuring contracts for selector")
+	l.Info().Any("Selector", selector).Msg("Deploying for chain selectors")
+	runningDS := datastore.NewMemoryDataStore()
+
+	l.Info().Uint64("Selector", selector).Msg("Configuring per-chain contracts bundle")
+	bundle := operations.NewBundle(
+		func() context.Context { return context.Background() },
+		env.Logger,
+		operations.NewMemoryReporter(),
+	)
+	env.OperationsBundle = bundle
+
+	chain := env.BlockChains.CantonChains()[selector]
+	token, err := chain.Participants[0].JWTProvider.Token(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get JWT token: %w", err)
+	}
+
+	// Get Primary Party
+	bindingClient, err := client.NewDamlClient(token, chain.Participants[0].Endpoints.GRPCLedgerAPIURL).
+		WithAdminAddress(chain.Participants[0].Endpoints.AdminAPIURL).
+		Build(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Daml binding client: %w", err)
+	}
+	defer bindingClient.Close()
+
+	user, err := bindingClient.UserMng.GetUser(ctx, c.helper.GetUserID())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	l.Info().Msg("Uploading and vetting CCIP DARs...")
+	commonDar, err := contracts.GetDar(contracts.CCIPCommon, contracts.CurrentVersion)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get common dar file")
+	}
+	err = bindingClient.PackageMng.UploadDarFile(ctx, commonDar, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload common dar file")
+	}
+	offRampDar, err := contracts.GetDar(contracts.CCIPOffRamp, contracts.CurrentVersion)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get offramp dar file")
+	}
+	err = bindingClient.PackageMng.UploadDarFile(ctx, offRampDar, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload offramp dar file")
+	}
+	onRampDar, err := contracts.GetDar(contracts.CCIPOnRamp, contracts.CurrentVersion)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get onramp dar file")
+	}
+	err = bindingClient.PackageMng.UploadDarFile(ctx, onRampDar, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload onramp dar file")
+	}
+	tokenAdminRegistryDar, err := contracts.GetDar(contracts.CCIPTokenAdminRegistry, contracts.CurrentVersion)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get token admin registry dar file")
+	}
+	err = bindingClient.PackageMng.UploadDarFile(ctx, tokenAdminRegistryDar, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload token admin registry dar file")
+	}
+	committeeVerifierDar, err := contracts.GetDar(contracts.CCIPCommitteeVerifier, contracts.CurrentVersion)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get committee verifier dar file")
+	}
+	err = bindingClient.PackageMng.UploadDarFile(ctx, committeeVerifierDar, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload committee verifier dar file")
+	}
+	tokenPoolDar, err := contracts.GetDar(contracts.CCIPLockReleaseTokenPool, contracts.CurrentVersion)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get token pool dar file")
+	}
+	err = bindingClient.PackageMng.UploadDarFile(ctx, tokenPoolDar, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload token pool dar file")
+	}
+	perPartyRouterDar, err := contracts.GetDar(contracts.CCIPPerPartyRouter, contracts.CurrentVersion)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get per-party router dar file")
+	}
+	err = bindingClient.PackageMng.UploadDarFile(ctx, perPartyRouterDar, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload per-party router dar file")
+	}
+
+	env.Logger.Infow("Deploying chain contracts", "chainSelector", selector, "party", user.PrimaryParty)
+	config := cantonChangesets.CantonCSDeps[cantonChangesets.DeployChainContractsConfig]{
+		ChainSelector: selector,
+		Participant:   0,
+		UserName:      c.helper.GetUserID(),
+		Party:         user.PrimaryParty,
+		Config: cantonChangesets.DeployChainContractsConfig{
+			Params: sequences.DeployChainContractsParams{
+				CCIPOwnerParty:     user.PrimaryParty,
+				CommitteeVerifiers: nil,
+				GlobalConfig: sequences.GlobalConfigParams{
+					Template: common.GlobalConfig{
+						CcipOwner:     "", // Populated by the sequence
+						ChainSelector: types.NUMERIC(strconv.FormatUint(selector, 10)),
+						OnRampAddress: "", // TODO ?
+					},
+				},
+			},
+		},
+	}
+
+	// Get committees
+	for qualifier, committeeConfig := range topology.NOPTopology.Committees {
+		chainCfg, ok := committeeConfig.ChainConfigs[strconv.FormatUint(selector, 10)]
+		if !ok {
+			return nil, fmt.Errorf("chain selector %d not found in committee %q", selector, qualifier)
+		}
+		var signers []types.TEXT
+		for _, nopAlias := range chainCfg.NOPAliases {
+			nop, ok := topology.NOPTopology.GetNOP(nopAlias)
+			if !ok {
+				return nil, fmt.Errorf("NOP alias %q not found for committee %q chain %d", nopAlias, qualifier, selector)
+			}
+
+			// Get signing key from config
+			// TODO: implement fetching from JD
+			addr, ok := nop.SignerAddressByFamily[chainsel.FamilyCanton]
+			if !ok || addr == "" {
+				return nil, fmt.Errorf("signer address for NOP alias %q family %q not found for committee %q chain %d", nopAlias, chainsel.FamilyCanton, qualifier, selector)
+			}
+
+			signers = append(signers, types.TEXT(addr))
+		}
+		var storageLocation types.TEXT // TODO, multiple storage locations
+		if len(committeeConfig.StorageLocations) > 0 {
+			storageLocation = types.TEXT(committeeConfig.StorageLocations[0])
+		} else {
+			storageLocation = types.TEXT("dummy-location") // TODO contracts don't allow an empty location for now
+		}
+		cv := sequences.CommitteeVerifierParams{
+			Qualifier: qualifier,
+			Template: ccvs.CommitteeVerifier{
+				Owner:               types.PARTY(user.PrimaryParty), // TODO: use different ccv owner?
+				InstanceId:          "",
+				CcipOwner:           types.PARTY(user.PrimaryParty),
+				VersionTag:          types.TEXT("49ff34ed"),
+				MessageSentObserver: types.PARTY(user.PrimaryParty),
+				StorageLocation:     storageLocation,
+				Threshold:           types.INT64(chainCfg.Threshold),
+				Signers:             signers,
+			},
+		}
+		config.Config.Params.CommitteeVerifiers = append(config.Config.Params.CommitteeVerifiers, cv)
+	}
+
+	out, err := cantonChangesets.DeployChainContracts{}.Apply(*env, config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to deploy chain contracts for selector %d: %w", selector, err)
+	}
+	err = runningDS.Merge(out.DataStore.Seal())
+	if err != nil {
+		return nil, err
+	}
+	env.DataStore = runningDS.Seal()
+
 	// Mock out a Canton deployment for now.
-	ds := datastore.NewMemoryDataStore()
-	// Add Onramp
-	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       hexutil.Encode(cantonAddress("canton onramp")),
-		ChainSelector: selector,
-		Type:          datastore.ContractType(onrampoperations.ContractType),
-		Version:       semver.MustParse(onrampoperations.Deploy.Version()),
-	})
-	// Add OffRamp
-	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       hexutil.Encode(cantonAddress("canton offramp")),
-		ChainSelector: selector,
-		Type:          datastore.ContractType(offrampoperations.ContractType),
-		Version:       semver.MustParse(offrampoperations.Deploy.Version()),
-	})
-	// Add Router
-	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       hexutil.Encode(cantonAddress("canton router")),
-		ChainSelector: selector,
-		Type:          datastore.ContractType(routeroperations.ContractType),
-		Version:       semver.MustParse(routeroperations.Deploy.Version()),
-	})
 	// Add token pools
 	for i, combo := range devenvcommon.AllTokenCombinations() {
+		// TEST (BurnMintTokenPool 1.6.1 [] to BurnMintTokenPool 1.6.1 [])
+		// TEST (BurnMintTokenPool 1.6.1 [] to BurnMintTokenPool 1.6.1 [])
 		addressRef := combo.DestPoolAddressRef()
-		ds.AddressRefStore.Add(datastore.AddressRef{
-			Address:       hexutil.Encode(cantonAddress(fmt.Sprintf("canton dst token %d", i))),
+		fmt.Println(addressRef.Qualifier)
+		_ = runningDS.AddressRefStore.Add(datastore.AddressRef{
+			Address:       contracts.MustNewInstanceID("dst-token-pool-"+strconv.Itoa(i), user.PrimaryParty).InstanceAddress().Hex(),
 			Type:          addressRef.Type,
 			Version:       addressRef.Version,
 			Qualifier:     addressRef.Qualifier,
 			ChainSelector: selector,
 		})
 		addressRef = combo.SourcePoolAddressRef()
-		ds.AddressRefStore.Add(datastore.AddressRef{
-			Address:       hexutil.Encode(cantonAddress(fmt.Sprintf("canton src token %d", i))),
+		fmt.Println(addressRef.Qualifier)
+		_ = runningDS.AddressRefStore.Add(datastore.AddressRef{
+			Address:       contracts.MustNewInstanceID("src-token-pool-"+strconv.Itoa(i), user.PrimaryParty).InstanceAddress().Hex(),
 			Type:          addressRef.Type,
 			Version:       addressRef.Version,
 			Qualifier:     addressRef.Qualifier,
 			ChainSelector: selector,
 		})
 	}
-	// Add CCTP refs
-	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       hexutil.Encode(cantonAddress("canton cctp mtp")),
-		Type:          datastore.ContractType(cctp_message_transmitter_proxy.ContractType),
-		Version:       semver.MustParse(cctp_message_transmitter_proxy.Deploy.Version()),
-		Qualifier:     devenvcommon.CCTPContractsQualifier,
-		ChainSelector: selector,
-	})
-	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       hexutil.Encode(cantonAddress("canton cctp rslvr")),
-		Type:          datastore.ContractType(cctp_verifier.ResolverType),
-		Version:       semver.MustParse(cctp_verifier.Deploy.Version()),
-		Qualifier:     devenvcommon.CCTPContractsQualifier,
-		ChainSelector: selector,
-	})
-	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       hexutil.Encode(cantonAddress("canton cctp vrfr")),
-		Type:          datastore.ContractType(cctp_verifier.ContractType),
-		Version:       semver.MustParse(cctp_verifier.Deploy.Version()),
-		Qualifier:     devenvcommon.CCTPContractsQualifier,
-		ChainSelector: selector,
-	})
-	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       hexutil.Encode(cantonAddress("canton usdc token")),
-		Type:          datastore.ContractType(burnminterc677ops.ContractType),
-		Version:       burnminterc677ops.Version,
-		Qualifier:     devenvcommon.CCTPContractsQualifier,
-		ChainSelector: selector,
-	})
-	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       hexutil.Encode(cantonAddress("usdc token pool prx")),
-		Type:          datastore.ContractType(usdc_token_pool_proxy.ContractType),
-		Version:       semver.MustParse(usdc_token_pool_proxy.Deploy.Version()),
-		Qualifier:     devenvcommon.CCTPContractsQualifier,
-		ChainSelector: selector,
-	})
-	// Add CCV refs
-	for i, qualifier := range []string{
-		devenvcommon.DefaultCommitteeVerifierQualifier,
-		devenvcommon.SecondaryCommitteeVerifierQualifier,
-		devenvcommon.TertiaryCommitteeVerifierQualifier,
-		devenvcommon.QuaternaryReceiverQualifier,
-	} {
+
+	/*
+		// Add Onramp
 		ds.AddressRefStore.Add(datastore.AddressRef{
-			Address:       hexutil.Encode(cantonAddress(fmt.Sprintf("canton ccv %d", i))),
-			Type:          datastore.ContractType(committee_verifier.ResolverType),
-			Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-			Qualifier:     qualifier,
+			Address:       hexutil.Encode(cantonAddress("canton onramp")),
+			ChainSelector: selector,
+			Type:          datastore.ContractType(onrampoperations.ContractType),
+			Version:       semver.MustParse(onrampoperations.Deploy.Version()),
+		})
+		// Add OffRamp
+		ds.AddressRefStore.Add(datastore.AddressRef{
+			Address:       hexutil.Encode(cantonAddress("canton offramp")),
+			ChainSelector: selector,
+			Type:          datastore.ContractType(offrampoperations.ContractType),
+			Version:       semver.MustParse(offrampoperations.Deploy.Version()),
+		})
+		// Add Router
+		ds.AddressRefStore.Add(datastore.AddressRef{
+			Address:       hexutil.Encode(cantonAddress("canton router")),
+			ChainSelector: selector,
+			Type:          datastore.ContractType(routeroperations.ContractType),
+			Version:       semver.MustParse(routeroperations.Deploy.Version()),
+		})
+		// Add token pools
+		for i, combo := range devenvcommon.AllTokenCombinations() {
+			addressRef := combo.DestPoolAddressRef()
+			ds.AddressRefStore.Add(datastore.AddressRef{
+				Address:       hexutil.Encode(cantonAddress(fmt.Sprintf("canton dst token %d", i))),
+				Type:          addressRef.Type,
+				Version:       addressRef.Version,
+				Qualifier:     addressRef.Qualifier,
+				ChainSelector: selector,
+			})
+			addressRef = combo.SourcePoolAddressRef()
+			ds.AddressRefStore.Add(datastore.AddressRef{
+				Address:       hexutil.Encode(cantonAddress(fmt.Sprintf("canton src token %d", i))),
+				Type:          addressRef.Type,
+				Version:       addressRef.Version,
+				Qualifier:     addressRef.Qualifier,
+				ChainSelector: selector,
+			})
+		}
+		// Add CCTP refs
+		ds.AddressRefStore.Add(datastore.AddressRef{
+			Address:       hexutil.Encode(cantonAddress("canton cctp mtp")),
+			Type:          datastore.ContractType(cctp_message_transmitter_proxy.ContractType),
+			Version:       semver.MustParse(cctp_message_transmitter_proxy.Deploy.Version()),
+			Qualifier:     devenvcommon.CCTPContractsQualifier,
 			ChainSelector: selector,
 		})
-	}
-	// Add executor refs
-	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       hexutil.Encode(cantonAddress("canton exec")),
-		Type:          datastore.ContractType(executor.ContractType),
-		Version:       semver.MustParse(executor.Deploy.Version()),
-		Qualifier:     devenvcommon.DefaultExecutorQualifier,
-		ChainSelector: selector,
-	})
-	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       hexutil.Encode(cantonAddress("canton exec prx")),
-		Type:          datastore.ContractType(executor.ProxyType),
-		Version:       semver.MustParse(executor.DeployProxy.Version()),
-		Qualifier:     devenvcommon.DefaultExecutorQualifier,
-		ChainSelector: selector,
-	})
-	// Add rmn remote refs
-	ds.AddressRefStore.Add(datastore.AddressRef{
-		Address:       hexutil.Encode(cantonAddress("canton rmn remote")),
-		Type:          datastore.ContractType(rmn_remote.ContractType),
-		Version:       semver.MustParse(rmn_remote.Deploy.Version()),
-		ChainSelector: selector,
-	})
+		ds.AddressRefStore.Add(datastore.AddressRef{
+			Address:       hexutil.Encode(cantonAddress("canton cctp rslvr")),
+			Type:          datastore.ContractType(cctp_verifier.ResolverType),
+			Version:       semver.MustParse(cctp_verifier.Deploy.Version()),
+			Qualifier:     devenvcommon.CCTPContractsQualifier,
+			ChainSelector: selector,
+		})
+		ds.AddressRefStore.Add(datastore.AddressRef{
+			Address:       hexutil.Encode(cantonAddress("canton cctp vrfr")),
+			Type:          datastore.ContractType(cctp_verifier.ContractType),
+			Version:       semver.MustParse(cctp_verifier.Deploy.Version()),
+			Qualifier:     devenvcommon.CCTPContractsQualifier,
+			ChainSelector: selector,
+		})
+		ds.AddressRefStore.Add(datastore.AddressRef{
+			Address:       hexutil.Encode(cantonAddress("canton usdc token")),
+			Type:          datastore.ContractType(burnminterc677ops.ContractType),
+			Version:       burnminterc677ops.Version,
+			Qualifier:     devenvcommon.CCTPContractsQualifier,
+			ChainSelector: selector,
+		})
+		ds.AddressRefStore.Add(datastore.AddressRef{
+			Address:       hexutil.Encode(cantonAddress("usdc token pool prx")),
+			Type:          datastore.ContractType(usdc_token_pool_proxy.ContractType),
+			Version:       semver.MustParse(usdc_token_pool_proxy.Deploy.Version()),
+			Qualifier:     devenvcommon.CCTPContractsQualifier,
+			ChainSelector: selector,
+		})
+		// Add CCV refs
+		for i, qualifier := range []string{
+			devenvcommon.DefaultCommitteeVerifierQualifier,
+			devenvcommon.SecondaryCommitteeVerifierQualifier,
+			devenvcommon.TertiaryCommitteeVerifierQualifier,
+			devenvcommon.QuaternaryReceiverQualifier,
+		} {
+			ds.AddressRefStore.Add(datastore.AddressRef{
+				Address:       hexutil.Encode(cantonAddress(fmt.Sprintf("canton ccv %d", i))),
+				Type:          datastore.ContractType(committee_verifier.ResolverType),
+				Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+				Qualifier:     qualifier,
+				ChainSelector: selector,
+			})
+		}
+		// Add executor refs
+		ds.AddressRefStore.Add(datastore.AddressRef{
+			Address:       hexutil.Encode(cantonAddress("canton exec")),
+			Type:          datastore.ContractType(executor.ContractType),
+			Version:       semver.MustParse(executor.Deploy.Version()),
+			Qualifier:     devenvcommon.DefaultExecutorQualifier,
+			ChainSelector: selector,
+		})
+		ds.AddressRefStore.Add(datastore.AddressRef{
+			Address:       hexutil.Encode(cantonAddress("canton exec prx")),
+			Type:          datastore.ContractType(executor.ProxyType),
+			Version:       semver.MustParse(executor.DeployProxy.Version()),
+			Qualifier:     devenvcommon.DefaultExecutorQualifier,
+			ChainSelector: selector,
+		})
+		// Add rmn remote refs
+		ds.AddressRefStore.Add(datastore.AddressRef{
+			Address:       hexutil.Encode(cantonAddress("canton rmn remote")),
+			Type:          datastore.ContractType(rmn_remote.ContractType),
+			Version:       semver.MustParse(rmn_remote.Deploy.Version()),
+			ChainSelector: selector,
+		})*/
 
-	return ds.Seal(), nil
+	return runningDS.Seal(), nil
 }
 
 // DeployLocalNetwork implements cciptestinterfaces.CCIP17Configuration.

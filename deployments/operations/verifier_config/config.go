@@ -59,12 +59,19 @@ var BuildConfig = operations.NewOperation(
 		for _, chainSelector := range input.ChainSelectors {
 			chainSelectorStr := strconv.FormatUint(chainSelector, 10)
 
+			// Lookup the committee verifier address by both the resolver type and the contract type
 			committeeVerifierAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
 				Type:      datastore.ContractType(committee_verifier.ResolverType),
 				Qualifier: input.CommitteeQualifier,
 			}, chainSelector, toAddress)
 			if err != nil {
-				return BuildConfigOutput{}, fmt.Errorf("failed to get committee verifier address for chain %d: %w", chainSelector, err)
+				committeeVerifierAddr, err = dsutil.FindAndFormatRef(ds, datastore.AddressRef{
+					Type:      datastore.ContractType(committee_verifier.ContractType),
+					Qualifier: input.CommitteeQualifier,
+				}, chainSelector, toAddress)
+				if err != nil {
+					return BuildConfigOutput{}, fmt.Errorf("failed to get committee verifier address for chain %d: %w", chainSelector, err)
+				}
 			}
 			committeeVerifierAddresses[chainSelectorStr] = committeeVerifierAddr
 
@@ -81,17 +88,21 @@ var BuildConfig = operations.NewOperation(
 				Qualifier: input.ExecutorQualifier,
 			}, chainSelector, toAddress)
 			if err != nil {
-				return BuildConfigOutput{}, fmt.Errorf("failed to get executor proxy address for chain %d: %w", chainSelector, err)
+				// TODO, no executor on Canton
+				// return BuildConfigOutput{}, fmt.Errorf("failed to get executor proxy address for chain %d: %w", chainSelector, err)
+			} else {
+				defaultExecutorOnRampAddresses[chainSelectorStr] = executorAddr
 			}
-			defaultExecutorOnRampAddresses[chainSelectorStr] = executorAddr
 
 			rmnRemoteAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
 				Type: datastore.ContractType(rmn_remote.ContractType),
 			}, chainSelector, toAddress)
 			if err != nil {
-				return BuildConfigOutput{}, fmt.Errorf("failed to get rmn remote address for chain %d: %w", chainSelector, err)
+				// TODO, no RMN remote on Canton
+				// return BuildConfigOutput{}, fmt.Errorf("failed to get rmn remote address for chain %d: %w", chainSelector, err)
+			} else {
+				rmnRemoteAddresses[chainSelectorStr] = rmnRemoteAddr
 			}
-			rmnRemoteAddresses[chainSelectorStr] = rmnRemoteAddr
 		}
 
 		return BuildConfigOutput{

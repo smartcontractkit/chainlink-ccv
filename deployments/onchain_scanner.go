@@ -7,6 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
@@ -71,18 +72,28 @@ func ScanOnChainTopology(
 	g, ctx := errgroup.WithContext(ctx)
 
 	for _, ref := range refs {
-		g.Go(func() error {
-			state, err := scanCommitteeVerifier(ctx, env, ref)
-			if err != nil {
-				return fmt.Errorf("failed to scan committee verifier %s on chain %d: %w",
-					ref.Address, ref.ChainSelector, err)
-			}
+		chainFamily, err := chainsel.GetSelectorFamily(ref.ChainSelector)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get chain family for selector %d: %w", ref.ChainSelector)
+		}
+		switch chainFamily {
+		case chainsel.FamilyEVM:
+			g.Go(func() error {
+				state, err := scanCommitteeVerifier(ctx, env, ref)
+				if err != nil {
+					return fmt.Errorf("failed to scan committee verifier %s on chain %d: %w",
+						ref.Address, ref.ChainSelector, err)
+				}
 
-			mu.Lock()
-			topology.Committees[state.Qualifier] = append(topology.Committees[state.Qualifier], state)
-			mu.Unlock()
-			return nil
-		})
+				mu.Lock()
+				topology.Committees[state.Qualifier] = append(topology.Committees[state.Qualifier], state)
+				mu.Unlock()
+				return nil
+			})
+		default:
+			// Skip other chain families for now
+			continue
+		}
 	}
 
 	if err := g.Wait(); err != nil {
