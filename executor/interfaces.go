@@ -87,4 +87,10 @@ type MetricLabeler interface {
 	IncrementAlreadyExecutedMessages(ctx context.Context)
 	// RecordMessageHeapSize records the size of the message heap.
 	RecordMessageHeapSize(ctx context.Context, size int64)
+	// IncrementHeartbeatSuccess increments the counter for successful heartbeats to indexer.
+	IncrementHeartbeatSuccess(ctx context.Context)
+	// IncrementHeartbeatFailure increments the counter for failed heartbeats to indexer.
+	IncrementHeartbeatFailure(ctx context.Context)
+	// SetLastHeartbeatTimestamp sets the timestamp of the last successful heartbeat.
+	SetLastHeartbeatTimestamp(ctx context.Context, timestamp int64)
 }

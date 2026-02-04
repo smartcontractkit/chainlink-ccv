@@ -135,7 +135,7 @@ func NewExecutorCoordinator(
 		lggr.Errorw("Failed to create indexer client", "error", err)
 		return nil, fmt.Errorf("failed to create indexer client: %w", err)
 	}
-	indexerAdapter := executor.NewIndexerReaderAdapter(indexerClient)
+	indexerAdapter := executor.NewIndexerReaderAdapter(indexerClient, executorMonitoring)
 
 	ex := x.NewChainlinkExecutor(
 		logger.With(lggr, "component", "Executor"),

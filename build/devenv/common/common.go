@@ -30,6 +30,8 @@ const (
 	CCTPContractsQualifier         = "CCTP"
 	CCTPPrimaryReceiverQualifier   = "cctp-primary"
 	CCTPSecondaryReceiverQualifier = "cctp-secondary"
+
+	LombardContractsQualifier = "Lombard"
 )
 
 // TokenCombination represents a source and destination pool combination.
