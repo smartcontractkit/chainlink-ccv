@@ -23,7 +23,7 @@ require (
 	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260202190341-36d42e56bd53
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20260122165924-94e0fad14fe8
 	github.com/smartcontractkit/chainlink-deployments-framework v0.76.0
-	github.com/smartcontractkit/chainlink-testing-framework/framework v0.13.14-0.20260203120205-4ede1ad58ca1
+	github.com/smartcontractkit/chainlink-testing-framework/framework v0.13.14
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.39.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.39.0
