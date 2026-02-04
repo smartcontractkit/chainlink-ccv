@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/noders-team/go-daml/pkg/client"
 	"github.com/noders-team/go-daml/pkg/types"
 	"github.com/prometheus/client_golang/prometheus"
@@ -21,6 +22,8 @@ import (
 	"github.com/smartcontractkit/chainlink-canton/contracts"
 	cantonChangesets "github.com/smartcontractkit/chainlink-canton/deployment/changesets"
 	"github.com/smartcontractkit/chainlink-canton/deployment/sequences"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -270,142 +273,60 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	// Mock out a Canton deployment for now.
 	// Add token pools
 	for i, combo := range devenvcommon.AllTokenCombinations() {
-		// TEST (BurnMintTokenPool 1.6.1 [] to BurnMintTokenPool 1.6.1 [])
-		// TEST (BurnMintTokenPool 1.6.1 [] to BurnMintTokenPool 1.6.1 [])
 		addressRef := combo.DestPoolAddressRef()
-		fmt.Println(addressRef.Qualifier)
-		_ = runningDS.AddressRefStore.Add(datastore.AddressRef{
+		err = runningDS.AddressRefStore.Add(datastore.AddressRef{
 			Address:       contracts.MustNewInstanceID("dst-token-pool-"+strconv.Itoa(i), user.PrimaryParty).InstanceAddress().Hex(),
 			Type:          addressRef.Type,
 			Version:       addressRef.Version,
 			Qualifier:     addressRef.Qualifier,
 			ChainSelector: selector,
 		})
-		addressRef = combo.SourcePoolAddressRef()
-		fmt.Println(addressRef.Qualifier)
-		_ = runningDS.AddressRefStore.Add(datastore.AddressRef{
-			Address:       contracts.MustNewInstanceID("src-token-pool-"+strconv.Itoa(i), user.PrimaryParty).InstanceAddress().Hex(),
-			Type:          addressRef.Type,
-			Version:       addressRef.Version,
-			Qualifier:     addressRef.Qualifier,
-			ChainSelector: selector,
-		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to add dst token pool address ref: %w", err)
+		}
+		// addressRef = combo.SourcePoolAddressRef()
+		// err = runningDS.AddressRefStore.Add(datastore.AddressRef{
+		// 	Address:       contracts.MustNewInstanceID("src-token-pool-"+strconv.Itoa(i), user.PrimaryParty).InstanceAddress().Hex(),
+		// 	Type:          addressRef.Type,
+		// 	Version:       addressRef.Version,
+		// 	Qualifier:     addressRef.Qualifier,
+		// 	ChainSelector: selector,
+		// })
+		// if err != nil {
+		// 	return nil, fmt.Errorf("failed to add src token pool address ref: %w", err)
+		// }
 	}
-
-	/*
-		// Add Onramp
-		ds.AddressRefStore.Add(datastore.AddressRef{
-			Address:       hexutil.Encode(cantonAddress("canton onramp")),
-			ChainSelector: selector,
-			Type:          datastore.ContractType(onrampoperations.ContractType),
-			Version:       semver.MustParse(onrampoperations.Deploy.Version()),
-		})
-		// Add OffRamp
-		ds.AddressRefStore.Add(datastore.AddressRef{
-			Address:       hexutil.Encode(cantonAddress("canton offramp")),
-			ChainSelector: selector,
-			Type:          datastore.ContractType(offrampoperations.ContractType),
-			Version:       semver.MustParse(offrampoperations.Deploy.Version()),
-		})
-		// Add Router
-		ds.AddressRefStore.Add(datastore.AddressRef{
-			Address:       hexutil.Encode(cantonAddress("canton router")),
-			ChainSelector: selector,
-			Type:          datastore.ContractType(routeroperations.ContractType),
-			Version:       semver.MustParse(routeroperations.Deploy.Version()),
-		})
-		// Add token pools
-		for i, combo := range devenvcommon.AllTokenCombinations() {
-			addressRef := combo.DestPoolAddressRef()
-			ds.AddressRefStore.Add(datastore.AddressRef{
-				Address:       hexutil.Encode(cantonAddress(fmt.Sprintf("canton dst token %d", i))),
-				Type:          addressRef.Type,
-				Version:       addressRef.Version,
-				Qualifier:     addressRef.Qualifier,
-				ChainSelector: selector,
-			})
-			addressRef = combo.SourcePoolAddressRef()
-			ds.AddressRefStore.Add(datastore.AddressRef{
-				Address:       hexutil.Encode(cantonAddress(fmt.Sprintf("canton src token %d", i))),
-				Type:          addressRef.Type,
-				Version:       addressRef.Version,
-				Qualifier:     addressRef.Qualifier,
-				ChainSelector: selector,
-			})
-		}
-		// Add CCTP refs
-		ds.AddressRefStore.Add(datastore.AddressRef{
-			Address:       hexutil.Encode(cantonAddress("canton cctp mtp")),
-			Type:          datastore.ContractType(cctp_message_transmitter_proxy.ContractType),
-			Version:       semver.MustParse(cctp_message_transmitter_proxy.Deploy.Version()),
-			Qualifier:     devenvcommon.CCTPContractsQualifier,
-			ChainSelector: selector,
-		})
-		ds.AddressRefStore.Add(datastore.AddressRef{
-			Address:       hexutil.Encode(cantonAddress("canton cctp rslvr")),
-			Type:          datastore.ContractType(cctp_verifier.ResolverType),
-			Version:       semver.MustParse(cctp_verifier.Deploy.Version()),
-			Qualifier:     devenvcommon.CCTPContractsQualifier,
-			ChainSelector: selector,
-		})
-		ds.AddressRefStore.Add(datastore.AddressRef{
-			Address:       hexutil.Encode(cantonAddress("canton cctp vrfr")),
-			Type:          datastore.ContractType(cctp_verifier.ContractType),
-			Version:       semver.MustParse(cctp_verifier.Deploy.Version()),
-			Qualifier:     devenvcommon.CCTPContractsQualifier,
-			ChainSelector: selector,
-		})
-		ds.AddressRefStore.Add(datastore.AddressRef{
-			Address:       hexutil.Encode(cantonAddress("canton usdc token")),
-			Type:          datastore.ContractType(burnminterc677ops.ContractType),
-			Version:       burnminterc677ops.Version,
-			Qualifier:     devenvcommon.CCTPContractsQualifier,
-			ChainSelector: selector,
-		})
-		ds.AddressRefStore.Add(datastore.AddressRef{
-			Address:       hexutil.Encode(cantonAddress("usdc token pool prx")),
-			Type:          datastore.ContractType(usdc_token_pool_proxy.ContractType),
-			Version:       semver.MustParse(usdc_token_pool_proxy.Deploy.Version()),
-			Qualifier:     devenvcommon.CCTPContractsQualifier,
-			ChainSelector: selector,
-		})
-		// Add CCV refs
-		for i, qualifier := range []string{
-			devenvcommon.DefaultCommitteeVerifierQualifier,
-			devenvcommon.SecondaryCommitteeVerifierQualifier,
-			devenvcommon.TertiaryCommitteeVerifierQualifier,
-			devenvcommon.QuaternaryReceiverQualifier,
-		} {
-			ds.AddressRefStore.Add(datastore.AddressRef{
-				Address:       hexutil.Encode(cantonAddress(fmt.Sprintf("canton ccv %d", i))),
-				Type:          datastore.ContractType(committee_verifier.ResolverType),
-				Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-				Qualifier:     qualifier,
-				ChainSelector: selector,
-			})
-		}
-		// Add executor refs
-		ds.AddressRefStore.Add(datastore.AddressRef{
-			Address:       hexutil.Encode(cantonAddress("canton exec")),
-			Type:          datastore.ContractType(executor.ContractType),
-			Version:       semver.MustParse(executor.Deploy.Version()),
-			Qualifier:     devenvcommon.DefaultExecutorQualifier,
-			ChainSelector: selector,
-		})
-		ds.AddressRefStore.Add(datastore.AddressRef{
-			Address:       hexutil.Encode(cantonAddress("canton exec prx")),
-			Type:          datastore.ContractType(executor.ProxyType),
-			Version:       semver.MustParse(executor.DeployProxy.Version()),
-			Qualifier:     devenvcommon.DefaultExecutorQualifier,
-			ChainSelector: selector,
-		})
-		// Add rmn remote refs
-		ds.AddressRefStore.Add(datastore.AddressRef{
-			Address:       hexutil.Encode(cantonAddress("canton rmn remote")),
-			Type:          datastore.ContractType(rmn_remote.ContractType),
-			Version:       semver.MustParse(rmn_remote.Deploy.Version()),
-			ChainSelector: selector,
-		})*/
+	// Add executor refs
+	err = runningDS.AddressRefStore.Add(datastore.AddressRef{
+		Address:       contracts.MustNewInstanceID("executor-1", user.PrimaryParty).InstanceAddress().Hex(),
+		Type:          datastore.ContractType(executor.ContractType),
+		Version:       executor.Version,
+		Qualifier:     devenvcommon.DefaultExecutorQualifier,
+		ChainSelector: selector,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to add executor address ref: %w", err)
+	}
+	err = runningDS.AddressRefStore.Add(datastore.AddressRef{
+		Address:       contracts.MustNewInstanceID("executor-proxy-1", user.PrimaryParty).InstanceAddress().Hex(),
+		Type:          datastore.ContractType(executor.ProxyType),
+		Version:       executor.Version,
+		Qualifier:     devenvcommon.DefaultExecutorQualifier,
+		ChainSelector: selector,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to add executor proxy address ref: %w", err)
+	}
+	// Add rmn remote refs
+	err = runningDS.AddressRefStore.Add(datastore.AddressRef{
+		Address:       hexutil.Encode(cantonAddress("canton rmn remote")),
+		Type:          datastore.ContractType(rmn_remote.ContractType),
+		Version:       rmn_remote.Version,
+		ChainSelector: selector,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to add rmn remote address ref: %w", err)
+	}
 
 	return runningDS.Seal(), nil
 }

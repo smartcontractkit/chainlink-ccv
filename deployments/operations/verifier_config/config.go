@@ -88,21 +88,17 @@ var BuildConfig = operations.NewOperation(
 				Qualifier: input.ExecutorQualifier,
 			}, chainSelector, toAddress)
 			if err != nil {
-				// TODO, no executor on Canton
-				// return BuildConfigOutput{}, fmt.Errorf("failed to get executor proxy address for chain %d: %w", chainSelector, err)
-			} else {
-				defaultExecutorOnRampAddresses[chainSelectorStr] = executorAddr
+				return BuildConfigOutput{}, fmt.Errorf("failed to get executor proxy address for chain %d: %w", chainSelector, err)
 			}
+			defaultExecutorOnRampAddresses[chainSelectorStr] = executorAddr
 
 			rmnRemoteAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
 				Type: datastore.ContractType(rmn_remote.ContractType),
 			}, chainSelector, toAddress)
 			if err != nil {
-				// TODO, no RMN remote on Canton
-				// return BuildConfigOutput{}, fmt.Errorf("failed to get rmn remote address for chain %d: %w", chainSelector, err)
-			} else {
-				rmnRemoteAddresses[chainSelectorStr] = rmnRemoteAddr
+				return BuildConfigOutput{}, fmt.Errorf("failed to get rmn remote address for chain %d: %w", chainSelector, err)
 			}
+			rmnRemoteAddresses[chainSelectorStr] = rmnRemoteAddr
 		}
 
 		return BuildConfigOutput{

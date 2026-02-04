@@ -1,6 +1,6 @@
 module github.com/smartcontractkit/chainlink-ccv/devenv
 
-go 1.25.5
+go 1.25.6
 
 replace github.com/smartcontractkit/chainlink-ccv => ../..
 
@@ -39,6 +39,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/noders-team/go-daml v0.3.0
 	github.com/sethvargo/go-retry v0.3.0
+	github.com/smartcontractkit/chainlink-canton v0.0.0-20260204194827-18b3ff64443d
 	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260204083909-e2356413dcfa
 	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260204083909-e2356413dcfa
 	github.com/smartcontractkit/chainlink-ccv v0.0.0-20260129103857-fe36763e89c2
@@ -69,11 +70,9 @@ require (
 	github.com/knadh/koanf/v2 v2.1.2 // indirect
 	github.com/oapi-codegen/runtime v1.1.2 // indirect
 	github.com/oklog/ulid/v2 v2.1.0 // indirect
-	github.com/onsi/gomega v1.37.0 // indirect
 	github.com/prometheus/otlptranslator v0.0.0-20250414121140-35db323fe9fb // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
 	github.com/sercand/kuberesolver/v6 v6.0.0 // indirect
-	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/heartbeat v0.0.0-20260115142640-f6b99095c12e // indirect
 	github.com/smartcontractkit/chainlink-protos/linking-service/go v0.0.0-20251002192024-d2ad9222409b // indirect
 	github.com/smartcontractkit/chainlink-ton v0.0.0-20260119210543-276a92092771 // indirect

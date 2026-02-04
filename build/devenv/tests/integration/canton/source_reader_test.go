@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/smartcontractkit/chainlink-canton/contracts"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -212,21 +213,21 @@ func TestCantonSourceReader(t *testing.T) {
 					// TODO: this isn't correct, because for canton the issuer is the CCVId.
 					// We need to set the "verifier address" in the verifier to be the CCVId rather than
 					// the address of the committee_verifier.ResolverType from the DataStore.
-					Issuer:            addresses.cantonDefaultVerifier.Hex(),
+					Issuer:            strings.TrimPrefix(addresses.cantonDefaultVerifier.Hex(), "0x"),
 					DestGasLimit:      100000,
 					DestBytesOverhead: 500,
 					FeeTokenAmount:    "1000000.",
 					ExtraArgs:         []byte{},
 				},
 				{
-					Issuer:            addresses.cantonExecutor.Hex(),
+					Issuer:            strings.TrimPrefix(addresses.cantonExecutor.Hex(), "0x"),
 					DestGasLimit:      0,
 					DestBytesOverhead: 0,
 					FeeTokenAmount:    "500000.",
 					ExtraArgs:         []byte{},
 				},
 				{
-					Issuer:            addresses.cantonRouter.Hex(),
+					Issuer:            strings.TrimPrefix(addresses.cantonRouter.Hex(), "0x"),
 					DestGasLimit:      0,
 					DestBytesOverhead: 0,
 					FeeTokenAmount:    "500000.",
@@ -362,18 +363,18 @@ func getRelevantAddresses(t *testing.T, in *ccv.Cfg, cantonDetails, evmDetails c
 	t.Logf("canton default verifier address: %s", cantonDefaultVerifierRef.Address)
 	addresses.cantonDefaultVerifier = contracts.HexToInstanceAddress(cantonDefaultVerifierRef.Address)
 
-	// cantonExecutorAddress, err := in.CLDF.DataStore.Addresses().Get(
-	// 	datastore.NewAddressRefKey(
-	// 		cantonDetails.ChainSelector,
-	// 		datastore.ContractType(executor.ProxyType),
-	// 		semver.MustParse(executor.DeployProxy.Version()),
-	// 		devenvcommon.DefaultExecutorQualifier,
-	// 	),
-	// )
-	// require.NoError(t, err)
-	// require.NotEmpty(t, cantonExecutorAddress.Address)
-	// t.Logf("canton executor address: %s", cantonExecutorAddress.Address)
-	addresses.cantonExecutor = contracts.HexToInstanceAddress(cantonOnRampRef.Address) // TODO: fix when executor is deployed
+	cantonExecutorAddress, err := in.CLDF.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(
+			cantonDetails.ChainSelector,
+			datastore.ContractType(executor.ProxyType),
+			semver.MustParse(executor.DeployProxy.Version()),
+			devenvcommon.DefaultExecutorQualifier,
+		),
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, cantonExecutorAddress.Address)
+	t.Logf("canton executor address: %s", cantonExecutorAddress.Address)
+	addresses.cantonExecutor = contracts.HexToInstanceAddress(cantonExecutorAddress.Address) // TODO: Mock contract
 
 	evmOffRampRef, err := in.CLDF.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
