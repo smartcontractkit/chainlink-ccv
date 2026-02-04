@@ -2,14 +2,12 @@ package evm
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"math/big"
 	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -49,6 +47,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployments/changesets"
+	cantonadapters "github.com/smartcontractkit/chainlink-ccv/devenv/canton/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -1303,6 +1302,21 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 
 	remoteChains := make(map[uint64]adapters.RemoteChainConfig[datastore.AddressRef, datastore.AddressRef])
 	for _, rs := range remoteSelectors {
+		// TODO: should be moved to the ChainFamily interface.
+		var addressBytesLength uint8
+		family, err := chainsel.GetSelectorFamily(rs)
+		if err != nil {
+			return fmt.Errorf("failed to get selector family for chain %d: %w", rs, err)
+		}
+		switch family {
+		case chainsel.FamilyEVM:
+			addressBytesLength = 20
+		case chainsel.FamilyCanton:
+			addressBytesLength = 32
+		default:
+			return fmt.Errorf("unsupported family %s for chain %d", family, rs)
+		}
+
 		remoteChains[rs] = adapters.RemoteChainConfig[datastore.AddressRef, datastore.AddressRef]{
 			AllowTrafficFrom: true,
 			OnRamps: []datastore.AddressRef{
@@ -1356,8 +1370,8 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 				Enabled:     true,
 				USDCentsFee: 0, // TODO: set proper fee
 			},
-			AddressBytesLength:   20,      // TODO: set proper address bytes length, should be evm-agnostic
-			BaseExecutionGasCost: 150_000, // TODO: set proper base execution gas cost
+			AddressBytesLength:   addressBytesLength, // TODO: set proper address bytes length, should be evm-agnostic
+			BaseExecutionGasCost: 150_000,            // TODO: set proper base execution gas cost
 		}
 	}
 
@@ -1382,7 +1396,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 	mcmsReaderRegistry := changesetscore.GetRegistry()
 	chainFamilyRegistry := adapters.NewChainFamilyRegistry()
 	chainFamilyRegistry.RegisterChainFamily("evm", &evmadapters.ChainFamilyAdapter{})
-	chainFamilyRegistry.RegisterChainFamily("canton", &evmadapters.ChainFamilyAdapter{}) // TODO: remove this once Canton we have a Canton adapter.
+	chainFamilyRegistry.RegisterChainFamily("canton", cantonadapters.NewChainFamilyAdapter(&evmadapters.ChainFamilyAdapter{}))
 	_, err := ccvchangesets.ConfigureChainsForLanesFromTopology(chainFamilyRegistry, mcmsReaderRegistry).Apply(*e, ccvchangesets.ConfigureChainsForLanesFromTopologyConfig{
 		Topology: topology,
 		Chains: []ccvchangesets.PartialChainConfig{
@@ -1427,7 +1441,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		}
 		_, ok = tokenAdapterRegistry.GetTokenAdapter("canton", semver.MustParse(poolVersion))
 		if !ok {
-			tokenAdapterRegistry.RegisterTokenAdapter("canton", semver.MustParse(poolVersion), &CantonTokenAdapter{})
+			tokenAdapterRegistry.RegisterTokenAdapter("canton", semver.MustParse(poolVersion), cantonadapters.NewTokenAdapter(&evmadapters.TokenAdapter{}))
 		}
 	}
 
@@ -1841,20 +1855,4 @@ func (m *CCIP17EVM) GetRoundRobinUser() func() *bind.TransactOpts {
 		index.Add(1)
 		return selectedSender
 	}
-}
-
-// TODO: move this to chainlink-ccip/deployment.
-type CantonTokenAdapter struct {
-	evmadapters.TokenAdapter
-}
-
-func (t *CantonTokenAdapter) DeriveTokenAddress(e deployment.Environment, chainSelector uint64, ref datastore.AddressRef) ([]byte, error) {
-	addr, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(chainSelector, ref.Type, ref.Version, ref.Qualifier))
-	if err != nil {
-		return nil, fmt.Errorf("failed to get address for %v on chain %d: %w", ref, chainSelector, err)
-	}
-	// Address is stored as hex string
-	// Remove 0x prefix if present
-	cleanAddr := strings.TrimPrefix(addr.Address, "0x")
-	return hex.DecodeString(cleanAddr)
 }

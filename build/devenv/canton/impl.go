@@ -37,7 +37,7 @@ import (
 )
 
 // TODO: this is just for the mocked out addresses, not a real restriction on Canton.
-const addressLen = 20
+const addressLen = 32
 
 // leftPadBytesWithChar pads the input bytes on the left with the specified character
 // to reach the desired length. If data is already >= length, it truncates to length.
@@ -57,7 +57,7 @@ func leftPadBytesWithChar(data []byte, length int, padChar byte) []byte {
 // cantonAddress creates a Canton mock address by padding with 'c' characters.
 func cantonAddress(name string) []byte {
 	// pad with 'c' because the canton server disallows 'null characters'
-	// in a string (i'm guessing this is just the '0' character that is problematic).
+	// in a string (i.e. 0 bytes).
 	return leftPadBytesWithChar([]byte(name), addressLen, 'c')
 }
 
