@@ -1461,6 +1461,10 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		return fmt.Errorf("failed to configure USDC tokens for transfers: %w", err)
 	}
 
+	if err := m.configureLombardForTransfer(e, mcmsReaderRegistry, selector, remoteSelectors); err != nil {
+		return fmt.Errorf("failed to configure Lombard tokens for transfers: %w", err)
+	}
+
 	// Configure the custom executor for the dest chain manually.
 	customExecutor, err := e.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(

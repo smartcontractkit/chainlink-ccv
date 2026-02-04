@@ -350,11 +350,11 @@ func TestE2ESmoke(t *testing.T) {
 
 	t.Run("USDC v3 token transfer", func(t *testing.T) {
 		var (
-			sourceSelector  = sel0
-			sourceChain     = chainMap[sourceSelector]
-			destSelector    = sel1
-			destChain       = chainMap[destSelector]
-			cctpOnlyReciver = getContractAddress(
+			sourceSelector   = sel0
+			sourceChain      = chainMap[sourceSelector]
+			destSelector     = sel1
+			destChain        = chainMap[destSelector]
+			cctpOnlyReceiver = getContractAddress(
 				t,
 				in,
 				destSelector,
@@ -363,7 +363,7 @@ func TestE2ESmoke(t *testing.T) {
 				common.CCTPPrimaryReceiverQualifier,
 				"",
 			)
-			cctpAndCommiteeReciver = getContractAddress(
+			cctpAndCommitteeReceiver = getContractAddress(
 				t,
 				in,
 				destSelector,
@@ -505,7 +505,7 @@ func TestE2ESmoke(t *testing.T) {
 				name:              "USDC transfer to receiver contract but only CCTP verifier is required on dest",
 				finalityConfig:    0,
 				transferAmount:    big.NewInt(2),
-				receiver:          cctpOnlyReciver,
+				receiver:          cctpOnlyReceiver,
 				executionGasLimit: 200_000,
 				// Onramp does include default CCV even if not required when either execGas or data is not empty
 				expectedReceiptIssuers:  5, // default ccv, CCTP ccv, token pool, executor, network fee
@@ -516,7 +516,7 @@ func TestE2ESmoke(t *testing.T) {
 				name:                    "USDC transfer to receiver contract but commit and CCTP verifiers are required on dest",
 				finalityConfig:          1,
 				transferAmount:          big.NewInt(10),
-				receiver:                cctpAndCommiteeReciver,
+				receiver:                cctpAndCommitteeReceiver,
 				executionGasLimit:       200_000,
 				expectedReceiptIssuers:  5, // default ccv, CCTP ccv, token pool, executor, network fee
 				expectedVerifierResults: 2, // default ccv, CCTP ccv
@@ -529,6 +529,80 @@ func TestE2ESmoke(t *testing.T) {
 				runUSDCTestCase(t, tc)
 			})
 		}
+	})
+
+	t.Run("Lombard V3 token transfer", func(t *testing.T) {
+		t.Skip("not implemented yet")
+		var (
+			sourceSelector = sel0
+			sourceChain    = chainMap[sourceSelector]
+			destSelector   = sel1
+			destChain      = chainMap[destSelector]
+		)
+
+		type testCase struct {
+			name                    string
+			executionGasLimit       uint32
+			transferAmount          *big.Int
+			receiver                protocol.UnknownAddress
+			expectedReceiptIssuers  int
+			expectedVerifierResults int
+		}
+
+		runLombardTestCase := func(
+			t *testing.T,
+			tc testCase,
+		) {
+			sender := mustGetSenderAddress(t, sourceChain)
+
+			srcToken := getTokenAddress(t, in, sourceSelector, common.LombardContractsQualifier)
+			destToken := getTokenAddress(t, in, destSelector, common.LombardContractsQualifier)
+
+			startBal, err := destChain.GetTokenBalance(ctx, tc.receiver, destToken)
+			require.NoError(t, err)
+			l.Info().Str("Receiver", tc.receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", common.LombardContractsQualifier).Msg("receiver start balance")
+
+			srcStartBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
+			require.NoError(t, err)
+			l.Info().Str("Sender", sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Str("Token", common.LombardContractsQualifier).Msg("sender start balance")
+
+			seqNo, err := sourceChain.GetExpectedNextSequenceNumber(ctx, destSelector)
+			require.NoError(t, err)
+			l.Info().Uint64("SeqNo", seqNo).Str("Token", common.LombardContractsQualifier).Msg("expecting sequence number")
+
+			messageOptions := cciptestinterfaces.MessageOptions{
+				Version:           3,
+				FinalityConfig:    0,
+				ExecutionGasLimit: tc.executionGasLimit,
+				Executor:          getContractAddress(t, in, sel0, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
+			}
+
+			sendRes, err := sourceChain.SendMessage(
+				ctx, destSelector,
+				cciptestinterfaces.MessageFields{
+					Receiver: tc.receiver,
+					TokenAmount: cciptestinterfaces.TokenAmount{
+						Amount:       big.NewInt(1),
+						TokenAddress: srcToken,
+					},
+				},
+				messageOptions,
+			)
+			require.NoError(t, err)
+			require.NotNil(t, sendRes)
+			require.Len(t, sendRes.ReceiptIssuers, tc.expectedReceiptIssuers, "expected %d receipt issuers for %s token", tc.expectedReceiptIssuers, common.CCTPContractsQualifier)
+
+			_, err = sourceChain.WaitOneSentEventBySeqNo(ctx, destSelector, seqNo, defaultSentTimeout)
+			require.NoError(t, err)
+		}
+
+		runLombardTestCase(t, testCase{
+			name:                    "Lombard transfer to EOA receiver with chain finality",
+			transferAmount:          big.NewInt(100),
+			receiver:                mustGetEOAReceiverAddress(t, destChain),
+			expectedReceiptIssuers:  5, // default ccv, token pool, executor, network fee
+			expectedVerifierResults: 2, // default ccv, Lombard ccv
+		})
 	})
 }
 
