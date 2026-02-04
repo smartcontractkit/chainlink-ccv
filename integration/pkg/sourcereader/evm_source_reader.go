@@ -13,7 +13,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/validate"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -247,7 +246,7 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 
 		allReceipts := receiptBlobsFromEvent(event.Receipts, event.VerifierBlobs) // Validate the receipt structure matches expectations
 		// Validate ccvAndExecutorHash
-		if err := validate.CCVAndExecutorHash(*decodedMsg, allReceipts); err != nil {
+		if err := protocol.ValidateCCVAndExecutorHash(*decodedMsg, allReceipts); err != nil {
 			r.lggr.Errorw("ccvAndExecutorHash validation failed",
 				"error", err,
 				"messageID", common.Bytes2Hex(event.MessageId[:]),

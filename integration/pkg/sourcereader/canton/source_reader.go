@@ -14,7 +14,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/validate"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -326,7 +325,7 @@ func processCCIPMessageSentEvent(field *ledgerv2.RecordField) (*protocol.Message
 	}
 
 	// Validate ccvAndExecutorHash
-	if err := validate.CCVAndExecutorHash(messageSentEvent.Message, messageSentEvent.Receipts); err != nil {
+	if err := protocol.ValidateCCVAndExecutorHash(messageSentEvent.Message, messageSentEvent.Receipts); err != nil {
 		return nil, fmt.Errorf("ccvAndExecutorHash validation failed: %w", err)
 	}
 
