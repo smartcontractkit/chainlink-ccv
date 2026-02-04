@@ -2,6 +2,7 @@ package evm
 
 import (
 	"fmt"
+	"math/big"
 
 	"github.com/Masterminds/semver/v3"
 
@@ -41,6 +42,11 @@ func (m *CCIP17EVMConfig) deployLombardTokenAndPool(
 	lombardToken, bridgeV2, err := m.deployLombardContracts(env, chain, ds, selector)
 	if err != nil {
 		return fmt.Errorf("failed to deploy lombard contracts on chain %s: %w", chain, err)
+	}
+
+	err = m.configureLombardContracts(env, chain, selector, lombardToken)
+	if err != nil {
+		return fmt.Errorf("failed to configure lombard contracts on chain %s: %w", chain, err)
 	}
 
 	err = m.deployLombardChain(env, registry, ds, create2Factory, selector, lombardToken, bridgeV2, chain)
@@ -100,6 +106,36 @@ func (m *CCIP17EVMConfig) deployLombardContracts(
 	return common.HexToAddress(deployTokenReport.Output.Address), lombardBridgeAddr, nil
 }
 
+func (m *CCIP17EVMConfig) configureLombardContracts(
+	env *deployment.Environment,
+	chain evm.Chain,
+	selector uint64,
+	token common.Address,
+) error {
+	_, err := cldf_ops.ExecuteOperation(env.OperationsBundle, burn_mint_erc20_with_drip.GrantMintAndBurnRoles, chain, evm_contract.FunctionInput[common.Address]{
+		ChainSelector: selector,
+		Address:       token,
+		Args:          chain.DeployerKey.From,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to grant burn mint permissions to deployer %s: %w", chain.DeployerKey.From.Hex(), err)
+	}
+
+	_, err = cldf_ops.ExecuteOperation(env.OperationsBundle, burn_mint_erc20_with_drip.Mint, chain, evm_contract.FunctionInput[burn_mint_erc20_with_drip.MintArgs]{
+		ChainSelector: selector,
+		Address:       token,
+		Args: burn_mint_erc20_with_drip.MintArgs{
+			Account: chain.DeployerKey.From,
+			// Mint 1,000,000 LBTC (18 decimals)
+			Amount: new(big.Int).Mul(big.NewInt(1_000_000), big.NewInt(1e18)),
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to initially mint LBTC to deployer %s: %w", chain.DeployerKey.From.Hex(), err)
+	}
+	return err
+}
+
 func (m *CCIP17EVMConfig) deployLombardChain(
 	env *deployment.Environment,
 	registry *changesetscore.MCMSReaderRegistry,
@@ -122,6 +158,7 @@ func (m *CCIP17EVMConfig) deployLombardChain(
 				DeployerContract: create2Factory.Address,
 				StorageLocations: []string{"https://test.chain.link.fake"},
 				RateLimitAdmin:   chain.DeployerKey.From.Hex(),
+				FeeAggregator:    common.HexToAddress("0x01").Hex(),
 			},
 		},
 	})
@@ -149,18 +186,32 @@ func (m *CCIP17EVMConfig) configureLombardForTransfer(
 	remoteChains := make(map[uint64]adapters.RemoteLombardChainConfig)
 	for _, rs := range remoteSelectors {
 		remoteChains[rs] = adapters.RemoteLombardChainConfig{
-			FeeUSDCents:        10,
-			GasForVerification: 100000,
-			PayloadSizeBytes:   1000,
+			FeeUSDCents:        45,
+			GasForVerification: 7_500*6 + 5_000,
+			PayloadSizeBytes:   6*64 + 2*32,
 			LombardChainId:     uint32(rs),
 		}
 	}
 
-	_, err := changesets.DeployLombardChains(lombardChainRegistry, registry).Apply(*e, changesets.DeployLombardChainsConfig{
+	tokenRef, err := e.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(
+			selector,
+			datastore.ContractType(burn_mint_erc20_with_drip.ContractType),
+			semver.MustParse(burn_mint_erc20_with_drip.Deploy.Version()),
+			LombardContractsQualifier,
+		),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to get lombard token address ref for chain %d: %w", selector, err)
+	}
+
+	_, err = changesets.DeployLombardChains(lombardChainRegistry, registry).Apply(*e, changesets.DeployLombardChainsConfig{
 		Chains: map[uint64]changesets.LombardChainConfig{
 			selector: {
+				Token:          tokenRef.Address,
 				TokenQualifier: LombardTokenQualifier,
 				RemoteChains:   remoteChains,
+				FeeAggregator:  common.HexToAddress("0x01").Hex(),
 			},
 		},
 	})
