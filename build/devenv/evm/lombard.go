@@ -216,7 +216,7 @@ func (m *CCIP17EVMConfig) configureLombardForTransfer(
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("failed to deploy CCTP chain registry on chain %d: %w", selector, err)
+		return fmt.Errorf("failed to configured Lombard lanes on chain %d: %w", selector, err)
 	}
 
 	return err
