@@ -5,6 +5,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/stellar"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
@@ -17,6 +18,12 @@ type ConfigWithBlockchainInfos struct {
 type CantonConfig struct {
 	// ReaderConfig is the configuration for the canton source reader.
 	ReaderConfig canton.ReaderConfig `toml:"reader_config"`
+}
+
+// StellarConfig is the configuration required for verifiers that read from Stellar.
+type StellarConfig struct {
+	// ReaderConfig is the configuration for the Stellar source reader.
+	ReaderConfig stellar.ReaderConfig `toml:"reader_config"`
 }
 
 type Config struct {

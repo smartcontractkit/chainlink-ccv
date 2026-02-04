@@ -115,7 +115,7 @@ func ConvertBlockchainOutputsToInfo(outputs []*ctfblockchain.Output) (map[string
 			}
 		}
 
-		// Add network-specific data (e.g. Canton endpoints)
+		// Add network-specific data (e.g. Canton endpoints, Stellar network info)
 		if output.NetworkSpecificData != nil {
 			info.NetworkSpecificData = &ccvblockchain.NetworkSpecificData{}
 			switch output.Family {
@@ -125,6 +125,14 @@ func ConvertBlockchainOutputsToInfo(outputs []*ctfblockchain.Output) (map[string
 				info.NetworkSpecificData.CantonEndpoints = &canton.Endpoints{
 					GRPCLedgerAPIURL: fmt.Sprintf("%s:8080", output.ContainerName), // TODO: 8080 is hardcoded, should get it programmatically via blockchain.Output?
 					JWT:              output.NetworkSpecificData.CantonEndpoints.Participants[0].JWT,
+				}
+			case chainsel.FamilyStellar:
+				if output.NetworkSpecificData.StellarNetwork != nil {
+					info.NetworkSpecificData.StellarNetwork = &ccvblockchain.StellarNetworkInfo{
+						NetworkPassphrase: output.NetworkSpecificData.StellarNetwork.NetworkPassphrase,
+						FriendbotURL:      output.NetworkSpecificData.StellarNetwork.FriendbotURL,
+						SorobanRPCURL:     output.Nodes[0].ExternalHTTPUrl,
+					}
 				}
 			default:
 				return nil, fmt.Errorf("unsupported family %s for network specific data", output.Family)

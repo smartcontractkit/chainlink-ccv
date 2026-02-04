@@ -2,6 +2,7 @@ package stellar
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"math"
@@ -35,6 +36,16 @@ type RPCClient interface {
 
 // Compile-time check to ensure rpcclient.Client satisfies our interface.
 var _ RPCClient = (*rpcclient.Client)(nil)
+
+// ReaderConfig is the configuration required to create a Stellar source reader.
+type ReaderConfig struct {
+	// NetworkPassphrase is the Stellar network passphrase (e.g., "Standalone Network ; February 2017").
+	NetworkPassphrase string `toml:"network_passphrase"`
+	// OnRampContractID is the contract ID of the Stellar OnRamp contract.
+	OnRampContractID string `toml:"onramp_contract_id"`
+	// SorobanRPCURL is the URL of the Soroban RPC endpoint.
+	SorobanRPCURL string `toml:"soroban_rpc_url"`
+}
 
 // TransferEvent represents a decoded Stellar transfer event with signature (address, address, i128).
 type TransferEvent struct {
@@ -86,11 +97,163 @@ func NewSourceReaderWithClient(
 	}, nil
 }
 
-// FetchMessageSentEvents is currently a stub and must be implemented to fetch
-// CCIP MessageSent events from Stellar.
+// FetchMessageSentEvents fetches CCIP MessageSent events from the Stellar OnRamp contract.
 func (s *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock *big.Int) ([]protocol.MessageSentEvent, error) {
-	// TODO: Implement actual CCIP MessageSent event parsing
-	return nil, fmt.Errorf("FetchMessageSentEvents not yet implemented for Stellar")
+	fromSeq := fromBlock.Uint64()
+	if fromSeq > math.MaxUint32 {
+		return nil, fmt.Errorf("block number exceeds uint32 (ledger seq) range: %d", fromSeq)
+	}
+	fromLedger := uint32(fromSeq)
+
+	var toLedger uint32
+	if toBlock != nil {
+		toSeq := toBlock.Uint64()
+		if toSeq > math.MaxUint32 {
+			return nil, fmt.Errorf("block number exceeds uint32 (ledger seq) range: %d", toSeq)
+		}
+		toLedger = uint32(toSeq)
+	} else {
+		latestLedger, err := s.client.GetLatestLedger(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get latest ledger: %w", err)
+		}
+		toLedger = latestLedger.Sequence
+	}
+
+	// Build topic filter for CCIPMessageSent event
+	topicScVal, err := symbolScVal(s.ccipMessageSentTopic)
+	if err != nil {
+		return nil, fmt.Errorf("invalid topic symbol: %w", err)
+	}
+
+	// Use wildcard to match events with additional topics
+	zeroOrMore := protocolrpc.WildCardZeroOrMore
+	events, err := s.client.GetEvents(ctx, protocolrpc.GetEventsRequest{
+		StartLedger: fromLedger,
+		EndLedger:   toLedger,
+		Filters: []protocolrpc.EventFilter{
+			{
+				EventType:   protocolrpc.EventTypeSet{protocolrpc.EventTypeContract: nil},
+				ContractIDs: []string{s.ccipOnrampAddress},
+				Topics: []protocolrpc.TopicFilter{
+					{
+						{ScVal: topicScVal},
+						{Wildcard: &zeroOrMore},
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get events: %w", err)
+	}
+
+	results := make([]protocol.MessageSentEvent, 0, len(events.Events))
+	for _, e := range events.Events {
+		// Parse the CCIPMessageSent event
+		msgEvent, err := s.decodeCCIPMessageSentEvent(e)
+		if err != nil {
+			s.lggr.Warnw("Failed to decode CCIPMessageSent event, skipping",
+				"error", err,
+				"ledger", e.Ledger,
+				"txHash", e.TransactionHash,
+			)
+			continue
+		}
+		results = append(results, *msgEvent)
+	}
+
+	s.lggr.Infow("Fetched CCIPMessageSent events",
+		"fromLedger", fromLedger,
+		"toLedger", toLedger,
+		"count", len(results))
+
+	return results, nil
+}
+
+// decodeCCIPMessageSentEvent decodes a CCIPMessageSent event from Stellar.
+func (s *SourceReader) decodeCCIPMessageSentEvent(e protocolrpc.EventInfo) (*protocol.MessageSentEvent, error) {
+	// Parse the event value which contains the event data as a struct
+	var eventVal xdr.ScVal
+	if err := xdr.SafeUnmarshalBase64(e.ValueXDR, &eventVal); err != nil {
+		return nil, fmt.Errorf("failed to decode event value: %w", err)
+	}
+
+	scMap, ok := eventVal.GetMap()
+	if !ok || scMap == nil {
+		return nil, fmt.Errorf("event value is not a map")
+	}
+
+	// Extract fields from the event
+	var (
+		destChainSelector uint64
+		sequenceNumber    uint64
+		sender            string
+		messageID         [32]byte
+		encodedMessage    []byte
+	)
+
+	for _, entry := range *scMap {
+		key, ok := entry.Key.GetSym()
+		if !ok {
+			continue
+		}
+
+		switch string(key) {
+		case "dest_chain_selector":
+			u64, ok := entry.Val.GetU64()
+			if ok {
+				destChainSelector = uint64(u64)
+			}
+		case "sequence_number":
+			u64, ok := entry.Val.GetU64()
+			if ok {
+				sequenceNumber = uint64(u64)
+			}
+		case "sender":
+			// Encode the ScVal to base64 for address decoding
+			valBytes, err := entry.Val.MarshalBinary()
+			if err == nil {
+				valB64 := base64.StdEncoding.EncodeToString(valBytes)
+				addr, addrErr := decodeAddress(valB64)
+				if addrErr == nil {
+					sender = addr
+				}
+			}
+		case "message_id":
+			if bytes, ok := entry.Val.GetBytes(); ok && len(bytes) == 32 {
+				copy(messageID[:], bytes)
+			}
+		case "encoded_message":
+			if bytes, ok := entry.Val.GetBytes(); ok {
+				encodedMessage = []byte(bytes)
+			}
+		}
+	}
+
+	s.lggr.Infow("Decoded CCIPMessageSent event",
+		"destChainSelector", destChainSelector,
+		"sequenceNumber", sequenceNumber,
+		"messageId", hex.EncodeToString(messageID[:]),
+		"ledger", e.Ledger)
+
+	// Build the Message struct from the encoded message or available data
+	msg := &protocol.Message{
+		Sender:              protocol.UnknownAddress([]byte(sender)),
+		SenderLength:        uint8(len(sender)),
+		Data:                encodedMessage,
+		DataLength:          uint16(len(encodedMessage)),
+		Version:             protocol.MessageVersion,
+		SequenceNumber:      protocol.SequenceNumber(sequenceNumber),
+		DestChainSelector:   protocol.ChainSelector(destChainSelector),
+	}
+
+	return &protocol.MessageSentEvent{
+		MessageID:   protocol.Bytes32(messageID),
+		Message:     *msg,
+		BlockNumber: uint64(e.Ledger),
+		TxHash:      protocol.ByteSlice([]byte(e.TransactionHash)),
+	}, nil
 }
 
 // FetchTransferEvents fetches and decodes transfer events with signature (address, address, i128).

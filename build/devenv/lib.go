@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/canton"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/stellar"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
@@ -152,6 +153,16 @@ func (l *Lib) Chains(ctx context.Context) ([]ChainImpl, error) {
 				return nil, fmt.Errorf("getting chain details for chain ID %s and family %s: %w", bc.ChainID, bc.Out.Family, err)
 			}
 			impl := canton.New(*l.l)
+			impls[i] = ChainImpl{
+				CCIP17:  impl,
+				Details: details,
+			}
+		case chain_selectors.FamilyStellar:
+			details, err := chain_selectors.GetChainDetailsByChainIDAndFamily(bc.ChainID, bc.Out.Family)
+			if err != nil {
+				return nil, fmt.Errorf("getting chain details for chain ID %s and family %s: %w", bc.ChainID, bc.Out.Family, err)
+			}
+			impl := stellar.New(*l.l)
 			impls[i] = ChainImpl{
 				CCIP17:  impl,
 				Details: details,

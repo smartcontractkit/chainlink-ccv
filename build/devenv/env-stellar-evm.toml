@@ -39,6 +39,26 @@ alias = "default-executor-2"
 name = "default-executor-2"
 mode = "standalone"
 
+[[environment_topology.nop_topology.nops]]
+alias = "secondary-verifier-1"
+name = "secondary-verifier-1"
+mode = "standalone"
+
+[[environment_topology.nop_topology.nops]]
+alias = "secondary-verifier-2"
+name = "secondary-verifier-2"
+mode = "standalone"
+
+[[environment_topology.nop_topology.nops]]
+alias = "tertiary-verifier-1"
+name = "tertiary-verifier-1"
+mode = "standalone"
+
+[[environment_topology.nop_topology.nops]]
+alias = "tertiary-verifier-2"
+name = "tertiary-verifier-2"
+mode = "standalone"
+
 # Committee configuration
 [environment_topology.nop_topology.committees.default]
 qualifier = "default"
@@ -61,6 +81,50 @@ threshold = 2
 # Stellar chain config
 [environment_topology.nop_topology.committees.default.chain_configs.17301180955411967724]
 nop_aliases = ["default-verifier-1", "default-verifier-2"]
+threshold = 2
+
+# Secondary committee
+[environment_topology.nop_topology.committees.secondary]
+qualifier = "secondary"
+verifier_version = "1.7.0"
+
+[[environment_topology.nop_topology.committees.secondary.aggregators]]
+name = "default"
+address = "secondary-aggregator:50051"
+insecure_connection = true
+
+[environment_topology.nop_topology.committees.secondary.chain_configs.3379446385462418246]
+nop_aliases = ["secondary-verifier-1", "secondary-verifier-2"]
+threshold = 2
+
+[environment_topology.nop_topology.committees.secondary.chain_configs.12922642891491394802]
+nop_aliases = ["secondary-verifier-1", "secondary-verifier-2"]
+threshold = 2
+
+[environment_topology.nop_topology.committees.secondary.chain_configs.17301180955411967724]
+nop_aliases = ["secondary-verifier-1", "secondary-verifier-2"]
+threshold = 2
+
+# Tertiary committee
+[environment_topology.nop_topology.committees.tertiary]
+qualifier = "tertiary"
+verifier_version = "1.7.0"
+
+[[environment_topology.nop_topology.committees.tertiary.aggregators]]
+name = "default"
+address = "tertiary-aggregator:50051"
+insecure_connection = true
+
+[environment_topology.nop_topology.committees.tertiary.chain_configs.3379446385462418246]
+nop_aliases = ["tertiary-verifier-1", "tertiary-verifier-2"]
+threshold = 2
+
+[environment_topology.nop_topology.committees.tertiary.chain_configs.12922642891491394802]
+nop_aliases = ["tertiary-verifier-1", "tertiary-verifier-2"]
+threshold = 2
+
+[environment_topology.nop_topology.committees.tertiary.chain_configs.17301180955411967724]
+nop_aliases = ["tertiary-verifier-1", "tertiary-verifier-2"]
 threshold = 2
 
 [environment_topology.executor_pools.default]
@@ -96,7 +160,6 @@ execution_interval = 15_000_000_000
   chain_id = "baefd734b8d3e48472cff83912375fedbc7573701912fe308af730180f97d74a" 
   port = "8010"
   type = "stellar"
-  network_passphrase = "Standalone Network ; February 2017"
 
 [fake]
   image = "ccv-fakes:dev"
@@ -156,6 +219,88 @@ execution_interval = 15_000_000_000
       onramp_contract_id = "baefd734b8d3e48472cff83912375fedbc7573701912fe308af730180f97d74a"
       soroban_rpc_url = "http://blockchain-stellar:8010/rpc"
 
+# Secondary Verifier Setup
+[[verifier]]
+  image = "verifier:dev"
+  container_name = "secondary-verifier-1"
+  nop_alias = "secondary-verifier-1"
+  port = 8300
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "secondary"
+  node_index = 0
+  disable_finality_checkers = ["17301180955411967724"]
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "secondary-verifier-1-db"
+    port = 8434
+  [verifier.stellar_configs]
+    [verifier.stellar_configs.17301180955411967724.reader_config]
+      network_passphrase = "Standalone Network ; February 2017"
+      onramp_contract_id = "baefd734b8d3e48472cff83912375fedbc7573701912fe308af730180f97d74a"
+      soroban_rpc_url = "http://blockchain-stellar:8010/rpc"
+
+[[verifier]]
+  image = "verifier:dev"
+  container_name = "secondary-verifier-2"
+  nop_alias = "secondary-verifier-2"
+  port = 8400
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "secondary"
+  node_index = 1
+  disable_finality_checkers = ["17301180955411967724"]
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "secondary-verifier-2-db"
+    port = 8435
+  [verifier.stellar_configs]
+    [verifier.stellar_configs.17301180955411967724.reader_config]
+      network_passphrase = "Standalone Network ; February 2017"
+      onramp_contract_id = "baefd734b8d3e48472cff83912375fedbc7573701912fe308af730180f97d74a"
+      soroban_rpc_url = "http://blockchain-stellar:8010/rpc"
+
+# Tertiary Verifier Setup
+[[verifier]]
+  image = "verifier:dev"
+  container_name = "tertiary-verifier-1"
+  nop_alias = "tertiary-verifier-1"
+  port = 8500
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "tertiary"
+  node_index = 0
+  disable_finality_checkers = ["17301180955411967724"]
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "tertiary-verifier-1-db"
+    port = 8436
+  [verifier.stellar_configs]
+    [verifier.stellar_configs.17301180955411967724.reader_config]
+      network_passphrase = "Standalone Network ; February 2017"
+      onramp_contract_id = "baefd734b8d3e48472cff83912375fedbc7573701912fe308af730180f97d74a"
+      soroban_rpc_url = "http://blockchain-stellar:8010/rpc"
+
+[[verifier]]
+  image = "verifier:dev"
+  container_name = "tertiary-verifier-2"
+  nop_alias = "tertiary-verifier-2"
+  port = 8600
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "tertiary"
+  node_index = 1
+  disable_finality_checkers = ["17301180955411967724"]
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "tertiary-verifier-2-db"
+    port = 8437
+  [verifier.stellar_configs]
+    [verifier.stellar_configs.17301180955411967724.reader_config]
+      network_passphrase = "Standalone Network ; February 2017"
+      onramp_contract_id = "baefd734b8d3e48472cff83912375fedbc7573701912fe308af730180f97d74a"
+      soroban_rpc_url = "http://blockchain-stellar:8010/rpc"
+
 [[executor]]
   image = "executor:dev"
   port = 8101
@@ -174,14 +319,6 @@ execution_interval = 15_000_000_000
   nop_alias = "default-executor-2"
   executor_qualifier = "default"
 
-[[executor]]
-  image = "executor:dev"
-  port = 8103
-  source_code_path = "../executor"
-  root_path = "../../"
-  container_name = "custom-executor-1"
-  nop_alias = "custom-executor-1"
-  executor_qualifier = "custom"
 
 [indexer]
   image = "indexer:dev"
@@ -252,21 +389,10 @@ BatchSize = 100
 MaxBatchWaitTime = 50
 Since = 0
 
-[[indexer.indexer_config.Verifier]]
-Type = "rest"
-Name = "CCTP Verifier (Primary)"
-BaseURL = "http://token-verifier-1:8100/v1"
-BatchSize = 10
-MaxBatchWaitTime = 100
-Since = 0
-
 [indexer.committee_verifier_name_to_qualifier]
 "CommiteeVerifier (Primary)" = "default"
 "CommiteeVerifier (Secondary)" = "secondary"
 "CommiteeVerifier (Tertiary)" = "tertiary"
-
-[indexer.cctp_verifier_name_to_qualifier]
-"CCTP Verifier (Primary)" = "CCTP"
 
 [indexer.indexer_config.Storage]
 Strategy = "sink"
@@ -421,7 +547,7 @@ URI = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"
   description = "Development Indexer"
   enabled = true
   groups = ["indexer"]
-  # Environment variables for sensitive configuration
+
   [aggregator.env]
     storage_connection_url = "postgresql://aggregator:aggregator@tertiary-aggregator-db:5432/aggregator?sslmode=disable"
     redis_address = "tertiary-aggregator-redis:6379"

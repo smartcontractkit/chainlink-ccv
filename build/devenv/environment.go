@@ -303,8 +303,9 @@ func generateExecutorJobSpecs(
 	}
 	Plog.Info().Any("Addresses", addresses).Int("ImplsLen", len(impls)).Msg("Funding executors")
 	for i, impl := range impls {
-		if in.Blockchains[i].Type == blockchain.TypeCanton {
-			// Executor doesn't support Canton.
+		// Executor doesn't support non-EVM chains yet.
+		nonSupportedChains := []string{blockchain.TypeCanton, blockchain.TypeStellar}
+		if slices.Contains(nonSupportedChains, in.Blockchains[i].Type) {
 			continue
 		}
 
@@ -519,7 +520,8 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	if in.Pricer != nil {
 		for i, impl := range impls {
-			if in.Blockchains[i].Type == blockchain.TypeCanton {
+			// Skip non-EVM chains for pricer funding (pricer uses EVM addresses)
+			if in.Blockchains[i].Type == blockchain.TypeCanton || in.Blockchains[i].Type == blockchain.TypeStellar {
 				continue
 			}
 			Plog.Info().Int("ImplIndex", i).Msg("Funding pricer key")
@@ -684,7 +686,12 @@ func NewEnvironment() (in *Cfg, err error) {
 	ds := datastore.NewMemoryDataStore()
 	for i, impl := range impls {
 		var networkInfo chainsel.ChainDetails
-		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
+		if impl.ChainFamily() == chainsel.FamilyStellar {
+			// Use custom helper since chain-selectors doesn't support Stellar lookups yet
+			networkInfo, err = stellar.GetChainDetailsByChainIDForStellar(in.Blockchains[i].ChainID)
+		} else {
+			networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -719,8 +726,9 @@ func NewEnvironment() (in *Cfg, err error) {
 	/////////////////////////////////////////
 
 	for i, impl := range impls {
-		if in.Blockchains[i].Type == blockchain.TypeCanton {
-			// Canton contracts are not supported yet by the interface, tests need to connect them manually.
+		// Skip non-EVM chains for contract connection (not yet fully supported)
+		if in.Blockchains[i].Type == blockchain.TypeCanton || in.Blockchains[i].Type == blockchain.TypeStellar {
+			// Canton/Stellar contracts are not supported yet by the interface, tests need to connect them manually.
 			continue
 		}
 

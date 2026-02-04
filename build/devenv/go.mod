@@ -17,7 +17,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/prometheus/client_golang v1.23.0
 	github.com/rs/zerolog v1.34.0
-	github.com/smartcontractkit/chain-selectors v1.0.92
+	github.com/smartcontractkit/chain-selectors v1.0.93-0.20260204214609-45e33cb79549
 	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20260202190341-36d42e56bd53
 	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20260202190341-36d42e56bd53
 	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260202190341-36d42e56bd53

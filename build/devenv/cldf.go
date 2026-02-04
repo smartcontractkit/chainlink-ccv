@@ -137,6 +137,40 @@ func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint
 				return nil, nil, err
 			}
 			providers = append(providers, p)
+		case blockchain.FamilyStellar:
+			details, err := chainsel.GetChainDetailsByChainIDAndFamily(b.Out.ChainID, chainsel.FamilyStellar)
+			if err != nil {
+				return nil, nil, err
+			}
+			selectors = append(selectors, details.ChainSelector)
+
+			var (
+				networkPassphrase string
+				friendbotURL      string
+				sorobanRPCURL     string
+			)
+			if b.Out.NetworkSpecificData.StellarNetwork != nil {
+				networkPassphrase = b.Out.NetworkSpecificData.StellarNetwork.NetworkPassphrase
+				friendbotURL = b.Out.NetworkSpecificData.StellarNetwork.FriendbotURL
+				sorobanRPCURL = b.Out.Nodes[0].ExternalHTTPUrl
+			}
+
+			log.Info().Msgf("Stellar network passphrase: %s", networkPassphrase)
+			log.Info().Msgf("Stellar friendbot URL: %s", friendbotURL)
+			log.Info().Msgf("Stellar Soroban RPC URL: %s", sorobanRPCURL)
+
+			// TODO: implement Stellar CLDF provider
+			// p, err := stellar.NewRPCChainProvider(details.ChainSelector, stellar.RPCChainProviderConfig{
+			// 	NetworkPassphrase: networkPassphrase,
+			// 	FriendbotURL:      friendbotURL,
+			// 	SorobanRPCURL:     sorobanRPCURL,
+			// }).Initialize(context.Background())
+			//
+			// if err != nil {
+			// 	return nil, nil, err
+			// }
+			//
+			// providers = append(providers, p)
 		default:
 			return nil, nil, fmt.Errorf("unsupported blockchain family: %s", b.Out.Family)
 		}
