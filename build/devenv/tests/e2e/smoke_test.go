@@ -541,7 +541,6 @@ func TestE2ESmoke(t *testing.T) {
 
 		type testCase struct {
 			name                    string
-			executionGasLimit       uint32
 			transferAmount          *big.Int
 			receiver                protocol.UnknownAddress
 			expectedReceiptIssuers  int
