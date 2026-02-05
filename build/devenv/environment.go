@@ -686,12 +686,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	ds := datastore.NewMemoryDataStore()
 	for i, impl := range impls {
 		var networkInfo chainsel.ChainDetails
-		if impl.ChainFamily() == chainsel.FamilyStellar {
-			// Use custom helper since chain-selectors doesn't support Stellar lookups yet
-			networkInfo, err = stellar.GetChainDetailsByChainIDForStellar(in.Blockchains[i].ChainID)
-		} else {
-			networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
-		}
+		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
 		if err != nil {
 			return nil, err
 		}
