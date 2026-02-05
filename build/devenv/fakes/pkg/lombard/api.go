@@ -14,7 +14,7 @@ import (
 type RegisterAttestationRequest struct {
 	MessageHash string `json:"messageHash" binding:"required"`
 	Attestation string `json:"attestation" binding:"required"`
-	Status      string `json:"status" binding:"required"`
+	Status      string `json:"status"      binding:"required"`
 }
 
 type AttestationAPI struct {

@@ -44,7 +44,7 @@ func registerLombardAttestation(
 
 // buildLombardAttestation constructs a Lombard attestation payload.
 // The attestation format is: abi.encode(payload, proof)
-// For testing purposes, we can use a dummy attestation
+// For testing purposes, we can use a dummy attestation.
 func buildLombardAttestation() string {
 	// Return a hex-encoded dummy attestation
 	// In real scenario, this would be abi.encode(payload, proof) from Lombard
