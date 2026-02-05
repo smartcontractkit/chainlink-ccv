@@ -10,6 +10,9 @@ on:
 jobs:
   hygiene-checks:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - name: Setup GitHub Token
         id: setup-github-token
