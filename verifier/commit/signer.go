@@ -1,6 +1,7 @@
 package commit
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	"github.com/smartcontractkit/chainlink-common/keystore"
 )
 
 // ECDSASigner implements MessageSigner using ECDSA with the new chain-agnostic message format.
@@ -117,4 +119,73 @@ func (s *ECDSASignerWithKeystoreSigner) Sign(data []byte) ([]byte, error) {
 	}
 
 	return encodedSignature, nil
+}
+
+// KeystoreSignerAdapter wraps the keystore.Signer interface to implement verifier.MessageSigner.
+// This allows using the keystore library for key management while maintaining compatibility
+// with the existing verifier signing interface.
+type KeystoreSignerAdapter struct {
+	ks      keystore.Signer
+	keyName string
+}
+
+// NewKeystoreSignerAdapter creates a new adapter that wraps a keystore.Signer.
+func NewKeystoreSignerAdapter(ks keystore.Signer, keyName string) *KeystoreSignerAdapter {
+	return &KeystoreSignerAdapter{
+		ks:      ks,
+		keyName: keyName,
+	}
+}
+
+// Sign implements verifier.MessageSigner by delegating to the keystore.
+// The data parameter should be a 32-byte hash (required by ECDSA_S256).
+func (a *KeystoreSignerAdapter) Sign(data []byte) ([]byte, error) {
+	resp, err := a.ks.Sign(context.Background(), keystore.SignRequest{
+		KeyName: a.keyName,
+		Data:    data,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("keystore sign failed: %w", err)
+	}
+	return resp.Signature, nil
+}
+
+// NewSignerFromKeystore creates a message signer from a keystore.
+// It loads the key from the keystore and returns a signer that implements verifier.MessageSigner,
+// along with the public key (as UnknownAddress) for use in committee configuration.
+func NewSignerFromKeystore(ctx context.Context, ks keystore.Keystore, keyName string) (verifier.MessageSigner, protocol.UnknownAddress, error) {
+	// Get the key info to retrieve the public key
+	keysResp, err := ks.GetKeys(ctx, keystore.GetKeysRequest{KeyNames: []string{keyName}})
+	if err != nil {
+		return nil, protocol.UnknownAddress{}, fmt.Errorf("failed to get key from keystore: %w", err)
+	}
+	if len(keysResp.Keys) == 0 {
+		return nil, protocol.UnknownAddress{}, fmt.Errorf("key %q not found in keystore", keyName)
+	}
+
+	keyInfo := keysResp.Keys[0].KeyInfo
+	if keyInfo.KeyType != keystore.ECDSA_S256 {
+		return nil, protocol.UnknownAddress{}, fmt.Errorf("key %q has unexpected type %s, expected %s", keyName, keyInfo.KeyType, keystore.ECDSA_S256)
+	}
+
+	// The public key from keystore is in SEC1 uncompressed format (65 bytes).
+	// We need to derive the Ethereum address from it.
+	if len(keyInfo.PublicKey) != 65 {
+		return nil, protocol.UnknownAddress{}, fmt.Errorf("unexpected public key length %d, expected 65", len(keyInfo.PublicKey))
+	}
+
+	// Convert SEC1 public key to Ethereum address
+	pubKey, err := crypto.UnmarshalPubkey(keyInfo.PublicKey)
+	if err != nil {
+		return nil, protocol.UnknownAddress{}, fmt.Errorf("failed to unmarshal public key: %w", err)
+	}
+	address := crypto.PubkeyToAddress(*pubKey)
+
+	// Create the adapter that bridges keystore.Signer to verifier.MessageSigner
+	adapter := NewKeystoreSignerAdapter(ks, keyName)
+
+	// Wrap with ECDSASignerWithKeystoreSigner to handle the protocol-specific signature encoding
+	signer := NewECDSASignerWithKeystoreSigner(adapter)
+
+	return signer, address[:], nil
 }

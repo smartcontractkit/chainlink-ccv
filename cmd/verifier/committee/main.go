@@ -28,12 +28,20 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-common/keystore"
+	"github.com/smartcontractkit/chainlink-common/keystore/pgstore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 const (
+	// Deprecated: Use keystore env vars instead.
 	PkEnvVar   = "VERIFIER_SIGNER_PRIVATE_KEY"
 	ConfigPath = "VERIFIER_CONFIG_PATH"
+
+	// Keystore configuration env vars
+	KeystorePasswordEnvVar    = "KEYSTORE_PASSWORD"
+	KeystoreKeyNameEnvVar     = "KEYSTORE_KEY_NAME"
+	KeystoreStorageNameEnvVar = "KEYSTORE_STORAGE_NAME"
 )
 
 func main() {
@@ -184,22 +192,58 @@ func main() {
 		HeartbeatInterval:   10 * time.Second, // Send heartbeat to aggregator every 10s
 	}
 
-	pk := os.Getenv(PkEnvVar)
-	if pk == "" {
-		lggr.Errorf("Environment variable %s is not set", PkEnvVar)
-		os.Exit(1)
+	// Load signer from keystore or fall back to legacy env var
+	var signer verifier.MessageSigner
+	var publicKey protocol.UnknownAddress
+
+	keystorePassword := os.Getenv(KeystorePasswordEnvVar)
+	if keystorePassword != "" {
+		// Use keystore for signing key management
+		keyName := os.Getenv(KeystoreKeyNameEnvVar)
+		if keyName == "" {
+			lggr.Errorw("KEYSTORE_KEY_NAME environment variable is required when using keystore")
+			os.Exit(1)
+		}
+		storageName := os.Getenv(KeystoreStorageNameEnvVar)
+		if storageName == "" {
+			storageName = "verifier-keystore"
+		}
+
+		// Use the same database connection for keystore storage
+		keystoreStorage := pgstore.NewStorage(chainStatusDB, storageName)
+		ks, err := keystore.LoadKeystore(ctx, keystoreStorage, keystorePassword)
+		if err != nil {
+			lggr.Errorw("Failed to load keystore", "error", err)
+			os.Exit(1)
+		}
+
+		signer, publicKey, err = commit.NewSignerFromKeystore(ctx, ks, keyName)
+		if err != nil {
+			lggr.Errorw("Failed to create signer from keystore", "error", err)
+			os.Exit(1)
+		}
+		lggr.Infow("Using signer from keystore", "keyName", keyName, "address", publicKey)
+	} else {
+		// Fall back to legacy env var (deprecated)
+		pk := os.Getenv(PkEnvVar)
+		if pk == "" {
+			lggr.Errorf("Either %s or %s environment variable must be set", KeystorePasswordEnvVar, PkEnvVar)
+			os.Exit(1)
+		}
+		lggr.Warnw("Using deprecated VERIFIER_SIGNER_PRIVATE_KEY env var, consider migrating to keystore")
+
+		privateKey, err := commit.ReadPrivateKeyFromString(pk)
+		if err != nil {
+			lggr.Errorw("Failed to read private key from environment variable", "error", err)
+			os.Exit(1)
+		}
+		signer, publicKey, err = commit.NewECDSAMessageSigner(privateKey)
+		if err != nil {
+			lggr.Errorw("Failed to create message signer", "error", err)
+			os.Exit(1)
+		}
+		lggr.Infow("Using signer address", "address", publicKey)
 	}
-	privateKey, err := commit.ReadPrivateKeyFromString(pk)
-	if err != nil {
-		lggr.Errorw("Failed to read private key from environment variable", "error", err)
-		os.Exit(1)
-	}
-	signer, publicKey, err := commit.NewECDSAMessageSigner(privateKey)
-	if err != nil {
-		lggr.Errorw("Failed to create message signer", "error", err)
-		os.Exit(1)
-	}
-	lggr.Infow("Using signer address", "address", publicKey)
 
 	verifierMonitoring := cmd.SetupMonitoring(lggr, config.Monitoring)
 

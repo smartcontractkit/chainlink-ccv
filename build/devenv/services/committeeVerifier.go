@@ -80,10 +80,15 @@ type VerifierInput struct {
 	DisableFinalityCheckers []string `toml:"disable_finality_checkers"`
 
 	// SigningKey is the private key for standalone mode signing.
+	// This is used to provision the key in the keystore database.
 	SigningKey string `toml:"signing_key"`
 
 	// SigningKeyPublic is the public key used for on-chain committee configuration.
 	SigningKeyPublic string `toml:"signing_key_public"`
+
+	// KeystorePassword is the password for the keystore encryption.
+	// If empty, defaults to a devenv-only password.
+	KeystorePassword string `toml:"keystore_password"`
 
 	// TLSCACertFile is the path to the CA certificate file for TLS verification.
 	TLSCACertFile string `toml:"-"`
@@ -292,6 +297,43 @@ func NewVerifier(in *VerifierInput, outputs []*blockchain.Output) (*VerifierOutp
 
 	envVars := make(map[string]string)
 
+	if in.SigningKey != "" {
+		// Provision signing key in keystore (connect from host to the exposed port)
+		hostDBConnectionString := fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
+			in.ContainerName, in.ContainerName, in.DB.Port, in.ContainerName)
+
+		keystorePassword := in.KeystorePassword
+		if keystorePassword == "" {
+			keystorePassword = util.DefaultKeystorePassword
+		}
+		// Convert the signing key string to bytes
+		privateKeyBytes, err := commit.ReadPrivateKeyFromString(in.SigningKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse signing key: %w", err)
+		}
+
+		// Provision the key in the database keystore
+		_, err = util.ProvisionKeystoreKey(
+			ctx,
+			hostDBConnectionString,
+			util.DefaultKeystoreName,
+			util.DefaultKeystoreKeyName,
+			privateKeyBytes,
+			keystorePassword,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to provision keystore key: %w", err)
+		}
+		framework.L.Info().
+			Str("Service", in.ContainerName).
+			Msg("Provisioned signing key in keystore")
+
+		// Keystore configuration for the verifier to load the signing key
+		envVars["KEYSTORE_PASSWORD"] = keystorePassword
+		envVars["KEYSTORE_KEY_NAME"] = util.DefaultKeystoreKeyName
+		envVars["KEYSTORE_STORAGE_NAME"] = util.DefaultKeystoreName
+	}
+
 	var apiKey, secretKey string
 
 	if in.Env != nil && in.Env.AggregatorAPIKey != "" && in.Env.AggregatorSecretKey != "" {
@@ -311,10 +353,6 @@ func NewVerifier(in *VerifierInput, outputs []*blockchain.Output) (*VerifierOutp
 
 	envVars["VERIFIER_AGGREGATOR_API_KEY"] = apiKey
 	envVars["VERIFIER_AGGREGATOR_SECRET_KEY"] = secretKey
-
-	if in.SigningKey != "" {
-		envVars["VERIFIER_SIGNER_PRIVATE_KEY"] = in.SigningKey
-	}
 
 	// Database connection for chain status (internal docker network address)
 	internalDBConnectionString := fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
