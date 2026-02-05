@@ -532,7 +532,6 @@ func TestE2ESmoke(t *testing.T) {
 	})
 
 	t.Run("Lombard V3 token transfer", func(t *testing.T) {
-		t.Skip("not implemented yet")
 		var (
 			sourceSelector = sel0
 			sourceChain    = chainMap[sourceSelector]
@@ -542,7 +541,6 @@ func TestE2ESmoke(t *testing.T) {
 
 		type testCase struct {
 			name                    string
-			executionGasLimit       uint32
 			transferAmount          *big.Int
 			receiver                protocol.UnknownAddress
 			expectedReceiptIssuers  int
@@ -571,10 +569,8 @@ func TestE2ESmoke(t *testing.T) {
 			l.Info().Uint64("SeqNo", seqNo).Str("Token", common.LombardContractsQualifier).Msg("expecting sequence number")
 
 			messageOptions := cciptestinterfaces.MessageOptions{
-				Version:           3,
-				FinalityConfig:    0,
-				ExecutionGasLimit: tc.executionGasLimit,
-				Executor:          getContractAddress(t, in, sel0, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
+				Version:  3,
+				Executor: getContractAddress(t, in, sel0, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
 			}
 
 			sendRes, err := sourceChain.SendMessage(
@@ -582,7 +578,7 @@ func TestE2ESmoke(t *testing.T) {
 				cciptestinterfaces.MessageFields{
 					Receiver: tc.receiver,
 					TokenAmount: cciptestinterfaces.TokenAmount{
-						Amount:       big.NewInt(1),
+						Amount:       tc.transferAmount,
 						TokenAddress: srcToken,
 					},
 				},
@@ -592,8 +588,21 @@ func TestE2ESmoke(t *testing.T) {
 			require.NotNil(t, sendRes)
 			require.Len(t, sendRes.ReceiptIssuers, tc.expectedReceiptIssuers, "expected %d receipt issuers for %s token", tc.expectedReceiptIssuers, common.CCTPContractsQualifier)
 
-			_, err = sourceChain.WaitOneSentEventBySeqNo(ctx, destSelector, seqNo, defaultSentTimeout)
+			sentEvt, err := sourceChain.WaitOneSentEventBySeqNo(ctx, destSelector, seqNo, defaultSentTimeout)
 			require.NoError(t, err)
+
+			msgID := sentEvt.MessageID
+			testCtx := NewTestingContext(t, ctx, chainMap, defaultAggregatorClient, indexerMonitor)
+			res, err := testCtx.AssertMessage(msgID, AssertMessageOptions{
+				TickInterval:            1 * time.Second,
+				Timeout:                 45 * time.Second,
+				ExpectedVerifierResults: tc.expectedVerifierResults - 1, // because Lombard Attestation API is not mocked yet
+				AssertVerifierLogs:      false,
+				AssertExecutorLogs:      false,
+			})
+
+			require.NoError(t, err)
+			require.NotNil(t, res.AggregatedResult)
 		}
 
 		runLombardTestCase(t, testCase{
