@@ -16,10 +16,10 @@ require (
 	github.com/evanphx/json-patch/v5 v5.9.11
 	github.com/google/uuid v1.6.0
 	github.com/smartcontractkit/chain-selectors v1.0.90
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260205102529-e2d2cca4a4f6
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260205102529-e2d2cca4a4f6
-	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20260205102529-e2d2cca4a4f6
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260205102529-e2d2cca4a4f6
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260205143447-cd3f32fcf76a
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260205143447-cd3f32fcf76a
+	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20260205143447-cd3f32fcf76a
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260205143447-cd3f32fcf76a
 	github.com/smartcontractkit/chainlink-ccv v0.0.0-20260129103857-fe36763e89c2
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20260114190811-74301cd99dc3
 	github.com/smartcontractkit/chainlink-deployments-framework v0.74.2
