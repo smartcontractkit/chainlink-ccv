@@ -30,14 +30,15 @@ func TestOffchainStorageStreamerLifecycle(t *testing.T) {
 	lggr := logger.Test(t)
 	reader := mocks.MockMessageReader{}
 	reader.EXPECT().ReadMessages(mock.Anything, mock.Anything).Return(nil, nil)
+	timeProvider := mocks.NewMockTimeProvider(t)
+	timeProvider.EXPECT().GetTime().Return(time.Now()).Maybe()
 	oss := ccvstreamer.NewIndexerStorageStreamer(lggr, ccvstreamer.IndexerStorageConfig{
 		IndexerClient:   &reader,
 		PollingInterval: 150 * time.Millisecond,
-		TimeProvider:    mocks.NewMockTimeProvider(t),
+		TimeProvider:    timeProvider,
 		ExpiryDuration:  10 * time.Second,
 		CleanInterval:   1 * time.Second,
 	})
-	require.NotNil(t, oss)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()

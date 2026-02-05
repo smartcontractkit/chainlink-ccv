@@ -30,6 +30,11 @@ type ExecutorMetrics struct {
 	messageExpiryCounter            metric.Int64Counter
 	messageHeapSizeGauge            metric.Int64Gauge
 	alreadyExecutedMessagesCounter  metric.Int64Counter
+
+	// Heartbeat Metrics
+	heartbeatSuccessCounter     metric.Int64Counter
+	heartbeatFailureCounter     metric.Int64Counter
+	lastHeartbeatTimestampGauge metric.Int64Gauge
 }
 
 // InitMetrics initializes all verifier metrics.
@@ -110,6 +115,31 @@ func InitMetrics() (*ExecutorMetrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register already executed messages counter: %w", err)
+	}
+
+	// Initialize heartbeat metrics
+	vm.heartbeatSuccessCounter, err = beholder.GetMeter().Int64Counter(
+		"executor_indexer_heartbeat_success_total",
+		metric.WithDescription("Total number of successful heartbeats sent to indexer"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register heartbeat success counter: %w", err)
+	}
+
+	vm.heartbeatFailureCounter, err = beholder.GetMeter().Int64Counter(
+		"executor_indexer_heartbeat_failure_total",
+		metric.WithDescription("Total number of failed heartbeats to indexer"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register heartbeat failure counter: %w", err)
+	}
+
+	vm.lastHeartbeatTimestampGauge, err = beholder.GetMeter().Int64Gauge(
+		"executor_indexer_last_heartbeat_timestamp",
+		metric.WithDescription("Timestamp of the last successful heartbeat sent to indexer"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register last heartbeat timestamp gauge: %w", err)
 	}
 
 	return vm, nil
@@ -195,4 +225,19 @@ func (v *ExecutorMetricLabeler) RecordMessageHeapSize(ctx context.Context, size 
 func (v *ExecutorMetricLabeler) IncrementAlreadyExecutedMessages(ctx context.Context) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.alreadyExecutedMessagesCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *ExecutorMetricLabeler) IncrementHeartbeatSuccess(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.heartbeatSuccessCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *ExecutorMetricLabeler) IncrementHeartbeatFailure(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.heartbeatFailureCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *ExecutorMetricLabeler) SetLastHeartbeatTimestamp(ctx context.Context, timestamp int64) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.lastHeartbeatTimestampGauge.Record(ctx, timestamp, metric.WithAttributes(otelLabels...))
 }

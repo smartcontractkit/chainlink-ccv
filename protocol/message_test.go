@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -402,4 +403,254 @@ func TestComputeCCVAndExecutorHash_TooManyCCVs(t *testing.T) {
 	hash, err := ComputeCCVAndExecutorHash(ccvAddressesMax, executorAddr)
 	require.NoError(t, err)
 	assert.NotEqual(t, Bytes32{}, hash)
+}
+
+func TestValidateCCVAndExecutorHash(t *testing.T) {
+	t.Run("valid ccvAndExecutorHash", func(t *testing.T) {
+		// Create test addresses (20 bytes each)
+		ccvAddr1, err := hex.DecodeString("1111111111111111111111111111111111111111")
+		require.NoError(t, err)
+		ccvAddr2, err := hex.DecodeString("3333333333333333333333333333333333333333")
+		require.NoError(t, err)
+		executorAddr, err := hex.DecodeString("2222222222222222222222222222222222222222")
+		require.NoError(t, err)
+		routerAddr, err := hex.DecodeString("4444444444444444444444444444444444444444")
+		require.NoError(t, err)
+
+		// Compute the expected hash
+		ccvAddresses := []UnknownAddress{
+			UnknownAddress(ccvAddr1),
+			UnknownAddress(ccvAddr2),
+		}
+		executorAddress := UnknownAddress(executorAddr)
+		expectedHash, err := ComputeCCVAndExecutorHash(ccvAddresses, executorAddress)
+		require.NoError(t, err)
+
+		message := Message{
+			Version:            MessageVersion,
+			CcvAndExecutorHash: expectedHash,
+		}
+
+		receiptBlobs := []ReceiptWithBlob{
+			{
+				Issuer:            UnknownAddress(ccvAddr1),
+				DestGasLimit:      100000,
+				DestBytesOverhead: 25,
+				Blob:              []byte("blob1"),
+				ExtraArgs:         []byte{},
+			},
+			{
+				Issuer:            UnknownAddress(ccvAddr2),
+				DestGasLimit:      100000,
+				DestBytesOverhead: 25,
+				Blob:              []byte("blob2"),
+				ExtraArgs:         []byte{},
+			},
+			{
+				Issuer:            UnknownAddress(executorAddr),
+				DestGasLimit:      100000,
+				DestBytesOverhead: 25,
+				Blob:              []byte{}, // Executor has empty blob
+				ExtraArgs:         []byte{},
+			},
+			{
+				Issuer:            UnknownAddress(routerAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte{}, // Router has empty blob
+				ExtraArgs:         []byte{},
+			},
+		}
+
+		// Should validate successfully
+		err = ValidateCCVAndExecutorHash(message, receiptBlobs)
+		assert.NoError(t, err)
+	})
+
+	t.Run("invalid ccvAndExecutorHash - mismatch", func(t *testing.T) {
+		ccvAddr, err := hex.DecodeString("1111111111111111111111111111111111111111")
+		require.NoError(t, err)
+		executorAddr, err := hex.DecodeString("2222222222222222222222222222222222222222")
+		require.NoError(t, err)
+		routerAddr, err := hex.DecodeString("4444444444444444444444444444444444444444")
+		require.NoError(t, err)
+
+		message := Message{
+			Version:            MessageVersion,
+			CcvAndExecutorHash: Bytes32{0x99, 0x99}, // Wrong hash
+		}
+
+		receiptBlobs := []ReceiptWithBlob{
+			{
+				Issuer:            UnknownAddress(ccvAddr),
+				DestGasLimit:      100000,
+				DestBytesOverhead: 25,
+				Blob:              []byte("blob"),
+				ExtraArgs:         []byte{},
+			},
+			{
+				Issuer:            UnknownAddress(executorAddr),
+				DestGasLimit:      100000,
+				DestBytesOverhead: 25,
+				Blob:              []byte{}, // Executor has empty blob
+				ExtraArgs:         []byte{},
+			},
+			{
+				Issuer:            UnknownAddress(routerAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte{}, // Router has empty blob
+				ExtraArgs:         []byte{},
+			},
+		}
+
+		// Should fail validation
+		err = ValidateCCVAndExecutorHash(message, receiptBlobs)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "ccvAndExecutorHash mismatch")
+	})
+
+	t.Run("single CCV with executor", func(t *testing.T) {
+		ccvAddr, err := hex.DecodeString("1111111111111111111111111111111111111111")
+		require.NoError(t, err)
+		executorAddr, err := hex.DecodeString("2222222222222222222222222222222222222222")
+		require.NoError(t, err)
+		routerAddr, err := hex.DecodeString("4444444444444444444444444444444444444444")
+		require.NoError(t, err)
+
+		// Compute the expected hash
+		ccvAddresses := []UnknownAddress{UnknownAddress(ccvAddr)}
+		executorAddress := UnknownAddress(executorAddr)
+		expectedHash, err := ComputeCCVAndExecutorHash(ccvAddresses, executorAddress)
+		require.NoError(t, err)
+
+		message := Message{
+			Version:            MessageVersion,
+			CcvAndExecutorHash: expectedHash,
+		}
+
+		receiptBlobs := []ReceiptWithBlob{
+			{
+				Issuer:            UnknownAddress(ccvAddr),
+				DestGasLimit:      100000,
+				DestBytesOverhead: 25,
+				Blob:              []byte("blob"),
+				ExtraArgs:         []byte{},
+			},
+			{
+				Issuer:            UnknownAddress(executorAddr),
+				DestGasLimit:      100000,
+				DestBytesOverhead: 25,
+				Blob:              []byte{}, // Executor has empty blob
+				ExtraArgs:         []byte{},
+			},
+			{
+				Issuer:            UnknownAddress(routerAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte{}, // Router has empty blob
+				ExtraArgs:         []byte{},
+			},
+		}
+
+		err = ValidateCCVAndExecutorHash(message, receiptBlobs)
+		assert.NoError(t, err)
+	})
+
+	t.Run("no receipt blobs", func(t *testing.T) {
+		message := Message{
+			Version:            MessageVersion,
+			CcvAndExecutorHash: Bytes32{0x11, 0x22},
+		}
+
+		receiptBlobs := []ReceiptWithBlob{}
+
+		err := ValidateCCVAndExecutorHash(message, receiptBlobs)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "no receipt blobs")
+	})
+}
+
+func TestValidateMessage_WithCCVAndExecutorHash(t *testing.T) {
+	t.Run("zero hash skips validation", func(t *testing.T) {
+		verifierAddr, err := RandomAddress()
+		require.NoError(t, err)
+		routerAddr, err := hex.DecodeString("4444444444444444444444444444444444444444")
+		require.NoError(t, err)
+
+		message := Message{
+			Version:            MessageVersion,
+			CcvAndExecutorHash: Bytes32{}, // Zero hash
+		}
+
+		receiptBlobs := []ReceiptWithBlob{
+			{
+				Issuer:            verifierAddr,
+				DestGasLimit:      100000,
+				DestBytesOverhead: 25,
+				Blob:              []byte("blob"),
+				ExtraArgs:         []byte{},
+			},
+			{
+				Issuer:            UnknownAddress(routerAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte{}, // Router has empty blob
+				ExtraArgs:         []byte{},
+			},
+		}
+
+		// Zero hash causes validation error
+		err = ValidateCCVAndExecutorHash(message, receiptBlobs)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "ccvAndExecutorHash mismatch")
+	})
+
+	t.Run("non-zero hash is validated", func(t *testing.T) {
+		ccvAddr, err := hex.DecodeString("1111111111111111111111111111111111111111")
+		require.NoError(t, err)
+		executorAddr, err := hex.DecodeString("2222222222222222222222222222222222222222")
+		require.NoError(t, err)
+		routerAddr, err := hex.DecodeString("4444444444444444444444444444444444444444")
+		require.NoError(t, err)
+
+		// Compute correct hash
+		ccvAddresses := []UnknownAddress{UnknownAddress(ccvAddr)}
+		executorAddress := UnknownAddress(executorAddr)
+		correctHash, err := ComputeCCVAndExecutorHash(ccvAddresses, executorAddress)
+		require.NoError(t, err)
+
+		message := Message{
+			Version:            MessageVersion,
+			CcvAndExecutorHash: correctHash,
+		}
+
+		receiptBlobs := []ReceiptWithBlob{
+			{
+				Issuer:            UnknownAddress(ccvAddr),
+				DestGasLimit:      100000,
+				DestBytesOverhead: 25,
+				Blob:              []byte("blob"),
+				ExtraArgs:         []byte{},
+			},
+			{
+				Issuer:            UnknownAddress(executorAddr),
+				DestGasLimit:      100000,
+				DestBytesOverhead: 25,
+				Blob:              []byte{}, // Executor has empty blob
+				ExtraArgs:         []byte{},
+			},
+			{
+				Issuer:            UnknownAddress(routerAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte{}, // Router has empty blob
+				ExtraArgs:         []byte{},
+			},
+		}
+
+		// Should pass validation
+		err = ValidateCCVAndExecutorHash(message, receiptBlobs)
+		assert.NoError(t, err)
+	})
 }

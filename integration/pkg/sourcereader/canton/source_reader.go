@@ -198,6 +198,7 @@ func extractEvents(transactions []*ledgerv2.Transaction, ccipOwnerParty string, 
 			}
 			messageSentEvent, err := processCreatedEvent(tx, created, ccipOwnerParty, ccipMessageSentTemplateID)
 			if err != nil {
+				// TODO: should we just "continue" here, in the event of a maliciously crafted message/receipts?
 				return nil, err
 			}
 			if messageSentEvent != nil {
@@ -321,6 +322,11 @@ func processCCIPMessageSentEvent(field *ledgerv2.RecordField) (*protocol.Message
 	// for defense in depth.
 	if messageSentEvent.Message.MustMessageID() != messageSentEvent.MessageID {
 		return nil, fmt.Errorf("message ID mismatch, from event: %s, from message: %s", messageSentEvent.MessageID.String(), messageSentEvent.Message.MustMessageID().String())
+	}
+
+	// Validate ccvAndExecutorHash
+	if err := protocol.ValidateCCVAndExecutorHash(messageSentEvent.Message, messageSentEvent.Receipts); err != nil {
+		return nil, fmt.Errorf("ccvAndExecutorHash validation failed: %w", err)
 	}
 
 	return messageSentEvent, nil
