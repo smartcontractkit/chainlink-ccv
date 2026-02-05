@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/create2_factory"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/usdc_token_pool_proxy"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_messenger"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_transmitter"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
@@ -131,14 +132,22 @@ func (m *CCIP17EVMConfig) deployCCTPChain(
 	cctpChainRegistry := adapters.NewCCTPChainRegistry()
 	cctpChainRegistry.RegisterCCTPChain("evm", &evmadapters.CCTPChainAdapter{})
 
+	usdcPoolProxyRef := datastore.AddressRef{
+		ChainSelector: selector,
+		Type:          datastore.ContractType(usdc_token_pool_proxy.ContractType),
+		Version:       semver.MustParse(usdc_token_pool_proxy.Deploy.Version()),
+		Qualifier:     common.CCTPContractsQualifier,
+	}
+
 	out, err := changesets.DeployCCTPChains(cctpChainRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
 		Chains: map[uint64]changesets.CCTPChainConfig{
 			selector: {
-				TokenMessenger:   messenger.Hex(),
-				USDCToken:        usdc.Hex(),
-				StorageLocations: []string{"https://test.chain.link.fake"},
-				FastFinalityBps:  100,
-				DeployerContract: create2Factory.Address,
+				TokenMessenger:    messenger.Hex(),
+				USDCToken:         usdc.Hex(),
+				RegisteredPoolRef: usdcPoolProxyRef,
+				StorageLocations:  []string{"https://test.chain.link.fake"},
+				FastFinalityBps:   100,
+				DeployerContract:  create2Factory.Address,
 			},
 		},
 	})
@@ -200,20 +209,32 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(
 		}
 	}
 
-	_, err = changesets.DeployCCTPChains(cctpChainRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
-		Chains: map[uint64]changesets.CCTPChainConfig{
-			selector: {
-				USDCToken:        usdc.Address,
-				StorageLocations: []string{"https://test.chain.link.fake"},
-				FeeAggregator:    gethcommon.HexToAddress("0x04").Hex(),
-				FastFinalityBps:  100,
-				DeployerContract: create2.Address,
-				RemoteChains:     remoteChains,
-			},
+	usdcTokenPools := usdcTokenPoolProxies(selector, remoteSelectors)
+	config := map[uint64]changesets.CCTPChainConfig{
+		selector: {
+			USDCToken:         usdc.Address,
+			RegisteredPoolRef: usdcTokenPools[selector],
+			StorageLocations:  []string{"https://test.chain.link.fake"},
+			FeeAggregator:     gethcommon.HexToAddress("0x04").Hex(),
+			FastFinalityBps:   100,
+			DeployerContract:  create2.Address,
+			RemoteChains:      remoteChains,
 		},
+	}
+	for chainSelector, poolRef := range usdcTokenPools {
+		if chainSelector == selector {
+			continue
+		}
+		config[chainSelector] = changesets.CCTPChainConfig{
+			RegisteredPoolRef: poolRef,
+		}
+	}
+
+	_, err = changesets.DeployCCTPChains(cctpChainRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
+		Chains: config,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to deploy CCTP chain registry on chain %d: %w", selector, err)
+		return fmt.Errorf("failed to configure lanes for CCTP on source chain %d: %w", selector, err)
 	}
 
 	return err
@@ -387,4 +408,23 @@ func filterOnlySupportedSelectors(remoteSelectors []uint64) []uint64 {
 		supportedRemoteSelectors = append(supportedRemoteSelectors, rs)
 	}
 	return supportedRemoteSelectors
+}
+
+func usdcTokenPoolProxies(sourceSelector uint64, remoteSelectors []uint64) map[uint64]datastore.AddressRef {
+	selectors := make([]uint64, 0)
+	selectors = append(selectors, sourceSelector)
+	for _, rs := range remoteSelectors {
+		selectors = append(selectors, rs)
+	}
+
+	references := make(map[uint64]datastore.AddressRef)
+	for _, selector := range selectors {
+		references[selector] = datastore.AddressRef{
+			ChainSelector: selector,
+			Type:          datastore.ContractType(usdc_token_pool_proxy.ContractType),
+			Version:       semver.MustParse(usdc_token_pool_proxy.Deploy.Version()),
+			Qualifier:     common.CCTPContractsQualifier,
+		}
+	}
+	return references
 }
