@@ -1,6 +1,6 @@
 module github.com/smartcontractkit/chainlink-ccv/deployments
 
-go 1.25.5
+go 1.25.6
 
 replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlink-tron/relayer/gotron-sdk v0.0.5-0.20251014124537-af6b1684fe15
 
