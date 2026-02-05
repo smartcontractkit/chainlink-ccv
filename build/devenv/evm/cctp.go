@@ -48,7 +48,7 @@ func (m *CCIP17EVMConfig) deployUSDCTokenAndPool(
 
 	err = m.configureCircleContracts(env, chain, selector, usdc, messenger, transmitter)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to configure Circle-owned contracts on chain %d: %w", selector, err)
 	}
 
 	remoteSelectors := make([]uint64, 0)
@@ -60,12 +60,12 @@ func (m *CCIP17EVMConfig) deployUSDCTokenAndPool(
 
 	err = m.deployCCTPChain(env, registry, ds, create2Factory, selector, messenger, usdc)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to deploy CCTP chain on chain %d: %w", selector, err)
 	}
 
-	err = m.deployMockReceivers(env, ds, selector)
+	err = m.deployCCTPMockReceivers(env, ds, selector)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to deploy CCTPMockReceivers on chain %d: %w", selector, err)
 	}
 
 	return nil
@@ -235,7 +235,7 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(
 	return err
 }
 
-func (m *CCIP17EVMConfig) deployMockReceivers(
+func (m *CCIP17EVMConfig) deployCCTPMockReceivers(
 	env *deployment.Environment,
 	ds *datastore.MemoryDataStore,
 	selector uint64,
