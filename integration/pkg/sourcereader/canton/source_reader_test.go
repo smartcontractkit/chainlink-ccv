@@ -479,7 +479,7 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 
 		// First receipt - should have verifier blob populated
 		receipt1 := events[0].Receipts[0]
-		require.Equal(t, protocol.UnknownAddress([]byte(hex.EncodeToString(ccvIssuer[:]))), receipt1.Issuer)
+		require.Equal(t, protocol.UnknownAddress(ccvIssuer[:]), receipt1.Issuer)
 		require.Equal(t, uint64(100000), receipt1.DestGasLimit)
 		require.Equal(t, uint32(500), receipt1.DestBytesOverhead)
 		require.Equal(t, big.NewInt(1000000), receipt1.FeeTokenAmount)
@@ -490,7 +490,7 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 
 		// Second receipt - no verifier blob (executor fee receipt)
 		receipt2 := events[0].Receipts[1]
-		require.Equal(t, protocol.UnknownAddress([]byte(hex.EncodeToString(execIssuer[:]))), receipt2.Issuer)
+		require.Equal(t, protocol.UnknownAddress(execIssuer[:]), receipt2.Issuer)
 		require.Equal(t, uint64(0), receipt2.DestGasLimit)
 		require.Equal(t, uint32(0), receipt2.DestBytesOverhead)
 		require.Equal(t, big.NewInt(500000), receipt2.FeeTokenAmount)
@@ -499,7 +499,7 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 
 		// Third receipt - no verifier blob (network fee receipt)
 		receipt3 := events[0].Receipts[2]
-		require.Equal(t, protocol.UnknownAddress([]byte(hex.EncodeToString(networkIssuer[:]))), receipt3.Issuer)
+		require.Equal(t, protocol.UnknownAddress(networkIssuer[:]), receipt3.Issuer)
 		require.Equal(t, uint64(0), receipt3.DestGasLimit)
 		require.Equal(t, uint32(0), receipt3.DestBytesOverhead)
 		require.Equal(t, big.NewInt(500000), receipt3.FeeTokenAmount)
