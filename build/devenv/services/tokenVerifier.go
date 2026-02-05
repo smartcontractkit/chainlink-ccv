@@ -353,7 +353,7 @@ func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blo
 			networkInfo.ChainSelector,
 			datastore.ContractType(lombard_verifier.ContractType),
 			semver.MustParse(lombard_verifier.Deploy.Version()),
-			devenvcommon.CCTPContractsQualifier,
+			devenvcommon.LombardContractsQualifier,
 		))
 		if err != nil {
 			framework.L.Info().
