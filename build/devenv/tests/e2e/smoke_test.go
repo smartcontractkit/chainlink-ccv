@@ -537,12 +537,24 @@ func TestE2ESmoke(t *testing.T) {
 			sourceChain    = chainMap[sourceSelector]
 			destSelector   = sel1
 			destChain      = chainMap[destSelector]
+			_              = getContractAddress(
+				t,
+				in,
+				destSelector,
+				datastore.ContractType(mock_receiver.ContractType),
+				mock_receiver.Deploy.Version(),
+				common.LombardPrimaryReceiverQualifier,
+				"",
+			)
 		)
 
 		type testCase struct {
 			name                    string
 			transferAmount          *big.Int
 			receiver                protocol.UnknownAddress
+			finalityConfig          uint16
+			executionGasLimit       uint32
+			shouldRevert            bool
 			expectedReceiptIssuers  int
 			expectedVerifierResults int
 		}
@@ -569,8 +581,10 @@ func TestE2ESmoke(t *testing.T) {
 			l.Info().Uint64("SeqNo", seqNo).Str("Token", common.LombardContractsQualifier).Msg("expecting sequence number")
 
 			messageOptions := cciptestinterfaces.MessageOptions{
-				Version:  3,
-				Executor: getContractAddress(t, in, sel0, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
+				Version:           3,
+				FinalityConfig:    tc.finalityConfig,
+				ExecutionGasLimit: tc.executionGasLimit,
+				Executor:          getContractAddress(t, in, sel0, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
 			}
 
 			sendRes, err := sourceChain.SendMessage(
@@ -584,6 +598,11 @@ func TestE2ESmoke(t *testing.T) {
 				},
 				messageOptions,
 			)
+			if tc.shouldRevert {
+				require.Error(t, err)
+				return
+			}
+
 			require.NoError(t, err)
 			require.NotNil(t, sendRes)
 			require.Len(t, sendRes.ReceiptIssuers, tc.expectedReceiptIssuers, "expected %d receipt issuers for %s token", tc.expectedReceiptIssuers, common.CCTPContractsQualifier)
@@ -615,26 +634,52 @@ func TestE2ESmoke(t *testing.T) {
 			require.NotNil(t, execEvt)
 			require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected state, return data: %x", execEvt.ReturnData)
 
-			// FIXME: Fix minting on the destination chain by the bridge
+			// FIXME: MockLombardMailbox doesn't mint anything on the dest. Therefore we can rely only on
+			// balance change on the source side to confirm the transfer happened. We also check the ExecutionStateChange event.
+			// We should update the mock to mint on dest as well and then we can re-enable balance check on dest.
 			// endBal, err := destChain.GetTokenBalance(ctx, tc.receiver, destToken)
 			// require.NoError(t, err)
-
-			//require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), tc.transferAmount), endBal)
-			//l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", common.LombardContractsQualifier).Msg("receiver end balance")
 			//
-			//srcEndBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
-			//require.NoError(t, err)
-			//require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), tc.transferAmount), srcEndBal)
-			//l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", common.LombardContractsQualifier).Msg("sender end balance")
+			// require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), tc.transferAmount), endBal)
+			// l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", common.LombardContractsQualifier).Msg("receiver end balance")
+
+			srcEndBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
+			require.NoError(t, err)
+			require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), tc.transferAmount), srcEndBal)
+			l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", common.LombardContractsQualifier).Msg("sender end balance")
 		}
 
-		runLombardTestCase(t, testCase{
-			name:                    "Lombard transfer to EOA receiver with chain finality",
-			transferAmount:          big.NewInt(100),
-			receiver:                mustGetEOAReceiverAddress(t, destChain),
-			expectedReceiptIssuers:  5, // default ccv, token pool, executor, network fee
-			expectedVerifierResults: 2, // default ccv, Lombard ccv
-		})
+		tcs := []testCase{
+			{
+				name:                    "Lombard transfer to EOA receiver with chain finality",
+				transferAmount:          big.NewInt(100),
+				receiver:                mustGetEOAReceiverAddress(t, destChain),
+				finalityConfig:          0,
+				expectedReceiptIssuers:  5, // default ccv, token pool, executor, network fee
+				expectedVerifierResults: 2, // default ccv, Lombard ccv
+			},
+			{
+				name:           "Lombard transfer to EOA fails with custom finality config",
+				transferAmount: big.NewInt(100),
+				receiver:       mustGetEOAReceiverAddress(t, destChain),
+				finalityConfig: 1,
+				shouldRevert:   true,
+			},
+			//{
+			//	name:                    "Lombard transfer to contract receiver with chain finality",
+			//	transferAmount:          big.NewInt(200),
+			//	receiver:                contractReceiver,
+			//	executionGasLimit:       200_000,
+			//	expectedReceiptIssuers:  5, // default ccv, token pool, executor, network fee
+			//	expectedVerifierResults: 2, // default ccv, Lombard ccv
+			//},
+		}
+
+		for _, tc := range tcs {
+			t.Run(tc.name, func(t *testing.T) {
+				runLombardTestCase(t, tc)
+			})
+		}
 	})
 }
 
