@@ -132,14 +132,14 @@ func (m *CCIP17EVMConfig) deployCCTPChain(
 	cctpChainRegistry := adapters.NewCCTPChainRegistry()
 	cctpChainRegistry.RegisterCCTPChain("evm", &evmadapters.CCTPChainAdapter{})
 
-	usdcPoolProxyRefs := usdcTokenPoolProxies(selector, nil)
+	usdcTokokenPoolRefs := usdcTokenPoolProxies(selector, []uint64{})
 
 	out, err := changesets.DeployCCTPChains(cctpChainRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
 		Chains: map[uint64]changesets.CCTPChainConfig{
 			selector: {
 				TokenMessenger:    messenger.Hex(),
 				USDCToken:         usdc.Hex(),
-				RegisteredPoolRef: usdcPoolProxyRefs[selector],
+				RegisteredPoolRef: usdcTokokenPoolRefs[selector],
 				StorageLocations:  []string{"https://test.chain.link.fake"},
 				FastFinalityBps:   100,
 				DeployerContract:  create2Factory.Address,
@@ -204,11 +204,11 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(
 		}
 	}
 
-	usdcTokenPools := usdcTokenPoolProxies(selector, remoteSelectors)
+	usdcTokenPoolRefs := usdcTokenPoolProxies(selector, remoteSelectors)
 	config := map[uint64]changesets.CCTPChainConfig{
 		selector: {
 			USDCToken:         usdc.Address,
-			RegisteredPoolRef: usdcTokenPools[selector],
+			RegisteredPoolRef: usdcTokenPoolRefs[selector],
 			StorageLocations:  []string{"https://test.chain.link.fake"},
 			FeeAggregator:     gethcommon.HexToAddress("0x04").Hex(),
 			FastFinalityBps:   100,
@@ -216,7 +216,7 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(
 			RemoteChains:      remoteChains,
 		},
 	}
-	for chainSelector, poolRef := range usdcTokenPools {
+	for chainSelector, poolRef := range usdcTokenPoolRefs {
 		if chainSelector == selector {
 			continue
 		}
@@ -408,9 +408,7 @@ func filterOnlySupportedSelectors(remoteSelectors []uint64) []uint64 {
 func usdcTokenPoolProxies(sourceSelector uint64, remoteSelectors []uint64) map[uint64]datastore.AddressRef {
 	selectors := make([]uint64, 0)
 	selectors = append(selectors, sourceSelector)
-	for _, rs := range remoteSelectors {
-		selectors = append(selectors, rs)
-	}
+	selectors = append(selectors, remoteSelectors...)
 
 	references := make(map[uint64]datastore.AddressRef)
 	for _, selector := range selectors {
