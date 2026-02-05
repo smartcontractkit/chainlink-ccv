@@ -810,6 +810,7 @@ func NewEnvironment() (in *Cfg, err error) {
 			ServiceIdentifier:                "indexer",
 			CommitteeVerifierNameToQualifier: in.Indexer.CommitteeVerifierNameToQualifier,
 			CCTPVerifierNameToQualifier:      in.Indexer.CCTPVerifierNameToQualifier,
+			LombardVerifierNameToQualifier:   in.Indexer.LombardVerifierNameToQualifier,
 			ChainSelectors:                   selectors,
 		})
 		if err != nil {

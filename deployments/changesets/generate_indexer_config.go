@@ -21,6 +21,7 @@ type GenerateIndexerConfigCfg struct {
 	// used for looking up addresses in the datastore.
 	CommitteeVerifierNameToQualifier map[string]string
 	CCTPVerifierNameToQualifier      map[string]string
+	LombardVerifierNameToQualifier   map[string]string
 	// ChainSelectors are the source chains the indexer will monitor.
 	// If empty, defaults to all chain selectors available in the environment.
 	ChainSelectors []uint64
@@ -34,7 +35,9 @@ func GenerateIndexerConfig() deployment.ChangeSetV2[GenerateIndexerConfigCfg] {
 		if cfg.ServiceIdentifier == "" {
 			return fmt.Errorf("service identifier is required")
 		}
-		if len(cfg.CommitteeVerifierNameToQualifier) == 0 && len(cfg.CCTPVerifierNameToQualifier) == 0 {
+		if len(cfg.CommitteeVerifierNameToQualifier) == 0 &&
+			len(cfg.CCTPVerifierNameToQualifier) == 0 &&
+			len(cfg.LombardVerifierNameToQualifier) == 0 {
 			return fmt.Errorf("at least one verifier name to qualifier mapping is required")
 		}
 		envSelectors := e.BlockChains.ListChainSelectors()
@@ -57,6 +60,7 @@ func GenerateIndexerConfig() deployment.ChangeSetV2[GenerateIndexerConfigCfg] {
 			ServiceIdentifier:                cfg.ServiceIdentifier,
 			CommitteeVerifierNameToQualifier: cfg.CommitteeVerifierNameToQualifier,
 			CCTPVerifierNameToQualifier:      cfg.CCTPVerifierNameToQualifier,
+			LombardVerifierNameToQualifier:   cfg.LombardVerifierNameToQualifier,
 			ChainSelectors:                   selectors,
 		}
 

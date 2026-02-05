@@ -592,17 +592,40 @@ func TestE2ESmoke(t *testing.T) {
 			require.NoError(t, err)
 
 			msgID := sentEvt.MessageID
+
+			messageHash := sentEvt.Message.TokenTransfer.ExtraData
+			attestation := buildLombardAttestation()
+			registerLombardAttestation(t, in.Fake.Out.ExternalHTTPURL, messageHash, attestation, "NOTARIZATION_STATUS_SESSION_APPROVED")
+			l.Info().Str("MessageHash", messageHash.String()).Msg("Registered Lombard attestation")
+
 			testCtx := NewTestingContext(t, ctx, chainMap, defaultAggregatorClient, indexerMonitor)
 			res, err := testCtx.AssertMessage(msgID, AssertMessageOptions{
 				TickInterval:            1 * time.Second,
 				Timeout:                 45 * time.Second,
-				ExpectedVerifierResults: tc.expectedVerifierResults - 1, // because Lombard Attestation API is not mocked yet
+				ExpectedVerifierResults: tc.expectedVerifierResults,
 				AssertVerifierLogs:      false,
 				AssertExecutorLogs:      false,
 			})
 
 			require.NoError(t, err)
 			require.NotNil(t, res.AggregatedResult)
+
+			execEvt, err := destChain.WaitOneExecEventBySeqNo(ctx, sourceSelector, seqNo, 45*time.Second)
+			require.NoError(t, err)
+			require.NotNil(t, execEvt)
+			require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected state, return data: %x", execEvt.ReturnData)
+
+			// FIXME: Fix minting on the destination chain by the bridge
+			// endBal, err := destChain.GetTokenBalance(ctx, tc.receiver, destToken)
+			// require.NoError(t, err)
+
+			//require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), tc.transferAmount), endBal)
+			//l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", common.LombardContractsQualifier).Msg("receiver end balance")
+			//
+			//srcEndBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
+			//require.NoError(t, err)
+			//require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), tc.transferAmount), srcEndBal)
+			//l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", common.LombardContractsQualifier).Msg("sender end balance")
 		}
 
 		runLombardTestCase(t, testCase{
