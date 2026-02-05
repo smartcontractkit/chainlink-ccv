@@ -579,7 +579,7 @@ func TestE2ESmoke(t *testing.T) {
 				cciptestinterfaces.MessageFields{
 					Receiver: tc.receiver,
 					TokenAmount: cciptestinterfaces.TokenAmount{
-						Amount:       big.NewInt(1),
+						Amount:       tc.transferAmount,
 						TokenAddress: srcToken,
 					},
 				},
@@ -589,8 +589,21 @@ func TestE2ESmoke(t *testing.T) {
 			require.NotNil(t, sendRes)
 			require.Len(t, sendRes.ReceiptIssuers, tc.expectedReceiptIssuers, "expected %d receipt issuers for %s token", tc.expectedReceiptIssuers, common.CCTPContractsQualifier)
 
-			_, err = sourceChain.WaitOneSentEventBySeqNo(ctx, destSelector, seqNo, defaultSentTimeout)
+			sentEvt, err := sourceChain.WaitOneSentEventBySeqNo(ctx, destSelector, seqNo, defaultSentTimeout)
 			require.NoError(t, err)
+
+			msgID := sentEvt.MessageID
+			testCtx := NewTestingContext(t, ctx, chainMap, defaultAggregatorClient, indexerMonitor)
+			res, err := testCtx.AssertMessage(msgID, AssertMessageOptions{
+				TickInterval:            1 * time.Second,
+				Timeout:                 45 * time.Second,
+				ExpectedVerifierResults: tc.expectedVerifierResults - 1, // because Lombard Attestation API is not mocked yet
+				AssertVerifierLogs:      false,
+				AssertExecutorLogs:      false,
+			})
+
+			require.NoError(t, err)
+			require.NotNil(t, res.AggregatedResult)
 		}
 
 		runLombardTestCase(t, testCase{
