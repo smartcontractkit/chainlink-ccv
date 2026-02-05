@@ -49,7 +49,7 @@ func buildLombardAttestation() string {
 	// Return a hex-encoded dummy attestation
 	// In real scenario, this would be abi.encode(payload, proof) from Lombard
 	// For testing, we'll use a simple dummy value
-	dummyAttestation := make([]byte, 100)
+	dummyAttestation := make([]byte, 800)
 	for i := range dummyAttestation {
 		dummyAttestation[i] = byte(i % 256)
 	}

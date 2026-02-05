@@ -5,17 +5,19 @@ import (
 	"math/big"
 
 	"github.com/Masterminds/semver/v3"
-
-	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_lombard_bridge"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
-
 	"github.com/ethereum/go-ethereum/common"
 
+	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/lombard_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_lombard_bridge"
 	evm_contract "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -23,7 +25,7 @@ import (
 )
 
 var (
-	LombardContractsQualifier = "Lombard"
+	LombardContractsQualifier = devenvcommon.LombardContractsQualifier
 	LombardTokenQualifier     = "LBTC"
 )
 
@@ -52,6 +54,11 @@ func (m *CCIP17EVMConfig) deployLombardTokenAndPool(
 	err = m.deployLombardChain(env, registry, ds, create2Factory, selector, lombardToken, bridgeV2, chain)
 	if err != nil {
 		return fmt.Errorf("failed to deploy lombard chain for chain %s: %w", chain, err)
+	}
+
+	err = m.deployLombardMockReceiver(env, ds, selector)
+	if err != nil {
+		return fmt.Errorf("failed to deploy lombard mock receiver for chain %s: %w", chain, err)
 	}
 
 	return nil
@@ -230,4 +237,56 @@ func (m *CCIP17EVMConfig) configureLombardForTransfer(
 	}
 
 	return err
+}
+
+func (m *CCIP17EVMConfig) deployLombardMockReceiver(
+	env *deployment.Environment,
+	ds *datastore.MemoryDataStore,
+	selector uint64,
+) error {
+	lombardVerifier, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+		selector,
+		datastore.ContractType(lombard_verifier.ResolverType),
+		semver.MustParse(lombard_verifier.Deploy.Version()),
+		devenvcommon.LombardContractsQualifier,
+	))
+	if err != nil {
+		return fmt.Errorf("failed to find Lombard verifier for chain %d: %w", selector, err)
+	}
+
+	committeeVerifier, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+		selector,
+		datastore.ContractType(committee_verifier.ResolverType),
+		semver.MustParse(committee_verifier.Deploy.Version()),
+		devenvcommon.DefaultCommitteeVerifierQualifier,
+	))
+	if err != nil {
+		return fmt.Errorf("failed to find Committee verifier for chain %d: %w", selector, err)
+	}
+
+	receiverQualifier := devenvcommon.LombardPrimaryReceiverQualifier
+	deployReceiverReport, err1 := cldf_ops.ExecuteOperation(
+		env.OperationsBundle,
+		mock_receiver.Deploy,
+		env.BlockChains.EVMChains()[selector],
+		evm_contract.DeployInput[mock_receiver.ConstructorArgs]{
+			TypeAndVersion: deployment.NewTypeAndVersion(mock_receiver.ContractType, *mock_receiver.Version),
+			ChainSelector:  selector,
+			Args: mock_receiver.ConstructorArgs{
+				RequiredVerifiers: []common.Address{
+					common.HexToAddress(committeeVerifier.Address),
+					common.HexToAddress(lombardVerifier.Address),
+				},
+			},
+			Qualifier: &receiverQualifier,
+		})
+	if err1 != nil {
+		return fmt.Errorf("failed to deploy mock receiver on chain %d: %w", selector, err1)
+	}
+
+	err1 = ds.Addresses().Add(deployReceiverReport.Output)
+	if err1 != nil {
+		return fmt.Errorf("failed to register mock receiver on chain %d in datastore: %w", selector, err1)
+	}
+	return nil
 }
