@@ -82,9 +82,11 @@ linters:
             - github.com/smartcontractkit/chainlink-common/pkg/beholder
             - github.com/smartcontractkit/chainlink-common/pkg/utils/tests
             - github.com/smartcontractkit/chainlink-common/pkg/sqlutil
+            # Keystore is its own go.mod, separate from chainlink-common, but in the same repo.
+            - github.com/smartcontractkit/chainlink-common/keystore
           deny:
             - pkg: github.com/smartcontractkit/chainlink
-              desc: No chainlink dependencies in executor packages
+              desc: No chainlink dependencies in verifier/executor packages
 
         test:
           list-mode: lax

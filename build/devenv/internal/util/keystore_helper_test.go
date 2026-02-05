@@ -10,14 +10,17 @@ import (
 	"github.com/smartcontractkit/chainlink-common/keystore"
 )
 
+const (
+	keyName  = "test-key"
+	password = "test-password"
+)
+
 func TestCreateImportData(t *testing.T) {
 	// Generate a test private key
 	privateKey, err := crypto.GenerateKey()
 	require.NoError(t, err)
 
 	privateKeyBytes := crypto.FromECDSA(privateKey)
-	keyName := "test-key"
-	password := "test-password"
 
 	// Create import data
 	importData, err := createImportData(keyName, privateKeyBytes, password)
@@ -61,8 +64,6 @@ func TestCreateImportData_CanSign(t *testing.T) {
 	require.NoError(t, err)
 
 	privateKeyBytes := crypto.FromECDSA(privateKey)
-	keyName := "signing-key"
-	password := "test-password"
 
 	// Create import data and import into keystore
 	importData, err := createImportData(keyName, privateKeyBytes, password)
@@ -103,7 +104,6 @@ func TestCreateImportData_DifferentPasswords(t *testing.T) {
 	require.NoError(t, err)
 
 	privateKeyBytes := crypto.FromECDSA(privateKey)
-	keyName := "test-key"
 	encryptPassword := "encrypt-password"
 	wrongPassword := "wrong-password"
 

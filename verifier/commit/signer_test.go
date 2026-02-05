@@ -138,12 +138,17 @@ func TestECDSASignerWithKeystoreSigner_Sign(t *testing.T) {
 	require.NotEqual(t, [32]byte{}, s, "S should not be zero")
 }
 
+const (
+	keyName  = "test-key"
+	password = "test-password"
+)
+
 // createTestKeystore creates an in-memory keystore with a key for testing.
 func createTestKeystore(t *testing.T, keyName string) (keystore.Keystore, []byte) {
 	t.Helper()
 	ctx := context.Background()
 
-	ks, err := keystore.LoadKeystore(ctx, keystore.NewMemoryStorage(), "test-password")
+	ks, err := keystore.LoadKeystore(ctx, keystore.NewMemoryStorage(), password)
 	require.NoError(t, err)
 
 	// Create a key in the keystore
@@ -181,7 +186,6 @@ func TestKeystoreSignerAdapter_Sign(t *testing.T) {
 }
 
 func TestKeystoreSignerAdapter_SignDifferentMessages(t *testing.T) {
-	keyName := "test-key"
 	ks, _ := createTestKeystore(t, keyName)
 
 	adapter := NewKeystoreSignerAdapter(ks, keyName)
@@ -199,7 +203,6 @@ func TestKeystoreSignerAdapter_SignDifferentMessages(t *testing.T) {
 
 func TestKeystoreSignerAdapter_WithECDSASignerWithKeystoreSigner(t *testing.T) {
 	// This test verifies the full chain: KeystoreSignerAdapter -> ECDSASignerWithKeystoreSigner
-	keyName := "test-key"
 	ks, pubKeyBytes := createTestKeystore(t, keyName)
 
 	adapter := NewKeystoreSignerAdapter(ks, keyName)
@@ -224,7 +227,6 @@ func TestKeystoreSignerAdapter_WithECDSASignerWithKeystoreSigner(t *testing.T) {
 }
 
 func TestNewSignerFromKeystore(t *testing.T) {
-	keyName := "test-signing-key"
 	ks, pubKeyBytes := createTestKeystore(t, keyName)
 
 	ctx := context.Background()
@@ -251,7 +253,6 @@ func TestNewSignerFromKeystore(t *testing.T) {
 }
 
 func TestNewSignerFromKeystore_KeyNotFound(t *testing.T) {
-	keyName := "existing-key"
 	ks, _ := createTestKeystore(t, keyName)
 
 	ctx := context.Background()
