@@ -532,7 +532,6 @@ func TestE2ESmoke(t *testing.T) {
 	})
 
 	t.Run("Lombard V3 token transfer", func(t *testing.T) {
-		t.Skip("not implemented yet")
 		var (
 			sourceSelector = sel0
 			sourceChain    = chainMap[sourceSelector]
@@ -542,7 +541,6 @@ func TestE2ESmoke(t *testing.T) {
 
 		type testCase struct {
 			name                    string
-			executionGasLimit       uint32
 			transferAmount          *big.Int
 			receiver                protocol.UnknownAddress
 			expectedReceiptIssuers  int
@@ -571,10 +569,8 @@ func TestE2ESmoke(t *testing.T) {
 			l.Info().Uint64("SeqNo", seqNo).Str("Token", common.LombardContractsQualifier).Msg("expecting sequence number")
 
 			messageOptions := cciptestinterfaces.MessageOptions{
-				Version:           3,
-				FinalityConfig:    0,
-				ExecutionGasLimit: tc.executionGasLimit,
-				Executor:          getContractAddress(t, in, sel0, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
+				Version:  3,
+				Executor: getContractAddress(t, in, sel0, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
 			}
 
 			sendRes, err := sourceChain.SendMessage(
@@ -582,7 +578,7 @@ func TestE2ESmoke(t *testing.T) {
 				cciptestinterfaces.MessageFields{
 					Receiver: tc.receiver,
 					TokenAmount: cciptestinterfaces.TokenAmount{
-						Amount:       big.NewInt(1),
+						Amount:       tc.transferAmount,
 						TokenAddress: srcToken,
 					},
 				},
@@ -592,8 +588,44 @@ func TestE2ESmoke(t *testing.T) {
 			require.NotNil(t, sendRes)
 			require.Len(t, sendRes.ReceiptIssuers, tc.expectedReceiptIssuers, "expected %d receipt issuers for %s token", tc.expectedReceiptIssuers, common.CCTPContractsQualifier)
 
-			_, err = sourceChain.WaitOneSentEventBySeqNo(ctx, destSelector, seqNo, defaultSentTimeout)
+			sentEvt, err := sourceChain.WaitOneSentEventBySeqNo(ctx, destSelector, seqNo, defaultSentTimeout)
 			require.NoError(t, err)
+
+			msgID := sentEvt.MessageID
+
+			messageHash := sentEvt.Message.TokenTransfer.ExtraData
+			attestation := buildLombardAttestation()
+			registerLombardAttestation(t, in.Fake.Out.ExternalHTTPURL, messageHash, attestation, "NOTARIZATION_STATUS_SESSION_APPROVED")
+			l.Info().Str("MessageHash", messageHash.String()).Msg("Registered Lombard attestation")
+
+			testCtx := NewTestingContext(t, ctx, chainMap, defaultAggregatorClient, indexerMonitor)
+			res, err := testCtx.AssertMessage(msgID, AssertMessageOptions{
+				TickInterval:            1 * time.Second,
+				Timeout:                 45 * time.Second,
+				ExpectedVerifierResults: tc.expectedVerifierResults,
+				AssertVerifierLogs:      false,
+				AssertExecutorLogs:      false,
+			})
+
+			require.NoError(t, err)
+			require.NotNil(t, res.AggregatedResult)
+
+			execEvt, err := destChain.WaitOneExecEventBySeqNo(ctx, sourceSelector, seqNo, 45*time.Second)
+			require.NoError(t, err)
+			require.NotNil(t, execEvt)
+			require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected state, return data: %x", execEvt.ReturnData)
+
+			// FIXME: Fix minting on the destination chain by the bridge
+			// endBal, err := destChain.GetTokenBalance(ctx, tc.receiver, destToken)
+			// require.NoError(t, err)
+
+			//require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), tc.transferAmount), endBal)
+			//l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", common.LombardContractsQualifier).Msg("receiver end balance")
+			//
+			//srcEndBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
+			//require.NoError(t, err)
+			//require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), tc.transferAmount), srcEndBal)
+			//l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", common.LombardContractsQualifier).Msg("sender end balance")
 		}
 
 		runLombardTestCase(t, testCase{

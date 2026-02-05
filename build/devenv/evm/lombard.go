@@ -44,7 +44,7 @@ func (m *CCIP17EVMConfig) deployLombardTokenAndPool(
 		return fmt.Errorf("failed to deploy lombard contracts on chain %s: %w", chain, err)
 	}
 
-	err = m.configureLombardContracts(env, chain, selector, lombardToken)
+	err = m.configureLombardContracts(env, chain, selector, lombardToken, bridgeV2)
 	if err != nil {
 		return fmt.Errorf("failed to configure lombard contracts on chain %s: %w", chain, err)
 	}
@@ -111,6 +111,7 @@ func (m *CCIP17EVMConfig) configureLombardContracts(
 	chain evm.Chain,
 	selector uint64,
 	token common.Address,
+	bridgeV2 common.Address,
 ) error {
 	_, err := cldf_ops.ExecuteOperation(env.OperationsBundle, burn_mint_erc20_with_drip.GrantMintAndBurnRoles, chain, evm_contract.FunctionInput[common.Address]{
 		ChainSelector: selector,
@@ -119,6 +120,15 @@ func (m *CCIP17EVMConfig) configureLombardContracts(
 	})
 	if err != nil {
 		return fmt.Errorf("failed to grant burn mint permissions to deployer %s: %w", chain.DeployerKey.From.Hex(), err)
+	}
+
+	_, err = cldf_ops.ExecuteOperation(env.OperationsBundle, burn_mint_erc20_with_drip.GrantMintAndBurnRoles, chain, evm_contract.FunctionInput[common.Address]{
+		ChainSelector: selector,
+		Address:       token,
+		Args:          bridgeV2,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to grant burn mint permissions to bridgeV2 %s: %w", chain.DeployerKey.From.Hex(), err)
 	}
 
 	_, err = cldf_ops.ExecuteOperation(env.OperationsBundle, burn_mint_erc20_with_drip.Mint, chain, evm_contract.FunctionInput[burn_mint_erc20_with_drip.MintArgs]{

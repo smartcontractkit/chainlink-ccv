@@ -6,6 +6,7 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/fake"
 
 	"github.com/smartcontractkit/devenv/ccip17/fakes/pkg/cctp"
+	"github.com/smartcontractkit/devenv/ccip17/fakes/pkg/lombard"
 	"github.com/smartcontractkit/devenv/ccip17/fakes/pkg/offchainstorage"
 )
 
@@ -28,6 +29,12 @@ func main() {
 		panic(err)
 	}
 	log.Printf("Fake CCTP Attestation API running on port %d", fake.DefaultFakeServicePort)
+
+	lombardAttestations := lombard.NewAttestationAPI()
+	if err = lombardAttestations.Register(); err != nil {
+		panic(err)
+	}
+	log.Printf("Fake Lombard Attestation API running on port %d", fake.DefaultFakeServicePort)
 
 	// Keep the server running
 	select {}
