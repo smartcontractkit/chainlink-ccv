@@ -132,19 +132,14 @@ func (m *CCIP17EVMConfig) deployCCTPChain(
 	cctpChainRegistry := adapters.NewCCTPChainRegistry()
 	cctpChainRegistry.RegisterCCTPChain("evm", &evmadapters.CCTPChainAdapter{})
 
-	usdcPoolProxyRef := datastore.AddressRef{
-		ChainSelector: selector,
-		Type:          datastore.ContractType(usdc_token_pool_proxy.ContractType),
-		Version:       semver.MustParse(usdc_token_pool_proxy.Deploy.Version()),
-		Qualifier:     common.CCTPContractsQualifier,
-	}
+	usdcPoolProxyRefs := usdcTokenPoolProxies(selector, nil)
 
 	out, err := changesets.DeployCCTPChains(cctpChainRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
 		Chains: map[uint64]changesets.CCTPChainConfig{
 			selector: {
 				TokenMessenger:    messenger.Hex(),
 				USDCToken:         usdc.Hex(),
-				RegisteredPoolRef: usdcPoolProxyRef,
+				RegisteredPoolRef: usdcPoolProxyRefs[selector],
 				StorageLocations:  []string{"https://test.chain.link.fake"},
 				FastFinalityBps:   100,
 				DeployerContract:  create2Factory.Address,
