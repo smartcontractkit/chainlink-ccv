@@ -360,7 +360,7 @@ func processReceipts(receiptsField *ledgerv2.RecordField) ([]protocol.ReceiptWit
 				if err != nil {
 					return nil, fmt.Errorf("failed to decode issuer: %w, input: %s", err, field.GetValue().GetText())
 				}
-				protoReceipt.Issuer = protocol.UnknownAddress(decoded)
+				protoReceipt.Issuer = decoded
 			case ccipMessageSentEventReceiptDestGasLimitLabel:
 				protoReceipt.DestGasLimit = uint64(field.GetValue().GetInt64()) //nolint:gosec // int64 is always non-negative
 			case ccipMessageSentEventReceiptDestBytesOverheadLabel:
