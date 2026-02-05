@@ -659,7 +659,7 @@ func TestE2ESmoke(t *testing.T) {
 				expectedVerifierResults: 2, // default ccv, Lombard ccv
 			},
 			{
-				name:           "Lombard transfer to EOA fails on custom finality config",
+				name:           "Lombard transfer to EOA fails with custom finality config",
 				transferAmount: big.NewInt(100),
 				receiver:       mustGetEOAReceiverAddress(t, destChain),
 				finalityConfig: 1,
