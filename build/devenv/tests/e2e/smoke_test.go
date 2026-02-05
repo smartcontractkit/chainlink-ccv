@@ -592,11 +592,17 @@ func TestE2ESmoke(t *testing.T) {
 			require.NoError(t, err)
 
 			msgID := sentEvt.MessageID
+
+			messageHash := sentEvt.Message.TokenTransfer.ExtraData
+			attestation := buildLombardAttestation()
+			registerLombardAttestation(t, in.Fake.Out.ExternalHTTPURL, messageHash, attestation, "NOTARIZATION_STATUS_SESSION_APPROVED")
+			l.Info().Str("MessageHash", messageHash.String()).Msg("Registered Lombard attestation")
+
 			testCtx := NewTestingContext(t, ctx, chainMap, defaultAggregatorClient, indexerMonitor)
 			res, err := testCtx.AssertMessage(msgID, AssertMessageOptions{
 				TickInterval:            1 * time.Second,
 				Timeout:                 45 * time.Second,
-				ExpectedVerifierResults: tc.expectedVerifierResults - 1, // because Lombard Attestation API is not mocked yet
+				ExpectedVerifierResults: tc.expectedVerifierResults,
 				AssertVerifierLogs:      false,
 				AssertExecutorLogs:      false,
 			})
