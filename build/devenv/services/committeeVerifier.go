@@ -28,13 +28,12 @@ import (
 )
 
 const (
-	DefaultVerifierName    = "verifier"
-	DefaultVerifierDBName  = "verifier-db"
-	DefaultVerifierImage   = "verifier:dev"
-	DefaultVerifierPort    = 8100
-	DefaultVerifierDBPort  = 8432
-	DefaultVerifierSQLInit = "init.sql"
-	DefaultVerifierMode    = Standalone
+	DefaultVerifierName   = "verifier"
+	DefaultVerifierDBName = "verifier-db"
+	DefaultVerifierImage  = "verifier:dev"
+	DefaultVerifierPort   = 8100
+	DefaultVerifierDBPort = 8432
+	DefaultVerifierMode   = Standalone
 
 	DefaultVerifierDBImage = "postgres:16-alpine"
 )
@@ -262,7 +261,6 @@ func NewVerifier(in *VerifierInput, outputs []*blockchain.Output) (*VerifierOutp
 		postgres.WithDatabase(in.ContainerName),
 		postgres.WithUsername(in.ContainerName),
 		postgres.WithPassword(in.ContainerName),
-		postgres.WithInitScripts(filepath.Join(p, DefaultVerifierSQLInit)),
 		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 			ContainerRequest: testcontainers.ContainerRequest{
 				Name:         in.DB.Name,
