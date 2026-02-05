@@ -195,7 +195,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 		return nil, fmt.Errorf("failed to upload per-party router dar file")
 	}
 
-	env.Logger.Infow("Deploying chain contracts", "chainSelector", selector, "party", user.PrimaryParty)
+	l.Info().Any("selector", selector).Any("party", user.PrimaryParty).Msg("Deploying chain contracts")
 	config := cantonChangesets.CantonCSDeps[cantonChangesets.DeployChainContractsConfig]{
 		ChainSelector: selector,
 		Participant:   0,
@@ -284,17 +284,6 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 		if err != nil {
 			return nil, fmt.Errorf("failed to add dst token pool address ref: %w", err)
 		}
-		// addressRef = combo.SourcePoolAddressRef()
-		// err = runningDS.AddressRefStore.Add(datastore.AddressRef{
-		// 	Address:       contracts.MustNewInstanceID("src-token-pool-"+strconv.Itoa(i), user.PrimaryParty).InstanceAddress().Hex(),
-		// 	Type:          addressRef.Type,
-		// 	Version:       addressRef.Version,
-		// 	Qualifier:     addressRef.Qualifier,
-		// 	ChainSelector: selector,
-		// })
-		// if err != nil {
-		// 	return nil, fmt.Errorf("failed to add src token pool address ref: %w", err)
-		// }
 	}
 	// Add executor refs
 	err = runningDS.AddressRefStore.Add(datastore.AddressRef{

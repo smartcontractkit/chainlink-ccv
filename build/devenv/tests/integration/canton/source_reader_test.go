@@ -209,25 +209,21 @@ func TestCantonSourceReader(t *testing.T) {
 			},
 			[]testReceipt{
 				{
-					// NOTE(ff): we've decided to drop CCVIds and use their InstanceAddresses instead.
-					// TODO: this isn't correct, because for canton the issuer is the CCVId.
-					// We need to set the "verifier address" in the verifier to be the CCVId rather than
-					// the address of the committee_verifier.ResolverType from the DataStore.
-					Issuer:            strings.TrimPrefix(addresses.cantonDefaultVerifier.Hex(), "0x"),
+					Issuer:            addresses.cantonDefaultVerifier.Hex(),
 					DestGasLimit:      100000,
 					DestBytesOverhead: 500,
 					FeeTokenAmount:    "1000000.",
 					ExtraArgs:         []byte{},
 				},
 				{
-					Issuer:            strings.TrimPrefix(addresses.cantonExecutor.Hex(), "0x"),
+					Issuer:            addresses.cantonExecutor.Hex(),
 					DestGasLimit:      0,
 					DestBytesOverhead: 0,
 					FeeTokenAmount:    "500000.",
 					ExtraArgs:         []byte{},
 				},
 				{
-					Issuer:            strings.TrimPrefix(addresses.cantonRouter.Hex(), "0x"),
+					Issuer:            addresses.cantonRouter.Hex(),
 					DestGasLimit:      0,
 					DestBytesOverhead: 0,
 					FeeTokenAmount:    "500000.",

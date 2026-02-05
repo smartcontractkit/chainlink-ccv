@@ -74,7 +74,7 @@ func ScanOnChainTopology(
 	for _, ref := range refs {
 		chainFamily, err := chainsel.GetSelectorFamily(ref.ChainSelector)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get chain family for selector %d: %w", ref.ChainSelector)
+			return nil, fmt.Errorf("failed to get chain family for selector %d: %w", ref.ChainSelector, err)
 		}
 		switch chainFamily {
 		case chainsel.FamilyEVM:
@@ -92,6 +92,7 @@ func ScanOnChainTopology(
 			})
 		default:
 			// Skip other chain families for now
+			env.Logger.Warnw("skipping CommitteeVerifier scan on unsupported chain family", "family", chainFamily, "selector", ref.ChainSelector)
 			continue
 		}
 	}

@@ -356,7 +356,7 @@ func processReceipts(receiptsField *ledgerv2.RecordField) ([]protocol.ReceiptWit
 				// however, in order to make it fit into a protocol.UnknownAddress,
 				// we will interpret the string itself as bytes.
 				// Note: assume the Text is valid UTF-8.
-				decoded, err := hex.DecodeString(field.GetValue().GetText())
+				decoded, err := protocol.NewUnknownAddressFromHex(field.GetValue().GetText())
 				if err != nil {
 					return nil, fmt.Errorf("failed to decode issuer: %w, input: %s", err, field.GetValue().GetText())
 				}
