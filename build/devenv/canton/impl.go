@@ -269,7 +269,6 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	if err != nil {
 		return nil, err
 	}
-	env.DataStore = runningDS.Seal()
 
 	// Mock out a Canton deployment for now.
 	// Add token pools
