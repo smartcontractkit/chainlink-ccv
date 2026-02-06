@@ -3,16 +3,14 @@ package keys
 
 import (
 	"context"
+	"crypto"
 	"crypto/ed25519"
-	"encoding/json"
 	"fmt"
+	"io"
 
-	"github.com/ethereum/go-ethereum/accounts/keystore"
-	"github.com/ethereum/go-ethereum/crypto"
-	"google.golang.org/protobuf/proto"
+	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 
 	ks "github.com/smartcontractkit/chainlink-common/keystore"
-	"github.com/smartcontractkit/chainlink-common/keystore/serialization"
 )
 
 const (
@@ -20,9 +18,6 @@ const (
 	SigningKeyName = "verifier/signing/default"
 	// CSAKeyName is the default name for the CSA key (Ed25519).
 	CSAKeyName = "verifier/csa/default"
-
-	// tempExportPassword is used internally for key extraction.
-	tempExportPassword = "temp-extract-password-0xdeadbeef"
 )
 
 // KeyPair holds both the signing key and CSA key information.
@@ -31,8 +26,36 @@ type KeyPair struct {
 	SigningAddress string
 	// CSAPublicKey is the Ed25519 public key for JD authentication.
 	CSAPublicKey ed25519.PublicKey
-	// CSAPrivateKey is the Ed25519 private key for JD authentication.
-	CSAPrivateKey ed25519.PrivateKey
+	// CSASigner implements crypto.Signer for the CSA key, used for WSRPC authentication.
+	// The private key never leaves the keystore.
+	CSASigner crypto.Signer
+}
+
+// CSAKeystoreSigner implements crypto.Signer using the keystore.
+// This allows signing without exposing the raw private key.
+type CSAKeystoreSigner struct {
+	keystore  ks.Signer
+	keyName   string
+	publicKey ed25519.PublicKey
+}
+
+// Public returns the public key corresponding to the private key.
+func (s *CSAKeystoreSigner) Public() crypto.PublicKey {
+	return s.publicKey
+}
+
+// Sign signs digest with the private key. For Ed25519, the digest is the message itself
+// (not a hash), and opts should be crypto.Hash(0).
+func (s *CSAKeystoreSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+	// Ed25519 signs the message directly, not a hash
+	resp, err := s.keystore.Sign(context.Background(), ks.SignRequest{
+		KeyName: s.keyName,
+		Data:    digest,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("keystore sign failed: %w", err)
+	}
+	return resp.Signature, nil
 }
 
 // GetOrCreateKeys ensures both signing and CSA keys exist in the keystore,
@@ -45,7 +68,7 @@ func GetOrCreateKeys(ctx context.Context, keystore ks.Keystore) (*KeyPair, error
 	}
 
 	// Get or create CSA key (Ed25519)
-	csaPriv, csaPub, err := getOrCreateCSAKey(ctx, keystore)
+	csaSigner, csaPub, err := getOrCreateCSAKey(ctx, keystore)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get/create CSA key: %w", err)
 	}
@@ -53,7 +76,7 @@ func GetOrCreateKeys(ctx context.Context, keystore ks.Keystore) (*KeyPair, error
 	return &KeyPair{
 		SigningAddress: signingAddr,
 		CSAPublicKey:   csaPub,
-		CSAPrivateKey:  csaPriv,
+		CSASigner:      csaSigner,
 	}, nil
 }
 
@@ -92,8 +115,9 @@ func getOrCreateSigningKey(ctx context.Context, keystore ks.Keystore) (string, e
 	return deriveAddressFromPublicKey(createResp.Keys[0].KeyInfo.PublicKey)
 }
 
-// getOrCreateCSAKey ensures the CSA key exists and returns its key pair.
-func getOrCreateCSAKey(ctx context.Context, keystore ks.Keystore) (ed25519.PrivateKey, ed25519.PublicKey, error) {
+// getOrCreateCSAKey ensures the CSA key exists and returns a crypto.Signer and public key.
+// The private key stays in the keystore and is never exposed.
+func getOrCreateCSAKey(ctx context.Context, keystore ks.Keystore) (crypto.Signer, ed25519.PublicKey, error) {
 	// Check if key exists by getting all keys and filtering
 	allKeysResp, err := keystore.GetKeys(ctx, ks.GetKeysRequest{})
 	if err != nil {
@@ -101,17 +125,17 @@ func getOrCreateCSAKey(ctx context.Context, keystore ks.Keystore) (ed25519.Priva
 	}
 
 	// Look for existing CSA key
-	keyExists := false
+	var csaPublicKey ed25519.PublicKey
 	for _, key := range allKeysResp.Keys {
 		if key.KeyInfo.Name == CSAKeyName {
-			keyExists = true
+			csaPublicKey = key.KeyInfo.PublicKey
 			break
 		}
 	}
 
-	if !keyExists {
+	if csaPublicKey == nil {
 		// Create the key
-		_, err := keystore.CreateKeys(ctx, ks.CreateKeysRequest{
+		createResp, err := keystore.CreateKeys(ctx, ks.CreateKeysRequest{
 			Keys: []ks.CreateKeyRequest{
 				{
 					KeyName: CSAKeyName,
@@ -122,66 +146,20 @@ func getOrCreateCSAKey(ctx context.Context, keystore ks.Keystore) (ed25519.Priva
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create CSA key: %w", err)
 		}
+		if len(createResp.Keys) == 0 {
+			return nil, nil, fmt.Errorf("no key returned after creation")
+		}
+		csaPublicKey = createResp.Keys[0].KeyInfo.PublicKey
 	}
 
-	// Extract the private key for WSRPC authentication
-	return extractCSAPrivateKey(ctx, keystore)
-}
-
-// extractCSAPrivateKey extracts the raw Ed25519 private key from the keystore.
-// This is needed for WSRPC which requires the actual private key bytes.
-func extractCSAPrivateKey(ctx context.Context, store ks.Keystore) (ed25519.PrivateKey, ed25519.PublicKey, error) {
-	// Export the key with a temporary password
-	exportResp, err := store.ExportKeys(ctx, ks.ExportKeysRequest{
-		Keys: []ks.ExportKeyParam{
-			{
-				KeyName: CSAKeyName,
-				Enc: ks.EncryptionParams{
-					Password:     tempExportPassword,
-					ScryptParams: ks.FastScryptParams,
-				},
-			},
-		},
-	})
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to export CSA key: %w", err)
-	}
-	if len(exportResp.Keys) == 0 {
-		return nil, nil, fmt.Errorf("no key returned from export")
+	// Create a crypto.Signer that delegates to the keystore
+	signer := &CSAKeystoreSigner{
+		keystore:  keystore,
+		keyName:   CSAKeyName,
+		publicKey: csaPublicKey,
 	}
 
-	// The exported data is encrypted using geth's keystore format.
-	// Decrypt it to get the raw private key bytes.
-	var encryptedData keystore.CryptoJSON
-	if err := json.Unmarshal(exportResp.Keys[0].Data, &encryptedData); err != nil {
-		return nil, nil, fmt.Errorf("failed to unmarshal encrypted key data: %w", err)
-	}
-
-	decryptedData, err := keystore.DecryptDataV3(encryptedData, tempExportPassword)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to decrypt key data: %w", err)
-	}
-
-	// Unmarshal the protobuf key structure
-	var key serialization.Key
-	if err := proto.Unmarshal(decryptedData, &key); err != nil {
-		return nil, nil, fmt.Errorf("failed to unmarshal key protobuf: %w", err)
-	}
-
-	// Validate the key type
-	if key.KeyType != string(ks.Ed25519) {
-		return nil, nil, fmt.Errorf("unexpected key type %s, expected %s", key.KeyType, ks.Ed25519)
-	}
-
-	// Ed25519 private keys should be 64 bytes
-	if len(key.PrivateKey) != ed25519.PrivateKeySize {
-		return nil, nil, fmt.Errorf("unexpected private key size %d, expected %d", len(key.PrivateKey), ed25519.PrivateKeySize)
-	}
-
-	privateKey := ed25519.PrivateKey(key.PrivateKey)
-	publicKey := privateKey.Public().(ed25519.PublicKey)
-
-	return privateKey, publicKey, nil
+	return signer, csaPublicKey, nil
 }
 
 // deriveAddressFromPublicKey derives an Ethereum address from a SEC1 uncompressed public key.
@@ -190,12 +168,12 @@ func deriveAddressFromPublicKey(publicKey []byte) (string, error) {
 		return "", fmt.Errorf("unexpected public key length %d, expected 65", len(publicKey))
 	}
 
-	pubKey, err := crypto.UnmarshalPubkey(publicKey)
+	pubKey, err := gethcrypto.UnmarshalPubkey(publicKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to unmarshal public key: %w", err)
 	}
 
-	address := crypto.PubkeyToAddress(*pubKey)
+	address := gethcrypto.PubkeyToAddress(*pubKey)
 	return address.Hex(), nil
 }
 

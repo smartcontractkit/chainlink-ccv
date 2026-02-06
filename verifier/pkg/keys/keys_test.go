@@ -2,6 +2,7 @@ package keys
 
 import (
 	"context"
+	"crypto"
 	"crypto/ed25519"
 	"testing"
 
@@ -32,9 +33,12 @@ func TestGetOrCreateKeys(t *testing.T) {
 
 	// Verify CSA keys
 	assert.NotNil(t, keyPair.CSAPublicKey)
-	assert.NotNil(t, keyPair.CSAPrivateKey)
+	assert.NotNil(t, keyPair.CSASigner)
 	assert.Equal(t, ed25519.PublicKeySize, len(keyPair.CSAPublicKey))
-	assert.Equal(t, ed25519.PrivateKeySize, len(keyPair.CSAPrivateKey))
+
+	// Verify signer's public key matches
+	signerPubKey := keyPair.CSASigner.Public().(ed25519.PublicKey)
+	assert.Equal(t, keyPair.CSAPublicKey, signerPubKey)
 
 	// Second call should return the same keys
 	keyPair2, err := GetOrCreateKeys(ctx, ks)
@@ -43,7 +47,6 @@ func TestGetOrCreateKeys(t *testing.T) {
 
 	assert.Equal(t, keyPair.SigningAddress, keyPair2.SigningAddress)
 	assert.Equal(t, keyPair.CSAPublicKey, keyPair2.CSAPublicKey)
-	assert.Equal(t, keyPair.CSAPrivateKey, keyPair2.CSAPrivateKey)
 }
 
 func TestGetOrCreateKeys_SigningKeyWorks(t *testing.T) {
@@ -83,9 +86,10 @@ func TestGetOrCreateKeys_CSAKeyWorks(t *testing.T) {
 	keyPair, err := GetOrCreateKeys(ctx, ks)
 	require.NoError(t, err)
 
-	// Verify the CSA key can sign and verify
+	// Verify the CSA signer can sign and the signature can be verified
 	testMessage := []byte("test message for CSA signing")
-	signature := ed25519.Sign(keyPair.CSAPrivateKey, testMessage)
+	signature, err := keyPair.CSASigner.Sign(nil, testMessage, crypto.Hash(0))
+	require.NoError(t, err)
 	assert.True(t, ed25519.Verify(keyPair.CSAPublicKey, testMessage, signature))
 }
 

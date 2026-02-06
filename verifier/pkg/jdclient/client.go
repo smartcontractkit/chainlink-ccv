@@ -3,6 +3,7 @@ package jdclient
 
 import (
 	"context"
+	"crypto"
 	"crypto/ed25519"
 	"fmt"
 	"sync"
@@ -24,10 +25,10 @@ type JobProposal struct {
 
 // Client is a WSRPC client for connecting to the Job Distributor.
 type Client struct {
-	csaPrivateKey ed25519.PrivateKey
-	jdPublicKey   ed25519.PublicKey
-	jdURL         string
-	lggr          logger.Logger
+	csaSigner   crypto.Signer
+	jdPublicKey ed25519.PublicKey
+	jdURL       string
+	lggr        logger.Logger
 
 	mu             sync.Mutex
 	conn           *wsrpc.ClientConn
@@ -39,9 +40,11 @@ type Client struct {
 }
 
 // NewClient creates a new JD client.
-func NewClient(csaPrivateKey ed25519.PrivateKey, jdPublicKey ed25519.PublicKey, jdURL string, lggr logger.Logger) *Client {
+// The csaSigner is a crypto.Signer that implements Ed25519 signing (e.g., from a keystore).
+// The jdPublicKey is the Job Distributor's Ed25519 public key for mTLS authentication.
+func NewClient(csaSigner crypto.Signer, jdPublicKey ed25519.PublicKey, jdURL string, lggr logger.Logger) *Client {
 	return &Client{
-		csaPrivateKey: csaPrivateKey,
+		csaSigner:     csaSigner,
 		jdPublicKey:   jdPublicKey,
 		jdURL:         jdURL,
 		lggr:          lggr,
@@ -59,7 +62,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.lggr.Infow("Connecting to Job Distributor", "url", c.jdURL)
 
 	conn, err := wsrpc.DialWithContext(ctx, c.jdURL,
-		wsrpc.WithTransportCreds(c.csaPrivateKey, c.jdPublicKey),
+		wsrpc.WithTransportSigner(c.csaSigner, c.jdPublicKey),
 		wsrpc.WithBlock(),
 		wsrpc.WithLogger(wsrpcLogger.Nop()),
 	)

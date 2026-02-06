@@ -163,7 +163,7 @@ func runJDMode(ctx context.Context, lggr logger.Logger, sigCh chan os.Signal) {
 
 	// 2c. Connect to JD
 	jdWSRPCURL := os.Getenv(JDWSRPCURLEnvVar)
-	jdClient := jdclient.NewClient(keyPair.CSAPrivateKey, jdCSAPublicKey, jdWSRPCURL, lggr)
+	jdClient := jdclient.NewClient(keyPair.CSASigner, jdCSAPublicKey, jdWSRPCURL, lggr)
 	if err := jdClient.Connect(ctx); err != nil {
 		lggr.Fatalw("Failed to connect to JD", "error", err)
 	}

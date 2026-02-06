@@ -61,7 +61,7 @@ require (
 	github.com/smartcontractkit/chainlink-protos/orchestrator v0.10.0
 	github.com/smartcontractkit/chainlink-solana v1.1.2-0.20260115213541-c4ca2e53370b
 	github.com/smartcontractkit/chainlink-testing-framework/framework v0.13.6
-	github.com/smartcontractkit/wsrpc v0.8.4
+	github.com/smartcontractkit/wsrpc v0.8.5-0.20250502134807-c57d3d995945
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8
 	github.com/spf13/cobra v1.8.1
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.39.0
