@@ -16,12 +16,25 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// JobProposal represents a job proposal received from the Job Distributor.
-type JobProposal struct {
-	ID      string
-	Version int64
-	Spec    string
+// ClientInterface defines the interface for interacting with the Job Distributor.
+// This interface is implemented by *Client.
+type ClientInterface interface {
+	// Connect establishes a connection to the Job Distributor.
+	Connect(ctx context.Context) error
+	// Close closes the connection to the Job Distributor.
+	Close() error
+	// ApproveJob sends a job approval to the Job Distributor.
+	ApproveJob(ctx context.Context, id string, version int64) error
+	// JobProposalCh returns the channel on which job proposals are received.
+	JobProposalCh() <-chan *pb.ProposeJobRequest
+	// DeleteJobCh returns the channel on which job deletion requests are received.
+	DeleteJobCh() <-chan *pb.DeleteJobRequest
+	// RevokeJobCh returns the channel on which job revocation requests are received.
+	RevokeJobCh() <-chan *pb.RevokeJobRequest
 }
+
+// Ensure Client implements ClientInterface.
+var _ ClientInterface = (*Client)(nil)
 
 // Client is a WSRPC client for connecting to the Job Distributor.
 type Client struct {
@@ -34,7 +47,9 @@ type Client struct {
 	conn          *wsrpc.ClientConn
 	feedsManager  pb.FeedsManagerClient
 	handlers      *Handlers
-	jobProposalCh chan *JobProposal
+	jobProposalCh chan *pb.ProposeJobRequest
+	deleteJobCh   chan *pb.DeleteJobRequest
+	revokeJobCh   chan *pb.RevokeJobRequest
 	closeCh       chan struct{}
 	closeOnce     sync.Once
 }
@@ -48,7 +63,9 @@ func NewClient(csaSigner crypto.Signer, jdPublicKey ed25519.PublicKey, jdURL str
 		jdPublicKey:   jdPublicKey,
 		jdURL:         jdURL,
 		lggr:          lggr,
-		jobProposalCh: make(chan *JobProposal, 10),
+		jobProposalCh: make(chan *pb.ProposeJobRequest, 10),
+		deleteJobCh:   make(chan *pb.DeleteJobRequest, 10),
+		revokeJobCh:   make(chan *pb.RevokeJobRequest, 10),
 		closeCh:       make(chan struct{}),
 	}
 }
@@ -72,7 +89,7 @@ func (c *Client) Connect(ctx context.Context) error {
 
 	c.conn = conn
 	c.feedsManager = pb.NewFeedsManagerClient(conn)
-	c.handlers = NewHandlers(c.jobProposalCh, c.lggr)
+	c.handlers = NewHandlers(c.jobProposalCh, c.deleteJobCh, c.revokeJobCh, c.lggr)
 
 	// Register the node service server to receive job proposals
 	pb.RegisterNodeServiceServer(conn, c.handlers)
@@ -82,8 +99,18 @@ func (c *Client) Connect(ctx context.Context) error {
 }
 
 // JobProposalCh returns the channel on which job proposals are received.
-func (c *Client) JobProposalCh() <-chan *JobProposal {
+func (c *Client) JobProposalCh() <-chan *pb.ProposeJobRequest {
 	return c.jobProposalCh
+}
+
+// DeleteJobCh returns the channel on which job deletion requests are received.
+func (c *Client) DeleteJobCh() <-chan *pb.DeleteJobRequest {
+	return c.deleteJobCh
+}
+
+// RevokeJobCh returns the channel on which job revocation requests are received.
+func (c *Client) RevokeJobCh() <-chan *pb.RevokeJobRequest {
+	return c.revokeJobCh
 }
 
 // ApproveJob sends a job approval to the Job Distributor.

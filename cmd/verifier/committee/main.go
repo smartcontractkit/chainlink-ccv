@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"slices"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -20,6 +21,8 @@ import (
 
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/common/jdclient"
+	"github.com/smartcontractkit/chainlink-ccv/common/jdlifecycle"
+	"github.com/smartcontractkit/chainlink-ccv/common/jobstore"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
@@ -31,7 +34,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/infoserver"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobstore"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/keys"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/keystore"
@@ -84,10 +86,10 @@ func main() {
 	}
 }
 
-// run executes the verifier lifecycle:
-// 1. INIT: Generates/loads keys from keystore
-// 2. READY: Starts HTTP info server, connects to JD, waits for job proposal
-// 3. ACTIVE: Starts coordinator with received config.
+// run executes the verifier lifecycle using the JobLifecycleManager:
+// 1. INIT: Generates/loads keys from keystore, starts info server
+// 2. READY: Creates JD client and lifecycle manager
+// 3. ACTIVE: Lifecycle manager handles job lifecycle (proposals, deletions, etc.)
 func run(ctx context.Context, lggr logger.Logger, sigCh chan os.Signal) error {
 	lggr.Infow("Starting verifier")
 
@@ -157,106 +159,59 @@ func run(ctx context.Context, lggr logger.Logger, sigCh chan os.Signal) error {
 		return fmt.Errorf("invalid JD_CSA_PUBLIC_KEY: %w", err)
 	}
 
-	// 2c. Create job store for persistence
+	// 2c. Create JD client
+	jdWSRPCURL := os.Getenv(JDWSRPCURLEnvVar)
+	if jdWSRPCURL == "" {
+		return fmt.Errorf("JD_WSRPC_URL environment variable is required")
+	}
+	jdClient := jdclient.NewClient(keyPair.CSASigner, jdCSAPublicKey, jdWSRPCURL, lggr)
+
+	// 2d. Create job store for persistence
 	jobStore := jobstore.NewStore(chainStatusDB)
 
-	// 2d. Check for existing persisted job
-	var config *commit.Config
-	var blockchainInfos map[string]*blockchain.Info
-	var jdClient *jdclient.Client
-
-	existingJob, err := jobStore.LoadJob(ctx)
-	if err != nil && !errors.Is(err, jobstore.ErrNoJob) {
-		return fmt.Errorf("failed to load existing job: %w", err)
+	// 2e. Create the job runner
+	runner := &committeeRunner{
+		lggr:          lggr,
+		ks:            ks,
+		chainStatusDB: chainStatusDB,
+		infoServer:    infoServer,
 	}
 
-	if existingJob != nil {
-		// Use persisted job
-		lggr.Infow("Found persisted job, using existing configuration",
-			"proposalID", existingJob.ProposalID,
-			"version", existingJob.Version,
-			"createdAt", existingJob.CreatedAt,
-		)
-
-		cfgWithInfos, err := unmarshalJobSpec(existingJob.Spec)
-		if err != nil {
-			return fmt.Errorf("failed to unmarshal persisted job spec: %w", err)
-		}
-		config = &cfgWithInfos.Config
-		blockchainInfos = cfgWithInfos.BlockchainInfos
-	} else {
-		// No persisted job - connect to JD and wait for one
-		lggr.Infow("No persisted job found, connecting to Job Distributor...")
-
-		// 2e. Connect to JD
-		jdWSRPCURL := os.Getenv(JDWSRPCURLEnvVar)
-		if jdWSRPCURL == "" {
-			return fmt.Errorf("JD_WSRPC_URL environment variable is required")
-		}
-		jdClient = jdclient.NewClient(keyPair.CSASigner, jdCSAPublicKey, jdWSRPCURL, lggr)
-		if err := jdClient.Connect(ctx); err != nil {
-			return fmt.Errorf("failed to connect to JD: %w", err)
-		}
-		lggr.Infow("Connected to Job Distributor, waiting for job proposal...")
-
-		// 2f. Wait for job proposal OR shutdown signal
-		select {
-		case proposal := <-jdClient.JobProposalCh():
-			lggr.Infow("Received job proposal", "id", proposal.ID)
-
-			// Parse TOML config
-			cfgWithInfos, err := unmarshalJobSpec(proposal.Spec)
-			if err != nil {
-				// TODO: don't be fatal in future fixes, should retry gracefully.
-				return fmt.Errorf("failed to unmarshal job spec: %w", err)
-			}
-			config = &cfgWithInfos.Config
-			blockchainInfos = cfgWithInfos.BlockchainInfos
-
-			// Persist the job for future restarts
-			if err := jobStore.SaveJob(ctx, proposal.ID, proposal.Version, proposal.Spec); err != nil {
-				lggr.Warnw("Failed to persist job", "error", err)
-				// Continue anyway - we have the config in memory
-			} else {
-				lggr.Infow("Job persisted for future restarts", "proposalID", proposal.ID)
-			}
-
-			// Auto-approve
-			if err := jdClient.ApproveJob(ctx, proposal.ID, proposal.Version); err != nil {
-				lggr.Warnw("Failed to approve job", "error", err)
-			}
-
-		case sig := <-sigCh:
-			lggr.Infow("Received shutdown signal before job proposal", "signal", sig)
-			if err := shutdownGracefully(ctx, lggr, infoServer, jdClient, nil, nil); err != nil {
-				return fmt.Errorf("failed to shutdown gracefully: %w", err)
-			}
-			return nil
-		}
-	}
-
-	// Update phase
-	infoServer.SetPhase(infoserver.PhaseActive)
+	// 2f. Create lifecycle manager
+	manager := jdlifecycle.NewManager(jdlifecycle.Config{
+		JDClient: jdClient,
+		JobStore: jobStore,
+		Runner:   runner,
+		Logger:   lggr,
+	})
 
 	// ========== PHASE 3: ACTIVE ==========
-	lggr.Infow("Phase 3: Starting coordinator...")
+	lggr.Infow("Phase 3: Starting lifecycle manager...")
 
-	// Start the coordinator with the received config
-	coordinator, heartbeatClient, err := startCoordinator(ctx, lggr, config, blockchainInfos, ks, chainStatusDB)
-	if err != nil {
-		return fmt.Errorf("failed to start coordinator: %w", err)
+	// Handle shutdown signal in a separate goroutine
+	go func() {
+		select {
+		case sig := <-sigCh:
+			lggr.Infow("Received shutdown signal", "signal", sig)
+			manager.Shutdown()
+		case <-ctx.Done():
+			// Context cancelled, manager will handle this
+		}
+	}()
+
+	// Run the lifecycle manager (blocks until shutdown)
+	if err := manager.Run(ctx); err != nil {
+		lggr.Errorw("Lifecycle manager error", "error", err)
 	}
 
-	lggr.Infow("Verifier service fully started and ready!")
-
-	// Wait for shutdown signal
-	sig := <-sigCh
-	lggr.Infow("Received shutdown signal", "signal", sig)
-
-	if err := shutdownGracefully(ctx, lggr, infoServer, jdClient, coordinator, heartbeatClient); err != nil {
-		return fmt.Errorf("failed to shutdown gracefully: %w", err)
+	// Shutdown info server
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := infoServer.Shutdown(shutdownCtx); err != nil {
+		lggr.Warnw("Error shutting down info server", "error", err)
 	}
 
+	lggr.Infow("Verifier shutdown complete")
 	return nil
 }
 
@@ -457,54 +412,89 @@ func startCoordinator(
 	return coordinator, heartbeatClient, nil
 }
 
-// shutdownGracefully performs graceful shutdown of all components.
-func shutdownGracefully(
-	ctx context.Context,
-	lggr logger.Logger,
-	infoServer *infoserver.Server,
-	jdClient *jdclient.Client,
-	coordinator *verifier.Coordinator,
-	heartbeatClient *heartbeatclient.HeartbeatClient,
-) error {
-	var errs error
-	shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
+// committeeRunner implements jdlifecycle.JobRunner for the committee verifier.
+// It manages the lifecycle of the verifier coordinator based on job specs from JD.
+type committeeRunner struct {
+	lggr          logger.Logger
+	ks            keystore.Keystore
+	chainStatusDB *sqlx.DB
+	infoServer    *infoserver.Server
 
-	// Stop coordinator first (if running)
-	if coordinator != nil {
-		lggr.Infow("Stopping coordinator...")
-		if err := coordinator.Close(); err != nil {
-			lggr.Warnw("Error stopping coordinator", "error", err)
-			errs = errors.Join(errs, err)
-		}
+	mu              sync.Mutex
+	coordinator     *verifier.Coordinator
+	heartbeatClient *heartbeatclient.HeartbeatClient
+}
+
+// Ensure committeeRunner implements JobRunner.
+var _ jdlifecycle.JobRunner = (*committeeRunner)(nil)
+
+// StartJob implements jdlifecycle.JobRunner.
+// It parses the job spec and starts the verification coordinator.
+func (r *committeeRunner) StartJob(ctx context.Context, spec string) error {
+	r.lggr.Infow("Starting job from spec")
+
+	// Parse the job spec
+	cfgWithInfos, err := unmarshalJobSpec(spec)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal job spec: %w", err)
+	}
+
+	// Start the coordinator
+	coordinator, heartbeatClient, err := startCoordinator(
+		ctx, r.lggr, &cfgWithInfos.Config, cfgWithInfos.BlockchainInfos, r.ks, r.chainStatusDB,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to start coordinator: %w", err)
+	}
+
+	r.mu.Lock()
+	r.coordinator = coordinator
+	r.heartbeatClient = heartbeatClient
+	r.mu.Unlock()
+
+	// Update info server phase
+	r.infoServer.SetPhase(infoserver.PhaseActive)
+
+	r.lggr.Infow("Job started successfully")
+	return nil
+}
+
+// StopJob implements jdlifecycle.JobRunner.
+// It stops the currently running coordinator.
+func (r *committeeRunner) StopJob(ctx context.Context) error {
+	r.mu.Lock()
+	coordinator := r.coordinator
+	heartbeatClient := r.heartbeatClient
+	r.coordinator = nil
+	r.heartbeatClient = nil
+	r.mu.Unlock()
+
+	if coordinator == nil {
+		r.lggr.Infow("No coordinator running, nothing to stop")
+		return nil
+	}
+
+	r.lggr.Infow("Stopping coordinator")
+
+	var errs error
+
+	// Stop coordinator
+	if err := coordinator.Close(); err != nil {
+		r.lggr.Warnw("Error stopping coordinator", "error", err)
+		errs = errors.Join(errs, err)
 	}
 
 	// Close heartbeat client
 	if heartbeatClient != nil {
-		lggr.Infow("Closing heartbeat client...")
 		if err := heartbeatClient.Close(); err != nil {
-			lggr.Warnw("Error closing heartbeat client", "error", err)
+			r.lggr.Warnw("Error closing heartbeat client", "error", err)
 			errs = errors.Join(errs, err)
 		}
 	}
 
-	// Close JD connection
-	if jdClient != nil {
-		lggr.Infow("Closing JD connection...")
-		if err := jdClient.Close(); err != nil {
-			lggr.Warnw("Error closing JD connection", "error", err)
-			errs = errors.Join(errs, err)
-		}
-	}
+	// Update info server phase back to ready
+	r.infoServer.SetPhase(infoserver.PhaseReady)
 
-	// Shutdown info server (last, so /info remains available longest)
-	if infoServer != nil {
-		lggr.Infow("Shutting down info server...")
-		if err := infoServer.Shutdown(shutdownCtx); err != nil {
-			lggr.Warnw("Error shutting down info server", "error", err)
-			errs = errors.Join(errs, err)
-		}
-	}
-
+	r.lggr.Infow("Coordinator stopped")
 	return errs
 }

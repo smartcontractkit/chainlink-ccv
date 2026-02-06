@@ -19,8 +19,10 @@ func TestHandlers_ProposeJob(t *testing.T) {
 	lggr, err := logger.New()
 	require.NoError(t, err)
 
-	proposalCh := make(chan *JobProposal, 10)
-	handlers := NewHandlers(proposalCh, lggr)
+	proposalCh := make(chan *pb.ProposeJobRequest, 10)
+	deleteCh := make(chan *pb.DeleteJobRequest, 10)
+	revokeCh := make(chan *pb.RevokeJobRequest, 10)
+	handlers := NewHandlers(proposalCh, deleteCh, revokeCh, lggr)
 
 	ctx := context.Background()
 	req := &pb.ProposeJobRequest{
@@ -36,7 +38,7 @@ func TestHandlers_ProposeJob(t *testing.T) {
 	// Verify the proposal was sent to the channel
 	select {
 	case proposal := <-proposalCh:
-		assert.Equal(t, "test-job-id", proposal.ID)
+		assert.Equal(t, "test-job-id", proposal.Id)
 		assert.Equal(t, int64(1), proposal.Version)
 		assert.Equal(t, "verifier_id = \"test-verifier\"", proposal.Spec)
 	case <-time.After(time.Second):
@@ -51,8 +53,10 @@ func TestHandlers_ProposeJob_ContextCancelled(t *testing.T) {
 	require.NoError(t, err)
 
 	// Use unbuffered channel that will block
-	proposalCh := make(chan *JobProposal)
-	handlers := NewHandlers(proposalCh, lggr)
+	proposalCh := make(chan *pb.ProposeJobRequest)
+	deleteCh := make(chan *pb.DeleteJobRequest, 10)
+	revokeCh := make(chan *pb.RevokeJobRequest, 10)
+	handlers := NewHandlers(proposalCh, deleteCh, revokeCh, lggr)
 
 	// Create a canceled context
 	ctx, cancel := context.WithCancel(context.Background())
@@ -75,8 +79,10 @@ func TestHandlers_DeleteJob(t *testing.T) {
 	lggr, err := logger.New()
 	require.NoError(t, err)
 
-	proposalCh := make(chan *JobProposal, 10)
-	handlers := NewHandlers(proposalCh, lggr)
+	proposalCh := make(chan *pb.ProposeJobRequest, 10)
+	deleteCh := make(chan *pb.DeleteJobRequest, 10)
+	revokeCh := make(chan *pb.RevokeJobRequest, 10)
+	handlers := NewHandlers(proposalCh, deleteCh, revokeCh, lggr)
 
 	ctx := context.Background()
 	req := &pb.DeleteJobRequest{
@@ -86,7 +92,14 @@ func TestHandlers_DeleteJob(t *testing.T) {
 	resp, err := handlers.DeleteJob(ctx, req)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	// Delete is a no-op for standalone verifiers
+
+	// Verify the delete request was sent to the channel
+	select {
+	case deleteReq := <-deleteCh:
+		assert.Equal(t, "test-job-id", deleteReq.Id)
+	case <-time.After(time.Second):
+		t.Fatal("No delete request received")
+	}
 }
 
 func TestHandlers_RevokeJob(t *testing.T) {
@@ -95,8 +108,10 @@ func TestHandlers_RevokeJob(t *testing.T) {
 	lggr, err := logger.New()
 	require.NoError(t, err)
 
-	proposalCh := make(chan *JobProposal, 10)
-	handlers := NewHandlers(proposalCh, lggr)
+	proposalCh := make(chan *pb.ProposeJobRequest, 10)
+	deleteCh := make(chan *pb.DeleteJobRequest, 10)
+	revokeCh := make(chan *pb.RevokeJobRequest, 10)
+	handlers := NewHandlers(proposalCh, deleteCh, revokeCh, lggr)
 
 	ctx := context.Background()
 	req := &pb.RevokeJobRequest{
@@ -106,7 +121,14 @@ func TestHandlers_RevokeJob(t *testing.T) {
 	resp, err := handlers.RevokeJob(ctx, req)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	// Revoke is a no-op for standalone verifiers
+
+	// Verify the revoke request was sent to the channel
+	select {
+	case revokeReq := <-revokeCh:
+		assert.Equal(t, "test-job-id", revokeReq.Id)
+	case <-time.After(time.Second):
+		t.Fatal("No revoke request received")
+	}
 }
 
 func TestHandlers_GetJobRuns(t *testing.T) {
@@ -115,8 +137,10 @@ func TestHandlers_GetJobRuns(t *testing.T) {
 	lggr, err := logger.New()
 	require.NoError(t, err)
 
-	proposalCh := make(chan *JobProposal, 10)
-	handlers := NewHandlers(proposalCh, lggr)
+	proposalCh := make(chan *pb.ProposeJobRequest, 10)
+	deleteCh := make(chan *pb.DeleteJobRequest, 10)
+	revokeCh := make(chan *pb.RevokeJobRequest, 10)
+	handlers := NewHandlers(proposalCh, deleteCh, revokeCh, lggr)
 
 	ctx := context.Background()
 	req := &pb.GetJobRunsRequest{
@@ -136,8 +160,10 @@ func TestHandlers_ImplementsInterface(t *testing.T) {
 	lggr, err := logger.New()
 	require.NoError(t, err)
 
-	proposalCh := make(chan *JobProposal, 10)
-	handlers := NewHandlers(proposalCh, lggr)
+	proposalCh := make(chan *pb.ProposeJobRequest, 10)
+	deleteCh := make(chan *pb.DeleteJobRequest, 10)
+	revokeCh := make(chan *pb.RevokeJobRequest, 10)
+	handlers := NewHandlers(proposalCh, deleteCh, revokeCh, lggr)
 
 	// Verify it implements the interface
 	var _ pb.NodeServiceServer = handlers

@@ -13,6 +13,22 @@ import (
 // ErrNoJob is returned when no job is found in the store.
 var ErrNoJob = errors.New("no job found in store")
 
+// StoreInterface defines the interface for persisting job specs.
+// This interface is implemented by *Store.
+type StoreInterface interface {
+	// SaveJob persists a job spec to the database.
+	SaveJob(ctx context.Context, proposalID string, version int64, spec string) error
+	// LoadJob loads the most recent job spec from the database.
+	LoadJob(ctx context.Context) (*Job, error)
+	// DeleteJob deletes all job specs from the database.
+	DeleteJob(ctx context.Context) error
+	// HasJob returns true if there is a job in the database.
+	HasJob(ctx context.Context) (bool, error)
+}
+
+// Ensure Store implements StoreInterface.
+var _ StoreInterface = (*Store)(nil)
+
 // jobRow is the database row structure for job_store.
 type jobRow struct {
 	ProposalID string    `db:"proposal_id"`
@@ -98,4 +114,14 @@ func (s *Store) HasJob(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 	return counts[0] > 0, nil
+}
+
+// DeleteJob removes the persisted job from the store.
+// This is called when JD sends a delete request.
+func (s *Store) DeleteJob(ctx context.Context) error {
+	_, err := s.ds.ExecContext(ctx, `DELETE FROM job_store`)
+	if err != nil {
+		return fmt.Errorf("failed to delete job: %w", err)
+	}
+	return nil
 }
