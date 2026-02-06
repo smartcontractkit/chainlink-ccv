@@ -9,6 +9,10 @@ import (
 	"time"
 
 	"github.com/sethvargo/go-retry"
+
+	"github.com/smartcontractkit/chainlink-deployments-framework/offchain"
+	jobv1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/job"
+	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
 )
 
 // VerifierKeys represents the keys exposed by a verifier's /info endpoint.
@@ -91,12 +95,78 @@ type VerifierJDRegistration struct {
 	NodeID         string // Set after registration
 }
 
-// NOTE: Full JD registration integration would require:
-// 1. Update NewVerifier to not provision signing key
-// 2. Start verifier container in JD mode (with JD_WSRPC_URL env var)
-// 3. Query /info to get CSA and signing keys
-// 4. Register verifier with JD using CSA key
-// 5. Deploy contracts with signing address
-// 6. Propose job to verifier via JD with TOML config
-//
-// This follows the same pattern as Chainlink node deployment.
+// RegisterVerifierWithJD registers a standalone verifier with JD using its CSA public key.
+// This allows JD to route job proposals to the verifier.
+// The verifier must already be started and have its CSA key available.
+func RegisterVerifierWithJD(ctx context.Context, jdClient offchain.Client, reg *VerifierJDRegistration) error {
+	if reg.CSAPublicKey == "" {
+		return fmt.Errorf("CSA public key is required to register verifier %s", reg.Name)
+	}
+
+	resp, err := jdClient.RegisterNode(ctx, &nodev1.RegisterNodeRequest{
+		Name:      reg.Name,
+		PublicKey: reg.CSAPublicKey,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to register verifier %s with JD: %w", reg.Name, err)
+	}
+
+	reg.NodeID = resp.Node.Id
+	Plog.Info().
+		Str("verifier", reg.Name).
+		Str("nodeID", resp.Node.Id).
+		Str("csaKey", reg.CSAPublicKey[:16]+"...").
+		Msg("Registered verifier with JD")
+
+	return nil
+}
+
+// WaitForVerifierConnection waits for a verifier to connect to JD after registration.
+func WaitForVerifierConnection(ctx context.Context, jdClient offchain.Client, nodeID string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if time.Now().After(deadline) {
+				return fmt.Errorf("timeout waiting for verifier %s to connect to JD", nodeID)
+			}
+
+			nodeResp, err := jdClient.GetNode(ctx, &nodev1.GetNodeRequest{Id: nodeID})
+			if err != nil {
+				Plog.Debug().Str("nodeID", nodeID).Err(err).Msg("Failed to get node status, retrying...")
+				continue
+			}
+
+			if nodeResp.Node != nil && nodeResp.Node.IsConnected {
+				Plog.Info().Str("nodeID", nodeID).Msg("Verifier connected to JD")
+				return nil
+			}
+
+			Plog.Debug().Str("nodeID", nodeID).Bool("isConnected", nodeResp.Node.IsConnected).Msg("Verifier not yet connected, waiting...")
+		}
+	}
+}
+
+// ProposeJobToVerifier proposes a job spec to a standalone verifier via JD.
+func ProposeJobToVerifier(ctx context.Context, jdClient offchain.Client, nodeID, jobSpec string) (string, error) {
+	resp, err := jdClient.ProposeJob(ctx, &jobv1.ProposeJobRequest{
+		NodeId: nodeID,
+		Spec:   jobSpec,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to propose job to verifier: %w", err)
+	}
+
+	Plog.Info().
+		Str("nodeID", nodeID).
+		Str("proposalID", resp.Proposal.Id).
+		Str("jobID", resp.Proposal.JobId).
+		Msg("Proposed job to verifier")
+
+	return resp.Proposal.Id, nil
+}

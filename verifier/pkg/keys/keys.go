@@ -5,12 +5,16 @@ import (
 	"context"
 	"crypto"
 	"crypto/ed25519"
+	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 
 	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 
 	ks "github.com/smartcontractkit/chainlink-common/keystore"
+	"github.com/smartcontractkit/chainlink-common/keystore/pgstore"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
 
 const (
@@ -19,6 +23,32 @@ const (
 	// CSAKeyName is the default name for the CSA key (Ed25519).
 	CSAKeyName = "verifier/csa/default"
 )
+
+// NewPGStorage creates a keystore storage that handles the case where no keystore
+// exists yet (returns empty data instead of sql.ErrNoRows).
+func NewPGStorage(ds sqlutil.DataSource, name string) ks.Storage {
+	return &pgStorageWrapper{inner: pgstore.NewStorage(ds, name)}
+}
+
+// pgStorageWrapper wraps pgstore.Storage to handle sql.ErrNoRows gracefully.
+// The keystore library expects GetEncryptedKeystore to return (nil, nil) or ([]byte{}, nil)
+// when no data exists, but pgstore returns (nil, sql.ErrNoRows).
+type pgStorageWrapper struct {
+	inner *pgstore.Storage
+}
+
+func (w *pgStorageWrapper) GetEncryptedKeystore(ctx context.Context) ([]byte, error) {
+	data, err := w.inner.GetEncryptedKeystore(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		// No keystore exists yet - return empty data so LoadKeystore creates an empty keystore
+		return nil, nil
+	}
+	return data, err
+}
+
+func (w *pgStorageWrapper) PutEncryptedKeystore(ctx context.Context, encryptedKeystore []byte) error {
+	return w.inner.PutEncryptedKeystore(ctx, encryptedKeystore)
+}
 
 // KeyPair holds both the signing key and CSA key information.
 type KeyPair struct {

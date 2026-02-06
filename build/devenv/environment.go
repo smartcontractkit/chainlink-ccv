@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
@@ -485,13 +486,23 @@ func NewEnvironment() (in *Cfg, err error) {
 	///////////////////////////////////////////
 	// START: Generate Aggregator Credentials //
 	// Generate HMAC credentials for all aggregator clients before launching
-	// CL nodes, so they can receive the credentials via secrets.
+	// CL nodes and verifiers, so they can receive the credentials via secrets/env vars.
+	// We create a minimal AggregatorOutput with credentials so verifiers starting
+	// early can access them (full AggregatorOutput is populated later when aggregator starts).
 	///////////////////////////////////////////
 	for _, agg := range in.Aggregator {
 		creds, err := agg.EnsureClientCredentials()
 		if err != nil {
 			return nil, fmt.Errorf("failed to ensure client credentials for aggregator %s: %w", agg.CommitteeName, err)
 		}
+
+		// Create minimal AggregatorOutput with credentials so verifiers can access them early
+		// The full output (URLs, etc.) will be populated when NewAggregator is called later
+		if agg.Out == nil {
+			agg.Out = &services.AggregatorOutput{}
+		}
+		agg.Out.ClientCredentials = creds
+
 		for clientID, c := range creds {
 			Plog.Debug().
 				Str("aggregator", agg.CommitteeName).
@@ -645,6 +656,35 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("failed to start verifiers: %w", err)
 	}
 	timeTrack.Record("[infra] started verifiers")
+
+	// Register standalone verifiers with JD so they can receive job proposals
+	if jdInfra != nil && jdInfra.OffchainClient != nil {
+		for _, ver := range in.Verifier {
+			if ver.Mode != services.Standalone {
+				continue
+			}
+			if ver.Out == nil || ver.Out.CSAPublicKey == "" {
+				return nil, fmt.Errorf("verifier %s started but CSAPublicKey not available", ver.ContainerName)
+			}
+
+			reg := &jobs.VerifierJDRegistration{
+				Name:           ver.ContainerName,
+				CSAPublicKey:   ver.Out.CSAPublicKey,
+				SigningAddress: ver.Out.SigningAddress,
+			}
+			if err := jobs.RegisterVerifierWithJD(ctx, jdInfra.OffchainClient, reg); err != nil {
+				return nil, fmt.Errorf("failed to register verifier %s with JD: %w", ver.ContainerName, err)
+			}
+
+			// Store the JD node ID for later job proposal
+			jdInfra.NodeIDMap[ver.ContainerName] = reg.NodeID
+
+			// Wait for verifier to connect to JD
+			if err := jobs.WaitForVerifierConnection(ctx, jdInfra.OffchainClient, reg.NodeID, 60*time.Second); err != nil {
+				return nil, fmt.Errorf("verifier %s failed to connect to JD: %w", ver.ContainerName, err)
+			}
+		}
+	}
 
 	/////////////////////////////////////////////
 	// END: Launch verifiers early //
@@ -909,14 +949,42 @@ func NewEnvironment() (in *Cfg, err error) {
 	// Generate job specs and propose them via JD.
 	///////////////////////////////////
 
-	_, err = generateVerifierJobSpecs(e, in, selectors, topology, sharedTLSCerts, ds)
+	verifierJobSpecs, err := generateVerifierJobSpecs(e, in, selectors, topology, sharedTLSCerts, ds)
 	if err != nil {
 		return nil, err
 	}
 
-	// TODO: Propose jobs to verifiers via JD.
-	// The verifiers are already running and connected to JD, waiting for job proposals.
-	// This will be implemented when JD job proposal for standalone verifiers is added.
+	// Propose jobs to standalone verifiers via JD
+	if jdInfra != nil && jdInfra.OffchainClient != nil {
+		for _, ver := range in.Verifier {
+			if ver.Mode != services.Standalone {
+				continue
+			}
+
+			nodeID, ok := jdInfra.NodeIDMap[ver.ContainerName]
+			if !ok {
+				return nil, fmt.Errorf("verifier %s not registered with JD", ver.ContainerName)
+			}
+
+			// For standalone verifiers, use the full job spec (same as CL mode)
+			jobSpec, ok := verifierJobSpecs[ver.ContainerName]
+			if !ok {
+				return nil, fmt.Errorf("no job spec found for verifier %s", ver.ContainerName)
+			}
+
+			L.Info().Msgf("Proposing job: %s", jobSpec)
+
+			proposalID, err := jobs.ProposeJobToVerifier(ctx, jdInfra.OffchainClient, nodeID, jobSpec)
+			if err != nil {
+				return nil, fmt.Errorf("failed to propose job to verifier %s: %w", ver.ContainerName, err)
+			}
+			L.Info().
+				Str("verifier", ver.ContainerName).
+				Str("nodeID", nodeID).
+				Str("proposalID", proposalID).
+				Msg("Proposed job to verifier via JD")
+		}
+	}
 
 	///////////////////////////////////
 	// END: Generate verifier jobs //

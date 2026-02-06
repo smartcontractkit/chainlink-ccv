@@ -33,7 +33,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/keys"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/keystore"
-	"github.com/smartcontractkit/chainlink-common/keystore/pgstore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -98,12 +97,12 @@ func run(ctx context.Context, lggr logger.Logger, sigCh chan os.Signal) {
 	}
 	defer chainStatusDB.Close()
 
-	// Load keystore
+	// Load keystore (using wrapper that handles missing keystore gracefully)
 	storageName := os.Getenv(KeystoreStorageNameEnvVar)
 	if storageName == "" {
 		storageName = "verifier-keystore"
 	}
-	keystoreStorage := pgstore.NewStorage(chainStatusDB, storageName)
+	keystoreStorage := keys.NewPGStorage(chainStatusDB, storageName)
 	ks, err := keystore.LoadKeystore(ctx, keystoreStorage, keystorePassword)
 	if err != nil {
 		lggr.Fatalw("Failed to load keystore", "error", err)
