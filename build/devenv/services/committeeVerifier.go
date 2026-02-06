@@ -118,6 +118,9 @@ type VerifierOutput struct {
 	// CSAPublicKey is the verifier's CSA public key for JD authentication.
 	// This is discovered by querying the /info endpoint after the verifier starts.
 	CSAPublicKey string `toml:"csa_public_key"`
+	// JDNodeID is the Job Distributor node ID assigned when the verifier is registered with JD.
+	// This is set after JD registration and is useful for debugging JD operations.
+	JDNodeID string `toml:"jd_node_id,omitempty"`
 }
 
 func ApplyVerifierDefaults(in VerifierInput) VerifierInput {

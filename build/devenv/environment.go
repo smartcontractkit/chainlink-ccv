@@ -676,8 +676,8 @@ func NewEnvironment() (in *Cfg, err error) {
 				return nil, fmt.Errorf("failed to register verifier %s with JD: %w", ver.ContainerName, err)
 			}
 
-			// Store the JD node ID for later job proposal
-			jdInfra.NodeIDMap[ver.ContainerName] = reg.NodeID
+			// Store the JD node ID in the verifier output for later use and debugging
+			ver.Out.JDNodeID = reg.NodeID
 
 			// Wait for verifier to connect to JD
 			if err := jobs.WaitForVerifierConnection(ctx, jdInfra.OffchainClient, reg.NodeID, 60*time.Second); err != nil {
@@ -961,10 +961,10 @@ func NewEnvironment() (in *Cfg, err error) {
 				continue
 			}
 
-			nodeID, ok := jdInfra.NodeIDMap[ver.ContainerName]
-			if !ok {
-				return nil, fmt.Errorf("verifier %s not registered with JD", ver.ContainerName)
+			if ver.Out == nil || ver.Out.JDNodeID == "" {
+				return nil, fmt.Errorf("verifier %s not registered with JD (missing JDNodeID)", ver.ContainerName)
 			}
+			nodeID := ver.Out.JDNodeID
 
 			// For standalone verifiers, use the full job spec (same as CL mode)
 			jobSpec, ok := verifierJobSpecs[ver.ContainerName]
