@@ -11,12 +11,14 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sync/errgroup"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
@@ -32,10 +34,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
+	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+	"github.com/smartcontractkit/chainlink-deployments-framework/offchain"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -659,30 +663,8 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	// Register standalone verifiers with JD so they can receive job proposals
 	if jdInfra != nil && jdInfra.OffchainClient != nil {
-		for _, ver := range in.Verifier {
-			if ver.Mode != services.Standalone {
-				continue
-			}
-			if ver.Out == nil || ver.Out.CSAPublicKey == "" {
-				return nil, fmt.Errorf("verifier %s started but CSAPublicKey not available", ver.ContainerName)
-			}
-
-			reg := &jobs.VerifierJDRegistration{
-				Name:           ver.ContainerName,
-				CSAPublicKey:   ver.Out.CSAPublicKey,
-				SigningAddress: ver.Out.SigningAddress,
-			}
-			if err := jobs.RegisterVerifierWithJD(ctx, jdInfra.OffchainClient, reg); err != nil {
-				return nil, fmt.Errorf("failed to register verifier %s with JD: %w", ver.ContainerName, err)
-			}
-
-			// Store the JD node ID in the verifier output for later use and debugging
-			ver.Out.JDNodeID = reg.NodeID
-
-			// Wait for verifier to connect to JD
-			if err := jobs.WaitForVerifierConnection(ctx, jdInfra.OffchainClient, reg.NodeID, 60*time.Second); err != nil {
-				return nil, fmt.Errorf("verifier %s failed to connect to JD: %w", ver.ContainerName, err)
-			}
+		if err := registerStandaloneVerifiersWithJD(ctx, in.Verifier, jdInfra.OffchainClient); err != nil {
+			return nil, err
 		}
 	}
 
@@ -956,6 +938,12 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	// Propose jobs to standalone verifiers via JD
 	if jdInfra != nil && jdInfra.OffchainClient != nil {
+		// Convert blockchain outputs to infos for standalone verifier config
+		blockchainInfos, err := services.ConvertBlockchainOutputsToInfo(blockchainOutputs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert blockchain outputs to infos: %w", err)
+		}
+
 		for _, ver := range in.Verifier {
 			if ver.Mode != services.Standalone {
 				continue
@@ -966,13 +954,20 @@ func NewEnvironment() (in *Cfg, err error) {
 			}
 			nodeID := ver.Out.JDNodeID
 
-			// For standalone verifiers, use the full job spec (same as CL mode)
-			jobSpec, ok := verifierJobSpecs[ver.ContainerName]
+			// Get the base job spec
+			baseJobSpec, ok := verifierJobSpecs[ver.ContainerName]
 			if !ok {
 				return nil, fmt.Errorf("no job spec found for verifier %s", ver.ContainerName)
 			}
 
-			L.Info().Msgf("Proposing job: %s", jobSpec)
+			// For standalone verifiers, we need to inject blockchain_infos into the config
+			// because they don't have CL node chain configuration
+			jobSpec, err := RebuildVerifierJobSpecWithBlockchainInfos(baseJobSpec, blockchainInfos)
+			if err != nil {
+				return nil, fmt.Errorf("failed to add blockchain infos to job spec for %s: %w", ver.ContainerName, err)
+			}
+
+			L.Info().Msgf("Proposing job to verifier %s: %s", ver.ContainerName, jobSpec)
 
 			proposalID, err := jobs.ProposeJobToVerifier(ctx, jdInfra.OffchainClient, nodeID, jobSpec)
 			if err != nil {
@@ -1263,6 +1258,57 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) 
 	return outs, nil
 }
 
+// registerStandaloneVerifiersWithJD registers standalone verifiers with JD in parallel
+// and waits for them to establish their WSRPC connections.
+func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*services.VerifierInput, jdClient offchain.Client) error {
+	// Filter to standalone verifiers only
+	var standaloneVerifiers []*services.VerifierInput
+	for _, ver := range verifiers {
+		if ver.Mode == services.Standalone {
+			standaloneVerifiers = append(standaloneVerifiers, ver)
+		}
+	}
+
+	if len(standaloneVerifiers) == 0 {
+		return nil
+	}
+
+	// Use errgroup for parallel registration and connection waiting
+	g, gCtx := errgroup.WithContext(ctx)
+	var mu sync.Mutex // Protects ver.Out.JDNodeID writes
+
+	for _, ver := range standaloneVerifiers {
+		g.Go(func() error {
+			if ver.Out == nil || ver.Out.CSAPublicKey == "" {
+				return fmt.Errorf("verifier %s started but CSAPublicKey not available", ver.ContainerName)
+			}
+
+			reg := &jobs.VerifierJDRegistration{
+				Name:           ver.ContainerName,
+				CSAPublicKey:   ver.Out.CSAPublicKey,
+				SigningAddress: ver.Out.SigningAddress,
+			}
+			if err := jobs.RegisterVerifierWithJD(gCtx, jdClient, reg); err != nil {
+				return fmt.Errorf("failed to register verifier %s with JD: %w", ver.ContainerName, err)
+			}
+
+			// Store the JD node ID in the verifier output for later use and debugging
+			mu.Lock()
+			ver.Out.JDNodeID = reg.NodeID
+			mu.Unlock()
+
+			// Wait for verifier to connect to JD
+			if err := jobs.WaitForVerifierConnection(gCtx, jdClient, reg.NodeID, 60*time.Second); err != nil {
+				return fmt.Errorf("verifier %s failed to connect to JD: %w", ver.ContainerName, err)
+			}
+
+			return nil
+		})
+	}
+
+	return g.Wait()
+}
+
 func launchStandaloneTokenVerifiers(in *Cfg, fakeAttestationServiceURL string, blockchainOutputs []*blockchain.Output) ([]*services.TokenVerifierOutput, error) {
 	var outs []*services.TokenVerifierOutput
 	for _, ver := range in.TokenVerifier {
@@ -1317,6 +1363,7 @@ type IndexerSecret struct {
 
 // VerifierJobSpec represents the structure of a verifier job spec TOML.
 type VerifierJobSpec struct {
+	ExternalJobID           string `toml:"externalJobID"`
 	SchemaVersion           int    `toml:"schemaVersion"`
 	Type                    string `toml:"type"`
 	CommitteeVerifierConfig string `toml:"committeeVerifierConfig"`
@@ -1335,6 +1382,44 @@ func ParseVerifierConfigFromJobSpec(jobSpec string) (*commit.Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// RebuildVerifierJobSpecWithBlockchainInfos takes a job spec and rebuilds it with blockchain infos
+// added to the inner config. This is needed for standalone verifiers which require blockchain
+// connection information (CL nodes get this from their own chain config).
+func RebuildVerifierJobSpecWithBlockchainInfos(jobSpec string, blockchainInfos map[string]*ccvblockchain.Info) (string, error) {
+	// Parse the outer job spec
+	var spec VerifierJobSpec
+	if err := toml.Unmarshal([]byte(jobSpec), &spec); err != nil {
+		return "", fmt.Errorf("failed to parse job spec: %w", err)
+	}
+
+	// Parse the inner config
+	var cfg commit.Config
+	if err := toml.Unmarshal([]byte(spec.CommitteeVerifierConfig), &cfg); err != nil {
+		return "", fmt.Errorf("failed to parse verifier config from job spec: %w", err)
+	}
+
+	// Create config with blockchain infos
+	configWithInfos := commit.ConfigWithBlockchainInfos{
+		Config:          cfg,
+		BlockchainInfos: blockchainInfos,
+	}
+
+	// Marshal the enhanced config
+	innerConfigBytes, err := toml.Marshal(configWithInfos)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal enhanced config: %w", err)
+	}
+
+	// Rebuild the job spec with the enhanced config
+	spec.CommitteeVerifierConfig = string(innerConfigBytes)
+	outerSpecBytes, err := toml.Marshal(spec)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal job spec: %w", err)
+	}
+
+	return string(outerSpecBytes), nil
 }
 
 // ExecutorJobSpec represents the structure of an executor job spec TOML.

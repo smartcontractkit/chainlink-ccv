@@ -50,6 +50,14 @@ const (
 	defaultInfoServerAddr = ":8080"
 )
 
+// JobSpec is the structure of the committee verifier job spec.
+type JobSpec struct {
+	ExternalJobID           string `toml:"externalJobID"`
+	SchemaVersion           int    `toml:"schemaVersion"`
+	Type                    string `toml:"type"`
+	CommitteeVerifierConfig string `toml:"committeeVerifierConfig"`
+}
+
 func main() {
 	// Debug level currently spams a lot of logs from the RPC callers.
 	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.InfoLevel))
@@ -164,9 +172,10 @@ func run(ctx context.Context, lggr logger.Logger, sigCh chan os.Signal) {
 		lggr.Infow("Received job proposal", "id", proposal.ID)
 
 		// Parse TOML config
-		var cfgWithInfos commit.ConfigWithBlockchainInfos
-		if _, err := toml.Decode(proposal.Spec, &cfgWithInfos); err != nil {
-			lggr.Fatalw("Failed to parse job spec", "error", err)
+		cfgWithInfos, err := unmarshalJobSpec(proposal.Spec)
+		if err != nil {
+			// TODO: don't be fatal in future fixes, should retry gracefully.
+			lggr.Fatalw("Failed to unmarshal job spec", "error", err)
 		}
 		config = &cfgWithInfos.Config
 		blockchainInfos = cfgWithInfos.BlockchainInfos
@@ -198,6 +207,22 @@ func run(ctx context.Context, lggr logger.Logger, sigCh chan os.Signal) {
 	lggr.Infow("Received shutdown signal", "signal", sig)
 
 	shutdownGracefully(ctx, lggr, infoServer, jdClient, coordinator, heartbeatClient)
+}
+
+func unmarshalJobSpec(jobSpec string) (commit.ConfigWithBlockchainInfos, error) {
+	// Unmarshal outer spec
+	var spec JobSpec
+	if err := toml.Unmarshal([]byte(jobSpec), &spec); err != nil {
+		return commit.ConfigWithBlockchainInfos{}, fmt.Errorf("failed to unmarshal job spec: %w", err)
+	}
+
+	// Unmarshal inner spec
+	var cfg commit.ConfigWithBlockchainInfos
+	if err := toml.Unmarshal([]byte(spec.CommitteeVerifierConfig), &cfg); err != nil {
+		return commit.ConfigWithBlockchainInfos{}, fmt.Errorf("failed to unmarshal committee verifier config: %w", err)
+	}
+
+	return cfg, nil
 }
 
 // startCoordinator creates and starts the verification coordinator.
