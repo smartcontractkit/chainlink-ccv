@@ -31,6 +31,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/infoserver"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobstore"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/keys"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/keystore"
@@ -156,44 +157,82 @@ func run(ctx context.Context, lggr logger.Logger, sigCh chan os.Signal) error {
 		return fmt.Errorf("invalid JD_CSA_PUBLIC_KEY: %w", err)
 	}
 
-	// 2c. Connect to JD
-	jdWSRPCURL := os.Getenv(JDWSRPCURLEnvVar)
-	if jdWSRPCURL == "" {
-		return fmt.Errorf("JD_WSRPC_URL environment variable is required")
-	}
-	jdClient := jdclient.NewClient(keyPair.CSASigner, jdCSAPublicKey, jdWSRPCURL, lggr)
-	if err := jdClient.Connect(ctx); err != nil {
-		return fmt.Errorf("failed to connect to JD: %w", err)
-	}
-	lggr.Infow("Connected to Job Distributor, waiting for job proposal...")
+	// 2c. Create job store for persistence
+	jobStore := jobstore.NewStore(chainStatusDB)
 
-	// 2d. Wait for job proposal OR shutdown signal
+	// 2d. Check for existing persisted job
 	var config *commit.Config
 	var blockchainInfos map[string]*blockchain.Info
-	select {
-	case proposal := <-jdClient.JobProposalCh():
-		lggr.Infow("Received job proposal", "id", proposal.ID)
+	var jdClient *jdclient.Client
 
-		// Parse TOML config
-		cfgWithInfos, err := unmarshalJobSpec(proposal.Spec)
+	existingJob, err := jobStore.LoadJob(ctx)
+	if err != nil && !errors.Is(err, jobstore.ErrNoJob) {
+		return fmt.Errorf("failed to load existing job: %w", err)
+	}
+
+	if existingJob != nil {
+		// Use persisted job
+		lggr.Infow("Found persisted job, using existing configuration",
+			"proposalID", existingJob.ProposalID,
+			"version", existingJob.Version,
+			"createdAt", existingJob.CreatedAt,
+		)
+
+		cfgWithInfos, err := unmarshalJobSpec(existingJob.Spec)
 		if err != nil {
-			// TODO: don't be fatal in future fixes, should retry gracefully.
-			return fmt.Errorf("failed to unmarshal job spec: %w", err)
+			return fmt.Errorf("failed to unmarshal persisted job spec: %w", err)
 		}
 		config = &cfgWithInfos.Config
 		blockchainInfos = cfgWithInfos.BlockchainInfos
+	} else {
+		// No persisted job - connect to JD and wait for one
+		lggr.Infow("No persisted job found, connecting to Job Distributor...")
 
-		// Auto-approve
-		if err := jdClient.ApproveJob(ctx, proposal.ID, proposal.Version); err != nil {
-			lggr.Warnw("Failed to approve job", "error", err)
+		// 2e. Connect to JD
+		jdWSRPCURL := os.Getenv(JDWSRPCURLEnvVar)
+		if jdWSRPCURL == "" {
+			return fmt.Errorf("JD_WSRPC_URL environment variable is required")
 		}
+		jdClient = jdclient.NewClient(keyPair.CSASigner, jdCSAPublicKey, jdWSRPCURL, lggr)
+		if err := jdClient.Connect(ctx); err != nil {
+			return fmt.Errorf("failed to connect to JD: %w", err)
+		}
+		lggr.Infow("Connected to Job Distributor, waiting for job proposal...")
 
-	case sig := <-sigCh:
-		lggr.Infow("Received shutdown signal before job proposal", "signal", sig)
-		if err := shutdownGracefully(ctx, lggr, infoServer, jdClient, nil, nil); err != nil {
-			return fmt.Errorf("failed to shutdown gracefully: %w", err)
+		// 2f. Wait for job proposal OR shutdown signal
+		select {
+		case proposal := <-jdClient.JobProposalCh():
+			lggr.Infow("Received job proposal", "id", proposal.ID)
+
+			// Parse TOML config
+			cfgWithInfos, err := unmarshalJobSpec(proposal.Spec)
+			if err != nil {
+				// TODO: don't be fatal in future fixes, should retry gracefully.
+				return fmt.Errorf("failed to unmarshal job spec: %w", err)
+			}
+			config = &cfgWithInfos.Config
+			blockchainInfos = cfgWithInfos.BlockchainInfos
+
+			// Persist the job for future restarts
+			if err := jobStore.SaveJob(ctx, proposal.ID, proposal.Version, proposal.Spec); err != nil {
+				lggr.Warnw("Failed to persist job", "error", err)
+				// Continue anyway - we have the config in memory
+			} else {
+				lggr.Infow("Job persisted for future restarts", "proposalID", proposal.ID)
+			}
+
+			// Auto-approve
+			if err := jdClient.ApproveJob(ctx, proposal.ID, proposal.Version); err != nil {
+				lggr.Warnw("Failed to approve job", "error", err)
+			}
+
+		case sig := <-sigCh:
+			lggr.Infow("Received shutdown signal before job proposal", "signal", sig)
+			if err := shutdownGracefully(ctx, lggr, infoServer, jdClient, nil, nil); err != nil {
+				return fmt.Errorf("failed to shutdown gracefully: %w", err)
+			}
+			return nil
 		}
-		return nil
 	}
 
 	// Update phase
