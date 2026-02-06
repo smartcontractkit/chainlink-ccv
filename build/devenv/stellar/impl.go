@@ -632,26 +632,3 @@ func (c *Chain) WaitOneSentEventBySeqNo(ctx context.Context, to, seq uint64, tim
 		},
 	}, nil
 }
-
-// GetChainDetailsByChainIDForStellar returns chain details for a Stellar chain.
-// This is a workaround since chain-selectors doesn't yet support GetChainDetailsByChainIDAndFamily for Stellar.
-// The chain selector is derived from the chain ID using a deterministic algorithm.
-func GetChainDetailsByChainIDForStellar(chainID string) (chainsel.ChainDetails, error) {
-	// For Stellar, the chain ID is the network passphrase hash
-	// The chain selector is registered in the environment topology
-	// We use a well-known selector for the Stellar standalone network
-	// Chain selector: 17301180955411967724 maps to chain ID: baefd734b8d3e48472cff83912375fedbc7573701912fe308af730180f97d74a
-	stellarSelectors := map[string]uint64{
-		"baefd734b8d3e48472cff83912375fedbc7573701912fe308af730180f97d74a": 17301180955411967724,
-	}
-
-	selector, ok := stellarSelectors[chainID]
-	if !ok {
-		return chainsel.ChainDetails{}, fmt.Errorf("unknown Stellar chain ID: %s", chainID)
-	}
-
-	return chainsel.ChainDetails{
-		ChainSelector: selector,
-		ChainName:     "stellar-standalone",
-	}, nil
-}
