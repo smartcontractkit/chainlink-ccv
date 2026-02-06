@@ -356,7 +356,11 @@ func processReceipts(receiptsField *ledgerv2.RecordField) ([]protocol.ReceiptWit
 				// however, in order to make it fit into a protocol.UnknownAddress,
 				// we will interpret the string itself as bytes.
 				// Note: assume the Text is valid UTF-8.
-				protoReceipt.Issuer = protocol.UnknownAddress([]byte(field.GetValue().GetText()))
+				decoded, err := protocol.NewUnknownAddressFromHex(field.GetValue().GetText())
+				if err != nil {
+					return nil, fmt.Errorf("failed to decode issuer: %w, input: %s", err, field.GetValue().GetText())
+				}
+				protoReceipt.Issuer = decoded
 			case ccipMessageSentEventReceiptDestGasLimitLabel:
 				protoReceipt.DestGasLimit = uint64(field.GetValue().GetInt64()) //nolint:gosec // int64 is always non-negative
 			case ccipMessageSentEventReceiptDestBytesOverheadLabel:

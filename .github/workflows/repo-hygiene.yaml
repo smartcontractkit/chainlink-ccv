@@ -10,7 +10,19 @@ on:
 jobs:
   hygiene-checks:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     steps:
+      - name: Setup GitHub Token
+        id: setup-github-token
+        uses: smartcontractkit/.github/actions/setup-github-token@ef78fa97bf3c77de6563db1175422703e9e6674f # setup-github-token@0.2.1
+        with:
+          aws-role-arn: ${{ secrets.GATI_AWS_ROLE_ARN_CHAINLINK_READ_ONLY }}
+          aws-lambda-url: ${{ secrets.GATI_LAMBDA_URL_RELENG }}
+          aws-region: ${{ secrets.GATI_AWS_REGION }}
+          set-git-config: true
+
       - name: Checkout code
         uses: actions/checkout@v5
         with:
@@ -18,6 +30,8 @@ jobs:
 
       - name: Set up Go
         uses: actions/setup-go@v6 # v6
+        env:
+          GOPRIVATE: github.com/smartcontractkit/*
         with:
           cache: true
           go-version-file: 'go.mod'
