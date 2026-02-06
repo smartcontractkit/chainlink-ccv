@@ -73,6 +73,7 @@ require (
 	github.com/prometheus/otlptranslator v0.0.0-20250414121140-35db323fe9fb // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
 	github.com/sercand/kuberesolver/v6 v6.0.0 // indirect
+	github.com/smartcontractkit/chainlink-common/keystore v1.0.1 // indirect
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/heartbeat v0.0.0-20260115142640-f6b99095c12e // indirect
 	github.com/smartcontractkit/chainlink-protos/linking-service/go v0.0.0-20251002192024-d2ad9222409b // indirect
 	github.com/smartcontractkit/chainlink-ton v0.0.0-20260203093043-43c83cc5f442 // indirect

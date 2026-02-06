@@ -11,11 +11,14 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sync/errgroup"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
@@ -35,6 +38,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+	"github.com/smartcontractkit/chainlink-deployments-framework/offchain"
+	jobv1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/job"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -166,8 +171,8 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Co
 	}
 }
 
-// enrichEnvironmentTopology injects SignerAddress values from verifier inputs into the EnvironmentTopology.
-// This is needed because signer addresses are only known after key generation or CL node launch.
+// enrichEnvironmentTopology injects SignerAddress values from verifier outputs into the EnvironmentTopology.
+// This is needed because signer addresses are only known after verifiers start and generate their keys.
 // Each verifier's NOPAlias identifies which NOP in the topology it belongs to.
 // Only the first verifier for each NOP sets the signer address (subsequent verifiers with the
 // same NOPAlias are ignored to avoid overwriting with wrong keys due to round-robin wrap-around).
@@ -177,16 +182,18 @@ func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers [
 		if _, seen := seenAliases[ver.NOPAlias]; seen {
 			continue
 		}
-		if nop, ok := cfg.NOPTopology.GetNOP(ver.NOPAlias); ok {
+		if nop, ok := cfg.NOPTopology.GetNOP(ver.NOPAlias); ok { //nolint:nestif
 			if nop.GetMode() == shared.NOPModeCL {
-				// For CL mode the signer address should be fetch from JD
+				// For CL mode the signer address is fetched from JD
 				continue
 			}
-			if nop.SignerAddressByFamily[chainsel.FamilyEVM] == "" {
-				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, ver.SigningKeyPublic)
-			}
-			if nop.SignerAddressByFamily[chainsel.FamilyCanton] == "" {
-				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyCanton, ver.SigningKeyPublic)
+			if ver.Out != nil && ver.Out.SigningAddress != "" {
+				if nop.SignerAddressByFamily[chainsel.FamilyEVM] == "" {
+					cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, ver.Out.SigningAddress)
+				}
+				if nop.SignerAddressByFamily[chainsel.FamilyCanton] == "" {
+					cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyCanton, ver.Out.SigningAddress)
+				}
 			}
 			seenAliases[ver.NOPAlias] = struct{}{}
 		}
@@ -384,6 +391,11 @@ func generateVerifierJobSpecs(
 				return nil, fmt.Errorf("failed to parse verifier config from job spec: %w", err)
 			}
 
+			// Store the VerifierID in the output for test access
+			if ver.Out != nil {
+				ver.Out.VerifierID = verCfg.VerifierID
+			}
+
 			// Marshal the inner config back to TOML for standalone mode
 			configBytes, err := toml.Marshal(verCfg)
 			if err != nil {
@@ -481,13 +493,23 @@ func NewEnvironment() (in *Cfg, err error) {
 	///////////////////////////////////////////
 	// START: Generate Aggregator Credentials //
 	// Generate HMAC credentials for all aggregator clients before launching
-	// CL nodes, so they can receive the credentials via secrets.
+	// CL nodes and verifiers, so they can receive the credentials via secrets/env vars.
+	// We create a minimal AggregatorOutput with credentials so verifiers starting
+	// early can access them (full AggregatorOutput is populated later when aggregator starts).
 	///////////////////////////////////////////
 	for _, agg := range in.Aggregator {
 		creds, err := agg.EnsureClientCredentials()
 		if err != nil {
 			return nil, fmt.Errorf("failed to ensure client credentials for aggregator %s: %w", agg.CommitteeName, err)
 		}
+
+		// Create minimal AggregatorOutput with credentials so verifiers can access them early
+		// The full output (URLs, etc.) will be populated when NewAggregator is called later
+		if agg.Out == nil {
+			agg.Out = &services.AggregatorOutput{}
+		}
+		agg.Out.ClientCredentials = creds
+
 		for clientID, c := range creds {
 			Plog.Debug().
 				Str("aggregator", agg.CommitteeName).
@@ -607,37 +629,50 @@ func NewEnvironment() (in *Cfg, err error) {
 	/////////////////////////////////////
 
 	/////////////////////////////////////////////
-	// START: Assign signing keys to verifiers //
+	// START: Launch verifiers early //
+	// Verifiers generate their own keys on startup, so we need to start them
+	// early and query /info to discover signing addresses before contract deployment.
 	/////////////////////////////////////////////
+	timeTrack.Record("[infra] starting verifiers")
+
+	// Get JD CSA public key for verifiers to connect
+	var jdCSAPublicKey string
+	if jdInfra != nil && jdInfra.OffchainClient != nil {
+		jdCSAPublicKey, err = jobs.GetJDCSAPublicKey(ctx, jdInfra.OffchainClient)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get JD CSA public key: %w", err)
+		}
+	}
+
 	for i := range in.Verifier {
 		ver := services.ApplyVerifierDefaults(*in.Verifier[i])
 
-		switch ver.Mode {
-		case services.CL:
-			// no-op signing key is fetched from JD with changeset
-		case services.Standalone:
-			// deterministic key generation algorithm.
-			ver.SigningKey = util.XXXNewVerifierPrivateKey(ver.CommitteeName, ver.NodeIndex)
-
-			privateKey, err := commit.ReadPrivateKeyFromString(ver.SigningKey)
-			if err != nil {
-				return nil, fmt.Errorf("failed to load private key: %w", err)
-			}
-			_, publicKey, err := commit.NewECDSAMessageSigner(privateKey)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create message signer: %w", err)
-			}
-			ver.SigningKeyPublic = publicKey.String()
-
-		default:
-			return nil, fmt.Errorf("unsupported verifier mode: %s", ver.Mode)
+		// Configure JD connection
+		if jdInfra != nil && jdInfra.JDOutput != nil {
+			ver.JDWSRPCUrl = jdInfra.JDOutput.InternalWSRPCUrl
+			ver.JDCSAPublicKey = jdCSAPublicKey
 		}
 
-		// Apply changes back to input.
 		in.Verifier[i] = &ver
 	}
+
+	// Start verifiers (they generate keys on startup and wait for JD job proposals)
+	// NewVerifier queries /info to discover auto-generated keys before returning
+	_, err = launchStandaloneVerifiers(in, blockchainOutputs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start verifiers: %w", err)
+	}
+	timeTrack.Record("[infra] started verifiers")
+
+	// Register standalone verifiers with JD so they can receive job proposals
+	if jdInfra != nil && jdInfra.OffchainClient != nil {
+		if err := registerStandaloneVerifiersWithJD(ctx, in.Verifier, jdInfra.OffchainClient); err != nil {
+			return nil, err
+		}
+	}
+
 	/////////////////////////////////////////////
-	// END: Assign signing keys to verifiers //
+	// END: Launch verifiers early //
 	/////////////////////////////////////////////
 
 	/////////////////////////////////////////
@@ -894,23 +929,27 @@ func NewEnvironment() (in *Cfg, err error) {
 	// END: Launch executors //
 	///////////////////////////
 
-	/////////////////////////////
-	// START: Launch verifiers //
-	/////////////////////////////
+	///////////////////////////////////
+	// START: Generate verifier jobs //
+	// Verifiers were started earlier and are waiting for job proposals.
+	// Generate job specs and propose them via JD.
+	///////////////////////////////////
 
-	_, err = generateVerifierJobSpecs(e, in, selectors, topology, sharedTLSCerts, ds)
+	verifierJobSpecs, err := generateVerifierJobSpecs(e, in, selectors, topology, sharedTLSCerts, ds)
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = launchStandaloneVerifiers(in, blockchainOutputs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create standalone verifiers: %w", err)
+	// Propose jobs to standalone verifiers via JD
+	if jdInfra != nil && jdInfra.OffchainClient != nil {
+		if err := proposeJobsToStandaloneVerifiers(ctx, in.Verifier, verifierJobSpecs, blockchainOutputs, jdInfra.OffchainClient); err != nil {
+			return nil, err
+		}
 	}
 
-	/////////////////////////////
-	// END: Launch verifiers //
-	/////////////////////////////
+	///////////////////////////////////
+	// END: Generate verifier jobs //
+	///////////////////////////////////
 
 	///////////////////////////////////
 	// START: Launch token verifiers //
@@ -985,7 +1024,6 @@ func launchCLNodes(
 	for _, ver := range in.Verifier {
 		hasAService = hasAService || (ver.Mode == services.CL)
 	}
-
 	for _, exec := range in.Executor {
 		hasAService = hasAService || (exec.Mode == services.CL)
 	}
@@ -1166,22 +1204,147 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) 
 		}
 	}
 
-	var outs []*services.VerifierOutput
-	// Start standalone verifiers if in standalone mode.
+	outs := make([]*services.VerifierOutput, 0, len(in.Verifier))
 	for _, ver := range in.Verifier {
-		if ver.Mode == services.Standalone {
-			if aggOut, ok := aggregatorOutputByCommittee[ver.CommitteeName]; ok {
-				ver.AggregatorOutput = aggOut
-			}
-			out, err := services.NewVerifier(ver, blockchainOutputs)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create verifier service: %w", err)
-			}
-			ver.Out = out
-			outs = append(outs, out)
+		// Only launch standalone verifiers as containers.
+		// CL mode verifiers run inside Chainlink nodes.
+		if ver.Mode != services.Standalone {
+			continue
 		}
+		if aggOut, ok := aggregatorOutputByCommittee[ver.CommitteeName]; ok {
+			ver.AggregatorOutput = aggOut
+		}
+		out, err := services.NewVerifier(ver, blockchainOutputs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create verifier service: %w", err)
+		}
+		ver.Out = out
+		outs = append(outs, out)
 	}
 	return outs, nil
+}
+
+// registerStandaloneVerifiersWithJD registers standalone verifiers with JD in parallel
+// and waits for them to establish their WSRPC connections.
+func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*services.VerifierInput, jdClient offchain.Client) error {
+	// Filter to standalone verifiers only
+	var standaloneVerifiers []*services.VerifierInput
+	for _, ver := range verifiers {
+		if ver.Mode == services.Standalone {
+			standaloneVerifiers = append(standaloneVerifiers, ver)
+		}
+	}
+
+	if len(standaloneVerifiers) == 0 {
+		return nil
+	}
+
+	// Use errgroup for parallel registration and connection waiting
+	g, gCtx := errgroup.WithContext(ctx)
+	var mu sync.Mutex // Protects ver.Out.JDNodeID writes
+
+	for _, ver := range standaloneVerifiers {
+		g.Go(func() error {
+			if ver.Out == nil || ver.Out.CSAPublicKey == "" {
+				return fmt.Errorf("verifier %s started but CSAPublicKey not available", ver.ContainerName)
+			}
+
+			reg := &jobs.VerifierJDRegistration{
+				Name:           ver.ContainerName,
+				CSAPublicKey:   ver.Out.CSAPublicKey,
+				SigningAddress: ver.Out.SigningAddress,
+			}
+			if err := jobs.RegisterVerifierWithJD(gCtx, jdClient, reg); err != nil {
+				return fmt.Errorf("failed to register verifier %s with JD: %w", ver.ContainerName, err)
+			}
+
+			// Store the JD node ID in the verifier output for later use and debugging
+			mu.Lock()
+			ver.Out.JDNodeID = reg.NodeID
+			mu.Unlock()
+
+			// Wait for verifier to connect to JD
+			if err := jobs.WaitForVerifierConnection(gCtx, jdClient, reg.NodeID, 60*time.Second); err != nil {
+				return fmt.Errorf("verifier %s failed to connect to JD: %w", ver.ContainerName, err)
+			}
+
+			return nil
+		})
+	}
+
+	return g.Wait()
+}
+
+// proposeJobsToStandaloneVerifiers proposes jobs to standalone verifiers via JD in parallel.
+// Each verifier receives its job spec with blockchain infos injected.
+func proposeJobsToStandaloneVerifiers(
+	ctx context.Context,
+	verifiers []*services.VerifierInput,
+	verifierJobSpecs map[string]string,
+	blockchainOutputs []*blockchain.Output,
+	jdClient offchain.Client,
+) error {
+	// Filter to standalone verifiers only
+	var standaloneVerifiers []*services.VerifierInput
+	for _, ver := range verifiers {
+		if ver.Mode == services.Standalone {
+			standaloneVerifiers = append(standaloneVerifiers, ver)
+		}
+	}
+
+	if len(standaloneVerifiers) == 0 {
+		return nil
+	}
+
+	// Convert blockchain outputs to infos for standalone verifier config
+	blockchainInfos, err := services.ConvertBlockchainOutputsToInfo(blockchainOutputs)
+	if err != nil {
+		return fmt.Errorf("failed to convert blockchain outputs to infos: %w", err)
+	}
+
+	// Use errgroup for parallel job proposals
+	g, gCtx := errgroup.WithContext(ctx)
+
+	for _, ver := range standaloneVerifiers {
+		g.Go(func() error {
+			if ver.Out == nil || ver.Out.JDNodeID == "" {
+				return fmt.Errorf("verifier %s not registered with JD (missing JDNodeID)", ver.ContainerName)
+			}
+			nodeID := ver.Out.JDNodeID
+
+			// Get the base job spec
+			baseJobSpec, ok := verifierJobSpecs[ver.ContainerName]
+			if !ok {
+				return fmt.Errorf("no job spec found for verifier %s", ver.ContainerName)
+			}
+
+			// For standalone verifiers, we need to inject blockchain_infos into the config
+			// because they don't have CL node chain configuration
+			jobSpec, err := ver.RebuildVerifierJobSpecWithBlockchainInfos(baseJobSpec, blockchainInfos)
+			if err != nil {
+				return fmt.Errorf("failed to add blockchain infos to job spec for %s: %w", ver.ContainerName, err)
+			}
+
+			L.Info().Msgf("Proposing job to verifier %s: %s", ver.ContainerName, jobSpec)
+
+			resp, err := jdClient.ProposeJob(gCtx, &jobv1.ProposeJobRequest{
+				NodeId: nodeID,
+				Spec:   jobSpec,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to propose job to verifier %s: %w", ver.ContainerName, err)
+			}
+			L.Info().
+				Str("verifier", ver.ContainerName).
+				Str("nodeID", nodeID).
+				Str("proposalID", resp.Proposal.Id).
+				Msg("Proposed job to verifier via JD")
+
+			return nil
+		})
+	}
+
+	return g.Wait()
 }
 
 func launchStandaloneTokenVerifiers(in *Cfg, fakeAttestationServiceURL string, blockchainOutputs []*blockchain.Output) ([]*services.TokenVerifierOutput, error) {
@@ -1236,16 +1399,9 @@ type IndexerSecret struct {
 	APISecret string `toml:",omitempty"`
 }
 
-// VerifierJobSpec represents the structure of a verifier job spec TOML.
-type VerifierJobSpec struct {
-	SchemaVersion           int    `toml:"schemaVersion"`
-	Type                    string `toml:"type"`
-	CommitteeVerifierConfig string `toml:"committeeVerifierConfig"`
-}
-
 // ParseVerifierConfigFromJobSpec extracts the inner commit.Config from a verifier job spec.
 func ParseVerifierConfigFromJobSpec(jobSpec string) (*commit.Config, error) {
-	var spec VerifierJobSpec
+	var spec services.VerifierJobSpec
 	if err := toml.Unmarshal([]byte(jobSpec), &spec); err != nil {
 		return nil, fmt.Errorf("failed to parse job spec: %w", err)
 	}
