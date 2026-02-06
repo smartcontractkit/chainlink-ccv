@@ -67,7 +67,7 @@ type Config struct {
 // - Loading cached jobs on startup
 // - Receiving and processing job proposals
 // - Handling job deletions and revocations
-// - Persisting jobs for restart recovery
+// - Persisting jobs for restart recovery.
 type Manager struct {
 	jdClient jdclient.ClientInterface
 	jobStore jobstore.StoreInterface
@@ -98,7 +98,7 @@ func NewManager(cfg Config) *Manager {
 // 1. Loads any cached job from the database
 // 2. If a cached job exists, starts it immediately
 // 3. Connects to JD (even if there's a cached job, to receive updates)
-// 4. Enters the event loop to handle proposals, deletions, and shutdown
+// 4. Enters the event loop to handle proposals, deletions, and shutdown.
 func (m *Manager) Run(ctx context.Context) error {
 	m.lggr.Infow("Starting job lifecycle manager")
 
@@ -136,11 +136,10 @@ func (m *Manager) Run(ctx context.Context) error {
 		hasRunningJob := m.state == StateRunning
 		m.mu.Unlock()
 
-		if hasRunningJob {
-			m.lggr.Warnw("Failed to connect to JD, continuing with cached job", "error", err)
-		} else {
+		if !hasRunningJob {
 			return fmt.Errorf("failed to connect to JD: %w", err)
 		}
+		m.lggr.Warnw("Failed to connect to JD, continuing with cached job", "error", err)
 	} else {
 		m.lggr.Infow("Connected to Job Distributor")
 	}

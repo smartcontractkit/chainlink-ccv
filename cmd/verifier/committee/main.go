@@ -195,7 +195,7 @@ func run(ctx context.Context, lggr logger.Logger, sigCh chan os.Signal) error {
 			lggr.Infow("Received shutdown signal", "signal", sig)
 			manager.Shutdown()
 		case <-ctx.Done():
-			// Context cancelled, manager will handle this
+			// Context canceled, manager will handle this
 		}
 	}()
 
