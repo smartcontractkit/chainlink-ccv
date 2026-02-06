@@ -54,7 +54,7 @@ func TestHandlers_ProposeJob_ContextCancelled(t *testing.T) {
 	proposalCh := make(chan *JobProposal)
 	handlers := NewHandlers(proposalCh, lggr)
 
-	// Create a cancelled context
+	// Create a canceled context
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 

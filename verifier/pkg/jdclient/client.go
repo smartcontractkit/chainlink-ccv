@@ -9,7 +9,7 @@ import (
 	"sync"
 
 	"github.com/smartcontractkit/wsrpc"
-	wsrpcLogger "github.com/smartcontractkit/wsrpc/logger"
+	wsrpclogger "github.com/smartcontractkit/wsrpc/logger"
 
 	pb "github.com/smartcontractkit/chainlink-protos/orchestrator/feedsmanager"
 
@@ -30,13 +30,13 @@ type Client struct {
 	jdURL       string
 	lggr        logger.Logger
 
-	mu             sync.Mutex
-	conn           *wsrpc.ClientConn
-	feedsManager   pb.FeedsManagerClient
-	handlers       *Handlers
-	jobProposalCh  chan *JobProposal
-	closeCh        chan struct{}
-	closeOnce      sync.Once
+	mu            sync.Mutex
+	conn          *wsrpc.ClientConn
+	feedsManager  pb.FeedsManagerClient
+	handlers      *Handlers
+	jobProposalCh chan *JobProposal
+	closeCh       chan struct{}
+	closeOnce     sync.Once
 }
 
 // NewClient creates a new JD client.
@@ -64,7 +64,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	conn, err := wsrpc.DialWithContext(ctx, c.jdURL,
 		wsrpc.WithTransportSigner(c.csaSigner, c.jdPublicKey),
 		wsrpc.WithBlock(),
-		wsrpc.WithLogger(wsrpcLogger.Nop()),
+		wsrpc.WithLogger(wsrpclogger.Nop()),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to connect to JD: %w", err)

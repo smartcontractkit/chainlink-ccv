@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -77,14 +78,16 @@ func main() {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	run(ctx, lggr, sigCh)
+	if err := run(ctx, lggr, sigCh); err != nil {
+		lggr.Fatalw("Failed to run verifier", "error", err)
+	}
 }
 
 // run executes the verifier lifecycle:
 // 1. INIT: Generates/loads keys from keystore
 // 2. READY: Starts HTTP info server, connects to JD, waits for job proposal
-// 3. ACTIVE: Starts coordinator with received config
-func run(ctx context.Context, lggr logger.Logger, sigCh chan os.Signal) {
+// 3. ACTIVE: Starts coordinator with received config.
+func run(ctx context.Context, lggr logger.Logger, sigCh chan os.Signal) error {
 	lggr.Infow("Starting verifier")
 
 	// ========== PHASE 1: INIT ==========
@@ -92,18 +95,18 @@ func run(ctx context.Context, lggr logger.Logger, sigCh chan os.Signal) {
 
 	keystorePassword := os.Getenv(KeystorePasswordEnvVar)
 	if keystorePassword == "" {
-		lggr.Fatalw("KEYSTORE_PASSWORD environment variable is required")
+		return fmt.Errorf("KEYSTORE_PASSWORD environment variable is required")
 	}
 
 	// Connect to database and run migrations
 	chainStatusDB, err := cmd.ConnectToPostgresDB(lggr)
 	if err != nil {
-		lggr.Fatalw("Failed to connect to database", "error", err)
+		return fmt.Errorf("failed to connect to database: %w", err)
 	}
 	if chainStatusDB == nil {
-		lggr.Fatalw("Database connection is required")
+		return fmt.Errorf("database connection is required")
 	}
-	defer chainStatusDB.Close()
+	defer chainStatusDB.Close() //nolint:errcheck // not critical for shutdown
 
 	// Load keystore (using wrapper that handles missing keystore gracefully)
 	storageName := os.Getenv(KeystoreStorageNameEnvVar)
@@ -113,13 +116,13 @@ func run(ctx context.Context, lggr logger.Logger, sigCh chan os.Signal) {
 	keystoreStorage := keys.NewPGStorage(chainStatusDB, storageName)
 	ks, err := keystore.LoadKeystore(ctx, keystoreStorage, keystorePassword)
 	if err != nil {
-		lggr.Fatalw("Failed to load keystore", "error", err)
+		return fmt.Errorf("failed to load keystore: %w", err)
 	}
 
 	// Get or create both keys
 	keyPair, err := keys.GetOrCreateKeys(ctx, ks)
 	if err != nil {
-		lggr.Fatalw("Failed to initialize keys", "error", err)
+		return fmt.Errorf("failed to initialize keys: %w", err)
 	}
 
 	lggr.Infow("Keys initialized",
@@ -146,21 +149,21 @@ func run(ctx context.Context, lggr logger.Logger, sigCh chan os.Signal) {
 	// 2b. Parse JD public key
 	jdCSAPublicKeyHex := os.Getenv(JDCSAPublicKeyEnvVar)
 	if jdCSAPublicKeyHex == "" {
-		lggr.Fatalw("JD_CSA_PUBLIC_KEY environment variable is required")
+		return fmt.Errorf("JD_CSA_PUBLIC_KEY environment variable is required")
 	}
 	jdCSAPublicKey, err := hex.DecodeString(jdCSAPublicKeyHex)
 	if err != nil {
-		lggr.Fatalw("Invalid JD_CSA_PUBLIC_KEY", "error", err)
+		return fmt.Errorf("invalid JD_CSA_PUBLIC_KEY: %w", err)
 	}
 
 	// 2c. Connect to JD
 	jdWSRPCURL := os.Getenv(JDWSRPCURLEnvVar)
 	if jdWSRPCURL == "" {
-		lggr.Fatalw("JD_WSRPC_URL environment variable is required")
+		return fmt.Errorf("JD_WSRPC_URL environment variable is required")
 	}
 	jdClient := jdclient.NewClient(keyPair.CSASigner, jdCSAPublicKey, jdWSRPCURL, lggr)
 	if err := jdClient.Connect(ctx); err != nil {
-		lggr.Fatalw("Failed to connect to JD", "error", err)
+		return fmt.Errorf("failed to connect to JD: %w", err)
 	}
 	lggr.Infow("Connected to Job Distributor, waiting for job proposal...")
 
@@ -175,7 +178,7 @@ func run(ctx context.Context, lggr logger.Logger, sigCh chan os.Signal) {
 		cfgWithInfos, err := unmarshalJobSpec(proposal.Spec)
 		if err != nil {
 			// TODO: don't be fatal in future fixes, should retry gracefully.
-			lggr.Fatalw("Failed to unmarshal job spec", "error", err)
+			return fmt.Errorf("failed to unmarshal job spec: %w", err)
 		}
 		config = &cfgWithInfos.Config
 		blockchainInfos = cfgWithInfos.BlockchainInfos
@@ -187,8 +190,10 @@ func run(ctx context.Context, lggr logger.Logger, sigCh chan os.Signal) {
 
 	case sig := <-sigCh:
 		lggr.Infow("Received shutdown signal before job proposal", "signal", sig)
-		shutdownGracefully(ctx, lggr, infoServer, jdClient, nil, nil)
-		return
+		if err := shutdownGracefully(ctx, lggr, infoServer, jdClient, nil, nil); err != nil {
+			return fmt.Errorf("failed to shutdown gracefully: %w", err)
+		}
+		return nil
 	}
 
 	// Update phase
@@ -198,7 +203,10 @@ func run(ctx context.Context, lggr logger.Logger, sigCh chan os.Signal) {
 	lggr.Infow("Phase 3: Starting coordinator...")
 
 	// Start the coordinator with the received config
-	coordinator, heartbeatClient := startCoordinator(ctx, lggr, config, blockchainInfos, ks, chainStatusDB)
+	coordinator, heartbeatClient, err := startCoordinator(ctx, lggr, config, blockchainInfos, ks, chainStatusDB)
+	if err != nil {
+		return fmt.Errorf("failed to start coordinator: %w", err)
+	}
 
 	lggr.Infow("Verifier service fully started and ready!")
 
@@ -206,7 +214,11 @@ func run(ctx context.Context, lggr logger.Logger, sigCh chan os.Signal) {
 	sig := <-sigCh
 	lggr.Infow("Received shutdown signal", "signal", sig)
 
-	shutdownGracefully(ctx, lggr, infoServer, jdClient, coordinator, heartbeatClient)
+	if err := shutdownGracefully(ctx, lggr, infoServer, jdClient, coordinator, heartbeatClient); err != nil {
+		return fmt.Errorf("failed to shutdown gracefully: %w", err)
+	}
+
+	return nil
 }
 
 func unmarshalJobSpec(jobSpec string) (commit.ConfigWithBlockchainInfos, error) {
@@ -233,21 +245,21 @@ func startCoordinator(
 	blockchainInfos map[string]*blockchain.Info,
 	ks keystore.Keystore,
 	chainStatusDB *sqlx.DB,
-) (*verifier.Coordinator, *heartbeatclient.HeartbeatClient) {
+) (*verifier.Coordinator, *heartbeatclient.HeartbeatClient, error) {
 	apiKey := os.Getenv("VERIFIER_AGGREGATOR_API_KEY")
 	if apiKey == "" {
-		lggr.Fatalw("VERIFIER_AGGREGATOR_API_KEY environment variable is required")
+		return nil, nil, fmt.Errorf("VERIFIER_AGGREGATOR_API_KEY environment variable is required")
 	}
 	if err := hmac.ValidateAPIKey(apiKey); err != nil {
-		lggr.Fatalw("Invalid VERIFIER_AGGREGATOR_API_KEY", "error", err)
+		return nil, nil, fmt.Errorf("invalid VERIFIER_AGGREGATOR_API_KEY: %w", err)
 	}
 
 	secretKey := os.Getenv("VERIFIER_AGGREGATOR_SECRET_KEY")
 	if secretKey == "" {
-		lggr.Fatalw("VERIFIER_AGGREGATOR_SECRET_KEY environment variable is required")
+		return nil, nil, fmt.Errorf("VERIFIER_AGGREGATOR_SECRET_KEY environment variable is required")
 	}
 	if err := hmac.ValidateSecret(secretKey); err != nil {
-		lggr.Fatalw("Invalid VERIFIER_AGGREGATOR_SECRET_KEY", "error", err)
+		return nil, nil, fmt.Errorf("invalid VERIFIER_AGGREGATOR_SECRET_KEY: %w", err)
 	}
 
 	cmd.StartPyroscope(lggr, config.PyroscopeURL, "verifier")
@@ -258,7 +270,7 @@ func startCoordinator(
 	for selector, address := range config.CommitteeVerifierAddresses {
 		addr, err := protocol.NewUnknownAddressFromHex(address)
 		if err != nil {
-			lggr.Fatalw("Failed to create verifier address", "error", err)
+			return nil, nil, fmt.Errorf("failed to create verifier address: %w", err)
 		}
 		verifierAddresses[selector] = addr
 	}
@@ -266,7 +278,7 @@ func startCoordinator(
 	for selector, address := range config.DefaultExecutorOnRampAddresses {
 		addr, err := protocol.NewUnknownAddressFromHex(address)
 		if err != nil {
-			lggr.Fatalw("Failed to create default executor address", "error", err)
+			return nil, nil, fmt.Errorf("failed to create default executor address: %w", err)
 		}
 		defaultExecutorAddresses[selector] = addr
 	}
@@ -278,7 +290,7 @@ func startCoordinator(
 
 	aggregatorWriter, err := storageaccess.NewAggregatorWriter(config.AggregatorAddress, lggr, hmacConfig, config.InsecureAggregatorConnection)
 	if err != nil {
-		lggr.Fatalw("Failed to create aggregator writer", "error", err)
+		return nil, nil, fmt.Errorf("failed to create aggregator writer: %w", err)
 	}
 
 	chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusDB, lggr, config.VerifierID)
@@ -289,7 +301,7 @@ func startCoordinator(
 
 	sourceReaders, err := cmd.CreateSourceReaders(ctx, lggr, registry, blockchainHelper, *config)
 	if err != nil {
-		lggr.Fatalw("Failed to create source readers", "error", err)
+		return nil, nil, fmt.Errorf("failed to create source readers: %w", err)
 	}
 
 	// Create coordinator configuration
@@ -298,7 +310,7 @@ func startCoordinator(
 	for selector, address := range config.RMNRemoteAddresses {
 		addr, err := protocol.NewUnknownAddressFromHex(address)
 		if err != nil {
-			lggr.Fatalw("Failed to create RMN Remote address", "error", err, "selector", selector)
+			return nil, nil, fmt.Errorf("failed to create RMN Remote address: %w", err)
 		}
 		rmnRemoteAddresses[selector] = addr
 	}
@@ -331,7 +343,7 @@ func startCoordinator(
 	// Get signer from keystore using the default signing key name
 	signer, publicKey, err := commit.NewSignerFromKeystore(ctx, ks, keys.SigningKeyName)
 	if err != nil {
-		lggr.Fatalw("Failed to create signer from keystore", "error", err)
+		return nil, nil, fmt.Errorf("failed to create signer from keystore: %w", err)
 	}
 	lggr.Infow("Using signer from keystore", "keyName", keys.SigningKeyName, "address", publicKey)
 
@@ -340,7 +352,7 @@ func startCoordinator(
 	// Create commit verifier
 	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, publicKey, signer, lggr, verifierMonitoring)
 	if err != nil {
-		lggr.Fatalw("Failed to create commit verifier", "error", err)
+		return nil, nil, fmt.Errorf("failed to create commit verifier: %w", err)
 	}
 
 	observedStorageWriter := storageaccess.NewObservedStorageWriter(
@@ -360,7 +372,7 @@ func startCoordinator(
 		config.InsecureAggregatorConnection,
 	)
 	if err != nil {
-		lggr.Fatalw("Failed to create heartbeat client", "error", err)
+		return nil, nil, fmt.Errorf("failed to create heartbeat client: %w", err)
 	}
 
 	observedHeartbeatClient := heartbeatclient.NewObservedHeartbeatClient(
@@ -390,7 +402,7 @@ func startCoordinator(
 		observedHeartbeatClient,
 	)
 	if err != nil {
-		lggr.Fatalw("Failed to create verification coordinator", "error", err)
+		return nil, nil, fmt.Errorf("failed to create verification coordinator: %w", err)
 	}
 
 	// Start the verification coordinator
@@ -400,10 +412,10 @@ func startCoordinator(
 	)
 
 	if err := coordinator.Start(ctx); err != nil {
-		lggr.Fatalw("Failed to start verification coordinator", "error", err)
+		return nil, nil, fmt.Errorf("failed to start verification coordinator: %w", err)
 	}
 
-	return coordinator, heartbeatClient
+	return coordinator, heartbeatClient, nil
 }
 
 // shutdownGracefully performs graceful shutdown of all components.
@@ -414,7 +426,8 @@ func shutdownGracefully(
 	jdClient *jdclient.Client,
 	coordinator *verifier.Coordinator,
 	heartbeatClient *heartbeatclient.HeartbeatClient,
-) {
+) error {
+	var errs error
 	shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
@@ -423,6 +436,7 @@ func shutdownGracefully(
 		lggr.Infow("Stopping coordinator...")
 		if err := coordinator.Close(); err != nil {
 			lggr.Warnw("Error stopping coordinator", "error", err)
+			errs = errors.Join(errs, err)
 		}
 	}
 
@@ -431,6 +445,7 @@ func shutdownGracefully(
 		lggr.Infow("Closing heartbeat client...")
 		if err := heartbeatClient.Close(); err != nil {
 			lggr.Warnw("Error closing heartbeat client", "error", err)
+			errs = errors.Join(errs, err)
 		}
 	}
 
@@ -439,6 +454,7 @@ func shutdownGracefully(
 		lggr.Infow("Closing JD connection...")
 		if err := jdClient.Close(); err != nil {
 			lggr.Warnw("Error closing JD connection", "error", err)
+			errs = errors.Join(errs, err)
 		}
 	}
 
@@ -447,8 +463,9 @@ func shutdownGracefully(
 		lggr.Infow("Shutting down info server...")
 		if err := infoServer.Shutdown(shutdownCtx); err != nil {
 			lggr.Warnw("Error shutting down info server", "error", err)
+			errs = errors.Join(errs, err)
 		}
 	}
 
-	lggr.Infow("Graceful shutdown complete")
+	return errs
 }

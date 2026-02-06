@@ -84,6 +84,7 @@ linters:
             - github.com/smartcontractkit/chainlink-common/pkg/sqlutil
             # Keystore is its own go.mod, separate from chainlink-common, but in the same repo.
             - github.com/smartcontractkit/chainlink-common/keystore
+            - github.com/smartcontractkit/chainlink-protos/orchestrator/feedsmanager
           deny:
             - pkg: github.com/smartcontractkit/chainlink
               desc: No chainlink dependencies in verifier/executor packages

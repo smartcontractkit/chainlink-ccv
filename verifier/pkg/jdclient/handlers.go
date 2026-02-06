@@ -14,7 +14,7 @@ type Handlers struct {
 	lggr          logger.Logger
 }
 
-// Ensure Handlers implements NodeServiceServer
+// Ensure Handlers implements NodeServiceServer.
 var _ pb.NodeServiceServer = (*Handlers)(nil)
 
 // NewHandlers creates a new Handlers instance.

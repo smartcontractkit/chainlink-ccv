@@ -44,7 +44,7 @@ type Server struct {
 }
 
 // New creates a new info server.
-func New(addr string, signingAddr string, csaPubKey []byte, lggr logger.Logger) *Server {
+func New(addr, signingAddr string, csaPubKey []byte, lggr logger.Logger) *Server {
 	s := &Server{
 		info: InfoResponse{
 			SigningAddress: signingAddr,

@@ -53,11 +53,7 @@ type VerifierEnvConfig struct {
 }
 
 type VerifierInput struct {
-	// Mode specifies how the verifier is deployed:
-	// - Standalone: runs as a separate container, connects to JD for job proposals
-	// - CL: runs inside a Chainlink node
-	Mode Mode `toml:"mode"`
-
+	Mode           Mode               `toml:"mode"`
 	DB             *VerifierDBInput   `toml:"db"`
 	Out            *VerifierOutput    `toml:"out"`
 	Image          string             `toml:"image"`

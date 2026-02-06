@@ -58,12 +58,13 @@ var GenerateVerifierConfig = operations.NewSequence(
 		}
 
 		jobSpecsResult, err := operations.ExecuteOperation(b, verifierconfig.BuildJobSpecs, struct{}{}, verifierconfig.BuildJobSpecsInput{
-			GeneratedConfig: buildResult.Output.Config,
-			TargetNOPs:      input.TargetNOPs,
-			EnvironmentNOPs: input.EnvironmentNOPs,
-			Committee:       input.Committee,
-			PyroscopeURL:    input.PyroscopeURL,
-			Monitoring:      input.Monitoring,
+			GeneratedConfig:         buildResult.Output.Config,
+			TargetNOPs:              input.TargetNOPs,
+			EnvironmentNOPs:         input.EnvironmentNOPs,
+			Committee:               input.Committee,
+			PyroscopeURL:            input.PyroscopeURL,
+			Monitoring:              input.Monitoring,
+			DisableFinalityCheckers: input.DisableFinalityCheckers,
 		})
 		if err != nil {
 			return GenerateVerifierConfigOutput{}, fmt.Errorf("failed to build verifier job specs: %w", err)
