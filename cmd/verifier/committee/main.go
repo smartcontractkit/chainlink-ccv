@@ -87,45 +87,83 @@ func main() {
 }
 
 // run executes the verifier lifecycle using the JobLifecycleManager:
-// 1. INIT: Generates/loads keys from keystore, starts info server
-// 2. READY: Creates JD client and lifecycle manager
+// 1. INIT: Generates/loads keys from keystore
+// 2. READY: Starts info server, creates JD client and lifecycle manager
 // 3. ACTIVE: Lifecycle manager handles job lifecycle (proposals, deletions, etc.)
 func run(ctx context.Context, lggr logger.Logger, sigCh chan os.Signal) error {
 	lggr.Infow("Starting verifier")
 
-	// ========== PHASE 1: INIT ==========
-	lggr.Infow("Phase 1: Initializing keys...")
+	// Phase 1: Initialize database and keystore
+	db, ks, keyPair, err := initKeysAndDB(ctx, lggr)
+	if err != nil {
+		return err
+	}
+	defer db.Close() //nolint:errcheck // not critical for shutdown
+
+	// Phase 2: Start info server and create lifecycle manager
+	infoServer := startInfoServer(lggr, keyPair)
+
+	jdClient, err := createJDClient(lggr, keyPair)
+	if err != nil {
+		return err
+	}
+
+	manager := jdlifecycle.NewManager(jdlifecycle.Config{
+		JDClient: jdClient,
+		JobStore: jobstore.NewStore(db),
+		Runner: &committeeRunner{
+			lggr:          lggr,
+			ks:            ks,
+			chainStatusDB: db,
+			infoServer:    infoServer,
+		},
+		Logger: lggr,
+	})
+
+	// Phase 3: Run lifecycle manager (blocks until shutdown)
+	lggr.Infow("Starting lifecycle manager...")
+	go waitForShutdownSignal(ctx, sigCh, lggr, manager)
+
+	if err := manager.Run(ctx); err != nil {
+		lggr.Errorw("Lifecycle manager error", "error", err)
+	}
+
+	shutdownInfoServer(lggr, infoServer)
+	lggr.Infow("Verifier shutdown complete")
+	return nil
+}
+
+// initKeysAndDB initializes the database connection and keystore with keys.
+func initKeysAndDB(ctx context.Context, lggr logger.Logger) (*sqlx.DB, keystore.Keystore, *keys.KeyPair, error) {
+	lggr.Infow("Initializing database and keystore...")
 
 	keystorePassword := os.Getenv(KeystorePasswordEnvVar)
 	if keystorePassword == "" {
-		return fmt.Errorf("KEYSTORE_PASSWORD environment variable is required")
+		return nil, nil, nil, fmt.Errorf("KEYSTORE_PASSWORD environment variable is required")
 	}
 
-	// Connect to database and run migrations
-	chainStatusDB, err := cmd.ConnectToPostgresDB(lggr)
+	db, err := cmd.ConnectToPostgresDB(lggr)
 	if err != nil {
-		return fmt.Errorf("failed to connect to database: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
-	if chainStatusDB == nil {
-		return fmt.Errorf("database connection is required")
+	if db == nil {
+		return nil, nil, nil, fmt.Errorf("database connection is required")
 	}
-	defer chainStatusDB.Close() //nolint:errcheck // not critical for shutdown
 
-	// Load keystore (using wrapper that handles missing keystore gracefully)
 	storageName := os.Getenv(KeystoreStorageNameEnvVar)
 	if storageName == "" {
 		storageName = "verifier-keystore"
 	}
-	keystoreStorage := keys.NewPGStorage(chainStatusDB, storageName)
-	ks, err := keystore.LoadKeystore(ctx, keystoreStorage, keystorePassword)
+	ks, err := keystore.LoadKeystore(ctx, keys.NewPGStorage(db, storageName), keystorePassword)
 	if err != nil {
-		return fmt.Errorf("failed to load keystore: %w", err)
+		db.Close() //nolint:errcheck
+		return nil, nil, nil, fmt.Errorf("failed to load keystore: %w", err)
 	}
 
-	// Get or create both keys
 	keyPair, err := keys.GetOrCreateKeys(ctx, ks)
 	if err != nil {
-		return fmt.Errorf("failed to initialize keys: %w", err)
+		db.Close() //nolint:errcheck
+		return nil, nil, nil, fmt.Errorf("failed to initialize keys: %w", err)
 	}
 
 	lggr.Infow("Keys initialized",
@@ -133,86 +171,64 @@ func run(ctx context.Context, lggr logger.Logger, sigCh chan os.Signal) error {
 		"csaPublicKey", hex.EncodeToString(keyPair.CSAPublicKey),
 	)
 
-	// ========== PHASE 2: READY ==========
-	lggr.Infow("Phase 2: Starting servers...")
+	return db, ks, keyPair, nil
+}
 
-	// 2a. Start HTTP info server (non-blocking)
-	infoAddr := os.Getenv(InfoServerAddrEnvVar)
-	if infoAddr == "" {
-		infoAddr = defaultInfoServerAddr
+// startInfoServer creates and starts the HTTP info server in the background.
+func startInfoServer(lggr logger.Logger, keyPair *keys.KeyPair) *infoserver.Server {
+	addr := os.Getenv(InfoServerAddrEnvVar)
+	if addr == "" {
+		addr = defaultInfoServerAddr
 	}
-	infoServer := infoserver.New(infoAddr, keyPair.SigningAddress, keyPair.CSAPublicKey, lggr)
+
+	server := infoserver.New(addr, keyPair.SigningAddress, keyPair.CSAPublicKey, lggr)
 	go func() {
-		if err := infoServer.Start(); err != nil && err != http.ErrServerClosed {
+		if err := server.Start(); err != nil && err != http.ErrServerClosed {
 			lggr.Errorw("Info server error", "error", err)
 		}
 	}()
-	lggr.Infow("HTTP info server started", "addr", infoAddr)
 
-	// 2b. Parse JD public key
-	jdCSAPublicKeyHex := os.Getenv(JDCSAPublicKeyEnvVar)
-	if jdCSAPublicKeyHex == "" {
-		return fmt.Errorf("JD_CSA_PUBLIC_KEY environment variable is required")
+	lggr.Infow("HTTP info server started", "addr", addr)
+	return server
+}
+
+// createJDClient parses JD configuration from environment and creates the client.
+func createJDClient(lggr logger.Logger, keyPair *keys.KeyPair) (*jdclient.Client, error) {
+	jdPublicKeyHex := os.Getenv(JDCSAPublicKeyEnvVar)
+	if jdPublicKeyHex == "" {
+		return nil, fmt.Errorf("JD_CSA_PUBLIC_KEY environment variable is required")
 	}
-	jdCSAPublicKey, err := hex.DecodeString(jdCSAPublicKeyHex)
+	jdPublicKey, err := hex.DecodeString(jdPublicKeyHex)
 	if err != nil {
-		return fmt.Errorf("invalid JD_CSA_PUBLIC_KEY: %w", err)
+		return nil, fmt.Errorf("invalid JD_CSA_PUBLIC_KEY: %w", err)
 	}
 
-	// 2c. Create JD client
-	jdWSRPCURL := os.Getenv(JDWSRPCURLEnvVar)
-	if jdWSRPCURL == "" {
-		return fmt.Errorf("JD_WSRPC_URL environment variable is required")
-	}
-	jdClient := jdclient.NewClient(keyPair.CSASigner, jdCSAPublicKey, jdWSRPCURL, lggr)
-
-	// 2d. Create job store for persistence
-	jobStore := jobstore.NewStore(chainStatusDB)
-
-	// 2e. Create the job runner
-	runner := &committeeRunner{
-		lggr:          lggr,
-		ks:            ks,
-		chainStatusDB: chainStatusDB,
-		infoServer:    infoServer,
+	jdURL := os.Getenv(JDWSRPCURLEnvVar)
+	if jdURL == "" {
+		return nil, fmt.Errorf("JD_WSRPC_URL environment variable is required")
 	}
 
-	// 2f. Create lifecycle manager
-	manager := jdlifecycle.NewManager(jdlifecycle.Config{
-		JDClient: jdClient,
-		JobStore: jobStore,
-		Runner:   runner,
-		Logger:   lggr,
-	})
+	return jdclient.NewClient(keyPair.CSASigner, jdPublicKey, jdURL, lggr), nil
+}
 
-	// ========== PHASE 3: ACTIVE ==========
-	lggr.Infow("Phase 3: Starting lifecycle manager...")
-
-	// Handle shutdown signal in a separate goroutine
-	go func() {
-		select {
-		case sig := <-sigCh:
-			lggr.Infow("Received shutdown signal", "signal", sig)
-			manager.Shutdown()
-		case <-ctx.Done():
-			// Context canceled, manager will handle this
-		}
-	}()
-
-	// Run the lifecycle manager (blocks until shutdown)
-	if err := manager.Run(ctx); err != nil {
-		lggr.Errorw("Lifecycle manager error", "error", err)
+// waitForShutdownSignal listens for shutdown signals and triggers manager shutdown.
+func waitForShutdownSignal(ctx context.Context, sigCh chan os.Signal, lggr logger.Logger, manager *jdlifecycle.Manager) {
+	select {
+	case sig := <-sigCh:
+		lggr.Infow("Received shutdown signal", "signal", sig)
+		manager.Shutdown()
+	case <-ctx.Done():
+		// Context canceled, manager will handle this
 	}
+}
 
-	// Shutdown info server
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+// shutdownInfoServer gracefully shuts down the info server.
+func shutdownInfoServer(lggr logger.Logger, server *infoserver.Server) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := infoServer.Shutdown(shutdownCtx); err != nil {
+	if err := server.Shutdown(ctx); err != nil {
 		lggr.Warnw("Error shutting down info server", "error", err)
 	}
-
-	lggr.Infow("Verifier shutdown complete")
-	return nil
 }
 
 func unmarshalJobSpec(jobSpec string) (commit.ConfigWithBlockchainInfos, error) {
