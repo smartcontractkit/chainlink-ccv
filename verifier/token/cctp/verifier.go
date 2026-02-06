@@ -86,17 +86,24 @@ func (v *Verifier) VerifyMessages(
 			continue
 		}
 
-		attestationPayload, err := attestation.ToVerifierFormat()
+		verifierFormat, err := attestation.ToVerifierFormat()
 		if err != nil {
 			lggr.Errorw("Failed to decode attestation data", "err", err)
 			errors = append(errors, v.errorRetry(err, task))
 			continue
 		}
 
+		lggr.Infow("Attestation fetched and decoded successfully",
+			"status", attestation.status,
+			"attestation", attestation.attestation,
+			"encodedCCTPMessage", attestation.encodedCCTPMessage,
+			"verifierFormat", verifierFormat,
+		)
+
 		// 2. Create VerifierNodeResult
 		result, err := commit.CreateVerifierNodeResult(
 			&task,
-			attestationPayload,
+			verifierFormat,
 			attestation.verifierVersion,
 		)
 		if err != nil {

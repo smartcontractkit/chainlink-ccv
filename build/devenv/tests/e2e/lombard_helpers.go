@@ -10,7 +10,32 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
 )
+
+// Lombard Attestation Flow:
+//
+// 1. The test calls buildLombardAttestation(messageID) which creates the attestation:
+//    Format: [rawPayloadLength (2 bytes)][rawPayload (36 bytes)][proofLength (2 bytes)][proof (0 bytes)]
+//    Where rawPayload = versionTag (0xf0f3a135) + messageId (32 bytes)
+//
+// 2. This attestation is registered with the fake HTTP service via registerLombardAttestation()
+//
+// 3. The Go verifier (verifier/token/lombard/verifier.go) fetches the attestation from the API
+//
+// 4. The Go verifier calls attestation.ToVerifierFormat() which prepends the 4-byte version tag:
+//    Final ccvData: [versionTag (4 bytes)][rawPayloadLength (2 bytes)][rawPayload (36 bytes)][proofLength (2 bytes)][proof (0 bytes)]
+//
+// 5. This ccvData is sent to LombardVerifier.sol's verifyMessage() function
+//
+// 6. The Solidity contract extracts rawPayload and proof, then calls:
+//    IMailbox.deliverAndHandle(rawPayload, proof)
+//
+// 7. The mock mailbox returns the rawPayload as the bridgedMessage (for testing purposes)
+//
+// 8. The contract validates that bridgedMessage is exactly 36 bytes and contains:
+//    - versionTag (4 bytes): 0xf0f3a135
+//    - messageId (32 bytes): matches the expected message ID
 
 // registerLombardAttestation registers a Lombard attestation response with the fake service.
 func registerLombardAttestation(
@@ -42,16 +67,49 @@ func registerLombardAttestation(
 	require.Equal(t, http.StatusOK, resp.StatusCode, "Failed to register Lombard attestation")
 }
 
-// buildLombardAttestation constructs a Lombard attestation payload.
-// The attestation format is: abi.encode(payload, proof)
-// For testing purposes, we can use a dummy attestation.
-func buildLombardAttestation() string {
-	// Return a hex-encoded dummy attestation
-	// In real scenario, this would be abi.encode(payload, proof) from Lombard
-	// For testing, we'll use a simple dummy value
-	dummyAttestation := make([]byte, 800)
-	for i := range dummyAttestation {
-		dummyAttestation[i] = byte(i % 256)
-	}
-	return "0x" + hex.EncodeToString(dummyAttestation)
+// buildLombardAttestation constructs a Lombard attestation payload for the mock API.
+// The Go verifier (lombard/verifier.go) will prepend the 4-byte version tag to this attestation.
+// So this function returns: [rawPayloadLength (2 bytes)][rawPayload][proofLength (2 bytes)][proof]
+//
+// The final ccvData that reaches LombardVerifier.sol will be:
+// [versionTag (4 bytes)][rawPayloadLength (2 bytes)][rawPayload][proofLength (2 bytes)][proof]
+//
+// The rawPayload is what gets passed to deliverAndHandle() on the mock mailbox.
+// The mock mailbox should return a "bridged message" that is exactly 36 bytes:
+// - VERSION_TAG_V1_7_0 (4 bytes): 0xf0f3a135
+// - messageId (32 bytes).
+func buildLombardAttestation(messageID protocol.Bytes32) string {
+	// Version tag for LombardVerifier 1.7.0
+	versionTag := lombard.VerifierVersion
+
+	// Build the bridged message that will be returned by the mock mailbox
+	// This is what deliverAndHandle() returns: VERSION_TAG_V1_7_0 + messageId
+	bridgedMessage := append(versionTag, messageID[:]...)
+
+	// For the mock, we'll use the bridged message as the payload
+	// In a real scenario, this would be more complex data from Lombard
+	rawPayload := bridgedMessage
+
+	// Dummy proof (empty for mock)
+	proof := []byte{}
+
+	// Build the attestation (WITHOUT the version tag - that's added by Go verifier):
+	// [rawPayloadLength (2 bytes)][rawPayload][proofLength (2 bytes)][proof]
+	var attestation []byte
+
+	// Add rawPayload length as uint16 big-endian (2 bytes)
+	rawPayloadLength := uint16(len(rawPayload))
+	attestation = append(attestation, byte(rawPayloadLength>>8), byte(rawPayloadLength))
+
+	// Add rawPayload
+	attestation = append(attestation, rawPayload...)
+
+	// Add proof length as uint16 big-endian (2 bytes)
+	proofLength := uint16(len(proof))
+	attestation = append(attestation, byte(proofLength>>8), byte(proofLength))
+
+	// Add proof
+	attestation = append(attestation, proof...)
+
+	return "0x" + hex.EncodeToString(attestation)
 }

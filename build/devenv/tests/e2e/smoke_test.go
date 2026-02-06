@@ -533,11 +533,11 @@ func TestE2ESmoke(t *testing.T) {
 
 	t.Run("Lombard V3 token transfer", func(t *testing.T) {
 		var (
-			sourceSelector = sel0
-			sourceChain    = chainMap[sourceSelector]
-			destSelector   = sel1
-			destChain      = chainMap[destSelector]
-			_              = getContractAddress(
+			sourceSelector   = sel0
+			sourceChain      = chainMap[sourceSelector]
+			destSelector     = sel1
+			destChain        = chainMap[destSelector]
+			contractReceiver = getContractAddress(
 				t,
 				in,
 				destSelector,
@@ -613,9 +613,9 @@ func TestE2ESmoke(t *testing.T) {
 			msgID := sentEvt.MessageID
 
 			messageHash := sentEvt.Message.TokenTransfer.ExtraData
-			attestation := buildLombardAttestation()
+			attestation := buildLombardAttestation(msgID)
 			registerLombardAttestation(t, in.Fake.Out.ExternalHTTPURL, messageHash, attestation, "NOTARIZATION_STATUS_SESSION_APPROVED")
-			l.Info().Str("MessageHash", messageHash.String()).Msg("Registered Lombard attestation")
+			l.Info().Str("MessageHash", messageHash.String()).Str("MessageID", hex.EncodeToString(msgID[:])).Msg("Registered Lombard attestation")
 
 			testCtx := NewTestingContext(t, ctx, chainMap, defaultAggregatorClient, indexerMonitor)
 			res, err := testCtx.AssertMessage(msgID, AssertMessageOptions{
@@ -665,14 +665,14 @@ func TestE2ESmoke(t *testing.T) {
 				finalityConfig: 1,
 				shouldRevert:   true,
 			},
-			//{
-			//	name:                    "Lombard transfer to contract receiver with chain finality",
-			//	transferAmount:          big.NewInt(200),
-			//	receiver:                contractReceiver,
-			//	executionGasLimit:       200_000,
-			//	expectedReceiptIssuers:  5, // default ccv, token pool, executor, network fee
-			//	expectedVerifierResults: 2, // default ccv, Lombard ccv
-			//},
+			{
+				name:                    "Lombard transfer to contract receiver with chain finality",
+				transferAmount:          big.NewInt(200),
+				receiver:                contractReceiver,
+				executionGasLimit:       200_000,
+				expectedReceiptIssuers:  5, // default ccv, token pool, executor, network fee
+				expectedVerifierResults: 2, // default ccv, Lombard ccv
+			},
 		}
 
 		for _, tc := range tcs {

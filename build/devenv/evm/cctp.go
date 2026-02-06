@@ -22,6 +22,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -187,20 +188,18 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(
 		return err
 	}
 
-	domains := map[uint64]uint32{
-		chainsel.GETH_TESTNET.Selector:  101,
-		chainsel.GETH_DEVNET_2.Selector: 102,
-		chainsel.GETH_DEVNET_3.Selector: 104,
-	}
-
 	remoteChains := make(map[uint64]adapters.RemoteCCTPChainConfig)
 	for _, rs := range remoteSelectors {
+		domain, ok := cctp.Domains[rs]
+		if !ok {
+			return fmt.Errorf("no CCTP domain mapping found for chain selector %d", rs)
+		}
 		remoteChains[rs] = adapters.RemoteCCTPChainConfig{
 			FeeUSDCents:         10,
 			GasForVerification:  100000,
 			PayloadSizeBytes:    1000,
 			LockOrBurnMechanism: "CCTP_V2_WITH_CCV",
-			DomainIdentifier:    domains[rs],
+			DomainIdentifier:    domain,
 		}
 	}
 
@@ -343,11 +342,16 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 		return empty, empty, empty, fmt.Errorf("failed to add USDC token contract: %w", err)
 	}
 
+	localDomain, ok := cctp.Domains[selector]
+	if !ok {
+		return empty, empty, empty, fmt.Errorf("no CCTP domain mapping found for chain selector %d", selector)
+	}
+
 	messageTransmitterAddr, tx, _, err := mock_usdc_token_transmitter.DeployMockE2EUSDCTransmitter(
 		chain.DeployerKey,
 		chain.Client,
 		uint32(1),     // version (CCTP V2)
-		uint32(1),     // localDomain
+		localDomain,   // localDomain from cctp.Domains
 		usdcTokenAddr, // token
 	)
 	if err != nil {
