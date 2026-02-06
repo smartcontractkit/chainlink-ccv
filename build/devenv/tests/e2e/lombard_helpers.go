@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
 )
 
 // Lombard Attestation Flow:
@@ -76,10 +77,10 @@ func registerLombardAttestation(
 // The rawPayload is what gets passed to deliverAndHandle() on the mock mailbox.
 // The mock mailbox should return a "bridged message" that is exactly 36 bytes:
 // - VERSION_TAG_V1_7_0 (4 bytes): 0xf0f3a135
-// - messageId (32 bytes)
+// - messageId (32 bytes).
 func buildLombardAttestation(messageID protocol.Bytes32) string {
 	// Version tag for LombardVerifier 1.7.0
-	versionTag := []byte{0xf0, 0xf3, 0xa1, 0x35}
+	versionTag := lombard.VerifierVersion
 
 	// Build the bridged message that will be returned by the mock mailbox
 	// This is what deliverAndHandle() returns: VERSION_TAG_V1_7_0 + messageId

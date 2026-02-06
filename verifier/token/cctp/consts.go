@@ -11,10 +11,10 @@ import (
 // VerifierVersion is the version of the 1.7 CCTPVerifier contract.
 var VerifierVersion = mustDecodeHex("8e1d1a9d")
 
-// sourceDomains represent mapping between ChainSelector and Circle specific
+// SourceDomains represent mapping between ChainSelector and Circle specific
 // domains used for xchain transfers
 // https://developers.circle.com/cctp/cctp-supported-blockchains
-var sourceDomains = map[uint64]uint32{
+var SourceDomains = map[uint64]uint32{
 	// ---------- Mainnet Domains ----------
 	sel.ETHEREUM_MAINNET.Selector:              0,
 	sel.AVALANCHE_MAINNET.Selector:             1,
