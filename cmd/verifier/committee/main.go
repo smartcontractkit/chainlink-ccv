@@ -156,13 +156,13 @@ func initKeysAndDB(ctx context.Context, lggr logger.Logger) (*sqlx.DB, keystore.
 	}
 	ks, err := keystore.LoadKeystore(ctx, keys.NewPGStorage(db, storageName), keystorePassword)
 	if err != nil {
-		db.Close() //nolint:errcheck
+		db.Close() //nolint:errcheck,gosec
 		return nil, nil, nil, fmt.Errorf("failed to load keystore: %w", err)
 	}
 
 	keyPair, err := keys.GetOrCreateKeys(ctx, ks)
 	if err != nil {
-		db.Close() //nolint:errcheck
+		db.Close() //nolint:errcheck,gosec
 		return nil, nil, nil, fmt.Errorf("failed to initialize keys: %w", err)
 	}
 

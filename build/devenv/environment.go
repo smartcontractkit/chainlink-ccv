@@ -34,7 +34,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
-	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -1316,7 +1315,7 @@ func proposeJobsToStandaloneVerifiers(
 
 			// For standalone verifiers, we need to inject blockchain_infos into the config
 			// because they don't have CL node chain configuration
-			jobSpec, err := RebuildVerifierJobSpecWithBlockchainInfos(baseJobSpec, blockchainInfos)
+			jobSpec, err := ver.RebuildVerifierJobSpecWithBlockchainInfos(baseJobSpec, blockchainInfos)
 			if err != nil {
 				return fmt.Errorf("failed to add blockchain infos to job spec for %s: %w", ver.ContainerName, err)
 			}
@@ -1395,17 +1394,9 @@ type IndexerSecret struct {
 	APISecret string `toml:",omitempty"`
 }
 
-// VerifierJobSpec represents the structure of a verifier job spec TOML.
-type VerifierJobSpec struct {
-	ExternalJobID           string `toml:"externalJobID"`
-	SchemaVersion           int    `toml:"schemaVersion"`
-	Type                    string `toml:"type"`
-	CommitteeVerifierConfig string `toml:"committeeVerifierConfig"`
-}
-
 // ParseVerifierConfigFromJobSpec extracts the inner commit.Config from a verifier job spec.
 func ParseVerifierConfigFromJobSpec(jobSpec string) (*commit.Config, error) {
-	var spec VerifierJobSpec
+	var spec services.VerifierJobSpec
 	if err := toml.Unmarshal([]byte(jobSpec), &spec); err != nil {
 		return nil, fmt.Errorf("failed to parse job spec: %w", err)
 	}
@@ -1416,44 +1407,6 @@ func ParseVerifierConfigFromJobSpec(jobSpec string) (*commit.Config, error) {
 	}
 
 	return &cfg, nil
-}
-
-// RebuildVerifierJobSpecWithBlockchainInfos takes a job spec and rebuilds it with blockchain infos
-// added to the inner config. This is needed for standalone verifiers which require blockchain
-// connection information (CL nodes get this from their own chain config).
-func RebuildVerifierJobSpecWithBlockchainInfos(jobSpec string, blockchainInfos map[string]*ccvblockchain.Info) (string, error) {
-	// Parse the outer job spec
-	var spec VerifierJobSpec
-	if err := toml.Unmarshal([]byte(jobSpec), &spec); err != nil {
-		return "", fmt.Errorf("failed to parse job spec: %w", err)
-	}
-
-	// Parse the inner config
-	var cfg commit.Config
-	if err := toml.Unmarshal([]byte(spec.CommitteeVerifierConfig), &cfg); err != nil {
-		return "", fmt.Errorf("failed to parse verifier config from job spec: %w", err)
-	}
-
-	// Create config with blockchain infos
-	configWithInfos := commit.ConfigWithBlockchainInfos{
-		Config:          cfg,
-		BlockchainInfos: blockchainInfos,
-	}
-
-	// Marshal the enhanced config
-	innerConfigBytes, err := toml.Marshal(configWithInfos)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal enhanced config: %w", err)
-	}
-
-	// Rebuild the job spec with the enhanced config
-	spec.CommitteeVerifierConfig = string(innerConfigBytes)
-	outerSpecBytes, err := toml.Marshal(spec)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal job spec: %w", err)
-	}
-
-	return string(outerSpecBytes), nil
 }
 
 // ExecutorJobSpec represents the structure of an executor job spec TOML.
