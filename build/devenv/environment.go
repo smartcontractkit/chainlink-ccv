@@ -391,6 +391,11 @@ func generateVerifierJobSpecs(
 				return nil, fmt.Errorf("failed to parse verifier config from job spec: %w", err)
 			}
 
+			// Store the VerifierID in the output for test access
+			if ver.Out != nil {
+				ver.Out.VerifierID = verCfg.VerifierID
+			}
+
 			// Marshal the inner config back to TOML for standalone mode
 			configBytes, err := toml.Marshal(verCfg)
 			if err != nil {
