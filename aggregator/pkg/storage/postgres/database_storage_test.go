@@ -945,3 +945,130 @@ func TestDatabaseStorage_PageSize(t *testing.T) {
 
 	require.Equal(t, customPageSize, storage.pageSize)
 }
+
+// TestSubmitAggregatedReport_FiltersByVersion verifies that when submitting an aggregated report,
+// only verification records matching the report's CCVVersion are included, even when a signer
+// has multiple records with different versions for the same messageID.
+func TestSubmitAggregatedReport_FiltersByVersion(t *testing.T) {
+	storage, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	message := createTestProtocolMessage()
+
+	// Create three signers
+	signer1 := newTestSigner(t)
+	signer2 := newTestSigner(t)
+	signer3 := newTestSigner(t)
+
+	version1 := []byte{0x01, 0x02, 0x03, 0x04}
+	version2 := []byte{0x05, 0x06, 0x07, 0x08}
+
+	// Signer1 commits with version1
+	msgWithCCV1 := createTestMessageWithCCV(t, message, signer1)
+	msgWithCCV1.CcvVersion = version1
+	messageID := getMessageIDFromProto(t, msgWithCCV1)
+	aggregationKey1 := protocol.ByteSlice(messageID).String()
+
+	record1v1 := createTestCommitVerificationRecord(t, msgWithCCV1, signer1)
+	record1v1.CCVVersion = version1
+	err := storage.SaveCommitVerification(ctx, record1v1, aggregationKey1)
+	require.NoError(t, err)
+
+	// Sleep to ensure different seq_num
+	time.Sleep(10 * time.Millisecond)
+
+	// Signer1 also commits with version2 (different aggregation key)
+	record1v2 := createTestCommitVerificationRecord(t, msgWithCCV1, signer1)
+	record1v2.CCVVersion = version2
+	record1v2.MessageID = messageID
+	err = storage.SaveCommitVerification(ctx, record1v2, "aggregation_key_v2")
+	require.NoError(t, err)
+
+	// Signer2 commits with version1
+	msgWithCCV2 := createTestMessageWithCCV(t, message, signer2)
+	msgWithCCV2.CcvVersion = version1
+	record2v1 := createTestCommitVerificationRecord(t, msgWithCCV2, signer2)
+	record2v1.CCVVersion = version1
+	record2v1.MessageID = messageID
+	err = storage.SaveCommitVerification(ctx, record2v1, aggregationKey1)
+	require.NoError(t, err)
+
+	// Signer3 commits with version1
+	msgWithCCV3 := createTestMessageWithCCV(t, message, signer3)
+	msgWithCCV3.CcvVersion = version1
+	record3v1 := createTestCommitVerificationRecord(t, msgWithCCV3, signer3)
+	record3v1.CCVVersion = version1
+	record3v1.MessageID = messageID
+	err = storage.SaveCommitVerification(ctx, record3v1, aggregationKey1)
+	require.NoError(t, err)
+
+	// Submit aggregated report with version1
+	report := &model.CommitAggregatedReport{
+		MessageID:     messageID,
+		Verifications: []*model.CommitVerificationRecord{record1v1, record2v1, record3v1},
+	}
+	err = storage.SubmitAggregatedReport(ctx, report)
+	require.NoError(t, err)
+
+	// Retrieve and verify
+	retrieved, err := storage.GetCommitAggregatedReportByMessageID(ctx, messageID)
+	require.NoError(t, err)
+	require.NotNil(t, retrieved)
+	require.Len(t, retrieved.Verifications, 3)
+
+	// All verifications should have version1
+	for _, v := range retrieved.Verifications {
+		require.Equal(t, version1, v.CCVVersion)
+	}
+
+	// Verify signer1's record is the version1 record, not version2
+	var foundSigner1 bool
+	for _, v := range retrieved.Verifications {
+		if bytes.Equal(v.SignerIdentifier.Identifier, record1v1.SignerIdentifier.Identifier) {
+			foundSigner1 = true
+			require.Equal(t, version1, v.CCVVersion)
+		}
+	}
+	require.True(t, foundSigner1)
+	require.Equal(t, version1, retrieved.GetVersion())
+}
+
+// TestSubmitAggregatedReport_FailsWhenVersionMismatch tests that submitting an aggregated
+// report fails when the database doesn't have records matching the expected version.
+func TestSubmitAggregatedReport_FailsWhenVersionMismatch(t *testing.T) {
+	storage, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	signer := newTestSigner(t)
+	message := createTestProtocolMessage()
+
+	// Create and save verification with version 1
+	version1 := []byte{0x01, 0x02, 0x03, 0x04}
+	msgWithCCV := createTestMessageWithCCV(t, message, signer)
+	msgWithCCV.CcvVersion = version1
+	messageID := getMessageIDFromProto(t, msgWithCCV)
+	aggregationKey := protocol.ByteSlice(messageID).String()
+
+	record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
+	record.CCVVersion = version1
+	err := storage.SaveCommitVerification(ctx, record, aggregationKey)
+	require.NoError(t, err)
+
+	// Try to submit aggregated report with different version
+	version2 := []byte{0x05, 0x06, 0x07, 0x08}
+	record.CCVVersion = version2
+
+	aggregatedReport := &model.CommitAggregatedReport{
+		MessageID:     messageID,
+		Verifications: []*model.CommitVerificationRecord{record},
+	}
+
+	// This should fail because batchGetVerificationRecordIDs won't find a record
+	// with version2 for this signer
+	err = storage.SubmitAggregatedReport(ctx, aggregatedReport)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to find verification record ID")
+}
