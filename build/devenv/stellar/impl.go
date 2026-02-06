@@ -169,7 +169,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	// Generate deterministic OnRamp address
 	// In a real deployment, this would be obtained from DeployOnRamp
 	onRampAddr := contractAddr("stellar-onramp")
-	
+
 	// Initialize the OnRamp client with the contract ID
 	// Note: For actual deployment, we would:
 	// 1. Deploy the WASM: DeployOnRamp(ctx, c.rpcClient, c.networkPassphrase, c.deployerKeypair, wasmPath)
@@ -177,7 +177,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	// For now, we use the deterministic address and will deploy when WASM is available
 	c.onRampContractID = onRampAddr
 	c.onRampClient = NewOnRampClient(c.rpcClient, c.networkPassphrase, c.deployerKeypair, onRampAddr)
-	
+
 	c.logger.Info().
 		Str("onRampAddress", onRampAddr).
 		Msg("OnRamp client initialized")
@@ -347,13 +347,13 @@ func (c *Chain) DeployLocalNetwork(ctx context.Context, input *blockchain.Input)
 // Funds addresses with native Stellar Lumens (XLM).
 func (c *Chain) FundAddresses(ctx context.Context, input *blockchain.Input, addresses []protocol.UnknownAddress, nativeAmount *big.Int) error {
 	for _, addr := range addresses {
-		addrStr := hexutil.Encode(addr)
+		addrStr := strkey.MustEncode(strkey.VersionByteAccountID, addr)
 		faucetUrl := fmt.Sprintf("%s?addr=%s", input.Out.NetworkSpecificData.StellarNetwork.FriendbotURL, addrStr)
 
 		// Retry logic for friendbot - it may take up to 90 seconds to be ready after container start
 		var lastErr error
-		maxRetries := 30
-		retryInterval := 3 * time.Second
+		maxRetries := 4
+		retryInterval := 30 * time.Second
 
 		for attempt := 0; attempt < maxRetries; attempt++ {
 			resp, err := http.Get(faucetUrl)
@@ -385,12 +385,14 @@ func (c *Chain) FundAddresses(ctx context.Context, input *blockchain.Input, addr
 				Str("status", resp.Status).
 				Int("attempt", attempt+1).
 				Int("maxRetries", maxRetries).
+				Str("address", addrStr).
+				Str("faucetUrl", faucetUrl).
 				Msg("Friendbot not ready, retrying...")
 			time.Sleep(retryInterval)
 		}
 
 		if lastErr != nil {
-			return fmt.Errorf("failed to fund address %s after %d attempts: %w", addr.String(), maxRetries, lastErr)
+			return fmt.Errorf("failed to fund address %s after %d attempts: %w", addrStr, maxRetries, lastErr)
 		}
 	}
 
@@ -536,7 +538,7 @@ func (c *Chain) SendMessage(ctx context.Context, dest uint64, fields cciptestint
 	message := StellarToAnyMessage{
 		Receiver:     fields.Receiver,
 		Data:         fields.Data,
-		TokenAmounts: make([]TokenAmount, 0), // No token transfers for basic test
+		TokenAmounts: make([]TokenAmount, 0),      // No token transfers for basic test
 		FeeToken:     c.deployerKeypair.Address(), // Use deployer as fee token placeholder
 		ExtraArgs:    []byte{},
 	}

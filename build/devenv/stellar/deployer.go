@@ -39,19 +39,17 @@ func NewDeployer(rpcClient *rpcclient.Client, networkPassphrase string, signer *
 // 1. Upload the WASM code (installContractCode)
 // 2. Deploy a contract instance (createContract)
 func (d *Deployer) DeployContract(ctx context.Context, wasmPath string, salt [32]byte) (string, error) {
-	// Read WASM file
 	wasmBytes, err := os.ReadFile(wasmPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read WASM file: %w", err)
 	}
 
-	// Step 1: Upload WASM code
 	wasmHash, err := d.uploadWASM(ctx, wasmBytes)
 	if err != nil {
 		return "", fmt.Errorf("failed to upload WASM: %w", err)
 	}
 
-	// Step 2: Create contract instance
+	// Create contract instance
 	contractID, err := d.createContractInstance(ctx, wasmHash, salt)
 	if err != nil {
 		return "", fmt.Errorf("failed to create contract instance: %w", err)
@@ -141,6 +139,8 @@ func (d *Deployer) createContractInstance(ctx context.Context, wasmHash xdr.Hash
 		return "", err
 	}
 
+	fmt.Printf("createContractInstance result: %s\n", resultMeta)
+
 	// Extract contract ID from result
 	contractID, err := extractContractID(resultMeta)
 	if err != nil {
@@ -163,7 +163,7 @@ func (d *Deployer) InvokeContract(ctx context.Context, contractID string, functi
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode contract ID: %w", err)
 	}
-	
+
 	// Build contract address using XDR marshaling for proper type handling
 	contractAddr := buildContractScAddressFromBytes(contractBytes)
 	if contractAddr == nil {
@@ -176,8 +176,8 @@ func (d *Deployer) InvokeContract(ctx context.Context, contractID string, functi
 			Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
 			InvokeContract: &xdr.InvokeContractArgs{
 				ContractAddress: *contractAddr,
-				FunctionName: xdr.ScSymbol(functionName),
-				Args:         args,
+				FunctionName:    xdr.ScSymbol(functionName),
+				Args:            args,
 			},
 		},
 		SourceAccount: d.signer.Address(),
@@ -205,7 +205,7 @@ func (d *Deployer) SimulateContract(ctx context.Context, contractID string, func
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode contract ID: %w", err)
 	}
-	
+
 	// Build contract address using XDR marshaling for proper type handling
 	contractAddr := buildContractScAddressFromBytes(contractBytes)
 	if contractAddr == nil {
@@ -217,8 +217,8 @@ func (d *Deployer) SimulateContract(ctx context.Context, contractID string, func
 		Type: xdr.HostFunctionTypeHostFunctionTypeInvokeContract,
 		InvokeContract: &xdr.InvokeContractArgs{
 			ContractAddress: *contractAddr,
-			FunctionName: xdr.ScSymbol(functionName),
-			Args:         args,
+			FunctionName:    xdr.ScSymbol(functionName),
+			Args:            args,
 		},
 	}
 
@@ -273,11 +273,11 @@ func (d *Deployer) SimulateContract(ctx context.Context, contractID string, func
 	// The result is returned as a base64-encoded XDR ScVal
 	// Try different field names based on SDK version
 	result := simResult.Results[0]
-	
+
 	// Access via reflection or try common field patterns
 	// The SDK may have the result in different field names
 	var resultXDR string
-	
+
 	// Try to extract from the result - SDK versions may vary
 	// Use the struct's string representation as fallback
 	if xdr, ok := getResultXDR(result); ok {
@@ -408,6 +408,22 @@ func (d *Deployer) buildAndSubmitTransaction(ctx context.Context, sourceAccount 
 		return nil, fmt.Errorf("failed to submit transaction: %w", err)
 	}
 
+	// Check submission status - the transaction may have been rejected
+	switch submitResult.Status {
+	case "PENDING", "DUPLICATE":
+		// Transaction was accepted, continue to wait for confirmation
+	case "TRY_AGAIN_LATER":
+		return nil, fmt.Errorf("transaction submission failed: server overloaded, try again later")
+	case "ERROR":
+		// Transaction was rejected - decode the error
+		if submitResult.ErrorResultXDR != "" {
+			return nil, fmt.Errorf("transaction rejected: %s (diagnostics: %v)", submitResult.ErrorResultXDR, submitResult.DiagnosticEventsXDR)
+		}
+		return nil, fmt.Errorf("transaction rejected with status ERROR")
+	default:
+		return nil, fmt.Errorf("unexpected transaction status: %s", submitResult.Status)
+	}
+
 	// Update account sequence
 	d.accountSequence++
 
@@ -528,14 +544,26 @@ func extractWASMHash(meta *xdr.TransactionMeta) (xdr.Hash, error) {
 		return xdr.Hash{}, fmt.Errorf("nil transaction meta")
 	}
 
-	// Extract WASM hash from soroban meta
-	v3 := meta.MustV3()
-	if v3.SorobanMeta == nil {
-		return xdr.Hash{}, fmt.Errorf("no soroban meta")
+	var returnVal *xdr.ScVal
+
+	// Versions below refer to protocol versions (20 and 21+)
+	switch meta.V {
+	case 4:
+		v := meta.MustV4()
+		if v.SorobanMeta == nil {
+			return xdr.Hash{}, fmt.Errorf("no soroban meta")
+		}
+		returnVal = v.SorobanMeta.ReturnValue
+	case 3:
+		v := meta.MustV3()
+		if v.SorobanMeta == nil {
+			return xdr.Hash{}, fmt.Errorf("no soroban meta")
+		}
+		returnVal = &v.SorobanMeta.ReturnValue
+	default:
+		return xdr.Hash{}, fmt.Errorf("unsupported version: %d", meta.V)
 	}
 
-	// The return value should be the WASM hash
-	returnVal := v3.SorobanMeta.ReturnValue
 	bytes, ok := returnVal.GetBytes()
 	if !ok {
 		return xdr.Hash{}, fmt.Errorf("return value is not bytes")
@@ -552,14 +580,26 @@ func extractContractID(meta *xdr.TransactionMeta) (string, error) {
 		return "", fmt.Errorf("nil transaction meta")
 	}
 
-	// Extract contract address from soroban meta
-	v3 := meta.MustV3()
-	if v3.SorobanMeta == nil {
-		return "", fmt.Errorf("no soroban meta")
+	var returnVal *xdr.ScVal
+
+	// Versions below refer to protocol versions (20 and 21+)
+	switch meta.V {
+	case 4:
+		v := meta.MustV4()
+		if v.SorobanMeta == nil {
+			return "", fmt.Errorf("no soroban meta")
+		}
+		returnVal = v.SorobanMeta.ReturnValue
+	case 3:
+		v := meta.MustV3()
+		if v.SorobanMeta == nil {
+			return "", fmt.Errorf("no soroban meta")
+		}
+		returnVal = &v.SorobanMeta.ReturnValue
+	default:
+		return "", fmt.Errorf("unsupported version: %d", meta.V)
 	}
 
-	// The return value should be the contract address
-	returnVal := v3.SorobanMeta.ReturnValue
 	addr, ok := returnVal.GetAddress()
 	if !ok {
 		return "", fmt.Errorf("return value is not address")
@@ -579,12 +619,23 @@ func extractReturnValue(meta *xdr.TransactionMeta) (*xdr.ScVal, error) {
 		return nil, nil
 	}
 
-	v3 := meta.MustV3()
-	if v3.SorobanMeta == nil {
-		return nil, nil // No return value
+	// Versions below refer to protocol versions (20 and 21+)
+	switch meta.V {
+	case 4:
+		v := meta.MustV4()
+		if v.SorobanMeta == nil {
+			return nil, nil // No return value
+		}
+		return v.SorobanMeta.ReturnValue, nil // V4 ReturnValue is already a pointer
+	case 3:
+		v := meta.MustV3()
+		if v.SorobanMeta == nil {
+			return nil, nil // No return value
+		}
+		return &v.SorobanMeta.ReturnValue, nil // V3 ReturnValue is a value, need address-of
+	default:
+		return nil, fmt.Errorf("unsupported transaction meta version: %d", meta.V)
 	}
-
-	return &v3.SorobanMeta.ReturnValue, nil
 }
 
 // GetEvents returns events from a ledger range.
@@ -651,7 +702,7 @@ func buildContractScAddressFromBytes(contractIDBytes []byte) *xdr.ScAddress {
 	// Type discriminant for contract: ScAddressTypeScAddressTypeContract = 1
 	xdrBytes = append(xdrBytes, 0, 0, 0, 1) // Big-endian uint32
 	xdrBytes = append(xdrBytes, contractIDBytes...)
-	
+
 	var addr xdr.ScAddress
 	if err := addr.UnmarshalBinary(xdrBytes); err != nil {
 		return nil
@@ -662,15 +713,16 @@ func buildContractScAddressFromBytes(contractIDBytes []byte) *xdr.ScAddress {
 // getResultXDR attempts to extract the XDR result from SimulateHostFunctionResult.
 // This handles different SDK versions that may have different field names.
 func getResultXDR(result protocolrpc.SimulateHostFunctionResult) (string, bool) {
-	// Try XDR field (base64-encoded result)
-	// The result structure contains the return value
-	// For now, return empty since we can't determine the exact field name
-	// This should be updated based on actual SDK documentation
+	if result.ReturnValueXDR != nil && *result.ReturnValueXDR != "" {
+		return *result.ReturnValueXDR, true
+	}
 	return "", false
 }
 
 // getLedgerEntryXDR extracts the XDR from a ledger entry result.
 func getLedgerEntryXDR(entry protocolrpc.LedgerEntryResult) (string, bool) {
-	// Similar to above - field names vary by SDK version
+	if entry.DataXDR != "" {
+		return entry.DataXDR, true
+	}
 	return "", false
 }

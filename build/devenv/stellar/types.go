@@ -4,6 +4,7 @@ package stellar
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/stellar/go-stellar-sdk/strkey"
 	"github.com/stellar/go-stellar-sdk/xdr"
@@ -234,8 +235,16 @@ func symbolToScVal(sym string) xdr.ScVal {
 }
 
 func buildStructScVal(fields map[string]xdr.ScVal) (xdr.ScVal, error) {
+	// Soroban requires ScMap keys to be sorted lexicographically
+	keys := make([]string, 0, len(fields))
+	for k := range fields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
 	entries := make([]xdr.ScMapEntry, 0, len(fields))
-	for k, v := range fields {
+	for _, k := range keys {
+		v := fields[k]
 		sym := xdr.ScSymbol(k)
 		entries = append(entries, xdr.ScMapEntry{
 			Key: xdr.ScVal{
