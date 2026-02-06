@@ -20,7 +20,7 @@ import (
 	pkgcommon "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 )
 
-func (d *DatabaseStorage) batchGetVerificationRecordIDs(ctx context.Context, messageIDHex string, signerIdentifiers []string) (map[string]int64, error) {
+func (d *DatabaseStorage) batchGetVerificationRecordIDs(ctx context.Context, messageIDHex string, signerIdentifiers []string, ccvVersion []byte) (map[string]int64, error) {
 	recordIDsMap := make(map[string]int64)
 	if len(signerIdentifiers) == 0 {
 		return recordIDsMap, nil
@@ -28,7 +28,7 @@ func (d *DatabaseStorage) batchGetVerificationRecordIDs(ctx context.Context, mes
 
 	stmt := `SELECT DISTINCT ON (signer_identifier) signer_identifier, id
 		FROM commit_verification_records 
-		WHERE message_id = $1 AND signer_identifier = ANY($2)
+		WHERE message_id = $1 AND signer_identifier = ANY($2) AND ccv_version = $3
 		ORDER BY signer_identifier, seq_num DESC`
 
 	type idRecord struct {
@@ -37,7 +37,7 @@ func (d *DatabaseStorage) batchGetVerificationRecordIDs(ctx context.Context, mes
 	}
 
 	var records []idRecord
-	err := d.ds.SelectContext(ctx, &records, stmt, messageIDHex, pq.Array(signerIdentifiers))
+	err := d.ds.SelectContext(ctx, &records, stmt, messageIDHex, pq.Array(signerIdentifiers), ccvVersion)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get verification record IDs: %w", err)
 	}
@@ -502,7 +502,7 @@ func (d *DatabaseStorage) SubmitAggregatedReport(ctx context.Context, report *mo
 		signerIdentifiers = append(signerIdentifiers, signerIdentifierHex)
 	}
 
-	recordIDsMap, err := d.batchGetVerificationRecordIDs(ctx, messageIDHex, signerIdentifiers)
+	recordIDsMap, err := d.batchGetVerificationRecordIDs(ctx, messageIDHex, signerIdentifiers, report.GetVersion())
 	if err != nil {
 		return err
 	}

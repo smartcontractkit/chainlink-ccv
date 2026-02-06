@@ -64,6 +64,8 @@ runs:
 
     - name: Set up Go
       uses: actions/setup-go@v6
+      env:
+        GOPRIVATE: github.com/smartcontractkit/*
       with:
         cache: true
         go-version-file: build/devenv/go.mod

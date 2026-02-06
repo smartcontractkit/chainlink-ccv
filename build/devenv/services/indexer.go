@@ -50,6 +50,7 @@ type IndexerInput struct {
 	GeneratedCfg                     *config.GeneratedConfig `toml:"generated_config"`
 	CommitteeVerifierNameToQualifier map[string]string       `toml:"committee_verifier_name_to_qualifier"`
 	CCTPVerifierNameToQualifier      map[string]string       `toml:"cctp_verifier_name_to_qualifier"`
+	LombardVerifierNameToQualifier   map[string]string       `toml:"lombard_verifier_name_to_qualifier"`
 
 	// TLSCACertFile is the path to the CA certificate file for TLS verification.
 	// This is set by the aggregator service and used to trust the self-signed CA.

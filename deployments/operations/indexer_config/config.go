@@ -7,6 +7,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/lombard_verifier"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -28,6 +29,7 @@ type BuildConfigInput struct {
 	// used for looking up addresses in the datastore.
 	CommitteeVerifierNameToQualifier map[string]string
 	CCTPVerifierNameToQualifier      map[string]string
+	LombardVerifierNameToQualifier   map[string]string
 	// ChainSelectors are the source chains the indexer will monitor.
 	// If empty, defaults to all chain selectors available in the environment.
 	ChainSelectors []uint64
@@ -57,7 +59,8 @@ var BuildConfig = operations.NewOperation(
 	func(b operations.Bundle, deps BuildConfigDeps, input BuildConfigInput) (BuildConfigOutput, error) {
 		ds := deps.Env.DataStore
 
-		verifiers := make([]GeneratedVerifier, 0, len(input.CommitteeVerifierNameToQualifier)+len(input.CCTPVerifierNameToQualifier))
+		// Use a map to merge verifiers with the same name
+		verifierMap := make(map[string][]string)
 
 		for name, qualifier := range input.CommitteeVerifierNameToQualifier {
 			addresses, err := collectUniqueAddresses(
@@ -65,10 +68,7 @@ var BuildConfig = operations.NewOperation(
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get resolver addresses for verifier %q (qualifier %q): %w", name, qualifier, err)
 			}
-			verifiers = append(verifiers, GeneratedVerifier{
-				Name:            name,
-				IssuerAddresses: addresses,
-			})
+			verifierMap[name] = append(verifierMap[name], addresses...)
 		}
 
 		for name, qualifier := range input.CCTPVerifierNameToQualifier {
@@ -77,9 +77,33 @@ var BuildConfig = operations.NewOperation(
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get resolver addresses for verifier %q (qualifier %q): %w", name, qualifier, err)
 			}
+			verifierMap[name] = append(verifierMap[name], addresses...)
+		}
+
+		for name, qualifier := range input.LombardVerifierNameToQualifier {
+			addresses, err := collectUniqueAddresses(
+				ds, input.ChainSelectors, qualifier, lombard_verifier.ResolverType)
+			if err != nil {
+				return BuildConfigOutput{}, fmt.Errorf("failed to get resolver addresses for verifier %q (qualifier %q): %w", name, qualifier, err)
+			}
+			verifierMap[name] = append(verifierMap[name], addresses...)
+		}
+
+		// Convert map to slice, ensuring unique addresses per verifier
+		verifiers := make([]GeneratedVerifier, 0, len(verifierMap))
+		for name, addresses := range verifierMap {
+			// Deduplicate addresses
+			seen := make(map[string]bool)
+			uniqueAddresses := make([]string, 0, len(addresses))
+			for _, addr := range addresses {
+				if !seen[addr] {
+					seen[addr] = true
+					uniqueAddresses = append(uniqueAddresses, addr)
+				}
+			}
 			verifiers = append(verifiers, GeneratedVerifier{
 				Name:            name,
-				IssuerAddresses: addresses,
+				IssuerAddresses: uniqueAddresses,
 			})
 		}
 

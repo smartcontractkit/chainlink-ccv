@@ -126,12 +126,17 @@ func buildQuorumConfigsFromOnChain(
 				continue
 			}
 
-			ref := datastore.AddressRef{
-				Qualifier: committeeQualifier,
-				Type:      datastore.ContractType(committee_verifier.ResolverType),
-			}
-			sourceVerifierAddr, err := dsutils.FindAndFormatRef(ds, ref, sigConfig.SourceChainSelector,
-				func(r datastore.AddressRef) (string, error) { return r.Address, nil })
+			// Lookup the committee verifier address by both the resolver type and the contract type
+			sourceVerifierAddr, err := dsutils.FindAndFormatFirstRef(ds, sigConfig.SourceChainSelector, func(r datastore.AddressRef) (string, error) { return r.Address, nil },
+				datastore.AddressRef{
+					Type:      datastore.ContractType(committee_verifier.ResolverType),
+					Qualifier: committeeQualifier,
+				},
+				datastore.AddressRef{
+					Type:      datastore.ContractType(committee_verifier.ContractType),
+					Qualifier: committeeQualifier,
+				},
+			)
 			if err != nil {
 				return nil, fmt.Errorf("failed to resolve source verifier for chain %d: %w", sigConfig.SourceChainSelector, err)
 			}
@@ -161,14 +166,18 @@ func buildDestinationVerifiers(
 ) (map[string]string, error) {
 	destVerifiers := make(map[string]string)
 
-	ref := datastore.AddressRef{
-		Qualifier: committeeQualifier,
-		Type:      datastore.ContractType(committee_verifier.ResolverType),
-	}
-
 	for _, chainSelector := range destChainSelectors {
-		addr, err := dsutils.FindAndFormatRef(ds, ref, chainSelector,
-			func(r datastore.AddressRef) (string, error) { return r.Address, nil })
+		// Lookup the committee verifier address by both the resolver type and the contract type
+		addr, err := dsutils.FindAndFormatFirstRef(ds, chainSelector, func(r datastore.AddressRef) (string, error) { return r.Address, nil },
+			datastore.AddressRef{
+				Type:      datastore.ContractType(committee_verifier.ResolverType),
+				Qualifier: committeeQualifier,
+			},
+			datastore.AddressRef{
+				Type:      datastore.ContractType(committee_verifier.ContractType),
+				Qualifier: committeeQualifier,
+			},
+		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve destination verifier for chain %d: %w", chainSelector, err)
 		}

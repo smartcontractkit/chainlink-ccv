@@ -842,6 +842,7 @@ func NewEnvironment() (in *Cfg, err error) {
 			ServiceIdentifier:                "indexer",
 			CommitteeVerifierNameToQualifier: in.Indexer.CommitteeVerifierNameToQualifier,
 			CCTPVerifierNameToQualifier:      in.Indexer.CCTPVerifierNameToQualifier,
+			LombardVerifierNameToQualifier:   in.Indexer.LombardVerifierNameToQualifier,
 			ChainSelectors:                   selectors,
 		})
 		if err != nil {
@@ -992,7 +993,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	for i := range in.TokenVerifier {
 		ver, err := services.ResolveContractsForTokenVerifier(e.DataStore, in.Blockchains, *in.TokenVerifier[i])
 		if err != nil {
-			return nil, fmt.Errorf("failed to lookup contracts %w", err)
+			return nil, fmt.Errorf("failed to lookup contracts: %w", err)
 		}
 
 		in.TokenVerifier[i] = &ver

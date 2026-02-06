@@ -61,7 +61,7 @@ type TokenVerifierInput struct {
 
 	CCTPVerifierResolverAddresses map[string]string `toml:"cctp_verifier_resolver_addresses"`
 
-	LombardVerifierAddresses map[string]string `toml:"lombard_verifier_addresses"`
+	LombardVerifierResolverAddresses map[string]string `toml:"lombard_verifier_resolver_addresses"`
 }
 
 type TokenVerifierOutput struct {
@@ -284,9 +284,9 @@ func (v *TokenVerifierInput) buildVerifierConfiguration(config *token.Config, fa
 		})
 	}
 
-	if len(v.LombardVerifierAddresses) > 0 {
+	if len(v.LombardVerifierResolverAddresses) > 0 {
 		verifierResolvers := make(map[string]any)
-		for k, addr := range v.LombardVerifierAddresses {
+		for k, addr := range v.LombardVerifierResolverAddresses {
 			verifierResolvers[k] = addr
 		}
 		config.TokenVerifiers = append(config.TokenVerifiers, token.VerifierConfig{
@@ -312,7 +312,7 @@ func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blo
 	ver.RMNRemoteAddresses = make(map[string]string)
 	ver.CCTPVerifierAddresses = make(map[string]string)
 	ver.CCTPVerifierResolverAddresses = make(map[string]string)
-	ver.LombardVerifierAddresses = make(map[string]string)
+	ver.LombardVerifierResolverAddresses = make(map[string]string)
 
 	for _, chain := range blockchains {
 		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(chain.ChainID, chain.Out.Family)
@@ -349,18 +349,18 @@ func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blo
 			ver.CCTPVerifierAddresses[selectorStr] = cctpTokenVerifierAddressRef.Address
 		}
 
-		lombardTokenVerifier, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+		lombardTokenVerifierResolverRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
 			networkInfo.ChainSelector,
-			datastore.ContractType(lombard_verifier.ContractType),
+			datastore.ContractType(lombard_verifier.ResolverType),
 			semver.MustParse(lombard_verifier.Deploy.Version()),
-			devenvcommon.CCTPContractsQualifier,
+			devenvcommon.LombardContractsQualifier,
 		))
 		if err != nil {
 			framework.L.Info().
 				Str("chainID", chain.ChainID).
 				Msg("Failed to get Lombard Verifier address from datastore")
 		} else {
-			ver.LombardVerifierAddresses[selectorStr] = lombardTokenVerifier.Address
+			ver.LombardVerifierResolverAddresses[selectorStr] = lombardTokenVerifierResolverRef.Address
 		}
 
 		onRampAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
