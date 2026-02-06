@@ -90,7 +90,7 @@ func (h *HTTPAttestationService) Fetch(
 	txHash protocol.ByteSlice,
 	message protocol.Message,
 ) (Attestation, error) {
-	sourceDomain, ok := SourceDomains[uint64(message.SourceChainSelector)]
+	sourceDomain, ok := Domains[uint64(message.SourceChainSelector)]
 	if !ok {
 		return Attestation{}, fmt.Errorf("unsupported source chain selector: %d", message.SourceChainSelector)
 	}

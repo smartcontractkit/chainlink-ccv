@@ -190,7 +190,7 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(
 
 	remoteChains := make(map[uint64]adapters.RemoteCCTPChainConfig)
 	for _, rs := range remoteSelectors {
-		domain, ok := cctp.SourceDomains[rs]
+		domain, ok := cctp.Domains[rs]
 		if !ok {
 			return fmt.Errorf("no CCTP domain mapping found for chain selector %d", rs)
 		}
@@ -342,7 +342,7 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 		return empty, empty, empty, fmt.Errorf("failed to add USDC token contract: %w", err)
 	}
 
-	localDomain, ok := cctp.SourceDomains[selector]
+	localDomain, ok := cctp.Domains[selector]
 	if !ok {
 		return empty, empty, empty, fmt.Errorf("no CCTP domain mapping found for chain selector %d", selector)
 	}
@@ -351,7 +351,7 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 		chain.DeployerKey,
 		chain.Client,
 		uint32(1),     // version (CCTP V2)
-		localDomain,   // localDomain from cctp.SourceDomains
+		localDomain,   // localDomain from cctp.Domains
 		usdcTokenAddr, // token
 	)
 	if err != nil {
