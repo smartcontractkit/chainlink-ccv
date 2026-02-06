@@ -166,8 +166,8 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Co
 	}
 }
 
-// enrichEnvironmentTopology injects SignerAddress values from verifier inputs into the EnvironmentTopology.
-// This is needed because signer addresses are only known after key generation or CL node launch.
+// enrichEnvironmentTopology injects SignerAddress values from verifier outputs into the EnvironmentTopology.
+// This is needed because signer addresses are only known after verifiers start and generate their keys.
 // Each verifier's NOPAlias identifies which NOP in the topology it belongs to.
 // Only the first verifier for each NOP sets the signer address (subsequent verifiers with the
 // same NOPAlias are ignored to avoid overwriting with wrong keys due to round-robin wrap-around).
@@ -179,14 +179,18 @@ func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers [
 		}
 		if nop, ok := cfg.NOPTopology.GetNOP(ver.NOPAlias); ok {
 			if nop.GetMode() == shared.NOPModeCL {
-				// For CL mode the signer address should be fetch from JD
+				// For CL mode the signer address is fetched from JD
 				continue
 			}
-			if nop.SignerAddressByFamily[chainsel.FamilyEVM] == "" {
-				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, ver.SigningKeyPublic)
-			}
-			if nop.SignerAddressByFamily[chainsel.FamilyCanton] == "" {
-				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyCanton, ver.SigningKeyPublic)
+			// For JD mode verifiers, the signing address is discovered via /info endpoint
+			// and stored in the verifier output
+			if ver.Out != nil && ver.Out.SigningAddress != "" {
+				if nop.SignerAddressByFamily[chainsel.FamilyEVM] == "" {
+					cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, ver.Out.SigningAddress)
+				}
+				if nop.SignerAddressByFamily[chainsel.FamilyCanton] == "" {
+					cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyCanton, ver.Out.SigningAddress)
+				}
 			}
 			seenAliases[ver.NOPAlias] = struct{}{}
 		}
@@ -607,37 +611,43 @@ func NewEnvironment() (in *Cfg, err error) {
 	/////////////////////////////////////
 
 	/////////////////////////////////////////////
-	// START: Assign signing keys to verifiers //
+	// START: Launch verifiers early //
+	// Verifiers generate their own keys on startup, so we need to start them
+	// early and query /info to discover signing addresses before contract deployment.
 	/////////////////////////////////////////////
+	timeTrack.Record("[infra] starting verifiers")
+
+	// Get JD CSA public key for verifiers to connect
+	var jdCSAPublicKey string
+	if jdInfra != nil && jdInfra.OffchainClient != nil {
+		jdCSAPublicKey, err = jobs.GetJDCSAPublicKey(ctx, jdInfra.OffchainClient)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get JD CSA public key: %w", err)
+		}
+	}
+
 	for i := range in.Verifier {
 		ver := services.ApplyVerifierDefaults(*in.Verifier[i])
 
-		switch ver.Mode {
-		case services.CL:
-			// no-op signing key is fetched from JD with changeset
-		case services.Standalone:
-			// deterministic key generation algorithm.
-			ver.SigningKey = util.XXXNewVerifierPrivateKey(ver.CommitteeName, ver.NodeIndex)
-
-			privateKey, err := commit.ReadPrivateKeyFromString(ver.SigningKey)
-			if err != nil {
-				return nil, fmt.Errorf("failed to load private key: %w", err)
-			}
-			_, publicKey, err := commit.NewECDSAMessageSigner(privateKey)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create message signer: %w", err)
-			}
-			ver.SigningKeyPublic = publicKey.String()
-
-		default:
-			return nil, fmt.Errorf("unsupported verifier mode: %s", ver.Mode)
+		// Configure JD connection
+		if jdInfra != nil && jdInfra.JDOutput != nil {
+			ver.JDWSRPCUrl = jdInfra.JDOutput.InternalWSRPCUrl
+			ver.JDCSAPublicKey = jdCSAPublicKey
 		}
 
-		// Apply changes back to input.
 		in.Verifier[i] = &ver
 	}
+
+	// Start verifiers (they generate keys on startup and wait for JD job proposals)
+	// NewVerifier queries /info to discover auto-generated keys before returning
+	_, err = launchStandaloneVerifiers(in, blockchainOutputs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start verifiers: %w", err)
+	}
+	timeTrack.Record("[infra] started verifiers")
+
 	/////////////////////////////////////////////
-	// END: Assign signing keys to verifiers //
+	// END: Launch verifiers early //
 	/////////////////////////////////////////////
 
 	/////////////////////////////////////////
@@ -893,23 +903,24 @@ func NewEnvironment() (in *Cfg, err error) {
 	// END: Launch executors //
 	///////////////////////////
 
-	/////////////////////////////
-	// START: Launch verifiers //
-	/////////////////////////////
+	///////////////////////////////////
+	// START: Generate verifier jobs //
+	// Verifiers were started earlier and are waiting for job proposals.
+	// Generate job specs and propose them via JD.
+	///////////////////////////////////
 
 	_, err = generateVerifierJobSpecs(e, in, selectors, topology, sharedTLSCerts, ds)
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = launchStandaloneVerifiers(in, blockchainOutputs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create standalone verifiers: %w", err)
-	}
+	// TODO: Propose jobs to verifiers via JD.
+	// The verifiers are already running and connected to JD, waiting for job proposals.
+	// This will be implemented when JD job proposal for standalone verifiers is added.
 
-	/////////////////////////////
-	// END: Launch verifiers //
-	/////////////////////////////
+	///////////////////////////////////
+	// END: Generate verifier jobs //
+	///////////////////////////////////
 
 	///////////////////////////////////
 	// START: Launch token verifiers //
@@ -984,7 +995,6 @@ func launchCLNodes(
 	for _, ver := range in.Verifier {
 		hasAService = hasAService || (ver.Mode == services.CL)
 	}
-
 	for _, exec := range in.Executor {
 		hasAService = hasAService || (exec.Mode == services.CL)
 	}
@@ -1166,19 +1176,21 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) 
 	}
 
 	var outs []*services.VerifierOutput
-	// Start standalone verifiers if in standalone mode.
 	for _, ver := range in.Verifier {
-		if ver.Mode == services.Standalone {
-			if aggOut, ok := aggregatorOutputByCommittee[ver.CommitteeName]; ok {
-				ver.AggregatorOutput = aggOut
-			}
-			out, err := services.NewVerifier(ver, blockchainOutputs)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create verifier service: %w", err)
-			}
-			ver.Out = out
-			outs = append(outs, out)
+		// Only launch standalone verifiers as containers.
+		// CL mode verifiers run inside Chainlink nodes.
+		if ver.Mode != services.Standalone {
+			continue
 		}
+		if aggOut, ok := aggregatorOutputByCommittee[ver.CommitteeName]; ok {
+			ver.AggregatorOutput = aggOut
+		}
+		out, err := services.NewVerifier(ver, blockchainOutputs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create verifier service: %w", err)
+		}
+		ver.Out = out
+		outs = append(outs, out)
 	}
 	return outs, nil
 }
