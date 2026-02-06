@@ -19,6 +19,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/common/jdclient"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
@@ -30,7 +31,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/infoserver"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jdclient"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/keys"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/keystore"
