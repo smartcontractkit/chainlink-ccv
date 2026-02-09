@@ -4,6 +4,18 @@ dir: ./internal/mocks
 outpkg: mocks
 
 packages:
+  github.com/smartcontractkit/chainlink-ccv/common/jd/client:
+    interfaces:
+      ClientInterface:
+
+  github.com/smartcontractkit/chainlink-ccv/common/jd/store:
+    interfaces:
+      StoreInterface:
+
+  github.com/smartcontractkit/chainlink-ccv/common/jd/lifecycle:
+    interfaces:
+      JobRunner:
+
   github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess:
     interfaces:
       SourceReader:
