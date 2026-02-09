@@ -55,6 +55,10 @@ type Credentials struct {
 // The secret is returned as a hex-encoded string.
 // numBytes specifies the number of random bytes (e.g., 32 bytes = 64 hex chars).
 func GenerateSecret(numBytes int) (string, error) {
+	if numBytes < MinSecretBytes {
+		return "", fmt.Errorf("number of bytes must be at least %d", MinSecretBytes)
+	}
+
 	secret := make([]byte, numBytes)
 	if _, err := rand.Read(secret); err != nil {
 		return "", fmt.Errorf("failed to generate random bytes: %w", err)
@@ -72,15 +76,6 @@ func GenerateCredentials() (Credentials, error) {
 		APIKey: uuid.New().String(),
 		Secret: secret,
 	}, nil
-}
-
-// MustGenerateCredentials generates a new API key (UUID) and HMAC secret pair and panics if an error occurs.
-func MustGenerateCredentials() Credentials {
-	creds, err := GenerateCredentials()
-	if err != nil {
-		panic(err)
-	}
-	return creds
 }
 
 // ValidateAPIKey validates that the API key is a valid UUID.
@@ -132,6 +127,10 @@ func GenerateStringToSign(method, fullPath, bodyHash, apiKey, timestamp string) 
 // ComputeHMAC computes the HMAC-SHA256 signature and returns it as a hex-encoded string.
 // The secret must be a hex-encoded string which will be decoded before use as the HMAC key.
 func ComputeHMAC(secret, stringToSign string) (string, error) {
+	if err := ValidateSecret(secret); err != nil {
+		return "", fmt.Errorf("failed to validate HMAC secret: %w", err)
+	}
+
 	secretBytes, err := hex.DecodeString(secret)
 	if err != nil {
 		return "", fmt.Errorf("HMAC secret must be hex-encoded: %w", err)

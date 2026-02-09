@@ -30,7 +30,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 )
 
-var testCredentials = hmacutil.MustGenerateCredentials()
+var testCredentials, _ = hmacutil.GenerateCredentials()
 
 // generateTestSigningKey generates a deterministic signing key for testing.
 func generateTestSigningKey(committeeName string, nodeIndex int) (privateKey, publicKey string, err error) {
@@ -423,9 +423,9 @@ func setupAggregatorTestFixture(t *testing.T) *aggregatorTestFixture {
 	malicious := newTestSigner(t, committeeName, 2)
 
 	// Separate credentials for each verifier
-	honest1Credentials := hmacutil.MustGenerateCredentials()
-	honest2Credentials := hmacutil.MustGenerateCredentials()
-	maliciousCredentials := hmacutil.MustGenerateCredentials()
+	honest1Credentials, _ := hmacutil.GenerateCredentials()
+	honest2Credentials, _ := hmacutil.GenerateCredentials()
+	maliciousCredentials, _ := hmacutil.GenerateCredentials()
 
 	// Setup aggregator with 2-of-3 threshold
 	sourceChainSelStr := fmt.Sprintf("%d", sourceChainSel)

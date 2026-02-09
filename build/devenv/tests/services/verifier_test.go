@@ -10,7 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
-var verifierTestCredentials = hmacutil.MustGenerateCredentials()
+var verifierTestCredentials, _ = hmacutil.GenerateCredentials()
 
 func TestServiceVerifier(t *testing.T) {
 	in := services.ApplyVerifierDefaults(services.VerifierInput{
