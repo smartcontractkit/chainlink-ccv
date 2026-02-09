@@ -21,6 +21,7 @@ packages:
       SourceReader:
       DestinationReader:
       ContractTransmitter:
+      RMNCurseReader:
 
   github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2:
     interfaces:
@@ -31,7 +32,6 @@ packages:
     interfaces:
       CurseChecker:
       CurseCheckerService:
-      RMNRemoteReader:
       TimeProvider:
 
   github.com/smartcontractkit/chainlink-ccv/protocol:

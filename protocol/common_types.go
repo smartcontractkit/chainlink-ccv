@@ -14,7 +14,7 @@ import (
 type ChainSelector uint64
 
 func (c ChainSelector) String() string {
-	return fmt.Sprintf("ChainSelector(%d)", c)
+	return strconv.FormatUint(uint64(c), 10)
 }
 
 // Nonce represents a monotonic counter used for adding entropy and uniqueness to a CCIP message.

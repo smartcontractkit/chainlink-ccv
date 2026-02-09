@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -77,7 +77,7 @@ func TestCachedCurseChecker_CacheHit(t *testing.T) {
 			assert.NoError(t, err)
 
 			// Create mock reader
-			mockReader := mocks.NewMockRMNRemoteReader(t)
+			mockReader := mocks.NewMockRMNCurseReader(t)
 
 			// Set up expectation for first call
 			mockReader.EXPECT().
@@ -88,7 +88,7 @@ func TestCachedCurseChecker_CacheHit(t *testing.T) {
 			// Create cached curse checker
 			checker := NewCachedCurseChecker(Params{
 				Lggr: lggr,
-				RmnReaders: map[protocol.ChainSelector]common.RMNRemoteReader{
+				RmnReaders: map[protocol.ChainSelector]chainaccess.RMNCurseReader{
 					tt.localChain: mockReader,
 				},
 				CacheExpiry: tt.cacheExpiry,
@@ -169,7 +169,7 @@ func TestCachedCurseChecker_CacheExpiry(t *testing.T) {
 			assert.NoError(t, err)
 
 			// Create mock reader
-			mockReader := mocks.NewMockRMNRemoteReader(t)
+			mockReader := mocks.NewMockRMNCurseReader(t)
 
 			// Set up expectation for first call
 			mockReader.EXPECT().
@@ -186,7 +186,7 @@ func TestCachedCurseChecker_CacheExpiry(t *testing.T) {
 			// Create cached curse checker
 			checker := NewCachedCurseChecker(Params{
 				Lggr: lggr,
-				RmnReaders: map[protocol.ChainSelector]common.RMNRemoteReader{
+				RmnReaders: map[protocol.ChainSelector]chainaccess.RMNCurseReader{
 					tt.localChain: mockReader,
 				},
 				CacheExpiry: tt.cacheExpiry,
@@ -241,7 +241,7 @@ func TestCachedCurseChecker_ErrorHandling(t *testing.T) {
 			lggr, err := logger.New()
 			assert.NoError(t, err)
 
-			mockReader := mocks.NewMockRMNRemoteReader(t)
+			mockReader := mocks.NewMockRMNCurseReader(t)
 
 			// 1st call: reader returns error
 			readerErr := errors.New("RPC error")
@@ -258,7 +258,7 @@ func TestCachedCurseChecker_ErrorHandling(t *testing.T) {
 
 			checker := NewCachedCurseChecker(Params{
 				Lggr: lggr,
-				RmnReaders: map[protocol.ChainSelector]common.RMNRemoteReader{
+				RmnReaders: map[protocol.ChainSelector]chainaccess.RMNCurseReader{
 					tt.localChain: mockReader,
 				},
 				CacheExpiry: 1 * time.Second,
@@ -319,9 +319,9 @@ func TestCachedCurseChecker_MultipleChains(t *testing.T) {
 			assert.NoError(t, err)
 
 			// Create mock readers for each chain
-			mockReaders := make(map[protocol.ChainSelector]common.RMNRemoteReader)
+			mockReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
 			for _, chain := range tt.chains {
-				mockReader := mocks.NewMockRMNRemoteReader(t)
+				mockReader := mocks.NewMockRMNCurseReader(t)
 				mockReader.EXPECT().
 					GetRMNCursedSubjects(mock.Anything).
 					Return(tt.curseResults[chain], nil).
@@ -406,7 +406,7 @@ func TestCachedCurseChecker_GlobalCurseDetection(t *testing.T) {
 			assert.NoError(t, err)
 
 			// Create mock reader
-			mockReader := mocks.NewMockRMNRemoteReader(t)
+			mockReader := mocks.NewMockRMNCurseReader(t)
 			mockReader.EXPECT().
 				GetRMNCursedSubjects(mock.Anything).
 				Return(tt.cursedSubjects, nil).
@@ -415,7 +415,7 @@ func TestCachedCurseChecker_GlobalCurseDetection(t *testing.T) {
 			// Create cached curse checker
 			checker := NewCachedCurseChecker(Params{
 				Lggr: lggr,
-				RmnReaders: map[protocol.ChainSelector]common.RMNRemoteReader{
+				RmnReaders: map[protocol.ChainSelector]chainaccess.RMNCurseReader{
 					tt.localChain: mockReader,
 				},
 				CacheExpiry: 1 * time.Second,
@@ -455,7 +455,7 @@ func TestCachedCurseChecker_NilCursedSubjects(t *testing.T) {
 			assert.NoError(t, err)
 
 			// Create mock reader
-			mockReader := mocks.NewMockRMNRemoteReader(t)
+			mockReader := mocks.NewMockRMNCurseReader(t)
 			mockReader.EXPECT().
 				GetRMNCursedSubjects(mock.Anything).
 				Return(nil, nil).
@@ -464,7 +464,7 @@ func TestCachedCurseChecker_NilCursedSubjects(t *testing.T) {
 			// Create cached curse checker
 			checker := NewCachedCurseChecker(Params{
 				Lggr: lggr,
-				RmnReaders: map[protocol.ChainSelector]common.RMNRemoteReader{
+				RmnReaders: map[protocol.ChainSelector]chainaccess.RMNCurseReader{
 					tt.localChain: mockReader,
 				},
 				CacheExpiry: 1 * time.Second,
