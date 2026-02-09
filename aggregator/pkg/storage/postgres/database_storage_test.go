@@ -246,7 +246,7 @@ func setupTestDBWithDatabase(t *testing.T) (*DatabaseStorage, *sqlx.DB, func()) 
 	err = RunMigrations(ds, "postgres")
 	require.NoError(t, err)
 
-	storage := NewDatabaseStorage(ds, 10, logger.TestSugared(t))
+	storage := NewDatabaseStorage(ds, 10, 10*time.Second, logger.TestSugared(t))
 
 	cleanup := func() {
 		ds.Close()
@@ -941,7 +941,7 @@ func TestDatabaseStorage_PageSize(t *testing.T) {
 	defer ds.Close()
 
 	customPageSize := 25
-	storage := NewDatabaseStorage(ds, customPageSize, logger.TestSugared(t))
+	storage := NewDatabaseStorage(ds, customPageSize, 10*time.Second, logger.TestSugared(t))
 
 	require.Equal(t, customPageSize, storage.pageSize)
 }

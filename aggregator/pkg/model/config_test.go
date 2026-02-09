@@ -79,6 +79,7 @@ func TestSetDefaults(t *testing.T) {
 		assert.Equal(t, 10*time.Second, cfg.Server.RequestTimeout)
 		assert.Equal(t, 5*time.Second, cfg.Aggregation.CheckAggregationTimeout)
 		assert.Equal(t, 5*time.Second, cfg.OrphanRecovery.CheckAggregationTimeout)
+		assert.Equal(t, 10*time.Second, cfg.Storage.QueryTimeout)
 	})
 
 	t.Run("does not override existing values", func(t *testing.T) {
@@ -370,6 +371,12 @@ func TestValidateStorageConfig(t *testing.T) {
 			config:      &StorageConfig{PageSize: 100, MaxOpenConns: 25, MaxIdleConns: 5, ConnMaxIdleTime: -1 * time.Second},
 			expectError: true,
 			errorMsg:    "connMaxIdleTime cannot be negative",
+		},
+		{
+			name:        "negative query timeout fails",
+			config:      &StorageConfig{PageSize: 100, MaxOpenConns: 25, MaxIdleConns: 5, QueryTimeout: -1 * time.Second},
+			expectError: true,
+			errorMsg:    "queryTimeout cannot be negative",
 		},
 	}
 

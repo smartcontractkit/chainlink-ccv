@@ -114,6 +114,7 @@ type StorageConfig struct {
 	MaxIdleConns    int           `toml:"maxIdleConns"`
 	ConnMaxLifetime time.Duration `toml:"connMaxLifetime"`
 	ConnMaxIdleTime time.Duration `toml:"connMaxIdleTime"`
+	QueryTimeout    time.Duration `toml:"queryTimeout"`
 }
 
 // ServerConfig represents the configuration for the server.
@@ -479,6 +480,11 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.Storage.ConnMaxIdleTime == 0 {
 		c.Storage.ConnMaxIdleTime = 5 * time.Minute
 	}
+	// Default query timeout: 10 seconds
+	if c.Storage.QueryTimeout == 0 {
+		c.Storage.QueryTimeout = 10 * time.Second
+	}
+
 	// Default orphan recovery: enabled with 5 minute interval
 	if c.OrphanRecovery.Interval == 0 {
 		c.OrphanRecovery.Interval = 5 * time.Minute
@@ -611,6 +617,9 @@ func (c *AggregatorConfig) ValidateStorageConfig() error {
 	}
 	if c.Storage.ConnMaxIdleTime < 0 {
 		return errors.New("storage.connMaxIdleTime cannot be negative")
+	}
+	if c.Storage.QueryTimeout < 0 {
+		return errors.New("storage.queryTimeout cannot be negative")
 	}
 
 	return nil

@@ -107,5 +107,5 @@ func (f *Factory) createPostgreSQLStorage(config *model.StorageConfig) (CommitVe
 		return nil, fmt.Errorf("failed to run PostgreSQL migrations: %w", err)
 	}
 
-	return postgres.NewDatabaseStorage(sqlxDB, config.PageSize, f.logger), nil
+	return postgres.NewDatabaseStorage(sqlxDB, config.PageSize, config.QueryTimeout, f.logger), nil
 }
