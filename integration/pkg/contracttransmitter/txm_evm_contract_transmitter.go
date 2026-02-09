@@ -43,7 +43,12 @@ func NewEVMContractTransmitterFromTxm(lggr logger.Logger, chainSelector protocol
 }
 
 func (ct *TXMEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Context, report protocol.AbstractAggregatedReport) error {
-	encodedMsg, _ := report.Message.Encode()
+	encodedMsg, err := report.Message.Encode()
+	if err != nil {
+		ct.lggr.Errorw("unable to submit txn: invalid message encoding", "error", err, "messageID", report.Message.MustMessageID())
+		return fmt.Errorf("unable to submit txn: invalid message encoding %s", err)
+	}
+
 	contractCcvs := make([]common.Address, 0)
 	for _, ccv := range report.CCVS {
 		contractCcvs = append(contractCcvs, common.HexToAddress(ccv.String()))
