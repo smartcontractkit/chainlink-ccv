@@ -6,10 +6,11 @@ import (
 	"testing"
 	"time"
 
-	pb "github.com/smartcontractkit/chainlink-protos/orchestrator/feedsmanager"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	pb "github.com/smartcontractkit/chainlink-protos/orchestrator/feedsmanager"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/jd/client"
 	"github.com/smartcontractkit/chainlink-ccv/common/jd/store"
