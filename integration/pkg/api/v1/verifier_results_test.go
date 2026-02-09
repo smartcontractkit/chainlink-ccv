@@ -1237,6 +1237,74 @@ func TestVerifierResult_NilChecks(t *testing.T) {
 		err := json.Unmarshal([]byte(jsonData), result)
 		require.Error(t, err)
 	})
+
+	t.Run("UnmarshalJSON handles omitted metadata", func(t *testing.T) {
+		jsonData := `{
+			"message": {
+				"version": 1,
+				"source_chain_selector": 100,
+				"dest_chain_selector": 200,
+				"sequence_number": 42,
+				"on_ramp_address": "0x010203",
+				"on_ramp_address_length": 3,
+				"off_ramp_address": "0x040506",
+				"off_ramp_address_length": 3,
+				"finality": 10,
+				"execution_gas_limit": 200000,
+				"ccip_receive_gas_limit": 150000,
+				"ccv_and_executor_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+				"sender": "0x070809",
+				"sender_length": 3,
+				"receiver": "0x0a0b0c",
+				"receiver_length": 3,
+				"dest_blob": "0x0d0e",
+				"dest_blob_length": 2,
+				"token_transfer": null,
+				"token_transfer_length": 0,
+				"data": "0x1011",
+				"data_length": 2
+			},
+			"message_ccv_addresses": ["0x131415"],
+			"message_executor_address": "0x161718",
+			"ccv_data": "0x191a1b"
+		}`
+
+		var result VerifierResult
+		err := json.Unmarshal([]byte(jsonData), &result)
+		require.NoError(t, err)
+		assert.Nil(t, result.Metadata, "Metadata should be nil when omitted from JSON")
+		assert.NotNil(t, result.Message, "Message should still be populated")
+	})
+
+	t.Run("MarshalJSON handles nil metadata and round-trips correctly", func(t *testing.T) {
+		result := &VerifierResult{
+			VerifierResult: &v1.VerifierResult{
+				Message: &v1.Message{
+					Version:             1,
+					SourceChainSelector: 100,
+					DestChainSelector:   200,
+					SequenceNumber:      42,
+					OnRampAddress:       []byte{0x01, 0x02, 0x03},
+					OffRampAddress:      []byte{0x04, 0x05, 0x06},
+					CcvAndExecutorHash:  make([]byte, 32),
+					Sender:              []byte{0x07},
+					Receiver:            []byte{0x08},
+				},
+				MessageCcvAddresses:    [][]byte{{0x09}},
+				MessageExecutorAddress: []byte{0x0a},
+				CcvData:                []byte{0x0b},
+				Metadata:               nil,
+			},
+		}
+
+		jsonData, err := json.Marshal(result)
+		require.NoError(t, err)
+
+		var roundTripped VerifierResult
+		err = json.Unmarshal(jsonData, &roundTripped)
+		require.NoError(t, err)
+		assert.Nil(t, roundTripped.Metadata, "Metadata should remain nil after round-trip")
+	})
 }
 
 func TestVerifierResultMessage_NilChecks(t *testing.T) {

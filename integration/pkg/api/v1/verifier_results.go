@@ -196,6 +196,11 @@ func (r *VerifierResult) MarshalJSON() ([]byte, error) {
 		messageCcvAddresses[i] = addr
 	}
 
+	var metadata *VerifierResultsMetadata
+	if r.Metadata != nil {
+		metadata = &VerifierResultsMetadata{VerifierResultMetadata: r.Metadata}
+	}
+
 	return json.Marshal(
 		verifierResultsJSON{
 			Message: &VerifierResultMessage{
@@ -205,10 +210,8 @@ func (r *VerifierResult) MarshalJSON() ([]byte, error) {
 			MessageExecutorAddress: protocol.UnknownAddress(
 				r.MessageExecutorAddress,
 			),
-			CcvData: protocol.ByteSlice(r.CcvData),
-			Metadata: &VerifierResultsMetadata{
-				VerifierResultMetadata: r.Metadata,
-			},
+			CcvData:  protocol.ByteSlice(r.CcvData),
+			Metadata: metadata,
 		})
 }
 
@@ -227,12 +230,17 @@ func (r *VerifierResult) UnmarshalJSON(data []byte) error {
 		messageCcvAddresses[i] = addr.Bytes()
 	}
 
+	var metadata *v1.VerifierResultMetadata
+	if aux.Metadata != nil {
+		metadata = aux.Metadata.VerifierResultMetadata
+	}
+
 	r.VerifierResult = &v1.VerifierResult{
 		Message:                aux.Message.Message,
 		MessageCcvAddresses:    messageCcvAddresses,
 		MessageExecutorAddress: aux.MessageExecutorAddress.Bytes(),
 		CcvData:                aux.CcvData,
-		Metadata:               aux.Metadata.VerifierResultMetadata,
+		Metadata:               metadata,
 	}
 	return nil
 }
