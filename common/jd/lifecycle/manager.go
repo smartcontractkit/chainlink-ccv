@@ -136,7 +136,6 @@ func (m *Manager) Start(ctx context.Context) error {
 			m.lggr.Infow("Found cached job, starting immediately",
 				"proposalID", cachedJob.ProposalID,
 				"version", cachedJob.Version,
-				"createdAt", cachedJob.CreatedAt,
 			)
 
 			if err := m.runner.StartJob(ctx, cachedJob.Spec); err != nil {

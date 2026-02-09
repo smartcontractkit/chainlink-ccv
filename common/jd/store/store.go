@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 )
 
 // ErrNoJob is returned when no job is found in the store.
@@ -32,21 +31,18 @@ type StoreInterface interface {
 var _ StoreInterface = (*FileStore)(nil)
 
 // Job represents a persisted job spec from the Job Distributor.
+// File timestamps (e.g. os.Stat ModTime) can be used when creation/update time is needed.
 type Job struct {
 	ProposalID string
 	Version    int64
 	Spec       string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
 }
 
 // fileJob is the JSON shape on disk (snake_case for proposal_id).
 type fileJob struct {
-	ProposalID string    `json:"proposal_id"`
-	Version    int64     `json:"version"`
-	Spec       string    `json:"spec"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ProposalID string `json:"proposal_id"`
+	Version    int64  `json:"version"`
+	Spec       string `json:"spec"`
 }
 
 // FileStore persists a single job spec to a JSON file with atomic updates.
@@ -70,20 +66,11 @@ func (f *FileStore) SaveJob(ctx context.Context, proposalID string, version int6
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	now := time.Now()
 	job := fileJob{
 		ProposalID: proposalID,
 		Version:    version,
 		Spec:       spec,
-		CreatedAt:  now,
-		UpdatedAt:  now,
 	}
-	// Preserve created_at if we're replacing an existing job
-	existing, _ := f.loadLocked()
-	if existing != nil {
-		job.CreatedAt = existing.CreatedAt
-	}
-
 	data, err := json.MarshalIndent(job, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal job: %w", err)
@@ -99,7 +86,7 @@ func (f *FileStore) SaveJob(ctx context.Context, proposalID string, version int6
 		return fmt.Errorf("write job file: %w", err)
 	}
 	// Ensure data is on disk before renaming
-	file, err := os.Open(tmpPath)
+	file, err := os.Open(tmpPath) //nolint:gosec // G304: tmpPath is f.path+".tmp", both set at store init
 	if err != nil {
 		_ = os.Remove(tmpPath)
 		return fmt.Errorf("open temp file for sync: %w", err)
@@ -146,8 +133,6 @@ func (f *FileStore) loadLocked() (*Job, error) {
 		ProposalID: fj.ProposalID,
 		Version:    fj.Version,
 		Spec:       fj.Spec,
-		CreatedAt:  fj.CreatedAt,
-		UpdatedAt:  fj.UpdatedAt,
 	}, nil
 }
 
