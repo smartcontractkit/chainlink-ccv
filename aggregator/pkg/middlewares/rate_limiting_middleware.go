@@ -18,7 +18,12 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-var _ protocol.HealthReporter = (*RateLimitingMiddleware)(nil)
+var (
+	_                  protocol.HealthReporter = (*RateLimitingMiddleware)(nil)
+	globalAnonymousKey                         = "__GLOBAL_ANONYMOUS_KEY__"
+	// We are not using ResourceExhausted as this is a shared limit between all anonynous caller.
+	ErrGlobalAnonynousLimitReached = status.Error(codes.Unavailable, "service temporarily unavailable")
+)
 
 type RateLimitingMiddleware struct {
 	store          limiter.Store
@@ -60,6 +65,30 @@ func (m *RateLimitingMiddleware) getLimitConfig(callerID, method string) (model.
 	return model.RateLimitConfig{}, false
 }
 
+func (m *RateLimitingMiddleware) handleGlobalLimitAnonymous(ctx context.Context, fullMethod string) error {
+	if limitConfig, ok := m.config.GlobalAnonymousLimits[fullMethod]; ok {
+		globalKey := m.buildKey(globalAnonymousKey, fullMethod)
+		rate := limiter.Rate{
+			Period: time.Minute,
+			Limit:  int64(limitConfig.LimitPerMinute),
+		}
+		limiterCtx, err := limiter.New(m.store, rate).Get(ctx, globalKey)
+		if err != nil {
+			m.lggr.Errorw("Rate limiter store error - allowing request (fail-open). Health check will fail.",
+				"error", err,
+				"callerID", globalAnonymousKey,
+				"method", fullMethod)
+		}
+
+		if limiterCtx.Reached {
+			return ErrGlobalAnonynousLimitReached
+		}
+
+		return nil
+	}
+	return ErrGlobalAnonynousLimitReached
+}
+
 // Intercept implements the gRPC unary server interceptor for rate limiting.
 func (m *RateLimitingMiddleware) Intercept(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
 	if !m.enabled {
@@ -69,6 +98,12 @@ func (m *RateLimitingMiddleware) Intercept(ctx context.Context, req any, info *g
 	identity, ok := auth.IdentityFromContext(ctx)
 	if !ok {
 		return handler(ctx, req)
+	}
+
+	if identity.IsAnonymous {
+		if err := m.handleGlobalLimitAnonymous(ctx, info.FullMethod); err != nil {
+			return nil, err
+		}
 	}
 
 	limitConfig, hasLimit := m.getLimitConfig(identity.CallerID, info.FullMethod)

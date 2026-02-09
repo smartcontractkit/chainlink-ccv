@@ -250,6 +250,9 @@ type RateLimitingConfig struct {
 	// DefaultLimits defines fallback rate limits when no specific caller or group limits exist
 	// Map structure: method -> RateLimitConfig
 	DefaultLimits map[string]RateLimitConfig `toml:"defaultLimits"`
+	// GlobalAnonymousLimits defines global anonymous rate limits
+	// Map structure: method -> RateLimitConfig
+	GlobalAnonymousLimits map[string]RateLimitConfig `toml:"globalAnonymousLimits"`
 }
 
 // GetEffectiveLimit resolves the effective rate limit for a given caller and method.
