@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	coordinator "github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
@@ -34,7 +33,7 @@ func setupTestExecutor(
 	}
 
 	allDestinationReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
-	allRMNReaders := make(map[protocol.ChainSelector]ccvcommon.RMNRemoteReader)
+	allRMNReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
 	for chain, mockDR := range dr {
 		allDestinationReaders[chain] = mockDR
 		allRMNReaders[chain] = mockDR
