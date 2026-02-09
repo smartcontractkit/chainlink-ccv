@@ -12,20 +12,78 @@ import (
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/require"
 
+	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/load"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/logasserter"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
-	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
 // DefaultLokiURL is the default Loki WebSocket URL for log streaming in tests.
 const DefaultLokiURL = "ws://localhost:3030"
+
+// DefaultSmokeTestConfig is the default path to the smoke test configuration file.
+const DefaultSmokeTestConfig = "../../env-out.toml"
+
+// GetSmokeTestConfig returns the smoke test configuration path from environment
+// variable SMOKE_TEST_CONFIG, or the default path if not set.
+func GetSmokeTestConfig() string {
+	smokeTestConfig := os.Getenv("SMOKE_TEST_CONFIG")
+	if smokeTestConfig == "" {
+		smokeTestConfig = DefaultSmokeTestConfig
+	}
+	return smokeTestConfig
+}
+
+// SetupAggregatorClients creates and registers aggregator clients for all endpoints
+// in the configuration. Returns a map of clients by qualifier.
+// Cleanup handlers are automatically registered with the test.
+func SetupAggregatorClients(
+	t *testing.T,
+	ctx context.Context,
+	in *ccv.Cfg,
+) map[string]*ccv.AggregatorClient {
+	aggregatorClients := make(map[string]*ccv.AggregatorClient)
+	for qualifier := range in.AggregatorEndpoints {
+		client, err := in.NewAggregatorClientForCommittee(
+			zerolog.Ctx(ctx).With().Str("component", fmt.Sprintf("aggregator-client-%s", qualifier)).Logger(),
+			qualifier)
+		require.NoError(t, err)
+		require.NotNil(t, client)
+		aggregatorClients[qualifier] = client
+		t.Cleanup(func() {
+			_ = client.Close()
+		})
+	}
+	return aggregatorClients
+}
+
+// SetupIndexerMonitor creates and returns an indexer monitor if the indexer is available.
+// Returns nil if the indexer is not available (no error is raised).
+func SetupIndexerMonitor(
+	t *testing.T,
+	ctx context.Context,
+	lib *ccv.Lib,
+) *ccv.IndexerMonitor {
+	indexerClient, err := lib.Indexer()
+	if err != nil {
+		return nil
+	}
+
+	indexerMonitor, err := ccv.NewIndexerMonitor(
+		zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
+		indexerClient)
+	require.NoError(t, err)
+	require.NotNil(t, indexerMonitor)
+
+	return indexerMonitor
+}
 
 type TestingContext struct {
 	T                *testing.T

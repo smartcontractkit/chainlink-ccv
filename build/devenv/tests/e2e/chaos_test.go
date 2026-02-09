@@ -28,7 +28,7 @@ const (
 )
 
 func TestChaos_AggregatorOutageRecovery(t *testing.T) {
-	setup := setupChaos(t, "../../env-out.toml")
+	setup := setupChaos(t, GetSmokeTestConfig())
 
 	var defaultAggregatorContainerName string
 	for _, agg := range setup.in.Aggregator {
@@ -60,7 +60,10 @@ func TestChaos_AggregatorOutageRecovery(t *testing.T) {
 		numExpectedVerifications: 1,
 	}
 
-	runV2TestCase(t, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerMonitor, AssertMessageOptions{
+	ctx := ccv.Plog.WithContext(t.Context())
+	l := zerolog.Ctx(ctx)
+
+	runV2TestCase(t, ctx, l, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerMonitor, AssertMessageOptions{
 		TickInterval:            5 * time.Second,
 		Timeout:                 tests.WaitTimeout(t),
 		ExpectedVerifierResults: tc.numExpectedVerifications,
@@ -70,7 +73,7 @@ func TestChaos_AggregatorOutageRecovery(t *testing.T) {
 }
 
 func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
-	setup := setupChaos(t, "../../env-out.toml")
+	setup := setupChaos(t, GetSmokeTestConfig())
 
 	var defaultVerifierInputs []*services.VerifierInput
 	for _, verifier := range setup.in.Verifier {
@@ -134,8 +137,13 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 		Str("verifiersToStop", containerRe2).
 		Msg("sending message with some verifiers down")
 
+	ctx := ccv.Plog.WithContext(t.Context())
+	l := zerolog.Ctx(ctx)
+
 	runV2TestCase(
 		t,
+		ctx,
+		l,
 		tc,
 		setup.chainMap,
 		setup.defaultAggregatorClient,
@@ -150,7 +158,7 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 }
 
 func TestChaos_AllExecutorsDown(t *testing.T) {
-	setup := setupChaos(t, "../../env-out.toml")
+	setup := setupChaos(t, GetSmokeTestConfig())
 
 	var defaultExecutorContainerNames []string
 	for _, executor := range setup.in.Executor {
@@ -183,7 +191,10 @@ func TestChaos_AllExecutorsDown(t *testing.T) {
 		numExpectedVerifications: 1,
 	}
 
-	runV2TestCase(t, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerMonitor, AssertMessageOptions{
+	ctx := ccv.Plog.WithContext(t.Context())
+	l := zerolog.Ctx(ctx)
+
+	runV2TestCase(t, ctx, l, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerMonitor, AssertMessageOptions{
 		TickInterval:            5 * time.Second,
 		Timeout:                 tests.WaitTimeout(t),
 		ExpectedVerifierResults: tc.numExpectedVerifications,
@@ -193,7 +204,7 @@ func TestChaos_AllExecutorsDown(t *testing.T) {
 }
 
 func TestChaos_IndexerDown(t *testing.T) {
-	setup := setupChaos(t, "../../env-out.toml")
+	setup := setupChaos(t, GetSmokeTestConfig())
 
 	indexerContainerName := setup.in.Indexer.Out.ContainerName
 	require.NotEmpty(t, indexerContainerName, "indexer container name not found")
@@ -220,7 +231,10 @@ func TestChaos_IndexerDown(t *testing.T) {
 		numExpectedVerifications: 1,
 	}
 
-	runV2TestCase(t, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerMonitor, AssertMessageOptions{
+	ctx := ccv.Plog.WithContext(t.Context())
+	l := zerolog.Ctx(ctx)
+
+	runV2TestCase(t, ctx, l, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerMonitor, AssertMessageOptions{
 		TickInterval:            5 * time.Second,
 		Timeout:                 tests.WaitTimeout(t),
 		ExpectedVerifierResults: tc.numExpectedVerifications,
