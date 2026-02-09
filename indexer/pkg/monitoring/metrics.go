@@ -18,7 +18,6 @@ import (
 // IndexerMetrics provides all metrics provided by the indexer.
 type IndexerMetrics struct {
 	// HTTP Metrics
-	httpRequestsCounter         metric.Int64Counter
 	activeRequestsUpDownCounter metric.Int64UpDownCounter
 	requestDurationSeconds      metric.Float64Histogram
 

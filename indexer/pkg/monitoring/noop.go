@@ -35,8 +35,10 @@ func (n *NoopIndexerMetricLabeler) RecordStorageQueryDuration(ctx context.Contex
 
 func (n *NoopIndexerMetricLabeler) RecordStorageWriteDuration(ctx context.Context, duration time.Duration) {
 }
+
 func (n *NoopIndexerMetricLabeler) RecordStorageInsertErrorsCounter(ctx context.Context, queryName string) {
 }
+
 func (n *NoopIndexerMetricLabeler) RecordVerificationRecordRequestDuration(ctx context.Context, duration time.Duration) {
 }
 func (n *NoopIndexerMetricLabeler) RecordScannerPollingErrorsCounter(ctx context.Context) {}
@@ -45,5 +47,6 @@ func (n *NoopIndexerMetricLabeler) RecordVerificationRecordChannelSizeGauge(ctx 
 func (n *NoopIndexerMetricLabeler) RecordActiveReadersGauge(ctx context.Context, count int64) {}
 func (n *NoopIndexerMetricLabeler) RecordIndexerMessageDiscoveryLatency(ctx context.Context, latency time.Duration) {
 }
+
 func (n *NoopIndexerMetricLabeler) RecordTimeToIndex(ctx context.Context, latency time.Duration, discoveryType string) {
 }
