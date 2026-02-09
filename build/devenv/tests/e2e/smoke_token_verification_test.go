@@ -58,7 +58,6 @@ func TestE2ESmoke_TokenVerification(t *testing.T) {
 
 	aggregatorClients := SetupAggregatorClients(t, ctx, in)
 	defaultAggregatorClient := aggregatorClients[common.DefaultCommitteeVerifierQualifier]
-
 	indexerMonitor := SetupIndexerMonitor(t, ctx, lib)
 
 	sel0, sel1 := chains[0].Details.ChainSelector, chains[1].Details.ChainSelector
