@@ -48,9 +48,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 			channelManager,
 		)
 
-		shouldSkip, err := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
-
-		require.NoError(t, err)
+		shouldSkip := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
 		assert.False(t, shouldSkip)
 	})
 
@@ -84,9 +82,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 			channelManager,
 		)
 
-		shouldSkip, err := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
-
-		require.NoError(t, err)
+		shouldSkip := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
 		assert.False(t, shouldSkip)
 	})
 
@@ -127,9 +123,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 			channelManager,
 		)
 
-		shouldSkip, err := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
-
-		require.NoError(t, err)
+		shouldSkip := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
 		assert.True(t, shouldSkip)
 		quorum.AssertExpectations(t)
 	})
@@ -171,9 +165,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 			channelManager,
 		)
 
-		shouldSkip, err := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
-
-		require.NoError(t, err)
+		shouldSkip := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
 		assert.False(t, shouldSkip)
 	})
 
@@ -191,8 +183,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}}
 		channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
 		a := NewCommitReportAggregator(store, aggStore, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
-		shouldSkip, err := a.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
-		require.NoError(t, err)
+		shouldSkip := a.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
 		assert.False(t, shouldSkip)
 	})
 
@@ -213,8 +204,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}}
 		channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
 		a := NewCommitReportAggregator(store, aggStore, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
-		shouldSkip, err := a.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
-		require.NoError(t, err)
+		shouldSkip := a.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
 		assert.False(t, shouldSkip)
 	})
 }

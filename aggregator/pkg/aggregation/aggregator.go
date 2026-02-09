@@ -74,38 +74,38 @@ func (c *CommitReportAggregator) metrics(ctx context.Context) common.AggregatorM
 // shouldSkipAggregationDueToExistingQuorum checks if we should skip creating a new aggregation
 // because an existing aggregated report already meets quorum requirements.
 // Returns true if aggregation should be skipped, false otherwise.
-func (c *CommitReportAggregator) shouldSkipAggregationDueToExistingQuorum(ctx context.Context, messageID model.MessageID) (bool, error) {
+func (c *CommitReportAggregator) shouldSkipAggregationDueToExistingQuorum(ctx context.Context, messageID model.MessageID) bool {
 	lggr := c.logger(ctx)
 
 	if c.aggregatedStore == nil {
 		lggr.Warnw("No aggregated store available, cannot check existing aggregations")
-		return false, nil
+		return false
 	}
 
 	existingReport, err := c.aggregatedStore.GetCommitAggregatedReportByMessageID(ctx, messageID)
 	if err != nil {
 		lggr.Warnw("Failed to check for existing aggregated report", "error", err)
-		return false, nil
+		return false
 	}
 
 	if existingReport == nil {
 		lggr.Debugw("No existing aggregated report found, proceeding with aggregation")
-		return false, nil
+		return false
 	}
 
 	quorumMet, err := c.quorum.CheckQuorum(ctx, existingReport)
 	if err != nil {
 		lggr.Warnw("Failed to check quorum for existing report", "error", err)
-		return false, nil
+		return false
 	}
 
 	if quorumMet {
 		lggr.Infow("Skipping aggregation: existing report already meets quorum", "verificationCount", len(existingReport.Verifications))
-		return true, nil
+		return true
 	}
 
 	lggr.Infow("Existing report no longer meets quorum, proceeding with new aggregation", "verificationCount", len(existingReport.Verifications))
-	return false, nil
+	return false
 }
 
 func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, request aggregationRequest) (*model.CommitAggregatedReport, error) {
@@ -118,11 +118,8 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 	lggr := c.logger(ctx)
 	lggr.Info("Checking aggregation for message")
 
-	shouldSkip, err := c.shouldSkipAggregationDueToExistingQuorum(ctx, request.MessageID)
-	if err != nil {
-		lggr.Errorw("Error checking existing quorum", "error", err)
-	} else if shouldSkip {
-		lggr.Infow("Skipping aggregation due to existing quorum")
+	shouldSkip := c.shouldSkipAggregationDueToExistingQuorum(ctx, request.MessageID)
+	if shouldSkip {
 		return nil, nil
 	}
 
@@ -181,7 +178,7 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 					poolCtx = scope.WithAggregationKey(poolCtx, request.AggregationKey)
 					poolCtx = scope.WithMessageID(poolCtx, request.MessageID)
 
-					err := func() (err error) {
+					return func() (err error) {
 						defer func() {
 							if r := recover(); r != nil {
 								c.logger(poolCtx).Errorw("Panic during aggregation", "panic", r)
@@ -192,10 +189,6 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 						_, err = c.checkAggregationAndSubmitComplete(poolCtx, request)
 						return err
 					}()
-					if err != nil {
-						c.logger(poolCtx).Errorw("Error checking aggregation", "error", err)
-					}
-					return err
 				})
 			case <-ctx.Done():
 				return
