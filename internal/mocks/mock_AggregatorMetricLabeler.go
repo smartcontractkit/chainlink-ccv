@@ -92,9 +92,9 @@ func (_c *MockAggregatorMetricLabeler_DecrementPendingAggregationsChannelBuffer_
 	return _c
 }
 
-// IncrementAPIRequestErrors provides a mock function with given fields: ctx
-func (_m *MockAggregatorMetricLabeler) IncrementAPIRequestErrors(ctx context.Context) {
-	_m.Called(ctx)
+// IncrementAPIRequestErrors provides a mock function with given fields: ctx, method
+func (_m *MockAggregatorMetricLabeler) IncrementAPIRequestErrors(ctx context.Context, method string) {
+	_m.Called(ctx, method)
 }
 
 // MockAggregatorMetricLabeler_IncrementAPIRequestErrors_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementAPIRequestErrors'
@@ -104,13 +104,14 @@ type MockAggregatorMetricLabeler_IncrementAPIRequestErrors_Call struct {
 
 // IncrementAPIRequestErrors is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *MockAggregatorMetricLabeler_Expecter) IncrementAPIRequestErrors(ctx interface{}) *MockAggregatorMetricLabeler_IncrementAPIRequestErrors_Call {
-	return &MockAggregatorMetricLabeler_IncrementAPIRequestErrors_Call{Call: _e.mock.On("IncrementAPIRequestErrors", ctx)}
+//   - method string
+func (_e *MockAggregatorMetricLabeler_Expecter) IncrementAPIRequestErrors(ctx interface{}, method interface{}) *MockAggregatorMetricLabeler_IncrementAPIRequestErrors_Call {
+	return &MockAggregatorMetricLabeler_IncrementAPIRequestErrors_Call{Call: _e.mock.On("IncrementAPIRequestErrors", ctx, method)}
 }
 
-func (_c *MockAggregatorMetricLabeler_IncrementAPIRequestErrors_Call) Run(run func(ctx context.Context)) *MockAggregatorMetricLabeler_IncrementAPIRequestErrors_Call {
+func (_c *MockAggregatorMetricLabeler_IncrementAPIRequestErrors_Call) Run(run func(ctx context.Context, method string)) *MockAggregatorMetricLabeler_IncrementAPIRequestErrors_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context))
+		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
@@ -120,7 +121,7 @@ func (_c *MockAggregatorMetricLabeler_IncrementAPIRequestErrors_Call) Return() *
 	return _c
 }
 
-func (_c *MockAggregatorMetricLabeler_IncrementAPIRequestErrors_Call) RunAndReturn(run func(context.Context)) *MockAggregatorMetricLabeler_IncrementAPIRequestErrors_Call {
+func (_c *MockAggregatorMetricLabeler_IncrementAPIRequestErrors_Call) RunAndReturn(run func(context.Context, string)) *MockAggregatorMetricLabeler_IncrementAPIRequestErrors_Call {
 	_c.Run(run)
 	return _c
 }

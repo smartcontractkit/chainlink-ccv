@@ -43,7 +43,7 @@ func (c *NoopAggregatorMetricLabeler) RecordAPIRequestDuration(ctx context.Conte
 	// No-op
 }
 
-func (c *NoopAggregatorMetricLabeler) IncrementAPIRequestErrors(ctx context.Context) {
+func (c *NoopAggregatorMetricLabeler) IncrementAPIRequestErrors(ctx context.Context, method string) {
 	// No-op
 }
 
