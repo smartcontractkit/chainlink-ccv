@@ -299,7 +299,7 @@ func (r *EVMSourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, 
 }
 
 // GetRMNCursedSubjects queries this source chain's RMN Remote contract.
-// Implements SourceReader and cursechecker.RMNCurseReader interfaces.
+// Implements SourceReader and chainaccess.RMNCurseReader interfaces.
 func (r *EVMSourceReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
 	// Use the common helper function from cursechecker package
 	// This avoids code duplication with EVMDestinationReader
