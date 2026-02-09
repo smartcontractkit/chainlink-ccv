@@ -15,8 +15,6 @@ type IndexerMonitoring interface {
 type IndexerMetricLabeler interface {
 	// With returns a new metrics labeler with the given key-value pairs.
 	With(keyValues ...string) IndexerMetricLabeler
-	// IncrementHTTPRequestCounter increments the HTTP request counter.
-	IncrementHTTPRequestCounter(ctx context.Context)
 	// IncrementActiveRequestsCounter increments the active requests counter.
 	IncrementActiveRequestsCounter(ctx context.Context)
 	// DecrementActiveRequestsCounter decrements the active requests counter.
@@ -28,15 +26,19 @@ type IndexerMetricLabeler interface {
 	// IncrementVerificationRecordsCounter increments the verification records counter.
 	IncrementVerificationRecordsCounter(ctx context.Context)
 	// RecordStorageQueryDuration records the storage query duration.
-	RecordStorageQueryDuration(ctx context.Context, duration time.Duration)
+	RecordStorageQueryDuration(ctx context.Context, duration time.Duration, queryName string)
 	// RecordStorageWriteDuration records the storage write duration.
 	RecordStorageWriteDuration(ctx context.Context, duration time.Duration)
 	// RecordStorageInsertErrorsCounter records the storage insert errors counter.
-	RecordStorageInsertErrorsCounter(ctx context.Context)
+	RecordStorageInsertErrorsCounter(ctx context.Context, queryName string)
 	// RecordScannerPollingErrorsCounter records the scanner polling errors counter.
 	RecordScannerPollingErrorsCounter(ctx context.Context)
 	// RecordVerificationRecordChannelSizeGauge records the verification record channel size gauge.
 	RecordVerificationRecordChannelSizeGauge(ctx context.Context, size int64)
 	// RecordActiveReadersGauge records the active readers gauge.
 	RecordActiveReadersGauge(ctx context.Context, count int64)
+	// RecordIndexerMessageDiscoveryLatency records the latency between message discovery and processing.
+	RecordIndexerMessageDiscoveryLatency(ctx context.Context, latency time.Duration)
+	// RecordTimeToIndex records the total time between aggregation and indexing.
+	RecordTimeToIndex(ctx context.Context, latency time.Duration, discoveryType string)
 }

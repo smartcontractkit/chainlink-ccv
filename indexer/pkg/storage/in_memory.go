@@ -213,6 +213,7 @@ func (i *InMemoryStorage) GetMessage(ctx context.Context, messageID protocol.Byt
 // QueryMessages retrieves all messages that match the filter set.
 func (i *InMemoryStorage) QueryMessages(ctx context.Context, start, end int64, sourceChainSelectors, destChainSelectors []protocol.ChainSelector, limit, offset uint64) ([]common.MessageWithMetadata, error) {
 	startQueryMetric := time.Now()
+	opName := "QueryMessages"
 	i.mu.RLock()
 	defer i.mu.RUnlock()
 
@@ -249,7 +250,7 @@ func (i *InMemoryStorage) QueryMessages(ctx context.Context, start, end int64, s
 		endPos = len(candidates)
 	}
 
-	i.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric))
+	i.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), opName)
 	return candidates[startPos:endPos], nil
 }
 
@@ -307,6 +308,7 @@ func (i *InMemoryStorage) GetCCVData(ctx context.Context, messageID protocol.Byt
 // QueryCCVData retrieves all CCVData that matches the filter set.
 func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, sourceChainSelectors, destChainSelectors []protocol.ChainSelector, limit, offset uint64) (map[string][]common.VerifierResultWithMetadata, error) {
 	startQueryMetric := time.Now()
+	opName := "QueryCCVData"
 	i.mu.RLock()
 	defer i.mu.RUnlock()
 
@@ -350,7 +352,7 @@ func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, so
 		results[messageID] = append(results[messageID], candidate)
 	}
 
-	i.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric))
+	i.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), opName)
 	if len(results) == 0 {
 		return nil, ErrCCVDataNotFound
 	}

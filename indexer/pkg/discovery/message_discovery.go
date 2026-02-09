@@ -131,15 +131,35 @@ func (a *AggregatorMessageDiscovery) validate() error {
 
 func (a *AggregatorMessageDiscovery) Start(ctx context.Context) chan common.VerifierResultWithMetadata {
 	childCtx, cancelFunc := context.WithCancel(ctx)
-
-	a.wg.Add(2)
+	a.wg.Add(3)
 	go a.run(childCtx)
 	go a.updateSequenceNumber(childCtx)
+	go a.sampleChannelSize(childCtx)
 	a.cancelFunc = cancelFunc
 	a.logger.Info("MessageDiscovery Started")
 
 	// Return a channel that emits all messages discovered from the aggregator
 	return a.messageCh
+}
+
+// sampleChannelSize periodically records the current length of the discovery
+// message channel so the verification record channel size gauge reflects both
+// sends and receives.
+func (a *AggregatorMessageDiscovery) sampleChannelSize(ctx context.Context) {
+	defer a.wg.Done()
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			a.logger.Info("sampleChannelSize stopped due to context cancellation")
+			return
+		case <-ticker.C:
+			// Use background or provided ctx; keep it tied to lifecycle so metrics shutdown works with parent.
+			a.monitoring.Metrics().RecordVerificationRecordChannelSizeGauge(ctx, int64(len(a.messageCh)))
+		}
+	}
 }
 
 func (a *AggregatorMessageDiscovery) Close() error {
@@ -235,6 +255,7 @@ func (a *AggregatorMessageDiscovery) consumeReader(ctx context.Context) {
 func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, error) {
 	startingSequence, ableToSetSinceValue := a.aggregatorReader.GetSinceValue()
 	var queryResponse []protocol.QueryResponse
+	discoveryStartTime := time.Now()
 	queryResponse, err := a.aggregatorReader.ReadCCVData(ctx)
 	if err != nil {
 		if a.isCircuitBreakerOpen() {
@@ -280,6 +301,7 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 		messages = append(messages, message)
 		allVerifications = append(allVerifications, verifierResultWithMetadata)
 	}
+	a.monitoring.Metrics().RecordIndexerMessageDiscoveryLatency(ctx, time.Since(discoveryStartTime))
 
 	// Save all messages we've seen from the discovery source, if we're unable to persist them.
 	// We'll set the sequence value on the reader back to it's original value.
@@ -308,6 +330,10 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 	for _, verifierResultWithMetadata := range allVerifications {
 		// Emit the Message into the message channel for downstream components to consume
 		a.messageCh <- verifierResultWithMetadata
+		// Record the channel size after send so the metric reflects the current backlog.
+		// Use the same context used for the call so the metric respects cancellation.
+		a.monitoring.Metrics().RecordVerificationRecordChannelSizeGauge(ctx, int64(len(a.messageCh)))
+		a.monitoring.Metrics().RecordTimeToIndex(ctx, time.Since(verifierResultWithMetadata.Metadata.AttestationTimestamp), "aggregator")
 	}
 
 	// Return true if we processed any data, false if the slice was empty
