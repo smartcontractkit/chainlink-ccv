@@ -27,6 +27,10 @@ jobs:
             config: env.toml
             timeout: 15m
             working-directory: build/devenv/tests/e2e
+          - name: TestE2ESmoke_TokenVerification
+            config: env.toml
+            timeout: 15m
+            working-directory: build/devenv/tests/e2e
           - name: TestE2EReorg
             config: env.toml,env-src-auto-mine.toml
             timeout: 5m
