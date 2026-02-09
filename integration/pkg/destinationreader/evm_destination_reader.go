@@ -160,7 +160,6 @@ func (dr *EvmDestinationReader) Name() string {
 // GetCCVSForMessage implements the DestinationReader interface. It uses the chainlink-evm client to call the get_ccvs function on the receiver contract.
 // The ABI is defined here https://github.com/smartcontractkit/chainlink-ccip/blob/0e7fcfd20ab005d75d0eb863790470f91fa5b8d7/chains/evm/contracts/interfaces/IAny2EVMMessageReceiverV2.sol
 func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message protocol.Message) (protocol.CCVAddressInfo, error) {
-	_ = ctx
 	receiverAddress, sourceSelector := message.Receiver, message.SourceChainSelector
 
 	// We need to parse out the token transfer address when caching CCV Info because it can modify the verifier quorum returned by the offramp.
@@ -189,7 +188,7 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 	if err != nil {
 		return protocol.CCVAddressInfo{}, fmt.Errorf("failed to encode message: %w", err)
 	}
-	chainCCVInfo, err := dr.offRampCaller.GetCCVsForMessage(nil, encodedMsg)
+	chainCCVInfo, err := dr.offRampCaller.GetCCVsForMessage(&bind.CallOpts{Context: ctx}, encodedMsg)
 	if err != nil {
 		return protocol.CCVAddressInfo{}, fmt.Errorf("failed to call GetCCVSForMessage: %w", err)
 	}
