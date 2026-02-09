@@ -3,11 +3,13 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
 	"time"
-
-	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
 
 // ErrNoJob is returned when no job is found in the store.
@@ -26,17 +28,8 @@ type StoreInterface interface {
 	DeleteJob(ctx context.Context) error
 }
 
-// Ensure PGStore implements StoreInterface.
-var _ StoreInterface = (*PGStore)(nil)
-
-// jobRow is the database row structure for job_store.
-type jobRow struct {
-	ProposalID string    `db:"proposal_id"`
-	Version    int64     `db:"version"`
-	Spec       string    `db:"spec"`
-	CreatedAt  time.Time `db:"created_at"`
-	UpdatedAt  time.Time `db:"updated_at"`
-}
+// Ensure FileStore implements StoreInterface.
+var _ StoreInterface = (*FileStore)(nil)
 
 // Job represents a persisted job spec from the Job Distributor.
 type Job struct {
@@ -47,67 +40,126 @@ type Job struct {
 	UpdatedAt  time.Time
 }
 
-// PGStore provides persistence for job specs using Postgres.
-type PGStore struct {
-	ds sqlutil.DataSource
+// fileJob is the JSON shape on disk (snake_case for proposal_id).
+type fileJob struct {
+	ProposalID string    `json:"proposal_id"`
+	Version    int64     `json:"version"`
+	Spec       string    `json:"spec"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
-// NewPGStore creates a new job store using Postgres.
-func NewPGStore(ds sqlutil.DataSource) *PGStore {
-	return &PGStore{ds: ds}
+// FileStore persists a single job spec to a JSON file with atomic updates.
+type FileStore struct {
+	path string
+	mu   sync.Mutex
 }
 
-// SaveJob persists a job spec, replacing any existing job.
-// Only one job should be active at a time.
-func (s *PGStore) SaveJob(ctx context.Context, proposalID string, version int64, spec string) error {
-	// Delete any existing jobs first (we only keep one)
-	_, err := s.ds.ExecContext(ctx, `DELETE FROM job_store`)
-	if err != nil {
-		return fmt.Errorf("failed to clear existing jobs: %w", err)
+// NewFileStore creates a new file-based job store. path is the path to the JSON file.
+// The file is created on first SaveJob. All operations are thread-safe and atomic
+// (writes go to a temp file then rename).
+func NewFileStore(path string) *FileStore {
+	return &FileStore{path: path}
+}
+
+// SaveJob persists the job by writing JSON to the file atomically.
+func (f *FileStore) SaveJob(ctx context.Context, proposalID string, version int64, spec string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	now := time.Now()
+	job := fileJob{
+		ProposalID: proposalID,
+		Version:    version,
+		Spec:       spec,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	// Preserve created_at if we're replacing an existing job
+	existing, _ := f.loadLocked()
+	if existing != nil {
+		job.CreatedAt = existing.CreatedAt
 	}
 
-	// Insert the new job
-	_, err = s.ds.ExecContext(ctx,
-		`INSERT INTO job_store (proposal_id, version, spec, created_at, updated_at) VALUES ($1, $2, $3, NOW(), NOW())`,
-		proposalID, version, spec,
-	)
+	data, err := json.MarshalIndent(job, "", "  ")
 	if err != nil {
-		return fmt.Errorf("failed to save job: %w", err)
+		return fmt.Errorf("marshal job: %w", err)
 	}
 
+	dir := filepath.Dir(f.path)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return fmt.Errorf("create store directory: %w", err)
+	}
+
+	tmpPath := f.path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0o600); err != nil {
+		return fmt.Errorf("write job file: %w", err)
+	}
+	// Ensure data is on disk before renaming
+	file, err := os.Open(tmpPath)
+	if err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("open temp file for sync: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("sync job file: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("close temp file: %w", err)
+	}
+	if err := os.Rename(tmpPath, f.path); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("rename job file: %w", err)
+	}
 	return nil
 }
 
-// LoadJob retrieves the current job spec from the store.
-// Returns ErrNoJob if no job is found.
-func (s *PGStore) LoadJob(ctx context.Context) (*Job, error) {
-	var rows []jobRow
-	err := s.ds.SelectContext(ctx, &rows,
-		`SELECT proposal_id, version, spec, created_at, updated_at FROM job_store ORDER BY id DESC LIMIT 1`,
-	)
+// LoadJob reads the job from the JSON file. Returns ErrNoJob if the file does not exist or is empty.
+func (f *FileStore) LoadJob(ctx context.Context) (*Job, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.loadLocked()
+}
+
+func (f *FileStore) loadLocked() (*Job, error) {
+	data, err := os.ReadFile(f.path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load job: %w", err)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ErrNoJob
+		}
+		return nil, fmt.Errorf("read job file: %w", err)
 	}
-
-	if len(rows) == 0 {
-		return nil, ErrNoJob
+	var fj fileJob
+	if err := json.Unmarshal(data, &fj); err != nil {
+		return nil, fmt.Errorf("decode job file: %w", err)
 	}
-
-	row := rows[0]
 	return &Job{
-		ProposalID: row.ProposalID,
-		Version:    row.Version,
-		Spec:       row.Spec,
-		CreatedAt:  row.CreatedAt,
-		UpdatedAt:  row.UpdatedAt,
+		ProposalID: fj.ProposalID,
+		Version:    fj.Version,
+		Spec:       fj.Spec,
+		CreatedAt:  fj.CreatedAt,
+		UpdatedAt:  fj.UpdatedAt,
 	}, nil
 }
 
-// DeleteJob removes the persisted job from the store.
-func (s *PGStore) DeleteJob(ctx context.Context) error {
-	_, err := s.ds.ExecContext(ctx, `DELETE FROM job_store`)
-	if err != nil {
-		return fmt.Errorf("failed to delete job: %w", err)
+// DeleteJob removes the job file. Idempotent if the file does not exist.
+func (f *FileStore) DeleteJob(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := os.Remove(f.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("delete job file: %w", err)
 	}
 	return nil
 }
