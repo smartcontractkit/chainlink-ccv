@@ -15,6 +15,8 @@ var ErrNoJob = errors.New("no job found in store")
 
 // StoreInterface defines the interface for persisting job specs.
 // It can, in theory, be implemented using any storage backend.
+//
+//revive:disable-next-line:exported
 type StoreInterface interface {
 	// SaveJob persists a job spec to the persistent store.
 	SaveJob(ctx context.Context, proposalID string, version int64, spec string) error

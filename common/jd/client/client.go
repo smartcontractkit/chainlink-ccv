@@ -22,6 +22,8 @@ import (
 
 // ClientInterface defines the interface for interacting with the Job Distributor.
 // This interface is implemented by *Client.
+//
+//revive:disable-next-line:exported
 type ClientInterface interface {
 	// Connect establishes a connection to the Job Distributor.
 	Connect(ctx context.Context) error

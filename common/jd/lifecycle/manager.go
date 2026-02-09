@@ -94,16 +94,16 @@ type Manager struct {
 // Returns an error if any required config field is nil.
 func NewManager(cfg Config) (*Manager, error) {
 	if cfg.JDClient == nil {
-		return nil, errors.New("JDClient is required")
+		return nil, errors.New("JD client is required")
 	}
 	if cfg.JobStore == nil {
-		return nil, errors.New("JobStore is required")
+		return nil, errors.New("job store is required")
 	}
 	if cfg.Runner == nil {
-		return nil, errors.New("Runner is required")
+		return nil, errors.New("runner is required")
 	}
 	if cfg.Logger == nil {
-		return nil, errors.New("Logger is required")
+		return nil, errors.New("logger is required")
 	}
 	return &Manager{
 		jdClient:   cfg.JDClient,
@@ -201,7 +201,9 @@ func (m *Manager) eventLoop() {
 
 		case <-m.shutdownCh:
 			m.lggr.Infow("Shutdown signal received")
-			m.shutdown()
+			if err := m.shutdown(); err != nil {
+				m.lggr.Errorw("Failed to shutdown job lifecycle manager", "error", err)
+			}
 			return
 		}
 	}

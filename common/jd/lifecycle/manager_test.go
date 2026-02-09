@@ -61,10 +61,10 @@ func TestNewManager_ReturnsError_WhenRequiredFieldIsNil(t *testing.T) {
 		cfg     Config
 		wantErr string
 	}{
-		{"nil JDClient", Config{JDClient: nil, JobStore: jobStore, Runner: runner, Logger: lggr}, "JDClient is required"},
-		{"nil JobStore", Config{JDClient: jdClient, JobStore: nil, Runner: runner, Logger: lggr}, "JobStore is required"},
-		{"nil Runner", Config{JDClient: jdClient, JobStore: jobStore, Runner: nil, Logger: lggr}, "Runner is required"},
-		{"nil Logger", Config{JDClient: jdClient, JobStore: jobStore, Runner: runner, Logger: nil}, "Logger is required"},
+		{"nil JDClient", Config{JDClient: nil, JobStore: jobStore, Runner: runner, Logger: lggr}, "JD client is required"},
+		{"nil JobStore", Config{JDClient: jdClient, JobStore: nil, Runner: runner, Logger: lggr}, "job store is required"},
+		{"nil Runner", Config{JDClient: jdClient, JobStore: jobStore, Runner: nil, Logger: lggr}, "runner is required"},
+		{"nil Logger", Config{JDClient: jdClient, JobStore: jobStore, Runner: runner, Logger: nil}, "logger is required"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
