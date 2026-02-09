@@ -70,17 +70,19 @@ type MetricLabeler interface {
 	// With returns a new metrics labeler with the given key-value pairs.
 	With(keyValues ...string) MetricLabeler
 	// RecordMessageExecutionLatency records the duration of the full ExecuteMessage operation.
-	RecordMessageExecutionLatency(ctx context.Context, duration time.Duration, destSelector protocol.ChainSelector)
+	RecordMessageExecutionLatency(ctx context.Context, duration time.Duration, destChainSelector protocol.ChainSelector)
 	// IncrementMessagesProcessed increments the counter for successfully processed messages.
 	IncrementMessagesProcessed(ctx context.Context)
 	// IncrementMessagesProcessingFailed increments the counter for failed message executions.
 	IncrementMessagesProcessingFailed(ctx context.Context)
 	// IncrementCCVInfoCacheHits increments the counter for cache hits in the destination reader.
-	IncrementCCVInfoCacheHits(ctx context.Context)
+	IncrementCCVInfoCacheHits(ctx context.Context, destChainSelector protocol.ChainSelector)
 	// IncrementCCVInfoCacheMisses increments the counter for cache misses in the destination reader.
-	IncrementCCVInfoCacheMisses(ctx context.Context)
-	// RecordQueryCCVInfoLatency records the duration of the GetCCVSForMessage operation, including cache hits and chain queries.
-	RecordQueryCCVInfoLatency(ctx context.Context, duration time.Duration, destSelector protocol.ChainSelector)
+	IncrementCCVInfoCacheMisses(ctx context.Context, destChainSelector protocol.ChainSelector)
+	// RecordOfframpGetCCVsForMessageLatency records the duration of the GetCCVSForMessage onchain call.
+	RecordOfframpGetCCVsForMessageLatency(ctx context.Context, duration time.Duration, destChainSelector protocol.ChainSelector)
+	// IncrementOfframpGetCCVsForMessageFailure increments the counter of failed GetCCVSForMessage onchain calls.
+	IncrementOfframpGetCCVsForMessageFailure(ctx context.Context, destChainSelector protocol.ChainSelector)
 	// IncrementExpiredMessages increments the counter for expired messages.
 	IncrementExpiredMessages(ctx context.Context)
 	// IncrementAlreadyExecutedMessages increments the counter for already executed messages.
