@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"math/big"
-	"os"
 	"testing"
 	"time"
 
@@ -53,22 +52,8 @@ type v3TestCase struct {
 	aggregatorQualifier      string // which aggregator to query (default, secondary, tertiary)
 }
 
-// v2TestCase is for tests that use ExtraArgsV2.
-type v2TestCase struct {
-	name                     string
-	fromSelector             uint64
-	toSelector               uint64
-	receiver                 protocol.UnknownAddress
-	expectFail               bool
-	assertExecuted           bool
-	numExpectedVerifications int
-}
-
 func TestE2ESmoke(t *testing.T) {
-	smokeTestConfig := os.Getenv("SMOKE_TEST_CONFIG")
-	if smokeTestConfig == "" {
-		smokeTestConfig = "../../env-out.toml"
-	}
+	smokeTestConfig := GetSmokeTestConfig()
 	in, err := ccv.LoadOutput[ccv.Cfg](smokeTestConfig)
 	require.NoError(t, err)
 	ctx := ccv.Plog.WithContext(t.Context())
@@ -88,73 +73,13 @@ func TestE2ESmoke(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	aggregatorClients := make(map[string]*ccv.AggregatorClient)
-	for qualifier := range in.AggregatorEndpoints {
-		client, err := in.NewAggregatorClientForCommittee(
-			zerolog.Ctx(ctx).With().Str("component", fmt.Sprintf("aggregator-client-%s", qualifier)).Logger(),
-			qualifier)
-		require.NoError(t, err)
-		require.NotNil(t, client)
-		aggregatorClients[qualifier] = client
-		t.Cleanup(func() {
-			client.Close()
-		})
-	}
+	aggregatorClients := SetupAggregatorClients(t, ctx, in)
 	defaultAggregatorClient := aggregatorClients[common.DefaultCommitteeVerifierQualifier]
 
-	var indexerMonitor *ccv.IndexerMonitor
-	indexerClient, err := lib.Indexer()
-	if err == nil {
-		indexerMonitor, err = ccv.NewIndexerMonitor(
-			zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
-			indexerClient)
-		require.NoError(t, err)
-		require.NotNil(t, indexerMonitor)
-	}
+	indexerMonitor := SetupIndexerMonitor(t, ctx, lib)
 
-	sel0, sel1, sel2 := chains[0].Details.ChainSelector,
-		chains[1].Details.ChainSelector,
-		chains[2].Details.ChainSelector
-
-	t.Run("extra args v2", func(t *testing.T) {
-		tcs := []v2TestCase{
-			{
-				name:                     "src->dst msg execution eoa receiver",
-				fromSelector:             sel0,
-				toSelector:               sel1,
-				receiver:                 mustGetEOAReceiverAddress(t, chainMap[sel1]),
-				expectFail:               false,
-				numExpectedVerifications: 1,
-			},
-			{
-				name:                     "dst->src msg execution eoa receiver",
-				fromSelector:             sel1,
-				toSelector:               sel0,
-				receiver:                 mustGetEOAReceiverAddress(t, chainMap[sel0]),
-				expectFail:               false,
-				numExpectedVerifications: 1,
-			},
-			{
-				name:                     "1337->3337 msg execution mock receiver",
-				fromSelector:             sel0,
-				toSelector:               sel2,
-				receiver:                 getContractAddress(t, in, sel2, datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), common.DefaultReceiverQualifier, "mock receiver"),
-				expectFail:               false,
-				numExpectedVerifications: 1,
-			},
-		}
-		for _, tc := range tcs {
-			t.Run(tc.name, func(t *testing.T) {
-				runV2TestCase(t, tc, chainMap, defaultAggregatorClient, indexerMonitor, AssertMessageOptions{
-					TickInterval:            1 * time.Second,
-					Timeout:                 defaultExecTimeout,
-					ExpectedVerifierResults: tc.numExpectedVerifications,
-					AssertVerifierLogs:      false,
-					AssertExecutorLogs:      false,
-				})
-			})
-		}
-	})
+	sel0, sel1 := chains[0].Details.ChainSelector,
+		chains[1].Details.ChainSelector
 
 	t.Run("extra args v3 messaging", func(t *testing.T) {
 		src, dest := chains[0].Details.ChainSelector, chains[1].Details.ChainSelector
@@ -345,61 +270,6 @@ func TestE2ESmoke(t *testing.T) {
 			})
 		}
 	})
-}
-
-func runV2TestCase(
-	t *testing.T,
-	tc v2TestCase,
-	chainMap map[uint64]cciptestinterfaces.CCIP17,
-	defaultAggregatorClient *ccv.AggregatorClient,
-	indexerClient *ccv.IndexerMonitor,
-	assertMessageOptions AssertMessageOptions,
-) {
-	ctx := ccv.Plog.WithContext(t.Context())
-	l := zerolog.Ctx(ctx)
-
-	seqNo, err := chainMap[tc.fromSelector].GetExpectedNextSequenceNumber(ctx, tc.toSelector)
-	require.NoError(t, err)
-	l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
-	_, err = chainMap[tc.fromSelector].SendMessage(ctx, tc.toSelector, cciptestinterfaces.MessageFields{
-		Receiver: tc.receiver,
-		Data:     []byte{},
-	}, cciptestinterfaces.MessageOptions{
-		Version:             2,
-		ExecutionGasLimit:   200_000,
-		OutOfOrderExecution: true,
-	})
-	require.NoError(t, err)
-
-	sentEvent, err := chainMap[tc.fromSelector].WaitOneSentEventBySeqNo(ctx, tc.toSelector, seqNo, defaultSentTimeout)
-	require.NoError(t, err)
-	messageID := sentEvent.MessageID
-
-	testCtx := NewTestingContext(t, ctx, chainMap, defaultAggregatorClient, indexerClient)
-	result, err := testCtx.AssertMessage(messageID, assertMessageOptions)
-	require.NoError(t, err)
-	require.NotNil(t, result.AggregatedResult)
-	require.Len(t, result.IndexedVerifications.Results, tc.numExpectedVerifications)
-
-	if tc.assertExecuted {
-		e, err := chainMap[tc.toSelector].WaitOneExecEventBySeqNo(ctx, tc.fromSelector, seqNo, defaultExecTimeout)
-		require.NoError(t, err)
-		require.NotNil(t, e)
-
-		if tc.expectFail {
-			require.Equalf(t,
-				cciptestinterfaces.ExecutionStateFailure,
-				e.State,
-				"unexpected state, return data: %x",
-				e.ReturnData)
-		} else {
-			require.Equalf(t,
-				cciptestinterfaces.ExecutionStateSuccess,
-				e.State,
-				"unexpected state, return data: %x",
-				e.ReturnData)
-		}
-	}
 }
 
 func mustGetEOAReceiverAddress(t *testing.T, c cciptestinterfaces.CCIP17) protocol.UnknownAddress {

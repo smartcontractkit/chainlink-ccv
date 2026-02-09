@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
-	"os"
 	"testing"
 	"time"
 
@@ -37,10 +36,7 @@ type tokenVerifierTestCase struct {
 }
 
 func TestE2ESmoke_TokenVerification(t *testing.T) {
-	smokeTestConfig := os.Getenv("SMOKE_TEST_CONFIG")
-	if smokeTestConfig == "" {
-		smokeTestConfig = "../../env-out.toml"
-	}
+	smokeTestConfig := GetSmokeTestConfig()
 	in, err := ccv.LoadOutput[ccv.Cfg](smokeTestConfig)
 	require.NoError(t, err)
 	ctx := ccv.Plog.WithContext(t.Context())
@@ -60,29 +56,10 @@ func TestE2ESmoke_TokenVerification(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	aggregatorClients := make(map[string]*ccv.AggregatorClient)
-	for qualifier := range in.AggregatorEndpoints {
-		client, err := in.NewAggregatorClientForCommittee(
-			zerolog.Ctx(ctx).With().Str("component", fmt.Sprintf("aggregator-client-%s", qualifier)).Logger(),
-			qualifier)
-		require.NoError(t, err)
-		require.NotNil(t, client)
-		aggregatorClients[qualifier] = client
-		t.Cleanup(func() {
-			client.Close()
-		})
-	}
+	aggregatorClients := SetupAggregatorClients(t, ctx, in)
 	defaultAggregatorClient := aggregatorClients[common.DefaultCommitteeVerifierQualifier]
 
-	var indexerMonitor *ccv.IndexerMonitor
-	indexerClient, err := lib.Indexer()
-	if err == nil {
-		indexerMonitor, err = ccv.NewIndexerMonitor(
-			zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
-			indexerClient)
-		require.NoError(t, err)
-		require.NotNil(t, indexerMonitor)
-	}
+	indexerMonitor := SetupIndexerMonitor(t, ctx, lib)
 
 	sel0, sel1 := chains[0].Details.ChainSelector, chains[1].Details.ChainSelector
 

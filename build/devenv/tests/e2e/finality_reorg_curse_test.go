@@ -36,11 +36,12 @@ import (
 func TestE2EReorg(t *testing.T) {
 	ctx := ccv.Plog.WithContext(context.Background())
 	l := zerolog.Ctx(ctx)
-	lib, err := ccv.NewLib(l, "../../env-out.toml", chain_selectors.FamilyEVM)
+	smokeTestConfig := GetSmokeTestConfig()
+	lib, err := ccv.NewLib(l, smokeTestConfig, chain_selectors.FamilyEVM)
 	require.NoError(t, err)
 
 	// TODO: put LoadOutput behind the lib.
-	in, err := ccv.LoadOutput[ccv.Cfg]("../../env-out.toml")
+	in, err := ccv.LoadOutput[ccv.Cfg](smokeTestConfig)
 	require.NoError(t, err)
 	chains, err := lib.Chains(ctx)
 	require.NoError(t, err)

@@ -27,6 +27,9 @@ jobs:
           - name: TestE2ESmoke_TokenVerification
             config: "env.toml,env-cl.toml,env-cl-ci.toml"
             timeout: 15m
+          - name: TestE2ESmoke_ExtraArgsV2
+            config: "env.toml,env-cl.toml,env-cl-ci.toml"
+            timeout: 10m
           # We need to configure HeadTracker for the CL tests to have finality depth. Otherwise, it does instant finality.
           # - name: TestE2EReorg
           #   config: "env.toml,env-src-auto-mine.toml,env-cl.toml,env-cl-ci.toml"
