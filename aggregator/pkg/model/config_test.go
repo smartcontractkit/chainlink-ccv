@@ -1247,31 +1247,20 @@ func TestRateLimitingConfig_Validate(t *testing.T) {
 			errorMsg:    "redis address is required when using redis storage",
 		},
 		{
-			name: "rate limiting config with redis storage and missing password is invalid",
+			name: "rate limiting config with redis storage and missing password is valid",
 			config: RateLimitingConfig{
 				Enabled: true,
 				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeRedis, Redis: &RateLimiterRedisConfig{Address: "localhost:6379", DB: 1}},
 			},
-			expectError: true,
-			errorMsg:    "redis password is required when using redis storage",
+			expectError: false,
 		},
 		{
-			name: "rate limiting config with redis storage and missing DB is invalid",
+			name: "rate limiting config with redis storage and missing DB is valid",
 			config: RateLimitingConfig{
 				Enabled: true,
 				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeRedis, Redis: &RateLimiterRedisConfig{Address: "localhost:6379", Password: "secret"}},
 			},
-			expectError: true,
-			errorMsg:    "redis DB must be greater than 0 when using redis storage",
-		},
-		{
-			name: "rate limiting config with redis storage and invalid DB is invalid",
-			config: RateLimitingConfig{
-				Enabled: true,
-				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeRedis, Redis: &RateLimiterRedisConfig{Address: "localhost:6379", Password: "secret", DB: 0}},
-			},
-			expectError: true,
-			errorMsg:    "redis DB must be greater than 0 when using redis storage",
+			expectError: false,
 		},
 		{
 			name: "rate limiting config with limits is valid",

@@ -274,12 +274,6 @@ func (c *RateLimitingConfig) Validate() error {
 		if c.Storage.Redis.Address == "" {
 			return errors.New("redis address is required when using redis storage")
 		}
-		if c.Storage.Redis.Password == "" {
-			return errors.New("redis password is required when using redis storage")
-		}
-		if c.Storage.Redis.DB <= 0 {
-			return errors.New("redis DB must be greater than 0 when using redis storage")
-		}
 	}
 
 	for callerID, limits := range c.Limits {
