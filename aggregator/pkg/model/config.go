@@ -185,6 +185,13 @@ type RateLimitConfig struct {
 	LimitPerMinute int `toml:"limit_per_minute"`
 }
 
+func (c *RateLimitConfig) Validate() error {
+	if c.LimitPerMinute < 0 {
+		return errors.New("limitPerMinute must be greater than or equal to 0")
+	}
+	return nil
+}
+
 // RateLimiterStoreType defines the supported storage types for rate limiting.
 type RateLimiterStoreType string
 
@@ -253,6 +260,57 @@ type RateLimitingConfig struct {
 	// GlobalAnonymousLimits defines global anonymous rate limits
 	// Map structure: method -> RateLimitConfig
 	GlobalAnonymousLimits map[string]RateLimitConfig `toml:"globalAnonymousLimits"`
+}
+
+func (c *RateLimitingConfig) Validate() error {
+	if !c.Enabled {
+		return nil
+	}
+
+	if c.Storage.Type == RateLimiterStoreTypeRedis {
+		if c.Storage.Redis == nil {
+			return errors.New("redis configuration is required when using redis storage")
+		}
+		if c.Storage.Redis.Address == "" {
+			return errors.New("redis address is required when using redis storage")
+		}
+		if c.Storage.Redis.Password == "" {
+			return errors.New("redis password is required when using redis storage")
+		}
+		if c.Storage.Redis.DB <= 0 {
+			return errors.New("redis DB must be greater than 0 when using redis storage")
+		}
+	}
+
+	for callerID, limits := range c.Limits {
+		for method, limitConfig := range limits {
+			if err := limitConfig.Validate(); err != nil {
+				return fmt.Errorf("limit validation failed for client %s method %s: %w", callerID, method, err)
+			}
+		}
+	}
+
+	for groupName, limits := range c.GroupLimits {
+		for method, limitConfig := range limits {
+			if err := limitConfig.Validate(); err != nil {
+				return fmt.Errorf("limit validation failed for group %s method %s: %w", groupName, method, err)
+			}
+		}
+	}
+
+	for method, limitConfig := range c.DefaultLimits {
+		if err := limitConfig.Validate(); err != nil {
+			return fmt.Errorf("default limit validation failed for method %s: %w", method, err)
+		}
+	}
+
+	for method, limitConfig := range c.GlobalAnonymousLimits {
+		if err := limitConfig.Validate(); err != nil {
+			return fmt.Errorf("global anonymous limit validation failed for method %s: %w", method, err)
+		}
+	}
+
+	return nil
 }
 
 // GetEffectiveLimit resolves the effective rate limit for a given caller and method.
@@ -639,6 +697,15 @@ func (c *AggregatorConfig) ValidateOrphanRecoveryConfig() error {
 	return nil
 }
 
+// ValidateRateLimitingConfig validates the rate limiting configuration.
+func (c *AggregatorConfig) ValidateRateLimitingConfig() error {
+	if err := c.RateLimiting.Validate(); err != nil {
+		return fmt.Errorf("rate limiting configuration error: %w", err)
+	}
+
+	return nil
+}
+
 // ValidateCommitteeConfig validates the committee configuration.
 func (c *AggregatorConfig) ValidateCommitteeConfig() error {
 	if c.Committee == nil {
@@ -769,6 +836,11 @@ func (c *AggregatorConfig) Validate() error {
 	// Validate orphan recovery configuration
 	if err := c.ValidateOrphanRecoveryConfig(); err != nil {
 		return fmt.Errorf("orphan recovery configuration error: %w", err)
+	}
+
+	// Validate rate limiting configuration
+	if err := c.ValidateRateLimitingConfig(); err != nil {
+		return fmt.Errorf("rate limiting configuration error: %w", err)
 	}
 
 	return nil
