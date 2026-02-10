@@ -36,18 +36,15 @@ type GenerateTokenVerifierConfigCfg struct {
 	PyroscopeURL string
 	// Monitoring is the monitoring configuration containing beholder settings.
 	Monitoring shared.MonitoringInput
-	// LombardQualifier is the qualifier for Lombard contracts in the datastore.
-	LombardQualifier string
 	// Lombard contains the Lombard verifier configuration.
 	Lombard LombardConfigInput
-	// CCTPQualifier is the qualifier for CCTP contracts in the datastore.
-	CCTPQualifier string
 	// CCTP contains the CCTP verifier configuration.
 	CCTP CCTPConfigInput
 }
 
 // LombardConfigInput contains the configuration for the Lombard verifier.
 type LombardConfigInput struct {
+	Qualifier               string
 	VerifierID              string
 	AttestationAPI          string
 	AttestationAPITimeout   time.Duration
@@ -57,6 +54,7 @@ type LombardConfigInput struct {
 
 // CCTPConfigInput contains the configuration for the CCTP verifier.
 type CCTPConfigInput struct {
+	Qualifier              string
 	VerifierID             string
 	AttestationAPI         string
 	AttestationAPITimeout  time.Duration
@@ -97,13 +95,11 @@ func GenerateTokenVerifierConfig() deployment.ChangeSetV2[GenerateTokenVerifierC
 		cctpConfig := applyCCTPDefaults(cfg.CCTP, isProd)
 
 		input := sequences.GenerateTokenVerifierConfigInput{
-			ChainSelectors:   selectors,
-			PyroscopeURL:     cfg.PyroscopeURL,
-			Monitoring:       cfg.Monitoring,
-			LombardQualifier: cfg.LombardQualifier,
-			Lombard:          lombardConfig,
-			CCTPQualifier:    cfg.CCTPQualifier,
-			CCTP:             cctpConfig,
+			ChainSelectors: selectors,
+			PyroscopeURL:   cfg.PyroscopeURL,
+			Monitoring:     cfg.Monitoring,
+			Lombard:        lombardConfig,
+			CCTP:           cctpConfig,
 		}
 
 		deps := sequences.GenerateTokenVerifierConfigDeps{
@@ -168,6 +164,7 @@ func applyLombardDefaults(cfg LombardConfigInput, isProd bool) sequences.Lombard
 	}
 
 	return sequences.LombardConfigInput{
+		Qualifier:               cfg.Qualifier,
 		VerifierID:              cfg.VerifierID,
 		AttestationAPI:          attestationAPI,
 		AttestationAPITimeout:   attestationAPITimeout,
@@ -203,6 +200,7 @@ func applyCCTPDefaults(cfg CCTPConfigInput, isProd bool) sequences.CCTPConfigInp
 	}
 
 	return sequences.CCTPConfigInput{
+		Qualifier:              cfg.Qualifier,
 		VerifierID:             cfg.VerifierID,
 		AttestationAPI:         attestationAPI,
 		AttestationAPITimeout:  attestationAPITimeout,

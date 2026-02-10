@@ -24,17 +24,14 @@ type GenerateTokenVerifierConfigInput struct {
 	PyroscopeURL string
 	// Monitoring is the monitoring configuration containing beholder settings.
 	Monitoring shared.MonitoringInput
-	// LombardQualifier is a qualifier for the Lombard contracts from the datastore, used to identify which addresses to use for the Lombard verifier configuration.
-	LombardQualifier string
 	// Lombard contains the configuration for the Lombard verifier.
 	Lombard LombardConfigInput
-	// CCTPQualifier is a qualifier for the CCTP contracts from the datastore, used to identify which addresses to use for the CCTP verifier configuration.
-	CCTPQualifier string
 	// CCTP contains the configuration for the CCTP verifier.
 	CCTP CCTPConfigInput
 }
 
 type LombardConfigInput struct {
+	Qualifier               string
 	VerifierID              string
 	AttestationAPI          string
 	AttestationAPITimeout   time.Duration
@@ -43,6 +40,7 @@ type LombardConfigInput struct {
 }
 
 type CCTPConfigInput struct {
+	Qualifier              string
 	VerifierID             string
 	AttestationAPI         string
 	AttestationAPITimeout  time.Duration
@@ -67,8 +65,8 @@ var GenerateTokenVerifierConfig = operations.NewSequence(
 			Env: deps.Env,
 		}, token_verifier_config.BuildConfigInput{
 			ChainSelectors:   input.ChainSelectors,
-			CCTPQualifier:    input.CCTPQualifier,
-			LombardQualifier: input.LombardQualifier,
+			CCTPQualifier:    input.CCTP.Qualifier,
+			LombardQualifier: input.Lombard.Qualifier,
 		})
 		if err != nil {
 			return GenerateTokenVerifierConfigOutput{}, fmt.Errorf("failed to build token verifier config: %w", err)
@@ -100,7 +98,7 @@ var GenerateTokenVerifierConfig = operations.NewSequence(
 		if len(buildResult.Output.Config.CCTPVerifierAddresses) > 0 {
 			cctpVerifierID := input.CCTP.VerifierID
 			if cctpVerifierID == "" {
-				cctpVerifierID = fmt.Sprintf("cctp-%s", input.CCTPQualifier)
+				cctpVerifierID = fmt.Sprintf("cctp-%s", input.CCTP.Qualifier)
 			}
 			cctpVerifier := token.VerifierConfig{
 				VerifierID: cctpVerifierID,
@@ -122,7 +120,7 @@ var GenerateTokenVerifierConfig = operations.NewSequence(
 		if len(buildResult.Output.Config.LombardVerifierResolverAddresses) > 0 {
 			lombardVerifierID := input.Lombard.VerifierID
 			if lombardVerifierID == "" {
-				lombardVerifierID = fmt.Sprintf("lombard-%s", input.LombardQualifier)
+				lombardVerifierID = fmt.Sprintf("lombard-%s", input.Lombard.Qualifier)
 			}
 			lombardVerifier := token.VerifierConfig{
 				VerifierID: lombardVerifierID,
