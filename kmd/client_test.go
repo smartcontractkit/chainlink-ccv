@@ -12,13 +12,15 @@ import (
 	"github.com/smartcontractkit/freeport"
 )
 
+const testKeyName = "test-key"
+
 func TestClient_Sign(t *testing.T) {
 	memoryStorage := keystore.NewMemoryStorage()
 	keyStore, err := keystore.LoadKeystore(t.Context(), memoryStorage, "test-password", keystore.WithScryptParams(keystore.FastScryptParams))
 	require.NoError(t, err)
 
 	// Create a test key
-	keyName := "test-key"
+	keyName := testKeyName
 	keyType := keystore.ECDSA_S256
 	keysResponse, err := keyStore.CreateKeys(t.Context(), keystore.CreateKeysRequest{
 		Keys: []keystore.CreateKeyRequest{
@@ -64,7 +66,7 @@ func TestClient_GetKeys(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create a test key
-	keyName := "test-key"
+	keyName := testKeyName
 	keyType := keystore.ECDSA_S256
 	keysResponse, err := keyStore.CreateKeys(t.Context(), keystore.CreateKeysRequest{
 		Keys: []keystore.CreateKeyRequest{
@@ -107,7 +109,7 @@ func TestClient_CreateKeys(t *testing.T) {
 	})
 
 	// Create a test key through the API
-	keyName := "test-key"
+	keyName := testKeyName
 	keyType := keystore.ECDSA_S256
 	client := NewClient(fmt.Sprintf("http://localhost:%d", port))
 	createKeysResponse, err := client.CreateKeys(t.Context(), keystore.CreateKeysRequest{

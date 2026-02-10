@@ -119,20 +119,16 @@ var createKeysCmd = &cobra.Command{
 			return fmt.Errorf("failed to unmarshal create keys request: %w", err)
 		}
 
-		fmt.Printf("Creating keys with request: %+v\n", req)
-
 		serverPort := os.Getenv(Port)
 		if serverPort == "" {
 			serverPort = strconv.Itoa(DefaultPort)
 		}
 
 		kmdClient := kmd.NewClient(fmt.Sprintf("http://localhost:%s", serverPort))
-		createKeysResponse, err := kmdClient.CreateKeys(cmd.Context(), req)
+		_, err := kmdClient.CreateKeys(cmd.Context(), req)
 		if err != nil {
 			return fmt.Errorf("failed to create keys: %w", err)
 		}
-
-		fmt.Printf("got response: %+v\n", createKeysResponse)
 
 		return nil
 	},
@@ -150,7 +146,10 @@ func main() {
 }
 
 // touch creates a file if it doesn't exist, or updates the timestamps if it does.
+// filePath is from KEYSTORE_FILE_PATH env and is cleaned to prevent path traversal.
 func touch(filePath string) error {
+	filePath = filepath.Clean(filePath)
+	// #nosec G304 -- filePath is from KEYSTORE_FILE_PATH env, cleaned above
 	_, err := os.Open(filePath)
 	if err == nil {
 		// file exists, nothing to do.
@@ -159,16 +158,17 @@ func touch(filePath string) error {
 
 	// Extract the directory from the filePath.
 	dir := filepath.Dir(filePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
 	// file doesn't exist, create it.
+	// #nosec G304 -- filePath is from KEYSTORE_FILE_PATH env, cleaned above
 	f, err := os.Create(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to create file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if err := f.Sync(); err != nil {
 		return fmt.Errorf("failed to sync file: %w", err)

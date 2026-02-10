@@ -171,7 +171,7 @@ func TestServer_CreateKeys(t *testing.T) {
 	})
 
 	// Create a test key through the API
-	keyName := "test-key"
+	keyName := testKeyName
 	keyType := keystore.ECDSA_S256
 	createKeysRequest, err := json.Marshal(keystore.CreateKeysRequest{
 		Keys: []keystore.CreateKeyRequest{

@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strings"
 
 	ks "github.com/smartcontractkit/chainlink-common/keystore"
 )
@@ -24,83 +26,49 @@ func NewClient(kmdURL string) *Client {
 	}
 }
 
-func (c *Client) CreateKeys(ctx context.Context, req ks.CreateKeysRequest) (ks.CreateKeysResponse, error) {
+// doJSON performs a JSON POST with req and returns the response decoded into T.
+// statusErrMsg is used in the error when status is not 200.
+func doJSON[T any](c *Client, ctx context.Context, endpoint, statusErrMsg string, req any) (T, error) {
+	var zero T
 	body, err := json.Marshal(req)
 	if err != nil {
-		return ks.CreateKeysResponse{}, fmt.Errorf("failed to marshal create keys request: %w", err)
+		return zero, fmt.Errorf("failed to marshal request: %w", err)
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s%s", c.kmdURL, CreateEndpoint), bytes.NewReader(body))
+	reqURL, err := url.JoinPath(c.kmdURL, strings.TrimPrefix(endpoint, "/"))
 	if err != nil {
-		return ks.CreateKeysResponse{}, fmt.Errorf("failed to create HTTP request: %w", err)
+		return zero, fmt.Errorf("failed to build request URL: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", reqURL, bytes.NewReader(body))
+	if err != nil {
+		return zero, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.ContentLength = int64(len(body))
-	fmt.Printf("creating keys with request: %s\n", string(body))
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
-		return ks.CreateKeysResponse{}, fmt.Errorf("failed to do HTTP request: %w", err)
+		return zero, fmt.Errorf("failed to do HTTP request: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode != http.StatusOK {
-		return ks.CreateKeysResponse{}, fmt.Errorf("failed to create keys: %s", resp.Status)
+		return zero, fmt.Errorf("%s: %s", statusErrMsg, resp.Status)
 	}
-	var createKeysResponse ks.CreateKeysResponse
-	if err := json.NewDecoder(resp.Body).Decode(&createKeysResponse); err != nil {
-		return ks.CreateKeysResponse{}, fmt.Errorf("failed to decode create keys response: %w", err)
+	var result T
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return zero, fmt.Errorf("failed to decode response: %w", err)
 	}
-	return createKeysResponse, nil
+	return result, nil
+}
+
+func (c *Client) CreateKeys(ctx context.Context, req ks.CreateKeysRequest) (ks.CreateKeysResponse, error) {
+	return doJSON[ks.CreateKeysResponse](c, ctx, CreateEndpoint, "failed to create keys", req)
 }
 
 // GetKeys gets keys from the KMD server.
 func (c *Client) GetKeys(ctx context.Context, req ks.GetKeysRequest) (ks.GetKeysResponse, error) {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return ks.GetKeysResponse{}, fmt.Errorf("failed to marshal get keys request: %w", err)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s%s", c.kmdURL, GetKeysEndpoint), bytes.NewReader(body))
-	if err != nil {
-		return ks.GetKeysResponse{}, fmt.Errorf("failed to create HTTP request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.ContentLength = int64(len(body))
-	resp, err := c.client.Do(httpReq)
-	if err != nil {
-		return ks.GetKeysResponse{}, fmt.Errorf("failed to do HTTP request: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-	if resp.StatusCode != http.StatusOK {
-		return ks.GetKeysResponse{}, fmt.Errorf("failed to get keys: %s", resp.Status)
-	}
-	var getKeysResponse ks.GetKeysResponse
-	if err := json.NewDecoder(resp.Body).Decode(&getKeysResponse); err != nil {
-		return ks.GetKeysResponse{}, fmt.Errorf("failed to decode get keys response: %w", err)
-	}
-	return getKeysResponse, nil
+	return doJSON[ks.GetKeysResponse](c, ctx, GetKeysEndpoint, "failed to get keys", req)
 }
 
 // Sign signs data using the KMD server and returns the signature.
 func (c *Client) Sign(ctx context.Context, req ks.SignRequest) (ks.SignResponse, error) {
-	body, err := json.Marshal(req)
-	if err != nil {
-		return ks.SignResponse{}, fmt.Errorf("failed to marshal sign request: %w", err)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s%s", c.kmdURL, SignEndpoint), bytes.NewReader(body))
-	if err != nil {
-		return ks.SignResponse{}, fmt.Errorf("failed to create HTTP request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.ContentLength = int64(len(body))
-	resp, err := c.client.Do(httpReq)
-	if err != nil {
-		return ks.SignResponse{}, fmt.Errorf("failed to do HTTP request: %w", err)
-	}
-	defer resp.Body.Close() //nolint:errcheck
-	if resp.StatusCode != http.StatusOK {
-		return ks.SignResponse{}, fmt.Errorf("failed to sign data: %s", resp.Status)
-	}
-	var signResponse ks.SignResponse
-	if err := json.NewDecoder(resp.Body).Decode(&signResponse); err != nil {
-		return ks.SignResponse{}, fmt.Errorf("failed to decode sign response: %w", err)
-	}
-	return signResponse, nil
+	return doJSON[ks.SignResponse](c, ctx, SignEndpoint, "failed to sign data", req)
 }
