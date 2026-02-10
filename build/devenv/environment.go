@@ -935,10 +935,12 @@ func NewEnvironment() (in *Cfg, err error) {
 			PyroscopeURL:      tokenVerifierInput.PyroscopeURL,
 			Monitoring:        tokenVerifierInput.Monitoring,
 			Lombard: sequences.LombardConfigInput{
+				VerifierID:     "LombardVerifier",
 				Qualifier:      devenvcommon.LombardContractsQualifier,
 				AttestationAPI: fakeOut.InternalHTTPURL + "/lombard",
 			},
 			CCTP: sequences.CCTPConfigInput{
+				VerifierID:     "CCTPVerifier",
 				Qualifier:      devenvcommon.CCTPContractsQualifier,
 				AttestationAPI: fakeOut.InternalHTTPURL + "/cctp",
 			},
