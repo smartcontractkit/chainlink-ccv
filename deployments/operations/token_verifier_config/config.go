@@ -59,7 +59,7 @@ var BuildConfig = operations.NewOperation(
 		for _, chainSelector := range input.ChainSelectors {
 			chainSelectorStr := strconv.FormatUint(chainSelector, 10)
 
-			// Get OnRamp address
+			// Get OnRamp address (required)
 			onRampAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
 				Type: datastore.ContractType(onrampoperations.ContractType),
 			}, chainSelector, toAddress)
@@ -68,7 +68,7 @@ var BuildConfig = operations.NewOperation(
 			}
 			onRampAddresses[chainSelectorStr] = onRampAddr
 
-			// Get RMN Remote address
+			// Get RMN Remote address (required)
 			rmnRemoteAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
 				Type: datastore.ContractType(rmn_remote.ContractType),
 			}, chainSelector, toAddress)
@@ -77,35 +77,41 @@ var BuildConfig = operations.NewOperation(
 			}
 			rmnRemoteAddresses[chainSelectorStr] = rmnRemoteAddr
 
-			// Get CCTP Verifier address (ContractType)
-			cctpVerifierAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
+			// Get CCTP Verifier address (ContractType) - optional
+			cctpVerifierAddr, cctpVerifierErr := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
 				Type:      datastore.ContractType(cctp_verifier.ContractType),
 				Qualifier: input.CCTPQualifier,
 			}, chainSelector, toAddress)
-			if err != nil {
-				return BuildConfigOutput{}, fmt.Errorf("failed to get cctp verifier address for chain %d: %w", chainSelector, err)
-			}
-			cctpVerifierAddresses[chainSelectorStr] = cctpVerifierAddr
 
-			// Get CCTP Verifier Resolver address (ResolverType)
-			cctpVerifierResolverAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
+			// Get CCTP Verifier Resolver address (ResolverType) - optional
+			cctpVerifierResolverAddr, cctpResolverErr := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
 				Type:      datastore.ContractType(cctp_verifier.ResolverType),
 				Qualifier: input.CCTPQualifier,
 			}, chainSelector, toAddress)
-			if err != nil {
-				return BuildConfigOutput{}, fmt.Errorf("failed to get cctp verifier resolver address for chain %d: %w", chainSelector, err)
-			}
-			cctpVerifierResolverAddresses[chainSelectorStr] = cctpVerifierResolverAddr
 
-			// Get Lombard Verifier Resolver address (ResolverType)
-			lombardVerifierResolverAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
+			// Both CCTP addresses must be present or both absent
+			if (cctpVerifierErr == nil) != (cctpResolverErr == nil) {
+				return BuildConfigOutput{}, fmt.Errorf(
+					"chain %d: cctp verifier and resolver must both exist or both be absent (verifier error: %v, resolver error: %v)",
+					chainSelector, cctpVerifierErr, cctpResolverErr)
+			}
+
+			// If both CCTP addresses exist, add them to the maps
+			if cctpVerifierErr == nil && cctpResolverErr == nil {
+				cctpVerifierAddresses[chainSelectorStr] = cctpVerifierAddr
+				cctpVerifierResolverAddresses[chainSelectorStr] = cctpVerifierResolverAddr
+			}
+
+			// Get Lombard Verifier Resolver address (ResolverType) - optional
+			lombardVerifierResolverAddr, lombardResolverErr := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
 				Type:      datastore.ContractType(lombard_verifier.ResolverType),
 				Qualifier: input.LombardQualifier,
 			}, chainSelector, toAddress)
-			if err != nil {
-				return BuildConfigOutput{}, fmt.Errorf("failed to get lombard verifier resolver address for chain %d: %w", chainSelector, err)
+
+			// If Lombard address exists, add it to the map
+			if lombardResolverErr == nil {
+				lombardVerifierResolverAddresses[chainSelectorStr] = lombardVerifierResolverAddr
 			}
-			lombardVerifierResolverAddresses[chainSelectorStr] = lombardVerifierResolverAddr
 		}
 
 		return BuildConfigOutput{
