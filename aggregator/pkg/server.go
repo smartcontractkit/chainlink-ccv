@@ -304,7 +304,8 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	factory := storage.NewStorageFactory(l)
 	store, err := factory.CreateStorage(config.Storage, aggMonitoring)
 	if err != nil {
-		panic(fmt.Sprintf("failed to create storage: %v", err))
+		l.Fatalf("Failed to create storage: %v", err)
+		return nil
 	}
 
 	store = storage.WrapWithMetrics(store, aggMonitoring, l)

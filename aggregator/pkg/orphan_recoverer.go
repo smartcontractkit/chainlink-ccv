@@ -67,11 +67,6 @@ func (o *OrphanRecoverer) Start(ctx context.Context) error {
 		o.lastError = err
 		o.mu.Unlock()
 
-		if err != nil {
-			o.logger.Errorw("Orphan recovery scan failed", "error", err)
-		} else {
-			o.logger.Info("Orphan recovery scan completed successfully")
-		}
 		duration := time.Since(now)
 		o.metrics(ctx).RecordOrphanRecoveryDuration(ctx, duration)
 		o.logger.Infow("Orphan recovery scan finished",

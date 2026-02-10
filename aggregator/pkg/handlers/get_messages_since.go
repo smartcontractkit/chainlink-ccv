@@ -40,6 +40,7 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *msgdiscoveryp
 
 	records := make([]*msgdiscoverypb.VerifierResultWithSequence, 0, len(batch.Reports))
 	for _, report := range batch.Reports {
+		h.logger(ctx).Tracef("Report MessageID: %x, Sequence: %d, Verifications: %d", report.MessageID, report.Sequence, len(report.Verifications))
 		verifierResult, err := model.MapAggregatedReportToVerifierResultProto(report, h.committee)
 		if err != nil {
 			h.logger(ctx).Errorw("failed to map aggregated report to proto. this is likely due to invalid configuration", "messageID", report.MessageID, "error", err)
@@ -66,10 +67,6 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *msgdiscoveryp
 
 	h.m.Metrics().RecordMessageSinceNumberOfRecordsReturned(ctx, len(records))
 	h.logger(ctx).Tracef("Returning %d records for GetMessagesSinceRequest", len(records))
-
-	for _, report := range batch.Reports {
-		h.logger(ctx).Tracef("Report MessageID: %x, Sequence: %d, Verifications: %d", report.MessageID, report.Sequence, len(report.Verifications))
-	}
 
 	return &msgdiscoverypb.GetMessagesSinceResponse{
 		Results: records,
