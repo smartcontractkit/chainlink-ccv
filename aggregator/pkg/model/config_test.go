@@ -848,7 +848,7 @@ func intPtr(i int) *int {
 }
 
 func TestGetClientByAPIKey(t *testing.T) {
-	creds := hmacutil.MustGenerateCredentials()
+	creds, _ := hmacutil.GenerateCredentials()
 
 	t.Run("finds client by API key", func(t *testing.T) {
 		t.Setenv("TEST_API_KEY", creds.APIKey)
@@ -905,7 +905,7 @@ func TestGetClientByClientID(t *testing.T) {
 }
 
 func TestAPIKeyPairEnv_Validate(t *testing.T) {
-	creds := hmacutil.MustGenerateCredentials()
+	creds, _ := hmacutil.GenerateCredentials()
 
 	tests := []struct {
 		name        string
@@ -993,7 +993,7 @@ func TestAPIKeyPairEnv_Validate(t *testing.T) {
 }
 
 func TestClientConfig_Validate(t *testing.T) {
-	creds := hmacutil.MustGenerateCredentials()
+	creds, _ := hmacutil.GenerateCredentials()
 
 	tests := []struct {
 		name        string

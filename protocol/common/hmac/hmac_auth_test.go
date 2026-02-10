@@ -95,7 +95,7 @@ func TestComputeHMAC(t *testing.T) {
 	t.Run("non-hex secret returns error", func(t *testing.T) {
 		_, err := ComputeHMAC("not-valid-hex", stringToSign)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "HMAC secret must be hex-encoded")
+		require.Contains(t, err.Error(), "failed to validate HMAC secret")
 	})
 
 	t.Run("different hex secrets produce different signatures", func(t *testing.T) {
@@ -187,6 +187,12 @@ func TestGenerateSecret(t *testing.T) {
 		require.Len(t, secret, 64, "32 bytes should produce 64 hex characters")
 	})
 
+	t.Run("generates error if number of bytes is less than minimum", func(t *testing.T) {
+		_, err := GenerateSecret(16)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "number of bytes must be at least 32")
+	})
+
 	t.Run("generates unique secrets", func(t *testing.T) {
 		secret1, err := GenerateSecret(32)
 		require.NoError(t, err)
@@ -231,22 +237,6 @@ func TestGenerateCredentials(t *testing.T) {
 		require.NoError(t, err)
 		require.NotEqual(t, creds1.APIKey, creds2.APIKey)
 		require.NotEqual(t, creds1.Secret, creds2.Secret)
-	})
-}
-
-func TestMustGenerateCredentials(t *testing.T) {
-	t.Run("returns valid credentials without panic", func(t *testing.T) {
-		require.NotPanics(t, func() {
-			creds := MustGenerateCredentials()
-			require.NotEmpty(t, creds.APIKey)
-			require.NotEmpty(t, creds.Secret)
-		})
-	})
-
-	t.Run("credentials pass validation", func(t *testing.T) {
-		creds := MustGenerateCredentials()
-		require.NoError(t, ValidateAPIKey(creds.APIKey))
-		require.NoError(t, ValidateSecret(creds.Secret))
 	})
 }
 

@@ -13,7 +13,7 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-var testCredentials = MustGenerateCredentials()
+var testCredentials, _ = GenerateCredentials()
 
 func TestNewClientInterceptor(t *testing.T) {
 	config := &ClientConfig{

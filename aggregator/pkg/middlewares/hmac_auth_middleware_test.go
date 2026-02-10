@@ -21,8 +21,8 @@ import (
 )
 
 var (
-	testCredentials1 = hmacutil.MustGenerateCredentials()
-	testCredentials2 = hmacutil.MustGenerateCredentials()
+	testCredentials1, _ = hmacutil.GenerateCredentials()
+	testCredentials2, _ = hmacutil.GenerateCredentials()
 )
 
 type mockAPIKeyPair struct {
