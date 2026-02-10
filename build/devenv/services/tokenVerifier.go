@@ -57,7 +57,7 @@ type TokenVerifierInput struct {
 	// Maps to rmn_remote_addresses in the verifier config toml.
 	RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
 
-	CCTPVerifierAddresses map[string]string `toml:"cctp_verifier_resolver_addresses"`
+	CCTPVerifierAddresses map[string]string `toml:"cctp_verifier_addresses"`
 
 	CCTPVerifierResolverAddresses map[string]string `toml:"cctp_verifier_resolver_addresses"`
 
