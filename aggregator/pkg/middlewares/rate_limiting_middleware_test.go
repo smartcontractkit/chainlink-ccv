@@ -2,6 +2,7 @@ package middlewares
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -77,6 +78,117 @@ func TestRateLimitingMiddleware_DefaultLimits(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, codes.ResourceExhausted, st.Code())
 	require.Contains(t, st.Message(), "rate limit exceeded")
+}
+
+func TestRateLimitingMiddleware_DefaultLimitsWhenAnonynous(t *testing.T) {
+	store := memory.NewStore()
+	config := model.RateLimitingConfig{
+		Enabled: true,
+		DefaultLimits: map[string]model.RateLimitConfig{
+			"/test.Service/Method": {LimitPerMinute: 5},
+		},
+		GlobalAnonymousLimits: map[string]model.RateLimitConfig{
+			"/test.Service/Method": {LimitPerMinute: 100},
+		},
+	}
+
+	clientProvider := &mockClientProvider{
+		clientsByAPIKey: map[string]*mockClientEntry{},
+		clientsByID:     map[string]auth.ClientConfig{},
+	}
+
+	middleware := NewRateLimitingMiddleware(store, config, clientProvider, logger.TestSugared(t))
+	identity := auth.CreateCallerIdentity("test-caller", true)
+	ctx := auth.ToContext(context.Background(), identity)
+	info := mockServerInfo("/test.Service/Method")
+
+	// First 5 requests should succeed
+	for i := range 5 {
+		resp, err := middleware.Intercept(ctx, nil, info, mockHandler)
+		require.NoError(t, err, "request %d should succeed", i+1)
+		require.Equal(t, "success", resp)
+	}
+
+	// 6th request should be rate limited
+	resp, err := middleware.Intercept(ctx, nil, info, mockHandler)
+	require.Error(t, err)
+	require.Nil(t, resp)
+
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, codes.ResourceExhausted, st.Code())
+	require.Contains(t, st.Message(), "rate limit exceeded")
+}
+
+func TestRateLimitingMiddleware_GlobalLimitReachedImmediatlyWhenNotConfigured(t *testing.T) {
+	store := memory.NewStore()
+	config := model.RateLimitingConfig{
+		Enabled: true,
+		DefaultLimits: map[string]model.RateLimitConfig{
+			"/test.Service/Method": {LimitPerMinute: 5},
+		},
+	}
+
+	clientProvider := &mockClientProvider{
+		clientsByAPIKey: map[string]*mockClientEntry{},
+		clientsByID:     map[string]auth.ClientConfig{},
+	}
+
+	middleware := NewRateLimitingMiddleware(store, config, clientProvider, logger.TestSugared(t))
+	identity := auth.CreateCallerIdentity("test-caller", true)
+	ctx := auth.ToContext(context.Background(), identity)
+	info := mockServerInfo("/test.Service/Method")
+
+	resp, err := middleware.Intercept(ctx, nil, info, mockHandler)
+	require.Error(t, err)
+	require.Nil(t, resp)
+
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, codes.Unavailable, st.Code())
+	require.Contains(t, st.Message(), "service temporarily unavailable")
+}
+
+func TestRateLimitingMiddleware_AnonymousLimits(t *testing.T) {
+	store := memory.NewStore()
+	config := model.RateLimitingConfig{
+		Enabled: true,
+		DefaultLimits: map[string]model.RateLimitConfig{
+			"/test.Service/Method": {LimitPerMinute: 10},
+		},
+		GlobalAnonymousLimits: map[string]model.RateLimitConfig{
+			"/test.Service/Method": {LimitPerMinute: 5},
+		},
+	}
+
+	clientProvider := &mockClientProvider{
+		clientsByAPIKey: map[string]*mockClientEntry{},
+		clientsByID:     map[string]auth.ClientConfig{},
+	}
+
+	middleware := NewRateLimitingMiddleware(store, config, clientProvider, logger.TestSugared(t))
+	info := mockServerInfo("/test.Service/Method")
+
+	// First 5 requests should succeed
+	for i := range 5 {
+		identity := auth.CreateCallerIdentity(fmt.Sprintf("test-caller-%d", i), true)
+		ctx := auth.ToContext(context.Background(), identity)
+		resp, err := middleware.Intercept(ctx, nil, info, mockHandler)
+		require.NoError(t, err, "request %d should succeed", i+1)
+		require.Equal(t, "success", resp)
+	}
+
+	// 6th request should be rate limited
+	identity := auth.CreateCallerIdentity("test-caller-6", true)
+	ctx := auth.ToContext(context.Background(), identity)
+	resp, err := middleware.Intercept(ctx, nil, info, mockHandler)
+	require.Error(t, err)
+	require.Nil(t, resp)
+
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, codes.Unavailable, st.Code())
+	require.Contains(t, st.Message(), "service temporarily unavailable")
 }
 
 func TestRateLimitingMiddleware_GroupLimits(t *testing.T) {

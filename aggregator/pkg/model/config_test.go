@@ -1213,3 +1213,183 @@ func TestMergeGeneratedConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestRateLimitingConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		config      RateLimitingConfig
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "rate limiting config with memory storage is valid",
+			config: RateLimitingConfig{
+				Enabled: true,
+				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeMemory},
+			},
+			expectError: false,
+		},
+		{
+			name: "rate limiting config with redis storage is valid",
+			config: RateLimitingConfig{
+				Enabled: true,
+				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeRedis, Redis: &RateLimiterRedisConfig{Address: "localhost:6379", Password: "secret", DB: 1}},
+			},
+			expectError: false,
+		},
+		{
+			name: "rate limiting config with redis storage and missing address is invalid",
+			config: RateLimitingConfig{
+				Enabled: true,
+				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeRedis, Redis: &RateLimiterRedisConfig{Password: "secret", DB: 1}},
+			},
+			expectError: true,
+			errorMsg:    "redis address is required when using redis storage",
+		},
+		{
+			name: "rate limiting config with redis storage and missing password is valid",
+			config: RateLimitingConfig{
+				Enabled: true,
+				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeRedis, Redis: &RateLimiterRedisConfig{Address: "localhost:6379", DB: 1}},
+			},
+			expectError: false,
+		},
+		{
+			name: "rate limiting config with redis storage and missing DB is valid",
+			config: RateLimitingConfig{
+				Enabled: true,
+				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeRedis, Redis: &RateLimiterRedisConfig{Address: "localhost:6379", Password: "secret"}},
+			},
+			expectError: false,
+		},
+		{
+			name: "rate limiting config with limits is valid",
+			config: RateLimitingConfig{
+				Enabled: true,
+				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeMemory},
+				Limits: map[string]map[string]RateLimitConfig{
+					"client1": {
+						"method1": {LimitPerMinute: 100},
+						"method2": {LimitPerMinute: 200},
+					},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "rate limiting config with 0 limit per minute is valid",
+			config: RateLimitingConfig{
+				Enabled: true,
+				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeMemory},
+				Limits: map[string]map[string]RateLimitConfig{
+					"client1": {
+						"method1": {LimitPerMinute: 0},
+					},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "rate limiting config with limits and invalid limit is invalid",
+			config: RateLimitingConfig{
+				Enabled: true,
+				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeMemory},
+				Limits: map[string]map[string]RateLimitConfig{
+					"client1": {
+						"method1": {LimitPerMinute: -1},
+					},
+				},
+			},
+			expectError: true,
+			errorMsg:    "limit validation failed for client client1 method method1: limitPerMinute must be greater than or equal to 0",
+		},
+		{
+			name: "rate limiting config with group limits is valid",
+			config: RateLimitingConfig{
+				Enabled: true,
+				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeMemory},
+				GroupLimits: map[string]map[string]RateLimitConfig{
+					"group1": {
+						"method1": {LimitPerMinute: 100},
+						"method2": {LimitPerMinute: 200},
+					},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "rate limiting config with invalid group limits is invalid",
+			config: RateLimitingConfig{
+				Enabled: true,
+				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeMemory},
+				GroupLimits: map[string]map[string]RateLimitConfig{
+					"group1": {
+						"method1": {LimitPerMinute: -1},
+					},
+				},
+			},
+			expectError: true,
+			errorMsg:    "limit validation failed for group group1 method method1: limitPerMinute must be greater than or equal to 0",
+		},
+		{
+			name: "rate limiting config with default limits is valid",
+			config: RateLimitingConfig{
+				Enabled: true,
+				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeMemory},
+				DefaultLimits: map[string]RateLimitConfig{
+					"method1": {LimitPerMinute: 100},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "rate limiting config with invalid default limits is invalid",
+			config: RateLimitingConfig{
+				Enabled: true,
+				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeMemory},
+				DefaultLimits: map[string]RateLimitConfig{
+					"method1": {LimitPerMinute: -1},
+				},
+			},
+			expectError: true,
+			errorMsg:    "limit validation failed for method method1: limitPerMinute must be greater than or equal to 0",
+		},
+		{
+			name: "rate limiting config with global anonymous limits is valid",
+			config: RateLimitingConfig{
+				Enabled: true,
+				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeMemory},
+				GlobalAnonymousLimits: map[string]RateLimitConfig{
+					"method1": {LimitPerMinute: 100},
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "rate limiting config with invalid global anonymous limits is invalid",
+			config: RateLimitingConfig{
+				Enabled: true,
+				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeMemory},
+				GlobalAnonymousLimits: map[string]RateLimitConfig{
+					"method1": {LimitPerMinute: -1},
+				},
+			},
+			expectError: true,
+			errorMsg:    "limit validation failed for method method1: limitPerMinute must be greater than or equal to 0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := createMinimalValidConfig()
+			config.RateLimiting = tt.config
+			err := config.Validate()
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errorMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
