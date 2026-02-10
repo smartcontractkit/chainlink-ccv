@@ -1,0 +1,8 @@
+root = ".."
+
+[build]
+cmd = "go build -o /tmp/kmd /app/cmd/kmd"
+bin = "/tmp/kmd"
+include_dir = ["app"]
+include_ext = ["go", "mod", "sum"]
+exclude_dir = ["tmp", "vendor", "testdata", ".git"]
