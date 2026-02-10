@@ -927,13 +927,31 @@ func NewEnvironment() (in *Cfg, err error) {
 			return nil, fmt.Errorf("fake data provider is required for token verifiers to provide attestation API endpoints, but it was not created successfully")
 		}
 
+		template, err := tokenVerifierInput.GenerateTemplateConfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate template config for token verifier: %w", err)
+		}
+
 		// Use changeset to generate token verifier config from on-chain state
 		cs := changesets.GenerateTokenVerifierConfig()
 		output, err := cs.Apply(*e, changesets.GenerateTokenVerifierConfigCfg{
-			ServiceIdentifier: tokenVerifierInput.ServiceIdentifier,
+			ServiceIdentifier: "TokenVerifier",
 			ChainSelectors:    selectors,
-			PyroscopeURL:      tokenVerifierInput.PyroscopeURL,
-			Monitoring:        tokenVerifierInput.Monitoring,
+			PyroscopeURL:      template.PyroscopeURL,
+			Monitoring: shared.MonitoringInput{
+				Enabled: template.Monitoring.Enabled,
+				Type:    template.Monitoring.Type,
+				Beholder: shared.BeholderInput{
+					InsecureConnection:       template.Monitoring.Beholder.InsecureConnection,
+					CACertFile:               template.Monitoring.Beholder.CACertFile,
+					OtelExporterGRPCEndpoint: template.Monitoring.Beholder.OtelExporterGRPCEndpoint,
+					OtelExporterHTTPEndpoint: template.Monitoring.Beholder.OtelExporterHTTPEndpoint,
+					LogStreamingEnabled:      template.Monitoring.Beholder.LogStreamingEnabled,
+					MetricReaderInterval:     template.Monitoring.Beholder.MetricReaderInterval,
+					TraceSampleRatio:         template.Monitoring.Beholder.TraceSampleRatio,
+					TraceBatchTimeout:        template.Monitoring.Beholder.TraceBatchTimeout,
+				},
+			},
 			Lombard: sequences.LombardConfigInput{
 				VerifierID:     "LombardVerifier",
 				Qualifier:      devenvcommon.LombardContractsQualifier,
@@ -946,12 +964,12 @@ func NewEnvironment() (in *Cfg, err error) {
 			},
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate token verifier config for %s: %w", tokenVerifierInput.ServiceIdentifier, err)
+			return nil, fmt.Errorf("failed to generate token verifier config: %w", err)
 		}
 
 		// Get generated config from output datastore
 		tokenVerifierCfg, err := deployments.GetTokenVerifierConfig(
-			output.DataStore.Seal(), tokenVerifierInput.ServiceIdentifier,
+			output.DataStore.Seal(), "TokenVerifier",
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get token verifier config from output: %w", err)

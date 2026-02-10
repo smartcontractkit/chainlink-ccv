@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,7 +17,6 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
-	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
@@ -24,6 +24,9 @@ import (
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
+
+//go:embed tokenVerifier.template.toml
+var tokenVerifierConfigTemplate string
 
 type TokenVerifierInput struct {
 	Mode           Mode                 `toml:"mode"`
@@ -35,12 +38,6 @@ type TokenVerifierInput struct {
 	ContainerName  string               `toml:"container_name"`
 	Port           int                  `toml:"port"`
 
-	// ServiceIdentifier is the identifier for this token verifier service (e.g. "default-token-verifier").
-	ServiceIdentifier string `toml:"service_identifier"`
-	// PyroscopeURL is the URL of the Pyroscope server for profiling (optional).
-	PyroscopeURL string `toml:"pyroscope_url"`
-	// Monitoring is the monitoring configuration containing beholder settings.
-	Monitoring shared.MonitoringInput `toml:"monitoring"`
 	// GeneratedConfig stores the generated token verifier configuration from the changeset.
 	GeneratedConfig *token.Config `toml:"-"`
 }
@@ -225,4 +222,12 @@ func (v *TokenVerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos m
 		return nil, fmt.Errorf("failed to marshal verifier config to TOML: %w", err)
 	}
 	return cfg, nil
+}
+
+func (v *TokenVerifierInput) GenerateTemplateConfig() (*token.Config, error) {
+	var config *token.Config
+	if _, err := toml.Decode(tokenVerifierConfigTemplate, &config); err != nil {
+		return nil, fmt.Errorf("failed to decode verifier config template: %w", err)
+	}
+	return config, nil
 }
