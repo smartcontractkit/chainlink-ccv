@@ -1,3 +1,4 @@
+service_identifier = "tokenVerifier"
 pyroscope_url = "http://pyroscope:4040"
 
 [Monitoring]
