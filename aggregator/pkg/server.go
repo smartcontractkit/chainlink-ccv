@@ -131,10 +131,7 @@ func (s *Server) Start(lis net.Listener) error {
 			close(stopped)
 		}()
 
-		gracePeriod := time.Duration(s.config.Server.RequestTimeout) + shutdownTimeout
-		if gracePeriod < minGracePeriod {
-			gracePeriod = minGracePeriod
-		}
+		gracePeriod := max(time.Duration(s.config.Server.RequestTimeout)+shutdownTimeout, minGracePeriod)
 
 		select {
 		case <-stopped:
