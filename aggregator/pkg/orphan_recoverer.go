@@ -14,7 +14,9 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-var _ protocol.HealthReporter = (*OrphanRecoverer)(nil)
+var (
+	_ protocol.HealthReporter = (*OrphanRecoverer)(nil)
+)
 
 type OrphanRecoverer struct {
 	config        *model.AggregatorConfig
@@ -23,9 +25,10 @@ type OrphanRecoverer struct {
 	logger        logger.SugaredLogger
 	metricLabeler common.AggregatorMetricLabeler
 
-	mu        sync.RWMutex
-	done      chan struct{}
-	lastError error
+	mu                sync.RWMutex
+	done              chan struct{}
+	lastError         error
+	consecutiveErrors uint
 }
 
 func (o *OrphanRecoverer) metrics(ctx context.Context) common.AggregatorMetricLabeler {
@@ -65,6 +68,11 @@ func (o *OrphanRecoverer) Start(ctx context.Context) error {
 
 		o.mu.Lock()
 		o.lastError = err
+		if err != nil {
+			o.consecutiveErrors++
+		} else {
+			o.consecutiveErrors = 0
+		}
 		o.mu.Unlock()
 
 		duration := time.Since(now)
@@ -192,6 +200,11 @@ func (o *OrphanRecoverer) Ready() error {
 	default:
 	}
 
+	if o.config.OrphanRecovery.MaxConsecutiveErrors != 0 {
+		if o.consecutiveErrors >= o.config.OrphanRecovery.MaxConsecutiveErrors {
+			return fmt.Errorf("orphan recovery failed %d times in a row. Last error: %w", o.consecutiveErrors, o.lastError)
+		}
+	}
 	return nil
 }
 
