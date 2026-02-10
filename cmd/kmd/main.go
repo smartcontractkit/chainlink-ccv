@@ -58,15 +58,15 @@ var runCmd = &cobra.Command{
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		// "touch" the file at the keystoreFilePath.
-		if err := touch(keystoreFilePath); err != nil {
-			return fmt.Errorf("failed to touch keystore file: %w", err)
-		}
-
-		lggr.Infow("Keystore file touched", "filePath", keystoreFilePath)
-
 		var storage ks.Storage
 		if keystoreFilePath != "" {
+			// "touch" the file at the keystoreFilePath.
+			if err := touch(keystoreFilePath); err != nil {
+				return fmt.Errorf("failed to touch keystore file: %w", err)
+			}
+
+			lggr.Infow("Keystore file touched", "filePath", keystoreFilePath)
+
 			storage = ks.NewFileStorage(keystoreFilePath)
 		} else {
 			db, err := sqlx.ConnectContext(ctx, "postgres", keystoreDBURL)
@@ -107,7 +107,7 @@ var runCmd = &cobra.Command{
 }
 
 var createKeysCmd = &cobra.Command{
-	Use:   "create-keys",
+	Use:   "create",
 	Short: "Create keys",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		data := cmd.Flag("data").Value.String()
@@ -139,7 +139,14 @@ func main() {
 	rootCmd := &cobra.Command{
 		Use: "kmd",
 	}
-	rootCmd.AddCommand(runCmd, kscli.NewRootCmd(), createKeysCmd)
+	keysCmd := &cobra.Command{
+		Use: "keys",
+	}
+	// we override the create keys command because if kmd is running and we make changes to the underlying file storage,
+	// those aren't picked up unless kmd is restarted. Therefore, we have to pipe all key creation commands through the kmd itself.
+	keysCmd.AddCommand(createKeysCmd, kscli.NewListCmd()) // add more as needed.
+
+	rootCmd.AddCommand(runCmd, keysCmd)
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}

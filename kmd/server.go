@@ -84,6 +84,7 @@ func (s *Server) handleCreateKeys(w http.ResponseWriter, r *http.Request) {
 
 	createResponse, err := s.keyStore.CreateKeys(r.Context(), req)
 	if err != nil {
+		s.lggr.Errorw("failed to create keys", "error", err, "request", req)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
