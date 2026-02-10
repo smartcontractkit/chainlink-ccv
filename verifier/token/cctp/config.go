@@ -10,24 +10,24 @@ import (
 
 //nolint:revive // type has to be prefixed to avoid name clash in VerifierConfig
 type CCTPConfig struct {
-	AttestationAPI string `toml:"attestation_api"`
+	AttestationAPI string `json:"attestation_api" toml:"attestation_api"`
 	// AttestationAPITimeout defines the timeout for the attestation API.
-	AttestationAPITimeout time.Duration `toml:"attestation_api_timeout"`
+	AttestationAPITimeout time.Duration `json:"attestation_api_timeout" toml:"attestation_api_timeout"`
 	// AttestationAPIInterval defines the rate in requests per second that the attestation API can be called.
 	// Default set according to the APIs documentated 10 requests per second rate limit.
-	AttestationAPIInterval time.Duration `toml:"attestation_api_interval"`
+	AttestationAPIInterval time.Duration `json:"attestation_api_interval" toml:"attestation_api_interval"`
 	// AttestationAPICooldown defines in what time it is allowed to make next call to API.
 	// Activates when plugin hits API's rate limits
-	AttestationAPICooldown time.Duration `toml:"attestation_api_cooldown"`
+	AttestationAPICooldown time.Duration `json:"attestation_api_cooldown" toml:"attestation_api_cooldown"`
 	// Verifiers is a map of chain selectors to verifier addresses. It's only used for TOML marshall/unmarshall and then
 	// final values, properly cast to domain values are stored in ParsedVerifiers
 	// That configuration field is required to match against messageSender from the CCTPMessage returned from AttestationAPI
-	Verifiers       map[string]any                                     `toml:"verifier_addresses"`
-	ParsedVerifiers map[protocol.ChainSelector]protocol.UnknownAddress `toml:"-"`
+	Verifiers       map[string]any                                     `json:"verifier_addresses" toml:"verifier_addresses"`
+	ParsedVerifiers map[protocol.ChainSelector]protocol.UnknownAddress `json:"-"                  toml:"-"`
 	// VerifierResolvers is a map of chain selectors to verifier resolver addresses. It's only used for TOML marshall/unmarshall and then
 	// final values, properly cast to domain values are stored in ParsedVerifierResolvers
-	VerifierResolvers       map[string]any                                     `toml:"verifier_resolver_addresses"`
-	ParsedVerifierResolvers map[protocol.ChainSelector]protocol.UnknownAddress `toml:"-"`
+	VerifierResolvers       map[string]any                                     `json:"verifier_resolver_addresses" toml:"verifier_resolver_addresses"`
+	ParsedVerifierResolvers map[protocol.ChainSelector]protocol.UnknownAddress `json:"-"                           toml:"-"`
 }
 
 func TryParsing(t, v string, data map[string]any) (*CCTPConfig, error) {

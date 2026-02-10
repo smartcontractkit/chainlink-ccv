@@ -15,16 +15,16 @@ type ConfigWithBlockchainInfos struct {
 }
 
 type Config struct {
-	PyroscopeURL string `toml:"pyroscope_url"`
+	PyroscopeURL string `json:"pyroscope_url" toml:"pyroscope_url"`
 	// OnRampAddresses is a map the addresses of the on ramps for each chain selector.
-	OnRampAddresses map[string]string `toml:"on_ramp_addresses"`
+	OnRampAddresses map[string]string `json:"on_ramp_addresses" toml:"on_ramp_addresses"`
 	// RMNRemoteAddresses is a map of RMN Remote contract addresses for each chain selector.
 	// Required for curse detection.
-	RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
+	RMNRemoteAddresses map[string]string `json:"rmn_remote_addresses" toml:"rmn_remote_addresses"`
 	// TokenVerifiers is a list of token verifier configurations. Each entry defines a token verifier instance with its own type, version and configuration.
-	TokenVerifiers []VerifierConfig `toml:"token_verifiers"`
+	TokenVerifiers []VerifierConfig `json:"token_verifiers" toml:"token_verifiers"`
 	// Monitoring contains the monitoring configuration for the token verifier, including Beholder settings.
-	Monitoring verifier.MonitoringConfig `toml:"monitoring"`
+	Monitoring verifier.MonitoringConfig `json:"monitoring" toml:"monitoring"`
 }
 
 // VerifierConfig is the base struct for token verifiers. Every token data verifier
@@ -34,11 +34,11 @@ type Config struct {
 type VerifierConfig struct {
 	// VerifierID is the unique identifier for this token verifier instance.
 	// This allows multiple token verifiers to run on the same node with isolated state.
-	VerifierID string `toml:"verifier_id"`
+	VerifierID string `json:"verifier_id" toml:"verifier_id"`
 	// Type is the type of the token verifier. You can think of different token verifiers as different
 	// strategies for processing token data. For example, you can have a token verifiers for USDC tokens using CCTP
 	// and different one for processing LINK token.
-	Type string `toml:"type"`
+	Type string `json:"type" toml:"type"`
 	// Version is the version of the token.VerifierConfig and the matching verifier.Verifier implementation for that config.
 	// This is used to determine which version of the verifier to use. Right now, we only have one version
 	// of the verifier, but in the future, we might have multiple versions.
@@ -64,10 +64,10 @@ type VerifierConfig struct {
 	//  }
 	// ]
 	// Having version in that JSON isn't expensive, but it could reduce the risk of breaking the observers in the future.
-	Version string `toml:"version"`
+	Version string `json:"version" toml:"version"`
 
-	*cctp.CCTPConfig
-	*lombard.LombardConfig
+	*cctp.CCTPConfig       `json:"cctp_config,omitempty"`
+	*lombard.LombardConfig `json:"lombard_config,omitempty"`
 }
 
 func (o *VerifierConfig) IsLombard() bool {
