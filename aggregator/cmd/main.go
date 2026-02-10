@@ -64,7 +64,7 @@ func main() {
 	defer stop()
 
 	lc := &net.ListenConfig{}
-	lis, err := lc.Listen(context.Background(), "tcp", config.Server.Address)
+	lis, err := lc.Listen(ctx, "tcp", config.Server.Address)
 	if err != nil {
 		sugaredLggr.Fatalw("failed to listen for CCV data service", "address", config.Server.Address, "error", err)
 	}
