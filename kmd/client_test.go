@@ -57,3 +57,39 @@ func TestClient_Sign(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, verifyResponse.Valid)
 }
+
+func TestClient_GetKeys(t *testing.T) {
+	memoryStorage := keystore.NewMemoryStorage()
+	keyStore, err := keystore.LoadKeystore(t.Context(), memoryStorage, "test-password", keystore.WithScryptParams(keystore.FastScryptParams))
+	require.NoError(t, err)
+
+	// Create a test key
+	keyName := "test-key"
+	keyType := keystore.ECDSA_S256
+	keysResponse, err := keyStore.CreateKeys(t.Context(), keystore.CreateKeysRequest{
+		Keys: []keystore.CreateKeyRequest{
+			{KeyName: keyName, KeyType: keyType},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(keysResponse.Keys))
+	require.Equal(t, keyName, keysResponse.Keys[0].KeyInfo.Name)
+	require.Equal(t, keyType, keysResponse.Keys[0].KeyInfo.KeyType)
+
+	port := freeport.GetOne(t)
+	server := NewServer(keyStore, port, logger.Test(t))
+	require.NoError(t, server.Start())
+	t.Cleanup(func() {
+		require.NoError(t, server.Stop())
+	})
+
+	client := NewClient(fmt.Sprintf("http://localhost:%d", port))
+	getKeysRequest := keystore.GetKeysRequest{
+		KeyNames: []string{keyName},
+	}
+	getKeysResponse, err := client.GetKeys(t.Context(), getKeysRequest)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(getKeysResponse.Keys))
+	require.Equal(t, keyName, getKeysResponse.Keys[0].KeyInfo.Name)
+	require.Equal(t, keyType, getKeysResponse.Keys[0].KeyInfo.KeyType)
+}

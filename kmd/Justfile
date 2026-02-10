@@ -1,0 +1,50 @@
+set fallback
+
+import '../tools/lib/utils.justfile'
+
+# Default: show available recipes
+default:
+    just --list
+
+build:
+    docker build -f Dockerfile -t kmd:latest ..
+
+build-dev:
+    docker build -f Dockerfile.dev -t kmd:dev ..
+
+build-rc:
+    docker build -f Dockerfile -t kmd:rc ..
+
+clean-dev:
+    docker rmi kmd:dev
+
+publish-rc registry version:
+    docker tag kmd:rc {{registry}}/chainlink-ccv-kmd:{{version}}-rc
+    docker push {{registry}}/chainlink-ccv-kmd:{{version}}-rc
+
+
+# Run kmd locally. 
+# Requires either: 
+# - KEYSTORE_FILE_PATH: path to where to save the keystore.
+# - KEYSTORE_DB_URL: URL to the database to use to save the keystore.
+# Requires KEYSTORE_PASSWORD always.
+# KMD_PORT optional, defaults to 7788.
+run: build
+    docker run --rm \
+        -p 7788:7788 \
+        -e KEYSTORE_FILE_PATH \
+        -e KEYSTORE_PASSWORD \
+        -v ~/.kmd:/etc/kmd \
+        kmd:latest
+
+run-detached: build
+    docker run -d --rm \
+        -p 7788:7788 \
+        -e KEYSTORE_FILE_PATH \
+        -e KEYSTORE_PASSWORD \
+        -v ~/.kmd:/etc/kmd \
+        kmd:latest
+
+clean:
+    docker rmi kmd:latest
+    docker rmi kmd:dev

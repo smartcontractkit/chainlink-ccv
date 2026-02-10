@@ -17,4 +17,4 @@ RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates
 COPY --from=builder /bin/kmd /bin/
-CMD ["/bin/kmd"]
+CMD ["/bin/kmd", "run"]

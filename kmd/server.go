@@ -15,6 +15,10 @@ import (
 
 const (
 	shutdownTimeout = 10 * time.Second
+
+	CreateEndpoint  = "/admin/createkeys"
+	SignEndpoint    = "/signer/sign"
+	GetKeysEndpoint = "/reader/getkeys"
 )
 
 // Server is an HTTP server for the KMD server.
@@ -42,8 +46,10 @@ func (s *Server) Start() error {
 	mux := http.NewServeMux()
 	// Only expose functionality that CCIP apps are expected to use.
 	// Verifiers and executors sign messages.
-	// JD clients also sign messages as part of JD comms.
-	mux.HandleFunc("/signer/sign", s.handleSign)
+	// JD clients also sign messages as part of JD comms. They also need the CSA public key.
+	mux.HandleFunc(SignEndpoint, s.handleSign)
+	mux.HandleFunc(GetKeysEndpoint, s.handleGetKeys)
+	mux.HandleFunc(CreateEndpoint, s.handleCreateKeys)
 	s.srv = &http.Server{
 		Addr:              fmt.Sprintf(":%d", s.port),
 		Handler:           mux,
@@ -55,6 +61,76 @@ func (s *Server) Start() error {
 		}
 	})
 	return nil
+}
+
+func (s *Server) handleCreateKeys(w http.ResponseWriter, r *http.Request) {
+	s.lggr.Infow("create keys request received")
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer r.Body.Close() //nolint:errcheck
+
+	var req ks.CreateKeysRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		s.lggr.Errorw("failed to unmarshal create keys request", "error", err, "body", string(body))
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	s.lggr.Infow("create keys request parsed", "request", req)
+
+	createResponse, err := s.keyStore.CreateKeys(r.Context(), req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.lggr.Infow("create keys response", "response", createResponse)
+
+	// Return the keys in the response.
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(createResponse); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+func (s *Server) handleGetKeys(w http.ResponseWriter, r *http.Request) {
+	s.lggr.Infow("get keys request received")
+
+	// Parse body, should be JSON with KeyNames field.
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer r.Body.Close() //nolint:errcheck
+
+	var req ks.GetKeysRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	s.lggr.Infow("get keys request parsed", "request", req)
+
+	keysResponse, err := s.keyStore.GetKeys(r.Context(), req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.lggr.Infow("get keys response", "response", keysResponse)
+
+	// Return the keys in the response.
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(keysResponse); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
 
 // handleSign handles the sign request.
