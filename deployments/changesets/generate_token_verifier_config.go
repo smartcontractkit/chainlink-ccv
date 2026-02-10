@@ -37,29 +37,9 @@ type GenerateTokenVerifierConfigCfg struct {
 	// Monitoring is the monitoring configuration containing beholder settings.
 	Monitoring shared.MonitoringInput
 	// Lombard contains the Lombard verifier configuration.
-	Lombard LombardConfigInput
+	Lombard sequences.LombardConfigInput
 	// CCTP contains the CCTP verifier configuration.
-	CCTP CCTPConfigInput
-}
-
-// LombardConfigInput contains the configuration for the Lombard verifier.
-type LombardConfigInput struct {
-	Qualifier               string
-	VerifierID              string
-	AttestationAPI          string
-	AttestationAPITimeout   time.Duration
-	AttestationAPInterval   time.Duration
-	AttestationAPIBatchSize int
-}
-
-// CCTPConfigInput contains the configuration for the CCTP verifier.
-type CCTPConfigInput struct {
-	Qualifier              string
-	VerifierID             string
-	AttestationAPI         string
-	AttestationAPITimeout  time.Duration
-	AttestationAPInterval  time.Duration
-	AttestationAPICooldown time.Duration
+	CCTP sequences.CCTPConfigInput
 }
 
 // GenerateTokenVerifierConfig creates a changeset that generates the token verifier configuration
@@ -138,7 +118,7 @@ func GenerateTokenVerifierConfig() deployment.ChangeSetV2[GenerateTokenVerifierC
 }
 
 // applyLombardDefaults applies default values to Lombard configuration based on the environment.
-func applyLombardDefaults(cfg LombardConfigInput, isProd bool) sequences.LombardConfigInput {
+func applyLombardDefaults(cfg sequences.LombardConfigInput, isProd bool) sequences.LombardConfigInput {
 	attestationAPI := cfg.AttestationAPI
 	if attestationAPI == "" {
 		if isProd {
@@ -174,7 +154,7 @@ func applyLombardDefaults(cfg LombardConfigInput, isProd bool) sequences.Lombard
 }
 
 // applyCCTPDefaults applies default values to CCTP configuration based on the environment.
-func applyCCTPDefaults(cfg CCTPConfigInput, isProd bool) sequences.CCTPConfigInput {
+func applyCCTPDefaults(cfg sequences.CCTPConfigInput, isProd bool) sequences.CCTPConfigInput {
 	attestationAPI := cfg.AttestationAPI
 	if attestationAPI == "" {
 		if isProd {
