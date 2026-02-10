@@ -17,6 +17,11 @@ import (
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 )
 
+type VerificationRateLimiter interface {
+	// TryAcquire tries to acquire a verification record.
+	TryAcquire(ctx context.Context, record *model.CommitVerificationRecord, quorumConfig *model.QuorumConfig) error
+}
+
 type SignatureValidator interface {
 	// ValidateSignature validates a signature and returns the validation result.
 	ValidateSignature(ctx context.Context, record *model.CommitVerificationRecord) (*model.SignatureValidationResult, error)
@@ -38,6 +43,7 @@ type WriteCommitVerifierNodeResultHandler struct {
 	l                       logger.SugaredLogger
 	signatureValidator      SignatureValidator
 	checkAggregationTimeout time.Duration
+	verificationRateLimiter VerificationRateLimiter
 }
 
 func (h *WriteCommitVerifierNodeResultHandler) logger(ctx context.Context) logger.SugaredLogger {
@@ -93,6 +99,14 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 
 	record.SignerIdentifier = validationResult.Signer
 
+	err = h.verificationRateLimiter.TryAcquire(ctx, record, validationResult.QuorumConfig)
+	if err != nil {
+		reqLogger.Errorw("failed to acquire verification record", "error", err)
+		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
+			Status: committeepb.WriteStatus_FAILED,
+		}, status.Error(codes.ResourceExhausted, "verification rate limit exceeded")
+	}
+
 	err = h.storage.SaveCommitVerification(signerCtx, record, aggregationKey)
 	if err != nil {
 		h.logger(signerCtx).Errorw("failed to save commit verification record", "error", err)
@@ -129,13 +143,14 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 }
 
 // NewWriteCommitCCVNodeDataHandler creates a new instance of WriteCommitCCVNodeDataHandler.
-func NewWriteCommitCCVNodeDataHandler(store common.CommitVerificationStore, aggregator AggregationTriggerer, m common.AggregatorMonitoring, l logger.SugaredLogger, signatureValidator SignatureValidator, checkAggregationTimeout time.Duration) *WriteCommitVerifierNodeResultHandler {
+func NewWriteCommitCCVNodeDataHandler(store common.CommitVerificationStore, aggregator AggregationTriggerer, m common.AggregatorMonitoring, l logger.SugaredLogger, signatureValidator SignatureValidator, verificationRateLimiter VerificationRateLimiter, checkAggregationTimeout time.Duration) *WriteCommitVerifierNodeResultHandler {
 	return &WriteCommitVerifierNodeResultHandler{
 		storage:                 store,
 		aggregator:              aggregator,
 		m:                       m,
 		l:                       l,
 		signatureValidator:      signatureValidator,
+		verificationRateLimiter: verificationRateLimiter,
 		checkAggregationTimeout: checkAggregationTimeout,
 	}
 }

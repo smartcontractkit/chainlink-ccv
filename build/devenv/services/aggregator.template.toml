@@ -66,6 +66,13 @@ key_prefix = "ratelimit"
 "/chainlink_ccv.verifier.v1.Verifier/GetVerifierResultsForMessage" = { limit_per_minute = 6000 }
 "/chainlink_ccv.message_discovery.v1.MessageDiscovery/GetMessagesSince" = { limit_per_minute = 1200 }
 
+[verificationRateLimiter]
+enabled = true
+rateWindow = "1m"
+minRateBeforeComparingWithMAD = 10
+k = 2
+minCommitteeSize = 1
+storeType = "redis"
 
 [Monitoring]
 Enabled = true

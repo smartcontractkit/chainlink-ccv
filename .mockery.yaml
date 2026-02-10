@@ -60,6 +60,7 @@ packages:
     interfaces:
       SignatureValidator:
       AggregationTriggerer:
+      VerificationRateLimiter:
   github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common:
     interfaces:
       CommitVerificationStore:

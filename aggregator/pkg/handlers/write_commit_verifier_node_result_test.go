@@ -66,6 +66,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 		req              *committeepb.WriteCommitteeVerifierNodeResultRequest
 		signer           *model.SignerIdentifier
 		sigErr           error
+		rateLimitErr     error
 		saveErr          error
 		aggErr           error
 		expectGRPCCode   codes.Code
@@ -135,6 +136,16 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			expectStoreCalls: 1,
 			expectAggCalls:   1,
 		},
+		{
+			name:             "verification_rate_limit_exceeded_returns_resource_exhausted",
+			req:              makeValidProtoRequest(),
+			signer:           signer1,
+			rateLimitErr:     errors.New("rate limit exceeded"),
+			expectGRPCCode:   codes.ResourceExhausted,
+			expectStatus:     committeepb.WriteStatus_FAILED,
+			expectStoreCalls: 0,
+			expectAggCalls:   0,
+		},
 	}
 
 	for _, tc := range tests {
@@ -147,8 +158,15 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			store := mocks.NewMockCommitVerificationStore(t)
 			agg := mocks.NewMockAggregationTriggerer(t)
 			sig := mocks.NewMockSignatureValidator(t)
+			rateLimiter := mocks.NewMockVerificationRateLimiter(t)
 
 			sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil).Maybe()
+
+			if tc.rateLimitErr != nil {
+				rateLimiter.EXPECT().TryAcquire(mock.Anything, mock.Anything, mock.Anything).Return(tc.rateLimitErr).Once()
+			} else if tc.signer != nil {
+				rateLimiter.EXPECT().TryAcquire(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+			}
 
 			// Signature validator expectation
 			if tc.sigErr != nil {
@@ -189,7 +207,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			labeler.EXPECT().With(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(labeler).Maybe()
 			labeler.EXPECT().IncrementVerificationsTotal(mock.Anything).Maybe()
 
-			handler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, time.Millisecond)
+			handler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, rateLimiter, time.Millisecond)
 
 			ctx := auth.ToContext(context.Background(), auth.CreateCallerIdentity(testCallerID, false))
 			resp, err := handler.Handle(ctx, tc.req)

@@ -215,6 +215,37 @@ func (t RateLimiterStoreType) IsValid() bool {
 	}
 }
 
+type VerificationRateLimiterStoreType string
+
+const (
+	VerificationRateLimiterStoreTypeRedis VerificationRateLimiterStoreType = "redis"
+)
+
+func (t VerificationRateLimiterStoreType) IsValid() bool {
+	switch t {
+	case VerificationRateLimiterStoreTypeRedis:
+		return true
+	default:
+		return false
+	}
+}
+
+type VerificationRateLimiterRedisConfig struct {
+	Address  string `toml:"-"`
+	Password string `toml:"-"`
+	DB       int    `toml:"-"`
+}
+
+type VerificationRateLimiterConfig struct {
+	K                             float64                             `toml:"k"`
+	MinCommitteeSize              uint64                              `toml:"minCommitteeSize"`
+	MinRateBeforeComparingWithMAD float64                             `toml:"minRateBeforeComparingWithMAD"`
+	RateWindow                    time.Duration                       `toml:"rateWindow"`
+	Enabled                       bool                                `toml:"enabled"`
+	StoreType                     VerificationRateLimiterStoreType    `toml:"storeType"`
+	Redis                         *VerificationRateLimiterRedisConfig `toml:"redis"`
+}
+
 // RateLimiterRedisConfig defines Redis-specific configuration for rate limiting.
 type RateLimiterRedisConfig struct {
 	Address  string `toml:"-"`
@@ -382,21 +413,22 @@ type BeholderConfig struct {
 
 // AggregatorConfig is the root configuration for the pb.
 type AggregatorConfig struct {
-	AggregatorID                                string               `toml:"aggregatorID"`
-	GeneratedConfigPath                         string               `toml:"generatedConfigPath"`
-	Committee                                   *Committee           `toml:"committee"`
-	Server                                      ServerConfig         `toml:"server"`
-	Storage                                     *StorageConfig       `toml:"storage"`
-	APIClients                                  []*ClientConfig      `toml:"clients"`
-	Aggregation                                 AggregationConfig    `toml:"aggregation"`
-	OrphanRecovery                              OrphanRecoveryConfig `toml:"orphanRecovery"`
-	RateLimiting                                RateLimitingConfig   `toml:"rateLimiting"`
-	HealthCheck                                 HealthCheckConfig    `toml:"healthCheck"`
-	AnonymousAuth                               AnonymousAuthConfig  `toml:"anonymousAuth"`
-	Monitoring                                  MonitoringConfig     `toml:"monitoring"`
-	PyroscopeURL                                string               `toml:"pyroscope_url"`
-	MaxMessageIDsPerBatch                       int                  `toml:"maxMessageIDsPerBatch"`
-	MaxCommitVerifierNodeResultRequestsPerBatch int                  `toml:"maxCommitVerifierNodeResultRequestsPerBatch"`
+	AggregatorID                                string                        `toml:"aggregatorID"`
+	GeneratedConfigPath                         string                        `toml:"generatedConfigPath"`
+	Committee                                   *Committee                    `toml:"committee"`
+	Server                                      ServerConfig                  `toml:"server"`
+	Storage                                     *StorageConfig                `toml:"storage"`
+	APIClients                                  []*ClientConfig               `toml:"clients"`
+	Aggregation                                 AggregationConfig             `toml:"aggregation"`
+	OrphanRecovery                              OrphanRecoveryConfig          `toml:"orphanRecovery"`
+	RateLimiting                                RateLimitingConfig            `toml:"rateLimiting"`
+	VerificationRateLimiter                     VerificationRateLimiterConfig `toml:"verificationRateLimiter"`
+	HealthCheck                                 HealthCheckConfig             `toml:"healthCheck"`
+	AnonymousAuth                               AnonymousAuthConfig           `toml:"anonymousAuth"`
+	Monitoring                                  MonitoringConfig              `toml:"monitoring"`
+	PyroscopeURL                                string                        `toml:"pyroscope_url"`
+	MaxMessageIDsPerBatch                       int                           `toml:"maxMessageIDsPerBatch"`
+	MaxCommitVerifierNodeResultRequestsPerBatch int                           `toml:"maxCommitVerifierNodeResultRequestsPerBatch"`
 }
 
 type APIKeyPairEnv struct {
@@ -864,6 +896,12 @@ func (c *AggregatorConfig) LoadFromEnvironment() error {
 		}
 	}
 
+	if c.VerificationRateLimiter.Enabled {
+		if err := c.loadVerificationRateLimiterRedisConfigFromEnvironment(); err != nil {
+			return fmt.Errorf("failed to load verification rate limiter redis config from environment: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -887,6 +925,30 @@ func (c *AggregatorConfig) loadRateLimiterRedisConfigFromEnvironment() error {
 			return fmt.Errorf("invalid AGGREGATOR_REDIS_DB value: %w", err)
 		}
 		c.RateLimiting.Storage.Redis.DB = redisDB
+	}
+	return nil
+}
+
+func (c *AggregatorConfig) loadVerificationRateLimiterRedisConfigFromEnvironment() error {
+	redisAddress := os.Getenv("AGGREGATOR_REDIS_ADDRESS")
+	if redisAddress == "" {
+		return errors.New("AGGREGATOR_REDIS_ADDRESS environment variable is required")
+	}
+	if c.VerificationRateLimiter.Redis == nil {
+		c.VerificationRateLimiter.Redis = &VerificationRateLimiterRedisConfig{}
+	}
+	c.VerificationRateLimiter.Redis.Address = redisAddress
+
+	redisPassword := os.Getenv("AGGREGATOR_REDIS_PASSWORD")
+	c.VerificationRateLimiter.Redis.Password = redisPassword
+
+	redisDBStr := os.Getenv("AGGREGATOR_REDIS_DB")
+	if redisDBStr != "" {
+		redisDB, err := strconv.Atoi(redisDBStr)
+		if err != nil {
+			return fmt.Errorf("invalid AGGREGATOR_REDIS_DB value: %w", err)
+		}
+		c.VerificationRateLimiter.Redis.DB = redisDB
 	}
 	return nil
 }

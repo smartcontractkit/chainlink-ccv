@@ -33,6 +33,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/quorum"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/rate_limiting"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -313,7 +314,16 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 	agg := createAggregator(store, store, store, validator, config, l, aggMonitoring)
 
-	writeCommitVerifierNodeResultHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, aggMonitoring, l, validator, config.Aggregation.CheckAggregationTimeout)
+	var verificationRateLimiter handlers.VerificationRateLimiter = handlers.NoopVerificationRateLimiter{}
+	if config.VerificationRateLimiter.Enabled && config.VerificationRateLimiter.Redis != nil {
+		vrl, err := rate_limiting.NewVerificationRateLimiter(config.VerificationRateLimiter)
+		if err != nil {
+			l.Fatalf("Failed to create verification rate limiter: %v", err)
+			return nil
+		}
+		verificationRateLimiter = vrl
+	}
+	writeCommitVerifierNodeResultHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, aggMonitoring, l, validator, verificationRateLimiter, config.Aggregation.CheckAggregationTimeout)
 	readCommitVerifierNodeResultHandler := handlers.NewReadCommitVerifierNodeResultHandler(store, l)
 	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committee, l, aggMonitoring)
 	getVerifierResultsForMessageHandler := handlers.NewGetVerifierResultsForMessageHandler(store, config.Committee, config.MaxMessageIDsPerBatch, l)
@@ -394,6 +404,9 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	healthManager.Register(store)
 	healthManager.Register(rateLimitingMiddleware)
 	healthManager.Register(agg)
+	if vrl, ok := verificationRateLimiter.(*rate_limiting.VerificationRateLimiter); ok {
+		healthManager.Register(vrl)
+	}
 	if config.OrphanRecovery.Enabled {
 		healthManager.Register(recoverer)
 	}
