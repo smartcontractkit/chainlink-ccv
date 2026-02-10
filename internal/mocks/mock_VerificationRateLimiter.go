@@ -41,12 +41,11 @@ func (_m *MockVerificationRateLimiter) TryAcquire(ctx context.Context, record *m
 	} else {
 		r0 = ret.Get(0).(model.TryAcquireResult)
 	}
+
 	if rf, ok := ret.Get(1).(func(context.Context, *model.CommitVerificationRecord, *model.QuorumConfig) error); ok {
 		r1 = rf(ctx, record, quorumConfig)
 	} else {
-		if ret.Get(1) != nil {
-			r1 = ret.Get(1).(error)
-		}
+		r1 = ret.Error(1)
 	}
 
 	return r0, r1
