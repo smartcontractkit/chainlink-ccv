@@ -15,16 +15,16 @@ type ConfigWithBlockchainInfos struct {
 }
 
 type Config struct {
-	// TODO: remove from verifier config, readers need to be initialized separately.
-	BlockchainInfos map[string]*blockchain.Info `toml:"blockchain_infos"`
-	PyroscopeURL    string                      `toml:"pyroscope_url"`
+	PyroscopeURL string `toml:"pyroscope_url"`
 	// OnRampAddresses is a map the addresses of the on ramps for each chain selector.
 	OnRampAddresses map[string]string `toml:"on_ramp_addresses"`
 	// RMNRemoteAddresses is a map of RMN Remote contract addresses for each chain selector.
 	// Required for curse detection.
-	RMNRemoteAddresses map[string]string         `toml:"rmn_remote_addresses"`
-	TokenVerifiers     []VerifierConfig          `toml:"token_verifiers"`
-	Monitoring         verifier.MonitoringConfig `toml:"monitoring"`
+	RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
+	// TokenVerifiers is a list of token verifier configurations. Each entry defines a token verifier instance with its own type, version and configuration.
+	TokenVerifiers []VerifierConfig `toml:"token_verifiers"`
+	// Monitoring contains the monitoring configuration for the token verifier, including Beholder settings.
+	Monitoring verifier.MonitoringConfig `toml:"monitoring"`
 }
 
 // VerifierConfig is the base struct for token verifiers. Every token data verifier

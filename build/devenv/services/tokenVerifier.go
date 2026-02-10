@@ -42,7 +42,7 @@ type TokenVerifierInput struct {
 	// Monitoring is the monitoring configuration containing beholder settings.
 	Monitoring shared.MonitoringInput `toml:"monitoring"`
 	// GeneratedConfig stores the generated token verifier configuration from the changeset.
-	GeneratedConfig *token.Config `toml:"generated_config"`
+	GeneratedConfig *token.Config `toml:"-"`
 }
 
 type TokenVerifierOutput struct {
