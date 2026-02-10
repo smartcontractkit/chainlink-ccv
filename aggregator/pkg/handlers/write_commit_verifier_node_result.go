@@ -18,8 +18,8 @@ import (
 )
 
 type VerificationRateLimiter interface {
-	// TryAcquire tries to acquire a verification record.
-	TryAcquire(ctx context.Context, record *model.CommitVerificationRecord, quorumConfig *model.QuorumConfig) error
+	// TryAcquire attempts to acquire a slot for the verification record; returns result and nil error, or result with IsReached true and nil when rate limit is reached, or error on failure.
+	TryAcquire(ctx context.Context, record *model.CommitVerificationRecord, quorumConfig *model.QuorumConfig) (model.TryAcquireResult, error)
 }
 
 type SignatureValidator interface {
@@ -99,12 +99,20 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 
 	record.SignerIdentifier = validationResult.Signer
 
-	err = h.verificationRateLimiter.TryAcquire(ctx, record, validationResult.QuorumConfig)
+	result, err := h.verificationRateLimiter.TryAcquire(ctx, record, validationResult.QuorumConfig)
+	if result.IsReached {
+		reqLogger.Infow("verification rate limit reached",
+			"median", result.Median, "mad", result.MAD, "k", result.K,
+			"upperBound", result.UpperBound, "currentRate", result.CurrentRate)
+		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
+			Status: committeepb.WriteStatus_FAILED,
+		}, status.Error(codes.ResourceExhausted, "verification rate limit exceeded")
+	}
 	if err != nil {
 		reqLogger.Errorw("failed to acquire verification record", "error", err)
 		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
 			Status: committeepb.WriteStatus_FAILED,
-		}, status.Error(codes.ResourceExhausted, "verification rate limit exceeded")
+		}, status.Error(codes.Internal, "failed to acquire verification record")
 	}
 
 	err = h.storage.SaveCommitVerification(signerCtx, record, aggregationKey)

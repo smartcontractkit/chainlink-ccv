@@ -24,21 +24,32 @@ func (_m *MockVerificationRateLimiter) EXPECT() *MockVerificationRateLimiter_Exp
 }
 
 // TryAcquire provides a mock function with given fields: ctx, record, quorumConfig
-func (_m *MockVerificationRateLimiter) TryAcquire(ctx context.Context, record *model.CommitVerificationRecord, quorumConfig *model.QuorumConfig) error {
+func (_m *MockVerificationRateLimiter) TryAcquire(ctx context.Context, record *model.CommitVerificationRecord, quorumConfig *model.QuorumConfig) (model.TryAcquireResult, error) {
 	ret := _m.Called(ctx, record, quorumConfig)
 
 	if len(ret) == 0 {
 		panic("no return value specified for TryAcquire")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *model.CommitVerificationRecord, *model.QuorumConfig) error); ok {
+	var r0 model.TryAcquireResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *model.CommitVerificationRecord, *model.QuorumConfig) (model.TryAcquireResult, error)); ok {
+		return rf(ctx, record, quorumConfig)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *model.CommitVerificationRecord, *model.QuorumConfig) model.TryAcquireResult); ok {
 		r0 = rf(ctx, record, quorumConfig)
 	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).(model.TryAcquireResult)
+	}
+	if rf, ok := ret.Get(1).(func(context.Context, *model.CommitVerificationRecord, *model.QuorumConfig) error); ok {
+		r1 = rf(ctx, record, quorumConfig)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(error)
+		}
 	}
 
-	return r0
+	return r0, r1
 }
 
 // MockVerificationRateLimiter_TryAcquire_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TryAcquire'
@@ -61,12 +72,12 @@ func (_c *MockVerificationRateLimiter_TryAcquire_Call) Run(run func(ctx context.
 	return _c
 }
 
-func (_c *MockVerificationRateLimiter_TryAcquire_Call) Return(_a0 error) *MockVerificationRateLimiter_TryAcquire_Call {
-	_c.Call.Return(_a0)
+func (_c *MockVerificationRateLimiter_TryAcquire_Call) Return(_a0 model.TryAcquireResult, _a1 error) *MockVerificationRateLimiter_TryAcquire_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockVerificationRateLimiter_TryAcquire_Call) RunAndReturn(run func(context.Context, *model.CommitVerificationRecord, *model.QuorumConfig) error) *MockVerificationRateLimiter_TryAcquire_Call {
+func (_c *MockVerificationRateLimiter_TryAcquire_Call) RunAndReturn(run func(context.Context, *model.CommitVerificationRecord, *model.QuorumConfig) (model.TryAcquireResult, error)) *MockVerificationRateLimiter_TryAcquire_Call {
 	_c.Call.Return(run)
 	return _c
 }

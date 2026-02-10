@@ -78,7 +78,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_BatchSizeValidation(t *testing.T) {
 				sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil).Maybe()
 				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, testChannelKey, time.Millisecond).Return(nil).Maybe()
 				store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
-				rateLimiter.EXPECT().TryAcquire(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+				rateLimiter.EXPECT().TryAcquire(mock.Anything, mock.Anything, mock.Anything).Return(model.TryAcquireResult{}, nil).Maybe()
 			}
 
 			mon := mocks.NewMockAggregatorMonitoring(t)
@@ -134,7 +134,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil)
 
 	rateLimiter := mocks.NewMockVerificationRateLimiter(t)
-	rateLimiter.EXPECT().TryAcquire(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	rateLimiter.EXPECT().TryAcquire(mock.Anything, mock.Anything, mock.Anything).Return(model.TryAcquireResult{}, nil).Maybe()
 
 	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, testChannelKey, time.Millisecond).Return(nil).Maybe()
 

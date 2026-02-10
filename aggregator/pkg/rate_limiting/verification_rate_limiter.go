@@ -47,44 +47,51 @@ func NewVerificationRateLimiter(config model.VerificationRateLimiterConfig) (*Ve
 	}, nil
 }
 
-func (v *VerificationRateLimiter) TryAcquire(ctx context.Context, verificationRecord *model.CommitVerificationRecord, quorumConfig *model.QuorumConfig) error {
+func (v *VerificationRateLimiter) TryAcquire(ctx context.Context, verificationRecord *model.CommitVerificationRecord, quorumConfig *model.QuorumConfig) (model.TryAcquireResult, error) {
 	if quorumConfig == nil {
-		return fmt.Errorf("quorum config is nil")
+		return model.TryAcquireResult{}, fmt.Errorf("quorum config is nil")
 	}
 	keys, err := v.computeAllKeysForCommitteePerSourceSelector(uint64(verificationRecord.Message.SourceChainSelector), quorumConfig)
 	if err != nil {
-		return fmt.Errorf("failed to compute all keys for committee per source selector: %w", err)
+		return model.TryAcquireResult{}, fmt.Errorf("failed to compute all keys for committee per source selector: %w", err)
 	}
 
 	if uint64(len(keys)) < v.minCommitteeSize {
-		return nil // we don't need to rate limit if the committee size is less than the minimum committee size
+		return model.TryAcquireResult{IsReached: false, IsEnabled: false}, nil
 	}
 
 	if err := v.removeOldKeys(ctx, keys); err != nil {
-		return fmt.Errorf("failed to remove old keys from rate limiter: %w", err)
+		return model.TryAcquireResult{}, fmt.Errorf("failed to remove old keys from rate limiter: %w", err)
 	}
 
 	if err := v.add(ctx, verificationRecord); err != nil {
-		return fmt.Errorf("failed to add verification record to rate limiter: %w", err)
+		return model.TryAcquireResult{}, fmt.Errorf("failed to add verification record to rate limiter: %w", err)
 	}
 
 	rates, err := v.getAllRates(ctx, keys)
 	if err != nil {
-		return fmt.Errorf("failed to get all rates from rate limiter: %w", err)
+		return model.TryAcquireResult{}, fmt.Errorf("failed to get all rates from rate limiter: %w", err)
 	}
 	rate := rates[v.computeKeyForSignerPerSourceSelector(verificationRecord.SignerIdentifier.Identifier.String(), uint64(verificationRecord.Message.SourceChainSelector))]
-	if rate < v.minRateBeforeComparingWithMAD {
-		return nil // we don't need to rate limit if the rate is less than the minimum rate
-	}
-
 	median := v.computeMedian(rates)
 	mad := v.computeMAD(rates, median)
+	upperBound := median + v.k*mad
 
-	if !v.isWithinBounds(mad, median, v.k, rate) {
-		return fmt.Errorf("verification rate is not within bounds. rate: %f, median: %f, mad: %f, k: %f", rate, median, mad, v.k)
+	if rate < v.minRateBeforeComparingWithMAD {
+		return model.TryAcquireResult{
+			Median: median, MAD: mad, K: v.k, UpperBound: upperBound, CurrentRate: rate,
+			IsReached: false, IsEnabled: false,
+		}, nil
 	}
 
-	return nil
+	result := model.TryAcquireResult{
+		Median: median, MAD: mad, K: v.k, UpperBound: upperBound, CurrentRate: rate,
+		IsEnabled: true,
+	}
+	if !v.isWithinBounds(mad, median, v.k, rate) {
+		result.IsReached = true
+	}
+	return result, nil
 }
 
 func (v *VerificationRateLimiter) computeAllKeysForCommitteePerSourceSelector(sourceSelector uint64, quorumConfig *model.QuorumConfig) ([]string, error) {

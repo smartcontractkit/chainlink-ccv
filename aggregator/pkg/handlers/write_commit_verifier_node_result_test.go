@@ -62,17 +62,18 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 	}
 
 	type testCase struct {
-		name             string
-		req              *committeepb.WriteCommitteeVerifierNodeResultRequest
-		signer           *model.SignerIdentifier
-		sigErr           error
-		rateLimitErr     error
-		saveErr          error
-		aggErr           error
-		expectGRPCCode   codes.Code
-		expectStatus     committeepb.WriteStatus
-		expectStoreCalls int
-		expectAggCalls   int
+		name                 string
+		req                  *committeepb.WriteCommitteeVerifierNodeResultRequest
+		signer               *model.SignerIdentifier
+		sigErr               error
+		rateLimitErr         error
+		rateLimitInternalErr error
+		saveErr              error
+		aggErr               error
+		expectGRPCCode       codes.Code
+		expectStatus         committeepb.WriteStatus
+		expectStoreCalls     int
+		expectAggCalls       int
 	}
 
 	tests := []testCase{
@@ -146,6 +147,16 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			expectStoreCalls: 0,
 			expectAggCalls:   0,
 		},
+		{
+			name:                 "verification_rate_limiter_internal_error_returns_internal",
+			req:                  makeValidProtoRequest(),
+			signer:               signer1,
+			rateLimitInternalErr: errors.New("redis unavailable"),
+			expectGRPCCode:       codes.Internal,
+			expectStatus:         committeepb.WriteStatus_FAILED,
+			expectStoreCalls:     0,
+			expectAggCalls:       0,
+		},
 	}
 
 	for _, tc := range tests {
@@ -163,9 +174,11 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil).Maybe()
 
 			if tc.rateLimitErr != nil {
-				rateLimiter.EXPECT().TryAcquire(mock.Anything, mock.Anything, mock.Anything).Return(tc.rateLimitErr).Once()
+				rateLimiter.EXPECT().TryAcquire(mock.Anything, mock.Anything, mock.Anything).Return(model.TryAcquireResult{IsReached: true}, nil).Once()
+			} else if tc.rateLimitInternalErr != nil {
+				rateLimiter.EXPECT().TryAcquire(mock.Anything, mock.Anything, mock.Anything).Return(model.TryAcquireResult{}, tc.rateLimitInternalErr).Once()
 			} else if tc.signer != nil {
-				rateLimiter.EXPECT().TryAcquire(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+				rateLimiter.EXPECT().TryAcquire(mock.Anything, mock.Anything, mock.Anything).Return(model.TryAcquireResult{}, nil).Maybe()
 			}
 
 			// Signature validator expectation

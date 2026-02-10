@@ -299,15 +299,22 @@ func TestVerificationRateLimiter_TryAcquire(t *testing.T) {
 					time.Sleep(step.waitBefore)
 				}
 				record := makeRecord(t, step.signer, tt.sourceSelector, step.seq)
-				err := limiter.TryAcquire(ctx, record, quorumConfig)
+				result, err := limiter.TryAcquire(ctx, record, quorumConfig)
 
+				msg := func() string { return fmt.Sprintf("step %d: signer %s seq %d", i+1, step.signer, step.seq) }
 				if step.wantSuccess {
-					require.NoError(t, err, "step %d: signer %s seq %d", i+1, step.signer, step.seq)
+					require.NoError(t, err, msg())
+					require.False(t, result.IsReached, msg())
+				} else if step.wantErrorContains == "verification rate is not within bounds" {
+					require.NoError(t, err, msg())
+					require.True(t, result.IsReached, msg())
+					require.True(t, result.IsEnabled, msg())
 				} else {
-					require.Error(t, err, "step %d: signer %s seq %d", i+1, step.signer, step.seq)
+					require.Error(t, err, msg())
 					if step.wantErrorContains != "" {
 						require.Contains(t, err.Error(), step.wantErrorContains, "step %d", i+1)
 					}
+					require.False(t, result.IsEnabled, msg())
 				}
 
 				if step.assertStats {

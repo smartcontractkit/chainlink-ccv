@@ -9,7 +9,6 @@ import (
 // NoopVerificationRateLimiter is a no-op implementation of VerificationRateLimiter that always allows.
 type NoopVerificationRateLimiter struct{}
 
-// TryAcquire implements VerificationRateLimiter; it always returns nil.
-func (NoopVerificationRateLimiter) TryAcquire(_ context.Context, _ *model.CommitVerificationRecord, _ *model.QuorumConfig) error {
-	return nil
+func (NoopVerificationRateLimiter) TryAcquire(_ context.Context, _ *model.CommitVerificationRecord, _ *model.QuorumConfig) (model.TryAcquireResult, error) {
+	return model.TryAcquireResult{}, nil
 }

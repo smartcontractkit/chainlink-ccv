@@ -246,6 +246,16 @@ type VerificationRateLimiterConfig struct {
 	Redis                         *VerificationRateLimiterRedisConfig `toml:"redis"`
 }
 
+type TryAcquireResult struct {
+	Median      float64
+	MAD         float64
+	K           float64
+	UpperBound  float64
+	CurrentRate float64
+	IsReached   bool
+	IsEnabled   bool
+}
+
 // RateLimiterRedisConfig defines Redis-specific configuration for rate limiting.
 type RateLimiterRedisConfig struct {
 	Address  string `toml:"-"`
