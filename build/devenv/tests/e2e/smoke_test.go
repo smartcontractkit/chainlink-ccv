@@ -52,7 +52,7 @@ type v3TestCase struct {
 	aggregatorQualifier      string // which aggregator to query (default, secondary, tertiary)
 }
 
-func TestE2ESmoke(t *testing.T) {
+func TestE2ESmoke_Basic(t *testing.T) {
 	smokeTestConfig := GetSmokeTestConfig()
 	in, err := ccv.LoadOutput[ccv.Cfg](smokeTestConfig)
 	require.NoError(t, err)

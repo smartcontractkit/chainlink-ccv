@@ -21,7 +21,7 @@ jobs:
     strategy:
       matrix:
         test:
-          - name: TestE2ESmoke
+          - name: TestE2ESmoke_Basic
             config: "env.toml,env-cl.toml,env-cl-ci.toml"
             timeout: 15m
           - name: TestE2ESmoke_TokenVerification
