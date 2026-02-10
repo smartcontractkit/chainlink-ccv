@@ -69,7 +69,7 @@ key_prefix = "ratelimit"
 [verificationRateLimiter]
 enabled = true
 rateWindow = "1m"
-minRateBeforeComparingWithMAD = 10
+minRateBeforeComparingWithMAD = 150
 k = 2
 minCommitteeSize = 1
 storeType = "redis"

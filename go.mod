@@ -46,6 +46,7 @@ require (
 require (
 	github.com/beevik/ntp v1.5.0
 	github.com/digital-asset/dazl-client/v8 v8.8.0
+	github.com/docker/go-connections v0.6.0
 	github.com/gagliardetto/solana-go v1.13.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lib/pq v1.10.9
@@ -137,7 +138,6 @@ require (
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/docker v28.5.1+incompatible // indirect
-	github.com/docker/go-connections v0.6.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/ebitengine/purego v0.9.0 // indirect
 	github.com/emicklei/dot v1.6.2 // indirect

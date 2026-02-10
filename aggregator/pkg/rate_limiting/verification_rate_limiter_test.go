@@ -280,22 +280,6 @@ func TestVerificationRateLimiter_TryAcquire(t *testing.T) {
 				{signerA, 3, true, 0, 0, true, "", 2 * time.Second}, // Rate window expires and old entries are removed
 			},
 		},
-		{
-			name: "returns error when quorum config missing for source",
-			config: model.VerificationRateLimiterConfig{
-				Redis:                         &model.VerificationRateLimiterRedisConfig{},
-				Enabled:                       true,
-				K:                             1.0,
-				MinCommitteeSize:              1,
-				MinRateBeforeComparingWithMAD: 1.0,
-				RateWindow:                    1 * time.Second,
-			},
-			committee:      validCommittee,
-			sourceSelector: 999,
-			steps: []tryAcquireStep{
-				{signerA, 1, false, 0, 0, false, "failed to get quorum config", 0},
-			},
-		},
 	}
 
 	for _, tt := range tests {
@@ -306,8 +290,9 @@ func TestVerificationRateLimiter_TryAcquire(t *testing.T) {
 			ctx := context.Background()
 
 			quorumConfig, ok := committee.GetQuorumConfig(tt.sourceSelector)
-			require.True(t, ok, "committee must have quorum config for source selector")
-			require.NotNil(t, quorumConfig)
+			if !ok || quorumConfig == nil {
+				t.Fatalf("no quorum config for source selector %d", tt.sourceSelector)
+			}
 
 			for i, step := range tt.steps {
 				if step.waitBefore > 0 {

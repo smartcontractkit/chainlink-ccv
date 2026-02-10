@@ -702,7 +702,7 @@ func TestListOrphanedKeys(t *testing.T) {
 
 	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, time.Time{})
 
-	orphanedKeys := []model.OrphanedKey{}
+	orphanedKeys := make([]model.OrphanedKey, 0, 8)
 	for keys := range orphanKeysCh {
 		orphanedKeys = append(orphanedKeys, keys)
 	}
@@ -776,7 +776,7 @@ func TestListOrphanedKeys_FiltersRecordsOlderThanCutoff(t *testing.T) {
 	cutoff := time.Now().Add(-1 * time.Hour)
 	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, cutoff)
 
-	orphanedKeys := []model.OrphanedKey{}
+	orphanedKeys := make([]model.OrphanedKey, 0, 8)
 	for key := range orphanKeysCh {
 		orphanedKeys = append(orphanedKeys, key)
 	}
@@ -801,7 +801,7 @@ func TestBatchOperations_MultipleSigners(t *testing.T) {
 		newTestSigner(t),
 	}
 
-	records := []*model.CommitVerificationRecord{}
+	records := make([]*model.CommitVerificationRecord, 0, len(signers))
 	var messageID []byte
 	for _, signer := range signers {
 		msgWithCCV := createTestMessageWithCCV(t, message, signer)

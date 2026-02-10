@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 )
 
@@ -47,12 +48,15 @@ func NewVerificationRateLimiter(config model.VerificationRateLimiterConfig) (*Ve
 }
 
 func (v *VerificationRateLimiter) TryAcquire(ctx context.Context, verificationRecord *model.CommitVerificationRecord, quorumConfig *model.QuorumConfig) error {
+	if quorumConfig == nil {
+		return fmt.Errorf("quorum config is nil")
+	}
 	keys, err := v.computeAllKeysForCommitteePerSourceSelector(uint64(verificationRecord.Message.SourceChainSelector), quorumConfig)
 	if err != nil {
 		return fmt.Errorf("failed to compute all keys for committee per source selector: %w", err)
 	}
 
-	if len(keys) < int(v.minCommitteeSize) {
+	if uint64(len(keys)) < v.minCommitteeSize {
 		return nil // we don't need to rate limit if the committee size is less than the minimum committee size
 	}
 
@@ -133,7 +137,7 @@ func (v *VerificationRateLimiter) getAllRates(ctx context.Context, keys []string
 	return rates, nil
 }
 
-func (v *VerificationRateLimiter) isWithinBounds(mad float64, median float64, k float64, rate float64) bool {
+func (v *VerificationRateLimiter) isWithinBounds(mad, median, k, rate float64) bool {
 	upperBound := median + k*mad
 	return rate <= upperBound
 }
@@ -158,8 +162,8 @@ func (v *VerificationRateLimiter) computeMedian(rates map[string]float64) float6
 	return ratesList[len(ratesList)/2]
 }
 
-func (m *VerificationRateLimiter) Ready() error {
-	if m.redisClient == nil {
+func (v *VerificationRateLimiter) Ready() error {
+	if v.redisClient == nil {
 		// rate limiter not initialized"
 		return nil
 	}
@@ -167,7 +171,7 @@ func (m *VerificationRateLimiter) Ready() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	err := m.redisClient.Ping(ctx).Err()
+	err := v.redisClient.Ping(ctx).Err()
 	if err != nil {
 		return fmt.Errorf("rate limiter redis client unavailable: %v", err)
 	}
@@ -175,12 +179,12 @@ func (m *VerificationRateLimiter) Ready() error {
 	return nil
 }
 
-func (m *VerificationRateLimiter) HealthReport() map[string]error {
+func (v *VerificationRateLimiter) HealthReport() map[string]error {
 	return map[string]error{
-		m.Name(): m.Ready(),
+		v.Name(): v.Ready(),
 	}
 }
 
-func (m *VerificationRateLimiter) Name() string {
-	return "rate_limiter"
+func (v *VerificationRateLimiter) Name() string {
+	return "verification_rate_limiter"
 }

@@ -31,7 +31,7 @@ func NewChannelManager(keys []model.ChannelKey, bufferSize int) *ChannelManager 
 }
 
 func NewChannelManagerFromConfig(config *model.AggregatorConfig) *ChannelManager {
-	keys := make([]model.ChannelKey, 0)
+	keys := make([]model.ChannelKey, 0, len(config.APIClients)+1)
 	for _, client := range config.APIClients {
 		keys = append(keys, model.ChannelKey(client.ClientID))
 	}
