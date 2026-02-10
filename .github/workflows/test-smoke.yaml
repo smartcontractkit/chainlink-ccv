@@ -18,7 +18,7 @@ jobs:
       id-token: write
       contents: read
       pull-requests: write
-    runs-on: runs-on=${{ github.run_id }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
+    runs-on: runs-on=${{ github.run_id }}-${{ strategy.job-index }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
     strategy:
       fail-fast: false
       matrix:
