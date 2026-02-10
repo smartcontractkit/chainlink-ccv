@@ -11,17 +11,17 @@ import (
 
 //nolint:revive // type has to be prefixed to avoid name clash in VerifierConfig
 type LombardConfig struct {
-	AttestationAPI string `toml:"attestation_api"`
+	AttestationAPI string `json:"attestation_api" toml:"attestation_api"`
 	// AttestationAPITimeout defines the timeout for the attestation API.
-	AttestationAPITimeout time.Duration `toml:"attestation_api_timeout"`
+	AttestationAPITimeout time.Duration `json:"attestation_api_timeout" toml:"attestation_api_timeout"`
 	// AttestationAPIInterval defines the rate in requests per second that the attestation API can be called.
 	// Default set according to the APIs documentated 10 requests per second rate limit.
-	AttestationAPIInterval  time.Duration `toml:"attestation_api_interval"`
-	AttestationAPIBatchSize int           `toml:"attestation_api_batch_size"`
+	AttestationAPIInterval  time.Duration `json:"attestation_api_interval"   toml:"attestation_api_interval"`
+	AttestationAPIBatchSize int           `json:"attestation_api_batch_size" toml:"attestation_api_batch_size"`
 	// VerifierResolvers is a map of chain selectors to verifier resolver addresses. It's only used for TOML marshall/unmarshall and then
 	// final values, properly cast to domain values are stored in ParsedVerifierResolvers
-	VerifierResolvers       map[string]any                                     `toml:"verifier_resolver_addresses"`
-	ParsedVerifierResolvers map[protocol.ChainSelector]protocol.UnknownAddress `toml:"-"`
+	VerifierResolvers       map[string]any                                     `json:"verifier_resolver_addresses" toml:"verifier_resolver_addresses"`
+	ParsedVerifierResolvers map[protocol.ChainSelector]protocol.UnknownAddress `json:"-"                           toml:"-"`
 }
 
 func TryParsing(t, v string, data map[string]any) (*LombardConfig, error) {

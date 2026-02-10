@@ -10,28 +10,16 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/Masterminds/semver/v3"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/lombard_verifier"
-	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/onramp"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
-
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
-	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
-	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -50,18 +38,8 @@ type TokenVerifierInput struct {
 	ContainerName  string               `toml:"container_name"`
 	Port           int                  `toml:"port"`
 
-	// Maps to on_ramp_addresses in the verifier config toml.
-	OnRampAddresses map[string]string `toml:"on_ramp_addresses"`
-	// Maps to committee_verifier_addresses in the verifier config toml.
-	DefaultExecutorOnRampAddresses map[string]string `toml:"default_executor_on_ramp_addresses"`
-	// Maps to rmn_remote_addresses in the verifier config toml.
-	RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
-
-	CCTPVerifierAddresses map[string]string `toml:"cctp_verifier_addresses"`
-
-	CCTPVerifierResolverAddresses map[string]string `toml:"cctp_verifier_resolver_addresses"`
-
-	LombardVerifierResolverAddresses map[string]string `toml:"lombard_verifier_resolver_addresses"`
+	// GeneratedConfig stores the generated token verifier configuration from the changeset.
+	GeneratedConfig *token.Config `toml:"-"`
 }
 
 type TokenVerifierOutput struct {
@@ -72,7 +50,7 @@ type TokenVerifierOutput struct {
 	DBConnectionString string `toml:"db_connection_string"`
 }
 
-func NewTokenVerifier(in *TokenVerifierInput, fakeAttestationServiceURL string, blockchainOutputs []*blockchain.Output) (*TokenVerifierOutput, error) {
+func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Output) (*TokenVerifierOutput, error) {
 	if in == nil {
 		return nil, nil
 	}
@@ -127,7 +105,7 @@ func NewTokenVerifier(in *TokenVerifierInput, fakeAttestationServiceURL string, 
 	}
 
 	// Generate and store config file.
-	config, err := in.GenerateConfigWithBlockchainInfos(blockchainInfos, fakeAttestationServiceURL)
+	config, err := in.GenerateConfigWithBlockchainInfos(blockchainInfos)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate verifier config for token verifier %w", err)
 	}
@@ -228,16 +206,14 @@ func NewTokenVerifier(in *TokenVerifierInput, fakeAttestationServiceURL string, 
 	}, nil
 }
 
-func (v *TokenVerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*ccvblockchain.Info, fakeAttestationServiceURL string) (verifierTomlConfig []byte, err error) {
-	// Build base configuration
-	var baseConfig token.Config
-	if err := v.buildVerifierConfiguration(&baseConfig, fakeAttestationServiceURL); err != nil {
-		return nil, err
+func (v *TokenVerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*ccvblockchain.Info) (verifierTomlConfig []byte, err error) {
+	if v.GeneratedConfig == nil {
+		return nil, fmt.Errorf("GeneratedConfig is nil - token verifier config must be generated using changeset before launching")
 	}
 
-	// Wrap in ConfigWithBlockchainInfo and add blockchain infos
+	// Use the generated config directly (fake URLs are already injected in environment.go)
 	config := token.ConfigWithBlockchainInfos{
-		Config:          baseConfig,
+		Config:          *v.GeneratedConfig,
 		BlockchainInfos: blockchainInfos,
 	}
 
@@ -248,154 +224,10 @@ func (v *TokenVerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos m
 	return cfg, nil
 }
 
-func (v *TokenVerifierInput) buildVerifierConfiguration(config *token.Config, fakeAttestationServiceURL string) error {
+func (v *TokenVerifierInput) GenerateTemplateConfig() (*token.Config, error) {
+	var config *token.Config
 	if _, err := toml.Decode(tokenVerifierConfigTemplate, &config); err != nil {
-		return fmt.Errorf("failed to decode verifier config template: %w", err)
+		return nil, fmt.Errorf("failed to decode verifier config template: %w", err)
 	}
-
-	config.OnRampAddresses = v.OnRampAddresses
-	config.RMNRemoteAddresses = v.RMNRemoteAddresses
-	if len(config.TokenVerifiers) == 0 {
-		config.TokenVerifiers = make([]token.VerifierConfig, 0)
-	}
-
-	if len(v.CCTPVerifierResolverAddresses) > 0 {
-		verifiers := make(map[string]any)
-		verifierResolvers := make(map[string]any)
-		for k, addr := range v.CCTPVerifierAddresses {
-			verifiers[k] = addr
-		}
-		for k, addr := range v.CCTPVerifierResolverAddresses {
-			verifierResolvers[k] = addr
-		}
-
-		config.TokenVerifiers = append(config.TokenVerifiers, token.VerifierConfig{
-			VerifierID: v.ContainerName + "-cctp",
-			Type:       "cctp",
-			Version:    "2.0",
-			CCTPConfig: &cctp.CCTPConfig{
-				AttestationAPI:         fakeAttestationServiceURL + "/cctp",
-				AttestationAPIInterval: 100 * time.Millisecond,
-				AttestationAPITimeout:  1 * time.Second,
-				AttestationAPICooldown: 1 * time.Millisecond,
-				Verifiers:              verifiers,
-				VerifierResolvers:      verifierResolvers,
-			},
-		})
-	}
-
-	if len(v.LombardVerifierResolverAddresses) > 0 {
-		verifierResolvers := make(map[string]any)
-		for k, addr := range v.LombardVerifierResolverAddresses {
-			verifierResolvers[k] = addr
-		}
-		config.TokenVerifiers = append(config.TokenVerifiers, token.VerifierConfig{
-			VerifierID: v.ContainerName + "-lombard",
-			Type:       "lombard",
-			Version:    "1.0",
-			LombardConfig: &lombard.LombardConfig{
-				AttestationAPI:          fakeAttestationServiceURL + "/lombard",
-				AttestationAPIInterval:  100 * time.Millisecond,
-				AttestationAPITimeout:   1 * time.Second,
-				AttestationAPIBatchSize: 20,
-				VerifierResolvers:       verifierResolvers,
-			},
-		})
-	}
-
-	return nil
-}
-
-func ResolveContractsForTokenVerifier(ds datastore.DataStore, blockchains []*blockchain.Input, ver TokenVerifierInput) (TokenVerifierInput, error) {
-	ver.OnRampAddresses = make(map[string]string)
-	ver.DefaultExecutorOnRampAddresses = make(map[string]string)
-	ver.RMNRemoteAddresses = make(map[string]string)
-	ver.CCTPVerifierAddresses = make(map[string]string)
-	ver.CCTPVerifierResolverAddresses = make(map[string]string)
-	ver.LombardVerifierResolverAddresses = make(map[string]string)
-
-	for _, chain := range blockchains {
-		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(chain.ChainID, chain.Out.Family)
-		if err != nil {
-			return TokenVerifierInput{}, err
-		}
-		selectorStr := strconv.FormatUint(networkInfo.ChainSelector, 10)
-
-		cctpTokenVerifierResolverAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
-			networkInfo.ChainSelector,
-			datastore.ContractType(cctp_verifier.ResolverType),
-			semver.MustParse(cctp_verifier.Deploy.Version()),
-			devenvcommon.CCTPContractsQualifier,
-		))
-		if err != nil {
-			framework.L.Info().
-				Str("chainID", chain.ChainID).
-				Msg("Failed to get CCTP Verifier Resolver address from datastore")
-		} else {
-			ver.CCTPVerifierResolverAddresses[selectorStr] = cctpTokenVerifierResolverAddressRef.Address
-		}
-
-		cctpTokenVerifierAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
-			networkInfo.ChainSelector,
-			datastore.ContractType(cctp_verifier.ContractType),
-			semver.MustParse(cctp_verifier.Deploy.Version()),
-			devenvcommon.CCTPContractsQualifier,
-		))
-		if err != nil {
-			framework.L.Info().
-				Str("chainID", chain.ChainID).
-				Msg("Failed to get CCTP Verifier address from datastore")
-		} else {
-			ver.CCTPVerifierAddresses[selectorStr] = cctpTokenVerifierAddressRef.Address
-		}
-
-		lombardTokenVerifierResolverRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
-			networkInfo.ChainSelector,
-			datastore.ContractType(lombard_verifier.ResolverType),
-			semver.MustParse(lombard_verifier.Deploy.Version()),
-			devenvcommon.LombardContractsQualifier,
-		))
-		if err != nil {
-			framework.L.Info().
-				Str("chainID", chain.ChainID).
-				Msg("Failed to get Lombard Verifier address from datastore")
-		} else {
-			ver.LombardVerifierResolverAddresses[selectorStr] = lombardTokenVerifierResolverRef.Address
-		}
-
-		onRampAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
-			networkInfo.ChainSelector,
-			datastore.ContractType(onrampoperations.ContractType),
-			semver.MustParse(onrampoperations.Deploy.Version()),
-			"",
-		))
-		if err != nil {
-			return TokenVerifierInput{}, fmt.Errorf("failed to get on ramp address for chain %s: %w", chain.ChainID, err)
-		}
-		ver.OnRampAddresses[selectorStr] = onRampAddressRef.Address
-
-		defaultExecutorOnRampAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
-			networkInfo.ChainSelector,
-			datastore.ContractType(executor.ProxyType),
-			semver.MustParse(executor.DeployProxy.Version()),
-			devenvcommon.DefaultExecutorQualifier,
-		))
-		if err != nil {
-			return TokenVerifierInput{}, fmt.Errorf("failed to get default executor on ramp address for chain %s: %w", chain.ChainID, err)
-		}
-		ver.DefaultExecutorOnRampAddresses[selectorStr] = defaultExecutorOnRampAddressRef.Address
-
-		rmnRemoteAddressRef, err := ds.Addresses().Get(datastore.NewAddressRefKey(
-			networkInfo.ChainSelector,
-			datastore.ContractType(rmn_remote.ContractType),
-			semver.MustParse(rmn_remote.Deploy.Version()),
-			"",
-		))
-		if err != nil {
-			return TokenVerifierInput{}, fmt.Errorf("failed to get rmn remote address for chain %s: %w", chain.ChainID, err)
-		}
-		ver.RMNRemoteAddresses[selectorStr] = rmnRemoteAddressRef.Address
-	}
-
-	return ver, nil
+	return config, nil
 }
