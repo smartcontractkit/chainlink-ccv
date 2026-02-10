@@ -17,6 +17,11 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
 
+const (
+	testCCTPQualifier    = "test-cctp"
+	testLombardQualifier = "test-lombard"
+)
+
 func TestBuildConfig(t *testing.T) {
 	t.Run("all contracts present", func(t *testing.T) {
 		// Test chain selectors
@@ -25,8 +30,8 @@ func TestBuildConfig(t *testing.T) {
 		chainSelectors := []uint64{chainSelector1, chainSelector2}
 
 		// Test qualifiers
-		cctpQualifier := "test-cctp"
-		lombardQualifier := "test-lombard"
+		cctpQualifier := testCCTPQualifier
+		lombardQualifier := testLombardQualifier
 
 		// Create test environment with mutable datastore
 		env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, chainSelectors)
@@ -222,8 +227,8 @@ func TestBuildConfig(t *testing.T) {
 		chainSelector2 := uint64(987654321)
 		chainSelectors := []uint64{chainSelector1, chainSelector2}
 
-		cctpQualifier := "test-cctp"
-		lombardQualifier := "test-lombard"
+		cctpQualifier := testCCTPQualifier
+		lombardQualifier := testLombardQualifier
 
 		env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, chainSelectors)
 
@@ -328,8 +333,6 @@ func TestBuildConfig(t *testing.T) {
 		}
 
 		config := &token_verifier_config.VerifierGeneratedConfig{
-			OnRampAddresses:                  onRampAddresses,
-			RMNRemoteAddresses:               rmnRemoteAddresses,
 			CCTPVerifierAddresses:            cctpVerifierAddresses,
 			CCTPVerifierResolverAddresses:    cctpVerifierResolverAddresses,
 			LombardVerifierResolverAddresses: lombardVerifierResolverAddresses,
@@ -349,8 +352,8 @@ func TestBuildConfig(t *testing.T) {
 		chainSelector2 := uint64(987654321)
 		chainSelectors := []uint64{chainSelector1, chainSelector2}
 
-		cctpQualifier := "test-cctp"
-		lombardQualifier := "test-lombard"
+		cctpQualifier := testCCTPQualifier
+		lombardQualifier := testLombardQualifier
 
 		env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, chainSelectors)
 
@@ -469,10 +472,7 @@ func TestBuildConfig(t *testing.T) {
 		}
 
 		config := &token_verifier_config.VerifierGeneratedConfig{
-			OnRampAddresses:                  onRampAddresses,
-			RMNRemoteAddresses:               rmnRemoteAddresses,
 			CCTPVerifierAddresses:            cctpVerifierAddresses,
-			CCTPVerifierResolverAddresses:    cctpVerifierResolverAddresses,
 			LombardVerifierResolverAddresses: lombardVerifierResolverAddresses,
 		}
 
@@ -488,8 +488,7 @@ func TestBuildConfig(t *testing.T) {
 		chainSelector1 := uint64(123456789)
 		chainSelectors := []uint64{chainSelector1}
 
-		cctpQualifier := "test-cctp"
-		lombardQualifier := "test-lombard"
+		cctpQualifier := testCCTPQualifier
 
 		env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, chainSelectors)
 
@@ -517,9 +516,8 @@ func TestBuildConfig(t *testing.T) {
 		env.DataStore = ds.Seal()
 
 		input := token_verifier_config.BuildConfigInput{
-			CCTPQualifier:    cctpQualifier,
-			LombardQualifier: lombardQualifier,
-			ChainSelectors:   chainSelectors,
+			CCTPQualifier:  cctpQualifier,
+			ChainSelectors: chainSelectors,
 		}
 
 		deps := token_verifier_config.BuildConfigDeps{Env: env}
@@ -559,8 +557,7 @@ func TestBuildConfig(t *testing.T) {
 		chainSelector1 := uint64(123456789)
 		chainSelectors := []uint64{chainSelector1}
 
-		cctpQualifier := "test-cctp"
-		lombardQualifier := "test-lombard"
+		cctpQualifier := testCCTPQualifier
 
 		env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, chainSelectors)
 
@@ -588,9 +585,8 @@ func TestBuildConfig(t *testing.T) {
 		env.DataStore = ds.Seal()
 
 		input := token_verifier_config.BuildConfigInput{
-			CCTPQualifier:    cctpQualifier,
-			LombardQualifier: lombardQualifier,
-			ChainSelectors:   chainSelectors,
+			CCTPQualifier:  cctpQualifier,
+			ChainSelectors: chainSelectors,
 		}
 
 		deps := token_verifier_config.BuildConfigDeps{Env: env}
