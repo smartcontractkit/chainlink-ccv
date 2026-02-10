@@ -49,6 +49,7 @@ jobs:
           path: /tmp/cl-image.tar
           retention-days: 1
 
+
   e2e-smoke-cl-mode:
     needs: build-cl-image
     permissions:
