@@ -293,14 +293,14 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 		ChainSelector: selector,
 	})
 
-	// TODO: is an executor proxy needed for Stellar?
-	// ds.AddressRefStore.Add(datastore.AddressRef{
-	// 	Address:       contractAddr("stellar-executor-proxy"),
-	// 	Type:          datastore.ContractType(executor.ProxyType),
-	// 	Version:       semver.MustParse(executor.DeployProxy.Version()),
-	// 	Qualifier:     devenvcommon.DefaultExecutorQualifier,
-	// 	ChainSelector: selector,
-	// })
+	// ExecutorProxy placeholder - needed by verifier config generation for all chains.
+	ds.AddressRefStore.Add(datastore.AddressRef{
+		Address:       contractAddr("stellar-executor-proxy"),
+		Type:          datastore.ContractType(executor.ProxyType),
+		Version:       semver.MustParse(executor.DeployProxy.Version()),
+		Qualifier:     devenvcommon.DefaultExecutorQualifier,
+		ChainSelector: selector,
+	})
 
 	// Add RMN remote refs
 	ds.AddressRefStore.Add(datastore.AddressRef{

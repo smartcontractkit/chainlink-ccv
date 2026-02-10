@@ -198,6 +198,9 @@ func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers [
 			if nop.SignerAddressByFamily[chainsel.FamilyCanton] == "" {
 				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyCanton, ver.SigningKeyPublic)
 			}
+			if nop.SignerAddressByFamily[chainsel.FamilyStellar] == "" {
+				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyStellar, ver.SigningKeyPublic)
+			}
 			seenAliases[ver.NOPAlias] = struct{}{}
 		}
 	}
