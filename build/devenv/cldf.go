@@ -25,6 +25,7 @@ import (
 	cldf_canton "github.com/smartcontractkit/chainlink-deployments-framework/chain/canton"
 	cldf_canton_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/canton/provider"
 	cldf_evm_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider"
+	cldf_stellar_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/stellar/provider"
 )
 
 var Plog = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel).With().Fields(map[string]any{"component": "ccv"}).Logger()
@@ -145,32 +146,41 @@ func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint
 			selectors = append(selectors, details.ChainSelector)
 
 			var (
-				networkPassphrase string
-				friendbotURL      string
-				sorobanRPCURL     string
+				networkPassphrase  string
+				friendbotURL       string
+				sorobanRPCURL      string
+				deployerKeypairGen cldf_stellar_provider.KeypairGenerator
 			)
 			if b.Out.NetworkSpecificData.StellarNetwork != nil {
 				networkPassphrase = b.Out.NetworkSpecificData.StellarNetwork.NetworkPassphrase
 				friendbotURL = b.Out.NetworkSpecificData.StellarNetwork.FriendbotURL
 				sorobanRPCURL = b.Out.Nodes[0].ExternalHTTPUrl
+				deployerKeypairGen = cldf_stellar_provider.KeypairFromHex(os.Getenv("STELLAR_DEPLOYER_PRIVATE_KEY"))
+			} else {
+				return nil, nil, fmt.Errorf("Stellar network specific data is required")
 			}
 
 			log.Info().Msgf("Stellar network passphrase: %s", networkPassphrase)
 			log.Info().Msgf("Stellar friendbot URL: %s", friendbotURL)
 			log.Info().Msgf("Stellar Soroban RPC URL: %s", sorobanRPCURL)
+			deployerKeypair, err := deployerKeypairGen.Generate()
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to generate deployer keypair: %w", err)
+			}
+			log.Info().Msgf("Stellar deployer keypair: %s", deployerKeypair.Address())
 
-			// TODO: implement Stellar CLDF provider
-			// p, err := stellar.NewRPCChainProvider(details.ChainSelector, stellar.RPCChainProviderConfig{
-			// 	NetworkPassphrase: networkPassphrase,
-			// 	FriendbotURL:      friendbotURL,
-			// 	SorobanRPCURL:     sorobanRPCURL,
-			// }).Initialize(context.Background())
-			//
-			// if err != nil {
-			// 	return nil, nil, err
-			// }
-			//
-			// providers = append(providers, p)
+			p, err := cldf_stellar_provider.NewRPCChainProvider(details.ChainSelector, cldf_stellar_provider.RPCChainProviderConfig{
+				NetworkPassphrase:  networkPassphrase,
+				FriendbotURL:       friendbotURL,
+				SorobanRPCURL:      sorobanRPCURL,
+				DeployerKeypairGen: deployerKeypairGen,
+			}).Initialize(context.Background())
+
+			if err != nil {
+				return nil, nil, err
+			}
+
+			providers = append(providers, p)
 		default:
 			return nil, nil, fmt.Errorf("unsupported blockchain family: %s", b.Out.Family)
 		}

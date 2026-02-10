@@ -226,37 +226,42 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 		})
 	}
 
-	// Add CCTP refs (keeping it here as a reference, will uncomment later when CCTP is supported on Stellar)
+	// mtpAddress, err := generateAccountAddress("stellar-cctp-mtp")
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to generate CCTP MTP address: %w", err)
+	// }
+
+	// // Add CCTP refs (keeping it here as a reference, will uncomment later when CCTP is supported on Stellar)
 	// ds.AddressRefStore.Add(datastore.AddressRef{
-	// 	Address:       contractAddr("stellar-cctp-mtp"),
+	// 	Address:       mtpAddress,
 	// 	Type:          datastore.ContractType(cctp_message_transmitter_proxy.ContractType),
 	// 	Version:       semver.MustParse(cctp_message_transmitter_proxy.Deploy.Version()),
 	// 	Qualifier:     devenvcommon.CCTPContractsQualifier,
 	// 	ChainSelector: selector,
 	// })
 	// ds.AddressRefStore.Add(datastore.AddressRef{
-	// 	Address:       hexutil.Encode(stellarAddress("stellar cctp rslvr")),
+	// 	Address:       contractAddr("stellar-cctp-rslvr"),
 	// 	Type:          datastore.ContractType(cctp_verifier.ResolverType),
 	// 	Version:       semver.MustParse(cctp_verifier.Deploy.Version()),
 	// 	Qualifier:     devenvcommon.CCTPContractsQualifier,
 	// 	ChainSelector: selector,
 	// })
 	// ds.AddressRefStore.Add(datastore.AddressRef{
-	// 	Address:       hexutil.Encode(stellarAddress("stellar cctp vrfr")),
+	// 	Address:       contractAddr("stellar cctp vrfr"),
 	// 	Type:          datastore.ContractType(cctp_verifier.ContractType),
 	// 	Version:       semver.MustParse(cctp_verifier.Deploy.Version()),
 	// 	Qualifier:     devenvcommon.CCTPContractsQualifier,
 	// 	ChainSelector: selector,
 	// })
 	// ds.AddressRefStore.Add(datastore.AddressRef{
-	// 	Address:       hexutil.Encode(stellarAddress("stellar usdc token")),
+	// 	Address:       contractAddr("stellar usdc token"),
 	// 	Type:          datastore.ContractType(burnminterc677ops.ContractType),
 	// 	Version:       burnminterc677ops.Version,
 	// 	Qualifier:     devenvcommon.CCTPContractsQualifier,
 	// 	ChainSelector: selector,
 	// })
 	// ds.AddressRefStore.Add(datastore.AddressRef{
-	// 	Address:       hexutil.Encode(stellarAddress("usdc token pool prx")),
+	// 	Address:       contractAddr("usdc token pool prx"),
 	// 	Type:          datastore.ContractType(usdc_token_pool_proxy.ContractType),
 	// 	Version:       semver.MustParse(usdc_token_pool_proxy.Deploy.Version()),
 	// 	Qualifier:     devenvcommon.CCTPContractsQualifier,
