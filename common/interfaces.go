@@ -29,15 +29,6 @@ type CurseCheckerService interface {
 	CurseChecker
 }
 
-// RMNRemoteReader provides read-only access to RMN Remote curse state.
-type RMNRemoteReader interface {
-	// GetRMNCursedSubjects queries the configured RMN Remote contract. Shared between verifier and executor.
-	// Returns cursed subjects as bytes16, which can be:
-	// - Global curse constant (0x0100000000000000000000000000000001)
-	// - Chain selectors as bytes16s
-	GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error)
-}
-
 // TimeProvider is an interface for providing the current time.
 type TimeProvider interface {
 	// GetTime provides the current time.

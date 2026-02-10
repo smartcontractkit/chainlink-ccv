@@ -115,7 +115,11 @@ func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Cont
 		return err
 	}
 
-	encodedMsg, _ := report.Message.Encode()
+	encodedMsg, err := report.Message.Encode()
+	if err != nil {
+		ct.lggr.Errorw("unable to submit txn: invalid message encoding", "error", err, "messageID", report.Message.MustMessageID())
+		return fmt.Errorf("unable to submit txn: invalid message encoding %s", err)
+	}
 	tx, err := ct.OffRamp.Execute(opts, encodedMsg, contractCcvs, report.CCVData, DefaultGasLimitOverride)
 	if err != nil {
 		return err

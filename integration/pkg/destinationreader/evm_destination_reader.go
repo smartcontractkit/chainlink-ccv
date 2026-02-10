@@ -179,19 +179,24 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 	if found {
 		dr.lggr.Debugf("CCV info retrieved from cache for receiver %s and dest token %s on source chain %d",
 			receiverAddress.String(), tokenTransferAddress.String(), sourceSelector)
-		dr.monitoring.Metrics().IncrementCCVInfoCacheHits(ctx)
+		dr.monitoring.Metrics().IncrementCCVInfoCacheHits(ctx, dr.chainSelector)
 		return ccvInfo, nil
 	}
-	dr.monitoring.Metrics().IncrementCCVInfoCacheMisses(ctx)
+	dr.monitoring.Metrics().IncrementCCVInfoCacheMisses(ctx, dr.chainSelector)
 
 	encodedMsg, err := message.Encode()
 	if err != nil {
 		return protocol.CCVAddressInfo{}, fmt.Errorf("failed to encode message: %w", err)
 	}
+
+	start := time.Now()
 	chainCCVInfo, err := dr.offRampCaller.GetCCVsForMessage(&bind.CallOpts{Context: ctx}, encodedMsg)
 	if err != nil {
+		dr.monitoring.Metrics().IncrementOfframpGetCCVsForMessageFailure(ctx, dr.chainSelector)
 		return protocol.CCVAddressInfo{}, fmt.Errorf("failed to call GetCCVSForMessage: %w", err)
 	}
+	// record only successful calls for clean distribution
+	dr.monitoring.Metrics().RecordOfframpGetCCVsForMessageLatency(ctx, time.Since(start), dr.chainSelector)
 
 	req, opt, optThreshold := chainCCVInfo.RequiredCCVs, chainCCVInfo.OptionalCCVs, chainCCVInfo.Threshold
 

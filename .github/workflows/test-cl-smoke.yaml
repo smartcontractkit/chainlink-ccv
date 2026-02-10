@@ -13,7 +13,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  build-cl-image:
+    permissions:
+      id-token: write
+      contents: read
+    runs-on: runs-on=${{ github.run_id }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
+    steps:
+      - name: Enable S3 Cache for Self-Hosted Runners
+        uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
+
+      - name: Setup GitHub Token
+        id: setup-github-token
+        uses: smartcontractkit/.github/actions/setup-github-token@ef78fa97bf3c77de6563db1175422703e9e6674f # setup-github-token@0.2.1
+        with:
+          aws-role-arn: ${{ secrets.GATI_AWS_ROLE_ARN_CHAINLINK_READ_ONLY }}
+          aws-lambda-url: ${{ secrets.GATI_LAMBDA_URL_RELENG }}
+          aws-region: ${{ secrets.GATI_AWS_REGION }}
+          set-git-config: true
+
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Build CL Image For Ref
+        uses: ./.github/actions/build-cl
+
+      - name: Save Docker Image
+        run: docker save local:latest -o /tmp/cl-image.tar
+
+      - name: Upload Docker Image
+        uses: actions/upload-artifact@v4
+        with:
+          name: cl-image
+          path: /tmp/cl-image.tar
+          retention-days: 1
+
+
   e2e-smoke-cl-mode:
+    needs: build-cl-image
     permissions:
       id-token: write
       contents: read
@@ -24,6 +62,12 @@ jobs:
           - name: TestE2ESmoke
             config: "env.toml,env-cl.toml,env-cl-ci.toml"
             timeout: 15m
+          - name: TestE2ESmoke_TokenVerification
+            config: "env.toml,env-cl.toml,env-cl-ci.toml"
+            timeout: 15m
+          - name: TestE2ESmoke_ExtraArgsV2
+            config: "env.toml,env-cl.toml,env-cl-ci.toml"
+            timeout: 10m
           # We need to configure HeadTracker for the CL tests to have finality depth. Otherwise, it does instant finality.
           # - name: TestE2EReorg
           #   config: "env.toml,env-src-auto-mine.toml,env-cl.toml,env-cl-ci.toml"
@@ -47,8 +91,14 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Build CL Image For Ref
-        uses: ./.github/actions/build-cl
+      - name: Download Docker Image
+        uses: actions/download-artifact@v4
+        with:
+          name: cl-image
+          path: /tmp
+
+      - name: Load Docker Image
+        run: docker load -i /tmp/cl-image.tar
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
@@ -76,9 +126,6 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6 # v6
         env:
-          # suppress tar warnings about existing files when setting up Go for a second time
-          # initially setup in the build-cl action
-          TAR_OPTIONS: --skip-old-files
           GOPRIVATE: github.com/smartcontractkit/*
         with:
           cache: true

@@ -9,7 +9,6 @@
 package hmac
 
 import (
-	"bytes"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -167,7 +166,7 @@ func ValidateSignature(stringToSign, providedSig, secret string) bool {
 	if err != nil {
 		return false
 	}
-	return bytes.Equal([]byte(expectedSig), []byte(providedSig))
+	return hmac.Equal([]byte(expectedSig), []byte(providedSig))
 }
 
 // GenerateSignature is a convenience function that generates a complete HMAC signature
