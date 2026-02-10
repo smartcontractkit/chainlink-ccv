@@ -10,12 +10,17 @@ import (
 	"github.com/rs/zerolog"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/canton"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
+
+// ChainFamily is the interface that chain family adapters must implement.
+type ChainFamily = registry.ChainFamily
 
 type ChainImpl struct {
 	cciptestinterfaces.CCIP17
@@ -23,15 +28,28 @@ type ChainImpl struct {
 }
 
 type Lib struct {
-	envOutFile     string
-	cfg            *Cfg
-	l              *zerolog.Logger
-	familiesToLoad []string
+	envOutFile          string
+	cfg                 *Cfg
+	l                   *zerolog.Logger
+	familiesToLoad      []string
+	chainFamilyRegistry *adapters.ChainFamilyRegistry
+}
+
+// GetGlobalChainFamilyRegistry returns the global chain family registry singleton.
+func GetGlobalChainFamilyRegistry() *adapters.ChainFamilyRegistry {
+	return registry.GetGlobalChainFamilyRegistry()
+}
+
+// RegisterChainFamily allows external packages to register their own chain family adapters.
+func RegisterChainFamily(family string, adapter ChainFamily) {
+	registry.RegisterChainFamily(family, adapter)
 }
 
 // NewLib creates a new Lib object given a logger and envOutFile.
 // If familiesToLoad is provided, only chains with the given families will be loaded.
 // If familiesToLoad is not provided, all chains will be loaded.
+// The Lib instance uses the global chain family registry which can be extended
+// via RegisterChainFamilyAdapter() before calling NewLib.
 func NewLib(logger *zerolog.Logger, envOutFile string, familiesToLoad ...string) (*Lib, error) {
 	cfg, err := LoadOutput[Cfg](envOutFile)
 	if err != nil {
@@ -39,10 +57,11 @@ func NewLib(logger *zerolog.Logger, envOutFile string, familiesToLoad ...string)
 	}
 
 	lib := &Lib{
-		envOutFile:     envOutFile,
-		cfg:            cfg,
-		l:              logger,
-		familiesToLoad: familiesToLoad,
+		envOutFile:          envOutFile,
+		cfg:                 cfg,
+		l:                   logger,
+		familiesToLoad:      familiesToLoad,
+		chainFamilyRegistry: GetGlobalChainFamilyRegistry(),
 	}
 
 	if err := lib.verify(); err != nil {
@@ -50,6 +69,12 @@ func NewLib(logger *zerolog.Logger, envOutFile string, familiesToLoad ...string)
 	}
 
 	return lib, nil
+}
+
+// ChainFamilyRegistry returns the chain family registry used by this Lib instance.
+// This can be used to access the registry for operations that require it.
+func (l *Lib) ChainFamilyRegistry() *adapters.ChainFamilyRegistry {
+	return l.chainFamilyRegistry
 }
 
 // NewImpl is a convenience function that fetches a specific impl from the library.
