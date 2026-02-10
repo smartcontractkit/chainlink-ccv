@@ -38,7 +38,7 @@ func (c *Client) Sign(ctx context.Context, req ks.SignRequest) (ks.SignResponse,
 	if err != nil {
 		return ks.SignResponse{}, fmt.Errorf("failed to do HTTP request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode != http.StatusOK {
 		return ks.SignResponse{}, fmt.Errorf("failed to sign data: %s", resp.Status)
 	}

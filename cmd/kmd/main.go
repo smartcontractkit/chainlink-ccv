@@ -9,12 +9,13 @@ import (
 	"syscall"
 
 	"github.com/jmoiron/sqlx"
+	"go.uber.org/zap/zapcore"
+
 	"github.com/smartcontractkit/chainlink-ccv/kmd"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	ks "github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/keystore/pgstore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"go.uber.org/zap/zapcore"
 )
 
 const (

@@ -45,8 +45,9 @@ func (s *Server) Start() error {
 	// JD clients also sign messages as part of JD comms.
 	mux.HandleFunc("/signer/sign", s.handleSign)
 	s.srv = &http.Server{
-		Addr:    fmt.Sprintf(":%d", s.port),
-		Handler: mux,
+		Addr:              fmt.Sprintf(":%d", s.port),
+		Handler:           mux,
+		ReadHeaderTimeout: 1 * time.Second, // Slowloris not really a concern here, but setting anyway to alleviate G112.
 	}
 	s.wg.Go(func() {
 		if err := s.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -64,7 +65,7 @@ func (s *Server) handleSign(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	defer r.Body.Close()
+	defer r.Body.Close() //nolint:errcheck
 
 	var req ks.SignRequest
 	if err := json.Unmarshal(body, &req); err != nil {

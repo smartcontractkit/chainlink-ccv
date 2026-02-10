@@ -8,10 +8,11 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/stretchr/testify/require"
+
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/freeport"
-	"github.com/stretchr/testify/require"
 )
 
 func TestServer_Sign(t *testing.T) {
