@@ -45,31 +45,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-// TODO: this is just for the mocked out addresses, not a real restriction on Canton.
-const addressLen = 32
-
-// leftPadBytesWithChar pads the input bytes on the left with the specified character
-// to reach the desired length. If data is already >= length, it truncates to length.
-func leftPadBytesWithChar(data []byte, length int, padChar byte) []byte {
-	if len(data) >= length {
-		return data[:length]
-	}
-	result := make([]byte, length)
-	padLen := length - len(data)
-	for i := range padLen {
-		result[i] = padChar
-	}
-	copy(result[padLen:], data)
-	return result
-}
-
-// cantonAddress creates a Canton mock address by padding with 'c' characters.
-func cantonAddress(name string) []byte {
-	// pad with 'c' because the canton server disallows 'null characters'
-	// in a string (i.e. 0 bytes).
-	return leftPadBytesWithChar([]byte(name), addressLen, 'c')
-}
-
 var (
 	_ cciptestinterfaces.CCIP17              = &Chain{}
 	_ cciptestinterfaces.CCIP17Configuration = &Chain{}
@@ -434,7 +409,7 @@ func (c *Chain) ConnectContractsWithSelectors(ctx context.Context, env *deployme
 
 		remoteChainConfig := adapters.RemoteChainConfig[[]byte, string]{
 			AllowTrafficFrom:         true,
-			OnRamps:                  [][]byte{[]byte(remoteOnRamp)},
+			OnRamps:                  [][]byte{remoteOnRamp},
 			OffRamp:                  remoteOffRamp,
 			DefaultInboundCCVs:       nil,
 			LaneMandatedInboundCCVs:  nil,
