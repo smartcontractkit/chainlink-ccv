@@ -43,6 +43,11 @@ import (
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
+var (
+	minGracePeriod  = 10 * time.Second
+	shutdownTimeout = 5 * time.Second
+)
+
 // Server represents a gRPC server for the aggregator service.
 type Server struct {
 	committeepb.UnimplementedCommitteeVerifierServer
@@ -119,8 +124,26 @@ func (s *Server) Start(lis net.Listener) error {
 		return nil
 	}, func(err error) {
 		s.l.Info("Shutting down gRPC server")
-		s.grpcServer.GracefulStop()
-		s.grpcServer.Stop()
+
+		stopped := make(chan struct{})
+		go func() {
+			s.grpcServer.GracefulStop()
+			close(stopped)
+		}()
+
+		gracePeriod := time.Duration(s.config.Server.RequestTimeout) + shutdownTimeout
+		if gracePeriod < minGracePeriod {
+			gracePeriod = minGracePeriod
+		}
+
+		select {
+		case <-stopped:
+			s.l.Info("gRPC server stopped gracefully")
+		case <-time.After(gracePeriod):
+			s.l.Warn("Graceful shutdown timed out, forcing stop")
+			s.grpcServer.Stop()
+			s.l.Info("gRPC server stopped forcefully")
+		}
 	})
 
 	g.Add(func() error {
