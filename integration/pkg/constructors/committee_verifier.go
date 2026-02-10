@@ -146,6 +146,24 @@ func NewVerificationCoordinator(
 		return nil, fmt.Errorf("failed to create commit verifier: %w", err)
 	}
 
+	heartbeatClient, err := heartbeatclient.NewHeartbeatClient(
+		cfg.AggregatorAddress,
+		lggr,
+		aggregatorSecret,
+		cfg.InsecureAggregatorConnection,
+	)
+	if err != nil {
+		lggr.Errorw("Failed to create heartbeat client", "error", err)
+		return nil, fmt.Errorf("failed to create heartbeat client: %w", err)
+	}
+
+	observedHeartbeatClient := heartbeatclient.NewObservedHeartbeatClient(
+		heartbeatClient,
+		cfg.VerifierID,
+		lggr,
+		verifier.NewHeartbeatMonitoringAdapter(verifierMonitoring),
+	)
+
 	messageTracker := monitoring.NewMessageLatencyTracker(
 		lggr,
 		coordinatorConfig.VerifierID,
@@ -163,7 +181,7 @@ func NewVerificationCoordinator(
 		messageTracker,
 		verifierMonitoring,
 		chainStatusManager,
-		heartbeatclient.NewNoopHeartbeatClient(),
+		observedHeartbeatClient,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)
