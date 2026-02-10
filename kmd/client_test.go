@@ -93,3 +93,40 @@ func TestClient_GetKeys(t *testing.T) {
 	require.Equal(t, keyName, getKeysResponse.Keys[0].KeyInfo.Name)
 	require.Equal(t, keyType, getKeysResponse.Keys[0].KeyInfo.KeyType)
 }
+
+func TestClient_CreateKeys(t *testing.T) {
+	memoryStorage := keystore.NewMemoryStorage()
+	keyStore, err := keystore.LoadKeystore(t.Context(), memoryStorage, "test-password", keystore.WithScryptParams(keystore.FastScryptParams))
+	require.NoError(t, err)
+
+	port := freeport.GetOne(t)
+	server := NewServer(keyStore, port, logger.Test(t))
+	require.NoError(t, server.Start())
+	t.Cleanup(func() {
+		require.NoError(t, server.Stop())
+	})
+
+	// Create a test key through the API
+	keyName := "test-key"
+	keyType := keystore.ECDSA_S256
+	client := NewClient(fmt.Sprintf("http://localhost:%d", port))
+	createKeysResponse, err := client.CreateKeys(t.Context(), keystore.CreateKeysRequest{
+		Keys: []keystore.CreateKeyRequest{
+			{KeyName: keyName, KeyType: keyType},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(createKeysResponse.Keys))
+	require.Equal(t, keyName, createKeysResponse.Keys[0].KeyInfo.Name)
+	require.Equal(t, keyType, createKeysResponse.Keys[0].KeyInfo.KeyType)
+
+	// Get the keys that were just created
+	getKeysRequest := keystore.GetKeysRequest{
+		KeyNames: []string{keyName},
+	}
+	getKeysResponse, err := client.GetKeys(t.Context(), getKeysRequest)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(getKeysResponse.Keys))
+	require.Equal(t, keyName, getKeysResponse.Keys[0].KeyInfo.Name)
+	require.Equal(t, keyType, getKeysResponse.Keys[0].KeyInfo.KeyType)
+}
