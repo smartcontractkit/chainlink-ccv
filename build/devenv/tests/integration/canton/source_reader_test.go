@@ -331,7 +331,7 @@ func getRelevantAddresses(t *testing.T, in *ccv.Cfg, cantonDetails, evmDetails c
 	require.NoError(t, err)
 	require.NotEmpty(t, cantonOnRampRef.Address)
 	t.Logf("canton on ramp address: %s", cantonOnRampRef.Address)
-	addresses.cantonOnRamp = contracts.HexToInstanceAddress(cantonOnRampRef.Address)
+	addresses.cantonOnRamp = contracts.RawInstanceAddressFromString(cantonOnRampRef.Address).InstanceAddress()
 
 	// cantonRouterRef, err := in.CLDF.DataStore.Addresses().Get(
 	// 	datastore.NewAddressRefKey(
@@ -344,7 +344,7 @@ func getRelevantAddresses(t *testing.T, in *ccv.Cfg, cantonDetails, evmDetails c
 	// require.NoError(t, err)
 	// require.NotEmpty(t, cantonRouterRef.Address)
 	// t.Logf("canton router address: %s", cantonRouterRef.Address)
-	addresses.cantonRouter = contracts.HexToInstanceAddress(cantonOnRampRef.Address) // TODO: fix when router is deployed
+	addresses.cantonRouter = contracts.RawInstanceAddressFromString(cantonOnRampRef.Address).InstanceAddress() // TODO: fix when router is deployed
 
 	cantonDefaultVerifierRef, err := in.CLDF.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
@@ -357,7 +357,7 @@ func getRelevantAddresses(t *testing.T, in *ccv.Cfg, cantonDetails, evmDetails c
 	require.NoError(t, err)
 	require.NotEmpty(t, cantonDefaultVerifierRef.Address)
 	t.Logf("canton default verifier address: %s", cantonDefaultVerifierRef.Address)
-	addresses.cantonDefaultVerifier = contracts.HexToInstanceAddress(cantonDefaultVerifierRef.Address)
+	addresses.cantonDefaultVerifier = contracts.RawInstanceAddressFromString(cantonDefaultVerifierRef.Address).InstanceAddress()
 
 	cantonExecutorAddress, err := in.CLDF.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
@@ -370,7 +370,7 @@ func getRelevantAddresses(t *testing.T, in *ccv.Cfg, cantonDetails, evmDetails c
 	require.NoError(t, err)
 	require.NotEmpty(t, cantonExecutorAddress.Address)
 	t.Logf("canton executor address: %s", cantonExecutorAddress.Address)
-	addresses.cantonExecutor = contracts.HexToInstanceAddress(cantonExecutorAddress.Address) // TODO: Mock contract
+	addresses.cantonExecutor = contracts.RawInstanceAddressFromString(cantonExecutorAddress.Address).InstanceAddress() // TODO: Mock contract
 
 	evmOffRampRef, err := in.CLDF.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
