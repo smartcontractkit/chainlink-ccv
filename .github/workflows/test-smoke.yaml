@@ -23,7 +23,7 @@ jobs:
       fail-fast: false
       matrix:
         test:
-          - name: TestE2ESmoke
+          - name: TestE2ESmoke_Basic
             config: env.toml
             timeout: 15m
             working-directory: build/devenv/tests/e2e
