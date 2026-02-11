@@ -10,8 +10,6 @@ import (
 type HTTPMetrics interface {
 	// IncrementActiveRequestsCounter increments the active requests counter.
 	IncrementActiveRequestsCounter(ctx context.Context)
-	// IncrementHTTPRequestCounter increments the HTTP request counter.
-	IncrementHTTPRequestCounter(ctx context.Context)
 	// DecrementActiveRequestsCounter decrements the active requests counter.
 	DecrementActiveRequestsCounter(ctx context.Context)
 	// RecordHTTPRequestDuration records the HTTP request duration with path, method, and status.

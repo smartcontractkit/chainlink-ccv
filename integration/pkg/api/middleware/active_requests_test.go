@@ -31,10 +31,6 @@ func (m *mockHTTPMetrics) IncrementActiveRequestsCounter(ctx context.Context) {
 	m.activeRequestsInc++
 }
 
-func (m *mockHTTPMetrics) IncrementHTTPRequestCounter(ctx context.Context) {
-	m.httpRequestCounter++
-}
-
 func (m *mockHTTPMetrics) DecrementActiveRequestsCounter(ctx context.Context) {
 	m.activeRequestsDec++
 }

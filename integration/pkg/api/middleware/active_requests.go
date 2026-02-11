@@ -17,9 +17,6 @@ func ActiveRequestsMiddleware(metrics HTTPMetrics, pathNormalizer PathNormalizer
 		// Increment active requests counter
 		metrics.IncrementActiveRequestsCounter(c.Request.Context())
 
-		// Increment HTTP request counter
-		metrics.IncrementHTTPRequestCounter(c.Request.Context())
-
 		// Record start time for potential duration tracking
 		start := time.Now()
 
