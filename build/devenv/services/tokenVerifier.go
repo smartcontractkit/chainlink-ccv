@@ -153,7 +153,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 		req.Mounts = testcontainers.Mounts()
 		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
 		req.Mounts = append(req.Mounts, GoCacheMounts()...)
-		req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
+		req.Mounts = append(req.Mounts, testcontainers.BindMount(
 			configFilePath,
 			aggregator.DefaultConfigFile,
 		))
