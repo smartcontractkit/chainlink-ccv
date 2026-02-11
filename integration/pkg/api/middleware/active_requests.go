@@ -11,6 +11,7 @@ import (
 // ActiveRequestsMiddleware creates a gin middleware that tracks active requests.
 // It uses the provided HTTPMetrics to record metrics about HTTP requests and
 // applies the PathNormalizer to normalize paths before recording metrics.
+// If the PathNormalizer returns false for tracking, request duration is not recorded.
 func ActiveRequestsMiddleware(metrics HTTPMetrics, pathNormalizer PathNormalizer, lggr logger.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Increment active requests counter
@@ -31,15 +32,24 @@ func ActiveRequestsMiddleware(metrics HTTPMetrics, pathNormalizer PathNormalizer
 		// Log request completion with duration
 		duration := time.Since(start)
 
-		// Normalize the path using the provided function
-		normalizedPath := pathNormalizer(c.Request.URL.Path)
-
-		metrics.RecordHTTPRequestDuration(c.Request.Context(), duration, normalizedPath, c.Request.Method, c.Writer.Status())
 		lggr.Debugw("Request completed",
 			"method", c.Request.Method,
 			"path", c.Request.URL.Path,
 			"status", c.Writer.Status(),
 			"duration_ms", duration.Milliseconds(),
+		)
+
+		// Normalize the path using the provided function
+		normalizedPath, shouldTrack := pathNormalizer(c.Request.URL.Path)
+		if !shouldTrack {
+			return
+		}
+		metrics.RecordHTTPRequestDuration(
+			c.Request.Context(),
+			duration,
+			normalizedPath,
+			c.Request.Method,
+			c.Writer.Status(),
 		)
 	}
 }

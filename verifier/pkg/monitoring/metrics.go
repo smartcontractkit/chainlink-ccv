@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
@@ -50,6 +51,11 @@ type VerifierMetrics struct {
 
 	// Reorg Tracking
 	reorgTrackedSeqNumsGauge metric.Int64Gauge
+
+	// HTTP API Metrics
+	httpActiveRequestsUpDownCounter metric.Int64UpDownCounter
+	httpRequestCounter              metric.Int64Counter
+	httpRequestDurationSeconds      metric.Float64Histogram
 }
 
 // InitMetrics initializes all verifier metrics.
@@ -222,6 +228,32 @@ func InitMetrics() (*VerifierMetrics, error) {
 		return nil, fmt.Errorf("failed to register reorg tracked seqnums gauge: %w", err)
 	}
 
+	// HTTP API Metrics
+	vm.httpActiveRequestsUpDownCounter, err = beholder.GetMeter().Int64UpDownCounter(
+		"verifier_http_active_requests",
+		metric.WithDescription("Number of currently active HTTP requests"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register http active requests up down counter: %w", err)
+	}
+
+	vm.httpRequestCounter, err = beholder.GetMeter().Int64Counter(
+		"verifier_http_requests_total",
+		metric.WithDescription("Total number of HTTP requests"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register http request counter: %w", err)
+	}
+
+	vm.httpRequestDurationSeconds, err = beholder.GetMeter().Float64Histogram(
+		"verifier_http_request_duration_seconds",
+		metric.WithDescription("Duration of HTTP requests"),
+		metric.WithUnit("seconds"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register http request duration histogram: %w", err)
+	}
+
 	return vm, nil
 }
 
@@ -253,6 +285,13 @@ func MetricViews() []sdkmetric.View {
 			sdkmetric.Instrument{Name: "verifier_storage_write_duration_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
 				Boundaries: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000},
+			}},
+		),
+		// HTTP Request Duration
+		sdkmetric.NewView(
+			sdkmetric.Instrument{Name: "verifier_http_request_duration_seconds"},
+			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
 			}},
 		),
 	}
@@ -371,4 +410,30 @@ func (v *VerifierMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Cont
 func (v *VerifierMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.reorgTrackedSeqNumsGauge.Record(ctx, count, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) IncrementActiveRequestsCounter(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.httpActiveRequestsUpDownCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) IncrementHTTPRequestCounter(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.httpRequestCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) DecrementActiveRequestsCounter(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.httpActiveRequestsUpDownCounter.Add(ctx, -1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path, method string, status int) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	// Add path, method, and status as additional attributes
+	attrs := append(otelLabels,
+		attribute.String("path", path),
+		attribute.String("method", method),
+		attribute.Int("status", status),
+	)
+	v.vm.httpRequestDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(attrs...))
 }

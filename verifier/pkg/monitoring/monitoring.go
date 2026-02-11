@@ -134,3 +134,12 @@ func (f *FakeVerifierMetricLabeler) RecordSourceChainFinalizedBlock(_ context.Co
 }
 
 func (f *FakeVerifierMetricLabeler) RecordReorgTrackedSeqNums(context.Context, int64) {}
+
+func (f *FakeVerifierMetricLabeler) IncrementActiveRequestsCounter(context.Context) {}
+
+func (f *FakeVerifierMetricLabeler) IncrementHTTPRequestCounter(context.Context) {}
+
+func (f *FakeVerifierMetricLabeler) DecrementActiveRequestsCounter(context.Context) {}
+
+func (f *FakeVerifierMetricLabeler) RecordHTTPRequestDuration(context.Context, time.Duration, string, string, int) {
+}

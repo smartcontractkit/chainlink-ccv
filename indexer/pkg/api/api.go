@@ -23,7 +23,7 @@ func NewV1API(lggr logger.Logger, cfg *config.Config, storage common.IndexerStor
 
 	// Add the active requests middleware to all routes
 	router.Use(sharedmiddleware.ActiveRequestsMiddleware(
-		middleware.NewIndexerMetricsAdapter(monitoring),
+		monitoring.Metrics(),
 		middleware.RemoveMessageIDFromPath,
 		lggr,
 	))
