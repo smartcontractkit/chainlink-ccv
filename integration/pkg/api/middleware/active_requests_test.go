@@ -83,11 +83,11 @@ func TestActiveRequestsMiddleware_WithPathNormalizer(t *testing.T) {
 	metrics := &mockHTTPMetrics{}
 
 	// Custom path normalizer that replaces IDs with placeholders
-	normalizer := func(path string) string {
+	normalizer := func(path string) (string, bool) {
 		if path == "/users/123" {
-			return "/users/:id"
+			return "/users/:id", true
 		}
-		return path
+		return path, true
 	}
 
 	r := gin.New()
@@ -131,4 +131,52 @@ func TestActiveRequestsMiddleware_DecrementsOnError(t *testing.T) {
 	require.Equal(t, 1, metrics.httpRequestCounter)
 	require.Len(t, metrics.requestDurationRecords, 1)
 	require.Equal(t, 500, metrics.requestDurationRecords[0].status)
+}
+
+// TestActiveRequestsMiddleware_SkipsTrackingWhenNormalizerReturnsFalse verifies
+// that duration metrics are not recorded when the path normalizer returns false.
+func TestActiveRequestsMiddleware_SkipsTrackingWhenNormalizerReturnsFalse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	lggr := logger.Test(t)
+	metrics := &mockHTTPMetrics{}
+
+	// Custom path normalizer that returns false for certain paths
+	normalizer := func(path string) (string, bool) {
+		if path == "/health" || path == "/ready" {
+			return path, false // Don't track health/ready endpoints
+		}
+		return path, true
+	}
+
+	r := gin.New()
+	r.Use(ActiveRequestsMiddleware(metrics, normalizer, lggr))
+	r.GET("/health", func(c *gin.Context) {
+		c.Status(200)
+	})
+	r.GET("/api/users", func(c *gin.Context) {
+		c.Status(200)
+	})
+
+	// Test health endpoint - should not be tracked
+	rec1 := httptest.NewRecorder()
+	req1 := httptest.NewRequest("GET", "/health", nil)
+	r.ServeHTTP(rec1, req1)
+
+	require.Equal(t, 200, rec1.Code)
+	require.Equal(t, 1, metrics.activeRequestsInc)
+	require.Equal(t, 1, metrics.activeRequestsDec)
+	require.Equal(t, 1, metrics.httpRequestCounter)
+	require.Len(t, metrics.requestDurationRecords, 0, "health endpoint should not be tracked")
+
+	// Test regular endpoint - should be tracked
+	rec2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest("GET", "/api/users", nil)
+	r.ServeHTTP(rec2, req2)
+
+	require.Equal(t, 200, rec2.Code)
+	require.Equal(t, 2, metrics.activeRequestsInc)
+	require.Equal(t, 2, metrics.activeRequestsDec)
+	require.Equal(t, 2, metrics.httpRequestCounter)
+	require.Len(t, metrics.requestDurationRecords, 1, "api endpoint should be tracked")
+	require.Equal(t, "/api/users", metrics.requestDurationRecords[0].path)
 }

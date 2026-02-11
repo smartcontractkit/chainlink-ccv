@@ -100,4 +100,15 @@ type MetricLabeler interface {
 	RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64)
 	// RecordReorgTrackedSeqNums records the number of sequence numbers being tracked due to reorg.
 	RecordReorgTrackedSeqNums(ctx context.Context, count int64)
+
+	// HTTP API metrics
+
+	// IncrementActiveRequestsCounter increments the active requests counter.
+	IncrementActiveRequestsCounter(ctx context.Context)
+	// IncrementHTTPRequestCounter increments the HTTP request counter.
+	IncrementHTTPRequestCounter(ctx context.Context)
+	// DecrementActiveRequestsCounter decrements the active requests counter.
+	DecrementActiveRequestsCounter(ctx context.Context)
+	// RecordHTTPRequestDuration records the HTTP request duration.
+	RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path, method string, status int)
 }

@@ -158,7 +158,7 @@ func main() {
 	for i, coordinator := range coordinators {
 		healthReporters[i] = coordinator
 	}
-	ginRouter := tokenapi.NewHTTPAPI(lggr, storage.NewAttestationCCVReader(postgresStorage), healthReporters)
+	ginRouter := tokenapi.NewHTTPAPI(lggr, storage.NewAttestationCCVReader(postgresStorage), healthReporters, verifierMonitoring)
 
 	// Start HTTP server with Gin router
 	httpServer := &http.Server{
