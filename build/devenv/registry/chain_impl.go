@@ -5,10 +5,8 @@ import (
 	"maps"
 	"sync"
 
-	"github.com/rs/zerolog"
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
 
-	"github.com/smartcontractkit/chainlink-ccv/devenv/canton"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 )
 
@@ -66,12 +64,6 @@ func GetGlobalChainImplRegistry() *ChainImplRegistry {
 	chainImplOnce.Do(func() {
 		globalChainImplRegistry = &ChainImplRegistry{
 			impls: make(map[uint64]chainImplEntry),
-		}
-
-		// Init registers default chain implementations.
-		// TODO: remove once chain-specific logic is moved to chain-specific repos
-		if err := globalChainImplRegistry.Register("LocalNet", chain_selectors.FamilyCanton, canton.New(zerolog.Nop())); err != nil {
-			panic(fmt.Sprintf("registering default Canton chain impl: %v", err))
 		}
 	})
 	return globalChainImplRegistry
