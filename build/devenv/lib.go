@@ -32,6 +32,8 @@ type Lib struct {
 // NewLib creates a new Lib object given a logger and envOutFile.
 // If familiesToLoad is provided, only chains with the given families will be loaded.
 // If familiesToLoad is not provided, all chains will be loaded.
+// The Lib instance uses the global chain family registry which can be extended
+// via RegisterChainFamilyAdapter() before calling NewLib.
 func NewLib(logger *zerolog.Logger, envOutFile string, familiesToLoad ...string) (*Lib, error) {
 	cfg, err := LoadOutput[Cfg](envOutFile)
 	if err != nil {
