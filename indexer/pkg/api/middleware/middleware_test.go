@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
+	sharedmiddleware "github.com/smartcontractkit/chainlink-ccv/integration/pkg/api/middleware"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -22,7 +23,7 @@ func TestRemoveMessageIDFromPath(t *testing.T) {
 		{"/foo/bar", "/foo/bar"},
 	}
 	for _, c := range cases {
-		got := removeMessageIDFromPath(c.in)
+		got := RemoveMessageIDFromPath(c.in)
 		require.Equal(t, c.want, got)
 	}
 }
@@ -43,7 +44,11 @@ func TestActiveRequestsMiddleware_RecordsMetrics(t *testing.T) {
 	m.On("RecordHTTPRequestDuration", mock.Anything, mock.Anything, "/verifierresults/:messageID", "GET", 204).Once()
 
 	r := gin.New()
-	r.Use(ActiveRequestsMiddleware(mm, lggr))
+	r.Use(sharedmiddleware.ActiveRequestsMiddleware(
+		NewIndexerMetricsAdapter(mm),
+		RemoveMessageIDFromPath,
+		lggr,
+	))
 	r.GET("/verifierresults/:messageID", func(c *gin.Context) {
 		c.Status(204)
 	})
