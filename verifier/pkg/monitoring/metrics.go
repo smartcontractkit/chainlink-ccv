@@ -56,6 +56,9 @@ type VerifierMetrics struct {
 	httpActiveRequestsUpDownCounter metric.Int64UpDownCounter
 	httpRequestCounter              metric.Int64Counter
 	httpRequestDurationSeconds      metric.Float64Histogram
+
+	// Storage Query Metrics
+	storageQueryDurationSeconds metric.Float64Histogram
 }
 
 // InitMetrics initializes all verifier metrics.
@@ -254,6 +257,16 @@ func InitMetrics() (*VerifierMetrics, error) {
 		return nil, fmt.Errorf("failed to register http request duration histogram: %w", err)
 	}
 
+	// Storage Query Metrics
+	vm.storageQueryDurationSeconds, err = beholder.GetMeter().Float64Histogram(
+		"verifier_storage_query_duration_seconds",
+		metric.WithDescription("Duration of storage query operations"),
+		metric.WithUnit("seconds"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register storage query duration histogram: %w", err)
+	}
+
 	return vm, nil
 }
 
@@ -290,6 +303,13 @@ func MetricViews() []sdkmetric.View {
 		// HTTP Request Duration
 		sdkmetric.NewView(
 			sdkmetric.Instrument{Name: "verifier_http_request_duration_seconds"},
+			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+			}},
+		),
+		// Storage Query Duration
+		sdkmetric.NewView(
+			sdkmetric.Instrument{Name: "verifier_storage_query_duration_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
 				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
 			}},
@@ -436,4 +456,10 @@ func (v *VerifierMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, d
 		attribute.Int("status", status),
 	)
 	v.vm.httpRequestDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(attrs...))
+}
+
+func (v *VerifierMetricLabeler) RecordStorageQueryDuration(ctx context.Context, method string, duration time.Duration) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	attrs := append(otelLabels, attribute.String("method", method))
+	v.vm.storageQueryDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(attrs...))
 }

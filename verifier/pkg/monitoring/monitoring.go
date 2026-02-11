@@ -143,3 +143,6 @@ func (f *FakeVerifierMetricLabeler) DecrementActiveRequestsCounter(context.Conte
 
 func (f *FakeVerifierMetricLabeler) RecordHTTPRequestDuration(context.Context, time.Duration, string, string, int) {
 }
+
+func (f *FakeVerifierMetricLabeler) RecordStorageQueryDuration(context.Context, string, time.Duration) {
+}
