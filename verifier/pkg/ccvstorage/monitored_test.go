@@ -3,13 +3,12 @@ package ccvstorage
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 )
 
@@ -70,7 +69,7 @@ func TestMonitoredStorage_Set(t *testing.T) {
 // TestMonitoredStorage_RecordsMetrics verifies that both operations record metrics.
 func TestMonitoredStorage_RecordsMetrics(t *testing.T) {
 	inMemoryStorage := NewInMemory()
-	mockMetrics := &mockMetricLabeler{}
+	mockMetrics := mocks.NewMockMetricLabeler(t)
 	monitored := NewMonitoredStorage(inMemoryStorage, mockMetrics)
 
 	ctx := context.Background()
@@ -79,51 +78,7 @@ func TestMonitoredStorage_RecordsMetrics(t *testing.T) {
 	// Manually add data to test Get
 	inMemoryStorage.data[key] = Entry{Value: protocol.VerifierNodeResult{}}
 
-	mockMetrics.On("RecordStorageQueryDuration", ctx, "readCCV", mock.AnythingOfType("time.Duration")).Once()
+	mockMetrics.EXPECT().RecordStorageQueryDuration(ctx, "readCCV", mock.AnythingOfType("time.Duration")).Once()
 
 	_, _ = monitored.Get(ctx, []protocol.Bytes32{key})
-
-	mockMetrics.AssertExpectations(t)
-}
-
-// mockMetricLabeler is used only for verifying metric recording calls.
-type mockMetricLabeler struct {
-	mock.Mock
-}
-
-func (m *mockMetricLabeler) With(keyValues ...string) verifier.MetricLabeler {
-	args := m.Called(keyValues)
-	return args.Get(0).(verifier.MetricLabeler)
-}
-
-func (m *mockMetricLabeler) RecordStorageQueryDuration(ctx context.Context, method string, duration time.Duration) {
-	m.Called(ctx, method, duration)
-}
-
-// Implement other required methods as no-ops for this test.
-func (m *mockMetricLabeler) RecordMessageE2ELatency(ctx context.Context, duration time.Duration)    {}
-func (m *mockMetricLabeler) IncrementMessagesProcessed(ctx context.Context)                         {}
-func (m *mockMetricLabeler) IncrementMessagesVerificationFailed(ctx context.Context)                {}
-func (m *mockMetricLabeler) RecordFinalityWaitDuration(ctx context.Context, duration time.Duration) {}
-func (m *mockMetricLabeler) RecordMessageVerificationDuration(ctx context.Context, duration time.Duration) {
-}
-func (m *mockMetricLabeler) RecordStorageWriteDuration(ctx context.Context, duration time.Duration) {}
-func (m *mockMetricLabeler) RecordFinalityQueueSize(ctx context.Context, size int64)                {}
-func (m *mockMetricLabeler) RecordCCVDataChannelSize(ctx context.Context, size int64)               {}
-func (m *mockMetricLabeler) IncrementStorageWriteErrors(ctx context.Context)                        {}
-func (m *mockMetricLabeler) IncrementHeartbeatsSent(ctx context.Context)                            {}
-func (m *mockMetricLabeler) IncrementHeartbeatsFailed(ctx context.Context)                          {}
-func (m *mockMetricLabeler) RecordHeartbeatDuration(ctx context.Context, duration time.Duration)    {}
-func (m *mockMetricLabeler) SetVerifierHeartbeatTimestamp(ctx context.Context, timestamp int64)     {}
-func (m *mockMetricLabeler) SetVerifierHeartbeatSentChainHeads(ctx context.Context, blockHeight uint64) {
-}
-func (m *mockMetricLabeler) SetVerifierHeartbeatChainHeads(ctx context.Context, blockHeight uint64) {}
-func (m *mockMetricLabeler) SetVerifierHeartbeatScore(ctx context.Context, score float64)           {}
-func (m *mockMetricLabeler) RecordSourceChainLatestBlock(ctx context.Context, blockNum int64)       {}
-func (m *mockMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64)    {}
-func (m *mockMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64)             {}
-func (m *mockMetricLabeler) IncrementActiveRequestsCounter(ctx context.Context)                     {}
-func (m *mockMetricLabeler) IncrementHTTPRequestCounter(ctx context.Context)                        {}
-func (m *mockMetricLabeler) DecrementActiveRequestsCounter(ctx context.Context)                     {}
-func (m *mockMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path, method string, status int) {
 }
