@@ -27,6 +27,7 @@ pre-commit:
 clean-docker-dev:
     just ../../build/devenv/fakes/clean-dev >/dev/null 2>&1 || true
     just ../../pricer/clean-dev >/dev/null 2>&1 || true
+    just ../../kmd/clean-dev >/dev/null 2>&1 || true
     just ../../verifier/clean-dev >/dev/null 2>&1 || true
     just ../../executor/clean-dev >/dev/null 2>&1 || true
     just ../../indexer/clean-dev >/dev/null 2>&1 || true
@@ -37,6 +38,7 @@ clean-docker-dev:
 build-docker-dev:
     @just ../../build/devenv/fakes/build-dev
     @just ../../pricer/build-dev
+    @just ../../kmd/build-dev
     @just ../../verifier/build-dev
     @just ../../executor/build-dev
     @just ../../indexer/build-dev
@@ -46,6 +48,7 @@ build-docker-dev:
 build-docker-dev-ci:
     @just ../../build/devenv/fakes/build-dev
     @just ../../pricer/build-dev
+    @just ../../kmd/build-dev
     @just ../../verifier/build-dev
     @just ../../executor/build-dev
     @just ../../indexer/build-dev
@@ -55,6 +58,7 @@ build-docker-dev-ci:
 build-docker-rc:
     @just fakes/build
     @just ../../services/pricer/build-rc
+    @just ../../services/kmd/build-rc
     @just ../../services/verifier/build-rc
     @just ../../services/executor/build-rc
     @just ../../services/indexer/build-rc

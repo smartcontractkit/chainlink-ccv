@@ -29,6 +29,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
+	kmdservices "github.com/smartcontractkit/chainlink-ccv/devenv/services/kmd"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -83,6 +84,7 @@ const (
 
 type Cfg struct {
 	CLDF               CLDF                           `toml:"cldf"                  validate:"required"`
+	KMD                *kmdservices.KMDInput          `toml:"kmd"                   validate:"required"`
 	Pricer             *services.PricerInput          `toml:"pricer"                validate:"required"`
 	Fake               *services.FakeInput            `toml:"fake"                  validate:"required"`
 	Verifier           []*services.VerifierInput      `toml:"verifier"              validate:"required"`
@@ -445,6 +447,17 @@ func NewEnvironment() (in *Cfg, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create fake data provider: %w", err)
 	}
+
+	///////////////////////
+	// START: Deploy KMD //
+	///////////////////////
+	if _, err := kmdservices.New(in.KMD); err != nil {
+		return nil, fmt.Errorf("failed to setup kmd service: %w", err)
+	}
+
+	/////////////////////
+	// END: Deploy KMD //
+	/////////////////////
 
 	///////////////////////////////
 	// START: Deploy blockchains //
