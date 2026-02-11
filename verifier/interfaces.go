@@ -111,4 +111,9 @@ type MetricLabeler interface {
 	DecrementActiveRequestsCounter(ctx context.Context)
 	// RecordHTTPRequestDuration records the HTTP request duration.
 	RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path, method string, status int)
+
+	// Storage query metrics
+
+	// RecordStorageQueryDuration records the duration of a storage query operation.
+	RecordStorageQueryDuration(ctx context.Context, method string, duration time.Duration)
 }

@@ -171,6 +171,9 @@ func (m *noopMetricLabeler) DecrementActiveRequestsCounter(ctx context.Context) 
 func (m *noopMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path, method string, status int) {
 }
 
+func (m *noopMetricLabeler) RecordStorageQueryDuration(ctx context.Context, method string, duration time.Duration) {
+}
+
 type NoopLatencyTracker struct{}
 
 func (n NoopLatencyTracker) MarkMessageAsSeen(*VerificationTask)                                  {}
