@@ -85,8 +85,9 @@ func (m *mockHTTPMetrics) RecordHTTPRequestDuration(ctx context.Context, duratio
 	})
 }
 
-// TestVerifierMetricsAdapter_CallsAllMethods verifies all adapter methods are called.
-func TestVerifierMetricsAdapter_CallsAllMethods(t *testing.T) {
+// TestActiveRequestsMiddleware_RecordsMetrics verifies the middleware updates
+// active & HTTP counters and records the request duration.
+func TestActiveRequestsMiddleware_RecordsMetrics(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	lggr := logger.Test(t)
 
@@ -112,8 +113,8 @@ func TestVerifierMetricsAdapter_CallsAllMethods(t *testing.T) {
 	require.Equal(t, 200, mock.durationRecords[0].status)
 }
 
-// TestVerifierMetricsAdapter_MultipleRequests verifies metrics accumulate correctly.
-func TestVerifierMetricsAdapter_MultipleRequests(t *testing.T) {
+// TestActiveRequestsMiddleware_MultipleRequests verifies metrics accumulate correctly.
+func TestActiveRequestsMiddleware_MultipleRequests(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	lggr := logger.Test(t)
 
