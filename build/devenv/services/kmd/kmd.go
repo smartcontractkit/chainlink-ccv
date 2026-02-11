@@ -9,9 +9,10 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+
+	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
 const (
@@ -105,7 +106,7 @@ func New(in *KMDInput) (*KMDOutput, error) {
 		Mounts: testcontainers.ContainerMounts{
 			{
 				// Source should be a directory.
-				Source: testcontainers.GenericBindMountSource{
+				Source: testcontainers.GenericBindMountSource{ //nolint:staticcheck // we're still using it...
 					HostPath: tempDir,
 				},
 				// Target should be a directory.
@@ -130,7 +131,7 @@ func New(in *KMDInput) (*KMDOutput, error) {
 	in.Out = &KMDOutput{
 		ContainerName:   in.ContainerName,
 		ExternalHTTPUrl: fmt.Sprintf("http://%s:%d", host, in.HostPort),
-		InternalHTTPUrl: fmt.Sprintf("http://%s:%d", in.ContainerName, DefaultKMDContainerPort),
+		InternalHTTPUrl: fmt.Sprintf("http://%s:%s", in.ContainerName, DefaultKMDContainerPort),
 	}
 
 	return in.Out, nil

@@ -28,7 +28,7 @@ func NewClient(kmdURL string) *Client {
 
 // doJSON performs a JSON POST with req and returns the response decoded into T.
 // statusErrMsg is used in the error when status is not 200.
-func doJSON[T any](c *Client, ctx context.Context, endpoint, statusErrMsg string, req any) (T, error) {
+func doJSON[T any](ctx context.Context, c *Client, endpoint, statusErrMsg string, req any) (T, error) {
 	var zero T
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -60,15 +60,15 @@ func doJSON[T any](c *Client, ctx context.Context, endpoint, statusErrMsg string
 }
 
 func (c *Client) CreateKeys(ctx context.Context, req ks.CreateKeysRequest) (ks.CreateKeysResponse, error) {
-	return doJSON[ks.CreateKeysResponse](c, ctx, CreateEndpoint, "failed to create keys", req)
+	return doJSON[ks.CreateKeysResponse](ctx, c, CreateEndpoint, "failed to create keys", req)
 }
 
 // GetKeys gets keys from the KMD server.
 func (c *Client) GetKeys(ctx context.Context, req ks.GetKeysRequest) (ks.GetKeysResponse, error) {
-	return doJSON[ks.GetKeysResponse](c, ctx, GetKeysEndpoint, "failed to get keys", req)
+	return doJSON[ks.GetKeysResponse](ctx, c, GetKeysEndpoint, "failed to get keys", req)
 }
 
 // Sign signs data using the KMD server and returns the signature.
 func (c *Client) Sign(ctx context.Context, req ks.SignRequest) (ks.SignResponse, error) {
-	return doJSON[ks.SignResponse](c, ctx, SignEndpoint, "failed to sign data", req)
+	return doJSON[ks.SignResponse](ctx, c, SignEndpoint, "failed to sign data", req)
 }

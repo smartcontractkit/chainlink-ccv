@@ -16,9 +16,11 @@ import (
 	"github.com/smartcontractkit/freeport"
 )
 
-const testKeystorePassword = "test-password"
-const healthPollInterval = 50 * time.Millisecond
-const healthPollTimeout = 5 * time.Second
+const (
+	testKeystorePassword = "test-password"
+	healthPollInterval   = 50 * time.Millisecond
+	healthPollTimeout    = 5 * time.Second
+)
 
 // testKeystore returns a new in-memory keystore loaded with fast scrypt params.
 func testKeystore(t *testing.T) keystore.Keystore {
@@ -61,7 +63,7 @@ func waitForHealthy(t *testing.T, port int) {
 }
 
 // postJSON sends a POST request with JSON body to the given endpoint. The returned response body must be closed by the caller.
-func postJSON(t *testing.T, port int, endpoint string, body interface{}) *http.Response {
+func postJSON(t *testing.T, port int, endpoint string, body any) *http.Response {
 	t.Helper()
 	bodyBytes, err := json.Marshal(body)
 	require.NoError(t, err)
