@@ -223,10 +223,11 @@ func (c *IndexerMetricLabeler) IncrementVerificationRecordsCounter(ctx context.C
 	c.im.verificationRecordsCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
-func (c *IndexerMetricLabeler) RecordStorageQueryDuration(ctx context.Context, duration time.Duration, queryName string) {
+func (c *IndexerMetricLabeler) RecordStorageQueryDuration(ctx context.Context, duration time.Duration, queryName string, errored bool) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
 	c.im.storageQueryDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes([]attribute.KeyValue{
 		attribute.String("query", queryName),
+		attribute.Bool("errored", errored),
 	}...), metric.WithAttributes(otelLabels...))
 }
 

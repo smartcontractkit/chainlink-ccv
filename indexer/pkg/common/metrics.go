@@ -26,7 +26,7 @@ type IndexerMetricLabeler interface {
 	// IncrementVerificationRecordsCounter increments the verification records counter.
 	IncrementVerificationRecordsCounter(ctx context.Context)
 	// RecordStorageQueryDuration records the storage query duration.
-	RecordStorageQueryDuration(ctx context.Context, duration time.Duration, queryName string)
+	RecordStorageQueryDuration(ctx context.Context, duration time.Duration, queryName string, errored bool)
 	// RecordStorageWriteDuration records the storage write duration.
 	RecordStorageWriteDuration(ctx context.Context, duration time.Duration)
 	// RecordStorageInsertErrorsCounter records the storage insert errors counter.
