@@ -16,7 +16,7 @@ var (
 	once           sync.Once
 )
 
-// GetGlobalChainFamilyRegistry returns the singleton global chain family registry
+// GetGlobalChainFamilyRegistry returns the singleton global chain family registry.
 func GetGlobalChainFamilyRegistry() *adapters.ChainFamilyRegistry {
 	once.Do(func() {
 		globalRegistry = adapters.NewChainFamilyRegistry()
