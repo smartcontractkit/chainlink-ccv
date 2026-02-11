@@ -109,10 +109,7 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 		}, status.Error(codes.ResourceExhausted, "verification rate limit exceeded")
 	}
 	if err != nil {
-		reqLogger.Errorw("failed to acquire verification record", "error", err)
-		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
-			Status: committeepb.WriteStatus_FAILED,
-		}, status.Error(codes.Internal, "failed to acquire verification record")
+		reqLogger.Errorw("failed to acquire verification record, failing open health check will fail", "error", err)
 	}
 
 	err = h.storage.SaveCommitVerification(signerCtx, record, aggregationKey)

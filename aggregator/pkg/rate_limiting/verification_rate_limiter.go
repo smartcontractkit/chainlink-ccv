@@ -10,6 +10,12 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+)
+
+const (
+	tryAcquireTimeout = 5 * time.Second
+	redisPingTimeout  = 3 * time.Second
 )
 
 type VerificationRateLimiter struct {
@@ -18,6 +24,7 @@ type VerificationRateLimiter struct {
 	minCommitteeSize              uint64
 	minRateBeforeComparingWithMAD float64
 	rateWindow                    time.Duration
+	logger                        logger.SugaredLogger
 }
 
 /*
@@ -27,14 +34,16 @@ The count of verifications record is compared with other verifier in the committ
 We use a MAD score to compare the count of verifications record with other verifier in the committee.
 If the rate median rate is higher than 5 we enable the rate limiting and compare it's rate with the MAD score.
 */
-func NewVerificationRateLimiter(config model.VerificationRateLimiterConfig) (*VerificationRateLimiter, error) {
+func NewVerificationRateLimiter(config model.VerificationRateLimiterConfig, logger logger.SugaredLogger) (*VerificationRateLimiter, error) {
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:     config.Redis.Address,
 		Password: config.Redis.Password,
 		DB:       config.Redis.DB,
 	})
 
-	if err := redisClient.Ping(context.Background()).Err(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), redisPingTimeout)
+	defer cancel()
+	if err := redisClient.Ping(ctx).Err(); err != nil {
 		return nil, fmt.Errorf("failed to connect to redis at %s: %w", config.Redis.Address, err)
 	}
 
@@ -44,40 +53,54 @@ func NewVerificationRateLimiter(config model.VerificationRateLimiterConfig) (*Ve
 		minCommitteeSize:              config.MinCommitteeSize,
 		minRateBeforeComparingWithMAD: config.MinRateBeforeComparingWithMAD,
 		rateWindow:                    config.RateWindow,
+		logger:                        logger,
 	}, nil
 }
 
 func (v *VerificationRateLimiter) TryAcquire(ctx context.Context, verificationRecord *model.CommitVerificationRecord, quorumConfig *model.QuorumConfig) (model.TryAcquireResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, tryAcquireTimeout)
+	defer cancel()
 	if quorumConfig == nil {
 		return model.TryAcquireResult{}, fmt.Errorf("quorum config is nil")
 	}
-	keys, err := v.computeAllKeysForCommitteePerSourceSelector(uint64(verificationRecord.Message.SourceChainSelector), quorumConfig)
-	if err != nil {
-		return model.TryAcquireResult{}, fmt.Errorf("failed to compute all keys for committee per source selector: %w", err)
-	}
+	keys := v.computeAllKeysForCommitteePerSourceSelector(uint64(verificationRecord.Message.SourceChainSelector), quorumConfig)
+	v.logger.Debugf("computed all keys for committee per source selector: %v", keys)
 
 	if uint64(len(keys)) < v.minCommitteeSize {
+		v.logger.Debugf("committee size is less than min committee size: %d < %d on source selector: %d, rate limiting is disabled", len(keys), v.minCommitteeSize, verificationRecord.Message.SourceChainSelector)
 		return model.TryAcquireResult{IsReached: false, IsEnabled: false}, nil
 	}
 
-	if err := v.removeOldKeys(ctx, keys); err != nil {
+	pipe := v.redisClient.Pipeline()
+
+	if err := v.removeOldKeys(ctx, keys, pipe); err != nil {
 		return model.TryAcquireResult{}, fmt.Errorf("failed to remove old keys from rate limiter: %w", err)
 	}
 
-	if err := v.add(ctx, verificationRecord); err != nil {
+	if err := v.add(ctx, verificationRecord, pipe); err != nil {
 		return model.TryAcquireResult{}, fmt.Errorf("failed to add verification record to rate limiter: %w", err)
+	}
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return model.TryAcquireResult{}, fmt.Errorf("failed to execute pipeline: %w", err)
 	}
 
 	rates, err := v.getAllRates(ctx, keys)
 	if err != nil {
 		return model.TryAcquireResult{}, fmt.Errorf("failed to get all rates from rate limiter: %w", err)
 	}
-	rate := rates[v.computeKeyForSignerPerSourceSelector(verificationRecord.SignerIdentifier.Identifier.String(), uint64(verificationRecord.Message.SourceChainSelector))]
+
+	currentRateKey := v.computeKeyForSignerPerSourceSelector(verificationRecord.SignerIdentifier.Identifier.String(), uint64(verificationRecord.Message.SourceChainSelector))
+	v.logger.Debugf("current rate key: %s", currentRateKey)
+
+	rate, rateFoundInCommittee := rates[currentRateKey]
+
 	median := v.computeMedian(rates)
 	mad := v.computeMAD(rates, median)
 	upperBound := median + v.k*mad
 
 	if rate < v.minRateBeforeComparingWithMAD {
+		v.logger.Debugf("rate is less than min rate: %f < %f, allowing verification", rate, v.minRateBeforeComparingWithMAD)
 		return model.TryAcquireResult{
 			Median: median, MAD: mad, K: v.k, UpperBound: upperBound, CurrentRate: rate,
 			IsReached: false, IsEnabled: false,
@@ -88,43 +111,50 @@ func (v *VerificationRateLimiter) TryAcquire(ctx context.Context, verificationRe
 		Median: median, MAD: mad, K: v.k, UpperBound: upperBound, CurrentRate: rate,
 		IsEnabled: true,
 	}
+
+	if !rateFoundInCommittee {
+		v.logger.Errorf("rate key %s not found in committee keys: %v, rate limiting the request", currentRateKey, keys)
+		result.IsReached = true
+	}
+
 	if !v.isWithinBounds(mad, median, v.k, rate) {
 		result.IsReached = true
 	}
 	return result, nil
 }
 
-func (v *VerificationRateLimiter) computeAllKeysForCommitteePerSourceSelector(sourceSelector uint64, quorumConfig *model.QuorumConfig) ([]string, error) {
-	keys := make([]string, 0, len(quorumConfig.Signers))
+func (v *VerificationRateLimiter) computeAllKeysForCommitteePerSourceSelector(sourceSelector uint64, quorumConfig *model.QuorumConfig) map[string]struct{} {
+	keys := make(map[string]struct{}, len(quorumConfig.Signers))
 	for _, signer := range quorumConfig.Signers {
-		keys = append(keys, v.computeKeyForSignerPerSourceSelector(signer.Address, sourceSelector))
+		keys[v.computeKeyForSignerPerSourceSelector(signer.Address, sourceSelector)] = struct{}{}
 	}
-	return keys, nil
+	return keys
 }
 
 func (v *VerificationRateLimiter) computeKeyForSignerPerSourceSelector(signer string, sourceSelector uint64) string {
 	return fmt.Sprintf("cvr:rate:%s:%d", signer, sourceSelector)
 }
 
-func (v *VerificationRateLimiter) add(ctx context.Context, verificationRecord *model.CommitVerificationRecord) error {
+func (v *VerificationRateLimiter) add(ctx context.Context, verificationRecord *model.CommitVerificationRecord, pipe redis.Pipeliner) error {
 	signer := verificationRecord.SignerIdentifier.Identifier
 	sourceSelector := verificationRecord.Message.SourceChainSelector
 
 	key := v.computeKeyForSignerPerSourceSelector(signer.String(), uint64(sourceSelector))
-	zAddCmd := v.redisClient.ZAdd(ctx, key, redis.Z{
+	zAddCmd := pipe.ZAdd(ctx, key, redis.Z{
 		Score:  float64(time.Now().Unix()),
 		Member: verificationRecord.MessageID,
 	})
 	if err := zAddCmd.Err(); err != nil {
 		return fmt.Errorf("failed to add verification record to rate limiter: %w", err)
 	}
+
 	return nil
 }
 
-func (v *VerificationRateLimiter) removeOldKeys(ctx context.Context, keys []string) error {
+func (v *VerificationRateLimiter) removeOldKeys(ctx context.Context, keys map[string]struct{}, pipe redis.Pipeliner) error {
 	earliestTimestamp := time.Now().Add(-1 * v.rateWindow).Unix()
-	for _, key := range keys {
-		zRemCmd := v.redisClient.ZRemRangeByScore(ctx, key, "0", fmt.Sprintf("%d", earliestTimestamp-1))
+	for key := range keys {
+		zRemCmd := pipe.ZRemRangeByScore(ctx, key, "0", fmt.Sprintf("%d", earliestTimestamp-1))
 		if err := zRemCmd.Err(); err != nil {
 			return fmt.Errorf("failed to remove old keys from rate limiter: %w", err)
 		}
@@ -132,10 +162,20 @@ func (v *VerificationRateLimiter) removeOldKeys(ctx context.Context, keys []stri
 	return nil
 }
 
-func (v *VerificationRateLimiter) getAllRates(ctx context.Context, keys []string) (map[string]float64, error) {
+func (v *VerificationRateLimiter) getAllRates(ctx context.Context, keys map[string]struct{}) (map[string]float64, error) {
+	pipe := v.redisClient.Pipeline()
 	rates := make(map[string]float64)
-	for _, key := range keys {
-		rate, err := v.redisClient.ZCard(ctx, key).Result()
+	cmds := make(map[string]*redis.IntCmd)
+	for key := range keys {
+		cmds[key] = pipe.ZCard(ctx, key)
+	}
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute pipeline: %w", err)
+	}
+
+	for key, cmd := range cmds {
+		rate, err := cmd.Result()
 		if err != nil {
 			return nil, fmt.Errorf("failed to get rate for key: %w", err)
 		}
@@ -175,7 +215,7 @@ func (v *VerificationRateLimiter) Ready() error {
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), redisPingTimeout)
 	defer cancel()
 
 	err := v.redisClient.Ping(ctx).Err()

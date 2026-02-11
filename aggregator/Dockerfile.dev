@@ -8,6 +8,7 @@ COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
     go mod download
 
+ENV LOG_LEVEL=debug
 # Then copy the rest of the source
 COPY . .
 WORKDIR /app/aggregator

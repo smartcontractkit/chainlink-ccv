@@ -13,6 +13,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 const (
@@ -42,13 +43,10 @@ func getStats(
 	if !ok || quorumConfig == nil {
 		return 0, 0, fmt.Errorf("no quorum config for source selector %d", sourceSelector)
 	}
-	keys, err := limiter.computeAllKeysForCommitteePerSourceSelector(sourceSelector, quorumConfig)
-	if err != nil {
-		return 0, 0, err
-	}
+	keys := limiter.computeAllKeysForCommitteePerSourceSelector(sourceSelector, quorumConfig)
 	rates, err := limiter.getAllRates(ctx, keys)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, fmt.Errorf("failed to get all rates from rate limiter: %w", err)
 	}
 	median = limiter.computeMedian(rates)
 	mad = limiter.computeMAD(rates, median)
@@ -148,7 +146,7 @@ func newLimiter(t *testing.T, host string, cfg model.VerificationRateLimiterConf
 	} else {
 		cfg.Redis.Address = host
 	}
-	limiter, err := NewVerificationRateLimiter(cfg)
+	limiter, err := NewVerificationRateLimiter(cfg, logger.TestSugared(t))
 	require.NoError(t, err)
 	return limiter
 }

@@ -316,7 +316,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 
 	var verificationRateLimiter handlers.VerificationRateLimiter = handlers.NoopVerificationRateLimiter{}
 	if config.VerificationRateLimiter.Enabled && config.VerificationRateLimiter.Redis != nil {
-		vrl, err := rate_limiting.NewVerificationRateLimiter(config.VerificationRateLimiter)
+		vrl, err := rate_limiting.NewVerificationRateLimiter(config.VerificationRateLimiter, l)
 		if err != nil {
 			l.Fatalf("Failed to create verification rate limiter: %v", err)
 			return nil
