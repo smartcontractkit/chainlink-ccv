@@ -28,17 +28,20 @@ func TestMessagesHandler_Handle(t *testing.T) {
 	msg := common.MessageWithMetadata{Message: protocol.Message{}, Metadata: common.MessageMetadata{}}
 
 	cases := []struct {
-		name       string
-		query      string
-		mockData   []common.MessageWithMetadata
-		mockErr    error
-		wantStatus int
-		wantCount  int
+		name              string
+		query             string
+		mockData          []common.MessageWithMetadata
+		mockErr           error
+		wantStatus        int
+		wantCount         int
+		wantBodyContains  []string
 	}{
 		{name: "bad selectors", query: "sourceChainSelectors=not-a-number", mockData: nil, mockErr: nil, wantStatus: http.StatusBadRequest},
 		{name: "bad dest selectors", query: "destChainSelectors=not-a-number", mockData: nil, mockErr: nil, wantStatus: http.StatusBadRequest},
+		{name: "limit exceeds max returns 400 and storage not called", query: "limit=5000", mockData: nil, mockErr: nil, wantStatus: http.StatusBadRequest, wantBodyContains: []string{"limit exceeds maximum", "1000"}},
 		{name: "storage error", query: "", mockData: nil, mockErr: errors.New("db fail"), wantStatus: http.StatusInternalServerError},
 		{name: "success", query: "", mockData: []common.MessageWithMetadata{msg}, mockErr: nil, wantStatus: http.StatusOK, wantCount: 1},
+		{name: "limit equals max accepted and storage called with limit 1000", query: "limit=1000", mockData: []common.MessageWithMetadata{msg}, mockErr: nil, wantStatus: http.StatusOK, wantCount: 1},
 	}
 
 	for _, tc := range cases {
@@ -47,13 +50,14 @@ func TestMessagesHandler_Handle(t *testing.T) {
 			mm := mocks.NewMockIndexerMonitoring(t)
 			mm.On("Metrics").Return(mocks.NewMockIndexerMetricLabeler(t)).Maybe()
 
-			// Expect QueryMessages only when handler is expected to reach storage (not on bad selector parsing)
-			if tc.wantStatus != http.StatusBadRequest {
+			// Expect QueryMessages only when handler is expected to reach storage (not on bad selector or limit exceeded)
+			reachesStorage := tc.wantStatus != http.StatusBadRequest
+			if reachesStorage {
 				// QueryMessages(ctx, start, end, sourceChainSelectors, destChainSelectors, limit, offset)
 				ms.On("QueryMessages", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(tc.mockData, tc.mockErr)
 			}
 
-			h := v1.NewMessagesHandler(ms, lggr, mm)
+			h := v1.NewMessagesHandler(ms, lggr, mm, v1.MaxQueryLimit)
 			r := gin.New()
 			r.GET("/messages", h.Handle)
 
@@ -67,6 +71,10 @@ func TestMessagesHandler_Handle(t *testing.T) {
 				err := json.Unmarshal(rec.Body.Bytes(), &resp)
 				require.NoError(t, err)
 				require.Equal(t, tc.wantCount, len(resp.Messages))
+			}
+			body := rec.Body.String()
+			for _, sub := range tc.wantBodyContains {
+				require.Contains(t, body, sub)
 			}
 		})
 	}
@@ -93,7 +101,7 @@ func TestMessagesHandler_SkipsInvalidMessageIDs(t *testing.T) {
 
 	ms.On("QueryMessages", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return([]common.MessageWithMetadata{valid, invalid}, nil)
 
-	h := v1.NewMessagesHandler(ms, lggr, mm)
+	h := v1.NewMessagesHandler(ms, lggr, mm, v1.MaxQueryLimit)
 	r := gin.New()
 	r.GET("/messages", h.Handle)
 
