@@ -141,26 +141,6 @@ func (a *AggregatorMessageDiscovery) Start(ctx context.Context) chan common.Veri
 	return a.messageCh
 }
 
-// sampleChannelSize periodically records the current length of the discovery
-// message channel so the verification record channel size gauge reflects both
-// sends and receives.
-func (a *AggregatorMessageDiscovery) sampleChannelSize(ctx context.Context) {
-	defer a.wg.Done()
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			a.logger.Info("sampleChannelSize stopped due to context cancellation")
-			return
-		case <-ticker.C:
-			// Use background or provided ctx; keep it tied to lifecycle so metrics shutdown works with parent.
-			a.monitoring.Metrics().RecordVerificationRecordChannelSizeGauge(ctx, int64(len(a.messageCh)))
-		}
-	}
-}
-
 func (a *AggregatorMessageDiscovery) Close() error {
 	a.cancelFunc()
 	a.wg.Wait()
