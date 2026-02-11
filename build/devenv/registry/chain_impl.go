@@ -5,13 +5,15 @@ import (
 	"maps"
 	"sync"
 
+	"github.com/rs/zerolog"
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
 
+	"github.com/smartcontractkit/chainlink-ccv/devenv/canton"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 )
 
 // ChainImplEntry holds a registered CCIP17 implementation along with its chain details.
-type ChainImplEntry struct {
+type chainImplEntry struct {
 	Impl    cciptestinterfaces.CCIP17
 	Details chain_selectors.ChainDetails
 }
@@ -19,7 +21,7 @@ type ChainImplEntry struct {
 // ChainImplRegistry holds registered CCIP17 chain implementations keyed by chain selector.
 type ChainImplRegistry struct {
 	mu    sync.RWMutex
-	impls map[uint64]ChainImplEntry
+	impls map[uint64]chainImplEntry
 }
 
 // Register registers a CCIP17 chain implementation for the given chain ID and family.
@@ -32,7 +34,7 @@ func (r *ChainImplRegistry) Register(chainID, family string, impl cciptestinterf
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.impls[details.ChainSelector] = ChainImplEntry{Impl: impl, Details: details}
+	r.impls[details.ChainSelector] = chainImplEntry{Impl: impl, Details: details}
 	return nil
 }
 
@@ -46,10 +48,10 @@ func (r *ChainImplRegistry) Get(selector uint64) (cciptestinterfaces.CCIP17, boo
 
 // GetAll returns a snapshot of all registered chain implementations
 // as a map of chain selector to impl and details.
-func (r *ChainImplRegistry) GetAll() map[uint64]ChainImplEntry {
+func (r *ChainImplRegistry) GetAll() map[uint64]chainImplEntry {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	result := make(map[uint64]ChainImplEntry, len(r.impls))
+	result := make(map[uint64]chainImplEntry, len(r.impls))
 	maps.Copy(result, r.impls)
 	return result
 }
@@ -63,7 +65,13 @@ var (
 func GetGlobalChainImplRegistry() *ChainImplRegistry {
 	chainImplOnce.Do(func() {
 		globalChainImplRegistry = &ChainImplRegistry{
-			impls: make(map[uint64]ChainImplEntry),
+			impls: make(map[uint64]chainImplEntry),
+		}
+
+		// Init registers default chain implementations.
+		// TODO: remove once chain-specific logic is moved to chain-specific repos
+		if err := globalChainImplRegistry.Register("LocalNet", chain_selectors.FamilyCanton, canton.New(zerolog.Nop())); err != nil {
+			panic(fmt.Sprintf("registering default Canton chain impl: %v", err))
 		}
 	})
 	return globalChainImplRegistry
