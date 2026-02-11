@@ -26,7 +26,7 @@ func (m *MetricMiddleware) Intercept(ctx context.Context, req any, info *grpc.Un
 
 	resp, err = handler(ctx, req)
 	if err != nil {
-		metrics.IncrementAPIRequestErrors(ctx)
+		metrics.IncrementAPIRequestErrors(ctx, info.FullMethod)
 	}
 	return resp, err
 }

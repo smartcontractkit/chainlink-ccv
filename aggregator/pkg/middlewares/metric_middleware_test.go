@@ -44,7 +44,7 @@ func TestMetricMiddleware_Intercept(t *testing.T) {
 		metrics.EXPECT().IncrementActiveRequestsCounter(mock.Anything).Once()
 		metrics.EXPECT().DecrementActiveRequestsCounter(mock.Anything).Once()
 		metrics.EXPECT().RecordAPIRequestDuration(mock.Anything, mock.Anything).Once()
-		metrics.EXPECT().IncrementAPIRequestErrors(mock.Anything).Once()
+		metrics.EXPECT().IncrementAPIRequestErrors(mock.Anything, mock.Anything).Once()
 
 		middleware := NewMetricMiddleware(monitoring)
 

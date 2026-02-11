@@ -24,7 +24,7 @@ type AggregatorMetricLabeler interface {
 	// RecordAPIRequestDuration records the duration of an API request in milliseconds.
 	RecordAPIRequestDuration(ctx context.Context, duration time.Duration)
 	// IncrementAPIRequestErrors increments the API request errors counter.
-	IncrementAPIRequestErrors(ctx context.Context)
+	IncrementAPIRequestErrors(ctx context.Context, method string)
 	// RecordMessageSinceNumberOfRecordsReturned records the number of records returned for a GetMessageSince request.
 	RecordMessageSinceNumberOfRecordsReturned(ctx context.Context, count int)
 	// IncrementPendingAggregationsChannelBuffer increments the pending aggregations channel buffer counter.
