@@ -41,4 +41,6 @@ type IndexerMetricLabeler interface {
 	RecordIndexerMessageDiscoveryLatency(ctx context.Context, latency time.Duration)
 	// RecordTimeToIndex records the total time between aggregation and indexing.
 	RecordTimeToIndex(ctx context.Context, latency time.Duration, discoveryType string)
+	// RecordCircuitBreakerStatus records the status of the circuit breaker.
+	RecordCircuitBreakerStatus(ctx context.Context, status bool)
 }

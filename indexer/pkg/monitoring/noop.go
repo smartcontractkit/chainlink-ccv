@@ -50,3 +50,6 @@ func (n *NoopIndexerMetricLabeler) RecordIndexerMessageDiscoveryLatency(ctx cont
 
 func (n *NoopIndexerMetricLabeler) RecordTimeToIndex(ctx context.Context, latency time.Duration, discoveryType string) {
 }
+
+func (n *NoopIndexerMetricLabeler) RecordCircuitBreakerStatus(ctx context.Context, status bool) {
+}
