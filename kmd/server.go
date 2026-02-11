@@ -19,6 +19,7 @@ const (
 	CreateEndpoint  = "/admin/createkeys"
 	SignEndpoint    = "/signer/sign"
 	GetKeysEndpoint = "/reader/getkeys"
+	HealthEndpoint  = "/health"
 )
 
 // Server is an HTTP server for the KMD server.
@@ -50,6 +51,7 @@ func (s *Server) Start() error {
 	mux.HandleFunc(SignEndpoint, s.handleSign)
 	mux.HandleFunc(GetKeysEndpoint, s.handleGetKeys)
 	mux.HandleFunc(CreateEndpoint, s.handleCreateKeys)
+	mux.HandleFunc(HealthEndpoint, s.handleHealth)
 	s.srv = &http.Server{
 		Addr:              fmt.Sprintf(":%d", s.port),
 		Handler:           mux,
@@ -160,6 +162,16 @@ func (s *Server) handleSign(w http.ResponseWriter, r *http.Request) {
 	// Return the signature in the response.
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(signResponse); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+// handleHealth handles the health check request.
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "healthy"}); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

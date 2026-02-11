@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
@@ -15,10 +16,66 @@ import (
 	"github.com/smartcontractkit/freeport"
 )
 
-func TestServer_Sign(t *testing.T) {
+const testKeystorePassword = "test-password"
+const healthPollInterval = 50 * time.Millisecond
+const healthPollTimeout = 5 * time.Second
+
+// testKeystore returns a new in-memory keystore loaded with fast scrypt params.
+func testKeystore(t *testing.T) keystore.Keystore {
+	t.Helper()
 	memoryStorage := keystore.NewMemoryStorage()
-	keyStore, err := keystore.LoadKeystore(t.Context(), memoryStorage, "test-password", keystore.WithScryptParams(keystore.FastScryptParams))
+	keyStore, err := keystore.LoadKeystore(t.Context(), memoryStorage, testKeystorePassword, keystore.WithScryptParams(keystore.FastScryptParams))
 	require.NoError(t, err)
+	return keyStore
+}
+
+// startServerWithHealthCheck starts the server and blocks until the /health endpoint returns 200.
+// Caller must not call server.Stop(); cleanup is registered via t.Cleanup.
+func startServerWithHealthCheck(t *testing.T, keyStore keystore.Keystore) int {
+	t.Helper()
+	port := freeport.GetOne(t)
+	server := NewServer(keyStore, port, logger.Test(t))
+	require.NoError(t, server.Start())
+	t.Cleanup(func() {
+		require.NoError(t, server.Stop())
+	})
+	waitForHealthy(t, port)
+	return port
+}
+
+func waitForHealthy(t *testing.T, port int) {
+	t.Helper()
+	baseURL := fmt.Sprintf("http://localhost:%d", port)
+	deadline := time.Now().Add(healthPollTimeout)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(baseURL + HealthEndpoint)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return
+			}
+		}
+		time.Sleep(healthPollInterval)
+	}
+	t.Fatalf("server at %s did not become healthy within %v", baseURL, healthPollTimeout)
+}
+
+// postJSON sends a POST request with JSON body to the given endpoint. The returned response body must be closed by the caller.
+func postJSON(t *testing.T, port int, endpoint string, body interface{}) *http.Response {
+	t.Helper()
+	bodyBytes, err := json.Marshal(body)
+	require.NoError(t, err)
+	url := fmt.Sprintf("http://localhost:%d%s", port, endpoint)
+	req, err := http.NewRequestWithContext(t.Context(), "POST", url, bytes.NewReader(bodyBytes))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	return resp
+}
+
+func TestServer_Sign(t *testing.T) {
+	keyStore := testKeystore(t)
 
 	// Create a CSA (Ed25519) and an Eth key (SECP256K1)
 	csaKeyName := "csa-key"
@@ -36,36 +93,18 @@ func TestServer_Sign(t *testing.T) {
 	require.Equal(t, ethKeyName, keysResponse.Keys[1].KeyInfo.Name)
 	require.Equal(t, keystore.ECDSA_S256, keysResponse.Keys[1].KeyInfo.KeyType)
 
-	port := freeport.GetOne(t)
-	server := NewServer(keyStore, port, logger.Test(t))
-	require.NoError(t, server.Start())
-	t.Cleanup(func() {
-		require.NoError(t, server.Stop())
-	})
+	port := startServerWithHealthCheck(t, keyStore)
 
 	// Sign data with the CSA key through the API.
 	csaKey := keysResponse.Keys[0]
 	data := crypto.Keccak256([]byte("test-data"))
-	signRequest, err := json.Marshal(keystore.SignRequest{
-		KeyName: csaKeyName,
-		Data:    data,
-	})
-	require.NoError(t, err)
-	// Create the request (no extra slash: SignEndpoint already starts with /)
-	req, err := http.NewRequestWithContext(t.Context(), "POST", fmt.Sprintf("http://localhost:%d%s", port, SignEndpoint), bytes.NewBuffer(signRequest))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode, "sign request failed: %s", resp.Status)
-	// Parse the response
+	resp1 := postJSON(t, port, SignEndpoint, keystore.SignRequest{KeyName: csaKeyName, Data: data})
+	defer resp1.Body.Close()
+	require.Equal(t, http.StatusOK, resp1.StatusCode, "sign request failed: %s", resp1.Status)
 	var signResponse keystore.SignResponse
-	err = json.NewDecoder(resp.Body).Decode(&signResponse)
-	require.NoError(t, err)
+	require.NoError(t, json.NewDecoder(resp1.Body).Decode(&signResponse))
 	require.NotEmpty(t, signResponse.Signature)
 
-	// Verify it using the keyStore
 	verifyResponse, err := keyStore.Verify(t.Context(), keystore.VerifyRequest{
 		KeyType:   keystore.Ed25519,
 		PublicKey: csaKey.KeyInfo.PublicKey,
@@ -75,27 +114,15 @@ func TestServer_Sign(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, verifyResponse.Valid)
 
-	// Sign data with the Eth key through the API
+	// Sign data with the Eth key through the API.
 	ethKey := keysResponse.Keys[1]
-	signRequest, err = json.Marshal(keystore.SignRequest{
-		KeyName: ethKeyName,
-		Data:    data,
-	})
-	require.NoError(t, err)
-	req, err = http.NewRequestWithContext(t.Context(), "POST", fmt.Sprintf("http://localhost:%d%s", port, SignEndpoint), bytes.NewBuffer(signRequest))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err = http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode, "sign request failed: %s", resp.Status)
-	// Parse the response
+	resp2 := postJSON(t, port, SignEndpoint, keystore.SignRequest{KeyName: ethKeyName, Data: data})
+	defer resp2.Body.Close()
+	require.Equal(t, http.StatusOK, resp2.StatusCode, "sign request failed: %s", resp2.Status)
 	var ethSignResponse keystore.SignResponse
-	err = json.NewDecoder(resp.Body).Decode(&ethSignResponse)
-	require.NoError(t, err)
+	require.NoError(t, json.NewDecoder(resp2.Body).Decode(&ethSignResponse))
 	require.NotEmpty(t, ethSignResponse.Signature)
 
-	// Verify it using the keyStore
 	verifyResponse, err = keyStore.Verify(t.Context(), keystore.VerifyRequest{
 		KeyType:   keystore.ECDSA_S256,
 		PublicKey: ethKey.KeyInfo.PublicKey,
@@ -107,11 +134,8 @@ func TestServer_Sign(t *testing.T) {
 }
 
 func TestServer_GetKeys(t *testing.T) {
-	memoryStorage := keystore.NewMemoryStorage()
-	keyStore, err := keystore.LoadKeystore(t.Context(), memoryStorage, "test-password", keystore.WithScryptParams(keystore.FastScryptParams))
-	require.NoError(t, err)
+	keyStore := testKeystore(t)
 
-	// Create a CSA (Ed25519) and an Eth key (SECP256K1)
 	csaKeyName := "csa-key"
 	ethKeyName := "eth-key"
 	keysResponse, err := keyStore.CreateKeys(t.Context(), keystore.CreateKeysRequest{
@@ -127,30 +151,13 @@ func TestServer_GetKeys(t *testing.T) {
 	require.Equal(t, ethKeyName, keysResponse.Keys[1].KeyInfo.Name)
 	require.Equal(t, keystore.ECDSA_S256, keysResponse.Keys[1].KeyInfo.KeyType)
 
-	port := freeport.GetOne(t)
-	server := NewServer(keyStore, port, logger.Test(t))
-	require.NoError(t, server.Start())
-	t.Cleanup(func() {
-		require.NoError(t, server.Stop())
-	})
+	port := startServerWithHealthCheck(t, keyStore)
 
-	// Get the keys through the API
-	getKeysRequest, err := json.Marshal(keystore.GetKeysRequest{
-		KeyNames: []string{csaKeyName, ethKeyName},
-	})
-	require.NoError(t, err)
-	t.Logf("getKeysRequest: %s", string(getKeysRequest))
-	req, err := http.NewRequestWithContext(t.Context(), "POST", fmt.Sprintf("http://localhost:%d%s", port, GetKeysEndpoint), bytes.NewBuffer(getKeysRequest))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
+	resp := postJSON(t, port, GetKeysEndpoint, keystore.GetKeysRequest{KeyNames: []string{csaKeyName, ethKeyName}})
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode, "get keys request failed: %s", resp.Status)
-	// Parse the response
 	var getKeysResponse keystore.GetKeysResponse
-	err = json.NewDecoder(resp.Body).Decode(&getKeysResponse)
-	require.NoError(t, err)
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&getKeysResponse))
 	require.Equal(t, 2, len(getKeysResponse.Keys))
 	require.Equal(t, csaKeyName, getKeysResponse.Keys[0].KeyInfo.Name)
 	require.Equal(t, keystore.Ed25519, getKeysResponse.Keys[0].KeyInfo.KeyType)
@@ -159,58 +166,30 @@ func TestServer_GetKeys(t *testing.T) {
 }
 
 func TestServer_CreateKeys(t *testing.T) {
-	memoryStorage := keystore.NewMemoryStorage()
-	keyStore, err := keystore.LoadKeystore(t.Context(), memoryStorage, "test-password", keystore.WithScryptParams(keystore.FastScryptParams))
-	require.NoError(t, err)
+	keyStore := testKeystore(t)
+	port := startServerWithHealthCheck(t, keyStore)
 
-	port := freeport.GetOne(t)
-	server := NewServer(keyStore, port, logger.Test(t))
-	require.NoError(t, server.Start())
-	t.Cleanup(func() {
-		require.NoError(t, server.Stop())
-	})
-
-	// Create a test key through the API
 	keyName := testKeyName
 	keyType := keystore.ECDSA_S256
-	createKeysRequest, err := json.Marshal(keystore.CreateKeysRequest{
+
+	resp1 := postJSON(t, port, CreateEndpoint, keystore.CreateKeysRequest{
 		Keys: []keystore.CreateKeyRequest{
 			{KeyName: keyName, KeyType: keyType},
 		},
 	})
-	require.NoError(t, err)
-	req, err := http.NewRequestWithContext(t.Context(), "POST", fmt.Sprintf("http://localhost:%d%s", port, CreateEndpoint), bytes.NewBuffer(createKeysRequest))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode, "create keys request failed: %s", resp.Status)
-
-	// Parse the response
+	defer resp1.Body.Close()
+	require.Equal(t, http.StatusOK, resp1.StatusCode, "create keys request failed: %s", resp1.Status)
 	var createKeysResponse keystore.CreateKeysResponse
-	err = json.NewDecoder(resp.Body).Decode(&createKeysResponse)
-	require.NoError(t, err)
+	require.NoError(t, json.NewDecoder(resp1.Body).Decode(&createKeysResponse))
 	require.Equal(t, 1, len(createKeysResponse.Keys))
 	require.Equal(t, keyName, createKeysResponse.Keys[0].KeyInfo.Name)
 	require.Equal(t, keyType, createKeysResponse.Keys[0].KeyInfo.KeyType)
 
-	// Get the keys that were just created
-	getKeysRequest, err := json.Marshal(keystore.GetKeysRequest{
-		KeyNames: []string{keyName},
-	})
-	require.NoError(t, err)
-	req, err = http.NewRequestWithContext(t.Context(), "POST", fmt.Sprintf("http://localhost:%d%s", port, GetKeysEndpoint), bytes.NewBuffer(getKeysRequest))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err = http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode, "get keys request failed: %s", resp.Status)
-	// Parse the response
+	resp2 := postJSON(t, port, GetKeysEndpoint, keystore.GetKeysRequest{KeyNames: []string{keyName}})
+	defer resp2.Body.Close()
+	require.Equal(t, http.StatusOK, resp2.StatusCode, "get keys request failed: %s", resp2.Status)
 	var getKeysResponse keystore.GetKeysResponse
-	err = json.NewDecoder(resp.Body).Decode(&getKeysResponse)
-	require.NoError(t, err)
+	require.NoError(t, json.NewDecoder(resp2.Body).Decode(&getKeysResponse))
 	require.Equal(t, 1, len(getKeysResponse.Keys))
 	require.Equal(t, keyName, getKeysResponse.Keys[0].KeyInfo.Name)
 	require.Equal(t, keyType, getKeysResponse.Keys[0].KeyInfo.KeyType)
