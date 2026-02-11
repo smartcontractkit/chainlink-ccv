@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/docker/go-connections/nat"
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -324,4 +325,59 @@ func TestVerificationRateLimiter_TryAcquire(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestVerificationRateLimiter_TryAcquire_ReturnsErrorWhenRedisUnavailable(t *testing.T) {
+	t.Parallel()
+
+	limiter := &VerificationRateLimiter{
+		redisClient:                   redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"}),
+		k:                             1.0,
+		minCommitteeSize:              1,
+		minRateBeforeComparingWithMAD: 1.0,
+		rateWindow:                    time.Second,
+		logger:                        logger.TestSugared(t),
+	}
+	t.Cleanup(func() {
+		_ = limiter.redisClient.Close()
+	})
+
+	committee := validCommittee()
+	quorumConfig, ok := committee.GetQuorumConfig(1)
+	require.True(t, ok)
+	require.NotNil(t, quorumConfig)
+
+	record := makeRecord(t, signerA, 1, 1)
+	result, err := limiter.TryAcquire(context.Background(), record, quorumConfig)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to execute pipeline")
+	require.False(t, result.IsEnabled)
+	require.False(t, result.IsReached)
+}
+
+func TestVerificationRateLimiter_TryAcquire_RejectsWhenSignerKeyMissingFromCommittee(t *testing.T) {
+	t.Parallel()
+
+	host := createRedisContainer(t)
+	limiter := newLimiter(t, host, model.VerificationRateLimiterConfig{
+		Redis:                         &model.VerificationRateLimiterRedisConfig{},
+		Enabled:                       true,
+		K:                             1.0,
+		MinCommitteeSize:              1,
+		MinRateBeforeComparingWithMAD: 0.0,
+		RateWindow:                    time.Second,
+	})
+
+	committee := validCommittee()
+	quorumConfig, ok := committee.GetQuorumConfig(1)
+	require.True(t, ok)
+	require.NotNil(t, quorumConfig)
+
+	notInCommitteeSigner := "0xdddddddddddddddddddddddddddddddddddddddd"
+	record := makeRecord(t, notInCommitteeSigner, 1, 1)
+	result, err := limiter.TryAcquire(context.Background(), record, quorumConfig)
+	require.NoError(t, err)
+	require.True(t, result.IsEnabled)
+	require.True(t, result.IsReached)
+	require.Equal(t, 0.0, result.CurrentRate)
 }

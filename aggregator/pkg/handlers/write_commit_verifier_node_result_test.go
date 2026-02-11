@@ -148,14 +148,14 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			expectAggCalls:   0,
 		},
 		{
-			name:                 "verification_rate_limiter_internal_error_returns_internal",
+			name:                 "verification_rate_limiter_internal_error_fails_open",
 			req:                  makeValidProtoRequest(),
 			signer:               signer1,
 			rateLimitInternalErr: errors.New("redis unavailable"),
-			expectGRPCCode:       codes.Internal,
-			expectStatus:         committeepb.WriteStatus_FAILED,
-			expectStoreCalls:     0,
-			expectAggCalls:       0,
+			expectGRPCCode:       codes.OK,
+			expectStatus:         committeepb.WriteStatus_SUCCESS,
+			expectStoreCalls:     1,
+			expectAggCalls:       1,
 		},
 	}
 
