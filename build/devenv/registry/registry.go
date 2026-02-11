@@ -3,34 +3,46 @@
 package registry
 
 import (
+	"fmt"
 	"sync"
 
+	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	cantonadapters "github.com/smartcontractkit/chainlink-ccv/devenv/canton/adapters"
 )
 
-// ChainFamily is the interface that chain family adapters must implement.
-type ChainFamily = adapters.ChainFamily
-
 var (
-	globalRegistry     *adapters.ChainFamilyRegistry
-	globalRegistryOnce sync.Once
+	globalRegistry *adapters.ChainFamilyRegistry
+	once           sync.Once
 )
 
-// GetGlobalChainFamilyRegistry returns the global chain family registry singleton.
+// GetGlobalChainFamilyRegistry returns the singleton global chain family registry
 func GetGlobalChainFamilyRegistry() *adapters.ChainFamilyRegistry {
-	globalRegistryOnce.Do(func() {
+	once.Do(func() {
 		globalRegistry = adapters.NewChainFamilyRegistry()
-		// Register default adapters
+
+		// Init registers default adapters
 		// TODO: remove once chain-specific logic is moved to chain-specific repos
-		globalRegistry.RegisterChainFamily("evm", &evmadapters.ChainFamilyAdapter{})
-		globalRegistry.RegisterChainFamily("canton", cantonadapters.NewChainFamilyAdapter(&evmadapters.ChainFamilyAdapter{}))
+		globalRegistry.RegisterChainFamily(chain_selectors.FamilyEVM, &evmadapters.ChainFamilyAdapter{})
+		globalRegistry.RegisterChainFamily(chain_selectors.FamilyCanton, cantonadapters.NewChainFamilyAdapter(&evmadapters.ChainFamilyAdapter{}))
 	})
+
 	return globalRegistry
 }
 
 // RegisterChainFamily registers a chain family adapter to the global registry.
-func RegisterChainFamily(family string, adapter ChainFamily) {
-	GetGlobalChainFamilyRegistry().RegisterChainFamily(family, adapter)
+func RegisterChainFamily(family string, adapter adapters.ChainFamily) {
+	// If the family is already registered, check if the adapter is the same and avoid
+	// registering it again
+	existingFamily, isRegistered := globalRegistry.GetChainFamily(family)
+	if isRegistered {
+		if existingFamily != adapter {
+			panic(fmt.Errorf("ChainFamily '%s' already registered with different adapter", family))
+		}
+
+		return
+	}
+
+	globalRegistry.RegisterChainFamily(family, adapter)
 }

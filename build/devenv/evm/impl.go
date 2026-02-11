@@ -1395,8 +1395,9 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 	}
 
 	mcmsReaderRegistry := changesetscore.GetRegistry()
-	// Use the global chain family registry, EVM and Canton are registered by default.
+	// Use the global chain family registry. We expect the relevant chain families to be already registered.
 	chainFamilyRegistry := registry.GetGlobalChainFamilyRegistry()
+
 	_, err := ccvchangesets.ConfigureChainsForLanesFromTopology(chainFamilyRegistry, mcmsReaderRegistry).Apply(*e, ccvchangesets.ConfigureChainsForLanesFromTopologyConfig{
 		Topology: topology,
 		Chains: []ccvchangesets.PartialChainConfig{
