@@ -3,7 +3,6 @@
 package registry
 
 import (
-	"fmt"
 	"sync"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
@@ -22,7 +21,7 @@ func GetGlobalChainFamilyRegistry() *adapters.ChainFamilyRegistry {
 	once.Do(func() {
 		globalRegistry = adapters.NewChainFamilyRegistry()
 
-		// Init registers default adapters
+		// Init registers default adapters.
 		// TODO: remove once chain-specific logic is moved to chain-specific repos
 		globalRegistry.RegisterChainFamily(chain_selectors.FamilyEVM, &evmadapters.ChainFamilyAdapter{})
 		globalRegistry.RegisterChainFamily(chain_selectors.FamilyCanton, cantonadapters.NewChainFamilyAdapter(&evmadapters.ChainFamilyAdapter{}))
@@ -34,13 +33,8 @@ func GetGlobalChainFamilyRegistry() *adapters.ChainFamilyRegistry {
 // RegisterChainFamily registers a chain family adapter to the global registry.
 func RegisterChainFamily(family string, adapter adapters.ChainFamily) {
 	// If the family is already registered, check if the adapter is the same and avoid
-	// registering it again
-	existingFamily, isRegistered := globalRegistry.GetChainFamily(family)
-	if isRegistered {
-		if existingFamily != adapter {
-			panic(fmt.Errorf("ChainFamily '%s' already registered with different adapter", family))
-		}
-
+	// registering it again.
+	if _, isRegistered := globalRegistry.GetChainFamily(family); isRegistered {
 		return
 	}
 
