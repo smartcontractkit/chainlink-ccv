@@ -99,11 +99,14 @@ func (l *Lib) Indexer() (*client.IndexerClient, error) {
 	if err := l.verify(); err != nil {
 		return nil, fmt.Errorf("failed to initialize indexer client: %w", err)
 	}
+	if len(l.cfg.IndexerEndpoints) == 0 {
+		return nil, fmt.Errorf("no indexer endpoints configured")
+	}
 	httpClient := &http.Client{
 		Timeout: 10 * time.Second,
 	}
 
-	ic, err := client.NewIndexerClient(l.cfg.IndexerEndpoint, httpClient)
+	ic, err := client.NewIndexerClient(l.cfg.IndexerEndpoints[0], httpClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create IndexerMonitor: %w", err)
 	}

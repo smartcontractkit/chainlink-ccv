@@ -5,7 +5,7 @@
 3. Go to [environment.go](../environment.go) add config and connect your service
     ```
     type Cfg struct {
-        Indexer         *services.IndexerInput `toml:"indexer"`
+        Indexer         []*services.IndexerInput `toml:"indexer"`
         ...
     }
     ```

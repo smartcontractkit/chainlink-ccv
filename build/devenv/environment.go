@@ -89,7 +89,7 @@ type Cfg struct {
 	Verifier           []*services.VerifierInput      `toml:"verifier"              validate:"required"`
 	TokenVerifier      []*services.TokenVerifierInput `toml:"token_verifier"`
 	Executor           []*services.ExecutorInput      `toml:"executor"              validate:"required"`
-	Indexer            *services.IndexerInput         `toml:"indexer"               validate:"required"`
+	Indexer            []*services.IndexerInput       `toml:"indexer"               validate:"required"`
 	Aggregator         []*services.AggregatorInput    `toml:"aggregator"            validate:"required"`
 	JD                 *jd.Input                      `toml:"jd"                    validate:"required"`
 	Blockchains        []*blockchain.Input            `toml:"blockchains"           validate:"required"`
@@ -100,10 +100,10 @@ type Cfg struct {
 	AggregatorEndpoints map[string]string `toml:"aggregator_endpoints"`
 	// AggregatorCACertFiles map the verifier qualifier to the CA cert file path for TLS verification.
 	AggregatorCACertFiles map[string]string `toml:"aggregator_ca_cert_files"`
-	// IndexerEndpoint is the external URL (localhost:port) for host access.
-	IndexerEndpoint string `toml:"indexer_endpoint"`
-	// IndexerInternalEndpoint is the internal Docker network URL for container-to-container access.
-	IndexerInternalEndpoint string `toml:"indexer_internal_endpoint"`
+	// IndexerEndpoints holds external URLs for all indexers (localhost:port).
+	IndexerEndpoints []string `toml:"indexer_endpoints"`
+	// IndexerInternalEndpoints holds internal Docker network URLs for all indexers.
+	IndexerInternalEndpoints []string `toml:"indexer_internal_endpoints"`
 	// EnvironmentTopology is the shared environment configuration for NOPs, committees, and executor pools.
 	EnvironmentTopology *deployments.EnvironmentTopology `toml:"environment_topology" validate:"required"`
 	// JDInfra holds the runtime JD infrastructure (not from config, populated at runtime).
@@ -795,18 +795,20 @@ func NewEnvironment() (in *Cfg, err error) {
 	///////////////////////////////
 
 	///////////////////////////
-	// START: Launch indexer //
-	// start up the indexer after the aggregators are up to avoid spamming of errors
-	// in the logs when it starts before the aggregators are up.
+	// START: Launch indexer(s) //
+	// start up the indexer(s) after the aggregators are up to avoid spamming of errors
+	// in the logs when they start before the aggregators are up.
 	///////////////////////////
-	// Generate indexer config using changeset (on-chain state as source of truth)
-	if len(in.Aggregator) > 0 && in.Indexer != nil {
+	// Generate indexer config using changeset (on-chain state as source of truth).
+	// One shared config is generated; all indexers use the same config and duplicated secrets/auth.
+	if len(in.Aggregator) > 0 && len(in.Indexer) > 0 {
+		firstIdx := in.Indexer[0]
 		cs := changesets.GenerateIndexerConfig()
 		output, err := cs.Apply(*e, changesets.GenerateIndexerConfigCfg{
 			ServiceIdentifier:                "indexer",
-			CommitteeVerifierNameToQualifier: in.Indexer.CommitteeVerifierNameToQualifier,
-			CCTPVerifierNameToQualifier:      in.Indexer.CCTPVerifierNameToQualifier,
-			LombardVerifierNameToQualifier:   in.Indexer.LombardVerifierNameToQualifier,
+			CommitteeVerifierNameToQualifier: firstIdx.CommitteeVerifierNameToQualifier,
+			CCTPVerifierNameToQualifier:      firstIdx.CCTPVerifierNameToQualifier,
+			LombardVerifierNameToQualifier:   firstIdx.LombardVerifierNameToQualifier,
 			ChainSelectors:                   selectors,
 		})
 		if err != nil {
@@ -817,76 +819,90 @@ func NewEnvironment() (in *Cfg, err error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to get indexer config from output: %w", err)
 		}
-		in.Indexer.GeneratedCfg = idxCfg
 		e.DataStore = output.DataStore.Seal()
+		for _, idxIn := range in.Indexer {
+			idxIn.GeneratedCfg = idxCfg
+		}
 	}
 
-	// Set TLS CA cert for indexer (all aggregators share the same CA)
-	if sharedTLSCerts == nil {
-		return nil, fmt.Errorf("shared TLS certificates are required for indexer")
+	if len(in.Indexer) < 1 {
+		return nil, fmt.Errorf("at least one indexer is required")
 	}
-	in.Indexer.TLSCACertFile = sharedTLSCerts.CACertFile
-	// Update discovery config to use nginx TLS proxy
+		if sharedTLSCerts == nil {
+			return nil, fmt.Errorf("shared TLS certificates are required for indexer")
+		}
 
-	in.Indexer.IndexerConfig.Discoveries = make([]config.DiscoveryConfig, len(in.Aggregator))
-	for i, agg := range in.Aggregator {
-		if agg.Out != nil {
-			in.Indexer.IndexerConfig.Discoveries[i].Address = agg.Out.Address
+		// Build discovery secrets from aggregators (same creds used for all indexers).
+		discoverySecrets := make(map[string]config.DiscoverySecrets)
+		verifierSecrets := make(map[string]config.VerifierSecrets)
+		for idx, agg := range in.Aggregator {
 			if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
-				in.Indexer.IndexerConfig.Discoveries[i].APIKey = creds.APIKey
-				in.Indexer.IndexerConfig.Discoveries[i].Secret = creds.Secret
+				discoverySecrets[strconv.Itoa(idx)] = config.DiscoverySecrets{APIKey: creds.APIKey, Secret: creds.Secret}
+				verifierSecrets[strconv.Itoa(idx)] = config.VerifierSecrets{APIKey: creds.APIKey, Secret: creds.Secret}
 			}
 		}
-		// apply defaults if not set
-		if in.Indexer.IndexerConfig.Discoveries[i].PollInterval == 0 {
-			in.Indexer.IndexerConfig.Discoveries[i].PollInterval = 500
-		}
-		if in.Indexer.IndexerConfig.Discoveries[i].Timeout == 0 {
-			in.Indexer.IndexerConfig.Discoveries[i].Timeout = 5000
-		}
-		if in.Indexer.IndexerConfig.Discoveries[i].NtpServer == "" {
-			in.Indexer.IndexerConfig.Discoveries[i].NtpServer = "time.google.com"
-		}
-	}
 
-	// Inject generated credentials into indexer secrets for aggregator connections
-	if in.Indexer != nil && in.Indexer.Secrets == nil {
-		in.Indexer.Secrets = &config.SecretsConfig{
-			Discoveries: make(map[string]config.DiscoverySecrets),
-			Verifier:    make(map[string]config.VerifierSecrets),
-		}
-	}
-	if in.Indexer != nil && in.Indexer.Secrets != nil && in.Indexer.Secrets.Discoveries == nil {
-		in.Indexer.Secrets.Discoveries = make(map[string]config.DiscoverySecrets)
-	}
-	if in.Indexer != nil && in.Indexer.Secrets != nil && in.Indexer.Secrets.Verifier == nil {
-		in.Indexer.Secrets.Verifier = make(map[string]config.VerifierSecrets)
-	}
+		externalURLs := make([]string, 0, len(in.Indexer))
+		internalURLs := make([]string, 0, len(in.Indexer))
 
-	// Each discovery and verifier config needs credentials from its corresponding aggregator
-	for idx, agg := range in.Aggregator {
-		if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
-			disc := config.DiscoverySecrets{APIKey: creds.APIKey, Secret: creds.Secret}
-			in.Indexer.Secrets.Discoveries[strconv.Itoa(idx)] = disc
-			in.Indexer.Secrets.Verifier[strconv.Itoa(idx)] = config.VerifierSecrets{
-				APIKey: creds.APIKey,
-				Secret: creds.Secret,
+		for idxPos, idxIn := range in.Indexer {
+			idxIn.TLSCACertFile = sharedTLSCerts.CACertFile
+
+			if idxIn.IndexerConfig != nil {
+				idxIn.IndexerConfig.Discoveries = make([]config.DiscoveryConfig, len(in.Aggregator))
+				for i, agg := range in.Aggregator {
+					if agg.Out != nil {
+						idxIn.IndexerConfig.Discoveries[i].Address = agg.Out.Address
+						if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
+							idxIn.IndexerConfig.Discoveries[i].APIKey = creds.APIKey
+							idxIn.IndexerConfig.Discoveries[i].Secret = creds.Secret
+						}
+					}
+					if idxIn.IndexerConfig.Discoveries[i].PollInterval == 0 {
+						idxIn.IndexerConfig.Discoveries[i].PollInterval = 500
+					}
+					if idxIn.IndexerConfig.Discoveries[i].Timeout == 0 {
+						idxIn.IndexerConfig.Discoveries[i].Timeout = 5000
+					}
+					if idxIn.IndexerConfig.Discoveries[i].NtpServer == "" {
+						idxIn.IndexerConfig.Discoveries[i].NtpServer = "time.google.com"
+					}
+				}
 			}
+
+			// Duplicate same secrets/auth for this indexer (Verifier push to indexer uses same creds).
+			if idxIn.Secrets == nil {
+				idxIn.Secrets = &config.SecretsConfig{
+					Discoveries: make(map[string]config.DiscoverySecrets),
+					Verifier:    make(map[string]config.VerifierSecrets),
+				}
+			}
+			if idxIn.Secrets.Discoveries == nil {
+				idxIn.Secrets.Discoveries = make(map[string]config.DiscoverySecrets)
+			}
+			if idxIn.Secrets.Verifier == nil {
+				idxIn.Secrets.Verifier = make(map[string]config.VerifierSecrets)
+			}
+			for k, v := range discoverySecrets {
+				idxIn.Secrets.Discoveries[k] = v
+			}
+			for k, v := range verifierSecrets {
+				idxIn.Secrets.Verifier[k] = v
+			}
+
+			indexerOut, err := services.NewIndexer(idxIn)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create indexer service (index %d): %w", idxPos, err)
+			}
+			externalURLs = append(externalURLs, indexerOut.ExternalHTTPURL)
+			internalURLs = append(internalURLs, indexerOut.InternalHTTPURL)
 		}
-	}
 
-	indexerOut, err := services.NewIndexer(in.Indexer)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create indexer service: %w", err)
-	}
-
-	if in.Indexer != nil {
-		in.IndexerEndpoint = indexerOut.ExternalHTTPURL
-		in.IndexerInternalEndpoint = indexerOut.InternalHTTPURL
-	}
+		in.IndexerEndpoints = externalURLs
+		in.IndexerInternalEndpoints = internalURLs
 
 	/////////////////////////
-	// END: Launch indexer //
+	// END: Launch indexer(s) //
 	/////////////////////////
 
 	/////////////////////////////
