@@ -66,15 +66,16 @@ func NewCoordinator(
 	return ec, nil
 }
 
-func (ec *Coordinator) Start(ctx context.Context) error {
+// Start starts the executor coordinator. Context is required to be passed in to satisfy the ServiceCtx interface.
+func (ec *Coordinator) Start(_ context.Context) error {
 	return ec.StartOnce("executor.Coordinator", func() error {
-		if err := ec.executor.Start(ctx); err != nil {
+		c, cancel := context.WithCancel(context.Background())
+		ec.cancel = cancel
+
+		if err := ec.executor.Start(c); err != nil {
 			ec.lggr.Errorf("unable to start executor coordinator due to error: %w", err)
 			return err
 		}
-
-		c, cancel := context.WithCancel(ctx)
-		ec.cancel = cancel
 		ec.delayedMessageHeap = *message_heap.NewMessageHeap()
 		ec.running.Store(true)
 
