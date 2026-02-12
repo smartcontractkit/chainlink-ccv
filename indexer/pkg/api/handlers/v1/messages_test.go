@@ -28,13 +28,13 @@ func TestMessagesHandler_Handle(t *testing.T) {
 	msg := common.MessageWithMetadata{Message: protocol.Message{}, Metadata: common.MessageMetadata{}}
 
 	cases := []struct {
-		name              string
-		query             string
-		mockData          []common.MessageWithMetadata
-		mockErr           error
-		wantStatus        int
-		wantCount         int
-		wantBodyContains  []string
+		name             string
+		query            string
+		mockData         []common.MessageWithMetadata
+		mockErr          error
+		wantStatus       int
+		wantCount        int
+		wantBodyContains []string
 	}{
 		{name: "bad selectors", query: "sourceChainSelectors=not-a-number", mockData: nil, mockErr: nil, wantStatus: http.StatusBadRequest},
 		{name: "bad dest selectors", query: "destChainSelectors=not-a-number", mockData: nil, mockErr: nil, wantStatus: http.StatusBadRequest},

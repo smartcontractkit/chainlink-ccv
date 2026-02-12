@@ -51,7 +51,7 @@ No authorization required
 | **destChainSelectors** | [**List**](../Models/Long.md)| Destination chain selectors to filter results by. If empty, results from all destination chains will be returned. | [optional] [default to null] |
 | **start** | **String**| Start time used to filter results. If not provided, results start from the beginning. Accepted formats: RFC3339, unix epoch time (in milliseconds). | [optional] [default to null] |
 | **end** | **String**| End time used to filter results. If not provided, the current server time is used. Accepted formats: RFC3339, unix epoch time (in milliseconds). | [optional] [default to null] |
-| **limit** | **Long**| Maximum number of results to return. If not provided, defaults to 100. Maximum allowed is 1000; requests with a higher value are rejected with 400 Bad Request. | [optional] [default to null] |
+| **limit** | **Long**| Maximum number of results to return. If not provided, defaults to 100. Maximum allowed is 1000; Requests with a limit greater than 1000 will be rejected with a 400 bad request error. | [optional] [default to null] |
 | **offset** | **Long**| Number of results to skip before starting to return results. If not provided, defaults to 0. | [optional] [default to null] |
 
 ### Return type
@@ -107,7 +107,7 @@ No authorization required
 | **destChainSelectors** | [**List**](../Models/Long.md)| Destination chain selectors to filter results by. If empty, results from all destination chains will be returned. | [optional] [default to null] |
 | **start** | **String**| Start time used to filter results. If not provided, results start from the beginning. Accepted formats: RFC3339, unix epoch time (in milliseconds). | [optional] [default to null] |
 | **end** | **String**| End time used to filter results. If not provided, the current server time is used. Accepted formats: RFC3339, unix epoch time (in milliseconds). | [optional] [default to null] |
-| **limit** | **Long**| Maximum number of results to return. If not provided, defaults to 100. Maximum allowed is 1000; requests with a higher value are rejected with 400 Bad Request. | [optional] [default to null] |
+| **limit** | **Long**| Maximum number of results to return. If not provided, defaults to 100. Maximum allowed is 1000; Requests with a limit greater than 1000 will be rejected with a 400 bad request error. | [optional] [default to null] |
 | **offset** | **Long**| Number of results to skip before starting to return results. If not provided, defaults to 0. | [optional] [default to null] |
 
 ### Return type
