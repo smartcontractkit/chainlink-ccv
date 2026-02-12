@@ -100,6 +100,7 @@ func (m *MultiSourceMessageDiscovery) merge(ctx context.Context, chans []<-chan 
 					return
 				case msg, ok := <-ch:
 					if !ok {
+						m.logger.Warnw("one source message discovery channel closed", "source", ch)
 						return
 					}
 					select {
