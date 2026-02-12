@@ -104,7 +104,7 @@ func ConfigureChainsForLanesFromTopology(chainFamilyRegistry *adapters.ChainFami
 			for _, committeeVerifier := range chain.CommitteeVerifiers {
 				remoteChains := make(map[uint64]adapters.CommitteeVerifierRemoteChainConfig, len(committeeVerifier.RemoteChains))
 				for remoteChainSelector, remoteChainConfig := range committeeVerifier.RemoteChains {
-					signatureConfig, err := getSignatureConfigForSourceChain(e, cfg.Topology, committeeVerifier.CommitteeQualifier, remoteChainSelector, signingKeysByNOP)
+					signatureConfig, err := getSignatureConfigForSourceChain(e, cfg.Topology, committeeVerifier.CommitteeQualifier, chain.ChainSelector, remoteChainSelector, signingKeysByNOP)
 					if err != nil {
 						return deployment.ChangesetOutput{}, fmt.Errorf("failed to get signature config for source chain %d: %w", remoteChainSelector, err)
 					}
@@ -223,7 +223,8 @@ func getSignatureConfigForSourceChain(
 	e deployment.Environment,
 	topology *deployments.EnvironmentTopology,
 	committeeQualifier string,
-	chainSelector uint64,
+	localSelector uint64,
+	remoteSelector uint64,
 	signingKeysByNOP fetch_signing_keys.SigningKeysByNOP,
 ) (*adapters.CommitteeVerifierSignatureQuorumConfig, error) {
 	committee, ok := topology.NOPTopology.Committees[committeeQualifier]
@@ -231,19 +232,21 @@ func getSignatureConfigForSourceChain(
 		return nil, fmt.Errorf("committee %q not found", committeeQualifier)
 	}
 
-	chainCfg, ok := committee.ChainConfigs[strconv.FormatUint(chainSelector, 10)]
+	chainCfg, ok := committee.ChainConfigs[strconv.FormatUint(remoteSelector, 10)]
 	if !ok {
-		return nil, fmt.Errorf("chain selector %d not found in committee %q", chainSelector, committeeQualifier)
+		return nil, fmt.Errorf("chain selector %d not found in committee %q", remoteSelector, committeeQualifier)
 	}
 
-	family, err := chainsel.GetSelectorFamily(chainSelector)
+	// Get the local chain family to determine which signer address to use for each NOP alias
+	// The signer format can differ by chain family, e.g. EVM uses hex addresses while other chains may use public keys
+	localFamily, err := chainsel.GetSelectorFamily(localSelector)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get selector family for selector %d: %w", chainSelector, err)
+		return nil, fmt.Errorf("failed to get selector family for selector %d: %w", localSelector, err)
 	}
 
 	signers := make([]string, 0, len(chainCfg.NOPAliases))
 	for _, alias := range chainCfg.NOPAliases {
-		signer, err := signerAddressForNOPAlias(e, topology, alias, family, committeeQualifier, chainSelector, signingKeysByNOP)
+		signer, err := signerAddressForNOPAlias(e, topology, alias, localFamily, committeeQualifier, remoteSelector, signingKeysByNOP)
 		if err != nil {
 			return nil, err
 		}
@@ -260,22 +263,22 @@ func signerAddressForNOPAlias(
 	e deployment.Environment,
 	topology *deployments.EnvironmentTopology,
 	alias string,
-	family string,
+	localFamily string,
 	committeeQualifier string,
-	chainSelector uint64,
+	remoteSelector uint64,
 	signingKeysByNOP fetch_signing_keys.SigningKeysByNOP,
 ) (string, error) {
 	nop, ok := topology.NOPTopology.GetNOP(alias)
 	if !ok {
 		return "", fmt.Errorf(
 			"NOP alias %q not found for committee %q chain %d",
-			alias, committeeQualifier, chainSelector,
+			alias, committeeQualifier, remoteSelector,
 		)
 	}
 
 	// Config wins
 	if nop.SignerAddressByFamily != nil {
-		if addr := nop.SignerAddressByFamily[family]; addr != "" {
+		if addr := nop.SignerAddressByFamily[localFamily]; addr != "" {
 			return addr, nil
 		}
 	}
@@ -284,12 +287,12 @@ func signerAddressForNOPAlias(
 	if signer, ok := signerFromJDIfMissing(
 		nop.SignerAddressByFamily,
 		alias,
-		family,
+		localFamily,
 		signingKeysByNOP,
 	); ok {
 		e.Logger.Debugw("Using signing address from JD",
 			"nopAlias", alias,
-			"chainFamily", family,
+			"chainFamily", localFamily,
 			"signerAddress", signer,
 		)
 		return signer, nil
@@ -297,6 +300,6 @@ func signerAddressForNOPAlias(
 
 	return "", fmt.Errorf(
 		"NOP %q missing signer_address for family %s on committee %q chain %d",
-		alias, family, committeeQualifier, chainSelector,
+		alias, localFamily, committeeQualifier, remoteSelector,
 	)
 }
