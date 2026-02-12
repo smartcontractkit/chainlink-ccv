@@ -73,7 +73,7 @@ func (ec *Coordinator) Start(ctx context.Context) error {
 			return err
 		}
 
-		c, cancel := context.WithCancel(context.Background())
+		c, cancel := context.WithCancel(ctx)
 		ec.cancel = cancel
 		ec.delayedMessageHeap = *message_heap.NewMessageHeap()
 		ec.running.Store(true)
