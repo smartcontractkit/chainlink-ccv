@@ -12,9 +12,9 @@ import (
 // Indexed entries like [Verifier.0] are parsed manually from the raw TOML.
 // Verifier keys are string representations of indices (e.g., "0", "1", "2").
 type SecretsConfig struct {
-	Discovery DiscoverySecrets           `toml:"Discovery"`
-	Verifier  map[string]VerifierSecrets `toml:"Verifier"`
-	Storage   StorageSecrets             `toml:"Storage"`
+	Discoveries map[string]DiscoverySecrets `toml:"Discoveries"`
+	Verifier   map[string]VerifierSecrets `toml:"Verifier"`
+	Storage    StorageSecrets             `toml:"Storage"`
 }
 
 // DiscoverySecrets contains secrets for the discovery aggregator connection.
@@ -96,12 +96,17 @@ func MergeSecrets(cfg *Config, secrets *SecretsConfig) error {
 		return nil
 	}
 
-	// Merge Discovery secrets
-	if secrets.Discovery.APIKey != "" {
-		cfg.Discovery.APIKey = secrets.Discovery.APIKey
-	}
-	if secrets.Discovery.Secret != "" {
-		cfg.Discovery.Secret = secrets.Discovery.Secret
+	// Merge Discovery secrets: index 0 uses [Discovery] for backward compat; others use [Discoveries.<index>]
+	for i := range cfg.Discoveries {
+		var discSecrets DiscoverySecrets
+		discSecrets = secrets.Discoveries[strconv.Itoa(i)]
+
+		if discSecrets.APIKey != "" {
+			cfg.Discoveries[i].APIKey = discSecrets.APIKey
+		}
+		if discSecrets.Secret != "" {
+			cfg.Discoveries[i].Secret = discSecrets.Secret
+		}
 	}
 
 	// Merge Verifier secrets

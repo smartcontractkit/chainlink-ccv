@@ -163,33 +163,48 @@ func createReader(lggr logger.Logger, cfg *config.VerifierConfig) (*readers.Resi
 }
 
 func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring, registry *registry.VerifierRegistry) (common.MessageDiscovery, error) {
-	persistedSinceValue, err := storage.GetDiscoverySequenceNumber(ctx, cfg.Discovery.Address)
-	if err != nil {
-		lggr.Warnw("Discovery Location previously not persisted, using value set in config")
-		if err := storage.CreateDiscoveryState(ctx, cfg.Discovery.Address, int(cfg.Discovery.Since)); err != nil {
-			lggr.Warnw("Unable to persist discovery sequence number")
+	configs := cfg.DiscoveryConfigs()
+	sources := make([]common.MessageDiscovery, 0, len(configs))
+
+	for _, discCfg := range configs {
+		persistedSinceValue, err := storage.GetDiscoverySequenceNumber(ctx, discCfg.Address)
+		if err != nil {
+			lggr.Warnw("Discovery location previously not persisted, using value set in config", "address", discCfg.Address)
+			if err := storage.CreateDiscoveryState(ctx, discCfg.Address, int(discCfg.Since)); err != nil {
+				lggr.Warnw("Unable to persist discovery sequence number", "address", discCfg.Address)
+			}
+			persistedSinceValue = int(discCfg.Since)
 		}
-		persistedSinceValue = int(cfg.Discovery.Since)
+
+		aggregator, err := readers.NewAggregatorReader(discCfg.Address, lggr, int64(persistedSinceValue), hmac.ClientConfig{
+			APIKey: discCfg.APIKey,
+			Secret: discCfg.Secret,
+		}, discCfg.InsecureConnection)
+		if err != nil {
+			return nil, err
+		}
+
+		timeProvider := backofftimeprovider.NewBackoffNTPProvider(lggr, time.Duration(discCfg.Timeout)*time.Second, discCfg.NtpServer)
+
+		aggDiscovery, err := discovery.NewAggregatorMessageDiscovery(
+			discovery.WithAggregator(aggregator),
+			discovery.WithStorage(storage),
+			discovery.WithRegistry(registry),
+			discovery.WithTimeProvider(timeProvider),
+			discovery.WithMonitoring(monitoring),
+			discovery.WithLogger(lggr),
+			discovery.WithConfig(discCfg))
+		if err != nil {
+			return nil, err
+		}
+		sources = append(sources, aggDiscovery)
 	}
 
-	aggregator, err := readers.NewAggregatorReader(cfg.Discovery.Address, lggr, int64(persistedSinceValue), hmac.ClientConfig{
-		APIKey: cfg.Discovery.APIKey,
-		Secret: cfg.Discovery.Secret,
-	}, cfg.Discovery.InsecureConnection)
-	if err != nil {
-		return nil, err
+	if len(sources) == 1 {
+		return sources[0], nil
 	}
-
-	timeProvider := backofftimeprovider.NewBackoffNTPProvider(lggr, time.Duration(cfg.Discovery.Timeout)*time.Second, cfg.Discovery.NtpServer)
-
-	return discovery.NewAggregatorMessageDiscovery(
-		discovery.WithAggregator(aggregator),
-		discovery.WithStorage(storage),
-		discovery.WithRegistry(registry),
-		discovery.WithTimeProvider(timeProvider),
-		discovery.WithMonitoring(monitoring),
-		discovery.WithLogger(lggr),
-		discovery.WithConfig(cfg.Discovery))
+	return discovery.NewMultiSourceMessageDiscovery(
+		lggr, sources)
 }
 
 // createStorage creates the storage backend connection based on the configuration.

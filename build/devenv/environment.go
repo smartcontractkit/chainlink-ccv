@@ -830,8 +830,15 @@ func NewEnvironment() (in *Cfg, err error) {
 	if sharedTLSCerts != nil {
 		in.Indexer.TLSCACertFile = sharedTLSCerts.CACertFile
 		// Update discovery config to use nginx TLS proxy
-		if len(in.Aggregator) > 0 && in.Aggregator[0].Out != nil {
-			in.Indexer.IndexerConfig.Discovery.Address = in.Aggregator[0].Out.Address
+
+		for i, agg := range in.Aggregator {
+			if agg.Out != nil {
+				in.Indexer.IndexerConfig.Discoveries[i].Address = agg.Out.Address
+				if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
+					in.Indexer.IndexerConfig.Discoveries[i].APIKey = creds.APIKey
+					in.Indexer.IndexerConfig.Discoveries[i].Secret = creds.Secret
+				}
+			}
 		}
 	}
 
@@ -843,14 +850,6 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 	if in.Indexer != nil && in.Indexer.Secrets != nil && in.Indexer.Secrets.Verifier == nil {
 		in.Indexer.Secrets.Verifier = make(map[string]config.VerifierSecrets)
-	}
-
-	// Discovery uses the first aggregator's indexer credentials
-	if len(in.Aggregator) > 0 {
-		if creds, ok := in.Aggregator[0].Out.GetCredentialsForClient("indexer"); ok {
-			in.Indexer.Secrets.Discovery.APIKey = creds.APIKey
-			in.Indexer.Secrets.Discovery.Secret = creds.Secret
-		}
 	}
 
 	// Each verifier config needs credentials from its corresponding aggregator

@@ -25,13 +25,15 @@ func TestServiceIndexer(t *testing.T) {
 				ConcurrentWorkers: 5,
 				WorkerTimeout:     30,
 			},
-			Discovery: config.DiscoveryConfig{
-				AggregatorReaderConfig: config.AggregatorReaderConfig{
-					Address:            "aggregator:9090",
-					InsecureConnection: true,
+			Discoveries: []config.DiscoveryConfig{
+				{
+					AggregatorReaderConfig: config.AggregatorReaderConfig{
+						Address:            "aggregator:9090",
+						InsecureConnection: true,
+					},
+					PollInterval: 1000,
+					Timeout:      5000,
 				},
-				PollInterval: 1000,
-				Timeout:      5000,
 			},
 			Storage: config.StorageConfig{
 				Strategy: config.StorageStrategySink,
