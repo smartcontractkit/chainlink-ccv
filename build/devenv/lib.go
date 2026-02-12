@@ -153,7 +153,10 @@ func (l *Lib) Chains(ctx context.Context) ([]ChainImpl, error) {
 			if err != nil {
 				return nil, fmt.Errorf("getting chain details for chain ID %s and family %s: %w", bc.ChainID, bc.Out.Family, err)
 			}
-			impl := canton.New(*l.l)
+			impl, err := canton.New(ctx, *l.l, env, bc.ChainID)
+			if err != nil {
+				return nil, fmt.Errorf("creating Canton implementation for chain ID %s: %w", bc.ChainID, err)
+			}
 			impls[i] = ChainImpl{
 				CCIP17:  impl,
 				Details: details,

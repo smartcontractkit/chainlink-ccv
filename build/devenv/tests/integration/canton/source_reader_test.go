@@ -114,7 +114,7 @@ func TestCantonSourceReader(t *testing.T) {
 	jwt := cantonChain.Out.NetworkSpecificData.CantonEndpoints.Participants[0].JWT
 	require.NotEmpty(t, jwt)
 
-	helper, err := devenvcanton.NewHelperFromBlockchainInput(grpcURL, jwt)
+	helper, err := devenvcanton.NewHelperFromBlockchainInput(ctx, grpcURL, jwt)
 	require.NoError(t, err)
 	ts := newTestSetup(helper)
 
@@ -461,7 +461,7 @@ type testSetup struct {
 }
 
 func (ts *testSetup) getContractID(t *testing.T, updateID, party string) string {
-	resp, err := ts.helper.GetUpdateServiceClient().GetUpdateById(ts.helper.AuthCtx(t.Context()), &ledgerv2.GetUpdateByIdRequest{
+	resp, err := ts.helper.GetUpdateServiceClient().GetUpdateById(t.Context(), &ledgerv2.GetUpdateByIdRequest{
 		UpdateId: updateID,
 		UpdateFormat: &ledgerv2.UpdateFormat{
 			IncludeTransactions: &ledgerv2.TransactionFormat{
@@ -561,7 +561,7 @@ func (ts *testSetup) ccipSend(
 		}
 	}
 
-	resp, err := ts.helper.GetCommandServiceClient().SubmitAndWait(ts.helper.AuthCtx(t.Context()), &ledgerv2.SubmitAndWaitRequest{
+	resp, err := ts.helper.GetCommandServiceClient().SubmitAndWait(t.Context(), &ledgerv2.SubmitAndWaitRequest{
 		Commands: &ledgerv2.Commands{
 			CommandId: uuid.New().String(),
 			UserId:    ts.helper.GetUserID(),
@@ -650,7 +650,7 @@ func (ts *testSetup) ccipSend(
 }
 
 func (ts *testSetup) createTestRouter(t *testing.T, ccipOwnerParty, partyOwnerParty string) *ledgerv2.SubmitAndWaitResponse {
-	resp, err := ts.helper.GetCommandServiceClient().SubmitAndWait(ts.helper.AuthCtx(t.Context()), &ledgerv2.SubmitAndWaitRequest{
+	resp, err := ts.helper.GetCommandServiceClient().SubmitAndWait(t.Context(), &ledgerv2.SubmitAndWaitRequest{
 		Commands: &ledgerv2.Commands{
 			CommandId: uuid.New().String(),
 			UserId:    ts.helper.GetUserID(),

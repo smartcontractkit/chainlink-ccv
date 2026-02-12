@@ -155,7 +155,7 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Co
 	case "anvil":
 		return evm.NewEmptyCCIP17EVM(), nil
 	case "canton":
-		return canton.New(
+		return canton.NewEmptyCCIP17Canton(
 			log.
 				Output(zerolog.ConsoleWriter{Out: os.Stderr}).
 				Level(zerolog.DebugLevel).

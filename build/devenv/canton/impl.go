@@ -24,6 +24,7 @@ import (
 	dsutils "github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	cantonadapters "github.com/smartcontractkit/chainlink-ccv/devenv/canton/adapters"
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain/canton"
 	"github.com/smartcontractkit/go-daml/pkg/client"
 	"github.com/smartcontractkit/go-daml/pkg/types"
 
@@ -52,11 +53,39 @@ var (
 )
 
 type Chain struct {
-	logger zerolog.Logger
+	e            *deployment.Environment
+	chain        canton.Chain
+	logger       zerolog.Logger
+	chainDetails chainsel.ChainDetails
+
 	helper *Helper
 }
 
-func New(logger zerolog.Logger) *Chain {
+func New(ctx context.Context, logger zerolog.Logger, e *deployment.Environment, chainID string) (*Chain, error) {
+	chainDetails, err := chainsel.GetChainDetailsByChainIDAndFamily(chainID, chainsel.FamilyCanton)
+	if err != nil {
+		return nil, fmt.Errorf("get chain details for chain %s: %w", chainID, err)
+	}
+	chain := e.BlockChains.CantonChains()[chainDetails.ChainSelector]
+	jwt, err := chain.Participants[0].JWTProvider.Token(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get JWT token: %w", err)
+	}
+	h, err := NewHelperFromBlockchainInput(ctx, chain.Participants[0].Endpoints.GRPCLedgerAPIURL, jwt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create helper: %w", err)
+	}
+
+	return &Chain{
+		e:            e,
+		chain:        chain,
+		chainDetails: chainDetails,
+		logger:       logger,
+		helper:       h,
+	}, nil
+}
+
+func NewEmptyCCIP17Canton(logger zerolog.Logger) *Chain {
 	return &Chain{
 		logger: logger,
 	}
@@ -446,7 +475,7 @@ func (c *Chain) DeployLocalNetwork(ctx context.Context, bcs *blockchain.Input) (
 	}
 	grpcURL := bcs.Out.NetworkSpecificData.CantonEndpoints.Participants[0].GRPCLedgerAPIURL
 	jwt := bcs.Out.NetworkSpecificData.CantonEndpoints.Participants[0].JWT
-	h, err := NewHelperFromBlockchainInput(grpcURL, jwt)
+	h, err := NewHelperFromBlockchainInput(ctx, grpcURL, jwt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create helper: %w", err)
 	}
