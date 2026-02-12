@@ -96,16 +96,19 @@ func MergeSecrets(cfg *Config, secrets *SecretsConfig) error {
 		return nil
 	}
 
-	for i := range cfg.Discoveries {
-		discSecrets, ok := secrets.Discoveries[strconv.Itoa(i)]
-		if !ok {
-			return fmt.Errorf("discovery index %d not found in secrets", i)
-		}
-		if discSecrets.APIKey != "" {
-			cfg.Discoveries[i].APIKey = discSecrets.APIKey
-		}
-		if discSecrets.Secret != "" {
-			cfg.Discoveries[i].Secret = discSecrets.Secret
+	// Merge Discovery secrets when present (optional: only overwrite if key exists)
+	if secrets.Discoveries != nil {
+		for i := range cfg.Discoveries {
+			discSecrets, ok := secrets.Discoveries[strconv.Itoa(i)]
+			if !ok {
+				continue
+			}
+			if discSecrets.APIKey != "" {
+				cfg.Discoveries[i].APIKey = discSecrets.APIKey
+			}
+			if discSecrets.Secret != "" {
+				cfg.Discoveries[i].Secret = discSecrets.Secret
+			}
 		}
 	}
 

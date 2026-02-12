@@ -857,16 +857,22 @@ func NewEnvironment() (in *Cfg, err error) {
 	// Inject generated credentials into indexer secrets for aggregator connections
 	if in.Indexer != nil && in.Indexer.Secrets == nil {
 		in.Indexer.Secrets = &config.SecretsConfig{
-			Verifier: make(map[string]config.VerifierSecrets),
+			Discoveries: make(map[string]config.DiscoverySecrets),
+			Verifier:    make(map[string]config.VerifierSecrets),
 		}
+	}
+	if in.Indexer != nil && in.Indexer.Secrets != nil && in.Indexer.Secrets.Discoveries == nil {
+		in.Indexer.Secrets.Discoveries = make(map[string]config.DiscoverySecrets)
 	}
 	if in.Indexer != nil && in.Indexer.Secrets != nil && in.Indexer.Secrets.Verifier == nil {
 		in.Indexer.Secrets.Verifier = make(map[string]config.VerifierSecrets)
 	}
 
-	// Each verifier config needs credentials from its corresponding aggregator
+	// Each discovery and verifier config needs credentials from its corresponding aggregator
 	for idx, agg := range in.Aggregator {
 		if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
+			disc := config.DiscoverySecrets{APIKey: creds.APIKey, Secret: creds.Secret}
+			in.Indexer.Secrets.Discoveries[strconv.Itoa(idx)] = disc
 			in.Indexer.Secrets.Verifier[strconv.Itoa(idx)] = config.VerifierSecrets{
 				APIKey: creds.APIKey,
 				Secret: creds.Secret,
