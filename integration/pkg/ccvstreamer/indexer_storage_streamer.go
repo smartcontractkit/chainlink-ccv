@@ -105,7 +105,9 @@ func (oss *IndexerStorageStreamer) Start(
 			case <-ticker.C:
 				oss.expirableSet.CleanExpired(oss.timeProvider.GetTime())
 			default:
-				if oss.timeProvider.GetTime().Before(nextQueryTime) {
+				timeProviderTime := oss.timeProvider.GetTime()
+				if timeProviderTime.Before(nextQueryTime) {
+					time.Sleep(timeProviderTime.Sub(nextQueryTime))
 					continue
 				}
 				responses, err := oss.reader.ReadMessages(ctx, v1.MessagesInput{
