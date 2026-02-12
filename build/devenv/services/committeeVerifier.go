@@ -84,6 +84,9 @@ type VerifierInput struct {
 	// SigningKeyPublic is the public key used for on-chain committee configuration.
 	SigningKeyPublic string `toml:"signing_key_public"`
 
+	// SigningAddress is the address corresponding to the signing key.
+	SigningAddress string `toml:"signing_address"`
+
 	// TLSCACertFile is the path to the CA certificate file for TLS verification.
 	TLSCACertFile string `toml:"-"`
 
