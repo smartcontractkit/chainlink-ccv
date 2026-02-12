@@ -345,6 +345,7 @@ func createCurseDetector(
 	newCurseDetector, err := cursecheckerimpl.NewCurseDetectorService(
 		rmnReaders,
 		config.CursePollInterval,
+		config.CurseRPCTimeout,
 		lggr,
 	)
 	if err != nil {

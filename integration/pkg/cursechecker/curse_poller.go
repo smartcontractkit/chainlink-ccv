@@ -18,6 +18,9 @@ import (
 
 const (
 	DEFAULT_POLL_INTERVAL = 2 * time.Second
+	// DEFAULT_RPC_TIMEOUT is the maximum time allowed for a single chain's RMN query.
+	// This prevents a hanging RPC call from blocking all chains' polling.
+	DEFAULT_RPC_TIMEOUT = 5 * time.Second
 )
 
 // GlobalCurseSubject is the constant from RMN specification representing a global curse.
@@ -38,6 +41,7 @@ type PollerService struct {
 	chainCurseStates map[protocol.ChainSelector]*ChainCurseState
 	mutex            sync.RWMutex
 	pollInterval     time.Duration
+	curseRPCTimeout  time.Duration
 	lggr             logger.Logger
 	cancel           context.CancelFunc
 	wg               sync.WaitGroup
@@ -51,9 +55,11 @@ type PollerService struct {
 //     For verifier: source chain selectors -> SourceReaders (with source RMN Remotes)
 //     For executor: dest chain selectors -> DestinationReaders (with dest RMN Remotes)
 //   - pollInterval: How often to poll RMN Remotes (default: DEFAULT_POLL_INTERVAL if <= 0)
+//   - curseRPCTimeout: Timeout for each chain's RPC call (default: DEFAULT_RPC_TIMEOUT if <= 0)
 func NewCurseDetectorService(
 	rmnReaders map[protocol.ChainSelector]chainaccess.RMNCurseReader,
 	pollInterval time.Duration,
+	curseRPCTimeout time.Duration,
 	lggr logger.Logger,
 ) (common.CurseCheckerService, error) {
 	if len(rmnReaders) == 0 {
@@ -65,11 +71,15 @@ func NewCurseDetectorService(
 	if pollInterval <= 0 {
 		pollInterval = DEFAULT_POLL_INTERVAL
 	}
+	if curseRPCTimeout <= 0 {
+		curseRPCTimeout = DEFAULT_RPC_TIMEOUT
+	}
 
 	return &PollerService{
 		rmnReaders:       rmnReaders,
 		chainCurseStates: make(map[protocol.ChainSelector]*ChainCurseState),
 		pollInterval:     pollInterval,
+		curseRPCTimeout:  curseRPCTimeout,
 		lggr:             lggr,
 	}, nil
 }
@@ -157,7 +167,11 @@ func (s *PollerService) pollAllChains(ctx context.Context) {
 		go func(chain protocol.ChainSelector, r chainaccess.RMNCurseReader) {
 			defer wg.Done()
 
-			subjects, err := r.GetRMNCursedSubjects(ctx)
+			// Create a timeout context to prevent hanging RPC calls from blocking all chains
+			timeoutCtx, cancel := context.WithTimeout(ctx, s.curseRPCTimeout)
+			defer cancel()
+
+			subjects, err := r.GetRMNCursedSubjects(timeoutCtx)
 			if err != nil {
 				s.lggr.Errorw("Failed to get cursed subjects",
 					"chain", chain,

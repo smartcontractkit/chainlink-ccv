@@ -3,6 +3,7 @@ package cursechecker
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -44,7 +45,7 @@ func TestCurseDetectorService_LaneSpecificCurse(t *testing.T) {
 		chainB: mockReaderB,
 	}
 
-	svc, err := NewCurseDetectorService(rmnReaders, 100*time.Millisecond, lggr)
+	svc, err := NewCurseDetectorService(rmnReaders, 100*time.Millisecond, 0, lggr)
 	require.NoError(t, err)
 
 	err = svc.Start(ctx)
@@ -92,7 +93,7 @@ func TestCurseDetectorService_GlobalCurse(t *testing.T) {
 		chainB: mockReaderB,
 	}
 
-	svc, err := NewCurseDetectorService(rmnReaders, 100*time.Millisecond, lggr)
+	svc, err := NewCurseDetectorService(rmnReaders, 100*time.Millisecond, 0, lggr)
 	require.NoError(t, err)
 
 	err = svc.Start(ctx)
@@ -132,7 +133,7 @@ func TestCurseDetectorService_CurseLifting(t *testing.T) {
 		chainA: mockReaderA,
 	}
 
-	svc, err := NewCurseDetectorService(rmnReaders, 20*time.Millisecond, lggr)
+	svc, err := NewCurseDetectorService(rmnReaders, 20*time.Millisecond, 0, lggr)
 	require.NoError(t, err)
 
 	err = svc.Start(ctx)
@@ -164,6 +165,7 @@ func TestNewCurseDetectorService_Validation(t *testing.T) {
 		_, err := NewCurseDetectorService(
 			map[protocol.ChainSelector]chainaccess.RMNCurseReader{},
 			2*time.Second,
+			0,
 			lggr,
 		)
 		require.Error(t, err, "should fail with empty readers")
@@ -174,6 +176,7 @@ func TestNewCurseDetectorService_Validation(t *testing.T) {
 		_, err := NewCurseDetectorService(
 			map[protocol.ChainSelector]chainaccess.RMNCurseReader{1: mockReader},
 			2*time.Second,
+			0,
 			nil,
 		)
 		require.Error(t, err, "should fail with nil logger")
@@ -184,10 +187,23 @@ func TestNewCurseDetectorService_Validation(t *testing.T) {
 		svc, err := NewCurseDetectorService(
 			map[protocol.ChainSelector]chainaccess.RMNCurseReader{1: mockReader},
 			0,
+			0,
 			lggr,
 		)
 		require.NoError(t, err)
 		require.Equal(t, 2*time.Second, svc.(*PollerService).pollInterval, "should use default poll interval")
+	})
+
+	t.Run("DefaultRPCTimeout", func(t *testing.T) {
+		mockReader := mocks.NewMockRMNCurseReader(t)
+		svc, err := NewCurseDetectorService(
+			map[protocol.ChainSelector]chainaccess.RMNCurseReader{1: mockReader},
+			2*time.Second,
+			0,
+			lggr,
+		)
+		require.NoError(t, err)
+		require.Equal(t, DEFAULT_RPC_TIMEOUT, svc.(*PollerService).curseRPCTimeout, "should use default RPC timeout")
 	})
 
 	_ = mockReaderA // Silence unused variable
@@ -220,7 +236,7 @@ func TestCurseDetectorService_ReaderErrorHandling(t *testing.T) {
 		chainB: mockReaderB,
 	}
 
-	svc, err := NewCurseDetectorService(rmnReaders, 50*time.Millisecond, lggr)
+	svc, err := NewCurseDetectorService(rmnReaders, 50*time.Millisecond, 0, lggr)
 	require.NoError(t, err)
 
 	err = svc.Start(ctx)
@@ -254,7 +270,7 @@ func TestCurseDetectorService_NilCursedSubjects(t *testing.T) {
 		chainA: mockReaderA,
 	}
 
-	svc, err := NewCurseDetectorService(rmnReaders, 100*time.Millisecond, lggr)
+	svc, err := NewCurseDetectorService(rmnReaders, 100*time.Millisecond, 0, lggr)
 	require.NoError(t, err)
 
 	err = svc.Start(ctx)
@@ -263,4 +279,164 @@ func TestCurseDetectorService_NilCursedSubjects(t *testing.T) {
 
 	// Nil cursed subjects should be treated as no curses
 	require.False(t, svc.IsRemoteChainCursed(ctx, chainA, chainB), "nil cursed subjects should mean no curses")
+}
+
+// TestCurseDetectorService_RPCTimeout tests that hanging RPC calls timeout and don't block other chains.
+func TestCurseDetectorService_RPCTimeout(t *testing.T) {
+	ctx := context.Background()
+	lggr, err := logger.New()
+	require.NoError(t, err)
+
+	const (
+		chainA protocol.ChainSelector = 1
+		chainB protocol.ChainSelector = 2
+	)
+
+	// Chain A hangs (takes longer than timeout)
+	mockReaderA := mocks.NewMockRMNCurseReader(t)
+	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).
+		Run(func(ctx context.Context) {
+			// Simulate a hanging RPC call by sleeping longer than the timeout
+			time.Sleep(200 * time.Millisecond)
+		}).
+		Return(nil, context.DeadlineExceeded).
+		Maybe()
+
+	// Chain B returns quickly with a curse
+	mockReaderB := mocks.NewMockRMNCurseReader(t)
+	mockReaderB.EXPECT().GetRMNCursedSubjects(mock.Anything).
+		Return([]protocol.Bytes16{ChainSelectorToBytes16(chainA)}, nil).
+		Maybe()
+
+	rmnReaders := map[protocol.ChainSelector]chainaccess.RMNCurseReader{
+		chainA: mockReaderA,
+		chainB: mockReaderB,
+	}
+
+	// Use a short RPC timeout to make the test fast
+	svc, err := NewCurseDetectorService(rmnReaders, 50*time.Millisecond, 100*time.Millisecond, lggr)
+	require.NoError(t, err)
+
+	err = svc.Start(ctx)
+	require.NoError(t, err)
+	defer svc.Close()
+
+	// Wait a bit for the first poll to complete
+	time.Sleep(150 * time.Millisecond)
+
+	// Chain A should have no curse state (timeout during fetch)
+	require.False(t, svc.IsRemoteChainCursed(ctx, chainA, chainB), "chainA should have no state due to timeout")
+
+	// Chain B should work correctly despite Chain A timing out
+	require.True(t, svc.IsRemoteChainCursed(ctx, chainB, chainA), "chainB should report chainA as cursed")
+}
+
+// TestCurseDetectorService_AllChainsTimeout tests that if all chains timeout, the service continues polling.
+func TestCurseDetectorService_AllChainsTimeout(t *testing.T) {
+	ctx := context.Background()
+	lggr, err := logger.New()
+	require.NoError(t, err)
+
+	const (
+		chainA protocol.ChainSelector = 1
+		chainB protocol.ChainSelector = 2
+	)
+
+	callCount := 0
+	var mu sync.Mutex
+
+	// Both chains initially timeout
+	mockReaderA := mocks.NewMockRMNCurseReader(t)
+	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).
+		Run(func(ctx context.Context) {
+			mu.Lock()
+			callCount++
+			mu.Unlock()
+			time.Sleep(200 * time.Millisecond)
+		}).
+		Return(nil, context.DeadlineExceeded).
+		Times(2)
+
+	// Then Chain A starts working
+	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).
+		Run(func(ctx context.Context) {
+			mu.Lock()
+			callCount++
+			mu.Unlock()
+		}).
+		Return([]protocol.Bytes16{ChainSelectorToBytes16(chainB)}, nil).
+		Maybe()
+
+	mockReaderB := mocks.NewMockRMNCurseReader(t)
+	mockReaderB.EXPECT().GetRMNCursedSubjects(mock.Anything).
+		Run(func(ctx context.Context) {
+			time.Sleep(200 * time.Millisecond)
+		}).
+		Return(nil, context.DeadlineExceeded).
+		Maybe()
+
+	rmnReaders := map[protocol.ChainSelector]chainaccess.RMNCurseReader{
+		chainA: mockReaderA,
+		chainB: mockReaderB,
+	}
+
+	// Use short intervals for fast testing
+	svc, err := NewCurseDetectorService(rmnReaders, 100*time.Millisecond, 100*time.Millisecond, lggr)
+	require.NoError(t, err)
+
+	err = svc.Start(ctx)
+	require.NoError(t, err)
+	defer svc.Close()
+
+	// Wait for multiple poll cycles
+	time.Sleep(400 * time.Millisecond)
+
+	// Verify that polling continued despite timeouts (callCount should be >= 3)
+	mu.Lock()
+	count := callCount
+	mu.Unlock()
+	require.GreaterOrEqual(t, count, 3, "polling should continue despite timeouts")
+
+	// Eventually Chain A should report Chain B as cursed
+	require.True(t, svc.IsRemoteChainCursed(ctx, chainA, chainB), "chainA should eventually report chainB as cursed")
+}
+
+// TestCurseDetectorService_ContextCancellation tests that RPC timeout respects parent context cancellation.
+func TestCurseDetectorService_ContextCancellation(t *testing.T) {
+	ctx := context.Background()
+	lggr, err := logger.New()
+	require.NoError(t, err)
+
+	const (
+		chainA protocol.ChainSelector = 1
+	)
+
+	// Chain A RPC respects context cancellation
+	mockReaderA := mocks.NewMockRMNCurseReader(t)
+	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).
+		Run(func(ctx context.Context) {
+			// Wait for context cancellation
+			<-ctx.Done()
+		}).
+		Return(nil, context.Canceled).
+		Maybe()
+
+	rmnReaders := map[protocol.ChainSelector]chainaccess.RMNCurseReader{
+		chainA: mockReaderA,
+	}
+
+	svc, err := NewCurseDetectorService(rmnReaders, 100*time.Millisecond, 5*time.Second, lggr)
+	require.NoError(t, err)
+
+	err = svc.Start(ctx)
+	require.NoError(t, err)
+
+	// Let one poll cycle start
+	time.Sleep(50 * time.Millisecond)
+
+	// Stop the service (which cancels the context)
+	err = svc.Close()
+	require.NoError(t, err)
+
+	// Service should stop cleanly without hanging
 }
