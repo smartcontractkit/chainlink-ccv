@@ -831,6 +831,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		in.Indexer.TLSCACertFile = sharedTLSCerts.CACertFile
 		// Update discovery config to use nginx TLS proxy
 
+		in.Indexer.IndexerConfig.Discoveries = make([]config.DiscoveryConfig, len(in.Aggregator))
 		for i, agg := range in.Aggregator {
 			if agg.Out != nil {
 				in.Indexer.IndexerConfig.Discoveries[i].Address = agg.Out.Address
