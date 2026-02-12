@@ -147,7 +147,7 @@ func (v *Verifier) VerifyMessages(
 }
 
 func (v *Verifier) attestationErrorRetry(err error, task verifier.VerificationTask) verifier.VerificationError {
-	return verifier.NewRetriableVerificationError(err, task, v.anyErrorRetry)
+	return verifier.NewRetriableVerificationError(err, task, v.attestationNotReadyRetry)
 }
 
 func (v *Verifier) errorRetry(err error, task verifier.VerificationTask) verifier.VerificationError {
