@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -215,13 +216,14 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 			}
 
 			// Get signing key from config
+			// Must use pubkey instead of signer address
 			// TODO: implement fetching from JD
 			addr, ok := nop.SignerAddressByFamily[chainsel.FamilyCanton]
 			if !ok || addr == "" {
 				return nil, fmt.Errorf("signer address for NOP alias %q family %q not found for committee %q chain %d", nopAlias, chainsel.FamilyCanton, qualifier, selector)
 			}
 
-			signers = append(signers, types.TEXT(addr))
+			signers = append(signers, types.TEXT(strings.TrimPrefix(addr, "0x")))
 		}
 		var storageLocation types.TEXT // TODO, multiple storage locations
 		if len(committeeConfig.StorageLocations) > 0 {
