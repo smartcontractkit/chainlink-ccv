@@ -39,9 +39,8 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lib/pq v1.10.9
-	github.com/noders-team/go-daml v0.3.0
 	github.com/sethvargo/go-retry v0.3.0
-	github.com/smartcontractkit/chainlink-canton v0.0.0-20260205203303-a74a56b3565d
+	github.com/smartcontractkit/chainlink-canton v0.0.0-20260212133859-4c2cdf6ed947
 	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260206205333-9187f22f0a04
 	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260206205333-9187f22f0a04
 	github.com/smartcontractkit/chainlink-ccv v0.0.0-20260210144153-aebc4e8cb4de
@@ -53,6 +52,7 @@ require (
 	github.com/smartcontractkit/chainlink-protos/job-distributor v0.17.0
 	github.com/smartcontractkit/chainlink-testing-framework/wasp v1.51.2
 	github.com/smartcontractkit/chainlink/deployment v0.0.0-20260126202327-6be9a05f0caf
+	github.com/smartcontractkit/go-daml v0.0.0-20260210143144-5b7934743e90
 	github.com/spf13/cobra v1.10.1
 	google.golang.org/grpc v1.78.0
 )
@@ -511,7 +511,4 @@ replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlin
 replace github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 
 // Repeat replaces from chainlink-canton
-replace (
-	github.com/digital-asset/dazl-client/v8 => github.com/noders-team/dazl-client/v8 v8.7.1-2
-	github.com/noders-team/go-daml => github.com/stackman27/go-daml v0.0.0-20260204001938-550ee9d8ab10
-)
+replace github.com/digital-asset/dazl-client/v8 => github.com/noders-team/dazl-client/v8 v8.7.1-2

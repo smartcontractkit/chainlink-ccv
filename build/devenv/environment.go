@@ -730,12 +730,6 @@ func NewEnvironment() (in *Cfg, err error) {
 	/////////////////////////////////////////
 
 	for i, impl := range impls {
-		// Skip non-EVM chains for contract connection (not yet fully supported)
-		if in.Blockchains[i].Type == blockchain.TypeCanton || in.Blockchains[i].Type == blockchain.TypeStellar {
-			// Canton/Stellar contracts are not supported yet by the interface, tests need to connect them manually.
-			continue
-		}
-
 		var networkInfo chainsel.ChainDetails
 		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
 		if err != nil {

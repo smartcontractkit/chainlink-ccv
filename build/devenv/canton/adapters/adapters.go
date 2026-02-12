@@ -108,9 +108,9 @@ func NewChainFamilyAdapter(base adapters.ChainFamily) *CantonAdapter {
 
 // AddressRefToBytes implements adapters.ChainFamily.
 func (c *CantonAdapter) AddressRefToBytes(ref datastore.AddressRef) ([]byte, error) {
-	// Canton "addresses" are "InstanceAddresses", which are the 32-byte keccak256 hash of the InstanceID.
-	// The InstanceID is of the form:
-	// <human-readable-prefix><random-suffix>@<party-id>
+	// Canton "addresses" are "InstanceAddresses", which are the 32-byte keccak256 hash of the RawInstanceAddress.
+	// The RawInstanceAddress is of the form:
+	// <instance-id>@<party-id>
 	return contracts.HexToInstanceAddress(ref.Address).Bytes(), nil
 }
 
