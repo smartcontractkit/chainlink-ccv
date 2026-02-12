@@ -19,14 +19,21 @@ type CantonConfig struct {
 	ReaderConfig canton.ReaderConfig `toml:"reader_config"`
 }
 
-// StellarConfig is the configuration required for verifiers that read from Stellar.
-type StellarConfig struct {
+type StellarReaderConfig struct {
 	// NetworkPassphrase is the Stellar network passphrase.
 	NetworkPassphrase string `toml:"network_passphrase"`
 	// FriendbotURL is the Stellar friendbot URL.
 	FriendbotURL string `toml:"friendbot_url"`
 	// SorobanRPCURL is the Stellar Soroban RPC URL.
 	SorobanRPCURL string `toml:"soroban_rpc_url"`
+	// OnRampContractID is the contract ID of the Stellar OnRamp contract.
+	OnRampContractID string `toml:"onramp_contract_id"`
+}
+
+// StellarConfig is the configuration required for verifiers that read from Stellar.
+type StellarConfig struct {
+	// TODO: need a better way to do this, this overloads the StellarNetworkInfo struct.
+	ReaderConfig StellarReaderConfig `toml:"reader_config"`
 }
 
 type Config struct {
