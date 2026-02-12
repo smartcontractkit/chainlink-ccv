@@ -104,7 +104,7 @@ func ConfigureChainsForLanesFromTopology(chainFamilyRegistry *adapters.ChainFami
 			for _, committeeVerifier := range chain.CommitteeVerifiers {
 				remoteChains := make(map[uint64]adapters.CommitteeVerifierRemoteChainConfig, len(committeeVerifier.RemoteChains))
 				for remoteChainSelector, remoteChainConfig := range committeeVerifier.RemoteChains {
-					signatureConfig, err := getSignatureConfigForSourceChain(e, cfg.Topology, committeeVerifier.CommitteeQualifier, chain.ChainSelector, remoteChainSelector, signingKeysByNOP)
+					signatureConfig, err := getSignatureConfigForChain(e, cfg.Topology, committeeVerifier.CommitteeQualifier, chain.ChainSelector, remoteChainSelector, signingKeysByNOP)
 					if err != nil {
 						return deployment.ChangesetOutput{}, fmt.Errorf("failed to get signature config for source chain %d: %w", remoteChainSelector, err)
 					}
@@ -219,7 +219,7 @@ func fetchAllSigningKeysForTopology(e deployment.Environment, topology *deployme
 	return report.Output.SigningKeysByNOP
 }
 
-func getSignatureConfigForSourceChain(
+func getSignatureConfigForChain(
 	e deployment.Environment,
 	topology *deployments.EnvironmentTopology,
 	committeeQualifier string,
