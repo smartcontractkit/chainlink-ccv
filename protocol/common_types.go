@@ -14,7 +14,7 @@ import (
 type ChainSelector uint64
 
 func (c ChainSelector) String() string {
-	return fmt.Sprintf("ChainSelector(%d)", c)
+	return strconv.FormatUint(uint64(c), 10)
 }
 
 // Nonce represents a monotonic counter used for adding entropy and uniqueness to a CCIP message.
@@ -146,6 +146,11 @@ func (h *ByteSlice) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("invalid HexBytes: %s", v)
 	}
 
+	// Check that the string starts and ends with quotes before trimming
+	if v[0] != '"' || v[len(v)-1] != '"' {
+		return fmt.Errorf("invalid JSON string format for HexBytes: %s", v)
+	}
+
 	// trim quotes
 	v = v[1 : len(v)-1]
 
@@ -193,7 +198,8 @@ func NewBytes16FromString(s string) (Bytes16, error) {
 	}
 
 	var res Bytes16
-	copy(res[:], b)
+	// Copy to the end of the array so that leading zeros are at the beginning (left-padded)
+	copy(res[16-len(b):], b)
 	return res, nil
 }
 
@@ -214,12 +220,23 @@ func (b *Bytes16) UnmarshalJSON(data []byte) error {
 	if len(v) < 4 {
 		return fmt.Errorf("invalid Bytes16: %s", v)
 	}
+
+	// Check that the string starts and ends with quotes before trimming
+	if v[0] != '"' || v[len(v)-1] != '"' {
+		return fmt.Errorf("invalid JSON string format for Bytes16: %s", v)
+	}
+
 	v = v[1 : len(v)-1] // trim quotes
 
 	if !strings.HasPrefix(v, "0x") {
 		return fmt.Errorf("bytes must start with '0x' prefix: %s", v)
 	}
 	v = v[2:] // trim 0x prefix
+
+	// Check that the hex string is exactly 32 characters (16 bytes)
+	if len(v) != 32 {
+		return fmt.Errorf("Bytes16 must be exactly 32 hex characters (16 bytes), got %d characters: %s", len(v), v)
+	}
 
 	bCp, err := hex.DecodeString(v)
 	if err != nil {
@@ -248,7 +265,8 @@ func NewBytes32FromString(s string) (Bytes32, error) {
 	}
 
 	var res Bytes32
-	copy(res[:], b)
+	// Copy to the end of the array so that leading zeros are at the beginning (left-padded)
+	copy(res[32-len(b):], b)
 	return res, nil
 }
 
@@ -269,12 +287,23 @@ func (b *Bytes32) UnmarshalJSON(data []byte) error {
 	if len(v) < 4 {
 		return fmt.Errorf("invalid Bytes32: %s", v)
 	}
+
+	// Check that the string starts and ends with quotes before trimming
+	if v[0] != '"' || v[len(v)-1] != '"' {
+		return fmt.Errorf("invalid JSON string format for Bytes32: %s", v)
+	}
+
 	v = v[1 : len(v)-1] // trim quotes
 
 	if !strings.HasPrefix(v, "0x") {
 		return fmt.Errorf("bytes must start with '0x' prefix: %s", v)
 	}
 	v = v[2:] // trim 0x prefix
+
+	// Check that the hex string is exactly 64 characters (32 bytes)
+	if len(v) != 64 {
+		return fmt.Errorf("Bytes32 must be exactly 64 hex characters (32 bytes), got %d characters: %s", len(v), v)
+	}
 
 	bCp, err := hex.DecodeString(v)
 	if err != nil {

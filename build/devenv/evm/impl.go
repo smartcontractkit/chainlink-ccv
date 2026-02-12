@@ -50,7 +50,7 @@ import (
 	cantonadapters "github.com/smartcontractkit/chainlink-ccv/devenv/canton/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
-	stellaradapters "github.com/smartcontractkit/chainlink-ccv/devenv/stellar/adapters"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -1416,10 +1416,9 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 	}
 
 	mcmsReaderRegistry := changesetscore.GetRegistry()
-	chainFamilyRegistry := adapters.NewChainFamilyRegistry()
-	chainFamilyRegistry.RegisterChainFamily("evm", &evmadapters.ChainFamilyAdapter{})
-	chainFamilyRegistry.RegisterChainFamily("canton", cantonadapters.NewChainFamilyAdapter(&evmadapters.ChainFamilyAdapter{}))
-	chainFamilyRegistry.RegisterChainFamily("stellar", stellaradapters.NewChainFamilyAdapter(&evmadapters.ChainFamilyAdapter{}))
+	// Use the global chain family registry. We expect the relevant chain families to be already registered.
+	chainFamilyRegistry := registry.GetGlobalChainFamilyAdapterRegistry()
+
 	_, err := ccvchangesets.ConfigureChainsForLanesFromTopology(chainFamilyRegistry, mcmsReaderRegistry).Apply(*e, ccvchangesets.ConfigureChainsForLanesFromTopologyConfig{
 		Topology: topology,
 		Chains: []ccvchangesets.PartialChainConfig{
@@ -1487,6 +1486,10 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 
 	if err := m.configureUSDCForTransfer(e, mcmsReaderRegistry, selector, remoteSelectors); err != nil {
 		return fmt.Errorf("failed to configure USDC tokens for transfers: %w", err)
+	}
+
+	if err := m.configureLombardForTransfer(e, mcmsReaderRegistry, selector, remoteSelectors); err != nil {
+		return fmt.Errorf("failed to configure Lombard tokens for transfers: %w", err)
 	}
 
 	// Configure the custom executor for the dest chain manually.

@@ -96,10 +96,15 @@ func main() {
 	}
 
 	postgresStorage := ccvstorage.NewPostgres(sqlDB, lggr)
+	// Wrap storage with monitoring decorator to track query durations
+	monitoredStorage := ccvstorage.NewMonitoredStorage(postgresStorage, verifierMonitoring.Metrics())
 
 	coordinators := make([]*verifier.Coordinator, 0, len(config.TokenVerifiers))
 	for _, verifierConfig := range config.TokenVerifiers {
 		chainStatusManager := chainstatus.NewPostgresChainStatusManager(sqlDB, lggr, verifierConfig.VerifierID)
+		// Wrap chain status manager with monitoring decorator to track query durations
+		monitoredChainStatusManager := chainstatus.NewMonitoredChainStatusManager(chainStatusManager, verifierMonitoring.Metrics())
+
 		messageTracker := monitoring.NewMessageLatencyTracker(
 			lggr,
 			verifierConfig.VerifierID,
@@ -118,11 +123,11 @@ func main() {
 				storage.NewAttestationCCVWriter(
 					lggr,
 					verifierConfig.LombardConfig.ParsedVerifierResolvers,
-					postgresStorage,
+					monitoredStorage,
 				),
 				messageTracker,
 				verifierMonitoring,
-				chainStatusManager,
+				monitoredChainStatusManager,
 			)
 		} else if verifierConfig.IsCCTP() {
 			coordinator = createCCTPCoordinator(
@@ -135,11 +140,11 @@ func main() {
 				storage.NewAttestationCCVWriter(
 					lggr,
 					verifierConfig.CCTPConfig.ParsedVerifierResolvers,
-					postgresStorage,
+					monitoredStorage,
 				),
 				messageTracker,
 				verifierMonitoring,
-				chainStatusManager,
+				monitoredChainStatusManager,
 			)
 		} else {
 			lggr.Fatalw("Unknown verifier type", "type", verifierConfig.Type)
@@ -158,7 +163,7 @@ func main() {
 	for i, coordinator := range coordinators {
 		healthReporters[i] = coordinator
 	}
-	ginRouter := tokenapi.NewHTTPAPI(lggr, storage.NewAttestationCCVReader(postgresStorage), healthReporters)
+	ginRouter := tokenapi.NewHTTPAPI(lggr, storage.NewAttestationCCVReader(postgresStorage), healthReporters, verifierMonitoring)
 
 	// Start HTTP server with Gin router
 	httpServer := &http.Server{

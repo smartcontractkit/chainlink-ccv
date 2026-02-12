@@ -10,6 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
 
@@ -20,6 +21,8 @@ type OffchainConfigs struct {
 	Aggregators map[string]*model.Committee `json:"aggregators,omitempty"`
 	// Indexers maps service identifier (e.g., "indexer") to generated verifier config.
 	Indexers map[string]*config.GeneratedConfig `json:"indexers,omitempty"`
+	// TokenVerifiers maps service identifier (e.g., "default-token-verifier") to generated token verifier config.
+	TokenVerifiers map[string]*token.Config `json:"tokenVerifiers,omitempty"`
 	// NOPJobs maps NOP alias to a map of job ID to job info.
 	// This tracks the full lifecycle of jobs including proposal history and JD IDs.
 	NOPJobs shared.NOPJobs `json:"nopJobs,omitempty"`
@@ -95,6 +98,25 @@ func SaveIndexerConfig(ds datastore.MutableDataStore, serviceIdentifier string, 
 	return saveCCVEnvMetadata(ds, ccvMeta)
 }
 
+// SaveTokenVerifierConfig saves a token verifier config to the datastore under the given service identifier.
+func SaveTokenVerifierConfig(ds datastore.MutableDataStore, serviceIdentifier string, cfg *token.Config) error {
+	ccvMeta, err := loadOrCreateCCVEnvMetadata(ds)
+	if err != nil {
+		return err
+	}
+
+	if ccvMeta.OffchainConfigs == nil {
+		ccvMeta.OffchainConfigs = &OffchainConfigs{}
+	}
+	if ccvMeta.OffchainConfigs.TokenVerifiers == nil {
+		ccvMeta.OffchainConfigs.TokenVerifiers = make(map[string]*token.Config)
+	}
+
+	ccvMeta.OffchainConfigs.TokenVerifiers[serviceIdentifier] = cfg
+
+	return saveCCVEnvMetadata(ds, ccvMeta)
+}
+
 // GetAggregatorConfig retrieves an aggregator committee config from the datastore by service identifier.
 func GetAggregatorConfig(ds datastore.DataStore, serviceIdentifier string) (*model.Committee, error) {
 	ccvMeta, err := loadCCVEnvMetadata(ds)
@@ -128,6 +150,25 @@ func GetIndexerConfig(ds datastore.DataStore, serviceIdentifier string) (*config
 	cfg, ok := ccvMeta.OffchainConfigs.Indexers[serviceIdentifier]
 	if !ok {
 		return nil, fmt.Errorf("indexer config %q not found", serviceIdentifier)
+	}
+
+	return cfg, nil
+}
+
+// GetTokenVerifierConfig retrieves a token verifier config from the datastore by service identifier.
+func GetTokenVerifierConfig(ds datastore.DataStore, serviceIdentifier string) (*token.Config, error) {
+	ccvMeta, err := loadCCVEnvMetadata(ds)
+	if err != nil {
+		return nil, err
+	}
+
+	if ccvMeta.OffchainConfigs == nil || ccvMeta.OffchainConfigs.TokenVerifiers == nil {
+		return nil, fmt.Errorf("no token verifier configs found")
+	}
+
+	cfg, ok := ccvMeta.OffchainConfigs.TokenVerifiers[serviceIdentifier]
+	if !ok {
+		return nil, fmt.Errorf("token verifier config %q not found", serviceIdentifier)
 	}
 
 	return cfg, nil

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
 )
 
 // registerCCTPAttestation registers a CCTP attestation response with the fake service.
@@ -75,7 +76,7 @@ func registerCCTPAttestation(
 //   - feeExecuted (32 bytes): uint256
 //   - expirationBlock (32 bytes): uint256
 //   - hookData (36 bytes):
-//   - verifierVersion (4 bytes): 0x8e1d1a9d
+//   - verifierVersion (4 bytes): cctp.VerifierVersion (0x8e1d1a9d)
 //   - messageId (32 bytes): bytes32
 func buildCCTPMessage(messageID [32]byte, messageSender, receiver protocol.UnknownAddress) string {
 	message := make([]byte, 412)
@@ -112,7 +113,7 @@ func buildCCTPMessage(messageID [32]byte, messageSender, receiver protocol.Unkno
 
 	// Hook data starts at byte 148 + 228 = 376
 	// verifierVersion (4 bytes) at offset 376
-	verifierVersion := []byte{0x8e, 0x1d, 0x1a, 0x9d}
+	verifierVersion := cctp.VerifierVersion
 	copy(message[376:380], verifierVersion)
 
 	// messageID (32 bytes) at offset 380

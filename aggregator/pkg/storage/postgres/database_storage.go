@@ -20,7 +20,7 @@ import (
 	pkgcommon "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 )
 
-func (d *DatabaseStorage) batchGetVerificationRecordIDs(ctx context.Context, messageIDHex string, signerIdentifiers []string) (map[string]int64, error) {
+func (d *DatabaseStorage) batchGetVerificationRecordIDs(ctx context.Context, messageIDHex string, signerIdentifiers []string, ccvVersion []byte) (map[string]int64, error) {
 	recordIDsMap := make(map[string]int64)
 	if len(signerIdentifiers) == 0 {
 		return recordIDsMap, nil
@@ -28,7 +28,7 @@ func (d *DatabaseStorage) batchGetVerificationRecordIDs(ctx context.Context, mes
 
 	stmt := `SELECT DISTINCT ON (signer_identifier) signer_identifier, id
 		FROM commit_verification_records 
-		WHERE message_id = $1 AND signer_identifier = ANY($2)
+		WHERE message_id = $1 AND signer_identifier = ANY($2) AND ccv_version = $3
 		ORDER BY signer_identifier, seq_num DESC`
 
 	type idRecord struct {
@@ -37,7 +37,7 @@ func (d *DatabaseStorage) batchGetVerificationRecordIDs(ctx context.Context, mes
 	}
 
 	var records []idRecord
-	err := d.ds.SelectContext(ctx, &records, stmt, messageIDHex, pq.Array(signerIdentifiers))
+	err := d.ds.SelectContext(ctx, &records, stmt, messageIDHex, pq.Array(signerIdentifiers), ccvVersion)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get verification record IDs: %w", err)
 	}
@@ -50,9 +50,10 @@ func (d *DatabaseStorage) batchGetVerificationRecordIDs(ctx context.Context, mes
 }
 
 type DatabaseStorage struct {
-	ds       sqlutil.DataSource
-	pageSize int
-	lggr     logger.SugaredLogger
+	ds           sqlutil.DataSource
+	pageSize     int
+	queryTimeout time.Duration
+	lggr         logger.SugaredLogger
 }
 
 func (d *DatabaseStorage) logger(ctx context.Context) logger.SugaredLogger {
@@ -65,16 +66,25 @@ var (
 	_ protocol.HealthReporter                     = (*DatabaseStorage)(nil)
 )
 
-func NewDatabaseStorage(ds sqlutil.DataSource, pageSize int, lggr logger.SugaredLogger) *DatabaseStorage {
+func NewDatabaseStorage(ds sqlutil.DataSource, pageSize int, queryTimeout time.Duration, lggr logger.SugaredLogger) *DatabaseStorage {
 	return &DatabaseStorage{
-		ds:       ds,
-		pageSize: pageSize,
-		lggr:     lggr,
+		ds:           ds,
+		pageSize:     pageSize,
+		queryTimeout: queryTimeout,
+		lggr:         lggr,
 	}
 }
 
+func (d *DatabaseStorage) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if d.queryTimeout == 0 {
+		return ctx, func() {}
+	}
+
+	return context.WithTimeout(ctx, d.queryTimeout)
+}
+
 func (d *DatabaseStorage) Ready() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := d.withTimeout(context.Background())
 	defer cancel()
 
 	var count int
@@ -96,6 +106,9 @@ func (d *DatabaseStorage) Name() string {
 }
 
 func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *model.CommitVerificationRecord, aggregationKey model.AggregationKey) error {
+	ctx, cancel := d.withTimeout(ctx)
+	defer cancel()
+
 	if record == nil {
 		return fmt.Errorf("commit verification record cannot be nil")
 	}
@@ -135,6 +148,9 @@ func (d *DatabaseStorage) SaveCommitVerification(ctx context.Context, record *mo
 }
 
 func (d *DatabaseStorage) GetCommitVerification(ctx context.Context, id model.CommitVerificationRecordIdentifier) (*model.CommitVerificationRecord, error) {
+	ctx, cancel := d.withTimeout(ctx)
+	defer cancel()
+
 	stmt := fmt.Sprintf(`SELECT %s
 		FROM commit_verification_records 
 		WHERE message_id = $1 AND signer_identifier = $2
@@ -161,6 +177,9 @@ func (d *DatabaseStorage) GetCommitVerification(ctx context.Context, id model.Co
 }
 
 func (d *DatabaseStorage) ListCommitVerificationByAggregationKey(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey) ([]*model.CommitVerificationRecord, error) {
+	ctx, cancel := d.withTimeout(ctx)
+	defer cancel()
+
 	stmt := fmt.Sprintf(`SELECT DISTINCT ON (signer_identifier) %s
 		FROM commit_verification_records 
 		WHERE message_id = $1 AND aggregation_key = $2
@@ -187,6 +206,9 @@ func (d *DatabaseStorage) ListCommitVerificationByAggregationKey(ctx context.Con
 }
 
 func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSequenceInclusive int64) (*model.AggregatedReportBatch, error) {
+	ctx, cancel := d.withTimeout(ctx)
+	defer cancel()
+
 	stmt := fmt.Sprintf(`
 		SELECT 
 			car.message_id,
@@ -302,6 +324,9 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 }
 
 func (d *DatabaseStorage) GetCommitAggregatedReportByMessageID(ctx context.Context, messageID model.MessageID) (*model.CommitAggregatedReport, error) {
+	ctx, cancel := d.withTimeout(ctx)
+	defer cancel()
+
 	messageIDHex := protocol.ByteSlice(messageID).String()
 
 	stmt := fmt.Sprintf(`
@@ -389,6 +414,9 @@ func (d *DatabaseStorage) GetCommitAggregatedReportByMessageID(ctx context.Conte
 }
 
 func (d *DatabaseStorage) GetBatchAggregatedReportByMessageIDs(ctx context.Context, messageIDs []model.MessageID) (map[string]*model.CommitAggregatedReport, error) {
+	ctx, cancel := d.withTimeout(ctx)
+	defer cancel()
+
 	if len(messageIDs) == 0 {
 		return make(map[string]*model.CommitAggregatedReport), nil
 	}
@@ -489,6 +517,9 @@ func (d *DatabaseStorage) GetBatchAggregatedReportByMessageIDs(ctx context.Conte
 }
 
 func (d *DatabaseStorage) SubmitAggregatedReport(ctx context.Context, report *model.CommitAggregatedReport) error {
+	ctx, cancel := d.withTimeout(ctx)
+	defer cancel()
+
 	if report == nil {
 		return fmt.Errorf("aggregated report cannot be nil")
 	}
@@ -502,7 +533,7 @@ func (d *DatabaseStorage) SubmitAggregatedReport(ctx context.Context, report *mo
 		signerIdentifiers = append(signerIdentifiers, signerIdentifierHex)
 	}
 
-	recordIDsMap, err := d.batchGetVerificationRecordIDs(ctx, messageIDHex, signerIdentifiers)
+	recordIDsMap, err := d.batchGetVerificationRecordIDs(ctx, messageIDHex, signerIdentifiers, report.GetVersion())
 	if err != nil {
 		return err
 	}
@@ -548,7 +579,20 @@ func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context, newerThan time.T
 	orphanedKeyCh := make(chan model.OrphanedKey)
 	errCh := make(chan error, 1)
 
+	sendErr := func(err error) {
+		if err == nil {
+			return
+		}
+
+		select {
+		case errCh <- err:
+		default:
+		}
+	}
+
 	go func() {
+		queryCtx, cancel := d.withTimeout(ctx)
+		defer cancel()
 		defer close(orphanedKeyCh)
 		defer close(errCh)
 
@@ -559,21 +603,30 @@ func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context, newerThan time.T
 		WHERE cvr.created_at >= $1 AND car.message_id IS NULL
 		ORDER BY cvr.message_id, cvr.aggregation_key`
 
-		rows, err := d.ds.QueryContext(ctx, stmt, newerThan)
+		rows, err := d.ds.QueryContext(queryCtx, stmt, newerThan)
 		if err != nil {
-			errCh <- fmt.Errorf("failed to query orphaned message pairs: %w", err)
+			sendErr(fmt.Errorf("failed to query orphaned message pairs: %w", err))
 			return
 		}
 		defer func() {
 			if closeErr := rows.Close(); closeErr != nil {
-				errCh <- fmt.Errorf("failed to close rows: %w", closeErr)
+				d.logger(ctx).Errorw("failed to close rows", "error", closeErr)
+				sendErr(fmt.Errorf("failed to close rows: %w", closeErr))
 			}
 		}()
+
+		// Check if the context is done before entering the loop
+		select {
+		case <-ctx.Done():
+			sendErr(ctx.Err())
+			return
+		default:
+		}
 
 		for rows.Next() {
 			select {
 			case <-ctx.Done():
-				errCh <- ctx.Err()
+				sendErr(ctx.Err())
 				return
 			default:
 			}
@@ -586,11 +639,15 @@ func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context, newerThan time.T
 			var result dbResult
 			err := rows.Scan(&result.MessageID, &result.AggregationKey)
 			if err != nil {
-				errCh <- fmt.Errorf("failed to scan orphaned pair: %w", err)
+				sendErr(fmt.Errorf("failed to scan orphaned pair: %w", err))
 				return
 			}
 
-			messageID, _ := protocol.NewByteSliceFromHex(result.MessageID)
+			messageID, err := protocol.NewByteSliceFromHex(result.MessageID)
+			if err != nil {
+				d.logger(ctx).Errorw("failed to parse message ID", "error", err)
+				continue
+			}
 
 			select {
 			case orphanedKeyCh <- model.OrphanedKey{
@@ -598,13 +655,14 @@ func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context, newerThan time.T
 				AggregationKey: result.AggregationKey,
 			}:
 			case <-ctx.Done():
-				errCh <- ctx.Err()
+				sendErr(ctx.Err())
 				return
 			}
 		}
 
 		if err := rows.Err(); err != nil {
-			errCh <- fmt.Errorf("error iterating over orphaned pairs: %w", err)
+			sendErr(fmt.Errorf("error iterating over orphaned pairs: %w", err))
+			return
 		}
 	}()
 
@@ -612,6 +670,9 @@ func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context, newerThan time.T
 }
 
 func (d *DatabaseStorage) OrphanedKeyStats(ctx context.Context, cutoff time.Time) (*model.OrphanStats, error) {
+	ctx, cancel := d.withTimeout(ctx)
+	defer cancel()
+
 	stmt := `
 	SELECT 
 		COUNT(*) FILTER (WHERE created_at < $1) as expired_count,

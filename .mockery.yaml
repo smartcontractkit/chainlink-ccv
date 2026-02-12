@@ -7,12 +7,25 @@ packages:
   github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/stellar:
     interfaces:
       RPCClient:
+      
+  github.com/smartcontractkit/chainlink-ccv/common/jd/client:
+    interfaces:
+      ClientInterface:
+
+  github.com/smartcontractkit/chainlink-ccv/common/jd/store:
+    interfaces:
+      StoreInterface:
+
+  github.com/smartcontractkit/chainlink-ccv/common/jd/lifecycle:
+    interfaces:
+      JobRunner:
 
   github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess:
     interfaces:
       SourceReader:
       DestinationReader:
       ContractTransmitter:
+      RMNCurseReader:
 
   github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2:
     interfaces:
@@ -23,7 +36,6 @@ packages:
     interfaces:
       CurseChecker:
       CurseCheckerService:
-      RMNRemoteReader:
       TimeProvider:
 
   github.com/smartcontractkit/chainlink-ccv/protocol:

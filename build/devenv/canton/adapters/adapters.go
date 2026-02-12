@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ethereum/go-ethereum/common/hexutil"
-
+	"github.com/smartcontractkit/chainlink-canton/contracts"
 	tokenadapters "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/utils/sequences"
-	adapters "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -109,17 +108,10 @@ func NewChainFamilyAdapter(base adapters.ChainFamily) *CantonAdapter {
 
 // AddressRefToBytes implements adapters.ChainFamily.
 func (c *CantonAdapter) AddressRefToBytes(ref datastore.AddressRef) ([]byte, error) {
-	// Canton "addresses" are instance IDs, which are of the form:
+	// Canton "addresses" are "InstanceAddresses", which are the 32-byte keccak256 hash of the InstanceID.
+	// The InstanceID is of the form:
 	// <human-readable-prefix><random-suffix>@<party-id>
-	// Since all the characters are presumed to be UTF-8, we can simply convert it to bytes via []byte().
-	// return []byte(ref.Address), nil
-
-	// for now, mocked out addresses are encoded as hex in the DataStore, so decode them as hex.
-	decoded, err := hexutil.Decode(ref.Address)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode address: %w", err)
-	}
-	return decoded, nil
+	return contracts.HexToInstanceAddress(ref.Address).Bytes(), nil
 }
 
 // ConfigureChainForLanes implements adapters.ChainFamily.

@@ -6,7 +6,7 @@ import (
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
-	"github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -18,7 +18,7 @@ const curseCacheMaxEntries = 100
 // It uses an LRU cache to store the curse state for each destination chain.
 type CachedCurseChecker struct {
 	lggr       logger.Logger
-	rmnReaders map[protocol.ChainSelector]common.RMNRemoteReader
+	rmnReaders map[protocol.ChainSelector]chainaccess.RMNCurseReader
 	// Cache of curse state per destination chain.
 	// The cache key is a destination chain selector, the cache value is a set of bytes16curse subjects (including global curse).
 	curseCache *expirable.LRU[protocol.ChainSelector, cacheValue]
@@ -30,7 +30,7 @@ type cacheValue map[protocol.Bytes16]struct{}
 
 type Params struct {
 	Lggr        logger.Logger
-	RmnReaders  map[protocol.ChainSelector]common.RMNRemoteReader
+	RmnReaders  map[protocol.ChainSelector]chainaccess.RMNCurseReader
 	CacheExpiry time.Duration
 }
 

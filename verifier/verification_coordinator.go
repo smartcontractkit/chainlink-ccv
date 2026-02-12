@@ -75,6 +75,7 @@ func NewCoordinatorWithDetector(
 	detector common.CurseCheckerService,
 	heartbeatClient heartbeatclient.HeartbeatSender,
 ) (*Coordinator, error) {
+	lggr = logger.With(lggr, "verifierID", config.VerifierID)
 	enabledSourceReaders, err := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, chainStatusManager)
 	if err != nil {
 		return nil, fmt.Errorf("failed to filter enabled source readers: %w", err)
@@ -344,6 +345,7 @@ func createCurseDetector(
 	newCurseDetector, err := cursecheckerimpl.NewCurseDetectorService(
 		rmnReaders,
 		config.CursePollInterval,
+		config.CurseRPCTimeout,
 		lggr,
 	)
 	if err != nil {

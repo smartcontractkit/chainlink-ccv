@@ -44,6 +44,10 @@ key_prefix = "ratelimit"
 "/chainlink_ccv.verifier.v1.Verifier/GetVerifierResultsForMessage" = { limit_per_minute = 6000 }
 "/chainlink_ccv.heartbeat.v1.HeartbeatService/SendHeartbeat" = { limit_per_minute = 6000 }
 
+# Limit shared across all anonymous callers
+[rateLimiting.globalAnonymousLimits]
+"/chainlink_ccv.verifier.v1.Verifier/GetVerifierResultsForMessage" = { limit_per_minute = 6000 }
+
 # Group-based rate limits (more restrictive than defaults for specific groups)
 [rateLimiting.groupLimits.verifiers]
 "/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/WriteCommitteeVerifierNodeResult" = { limit_per_minute = 6000 }

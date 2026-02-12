@@ -22,6 +22,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
+	"github.com/smartcontractkit/chainlink-ccv/deployments/sequences"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/canton"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
@@ -826,6 +827,7 @@ func NewEnvironment() (in *Cfg, err error) {
 			ServiceIdentifier:                "indexer",
 			CommitteeVerifierNameToQualifier: in.Indexer.CommitteeVerifierNameToQualifier,
 			CCTPVerifierNameToQualifier:      in.Indexer.CCTPVerifierNameToQualifier,
+			LombardVerifierNameToQualifier:   in.Indexer.LombardVerifierNameToQualifier,
 			ChainSelectors:                   selectors,
 		})
 		if err != nil {
@@ -931,17 +933,69 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch token verifiers //
 	///////////////////////////////////
 
-	for i := range in.TokenVerifier {
-		ver, err := services.ResolveContractsForTokenVerifier(e.DataStore, in.Blockchains, *in.TokenVerifier[i])
-		if err != nil {
-			return nil, fmt.Errorf("failed to lookup contracts %w", err)
+	// Generate token verifier configs using changeset (on-chain state as source of truth)
+	for i, tokenVerifierInput := range in.TokenVerifier {
+		if tokenVerifierInput == nil {
+			continue
 		}
 
-		in.TokenVerifier[i] = &ver
+		if fakeOut == nil {
+			return nil, fmt.Errorf("fake data provider is required for token verifiers to provide attestation API endpoints, but it was not created successfully")
+		}
+
+		template, err := tokenVerifierInput.GenerateTemplateConfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate template config for token verifier: %w", err)
+		}
+
+		// Use changeset to generate token verifier config from on-chain state
+		cs := changesets.GenerateTokenVerifierConfig()
+		output, err := cs.Apply(*e, changesets.GenerateTokenVerifierConfigCfg{
+			ServiceIdentifier: "TokenVerifier",
+			ChainSelectors:    selectors,
+			PyroscopeURL:      template.PyroscopeURL,
+			Monitoring: shared.MonitoringInput{
+				Enabled: template.Monitoring.Enabled,
+				Type:    template.Monitoring.Type,
+				Beholder: shared.BeholderInput{
+					InsecureConnection:       template.Monitoring.Beholder.InsecureConnection,
+					CACertFile:               template.Monitoring.Beholder.CACertFile,
+					OtelExporterGRPCEndpoint: template.Monitoring.Beholder.OtelExporterGRPCEndpoint,
+					OtelExporterHTTPEndpoint: template.Monitoring.Beholder.OtelExporterHTTPEndpoint,
+					LogStreamingEnabled:      template.Monitoring.Beholder.LogStreamingEnabled,
+					MetricReaderInterval:     template.Monitoring.Beholder.MetricReaderInterval,
+					TraceSampleRatio:         template.Monitoring.Beholder.TraceSampleRatio,
+					TraceBatchTimeout:        template.Monitoring.Beholder.TraceBatchTimeout,
+				},
+			},
+			Lombard: sequences.LombardConfigInput{
+				VerifierID:     "LombardVerifier",
+				Qualifier:      devenvcommon.LombardContractsQualifier,
+				AttestationAPI: fakeOut.InternalHTTPURL + "/lombard",
+			},
+			CCTP: sequences.CCTPConfigInput{
+				VerifierID:     "CCTPVerifier",
+				Qualifier:      devenvcommon.CCTPContractsQualifier,
+				AttestationAPI: fakeOut.InternalHTTPURL + "/cctp",
+			},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate token verifier config: %w", err)
+		}
+
+		// Get generated config from output datastore
+		tokenVerifierCfg, err := deployments.GetTokenVerifierConfig(
+			output.DataStore.Seal(), "TokenVerifier",
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get token verifier config from output: %w", err)
+		}
+		in.TokenVerifier[i].GeneratedConfig = tokenVerifierCfg
+		e.DataStore = output.DataStore.Seal()
 	}
 
 	if fakeOut != nil {
-		_, err = launchStandaloneTokenVerifiers(in, fakeOut.InternalHTTPURL, blockchainOutputs)
+		_, err = launchStandaloneTokenVerifiers(in, blockchainOutputs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create standalone token verifiers: %w", err)
 		}
@@ -1199,11 +1253,11 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) 
 	return outs, nil
 }
 
-func launchStandaloneTokenVerifiers(in *Cfg, fakeAttestationServiceURL string, blockchainOutputs []*blockchain.Output) ([]*services.TokenVerifierOutput, error) {
+func launchStandaloneTokenVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) ([]*services.TokenVerifierOutput, error) {
 	var outs []*services.TokenVerifierOutput
 	for _, ver := range in.TokenVerifier {
 		if ver.Mode == services.Standalone {
-			out, err := services.NewTokenVerifier(ver, fakeAttestationServiceURL, blockchainOutputs)
+			out, err := services.NewTokenVerifier(ver, blockchainOutputs)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create token verifier service: %w", err)
 			}

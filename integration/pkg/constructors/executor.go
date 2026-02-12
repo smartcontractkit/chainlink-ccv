@@ -8,7 +8,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
-	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
@@ -85,7 +84,7 @@ func NewExecutorCoordinator(
 
 	transmitters := make(map[protocol.ChainSelector]chainaccess.ContractTransmitter)
 	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
-	rmnReaders := make(map[protocol.ChainSelector]ccvcommon.RMNRemoteReader)
+	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
 	for sel, chain := range relayers {
 		if _, ok := offRampAddresses[sel]; !ok {
 			lggr.Warnw("No offramp configured for chain, skipping.", "chainID", sel)
@@ -135,7 +134,7 @@ func NewExecutorCoordinator(
 		lggr.Errorw("Failed to create indexer client", "error", err)
 		return nil, fmt.Errorf("failed to create indexer client: %w", err)
 	}
-	indexerAdapter := executor.NewIndexerReaderAdapter(indexerClient)
+	indexerAdapter := executor.NewIndexerReaderAdapter(indexerClient, executorMonitoring)
 
 	ex := x.NewChainlinkExecutor(
 		logger.With(lggr, "component", "Executor"),

@@ -198,6 +198,7 @@ func extractEvents(transactions []*ledgerv2.Transaction, ccipOwnerParty string, 
 			}
 			messageSentEvent, err := processCreatedEvent(tx, created, ccipOwnerParty, ccipMessageSentTemplateID)
 			if err != nil {
+				// TODO: should we just "continue" here, in the event of a maliciously crafted message/receipts?
 				return nil, err
 			}
 			if messageSentEvent != nil {
@@ -323,6 +324,11 @@ func processCCIPMessageSentEvent(field *ledgerv2.RecordField) (*protocol.Message
 		return nil, fmt.Errorf("message ID mismatch, from event: %s, from message: %s", messageSentEvent.MessageID.String(), messageSentEvent.Message.MustMessageID().String())
 	}
 
+	// Validate ccvAndExecutorHash
+	if err := protocol.ValidateCCVAndExecutorHash(messageSentEvent.Message, messageSentEvent.Receipts); err != nil {
+		return nil, fmt.Errorf("ccvAndExecutorHash validation failed: %w", err)
+	}
+
 	return messageSentEvent, nil
 }
 
@@ -350,7 +356,11 @@ func processReceipts(receiptsField *ledgerv2.RecordField) ([]protocol.ReceiptWit
 				// however, in order to make it fit into a protocol.UnknownAddress,
 				// we will interpret the string itself as bytes.
 				// Note: assume the Text is valid UTF-8.
-				protoReceipt.Issuer = protocol.UnknownAddress([]byte(field.GetValue().GetText()))
+				decoded, err := protocol.NewUnknownAddressFromHex(field.GetValue().GetText())
+				if err != nil {
+					return nil, fmt.Errorf("failed to decode issuer: %w, input: %s", err, field.GetValue().GetText())
+				}
+				protoReceipt.Issuer = decoded
 			case ccipMessageSentEventReceiptDestGasLimitLabel:
 				protoReceipt.DestGasLimit = uint64(field.GetValue().GetInt64()) //nolint:gosec // int64 is always non-negative
 			case ccipMessageSentEventReceiptDestBytesOverheadLabel:

@@ -44,6 +44,8 @@ func (m *ChannelManager) Enqueue(key model.ChannelKey, req aggregationRequest, m
 	if !ok {
 		return fmt.Errorf("channel not found for key: %s", key)
 	}
+	timer := time.NewTimer(maxBlockTime)
+	defer timer.Stop()
 	select {
 	case ch <- req:
 		select {
@@ -51,7 +53,7 @@ func (m *ChannelManager) Enqueue(key model.ChannelKey, req aggregationRequest, m
 		default:
 		}
 		return nil
-	case <-time.After(maxBlockTime):
+	case <-timer.C:
 		return common.ErrAggregationChannelFull
 	}
 }

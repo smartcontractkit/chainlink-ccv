@@ -30,17 +30,20 @@ func TestVerifierResultsHandler_Handle(t *testing.T) {
 	}
 
 	cases := []struct {
-		name       string
-		query      string
-		mockData   map[string][]common.VerifierResultWithMetadata
-		mockErr    error
-		wantStatus int
-		wantCount  int
+		name             string
+		query            string
+		mockData         map[string][]common.VerifierResultWithMetadata
+		mockErr          error
+		wantStatus       int
+		wantCount        int
+		wantBodyContains []string
 	}{
 		{name: "bad selectors", query: "sourceChainSelectors=bad", mockData: nil, mockErr: nil, wantStatus: http.StatusBadRequest},
 		{name: "bad dest selectors", query: "destChainSelectors=bad", mockData: nil, mockErr: nil, wantStatus: http.StatusBadRequest},
+		{name: "limit exceeds max returns 400 and storage not called", query: "limit=5000", mockData: nil, mockErr: nil, wantStatus: http.StatusBadRequest, wantBodyContains: []string{"limit exceeds maximum", "1000"}},
 		{name: "storage error", query: "", mockData: nil, mockErr: errors.New("db fail"), wantStatus: http.StatusInternalServerError},
 		{name: "success", query: "", mockData: sampleMap, mockErr: nil, wantStatus: http.StatusOK, wantCount: 1},
+		{name: "limit equals max accepted and storage called with limit 1000", query: "limit=1000", mockData: sampleMap, mockErr: nil, wantStatus: http.StatusOK, wantCount: 1},
 	}
 
 	for _, tc := range cases {
@@ -49,12 +52,13 @@ func TestVerifierResultsHandler_Handle(t *testing.T) {
 			mm := mocks.NewMockIndexerMonitoring(t)
 			mm.On("Metrics").Return(mocks.NewMockIndexerMetricLabeler(t)).Maybe()
 
-			if tc.wantStatus != http.StatusBadRequest {
+			reachesStorage := tc.wantStatus != http.StatusBadRequest
+			if reachesStorage {
 				// QueryCCVData(ctx, start, end, sourceChainSelectors, destChainSelectors, limit, offset)
 				ms.On("QueryCCVData", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(tc.mockData, tc.mockErr)
 			}
 
-			h := v1.NewVerifierResultsHandler(ms, lggr, mm)
+			h := v1.NewVerifierResultsHandler(ms, lggr, mm, v1.MaxQueryLimit)
 			r := gin.New()
 			r.GET("/verifierresults", h.Handle)
 
@@ -68,6 +72,10 @@ func TestVerifierResultsHandler_Handle(t *testing.T) {
 				err := json.Unmarshal(rec.Body.Bytes(), &resp)
 				require.NoError(t, err)
 				require.Equal(t, tc.wantCount, len(resp.VerifierResults))
+			}
+			body := rec.Body.String()
+			for _, sub := range tc.wantBodyContains {
+				require.Contains(t, body, sub)
 			}
 		})
 	}

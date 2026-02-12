@@ -43,6 +43,11 @@ import (
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
+var (
+	minGracePeriod  = 10 * time.Second
+	shutdownTimeout = 5 * time.Second
+)
+
 // Server represents a gRPC server for the aggregator service.
 type Server struct {
 	committeepb.UnimplementedCommitteeVerifierServer
@@ -119,8 +124,23 @@ func (s *Server) Start(lis net.Listener) error {
 		return nil
 	}, func(err error) {
 		s.l.Info("Shutting down gRPC server")
-		s.grpcServer.GracefulStop()
-		s.grpcServer.Stop()
+
+		stopped := make(chan struct{})
+		go func() {
+			s.grpcServer.GracefulStop()
+			close(stopped)
+		}()
+
+		gracePeriod := max(s.config.Server.RequestTimeout+shutdownTimeout, minGracePeriod)
+
+		select {
+		case <-stopped:
+			s.l.Info("gRPC server stopped gracefully")
+		case <-time.After(gracePeriod):
+			s.l.Warn("Graceful shutdown timed out, forcing stop")
+			s.grpcServer.Stop()
+			s.l.Info("gRPC server stopped forcefully")
+		}
 	})
 
 	g.Add(func() error {
@@ -304,7 +324,8 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	factory := storage.NewStorageFactory(l)
 	store, err := factory.CreateStorage(config.Storage, aggMonitoring)
 	if err != nil {
-		panic(fmt.Sprintf("failed to create storage: %v", err))
+		l.Fatalf("Failed to create storage: %v", err)
+		return nil
 	}
 
 	store = storage.WrapWithMetrics(store, aggMonitoring, l)

@@ -37,13 +37,14 @@ func (a *AttestationAPI) RegisterAttestation(sourceDomain, messageID, status, me
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	// Construct hookData as 0x8e1d1a9d + messageID (without 0x prefix)
+	// Construct hookData as cctp.VerifierVersion + messageID (without 0x prefix)
 	// Strip 0x prefix from messageID if present
 	cleanMessageID := messageID
 	if len(messageID) > 2 && messageID[:2] == "0x" {
 		cleanMessageID = messageID[2:]
 	}
-	hookData := "0x8e1d1a9d" + cleanMessageID
+	// ByteSlice.String() will add `0x` prefix
+	hookData := cctpclient.VerifierVersion.String() + cleanMessageID
 
 	// Create a response based on the example attestation but with the provided sourceDomain, hookData and status
 	response := cctpclient.Message{

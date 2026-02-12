@@ -13,7 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/canton"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/stellar"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
@@ -33,6 +33,8 @@ type Lib struct {
 // NewLib creates a new Lib object given a logger and envOutFile.
 // If familiesToLoad is provided, only chains with the given families will be loaded.
 // If familiesToLoad is not provided, all chains will be loaded.
+// The Lib instance uses the global chain family registry which can be extended
+// via RegisterChainFamilyAdapter() before calling NewLib.
 func NewLib(logger *zerolog.Logger, envOutFile string, familiesToLoad ...string) (*Lib, error) {
 	cfg, err := LoadOutput[Cfg](envOutFile)
 	if err != nil {
@@ -109,7 +111,9 @@ func (l *Lib) Indexer() (*client.IndexerClient, error) {
 	return ic, nil
 }
 
-// Chains returns a slice of Chains in Blockchain cfg order.
+// Chains returns a slice of Chains in Blockchain cfg order, followed by any
+// additional chain implementations that were externally registered via
+// registry.GetGlobalChainImplRegistry().Register() but are not present in the cfg.
 func (l *Lib) Chains(ctx context.Context) ([]ChainImpl, error) {
 	if err := l.verify(); err != nil {
 		return nil, fmt.Errorf("invalid library object: %w", err)
@@ -120,8 +124,11 @@ func (l *Lib) Chains(ctx context.Context) ([]ChainImpl, error) {
 		return nil, fmt.Errorf("creating CLDF operations environment: %w", err)
 	}
 
-	impls := make([]ChainImpl, len(l.cfg.Blockchains))
-	for i, bc := range l.cfg.Blockchains {
+	// Track which selectors were handled from the cfg so we can append registry-only entries afterwards.
+	chainImplRegistry := registry.GetGlobalChainImplRegistry()
+	seen := make(map[uint64]struct{})
+	impls := make([]ChainImpl, 0, len(l.cfg.Blockchains))
+	for _, bc := range l.cfg.Blockchains {
 		if len(l.familiesToLoad) > 0 && !slices.Contains(l.familiesToLoad, bc.Out.Family) {
 			l.l.Info().
 				Any("familiesToLoad", l.familiesToLoad).
@@ -131,45 +138,48 @@ func (l *Lib) Chains(ctx context.Context) ([]ChainImpl, error) {
 			continue
 		}
 
+		details, err := chain_selectors.GetChainDetailsByChainIDAndFamily(bc.ChainID, bc.Out.Family)
+		if err != nil {
+			return nil, fmt.Errorf("getting chain details for chain ID %s and family %s: %w", bc.ChainID, bc.Out.Family, err)
+		}
+
+		seen[details.ChainSelector] = struct{}{}
+
+		// Create built-in chain implementations and register them as defaults.
+		var impl cciptestinterfaces.CCIP17
 		switch bc.Out.Family {
 		case chain_selectors.FamilyEVM:
 			chainID := bc.ChainID
 			wsURL := bc.Out.Nodes[0].ExternalWSUrl
-			details, err := chain_selectors.GetChainDetailsByChainIDAndFamily(chainID, bc.Out.Family)
-			if err != nil {
-				return nil, fmt.Errorf("getting chain details for chain ID %s and family %s: %w", chainID, bc.Out.Family, err)
-			}
-			impl, err := evm.NewCCIP17EVM(ctx, *l.l, env, chainID, wsURL)
+			evmImpl, err := evm.NewCCIP17EVM(ctx, *l.l, env, chainID, wsURL)
 			if err != nil {
 				return nil, fmt.Errorf("creating CCIP17 EVM implementation for chain ID %s: %w", chainID, err)
 			}
-			impls[i] = ChainImpl{
-				CCIP17:  impl,
-				Details: details,
-			}
+			impl = evmImpl
 		case chain_selectors.FamilyCanton:
-			details, err := chain_selectors.GetChainDetailsByChainIDAndFamily(bc.ChainID, bc.Out.Family)
-			if err != nil {
-				return nil, fmt.Errorf("getting chain details for chain ID %s and family %s: %w", bc.ChainID, bc.Out.Family, err)
-			}
-			impl := canton.New(*l.l)
-			impls[i] = ChainImpl{
-				CCIP17:  impl,
-				Details: details,
-			}
-		case chain_selectors.FamilyStellar:
-			details, err := chain_selectors.GetChainDetailsByChainIDAndFamily(bc.ChainID, bc.Out.Family)
-			if err != nil {
-				return nil, fmt.Errorf("getting chain details for chain ID %s and family %s: %w", bc.ChainID, bc.Out.Family, err)
-			}
-			impl := stellar.New(*l.l)
-			impls[i] = ChainImpl{
-				CCIP17:  impl,
-				Details: details,
-			}
+			impl = canton.New(*l.l)
 		default:
 			return nil, fmt.Errorf("unsupported family %s", bc.Out.Family)
 		}
+
+		if err := chainImplRegistry.Register(bc.ChainID, bc.Out.Family, impl); err != nil {
+			return nil, fmt.Errorf("registering chain implementation for chain ID %s with family %s: %w", bc.ChainID, bc.Out.Family, err)
+		}
+		impls = append(impls, ChainImpl{
+			CCIP17:  impl,
+			Details: details,
+		})
+	}
+
+	// Append any externally registered impls that were not in the cfg but are present in the registry.
+	for selector, entry := range chainImplRegistry.GetAll() {
+		if _, ok := seen[selector]; ok {
+			continue
+		}
+		impls = append(impls, ChainImpl{
+			CCIP17:  entry.Impl,
+			Details: entry.Details,
+		})
 	}
 
 	return impls, nil

@@ -80,6 +80,17 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 			expectedError: "",
 		},
 		{
+			name: "error encoding message",
+			report: protocol.AbstractAggregatedReport{
+				Message: protocol.Message{
+					SenderLength: 99, // mismatch: triggers validateLengthFields error
+					Sender:       []byte{0x01},
+				},
+			},
+			setupMocks:    func(txm *mockTxManager, rr *mockRoundRobin) {},
+			expectedError: "unable to submit txn: invalid message encoding",
+		},
+		{
 			name: "error getting round-robin address",
 			report: protocol.AbstractAggregatedReport{
 				CCVS: []protocol.UnknownAddress{

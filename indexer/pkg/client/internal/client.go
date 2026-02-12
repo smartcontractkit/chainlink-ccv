@@ -122,7 +122,7 @@ type MessagesParams struct {
 	// End End time used to filter results. If not provided, the current server time is used. Accepted formats: RFC3339, unix epoch time (in milliseconds).
 	End *string `form:"end,omitempty" json:"end,omitempty"`
 
-	// Limit Maximum number of results to return. If not provided, defaults to 100.
+	// Limit Maximum number of results to return. If not provided, defaults to 100. Maximum allowed is 1000; Requests with a limit greater than 1000 will be rejected with a 400 bad request error.
 	Limit *uint64 `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// Offset Number of results to skip before starting to return results. If not provided, defaults to 0.
@@ -143,7 +143,7 @@ type VerifierResultsParams struct {
 	// End End time used to filter results. If not provided, the current server time is used. Accepted formats: RFC3339, unix epoch time (in milliseconds).
 	End *string `form:"end,omitempty" json:"end,omitempty"`
 
-	// Limit Maximum number of results to return. If not provided, defaults to 100.
+	// Limit Maximum number of results to return. If not provided, defaults to 100. Maximum allowed is 1000; Requests with a limit greater than 1000 will be rejected with a 400 bad request error.
 	Limit *uint64 `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// Offset Number of results to skip before starting to return results. If not provided, defaults to 0.

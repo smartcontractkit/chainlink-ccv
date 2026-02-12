@@ -28,7 +28,7 @@ import (
 
 const bufSize = 1024 * 1024
 
-var defaultCredentials = hmacutil.MustGenerateCredentials()
+var defaultCredentials, _ = hmacutil.GenerateCredentials()
 
 // ClientConfig holds configuration for test client behavior.
 type ClientConfig struct {

@@ -15,7 +15,6 @@ import (
 	"github.com/grafana/pyroscope-go"
 	"go.uber.org/zap/zapcore"
 
-	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
@@ -159,7 +158,7 @@ func main() {
 	// ------------------------------------------------------------------------------------------------
 	contractTransmitters := make(map[protocol.ChainSelector]chainaccess.ContractTransmitter)
 	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
-	rmnReaders := make(map[protocol.ChainSelector]ccvcommon.RMNRemoteReader)
+	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
 	for strSel, chain := range blockchainInfo {
 		chainConfig := executorConfig.ChainConfiguration[strSel]
 		selector, err := strconv.ParseUint(strSel, 10, 64)
@@ -228,7 +227,7 @@ func main() {
 		lggr.Errorw("Failed to create indexer client", "error", err)
 		os.Exit(1)
 	}
-	verifierResultReader := executor.NewIndexerReaderAdapter(indexerClient)
+	verifierResultReader := executor.NewIndexerReaderAdapter(indexerClient, executorMonitoring)
 
 	//
 	// Parse per chain configuration from executor configuration

@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+const MaxQueryLimit uint64 = 1000
+
 // parseTime attempts to parse a time string in either RFC3339 format or as a unix epoch time in milliseconds.
 func parseTime(t string) (int64, error) {
 	if t == "" {

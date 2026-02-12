@@ -114,6 +114,7 @@ type StorageConfig struct {
 	MaxIdleConns    int           `toml:"maxIdleConns"`
 	ConnMaxLifetime time.Duration `toml:"connMaxLifetime"`
 	ConnMaxIdleTime time.Duration `toml:"connMaxIdleTime"`
+	QueryTimeout    time.Duration `toml:"queryTimeout"`
 }
 
 // ServerConfig represents the configuration for the server.
@@ -149,6 +150,8 @@ type AggregationConfig struct {
 	CheckAggregationTimeout time.Duration `toml:"checkAggregationTimeout"`
 	// OperationTimeout is the timeout for each aggregation operation (0 = no timeout)
 	OperationTimeout time.Duration `toml:"operationTimeout"`
+	// MaxConsecutiveErrors is the maximum number of consecutive errors allowed before the aggregation is considered failed
+	MaxConsecutiveErrors uint32 `toml:"maxConsecutiveErrors"`
 }
 
 type OrphanRecoveryConfig struct {
@@ -164,6 +167,8 @@ type OrphanRecoveryConfig struct {
 	MaxAge time.Duration `toml:"maxAge"`
 	// ScanTimeout is the timeout for each orphan recovery scan (0 = no timeout)
 	ScanTimeout time.Duration `toml:"scanTimeout"`
+	// MaxConsecutiveErrors is the maximum number of consecutive errors allowed before the orphan recovery is considered failed
+	MaxConsecutiveErrors uint `toml:"maxConsecutiveErrors"`
 }
 
 type HealthCheckConfig struct {
@@ -183,6 +188,13 @@ type AnonymousAuthConfig struct {
 type RateLimitConfig struct {
 	// LimitPerMinute is the number of requests allowed per minute
 	LimitPerMinute int `toml:"limit_per_minute"`
+}
+
+func (c *RateLimitConfig) Validate() error {
+	if c.LimitPerMinute < 0 {
+		return errors.New("limitPerMinute must be greater than or equal to 0")
+	}
+	return nil
 }
 
 // RateLimiterStoreType defines the supported storage types for rate limiting.
@@ -250,6 +262,54 @@ type RateLimitingConfig struct {
 	// DefaultLimits defines fallback rate limits when no specific caller or group limits exist
 	// Map structure: method -> RateLimitConfig
 	DefaultLimits map[string]RateLimitConfig `toml:"defaultLimits"`
+	// GlobalAnonymousLimits defines global anonymous rate limits
+	// Map structure: method -> RateLimitConfig
+	GlobalAnonymousLimits map[string]RateLimitConfig `toml:"globalAnonymousLimits"`
+}
+
+func (c *RateLimitingConfig) Validate() error {
+	if !c.Enabled {
+		return nil
+	}
+
+	if c.Storage.Type == RateLimiterStoreTypeRedis {
+		if c.Storage.Redis == nil {
+			return errors.New("redis configuration is required when using redis storage")
+		}
+		if c.Storage.Redis.Address == "" {
+			return errors.New("redis address is required when using redis storage")
+		}
+	}
+
+	for callerID, limits := range c.Limits {
+		for method, limitConfig := range limits {
+			if err := limitConfig.Validate(); err != nil {
+				return fmt.Errorf("limit validation failed for client %s method %s: %w", callerID, method, err)
+			}
+		}
+	}
+
+	for groupName, limits := range c.GroupLimits {
+		for method, limitConfig := range limits {
+			if err := limitConfig.Validate(); err != nil {
+				return fmt.Errorf("limit validation failed for group %s method %s: %w", groupName, method, err)
+			}
+		}
+	}
+
+	for method, limitConfig := range c.DefaultLimits {
+		if err := limitConfig.Validate(); err != nil {
+			return fmt.Errorf("default limit validation failed for method %s: %w", method, err)
+		}
+	}
+
+	for method, limitConfig := range c.GlobalAnonymousLimits {
+		if err := limitConfig.Validate(); err != nil {
+			return fmt.Errorf("global anonymous limit validation failed for method %s: %w", method, err)
+		}
+	}
+
+	return nil
 }
 
 // GetEffectiveLimit resolves the effective rate limit for a given caller and method.
@@ -479,6 +539,11 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.Storage.ConnMaxIdleTime == 0 {
 		c.Storage.ConnMaxIdleTime = 5 * time.Minute
 	}
+	// Default query timeout: 10 seconds
+	if c.Storage.QueryTimeout == 0 {
+		c.Storage.QueryTimeout = 10 * time.Second
+	}
+
 	// Default orphan recovery: enabled with 5 minute interval
 	if c.OrphanRecovery.Interval == 0 {
 		c.OrphanRecovery.Interval = 5 * time.Minute
@@ -486,6 +551,10 @@ func (c *AggregatorConfig) SetDefaults() {
 	// Default check aggregation timeout: 5 seconds
 	if c.OrphanRecovery.CheckAggregationTimeout == 0 {
 		c.OrphanRecovery.CheckAggregationTimeout = 5 * time.Second
+	}
+	// Default max consecutive errors: 3
+	if c.OrphanRecovery.MaxConsecutiveErrors == 0 {
+		c.OrphanRecovery.MaxConsecutiveErrors = 3
 	}
 	// Default max age: 7 days
 	if c.OrphanRecovery.MaxAge == 0 {
@@ -612,6 +681,9 @@ func (c *AggregatorConfig) ValidateStorageConfig() error {
 	if c.Storage.ConnMaxIdleTime < 0 {
 		return errors.New("storage.connMaxIdleTime cannot be negative")
 	}
+	if c.Storage.QueryTimeout < 0 {
+		return errors.New("storage.queryTimeout cannot be negative")
+	}
 
 	return nil
 }
@@ -633,6 +705,15 @@ func (c *AggregatorConfig) ValidateOrphanRecoveryConfig() error {
 	if c.OrphanRecovery.Interval < 5*time.Second {
 		return errors.New("orphanRecovery.interval must be at least 5 seconds")
 	}
+	return nil
+}
+
+// ValidateRateLimitingConfig validates the rate limiting configuration.
+func (c *AggregatorConfig) ValidateRateLimitingConfig() error {
+	if err := c.RateLimiting.Validate(); err != nil {
+		return fmt.Errorf("rate limiting configuration error: %w", err)
+	}
+
 	return nil
 }
 
@@ -766,6 +847,11 @@ func (c *AggregatorConfig) Validate() error {
 	// Validate orphan recovery configuration
 	if err := c.ValidateOrphanRecoveryConfig(); err != nil {
 		return fmt.Errorf("orphan recovery configuration error: %w", err)
+	}
+
+	// Validate rate limiting configuration
+	if err := c.ValidateRateLimitingConfig(); err != nil {
+		return fmt.Errorf("rate limiting configuration error: %w", err)
 	}
 
 	return nil

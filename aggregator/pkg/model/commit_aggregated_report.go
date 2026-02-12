@@ -70,14 +70,23 @@ func (c *CommitAggregatedReport) GetOffRampAddress() []byte {
 }
 
 func (c *CommitAggregatedReport) GetMessageCCVAddresses() []protocol.UnknownAddress {
+	if len(c.Verifications) == 0 {
+		return nil
+	}
 	return c.Verifications[0].MessageCCVAddresses
 }
 
 func (c *CommitAggregatedReport) GetMessageExecutorAddress() protocol.UnknownAddress {
+	if len(c.Verifications) == 0 {
+		return protocol.UnknownAddress{}
+	}
 	return c.Verifications[0].MessageExecutorAddress
 }
 
 func (c *CommitAggregatedReport) GetVersion() []byte {
+	if len(c.Verifications) == 0 {
+		return nil
+	}
 	return c.Verifications[0].CCVVersion
 }
 
