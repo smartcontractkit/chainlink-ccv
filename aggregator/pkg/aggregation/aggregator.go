@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sourcegraph/conc/pool"
@@ -36,8 +37,10 @@ type CommitReportAggregator struct {
 	l                     logger.SugaredLogger
 	monitoring            common.AggregatorMonitoring
 
-	mu   sync.RWMutex
-	done chan struct{}
+	mu                   sync.RWMutex
+	done                 chan struct{}
+	maxConsecutiveErrors uint32
+	consecutiveErrors    atomic.Uint32
 }
 
 type aggregationRequest struct {
@@ -187,6 +190,11 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 							}
 						}()
 						_, err = c.checkAggregationAndSubmitComplete(poolCtx, request)
+						if err != nil {
+							c.consecutiveErrors.Add(1)
+						} else {
+							c.consecutiveErrors.Store(0)
+						}
 						return err
 					}()
 				})
@@ -209,6 +217,12 @@ func (c *CommitReportAggregator) Ready() error {
 	case <-c.done:
 		return fmt.Errorf("aggregation worker stopped")
 	default:
+	}
+
+	if c.maxConsecutiveErrors != 0 {
+		if c.consecutiveErrors.Load() >= c.maxConsecutiveErrors {
+			return fmt.Errorf("aggregation worker failed %d times in a row", c.consecutiveErrors.Load())
+		}
 	}
 
 	lggr := c.logger(context.Background())
@@ -259,6 +273,7 @@ func NewCommitReportAggregator(storage common.CommitVerificationStore, aggregate
 		channelManager:        channelManager,
 		backgroundWorkerCount: config.Aggregation.BackgroundWorkerCount,
 		operationTimeout:      config.Aggregation.OperationTimeout,
+		maxConsecutiveErrors:  config.Aggregation.MaxConsecutiveErrors,
 		quorum:                quorum,
 		monitoring:            monitoring,
 		l:                     logger,

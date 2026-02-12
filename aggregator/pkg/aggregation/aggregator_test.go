@@ -3,6 +3,7 @@ package aggregation
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -463,6 +464,66 @@ func TestHealthCheck_RecoversPanicEmitsMetricAndKeepsRunning(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	require.NoError(t, a.Ready())
+}
+
+func TestHealthCheck_ReturnsErrorAfterConsecutiveWorkerFailures(t *testing.T) {
+	store := mocks.NewMockCommitVerificationStore(t)
+	sink := mocks.NewMockSink(t)
+	monitoring := mocks.NewMockAggregatorMonitoring(t)
+	metric := mocks.NewMockAggregatorMetricLabeler(t)
+	monitoring.EXPECT().Metrics().Return(metric).Maybe()
+	metric.EXPECT().IncrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
+	metric.EXPECT().DecrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
+	metric.EXPECT().With(mock.Anything, mock.Anything).Return(metric).Maybe()
+
+	var listCallCount atomic.Int32
+	storageErr := errors.New("storage error")
+	store.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ model.MessageID, _ model.AggregationKey) ([]*model.CommitVerificationRecord, error) {
+			callNum := listCallCount.Add(1)
+			if callNum <= 3 {
+				return nil, storageErr
+			}
+			return []*model.CommitVerificationRecord{}, nil
+		}).Maybe()
+
+	quorum := mocks.NewMockQuorumValidator(t)
+	quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(false, nil).Maybe()
+
+	config := &model.AggregatorConfig{
+		Aggregation: model.AggregationConfig{
+			ChannelBufferSize:     10,
+			BackgroundWorkerCount: 1,
+			MaxConsecutiveErrors:  3,
+		},
+	}
+	channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
+	a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+
+	ctx := t.Context()
+	a.StartBackground(ctx)
+
+	time.Sleep(50 * time.Millisecond)
+	require.NoError(t, a.Ready(), "should be ready after start")
+
+	_ = a.CheckAggregation([]byte{1}, "key-1", "test-client", time.Millisecond)
+	_ = a.CheckAggregation([]byte{2}, "key-2", "test-client", time.Millisecond)
+	_ = a.CheckAggregation([]byte{3}, "key-3", "test-client", time.Millisecond)
+
+	require.Eventually(t, func() bool {
+		err := a.Ready()
+		return err != nil
+	}, 5*time.Second, 20*time.Millisecond, "Ready() should return error after 3 consecutive worker failures")
+
+	err := a.Ready()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "times in a row")
+
+	_ = a.CheckAggregation([]byte{4}, "key-4", "test-client", time.Millisecond)
+
+	require.Eventually(t, func() bool {
+		return a.Ready() == nil
+	}, 5*time.Second, 20*time.Millisecond, "Ready() should return nil again after a successful aggregation")
 }
 
 // helpers.
