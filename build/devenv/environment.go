@@ -14,6 +14,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
@@ -184,7 +185,7 @@ func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers [
 				continue
 			}
 			if nop.SignerAddressByFamily[chainsel.FamilyEVM] == "" {
-				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, ver.SigningKeyPublic)
+				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, ver.SigningAddress)
 			}
 			if nop.SignerAddressByFamily[chainsel.FamilyCanton] == "" {
 				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyCanton, ver.SigningKeyPublic)
@@ -624,11 +625,12 @@ func NewEnvironment() (in *Cfg, err error) {
 			if err != nil {
 				return nil, fmt.Errorf("failed to load private key: %w", err)
 			}
-			_, publicKey, err := commit.NewECDSAMessageSigner(privateKey)
+			_, pubKey, address, err := commit.NewECDSAMessageSigner(privateKey)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create message signer: %w", err)
 			}
-			ver.SigningKeyPublic = publicKey.String()
+			ver.SigningKeyPublic = hexutil.Encode(pubKey)
+			ver.SigningAddress = address.String()
 
 		default:
 			return nil, fmt.Errorf("unsupported verifier mode: %s", ver.Mode)

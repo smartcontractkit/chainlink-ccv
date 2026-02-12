@@ -79,9 +79,10 @@ func TestNewECDSAMessageSigner(t *testing.T) {
 
 	privateKeyBytes := crypto.FromECDSA(privateKey)
 
-	signer, addr, err := NewECDSAMessageSigner(privateKeyBytes)
+	signer, pubKey, addr, err := NewECDSAMessageSigner(privateKeyBytes)
 	require.NoError(t, err)
 	require.NotNil(t, signer)
+	require.NotNil(t, pubKey)
 
 	expectedAddr := crypto.PubkeyToAddress(privateKey.PublicKey)
 	require.Equal(t, expectedAddr[:], []byte(addr))
@@ -94,9 +95,10 @@ func TestNewECDSAMessageSignerFromString(t *testing.T) {
 	privateKeyBytes := crypto.FromECDSA(privateKey)
 	privateKeyHex := "0x" + hex.EncodeToString(privateKeyBytes)
 
-	signer, addr, err := NewECDSAMessageSignerFromString(privateKeyHex)
+	signer, pubKey, addr, err := NewECDSAMessageSignerFromString(privateKeyHex)
 	require.NoError(t, err)
 	require.NotNil(t, signer)
+	require.NotNil(t, pubKey)
 
 	expectedAddr := crypto.PubkeyToAddress(privateKey.PublicKey)
 	require.Equal(t, expectedAddr[:], []byte(addr))
