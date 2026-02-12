@@ -14,9 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-var (
-	_ protocol.HealthReporter = (*OrphanRecoverer)(nil)
-)
+var _ protocol.HealthReporter = (*OrphanRecoverer)(nil)
 
 type OrphanRecoverer struct {
 	config        *model.AggregatorConfig
