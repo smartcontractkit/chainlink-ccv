@@ -125,18 +125,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create chain status manager (PostgreSQL storage).
-	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr, config.VerifierID)
-	if err != nil {
-		lggr.Errorw("Failed to create chain status manager", "error", err)
-		os.Exit(1)
-	}
-	defer func() {
-		if chainStatusDB != nil {
-			_ = chainStatusDB.Close()
-		}
-	}()
-
 	registry := accessors.NewRegistry(blockchainHelper)
 	cmd.RegisterEVM(ctx, registry, lggr, blockchainHelper, config.OnRampAddresses, config.RMNRemoteAddresses)
 	cmd.RegisterCanton(ctx, registry, lggr, blockchainHelper, config.CantonConfigs)
@@ -202,6 +190,18 @@ func main() {
 	lggr.Infow("Using signer address", "address", publicKey)
 
 	verifierMonitoring := cmd.SetupMonitoring(lggr, config.Monitoring)
+
+	// Create chain status manager (PostgreSQL storage) with monitoring decorator
+	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr, config.VerifierID, verifierMonitoring)
+	if err != nil {
+		lggr.Errorw("Failed to create chain status manager", "error", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if chainStatusDB != nil {
+			_ = chainStatusDB.Close()
+		}
+	}()
 
 	// Create commit verifier
 	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, publicKey, signer, lggr, verifierMonitoring)
@@ -344,10 +344,13 @@ func loadConfiguration(filepath string) (*commit.Config, map[string]*blockchain.
 	return &config.Config, config.BlockchainInfos, nil
 }
 
-func createChainStatusManager(lggr logger.Logger, verifierID string) (protocol.ChainStatusManager, *sqlx.DB, error) {
+func createChainStatusManager(lggr logger.Logger, verifierID string, monitoring verifier.Monitoring) (protocol.ChainStatusManager, *sqlx.DB, error) {
 	sqlDB, err := cmd.ConnectToPostgresDB(lggr)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect to Postgres DB: %w", err)
 	}
-	return chainstatus.NewPostgresChainStatusManager(sqlDB, lggr, verifierID), sqlDB, nil
+	chainStatusManager := chainstatus.NewPostgresChainStatusManager(sqlDB, lggr, verifierID)
+	// Wrap with monitoring decorator to track query durations
+	monitoredManager := chainstatus.NewMonitoredChainStatusManager(chainStatusManager, monitoring.Metrics())
+	return monitoredManager, sqlDB, nil
 }

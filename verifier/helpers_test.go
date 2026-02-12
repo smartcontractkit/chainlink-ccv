@@ -165,6 +165,14 @@ func (m *noopMetricLabeler) SetVerifierHeartbeatTimestamp(ctx context.Context, t
 func (m *noopMetricLabeler) SetVerifierHeartbeatSentChainHeads(ctx context.Context, height uint64)  {}
 func (m *noopMetricLabeler) SetVerifierHeartbeatChainHeads(ctx context.Context, height uint64)      {}
 func (m *noopMetricLabeler) SetVerifierHeartbeatScore(ctx context.Context, score float64)           {}
+func (m *noopMetricLabeler) IncrementActiveRequestsCounter(ctx context.Context)                     {}
+func (m *noopMetricLabeler) IncrementHTTPRequestCounter(ctx context.Context)                        {}
+func (m *noopMetricLabeler) DecrementActiveRequestsCounter(ctx context.Context)                     {}
+func (m *noopMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path, method string, status int) {
+}
+
+func (m *noopMetricLabeler) RecordStorageQueryDuration(ctx context.Context, method string, duration time.Duration) {
+}
 
 type NoopLatencyTracker struct{}
 

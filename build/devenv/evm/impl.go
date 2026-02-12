@@ -50,6 +50,7 @@ import (
 	cantonadapters "github.com/smartcontractkit/chainlink-ccv/devenv/canton/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -1394,9 +1395,9 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 	}
 
 	mcmsReaderRegistry := changesetscore.GetRegistry()
-	chainFamilyRegistry := adapters.NewChainFamilyRegistry()
-	chainFamilyRegistry.RegisterChainFamily("evm", &evmadapters.ChainFamilyAdapter{})
-	chainFamilyRegistry.RegisterChainFamily("canton", cantonadapters.NewChainFamilyAdapter(&evmadapters.ChainFamilyAdapter{}))
+	// Use the global chain family registry. We expect the relevant chain families to be already registered.
+	chainFamilyRegistry := registry.GetGlobalChainFamilyRegistry()
+
 	_, err := ccvchangesets.ConfigureChainsForLanesFromTopology(chainFamilyRegistry, mcmsReaderRegistry).Apply(*e, ccvchangesets.ConfigureChainsForLanesFromTopologyConfig{
 		Topology: topology,
 		Chains: []ccvchangesets.PartialChainConfig{
