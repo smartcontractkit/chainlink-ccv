@@ -822,35 +822,52 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	// Set TLS CA cert for indexer (all aggregators share the same CA)
-	if sharedTLSCerts != nil {
-		in.Indexer.TLSCACertFile = sharedTLSCerts.CACertFile
-		// Update discovery config to use nginx TLS proxy
-		if len(in.Aggregator) > 0 && in.Aggregator[0].Out != nil {
-			in.Indexer.IndexerConfig.Discovery.Address = in.Aggregator[0].Out.Address
+	if sharedTLSCerts == nil {
+		return nil, fmt.Errorf("shared TLS certificates are required for indexer")
+	}
+	in.Indexer.TLSCACertFile = sharedTLSCerts.CACertFile
+	// Update discovery config to use nginx TLS proxy
+
+	in.Indexer.IndexerConfig.Discoveries = make([]config.DiscoveryConfig, len(in.Aggregator))
+	for i, agg := range in.Aggregator {
+		if agg.Out != nil {
+			in.Indexer.IndexerConfig.Discoveries[i].Address = agg.Out.Address
+			if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
+				in.Indexer.IndexerConfig.Discoveries[i].APIKey = creds.APIKey
+				in.Indexer.IndexerConfig.Discoveries[i].Secret = creds.Secret
+			}
+		}
+		// apply defaults if not set
+		if in.Indexer.IndexerConfig.Discoveries[i].PollInterval == 0 {
+			in.Indexer.IndexerConfig.Discoveries[i].PollInterval = 500
+		}
+		if in.Indexer.IndexerConfig.Discoveries[i].Timeout == 0 {
+			in.Indexer.IndexerConfig.Discoveries[i].Timeout = 5000
+		}
+		if in.Indexer.IndexerConfig.Discoveries[i].NtpServer == "" {
+			in.Indexer.IndexerConfig.Discoveries[i].NtpServer = "time.google.com"
 		}
 	}
 
 	// Inject generated credentials into indexer secrets for aggregator connections
 	if in.Indexer != nil && in.Indexer.Secrets == nil {
 		in.Indexer.Secrets = &config.SecretsConfig{
-			Verifier: make(map[string]config.VerifierSecrets),
+			Discoveries: make(map[string]config.DiscoverySecrets),
+			Verifier:    make(map[string]config.VerifierSecrets),
 		}
+	}
+	if in.Indexer != nil && in.Indexer.Secrets != nil && in.Indexer.Secrets.Discoveries == nil {
+		in.Indexer.Secrets.Discoveries = make(map[string]config.DiscoverySecrets)
 	}
 	if in.Indexer != nil && in.Indexer.Secrets != nil && in.Indexer.Secrets.Verifier == nil {
 		in.Indexer.Secrets.Verifier = make(map[string]config.VerifierSecrets)
 	}
 
-	// Discovery uses the first aggregator's indexer credentials
-	if len(in.Aggregator) > 0 {
-		if creds, ok := in.Aggregator[0].Out.GetCredentialsForClient("indexer"); ok {
-			in.Indexer.Secrets.Discovery.APIKey = creds.APIKey
-			in.Indexer.Secrets.Discovery.Secret = creds.Secret
-		}
-	}
-
-	// Each verifier config needs credentials from its corresponding aggregator
+	// Each discovery and verifier config needs credentials from its corresponding aggregator
 	for idx, agg := range in.Aggregator {
 		if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
+			disc := config.DiscoverySecrets{APIKey: creds.APIKey, Secret: creds.Secret}
+			in.Indexer.Secrets.Discoveries[strconv.Itoa(idx)] = disc
 			in.Indexer.Secrets.Verifier[strconv.Itoa(idx)] = config.VerifierSecrets{
 				APIKey: creds.APIKey,
 				Secret: creds.Secret,

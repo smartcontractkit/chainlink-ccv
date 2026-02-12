@@ -12,7 +12,7 @@ MetricReaderInterval = 5
 TraceSampleRatio = 1.0
 TraceBatchTimeout = 10
 
-[Discovery]
+[[Discoveries]]
 Address = "aggregator:50051"
 Since = 0
 PollInterval = 1

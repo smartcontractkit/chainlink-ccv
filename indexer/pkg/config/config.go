@@ -30,8 +30,8 @@ type Config struct {
 	LogLevel            string `toml:"LogLevel"`
 	// Monitoring is the configuration for the monitoring system inside the indexer.
 	Monitoring MonitoringConfig `toml:"Monitoring"`
-	// Discovery is the configuration for the discovery system inside the indexer.
-	Discovery DiscoveryConfig `toml:"Discovery"`
+	// Discoveries is the list of discovery configs (aggregators) for message discovery.
+	Discoveries []DiscoveryConfig `toml:"Discoveries"`
 	// Scheduler is the configuration for the scheduling component inside the indexer.
 	Scheduler SchedulerConfig `toml:"Scheduler"`
 	// Pool is the configuration for the worker pool within the indexer.
@@ -268,6 +268,11 @@ func LoadConfigFromBytes(data []byte) (*Config, error) {
 	return &config, nil
 }
 
+// DiscoveryConfigs returns the list of discovery configs to use for message discovery.
+func (c *Config) DiscoveryConfigs() []DiscoveryConfig {
+	return c.Discoveries
+}
+
 // Validate performs basic validation on the configuration.
 // It returns an error if the configuration is invalid.
 func (c *Config) Validate() error {
@@ -275,8 +280,13 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("scheduler config validation failed: %w", err)
 	}
 
-	if err := c.Discovery.Validate(0); err != nil {
-		return fmt.Errorf("discovery config validation failed: %w", err)
+	if len(c.Discoveries) < 1 {
+		return fmt.Errorf("at least one discovery config is required")
+	}
+	for i, d := range c.Discoveries {
+		if err := d.Validate(i); err != nil {
+			return fmt.Errorf("discovery config[%d] validation failed: %w", i, err)
+		}
 	}
 
 	// Validate storage config
@@ -466,6 +476,20 @@ func (a *AggregatorReaderConfig) Validate(index int) error {
 		}
 	}
 
+	return nil
+}
+
+// Validate validates the discovery config (aggregator fields plus PollInterval/Timeout).
+func (d *DiscoveryConfig) Validate(index int) error {
+	if err := d.AggregatorReaderConfig.Validate(index); err != nil {
+		return err
+	}
+	if d.PollInterval <= 0 {
+		return fmt.Errorf("discovery[%d]: poll interval must be greater than 0", index)
+	}
+	if d.Timeout <= 0 || d.Timeout <= d.PollInterval {
+		return fmt.Errorf("discovery[%d]: timeout must be greater than poll interval", index)
+	}
 	return nil
 }
 

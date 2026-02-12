@@ -385,8 +385,15 @@ MetricReaderInterval = 5
 TraceSampleRatio = 1.0
 TraceBatchTimeout = 10
 
-[indexer.indexer_config.Discovery]
+[[indexer.indexer_config.Discoveries]]
 Address = "default-aggregator:50051"
+Since = 0
+PollInterval = 500
+Timeout = 5000
+NtpServer = "time.google.com"
+
+[[indexer.indexer_config.Discoveries]]
+Address = "secondary-aggregator:50051"
 Since = 0
 PollInterval = 500
 Timeout = 5000
