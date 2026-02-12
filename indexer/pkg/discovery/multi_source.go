@@ -93,7 +93,6 @@ func (m *MultiSourceMessageDiscovery) merge(ctx context.Context, chans []<-chan 
 	}
 	recvCh := make(chan recv, len(chans)*2)
 	for _, ch := range chans {
-		ch := ch
 		go func() {
 			for {
 				select {
@@ -120,6 +119,7 @@ func (m *MultiSourceMessageDiscovery) merge(ctx context.Context, chans []<-chan 
 			return
 		case r := <-recvCh:
 			if _, found := m.seen.Get(r.msg.VerifierResult.MessageID); found {
+				m.logger.Infow("messageID already discovered from different source, skipping", "messageID", r.msg.VerifierResult.MessageID)
 				continue
 			}
 			m.seen.Add(r.msg.VerifierResult.MessageID, struct{}{})

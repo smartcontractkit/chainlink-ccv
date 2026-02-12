@@ -827,19 +827,30 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	// Set TLS CA cert for indexer (all aggregators share the same CA)
-	if sharedTLSCerts != nil {
-		in.Indexer.TLSCACertFile = sharedTLSCerts.CACertFile
-		// Update discovery config to use nginx TLS proxy
+	if sharedTLSCerts == nil {
+		return nil, fmt.Errorf("shared TLS certificates are required for indexer")
+	}
+	in.Indexer.TLSCACertFile = sharedTLSCerts.CACertFile
+	// Update discovery config to use nginx TLS proxy
 
-		in.Indexer.IndexerConfig.Discoveries = make([]config.DiscoveryConfig, len(in.Aggregator))
-		for i, agg := range in.Aggregator {
-			if agg.Out != nil {
-				in.Indexer.IndexerConfig.Discoveries[i].Address = agg.Out.Address
-				if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
-					in.Indexer.IndexerConfig.Discoveries[i].APIKey = creds.APIKey
-					in.Indexer.IndexerConfig.Discoveries[i].Secret = creds.Secret
-				}
+	in.Indexer.IndexerConfig.Discoveries = make([]config.DiscoveryConfig, len(in.Aggregator))
+	for i, agg := range in.Aggregator {
+		if agg.Out != nil {
+			in.Indexer.IndexerConfig.Discoveries[i].Address = agg.Out.Address
+			if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
+				in.Indexer.IndexerConfig.Discoveries[i].APIKey = creds.APIKey
+				in.Indexer.IndexerConfig.Discoveries[i].Secret = creds.Secret
 			}
+		}
+		// apply defaults if not set
+		if in.Indexer.IndexerConfig.Discoveries[i].PollInterval == 0 {
+			in.Indexer.IndexerConfig.Discoveries[i].PollInterval = 500
+		}
+		if in.Indexer.IndexerConfig.Discoveries[i].Timeout == 0 {
+			in.Indexer.IndexerConfig.Discoveries[i].Timeout = 5000
+		}
+		if in.Indexer.IndexerConfig.Discoveries[i].NtpServer == "" {
+			in.Indexer.IndexerConfig.Discoveries[i].NtpServer = "time.google.com"
 		}
 	}
 
