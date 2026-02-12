@@ -29,8 +29,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/jobs"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/stellar"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -150,8 +150,9 @@ func checkKeys(in *Cfg) error {
 	return nil
 }
 
-func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Configuration, error) {
-	switch typ {
+func NewProductConfigurationFromNetwork(family string, chainID string) (cciptestinterfaces.CCIP17Configuration, error) {
+	// TODO: remove the defaults (evm and canton) later
+	switch family {
 	case "anvil":
 		return evm.NewEmptyCCIP17EVM(), nil
 	case "canton":
@@ -163,17 +164,21 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Co
 				Fields(map[string]any{"component": "Canton"}).
 				Logger(),
 		), nil
-	case "stellar":
-		return stellar.New(
-			log.
-				Output(zerolog.ConsoleWriter{Out: os.Stderr}).
-				Level(zerolog.DebugLevel).
-				With().
-				Fields(map[string]any{"component": "Stellar"}).
-				Logger(),
-		), nil
+	// Attempt to get the implementation from the global impls registry
 	default:
-		return nil, errors.New("unknown devenv network type " + typ)
+		// Get the chain details for the chain ID and family
+		details, err := chainsel.GetChainDetailsByChainIDAndFamily(chainID, family)
+		if err != nil {
+			return nil, fmt.Errorf("getting chain details for chain ID %s and family %s: %w", chainID, family, err)
+		}
+
+		// Check the global impl registry for the family
+		impl, ok := registry.GetGlobalChainImplRegistry().Get(details.ChainSelector)
+		if !ok {
+			return nil, errors.New("unknown devenv network type " + family)
+		}
+
+		return impl.(cciptestinterfaces.CCIP17Configuration), nil
 	}
 }
 
@@ -472,7 +477,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	impls := make([]cciptestinterfaces.CCIP17Configuration, 0)
 	for _, bc := range in.Blockchains {
 		var impl cciptestinterfaces.CCIP17Configuration
-		impl, err = NewProductConfigurationFromNetwork(bc.Type)
+		impl, err = NewProductConfigurationFromNetwork(bc.Type, bc.ChainID)
 		if err != nil {
 			return nil, err
 		}

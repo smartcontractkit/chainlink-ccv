@@ -550,17 +550,12 @@ var fundAddressesCmd = &cobra.Command{
 			return fmt.Errorf("blockchain with chain ID %s not found, please update the env file or use a different chain-selector", chainIDStr)
 		}
 
-		impl, err := ccv.NewProductConfigurationFromNetwork(input.Type)
+		impl, err := ccv.NewProductConfigurationFromNetwork(input.Type, input.ChainID)
 		if err != nil {
 			return fmt.Errorf("failed to create product configuration: %w", err)
 		}
 
-		err = impl.FundAddresses(cmd.Context(), input, unknownAddresses, amountBig)
-		if err != nil {
-			return fmt.Errorf("failed to fund addresses: %w", err)
-		}
-
-		return nil
+		return impl.FundAddresses(cmd.Context(), input, unknownAddresses, amountBig)
 	},
 }
 

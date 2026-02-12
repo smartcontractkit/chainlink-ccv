@@ -54,7 +54,6 @@ require (
 	github.com/smartcontractkit/chainlink-testing-framework/wasp v1.51.2
 	github.com/smartcontractkit/chainlink/deployment v0.0.0-20260126202327-6be9a05f0caf
 	github.com/spf13/cobra v1.10.1
-	github.com/stellar/go-stellar-sdk v0.1.0
 	google.golang.org/grpc v1.78.0
 )
 
@@ -86,6 +85,7 @@ require (
 	github.com/smartcontractkit/chainlink/v2 v2.29.0 // indirect
 	github.com/sony/gobreaker/v2 v2.1.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
+	github.com/stellar/go-stellar-sdk v0.1.0 // indirect
 	github.com/stellar/go-xdr v0.0.0-20231122183749-b53fb00bcac2 // indirect
 	github.com/tjhop/slog-gokit v0.1.4 // indirect
 	github.com/vektah/gqlparser/v2 v2.5.14 // indirect
