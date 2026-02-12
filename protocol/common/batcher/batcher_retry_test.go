@@ -13,7 +13,9 @@ func TestBatcher_RetryBasic(t *testing.T) {
 	maxSize := 10
 	maxWait := 50 * time.Millisecond // Short maxWait so retry ticker runs every 100ms
 
-	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
+	b := NewBatcher[int](maxSize, maxWait, 10)
+	b.Start(ctx)
+	batcher := b
 	t.Cleanup(func() {
 		cancel()
 		_ = batcher.Close()
@@ -47,7 +49,9 @@ func TestBatcher_RetryWithSizeBasedFlush(t *testing.T) {
 	maxSize := 5
 	maxWait := 50 * time.Millisecond // Short wait for retry ticker
 
-	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
+	b := NewBatcher[int](maxSize, maxWait, 10)
+	b.Start(ctx)
+	batcher := b
 	t.Cleanup(func() {
 		cancel()
 		_ = batcher.Close()
@@ -80,7 +84,9 @@ func TestBatcher_RetryMixedWithAdd(t *testing.T) {
 	maxSize := 10
 	maxWait := 100 * time.Millisecond
 
-	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
+	b := NewBatcher[int](maxSize, maxWait, 10)
+	b.Start(ctx)
+	batcher := b
 	t.Cleanup(func() {
 		cancel()
 		_ = batcher.Close()
@@ -130,7 +136,9 @@ func TestBatcher_RetryMultipleBatchesWithDifferentDelays(t *testing.T) {
 	maxSize := 10
 	maxWait := 50 * time.Millisecond
 
-	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
+	b := NewBatcher[int](maxSize, maxWait, 10)
+	b.Start(ctx)
+	batcher := b
 
 	// Schedule first retry batch with short delay
 	firstRetry := []int{1, 2}
@@ -184,7 +192,9 @@ func TestBatcher_RetryPreservesOrder(t *testing.T) {
 	maxSize := 10
 	maxWait := 100 * time.Millisecond
 
-	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
+	b := NewBatcher[int](maxSize, maxWait, 10)
+	b.Start(ctx)
+	batcher := b
 
 	// Retry items in specific order
 	retryItems := []int{5, 3, 9, 1, 7}
@@ -217,7 +227,9 @@ func TestBatcher_RetryEmptySlice(t *testing.T) {
 	maxSize := 10
 	maxWait := 100 * time.Millisecond
 
-	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
+	b := NewBatcher[int](maxSize, maxWait, 10)
+	b.Start(ctx)
+	batcher := b
 
 	// Retry empty slice should not cause issues
 	err := batcher.Retry(50 * time.Millisecond)
@@ -246,7 +258,9 @@ func TestBatcher_RetryZeroDelay(t *testing.T) {
 	maxSize := 10
 	maxWait := 50 * time.Millisecond // Short maxWait so retry ticker runs every 100ms
 
-	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
+	b := NewBatcher[int](maxSize, maxWait, 10)
+	b.Start(ctx)
+	batcher := b
 
 	// Retry with zero delay - should be processed on next retry ticker
 	retryItems := []int{1, 2, 3}
@@ -278,7 +292,9 @@ func TestBatcher_ConcurrentRetries(t *testing.T) {
 	maxSize := 50
 	maxWait := 100 * time.Millisecond
 
-	batcher := NewBatcher[int](ctx, maxSize, maxWait, 100)
+	b := NewBatcher[int](maxSize, maxWait, 100)
+	b.Start(ctx)
+	batcher := b
 
 	// Concurrently schedule retries from multiple goroutines
 	numGoroutines := 5

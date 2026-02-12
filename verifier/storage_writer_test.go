@@ -104,7 +104,6 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 
 		fakeStorage := NewFakeCCVNodeDataWriter()
 		processor, processorBatcher, err := NewStorageBatcherProcessor(
-			ctx,
 			lggr,
 			"test-verifier",
 			NoopLatencyTracker{},
@@ -116,6 +115,10 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
+
+		processorCtx, processorCancel := context.WithCancel(ctx)
+		t.Cleanup(processorCancel)
+		processorBatcher.Start(processorCtx)
 
 		batch1 := []protocol.VerifierNodeResult{
 			createTestVerifierNodeResult(1),
@@ -129,9 +132,6 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 		batch3 := []protocol.VerifierNodeResult{
 			createTestVerifierNodeResult(6),
 		}
-
-		processorCtx, processorCancel := context.WithCancel(ctx)
-		t.Cleanup(processorCancel)
 
 		done := make(chan struct{})
 		go func() {
@@ -189,7 +189,6 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
 		processor, processorBatcher, err := NewStorageBatcherProcessor(
-			ctx,
 			lggr,
 			"test-verifier",
 			NoopLatencyTracker{},
@@ -201,6 +200,7 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
+		processorBatcher.Start(ctx)
 
 		done := make(chan struct{})
 		go func() {
@@ -249,7 +249,6 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
 		processor, processorBatcher, err := NewStorageBatcherProcessor(
-			ctx,
 			lggr,
 			"test-verifier",
 			NoopLatencyTracker{},
@@ -261,6 +260,7 @@ func TestStorageWriterProcessor_ProcessBatchesSuccessfully(t *testing.T) {
 			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
+		processorBatcher.Start(ctx)
 
 		done := make(chan struct{})
 		go func() {
@@ -302,11 +302,11 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 		// Note: retry ticker fires every 2*maxWait = 200ms
 		batcherCtx, batcherCancel := context.WithCancel(ctx)
 		testBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](
-			batcherCtx,
 			10,
 			100*time.Millisecond,
 			100,
 		)
+		testBatcher.Start(batcherCtx)
 
 		processor := &StorageWriterProcessor{
 			lggr:           lggr,
@@ -381,11 +381,11 @@ func TestStorageWriterProcessor_RetryFailedBatches(t *testing.T) {
 
 		batcherCtx, batcherCancel := context.WithCancel(ctx)
 		testBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](
-			batcherCtx,
 			10,
 			100*time.Millisecond,
 			100,
 		)
+		testBatcher.Start(batcherCtx)
 
 		processor := &StorageWriterProcessor{
 			lggr:           lggr,
@@ -467,7 +467,6 @@ func TestStorageWriterProcessor_ContextCancellation(t *testing.T) {
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
 		processor, _, err := NewStorageBatcherProcessor(
-			ctx,
 			lggr,
 			"test-verifier",
 			NoopLatencyTracker{},
@@ -616,7 +615,6 @@ func setupCheckpointTest(t *testing.T) *checkpointTestSetup {
 	tracker := NewPendingWritingTracker(lggr)
 
 	processor, processorBatcher, err := NewStorageBatcherProcessor(
-		ctx,
 		lggr,
 		"test-verifier",
 		NoopLatencyTracker{},
@@ -629,6 +627,7 @@ func setupCheckpointTest(t *testing.T) *checkpointTestSetup {
 	)
 	require.NoError(t, err)
 
+	processorBatcher.Start(ctx)
 	return &checkpointTestSetup{
 		processor:       processor,
 		batcher:         processorBatcher,

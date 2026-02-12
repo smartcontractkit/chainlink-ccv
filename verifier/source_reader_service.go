@@ -62,7 +62,6 @@ type SourceReaderService struct {
 
 // NewSourceReaderService Constructor: same style as SRS.
 func NewSourceReaderService(
-	ctx context.Context,
 	sourceReader chainaccess.SourceReader,
 	chainSelector protocol.ChainSelector,
 	chainStatusManager protocol.ChainStatusManager,
@@ -128,7 +127,6 @@ func NewSourceReaderService(
 
 	batchSize, batchTimeout := readerConfigWithDefaults(lggr, sourceCfg)
 	readyTaskBatcher := batcher.NewBatcher[VerificationTask](
-		ctx,
 		batchSize,
 		batchTimeout,
 		1,
@@ -166,6 +164,7 @@ func (r *SourceReaderService) ReadyTasksChannel() <-chan batcher.BatchResult[Ver
 func (r *SourceReaderService) Start(ctx context.Context) error {
 	return r.StartOnce(r.Name(), func() error {
 		r.logger.Infow("Starting SourceReaderService")
+		r.readyTasksBatcher.Start(ctx)
 
 		startBlock, err := r.initializeStartBlock(ctx)
 		if err != nil {

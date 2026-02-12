@@ -13,7 +13,9 @@ func TestBatcher_SizeBasedFlush(t *testing.T) {
 	maxSize := 5
 	maxWait := 1 * time.Second
 
-	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
+	b := NewBatcher[int](maxSize, maxWait, 10)
+	b.Start(ctx)
+	batcher := b
 
 	// Add exactly maxSize items
 	for i := range maxSize {
@@ -45,7 +47,9 @@ func TestBatcher_TimeBasedFlush(t *testing.T) {
 	maxSize := 100
 	maxWait := 50 * time.Millisecond
 
-	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
+	b := NewBatcher[int](maxSize, maxWait, 10)
+	b.Start(ctx)
+	batcher := b
 
 	// Add just 3 items (well below maxSize)
 	for i := range 3 {
@@ -77,7 +81,9 @@ func TestBatcher_InsertionOrder(t *testing.T) {
 	maxSize := 10
 	maxWait := 1 * time.Second
 
-	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
+	b := NewBatcher[int](maxSize, maxWait, 10)
+	b.Start(ctx)
+	batcher := b
 
 	// Add items in specific order
 	expectedOrder := []int{5, 3, 9, 1, 7, 2, 8, 4, 6, 0}
@@ -106,7 +112,9 @@ func TestBatcher_MultipleBatches(t *testing.T) {
 	maxSize := 3
 	maxWait := 1 * time.Second
 
-	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
+	b := NewBatcher[int](maxSize, maxWait, 10)
+	b.Start(ctx)
+	batcher := b
 
 	// Add items that will trigger multiple batches
 	totalItems := 9
@@ -141,7 +149,9 @@ func TestBatcher_EmptyClose(t *testing.T) {
 	maxSize := 10
 	maxWait := 1 * time.Second
 
-	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
+	b := NewBatcher[int](maxSize, maxWait, 10)
+	b.Start(ctx)
+	batcher := b
 
 	// Cancel context first
 	cancel()
@@ -167,7 +177,9 @@ func TestBatcher_ConcurrentAdds(t *testing.T) {
 	maxSize := 50
 	maxWait := 100 * time.Millisecond
 
-	batcher := NewBatcher[int](ctx, maxSize, maxWait, 100)
+	b := NewBatcher[int](maxSize, maxWait, 100)
+	b.Start(ctx)
+	batcher := b
 
 	// Concurrently add items from multiple goroutines
 	numGoroutines := 10

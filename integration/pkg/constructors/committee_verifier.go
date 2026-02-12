@@ -28,6 +28,7 @@ import (
 // Signing is passed in because it's managed differently in the CL node vs standalone modes.
 // The DataSource is passed in from CL node, or created by standalone mode.
 func NewVerificationCoordinator(
+	ctx context.Context,
 	lggr logger.Logger,
 	cfg commit.Config,
 	aggregatorSecret *hmac.ClientConfig,
@@ -172,7 +173,7 @@ func NewVerificationCoordinator(
 
 	// Create verification coordinator
 	verifierCoordinator, err := verifier.NewCoordinator(
-		context.TODO(),
+		ctx,
 		lggr,
 		commitVerifier,
 		sourceReaders,

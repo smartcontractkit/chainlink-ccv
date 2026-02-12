@@ -50,7 +50,8 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 		Return(attestations, nil).
 		Once()
 
-	ccvDataBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](ctx, 2, 1*time.Minute, 10)
+	ccvDataBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](2, 1*time.Minute, 10)
+	ccvDataBatcher.Start(ctx)
 
 	v := lombard.NewVerifier(lggr, mockAttestationService)
 	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
@@ -114,7 +115,8 @@ func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
 		Return(attestations, nil).
 		Once()
 
-	ccvDataBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](ctx, 1, 1*time.Minute, 10)
+	ccvDataBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](1, 1*time.Minute, 10)
+	ccvDataBatcher.Start(ctx)
 
 	v := lombard.NewVerifier(lggr, mockAttestationService)
 	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
