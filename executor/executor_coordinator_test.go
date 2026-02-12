@@ -390,3 +390,134 @@ func TestMessageExpiration(t *testing.T) {
 		})
 	}
 }
+
+func TestDuplicateMessageIDFromStreamWhileInFlight_IsSkippedAndHandleMessageCalledOnce(t *testing.T) {
+	lggr, hook := logger.TestObserved(t, zapcore.InfoLevel)
+	currentTime := time.Now().UTC()
+	mockTimeProvider := mocks.NewMockTimeProvider(t)
+	mockTimeProvider.EXPECT().GetTime().Return(currentTime).Maybe()
+
+	testMessage := common.MessageWithMetadata{
+		Message: protocol.Message{
+			DestChainSelector:   1,
+			SourceChainSelector: 2,
+			SequenceNumber:      1,
+		},
+		Metadata: common.MessageMetadata{
+			IngestionTimestamp: currentTime,
+		},
+	}
+
+	results := make(chan common.MessageWithMetadata)
+	messageSubscriber := mocks.NewMockMessageSubscriber(t)
+	messageSubscriber.EXPECT().Start(mock.Anything).Return(results, nil, nil)
+
+	unblockHandle := make(chan struct{})
+	mockExecutor := mocks.NewMockExecutor(t)
+	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
+	mockExecutor.EXPECT().CheckValidMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockExecutor.EXPECT().HandleMessage(mock.Anything, mock.Anything).Run(func(context.Context, protocol.Message) {
+		<-unblockHandle
+	}).Return(false, nil).Once()
+
+	leaderElector := mocks.NewMockLeaderElector(t)
+	leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything, mock.Anything).Return(currentTime).Maybe()
+	leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(time.Second).Maybe()
+
+	ec, err := executor.NewCoordinator(
+		lggr,
+		mockExecutor,
+		messageSubscriber,
+		leaderElector,
+		monitoring.NewNoopExecutorMonitoring(),
+		8*time.Hour,
+		mockTimeProvider,
+		1,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, ec)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	require.NoError(t, ec.Start(ctx))
+	defer func() { _ = ec.Close() }()
+
+	results <- testMessage
+	time.Sleep(1500 * time.Millisecond)
+
+	results <- testMessage
+	time.Sleep(500 * time.Millisecond)
+
+	close(unblockHandle)
+	time.Sleep(500 * time.Millisecond)
+
+	require.True(t, mock.AssertExpectationsForObjects(t, mockExecutor))
+	found := func(s string) bool {
+		for _, entry := range hook.All() {
+			if strings.Contains(fmt.Sprintf("%+v", entry), s) {
+				return true
+			}
+		}
+		return false
+	}
+	require.True(t, found("message already in flight, skipping"), "expected skip log for duplicate in-flight message")
+}
+
+func TestDuplicateMessageIDFromStreamWhenAlreadyInHeap_IsSkippedByHeapAndHandleMessageCalledOnce(t *testing.T) {
+	lggr := logger.Test(t)
+	currentTime := time.Now().UTC()
+	mockTimeProvider := mocks.NewMockTimeProvider(t)
+	mockTimeProvider.EXPECT().GetTime().Return(currentTime).Maybe()
+
+	testMessage := common.MessageWithMetadata{
+		Message: protocol.Message{
+			DestChainSelector:   1,
+			SourceChainSelector: 2,
+			SequenceNumber:      1,
+		},
+		Metadata: common.MessageMetadata{
+			IngestionTimestamp: currentTime,
+		},
+	}
+
+	results := make(chan common.MessageWithMetadata)
+	messageSubscriber := mocks.NewMockMessageSubscriber(t)
+	messageSubscriber.EXPECT().Start(mock.Anything).Return(results, nil, nil).Run(func(context.Context) {
+		go func() {
+			results <- testMessage
+			results <- testMessage
+		}()
+	})
+
+	mockExecutor := mocks.NewMockExecutor(t)
+	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
+	mockExecutor.EXPECT().CheckValidMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockExecutor.EXPECT().HandleMessage(mock.Anything, mock.Anything).Return(false, nil).Once()
+
+	leaderElector := mocks.NewMockLeaderElector(t)
+	leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything, mock.Anything).Return(currentTime).Maybe()
+	leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(time.Second).Maybe()
+
+	ec, err := executor.NewCoordinator(
+		lggr,
+		mockExecutor,
+		messageSubscriber,
+		leaderElector,
+		monitoring.NewNoopExecutorMonitoring(),
+		8*time.Hour,
+		mockTimeProvider,
+		1,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, ec)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	require.NoError(t, ec.Start(ctx))
+	defer func() { _ = ec.Close() }()
+
+	time.Sleep(2 * time.Second)
+	require.True(t, mock.AssertExpectationsForObjects(t, mockExecutor))
+}

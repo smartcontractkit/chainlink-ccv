@@ -154,7 +154,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 			}
 
 			// Check that returned messages have expected nonces
-			var actualNonces []uint64
+			actualNonces := make([]uint64, 0, len(result))
 			for _, payload := range result {
 				actualNonces = append(actualNonces, uint64(payload.Message.SequenceNumber))
 			}
