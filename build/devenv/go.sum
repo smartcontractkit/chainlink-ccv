@@ -1106,8 +1106,8 @@ github.com/smartcontractkit/chain-selectors v1.0.92 h1:cEapBC3DBDKNAZddp01Xj1qAA
 github.com/smartcontractkit/chain-selectors v1.0.92/go.mod h1:qy7whtgG5g+7z0jt0nRyii9bLND9m15NZTzuQPkMZ5w=
 github.com/smartcontractkit/chainlink-aptos v0.0.0-20251212131933-e5e85d6fa4d3 h1:bbVSKb++R+rpLkydNvyS4nZPNkcjtolUuFC8YVwtMVk=
 github.com/smartcontractkit/chainlink-aptos v0.0.0-20251212131933-e5e85d6fa4d3/go.mod h1:OywVThRaVXwknATT2B8QAwjOJ1LoYBB9bTsmRpf6RPw=
-github.com/smartcontractkit/chainlink-canton v0.0.0-20260205203303-a74a56b3565d h1:Nr/kiMTtpHUuxbwz3gULcX4ijxg+fpofFgFhXfEjcTQ=
-github.com/smartcontractkit/chainlink-canton v0.0.0-20260205203303-a74a56b3565d/go.mod h1:nFmWvUy8OOMdJiqFWbsicxp/UkGa72oEinn8+yPjPmY=
+github.com/smartcontractkit/chainlink-canton v0.0.0-20260212133859-4c2cdf6ed947 h1:FJoGRpWUjF+NM0KI46+D80PgK1XEz4Tkysgfqv9201Y=
+github.com/smartcontractkit/chainlink-canton v0.0.0-20260212133859-4c2cdf6ed947/go.mod h1:w0FQr0Whc2UWVn7Gx4muoiwGctejXLTkjfmdqGAu8i4=
 github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20260206205333-9187f22f0a04 h1:vjEIvp4U4F/WVJ9+PDp/p3U7pKT1sY7fHTP4I1NPBpQ=
 github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20260206205333-9187f22f0a04/go.mod h1:ZtZ+wtqU9JsJEmbiCsavVVEbhywpgMF7q/IpD9Eaq48=
 github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260206205333-9187f22f0a04 h1:4nu3cVAQdrLqC3Rigc8m6mAo1fKNLkyemVATGHiUZZM=
@@ -1170,6 +1170,8 @@ github.com/smartcontractkit/chainlink/v2 v2.29.0 h1:MyvQ/LAhHw//yDXgo2EvH7jq4NH3
 github.com/smartcontractkit/chainlink/v2 v2.29.0/go.mod h1:6SHH9QHlKh1mKuEhG8Y7nGutUzhQwu1Qrpp/0qLzaR0=
 github.com/smartcontractkit/freeport v0.1.3-0.20250716200817-cb5dfd0e369e h1:Hv9Mww35LrufCdM9wtS9yVi/rEWGI1UnjHbcKKU0nVY=
 github.com/smartcontractkit/freeport v0.1.3-0.20250716200817-cb5dfd0e369e/go.mod h1:T4zH9R8R8lVWKfU7tUvYz2o2jMv1OpGCdpY2j2QZXzU=
+github.com/smartcontractkit/go-daml v0.0.0-20260210143144-5b7934743e90 h1:OV7+IwRX3ed3ItVVpIlH4bbdrwGew12wiv2YcvL2HLw=
+github.com/smartcontractkit/go-daml v0.0.0-20260210143144-5b7934743e90/go.mod h1:K4CKO/jicmLX8mWc5AawF7XT+veiQQjNwA+IdqtAex8=
 github.com/smartcontractkit/grpc-proxy v0.0.0-20240830132753-a7e17fec5ab7 h1:12ijqMM9tvYVEm+nR826WsrNi6zCKpwBhuApq127wHs=
 github.com/smartcontractkit/grpc-proxy v0.0.0-20240830132753-a7e17fec5ab7/go.mod h1:FX7/bVdoep147QQhsOPkYsPEXhGZjeYx6lBSaSXtZOA=
 github.com/smartcontractkit/libocr v0.0.0-20251212213002-0a5e2f907dda h1:OjM+79FRuVZlj0Qd4y+q8Xmz/tEn5y8npqmiQiMMj+w=
@@ -1190,8 +1192,6 @@ github.com/spf13/pflag v1.0.9/go.mod h1:McXfInJRrz4CZXVZOBLb0bTZqETkiAhM9Iw0y3An
 github.com/spf13/pflag v1.0.10 h1:4EBh2KAYBwaONj6b2Ye1GiHfwjqyROoF4RwYO+vPwFk=
 github.com/spf13/pflag v1.0.10/go.mod h1:McXfInJRrz4CZXVZOBLb0bTZqETkiAhM9Iw0y3An2Bg=
 github.com/spkg/bom v0.0.0-20160624110644-59b7046e48ad/go.mod h1:qLr4V1qq6nMqFKkMo8ZTx3f+BZEkzsRUY10Xsm2mwU0=
-github.com/stackman27/go-daml v0.0.0-20260204001938-550ee9d8ab10 h1:vihbDjQcH7ipRkIWQSIWcmjQ/wJQn2G4aBVc+erx4fM=
-github.com/stackman27/go-daml v0.0.0-20260204001938-550ee9d8ab10/go.mod h1:yi458NGE4dlDOhlyCZvQ2XgsIOdHHvepwoHRgEusbo8=
 github.com/stephenlacy/go-ethereum-hdwallet v0.0.0-20230913225845-a4fa94429863 h1:ba4VRWSkRzgdP5hB5OxexIzBXZbSwgcw8bEu06ivGQI=
 github.com/stephenlacy/go-ethereum-hdwallet v0.0.0-20230913225845-a4fa94429863/go.mod h1:oPTjPNrRucLv9mU27iNPj6n0CWWcNFhoXFOLVGJwHCA=
 github.com/streamingfast/logging v0.0.0-20230608130331-f22c91403091 h1:RN5mrigyirb8anBEtdjtHFIufXdacyTi6i4KBfeNXeo=

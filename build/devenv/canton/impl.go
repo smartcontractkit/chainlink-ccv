@@ -11,11 +11,20 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/noders-team/go-daml/pkg/client"
-	"github.com/noders-team/go-daml/pkg/types"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
+
+	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/rmn"
+	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/fee_quoter"
+	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/global_config"
+	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/offramp"
+	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/onramp"
+	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
+	dsutils "github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
+	cantonadapters "github.com/smartcontractkit/chainlink-ccv/devenv/canton/adapters"
+	"github.com/smartcontractkit/go-daml/pkg/client"
+	"github.com/smartcontractkit/go-daml/pkg/types"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/ccvs"
@@ -24,7 +33,6 @@ import (
 	cantonChangesets "github.com/smartcontractkit/chainlink-canton/deployment/changesets"
 	"github.com/smartcontractkit/chainlink-canton/deployment/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -36,31 +44,6 @@ import (
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
-
-// TODO: this is just for the mocked out addresses, not a real restriction on Canton.
-const addressLen = 32
-
-// leftPadBytesWithChar pads the input bytes on the left with the specified character
-// to reach the desired length. If data is already >= length, it truncates to length.
-func leftPadBytesWithChar(data []byte, length int, padChar byte) []byte {
-	if len(data) >= length {
-		return data[:length]
-	}
-	result := make([]byte, length)
-	padLen := length - len(data)
-	for i := range padLen {
-		result[i] = padChar
-	}
-	copy(result[padLen:], data)
-	return result
-}
-
-// cantonAddress creates a Canton mock address by padding with 'c' characters.
-func cantonAddress(name string) []byte {
-	// pad with 'c' because the canton server disallows 'null characters'
-	// in a string (i.e. 0 bytes).
-	return leftPadBytesWithChar([]byte(name), addressLen, 'c')
-}
 
 var (
 	_ cciptestinterfaces.CCIP17              = &Chain{}
@@ -86,11 +69,6 @@ func (c *Chain) ChainFamily() string {
 // ConfigureNodes implements cciptestinterfaces.CCIP17Configuration.
 func (c *Chain) ConfigureNodes(ctx context.Context, blockchain *blockchain.Input) (string, error) {
 	return "", nil // TODO: implement
-}
-
-// ConnectContractsWithSelectors implements cciptestinterfaces.CCIP17Configuration.
-func (c *Chain) ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, committees *deployments.EnvironmentTopology) error {
-	return nil // TODO: implement
 }
 
 // DeployContractsForSelector implements cciptestinterfaces.CCIP17Configuration.
@@ -213,6 +191,12 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 						OnRampAddress: "", // TODO ?
 					},
 				},
+				RMNRemote: sequences.RMNRemoteParams{
+					Template: rmn.RMNRemote{
+						RmnOwner:       types.PARTY(user.PrimaryParty),
+						CursedSubjects: nil,
+					},
+				},
 			},
 		},
 	}
@@ -275,7 +259,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	for i, combo := range devenvcommon.AllTokenCombinations() {
 		addressRef := combo.DestPoolAddressRef()
 		err = runningDS.AddressRefStore.Add(datastore.AddressRef{
-			Address:       contracts.MustNewInstanceID("dst-token-pool-"+strconv.Itoa(i), user.PrimaryParty).InstanceAddress().Hex(),
+			Address:       contracts.MustNewInstanceID("dst-token-pool-" + strconv.Itoa(i)).RawInstanceAddress(types.PARTY(user.PrimaryParty)).InstanceAddress().Hex(),
 			Type:          addressRef.Type,
 			Version:       addressRef.Version,
 			Qualifier:     addressRef.Qualifier,
@@ -287,7 +271,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	}
 	// Add executor refs
 	err = runningDS.AddressRefStore.Add(datastore.AddressRef{
-		Address:       contracts.MustNewInstanceID("executor-1", user.PrimaryParty).InstanceAddress().Hex(),
+		Address:       contracts.MustNewInstanceID("executor-1").RawInstanceAddress(types.PARTY(user.PrimaryParty)).InstanceAddress().Hex(),
 		Type:          datastore.ContractType(executor.ContractType),
 		Version:       executor.Version,
 		Qualifier:     devenvcommon.DefaultExecutorQualifier,
@@ -297,7 +281,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 		return nil, fmt.Errorf("failed to add executor address ref: %w", err)
 	}
 	err = runningDS.AddressRefStore.Add(datastore.AddressRef{
-		Address:       contracts.MustNewInstanceID("executor-proxy-1", user.PrimaryParty).InstanceAddress().Hex(),
+		Address:       contracts.MustNewInstanceID("executor-proxy-1").RawInstanceAddress(types.PARTY(user.PrimaryParty)).InstanceAddress().String(),
 		Type:          datastore.ContractType(executor.ProxyType),
 		Version:       executor.Version,
 		Qualifier:     devenvcommon.DefaultExecutorQualifier,
@@ -306,18 +290,146 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	if err != nil {
 		return nil, fmt.Errorf("failed to add executor proxy address ref: %w", err)
 	}
-	// Add rmn remote refs
-	err = runningDS.AddressRefStore.Add(datastore.AddressRef{
-		Address:       hexutil.Encode(cantonAddress("canton rmn remote")),
-		Type:          datastore.ContractType(rmn_remote.ContractType),
-		Version:       rmn_remote.Version,
-		ChainSelector: selector,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to add rmn remote address ref: %w", err)
-	}
 
 	return runningDS.Seal(), nil
+}
+
+// ConnectContractsWithSelectors implements cciptestinterfaces.CCIP17Configuration.
+func (c *Chain) ConnectContractsWithSelectors(ctx context.Context, env *deployment.Environment, selector uint64, remoteSelectors []uint64, committees *deployments.EnvironmentTopology) error {
+	l := c.logger
+	l.Info().Uint64("FromSelector", selector).Any("ToSelectors", remoteSelectors).Msg("Connecting contracts with selectors")
+	bundle := operations.NewBundle(
+		func() context.Context { return context.Background() },
+		env.Logger,
+		operations.NewMemoryReporter(),
+	)
+	env.OperationsBundle = bundle
+
+	chain := env.BlockChains.CantonChains()[selector]
+	token, err := chain.Participants[0].JWTProvider.Token(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get JWT token: %w", err)
+	}
+
+	// Get Primary Party
+	bindingClient, err := client.NewDamlClient(token, chain.Participants[0].Endpoints.GRPCLedgerAPIURL).
+		WithAdminAddress(chain.Participants[0].Endpoints.AdminAPIURL).
+		Build(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create Daml binding client: %w", err)
+	}
+	defer bindingClient.Close()
+
+	user, err := bindingClient.UserMng.GetUser(ctx, c.helper.GetUserID())
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+
+	formatFunc := func(ref datastore.AddressRef) (contracts.InstanceAddress, error) {
+		return contracts.HexToInstanceAddress(ref.Address), nil
+	}
+
+	// Get InstanceAddresses of Canton contracts
+	globalConfig, err := dsutils.FindAndFormatRef(env.DataStore, datastore.AddressRef{
+		Type: datastore.ContractType(global_config.ContractType),
+	}, selector, formatFunc)
+	if err != nil {
+		return fmt.Errorf("failed to get global config address for chain %d: %w", selector, err)
+	}
+	feeQuoter, err := dsutils.FindAndFormatRef(env.DataStore, datastore.AddressRef{
+		Type: datastore.ContractType(fee_quoter.ContractType),
+	}, selector, formatFunc)
+	if err != nil {
+		return fmt.Errorf("failed to get fee quoter address for chain %d: %w", selector, err)
+	}
+	onRamp, err := dsutils.FindAndFormatRef(env.DataStore, datastore.AddressRef{
+		Type: datastore.ContractType(onramp.ContractType),
+	}, selector, formatFunc)
+	if err != nil {
+		return fmt.Errorf("failed to get on ramp address for chain %d: %w", selector, err)
+	}
+	offRamp, err := dsutils.FindAndFormatRef(env.DataStore, datastore.AddressRef{
+		Type: datastore.ContractType(offramp.ContractType),
+	}, selector, formatFunc)
+	if err != nil {
+		return fmt.Errorf("failed to get off ramp address for chain %d: %w", selector, err)
+	}
+
+	config := cantonChangesets.CantonCSDeps[cantonChangesets.ConfigureChainForLanesConfig]{
+		ChainSelector: selector,
+		Participant:   0,
+		UserName:      c.helper.GetUserID(),
+		Party:         user.PrimaryParty,
+		Config: cantonChangesets.ConfigureChainForLanesConfig{
+			Input: sequences.ConfigureChainForLanesInput{
+				ChainSelector:      0,
+				GlobalConfig:       globalConfig,
+				FeeQuoter:          feeQuoter,
+				OnRamp:             onRamp,
+				OffRamp:            offRamp,
+				CommitteeVerifiers: nil,
+				RemoteChains:       make(map[uint64]adapters.RemoteChainConfig[[]byte, contracts.RawInstanceAddress], len(remoteSelectors)),
+			},
+		},
+	}
+
+	for _, remoteSelector := range remoteSelectors {
+		// TODO: should be moved to the ChainFamily interface.
+		var addressBytesLength uint8
+		family, err := chainsel.GetSelectorFamily(remoteSelector)
+		if err != nil {
+			return fmt.Errorf("failed to get selector family for chain %d: %w", remoteSelector, err)
+		}
+		var chainFamily adapters.ChainFamily
+		switch family {
+		case chainsel.FamilyEVM:
+			addressBytesLength = 20
+			chainFamily = &evmadapters.ChainFamilyAdapter{}
+		case chainsel.FamilyCanton:
+			addressBytesLength = 32
+			chainFamily = cantonadapters.NewChainFamilyAdapter(&evmadapters.ChainFamilyAdapter{})
+		default:
+			return fmt.Errorf("unsupported family %s for chain %d", family, remoteSelector)
+		}
+
+		remoteOnRamp, err := dsutils.FindAndFormatRef(env.DataStore, datastore.AddressRef{
+			Type:    datastore.ContractType(onramp.ContractType),
+			Version: onramp.Version,
+		}, remoteSelector, chainFamily.AddressRefToBytes)
+		if err != nil {
+			return fmt.Errorf("failed to get on ramp address for remote chain %d: %w", remoteSelector, err)
+		}
+		remoteOffRamp, err := dsutils.FindAndFormatRef(env.DataStore, datastore.AddressRef{
+			Type:    datastore.ContractType(offramp.ContractType),
+			Version: offramp.Version,
+		}, remoteSelector, chainFamily.AddressRefToBytes)
+		if err != nil {
+			return fmt.Errorf("failed to get off ramp address for remote chain %d: %w", remoteSelector, err)
+		}
+
+		remoteChainConfig := adapters.RemoteChainConfig[[]byte, contracts.RawInstanceAddress]{
+			AllowTrafficFrom:         true,
+			OnRamps:                  [][]byte{remoteOnRamp},
+			OffRamp:                  remoteOffRamp,
+			DefaultInboundCCVs:       nil,
+			LaneMandatedInboundCCVs:  nil,
+			DefaultOutboundCCVs:      nil,
+			LaneMandatedOutboundCCVs: nil,
+			DefaultExecutor:          "",
+			FeeQuoterDestChainConfig: adapters.FeeQuoterDestChainConfig{},
+			ExecutorDestChainConfig:  adapters.ExecutorDestChainConfig{},
+			AddressBytesLength:       addressBytesLength,
+			BaseExecutionGasCost:     0,
+		}
+		config.Config.Input.RemoteChains[remoteSelector] = remoteChainConfig
+	}
+
+	_, err = cantonChangesets.ConfigureChainForLanes{}.Apply(*env, config)
+	if err != nil {
+		return fmt.Errorf("failed to configure chain for lanes: %w", err)
+	}
+
+	return nil
 }
 
 // DeployLocalNetwork implements cciptestinterfaces.CCIP17Configuration.
