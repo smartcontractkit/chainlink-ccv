@@ -22,6 +22,7 @@ import (
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-canton/contracts"
 	canton_committee_verifier "github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/committee_verifier"
+	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/per_party_router_factory"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
@@ -308,12 +309,13 @@ func TestCantonSourceReader(t *testing.T) {
 
 // relevantAddresses are the addresses required to construct a valid CCIP message from Canton -> EVM.
 type relevantAddresses struct {
-	cantonOnRamp          contracts.InstanceAddress
-	cantonExecutor        contracts.InstanceAddress
-	cantonDefaultVerifier contracts.InstanceAddress
-	cantonRouter          contracts.InstanceAddress
-	evmOffRamp            common.Address
-	evmReceiver           common.Address
+	cantonOnRamp                contracts.InstanceAddress
+	cantonExecutor              contracts.InstanceAddress
+	cantonDefaultVerifier       contracts.InstanceAddress
+	cantonPerPartyRouterFactory contracts.InstanceAddress
+	cantonRouter                contracts.InstanceAddress
+	evmOffRamp                  common.Address
+	evmReceiver                 common.Address
 }
 
 // getRelevantAddresses returns the canton and evm addresses required to construct a valid CCIP message from Canton -> EVM.
@@ -331,7 +333,20 @@ func getRelevantAddresses(t *testing.T, in *ccv.Cfg, cantonDetails, evmDetails c
 	require.NoError(t, err)
 	require.NotEmpty(t, cantonOnRampRef.Address)
 	t.Logf("canton on ramp address: %s", cantonOnRampRef.Address)
-	addresses.cantonOnRamp = contracts.RawInstanceAddressFromString(cantonOnRampRef.Address).InstanceAddress()
+	addresses.cantonOnRamp = contracts.HexToInstanceAddress(cantonOnRampRef.Address)
+
+	cantonPerPartyRouterFactoryRef, err := in.CLDF.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(
+			cantonDetails.ChainSelector,
+			datastore.ContractType(per_party_router_factory.ContractType),
+			per_party_router_factory.Version,
+			"",
+		),
+	)
+	require.NoError(t, err)
+	require.NotEmpty(t, cantonPerPartyRouterFactoryRef.Address)
+	t.Logf("canton per party router factory address: %s", cantonPerPartyRouterFactoryRef.Address)
+	addresses.cantonPerPartyRouterFactory = contracts.HexToInstanceAddress(cantonPerPartyRouterFactoryRef.Address)
 
 	// cantonRouterRef, err := in.CLDF.DataStore.Addresses().Get(
 	// 	datastore.NewAddressRefKey(
@@ -344,7 +359,7 @@ func getRelevantAddresses(t *testing.T, in *ccv.Cfg, cantonDetails, evmDetails c
 	// require.NoError(t, err)
 	// require.NotEmpty(t, cantonRouterRef.Address)
 	// t.Logf("canton router address: %s", cantonRouterRef.Address)
-	addresses.cantonRouter = contracts.RawInstanceAddressFromString(cantonOnRampRef.Address).InstanceAddress() // TODO: fix when router is deployed
+	addresses.cantonRouter = contracts.HexToInstanceAddress(cantonOnRampRef.Address) // TODO: fix when router is deployed
 
 	cantonDefaultVerifierRef, err := in.CLDF.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
@@ -357,7 +372,7 @@ func getRelevantAddresses(t *testing.T, in *ccv.Cfg, cantonDetails, evmDetails c
 	require.NoError(t, err)
 	require.NotEmpty(t, cantonDefaultVerifierRef.Address)
 	t.Logf("canton default verifier address: %s", cantonDefaultVerifierRef.Address)
-	addresses.cantonDefaultVerifier = contracts.RawInstanceAddressFromString(cantonDefaultVerifierRef.Address).InstanceAddress()
+	addresses.cantonDefaultVerifier = contracts.HexToInstanceAddress(cantonDefaultVerifierRef.Address)
 
 	cantonExecutorAddress, err := in.CLDF.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
@@ -370,7 +385,7 @@ func getRelevantAddresses(t *testing.T, in *ccv.Cfg, cantonDetails, evmDetails c
 	require.NoError(t, err)
 	require.NotEmpty(t, cantonExecutorAddress.Address)
 	t.Logf("canton executor address: %s", cantonExecutorAddress.Address)
-	addresses.cantonExecutor = contracts.RawInstanceAddressFromString(cantonExecutorAddress.Address).InstanceAddress() // TODO: Mock contract
+	addresses.cantonExecutor = contracts.HexToInstanceAddress(cantonExecutorAddress.Address) // TODO: Mock contract
 
 	evmOffRampRef, err := in.CLDF.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(

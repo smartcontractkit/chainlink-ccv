@@ -1,7 +1,9 @@
 package adapters
 
 import (
+	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"github.com/smartcontractkit/chainlink-canton/contracts"
 	tokenadapters "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
@@ -35,7 +37,7 @@ func NewTokenAdapter(base tokenadapters.TokenAdapter) *CantonTokenAdapter {
 
 // AddressRefToBytes implements tokens.TokenAdapter.
 func (t *CantonTokenAdapter) AddressRefToBytes(ref datastore.AddressRef) ([]byte, error) {
-	return contracts.RawInstanceAddressFromString(ref.Address).InstanceAddress().Bytes(), nil
+	return t.base.AddressRefToBytes(ref)
 }
 
 // ConfigureTokenForTransfersSequence implements tokens.TokenAdapter.
@@ -83,8 +85,10 @@ func (t *CantonTokenAdapter) DeriveTokenAddress(e deployment.Environment, chainS
 	if err != nil {
 		return nil, fmt.Errorf("failed to get address for %v on chain %d: %w", ref, chainSelector, err)
 	}
-
-	return contracts.RawInstanceAddressFromString(addr.Address).InstanceAddress().Bytes(), nil
+	// Address is stored as hex string
+	// Remove 0x prefix if present
+	cleanAddr := strings.TrimPrefix(addr.Address, "0x")
+	return hex.DecodeString(cleanAddr)
 }
 
 // CantonAdapter is an implementation of the ChainFamily interface for Canton.
@@ -104,11 +108,10 @@ func NewChainFamilyAdapter(base adapters.ChainFamily) *CantonAdapter {
 
 // AddressRefToBytes implements adapters.ChainFamily.
 func (c *CantonAdapter) AddressRefToBytes(ref datastore.AddressRef) ([]byte, error) {
-	// Canton uses two different types of addresses:
-	// - "Raw" instance addresses, which are of the format "prefix@party-id" and are stored as strings in the datastore.
-	// - InstanceAddresses, which are the 32-byte keccak256 hash of the raw instance address, and are used for all remote-chain configurations.
-	// Parsing the raw version from the datastore and converting it to the hashed version to keep all remote-chain address references of the same length.
-	return contracts.RawInstanceAddressFromString(ref.Address).InstanceAddress().Bytes(), nil
+	// Canton "addresses" are "InstanceAddresses", which are the 32-byte keccak256 hash of the RawInstanceAddress.
+	// The RawInstanceAddress is of the form:
+	// <instance-id>@<party-id>
+	return contracts.HexToInstanceAddress(ref.Address).Bytes(), nil
 }
 
 // ConfigureChainForLanes implements adapters.ChainFamily.

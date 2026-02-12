@@ -5,10 +5,7 @@ import (
 	"strconv"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"golang.org/x/crypto/sha3"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	dsutils "github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -128,26 +125,9 @@ func buildQuorumConfigsFromOnChain(
 			if _, exists := quorumConfigs[chainSelectorStr]; exists {
 				continue
 			}
-			chainFamily, err := chainsel.GetSelectorFamily(sigConfig.SourceChainSelector)
-			if err != nil {
-				return nil, fmt.Errorf("failed to get chain family for selector %d: %w", sigConfig.SourceChainSelector, err)
-			}
-			var formatFunc func(r datastore.AddressRef) (string, error)
-			switch chainFamily {
-			case chainsel.FamilyEVM:
-				formatFunc = func(r datastore.AddressRef) (string, error) { return r.Address, nil }
-			case chainsel.FamilyCanton:
-				formatFunc = func(r datastore.AddressRef) (string, error) {
-					h := sha3.NewLegacyKeccak256()
-					h.Write([]byte(r.Address))
-					return hexutil.Encode(h.Sum(nil)), nil
-				}
-			default:
-				return nil, fmt.Errorf("unsupported chain family %s for selector %d", chainFamily, sigConfig.SourceChainSelector)
-			}
 
 			// Lookup the committee verifier address by both the resolver type and the contract type
-			sourceVerifierAddr, err := dsutils.FindAndFormatFirstRef(ds, sigConfig.SourceChainSelector, formatFunc,
+			sourceVerifierAddr, err := dsutils.FindAndFormatFirstRef(ds, sigConfig.SourceChainSelector, func(r datastore.AddressRef) (string, error) { return r.Address, nil },
 				datastore.AddressRef{
 					Type:      datastore.ContractType(committee_verifier.ResolverType),
 					Qualifier: committeeQualifier,
@@ -187,26 +167,8 @@ func buildDestinationVerifiers(
 	destVerifiers := make(map[string]string)
 
 	for _, chainSelector := range destChainSelectors {
-		chainFamily, err := chainsel.GetSelectorFamily(chainSelector)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get chain family for selector %d: %w", chainSelector, err)
-		}
-		var formatFunc func(r datastore.AddressRef) (string, error)
-		switch chainFamily {
-		case chainsel.FamilyEVM:
-			formatFunc = func(r datastore.AddressRef) (string, error) { return r.Address, nil }
-		case chainsel.FamilyCanton:
-			formatFunc = func(r datastore.AddressRef) (string, error) {
-				h := sha3.NewLegacyKeccak256()
-				h.Write([]byte(r.Address))
-				return hexutil.Encode(h.Sum(nil)), nil
-			}
-		default:
-			return nil, fmt.Errorf("unsupported chain family %s for selector %d", chainFamily, chainSelector)
-		}
-
 		// Lookup the committee verifier address by both the resolver type and the contract type
-		addr, err := dsutils.FindAndFormatFirstRef(ds, chainSelector, formatFunc,
+		addr, err := dsutils.FindAndFormatFirstRef(ds, chainSelector, func(r datastore.AddressRef) (string, error) { return r.Address, nil },
 			datastore.AddressRef{
 				Type:      datastore.ContractType(committee_verifier.ResolverType),
 				Qualifier: committeeQualifier,

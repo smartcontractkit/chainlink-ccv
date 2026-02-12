@@ -259,7 +259,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	for i, combo := range devenvcommon.AllTokenCombinations() {
 		addressRef := combo.DestPoolAddressRef()
 		err = runningDS.AddressRefStore.Add(datastore.AddressRef{
-			Address:       contracts.MustNewInstanceID("dst-token-pool-" + strconv.Itoa(i)).RawInstanceAddress(types.PARTY(user.PrimaryParty)).String(),
+			Address:       contracts.MustNewInstanceID("dst-token-pool-" + strconv.Itoa(i)).RawInstanceAddress(types.PARTY(user.PrimaryParty)).InstanceAddress().Hex(),
 			Type:          addressRef.Type,
 			Version:       addressRef.Version,
 			Qualifier:     addressRef.Qualifier,
@@ -271,7 +271,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	}
 	// Add executor refs
 	err = runningDS.AddressRefStore.Add(datastore.AddressRef{
-		Address:       contracts.MustNewInstanceID("executor-1").RawInstanceAddress(types.PARTY(user.PrimaryParty)).String(),
+		Address:       contracts.MustNewInstanceID("executor-1").RawInstanceAddress(types.PARTY(user.PrimaryParty)).InstanceAddress().Hex(),
 		Type:          datastore.ContractType(executor.ContractType),
 		Version:       executor.Version,
 		Qualifier:     devenvcommon.DefaultExecutorQualifier,
@@ -281,7 +281,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 		return nil, fmt.Errorf("failed to add executor address ref: %w", err)
 	}
 	err = runningDS.AddressRefStore.Add(datastore.AddressRef{
-		Address:       contracts.MustNewInstanceID("executor-proxy-1").RawInstanceAddress(types.PARTY(user.PrimaryParty)).String(),
+		Address:       contracts.MustNewInstanceID("executor-proxy-1").RawInstanceAddress(types.PARTY(user.PrimaryParty)).InstanceAddress().String(),
 		Type:          datastore.ContractType(executor.ProxyType),
 		Version:       executor.Version,
 		Qualifier:     devenvcommon.DefaultExecutorQualifier,
@@ -326,7 +326,7 @@ func (c *Chain) ConnectContractsWithSelectors(ctx context.Context, env *deployme
 	}
 
 	formatFunc := func(ref datastore.AddressRef) (contracts.InstanceAddress, error) {
-		return contracts.RawInstanceAddressFromString(ref.Address).InstanceAddress(), nil
+		return contracts.HexToInstanceAddress(ref.Address), nil
 	}
 
 	// Get InstanceAddresses of Canton contracts
@@ -368,7 +368,7 @@ func (c *Chain) ConnectContractsWithSelectors(ctx context.Context, env *deployme
 				OnRamp:             onRamp,
 				OffRamp:            offRamp,
 				CommitteeVerifiers: nil,
-				RemoteChains:       make(map[uint64]adapters.RemoteChainConfig[[]byte, string], len(remoteSelectors)),
+				RemoteChains:       make(map[uint64]adapters.RemoteChainConfig[[]byte, contracts.RawInstanceAddress], len(remoteSelectors)),
 			},
 		},
 	}
@@ -407,7 +407,7 @@ func (c *Chain) ConnectContractsWithSelectors(ctx context.Context, env *deployme
 			return fmt.Errorf("failed to get off ramp address for remote chain %d: %w", remoteSelector, err)
 		}
 
-		remoteChainConfig := adapters.RemoteChainConfig[[]byte, string]{
+		remoteChainConfig := adapters.RemoteChainConfig[[]byte, contracts.RawInstanceAddress]{
 			AllowTrafficFrom:         true,
 			OnRamps:                  [][]byte{remoteOnRamp},
 			OffRamp:                  remoteOffRamp,

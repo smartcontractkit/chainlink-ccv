@@ -5,11 +5,6 @@ import (
 	"strconv"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"golang.org/x/crypto/sha3"
-
-	chainsel "github.com/smartcontractkit/chain-selectors"
-
 	execcontract "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
@@ -55,40 +50,23 @@ var BuildConfig = operations.NewOperation(
 	"Builds the executor configuration from datastore contract addresses",
 	func(b operations.Bundle, deps BuildConfigDeps, input BuildConfigInput) (BuildConfigOutput, error) {
 		ds := deps.Env.DataStore
+		toAddress := func(ref datastore.AddressRef) (string, error) { return ref.Address, nil }
 
 		chainConfigs := make(map[string]ExecutorChainConfig)
 
 		for _, chainSelector := range input.ChainSelectors {
 			chainSelectorStr := strconv.FormatUint(chainSelector, 10)
 
-			chainFamily, err := chainsel.GetSelectorFamily(chainSelector)
-			if err != nil {
-				return BuildConfigOutput{}, fmt.Errorf("failed to get chain family for selector %d: %w", chainSelector, err)
-			}
-			var formatFunc func(r datastore.AddressRef) (string, error)
-			switch chainFamily {
-			case chainsel.FamilyEVM:
-				formatFunc = func(r datastore.AddressRef) (string, error) { return r.Address, nil }
-			case chainsel.FamilyCanton:
-				formatFunc = func(r datastore.AddressRef) (string, error) {
-					h := sha3.NewLegacyKeccak256()
-					h.Write([]byte(r.Address))
-					return hexutil.Encode(h.Sum(nil)), nil
-				}
-			default:
-				return BuildConfigOutput{}, fmt.Errorf("unsupported chain family %s for selector %d", chainFamily, chainSelector)
-			}
-
 			offRampAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
 				Type: datastore.ContractType(offrampoperations.ContractType),
-			}, chainSelector, formatFunc)
+			}, chainSelector, toAddress)
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get off ramp address for chain %d: %w", chainSelector, err)
 			}
 
 			rmnRemoteAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
 				Type: datastore.ContractType(rmn_remote.ContractType),
-			}, chainSelector, formatFunc)
+			}, chainSelector, toAddress)
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get rmn remote address for chain %d: %w", chainSelector, err)
 			}
@@ -96,7 +74,7 @@ var BuildConfig = operations.NewOperation(
 			executorAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
 				Type:      datastore.ContractType(execcontract.ProxyType),
 				Qualifier: input.ExecutorQualifier,
-			}, chainSelector, formatFunc)
+			}, chainSelector, toAddress)
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get executor proxy address for chain %d: %w", chainSelector, err)
 			}
