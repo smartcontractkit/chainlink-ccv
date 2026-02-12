@@ -198,7 +198,8 @@ func NewBytes16FromString(s string) (Bytes16, error) {
 	}
 
 	var res Bytes16
-	copy(res[:], b)
+	// Copy to the end of the array so that leading zeros are at the beginning (left-padded)
+	copy(res[16-len(b):], b)
 	return res, nil
 }
 
@@ -264,7 +265,8 @@ func NewBytes32FromString(s string) (Bytes32, error) {
 	}
 
 	var res Bytes32
-	copy(res[:], b)
+	// Copy to the end of the array so that leading zeros are at the beginning (left-padded)
+	copy(res[32-len(b):], b)
 	return res, nil
 }
 
