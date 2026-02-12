@@ -5,7 +5,6 @@ import (
 	"strconv"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain/canton"
-	stellarsourcereader "github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/stellar"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -14,16 +13,6 @@ type StellarNetworkInfo struct {
 	NetworkPassphrase string `json:"network_passphrase"`
 	FriendbotURL      string `json:"friendbot_url"`
 	SorobanRPCURL     string `json:"soroban_rpc_url"`
-	OnRampContractID  string `json:"onramp_contract_id"`
-}
-
-// GetReaderConfig creates a ReaderConfig from StellarNetworkInfo.
-func (s *StellarNetworkInfo) GetReaderConfig() stellarsourcereader.ReaderConfig {
-	return stellarsourcereader.ReaderConfig{
-		NetworkPassphrase: s.NetworkPassphrase,
-		OnRampContractID:  s.OnRampContractID,
-		SorobanRPCURL:     s.SorobanRPCURL,
-	}
 }
 
 type NetworkSpecificData struct {

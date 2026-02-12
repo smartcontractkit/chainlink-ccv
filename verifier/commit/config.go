@@ -5,7 +5,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/stellar"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
@@ -22,8 +21,12 @@ type CantonConfig struct {
 
 // StellarConfig is the configuration required for verifiers that read from Stellar.
 type StellarConfig struct {
-	// ReaderConfig is the configuration for the Stellar source reader.
-	ReaderConfig stellar.ReaderConfig `toml:"reader_config"`
+	// NetworkPassphrase is the Stellar network passphrase.
+	NetworkPassphrase string `toml:"network_passphrase"`
+	// FriendbotURL is the Stellar friendbot URL.
+	FriendbotURL string `toml:"friendbot_url"`
+	// SorobanRPCURL is the Stellar Soroban RPC URL.
+	SorobanRPCURL string `toml:"soroban_rpc_url"`
 }
 
 type Config struct {
