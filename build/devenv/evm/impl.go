@@ -606,7 +606,7 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, field
 
 	extraArgs := serializeExtraArgs(opts, destFamily)
 	msg := routerwrapper.ClientEVM2AnyMessage{
-		Receiver:     common.LeftPadBytes(common.HexToAddress(fields.Receiver.String()).Bytes(), 32),
+		Receiver:     common.LeftPadBytes(fields.Receiver.Bytes(), 32),
 		Data:         fields.Data,
 		TokenAmounts: tokenAmounts,
 		FeeToken:     common.HexToAddress(fields.FeeToken.String()),
@@ -724,7 +724,7 @@ func (m *CCIP17EVM) GetUserNonce(ctx context.Context, userAddress protocol.Unkno
 
 func serializeExtraArgs(opts cciptestinterfaces.MessageOptions, destFamily string) []byte {
 	switch destFamily {
-	case chainsel.FamilyEVM:
+	case chainsel.FamilyEVM, chainsel.FamilyCanton:
 		switch opts.Version {
 		case 1: // EVMExtraArgsV1
 			return serializeExtraArgsV1(opts)
