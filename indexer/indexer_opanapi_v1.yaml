@@ -348,12 +348,12 @@ paths:
           schema:
             description: "End time used to filter results. If not provided, the current server time is used. Accepted formats: RFC3339, unix epoch time (in milliseconds)."
             type: string
-        - description: Maximum number of results to return. If not provided, defaults to 100.
+        - description: Maximum number of results to return. If not provided, defaults to 100. Maximum allowed is 1000; Requests with a limit greater than 1000 will be rejected with a 400 bad request error.
           explode: false
           in: query
           name: limit
           schema:
-            description: Maximum number of results to return. If not provided, defaults to 100.
+            description: Maximum number of results to return. If not provided, defaults to 100. Maximum allowed is 1000; Requests with a limit greater than 1000 will be rejected with a 400 bad request error.
             format: int64
             minimum: 0
             type: integer
@@ -435,12 +435,12 @@ paths:
           schema:
             description: "End time used to filter results. If not provided, the current server time is used. Accepted formats: RFC3339, unix epoch time (in milliseconds)."
             type: string
-        - description: Maximum number of results to return. If not provided, defaults to 100.
+        - description: Maximum number of results to return. If not provided, defaults to 100. Maximum allowed is 1000; Requests with a limit greater than 1000 will be rejected with a 400 bad request error.
           explode: false
           in: query
           name: limit
           schema:
-            description: Maximum number of results to return. If not provided, defaults to 100.
+            description: Maximum number of results to return. If not provided, defaults to 100. Maximum allowed is 1000; Requests with a limit greater than 1000 will be rejected with a 400 bad request error.
             format: int64
             minimum: 0
             type: integer
