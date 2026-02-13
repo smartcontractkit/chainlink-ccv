@@ -226,8 +226,6 @@ func processCreatedEvent(
 		return nil, nil
 	}
 
-	slices.Contains(created.GetSignatories(), expectedCCIPOwnerParty)
-
 	var eventRecordField *ledgerv2.RecordField
 	var ccipOwnerParty string
 
