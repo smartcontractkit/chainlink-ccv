@@ -20,7 +20,10 @@ import (
 )
 
 const (
-	DefaultIndexerName         = "indexer"
+	// DefaultIndexerName is the container name when exactly one indexer is used (legacy); prefer indexer-1 for consistency.
+	DefaultIndexerName = "indexer"
+	// FirstIndexerContainerName is the container name for the first indexer when using consistent naming (indexer-1, indexer-2, ...).
+	FirstIndexerContainerName  = "indexer-1"
 	DefaultIndexerDBName       = "indexer-db"
 	IndexerDBContainerSuffix   = "-db"
 	DefaultIndexerImage        = "indexer:dev"
@@ -34,9 +37,10 @@ const (
 	IndexerConfigDirContainer = "/etc/ccv-indexer"
 )
 
-// DefaultIndexerDBConnectionString is the host-side connection string for the default indexer DB (single-instance / CLI use).
+// DefaultIndexerDBConnectionString is the host-side connection string for the first indexer's DB (used by CLI db shell).
+// Uses indexer-1 credentials so it works when exactly one indexer is configured (indexer-1).
 var DefaultIndexerDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
-	DefaultIndexerName, DefaultIndexerName, DefaultIndexerDBPort, DefaultIndexerName)
+	FirstIndexerContainerName, FirstIndexerContainerName, DefaultIndexerDBPort, FirstIndexerContainerName)
 
 type DBInput struct {
 	Image    string `toml:"image"`
@@ -89,7 +93,7 @@ func defaults(in *IndexerInput) {
 		in.Port = DefaultIndexerHTTPPort
 	}
 	if in.ContainerName == "" {
-		in.ContainerName = DefaultIndexerName
+		in.ContainerName = FirstIndexerContainerName
 	}
 	if in.DB == nil {
 		in.DB = &DBInput{

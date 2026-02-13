@@ -618,7 +618,7 @@ func TestE2ELoad(t *testing.T) {
 				name: "Stop the indexer",
 				run: func() error {
 					_, err = chaos.ExecPumba(
-						"stop --duration=20s --restart re2:indexer",
+						"stop --duration=20s --restart re2:indexer-1",
 						30*time.Second,
 					)
 					return err

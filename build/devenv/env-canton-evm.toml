@@ -3,7 +3,7 @@ cl_nodes_funding_link = 50
 
 ## Environment configuration define the topology. Eventually the topology should be the only config that is needed.
 [environment_topology]
-indexer_address = "http://indexer:8100"
+indexer_address = "http://indexer-1:8100"
 pyroscope_url = "http://host.docker.internal:4040"
 
 [environment_topology.monitoring]

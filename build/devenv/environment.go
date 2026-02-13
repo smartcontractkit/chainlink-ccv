@@ -830,19 +830,15 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("at least one indexer is required")
 	}
 
-	// Ensure unique container names and DB host ports for multiple indexers (defaults in services/indexer.go use "indexer" / single port for single instance).
+	// Ensure unique container names and DB host ports; always use indexer-1, indexer-2, ... for consistency.
 	for i := range in.Indexer {
 		if in.Indexer[i].ContainerName == "" {
-			if len(in.Indexer) == 1 {
-				in.Indexer[i].ContainerName = services.DefaultIndexerName
-			} else {
-				in.Indexer[i].ContainerName = fmt.Sprintf("indexer-%d", i+1)
-			}
+			in.Indexer[i].ContainerName = fmt.Sprintf("indexer-%d", i+1)
 		}
 		if in.Indexer[i].DB != nil && in.Indexer[i].DB.HostPort == 0 && len(in.Indexer) > 1 {
 			in.Indexer[i].DB.HostPort = services.DefaultIndexerDBPort + i
 		}
-		// Ensure StorageConnectionURL matches the DB container we create (indexer-1-db, indexer-2-db, or indexer-db for single).
+		// Ensure StorageConnectionURL matches the DB container we create (indexer-1-db, indexer-2-db, ...).
 		// Env.toml may have single-instance URLs; overwrite so migrations and storage use the correct host/credentials.
 		idx := in.Indexer[i]
 		dbName := idx.ContainerName
