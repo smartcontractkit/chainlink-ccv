@@ -30,7 +30,7 @@ type ExecutionDisclosures struct {
 	Verifiers          []*ledgerv2.DisclosedContract
 }
 
-// GetDisclosuresForExecution returns all the necessary disclosed contracts to execute a message on Canton
+// GetDisclosuresForExecution returns all the necessary disclosed contracts to execute a message on Canton.
 func (c *Chain) GetDisclosuresForExecution(ctx context.Context, verifiers []contracts.InstanceAddress) (*ExecutionDisclosures, error) {
 	var disclosures ExecutionDisclosures
 
@@ -111,6 +111,7 @@ func (c *Chain) GetDisclosuresForExecution(ctx context.Context, verifiers []cont
 	if err != nil {
 		return nil, fmt.Errorf("failed to get rmn remote contract ID: %w", err)
 	}
+	disclosures.RMNRemote = convertToDisclosedContract(activeRMNRemote)
 	c.logger.Debug().Str("InstanceAddress", rmnRemoteAddress.String()).Str("ContractId", activeRMNRemote.GetCreatedEvent().GetContractId()).Msg("Resolved RMNRemote contract")
 
 	// Verifiers
