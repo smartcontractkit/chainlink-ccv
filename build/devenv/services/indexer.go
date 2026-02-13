@@ -115,6 +115,7 @@ func injectPostgresURI(cfg *config.Config, uri string) {
 }
 
 // NewIndexer creates and starts a new Service container using testcontainers.
+// Will be called once per indexer instance.
 func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 	if in == nil {
 		return nil, nil
