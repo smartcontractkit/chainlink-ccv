@@ -80,6 +80,7 @@ func TestSetDefaults(t *testing.T) {
 		assert.Equal(t, 5*time.Second, cfg.Aggregation.CheckAggregationTimeout)
 		assert.Equal(t, 5*time.Second, cfg.OrphanRecovery.CheckAggregationTimeout)
 		assert.Equal(t, 10*time.Second, cfg.Storage.QueryTimeout)
+		assert.Equal(t, uint(3), cfg.OrphanRecovery.MaxConsecutiveErrors)
 	})
 
 	t.Run("does not override existing values", func(t *testing.T) {

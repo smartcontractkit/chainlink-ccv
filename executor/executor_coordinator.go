@@ -10,6 +10,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/message_heap"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
@@ -28,6 +29,8 @@ type Coordinator struct {
 	workerPoolTasks    chan message_heap.MessageWithTimestamps
 	cancel             context.CancelFunc
 	delayedMessageHeap message_heap.MessageHeap
+	inFlight           map[protocol.Bytes32]struct{}
+	inFlightMu         sync.RWMutex
 	running            atomic.Bool
 	expiryDuration     time.Duration
 	timeProvider       common.TimeProvider
@@ -76,6 +79,7 @@ func (ec *Coordinator) Start(ctx context.Context) error {
 		c, cancel := context.WithCancel(context.Background())
 		ec.cancel = cancel
 		ec.delayedMessageHeap = *message_heap.NewMessageHeap()
+		ec.inFlight = make(map[protocol.Bytes32]struct{})
 		ec.running.Store(true)
 
 		// Start storage stream goroutine
@@ -163,6 +167,10 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 				ec.lggr.Infow("message already in delayed heap, skipping", "messageID", id)
 				continue
 			}
+			if ec.inFlightHas(id) {
+				ec.lggr.Infow("message already in flight, skipping", "messageID", id)
+				continue
+			}
 
 			// get message delay from leader elector using indexer's ingestion timestamp
 			readyTimestamp := ec.leaderElector.GetReadyTimestamp(
@@ -206,6 +214,7 @@ func (ec *Coordinator) runProcessingLoop(ctx context.Context) {
 				"readyMessages", readyMessages,
 			)
 			for _, payload := range readyMessages {
+				ec.inFlightAdd(payload.MessageID)
 				// If the channel is full, we will block here, but messages will continue to be accumulate in the heap.
 				ec.workerPoolTasks <- payload
 			}
@@ -224,38 +233,60 @@ func (ec *Coordinator) handleMessage(ctx context.Context) {
 			if !ok {
 				return
 			}
-			currentTime := ec.timeProvider.GetTime()
-			if currentTime.After(payload.ExpiryTime) {
-				ec.lggr.Infow("message has expired", "messageID", payload.MessageID)
-				ec.monitoring.Metrics().IncrementExpiredMessages(ctx)
-				continue
-			}
-
-			message, id := *payload.Message, payload.MessageID
-
-			ec.lggr.Infow("processing message with ID", "messageID", id)
-
-			shouldRetry, err := ec.executor.HandleMessage(ctx, message)
-			if shouldRetry {
-				// todo: add exponential backoff here
-				// The new ready time is the original ready time + retry interval to avoid drift between executors.
-				ec.lggr.Infow("message should be retried, putting back in heap", "messageID", id)
-				ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
-					Message:       &message,
-					ReadyTime:     payload.ReadyTime.Add(payload.RetryInterval),
-					ExpiryTime:    payload.ExpiryTime,
-					RetryInterval: payload.RetryInterval,
-					MessageID:     id,
-				})
-			}
-			if err != nil {
-				ec.lggr.Errorw("failed to handle message", "messageID", id, "error", err)
-				ec.monitoring.Metrics().IncrementMessagesProcessingFailed(ctx)
-			} else {
-				ec.monitoring.Metrics().IncrementMessagesProcessed(ctx)
-			}
+			ec.processPayload(ctx, payload)
 		}
 	}
+}
+
+func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.MessageWithTimestamps) {
+	defer ec.inFlightRemove(payload.MessageID)
+	currentTime := ec.timeProvider.GetTime()
+	if currentTime.After(payload.ExpiryTime) {
+		ec.lggr.Infow("message has expired", "messageID", payload.MessageID)
+		ec.monitoring.Metrics().IncrementExpiredMessages(ctx)
+		return
+	}
+
+	message, id := *payload.Message, payload.MessageID
+
+	ec.lggr.Infow("processing message with ID", "messageID", id)
+
+	shouldRetry, err := ec.executor.HandleMessage(ctx, message)
+	if shouldRetry {
+		ec.lggr.Infow("message should be retried, putting back in heap", "messageID", id)
+		ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
+			Message:       &message,
+			ReadyTime:     payload.ReadyTime.Add(payload.RetryInterval),
+			ExpiryTime:    payload.ExpiryTime,
+			RetryInterval: payload.RetryInterval,
+			MessageID:     id,
+		})
+	}
+	if err != nil {
+		ec.lggr.Errorw("failed to handle message", "messageID", id, "error", err)
+		ec.monitoring.Metrics().IncrementMessagesProcessingFailed(ctx)
+	} else {
+		ec.monitoring.Metrics().IncrementMessagesProcessed(ctx)
+	}
+}
+
+func (ec *Coordinator) inFlightAdd(id protocol.Bytes32) {
+	ec.inFlightMu.Lock()
+	defer ec.inFlightMu.Unlock()
+	ec.inFlight[id] = struct{}{}
+}
+
+func (ec *Coordinator) inFlightRemove(id protocol.Bytes32) {
+	ec.inFlightMu.Lock()
+	defer ec.inFlightMu.Unlock()
+	delete(ec.inFlight, id)
+}
+
+func (ec *Coordinator) inFlightHas(id protocol.Bytes32) bool {
+	ec.inFlightMu.RLock()
+	defer ec.inFlightMu.RUnlock()
+	_, ok := ec.inFlight[id]
+	return ok
 }
 
 // validate checks that all required components are configured.

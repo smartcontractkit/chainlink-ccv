@@ -42,6 +42,18 @@ import (
 	"github.com/smartcontractkit/go-daml/pkg/client"
 	"github.com/smartcontractkit/go-daml/pkg/types"
 
+	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/rmn"
+	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/fee_quoter"
+	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/global_config"
+	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/offramp"
+	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/onramp"
+	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
+	dsutils "github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
+	cantonadapters "github.com/smartcontractkit/chainlink-ccv/devenv/canton/adapters"
+	"github.com/smartcontractkit/go-daml/pkg/client"
+	"github.com/smartcontractkit/go-daml/pkg/types"
+
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/ccvs"
 	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/common"

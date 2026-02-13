@@ -96,7 +96,8 @@ func (oss *IndexerStorageStreamer) Start(
 		}()
 		ticker := time.NewTicker(oss.cleanInterval)
 		defer ticker.Stop()
-		var nextQueryTime time.Time
+		nextQueryTimer := time.NewTimer(0)
+		defer nextQueryTimer.Stop()
 		for {
 			select {
 			case <-ctx.Done():
@@ -104,10 +105,7 @@ func (oss *IndexerStorageStreamer) Start(
 				return
 			case <-ticker.C:
 				oss.expirableSet.CleanExpired(oss.timeProvider.GetTime())
-			default:
-				if oss.timeProvider.GetTime().Before(nextQueryTime) {
-					continue
-				}
+			case <-nextQueryTimer.C:
 				responses, err := oss.reader.ReadMessages(ctx, v1.MessagesInput{
 					Limit:                oss.queryLimit,
 					Start:                oss.lastQueryTime.Format(time.RFC3339),
@@ -133,18 +131,18 @@ func (oss *IndexerStorageStreamer) Start(
 				case err != nil:
 					// Error occurred: backoff and retry with same parameters
 					oss.lggr.Errorw("IndexerStorageStreamer read error", "error", err)
-					nextQueryTime = oss.timeProvider.GetTime().Add(oss.backoff)
+					nextQueryTimer.Reset(oss.backoff)
 					errors <- fmt.Errorf("IndexerStorageStreamer read error: %w", err)
 				case uint64(len(responses)) == oss.queryLimit:
 					// Hit query limit: query again immediately with same time range but incremented offset
 					oss.lggr.Infow("IndexerStorageStreamer hit query limit, there may be more results to read", "limit", oss.queryLimit)
 					oss.offset += uint64(len(responses))
-					continue // Skip waiting and time updates, query immediately
+					nextQueryTimer.Reset(0)
 				default:
 					// Complete result set received: update query window and reset for next polling cycle
 					oss.offset = 0
 					oss.lastQueryTime = oss.latestSeenTime
-					nextQueryTime = oss.timeProvider.GetTime().Add(oss.pollingInterval)
+					nextQueryTimer.Reset(oss.pollingInterval)
 				}
 			}
 		}

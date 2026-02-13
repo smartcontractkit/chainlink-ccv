@@ -19,3 +19,5 @@ indexer/secrets.toml
 
 # Ignore go version file for goenv version manager
 .go-version
+
+.cache/

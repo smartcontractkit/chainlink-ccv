@@ -138,36 +138,60 @@ func TestCommitAggregatedReport_GetOffRampAddress(t *testing.T) {
 }
 
 func TestCommitAggregatedReport_GetMessageCCVAddresses(t *testing.T) {
-	expectedAddrs := []protocol.UnknownAddress{{0x11, 0x22}, {0x33, 0x44}}
-	verification := &CommitVerificationRecord{
-		MessageCCVAddresses: expectedAddrs,
-	}
-	report := &CommitAggregatedReport{Verifications: []*CommitVerificationRecord{verification}}
+	t.Run("returns addresses from first verification", func(t *testing.T) {
+		expectedAddrs := []protocol.UnknownAddress{{0x11, 0x22}, {0x33, 0x44}}
+		verification := &CommitVerificationRecord{
+			MessageCCVAddresses: expectedAddrs,
+		}
+		report := &CommitAggregatedReport{Verifications: []*CommitVerificationRecord{verification}}
 
-	result := report.GetMessageCCVAddresses()
-	assert.Equal(t, expectedAddrs, result)
+		result := report.GetMessageCCVAddresses()
+		assert.Equal(t, expectedAddrs, result)
+	})
+
+	t.Run("returns nil when verifications slice is empty", func(t *testing.T) {
+		report := &CommitAggregatedReport{Verifications: []*CommitVerificationRecord{}}
+		result := report.GetMessageCCVAddresses()
+		assert.Nil(t, result)
+	})
 }
 
 func TestCommitAggregatedReport_GetMessageExecutorAddress(t *testing.T) {
-	expectedAddr := protocol.UnknownAddress{0x55, 0x66, 0x77}
-	verification := &CommitVerificationRecord{
-		MessageExecutorAddress: expectedAddr,
-	}
-	report := &CommitAggregatedReport{Verifications: []*CommitVerificationRecord{verification}}
+	t.Run("returns executor address from first verification", func(t *testing.T) {
+		expectedAddr := protocol.UnknownAddress{0x55, 0x66, 0x77}
+		verification := &CommitVerificationRecord{
+			MessageExecutorAddress: expectedAddr,
+		}
+		report := &CommitAggregatedReport{Verifications: []*CommitVerificationRecord{verification}}
 
-	result := report.GetMessageExecutorAddress()
-	assert.Equal(t, expectedAddr, result)
+		result := report.GetMessageExecutorAddress()
+		assert.Equal(t, expectedAddr, result)
+	})
+
+	t.Run("returns zero value when verifications slice is empty", func(t *testing.T) {
+		report := &CommitAggregatedReport{Verifications: []*CommitVerificationRecord{}}
+		result := report.GetMessageExecutorAddress()
+		assert.Equal(t, protocol.UnknownAddress{}, result)
+	})
 }
 
 func TestCommitAggregatedReport_GetVersion(t *testing.T) {
-	expectedVersion := []byte{0x01, 0x02, 0x03, 0x04}
-	verification := &CommitVerificationRecord{
-		CCVVersion: expectedVersion,
-	}
-	report := &CommitAggregatedReport{Verifications: []*CommitVerificationRecord{verification}}
+	t.Run("returns version from first verification", func(t *testing.T) {
+		expectedVersion := []byte{0x01, 0x02, 0x03, 0x04}
+		verification := &CommitVerificationRecord{
+			CCVVersion: expectedVersion,
+		}
+		report := &CommitAggregatedReport{Verifications: []*CommitVerificationRecord{verification}}
 
-	result := report.GetVersion()
-	assert.Equal(t, expectedVersion, result)
+		result := report.GetVersion()
+		assert.Equal(t, expectedVersion, result)
+	})
+
+	t.Run("returns nil when verifications slice is empty", func(t *testing.T) {
+		report := &CommitAggregatedReport{Verifications: []*CommitVerificationRecord{}}
+		result := report.GetVersion()
+		assert.Nil(t, result)
+	})
 }
 
 func TestCommitAggregatedReport_GetProtoMessage(t *testing.T) {

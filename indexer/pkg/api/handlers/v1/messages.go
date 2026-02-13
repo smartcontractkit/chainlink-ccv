@@ -20,16 +20,18 @@ type MessagesResponse struct {
 	Messages map[string]common.MessageWithMetadata `json:"messages" doc:"A map of message IDs to their corresponding messages. Each key is a message ID, and the value is the message along with its metadata."`
 }
 type MessagesHandler struct {
-	storage    common.IndexerStorage
-	lggr       logger.Logger
-	monitoring common.IndexerMonitoring
+	storage       common.IndexerStorage
+	lggr          logger.Logger
+	monitoring    common.IndexerMonitoring
+	maxQueryLimit uint64
 }
 
-func NewMessagesHandler(storage common.IndexerStorage, lggr logger.Logger, monitoring common.IndexerMonitoring) *MessagesHandler {
+func NewMessagesHandler(storage common.IndexerStorage, lggr logger.Logger, monitoring common.IndexerMonitoring, maxQueryLimit uint64) *MessagesHandler {
 	return &MessagesHandler{
-		storage:    storage,
-		lggr:       lggr,
-		monitoring: monitoring,
+		storage:       storage,
+		lggr:          lggr,
+		monitoring:    monitoring,
+		maxQueryLimit: maxQueryLimit,
 	}
 }
 
@@ -68,6 +70,12 @@ func (h *MessagesHandler) Handle(c *gin.Context) {
 	endTime, err := parseTime(req.End)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, makeErrorResponse(http.StatusBadRequest, fmt.Sprintf("bad end time: %s", err.Error())))
+		return
+	}
+
+	if req.Limit > h.maxQueryLimit {
+		h.lggr.Debugw("limit exceeded maximum", "requested", req.Limit, "max", h.maxQueryLimit)
+		c.JSON(http.StatusBadRequest, makeErrorResponse(http.StatusBadRequest, fmt.Sprintf("limit exceeds maximum allowed (%d)", h.maxQueryLimit)))
 		return
 	}
 

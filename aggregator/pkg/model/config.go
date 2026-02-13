@@ -150,6 +150,8 @@ type AggregationConfig struct {
 	CheckAggregationTimeout time.Duration `toml:"checkAggregationTimeout"`
 	// OperationTimeout is the timeout for each aggregation operation (0 = no timeout)
 	OperationTimeout time.Duration `toml:"operationTimeout"`
+	// MaxConsecutiveErrors is the maximum number of consecutive errors allowed before the aggregation is considered failed
+	MaxConsecutiveErrors uint32 `toml:"maxConsecutiveErrors"`
 }
 
 type OrphanRecoveryConfig struct {
@@ -165,6 +167,8 @@ type OrphanRecoveryConfig struct {
 	MaxAge time.Duration `toml:"maxAge"`
 	// ScanTimeout is the timeout for each orphan recovery scan (0 = no timeout)
 	ScanTimeout time.Duration `toml:"scanTimeout"`
+	// MaxConsecutiveErrors is the maximum number of consecutive errors allowed before the orphan recovery is considered failed
+	MaxConsecutiveErrors uint `toml:"maxConsecutiveErrors"`
 }
 
 type HealthCheckConfig struct {
@@ -547,6 +551,10 @@ func (c *AggregatorConfig) SetDefaults() {
 	// Default check aggregation timeout: 5 seconds
 	if c.OrphanRecovery.CheckAggregationTimeout == 0 {
 		c.OrphanRecovery.CheckAggregationTimeout = 5 * time.Second
+	}
+	// Default max consecutive errors: 3
+	if c.OrphanRecovery.MaxConsecutiveErrors == 0 {
+		c.OrphanRecovery.MaxConsecutiveErrors = 3
 	}
 	// Default max age: 7 days
 	if c.OrphanRecovery.MaxAge == 0 {
