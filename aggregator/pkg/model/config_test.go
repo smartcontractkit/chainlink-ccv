@@ -858,7 +858,7 @@ func intPtr(i int) *int {
 func TestGetClientByAPIKey(t *testing.T) {
 	creds, _ := hmacutil.GenerateCredentials()
 
-	t.Run("finds client by API key", func(t *testing.T) {
+	t.Run("finds enabled client by API key", func(t *testing.T) {
 		t.Setenv("TEST_API_KEY", creds.APIKey)
 		t.Setenv("TEST_SECRET", creds.Secret)
 
@@ -866,6 +866,7 @@ func TestGetClientByAPIKey(t *testing.T) {
 			APIClients: []*ClientConfig{
 				{
 					ClientID: "client1",
+					Enabled:  true,
 					APIKeyPairs: []*APIKeyPairEnv{
 						{APIKeyEnvVar: "TEST_API_KEY", SecretEnvVar: "TEST_SECRET"},
 					},
@@ -880,6 +881,28 @@ func TestGetClientByAPIKey(t *testing.T) {
 		assert.Equal(t, "client1", client.GetClientID())
 	})
 
+	t.Run("returns false for disabled client with valid API key", func(t *testing.T) {
+		t.Setenv("TEST_API_KEY", creds.APIKey)
+		t.Setenv("TEST_SECRET", creds.Secret)
+
+		cfg := &AggregatorConfig{
+			APIClients: []*ClientConfig{
+				{
+					ClientID: "client1",
+					Enabled:  false,
+					APIKeyPairs: []*APIKeyPairEnv{
+						{APIKeyEnvVar: "TEST_API_KEY", SecretEnvVar: "TEST_SECRET"},
+					},
+				},
+			},
+		}
+
+		client, pair, found := cfg.GetClientByAPIKey(creds.APIKey)
+		assert.False(t, found)
+		assert.Nil(t, client)
+		assert.Nil(t, pair)
+	})
+
 	t.Run("returns false for unknown API key", func(t *testing.T) {
 		cfg := &AggregatorConfig{}
 		client, pair, found := cfg.GetClientByAPIKey("unknown")
@@ -890,11 +913,11 @@ func TestGetClientByAPIKey(t *testing.T) {
 }
 
 func TestGetClientByClientID(t *testing.T) {
-	t.Run("finds client by ID", func(t *testing.T) {
+	t.Run("finds enabled client by ID", func(t *testing.T) {
 		cfg := &AggregatorConfig{
 			APIClients: []*ClientConfig{
-				{ClientID: "client1"},
-				{ClientID: "client2"},
+				{ClientID: "client1", Enabled: true},
+				{ClientID: "client2", Enabled: true},
 			},
 		}
 
@@ -902,6 +925,18 @@ func TestGetClientByClientID(t *testing.T) {
 		assert.True(t, found)
 		assert.NotNil(t, client)
 		assert.Equal(t, "client2", client.GetClientID())
+	})
+
+	t.Run("returns false for disabled client with valid ID", func(t *testing.T) {
+		cfg := &AggregatorConfig{
+			APIClients: []*ClientConfig{
+				{ClientID: "client1", Enabled: false},
+			},
+		}
+
+		client, found := cfg.GetClientByClientID("client1")
+		assert.False(t, found)
+		assert.Nil(t, client)
 	})
 
 	t.Run("returns false for unknown client ID", func(t *testing.T) {

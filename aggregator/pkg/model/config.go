@@ -474,6 +474,9 @@ func (c *AggregatorConfig) GetClientByAPIKey(apiKey string) (auth.ClientConfig, 
 	for _, client := range c.APIClients {
 		for _, apiKeyPair := range client.APIKeyPairs {
 			if apiKeyPair.GetAPIKey() == apiKey {
+				if !client.IsEnabled() {
+					return nil, nil, false
+				}
 				return client, apiKeyPair, true
 			}
 		}
@@ -484,6 +487,9 @@ func (c *AggregatorConfig) GetClientByAPIKey(apiKey string) (auth.ClientConfig, 
 func (c *AggregatorConfig) GetClientByClientID(clientID string) (auth.ClientConfig, bool) {
 	for _, client := range c.APIClients {
 		if client.ClientID == clientID {
+			if !client.IsEnabled() {
+				return nil, false
+			}
 			return client, true
 		}
 	}
