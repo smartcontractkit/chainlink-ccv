@@ -100,6 +100,87 @@ func TestValidateWriteRequest_Errors(t *testing.T) {
 	})
 }
 
+func TestValidateAddressBounds(t *testing.T) {
+	tests := []struct {
+		name        string
+		mutate      func(req *committeepb.WriteCommitteeVerifierNodeResultRequest)
+		expectError string
+	}{
+		{
+			name: "rejects_oversized_ccv_address_at_index_0",
+			mutate: func(req *committeepb.WriteCommitteeVerifierNodeResultRequest) {
+				req.CommitteeVerifierNodeResult.CcvAddresses = [][]byte{
+					make([]byte, protocol.MaxUnknownAddressBytes+1),
+				}
+			},
+			expectError: "ccv_addresses[0] size",
+		},
+		{
+			name: "rejects_oversized_ccv_address_at_index_1",
+			mutate: func(req *committeepb.WriteCommitteeVerifierNodeResultRequest) {
+				req.CommitteeVerifierNodeResult.CcvAddresses = [][]byte{
+					make([]byte, 20),
+					make([]byte, protocol.MaxUnknownAddressBytes+1),
+				}
+			},
+			expectError: "ccv_addresses[1] size",
+		},
+		{
+			name: "rejects_oversized_executor_address",
+			mutate: func(req *committeepb.WriteCommitteeVerifierNodeResultRequest) {
+				req.CommitteeVerifierNodeResult.ExecutorAddress = make([]byte, protocol.MaxUnknownAddressBytes+1)
+			},
+			expectError: "executor_address size",
+		},
+		{
+			name: "accepts_max_allowed_address_size",
+			mutate: func(req *committeepb.WriteCommitteeVerifierNodeResultRequest) {
+				req.CommitteeVerifierNodeResult.CcvAddresses = [][]byte{
+					make([]byte, protocol.MaxUnknownAddressBytes),
+				}
+				req.CommitteeVerifierNodeResult.ExecutorAddress = make([]byte, protocol.MaxUnknownAddressBytes)
+			},
+			expectError: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := makeValidWriteReq()
+			tc.mutate(req)
+			err := validateAddressBounds(req.CommitteeVerifierNodeResult)
+			if tc.expectError != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.expectError)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateWriteRequest_RejectsBoundsViolations(t *testing.T) {
+	t.Run("rejects_oversized_ccv_address_via_validateWriteRequest", func(t *testing.T) {
+		req := makeValidWriteReq()
+		req.CommitteeVerifierNodeResult.CcvAddresses = [][]byte{make([]byte, protocol.MaxUnknownAddressBytes+1)}
+		err := validateWriteRequest(req)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "ccv_addresses[0] size")
+	})
+
+	t.Run("rejects_too_many_ccv_addresses_via_validateWriteRequest", func(t *testing.T) {
+		req := makeValidWriteReq()
+		oversized := make([][]byte, protocol.MaxCCVsPerMessage+1)
+		for i := range oversized {
+			oversized[i] = make([]byte, 20)
+		}
+		req.CommitteeVerifierNodeResult.CcvAddresses = oversized
+		err := validateWriteRequest(req)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "too many CCV addresses")
+	})
+}
+
 func TestValidateReadRequest(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		req := &committeepb.ReadCommitteeVerifierNodeResultRequest{MessageId: make([]byte, 32), Address: []byte{0xAA}}

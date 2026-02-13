@@ -50,7 +50,6 @@ key_prefix = "ratelimit"
 
 # Group-based rate limits (more restrictive than defaults for specific groups)
 [rateLimiting.groupLimits.verifiers]
-"/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/WriteCommitteeVerifierNodeResult" = { limit_per_minute = 6000 }
 "/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/BatchWriteCommitteeVerifierNodeResult" = { limit_per_minute = 150 }
 "/chainlink_ccv.heartbeat.v1.HeartbeatService/SendHeartbeat" = { limit_per_minute = 6000 }
 

@@ -19,6 +19,7 @@ const (
 	MinSizeRequiredMsgFields      = 27   // Minimum size for required fields in Message
 	MinSizeRequiredMsgTokenFields = 34   // Minimum size for required fields in TokenTransfer
 	MaxCCVsPerMessage             = 255  // Maximum number of CCV addresses per message (limited by uint8)
+	MaxUnknownAddressBytes        = 255  // Maximum size of any UnknownAddress in bytes (limited by uint8)
 )
 
 var (
