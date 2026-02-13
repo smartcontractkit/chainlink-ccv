@@ -218,9 +218,9 @@ func main() {
 	})
 
 	//
-	// Initialize indexer client
+	// Initialize indexer client (supports single or multiple indexers)
 	// ------------------------------------------------------------------------------------------------
-	indexerClient, err := client.NewIndexerClient(executorConfig.IndexerAddress, &http.Client{
+	indexerClient, err := client.NewMultiIndexerClient(executorConfig.IndexerAddress, &http.Client{
 		Timeout: 30 * time.Second,
 	})
 	if err != nil {
