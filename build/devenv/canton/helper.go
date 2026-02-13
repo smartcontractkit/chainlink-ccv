@@ -9,9 +9,10 @@ import (
 	ledgerv2admin "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2/admin"
 	jwtv5 "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/smartcontractkit/go-daml/pkg/auth"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/smartcontractkit/go-daml/pkg/auth"
 )
 
 // Helper is a helper for working with Canton in devenv contexts.
