@@ -110,7 +110,7 @@ func createTestSigner(t *testing.T) (verifier.MessageSigner, protocol.UnknownAdd
 	privateKey, err := ecdsa.GenerateKey(crypto.S256(), rand.Reader)
 	require.NoError(t, err)
 	privateKeyBytes := crypto.FromECDSA(privateKey)
-	signer, addr, err := commit.NewECDSAMessageSigner(privateKeyBytes)
+	signer, _, addr, err := commit.NewECDSAMessageSigner(privateKeyBytes)
 	require.NoError(t, err)
 
 	return signer, addr

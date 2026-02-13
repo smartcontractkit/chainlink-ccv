@@ -33,7 +33,7 @@ import (
 var testCredentials, _ = hmacutil.GenerateCredentials()
 
 // generateTestSigningKey generates a deterministic signing key for testing.
-func generateTestSigningKey(committeeName string, nodeIndex int) (privateKey, publicKey string, err error) {
+func generateTestSigningKey(committeeName string, nodeIndex int) (privateKey, signerAddress string, err error) {
 	preImage := fmt.Sprintf("dev-private-key-%s-%d-12345678901234567890", committeeName, nodeIndex)
 	hash := sha256.Sum256([]byte(preImage))
 	privateKey = hex.EncodeToString(hash[:])
@@ -42,12 +42,12 @@ func generateTestSigningKey(committeeName string, nodeIndex int) (privateKey, pu
 	if err != nil {
 		return "", "", fmt.Errorf("failed to load private key: %w", err)
 	}
-	_, pubKey, err := commit.NewECDSAMessageSigner(pk)
+	_, _, address, err := commit.NewECDSAMessageSigner(pk)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to create message signer: %w", err)
 	}
-	publicKey = pubKey.String()
-	return privateKey, publicKey, nil
+	signerAddress = address.String()
+	return privateKey, signerAddress, nil
 }
 
 func TestServiceAggregator(t *testing.T) {

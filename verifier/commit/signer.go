@@ -18,38 +18,38 @@ type ECDSASigner struct {
 }
 
 // NewECDSAMessageSignerFromString creates a new ECDSA message signer.
-func NewECDSAMessageSignerFromString(privateKeyString string) (*ECDSASigner, protocol.UnknownAddress, error) {
+func NewECDSAMessageSignerFromString(privateKeyString string) (*ECDSASigner, []byte, protocol.UnknownAddress, error) {
 	privateKey, err := ReadPrivateKeyFromString(privateKeyString)
 	if err != nil {
-		return nil, protocol.UnknownAddress{}, fmt.Errorf("failed to read private key from environment variable: %w", err)
+		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("failed to read private key from environment variable: %w", err)
 	}
 	return NewECDSAMessageSigner(privateKey)
 }
 
 // NewECDSAMessageSigner creates a new ECDSA message signer.
-func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, protocol.UnknownAddress, error) {
+func NewECDSAMessageSigner(privateKeyBytes []byte) (*ECDSASigner, []byte, protocol.UnknownAddress, error) {
 	if len(privateKeyBytes) == 0 {
-		return nil, protocol.UnknownAddress{}, fmt.Errorf("private key cannot be empty")
+		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("private key cannot be empty")
 	}
 
 	// Convert bytes to ECDSA private key
 	privateKey, err := crypto.ToECDSA(privateKeyBytes)
 	if err != nil {
-		return nil, protocol.UnknownAddress{}, fmt.Errorf("failed to convert bytes to ECDSA private key: %w", err)
+		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("failed to convert bytes to ECDSA private key: %w", err)
 	}
 
 	// Derive the address from the private key
 	publicKey := privateKey.Public()
 	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
 	if !ok {
-		return nil, protocol.UnknownAddress{}, fmt.Errorf("failed to cast public key to ECDSA")
+		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("failed to cast public key to ECDSA")
 	}
 
 	address := crypto.PubkeyToAddress(*publicKeyECDSA)
 
 	return &ECDSASigner{
 		privateKey: privateKey,
-	}, address[:], nil
+	}, crypto.FromECDSAPub(publicKeyECDSA), address[:], nil
 }
 
 // Sign signs some data with the new chain-agnostic format.
