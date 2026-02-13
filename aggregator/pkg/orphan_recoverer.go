@@ -99,11 +99,8 @@ func (o *OrphanRecoverer) calculateCutoffFromNow() time.Time {
 // This method is designed to be called periodically to recover from cases where verifications
 // were submitted but aggregation failed due to transient errors.
 func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
-	if o.config.OrphanRecovery.ScanTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, o.config.OrphanRecovery.ScanTimeout)
-		defer cancel()
-	}
+	ctx, cancel := context.WithTimeout(ctx, o.config.OrphanRecovery.ScanTimeout)
+	defer cancel()
 
 	cutoff := o.calculateCutoffFromNow()
 
@@ -120,8 +117,9 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 			"total", stats.TotalCount)
 	}
 
-	orphansChan, errorChan := o.storage.ListOrphanedKeys(ctx, cutoff)
+	orphansChan, errorChan := o.storage.ListOrphanedKeys(ctx, cutoff, o.config.OrphanRecovery.PageSize)
 
+	maxOrphans := o.config.OrphanRecovery.MaxOrphansPerScan
 	var processedCount, errorCount int
 
 	for {
@@ -147,6 +145,13 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 					"messageID", fmt.Sprintf("%x", orphanRecord.MessageID),
 					"aggregationKey", orphanRecord.AggregationKey)
 				processedCount++
+			}
+
+			if processedCount >= maxOrphans {
+				o.logger.Error("Reached max orphans per scan",
+					"limit", maxOrphans,
+					"processed", processedCount)
+				return nil
 			}
 
 		case err, ok := <-errorChan:

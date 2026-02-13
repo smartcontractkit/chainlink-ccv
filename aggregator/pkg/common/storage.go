@@ -18,7 +18,8 @@ type CommitVerificationStore interface {
 	ListCommitVerificationByAggregationKey(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey) ([]*model.CommitVerificationRecord, error)
 	// ListOrphanedKeys finds verification records that have not been aggregated yet and are newer than the cutoff.
 	// Returns channels for streaming results: one for message pairs, one for errors.
-	ListOrphanedKeys(ctx context.Context, newerThan time.Time) (<-chan model.OrphanedKey, <-chan error)
+	// pageSize controls the number of rows fetched per database page.
+	ListOrphanedKeys(ctx context.Context, newerThan time.Time, pageSize int) (<-chan model.OrphanedKey, <-chan error)
 	// OrphanedKeyStats returns counts of orphaned records split by expired/non-expired status.
 	OrphanedKeyStats(ctx context.Context, cutoff time.Time) (*model.OrphanStats, error)
 }

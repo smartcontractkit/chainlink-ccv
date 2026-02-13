@@ -700,7 +700,7 @@ func TestListOrphanedKeys(t *testing.T) {
 	err = storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
-	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, time.Time{})
+	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, time.Time{}, 100)
 
 	orphanedKeys := []model.OrphanedKey{}
 	for keys := range orphanKeysCh {
@@ -725,7 +725,7 @@ func TestListOrphanedKeys_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	messageIDCh, errCh := storage.ListOrphanedKeys(ctx, time.Time{})
+	messageIDCh, errCh := storage.ListOrphanedKeys(ctx, time.Time{}, 100)
 
 	for range messageIDCh {
 	}
@@ -774,7 +774,7 @@ func TestListOrphanedKeys_FiltersRecordsOlderThanCutoff(t *testing.T) {
 	}
 
 	cutoff := time.Now().Add(-1 * time.Hour)
-	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, cutoff)
+	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, cutoff, 100)
 
 	orphanedKeys := []model.OrphanedKey{}
 	for key := range orphanKeysCh {
@@ -786,6 +786,45 @@ func TestListOrphanedKeys_FiltersRecordsOlderThanCutoff(t *testing.T) {
 	require.Len(t, orphanedKeys, 1, "Should only return orphan newer than cutoff")
 	require.Equal(t, orphans[2].aggregationKey, orphanedKeys[0].AggregationKey,
 		"Should return only the recent orphan")
+}
+
+func TestListOrphanedKeys_PaginationReturnsAllResults(t *testing.T) {
+	storage, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	signer := newTestSigner(t)
+
+	const totalOrphans = 7
+
+	for i := range totalOrphans {
+		message := createTestProtocolMessage()
+		message.SequenceNumber = protocol.SequenceNumber(i + 1)
+		msgWithCCV := createTestMessageWithCCV(t, message, signer)
+		messageID := getMessageIDFromProto(t, msgWithCCV)
+		aggregationKey := protocol.ByteSlice(messageID).String()
+		record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
+		err := storage.SaveCommitVerification(ctx, record, aggregationKey)
+		require.NoError(t, err)
+	}
+
+	// Use pageSize=2 so pagination is exercised with a small number of records
+	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, time.Time{}, 2)
+
+	orphanedKeys := make([]model.OrphanedKey, 0, totalOrphans)
+	for key := range orphanKeysCh {
+		orphanedKeys = append(orphanedKeys, key)
+	}
+	err := <-errCh
+	require.NoError(t, err)
+
+	require.Len(t, orphanedKeys, totalOrphans, "Paginated scan must return all orphans")
+
+	for i := 1; i < len(orphanedKeys); i++ {
+		prev := protocol.ByteSlice(orphanedKeys[i-1].MessageID).String() + orphanedKeys[i-1].AggregationKey
+		curr := protocol.ByteSlice(orphanedKeys[i].MessageID).String() + orphanedKeys[i].AggregationKey
+		require.True(t, prev < curr, "Results must be in sorted order: %s >= %s", prev, curr)
+	}
 }
 
 func TestBatchOperations_MultipleSigners(t *testing.T) {

@@ -143,9 +143,9 @@ func (_c *MockCommitVerificationStore_ListCommitVerificationByAggregationKey_Cal
 	return _c
 }
 
-// ListOrphanedKeys provides a mock function with given fields: ctx, newerThan
-func (_m *MockCommitVerificationStore) ListOrphanedKeys(ctx context.Context, newerThan time.Time) (<-chan model.OrphanedKey, <-chan error) {
-	ret := _m.Called(ctx, newerThan)
+// ListOrphanedKeys provides a mock function with given fields: ctx, newerThan, pageSize
+func (_m *MockCommitVerificationStore) ListOrphanedKeys(ctx context.Context, newerThan time.Time, pageSize int) (<-chan model.OrphanedKey, <-chan error) {
+	ret := _m.Called(ctx, newerThan, pageSize)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListOrphanedKeys")
@@ -153,19 +153,19 @@ func (_m *MockCommitVerificationStore) ListOrphanedKeys(ctx context.Context, new
 
 	var r0 <-chan model.OrphanedKey
 	var r1 <-chan error
-	if rf, ok := ret.Get(0).(func(context.Context, time.Time) (<-chan model.OrphanedKey, <-chan error)); ok {
-		return rf(ctx, newerThan)
+	if rf, ok := ret.Get(0).(func(context.Context, time.Time, int) (<-chan model.OrphanedKey, <-chan error)); ok {
+		return rf(ctx, newerThan, pageSize)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, time.Time) <-chan model.OrphanedKey); ok {
-		r0 = rf(ctx, newerThan)
+	if rf, ok := ret.Get(0).(func(context.Context, time.Time, int) <-chan model.OrphanedKey); ok {
+		r0 = rf(ctx, newerThan, pageSize)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(<-chan model.OrphanedKey)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, time.Time) <-chan error); ok {
-		r1 = rf(ctx, newerThan)
+	if rf, ok := ret.Get(1).(func(context.Context, time.Time, int) <-chan error); ok {
+		r1 = rf(ctx, newerThan, pageSize)
 	} else {
 		if ret.Get(1) != nil {
 			r1 = ret.Get(1).(<-chan error)
@@ -183,13 +183,14 @@ type MockCommitVerificationStore_ListOrphanedKeys_Call struct {
 // ListOrphanedKeys is a helper method to define mock.On call
 //   - ctx context.Context
 //   - newerThan time.Time
-func (_e *MockCommitVerificationStore_Expecter) ListOrphanedKeys(ctx interface{}, newerThan interface{}) *MockCommitVerificationStore_ListOrphanedKeys_Call {
-	return &MockCommitVerificationStore_ListOrphanedKeys_Call{Call: _e.mock.On("ListOrphanedKeys", ctx, newerThan)}
+//   - pageSize int
+func (_e *MockCommitVerificationStore_Expecter) ListOrphanedKeys(ctx interface{}, newerThan interface{}, pageSize interface{}) *MockCommitVerificationStore_ListOrphanedKeys_Call {
+	return &MockCommitVerificationStore_ListOrphanedKeys_Call{Call: _e.mock.On("ListOrphanedKeys", ctx, newerThan, pageSize)}
 }
 
-func (_c *MockCommitVerificationStore_ListOrphanedKeys_Call) Run(run func(ctx context.Context, newerThan time.Time)) *MockCommitVerificationStore_ListOrphanedKeys_Call {
+func (_c *MockCommitVerificationStore_ListOrphanedKeys_Call) Run(run func(ctx context.Context, newerThan time.Time, pageSize int)) *MockCommitVerificationStore_ListOrphanedKeys_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(time.Time))
+		run(args[0].(context.Context), args[1].(time.Time), args[2].(int))
 	})
 	return _c
 }
@@ -199,7 +200,7 @@ func (_c *MockCommitVerificationStore_ListOrphanedKeys_Call) Return(_a0 <-chan m
 	return _c
 }
 
-func (_c *MockCommitVerificationStore_ListOrphanedKeys_Call) RunAndReturn(run func(context.Context, time.Time) (<-chan model.OrphanedKey, <-chan error)) *MockCommitVerificationStore_ListOrphanedKeys_Call {
+func (_c *MockCommitVerificationStore_ListOrphanedKeys_Call) RunAndReturn(run func(context.Context, time.Time, int) (<-chan model.OrphanedKey, <-chan error)) *MockCommitVerificationStore_ListOrphanedKeys_Call {
 	_c.Call.Return(run)
 	return _c
 }

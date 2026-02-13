@@ -109,12 +109,12 @@ func (s *MetricsAwareStorage) SubmitAggregatedReport(ctx context.Context, report
 	})
 }
 
-func (s *MetricsAwareStorage) ListOrphanedKeys(ctx context.Context, newerThan time.Time) (<-chan model.OrphanedKey, <-chan error) {
+func (s *MetricsAwareStorage) ListOrphanedKeys(ctx context.Context, newerThan time.Time, pageSize int) (<-chan model.OrphanedKey, <-chan error) {
 	metrics := s.metrics(ctx, ListOrphanedKeysOp)
 	resultChan := make(chan model.OrphanedKey, 100)
 	errorChan := make(chan error, 1)
 
-	innerResultChan, innerErrorChan := s.inner.ListOrphanedKeys(ctx, newerThan)
+	innerResultChan, innerErrorChan := s.inner.ListOrphanedKeys(ctx, newerThan, pageSize)
 
 	go func() {
 		now := time.Now()
