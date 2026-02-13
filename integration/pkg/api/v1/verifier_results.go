@@ -199,8 +199,6 @@ func (r *VerifierResult) MarshalJSON() ([]byte, error) {
 	var metadata *VerifierResultsMetadata
 	if r.Metadata != nil {
 		metadata = &VerifierResultsMetadata{VerifierResultMetadata: r.Metadata}
-	} else {
-		metadata = &VerifierResultsMetadata{}
 	}
 
 	return json.Marshal(
