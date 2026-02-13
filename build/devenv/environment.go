@@ -178,7 +178,11 @@ func NewProductConfigurationFromNetwork(family string, chainID string) (cciptest
 			return nil, errors.New("unknown devenv network type " + family)
 		}
 
-		return impl.(cciptestinterfaces.CCIP17Configuration), nil
+		implCfg, ok := impl.(cciptestinterfaces.CCIP17Configuration)
+		if !ok {
+			return nil, fmt.Errorf("unexpected implementation type %T", impl)
+		}
+		return implCfg, nil
 	}
 }
 
