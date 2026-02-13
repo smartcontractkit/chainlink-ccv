@@ -245,6 +245,7 @@ func (c *Chain) ManuallyExecuteMessage(ctx context.Context, message protocol.Mes
 	// Get ExecutionStateChangedEvent from events
 	expectedTemplateID := perpartyrouter.ExecutionStateChanged{}.GetTemplateID()
 	for _, event := range updateRes.GetTransaction().GetEvents() {
+		//nolint:nestif // need to check if all of these are nil
 		if createdEvent := event.GetCreated(); createdEvent != nil {
 			if templateId := createdEvent.GetTemplateId(); templateId != nil {
 				gotTemplateId := fmt.Sprintf("#%s:%s:%s", createdEvent.GetPackageName(), templateId.GetModuleName(), templateId.GetEntityName())
