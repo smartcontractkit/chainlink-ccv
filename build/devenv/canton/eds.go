@@ -52,7 +52,7 @@ func (c *Chain) GetDisclosuresForExecution(ctx context.Context, verifiers []cont
 		return nil, fmt.Errorf("failed to get offramp contract ID: %w", err)
 	}
 	disclosures.OffRamp = convertToDisclosedContract(activeOffRamp)
-	c.logger.Debug().Str("OffRampAddress", offRampAddress.String()).Str("OffRampCID", activeOffRamp.GetCreatedEvent().GetContractId()).Msg("Resolved OffRamp contract")
+	c.logger.Debug().Str("InstanceAddress", offRampAddress.String()).Str("ContractId", activeOffRamp.GetCreatedEvent().GetContractId()).Msg("Resolved OffRamp contract")
 
 	// GlobalConfig
 	globalConfigRef, err := c.e.DataStore.Addresses().Get(
@@ -72,7 +72,7 @@ func (c *Chain) GetDisclosuresForExecution(ctx context.Context, verifiers []cont
 		return nil, fmt.Errorf("failed to get global config contract ID: %w", err)
 	}
 	disclosures.GlobalConfig = convertToDisclosedContract(activeGlobalConfig)
-	c.logger.Debug().Str("GlobalConfigAddress", globalConfigAddress.String()).Str("GlobalConfigCID", activeGlobalConfig.GetCreatedEvent().GetContractId()).Msg("Resolved GlobalConfig contract")
+	c.logger.Debug().Str("InstanceAddress", globalConfigAddress.String()).Str("ContractId", activeGlobalConfig.GetCreatedEvent().GetContractId()).Msg("Resolved GlobalConfig contract")
 
 	// Token Admin Registry
 	tokenAdminRegistryRef, err := c.e.DataStore.Addresses().Get(
@@ -92,7 +92,7 @@ func (c *Chain) GetDisclosuresForExecution(ctx context.Context, verifiers []cont
 		return nil, fmt.Errorf("failed to get token admin registry contract ID: %w", err)
 	}
 	disclosures.TokenAdminRegistry = convertToDisclosedContract(activeTokenAdminRegistry)
-	c.logger.Debug().Str("TokenAdminRegistryAddress", tokenAdminRegistryAddress.String()).Str("TokenAdminRegistryCID", activeTokenAdminRegistry.GetCreatedEvent().GetContractId()).Msg("Resolved TokenAdminRegistry contract")
+	c.logger.Debug().Str("InstanceAddress", tokenAdminRegistryAddress.String()).Str("ContractId", activeTokenAdminRegistry.GetCreatedEvent().GetContractId()).Msg("Resolved TokenAdminRegistry contract")
 
 	// RMN Remote
 	rmnRemoteRef, err := c.e.DataStore.Addresses().Get(
@@ -111,7 +111,7 @@ func (c *Chain) GetDisclosuresForExecution(ctx context.Context, verifiers []cont
 	if err != nil {
 		return nil, fmt.Errorf("failed to get rmn remote contract ID: %w", err)
 	}
-	c.logger.Debug().Str("RMNRemoteAddress", rmnRemoteAddress.String()).Str("RMNRemoteCID", activeRMNRemote.GetCreatedEvent().GetContractId()).Msg("Resolved RMNRemote contract")
+	c.logger.Debug().Str("InstanceAddress", rmnRemoteAddress.String()).Str("ContractId", activeRMNRemote.GetCreatedEvent().GetContractId()).Msg("Resolved RMNRemote contract")
 
 	// Verifiers
 	disclosures.Verifiers = make([]*ledgerv2.DisclosedContract, len(verifiers))
@@ -121,7 +121,7 @@ func (c *Chain) GetDisclosuresForExecution(ctx context.Context, verifiers []cont
 			return nil, fmt.Errorf("failed to get committee verifier contract ID for address %s: %w", verifierAddr.String(), err)
 		}
 		disclosures.Verifiers[i] = convertToDisclosedContract(activeVerifier)
-		c.logger.Debug().Str("CCVAddress", verifierAddr.String()).Str("CCVCID", activeVerifier.GetCreatedEvent().GetContractId()).Msg("Resolved CCV contract")
+		c.logger.Debug().Str("InstanceAddress", verifierAddr.String()).Str("ContractId", activeVerifier.GetCreatedEvent().GetContractId()).Msg("Resolved CCV contract")
 	}
 
 	return &disclosures, nil

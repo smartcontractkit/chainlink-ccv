@@ -132,8 +132,11 @@ func (c *Chain) ManuallyExecuteMessage(ctx context.Context, message protocol.Mes
 	c.logger.Debug().Str("ReceiverAddress", receiverAddress.String()).Msg("Deployed CCIPReceiver")
 
 	// Get disclosures for execution // TODO replace with EDS
-	ccvAddress := contracts.HexToInstanceAddress(verifiers[0].String())
-	disclosures, err := c.GetDisclosuresForExecution(ctx, []contracts.InstanceAddress{ccvAddress})
+	ccvs := make([]contracts.InstanceAddress, len(verifiers))
+	for i, verifier := range verifiers {
+		ccvs[i] = contracts.HexToInstanceAddress(verifier.String())
+	}
+	disclosures, err := c.GetDisclosuresForExecution(ctx, ccvs)
 	if err != nil {
 		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to get disclosures for execution: %w", err)
 	}
@@ -174,7 +177,7 @@ func (c *Chain) ManuallyExecuteMessage(ctx context.Context, message protocol.Mes
 		ccvElements[i] = &ledgerv2.Value{
 			Sum: &ledgerv2.Value_Record{Record: &ledgerv2.Record{Fields: []*ledgerv2.RecordField{
 				{Label: "ccvCid", Value: &ledgerv2.Value{Sum: &ledgerv2.Value_ContractId{ContractId: verifier.GetContractId()}}},
-				{Label: "verifierResults", Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Text{Text: verifier.GetSynchronizerId()}}},
+				{Label: "verifierResults", Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Text{Text: hex.EncodeToString(verifierResults[i])}}},
 			}}},
 		}
 		disclosedContracts = append(disclosedContracts, verifier)
