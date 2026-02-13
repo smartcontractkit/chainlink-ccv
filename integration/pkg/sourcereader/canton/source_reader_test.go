@@ -502,8 +502,8 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 		encodedMsgHex := hex.EncodeToString(encodedMsg)
 
 		created := &ledgerv2.CreatedEvent{
-			TemplateId:   templateID,
-			Signatories:  []string{ccipOwner},
+			TemplateId:  templateID,
+			Signatories: []string{ccipOwner},
 			CreateArguments: &ledgerv2.Record{
 				Fields: []*ledgerv2.RecordField{
 					{
