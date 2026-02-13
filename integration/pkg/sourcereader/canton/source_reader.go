@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"slices"
 	"strings"
 
 	ledgerv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2"
@@ -194,6 +195,11 @@ func extractEvents(transactions []*ledgerv2.Transaction, ccipOwnerParty string, 
 		for _, event := range tx.GetEvents() {
 			created := event.GetCreated()
 			if created == nil {
+				continue
+			}
+			// check that ccipOwnerParty is in the signatories of the created event.
+			// This is a defense in depth measure to ensure that we only process events that are signed by the ccipOwnerParty.
+			if !slices.Contains(created.GetSignatories(), ccipOwnerParty) {
 				continue
 			}
 			messageSentEvent, err := processCreatedEvent(tx, created, ccipOwnerParty, ccipMessageSentTemplateID)
