@@ -197,6 +197,11 @@ func extractEvents(transactions []*ledgerv2.Transaction, ccipOwnerParty string, 
 			if created == nil {
 				continue
 			}
+			// check that ccipOwnerParty is in the signatories of the created event.
+			// This is a defense in depth measure to ensure that we only process events that are signed by the ccipOwnerParty.
+			if !slices.Contains(created.GetSignatories(), ccipOwnerParty) {
+				continue
+			}
 			messageSentEvent, err := processCreatedEvent(tx, created, ccipOwnerParty, ccipMessageSentTemplateID)
 			if err != nil {
 				// TODO: should we just "continue" here, in the event of a maliciously crafted message/receipts?
