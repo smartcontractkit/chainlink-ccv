@@ -18,9 +18,9 @@ require (
 	github.com/prometheus/client_golang v1.23.0
 	github.com/rs/zerolog v1.34.0
 	github.com/smartcontractkit/chain-selectors v1.0.92
-	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20260206205333-9187f22f0a04
-	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20260206205333-9187f22f0a04
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260206205333-9187f22f0a04
+	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20260213150558-b2522161234a
+	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20260213150558-b2522161234a
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260213150558-b2522161234a
 	github.com/smartcontractkit/chainlink-common v0.9.6-0.20260122165924-94e0fad14fe8
 	github.com/smartcontractkit/chainlink-deployments-framework v0.79.0
 	github.com/smartcontractkit/chainlink-testing-framework/framework v0.13.9
@@ -39,8 +39,8 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/sethvargo/go-retry v0.3.0
 	github.com/smartcontractkit/chainlink-canton v0.0.0-20260212133859-4c2cdf6ed947
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260206205333-9187f22f0a04
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260206205333-9187f22f0a04
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260213150558-b2522161234a
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260213150558-b2522161234a
 	github.com/smartcontractkit/chainlink-ccv v0.0.0-20260210144153-aebc4e8cb4de
 	github.com/smartcontractkit/chainlink-ccv/deployments v0.0.0-20260114162625-70cae15c5548
 	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20260119171452-39c98c3b33cd
@@ -73,6 +73,8 @@ require (
 	github.com/prometheus/otlptranslator v0.0.0-20250414121140-35db323fe9fb // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
 	github.com/sercand/kuberesolver/v6 v6.0.0 // indirect
+	github.com/smartcontractkit/ccip-contract-examples/chains/evm v0.0.0-20250826190403-aed7f5f33cde // indirect
+	github.com/smartcontractkit/chainlink-evm v0.3.4-0.20260126170652-c5f27bb1804e // indirect
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/heartbeat v0.0.0-20260115142640-f6b99095c12e // indirect
 	github.com/smartcontractkit/chainlink-protos/linking-service/go v0.0.0-20251002192024-d2ad9222409b // indirect
 	github.com/smartcontractkit/chainlink-ton v0.0.0-20260203093043-43c83cc5f442 // indirect
