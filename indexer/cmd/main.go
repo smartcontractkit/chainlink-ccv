@@ -99,7 +99,11 @@ func main() {
 	pool.Start(ctx)
 
 	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring)
-	api.Serve(v1, 8100)
+	listenPort := config.API.ListenPort
+	if listenPort == 0 {
+		listenPort = 8100
+	}
+	api.Serve(v1, listenPort)
 }
 
 func createRegistry() *registry.VerifierRegistry {

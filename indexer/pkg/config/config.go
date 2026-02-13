@@ -65,6 +65,9 @@ type PoolConfig struct {
 
 // APIConfig provides all configuration for the API inside the indexer.
 type APIConfig struct {
+	// ListenPort is the port the HTTP API listens on inside the process (default 8100).
+	// Used by devenv to expose the correct container port and build internal URLs.
+	ListenPort int `toml:"ListenPort"`
 	// RateLimit is the configuration for the rate limiting system inside the indexer.
 	RateLimit RateLimitConfig `toml:"RateLimit"`
 	// TrustedProxies contains an array of trusted reverse proxies.

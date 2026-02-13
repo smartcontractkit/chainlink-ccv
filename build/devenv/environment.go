@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -828,78 +829,111 @@ func NewEnvironment() (in *Cfg, err error) {
 	if len(in.Indexer) < 1 {
 		return nil, fmt.Errorf("at least one indexer is required")
 	}
-		if sharedTLSCerts == nil {
-			return nil, fmt.Errorf("shared TLS certificates are required for indexer")
-		}
 
-		// Build discovery secrets from aggregators (same creds used for all indexers).
-		discoverySecrets := make(map[string]config.DiscoverySecrets)
-		verifierSecrets := make(map[string]config.VerifierSecrets)
-		for idx, agg := range in.Aggregator {
-			if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
-				discoverySecrets[strconv.Itoa(idx)] = config.DiscoverySecrets{APIKey: creds.APIKey, Secret: creds.Secret}
-				verifierSecrets[strconv.Itoa(idx)] = config.VerifierSecrets{APIKey: creds.APIKey, Secret: creds.Secret}
+	// Ensure unique container names and DB host ports for multiple indexers (defaults in services/indexer.go use "indexer" / single port for single instance).
+	for i := range in.Indexer {
+		if in.Indexer[i].ContainerName == "" {
+			if len(in.Indexer) == 1 {
+				in.Indexer[i].ContainerName = services.DefaultIndexerName
+			} else {
+				in.Indexer[i].ContainerName = fmt.Sprintf("indexer-%d", i+1)
 			}
 		}
+		if in.Indexer[i].DB != nil && in.Indexer[i].DB.HostPort == 0 && len(in.Indexer) > 1 {
+			in.Indexer[i].DB.HostPort = services.DefaultIndexerDBPort + i
+		}
+		// Ensure StorageConnectionURL matches the DB container we create (indexer-1-db, indexer-2-db, or indexer-db for single).
+		// Env.toml may have single-instance URLs; overwrite so migrations and storage use the correct host/credentials.
+		idx := in.Indexer[i]
+		dbName := idx.ContainerName
+		if idx.DB != nil && idx.DB.Database != "" {
+			dbName = idx.DB.Database
+		}
+		dbUser := idx.ContainerName
+		if idx.DB != nil && idx.DB.Username != "" {
+			dbUser = idx.DB.Username
+		}
+		dbPass := idx.ContainerName
+		if idx.DB != nil && idx.DB.Password != "" {
+			dbPass = idx.DB.Password
+		}
+		dbHost := idx.ContainerName + "-db"
+		in.Indexer[i].StorageConnectionURL = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable", dbUser, dbPass, dbHost, dbName)
+	}
 
-		externalURLs := make([]string, 0, len(in.Indexer))
-		internalURLs := make([]string, 0, len(in.Indexer))
+	if sharedTLSCerts == nil {
+		return nil, fmt.Errorf("shared TLS certificates are required for indexer")
+	}
 
-		for idxPos, idxIn := range in.Indexer {
-			idxIn.TLSCACertFile = sharedTLSCerts.CACertFile
+	// Build discovery secrets from aggregators (same creds used for all indexers).
+	discoverySecrets := make(map[string]config.DiscoverySecrets)
+	verifierSecrets := make(map[string]config.VerifierSecrets)
+	for idx, agg := range in.Aggregator {
+		if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
+			discoverySecrets[strconv.Itoa(idx)] = config.DiscoverySecrets{APIKey: creds.APIKey, Secret: creds.Secret}
+			verifierSecrets[strconv.Itoa(idx)] = config.VerifierSecrets{APIKey: creds.APIKey, Secret: creds.Secret}
+		}
+	}
 
-			if idxIn.IndexerConfig != nil {
-				idxIn.IndexerConfig.Discoveries = make([]config.DiscoveryConfig, len(in.Aggregator))
-				for i, agg := range in.Aggregator {
-					if agg.Out != nil {
-						idxIn.IndexerConfig.Discoveries[i].Address = agg.Out.Address
-						if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
-							idxIn.IndexerConfig.Discoveries[i].APIKey = creds.APIKey
-							idxIn.IndexerConfig.Discoveries[i].Secret = creds.Secret
-						}
-					}
-					if idxIn.IndexerConfig.Discoveries[i].PollInterval == 0 {
-						idxIn.IndexerConfig.Discoveries[i].PollInterval = 500
-					}
-					if idxIn.IndexerConfig.Discoveries[i].Timeout == 0 {
-						idxIn.IndexerConfig.Discoveries[i].Timeout = 5000
-					}
-					if idxIn.IndexerConfig.Discoveries[i].NtpServer == "" {
-						idxIn.IndexerConfig.Discoveries[i].NtpServer = "time.google.com"
-					}
+	externalURLs := make([]string, 0, len(in.Indexer))
+	internalURLs := make([]string, 0, len(in.Indexer))
+
+	for idxPos, idxIn := range in.Indexer {
+		idxIn.TLSCACertFile = sharedTLSCerts.CACertFile
+
+		idxIn.IndexerConfig.Discoveries = make([]config.DiscoveryConfig, len(in.Aggregator))
+		for i, agg := range in.Aggregator {
+			if agg.Out != nil {
+				idxIn.IndexerConfig.Discoveries[i].Address = agg.Out.Address
+				if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
+					idxIn.IndexerConfig.Discoveries[i].APIKey = creds.APIKey
+					idxIn.IndexerConfig.Discoveries[i].Secret = creds.Secret
 				}
 			}
-
-			// Duplicate same secrets/auth for this indexer (Verifier push to indexer uses same creds).
-			if idxIn.Secrets == nil {
-				idxIn.Secrets = &config.SecretsConfig{
-					Discoveries: make(map[string]config.DiscoverySecrets),
-					Verifier:    make(map[string]config.VerifierSecrets),
-				}
+			if idxIn.IndexerConfig.Discoveries[i].PollInterval == 0 {
+				idxIn.IndexerConfig.Discoveries[i].PollInterval = 500
 			}
-			if idxIn.Secrets.Discoveries == nil {
-				idxIn.Secrets.Discoveries = make(map[string]config.DiscoverySecrets)
+			if idxIn.IndexerConfig.Discoveries[i].Timeout == 0 {
+				idxIn.IndexerConfig.Discoveries[i].Timeout = 5000
 			}
-			if idxIn.Secrets.Verifier == nil {
-				idxIn.Secrets.Verifier = make(map[string]config.VerifierSecrets)
+			if idxIn.IndexerConfig.Discoveries[i].NtpServer == "" {
+				idxIn.IndexerConfig.Discoveries[i].NtpServer = "time.google.com"
 			}
-			for k, v := range discoverySecrets {
-				idxIn.Secrets.Discoveries[k] = v
-			}
-			for k, v := range verifierSecrets {
-				idxIn.Secrets.Verifier[k] = v
-			}
-
-			indexerOut, err := services.NewIndexer(idxIn)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create indexer service (index %d): %w", idxPos, err)
-			}
-			externalURLs = append(externalURLs, indexerOut.ExternalHTTPURL)
-			internalURLs = append(internalURLs, indexerOut.InternalHTTPURL)
 		}
 
-		in.IndexerEndpoints = externalURLs
-		in.IndexerInternalEndpoints = internalURLs
+		// Duplicate same secrets/auth for this indexer (Verifier push to indexer uses same creds).
+		if idxIn.Secrets == nil {
+			idxIn.Secrets = &config.SecretsConfig{
+				Discoveries: make(map[string]config.DiscoverySecrets),
+				Verifier:    make(map[string]config.VerifierSecrets),
+			}
+		}
+		if idxIn.Secrets.Discoveries == nil {
+			idxIn.Secrets.Discoveries = make(map[string]config.DiscoverySecrets)
+		}
+		if idxIn.Secrets.Verifier == nil {
+			idxIn.Secrets.Verifier = make(map[string]config.VerifierSecrets)
+		}
+		maps.Copy(idxIn.Secrets.Discoveries, discoverySecrets)
+		maps.Copy(idxIn.Secrets.Verifier, verifierSecrets)
+		// Ensure storage secrets use the same DB URL we set on StorageConnectionURL (indexer loads secrets and overwrites config URI).
+		if idxIn.Secrets.Storage.Sink.Storages == nil {
+			idxIn.Secrets.Storage.Sink.Storages = make(map[string]config.StorageBackendSecrets)
+		}
+		backend := idxIn.Secrets.Storage.Sink.Storages["1"]
+		backend.Postgres.URI = idxIn.StorageConnectionURL
+		idxIn.Secrets.Storage.Sink.Storages["1"] = backend
+
+		indexerOut, err := services.NewIndexer(idxIn)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create indexer service (index %d): %w", idxPos, err)
+		}
+		externalURLs = append(externalURLs, indexerOut.ExternalHTTPURL)
+		internalURLs = append(internalURLs, indexerOut.InternalHTTPURL)
+	}
+
+	in.IndexerEndpoints = externalURLs
+	in.IndexerInternalEndpoints = internalURLs
 
 	/////////////////////////
 	// END: Launch indexer(s) //
