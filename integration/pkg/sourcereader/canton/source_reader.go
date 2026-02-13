@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"slices"
 	"strings"
 
 	ledgerv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2"
@@ -219,6 +220,8 @@ func processCreatedEvent(
 	if !identifiersClose(created.GetTemplateId(), ccipMessageSentTemplateID) {
 		return nil, nil
 	}
+
+	slices.Contains(created.GetSignatories(), expectedCCIPOwnerParty)
 
 	var eventRecordField *ledgerv2.RecordField
 	var ccipOwnerParty string

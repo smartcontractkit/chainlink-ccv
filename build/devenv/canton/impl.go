@@ -2,7 +2,6 @@ package canton
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"math/big"
 	"path/filepath"
@@ -12,8 +11,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	ledgerv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2"
-	"github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2/admin"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
@@ -21,7 +18,6 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	dsutils "github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/canton"
@@ -33,28 +29,16 @@ import (
 	"github.com/smartcontractkit/go-daml/pkg/client"
 	"github.com/smartcontractkit/go-daml/pkg/types"
 
-	"github.com/smartcontractkit/chainlink-canton/bindings"
-	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/ccipreceiver"
 	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/ccvs"
-	ccvsBinding "github.com/smartcontractkit/chainlink-canton/bindings/ccip/ccvs"
 	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/common"
-	offramp2 "github.com/smartcontractkit/chainlink-canton/bindings/ccip/offramp"
-	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/perpartyrouter"
 	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/rmn"
-	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/tokenadminregistry"
 	"github.com/smartcontractkit/chainlink-canton/contracts"
 	cantonChangesets "github.com/smartcontractkit/chainlink-canton/deployment/changesets"
-	"github.com/smartcontractkit/chainlink-canton/deployment/dependencies"
 	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/fee_quoter"
 	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/global_config"
 	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/offramp"
 	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/onramp"
-	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/per_party_router_factory"
-	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/receiver"
-	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/token_admin_registry"
 	"github.com/smartcontractkit/chainlink-canton/deployment/sequences"
-	"github.com/smartcontractkit/chainlink-canton/deployment/utils/operations/contract"
-
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	cantonadapters "github.com/smartcontractkit/chainlink-ccv/devenv/canton/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
@@ -551,299 +535,6 @@ func (c *Chain) GetTokenBalance(ctx context.Context, address, tokenAddress proto
 // GetUserNonce implements cciptestinterfaces.CCIP17.
 func (c *Chain) GetUserNonce(ctx context.Context, userAddress protocol.UnknownAddress) (uint64, error) {
 	return 0, nil // TODO: implement
-}
-
-// ManuallyExecuteMessage implements cciptestinterfaces.CCIP17.
-func (c *Chain) ManuallyExecuteMessage(ctx context.Context, message protocol.Message, gasLimit uint64, ccvs []protocol.UnknownAddress, verifierResults [][]byte) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
-	deps := dependencies.CantonDeps{
-		Chain:                c.chain,
-		CommandServiceClient: c.helper.commandClient,
-		StateServiceClient:   c.helper.stateServiceClient,
-		Party:                c.helper.partyID,
-	}
-
-	// Create PerPartyRouter (ignore error if it exists already)
-	cantonPerPartyRouterFactoryRef, err := c.e.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(
-			c.chainDetails.ChainSelector,
-			datastore.ContractType(per_party_router_factory.ContractType),
-			per_party_router_factory.Version,
-			"",
-		),
-	)
-	if err != nil {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to get canton per party router factory address ref: %w", err)
-	}
-	c.logger.Debug().Str("CantonPerPartyRouterFactory", cantonPerPartyRouterFactoryRef.Address).Msg("Creating per-party router factory on Canton")
-	cantonPerPartyRouterFactory := contracts.HexToInstanceAddress(cantonPerPartyRouterFactoryRef.Address)
-
-	routerInstanceID := contracts.InstanceID("test-router")
-	_, _ = operations.ExecuteOperation(c.e.OperationsBundle, per_party_router_factory.CreateRouter, deps, contract.ChoiceInput[perpartyrouter.CreateRouter]{
-		ChainSelector:   c.chainDetails.ChainSelector,
-		InstanceAddress: cantonPerPartyRouterFactory,
-		ActAs:           []string{c.helper.partyID},
-		Args: perpartyrouter.CreateRouter{
-			PartyOwner: types.PARTY(c.helper.partyID),
-			InstanceId: types.TEXT(routerInstanceID.String()),
-		},
-	})
-	routerAddress := routerInstanceID.RawInstanceAddress(types.PARTY(c.helper.partyID)).InstanceAddress()
-	_ = routerAddress
-
-	// Deploy receiver contract
-	receiverDar, err := contracts.GetDar(contracts.CCIPReceiver, contracts.CurrentVersion)
-	if err != nil {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to get receiver dar: %w", err)
-	}
-	_, err = c.helper.pkgMgmtClient.UploadDarFile(ctx, &admin.UploadDarFileRequest{
-		DarFile:       receiverDar,
-		VettingChange: admin.UploadDarFileRequest_VETTING_CHANGE_VET_ALL_PACKAGES,
-	})
-	if err != nil {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to upload receiver dar file: %w", err)
-	}
-	out, err := operations.ExecuteOperation(c.e.OperationsBundle, receiver.Deploy, deps, contract.DeployInput[ccipreceiver.CCIPReceiver]{
-		ChainSelector: c.chainDetails.ChainSelector,
-		Qualifier:     nil,
-		ActAs:         []string{c.helper.partyID},
-		Template: ccipreceiver.CCIPReceiver{
-			Owner:        types.PARTY(c.helper.partyID),
-			RequiredCCVs: nil,
-		},
-		OwnerParty: types.PARTY(c.helper.partyID),
-	})
-	if err != nil {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to deploy receiver contract: %w", err)
-	}
-	receiverAddress := contracts.HexToInstanceAddress(out.Output.Address)
-
-	// Resolve contracts
-	receiverCid, err := contract.FindContractIDByInstanceAddress(ctx, c.e.Logger, c.helper.stateServiceClient, c.helper.partyID, ccipreceiver.CCIPReceiver{}.GetTemplateID(), receiverAddress)
-	if err != nil {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to get receiver contract ID: %w", err)
-	}
-	c.logger.Debug().Str("ReceiverAddress", receiverAddress.String()).Str("ReceiverCID", receiverCid).Msg("Resolved Receiver contract")
-	_ = receiverCid
-
-	routerCid, err := contract.FindContractIDByInstanceAddress(ctx, c.e.Logger, c.helper.stateServiceClient, c.helper.partyID, perpartyrouter.PerPartyRouter{}.GetTemplateID(), routerAddress)
-	if err != nil {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to get router contract ID: %w", err)
-	}
-	c.logger.Debug().Str("RouterAddress", routerAddress.String()).Str("RouterCID", routerCid).Msg("Resolved Router contract")
-
-	offRampRef, err := c.e.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(
-			c.chainDetails.ChainSelector,
-			datastore.ContractType(offramp.ContractType),
-			offramp.Version,
-			"",
-		),
-	)
-	if err != nil {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to get offramp address ref: %w", err)
-	}
-	offRampAddress := contracts.HexToInstanceAddress(offRampRef.Address)
-	offRampCid, err := contract.FindContractIDByInstanceAddress(ctx, c.e.Logger, c.helper.stateServiceClient, c.helper.partyID, offramp2.OffRamp{}.GetTemplateID(), offRampAddress)
-	if err != nil {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to get offramp contract ID: %w", err)
-	}
-	c.logger.Debug().Str("OffRampAddress", offRampAddress.String()).Str("OffRampCID", offRampCid).Msg("Resolved OffRamp contract")
-
-	globalConfigRef, err := c.e.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(
-			c.chainDetails.ChainSelector,
-			datastore.ContractType(global_config.ContractType),
-			global_config.Version,
-			"",
-		),
-	)
-	if err != nil {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to get global config address ref: %w", err)
-	}
-	globalConfigAddress := contracts.HexToInstanceAddress(globalConfigRef.Address)
-	globalConfigCid, err := contract.FindContractIDByInstanceAddress(ctx, c.e.Logger, c.helper.stateServiceClient, c.helper.partyID, common.GlobalConfig{}.GetTemplateID(), globalConfigAddress)
-	if err != nil {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to get global config contract ID: %w", err)
-	}
-	c.logger.Debug().Str("GlobalConfigAddress", globalConfigAddress.String()).Str("GlobalConfigCID", globalConfigCid).Msg("Resolved GlobalConfig contract")
-
-	tokenAdminRegistryRef, err := c.e.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(
-			c.chainDetails.ChainSelector,
-			datastore.ContractType(token_admin_registry.ContractType),
-			token_admin_registry.Version,
-			"",
-		),
-	)
-	if err != nil {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to get token admin registry address ref: %w", err)
-	}
-	tokenAdminRegistryAddress := contracts.HexToInstanceAddress(tokenAdminRegistryRef.Address)
-	tokenAdminRegistryCid, err := contract.FindContractIDByInstanceAddress(ctx, c.e.Logger, c.helper.stateServiceClient, c.helper.partyID, tokenadminregistry.TokenAdminRegistry{}.GetTemplateID(), tokenAdminRegistryAddress)
-	if err != nil {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to get token admin registry contract ID: %w", err)
-	}
-	c.logger.Debug().Str("TokenAdminRegistryAddress", tokenAdminRegistryAddress.String()).Str("TokenAdminRegistryCID", tokenAdminRegistryCid).Msg("Resolved TokenAdminRegistry contract")
-
-	rmnRemoteRef, err := c.e.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(
-			c.chainDetails.ChainSelector,
-			datastore.ContractType(rmn_remote.ContractType),
-			rmn_remote.Version,
-			"",
-		),
-	)
-	if err != nil {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to get rmn remote address ref: %w", err)
-	}
-	rmnRemoteAddress := contracts.HexToInstanceAddress(rmnRemoteRef.Address)
-	rmnRemoteCid, err := contract.FindContractIDByInstanceAddress(ctx, c.e.Logger, c.helper.stateServiceClient, c.helper.partyID, rmn.RMNRemote{}.GetTemplateID(), rmnRemoteAddress)
-	if err != nil {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to get rmn remote contract ID: %w", err)
-	}
-	c.logger.Debug().Str("RMNRemoteAddress", rmnRemoteAddress.String()).Str("RMNRemoteCID", rmnRemoteCid).Msg("Resolved RMNRemote contract")
-
-	ccvAddress := contracts.HexToInstanceAddress(ccvs[0].String())
-	ccvCid, err := contract.FindContractIDByInstanceAddress(ctx, c.e.Logger, c.helper.stateServiceClient, c.helper.partyID, ccvsBinding.CommitteeVerifier{}.GetTemplateID(), ccvAddress)
-	if err != nil {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to get ccv contract ID: %w", err)
-	}
-	c.logger.Debug().Str("CCVAddress", ccvAddress.String()).Str("CCVCID", ccvCid).Msg("Resolved CCV contract")
-
-	// Execute message
-	encodedMessage, err := message.Encode()
-	if err != nil {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to encode message: %w", err)
-	}
-	c.logger.Debug().
-		Str("EncodedMessage", hex.EncodeToString(encodedMessage)).
-		Str("VerifierResults", hex.EncodeToString(verifierResults[0])).
-		Str("Receiver", hex.EncodeToString(message.Receiver)).
-		Msg("Executing message...")
-
-	executeOut, err := operations.ExecuteOperation(c.e.OperationsBundle, receiver.Execute, deps, contract.ChoiceInput[ccipreceiver.Execute2]{
-		ChainSelector:   c.chainDetails.ChainSelector,
-		InstanceAddress: receiverAddress,
-		ActAs:           []string{c.helper.partyID},
-		Args: ccipreceiver.Execute2{
-			RouterCid:             types.CONTRACT_ID(routerCid),
-			OffRampCid:            types.CONTRACT_ID(offRampCid),
-			GlobalConfigCid:       types.CONTRACT_ID(globalConfigCid),
-			TokenAdminRegistryCid: types.CONTRACT_ID(tokenAdminRegistryCid),
-			RmnRemoteCid:          types.CONTRACT_ID(rmnRemoteCid),
-			EncodedMessage:        types.TEXT(hex.EncodeToString(encodedMessage)),
-			TokenTransfer:         nil,
-			CcvInputs: []ccipreceiver.CCVInput{
-				{
-					CcvCid:          types.CONTRACT_ID(ccvCid),
-					VerifierResults: types.TEXT(hex.EncodeToString(verifierResults[0])),
-				},
-			},
-			AdditionalRequiredCCVs: nil,
-		},
-	})
-	if err != nil {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to execute message: %w", err)
-	}
-	c.logger.Debug().Str("UpdateID", executeOut.Output.ExecInfo.UpdateID).Msg("Executed message")
-
-	// Get Update
-	updateRes, err := c.helper.updatesClient.GetUpdateById(ctx, &ledgerv2.GetUpdateByIdRequest{
-		UpdateId: executeOut.Output.ExecInfo.UpdateID,
-		UpdateFormat: &ledgerv2.UpdateFormat{
-			IncludeTransactions: &ledgerv2.TransactionFormat{
-				TransactionShape: ledgerv2.TransactionShape_TRANSACTION_SHAPE_ACS_DELTA,
-				EventFormat: &ledgerv2.EventFormat{
-					FiltersByParty: map[string]*ledgerv2.Filters{
-						c.helper.partyID: {
-							Cumulative: []*ledgerv2.CumulativeFilter{
-								{
-									IdentifierFilter: &ledgerv2.CumulativeFilter_WildcardFilter{
-										WildcardFilter: &ledgerv2.WildcardFilter{
-											IncludeCreatedEventBlob: false,
-										},
-									},
-								},
-							},
-						},
-					},
-					Verbose: true,
-				},
-			},
-		},
-	})
-	if err != nil {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to get update by ID: %w", err)
-	}
-	// Get ExecutionStateChangedEvent from events
-	expectedTemplateID := perpartyrouter.ExecutionStateChanged{}.GetTemplateID()
-	for _, event := range updateRes.GetTransaction().GetEvents() {
-		if createdEvent := event.GetCreated(); createdEvent != nil {
-			if templateId := createdEvent.GetTemplateId(); templateId != nil {
-				gotTemplateId := fmt.Sprintf("#%s:%s:%s", createdEvent.GetPackageName(), templateId.GetModuleName(), templateId.GetEntityName())
-				if gotTemplateId == expectedTemplateID {
-					// Found the event, parse it
-					c.logger.Debug().Int64("Offset", createdEvent.GetOffset()).Str("ContractId", createdEvent.GetContractId()).Msg("Found ExecutionStateChanged event")
-					executionStateChanged, err := bindings.UnmarshalCreatedEvent[perpartyrouter.ExecutionStateChanged](createdEvent)
-					if err != nil {
-						return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to unmarshal ExecutionStateChanged event: %w", err)
-					}
-
-					// Source chain selector
-					sourceChainSelectorFloat, ok := new(big.Float).SetString(string(executionStateChanged.Event.SourceChainSelector))
-					if !ok {
-						return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to parse source chain selector numeric, input: %s", string(executionStateChanged.Event.SourceChainSelector))
-					}
-					sourceChainSelector, _ := sourceChainSelectorFloat.Int(nil)
-					// Message ID
-					messageId, err := hex.DecodeString(string(executionStateChanged.Event.MessageId))
-					if err != nil {
-						return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to decode message ID %q: %w", string(executionStateChanged.Event.MessageId), err)
-					}
-					// Message number
-					sequenceNumberFloat, ok := new(big.Float).SetString(string(executionStateChanged.Event.SequenceNumber))
-					if !ok {
-						return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to parse sequence number numeric, input: %s", string(executionStateChanged.Event.SequenceNumber))
-					}
-					sequenceNumber, _ := sequenceNumberFloat.Int(nil)
-					// Execution state
-					var executionState cciptestinterfaces.MessageExecutionState
-					switch executionStateChanged.Event.State {
-					case perpartyrouter.MessageExecutionStateUNTOUCHED:
-						executionState = cciptestinterfaces.ExecutionStateUntouched
-					case perpartyrouter.MessageExecutionStateIN_PROGRESS:
-						executionState = cciptestinterfaces.ExecutionStateInProgress
-					case perpartyrouter.MessageExecutionStateSUCCESS:
-						executionState = cciptestinterfaces.ExecutionStateSuccess
-					case perpartyrouter.MessageExecutionStateFAILURE:
-						executionState = cciptestinterfaces.ExecutionStateFailure
-					default:
-						return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("unknown execution state %q", executionStateChanged.Event.State)
-					}
-					// Return data
-					returnData, err := hex.DecodeString(string(executionStateChanged.Event.ReturnData))
-					if err != nil {
-						return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to decode return data %q: %w", string(executionStateChanged.Event.ReturnData), err)
-					}
-					return cciptestinterfaces.ExecutionStateChangedEvent{
-						SourceChainSelector: protocol.ChainSelector(sourceChainSelector.Uint64()),
-						MessageID:           [32]byte(messageId),
-						MessageNumber:       sequenceNumber.Uint64(),
-						State:               executionState,
-						ReturnData:          returnData,
-					}, nil
-				}
-			}
-		}
-	}
-
-	return cciptestinterfaces.ExecutionStateChangedEvent{
-		SourceChainSelector: 0,
-		MessageID:           [32]byte{},
-		MessageNumber:       0,
-		State:               0,
-		ReturnData:          nil,
-	}, nil
 }
 
 // SendMessage implements cciptestinterfaces.CCIP17.
