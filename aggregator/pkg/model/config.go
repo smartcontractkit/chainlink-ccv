@@ -165,10 +165,14 @@ type OrphanRecoveryConfig struct {
 	// MaxAge is the maximum age of orphan records to consider for recovery.
 	// Records older than this are filtered out from recovery attempts.
 	MaxAge time.Duration `toml:"maxAge"`
-	// ScanTimeout is the timeout for each orphan recovery scan (0 = no timeout)
+	// ScanTimeout is the timeout for each orphan recovery scan.
 	ScanTimeout time.Duration `toml:"scanTimeout"`
 	// MaxConsecutiveErrors is the maximum number of consecutive errors allowed before the orphan recovery is considered failed
 	MaxConsecutiveErrors uint `toml:"maxConsecutiveErrors"`
+	// MaxOrphansPerScan caps the total number of orphans processed per scan cycle.
+	MaxOrphansPerScan int `toml:"maxOrphansPerScan"`
+	// PageSize controls the number of orphaned keys fetched per database page during scans.
+	PageSize int `toml:"pageSize"`
 }
 
 type HealthCheckConfig struct {
@@ -560,6 +564,18 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.OrphanRecovery.MaxAge == 0 {
 		c.OrphanRecovery.MaxAge = 168 * time.Hour
 	}
+	// Default scan timeout: 4 minutes (just under the default 5-min interval)
+	if c.OrphanRecovery.ScanTimeout == 0 {
+		c.OrphanRecovery.ScanTimeout = 4 * time.Minute
+	}
+	// Default max orphans per scan: 10000
+	if c.OrphanRecovery.MaxOrphansPerScan == 0 {
+		c.OrphanRecovery.MaxOrphansPerScan = 10000
+	}
+	// Default orphan recovery page size: 100
+	if c.OrphanRecovery.PageSize == 0 {
+		c.OrphanRecovery.PageSize = 100
+	}
 	// Health check defaults
 	if c.HealthCheck.Port == "" {
 		c.HealthCheck.Port = "8080"
@@ -690,11 +706,23 @@ func (c *AggregatorConfig) ValidateStorageConfig() error {
 
 // ValidateOrphanRecoveryConfig validates the orphan recovery configuration.
 func (c *AggregatorConfig) ValidateOrphanRecoveryConfig() error {
-	if c.OrphanRecovery.ScanTimeout < 0 {
-		return errors.New("orphanRecovery.scanTimeout cannot be negative")
+	if c.OrphanRecovery.ScanTimeout <= 0 {
+		return errors.New("orphanRecovery.scanTimeout must be greater than 0")
 	}
 	if c.OrphanRecovery.CheckAggregationTimeout <= 0 {
 		return errors.New("orphanRecovery.checkAggregationTimeout must be greater than 0")
+	}
+	if c.OrphanRecovery.MaxOrphansPerScan <= 0 {
+		return errors.New("orphanRecovery.maxOrphansPerScan must be greater than 0")
+	}
+	if c.OrphanRecovery.MaxOrphansPerScan > 1_000_000 {
+		return errors.New("orphanRecovery.maxOrphansPerScan cannot exceed 1000000")
+	}
+	if c.OrphanRecovery.PageSize <= 0 {
+		return errors.New("orphanRecovery.pageSize must be greater than 0")
+	}
+	if c.OrphanRecovery.PageSize > 1000 {
+		return errors.New("orphanRecovery.pageSize cannot exceed 1000")
 	}
 	if !c.OrphanRecovery.Enabled {
 		return nil

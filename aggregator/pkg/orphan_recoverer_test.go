@@ -3,6 +3,7 @@ package aggregator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -25,9 +26,10 @@ func TestOrphanRecoverer_HealthCheck_NotStarted(t *testing.T) {
 
 	config := &model.AggregatorConfig{
 		OrphanRecovery: model.OrphanRecoveryConfig{
-			Enabled:  true,
-			Interval: 60 * time.Second,
-			MaxAge:   24 * time.Hour,
+			Enabled:     true,
+			Interval:    60 * time.Second,
+			MaxAge:      24 * time.Hour,
+			ScanTimeout: 4 * time.Minute,
 		},
 	}
 
@@ -49,7 +51,7 @@ func TestOrphanRecoverer_HealthCheck_ReportsStoppedAfterContextCancellation(t *t
 	close(errChan)
 
 	store.EXPECT().OrphanedKeyStats(mock.Anything, mock.Anything).Return(&model.OrphanStats{}, nil).Maybe()
-	store.EXPECT().ListOrphanedKeys(mock.Anything, mock.Anything).Return(orphansChan, errChan).Maybe()
+	store.EXPECT().ListOrphanedKeys(mock.Anything, mock.Anything, mock.Anything).Return(orphansChan, errChan).Maybe()
 	metrics.EXPECT().With("component", "orphan_recoverer").Return(metrics).Maybe()
 	metrics.EXPECT().SetOrphanBacklog(mock.Anything, mock.Anything).Maybe()
 	metrics.EXPECT().SetOrphanExpiredBacklog(mock.Anything, mock.Anything).Maybe()
@@ -57,9 +59,10 @@ func TestOrphanRecoverer_HealthCheck_ReportsStoppedAfterContextCancellation(t *t
 
 	config := &model.AggregatorConfig{
 		OrphanRecovery: model.OrphanRecoveryConfig{
-			Enabled:  true,
-			Interval: 1 * time.Second,
-			MaxAge:   24 * time.Hour,
+			Enabled:     true,
+			Interval:    1 * time.Second,
+			MaxAge:      24 * time.Hour,
+			ScanTimeout: 4 * time.Minute,
 		},
 	}
 
@@ -106,7 +109,7 @@ func TestOrphanRecoverer_RecoversPanicEmitsMetricAndKeepsRunning(t *testing.T) {
 	errChan := make(chan error)
 	close(orphansChan)
 	close(errChan)
-	store.EXPECT().ListOrphanedKeys(mock.Anything, mock.Anything).Return(orphansChan, errChan).Maybe()
+	store.EXPECT().ListOrphanedKeys(mock.Anything, mock.Anything, mock.Anything).Return(orphansChan, errChan).Maybe()
 
 	metrics.EXPECT().With("component", "orphan_recoverer").Return(metrics).Maybe()
 	metrics.EXPECT().SetOrphanBacklog(mock.Anything, mock.Anything).Maybe()
@@ -116,9 +119,10 @@ func TestOrphanRecoverer_RecoversPanicEmitsMetricAndKeepsRunning(t *testing.T) {
 
 	config := &model.AggregatorConfig{
 		OrphanRecovery: model.OrphanRecoveryConfig{
-			Enabled:  true,
-			Interval: 1 * time.Second,
-			MaxAge:   24 * time.Hour,
+			Enabled:     true,
+			Interval:    1 * time.Second,
+			MaxAge:      24 * time.Hour,
+			ScanTimeout: 4 * time.Minute,
 		},
 	}
 
@@ -151,8 +155,8 @@ func TestOrphanRecoverer_HealthCheck_ReturnsErrorAfterConsecutiveScanFailures(t 
 
 	var listCallCount atomic.Int32
 	store.EXPECT().OrphanedKeyStats(mock.Anything, mock.Anything).Return(&model.OrphanStats{}, nil).Maybe()
-	store.EXPECT().ListOrphanedKeys(mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, _ time.Time) (<-chan model.OrphanedKey, <-chan error) {
+	store.EXPECT().ListOrphanedKeys(mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ time.Time, _ int) (<-chan model.OrphanedKey, <-chan error) {
 			callNum := listCallCount.Add(1)
 			errChan := make(chan error, 1)
 			if callNum <= 4 {
@@ -179,6 +183,7 @@ func TestOrphanRecoverer_HealthCheck_ReturnsErrorAfterConsecutiveScanFailures(t 
 			Enabled:              true,
 			Interval:             interval,
 			MaxAge:               24 * time.Hour,
+			ScanTimeout:          4 * time.Minute,
 			MaxConsecutiveErrors: 3,
 		},
 	}
@@ -215,4 +220,154 @@ func TestOrphanRecoverer_HealthCheck_ReturnsErrorAfterConsecutiveScanFailures(t 
 	case <-time.After(2 * time.Second):
 		t.Fatal("recoverer did not stop in time")
 	}
+}
+
+func makeOrphanedKey(i int) model.OrphanedKey {
+	return model.OrphanedKey{
+		MessageID:      fmt.Appendf(nil, "msg-%06d", i),
+		AggregationKey: fmt.Sprintf("key-%06d", i),
+	}
+}
+
+func setupOrphanRecovererMocks(t *testing.T) (*mocks.MockCommitVerificationStore, *mocks.MockAggregationTriggerer, *mocks.MockAggregatorMetricLabeler) {
+	t.Helper()
+	store := mocks.NewMockCommitVerificationStore(t)
+	agg := mocks.NewMockAggregationTriggerer(t)
+	metrics := mocks.NewMockAggregatorMetricLabeler(t)
+
+	store.EXPECT().OrphanedKeyStats(mock.Anything, mock.Anything).Return(&model.OrphanStats{}, nil).Maybe()
+	metrics.EXPECT().With(mock.Anything, mock.Anything).Return(metrics).Maybe()
+	metrics.EXPECT().SetOrphanBacklog(mock.Anything, mock.Anything).Maybe()
+	metrics.EXPECT().SetOrphanExpiredBacklog(mock.Anything, mock.Anything).Maybe()
+	metrics.EXPECT().RecordOrphanRecoveryDuration(mock.Anything, mock.Anything).Maybe()
+	metrics.EXPECT().IncrementOrphanRecoveryErrors(mock.Anything).Maybe()
+
+	return store, agg, metrics
+}
+
+func makeOrphanChannel(count int) (<-chan model.OrphanedKey, <-chan error) {
+	orphansChan := make(chan model.OrphanedKey, count)
+	errChan := make(chan error, 1)
+	for i := range count {
+		orphansChan <- makeOrphanedKey(i)
+	}
+	close(orphansChan)
+	// errChan is intentionally left open: in the real ListOrphanedKeys, errChan
+	// is closed by the sender goroutine after orphansChan is drained. When both
+	// channels are ready, Go's select picks randomly. Leaving errChan open
+	// prevents a non-deterministic early exit so RecoverOrphans always drains
+	// orphansChan first. The context cancellation in RecoverOrphans ensures no
+	// goroutine leak despite errChan never being closed.
+	return orphansChan, errChan
+}
+
+func TestOrphanRecoverer_RecoverOrphans_MaxOrphansPerScanEnforced(t *testing.T) {
+	tests := []struct {
+		name              string
+		totalOrphans      int
+		maxOrphansPerScan int
+		wantProcessed     int
+	}{
+		{"zero_orphans_processes_none", 0, 10000, 0},
+		{"under_cap_processes_all", 50, 10000, 50},
+		{"at_cap_stops", 100, 100, 100},
+		{"over_cap_stops_at_cap", 500, 100, 100},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			store, agg, metrics := setupOrphanRecovererMocks(t)
+
+			orphansChan, errChan := makeOrphanChannel(tc.totalOrphans)
+			store.EXPECT().ListOrphanedKeys(mock.Anything, mock.Anything, mock.Anything).Return(orphansChan, errChan)
+
+			var checkAggCount atomic.Int32
+			agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, model.OrphanRecoveryChannelKey, mock.Anything).
+				RunAndReturn(func(_ model.MessageID, _ model.AggregationKey, _ model.ChannelKey, _ time.Duration) error {
+					checkAggCount.Add(1)
+					return nil
+				}).Maybe()
+
+			config := &model.AggregatorConfig{
+				OrphanRecovery: model.OrphanRecoveryConfig{
+					Enabled:           true,
+					Interval:          time.Hour,
+					MaxAge:            24 * time.Hour,
+					ScanTimeout:       4 * time.Minute,
+					MaxOrphansPerScan: tc.maxOrphansPerScan,
+				},
+			}
+
+			recoverer := NewOrphanRecoverer(store, agg, config, logger.Sugared(logger.Test(t)), metrics)
+			err := recoverer.RecoverOrphans(context.Background())
+			require.NoError(t, err)
+			require.Equal(t, tc.wantProcessed, int(checkAggCount.Load()))
+		})
+	}
+}
+
+func TestOrphanRecoverer_RecoverOrphans_PassesConfiguredPageSize(t *testing.T) {
+	store, agg, metrics := setupOrphanRecovererMocks(t)
+
+	const expectedPageSize = 42
+	orphansChan, errChan := makeOrphanChannel(0)
+
+	store.EXPECT().ListOrphanedKeys(mock.Anything, mock.Anything, expectedPageSize).Return(orphansChan, errChan)
+
+	config := &model.AggregatorConfig{
+		OrphanRecovery: model.OrphanRecoveryConfig{
+			Enabled:           true,
+			Interval:          time.Hour,
+			MaxAge:            24 * time.Hour,
+			ScanTimeout:       4 * time.Minute,
+			MaxOrphansPerScan: 10000,
+			PageSize:          expectedPageSize,
+		},
+	}
+
+	recoverer := NewOrphanRecoverer(store, agg, config, logger.Sugared(logger.Test(t)), metrics)
+	err := recoverer.RecoverOrphans(context.Background())
+	require.NoError(t, err)
+}
+
+func TestOrphanRecoverer_RecoverOrphans_ScanTimeoutCancelsLongScan(t *testing.T) {
+	store, _, metrics := setupOrphanRecovererMocks(t)
+
+	orphansChan := make(chan model.OrphanedKey)
+	errChan := make(chan error, 1)
+
+	store.EXPECT().ListOrphanedKeys(mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, _ time.Time, _ int) (<-chan model.OrphanedKey, <-chan error) {
+			go func() {
+				defer close(orphansChan)
+				defer close(errChan)
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(10 * time.Millisecond):
+					}
+				}
+			}()
+			return orphansChan, errChan
+		})
+
+	scanTimeout := 100 * time.Millisecond
+	config := &model.AggregatorConfig{
+		OrphanRecovery: model.OrphanRecoveryConfig{
+			Enabled:           true,
+			MaxAge:            24 * time.Hour,
+			ScanTimeout:       scanTimeout,
+			MaxOrphansPerScan: 10000,
+		},
+	}
+
+	recoverer := NewOrphanRecoverer(store, nil, config, logger.Sugared(logger.Test(t)), metrics)
+	start := time.Now()
+	err := recoverer.RecoverOrphans(context.Background())
+	duration := time.Since(start)
+
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Less(t, duration, 2*scanTimeout)
 }

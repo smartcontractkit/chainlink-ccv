@@ -81,6 +81,9 @@ func TestSetDefaults(t *testing.T) {
 		assert.Equal(t, 5*time.Second, cfg.OrphanRecovery.CheckAggregationTimeout)
 		assert.Equal(t, 10*time.Second, cfg.Storage.QueryTimeout)
 		assert.Equal(t, uint(3), cfg.OrphanRecovery.MaxConsecutiveErrors)
+		assert.Equal(t, 4*time.Minute, cfg.OrphanRecovery.ScanTimeout)
+		assert.Equal(t, 10000, cfg.OrphanRecovery.MaxOrphansPerScan)
+		assert.Equal(t, 100, cfg.OrphanRecovery.PageSize)
 	})
 
 	t.Run("does not override existing values", func(t *testing.T) {
@@ -405,37 +408,79 @@ func TestValidateOrphanRecoveryConfig(t *testing.T) {
 	}{
 		{
 			name:        "valid enabled config",
-			config:      OrphanRecoveryConfig{Enabled: true, Interval: 60 * time.Second, MaxAge: 24 * time.Hour, CheckAggregationTimeout: 5 * time.Second},
+			config:      OrphanRecoveryConfig{Enabled: true, Interval: 60 * time.Second, MaxAge: 24 * time.Hour, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 10000, PageSize: 100},
 			expectError: false,
 		},
 		{
 			name:        "disabled config skips validation",
-			config:      OrphanRecoveryConfig{Enabled: false, Interval: 0, MaxAge: 0, CheckAggregationTimeout: 5 * time.Second},
+			config:      OrphanRecoveryConfig{Enabled: false, Interval: 0, MaxAge: 0, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 10000, PageSize: 100},
 			expectError: false,
 		},
 		{
-			name:        "negative scan timeout fails",
-			config:      OrphanRecoveryConfig{Enabled: false, ScanTimeout: -1 * time.Second, CheckAggregationTimeout: 5 * time.Second},
+			name:        "zero scan timeout fails",
+			config:      OrphanRecoveryConfig{Enabled: false, ScanTimeout: 0, CheckAggregationTimeout: 5 * time.Second, MaxOrphansPerScan: 10000, PageSize: 100},
 			expectError: true,
-			errorMsg:    "scanTimeout cannot be negative",
+			errorMsg:    "scanTimeout must be greater than 0",
+		},
+		{
+			name:        "negative scan timeout fails",
+			config:      OrphanRecoveryConfig{Enabled: false, ScanTimeout: -1 * time.Second, CheckAggregationTimeout: 5 * time.Second, MaxOrphansPerScan: 10000, PageSize: 100},
+			expectError: true,
+			errorMsg:    "scanTimeout must be greater than 0",
 		},
 		{
 			name:        "max age less than 1 hour fails when enabled",
-			config:      OrphanRecoveryConfig{Enabled: true, Interval: 60 * time.Second, MaxAge: 0, CheckAggregationTimeout: 5 * time.Second},
+			config:      OrphanRecoveryConfig{Enabled: true, Interval: 60 * time.Second, MaxAge: 0, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 10000, PageSize: 100},
 			expectError: true,
 			errorMsg:    "maxAge must be at least 1 hour",
 		},
 		{
 			name:        "interval less than 5 seconds fails when enabled",
-			config:      OrphanRecoveryConfig{Enabled: true, Interval: 4 * time.Second, MaxAge: 24 * time.Hour, CheckAggregationTimeout: 5 * time.Second},
+			config:      OrphanRecoveryConfig{Enabled: true, Interval: 4 * time.Second, MaxAge: 24 * time.Hour, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 10000, PageSize: 100},
 			expectError: true,
 			errorMsg:    "interval must be at least 5 seconds",
 		},
 		{
 			name:        "negative check aggregation timeout fails",
-			config:      OrphanRecoveryConfig{Enabled: true, Interval: 60 * time.Second, MaxAge: 24 * time.Hour, CheckAggregationTimeout: -1},
+			config:      OrphanRecoveryConfig{Enabled: true, Interval: 60 * time.Second, MaxAge: 24 * time.Hour, CheckAggregationTimeout: -1, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 10000, PageSize: 100},
 			expectError: true,
 			errorMsg:    "orphanRecovery.checkAggregationTimeout must be greater than 0",
+		},
+		{
+			name:        "zero max orphans per scan fails",
+			config:      OrphanRecoveryConfig{Enabled: false, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 0, PageSize: 100},
+			expectError: true,
+			errorMsg:    "maxOrphansPerScan must be greater than 0",
+		},
+		{
+			name:        "negative max orphans per scan fails",
+			config:      OrphanRecoveryConfig{Enabled: false, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: -1, PageSize: 100},
+			expectError: true,
+			errorMsg:    "maxOrphansPerScan must be greater than 0",
+		},
+		{
+			name:        "max orphans per scan exceeds limit fails",
+			config:      OrphanRecoveryConfig{Enabled: false, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 1_000_001, PageSize: 100},
+			expectError: true,
+			errorMsg:    "maxOrphansPerScan cannot exceed 1000000",
+		},
+		{
+			name:        "zero page size fails",
+			config:      OrphanRecoveryConfig{Enabled: false, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 10000, PageSize: 0},
+			expectError: true,
+			errorMsg:    "pageSize must be greater than 0",
+		},
+		{
+			name:        "negative page size fails",
+			config:      OrphanRecoveryConfig{Enabled: false, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 10000, PageSize: -1},
+			expectError: true,
+			errorMsg:    "pageSize must be greater than 0",
+		},
+		{
+			name:        "page size exceeds limit fails",
+			config:      OrphanRecoveryConfig{Enabled: false, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 10000, PageSize: 1001},
+			expectError: true,
+			errorMsg:    "pageSize cannot exceed 1000",
 		},
 	}
 

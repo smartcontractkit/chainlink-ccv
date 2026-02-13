@@ -299,10 +299,6 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 		}
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating rows: %w", err)
-	}
-
 	if len(reportOrder) == 0 {
 		return &model.AggregatedReportBatch{}, nil
 	}
@@ -575,7 +571,7 @@ func (d *DatabaseStorage) SubmitAggregatedReport(ctx context.Context, report *mo
 	return nil
 }
 
-func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context, newerThan time.Time) (<-chan model.OrphanedKey, <-chan error) {
+func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context, newerThan time.Time, pageSize int) (<-chan model.OrphanedKey, <-chan error) {
 	orphanedKeyCh := make(chan model.OrphanedKey)
 	errCh := make(chan error, 1)
 
@@ -591,39 +587,13 @@ func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context, newerThan time.T
 	}
 
 	go func() {
-		queryCtx, cancel := d.withTimeout(ctx)
-		defer cancel()
 		defer close(orphanedKeyCh)
 		defer close(errCh)
 
-		stmt := `
-		SELECT DISTINCT cvr.message_id, cvr.aggregation_key
-		FROM commit_verification_records cvr
-		LEFT JOIN commit_aggregated_reports car ON cvr.message_id = car.message_id
-		WHERE cvr.created_at >= $1 AND car.message_id IS NULL
-		ORDER BY cvr.message_id, cvr.aggregation_key`
+		var cursorMessageID, cursorAggregationKey string
+		firstPage := true
 
-		rows, err := d.ds.QueryContext(queryCtx, stmt, newerThan)
-		if err != nil {
-			sendErr(fmt.Errorf("failed to query orphaned message pairs: %w", err))
-			return
-		}
-		defer func() {
-			if closeErr := rows.Close(); closeErr != nil {
-				d.logger(ctx).Errorw("failed to close rows", "error", closeErr)
-				sendErr(fmt.Errorf("failed to close rows: %w", closeErr))
-			}
-		}()
-
-		// Check if the context is done before entering the loop
-		select {
-		case <-ctx.Done():
-			sendErr(ctx.Err())
-			return
-		default:
-		}
-
-		for rows.Next() {
+		for {
 			select {
 			case <-ctx.Done():
 				sendErr(ctx.Err())
@@ -631,42 +601,105 @@ func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context, newerThan time.T
 			default:
 			}
 
-			type dbResult struct {
-				MessageID      string `db:"message_id"`
-				AggregationKey string `db:"aggregation_key"`
-			}
-
-			var result dbResult
-			err := rows.Scan(&result.MessageID, &result.AggregationKey)
+			pageRowsCount, lastMessageID, lastAggregationKey, err := d.fetchOrphanedKeysPage(ctx, newerThan, firstPage, cursorMessageID, cursorAggregationKey, orphanedKeyCh, pageSize, sendErr)
 			if err != nil {
-				sendErr(fmt.Errorf("failed to scan orphaned pair: %w", err))
+				sendErr(err)
 				return
 			}
 
-			messageID, err := protocol.NewByteSliceFromHex(result.MessageID)
-			if err != nil {
-				d.logger(ctx).Errorw("failed to parse message ID", "error", err)
-				continue
-			}
-
-			select {
-			case orphanedKeyCh <- model.OrphanedKey{
-				MessageID:      messageID,
-				AggregationKey: result.AggregationKey,
-			}:
-			case <-ctx.Done():
-				sendErr(ctx.Err())
+			if pageRowsCount < pageSize {
 				return
 			}
-		}
 
-		if err := rows.Err(); err != nil {
-			sendErr(fmt.Errorf("error iterating over orphaned pairs: %w", err))
-			return
+			cursorMessageID = lastMessageID
+			cursorAggregationKey = lastAggregationKey
+			firstPage = false
 		}
 	}()
 
 	return orphanedKeyCh, errCh
+}
+
+func (d *DatabaseStorage) fetchOrphanedKeysPage(ctx context.Context, newerThan time.Time, firstPage bool, cursorMessageID, cursorAggregationKey string, orphanedKeyCh chan<- model.OrphanedKey, pageSize int, reportErr func(error)) (pageCount int, lastMessageID, lastAggregationKey string, err error) {
+	queryCtx, cancel := d.withTimeout(ctx)
+	defer cancel()
+
+	var rows *sql.Rows
+	if firstPage {
+		stmt := `
+		SELECT DISTINCT cvr.message_id, cvr.aggregation_key
+		FROM commit_verification_records cvr
+		LEFT JOIN commit_aggregated_reports car ON cvr.message_id = car.message_id
+		WHERE cvr.created_at >= $1 AND car.message_id IS NULL
+		ORDER BY cvr.message_id, cvr.aggregation_key
+		LIMIT $2`
+		rows, err = d.ds.QueryContext(queryCtx, stmt, newerThan, pageSize)
+	} else {
+		stmt := `
+		SELECT DISTINCT cvr.message_id, cvr.aggregation_key
+		FROM commit_verification_records cvr
+		LEFT JOIN commit_aggregated_reports car ON cvr.message_id = car.message_id
+		WHERE cvr.created_at >= $1 AND car.message_id IS NULL
+		  AND (cvr.message_id, cvr.aggregation_key) > ($3, $4)
+		ORDER BY cvr.message_id, cvr.aggregation_key
+		LIMIT $2`
+		rows, err = d.ds.QueryContext(queryCtx, stmt, newerThan, pageSize, cursorMessageID, cursorAggregationKey)
+	}
+	if err != nil {
+		return 0, "", "", fmt.Errorf("failed to query orphaned message pairs: %w", err)
+	}
+	// Uses named return 'err' so rows.Close() failure is propagated when no prior error occurred.
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			d.logger(ctx).Errorw("failed to close rows", "error", closeErr)
+			if err == nil {
+				err = fmt.Errorf("failed to close rows: %w", closeErr)
+			}
+		}
+	}()
+
+	type dbResult struct {
+		MessageID      string
+		AggregationKey string
+	}
+
+	for rows.Next() {
+		select {
+		case <-ctx.Done():
+			return 0, "", "", ctx.Err()
+		default:
+		}
+
+		var result dbResult
+		if err := rows.Scan(&result.MessageID, &result.AggregationKey); err != nil {
+			return 0, "", "", fmt.Errorf("failed to scan orphaned pair: %w", err)
+		}
+
+		pageCount++
+		lastMessageID = result.MessageID
+		lastAggregationKey = result.AggregationKey
+
+		messageID, parseErr := protocol.NewByteSliceFromHex(result.MessageID)
+		if parseErr != nil {
+			d.logger(ctx).Errorw("failed to parse message ID", "error", parseErr)
+			continue
+		}
+
+		select {
+		case orphanedKeyCh <- model.OrphanedKey{
+			MessageID:      messageID,
+			AggregationKey: result.AggregationKey,
+		}:
+		case <-ctx.Done():
+			return 0, "", "", ctx.Err()
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return 0, "", "", fmt.Errorf("error iterating over orphaned pairs: %w", err)
+	}
+
+	return pageCount, lastMessageID, lastAggregationKey, nil
 }
 
 func (d *DatabaseStorage) OrphanedKeyStats(ctx context.Context, cutoff time.Time) (*model.OrphanStats, error) {
