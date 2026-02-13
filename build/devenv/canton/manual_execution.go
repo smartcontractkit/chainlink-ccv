@@ -1,7 +1,6 @@
 package canton
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
@@ -10,7 +9,6 @@ import (
 	ledgerv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2"
 	ledgerv2admin "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2/admin"
 	"github.com/google/uuid"
-	"golang.org/x/crypto/sha3"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -115,12 +113,8 @@ func (c *Chain) DeployCCIPReceiver(ctx context.Context, partyId string) (contrac
 func (c *Chain) ManuallyExecuteMessage(ctx context.Context, message protocol.Message, gasLimit uint64, verifiers []protocol.UnknownAddress, verifierResults [][]byte) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
 	// Ensure that the message receiver is the party we're executing with
 	executingParty := c.helper.partyID
-	// Hash receiver party
-	h := sha3.NewLegacyKeccak256()
-	h.Write([]byte(executingParty))
-	hashedExecutingParty := h.Sum(nil)
-	if !bytes.Equal(hashedExecutingParty, message.Receiver) {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("message receiver %s does not match executing party %s (%s)", hex.EncodeToString(message.Receiver), hex.EncodeToString(hashedExecutingParty), executingParty)
+	if contracts.HashedPartyFromString(executingParty) != contracts.BytesToHashedParty(message.Receiver.Bytes()) {
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("message receiver %s does not match executing party %s (%s)", hex.EncodeToString(message.Receiver), contracts.HashedPartyFromString(executingParty).String(), executingParty)
 	}
 
 	// Deploy PerPartyRouter for the receiver party

@@ -11,9 +11,9 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/sha3"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-canton/contracts"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
 	devenvcanton "github.com/smartcontractkit/chainlink-ccv/devenv/canton"
@@ -106,10 +106,8 @@ func TestEVM2Canton_Basic(t *testing.T) {
 	t.Logf("found party: %s", party)
 
 	// Hash receiver party
-	h := sha3.NewLegacyKeccak256()
-	h.Write([]byte(party))
-	hashedReceiver := h.Sum(nil)
-	t.Logf("Message receiver: %s", hexutil.Encode(hashedReceiver))
+	receiver := contracts.HashedPartyFromString(party)
+	t.Logf("Message receiver: %s", receiver.Hex())
 
 	// Get EVM CCV
 	ref, err := in.CLDF.DataStore.Addresses().Get(
@@ -131,7 +129,7 @@ func TestEVM2Canton_Basic(t *testing.T) {
 	require.NoError(t, err)
 	l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
 	sendMessageResult, err := srcChain.SendMessage(ctx, dstSelector, cciptestinterfaces.MessageFields{
-		Receiver:    hashedReceiver,
+		Receiver:    receiver.Bytes(),
 		Data:        []byte("Hello from EVM!"),
 		TokenAmount: cciptestinterfaces.TokenAmount{},
 		FeeToken:    nil,
