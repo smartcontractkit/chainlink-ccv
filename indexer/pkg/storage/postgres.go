@@ -56,9 +56,13 @@ func NewPostgresStorage(ctx context.Context, lggr logger.Logger, monitoring comm
 // GetCCVData performs a lookup by messageID in the database.
 func (d *PostgresStorage) GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]common.VerifierResultWithMetadata, error) {
 	startQueryMetric := time.Now()
+	var err error
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	defer d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), opGetCCVData, false)
+	defer func() {
+		d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), opGetCCVData, err != nil)
+	}()
+
 	query := `
 		SELECT 
 			message_id,
@@ -92,19 +96,16 @@ func (d *PostgresStorage) GetCCVData(ctx context.Context, messageID protocol.Byt
 	for rows.Next() {
 		ccvData, err := d.scanCCVData(rows)
 		if err != nil {
-			d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), opGetCCVData, true)
 			return nil, fmt.Errorf("failed to scan CCV data: %w", err)
 		}
 		results = append(results, ccvData)
 	}
 
 	if err := rows.Err(); err != nil {
-		d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), opGetCCVData, true)
 		return nil, fmt.Errorf("error iterating over rows: %w", err)
 	}
 
 	if len(results) == 0 {
-		d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), opGetCCVData, true)
 		return nil, ErrCCVDataNotFound
 	}
 	return results, nil
@@ -118,9 +119,12 @@ func (d *PostgresStorage) QueryCCVData(
 	limit, offset uint64,
 ) (map[string][]common.VerifierResultWithMetadata, error) {
 	startQueryMetric := time.Now()
+	var err error
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	defer d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), opQueryCCVData, false)
+	defer func() {
+		d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), opQueryCCVData, err != nil)
+	}()
 
 	// Build dynamic query with filters
 	query := `
@@ -164,7 +168,6 @@ func (d *PostgresStorage) QueryCCVData(
 	rows, err := d.queryContext(ctx, query, args...)
 	if err != nil {
 		d.lggr.Errorw("Failed to query CCV data", "error", err)
-		d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), opQueryCCVData, true)
 		return nil, fmt.Errorf("failed to query CCV data: %w", err)
 	}
 	defer func() {
@@ -571,9 +574,12 @@ func (d *PostgresStorage) QueryMessages(
 	limit, offset uint64,
 ) ([]common.MessageWithMetadata, error) {
 	startQueryMetric := time.Now()
+	var err error
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	defer d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), opQueryMessages, false)
+	defer func() {
+		d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), opQueryMessages, err != nil)
+	}()
 
 	query := `
 		SELECT 

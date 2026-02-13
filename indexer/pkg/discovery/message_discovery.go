@@ -254,6 +254,7 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 		a.logger.Errorw("Error reading VerificationResult from aggregator", "error", err)
 		return false, err
 	}
+	a.monitoring.Metrics().RecordIndexerMessageDiscoveryLatency(ctx, time.Since(discoveryStartTime))
 
 	a.logger.Debug("Called Aggregator")
 
@@ -288,7 +289,6 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 		messages = append(messages, message)
 		allVerifications = append(allVerifications, verifierResultWithMetadata)
 	}
-	a.monitoring.Metrics().RecordIndexerMessageDiscoveryLatency(ctx, time.Since(discoveryStartTime))
 
 	// Save all messages we've seen from the discovery source, if we're unable to persist them.
 	// We'll set the sequence value on the reader back to it's original value.

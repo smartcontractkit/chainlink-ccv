@@ -362,8 +362,8 @@ func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, so
 
 	i.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), imOpQueryCCVData, false)
 	if len(results) == 0 {
-		return nil, ErrCCVDataNotFound
 		i.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), imOpQueryCCVData, true)
+		return nil, ErrCCVDataNotFound
 	}
 
 	return results, nil
