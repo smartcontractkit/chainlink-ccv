@@ -866,13 +866,22 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	// Build discovery secrets from aggregators (same creds used for all indexers).
+	// Ensure every discovery index 0..n-1 has an entry so the written secrets file has Discoveries.0, .1, ...;
+	// otherwise the indexer can panic in CI with "discovery index 0 not found in secrets" when merging.
 	discoverySecrets := make(map[string]config.DiscoverySecrets)
 	verifierSecrets := make(map[string]config.VerifierSecrets)
 	for idx, agg := range in.Aggregator {
-		if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
-			discoverySecrets[strconv.Itoa(idx)] = config.DiscoverySecrets{APIKey: creds.APIKey, Secret: creds.Secret}
-			verifierSecrets[strconv.Itoa(idx)] = config.VerifierSecrets{APIKey: creds.APIKey, Secret: creds.Secret}
+		key := strconv.Itoa(idx)
+		var disc config.DiscoverySecrets
+		var ver config.VerifierSecrets
+		if agg.Out != nil {
+			if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
+				disc = config.DiscoverySecrets{APIKey: creds.APIKey, Secret: creds.Secret}
+				ver = config.VerifierSecrets{APIKey: creds.APIKey, Secret: creds.Secret}
+			}
 		}
+		discoverySecrets[key] = disc
+		verifierSecrets[key] = ver
 	}
 
 	externalURLs := make([]string, 0, len(in.Indexer))
