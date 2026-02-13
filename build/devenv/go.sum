@@ -1218,6 +1218,10 @@ github.com/spf13/pflag v1.0.9/go.mod h1:McXfInJRrz4CZXVZOBLb0bTZqETkiAhM9Iw0y3An
 github.com/spf13/pflag v1.0.10 h1:4EBh2KAYBwaONj6b2Ye1GiHfwjqyROoF4RwYO+vPwFk=
 github.com/spf13/pflag v1.0.10/go.mod h1:McXfInJRrz4CZXVZOBLb0bTZqETkiAhM9Iw0y3An2Bg=
 github.com/spkg/bom v0.0.0-20160624110644-59b7046e48ad/go.mod h1:qLr4V1qq6nMqFKkMo8ZTx3f+BZEkzsRUY10Xsm2mwU0=
+github.com/stellar/go-stellar-sdk v0.1.0 h1:MfV7dv4k6xQQrWeKT7npWyKhjoayphLVGwXKtTLNeH8=
+github.com/stellar/go-stellar-sdk v0.1.0/go.mod h1:fZPcxQZw1I0zZ+X76uFcVPqmQCaYbWc87lDFW/kQJaY=
+github.com/stellar/go-xdr v0.0.0-20231122183749-b53fb00bcac2 h1:OzCVd0SV5qE3ZcDeSFCmOWLZfEWZ3Oe8KtmSOYKEVWE=
+github.com/stellar/go-xdr v0.0.0-20231122183749-b53fb00bcac2/go.mod h1:yoxyU/M8nl9LKeWIoBrbDPQ7Cy+4jxRcWcOayZ4BMps=
 github.com/stephenlacy/go-ethereum-hdwallet v0.0.0-20230913225845-a4fa94429863 h1:ba4VRWSkRzgdP5hB5OxexIzBXZbSwgcw8bEu06ivGQI=
 github.com/stephenlacy/go-ethereum-hdwallet v0.0.0-20230913225845-a4fa94429863/go.mod h1:oPTjPNrRucLv9mU27iNPj6n0CWWcNFhoXFOLVGJwHCA=
 github.com/streamingfast/logging v0.0.0-20230608130331-f22c91403091 h1:RN5mrigyirb8anBEtdjtHFIufXdacyTi6i4KBfeNXeo=
