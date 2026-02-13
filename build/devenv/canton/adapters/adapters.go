@@ -79,7 +79,7 @@ func (t *CantonTokenAdapter) DeriveTokenDecimals(e deployment.Environment, chain
 	return t.base.DeriveTokenDecimals(e, chainSelector, ref)
 }
 
-func (t *CantonTokenAdapter) DeriveTokenPoolCounterpart(e deployment.Environment, chainSelector uint64, tokenPoolAddress []byte, tokenAddress []byte) ([]byte, error) {
+func (t *CantonTokenAdapter) DeriveTokenPoolCounterpart(e deployment.Environment, chainSelector uint64, tokenPoolAddress, tokenAddress []byte) ([]byte, error) {
 	return t.base.DeriveTokenPoolCounterpart(e, chainSelector, tokenPoolAddress, tokenAddress)
 }
 
