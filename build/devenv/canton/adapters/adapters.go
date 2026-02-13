@@ -76,7 +76,9 @@ func (t *CantonTokenAdapter) SetPool() *operations.Sequence[tokenadapters.SetPoo
 }
 
 func (t *CantonTokenAdapter) DeriveTokenDecimals(e deployment.Environment, chainSelector uint64, ref datastore.AddressRef) (uint8, error) {
-	return t.base.DeriveTokenDecimals(e, chainSelector, ref)
+	// TODO: Need to actually implement this behavior for Canton instead of reusing the EVM behavior.
+	// return t.base.DeriveTokenDecimals(e, chainSelector, ref)
+	return 0, nil
 }
 
 func (t *CantonTokenAdapter) DeriveTokenPoolCounterpart(e deployment.Environment, chainSelector uint64, tokenPoolAddress, tokenAddress []byte) ([]byte, error) {
