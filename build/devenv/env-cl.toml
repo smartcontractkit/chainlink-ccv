@@ -1,6 +1,6 @@
 ## CL mode environment topology for 2-node setup
 [environment_topology]
-indexer_address = "http://indexer:8100"
+indexer_address = "http://indexer-1:8100"
 pyroscope_url = "http://host.docker.internal:4040"
 
 [environment_topology.monitoring]
