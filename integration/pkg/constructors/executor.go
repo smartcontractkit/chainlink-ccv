@@ -126,8 +126,8 @@ func NewExecutorCoordinator(
 		CacheExpiry: cfg.ReaderCacheExpiry,
 	})
 
-	// create indexer client which implements MessageReader and VerifierResultReader
-	indexerClient, err := client.NewIndexerClient(cfg.IndexerAddress, &http.Client{
+	// create indexer client which implements MessageReader and VerifierResultReader (supports multiple indexers)
+	indexerClient, err := client.NewMultiIndexerClient(cfg.IndexerAddress, &http.Client{
 		Timeout: 30 * time.Second,
 	})
 	if err != nil {

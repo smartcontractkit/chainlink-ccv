@@ -17,6 +17,17 @@ var ErrResponseTooLarge = errors.New("response body too large")
 
 const MaxBodySize = 10 << 20 // 10MB
 
+// IndexerClientInterface defines the common interface for interacting with indexer services.
+// Both IndexerClient and MultiIndexerClient implement this interface.
+type IndexerClientInterface interface {
+	// VerifierResults reads all verifier results that match the provided query parameters.
+	VerifierResults(ctx context.Context, queryData v1.VerifierResultsInput) (int, v1.VerifierResultsResponse, error)
+	// Messages reads all messages that match the provided query parameters.
+	Messages(ctx context.Context, queryData v1.MessagesInput) (int, v1.MessagesResponse, error)
+	// VerifierResultsByMessageID returns all verifierResults for a given messageID.
+	VerifierResultsByMessageID(ctx context.Context, queryData v1.VerifierResultsByMessageIDInput) (int, v1.VerifierResultsByMessageIDResponse, error)
+}
+
 // NewIndexerClient creates a new IndexerAdapterClient to interact with the Indexer Adapter service.
 func NewIndexerClient(indexerURI string, httpClient *http.Client) (*IndexerClient, error) {
 	if httpClient == nil {

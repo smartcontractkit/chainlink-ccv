@@ -11,12 +11,13 @@ import (
 )
 
 // IndexerReaderAdapter adapts the IndexerClient to conform to the VerifierResultsReader and MessageReader interface.
+// It accepts any client that implements the IndexerClientInterface (IndexerClient or MultiIndexerClient).
 type IndexerReaderAdapter struct {
-	client     *client.IndexerClient
+	client     client.IndexerClientInterface
 	monitoring Monitoring
 }
 
-func NewIndexerReaderAdapter(client *client.IndexerClient, monitoring Monitoring) *IndexerReaderAdapter {
+func NewIndexerReaderAdapter(client client.IndexerClientInterface, monitoring Monitoring) *IndexerReaderAdapter {
 	return &IndexerReaderAdapter{
 		client:     client,
 		monitoring: monitoring,
