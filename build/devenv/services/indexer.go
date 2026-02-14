@@ -216,6 +216,7 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 	}
 
 	// Database: unique name and host port per instance (like aggregator DB per committee).
+	// one db instance per indexer.
 	_, err = postgres.Run(ctx,
 		in.DB.Image,
 		testcontainers.WithName(dbContainerName),
