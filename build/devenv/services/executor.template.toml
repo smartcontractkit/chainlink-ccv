@@ -1,4 +1,4 @@
-indexer_address="http://indexer:8100"
+indexer_address="http://indexer-1:8100"
 source_backoff_duration="15s"
 startup_lookback_window="1h"
 indexer_query_limit=20
