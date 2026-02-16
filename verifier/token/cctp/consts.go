@@ -8,6 +8,7 @@ import (
 )
 
 // DefaultVerifierVersionHex is the default hex-encoded version of the 1.7 CCTPVerifier contract (with 0x prefix).
+// bytes4(keccak256("CCTPVerifier 1.7.0"))
 const DefaultVerifierVersionHex = "0x8e1d1a9d"
 
 // DefaultVerifierVersion is the version of the 1.7 CCTPVerifier contract.
