@@ -461,7 +461,7 @@ func setupAggregatorTestFixture(t *testing.T) *aggregatorTestFixture {
 				ClientID:    "honest-verifier-1",
 				Description: "Honest verifier 1 client",
 				Enabled:     true,
-				Groups:      []string{"verifiers"},
+				Groups:      []string{"service-tests-1"},
 				APIKeyPairs: []*services.AggregatorAPIKeyPair{{
 					APIKey: honest1Credentials.APIKey,
 					Secret: honest1Credentials.Secret,
@@ -471,7 +471,7 @@ func setupAggregatorTestFixture(t *testing.T) *aggregatorTestFixture {
 				ClientID:    "honest-verifier-2",
 				Description: "Honest verifier 2 client",
 				Enabled:     true,
-				Groups:      []string{"verifiers"},
+				Groups:      []string{"service-tests-1"},
 				APIKeyPairs: []*services.AggregatorAPIKeyPair{{
 					APIKey: honest2Credentials.APIKey,
 					Secret: honest2Credentials.Secret,
@@ -481,7 +481,7 @@ func setupAggregatorTestFixture(t *testing.T) *aggregatorTestFixture {
 				ClientID:    "malicious-verifier",
 				Description: "Malicious verifier client",
 				Enabled:     true,
-				Groups:      []string{"service-tests"}, // Low rate limit group for testing
+				Groups:      []string{"service-tests-2"}, // Low rate limit group for testing
 				APIKeyPairs: []*services.AggregatorAPIKeyPair{{
 					APIKey: maliciousCredentials.APIKey,
 					Secret: maliciousCredentials.Secret,
