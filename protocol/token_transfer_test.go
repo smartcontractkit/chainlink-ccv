@@ -151,6 +151,55 @@ func TestTokenTransferEdgeCases(t *testing.T) {
 	}
 }
 
+// TestTokenTransfer_Encode_AmountValidation tests that Encode returns errors for invalid amount values.
+func TestTokenTransfer_Encode_AmountValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		transfer    *TokenTransfer
+		expectedErr string
+	}{
+		{
+			name: "amount_exceeds_256_bits_returns_error",
+			transfer: &TokenTransfer{
+				Version:                  1,
+				Amount:                   new(big.Int).Lsh(big.NewInt(1), 256),
+				SourceTokenAddressLength: 0,
+				SourceTokenAddress:       []byte{},
+				DestTokenAddressLength:   0,
+				DestTokenAddress:         []byte{},
+				TokenReceiverLength:      0,
+				TokenReceiver:            []byte{},
+				ExtraDataLength:          0,
+				ExtraData:                []byte{},
+			},
+			expectedErr: "amount exceeds 256 bits",
+		},
+		{
+			name: "negative_amount_returns_error",
+			transfer: &TokenTransfer{
+				Version:                  1,
+				Amount:                   big.NewInt(-1),
+				SourceTokenAddressLength: 0,
+				SourceTokenAddress:       []byte{},
+				DestTokenAddressLength:   0,
+				DestTokenAddress:         []byte{},
+				TokenReceiverLength:      0,
+				TokenReceiver:            []byte{},
+				ExtraDataLength:          0,
+				ExtraData:                []byte{},
+			},
+			expectedErr: "amount cannot be negative",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tt.transfer.Encode()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.expectedErr)
+		})
+	}
+}
+
 // TestTokenTransfer_Encode_LengthMismatch tests that Encode returns errors when length fields don't match data.
 func TestTokenTransfer_Encode_LengthMismatch(t *testing.T) {
 	tests := []struct {
