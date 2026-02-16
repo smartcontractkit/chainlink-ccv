@@ -65,6 +65,7 @@ require (
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8
 	github.com/spf13/cobra v1.8.1
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.39.0
+	go.uber.org/goleak v1.3.0
 	golang.org/x/crypto v0.47.0
 	golang.org/x/time v0.12.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251029180050-ab9386a59fda

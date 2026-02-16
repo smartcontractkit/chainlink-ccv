@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/goleak"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
@@ -462,6 +463,43 @@ func TestDuplicateMessageIDFromStreamWhileInFlight_IsSkippedAndHandleMessageCall
 		return false
 	}
 	require.True(t, found("message already in flight, skipping"), "expected skip log for duplicate in-flight message")
+}
+
+func TestClose_StopsReportingTickerOnContextDone(t *testing.T) {
+	defer goleak.VerifyNone(t,
+		goleak.IgnoreCurrent(),
+	)
+
+	lggr := logger.Test(t)
+	mockTimeProvider := mocks.NewMockTimeProvider(t)
+	mockTimeProvider.EXPECT().GetTime().Return(time.Now().UTC()).Maybe()
+
+	messageSubscriber := mocks.NewMockMessageSubscriber(t)
+	messageSubscriber.EXPECT().Start(mock.Anything).Return(nil, nil, nil)
+
+	mockExecutor := mocks.NewMockExecutor(t)
+	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
+
+	ec, err := executor.NewCoordinator(
+		lggr,
+		mockExecutor,
+		messageSubscriber,
+		mocks.NewMockLeaderElector(t),
+		monitoring.NewNoopExecutorMonitoring(),
+		8*time.Hour,
+		mockTimeProvider,
+		1,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, ec)
+
+	require.NoError(t, ec.Start(t.Context()))
+	require.NoError(t, ec.Ready())
+	require.NoError(t, ec.Close())
+
+	require.Eventuallyf(t, func() bool {
+		return ec.Ready() != nil
+	}, 2*time.Second, 50*time.Millisecond, "coordinator did not stop in time")
 }
 
 func TestDuplicateMessageIDFromStreamWhenAlreadyInHeap_IsSkippedByHeapAndHandleMessageCalledOnce(t *testing.T) {
