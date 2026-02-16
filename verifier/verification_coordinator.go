@@ -63,7 +63,7 @@ func NewCoordinator(
 }
 
 func NewCoordinatorWithDetector(
-	ctx context.Context,
+	initializationCtx context.Context,
 	lggr logger.Logger,
 	verifier Verifier,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
@@ -76,7 +76,7 @@ func NewCoordinatorWithDetector(
 	heartbeatClient heartbeatclient.HeartbeatSender,
 ) (*Coordinator, error) {
 	lggr = logger.With(lggr, "verifierID", config.VerifierID)
-	enabledSourceReaders, err := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, chainStatusManager)
+	enabledSourceReaders, err := filterOnlyEnabledSourceReaders(initializationCtx, lggr, config, sourceReaders, chainStatusManager)
 	if err != nil {
 		return nil, fmt.Errorf("failed to filter enabled source readers: %w", err)
 	}
@@ -93,11 +93,11 @@ func NewCoordinatorWithDetector(
 	writingTracker := NewPendingWritingTracker(lggr)
 
 	sourceReaderServices := createSourceReaders(
-		ctx, lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, writingTracker,
+		lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, writingTracker,
 	)
 
 	storageWriterProcessor, storageBatcher, err := NewStorageBatcherProcessor(
-		ctx, lggr, config.VerifierID, messageTracker, storage, config, writingTracker, chainStatusManager,
+		lggr, config.VerifierID, messageTracker, storage, config, writingTracker, chainStatusManager,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create or/and start storage batcher storageWriterProcessor: %w", err)
@@ -192,7 +192,7 @@ func (vc *Coordinator) Start(_ context.Context) error {
 	})
 }
 
-func createSourceReaders(ctx context.Context, lggr logger.Logger, config CoordinatorConfig, chainStatusManager protocol.ChainStatusManager, curseDetector common.CurseCheckerService, monitoring Monitoring, enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader, writingTracker *PendingWritingTracker) map[protocol.ChainSelector]*SourceReaderService {
+func createSourceReaders(lggr logger.Logger, config CoordinatorConfig, chainStatusManager protocol.ChainStatusManager, curseDetector common.CurseCheckerService, monitoring Monitoring, enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader, writingTracker *PendingWritingTracker) map[protocol.ChainSelector]*SourceReaderService {
 	sourceReaderServices := make(map[protocol.ChainSelector]*SourceReaderService)
 	for chainSelector := range enabledSourceReaders {
 		sourceReader := enabledSourceReaders[chainSelector]
@@ -206,7 +206,6 @@ func createSourceReaders(ctx context.Context, lggr logger.Logger, config Coordin
 		lggr.Infow("PollInterval: ", "chainSelector", chainSelector, "interval", sourceCfg.PollInterval)
 		readerLogger := logger.With(lggr, "component", "SourceReader", "chainID", chainSelector)
 		srs, err := NewSourceReaderService(
-			ctx,
 			sourceReader,
 			chainSelector,
 			chainStatusManager,

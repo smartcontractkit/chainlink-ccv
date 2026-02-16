@@ -39,7 +39,6 @@ type StorageWriterProcessor struct {
 }
 
 func NewStorageBatcherProcessor(
-	ctx context.Context,
 	lggr logger.Logger,
 	verifierID string,
 	messageTracker MessageLatencyTracker,
@@ -50,7 +49,6 @@ func NewStorageBatcherProcessor(
 ) (*StorageWriterProcessor, *batcher.Batcher[protocol.VerifierNodeResult], error) {
 	storageBatchSize, storageBatchTimeout, retryDelay := configWithDefaults(lggr, config)
 	storageBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](
-		ctx,
 		storageBatchSize,
 		storageBatchTimeout,
 		1,
@@ -93,6 +91,7 @@ func configWithDefaults(lggr logger.Logger, config CoordinatorConfig) (int, time
 
 func (s *StorageWriterProcessor) Start(ctx context.Context) error {
 	return s.StartOnce(s.Name(), func() error {
+		s.batcher.Start(ctx)
 		s.wg.Go(func() {
 			s.run(ctx)
 		})

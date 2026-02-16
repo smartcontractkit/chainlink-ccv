@@ -344,7 +344,6 @@ func newTestSRS(
 	lggr := logger.Test(t)
 
 	srs, err := NewSourceReaderService(
-		t.Context(),
 		reader,
 		chainSelector,
 		chainStatusMgr,

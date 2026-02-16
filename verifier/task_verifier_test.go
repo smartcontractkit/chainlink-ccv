@@ -27,7 +27,6 @@ func Test_ProcessingReadyTasks(t *testing.T) {
 
 	fakeFanout := FakeSourceReaderFanout{
 		batcher: batcher.NewBatcher[verifier.VerificationTask](
-			t.Context(),
 			2,
 			100*time.Millisecond,
 			10,
@@ -35,7 +34,6 @@ func Test_ProcessingReadyTasks(t *testing.T) {
 	}
 
 	storageBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](
-		t.Context(),
 		2,
 		100*time.Millisecond,
 		10,
@@ -54,6 +52,8 @@ func Test_ProcessingReadyTasks(t *testing.T) {
 		verifier.NewPendingWritingTracker(logger.Test(t)),
 	)
 	require.NoError(t, err)
+	fakeFanout.batcher.Start(t.Context())
+	storageBatcher.Start(t.Context())
 	require.NoError(t, taskVerifier.Start(t.Context()))
 	t.Cleanup(func() {
 		require.NoError(t, taskVerifier.Close())

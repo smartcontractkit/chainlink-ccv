@@ -42,7 +42,6 @@ func NewVerifierReader(ctx context.Context, verifier protocol.VerifierResultsAPI
 		verifier: verifier,
 		demux:    common.NewDemultiplexer[protocol.Bytes32, protocol.VerifierResult](),
 		batcher: batcher.NewBatcher[protocol.Bytes32](
-			batcherCtx,
 			config.BatchSize,
 			time.Duration(config.MaxBatchWaitTime)*time.Millisecond,
 			1,
@@ -84,6 +83,7 @@ func (v *VerifierReader) ProcessMessage(messageID protocol.Bytes32) (chan common
 // Start returns immediately after spawning the background goroutine. It does not
 // wait for the goroutine to complete.
 func (v *VerifierReader) Start(ctx context.Context) error {
+	v.batcher.Start(v.batcherCtx)
 	runCtx, cancel := context.WithCancel(ctx)
 	v.runCancel = cancel
 	v.runWg.Go(func() {

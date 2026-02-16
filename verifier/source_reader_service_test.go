@@ -1480,7 +1480,6 @@ func TestSRS_DisableFinalityChecker(t *testing.T) {
 	lggr := logger.Test(t)
 
 	srs, err := NewSourceReaderService(
-		context.Background(),
 		reader,
 		chain,
 		chainStatusMgr,
