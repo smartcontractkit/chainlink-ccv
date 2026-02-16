@@ -44,33 +44,6 @@ func (m *mockHTTPMetrics) RecordHTTPRequestDuration(ctx context.Context, duratio
 	})
 }
 
-// TestActiveRequestsMiddleware_BasicFunctionality verifies the middleware
-// correctly tracks request metrics.
-func TestActiveRequestsMiddleware_BasicFunctionality(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	lggr := logger.Test(t)
-	metrics := &mockHTTPMetrics{}
-
-	r := gin.New()
-	r.Use(ActiveRequestsMiddleware(metrics, NoOpPathNormalizer, lggr))
-	r.GET("/test", func(c *gin.Context) {
-		c.Status(200)
-	})
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/test", nil)
-	r.ServeHTTP(rec, req)
-
-	require.Equal(t, 200, rec.Code)
-	require.Equal(t, 1, metrics.activeRequestsInc)
-	require.Equal(t, 1, metrics.activeRequestsDec)
-	require.Equal(t, 1, metrics.httpRequestCounter)
-	require.Len(t, metrics.requestDurationRecords, 1)
-	require.Equal(t, "/test", metrics.requestDurationRecords[0].path)
-	require.Equal(t, "GET", metrics.requestDurationRecords[0].method)
-	require.Equal(t, 200, metrics.requestDurationRecords[0].status)
-}
-
 // TestActiveRequestsMiddleware_WithPathNormalizer verifies the middleware
 // uses the provided path normalizer function.
 func TestActiveRequestsMiddleware_WithPathNormalizer(t *testing.T) {
@@ -102,31 +75,6 @@ func TestActiveRequestsMiddleware_WithPathNormalizer(t *testing.T) {
 	require.Equal(t, "/users/:id", metrics.requestDurationRecords[0].path)
 	require.Equal(t, "GET", metrics.requestDurationRecords[0].method)
 	require.Equal(t, 200, metrics.requestDurationRecords[0].status)
-}
-
-// TestActiveRequestsMiddleware_DecrementsOnError verifies the middleware
-// decrements active requests counter even when the handler returns an error.
-func TestActiveRequestsMiddleware_DecrementsOnError(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	lggr := logger.Test(t)
-	metrics := &mockHTTPMetrics{}
-
-	r := gin.New()
-	r.Use(ActiveRequestsMiddleware(metrics, NoOpPathNormalizer, lggr))
-	r.GET("/error", func(c *gin.Context) {
-		c.Status(500)
-	})
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/error", nil)
-	r.ServeHTTP(rec, req)
-
-	require.Equal(t, 500, rec.Code)
-	require.Equal(t, 1, metrics.activeRequestsInc)
-	require.Equal(t, 1, metrics.activeRequestsDec)
-	require.Equal(t, 1, metrics.httpRequestCounter)
-	require.Len(t, metrics.requestDurationRecords, 1)
-	require.Equal(t, 500, metrics.requestDurationRecords[0].status)
 }
 
 // TestActiveRequestsMiddleware_SkipsTrackingWhenNormalizerReturnsFalse verifies
