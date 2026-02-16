@@ -1,6 +1,7 @@
 package commit
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	"github.com/smartcontractkit/chainlink-common/keystore"
 )
 
 // ECDSASigner implements MessageSigner using ECDSA with the new chain-agnostic message format.
@@ -117,4 +119,43 @@ func (s *ECDSASignerWithKeystoreSigner) Sign(data []byte) ([]byte, error) {
 	}
 
 	return encodedSignature, nil
+}
+
+type ECDSAKeystoreSigner struct {
+	ks      keystore.Keystore
+	keyName string
+}
+
+func NewECDSAKeystoreSigner(ks keystore.Keystore, keyName string) (signer *ECDSAKeystoreSigner, pubKey []byte, address protocol.UnknownAddress, err error) {
+	keys, err := ks.GetKeys(context.Background(), keystore.GetKeysRequest{
+		KeyNames: []string{keyName},
+	})
+	if err != nil {
+		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("failed to get keys: %w", err)
+	}
+	if len(keys.Keys) == 0 {
+		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("key not found: %s", keyName)
+	}
+	key := keys.Keys[0]
+	pubKey = key.KeyInfo.PublicKey
+	pubKeyECDSA, err := crypto.UnmarshalPubkey(pubKey)
+	if err != nil {
+		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("failed to unmarshal public key: %w", err)
+	}
+	address = crypto.PubkeyToAddress(*pubKeyECDSA).Bytes()
+	return &ECDSAKeystoreSigner{
+		ks:      ks,
+		keyName: keyName,
+	}, pubKey, address, nil
+}
+
+func (s *ECDSAKeystoreSigner) Sign(data []byte) ([]byte, error) {
+	resp, err := s.ks.Sign(context.Background(), keystore.SignRequest{
+		KeyName: s.keyName,
+		Data:    data,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign message: %w", err)
+	}
+	return resp.Signature, nil
 }

@@ -9,10 +9,14 @@ default:
 build-rc:
     docker build -f Dockerfile -t verifier:rc ..
     docker build -f Dockerfile --build-arg VERIFIER_TYPE=token -t token-verifier:rc ..
+    docker build -f Dockerfile --build-arg VERIFIER_TYPE=evmcommittee -t evm-verifier:rc ..
+    docker build -f Dockerfile --build-arg VERIFIER_TYPE=cantoncommittee -t canton-verifier:rc ..
 
 build-dev:
     docker build -f Dockerfile.dev -t verifier:dev ..
     docker build -f Dockerfile.dev --build-arg VERIFIER_TYPE=token -t token-verifier:dev ..
+    docker build -f Dockerfile --build-arg VERIFIER_TYPE=evmcommittee -t evm-verifier:dev ..
+    docker build -f Dockerfile --build-arg VERIFIER_TYPE=cantoncommittee -t canton-verifier:dev ..
 
 publish-rc registry version:
     docker tag verifier:rc {{registry}}/chainlink-ccv-verifier:{{version}}-rc
@@ -24,7 +28,11 @@ publish-rc registry version:
 clean:
     docker rmi verifier:latest
     docker rmi token-verifier:latest
+    docker rmi evm-verifier:latest
+    docker rmi canton-verifier:latest
 
 clean-dev:
     docker rmi verifier:dev
     docker rmi token-verifier:dev
+    docker rmi evm-verifier:dev
+    docker rmi canton-verifier:dev
