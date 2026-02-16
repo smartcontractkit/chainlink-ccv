@@ -466,11 +466,6 @@ func TestDuplicateMessageIDFromStreamWhileInFlight_IsSkippedAndHandleMessageCall
 }
 
 func TestClose_StopsReportingTickerOnContextDone(t *testing.T) {
-	// This test verifies that when the coordinator's context is cancelled (via Close),
-	// runProcessingLoop exits cleanly and all tickers — including the reportingTicker —
-	// are properly stopped via their deferred Stop() calls.
-	// goleak detects any goroutines that outlive the test, which would indicate
-	// the processing loop or its resources were not properly cleaned up.
 	defer goleak.VerifyNone(t,
 		goleak.IgnoreCurrent(),
 	)
@@ -500,13 +495,8 @@ func TestClose_StopsReportingTickerOnContextDone(t *testing.T) {
 
 	require.NoError(t, ec.Start(t.Context()))
 	require.NoError(t, ec.Ready())
-
-	// Close cancels the internal context, which triggers ctx.Done() in runProcessingLoop.
-	// Both ticker.Stop() and reportingTicker.Stop() must be called via their defers
-	// for a clean shutdown. Without reportingTicker.Stop(), the timer resource leaks.
 	require.NoError(t, ec.Close())
 
-	// Verify the coordinator is no longer ready after close.
 	require.Eventuallyf(t, func() bool {
 		return ec.Ready() != nil
 	}, 2*time.Second, 50*time.Millisecond, "coordinator did not stop in time")
