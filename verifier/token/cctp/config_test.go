@@ -43,6 +43,7 @@ func Test_TryParsing(t *testing.T) {
 				"attestation_api_timeout":  "5s",
 				"attestation_api_interval": "200ms",
 				"attestation_api_cooldown": "10m",
+				"verifier_version":         "12345678",
 				"verifier_resolver_addresses": map[string]any{
 					"1": testAddr1Hex,
 					"2": testAddr2Hex,
@@ -57,6 +58,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPITimeout:  5 * time.Second,
 				AttestationAPIInterval: 200 * time.Millisecond,
 				AttestationAPICooldown: 10 * time.Minute,
+				VerifierVersion:        protocol.ByteSlice{0x12, 0x34, 0x56, 0x78},
 				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: testAddr1,
 					2: testAddr2,
@@ -83,6 +85,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPITimeout:  1 * time.Second,
 				AttestationAPIInterval: 100 * time.Millisecond,
 				AttestationAPICooldown: 5 * time.Minute,
+				VerifierVersion:        DefaultVerifierVersion,
 				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: testAddr1,
 				},
@@ -204,8 +207,83 @@ func Test_TryParsing(t *testing.T) {
 				assert.Equal(t, tt.want.AttestationAPITimeout, got.AttestationAPITimeout)
 				assert.Equal(t, tt.want.AttestationAPIInterval, got.AttestationAPIInterval)
 				assert.Equal(t, tt.want.AttestationAPICooldown, got.AttestationAPICooldown)
+				assert.Equal(t, tt.want.VerifierVersion, got.VerifierVersion)
 				assert.Equal(t, tt.want.ParsedVerifierResolvers, got.ParsedVerifierResolvers)
 				assert.Equal(t, tt.want.ParsedVerifiers, got.ParsedVerifiers)
+			}
+		})
+	}
+}
+
+func TestCCTPConfig_VerifierVersionParsing(t *testing.T) {
+	testAddr1Hex := "0x1111111111111111111111111111111111111111"
+
+	tests := []struct {
+		name    string
+		data    map[string]any
+		want    protocol.ByteSlice
+		wantErr bool
+	}{
+		{
+			name: "valid hex string with default value",
+			data: map[string]any{
+				"attestation_api": "https://iris-api.circle.com",
+				"verifier_resolver_addresses": map[string]any{
+					"1": testAddr1Hex,
+				},
+			},
+			want:    DefaultVerifierVersion,
+			wantErr: false,
+		},
+		{
+			name: "valid hex string with 0x prefix",
+			data: map[string]any{
+				"attestation_api":  "https://iris-api.circle.com",
+				"verifier_version": "0x12345678",
+				"verifier_resolver_addresses": map[string]any{
+					"1": testAddr1Hex,
+				},
+			},
+			want:    protocol.ByteSlice{0x12, 0x34, 0x56, 0x78},
+			wantErr: false,
+		},
+		{
+			name: "invalid hex string",
+			data: map[string]any{
+				"attestation_api":  "https://iris-api.circle.com",
+				"verifier_version": "not-hex",
+				"verifier_resolver_addresses": map[string]any{
+					"1": testAddr1Hex,
+				},
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "empty hex string",
+			data: map[string]any{
+				"attestation_api":  "https://iris-api.circle.com",
+				"verifier_version": "",
+				"verifier_resolver_addresses": map[string]any{
+					"1": testAddr1Hex,
+				},
+			},
+			want:    protocol.ByteSlice{},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := TryParsing("cctp", "2.0", tt.data)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Nil(t, got)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, got)
+				assert.Equal(t, tt.want, got.VerifierVersion)
 			}
 		})
 	}

@@ -202,7 +202,6 @@ func main() {
 	lggr.Infow("Token verifier service stopped gracefully")
 }
 
-//nolint:dupl // Similar to Lombard coordinator creation
 func createCCTPCoordinator(
 	ctx context.Context,
 	verifierID string,
@@ -250,7 +249,6 @@ func createCCTPCoordinator(
 	return coordinator
 }
 
-//nolint:dupl // Similar to CCTP coordinator creation
 func createLombardCoordinator(
 	ctx context.Context,
 	verifierID string,
@@ -271,10 +269,16 @@ func createLombardCoordinator(
 		os.Exit(1)
 	}
 
+	lombardVerifier, err := lombard.NewVerifier(lggr, *lombardConfig, attestationService)
+	if err != nil {
+		lggr.Errorw("Failed to create Lombard verifier", "error", err)
+		os.Exit(1)
+	}
+
 	coordinator, err := verifier.NewCoordinator(
 		ctx,
 		lggr,
-		lombard.NewVerifier(lggr, attestationService),
+		lombardVerifier,
 		sourceReaders,
 		ccvStorage,
 		verifier.CoordinatorConfig{

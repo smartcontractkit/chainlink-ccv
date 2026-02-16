@@ -80,7 +80,7 @@ func registerLombardAttestation(
 // - messageId (32 bytes).
 func buildLombardAttestation(messageID protocol.Bytes32) string {
 	// Version tag for LombardVerifier 1.7.0
-	versionTag := lombard.VerifierVersion
+	versionTag := lombard.DefaultVerifierVersion
 
 	// Build the bridged message that will be returned by the mock mailbox
 	// This is what deliverAndHandle() returns: VERSION_TAG_V1_7_0 + messageId

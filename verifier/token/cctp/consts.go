@@ -1,15 +1,18 @@
 package cctp
 
 import (
-	"encoding/hex"
 	"fmt"
 
 	sel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-// VerifierVersion is the version of the 1.7 CCTPVerifier contract.
-var VerifierVersion = mustDecodeHex("8e1d1a9d")
+// DefaultVerifierVersionHex is the default hex-encoded version of the 1.7 CCTPVerifier contract (with 0x prefix).
+// bytes4(keccak256("CCTPVerifier 1.7.0")).
+const DefaultVerifierVersionHex = "0x8e1d1a9d"
+
+// DefaultVerifierVersion is the version of the 1.7 CCTPVerifier contract.
+var DefaultVerifierVersion = mustDecodeHex(DefaultVerifierVersionHex)
 
 // Domains represent mapping between ChainSelector and Circle specific
 // domains used for xchain transfers
@@ -62,9 +65,9 @@ var Domains = map[uint64]uint32{
 }
 
 func mustDecodeHex(s string) protocol.ByteSlice {
-	b, err := hex.DecodeString(s)
+	b, err := protocol.NewByteSliceFromHex(s)
 	if err != nil {
 		panic(fmt.Sprintf("failed to decode hex: %v", err))
 	}
-	return protocol.ByteSlice(b)
+	return b
 }
