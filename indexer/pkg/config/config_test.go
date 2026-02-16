@@ -38,7 +38,7 @@ func TestStorageConfigValidate(t *testing.T) {
 			config: StorageConfig{
 				Strategy: StorageStrategySingle,
 				Single: &SingleStorageConfig{
-					Type: StorageBackendTypeMemory,
+					Type: "memory",
 				},
 			},
 			wantErr: "unknown storage backend type: memory (must be 'postgres')",
@@ -46,14 +46,9 @@ func TestStorageConfigValidate(t *testing.T) {
 		{
 			name: "sink strategy is rejected",
 			config: StorageConfig{
-				Strategy: StorageStrategySink,
-				Sink: &SinkStorageConfig{
-					Storages: []StorageBackendConfig{
-						{Type: StorageBackendTypePostgres, Postgres: validPostgresConfig()},
-					},
-				},
+				Strategy: "sink",
 			},
-			wantErr: "sink storage strategy is not supported, only single strategy with postgres backend is supported",
+			wantErr: "unknown storage strategy: sink (must be 'single')",
 		},
 		{
 			name:    "empty strategy is rejected",
