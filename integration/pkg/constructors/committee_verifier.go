@@ -38,6 +38,7 @@ func NewVerificationCoordinator(
 ) (*verifier.Coordinator, error) {
 	if err := cfg.Validate(); err != nil {
 		lggr.Errorw("Invalid CCV verifier configuration.", "error", err)
+		return nil, fmt.Errorf("invalid ccv verifier configuration: %w", err)
 	}
 
 	// TODO: this verification shouldn't be here?
