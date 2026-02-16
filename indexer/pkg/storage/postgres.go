@@ -246,7 +246,7 @@ func (d *PostgresStorage) InsertCCVData(ctx context.Context, ccvData common.Veri
 	)
 	if err != nil {
 		d.lggr.Errorw("Failed to insert CCV data", "error", err, "messageID", ccvData.VerifierResult.MessageID.String())
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opBatchInsertCCVData)
+		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opInsertCCVData)
 		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
 		return fmt.Errorf("failed to insert CCV data: %w", err)
 	}
@@ -264,11 +264,7 @@ func (d *PostgresStorage) InsertCCVData(ctx context.Context, ccvData common.Veri
 		return ErrDuplicateCCVData
 	}
 
-	// Check if this is a new unique message
-	if err := d.trackUniqueMessage(ctx, ccvData.VerifierResult.MessageID); err != nil {
-		d.lggr.Warnw("Failed to track unique message", "error", err, "messageID", ccvData.VerifierResult.MessageID.String())
-		// Don't fail the insert if we can't track the unique message
-	}
+	d.trackUniqueMessages(ctx, []common.VerifierResultWithMetadata{ccvData})
 
 	// Increment the verification records counter
 	d.monitoring.Metrics().IncrementVerificationRecordsCounter(ctx)
@@ -371,20 +367,7 @@ func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 		d.lggr.Debugw("Batch insert completed", "requested", len(ccvDataList), "inserted", rowsAffected)
 	}
 
-	uniqueMessages := make(map[string]bool)
-	for _, ccvData := range ccvDataList {
-		uniqueMessages[ccvData.VerifierResult.MessageID.String()] = true
-	}
-
-	for messageID := range uniqueMessages {
-		msgBytes32, err := protocol.NewBytes32FromString(messageID)
-		if err != nil {
-			continue
-		}
-		if err := d.trackUniqueMessage(ctx, msgBytes32); err != nil {
-			d.lggr.Warnw("Failed to track unique message", "error", err, "messageID", messageID)
-		}
-	}
+	d.trackUniqueMessages(ctx, ccvDataList)
 
 	for range rowsAffected {
 		d.monitoring.Metrics().IncrementVerificationRecordsCounter(ctx)
@@ -775,19 +758,7 @@ func (d *PostgresStorage) PersistDiscoveryBatch(ctx context.Context, batch commo
 	}
 
 	if len(batch.Verifications) > 0 {
-		uniqueMessages := make(map[string]bool)
-		for _, ccvData := range batch.Verifications {
-			uniqueMessages[ccvData.VerifierResult.MessageID.String()] = true
-		}
-		for messageID := range uniqueMessages {
-			msgBytes32, err := protocol.NewBytes32FromString(messageID)
-			if err != nil {
-				continue
-			}
-			if err := d.trackUniqueMessage(ctx, msgBytes32); err != nil {
-				d.lggr.Warnw("Failed to track unique message", "error", err, "messageID", messageID)
-			}
-		}
+		d.trackUniqueMessages(ctx, batch.Verifications)
 		for range verificationsInserted {
 			d.monitoring.Metrics().IncrementVerificationRecordsCounter(ctx)
 		}
@@ -822,8 +793,18 @@ func (d *PostgresStorage) GetDiscoverySequenceNumber(ctx context.Context, discov
 	return sequenceNumber, nil
 }
 
-// trackUniqueMessage checks if this is the first time we're seeing this message ID
-// and increments the unique messages counter if so.
+func (d *PostgresStorage) trackUniqueMessages(ctx context.Context, verifications []common.VerifierResultWithMetadata) {
+	seen := make(map[protocol.Bytes32]struct{}, len(verifications))
+	for _, v := range verifications {
+		seen[v.VerifierResult.MessageID] = struct{}{}
+	}
+	for messageID := range seen {
+		if err := d.trackUniqueMessage(ctx, messageID); err != nil {
+			d.lggr.Warnw("Failed to track unique message", "error", err, "messageID", messageID.String())
+		}
+	}
+}
+
 func (d *PostgresStorage) trackUniqueMessage(ctx context.Context, messageID protocol.Bytes32) error {
 	// Check whether exactly one row exists for this message_id. If so,
 	// this indicates the message was first-seen by the storage insert that preceded this call.
