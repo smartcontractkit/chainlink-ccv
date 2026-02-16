@@ -43,8 +43,7 @@ func (a *AttestationAPI) RegisterAttestation(sourceDomain, messageID, status, me
 	if len(messageID) > 2 && messageID[:2] == "0x" {
 		cleanMessageID = messageID[2:]
 	}
-	// ByteSlice.String() will add `0x` prefix
-	hookData := cctpclient.DefaultVerifierVersion.String() + cleanMessageID
+	hookData := cctpclient.DefaultVerifierVersionHex + cleanMessageID
 
 	// Create a response based on the example attestation but with the provided sourceDomain, hookData and status
 	response := cctpclient.Message{
