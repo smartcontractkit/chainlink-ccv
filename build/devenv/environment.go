@@ -924,12 +924,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		maps.Copy(idxIn.Secrets.Discoveries, discoverySecrets)
 		maps.Copy(idxIn.Secrets.Verifier, verifierSecrets)
 		// Ensure storage secrets use the same DB URL we set on StorageConnectionURL (indexer loads secrets and overwrites config URI).
-		if idxIn.Secrets.Storage.Sink.Storages == nil {
-			idxIn.Secrets.Storage.Sink.Storages = make(map[string]config.StorageBackendSecrets)
-		}
-		backend := idxIn.Secrets.Storage.Sink.Storages["1"]
-		backend.Postgres.URI = idxIn.StorageConnectionURL
-		idxIn.Secrets.Storage.Sink.Storages["1"] = backend
+		idxIn.Secrets.Storage.Single.Postgres.URI = idxIn.StorageConnectionURL
 
 		indexerOut, err := services.NewIndexer(idxIn)
 		if err != nil {

@@ -259,7 +259,12 @@ func validMinimalConfig(discoveries []config.DiscoveryConfig) *config.Config {
 		Storage: config.StorageConfig{
 			Strategy: config.StorageStrategySingle,
 			Single: &config.SingleStorageConfig{
-				Type: config.StorageBackendTypeMemory,
+				Type: config.StorageBackendTypePostgres,
+				Postgres: &config.PostgresConfig{
+					URI:                "postgresql://test:test@localhost:5432/test",
+					MaxOpenConnections: 10,
+					MaxIdleConnections: 5,
+				},
 			},
 		},
 	}

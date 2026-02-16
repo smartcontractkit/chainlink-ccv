@@ -138,7 +138,7 @@ func (m *CCIP17EVMConfig) deployCCTPChain(
 	out, err := changesets.DeployCCTPChains(cctpChainRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
 		Chains: map[uint64]changesets.CCTPChainConfig{
 			selector: {
-				TokenMessenger:    messenger.Hex(),
+				TokenMessengerV2:  messenger.Hex(),
 				USDCToken:         usdc.Hex(),
 				RegisteredPoolRef: usdcTokokenPoolRefs[selector],
 				StorageLocations:  []string{"https://test.chain.link.fake"},

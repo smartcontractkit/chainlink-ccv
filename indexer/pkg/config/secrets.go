@@ -32,22 +32,10 @@ type VerifierSecrets struct {
 // StorageSecrets contains secrets for storage backends.
 type StorageSecrets struct {
 	Single SingleStorageSecrets `toml:"Single"`
-	Sink   SinkStorageSecrets   `toml:"Sink"`
 }
 
 // SingleStorageSecrets contains secrets for single storage strategy.
 type SingleStorageSecrets struct {
-	Postgres PostgresSecrets `toml:"Postgres"`
-}
-
-// SinkStorageSecrets contains secrets for sink storage strategy.
-// Storages keys are string representations of indices (e.g., "0", "1", "2").
-type SinkStorageSecrets struct {
-	Storages map[string]StorageBackendSecrets `toml:"Storages"`
-}
-
-// StorageBackendSecrets contains secrets for a storage backend.
-type StorageBackendSecrets struct {
 	Postgres PostgresSecrets `toml:"Postgres"`
 }
 
@@ -145,44 +133,12 @@ func MergeSecrets(cfg *Config, secrets *SecretsConfig) error {
 
 // mergeStorageSecrets merges storage secrets into the config.
 func mergeStorageSecrets(cfg *Config, storageSecrets *StorageSecrets) error {
-	switch cfg.Storage.Strategy {
-	case StorageStrategySingle:
-		if cfg.Storage.Single != nil && cfg.Storage.Single.Type == StorageBackendTypePostgres {
-			if cfg.Storage.Single.Postgres == nil {
-				return fmt.Errorf("postgres config is nil for single storage")
-			}
-			if storageSecrets.Single.Postgres.URI != "" {
-				cfg.Storage.Single.Postgres.URI = storageSecrets.Single.Postgres.URI
-			}
-		}
+	if cfg.Storage.Single == nil || cfg.Storage.Single.Postgres == nil {
+		return fmt.Errorf("postgres config is nil for single storage")
+	}
 
-	case StorageStrategySink:
-		if cfg.Storage.Sink == nil {
-			return fmt.Errorf("sink storage config is nil")
-		}
-
-		// Merge secrets for each postgres storage backend
-		// The map keys are string representations of indices (e.g., "0", "1", "2")
-		for indexStr, backendSecrets := range storageSecrets.Sink.Storages {
-			index, err := strconv.Atoi(indexStr)
-			if err != nil {
-				return fmt.Errorf("invalid storage index in secrets: %s (must be numeric)", indexStr)
-			}
-
-			if index < 0 || index >= len(cfg.Storage.Sink.Storages) {
-				return fmt.Errorf("storage index %d in secrets is out of range (config has %d storage backends)", index, len(cfg.Storage.Sink.Storages))
-			}
-
-			// Only merge secrets for postgres-type storage backends
-			if cfg.Storage.Sink.Storages[index].Type == StorageBackendTypePostgres {
-				if cfg.Storage.Sink.Storages[index].Postgres == nil {
-					return fmt.Errorf("postgres config is nil for storage backend %d", index)
-				}
-				if backendSecrets.Postgres.URI != "" {
-					cfg.Storage.Sink.Storages[index].Postgres.URI = backendSecrets.Postgres.URI
-				}
-			}
-		}
+	if storageSecrets.Single.Postgres.URI != "" {
+		cfg.Storage.Single.Postgres.URI = storageSecrets.Single.Postgres.URI
 	}
 
 	return nil

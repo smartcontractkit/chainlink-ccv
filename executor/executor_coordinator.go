@@ -199,6 +199,7 @@ func (ec *Coordinator) runProcessingLoop(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Second)
 	reportingTicker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
+	defer reportingTicker.Stop()
 	for {
 		select {
 		case <-ctx.Done():

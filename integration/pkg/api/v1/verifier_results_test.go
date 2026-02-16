@@ -1272,7 +1272,7 @@ func TestVerifierResult_NilChecks(t *testing.T) {
 		var result VerifierResult
 		err := json.Unmarshal([]byte(jsonData), &result)
 		require.NoError(t, err)
-		assert.Nil(t, result.Metadata, "Metadata should be nil when omitted from JSON")
+		assert.Equal(t, result.Metadata, &v1.VerifierResultMetadata{}, "Metadata should be set to empty struct when omitted")
 		assert.NotNil(t, result.Message, "Message should still be populated")
 	})
 
@@ -1303,7 +1303,7 @@ func TestVerifierResult_NilChecks(t *testing.T) {
 		var roundTripped VerifierResult
 		err = json.Unmarshal(jsonData, &roundTripped)
 		require.NoError(t, err)
-		assert.Nil(t, roundTripped.Metadata, "Metadata should remain nil after round-trip")
+		assert.Equal(t, roundTripped.Metadata, &v1.VerifierResultMetadata{}, "Metadata should be set to empty struct after round-trip")
 	})
 }
 

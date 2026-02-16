@@ -18,7 +18,6 @@ import (
 // IndexerMetrics provides all metrics provided by the indexer.
 type IndexerMetrics struct {
 	// HTTP Metrics
-	httpRequestsCounter         metric.Int64Counter
 	activeRequestsUpDownCounter metric.Int64UpDownCounter
 	requestDurationSeconds      metric.Float64Histogram
 
@@ -33,18 +32,13 @@ type IndexerMetrics struct {
 	scannerPollingErrorsCounter        metric.Int64Counter
 	verificationRecordChannelSizeGauge metric.Int64Gauge
 	activeReadersGauge                 metric.Int64Gauge
+	discoveryLatencySeconds            metric.Float64Histogram
+	timeToIndexSeconds                 metric.Float64Histogram
+	circuitBreakerStatus               metric.Int64Gauge
 }
 
 func InitMetrics() (im *IndexerMetrics, err error) {
 	im = &IndexerMetrics{}
-
-	im.httpRequestsCounter, err = beholder.GetMeter().Int64Counter(
-		"indexer_http_requests_total",
-		metric.WithDescription("Total number of HTTP requests"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to register http requests counter: %w", err)
-	}
 
 	im.activeRequestsUpDownCounter, err = beholder.GetMeter().Int64UpDownCounter(
 		"indexer_active_requests",
@@ -95,6 +89,14 @@ func InitMetrics() (im *IndexerMetrics, err error) {
 		return nil, fmt.Errorf("failed to register storage write duration histogram: %w", err)
 	}
 
+	im.discoveryLatencySeconds, err = beholder.GetMeter().Float64Histogram("indexer_message_discovery_latency_seconds",
+		metric.WithDescription("Latency between message discovery and processing (seconds)"),
+		metric.WithUnit("seconds"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register message discovery latency histogram: %w", err)
+	}
+
 	im.storageInsertErrorsCounter, err = beholder.GetMeter().Int64Counter("indexer_storage_insert_errors_total",
 		metric.WithDescription("Total number of errors when inserting into Indexer Storage"),
 	)
@@ -123,6 +125,18 @@ func InitMetrics() (im *IndexerMetrics, err error) {
 		return nil, fmt.Errorf("failed to register active readers gauge: %w", err)
 	}
 
+	im.timeToIndexSeconds, err = beholder.GetMeter().Float64Histogram("indexer_time_to_index_seconds",
+		metric.WithDescription("Total duration between aggregation and indexing"),
+		metric.WithUnit("seconds"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register time to index histogram: %w", err)
+	}
+
+	im.circuitBreakerStatus, err = beholder.GetMeter().Int64Gauge("indexer_circuit_breaker_status_bool", metric.WithDescription("Circuit breaker status"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to register circuit breaker status gauge: %w", err)
+	}
 	return im, nil
 }
 
@@ -147,6 +161,18 @@ func MetricViews() []sdkmetric.View {
 				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
 			}},
 		),
+		sdkmetric.NewView(
+			sdkmetric.Instrument{Name: "indexer_message_discovery_latency_seconds"},
+			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+			}},
+		),
+		sdkmetric.NewView(
+			sdkmetric.Instrument{Name: "indexer_time_to_index_seconds"},
+			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+			}},
+		),
 	}
 }
 
@@ -166,11 +192,6 @@ func NewIndexerMetricLabeler(labeler metrics.Labeler, im *IndexerMetrics) common
 
 func (c *IndexerMetricLabeler) With(keyValues ...string) common.IndexerMetricLabeler {
 	return &IndexerMetricLabeler{c.Labeler.With(keyValues...), c.im}
-}
-
-func (c *IndexerMetricLabeler) IncrementHTTPRequestCounter(ctx context.Context) {
-	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.im.httpRequestsCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
 func (c *IndexerMetricLabeler) IncrementActiveRequestsCounter(ctx context.Context) {
@@ -202,9 +223,12 @@ func (c *IndexerMetricLabeler) IncrementVerificationRecordsCounter(ctx context.C
 	c.im.verificationRecordsCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
-func (c *IndexerMetricLabeler) RecordStorageQueryDuration(ctx context.Context, duration time.Duration) {
+func (c *IndexerMetricLabeler) RecordStorageQueryDuration(ctx context.Context, duration time.Duration, queryName string, errored bool) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.im.storageQueryDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
+	c.im.storageQueryDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes([]attribute.KeyValue{
+		attribute.String("query", queryName),
+		attribute.Bool("errored", errored),
+	}...), metric.WithAttributes(otelLabels...))
 }
 
 func (c *IndexerMetricLabeler) RecordStorageWriteDuration(ctx context.Context, duration time.Duration) {
@@ -212,9 +236,11 @@ func (c *IndexerMetricLabeler) RecordStorageWriteDuration(ctx context.Context, d
 	c.im.storageWriteDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
 }
 
-func (c *IndexerMetricLabeler) RecordStorageInsertErrorsCounter(ctx context.Context) {
+func (c *IndexerMetricLabeler) RecordStorageInsertErrorsCounter(ctx context.Context, queryName string) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.im.storageInsertErrorsCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+	c.im.storageInsertErrorsCounter.Add(ctx, 1, metric.WithAttributes([]attribute.KeyValue{
+		attribute.String("query", queryName),
+	}...), metric.WithAttributes(otelLabels...))
 }
 
 func (c *IndexerMetricLabeler) RecordScannerPollingErrorsCounter(ctx context.Context) {
@@ -230,4 +256,27 @@ func (c *IndexerMetricLabeler) RecordVerificationRecordChannelSizeGauge(ctx cont
 func (c *IndexerMetricLabeler) RecordActiveReadersGauge(ctx context.Context, count int64) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
 	c.im.activeReadersGauge.Record(ctx, count, metric.WithAttributes(otelLabels...))
+}
+
+func (c *IndexerMetricLabeler) RecordIndexerMessageDiscoveryLatency(ctx context.Context, latency time.Duration) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.im.discoveryLatencySeconds.Record(ctx, latency.Seconds(), metric.WithAttributes(otelLabels...))
+}
+
+func (c *IndexerMetricLabeler) RecordTimeToIndex(ctx context.Context, latency time.Duration, discoveryType string) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.im.timeToIndexSeconds.Record(ctx, latency.Seconds(), metric.WithAttributes([]attribute.KeyValue{
+		attribute.String("query", discoveryType),
+	}...), metric.WithAttributes(otelLabels...))
+}
+
+func (c *IndexerMetricLabeler) RecordCircuitBreakerStatus(ctx context.Context, status bool) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	var gaugeValue int64
+	if status {
+		gaugeValue = 1
+	} else {
+		gaugeValue = 0
+	}
+	c.im.circuitBreakerStatus.Record(ctx, gaugeValue, metric.WithAttributes(otelLabels...))
 }

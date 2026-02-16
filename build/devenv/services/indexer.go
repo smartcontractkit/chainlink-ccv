@@ -106,16 +106,12 @@ func defaults(in *IndexerInput) {
 	}
 }
 
-// injectPostgresURI sets the given URI on every postgres storage backend in the config.
+// injectPostgresURI sets the given URI on the single postgres storage backend in the config.
 func injectPostgresURI(cfg *config.Config, uri string) {
-	if cfg == nil || cfg.Storage.Sink == nil || len(cfg.Storage.Sink.Storages) == 0 {
+	if cfg == nil || cfg.Storage.Single == nil || cfg.Storage.Single.Postgres == nil {
 		return
 	}
-	for i := range cfg.Storage.Sink.Storages {
-		if cfg.Storage.Sink.Storages[i].Type == config.StorageBackendTypePostgres && cfg.Storage.Sink.Storages[i].Postgres != nil {
-			cfg.Storage.Sink.Storages[i].Postgres.URI = uri
-		}
-	}
+	cfg.Storage.Single.Postgres.URI = uri
 }
 
 // NewIndexer creates and starts a new Service container using testcontainers.
