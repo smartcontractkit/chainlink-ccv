@@ -16,7 +16,6 @@ import (
 type mockHTTPMetrics struct {
 	activeRequestsInc      int
 	activeRequestsDec      int
-	httpRequestCounter     int
 	requestDurationRecords []requestDurationRecord
 }
 
