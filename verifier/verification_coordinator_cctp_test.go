@@ -193,6 +193,7 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 		AttestationAPITimeout:  1 * time.Minute,
 		AttestationAPICooldown: 1 * time.Second,
 		AttestationAPIInterval: 1 * time.Millisecond,
+		VerifierVersion:        cctp.DefaultVerifierVersion,
 		ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 			chain1337: testCCVAddr,
 			chain2337: destVerifier,
@@ -293,6 +294,7 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 		AttestationAPITimeout:  1 * time.Minute,
 		AttestationAPICooldown: 1 * time.Second,
 		AttestationAPIInterval: 1 * time.Millisecond,
+		VerifierVersion:        cctp.DefaultVerifierVersion,
 		ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 			chain1337: testCCVAddr,
 			chain2337: destVerifier,
@@ -396,6 +398,7 @@ func Test_CCTPMessages_RetryingAttestation(t *testing.T) {
 		AttestationAPITimeout:  1 * time.Minute,
 		AttestationAPICooldown: 1 * time.Second,
 		AttestationAPIInterval: 1 * time.Millisecond,
+		VerifierVersion:        cctp.DefaultVerifierVersion,
 		ParsedVerifiers: map[protocol.ChainSelector]protocol.UnknownAddress{
 			chain1337: testCCVAddr,
 			chain2337: destVerifier,
