@@ -1,0 +1,28 @@
+# Example Dockerfile for a repository that imports chainlink-ccv and runs jdwatcher
+# with a custom worker binary. Copy this into your repo and adapt the paths below.
+#
+# Contract:
+#   - Your repo has its own go.mod (with chainlink-ccv as a dependency) and a
+#     main.go that uses chainlink-ccv (e.g. similar to chainlink-ccv cmd/verifier/committee).
+#   - You build your binary in a builder stage, then copy it into the base image.
+#   - Config (mounted or baked in) must set process_binary_path to the path you
+#     copy the binary to, and process_config_path_env_var to the env var your
+#     binary reads for its config path (e.g. VERIFIER_CONFIG_PATH).
+#
+# Build (from your repo root): docker build -f Dockerfile -t my-jdwatcher-app:latest .
+# Run: mount config with process_binary_path=/bin/worker (or whatever path you use).
+
+ARG JDWATCHER_BASE=ghcr.io/smartcontractkit/chainlink-ccv-jdwatcher:latest
+FROM golang:1.25.5-alpine AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+# Replace with the path to your main package (e.g. ./cmd/verifier, ./cmd/my-chain-main)
+RUN CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/worker ./cmd/myverifier
+
+FROM ${JDWATCHER_BASE}
+COPY --from=builder /bin/worker /bin/worker
+# CMD is inherited: /bin/jdwatcher
+# Ensure config has process_binary_path = "/bin/worker" and the appropriate
+# process_config_path_env_var for your binary.

@@ -1,0 +1,38 @@
+# syntax=docker/dockerfile:1.7
+# Parameterized image: jdwatcher + one child binary (e.g. committee verifier).
+# Config must set process_binary_path to /bin/CHILD_BINARY_NAME and
+# process_config_path_env_var (e.g. VERIFIER_CONFIG_PATH).
+#
+# Build: docker build -f jdwatcher/Dockerfile.watcher-app -t jdwatcher-committee:latest ..
+# With custom app: docker build -f jdwatcher/Dockerfile.watcher-app --build-arg CHILD_CMD=cmd/verifier/committee --build-arg CHILD_BINARY_NAME=verifier ..
+#
+ARG CHILD_CMD=cmd/verifier/committee
+ARG CHILD_BINARY_NAME=verifier
+
+FROM golang:1.25.5-alpine AS builder
+WORKDIR /
+
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
+    go mod download
+
+COPY . .
+
+WORKDIR /cmd/jdwatcher
+RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
+    --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
+    CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/jdwatcher main.go
+
+ARG CHILD_CMD
+ARG CHILD_BINARY_NAME
+WORKDIR /
+RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
+    --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
+    CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/child ./${CHILD_CMD}
+
+FROM alpine:latest
+ARG CHILD_BINARY_NAME=verifier
+RUN apk --no-cache add ca-certificates
+COPY --from=builder /bin/jdwatcher /bin/
+COPY --from=builder /bin/child /bin/${CHILD_BINARY_NAME}
+CMD ["/bin/jdwatcher"]

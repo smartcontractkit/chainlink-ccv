@@ -1,0 +1,41 @@
+set fallback
+
+import '../tools/lib/utils.justfile'
+
+# Default: show available recipes
+default:
+    just --list
+
+# Base image: jdwatcher only. Other repos use this as FROM and add their binary (see Dockerfile.consumer-example).
+build:
+    docker build -f Dockerfile -t jdwatcher:latest ..
+
+# jdwatcher + committee verifier; config: process_binary_path=/bin/verifier, process_config_path_env_var=VERIFIER_CONFIG_PATH
+build-committee:
+    docker build -f Dockerfile.watcher-app -t jdwatcher-committee:latest ..
+
+build-committee-rc:
+    docker build -f Dockerfile.watcher-app -t jdwatcher-committee:rc ..
+
+# Build jdwatcher + custom child binary. Usage: just build-app cmd/path/to/main mybinaryname
+# Example: just build-app cmd/verifier/committee verifier
+# Config must set process_binary_path=/bin/<name> and process_config_path_env_var accordingly.
+build-app child_cmd='cmd/verifier/committee' child_name='verifier':
+    docker build -f Dockerfile.watcher-app --build-arg CHILD_CMD={{child_cmd}} --build-arg CHILD_BINARY_NAME={{child_name}} -t jdwatcher-{{child_name}}:latest ..
+
+build-dev:
+    docker build -f Dockerfile -t jdwatcher:dev ..
+
+build-rc:
+    docker build -f Dockerfile -t jdwatcher:rc ..
+
+clean-dev:
+    docker rmi jdwatcher:dev
+
+publish-rc registry version:
+    docker tag jdwatcher:rc {{registry}}/chainlink-ccv-jdwatcher:{{version}}-rc
+    docker push {{registry}}/chainlink-ccv-jdwatcher:{{version}}-rc
+
+clean:
+    docker rmi jdwatcher:latest
+    docker rmi jdwatcher:dev
