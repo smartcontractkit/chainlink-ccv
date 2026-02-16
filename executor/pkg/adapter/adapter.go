@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
@@ -17,20 +19,19 @@ import (
 // It queries all clients concurrently and prefers the primary client's result, falling back to alternates only when primary is unreachable and unhealthy.
 type IndexerReaderAdapter struct {
 	clients    []client.IndexerClientInterface // Primary is index 0
-	monitoring Monitoring
+	monitoring executor.Monitoring
 	lggr       logger.Logger
 }
 
 // clientResult holds the result from a single indexer client query.
 type clientResult[T any] struct {
-	idx      int   // Client index (0 = primary)
 	status   int   // HTTP status code
 	response T     // Response data
 	err      error // Error if any
 }
 
 // NewIndexerReaderAdapter creates a new IndexerReaderAdapter that queries multiple indexer clients concurrently.
-func NewIndexerReaderAdapter(indexerURIs []string, httpClient *http.Client, monitoring Monitoring, lggr logger.Logger) (*IndexerReaderAdapter, error) {
+func NewIndexerReaderAdapter(indexerURIs []string, httpClient *http.Client, monitoring executor.Monitoring, lggr logger.Logger) (*IndexerReaderAdapter, error) {
 	if len(indexerURIs) == 0 {
 		return nil, fmt.Errorf("at least one indexer URI must be provided")
 	}
@@ -66,26 +67,22 @@ func callAllClients[TInput any, TResponse any](
 	callFn func(client.IndexerClientInterface, context.Context, TInput) (int, TResponse, error),
 	input TInput,
 ) []clientResult[TResponse] {
-	resultsCh := make(chan clientResult[TResponse], len(clients))
+	var wg sync.WaitGroup
+	results := make([]clientResult[TResponse], len(clients))
 
-	// Fan-out: call all clients concurrently
 	for i, c := range clients {
+		wg.Add(1)
 		go func(idx int, cl client.IndexerClientInterface) {
+			defer wg.Done()
 			status, resp, err := callFn(cl, ctx, input)
-			resultsCh <- clientResult[TResponse]{
-				idx:      idx,
+			results[idx] = clientResult[TResponse]{
 				status:   status,
 				response: resp,
 				err:      err,
 			}
 		}(i, c)
 	}
-
-	// Collect all results
-	results := make([]clientResult[TResponse], 0, len(clients))
-	for i := 0; i < len(clients); i++ {
-		results = append(results, <-resultsCh)
-	}
+	wg.Wait()
 
 	return results
 }
@@ -97,22 +94,12 @@ func selectResult[T any](
 	ira *IndexerReaderAdapter,
 	results []clientResult[T],
 ) (int, T, error) {
-	// Find primary result (idx == 0)
-	var primaryResult clientResult[T]
-	var foundPrimary bool
-
-	for _, r := range results {
-		if r.idx == 0 {
-			primaryResult = r
-			foundPrimary = true
-			break
-		}
-	}
-
-	if !foundPrimary {
+	// The primary result is always at index 0.
+	if len(results) == 0 {
 		var zero T
-		return 0, zero, fmt.Errorf("primary client result not found")
+		return 0, zero, fmt.Errorf("no client results available")
 	}
+	primaryResult := results[0]
 
 	// If primary status != 0, always return primary result (even if error)
 	if primaryResult.status != 0 {
@@ -137,29 +124,25 @@ func selectResult[T any](
 	}
 
 	// Primary is unhealthy, select first alternate with status != 0
-	ira.lggr.Warnw("Primary indexer unhealthy, selecting alternate",
+	ira.lggr.Warnw("Primary indexer unhealthy, finding healthy alternate",
 		"healthError", healthErr)
 
-	var selected *clientResult[T]
-	for i := range results {
-		r := &results[i]
-		if r.idx != 0 && r.status != 0 {
-			if selected == nil || r.idx < selected.idx {
-				selected = r
-			}
+	for i, res := range results {
+		// Skip primary (index 0) since we already checked it
+		if i == 0 {
+			continue
+		}
+		if res.status != 0 {
+			ira.lggr.Infow("Using alternate indexer",
+				"clientIdx", i,
+				"status", res.status)
+			return res.status, res.response, res.err
 		}
 	}
-	if selected != nil {
-		ira.lggr.Infow("Using alternate indexer",
-			"clientIdx", selected.idx,
-			"status", selected.status)
-		return selected.status, selected.response, selected.err
-	}
 
-	// All clients failed or returned status 0
-	ira.lggr.Errorw("All indexer clients failed or unreachable")
-	var zero T
-	return 0, zero, fmt.Errorf("all indexer clients failed: primary error: %w", primaryResult.err)
+	// No alternate clients healthy. Return primary with its status and error.
+	ira.lggr.Errorw("No non-0 status codes found, returning primary result")
+	return primaryResult.status, primaryResult.response, primaryResult.err
 }
 
 func (ira *IndexerReaderAdapter) GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error) {

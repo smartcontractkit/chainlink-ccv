@@ -126,19 +126,19 @@ func TestConfiguration_Validate(t *testing.T) {
 
 func TestConfiguration_GetNormalizedConfig(t *testing.T) {
 	cases := []struct {
-		name                      string
-		config                    Configuration
-		wantErr                   bool
-		wantErrContains           string
-		wantIndexerAddressCount   int
-		wantBackoffDuration       time.Duration
-		wantLookbackWindow        time.Duration
-		wantReaderCacheExpiry     time.Duration
-		wantMaxRetryDuration      time.Duration
-		wantExecutionInterval     time.Duration
-		wantNtpServer             string
-		wantWorkerCount           int
-		wantIndexerQueryLimit     uint64
+		name                    string
+		config                  Configuration
+		wantErr                 bool
+		wantErrContains         string
+		wantIndexerAddressCount int
+		wantBackoffDuration     time.Duration
+		wantLookbackWindow      time.Duration
+		wantReaderCacheExpiry   time.Duration
+		wantMaxRetryDuration    time.Duration
+		wantExecutionInterval   time.Duration
+		wantNtpServer           string
+		wantWorkerCount         int
+		wantIndexerQueryLimit   uint64
 	}{
 		{
 			name: "single_indexer_address_with_defaults",
@@ -280,4 +280,3 @@ func TestConfiguration_GetNormalizedConfig(t *testing.T) {
 		})
 	}
 }
-
