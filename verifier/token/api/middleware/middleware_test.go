@@ -106,7 +106,6 @@ func TestActiveRequestsMiddleware_RecordsMetrics(t *testing.T) {
 	require.Equal(t, 200, rec.Code)
 	require.Equal(t, 1, mock.activeInc, "should increment active requests")
 	require.Equal(t, 1, mock.activeDec, "should decrement active requests")
-	require.Equal(t, 1, mock.httpCounter, "should increment http counter")
 	require.Len(t, mock.durationRecords, 1, "should record duration")
 	require.Equal(t, "/v1/verifications", mock.durationRecords[0].path)
 	require.Equal(t, "GET", mock.durationRecords[0].method)
@@ -136,6 +135,5 @@ func TestActiveRequestsMiddleware_MultipleRequests(t *testing.T) {
 
 	require.Equal(t, 3, mock.activeInc)
 	require.Equal(t, 3, mock.activeDec)
-	require.Equal(t, 3, mock.httpCounter)
 	require.Len(t, mock.durationRecords, 3)
 }

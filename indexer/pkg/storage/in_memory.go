@@ -14,6 +14,16 @@ import (
 
 var _ common.IndexerStorage = (*InMemoryStorage)(nil)
 
+const (
+	imOpQueryMessages = "QueryMessages"
+	imOpQueryCCVData  = "QueryCCVData"
+)
+
+const (
+	opGetCCVData   = "GetCCVData"
+	opQueryCCVData = "QueryCCVData"
+)
+
 // InMemoryStorage provides efficient in-memory storage optimized for query performance.
 type InMemoryStorage struct {
 	// Storage
@@ -249,7 +259,7 @@ func (i *InMemoryStorage) QueryMessages(ctx context.Context, start, end int64, s
 		endPos = len(candidates)
 	}
 
-	i.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric))
+	i.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), imOpQueryMessages, false)
 	return candidates[startPos:endPos], nil
 }
 
@@ -350,8 +360,9 @@ func (i *InMemoryStorage) QueryCCVData(ctx context.Context, start, end int64, so
 		results[messageID] = append(results[messageID], candidate)
 	}
 
-	i.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric))
+	i.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), imOpQueryCCVData, false)
 	if len(results) == 0 {
+		i.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), imOpQueryCCVData, true)
 		return nil, ErrCCVDataNotFound
 	}
 

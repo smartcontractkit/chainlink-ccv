@@ -24,22 +24,32 @@ func (n *NoopIndexerMetricLabeler) With(keyValues ...string) common.IndexerMetri
 }
 
 // All metric recording methods are no-ops.
-func (n *NoopIndexerMetricLabeler) IncrementHTTPRequestCounter(ctx context.Context)    {}
 func (n *NoopIndexerMetricLabeler) IncrementActiveRequestsCounter(ctx context.Context) {}
 func (n *NoopIndexerMetricLabeler) DecrementActiveRequestsCounter(ctx context.Context) {}
 func (n *NoopIndexerMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path, method string, status int) {
 }
 func (n *NoopIndexerMetricLabeler) IncrementUniqueMessagesCounter(ctx context.Context)      {}
 func (n *NoopIndexerMetricLabeler) IncrementVerificationRecordsCounter(ctx context.Context) {}
-func (n *NoopIndexerMetricLabeler) RecordStorageQueryDuration(ctx context.Context, duration time.Duration) {
+func (n *NoopIndexerMetricLabeler) RecordStorageQueryDuration(ctx context.Context, duration time.Duration, queryName string, errored bool) {
 }
 
 func (n *NoopIndexerMetricLabeler) RecordStorageWriteDuration(ctx context.Context, duration time.Duration) {
 }
-func (n *NoopIndexerMetricLabeler) RecordStorageInsertErrorsCounter(ctx context.Context) {}
+
+func (n *NoopIndexerMetricLabeler) RecordStorageInsertErrorsCounter(ctx context.Context, queryName string) {
+}
+
 func (n *NoopIndexerMetricLabeler) RecordVerificationRecordRequestDuration(ctx context.Context, duration time.Duration) {
 }
 func (n *NoopIndexerMetricLabeler) RecordScannerPollingErrorsCounter(ctx context.Context) {}
 func (n *NoopIndexerMetricLabeler) RecordVerificationRecordChannelSizeGauge(ctx context.Context, size int64) {
 }
 func (n *NoopIndexerMetricLabeler) RecordActiveReadersGauge(ctx context.Context, count int64) {}
+func (n *NoopIndexerMetricLabeler) RecordIndexerMessageDiscoveryLatency(ctx context.Context, latency time.Duration) {
+}
+
+func (n *NoopIndexerMetricLabeler) RecordTimeToIndex(ctx context.Context, latency time.Duration, discoveryType string) {
+}
+
+func (n *NoopIndexerMetricLabeler) RecordCircuitBreakerStatus(ctx context.Context, status bool) {
+}
