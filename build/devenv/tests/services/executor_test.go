@@ -13,7 +13,7 @@ func TestServiceExecutor(t *testing.T) {
 	// Minimal valid executor config for testing
 	generatedConfig := `
 executor_id = "executor-test"
-indexer_address = "http://localhost:8100"
+indexer_address = ["http://localhost:8100"]
 
 [chain_configuration]
 [chain_configuration."1"]
