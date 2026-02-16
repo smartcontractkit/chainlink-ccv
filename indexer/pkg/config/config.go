@@ -346,14 +346,9 @@ func (s *StorageConfig) Validate() error {
 			return fmt.Errorf("single storage config validation failed: %w", err)
 		}
 	case StorageStrategySink:
-		if s.Sink == nil {
-			return fmt.Errorf("sink storage config is required when strategy is sink")
-		}
-		if err := s.Sink.Validate(); err != nil {
-			return fmt.Errorf("sink storage config validation failed: %w", err)
-		}
+		return fmt.Errorf("sink storage strategy is not supported, only single strategy with postgres backend is supported")
 	default:
-		return fmt.Errorf("unknown storage strategy: %s (must be 'single' or 'sink')", s.Strategy)
+		return fmt.Errorf("unknown storage strategy: %s (must be 'single')", s.Strategy)
 	}
 
 	return nil
@@ -366,13 +361,6 @@ func (s *SingleStorageConfig) Validate() error {
 	}
 
 	switch s.Type {
-	case StorageBackendTypeMemory:
-		// Memory storage config is optional (can use defaults)
-		if s.Memory != nil {
-			if err := s.Memory.Validate(); err != nil {
-				return fmt.Errorf("memory storage config validation failed: %w", err)
-			}
-		}
 	case StorageBackendTypePostgres:
 		if s.Postgres == nil {
 			return fmt.Errorf("postgres storage config is required when type is postgres")
@@ -381,7 +369,7 @@ func (s *SingleStorageConfig) Validate() error {
 			return fmt.Errorf("postgres storage config validation failed: %w", err)
 		}
 	default:
-		return fmt.Errorf("unknown storage backend type: %s (must be 'memory' or 'postgres')", s.Type)
+		return fmt.Errorf("unknown storage backend type: %s (must be 'postgres')", s.Type)
 	}
 
 	return nil
