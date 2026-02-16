@@ -22,6 +22,8 @@ import (
 var _ common.IndexerStorage = (*PostgresStorage)(nil)
 
 const (
+	opGetCCVData                    = "GetCCVData"
+	opQueryCCVData                  = "QueryCCVData"
 	opInsertCCVData                 = "InsertCCVData"
 	opBatchInsertCCVData            = "BatchInsertCCVData"
 	opBatchInsertMessages           = "BatchInsertMessages"

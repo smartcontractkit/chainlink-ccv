@@ -36,17 +36,12 @@ func TestServiceIndexer(t *testing.T) {
 				},
 			},
 			Storage: config.StorageConfig{
-				Strategy: config.StorageStrategySink,
-				Sink: &config.SinkStorageConfig{
-					Storages: []config.StorageBackendConfig{
-						{Type: config.StorageBackendTypeMemory},
-						{
-							Type: config.StorageBackendTypePostgres,
-							Postgres: &config.PostgresConfig{
-								MaxOpenConnections: 10,
-								MaxIdleConnections: 5,
-							},
-						},
+				Strategy: config.StorageStrategySingle,
+				Single: &config.SingleStorageConfig{
+					Type: config.StorageBackendTypePostgres,
+					Postgres: &config.PostgresConfig{
+						MaxOpenConnections: 10,
+						MaxIdleConnections: 5,
 					},
 				},
 			},
