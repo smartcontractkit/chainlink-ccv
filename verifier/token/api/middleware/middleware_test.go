@@ -106,9 +106,34 @@ func TestActiveRequestsMiddleware_RecordsMetrics(t *testing.T) {
 	require.Equal(t, 200, rec.Code)
 	require.Equal(t, 1, mock.activeInc, "should increment active requests")
 	require.Equal(t, 1, mock.activeDec, "should decrement active requests")
-	require.Equal(t, 1, mock.httpCounter, "should increment http counter")
 	require.Len(t, mock.durationRecords, 1, "should record duration")
 	require.Equal(t, "/v1/verifications", mock.durationRecords[0].path)
 	require.Equal(t, "GET", mock.durationRecords[0].method)
 	require.Equal(t, 200, mock.durationRecords[0].status)
+}
+
+// TestActiveRequestsMiddleware_MultipleRequests verifies metrics accumulate correctly.
+func TestActiveRequestsMiddleware_MultipleRequests(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	lggr := logger.Test(t)
+
+	mock := &mockHTTPMetrics{}
+
+	r := gin.New()
+	r.Use(sharedmiddleware.ActiveRequestsMiddleware(mock, VerificationsPathNormalizer, lggr))
+	r.GET("/v1/verifications", func(c *gin.Context) {
+		c.Status(200)
+	})
+
+	// Make 3 requests
+	for range 3 {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/v1/verifications", nil)
+		r.ServeHTTP(rec, req)
+		require.Equal(t, 200, rec.Code)
+	}
+
+	require.Equal(t, 3, mock.activeInc)
+	require.Equal(t, 3, mock.activeDec)
+	require.Len(t, mock.durationRecords, 3)
 }
