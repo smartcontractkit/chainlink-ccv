@@ -18,7 +18,7 @@ func TestLoadEnvironmentTopology_LoadsValidConfig(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "env.toml")
 
 	configContent := `
-indexer_address = "http://indexer:8100"
+indexer_address = ["http://indexer:8100","http://indexer:8101"]
 pyroscope_url = "http://pyroscope:4040"
 
 [monitoring]
@@ -62,7 +62,8 @@ insecure_connection = false
 	cfg, err := deployments.LoadEnvironmentTopology(configPath)
 	require.NoError(t, err)
 
-	assert.Equal(t, "http://indexer:8100", cfg.IndexerAddress)
+	assert.Equal(t, "http://indexer:8100", cfg.IndexerAddress[0])
+	assert.Equal(t, "http://indexer:8101", cfg.IndexerAddress[1])
 	assert.Equal(t, "http://pyroscope:4040", cfg.PyroscopeURL)
 	assert.True(t, cfg.Monitoring.Enabled)
 	assert.Equal(t, "beholder", cfg.Monitoring.Type)
@@ -92,7 +93,7 @@ func TestWriteEnvironmentTopology_WritesValidConfig(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "env.toml")
 
 	cfg := deployments.EnvironmentTopology{
-		IndexerAddress: "http://indexer:8100",
+		IndexerAddress: []string{"http://indexer:8100,http://indexer:8101"},
 		PyroscopeURL:   "http://pyroscope:4040",
 		Monitoring: deployments.MonitoringConfig{
 			Enabled: true,
@@ -145,7 +146,7 @@ func TestWriteEnvironmentTopology_WritesValidConfig(t *testing.T) {
 
 func TestEnvironmentTopology_GetNOPsForPool(t *testing.T) {
 	cfg := deployments.EnvironmentTopology{
-		IndexerAddress: "http://indexer:8100",
+		IndexerAddress: []string{"http://indexer:8100"},
 		NOPTopology: &deployments.NOPTopology{
 			NOPs: []deployments.NOPConfig{
 				{Alias: "nop-1", Name: "NOP One"},
@@ -168,7 +169,7 @@ func TestEnvironmentTopology_GetNOPsForPool(t *testing.T) {
 
 func TestEnvironmentTopology_GetNOPsForCommittee(t *testing.T) {
 	cfg := deployments.EnvironmentTopology{
-		IndexerAddress: "http://indexer:8100",
+		IndexerAddress: []string{"http://indexer:8100"},
 		NOPTopology: &deployments.NOPTopology{
 			NOPs: []deployments.NOPConfig{
 				{Alias: "nop-1", Name: "NOP One"},
@@ -199,7 +200,7 @@ func TestEnvironmentTopology_GetNOPsForCommittee(t *testing.T) {
 
 func TestEnvironmentTopology_GetCommitteesForNOP(t *testing.T) {
 	cfg := deployments.EnvironmentTopology{
-		IndexerAddress: "http://indexer:8100",
+		IndexerAddress: []string{"http://indexer:8100"},
 		NOPTopology: &deployments.NOPTopology{
 			NOPs: []deployments.NOPConfig{
 				{Alias: "nop-1", Name: "NOP One"},
@@ -233,7 +234,7 @@ func TestEnvironmentTopology_GetCommitteesForNOP(t *testing.T) {
 
 func TestEnvironmentTopology_GetPoolsForNOP(t *testing.T) {
 	cfg := deployments.EnvironmentTopology{
-		IndexerAddress: "http://indexer:8100",
+		IndexerAddress: []string{"http://indexer:8100"},
 		NOPTopology: &deployments.NOPTopology{
 			NOPs: []deployments.NOPConfig{
 				{Alias: "nop-1", Name: "NOP One"},
@@ -255,7 +256,7 @@ func TestEnvironmentTopology_GetPoolsForNOP(t *testing.T) {
 
 func TestEnvironmentTopology_Validate_RequiresIndexerAddress(t *testing.T) {
 	cfg := deployments.EnvironmentTopology{
-		IndexerAddress: "",
+		IndexerAddress: []string{},
 	}
 
 	err := cfg.Validate()
@@ -265,7 +266,7 @@ func TestEnvironmentTopology_Validate_RequiresIndexerAddress(t *testing.T) {
 
 func TestEnvironmentTopology_Validate_DuplicateNOPAlias(t *testing.T) {
 	cfg := deployments.EnvironmentTopology{
-		IndexerAddress: "http://indexer:8100",
+		IndexerAddress: []string{"http://indexer:8100"},
 		NOPTopology: &deployments.NOPTopology{
 			NOPs: []deployments.NOPConfig{
 				{Alias: "nop-1", Name: "NOP One"},
@@ -282,7 +283,7 @@ func TestEnvironmentTopology_Validate_DuplicateNOPAlias(t *testing.T) {
 
 func TestEnvironmentTopology_Validate_CommitteeReferencesUnknownNOP(t *testing.T) {
 	cfg := deployments.EnvironmentTopology{
-		IndexerAddress: "http://indexer:8100",
+		IndexerAddress: []string{"http://indexer:8100"},
 		NOPTopology: &deployments.NOPTopology{
 			NOPs: []deployments.NOPConfig{
 				{Alias: "nop-1", Name: "NOP One"},
@@ -306,7 +307,7 @@ func TestEnvironmentTopology_Validate_CommitteeReferencesUnknownNOP(t *testing.T
 
 func TestEnvironmentTopology_Validate_ThresholdExceedsNOPCount(t *testing.T) {
 	cfg := deployments.EnvironmentTopology{
-		IndexerAddress: "http://indexer:8100",
+		IndexerAddress: []string{"http://indexer:8100"},
 		NOPTopology: &deployments.NOPTopology{
 			NOPs: []deployments.NOPConfig{
 				{Alias: "nop-1", Name: "NOP One"},

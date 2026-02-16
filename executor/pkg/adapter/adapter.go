@@ -61,6 +61,8 @@ func NewIndexerReaderAdapter(indexerURIs []string, httpClient *http.Client, moni
 }
 
 // callAllClients calls all indexer clients concurrently and collects their results.
+//
+//nolint:gofumpt
 func callAllClients[TInput any, TResponse any](
 	ctx context.Context,
 	clients []client.IndexerClientInterface,
@@ -160,7 +162,6 @@ func (ira *IndexerReaderAdapter) GetVerifierResults(ctx context.Context, message
 
 	// Select best result (primary preferred, fallback to alternates)
 	_, res, err := selectResult(ctx, ira, results)
-
 	if err != nil {
 		ira.monitoring.Metrics().IncrementHeartbeatFailure(ctx)
 		return nil, err
@@ -192,7 +193,6 @@ func (ira *IndexerReaderAdapter) ReadMessages(ctx context.Context, queryData v1.
 
 	// Select best result (primary preferred, fallback to alternates)
 	_, res, err := selectResult(ctx, ira, results)
-
 	if err != nil {
 		ira.monitoring.Metrics().IncrementHeartbeatFailure(ctx)
 		return nil, err

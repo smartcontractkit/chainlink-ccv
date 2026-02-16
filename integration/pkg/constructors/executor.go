@@ -9,6 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	adapter "github.com/smartcontractkit/chainlink-ccv/executor/pkg/adapter"
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
@@ -127,7 +128,7 @@ func NewExecutorCoordinator(
 
 	// create indexer adapter which queries multiple indexers concurrently
 	httpClient := &http.Client{Timeout: 30 * time.Second}
-	indexerAdapter, err := executor.NewIndexerReaderAdapter(
+	indexerAdapter, err := adapter.NewIndexerReaderAdapter(
 		cfg.IndexerAddress,
 		httpClient,
 		executorMonitoring,

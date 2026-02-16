@@ -41,7 +41,7 @@ type BuildJobSpecsInput struct {
 	// TargetNOPs limits which NOPs will have their job specs updated. Defaults to all NOPs in the executor pool when empty.
 	TargetNOPs     []shared.NOPAlias
 	ExecutorPool   ExecutorPoolInput
-	IndexerAddress string
+	IndexerAddress []string
 	PyroscopeURL   string
 	Monitoring     shared.MonitoringInput
 }
@@ -81,7 +81,7 @@ var BuildJobSpecs = operations.NewOperation(
 			jobSpecID := shared.NewExecutorJobID(nopAlias, scope)
 
 			executorCfg := executor.Configuration{
-				IndexerAddress:     []string{input.IndexerAddress},
+				IndexerAddress:     input.IndexerAddress,
 				ExecutorID:         jobSpecID.GetExecutorID(),
 				PyroscopeURL:       input.PyroscopeURL,
 				NtpServer:          input.ExecutorPool.NtpServer,

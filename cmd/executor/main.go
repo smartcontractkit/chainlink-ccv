@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	adapter "github.com/smartcontractkit/chainlink-ccv/executor/pkg/adapter"
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
@@ -220,7 +221,7 @@ func main() {
 	// Initialize indexer adapter with multiple clients (supports concurrent queries)
 	// ------------------------------------------------------------------------------------------------
 	httpClient := &http.Client{Timeout: 30 * time.Second}
-	verifierResultReader, err := executor.NewIndexerReaderAdapter(
+	verifierResultReader, err := adapter.NewIndexerReaderAdapter(
 		executorConfig.IndexerAddress,
 		httpClient,
 		executorMonitoring,
