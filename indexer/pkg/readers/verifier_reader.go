@@ -12,6 +12,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 )
 
+const drainTimeout = 30 * time.Second
+
 // VerifierReader provides the link between the workers and the verifier.
 // The reader batches up requests from multiple workers for a best effort
 // attempt at batching the requests into a single network call.
@@ -110,21 +112,20 @@ func (v *VerifierReader) run(ctx context.Context) {
 				v.demux.Resolve(msgID, verificationResult.Value(), verificationResult.Err())
 			}
 		case <-ctx.Done():
-			// Check if there are any pending batches before exiting
-			// Drain any remaining batches to ensure all results are delivered
+			drainCtx, drainCancel := context.WithTimeout(context.Background(), drainTimeout)
 			for {
 				select {
 				case batch, ok := <-v.batcher.OutChannel():
 					if !ok {
-						// Channel closed, exit gracefully
+						drainCancel()
 						return
 					}
-					respMap := v.callVerifier(ctx, batch.Items)
+					respMap := v.callVerifier(drainCtx, batch.Items)
 					for msgID, verificationResult := range respMap {
 						v.demux.Resolve(msgID, verificationResult.Value(), verificationResult.Err())
 					}
 				default:
-					// No more batches, exit
+					drainCancel()
 					return
 				}
 			}
