@@ -84,12 +84,17 @@ func NewAttestationService(
 	if err != nil {
 		return nil, err
 	}
+
+	verifierVersion, err := config.ParsedVerifierVersion()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse verifier version: %w", err)
+	}
+
 	return &HTTPAttestationService{
-		lggr:      lggr,
-		client:    client,
-		batchSize: config.AttestationAPIBatchSize,
-		// TODO Make that configurable per chain / per address CCIP-8521
-		verifierVersion: VerifierVersion,
+		lggr:            lggr,
+		client:          client,
+		batchSize:       config.AttestationAPIBatchSize,
+		verifierVersion: verifierVersion,
 	}, nil
 }
 

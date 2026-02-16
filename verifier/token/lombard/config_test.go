@@ -36,6 +36,7 @@ func Test_TryParsing(t *testing.T) {
 				"attestation_api_timeout":    "5s",
 				"attestation_api_interval":   "200ms",
 				"attestation_api_batch_size": 50,
+				"verifier_version":           "0xabcdef12",
 				"verifier_resolver_addresses": map[string]any{
 					"1": testAddr1Hex,
 					"2": testAddr2Hex,
@@ -46,6 +47,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPITimeout:   5 * time.Second,
 				AttestationAPIInterval:  200 * time.Millisecond,
 				AttestationAPIBatchSize: 50,
+				VerifierVersion:         "0xabcdef12",
 				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: testAddr1,
 					2: testAddr2,
@@ -68,6 +70,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPITimeout:   1 * time.Second,
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPIBatchSize: 20,
+				VerifierVersion:         DefaultVerifierVersionHex,
 				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: testAddr1,
 				},
@@ -90,6 +93,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPITimeout:   1 * time.Second,
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPIBatchSize: 30,
+				VerifierVersion:         DefaultVerifierVersionHex,
 				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: testAddr1,
 				},
@@ -192,6 +196,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPITimeout:   1 * time.Second,
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPIBatchSize: 20,
+				VerifierVersion:         DefaultVerifierVersionHex,
 				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{},
 			},
 			wantErr: false,
@@ -215,7 +220,64 @@ func Test_TryParsing(t *testing.T) {
 				assert.Equal(t, tt.want.AttestationAPITimeout, got.AttestationAPITimeout)
 				assert.Equal(t, tt.want.AttestationAPIInterval, got.AttestationAPIInterval)
 				assert.Equal(t, tt.want.AttestationAPIBatchSize, got.AttestationAPIBatchSize)
+				assert.Equal(t, tt.want.VerifierVersion, got.VerifierVersion)
 				assert.Equal(t, tt.want.ParsedVerifierResolvers, got.ParsedVerifierResolvers)
+			}
+		})
+	}
+}
+
+func TestLombardConfig_ParsedVerifierVersion(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  LombardConfig
+		want    protocol.ByteSlice
+		wantErr bool
+	}{
+		{
+			name: "valid hex string with default value",
+			config: LombardConfig{
+				VerifierVersion: DefaultVerifierVersionHex,
+			},
+			want:    protocol.ByteSlice{0xf0, 0xf3, 0xa1, 0x35},
+			wantErr: false,
+		},
+		{
+			name: "valid hex string without leading zeros",
+			config: LombardConfig{
+				VerifierVersion: "0xabcdef12",
+			},
+			want:    protocol.ByteSlice{0xab, 0xcd, 0xef, 0x12},
+			wantErr: false,
+		},
+		{
+			name: "invalid hex string",
+			config: LombardConfig{
+				VerifierVersion: "not-hex",
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "empty hex string",
+			config: LombardConfig{
+				VerifierVersion: "",
+			},
+			want:    protocol.ByteSlice{},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.config.ParsedVerifierVersion()
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Nil(t, got)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.want, got)
 			}
 		})
 	}

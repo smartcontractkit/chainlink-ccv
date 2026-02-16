@@ -28,7 +28,7 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 
 	attestations := map[string]lombard.Attestation{
 		task1.Message.MustMessageID().String(): lombard.NewAttestation(
-			lombard.VerifierVersion,
+			lombard.DefaultVerifierVersion,
 			lombard.AttestationResponse{
 				MessageHash: "0xdeadbeef",
 				Status:      lombard.AttestationStatusApproved,
@@ -36,7 +36,7 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 			},
 		),
 		task2.Message.MustMessageID().String(): lombard.NewAttestation(
-			lombard.VerifierVersion,
+			lombard.DefaultVerifierVersion,
 			lombard.AttestationResponse{
 				MessageHash: "0xdeadbeef",
 				Status:      lombard.AttestationStatusApproved,
@@ -52,7 +52,11 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 
 	ccvDataBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](ctx, 2, 1*time.Minute, 10)
 
-	v := lombard.NewVerifier(lggr, mockAttestationService)
+	config := lombard.LombardConfig{
+		VerifierVersion: lombard.DefaultVerifierVersionHex,
+	}
+	v, err := lombard.NewVerifier(lggr, config, mockAttestationService)
+	require.NoError(t, err)
 	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
 
 	t.Cleanup(func() {
@@ -71,13 +75,13 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	assert.Equal(t, "0xf0f3a135abcdef", results[0].Signature.String())
 	assert.Equal(t, []protocol.UnknownAddress{internal.CCVAddress1, internal.CCVAddress2}, results[0].CCVAddresses)
 	assert.Equal(t, internal.ExecutorAddress, results[0].ExecutorAddress)
-	assert.Equal(t, lombard.VerifierVersion, results[0].CCVVersion)
+	assert.Equal(t, lombard.DefaultVerifierVersion, results[0].CCVVersion)
 
 	assert.Equal(t, task2.MessageID, results[1].MessageID.String())
 	assert.Equal(t, "0xf0f3a135123456", results[1].Signature.String())
 	assert.Equal(t, []protocol.UnknownAddress{internal.CCVAddress1, internal.CCVAddress2}, results[1].CCVAddresses)
 	assert.Equal(t, internal.ExecutorAddress, results[1].ExecutorAddress)
-	assert.Equal(t, lombard.VerifierVersion, results[1].CCVVersion)
+	assert.Equal(t, lombard.DefaultVerifierVersion, results[1].CCVVersion)
 }
 
 func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
@@ -92,7 +96,7 @@ func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
 
 	attestations := map[string]lombard.Attestation{
 		task1.Message.MustMessageID().String(): lombard.NewAttestation(
-			lombard.VerifierVersion,
+			lombard.DefaultVerifierVersion,
 			lombard.AttestationResponse{
 				MessageHash: "0xdeadbeef",
 				Status:      lombard.AttestationStatusApproved,
@@ -100,7 +104,7 @@ func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
 			},
 		),
 		task2.Message.MustMessageID().String(): lombard.NewAttestation(
-			lombard.VerifierVersion,
+			lombard.DefaultVerifierVersion,
 			lombard.AttestationResponse{
 				MessageHash: "0xdeadbeef",
 				Status:      lombard.AttestationStatusPending,
@@ -116,7 +120,11 @@ func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
 
 	ccvDataBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](ctx, 1, 1*time.Minute, 10)
 
-	v := lombard.NewVerifier(lggr, mockAttestationService)
+	config := lombard.LombardConfig{
+		VerifierVersion: lombard.DefaultVerifierVersionHex,
+	}
+	v, err := lombard.NewVerifier(lggr, config, mockAttestationService)
+	require.NoError(t, err)
 	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
 
 	t.Cleanup(func() {

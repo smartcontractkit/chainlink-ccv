@@ -1,19 +1,21 @@
 package lombard
 
 import (
-	"encoding/hex"
 	"fmt"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-// VerifierVersion is the version of the 1.7 LombardVerifier contract.
-var VerifierVersion = mustDecodeHex("f0f3a135")
+// DefaultVerifierVersionHex is the default hex-encoded version of the 1.7 LombardVerifier contract (with 0x prefix).
+const DefaultVerifierVersionHex = "0xf0f3a135"
+
+// DefaultVerifierVersion is the version of the 1.7 LombardVerifier contract.
+var DefaultVerifierVersion = mustDecodeHex(DefaultVerifierVersionHex)
 
 func mustDecodeHex(s string) protocol.ByteSlice {
-	b, err := hex.DecodeString(s)
+	b, err := protocol.NewByteSliceFromHex(s)
 	if err != nil {
 		panic(fmt.Sprintf("failed to decode hex: %v", err))
 	}
-	return protocol.ByteSlice(b)
+	return b
 }

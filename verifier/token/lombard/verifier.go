@@ -34,15 +34,21 @@ type Verifier struct {
 
 func NewVerifier(
 	lggr logger.Logger,
+	config LombardConfig,
 	attestationService AttestationService,
-) verifier.Verifier {
+) (verifier.Verifier, error) {
+	verifierVersion, err := config.ParsedVerifierVersion()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get verifier version from config: %w", err)
+	}
+
 	return NewVerifierWithConfig(
 		lggr,
 		attestationService,
-		VerifierVersion,
+		verifierVersion,
 		attestationNotReadyRetry,
 		anyErrorRetry,
-	)
+	), nil
 }
 
 func NewVerifierWithConfig(

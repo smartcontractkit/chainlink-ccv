@@ -43,6 +43,7 @@ func Test_TryParsing(t *testing.T) {
 				"attestation_api_timeout":  "5s",
 				"attestation_api_interval": "200ms",
 				"attestation_api_cooldown": "10m",
+				"verifier_version":         "12345678",
 				"verifier_resolver_addresses": map[string]any{
 					"1": testAddr1Hex,
 					"2": testAddr2Hex,
@@ -57,6 +58,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPITimeout:  5 * time.Second,
 				AttestationAPIInterval: 200 * time.Millisecond,
 				AttestationAPICooldown: 10 * time.Minute,
+				VerifierVersion:        "12345678",
 				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: testAddr1,
 					2: testAddr2,
@@ -83,6 +85,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPITimeout:  1 * time.Second,
 				AttestationAPIInterval: 100 * time.Millisecond,
 				AttestationAPICooldown: 5 * time.Minute,
+				VerifierVersion:        DefaultVerifierVersionHex,
 				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: testAddr1,
 				},
@@ -204,8 +207,65 @@ func Test_TryParsing(t *testing.T) {
 				assert.Equal(t, tt.want.AttestationAPITimeout, got.AttestationAPITimeout)
 				assert.Equal(t, tt.want.AttestationAPIInterval, got.AttestationAPIInterval)
 				assert.Equal(t, tt.want.AttestationAPICooldown, got.AttestationAPICooldown)
+				assert.Equal(t, tt.want.VerifierVersion, got.VerifierVersion)
 				assert.Equal(t, tt.want.ParsedVerifierResolvers, got.ParsedVerifierResolvers)
 				assert.Equal(t, tt.want.ParsedVerifiers, got.ParsedVerifiers)
+			}
+		})
+	}
+}
+
+func TestCCTPConfig_ParsedVerifierVersion(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  CCTPConfig
+		want    protocol.ByteSlice
+		wantErr bool
+	}{
+		{
+			name: "valid hex string with default value",
+			config: CCTPConfig{
+				VerifierVersion: DefaultVerifierVersionHex,
+			},
+			want:    protocol.ByteSlice{0x8e, 0x1d, 0x1a, 0x9d},
+			wantErr: false,
+		},
+		{
+			name: "valid hex string without leading zeros",
+			config: CCTPConfig{
+				VerifierVersion: "0x12345678",
+			},
+			want:    protocol.ByteSlice{0x12, 0x34, 0x56, 0x78},
+			wantErr: false,
+		},
+		{
+			name: "invalid hex string",
+			config: CCTPConfig{
+				VerifierVersion: "not-hex",
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "empty hex string",
+			config: CCTPConfig{
+				VerifierVersion: "",
+			},
+			want:    protocol.ByteSlice{},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.config.ParsedVerifierVersion()
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Nil(t, got)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.want, got)
 			}
 		})
 	}
