@@ -18,9 +18,9 @@ require (
 	github.com/prometheus/client_golang v1.23.0
 	github.com/rs/zerolog v1.34.0
 	github.com/smartcontractkit/chain-selectors v1.0.96
-	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20260213150558-b2522161234a
-	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20260213150558-b2522161234a
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260213150558-b2522161234a
+	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20260216170932-c8081efc1ae5
+	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20260216170932-c8081efc1ae5
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260216170932-c8081efc1ae5
 	github.com/smartcontractkit/chainlink-common v0.10.0
 	github.com/smartcontractkit/chainlink-deployments-framework v0.80.0
 	github.com/smartcontractkit/chainlink-testing-framework/framework v0.13.9
@@ -39,8 +39,8 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/sethvargo/go-retry v0.3.0
 	github.com/smartcontractkit/chainlink-canton v0.0.0-20260213163118-32698a95eddd
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260213150558-b2522161234a
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260213150558-b2522161234a
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260216170932-c8081efc1ae5
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260216170932-c8081efc1ae5
 	github.com/smartcontractkit/chainlink-ccv v0.0.0-20260210144153-aebc4e8cb4de
 	github.com/smartcontractkit/chainlink-ccv/deployments v0.0.0-20260114162625-70cae15c5548
 	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20260119171452-39c98c3b33cd
