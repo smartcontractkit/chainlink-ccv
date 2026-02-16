@@ -81,7 +81,7 @@ var BuildJobSpecs = operations.NewOperation(
 			jobSpecID := shared.NewExecutorJobID(nopAlias, scope)
 
 			executorCfg := executor.Configuration{
-				IndexerAddress:     input.IndexerAddress,
+				IndexerAddress:     []string{input.IndexerAddress},
 				ExecutorID:         jobSpecID.GetExecutorID(),
 				PyroscopeURL:       input.PyroscopeURL,
 				NtpServer:          input.ExecutorPool.NtpServer,

@@ -12,7 +12,6 @@ import (
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	timeprovider "github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
@@ -126,15 +125,18 @@ func NewExecutorCoordinator(
 		CacheExpiry: cfg.ReaderCacheExpiry,
 	})
 
-	// create indexer client which implements MessageReader and VerifierResultReader (supports multiple indexers)
-	indexerClient, err := client.NewMultiIndexerClient(cfg.IndexerAddress, &http.Client{
-		Timeout: 30 * time.Second,
-	})
+	// create indexer adapter which queries multiple indexers concurrently
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	indexerAdapter, err := executor.NewIndexerReaderAdapter(
+		cfg.IndexerAddress,
+		httpClient,
+		executorMonitoring,
+		lggr,
+	)
 	if err != nil {
-		lggr.Errorw("Failed to create indexer client", "error", err)
-		return nil, fmt.Errorf("failed to create indexer client: %w", err)
+		lggr.Errorw("Failed to create indexer adapter", "error", err)
+		return nil, fmt.Errorf("failed to create indexer adapter: %w", err)
 	}
-	indexerAdapter := executor.NewIndexerReaderAdapter(indexerClient, executorMonitoring)
 
 	ex := x.NewChainlinkExecutor(
 		logger.With(lggr, "component", "Executor"),

@@ -20,6 +20,8 @@ const MaxBodySize = 10 << 20 // 10MB
 // IndexerClientInterface defines the common interface for interacting with indexer services.
 // Both IndexerClient and MultiIndexerClient implement this interface.
 type IndexerClientInterface interface {
+	// Health checks if the indexer is healthy and reachable.
+	Health(ctx context.Context) error
 	// VerifierResults reads all verifier results that match the provided query parameters.
 	VerifierResults(ctx context.Context, queryData v1.VerifierResultsInput) (int, v1.VerifierResultsResponse, error)
 	// Messages reads all messages that match the provided query parameters.
@@ -48,6 +50,21 @@ func NewIndexerClient(indexerURI string, httpClient *http.Client) (*IndexerClien
 type IndexerClient struct {
 	client     iclient.ClientInterface
 	indexerURI string
+}
+
+// Health checks if the indexer is healthy and reachable.
+func (ic *IndexerClient) Health(ctx context.Context) error {
+	resp, err := ic.client.Health(ctx)
+	if err != nil {
+		return fmt.Errorf("health check request error: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("health check failed with status %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 func parseVerifierResultsParams(queryData v1.VerifierResultsInput) *iclient.VerifierResultsParams {
