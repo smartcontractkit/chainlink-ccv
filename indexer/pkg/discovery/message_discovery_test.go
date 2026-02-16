@@ -68,38 +68,20 @@ func (ts *testSetup) CapturedCCVData() []common.VerifierResultWithMetadata {
 	return result
 }
 
-// CapturedSeqNumber returns the last captured sequence number for an address.
-func (ts *testSetup) CapturedSeqNumber(address string) (int, bool) {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	v, ok := ts.capturedSeqNumbers[address]
-	return v, ok
-}
-
 // newMockStorage creates a MockIndexerStorage with default permissive expectations
 // that capture all written data for test assertions.
 func newMockStorage(t *testing.T, ts *testSetup) *mocks.MockIndexerStorage {
 	t.Helper()
 	store := mocks.NewMockIndexerStorage(t)
 
-	store.EXPECT().BatchInsertMessages(mock.Anything, mock.Anything).
-		Run(func(_ context.Context, msgs []common.MessageWithMetadata) {
+	store.EXPECT().PersistDiscoveryBatch(mock.Anything, mock.Anything).
+		Run(func(_ context.Context, batch common.DiscoveryBatch) {
 			ts.mu.Lock()
-			ts.capturedMessages = append(ts.capturedMessages, msgs...)
-			ts.mu.Unlock()
-		}).Return(nil).Maybe()
-
-	store.EXPECT().BatchInsertCCVData(mock.Anything, mock.Anything).
-		Run(func(_ context.Context, data []common.VerifierResultWithMetadata) {
-			ts.mu.Lock()
-			ts.capturedCCVData = append(ts.capturedCCVData, data...)
-			ts.mu.Unlock()
-		}).Return(nil).Maybe()
-
-	store.EXPECT().UpdateDiscoverySequenceNumber(mock.Anything, mock.Anything, mock.Anything).
-		Run(func(_ context.Context, addr string, seq int) {
-			ts.mu.Lock()
-			ts.capturedSeqNumbers[addr] = seq
+			ts.capturedMessages = append(ts.capturedMessages, batch.Messages...)
+			ts.capturedCCVData = append(ts.capturedCCVData, batch.Verifications...)
+			if batch.SequenceNumber != common.SequenceNumberNotSupported {
+				ts.capturedSeqNumbers[batch.DiscoveryLocation] = batch.SequenceNumber
+			}
 			ts.mu.Unlock()
 		}).Return(nil).Maybe()
 
@@ -726,110 +708,6 @@ func TestMessageDiscovery_NewMessageEmittedAndSaved(t *testing.T) {
 	require.Len(t, storedMessages, 1, "exactly one message should be stored")
 }
 
-// setupMessageDiscoveryTestWithSequenceNumberSupport creates a test setup with a reader that supports sequence numbers.
-func setupMessageDiscoveryTestWithSequenceNumberSupport(t *testing.T, discoveryAddress string, initialSequenceNumber int64) *testSetup {
-	t.Helper()
-	cfg := config.DiscoveryConfig{
-		AggregatorReaderConfig: config.AggregatorReaderConfig{
-			Address: discoveryAddress,
-		},
-		PollInterval: 50,
-		Timeout:      500,
-	}
-	return setupMessageDiscoveryTestWithSequenceNumberSupportAndConfig(t, cfg, initialSequenceNumber, 5*time.Second)
-}
-
-// setupMessageDiscoveryTestWithSequenceNumberSupportAndConfig creates a test setup with sequence number support and custom config.
-func setupMessageDiscoveryTestWithSequenceNumberSupportAndConfig(t *testing.T, cfg config.DiscoveryConfig, initialSequenceNumber int64, timeout time.Duration) *testSetup {
-	t.Helper()
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-
-	lggr := logger.Test(t)
-	mon := monitoring.NewNoopIndexerMonitoring()
-
-	ts := &testSetup{
-		Logger:             lggr,
-		Monitor:            mon,
-		Context:            ctx,
-		Cancel:             cancel,
-		capturedSeqNumbers: make(map[string]int),
-	}
-
-	store := newMockStorage(t, ts)
-	ts.Storage = store
-
-	store.EXPECT().CreateDiscoveryState(mock.Anything, cfg.Address, int(initialSequenceNumber)).Return(nil).Maybe()
-
-	mockReader := internal.NewMockReader(internal.MockReaderConfig{
-		EmitEmptyResponses: true,
-	})
-	mockReader.SetSinceValue(initialSequenceNumber)
-
-	timeProvider := mocks.NewMockTimeProvider(t)
-	timeProvider.EXPECT().GetTime().Return(time.Now().UTC()).Maybe()
-
-	resilientReader := readers.NewResilientReader(mockReader, lggr, readers.DefaultResilienceConfig())
-
-	registry := registry.NewVerifierRegistry()
-
-	discovery, _ := NewAggregatorMessageDiscovery(
-		WithLogger(lggr),
-		WithRegistry(registry),
-		WithTimeProvider(timeProvider),
-		WithMonitoring(mon),
-		WithStorage(store),
-		WithAggregator(resilientReader),
-		WithConfig(cfg),
-	)
-
-	ts.Discovery = discovery.(*AggregatorMessageDiscovery)
-	ts.Reader = resilientReader
-	ts.MockReader = mockReader
-
-	return ts
-}
-
-// TestUpdateSequenceNumber_UpdatesPeriodically tests that sequence numbers are updated periodically.
-func TestUpdateSequenceNumber_UpdatesPeriodically(t *testing.T) {
-	discoveryAddress := "test-discovery-address"
-	initialSequenceNumber := int64(100)
-	newSequenceNumber := int64(150)
-
-	ts := setupMessageDiscoveryTestWithSequenceNumberSupportAndConfig(t, config.DiscoveryConfig{
-		AggregatorReaderConfig: config.AggregatorReaderConfig{
-			Address: discoveryAddress,
-		},
-		PollInterval: 50,
-		Timeout:      500,
-	}, initialSequenceNumber, 8*time.Second)
-	defer ts.Cleanup()
-
-	messageCh := ts.Discovery.Start(ts.Context)
-
-	go func() {
-		for {
-			select {
-			case <-ts.Context.Done():
-				return
-			case _, ok := <-messageCh:
-				if !ok {
-					return
-				}
-			}
-		}
-	}()
-
-	ts.MockReader.SetSinceValue(newSequenceNumber)
-
-	// Wait for the update to happen (ticker runs every 5 seconds)
-	time.Sleep(6 * time.Second)
-
-	seq, ok := ts.CapturedSeqNumber(discoveryAddress)
-	require.True(t, ok, "sequence number should have been updated")
-	assert.Equal(t, int(newSequenceNumber), seq, "sequence number should be updated in storage")
-}
-
 // TestMessageDiscovery_DiscoveryOnlyNotPersisted tests that discovery-only verifications
 // (those with MessageDiscoveryVersion prefix in CCVData) are emitted and saved as messages,
 // but NOT persisted as verifications.
@@ -913,42 +791,126 @@ func createTestCCVDataWithCCVData(uniqueID int, timestamp int64, sourceChain, de
 	}
 }
 
-// TestUpdateSequenceNumber_StopsOnContextCancellation tests that the update goroutine stops on context cancellation.
-func TestUpdateSequenceNumber_StopsOnContextCancellation(t *testing.T) {
-	discoveryAddress := "test-discovery-address"
-	initialSequenceNumber := int64(100)
+func TestCallReader_PersistDiscoveryBatch(t *testing.T) {
+	tests := []struct {
+		name             string
+		maxMessages      int
+		preExhaust       bool
+		persistErr       error
+		initialSequence  int64
+		expectFound      bool
+		expectErr        bool
+		expectSinceReset bool
+		expectBatchCall  bool
+	}{
+		{
+			name:            "happy_path_batch_committed_with_sequence",
+			maxMessages:     1,
+			initialSequence: 10,
+			expectFound:     true,
+			expectBatchCall: true,
+		},
+		{
+			name:             "batch_failure_resets_since_value",
+			maxMessages:      1,
+			persistErr:       errors.New("db error"),
+			initialSequence:  10,
+			expectErr:        true,
+			expectSinceReset: true,
+			expectBatchCall:  true,
+		},
+		{
+			name:        "empty_response_no_batch_call",
+			maxMessages: 1,
+			preExhaust:  true,
+		},
+	}
 
-	ts := setupMessageDiscoveryTestWithSequenceNumberSupport(t, discoveryAddress, initialSequenceNumber)
-	defer ts.Cleanup()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			discoveryAddress := "test-address"
+			cfg := config.DiscoveryConfig{
+				AggregatorReaderConfig: config.AggregatorReaderConfig{
+					Address: discoveryAddress,
+				},
+				PollInterval: 50,
+				Timeout:      500,
+			}
 
-	// Start discovery
-	messageCh := ts.Discovery.Start(ts.Context)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 
-	// Drain message channel in background to prevent blocking
-	go func() {
-		for range messageCh {
-			//
-		}
-	}()
+			lggr := logger.Test(t)
+			mon := monitoring.NewNoopIndexerMonitoring()
 
-	// Wait a moment for goroutines to start
-	time.Sleep(100 * time.Millisecond)
+			store := mocks.NewMockIndexerStorage(t)
 
-	// Cancel context
-	ts.Cancel()
+			var capturedBatch *common.DiscoveryBatch
+			if tt.expectBatchCall {
+				store.EXPECT().PersistDiscoveryBatch(mock.Anything, mock.Anything).
+					Run(func(_ context.Context, batch common.DiscoveryBatch) {
+						capturedBatch = &batch
+					}).Return(tt.persistErr).Once()
+			}
 
-	// Wait for goroutines to stop
-	time.Sleep(100 * time.Millisecond)
+			mockReader := internal.NewMockReader(internal.MockReaderConfig{
+				EmitEmptyResponses: true,
+				MaxMessages:        tt.maxMessages,
+				MessageGenerator: func(n int) common.VerifierResultWithMetadata {
+					return createTestCCVData(n, time.Now().UnixMilli(), 1, 2)
+				},
+			})
 
-	// Verify discovery stopped
-	err := ts.Discovery.Close()
-	assert.NoError(t, err, "close should complete successfully")
+			mockReader.SetSinceValue(tt.initialSequence)
 
-	// Verify context is canceled
-	select {
-	case <-ts.Context.Done():
-		// Expected
-	default:
-		t.Fatal("context should be cancelled")
+			if tt.preExhaust {
+				_, _ = mockReader.ReadCCVData(ctx)
+			}
+
+			resilientReader := readers.NewResilientReader(mockReader, lggr, readers.DefaultResilienceConfig())
+
+			timeProvider := mocks.NewMockTimeProvider(t)
+			timeProvider.EXPECT().GetTime().Return(time.Now().UTC()).Maybe()
+
+			reg := registry.NewVerifierRegistry()
+
+			disc, err := NewAggregatorMessageDiscovery(
+				WithLogger(lggr),
+				WithRegistry(reg),
+				WithTimeProvider(timeProvider),
+				WithMonitoring(mon),
+				WithStorage(store),
+				WithAggregator(resilientReader),
+				WithConfig(cfg),
+			)
+			require.NoError(t, err)
+
+			aggDisc := disc.(*AggregatorMessageDiscovery)
+			aggDisc.messageCh = make(chan common.VerifierResultWithMetadata, 10)
+
+			found, callErr := aggDisc.callReader(ctx)
+
+			if tt.expectErr {
+				require.Error(t, callErr)
+			} else {
+				require.NoError(t, callErr)
+			}
+
+			assert.Equal(t, tt.expectFound, found)
+
+			if tt.expectBatchCall && tt.persistErr == nil {
+				require.NotNil(t, capturedBatch)
+				assert.Len(t, capturedBatch.Messages, 1)
+				assert.Len(t, capturedBatch.Verifications, 1)
+				assert.Equal(t, discoveryAddress, capturedBatch.DiscoveryLocation)
+				assert.NotEqual(t, common.SequenceNumberNotSupported, capturedBatch.SequenceNumber)
+			}
+
+			if tt.expectSinceReset {
+				currentSeq, ok := resilientReader.GetSinceValue()
+				require.True(t, ok)
+				assert.Equal(t, tt.initialSequence, currentSeq)
+			}
+		})
 	}
 }
