@@ -53,7 +53,7 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	ccvDataBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](ctx, 2, 1*time.Minute, 10)
 
 	config := lombard.LombardConfig{
-		VerifierVersion: lombard.DefaultVerifierVersionHex,
+		VerifierVersion: lombard.DefaultVerifierVersion,
 	}
 	v, err := lombard.NewVerifier(lggr, config, mockAttestationService)
 	require.NoError(t, err)
@@ -121,7 +121,7 @@ func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
 	ccvDataBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](ctx, 1, 1*time.Minute, 10)
 
 	config := lombard.LombardConfig{
-		VerifierVersion: lombard.DefaultVerifierVersionHex,
+		VerifierVersion: lombard.DefaultVerifierVersion,
 	}
 	v, err := lombard.NewVerifier(lggr, config, mockAttestationService)
 	require.NoError(t, err)

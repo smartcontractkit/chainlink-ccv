@@ -47,7 +47,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPITimeout:   5 * time.Second,
 				AttestationAPIInterval:  200 * time.Millisecond,
 				AttestationAPIBatchSize: 50,
-				VerifierVersion:         "0xabcdef12",
+				VerifierVersion:         protocol.ByteSlice{0xab, 0xcd, 0xef, 0x12},
 				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: testAddr1,
 					2: testAddr2,
@@ -70,7 +70,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPITimeout:   1 * time.Second,
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPIBatchSize: 20,
-				VerifierVersion:         DefaultVerifierVersionHex,
+				VerifierVersion:         DefaultVerifierVersion,
 				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: testAddr1,
 				},
@@ -93,7 +93,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPITimeout:   1 * time.Second,
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPIBatchSize: 30,
-				VerifierVersion:         DefaultVerifierVersionHex,
+				VerifierVersion:         DefaultVerifierVersion,
 				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: testAddr1,
 				},
@@ -196,7 +196,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPITimeout:   1 * time.Second,
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPIBatchSize: 20,
-				VerifierVersion:         DefaultVerifierVersionHex,
+				VerifierVersion:         DefaultVerifierVersion,
 				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{},
 			},
 			wantErr: false,
@@ -227,41 +227,58 @@ func Test_TryParsing(t *testing.T) {
 	}
 }
 
-func TestLombardConfig_ParsedVerifierVersion(t *testing.T) {
+func TestLombardConfig_VerifierVersionParsing(t *testing.T) {
+	testAddr1Hex := "0x1111111111111111111111111111111111111111"
+
 	tests := []struct {
 		name    string
-		config  LombardConfig
+		data    map[string]any
 		want    protocol.ByteSlice
 		wantErr bool
 	}{
 		{
 			name: "valid hex string with default value",
-			config: LombardConfig{
-				VerifierVersion: DefaultVerifierVersionHex,
+			data: map[string]any{
+				"attestation_api": "https://lombard-api.example.com",
+				"verifier_resolver_addresses": map[string]any{
+					"1": testAddr1Hex,
+				},
 			},
-			want:    protocol.ByteSlice{0xf0, 0xf3, 0xa1, 0x35},
+			want:    DefaultVerifierVersion,
 			wantErr: false,
 		},
 		{
-			name: "valid hex string without leading zeros",
-			config: LombardConfig{
-				VerifierVersion: "0xabcdef12",
+			name: "valid hex string with 0x prefix",
+			data: map[string]any{
+				"attestation_api":  "https://lombard-api.example.com",
+				"verifier_version": "0xabcdef12",
+				"verifier_resolver_addresses": map[string]any{
+					"1": testAddr1Hex,
+				},
 			},
 			want:    protocol.ByteSlice{0xab, 0xcd, 0xef, 0x12},
 			wantErr: false,
 		},
 		{
 			name: "invalid hex string",
-			config: LombardConfig{
-				VerifierVersion: "not-hex",
+			data: map[string]any{
+				"attestation_api":  "https://lombard-api.example.com",
+				"verifier_version": "not-hex",
+				"verifier_resolver_addresses": map[string]any{
+					"1": testAddr1Hex,
+				},
 			},
 			want:    nil,
 			wantErr: true,
 		},
 		{
 			name: "empty hex string",
-			config: LombardConfig{
-				VerifierVersion: "",
+			data: map[string]any{
+				"attestation_api":  "https://lombard-api.example.com",
+				"verifier_version": "",
+				"verifier_resolver_addresses": map[string]any{
+					"1": testAddr1Hex,
+				},
 			},
 			want:    protocol.ByteSlice{},
 			wantErr: false,
@@ -270,14 +287,15 @@ func TestLombardConfig_ParsedVerifierVersion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.config.ParsedVerifierVersion()
+			got, err := TryParsing("lombard", "1.0", tt.data)
 
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Nil(t, got)
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.want, got)
+				require.NotNil(t, got)
+				assert.Equal(t, tt.want, got.VerifierVersion)
 			}
 		})
 	}

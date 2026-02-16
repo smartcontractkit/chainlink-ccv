@@ -37,15 +37,10 @@ func NewVerifier(
 	config LombardConfig,
 	attestationService AttestationService,
 ) (verifier.Verifier, error) {
-	verifierVersion, err := config.ParsedVerifierVersion()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get verifier version from config: %w", err)
-	}
-
 	return NewVerifierWithConfig(
 		lggr,
 		attestationService,
-		verifierVersion,
+		config.VerifierVersion,
 		attestationNotReadyRetry,
 		anyErrorRetry,
 	), nil

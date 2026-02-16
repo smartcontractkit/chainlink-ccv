@@ -19,9 +19,9 @@ type CCTPConfig struct {
 	// AttestationAPICooldown defines in what time it is allowed to make next call to API.
 	// Activates when plugin hits API's rate limits
 	AttestationAPICooldown time.Duration `json:"attestation_api_cooldown" toml:"attestation_api_cooldown"`
-	// VerifierVersion is the hex-encoded version of the CCTP verifier contract (must start with 0x prefix).
-	// Defaults to DefaultVerifierVersionHex if not specified.
-	VerifierVersion string `json:"verifier_version" toml:"verifier_version"`
+	// VerifierVersion is the parsed verifier version of the CCTP verifier contract.
+	// Defaults to DefaultVerifierVersion if not specified.
+	VerifierVersion protocol.ByteSlice `json:"verifier_version" toml:"verifier_version"`
 	// Verifiers is a map of chain selectors to verifier addresses. It's only used for TOML marshall/unmarshall and then
 	// final values, properly cast to domain values are stored in ParsedVerifiers
 	// That configuration field is required to match against messageSender from the CCTPMessage returned from AttestationAPI
@@ -72,17 +72,15 @@ func TryParsing(t, v string, data map[string]any) (*CCTPConfig, error) {
 		return nil, fmt.Errorf("invalid verifier_addresses: %w", err)
 	}
 
-	// Parse verifier version hex, default to DefaultVerifierVersionHex if not specified
+	// Parse verifier version hex, default to DefaultVerifierVersion if not specified
 	if verifierVersionHex, ok := data["verifier_version"].(string); ok {
-		c.VerifierVersion = verifierVersionHex
+		c.VerifierVersion, err = protocol.NewByteSliceFromHex(verifierVersionHex)
+		if err != nil {
+			return nil, fmt.Errorf("invalid verifier_version: %w", err)
+		}
 	} else {
-		c.VerifierVersion = DefaultVerifierVersionHex
+		c.VerifierVersion = DefaultVerifierVersion
 	}
 
 	return c, nil
-}
-
-// ParsedVerifierVersion converts the hex-encoded verifier version to ByteSlice.
-func (c *CCTPConfig) ParsedVerifierVersion() (protocol.ByteSlice, error) {
-	return protocol.NewByteSliceFromHex(c.VerifierVersion)
 }

@@ -94,7 +94,7 @@ func Test_LombardMessages_Success(t *testing.T) {
 		AttestationAPITimeout:   1 * time.Minute,
 		AttestationAPIInterval:  1 * time.Millisecond,
 		AttestationAPIBatchSize: 10,
-		VerifierVersion:         lombard.DefaultVerifierVersionHex,
+		VerifierVersion:         lombard.DefaultVerifierVersion,
 		ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 			chain1337: testCCVAddr,
 			chain2337: destVerifier,
@@ -197,7 +197,7 @@ func Test_LombardMessages_RetryingAttestation(t *testing.T) {
 		AttestationAPITimeout:   1 * time.Minute,
 		AttestationAPIInterval:  1 * time.Millisecond,
 		AttestationAPIBatchSize: 10,
-		VerifierVersion:         lombard.DefaultVerifierVersionHex,
+		VerifierVersion:         lombard.DefaultVerifierVersion,
 		ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 			chain1337: testCCVAddr,
 			chain2337: destVerifier,

@@ -18,9 +18,9 @@ type LombardConfig struct {
 	// Default set according to the APIs documentated 10 requests per second rate limit.
 	AttestationAPIInterval  time.Duration `json:"attestation_api_interval"   toml:"attestation_api_interval"`
 	AttestationAPIBatchSize int           `json:"attestation_api_batch_size" toml:"attestation_api_batch_size"`
-	// VerifierVersion is the hex-encoded version of the Lombard verifier contract (must start with 0x prefix).
-	// Defaults to DefaultVerifierVersionHex if not specified.
-	VerifierVersion string `json:"verifier_version" toml:"verifier_version"`
+	// VerifierVersion is the parsed verifier version of the Lombard verifier contract.
+	// Defaults to DefaultVerifierVersion if not specified.
+	VerifierVersion protocol.ByteSlice `json:"verifier_version" toml:"verifier_version"`
 	// VerifierResolvers is a map of chain selectors to verifier resolver addresses. It's only used for TOML marshall/unmarshall and then
 	// final values, properly cast to domain values are stored in ParsedVerifierResolvers
 	VerifierResolvers       map[string]any                                     `json:"verifier_resolver_addresses" toml:"verifier_resolver_addresses"`
@@ -61,17 +61,15 @@ func TryParsing(t, v string, data map[string]any) (*LombardConfig, error) {
 		return nil, fmt.Errorf("invalid verifier_resolver_addresses: %w", err)
 	}
 
-	// Parse verifier version hex, default to DefaultVerifierVersionHex if not specified
+	// Parse verifier version hex, default to DefaultVerifierVersion if not specified
 	if verifierVersionHex, ok := data["verifier_version"].(string); ok {
-		c.VerifierVersion = verifierVersionHex
+		c.VerifierVersion, err = protocol.NewByteSliceFromHex(verifierVersionHex)
+		if err != nil {
+			return nil, fmt.Errorf("invalid verifier_version: %w", err)
+		}
 	} else {
-		c.VerifierVersion = DefaultVerifierVersionHex
+		c.VerifierVersion = DefaultVerifierVersion
 	}
 
 	return c, nil
-}
-
-// ParsedVerifierVersion converts the hex-encoded verifier version to ByteSlice.
-func (c *LombardConfig) ParsedVerifierVersion() (protocol.ByteSlice, error) {
-	return protocol.NewByteSliceFromHex(c.VerifierVersion)
 }

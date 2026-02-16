@@ -85,16 +85,11 @@ func NewAttestationService(
 		return nil, err
 	}
 
-	verifierVersion, err := config.ParsedVerifierVersion()
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse verifier version: %w", err)
-	}
-
 	return &HTTPAttestationService{
 		lggr:            lggr,
 		client:          client,
+		verifierVersion: config.VerifierVersion,
 		batchSize:       config.AttestationAPIBatchSize,
-		verifierVersion: verifierVersion,
 	}, nil
 }
 
