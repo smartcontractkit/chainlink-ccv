@@ -118,25 +118,29 @@ func (a *AggregatorWriter) Close() error {
 	return nil
 }
 
-// NewAggregatorWriter creates instance of AggregatorWriter that satisfies CCVNodeDataWriter interface.
-// If insecure is true, TLS verification is disabled (only for testing).
-func NewAggregatorWriter(address string, lggr logger.Logger, hmacConfig *hmac.ClientConfig, insecure bool) (*AggregatorWriter, error) {
-	var dialOptions []grpc.DialOption
+func buildDialOptions(hmacConfig *hmac.ClientConfig, insecure bool, maxRecvMsgSizeBytes int) []grpc.DialOption {
+	var opts []grpc.DialOption
 	if insecure {
-		dialOptions = append(dialOptions, grpc.WithTransportCredentials(insecuregrpc.NewCredentials()))
+		opts = append(opts, grpc.WithTransportCredentials(insecuregrpc.NewCredentials()))
 	} else {
-		dialOptions = append(dialOptions, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: AdapterMinTLSVersion})))
+		opts = append(opts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: AdapterMinTLSVersion})))
 	}
 
 	if hmacConfig != nil {
-		dialOptions = append(dialOptions, grpc.WithUnaryInterceptor(hmac.NewClientInterceptor(hmacConfig)))
+		opts = append(opts, grpc.WithUnaryInterceptor(hmac.NewClientInterceptor(hmacConfig)))
 	}
 
-	// Create a gRPC connection to the aggregator server with HMAC authentication
-	conn, err := grpc.NewClient(
-		address,
-		dialOptions...,
-	)
+	if maxRecvMsgSizeBytes > 0 {
+		opts = append(opts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxRecvMsgSizeBytes)))
+	}
+
+	return opts
+}
+
+// NewAggregatorWriter creates instance of AggregatorWriter that satisfies CCVNodeDataWriter interface.
+// If insecure is true, TLS verification is disabled (only for testing).
+func NewAggregatorWriter(address string, lggr logger.Logger, hmacConfig *hmac.ClientConfig, insecure bool) (*AggregatorWriter, error) {
+	conn, err := grpc.NewClient(address, buildDialOptions(hmacConfig, insecure, 0)...)
 	if err != nil {
 		return nil, err
 	}
@@ -158,23 +162,9 @@ type AggregatorReader struct {
 
 // NewAggregatorReader creates instance of AggregatorReader that satisfies OffchainStorageReader interface.
 // If insecure is true, TLS verification is disabled (only for testing).
-func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacConfig *hmac.ClientConfig, insecure bool) (*AggregatorReader, error) {
-	var dialOptions []grpc.DialOption
-	if insecure {
-		dialOptions = append(dialOptions, grpc.WithTransportCredentials(insecuregrpc.NewCredentials()))
-	} else {
-		dialOptions = append(dialOptions, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: AdapterMinTLSVersion})))
-	}
-
-	if hmacConfig != nil {
-		dialOptions = append(dialOptions, grpc.WithUnaryInterceptor(hmac.NewClientInterceptor(hmacConfig)))
-	}
-
-	// Create a gRPC connection to the aggregator server with HMAC authentication
-	conn, err := grpc.NewClient(
-		address,
-		dialOptions...,
-	)
+// maxRecvMsgSizeBytes limits the maximum gRPC response size; 0 uses the gRPC default (4MB).
+func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacConfig *hmac.ClientConfig, insecure bool, maxRecvMsgSizeBytes int) (*AggregatorReader, error) {
+	conn, err := grpc.NewClient(address, buildDialOptions(hmacConfig, insecure, maxRecvMsgSizeBytes)...)
 	if err != nil {
 		return nil, err
 	}

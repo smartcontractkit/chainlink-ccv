@@ -169,6 +169,9 @@ type DiscoveryConfig struct {
 	PollInterval int    `toml:"PollInterval"`
 	Timeout      int    `toml:"Timeout"`
 	NtpServer    string `toml:"NtpServer"`
+	// MaxResponseBytes is the maximum response size in bytes the client will accept.
+	// 0 uses DefaultMaxResponseBytes (4MB).
+	MaxResponseBytes int `toml:"MaxResponseBytes"`
 }
 
 type VerifierConfig struct {
@@ -179,6 +182,9 @@ type VerifierConfig struct {
 	BatchSize int `toml:"BatchSize"`
 	// MaxBatchWaitTime is the maximum time to wait in milliseconds before sending a batch to the verifier.
 	MaxBatchWaitTime int `toml:"MaxBatchWaitTime"`
+	// MaxResponseBytes is the maximum response size in bytes the client will accept.
+	// 0 uses DefaultMaxResponseBytes (4MB).
+	MaxResponseBytes int `toml:"MaxResponseBytes"`
 	AggregatorReaderConfig
 	RestReaderConfig
 }
@@ -189,6 +195,11 @@ type ReaderType string
 const (
 	ReaderTypeAggregator ReaderType = "aggregator"
 	ReaderTypeRest       ReaderType = "rest"
+)
+
+const (
+	DefaultMaxResponseBytes = 4 << 20   // 4MB, matches gRPC default
+	MaxAllowedResponseBytes = 100 << 20 // 100MB ceiling
 )
 
 // AggregatorReaderConfig allows you to change the aggregator reader used by the indexer.
@@ -289,6 +300,12 @@ func (c *Config) Validate() error {
 	for i, d := range c.Discoveries {
 		if err := d.Validate(i); err != nil {
 			return fmt.Errorf("discovery config[%d] validation failed: %w", i, err)
+		}
+	}
+
+	for i, v := range c.Verifiers {
+		if err := v.Validate(i); err != nil {
+			return fmt.Errorf("verifier[%d] validation failed: %w", i, err)
 		}
 	}
 
@@ -450,12 +467,17 @@ func (i *InMemoryStorageConfig) Validate() error {
 func (v *VerifierConfig) Validate(index int) error {
 	switch v.Type {
 	case ReaderTypeAggregator:
-		return v.AggregatorReaderConfig.Validate(index)
+		if err := v.AggregatorReaderConfig.Validate(index); err != nil {
+			return err
+		}
 	case ReaderTypeRest:
-		return v.RestReaderConfig.Validate(index)
+		if err := v.RestReaderConfig.Validate(index); err != nil {
+			return err
+		}
 	default:
 		return errors.New("invalid verifier type")
 	}
+	return validateMaxResponseBytes(v.MaxResponseBytes, fmt.Sprintf("verifier %d", index))
 }
 
 // Validate performs validation on the aggregator reader configuration.
@@ -493,7 +515,7 @@ func (d *DiscoveryConfig) Validate(index int) error {
 	if d.Timeout <= 0 || d.Timeout <= d.PollInterval {
 		return fmt.Errorf("discovery[%d]: timeout must be greater than poll interval", index)
 	}
-	return nil
+	return validateMaxResponseBytes(d.MaxResponseBytes, fmt.Sprintf("discovery[%d]", index))
 }
 
 func (r *RestReaderConfig) Validate(index int) error {
@@ -501,11 +523,29 @@ func (r *RestReaderConfig) Validate(index int) error {
 		return fmt.Errorf("verifier %d base url is required", index)
 	}
 
-	if r.RequestTimeout <= 0 {
-		return fmt.Errorf("verifier %d request timeout must be greater than 0", index)
+	if r.RequestTimeout < 0 {
+		return fmt.Errorf("verifier %d request timeout must be non-negative, got %d", index, r.RequestTimeout)
 	}
 
 	return nil
+}
+
+func validateMaxResponseBytes(v int, prefix string) error {
+	if v < 0 {
+		return fmt.Errorf("%s max response bytes must be non-negative, got %d", prefix, v)
+	}
+	if v > MaxAllowedResponseBytes {
+		return fmt.Errorf("%s max response bytes must be <= %d, got %d", prefix, MaxAllowedResponseBytes, v)
+	}
+	return nil
+}
+
+// EffectiveMaxResponseBytes returns v if positive, otherwise DefaultMaxResponseBytes.
+func EffectiveMaxResponseBytes(v int) int {
+	if v > 0 {
+		return v
+	}
+	return DefaultMaxResponseBytes
 }
 
 // Validate performs validation on the postgres configuration.
