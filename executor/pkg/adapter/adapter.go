@@ -64,24 +64,10 @@ func NewIndexerReaderAdapter(indexerURIs []string, httpClient *http.Client, moni
 	}, nil
 }
 
-// getActiveClientIdx safely retrieves the current active client index.
-func (ira *IndexerReaderAdapter) getActiveClientIdx() int {
-	ira.mu.RLock()
-	defer ira.mu.RUnlock()
-	return ira.activeClientIdx
-}
-
-// setActiveClientIdx safely sets the active client index.
-func (ira *IndexerReaderAdapter) setActiveClientIdx(idx int) {
-	ira.mu.Lock()
-	defer ira.mu.Unlock()
-	ira.activeClientIdx = idx
-}
-
-// queryWithFailover implements the common failover logic for all query methods.
+// callAllClients calls all indexer clients concurrently and collects their results.
 //
 //nolint:gofumpt
-func queryWithFailover[TInput any, TResponse any](
+func callAllClients[TInput any, TResponse any](
 	ctx context.Context,
 	ira *IndexerReaderAdapter,
 	input TInput,
@@ -199,7 +185,10 @@ func (ira *IndexerReaderAdapter) GetVerifierResults(ctx context.Context, message
 		},
 	)
 
-	if err := ira.handleQueryResult(ctx, selectedIdx, err); err != nil {
+	// Select best result (primary preferred, fallback to alternates)
+	_, res, err := selectResult(ctx, ira, results)
+	if err != nil {
+		ira.monitoring.Metrics().IncrementHeartbeatFailure(ctx)
 		return nil, err
 	}
 
@@ -222,7 +211,10 @@ func (ira *IndexerReaderAdapter) ReadMessages(ctx context.Context, queryData v1.
 		},
 	)
 
-	if err := ira.handleQueryResult(ctx, selectedIdx, err); err != nil {
+	// Select best result (primary preferred, fallback to alternates)
+	_, res, err := selectResult(ctx, ira, results)
+	if err != nil {
+		ira.monitoring.Metrics().IncrementHeartbeatFailure(ctx)
 		return nil, err
 	}
 
