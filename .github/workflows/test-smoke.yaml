@@ -51,6 +51,10 @@ jobs:
             config: env-canton-evm.toml
             timeout: 2m
             working-directory: build/devenv/tests/integration/canton
+          - name: TestEVM2Canton_Basic
+            config: env-canton-evm.toml
+            timeout: 2m
+            working-directory: build/devenv/tests/integration/canton
     steps:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3

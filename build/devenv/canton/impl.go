@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -14,32 +15,32 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 
-	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/rmn"
-	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/fee_quoter"
-	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/global_config"
-	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/offramp"
-	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/onramp"
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	dsutils "github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
-	cantonadapters "github.com/smartcontractkit/chainlink-ccv/devenv/canton/adapters"
-	"github.com/smartcontractkit/go-daml/pkg/client"
-	"github.com/smartcontractkit/go-daml/pkg/types"
-
-	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/ccvs"
-	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/common"
-	"github.com/smartcontractkit/chainlink-canton/contracts"
-	cantonChangesets "github.com/smartcontractkit/chainlink-canton/deployment/changesets"
-	"github.com/smartcontractkit/chainlink-canton/deployment/sequences"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain/canton"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
+	"github.com/smartcontractkit/go-daml/pkg/client"
+	"github.com/smartcontractkit/go-daml/pkg/types"
 
+	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/ccvs"
+	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/common"
+	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/rmn"
+	"github.com/smartcontractkit/chainlink-canton/contracts"
+	cantonChangesets "github.com/smartcontractkit/chainlink-canton/deployment/changesets"
+	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/fee_quoter"
+	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/global_config"
+	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/offramp"
+	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/onramp"
+	"github.com/smartcontractkit/chainlink-canton/deployment/sequences"
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
+	cantonadapters "github.com/smartcontractkit/chainlink-ccv/devenv/canton/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -51,11 +52,39 @@ var (
 )
 
 type Chain struct {
-	logger zerolog.Logger
+	e            *deployment.Environment
+	chain        canton.Chain
+	logger       zerolog.Logger
+	chainDetails chainsel.ChainDetails
+
 	helper *Helper
 }
 
-func New(logger zerolog.Logger) *Chain {
+func New(ctx context.Context, logger zerolog.Logger, e *deployment.Environment, chainID string) (*Chain, error) {
+	chainDetails, err := chainsel.GetChainDetailsByChainIDAndFamily(chainID, chainsel.FamilyCanton)
+	if err != nil {
+		return nil, fmt.Errorf("get chain details for chain %s: %w", chainID, err)
+	}
+	chain := e.BlockChains.CantonChains()[chainDetails.ChainSelector]
+	jwt, err := chain.Participants[0].JWTProvider.Token(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get JWT token: %w", err)
+	}
+	h, err := NewHelperFromBlockchainInput(ctx, chain.Participants[0].Endpoints.GRPCLedgerAPIURL, jwt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create helper: %w", err)
+	}
+
+	return &Chain{
+		e:            e,
+		chain:        chain,
+		chainDetails: chainDetails,
+		logger:       logger,
+		helper:       h,
+	}, nil
+}
+
+func NewEmptyCCIP17Canton(logger zerolog.Logger) *Chain {
 	return &Chain{
 		logger: logger,
 	}
@@ -215,13 +244,14 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 			}
 
 			// Get signing key from config
+			// Must use pubkey instead of signer address
 			// TODO: implement fetching from JD
 			addr, ok := nop.SignerAddressByFamily[chainsel.FamilyCanton]
 			if !ok || addr == "" {
 				return nil, fmt.Errorf("signer address for NOP alias %q family %q not found for committee %q chain %d", nopAlias, chainsel.FamilyCanton, qualifier, selector)
 			}
 
-			signers = append(signers, types.TEXT(addr))
+			signers = append(signers, types.TEXT(strings.TrimPrefix(addr, "0x")))
 		}
 		var storageLocation types.TEXT // TODO, multiple storage locations
 		if len(committeeConfig.StorageLocations) > 0 {
@@ -444,7 +474,7 @@ func (c *Chain) DeployLocalNetwork(ctx context.Context, bcs *blockchain.Input) (
 	}
 	grpcURL := bcs.Out.NetworkSpecificData.CantonEndpoints.Participants[0].GRPCLedgerAPIURL
 	jwt := bcs.Out.NetworkSpecificData.CantonEndpoints.Participants[0].JWT
-	h, err := NewHelperFromBlockchainInput(grpcURL, jwt)
+	h, err := NewHelperFromBlockchainInput(ctx, grpcURL, jwt)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create helper: %w", err)
 	}
@@ -505,11 +535,6 @@ func (c *Chain) GetTokenBalance(ctx context.Context, address, tokenAddress proto
 // GetUserNonce implements cciptestinterfaces.CCIP17.
 func (c *Chain) GetUserNonce(ctx context.Context, userAddress protocol.UnknownAddress) (uint64, error) {
 	return 0, nil // TODO: implement
-}
-
-// ManuallyExecuteMessage implements cciptestinterfaces.CCIP17.
-func (c *Chain) ManuallyExecuteMessage(ctx context.Context, message protocol.Message, gasLimit uint64, ccvs []protocol.UnknownAddress, verifierResults [][]byte) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
-	return cciptestinterfaces.ExecutionStateChangedEvent{}, nil // TODO: implement
 }
 
 // SendMessage implements cciptestinterfaces.CCIP17.

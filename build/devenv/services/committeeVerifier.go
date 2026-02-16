@@ -205,7 +205,7 @@ func hydrateCantonConfig(in *VerifierInput, outputs []*blockchain.Output) error 
 			authority = authority[:idx]
 		}
 
-		helper, err := devenvcanton.NewHelperFromBlockchainInput(grpcURL, jwt)
+		helper, err := devenvcanton.NewHelperFromBlockchainInput(context.Background(), grpcURL, jwt)
 		if err != nil {
 			return fmt.Errorf("failed to create helper for chain %s: %w", strSelector, err)
 		}
