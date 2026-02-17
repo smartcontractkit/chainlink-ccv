@@ -55,6 +55,7 @@ type Bootstrapper struct {
 
 	// state
 	lifecycleManager *lifecycle.Manager
+	infoServer       *infoServer
 }
 
 func NewBootstrapper(name string, lggr logger.Logger, cfg Config, fac ServiceFactory, opts ...Option) (*Bootstrapper, error) {
@@ -123,11 +124,25 @@ func (b *Bootstrapper) Start(ctx context.Context) error {
 
 	b.lifecycleManager = lifecycleManager
 
+	// Start the info server
+	infoServer := newInfoServer(b.lggr, keyStore, b.cfg.Server.ListenPort)
+	if err := infoServer.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start info server: %w", err)
+	}
+
+	b.infoServer = infoServer
+
 	return nil
 }
 
 func (b *Bootstrapper) Stop(ctx context.Context) error {
-	return b.lifecycleManager.Stop()
+	if err := b.lifecycleManager.Stop(); err != nil {
+		return fmt.Errorf("failed to stop lifecycle manager: %w", err)
+	}
+	if err := b.infoServer.Stop(ctx); err != nil {
+		return fmt.Errorf("failed to stop info server: %w", err)
+	}
+	return nil
 }
 
 func (b *Bootstrapper) connectToDB(ctx context.Context) (*sqlx.DB, error) {

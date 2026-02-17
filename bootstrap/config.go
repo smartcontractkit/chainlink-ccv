@@ -65,6 +65,18 @@ func (c *DBConfig) validate() error {
 	return nil
 }
 
+type ServerConfig struct {
+	// ListenPort is the port the HTTP server listens on.
+	ListenPort int `toml:"listen_port"`
+}
+
+func (c *ServerConfig) validate() error {
+	if c.ListenPort == 0 {
+		return fmt.Errorf("field 'listen_port' is required")
+	}
+	return nil
+}
+
 // Config is the configuration for the bootstrapper.
 // Example config:
 /*
@@ -77,11 +89,15 @@ func (c *DBConfig) validate() error {
 
 	[db]
 	url = "postgres://localhost:5432/bootstrapper"
+
+	[server]
+	listen_port = 9988
 */
 type Config struct {
 	JD       JDConfig
 	Keystore KeystoreConfig
 	DB       DBConfig
+	Server   ServerConfig
 }
 
 func (c *Config) validate() error {
@@ -93,6 +109,9 @@ func (c *Config) validate() error {
 	}
 	if err := c.DB.validate(); err != nil {
 		return fmt.Errorf("failed to validate 'db' section: %w", err)
+	}
+	if err := c.Server.validate(); err != nil {
+		return fmt.Errorf("failed to validate 'server' section: %w", err)
 	}
 	return nil
 }

@@ -144,6 +144,40 @@ func TestDBConfig_validate(t *testing.T) {
 	}
 }
 
+func TestServerConfig_validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		config      *ServerConfig
+		wantErr     bool
+		errContains []string
+	}{
+		{
+			name:    "valid",
+			config:  &ServerConfig{ListenPort: 9988},
+			wantErr: false,
+		},
+		{
+			name:        "missing listen port",
+			config:      &ServerConfig{ListenPort: 0},
+			wantErr:     true,
+			errContains: []string{"field 'listen_port' is required"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				for _, sub := range tt.errContains {
+					require.Contains(t, err.Error(), sub)
+				}
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestConfig_validate(t *testing.T) {
 	validJD := JDConfig{
 		ServerWSRPCURL:     "ws://localhost:8080/ws",
