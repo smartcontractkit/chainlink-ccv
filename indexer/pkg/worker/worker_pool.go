@@ -150,8 +150,17 @@ func (p *Pool) handleDLQ(ctx context.Context) {
 				p.logger.Error("DLQ channel closed; exiting handleDLQ")
 				return
 			}
-			p.logger.Warnf("Message %s entered DLQ. Partial verifications may have been recieved", task.messageID.String())
 			// TODO: DLQ Logic here..
+			lastErrStr := ""
+			if task.lastErr != nil {
+				lastErrStr = task.lastErr.Error()
+			}
+
+			if err := task.SetMessageStatus(ctx, common.MessageTimeout, lastErrStr); err != nil {
+				p.logger.Errorf("Unable to update message status to timeout for message %s", task.messageID.String())
+			}
+
+			p.logger.Warnf("Message %s entered DLQ. Partial verifications may have been received", task.messageID.String())
 		}
 	}
 }
