@@ -287,6 +287,7 @@ func (f *factory) Start(ctx context.Context, spec string, deps bootstrap.Service
 	})
 
 	// Start HTTP server
+	// TODO: listen port should be configurable.
 	server := &http.Server{Addr: ":8100", ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second}
 	go func() {
 		lggr.Infow("🌐 HTTP server starting", "port", "8100")
