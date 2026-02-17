@@ -1,6 +1,7 @@
 package constructors
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -47,6 +48,8 @@ func NewExecutorCoordinator(
 	fromAddresses map[protocol.ChainSelector][]common.Address,
 ) (*executor.Coordinator, error) {
 	lggr.Infow("Executor configuration", "config", cfg)
+	// Create a context that can be cancelled. This will be replaced by a context from the CL node.
+	ctx, _ := context.WithCancel(context.Background())
 
 	offRampAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress, len(cfg.ChainConfiguration))
 	rmnAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress, len(cfg.ChainConfiguration))
@@ -129,6 +132,7 @@ func NewExecutorCoordinator(
 	// create indexer adapter which queries multiple indexers concurrently
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	indexerAdapter, err := adapter.NewIndexerReaderAdapter(
+		ctx,
 		cfg.IndexerAddress,
 		httpClient,
 		executorMonitoring,
