@@ -34,7 +34,7 @@ type clientResult[T any] struct {
 }
 
 // NewIndexerReaderAdapter creates a new IndexerReaderAdapter that queries multiple indexer clients concurrently.
-func NewIndexerReaderAdapter(ctx context.Context, indexerURIs []string, httpClient *http.Client, monitoring executor.Monitoring, lggr logger.Logger) (*IndexerReaderAdapter, error) {
+func NewIndexerReaderAdapter(indexerURIs []string, httpClient *http.Client, monitoring executor.Monitoring, lggr logger.Logger) (*IndexerReaderAdapter, error) {
 	if len(indexerURIs) == 0 {
 		return nil, fmt.Errorf("at least one indexer URI must be provided")
 	}
@@ -79,6 +79,7 @@ func (ira *IndexerReaderAdapter) setActiveClientIdx(idx int) {
 }
 
 // queryWithFailover implements the common failover logic for all query methods.
+// nolint:gofumpt
 func queryWithFailover[TInput any, TResponse any](
 	ctx context.Context,
 	ira *IndexerReaderAdapter,
@@ -109,13 +110,11 @@ func queryWithFailover[TInput any, TResponse any](
 	alternateResults := make([]clientResult[TResponse], len(ira.clients))
 
 	// Check active client health
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		healthCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		healthErr = ira.clients[activeIdx].Health(healthCtx)
-	}()
+	})
 
 	// Query all alternate clients
 	for i, cl := range ira.clients {

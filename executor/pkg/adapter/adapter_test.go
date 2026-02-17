@@ -20,7 +20,7 @@ import (
 	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 )
 
-// newTestAdapter creates an IndexerReaderAdapter with mock clients for testing
+// newTestAdapter creates an IndexerReaderAdapter with mock clients for testing.
 func newTestAdapter(ctx context.Context, t *testing.T, clients []client.IndexerClientInterface) *IndexerReaderAdapter {
 	t.Helper()
 	lggr, _ := logger.New()

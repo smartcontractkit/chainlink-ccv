@@ -222,7 +222,6 @@ func main() {
 	// ------------------------------------------------------------------------------------------------
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	verifierResultReader, err := adapter.NewIndexerReaderAdapter(
-		ctx,
 		executorConfig.IndexerAddress,
 		httpClient,
 		executorMonitoring,
