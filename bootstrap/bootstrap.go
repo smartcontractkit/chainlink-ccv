@@ -51,8 +51,7 @@ type Bootstrapper struct {
 	fac  ServiceFactory
 	name string
 
-	ensureECDSASigningKey bool
-	logLevel              zapcore.Level
+	logLevel zapcore.Level
 
 	// state
 	lifecycleManager *lifecycle.Manager
@@ -64,10 +63,11 @@ func NewBootstrapper(name string, lggr logger.Logger, cfg Config, fac ServiceFac
 	}
 
 	bootstrapper := &Bootstrapper{
-		lggr: lggr,
-		cfg:  cfg,
-		fac:  fac,
-		name: name,
+		lggr:     lggr,
+		cfg:      cfg,
+		fac:      fac,
+		name:     name,
+		logLevel: zapcore.InfoLevel, // default log level
 	}
 	for _, opt := range opts {
 		opt(bootstrapper)
@@ -160,6 +160,23 @@ func (b *Bootstrapper) initializeKeystore(ctx context.Context, db *sqlx.DB) (key
 		return nil, nil, fmt.Errorf("failed to load keystore: %w", err)
 	}
 
+	// Always ensure that the CSA key is present in the keystore.
+	if err := ensureKey(
+		ctx,
+		b.lggr,
+		keyStore,
+		DefaultCSAKeyName,
+		"csa",
+		keystore.Ed25519,
+	); err != nil {
+		return nil, nil, fmt.Errorf("failed to ensure csa key: %w", err)
+	}
+
+	// Ensure signing keys are present in the keystore.
+	if err := ensureAllSigningKeys(ctx, b.lggr, keyStore); err != nil {
+		return nil, nil, fmt.Errorf("failed to ensure all signing keys: %w", err)
+	}
+
 	csaSigner, err = newCSASigner(keyStore, DefaultCSAKeyName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get csa signer: %w", err)
@@ -169,14 +186,6 @@ func (b *Bootstrapper) initializeKeystore(ctx context.Context, db *sqlx.DB) (key
 }
 
 type Option func(*Bootstrapper)
-
-// WithEnsureECDSASigningKey ensures that the ECDSA signing key is present in the keystore.
-// This is typically used by the committee verifier.
-func WithEnsureECDSASigningKey() Option {
-	return func(b *Bootstrapper) {
-		b.ensureECDSASigningKey = true
-	}
-}
 
 // WithLogLevel sets the log level for the logger passed to the application.
 // Default is info.
