@@ -208,8 +208,8 @@ func TestKeyRotation(t *testing.T) {
 				SinceSequence: 0,
 			})
 			require.NoError(collect, err)
-			require.Len(collect, getResp.Results, 2, "Should have 2 aggregation records after key rotation")
-		}, 5*time.Second, 100*time.Millisecond, "should have 2 aggregation records after key rotation")
+			require.Len(collect, getResp.Results, 1, "Should have 1 aggregation record after key rotation (old report fails quorum threshold)")
+		}, 5*time.Second, 100*time.Millisecond, "should have 1 aggregation record after key rotation")
 
 		ccvNodeData4, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer1Rotated))
 		resp4, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData4))
@@ -221,8 +221,8 @@ func TestKeyRotation(t *testing.T) {
 				SinceSequence: 0,
 			})
 			require.NoError(collect, err)
-			require.Len(collect, getResp2.Results, 2, "Should still have 2 aggregation records")
-		}, 5*time.Second, 100*time.Millisecond, "should still have 2 aggregation records")
+			require.Len(collect, getResp2.Results, 1, "Should still have 1 aggregation record (old report fails quorum threshold)")
+		}, 5*time.Second, 100*time.Millisecond, "should still have 1 aggregation record")
 
 		readResp1, err := aggregatorClient.ReadCommitteeVerifierNodeResult(t.Context(), &committeepb.ReadCommitteeVerifierNodeResultRequest{
 			MessageId: messageId[:],
@@ -499,7 +499,17 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 		// Change committee to remove signer1 and add signer3
 		testutil.UpdateCommitteeQuorum(committee, sourceVerifierAddress, signer2.Signer, signer3.Signer)
 
-		assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer2), WithExactNumberOfSignatures(1))
+		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+			response, err := ccvDataClient.GetVerifierResultsForMessage(t.Context(), &verifierpb.GetVerifierResultsForMessageRequest{
+				MessageIds: [][]byte{messageId[:]},
+			})
+			require.NoError(collect, err)
+			require.NotNil(collect, response)
+			require.Len(collect, response.Results, 1)
+			require.Len(collect, response.Errors, 1)
+			require.Equal(collect, int32(codes.Internal), response.Errors[0].Code,
+				"expected Internal error when valid signatures below quorum threshold after committee change")
+		}, 5*time.Second, 100*time.Millisecond, "old report should fail quorum threshold after committee change")
 
 		// Ensure that we can still write new signatures with the updated committee
 		ccvNodeData3, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer3))
