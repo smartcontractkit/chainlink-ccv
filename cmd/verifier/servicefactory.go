@@ -12,6 +12,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
+
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
@@ -26,7 +27,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// TODO: extract out common code, and read/take in chain-specific config (e.g. CantonConfig)
+// TODO: extract out common code, and read/take in chain-specific config (e.g. CantonConfig).
 type factory struct {
 	lggr logger.Logger
 

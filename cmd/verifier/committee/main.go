@@ -91,7 +91,11 @@ func main() {
 	}
 	lggr.Infow("Loaded VERIFIER_AGGREGATOR_SECRET_KEY from environment")
 
-	cmd.StartPyroscope(lggr, config.PyroscopeURL, "verifier")
+	_, err = cmd.StartPyroscope(lggr, config.PyroscopeURL, "verifier")
+	if err != nil {
+		lggr.Errorw("Failed to start pyroscope", "error", err)
+		os.Exit(1)
+	}
 	blockchainHelper := cmd.LoadBlockchainInfo(ctx, lggr, blockchainInfos)
 
 	// Create verifier addresses before source readers setup

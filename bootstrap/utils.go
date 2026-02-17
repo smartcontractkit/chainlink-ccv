@@ -32,10 +32,14 @@ var _ lifecycle.JobRunner = &runner{}
 func getJDPublicKey(pubKey string) (ed25519.PublicKey, error) {
 	jdPublicKey, err := hex.DecodeString(pubKey)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to decode JD public key: %w", err)
+		return nil, fmt.Errorf("failed to decode JD public key: %w", err)
 	}
 	if len(jdPublicKey) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("JD public key is not an ed25519 public key")
+		return nil, fmt.Errorf(
+			"JD public key is not an ed25519 public key: expected %d bytes, got %d bytes",
+			ed25519.PublicKeySize,
+			len(jdPublicKey),
+		)
 	}
 
 	return ed25519.PublicKey(jdPublicKey), nil

@@ -48,7 +48,7 @@ type KeystoreConfig struct {
 
 func (c *KeystoreConfig) validate() error {
 	if c.Password == "" {
-		return fmt.Errorf("Password is required")
+		return fmt.Errorf("field 'password' is required")
 	}
 	return nil
 }
@@ -60,7 +60,7 @@ type DBConfig struct {
 
 func (c *DBConfig) validate() error {
 	if c.URL == "" {
-		return fmt.Errorf("URL is required")
+		return fmt.Errorf("field 'url' is required")
 	}
 	return nil
 }
@@ -86,13 +86,13 @@ type Config struct {
 
 func (c *Config) validate() error {
 	if err := c.JD.validate(); err != nil {
-		return fmt.Errorf("failed to validate JD: %w", err)
+		return fmt.Errorf("failed to validate 'jd' section: %w", err)
 	}
 	if err := c.Keystore.validate(); err != nil {
-		return fmt.Errorf("failed to validate Keystore: %w", err)
+		return fmt.Errorf("failed to validate 'keystore' section: %w", err)
 	}
 	if err := c.DB.validate(); err != nil {
-		return fmt.Errorf("failed to validate DB: %w", err)
+		return fmt.Errorf("failed to validate 'db' section: %w", err)
 	}
 	return nil
 }
