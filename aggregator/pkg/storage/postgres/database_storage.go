@@ -331,12 +331,16 @@ func (d *DatabaseStorage) GetCommitAggregatedReportByMessageID(ctx context.Conte
             car.created_at,
             car.seq_num,
             %s
-        FROM commit_aggregated_reports car
+        FROM (
+            SELECT message_id, created_at, seq_num, verification_record_ids
+            FROM commit_aggregated_reports
+            WHERE message_id = $1
+            ORDER BY seq_num DESC
+            LIMIT 1
+        ) car
         LEFT JOIN LATERAL UNNEST(car.verification_record_ids) WITH ORDINALITY AS vid(id, ord) ON true
         LEFT JOIN commit_verification_records cvr ON cvr.id = vid.id
-        WHERE car.message_id = $1
-        ORDER BY car.seq_num DESC, vid.ord
-
+        ORDER BY vid.ord
     `, allVerificationRecordColumnsQualified)
 
 	rows, err := d.ds.QueryContext(ctx, stmt, messageIDHex)
@@ -435,11 +439,15 @@ func (d *DatabaseStorage) GetBatchAggregatedReportByMessageIDs(ctx context.Conte
 			car.created_at,
 			car.seq_num,
 			%s
-		FROM commit_aggregated_reports car
+		FROM (
+			SELECT DISTINCT ON (message_id) message_id, created_at, seq_num, verification_record_ids
+			FROM commit_aggregated_reports
+			WHERE message_id IN (%s)
+			ORDER BY message_id, seq_num DESC
+		) car
 		LEFT JOIN LATERAL UNNEST(car.verification_record_ids) WITH ORDINALITY AS vid(id, ord) ON true
 		LEFT JOIN commit_verification_records cvr ON cvr.id = vid.id
-		WHERE car.message_id IN (%s)
-		ORDER BY car.message_id, car.seq_num DESC, vid.ord
+		ORDER BY car.message_id, vid.ord
 	`, allVerificationRecordColumnsQualified, strings.Join(placeholders, ","))
 
 	rows, err := d.ds.QueryContext(ctx, stmt, args...)
