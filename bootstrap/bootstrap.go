@@ -172,9 +172,27 @@ func (b *Bootstrapper) initializeKeystore(ctx context.Context, db *sqlx.DB) (key
 		return nil, nil, fmt.Errorf("failed to ensure csa key: %w", err)
 	}
 
-	// Ensure signing keys are present in the keystore.
-	if err := ensureAllSigningKeys(ctx, b.lggr, keyStore); err != nil {
-		return nil, nil, fmt.Errorf("failed to ensure all signing keys: %w", err)
+	// Ensure that the ECDSA and EdDSA signing keys are present in the keystore.
+	if err := ensureKey(
+		ctx,
+		b.lggr,
+		keyStore,
+		DefaultECDSASigningKeyName,
+		"signing",
+		keystore.ECDSA_S256,
+	); err != nil {
+		return nil, nil, fmt.Errorf("failed to ensure ecdsa signing key: %w", err)
+	}
+
+	if err := ensureKey(
+		ctx,
+		b.lggr,
+		keyStore,
+		DefaultEdDSASigningKeyName,
+		"signing",
+		keystore.Ed25519,
+	); err != nil {
+		return nil, nil, fmt.Errorf("failed to ensure eddsa signing key: %w", err)
 	}
 
 	csaSigner, err = newCSASigner(keyStore, DefaultCSAKeyName)
