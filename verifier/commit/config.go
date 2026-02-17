@@ -14,6 +14,7 @@ type ConfigWithBlockchainInfos struct {
 }
 
 // CantonConfig is the configuration required for verifiers that read from Canton.
+// TODO: remove this from the generic verifier config, this is chain-specific to Canton.
 type CantonConfig struct {
 	// ReaderConfig is the configuration for the canton source reader.
 	ReaderConfig canton.ReaderConfig `toml:"reader_config"`
