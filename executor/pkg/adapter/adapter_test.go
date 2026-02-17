@@ -24,7 +24,7 @@ import (
 func newTestAdapter(ctx context.Context, t *testing.T, clients []client.IndexerClientInterface) *IndexerReaderAdapter {
 	t.Helper()
 	lggr, _ := logger.New()
-	
+
 	adapter := &IndexerReaderAdapter{
 		clients:         clients,
 		monitoring:      monitoring.NewNoopExecutorMonitoring(),
@@ -32,7 +32,7 @@ func newTestAdapter(ctx context.Context, t *testing.T, clients []client.IndexerC
 		activeClientIdx: 0, // Start with first client
 		mu:              sync.RWMutex{},
 	}
-	
+
 	return adapter
 }
 
@@ -338,7 +338,7 @@ func TestGetVerifierResults_Failover_PersistsOnAlternate(t *testing.T) {
 	// First request: Client 0 fails, health check fails, failover to client 1
 	client0.On("VerifierResultsByMessageID", ctx, mock.Anything).Return(0, v1.VerifierResultsByMessageIDResponse{}, errors.New("connection refused")).Once()
 	client0.On("Health", mock.Anything).Return(errors.New("unhealthy")).Once()
-	
+
 	alternateResp := v1.VerifierResultsByMessageIDResponse{
 		Results: []common.VerifierResultWithMetadata{
 			{VerifierResult: protocol.VerifierResult{}},
@@ -357,6 +357,6 @@ func TestGetVerifierResults_Failover_PersistsOnAlternate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, results2, 1)
 	assert.Equal(t, 1, adapter.getActiveClientIdx(), "Should persist on client 1")
-	
+
 	// Note: If client 0 was called again, the test would fail because we used .Once()
 }
