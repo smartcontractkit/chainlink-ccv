@@ -136,7 +136,7 @@ func NewVerificationCoordinator(
 		StorageBatchSize:    50,
 		StorageBatchTimeout: 100 * time.Millisecond,
 		StorageRetryDelay:   2 * time.Second,
-		HeartbeatInterval:   0, // Disabled by default
+		HeartbeatInterval:   10 * time.Second,
 	}
 
 	// Create commit verifier (with ECDSA signer)
