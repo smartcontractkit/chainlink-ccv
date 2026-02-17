@@ -14,7 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	fixtures "github.com/smartcontractkit/chainlink-ccv/aggregator/tests"
+	fixtures "github.com/smartcontractkit/chainlink-ccv/aggregator/testutil"
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 )
 
@@ -404,6 +404,85 @@ func TestCheckQuorum_HashMismatchDetection(t *testing.T) {
 	assert.False(t, valid)
 	assert.Contains(t, err.Error(), "verification hash mismatch")
 	assert.Contains(t, err.Error(), "possible data tampering")
+}
+
+func TestCheckQuorum_SkipsInvalidSignerAndStillMeetsQuorum(t *testing.T) {
+	sourceVerifierAddress, destVerifierAddress := fixtures.GenerateVerifierAddresses(t)
+
+	signer1 := fixtures.NewSignerFixture(t, "signer1")
+	signer2 := fixtures.NewSignerFixture(t, "signer2")
+	invalidSigner := fixtures.NewSignerFixture(t, "invalidSigner")
+
+	protocolMessage := fixtures.NewProtocolMessage(t, func(m *protocol.Message) *protocol.Message {
+		m.DestChainSelector = 1
+		return m
+	})
+
+	tests := []struct {
+		name              string
+		committeeSigners  []model.Signer
+		threshold         uint8
+		reportSigners     []*fixtures.SignerFixture
+		expectedQuorumMet bool
+	}{
+		{
+			name:              "invalid signer skipped, remaining valid signers meet threshold",
+			committeeSigners:  []model.Signer{signer1.Signer, signer2.Signer},
+			threshold:         2,
+			reportSigners:     []*fixtures.SignerFixture{invalidSigner, signer1, signer2},
+			expectedQuorumMet: true,
+		},
+		{
+			name:              "invalid signer skipped, remaining valid signers below threshold",
+			committeeSigners:  []model.Signer{signer1.Signer, signer2.Signer},
+			threshold:         2,
+			reportSigners:     []*fixtures.SignerFixture{invalidSigner, signer1},
+			expectedQuorumMet: false,
+		},
+		{
+			name:              "all signers invalid, quorum not met",
+			committeeSigners:  []model.Signer{signer1.Signer, signer2.Signer},
+			threshold:         1,
+			reportSigners:     []*fixtures.SignerFixture{invalidSigner},
+			expectedQuorumMet: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config := &model.AggregatorConfig{
+				Committee: &model.Committee{
+					QuorumConfigs: map[string]*model.QuorumConfig{
+						sourceSelector: {
+							Signers:   tt.committeeSigners,
+							Threshold: tt.threshold,
+						},
+					},
+					DestinationVerifiers: map[string]string{
+						destSelector: common.Bytes2Hex(destVerifierAddress),
+					},
+				},
+			}
+			validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
+
+			verifications := make([]*model.CommitVerificationRecord, len(tt.reportSigners))
+			for i, signer := range tt.reportSigners {
+				msgData, _ := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, sourceVerifierAddress,
+					fixtures.WithSignatureFrom(t, signer))
+				record, err := model.CommitVerificationRecordFromProto(msgData)
+				require.NoError(t, err)
+				verifications[i] = record
+			}
+
+			report := &model.CommitAggregatedReport{
+				Verifications: verifications,
+			}
+
+			quorumMet, err := validator.CheckQuorum(context.Background(), report)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expectedQuorumMet, quorumMet)
+		})
+	}
 }
 
 func TestDeriveAggregationKey(t *testing.T) {

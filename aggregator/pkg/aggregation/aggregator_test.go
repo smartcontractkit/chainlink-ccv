@@ -525,6 +525,3 @@ func TestHealthCheck_ReturnsErrorAfterConsecutiveWorkerFailures(t *testing.T) {
 		return a.Ready() == nil
 	}, 5*time.Second, 20*time.Millisecond, "Ready() should return nil again after a successful aggregation")
 }
-
-// helpers.
-var _ = time.Duration(0)

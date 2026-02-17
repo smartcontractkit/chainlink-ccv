@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/testutil"
 	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
@@ -27,29 +28,29 @@ func TestAggregationHappyPath(t *testing.T) {
 	storageTypes := []string{"postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
-		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-		signer1 := NewSignerFixture(t, "node1")
-		signer2 := NewSignerFixture(t, "node2")
-		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "node1")
+		signer2 := testutil.NewSignerFixture(t, "node2")
+		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
 		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 		_ = messageDiscoveryClient // may be used later
 
-		message := NewProtocolMessage(t)
-		ccvNodeData1, messageId := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1))
+		message := testutil.NewProtocolMessage(t)
+		ccvNodeData1, messageId := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer1))
 
 		// ctxWithMetadata := metadata.NewOutgoingContext(t.Context(), metadata.Pairs("committee", "default"))
-		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
+		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
 
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS")
 
-		ccvNodeData2, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2))
+		ccvNodeData2, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer2))
 
 		assertCCVDataNotFound(t, t.Context(), ccvDataClient, messageId)
 
-		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
+		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
 
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
@@ -72,36 +73,36 @@ func TestAggregationHappyPath_NoQuorumWhenBlobDataIsDifferent(t *testing.T) {
 	storageTypes := []string{"postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
-		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-		signer1 := NewSignerFixture(t, "node1")
-		signer2 := NewSignerFixture(t, "node2")
-		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "node1")
+		signer2 := testutil.NewSignerFixture(t, "node2")
+		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
 		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 		_ = messageDiscoveryClient // may be used later
 
-		message := NewProtocolMessage(t)
-		ccvNodeData1, messageId := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithCcvVersion([]byte{1, 2, 3, 4}), WithSignatureFrom(t, signer1))
+		message := testutil.NewProtocolMessage(t)
+		ccvNodeData1, messageId := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithCcvVersion([]byte{1, 2, 3, 4}), testutil.WithSignatureFrom(t, signer1))
 
-		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
+		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
 
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS")
 
-		ccvNodeData2, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithCcvVersion([]byte{2, 3, 4, 5}), WithSignatureFrom(t, signer2))
+		ccvNodeData2, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithCcvVersion([]byte{2, 3, 4, 5}), testutil.WithSignatureFrom(t, signer2))
 
 		assertCCVDataNotFound(t, t.Context(), ccvDataClient, messageId)
 
-		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
+		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
 
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
 
 		assertCCVDataNotFound(t, t.Context(), ccvDataClient, messageId)
 
-		ccvNodeData3, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithCcvVersion([]byte{1, 2, 3, 4}), WithSignatureFrom(t, signer2))
-		resp3, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData3))
+		ccvNodeData3, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithCcvVersion([]byte{1, 2, 3, 4}), testutil.WithSignatureFrom(t, signer2))
+		resp3, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData3))
 
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp3.Status, "expected WriteStatus_SUCCESS")
@@ -124,31 +125,31 @@ func TestIdempotency(t *testing.T) {
 	storageTypes := []string{"postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
-		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-		signer1 := NewSignerFixture(t, "node1")
-		signer2 := NewSignerFixture(t, "node2")
-		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "node1")
+		signer2 := testutil.NewSignerFixture(t, "node2")
+		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
 		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 		_ = messageDiscoveryClient // may be used later
 
-		message := NewProtocolMessage(t)
-		ccvNodeData, messageId := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1))
+		message := testutil.NewProtocolMessage(t)
+		ccvNodeData, messageId := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer1))
 
-		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData))
+		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS")
 
-		ccvNodeData2, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1))
-		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
+		ccvNodeData2, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer1))
+		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
 
 		assertCCVDataNotFound(t, t.Context(), ccvDataClient, messageId)
 
-		ccvNodeData3, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2))
-		resp3, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData3))
+		ccvNodeData3, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer2))
+		resp3, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData3))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp3.Status, "expected WriteStatus_SUCCESS")
 
@@ -168,37 +169,37 @@ func TestKeyRotation(t *testing.T) {
 	storageTypes := []string{"postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
-		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-		signer1 := NewSignerFixture(t, "node1")
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer1Address1 := common.HexToAddress(signer1.Signer.Address)
-		signer2 := NewSignerFixture(t, "node2")
+		signer2 := testutil.NewSignerFixture(t, "node2")
 
-		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
+		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
 		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err)
 
-		message := NewProtocolMessage(t)
-		ccvNodeData1, messageId := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1))
-		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
+		message := testutil.NewProtocolMessage(t)
+		ccvNodeData1, messageId := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer1))
+		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
 		require.NoError(t, err)
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp1.Status)
 
-		ccvNodeData2, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2))
-		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
+		ccvNodeData2, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer2))
+		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
 		require.NoError(t, err)
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2.Status)
 
 		assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer1), WithValidSignatureFrom(signer2))
 
-		signer1Rotated := NewSignerFixture(t, "node1")
+		signer1Rotated := testutil.NewSignerFixture(t, "node1")
 		signer1Address2 := common.HexToAddress(signer1Rotated.Signer.Address)
 		require.NotEqual(t, signer1Address1, signer1Address2)
 
-		UpdateCommitteeQuorum(committee, sourceVerifierAddress, signer1Rotated.Signer, signer2.Signer)
+		testutil.UpdateCommitteeQuorum(committee, sourceVerifierAddress, signer1Rotated.Signer, signer2.Signer)
 
-		ccvNodeData3, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1Rotated))
-		resp3, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData3))
+		ccvNodeData3, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer1Rotated))
+		resp3, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData3))
 		require.NoError(t, err)
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp3.Status)
 
@@ -210,8 +211,8 @@ func TestKeyRotation(t *testing.T) {
 			require.Len(collect, getResp.Results, 2, "Should have 2 aggregation records after key rotation")
 		}, 5*time.Second, 100*time.Millisecond, "should have 2 aggregation records after key rotation")
 
-		ccvNodeData4, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1Rotated))
-		resp4, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData4))
+		ccvNodeData4, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer1Rotated))
+		resp4, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData4))
 		require.NoError(t, err)
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp4.Status)
 
@@ -252,7 +253,7 @@ func TestKeyRotation(t *testing.T) {
 type SignatureValidationOption func(*signatureValidationConfig)
 
 type signatureValidationConfig struct {
-	expectedSigners         []*SignerFixture
+	expectedSigners         []*testutil.SignerFixture
 	exactNumberOfSignatures *int
 	expectActualCCVData     [][]byte
 }
@@ -264,7 +265,7 @@ func WithExactNumberOfSignatures(n int) SignatureValidationOption {
 }
 
 // WithValidSignatureFrom validates that the CCV data contains a valid signature from the specified signer.
-func WithValidSignatureFrom(signer *SignerFixture) SignatureValidationOption {
+func WithValidSignatureFrom(signer *testutil.SignerFixture) SignatureValidationOption {
 	return func(config *signatureValidationConfig) {
 		config.expectedSigners = append(config.expectedSigners, signer)
 	}
@@ -413,20 +414,20 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 	storageTypes := []string{"postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
-		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-		signer1 := NewSignerFixture(t, "node1")
-		signer2 := NewSignerFixture(t, "node2")
-		signer3 := NewSignerFixture(t, "node3")
-		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "node1")
+		signer2 := testutil.NewSignerFixture(t, "node2")
+		signer3 := testutil.NewSignerFixture(t, "node3")
+		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
 		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 		_ = messageDiscoveryClient // may be used later
 
-		message := NewProtocolMessage(t)
-		ccvNodeData1, messageId := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1))
+		message := testutil.NewProtocolMessage(t)
+		ccvNodeData1, messageId := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer1))
 
-		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
+		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
 
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS")
@@ -434,19 +435,19 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 		assertCCVDataNotFound(t, t.Context(), ccvDataClient, messageId)
 
 		// Change committee to remove signer1 and add signer3
-		UpdateCommitteeQuorum(committee, sourceVerifierAddress, signer2.Signer, signer3.Signer)
+		testutil.UpdateCommitteeQuorum(committee, sourceVerifierAddress, signer2.Signer, signer3.Signer)
 
-		ccvNodeData2, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2))
+		ccvNodeData2, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer2))
 
-		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
+		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
 
 		assertCCVDataNotFound(t, t.Context(), ccvDataClient, messageId)
 
-		ccvNodeData3, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer3))
+		ccvNodeData3, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer3))
 
-		resp3, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData3))
+		resp3, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData3))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp3.Status, "expected WriteStatus_SUCCESS")
 
@@ -466,29 +467,29 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 	storageTypes := []string{"postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
-		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-		signer1 := NewSignerFixture(t, "node1")
-		signer2 := NewSignerFixture(t, "node2")
-		signer3 := NewSignerFixture(t, "node3")
-		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "node1")
+		signer2 := testutil.NewSignerFixture(t, "node2")
+		signer3 := testutil.NewSignerFixture(t, "node3")
+		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
 		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 		_ = messageDiscoveryClient // may be used later
 
-		message := NewProtocolMessage(t)
-		ccvNodeData1, messageId := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1))
+		message := testutil.NewProtocolMessage(t)
+		ccvNodeData1, messageId := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer1))
 
-		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
+		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
 
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS")
 
 		assertCCVDataNotFound(t, t.Context(), ccvDataClient, messageId)
 
-		ccvNodeData2, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2))
+		ccvNodeData2, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer2))
 
-		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
+		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
 
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
@@ -496,14 +497,14 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 		assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer1), WithValidSignatureFrom(signer2), WithExactNumberOfSignatures(2))
 
 		// Change committee to remove signer1 and add signer3
-		UpdateCommitteeQuorum(committee, sourceVerifierAddress, signer2.Signer, signer3.Signer)
+		testutil.UpdateCommitteeQuorum(committee, sourceVerifierAddress, signer2.Signer, signer3.Signer)
 
 		assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer2), WithExactNumberOfSignatures(1))
 
 		// Ensure that we can still write new signatures with the updated committee
-		ccvNodeData3, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer3))
+		ccvNodeData3, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer3))
 
-		resp3, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData3))
+		resp3, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData3))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp3.Status, "expected WriteStatus_SUCCESS")
 
@@ -564,11 +565,11 @@ func TestPaginationWithVariousPageSizes(t *testing.T) {
 }
 
 func runPaginationTest(t *testing.T, numMessages, pageSize int, storageType string, expectedPages int) {
-	sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-	signer1 := NewSignerFixture(t, "node1")
-	signer2 := NewSignerFixture(t, "node2")
+	sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+	signer1 := testutil.NewSignerFixture(t, "node1")
+	signer2 := testutil.NewSignerFixture(t, "node2")
 
-	committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
+	committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
 
 	aggregatorClient, _, messageDiscoveryClient, cleanup, err := CreateServerAndClient(
 		t,
@@ -583,19 +584,19 @@ func runPaginationTest(t *testing.T, numMessages, pageSize int, storageType stri
 	expectedMessageIds := make(map[string]bool)
 
 	for i := range numMessages {
-		message := NewProtocolMessage(t)
+		message := testutil.NewProtocolMessage(t)
 		message.SequenceNumber = protocol.SequenceNumber(i + 1)
 
-		ccvNodeData1, messageId := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
-			WithSignatureFrom(t, signer1))
+		ccvNodeData1, messageId := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithSignatureFrom(t, signer1))
 		expectedMessageIds[common.Bytes2Hex(messageId[:])] = true
-		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
+		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed for message %d, signer1", i)
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp1.Status)
 
-		ccvNodeData2, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
-			WithSignatureFrom(t, signer2))
-		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
+		ccvNodeData2, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithSignatureFrom(t, signer2))
+		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed for message %d, signer2", i)
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2.Status)
 	}
@@ -691,32 +692,32 @@ func TestSequenceOrdering(t *testing.T) {
 	storageTypes := []string{"postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
-		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-		signer1 := NewSignerFixture(t, "node1")
-		signer2 := NewSignerFixture(t, "node2")
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "node1")
+		signer2 := testutil.NewSignerFixture(t, "node2")
 
-		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
+		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
 		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 
-		message1 := NewProtocolMessage(t, WithSequenceNumber(100))
-		message2 := NewProtocolMessage(t, WithSequenceNumber(200))
+		message1 := testutil.NewProtocolMessage(t, testutil.WithSequenceNumber(100))
+		message2 := testutil.NewProtocolMessage(t, testutil.WithSequenceNumber(200))
 
 		t.Log("Submitting message 2 with recent timestamps - will aggregate first")
-		ccvNodeData2_1, messageId2 := NewMessageWithCCVNodeData(t, message2, sourceVerifierAddress,
-			WithSignatureFrom(t, signer1),
+		ccvNodeData2_1, messageId2 := testutil.NewMessageWithCCVNodeData(t, message2, sourceVerifierAddress,
+			testutil.WithSignatureFrom(t, signer1),
 		)
 
-		resp, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2_1))
+		resp, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2_1))
 		require.NoError(t, err)
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp.Status)
 
-		ccvNodeData2_2, _ := NewMessageWithCCVNodeData(t, message2, sourceVerifierAddress,
-			WithSignatureFrom(t, signer2),
+		ccvNodeData2_2, _ := testutil.NewMessageWithCCVNodeData(t, message2, sourceVerifierAddress,
+			testutil.WithSignatureFrom(t, signer2),
 		)
 
-		resp, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2_2))
+		resp, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2_2))
 		require.NoError(t, err)
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp.Status)
 
@@ -730,19 +731,19 @@ func TestSequenceOrdering(t *testing.T) {
 		require.Equal(t, int32(codes.OK), batchResp.Errors[0].Code, "should have OK status")
 
 		t.Log("Submitting message 1 with old timestamps - will aggregate second")
-		ccvNodeData1_1, messageId1 := NewMessageWithCCVNodeData(t, message1, sourceVerifierAddress,
-			WithSignatureFrom(t, signer1),
+		ccvNodeData1_1, messageId1 := testutil.NewMessageWithCCVNodeData(t, message1, sourceVerifierAddress,
+			testutil.WithSignatureFrom(t, signer1),
 		)
 
-		resp, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1_1))
+		resp, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1_1))
 		require.NoError(t, err)
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp.Status)
 
-		ccvNodeData1_2, _ := NewMessageWithCCVNodeData(t, message1, sourceVerifierAddress,
-			WithSignatureFrom(t, signer2),
+		ccvNodeData1_2, _ := testutil.NewMessageWithCCVNodeData(t, message1, sourceVerifierAddress,
+			testutil.WithSignatureFrom(t, signer2),
 		)
 
-		resp, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1_2))
+		resp, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1_2))
 		require.NoError(t, err)
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp.Status)
 
@@ -785,14 +786,14 @@ func TestStopAggregationAfterQuorum(t *testing.T) {
 	storageTypes := []string{"postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
-		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-		signer1 := NewSignerFixture(t, "node1")
-		signer2 := NewSignerFixture(t, "node2")
-		signer3 := NewSignerFixture(t, "node3")
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "node1")
+		signer2 := testutil.NewSignerFixture(t, "node2")
+		signer3 := testutil.NewSignerFixture(t, "node3")
 
-		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer, signer3.Signer)
+		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer, signer3.Signer)
 		// Override threshold to 2 (out of 3 signers)
-		UpdateCommitteeQuorumWithThreshold(committee, sourceVerifierAddress, 2, signer1.Signer, signer2.Signer, signer3.Signer)
+		testutil.UpdateCommitteeQuorumWithThreshold(committee, sourceVerifierAddress, 2, signer1.Signer, signer2.Signer, signer3.Signer)
 
 		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(
 			t,
@@ -802,12 +803,12 @@ func TestStopAggregationAfterQuorum(t *testing.T) {
 		require.NoError(t, err, "failed to create server and client")
 
 		// Create a message that all three signers will verify
-		message := NewProtocolMessage(t)
+		message := testutil.NewProtocolMessage(t)
 
 		// Phase 1: Signer1 sends verification (1/2 threshold - no quorum yet)
 		t.Log("Phase 1: Signer1 sends verification")
-		ccvNodeData1, messageId := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1))
-		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
+		ccvNodeData1, messageId := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer1))
+		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed for signer1")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp1.Status)
 
@@ -823,8 +824,8 @@ func TestStopAggregationAfterQuorum(t *testing.T) {
 
 		// Phase 2: Signer2 sends verification (2/2 threshold - quorum reached!)
 		t.Log("Phase 2: Signer2 sends verification")
-		ccvNodeData2, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2))
-		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
+		ccvNodeData2, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer2))
+		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed for signer2")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2.Status)
 
@@ -846,8 +847,8 @@ func TestStopAggregationAfterQuorum(t *testing.T) {
 
 		// Phase 3: Signer3 sends verification (3/2 threshold - but quorum already met)
 		t.Log("Phase 3: Signer3 sends verification (stop-aggregation-after-quorum should prevent re-aggregation)")
-		ccvNodeData3, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer3))
-		resp3, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData3))
+		ccvNodeData3, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer3))
+		resp3, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData3))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed for signer3")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp3.Status)
 
@@ -892,49 +893,49 @@ func TestBatchGetVerifierResult_HappyPath(t *testing.T) {
 	storageTypes := []string{"postgres"} // DynamoDB not implemented for batch operations
 
 	testFunc := func(t *testing.T, storageType string) {
-		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-		signer1 := NewSignerFixture(t, "node1")
-		signer2 := NewSignerFixture(t, "node2")
-		signer3 := NewSignerFixture(t, "node3")
-		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer, signer3.Signer)
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "node1")
+		signer2 := testutil.NewSignerFixture(t, "node2")
+		signer3 := testutil.NewSignerFixture(t, "node3")
+		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer, signer3.Signer)
 		// Set threshold to 2 so we can have quorum with just 2 signatures
-		UpdateCommitteeQuorumWithThreshold(committee, sourceVerifierAddress, 2, signer1.Signer, signer2.Signer, signer3.Signer)
+		testutil.UpdateCommitteeQuorumWithThreshold(committee, sourceVerifierAddress, 2, signer1.Signer, signer2.Signer, signer3.Signer)
 		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 		_ = messageDiscoveryClient // may be used later
 
 		// Create two different messages
-		message1 := NewProtocolMessage(t)
+		message1 := testutil.NewProtocolMessage(t)
 		message1.SequenceNumber = protocol.SequenceNumber(1001)
 
-		message2 := NewProtocolMessage(t)
+		message2 := testutil.NewProtocolMessage(t)
 		message2.SequenceNumber = protocol.SequenceNumber(2002)
 
 		// Create first aggregated report (message1 with signer1 and signer2)
-		ccvNodeData1_1, messageId1 := NewMessageWithCCVNodeData(t, message1, sourceVerifierAddress, WithSignatureFrom(t, signer1))
+		ccvNodeData1_1, messageId1 := testutil.NewMessageWithCCVNodeData(t, message1, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer1))
 
-		resp1_1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1_1))
+		resp1_1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1_1))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed for message1/signer1")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp1_1.Status, "expected WriteStatus_SUCCESS")
 
-		ccvNodeData1_2, _ := NewMessageWithCCVNodeData(t, message1, sourceVerifierAddress, WithSignatureFrom(t, signer2))
-		resp1_2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1_2))
+		ccvNodeData1_2, _ := testutil.NewMessageWithCCVNodeData(t, message1, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer2))
+		resp1_2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1_2))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed for message1/signer2")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp1_2.Status, "expected WriteStatus_SUCCESS")
 
 		// Create second aggregated report (message2 with signer2 and signer3)
-		ccvNodeData2_2, messageId2 := NewMessageWithCCVNodeData(t, message2, sourceVerifierAddress, WithSignatureFrom(t, signer2))
+		ccvNodeData2_2, messageId2 := testutil.NewMessageWithCCVNodeData(t, message2, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer2))
 
 		// Ensure messages have different IDs
 		require.NotEqual(t, messageId1, messageId2, "message IDs should be different")
 
-		resp2_2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2_2))
+		resp2_2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2_2))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed for message2/signer2")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2_2.Status, "expected WriteStatus_SUCCESS")
 
-		ccvNodeData2_3, _ := NewMessageWithCCVNodeData(t, message2, sourceVerifierAddress, WithSignatureFrom(t, signer3))
-		resp2_3, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2_3))
+		ccvNodeData2_3, _ := testutil.NewMessageWithCCVNodeData(t, message2, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer3))
+		resp2_3, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2_3))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed for message2/signer3")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2_3.Status, "expected WriteStatus_SUCCESS")
 
@@ -993,24 +994,24 @@ func TestBatchGetVerifierResult_DuplicateMessageIDs(t *testing.T) {
 	storageTypes := []string{"postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
-		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-		signer1 := NewSignerFixture(t, "node1")
-		signer2 := NewSignerFixture(t, "node2")
-		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "node1")
+		signer2 := testutil.NewSignerFixture(t, "node2")
+		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
 		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 		_ = messageDiscoveryClient // may be used later
 
 		// Create and aggregate a message
-		message := NewProtocolMessage(t)
+		message := testutil.NewProtocolMessage(t)
 		message.SequenceNumber = protocol.SequenceNumber(1001)
-		ccvNodeData1, messageId := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer1))
-		_, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
+		ccvNodeData1, messageId := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer1))
+		_, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed for signer1")
 
-		ccvNodeData2, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, WithSignatureFrom(t, signer2))
-		_, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
+		ccvNodeData2, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer2))
+		_, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed for signer2")
 
 		// Test batch request with duplicate message IDs - wait for aggregation to complete
@@ -1059,28 +1060,28 @@ func TestBatchGetVerifierResult_MissingMessages(t *testing.T) {
 	storageTypes := []string{"postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
-		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-		signer1 := NewSignerFixture(t, "node1")
-		signer2 := NewSignerFixture(t, "node2")
-		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "node1")
+		signer2 := testutil.NewSignerFixture(t, "node2")
+		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
 		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 		_ = messageDiscoveryClient // may be used later
 
 		// Create and aggregate one message
-		existingMessage := NewProtocolMessage(t)
+		existingMessage := testutil.NewProtocolMessage(t)
 		existingMessage.SequenceNumber = protocol.SequenceNumber(1001)
-		ccvNodeData1, existingMessageId := NewMessageWithCCVNodeData(t, existingMessage, sourceVerifierAddress, WithSignatureFrom(t, signer1))
-		_, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
+		ccvNodeData1, existingMessageId := testutil.NewMessageWithCCVNodeData(t, existingMessage, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer1))
+		_, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed for signer1")
 
-		ccvNodeData2, _ := NewMessageWithCCVNodeData(t, existingMessage, sourceVerifierAddress, WithSignatureFrom(t, signer2))
-		_, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
+		ccvNodeData2, _ := testutil.NewMessageWithCCVNodeData(t, existingMessage, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer2))
+		_, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed for signer2")
 
 		// Create a non-existent message ID
-		nonExistentMessage := NewProtocolMessage(t)
+		nonExistentMessage := testutil.NewProtocolMessage(t)
 		nonExistentMessage.SequenceNumber = protocol.SequenceNumber(9999)
 		nonExistentMsgId, err := nonExistentMessage.MessageID()
 		require.NoError(t, err, "failed to compute non-existent message ID")
@@ -1137,10 +1138,10 @@ func TestBatchGetVerifierResult_EmptyRequest(t *testing.T) {
 	storageTypes := []string{"postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
-		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-		signer1 := NewSignerFixture(t, "node1")
-		signer2 := NewSignerFixture(t, "node2")
-		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "node1")
+		signer2 := testutil.NewSignerFixture(t, "node2")
+		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
 		_, ccvDataClient, _, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
@@ -1168,24 +1169,24 @@ func TestBatchWriteCommitteeVerifierNodeResult_MixedSuccessFailure(t *testing.T)
 	storageTypes := []string{"postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
-		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-		signer1 := NewSignerFixture(t, "node1")
-		signer2 := NewSignerFixture(t, "node2")
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "node1")
+		signer2 := testutil.NewSignerFixture(t, "node2")
 
-		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
+		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
 
 		aggregatorClient, _, _, cleanup, err := CreateServerAndClient(t,
 			WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err)
 
-		message := NewProtocolMessage(t)
-		validCcvNodeData, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
-			WithSignatureFrom(t, signer1))
-		validRequest := NewWriteCommitteeVerifierNodeResultRequest(validCcvNodeData)
+		message := testutil.NewProtocolMessage(t)
+		validCcvNodeData, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithSignatureFrom(t, signer1))
+		validRequest := testutil.NewWriteCommitteeVerifierNodeResultRequest(validCcvNodeData)
 
-		invalidMessage := NewProtocolMessage(t)
-		invalidCcvNodeData1, _ := NewMessageWithCCVNodeData(t, invalidMessage, sourceVerifierAddress)
+		invalidMessage := testutil.NewProtocolMessage(t)
+		invalidCcvNodeData1, _ := testutil.NewMessageWithCCVNodeData(t, invalidMessage, sourceVerifierAddress)
 		invalidCcvNodeData1.Signature = nil
 		invalidRequest1 := &committeepb.WriteCommitteeVerifierNodeResultRequest{
 			CommitteeVerifierNodeResult: invalidCcvNodeData1,
@@ -1240,11 +1241,11 @@ func TestBatchGetVerifierResult_MixedSuccessFailure(t *testing.T) {
 	storageTypes := []string{"postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
-		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-		signer1 := NewSignerFixture(t, "node1")
-		signer2 := NewSignerFixture(t, "node2")
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "node1")
+		signer2 := testutil.NewSignerFixture(t, "node2")
 
-		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
+		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
 
 		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(
 			t,
@@ -1255,15 +1256,15 @@ func TestBatchGetVerifierResult_MixedSuccessFailure(t *testing.T) {
 		_ = messageDiscoveryClient // may be used later
 
 		// Create and aggregate one message to have one successful result
-		message1 := NewProtocolMessage(t)
-		ccvNodeData1, messageId1 := NewMessageWithCCVNodeData(t, message1, sourceVerifierAddress, WithSignatureFrom(t, signer1))
+		message1 := testutil.NewProtocolMessage(t)
+		ccvNodeData1, messageId1 := testutil.NewMessageWithCCVNodeData(t, message1, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer1))
 
-		ccvNodeData2, _ := NewMessageWithCCVNodeData(t, message1, sourceVerifierAddress, WithSignatureFrom(t, signer2))
+		ccvNodeData2, _ := testutil.NewMessageWithCCVNodeData(t, message1, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer2))
 
-		_, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
+		_, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 
-		_, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
+		_, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 
 		// Create a non-existent message ID
@@ -1334,34 +1335,34 @@ func TestReadCommitteeVerifierNodeResult_ReturnsLatestAggregationKey(t *testing.
 	storageTypes := []string{"postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
-		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-		signer1 := NewSignerFixture(t, "node1")
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "node1")
 
-		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer)
+		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer)
 
 		aggregatorClient, _, _, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 
-		message := NewProtocolMessage(t)
+		message := testutil.NewProtocolMessage(t)
 
 		// Step 1: Send verification from signer with old blob data
 		oldBlobData := []byte{0x01, 0x02, 0x03, 0x04}
-		ccvNodeData_old, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
-			WithCcvVersion(oldBlobData),
-			WithSignatureFrom(t, signer1))
+		ccvNodeData_old, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithCcvVersion(oldBlobData),
+			testutil.WithSignatureFrom(t, signer1))
 
-		resp, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData_old))
+		resp, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData_old))
 		require.NoError(t, err)
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp.Status)
 
 		// Step 2: Change blob data and send new verification from same signer
 		newBlobData := []byte{0x05, 0x06, 0x07, 0x08}
-		ccvNodeData_new, messageId := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
-			WithCcvVersion(newBlobData),
-			WithSignatureFrom(t, signer1))
+		ccvNodeData_new, messageId := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithCcvVersion(newBlobData),
+			testutil.WithSignatureFrom(t, signer1))
 
-		resp, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData_new))
+		resp, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData_new))
 		require.NoError(t, err)
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp.Status)
 
@@ -1400,32 +1401,32 @@ func TestKeyRotation_StopAggregationAfterQuorumThenRotate(t *testing.T) {
 	storageTypes := []string{"postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
-		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-		signer1 := NewSignerFixture(t, "node1")
-		signer2 := NewSignerFixture(t, "node2")
-		signer3 := NewSignerFixture(t, "node3")
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "node1")
+		signer2 := testutil.NewSignerFixture(t, "node2")
+		signer3 := testutil.NewSignerFixture(t, "node3")
 
 		// Start with all 3 signers in committee, threshold = 2
-		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer, signer3.Signer)
-		UpdateCommitteeQuorumWithThreshold(committee, sourceVerifierAddress, 2, signer1.Signer, signer2.Signer, signer3.Signer)
+		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer, signer3.Signer)
+		testutil.UpdateCommitteeQuorumWithThreshold(committee, sourceVerifierAddress, 2, signer1.Signer, signer2.Signer, signer3.Signer)
 
 		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 		_ = messageDiscoveryClient // may be used later
 
-		message := NewProtocolMessage(t)
+		message := testutil.NewProtocolMessage(t)
 		// Phase 1: Signer1 and Signer2 verify → aggregation happens (quorum reached)
 		t.Log("Phase 1: Signer1 and Signer2 verify")
-		ccvNodeData1, messageId := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
-			WithSignatureFrom(t, signer1))
-		resp, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
+		ccvNodeData1, messageId := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithSignatureFrom(t, signer1))
+		resp, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
 		require.NoError(t, err)
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp.Status)
 
-		ccvNodeData2, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
-			WithSignatureFrom(t, signer2))
-		resp, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
+		ccvNodeData2, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithSignatureFrom(t, signer2))
+		resp, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
 		require.NoError(t, err)
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp.Status)
 
@@ -1434,9 +1435,9 @@ func TestKeyRotation_StopAggregationAfterQuorumThenRotate(t *testing.T) {
 
 		// Phase 2: Signer3 verifies → no re-aggregation (stop-aggregation-after-quorum)
 		t.Log("Phase 2: Signer3 verifies (should not trigger re-aggregation)")
-		ccvNodeData3, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
-			WithSignatureFrom(t, signer3))
-		resp, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData3))
+		ccvNodeData3, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithSignatureFrom(t, signer3))
+		resp, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData3))
 		require.NoError(t, err)
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp.Status)
 
@@ -1448,13 +1449,13 @@ func TestKeyRotation_StopAggregationAfterQuorumThenRotate(t *testing.T) {
 
 		// Phase 3: Committee rotation - remove signer1, keep signer2 and signer3
 		t.Log("Phase 3: Rotate committee - remove signer1, keep signer2 and signer3")
-		UpdateCommitteeQuorum(committee, sourceVerifierAddress, signer2.Signer, signer3.Signer)
+		testutil.UpdateCommitteeQuorum(committee, sourceVerifierAddress, signer2.Signer, signer3.Signer)
 
 		// Phase 4: Signer3 verifies again → re-aggregation happens with new committee
 		t.Log("Phase 4: Signer3 verifies again (should trigger re-aggregation)")
-		ccvNodeData3New, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
-			WithSignatureFrom(t, signer3))
-		resp, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData3New))
+		ccvNodeData3New, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithSignatureFrom(t, signer3))
+		resp, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData3New))
 		require.NoError(t, err)
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp.Status)
 
@@ -1479,15 +1480,15 @@ func TestGetVerifierResultsForMessage_ReturnsNotFoundWhenSourceVerifierNotInCCVA
 	storageTypes := []string{"postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
-		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-		signer1 := NewSignerFixture(t, "node1")
-		signer2 := NewSignerFixture(t, "node2")
-		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "node1")
+		signer2 := testutil.NewSignerFixture(t, "node2")
+		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
 		aggregatorClient, ccvDataClient, _, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 
-		message := NewProtocolMessage(t)
+		message := testutil.NewProtocolMessage(t)
 
 		// Create a different address that is NOT the source verifier
 		differentAddress := make([]byte, 20)
@@ -1496,19 +1497,19 @@ func TestGetVerifierResultsForMessage_ReturnsNotFoundWhenSourceVerifierNotInCCVA
 		}
 
 		// Create ccvNodeData with ccvAddresses that do NOT include the source verifier
-		ccvNodeData1, messageId := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
-			WithCcvAddresses(t, [][]byte{differentAddress}),
-			WithSignatureFrom(t, signer1))
+		ccvNodeData1, messageId := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithCcvAddresses(t, [][]byte{differentAddress}),
+			testutil.WithSignatureFrom(t, signer1))
 
-		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
+		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS")
 
-		ccvNodeData2, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
-			WithCcvAddresses(t, [][]byte{differentAddress}),
-			WithSignatureFrom(t, signer2))
+		ccvNodeData2, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithCcvAddresses(t, [][]byte{differentAddress}),
+			testutil.WithSignatureFrom(t, signer2))
 
-		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
+		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
 
@@ -1543,15 +1544,15 @@ func TestGetMessagesSince_ReturnsNilMetadataWhenSourceVerifierNotInCCVAddresses(
 	storageTypes := []string{"postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
-		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-		signer1 := NewSignerFixture(t, "node1")
-		signer2 := NewSignerFixture(t, "node2")
-		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "node1")
+		signer2 := testutil.NewSignerFixture(t, "node2")
+		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
 		aggregatorClient, _, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 
-		message := NewProtocolMessage(t)
+		message := testutil.NewProtocolMessage(t)
 
 		// Create a different address that is NOT the source verifier
 		differentAddress := make([]byte, 20)
@@ -1560,19 +1561,19 @@ func TestGetMessagesSince_ReturnsNilMetadataWhenSourceVerifierNotInCCVAddresses(
 		}
 
 		// Create ccvNodeData with ccvAddresses that do NOT include the source verifier
-		ccvNodeData1, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
-			WithCcvAddresses(t, [][]byte{differentAddress}),
-			WithSignatureFrom(t, signer1))
+		ccvNodeData1, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithCcvAddresses(t, [][]byte{differentAddress}),
+			testutil.WithSignatureFrom(t, signer1))
 
-		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
+		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS")
 
-		ccvNodeData2, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
-			WithCcvAddresses(t, [][]byte{differentAddress}),
-			WithSignatureFrom(t, signer2))
+		ccvNodeData2, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithCcvAddresses(t, [][]byte{differentAddress}),
+			testutil.WithSignatureFrom(t, signer2))
 
-		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
+		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
 
@@ -1613,28 +1614,28 @@ func TestSourceVerifierInCCVAddresses_MetadataPopulated(t *testing.T) {
 	storageTypes := []string{"postgres"}
 
 	testFunc := func(t *testing.T, storageType string) {
-		sourceVerifierAddress, destVerifierAddress := GenerateVerifierAddresses(t)
-		signer1 := NewSignerFixture(t, "node1")
-		signer2 := NewSignerFixture(t, "node2")
-		committee := NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "node1")
+		signer2 := testutil.NewSignerFixture(t, "node2")
+		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
 		aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
 		t.Cleanup(cleanup)
 		require.NoError(t, err, "failed to create server and client")
 
-		message := NewProtocolMessage(t)
+		message := testutil.NewProtocolMessage(t)
 
 		// Create ccvNodeData with ccvAddresses that INCLUDE the source verifier (default behavior)
-		ccvNodeData1, messageId := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
-			WithSignatureFrom(t, signer1))
+		ccvNodeData1, messageId := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithSignatureFrom(t, signer1))
 
-		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
+		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS")
 
-		ccvNodeData2, _ := NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
-			WithSignatureFrom(t, signer2))
+		ccvNodeData2, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithSignatureFrom(t, signer2))
 
-		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
+		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
 
