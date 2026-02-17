@@ -56,8 +56,8 @@ func main() {
     err := bootstrap.Run(
         "CommitteeVerifier",
         &verifierFactory{}, 
-        bootstrap.WithEnsureECDSASigningKey(), // ensure that we always have a signing key present at the default name
-        bootstrap.WithLogLevel(zapcore.DebugLevel), // debug logging
+        // debug logging, default is zapcore.InfoLevel
+        bootstrap.WithLogLevel(zapcore.DebugLevel),
     )
     if err != nil {
         panic(fmt.Sprintf("failed to run: %w", err))
