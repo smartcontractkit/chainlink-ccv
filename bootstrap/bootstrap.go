@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	_ "github.com/lib/pq"
 	"go.uber.org/zap/zapcore"
 
 	dbpkg "github.com/smartcontractkit/chainlink-ccv/bootstrap/db"
