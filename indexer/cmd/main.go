@@ -170,7 +170,7 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 	configs := cfg.DiscoveryConfigs()
 	sources := make([]common.MessageDiscovery, 0, len(configs))
 
-	for _, discCfg := range configs {
+	for i, discCfg := range configs {
 		persistedSinceValue, err := storage.GetDiscoverySequenceNumber(ctx, discCfg.Address)
 		if err != nil {
 			lggr.Warnw("Discovery location previously not persisted, using value set in config", "address", discCfg.Address)
@@ -197,7 +197,9 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 			discovery.WithTimeProvider(timeProvider),
 			discovery.WithMonitoring(monitoring),
 			discovery.WithLogger(lggr),
-			discovery.WithConfig(discCfg))
+			discovery.WithConfig(discCfg),
+			discovery.WithDiscoveryPriority(i),
+		)
 		if err != nil {
 			return nil, err
 		}
