@@ -300,6 +300,11 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 		messages = append(messages, message)
 		allVerifications = append(allVerifications, verifierResultWithMetadata)
 	}
+	// use a time.Sleep rather than an async function call so we don't send on a closed channel.
+	// the delay is handled gracefully by consumeReader.
+	// We use a discovery priority for the multi-source scenario where we want to ensure data consistency.
+	//
+	time.Sleep(time.Duration(a.discoveryPriority) * 5 * time.Second)
 
 	// Save all messages we've seen from the discovery source, if we're unable to persist them.
 	// We'll set the sequence value on the reader back to it's original value.
@@ -325,9 +330,6 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 		}
 	}
 
-	// use a time.Sleep rather than an async function call so we don't send on a closed channel.
-	// the delay is handled gracefully by consumeReader.
-	time.Sleep(time.Duration(a.discoveryPriority) * 5 * time.Second)
 	for _, verifierResultWithMetadata := range allVerifications {
 		// Emit the Message into the message channel for downstream components to consume
 		a.messageCh <- verifierResultWithMetadata
