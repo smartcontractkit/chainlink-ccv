@@ -17,9 +17,10 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
+	bootstrap "github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	devenvcanton "github.com/smartcontractkit/chainlink-ccv/devenv/canton"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/jobs"
 	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
@@ -66,6 +67,8 @@ type VerifierInput struct {
 	Env            *VerifierEnvConfig `toml:"env"`
 	CommitteeName  string             `toml:"committee_name"`
 	NodeIndex      int                `toml:"node_index"`
+
+	Bootstrap *BootstrapInput `toml:"bootstrap"`
 
 	// CantonConfigs is the map of chain selectors to canton configurations to pass onto the verifier,
 	// only used in standalone mode and if Canton is enabled.
@@ -143,6 +146,11 @@ type VerifierOutput struct {
 	DBURL              string `toml:"db_url"`
 	DBConnectionString string `toml:"db_connection_string"`
 	UseCache           bool   `toml:"use_cache"`
+
+	// Bootstrap DB outputs
+	BootstrapDBURL              string `toml:"bootstrap_db_url"`
+	BootstrapDBConnectionString string `toml:"bootstrap_db_connection_string"`
+	BootstrapCSAKey             string `toml:"bootstrap_csa_key"`
 }
 
 func ApplyVerifierDefaults(in VerifierInput) VerifierInput {
@@ -164,6 +172,13 @@ func ApplyVerifierDefaults(in VerifierInput) VerifierInput {
 	}
 	if in.Mode == "" {
 		in.Mode = DefaultVerifierMode
+	}
+	if in.Bootstrap == nil {
+		def := ApplyBootstrapDefaults(BootstrapInput{})
+		in.Bootstrap = &def
+	} else {
+		def := ApplyBootstrapDefaults(*in.Bootstrap)
+		in.Bootstrap = &def
 	}
 	return in
 }
@@ -237,7 +252,7 @@ func hydrateCantonConfig(in *VerifierInput, outputs []*blockchain.Output) error 
 	return nil
 }
 
-func NewVerifier(in *VerifierInput, outputs []*blockchain.Output) (*VerifierOutput, error) {
+func NewVerifier(in *VerifierInput, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) (*VerifierOutput, error) {
 	if in == nil {
 		return nil, nil
 	}
@@ -246,15 +261,32 @@ func NewVerifier(in *VerifierInput, outputs []*blockchain.Output) (*VerifierOutp
 	}
 	ctx := context.Background()
 
+	if jdInfra == nil {
+		return nil, fmt.Errorf("JD infrastructure is not set")
+	}
+
+	// Get the JD server CSA public key
+	jdCSAKey, err := jobs.GetJDCSAPublicKey(ctx, jdInfra.OffchainClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get JD server CSA public key: %w", err)
+	}
+
 	p, err := CwdSourcePath(in.SourceCodePath)
 	if err != nil {
 		return in.Out, err
 	}
 
 	// Generate blockchain infos for standalone mode
-	blockchainInfos, err := ConvertBlockchainOutputsToInfo(outputs)
+	// blockchainInfos, err := ConvertBlockchainOutputsToInfo(outputs)
+	// if err != nil {
+	// 	return in.Out, fmt.Errorf("failed to convert blockchain outputs to infos: %w", err)
+	// }
+
+	// Create a temporary file containing the bootstrap init script.
+	// This is so that we have two databases created in the database server container, one for the verifier and one for the bootstrap.
+	bootstrapInitScriptPath, err := CreateBootstrapDBInitScriptFile()
 	if err != nil {
-		return in.Out, fmt.Errorf("failed to convert blockchain outputs to infos: %w", err)
+		return nil, fmt.Errorf("failed to create bootstrap init script file: %w", err)
 	}
 
 	/* Database */
@@ -264,6 +296,7 @@ func NewVerifier(in *VerifierInput, outputs []*blockchain.Output) (*VerifierOutp
 		postgres.WithDatabase(in.ContainerName),
 		postgres.WithUsername(in.ContainerName),
 		postgres.WithPassword(in.ContainerName),
+		postgres.WithInitScripts(bootstrapInitScriptPath),
 		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 			ContainerRequest: testcontainers.ContainerRequest{
 				Name:         in.DB.Name,
@@ -290,6 +323,13 @@ func NewVerifier(in *VerifierInput, outputs []*blockchain.Output) (*VerifierOutp
 	if err != nil {
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
+
+	// Update bootstrap config w/ the database and JD info.
+	// TODO: make this easier? All standalone setups will have to do the same thing.
+	in.Bootstrap.DB.URL = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
+		in.ContainerName, in.ContainerName, in.DB.Port, DefaultBootstrapDBName)
+	in.Bootstrap.JD.ServerCSAPublicKey = jdCSAKey
+	in.Bootstrap.JD.ServerWSRPCURL = jdInfra.JDOutput.InternalWSRPCUrl
 
 	envVars := make(map[string]string)
 
@@ -328,15 +368,15 @@ func NewVerifier(in *VerifierInput, outputs []*blockchain.Output) (*VerifierOutp
 	}
 
 	// Generate and store config file.
-	verifierID, config, err := in.GenerateConfigWithBlockchainInfos(blockchainInfos)
+	bootstrapConfig, err := GenerateBootstrapConfig(*in.Bootstrap)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate verifier config for committee %s: %w", in.CommitteeName, err)
+		return nil, fmt.Errorf("failed to generate bootstrap config: %w", err)
 	}
 	confDir := util.CCVConfigDir()
-	configFilePath := filepath.Join(confDir,
-		fmt.Sprintf("verifier-%s-config-%d.toml", in.CommitteeName, in.NodeIndex+1))
-	if err := os.WriteFile(configFilePath, config, 0o644); err != nil {
-		return nil, fmt.Errorf("failed to write aggregator config to file: %w", err)
+	bootstrapConfigFilePath := filepath.Join(confDir,
+		fmt.Sprintf("bootstrap-%s-config-%d.toml", in.CommitteeName, in.NodeIndex+1))
+	if err := os.WriteFile(bootstrapConfigFilePath, bootstrapConfig, 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write bootstrap config to file: %w", err)
 	}
 
 	/* Service */
@@ -349,18 +389,24 @@ func NewVerifier(in *VerifierInput, outputs []*blockchain.Output) (*VerifierOutp
 			framework.DefaultNetworkName: {in.ContainerName},
 		},
 		Env: envVars,
-		// ExposedPorts
-		// add more internal ports here with /tcp suffix, ex.: 9222/tcp
-		ExposedPorts: []string{"8100/tcp"},
+		// This is the container port, not the host port, so it can be the same across different containers.
+		// TODO: use a constant here.
+		ExposedPorts: []string{"8100/tcp", DefaultBootstrapListenPortTCP},
 		HostConfigModifier: func(h *container.HostConfig) {
 			h.PortBindings = nat.PortMap{
-				// add more internal/external pairs here, ex.: 9222/tcp as a key and HostPort is the exposed port (no /tcp prefix!)
+				// TODO: use a constant here.
 				"8100/tcp": []nat.PortBinding{
+					// The host port must be unique across all containers.
 					{HostPort: strconv.Itoa(in.Port)},
+				},
+				DefaultBootstrapListenPortTCP: []nat.PortBinding{
+					{HostPort: ""}, // Docker assigns a random free host port.
 				},
 			}
 		},
-		WaitingFor: wait.ForLog("Using real blockchain information from environment").
+		WaitingFor: wait.
+			ForHTTP(bootstrap.HealthEndpoint).
+			WithPort(DefaultBootstrapListenPortTCP).
 			WithStartupTimeout(120 * time.Second).
 			WithPollInterval(3 * time.Second),
 	}
@@ -380,8 +426,8 @@ func NewVerifier(in *VerifierInput, outputs []*blockchain.Output) (*VerifierOutp
 		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
 		req.Mounts = append(req.Mounts, GoCacheMounts()...)
 		req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
-			configFilePath,
-			aggregator.DefaultConfigFile,
+			bootstrapConfigFilePath,
+			bootstrap.DefaultConfigPath,
 		))
 		framework.L.Info().
 			Str("Service", in.ContainerName).
@@ -423,12 +469,26 @@ func NewVerifier(in *VerifierInput, outputs []*blockchain.Output) (*VerifierOutp
 		return nil, fmt.Errorf("failed to get container host: %w", err)
 	}
 
+	// Get the generated CSA key from the bootstrap server.
+	bootstrapMapped, err := c.MappedPort(ctx, DefaultBootstrapListenPortTCP)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get bootstrap mapped port: %w", err)
+	}
+	bootstrapURL := fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port())
+	bootstrapCSAKey, err := GetBootstrapCSAKey(bootstrapURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get bootstrap CSA key: %w", err)
+	}
+
 	return &VerifierOutput{
-		VerifierID:      verifierID,
 		ContainerName:   in.ContainerName,
 		ExternalHTTPURL: fmt.Sprintf("http://%s:%d", host, in.Port),
 		InternalHTTPURL: fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
 		DBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
 			in.ContainerName, in.ContainerName, in.DB.Port, in.ContainerName),
+		BootstrapDBURL: fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port()),
+		BootstrapDBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
+			in.ContainerName, in.ContainerName, in.DB.Port, DefaultBootstrapDBName),
+		BootstrapCSAKey: bootstrapCSAKey,
 	}, nil
 }

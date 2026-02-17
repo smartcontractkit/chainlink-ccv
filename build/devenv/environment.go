@@ -1290,7 +1290,7 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) 
 			if aggOut, ok := aggregatorOutputByCommittee[ver.CommitteeName]; ok {
 				ver.AggregatorOutput = aggOut
 			}
-			out, err := services.NewVerifier(ver, blockchainOutputs)
+			out, err := services.NewVerifier(ver, blockchainOutputs, in.JDInfra)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create verifier service: %w", err)
 			}
