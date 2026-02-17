@@ -33,8 +33,8 @@ CREATE TABLE IF NOT EXISTS job_store (
 `
 
 var (
-	testPGConnStr   string
-	testPGCleanup  func()
+	testPGConnStr string
+	testPGCleanup func()
 )
 
 func TestMain(m *testing.M) {
