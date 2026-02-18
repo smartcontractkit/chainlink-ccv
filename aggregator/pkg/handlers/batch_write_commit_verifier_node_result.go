@@ -63,11 +63,25 @@ func (h *BatchWriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, 
 		}(i, r)
 	}
 
-	wg.Wait()
-	return &committeepb.BatchWriteCommitteeVerifierNodeResultResponse{
-		Responses: responses,
-		Errors:    errors,
-	}, nil
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return &committeepb.BatchWriteCommitteeVerifierNodeResultResponse{
+			Responses: responses,
+			Errors:    errors,
+		}, nil
+	case <-ctx.Done():
+		code := codes.DeadlineExceeded
+		if ctx.Err() == context.Canceled {
+			code = codes.Canceled
+		}
+		return nil, grpcstatus.Error(code, "request cancelled")
+	}
 }
 
 // NewBatchWriteCommitVerifierNodeResultHandler creates a new instance of BatchWriteCommitCCVNodeDataHandler.
