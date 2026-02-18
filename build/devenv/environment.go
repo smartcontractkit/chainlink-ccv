@@ -17,7 +17,6 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
@@ -646,55 +645,16 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch verifiers early //
 	// Verifiers generate their own keys on startup, so we need to start them
 	// early and query /info to discover signing addresses before contract deployment.
+	// Aggregator HMAC credentials are already available (generated above),
+	// even though aggregator containers haven't started yet.
 	/////////////////////////////////////////////
-	// For HA setup, we might need to share signing keys across multiple standalone verifiers.
-	type nopCommitteeKey struct {
-		NOPAlias      string
-		CommitteeName string
-	}
-	signingKeyByNOPCommittee := make(map[nopCommitteeKey]string)
-	for i := range in.Verifier {
-		ver := services.ApplyVerifierDefaults(*in.Verifier[i])
 
-		switch ver.Mode {
-		case services.CL:
-			// no-op: signing key is fetched from JD via changeset.
-		case services.Standalone:
-			k := nopCommitteeKey{NOPAlias: ver.NOPAlias, CommitteeName: ver.CommitteeName}
-			if existingKey, ok := signingKeyByNOPCommittee[k]; ok {
-				// A sibling container already owns this (nop_alias, committee)
-				// pair.  Reuse its key so that all containers for the same NOP
-				// within the same committee produce valid signatures against the
-				// single on-chain signer address.
-				ver.SigningKey = existingKey
-			} else {
-				// First container for this (nop_alias, committee) pair: generate
-				// the canonical key.
-				ver.SigningKey = util.XXXNewVerifierPrivateKey(ver.CommitteeName, ver.NodeIndex)
-				signingKeyByNOPCommittee[k] = ver.SigningKey
-			}
-
-			privateKey, err := commit.ReadPrivateKeyFromString(ver.SigningKey)
-			if err != nil {
-				return nil, fmt.Errorf("failed to load private key: %w", err)
-			}
-			_, pubKey, address, err := commit.NewECDSAMessageSigner(privateKey)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create message signer: %w", err)
-			}
-			ver.SigningKeyPublic = hexutil.Encode(pubKey)
-			ver.SigningAddress = address.String()
-
-		default:
-			return nil, fmt.Errorf("unsupported verifier mode: %s", ver.Mode)
-		}
-
-		// Apply changes back to input.
-		in.Verifier[i] = &ver
+	_, err = launchStandaloneVerifiers(in, blockchainOutputs, jdInfra)
+	if err != nil {
+		return nil, fmt.Errorf("failed to launch standalone verifiers: %w", err)
 	}
 
-	// Register standalone verifiers with JD so they can receive job proposals
-	// TODO: can this be combined with the register for the CL nodes above?
+	// Register standalone verifiers with JD so they can receive job proposals.
 	if jdInfra != nil && jdInfra.OffchainClient != nil {
 		if err := registerStandaloneVerifiersWithJD(ctx, in.Verifier, jdInfra.OffchainClient); err != nil {
 			return nil, err
@@ -702,7 +662,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	/////////////////////////////////////////////
-	// END: Assign signing keys to verifiers  //
+	// END: Launch verifiers early            //
 	/////////////////////////////////////////////
 
 	/////////////////////////////////////////
@@ -1030,9 +990,20 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, err
 	}
 
+	// Each verifier owns one aggregator (NodeIndex % numAggs). Select the
+	// corresponding job spec so proposeJobsToStandaloneVerifiers gets a
+	// single spec per container.
+	ownedJobSpecs := make(map[string]string, len(verifierJobSpecs))
+	for _, ver := range in.Verifier {
+		specs := verifierJobSpecs[ver.ContainerName]
+		if len(specs) > 0 {
+			ownedJobSpecs[ver.ContainerName] = specs[ver.NodeIndex%len(specs)]
+		}
+	}
+
 	// Propose jobs to standalone verifiers via JD
 	if jdInfra != nil && jdInfra.OffchainClient != nil {
-		if err := proposeJobsToStandaloneVerifiers(ctx, in.Verifier, verifierJobSpecs, blockchainOutputs, jdInfra.OffchainClient); err != nil {
+		if err := proposeJobsToStandaloneVerifiers(ctx, in.Verifier, ownedJobSpecs, blockchainOutputs, jdInfra.OffchainClient); err != nil {
 			return nil, err
 		}
 	}
@@ -1339,7 +1310,7 @@ func launchStandaloneExecutors(in []*services.ExecutorInput, blockchainOutputs [
 	return outs, nil
 }
 
-func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) ([]*services.VerifierOutput, error) {
+func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]*services.VerifierOutput, error) {
 	// Collect aggregator outputs per committee in insertion order so that NodeIndex maps
 	// each verifier to the correct aggregator. A map[string]*Output would lose duplicates
 	// since HA committees have multiple aggregators under the same committee name.
@@ -1372,7 +1343,7 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) 
 		}
 		aggIdx := ver.NodeIndex % len(aggOuts)
 		ver.AggregatorOutput = aggOuts[aggIdx]
-		out, err := services.NewVerifier(ver, blockchainOutputs)
+		out, err := services.NewVerifier(ver, blockchainOutputs, jdInfra)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create verifier service: %w", err)
 		}
