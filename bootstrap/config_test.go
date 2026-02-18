@@ -185,6 +185,7 @@ func TestConfig_validate(t *testing.T) {
 	}
 	validKeystore := KeystoreConfig{Password: "secret"}
 	validDB := DBConfig{URL: "postgres://localhost:5432/mydb"}
+	validServer := ServerConfig{ListenPort: 9988}
 
 	tests := []struct {
 		name        string
@@ -194,7 +195,7 @@ func TestConfig_validate(t *testing.T) {
 	}{
 		{
 			name:    "valid",
-			config:  &Config{JD: validJD, Keystore: validKeystore, DB: validDB},
+			config:  &Config{JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer},
 			wantErr: false,
 		},
 		{
@@ -203,6 +204,7 @@ func TestConfig_validate(t *testing.T) {
 				JD:       JDConfig{ServerWSRPCURL: "", ServerCSAPublicKey: validEd25519PublicKeyHex},
 				Keystore: validKeystore,
 				DB:       validDB,
+				Server:   validServer,
 			},
 			wantErr:     true,
 			errContains: []string{"failed to validate 'jd' section", "ServerWSRPCURL"},
@@ -213,6 +215,7 @@ func TestConfig_validate(t *testing.T) {
 				JD:       validJD,
 				Keystore: KeystoreConfig{Password: ""},
 				DB:       validDB,
+				Server:   validServer,
 			},
 			wantErr:     true,
 			errContains: []string{"failed to validate 'keystore' section", "password"},
@@ -223,9 +226,21 @@ func TestConfig_validate(t *testing.T) {
 				JD:       validJD,
 				Keystore: validKeystore,
 				DB:       DBConfig{URL: ""},
+				Server:   validServer,
 			},
 			wantErr:     true,
 			errContains: []string{"failed to validate 'db' section", "url"},
+		},
+		{
+			name: "invalid server section",
+			config: &Config{
+				JD:       validJD,
+				Keystore: validKeystore,
+				DB:       validDB,
+				Server:   ServerConfig{ListenPort: 0},
+			},
+			wantErr:     true,
+			errContains: []string{"failed to validate 'server' section", "listen_port"},
 		},
 	}
 	for _, tt := range tests {
