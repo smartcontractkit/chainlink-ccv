@@ -57,18 +57,18 @@ func (c CachedCurseChecker) IsRemoteChainCursed(ctx context.Context, localChain,
 		c.lggr.Debugf("curse state retrieved from cache for dest chain %d with subjects %v",
 			localChain, curseInfo)
 
-		return isChainSelectorCursed(curseInfo, remoteChain)
+		return c.isChainSelectorCursed(ctx, curseInfo, localChain, remoteChain)
 	}
 
 	curseResults, err := c.rmnReaders[localChain].GetRMNCursedSubjects(ctx)
 	if err != nil {
-		c.lggr.Errorw("Failed to get cursed subjects, assuming cursed", "error", err)
-		return true
+		c.lggr.Errorw("Failed to get cursed subjects, assuming not cursed", "error", err)
+		return false
 	}
 
 	for _, subject := range curseResults {
 		cursedSubjects[subject] = struct{}{}
-		// TODO curse metric is never lift off
+		// curse metric lifts off with next execution in `isChainSelectorCursed` call
 		if subject == GlobalCurseSubject {
 			c.metrics.SetLocalChainGlobalCursed(ctx, localChain, true)
 		} else if subject == ChainSelectorToBytes16(remoteChain) {
@@ -77,18 +77,18 @@ func (c CachedCurseChecker) IsRemoteChainCursed(ctx context.Context, localChain,
 	}
 
 	c.curseCache.Add(localChain, cursedSubjects)
-	return isChainSelectorCursed(cursedSubjects, remoteChain)
+	return c.isChainSelectorCursed(ctx, cursedSubjects, localChain, remoteChain)
 }
 
 // isChainSelectorCursed checks if the remote chain is cursed for the local chain.
 // It converts from a protocol.ChainSelector to a Bytes16 and checks if it is in the cursedSubjects set.
 // It also checks if the GlobalCurseSubject is in the cursedSubjects set.
-func isChainSelectorCursed(cursedSubjects cacheValue, remoteChain protocol.ChainSelector) bool {
-	if _, ok := cursedSubjects[GlobalCurseSubject]; ok {
-		return true
-	}
-	if _, ok := cursedSubjects[ChainSelectorToBytes16(remoteChain)]; ok {
-		return true
-	}
-	return false
+func (c CachedCurseChecker) isChainSelectorCursed(ctx context.Context, cursedSubjects cacheValue, localChain, remoteChain protocol.ChainSelector) bool {
+	_, hasGlobalCurse := cursedSubjects[GlobalCurseSubject]
+	_, remoteChainCursed := cursedSubjects[ChainSelectorToBytes16(remoteChain)]
+
+	c.metrics.SetLocalChainGlobalCursed(ctx, localChain, hasGlobalCurse)
+	c.metrics.SetRemoteChainCursed(ctx, localChain, remoteChain, remoteChainCursed)
+
+	return hasGlobalCurse || remoteChainCursed
 }
