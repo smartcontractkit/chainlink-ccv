@@ -2,6 +2,7 @@ package verifier
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -35,6 +36,7 @@ type factory struct {
 	profiler          *pyroscope.Profiler
 	aggregatorWriter  *storageaccess.AggregatorWriter
 	heartbeatClient   *heartbeatclient.HeartbeatClient
+	chainStatusDB     *sqlx.DB
 	coordinatorCancel context.CancelFunc
 }
 
@@ -184,11 +186,7 @@ func (f *factory) Start(ctx context.Context, spec string, deps bootstrap.Service
 		lggr.Errorw("Failed to create chain status manager", "error", err)
 		return fmt.Errorf("failed to create chain status manager: %w", err)
 	}
-	defer func() {
-		if chainStatusDB != nil {
-			_ = chainStatusDB.Close()
-		}
-	}()
+	f.chainStatusDB = chainStatusDB
 
 	// Create commit verifier
 	commitVerifier, err := commit.NewCommitVerifier(coordinatorConfig, signerAddress, signer, lggr, verifierMonitoring)
@@ -314,35 +312,59 @@ func (f *factory) Start(ctx context.Context, spec string, deps bootstrap.Service
 
 // Stop implements [bootstrap.ServiceFactory].
 func (f *factory) Stop(ctx context.Context) error {
+	var allErrors error
 	// Stop HTTP server
-	if err := f.server.Shutdown(ctx); err != nil {
-		f.lggr.Errorw("HTTP server shutdown error", "error", err)
+	if f.server != nil {
+		if err := f.server.Shutdown(ctx); err != nil {
+			f.lggr.Errorw("HTTP server shutdown error", "error", err)
+			allErrors = errors.Join(allErrors, err)
+		}
 	}
 
 	// Stop verification coordinator
-	if err := f.coordinator.Close(); err != nil {
-		f.lggr.Errorw("Coordinator stop error", "error", err)
+	if f.coordinator != nil {
+		if err := f.coordinator.Close(); err != nil {
+			f.lggr.Errorw("Coordinator stop error", "error", err)
+			allErrors = errors.Join(allErrors, err)
+		}
 	}
 
 	// Stop pyroscope
-	if err := f.profiler.Stop(); err != nil {
-		f.lggr.Errorw("Pyroscope stop error", "error", err)
+	if f.profiler != nil {
+		if err := f.profiler.Stop(); err != nil {
+			f.lggr.Errorw("Pyroscope stop error", "error", err)
+			allErrors = errors.Join(allErrors, err)
+		}
 	}
 
 	// Stop aggregator writer
 	// TODO: is this stopped by the coordinator?
-	if err := f.aggregatorWriter.Close(); err != nil {
-		f.lggr.Errorw("Aggregator writer stop error", "error", err)
+	if f.aggregatorWriter != nil {
+		if err := f.aggregatorWriter.Close(); err != nil {
+			f.lggr.Errorw("Aggregator writer stop error", "error", err)
+			allErrors = errors.Join(allErrors, err)
+		}
 	}
 
 	// Stop heartbeat client
-	if err := f.heartbeatClient.Close(); err != nil {
-		f.lggr.Errorw("Heartbeat client stop error", "error", err)
+	if f.heartbeatClient != nil {
+		if err := f.heartbeatClient.Close(); err != nil {
+			f.lggr.Errorw("Heartbeat client stop error", "error", err)
+			allErrors = errors.Join(allErrors, err)
+		}
 	}
 
 	// Cancel the coordinator context
 	if f.coordinatorCancel != nil {
 		f.coordinatorCancel()
+	}
+
+	// Close the db
+	if f.chainStatusDB != nil {
+		if err := f.chainStatusDB.Close(); err != nil {
+			f.lggr.Errorw("Chain status DB close error", "error", err)
+			allErrors = errors.Join(allErrors, err)
+		}
 	}
 
 	// Reset the state
@@ -354,7 +376,7 @@ func (f *factory) Stop(ctx context.Context) error {
 	f.heartbeatClient = nil
 	f.lggr = nil
 
-	return nil
+	return allErrors
 }
 
 func loadConfiguration(spec string) (*commit.Config, map[string]*blockchain.Info, error) {
