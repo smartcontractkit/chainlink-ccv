@@ -645,7 +645,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Assign signing keys & launch verifiers early
 	// For HA setups, multiple standalone verifiers may share the same
 	// (nop_alias, committee) pair. They must use the same ECDSA signing key
-	// so the aggregator recognises all of them against a single on-chain
+	// so the aggregator recognizes all of them against a single on-chain
 	// signer address. We generate a deterministic seed key per pair and
 	// inject it into the bootstrap config before the containers start.
 	/////////////////////////////////////////////

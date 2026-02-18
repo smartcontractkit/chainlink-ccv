@@ -16,6 +16,11 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+// this is only in standalone mode, not for production
+//
+//nolint:gosec
+const keystorepw = "devenv-seed-transfer"
+
 // EnsureKeyFromSeed creates keyName in the keystore using the provided hex-encoded
 // private key, if the key does not already exist. This is used in the devenv to
 // share a deterministic ECDSA signing key across HA verifier containers.
@@ -49,12 +54,11 @@ func EnsureKeyFromSeed(
 		return fmt.Errorf("failed to encode seed key for import: %w", err)
 	}
 
-	const importPassword = "devenv-seed-transfer"
 	_, err = ks.ImportKeys(ctx, keystore.ImportKeysRequest{
 		Keys: []keystore.ImportKeyRequest{{
 			NewKeyName: keyName,
 			Data:       importData,
-			Password:   importPassword,
+			Password:   keystorepw,
 		}},
 	})
 	if err != nil {
@@ -83,10 +87,9 @@ func encodePrivateKeyForImport(keyName string, keyType keystore.KeyType, private
 		return nil, fmt.Errorf("proto marshal: %w", err)
 	}
 
-	const importPassword = "devenv-seed-transfer"
 	encData, err := gethkeystore.EncryptDataV3(
 		serialized,
-		[]byte(importPassword),
+		[]byte(keystorepw),
 		gethkeystore.LightScryptN,
 		gethkeystore.LightScryptP,
 	)
