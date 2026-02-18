@@ -15,6 +15,7 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
@@ -171,7 +172,7 @@ func (f *factory) Start(ctx context.Context, spec string, deps bootstrap.Service
 		HeartbeatInterval:   10 * time.Second, // Send heartbeat to aggregator every 10s
 	}
 
-	signer, _, signerAddress, err := commit.NewSignerFromKeystore(ctx, deps.Keystore, bootstrap.DefaultECDSASigningKeyName)
+	signer, _, signerAddress, err := commit.NewSignerFromKeystore(ctx, deps.Keystore, keys.DefaultECDSASigningKeyName)
 	if err != nil {
 		lggr.Errorw("Failed to create signer", "error", err)
 		return fmt.Errorf("failed to create signer: %w", err)
