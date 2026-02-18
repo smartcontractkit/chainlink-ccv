@@ -12,7 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
-	"github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
+	bskeys "github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 )
 
@@ -106,9 +106,9 @@ type BootstrapKeys struct {
 func GetBootstrapKeys(bootstrapURL string) (keys BootstrapKeys, err error) {
 	request := keystore.GetKeysRequest{
 		KeyNames: []string{
-			keys.DefaultCSAKeyName,
-			keys.DefaultECDSASigningKeyName,
-			keys.DefaultEdDSASigningKeyName,
+			bskeys.DefaultCSAKeyName,
+			bskeys.DefaultECDSASigningKeyName,
+			bskeys.DefaultEdDSASigningKeyName,
 		},
 	}
 	jsonRequest, err := json.Marshal(request)
