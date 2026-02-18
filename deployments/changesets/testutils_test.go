@@ -82,6 +82,12 @@ func WithNOPs(nops []deployments.NOPConfig) TopologyOption {
 	}
 }
 
+func WithCommittees(committees map[string]deployments.CommitteeConfig) TopologyOption {
+	return func(t *deployments.EnvironmentTopology) {
+		t.NOPTopology.Committees = committees
+	}
+}
+
 func WithCommittee(name string, cfg deployments.CommitteeConfig) TopologyOption {
 	return func(t *deployments.EnvironmentTopology) {
 		if t.NOPTopology.Committees == nil {

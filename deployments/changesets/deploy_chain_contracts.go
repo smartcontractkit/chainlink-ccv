@@ -16,9 +16,10 @@ import (
 // DeployChainContractsFromTopologyCfg is the configuration for deploying chain contracts
 // with CommitteeVerifier params derived from the topology.
 type DeployChainContractsFromTopologyCfg struct {
-	Topology       *deployments.EnvironmentTopology
-	ChainSelector  uint64
-	CREATE2Factory common.Address
+	Topology         *deployments.EnvironmentTopology
+	DeployTestRouter bool
+	ChainSelector    uint64
+	CREATE2Factory   common.Address
 
 	// Non-topology params (passed through to DeployChainContracts)
 	RMNRemote     sequences.RMNRemoteParams
@@ -71,8 +72,9 @@ func DeployChainContractsFromTopology(
 		innerCfg := changesetscore.WithMCMS[evmchangesets.DeployChainContractsCfg]{
 			MCMS: cfg.MCMS,
 			Cfg: evmchangesets.DeployChainContractsCfg{
-				ChainSel:       cfg.Cfg.ChainSelector,
-				CREATE2Factory: cfg.Cfg.CREATE2Factory,
+				ChainSel:         cfg.Cfg.ChainSelector,
+				CREATE2Factory:   cfg.Cfg.CREATE2Factory,
+				DeployTestRouter: cfg.Cfg.DeployTestRouter,
 				Params: sequences.ContractParams{
 					RMNRemote:          cfg.Cfg.RMNRemote,
 					OffRamp:            cfg.Cfg.OffRamp,
