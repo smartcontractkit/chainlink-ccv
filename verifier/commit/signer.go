@@ -121,41 +121,65 @@ func (s *ECDSASignerWithKeystoreSigner) Sign(data []byte) ([]byte, error) {
 	return encodedSignature, nil
 }
 
-type ECDSAKeystoreSigner struct {
-	ks      keystore.Keystore
+// KeystoreSignerAdapter wraps the keystore.Signer interface to implement verifier.MessageSigner.
+// This allows using the keystore library for key management while maintaining compatibility
+// with the existing verifier signing interface.
+type KeystoreSignerAdapter struct {
+	ks      keystore.Signer
 	keyName string
 }
 
-func NewECDSAKeystoreSigner(ks keystore.Keystore, keyName string) (signer *ECDSAKeystoreSigner, pubKey []byte, address protocol.UnknownAddress, err error) {
-	keys, err := ks.GetKeys(context.Background(), keystore.GetKeysRequest{
-		KeyNames: []string{keyName},
-	})
-	if err != nil {
-		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("failed to get keys: %w", err)
-	}
-	if len(keys.Keys) == 0 {
-		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("key not found: %s", keyName)
-	}
-	key := keys.Keys[0]
-	pubKey = key.KeyInfo.PublicKey
-	pubKeyECDSA, err := crypto.UnmarshalPubkey(pubKey)
-	if err != nil {
-		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("failed to unmarshal public key: %w", err)
-	}
-	address = crypto.PubkeyToAddress(*pubKeyECDSA).Bytes()
-	return &ECDSAKeystoreSigner{
+// NewKeystoreSignerAdapter creates a new adapter that wraps a keystore.Signer.
+func NewKeystoreSignerAdapter(ks keystore.Signer, keyName string) *KeystoreSignerAdapter {
+	return &KeystoreSignerAdapter{
 		ks:      ks,
 		keyName: keyName,
-	}, pubKey, address, nil
+	}
 }
 
-func (s *ECDSAKeystoreSigner) Sign(data []byte) ([]byte, error) {
-	resp, err := s.ks.Sign(context.Background(), keystore.SignRequest{
-		KeyName: s.keyName,
+// Sign implements verifier.MessageSigner by delegating to the keystore.
+// The data parameter should be a 32-byte hash (required by ECDSA_S256).
+func (a *KeystoreSignerAdapter) Sign(data []byte) ([]byte, error) {
+	resp, err := a.ks.Sign(context.Background(), keystore.SignRequest{
+		KeyName: a.keyName,
 		Data:    data,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to sign message: %w", err)
+		return nil, fmt.Errorf("keystore sign failed: %w", err)
 	}
 	return resp.Signature, nil
+}
+
+// NewSignerFromKeystore creates a message signer from a keystore.
+// It loads the key from the keystore and returns a signer that implements verifier.MessageSigner,
+// along with the public key (as UnknownAddress) for use in committee configuration.
+func NewSignerFromKeystore(ctx context.Context, ks keystore.Keystore, keyName string) (signer verifier.MessageSigner, pubKey []byte, address protocol.UnknownAddress, err error) {
+	// Get the key info to retrieve the public key
+	keysResp, err := ks.GetKeys(ctx, keystore.GetKeysRequest{KeyNames: []string{keyName}})
+	if err != nil {
+		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("failed to get key from keystore: %w", err)
+	}
+	if len(keysResp.Keys) == 0 {
+		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("key %q not found in keystore", keyName)
+	}
+
+	keyInfo := keysResp.Keys[0].KeyInfo
+	if keyInfo.KeyType != keystore.ECDSA_S256 {
+		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("key %q has unexpected type %s, expected %s", keyName, keyInfo.KeyType, keystore.ECDSA_S256)
+	}
+
+	// The public key from keystore is in SEC1 uncompressed format (65 bytes).
+	// We need to derive the Ethereum address from it.
+	if len(keyInfo.PublicKey) != 65 {
+		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("unexpected public key length %d, expected 65", len(keyInfo.PublicKey))
+	}
+
+	// Convert SEC1 public key to Ethereum address
+	ecdsaPublicKey, err := crypto.UnmarshalPubkey(keyInfo.PublicKey)
+	if err != nil {
+		return nil, nil, protocol.UnknownAddress{}, fmt.Errorf("failed to unmarshal public key: %w", err)
+	}
+	address = crypto.PubkeyToAddress(*ecdsaPublicKey).Bytes()
+
+	return NewECDSASignerWithKeystoreSigner(NewKeystoreSignerAdapter(ks, keyName)), keyInfo.PublicKey, address[:], nil
 }
