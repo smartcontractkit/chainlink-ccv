@@ -373,12 +373,16 @@ func generateVerifierJobSpecs(
 			return nil, err
 		}
 
-		if err := validateStandaloneVerifierNodeIndices(committeeName, committeeVerifiers, len(aggNames)); err != nil {
-			return nil, err
+		// In HA topologies (multiple aggregators per committee) enforce a strict
+		// 1:1 verifier-to-aggregator mapping. For single-aggregator committees
+		// this constraint doesn't apply — all verifiers share the one aggregator.
+		if len(aggNames) > 1 {
+			if err := validateStandaloneVerifierNodeIndices(committeeName, committeeVerifiers, len(aggNames)); err != nil {
+				return nil, err
+			}
 		}
 
 		for _, ver := range committeeVerifiers {
-			// Collect job specs for all aggregators in this committee.
 			allJobSpecs := make([]string, 0, len(aggNames))
 			for _, aggName := range aggNames {
 				jobSpecID := shared.NewVerifierJobID(shared.NOPAlias(ver.NOPAlias), aggName, shared.VerifierJobScope{CommitteeQualifier: committeeName})
@@ -392,8 +396,10 @@ func generateVerifierJobSpecs(
 			verifierJobSpecs[ver.ContainerName] = allJobSpecs
 			ver.GeneratedJobSpecs = allJobSpecs
 
-			// Use NodeIndex to select which aggregator this container owns, one Verifier per aggregator in standalone
-			ownedAggIdx := ver.NodeIndex
+			// NodeIndex selects which aggregator this verifier targets. For
+			// single-aggregator committees the modulo collapses to 0, so all
+			// verifiers share the one aggregator — matching the non-HA model.
+			ownedAggIdx := ver.NodeIndex % len(aggNames)
 			verCfg, err := ParseVerifierConfigFromJobSpec(allJobSpecs[ownedAggIdx])
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse verifier config from job spec: %w", err)
@@ -1314,7 +1320,7 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) 
 		}
 	}
 
-	var outs []*services.VerifierOutput
+	outs := make([]*services.VerifierOutput, 0, len(in.Verifier))
 	// Start standalone verifiers if in standalone mode.
 	for _, ver := range in.Verifier {
 		if ver.Mode != services.Standalone {
@@ -1328,15 +1334,8 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) 
 				ver.ContainerName, ver.CommitteeName,
 			)
 		}
-		if ver.NodeIndex >= len(aggOuts) {
-			return nil, fmt.Errorf(
-				"verifier %q (committee %q) has node_index=%d but only %d aggregator(s) have outputs — "+
-					"this should have been caught by validateStandaloneVerifierNodeIndices; check aggregator startup",
-				ver.ContainerName, ver.CommitteeName, ver.NodeIndex, len(aggOuts),
-			)
-		}
-		// Each standalone verifier is bound 1:1 to the aggregator at its NodeIndex.
-		ver.AggregatorOutput = aggOuts[ver.NodeIndex]
+		aggIdx := ver.NodeIndex % len(aggOuts)
+		ver.AggregatorOutput = aggOuts[aggIdx]
 		out, err := services.NewVerifier(ver, blockchainOutputs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create verifier service: %w", err)

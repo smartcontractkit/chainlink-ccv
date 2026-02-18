@@ -99,7 +99,8 @@ type VerifierInput struct {
 	// GeneratedJobSpecs contains all job specs for this verifier, one per aggregator in the committee.
 	GeneratedJobSpecs []string `toml:"-"`
 
-	// GeneratedConfig is the verifier configuration TOML derived from GeneratedJobSpecs[NodeIndex].
+	// GeneratedConfig is the verifier configuration TOML derived from
+	// GeneratedJobSpecs[NodeIndex % numAggregators].
 	// Used in standalone mode. Set by generateVerifierJobSpecs in environment.go.
 	GeneratedConfig string `toml:"-"`
 }
