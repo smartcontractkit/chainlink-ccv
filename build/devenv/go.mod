@@ -41,7 +41,7 @@ require (
 	github.com/smartcontractkit/chainlink-canton v0.0.0-20260213163118-32698a95eddd
 	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260216170932-c8081efc1ae5
 	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260216170932-c8081efc1ae5
-	github.com/smartcontractkit/chainlink-ccv v0.0.0-20260218020605-1cee4db49cd6
+	github.com/smartcontractkit/chainlink-ccv v0.0.0-20260218133052-8e7fe2f457f9
 	github.com/smartcontractkit/chainlink-ccv/deployments v0.0.0-20260114162625-70cae15c5548
 	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20260119171452-39c98c3b33cd
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier v0.0.0-20251211142334-5c3421fe2c8d
