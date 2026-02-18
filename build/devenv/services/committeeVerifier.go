@@ -10,15 +10,17 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	ledgerv2admin "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2/admin"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	bootstrap "github.com/smartcontractkit/chainlink-ccv/bootstrap"
-	devenvcanton "github.com/smartcontractkit/chainlink-ccv/devenv/canton"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/jobs"
 	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
@@ -26,6 +28,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
+	"github.com/smartcontractkit/go-daml/pkg/auth"
 )
 
 const (
@@ -222,23 +225,23 @@ func hydrateCantonConfig(in *VerifierInput, outputs []*blockchain.Output) error 
 			return fmt.Errorf("GRPC ledger API URL or JWT is not set for chain %s, please update the config appropriately if you're using canton", strSelector)
 		}
 
+		// find the party that starts with the prefix that is listed in the canton config.
+		conn, err := grpc.NewClient(grpcURL, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithPerRPCCredentials(auth.NewBearerToken(jwt)))
+		if err != nil {
+			return fmt.Errorf("failed to create gRPC connection: %w", err)
+		}
+		resp, err := ledgerv2admin.NewPartyManagementServiceClient(conn).ListKnownParties(context.Background(), &ledgerv2admin.ListKnownPartiesRequest{})
+		if err != nil {
+			return fmt.Errorf("failed to get user: %w", err)
+		}
+
 		authority := grpcURL
 		if idx := strings.LastIndex(authority, ":"); idx != -1 {
 			authority = authority[:idx]
 		}
 
-		helper, err := devenvcanton.NewHelperFromBlockchainInput(context.Background(), grpcURL, jwt)
-		if err != nil {
-			return fmt.Errorf("failed to create helper for chain %s: %w", strSelector, err)
-		}
-		partyDetails, err := helper.ListKnownParties(context.Background())
-		if err != nil {
-			return fmt.Errorf("failed to list known parties for chain %s: %w", strSelector, err)
-		}
-
-		// find the party that starts with the prefix that is listed in the canton config.
 		var found bool
-		for _, partyDetail := range partyDetails {
+		for _, partyDetail := range resp.PartyDetails {
 			if strings.HasPrefix(partyDetail.GetParty(), cantonConfig.ReaderConfig.CCIPOwnerParty) {
 				in.CantonConfigs[strSelector] = commit.CantonConfig{
 					ReaderConfig: canton.ReaderConfig{

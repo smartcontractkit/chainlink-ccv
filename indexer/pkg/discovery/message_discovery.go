@@ -21,17 +21,19 @@ import (
 var _ common.MessageDiscovery = (*AggregatorMessageDiscovery)(nil)
 
 type AggregatorMessageDiscovery struct {
-	logger           logger.Logger
-	config           config.DiscoveryConfig
-	aggregatorReader *readers.ResilientReader
-	registry         *registry.VerifierRegistry
-	storageSink      common.IndexerStorage
-	monitoring       common.IndexerMonitoring
-	timeProvider     ccvcommon.TimeProvider
-	messageCh        chan common.VerifierResultWithMetadata
-	readerLock       *sync.Mutex
-	wg               sync.WaitGroup
-	cancelFunc       context.CancelFunc
+	logger            logger.Logger
+	config            config.DiscoveryConfig
+	aggregatorReader  *readers.ResilientReader
+	registry          *registry.VerifierRegistry
+	storageSink       common.IndexerStorage
+	monitoring        common.IndexerMonitoring
+	timeProvider      ccvcommon.TimeProvider
+	messageCh         chan common.VerifierResultWithMetadata
+	doneCh            chan struct{}
+	readerLock        *sync.Mutex
+	wg                sync.WaitGroup
+	cancelFunc        context.CancelFunc
+	discoveryPriority int
 }
 
 type Option func(*AggregatorMessageDiscovery)
@@ -78,9 +80,16 @@ func WithTimeProvider(timeProvider ccvcommon.TimeProvider) Option {
 	}
 }
 
+func WithDiscoveryPriority(discoveryPriority int) Option {
+	return func(a *AggregatorMessageDiscovery) {
+		a.discoveryPriority = discoveryPriority
+	}
+}
+
 func NewAggregatorMessageDiscovery(opts ...Option) (common.MessageDiscovery, error) {
 	a := &AggregatorMessageDiscovery{
 		messageCh:  make(chan common.VerifierResultWithMetadata),
+		doneCh:     make(chan struct{}),
 		readerLock: &sync.Mutex{},
 	}
 
@@ -143,6 +152,8 @@ func (a *AggregatorMessageDiscovery) Start(ctx context.Context) chan common.Veri
 
 func (a *AggregatorMessageDiscovery) Close() error {
 	a.cancelFunc()
+	defer close(a.messageCh)
+	close(a.doneCh)
 	a.wg.Wait()
 	a.logger.Info("MessageDiscovery Stopped")
 	return nil
@@ -289,6 +300,11 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 		messages = append(messages, message)
 		allVerifications = append(allVerifications, verifierResultWithMetadata)
 	}
+	// use a time.Sleep rather than an async function call so we don't send on a closed channel.
+	// the delay is handled gracefully by consumeReader.
+	// We use a discovery priority for the multi-source scenario where we want to ensure data consistency.
+	//
+	time.Sleep(time.Duration(a.discoveryPriority) * 5 * time.Second)
 
 	// Save all messages we've seen from the discovery source, if we're unable to persist them.
 	// We'll set the sequence value on the reader back to it's original value.

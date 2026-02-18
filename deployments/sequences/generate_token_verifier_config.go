@@ -6,6 +6,8 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
@@ -33,6 +35,7 @@ type GenerateTokenVerifierConfigInput struct {
 type LombardConfigInput struct {
 	Qualifier               string
 	VerifierID              string
+	VerifierVersion         protocol.ByteSlice
 	AttestationAPI          string
 	AttestationAPITimeout   time.Duration
 	AttestationAPInterval   time.Duration
@@ -42,6 +45,7 @@ type LombardConfigInput struct {
 type CCTPConfigInput struct {
 	Qualifier              string
 	VerifierID             string
+	VerifierVersion        protocol.ByteSlice
 	AttestationAPI         string
 	AttestationAPITimeout  time.Duration
 	AttestationAPInterval  time.Duration
@@ -109,6 +113,7 @@ var GenerateTokenVerifierConfig = operations.NewSequence(
 					AttestationAPITimeout:  input.CCTP.AttestationAPITimeout,
 					AttestationAPIInterval: input.CCTP.AttestationAPInterval,
 					AttestationAPICooldown: input.CCTP.AttestationAPICooldown,
+					VerifierVersion:        input.CCTP.VerifierVersion,
 					Verifiers:              convertToMap(buildResult.Output.Config.CCTPVerifierAddresses),
 					VerifierResolvers:      convertToMap(buildResult.Output.Config.CCTPVerifierResolverAddresses),
 				},
@@ -131,6 +136,7 @@ var GenerateTokenVerifierConfig = operations.NewSequence(
 					AttestationAPITimeout:   input.Lombard.AttestationAPITimeout,
 					AttestationAPIInterval:  input.Lombard.AttestationAPInterval,
 					AttestationAPIBatchSize: input.Lombard.AttestationAPIBatchSize,
+					VerifierVersion:         input.Lombard.VerifierVersion,
 					VerifierResolvers:       convertToMap(buildResult.Output.Config.LombardVerifierResolverAddresses),
 				},
 			}
