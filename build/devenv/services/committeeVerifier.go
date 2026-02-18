@@ -339,8 +339,8 @@ func NewVerifier(in *VerifierInput, outputs []*blockchain.Output, jdInfra *jobs.
 
 	// Update bootstrap config w/ the database and JD info.
 	// TODO: make this easier? All standalone setups will have to do the same thing.
-	in.Bootstrap.DB.URL = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
-		in.ContainerName, in.ContainerName, in.DB.Port, DefaultBootstrapDBName)
+	in.Bootstrap.DB.URL = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
+		in.ContainerName, in.ContainerName, in.DB.Name, DefaultBootstrapDBName)
 	in.Bootstrap.JD.ServerCSAPublicKey = jdCSAKey
 	in.Bootstrap.JD.ServerWSRPCURL = jdInfra.JDOutput.InternalWSRPCUrl
 
