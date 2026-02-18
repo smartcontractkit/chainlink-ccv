@@ -81,12 +81,6 @@ type VerifierInput struct {
 	// The chain selectors are formatted as strings of the chain selector.
 	DisableFinalityCheckers []string `toml:"disable_finality_checkers"`
 
-	// SigningKeyPublic is the public key used for on-chain committee configuration.
-	SigningKeyPublic string `toml:"signing_key_public"`
-
-	// SigningAddress is the address corresponding to the signing key.
-	SigningAddress string `toml:"signing_address"`
-
 	// TLSCACertFile is the path to the CA certificate file for TLS verification.
 	TLSCACertFile string `toml:"-"`
 
@@ -101,38 +95,57 @@ type VerifierInput struct {
 	GeneratedConfig string `toml:"-"`
 }
 
-// GenerateConfigWithBlockchainInfos combines the pre-generated config with blockchain infos
-// for standalone mode deployment.
-func (v *VerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*ccvblockchain.Info) (string, []byte, error) {
-	if v.GeneratedConfig == "" {
-		return "", nil, fmt.Errorf("GeneratedConfig is empty - must be set from changeset output")
+type VerifierJobSpec struct {
+	ExternalJobID           string `toml:"externalJobID"`
+	SchemaVersion           int    `toml:"schemaVersion"`
+	Type                    string `toml:"type"`
+	CommitteeVerifierConfig string `toml:"committeeVerifierConfig"`
+}
+
+// RebuildVerifierJobSpecWithBlockchainInfos takes a job spec and rebuilds it with blockchain infos
+// added to the inner config. This is needed for standalone verifiers which require blockchain
+// connection information (CL nodes get this from their own chain config).
+func (v *VerifierInput) RebuildVerifierJobSpecWithBlockchainInfos(jobSpec string, blockchainInfos map[string]*ccvblockchain.Info) (string, error) {
+	// Parse the outer job spec
+	var spec VerifierJobSpec
+	if err := toml.Unmarshal([]byte(jobSpec), &spec); err != nil {
+		return "", fmt.Errorf("failed to parse job spec: %w", err)
 	}
 
-	// Parse the generated config
-	var baseConfig commit.Config
-	if _, err := toml.Decode(v.GeneratedConfig, &baseConfig); err != nil {
-		return "", nil, fmt.Errorf("failed to parse generated config: %w", err)
+	// Parse the inner config
+	var cfg commit.Config
+	if err := toml.Unmarshal([]byte(spec.CommitteeVerifierConfig), &cfg); err != nil {
+		return "", fmt.Errorf("failed to parse verifier config from job spec: %w", err)
 	}
 
 	// Apply canton config if provided.
 	// Note: CantonConfigs requires runtime hydration (e.g., full party IDs from Canton participant),
 	// so it must be applied here rather than in the changeset generation process.
+	// TODO: this should get moved out of the standard committee verifier config.
 	if v.CantonConfigs != nil {
-		baseConfig.CantonConfigs = v.CantonConfigs
+		cfg.CantonConfigs = v.CantonConfigs
 	}
 
-	// Wrap with blockchain infos for standalone mode
-	config := commit.ConfigWithBlockchainInfos{
-		Config:          baseConfig,
+	// Create config with blockchain infos
+	configWithInfos := commit.ConfigWithBlockchainInfos{
+		Config:          cfg,
 		BlockchainInfos: blockchainInfos,
 	}
 
-	cfg, err := toml.Marshal(config)
+	// Marshal the enhanced config
+	innerConfigBytes, err := toml.Marshal(configWithInfos)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to marshal verifier config to TOML: %w", err)
+		return "", fmt.Errorf("failed to marshal enhanced config: %w", err)
 	}
 
-	return config.VerifierID, cfg, nil
+	// Rebuild the job spec with the enhanced config
+	spec.CommitteeVerifierConfig = string(innerConfigBytes)
+	outerSpecBytes, err := toml.Marshal(spec)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal job spec: %w", err)
+	}
+
+	return string(outerSpecBytes), nil
 }
 
 type VerifierOutput struct {
@@ -145,9 +158,12 @@ type VerifierOutput struct {
 	UseCache           bool   `toml:"use_cache"`
 
 	// Bootstrap DB outputs
-	BootstrapDBURL              string `toml:"bootstrap_db_url"`
-	BootstrapDBConnectionString string `toml:"bootstrap_db_connection_string"`
-	BootstrapCSAKey             string `toml:"bootstrap_csa_key"`
+	BootstrapDBURL              string        `toml:"bootstrap_db_url"`
+	BootstrapDBConnectionString string        `toml:"bootstrap_db_connection_string"`
+	BootstrapKeys               BootstrapKeys `toml:"bootstrap_keys"`
+
+	// JDNodeID is set after the bootstrap is registered with JD.
+	JDNodeID string `toml:"jd_node_id"`
 }
 
 func ApplyVerifierDefaults(in VerifierInput) VerifierInput {
@@ -468,9 +484,9 @@ func NewVerifier(in *VerifierInput, outputs []*blockchain.Output, jdInfra *jobs.
 		return nil, fmt.Errorf("failed to get bootstrap mapped port: %w", err)
 	}
 	bootstrapURL := fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port())
-	bootstrapCSAKey, err := GetBootstrapCSAKey(bootstrapURL)
+	bootstrapKeys, err := GetBootstrapKeys(bootstrapURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get bootstrap CSA key: %w", err)
+		return nil, fmt.Errorf("failed to get bootstrap keys: %w", err)
 	}
 
 	return &VerifierOutput{
@@ -482,6 +498,6 @@ func NewVerifier(in *VerifierInput, outputs []*blockchain.Output, jdInfra *jobs.
 		BootstrapDBURL: fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port()),
 		BootstrapDBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
 			in.ContainerName, in.ContainerName, in.DB.Port, DefaultBootstrapDBName),
-		BootstrapCSAKey: bootstrapCSAKey,
+		BootstrapKeys: bootstrapKeys,
 	}, nil
 }

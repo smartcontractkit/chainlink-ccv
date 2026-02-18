@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -48,8 +49,9 @@ func (s *infoServer) Start(ctx context.Context) error {
 		mux.HandleFunc(HealthEndpoint, s.handleHealth)
 
 		s.srv = &http.Server{
-			Addr:    fmt.Sprintf(":%d", s.listenPort),
-			Handler: mux,
+			Addr:              fmt.Sprintf(":%d", s.listenPort),
+			Handler:           mux,
+			ReadHeaderTimeout: 5 * time.Second,
 		}
 
 		s.wg.Go(func() {
