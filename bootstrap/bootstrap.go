@@ -18,7 +18,6 @@ import (
 	jobstore "github.com/smartcontractkit/chainlink-ccv/common/jd/store"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/keystore"
-	"github.com/smartcontractkit/chainlink-common/keystore/pgstore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -170,7 +169,7 @@ func (b *Bootstrapper) newServiceDeps(keyStore keystore.Keystore) (ServiceDeps, 
 }
 
 func (b *Bootstrapper) initializeKeystore(ctx context.Context, db *sqlx.DB) (keyStore keystore.Keystore, csaSigner crypto.Signer, err error) {
-	keyStore, err = keystore.LoadKeystore(ctx, pgstore.NewStorage(db, "default"), b.cfg.Keystore.Password)
+	keyStore, err = keystore.LoadKeystore(ctx, NewPGStorage(db, "default"), b.cfg.Keystore.Password)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load keystore: %w", err)
 	}
