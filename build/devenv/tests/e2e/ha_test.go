@@ -57,7 +57,7 @@ func (s *haTestSetup) survivingClients(killedContainers ...string) (aggClient *c
 			indexerMon = mon
 		}
 	}
-	return
+	return aggClient, indexerMon
 }
 
 // sendAndAssertExecution sends a CCIP message and asserts end-to-end delivery.
