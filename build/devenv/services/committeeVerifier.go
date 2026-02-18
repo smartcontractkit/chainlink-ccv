@@ -81,9 +81,6 @@ type VerifierInput struct {
 	// The chain selectors are formatted as strings of the chain selector.
 	DisableFinalityCheckers []string `toml:"disable_finality_checkers"`
 
-	// SigningKey is the private key for standalone mode signing.
-	SigningKey string `toml:"signing_key"`
-
 	// SigningKeyPublic is the public key used for on-chain committee configuration.
 	SigningKeyPublic string `toml:"signing_key_public"`
 
@@ -352,10 +349,6 @@ func NewVerifier(in *VerifierInput, outputs []*blockchain.Output, jdInfra *jobs.
 
 	envVars["VERIFIER_AGGREGATOR_API_KEY"] = apiKey
 	envVars["VERIFIER_AGGREGATOR_SECRET_KEY"] = secretKey
-
-	if in.SigningKey != "" {
-		envVars["VERIFIER_SIGNER_PRIVATE_KEY"] = in.SigningKey
-	}
 
 	// Database connection for chain status (internal docker network address)
 	internalDBConnectionString := fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
