@@ -192,8 +192,14 @@ func (b *Bootstrapper) initializeKeystore(ctx context.Context, db *sqlx.DB) (key
 		{keys.DefaultEdDSASigningKeyName, "signing", keystore.Ed25519},
 	}
 	for _, k := range requiredKeys {
-		if err := keys.EnsureKey(ctx, b.lggr, ks, k.name, k.purpose, k.keyType); err != nil {
-			return nil, nil, fmt.Errorf("failed to ensure %s key: %w", k.purpose, err)
+		if k.name == keys.DefaultECDSASigningKeyName && b.cfg.Keystore.SeedECDSAPrivateKey != "" {
+			if err := keys.EnsureKeyFromSeed(ctx, b.lggr, ks, k.name, k.purpose, k.keyType, b.cfg.Keystore.SeedECDSAPrivateKey); err != nil {
+				return nil, nil, fmt.Errorf("failed to ensure seeded %s key: %w", k.purpose, err)
+			}
+		} else {
+			if err := keys.EnsureKey(ctx, b.lggr, ks, k.name, k.purpose, k.keyType); err != nil {
+				return nil, nil, fmt.Errorf("failed to ensure %s key: %w", k.purpose, err)
+			}
 		}
 	}
 
