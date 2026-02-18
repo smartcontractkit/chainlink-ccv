@@ -343,6 +343,97 @@ func TestGenerateTokenVerifierConfig_PreservesExistingConfigs(t *testing.T) {
 	assert.Equal(t, existingIndexerConfig, retrievedIndexerConfig)
 }
 
+func TestGenerateTokenVerifierConfig_UsesDefaultVerifierVersion(t *testing.T) {
+	chainSelectors := []uint64{1001}
+	ds := setupTokenVerifierDatastore(t, chainSelectors, true, true)
+
+	env := deployment.Environment{
+		Name:             "testnet",
+		OperationsBundle: testutils.NewTestBundle(),
+		BlockChains:      testutils.NewStubBlockChains(chainSelectors),
+		DataStore:        ds.Seal(),
+	}
+
+	cs := changesets.GenerateTokenVerifierConfig()
+	output, err := cs.Apply(env, changesets.GenerateTokenVerifierConfigCfg{
+		ServiceIdentifier: testServiceIdentifier,
+		ChainSelectors:    chainSelectors,
+		CCTP: sequences.CCTPConfigInput{
+			Qualifier: testCCTPQualifier,
+			// Not specifying VerifierVersion
+		},
+		Lombard: sequences.LombardConfigInput{
+			Qualifier: testLombardQualifier,
+			// Not specifying VerifierVersion
+		},
+	})
+	require.NoError(t, err)
+
+	cfg, err := deployments.GetTokenVerifierConfig(output.DataStore.Seal(), testServiceIdentifier)
+	require.NoError(t, err)
+
+	// Verify default verifier versions are used
+	for _, v := range cfg.TokenVerifiers {
+		switch v.Type {
+		case verifierTypeCCTP:
+			require.NotNil(t, v.CCTPConfig, "CCTP config should not be nil")
+			assert.NotEmpty(t, v.CCTPConfig.VerifierVersion, "CCTP verifier version should not be empty")
+			// Should use the default CCTP version (0x8e1d1a9d)
+			assert.Equal(t, []byte{0x8e, 0x1d, 0x1a, 0x9d}, []byte(v.CCTPConfig.VerifierVersion))
+		case verifierTypeLombard:
+			require.NotNil(t, v.LombardConfig, "Lombard config should not be nil")
+			assert.NotEmpty(t, v.LombardConfig.VerifierVersion, "Lombard verifier version should not be empty")
+			// Should use the default Lombard version (0xf0f3a135)
+			assert.Equal(t, []byte{0xf0, 0xf3, 0xa1, 0x35}, []byte(v.LombardConfig.VerifierVersion))
+		}
+	}
+}
+
+func TestGenerateTokenVerifierConfig_UsesCustomVerifierVersion(t *testing.T) {
+	chainSelectors := []uint64{1001}
+	ds := setupTokenVerifierDatastore(t, chainSelectors, true, true)
+
+	env := deployment.Environment{
+		Name:             "testnet",
+		OperationsBundle: testutils.NewTestBundle(),
+		BlockChains:      testutils.NewStubBlockChains(chainSelectors),
+		DataStore:        ds.Seal(),
+	}
+
+	customCCTPVersion := []byte{0x11, 0x22, 0x33, 0x44}
+	customLombardVersion := []byte{0xaa, 0xbb, 0xcc, 0xdd}
+
+	cs := changesets.GenerateTokenVerifierConfig()
+	output, err := cs.Apply(env, changesets.GenerateTokenVerifierConfigCfg{
+		ServiceIdentifier: testServiceIdentifier,
+		ChainSelectors:    chainSelectors,
+		CCTP: sequences.CCTPConfigInput{
+			Qualifier:       testCCTPQualifier,
+			VerifierVersion: customCCTPVersion,
+		},
+		Lombard: sequences.LombardConfigInput{
+			Qualifier:       testLombardQualifier,
+			VerifierVersion: customLombardVersion,
+		},
+	})
+	require.NoError(t, err)
+
+	cfg, err := deployments.GetTokenVerifierConfig(output.DataStore.Seal(), testServiceIdentifier)
+	require.NoError(t, err)
+
+	// Verify custom verifier versions are used
+	for _, v := range cfg.TokenVerifiers {
+		switch v.Type {
+		case verifierTypeCCTP:
+			require.NotNil(t, v.CCTPConfig, "CCTP config should not be nil")
+			assert.Equal(t, customCCTPVersion, []byte(v.CCTPConfig.VerifierVersion))
+		case verifierTypeLombard:
+			require.NotNil(t, v.LombardConfig, "Lombard config should not be nil")
+			assert.Equal(t, customLombardVersion, []byte(v.LombardConfig.VerifierVersion))
+		}
+	}
+}
+
 // Helper functions
 
 func setupTokenVerifierDatastore(t *testing.T, chainSelectors []uint64, includeCCTP, includeLombard bool) *datastore.MemoryDataStore {
