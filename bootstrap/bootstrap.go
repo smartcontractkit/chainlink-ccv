@@ -209,7 +209,7 @@ func (b *Bootstrapper) initializeKeystore(ctx context.Context, db *sqlx.DB) (key
 		return nil, nil, fmt.Errorf("failed to ensure eddsa signing key: %w", err)
 	}
 
-	csaSigner, err = newCSASigner(keyStore, DefaultCSAKeyName)
+	csaSigner, err = newCSASigner(ctx, keyStore, DefaultCSAKeyName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get csa signer: %w", err)
 	}
