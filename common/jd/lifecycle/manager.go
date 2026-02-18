@@ -88,8 +88,8 @@ type Manager struct {
 	currentJob    *store.Job
 	shutdownCh    chan struct{}
 	wg            sync.WaitGroup
-	jdConnectedCh chan struct{}       // buffered 1; sent when async Connect succeeds
-	connectCancel context.CancelFunc  // cancels the connect goroutine's context when Stop() is called
+	jdConnectedCh chan struct{}      // buffered 1; sent when async Connect succeeds
+	connectCancel context.CancelFunc // cancels the connect goroutine's context when Stop() is called
 }
 
 // NewManager creates a new job lifecycle manager.
@@ -153,7 +153,7 @@ func (m *Manager) Start(ctx context.Context) error {
 			m.lggr.Infow("Cached job started successfully")
 		}
 
-		// 3. Connect to JD asynchronously (context only cancelled when Manager is Stopped)
+		// 3. Connect to JD asynchronously (context only canceled when Manager is Stopped)
 		m.lggr.Infow("Connecting to Job Distributor (async)")
 		connectCtx, connectCancel := context.WithCancel(context.Background())
 		m.mu.Lock()
