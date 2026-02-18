@@ -106,12 +106,18 @@ func WithExecutorPool(name string, cfg deployments.ExecutorPoolConfig) TopologyO
 	}
 }
 
+func WithIndexerAddress(address []string) TopologyOption {
+	return func(t *deployments.EnvironmentTopology) {
+		t.IndexerAddress = address
+	}
+}
+
 func newTestTopology(opts ...TopologyOption) *deployments.EnvironmentTopology {
 	sel1Str := strconv.FormatUint(chainsel.TEST_90000001.Selector, 10)
 	sel2Str := strconv.FormatUint(chainsel.TEST_90000002.Selector, 10)
 
 	topology := &deployments.EnvironmentTopology{
-		IndexerAddress: testIndexerAddress,
+		IndexerAddress: []string{testIndexerAddress},
 		PyroscopeURL:   "",
 		NOPTopology: &deployments.NOPTopology{
 			NOPs: []deployments.NOPConfig{
