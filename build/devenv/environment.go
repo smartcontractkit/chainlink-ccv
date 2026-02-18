@@ -397,8 +397,11 @@ func generateVerifierJobSpecs(
 				return nil, fmt.Errorf("failed to marshal verifier config: %w", err)
 			}
 			ver.GeneratedConfig = string(configBytes)
+
 			// Store the VerifierID in the output for test access
-			ver.Out.VerifierID = verCfg.VerifierID
+			if ver.Out != nil {
+				ver.Out.VerifierID = verCfg.VerifierID
+			}
 
 			if sharedTLSCerts != nil && !ver.InsecureAggregatorConnection {
 				ver.TLSCACertFile = sharedTLSCerts.CACertFile
