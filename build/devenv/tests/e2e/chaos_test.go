@@ -206,7 +206,8 @@ func TestChaos_AllExecutorsDown(t *testing.T) {
 func TestChaos_IndexerDown(t *testing.T) {
 	setup := setupChaos(t, GetSmokeTestConfig())
 
-	indexerContainerName := setup.in.Indexer.Out.ContainerName
+	require.NotEmpty(t, setup.in.Indexer, "no indexer in config")
+	indexerContainerName := setup.in.Indexer[0].Out.ContainerName
 	require.NotEmpty(t, indexerContainerName, "indexer container name not found")
 
 	pumbaCmd := fmt.Sprintf("stop --duration=%s --restart re2:%s", 30*time.Second, indexerContainerName)

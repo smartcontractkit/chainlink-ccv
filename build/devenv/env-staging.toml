@@ -1,4 +1,4 @@
-indexer_endpoint = "http://ccv-indexer.main.stage.cldev.sh"
+indexer_endpoints = ["http://ccv-indexer.main.stage.cldev.sh"]
 
 [cldf]
 # Get this from chainlink-deployments/domains/ccv/datastore/address_refs.json

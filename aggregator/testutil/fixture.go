@@ -1,4 +1,4 @@
-package tests
+package testutil
 
 import (
 	"crypto/ecdsa"
@@ -19,6 +19,7 @@ import (
 
 func GenerateVerifierAddresses(t *testing.T) ([]byte, []byte) {
 	// Generate valid Ethereum addresses using private keys
+	t.Helper()
 	sourceKey, err := crypto.GenerateKey()
 	require.NoError(t, err, "failed to generate source private key")
 	sourceVerifierAddress := crypto.PubkeyToAddress(sourceKey.PublicKey)
@@ -35,7 +36,8 @@ type SignerFixture struct {
 	Signer model.Signer
 }
 
-func NewSignerFixture(t *testing.T, name string) *SignerFixture {
+func NewSignerFixture(t *testing.T, _ string) *SignerFixture {
+	t.Helper()
 	privateKey, err := crypto.GenerateKey()
 	require.NoError(t, err, "failed to generate private key")
 
@@ -103,6 +105,7 @@ func WithSequenceNumber(seq uint64) ProtocolMessageOption {
 }
 
 func NewProtocolMessage(t *testing.T, options ...ProtocolMessageOption) *protocol.Message {
+	t.Helper()
 	msg := &protocol.Message{
 		Version:              1,
 		SourceChainSelector:  1,
@@ -188,6 +191,7 @@ func WithCcvAddresses(t *testing.T, ccvAddresses [][]byte) MessageWithCCVNodeDat
 }
 
 func NewMessageWithCCVNodeData(t *testing.T, message *protocol.Message, sourceVerifierAddress []byte, options ...MessageWithCCVNodeDataOption) (*committeepb.CommitteeVerifierNodeResult, protocol.Bytes32) {
+	t.Helper()
 	ccvVersion := []byte{0x01, 0x02, 0x03, 0x04}
 	executorAddr := make([]byte, 20)
 

@@ -145,12 +145,7 @@ func (t *Task) getMissingVerifiers(ctx context.Context) (missing []string, err e
 func (t *Task) getExistingVerifiers(ctx context.Context) (existing []string, err error) {
 	var results []common.VerifierResultWithMetadata
 
-	// If we're using the sink, ignore the cache and use the persistent stores
-	if sink, ok := t.storage.(*storage.Sink); ok {
-		results, err = sink.GetCCVDataSkipCache(ctx, t.messageID)
-	} else {
-		results, err = t.storage.GetCCVData(ctx, t.messageID)
-	}
+	results, err = t.storage.GetCCVData(ctx, t.messageID)
 
 	// If the data is not found, it must be a discovery only message
 	// We'll safely return here knowing we don't have any verifications.

@@ -19,6 +19,7 @@ const (
 	MinSizeRequiredMsgFields      = 27   // Minimum size for required fields in Message
 	MinSizeRequiredMsgTokenFields = 34   // Minimum size for required fields in TokenTransfer
 	MaxCCVsPerMessage             = 255  // Maximum number of CCV addresses per message (limited by uint8)
+	MaxUnknownAddressBytes        = 255  // Maximum size of any UnknownAddress in bytes (limited by uint8)
 )
 
 var (
@@ -59,9 +60,14 @@ func (tt *TokenTransfer) Encode() ([]byte, error) {
 	// Version (1 byte)
 	_ = buf.WriteByte(tt.Version)
 
-	// Amount (32 bytes, big-endian)
 	amountBytes := make([]byte, 32)
 	if tt.Amount != nil {
+		if tt.Amount.Sign() < 0 {
+			return nil, fmt.Errorf("amount cannot be negative")
+		}
+		if tt.Amount.BitLen() > 256 {
+			return nil, fmt.Errorf("amount exceeds 256 bits: %d bits", tt.Amount.BitLen())
+		}
 		tt.Amount.FillBytes(amountBytes)
 	}
 	_, _ = buf.Write(amountBytes)

@@ -34,15 +34,16 @@ type Verifier struct {
 
 func NewVerifier(
 	lggr logger.Logger,
+	config LombardConfig,
 	attestationService AttestationService,
-) verifier.Verifier {
+) (verifier.Verifier, error) {
 	return NewVerifierWithConfig(
 		lggr,
 		attestationService,
-		VerifierVersion,
+		config.VerifierVersion,
 		attestationNotReadyRetry,
 		anyErrorRetry,
-	)
+	), nil
 }
 
 func NewVerifierWithConfig(

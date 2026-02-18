@@ -30,8 +30,8 @@ type Config struct {
 	LogLevel            string `toml:"LogLevel"`
 	// Monitoring is the configuration for the monitoring system inside the indexer.
 	Monitoring MonitoringConfig `toml:"Monitoring"`
-	// Discovery is the configuration for the discovery system inside the indexer.
-	Discovery DiscoveryConfig `toml:"Discovery"`
+	// Discoveries is the list of discovery configs (aggregators) for message discovery.
+	Discoveries []DiscoveryConfig `toml:"Discoveries"`
 	// Scheduler is the configuration for the scheduling component inside the indexer.
 	Scheduler SchedulerConfig `toml:"Scheduler"`
 	// Pool is the configuration for the worker pool within the indexer.
@@ -65,6 +65,9 @@ type PoolConfig struct {
 
 // APIConfig provides all configuration for the API inside the indexer.
 type APIConfig struct {
+	// ListenPort is the port the HTTP API listens on inside the process (default 8100).
+	// Used by devenv to expose the correct container port and build internal URLs.
+	ListenPort int `toml:"ListenPort"`
 	// RateLimit is the configuration for the rate limiting system inside the indexer.
 	RateLimit RateLimitConfig `toml:"RateLimit"`
 	// TrustedProxies contains an array of trusted reverse proxies.
@@ -79,63 +82,21 @@ type RateLimitConfig struct {
 
 // StorageConfig allows you to change the storage strategy used by the indexer.
 type StorageConfig struct {
-	// Strategy is the storage strategy to use (single, sink).
-	Strategy StorageStrategy `toml:"Strategy"`
-	// Single is the configuration for a single storage backend (required if strategy is single).
-	Single *SingleStorageConfig `toml:"Single"`
-	// Sink is the configuration for multiple storage backends (required if strategy is sink).
-	Sink *SinkStorageConfig `toml:"Sink"`
+	Strategy StorageStrategy      `toml:"Strategy"`
+	Single   *SingleStorageConfig `toml:"Single"`
 }
 
 // StorageStrategy defines the storage strategy to use.
 type StorageStrategy string
 
 const (
-	// StorageStrategySingle uses a single storage backend.
 	StorageStrategySingle StorageStrategy = "single"
-	// StorageStrategySink uses multiple storage backends with read conditions.
-	StorageStrategySink StorageStrategy = "sink"
 )
 
 // SingleStorageConfig provides configuration for a single storage backend.
 type SingleStorageConfig struct {
-	// Type is the type of storage backend to use (memory, postgres).
-	Type StorageBackendType `toml:"Type"`
-	// Memory is the configuration for the in-memory storage backend (required if type is memory).
-	Memory *InMemoryStorageConfig `toml:"Memory"`
-	// Postgres is the configuration for the postgres storage backend (required if type is postgres).
-	Postgres *PostgresConfig `toml:"Postgres"`
-}
-
-// SinkStorageConfig provides configuration for multiple storage backends.
-type SinkStorageConfig struct {
-	// Storages is the list of storage backends to use in the sink.
-	// The order determines read and write priority.
-	Storages []StorageBackendConfig `toml:"Storages"`
-}
-
-// StorageBackendConfig provides configuration for a single storage backend with read conditions.
-type StorageBackendConfig struct {
-	// Type is the type of storage backend to use (memory, postgres).
-	Type StorageBackendType `toml:"Type"`
-	// Memory is the configuration for the in-memory storage backend (required if type is memory).
-	Memory *InMemoryStorageConfig `toml:"Memory"`
-	// Postgres is the configuration for the postgres storage backend (required if type is postgres).
-	Postgres *PostgresConfig `toml:"Postgres"`
-}
-
-// InMemoryStorageConfig provides configuration for the in-memory storage backend.
-type InMemoryStorageConfig struct {
-	// TTL is the time-to-live for items in seconds. Items older than this will be evicted.
-	// Set to 0 to disable TTL-based eviction.
-	TTL int64 `toml:"TTL"`
-	// MaxSize is the maximum number of items to keep in storage.
-	// When exceeded, oldest items will be evicted.
-	// Set to 0 to disable size-based eviction.
-	MaxSize int `toml:"MaxSize"`
-	// CleanupInterval is how often to run the background cleanup goroutine in seconds.
-	// Defaults to 60 seconds if not set and TTL or MaxSize is enabled.
-	CleanupInterval int64 `toml:"CleanupInterval"`
+	Type     StorageBackendType `toml:"Type"`
+	Postgres *PostgresConfig    `toml:"Postgres"`
 }
 
 // PostgresConfig provides configuration for the postgres storage backend.
@@ -156,7 +117,6 @@ type PostgresConfig struct {
 type StorageBackendType string
 
 const (
-	StorageBackendTypeMemory   StorageBackendType = "memory"
 	StorageBackendTypePostgres StorageBackendType = "postgres"
 )
 
@@ -268,6 +228,11 @@ func LoadConfigFromBytes(data []byte) (*Config, error) {
 	return &config, nil
 }
 
+// DiscoveryConfigs returns the list of discovery configs to use for message discovery.
+func (c *Config) DiscoveryConfigs() []DiscoveryConfig {
+	return c.Discoveries
+}
+
 // Validate performs basic validation on the configuration.
 // It returns an error if the configuration is invalid.
 func (c *Config) Validate() error {
@@ -275,8 +240,13 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("scheduler config validation failed: %w", err)
 	}
 
-	if err := c.Discovery.Validate(0); err != nil {
-		return fmt.Errorf("discovery config validation failed: %w", err)
+	if len(c.Discoveries) < 1 {
+		return fmt.Errorf("at least one discovery config is required")
+	}
+	for i, d := range c.Discoveries {
+		if err := d.Validate(i); err != nil {
+			return fmt.Errorf("discovery config[%d] validation failed: %w", i, err)
+		}
 	}
 
 	// Validate storage config
@@ -324,26 +294,15 @@ func (s *StorageConfig) Validate() error {
 		return fmt.Errorf("storage strategy is required")
 	}
 
-	switch s.Strategy {
-	case StorageStrategySingle:
-		if s.Single == nil {
-			return fmt.Errorf("single storage config is required when strategy is single")
-		}
-		if err := s.Single.Validate(); err != nil {
-			return fmt.Errorf("single storage config validation failed: %w", err)
-		}
-	case StorageStrategySink:
-		if s.Sink == nil {
-			return fmt.Errorf("sink storage config is required when strategy is sink")
-		}
-		if err := s.Sink.Validate(); err != nil {
-			return fmt.Errorf("sink storage config validation failed: %w", err)
-		}
-	default:
-		return fmt.Errorf("unknown storage strategy: %s (must be 'single' or 'sink')", s.Strategy)
+	if s.Strategy != StorageStrategySingle {
+		return fmt.Errorf("unknown storage strategy: %s (must be 'single')", s.Strategy)
 	}
 
-	return nil
+	if s.Single == nil {
+		return fmt.Errorf("single storage config is required when strategy is single")
+	}
+
+	return s.Single.Validate()
 }
 
 // Validate performs validation on the single storage configuration.
@@ -352,86 +311,15 @@ func (s *SingleStorageConfig) Validate() error {
 		return fmt.Errorf("storage backend type is required")
 	}
 
-	switch s.Type {
-	case StorageBackendTypeMemory:
-		// Memory storage config is optional (can use defaults)
-		if s.Memory != nil {
-			if err := s.Memory.Validate(); err != nil {
-				return fmt.Errorf("memory storage config validation failed: %w", err)
-			}
-		}
-	case StorageBackendTypePostgres:
-		if s.Postgres == nil {
-			return fmt.Errorf("postgres storage config is required when type is postgres")
-		}
-		if err := s.Postgres.Validate(); err != nil {
-			return fmt.Errorf("postgres storage config validation failed: %w", err)
-		}
-	default:
-		return fmt.Errorf("unknown storage backend type: %s (must be 'memory' or 'postgres')", s.Type)
+	if s.Type != StorageBackendTypePostgres {
+		return fmt.Errorf("unknown storage backend type: %s (must be 'postgres')", s.Type)
 	}
 
-	return nil
-}
-
-// Validate performs validation on the sink storage configuration.
-func (s *SinkStorageConfig) Validate() error {
-	if len(s.Storages) == 0 {
-		return fmt.Errorf("at least one storage backend is required for sink strategy")
+	if s.Postgres == nil {
+		return fmt.Errorf("postgres storage config is required when type is postgres")
 	}
 
-	for i, storage := range s.Storages {
-		if err := storage.Validate(i); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// Validate performs validation on the storage backend configuration.
-func (s *StorageBackendConfig) Validate(index int) error {
-	if s.Type == "" {
-		return fmt.Errorf("storage[%d]: backend type is required", index)
-	}
-
-	switch s.Type {
-	case StorageBackendTypeMemory:
-		// Memory storage config is optional (can use defaults)
-		if s.Memory != nil {
-			if err := s.Memory.Validate(); err != nil {
-				return fmt.Errorf("storage[%d]: memory storage config validation failed: %w", index, err)
-			}
-		}
-	case StorageBackendTypePostgres:
-		if s.Postgres == nil {
-			return fmt.Errorf("storage[%d]: postgres storage config is required when type is postgres", index)
-		}
-		if err := s.Postgres.Validate(); err != nil {
-			return fmt.Errorf("storage[%d]: postgres storage config validation failed: %w", index, err)
-		}
-	default:
-		return fmt.Errorf("storage[%d]: unknown backend type: %s (must be 'memory' or 'postgres')", index, s.Type)
-	}
-
-	return nil
-}
-
-// Validate performs validation on the in-memory storage configuration.
-func (i *InMemoryStorageConfig) Validate() error {
-	if i.TTL < 0 {
-		return fmt.Errorf("TTL must be non-negative, got %d", i.TTL)
-	}
-
-	if i.MaxSize < 0 {
-		return fmt.Errorf("max_size must be non-negative, got %d", i.MaxSize)
-	}
-
-	if i.CleanupInterval < 0 {
-		return fmt.Errorf("cleanup_interval must be non-negative, got %d", i.CleanupInterval)
-	}
-
-	return nil
+	return s.Postgres.Validate()
 }
 
 func (v *VerifierConfig) Validate(index int) error {
@@ -466,6 +354,20 @@ func (a *AggregatorReaderConfig) Validate(index int) error {
 		}
 	}
 
+	return nil
+}
+
+// Validate validates the discovery config (aggregator fields plus PollInterval/Timeout).
+func (d *DiscoveryConfig) Validate(index int) error {
+	if err := d.AggregatorReaderConfig.Validate(index); err != nil {
+		return err
+	}
+	if d.PollInterval <= 0 {
+		return fmt.Errorf("discovery[%d]: poll interval must be greater than 0", index)
+	}
+	if d.Timeout <= 0 || d.Timeout <= d.PollInterval {
+		return fmt.Errorf("discovery[%d]: timeout must be greater than poll interval", index)
+	}
 	return nil
 }
 

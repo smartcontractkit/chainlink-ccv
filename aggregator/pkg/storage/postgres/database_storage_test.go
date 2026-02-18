@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/ecdsa"
-	"database/sql"
 	"fmt"
 	"testing"
 	"time"
@@ -13,16 +12,12 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/testutil"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	_ "github.com/lib/pq"
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
@@ -213,48 +208,17 @@ func createTestCommitVerificationRecordWithNewKey(t *testing.T, msgWithCCV *comm
 }
 
 func setupTestDB(t *testing.T) (*DatabaseStorage, func()) {
+	t.Helper()
 	storage, _, cleanup := setupTestDBWithDatabase(t)
 	return storage, cleanup
 }
 
 func setupTestDBWithDatabase(t *testing.T) (*DatabaseStorage, *sqlx.DB, func()) {
-	ctx := context.Background()
-	if testing.Short() {
-		t.Skip("skipping docker test in short mode")
-	}
-
-	postgresContainer, err := postgres.Run(ctx,
-		"postgres:15-alpine",
-		postgres.WithDatabase("test_storage_db"),
-		postgres.WithUsername("test_user"),
-		postgres.WithPassword("test_password"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(30*time.Second)),
-	)
+	t.Helper()
+	ds, cleanup := testutil.SetupTestPostgresDB(t)
+	err := RunMigrations(ds, "postgres")
 	require.NoError(t, err)
-
-	connectionString, err := postgresContainer.ConnectionString(ctx, "sslmode=disable")
-	require.NoError(t, err)
-
-	db, err := sql.Open("postgres", connectionString)
-	require.NoError(t, err)
-
-	ds := sqlx.NewDb(db, "postgres")
-
-	err = RunMigrations(ds, "postgres")
-	require.NoError(t, err)
-
 	storage := NewDatabaseStorage(ds, 10, 10*time.Second, logger.TestSugared(t))
-
-	cleanup := func() {
-		ds.Close()
-		if err := postgresContainer.Terminate(context.Background()); err != nil {
-			t.Logf("failed to terminate postgres container: %v", err)
-		}
-	}
-
 	return storage, ds, cleanup
 }
 
@@ -700,7 +664,7 @@ func TestListOrphanedKeys(t *testing.T) {
 	err = storage.SubmitAggregatedReport(ctx, report)
 	require.NoError(t, err)
 
-	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, time.Time{})
+	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, time.Time{}, 100)
 
 	orphanedKeys := []model.OrphanedKey{}
 	for keys := range orphanKeysCh {
@@ -725,7 +689,7 @@ func TestListOrphanedKeys_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	messageIDCh, errCh := storage.ListOrphanedKeys(ctx, time.Time{})
+	messageIDCh, errCh := storage.ListOrphanedKeys(ctx, time.Time{}, 100)
 
 	for range messageIDCh {
 	}
@@ -774,7 +738,7 @@ func TestListOrphanedKeys_FiltersRecordsOlderThanCutoff(t *testing.T) {
 	}
 
 	cutoff := time.Now().Add(-1 * time.Hour)
-	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, cutoff)
+	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, cutoff, 100)
 
 	orphanedKeys := []model.OrphanedKey{}
 	for key := range orphanKeysCh {
@@ -786,6 +750,45 @@ func TestListOrphanedKeys_FiltersRecordsOlderThanCutoff(t *testing.T) {
 	require.Len(t, orphanedKeys, 1, "Should only return orphan newer than cutoff")
 	require.Equal(t, orphans[2].aggregationKey, orphanedKeys[0].AggregationKey,
 		"Should return only the recent orphan")
+}
+
+func TestListOrphanedKeys_PaginationReturnsAllResults(t *testing.T) {
+	storage, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	signer := newTestSigner(t)
+
+	const totalOrphans = 7
+
+	for i := range totalOrphans {
+		message := createTestProtocolMessage()
+		message.SequenceNumber = protocol.SequenceNumber(i + 1)
+		msgWithCCV := createTestMessageWithCCV(t, message, signer)
+		messageID := getMessageIDFromProto(t, msgWithCCV)
+		aggregationKey := protocol.ByteSlice(messageID).String()
+		record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
+		err := storage.SaveCommitVerification(ctx, record, aggregationKey)
+		require.NoError(t, err)
+	}
+
+	// Use pageSize=2 so pagination is exercised with a small number of records
+	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, time.Time{}, 2)
+
+	orphanedKeys := make([]model.OrphanedKey, 0, totalOrphans)
+	for key := range orphanKeysCh {
+		orphanedKeys = append(orphanedKeys, key)
+	}
+	err := <-errCh
+	require.NoError(t, err)
+
+	require.Len(t, orphanedKeys, totalOrphans, "Paginated scan must return all orphans")
+
+	for i := 1; i < len(orphanedKeys); i++ {
+		prev := protocol.ByteSlice(orphanedKeys[i-1].MessageID).String() + orphanedKeys[i-1].AggregationKey
+		curr := protocol.ByteSlice(orphanedKeys[i].MessageID).String() + orphanedKeys[i].AggregationKey
+		require.True(t, prev < curr, "Results must be in sorted order: %s >= %s", prev, curr)
+	}
 }
 
 func TestBatchOperations_MultipleSigners(t *testing.T) {
@@ -908,37 +911,8 @@ func TestQueryAggregatedReports_SinceSequence(t *testing.T) {
 }
 
 func TestDatabaseStorage_PageSize(t *testing.T) {
-	ctx := context.Background()
-	if testing.Short() {
-		t.Skip("skipping docker test in short mode")
-	}
-
-	postgresContainer, err := postgres.Run(ctx,
-		"postgres:15-alpine",
-		postgres.WithDatabase("test_pagesize_db"),
-		postgres.WithUsername("test_user"),
-		postgres.WithPassword("test_password"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(30*time.Second)),
-	)
-	require.NoError(t, err)
-
-	defer func() {
-		if err := postgresContainer.Terminate(context.Background()); err != nil {
-			t.Logf("failed to terminate postgres container: %v", err)
-		}
-	}()
-
-	connectionString, err := postgresContainer.ConnectionString(ctx, "sslmode=disable")
-	require.NoError(t, err)
-
-	db, err := sql.Open("postgres", connectionString)
-	require.NoError(t, err)
-
-	ds := sqlx.NewDb(db, "postgres")
-	defer ds.Close()
+	ds, cleanup := testutil.SetupTestPostgresDB(t)
+	defer cleanup()
 
 	customPageSize := 25
 	storage := NewDatabaseStorage(ds, customPageSize, 10*time.Second, logger.TestSugared(t))
@@ -1071,4 +1045,323 @@ func TestSubmitAggregatedReport_FailsWhenVersionMismatch(t *testing.T) {
 	err = storage.SubmitAggregatedReport(ctx, aggregatedReport)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to find verification record ID")
+}
+
+func TestGetCommitAggregatedReportByMessageID_ReturnsOnlyLatestReport(t *testing.T) {
+	storage, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	message := createTestProtocolMessage()
+
+	signer1 := newTestSigner(t)
+	signer2 := newTestSigner(t)
+	signer3 := newTestSigner(t)
+
+	msgWithCCV1 := createTestMessageWithCCV(t, message, signer1)
+	messageID := getMessageIDFromProto(t, msgWithCCV1)
+	aggregationKey := protocol.ByteSlice(messageID).String()
+
+	record1 := createTestCommitVerificationRecord(t, msgWithCCV1, signer1)
+	require.NoError(t, storage.SaveCommitVerification(ctx, record1, aggregationKey))
+
+	msgWithCCV2 := createTestMessageWithCCV(t, message, signer2)
+	record2 := createTestCommitVerificationRecord(t, msgWithCCV2, signer2)
+	record2.MessageID = messageID
+	require.NoError(t, storage.SaveCommitVerification(ctx, record2, aggregationKey))
+
+	msgWithCCV3 := createTestMessageWithCCV(t, message, signer3)
+	record3 := createTestCommitVerificationRecord(t, msgWithCCV3, signer3)
+	record3.MessageID = messageID
+	require.NoError(t, storage.SaveCommitVerification(ctx, record3, aggregationKey))
+
+	oldReport := &model.CommitAggregatedReport{
+		MessageID:     messageID,
+		Verifications: []*model.CommitVerificationRecord{record1, record2, record3},
+	}
+	require.NoError(t, storage.SubmitAggregatedReport(ctx, oldReport))
+
+	retrieved, err := storage.GetCommitAggregatedReportByMessageID(ctx, messageID)
+	require.NoError(t, err)
+	require.Len(t, retrieved.Verifications, 3)
+	oldSeq := retrieved.Sequence
+
+	newReport := &model.CommitAggregatedReport{
+		MessageID:     messageID,
+		Verifications: []*model.CommitVerificationRecord{record2, record3},
+	}
+	require.NoError(t, storage.SubmitAggregatedReport(ctx, newReport))
+
+	retrieved, err = storage.GetCommitAggregatedReportByMessageID(ctx, messageID)
+	require.NoError(t, err)
+	require.NotNil(t, retrieved)
+	require.Greater(t, retrieved.Sequence, oldSeq)
+	require.Len(t, retrieved.Verifications, 2, "should return only the latest report's verifications")
+
+	signerAddrs := make(map[string]struct{})
+	for _, v := range retrieved.Verifications {
+		signerAddrs[common.BytesToAddress(v.SignerIdentifier.Identifier).Hex()] = struct{}{}
+	}
+	_, hasSigner2 := signerAddrs[signer2.Signer.Address]
+	_, hasSigner3 := signerAddrs[signer3.Signer.Address]
+	require.True(t, hasSigner2, "signer2 should be in the latest report")
+	require.True(t, hasSigner3, "signer3 should be in the latest report")
+}
+
+func TestGetBatchAggregatedReportByMessageIDs_ReturnsOnlyLatestReportPerMessage(t *testing.T) {
+	storage, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	signer1 := newTestSigner(t)
+	signer2 := newTestSigner(t)
+	signer3 := newTestSigner(t)
+
+	msg1 := createTestProtocolMessage()
+	msg1.SequenceNumber = 100
+
+	msgWithCCV1s1 := createTestMessageWithCCV(t, msg1, signer1)
+	messageID1 := getMessageIDFromProto(t, msgWithCCV1s1)
+	aggKey1 := protocol.ByteSlice(messageID1).String()
+
+	r1s1 := createTestCommitVerificationRecord(t, msgWithCCV1s1, signer1)
+	require.NoError(t, storage.SaveCommitVerification(ctx, r1s1, aggKey1))
+
+	msgWithCCV1s2 := createTestMessageWithCCV(t, msg1, signer2)
+	r1s2 := createTestCommitVerificationRecord(t, msgWithCCV1s2, signer2)
+	r1s2.MessageID = messageID1
+	require.NoError(t, storage.SaveCommitVerification(ctx, r1s2, aggKey1))
+
+	msgWithCCV1s3 := createTestMessageWithCCV(t, msg1, signer3)
+	r1s3 := createTestCommitVerificationRecord(t, msgWithCCV1s3, signer3)
+	r1s3.MessageID = messageID1
+	require.NoError(t, storage.SaveCommitVerification(ctx, r1s3, aggKey1))
+
+	oldReport1 := &model.CommitAggregatedReport{
+		MessageID:     messageID1,
+		Verifications: []*model.CommitVerificationRecord{r1s1, r1s2, r1s3},
+	}
+	require.NoError(t, storage.SubmitAggregatedReport(ctx, oldReport1))
+
+	newReport1 := &model.CommitAggregatedReport{
+		MessageID:     messageID1,
+		Verifications: []*model.CommitVerificationRecord{r1s2, r1s3},
+	}
+	require.NoError(t, storage.SubmitAggregatedReport(ctx, newReport1))
+
+	msg2 := createTestProtocolMessage()
+	msg2.SequenceNumber = 200
+
+	msgWithCCV2s1 := createTestMessageWithCCV(t, msg2, signer1)
+	messageID2 := getMessageIDFromProto(t, msgWithCCV2s1)
+	aggKey2 := protocol.ByteSlice(messageID2).String()
+
+	r2s1 := createTestCommitVerificationRecord(t, msgWithCCV2s1, signer1)
+	require.NoError(t, storage.SaveCommitVerification(ctx, r2s1, aggKey2))
+
+	msgWithCCV2s2 := createTestMessageWithCCV(t, msg2, signer2)
+	r2s2 := createTestCommitVerificationRecord(t, msgWithCCV2s2, signer2)
+	r2s2.MessageID = messageID2
+	require.NoError(t, storage.SaveCommitVerification(ctx, r2s2, aggKey2))
+
+	singleReport2 := &model.CommitAggregatedReport{
+		MessageID:     messageID2,
+		Verifications: []*model.CommitVerificationRecord{r2s1, r2s2},
+	}
+	require.NoError(t, storage.SubmitAggregatedReport(ctx, singleReport2))
+
+	results, err := storage.GetBatchAggregatedReportByMessageIDs(ctx, []model.MessageID{messageID1, messageID2})
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+
+	msgID1Hex := protocol.ByteSlice(messageID1).String()
+	report1 := results[msgID1Hex]
+	require.NotNil(t, report1)
+	require.Len(t, report1.Verifications, 2, "message1 should return only the latest report with 2 verifications")
+
+	msgID2Hex := protocol.ByteSlice(messageID2).String()
+	report2 := results[msgID2Hex]
+	require.NotNil(t, report2)
+	require.Len(t, report2.Verifications, 2, "message2 should return the single report with 2 verifications")
+}
+
+func TestGetCommitAggregatedReportByMessageID_DisjointVerifications_ReturnsOnlyLatest(t *testing.T) {
+	storage, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	message := createTestProtocolMessage()
+
+	signer1 := newTestSigner(t)
+	signer2 := newTestSigner(t)
+	signer3 := newTestSigner(t)
+	signer4 := newTestSigner(t)
+	signer5 := newTestSigner(t)
+
+	msgWithCCV1 := createTestMessageWithCCV(t, message, signer1)
+	messageID := getMessageIDFromProto(t, msgWithCCV1)
+	aggregationKey := protocol.ByteSlice(messageID).String()
+
+	record1 := createTestCommitVerificationRecord(t, msgWithCCV1, signer1)
+	require.NoError(t, storage.SaveCommitVerification(ctx, record1, aggregationKey))
+
+	msgWithCCV2 := createTestMessageWithCCV(t, message, signer2)
+	record2 := createTestCommitVerificationRecord(t, msgWithCCV2, signer2)
+	record2.MessageID = messageID
+	require.NoError(t, storage.SaveCommitVerification(ctx, record2, aggregationKey))
+
+	firstReport := &model.CommitAggregatedReport{
+		MessageID:     messageID,
+		Verifications: []*model.CommitVerificationRecord{record1, record2},
+	}
+	require.NoError(t, storage.SubmitAggregatedReport(ctx, firstReport))
+
+	msgWithCCV3 := createTestMessageWithCCV(t, message, signer3)
+	record3 := createTestCommitVerificationRecord(t, msgWithCCV3, signer3)
+	record3.MessageID = messageID
+	require.NoError(t, storage.SaveCommitVerification(ctx, record3, aggregationKey))
+
+	msgWithCCV4 := createTestMessageWithCCV(t, message, signer4)
+	record4 := createTestCommitVerificationRecord(t, msgWithCCV4, signer4)
+	record4.MessageID = messageID
+	require.NoError(t, storage.SaveCommitVerification(ctx, record4, aggregationKey))
+
+	msgWithCCV5 := createTestMessageWithCCV(t, message, signer5)
+	record5 := createTestCommitVerificationRecord(t, msgWithCCV5, signer5)
+	record5.MessageID = messageID
+	require.NoError(t, storage.SaveCommitVerification(ctx, record5, aggregationKey))
+
+	secondReport := &model.CommitAggregatedReport{
+		MessageID:     messageID,
+		Verifications: []*model.CommitVerificationRecord{record3, record4, record5},
+	}
+	require.NoError(t, storage.SubmitAggregatedReport(ctx, secondReport))
+
+	retrieved, err := storage.GetCommitAggregatedReportByMessageID(ctx, messageID)
+	require.NoError(t, err)
+	require.NotNil(t, retrieved)
+	require.Len(t, retrieved.Verifications, 3, "should return only the latest report's 3 verifications, not all 5")
+
+	signerAddrs := make(map[string]struct{})
+	for _, v := range retrieved.Verifications {
+		signerAddrs[common.BytesToAddress(v.SignerIdentifier.Identifier).Hex()] = struct{}{}
+	}
+	_, hasSigner3 := signerAddrs[signer3.Signer.Address]
+	_, hasSigner4 := signerAddrs[signer4.Signer.Address]
+	_, hasSigner5 := signerAddrs[signer5.Signer.Address]
+	require.True(t, hasSigner3, "signer3 should be in the latest report")
+	require.True(t, hasSigner4, "signer4 should be in the latest report")
+	require.True(t, hasSigner5, "signer5 should be in the latest report")
+
+	_, hasSigner1 := signerAddrs[signer1.Signer.Address]
+	_, hasSigner2 := signerAddrs[signer2.Signer.Address]
+	require.False(t, hasSigner1, "signer1 from old report should not appear")
+	require.False(t, hasSigner2, "signer2 from old report should not appear")
+}
+
+func TestGetBatchAggregatedReportByMessageIDs_DisjointVerifications_ReturnsOnlyLatest(t *testing.T) {
+	storage, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	signer1 := newTestSigner(t)
+	signer2 := newTestSigner(t)
+	signer3 := newTestSigner(t)
+	signer4 := newTestSigner(t)
+	signer5 := newTestSigner(t)
+
+	msg1 := createTestProtocolMessage()
+	msg1.SequenceNumber = 300
+
+	msgWithCCV1s1 := createTestMessageWithCCV(t, msg1, signer1)
+	messageID1 := getMessageIDFromProto(t, msgWithCCV1s1)
+	aggKey1 := protocol.ByteSlice(messageID1).String()
+
+	r1s1 := createTestCommitVerificationRecord(t, msgWithCCV1s1, signer1)
+	require.NoError(t, storage.SaveCommitVerification(ctx, r1s1, aggKey1))
+
+	msgWithCCV1s2 := createTestMessageWithCCV(t, msg1, signer2)
+	r1s2 := createTestCommitVerificationRecord(t, msgWithCCV1s2, signer2)
+	r1s2.MessageID = messageID1
+	require.NoError(t, storage.SaveCommitVerification(ctx, r1s2, aggKey1))
+
+	oldReport1 := &model.CommitAggregatedReport{
+		MessageID:     messageID1,
+		Verifications: []*model.CommitVerificationRecord{r1s1, r1s2},
+	}
+	require.NoError(t, storage.SubmitAggregatedReport(ctx, oldReport1))
+
+	msgWithCCV1s3 := createTestMessageWithCCV(t, msg1, signer3)
+	r1s3 := createTestCommitVerificationRecord(t, msgWithCCV1s3, signer3)
+	r1s3.MessageID = messageID1
+	require.NoError(t, storage.SaveCommitVerification(ctx, r1s3, aggKey1))
+
+	msgWithCCV1s4 := createTestMessageWithCCV(t, msg1, signer4)
+	r1s4 := createTestCommitVerificationRecord(t, msgWithCCV1s4, signer4)
+	r1s4.MessageID = messageID1
+	require.NoError(t, storage.SaveCommitVerification(ctx, r1s4, aggKey1))
+
+	msgWithCCV1s5 := createTestMessageWithCCV(t, msg1, signer5)
+	r1s5 := createTestCommitVerificationRecord(t, msgWithCCV1s5, signer5)
+	r1s5.MessageID = messageID1
+	require.NoError(t, storage.SaveCommitVerification(ctx, r1s5, aggKey1))
+
+	newReport1 := &model.CommitAggregatedReport{
+		MessageID:     messageID1,
+		Verifications: []*model.CommitVerificationRecord{r1s3, r1s4, r1s5},
+	}
+	require.NoError(t, storage.SubmitAggregatedReport(ctx, newReport1))
+
+	msg2 := createTestProtocolMessage()
+	msg2.SequenceNumber = 400
+
+	msgWithCCV2s1 := createTestMessageWithCCV(t, msg2, signer1)
+	messageID2 := getMessageIDFromProto(t, msgWithCCV2s1)
+	aggKey2 := protocol.ByteSlice(messageID2).String()
+
+	r2s1 := createTestCommitVerificationRecord(t, msgWithCCV2s1, signer1)
+	require.NoError(t, storage.SaveCommitVerification(ctx, r2s1, aggKey2))
+
+	msgWithCCV2s2 := createTestMessageWithCCV(t, msg2, signer2)
+	r2s2 := createTestCommitVerificationRecord(t, msgWithCCV2s2, signer2)
+	r2s2.MessageID = messageID2
+	require.NoError(t, storage.SaveCommitVerification(ctx, r2s2, aggKey2))
+
+	singleReport2 := &model.CommitAggregatedReport{
+		MessageID:     messageID2,
+		Verifications: []*model.CommitVerificationRecord{r2s1, r2s2},
+	}
+	require.NoError(t, storage.SubmitAggregatedReport(ctx, singleReport2))
+
+	results, err := storage.GetBatchAggregatedReportByMessageIDs(ctx, []model.MessageID{messageID1, messageID2})
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+
+	msgID1Hex := protocol.ByteSlice(messageID1).String()
+	report1 := results[msgID1Hex]
+	require.NotNil(t, report1)
+	require.Len(t, report1.Verifications, 3, "message1 should return only the latest report with 3 verifications, not all 5")
+
+	signerAddrs := make(map[string]struct{})
+	for _, v := range report1.Verifications {
+		signerAddrs[common.BytesToAddress(v.SignerIdentifier.Identifier).Hex()] = struct{}{}
+	}
+	_, hasSigner3 := signerAddrs[signer3.Signer.Address]
+	_, hasSigner4 := signerAddrs[signer4.Signer.Address]
+	_, hasSigner5 := signerAddrs[signer5.Signer.Address]
+	require.True(t, hasSigner3, "signer3 should be in the latest report for message1")
+	require.True(t, hasSigner4, "signer4 should be in the latest report for message1")
+	require.True(t, hasSigner5, "signer5 should be in the latest report for message1")
+
+	_, hasSigner1 := signerAddrs[signer1.Signer.Address]
+	_, hasSigner2 := signerAddrs[signer2.Signer.Address]
+	require.False(t, hasSigner1, "signer1 from old report should not appear for message1")
+	require.False(t, hasSigner2, "signer2 from old report should not appear for message1")
+
+	msgID2Hex := protocol.ByteSlice(messageID2).String()
+	report2 := results[msgID2Hex]
+	require.NotNil(t, report2)
+	require.Len(t, report2.Verifications, 2, "message2 should return the single report with 2 verifications")
 }

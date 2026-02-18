@@ -150,8 +150,8 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 		case streamResult, ok := <-indexerResults:
 			if !ok {
 				ec.lggr.Warnw("streamerResults closed")
-				continue
-				// TODO: handle reconnection logic
+				// indexerResults channel will only close if context is done.
+				return
 			}
 
 			msg := streamResult.Message
@@ -199,6 +199,7 @@ func (ec *Coordinator) runProcessingLoop(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Second)
 	reportingTicker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
+	defer reportingTicker.Stop()
 	for {
 		select {
 		case <-ctx.Done():

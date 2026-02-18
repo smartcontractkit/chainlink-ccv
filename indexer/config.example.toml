@@ -12,7 +12,7 @@ MetricReaderInterval = 5
 TraceSampleRatio = 1.0
 TraceBatchTimeout = 10
 
-[Discovery]
+[[Discoveries]]
 Address = "aggregator:50051"
 Since = 0
 PollInterval = 1
@@ -33,32 +33,12 @@ BaseURL = "http://verifier:8080"
 RequestTimeout = 10
 
 [Storage]
-Strategy = "sink" # Options: "single", "sink"
+Strategy = "single"
 
-# Example: Single storage strategy
-# [Storage.Single]
-# Type = "postgres"
-# [Storage.Single.Postgres]
-# URI = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"
-# MaxOpenConnections = 20
-# MaxIdleConnections = 5
-# IdleInTxSessionTimeout = 60
-# LockTimeout = 30
-
-# Example: Sink storage strategy with multiple backends
-[[Storage.Sink.Storages]]
-Type = "memory" # Options: "memory", "postgres"
-
-[Storage.Sink.Storages.Memory]
-TTL = 3600            # 1 hour TTL (in seconds)
-MaxSize = 10000       # Keep up to 10k items
-CleanupInterval = 300 # Clean up every 5 minutes (in seconds)
-
-# Persistent Storage
-[[Storage.Sink.Storages]]
+[Storage.Single]
 Type = "postgres"
 
-[Storage.Sink.Storages.Postgres]
+[Storage.Single.Postgres]
 URI = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"
 MaxOpenConnections = 20
 MaxIdleConnections = 5

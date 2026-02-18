@@ -249,8 +249,8 @@ func LoadBlockchainInfo(
 	return blockchainHelper
 }
 
-func StartPyroscope(lggr logger.Logger, pyroscopeAddress, serviceName string) {
-	if _, err := pyroscope.Start(pyroscope.Config{
+func StartPyroscope(lggr logger.Logger, pyroscopeAddress, serviceName string) (*pyroscope.Profiler, error) {
+	profiler, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: serviceName,
 		ServerAddress:   pyroscopeAddress,
 		Logger:          nil, // Disable pyroscope logging - so noisy
@@ -262,9 +262,12 @@ func StartPyroscope(lggr logger.Logger, pyroscopeAddress, serviceName string) {
 			pyroscope.ProfileBlockDuration,
 			pyroscope.ProfileMutexDuration,
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		lggr.Errorw("Failed to start pyroscope", "error", err)
+		return nil, fmt.Errorf("failed to start pyroscope: %w", err)
 	}
+	return profiler, nil
 }
 
 func logBlockchainInfo(blockchainHelper *blockchain.Helper, lggr logger.Logger) {

@@ -5,17 +5,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math/big"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/sync/errgroup"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
@@ -37,6 +41,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+	"github.com/smartcontractkit/chainlink-deployments-framework/offchain"
+	jobv1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/job"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -90,7 +96,7 @@ type Cfg struct {
 	Verifier           []*services.VerifierInput      `toml:"verifier"              validate:"required"`
 	TokenVerifier      []*services.TokenVerifierInput `toml:"token_verifier"`
 	Executor           []*services.ExecutorInput      `toml:"executor"              validate:"required"`
-	Indexer            *services.IndexerInput         `toml:"indexer"               validate:"required"`
+	Indexer            []*services.IndexerInput       `toml:"indexer"               validate:"required"`
 	Aggregator         []*services.AggregatorInput    `toml:"aggregator"            validate:"required"`
 	JD                 *jd.Input                      `toml:"jd"                    validate:"required"`
 	Blockchains        []*blockchain.Input            `toml:"blockchains"           validate:"required"`
@@ -101,10 +107,10 @@ type Cfg struct {
 	AggregatorEndpoints map[string]string `toml:"aggregator_endpoints"`
 	// AggregatorCACertFiles map the verifier qualifier to the CA cert file path for TLS verification.
 	AggregatorCACertFiles map[string]string `toml:"aggregator_ca_cert_files"`
-	// IndexerEndpoint is the external URL (localhost:port) for host access.
-	IndexerEndpoint string `toml:"indexer_endpoint"`
-	// IndexerInternalEndpoint is the internal Docker network URL for container-to-container access.
-	IndexerInternalEndpoint string `toml:"indexer_internal_endpoint"`
+	// IndexerEndpoints holds external URLs for all indexers (localhost:port).
+	IndexerEndpoints []string `toml:"indexer_endpoints"`
+	// IndexerInternalEndpoints holds internal Docker network URLs for all indexers.
+	IndexerInternalEndpoints []string `toml:"indexer_internal_endpoints"`
 	// EnvironmentTopology is the shared environment configuration for NOPs, committees, and executor pools.
 	EnvironmentTopology *deployments.EnvironmentTopology `toml:"environment_topology" validate:"required"`
 	// JDInfra holds the runtime JD infrastructure (not from config, populated at runtime).
@@ -156,7 +162,7 @@ func NewProductConfigurationFromNetwork(family string, chainID string) (cciptest
 	case "anvil":
 		return evm.NewEmptyCCIP17EVM(), nil
 	case "canton":
-		return canton.New(
+		return canton.NewEmptyCCIP17Canton(
 			log.
 				Output(zerolog.ConsoleWriter{Out: os.Stderr}).
 				Level(zerolog.DebugLevel).
@@ -203,10 +209,10 @@ func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers [
 				continue
 			}
 			if nop.SignerAddressByFamily[chainsel.FamilyEVM] == "" {
-				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, ver.SigningKeyPublic)
+				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, ver.Out.BootstrapKeys.ECDSAAddress)
 			}
 			if nop.SignerAddressByFamily[chainsel.FamilyCanton] == "" {
-				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyCanton, ver.SigningKeyPublic)
+				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyCanton, ver.Out.BootstrapKeys.ECDSAPublicKey)
 			}
 			if nop.SignerAddressByFamily[chainsel.FamilyStellar] == "" {
 				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyStellar, ver.SigningKeyPublic)
@@ -415,6 +421,11 @@ func generateVerifierJobSpecs(
 			}
 			ver.GeneratedConfig = string(configBytes)
 
+			// Store the VerifierID in the output for test access
+			if ver.Out != nil {
+				ver.Out.VerifierID = verCfg.VerifierID
+			}
+
 			if sharedTLSCerts != nil && !ver.InsecureAggregatorConnection {
 				ver.TLSCACertFile = sharedTLSCerts.CACertFile
 			}
@@ -512,6 +523,13 @@ func NewEnvironment() (in *Cfg, err error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to ensure client credentials for aggregator %s: %w", agg.CommitteeName, err)
 		}
+
+		// Set the aggregator output client credentials so that the verifier has access to it.
+		if agg.Out == nil {
+			agg.Out = &services.AggregatorOutput{}
+		}
+		agg.Out.ClientCredentials = creds
+
 		for clientID, c := range creds {
 			Plog.Debug().
 				Str("aggregator", agg.CommitteeName).
@@ -632,37 +650,26 @@ func NewEnvironment() (in *Cfg, err error) {
 	/////////////////////////////////////
 
 	/////////////////////////////////////////////
-	// START: Assign signing keys to verifiers //
+	// START: Launch verifiers early //
+	// Verifiers generate their own keys on startup, so we need to start them
+	// early and query /info to discover signing addresses before contract deployment.
 	/////////////////////////////////////////////
-	for i := range in.Verifier {
-		ver := services.ApplyVerifierDefaults(*in.Verifier[i])
 
-		switch ver.Mode {
-		case services.CL:
-			// no-op signing key is fetched from JD with changeset
-		case services.Standalone:
-			// deterministic key generation algorithm.
-			ver.SigningKey = util.XXXNewVerifierPrivateKey(ver.CommitteeName, ver.NodeIndex)
-
-			privateKey, err := commit.ReadPrivateKeyFromString(ver.SigningKey)
-			if err != nil {
-				return nil, fmt.Errorf("failed to load private key: %w", err)
-			}
-			_, publicKey, err := commit.NewECDSAMessageSigner(privateKey)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create message signer: %w", err)
-			}
-			ver.SigningKeyPublic = publicKey.String()
-
-		default:
-			return nil, fmt.Errorf("unsupported verifier mode: %s", ver.Mode)
-		}
-
-		// Apply changes back to input.
-		in.Verifier[i] = &ver
+	_, err = launchStandaloneVerifiers(in, blockchainOutputs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create standalone verifiers: %w", err)
 	}
+
+	// Register standalone verifiers with JD so they can receive job proposals
+	// TODO: can this be combined with the register for the CL nodes above?
+	if jdInfra != nil && jdInfra.OffchainClient != nil {
+		if err := registerStandaloneVerifiersWithJD(ctx, in.Verifier, jdInfra.OffchainClient); err != nil {
+			return nil, err
+		}
+	}
+
 	/////////////////////////////////////////////
-	// END: Assign signing keys to verifiers //
+	// END: Launch verifiers early //
 	/////////////////////////////////////////////
 
 	/////////////////////////////////////////
@@ -819,18 +826,20 @@ func NewEnvironment() (in *Cfg, err error) {
 	///////////////////////////////
 
 	///////////////////////////
-	// START: Launch indexer //
-	// start up the indexer after the aggregators are up to avoid spamming of errors
-	// in the logs when it starts before the aggregators are up.
+	// START: Launch indexer(s) //
+	// start up the indexer(s) after the aggregators are up to avoid spamming of errors
+	// in the logs when they start before the aggregators are up.
 	///////////////////////////
-	// Generate indexer config using changeset (on-chain state as source of truth)
-	if len(in.Aggregator) > 0 && in.Indexer != nil {
+	// Generate indexer config using changeset (on-chain state as source of truth).
+	// One shared config is generated; all indexers use the same config and duplicated secrets/auth.
+	if len(in.Aggregator) > 0 && len(in.Indexer) > 0 {
+		firstIdx := in.Indexer[0]
 		cs := changesets.GenerateIndexerConfig()
 		output, err := cs.Apply(*e, changesets.GenerateIndexerConfigCfg{
 			ServiceIdentifier:                "indexer",
-			CommitteeVerifierNameToQualifier: in.Indexer.CommitteeVerifierNameToQualifier,
-			CCTPVerifierNameToQualifier:      in.Indexer.CCTPVerifierNameToQualifier,
-			LombardVerifierNameToQualifier:   in.Indexer.LombardVerifierNameToQualifier,
+			CommitteeVerifierNameToQualifier: firstIdx.CommitteeVerifierNameToQualifier,
+			CCTPVerifierNameToQualifier:      firstIdx.CCTPVerifierNameToQualifier,
+			LombardVerifierNameToQualifier:   firstIdx.LombardVerifierNameToQualifier,
 			ChainSelectors:                   selectors,
 		})
 		if err != nil {
@@ -841,59 +850,123 @@ func NewEnvironment() (in *Cfg, err error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to get indexer config from output: %w", err)
 		}
-		in.Indexer.GeneratedCfg = idxCfg
 		e.DataStore = output.DataStore.Seal()
-	}
-
-	// Set TLS CA cert for indexer (all aggregators share the same CA)
-	if sharedTLSCerts != nil {
-		in.Indexer.TLSCACertFile = sharedTLSCerts.CACertFile
-		// Update discovery config to use nginx TLS proxy
-		if len(in.Aggregator) > 0 && in.Aggregator[0].Out != nil {
-			in.Indexer.IndexerConfig.Discovery.Address = in.Aggregator[0].Out.Address
+		for _, idxIn := range in.Indexer {
+			idxIn.GeneratedCfg = idxCfg
 		}
 	}
 
-	// Inject generated credentials into indexer secrets for aggregator connections
-	if in.Indexer != nil && in.Indexer.Secrets == nil {
-		in.Indexer.Secrets = &config.SecretsConfig{
-			Verifier: make(map[string]config.VerifierSecrets),
-		}
-	}
-	if in.Indexer != nil && in.Indexer.Secrets != nil && in.Indexer.Secrets.Verifier == nil {
-		in.Indexer.Secrets.Verifier = make(map[string]config.VerifierSecrets)
+	if len(in.Indexer) < 1 {
+		return nil, fmt.Errorf("at least one indexer is required")
 	}
 
-	// Discovery uses the first aggregator's indexer credentials
-	if len(in.Aggregator) > 0 {
-		if creds, ok := in.Aggregator[0].Out.GetCredentialsForClient("indexer"); ok {
-			in.Indexer.Secrets.Discovery.APIKey = creds.APIKey
-			in.Indexer.Secrets.Discovery.Secret = creds.Secret
+	// Ensure unique container names and DB host ports; always use indexer-1, indexer-2, ... for consistency.
+	for i := range in.Indexer {
+		if in.Indexer[i].ContainerName == "" {
+			in.Indexer[i].ContainerName = fmt.Sprintf("indexer-%d", i+1)
 		}
+		if in.Indexer[i].DB != nil && in.Indexer[i].DB.HostPort == 0 && len(in.Indexer) > 1 {
+			in.Indexer[i].DB.HostPort = services.DefaultIndexerDBPort + i
+		}
+		// Ensure StorageConnectionURL matches the DB container we create (indexer-1-db, indexer-2-db, ...).
+		// Env.toml may have single-instance URLs; overwrite so migrations and storage use the correct host/credentials.
+		idx := in.Indexer[i]
+		dbName := idx.ContainerName
+		if idx.DB != nil && idx.DB.Database != "" {
+			dbName = idx.DB.Database
+		}
+		dbUser := idx.ContainerName
+		if idx.DB != nil && idx.DB.Username != "" {
+			dbUser = idx.DB.Username
+		}
+		dbPass := idx.ContainerName
+		if idx.DB != nil && idx.DB.Password != "" {
+			dbPass = idx.DB.Password
+		}
+		dbHost := idx.ContainerName + "-db"
+		in.Indexer[i].StorageConnectionURL = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable", dbUser, dbPass, dbHost, dbName)
 	}
 
-	// Each verifier config needs credentials from its corresponding aggregator
+	if sharedTLSCerts == nil {
+		return nil, fmt.Errorf("shared TLS certificates are required for indexer")
+	}
+
+	// Build discovery secrets from aggregators (same creds used for all indexers).
+	// Ensure every discovery index 0..n-1 has an entry so the written secrets file has Discoveries.0, .1, ...;
+	// otherwise the indexer can panic in CI with "discovery index 0 not found in secrets" when merging.
+	discoverySecrets := make(map[string]config.DiscoverySecrets)
+	verifierSecrets := make(map[string]config.VerifierSecrets)
 	for idx, agg := range in.Aggregator {
-		if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
-			in.Indexer.Secrets.Verifier[strconv.Itoa(idx)] = config.VerifierSecrets{
-				APIKey: creds.APIKey,
-				Secret: creds.Secret,
+		key := strconv.Itoa(idx)
+		var disc config.DiscoverySecrets
+		var ver config.VerifierSecrets
+		if agg.Out != nil {
+			if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
+				disc = config.DiscoverySecrets{APIKey: creds.APIKey, Secret: creds.Secret}
+				ver = config.VerifierSecrets{APIKey: creds.APIKey, Secret: creds.Secret}
 			}
 		}
+		discoverySecrets[key] = disc
+		verifierSecrets[key] = ver
 	}
 
-	indexerOut, err := services.NewIndexer(in.Indexer)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create indexer service: %w", err)
+	externalURLs := make([]string, 0, len(in.Indexer))
+	internalURLs := make([]string, 0, len(in.Indexer))
+
+	for idxPos, idxIn := range in.Indexer {
+		idxIn.TLSCACertFile = sharedTLSCerts.CACertFile
+
+		idxIn.IndexerConfig.Discoveries = make([]config.DiscoveryConfig, len(in.Aggregator))
+		for i, agg := range in.Aggregator {
+			if agg.Out != nil {
+				idxIn.IndexerConfig.Discoveries[i].Address = agg.Out.Address
+				if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
+					idxIn.IndexerConfig.Discoveries[i].APIKey = creds.APIKey
+					idxIn.IndexerConfig.Discoveries[i].Secret = creds.Secret
+				}
+			}
+			if idxIn.IndexerConfig.Discoveries[i].PollInterval == 0 {
+				idxIn.IndexerConfig.Discoveries[i].PollInterval = 500
+			}
+			if idxIn.IndexerConfig.Discoveries[i].Timeout == 0 {
+				idxIn.IndexerConfig.Discoveries[i].Timeout = 5000
+			}
+			if idxIn.IndexerConfig.Discoveries[i].NtpServer == "" {
+				idxIn.IndexerConfig.Discoveries[i].NtpServer = "time.google.com"
+			}
+		}
+
+		// Duplicate same secrets/auth for this indexer (Verifier push to indexer uses same creds).
+		if idxIn.Secrets == nil {
+			idxIn.Secrets = &config.SecretsConfig{
+				Discoveries: make(map[string]config.DiscoverySecrets),
+				Verifier:    make(map[string]config.VerifierSecrets),
+			}
+		}
+		if idxIn.Secrets.Discoveries == nil {
+			idxIn.Secrets.Discoveries = make(map[string]config.DiscoverySecrets)
+		}
+		if idxIn.Secrets.Verifier == nil {
+			idxIn.Secrets.Verifier = make(map[string]config.VerifierSecrets)
+		}
+		maps.Copy(idxIn.Secrets.Discoveries, discoverySecrets)
+		maps.Copy(idxIn.Secrets.Verifier, verifierSecrets)
+		// Ensure storage secrets use the same DB URL we set on StorageConnectionURL (indexer loads secrets and overwrites config URI).
+		idxIn.Secrets.Storage.Single.Postgres.URI = idxIn.StorageConnectionURL
+
+		indexerOut, err := services.NewIndexer(idxIn)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create indexer service (index %d): %w", idxPos, err)
+		}
+		externalURLs = append(externalURLs, indexerOut.ExternalHTTPURL)
+		internalURLs = append(internalURLs, indexerOut.InternalHTTPURL)
 	}
 
-	if in.Indexer != nil {
-		in.IndexerEndpoint = indexerOut.ExternalHTTPURL
-		in.IndexerInternalEndpoint = indexerOut.InternalHTTPURL
-	}
+	in.IndexerEndpoints = externalURLs
+	in.IndexerInternalEndpoints = internalURLs
 
 	/////////////////////////
-	// END: Launch indexer //
+	// END: Launch indexer(s) //
 	/////////////////////////
 
 	/////////////////////////////
@@ -918,14 +991,16 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch verifiers //
 	/////////////////////////////
 
-	_, err = generateVerifierJobSpecs(e, in, selectors, topology, sharedTLSCerts, ds)
+	verifierJobSpecs, err := generateVerifierJobSpecs(e, in, selectors, topology, sharedTLSCerts, ds)
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = launchStandaloneVerifiers(in, blockchainOutputs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create standalone verifiers: %w", err)
+	// Propose jobs to standalone verifiers via JD
+	if jdInfra != nil && jdInfra.OffchainClient != nil {
+		if err := proposeJobsToStandaloneVerifiers(ctx, in.Verifier, verifierJobSpecs, blockchainOutputs, jdInfra.OffchainClient); err != nil {
+			return nil, err
+		}
 	}
 
 	/////////////////////////////
@@ -1238,6 +1313,12 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) 
 		}
 	}
 
+	// Apply defaults to verifiers so that we can use them in the standalone mode.
+	for i := range in.Verifier {
+		ver := services.ApplyVerifierDefaults(*in.Verifier[i])
+		in.Verifier[i] = &ver
+	}
+
 	var outs []*services.VerifierOutput
 	// Start standalone verifiers if in standalone mode.
 	for _, ver := range in.Verifier {
@@ -1245,7 +1326,7 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) 
 			if aggOut, ok := aggregatorOutputByCommittee[ver.CommitteeName]; ok {
 				ver.AggregatorOutput = aggOut
 			}
-			out, err := services.NewVerifier(ver, blockchainOutputs)
+			out, err := services.NewVerifier(ver, blockchainOutputs, in.JDInfra)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create verifier service: %w", err)
 			}
@@ -1386,4 +1467,127 @@ func slicesEqual(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// registerStandaloneVerifiersWithJD registers standalone verifiers with JD in parallel
+// and waits for them to establish their WSRPC connections.
+// TODO: this is common for all bootstrapped apps, make more general?
+func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*services.VerifierInput, jdClient offchain.Client) error {
+	// Filter to standalone verifiers only
+	var standaloneVerifiers []*services.VerifierInput
+	for _, ver := range verifiers {
+		if ver.Mode == services.Standalone {
+			standaloneVerifiers = append(standaloneVerifiers, ver)
+		}
+	}
+
+	if len(standaloneVerifiers) == 0 {
+		return nil
+	}
+
+	// Use errgroup for parallel registration and connection waiting
+	g, gCtx := errgroup.WithContext(ctx)
+	var mu sync.Mutex
+
+	for _, ver := range standaloneVerifiers {
+		g.Go(func() error {
+			if ver.Out == nil || ver.Out.BootstrapKeys.CSAPublicKey == "" {
+				return fmt.Errorf("bootstrap %s started but CSAPublicKey not available", ver.ContainerName)
+			}
+
+			reg := &jobs.BootstrapJDRegistration{
+				Name:         ver.ContainerName,
+				CSAPublicKey: ver.Out.BootstrapKeys.CSAPublicKey,
+			}
+			if err := jobs.RegisterBootstrapWithJD(gCtx, jdClient, reg); err != nil {
+				return fmt.Errorf("failed to register bootstrap %s with JD: %w", ver.ContainerName, err)
+			}
+
+			// Store the JD node ID in the verifier output for later use when proposing jobs.
+			mu.Lock()
+			ver.Out.JDNodeID = reg.NodeID
+			mu.Unlock()
+
+			// Wait for bootstrap to connect to JD
+			if err := jobs.WaitForBootstrapConnection(gCtx, jdClient, reg.NodeID, 60*time.Second); err != nil {
+				return fmt.Errorf("bootstrap %s failed to connect to JD: %w", ver.ContainerName, err)
+			}
+
+			return nil
+		})
+	}
+
+	return g.Wait()
+}
+
+// proposeJobsToStandaloneVerifiers proposes jobs to standalone verifiers via JD in parallel.
+// Each verifier receives its job spec with blockchain infos injected.
+func proposeJobsToStandaloneVerifiers(
+	ctx context.Context,
+	verifiers []*services.VerifierInput,
+	verifierJobSpecs map[string]string,
+	blockchainOutputs []*blockchain.Output,
+	jdClient offchain.Client,
+) error {
+	// Filter to standalone verifiers only
+	var standaloneVerifiers []*services.VerifierInput
+	for _, ver := range verifiers {
+		if ver.Mode == services.Standalone {
+			standaloneVerifiers = append(standaloneVerifiers, ver)
+		}
+	}
+
+	if len(standaloneVerifiers) == 0 {
+		return nil
+	}
+
+	// Convert blockchain outputs to infos for standalone verifier config
+	blockchainInfos, err := services.ConvertBlockchainOutputsToInfo(blockchainOutputs)
+	if err != nil {
+		return fmt.Errorf("failed to convert blockchain outputs to infos: %w", err)
+	}
+
+	// Use errgroup for parallel job proposals
+	g, gCtx := errgroup.WithContext(ctx)
+
+	for _, ver := range standaloneVerifiers {
+		g.Go(func() error {
+			if ver.Out == nil || ver.Out.JDNodeID == "" {
+				return fmt.Errorf("verifier %s not registered with JD (missing JDNodeID)", ver.ContainerName)
+			}
+			nodeID := ver.Out.JDNodeID
+
+			// Get the base job spec
+			baseJobSpec, ok := verifierJobSpecs[ver.ContainerName]
+			if !ok {
+				return fmt.Errorf("no job spec found for verifier %s", ver.ContainerName)
+			}
+
+			// For standalone verifiers, we need to inject blockchain_infos into the config
+			// because they don't have CL node chain configuration
+			jobSpec, err := ver.RebuildVerifierJobSpecWithBlockchainInfos(baseJobSpec, blockchainInfos)
+			if err != nil {
+				return fmt.Errorf("failed to add blockchain infos to job spec for %s: %w", ver.ContainerName, err)
+			}
+
+			L.Info().Msgf("Proposing job to verifier %s: %s", ver.ContainerName, jobSpec)
+
+			resp, err := jdClient.ProposeJob(gCtx, &jobv1.ProposeJobRequest{
+				NodeId: nodeID,
+				Spec:   jobSpec,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to propose job to verifier %s: %w", ver.ContainerName, err)
+			}
+			L.Info().
+				Str("verifier", ver.ContainerName).
+				Str("nodeID", nodeID).
+				Str("proposalID", resp.Proposal.Id).
+				Msg("Proposed job to verifier via JD")
+
+			return nil
+		})
+	}
+
+	return g.Wait()
 }

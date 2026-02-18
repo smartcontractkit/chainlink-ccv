@@ -36,6 +36,7 @@ func Test_TryParsing(t *testing.T) {
 				"attestation_api_timeout":    "5s",
 				"attestation_api_interval":   "200ms",
 				"attestation_api_batch_size": 50,
+				"verifier_version":           "0xabcdef12",
 				"verifier_resolver_addresses": map[string]any{
 					"1": testAddr1Hex,
 					"2": testAddr2Hex,
@@ -46,6 +47,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPITimeout:   5 * time.Second,
 				AttestationAPIInterval:  200 * time.Millisecond,
 				AttestationAPIBatchSize: 50,
+				VerifierVersion:         protocol.ByteSlice{0xab, 0xcd, 0xef, 0x12},
 				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: testAddr1,
 					2: testAddr2,
@@ -68,6 +70,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPITimeout:   1 * time.Second,
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPIBatchSize: 20,
+				VerifierVersion:         DefaultVerifierVersion,
 				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: testAddr1,
 				},
@@ -90,6 +93,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPITimeout:   1 * time.Second,
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPIBatchSize: 30,
+				VerifierVersion:         DefaultVerifierVersion,
 				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: testAddr1,
 				},
@@ -192,6 +196,7 @@ func Test_TryParsing(t *testing.T) {
 				AttestationAPITimeout:   1 * time.Second,
 				AttestationAPIInterval:  100 * time.Millisecond,
 				AttestationAPIBatchSize: 20,
+				VerifierVersion:         DefaultVerifierVersion,
 				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{},
 			},
 			wantErr: false,
@@ -215,7 +220,82 @@ func Test_TryParsing(t *testing.T) {
 				assert.Equal(t, tt.want.AttestationAPITimeout, got.AttestationAPITimeout)
 				assert.Equal(t, tt.want.AttestationAPIInterval, got.AttestationAPIInterval)
 				assert.Equal(t, tt.want.AttestationAPIBatchSize, got.AttestationAPIBatchSize)
+				assert.Equal(t, tt.want.VerifierVersion, got.VerifierVersion)
 				assert.Equal(t, tt.want.ParsedVerifierResolvers, got.ParsedVerifierResolvers)
+			}
+		})
+	}
+}
+
+func TestLombardConfig_VerifierVersionParsing(t *testing.T) {
+	testAddr1Hex := "0x1111111111111111111111111111111111111111"
+
+	tests := []struct {
+		name    string
+		data    map[string]any
+		want    protocol.ByteSlice
+		wantErr bool
+	}{
+		{
+			name: "valid hex string with default value",
+			data: map[string]any{
+				"attestation_api": "https://lombard-api.example.com",
+				"verifier_resolver_addresses": map[string]any{
+					"1": testAddr1Hex,
+				},
+			},
+			want:    DefaultVerifierVersion,
+			wantErr: false,
+		},
+		{
+			name: "valid hex string with 0x prefix",
+			data: map[string]any{
+				"attestation_api":  "https://lombard-api.example.com",
+				"verifier_version": "0xabcdef12",
+				"verifier_resolver_addresses": map[string]any{
+					"1": testAddr1Hex,
+				},
+			},
+			want:    protocol.ByteSlice{0xab, 0xcd, 0xef, 0x12},
+			wantErr: false,
+		},
+		{
+			name: "invalid hex string",
+			data: map[string]any{
+				"attestation_api":  "https://lombard-api.example.com",
+				"verifier_version": "not-hex",
+				"verifier_resolver_addresses": map[string]any{
+					"1": testAddr1Hex,
+				},
+			},
+			want:    nil,
+			wantErr: true,
+		},
+		{
+			name: "empty hex string",
+			data: map[string]any{
+				"attestation_api":  "https://lombard-api.example.com",
+				"verifier_version": "",
+				"verifier_resolver_addresses": map[string]any{
+					"1": testAddr1Hex,
+				},
+			},
+			want:    protocol.ByteSlice{},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := TryParsing("lombard", "1.0", tt.data)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Nil(t, got)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, got)
+				assert.Equal(t, tt.want, got.VerifierVersion)
 			}
 		})
 	}

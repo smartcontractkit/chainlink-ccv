@@ -3,11 +3,13 @@ package discovery
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/failsafe-go/failsafe-go/circuitbreaker"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
@@ -16,7 +18,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -27,11 +28,16 @@ type testSetup struct {
 	Discovery  *AggregatorMessageDiscovery
 	Logger     logger.Logger
 	Monitor    common.IndexerMonitoring
-	Storage    common.IndexerStorage
+	Storage    *mocks.MockIndexerStorage
 	Reader     *readers.ResilientReader
 	MockReader *internal.MockReader
 	Context    context.Context
 	Cancel     context.CancelFunc
+
+	mu                 sync.Mutex
+	capturedMessages   []common.MessageWithMetadata
+	capturedCCVData    []common.VerifierResultWithMetadata
+	capturedSeqNumbers map[string]int
 }
 
 // Cleanup stops the discovery and cancels the context.
@@ -42,6 +48,64 @@ func (ts *testSetup) Cleanup() {
 	if ts.Cancel != nil {
 		ts.Cancel()
 	}
+}
+
+// CapturedMessages returns a copy of captured messages written to storage.
+func (ts *testSetup) CapturedMessages() []common.MessageWithMetadata {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	result := make([]common.MessageWithMetadata, len(ts.capturedMessages))
+	copy(result, ts.capturedMessages)
+	return result
+}
+
+// CapturedCCVData returns a copy of captured CCV data written to storage.
+func (ts *testSetup) CapturedCCVData() []common.VerifierResultWithMetadata {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	result := make([]common.VerifierResultWithMetadata, len(ts.capturedCCVData))
+	copy(result, ts.capturedCCVData)
+	return result
+}
+
+// CapturedSeqNumber returns the last captured sequence number for an address.
+func (ts *testSetup) CapturedSeqNumber(address string) (int, bool) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	v, ok := ts.capturedSeqNumbers[address]
+	return v, ok
+}
+
+// newMockStorage creates a MockIndexerStorage with default permissive expectations
+// that capture all written data for test assertions.
+func newMockStorage(t *testing.T, ts *testSetup) *mocks.MockIndexerStorage {
+	t.Helper()
+	store := mocks.NewMockIndexerStorage(t)
+
+	store.EXPECT().BatchInsertMessages(mock.Anything, mock.Anything).
+		Run(func(_ context.Context, msgs []common.MessageWithMetadata) {
+			ts.mu.Lock()
+			ts.capturedMessages = append(ts.capturedMessages, msgs...)
+			ts.mu.Unlock()
+		}).Return(nil).Maybe()
+
+	store.EXPECT().BatchInsertCCVData(mock.Anything, mock.Anything).
+		Run(func(_ context.Context, data []common.VerifierResultWithMetadata) {
+			ts.mu.Lock()
+			ts.capturedCCVData = append(ts.capturedCCVData, data...)
+			ts.mu.Unlock()
+		}).Return(nil).Maybe()
+
+	store.EXPECT().UpdateDiscoverySequenceNumber(mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ context.Context, addr string, seq int) {
+			ts.mu.Lock()
+			ts.capturedSeqNumbers[addr] = seq
+			ts.mu.Unlock()
+		}).Return(nil).Maybe()
+
+	store.EXPECT().GetDiscoverySequenceNumber(mock.Anything, mock.Anything).Return(0, nil).Maybe()
+
+	return store
 }
 
 // setupMessageDiscoveryTest creates a complete test setup with default configuration.
@@ -67,17 +131,25 @@ func setupMessageDiscoveryTestWithTimeout(t *testing.T, config config.DiscoveryC
 
 	lggr := logger.Test(t)
 	mon := monitoring.NewNoopIndexerMonitoring()
-	store := storage.NewInMemoryStorage(lggr, mon)
 
-	// Create a mock reader that emits messages immediately
+	ts := &testSetup{
+		Logger:             lggr,
+		Monitor:            mon,
+		Context:            ctx,
+		Cancel:             cancel,
+		capturedSeqNumbers: make(map[string]int),
+	}
+
+	store := newMockStorage(t, ts)
+	ts.Storage = store
+
 	mockReader := internal.NewMockReader(internal.MockReaderConfig{
-		EmitEmptyResponses: true, // Return empty slice when no messages ready
+		EmitEmptyResponses: true,
 	})
 
 	timeProvider := mocks.NewMockTimeProvider(t)
 	timeProvider.EXPECT().GetTime().Return(time.Now().UTC()).Maybe()
 
-	// Wrap mock reader with ResilientReader for testing
 	resilientReader := readers.NewResilientReader(mockReader, lggr, readers.DefaultResilienceConfig())
 
 	registry := registry.NewVerifierRegistry()
@@ -92,16 +164,11 @@ func setupMessageDiscoveryTestWithTimeout(t *testing.T, config config.DiscoveryC
 		WithConfig(config),
 	)
 
-	return &testSetup{
-		Discovery:  discovery.(*AggregatorMessageDiscovery),
-		Logger:     lggr,
-		Monitor:    mon,
-		Storage:    store,
-		Reader:     resilientReader,
-		MockReader: mockReader,
-		Context:    ctx,
-		Cancel:     cancel,
-	}
+	ts.Discovery = discovery.(*AggregatorMessageDiscovery)
+	ts.Reader = resilientReader
+	ts.MockReader = mockReader
+
+	return ts
 }
 
 // setupMessageDiscoveryTestNoTimeout creates a test setup without a timeout context.
@@ -112,7 +179,17 @@ func setupMessageDiscoveryTestNoTimeout(t *testing.T, config config.DiscoveryCon
 
 	lggr := logger.Test(t)
 	mon := monitoring.NewNoopIndexerMonitoring()
-	store := storage.NewInMemoryStorage(lggr, mon)
+
+	ts := &testSetup{
+		Logger:             lggr,
+		Monitor:            mon,
+		Context:            ctx,
+		Cancel:             cancel,
+		capturedSeqNumbers: make(map[string]int),
+	}
+
+	store := newMockStorage(t, ts)
+	ts.Storage = store
 
 	timeProvider := mocks.NewMockTimeProvider(t)
 	timeProvider.EXPECT().GetTime().Return(time.Now().UTC()).Maybe()
@@ -133,16 +210,11 @@ func setupMessageDiscoveryTestNoTimeout(t *testing.T, config config.DiscoveryCon
 		WithConfig(config),
 	)
 
-	return &testSetup{
-		Discovery:  discovery.(*AggregatorMessageDiscovery),
-		Logger:     lggr,
-		Monitor:    mon,
-		Storage:    store,
-		Reader:     resilientReader,
-		MockReader: mockReader,
-		Context:    ctx,
-		Cancel:     cancel,
-	}
+	ts.Discovery = discovery.(*AggregatorMessageDiscovery)
+	ts.Reader = resilientReader
+	ts.MockReader = mockReader
+
+	return ts
 }
 
 // defaultTestConfig returns the standard configuration used in most tests.
@@ -157,7 +229,8 @@ func defaultTestConfig() config.DiscoveryConfig {
 func TestNewAggregatorMessageDiscovery(t *testing.T) {
 	lggr := logger.Test(t)
 	mon := monitoring.NewNoopIndexerMonitoring()
-	store := storage.NewInMemoryStorage(lggr, mon)
+	ts := &testSetup{capturedSeqNumbers: make(map[string]int)}
+	store := newMockStorage(t, ts)
 	mockReader := internal.NewMockReader(internal.MockReaderConfig{})
 	resilientReader := readers.NewResilientReader(mockReader, lggr, readers.DefaultResilienceConfig())
 	config := defaultTestConfig()
@@ -219,7 +292,6 @@ func TestStart_LaunchesGoroutine(t *testing.T) {
 // TestClose_GracefullyStops tests that Close gracefully stops discovery.
 func TestClose_GracefullyStops(t *testing.T) {
 	ts := setupMessageDiscoveryTestNoTimeout(t, defaultTestConfig())
-	t.Cleanup(ts.Cleanup)
 
 	messageCh := ts.Discovery.Start(ts.Context)
 
@@ -241,13 +313,8 @@ func TestClose_GracefullyStops(t *testing.T) {
 		t.Fatal("Close() did not complete within timeout")
 	}
 
-	// Verify messageCh is still open (should not be closed)
-	select {
-	case <-messageCh:
-		t.Fatal("messageCh should not be closed")
-	default:
-		// Expected - messageCh remains open
-	}
+	_, ok := <-messageCh
+	assert.True(t, !ok)
 }
 
 // TestStart_ContextCancellation tests that context cancellation stops discovery.
@@ -285,8 +352,8 @@ func TestMessageDiscovery_SingleMessage(t *testing.T) {
 	ts := setupMessageDiscoveryTest(t)
 	defer ts.Cleanup()
 
-	// Configure mock to return one message
 	ccvData := createTestCCVData(1, time.Now().UnixMilli(), 1, 2)
+
 	ts.MockReader = internal.NewMockReader(internal.MockReaderConfig{
 		MessageGenerator: func(messageNumber int) common.VerifierResultWithMetadata {
 			return ccvData
@@ -300,7 +367,6 @@ func TestMessageDiscovery_SingleMessage(t *testing.T) {
 
 	messageCh := ts.Discovery.Start(ts.Context)
 
-	// Wait for message to be discovered
 	var receivedMessage common.VerifierResultWithMetadata
 	select {
 	case msg := <-messageCh:
@@ -309,14 +375,14 @@ func TestMessageDiscovery_SingleMessage(t *testing.T) {
 		t.Fatal("timeout waiting for message")
 	}
 
-	// Verify message
 	assert.Equal(t, ccvData.VerifierResult.Message.MustMessageID(), receivedMessage.VerifierResult.Message.MustMessageID())
 
-	// Verify message was stored
-	stored, err := ts.Storage.GetCCVData(ts.Context, ccvData.VerifierResult.MessageID)
-	require.NoError(t, err)
-	require.Len(t, stored, 1)
-	assert.Equal(t, ccvData.VerifierResult.Message.MustMessageID(), stored[0].VerifierResult.Message.MustMessageID())
+	// Allow async storage write to complete
+	time.Sleep(50 * time.Millisecond)
+
+	storedCCVData := ts.CapturedCCVData()
+	require.Len(t, storedCCVData, 1)
+	assert.Equal(t, ccvData.VerifierResult.Message.MustMessageID(), storedCCVData[0].VerifierResult.Message.MustMessageID())
 }
 
 // TestMessageDiscovery_MultipleMessages tests discovering multiple messages in one call.
@@ -324,7 +390,6 @@ func TestMessageDiscovery_MultipleMessages(t *testing.T) {
 	ts := setupMessageDiscoveryTest(t)
 	defer ts.Cleanup()
 
-	// Create multiple messages
 	messages := []common.VerifierResultWithMetadata{
 		createTestCCVData(1, time.Now().UnixMilli(), 1, 2),
 		createTestCCVData(2, time.Now().UnixMilli(), 1, 2),
@@ -350,7 +415,6 @@ func TestMessageDiscovery_MultipleMessages(t *testing.T) {
 
 	messageCh := ts.Discovery.Start(ts.Context)
 
-	// Collect all messages
 	receivedMessages := make([]protocol.Message, 0, len(messages))
 	for i := range messages {
 		select {
@@ -361,19 +425,15 @@ func TestMessageDiscovery_MultipleMessages(t *testing.T) {
 		}
 	}
 
-	// Verify all messages were received
 	assert.Len(t, receivedMessages, len(messages))
 	for i, expected := range messages {
 		assert.Equal(t, expected.VerifierResult.Message, receivedMessages[i])
 	}
 
-	// Verify all messages were stored
-	for _, expected := range messages {
-		stored, err := ts.Storage.GetCCVData(ts.Context, expected.VerifierResult.MessageID)
-		require.NoError(t, err)
-		require.Len(t, stored, 1)
-		assert.Equal(t, expected.VerifierResult.Message.MustMessageID(), stored[0].VerifierResult.Message.MustMessageID())
-	}
+	// Allow async storage writes to complete
+	time.Sleep(50 * time.Millisecond)
+
+	assert.Len(t, ts.CapturedCCVData(), len(messages))
 }
 
 // TestMessageDiscovery_EmptyResponse tests that empty responses don't emit messages.
@@ -624,10 +684,8 @@ func TestMessageDiscovery_NewMessageEmittedAndSaved(t *testing.T) {
 	ts := setupMessageDiscoveryTest(t)
 	defer ts.Cleanup()
 
-	// Create a test message that will be discovered
 	ccvData := createTestCCVData(1, time.Now().UnixMilli(), 1, 2)
 
-	// Configure mock reader to return this message
 	ts.MockReader = internal.NewMockReader(internal.MockReaderConfig{
 		MessageGenerator: func(messageNumber int) common.VerifierResultWithMetadata {
 			return ccvData
@@ -639,10 +697,8 @@ func TestMessageDiscovery_NewMessageEmittedAndSaved(t *testing.T) {
 	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, readers.DefaultResilienceConfig())
 	ts.Discovery.aggregatorReader = ts.Reader
 
-	// Start discovery and get the message channel
 	messageCh := ts.Discovery.Start(ts.Context)
 
-	// Wait for the message to be emitted to the channel
 	var receivedMessage common.VerifierResultWithMetadata
 	select {
 	case msg := <-messageCh:
@@ -651,17 +707,17 @@ func TestMessageDiscovery_NewMessageEmittedAndSaved(t *testing.T) {
 		t.Fatal("timeout waiting for message to be emitted to channel")
 	}
 
-	// Verify the message was emitted to the channel
 	require.NotNil(t, receivedMessage, "message should be emitted to channel")
-	assert.Equal(t, ccvData.VerifierResult.Message.MustMessageID(), receivedMessage.VerifierResult.Message.MustMessageID(), "emitted message should match expected message")
+	assert.Equal(t, ccvData.VerifierResult.Message.MustMessageID(), receivedMessage.VerifierResult.Message.MustMessageID())
 
-	// Verify the message was saved to storage
-	stored, err := ts.Storage.GetCCVData(ts.Context, ccvData.VerifierResult.MessageID)
-	require.NoError(t, err, "should be able to retrieve message from storage")
-	require.Len(t, stored, 1, "exactly one message should be stored")
+	// Allow async storage writes to complete
+	time.Sleep(50 * time.Millisecond)
 
-	// Verify that the stored message's Message field matches what was emitted
-	assert.Equal(t, receivedMessage.VerifierResult.Message.MustMessageID(), stored[0].VerifierResult.Message.MustMessageID(), "stored message's Message field should match emitted message")
+	storedCCVData := ts.CapturedCCVData()
+	storedMessages := ts.CapturedMessages()
+	require.Len(t, storedCCVData, 1, "exactly one CCV data should be stored")
+	assert.Equal(t, receivedMessage.VerifierResult.Message.MustMessageID(), storedCCVData[0].VerifierResult.Message.MustMessageID())
+	require.Len(t, storedMessages, 1, "exactly one message should be stored")
 }
 
 // setupMessageDiscoveryTestWithSequenceNumberSupport creates a test setup with a reader that supports sequence numbers.
@@ -685,13 +741,20 @@ func setupMessageDiscoveryTestWithSequenceNumberSupportAndConfig(t *testing.T, c
 
 	lggr := logger.Test(t)
 	mon := monitoring.NewNoopIndexerMonitoring()
-	store := storage.NewInMemoryStorage(lggr, mon)
 
-	// Create discovery state in storage
-	err := store.CreateDiscoveryState(ctx, cfg.Address, int(initialSequenceNumber))
-	require.NoError(t, err)
+	ts := &testSetup{
+		Logger:             lggr,
+		Monitor:            mon,
+		Context:            ctx,
+		Cancel:             cancel,
+		capturedSeqNumbers: make(map[string]int),
+	}
 
-	// Create a mock reader that supports sequence numbers
+	store := newMockStorage(t, ts)
+	ts.Storage = store
+
+	store.EXPECT().CreateDiscoveryState(mock.Anything, cfg.Address, int(initialSequenceNumber)).Return(nil).Maybe()
+
 	mockReader := internal.NewMockReader(internal.MockReaderConfig{
 		EmitEmptyResponses: true,
 	})
@@ -700,7 +763,6 @@ func setupMessageDiscoveryTestWithSequenceNumberSupportAndConfig(t *testing.T, c
 	timeProvider := mocks.NewMockTimeProvider(t)
 	timeProvider.EXPECT().GetTime().Return(time.Now().UTC()).Maybe()
 
-	// Wrap mock reader with ResilientReader for testing
 	resilientReader := readers.NewResilientReader(mockReader, lggr, readers.DefaultResilienceConfig())
 
 	registry := registry.NewVerifierRegistry()
@@ -715,16 +777,11 @@ func setupMessageDiscoveryTestWithSequenceNumberSupportAndConfig(t *testing.T, c
 		WithConfig(cfg),
 	)
 
-	return &testSetup{
-		Discovery:  discovery.(*AggregatorMessageDiscovery),
-		Logger:     lggr,
-		Monitor:    mon,
-		Storage:    store,
-		Reader:     resilientReader,
-		MockReader: mockReader,
-		Context:    ctx,
-		Cancel:     cancel,
-	}
+	ts.Discovery = discovery.(*AggregatorMessageDiscovery)
+	ts.Reader = resilientReader
+	ts.MockReader = mockReader
+
+	return ts
 }
 
 // TestUpdateSequenceNumber_UpdatesPeriodically tests that sequence numbers are updated periodically.
@@ -733,7 +790,6 @@ func TestUpdateSequenceNumber_UpdatesPeriodically(t *testing.T) {
 	initialSequenceNumber := int64(100)
 	newSequenceNumber := int64(150)
 
-	// Use a longer timeout to allow for the 5-second ticker
 	ts := setupMessageDiscoveryTestWithSequenceNumberSupportAndConfig(t, config.DiscoveryConfig{
 		AggregatorReaderConfig: config.AggregatorReaderConfig{
 			Address: discoveryAddress,
@@ -743,10 +799,8 @@ func TestUpdateSequenceNumber_UpdatesPeriodically(t *testing.T) {
 	}, initialSequenceNumber, 8*time.Second)
 	defer ts.Cleanup()
 
-	// Start discovery - this will start the updateSequenceNumber goroutine
 	messageCh := ts.Discovery.Start(ts.Context)
 
-	// Drain message channel in background to prevent blocking
 	go func() {
 		for {
 			select {
@@ -756,22 +810,18 @@ func TestUpdateSequenceNumber_UpdatesPeriodically(t *testing.T) {
 				if !ok {
 					return
 				}
-				// Drain any messages
 			}
 		}
 	}()
 
-	// Update the mock reader's sequence number
 	ts.MockReader.SetSinceValue(newSequenceNumber)
 
 	// Wait for the update to happen (ticker runs every 5 seconds)
-	// We wait 6 seconds to ensure at least one tick has occurred
 	time.Sleep(6 * time.Second)
 
-	// Verify sequence number was updated in storage
-	updatedSeq, err := ts.Storage.GetDiscoverySequenceNumber(ts.Context, discoveryAddress)
-	require.NoError(t, err)
-	assert.Equal(t, int(newSequenceNumber), updatedSeq, "sequence number should be updated in storage")
+	seq, ok := ts.CapturedSeqNumber(discoveryAddress)
+	require.True(t, ok, "sequence number should have been updated")
+	assert.Equal(t, int(newSequenceNumber), seq, "sequence number should be updated in storage")
 }
 
 // TestMessageDiscovery_DiscoveryOnlyNotPersisted tests that discovery-only verifications
@@ -781,12 +831,11 @@ func TestMessageDiscovery_DiscoveryOnlyNotPersisted(t *testing.T) {
 	ts := setupMessageDiscoveryTest(t)
 	defer ts.Cleanup()
 
-	// Create a discovery-only verification with MessageDiscoveryVersion prefix
 	discoveryOnlyData := createTestCCVDataWithCCVData(
 		1,
 		time.Now().UnixMilli(),
 		1, 2,
-		append(protocol.MessageDiscoveryVersion, []byte{0xaa, 0xbb}...), // starts with version prefix
+		append(protocol.MessageDiscoveryVersion, []byte{0xaa, 0xbb}...),
 	)
 
 	ts.MockReader = internal.NewMockReader(internal.MockReaderConfig{
@@ -801,7 +850,6 @@ func TestMessageDiscovery_DiscoveryOnlyNotPersisted(t *testing.T) {
 
 	messageCh := ts.Discovery.Start(ts.Context)
 
-	// Verify message IS emitted to channel
 	select {
 	case msg := <-messageCh:
 		assert.Equal(t, discoveryOnlyData.VerifierResult.MessageID, msg.VerifierResult.MessageID)
@@ -809,15 +857,13 @@ func TestMessageDiscovery_DiscoveryOnlyNotPersisted(t *testing.T) {
 		t.Fatal("timeout waiting for discovery-only message to be emitted")
 	}
 
-	// Verify verification was NOT persisted as CCVData
-	stored, err := ts.Storage.GetCCVData(ts.Context, discoveryOnlyData.VerifierResult.MessageID)
-	assert.ErrorIs(t, err, storage.ErrCCVDataNotFound, "discovery-only verification should not be persisted as CCVData")
-	assert.Empty(t, stored)
+	// Allow async storage writes to complete
+	time.Sleep(50 * time.Millisecond)
 
-	// Verify message WAS saved
-	savedMsg, err := ts.Storage.GetMessage(ts.Context, discoveryOnlyData.VerifierResult.MessageID)
-	require.NoError(t, err)
-	assert.Equal(t, discoveryOnlyData.VerifierResult.Message.MustMessageID(), savedMsg.Message.MustMessageID())
+	assert.Empty(t, ts.CapturedCCVData(), "discovery-only verification should not be persisted as CCVData")
+	storedMessages := ts.CapturedMessages()
+	require.Len(t, storedMessages, 1, "message should be saved")
+	assert.Equal(t, discoveryOnlyData.VerifierResult.Message.MustMessageID(), storedMessages[0].Message.MustMessageID())
 }
 
 // createTestCCVDataWithCCVData creates test data with custom CCVData bytes.
@@ -867,7 +913,6 @@ func TestUpdateSequenceNumber_StopsOnContextCancellation(t *testing.T) {
 	initialSequenceNumber := int64(100)
 
 	ts := setupMessageDiscoveryTestWithSequenceNumberSupport(t, discoveryAddress, initialSequenceNumber)
-	defer ts.Cleanup()
 
 	// Start discovery
 	messageCh := ts.Discovery.Start(ts.Context)

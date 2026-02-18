@@ -21,6 +21,19 @@ import (
 
 var _ common.IndexerStorage = (*PostgresStorage)(nil)
 
+const (
+	opGetCCVData                    = "GetCCVData"
+	opQueryCCVData                  = "QueryCCVData"
+	opInsertCCVData                 = "InsertCCVData"
+	opBatchInsertCCVData            = "BatchInsertCCVData"
+	opBatchInsertMessages           = "BatchInsertMessages"
+	opInsertMessage                 = "InsertMessage"
+	opQueryMessages                 = "QueryMessages"
+	opUpdateMessageStatus           = "UpdateMessageStatus"
+	opCreateDiscoveryState          = "CreateDiscoveryState"
+	opUpdateDiscoverySequenceNumber = "UpdateDiscoverySequenceNumber"
+)
+
 type PostgresStorage struct {
 	ds         sqlutil.DataSource
 	lggr       logger.Logger
@@ -44,8 +57,14 @@ func NewPostgresStorage(ctx context.Context, lggr logger.Logger, monitoring comm
 
 // GetCCVData performs a lookup by messageID in the database.
 func (d *PostgresStorage) GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]common.VerifierResultWithMetadata, error) {
+	startQueryMetric := time.Now()
+	var err error
 	d.mu.RLock()
 	defer d.mu.RUnlock()
+	defer func() {
+		d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), opGetCCVData, err != nil)
+	}()
+
 	query := `
 		SELECT 
 			message_id,
@@ -91,7 +110,6 @@ func (d *PostgresStorage) GetCCVData(ctx context.Context, messageID protocol.Byt
 	if len(results) == 0 {
 		return nil, ErrCCVDataNotFound
 	}
-
 	return results, nil
 }
 
@@ -103,8 +121,12 @@ func (d *PostgresStorage) QueryCCVData(
 	limit, offset uint64,
 ) (map[string][]common.VerifierResultWithMetadata, error) {
 	startQueryMetric := time.Now()
+	var err error
 	d.mu.RLock()
 	defer d.mu.RUnlock()
+	defer func() {
+		d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), opQueryCCVData, err != nil)
+	}()
 
 	// Build dynamic query with filters
 	query := `
@@ -148,7 +170,6 @@ func (d *PostgresStorage) QueryCCVData(
 	rows, err := d.queryContext(ctx, query, args...)
 	if err != nil {
 		d.lggr.Errorw("Failed to query CCV data", "error", err)
-		d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric))
 		return nil, fmt.Errorf("failed to query CCV data: %w", err)
 	}
 	defer func() {
@@ -162,7 +183,6 @@ func (d *PostgresStorage) QueryCCVData(
 	for rows.Next() {
 		ccvData, err := d.scanCCVData(rows)
 		if err != nil {
-			d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric))
 			return nil, fmt.Errorf("failed to scan CCV data: %w", err)
 		}
 		messageID := ccvData.VerifierResult.MessageID.String()
@@ -170,11 +190,8 @@ func (d *PostgresStorage) QueryCCVData(
 	}
 
 	if err := rows.Err(); err != nil {
-		d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric))
 		return nil, fmt.Errorf("error iterating over rows: %w", err)
 	}
-
-	d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric))
 	return results, nil
 }
 
@@ -187,7 +204,7 @@ func (d *PostgresStorage) InsertCCVData(ctx context.Context, ccvData common.Veri
 	// Serialize message to JSON
 	messageJSON, err := json.Marshal(ccvData.VerifierResult.Message)
 	if err != nil {
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
+		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opInsertCCVData)
 		return fmt.Errorf("failed to marshal message to JSON: %w", err)
 	}
 
@@ -229,7 +246,7 @@ func (d *PostgresStorage) InsertCCVData(ctx context.Context, ccvData common.Veri
 	)
 	if err != nil {
 		d.lggr.Errorw("Failed to insert CCV data", "error", err, "messageID", ccvData.VerifierResult.MessageID.String())
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
+		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opBatchInsertCCVData)
 		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
 		return fmt.Errorf("failed to insert CCV data: %w", err)
 	}
@@ -295,7 +312,7 @@ func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 		// Serialize message to JSON
 		messageJSON, err := json.Marshal(ccvData.VerifierResult.Message)
 		if err != nil {
-			d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
+			d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opBatchInsertCCVData)
 			return fmt.Errorf("failed to marshal message to JSON at index %d: %w", i, err)
 		}
 
@@ -341,7 +358,7 @@ func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 	result, err := d.execContext(ctx, query.String(), args...)
 	if err != nil {
 		d.lggr.Errorw("Failed to batch insert CCV data", "error", err, "count", len(ccvDataList))
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
+		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opBatchInsertCCVData)
 		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
 		return fmt.Errorf("failed to batch insert CCV data: %w", err)
 	}
@@ -410,7 +427,7 @@ func (d *PostgresStorage) BatchInsertMessages(ctx context.Context, messages []co
 		// Serialize message to JSON
 		messageJSON, err := json.Marshal(msg.Message)
 		if err != nil {
-			d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
+			d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opBatchInsertMessages)
 			return fmt.Errorf("failed to marshal message to JSON at index %d: %w", i, err)
 		}
 
@@ -445,7 +462,7 @@ func (d *PostgresStorage) BatchInsertMessages(ctx context.Context, messages []co
 	result, err := d.execContext(ctx, query.String(), args...)
 	if err != nil {
 		d.lggr.Errorw("Failed to batch insert messages", "error", err, "count", len(messages))
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
+		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opBatchInsertMessages)
 		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
 		return fmt.Errorf("failed to batch insert messages: %w", err)
 	}
@@ -470,7 +487,7 @@ func (d *PostgresStorage) InsertMessage(ctx context.Context, message common.Mess
 	// Serialize message to JSON
 	messageJSON, err := json.Marshal(message.Message)
 	if err != nil {
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
+		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opInsertMessage)
 		return fmt.Errorf("failed to marshal message to JSON: %w", err)
 	}
 
@@ -498,7 +515,7 @@ func (d *PostgresStorage) InsertMessage(ctx context.Context, message common.Mess
 	)
 	if err != nil {
 		d.lggr.Errorw("Failed to insert message", "error", err, "messageID", message.Message.MustMessageID().String())
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
+		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opInsertMessage)
 		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
 		return fmt.Errorf("failed to insert message: %w", err)
 	}
@@ -559,8 +576,12 @@ func (d *PostgresStorage) QueryMessages(
 	limit, offset uint64,
 ) ([]common.MessageWithMetadata, error) {
 	startQueryMetric := time.Now()
+	var err error
 	d.mu.RLock()
 	defer d.mu.RUnlock()
+	defer func() {
+		d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), opQueryMessages, err != nil)
+	}()
 
 	query := `
 		SELECT 
@@ -596,7 +617,6 @@ func (d *PostgresStorage) QueryMessages(
 	rows, err := d.queryContext(ctx, query, args...)
 	if err != nil {
 		d.lggr.Errorw("Failed to query messages", "error", err)
-		d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric))
 		return nil, fmt.Errorf("failed to query messages: %w", err)
 	}
 	defer func() {
@@ -609,18 +629,14 @@ func (d *PostgresStorage) QueryMessages(
 	for rows.Next() {
 		message, err := d.scanMessage(rows)
 		if err != nil {
-			d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric))
 			return nil, fmt.Errorf("failed to scan message: %w", err)
 		}
 		results = append(results, message)
 	}
 
 	if err := rows.Err(); err != nil {
-		d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric))
 		return nil, fmt.Errorf("error iterating over rows: %w", err)
 	}
-
-	d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric))
 	return results, nil
 }
 
@@ -639,7 +655,7 @@ func (d *PostgresStorage) UpdateMessageStatus(ctx context.Context, messageID pro
 	result, err := d.execContext(ctx, query, status.String(), lastErr, messageID.String())
 	if err != nil {
 		d.lggr.Errorw("Failed to update message status", "error", err, "messageID", messageID.String())
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
+		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opUpdateMessageStatus)
 		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startUpdateMetric))
 		return fmt.Errorf("failed to update message status: %w", err)
 	}
@@ -679,7 +695,7 @@ func (d *PostgresStorage) CreateDiscoveryState(ctx context.Context, discoveryLoc
 	)
 	if err != nil {
 		d.lggr.Errorw("Failed to create discovery state record", "error", err, "discoveryLocation", discoveryLocation, "sequenceNumber", startingSequenceNumber)
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
+		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opCreateDiscoveryState)
 		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
 	}
 
@@ -713,7 +729,7 @@ func (d *PostgresStorage) UpdateDiscoverySequenceNumber(ctx context.Context, dis
 	result, err := d.execContext(ctx, query, sequenceNumber, discoveryLocation)
 	if err != nil {
 		d.lggr.Errorw("Failed to update discovery state record", "error", err, "discoveryLocation", discoveryLocation, "sequenceNumber", sequenceNumber)
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx)
+		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opUpdateDiscoverySequenceNumber)
 		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startUpdateMetric))
 		return fmt.Errorf("failed to update discovery state record: %w", err)
 	}
@@ -757,8 +773,10 @@ func (d *PostgresStorage) GetDiscoverySequenceNumber(ctx context.Context, discov
 // trackUniqueMessage checks if this is the first time we're seeing this message ID
 // and increments the unique messages counter if so.
 func (d *PostgresStorage) trackUniqueMessage(ctx context.Context, messageID protocol.Bytes32) error {
+	// Check whether exactly one row exists for this message_id. If so,
+	// this indicates the message was first-seen by the storage insert that preceded this call.
 	query := `
-		SELECT COUNT(DISTINCT message_id) = 1 as is_first
+		SELECT COUNT(*) = 1 as is_first
 		FROM indexer.verifier_results
 		WHERE message_id = $1
 	`

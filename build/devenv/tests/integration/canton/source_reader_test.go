@@ -4,14 +4,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
-	"slices"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/Masterminds/semver/v3"
 	ledgerv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2"
-	ledgerv2admin "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2/admin"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -30,12 +27,12 @@ import (
 	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/onramp"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
+	cldf_canton "github.com/smartcontractkit/chainlink-deployments-framework/chain/canton"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
-	devenvcanton "github.com/smartcontractkit/chainlink-ccv/devenv/canton"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e"
@@ -47,10 +44,7 @@ const (
 	createArg1 = "ccipOwner"
 	createArg2 = "partyOwner"
 
-	// TODO: this is hardcoded for now but should be derived from the deployment somehow.
-	partyName = "participant1-localparty-1"
-
-	packageID         = "json-tests"
+	packageName       = "json-tests"
 	moduleName        = "Main"
 	entityName        = "TestRouter"
 	ccipSendChoice    = "CCIPSend"
@@ -66,6 +60,9 @@ var committeeVerifierVersion = []byte{0x49, 0xff, 0x34, 0xed}
 // ccv up env-canton-evm.toml
 // from the build/devenv directory.
 func TestCantonSourceReader(t *testing.T) {
+	ctx := ccv.Plog.WithContext(t.Context())
+	l := zerolog.Ctx(ctx)
+
 	configPath := "../../../env-canton-evm-out.toml"
 	in, err := ccv.LoadOutput[ccv.Cfg](configPath)
 	require.NoError(t, err)
@@ -94,8 +91,10 @@ func TestCantonSourceReader(t *testing.T) {
 	evmDetails, err := chain_selectors.GetChainDetailsByChainIDAndFamily(evmChain.ChainID, chain_selectors.FamilyEVM)
 	require.NoError(t, err)
 
-	ctx := ccv.Plog.WithContext(t.Context())
-	l := zerolog.Ctx(ctx)
+	_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+	require.NoError(t, err)
+	b := ccv.NewDefaultCLDFBundle(e)
+	e.OperationsBundle = b
 
 	lib, err := ccv.NewLib(l, configPath, chain_selectors.FamilyEVM)
 	require.NoError(t, err)
@@ -109,49 +108,22 @@ func TestCantonSourceReader(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	chain := e.BlockChains.CantonChains()[cantonDetails.ChainSelector]
+	participant := chain.Participants[0]
+	party := participant.PartyID
+
 	grpcURL := cantonChain.Out.NetworkSpecificData.CantonEndpoints.Participants[0].GRPCLedgerAPIURL
 	require.NotEmpty(t, grpcURL)
 	jwt := cantonChain.Out.NetworkSpecificData.CantonEndpoints.Participants[0].JWT
 	require.NotEmpty(t, jwt)
 
-	helper, err := devenvcanton.NewHelperFromBlockchainInput(grpcURL, jwt)
-	require.NoError(t, err)
-	ts := newTestSetup(helper)
+	ts := newTestSetup(participant)
 
-	// Assert that the parties were created and are known to the ledger.
-	knownParties, err := ts.helper.ListKnownParties(t.Context())
-	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(knownParties), 1)
-	// Find the party that corresponds to the JWT token that we have
-	var party string
-	for _, theParty := range knownParties {
-		if strings.HasPrefix(theParty.GetParty(), partyName) {
-			party = theParty.GetParty()
-			break
-		}
+	ccipMessageSentTemplateID := &ledgerv2.Identifier{
+		PackageId:  "#" + packageName,
+		ModuleName: "Main",
+		EntityName: "CCIPMessageSent",
 	}
-	require.NotEmpty(t, party)
-	t.Logf("found party: %s", party)
-
-	// Check that the expected package is uploaded.
-	knownPackages, err := ts.helper.ListKnownPackages(t.Context())
-	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(knownPackages), 1)
-	require.True(t, slices.ContainsFunc(knownPackages, func(p *ledgerv2admin.PackageDetails) bool {
-		return p.GetName() == packageID
-	}))
-	var ccipMessageSentTemplateID *ledgerv2.Identifier
-	for _, pkg := range knownPackages {
-		if pkg.GetName() == packageID {
-			ccipMessageSentTemplateID = &ledgerv2.Identifier{
-				PackageId:  "#" + pkg.GetName(),
-				ModuleName: "Main",
-				EntityName: "CCIPMessageSent",
-			}
-			break
-		}
-	}
-	require.NotNil(t, ccipMessageSentTemplateID)
 	t.Logf("ccipMessageSentTemplateID being used: %s", ccipMessageSentTemplateID.String())
 
 	// Deploy the TestRouter contract.
@@ -457,11 +429,12 @@ func mustEncodeMessage(t *testing.T, msg protocol.Message) []byte {
 }
 
 type testSetup struct {
-	helper *devenvcanton.Helper
+	// helper *devenvcanton.Helper
+	participant cldf_canton.Participant
 }
 
 func (ts *testSetup) getContractID(t *testing.T, updateID, party string) string {
-	resp, err := ts.helper.GetUpdateServiceClient().GetUpdateById(ts.helper.AuthCtx(t.Context()), &ledgerv2.GetUpdateByIdRequest{
+	resp, err := ts.participant.LedgerServices.Update.GetUpdateById(t.Context(), &ledgerv2.GetUpdateByIdRequest{
 		UpdateId: updateID,
 		UpdateFormat: &ledgerv2.UpdateFormat{
 			IncludeTransactions: &ledgerv2.TransactionFormat{
@@ -561,10 +534,10 @@ func (ts *testSetup) ccipSend(
 		}
 	}
 
-	resp, err := ts.helper.GetCommandServiceClient().SubmitAndWait(ts.helper.AuthCtx(t.Context()), &ledgerv2.SubmitAndWaitRequest{
+	resp, err := ts.participant.LedgerServices.Command.SubmitAndWait(t.Context(), &ledgerv2.SubmitAndWaitRequest{
 		Commands: &ledgerv2.Commands{
 			CommandId: uuid.New().String(),
-			UserId:    ts.helper.GetUserID(),
+			UserId:    ts.participant.UserID,
 			ActAs:     []string{partyOwnerParty},
 			ReadAs:    []string{partyOwnerParty},
 			Commands: []*ledgerv2.Command{
@@ -572,7 +545,7 @@ func (ts *testSetup) ccipSend(
 					Command: &ledgerv2.Command_Exercise{
 						Exercise: &ledgerv2.ExerciseCommand{
 							TemplateId: &ledgerv2.Identifier{
-								PackageId:  "#" + packageID,
+								PackageId:  "#" + packageName,
 								ModuleName: moduleName,
 								EntityName: entityName,
 							},
@@ -650,10 +623,10 @@ func (ts *testSetup) ccipSend(
 }
 
 func (ts *testSetup) createTestRouter(t *testing.T, ccipOwnerParty, partyOwnerParty string) *ledgerv2.SubmitAndWaitResponse {
-	resp, err := ts.helper.GetCommandServiceClient().SubmitAndWait(ts.helper.AuthCtx(t.Context()), &ledgerv2.SubmitAndWaitRequest{
+	resp, err := ts.participant.LedgerServices.Command.SubmitAndWait(t.Context(), &ledgerv2.SubmitAndWaitRequest{
 		Commands: &ledgerv2.Commands{
 			CommandId: uuid.New().String(),
-			UserId:    ts.helper.GetUserID(),
+			UserId:    ts.participant.UserID,
 			ActAs:     []string{ccipOwnerParty},
 			ReadAs:    []string{ccipOwnerParty},
 			Commands: []*ledgerv2.Command{
@@ -661,7 +634,7 @@ func (ts *testSetup) createTestRouter(t *testing.T, ccipOwnerParty, partyOwnerPa
 					Command: &ledgerv2.Command_Create{
 						Create: &ledgerv2.CreateCommand{
 							TemplateId: &ledgerv2.Identifier{
-								PackageId:  "#" + packageID,
+								PackageId:  "#" + packageName,
 								ModuleName: moduleName,
 								EntityName: entityName,
 							},
@@ -696,8 +669,8 @@ func (ts *testSetup) createTestRouter(t *testing.T, ccipOwnerParty, partyOwnerPa
 	return resp
 }
 
-func newTestSetup(helper *devenvcanton.Helper) *testSetup {
+func newTestSetup(participant cldf_canton.Participant) *testSetup {
 	return &testSetup{
-		helper: helper,
+		participant: participant,
 	}
 }

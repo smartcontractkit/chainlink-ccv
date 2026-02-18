@@ -75,9 +75,18 @@ func (t *CantonTokenAdapter) SetPool() *operations.Sequence[tokenadapters.SetPoo
 	return t.base.SetPool()
 }
 
-// UpdateAuthorities implements tokens.TokenAdapter.
-func (t *CantonTokenAdapter) UpdateAuthorities() *operations.Sequence[tokenadapters.UpdateAuthoritiesInput, sequences.OnChainOutput, chain.BlockChains] {
-	return t.base.UpdateAuthorities()
+func (t *CantonTokenAdapter) DeriveTokenDecimals(e deployment.Environment, chainSelector uint64, ref datastore.AddressRef) (uint8, error) {
+	// TODO: Need to actually implement this behavior for Canton instead of reusing the EVM behavior.
+	// return t.base.DeriveTokenDecimals(e, chainSelector, ref)
+	return 0, nil
+}
+
+func (t *CantonTokenAdapter) DeriveTokenPoolCounterpart(e deployment.Environment, chainSelector uint64, tokenPoolAddress, tokenAddress []byte) ([]byte, error) {
+	return t.base.DeriveTokenPoolCounterpart(e, chainSelector, tokenPoolAddress, tokenAddress)
+}
+
+func (t *CantonTokenAdapter) SetTokenPoolRateLimits() *operations.Sequence[tokenadapters.RateLimiterConfigInputs, sequences.OnChainOutput, chain.BlockChains] {
+	return t.base.SetTokenPoolRateLimits()
 }
 
 func (t *CantonTokenAdapter) DeriveTokenAddress(e deployment.Environment, chainSelector uint64, ref datastore.AddressRef) ([]byte, error) {

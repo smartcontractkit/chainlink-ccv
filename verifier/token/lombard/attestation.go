@@ -84,12 +84,12 @@ func NewAttestationService(
 	if err != nil {
 		return nil, err
 	}
+
 	return &HTTPAttestationService{
-		lggr:      lggr,
-		client:    client,
-		batchSize: config.AttestationAPIBatchSize,
-		// TODO Make that configurable per chain / per address CCIP-8521
-		verifierVersion: VerifierVersion,
+		lggr:            lggr,
+		client:          client,
+		verifierVersion: config.VerifierVersion,
+		batchSize:       config.AttestationAPIBatchSize,
 	}, nil
 }
 

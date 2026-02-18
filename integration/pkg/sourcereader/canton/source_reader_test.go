@@ -250,6 +250,122 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 		require.Empty(t, events)
 	})
 
+	t.Run("ignores event when ccipOwnerParty is not in signatories", func(t *testing.T) {
+		ctx := context.Background()
+
+		msg, err := protocol.NewMessage(
+			protocol.ChainSelector(1),
+			protocol.ChainSelector(2),
+			protocol.SequenceNumber(7),
+			protocol.UnknownAddress{0x01},
+			protocol.UnknownAddress{0x02},
+			1,
+			100,
+			200,
+			protocol.Bytes32{},
+			protocol.UnknownAddress{0x03},
+			protocol.UnknownAddress{0x04},
+			[]byte{0xAA},
+			[]byte{0xBB},
+			nil,
+		)
+		require.NoError(t, err)
+
+		encodedMsg, err := msg.Encode()
+		require.NoError(t, err)
+		msgID := msg.MustMessageID()
+		msgIDHex := hex.EncodeToString(msgID[:])
+		encodedMsgHex := hex.EncodeToString(encodedMsg)
+
+		// Event has correct ccipOwner in CreateArguments but signatories do not include ccipOwnerParty.
+		created := &ledgerv2.CreatedEvent{
+			TemplateId:  templateID,
+			Signatories: []string{"other-party"}, // ccipOwner not in signatories - should be skipped
+			CreateArguments: &ledgerv2.Record{
+				Fields: []*ledgerv2.RecordField{
+					{
+						Label: ccipMessageSentCCIPOwnerLabel,
+						Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Party{Party: ccipOwner}},
+					},
+					{
+						Label: ccipMessageSentEventLabel,
+						Value: &ledgerv2.Value{
+							Sum: &ledgerv2.Value_Record{
+								Record: &ledgerv2.Record{
+									Fields: []*ledgerv2.RecordField{
+										{
+											Label: ccipMessageSentEventDestChainSelectorLabel,
+											Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Int64{Int64: 2}},
+										},
+										{
+											Label: ccipMessageSentEventSequenceNumberLabel,
+											Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Int64{Int64: 7}},
+										},
+										{
+											Label: ccipMessageSentEventMessageIDLabel,
+											Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Text{Text: msgIDHex}},
+										},
+										{
+											Label: ccipMessageSentEventEncodedMessageLabel,
+											Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Text{Text: encodedMsgHex}},
+										},
+										{
+											Label: ccipMessageSentEventVerifierBlobsLabel,
+											Value: &ledgerv2.Value{
+												Sum: &ledgerv2.Value_List{
+													List: &ledgerv2.List{Elements: []*ledgerv2.Value{}},
+												},
+											},
+										},
+										{
+											Label: ccipMessageSentEventReceiptsLabel,
+											Value: &ledgerv2.Value{
+												Sum: &ledgerv2.Value_List{
+													List: &ledgerv2.List{Elements: []*ledgerv2.Value{}},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		tx := &ledgerv2.Transaction{
+			UpdateId: "0xdeadbeef",
+			Offset:   10,
+			Events: []*ledgerv2.Event{
+				{Event: &ledgerv2.Event_Created{Created: created}},
+			},
+		}
+
+		stream := &fakeUpdateStream{
+			ctx: ctx,
+			responses: []*ledgerv2.GetUpdatesResponse{
+				{Update: &ledgerv2.GetUpdatesResponse_Transaction{Transaction: tx}},
+			},
+		}
+
+		updateClient := mocks.NewMockUpdateServiceClient(t)
+		updateClient.EXPECT().GetUpdates(mock.Anything, mock.Anything).Return(stream, nil)
+
+		reader := &sourceReader{
+			updateServiceClient: updateClient,
+			jwt:                 "token",
+			config: ReaderConfig{
+				CCIPOwnerParty:            ccipOwner,
+				CCIPMessageSentTemplateID: templateIDStr,
+			},
+		}
+
+		events, err := reader.FetchMessageSentEvents(ctx, big.NewInt(1), big.NewInt(5))
+		require.NoError(t, err)
+		require.Empty(t, events, "event with ccipOwner not in signatories should be ignored")
+	})
+
 	t.Run("returns error when stream recv fails", func(t *testing.T) {
 		ctx := context.Background()
 		updateClient := mocks.NewMockUpdateServiceClient(t)
@@ -386,7 +502,8 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 		encodedMsgHex := hex.EncodeToString(encodedMsg)
 
 		created := &ledgerv2.CreatedEvent{
-			TemplateId: templateID,
+			TemplateId:  templateID,
+			Signatories: []string{ccipOwner},
 			CreateArguments: &ledgerv2.Record{
 				Fields: []*ledgerv2.RecordField{
 					{
@@ -536,7 +653,8 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 
 		// Two verifier blobs but zero receipts - should fail
 		created := &ledgerv2.CreatedEvent{
-			TemplateId: templateID,
+			TemplateId:  templateID,
+			Signatories: []string{ccipOwner},
 			CreateArguments: &ledgerv2.Record{
 				Fields: []*ledgerv2.RecordField{
 					{
@@ -653,7 +771,8 @@ func TestSourceReader_FetchMessageSentEvents(t *testing.T) {
 		encodedMsgHex := hex.EncodeToString(encodedMsg)
 
 		created := &ledgerv2.CreatedEvent{
-			TemplateId: templateID,
+			TemplateId:  templateID,
+			Signatories: []string{ccipOwner},
 			CreateArguments: &ledgerv2.Record{
 				Fields: []*ledgerv2.RecordField{
 					{

@@ -53,11 +53,11 @@ func NewHelper(infos map[string]*Info) *Helper {
 // GetBlockchainByChainID returns the blockchain info for a given chain ID.
 func (bh *Helper) GetBlockchainByChainID(chainID string) (*Info, error) {
 	for _, info := range bh.infos {
-		if info.ChainID == chainID {
+		if info != nil && info.ChainID == chainID {
 			return info, nil
 		}
 	}
-	if info, exists := bh.infos[chainID]; exists {
+	if info, exists := bh.infos[chainID]; exists && info != nil {
 		return info, nil
 	}
 	return nil, fmt.Errorf("blockchain with chain ID %s not found", chainID)
@@ -66,7 +66,7 @@ func (bh *Helper) GetBlockchainByChainID(chainID string) (*Info, error) {
 // GetBlockchainByChainSelector returns the blockchain info for a given chain selector.
 func (bh *Helper) GetBlockchainByChainSelector(chainSelector protocol.ChainSelector) (*Info, error) {
 	selector := fmt.Sprintf("%d", uint64(chainSelector))
-	if info, exists := bh.infos[selector]; exists {
+	if info, exists := bh.infos[selector]; exists && info != nil {
 		return info, nil
 	}
 	return nil, fmt.Errorf("selector %d not found", uint64(chainSelector))

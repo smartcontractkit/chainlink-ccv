@@ -81,6 +81,9 @@ func TestSetDefaults(t *testing.T) {
 		assert.Equal(t, 5*time.Second, cfg.OrphanRecovery.CheckAggregationTimeout)
 		assert.Equal(t, 10*time.Second, cfg.Storage.QueryTimeout)
 		assert.Equal(t, uint(3), cfg.OrphanRecovery.MaxConsecutiveErrors)
+		assert.Equal(t, 4*time.Minute, cfg.OrphanRecovery.ScanTimeout)
+		assert.Equal(t, 10000, cfg.OrphanRecovery.MaxOrphansPerScan)
+		assert.Equal(t, 100, cfg.OrphanRecovery.PageSize)
 	})
 
 	t.Run("does not override existing values", func(t *testing.T) {
@@ -405,37 +408,79 @@ func TestValidateOrphanRecoveryConfig(t *testing.T) {
 	}{
 		{
 			name:        "valid enabled config",
-			config:      OrphanRecoveryConfig{Enabled: true, Interval: 60 * time.Second, MaxAge: 24 * time.Hour, CheckAggregationTimeout: 5 * time.Second},
+			config:      OrphanRecoveryConfig{Enabled: true, Interval: 60 * time.Second, MaxAge: 24 * time.Hour, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 10000, PageSize: 100},
 			expectError: false,
 		},
 		{
 			name:        "disabled config skips validation",
-			config:      OrphanRecoveryConfig{Enabled: false, Interval: 0, MaxAge: 0, CheckAggregationTimeout: 5 * time.Second},
+			config:      OrphanRecoveryConfig{Enabled: false, Interval: 0, MaxAge: 0, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 10000, PageSize: 100},
 			expectError: false,
 		},
 		{
-			name:        "negative scan timeout fails",
-			config:      OrphanRecoveryConfig{Enabled: false, ScanTimeout: -1 * time.Second, CheckAggregationTimeout: 5 * time.Second},
+			name:        "zero scan timeout fails",
+			config:      OrphanRecoveryConfig{Enabled: false, ScanTimeout: 0, CheckAggregationTimeout: 5 * time.Second, MaxOrphansPerScan: 10000, PageSize: 100},
 			expectError: true,
-			errorMsg:    "scanTimeout cannot be negative",
+			errorMsg:    "scanTimeout must be greater than 0",
+		},
+		{
+			name:        "negative scan timeout fails",
+			config:      OrphanRecoveryConfig{Enabled: false, ScanTimeout: -1 * time.Second, CheckAggregationTimeout: 5 * time.Second, MaxOrphansPerScan: 10000, PageSize: 100},
+			expectError: true,
+			errorMsg:    "scanTimeout must be greater than 0",
 		},
 		{
 			name:        "max age less than 1 hour fails when enabled",
-			config:      OrphanRecoveryConfig{Enabled: true, Interval: 60 * time.Second, MaxAge: 0, CheckAggregationTimeout: 5 * time.Second},
+			config:      OrphanRecoveryConfig{Enabled: true, Interval: 60 * time.Second, MaxAge: 0, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 10000, PageSize: 100},
 			expectError: true,
 			errorMsg:    "maxAge must be at least 1 hour",
 		},
 		{
 			name:        "interval less than 5 seconds fails when enabled",
-			config:      OrphanRecoveryConfig{Enabled: true, Interval: 4 * time.Second, MaxAge: 24 * time.Hour, CheckAggregationTimeout: 5 * time.Second},
+			config:      OrphanRecoveryConfig{Enabled: true, Interval: 4 * time.Second, MaxAge: 24 * time.Hour, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 10000, PageSize: 100},
 			expectError: true,
 			errorMsg:    "interval must be at least 5 seconds",
 		},
 		{
 			name:        "negative check aggregation timeout fails",
-			config:      OrphanRecoveryConfig{Enabled: true, Interval: 60 * time.Second, MaxAge: 24 * time.Hour, CheckAggregationTimeout: -1},
+			config:      OrphanRecoveryConfig{Enabled: true, Interval: 60 * time.Second, MaxAge: 24 * time.Hour, CheckAggregationTimeout: -1, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 10000, PageSize: 100},
 			expectError: true,
 			errorMsg:    "orphanRecovery.checkAggregationTimeout must be greater than 0",
+		},
+		{
+			name:        "zero max orphans per scan fails",
+			config:      OrphanRecoveryConfig{Enabled: false, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 0, PageSize: 100},
+			expectError: true,
+			errorMsg:    "maxOrphansPerScan must be greater than 0",
+		},
+		{
+			name:        "negative max orphans per scan fails",
+			config:      OrphanRecoveryConfig{Enabled: false, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: -1, PageSize: 100},
+			expectError: true,
+			errorMsg:    "maxOrphansPerScan must be greater than 0",
+		},
+		{
+			name:        "max orphans per scan exceeds limit fails",
+			config:      OrphanRecoveryConfig{Enabled: false, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 1_000_001, PageSize: 100},
+			expectError: true,
+			errorMsg:    "maxOrphansPerScan cannot exceed 1000000",
+		},
+		{
+			name:        "zero page size fails",
+			config:      OrphanRecoveryConfig{Enabled: false, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 10000, PageSize: 0},
+			expectError: true,
+			errorMsg:    "pageSize must be greater than 0",
+		},
+		{
+			name:        "negative page size fails",
+			config:      OrphanRecoveryConfig{Enabled: false, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 10000, PageSize: -1},
+			expectError: true,
+			errorMsg:    "pageSize must be greater than 0",
+		},
+		{
+			name:        "page size exceeds limit fails",
+			config:      OrphanRecoveryConfig{Enabled: false, CheckAggregationTimeout: 5 * time.Second, ScanTimeout: 4 * time.Minute, MaxOrphansPerScan: 10000, PageSize: 1001},
+			expectError: true,
+			errorMsg:    "pageSize cannot exceed 1000",
 		},
 	}
 
@@ -858,7 +903,7 @@ func intPtr(i int) *int {
 func TestGetClientByAPIKey(t *testing.T) {
 	creds, _ := hmacutil.GenerateCredentials()
 
-	t.Run("finds client by API key", func(t *testing.T) {
+	t.Run("finds enabled client by API key", func(t *testing.T) {
 		t.Setenv("TEST_API_KEY", creds.APIKey)
 		t.Setenv("TEST_SECRET", creds.Secret)
 
@@ -866,6 +911,7 @@ func TestGetClientByAPIKey(t *testing.T) {
 			APIClients: []*ClientConfig{
 				{
 					ClientID: "client1",
+					Enabled:  true,
 					APIKeyPairs: []*APIKeyPairEnv{
 						{APIKeyEnvVar: "TEST_API_KEY", SecretEnvVar: "TEST_SECRET"},
 					},
@@ -880,6 +926,28 @@ func TestGetClientByAPIKey(t *testing.T) {
 		assert.Equal(t, "client1", client.GetClientID())
 	})
 
+	t.Run("returns false for disabled client with valid API key", func(t *testing.T) {
+		t.Setenv("TEST_API_KEY", creds.APIKey)
+		t.Setenv("TEST_SECRET", creds.Secret)
+
+		cfg := &AggregatorConfig{
+			APIClients: []*ClientConfig{
+				{
+					ClientID: "client1",
+					Enabled:  false,
+					APIKeyPairs: []*APIKeyPairEnv{
+						{APIKeyEnvVar: "TEST_API_KEY", SecretEnvVar: "TEST_SECRET"},
+					},
+				},
+			},
+		}
+
+		client, pair, found := cfg.GetClientByAPIKey(creds.APIKey)
+		assert.False(t, found)
+		assert.Nil(t, client)
+		assert.Nil(t, pair)
+	})
+
 	t.Run("returns false for unknown API key", func(t *testing.T) {
 		cfg := &AggregatorConfig{}
 		client, pair, found := cfg.GetClientByAPIKey("unknown")
@@ -890,11 +958,11 @@ func TestGetClientByAPIKey(t *testing.T) {
 }
 
 func TestGetClientByClientID(t *testing.T) {
-	t.Run("finds client by ID", func(t *testing.T) {
+	t.Run("finds enabled client by ID", func(t *testing.T) {
 		cfg := &AggregatorConfig{
 			APIClients: []*ClientConfig{
-				{ClientID: "client1"},
-				{ClientID: "client2"},
+				{ClientID: "client1", Enabled: true},
+				{ClientID: "client2", Enabled: true},
 			},
 		}
 
@@ -902,6 +970,18 @@ func TestGetClientByClientID(t *testing.T) {
 		assert.True(t, found)
 		assert.NotNil(t, client)
 		assert.Equal(t, "client2", client.GetClientID())
+	})
+
+	t.Run("returns false for disabled client with valid ID", func(t *testing.T) {
+		cfg := &AggregatorConfig{
+			APIClients: []*ClientConfig{
+				{ClientID: "client1", Enabled: false},
+			},
+		}
+
+		client, found := cfg.GetClientByClientID("client1")
+		assert.False(t, found)
+		assert.Nil(t, client)
 	})
 
 	t.Run("returns false for unknown client ID", func(t *testing.T) {

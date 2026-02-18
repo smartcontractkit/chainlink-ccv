@@ -10,6 +10,8 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+const maxBackoffDuration = 5 * time.Minute
+
 var (
 	_ common.TimeProvider = &BackoffNTPProvider{}
 	// ntpTimeFunc is a variable that can be overridden in tests.
@@ -95,6 +97,11 @@ func (b *BackoffNTPProvider) getFallbackTime() time.Time {
 func (b *BackoffNTPProvider) calculateBackoffDuration() time.Duration {
 	// Exponential backoff: backoffDuration * (1 + 2 + 3 + ... + failedAttempts)
 	// This gives: 1x, 3x, 6x, 10x, etc.
+	// Will cap at maxBackoffDuration.
 	multiplier := (b.failedAttempts * (b.failedAttempts + 1)) / 2
-	return b.backoffDuration * time.Duration(multiplier)
+	duration := b.backoffDuration * time.Duration(multiplier)
+	if duration > maxBackoffDuration {
+		return maxBackoffDuration
+	}
+	return duration
 }

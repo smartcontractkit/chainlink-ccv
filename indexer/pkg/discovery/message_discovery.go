@@ -21,17 +21,19 @@ import (
 var _ common.MessageDiscovery = (*AggregatorMessageDiscovery)(nil)
 
 type AggregatorMessageDiscovery struct {
-	logger           logger.Logger
-	config           config.DiscoveryConfig
-	aggregatorReader *readers.ResilientReader
-	registry         *registry.VerifierRegistry
-	storageSink      common.IndexerStorage
-	monitoring       common.IndexerMonitoring
-	timeProvider     ccvcommon.TimeProvider
-	messageCh        chan common.VerifierResultWithMetadata
-	readerLock       *sync.Mutex
-	wg               sync.WaitGroup
-	cancelFunc       context.CancelFunc
+	logger            logger.Logger
+	config            config.DiscoveryConfig
+	aggregatorReader  *readers.ResilientReader
+	registry          *registry.VerifierRegistry
+	storageSink       common.IndexerStorage
+	monitoring        common.IndexerMonitoring
+	timeProvider      ccvcommon.TimeProvider
+	messageCh         chan common.VerifierResultWithMetadata
+	doneCh            chan struct{}
+	readerLock        *sync.Mutex
+	wg                sync.WaitGroup
+	cancelFunc        context.CancelFunc
+	discoveryPriority int
 }
 
 type Option func(*AggregatorMessageDiscovery)
@@ -78,9 +80,16 @@ func WithTimeProvider(timeProvider ccvcommon.TimeProvider) Option {
 	}
 }
 
+func WithDiscoveryPriority(discoveryPriority int) Option {
+	return func(a *AggregatorMessageDiscovery) {
+		a.discoveryPriority = discoveryPriority
+	}
+}
+
 func NewAggregatorMessageDiscovery(opts ...Option) (common.MessageDiscovery, error) {
 	a := &AggregatorMessageDiscovery{
 		messageCh:  make(chan common.VerifierResultWithMetadata),
+		doneCh:     make(chan struct{}),
 		readerLock: &sync.Mutex{},
 	}
 
@@ -131,7 +140,6 @@ func (a *AggregatorMessageDiscovery) validate() error {
 
 func (a *AggregatorMessageDiscovery) Start(ctx context.Context) chan common.VerifierResultWithMetadata {
 	childCtx, cancelFunc := context.WithCancel(ctx)
-
 	a.wg.Add(2)
 	go a.run(childCtx)
 	go a.updateSequenceNumber(childCtx)
@@ -144,6 +152,8 @@ func (a *AggregatorMessageDiscovery) Start(ctx context.Context) chan common.Veri
 
 func (a *AggregatorMessageDiscovery) Close() error {
 	a.cancelFunc()
+	defer close(a.messageCh)
+	close(a.doneCh)
 	a.wg.Wait()
 	a.logger.Info("MessageDiscovery Stopped")
 	return nil
@@ -160,11 +170,19 @@ func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 	ticker := time.NewTicker(time.Duration(a.config.PollInterval) * time.Millisecond)
 	defer ticker.Stop()
 
+	// Ticker to sample the discovery message channel size periodically
+	sampleTicker := time.NewTicker(time.Second)
+	defer sampleTicker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			a.logger.Info("MessageDiscovery stopped due to context cancellation")
 			return
+		case <-sampleTicker.C:
+			// Use background or provided ctx; keep it tied to lifecycle so metrics shutdown works with parent.
+			a.monitoring.Metrics().RecordVerificationRecordChannelSizeGauge(ctx, int64(len(a.messageCh)))
+
 		case <-ticker.C:
 			// Create a child context with a timeout to prevent a single call from blocking the entire discovery process
 			readCtx, cancel := context.WithTimeout(ctx, time.Duration(a.config.Timeout)*time.Millisecond)
@@ -235,17 +253,19 @@ func (a *AggregatorMessageDiscovery) consumeReader(ctx context.Context) {
 func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, error) {
 	startingSequence, ableToSetSinceValue := a.aggregatorReader.GetSinceValue()
 	var queryResponse []protocol.QueryResponse
+	discoveryStartTime := time.Now()
 	queryResponse, err := a.aggregatorReader.ReadCCVData(ctx)
 	if err != nil {
 		if a.isCircuitBreakerOpen() {
+			a.monitoring.Metrics().RecordCircuitBreakerStatus(ctx, true)
 			a.logger.Errorw("Circuit breaker is open, skipping MessageDiscovery this tick")
 			return false, nil
 		}
-
 		a.monitoring.Metrics().RecordScannerPollingErrorsCounter(ctx)
 		a.logger.Errorw("Error reading VerificationResult from aggregator", "error", err)
 		return false, err
 	}
+	a.monitoring.Metrics().RecordIndexerMessageDiscoveryLatency(ctx, time.Since(discoveryStartTime))
 
 	a.logger.Debug("Called Aggregator")
 
@@ -280,6 +300,11 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 		messages = append(messages, message)
 		allVerifications = append(allVerifications, verifierResultWithMetadata)
 	}
+	// use a time.Sleep rather than an async function call so we don't send on a closed channel.
+	// the delay is handled gracefully by consumeReader.
+	// We use a discovery priority for the multi-source scenario where we want to ensure data consistency.
+	//
+	time.Sleep(time.Duration(a.discoveryPriority) * 5 * time.Second)
 
 	// Save all messages we've seen from the discovery source, if we're unable to persist them.
 	// We'll set the sequence value on the reader back to it's original value.
@@ -308,6 +333,10 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 	for _, verifierResultWithMetadata := range allVerifications {
 		// Emit the Message into the message channel for downstream components to consume
 		a.messageCh <- verifierResultWithMetadata
+		// Record the channel size after send so the metric reflects the current backlog.
+		// Use the same context used for the call so the metric respects cancellation.
+		a.monitoring.Metrics().RecordVerificationRecordChannelSizeGauge(ctx, int64(len(a.messageCh)))
+		a.monitoring.Metrics().RecordTimeToIndex(ctx, time.Since(verifierResultWithMetadata.Metadata.AttestationTimestamp), "aggregator")
 	}
 
 	// Return true if we processed any data, false if the slice was empty

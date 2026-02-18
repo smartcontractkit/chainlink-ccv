@@ -18,6 +18,9 @@ type LombardConfig struct {
 	// Default set according to the APIs documentated 10 requests per second rate limit.
 	AttestationAPIInterval  time.Duration `json:"attestation_api_interval"   toml:"attestation_api_interval"`
 	AttestationAPIBatchSize int           `json:"attestation_api_batch_size" toml:"attestation_api_batch_size"`
+	// VerifierVersion is the parsed verifier version of the Lombard verifier contract.
+	// Defaults to DefaultVerifierVersion if not specified.
+	VerifierVersion protocol.ByteSlice `json:"verifier_version" toml:"verifier_version"`
 	// VerifierResolvers is a map of chain selectors to verifier resolver addresses. It's only used for TOML marshall/unmarshall and then
 	// final values, properly cast to domain values are stored in ParsedVerifierResolvers
 	VerifierResolvers       map[string]any                                     `json:"verifier_resolver_addresses" toml:"verifier_resolver_addresses"`
@@ -56,6 +59,16 @@ func TryParsing(t, v string, data map[string]any) (*LombardConfig, error) {
 	c.ParsedVerifierResolvers, c.VerifierResolvers, err = common.ParseAddressesMap(data[("verifier_resolver_addresses")])
 	if err != nil {
 		return nil, fmt.Errorf("invalid verifier_resolver_addresses: %w", err)
+	}
+
+	// Parse verifier version hex, default to DefaultVerifierVersion if not specified
+	if verifierVersionHex, ok := data["verifier_version"].(string); ok {
+		c.VerifierVersion, err = protocol.NewByteSliceFromHex(verifierVersionHex)
+		if err != nil {
+			return nil, fmt.Errorf("invalid verifier_version: %w", err)
+		}
+	} else {
+		c.VerifierVersion = DefaultVerifierVersion
 	}
 
 	return c, nil

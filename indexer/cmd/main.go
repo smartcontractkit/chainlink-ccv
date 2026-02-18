@@ -99,7 +99,11 @@ func main() {
 	pool.Start(ctx)
 
 	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring)
-	api.Serve(v1, 8100)
+	listenPort := config.API.ListenPort
+	if listenPort == 0 {
+		listenPort = 8100
+	}
+	api.Serve(v1, listenPort)
 }
 
 func createRegistry() *registry.VerifierRegistry {
@@ -163,110 +167,55 @@ func createReader(lggr logger.Logger, cfg *config.VerifierConfig) (*readers.Resi
 }
 
 func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring, registry *registry.VerifierRegistry) (common.MessageDiscovery, error) {
-	persistedSinceValue, err := storage.GetDiscoverySequenceNumber(ctx, cfg.Discovery.Address)
-	if err != nil {
-		lggr.Warnw("Discovery Location previously not persisted, using value set in config")
-		if err := storage.CreateDiscoveryState(ctx, cfg.Discovery.Address, int(cfg.Discovery.Since)); err != nil {
-			lggr.Warnw("Unable to persist discovery sequence number")
+	configs := cfg.DiscoveryConfigs()
+	sources := make([]common.MessageDiscovery, 0, len(configs))
+
+	for i, discCfg := range configs {
+		persistedSinceValue, err := storage.GetDiscoverySequenceNumber(ctx, discCfg.Address)
+		if err != nil {
+			lggr.Warnw("Discovery location previously not persisted, using value set in config", "address", discCfg.Address)
+			if err := storage.CreateDiscoveryState(ctx, discCfg.Address, int(discCfg.Since)); err != nil {
+				lggr.Warnw("Unable to persist discovery sequence number", "address", discCfg.Address)
+			}
+			persistedSinceValue = int(discCfg.Since)
 		}
-		persistedSinceValue = int(cfg.Discovery.Since)
+
+		aggregator, err := readers.NewAggregatorReader(discCfg.Address, lggr, int64(persistedSinceValue), hmac.ClientConfig{
+			APIKey: discCfg.APIKey,
+			Secret: discCfg.Secret,
+		}, discCfg.InsecureConnection)
+		if err != nil {
+			return nil, err
+		}
+
+		timeProvider := backofftimeprovider.NewBackoffNTPProvider(lggr, time.Duration(discCfg.Timeout)*time.Second, discCfg.NtpServer)
+
+		aggDiscovery, err := discovery.NewAggregatorMessageDiscovery(
+			discovery.WithAggregator(aggregator),
+			discovery.WithStorage(storage),
+			discovery.WithRegistry(registry),
+			discovery.WithTimeProvider(timeProvider),
+			discovery.WithMonitoring(monitoring),
+			discovery.WithLogger(lggr),
+			discovery.WithConfig(discCfg),
+			discovery.WithDiscoveryPriority(i),
+		)
+		if err != nil {
+			return nil, err
+		}
+		sources = append(sources, aggDiscovery)
 	}
 
-	aggregator, err := readers.NewAggregatorReader(cfg.Discovery.Address, lggr, int64(persistedSinceValue), hmac.ClientConfig{
-		APIKey: cfg.Discovery.APIKey,
-		Secret: cfg.Discovery.Secret,
-	}, cfg.Discovery.InsecureConnection)
-	if err != nil {
-		return nil, err
+	if len(sources) == 1 {
+		return sources[0], nil
 	}
-
-	timeProvider := backofftimeprovider.NewBackoffNTPProvider(lggr, time.Duration(cfg.Discovery.Timeout)*time.Second, cfg.Discovery.NtpServer)
-
-	return discovery.NewAggregatorMessageDiscovery(
-		discovery.WithAggregator(aggregator),
-		discovery.WithStorage(storage),
-		discovery.WithRegistry(registry),
-		discovery.WithTimeProvider(timeProvider),
-		discovery.WithMonitoring(monitoring),
-		discovery.WithLogger(lggr),
-		discovery.WithConfig(cfg.Discovery))
+	return discovery.NewMultiSourceMessageDiscovery(
+		lggr, sources)
 }
 
 // createStorage creates the storage backend connection based on the configuration.
 func createStorage(ctx context.Context, lggr logger.Logger, cfg *config.Config, indexerMonitoring common.IndexerMonitoring) common.IndexerStorage {
-	// Determine the appropriate storage strategy based on the configuration
-	switch cfg.Storage.Strategy {
-	case config.StorageStrategySingle:
-		return createSingleStorage(ctx, lggr, cfg.Storage.Single, indexerMonitoring)
-	case config.StorageStrategySink:
-		return createSinkStorage(ctx, lggr, cfg.Storage.Sink, indexerMonitoring)
-	default:
-		lggr.Fatalf("Unsupported storage strategy: %s", cfg.Storage.Strategy)
-	}
-
-	return nil
-}
-
-// createSingleStorage creates a single storage backend based on the configuration.
-func createSingleStorage(ctx context.Context, lggr logger.Logger, cfg *config.SingleStorageConfig, indexerMonitoring common.IndexerMonitoring) common.IndexerStorage {
-	switch cfg.Type {
-	case config.StorageBackendTypeMemory:
-		return createInMemoryStorage(lggr, cfg.Memory, indexerMonitoring)
-	case config.StorageBackendTypePostgres:
-		return createPostgresStorage(ctx, lggr, cfg.Postgres, indexerMonitoring)
-	default:
-		lggr.Fatalf("Unsupported storage backend type: %s", cfg.Type)
-	}
-
-	return nil
-}
-
-// createSinkStorage creates a storage sink with multiple backends based on the configuration.
-func createSinkStorage(ctx context.Context, lggr logger.Logger, cfg *config.SinkStorageConfig, indexerMonitoring common.IndexerMonitoring) common.IndexerStorage {
-	storages := make([]common.IndexerStorage, 0, len(cfg.Storages))
-
-	for i, storageCfg := range cfg.Storages {
-		lggr.Infof("Creating storage backend %d of %d (type: %s)", i+1, len(cfg.Storages), storageCfg.Type)
-
-		// Create the storage backend
-		var storageBackend common.IndexerStorage
-		switch storageCfg.Type {
-		case config.StorageBackendTypeMemory:
-			storageBackend = createInMemoryStorage(lggr, storageCfg.Memory, indexerMonitoring)
-		case config.StorageBackendTypePostgres:
-			storageBackend = createPostgresStorage(ctx, lggr, storageCfg.Postgres, indexerMonitoring)
-		default:
-			lggr.Fatalf("Unsupported storage backend type: %s", storageCfg.Type)
-		}
-
-		storages = append(storages, storageBackend)
-	}
-
-	// Create the storage sink
-	sink, err := storage.NewSink(lggr, storages...)
-	if err != nil {
-		lggr.Fatalf("Failed to create storage sink: %v", err)
-	}
-
-	lggr.Infof("Successfully created storage sink with %d backends", len(cfg.Storages))
-	return sink
-}
-
-// createInMemoryStorage creates an in-memory storage backend.
-func createInMemoryStorage(lggr logger.Logger, cfg *config.InMemoryStorageConfig, indexerMonitoring common.IndexerMonitoring) common.IndexerStorage {
-	// If no config provided, use defaults (no eviction)
-	if cfg == nil {
-		return storage.NewInMemoryStorage(lggr, indexerMonitoring)
-	}
-
-	// Create with eviction configuration
-	storageConfig := storage.InMemoryStorageConfig{
-		TTL:             time.Duration(cfg.TTL) * time.Second,
-		MaxSize:         cfg.MaxSize,
-		CleanupInterval: time.Duration(cfg.CleanupInterval) * time.Second,
-	}
-
-	return storage.NewInMemoryStorageWithConfig(lggr, indexerMonitoring, storageConfig)
+	return createPostgresStorage(ctx, lggr, cfg.Storage.Single.Postgres, indexerMonitoring)
 }
 
 // createPostgresStorage creates a PostgreSQL storage backend.

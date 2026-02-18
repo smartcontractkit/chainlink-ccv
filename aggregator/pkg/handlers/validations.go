@@ -31,6 +31,10 @@ func validateWriteRequest(req *committeepb.WriteCommitteeVerifierNodeResultReque
 		return err
 	}
 
+	if err := validateAddressBounds(verificationRecord); err != nil {
+		return err
+	}
+
 	// Validate ccv_and_executor_hash is required and has correct length
 	if len(verificationRecord.Message.CcvAndExecutorHash) != 32 {
 		return fmt.Errorf("ccv_and_executor_hash must be exactly 32 bytes, got %d", len(verificationRecord.Message.CcvAndExecutorHash))
@@ -66,6 +70,20 @@ func validateWriteRequest(req *committeepb.WriteCommitteeVerifierNodeResultReque
 	}
 	if message.CcvAndExecutorHash != computedHash {
 		return fmt.Errorf("hash mismatch: received %x, computed %x", message.CcvAndExecutorHash, computedHash)
+	}
+
+	return nil
+}
+
+func validateAddressBounds(record *committeepb.CommitteeVerifierNodeResult) error {
+	for i, addr := range record.CcvAddresses {
+		if len(addr) > protocol.MaxUnknownAddressBytes {
+			return fmt.Errorf("ccv_addresses[%d] size %d bytes exceeds maximum %d", i, len(addr), protocol.MaxUnknownAddressBytes)
+		}
+	}
+
+	if len(record.ExecutorAddress) > protocol.MaxUnknownAddressBytes {
+		return fmt.Errorf("executor_address size %d bytes exceeds maximum %d", len(record.ExecutorAddress), protocol.MaxUnknownAddressBytes)
 	}
 
 	return nil

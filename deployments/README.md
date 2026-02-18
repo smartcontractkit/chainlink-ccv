@@ -7,7 +7,7 @@ The package defines a node topology which defines which nodes are part of which 
 ```toml
 [environment_topology]
 # Global indexer endpoint for executor configuration
-indexer_address = "http://indexer:8100"
+indexer_address = ["http://indexer-1:8100"]
 # Shared pyroscope endpoint for profiling
 pyroscope_url = "http://host.docker.internal:4040"
 

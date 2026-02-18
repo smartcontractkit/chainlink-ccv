@@ -94,6 +94,7 @@ func Test_LombardMessages_Success(t *testing.T) {
 		AttestationAPITimeout:   1 * time.Minute,
 		AttestationAPIInterval:  1 * time.Millisecond,
 		AttestationAPIBatchSize: 10,
+		VerifierVersion:         lombard.DefaultVerifierVersion,
 		ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 			chain1337: testCCVAddr,
 			chain2337: destVerifier,
@@ -196,6 +197,7 @@ func Test_LombardMessages_RetryingAttestation(t *testing.T) {
 		AttestationAPITimeout:   1 * time.Minute,
 		AttestationAPIInterval:  1 * time.Millisecond,
 		AttestationAPIBatchSize: 10,
+		VerifierVersion:         lombard.DefaultVerifierVersion,
 		ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 			chain1337: testCCVAddr,
 			chain2337: destVerifier,
@@ -262,6 +264,9 @@ func createLombardCoordinator(
 	attestationService, err := lombard.NewAttestationService(ts.logger, *lombardConfig)
 	require.NoError(ts.t, err)
 
+	lombardVerifier, err := lombard.NewVerifier(ts.logger, *lombardConfig, attestationService)
+	require.NoError(ts.t, err)
+
 	ccvWriter := storage.NewAttestationCCVWriter(
 		ts.logger,
 		lombardConfig.ParsedVerifierResolvers,
@@ -271,7 +276,7 @@ func createLombardCoordinator(
 	return verifier.NewCoordinator(
 		ts.ctx,
 		ts.logger,
-		lombard.NewVerifierWithConfig(ts.logger, attestationService, lombard.VerifierVersion, 100*time.Millisecond, 100*time.Millisecond),
+		lombardVerifier,
 		sourceReaders,
 		ccvWriter,
 		config,
