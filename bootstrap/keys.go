@@ -60,33 +60,3 @@ func ensureKey(
 	}
 	return nil
 }
-
-// ensureAllSigningKeys ensures that the ECDSA and EdDSA signing keys are present in the keystore.
-// This is typically used by the committee verifier.
-func ensureAllSigningKeys(ctx context.Context, lggr logger.Logger, keyStore keystore.Keystore) error {
-	// Ensure that the ECDSA signing key is present in the keystore.
-	if err := ensureKey(
-		ctx,
-		lggr,
-		keyStore,
-		DefaultECDSASigningKeyName,
-		"signing",
-		keystore.ECDSA_S256,
-	); err != nil {
-		return fmt.Errorf("failed to ensure ecdsa signing key: %w", err)
-	}
-
-	// Ensure that the EdDSA signing key is present in the keystore.
-	if err := ensureKey(
-		ctx,
-		lggr,
-		keyStore,
-		DefaultEdDSASigningKeyName,
-		"signing",
-		keystore.Ed25519,
-	); err != nil {
-		return fmt.Errorf("failed to ensure eddsa signing key: %w", err)
-	}
-
-	return nil
-}

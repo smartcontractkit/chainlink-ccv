@@ -18,7 +18,6 @@ import (
 	jobstore "github.com/smartcontractkit/chainlink-ccv/common/jd/store"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/keystore"
-	"github.com/smartcontractkit/chainlink-common/keystore/pgstore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -55,6 +54,7 @@ type Bootstrapper struct {
 
 	// state
 	lifecycleManager *lifecycle.Manager
+	infoServer       *infoServer
 }
 
 func NewBootstrapper(name string, lggr logger.Logger, cfg Config, fac ServiceFactory, opts ...Option) (*Bootstrapper, error) {
@@ -123,11 +123,25 @@ func (b *Bootstrapper) Start(ctx context.Context) error {
 
 	b.lifecycleManager = lifecycleManager
 
+	// Start the info server
+	infoServer := newInfoServer(b.lggr, keyStore, b.cfg.Server.ListenPort)
+	if err := infoServer.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start info server: %w", err)
+	}
+
+	b.infoServer = infoServer
+
 	return nil
 }
 
 func (b *Bootstrapper) Stop(ctx context.Context) error {
-	return b.lifecycleManager.Stop()
+	if err := b.lifecycleManager.Stop(); err != nil {
+		return fmt.Errorf("failed to stop lifecycle manager: %w", err)
+	}
+	if err := b.infoServer.Stop(ctx); err != nil {
+		return fmt.Errorf("failed to stop info server: %w", err)
+	}
+	return nil
 }
 
 func (b *Bootstrapper) connectToDB(ctx context.Context) (*sqlx.DB, error) {
@@ -155,7 +169,7 @@ func (b *Bootstrapper) newServiceDeps(keyStore keystore.Keystore) (ServiceDeps, 
 }
 
 func (b *Bootstrapper) initializeKeystore(ctx context.Context, db *sqlx.DB) (keyStore keystore.Keystore, csaSigner crypto.Signer, err error) {
-	keyStore, err = keystore.LoadKeystore(ctx, pgstore.NewStorage(db, "default"), b.cfg.Keystore.Password)
+	keyStore, err = keystore.LoadKeystore(ctx, NewPGStorage(db, "default"), b.cfg.Keystore.Password)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load keystore: %w", err)
 	}
@@ -172,9 +186,27 @@ func (b *Bootstrapper) initializeKeystore(ctx context.Context, db *sqlx.DB) (key
 		return nil, nil, fmt.Errorf("failed to ensure csa key: %w", err)
 	}
 
-	// Ensure signing keys are present in the keystore.
-	if err := ensureAllSigningKeys(ctx, b.lggr, keyStore); err != nil {
-		return nil, nil, fmt.Errorf("failed to ensure all signing keys: %w", err)
+	// Ensure that the ECDSA and EdDSA signing keys are present in the keystore.
+	if err := ensureKey(
+		ctx,
+		b.lggr,
+		keyStore,
+		DefaultECDSASigningKeyName,
+		"signing",
+		keystore.ECDSA_S256,
+	); err != nil {
+		return nil, nil, fmt.Errorf("failed to ensure ecdsa signing key: %w", err)
+	}
+
+	if err := ensureKey(
+		ctx,
+		b.lggr,
+		keyStore,
+		DefaultEdDSASigningKeyName,
+		"signing",
+		keystore.Ed25519,
+	); err != nil {
+		return nil, nil, fmt.Errorf("failed to ensure eddsa signing key: %w", err)
 	}
 
 	csaSigner, err = newCSASigner(keyStore, DefaultCSAKeyName)

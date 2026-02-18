@@ -13,6 +13,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap/db"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/freeport"
 
 	_ "github.com/lib/pq"
 )
@@ -50,7 +51,7 @@ func setupBootstrapTestDB(t *testing.T) (dbURL string, cleanup func()) {
 }
 
 // validTestConfig returns a Config that passes validation (for use with test DB URL).
-func validTestConfig(dbURL string) Config {
+func validTestConfig(t *testing.T, dbURL string) Config {
 	return Config{
 		JD: JDConfig{
 			ServerWSRPCURL:     "ws://localhost:8080/ws",
@@ -62,6 +63,9 @@ func validTestConfig(dbURL string) Config {
 		DB: DBConfig{
 			URL: dbURL,
 		},
+		Server: ServerConfig{
+			ListenPort: freeport.GetOne(t),
+		},
 	}
 }
 
@@ -69,7 +73,7 @@ func TestBootstrapper_connectToDB(t *testing.T) {
 	dbURL, cleanup := setupBootstrapTestDB(t)
 	defer cleanup()
 
-	cfg := validTestConfig(dbURL)
+	cfg := validTestConfig(t, dbURL)
 	b, err := NewBootstrapper("test", logger.TestSugared(t), cfg, &mockServiceFactory{})
 	require.NoError(t, err)
 
@@ -93,7 +97,7 @@ func TestBootstrapper_connectToDB(t *testing.T) {
 }
 
 func TestBootstrapper_connectToDB_InvalidURL(t *testing.T) {
-	cfg := validTestConfig("postgres://invalid-host:5432/nonexistent?sslmode=disable")
+	cfg := validTestConfig(t, "postgres://invalid-host:5432/nonexistent?sslmode=disable")
 	b, err := NewBootstrapper("test", logger.TestSugared(t), cfg, &mockServiceFactory{})
 	require.NoError(t, err)
 

@@ -4,12 +4,16 @@ import (
 	"context"
 	"crypto"
 	"crypto/ed25519"
+	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 
 	"github.com/smartcontractkit/chainlink-ccv/common/jd/lifecycle"
 	"github.com/smartcontractkit/chainlink-common/keystore"
+	"github.com/smartcontractkit/chainlink-common/keystore/pgstore"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
 
 type runner struct {
@@ -93,3 +97,32 @@ func (s *csaSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) 
 }
 
 var _ crypto.Signer = &csaSigner{}
+
+// NewPGStorage creates a keystore storage that handles the case where no keystore
+// exists yet (returns empty data instead of sql.ErrNoRows).
+// NOTE: this seems like a hack, should this get fixed in the keystore library?
+func NewPGStorage(ds sqlutil.DataSource, name string) keystore.Storage {
+	return &pgStorageWrapper{inner: pgstore.NewStorage(ds, name)}
+}
+
+// pgStorageWrapper wraps pgstore.Storage to handle sql.ErrNoRows gracefully.
+// The keystore library expects GetEncryptedKeystore to return (nil, nil) or ([]byte{}, nil)
+// when no data exists, but pgstore returns (nil, sql.ErrNoRows).
+type pgStorageWrapper struct {
+	inner *pgstore.Storage
+}
+
+var _ keystore.Storage = &pgStorageWrapper{}
+
+func (w *pgStorageWrapper) GetEncryptedKeystore(ctx context.Context) ([]byte, error) {
+	data, err := w.inner.GetEncryptedKeystore(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		// No keystore exists yet - return empty data so LoadKeystore creates an empty keystore
+		return nil, nil
+	}
+	return data, err
+}
+
+func (w *pgStorageWrapper) PutEncryptedKeystore(ctx context.Context, encryptedKeystore []byte) error {
+	return w.inner.PutEncryptedKeystore(ctx, encryptedKeystore)
+}

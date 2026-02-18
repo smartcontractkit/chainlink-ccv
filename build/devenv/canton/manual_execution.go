@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"math/big"
 
-	ledgerv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2"
-	ledgerv2admin "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2/admin"
+	apiv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2"
+	adminv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2/admin"
 	"github.com/google/uuid"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -15,8 +15,9 @@ import (
 	"github.com/smartcontractkit/go-daml/pkg/types"
 
 	"github.com/smartcontractkit/chainlink-canton/bindings"
-	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/ccipreceiver"
-	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/perpartyrouter"
+	"github.com/smartcontractkit/chainlink-canton/bindings/generated/ccip/ccipreceiver"
+	"github.com/smartcontractkit/chainlink-canton/bindings/generated/ccip/common"
+	"github.com/smartcontractkit/chainlink-canton/bindings/generated/ccip/perpartyrouter"
 	"github.com/smartcontractkit/chainlink-canton/contracts"
 	"github.com/smartcontractkit/chainlink-canton/deployment/dependencies"
 	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/per_party_router_factory"
@@ -31,10 +32,8 @@ import (
 // It returns the address of the newly created PerPartyRouter instance. If a router already exists for the party, it returns the existing router's address.
 func (c *Chain) DeployPerPartyRouter(ctx context.Context, partyId string) (contracts.InstanceAddress, error) {
 	deps := dependencies.CantonDeps{
-		Chain:                c.chain,
-		CommandServiceClient: c.helper.commandClient,
-		StateServiceClient:   c.helper.stateServiceClient,
-		Party:                partyId,
+		Chain:       c.chain,
+		Participant: 0,
 	}
 
 	// Create PerPartyRouter (ignore error if it exists already)
@@ -70,11 +69,11 @@ func (c *Chain) DeployPerPartyRouter(ctx context.Context, partyId string) (contr
 }
 
 func (c *Chain) DeployCCIPReceiver(ctx context.Context, partyId string) (contracts.InstanceAddress, error) {
+	// Use only a single participant for now
+	participant := c.chain.Participants[0]
 	deps := dependencies.CantonDeps{
-		Chain:                c.chain,
-		CommandServiceClient: c.helper.commandClient,
-		StateServiceClient:   c.helper.stateServiceClient,
-		Party:                partyId,
+		Chain:       c.chain,
+		Participant: 0,
 	}
 
 	// Upload the necessary Dar
@@ -82,9 +81,9 @@ func (c *Chain) DeployCCIPReceiver(ctx context.Context, partyId string) (contrac
 	if err != nil {
 		return contracts.InstanceAddress{}, fmt.Errorf("failed to get receiver dar: %w", err)
 	}
-	_, err = c.helper.pkgMgmtClient.UploadDarFile(ctx, &ledgerv2admin.UploadDarFileRequest{
+	_, err = participant.LedgerServices.Admin.PackageManagement.UploadDarFile(ctx, &adminv2.UploadDarFileRequest{
 		DarFile:       receiverDar,
-		VettingChange: ledgerv2admin.UploadDarFileRequest_VETTING_CHANGE_VET_ALL_PACKAGES,
+		VettingChange: adminv2.UploadDarFileRequest_VETTING_CHANGE_VET_ALL_PACKAGES,
 	})
 	if err != nil {
 		return contracts.InstanceAddress{}, fmt.Errorf("failed to upload receiver dar file: %w", err)
@@ -94,12 +93,12 @@ func (c *Chain) DeployCCIPReceiver(ctx context.Context, partyId string) (contrac
 	out, err := operations.ExecuteOperation(c.e.OperationsBundle, receiver.Deploy, deps, contract.DeployInput[ccipreceiver.CCIPReceiver]{
 		ChainSelector: c.chainDetails.ChainSelector,
 		Qualifier:     nil,
-		ActAs:         []string{c.helper.partyID},
+		ActAs:         []string{participant.PartyID},
 		Template: ccipreceiver.CCIPReceiver{
-			Owner:        types.PARTY(c.helper.partyID),
+			Owner:        types.PARTY(participant.PartyID),
 			RequiredCCVs: nil,
 		},
-		OwnerParty: types.PARTY(c.helper.partyID),
+		OwnerParty: types.PARTY(participant.PartyID),
 	})
 	if err != nil {
 		return contracts.InstanceAddress{}, fmt.Errorf("failed to deploy receiver contract: %w", err)
@@ -111,8 +110,11 @@ func (c *Chain) DeployCCIPReceiver(ctx context.Context, partyId string) (contrac
 
 // ManuallyExecuteMessage implements cciptestinterfaces.CCIP17.
 func (c *Chain) ManuallyExecuteMessage(ctx context.Context, message protocol.Message, gasLimit uint64, verifiers []protocol.UnknownAddress, verifierResults [][]byte) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
+	// Use only a single participant for now
+	participant := c.chain.Participants[0]
+
 	// Ensure that the message receiver is the party we're executing with
-	executingParty := c.helper.partyID
+	executingParty := participant.PartyID
 	if contracts.HashedPartyFromString(executingParty) != contracts.BytesToHashedParty(message.Receiver.Bytes()) {
 		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("message receiver %s does not match executing party %s (%s)", hex.EncodeToString(message.Receiver), contracts.HashedPartyFromString(executingParty).String(), executingParty)
 	}
@@ -142,13 +144,13 @@ func (c *Chain) ManuallyExecuteMessage(ctx context.Context, message protocol.Mes
 	}
 
 	// Resolve all necessary contracts
-	routerCid, err := contract.FindActiveContractIDByInstanceAddress(ctx, c.helper.stateServiceClient, c.helper.partyID, perpartyrouter.PerPartyRouter{}.GetTemplateID(), routerAddress)
+	routerCid, err := contract.FindActiveContractIDByInstanceAddress(ctx, participant.LedgerServices.State, participant.PartyID, perpartyrouter.PerPartyRouter{}.GetTemplateID(), routerAddress)
 	if err != nil {
 		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to get router contract ID: %w", err)
 	}
 	c.logger.Debug().Str("InstanceAddress", routerAddress.String()).Str("ContractId", routerCid).Msg("Resolved PerPartyRouter contract")
 
-	receiverCid, err := contract.FindActiveContractIDByInstanceAddress(ctx, c.helper.stateServiceClient, c.helper.partyID, ccipreceiver.CCIPReceiver{}.GetTemplateID(), receiverAddress)
+	receiverCid, err := contract.FindActiveContractIDByInstanceAddress(ctx, participant.LedgerServices.State, participant.PartyID, ccipreceiver.CCIPReceiver{}.GetTemplateID(), receiverAddress)
 	if err != nil {
 		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to get receiver contract ID: %w", err)
 	}
@@ -165,42 +167,42 @@ func (c *Chain) ManuallyExecuteMessage(ctx context.Context, message protocol.Mes
 		Str("Receiver", hex.EncodeToString(message.Receiver)).
 		Msg("Executing message...")
 
-	disclosedContracts := []*ledgerv2.DisclosedContract{
+	disclosedContracts := []*apiv2.DisclosedContract{
 		disclosures.OffRamp,
 		disclosures.GlobalConfig,
 		disclosures.TokenAdminRegistry,
 		disclosures.RMNRemote,
 	}
 
-	ccvElements := make([]*ledgerv2.Value, len(verifiers))
+	ccvElements := make([]*apiv2.Value, len(verifiers))
 	for i, verifier := range disclosures.Verifiers {
-		ccvElements[i] = &ledgerv2.Value{
-			Sum: &ledgerv2.Value_Record{Record: &ledgerv2.Record{Fields: []*ledgerv2.RecordField{
-				{Label: "ccvCid", Value: &ledgerv2.Value{Sum: &ledgerv2.Value_ContractId{ContractId: verifier.GetContractId()}}},
-				{Label: "verifierResults", Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Text{Text: hex.EncodeToString(verifierResults[i])}}},
+		ccvElements[i] = &apiv2.Value{
+			Sum: &apiv2.Value_Record{Record: &apiv2.Record{Fields: []*apiv2.RecordField{
+				{Label: "ccvCid", Value: &apiv2.Value{Sum: &apiv2.Value_ContractId{ContractId: verifier.GetContractId()}}},
+				{Label: "verifierResults", Value: &apiv2.Value{Sum: &apiv2.Value_Text{Text: hex.EncodeToString(verifierResults[i])}}},
 			}}},
 		}
 		disclosedContracts = append(disclosedContracts, verifier)
 	}
 
-	res, err := c.helper.commandClient.SubmitAndWaitForTransaction(ctx, &ledgerv2.SubmitAndWaitForTransactionRequest{
-		Commands: &ledgerv2.Commands{
+	res, err := participant.LedgerServices.Command.SubmitAndWaitForTransaction(ctx, &apiv2.SubmitAndWaitForTransactionRequest{
+		Commands: &apiv2.Commands{
 			CommandId: uuid.New().String(),
-			Commands: []*ledgerv2.Command{{
-				Command: &ledgerv2.Command_Exercise{Exercise: &ledgerv2.ExerciseCommand{
-					TemplateId: &ledgerv2.Identifier{PackageId: "#ccip-receiver", ModuleName: "CCIP.CCIPReceiver", EntityName: "CCIPReceiver"},
+			Commands: []*apiv2.Command{{
+				Command: &apiv2.Command_Exercise{Exercise: &apiv2.ExerciseCommand{
+					TemplateId: &apiv2.Identifier{PackageId: "#ccip-receiver", ModuleName: "CCIP.CCIPReceiver", EntityName: "CCIPReceiver"},
 					ContractId: receiverCid,
 					Choice:     "Execute",
-					ChoiceArgument: &ledgerv2.Value{Sum: &ledgerv2.Value_Record{Record: &ledgerv2.Record{Fields: []*ledgerv2.RecordField{
-						{Label: "routerCid", Value: &ledgerv2.Value{Sum: &ledgerv2.Value_ContractId{ContractId: routerCid}}},
-						{Label: "offRampCid", Value: &ledgerv2.Value{Sum: &ledgerv2.Value_ContractId{ContractId: disclosures.OffRamp.GetContractId()}}},
-						{Label: "globalConfigCid", Value: &ledgerv2.Value{Sum: &ledgerv2.Value_ContractId{ContractId: disclosures.GlobalConfig.GetContractId()}}},
-						{Label: "tokenAdminRegistryCid", Value: &ledgerv2.Value{Sum: &ledgerv2.Value_ContractId{ContractId: disclosures.TokenAdminRegistry.GetContractId()}}},
-						{Label: "rmnRemoteCid", Value: &ledgerv2.Value{Sum: &ledgerv2.Value_ContractId{ContractId: disclosures.RMNRemote.GetContractId()}}},
-						{Label: "encodedMessage", Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Text{Text: hex.EncodeToString(encodedMessage)}}},
-						{Label: "tokenTransfer", Value: &ledgerv2.Value{Sum: &ledgerv2.Value_Optional{Optional: &ledgerv2.Optional{Value: nil}}}},
-						{Label: "ccvInputs", Value: &ledgerv2.Value{Sum: &ledgerv2.Value_List{List: &ledgerv2.List{Elements: ccvElements}}}},
-						{Label: "additionalRequiredCCVs", Value: &ledgerv2.Value{Sum: &ledgerv2.Value_List{List: &ledgerv2.List{Elements: nil}}}},
+					ChoiceArgument: &apiv2.Value{Sum: &apiv2.Value_Record{Record: &apiv2.Record{Fields: []*apiv2.RecordField{
+						{Label: "routerCid", Value: &apiv2.Value{Sum: &apiv2.Value_ContractId{ContractId: routerCid}}},
+						{Label: "offRampCid", Value: &apiv2.Value{Sum: &apiv2.Value_ContractId{ContractId: disclosures.OffRamp.GetContractId()}}},
+						{Label: "globalConfigCid", Value: &apiv2.Value{Sum: &apiv2.Value_ContractId{ContractId: disclosures.GlobalConfig.GetContractId()}}},
+						{Label: "tokenAdminRegistryCid", Value: &apiv2.Value{Sum: &apiv2.Value_ContractId{ContractId: disclosures.TokenAdminRegistry.GetContractId()}}},
+						{Label: "rmnRemoteCid", Value: &apiv2.Value{Sum: &apiv2.Value_ContractId{ContractId: disclosures.RMNRemote.GetContractId()}}},
+						{Label: "encodedMessage", Value: &apiv2.Value{Sum: &apiv2.Value_Text{Text: hex.EncodeToString(encodedMessage)}}},
+						{Label: "tokenTransfer", Value: &apiv2.Value{Sum: &apiv2.Value_Optional{Optional: &apiv2.Optional{Value: nil}}}},
+						{Label: "ccvInputs", Value: &apiv2.Value{Sum: &apiv2.Value_List{List: &apiv2.List{Elements: ccvElements}}}},
+						{Label: "additionalRequiredCCVs", Value: &apiv2.Value{Sum: &apiv2.Value_List{List: &apiv2.List{Elements: nil}}}},
 					}}}},
 				}},
 			}},
@@ -214,18 +216,18 @@ func (c *Chain) ManuallyExecuteMessage(ctx context.Context, message protocol.Mes
 	c.logger.Debug().Str("UpdateID", res.GetTransaction().GetUpdateId()).Msg("Executed message")
 
 	// Get Update
-	updateRes, err := c.helper.updatesClient.GetUpdateById(ctx, &ledgerv2.GetUpdateByIdRequest{
+	updateRes, err := participant.LedgerServices.Update.GetUpdateById(ctx, &apiv2.GetUpdateByIdRequest{
 		UpdateId: res.GetTransaction().GetUpdateId(),
-		UpdateFormat: &ledgerv2.UpdateFormat{
-			IncludeTransactions: &ledgerv2.TransactionFormat{
-				TransactionShape: ledgerv2.TransactionShape_TRANSACTION_SHAPE_ACS_DELTA,
-				EventFormat: &ledgerv2.EventFormat{
-					FiltersByParty: map[string]*ledgerv2.Filters{
-						c.helper.partyID: {
-							Cumulative: []*ledgerv2.CumulativeFilter{
+		UpdateFormat: &apiv2.UpdateFormat{
+			IncludeTransactions: &apiv2.TransactionFormat{
+				TransactionShape: apiv2.TransactionShape_TRANSACTION_SHAPE_ACS_DELTA,
+				EventFormat: &apiv2.EventFormat{
+					FiltersByParty: map[string]*apiv2.Filters{
+						participant.PartyID: {
+							Cumulative: []*apiv2.CumulativeFilter{
 								{
-									IdentifierFilter: &ledgerv2.CumulativeFilter_WildcardFilter{
-										WildcardFilter: &ledgerv2.WildcardFilter{
+									IdentifierFilter: &apiv2.CumulativeFilter_WildcardFilter{
+										WildcardFilter: &apiv2.WildcardFilter{
 											IncludeCreatedEventBlob: false,
 										},
 									},
@@ -267,7 +269,7 @@ func (c *Chain) ManuallyExecuteMessage(ctx context.Context, message protocol.Mes
 }
 
 // parseExecutionStateChangedEvent parses a perpartyrouter.ExecutionStateChanged event from a Daml CreatedEvent and converts it to cciptestinterfaces.ExecutionStateChangedEvent.
-func parseExecutionStateChangedEvent(event *ledgerv2.CreatedEvent) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
+func parseExecutionStateChangedEvent(event *apiv2.CreatedEvent) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
 	executionStateChanged, err := bindings.UnmarshalCreatedEvent[perpartyrouter.ExecutionStateChanged](event)
 	if err != nil {
 		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to unmarshal ExecutionStateChanged event: %w", err)
@@ -293,13 +295,13 @@ func parseExecutionStateChangedEvent(event *ledgerv2.CreatedEvent) (cciptestinte
 	// Execution state
 	var executionState cciptestinterfaces.MessageExecutionState
 	switch executionStateChanged.Event.State {
-	case perpartyrouter.MessageExecutionStateUNTOUCHED:
+	case common.MessageExecutionStateUNTOUCHED:
 		executionState = cciptestinterfaces.ExecutionStateUntouched
-	case perpartyrouter.MessageExecutionStateIN_PROGRESS:
+	case common.MessageExecutionStateIN_PROGRESS:
 		executionState = cciptestinterfaces.ExecutionStateInProgress
-	case perpartyrouter.MessageExecutionStateSUCCESS:
+	case common.MessageExecutionStateSUCCESS:
 		executionState = cciptestinterfaces.ExecutionStateSuccess
-	case perpartyrouter.MessageExecutionStateFAILURE:
+	case common.MessageExecutionStateFAILURE:
 		executionState = cciptestinterfaces.ExecutionStateFailure
 	default:
 		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("unknown execution state %q", executionStateChanged.Event.State)
