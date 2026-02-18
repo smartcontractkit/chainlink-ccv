@@ -138,8 +138,8 @@ func GetBootstrapKeys(bootstrapURL string) (keys BootstrapKeys, err error) {
 	if len(response.Keys) == 0 {
 		return BootstrapKeys{}, fmt.Errorf("no keys returned by bootstrap server")
 	}
-	if len(response.Keys) != 1 {
-		return BootstrapKeys{}, fmt.Errorf("expected 1 key, got %d", len(response.Keys))
+	if len(response.Keys) != 3 {
+		return BootstrapKeys{}, fmt.Errorf("expected 3 keys, got %d", len(response.Keys))
 	}
 
 	// Transform ECDSA public key to Ethereum address.
