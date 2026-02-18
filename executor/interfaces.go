@@ -95,4 +95,8 @@ type MetricLabeler interface {
 	IncrementHeartbeatFailure(ctx context.Context)
 	// SetLastHeartbeatTimestamp sets the timestamp of the last successful heartbeat.
 	SetLastHeartbeatTimestamp(ctx context.Context, timestamp int64)
+	// SetRemoteChainCursed sets value 1 if source chain is cursed
+	SetRemoteChainCursed(ctx context.Context, localSelector, remoteSelector protocol.ChainSelector, cursed bool)
+	// SetLocalChainGlobalCursed sets value 1 if source chain is cursed
+	SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool)
 }
