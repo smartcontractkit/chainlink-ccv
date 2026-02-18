@@ -44,6 +44,13 @@ func ApplyBootstrapDefaults(in BootstrapInput) BootstrapInput {
 			ListenPort: 9988,
 		}
 	}
+	// Ensure these are non-nil, will be filled in by the environment.
+	if in.DB == nil {
+		in.DB = &bootstrap.DBConfig{}
+	}
+	if in.JD == nil {
+		in.JD = &bootstrap.JDConfig{}
+	}
 	return in
 }
 
