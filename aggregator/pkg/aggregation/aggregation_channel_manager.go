@@ -39,7 +39,7 @@ func NewChannelManagerFromConfig(config *model.AggregatorConfig) *ChannelManager
 	return NewChannelManager(keys, config.Aggregation.ChannelBufferSize)
 }
 
-func (m *ChannelManager) Enqueue(key model.ChannelKey, req aggregationRequest, maxBlockTime time.Duration) error {
+func (m *ChannelManager) Enqueue(ctx context.Context, key model.ChannelKey, req aggregationRequest, maxBlockTime time.Duration) error {
 	ch, ok := m.clientChannel[key]
 	if !ok {
 		return fmt.Errorf("channel not found for key: %s", key)
@@ -55,6 +55,8 @@ func (m *ChannelManager) Enqueue(key model.ChannelKey, req aggregationRequest, m
 		return nil
 	case <-timer.C:
 		return common.ErrAggregationChannelFull
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
