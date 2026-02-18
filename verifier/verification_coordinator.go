@@ -111,7 +111,7 @@ func NewCoordinatorWithDetector(
 	}
 
 	var heartbeatReporter *HeartbeatReporter
-	fmt.Printf("\n\n\nHeartbeat client provided: %t, Heartbeat interval: %s\n\n\n", heartbeatClient != nil, config.HeartbeatInterval)
+	lggr.Infof("Heartbeat client provided: %t, Heartbeat interval: %s\n", heartbeatClient != nil, config.HeartbeatInterval)
 	if heartbeatClient != nil && config.HeartbeatInterval > 0 {
 		// Collect all chain selectors from source readers.
 		allSelectors := make([]protocol.ChainSelector, 0, len(sourceReaders))
