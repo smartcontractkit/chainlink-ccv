@@ -45,12 +45,12 @@ func NewPostgresJobQueue[T any](
 	}, nil
 }
 
-// Publish adds jobs to the queue
+// Publish adds jobs to the queue.
 func (q *PostgresJobQueue[T]) Publish(ctx context.Context, jobs ...T) error {
 	return q.PublishWithDelay(ctx, 0, jobs...)
 }
 
-// PublishWithDelay adds jobs with a delay before they become available
+// PublishWithDelay adds jobs with a delay before they become available.
 func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.Duration, jobs ...T) error {
 	if len(jobs) == 0 {
 		return nil
@@ -59,6 +59,7 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 	availableAt := time.Now().Add(delay)
 
 	// Build bulk insert query
+	//nolint:gosec // G201: table name is from config, not user input
 	query := fmt.Sprintf(`
 		INSERT INTO %s (
 			job_id, task_data, status, available_at, created_at, attempt_count, max_attempts
@@ -69,13 +70,17 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	stmt, err := tx.PrepareContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer stmt.Close()
+	defer func() {
+		_ = stmt.Close()
+	}()
 
 	for _, job := range jobs {
 		jobID := uuid.New().String()
@@ -113,10 +118,11 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 	return nil
 }
 
-// Consume retrieves and locks jobs for processing
+// Consume retrieves and locks jobs for processing.
 func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int, lockDuration time.Duration) ([]Job[T], error) {
 	now := time.Now()
 
+	//nolint:gosec // G201: table name is from config, not user input
 	query := fmt.Sprintf(`
 		UPDATE %s
 		SET status = $1,
@@ -144,7 +150,9 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int, lockDu
 	if err != nil {
 		return nil, fmt.Errorf("failed to consume jobs: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var jobs []Job[T]
 	for rows.Next() {
@@ -205,13 +213,14 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int, lockDu
 	return jobs, nil
 }
 
-// Complete marks jobs as successfully processed
+// Complete marks jobs as successfully processed.
 func (q *PostgresJobQueue[T]) Complete(ctx context.Context, jobIDs ...string) error {
 	if len(jobIDs) == 0 {
 		return nil
 	}
 
 	// Move to archive table for audit trail
+	//nolint:gosec // G201: table names are from config, not user input
 	query := fmt.Sprintf(`
 		WITH completed AS (
 			DELETE FROM %s
@@ -237,7 +246,7 @@ func (q *PostgresJobQueue[T]) Complete(ctx context.Context, jobIDs ...string) er
 	return nil
 }
 
-// Retry schedules jobs for retry after delay
+// Retry schedules jobs for retry after delay.
 func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, errors map[string]error, jobIDs ...string) error {
 	if len(jobIDs) == 0 {
 		return nil
@@ -246,6 +255,7 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 	availableAt := time.Now().Add(delay)
 
 	// Check if any jobs exceeded max attempts
+	//nolint:gosec // G201: table name is from config, not user input
 	query := fmt.Sprintf(`
 		UPDATE %s
 		SET status = CASE
@@ -262,13 +272,17 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	stmt, err := tx.PrepareContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("failed to prepare retry statement: %w", err)
 	}
-	defer stmt.Close()
+	defer func() {
+		_ = stmt.Close()
+	}()
 
 	var failed []string
 	var retried []string
@@ -318,12 +332,13 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 	return nil
 }
 
-// Fail marks jobs as permanently failed
+// Fail marks jobs as permanently failed.
 func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error, jobIDs ...string) error {
 	if len(jobIDs) == 0 {
 		return nil
 	}
 
+	//nolint:gosec // G201: table name is from config, not user input
 	query := fmt.Sprintf(`
 		UPDATE %s
 		SET status = $1,
@@ -335,13 +350,17 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	stmt, err := tx.PrepareContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("failed to prepare fail statement: %w", err)
 	}
-	defer stmt.Close()
+	defer func() {
+		_ = stmt.Close()
+	}()
 
 	for _, jobID := range jobIDs {
 		errMsg := ""
@@ -370,8 +389,9 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 	return nil
 }
 
-// Cleanup archives or deletes old jobs
+// Cleanup archives or deletes old jobs.
 func (q *PostgresJobQueue[T]) Cleanup(ctx context.Context, retentionPeriod time.Duration) (int, error) {
+	//nolint:gosec // G201: table name is from config, not user input
 	query := fmt.Sprintf(`
 		DELETE FROM %s
 		WHERE completed_at < NOW() - $1
@@ -392,7 +412,7 @@ func (q *PostgresJobQueue[T]) Cleanup(ctx context.Context, retentionPeriod time.
 	return int(affected), nil
 }
 
-// Name returns the queue name
+// Name returns the queue name.
 func (q *PostgresJobQueue[T]) Name() string {
 	return q.config.Name
 }

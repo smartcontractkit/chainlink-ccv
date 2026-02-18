@@ -261,6 +261,7 @@ func main() {
 		verifierMonitoring,
 		chainStatusManager,
 		observedHeartbeatClient,
+		chainStatusDB.DB,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

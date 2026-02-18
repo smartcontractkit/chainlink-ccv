@@ -2,6 +2,7 @@ package jobqueue
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -9,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestJobQueue provides test utilities for job queue testing
+// TestJobQueue provides test utilities for job queue testing.
 type TestJobQueue[T any] struct {
 	jobs      []Job[T]
 	completed []string
@@ -44,7 +45,7 @@ func (q *TestJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.Durat
 func (q *TestJobQueue[T]) Consume(ctx context.Context, batchSize int, lockDuration time.Duration) ([]Job[T], error) {
 	var result []Job[T]
 	for i := 0; i < len(q.jobs) && len(result) < batchSize; i++ {
-		if !contains(q.completed, q.jobs[i].ID) && !contains(q.failed, q.jobs[i].ID) {
+		if !slices.Contains(q.completed, q.jobs[i].ID) && !slices.Contains(q.failed, q.jobs[i].ID) {
 			q.jobs[i].AttemptCount++
 			now := time.Now()
 			q.jobs[i].StartedAt = &now
@@ -79,16 +80,7 @@ func (q *TestJobQueue[T]) Name() string {
 	return "test-queue"
 }
 
-// Test helper functions
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
-}
-
+// Test helper functions.
 var idCounter = 0
 
 func generateID() string {
@@ -96,7 +88,7 @@ func generateID() string {
 	return string(rune('A' + idCounter))
 }
 
-// Example test structure
+// Example test structure.
 type TestPayload struct {
 	Value string
 }

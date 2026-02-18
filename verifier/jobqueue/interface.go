@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// JobStatus represents the current state of a job in the queue
+// JobStatus represents the current state of a job in the queue.
 type JobStatus string
 
 const (
@@ -15,7 +15,7 @@ const (
 	JobStatusFailed     JobStatus = "failed"
 )
 
-// Job wraps a payload with queue metadata
+// Job wraps a payload with queue metadata.
 type Job[T any] struct {
 	// Unique job identifier
 	ID string
@@ -82,7 +82,7 @@ type JobQueue[T any] interface {
 	Name() string
 }
 
-// QueueConfig contains configuration for queue behavior
+// QueueConfig contains configuration for queue behavior.
 type QueueConfig struct {
 	// Queue name for logging and table naming
 	Name string
@@ -103,7 +103,7 @@ type QueueConfig struct {
 	RetentionPeriod time.Duration
 }
 
-// DefaultQueueConfig returns sensible defaults
+// DefaultQueueConfig returns sensible defaults.
 func DefaultQueueConfig(name string) QueueConfig {
 	return QueueConfig{
 		Name:                name,

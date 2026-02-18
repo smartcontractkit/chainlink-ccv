@@ -2,6 +2,7 @@ package verifier
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"maps"
@@ -11,6 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/jobqueue"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
@@ -29,8 +31,8 @@ type Coordinator struct {
 	sourceReadersServices map[protocol.ChainSelector]*SourceReaderService
 	// 2nd step processor: task verifier
 	taskVerifierProcessor *TaskVerifierProcessor
-	// 3rd step processor: storage writer
-	storageWriterProcessor *StorageWriterProcessor
+	// 3rd step processor: storage writer (DB-backed)
+	storageWriterProcessor *StorageWriterProcessorDB
 	// Heartbeat reporter: periodically sends chain statuses to aggregator
 	heartbeatReporter *HeartbeatReporter
 }
@@ -46,6 +48,7 @@ func NewCoordinator(
 	monitoring Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	heartbeatClient heartbeatclient.HeartbeatSender,
+	db *sql.DB,
 ) (*Coordinator, error) {
 	return NewCoordinatorWithDetector(
 		ctx,
@@ -59,6 +62,7 @@ func NewCoordinator(
 		chainStatusManager,
 		nil,
 		heartbeatClient,
+		db,
 	)
 }
 
@@ -74,7 +78,12 @@ func NewCoordinatorWithDetector(
 	chainStatusManager protocol.ChainStatusManager,
 	detector common.CurseCheckerService,
 	heartbeatClient heartbeatclient.HeartbeatSender,
+	db *sql.DB,
 ) (*Coordinator, error) {
+	if db == nil {
+		return nil, errors.New("database connection is required for storage writer")
+	}
+
 	lggr = logger.With(lggr, "verifierID", config.VerifierID)
 	enabledSourceReaders, err := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, chainStatusManager)
 	if err != nil {
@@ -96,18 +105,56 @@ func NewCoordinatorWithDetector(
 		ctx, lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, writingTracker,
 	)
 
-	storageWriterProcessor, storageBatcher, err := NewStorageBatcherProcessor(
-		ctx, lggr, config.VerifierID, messageTracker, storage, config, writingTracker, chainStatusManager,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create or/and start storage batcher storageWriterProcessor: %w", err)
+	// Create result queue for DB-based storage writer
+	resultQueueConfig := jobqueue.QueueConfig{
+		Name:                "verification_results",
+		DefaultMaxAttempts:  5,
+		DefaultLockDuration: 5 * config.StorageBatchTimeout, // Use 5x batch timeout as lock duration
+		DefaultBatchSize:    config.StorageBatchSize,
+		PollInterval:        config.StorageBatchTimeout,
+		RetentionPeriod:     7 * 24 * 3600 * 1000000000, // 7 days in nanoseconds (time.Duration)
 	}
 
-	taskVerifierProcessor, err := NewTaskVerifierProcessor(
-		lggr, config.VerifierID, verifier, monitoring, sourceReaderServices, storageBatcher, writingTracker,
+	resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
+		db,
+		resultQueueConfig,
+		logger.With(lggr, "component", "result_queue"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create or/and start task verifier service: %w", err)
+		return nil, fmt.Errorf("failed to create result queue: %w", err)
+	}
+
+	// Create DB-based storage writer processor
+	storageWriterProcessor, err := NewStorageWriterProcessorDB(
+		ctx,
+		lggr,
+		config.VerifierID,
+		messageTracker,
+		storage,
+		resultQueue,
+		config,
+		writingTracker,
+		chainStatusManager,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create storage writer processor: %w", err)
+	}
+
+	// TaskVerifierProcessor needs to publish to the result queue
+	// We'll create a batcher that forwards results to the queue
+	storageBatcherAdapter := NewQueueBatcherAdapter(
+		ctx,
+		resultQueue,
+		logger.With(lggr, "component", "queue_adapter"),
+		config.StorageBatchSize,
+		config.StorageBatchTimeout,
+	)
+
+	taskVerifierProcessor, err := NewTaskVerifierProcessor(
+		lggr, config.VerifierID, verifier, monitoring, sourceReaderServices, storageBatcherAdapter, writingTracker,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create task verifier processor: %w", err)
 	}
 
 	var heartbeatReporter *HeartbeatReporter

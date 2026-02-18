@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/jmoiron/sqlx"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
@@ -171,6 +172,13 @@ func NewVerificationCoordinator(
 		verifierMonitoring,
 	)
 
+	sqlxDB, ok := ds.(*sqlx.DB)
+	if !ok {
+		lggr.Errorw("Failed to assert DataSource to sqlx.DB")
+		return nil, fmt.Errorf("failed to assert DataSource to sqlx.DB")
+	}
+	db := sqlxDB.DB
+
 	// Create verification coordinator
 	verifierCoordinator, err := verifier.NewCoordinator(
 		context.TODO(),
@@ -183,6 +191,7 @@ func NewVerificationCoordinator(
 		verifierMonitoring,
 		chainStatusManager,
 		observedHeartbeatClient,
+		db,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

@@ -196,32 +196,12 @@ CREATE INDEX IF NOT EXISTS idx_job_queue_stats_queue_time
 CREATE INDEX IF NOT EXISTS idx_job_queue_stats_latest
     ON job_queue_stats (queue_name, chain_selector, recorded_at DESC);
 
--- View for current queue health across all queues
-CREATE OR REPLACE VIEW queue_health_summary AS
-SELECT
-    queue_name,
-    chain_selector,
-    SUM(pending_count) as total_pending,
-    SUM(processing_count) as total_processing,
-    SUM(failed_count) as total_failed,
-    SUM(completed_last_hour) as total_completed_last_hour,
-    AVG(avg_processing_time_ms) as avg_processing_time_ms,
-    MAX(oldest_pending_age_seconds) as max_pending_age_seconds,
-    MAX(recorded_at) as last_recorded_at
-FROM job_queue_stats
-WHERE recorded_at > NOW() - INTERVAL '5 minutes'
-GROUP BY queue_name, chain_selector
-ORDER BY queue_name, chain_selector;
-
 -- Add comments for documentation
 COMMENT ON TABLE verification_tasks IS 'Queue for messages that need to be verified';
 COMMENT ON TABLE verification_results IS 'Queue for verification results that need to be written to storage';
 COMMENT ON TABLE job_queue_stats IS 'Time-series metrics for queue monitoring';
-COMMENT ON VIEW queue_health_summary IS 'Current health summary across all queues';
 
 -- +goose Down
--- Drop views
-DROP VIEW IF EXISTS queue_health_summary;
 
 -- Drop archive tables
 DROP TABLE IF EXISTS verification_results_archive;
