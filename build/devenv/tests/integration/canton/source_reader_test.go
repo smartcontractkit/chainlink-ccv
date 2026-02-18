@@ -44,9 +44,6 @@ const (
 	createArg1 = "ccipOwner"
 	createArg2 = "partyOwner"
 
-	// TODO: this is hardcoded for now but should be derived from the deployment somehow.
-	partyName = "participant1-localparty-1"
-
 	packageName       = "json-tests"
 	moduleName        = "Main"
 	entityName        = "TestRouter"
