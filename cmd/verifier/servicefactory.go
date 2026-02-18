@@ -29,13 +29,13 @@ import (
 
 // TODO: extract out common code, and read/take in chain-specific config (e.g. CantonConfig).
 type factory struct {
-	lggr logger.Logger
-
-	server           *http.Server
-	coordinator      *verifier.Coordinator
-	profiler         *pyroscope.Profiler
-	aggregatorWriter *storageaccess.AggregatorWriter
-	heartbeatClient  *heartbeatclient.HeartbeatClient
+	lggr              logger.Logger
+	server            *http.Server
+	coordinator       *verifier.Coordinator
+	profiler          *pyroscope.Profiler
+	aggregatorWriter  *storageaccess.AggregatorWriter
+	heartbeatClient   *heartbeatclient.HeartbeatClient
+	coordinatorCancel context.CancelFunc
 }
 
 func NewServiceFactory() bootstrap.ServiceFactory {
@@ -46,6 +46,8 @@ func NewServiceFactory() bootstrap.ServiceFactory {
 func (f *factory) Start(ctx context.Context, spec string, deps bootstrap.ServiceDeps) error {
 	lggr := logger.Sugared(logger.Named(deps.Logger, "CommitteeVerifier"))
 	f.lggr = lggr
+
+	lggr.Infow("Starting verifier service", "spec", spec)
 
 	config, blockchainInfos, err := loadConfiguration(spec)
 	if err != nil {
@@ -167,7 +169,7 @@ func (f *factory) Start(ctx context.Context, spec string, deps bootstrap.Service
 		HeartbeatInterval:   10 * time.Second, // Send heartbeat to aggregator every 10s
 	}
 
-	signer, _, signerAddress, err := commit.NewECDSAKeystoreSigner(deps.Keystore, bootstrap.DefaultECDSASigningKeyName)
+	signer, _, signerAddress, err := commit.NewSignerFromKeystore(ctx, deps.Keystore, bootstrap.DefaultECDSASigningKeyName)
 	if err != nil {
 		lggr.Errorw("Failed to create signer", "error", err)
 		return fmt.Errorf("failed to create signer: %w", err)
@@ -232,8 +234,12 @@ func (f *factory) Start(ctx context.Context, spec string, deps bootstrap.Service
 	)
 
 	// Create verification coordinator
+	// TODO: we shouldn't have to create a long-lived context here, the context below
+	// is being used in downstream components and ends up getting canceled due to only
+	// being for startup rather than long-lived.
+	coordinatorCtx, coordinatorCancel := context.WithCancel(context.Background())
 	coordinator, err := verifier.NewCoordinator(
-		ctx,
+		coordinatorCtx,
 		lggr,
 		commitVerifier,
 		sourceReaders,
@@ -245,9 +251,11 @@ func (f *factory) Start(ctx context.Context, spec string, deps bootstrap.Service
 		observedHeartbeatClient,
 	)
 	if err != nil {
+		coordinatorCancel()
 		lggr.Errorw("Failed to create verification coordinator", "error", err)
 		return fmt.Errorf("failed to create verification coordinator: %w", err)
 	}
+	f.coordinatorCancel = coordinatorCancel
 
 	// Start the verification coordinator
 	lggr.Infow("Starting Verification Coordinator",
@@ -332,16 +340,38 @@ func (f *factory) Stop(ctx context.Context) error {
 		f.lggr.Errorw("Heartbeat client stop error", "error", err)
 	}
 
-	// TODO: chain status db, is it closed by the coordinator?
+	// Cancel the coordinator context
+	if f.coordinatorCancel != nil {
+		f.coordinatorCancel()
+	}
+
+	// Reset the state
+	f.server = nil
+	f.coordinator = nil
+	f.coordinatorCancel = nil
+	f.profiler = nil
+	f.aggregatorWriter = nil
+	f.heartbeatClient = nil
+	f.lggr = nil
 
 	return nil
 }
 
 func loadConfiguration(spec string) (*commit.Config, map[string]*blockchain.Info, error) {
-	var config commit.ConfigWithBlockchainInfos
-	if _, err := toml.Decode(spec, &config); err != nil {
-		return nil, nil, fmt.Errorf("failed to decode specification: %w", err)
+	// Decode the outer job spec first.
+	var outerSpec commit.JobSpec
+	if _, err := toml.Decode(spec, &outerSpec); err != nil {
+		return nil, nil, fmt.Errorf("failed to parse job spec: %w", err)
 	}
+
+	// Decode the inner config next.
+	var config commit.ConfigWithBlockchainInfos
+	if md, err := toml.Decode(outerSpec.CommitteeVerifierConfig, &config); err != nil {
+		return nil, nil, fmt.Errorf("failed to decode committee verifier config: %w", err)
+	} else if len(md.Undecoded()) > 0 {
+		return nil, nil, fmt.Errorf("unknown fields in committee verifier config: %v", md.Undecoded())
+	}
+
 	return &config.Config, config.BlockchainInfos, nil
 }
 
