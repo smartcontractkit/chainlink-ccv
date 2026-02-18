@@ -230,7 +230,7 @@ func TestHA_CrossComponentDown(t *testing.T) {
 	require.Len(t, setup.in.Indexer, 2, "need 2 indexers for this test")
 
 	killedAgg := setup.in.Aggregator[0].Out.ContainerName
-	killedIdx := setup.in.Indexer[1].Out.ContainerName
+	killedIdx := setup.in.Indexer[0].Out.ContainerName
 	require.NotEmpty(t, killedAgg)
 	require.NotEmpty(t, killedIdx)
 
