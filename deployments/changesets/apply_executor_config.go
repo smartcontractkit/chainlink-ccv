@@ -52,7 +52,7 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigCfg] {
 			return fmt.Errorf("executor qualifier is required")
 		}
 
-		if cfg.Topology.IndexerAddress == "" {
+		if len(cfg.Topology.IndexerAddress) == 0 {
 			return fmt.Errorf("indexer address is required in topology")
 		}
 

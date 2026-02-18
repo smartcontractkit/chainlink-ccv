@@ -50,7 +50,7 @@ func TestApplyExecutorConfig_Validation(t *testing.T) {
 			name: "missing indexer address",
 			setupEnv: func(t *testing.T) changesets.ApplyExecutorConfigCfg {
 				topology := newTestTopology()
-				topology.IndexerAddress = ""
+				topology.IndexerAddress = []string{}
 				return changesets.ApplyExecutorConfigCfg{
 					Topology:          topology,
 					ExecutorQualifier: testDefaultQualifier,
@@ -150,6 +150,7 @@ func TestApplyExecutorConfig_GeneratesValidJobSpec(t *testing.T) {
 	topology := newTestTopology(
 		WithPyroscopeURL("http://pyroscope:4040"),
 		WithMonitoring(defaultMonitoringConfig()),
+		WithIndexerAddress([]string{"http://indexer:8100", "http://indexer:8101"}),
 	)
 
 	cs := changesets.ApplyExecutorConfig()
@@ -169,7 +170,7 @@ func TestApplyExecutorConfig_GeneratesValidJobSpec(t *testing.T) {
 	assert.Contains(t, jobSpec, `type = "ccvexecutor"`)
 	assert.Contains(t, jobSpec, `executorConfig = """`)
 	assert.Contains(t, jobSpec, `executor_id = "nop-1"`)
-	assert.Contains(t, jobSpec, `indexer_address = "http://indexer:8100"`)
+	assert.Contains(t, jobSpec, `indexer_address = ["http://indexer:8100", "http://indexer:8101"]`)
 	assert.Contains(t, jobSpec, `pyroscope_url = "http://pyroscope:4040"`)
 	assert.Contains(t, jobSpec, `[chain_configuration]`)
 	assert.Contains(t, jobSpec, sel1Str)
