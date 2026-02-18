@@ -19,8 +19,15 @@ func IsSourceVerifierInCCVAddresses(sourceVerifierAddr protocol.UnknownAddress, 
 	return slices.ContainsFunc(ccvAddresses, sourceVerifierAddr.Equal)
 }
 
-func getAllSignatureByAddress(report *CommitAggregatedReport) (map[string]protocol.Data, error) {
-	addressSignatures := make(map[string]protocol.Data)
+func normalizeHexAddress(addr string) string {
+	if !strings.HasPrefix(addr, "0x") {
+		addr = "0x" + addr
+	}
+	return strings.ToLower(addr)
+}
+
+func signaturesByAddress(report *CommitAggregatedReport) (map[string]protocol.Data, error) {
+	sigs := make(map[string]protocol.Data, len(report.Verifications))
 	for _, verification := range report.Verifications {
 		if verification.SignerIdentifier == nil {
 			return nil, fmt.Errorf("missing SignerIdentifier in verification record")
@@ -31,56 +38,60 @@ func getAllSignatureByAddress(report *CommitAggregatedReport) (map[string]protoc
 			return nil, fmt.Errorf("failed to decode signature: %w", err)
 		}
 
-		addressKey := common.BytesToAddress(verification.SignerIdentifier.Identifier).Hex()
-		addressSignatures[addressKey] = protocol.Data{
+		addr := common.BytesToAddress(verification.SignerIdentifier.Identifier)
+		key := normalizeHexAddress(addr.Hex())
+		sigs[key] = protocol.Data{
 			R:      r,
 			S:      s,
-			Signer: common.BytesToAddress(verification.SignerIdentifier.Identifier),
+			Signer: addr,
 		}
 	}
-	return addressSignatures, nil
+	return sigs, nil
 }
 
-func findAllSignaturesValidInConfig(addressSignatures map[string]protocol.Data, config *QuorumConfig) []protocol.Data {
-	signers := config.Signers
-
-	signatures := make([]protocol.Data, 0)
-
-	for _, signer := range signers {
-		// Normalize address format to match the map key format (with 0x prefix)
-		addr := signer.Address
-		if !strings.HasPrefix(addr, "0x") {
-			addr = "0x" + addr
-		}
-
-		// Find matching signature by comparing addresses case-insensitively
-		var sig protocol.Data
-		var found bool
-		for key, s := range addressSignatures {
-			if strings.EqualFold(key, addr) {
-				sig = s
-				found = true
-				break
-			}
-		}
-
-		if !found {
+func filterSignaturesByQuorum(sigs map[string]protocol.Data, config *QuorumConfig) ([]protocol.Data, error) {
+	if config == nil {
+		return nil, fmt.Errorf("quorum config is nil")
+	}
+	seen := make(map[string]struct{}, len(config.Signers))
+	signatures := make([]protocol.Data, 0, len(config.Signers))
+	for _, signer := range config.Signers {
+		key := normalizeHexAddress(signer.Address)
+		if _, dup := seen[key]; dup {
 			continue
 		}
-
-		signatures = append(signatures, sig)
+		seen[key] = struct{}{}
+		if sig, ok := sigs[key]; ok {
+			signatures = append(signatures, sig)
+		}
 	}
-	return signatures
+	if len(signatures) < int(config.Threshold) {
+		return nil, fmt.Errorf("valid signatures (%d) below quorum threshold (%d)", len(signatures), config.Threshold)
+	}
+	return signatures, nil
+}
+
+func encodeQuorumSignatures(report *CommitAggregatedReport, quorumConfig *QuorumConfig) ([]byte, error) {
+	sigs, err := signaturesByAddress(report)
+	if err != nil {
+		return nil, err
+	}
+
+	quorumSignatures, err := filterSignaturesByQuorum(sigs, quorumConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	encoded, err := protocol.EncodeSignatures(quorumSignatures)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode signatures: %w", err)
+	}
+	return encoded, nil
 }
 
 func MapAggregatedReportToVerifierResultProto(report *CommitAggregatedReport, c *Committee) (*verifierpb.VerifierResult, error) {
 	if len(report.Verifications) == 0 {
-		return nil, fmt.Errorf("report does not contains verification")
-	}
-
-	addressSignatures, err := getAllSignatureByAddress(report)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("report does not contain any verifications")
 	}
 
 	quorumConfig, ok := c.GetQuorumConfig(report.GetSourceChainSelector())
@@ -93,27 +104,20 @@ func MapAggregatedReportToVerifierResultProto(report *CommitAggregatedReport, c 
 		return nil, fmt.Errorf("destination verifier address not found for destination selector: %d", report.GetDestinationSelector())
 	}
 
-	signatures := findAllSignaturesValidInConfig(addressSignatures, quorumConfig)
-
-	encodedSignatures, err := protocol.EncodeSignatures(signatures)
+	encodedSignatures, err := encodeQuorumSignatures(report, quorumConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to encode signatures: %w", err)
+		return nil, fmt.Errorf("encoding quorum signatures: %w", err)
 	}
 
-	// To create the full ccvData, prepend encodedSignatures with the version of the source verifier
-	// The first verifierVersionLength bytes of the source verifier's return data constitute the version
-	// Because we aggregate on the signed hash and this data is actually signed by verifiers it is safe to assume that all verifications have the same CCVVersion
 	ccvVersion := report.GetVersion()
 	if ccvVersion == nil {
 		return nil, fmt.Errorf("ccv version is missing from verification")
 	}
-	ccvVersionLen := len(ccvVersion)
-	if ccvVersionLen < committee.VerifierVersionLength {
-		return nil, fmt.Errorf("ccv version is too short (expected at least %d bytes, got %d)", committee.VerifierVersionLength, ccvVersionLen)
+	if len(ccvVersion) < committee.VerifierVersionLength {
+		return nil, fmt.Errorf("ccv version is too short (expected at least %d bytes, got %d)", committee.VerifierVersionLength, len(ccvVersion))
 	}
 	ccvData := append(ccvVersion[:committee.VerifierVersionLength], encodedSignatures...)
 
-	// Convert UnknownAddress types to [][]byte for protobuf
 	ccvAddresses := make([][]byte, len(report.GetMessageCCVAddresses()))
 	for i, addr := range report.GetMessageCCVAddresses() {
 		ccvAddresses[i] = addr.Bytes()
