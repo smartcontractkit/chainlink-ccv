@@ -41,7 +41,7 @@ type BuildJobSpecsInput struct {
 	// TargetNOPs limits which NOPs will have their job specs updated. Defaults to all NOPs in the executor pool when empty.
 	TargetNOPs     []shared.NOPAlias
 	ExecutorPool   ExecutorPoolInput
-	IndexerAddress string
+	IndexerAddress []string
 	PyroscopeURL   string
 	Monitoring     shared.MonitoringInput
 }
