@@ -96,22 +96,36 @@ func (l *Lib) DataStore() (datastore.DataStore, error) {
 }
 
 func (l *Lib) Indexer() (*client.IndexerClient, error) {
+	allIndexers, err := l.AllIndexers()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all indexer clients: %w", err)
+	}
+	if len(allIndexers) == 0 {
+		return nil, fmt.Errorf("no indexer clients found")
+	}
+	return allIndexers[0], nil
+}
+
+func (l *Lib) AllIndexers() ([]*client.IndexerClient, error) {
 	if err := l.verify(); err != nil {
 		return nil, fmt.Errorf("failed to initialize indexer client: %w", err)
 	}
 	if len(l.cfg.IndexerEndpoints) == 0 {
 		return nil, fmt.Errorf("no indexer endpoints configured")
 	}
+	indexers := make([]*client.IndexerClient, 0, len(l.cfg.IndexerEndpoints))
 	httpClient := &http.Client{
 		Timeout: 10 * time.Second,
 	}
-
-	ic, err := client.NewIndexerClient(l.cfg.IndexerEndpoints[0], httpClient)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create IndexerMonitor: %w", err)
+	for _, endpoint := range l.cfg.IndexerEndpoints {
+		ic, err := client.NewIndexerClient(endpoint, httpClient)
+		if err != nil {
+			l.l.Error().Err(err).Str("endpoint", endpoint).Msg("failed to create IndexerClient")
+			continue
+		}
+		indexers = append(indexers, ic)
 	}
-
-	return ic, nil
+	return indexers, nil
 }
 
 // Chains returns a slice of Chains in Blockchain cfg order, followed by any

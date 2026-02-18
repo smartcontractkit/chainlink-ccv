@@ -184,8 +184,9 @@ func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 			a.monitoring.Metrics().RecordVerificationRecordChannelSizeGauge(ctx, int64(len(a.messageCh)))
 
 		case <-ticker.C:
-			// Create a child context with a timeout to prevent a single call from blocking the entire discovery process
-			readCtx, cancel := context.WithTimeout(ctx, time.Duration(a.config.Timeout)*time.Millisecond)
+			// Stagger timeouts across discovery instances so they don't all time out
+			// simultaneously when the aggregator is under pressure.
+			readCtx, cancel := context.WithTimeout(ctx, time.Duration(a.config.Timeout)*time.Millisecond+(time.Duration(a.discoveryPriority)*5*time.Second))
 
 			// Consume the reader until there is no more data present from the aggregator
 			// Aim is to allow for quick backfilling of data if needed.
@@ -274,7 +275,7 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 	persistedVerifications := []common.VerifierResultWithMetadata{}
 	allVerifications := []common.VerifierResultWithMetadata{}
 	for _, response := range queryResponse {
-		a.logger.Infof("Found new Message %s", response.Data.MessageID)
+		a.logger.Infow("Found Message", "messageID", response.Data.MessageID, "verifierSourceAddress", response.Data.VerifierSourceAddress)
 
 		verifierResultWithMetadata := common.VerifierResultWithMetadata{
 			VerifierResult: response.Data,
