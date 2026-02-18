@@ -5,11 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
@@ -76,10 +74,8 @@ func TestScheduler_EnqueueImmediateAndDelayed(t *testing.T) {
 }
 
 // TestScheduler_DLQOnTTLExpired verifies that tasks whose TTL has already
-// expired are sent to the scheduler's DLQ and that Enqueue calls
-// UpdateMessageStatus(...) on the storage with MessageTimeout. The test
-// asserts the task is delivered to the DLQ and that the storage interaction
-// occurs (via the mock expectation).
+// expired are sent to the scheduler's DLQ. The scheduler itself does not
+// persist message status; that responsibility belongs to the DLQ consumer.
 func TestScheduler_DLQOnTTLExpired(t *testing.T) {
 	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.DebugLevel))
 	require.NoError(t, err)
@@ -88,25 +84,18 @@ func TestScheduler_DLQOnTTLExpired(t *testing.T) {
 	s, err := NewScheduler(lggr, cfg)
 	require.NoError(t, err)
 
-	ms := mocks.NewMockIndexerStorage(t)
-	// Expect UpdateMessageStatus to be called when task is sent to DLQ
-	ms.On("UpdateMessageStatus", mock.Anything, mock.Anything, common.MessageTimeout, mock.Anything).Return(nil)
-
-	expired := &Task{ttl: time.Now().Add(-time.Minute), attempt: 10, storage: ms}
+	expired := &Task{ttl: time.Now().Add(-time.Minute), attempt: 10}
 
 	ctx := context.Background()
 	err = s.Enqueue(ctx, expired)
 	require.Error(t, err)
 
-	// DLQ channel should receive the task
 	select {
 	case got := <-s.DLQ():
 		require.Equal(t, expired, got)
 	case <-time.After(100 * time.Millisecond):
 		t.Fatalf("timed out waiting for DLQ")
 	}
-
-	// mock expectations will be asserted on test cleanup
 }
 
 // TestScheduler_Backoff_NegativeAttempt validates backoff calculation lower-bounds
@@ -131,11 +120,7 @@ func TestScheduler_Enqueue_TTLExpired_DLQ(t *testing.T) {
 	s, err := NewScheduler(lggr, scfg)
 	require.NoError(t, err)
 
-	ms := mocks.NewMockIndexerStorage(t)
-	tsk := &Task{ttl: time.Now().Add(-time.Minute), storage: ms}
-
-	// expect UpdateMessageStatus to be called when sending to DLQ
-	ms.On("UpdateMessageStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	tsk := &Task{ttl: time.Now().Add(-time.Minute)}
 
 	err = s.Enqueue(context.Background(), tsk)
 	require.Error(t, err)
