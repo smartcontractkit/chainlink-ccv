@@ -8,6 +8,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
@@ -51,6 +52,7 @@ type VerifierMetrics struct {
 
 	// Reorg Tracking
 	reorgTrackedSeqNumsGauge metric.Int64Gauge
+	finalityViolated         metric.Int64Gauge
 
 	// HTTP API Metrics
 	httpActiveRequestsUpDownCounter metric.Int64UpDownCounter
@@ -220,6 +222,13 @@ func InitMetrics() (*VerifierMetrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register source chain finalized block gauge: %w", err)
+	}
+	vm.finalityViolated, err = beholder.GetMeter().Int64Gauge(
+		"verifier_source_chain_finality_violated",
+		metric.WithDescription("Specifies if source chain finality was violated"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register finality violated gauge: %w", err)
 	}
 
 	// Reorg Tracking
@@ -430,6 +439,16 @@ func (v *VerifierMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Cont
 func (v *VerifierMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.reorgTrackedSeqNumsGauge.Record(ctx, count, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, violated bool, chainSelector protocol.ChainSelector) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	otelLabels = append(otelLabels, attribute.String("sourceChainSelector", chainSelector.String()))
+	var violatedInt int64
+	if violated {
+		violatedInt = 1
+	}
+	v.vm.finalityViolated.Record(ctx, violatedInt, metric.WithAttributes(otelLabels...))
 }
 
 func (v *VerifierMetricLabeler) IncrementActiveRequestsCounter(ctx context.Context) {
