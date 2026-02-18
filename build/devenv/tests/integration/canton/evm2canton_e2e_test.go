@@ -2,7 +2,6 @@ package canton
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -16,7 +15,6 @@ import (
 	"github.com/smartcontractkit/chainlink-canton/contracts"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
-	devenvcanton "github.com/smartcontractkit/chainlink-ccv/devenv/canton"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e"
@@ -81,29 +79,9 @@ func TestEVM2Canton_Basic(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	grpcURL := cantonChain.Out.NetworkSpecificData.CantonEndpoints.Participants[0].GRPCLedgerAPIURL
-	require.NotEmpty(t, grpcURL)
-	jwt := cantonChain.Out.NetworkSpecificData.CantonEndpoints.Participants[0].JWT
-	require.NotEmpty(t, jwt)
-
-	helper, err := devenvcanton.NewHelperFromBlockchainInput(ctx, grpcURL, jwt)
-	require.NoError(t, err)
-	ts := newTestSetup(helper)
-
-	// Assert that the parties were created and are known to the ledger.
-	knownParties, err := ts.helper.ListKnownParties(t.Context())
-	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(knownParties), 1)
-	// Find the party that corresponds to the JWT token that we have
-	var party string
-	for _, theParty := range knownParties {
-		if strings.HasPrefix(theParty.GetParty(), partyName) {
-			party = theParty.GetParty()
-			break
-		}
-	}
-	require.NotEmpty(t, party)
-	t.Logf("found party: %s", party)
+	chain := e.BlockChains.CantonChains()[cantonDetails.ChainSelector]
+	participant := chain.Participants[0]
+	party := participant.PartyID
 
 	// Hash receiver party
 	receiver := contracts.HashedPartyFromString(party)

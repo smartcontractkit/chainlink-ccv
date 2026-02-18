@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	adminv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2/admin"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
@@ -26,12 +28,11 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
-	"github.com/smartcontractkit/go-daml/pkg/client"
 	"github.com/smartcontractkit/go-daml/pkg/types"
 
-	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/ccvs"
-	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/common"
-	"github.com/smartcontractkit/chainlink-canton/bindings/ccip/rmn"
+	"github.com/smartcontractkit/chainlink-canton/bindings/generated/ccip/ccvs"
+	"github.com/smartcontractkit/chainlink-canton/bindings/generated/ccip/common"
+	"github.com/smartcontractkit/chainlink-canton/bindings/generated/ccip/rmn"
 	"github.com/smartcontractkit/chainlink-canton/contracts"
 	cantonChangesets "github.com/smartcontractkit/chainlink-canton/deployment/changesets"
 	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/fee_quoter"
@@ -56,8 +57,6 @@ type Chain struct {
 	chain        canton.Chain
 	logger       zerolog.Logger
 	chainDetails chainsel.ChainDetails
-
-	helper *Helper
 }
 
 func New(ctx context.Context, logger zerolog.Logger, e *deployment.Environment, chainID string) (*Chain, error) {
@@ -66,21 +65,12 @@ func New(ctx context.Context, logger zerolog.Logger, e *deployment.Environment, 
 		return nil, fmt.Errorf("get chain details for chain %s: %w", chainID, err)
 	}
 	chain := e.BlockChains.CantonChains()[chainDetails.ChainSelector]
-	jwt, err := chain.Participants[0].JWTProvider.Token(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get JWT token: %w", err)
-	}
-	h, err := NewHelperFromBlockchainInput(ctx, chain.Participants[0].Endpoints.GRPCLedgerAPIURL, jwt)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create helper: %w", err)
-	}
 
 	return &Chain{
 		e:            e,
 		chain:        chain,
 		chainDetails: chainDetails,
 		logger:       logger,
-		helper:       h,
 	}, nil
 }
 
@@ -102,12 +92,21 @@ func (c *Chain) ConfigureNodes(ctx context.Context, blockchain *blockchain.Input
 
 // DeployContractsForSelector implements cciptestinterfaces.CCIP17Configuration.
 func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *deployments.EnvironmentTopology) (datastore.DataStore, error) {
+	// Only using a single participant for now
+	participant := env.BlockChains.CantonChains()[selector].Participants[0]
+
 	// Deploy the json-tests DAR so that it's available on the network.
 	// NOTE: this is hacky, but temporary, until we deploy the real CCIP contracts.
 	_, filename, _, _ := runtime.Caller(0)
 	dir := filepath.Dir(filename)
 	darPath := filepath.Join(dir, "../tests/integration/canton/json-tests-0.0.1.dar")
-	err := c.helper.UploadDar(ctx, darPath)
+	dar, err := os.ReadFile(darPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read json-tests DAR: %w", err)
+	}
+	_, err = participant.LedgerServices.Admin.PackageManagement.UploadDarFile(ctx, &adminv2.UploadDarFileRequest{
+		DarFile: dar,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to upload json-tests DAR: %w", err)
 	}
@@ -125,32 +124,14 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	)
 	env.OperationsBundle = bundle
 
-	chain := env.BlockChains.CantonChains()[selector]
-	token, err := chain.Participants[0].JWTProvider.Token(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get JWT token: %w", err)
-	}
-
-	// Get Primary Party
-	bindingClient, err := client.NewDamlClient(token, chain.Participants[0].Endpoints.GRPCLedgerAPIURL).
-		WithAdminAddress(chain.Participants[0].Endpoints.AdminAPIURL).
-		Build(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Daml binding client: %w", err)
-	}
-	defer bindingClient.Close()
-
-	user, err := bindingClient.UserMng.GetUser(ctx, c.helper.GetUserID())
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user: %w", err)
-	}
-
 	l.Info().Msg("Uploading and vetting CCIP DARs...")
 	commonDar, err := contracts.GetDar(contracts.CCIPCommon, contracts.CurrentVersion)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get common dar file")
 	}
-	err = bindingClient.PackageMng.UploadDarFile(ctx, commonDar, "")
+	_, err = participant.LedgerServices.Admin.PackageManagement.UploadDarFile(ctx, &adminv2.UploadDarFileRequest{
+		DarFile: commonDar,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to upload common dar file")
 	}
@@ -158,7 +139,9 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	if err != nil {
 		return nil, fmt.Errorf("failed to get offramp dar file")
 	}
-	err = bindingClient.PackageMng.UploadDarFile(ctx, offRampDar, "")
+	_, err = participant.LedgerServices.Admin.PackageManagement.UploadDarFile(ctx, &adminv2.UploadDarFileRequest{
+		DarFile: offRampDar,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to upload offramp dar file")
 	}
@@ -166,7 +149,9 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	if err != nil {
 		return nil, fmt.Errorf("failed to get onramp dar file")
 	}
-	err = bindingClient.PackageMng.UploadDarFile(ctx, onRampDar, "")
+	_, err = participant.LedgerServices.Admin.PackageManagement.UploadDarFile(ctx, &adminv2.UploadDarFileRequest{
+		DarFile: onRampDar,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to upload onramp dar file")
 	}
@@ -174,7 +159,9 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	if err != nil {
 		return nil, fmt.Errorf("failed to get token admin registry dar file")
 	}
-	err = bindingClient.PackageMng.UploadDarFile(ctx, tokenAdminRegistryDar, "")
+	_, err = participant.LedgerServices.Admin.PackageManagement.UploadDarFile(ctx, &adminv2.UploadDarFileRequest{
+		DarFile: tokenAdminRegistryDar,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to upload token admin registry dar file")
 	}
@@ -182,7 +169,9 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	if err != nil {
 		return nil, fmt.Errorf("failed to get committee verifier dar file")
 	}
-	err = bindingClient.PackageMng.UploadDarFile(ctx, committeeVerifierDar, "")
+	_, err = participant.LedgerServices.Admin.PackageManagement.UploadDarFile(ctx, &adminv2.UploadDarFileRequest{
+		DarFile: committeeVerifierDar,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to upload committee verifier dar file")
 	}
@@ -190,7 +179,9 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	if err != nil {
 		return nil, fmt.Errorf("failed to get token pool dar file")
 	}
-	err = bindingClient.PackageMng.UploadDarFile(ctx, tokenPoolDar, "")
+	_, err = participant.LedgerServices.Admin.PackageManagement.UploadDarFile(ctx, &adminv2.UploadDarFileRequest{
+		DarFile: tokenPoolDar,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to upload token pool dar file")
 	}
@@ -198,20 +189,20 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	if err != nil {
 		return nil, fmt.Errorf("failed to get per-party router dar file")
 	}
-	err = bindingClient.PackageMng.UploadDarFile(ctx, perPartyRouterDar, "")
+	_, err = participant.LedgerServices.Admin.PackageManagement.UploadDarFile(ctx, &adminv2.UploadDarFileRequest{
+		DarFile: perPartyRouterDar,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to upload per-party router dar file")
 	}
 
-	l.Info().Any("selector", selector).Any("party", user.PrimaryParty).Msg("Deploying chain contracts")
+	l.Info().Any("selector", selector).Any("party", participant.PartyID).Msg("Deploying chain contracts")
 	config := cantonChangesets.CantonCSDeps[cantonChangesets.DeployChainContractsConfig]{
 		ChainSelector: selector,
 		Participant:   0,
-		UserName:      c.helper.GetUserID(),
-		Party:         user.PrimaryParty,
 		Config: cantonChangesets.DeployChainContractsConfig{
 			Params: sequences.DeployChainContractsParams{
-				CCIPOwnerParty:     user.PrimaryParty,
+				CCIPOwnerParty:     participant.PartyID,
 				CommitteeVerifiers: nil,
 				GlobalConfig: sequences.GlobalConfigParams{
 					Template: common.GlobalConfig{
@@ -222,7 +213,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 				},
 				RMNRemote: sequences.RMNRemoteParams{
 					Template: rmn.RMNRemote{
-						RmnOwner:       types.PARTY(user.PrimaryParty),
+						RmnOwner:       types.PARTY(participant.PartyID),
 						CursedSubjects: nil,
 					},
 				},
@@ -262,11 +253,11 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 		cv := sequences.CommitteeVerifierParams{
 			Qualifier: qualifier,
 			Template: ccvs.CommitteeVerifier{
-				Owner:               types.PARTY(user.PrimaryParty), // TODO: use different ccv owner?
+				Owner:               types.PARTY(participant.PartyID), // TODO: use different ccv owner?
 				InstanceId:          "",
-				CcipOwner:           types.PARTY(user.PrimaryParty),
+				CcipOwner:           types.PARTY(participant.PartyID),
 				VersionTag:          types.TEXT("49ff34ed"),
-				MessageSentObserver: types.PARTY(user.PrimaryParty),
+				MessageSentObserver: types.PARTY(participant.PartyID),
 				StorageLocation:     storageLocation,
 				Threshold:           types.INT64(chainCfg.Threshold),
 				Signers:             signers,
@@ -289,7 +280,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	for i, combo := range devenvcommon.AllTokenCombinations() {
 		addressRef := combo.DestPoolAddressRef()
 		err = runningDS.AddressRefStore.Add(datastore.AddressRef{
-			Address:       contracts.MustNewInstanceID("dst-token-pool-" + strconv.Itoa(i)).RawInstanceAddress(types.PARTY(user.PrimaryParty)).InstanceAddress().Hex(),
+			Address:       contracts.MustNewInstanceID("dst-token-pool-" + strconv.Itoa(i)).RawInstanceAddress(types.PARTY(participant.PartyID)).InstanceAddress().Hex(),
 			Type:          addressRef.Type,
 			Version:       addressRef.Version,
 			Qualifier:     addressRef.Qualifier,
@@ -301,7 +292,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	}
 	// Add executor refs
 	err = runningDS.AddressRefStore.Add(datastore.AddressRef{
-		Address:       contracts.MustNewInstanceID("executor-1").RawInstanceAddress(types.PARTY(user.PrimaryParty)).InstanceAddress().Hex(),
+		Address:       contracts.MustNewInstanceID("executor-1").RawInstanceAddress(types.PARTY(participant.PartyID)).InstanceAddress().Hex(),
 		Type:          datastore.ContractType(executor.ContractType),
 		Version:       executor.Version,
 		Qualifier:     devenvcommon.DefaultExecutorQualifier,
@@ -311,7 +302,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 		return nil, fmt.Errorf("failed to add executor address ref: %w", err)
 	}
 	err = runningDS.AddressRefStore.Add(datastore.AddressRef{
-		Address:       contracts.MustNewInstanceID("executor-proxy-1").RawInstanceAddress(types.PARTY(user.PrimaryParty)).InstanceAddress().String(),
+		Address:       contracts.MustNewInstanceID("executor-proxy-1").RawInstanceAddress(types.PARTY(participant.PartyID)).InstanceAddress().String(),
 		Type:          datastore.ContractType(executor.ProxyType),
 		Version:       executor.Version,
 		Qualifier:     devenvcommon.DefaultExecutorQualifier,
@@ -334,26 +325,6 @@ func (c *Chain) ConnectContractsWithSelectors(ctx context.Context, env *deployme
 		operations.NewMemoryReporter(),
 	)
 	env.OperationsBundle = bundle
-
-	chain := env.BlockChains.CantonChains()[selector]
-	token, err := chain.Participants[0].JWTProvider.Token(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get JWT token: %w", err)
-	}
-
-	// Get Primary Party
-	bindingClient, err := client.NewDamlClient(token, chain.Participants[0].Endpoints.GRPCLedgerAPIURL).
-		WithAdminAddress(chain.Participants[0].Endpoints.AdminAPIURL).
-		Build(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to create Daml binding client: %w", err)
-	}
-	defer bindingClient.Close()
-
-	user, err := bindingClient.UserMng.GetUser(ctx, c.helper.GetUserID())
-	if err != nil {
-		return fmt.Errorf("failed to get user: %w", err)
-	}
 
 	formatFunc := func(ref datastore.AddressRef) (contracts.InstanceAddress, error) {
 		return contracts.HexToInstanceAddress(ref.Address), nil
@@ -388,8 +359,6 @@ func (c *Chain) ConnectContractsWithSelectors(ctx context.Context, env *deployme
 	config := cantonChangesets.CantonCSDeps[cantonChangesets.ConfigureChainForLanesConfig]{
 		ChainSelector: selector,
 		Participant:   0,
-		UserName:      c.helper.GetUserID(),
-		Party:         user.PrimaryParty,
 		Config: cantonChangesets.ConfigureChainForLanesConfig{
 			Input: sequences.ConfigureChainForLanesInput{
 				ChainSelector:      0,
@@ -472,13 +441,7 @@ func (c *Chain) DeployLocalNetwork(ctx context.Context, bcs *blockchain.Input) (
 	if err != nil {
 		return nil, fmt.Errorf("failed to create blockchain network: %w", err)
 	}
-	grpcURL := bcs.Out.NetworkSpecificData.CantonEndpoints.Participants[0].GRPCLedgerAPIURL
-	jwt := bcs.Out.NetworkSpecificData.CantonEndpoints.Participants[0].JWT
-	h, err := NewHelperFromBlockchainInput(ctx, grpcURL, jwt)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create helper: %w", err)
-	}
-	c.helper = h
+
 	return out, nil
 }
 
