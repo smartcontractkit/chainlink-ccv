@@ -283,12 +283,6 @@ func NewVerifier(in *VerifierInput, outputs []*blockchain.Output, jdInfra *jobs.
 		return in.Out, err
 	}
 
-	// Generate blockchain infos for standalone mode
-	// blockchainInfos, err := ConvertBlockchainOutputsToInfo(outputs)
-	// if err != nil {
-	// 	return in.Out, fmt.Errorf("failed to convert blockchain outputs to infos: %w", err)
-	// }
-
 	// Create a temporary file containing the bootstrap init script.
 	// This is so that we have two databases created in the database server container, one for the verifier and one for the bootstrap.
 	bootstrapInitScriptPath, err := CreateBootstrapDBInitScriptFile()
