@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -26,9 +27,25 @@ type Pool struct {
 }
 
 // NewWorkerPool creates a new WorkerPool with the given configuration.
-func NewWorkerPool(logger logger.Logger, config config.PoolConfig, discoveryChannel <-chan common.VerifierResultWithMetadata, scheduler *Scheduler, registry *registry.VerifierRegistry, storage common.IndexerStorage) *Pool {
+func NewWorkerPool(logger logger.Logger, config config.PoolConfig, discoveryChannel <-chan common.VerifierResultWithMetadata, scheduler *Scheduler, registry *registry.VerifierRegistry, storage common.IndexerStorage) (*Pool, error) {
 	// create a conc pool with the requested max goroutines
 	concPool := pool.New().WithMaxGoroutines(config.ConcurrentWorkers)
+
+	if discoveryChannel == nil {
+		return nil, fmt.Errorf("discovery channel must be specified")
+	}
+
+	if scheduler == nil {
+		return nil, fmt.Errorf("scheduler must be specified")
+	}
+
+	if registry == nil {
+		return nil, fmt.Errorf("registry must be specified")
+	}
+
+	if storage == nil {
+		return nil, fmt.Errorf("storage must be specified")
+	}
 
 	return &Pool{
 		config:           config,
@@ -38,7 +55,7 @@ func NewWorkerPool(logger logger.Logger, config config.PoolConfig, discoveryChan
 		scheduler:        scheduler,
 		registry:         registry,
 		storage:          storage,
-	}
+	}, nil
 }
 
 // Start begins processing messages from the discovery channel.

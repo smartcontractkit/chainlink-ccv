@@ -135,6 +135,10 @@ func (a *AggregatorMessageDiscovery) validate() error {
 		return errors.New("storage must be specified")
 	}
 
+	if a.timeProvider == nil {
+		return errors.New("time provider must be specified")
+	}
+
 	return nil
 }
 
