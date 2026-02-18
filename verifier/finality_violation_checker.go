@@ -173,7 +173,7 @@ func (f *FinalityViolationCheckerService) validateAndStore(ctx context.Context, 
 				"storedHash", storedHeader.Hash,
 				"newHash", newHeader.Hash,
 			)
-			f.metrics.SetVerifierFinalityViolated(ctx, true, f.chainSelector)
+			f.metrics.SetVerifierFinalityViolated(ctx, f.chainSelector, true)
 			return fmt.Errorf("finality violation: block %d hash changed from %s to %s",
 				blockNum, storedHeader.Hash, newHeader.Hash)
 		}
@@ -190,7 +190,7 @@ func (f *FinalityViolationCheckerService) validateAndStore(ctx context.Context, 
 					"actualParent", newHeader.ParentHash,
 				)
 				f.violationDetected = true
-				f.metrics.SetVerifierFinalityViolated(ctx, true, f.chainSelector)
+				f.metrics.SetVerifierFinalityViolated(ctx, f.chainSelector, true)
 				return fmt.Errorf("finality violation: block %d parent hash %s doesn't match block %d hash %s",
 					blockNum, newHeader.ParentHash, blockNum-1, prevHeader.Hash)
 			}
@@ -217,7 +217,7 @@ func (f *FinalityViolationCheckerService) reset() {
 	f.finalizedBlocks = make(map[uint64]protocol.BlockHeader)
 	f.lastFinalized = 0
 	f.violationDetected = false
-	f.metrics.SetVerifierFinalityViolated(context.Background(), false, f.chainSelector)
+	f.metrics.SetVerifierFinalityViolated(context.Background(), f.chainSelector, false)
 
 	f.lggr.Infow("Finality checker state reset",
 		"chainSelector", f.chainSelector)

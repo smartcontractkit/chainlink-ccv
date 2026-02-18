@@ -6,6 +6,7 @@ import (
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -18,6 +19,7 @@ const curseCacheMaxEntries = 100
 // It uses an LRU cache to store the curse state for each destination chain.
 type CachedCurseChecker struct {
 	lggr       logger.Logger
+	metrics    common.CurseCheckerMetrics
 	rmnReaders map[protocol.ChainSelector]chainaccess.RMNCurseReader
 	// Cache of curse state per destination chain.
 	// The cache key is a destination chain selector, the cache value is a set of bytes16curse subjects (including global curse).
@@ -30,6 +32,7 @@ type cacheValue map[protocol.Bytes16]struct{}
 
 type Params struct {
 	Lggr        logger.Logger
+	Metrics     common.CurseCheckerMetrics
 	RmnReaders  map[protocol.ChainSelector]chainaccess.RMNCurseReader
 	CacheExpiry time.Duration
 }
@@ -39,6 +42,7 @@ func NewCachedCurseChecker(params Params) CachedCurseChecker {
 	curseCache := expirable.NewLRU[protocol.ChainSelector, cacheValue](curseCacheMaxEntries, nil, params.CacheExpiry)
 	return CachedCurseChecker{
 		lggr:       params.Lggr,
+		metrics:    params.Metrics,
 		rmnReaders: params.RmnReaders,
 		curseCache: curseCache,
 	}
@@ -64,6 +68,12 @@ func (c CachedCurseChecker) IsRemoteChainCursed(ctx context.Context, localChain,
 
 	for _, subject := range curseResults {
 		cursedSubjects[subject] = struct{}{}
+		// TODO curse metric is never lift off
+		if subject == GlobalCurseSubject {
+			c.metrics.SetLocalChainGlobalCursed(ctx, localChain, true)
+		} else if subject == ChainSelectorToBytes16(remoteChain) {
+			c.metrics.SetRemoteChainCursed(ctx, localChain, remoteChain, true)
+		}
 	}
 
 	c.curseCache.Add(localChain, cursedSubjects)

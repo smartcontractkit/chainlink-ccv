@@ -30,6 +30,7 @@ type SourceReaderService struct {
 
 	// config / deps
 	logger          logger.Logger
+	metrics         MetricLabeler
 	sourceReader    chainaccess.SourceReader
 	chainSelector   protocol.ChainSelector
 	curseDetector   common.CurseCheckerService

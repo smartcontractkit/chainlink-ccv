@@ -29,6 +29,13 @@ type CurseCheckerService interface {
 	CurseChecker
 }
 
+type CurseCheckerMetrics interface {
+	// SetRemoteChainCursed sets value 1 if source chain is cursed
+	SetRemoteChainCursed(ctx context.Context, sourceSelector, destSelector protocol.ChainSelector, cursed bool)
+	// SetLocalChainGlobalCursed sets value 1 if source chain is cursed
+	SetLocalChainGlobalCursed(ctx context.Context, selector protocol.ChainSelector, globalCurse bool)
+}
+
 // TimeProvider is an interface for providing the current time.
 type TimeProvider interface {
 	// GetTime provides the current time.

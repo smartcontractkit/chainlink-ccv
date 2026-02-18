@@ -101,7 +101,7 @@ type MetricLabeler interface {
 	// RecordReorgTrackedSeqNums records the number of sequence numbers being tracked due to reorg.
 	RecordReorgTrackedSeqNums(ctx context.Context, count int64)
 	// SetVerifierFinalityViolated sets value 1 if finality violated
-	SetVerifierFinalityViolated(ctx context.Context, violated bool, selector protocol.ChainSelector)
+	SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool)
 
 	// HTTP API metrics
 

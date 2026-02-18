@@ -49,10 +49,12 @@ type VerifierMetrics struct {
 	// Chain State
 	sourceChainLatestBlockGauge    metric.Int64Gauge
 	sourceChainFinalizedBlockGauge metric.Int64Gauge
+	finalityViolated               metric.Int64Gauge
+	remoteChainCursed              metric.Int64Gauge
+	localChainGlobalCursed         metric.Int64Gauge
 
 	// Reorg Tracking
 	reorgTrackedSeqNumsGauge metric.Int64Gauge
-	finalityViolated         metric.Int64Gauge
 
 	// HTTP API Metrics
 	httpActiveRequestsUpDownCounter metric.Int64UpDownCounter
@@ -223,12 +225,29 @@ func InitMetrics() (*VerifierMetrics, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to register source chain finalized block gauge: %w", err)
 	}
+
 	vm.finalityViolated, err = beholder.GetMeter().Int64Gauge(
 		"verifier_source_chain_finality_violated",
 		metric.WithDescription("Specifies if source chain finality was violated"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register finality violated gauge: %w", err)
+	}
+
+	vm.remoteChainCursed, err = beholder.GetMeter().Int64Gauge(
+		"verifier_remote_chain_cursed",
+		metric.WithDescription("Specifies if local chain considers remote chain as cursed"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register remote chain cursed gauge: %w", err)
+	}
+
+	vm.localChainGlobalCursed, err = beholder.GetMeter().Int64Gauge(
+		"verifier_local_chain_global_cursed",
+		metric.WithDescription("Specifies if local chain has global curse"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register remote chain cursed gauge: %w", err)
 	}
 
 	// Reorg Tracking
@@ -441,14 +460,35 @@ func (v *VerifierMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, c
 	v.vm.reorgTrackedSeqNumsGauge.Record(ctx, count, metric.WithAttributes(otelLabels...))
 }
 
-func (v *VerifierMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, violated bool, chainSelector protocol.ChainSelector) {
+func (v *VerifierMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
-	otelLabels = append(otelLabels, attribute.String("sourceChainSelector", chainSelector.String()))
+	otelLabels = append(otelLabels, attribute.String("sourceChainSelector", selector.String()))
 	var violatedInt int64
 	if violated {
 		violatedInt = 1
 	}
 	v.vm.finalityViolated.Record(ctx, violatedInt, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) SetRemoteChainCursed(ctx context.Context, localSelector, remoteSelector protocol.ChainSelector, cursed bool) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	otelLabels = append(otelLabels, attribute.String("localSelector", localSelector.String()))
+	otelLabels = append(otelLabels, attribute.String("remoteSelector", remoteSelector.String()))
+	var cursedInt int64
+	if cursed {
+		cursedInt = 1
+	}
+	v.vm.remoteChainCursed.Record(ctx, cursedInt, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	otelLabels = append(otelLabels, attribute.String("localSelector", localSelector.String()))
+	var cursedInt int64
+	if globalCurse {
+		cursedInt = 1
+	}
+	v.vm.localChainGlobalCursed.Record(ctx, cursedInt, metric.WithAttributes(otelLabels...))
 }
 
 func (v *VerifierMetricLabeler) IncrementActiveRequestsCounter(ctx context.Context) {
