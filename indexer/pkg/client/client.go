@@ -65,6 +65,10 @@ func (ic *IndexerClient) Health(ctx context.Context) error {
 	return nil
 }
 
+func (ic *IndexerClient) URI() string {
+	return ic.indexerURI
+}
+
 func parseVerifierResultsParams(queryData v1.VerifierResultsInput) *iclient.VerifierResultsParams {
 	var params iclient.VerifierResultsParams
 	if len(queryData.SourceChainSelectors) > 0 {

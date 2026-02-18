@@ -313,8 +313,9 @@ func generateExecutorJobSpecs(
 }
 
 // generateVerifierJobSpecs generates job specs for all verifiers using the changeset.
-// It returns a map of container name -> job spec for use in CL mode.
-// For standalone mode, it also sets GeneratedConfig on each verifier.
+// It returns a map of container name -> job specs (one per aggregator in the committee).
+// For standalone mode, it also sets GeneratedConfig on each verifier from the job spec
+// selected by NodeIndex (i.e. the aggregator this verifier is assigned to).
 // The ds parameter is a mutable datastore that will be updated with the changeset output.
 func generateVerifierJobSpecs(
 	e *deployment.Environment,
@@ -323,8 +324,8 @@ func generateVerifierJobSpecs(
 	topology *deployments.EnvironmentTopology,
 	sharedTLSCerts *services.TLSCertPaths,
 	ds datastore.MutableDataStore,
-) (map[string]string, error) {
-	verifierJobSpecs := make(map[string]string)
+) (map[string][]string, error) {
+	verifierJobSpecs := make(map[string][]string)
 
 	if len(in.Verifier) == 0 {
 		return verifierJobSpecs, nil
@@ -367,27 +368,36 @@ func generateVerifierJobSpecs(
 			return nil, fmt.Errorf("failed to merge verifier job specs datastore: %w", err)
 		}
 
-		for _, ver := range committeeVerifiers {
-			aggNames, err := topology.GetAggregatorNamesForCommittee(committeeName)
-			if err != nil {
-				return nil, err
-			}
-			// TODO: We assume that there is only one agg per committee, no HA setup support
-			jobSpecID := shared.NewVerifierJobID(shared.NOPAlias(ver.NOPAlias), aggNames[0], shared.VerifierJobScope{CommitteeQualifier: committeeName})
-			job, err := deployments.GetJob(output.DataStore.Seal(), shared.NOPAlias(ver.NOPAlias), jobSpecID.ToJobID())
-			if err != nil {
-				return nil, fmt.Errorf("failed to get verifier job spec for %s: %w", ver.ContainerName, err)
-			}
-			jobSpec := job.Spec
-			verifierJobSpecs[ver.ContainerName] = jobSpec
+		aggNames, err := topology.GetAggregatorNamesForCommittee(committeeName)
+		if err != nil {
+			return nil, err
+		}
 
-			// Extract inner config from job spec for standalone mode
-			verCfg, err := ParseVerifierConfigFromJobSpec(jobSpec)
+		if err := validateStandaloneVerifierNodeIndices(committeeName, committeeVerifiers, len(aggNames)); err != nil {
+			return nil, err
+		}
+
+		for _, ver := range committeeVerifiers {
+			// Collect job specs for all aggregators in this committee.
+			allJobSpecs := make([]string, 0, len(aggNames))
+			for _, aggName := range aggNames {
+				jobSpecID := shared.NewVerifierJobID(shared.NOPAlias(ver.NOPAlias), aggName, shared.VerifierJobScope{CommitteeQualifier: committeeName})
+				job, err := deployments.GetJob(output.DataStore.Seal(), shared.NOPAlias(ver.NOPAlias), jobSpecID.ToJobID())
+				if err != nil {
+					return nil, fmt.Errorf("failed to get verifier job spec for %s aggregator %s: %w", ver.ContainerName, aggName, err)
+				}
+				allJobSpecs = append(allJobSpecs, job.Spec)
+			}
+
+			verifierJobSpecs[ver.ContainerName] = allJobSpecs
+			ver.GeneratedJobSpecs = allJobSpecs
+
+			// Use NodeIndex to select which aggregator this container owns, one Verifier per aggregator in standalone
+			ownedAggIdx := ver.NodeIndex
+			verCfg, err := ParseVerifierConfigFromJobSpec(allJobSpecs[ownedAggIdx])
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse verifier config from job spec: %w", err)
 			}
-
-			// Marshal the inner config back to TOML for standalone mode
 			configBytes, err := toml.Marshal(verCfg)
 			if err != nil {
 				return nil, fmt.Errorf("failed to marshal verifier config: %w", err)
@@ -612,15 +622,32 @@ func NewEnvironment() (in *Cfg, err error) {
 	/////////////////////////////////////////////
 	// START: Assign signing keys to verifiers //
 	/////////////////////////////////////////////
+	// For HA setup, we might need to share signing keys across multiple standalone verifiers.
+	type nopCommitteeKey struct {
+		NOPAlias      string
+		CommitteeName string
+	}
+	signingKeyByNOPCommittee := make(map[nopCommitteeKey]string)
 	for i := range in.Verifier {
 		ver := services.ApplyVerifierDefaults(*in.Verifier[i])
 
 		switch ver.Mode {
 		case services.CL:
-			// no-op signing key is fetched from JD with changeset
+			// no-op: signing key is fetched from JD via changeset.
 		case services.Standalone:
-			// deterministic key generation algorithm.
-			ver.SigningKey = util.XXXNewVerifierPrivateKey(ver.CommitteeName, ver.NodeIndex)
+			k := nopCommitteeKey{NOPAlias: ver.NOPAlias, CommitteeName: ver.CommitteeName}
+			if existingKey, ok := signingKeyByNOPCommittee[k]; ok {
+				// A sibling container already owns this (nop_alias, committee)
+				// pair.  Reuse its key so that all containers for the same NOP
+				// within the same committee produce valid signatures against the
+				// single on-chain signer address.
+				ver.SigningKey = existingKey
+			} else {
+				// First container for this (nop_alias, committee) pair: generate
+				// the canonical key.
+				ver.SigningKey = util.XXXNewVerifierPrivateKey(ver.CommitteeName, ver.NodeIndex)
+				signingKeyByNOPCommittee[k] = ver.SigningKey
+			}
 
 			privateKey, err := commit.ReadPrivateKeyFromString(ver.SigningKey)
 			if err != nil {
@@ -641,7 +668,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		in.Verifier[i] = &ver
 	}
 	/////////////////////////////////////////////
-	// END: Assign signing keys to verifiers //
+	// END: Assign signing keys to verifiers  //
 	/////////////////////////////////////////////
 
 	/////////////////////////////////////////
@@ -746,8 +773,8 @@ func NewEnvironment() (in *Cfg, err error) {
 	if len(in.Aggregator) > 0 {
 		var allHostnames []string
 		for _, agg := range in.Aggregator {
-			nginxName := fmt.Sprintf("%s-%s", agg.CommitteeName, services.AggregatorNginxContainerNameSuffix)
-			aggName := fmt.Sprintf("%s-%s", agg.CommitteeName, services.AggregatorContainerNameSuffix)
+			nginxName := fmt.Sprintf("%s-%s", agg.InstanceName(), services.AggregatorNginxContainerNameSuffix)
+			aggName := fmt.Sprintf("%s-%s", agg.InstanceName(), services.AggregatorContainerNameSuffix)
 			allHostnames = append(allHostnames, nginxName, aggName)
 		}
 		allHostnames = append(allHostnames, "localhost")
@@ -765,18 +792,19 @@ func NewEnvironment() (in *Cfg, err error) {
 		aggregatorInput.SharedTLSCerts = sharedTLSCerts
 
 		// Use changeset to generate committee config from on-chain state
+		instanceName := aggregatorInput.InstanceName()
 		cs := changesets.GenerateAggregatorConfig()
 		output, err := cs.Apply(*e, changesets.GenerateAggregatorConfigCfg{
-			ServiceIdentifier:  aggregatorInput.CommitteeName + "-aggregator",
+			ServiceIdentifier:  instanceName + "-aggregator",
 			CommitteeQualifier: aggregatorInput.CommitteeName,
 			ChainSelectors:     selectors,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate aggregator config for committee %s: %w", aggregatorInput.CommitteeName, err)
+			return nil, fmt.Errorf("failed to generate aggregator config for %s (committee %s): %w", instanceName, aggregatorInput.CommitteeName, err)
 		}
 
 		// Get generated config from output datastore
-		aggCfg, err := deployments.GetAggregatorConfig(output.DataStore.Seal(), aggregatorInput.CommitteeName+"-aggregator")
+		aggCfg, err := deployments.GetAggregatorConfig(output.DataStore.Seal(), instanceName+"-aggregator")
 		if err != nil {
 			return nil, fmt.Errorf("failed to get aggregator config from output: %w", err)
 		}
@@ -1276,27 +1304,45 @@ func launchStandaloneExecutors(in []*services.ExecutorInput, blockchainOutputs [
 }
 
 func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) ([]*services.VerifierOutput, error) {
-	aggregatorOutputByCommittee := make(map[string]*services.AggregatorOutput)
+	// Collect aggregator outputs per committee in insertion order so that NodeIndex maps
+	// each verifier to the correct aggregator. A map[string]*Output would lose duplicates
+	// since HA committees have multiple aggregators under the same committee name.
+	aggregatorsByCommittee := make(map[string][]*services.AggregatorOutput)
 	for _, agg := range in.Aggregator {
 		if agg.Out != nil {
-			aggregatorOutputByCommittee[agg.CommitteeName] = agg.Out
+			aggregatorsByCommittee[agg.CommitteeName] = append(aggregatorsByCommittee[agg.CommitteeName], agg.Out)
 		}
 	}
 
 	var outs []*services.VerifierOutput
 	// Start standalone verifiers if in standalone mode.
 	for _, ver := range in.Verifier {
-		if ver.Mode == services.Standalone {
-			if aggOut, ok := aggregatorOutputByCommittee[ver.CommitteeName]; ok {
-				ver.AggregatorOutput = aggOut
-			}
-			out, err := services.NewVerifier(ver, blockchainOutputs)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create verifier service: %w", err)
-			}
-			ver.Out = out
-			outs = append(outs, out)
+		if ver.Mode != services.Standalone {
+			continue
 		}
+
+		aggOuts := aggregatorsByCommittee[ver.CommitteeName]
+		if len(aggOuts) == 0 {
+			return nil, fmt.Errorf(
+				"verifier %q (committee %q): no aggregator outputs found — ensure the aggregator started successfully",
+				ver.ContainerName, ver.CommitteeName,
+			)
+		}
+		if ver.NodeIndex >= len(aggOuts) {
+			return nil, fmt.Errorf(
+				"verifier %q (committee %q) has node_index=%d but only %d aggregator(s) have outputs — "+
+					"this should have been caught by validateStandaloneVerifierNodeIndices; check aggregator startup",
+				ver.ContainerName, ver.CommitteeName, ver.NodeIndex, len(aggOuts),
+			)
+		}
+		// Each standalone verifier is bound 1:1 to the aggregator at its NodeIndex.
+		ver.AggregatorOutput = aggOuts[ver.NodeIndex]
+		out, err := services.NewVerifier(ver, blockchainOutputs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create verifier service: %w", err)
+		}
+		ver.Out = out
+		outs = append(outs, out)
 	}
 	return outs, nil
 }
@@ -1418,6 +1464,41 @@ func extractAndValidateDisableFinalityCheckers(committeeName string, verifiers [
 	}
 
 	return reference, nil
+}
+
+// validateStandaloneVerifierNodeIndices validates that the node_index assignments for
+// standalone verifiers in a single committee are consistent with the number of aggregators.
+func validateStandaloneVerifierNodeIndices(committeeName string, verifiers []*services.VerifierInput, numAggregators int) error {
+	seen := make(map[int]string, len(verifiers)) // node_index → container_name
+
+	for _, ver := range verifiers {
+		if ver.NodeIndex >= numAggregators {
+			return fmt.Errorf(
+				"committee %q: verifier %q has node_index=%d but committee only has %d aggregator(s) — "+
+					"node_index must be in [0, %d)",
+				committeeName, ver.ContainerName, ver.NodeIndex, numAggregators, numAggregators,
+			)
+		}
+
+		if existing, dup := seen[ver.NodeIndex]; dup {
+			return fmt.Errorf(
+				"committee %q: verifiers %q and %q both have node_index=%d — "+
+					"each verifier must have a unique node_index so that every aggregator has exactly one writer",
+				committeeName, existing, ver.ContainerName, ver.NodeIndex,
+			)
+		}
+		seen[ver.NodeIndex] = ver.ContainerName
+	}
+
+	if len(verifiers) != numAggregators {
+		return fmt.Errorf(
+			"committee %q: %d standalone verifier(s) configured but %d aggregator(s) defined — "+
+				"the standalone model requires exactly one verifier per aggregator (1:1 mapping)",
+			committeeName, len(verifiers), numAggregators,
+		)
+	}
+
+	return nil
 }
 
 // slicesEqual compares two string slices for equality.

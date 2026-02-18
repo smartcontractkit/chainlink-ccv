@@ -913,6 +913,96 @@ func (m *CCIP17EVMConfig) ConfigureNodes(ctx context.Context, bc *blockchain.Inp
 	), nil
 }
 
+// filterTokenCombinations returns only the token combinations whose CCV qualifiers
+// all exist as committees in the topology. This ensures that environments with fewer
+// committees (e.g. HA topology with only "default") don't attempt to deploy or
+// configure token pools referencing non-existent committee verifiers.
+func filterTokenCombinations(combos []devenvcommon.TokenCombination, topology *deployments.EnvironmentTopology) []devenvcommon.TokenCombination {
+	filtered := make([]devenvcommon.TokenCombination, 0, len(combos))
+	for _, combo := range combos {
+		if qualifiersAvailable(combo.SourcePoolCCVQualifiers(), topology) &&
+			qualifiersAvailable(combo.DestPoolCCVQualifiers(), topology) {
+			filtered = append(filtered, combo)
+		}
+	}
+	return filtered
+}
+
+func qualifiersAvailable(qualifiers []string, topology *deployments.EnvironmentTopology) bool {
+	for _, q := range qualifiers {
+		if _, ok := topology.NOPTopology.Committees[q]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// buildMockReceivers constructs MockReceiverParams dynamically from the topology.
+// For each committee qualifier in the topology, a receiver requiring that committee's
+// verifier is created. Multi-committee receivers (requiring one committee with optional
+// verifiers from others) are only created when all referenced committees exist.
+func buildMockReceivers(topology *deployments.EnvironmentTopology, selector uint64) []sequences.MockReceiverParams {
+	has := func(q string) bool {
+		_, ok := topology.NOPTopology.Committees[q]
+		return ok
+	}
+
+	verifierRef := func(qualifier string) datastore.AddressRef {
+		return datastore.AddressRef{
+			Type:          datastore.ContractType(committee_verifier.ResolverType),
+			Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+			ChainSelector: selector,
+			Qualifier:     qualifier,
+		}
+	}
+
+	receiverVersion := semver.MustParse(mock_receiver.Deploy.Version())
+	var receivers []sequences.MockReceiverParams
+
+	// One receiver per committee: required verifier only.
+	if has(devenvcommon.DefaultCommitteeVerifierQualifier) {
+		receivers = append(receivers, sequences.MockReceiverParams{
+			Version:           receiverVersion,
+			RequiredVerifiers: []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
+			Qualifier:         devenvcommon.DefaultReceiverQualifier,
+		})
+	}
+	if has(devenvcommon.SecondaryCommitteeVerifierQualifier) {
+		receivers = append(receivers, sequences.MockReceiverParams{
+			Version:           receiverVersion,
+			RequiredVerifiers: []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
+			Qualifier:         devenvcommon.SecondaryReceiverQualifier,
+		})
+	}
+
+	// Multi-committee receivers — only created when all referenced committees exist.
+	if has(devenvcommon.SecondaryCommitteeVerifierQualifier) && has(devenvcommon.TertiaryCommitteeVerifierQualifier) {
+		receivers = append(receivers, sequences.MockReceiverParams{
+			Version:           receiverVersion,
+			RequiredVerifiers: []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
+			OptionalVerifiers: []datastore.AddressRef{verifierRef(devenvcommon.TertiaryCommitteeVerifierQualifier)},
+			OptionalThreshold: 1,
+			Qualifier:         devenvcommon.TertiaryReceiverQualifier,
+		})
+	}
+	if has(devenvcommon.DefaultCommitteeVerifierQualifier) &&
+		has(devenvcommon.SecondaryCommitteeVerifierQualifier) &&
+		has(devenvcommon.TertiaryCommitteeVerifierQualifier) {
+		receivers = append(receivers, sequences.MockReceiverParams{
+			Version:           receiverVersion,
+			RequiredVerifiers: []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
+			OptionalVerifiers: []datastore.AddressRef{
+				verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier),
+				verifierRef(devenvcommon.TertiaryCommitteeVerifierQualifier),
+			},
+			OptionalThreshold: 1,
+			Qualifier:         devenvcommon.QuaternaryReceiverQualifier,
+		})
+	}
+
+	return receivers
+}
+
 func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *deployments.EnvironmentTopology) (datastore.DataStore, error) {
 	l := m.logger
 	l.Info().Msg("Configuring contracts for selector")
@@ -1004,86 +1094,7 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 				USDPerLINK:                     usdPerLink,
 				USDPerWETH:                     usdPerWeth,
 			},
-			// TODO: How to generate this from the committees param?
-			MockReceivers: []sequences.MockReceiverParams{
-				{
-					// single required verifier (default), no optional verifiers, no optional threshold
-					Version: semver.MustParse(mock_receiver.Deploy.Version()),
-					RequiredVerifiers: []datastore.AddressRef{
-						{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
-						},
-					},
-					Qualifier: devenvcommon.DefaultReceiverQualifier,
-				},
-				{
-					// single required verifier (secondary), no optional verifiers, no optional threshold
-					Version: semver.MustParse(mock_receiver.Deploy.Version()),
-					RequiredVerifiers: []datastore.AddressRef{
-						{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     devenvcommon.SecondaryCommitteeVerifierQualifier,
-						},
-					},
-					Qualifier: devenvcommon.SecondaryReceiverQualifier,
-				},
-				{
-					// single required verifier (secondary), single optional verifier (tertiary), optional threshold=1
-					// this means that the message should only be executed after the required and optional verifiers have signed.
-					// optional threshold being 1, with one optional, means that it must be retrieved.
-					Version: semver.MustParse(mock_receiver.Deploy.Version()),
-					RequiredVerifiers: []datastore.AddressRef{
-						{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     devenvcommon.SecondaryCommitteeVerifierQualifier,
-						},
-					},
-					OptionalVerifiers: []datastore.AddressRef{
-						{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     devenvcommon.TertiaryCommitteeVerifierQualifier,
-						},
-					},
-					OptionalThreshold: 1,
-					Qualifier:         devenvcommon.TertiaryReceiverQualifier,
-				},
-				{
-					Version: semver.MustParse(mock_receiver.Deploy.Version()),
-					RequiredVerifiers: []datastore.AddressRef{
-						{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
-						},
-					},
-					OptionalVerifiers: []datastore.AddressRef{
-						{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     devenvcommon.SecondaryCommitteeVerifierQualifier,
-						},
-						{
-							Type:          datastore.ContractType(committee_verifier.ResolverType),
-							Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-							ChainSelector: selector,
-							Qualifier:     devenvcommon.TertiaryCommitteeVerifierQualifier,
-						},
-					},
-					OptionalThreshold: 1,
-					Qualifier:         devenvcommon.QuaternaryReceiverQualifier,
-				},
-			},
+			MockReceivers: buildMockReceivers(topology, selector),
 		},
 	})
 	if err != nil {
@@ -1095,7 +1106,8 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 	}
 	env.DataStore = runningDS.Seal()
 
-	for _, combo := range devenvcommon.AllTokenCombinations() {
+	applicableCombos := filterTokenCombinations(devenvcommon.AllTokenCombinations(), topology)
+	for _, combo := range applicableCombos {
 		// For any given token combination, every chain needs to support the source and destination pools.
 		if err := m.deployTokenAndPool(env, mcmsReaderRegistry, runningDS, selector, combo.SourcePoolAddressRef()); err != nil {
 			return nil, fmt.Errorf("failed to deploy %s token: %w", combo.SourcePoolAddressRef().Qualifier, err)
@@ -1446,7 +1458,8 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		}
 	}
 
-	for _, combo := range devenvcommon.AllTokenCombinations() {
+	applicableCombos := filterTokenCombinations(devenvcommon.AllTokenCombinations(), topology)
+	for _, combo := range applicableCombos {
 		// For any given token combination, every chain needs to support the source and destination pools.
 		l.Info().Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("Configuring source token for transfer")
 		if err := m.configureTokenForTransfer(e, tokenAdapterRegistry, mcmsReaderRegistry, selector, remoteSelectors, combo.SourcePoolAddressRef(), combo.DestPoolAddressRef(), combo.SourcePoolCCVQualifiers()); err != nil {
