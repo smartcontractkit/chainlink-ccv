@@ -199,8 +199,8 @@ func (s *PollerService) pollAllChains(ctx context.Context) {
 					state.CursedRemoteChains[remoteChain] = true
 				}
 			}
-			s.updateMetrics(ctx, chain, s.chainCurseStates[chain], state)
 			s.mutex.Lock()
+			s.updateMetrics(ctx, chain, s.chainCurseStates[chain], state)
 			s.chainCurseStates[chain] = state
 			s.mutex.Unlock()
 
