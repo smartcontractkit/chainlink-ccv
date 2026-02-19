@@ -203,8 +203,8 @@ func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers [
 // buildEnvironmentTopology creates a copy of the EnvironmentTopology from the Cfg,
 // enriches it with signer addresses, and returns it. This is used by both executor
 // and verifier changesets as the single source of truth.
-// If a committee does not specify a FeeAggregator, the first EVM chain's deployer
-// key is used as a fallback.
+// For each chain_config entry that lacks a FeeAggregator, the corresponding
+// chain's deployer key is used as a fallback.
 func buildEnvironmentTopology(in *Cfg, e *deployment.Environment) *deployments.EnvironmentTopology {
 	if in.EnvironmentTopology == nil {
 		return nil
@@ -212,16 +212,24 @@ func buildEnvironmentTopology(in *Cfg, e *deployment.Environment) *deployments.E
 	envCfg := *in.EnvironmentTopology
 	enrichEnvironmentTopology(&envCfg, in.Verifier)
 	if envCfg.NOPTopology != nil {
-		var defaultFeeAggregator string
-		for _, chain := range e.BlockChains.EVMChains() {
-			defaultFeeAggregator = chain.DeployerKey.From.Hex()
-			break
-		}
+		evmChains := e.BlockChains.EVMChains()
 		for name, committee := range envCfg.NOPTopology.Committees {
-			if committee.FeeAggregator == "" {
-				committee.FeeAggregator = defaultFeeAggregator
-				envCfg.NOPTopology.Committees[name] = committee
+			if committee.ChainConfigs == nil {
+				continue
 			}
+			for chainSel, chainCfg := range committee.ChainConfigs {
+				if chainCfg.FeeAggregator == "" {
+					sel, err := strconv.ParseUint(chainSel, 10, 64)
+					if err != nil {
+						continue
+					}
+					if chain, ok := evmChains[sel]; ok {
+						chainCfg.FeeAggregator = chain.DeployerKey.From.Hex()
+						committee.ChainConfigs[chainSel] = chainCfg
+					}
+				}
+			}
+			envCfg.NOPTopology.Committees[name] = committee
 		}
 	}
 	return &envCfg

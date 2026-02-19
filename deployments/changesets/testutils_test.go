@@ -132,18 +132,19 @@ func newTestTopology(opts ...TopologyOption) *deployments.EnvironmentTopology {
 				testCommittee: {
 					Qualifier:       testCommittee,
 					VerifierVersion: semver.MustParse("1.7.0"),
-					FeeAggregator:   "0x0000000000000000000000000000000000000001",
 					Aggregators: []deployments.AggregatorConfig{
 						{Name: testAggregatorName, Address: testAggregatorAddress, InsecureAggregatorConnection: true},
 					},
 					ChainConfigs: map[string]deployments.ChainCommitteeConfig{
 						sel1Str: {
-							NOPAliases: []string{"nop-1", "nop-2"},
-							Threshold:  2,
+							NOPAliases:    []string{"nop-1", "nop-2"},
+							Threshold:     2,
+							FeeAggregator: "0x0000000000000000000000000000000000000001",
 						},
 						sel2Str: {
-							NOPAliases: []string{"nop-1", "nop-2"},
-							Threshold:  2,
+							NOPAliases:    []string{"nop-1", "nop-2"},
+							Threshold:     2,
+							FeeAggregator: "0x0000000000000000000000000000000000000001",
 						},
 					},
 				},

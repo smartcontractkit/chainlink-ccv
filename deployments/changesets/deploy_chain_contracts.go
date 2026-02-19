@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 
 	"github.com/ethereum/go-ethereum/common"
 
@@ -90,17 +91,20 @@ func DeployChainContractsFromTopology(
 	}
 
 	apply := func(e deployment.Environment, cfg changesetscore.WithMCMS[DeployChainContractsFromTopologyCfg]) (deployment.ChangesetOutput, error) {
-		committeeVerifiers, err := BuildCommitteeVerifierParams(cfg.Cfg.Topology)
-		if err != nil {
-			return deployment.ChangesetOutput{}, fmt.Errorf("failed to build committee verifier params: %w", err)
-		}
-
 		evmChains := e.BlockChains.EVMChains()
 		ds := datastore.NewMemoryDataStore()
 		var allReports []operations.Report[any, any]
 		var allBatchOps []mcmstypes.BatchOperation
 
 		for _, sel := range cfg.Cfg.ChainSelectors {
+			committeeVerifiers, err := BuildCommitteeVerifierParams(cfg.Cfg.Topology, sel)
+			if err != nil {
+				return deployment.ChangesetOutput{}, fmt.Errorf("failed to build committee verifier params for chain %d: %w", sel, err)
+			}
+			if len(committeeVerifiers) == 0 {
+				return deployment.ChangesetOutput{}, fmt.Errorf("chain %d: no committees have chain_config for this selector", sel)
+			}
+
 			perChain := cfg.Cfg.resolveChainCfg(sel)
 
 			existingAddresses := e.DataStore.Addresses().Filter(
@@ -166,15 +170,19 @@ func DeployChainContractsFromTopology(
 	return deployment.CreateChangeSet(apply, validate)
 }
 
-// BuildCommitteeVerifierParams builds CommitteeVerifierParams from the topology.
-// All committees from the topology are included.
-// This function is exported so devenv can use it with in-memory topology.
+// BuildCommitteeVerifierParams builds CommitteeVerifierParams from the topology
+// for a specific chain. FeeAggregator and AllowlistAdmin are read from each
+// committee's per-chain config (ChainCommitteeConfig).
+// Committees that don't have a chain_config entry for this selector are skipped.
 func BuildCommitteeVerifierParams(
 	topology *deployments.EnvironmentTopology,
+	chainSelector uint64,
 ) ([]sequences.CommitteeVerifierParams, error) {
 	if topology.NOPTopology == nil {
 		return nil, fmt.Errorf("NOPTopology is nil")
 	}
+
+	chainKey := strconv.FormatUint(chainSelector, 10)
 
 	qualifiers := make([]string, 0, len(topology.NOPTopology.Committees))
 	for q := range topology.NOPTopology.Committees {
@@ -186,21 +194,27 @@ func BuildCommitteeVerifierParams(
 	for _, qualifier := range qualifiers {
 		committee := topology.NOPTopology.Committees[qualifier]
 
+		chainCfg, ok := committee.ChainConfigs[chainKey]
+		if !ok {
+			continue
+		}
+
 		if committee.VerifierVersion == nil {
 			return nil, fmt.Errorf("committee %q has nil VerifierVersion", qualifier)
 		}
 
-		feeAggregator, err := parseRequiredAddress(committee.FeeAggregator, "FeeAggregator", qualifier)
+		feeAggregator, err := parseRequiredAddress(chainCfg.FeeAggregator, "FeeAggregator", qualifier)
 		if err != nil {
 			return nil, err
 		}
 
 		allowlistAdmin := common.Address{}
-		if committee.AllowlistAdmin != "" {
-			if !common.IsHexAddress(committee.AllowlistAdmin) {
-				return nil, fmt.Errorf("committee %q: AllowlistAdmin %q is not a valid hex address", qualifier, committee.AllowlistAdmin)
+		if chainCfg.AllowlistAdmin != "" {
+			if !common.IsHexAddress(chainCfg.AllowlistAdmin) {
+				return nil, fmt.Errorf("committee %q chain %d: AllowlistAdmin %q is not a valid hex address",
+					qualifier, chainSelector, chainCfg.AllowlistAdmin)
 			}
-			allowlistAdmin = common.HexToAddress(committee.AllowlistAdmin)
+			allowlistAdmin = common.HexToAddress(chainCfg.AllowlistAdmin)
 		}
 
 		params = append(params, sequences.CommitteeVerifierParams{

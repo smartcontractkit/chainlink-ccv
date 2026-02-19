@@ -2,6 +2,7 @@ package changesets_test
 
 import (
 	"math/big"
+	"strconv"
 	"testing"
 
 	"github.com/Masterminds/semver/v3"
@@ -420,28 +421,42 @@ func TestDeployChainContractsFromTopology_Apply_PerChainOverrideIsUsed(t *testin
 }
 
 func TestBuildCommitteeVerifierParams_MapsAllCommittees(t *testing.T) {
+	sel := chainsel.TEST_90000001.Selector
+	selStr := strconv.FormatUint(sel, 10)
 	topology := &deployments.EnvironmentTopology{
 		NOPTopology: &deployments.NOPTopology{
 			Committees: map[string]deployments.CommitteeConfig{
 				"alpha": {
 					Qualifier:        "alpha",
 					VerifierVersion:  semver.MustParse("1.7.0"),
-					FeeAggregator:    "0x0000000000000000000000000000000000000001",
-					AllowlistAdmin:   "0x0000000000000000000000000000000000000002",
 					StorageLocations: []string{"https://store1.test"},
+					ChainConfigs: map[string]deployments.ChainCommitteeConfig{
+						selStr: {
+							NOPAliases:     []string{"nop-1"},
+							Threshold:      1,
+							FeeAggregator:  "0x0000000000000000000000000000000000000001",
+							AllowlistAdmin: "0x0000000000000000000000000000000000000002",
+						},
+					},
 				},
 				"beta": {
 					Qualifier:        "beta",
 					VerifierVersion:  semver.MustParse("1.7.0"),
-					FeeAggregator:    "0x0000000000000000000000000000000000000003",
-					AllowlistAdmin:   "0x0000000000000000000000000000000000000004",
 					StorageLocations: []string{"https://store2.test"},
+					ChainConfigs: map[string]deployments.ChainCommitteeConfig{
+						selStr: {
+							NOPAliases:     []string{"nop-1"},
+							Threshold:      1,
+							FeeAggregator:  "0x0000000000000000000000000000000000000003",
+							AllowlistAdmin: "0x0000000000000000000000000000000000000004",
+						},
+					},
 				},
 			},
 		},
 	}
 
-	params, err := changesets.BuildCommitteeVerifierParams(topology)
+	params, err := changesets.BuildCommitteeVerifierParams(topology, sel)
 	require.NoError(t, err)
 	assert.Len(t, params, 2)
 
@@ -463,25 +478,72 @@ func TestBuildCommitteeVerifierParams_MapsAllCommittees(t *testing.T) {
 	assert.Equal(t, []string{"https://store2.test"}, beta.StorageLocations)
 }
 
+func TestBuildCommitteeVerifierParams_SkipsCommitteesWithoutChainConfig(t *testing.T) {
+	sel := chainsel.TEST_90000001.Selector
+	selStr := strconv.FormatUint(sel, 10)
+	otherSel := chainsel.TEST_90000002.Selector
+	topology := &deployments.EnvironmentTopology{
+		NOPTopology: &deployments.NOPTopology{
+			Committees: map[string]deployments.CommitteeConfig{
+				"present": {
+					Qualifier:       "present",
+					VerifierVersion: semver.MustParse("1.7.0"),
+					ChainConfigs: map[string]deployments.ChainCommitteeConfig{
+						selStr: {
+							NOPAliases:    []string{"nop-1"},
+							Threshold:     1,
+							FeeAggregator: "0x0000000000000000000000000000000000000001",
+						},
+					},
+				},
+				"absent": {
+					Qualifier:       "absent",
+					VerifierVersion: semver.MustParse("1.7.0"),
+					ChainConfigs: map[string]deployments.ChainCommitteeConfig{
+						strconv.FormatUint(otherSel, 10): {
+							NOPAliases:    []string{"nop-1"},
+							Threshold:     1,
+							FeeAggregator: "0x0000000000000000000000000000000000000002",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	params, err := changesets.BuildCommitteeVerifierParams(topology, sel)
+	require.NoError(t, err)
+	assert.Len(t, params, 1)
+	assert.Equal(t, "present", params[0].Qualifier)
+}
+
 func TestBuildCommitteeVerifierParams_RejectsNilNOPTopology(t *testing.T) {
 	topology := &deployments.EnvironmentTopology{}
-	_, err := changesets.BuildCommitteeVerifierParams(topology)
+	_, err := changesets.BuildCommitteeVerifierParams(topology, 1)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "NOPTopology is nil")
 }
 
 func TestBuildCommitteeVerifierParams_RejectsNilVerifierVersion(t *testing.T) {
+	sel := chainsel.TEST_90000001.Selector
+	selStr := strconv.FormatUint(sel, 10)
 	topology := &deployments.EnvironmentTopology{
 		NOPTopology: &deployments.NOPTopology{
 			Committees: map[string]deployments.CommitteeConfig{
 				"broken": {
 					VerifierVersion: nil,
-					FeeAggregator:   "0x0000000000000000000000000000000000000001",
+					ChainConfigs: map[string]deployments.ChainCommitteeConfig{
+						selStr: {
+							NOPAliases:    []string{"nop-1"},
+							Threshold:     1,
+							FeeAggregator: "0x0000000000000000000000000000000000000001",
+						},
+					},
 				},
 			},
 		},
 	}
-	_, err := changesets.BuildCommitteeVerifierParams(topology)
+	_, err := changesets.BuildCommitteeVerifierParams(topology, sel)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "nil VerifierVersion")
 }
@@ -492,7 +554,82 @@ func TestBuildCommitteeVerifierParams_ReturnsEmptyForEmptyCommittees(t *testing.
 			Committees: map[string]deployments.CommitteeConfig{},
 		},
 	}
-	params, err := changesets.BuildCommitteeVerifierParams(topology)
+	params, err := changesets.BuildCommitteeVerifierParams(topology, 1)
 	require.NoError(t, err)
 	assert.Empty(t, params)
+}
+
+func TestBuildCommitteeVerifierParams_AddressValidation(t *testing.T) {
+	sel := chainsel.TEST_90000001.Selector
+	selStr := strconv.FormatUint(sel, 10)
+
+	tests := []struct {
+		name           string
+		feeAggregator  string
+		allowlistAdmin string
+		errContains    string
+	}{
+		{
+			name:          "empty FeeAggregator is rejected",
+			feeAggregator: "",
+			errContains:   "FeeAggregator is required",
+		},
+		{
+			name:          "invalid hex FeeAggregator is rejected",
+			feeAggregator: "not-hex",
+			errContains:   "not a valid hex address",
+		},
+		{
+			name:          "zero address FeeAggregator is rejected",
+			feeAggregator: "0x0000000000000000000000000000000000000000",
+			errContains:   "cannot be zero address",
+		},
+		{
+			name:           "invalid hex AllowlistAdmin is rejected",
+			feeAggregator:  "0x0000000000000000000000000000000000000001",
+			allowlistAdmin: "not-hex",
+			errContains:    "AllowlistAdmin",
+		},
+		{
+			name:           "valid FeeAggregator and empty AllowlistAdmin succeeds",
+			feeAggregator:  "0x0000000000000000000000000000000000000001",
+			allowlistAdmin: "",
+		},
+		{
+			name:           "valid FeeAggregator and valid AllowlistAdmin succeeds",
+			feeAggregator:  "0x0000000000000000000000000000000000000001",
+			allowlistAdmin: "0x0000000000000000000000000000000000000002",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			topology := &deployments.EnvironmentTopology{
+				NOPTopology: &deployments.NOPTopology{
+					Committees: map[string]deployments.CommitteeConfig{
+						"test": {
+							Qualifier:       "test",
+							VerifierVersion: semver.MustParse("1.7.0"),
+							ChainConfigs: map[string]deployments.ChainCommitteeConfig{
+								selStr: {
+									NOPAliases:     []string{"nop-1"},
+									Threshold:      1,
+									FeeAggregator:  tt.feeAggregator,
+									AllowlistAdmin: tt.allowlistAdmin,
+								},
+							},
+						},
+					},
+				},
+			}
+			params, err := changesets.BuildCommitteeVerifierParams(topology, sel)
+			if tt.errContains != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+				assert.Len(t, params, 1)
+			}
+		})
+	}
 }
