@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -238,7 +239,7 @@ func (q *PostgresJobQueue[T]) Complete(ctx context.Context, jobIDs ...string) er
 		FROM completed
 	`, q.tableName, q.archiveName)
 
-	result, err := q.db.ExecContext(ctx, query, jobIDs)
+	result, err := q.db.ExecContext(ctx, query, pq.Array(jobIDs))
 	if err != nil {
 		return fmt.Errorf("failed to complete jobs: %w", err)
 	}
