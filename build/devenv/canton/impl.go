@@ -276,9 +276,7 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 	}
 
 	// Mock out a Canton deployment for now.
-	// Add token pool refs (destination pool per combo). The "1.7.0 burn -> 1.7.0 release" combo
-	// registers the LockRelease pool here so EVM can resolve the remote pool for that lane.
-	// When Canton has real deployment, the LockRelease pool on Canton must be funded so it can release tokens.
+	// Add token pools
 	for i, combo := range devenvcommon.AllTokenCombinations() {
 		addressRef := combo.DestPoolAddressRef()
 		err = runningDS.AddressRefStore.Add(datastore.AddressRef{

@@ -142,7 +142,7 @@ func AllTokenCombinations() []TokenCombination {
 			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
 			expectedVerifierResults: 1, // default CCV
 		},
-		{ // 1.7.0 burn -> 1.7.0 release (e.g. EVM burn to Canton release; dest LockRelease pool must be funded)
+		{ // 1.7.0 burn -> 1.7.0 release
 			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
 			sourcePoolVersion:       "1.7.0",
 			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
