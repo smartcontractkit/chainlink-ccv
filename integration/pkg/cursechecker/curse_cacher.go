@@ -68,12 +68,6 @@ func (c CachedCurseChecker) IsRemoteChainCursed(ctx context.Context, localChain,
 
 	for _, subject := range curseResults {
 		cursedSubjects[subject] = struct{}{}
-		// curse metric lifts off with next execution in `isChainSelectorCursed` call
-		if subject == GlobalCurseSubject {
-			c.metrics.SetLocalChainGlobalCursed(ctx, localChain, true)
-		} else if subject == ChainSelectorToBytes16(remoteChain) {
-			c.metrics.SetRemoteChainCursed(ctx, localChain, remoteChain, true)
-		}
 	}
 
 	c.curseCache.Add(localChain, cursedSubjects)

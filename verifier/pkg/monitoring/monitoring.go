@@ -139,7 +139,10 @@ func (f *FakeVerifierMetricLabeler) RecordReorgTrackedSeqNums(context.Context, i
 func (f *FakeVerifierMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool) {
 }
 
-func (f *FakeVerifierMetricLabeler) SetVerifierDestChainCursed(ctx context.Context, selector protocol.ChainSelector, cursed bool) {
+func (v *FakeVerifierMetricLabeler) SetRemoteChainCursed(ctx context.Context, localSelector, remoteSelector protocol.ChainSelector, cursed bool) {
+}
+
+func (v *FakeVerifierMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool) {
 }
 
 func (f *FakeVerifierMetricLabeler) IncrementActiveRequestsCounter(context.Context) {}
