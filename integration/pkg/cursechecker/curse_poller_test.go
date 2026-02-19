@@ -256,7 +256,6 @@ func TestCurseDetectorService_ReaderErrorHandling(t *testing.T) {
 	metrics.EXPECT().
 		SetRemoteChainCursed(mock.Anything, chainB, chainA, true).Once()
 
-
 	svc, err := NewCurseDetectorService(rmnReaders, 50*time.Millisecond, 0, lggr, metrics)
 	require.NoError(t, err)
 

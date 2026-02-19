@@ -1496,6 +1496,6 @@ func TestSRS_DisableFinalityChecker(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, ok := srs.finalityChecker.(*services.NoOpFinalityViolationChecker)
+	_, ok := srs.finalityChecker.(*NoOpFinalityViolationChecker)
 	require.True(t, ok, "finalityChecker should be NoOpFinalityViolationChecker when disabled")
 }
