@@ -33,11 +33,6 @@ func (c *JDConfig) validate() error {
 type KeystoreConfig struct {
 	// Password is the password to the keystore.
 	Password string `toml:"password"`
-	// SeedECDSAPrivateKey, when set, causes the bootstrap to import this
-	// hex-encoded ECDSA private key instead of generating a random one.
-	// Used by the devenv to share a deterministic signing key across HA
-	// verifier containers that represent the same NOP.
-	SeedECDSAPrivateKey string `toml:"seed_ecdsa_private_key,omitempty"`
 }
 
 func (c *KeystoreConfig) validate() error {
