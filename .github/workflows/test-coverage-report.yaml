@@ -9,7 +9,7 @@ on:
 
 jobs:
   test-coverage-report:
-    runs-on: ubuntu-latest
+    runs-on=${{ github.run_id }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
     steps:
       - name: Checkout code
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -46,9 +46,6 @@ jobs:
           echo "PATH=$HOME/.local/share/solana/install/active_release/bin:$PATH" >> $GITHUB_ENV
 
       - name: Run tests
-        env:
-          GOMAXPROCS: 10
-        timeout-minutes: 10
         run: |
           just test-coverage coverage.out short
       - name: Coverage on target branch
