@@ -33,6 +33,7 @@ packages:
       CurseChecker:
       CurseCheckerService:
       TimeProvider:
+      CurseCheckerMetrics:
 
   github.com/smartcontractkit/chainlink-ccv/protocol:
     interfaces:

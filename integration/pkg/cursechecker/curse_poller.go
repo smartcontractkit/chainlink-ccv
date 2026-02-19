@@ -215,9 +215,15 @@ func (s *PollerService) pollAllChains(ctx context.Context) {
 }
 
 func (s *PollerService) updateMetrics(ctx context.Context, localChain protocol.ChainSelector, oldState, newState *ChainCurseState) {
+	if newState == nil {
+		return
+	}
 	s.metrics.SetLocalChainGlobalCursed(ctx, localChain, newState.HasGlobalCurse)
 	for remoteSelector, cursed := range newState.CursedRemoteChains {
 		s.metrics.SetRemoteChainCursed(ctx, localChain, remoteSelector, cursed)
+	}
+	if oldState == nil {
+		return
 	}
 	// Unset metric if chain is no longer cursed
 	for remoteSelector, oldCursed := range oldState.CursedRemoteChains {
