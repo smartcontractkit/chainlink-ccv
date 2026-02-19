@@ -2,6 +2,8 @@ package ccv
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"sync"
@@ -181,7 +183,13 @@ func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint
 				networkPassphrase = b.Out.NetworkSpecificData.StellarNetwork.NetworkPassphrase
 				friendbotURL = b.Out.NetworkSpecificData.StellarNetwork.FriendbotURL
 				sorobanRPCURL = b.Out.Nodes[0].ExternalHTTPUrl
-				deployerKeypairGen = cldf_stellar_provider.KeypairFromHex(os.Getenv("STELLAR_DEPLOYER_PRIVATE_KEY"))
+				// Prefer env for production; otherwise derive deterministic keypair from passphrase (stable for tests).
+				if pk := os.Getenv("STELLAR_DEPLOYER_PRIVATE_KEY"); pk != "" {
+					deployerKeypairGen = cldf_stellar_provider.KeypairFromHex(pk)
+				} else {
+					deployerSeed := sha256.Sum256([]byte("deployer-" + networkPassphrase))
+					deployerKeypairGen = cldf_stellar_provider.KeypairFromHex(hex.EncodeToString(deployerSeed[:]))
+				}
 			} else {
 				return nil, nil, fmt.Errorf("Stellar network specific data is required")
 			}
