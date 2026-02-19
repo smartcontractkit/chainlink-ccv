@@ -203,12 +203,39 @@ func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers [
 // buildEnvironmentTopology creates a copy of the EnvironmentTopology from the Cfg,
 // enriches it with signer addresses, and returns it. This is used by both executor
 // and verifier changesets as the single source of truth.
-func buildEnvironmentTopology(in *Cfg) *deployments.EnvironmentTopology {
+// For each chain_config entry that lacks a FeeAggregator, the corresponding
+// chain's deployer key is used as a fallback.
+func buildEnvironmentTopology(in *Cfg, e *deployment.Environment) *deployments.EnvironmentTopology {
 	if in.EnvironmentTopology == nil {
 		return nil
 	}
 	envCfg := *in.EnvironmentTopology
 	enrichEnvironmentTopology(&envCfg, in.Verifier)
+
+	if envCfg.NOPTopology == nil {
+		return &envCfg
+	}
+
+	evmChains := e.BlockChains.EVMChains()
+	for name, committee := range envCfg.NOPTopology.Committees {
+		if committee.ChainConfigs == nil {
+			continue
+		}
+		for chainSel, chainCfg := range committee.ChainConfigs {
+			if chainCfg.FeeAggregator == "" {
+				sel, err := strconv.ParseUint(chainSel, 10, 64)
+				if err != nil {
+					continue
+				}
+				if chain, ok := evmChains[sel]; ok {
+					chainCfg.FeeAggregator = chain.DeployerKey.From.Hex()
+					committee.ChainConfigs[chainSel] = chainCfg
+				}
+			}
+		}
+		envCfg.NOPTopology.Committees[name] = committee
+	}
+
 	return &envCfg
 }
 
@@ -684,12 +711,6 @@ func NewEnvironment() (in *Cfg, err error) {
 	// END: Assign signing keys & launch verifiers
 	/////////////////////////////////////////////
 
-	/////////////////////////////////////////
-	// START: Build shared EnvironmentTopology //
-	// Used by contract deployment and off-chain config //
-	/////////////////////////////////////////
-	topology := buildEnvironmentTopology(in)
-
 	/////////////////////////////
 	// START: Deploy contracts //
 	/////////////////////////////
@@ -713,6 +734,8 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("creating CLDF operations environment: %w", err)
 	}
 	L.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
+
+	topology := buildEnvironmentTopology(in, e)
 
 	timeTrack.Record("[infra] deploying blockchains")
 	ds := datastore.NewMemoryDataStore()

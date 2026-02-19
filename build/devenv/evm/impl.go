@@ -1047,54 +1047,54 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 	out, err := ccvchangesets.DeployChainContractsFromTopology(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[ccvchangesets.DeployChainContractsFromTopologyCfg]{
 		Cfg: ccvchangesets.DeployChainContractsFromTopologyCfg{
 			Topology:       topology,
-			ChainSelector:  selector,
-			CREATE2Factory: common.HexToAddress(create2FactoryRep.Output.Address),
-			// TODO: Router contract implementation is missing
-			RMNRemote: sequences.RMNRemoteParams{
-				Version: semver.MustParse(rmn_remote.Deploy.Version()),
-			},
-			OffRamp: sequences.OffRampParams{
-				Version:                   semver.MustParse(offrampoperations.Deploy.Version()),
-				GasForCallExactCheck:      5_000,
-				MaxGasBufferToUpdateState: 12_000,
-			},
-			OnRamp: sequences.OnRampParams{
-				Version:               semver.MustParse(onrampoperations.Deploy.Version()),
-				FeeAggregator:         common.HexToAddress("0x01"),
-				MaxUSDCentsPerMessage: 100_00, // $100
-			},
-			Executors: []sequences.ExecutorParams{
-				{
-					Version:       semver.MustParse(executor.DeployProxy.Version()),
-					MaxCCVsPerMsg: 10,
-					DynamicConfig: executor.SetDynamicConfigArgs{
-						FeeAggregator:         common.HexToAddress("0x01"),
-						MinBlockConfirmations: 0,
-						CcvAllowlistEnabled:   false,
-					},
-					Qualifier: devenvcommon.DefaultExecutorQualifier,
+			ChainSelectors: []uint64{selector},
+			DefaultCfg: ccvchangesets.DeployChainContractsFromTopologyCfgPerChain{
+				CREATE2Factory: common.HexToAddress(create2FactoryRep.Output.Address),
+				RMNRemote: sequences.RMNRemoteParams{
+					Version: semver.MustParse(rmn_remote.Deploy.Version()),
 				},
-				{
-					Version:       semver.MustParse(executor.DeployProxy.Version()),
-					MaxCCVsPerMsg: 10,
-					DynamicConfig: executor.SetDynamicConfigArgs{
-						FeeAggregator:         common.HexToAddress("0x01"),
-						MinBlockConfirmations: 0,
-						CcvAllowlistEnabled:   false,
-					},
-					Qualifier: devenvcommon.CustomExecutorQualifier,
+				OffRamp: sequences.OffRampParams{
+					Version:                   semver.MustParse(offrampoperations.Deploy.Version()),
+					GasForCallExactCheck:      5_000,
+					MaxGasBufferToUpdateState: 12_000,
 				},
+				OnRamp: sequences.OnRampParams{
+					Version:               semver.MustParse(onrampoperations.Deploy.Version()),
+					FeeAggregator:         common.HexToAddress("0x01"),
+					MaxUSDCentsPerMessage: 100_00, // $100
+				},
+				Executors: []sequences.ExecutorParams{
+					{
+						Version:       semver.MustParse(executor.DeployProxy.Version()),
+						MaxCCVsPerMsg: 10,
+						DynamicConfig: executor.SetDynamicConfigArgs{
+							FeeAggregator:         common.HexToAddress("0x01"),
+							MinBlockConfirmations: 0,
+							CcvAllowlistEnabled:   false,
+						},
+						Qualifier: devenvcommon.DefaultExecutorQualifier,
+					},
+					{
+						Version:       semver.MustParse(executor.DeployProxy.Version()),
+						MaxCCVsPerMsg: 10,
+						DynamicConfig: executor.SetDynamicConfigArgs{
+							FeeAggregator:         common.HexToAddress("0x01"),
+							MinBlockConfirmations: 0,
+							CcvAllowlistEnabled:   false,
+						},
+						Qualifier: devenvcommon.CustomExecutorQualifier,
+					},
+				},
+				FeeQuoter: sequences.FeeQuoterParams{
+					Version:                        semver.MustParse(fee_quoter.Deploy.Version()),
+					MaxFeeJuelsPerMsg:              big.NewInt(2e18),
+					LINKPremiumMultiplierWeiPerEth: 9e17, // 0.9 ETH
+					WETHPremiumMultiplierWeiPerEth: 1e18, // 1.0 ETH
+					USDPerLINK:                     usdPerLink,
+					USDPerWETH:                     usdPerWeth,
+				},
+				MockReceivers: buildMockReceivers(topology, selector),
 			},
-			FeeQuoter: sequences.FeeQuoterParams{
-				Version: semver.MustParse(fee_quoter.Deploy.Version()),
-				// expose in TOML config
-				MaxFeeJuelsPerMsg:              big.NewInt(2e18),
-				LINKPremiumMultiplierWeiPerEth: 9e17, // 0.9 ETH
-				WETHPremiumMultiplierWeiPerEth: 1e18, // 1.0 ETH
-				USDPerLINK:                     usdPerLink,
-				USDPerWETH:                     usdPerWeth,
-			},
-			MockReceivers: buildMockReceivers(topology, selector),
 		},
 	})
 	if err != nil {
