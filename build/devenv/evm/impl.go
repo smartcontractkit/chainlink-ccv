@@ -31,6 +31,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/create2_factory"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/erc20_lock_box"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/fee_quoter"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/lock_release_token_pool"
@@ -1617,8 +1618,16 @@ func (m *CCIP17EVMConfig) fundLockReleaseTokenPool(
 		return fmt.Errorf("failed to create ERC20 token instance: %w", err)
 	}
 
-	// Transfer tokens from deployer to the token pool
-	tx, err := token.Transfer(txOps, common.HexToAddress(tokenPoolRef.Address), amount)
+	// Get lock box from datastore
+	// TODO: Qualifier should match that of the pool, need to update chainlink-ccip
+	// This only works currently because there is only one lock release pool deployed per chain
+	lockBoxRef, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(selector, datastore.ContractType(erc20_lock_box.ContractType), erc20_lock_box.Version, ""))
+	if err != nil {
+		return fmt.Errorf("failed to get lock box address: %w", err)
+	}
+
+	// Transfer tokens from deployer to the lock box
+	tx, err := token.Transfer(txOps, common.HexToAddress(lockBoxRef.Address), amount)
 	if err != nil {
 		return fmt.Errorf("failed to create transfer transaction: %w", err)
 	}
