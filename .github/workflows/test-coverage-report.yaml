@@ -46,6 +46,9 @@ jobs:
           echo "PATH=$HOME/.local/share/solana/install/active_release/bin:$PATH" >> $GITHUB_ENV
 
       - name: Run tests
+        env:
+          GOMAXPROCS: 10
+        timeout-minutes: 10
         run: |
           just test-coverage coverage.out short
       - name: Coverage on target branch
