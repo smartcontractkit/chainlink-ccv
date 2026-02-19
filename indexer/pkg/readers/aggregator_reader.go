@@ -18,7 +18,7 @@ func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacCo
 
 	config := DefaultResilienceConfig()
 	config.DiscoveryRetryPolicyErrorHandler = aggregatorRetryPolicyErrorHandler
-	config.DiscoveryCircuitBreakerErrorHandler = aggregatorCircuitBreakerErrorHandler
+	config.DiscoveryCircuitBreakerErrorHandler = aggregatorRetryPolicyErrorHandler
 
 	return NewResilientReader(reader, lggr, config), nil
 }
@@ -36,22 +36,6 @@ func aggregatorRetryPolicyErrorHandler(response []protocol.QueryResponse, err er
 	}
 
 	// Retry on other gRPC errors
-	return true
-}
-
-// aggregatorCircuitBreakerErrorHandler determines if an error should count towards circuit breaker failures.
-// Connection errors should NOT open the circuit breaker since they're expected to be temporary.
-func aggregatorCircuitBreakerErrorHandler(response []protocol.QueryResponse, err error) bool {
-	if err == nil {
-		return false
-	}
-
-	// Count connection errors towards circuit breaker
-	if isConnectionError(err) {
-		return true
-	}
-
-	// Count all other errors
 	return true
 }
 
