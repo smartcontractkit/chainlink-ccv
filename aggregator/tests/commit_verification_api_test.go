@@ -27,7 +27,7 @@ func TestAggregationHappyPath(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -63,7 +63,7 @@ func TestAggregationHappyPath(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -72,7 +72,7 @@ func TestAggregationHappyPath_NoQuorumWhenBlobDataIsDifferent(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -115,7 +115,7 @@ func TestAggregationHappyPath_NoQuorumWhenBlobDataIsDifferent(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -124,7 +124,7 @@ func TestIdempotency(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -159,7 +159,7 @@ func TestIdempotency(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -168,7 +168,7 @@ func TestKeyRotation(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer1Address1 := common.HexToAddress(signer1.Signer.Address)
@@ -244,7 +244,7 @@ func TestKeyRotation(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -293,7 +293,7 @@ func assertCCVDataNotFound(t *testing.T, ctx context.Context, ccvDataClient veri
 	}, 500*time.Millisecond, 50*time.Millisecond, "CCV data should not be found")
 }
 
-func assertCCVDataFound(t *testing.T, ctx context.Context, ccvDataClient verifierpb.VerifierClient, messageId protocol.Bytes32, message *verifierpb.Message, sourceVerifierAddress, destVerifierAddress []byte, options ...SignatureValidationOption) *verifierpb.VerifierResult {
+func assertCCVDataFound(t *testing.T, ctx context.Context, ccvDataClient verifierpb.VerifierClient, messageId protocol.Bytes32, message *verifierpb.Message, sourceVerifierAddress, destVerifierAddress []byte, options ...SignatureValidationOption) {
 	var respCcvData *verifierpb.VerifierResult
 	require.EventuallyWithTf(t, func(collect *assert.CollectT) {
 		response, err := ccvDataClient.GetVerifierResultsForMessage(ctx, &verifierpb.GetVerifierResultsForMessageRequest{
@@ -333,8 +333,6 @@ func assertCCVDataFound(t *testing.T, ctx context.Context, ccvDataClient verifie
 			validateSignatures(collect, respCcvData.CcvData, messageId, options...)
 		}
 	}, 5*time.Second, 100*time.Millisecond, "CCV data not found within timeout")
-
-	return respCcvData
 }
 
 // validateSignatures decodes the CCV data and validates signatures from expected signers.
@@ -413,7 +411,7 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -457,7 +455,7 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -466,7 +464,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -524,7 +522,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -534,7 +532,7 @@ func TestPaginationWithVariousPageSizes(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		testCases := []struct {
 			name          string
 			numMessages   int
@@ -561,7 +559,7 @@ func TestPaginationWithVariousPageSizes(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Logf("Running test case: %s - %s", tc.name, tc.description)
-				runPaginationTest(t, tc.numMessages, tc.pageSize, storageType, tc.expectedPages)
+				runPaginationTest(t, tc.numMessages, tc.pageSize, tc.expectedPages)
 			})
 		}
 	}
@@ -569,12 +567,12 @@ func TestPaginationWithVariousPageSizes(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
 
-func runPaginationTest(t *testing.T, numMessages, pageSize int, storageType string, expectedPages int) {
+func runPaginationTest(t *testing.T, numMessages, pageSize, expectedPages int) {
 	sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 	signer1 := testutil.NewSignerFixture(t, "node1")
 	signer2 := testutil.NewSignerFixture(t, "node2")
@@ -701,7 +699,7 @@ func TestSequenceOrdering(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -783,7 +781,7 @@ func TestSequenceOrdering(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -795,7 +793,7 @@ func TestStopAggregationAfterQuorum(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -892,7 +890,7 @@ func TestStopAggregationAfterQuorum(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -902,7 +900,7 @@ func TestBatchGetVerifierResult_HappyPath(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"} // DynamoDB not implemented for batch operations
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -993,7 +991,7 @@ func TestBatchGetVerifierResult_HappyPath(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -1003,7 +1001,7 @@ func TestBatchGetVerifierResult_DuplicateMessageIDs(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -1059,7 +1057,7 @@ func TestBatchGetVerifierResult_DuplicateMessageIDs(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -1069,7 +1067,7 @@ func TestBatchGetVerifierResult_MissingMessages(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -1137,7 +1135,7 @@ func TestBatchGetVerifierResult_MissingMessages(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -1147,7 +1145,7 @@ func TestBatchGetVerifierResult_EmptyRequest(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -1169,7 +1167,7 @@ func TestBatchGetVerifierResult_EmptyRequest(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -1178,7 +1176,7 @@ func TestBatchWriteCommitteeVerifierNodeResult_MixedSuccessFailure(t *testing.T)
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -1241,7 +1239,7 @@ func TestBatchWriteCommitteeVerifierNodeResult_MixedSuccessFailure(t *testing.T)
 
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -1250,7 +1248,7 @@ func TestBatchGetVerifierResult_MixedSuccessFailure(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -1332,7 +1330,7 @@ func TestBatchGetVerifierResult_MixedSuccessFailure(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -1344,7 +1342,7 @@ func TestReadCommitteeVerifierNodeResult_ReturnsLatestAggregationKey(t *testing.
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 
@@ -1395,7 +1393,7 @@ func TestReadCommitteeVerifierNodeResult_ReturnsLatestAggregationKey(t *testing.
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -1410,7 +1408,7 @@ func TestKeyRotation_StopAggregationAfterQuorumThenRotate(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -1478,7 +1476,7 @@ func TestKeyRotation_StopAggregationAfterQuorumThenRotate(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -1489,7 +1487,7 @@ func TestGetVerifierResultsForMessage_ReturnsNotFoundWhenSourceVerifierNotInCCVA
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -1541,7 +1539,7 @@ func TestGetVerifierResultsForMessage_ReturnsNotFoundWhenSourceVerifierNotInCCVA
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -1553,7 +1551,7 @@ func TestGetMessagesSince_ReturnsNilMetadataWhenSourceVerifierNotInCCVAddresses(
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -1612,7 +1610,7 @@ func TestGetMessagesSince_ReturnsNilMetadataWhenSourceVerifierNotInCCVAddresses(
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -1623,7 +1621,7 @@ func TestSourceVerifierInCCVAddresses_MetadataPopulated(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -1684,7 +1682,7 @@ func TestSourceVerifierInCCVAddresses_MetadataPopulated(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
