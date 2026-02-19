@@ -213,6 +213,7 @@ func main() {
 	// ------------------------------------------------------------------------------------------------
 	curseChecker := cursechecker.NewCachedCurseChecker(cursechecker.Params{
 		Lggr:        lggr,
+		Metrics:     executorMonitoring.Metrics(),
 		RmnReaders:  rmnReaders,
 		CacheExpiry: executorConfig.ReaderCacheExpiry,
 	})

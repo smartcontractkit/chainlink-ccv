@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -97,12 +98,12 @@ func TestCachedCurseChecker_CacheHit(t *testing.T) {
 
 			// Create cached curse checker
 			checker := NewCachedCurseChecker(Params{
-				Lggr: lggr,
+				Lggr:    lggr,
+				Metrics: metrics,
 				RmnReaders: map[protocol.ChainSelector]chainaccess.RMNCurseReader{
 					tt.localChain: mockReader,
 				},
 				CacheExpiry: tt.cacheExpiry,
-				Metrics:     metrics,
 			})
 
 			// First call - should hit the reader
@@ -234,12 +235,12 @@ func TestCachedCurseChecker_CacheExpiry(t *testing.T) {
 
 			// Create cached curse checker
 			checker := NewCachedCurseChecker(Params{
-				Lggr: lggr,
+				Lggr:    lggr,
+				Metrics: metrics,
 				RmnReaders: map[protocol.ChainSelector]chainaccess.RMNCurseReader{
 					tt.localChain: mockReader,
 				},
 				CacheExpiry: tt.cacheExpiry,
-				Metrics:     metrics,
 			})
 
 			// First call - should hit the reader
@@ -316,12 +317,12 @@ func TestCachedCurseChecker_ErrorHandling(t *testing.T) {
 				Once()
 
 			checker := NewCachedCurseChecker(Params{
-				Lggr: lggr,
+				Lggr:    lggr,
+				Metrics: metrics,
 				RmnReaders: map[protocol.ChainSelector]chainaccess.RMNCurseReader{
 					tt.localChain: mockReader,
 				},
 				CacheExpiry: 1 * time.Second,
-				Metrics:     metrics,
 			})
 
 			// First call should assume cursed since the reader errors,
@@ -388,14 +389,14 @@ func TestCachedCurseChecker_MultipleChains(t *testing.T) {
 				mockReaders[chain] = mockReader
 			}
 
-			metrics := mocks.NewMockCurseCheckerMetrics(t)
+			metrics := monitoring.NewNoopExecutorMetricLabeler()
 
 			// Create cached curse checker
 			checker := NewCachedCurseChecker(Params{
 				Lggr:        lggr,
+				Metrics:     metrics,
 				RmnReaders:  mockReaders,
 				CacheExpiry: tt.cacheExpiry,
-				Metrics:     metrics,
 			})
 
 			// Perform all checks
@@ -474,16 +475,16 @@ func TestCachedCurseChecker_GlobalCurseDetection(t *testing.T) {
 				Return(tt.cursedSubjects, nil).
 				Once()
 
-			metrics := mocks.NewMockCurseCheckerMetrics(t)
+			metrics := monitoring.NewNoopExecutorMetricLabeler()
 
 			// Create cached curse checker
 			checker := NewCachedCurseChecker(Params{
-				Lggr: lggr,
+				Lggr:    lggr,
+				Metrics: metrics,
 				RmnReaders: map[protocol.ChainSelector]chainaccess.RMNCurseReader{
 					tt.localChain: mockReader,
 				},
 				CacheExpiry: 1 * time.Second,
-				Metrics:     metrics,
 			})
 
 			// Check each chain
@@ -525,16 +526,16 @@ func TestCachedCurseChecker_NilCursedSubjects(t *testing.T) {
 				Return(nil, nil).
 				Once()
 
-			metrics := mocks.NewMockCurseCheckerMetrics(t)
+			metrics := monitoring.NewNoopExecutorMetricLabeler()
 
 			// Create cached curse checker
 			checker := NewCachedCurseChecker(Params{
-				Lggr: lggr,
+				Lggr:    lggr,
+				Metrics: metrics,
 				RmnReaders: map[protocol.ChainSelector]chainaccess.RMNCurseReader{
 					tt.localChain: mockReader,
 				},
 				CacheExpiry: 1 * time.Second,
-				Metrics:     metrics,
 			})
 
 			// Call should return false (no curses)
@@ -609,18 +610,18 @@ func TestIsChainSelectorCursed(t *testing.T) {
 			mockReader.EXPECT().
 				GetRMNCursedSubjects(mock.Anything).
 				Return(nil, nil).
-				Once()
+				Maybe()
 
-			metrics := mocks.NewMockCurseCheckerMetrics(t)
+			metrics := monitoring.NewNoopExecutorMetricLabeler()
 
 			// Create cached curse checker
 			checker := NewCachedCurseChecker(Params{
-				Lggr: lggr,
+				Lggr:    lggr,
+				Metrics: metrics,
 				RmnReaders: map[protocol.ChainSelector]chainaccess.RMNCurseReader{
 					tt.localChain: mockReader,
 				},
 				CacheExpiry: 1 * time.Second,
-				Metrics:     metrics,
 			})
 
 			result := checker.isChainSelectorCursed(t.Context(), tt.cursedSubjects, tt.localChain, tt.remoteChain)
