@@ -211,27 +211,31 @@ func buildEnvironmentTopology(in *Cfg, e *deployment.Environment) *deployments.E
 	}
 	envCfg := *in.EnvironmentTopology
 	enrichEnvironmentTopology(&envCfg, in.Verifier)
-	if envCfg.NOPTopology != nil {
-		evmChains := e.BlockChains.EVMChains()
-		for name, committee := range envCfg.NOPTopology.Committees {
-			if committee.ChainConfigs == nil {
-				continue
-			}
-			for chainSel, chainCfg := range committee.ChainConfigs {
-				if chainCfg.FeeAggregator == "" {
-					sel, err := strconv.ParseUint(chainSel, 10, 64)
-					if err != nil {
-						continue
-					}
-					if chain, ok := evmChains[sel]; ok {
-						chainCfg.FeeAggregator = chain.DeployerKey.From.Hex()
-						committee.ChainConfigs[chainSel] = chainCfg
-					}
+
+	if envCfg.NOPTopology == nil {
+		return &envCfg
+	}
+
+	evmChains := e.BlockChains.EVMChains()
+	for name, committee := range envCfg.NOPTopology.Committees {
+		if committee.ChainConfigs == nil {
+			continue
+		}
+		for chainSel, chainCfg := range committee.ChainConfigs {
+			if chainCfg.FeeAggregator == "" {
+				sel, err := strconv.ParseUint(chainSel, 10, 64)
+				if err != nil {
+					continue
+				}
+				if chain, ok := evmChains[sel]; ok {
+					chainCfg.FeeAggregator = chain.DeployerKey.From.Hex()
+					committee.ChainConfigs[chainSel] = chainCfg
 				}
 			}
-			envCfg.NOPTopology.Committees[name] = committee
 		}
+		envCfg.NOPTopology.Committees[name] = committee
 	}
+
 	return &envCfg
 }
 
