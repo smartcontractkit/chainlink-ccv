@@ -166,40 +166,6 @@ CREATE INDEX IF NOT EXISTS idx_verification_results_archive_completed
 CREATE INDEX IF NOT EXISTS idx_verification_results_archive_chain
     ON verification_results_archive (chain_selector, completed_at DESC);
 
--- Create queue stats table for monitoring
-CREATE TABLE IF NOT EXISTS job_queue_stats (
-    id BIGSERIAL PRIMARY KEY,
-    queue_name TEXT NOT NULL,
-    chain_selector TEXT,
-    recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    -- Queue depth metrics
-    pending_count BIGINT NOT NULL DEFAULT 0,
-    processing_count BIGINT NOT NULL DEFAULT 0,
-    failed_count BIGINT NOT NULL DEFAULT 0,
-    completed_last_hour BIGINT NOT NULL DEFAULT 0,
-
-    -- Performance metrics
-    avg_processing_time_ms BIGINT,
-    p95_processing_time_ms BIGINT,
-    p99_processing_time_ms BIGINT,
-
-    -- Age metrics
-    oldest_pending_age_seconds BIGINT
-);
-
--- Index for time-series queries
-CREATE INDEX IF NOT EXISTS idx_job_queue_stats_queue_time
-    ON job_queue_stats (queue_name, chain_selector, recorded_at DESC);
-
--- Index for latest stats lookup
-CREATE INDEX IF NOT EXISTS idx_job_queue_stats_latest
-    ON job_queue_stats (queue_name, chain_selector, recorded_at DESC);
-
--- Add comments for documentation
-COMMENT ON TABLE verification_tasks IS 'Queue for messages that need to be verified';
-COMMENT ON TABLE verification_results IS 'Queue for verification results that need to be written to storage';
-COMMENT ON TABLE job_queue_stats IS 'Time-series metrics for queue monitoring';
 
 -- +goose Down
 
@@ -211,6 +177,4 @@ DROP TABLE IF EXISTS verification_tasks_archive;
 DROP TABLE IF EXISTS verification_results;
 DROP TABLE IF EXISTS verification_tasks;
 
--- Drop stats table
-DROP TABLE IF EXISTS job_queue_stats;
 
