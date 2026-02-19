@@ -3,37 +3,46 @@ package changesets
 import (
 	"fmt"
 	"slices"
+	"sort"
 
 	"github.com/ethereum/go-ethereum/common"
 
-	evmchangesets "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/changesets"
+	mcmstypes "github.com/smartcontractkit/mcms/types"
+
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
+	cldfsequences "github.com/smartcontractkit/chainlink-ccip/deployment/utils/sequences"
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 )
 
-// DeployChainContractsFromTopologyCfg is the configuration for deploying chain contracts
-// with CommitteeVerifier params derived from the topology.
-type DeployChainContractsFromTopologyCfg struct {
-	Topology       *deployments.EnvironmentTopology
-	ChainSelector  uint64
-	CREATE2Factory common.Address
-
-	// Non-topology params (passed through to DeployChainContracts)
-	RMNRemote     sequences.RMNRemoteParams
-	OffRamp       sequences.OffRampParams
-	OnRamp        sequences.OnRampParams
-	FeeQuoter     sequences.FeeQuoterParams
-	Executors     []sequences.ExecutorParams
-	MockReceivers []sequences.MockReceiverParams
+type DeployChainContractsFromTopologyCfgPerChain struct {
+	CREATE2Factory   common.Address
+	DeployTestRouter bool
+	RMNRemote        sequences.RMNRemoteParams
+	OffRamp          sequences.OffRampParams
+	OnRamp           sequences.OnRampParams
+	FeeQuoter        sequences.FeeQuoterParams
+	Executors        []sequences.ExecutorParams
+	MockReceivers    []sequences.MockReceiverParams
 }
 
-// DeployChainContractsFromTopology creates a changeset that deploys all chain contracts
-// with CommitteeVerifier configuration derived from the topology.
-// This wraps the chainlink-ccip DeployChainContracts changeset, reading committee
-// qualifiers, versions, and on-chain params (fee_aggregator, allowlist_admin, storage_locations)
-// from the topology file.
+type DeployChainContractsFromTopologyCfg struct {
+	Topology       *deployments.EnvironmentTopology
+	ChainSelectors []uint64
+	DefaultCfg     DeployChainContractsFromTopologyCfgPerChain
+	ChainCfgs      map[uint64]DeployChainContractsFromTopologyCfgPerChain
+}
+
+func (c DeployChainContractsFromTopologyCfg) resolveChainCfg(sel uint64) DeployChainContractsFromTopologyCfgPerChain {
+	if override, ok := c.ChainCfgs[sel]; ok {
+		return override
+	}
+	return c.DefaultCfg
+}
+
 func DeployChainContractsFromTopology(
 	mcmsReaderRegistry *changesetscore.MCMSReaderRegistry,
 ) deployment.ChangeSetV2[changesetscore.WithMCMS[DeployChainContractsFromTopologyCfg]] {
@@ -42,82 +51,180 @@ func DeployChainContractsFromTopology(
 			return fmt.Errorf("topology is required")
 		}
 
-		if len(cfg.Cfg.Topology.NOPTopology.Committees) == 0 {
+		if cfg.Cfg.Topology.NOPTopology == nil || len(cfg.Cfg.Topology.NOPTopology.Committees) == 0 {
 			return fmt.Errorf("no committees defined in topology")
 		}
 
-		envSelectors := e.BlockChains.ListChainSelectors()
-		if !slices.Contains(envSelectors, cfg.Cfg.ChainSelector) {
-			return fmt.Errorf("chain selector %d is not available in environment", cfg.Cfg.ChainSelector)
+		if len(cfg.Cfg.ChainSelectors) == 0 {
+			return fmt.Errorf("at least one chain selector is required")
 		}
 
-		if cfg.Cfg.CREATE2Factory == (common.Address{}) {
-			return fmt.Errorf("CREATE2Factory address is required")
+		seen := make(map[uint64]bool, len(cfg.Cfg.ChainSelectors))
+		envSelectors := e.BlockChains.ListChainSelectors()
+		evmChains := e.BlockChains.EVMChains()
+		for _, sel := range cfg.Cfg.ChainSelectors {
+			if seen[sel] {
+				return fmt.Errorf("duplicate chain selector %d in ChainSelectors", sel)
+			}
+			seen[sel] = true
+			if !slices.Contains(envSelectors, sel) {
+				return fmt.Errorf("chain selector %d is not available in environment", sel)
+			}
+			if _, ok := evmChains[sel]; !ok {
+				return fmt.Errorf("chain selector %d is not an EVM chain", sel)
+			}
+
+			perChain := cfg.Cfg.resolveChainCfg(sel)
+			if perChain.CREATE2Factory == (common.Address{}) {
+				return fmt.Errorf("CREATE2Factory address is required for chain %d", sel)
+			}
+		}
+
+		for sel := range cfg.Cfg.ChainCfgs {
+			if !slices.Contains(cfg.Cfg.ChainSelectors, sel) {
+				return fmt.Errorf("ChainCfgs contains selector %d which is not in ChainSelectors", sel)
+			}
 		}
 
 		return nil
 	}
 
 	apply := func(e deployment.Environment, cfg changesetscore.WithMCMS[DeployChainContractsFromTopologyCfg]) (deployment.ChangesetOutput, error) {
-		if cfg.Cfg.Topology == nil {
-			return deployment.ChangesetOutput{}, fmt.Errorf("topology is required")
-		}
-
 		committeeVerifiers, err := BuildCommitteeVerifierParams(cfg.Cfg.Topology)
 		if err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to build committee verifier params: %w", err)
 		}
 
-		innerCfg := changesetscore.WithMCMS[evmchangesets.DeployChainContractsCfg]{
-			MCMS: cfg.MCMS,
-			Cfg: evmchangesets.DeployChainContractsCfg{
-				ChainSel:       cfg.Cfg.ChainSelector,
-				CREATE2Factory: cfg.Cfg.CREATE2Factory,
-				Params: sequences.ContractParams{
-					RMNRemote:          cfg.Cfg.RMNRemote,
-					OffRamp:            cfg.Cfg.OffRamp,
+		evmChains := e.BlockChains.EVMChains()
+		ds := datastore.NewMemoryDataStore()
+		var allReports []operations.Report[any, any]
+		var allBatchOps []mcmstypes.BatchOperation
+
+		for _, sel := range cfg.Cfg.ChainSelectors {
+			perChain := cfg.Cfg.resolveChainCfg(sel)
+
+			existingAddresses := e.DataStore.Addresses().Filter(
+				datastore.AddressRefByChainSelector(sel),
+			)
+
+			chain, ok := evmChains[sel]
+			if !ok {
+				return deployment.ChangesetOutput{}, fmt.Errorf("EVM chain not found for selector %d", sel)
+			}
+
+			input := sequences.DeployChainContractsInput{
+				ChainSelector:     sel,
+				CREATE2Factory:    perChain.CREATE2Factory,
+				ExistingAddresses: existingAddresses,
+				ContractParams: sequences.ContractParams{
+					RMNRemote:          perChain.RMNRemote,
+					OffRamp:            perChain.OffRamp,
 					CommitteeVerifiers: committeeVerifiers,
-					OnRamp:             cfg.Cfg.OnRamp,
-					FeeQuoter:          cfg.Cfg.FeeQuoter,
-					Executors:          cfg.Cfg.Executors,
-					MockReceivers:      cfg.Cfg.MockReceivers,
+					OnRamp:             perChain.OnRamp,
+					FeeQuoter:          perChain.FeeQuoter,
+					Executors:          perChain.Executors,
+					MockReceivers:      perChain.MockReceivers,
 				},
-			},
+			}
+
+			e.Logger.Infow(
+				"Deploying chain contracts with topology-derived committee verifiers",
+				"chain", sel,
+				"committees", len(committeeVerifiers),
+			)
+
+			report, err := operations.ExecuteSequence(e.OperationsBundle, sequences.DeployChainContracts, chain, input)
+			if err != nil {
+				return deployment.ChangesetOutput{Reports: allReports},
+					fmt.Errorf("failed to deploy chain contracts on chain %d: %w", sel, err)
+			}
+
+			for _, ref := range report.Output.Addresses {
+				if addErr := ds.Addresses().Add(ref); addErr != nil {
+					return deployment.ChangesetOutput{Reports: allReports},
+						fmt.Errorf("failed to add %s %s at %s on chain %d to datastore: %w",
+							ref.Type, ref.Version, ref.Address, ref.ChainSelector, addErr)
+				}
+			}
+
+			if writeErr := cldfsequences.WriteMetadataToDatastore(ds, report.Output.Metadata); writeErr != nil {
+				return deployment.ChangesetOutput{Reports: allReports},
+					fmt.Errorf("failed to write metadata to datastore for chain %d: %w", sel, writeErr)
+			}
+
+			allReports = append(allReports, report.ExecutionReports...)
+			allBatchOps = append(allBatchOps, report.Output.BatchOps...)
 		}
 
-		e.Logger.Info(
-			"Deploying chain contracts with topology-derived committee verifiers",
-			"chain", cfg.Cfg.ChainSelector,
-			"committees", len(committeeVerifiers),
-		)
-
-		return evmchangesets.DeployChainContracts(mcmsReaderRegistry).Apply(e, innerCfg)
+		return changesetscore.NewOutputBuilder(e, mcmsReaderRegistry).
+			WithReports(allReports).
+			WithDataStore(ds).
+			WithBatchOps(allBatchOps).
+			Build(cfg.MCMS)
 	}
 
 	return deployment.CreateChangeSet(apply, validate)
 }
 
 // BuildCommitteeVerifierParams builds CommitteeVerifierParams from the topology.
-// If qualifiers is empty, all committees from the topology are included.
+// All committees from the topology are included.
 // This function is exported so devenv can use it with in-memory topology.
 func BuildCommitteeVerifierParams(
 	topology *deployments.EnvironmentTopology,
 ) ([]sequences.CommitteeVerifierParams, error) {
-	params := make([]sequences.CommitteeVerifierParams, 0, len(topology.NOPTopology.Committees))
-	for qualifier := range topology.NOPTopology.Committees {
-		committee, ok := topology.NOPTopology.Committees[qualifier]
-		if !ok {
-			return nil, fmt.Errorf("committee %q not found in topology", qualifier)
+	if topology.NOPTopology == nil {
+		return nil, fmt.Errorf("NOPTopology is nil")
+	}
+
+	qualifiers := make([]string, 0, len(topology.NOPTopology.Committees))
+	for q := range topology.NOPTopology.Committees {
+		qualifiers = append(qualifiers, q)
+	}
+	sort.Strings(qualifiers)
+
+	params := make([]sequences.CommitteeVerifierParams, 0, len(qualifiers))
+	for _, qualifier := range qualifiers {
+		committee := topology.NOPTopology.Committees[qualifier]
+
+		if committee.VerifierVersion == nil {
+			return nil, fmt.Errorf("committee %q has nil VerifierVersion", qualifier)
+		}
+
+		feeAggregator, err := parseRequiredAddress(committee.FeeAggregator, "FeeAggregator", qualifier)
+		if err != nil {
+			return nil, err
+		}
+
+		allowlistAdmin := common.Address{}
+		if committee.AllowlistAdmin != "" {
+			if !common.IsHexAddress(committee.AllowlistAdmin) {
+				return nil, fmt.Errorf("committee %q: AllowlistAdmin %q is not a valid hex address", qualifier, committee.AllowlistAdmin)
+			}
+			allowlistAdmin = common.HexToAddress(committee.AllowlistAdmin)
 		}
 
 		params = append(params, sequences.CommitteeVerifierParams{
 			Version:          committee.VerifierVersion,
-			FeeAggregator:    common.HexToAddress(committee.FeeAggregator),
-			AllowlistAdmin:   common.HexToAddress(committee.AllowlistAdmin),
+			FeeAggregator:    feeAggregator,
+			AllowlistAdmin:   allowlistAdmin,
 			StorageLocations: committee.StorageLocations,
 			Qualifier:        qualifier,
 		})
 	}
 
 	return params, nil
+}
+
+func parseRequiredAddress(hex, field, qualifier string) (common.Address, error) {
+	if hex == "" {
+		return common.Address{}, fmt.Errorf("committee %q: %s is required", qualifier, field)
+	}
+	if !common.IsHexAddress(hex) {
+		return common.Address{}, fmt.Errorf("committee %q: %s %q is not a valid hex address", qualifier, field, hex)
+	}
+	addr := common.HexToAddress(hex)
+	if addr == (common.Address{}) {
+		return common.Address{}, fmt.Errorf("committee %q: %s cannot be zero address", qualifier, field)
+	}
+	return addr, nil
 }

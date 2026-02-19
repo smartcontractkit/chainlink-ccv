@@ -203,12 +203,27 @@ func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers [
 // buildEnvironmentTopology creates a copy of the EnvironmentTopology from the Cfg,
 // enriches it with signer addresses, and returns it. This is used by both executor
 // and verifier changesets as the single source of truth.
-func buildEnvironmentTopology(in *Cfg) *deployments.EnvironmentTopology {
+// If a committee does not specify a FeeAggregator, the first EVM chain's deployer
+// key is used as a fallback.
+func buildEnvironmentTopology(in *Cfg, e *deployment.Environment) *deployments.EnvironmentTopology {
 	if in.EnvironmentTopology == nil {
 		return nil
 	}
 	envCfg := *in.EnvironmentTopology
 	enrichEnvironmentTopology(&envCfg, in.Verifier)
+	if envCfg.NOPTopology != nil {
+		var defaultFeeAggregator string
+		for _, chain := range e.BlockChains.EVMChains() {
+			defaultFeeAggregator = chain.DeployerKey.From.Hex()
+			break
+		}
+		for name, committee := range envCfg.NOPTopology.Committees {
+			if committee.FeeAggregator == "" {
+				committee.FeeAggregator = defaultFeeAggregator
+				envCfg.NOPTopology.Committees[name] = committee
+			}
+		}
+	}
 	return &envCfg
 }
 
@@ -684,12 +699,6 @@ func NewEnvironment() (in *Cfg, err error) {
 	// END: Assign signing keys & launch verifiers
 	/////////////////////////////////////////////
 
-	/////////////////////////////////////////
-	// START: Build shared EnvironmentTopology //
-	// Used by contract deployment and off-chain config //
-	/////////////////////////////////////////
-	topology := buildEnvironmentTopology(in)
-
 	/////////////////////////////
 	// START: Deploy contracts //
 	/////////////////////////////
@@ -713,6 +722,8 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("creating CLDF operations environment: %w", err)
 	}
 	L.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
+
+	topology := buildEnvironmentTopology(in, e)
 
 	timeTrack.Record("[infra] deploying blockchains")
 	ds := datastore.NewMemoryDataStore()

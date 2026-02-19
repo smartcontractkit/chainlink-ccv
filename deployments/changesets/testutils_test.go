@@ -132,6 +132,7 @@ func newTestTopology(opts ...TopologyOption) *deployments.EnvironmentTopology {
 				testCommittee: {
 					Qualifier:       testCommittee,
 					VerifierVersion: semver.MustParse("1.7.0"),
+					FeeAggregator:   "0x0000000000000000000000000000000000000001",
 					Aggregators: []deployments.AggregatorConfig{
 						{Name: testAggregatorName, Address: testAggregatorAddress, InsecureAggregatorConnection: true},
 					},
