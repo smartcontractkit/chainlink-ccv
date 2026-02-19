@@ -95,7 +95,10 @@ func main() {
 	scheduler.Start(ctx)
 
 	discoveryCh := messageDiscovery.Start(ctx)
-	pool := worker.NewWorkerPool(lggr, config.Pool, discoveryCh, scheduler, verifierRegistry, indexerStorage)
+	pool, err := worker.NewWorkerPool(lggr, config.Pool, discoveryCh, scheduler, verifierRegistry, indexerStorage)
+	if err != nil {
+		lggr.Fatalf("Failed to initalize worker pool: %v", err)
+	}
 	pool.Start(ctx)
 
 	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring)
@@ -170,7 +173,7 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 	configs := cfg.DiscoveryConfigs()
 	sources := make([]common.MessageDiscovery, 0, len(configs))
 
-	for _, discCfg := range configs {
+	for i, discCfg := range configs {
 		persistedSinceValue, err := storage.GetDiscoverySequenceNumber(ctx, discCfg.Address)
 		if err != nil {
 			lggr.Warnw("Discovery location previously not persisted, using value set in config", "address", discCfg.Address)
@@ -197,7 +200,9 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 			discovery.WithTimeProvider(timeProvider),
 			discovery.WithMonitoring(monitoring),
 			discovery.WithLogger(lggr),
-			discovery.WithConfig(discCfg))
+			discovery.WithConfig(discCfg),
+			discovery.WithDiscoveryPriority(i),
+		)
 		if err != nil {
 			return nil, err
 		}

@@ -150,8 +150,8 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 		case streamResult, ok := <-indexerResults:
 			if !ok {
 				ec.lggr.Warnw("streamerResults closed")
-				continue
-				// TODO: handle reconnection logic
+				// indexerResults channel will only close if context is done.
+				return
 			}
 
 			msg := streamResult.Message

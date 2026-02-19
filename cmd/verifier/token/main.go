@@ -69,7 +69,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	cmd.StartPyroscope(lggr, config.PyroscopeURL, "tokenVerifier")
+	_, err = cmd.StartPyroscope(lggr, config.PyroscopeURL, "tokenVerifier")
+	if err != nil {
+		lggr.Errorw("Failed to start pyroscope", "error", err)
+		os.Exit(1)
+	}
 	blockchainHelper := cmd.LoadBlockchainInfo(ctx, lggr, blockchainInfos)
 
 	registry := accessors.NewRegistry(blockchainHelper)

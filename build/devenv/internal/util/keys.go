@@ -7,7 +7,7 @@ import (
 )
 
 // XXXNewVerifierPrivateKey generates a test-only private key for a verifier
-// given its index in the test environment.
+// given its committee name and node index.
 // This should never be used in production.
 func XXXNewVerifierPrivateKey(committeeName string, nodeIndex int) string {
 	preImage := fmt.Sprintf("dev-private-key-%s-%d-12345678901234567890", committeeName, nodeIndex)

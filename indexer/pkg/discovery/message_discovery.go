@@ -21,17 +21,19 @@ import (
 var _ common.MessageDiscovery = (*AggregatorMessageDiscovery)(nil)
 
 type AggregatorMessageDiscovery struct {
-	logger           logger.Logger
-	config           config.DiscoveryConfig
-	aggregatorReader *readers.ResilientReader
-	registry         *registry.VerifierRegistry
-	storageSink      common.IndexerStorage
-	monitoring       common.IndexerMonitoring
-	timeProvider     ccvcommon.TimeProvider
-	messageCh        chan common.VerifierResultWithMetadata
-	readerLock       *sync.Mutex
-	wg               sync.WaitGroup
-	cancelFunc       context.CancelFunc
+	logger            logger.Logger
+	config            config.DiscoveryConfig
+	aggregatorReader  *readers.ResilientReader
+	registry          *registry.VerifierRegistry
+	storageSink       common.IndexerStorage
+	monitoring        common.IndexerMonitoring
+	timeProvider      ccvcommon.TimeProvider
+	messageCh         chan common.VerifierResultWithMetadata
+	doneCh            chan struct{}
+	readerLock        *sync.Mutex
+	wg                sync.WaitGroup
+	cancelFunc        context.CancelFunc
+	discoveryPriority int
 }
 
 type Option func(*AggregatorMessageDiscovery)
@@ -78,9 +80,16 @@ func WithTimeProvider(timeProvider ccvcommon.TimeProvider) Option {
 	}
 }
 
+func WithDiscoveryPriority(discoveryPriority int) Option {
+	return func(a *AggregatorMessageDiscovery) {
+		a.discoveryPriority = discoveryPriority
+	}
+}
+
 func NewAggregatorMessageDiscovery(opts ...Option) (common.MessageDiscovery, error) {
 	a := &AggregatorMessageDiscovery{
 		messageCh:  make(chan common.VerifierResultWithMetadata),
+		doneCh:     make(chan struct{}),
 		readerLock: &sync.Mutex{},
 	}
 
@@ -126,6 +135,10 @@ func (a *AggregatorMessageDiscovery) validate() error {
 		return errors.New("storage must be specified")
 	}
 
+	if a.timeProvider == nil {
+		return errors.New("time provider must be specified")
+	}
+
 	return nil
 }
 
@@ -142,6 +155,8 @@ func (a *AggregatorMessageDiscovery) Start(ctx context.Context) chan common.Veri
 
 func (a *AggregatorMessageDiscovery) Close() error {
 	a.cancelFunc()
+	defer close(a.messageCh)
+	close(a.doneCh)
 	a.wg.Wait()
 	a.logger.Info("MessageDiscovery Stopped")
 	return nil
@@ -172,8 +187,9 @@ func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 			a.monitoring.Metrics().RecordVerificationRecordChannelSizeGauge(ctx, int64(len(a.messageCh)))
 
 		case <-ticker.C:
-			// Create a child context with a timeout to prevent a single call from blocking the entire discovery process
-			readCtx, cancel := context.WithTimeout(ctx, time.Duration(a.config.Timeout)*time.Millisecond)
+			// Stagger timeouts across discovery instances so they don't all time out
+			// simultaneously when the aggregator is under pressure.
+			readCtx, cancel := context.WithTimeout(ctx, time.Duration(a.config.Timeout)*time.Millisecond+(time.Duration(a.discoveryPriority)*5*time.Second))
 
 			// Consume the reader until there is no more data present from the aggregator
 			// Aim is to allow for quick backfilling of data if needed.
@@ -238,7 +254,7 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 	persistedVerifications := []common.VerifierResultWithMetadata{}
 	allVerifications := []common.VerifierResultWithMetadata{}
 	for _, response := range queryResponse {
-		a.logger.Infof("Found new Message %s", response.Data.MessageID)
+		a.logger.Infow("Found Message", "messageID", response.Data.MessageID, "verifierSourceAddress", response.Data.VerifierSourceAddress)
 
 		verifierResultWithMetadata := common.VerifierResultWithMetadata{
 			VerifierResult: response.Data,
@@ -264,6 +280,11 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 		messages = append(messages, message)
 		allVerifications = append(allVerifications, verifierResultWithMetadata)
 	}
+	// use a time.Sleep rather than an async function call so we don't send on a closed channel.
+	// the delay is handled gracefully by consumeReader.
+	// We use a discovery priority for the multi-source scenario where we want to ensure data consistency.
+	//
+	time.Sleep(time.Duration(a.discoveryPriority) * 5 * time.Second)
 
 	if len(messages) > 0 || len(persistedVerifications) > 0 {
 		if err := a.persistBatch(ctx, messages, persistedVerifications, ableToSetSinceValue); err != nil {

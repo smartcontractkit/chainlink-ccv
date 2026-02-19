@@ -38,6 +38,7 @@ func RunMigrations(db *sqlx.DB, dbType string) error {
 	candidates := []string{
 		fmt.Sprintf("../migrations/%s", migrationsSubdir),                     // From aggregator root
 		fmt.Sprintf("migrations/%s", migrationsSubdir),                        // From working directory
+		fmt.Sprintf("../../migrations/%s", migrationsSubdir),                  // From pkg/<subpackage> (tests)
 		fmt.Sprintf("../../../migrations/%s", migrationsSubdir),               // From pkg/storage/postgres (tests)
 		fmt.Sprintf("../../../../aggregator/migrations/%s", migrationsSubdir), // From deep test paths
 	}

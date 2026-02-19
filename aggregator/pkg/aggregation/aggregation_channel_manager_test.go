@@ -119,7 +119,7 @@ func TestNewChannelManagerFromConfig_ExtractsClientIDsAndAddsOrphanRecovery(t *t
 func TestEnqueue_SucceedsForExistingKey(t *testing.T) {
 	manager := NewChannelManager([]model.ChannelKey{"client1", "client2"}, 10)
 
-	err := manager.Enqueue("client1", aggregationRequest{ChannelKey: "client1"}, time.Second)
+	err := manager.Enqueue(context.Background(), "client1", aggregationRequest{ChannelKey: "client1"}, time.Second)
 
 	assert.NoError(t, err)
 }
@@ -127,7 +127,7 @@ func TestEnqueue_SucceedsForExistingKey(t *testing.T) {
 func TestEnqueue_ReturnsErrorForNonExistingKey(t *testing.T) {
 	manager := NewChannelManager([]model.ChannelKey{"client1"}, 10)
 
-	err := manager.Enqueue("non_existing_key", aggregationRequest{ChannelKey: "non_existing_key"}, time.Millisecond)
+	err := manager.Enqueue(context.Background(), "non_existing_key", aggregationRequest{ChannelKey: "non_existing_key"}, time.Millisecond)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "channel not found")
@@ -136,11 +136,44 @@ func TestEnqueue_ReturnsErrorForNonExistingKey(t *testing.T) {
 func TestEnqueue_ReturnsErrorWhenChannelFull(t *testing.T) {
 	manager := NewChannelManager([]model.ChannelKey{"client1"}, 1)
 
-	err1 := manager.Enqueue("client1", aggregationRequest{ChannelKey: "client1"}, time.Second)
+	err1 := manager.Enqueue(context.Background(), "client1", aggregationRequest{ChannelKey: "client1"}, time.Second)
 	assert.NoError(t, err1)
 
-	err2 := manager.Enqueue("client1", aggregationRequest{ChannelKey: "client1"}, time.Millisecond)
+	err2 := manager.Enqueue(context.Background(), "client1", aggregationRequest{ChannelKey: "client1"}, time.Millisecond)
 	assert.Error(t, err2)
+}
+
+func TestEnqueue_ReturnsErrorWhenContextAlreadyCancelled(t *testing.T) {
+	manager := NewChannelManager([]model.ChannelKey{"client1"}, 1)
+	_ = manager.Enqueue(context.Background(), "client1", aggregationRequest{ChannelKey: "client1"}, time.Second)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := manager.Enqueue(ctx, "client1", aggregationRequest{ChannelKey: "client1"}, 5*time.Second)
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
+func TestEnqueue_ReturnsErrorWhenContextCancelledWhileBlocking(t *testing.T) {
+	manager := NewChannelManager([]model.ChannelKey{"client1"}, 1)
+	_ = manager.Enqueue(context.Background(), "client1", aggregationRequest{ChannelKey: "client1"}, time.Second)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	err := manager.Enqueue(ctx, "client1", aggregationRequest{ChannelKey: "client1"}, 5*time.Second)
+	elapsed := time.Since(start)
+
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Less(t, elapsed, 5*time.Second, "Enqueue should return promptly on context cancellation")
 }
 
 func TestGetAggregationChannel_ReturnsNonNilChannel(t *testing.T) {
@@ -169,7 +202,7 @@ func TestStart_ForwardsRequestsFromClientChannelToAggregationChannel(t *testing.
 		ChannelKey:     "client1",
 	}
 
-	err := manager.Enqueue("client1", expectedRequest, time.Second)
+	err := manager.Enqueue(context.Background(), "client1", expectedRequest, time.Second)
 	require.NoError(t, err)
 
 	select {
@@ -223,7 +256,7 @@ func TestStart_ReceivesMultipleRequestsFromMultipleClients(t *testing.T) {
 	totalExpected := client1RequestCount + client2RequestCount
 
 	for i := range client1RequestCount {
-		err := manager.Enqueue("client1", aggregationRequest{
+		err := manager.Enqueue(context.Background(), "client1", aggregationRequest{
 			AggregationKey: "key-client1",
 			MessageID:      model.MessageID{byte(i)},
 			ChannelKey:     "client1",
@@ -232,7 +265,7 @@ func TestStart_ReceivesMultipleRequestsFromMultipleClients(t *testing.T) {
 	}
 
 	for i := range client2RequestCount {
-		err := manager.Enqueue("client2", aggregationRequest{
+		err := manager.Enqueue(context.Background(), "client2", aggregationRequest{
 			AggregationKey: "key-client2",
 			MessageID:      model.MessageID{byte(i + 100)},
 			ChannelKey:     "client2",
@@ -279,14 +312,14 @@ func TestStart_FairSchedulingPreventsBusyClientStarvation(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	for i := range 50 {
-		err := manager.Enqueue("busy", aggregationRequest{
+		err := manager.Enqueue(context.Background(), "busy", aggregationRequest{
 			ChannelKey: "busy",
 			MessageID:  model.MessageID{byte(i)},
 		}, time.Second)
 		require.NoError(t, err)
 	}
 
-	err := manager.Enqueue("quiet", aggregationRequest{
+	err := manager.Enqueue(context.Background(), "quiet", aggregationRequest{
 		ChannelKey: "quiet",
 		MessageID:  model.MessageID{0xFF},
 	}, time.Second)

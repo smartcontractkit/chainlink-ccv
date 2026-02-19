@@ -274,7 +274,6 @@ func TestStart_LaunchesGoroutine(t *testing.T) {
 // TestClose_GracefullyStops tests that Close gracefully stops discovery.
 func TestClose_GracefullyStops(t *testing.T) {
 	ts := setupMessageDiscoveryTestNoTimeout(t, defaultTestConfig())
-	t.Cleanup(ts.Cleanup)
 
 	messageCh := ts.Discovery.Start(ts.Context)
 
@@ -296,13 +295,8 @@ func TestClose_GracefullyStops(t *testing.T) {
 		t.Fatal("Close() did not complete within timeout")
 	}
 
-	// Verify messageCh is still open (should not be closed)
-	select {
-	case <-messageCh:
-		t.Fatal("messageCh should not be closed")
-	default:
-		// Expected - messageCh remains open
-	}
+	_, ok := <-messageCh
+	assert.True(t, !ok)
 }
 
 // TestStart_ContextCancellation tests that context cancellation stops discovery.

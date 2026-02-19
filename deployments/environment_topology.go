@@ -17,7 +17,7 @@ import (
 // from the datastore. This serves as the single source of truth for the desired state of both off-chain
 // (job specs) and on-chain (committee contracts) configuration.
 type EnvironmentTopology struct {
-	IndexerAddress string                        `toml:"indexer_address"`
+	IndexerAddress []string                      `toml:"indexer_address"`
 	PyroscopeURL   string                        `toml:"pyroscope_url"`
 	Monitoring     MonitoringConfig              `toml:"monitoring"`
 	NOPTopology    *NOPTopology                  `toml:"nop_topology"`
@@ -205,8 +205,19 @@ func WriteEnvironmentTopology(path string, cfg EnvironmentTopology) error {
 
 // Validate validates the EnvironmentTopology.
 func (c *EnvironmentTopology) Validate() error {
-	if c.IndexerAddress == "" {
+	if len(c.IndexerAddress) == 0 {
 		return fmt.Errorf("indexer_address is required")
+	}
+	// Ensure indexer addresses are unique
+	addressSet := make(map[string]struct{}, len(c.IndexerAddress))
+	for _, addr := range c.IndexerAddress {
+		if addr == "" {
+			return fmt.Errorf("indexer_address is required")
+		}
+		if _, exists := addressSet[addr]; exists {
+			return fmt.Errorf("duplicate indexer_address found: %q", addr)
+		}
+		addressSet[addr] = struct{}{}
 	}
 
 	if err := c.NOPTopology.Validate(); err != nil {

@@ -82,9 +82,10 @@ linters:
             - github.com/smartcontractkit/chainlink-common/pkg/beholder
             - github.com/smartcontractkit/chainlink-common/pkg/utils/tests
             - github.com/smartcontractkit/chainlink-common/pkg/sqlutil
+            - github.com/smartcontractkit/chainlink-common/keystore
           deny:
             - pkg: github.com/smartcontractkit/chainlink
-              desc: No chainlink dependencies in executor packages
+              desc: No chainlink dependencies in verifier or executor packages
 
         test:
           list-mode: lax
