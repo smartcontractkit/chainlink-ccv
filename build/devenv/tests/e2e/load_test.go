@@ -752,7 +752,6 @@ func TestStaging(t *testing.T) {
 
 		err = verifyTestConfig(e, testConfig)
 		require.NoError(t, err)
-		testProfile := testConfig.TestProfiles[0]
 
 		var wg sync.WaitGroup
 		for _, testProfile := range testConfig.TestProfiles {
@@ -772,27 +771,37 @@ func TestStaging(t *testing.T) {
 		}
 		wg.Wait()
 
-		messageRate, messageRateDuration := load.ParseMessageRate(testProfile.MessageRate)
-		gun := NewEVMTransactionGunFromTestConfig(in, testConfig, e, chainImpls)
-		p := wasp.NewProfile().Add(
-			wasp.NewGenerator(
-				&wasp.Config{
-					LoadType:              wasp.RPS,
-					GenName:               "multi-chain-mesh-load-test",
-					Schedule:              wasp.Plain(messageRate, testProfile.LoadDuration),
-					RateLimitUnitDuration: messageRateDuration,
-					Gun:                   gun,
-					Labels:                map[string]string{"go_test_name": "multi-chain-load"},
-					LokiConfig:            nil,
-				}),
-		)
+		for _, testProfile := range testConfig.TestProfiles {
+			wg.Add(1)
+			go func(testProfile load.TestProfileConfig) {
+				defer wg.Done()
+				messageRate, messageRateDuration := load.ParseMessageRate(testProfile.MessageRate)
+				gun := NewEVMTransactionGunFromTestConfig(in, testConfig, e, chainImpls)
+				p := wasp.NewProfile().Add(
+					wasp.NewGenerator(
+						&wasp.Config{
+							LoadType:              wasp.RPS,
+							GenName:               "multi-chain-mesh-load-test",
+							Schedule:              wasp.Plain(messageRate, testProfile.LoadDuration),
+							RateLimitUnitDuration: messageRateDuration,
+							Gun:                   gun,
+							Labels:                map[string]string{"go_test_name": "multi-chain-load"},
+							LokiConfig:            nil,
+						}),
+				)
 
-		_, err = p.Run(true)
-		require.NoError(t, err)
+				_, err = p.Run(true)
+				require.NoError(t, err)
 
-		p.Wait()
+				p.Wait()
+				gun.CloseSentChannel()
+
+			}(testProfile)
+
+		}
+		wg.Wait()
+
 		time.Sleep(postTestVerificationDelay)
-		gun.CloseSentChannel()
 		// we don't need to wait for metrics because we can rely on staging metrics
 	})
 }
