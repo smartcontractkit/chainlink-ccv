@@ -669,31 +669,12 @@ func NewEnvironment() (in *Cfg, err error) {
 	/////////////////////////////////////
 
 	/////////////////////////////////////////////
-	// START: Assign signing keys & launch verifiers early
-	// For HA setups, multiple standalone verifiers may share the same
-	// (nop_alias, committee) pair. They must use the same ECDSA signing key
-	// so the aggregator recognizes all of them against a single on-chain
-	// signer address. We generate a deterministic seed key per pair and
-	// inject it into the bootstrap config before the containers start.
+	// START: Launch verifiers early //
+	// Verifiers generate their own keys on startup, so we need to start them
+	// early and query /info to discover signing addresses before contract deployment.
+	// Aggregator HMAC credentials are already available (generated above),
+	// even though aggregator containers haven't started yet.
 	/////////////////////////////////////////////
-	type nopCommitteeKey struct {
-		NOPAlias      string
-		CommitteeName string
-	}
-	seedKeyByNOP := make(map[nopCommitteeKey]string)
-	for i := range in.Verifier {
-		ver := services.ApplyVerifierDefaults(*in.Verifier[i])
-		if ver.Mode != services.Standalone {
-			in.Verifier[i] = &ver
-			continue
-		}
-		k := nopCommitteeKey{NOPAlias: ver.NOPAlias, CommitteeName: ver.CommitteeName}
-		if _, ok := seedKeyByNOP[k]; !ok {
-			seedKeyByNOP[k] = util.XXXNewVerifierPrivateKey(ver.CommitteeName, ver.NodeIndex)
-		}
-		ver.Bootstrap.Keystore.SeedECDSAPrivateKey = seedKeyByNOP[k]
-		in.Verifier[i] = &ver
-	}
 
 	_, err = launchStandaloneVerifiers(in, blockchainOutputs, jdInfra)
 	if err != nil {
@@ -708,7 +689,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	/////////////////////////////////////////////
-	// END: Assign signing keys & launch verifiers
+	// END: Launch verifiers early            //
 	/////////////////////////////////////////////
 
 	/////////////////////////////
