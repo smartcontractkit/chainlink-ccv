@@ -63,10 +63,10 @@ CREATE TABLE IF NOT EXISTS verification_tasks_archive (
     created_at TIMESTAMPTZ NOT NULL,
     available_at TIMESTAMPTZ NOT NULL,
     started_at TIMESTAMPTZ,
-    completed_at TIMESTAMPTZ NOT NULL,
     attempt_count INT NOT NULL,
     max_attempts INT NOT NULL,
-    last_error TEXT
+    last_error TEXT,
+    completed_at TIMESTAMPTZ NOT NULL
 );
 
 -- Index for archive cleanup
@@ -143,11 +143,11 @@ CREATE TABLE IF NOT EXISTS verification_results_archive (
     created_at TIMESTAMPTZ NOT NULL,
     available_at TIMESTAMPTZ NOT NULL,
     started_at TIMESTAMPTZ,
-    completed_at TIMESTAMPTZ NOT NULL,
     attempt_count INT NOT NULL,
     max_attempts INT NOT NULL,
     last_error TEXT,
-    task_job_id UUID
+    task_job_id UUID,
+    completed_at TIMESTAMPTZ NOT NULL
 );
 
 -- Index for archive cleanup

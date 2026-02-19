@@ -227,6 +227,8 @@ func (q *PostgresJobQueue[T]) Complete(ctx context.Context, jobIDs ...string) er
 	}
 
 	// Move to archive table for audit trail
+	// Note: This query works for both verification_tasks (without task_job_id)
+	// and verification_results (with task_job_id) by selecting all columns
 	//nolint:gosec // G201: table names are from config, not user input
 	query := fmt.Sprintf(`
 		WITH completed AS (
