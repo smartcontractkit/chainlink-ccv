@@ -50,17 +50,17 @@ type aggregationRequest struct {
 }
 
 // CheckAggregation enqueues a new aggregation request for the specified message ID.
-func (c *CommitReportAggregator) CheckAggregation(messageID model.MessageID, aggregationKey model.AggregationKey, channelKey model.ChannelKey, maxBlockTime time.Duration) error {
+func (c *CommitReportAggregator) CheckAggregation(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey, channelKey model.ChannelKey, maxBlockTime time.Duration) error {
 	request := aggregationRequest{
 		MessageID:      messageID,
 		AggregationKey: aggregationKey,
 		ChannelKey:     channelKey,
 	}
-	err := c.channelManager.Enqueue(channelKey, request, maxBlockTime)
+	err := c.channelManager.Enqueue(ctx, channelKey, request, maxBlockTime)
 	if err != nil {
 		return err
 	}
-	c.metrics(context.Background()).With("channel_key", string(channelKey)).IncrementPendingAggregationsChannelBuffer(context.Background(), 1)
+	c.metrics(ctx).With("channel_key", string(channelKey)).IncrementPendingAggregationsChannelBuffer(ctx, 1)
 	return nil
 }
 

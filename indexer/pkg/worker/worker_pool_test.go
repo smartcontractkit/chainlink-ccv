@@ -34,7 +34,8 @@ func TestPool_EnqueueMessagesCreatesTask(t *testing.T) {
 	reg := registry.NewVerifierRegistry()
 	storage := mocks.NewMockIndexerStorage(t)
 
-	p := NewWorkerPool(lggr, poolCfg, discoveryCh, scheduler, reg, storage)
+	p, err := NewWorkerPool(lggr, poolCfg, discoveryCh, scheduler, reg, storage)
+	require.NoError(t, err)
 
 	// run only the enqueueMessages goroutine so we can assert scheduler received a task
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -70,7 +71,9 @@ func TestRun_MarksSuccessful(t *testing.T) {
 	// pool
 	poolCfg := config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}
 	storage := mocks.NewMockIndexerStorage(t)
-	p := NewWorkerPool(lggr, poolCfg, nil, scheduler, registry.NewVerifierRegistry(), storage)
+	discoveryCh := make(chan common.VerifierResultWithMetadata, 1)
+	p, err := NewWorkerPool(lggr, poolCfg, discoveryCh, scheduler, registry.NewVerifierRegistry(), storage)
+	require.NoError(t, err)
 
 	// Task to process: no verifiers so Execute should return successful result (UnavailableCCVs == 0)
 	msg := protocol.VerifierResult{}
@@ -183,7 +186,8 @@ func TestWorkerPool_StartStop_ClosedDiscovery(t *testing.T) {
 	reg := registry.NewVerifierRegistry()
 	storage := mocks.NewMockIndexerStorage(t)
 
-	p := NewWorkerPool(lggr, poolCfg, discoveryCh, scheduler, reg, storage)
+	p, err := NewWorkerPool(lggr, poolCfg, discoveryCh, scheduler, reg, storage)
+	require.NoError(t, err)
 
 	// Start the pool
 	p.Start(context.Background())
@@ -217,7 +221,8 @@ func TestWorkerPool_StartStop_Cancel(t *testing.T) {
 	reg := registry.NewVerifierRegistry()
 	storage := mocks.NewMockIndexerStorage(t)
 
-	p := NewWorkerPool(lggr, poolCfg, discoveryCh, scheduler, reg, storage)
+	p, err := NewWorkerPool(lggr, poolCfg, discoveryCh, scheduler, reg, storage)
+	require.NoError(t, err)
 
 	// Start the pool
 	p.Start(context.Background())
@@ -250,7 +255,9 @@ func TestRun_ExitsWhenSchedulerReadyClosed(t *testing.T) {
 	close(s.ready)
 
 	poolCfg := config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}
-	p := NewWorkerPool(lggr, poolCfg, nil, s, registry.NewVerifierRegistry(), mocks.NewMockIndexerStorage(t))
+	discoveryCh := make(chan common.VerifierResultWithMetadata, 1)
+	p, err := NewWorkerPool(lggr, poolCfg, discoveryCh, s, registry.NewVerifierRegistry(), mocks.NewMockIndexerStorage(t))
+	require.NoError(t, err)
 
 	// Run p.run in a goroutine and ensure it returns when Ready is closed
 	done := make(chan struct{})
@@ -281,7 +288,9 @@ func TestHandleDLQ_ExitsWhenDLQClosed(t *testing.T) {
 	}
 	close(s.dlq)
 
-	p := NewWorkerPool(lggr, config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}, nil, s, registry.NewVerifierRegistry(), mocks.NewMockIndexerStorage(t))
+	discoveryCh := make(chan common.VerifierResultWithMetadata, 1)
+	p, err := NewWorkerPool(lggr, config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}, discoveryCh, s, registry.NewVerifierRegistry(), mocks.NewMockIndexerStorage(t))
+	require.NoError(t, err)
 
 	done := make(chan struct{})
 	// account for waitgroup since we're starting the goroutine manually
@@ -310,7 +319,8 @@ func TestEnqueueMessages_ExitsWhenDiscoveryClosed(t *testing.T) {
 	scheduler, err := NewScheduler(lggr, schedCfg)
 	require.NoError(t, err)
 
-	p := NewWorkerPool(lggr, config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}, discoveryCh, scheduler, registry.NewVerifierRegistry(), mocks.NewMockIndexerStorage(t))
+	p, err := NewWorkerPool(lggr, config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}, discoveryCh, scheduler, registry.NewVerifierRegistry(), mocks.NewMockIndexerStorage(t))
+	require.NoError(t, err)
 
 	done := make(chan struct{})
 	// account for waitgroup since we're starting the goroutine manually
@@ -365,8 +375,10 @@ func TestRun_PoolFull_EnqueuesTask(t *testing.T) {
 		}
 	}).Return([]common.VerifierResultWithMetadata{}, nil)
 	storageMock.On("UpdateMessageStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	discoveryCh := make(chan common.VerifierResultWithMetadata, 1)
 
-	p := NewWorkerPool(lggr, config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}, nil, s, registry.NewVerifierRegistry(), storageMock)
+	p, err := NewWorkerPool(lggr, config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}, discoveryCh, s, registry.NewVerifierRegistry(), storageMock)
+	require.NoError(t, err)
 
 	// Create two tasks
 	msg := protocol.VerifierResult{}
@@ -417,7 +429,9 @@ func TestRun_PoolFull_EnqueueToDLQOnTTLExpired(t *testing.T) {
 
 	// DLQ behavior: directly enqueue an expired task and ensure scheduler sends it to DLQ
 	storageMock := mocks.NewMockIndexerStorage(t)
-	p2 := NewWorkerPool(lggr, config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}, nil, s, registry.NewVerifierRegistry(), storageMock)
+	discoveryCh := make(chan common.VerifierResultWithMetadata, 1)
+	p2, err := NewWorkerPool(lggr, config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}, discoveryCh, s, registry.NewVerifierRegistry(), storageMock)
+	require.NoError(t, err)
 
 	msg := protocol.VerifierResult{}
 	task, err := NewTask(lggr, msg, p2.registry, p2.storage, time.Second)
