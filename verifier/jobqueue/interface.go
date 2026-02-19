@@ -15,8 +15,16 @@ const (
 	JobStatusFailed     JobStatus = "failed"
 )
 
+// Jobable is the interface that job payloads must implement to be stored in the queue.
+// It provides chain selector and message ID for database indexing and querying.
+type Jobable interface {
+	// JobKey returns the chain selector and message ID for this job.
+	// These are used for database indexing, querying, and job routing.
+	JobKey() (chainSelector, messageID string)
+}
+
 // Job wraps a payload with queue metadata.
-type Job[T any] struct {
+type Job[T Jobable] struct {
 	// Unique job identifier
 	ID string
 
@@ -44,7 +52,8 @@ type Job[T any] struct {
 
 // JobQueue defines a generic durable queue interface backed by persistent storage.
 // The queue supports delayed retry, dead letter handling, and concurrent processing.
-type JobQueue[T any] interface {
+// Type T must implement Jobable to provide chain selector and message ID.
+type JobQueue[T Jobable] interface {
 	// Publish adds one or more jobs to the queue.
 	// Jobs are immediately available for consumption unless a delay is specified.
 	Publish(ctx context.Context, jobs ...T) error

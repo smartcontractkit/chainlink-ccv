@@ -11,14 +11,14 @@ import (
 )
 
 // TestJobQueue provides test utilities for job queue testing.
-type TestJobQueue[T any] struct {
+type TestJobQueue[T Jobable] struct {
 	jobs      []Job[T]
 	completed []string
 	failed    []string
 	retried   map[string]int
 }
 
-func NewTestJobQueue[T any]() *TestJobQueue[T] {
+func NewTestJobQueue[T Jobable]() *TestJobQueue[T] {
 	return &TestJobQueue[T]{
 		jobs:    make([]Job[T], 0),
 		retried: make(map[string]int),
@@ -93,6 +93,11 @@ type TestPayload struct {
 	Value string
 }
 
+// JobKey implements the Jobable interface.
+func (t TestPayload) JobKey() (chainSelector, messageID string) {
+	return "test-chain", t.Value
+}
+
 func TestJobQueueInterface(t *testing.T) {
 	ctx := context.Background()
 	queue := NewTestJobQueue[TestPayload]()
@@ -144,5 +149,3 @@ func TestJobQueueInterface(t *testing.T) {
 		require.NoError(t, err)
 	})
 }
-
-var _ JobQueue[any] = (*TestJobQueue[any])(nil)

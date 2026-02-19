@@ -14,7 +14,7 @@ import (
 
 // PostgresJobQueue implements JobQueue interface using PostgreSQL as the backing store.
 // It uses advisory locks and SKIP LOCKED for efficient concurrent processing.
-type PostgresJobQueue[T any] struct {
+type PostgresJobQueue[T Jobable] struct {
 	db          *sql.DB
 	config      QueueConfig
 	logger      logger.Logger
@@ -24,7 +24,7 @@ type PostgresJobQueue[T any] struct {
 
 // NewPostgresJobQueue creates a new PostgreSQL-backed job queue.
 // The table must already exist with the appropriate schema.
-func NewPostgresJobQueue[T any](
+func NewPostgresJobQueue[T Jobable](
 	db *sql.DB,
 	config QueueConfig,
 	lggr logger.Logger,
@@ -62,8 +62,9 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 	//nolint:gosec // G201: table name is from config, not user input
 	query := fmt.Sprintf(`
 		INSERT INTO %s (
-			job_id, task_data, status, available_at, created_at, attempt_count, max_attempts
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+			job_id, task_data, status, available_at, created_at, attempt_count, max_attempts,
+			chain_selector, message_id
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	`, q.tableName)
 
 	tx, err := q.db.BeginTx(ctx, nil)
@@ -91,6 +92,9 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 			return fmt.Errorf("failed to marshal job payload: %w", err)
 		}
 
+		// Extract chain selector and message ID from the job
+		chainSelector, messageID := job.JobKey()
+
 		_, err = stmt.ExecContext(ctx,
 			jobID,
 			data,
@@ -99,6 +103,8 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 			time.Now(),
 			0, // attempt_count
 			q.config.DefaultMaxAttempts,
+			chainSelector,
+			messageID,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to insert job %s: %w", jobID, err)
@@ -416,5 +422,3 @@ func (q *PostgresJobQueue[T]) Cleanup(ctx context.Context, retentionPeriod time.
 func (q *PostgresJobQueue[T]) Name() string {
 	return q.config.Name
 }
-
-var _ JobQueue[any] = (*PostgresJobQueue[any])(nil)

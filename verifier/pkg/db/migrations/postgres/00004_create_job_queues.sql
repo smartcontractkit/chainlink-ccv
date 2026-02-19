@@ -25,11 +25,6 @@ CREATE TABLE IF NOT EXISTS verification_tasks (
     max_attempts INT NOT NULL DEFAULT 5,
     last_error TEXT,
 
-    -- Metadata for monitoring and debugging
-    block_number BIGINT NOT NULL,
-    tx_hash BYTEA NOT NULL,
-    first_seen_at TIMESTAMPTZ NOT NULL,
-
     -- Constraints
     CONSTRAINT verification_tasks_status_check
         CHECK (status IN ('pending', 'processing', 'completed', 'failed'))
@@ -71,10 +66,7 @@ CREATE TABLE IF NOT EXISTS verification_tasks_archive (
     completed_at TIMESTAMPTZ NOT NULL,
     attempt_count INT NOT NULL,
     max_attempts INT NOT NULL,
-    last_error TEXT,
-    block_number BIGINT NOT NULL,
-    tx_hash BYTEA NOT NULL,
-    first_seen_at TIMESTAMPTZ NOT NULL
+    last_error TEXT
 );
 
 -- Index for archive cleanup
@@ -98,7 +90,7 @@ CREATE TABLE IF NOT EXISTS verification_results (
 
     -- Job payload stored as JSONB
     -- Contains serialized VerifierNodeResult struct
-    result_data JSONB NOT NULL,
+    task_data JSONB NOT NULL,
 
     -- Job lifecycle state
     status TEXT NOT NULL DEFAULT 'pending',
@@ -146,7 +138,7 @@ CREATE TABLE IF NOT EXISTS verification_results_archive (
     job_id UUID UNIQUE NOT NULL,
     chain_selector TEXT NOT NULL,
     message_id TEXT NOT NULL,
-    result_data JSONB NOT NULL,
+    task_data JSONB NOT NULL,
     status TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
     available_at TIMESTAMPTZ NOT NULL,
