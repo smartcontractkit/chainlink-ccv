@@ -2,6 +2,7 @@ package aggregation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -87,6 +88,9 @@ func (c *CommitReportAggregator) shouldSkipAggregationDueToExistingQuorum(ctx co
 
 	existingReport, err := c.aggregatedStore.GetCommitAggregatedReportByMessageID(ctx, messageID)
 	if err != nil {
+		if errors.Is(err, common.ErrNotFound) {
+			return false
+		}
 		lggr.Warnw("Failed to check for existing aggregated report", "error", err)
 		return false
 	}
@@ -111,7 +115,7 @@ func (c *CommitReportAggregator) shouldSkipAggregationDueToExistingQuorum(ctx co
 	return false
 }
 
-func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, request aggregationRequest) (*model.CommitAggregatedReport, error) {
+func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, request aggregationRequest) error {
 	if c.operationTimeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, c.operationTimeout)
@@ -123,13 +127,13 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 
 	shouldSkip := c.shouldSkipAggregationDueToExistingQuorum(ctx, request.MessageID)
 	if shouldSkip {
-		return nil, nil
+		return nil
 	}
 
 	verifications, err := c.storage.ListCommitVerificationByAggregationKey(ctx, request.MessageID, request.AggregationKey)
 	if err != nil {
 		lggr.Errorw("Failed to list verifications", "error", err)
-		return nil, err
+		return err
 	}
 
 	lggr.Debugw("Verifications retrieved", "count", len(verifications))
@@ -144,13 +148,13 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 	quorumMet, err := c.quorum.CheckQuorum(ctx, aggregatedReport)
 	if err != nil {
 		lggr.Errorw("Failed to check quorum", "error", err)
-		return nil, err
+		return err
 	}
 
 	if quorumMet {
 		if err := c.sink.SubmitAggregatedReport(ctx, aggregatedReport); err != nil {
 			lggr.Errorw("Failed to submit report", "error", err)
-			return nil, err
+			return err
 		}
 		timeToAggregation := aggregatedReport.CalculateTimeToAggregation(time.Now())
 		lggr.Infow("Report submitted successfully", "verifications", len(verifications), "timeToAggregation", timeToAggregation)
@@ -160,7 +164,7 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 		lggr.Infow("Quorum not met, not submitting report", "verifications", len(verifications))
 	}
 
-	return nil, nil
+	return nil
 }
 
 // StartBackground begins processing aggregation requests in the background.
@@ -189,7 +193,7 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 								err = fmt.Errorf("panic: %v", r)
 							}
 						}()
-						_, err = c.checkAggregationAndSubmitComplete(poolCtx, request)
+						err = c.checkAggregationAndSubmitComplete(poolCtx, request)
 						if err != nil {
 							c.consecutiveErrors.Add(1)
 						} else {

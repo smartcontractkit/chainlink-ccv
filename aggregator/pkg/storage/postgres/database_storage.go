@@ -399,7 +399,7 @@ func (d *DatabaseStorage) GetCommitAggregatedReportByMessageID(ctx context.Conte
 	}
 
 	if report == nil {
-		return nil, nil
+		return nil, pkgcommon.ErrNotFound
 	}
 
 	for _, verRow := range verificationRows {
@@ -609,7 +609,7 @@ func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context, newerThan time.T
 			default:
 			}
 
-			pageRowsCount, lastMessageID, lastAggregationKey, err := d.fetchOrphanedKeysPage(ctx, newerThan, firstPage, cursorMessageID, cursorAggregationKey, orphanedKeyCh, pageSize, sendErr)
+			pageRowsCount, lastMessageID, lastAggregationKey, err := d.fetchOrphanedKeysPage(ctx, newerThan, firstPage, cursorMessageID, cursorAggregationKey, orphanedKeyCh, pageSize)
 			if err != nil {
 				sendErr(err)
 				return
@@ -628,7 +628,7 @@ func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context, newerThan time.T
 	return orphanedKeyCh, errCh
 }
 
-func (d *DatabaseStorage) fetchOrphanedKeysPage(ctx context.Context, newerThan time.Time, firstPage bool, cursorMessageID, cursorAggregationKey string, orphanedKeyCh chan<- model.OrphanedKey, pageSize int, reportErr func(error)) (pageCount int, lastMessageID, lastAggregationKey string, err error) {
+func (d *DatabaseStorage) fetchOrphanedKeysPage(ctx context.Context, newerThan time.Time, firstPage bool, cursorMessageID, cursorAggregationKey string, orphanedKeyCh chan<- model.OrphanedKey, pageSize int) (pageCount int, lastMessageID, lastAggregationKey string, err error) {
 	queryCtx, cancel := d.withTimeout(ctx)
 	defer cancel()
 
