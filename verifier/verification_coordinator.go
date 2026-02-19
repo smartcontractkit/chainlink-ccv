@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	cursecheckerimpl "github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
@@ -32,8 +31,8 @@ type Coordinator struct {
 	// 1st step processor: source readers (per-chain)
 	sourceReadersServices map[protocol.ChainSelector]*SourceReaderService
 	// 2nd step processor: task verifier
-	taskVerifierProcessor *TaskVerifierProcessor
-	// 3rd step processor: storage writer (DB-backed)
+	taskVerifierProcessor services.Service
+	// 3rd step processor: storage writer
 	storageWriterProcessor services.Service
 	// Heartbeat reporter: periodically sends chain statuses to aggregator
 	heartbeatReporter *HeartbeatReporter
@@ -168,12 +167,8 @@ func createStorageWriterProcessor(
 	storageWriterQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
 		db,
 		jobqueue.QueueConfig{
-			Name:                "verification_results",
-			DefaultMaxAttempts:  500,
-			DefaultLockDuration: 5 * config.StorageBatchTimeout,
-			DefaultBatchSize:    config.StorageBatchSize,
-			PollInterval:        500 * time.Millisecond,
-			RetentionPeriod:     30 * 24 * time.Hour, // 30 days
+			Name:               "verification_results",
+			DefaultMaxAttempts: 500,
 		},
 		logger.With(lggr, "component", "result_queue"),
 	)

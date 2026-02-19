@@ -33,10 +33,12 @@ type StorageWriterProcessorDB struct {
 	chainStatusManager protocol.ChainStatusManager
 
 	// Configuration
-	pollInterval time.Duration
-	batchSize    int
-	lockDuration time.Duration
-	retryDelay   time.Duration
+	pollInterval    time.Duration
+	cleanupInterval time.Duration
+	retentionPeriod time.Duration
+	batchSize       int
+	lockDuration    time.Duration
+	retryDelay      time.Duration
 }
 
 func NewStorageWriterProcessorDB(
@@ -61,9 +63,11 @@ func NewStorageWriterProcessorDB(
 		retryDelay:         retryDelay,
 		writingTracker:     writingTracker,
 		chainStatusManager: chainStatusManager,
-		pollInterval:       100 * time.Millisecond, // configurable
-		batchSize:          50,                     // from config
-		lockDuration:       5 * time.Minute,
+		pollInterval:       500 * time.Millisecond,
+		cleanupInterval:    24 * time.Hour,
+		retentionPeriod:    30 * 24 * time.Hour, // 30 days
+		batchSize:          config.StorageBatchSize,
+		lockDuration:       5 * config.StorageBatchTimeout,
 	}
 	return processor, nil
 }
@@ -88,6 +92,9 @@ func (s *StorageWriterProcessorDB) run(ctx context.Context) {
 	ticker := time.NewTicker(s.pollInterval)
 	defer ticker.Stop()
 
+	cleanupTicker := time.NewTicker(s.cleanupInterval)
+	defer cleanupTicker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -97,6 +104,11 @@ func (s *StorageWriterProcessorDB) run(ctx context.Context) {
 		case <-ticker.C:
 			if err := s.processBatch(ctx); err != nil {
 				s.lggr.Errorw("Error processing batch", "error", err)
+			}
+
+		case <-cleanupTicker.C:
+			if err := s.cleanup(ctx); err != nil {
+				s.lggr.Errorw("Error running cleanup", "error", err)
 			}
 		}
 	}
@@ -211,6 +223,23 @@ func (s *StorageWriterProcessorDB) updateCheckpoints(ctx context.Context, chains
 			s.lggr.Errorw("Failed to write checkpoint", "error", err)
 		}
 	}
+}
+
+func (s *StorageWriterProcessorDB) cleanup(ctx context.Context) error {
+	// Cleanup archived jobs older than retention period
+	deleted, err := s.resultQueue.Cleanup(ctx, s.retentionPeriod)
+	if err != nil {
+		return fmt.Errorf("failed to cleanup result queue: %w", err)
+	}
+
+	if deleted > 0 {
+		s.lggr.Infow("Cleaned up archived results",
+			"count", deleted,
+			"retentionPeriod", s.retentionPeriod,
+		)
+	}
+
+	return nil
 }
 
 func (s *StorageWriterProcessorDB) Name() string {
