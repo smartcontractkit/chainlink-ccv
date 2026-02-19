@@ -27,3 +27,12 @@ type MessageMetadata struct {
 	IngestionTimestamp time.Time     `json:"ingestionTimestamp"`
 	LastErr            string        `json:"-"` // we want to exclude potentionally sensitive errors
 }
+
+const SequenceNumberNotSupported = -1
+
+type DiscoveryBatch struct {
+	Messages          []MessageWithMetadata
+	Verifications     []VerifierResultWithMetadata
+	DiscoveryLocation string
+	SequenceNumber    int
+}
