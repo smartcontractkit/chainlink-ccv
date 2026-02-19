@@ -8,6 +8,7 @@ linters:
   enable:
     # keep sorted
     - asasalint
+    - contextcheck
     - copyloopvar
     - decorder
     - depguard
@@ -25,14 +26,20 @@ linters:
     - misspell
     - modernize
     - nakedret
+    - nilerr
+    - nilnil
     - nestif
     - nolintlint
     - prealloc
     - revive
+    - rowserrcheck
     - staticcheck
+    - sqlclosecheck
     - tagalign
     - unconvert
+    - unparam
     - unused
+    - wastedassign
     # end keep sorted
   disable:
     - nonamedreturns
