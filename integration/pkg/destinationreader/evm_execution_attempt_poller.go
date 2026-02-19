@@ -123,7 +123,7 @@ func (p *EvmExecutionAttemptPoller) Start(ctx context.Context) error {
 			return fmt.Errorf("failed to get start block: %w", err)
 		}
 
-		runCtx, cancel := context.WithCancel(context.Background())
+		runCtx, cancel := context.WithCancel(ctx)
 		p.cancelFunc = cancel
 
 		err := p.startWSMode(runCtx)

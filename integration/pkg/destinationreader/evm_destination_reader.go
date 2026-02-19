@@ -130,7 +130,7 @@ func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
 func (dr *EvmDestinationReader) Start(ctx context.Context) error {
 	return dr.StartOnce(EvmDestinationReaderServiceName, func() error {
 		dr.lggr.Info("Starting EVM Destination Reader")
-		runCtx, cancel := context.WithCancel(context.Background())
+		runCtx, cancel := context.WithCancel(ctx)
 		dr.cancelFunc = cancel
 		err := dr.executionAttemptPoller.Start(runCtx)
 		if err != nil {
