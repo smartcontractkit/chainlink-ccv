@@ -17,7 +17,7 @@ import (
 // from the datastore. This serves as the single source of truth for the desired state of both off-chain
 // (job specs) and on-chain (committee contracts) configuration.
 type EnvironmentTopology struct {
-	IndexerAddress string                        `toml:"indexer_address"`
+	IndexerAddress []string                      `toml:"indexer_address"`
 	PyroscopeURL   string                        `toml:"pyroscope_url"`
 	Monitoring     MonitoringConfig              `toml:"monitoring"`
 	NOPTopology    *NOPTopology                  `toml:"nop_topology"`
@@ -109,22 +109,24 @@ func (n *NOPConfig) GetMode() shared.NOPMode {
 }
 
 // CommitteeConfig defines a committee and its per-chain membership.
-// It contains both off-chain (aggregators, chain configs) and on-chain
-// (fee_aggregator, allowlist_admin, storage_locations) configuration.
+// It contains off-chain (aggregators, chain configs) and committee-wide
+// on-chain (storage_locations) configuration.
 type CommitteeConfig struct {
 	Qualifier        string                          `toml:"qualifier"`
 	VerifierVersion  *semver.Version                 `toml:"verifier_version"`
-	FeeAggregator    string                          `toml:"fee_aggregator,omitempty"`
-	AllowlistAdmin   string                          `toml:"allowlist_admin,omitempty"`
 	StorageLocations []string                        `toml:"storage_locations,omitempty"`
 	ChainConfigs     map[string]ChainCommitteeConfig `toml:"chain_configs"`
 	Aggregators      []AggregatorConfig              `toml:"aggregators"`
 }
 
-// ChainCommitteeConfig defines committee membership for a specific chain.
+// ChainCommitteeConfig defines committee membership and on-chain parameters
+// for a specific chain. FeeAggregator and AllowlistAdmin are per-chain because
+// address formats differ across chain families (EVM, Canton, etc.).
 type ChainCommitteeConfig struct {
-	NOPAliases []string `toml:"nop_aliases"`
-	Threshold  uint8    `toml:"threshold"`
+	NOPAliases     []string `toml:"nop_aliases"`
+	Threshold      uint8    `toml:"threshold"`
+	FeeAggregator  string   `toml:"fee_aggregator,omitempty"`
+	AllowlistAdmin string   `toml:"allowlist_admin,omitempty"`
 }
 
 // AggregatorConfig defines an aggregator instance for HA setups.
@@ -205,8 +207,19 @@ func WriteEnvironmentTopology(path string, cfg EnvironmentTopology) error {
 
 // Validate validates the EnvironmentTopology.
 func (c *EnvironmentTopology) Validate() error {
-	if c.IndexerAddress == "" {
+	if len(c.IndexerAddress) == 0 {
 		return fmt.Errorf("indexer_address is required")
+	}
+	// Ensure indexer addresses are unique
+	addressSet := make(map[string]struct{}, len(c.IndexerAddress))
+	for _, addr := range c.IndexerAddress {
+		if addr == "" {
+			return fmt.Errorf("indexer_address is required")
+		}
+		if _, exists := addressSet[addr]; exists {
+			return fmt.Errorf("duplicate indexer_address found: %q", addr)
+		}
+		addressSet[addr] = struct{}{}
 	}
 
 	if err := c.NOPTopology.Validate(); err != nil {

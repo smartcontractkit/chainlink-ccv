@@ -128,6 +128,7 @@ func TestManager_Start_NoCachedJob_ConnectFails(t *testing.T) {
 	ctx := context.Background()
 	jdClient := newChanClient(t)
 	jdClient.EXPECT().Connect(mock.Anything).Return(errors.New("connect failed"))
+	jdClient.EXPECT().Close().Return(nil).Maybe()
 
 	jobStore := mocks.NewMockStoreInterface(t)
 	jobStore.EXPECT().LoadJob(mock.Anything).Return(nil, store.ErrNoJob)
@@ -141,10 +142,13 @@ func TestManager_Start_NoCachedJob_ConnectFails(t *testing.T) {
 		Logger:   logger.Test(t),
 	})
 	require.NoError(t, err)
+	// With async connect, Start() returns immediately; Connect runs in background and may fail later.
 	err = m.Start(ctx)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to connect to JD")
+	require.NoError(t, err)
 	assert.Equal(t, StateWaitingForJob, m.GetState())
+
+	err = m.Stop()
+	require.NoError(t, err)
 }
 
 func TestManager_Start_LoadJobError(t *testing.T) {

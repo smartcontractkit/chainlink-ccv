@@ -1,11 +1,11 @@
 package bootstrap
 
 import (
-	"crypto/ed25519"
-	"encoding/hex"
 	"fmt"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
 )
 
 // JDConfig is the configuration for the Job Distributor.
@@ -23,19 +23,8 @@ func (c *JDConfig) validate() error {
 	if c.ServerCSAPublicKey == "" {
 		return fmt.Errorf("ServerCSAPublicKey is required")
 	}
-	if err := c.validateJDServerCSAPublicKey(); err != nil {
-		return fmt.Errorf("failed to validate ServerCSAPublicKey: %w", err)
-	}
-	return nil
-}
-
-func (c *JDConfig) validateJDServerCSAPublicKey() error {
-	publicKey, err := hex.DecodeString(c.ServerCSAPublicKey)
-	if err != nil {
-		return fmt.Errorf("failed to decode ServerCSAPublicKey: %w", err)
-	}
-	if len(publicKey) != ed25519.PublicKeySize {
-		return fmt.Errorf("ServerCSAPublicKey is not an ed25519 public key")
+	if _, err := keys.DecodeEd25519PublicKey(c.ServerCSAPublicKey); err != nil {
+		return fmt.Errorf("invalid ServerCSAPublicKey: %w", err)
 	}
 	return nil
 }
@@ -53,6 +42,7 @@ func (c *KeystoreConfig) validate() error {
 	return nil
 }
 
+// DBConfig is the configuration for the bootstrap database.
 type DBConfig struct {
 	// URL is the URL to use for saving jobs and the keystore.
 	URL string `toml:"url"`
@@ -61,6 +51,19 @@ type DBConfig struct {
 func (c *DBConfig) validate() error {
 	if c.URL == "" {
 		return fmt.Errorf("field 'url' is required")
+	}
+	return nil
+}
+
+// ServerConfig is the configuration for the HTTP info server.
+type ServerConfig struct {
+	// ListenPort is the port the HTTP server listens on.
+	ListenPort int `toml:"listen_port"`
+}
+
+func (c *ServerConfig) validate() error {
+	if c.ListenPort == 0 {
+		return fmt.Errorf("field 'listen_port' is required")
 	}
 	return nil
 }
@@ -77,11 +80,15 @@ func (c *DBConfig) validate() error {
 
 	[db]
 	url = "postgres://localhost:5432/bootstrapper"
+
+	[server]
+	listen_port = 9988
 */
 type Config struct {
 	JD       JDConfig
 	Keystore KeystoreConfig
 	DB       DBConfig
+	Server   ServerConfig
 }
 
 func (c *Config) validate() error {
@@ -93,6 +100,9 @@ func (c *Config) validate() error {
 	}
 	if err := c.DB.validate(); err != nil {
 		return fmt.Errorf("failed to validate 'db' section: %w", err)
+	}
+	if err := c.Server.validate(); err != nil {
+		return fmt.Errorf("failed to validate 'server' section: %w", err)
 	}
 	return nil
 }

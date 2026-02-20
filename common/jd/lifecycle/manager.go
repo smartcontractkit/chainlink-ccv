@@ -83,11 +83,13 @@ type Manager struct {
 	runner   JobRunner
 	lggr     logger.Logger
 
-	mu         sync.Mutex
-	state      State
-	currentJob *store.Job
-	shutdownCh chan struct{}
-	wg         sync.WaitGroup
+	mu            sync.Mutex
+	state         State
+	currentJob    *store.Job
+	shutdownCh    chan struct{}
+	wg            sync.WaitGroup
+	jdConnectedCh chan struct{}      // buffered 1; sent when async Connect succeeds
+	connectCancel context.CancelFunc // cancels the connect goroutine's context when Stop() is called
 }
 
 // NewManager creates a new job lifecycle manager.
@@ -106,12 +108,13 @@ func NewManager(cfg Config) (*Manager, error) {
 		return nil, errors.New("logger is required")
 	}
 	return &Manager{
-		jdClient:   cfg.JDClient,
-		jobStore:   cfg.JobStore,
-		runner:     cfg.Runner,
-		lggr:       logger.With(cfg.Logger, "component", "JobLifecycleManager"),
-		state:      StateWaitingForJob,
-		shutdownCh: make(chan struct{}),
+		jdClient:      cfg.JDClient,
+		jobStore:      cfg.JobStore,
+		runner:        cfg.Runner,
+		lggr:          logger.With(cfg.Logger, "component", "JobLifecycleManager"),
+		state:         StateWaitingForJob,
+		shutdownCh:    make(chan struct{}),
+		jdConnectedCh: make(chan struct{}, 1),
 	}, nil
 }
 
@@ -150,21 +153,26 @@ func (m *Manager) Start(ctx context.Context) error {
 			m.lggr.Infow("Cached job started successfully")
 		}
 
-		// 3. Connect to JD (always, even with cached job, to receive updates)
-		m.lggr.Infow("Connecting to Job Distributor")
-		if err := m.jdClient.Connect(ctx); err != nil {
-			// If we already have a running job, log warning but don't fail
-			m.mu.Lock()
-			hasRunningJob := m.state == StateRunning
-			m.mu.Unlock()
+		// 3. Connect to JD asynchronously (context only canceled when Manager is Stopped)
+		m.lggr.Infow("Connecting to Job Distributor (async)")
+		connectCtx, connectCancel := context.WithCancel(context.Background())
+		m.mu.Lock()
+		m.connectCancel = connectCancel
+		m.mu.Unlock()
 
-			if !hasRunningJob {
-				return fmt.Errorf("failed to connect to JD: %w", err)
+		m.wg.Go(func() {
+			if err := m.jdClient.Connect(connectCtx); err != nil {
+				if connectCtx.Err() == nil {
+					m.lggr.Warnw("Failed to connect to JD", "error", err)
+				}
+				return
 			}
-			m.lggr.Warnw("Failed to connect to JD, continuing with cached job", "error", err)
-		} else {
-			m.lggr.Infow("Connected to Job Distributor")
-		}
+			select {
+			case m.jdConnectedCh <- struct{}{}:
+			default:
+				// event loop may have already exited; don't block
+			}
+		})
 
 		// 4. Event loop
 		m.wg.Go(func() {
@@ -181,6 +189,9 @@ func (m *Manager) eventLoop() {
 
 	for {
 		select {
+		case <-m.jdConnectedCh:
+			m.lggr.Infow("Connected to Job Distributor")
+
 		case proposal := <-m.jdClient.JobProposalCh():
 			if err := m.handleProposal(proposal); err != nil {
 				m.lggr.Errorw("Failed to handle job proposal", "error", err, "proposalID", proposal.Id)
@@ -360,6 +371,13 @@ func (m *Manager) shutdown() error {
 // This is safe to call from any goroutine.
 func (m *Manager) Stop() error {
 	return m.StopOnce("lifecycle.Manager", func() error {
+		m.mu.Lock()
+		connectCancel := m.connectCancel
+		m.connectCancel = nil
+		m.mu.Unlock()
+		if connectCancel != nil {
+			connectCancel()
+		}
 		close(m.shutdownCh)
 		m.wg.Wait()
 		return nil

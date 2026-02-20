@@ -27,8 +27,9 @@ type ConfigWithBlockchainInfo struct {
 // Configuration is the complete set of information an executor needs to operate normally.
 // We can use time.Duration directly in this config because burntSushi can parse duration from strings.
 type Configuration struct {
-	// IndexerAddress is the URL of the indexer to receive messages + verifications from.
-	IndexerAddress string `toml:"indexer_address"`
+	// IndexerAddress is the list of indexer URLs to receive messages + verifications from.
+	// The executor will use these for failover if one indexer becomes unavailable.
+	IndexerAddress []string `toml:"indexer_address"`
 	// BackoffDuration is the duration to back off after a failed request to the Indexer.
 	// Defaults to 15 seconds.
 	BackoffDuration time.Duration `toml:"source_backoff_duration"`
@@ -80,6 +81,11 @@ func (c *Configuration) Validate() error {
 		return fmt.Errorf("this_executor_id must be configured")
 	}
 
+	// Validate indexer addresses - at least one must be provided
+	if len(c.IndexerAddress) < 1 {
+		return fmt.Errorf("at least one indexer address must be configured")
+	}
+
 	for chainSel, chainConfig := range c.ChainConfiguration {
 		// can ignore nil check because len of nil slice is 0.
 		if len(chainConfig.ExecutorPool) == 0 {
@@ -102,6 +108,7 @@ func (c *Configuration) GetNormalizedConfig() (*Configuration, error) {
 	if err := normalized.Validate(); err != nil {
 		return nil, err
 	}
+
 	if c.NtpServer == "" {
 		normalized.NtpServer = ntpServerDefault
 	}

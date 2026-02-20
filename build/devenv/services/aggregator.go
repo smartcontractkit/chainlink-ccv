@@ -83,6 +83,10 @@ type AggregatorClientConfig struct {
 
 type AggregatorInput struct {
 	Image string `toml:"image"`
+	// Name is the unique instance identifier for this aggregator.
+	// Used for container naming, config file naming, and service identifiers.
+	// If empty, defaults to CommitteeName.
+	Name string `toml:"name"`
 	// HostPort is the port on the host machine that the aggregator will be exposed on.
 	// This should be unique across all containers.
 	HostPort int `toml:"host_port"`
@@ -168,6 +172,15 @@ func (a *AggregatorInput) EnsureClientCredentials() (map[string]hmacutil.Credent
 	}
 
 	return credentialsMap, nil
+}
+
+// InstanceName returns the unique instance name for this aggregator.
+// Falls back to CommitteeName when Name is not set.
+func (a *AggregatorInput) InstanceName() string {
+	if a.Name != "" {
+		return a.Name
+	}
+	return a.CommitteeName
 }
 
 func validateAggregatorInput(in *AggregatorInput) error {
@@ -324,14 +337,15 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	}
 
 	confDir := util.CCVConfigDir()
-	generatedConfigFileName := fmt.Sprintf("aggregator-%s-generated.toml", in.CommitteeName)
+	instanceName := in.InstanceName()
+	generatedConfigFileName := fmt.Sprintf("aggregator-%s-generated.toml", instanceName)
 	configResult, err := in.GenerateConfigs(generatedConfigFileName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate aggregator configs: %w", err)
 	}
 
 	configFilePath := filepath.Join(confDir,
-		fmt.Sprintf("aggregator-%s-config.toml", in.CommitteeName))
+		fmt.Sprintf("aggregator-%s-config.toml", instanceName))
 	if err := os.WriteFile(configFilePath, configResult.MainConfig, 0o644); err != nil {
 		return nil, fmt.Errorf("failed to write aggregator config to file: %w", err)
 	}
@@ -341,13 +355,13 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		return nil, fmt.Errorf("failed to write aggregator generated config to file: %w", err)
 	}
 
-	aggregatorContainerName := fmt.Sprintf("%s-%s", in.CommitteeName, AggregatorContainerNameSuffix)
-	nginxContainerName := fmt.Sprintf("%s-%s", in.CommitteeName, AggregatorNginxContainerNameSuffix)
+	aggregatorContainerName := fmt.Sprintf("%s-%s", instanceName, AggregatorContainerNameSuffix)
+	nginxContainerName := fmt.Sprintf("%s-%s", instanceName, AggregatorNginxContainerNameSuffix)
 
 	// Use shared TLS certs if provided, otherwise generate new ones
 	tlsCerts := in.SharedTLSCerts
 	if tlsCerts == nil {
-		tlsCertDir := filepath.Join(confDir, fmt.Sprintf("tls-%s", in.CommitteeName))
+		tlsCertDir := filepath.Join(confDir, fmt.Sprintf("tls-%s", instanceName))
 		var err error
 		tlsCerts, err = GenerateTLSCertificates([]string{
 			nginxContainerName,
@@ -360,7 +374,7 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	}
 
 	// Generate nginx configuration for gRPC TLS termination
-	nginxConfPath := filepath.Join(confDir, fmt.Sprintf("nginx-%s.conf", in.CommitteeName))
+	nginxConfPath := filepath.Join(confDir, fmt.Sprintf("nginx-%s.conf", instanceName))
 	nginxConf := generateNginxConfig(aggregatorContainerName, DefaultAggregatorGRPCPort)
 	if err := os.WriteFile(nginxConfPath, []byte(nginxConf), 0o644); err != nil {
 		return nil, fmt.Errorf("failed to write nginx config: %w", err)
@@ -370,7 +384,7 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	_, err = postgres.Run(ctx,
 		in.DB.Image,
 		// The container name should be scoped by the committee name.
-		testcontainers.WithName(fmt.Sprintf("%s-%s", in.CommitteeName, AggregatorDBContainerNameSuffix)),
+		testcontainers.WithName(fmt.Sprintf("%s-%s", instanceName, AggregatorDBContainerNameSuffix)),
 		// Database names don't have to be, its probably simpler we keep them the same across all containers
 		// in case some debugging or some introspection is required.
 		postgres.WithDatabase(DefaultAggregatorDBName),
@@ -379,12 +393,12 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		postgres.WithInitScripts(filepath.Join(p, DefaultAggregatorSQLInit)),
 		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 			ContainerRequest: testcontainers.ContainerRequest{
-				Name: fmt.Sprintf("%s-%s", in.CommitteeName, AggregatorDBContainerNameSuffix),
+				Name: fmt.Sprintf("%s-%s", instanceName, AggregatorDBContainerNameSuffix),
 				// This is the container port, not the host port, so it can be the same across different containers.
 				ExposedPorts: []string{DefaultDBContainerPort},
 				Networks:     []string{framework.DefaultNetworkName},
 				NetworkAliases: map[string][]string{
-					framework.DefaultNetworkName: {fmt.Sprintf("%s-%s", in.CommitteeName, AggregatorDBContainerNameSuffix)},
+					framework.DefaultNetworkName: {fmt.Sprintf("%s-%s", instanceName, AggregatorDBContainerNameSuffix)},
 				},
 				Labels: framework.DefaultTCLabels(),
 				HostConfigModifier: func(h *container.HostConfig) {
@@ -406,12 +420,12 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	// Start the aggregator redis container for rate limiting
 	redisReq := testcontainers.ContainerRequest{
 		Image: in.Redis.Image,
-		Name:  fmt.Sprintf("%s-%s", in.CommitteeName, AggregatorRedisContainerNameSuffix),
+		Name:  fmt.Sprintf("%s-%s", instanceName, AggregatorRedisContainerNameSuffix),
 		// This is the container port, not the host port, so it can be the same across different containers.
 		ExposedPorts: []string{DefaultRedisContainerPort},
 		Networks:     []string{framework.DefaultNetworkName},
 		NetworkAliases: map[string][]string{
-			framework.DefaultNetworkName: {fmt.Sprintf("%s-%s", in.CommitteeName, AggregatorRedisContainerNameSuffix)},
+			framework.DefaultNetworkName: {fmt.Sprintf("%s-%s", instanceName, AggregatorRedisContainerNameSuffix)},
 		},
 		Labels: framework.DefaultTCLabels(),
 		HostConfigModifier: func(h *container.HostConfig) {

@@ -84,6 +84,7 @@ func (oss *IndexerStorageStreamer) Start(
 
 	oss.running = true
 
+	// be careful closing the results channel before context is done. This might cause unintended consequences upstream.
 	results := make(chan icommon.MessageWithMetadata)
 	errors := make(chan error)
 	go func() {

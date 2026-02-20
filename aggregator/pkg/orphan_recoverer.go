@@ -132,7 +132,7 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 				return nil
 			}
 
-			err := o.processOrphanedRecord(orphanRecord)
+			err := o.processOrphanedRecord(ctx, orphanRecord)
 			if err != nil {
 				o.logger.Errorw("Failed to process orphaned record",
 					"messageID", fmt.Sprintf("%x", orphanRecord.MessageID),
@@ -176,8 +176,8 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 }
 
 // processOrphanedRecord attempts to re-aggregate an orphaned verification record.
-func (o *OrphanRecoverer) processOrphanedRecord(record model.OrphanedKey) error {
-	err := o.aggregator.CheckAggregation(record.MessageID, record.AggregationKey, model.OrphanRecoveryChannelKey, o.config.OrphanRecovery.CheckAggregationTimeout)
+func (o *OrphanRecoverer) processOrphanedRecord(ctx context.Context, record model.OrphanedKey) error {
+	err := o.aggregator.CheckAggregation(ctx, record.MessageID, record.AggregationKey, model.OrphanRecoveryChannelKey, o.config.OrphanRecovery.CheckAggregationTimeout)
 	if err != nil {
 		return fmt.Errorf("failed to trigger aggregation check: %w", err)
 	}

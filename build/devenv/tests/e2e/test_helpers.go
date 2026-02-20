@@ -71,18 +71,31 @@ func SetupIndexerMonitor(
 	ctx context.Context,
 	lib *ccv.Lib,
 ) *ccv.IndexerMonitor {
-	indexerClient, err := lib.Indexer()
+	for _, indexer := range SetupAllIndexerMonitors(t, ctx, lib) {
+		return indexer
+	}
+	return nil
+}
+
+func SetupAllIndexerMonitors(
+	t *testing.T,
+	ctx context.Context,
+	lib *ccv.Lib,
+) map[string]*ccv.IndexerMonitor {
+	indexerClients, err := lib.AllIndexers()
 	if err != nil {
 		return nil
 	}
-
-	indexerMonitor, err := ccv.NewIndexerMonitor(
-		zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
-		indexerClient)
-	require.NoError(t, err)
-	require.NotNil(t, indexerMonitor)
-
-	return indexerMonitor
+	indexers := make(map[string]*ccv.IndexerMonitor)
+	for _, indexer := range indexerClients {
+		indexerMonitor, err := ccv.NewIndexerMonitor(
+			zerolog.Ctx(ctx).With().Str("component", fmt.Sprintf("indexer-client-%s", indexer.URI())).Logger(),
+			indexer)
+		require.NoError(t, err)
+		require.NotNil(t, indexerMonitor)
+		indexers[indexer.URI()] = indexerMonitor
+	}
+	return indexers
 }
 
 type TestingContext struct {

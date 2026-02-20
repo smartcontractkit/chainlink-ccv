@@ -17,6 +17,18 @@ var ErrResponseTooLarge = errors.New("response body too large")
 
 const MaxBodySize = 10 << 20 // 10MB
 
+// IndexerClientInterface defines the common interface for interacting with indexer services.
+type IndexerClientInterface interface {
+	// Health checks if the indexer is healthy and reachable.
+	Health(ctx context.Context) error
+	// VerifierResults reads all verifier results that match the provided query parameters.
+	VerifierResults(ctx context.Context, queryData v1.VerifierResultsInput) (int, v1.VerifierResultsResponse, error)
+	// Messages reads all messages that match the provided query parameters.
+	Messages(ctx context.Context, queryData v1.MessagesInput) (int, v1.MessagesResponse, error)
+	// VerifierResultsByMessageID returns all verifierResults for a given messageID.
+	VerifierResultsByMessageID(ctx context.Context, queryData v1.VerifierResultsByMessageIDInput) (int, v1.VerifierResultsByMessageIDResponse, error)
+}
+
 // NewIndexerClient creates a new IndexerAdapterClient to interact with the Indexer Adapter service.
 func NewIndexerClient(indexerURI string, httpClient *http.Client) (*IndexerClient, error) {
 	if httpClient == nil {
@@ -37,6 +49,24 @@ func NewIndexerClient(indexerURI string, httpClient *http.Client) (*IndexerClien
 type IndexerClient struct {
 	client     iclient.ClientInterface
 	indexerURI string
+}
+
+// Health checks if the indexer is healthy and reachable.
+func (ic *IndexerClient) Health(ctx context.Context) error {
+	resp, err := ic.client.Health(ctx)
+	if err != nil {
+		return fmt.Errorf("health check request error: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("health check failed with status %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+func (ic *IndexerClient) URI() string {
+	return ic.indexerURI
 }
 
 func parseVerifierResultsParams(queryData v1.VerifierResultsInput) *iclient.VerifierResultsParams {

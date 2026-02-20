@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap/db"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/freeport"
 
 	_ "github.com/lib/pq"
 )
@@ -50,7 +52,7 @@ func setupBootstrapTestDB(t *testing.T) (dbURL string, cleanup func()) {
 }
 
 // validTestConfig returns a Config that passes validation (for use with test DB URL).
-func validTestConfig(dbURL string) Config {
+func validTestConfig(t *testing.T, dbURL string) Config {
 	return Config{
 		JD: JDConfig{
 			ServerWSRPCURL:     "ws://localhost:8080/ws",
@@ -62,6 +64,9 @@ func validTestConfig(dbURL string) Config {
 		DB: DBConfig{
 			URL: dbURL,
 		},
+		Server: ServerConfig{
+			ListenPort: freeport.GetOne(t),
+		},
 	}
 }
 
@@ -69,7 +74,7 @@ func TestBootstrapper_connectToDB(t *testing.T) {
 	dbURL, cleanup := setupBootstrapTestDB(t)
 	defer cleanup()
 
-	cfg := validTestConfig(dbURL)
+	cfg := validTestConfig(t, dbURL)
 	b, err := NewBootstrapper("test", logger.TestSugared(t), cfg, &mockServiceFactory{})
 	require.NoError(t, err)
 
@@ -93,7 +98,7 @@ func TestBootstrapper_connectToDB(t *testing.T) {
 }
 
 func TestBootstrapper_connectToDB_InvalidURL(t *testing.T) {
-	cfg := validTestConfig("postgres://invalid-host:5432/nonexistent?sslmode=disable")
+	cfg := validTestConfig(t, "postgres://invalid-host:5432/nonexistent?sslmode=disable")
 	b, err := NewBootstrapper("test", logger.TestSugared(t), cfg, &mockServiceFactory{})
 	require.NoError(t, err)
 
@@ -125,6 +130,68 @@ func TestBootstrapDB_RunMigrations(t *testing.T) {
 	require.Equal(t, 2, count, "both bootstrap tables should exist")
 }
 
+// --- runner tests ---
+
+func TestRunner(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("delegates start", func(t *testing.T) {
+		t.Parallel()
+		var started bool
+		fac := &spyServiceFactory{
+			startFn: func(_ context.Context, spec string, _ ServiceDeps) error {
+				started = true
+				require.Equal(t, "my-spec", spec)
+				return nil
+			},
+		}
+		r := &runner{fac: fac, deps: ServiceDeps{}}
+
+		require.NoError(t, r.StartJob(ctx, "my-spec"))
+		require.True(t, started)
+	})
+
+	t.Run("delegates stop", func(t *testing.T) {
+		t.Parallel()
+		var stopped bool
+		fac := &spyServiceFactory{
+			stopFn: func(context.Context) error {
+				stopped = true
+				return nil
+			},
+		}
+		r := &runner{fac: fac, deps: ServiceDeps{}}
+
+		require.NoError(t, r.StopJob(ctx))
+		require.True(t, stopped)
+	})
+
+	t.Run("propagates start error", func(t *testing.T) {
+		t.Parallel()
+		fac := &spyServiceFactory{
+			startFn: func(context.Context, string, ServiceDeps) error {
+				return errors.New("boom")
+			},
+		}
+		r := &runner{fac: fac, deps: ServiceDeps{}}
+		require.EqualError(t, r.StartJob(ctx, "spec"), "boom")
+	})
+
+	t.Run("propagates stop error", func(t *testing.T) {
+		t.Parallel()
+		fac := &spyServiceFactory{
+			stopFn: func(context.Context) error {
+				return errors.New("stop failed")
+			},
+		}
+		r := &runner{fac: fac, deps: ServiceDeps{}}
+		require.EqualError(t, r.StopJob(ctx), "stop failed")
+	})
+}
+
+// --- test helpers ---
+
 type mockServiceFactory struct{}
 
 func (m *mockServiceFactory) Start(ctx context.Context, spec string, deps ServiceDeps) error {
@@ -136,3 +203,22 @@ func (m *mockServiceFactory) Stop(ctx context.Context) error {
 }
 
 var _ ServiceFactory = (*mockServiceFactory)(nil)
+
+type spyServiceFactory struct {
+	startFn func(context.Context, string, ServiceDeps) error
+	stopFn  func(context.Context) error
+}
+
+func (s *spyServiceFactory) Start(ctx context.Context, spec string, deps ServiceDeps) error {
+	if s.startFn != nil {
+		return s.startFn(ctx, spec, deps)
+	}
+	return nil
+}
+
+func (s *spyServiceFactory) Stop(ctx context.Context) error {
+	if s.stopFn != nil {
+		return s.stopFn(ctx)
+	}
+	return nil
+}
