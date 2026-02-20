@@ -400,13 +400,15 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 
 // Cleanup archives or deletes old jobs.
 func (q *PostgresJobQueue[T]) Cleanup(ctx context.Context, retentionPeriod time.Duration) (int, error) {
+	cutoff := time.Now().Add(-retentionPeriod)
+
 	//nolint:gosec // G201: table name is from config, not user input
 	query := fmt.Sprintf(`
 		DELETE FROM %s
-		WHERE completed_at < NOW() - $1
+		WHERE completed_at < $1
 	`, q.archiveName)
 
-	result, err := q.db.ExecContext(ctx, query, retentionPeriod)
+	result, err := q.db.ExecContext(ctx, query, cutoff)
 	if err != nil {
 		return 0, fmt.Errorf("failed to cleanup archive: %w", err)
 	}
