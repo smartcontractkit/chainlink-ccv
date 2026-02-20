@@ -309,7 +309,7 @@ func TestEncodeSignaturesTooMany(t *testing.T) {
 	// 1024 signatures -> 1024 * 64 = 65536 > math.MaxUint16 (65535)
 	const n = 1024
 	sigs := make([]Data, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		var r, s [32]byte
 		r[31] = 1
 		s[31] = 2
