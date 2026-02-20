@@ -168,6 +168,7 @@ func createStorageWriterProcessor(
 		db,
 		jobqueue.QueueConfig{
 			Name:               "verification_results",
+			OwnerID:            config.VerifierID,
 			DefaultMaxAttempts: 500,
 		},
 		logger.With(lggr, "component", "result_queue"),

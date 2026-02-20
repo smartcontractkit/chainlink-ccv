@@ -41,6 +41,7 @@ func BenchmarkJobQueueThroughput(b *testing.B) {
 
 	q, err := jobqueue.NewPostgresJobQueue[testJob](sqlxDB.(*sqlx.DB).DB, jobqueue.QueueConfig{
 		Name:               "verification_tasks",
+		OwnerID:            "bench-verifier",
 		DefaultMaxAttempts: maxAttempts,
 	}, logger.Test(b))
 	require.NoError(b, err)

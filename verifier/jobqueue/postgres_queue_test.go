@@ -41,6 +41,7 @@ func newTestQueue(t *testing.T, opts ...func(*jobqueue.QueueConfig)) (*jobqueue.
 
 	cfg := jobqueue.QueueConfig{
 		Name:               "verification_tasks",
+		OwnerID:            "test-verifier",
 		DefaultMaxAttempts: 3,
 	}
 	for _, o := range opts {

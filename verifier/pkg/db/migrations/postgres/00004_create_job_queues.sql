@@ -6,6 +6,10 @@ CREATE TABLE IF NOT EXISTS verification_tasks (
     id BIGSERIAL PRIMARY KEY,
     job_id UUID UNIQUE NOT NULL DEFAULT gen_random_uuid(),
 
+    -- Owner identification (e.g. "CCTPVerifier", "LombardVerifier")
+    -- Multiple verifiers share the same table but only consume their own jobs
+    owner_id TEXT NOT NULL DEFAULT '',
+
     -- Chain and message identification
     chain_selector TEXT NOT NULL,
     message_id TEXT NOT NULL,
@@ -33,12 +37,12 @@ CREATE TABLE IF NOT EXISTS verification_tasks (
 -- Index for efficient job consumption
 -- Using partial index to only index jobs that can be consumed
 CREATE INDEX IF NOT EXISTS idx_verification_tasks_consume
-    ON verification_tasks (available_at ASC, id ASC)
+    ON verification_tasks (owner_id, available_at ASC, id ASC)
     WHERE status IN ('pending', 'failed');
 
 -- Index for efficient stats queries
 CREATE INDEX IF NOT EXISTS idx_verification_tasks_status
-    ON verification_tasks (status);
+    ON verification_tasks (owner_id, status);
 
 -- Index for chain-specific queries and monitoring
 CREATE INDEX IF NOT EXISTS idx_verification_tasks_chain_status
@@ -56,6 +60,7 @@ CREATE INDEX IF NOT EXISTS idx_verification_tasks_created
 CREATE TABLE IF NOT EXISTS verification_tasks_archive (
     id BIGINT PRIMARY KEY,
     job_id UUID UNIQUE NOT NULL,
+    owner_id TEXT NOT NULL DEFAULT '',
     chain_selector TEXT NOT NULL,
     message_id TEXT NOT NULL,
     task_data JSONB NOT NULL,
@@ -83,6 +88,9 @@ CREATE INDEX IF NOT EXISTS idx_verification_tasks_archive_chain
 CREATE TABLE IF NOT EXISTS verification_results (
     id BIGSERIAL PRIMARY KEY,
     job_id UUID UNIQUE NOT NULL DEFAULT gen_random_uuid(),
+
+    -- Owner identification (e.g. "CCTPVerifier", "LombardVerifier")
+    owner_id TEXT NOT NULL DEFAULT '',
 
     -- Chain and message identification
     chain_selector TEXT NOT NULL,
@@ -113,12 +121,12 @@ CREATE TABLE IF NOT EXISTS verification_results (
 
 -- Index for efficient job consumption
 CREATE INDEX IF NOT EXISTS idx_verification_results_consume
-    ON verification_results (available_at ASC, id ASC)
+    ON verification_results (owner_id, available_at ASC, id ASC)
     WHERE status IN ('pending', 'failed');
 
 -- Index for efficient stats queries
 CREATE INDEX IF NOT EXISTS idx_verification_results_status
-    ON verification_results (status);
+    ON verification_results (owner_id, status);
 
 -- Index for chain-specific queries
 CREATE INDEX IF NOT EXISTS idx_verification_results_chain_status
@@ -136,6 +144,7 @@ CREATE INDEX IF NOT EXISTS idx_verification_results_created
 CREATE TABLE IF NOT EXISTS verification_results_archive (
     id BIGINT PRIMARY KEY,
     job_id UUID UNIQUE NOT NULL,
+    owner_id TEXT NOT NULL DEFAULT '',
     chain_selector TEXT NOT NULL,
     message_id TEXT NOT NULL,
     task_data JSONB NOT NULL,

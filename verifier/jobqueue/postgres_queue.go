@@ -21,6 +21,7 @@ type PostgresJobQueue[T Jobable] struct {
 	logger      logger.Logger
 	tableName   string
 	archiveName string
+	ownerID     string
 }
 
 // NewPostgresJobQueue creates a new PostgreSQL-backed job queue.
@@ -43,6 +44,7 @@ func NewPostgresJobQueue[T Jobable](
 		logger:      lggr,
 		tableName:   config.Name,
 		archiveName: config.Name + "_archive",
+		ownerID:     config.OwnerID,
 	}, nil
 }
 
@@ -64,8 +66,8 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 	query := fmt.Sprintf(`
 		INSERT INTO %s (
 			job_id, task_data, status, available_at, created_at, attempt_count, max_attempts,
-			chain_selector, message_id
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			chain_selector, message_id, owner_id
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`, q.tableName)
 
 	tx, err := q.db.BeginTx(ctx, nil)
@@ -106,6 +108,7 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 			q.config.DefaultMaxAttempts,
 			chainSelector,
 			messageID,
+			q.ownerID,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to insert job %s: %w", jobID, err)
@@ -137,10 +140,11 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int, lockDu
 			attempt_count = attempt_count + 1
 		WHERE id IN (
 			SELECT id FROM %s
-			WHERE status IN ($3, $4)
-			  AND available_at <= $5
+			WHERE owner_id = $3
+			  AND status IN ($4, $5)
+			  AND available_at <= $6
 			ORDER BY available_at ASC, id ASC
-			LIMIT $6
+			LIMIT $7
 			FOR UPDATE SKIP LOCKED
 		)
 		RETURNING id, job_id, task_data, attempt_count, max_attempts, created_at, started_at, chain_selector, message_id
@@ -149,6 +153,7 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int, lockDu
 	rows, err := q.db.QueryContext(ctx, query,
 		JobStatusProcessing,
 		now,
+		q.ownerID,
 		JobStatusPending,
 		JobStatusFailed,
 		now,
@@ -234,6 +239,7 @@ func (q *PostgresJobQueue[T]) Complete(ctx context.Context, jobIDs ...string) er
 		WITH completed AS (
 			DELETE FROM %s
 			WHERE job_id = ANY($1)
+			  AND owner_id = $2
 			RETURNING *
 		)
 		INSERT INTO %s
@@ -241,7 +247,7 @@ func (q *PostgresJobQueue[T]) Complete(ctx context.Context, jobIDs ...string) er
 		FROM completed
 	`, q.tableName, q.archiveName)
 
-	result, err := q.db.ExecContext(ctx, query, pq.Array(jobIDs))
+	result, err := q.db.ExecContext(ctx, query, pq.Array(jobIDs), q.ownerID)
 	if err != nil {
 		return fmt.Errorf("failed to complete jobs: %w", err)
 	}
@@ -274,6 +280,7 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 			available_at = $3,
 			last_error = $4
 		WHERE job_id = $5
+		  AND owner_id = $6
 		RETURNING job_id, attempt_count, max_attempts
 	`, q.tableName)
 
@@ -311,6 +318,7 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 			availableAt,
 			errMsg,
 			jobID,
+			q.ownerID,
 		).Scan(&resultJobID, &attemptCount, &maxAttempts)
 		if err != nil {
 			q.logger.Errorw("Failed to retry job",
@@ -353,6 +361,7 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 		SET status = $1,
 			last_error = $2
 		WHERE job_id = $3
+		  AND owner_id = $4
 	`, q.tableName)
 
 	tx, err := q.db.BeginTx(ctx, nil)
@@ -377,7 +386,7 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 			errMsg = err.Error()
 		}
 
-		_, err := stmt.ExecContext(ctx, JobStatusFailed, errMsg, jobID)
+		_, err := stmt.ExecContext(ctx, JobStatusFailed, errMsg, jobID, q.ownerID)
 		if err != nil {
 			q.logger.Errorw("Failed to mark job as failed",
 				"jobID", jobID,
@@ -406,9 +415,10 @@ func (q *PostgresJobQueue[T]) Cleanup(ctx context.Context, retentionPeriod time.
 	query := fmt.Sprintf(`
 		DELETE FROM %s
 		WHERE completed_at < $1
+		  AND owner_id = $2
 	`, q.archiveName)
 
-	result, err := q.db.ExecContext(ctx, query, cutoff)
+	result, err := q.db.ExecContext(ctx, query, cutoff, q.ownerID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to cleanup archive: %w", err)
 	}

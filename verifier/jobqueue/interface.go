@@ -81,6 +81,9 @@ type JobQueue[T Jobable] interface {
 type QueueConfig struct {
 	// Queue name for logging and table naming
 	Name string
+	// OwnerID scopes jobs so multiple verifiers sharing the same table
+	// only consume their own jobs (e.g. "CCTPVerifier", "LombardVerifier").
+	OwnerID string
 	// Default maximum attempts before job is failed
 	DefaultMaxAttempts int
 }
