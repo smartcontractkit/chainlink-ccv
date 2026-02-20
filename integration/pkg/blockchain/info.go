@@ -71,6 +71,9 @@ func (bh *Helper) GetRPCEndpoint(chainSelector protocol.ChainSelector) (string, 
 	if err != nil {
 		return "", err
 	}
+	if bi == nil {
+		return "", fmt.Errorf("blockchain info is nil for selector %d", uint64(chainSelector))
+	}
 
 	return bi.GetRPCEndpoint()
 }
@@ -78,7 +81,7 @@ func (bh *Helper) GetRPCEndpoint(chainSelector protocol.ChainSelector) (string, 
 // GetRPCEndpoint returns the RPC endpoint for a blockchain by chain selector
 // Returns the first available HTTP endpoint.
 func (bi *Info) GetRPCEndpoint() (string, error) {
-	if len(bi.Nodes) == 0 {
+	if len(bi.Nodes) == 0 || bi.Nodes[0] == nil {
 		return "", fmt.Errorf("no nodes found for chain %s", bi.ChainID)
 	}
 
@@ -108,10 +111,13 @@ func (bh *Helper) GetBlockchainInfo(chainSelector protocol.ChainSelector) (strin
 	if err != nil {
 		return "", err
 	}
+	if info == nil {
+		return "", fmt.Errorf("blockchain info is nil for selector %d", uint64(chainSelector))
+	}
 
 	nodeCount := len(info.Nodes)
 	var rpcURL string
-	if nodeCount > 0 && info.Nodes[0].ExternalHTTPUrl != "" {
+	if nodeCount > 0 && info.Nodes[0] != nil && info.Nodes[0].ExternalHTTPUrl != "" {
 		rpcURL = info.Nodes[0].ExternalHTTPUrl
 	} else {
 		rpcURL = "N/A"
@@ -128,6 +134,9 @@ func (bh *Helper) GetWebSocketEndpoint(chainSelector protocol.ChainSelector) (st
 	if err != nil {
 		return "", err
 	}
+	if bi == nil {
+		return "", fmt.Errorf("blockchain info is nil for selector %d", uint64(chainSelector))
+	}
 
 	return bi.GetWebSocketEndpoint()
 }
@@ -135,7 +144,7 @@ func (bh *Helper) GetWebSocketEndpoint(chainSelector protocol.ChainSelector) (st
 // GetWebSocketEndpoint returns the WebSocket endpoint for a blockchain by chain selector
 // Returns the first available WebSocket endpoint.
 func (bi *Info) GetWebSocketEndpoint() (string, error) {
-	if len(bi.Nodes) == 0 {
+	if len(bi.Nodes) == 0 || bi.Nodes[0] == nil {
 		return "", fmt.Errorf("no nodes found for chain %s", bi.ChainID)
 	}
 
@@ -152,6 +161,9 @@ func (bh *Helper) GetAllNodes(chainSelector protocol.ChainSelector) ([]*Node, er
 	if err != nil {
 		return nil, err
 	}
+	if info == nil {
+		return nil, fmt.Errorf("blockchain info is nil for selector %d", uint64(chainSelector))
+	}
 
 	return info.Nodes, nil
 }
@@ -163,6 +175,9 @@ func (bh *Helper) GetInternalRPCEndpoint(chainSelector protocol.ChainSelector) (
 	if err != nil {
 		return "", err
 	}
+	if bi == nil {
+		return "", fmt.Errorf("blockchain info is nil for selector %d", uint64(chainSelector))
+	}
 
 	return bi.GetInternalRPCEndpoint()
 }
@@ -172,6 +187,9 @@ func (bh *Helper) GetNetworkSpecificData(chainSelector protocol.ChainSelector) (
 	if err != nil {
 		return nil, err
 	}
+	if bi == nil {
+		return nil, fmt.Errorf("blockchain info is nil for selector %d", uint64(chainSelector))
+	}
 
 	return bi.NetworkSpecificData, nil
 }
@@ -179,7 +197,7 @@ func (bh *Helper) GetNetworkSpecificData(chainSelector protocol.ChainSelector) (
 // GetInternalRPCEndpoint returns the internal RPC endpoint for a blockchain by chain selector
 // Useful for container-to-container communication.
 func (bi *Info) GetInternalRPCEndpoint() (string, error) {
-	if len(bi.Nodes) == 0 {
+	if len(bi.Nodes) == 0 || bi.Nodes[0] == nil {
 		return "", fmt.Errorf("no nodes found for chain %s", bi.ChainID)
 	}
 
@@ -197,6 +215,9 @@ func (bh *Helper) GetInternalWebsocketEndpoint(chainSelector protocol.ChainSelec
 	if err != nil {
 		return "", err
 	}
+	if bi == nil {
+		return "", fmt.Errorf("blockchain info is nil for selector %d", uint64(chainSelector))
+	}
 
 	return bi.GetInternalWebsocketEndpoint()
 }
@@ -204,7 +225,7 @@ func (bh *Helper) GetInternalWebsocketEndpoint(chainSelector protocol.ChainSelec
 // GetInternalWebsocketEndpoint returns the internal websocket endpoint for a blockchain by chain selector
 // Useful for container-to-container communication.
 func (bi *Info) GetInternalWebsocketEndpoint() (string, error) {
-	if len(bi.Nodes) == 0 {
+	if len(bi.Nodes) == 0 || bi.Nodes[0] == nil {
 		return "", fmt.Errorf("no nodes found for chain %s", bi.ChainID)
 	}
 
