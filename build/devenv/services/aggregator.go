@@ -89,6 +89,10 @@ type AggregatorInput struct {
 	// HostPort is the port on the host machine that the aggregator will be exposed on.
 	// This should be unique across all containers.
 	HostPort int `toml:"host_port"`
+	// RedundantAggregators is the number of additional aggregator instances to spawn
+	// for this committee when Cfg.HighAvailability is true.
+	// 0 = no redundancy (default), 1 = one extra (total 2), etc.
+	RedundantAggregators int `toml:"redundant_aggregators"`
 	// ExposedHostPort is the port on the host machine that the gRPC server will be exposed on.
 	// If set, the gRPC port (50051) will be directly accessible on localhost.
 	// This is useful for testing without going through the nginx TLS proxy.

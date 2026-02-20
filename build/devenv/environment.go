@@ -103,6 +103,10 @@ type Cfg struct {
 	NodeSets           []*ns.Input                    `toml:"nodesets"              validate:"required"`
 	CLNodesFundingETH  float64                        `toml:"cl_nodes_funding_eth"`
 	CLNodesFundingLink float64                        `toml:"cl_nodes_funding_link"`
+	// HighAvailability enables devenv-level service redundancy. When true,
+	// expandForHA() clones AggregatorInput / IndexerInput entries according
+	// to their per-service redundancy counts and updates the topology.
+	HighAvailability bool `toml:"high_availability"`
 	// AggregatorEndpoints map the verifier qualifier to the aggregator URL for that verifier.
 	AggregatorEndpoints map[string]string `toml:"aggregator_endpoints"`
 	// AggregatorCACertFiles map the verifier qualifier to the CA cert file path for TLS verification.
@@ -117,6 +121,239 @@ type Cfg struct {
 	JDInfra *jobs.JDInfrastructure `toml:"-"`
 	// ClientLookup provides ChainlinkClient lookup by NOP alias (populated at runtime).
 	ClientLookup *jobs.NodeSetClientLookup `toml:"-"`
+}
+
+// expandForHA clones AggregatorInput / IndexerInput entries based on their
+// per-service redundancy counts and updates the EnvironmentTopology so that
+// downstream changesets and service launches see the expanded set.
+// When HighAvailability is false this is a no-op.
+func (c *Cfg) expandForHA() error {
+	if !c.HighAvailability {
+		return nil
+	}
+	if err := c.expandAggregators(); err != nil {
+		return fmt.Errorf("expanding aggregators for HA: %w", err)
+	}
+	if err := c.expandIndexers(); err != nil {
+		return fmt.Errorf("expanding indexers for HA: %w", err)
+	}
+	return nil
+}
+
+func (c *Cfg) expandAggregators() error {
+	if c.EnvironmentTopology == nil || c.EnvironmentTopology.NOPTopology == nil {
+		return nil
+	}
+
+	// Find the current max port number so we can increment from there
+	var maxHostPort, maxDBPort, maxRedisPort int
+	for _, agg := range c.Aggregator {
+		if agg.HostPort > maxHostPort {
+			maxHostPort = agg.HostPort
+		}
+		if agg.DB != nil && agg.DB.HostPort > maxDBPort {
+			maxDBPort = agg.DB.HostPort
+		}
+		if agg.Redis != nil && agg.Redis.HostPort > maxRedisPort {
+			maxRedisPort = agg.Redis.HostPort
+		}
+	}
+
+	nextHostPort := maxHostPort + 1
+	nextDBPort := maxDBPort + 1
+	nextRedisPort := maxRedisPort + 1
+
+	var clones []*services.AggregatorInput
+
+	for _, agg := range c.Aggregator {
+		if agg.RedundantAggregators <= 0 {
+			continue
+		}
+
+		committee, ok := c.EnvironmentTopology.NOPTopology.Committees[agg.CommitteeName]
+		if !ok {
+			return fmt.Errorf("committee %q not found in topology for aggregator %q", agg.CommitteeName, agg.InstanceName())
+		}
+
+		insecure := false
+		if len(committee.Aggregators) > 0 {
+			insecure = committee.Aggregators[0].InsecureAggregatorConnection
+		}
+
+		for i := range agg.RedundantAggregators {
+			cloneName := fmt.Sprintf("%s-ha-%d", agg.InstanceName(), i+1)
+
+			clone := &services.AggregatorInput{
+				Image:                              agg.Image,
+				Name:                               cloneName,
+				HostPort:                           nextHostPort,
+				SourceCodePath:                     agg.SourceCodePath,
+				RootPath:                           agg.RootPath,
+				CommitteeName:                      agg.CommitteeName,
+				MonitoringOtelExporterHTTPEndpoint: agg.MonitoringOtelExporterHTTPEndpoint,
+				AggregationChannelBufferSize:       agg.AggregationChannelBufferSize,
+				BackgroundWorkerCount:              agg.BackgroundWorkerCount,
+				APIClients:                         deepCopyAggregatorAPIClients(agg.APIClients),
+			}
+
+			if agg.DB != nil {
+				clone.DB = &services.AggregatorDBInput{
+					Image:    agg.DB.Image,
+					HostPort: nextDBPort,
+				}
+			}
+
+			if agg.Redis != nil {
+				clone.Redis = &services.AggregatorRedisInput{
+					Image:    agg.Redis.Image,
+					HostPort: nextRedisPort,
+				}
+			}
+
+			clone.Env = &services.AggregatorEnvConfig{
+				StorageConnectionURL: fmt.Sprintf(
+					"postgresql://%s:%s@%s-%s:5432/%s?sslmode=disable",
+					services.DefaultAggregatorDBUsername,
+					services.DefaultAggregatorDBPassword,
+					cloneName, services.AggregatorDBContainerNameSuffix,
+					services.DefaultAggregatorDBName,
+				),
+				RedisAddress: fmt.Sprintf("%s-%s:6379", cloneName, services.AggregatorRedisContainerNameSuffix),
+				RedisDB:      "0",
+			}
+			if agg.Env != nil {
+				clone.Env.RedisPassword = agg.Env.RedisPassword
+				clone.Env.RedisDB = agg.Env.RedisDB
+			}
+
+			aggContainerName := fmt.Sprintf("%s-%s", cloneName, services.AggregatorContainerNameSuffix)
+			committee.Aggregators = append(committee.Aggregators, deployments.AggregatorConfig{
+				Name:                         cloneName,
+				Address:                      fmt.Sprintf("%s:%d", aggContainerName, services.DefaultAggregatorGRPCPort),
+				InsecureAggregatorConnection: insecure,
+			})
+
+			clones = append(clones, clone)
+
+			nextHostPort++
+			nextDBPort++
+			nextRedisPort++
+		}
+
+		c.EnvironmentTopology.NOPTopology.Committees[agg.CommitteeName] = committee
+	}
+
+	c.Aggregator = append(c.Aggregator, clones...)
+	return nil
+}
+
+func (c *Cfg) expandIndexers() error {
+	var maxPort, maxDBPort int
+	for _, idx := range c.Indexer {
+		if idx.Port > maxPort {
+			maxPort = idx.Port
+		}
+		if idx.DB != nil && idx.DB.HostPort > maxDBPort {
+			maxDBPort = idx.DB.HostPort
+		}
+	}
+
+	nextPort := maxPort + 1
+	nextDBPort := maxDBPort + 1
+
+	var clones []*services.IndexerInput
+
+	for _, idx := range c.Indexer {
+		if idx.RedundantIndexers <= 0 {
+			continue
+		}
+
+		for range idx.RedundantIndexers {
+			clone := &services.IndexerInput{
+				Image:                            idx.Image,
+				Port:                             nextPort,
+				SourceCodePath:                   idx.SourceCodePath,
+				RootPath:                         idx.RootPath,
+				CommitteeVerifierNameToQualifier: copyStringMap(idx.CommitteeVerifierNameToQualifier),
+				CCTPVerifierNameToQualifier:      copyStringMap(idx.CCTPVerifierNameToQualifier),
+				LombardVerifierNameToQualifier:   copyStringMap(idx.LombardVerifierNameToQualifier),
+			}
+
+			if idx.DB != nil {
+				clone.DB = &services.DBInput{
+					Image:    idx.DB.Image,
+					HostPort: nextDBPort,
+					Database: idx.DB.Database,
+					Username: idx.DB.Username,
+					Password: idx.DB.Password,
+				}
+			}
+
+			if idx.IndexerConfig != nil {
+				cfgCopy := *idx.IndexerConfig
+				if idx.IndexerConfig.Storage.Single != nil {
+					singleCopy := *idx.IndexerConfig.Storage.Single
+					if idx.IndexerConfig.Storage.Single.Postgres != nil {
+						pgCopy := *idx.IndexerConfig.Storage.Single.Postgres
+						singleCopy.Postgres = &pgCopy
+					}
+					cfgCopy.Storage.Single = &singleCopy
+				}
+				clone.IndexerConfig = &cfgCopy
+			}
+
+			if idx.Secrets != nil {
+				secCopy := *idx.Secrets
+				clone.Secrets = &secCopy
+			}
+
+			clones = append(clones, clone)
+
+			nextPort++
+			nextDBPort++
+		}
+	}
+
+	c.Indexer = append(c.Indexer, clones...)
+
+	if c.EnvironmentTopology != nil {
+		for i := range c.Indexer {
+			addr := fmt.Sprintf("http://indexer-%d:%d", i+1, services.DefaultIndexerInternalPort)
+			c.EnvironmentTopology.IndexerAddress = append(c.EnvironmentTopology.IndexerAddress, addr)
+		}
+	}
+
+	return nil
+}
+
+func deepCopyAggregatorAPIClients(src []*services.AggregatorClientConfig) []*services.AggregatorClientConfig {
+	if src == nil {
+		return nil
+	}
+	dst := make([]*services.AggregatorClientConfig, len(src))
+	for i, client := range src {
+		c := *client
+		c.Groups = make([]string, len(client.Groups))
+		copy(c.Groups, client.Groups)
+		c.APIKeyPairs = make([]*services.AggregatorAPIKeyPair, len(client.APIKeyPairs))
+		for j, pair := range client.APIKeyPairs {
+			p := *pair
+			c.APIKeyPairs[j] = &p
+		}
+		dst[i] = &c
+	}
+	return dst
+}
+
+func copyStringMap(src map[string]string) map[string]string {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
 }
 
 // NewAggregatorClientForCommittee creates an AggregatorClient for the specified committee.
@@ -497,6 +734,10 @@ func NewEnvironment() (in *Cfg, err error) {
 	in, err = Load[Cfg](configs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
+	}
+
+	if err = in.expandForHA(); err != nil {
+		return nil, fmt.Errorf("failed to expand HA configuration: %w", err)
 	}
 
 	// Executor config...
