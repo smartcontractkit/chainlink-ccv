@@ -174,7 +174,34 @@ func (l *Lib) Chains(ctx context.Context) ([]ChainImpl, error) {
 			}
 			impl = evmImpl
 		case chain_selectors.FamilyCanton:
-			cantonImpl, err := canton.New(ctx, *l.l, env, bc.ChainID)
+			// Extract source reader configuration from blockchain output
+			var grpcURL, jwt, templateID string
+			if bc.Out != nil && bc.Out.NetworkSpecificData != nil &&
+				bc.Out.NetworkSpecificData.CantonEndpoints != nil &&
+				len(bc.Out.NetworkSpecificData.CantonEndpoints.Participants) > 0 {
+				participant := bc.Out.NetworkSpecificData.CantonEndpoints.Participants[0]
+				grpcURL = participant.GRPCLedgerAPIURL
+				jwt = participant.JWT
+				// Get template ID from verifier config if available
+				strSelector := fmt.Sprintf("%d", details.ChainSelector)
+				for _, verifier := range l.cfg.Verifier {
+					if verifier.CantonConfigs != nil {
+						if cantonConfig, ok := verifier.CantonConfigs[strSelector]; ok {
+							if cantonConfig.ReaderConfig.CCIPMessageSentTemplateID != "" {
+								templateID = cantonConfig.ReaderConfig.CCIPMessageSentTemplateID
+								break
+							}
+						}
+					}
+				}
+				// If not found in config, use default that matches the test setup
+				if templateID == "" {
+					// Default to the real CCIPMessageSent template emitted by Canton CCIP.
+					// (Package alias is used on Canton; do not strip the leading '#'.)
+					templateID = "#ccip-perpartyrouter:CCIP.PerPartyRouter:CCIPMessageSent"
+				}
+			}
+			cantonImpl, err := canton.NewWithConfig(ctx, *l.l, env, bc.ChainID, grpcURL, jwt, templateID)
 			if err != nil {
 				return nil, fmt.Errorf("creating Canton implementation for chain ID %s: %w", bc.ChainID, err)
 			}

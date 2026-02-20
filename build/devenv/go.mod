@@ -6,6 +6,12 @@ replace github.com/smartcontractkit/chainlink-ccv => ../..
 
 replace github.com/smartcontractkit/chainlink-ccv/deployments => ../../deployments
 
+replace github.com/smartcontractkit/chainlink-canton => ../../../chainlink-canton
+
+// Use local go-daml checkout (matches chainlink-canton integration-tests), required for correct
+// Ledger API encoding of some Canton CCIP types (e.g. GenMap keys for Numeric selectors).
+replace github.com/smartcontractkit/go-daml => ../../../go-daml
+
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/Masterminds/semver/v3 v3.4.0
@@ -513,6 +519,3 @@ replace github.com/ebitengine/purego v0.8.2 => github.com/ebitengine/purego v0.8
 replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlink-tron/relayer/gotron-sdk v0.0.5-0.20251014124537-af6b1684fe15
 
 replace github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
-
-// Repeat replaces from chainlink-canton
-replace github.com/digital-asset/dazl-client/v8 => github.com/noders-team/dazl-client/v8 v8.7.1-2

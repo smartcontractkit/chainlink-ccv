@@ -217,7 +217,7 @@ execution_interval = 15_000_000_000
   [verifier.canton_configs]
     [verifier.canton_configs.8706591216959472610.reader_config]
       ccip_owner_party = "participant1-localparty-1"
-      ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
+      ccip_message_sent_template_id = "#ccip-perpartyrouter:CCIP.PerPartyRouter:CCIPMessageSent"
 
 
 [[verifier]]
@@ -237,7 +237,7 @@ execution_interval = 15_000_000_000
   [verifier.canton_configs]
     [verifier.canton_configs.8706591216959472610.reader_config]
       ccip_owner_party = "participant1-localparty-1"
-      ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
+      ccip_message_sent_template_id = "#ccip-perpartyrouter:CCIP.PerPartyRouter:CCIPMessageSent"
 
 
 # Secondary Verifier Setup
@@ -258,7 +258,7 @@ execution_interval = 15_000_000_000
   [verifier.canton_configs]
     [verifier.canton_configs.8706591216959472610.reader_config]
       ccip_owner_party = "participant1-localparty-1"
-      ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
+      ccip_message_sent_template_id = "#ccip-perpartyrouter:CCIP.PerPartyRouter:CCIPMessageSent"
 
 
 [[verifier]]
@@ -278,7 +278,7 @@ execution_interval = 15_000_000_000
   [verifier.canton_configs]
     [verifier.canton_configs.8706591216959472610.reader_config]
       ccip_owner_party = "participant1-localparty-1"
-      ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
+      ccip_message_sent_template_id = "#ccip-perpartyrouter:CCIP.PerPartyRouter:CCIPMessageSent"
 
 
 # Tertiary Verifier Setup
@@ -299,7 +299,7 @@ execution_interval = 15_000_000_000
   [verifier.canton_configs]
     [verifier.canton_configs.8706591216959472610.reader_config]
       ccip_owner_party = "participant1-localparty-1"
-      ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
+      ccip_message_sent_template_id = "#ccip-perpartyrouter:CCIP.PerPartyRouter:CCIPMessageSent"
 
 [[verifier]]
   image = "verifier:dev"
@@ -318,7 +318,7 @@ execution_interval = 15_000_000_000
   [verifier.canton_configs]
     [verifier.canton_configs.8706591216959472610.reader_config]
       ccip_owner_party = "participant1-localparty-1"
-      ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
+      ccip_message_sent_template_id = "#ccip-perpartyrouter:CCIP.PerPartyRouter:CCIPMessageSent"
 
 [[token_verifier]]
   mode = "standalone"

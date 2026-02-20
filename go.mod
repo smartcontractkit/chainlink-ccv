@@ -45,7 +45,7 @@ require (
 
 require (
 	github.com/beevik/ntp v1.5.0
-	github.com/digital-asset/dazl-client/v8 v8.8.0
+	github.com/digital-asset/dazl-client/v8 v8.9.0
 	github.com/gagliardetto/solana-go v1.13.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lib/pq v1.10.9

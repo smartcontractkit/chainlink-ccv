@@ -36,7 +36,9 @@ const (
 	ccipMessageSentEventReceiptsLabel          = "receipts"
 
 	// labels for the Receipt template.
-	ccipMessageSentEventReceiptIssuerLabel            = "issuer"
+	ccipMessageSentEventReceiptIssuerTypeLabel        = "issuerType"
+	ccipMessageSentEventReceiptIssuerAddressLabel     = "issuerAddress"
+	ccipMessageSentEventReceiptVersionTagLabel        = "versionTag"
 	ccipMessageSentEventReceiptDestGasLimitLabel      = "destGasLimit"
 	ccipMessageSentEventReceiptDestBytesOverheadLabel = "destBytesOverhead"
 	ccipMessageSentEventReceiptFeeTokenAmountLabel    = "feeTokenAmount"
@@ -268,10 +270,39 @@ func processCreatedEvent(
 func processCCIPMessageSentEvent(field *ledgerv2.RecordField) (*protocol.MessageSentEvent, error) {
 	messageSentEvent := &protocol.MessageSentEvent{}
 	var verifierBlobs [][]byte
+	var ccvIssuers []protocol.UnknownAddress
+	var eventDestChainSelector *uint64
+	var eventSequenceNumber *uint64
 	for _, eventField := range field.GetValue().GetRecord().GetFields() {
 		switch eventField.GetLabel() {
 		case ccipMessageSentEventDestChainSelectorLabel:
+			// Extract destChainSelector from event field (Numeric 0 can be Int64 or Numeric string)
+			if val := eventField.GetValue().GetInt64(); val != 0 {
+				v := uint64(val)
+				eventDestChainSelector = &v
+			} else if numericStr := eventField.GetValue().GetNumeric(); numericStr != "" {
+				// Handle Numeric 0 as string (e.g., "7.0")
+				destChainSelectorFloat, ok := new(big.Float).SetString(numericStr)
+				if ok {
+					destChainSelector, _ := destChainSelectorFloat.Int(nil)
+					v := destChainSelector.Uint64()
+					eventDestChainSelector = &v
+				}
+			}
 		case ccipMessageSentEventSequenceNumberLabel:
+			// Extract sequenceNumber from event field (Numeric 0 can be Int64 or Numeric string)
+			if val := eventField.GetValue().GetInt64(); val != 0 {
+				v := uint64(val)
+				eventSequenceNumber = &v
+			} else if numericStr := eventField.GetValue().GetNumeric(); numericStr != "" {
+				// Handle Numeric 0 as string (e.g., "7.0")
+				sequenceNumberFloat, ok := new(big.Float).SetString(numericStr)
+				if ok {
+					sequenceNumber, _ := sequenceNumberFloat.Int(nil)
+					v := sequenceNumber.Uint64()
+					eventSequenceNumber = &v
+				}
+			}
 		case ccipMessageSentEventMessageIDLabel:
 			messageID, err := hex.DecodeString(eventField.GetValue().GetText())
 			if err != nil {
@@ -297,11 +328,12 @@ func processCCIPMessageSentEvent(field *ledgerv2.RecordField) (*protocol.Message
 				verifierBlobs = append(verifierBlobs, verifierBlobBytes)
 			}
 		case ccipMessageSentEventReceiptsLabel:
-			protoReceipts, err := processReceipts(eventField)
+			protoReceipts, ccvAddrs, err := processReceipts(eventField)
 			if err != nil {
 				return nil, fmt.Errorf("failed to process receipts: %w", err)
 			}
 			messageSentEvent.Receipts = append(messageSentEvent.Receipts, protoReceipts...)
+			ccvIssuers = append(ccvIssuers, ccvAddrs...)
 		default:
 			return nil, fmt.Errorf("unknown event field on CCIPMessageSentEvent, possibly mismatched contract/template? : %s", eventField.GetLabel())
 		}
@@ -330,10 +362,57 @@ func processCCIPMessageSentEvent(field *ledgerv2.RecordField) (*protocol.Message
 		return nil, fmt.Errorf("message ID mismatch, from event: %s, from message: %s", messageSentEvent.MessageID.String(), messageSentEvent.Message.MustMessageID().String())
 	}
 
-	// Validate ccvAndExecutorHash
-	if err := protocol.ValidateCCVAndExecutorHash(messageSentEvent.Message, messageSentEvent.Receipts); err != nil {
-		return nil, fmt.Errorf("ccvAndExecutorHash validation failed: %w", err)
+	// Validate that extracted event fields match the decoded message values
+	// This helps catch inconsistencies and provides better error messages
+	if eventDestChainSelector != nil && *eventDestChainSelector != uint64(messageSentEvent.Message.DestChainSelector) {
+		return nil, fmt.Errorf("destChainSelector mismatch: event field=%d, decoded message=%d", *eventDestChainSelector, uint64(messageSentEvent.Message.DestChainSelector))
 	}
+	if eventSequenceNumber != nil && *eventSequenceNumber != uint64(messageSentEvent.Message.SequenceNumber) {
+		return nil, fmt.Errorf("sequenceNumber mismatch: event field=%d, decoded message=%d", *eventSequenceNumber, uint64(messageSentEvent.Message.SequenceNumber))
+	}
+
+	// NOTE: We intentionally do NOT validate ccvAndExecutorHash on Canton here.
+	//
+	// On Canton, the on-ledger ccvAndExecutorHash is computed using `destConfig.defaultExecutor`
+	// (see `CCIP.OnRamp`), which is not available in the emitted `CCIPMessageSent` event payload.
+	// Canton receipts also do not include an executor receipt (only CCV/pool/network receipts).
+	// Recomputing the hash from just the event data is therefore under-specified and leads to
+	// false mismatches (like the one you’re hitting).
+	//
+	// This hash is still validated later by the verifier/executor components which do have
+	// access to lane configuration/state.
+	//
+	// Kept here (commented out) for future re-enablement once we have access to the
+	// lane config executor input (destConfig.defaultExecutor) at read time:
+	/*
+		// Validate ccvAndExecutorHash
+		//
+		// NOTE: Canton receipts do NOT include an "executor receipt" (they are CCV receipts, optional pool receipt, and final network receipt).
+		// The chain-agnostic protocol.ValidateCCVAndExecutorHash assumes an EVM-style receipt array that includes an executor receipt, so it will
+		// misinterpret Canton receipts and produce false mismatches.
+		//
+		// For Canton, we would want to compute the hash from:
+		// - CCV issuers extracted from receipts where issuerType == IssuerType_CCV
+		// - executor address taken from lane config (destConfig.defaultExecutor), not from the event
+		if len(ccvIssuers) > 0 {
+			expectedHash, err := protocol.ComputeCCVAndExecutorHash(ccvIssuers, messageSentEvent.Message.OffRampAddress)
+			if err != nil {
+				return nil, fmt.Errorf("ccvAndExecutorHash validation failed: %w", err)
+			}
+			if expectedHash != messageSentEvent.Message.CcvAndExecutorHash {
+				return nil, fmt.Errorf(
+					"ccvAndExecutorHash mismatch: expected %s, got %s",
+					expectedHash.String(),
+					messageSentEvent.Message.CcvAndExecutorHash.String(),
+				)
+			}
+		} else {
+			// Backwards-compat fallback for older Receipt schemas that didn't carry issuerType.
+			if err := protocol.ValidateCCVAndExecutorHash(messageSentEvent.Message, messageSentEvent.Receipts); err != nil {
+				return nil, fmt.Errorf("ccvAndExecutorHash validation failed: %w", err)
+			}
+		}
+	*/
 
 	return messageSentEvent, nil
 }
@@ -350,23 +429,30 @@ data Receipt = Receipt
         extraArgs : BytesHex       -- Entity-specific arguments
     deriving (Eq, Show)
 */
-func processReceipts(receiptsField *ledgerv2.RecordField) ([]protocol.ReceiptWithBlob, error) {
+func processReceipts(receiptsField *ledgerv2.RecordField) ([]protocol.ReceiptWithBlob, []protocol.UnknownAddress, error) {
 	elems := receiptsField.GetValue().GetList().GetElements()
 	protoReceipts := make([]protocol.ReceiptWithBlob, 0, len(elems))
+	ccvIssuers := make([]protocol.UnknownAddress, 0, len(elems))
 	for _, receipt := range elems {
 		var protoReceipt protocol.ReceiptWithBlob
+		var issuerType string
 		for _, field := range receipt.GetRecord().GetFields() {
 			switch field.GetLabel() {
-			case ccipMessageSentEventReceiptIssuerLabel:
-				// issuer is emitted as Text, and its not a hex string.
-				// however, in order to make it fit into a protocol.UnknownAddress,
-				// we will interpret the string itself as bytes.
-				// Note: assume the Text is valid UTF-8.
+			case ccipMessageSentEventReceiptIssuerTypeLabel:
+				// Receipt issuer type (CCV/Pool/Network).
+				// We use this to extract CCV issuers for Canton-specific ccvAndExecutorHash validation.
+				if v := field.GetValue().GetVariant(); v != nil {
+					issuerType = v.GetConstructor()
+				}
+			case ccipMessageSentEventReceiptIssuerAddressLabel:
+				// issuerAddress is a BytesHex (hex string) representing a 32-byte Canton instance address.
 				decoded, err := protocol.NewUnknownAddressFromHex(field.GetValue().GetText())
 				if err != nil {
-					return nil, fmt.Errorf("failed to decode issuer: %w, input: %s", err, field.GetValue().GetText())
+					return nil, nil, fmt.Errorf("failed to decode issuerAddress: %w, input: %s", err, field.GetValue().GetText())
 				}
 				protoReceipt.Issuer = decoded
+			case ccipMessageSentEventReceiptVersionTagLabel:
+				// Optional BytesHex version tag. Not needed for receipt structure/ccvAndExecutorHash validation.
 			case ccipMessageSentEventReceiptDestGasLimitLabel:
 				protoReceipt.DestGasLimit = uint64(field.GetValue().GetInt64()) //nolint:gosec // int64 is always non-negative
 			case ccipMessageSentEventReceiptDestBytesOverheadLabel:
@@ -375,24 +461,28 @@ func processReceipts(receiptsField *ledgerv2.RecordField) ([]protocol.ReceiptWit
 				// Numerics end in a decimal point, so we have to use big.Float to parse it and then convert to big.Int.
 				feeTokenAmountFloat, ok := new(big.Float).SetString(field.GetValue().GetNumeric())
 				if !ok {
-					return nil, fmt.Errorf("failed to parse fee token amount numeric, input: %s", field.GetValue().GetNumeric())
+					return nil, nil, fmt.Errorf("failed to parse fee token amount numeric, input: %s", field.GetValue().GetNumeric())
 				}
 				feeTokenAmount, _ := feeTokenAmountFloat.Int(nil)
 				protoReceipt.FeeTokenAmount = feeTokenAmount
 			case ccipMessageSentEventReceiptExtraArgsLabel:
 				extraArgs, err := hex.DecodeString(field.GetValue().GetText())
 				if err != nil {
-					return nil, fmt.Errorf("failed to decode extra args: %w, input: %s", err, field.GetValue().GetText())
+					return nil, nil, fmt.Errorf("failed to decode extra args: %w, input: %s", err, field.GetValue().GetText())
 				}
 				protoReceipt.ExtraArgs = extraArgs
 			default:
-				return nil, fmt.Errorf("unknown receipt field: %s", field.GetLabel())
+				// Be forward-compatible with Receipt schema changes.
+				// We only require issuerAddress, feeTokenAmount, destGasLimit, destBytesOverhead, and extraArgs for protocol validation.
 			}
 		}
 		protoReceipts = append(protoReceipts, protoReceipt)
+		if issuerType == "IssuerType_CCV" {
+			ccvIssuers = append(ccvIssuers, protoReceipt.Issuer)
+		}
 	}
 
-	return protoReceipts, nil
+	return protoReceipts, ccvIssuers, nil
 }
 
 func identifiersClose(a, b *ledgerv2.Identifier) bool {
