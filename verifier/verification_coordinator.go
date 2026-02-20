@@ -19,6 +19,13 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
+const (
+	// resultQueueRetryDuration is how long verification results are retried before giving up.
+	resultQueueRetryDuration = 7 * 24 * time.Hour // 7 days
+	// resultQueueLockDuration is how long a job can remain in 'processing' before being reclaimed.
+	resultQueueLockDuration = 1 * time.Minute
+)
+
 type Coordinator struct {
 	services.StateMachine
 	cancel context.CancelFunc
@@ -170,8 +177,8 @@ func createStorageWriterProcessor(
 		jobqueue.QueueConfig{
 			Name:          "verification_results",
 			OwnerID:       config.VerifierID,
-			RetryDuration: 7 * 24 * time.Hour,
-			LockDuration:  5 * config.StorageBatchTimeout,
+			RetryDuration: resultQueueRetryDuration,
+			LockDuration:  resultQueueLockDuration,
 		},
 		logger.With(lggr, "component", "result_queue"),
 	)
