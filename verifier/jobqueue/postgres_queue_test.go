@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -56,7 +56,6 @@ func newTestQueue(t *testing.T, opts ...func(*jobqueue.QueueConfig)) (*jobqueue.
 func countRows(t *testing.T, db *sql.DB, table string, status jobqueue.JobStatus) int {
 	t.Helper()
 	var count int
-	//nolint:gosec // test-only helper
 	err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE status = $1", table), string(status)).Scan(&count)
 	require.NoError(t, err)
 	return count
@@ -66,7 +65,6 @@ func countRows(t *testing.T, db *sql.DB, table string, status jobqueue.JobStatus
 func countAllRows(t *testing.T, db *sql.DB, table string) int {
 	t.Helper()
 	var count int
-	//nolint:gosec // test-only helper
 	err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count)
 	require.NoError(t, err)
 	return count
@@ -133,7 +131,7 @@ func TestConsumeBatchSizeLimit(t *testing.T) {
 	q, _ := newTestQueue(t)
 	ctx := context.Background()
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: fmt.Sprintf("m-%d", i), Data: "x"}))
 	}
 
@@ -279,7 +277,7 @@ func TestFail(t *testing.T) {
 	assert.Equal(t, "permanent", lastErr)
 }
 
-// Failed jobs are re-consumable by the Consume query (status IN ('pending','failed'))
+// Failed jobs are re-consumable by the Consume query (status IN ('pending','failed')).
 func TestFailedJobsAreReconsumed(t *testing.T) {
 	q, _ := newTestQueue(t)
 	ctx := context.Background()
@@ -391,17 +389,17 @@ func TestConcurrentPublishAndConsume(t *testing.T) {
 	// --- Producers ---
 	var wgPub sync.WaitGroup
 	wgPub.Add(numProducers)
-	for p := 0; p < numProducers; p++ {
+	for p := range numProducers {
 		go func(producerID int) {
 			defer wgPub.Done()
-			for j := 0; j < jobsPerProducer; j++ {
+			for j := range jobsPerProducer {
 				job := testJob{
 					Chain:   fmt.Sprintf("chain-%d", producerID),
 					Message: fmt.Sprintf("msg-%d-%d", producerID, j),
 					Data:    fmt.Sprintf("data-%d-%d", producerID, j),
 				}
 				// Random sleep to simulate realistic timing
-				time.Sleep(time.Duration(rand.Intn(5)) * time.Millisecond) //nolint:gosec
+				time.Sleep(time.Duration(rand.IntN(5)) * time.Millisecond)
 				err := q.Publish(ctx, job)
 				assert.NoError(t, err)
 			}
@@ -417,12 +415,12 @@ func TestConcurrentPublishAndConsume(t *testing.T) {
 
 	var wgCon sync.WaitGroup
 	wgCon.Add(numConsumers)
-	for c := 0; c < numConsumers; c++ {
+	for range numConsumers {
 		go func() {
 			defer wgCon.Done()
 			for {
 				// Random sleep to simulate work
-				time.Sleep(time.Duration(rand.Intn(3)) * time.Millisecond) //nolint:gosec
+				time.Sleep(time.Duration(rand.IntN(3)) * time.Millisecond)
 				batch, err := q.Consume(ctx, batchSize, time.Minute)
 				if err != nil {
 					t.Errorf("consume error: %v", err)
@@ -468,7 +466,7 @@ func TestConcurrentConsumersNoDuplicates(t *testing.T) {
 	ctx := context.Background()
 
 	const numJobs = 50
-	for i := 0; i < numJobs; i++ {
+	for i := range numJobs {
 		require.NoError(t, q.Publish(ctx, testJob{
 			Chain:   "1",
 			Message: fmt.Sprintf("dup-test-%d", i),
@@ -482,7 +480,7 @@ func TestConcurrentConsumersNoDuplicates(t *testing.T) {
 	)
 	numConsumers := 8
 	wg.Add(numConsumers)
-	for c := 0; c < numConsumers; c++ {
+	for range numConsumers {
 		go func() {
 			defer wg.Done()
 			for {
@@ -522,7 +520,7 @@ func TestConcurrentRetryAndFail(t *testing.T) {
 
 	const numJobs = 30
 
-	for i := 0; i < numJobs; i++ {
+	for i := range numJobs {
 		require.NoError(t, q.Publish(ctx, testJob{
 			Chain:   "chain-1",
 			Message: fmt.Sprintf("rf-%d", i),
@@ -538,10 +536,10 @@ func TestConcurrentRetryAndFail(t *testing.T) {
 
 	numWorkers := 4
 	wg.Add(numWorkers)
-	for w := 0; w < numWorkers; w++ {
+	for w := range numWorkers {
 		go func(workerID int) {
 			defer wg.Done()
-			rng := rand.New(rand.NewSource(int64(workerID))) //nolint:gosec
+			rng := rand.New(rand.NewPCG(uint64(workerID), uint64(workerID+1)))
 
 			for {
 				batch, err := q.Consume(ctx, 5, time.Minute)
@@ -559,9 +557,9 @@ func TestConcurrentRetryAndFail(t *testing.T) {
 
 				for _, j := range batch {
 					// Simulate random work
-					time.Sleep(time.Duration(rng.Intn(5)) * time.Millisecond)
+					time.Sleep(time.Duration(rng.IntN(5)) * time.Millisecond)
 
-					outcome := rng.Intn(3) // 0=complete, 1=retry, 2=fail
+					outcome := rng.IntN(3) // 0=complete, 1=retry, 2=fail
 					switch outcome {
 					case 0:
 						// Success
@@ -646,7 +644,7 @@ func TestCleanupMixed(t *testing.T) {
 	ctx := context.Background()
 
 	// Create 3 jobs, complete all
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: fmt.Sprintf("cl-%d", i), Data: "x"}))
 	}
 	consumed, err := q.Consume(ctx, 3, time.Minute)
@@ -685,11 +683,11 @@ func TestConcurrentPublishStress(t *testing.T) {
 
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
-	for g := 0; g < goroutines; g++ {
+	for g := range goroutines {
 		go func(gID int) {
 			defer wg.Done()
-			for j := 0; j < jobsPerRoutine; j++ {
-				time.Sleep(time.Duration(rand.Intn(2)) * time.Millisecond) //nolint:gosec
+			for j := range jobsPerRoutine {
+				time.Sleep(time.Duration(rand.IntN(2)) * time.Millisecond)
 				err := q.Publish(ctx, testJob{
 					Chain:   fmt.Sprintf("chain-%d", gID),
 					Message: fmt.Sprintf("stress-%d-%d", gID, j),
@@ -722,12 +720,12 @@ func TestEndToEndConcurrentWithRandomWork(t *testing.T) {
 	// --- Produce ---
 	var wgPub sync.WaitGroup
 	wgPub.Add(numProducers)
-	for p := 0; p < numProducers; p++ {
+	for p := range numProducers {
 		go func(pid int) {
 			defer wgPub.Done()
-			rng := rand.New(rand.NewSource(int64(pid))) //nolint:gosec
-			for j := 0; j < jobsPerProducer; j++ {
-				time.Sleep(time.Duration(rng.Intn(10)) * time.Millisecond)
+			rng := rand.New(rand.NewPCG(uint64(pid), uint64(pid+1)))
+			for j := range jobsPerProducer {
+				time.Sleep(time.Duration(rng.IntN(10)) * time.Millisecond)
 				err := q.Publish(ctx, testJob{
 					Chain:   fmt.Sprintf("e2e-chain-%d", pid),
 					Message: fmt.Sprintf("e2e-%d-%d", pid, j),
@@ -746,10 +744,10 @@ func TestEndToEndConcurrentWithRandomWork(t *testing.T) {
 		wgCon          sync.WaitGroup
 	)
 	wgCon.Add(numConsumers)
-	for c := 0; c < numConsumers; c++ {
+	for c := range numConsumers {
 		go func(cid int) {
 			defer wgCon.Done()
-			rng := rand.New(rand.NewSource(int64(cid + 100))) //nolint:gosec
+			rng := rand.New(rand.NewPCG(uint64(cid+100), uint64(cid+101)))
 			emptyRounds := 0
 
 			for {
@@ -775,9 +773,9 @@ func TestEndToEndConcurrentWithRandomWork(t *testing.T) {
 
 				for _, j := range batch {
 					// Simulate random work duration
-					time.Sleep(time.Duration(rng.Intn(8)) * time.Millisecond)
+					time.Sleep(time.Duration(rng.IntN(8)) * time.Millisecond)
 
-					roll := rng.Intn(100)
+					roll := rng.IntN(100)
 					switch {
 					case roll < 60:
 						// 60%: success
