@@ -54,7 +54,9 @@ type JobQueue[T Jobable] interface {
 	// Useful for implementing retry backoff strategies.
 	PublishWithDelay(ctx context.Context, delay time.Duration, jobs ...T) error
 	// Consume retrieves and locks up to batchSize jobs for processing.
-	// Jobs are locked for lockDuration to prevent concurrent processing.
+	// Jobs in 'pending' or 'failed' status that are past their available_at time are eligible.
+	// Additionally, jobs stuck in 'processing' for longer than lockDuration are considered
+	// stale (e.g. from a crashed worker) and are automatically reclaimed.
 	// Returns empty slice if no jobs are available.
 	//
 	// The implementation should use SELECT FOR UPDATE SKIP LOCKED to ensure

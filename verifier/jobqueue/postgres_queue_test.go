@@ -158,6 +158,160 @@ func TestConsumeDoesNotReturnProcessingJobs(t *testing.T) {
 	assert.Empty(t, second)
 }
 
+func TestConsumeReclaimsStaleLock(t *testing.T) {
+	q, db := newTestQueue(t)
+	ctx := context.Background()
+
+	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+
+	// Consume the job with a 1-minute lock (won't expire naturally during the test).
+	first, err := q.Consume(ctx, 1, time.Minute)
+	require.NoError(t, err)
+	require.Len(t, first, 1)
+	jobID := first[0].ID
+	assert.Equal(t, 1, first[0].AttemptCount)
+
+	// Simulate a crashed worker by back-dating started_at.
+	_, err = db.Exec("UPDATE verification_tasks SET started_at = NOW() - INTERVAL '10 minutes' WHERE job_id = $1", jobID)
+	require.NoError(t, err)
+
+	// Second consume with a 5-minute lock should NOT reclaim (started_at = 10 min ago, lock = 5 min → stale).
+	// Actually 10 min ago > 5 min lock, so it IS stale. Use a lock longer than the back-date to test NOT reclaiming.
+	notReclaimed, err := q.Consume(ctx, 1, 15*time.Minute)
+	require.NoError(t, err)
+	assert.Empty(t, notReclaimed, "job should not be reclaimed when lock has not expired")
+
+	// Consume with a 5-minute lock SHOULD reclaim (started_at is 10 min ago, 10 > 5).
+	reclaimed, err := q.Consume(ctx, 1, 5*time.Minute)
+	require.NoError(t, err)
+	require.Len(t, reclaimed, 1)
+	assert.Equal(t, jobID, reclaimed[0].ID)
+	assert.Equal(t, 2, reclaimed[0].AttemptCount, "attempt_count should be incremented on reclaim")
+}
+
+func TestConsumeDoesNotReclaimFreshProcessingJob(t *testing.T) {
+	q, _ := newTestQueue(t)
+	ctx := context.Background()
+
+	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+
+	// Consume with a long lock duration.
+	first, err := q.Consume(ctx, 1, time.Hour)
+	require.NoError(t, err)
+	require.Len(t, first, 1)
+
+	// A second consume with the same long lock duration should not reclaim
+	// because started_at is fresh (just now), well within the lock window.
+	second, err := q.Consume(ctx, 1, time.Hour)
+	require.NoError(t, err)
+	assert.Empty(t, second, "freshly consumed job should not be reclaimed while lock is still valid")
+}
+
+func TestConsumeReclaimMultipleStaleJobs(t *testing.T) {
+	q, db := newTestQueue(t)
+	ctx := context.Background()
+
+	// Publish 5 jobs.
+	for i := range 5 {
+		require.NoError(t, q.Publish(ctx, testJob{
+			Chain:   "1",
+			Message: fmt.Sprintf("stale-%d", i),
+			Data:    "x",
+		}))
+	}
+
+	// Consume all 5 (simulating a worker that will crash).
+	consumed, err := q.Consume(ctx, 10, time.Minute)
+	require.NoError(t, err)
+	require.Len(t, consumed, 5)
+
+	// Back-date started_at for only 3 of them to simulate partial crash.
+	for _, j := range consumed[:3] {
+		_, err = db.Exec("UPDATE verification_tasks SET started_at = NOW() - INTERVAL '20 minutes' WHERE job_id = $1", j.ID)
+		require.NoError(t, err)
+	}
+
+	// Consume with 10-minute lock should reclaim exactly the 3 stale jobs.
+	reclaimed, err := q.Consume(ctx, 10, 10*time.Minute)
+	require.NoError(t, err)
+	assert.Len(t, reclaimed, 3)
+
+	reclaimedIDs := map[string]bool{}
+	for _, j := range reclaimed {
+		reclaimedIDs[j.ID] = true
+		assert.Equal(t, 2, j.AttemptCount)
+	}
+	// Verify it's the right 3 jobs.
+	for _, j := range consumed[:3] {
+		assert.True(t, reclaimedIDs[j.ID], "expected job %s to be reclaimed", j.ID)
+	}
+	// The other 2 should not have been reclaimed.
+	for _, j := range consumed[3:] {
+		assert.False(t, reclaimedIDs[j.ID], "expected job %s to NOT be reclaimed", j.ID)
+	}
+}
+
+func TestConsumeReclaimConcurrentNoDuplicates(t *testing.T) {
+	q, db := newTestQueue(t)
+	ctx := context.Background()
+
+	const numJobs = 20
+
+	for i := range numJobs {
+		require.NoError(t, q.Publish(ctx, testJob{
+			Chain:   "1",
+			Message: fmt.Sprintf("concurrent-stale-%d", i),
+			Data:    "x",
+		}))
+	}
+
+	// Consume all, then back-date to make them stale.
+	consumed, err := q.Consume(ctx, numJobs, time.Minute)
+	require.NoError(t, err)
+	require.Len(t, consumed, numJobs)
+
+	_, err = db.Exec("UPDATE verification_tasks SET started_at = NOW() - INTERVAL '30 minutes'")
+	require.NoError(t, err)
+
+	// Launch multiple concurrent consumers to reclaim. Each should get a unique subset.
+	var (
+		seen sync.Map
+		wg   sync.WaitGroup
+	)
+	numConsumers := 6
+	wg.Add(numConsumers)
+	for range numConsumers {
+		go func() {
+			defer wg.Done()
+			for {
+				batch, err := q.Consume(ctx, 5, 10*time.Minute)
+				if err != nil {
+					return
+				}
+				if len(batch) == 0 {
+					return
+				}
+				for _, j := range batch {
+					if _, loaded := seen.LoadOrStore(j.ID, true); loaded {
+						t.Errorf("duplicate stale job reclaimed: %s", j.ID)
+					}
+				}
+				// Complete them so they don't get reclaimed again.
+				ids := make([]string, len(batch))
+				for i, j := range batch {
+					ids[i] = j.ID
+				}
+				_ = q.Complete(ctx, ids...)
+			}
+		}()
+	}
+	wg.Wait()
+
+	var count int
+	seen.Range(func(_, _ any) bool { count++; return true })
+	assert.Equal(t, numJobs, count, "all stale jobs should have been reclaimed exactly once")
+}
+
 func TestComplete(t *testing.T) {
 	q, db := newTestQueue(t)
 	ctx := context.Background()

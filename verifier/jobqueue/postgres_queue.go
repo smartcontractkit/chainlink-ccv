@@ -128,9 +128,14 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 }
 
 // Consume retrieves and locks jobs for processing.
+// Jobs stuck in 'processing' longer than lockDuration are automatically reclaimed.
 func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int, lockDuration time.Duration) ([]Job[T], error) {
 	now := time.Now()
+	staleBefore := now.Add(-lockDuration)
 
+	// Select jobs that are:
+	// 1. pending/failed and past their available_at, OR
+	// 2. processing but started_at is older than lockDuration (stale lock from crashed worker)
 	//nolint:gosec // G201: table name is from config, not user input
 	query := fmt.Sprintf(`
 		UPDATE %s
@@ -140,23 +145,28 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int, lockDu
 		WHERE id IN (
 			SELECT id FROM %s
 			WHERE owner_id = $3
-			  AND status IN ($4, $5)
-			  AND available_at <= $6
+			  AND (
+			    (status IN ($4, $5) AND available_at <= $6)
+			    OR
+			    (status = $7 AND started_at <= $8)
+			  )
 			ORDER BY available_at ASC, id ASC
-			LIMIT $7
+			LIMIT $9
 			FOR UPDATE SKIP LOCKED
 		)
 		RETURNING id, job_id, task_data, attempt_count, retry_deadline, created_at, started_at, chain_selector, message_id
 	`, q.tableName, q.tableName)
 
 	rows, err := q.db.QueryContext(ctx, query,
-		JobStatusProcessing,
-		now,
-		q.ownerID,
-		JobStatusPending,
-		JobStatusFailed,
-		now,
-		batchSize,
+		JobStatusProcessing, // $1
+		now,                 // $2 started_at
+		q.ownerID,           // $3
+		JobStatusPending,    // $4
+		JobStatusFailed,     // $5
+		now,                 // $6 available_at <=
+		JobStatusProcessing, // $7 stale processing
+		staleBefore,         // $8 started_at <=
+		batchSize,           // $9
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to consume jobs: %w", err)
