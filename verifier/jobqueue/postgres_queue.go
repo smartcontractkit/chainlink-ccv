@@ -34,9 +34,6 @@ func NewPostgresJobQueue[T Jobable](
 	if db == nil {
 		return nil, fmt.Errorf("database connection cannot be nil")
 	}
-	if lggr == nil {
-		return nil, fmt.Errorf("logger cannot be nil")
-	}
 
 	return &PostgresJobQueue[T]{
 		db:          db,
