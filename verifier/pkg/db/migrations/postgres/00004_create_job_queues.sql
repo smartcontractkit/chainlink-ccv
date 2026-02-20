@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS verification_tasks (
 
     -- Owner identification (e.g. "CCTPVerifier", "LombardVerifier")
     -- Multiple verifiers share the same table but only consume their own jobs
-    owner_id TEXT NOT NULL DEFAULT '',
+    owner_id TEXT NOT NULL,
 
     -- Chain and message identification
     chain_selector TEXT NOT NULL,
@@ -60,7 +60,7 @@ CREATE INDEX IF NOT EXISTS idx_verification_tasks_created
 CREATE TABLE IF NOT EXISTS verification_tasks_archive (
     id BIGINT PRIMARY KEY,
     job_id UUID UNIQUE NOT NULL,
-    owner_id TEXT NOT NULL DEFAULT '',
+    owner_id TEXT NOT NULL,
     chain_selector TEXT NOT NULL,
     message_id TEXT NOT NULL,
     task_data JSONB NOT NULL,
@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS verification_results (
     job_id UUID UNIQUE NOT NULL DEFAULT gen_random_uuid(),
 
     -- Owner identification (e.g. "CCTPVerifier", "LombardVerifier")
-    owner_id TEXT NOT NULL DEFAULT '',
+    owner_id TEXT NOT NULL,
 
     -- Chain and message identification
     chain_selector TEXT NOT NULL,
@@ -144,7 +144,7 @@ CREATE INDEX IF NOT EXISTS idx_verification_results_created
 CREATE TABLE IF NOT EXISTS verification_results_archive (
     id BIGINT PRIMARY KEY,
     job_id UUID UNIQUE NOT NULL,
-    owner_id TEXT NOT NULL DEFAULT '',
+    owner_id TEXT NOT NULL,
     chain_selector TEXT NOT NULL,
     message_id TEXT NOT NULL,
     task_data JSONB NOT NULL,
