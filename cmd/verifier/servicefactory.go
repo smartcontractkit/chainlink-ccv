@@ -15,10 +15,10 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
@@ -28,7 +28,18 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// TODO: extract out common code, and read/take in chain-specific config (e.g. CantonConfig).
+// CreateAccessorFactoryFunc is a function that creates an accessor factory for a given chain family.
+type CreateAccessorFactoryFunc func(
+	ctx context.Context,
+	lggr logger.Logger,
+	helper *blockchain.Helper,
+	cfg commit.Config,
+) (chainaccess.AccessorFactory, error)
+
+// factory is a ServiceFactory implementation that creates a committee verifier service.
+// NOTE: this factory supports only a single chain family at a time.
+// This is by design, since deployed CCIP apps will be built with a single chain family, but potentially
+// supporting many chains from that same family.
 type factory struct {
 	lggr              logger.Logger
 	server            *http.Server
@@ -38,10 +49,15 @@ type factory struct {
 	heartbeatClient   *heartbeatclient.HeartbeatClient
 	chainStatusDB     *sqlx.DB
 	coordinatorCancel context.CancelFunc
+
+	createAccessorFactoryFunc CreateAccessorFactoryFunc
 }
 
-func NewServiceFactory() bootstrap.ServiceFactory {
-	return &factory{}
+// NewServiceFactory creates a new ServiceFactory for the committee verifier service.
+func NewServiceFactory(createAccessorFactoryFunc CreateAccessorFactoryFunc) bootstrap.ServiceFactory {
+	return &factory{
+		createAccessorFactoryFunc: createAccessorFactoryFunc,
+	}
 }
 
 // Start implements [bootstrap.ServiceFactory].
@@ -123,15 +139,25 @@ func (f *factory) Start(ctx context.Context, spec string, deps bootstrap.Service
 
 	f.aggregatorWriter = aggregatorWriter
 
-	registry := accessors.NewRegistry(blockchainHelper)
-	// TODO: if we're running one family per app, don't need to register all families.
-	RegisterEVM(ctx, registry, lggr, blockchainHelper, config.OnRampAddresses, config.RMNRemoteAddresses)
-	RegisterCanton(ctx, registry, lggr, blockchainHelper, config.CantonConfigs)
-
-	sourceReaders, err := CreateSourceReaders(ctx, lggr, registry, blockchainHelper, *config)
+	accessorFactory, err := f.createAccessorFactoryFunc(ctx, lggr, blockchainHelper, *config)
 	if err != nil {
-		lggr.Errorw("Failed to create source readers", "error", err)
-		return fmt.Errorf("failed to create source readers: %w", err)
+		lggr.Errorw("Failed to create accessor factory", "error", err)
+		return fmt.Errorf("failed to create accessor factory: %w", err)
+	}
+
+	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
+	for _, selector := range blockchainHelper.GetAllChainSelectors() {
+		accessor, err := accessorFactory.GetAccessor(ctx, selector)
+		if err != nil {
+			lggr.Errorw("Failed to get accessor", "error", err, "selector", selector)
+			return fmt.Errorf("failed to get accessor: %w", err)
+		}
+		reader := accessor.SourceReader()
+		if reader == nil {
+			lggr.Errorw("Failed to get source reader for chain", "selector", selector)
+			return fmt.Errorf("failed to get source reader for chain: %w", err)
+		}
+		sourceReaders[selector] = reader
 	}
 
 	// Create coordinator configuration
@@ -375,6 +401,7 @@ func (f *factory) Stop(ctx context.Context) error {
 	f.aggregatorWriter = nil
 	f.heartbeatClient = nil
 	f.lggr = nil
+	f.chainStatusDB = nil
 
 	return allErrors
 }
