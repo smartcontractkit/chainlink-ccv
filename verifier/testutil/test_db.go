@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/stretchr/testify/require"
+
 	// Import postgres driver for database/sql.
 	_ "github.com/lib/pq"
 	"github.com/testcontainers/testcontainers-go"
@@ -36,24 +38,16 @@ func NewTestDB(tb testing.TB) sqlutil.DataSource {
 				WithOccurrence(2).
 				WithStartupTimeout(30*time.Second)),
 	)
-	if err != nil {
-		tb.Fatalf("failed to start postgres container: %v", err)
-	}
+	require.NoError(tb, err, "failed to start postgres container")
 
 	connectionString, err := postgresContainer.ConnectionString(ctx, "sslmode=disable")
-	if err != nil {
-		tb.Fatalf("failed to get connection string: %v", err)
-	}
+	require.NoError(tb, err, "failed to get connection string")
 
 	sqlxDB, err := sqlx.Open("postgres", connectionString)
-	if err != nil {
-		tb.Fatalf("failed to open database: %v", err)
-	}
+	require.NoError(tb, err, "failed to open database")
 
 	err = db.RunPostgresMigrations(sqlxDB)
-	if err != nil {
-		tb.Fatalf("failed to run migrations: %v", err)
-	}
+	require.NoError(tb, err, "failed to run migrations")
 
 	tb.Cleanup(func() {
 		_ = sqlxDB.Close()
@@ -69,8 +63,7 @@ func NewTestDB(tb testing.TB) sqlutil.DataSource {
 // Note: Container cleanup is handled automatically by tb.Cleanup in NewTestDB.
 func CleanupTestDB(tb testing.TB, dbConn sqlutil.DataSource) {
 	if sqlxDB, ok := dbConn.(*sqlx.DB); ok {
-		if err := sqlxDB.Close(); err != nil {
-			tb.Errorf("failed to close test database: %v", err)
-		}
+		err := sqlxDB.Close()
+		require.NoError(tb, err, "failed to close test database")
 	}
 }
