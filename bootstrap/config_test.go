@@ -49,7 +49,7 @@ func TestJDConfig_validate(t *testing.T) {
 				ServerCSAPublicKey: "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
 			},
 			wantErr:     true,
-			errContains: []string{"failed to decode ServerCSAPublicKey"},
+			errContains: []string{"invalid ServerCSAPublicKey", "failed to decode public key"},
 		},
 		{
 			name: "invalid ServerCSAPublicKey wrong length",
@@ -58,7 +58,7 @@ func TestJDConfig_validate(t *testing.T) {
 				ServerCSAPublicKey: "0123456789abcdef", // 16 hex chars = 8 bytes, need 32
 			},
 			wantErr:     true,
-			errContains: []string{"ServerCSAPublicKey is not an ed25519 public key"},
+			errContains: []string{"invalid ServerCSAPublicKey", "not an ed25519 public key"},
 		},
 	}
 	for _, tt := range tests {

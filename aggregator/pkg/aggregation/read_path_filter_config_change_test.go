@@ -85,7 +85,7 @@ func TestConfigChange_ReadPathFiltering(t *testing.T) {
 			initialThreshold:      2,
 			configSignerNames:     []string{"node1", "node2", "node3"},
 			configThreshold:       3,
-			expectedSignerNames:   []string{"node1", "node2"},
+			expectedSignerNames:   nil,
 			expectSkipAggregation: false,
 		},
 		{
@@ -103,7 +103,7 @@ func TestConfigChange_ReadPathFiltering(t *testing.T) {
 			initialThreshold:      2,
 			configSignerNames:     []string{"node1", "node2"},
 			configThreshold:       3,
-			expectedSignerNames:   []string{"node1", "node2"},
+			expectedSignerNames:   nil,
 			expectSkipAggregation: false,
 		},
 		{
@@ -112,7 +112,7 @@ func TestConfigChange_ReadPathFiltering(t *testing.T) {
 			initialThreshold:      2,
 			configSignerNames:     []string{"node2", "node3"},
 			configThreshold:       2,
-			expectedSignerNames:   []string{"node2"},
+			expectedSignerNames:   nil,
 			expectSkipAggregation: false,
 		},
 		{
@@ -195,7 +195,7 @@ func TestConfigChange_ReadPathFiltering(t *testing.T) {
 
 			if len(tc.expectedSignerNames) == 0 {
 				_, mapErr := model.MapAggregatedReportToVerifierResultProto(report, committeeObj)
-				require.Error(t, mapErr, "expected error when no valid signatures remain")
+				require.Error(t, mapErr, "expected error when valid signatures do not meet quorum threshold")
 				return
 			}
 
@@ -267,7 +267,7 @@ func TestConfigChange_MultipleReportRows_UsesLatestReport(t *testing.T) {
 			initialThreshold:        2,
 			configSignerNames:       []string{"node2", "node3", "node4"},
 			configThreshold:         3,
-			expectedSignerNames:     []string{"node2", "node3"},
+			expectedSignerNames:     nil,
 			expectSkipAggregation:   false,
 			expectedLatestestAggregatedReportVerifications: 3,
 		},
@@ -300,7 +300,7 @@ func TestConfigChange_MultipleReportRows_UsesLatestReport(t *testing.T) {
 			initialThreshold:        1,
 			configSignerNames:       []string{"node1", "node2", "node3"},
 			configThreshold:         2,
-			expectedSignerNames:     []string{"node3"},
+			expectedSignerNames:     nil,
 			expectSkipAggregation:   false,
 			expectedLatestestAggregatedReportVerifications: 1,
 		},
@@ -393,7 +393,7 @@ func TestConfigChange_MultipleReportRows_UsesLatestReport(t *testing.T) {
 
 			if len(tc.expectedSignerNames) == 0 {
 				_, mapErr := model.MapAggregatedReportToVerifierResultProto(report, committeeObj)
-				require.Error(t, mapErr, "expected error when no valid signatures remain")
+				require.Error(t, mapErr, "expected error when valid signatures do not meet quorum threshold")
 				return
 			}
 

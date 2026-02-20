@@ -13,6 +13,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 
+	pkgcommon "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/testutil"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
@@ -556,7 +557,7 @@ func TestGetCCVData_NotFound(t *testing.T) {
 	ctx := context.Background()
 
 	retrieved, err := storage.GetCommitAggregatedReportByMessageID(ctx, []byte("nonexistent"))
-	require.NoError(t, err)
+	require.ErrorIs(t, err, pkgcommon.ErrNotFound)
 	require.Nil(t, retrieved)
 }
 
@@ -666,7 +667,7 @@ func TestListOrphanedKeys(t *testing.T) {
 
 	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, time.Time{}, 100)
 
-	orphanedKeys := []model.OrphanedKey{}
+	orphanedKeys := make([]model.OrphanedKey, 0, 2)
 	for keys := range orphanKeysCh {
 		orphanedKeys = append(orphanedKeys, keys)
 	}
@@ -740,7 +741,7 @@ func TestListOrphanedKeys_FiltersRecordsOlderThanCutoff(t *testing.T) {
 	cutoff := time.Now().Add(-1 * time.Hour)
 	orphanKeysCh, errCh := storage.ListOrphanedKeys(ctx, cutoff, 100)
 
-	orphanedKeys := []model.OrphanedKey{}
+	orphanedKeys := make([]model.OrphanedKey, 0, 1)
 	for key := range orphanKeysCh {
 		orphanedKeys = append(orphanedKeys, key)
 	}
@@ -804,7 +805,7 @@ func TestBatchOperations_MultipleSigners(t *testing.T) {
 		newTestSigner(t),
 	}
 
-	records := []*model.CommitVerificationRecord{}
+	records := make([]*model.CommitVerificationRecord, 0, len(signers))
 	var messageID []byte
 	for _, signer := range signers {
 		msgWithCCV := createTestMessageWithCCV(t, message, signer)

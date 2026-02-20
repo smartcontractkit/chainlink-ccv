@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	dbpkg "github.com/smartcontractkit/chainlink-ccv/bootstrap/db"
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
 	jdclient "github.com/smartcontractkit/chainlink-ccv/common/jd/client"
 	"github.com/smartcontractkit/chainlink-ccv/common/jd/lifecycle"
 	jobstore "github.com/smartcontractkit/chainlink-ccv/common/jd/store"
@@ -36,7 +37,6 @@ type ServiceDeps struct {
 }
 
 // ServiceFactory is an interface implemented by the application that seeks to be bootstrapped.
-// It is used to start and stop the services.
 type ServiceFactory interface {
 	// Start starts the service with the spec received from JD.
 	Start(ctx context.Context, spec string, deps ServiceDeps) error
@@ -44,6 +44,25 @@ type ServiceFactory interface {
 	Stop(ctx context.Context) error
 }
 
+// A runner adapts a [ServiceFactory] to the [lifecycle.JobRunner] interface.
+type runner struct {
+	fac  ServiceFactory
+	deps ServiceDeps
+}
+
+var _ lifecycle.JobRunner = (*runner)(nil)
+
+// StartJob implements [lifecycle.JobRunner].
+func (r *runner) StartJob(ctx context.Context, spec string) error {
+	return r.fac.Start(ctx, spec, r.deps)
+}
+
+// StopJob implements [lifecycle.JobRunner].
+func (r *runner) StopJob(ctx context.Context) error {
+	return r.fac.Stop(ctx)
+}
+
+// A Bootstrapper manages the lifecycle of a CCIP standalone application.
 type Bootstrapper struct {
 	lggr logger.Logger
 	cfg  Config
@@ -52,34 +71,30 @@ type Bootstrapper struct {
 
 	logLevel zapcore.Level
 
-	// state
 	lifecycleManager *lifecycle.Manager
 	infoServer       *infoServer
 }
 
+// NewBootstrapper creates a new [Bootstrapper] with the given config and service factory.
 func NewBootstrapper(name string, lggr logger.Logger, cfg Config, fac ServiceFactory, opts ...Option) (*Bootstrapper, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("failed to validate config: %w", err)
 	}
 
-	bootstrapper := &Bootstrapper{
+	b := &Bootstrapper{
 		lggr:     lggr,
 		cfg:      cfg,
 		fac:      fac,
 		name:     name,
-		logLevel: zapcore.InfoLevel, // default log level
+		logLevel: zapcore.InfoLevel,
 	}
 	for _, opt := range opts {
-		opt(bootstrapper)
+		opt(b)
 	}
-	return bootstrapper, nil
+	return b, nil
 }
 
-// Run does the following:
-// 1. Initializes the keystore and makes sure that all needed keys are present.
-// 2. Connects to JD and creates the lifecycle manager.
-// 3. Registers the appropriate JobRunner on the lifecycle manager, using the provided ServiceFactory.
-// 4. Starts the lifecycle manager.
+// Start initializes the keystore, connects to JD, and starts the lifecycle manager.
 func (b *Bootstrapper) Start(ctx context.Context) error {
 	db, err := b.connectToDB(ctx)
 	if err != nil {
@@ -91,7 +106,7 @@ func (b *Bootstrapper) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to initialize keystore: %w", err)
 	}
 
-	jdPublicKey, err := getJDPublicKey(b.cfg.JD.ServerCSAPublicKey)
+	jdPublicKey, err := keys.DecodeEd25519PublicKey(b.cfg.JD.ServerCSAPublicKey)
 	if err != nil {
 		return fmt.Errorf("failed to get JD public key: %w", err)
 	}
@@ -102,10 +117,7 @@ func (b *Bootstrapper) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to create service deps: %w", err)
 	}
 
-	jobRunner := &runner{
-		fac:  b.fac,
-		deps: deps,
-	}
+	jobRunner := &runner{fac: b.fac, deps: deps}
 	lifecycleManager, err := lifecycle.NewManager(lifecycle.Config{
 		JDClient: jdClient,
 		JobStore: jobstore.NewPostgresStore(db),
@@ -116,24 +128,21 @@ func (b *Bootstrapper) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to create lifecycle manager: %w", err)
 	}
 
-	// Start the lifecycle manager
 	if err := lifecycleManager.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start lifecycle manager: %w", err)
 	}
-
 	b.lifecycleManager = lifecycleManager
 
-	// Start the info server
 	infoServer := newInfoServer(b.lggr, keyStore, b.cfg.Server.ListenPort)
 	if err := infoServer.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start info server: %w", err)
 	}
-
 	b.infoServer = infoServer
 
 	return nil
 }
 
+// Stop shuts down the lifecycle manager and info server.
 func (b *Bootstrapper) Stop(ctx context.Context) error {
 	if err := b.lifecycleManager.Stop(); err != nil {
 		return fmt.Errorf("failed to stop lifecycle manager: %w", err)
@@ -149,7 +158,6 @@ func (b *Bootstrapper) connectToDB(ctx context.Context) (*sqlx.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to bootstrapper database: %w", err)
 	}
-	// Run migrations
 	if err := dbpkg.RunMigrations(db); err != nil {
 		return nil, fmt.Errorf("failed to run bootstrapper database migrations: %w", err)
 	}
@@ -168,75 +176,47 @@ func (b *Bootstrapper) newServiceDeps(keyStore keystore.Keystore) (ServiceDeps, 
 	}, nil
 }
 
-func (b *Bootstrapper) initializeKeystore(ctx context.Context, db *sqlx.DB) (keyStore keystore.Keystore, csaSigner crypto.Signer, err error) {
-	keyStore, err = keystore.LoadKeystore(ctx, NewPGStorage(db, "default"), b.cfg.Keystore.Password)
+func (b *Bootstrapper) initializeKeystore(ctx context.Context, db *sqlx.DB) (keystore.Keystore, crypto.Signer, error) {
+	ks, err := keystore.LoadKeystore(ctx, keys.NewPGStorage(db, "default"), b.cfg.Keystore.Password)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load keystore: %w", err)
 	}
 
-	// Always ensure that the CSA key is present in the keystore.
-	if err := ensureKey(
-		ctx,
-		b.lggr,
-		keyStore,
-		DefaultCSAKeyName,
-		"csa",
-		keystore.Ed25519,
-	); err != nil {
-		return nil, nil, fmt.Errorf("failed to ensure csa key: %w", err)
+	requiredKeys := []struct {
+		name    string
+		purpose string
+		keyType keystore.KeyType
+	}{
+		{keys.DefaultCSAKeyName, "csa", keystore.Ed25519},
+		{keys.DefaultECDSASigningKeyName, "signing", keystore.ECDSA_S256},
+		{keys.DefaultEdDSASigningKeyName, "signing", keystore.Ed25519},
+	}
+	for _, k := range requiredKeys {
+		if err := keys.EnsureKey(ctx, b.lggr, ks, k.name, k.purpose, k.keyType); err != nil {
+			return nil, nil, fmt.Errorf("failed to ensure %s key: %w", k.purpose, err)
+		}
 	}
 
-	// Ensure that the ECDSA and EdDSA signing keys are present in the keystore.
-	if err := ensureKey(
-		ctx,
-		b.lggr,
-		keyStore,
-		DefaultECDSASigningKeyName,
-		"signing",
-		keystore.ECDSA_S256,
-	); err != nil {
-		return nil, nil, fmt.Errorf("failed to ensure ecdsa signing key: %w", err)
-	}
-
-	if err := ensureKey(
-		ctx,
-		b.lggr,
-		keyStore,
-		DefaultEdDSASigningKeyName,
-		"signing",
-		keystore.Ed25519,
-	); err != nil {
-		return nil, nil, fmt.Errorf("failed to ensure eddsa signing key: %w", err)
-	}
-
-	csaSigner, err = newCSASigner(keyStore, DefaultCSAKeyName)
+	csaSigner, err := keys.NewCSASigner(ctx, ks, keys.DefaultCSAKeyName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get csa signer: %w", err)
 	}
 
-	return keyStore, csaSigner, nil
+	return ks, csaSigner, nil
 }
 
+// Option configures a [Bootstrapper].
 type Option func(*Bootstrapper)
 
 // WithLogLevel sets the log level for the logger passed to the application.
-// Default is info.
 func WithLogLevel(logLevel zapcore.Level) Option {
 	return func(b *Bootstrapper) {
 		b.logLevel = logLevel
 	}
 }
 
-// Run is a convenience function that:
-// 1. Reads the bootstrapper config from the standard environment variable BOOTSTRAPPER_CONFIG_PATH.
-// 2. Creates a new bootstrapper and starts it.
-// 3. Waits for a shutdown signal and stops the bootstrapper on SIGINT or SIGTERM.
-// 4. Returns the error from the bootstrapper.
-//
-// Note that Run is a blocking function that will not return until the service is shut down.
-//
-// It is recommended that most applications use this function to bootstrap their service unless they
-// have very specific requirements not to.
+// Run is a convenience function that loads config, creates a bootstrapper,
+// starts it, and blocks until SIGINT or SIGTERM is received.
 func Run(name string, fac ServiceFactory, opts ...Option) error {
 	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.InfoLevel))
 	if err != nil {

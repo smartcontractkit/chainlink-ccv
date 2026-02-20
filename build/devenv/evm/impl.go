@@ -31,6 +31,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/create2_factory"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/erc20_lock_box"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/fee_quoter"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/lock_release_token_pool"
@@ -913,44 +914,39 @@ func (m *CCIP17EVMConfig) ConfigureNodes(ctx context.Context, bc *blockchain.Inp
 	), nil
 }
 
-// filterTokenCombinationsForTopology returns only the token combinations whose
-// CCV qualifiers (source and destination) all exist as committees in the topology.
-// This prevents failures when secondary/tertiary committees are not configured.
-func filterTokenCombinationsForTopology(topology *deployments.EnvironmentTopology) []devenvcommon.TokenCombination {
-	committees := topology.NOPTopology.Committees
-	var filtered []devenvcommon.TokenCombination
-	for _, combo := range devenvcommon.AllTokenCombinations() {
-		supported := true
-		for _, q := range combo.SourcePoolCCVQualifiers() {
-			if _, ok := committees[q]; !ok {
-				supported = false
-				break
-			}
-		}
-		if supported {
-			for _, q := range combo.DestPoolCCVQualifiers() {
-				if _, ok := committees[q]; !ok {
-					supported = false
-					break
-				}
-			}
-		}
-		if supported {
+// filterTokenCombinations returns only the token combinations whose CCV qualifiers
+// all exist as committees in the topology. This ensures that environments with fewer
+// committees (e.g. HA topology with only "default") don't attempt to deploy or
+// configure token pools referencing non-existent committee verifiers.
+func filterTokenCombinations(combos []devenvcommon.TokenCombination, topology *deployments.EnvironmentTopology) []devenvcommon.TokenCombination {
+	filtered := make([]devenvcommon.TokenCombination, 0, len(combos))
+	for _, combo := range combos {
+		if qualifiersAvailable(combo.SourcePoolCCVQualifiers(), topology) &&
+			qualifiersAvailable(combo.DestPoolCCVQualifiers(), topology) {
 			filtered = append(filtered, combo)
 		}
 	}
 	return filtered
 }
 
-// buildMockReceiverParams generates MockReceiverParams based on which committees
-// exist in the topology. Only mock receivers whose required and optional verifiers
-// are all present in the topology will be included.
-func buildMockReceiverParams(topology *deployments.EnvironmentTopology, selector uint64) []sequences.MockReceiverParams {
-	committees := topology.NOPTopology.Committees
+func qualifiersAvailable(qualifiers []string, topology *deployments.EnvironmentTopology) bool {
+	for _, q := range qualifiers {
+		if _, ok := topology.NOPTopology.Committees[q]; !ok {
+			return false
+		}
+	}
+	return true
+}
 
-	_, hasDefault := committees[devenvcommon.DefaultCommitteeVerifierQualifier]
-	_, hasSecondary := committees[devenvcommon.SecondaryCommitteeVerifierQualifier]
-	_, hasTertiary := committees[devenvcommon.TertiaryCommitteeVerifierQualifier]
+// buildMockReceivers constructs MockReceiverParams dynamically from the topology.
+// For each committee qualifier in the topology, a receiver requiring that committee's
+// verifier is created. Multi-committee receivers (requiring one committee with optional
+// verifiers from others) are only created when all referenced committees exist.
+func buildMockReceivers(topology *deployments.EnvironmentTopology, selector uint64) []sequences.MockReceiverParams {
+	has := func(q string) bool {
+		_, ok := topology.NOPTopology.Committees[q]
+		return ok
+	}
 
 	verifierRef := func(qualifier string) datastore.AddressRef {
 		return datastore.AddressRef{
@@ -961,43 +957,40 @@ func buildMockReceiverParams(topology *deployments.EnvironmentTopology, selector
 		}
 	}
 
-	var params []sequences.MockReceiverParams
+	receiverVersion := semver.MustParse(mock_receiver.Deploy.Version())
+	var receivers []sequences.MockReceiverParams
 
-	// single required verifier (default), no optional verifiers, no optional threshold
-	if hasDefault {
-		params = append(params, sequences.MockReceiverParams{
-			Version:           semver.MustParse(mock_receiver.Deploy.Version()),
+	// One receiver per committee: required verifier only.
+	if has(devenvcommon.DefaultCommitteeVerifierQualifier) {
+		receivers = append(receivers, sequences.MockReceiverParams{
+			Version:           receiverVersion,
 			RequiredVerifiers: []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
 			Qualifier:         devenvcommon.DefaultReceiverQualifier,
 		})
 	}
-
-	// single required verifier (secondary), no optional verifiers, no optional threshold
-	if hasSecondary {
-		params = append(params, sequences.MockReceiverParams{
-			Version:           semver.MustParse(mock_receiver.Deploy.Version()),
+	if has(devenvcommon.SecondaryCommitteeVerifierQualifier) {
+		receivers = append(receivers, sequences.MockReceiverParams{
+			Version:           receiverVersion,
 			RequiredVerifiers: []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
 			Qualifier:         devenvcommon.SecondaryReceiverQualifier,
 		})
 	}
 
-	// single required verifier (secondary), single optional verifier (tertiary), optional threshold=1
-	// this means that the message should only be executed after the required and optional verifiers have signed.
-	// optional threshold being 1, with one optional, means that it must be retrieved.
-	if hasSecondary && hasTertiary {
-		params = append(params, sequences.MockReceiverParams{
-			Version:           semver.MustParse(mock_receiver.Deploy.Version()),
+	// Multi-committee receivers — only created when all referenced committees exist.
+	if has(devenvcommon.SecondaryCommitteeVerifierQualifier) && has(devenvcommon.TertiaryCommitteeVerifierQualifier) {
+		receivers = append(receivers, sequences.MockReceiverParams{
+			Version:           receiverVersion,
 			RequiredVerifiers: []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
 			OptionalVerifiers: []datastore.AddressRef{verifierRef(devenvcommon.TertiaryCommitteeVerifierQualifier)},
 			OptionalThreshold: 1,
 			Qualifier:         devenvcommon.TertiaryReceiverQualifier,
 		})
 	}
-
-	// quaternary: requires default, optional secondary + tertiary with threshold=1
-	if hasDefault && hasSecondary && hasTertiary {
-		params = append(params, sequences.MockReceiverParams{
-			Version:           semver.MustParse(mock_receiver.Deploy.Version()),
+	if has(devenvcommon.DefaultCommitteeVerifierQualifier) &&
+		has(devenvcommon.SecondaryCommitteeVerifierQualifier) &&
+		has(devenvcommon.TertiaryCommitteeVerifierQualifier) {
+		receivers = append(receivers, sequences.MockReceiverParams{
+			Version:           receiverVersion,
 			RequiredVerifiers: []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
 			OptionalVerifiers: []datastore.AddressRef{
 				verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier),
@@ -1008,7 +1001,7 @@ func buildMockReceiverParams(topology *deployments.EnvironmentTopology, selector
 		})
 	}
 
-	return params
+	return receivers
 }
 
 func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *deployments.EnvironmentTopology) (datastore.DataStore, error) {
@@ -1055,54 +1048,54 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 	out, err := ccvchangesets.DeployChainContractsFromTopology(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[ccvchangesets.DeployChainContractsFromTopologyCfg]{
 		Cfg: ccvchangesets.DeployChainContractsFromTopologyCfg{
 			Topology:       topology,
-			ChainSelector:  selector,
-			CREATE2Factory: common.HexToAddress(create2FactoryRep.Output.Address),
-			// TODO: Router contract implementation is missing
-			RMNRemote: sequences.RMNRemoteParams{
-				Version: semver.MustParse(rmn_remote.Deploy.Version()),
-			},
-			OffRamp: sequences.OffRampParams{
-				Version:                   semver.MustParse(offrampoperations.Deploy.Version()),
-				GasForCallExactCheck:      5_000,
-				MaxGasBufferToUpdateState: 12_000,
-			},
-			OnRamp: sequences.OnRampParams{
-				Version:               semver.MustParse(onrampoperations.Deploy.Version()),
-				FeeAggregator:         common.HexToAddress("0x01"),
-				MaxUSDCentsPerMessage: 100_00, // $100
-			},
-			Executors: []sequences.ExecutorParams{
-				{
-					Version:       semver.MustParse(executor.DeployProxy.Version()),
-					MaxCCVsPerMsg: 10,
-					DynamicConfig: executor.SetDynamicConfigArgs{
-						FeeAggregator:         common.HexToAddress("0x01"),
-						MinBlockConfirmations: 0,
-						CcvAllowlistEnabled:   false,
-					},
-					Qualifier: devenvcommon.DefaultExecutorQualifier,
+			ChainSelectors: []uint64{selector},
+			DefaultCfg: ccvchangesets.DeployChainContractsFromTopologyCfgPerChain{
+				CREATE2Factory: common.HexToAddress(create2FactoryRep.Output.Address),
+				RMNRemote: sequences.RMNRemoteParams{
+					Version: semver.MustParse(rmn_remote.Deploy.Version()),
 				},
-				{
-					Version:       semver.MustParse(executor.DeployProxy.Version()),
-					MaxCCVsPerMsg: 10,
-					DynamicConfig: executor.SetDynamicConfigArgs{
-						FeeAggregator:         common.HexToAddress("0x01"),
-						MinBlockConfirmations: 0,
-						CcvAllowlistEnabled:   false,
-					},
-					Qualifier: devenvcommon.CustomExecutorQualifier,
+				OffRamp: sequences.OffRampParams{
+					Version:                   semver.MustParse(offrampoperations.Deploy.Version()),
+					GasForCallExactCheck:      5_000,
+					MaxGasBufferToUpdateState: 12_000,
 				},
+				OnRamp: sequences.OnRampParams{
+					Version:               semver.MustParse(onrampoperations.Deploy.Version()),
+					FeeAggregator:         common.HexToAddress("0x01"),
+					MaxUSDCentsPerMessage: 100_00, // $100
+				},
+				Executors: []sequences.ExecutorParams{
+					{
+						Version:       semver.MustParse(executor.DeployProxy.Version()),
+						MaxCCVsPerMsg: 10,
+						DynamicConfig: executor.SetDynamicConfigArgs{
+							FeeAggregator:         common.HexToAddress("0x01"),
+							MinBlockConfirmations: 0,
+							CcvAllowlistEnabled:   false,
+						},
+						Qualifier: devenvcommon.DefaultExecutorQualifier,
+					},
+					{
+						Version:       semver.MustParse(executor.DeployProxy.Version()),
+						MaxCCVsPerMsg: 10,
+						DynamicConfig: executor.SetDynamicConfigArgs{
+							FeeAggregator:         common.HexToAddress("0x01"),
+							MinBlockConfirmations: 0,
+							CcvAllowlistEnabled:   false,
+						},
+						Qualifier: devenvcommon.CustomExecutorQualifier,
+					},
+				},
+				FeeQuoter: sequences.FeeQuoterParams{
+					Version:                        semver.MustParse(fee_quoter.Deploy.Version()),
+					MaxFeeJuelsPerMsg:              big.NewInt(2e18),
+					LINKPremiumMultiplierWeiPerEth: 9e17, // 0.9 ETH
+					WETHPremiumMultiplierWeiPerEth: 1e18, // 1.0 ETH
+					USDPerLINK:                     usdPerLink,
+					USDPerWETH:                     usdPerWeth,
+				},
+				MockReceivers: buildMockReceivers(topology, selector),
 			},
-			FeeQuoter: sequences.FeeQuoterParams{
-				Version: semver.MustParse(fee_quoter.Deploy.Version()),
-				// expose in TOML config
-				MaxFeeJuelsPerMsg:              big.NewInt(2e18),
-				LINKPremiumMultiplierWeiPerEth: 9e17, // 0.9 ETH
-				WETHPremiumMultiplierWeiPerEth: 1e18, // 1.0 ETH
-				USDPerLINK:                     usdPerLink,
-				USDPerWETH:                     usdPerWeth,
-			},
-			MockReceivers: buildMockReceiverParams(topology, selector),
 		},
 	})
 	if err != nil {
@@ -1114,7 +1107,8 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 	}
 	env.DataStore = runningDS.Seal()
 
-	for _, combo := range filterTokenCombinationsForTopology(topology) {
+	applicableCombos := filterTokenCombinations(devenvcommon.AllTokenCombinations(), topology)
+	for _, combo := range applicableCombos {
 		// For any given token combination, every chain needs to support the source and destination pools.
 		if err := m.deployTokenAndPool(env, mcmsReaderRegistry, runningDS, selector, combo.SourcePoolAddressRef()); err != nil {
 			return nil, fmt.Errorf("failed to deploy %s token: %w", combo.SourcePoolAddressRef().Qualifier, err)
@@ -1468,18 +1462,15 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		// TODO: add stellar token adapter support.
 	}
 
-	// Filter to EVM-only selectors for token configuration.
-	// TODO: add stellar support.
-	evmRemoteSelectors := filterOnlySupportedSelectors(remoteSelectors)
-
-	for _, combo := range filterTokenCombinationsForTopology(topology) {
+	applicableCombos := filterTokenCombinations(devenvcommon.AllTokenCombinations(), topology)
+	for _, combo := range applicableCombos {
 		// For any given token combination, every chain needs to support the source and destination pools.
 		l.Info().Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("Configuring source token for transfer")
-		if err := m.configureTokenForTransfer(e, tokenAdapterRegistry, mcmsReaderRegistry, selector, evmRemoteSelectors, combo.SourcePoolAddressRef(), combo.DestPoolAddressRef(), combo.SourcePoolCCVQualifiers()); err != nil {
+		if err := m.configureTokenForTransfer(e, tokenAdapterRegistry, mcmsReaderRegistry, selector, remoteSelectors, combo.SourcePoolAddressRef(), combo.DestPoolAddressRef(), combo.SourcePoolCCVQualifiers()); err != nil {
 			return fmt.Errorf("failed to configure %s tokens for transfers: %w", combo.SourcePoolAddressRef().Qualifier, err)
 		}
 		l.Info().Str("Token", combo.DestPoolAddressRef().Qualifier).Msg("Configuring destination token for transfer")
-		if err := m.configureTokenForTransfer(e, tokenAdapterRegistry, mcmsReaderRegistry, selector, evmRemoteSelectors, combo.DestPoolAddressRef(), combo.SourcePoolAddressRef(), combo.DestPoolCCVQualifiers()); err != nil {
+		if err := m.configureTokenForTransfer(e, tokenAdapterRegistry, mcmsReaderRegistry, selector, remoteSelectors, combo.DestPoolAddressRef(), combo.SourcePoolAddressRef(), combo.DestPoolCCVQualifiers()); err != nil {
 			return fmt.Errorf("failed to configure %s tokens for transfers: %w", combo.DestPoolAddressRef().Qualifier, err)
 		}
 	}
@@ -1643,8 +1634,16 @@ func (m *CCIP17EVMConfig) fundLockReleaseTokenPool(
 		return fmt.Errorf("failed to create ERC20 token instance: %w", err)
 	}
 
-	// Transfer tokens from deployer to the token pool
-	tx, err := token.Transfer(txOps, common.HexToAddress(tokenPoolRef.Address), amount)
+	// Get lock box from datastore
+	// TODO: Qualifier should match that of the pool, need to update chainlink-ccip
+	// This only works currently because there is only one lock release pool deployed per chain
+	lockBoxRef, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(selector, datastore.ContractType(erc20_lock_box.ContractType), erc20_lock_box.Version, ""))
+	if err != nil {
+		return fmt.Errorf("failed to get lock box address: %w", err)
+	}
+
+	// Transfer tokens from deployer to the lock box
+	tx, err := token.Transfer(txOps, common.HexToAddress(lockBoxRef.Address), amount)
 	if err != nil {
 		return fmt.Errorf("failed to create transfer transaction: %w", err)
 	}

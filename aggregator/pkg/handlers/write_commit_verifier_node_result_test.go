@@ -174,13 +174,13 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			var lastMsgID model.MessageID
 			var lastAggregation model.AggregationKey
 			if tc.expectAggCalls > 0 {
-				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, testChannelKey, time.Millisecond).Run(func(m model.MessageID, a model.AggregationKey, c model.ChannelKey, d time.Duration) {
+				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, testChannelKey, time.Millisecond).Run(func(_ context.Context, m model.MessageID, a model.AggregationKey, _ model.ChannelKey, _ time.Duration) {
 					aggCalled++
 					lastMsgID = m
 					lastAggregation = a
 				}).Return(tc.aggErr).Times(tc.expectAggCalls)
 			} else {
-				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe()
+				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe()
 			}
 
 			mon := mocks.NewMockAggregatorMonitoring(t)

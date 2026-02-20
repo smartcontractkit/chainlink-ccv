@@ -137,12 +137,14 @@ func newTestTopology(opts ...TopologyOption) *deployments.EnvironmentTopology {
 					},
 					ChainConfigs: map[string]deployments.ChainCommitteeConfig{
 						sel1Str: {
-							NOPAliases: []string{"nop-1", "nop-2"},
-							Threshold:  2,
+							NOPAliases:    []string{"nop-1", "nop-2"},
+							Threshold:     2,
+							FeeAggregator: "0x0000000000000000000000000000000000000001",
 						},
 						sel2Str: {
-							NOPAliases: []string{"nop-1", "nop-2"},
-							Threshold:  2,
+							NOPAliases:    []string{"nop-1", "nop-2"},
+							Threshold:     2,
+							FeeAggregator: "0x0000000000000000000000000000000000000001",
 						},
 					},
 				},

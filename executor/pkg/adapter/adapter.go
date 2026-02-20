@@ -64,14 +64,12 @@ func NewIndexerReaderAdapter(indexerURIs []string, httpClient *http.Client, moni
 	}, nil
 }
 
-// getActiveClientIdx safely retrieves the current active client index.
 func (ira *IndexerReaderAdapter) getActiveClientIdx() int {
 	ira.mu.RLock()
 	defer ira.mu.RUnlock()
 	return ira.activeClientIdx
 }
 
-// setActiveClientIdx safely sets the active client index.
 func (ira *IndexerReaderAdapter) setActiveClientIdx(idx int) {
 	ira.mu.Lock()
 	defer ira.mu.Unlock()
@@ -122,16 +120,14 @@ func queryWithFailover[TInput any, TResponse any](
 		if i == activeIdx {
 			continue
 		}
-		wg.Add(1)
-		go func(idx int, client client.IndexerClientInterface) {
-			defer wg.Done()
-			status, resp, err := callFn(client, ctx, input)
-			alternateResults[idx] = clientResult[TResponse]{
+		wg.Go(func() {
+			status, resp, err := callFn(cl, ctx, input)
+			alternateResults[i] = clientResult[TResponse]{
 				status:   status,
 				response: resp,
 				err:      err,
 			}
-		}(i, cl)
+		})
 	}
 	wg.Wait()
 
@@ -165,23 +161,22 @@ func queryWithFailover[TInput any, TResponse any](
 	return activeIdx, resp, err
 }
 
-// handleQueryResult processes the result of a query with failover, updating metrics and active client.
+// handleQueryResult records metrics and ensures the active client index is
+// consistent with the most recent successful query. queryWithFailover already
+// updates the index on failover; this serves as a defensive reconciliation.
 func (ira *IndexerReaderAdapter) handleQueryResult(ctx context.Context, selectedIdx int, err error) error {
 	if err != nil {
 		ira.monitoring.Metrics().IncrementHeartbeatFailure(ctx)
 		return err
 	}
 
-	// Update active client if failover occurred
-	currentActive := ira.getActiveClientIdx()
-	if selectedIdx != currentActive {
+	if currentActive := ira.getActiveClientIdx(); selectedIdx != currentActive {
 		ira.lggr.Infow("Switching active indexer",
 			"from", currentActive,
 			"to", selectedIdx)
 		ira.setActiveClientIdx(selectedIdx)
 	}
 
-	// Track success
 	ira.monitoring.Metrics().IncrementHeartbeatSuccess(ctx)
 	ira.monitoring.Metrics().SetLastHeartbeatTimestamp(ctx, time.Now().Unix())
 	return nil

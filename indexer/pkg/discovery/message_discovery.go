@@ -135,14 +135,17 @@ func (a *AggregatorMessageDiscovery) validate() error {
 		return errors.New("storage must be specified")
 	}
 
+	if a.timeProvider == nil {
+		return errors.New("time provider must be specified")
+	}
+
 	return nil
 }
 
 func (a *AggregatorMessageDiscovery) Start(ctx context.Context) chan common.VerifierResultWithMetadata {
 	childCtx, cancelFunc := context.WithCancel(ctx)
-	a.wg.Add(2)
+	a.wg.Add(1)
 	go a.run(childCtx)
-	go a.updateSequenceNumber(childCtx)
 	a.cancelFunc = cancelFunc
 	a.logger.Info("MessageDiscovery Started")
 
@@ -184,37 +187,14 @@ func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 			a.monitoring.Metrics().RecordVerificationRecordChannelSizeGauge(ctx, int64(len(a.messageCh)))
 
 		case <-ticker.C:
-			// Create a child context with a timeout to prevent a single call from blocking the entire discovery process
-			readCtx, cancel := context.WithTimeout(ctx, time.Duration(a.config.Timeout)*time.Millisecond)
+			// Stagger timeouts across discovery instances so they don't all time out
+			// simultaneously when the aggregator is under pressure.
+			readCtx, cancel := context.WithTimeout(ctx, time.Duration(a.config.Timeout)*time.Millisecond+(time.Duration(a.discoveryPriority)*5*time.Second))
 
 			// Consume the reader until there is no more data present from the aggregator
 			// Aim is to allow for quick backfilling of data if needed.
 			a.consumeReader(readCtx)
 			cancel()
-		}
-	}
-}
-
-func (a *AggregatorMessageDiscovery) updateSequenceNumber(ctx context.Context) {
-	defer a.wg.Done()
-
-	ticker := time.NewTicker(time.Second * 5)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			a.logger.Info("updateSequenceNumber stopped due to context cancellation")
-			return
-		case <-ticker.C:
-			latestSequenceNumber, supports := a.aggregatorReader.GetSinceValue()
-			if !supports {
-				a.logger.Warnw("unable to update sequence number as reader does not support this.", "discoveryLocation", a.config.Address)
-			}
-
-			if err := a.storageSink.UpdateDiscoverySequenceNumber(ctx, a.config.Address, int(latestSequenceNumber)); err != nil {
-				a.logger.Errorf("unable to update sequence number: %w", err)
-			}
 		}
 	}
 }
@@ -274,7 +254,7 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 	persistedVerifications := []common.VerifierResultWithMetadata{}
 	allVerifications := []common.VerifierResultWithMetadata{}
 	for _, response := range queryResponse {
-		a.logger.Infof("Found new Message %s", response.Data.MessageID)
+		a.logger.Infow("Found Message", "messageID", response.Data.MessageID, "verifierSourceAddress", response.Data.VerifierSourceAddress)
 
 		verifierResultWithMetadata := common.VerifierResultWithMetadata{
 			VerifierResult: response.Data,
@@ -306,23 +286,9 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 	//
 	time.Sleep(time.Duration(a.discoveryPriority) * 5 * time.Second)
 
-	// Save all messages we've seen from the discovery source, if we're unable to persist them.
-	// We'll set the sequence value on the reader back to it's original value.
-	// This means we won't continue ingesting new messages until these ones are saved.
-	//
-	// This ensures that we won't miss a message.
-	if err := a.storageSink.BatchInsertMessages(ctx, messages); err != nil {
-		a.logger.Warn("Unable to save messages to storage, will retry")
-		if ableToSetSinceValue {
-			a.aggregatorReader.SetSinceValue(startingSequence)
-		}
-		return false, err
-	}
-
-	if len(persistedVerifications) > 0 {
-		err := a.storageSink.BatchInsertCCVData(ctx, persistedVerifications)
-		if err != nil {
-			a.logger.Warn("Unable to save verifications to storage, will retry")
+	if len(messages) > 0 || len(persistedVerifications) > 0 {
+		if err := a.persistBatch(ctx, messages, persistedVerifications, ableToSetSinceValue); err != nil {
+			a.logger.Warnw("Unable to persist discovery batch, will retry", "error", err)
 			if ableToSetSinceValue {
 				a.aggregatorReader.SetSinceValue(startingSequence)
 			}
@@ -341,6 +307,27 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 
 	// Return true if we processed any data, false if the slice was empty
 	return len(queryResponse) > 0, nil
+}
+
+func (a *AggregatorMessageDiscovery) persistBatch(
+	ctx context.Context,
+	messages []common.MessageWithMetadata,
+	verifications []common.VerifierResultWithMetadata,
+	ableToSetSinceValue bool,
+) error {
+	sequenceNumber := common.SequenceNumberNotSupported
+	if ableToSetSinceValue {
+		if currentSequence, supports := a.aggregatorReader.GetSinceValue(); supports {
+			sequenceNumber = int(currentSequence)
+		}
+	}
+
+	return a.storageSink.PersistDiscoveryBatch(ctx, common.DiscoveryBatch{
+		Messages:          messages,
+		Verifications:     verifications,
+		DiscoveryLocation: a.config.Address,
+		SequenceNumber:    sequenceNumber,
+	})
 }
 
 func (a *AggregatorMessageDiscovery) isCircuitBreakerOpen() bool {
