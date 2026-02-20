@@ -13,6 +13,15 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
+const (
+	// defaultPollInterval is how frequently the storage writer polls for new jobs.
+	defaultPollInterval = 500 * time.Millisecond
+	// defaultCleanupInterval is how frequently the storage writer cleans up archived jobs.
+	defaultCleanupInterval = 4 * time.Hour
+	// defaultRetentionPeriod is how long archived jobs are kept before deletion.
+	defaultRetentionPeriod = 30 * 24 * time.Hour // 30 days
+)
+
 // StorageWriterProcessorDB is a durable queue-based version of StorageWriterProcessor.
 // It replaces the in-memory batcher with a PostgreSQL-backed job queue for durability.
 type StorageWriterProcessorDB struct {
@@ -37,7 +46,6 @@ type StorageWriterProcessorDB struct {
 	cleanupInterval time.Duration
 	retentionPeriod time.Duration
 	batchSize       int
-	lockDuration    time.Duration
 	retryDelay      time.Duration
 }
 
@@ -52,7 +60,7 @@ func NewStorageWriterProcessorDB(
 	writingTracker *PendingWritingTracker,
 	chainStatusManager protocol.ChainStatusManager,
 ) (*StorageWriterProcessorDB, error) {
-	_, _, retryDelay := configWithDefaults(lggr, config)
+	storageBatchSize, _, retryDelay := configWithDefaults(lggr, config)
 
 	processor := &StorageWriterProcessorDB{
 		lggr:               lggr,
@@ -63,11 +71,10 @@ func NewStorageWriterProcessorDB(
 		retryDelay:         retryDelay,
 		writingTracker:     writingTracker,
 		chainStatusManager: chainStatusManager,
-		pollInterval:       500 * time.Millisecond,
-		cleanupInterval:    24 * time.Hour,
-		retentionPeriod:    30 * 24 * time.Hour, // 30 days
-		batchSize:          config.StorageBatchSize,
-		lockDuration:       5 * config.StorageBatchTimeout,
+		pollInterval:       defaultPollInterval,
+		cleanupInterval:    defaultCleanupInterval,
+		retentionPeriod:    defaultRetentionPeriod,
+		batchSize:          storageBatchSize,
 	}
 	return processor, nil
 }
@@ -116,7 +123,7 @@ func (s *StorageWriterProcessorDB) run(ctx context.Context) {
 
 func (s *StorageWriterProcessorDB) processBatch(ctx context.Context) error {
 	// Consume batch of results from queue
-	jobs, err := s.resultQueue.Consume(ctx, s.batchSize, s.lockDuration)
+	jobs, err := s.resultQueue.Consume(ctx, s.batchSize)
 	if err != nil {
 		return fmt.Errorf("failed to consume from result queue: %w", err)
 	}

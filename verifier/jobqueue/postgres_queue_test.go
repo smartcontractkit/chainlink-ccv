@@ -43,6 +43,7 @@ func newTestQueue(t *testing.T, opts ...func(*jobqueue.QueueConfig)) (*jobqueue.
 		Name:          "verification_tasks",
 		OwnerID:       "test-verifier",
 		RetryDuration: time.Hour,
+		LockDuration:  time.Minute,
 	}
 	for _, o := range opts {
 		o(&cfg)
@@ -85,7 +86,7 @@ func TestPublishAndConsume(t *testing.T) {
 	require.NoError(t, q.Publish(ctx, jobs...))
 
 	// Consume all
-	consumed, err := q.Consume(ctx, 10, 5*time.Minute)
+	consumed, err := q.Consume(ctx, 10)
 	require.NoError(t, err)
 	require.Len(t, consumed, 3)
 
@@ -111,7 +112,7 @@ func TestPublishEmpty(t *testing.T) {
 
 func TestConsumeEmpty(t *testing.T) {
 	q, _ := newTestQueue(t)
-	consumed, err := q.Consume(context.Background(), 10, time.Minute)
+	consumed, err := q.Consume(context.Background(), 10)
 	require.NoError(t, err)
 	assert.Empty(t, consumed)
 }
@@ -123,7 +124,7 @@ func TestConsumeRespectsAvailableAt(t *testing.T) {
 	// Publish with a 1-hour delay – should NOT be consumable now
 	require.NoError(t, q.PublishWithDelay(ctx, time.Hour, testJob{Chain: "1", Message: "delayed", Data: "d"}))
 
-	consumed, err := q.Consume(ctx, 10, time.Minute)
+	consumed, err := q.Consume(ctx, 10)
 	require.NoError(t, err)
 	assert.Empty(t, consumed)
 }
@@ -136,7 +137,7 @@ func TestConsumeBatchSizeLimit(t *testing.T) {
 		require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: fmt.Sprintf("m-%d", i), Data: "x"}))
 	}
 
-	consumed, err := q.Consume(ctx, 2, time.Minute)
+	consumed, err := q.Consume(ctx, 2)
 	require.NoError(t, err)
 	assert.Len(t, consumed, 2)
 }
@@ -148,41 +149,50 @@ func TestConsumeDoesNotReturnProcessingJobs(t *testing.T) {
 	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
 
 	// First consume locks the job
-	first, err := q.Consume(ctx, 10, time.Minute)
+	first, err := q.Consume(ctx, 10)
 	require.NoError(t, err)
 	require.Len(t, first, 1)
 
 	// Second consume should return nothing – job is processing
-	second, err := q.Consume(ctx, 10, time.Minute)
+	second, err := q.Consume(ctx, 10)
 	require.NoError(t, err)
 	assert.Empty(t, second)
 }
 
 func TestConsumeReclaimsStaleLock(t *testing.T) {
+	// Default queue has LockDuration=1min — used for initial consume and reclaim.
 	q, db := newTestQueue(t)
 	ctx := context.Background()
 
 	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
 
-	// Consume the job with a 1-minute lock (won't expire naturally during the test).
-	first, err := q.Consume(ctx, 1, time.Minute)
+	// Consume the job (LockDuration=1min won't expire naturally during the test).
+	first, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, first, 1)
 	jobID := first[0].ID
 	assert.Equal(t, 1, first[0].AttemptCount)
 
-	// Simulate a crashed worker by back-dating started_at.
+	// Simulate a crashed worker by back-dating started_at to 10 minutes ago.
 	_, err = db.Exec("UPDATE verification_tasks SET started_at = NOW() - INTERVAL '10 minutes' WHERE job_id = $1", jobID)
 	require.NoError(t, err)
 
-	// Second consume with a 5-minute lock should NOT reclaim (started_at = 10 min ago, lock = 5 min → stale).
-	// Actually 10 min ago > 5 min lock, so it IS stale. Use a lock longer than the back-date to test NOT reclaiming.
-	notReclaimed, err := q.Consume(ctx, 1, 15*time.Minute)
+	// Create a second queue with a 15-minute lock on the same DB.
+	// Since the job's started_at is only 10min ago, 15min lock means it's still "fresh".
+	qLong, err := jobqueue.NewPostgresJobQueue[testJob](db, jobqueue.QueueConfig{
+		Name:          "verification_tasks",
+		OwnerID:       "test-verifier",
+		RetryDuration: time.Hour,
+		LockDuration:  15 * time.Minute,
+	}, logger.Test(t))
+	require.NoError(t, err)
+
+	notReclaimed, err := qLong.Consume(ctx, 1)
 	require.NoError(t, err)
 	assert.Empty(t, notReclaimed, "job should not be reclaimed when lock has not expired")
 
-	// Consume with a 5-minute lock SHOULD reclaim (started_at is 10 min ago, 10 > 5).
-	reclaimed, err := q.Consume(ctx, 1, 5*time.Minute)
+	// Original queue with 1-minute lock SHOULD reclaim (started_at is 10 min ago, 10 > 1).
+	reclaimed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, reclaimed, 1)
 	assert.Equal(t, jobID, reclaimed[0].ID)
@@ -190,25 +200,28 @@ func TestConsumeReclaimsStaleLock(t *testing.T) {
 }
 
 func TestConsumeDoesNotReclaimFreshProcessingJob(t *testing.T) {
-	q, _ := newTestQueue(t)
+	q, _ := newTestQueue(t, func(c *jobqueue.QueueConfig) {
+		c.LockDuration = time.Hour
+	})
 	ctx := context.Background()
 
 	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
 
-	// Consume with a long lock duration.
-	first, err := q.Consume(ctx, 1, time.Hour)
+	// Consume with the configured long lock duration.
+	first, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, first, 1)
 
-	// A second consume with the same long lock duration should not reclaim
-	// because started_at is fresh (just now), well within the lock window.
-	second, err := q.Consume(ctx, 1, time.Hour)
+	// A second consume should not reclaim because started_at is fresh.
+	second, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
 	assert.Empty(t, second, "freshly consumed job should not be reclaimed while lock is still valid")
 }
 
 func TestConsumeReclaimMultipleStaleJobs(t *testing.T) {
-	q, db := newTestQueue(t)
+	q, db := newTestQueue(t, func(c *jobqueue.QueueConfig) {
+		c.LockDuration = 10 * time.Minute
+	})
 	ctx := context.Background()
 
 	// Publish 5 jobs.
@@ -221,18 +234,18 @@ func TestConsumeReclaimMultipleStaleJobs(t *testing.T) {
 	}
 
 	// Consume all 5 (simulating a worker that will crash).
-	consumed, err := q.Consume(ctx, 10, time.Minute)
+	consumed, err := q.Consume(ctx, 10)
 	require.NoError(t, err)
 	require.Len(t, consumed, 5)
 
-	// Back-date started_at for only 3 of them to simulate partial crash.
+	// Back-date started_at for only 3 of them to simulate partial crash (20min > 10min lock).
 	for _, j := range consumed[:3] {
 		_, err = db.Exec("UPDATE verification_tasks SET started_at = NOW() - INTERVAL '20 minutes' WHERE job_id = $1", j.ID)
 		require.NoError(t, err)
 	}
 
-	// Consume with 10-minute lock should reclaim exactly the 3 stale jobs.
-	reclaimed, err := q.Consume(ctx, 10, 10*time.Minute)
+	// Consume should reclaim exactly the 3 stale jobs.
+	reclaimed, err := q.Consume(ctx, 10)
 	require.NoError(t, err)
 	assert.Len(t, reclaimed, 3)
 
@@ -252,7 +265,9 @@ func TestConsumeReclaimMultipleStaleJobs(t *testing.T) {
 }
 
 func TestConsumeReclaimConcurrentNoDuplicates(t *testing.T) {
-	q, db := newTestQueue(t)
+	q, db := newTestQueue(t, func(c *jobqueue.QueueConfig) {
+		c.LockDuration = 10 * time.Minute
+	})
 	ctx := context.Background()
 
 	const numJobs = 20
@@ -266,7 +281,7 @@ func TestConsumeReclaimConcurrentNoDuplicates(t *testing.T) {
 	}
 
 	// Consume all, then back-date to make them stale.
-	consumed, err := q.Consume(ctx, numJobs, time.Minute)
+	consumed, err := q.Consume(ctx, numJobs)
 	require.NoError(t, err)
 	require.Len(t, consumed, numJobs)
 
@@ -284,7 +299,7 @@ func TestConsumeReclaimConcurrentNoDuplicates(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for {
-				batch, err := q.Consume(ctx, 5, 10*time.Minute)
+				batch, err := q.Consume(ctx, 5)
 				if err != nil {
 					return
 				}
@@ -318,7 +333,7 @@ func TestComplete(t *testing.T) {
 
 	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
 
-	consumed, err := q.Consume(ctx, 1, time.Minute)
+	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 
@@ -348,7 +363,7 @@ func TestRetry(t *testing.T) {
 
 	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
 
-	consumed, err := q.Consume(ctx, 1, time.Minute)
+	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	jobID := consumed[0].ID
@@ -361,7 +376,7 @@ func TestRetry(t *testing.T) {
 	assert.Equal(t, 1, countRows(t, db, "verification_tasks", jobqueue.JobStatusPending))
 
 	// Consume again (attempt 2)
-	consumed2, err := q.Consume(ctx, 1, time.Minute)
+	consumed2, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed2, 1)
 	assert.Equal(t, 2, consumed2[0].AttemptCount)
@@ -378,7 +393,7 @@ func TestRetryExceedsDeadline(t *testing.T) {
 	// Small sleep to ensure retry_deadline has passed
 	time.Sleep(5 * time.Millisecond)
 
-	consumed, err := q.Consume(ctx, 1, time.Minute)
+	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	jobID := consumed[0].ID
@@ -397,7 +412,7 @@ func TestRetryWithDelay(t *testing.T) {
 
 	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
 
-	consumed, err := q.Consume(ctx, 1, time.Minute)
+	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 
@@ -406,7 +421,7 @@ func TestRetryWithDelay(t *testing.T) {
 	require.NoError(t, q.Retry(ctx, time.Hour, errs, consumed[0].ID))
 
 	// Job is pending but available_at is in the future → not consumable
-	second, err := q.Consume(ctx, 10, time.Minute)
+	second, err := q.Consume(ctx, 10)
 	require.NoError(t, err)
 	assert.Empty(t, second)
 }
@@ -417,7 +432,7 @@ func TestFail(t *testing.T) {
 
 	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
 
-	consumed, err := q.Consume(ctx, 1, time.Minute)
+	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	jobID := consumed[0].ID
@@ -441,7 +456,7 @@ func TestFailedJobsAreReconsumed(t *testing.T) {
 
 	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
 
-	consumed, err := q.Consume(ctx, 1, time.Minute)
+	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 
@@ -449,7 +464,7 @@ func TestFailedJobsAreReconsumed(t *testing.T) {
 	require.NoError(t, q.Fail(ctx, map[string]error{consumed[0].ID: errors.New("err")}, consumed[0].ID))
 
 	// Should be consumable again
-	consumed2, err := q.Consume(ctx, 1, time.Minute)
+	consumed2, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed2, 1)
 	assert.Equal(t, consumed[0].ID, consumed2[0].ID)
@@ -461,7 +476,7 @@ func TestCleanup(t *testing.T) {
 
 	// Publish, consume, and complete a job so it lands in the archive
 	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
-	consumed, err := q.Consume(ctx, 1, time.Minute)
+	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	require.NoError(t, q.Complete(ctx, consumed[0].ID))
@@ -483,7 +498,7 @@ func TestCleanupRetainsRecentJobs(t *testing.T) {
 	ctx := context.Background()
 
 	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
-	consumed, err := q.Consume(ctx, 1, time.Minute)
+	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.NoError(t, q.Complete(ctx, consumed[0].ID))
 
@@ -502,7 +517,7 @@ func TestFullLifecycle(t *testing.T) {
 	require.NoError(t, q.Publish(ctx, testJob{Chain: "42", Message: "lifecycle-1", Data: "step1"}))
 
 	// 2. Consume (attempt 1)
-	consumed, err := q.Consume(ctx, 1, time.Minute)
+	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	jobID := consumed[0].ID
@@ -512,7 +527,7 @@ func TestFullLifecycle(t *testing.T) {
 	require.NoError(t, q.Retry(ctx, 0, map[string]error{jobID: errors.New("timeout")}, jobID))
 
 	// 4. Consume (attempt 2)
-	consumed2, err := q.Consume(ctx, 1, time.Minute)
+	consumed2, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed2, 1)
 	assert.Equal(t, jobID, consumed2[0].ID)
@@ -578,7 +593,7 @@ func TestConcurrentPublishAndConsume(t *testing.T) {
 			for {
 				// Random sleep to simulate work
 				time.Sleep(time.Duration(rand.IntN(3)) * time.Millisecond)
-				batch, err := q.Consume(ctx, batchSize, time.Minute)
+				batch, err := q.Consume(ctx, batchSize)
 				if err != nil {
 					t.Errorf("consume error: %v", err)
 					return
@@ -641,7 +656,7 @@ func TestConcurrentConsumersNoDuplicates(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for {
-				batch, err := q.Consume(ctx, 3, time.Minute)
+				batch, err := q.Consume(ctx, 3)
 				if err != nil {
 					return
 				}
@@ -699,14 +714,14 @@ func TestConcurrentRetryAndFail(t *testing.T) {
 			rng := rand.New(rand.NewPCG(uint64(workerID), uint64(workerID+1)))
 
 			for {
-				batch, err := q.Consume(ctx, 5, time.Minute)
+				batch, err := q.Consume(ctx, 5)
 				if err != nil {
 					return
 				}
 				if len(batch) == 0 {
 					// Give retried jobs time to become available
 					time.Sleep(20 * time.Millisecond)
-					batch, err = q.Consume(ctx, 5, time.Minute)
+					batch, err = q.Consume(ctx, 5)
 					if err != nil || len(batch) == 0 {
 						return
 					}
@@ -765,7 +780,7 @@ func TestRetryDeadlineExhaustionCycle(t *testing.T) {
 	var jobID string
 
 	// Attempt 1: consume → retry (deadline not yet reached)
-	consumed, err := q.Consume(ctx, 1, time.Minute)
+	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	jobID = consumed[0].ID
@@ -773,7 +788,7 @@ func TestRetryDeadlineExhaustionCycle(t *testing.T) {
 	require.NoError(t, q.Retry(ctx, 0, map[string]error{jobID: errors.New("err1")}, jobID))
 
 	// Attempt 2: consume → retry (deadline not yet reached)
-	consumed, err = q.Consume(ctx, 1, time.Minute)
+	consumed, err = q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	assert.Equal(t, 2, consumed[0].AttemptCount)
@@ -783,7 +798,7 @@ func TestRetryDeadlineExhaustionCycle(t *testing.T) {
 	time.Sleep(60 * time.Millisecond)
 
 	// Attempt 3: consume → retry (deadline has now passed, should fail permanently)
-	consumed, err = q.Consume(ctx, 1, time.Minute)
+	consumed, err = q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	assert.Equal(t, 3, consumed[0].AttemptCount)
@@ -807,7 +822,7 @@ func TestCleanupMixed(t *testing.T) {
 	for i := range 3 {
 		require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: fmt.Sprintf("cl-%d", i), Data: "x"}))
 	}
-	consumed, err := q.Consume(ctx, 3, time.Minute)
+	consumed, err := q.Consume(ctx, 3)
 	require.NoError(t, err)
 	require.Len(t, consumed, 3)
 
@@ -917,7 +932,7 @@ func TestEndToEndConcurrentWithRandomWork(t *testing.T) {
 				default:
 				}
 
-				batch, err := q.Consume(ctx, 4, time.Minute)
+				batch, err := q.Consume(ctx, 4)
 				if err != nil {
 					return
 				}

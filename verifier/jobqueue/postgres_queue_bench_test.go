@@ -33,7 +33,6 @@ func BenchmarkJobQueueThroughput(b *testing.B) {
 		batchConsume   = 20  // jobs per Consume call
 		retryPct       = 10  // percent of consumed jobs retried (transient)
 		failPct        = 5   // percent of consumed jobs permanently failed
-		lockDuration   = 5 * time.Minute
 	)
 
 	sqlxDB := testutil.NewTestDB(b)
@@ -42,6 +41,7 @@ func BenchmarkJobQueueThroughput(b *testing.B) {
 		Name:          "verification_tasks",
 		OwnerID:       "bench-verifier",
 		RetryDuration: time.Hour,
+		LockDuration:  5 * time.Minute,
 	}, logger.Test(b))
 	require.NoError(b, err)
 
@@ -109,7 +109,7 @@ func BenchmarkJobQueueThroughput(b *testing.B) {
 					default:
 					}
 
-					batch, err := q.Consume(ctx, batchConsume, lockDuration)
+					batch, err := q.Consume(ctx, batchConsume)
 					if err != nil {
 						require.NoError(b, err, "consumer %d: consume error", cid)
 						return

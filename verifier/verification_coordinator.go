@@ -168,10 +168,10 @@ func createStorageWriterProcessor(
 	storageWriterQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
 		db,
 		jobqueue.QueueConfig{
-			Name:    "verification_results",
-			OwnerID: config.VerifierID,
-			// Retry adding to the storage for 7 days
+			Name:          "verification_results",
+			OwnerID:       config.VerifierID,
 			RetryDuration: 7 * 24 * time.Hour,
+			LockDuration:  5 * config.StorageBatchTimeout,
 		},
 		logger.With(lggr, "component", "result_queue"),
 	)

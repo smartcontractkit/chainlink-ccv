@@ -128,10 +128,10 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 }
 
 // Consume retrieves and locks jobs for processing.
-// Jobs stuck in 'processing' longer than lockDuration are automatically reclaimed.
-func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int, lockDuration time.Duration) ([]Job[T], error) {
+// Jobs stuck in 'processing' longer than the configured LockDuration are automatically reclaimed.
+func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job[T], error) {
 	now := time.Now()
-	staleBefore := now.Add(-lockDuration)
+	staleBefore := now.Add(-q.config.LockDuration)
 
 	// Select jobs that are:
 	// 1. pending/failed and past their available_at, OR
