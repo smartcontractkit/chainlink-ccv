@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -150,7 +151,42 @@ func (a *AggregatorMessageDiscovery) Close() error {
 }
 
 func (a *AggregatorMessageDiscovery) Replay(ctx context.Context, start, end uint64) error {
-	return nil
+	// Basic validation
+	if end < start {
+		return fmt.Errorf("end must be >= start")
+	}
+
+	// Acquire the reader lock to prevent concurrent reads while replaying
+	a.readerLock.Lock()
+	defer a.readerLock.Unlock()
+
+	// Ensure the reader supports setting the since value
+	if ok := a.aggregatorReader.SetSinceValue(int64(start)); !ok {
+		return fmt.Errorf("underlying reader does not support SetSinceValue, cannot replay")
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			// Check current since value
+			cur, _ := a.aggregatorReader.GetSinceValue()
+			if uint64(cur) > end {
+				return nil
+			}
+
+			found, err := a.callReader(ctx)
+			if err != nil {
+				return err
+			}
+
+			// If no data found, we're likely caught up; return nil
+			if !found {
+				return nil
+			}
+		}
+	}
 }
 
 func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
