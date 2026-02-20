@@ -34,6 +34,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -89,19 +90,19 @@ const (
 )
 
 type Cfg struct {
-	CLDF               CLDF                           `toml:"cldf"                  validate:"required"`
-	Pricer             *services.PricerInput          `toml:"pricer"                validate:"required"`
-	Fake               *services.FakeInput            `toml:"fake"                  validate:"required"`
-	Verifier           []*services.VerifierInput      `toml:"verifier"              validate:"required"`
-	TokenVerifier      []*services.TokenVerifierInput `toml:"token_verifier"`
-	Executor           []*services.ExecutorInput      `toml:"executor"              validate:"required"`
-	Indexer            []*services.IndexerInput       `toml:"indexer"               validate:"required"`
-	Aggregator         []*services.AggregatorInput    `toml:"aggregator"            validate:"required"`
-	JD                 *jd.Input                      `toml:"jd"                    validate:"required"`
-	Blockchains        []*blockchain.Input            `toml:"blockchains"           validate:"required"`
-	NodeSets           []*ns.Input                    `toml:"nodesets"              validate:"required"`
-	CLNodesFundingETH  float64                        `toml:"cl_nodes_funding_eth"`
-	CLNodesFundingLink float64                        `toml:"cl_nodes_funding_link"`
+	CLDF               CLDF                               `toml:"cldf"                  validate:"required"`
+	Pricer             *services.PricerInput              `toml:"pricer"                validate:"required"`
+	Fake               *services.FakeInput                `toml:"fake"                  validate:"required"`
+	Verifier           []*committeeverifier.VerifierInput `toml:"verifier"              validate:"required"`
+	TokenVerifier      []*services.TokenVerifierInput     `toml:"token_verifier"`
+	Executor           []*services.ExecutorInput          `toml:"executor"              validate:"required"`
+	Indexer            []*services.IndexerInput           `toml:"indexer"               validate:"required"`
+	Aggregator         []*services.AggregatorInput        `toml:"aggregator"            validate:"required"`
+	JD                 *jd.Input                          `toml:"jd"                    validate:"required"`
+	Blockchains        []*blockchain.Input                `toml:"blockchains"           validate:"required"`
+	NodeSets           []*ns.Input                        `toml:"nodesets"              validate:"required"`
+	CLNodesFundingETH  float64                            `toml:"cl_nodes_funding_eth"`
+	CLNodesFundingLink float64                            `toml:"cl_nodes_funding_link"`
 	// AggregatorEndpoints map the verifier qualifier to the aggregator URL for that verifier.
 	AggregatorEndpoints map[string]string `toml:"aggregator_endpoints"`
 	// AggregatorCACertFiles map the verifier qualifier to the CA cert file path for TLS verification.
@@ -178,7 +179,7 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Co
 // Each verifier's NOPAlias identifies which NOP in the topology it belongs to.
 // Only the first verifier for each NOP sets the signer address (subsequent verifiers with the
 // same NOPAlias are ignored to avoid overwriting with wrong keys due to round-robin wrap-around).
-func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers []*services.VerifierInput) {
+func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers []*committeeverifier.VerifierInput) {
 	seenAliases := make(map[string]struct{})
 	for _, ver := range verifiers {
 		if _, seen := seenAliases[ver.NOPAlias]; seen {
@@ -335,7 +336,7 @@ func generateVerifierJobSpecs(
 	}
 
 	// Group verifiers by committee for batch generation
-	verifiersByCommittee := make(map[string][]*services.VerifierInput)
+	verifiersByCommittee := make(map[string][]*committeeverifier.VerifierInput)
 	for _, ver := range in.Verifier {
 		verifiersByCommittee[ver.CommitteeName] = append(verifiersByCommittee[ver.CommitteeName], ver)
 	}
@@ -1091,7 +1092,7 @@ func launchCLNodes(
 	ctx context.Context,
 	in *Cfg,
 	impls []cciptestinterfaces.CCIP17Configuration,
-	vIn []*services.VerifierInput,
+	vIn []*committeeverifier.VerifierInput,
 	aggregators []*services.AggregatorInput,
 ) (map[string][]string, error) {
 	aggByCommittee := make(map[string]*services.AggregatorInput)
@@ -1281,7 +1282,7 @@ func launchStandaloneExecutors(in []*services.ExecutorInput, blockchainOutputs [
 	return outs, nil
 }
 
-func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) ([]*services.VerifierOutput, error) {
+func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) ([]*committeeverifier.VerifierOutput, error) {
 	aggregatorOutputByCommittee := make(map[string]*services.AggregatorOutput)
 	for _, agg := range in.Aggregator {
 		if agg.Out != nil {
@@ -1291,18 +1292,18 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) 
 
 	// Apply defaults to verifiers so that we can use them in the standalone mode.
 	for i := range in.Verifier {
-		ver := services.ApplyVerifierDefaults(*in.Verifier[i])
+		ver := committeeverifier.ApplyVerifierDefaults(*in.Verifier[i])
 		in.Verifier[i] = &ver
 	}
 
-	var outs []*services.VerifierOutput
+	var outs []*committeeverifier.VerifierOutput
 	// Start standalone verifiers if in standalone mode.
 	for _, ver := range in.Verifier {
 		if ver.Mode == services.Standalone {
 			if aggOut, ok := aggregatorOutputByCommittee[ver.CommitteeName]; ok {
 				ver.AggregatorOutput = aggOut
 			}
-			out, err := services.NewVerifier(ver, blockchainOutputs, in.JDInfra)
+			out, err := committeeverifier.NewVerifier(ver, blockchainOutputs, in.JDInfra)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create verifier service: %w", err)
 			}
@@ -1411,7 +1412,7 @@ func ParseExecutorConfigFromJobSpec(jobSpec string) (*executor.Configuration, er
 
 // extractAndValidateDisableFinalityCheckers extracts DisableFinalityCheckers from verifiers
 // in a committee and validates that all verifiers have the same setting.
-func extractAndValidateDisableFinalityCheckers(committeeName string, verifiers []*services.VerifierInput) ([]string, error) {
+func extractAndValidateDisableFinalityCheckers(committeeName string, verifiers []*committeeverifier.VerifierInput) ([]string, error) {
 	if len(verifiers) == 0 {
 		return nil, nil
 	}
@@ -1448,9 +1449,9 @@ func slicesEqual(a, b []string) bool {
 // registerStandaloneVerifiersWithJD registers standalone verifiers with JD in parallel
 // and waits for them to establish their WSRPC connections.
 // TODO: this is common for all bootstrapped apps, make more general?
-func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*services.VerifierInput, jdClient offchain.Client) error {
+func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*committeeverifier.VerifierInput, jdClient offchain.Client) error {
 	// Filter to standalone verifiers only
-	var standaloneVerifiers []*services.VerifierInput
+	var standaloneVerifiers []*committeeverifier.VerifierInput
 	for _, ver := range verifiers {
 		if ver.Mode == services.Standalone {
 			standaloneVerifiers = append(standaloneVerifiers, ver)
@@ -1500,13 +1501,13 @@ func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*service
 // Each verifier receives its job spec with blockchain infos injected.
 func proposeJobsToStandaloneVerifiers(
 	ctx context.Context,
-	verifiers []*services.VerifierInput,
+	verifiers []*committeeverifier.VerifierInput,
 	verifierJobSpecs map[string]string,
 	blockchainOutputs []*blockchain.Output,
 	jdClient offchain.Client,
 ) error {
 	// Filter to standalone verifiers only
-	var standaloneVerifiers []*services.VerifierInput
+	var standaloneVerifiers []*committeeverifier.VerifierInput
 	for _, ver := range verifiers {
 		if ver.Mode == services.Standalone {
 			standaloneVerifiers = append(standaloneVerifiers, ver)
