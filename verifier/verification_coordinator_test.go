@@ -106,11 +106,6 @@ func newTestSetup(t *testing.T) *testSetup {
 		db:                 sqlxDB.(*sqlx.DB).DB,
 	}
 
-	// Cleanup on test completion
-	t.Cleanup(func() {
-		testutil.CleanupTestDB(t, sqlxDB)
-	})
-
 	return ts
 }
 
