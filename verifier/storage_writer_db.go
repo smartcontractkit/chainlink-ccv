@@ -249,18 +249,6 @@ func (s *StorageWriterProcessorDB) Name() string {
 func (s *StorageWriterProcessorDB) HealthReport() map[string]error {
 	report := make(map[string]error)
 	report[s.Name()] = s.Ready()
-
-	// Add queue health metrics
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	// Simple health check - just verify we can query the queue
-	// More sophisticated metrics can be added later
-	_, err := s.resultQueue.Consume(ctx, 1, 1*time.Second)
-	if err != nil {
-		report[s.Name()+" queue"] = fmt.Errorf("queue health check failed: %w", err)
-	}
-
 	return report
 }
 
