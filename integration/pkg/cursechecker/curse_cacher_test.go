@@ -218,10 +218,10 @@ func TestCachedCurseChecker_ErrorHandling(t *testing.T) {
 		secondResult      []protocol.Bytes16
 	}{
 		{
-			name:              "reader error - assumes cursed and doesn't poison cache",
+			name:              "reader error - assumes not cursed and doesn't poison cache",
 			localChain:        1,
 			remoteChain:       2,
-			expectedErrorRes:  true,
+			expectedErrorRes:  false,
 			expectedSecondRes: false,
 			secondResult:      []protocol.Bytes16{},
 		},
@@ -229,7 +229,7 @@ func TestCachedCurseChecker_ErrorHandling(t *testing.T) {
 			name:              "reader error then positive curse, cache doesn't poison, returns actual",
 			localChain:        1,
 			remoteChain:       3,
-			expectedErrorRes:  true,
+			expectedErrorRes:  false,
 			expectedSecondRes: true,
 			secondResult:      []protocol.Bytes16{GlobalCurseSubject},
 		},
