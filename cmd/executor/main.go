@@ -62,14 +62,6 @@ func main() {
 		configPath = envConfig
 	}
 
-	executorConfig, blockchainInfo, err := loadConfiguration(configPath)
-	if err != nil {
-		os.Exit(1)
-	}
-	if err = executorConfig.Validate(); err != nil {
-		os.Exit(1)
-	}
-
 	//
 	// Initialize logger
 	// ------------------------------------------------------------------------------------------------
@@ -79,6 +71,16 @@ func main() {
 		panic(fmt.Sprintf("Failed to create logger: %v", err))
 	}
 	lggr = logger.Named(lggr, "executor")
+
+	executorConfig, blockchainInfo, err := loadConfiguration(configPath)
+	if err != nil {
+		lggr.Fatalw("Failed to load configuration", "err", err)
+		os.Exit(1)
+	}
+	if err = executorConfig.Validate(); err != nil {
+		lggr.Fatalw("Failed to validate configuration", "err", err)
+		os.Exit(1)
+	}
 
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "executor",
