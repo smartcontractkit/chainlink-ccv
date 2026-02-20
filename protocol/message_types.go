@@ -13,6 +13,7 @@ import (
 
 // Constants for CCIP v1.7.
 const (
+	MessageIDSize                 = 32 // Size of a message ID in bytes
 	MaxNumTokens                  = 1
 	MaxDataSize                   = 1024 // 1kb
 	MessageVersion                = 1    // Current message format version
