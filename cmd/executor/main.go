@@ -74,11 +74,11 @@ func main() {
 
 	executorConfig, blockchainInfo, err := loadConfiguration(configPath)
 	if err != nil {
-		lggr.Fatalw("Failed to load configuration", "err", err)
+		lggr.Errorw("Failed to load configuration", "path", configPath, "error", err)
 		os.Exit(1)
 	}
 	if err = executorConfig.Validate(); err != nil {
-		lggr.Fatalw("Failed to validate configuration", "err", err)
+		lggr.Errorw("Failed to validate configuration", "path", configPath, "error", err)
 		os.Exit(1)
 	}
 
