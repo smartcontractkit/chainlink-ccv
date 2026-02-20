@@ -391,6 +391,101 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 		}, tests.WaitTimeout(t), 50*time.Millisecond)
 	})
 
+	t.Run("checkpoint advances monotonically", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
+		defer cancel()
+
+		lggr := logger.Test(t)
+		fakeStorage := NewFakeCCVNodeDataWriter()
+		mockChainStatus := mocks.NewMockChainStatusManager(t)
+		tracker := NewPendingWritingTracker(lggr)
+
+		chain1 := protocol.ChainSelector(1)
+		msg1 := createTrackedMessage(chain1, 100, 100, tracker)
+		msg2 := createTrackedMessage(chain1, 105, 105, tracker)
+		msg3 := createTrackedMessage(chain1, 110, 110, tracker)
+
+		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
+			db.DB,
+			jobqueue.QueueConfig{
+				Name:          "verification_results",
+				OwnerID:       "test-" + t.Name(),
+				RetryDuration: time.Hour,
+				LockDuration:  time.Minute,
+			},
+			lggr,
+		)
+		require.NoError(t, err)
+
+		processor, err := NewStorageWriterProcessorDB(
+			ctx,
+			lggr,
+			"test-"+t.Name(),
+			NoopLatencyTracker{},
+			fakeStorage,
+			resultQueue,
+			CoordinatorConfig{
+				StorageBatchSize:  10,
+				StorageRetryDelay: 100 * time.Millisecond,
+			},
+			tracker,
+			mockChainStatus,
+		)
+		require.NoError(t, err)
+
+		var mu sync.Mutex
+		callCount := 0
+		// Expect checkpoints in order: 104, 109
+		mockChainStatus.EXPECT().
+			WriteChainStatuses(mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, statuses []protocol.ChainStatusInfo) error {
+				mu.Lock()
+				callCount++
+				currentCount := callCount
+				mu.Unlock()
+				require.Len(t, statuses, 1)
+				require.Equal(t, chain1, statuses[0].ChainSelector)
+
+				expectedCheckpoints := map[int]int64{1: 104, 2: 109}
+				require.Equal(t, expectedCheckpoints[currentCount], statuses[0].FinalizedBlockHeight.Int64())
+				return nil
+			}).
+			Times(2)
+
+		require.NoError(t, processor.Start(ctx))
+		defer func() {
+			require.NoError(t, processor.Close())
+		}()
+
+		// Publish messages one by one with delays to ensure separate batch processing
+		require.NoError(t, resultQueue.Publish(ctx, msg1))
+		// Wait for msg1 to be processed and checkpoint written
+		require.Eventually(t, func() bool {
+			return fakeStorage.GetStoredCount() >= 1
+		}, tests.WaitTimeout(t), 50*time.Millisecond)
+
+		require.NoError(t, resultQueue.Publish(ctx, msg2))
+		// Wait for msg2 to be processed and second checkpoint written
+		require.Eventually(t, func() bool {
+			return fakeStorage.GetStoredCount() >= 2
+		}, tests.WaitTimeout(t), 50*time.Millisecond)
+
+		require.NoError(t, resultQueue.Publish(ctx, msg3))
+		// Wait for msg3 to be processed
+		require.Eventually(t, func() bool {
+			return fakeStorage.GetStoredCount() >= 3
+		}, tests.WaitTimeout(t), 50*time.Millisecond)
+
+		// Now wait for both checkpoint calls
+		require.Eventually(t, func() bool {
+			mu.Lock()
+			count := callCount
+			mu.Unlock()
+			return count == 2 && mockChainStatus.AssertExpectations(t)
+		}, tests.WaitTimeout(t), 50*time.Millisecond)
+	})
+
 	t.Run("multiple chains handled independently", func(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
@@ -520,58 +615,6 @@ func TestStorageWriterProcessorDB_ContextCancellation(t *testing.T) {
 		cancel()
 
 		// Processor should stop cleanly
-		require.NoError(t, processor.Close())
-	})
-}
-
-// TestStorageWriterProcessorDB_ServiceLifecycle tests start/stop behavior.
-func TestStorageWriterProcessorDB_ServiceLifecycle(t *testing.T) {
-	t.Parallel()
-
-	t.Run("can start and stop processor", func(t *testing.T) {
-		t.Parallel()
-		ctx := t.Context()
-
-		db := testutil.NewTestDB(t)
-
-		lggr := logger.Test(t)
-		fakeStorage := NewFakeCCVNodeDataWriter()
-
-		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db.DB,
-			jobqueue.QueueConfig{
-				Name:          "verification_results",
-				OwnerID:       "test-" + t.Name(),
-				RetryDuration: time.Hour,
-				LockDuration:  time.Minute,
-			},
-			lggr,
-		)
-		require.NoError(t, err)
-
-		processor, err := NewStorageWriterProcessorDB(
-			ctx,
-			lggr,
-			"test-"+t.Name(),
-			NoopLatencyTracker{},
-			fakeStorage,
-			resultQueue,
-			CoordinatorConfig{
-				StorageBatchSize:  10,
-				StorageRetryDelay: 100 * time.Millisecond,
-			},
-			NewPendingWritingTracker(lggr),
-			&noopChainStatusManager{},
-		)
-		require.NoError(t, err)
-
-		// Start
-		require.NoError(t, processor.Start(ctx))
-
-		// Stop
-		require.NoError(t, processor.Close())
-
-		// Should be idempotent
 		require.NoError(t, processor.Close())
 	})
 }
