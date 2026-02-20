@@ -10,8 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jmoiron/sqlx"
-
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 
 	"github.com/ethereum/go-ethereum/crypto"
@@ -103,7 +101,7 @@ func newTestSetup(t *testing.T) *testSetup {
 		chainStatusManager: chainStatusManager,
 		signerAddr:         addr,
 		signer:             signer,
-		db:                 sqlxDB.(*sqlx.DB).DB,
+		db:                 sqlxDB.DB,
 	}
 
 	return ts

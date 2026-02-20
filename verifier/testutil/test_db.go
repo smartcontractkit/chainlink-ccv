@@ -15,13 +15,12 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db"
-	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
 
 // NewTestDB creates a PostgreSQL testcontainer for testing with queue tables.
-// It runs migrations to set up the necessary schema and returns a DataSource (*sqlx.DB).
+// It runs migrations to set up the necessary schema and returns a *sqlx.DB.
 // Accepts testing.TB so it works for both *testing.T and *testing.B.
-func NewTestDB(tb testing.TB) sqlutil.DataSource {
+func NewTestDB(tb testing.TB) *sqlx.DB {
 	if testing.Short() {
 		tb.Skip("skipping docker test in short mode")
 	}
@@ -61,9 +60,7 @@ func NewTestDB(tb testing.TB) sqlutil.DataSource {
 
 // CleanupTestDB closes the database connection.
 // Note: Container cleanup is handled automatically by tb.Cleanup in NewTestDB.
-func CleanupTestDB(tb testing.TB, dbConn sqlutil.DataSource) {
-	if sqlxDB, ok := dbConn.(*sqlx.DB); ok {
-		err := sqlxDB.Close()
-		require.NoError(tb, err, "failed to close test database")
-	}
+func CleanupTestDB(tb testing.TB, dbConn *sqlx.DB) {
+	err := dbConn.Close()
+	require.NoError(tb, err, "failed to close test database")
 }

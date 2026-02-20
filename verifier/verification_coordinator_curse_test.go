@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -136,7 +135,7 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 		setup.chainStatusManager,
 		setup.mockCurseChecker,
 		heartbeatclient.NewNoopHeartbeatClient(),
-		sqlxDB.(*sqlx.DB).DB,
+		sqlxDB.DB,
 	)
 	require.NoError(t, err)
 	setup.coordinator = coordinator

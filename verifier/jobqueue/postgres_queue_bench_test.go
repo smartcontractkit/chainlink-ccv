@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/verifier/jobqueue"
@@ -37,7 +36,7 @@ func BenchmarkJobQueueThroughput(b *testing.B) {
 
 	sqlxDB := testutil.NewTestDB(b)
 
-	q, err := jobqueue.NewPostgresJobQueue[testJob](sqlxDB.(*sqlx.DB).DB, jobqueue.QueueConfig{
+	q, err := jobqueue.NewPostgresJobQueue[testJob](sqlxDB.DB, jobqueue.QueueConfig{
 		Name:          "verification_tasks",
 		OwnerID:       "bench-verifier",
 		RetryDuration: time.Hour,
@@ -48,11 +47,9 @@ func BenchmarkJobQueueThroughput(b *testing.B) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	db := sqlxDB.(*sqlx.DB)
-
 	for b.Loop() {
 		// Clean tables between iterations so each iteration starts fresh.
-		_, err := db.ExecContext(ctx, "TRUNCATE verification_tasks, verification_tasks_archive CASCADE")
+		_, err := sqlxDB.ExecContext(ctx, "TRUNCATE verification_tasks, verification_tasks_archive CASCADE")
 		require.NoError(b, err)
 
 		var (
@@ -187,11 +184,11 @@ func BenchmarkJobQueueThroughput(b *testing.B) {
 		b.Logf("  Perm. failed:   %d", failed)
 
 		var remaining int
-		err = db.QueryRow("SELECT COUNT(*) FROM verification_tasks").Scan(&remaining)
+		err = sqlxDB.QueryRow("SELECT COUNT(*) FROM verification_tasks").Scan(&remaining)
 		require.NoError(b, err, "count remaining")
 
 		var archived int
-		err = db.QueryRow("SELECT COUNT(*) FROM verification_tasks_archive").Scan(&archived)
+		err = sqlxDB.QueryRow("SELECT COUNT(*) FROM verification_tasks_archive").Scan(&archived)
 		require.NoError(b, err, "count archived")
 		b.Logf("  Remaining in queue: %d, Archived: %d, Sum: %d (expected %d)",
 			remaining, archived, remaining+archived, totalExpected)

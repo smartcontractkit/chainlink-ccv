@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -36,8 +35,7 @@ func (j testJob) JobKey() (chainSelector, messageID string) {
 func newTestQueue(t *testing.T, opts ...func(*jobqueue.QueueConfig)) (*jobqueue.PostgresJobQueue[testJob], *sql.DB) {
 	t.Helper()
 
-	ds := testutil.NewTestDB(t)
-	db := ds.(*sqlx.DB).DB
+	sqlxDB := testutil.NewTestDB(t)
 
 	cfg := jobqueue.QueueConfig{
 		Name:          "verification_tasks",
@@ -49,9 +47,9 @@ func newTestQueue(t *testing.T, opts ...func(*jobqueue.QueueConfig)) (*jobqueue.
 		o(&cfg)
 	}
 
-	q, err := jobqueue.NewPostgresJobQueue[testJob](db, cfg, logger.Test(t))
+	q, err := jobqueue.NewPostgresJobQueue[testJob](sqlxDB.DB, cfg, logger.Test(t))
 	require.NoError(t, err)
-	return q, db
+	return q, sqlxDB.DB
 }
 
 // countRows is a test helper that counts rows in a table with a given status filter.
