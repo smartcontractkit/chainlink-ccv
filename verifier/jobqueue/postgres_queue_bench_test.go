@@ -31,18 +31,17 @@ func BenchmarkJobQueueThroughput(b *testing.B) {
 		batchesPerProd = 10  // number of Publish calls per producer
 		jobsPerBatch   = 100 // jobs per Publish call
 		batchConsume   = 20  // jobs per Consume call
-		maxAttempts    = 3
-		retryPct       = 10 // percent of consumed jobs retried (transient)
-		failPct        = 5  // percent of consumed jobs permanently failed
+		retryPct       = 10  // percent of consumed jobs retried (transient)
+		failPct        = 5   // percent of consumed jobs permanently failed
 		lockDuration   = 5 * time.Minute
 	)
 
 	sqlxDB := testutil.NewTestDB(b)
 
 	q, err := jobqueue.NewPostgresJobQueue[testJob](sqlxDB.(*sqlx.DB).DB, jobqueue.QueueConfig{
-		Name:               "verification_tasks",
-		OwnerID:            "bench-verifier",
-		DefaultMaxAttempts: maxAttempts,
+		Name:          "verification_tasks",
+		OwnerID:       "bench-verifier",
+		RetryDuration: time.Hour,
 	}, logger.Test(b))
 	require.NoError(b, err)
 

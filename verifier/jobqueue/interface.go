@@ -31,8 +31,8 @@ type Job[T Jobable] struct {
 	Payload T
 	// Number of times this job has been attempted
 	AttemptCount int
-	// Maximum number of attempts allowed
-	MaxAttempts int
+	// Deadline after which retries are no longer allowed
+	RetryDeadline time.Time
 	// When the job was created
 	CreatedAt time.Time
 	// When processing started (nil if not started)
@@ -84,6 +84,7 @@ type QueueConfig struct {
 	// OwnerID scopes jobs so multiple verifiers sharing the same table
 	// only consume their own jobs (e.g. "CCTPVerifier", "LombardVerifier").
 	OwnerID string
-	// Default maximum attempts before job is failed
-	DefaultMaxAttempts int
+	// RetryDuration is how long from creation a job is eligible for retry.
+	// After this duration elapses, a failed retry marks the job as permanently failed.
+	RetryDuration time.Duration
 }

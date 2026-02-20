@@ -65,7 +65,7 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 	//nolint:gosec // G201: table name is from config, not user input
 	query := fmt.Sprintf(`
 		INSERT INTO %s (
-			job_id, task_data, status, available_at, created_at, attempt_count, max_attempts,
+			job_id, task_data, status, available_at, created_at, attempt_count, retry_deadline,
 			chain_selector, message_id, owner_id
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`, q.tableName)
@@ -98,14 +98,16 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 		// Extract chain selector and message ID from the job
 		chainSelector, messageID := job.JobKey()
 
+		now := time.Now()
+
 		_, err = stmt.ExecContext(ctx,
 			jobID,
 			data,
 			JobStatusPending,
 			availableAt,
-			time.Now(),
+			now,
 			0, // attempt_count
-			q.config.DefaultMaxAttempts,
+			now.Add(q.config.RetryDuration),
 			chainSelector,
 			messageID,
 			q.ownerID,
@@ -147,7 +149,7 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int, lockDu
 			LIMIT $7
 			FOR UPDATE SKIP LOCKED
 		)
-		RETURNING id, job_id, task_data, attempt_count, max_attempts, created_at, started_at, chain_selector, message_id
+		RETURNING id, job_id, task_data, attempt_count, retry_deadline, created_at, started_at, chain_selector, message_id
 	`, q.tableName, q.tableName)
 
 	rows, err := q.db.QueryContext(ctx, query,
@@ -173,14 +175,14 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int, lockDu
 			jobID         string
 			dataJSON      []byte
 			attemptCount  int
-			maxAttempts   int
+			retryDeadline time.Time
 			createdAt     time.Time
 			startedAt     sql.NullTime
 			chainSelector sql.NullString
 			messageID     sql.NullString
 		)
 
-		err := rows.Scan(&id, &jobID, &dataJSON, &attemptCount, &maxAttempts, &createdAt, &startedAt, &chainSelector, &messageID)
+		err := rows.Scan(&id, &jobID, &dataJSON, &attemptCount, &retryDeadline, &createdAt, &startedAt, &chainSelector, &messageID)
 		if err != nil {
 			q.logger.Errorw("Failed to scan job row", "error", err)
 			continue
@@ -199,7 +201,7 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int, lockDu
 			ID:            jobID,
 			Payload:       payload,
 			AttemptCount:  attemptCount,
-			MaxAttempts:   maxAttempts,
+			RetryDeadline: retryDeadline,
 			CreatedAt:     createdAt,
 			ChainSelector: chainSelector.String,
 			MessageID:     messageID.String,
@@ -269,19 +271,19 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 
 	availableAt := time.Now().Add(delay)
 
-	// Check if any jobs exceeded max attempts
+	// Check if retry deadline has passed
 	//nolint:gosec // G201: table name is from config, not user input
 	query := fmt.Sprintf(`
 		UPDATE %s
 		SET status = CASE
-				WHEN attempt_count >= max_attempts THEN $1
+				WHEN NOW() >= retry_deadline THEN $1
 				ELSE $2
 			END,
 			available_at = $3,
 			last_error = $4
 		WHERE job_id = $5
 		  AND owner_id = $6
-		RETURNING job_id, attempt_count, max_attempts
+		RETURNING job_id, retry_deadline
 	`, q.tableName)
 
 	tx, err := q.db.BeginTx(ctx, nil)
@@ -310,7 +312,7 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 		}
 
 		var resultJobID string
-		var attemptCount, maxAttempts int
+		var retryDeadline time.Time
 
 		err := stmt.QueryRowContext(ctx,
 			JobStatusFailed,
@@ -319,7 +321,7 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 			errMsg,
 			jobID,
 			q.ownerID,
-		).Scan(&resultJobID, &attemptCount, &maxAttempts)
+		).Scan(&resultJobID, &retryDeadline)
 		if err != nil {
 			q.logger.Errorw("Failed to retry job",
 				"jobID", jobID,
@@ -328,7 +330,7 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 			continue
 		}
 
-		if attemptCount >= maxAttempts {
+		if time.Now().After(retryDeadline) || time.Now().Equal(retryDeadline) {
 			failed = append(failed, resultJobID)
 		} else {
 			retried = append(retried, resultJobID)

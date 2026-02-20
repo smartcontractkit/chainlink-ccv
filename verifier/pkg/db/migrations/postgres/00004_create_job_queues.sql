@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS verification_tasks (
 
     -- Retry handling
     attempt_count INT NOT NULL DEFAULT 0,
-    max_attempts INT NOT NULL DEFAULT 5,
+    retry_deadline TIMESTAMPTZ NOT NULL,
     last_error TEXT,
 
     -- Constraints
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS verification_tasks_archive (
     available_at TIMESTAMPTZ NOT NULL,
     started_at TIMESTAMPTZ,
     attempt_count INT NOT NULL,
-    max_attempts INT NOT NULL,
+    retry_deadline TIMESTAMPTZ NOT NULL,
     last_error TEXT,
     completed_at TIMESTAMPTZ NOT NULL
 );
@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS verification_results (
 
     -- Retry handling
     attempt_count INT NOT NULL DEFAULT 0,
-    max_attempts INT NOT NULL DEFAULT 5,
+    retry_deadline TIMESTAMPTZ NOT NULL,
     last_error TEXT,
 
     -- Link to source task for traceability
@@ -153,7 +153,7 @@ CREATE TABLE IF NOT EXISTS verification_results_archive (
     available_at TIMESTAMPTZ NOT NULL,
     started_at TIMESTAMPTZ,
     attempt_count INT NOT NULL,
-    max_attempts INT NOT NULL,
+    retry_deadline TIMESTAMPTZ NOT NULL,
     last_error TEXT,
     task_job_id UUID,
     completed_at TIMESTAMPTZ NOT NULL

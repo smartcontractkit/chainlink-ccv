@@ -40,9 +40,9 @@ func newTestQueue(t *testing.T, opts ...func(*jobqueue.QueueConfig)) (*jobqueue.
 	db := ds.(*sqlx.DB).DB
 
 	cfg := jobqueue.QueueConfig{
-		Name:               "verification_tasks",
-		OwnerID:            "test-verifier",
-		DefaultMaxAttempts: 3,
+		Name:          "verification_tasks",
+		OwnerID:       "test-verifier",
+		RetryDuration: time.Hour,
 	}
 	for _, o := range opts {
 		o(&cfg)
@@ -96,7 +96,7 @@ func TestPublishAndConsume(t *testing.T) {
 		assert.Equal(t, j.Payload.Chain, j.ChainSelector)
 		assert.Equal(t, j.Payload.Message, j.MessageID)
 		assert.Equal(t, 1, j.AttemptCount)
-		assert.Equal(t, 3, j.MaxAttempts)
+		assert.WithinDuration(t, time.Now().Add(time.Hour), j.RetryDeadline, 5*time.Second)
 		assert.NotNil(t, j.StartedAt)
 	}
 	assert.Equal(t, "payload-1", payloads["msg-1"].Data)
@@ -203,7 +203,7 @@ func TestRetry(t *testing.T) {
 	errs := map[string]error{jobID: errors.New("transient failure")}
 	require.NoError(t, q.Retry(ctx, 0, errs, jobID))
 
-	// Job should be back to pending (attempt_count=1 < max_attempts=3)
+	// Job should be back to pending (retry deadline not yet reached)
 	assert.Equal(t, 1, countRows(t, db, "verification_tasks", jobqueue.JobStatusPending))
 
 	// Consume again (attempt 2)
@@ -213,24 +213,26 @@ func TestRetry(t *testing.T) {
 	assert.Equal(t, 2, consumed2[0].AttemptCount)
 }
 
-func TestRetryExceedsMaxAttempts(t *testing.T) {
+func TestRetryExceedsDeadline(t *testing.T) {
 	q, db := newTestQueue(t, func(c *jobqueue.QueueConfig) {
-		c.DefaultMaxAttempts = 1 // fail after 1 attempt
+		c.RetryDuration = time.Millisecond // expires almost immediately
 	})
 	ctx := context.Background()
 
 	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
 
+	// Small sleep to ensure retry_deadline has passed
+	time.Sleep(5 * time.Millisecond)
+
 	consumed, err := q.Consume(ctx, 1, time.Minute)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	jobID := consumed[0].ID
-	// attempt_count is now 1, max_attempts is 1
 
 	errs := map[string]error{jobID: errors.New("fatal")}
 	require.NoError(t, q.Retry(ctx, 0, errs, jobID))
 
-	// Job should be marked as failed because attempt_count >= max_attempts
+	// Job should be marked as failed because retry deadline has passed.
 	assert.Equal(t, 1, countRows(t, db, "verification_tasks", jobqueue.JobStatusFailed))
 	assert.Equal(t, 0, countRows(t, db, "verification_tasks", jobqueue.JobStatusPending))
 }
@@ -515,7 +517,7 @@ func TestConcurrentConsumersNoDuplicates(t *testing.T) {
 
 func TestConcurrentRetryAndFail(t *testing.T) {
 	q, db := newTestQueue(t, func(c *jobqueue.QueueConfig) {
-		c.DefaultMaxAttempts = 5
+		c.RetryDuration = time.Hour
 	})
 	ctx := context.Background()
 
@@ -598,9 +600,9 @@ func TestConcurrentRetryAndFail(t *testing.T) {
 	assert.Equal(t, numJobs, totalAccountedFor, "all jobs should be accounted for")
 }
 
-func TestRetryExhaustionCycle(t *testing.T) {
+func TestRetryDeadlineExhaustionCycle(t *testing.T) {
 	q, db := newTestQueue(t, func(c *jobqueue.QueueConfig) {
-		c.DefaultMaxAttempts = 3
+		c.RetryDuration = 50 * time.Millisecond
 	})
 	ctx := context.Background()
 
@@ -608,7 +610,7 @@ func TestRetryExhaustionCycle(t *testing.T) {
 
 	var jobID string
 
-	// Attempt 1: consume → retry
+	// Attempt 1: consume → retry (deadline not yet reached)
 	consumed, err := q.Consume(ctx, 1, time.Minute)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
@@ -616,21 +618,24 @@ func TestRetryExhaustionCycle(t *testing.T) {
 	assert.Equal(t, 1, consumed[0].AttemptCount)
 	require.NoError(t, q.Retry(ctx, 0, map[string]error{jobID: errors.New("err1")}, jobID))
 
-	// Attempt 2: consume → retry
+	// Attempt 2: consume → retry (deadline not yet reached)
 	consumed, err = q.Consume(ctx, 1, time.Minute)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	assert.Equal(t, 2, consumed[0].AttemptCount)
 	require.NoError(t, q.Retry(ctx, 0, map[string]error{jobID: errors.New("err2")}, jobID))
 
-	// Attempt 3: consume → retry (should now exceed max)
+	// Wait for the retry deadline to expire
+	time.Sleep(60 * time.Millisecond)
+
+	// Attempt 3: consume → retry (deadline has now passed, should fail permanently)
 	consumed, err = q.Consume(ctx, 1, time.Minute)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	assert.Equal(t, 3, consumed[0].AttemptCount)
 	require.NoError(t, q.Retry(ctx, 0, map[string]error{jobID: errors.New("err3")}, jobID))
 
-	// Job should now be in failed status (attempt_count=3 >= max_attempts=3)
+	// Job should now be in failed status (retry deadline passed)
 	assert.Equal(t, 1, countRows(t, db, "verification_tasks", jobqueue.JobStatusFailed))
 
 	// Verify last_error was recorded
@@ -706,7 +711,7 @@ func TestConcurrentPublishStress(t *testing.T) {
 
 func TestEndToEndConcurrentWithRandomWork(t *testing.T) {
 	q, db := newTestQueue(t, func(c *jobqueue.QueueConfig) {
-		c.DefaultMaxAttempts = 4
+		c.RetryDuration = time.Hour
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

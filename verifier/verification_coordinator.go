@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	cursecheckerimpl "github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
@@ -167,9 +168,10 @@ func createStorageWriterProcessor(
 	storageWriterQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
 		db,
 		jobqueue.QueueConfig{
-			Name:               "verification_results",
-			OwnerID:            config.VerifierID,
-			DefaultMaxAttempts: 500,
+			Name:    "verification_results",
+			OwnerID: config.VerifierID,
+			// Retry adding to the storage for 7 days
+			RetryDuration: 7 * 24 * time.Hour,
 		},
 		logger.With(lggr, "component", "result_queue"),
 	)
