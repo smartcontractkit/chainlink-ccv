@@ -14,7 +14,7 @@ import (
 )
 
 // PostgresJobQueue implements JobQueue interface using PostgreSQL as the backing store.
-// It uses advisory locks and SKIP LOCKED for efficient concurrent processing.
+// It uses row-level locking with SKIP LOCKED for efficient concurrent processing.
 type PostgresJobQueue[T Jobable] struct {
 	db          *sql.DB
 	config      QueueConfig
