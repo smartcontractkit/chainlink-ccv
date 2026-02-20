@@ -587,6 +587,11 @@ type VerifierNodeResult struct {
 	Signature       ByteSlice        `json:"signature"`
 }
 
+// JobKey implements jobqueue.Jobable interface.
+func (vr VerifierNodeResult) JobKey() (chainSelector, messageID string) {
+	return vr.Message.SourceChainSelector.String(), vr.MessageID.String()
+}
+
 func (vr *VerifierResult) ValidateFieldsConsistent() error {
 	err := vr.Message.ValidateCCVAndExecutorHash(vr.MessageCCVAddresses, vr.MessageExecutorAddress)
 	if err != nil {

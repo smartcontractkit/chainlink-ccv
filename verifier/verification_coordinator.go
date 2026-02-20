@@ -2,17 +2,28 @@ package verifier
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	cursecheckerimpl "github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/jobqueue"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
+)
+
+const (
+	// resultQueueRetryDuration is how long verification results are retried before giving up.
+	resultQueueRetryDuration = 7 * 24 * time.Hour // 7 days
+	// resultQueueLockDuration is how long a job can remain in 'processing' before being reclaimed.
+	resultQueueLockDuration = 1 * time.Minute
 )
 
 type Coordinator struct {
@@ -28,9 +39,9 @@ type Coordinator struct {
 	// 1st step processor: source readers (per-chain)
 	sourceReadersServices map[protocol.ChainSelector]*SourceReaderService
 	// 2nd step processor: task verifier
-	taskVerifierProcessor *TaskVerifierProcessor
+	taskVerifierProcessor services.Service
 	// 3rd step processor: storage writer
-	storageWriterProcessor *StorageWriterProcessor
+	storageWriterProcessor services.Service
 	// Heartbeat reporter: periodically sends chain statuses to aggregator
 	heartbeatReporter *HeartbeatReporter
 }
@@ -46,6 +57,7 @@ func NewCoordinator(
 	monitoring Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	heartbeatClient heartbeatclient.HeartbeatSender,
+	db *sql.DB,
 ) (*Coordinator, error) {
 	return NewCoordinatorWithDetector(
 		ctx,
@@ -59,6 +71,7 @@ func NewCoordinator(
 		chainStatusManager,
 		nil,
 		heartbeatClient,
+		db,
 	)
 }
 
@@ -74,6 +87,7 @@ func NewCoordinatorWithDetector(
 	chainStatusManager protocol.ChainStatusManager,
 	detector common.CurseCheckerService,
 	heartbeatClient heartbeatclient.HeartbeatSender,
+	db *sql.DB,
 ) (*Coordinator, error) {
 	lggr = logger.With(lggr, "verifierID", config.VerifierID)
 	enabledSourceReaders, err := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, chainStatusManager)
@@ -96,18 +110,18 @@ func NewCoordinatorWithDetector(
 		ctx, lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, writingTracker,
 	)
 
-	storageWriterProcessor, storageBatcher, err := NewStorageBatcherProcessor(
-		ctx, lggr, config.VerifierID, messageTracker, storage, config, writingTracker, chainStatusManager,
+	storageWriterProcessor, storageBatcher, err := createStorageWriterProcessor(
+		ctx, lggr, db, config, messageTracker, storage, writingTracker, chainStatusManager,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create or/and start storage batcher storageWriterProcessor: %w", err)
+		return nil, fmt.Errorf("failed to create storage writer processor: %w", err)
 	}
 
 	taskVerifierProcessor, err := NewTaskVerifierProcessor(
 		lggr, config.VerifierID, verifier, monitoring, sourceReaderServices, storageBatcher, writingTracker,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create or/and start task verifier service: %w", err)
+		return nil, fmt.Errorf("failed to create task verifier processor: %w", err)
 	}
 
 	var heartbeatReporter *HeartbeatReporter
@@ -141,6 +155,63 @@ func NewCoordinatorWithDetector(
 		taskVerifierProcessor:  taskVerifierProcessor,
 		heartbeatReporter:      heartbeatReporter,
 	}, nil
+}
+
+func createStorageWriterProcessor(
+	ctx context.Context,
+	lggr logger.Logger,
+	db *sql.DB,
+	config CoordinatorConfig,
+	messageTracker MessageLatencyTracker,
+	storage protocol.CCVNodeDataWriter,
+	writingTracker *PendingWritingTracker,
+	chainStatusManager protocol.ChainStatusManager,
+) (services.Service, *batcher.Batcher[protocol.VerifierNodeResult], error) {
+	if db == nil {
+		return NewStorageBatcherProcessor(
+			ctx, lggr, config.VerifierID, messageTracker, storage, config, writingTracker, chainStatusManager,
+		)
+	}
+	storageWriterQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
+		db,
+		jobqueue.QueueConfig{
+			Name:          "verification_results",
+			OwnerID:       config.VerifierID,
+			RetryDuration: resultQueueRetryDuration,
+			LockDuration:  resultQueueLockDuration,
+		},
+		logger.With(lggr, "component", "result_queue"),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create result queue: %w", err)
+	}
+
+	// Create DB-based storage writer processor
+	storageWriterProcessor, err := NewStorageWriterProcessorDB(
+		ctx,
+		lggr,
+		config.VerifierID,
+		messageTracker,
+		storage,
+		storageWriterQueue,
+		config,
+		writingTracker,
+		chainStatusManager,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create storage writer processor: %w", err)
+	}
+
+	// TaskVerifierProcessor needs to publish to the result queue
+	// We'll create a batcher that forwards results to the queue
+	storageBatcher := NewQueueBatcherAdapter(
+		ctx,
+		storageWriterQueue,
+		logger.With(lggr, "component", "queue_adapter"),
+		config.StorageBatchSize,
+		config.StorageBatchTimeout,
+	)
+	return storageWriterProcessor, storageBatcher, err
 }
 
 func (vc *Coordinator) Start(_ context.Context) error {
