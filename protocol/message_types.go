@@ -621,6 +621,7 @@ type DiscoveryStorageReader interface {
 	GetSinceValue() int64
 	// SetSinceValue allows moves the cursor of the reader within the discovery service
 	// this happens automatically within the reader, this is an escape hatch mainly used to move the cursor backwards for replays.
+	// When reading from aggregator, since is a sequence number.
 	SetSinceValue(since int64)
 }
 

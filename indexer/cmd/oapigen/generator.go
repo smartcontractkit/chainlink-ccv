@@ -92,6 +92,15 @@ func main() {
 		return nil, nil
 	})
 
+	huma.Register(grp, huma.Operation{
+		OperationID: "initiate-replay",
+		Method:      http.MethodPost,
+		Path:        "/initiatereplay",
+		Description: "Initiate a replay for messages that match a given criteria to update the index.",
+	}, func(ctx context.Context, input *v1.ReplayInput) (*v1.ReplayResponse, error) {
+		return nil, nil
+	})
+
 	oapi := api.OpenAPI()
 
 	// Remove $schema properties from all schemas (it was only in ErrorResponse)
