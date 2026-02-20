@@ -76,7 +76,7 @@ func TestChaos_AggregatorOutageRecovery(t *testing.T) {
 func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 	setup := setupChaos(t, GetSmokeTestConfig())
 
-	var defaultVerifierInputs []*committeeverifier.VerifierInput
+	var defaultVerifierInputs []*committeeverifier.Input
 	for _, verifier := range setup.in.Verifier {
 		if verifier.CommitteeName == devenvcommon.DefaultCommitteeVerifierQualifier {
 			defaultVerifierInputs = append(defaultVerifierInputs, verifier)

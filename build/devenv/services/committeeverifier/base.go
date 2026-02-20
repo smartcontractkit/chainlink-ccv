@@ -6,18 +6,14 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
-	ledgerv2admin "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2/admin"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	bootstrap "github.com/smartcontractkit/chainlink-ccv/bootstrap"
@@ -29,7 +25,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
-	"github.com/smartcontractkit/go-daml/pkg/auth"
 )
 
 const (
@@ -44,41 +39,35 @@ const (
 	DefaultVerifierDBImage = "postgres:16-alpine"
 )
 
-var (
-	DefaultVerifierDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
-		DefaultVerifierName, DefaultVerifierName, DefaultVerifierDBPort, DefaultVerifierName)
-	modifierPerFamily = map[string]ReqModifier{
-		chainsel.FamilyEVM:    EVMModifier,
-		chainsel.FamilyCanton: CantonModifier,
-	}
-)
+var DefaultVerifierDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
+	DefaultVerifierName, DefaultVerifierName, DefaultVerifierDBPort, DefaultVerifierName)
 
-type VerifierDBInput struct {
+type DBInput struct {
 	Image string `toml:"image"`
 	Name  string `toml:"name"`
 	Port  int    `toml:"port"`
 }
 
-type VerifierEnvConfig struct {
+type EnvConfig struct {
 	AggregatorAPIKey    string `toml:"aggregator_api_key"`
 	AggregatorSecretKey string `toml:"aggregator_secret_key"`
 }
 
-type VerifierInput struct {
-	Mode           services.Mode      `toml:"mode"`
-	DB             *VerifierDBInput   `toml:"db"`
-	Out            *VerifierOutput    `toml:"out"`
-	Image          string             `toml:"image"`
-	SourceCodePath string             `toml:"source_code_path"`
-	RootPath       string             `toml:"root_path"`
-	ContainerName  string             `toml:"container_name"`
-	NOPAlias       string             `toml:"nop_alias"`
-	Port           int                `toml:"port"`
-	UseCache       bool               `toml:"use_cache"`
-	Env            *VerifierEnvConfig `toml:"env"`
-	CommitteeName  string             `toml:"committee_name"`
-	NodeIndex      int                `toml:"node_index"`
-	ChainFamily    string             `toml:"chain_family"`
+type Input struct {
+	Mode           services.Mode `toml:"mode"`
+	DB             *DBInput      `toml:"db"`
+	Out            *Output       `toml:"out"`
+	Image          string        `toml:"image"`
+	SourceCodePath string        `toml:"source_code_path"`
+	RootPath       string        `toml:"root_path"`
+	ContainerName  string        `toml:"container_name"`
+	NOPAlias       string        `toml:"nop_alias"`
+	Port           int           `toml:"port"`
+	UseCache       bool          `toml:"use_cache"`
+	Env            *EnvConfig    `toml:"env"`
+	CommitteeName  string        `toml:"committee_name"`
+	NodeIndex      int           `toml:"node_index"`
+	ChainFamily    string        `toml:"chain_family"`
 
 	Bootstrap *services.BootstrapInput `toml:"bootstrap"`
 
@@ -111,7 +100,7 @@ type VerifierInput struct {
 // added to the inner config. This is needed for standalone verifiers which require blockchain
 // connection information (CL nodes get this from their own chain config).
 // TODO: we stick with the job spec so that there isn't special logic for standalone verifiers.
-func (v *VerifierInput) RebuildVerifierJobSpecWithBlockchainInfos(jobSpec string, blockchainInfos map[string]*ccvblockchain.Info) (string, error) {
+func (v *Input) RebuildVerifierJobSpecWithBlockchainInfos(jobSpec string, blockchainInfos map[string]*ccvblockchain.Info) (string, error) {
 	// Parse the outer job spec first.
 	var spec commit.JobSpec
 	if _, err := toml.Decode(jobSpec, &spec); err != nil {
@@ -146,7 +135,7 @@ func (v *VerifierInput) RebuildVerifierJobSpecWithBlockchainInfos(jobSpec string
 	return string(outerSpecBytes), nil
 }
 
-type VerifierOutput struct {
+type Output struct {
 	VerifierID         string `toml:"verifier_id"`
 	ContainerName      string `toml:"container_name"`
 	ExternalHTTPURL    string `toml:"http_url"`
@@ -164,7 +153,7 @@ type VerifierOutput struct {
 	JDNodeID string `toml:"jd_node_id"`
 }
 
-func ApplyVerifierDefaults(in VerifierInput) VerifierInput {
+func ApplyDefaults(in Input) Input {
 	if in.Image == "" {
 		in.Image = DefaultVerifierImage
 	}
@@ -175,7 +164,7 @@ func ApplyVerifierDefaults(in VerifierInput) VerifierInput {
 		in.ContainerName = DefaultVerifierName
 	}
 	if in.DB == nil {
-		in.DB = &VerifierDBInput{
+		in.DB = &DBInput{
 			Image: DefaultVerifierDBImage,
 			Name:  DefaultVerifierDBName,
 			Port:  DefaultVerifierDBPort,
@@ -197,80 +186,7 @@ func ApplyVerifierDefaults(in VerifierInput) VerifierInput {
 	return in
 }
 
-// hydrateAndMarshalCantonConfig hydrates the canton config with the full party ID for the CCIPOwnerParty.
-func hydrateAndMarshalCantonConfig(in *VerifierInput, outputs []*blockchain.Output) ([]byte, error) {
-	for _, output := range outputs {
-		if output.Family != chainsel.FamilyCanton {
-			continue
-		}
-
-		chainDetails, err := chainsel.GetChainDetailsByChainIDAndFamily(output.ChainID, output.Family)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get chain details for chain %s, family %s: %w", output.ChainID, output.Family, err)
-		}
-
-		strSelector := strconv.FormatUint(chainDetails.ChainSelector, 10)
-		cantonConfig, ok := in.CantonConfigs.ReaderConfigs[strSelector]
-		if !ok {
-			return nil, fmt.Errorf("no canton config found for chain %s, please update the config appropriately if you're using canton", strSelector)
-		}
-		if cantonConfig.CCIPOwnerParty == "" {
-			return nil, fmt.Errorf("CCIPOwnerParty is not set for chain %s, please update the config appropriately if you're using canton", strSelector)
-		}
-		if cantonConfig.CCIPMessageSentTemplateID == "" {
-			return nil, fmt.Errorf("CCIPMessageSentTemplateID is not set for chain %s, please update the config appropriately if you're using canton", strSelector)
-		}
-
-		// Get the full party ID (name + hex id) from the canton participant.
-		// TODO: how to support multiple participants?
-		grpcURL := output.NetworkSpecificData.CantonEndpoints.Participants[0].GRPCLedgerAPIURL
-		jwt := output.NetworkSpecificData.CantonEndpoints.Participants[0].JWT
-		if grpcURL == "" || jwt == "" {
-			return nil, fmt.Errorf("GRPC ledger API URL or JWT is not set for chain %s, please update the config appropriately if you're using canton", strSelector)
-		}
-
-		// find the party that starts with the prefix that is listed in the canton config.
-		conn, err := grpc.NewClient(grpcURL, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithPerRPCCredentials(auth.NewBearerToken(jwt)))
-		if err != nil {
-			return nil, fmt.Errorf("failed to create gRPC connection: %w", err)
-		}
-		resp, err := ledgerv2admin.NewPartyManagementServiceClient(conn).ListKnownParties(context.Background(), &ledgerv2admin.ListKnownPartiesRequest{})
-		if err != nil {
-			return nil, fmt.Errorf("failed to get user: %w", err)
-		}
-
-		authority := grpcURL
-		if idx := strings.LastIndex(authority, ":"); idx != -1 {
-			authority = authority[:idx]
-		}
-
-		var found bool
-		for _, partyDetail := range resp.PartyDetails {
-			if strings.HasPrefix(partyDetail.GetParty(), cantonConfig.CCIPOwnerParty) {
-				in.CantonConfigs.ReaderConfigs[strSelector] = canton.ReaderConfig{
-					CCIPOwnerParty:            partyDetail.GetParty(),
-					CCIPMessageSentTemplateID: cantonConfig.CCIPMessageSentTemplateID,
-					Authority:                 authority,
-				}
-				found = true
-				break
-			}
-		}
-		if !found {
-			return nil, fmt.Errorf("expected CCIPOwnerParty %s not found for canton chain %s, please update the config appropriately if you're using canton", cantonConfig.CCIPOwnerParty, strSelector)
-		}
-	}
-
-	// Marshal the canton config into TOML.
-	cantonConfigBytes, err := toml.Marshal(in.CantonConfigs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal canton config: %w", err)
-	}
-
-	return cantonConfigBytes, nil
-}
-
-func NewVerifier(in *VerifierInput, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) (*VerifierOutput, error) {
+func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) (*Output, error) {
 	if in == nil {
 		return nil, nil
 	}
@@ -294,7 +210,7 @@ func NewVerifier(in *VerifierInput, outputs []*blockchain.Output, jdInfra *jobs.
 		return in.Out, err
 	}
 
-	err = createVerifierDB(ctx, in)
+	err = createDBContainer(ctx, in)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create verifier database: %w", err)
 	}
@@ -449,7 +365,7 @@ func NewVerifier(in *VerifierInput, outputs []*blockchain.Output, jdInfra *jobs.
 		return nil, fmt.Errorf("failed to get bootstrap keys: %w", err)
 	}
 
-	return &VerifierOutput{
+	return &Output{
 		ContainerName:   in.ContainerName,
 		ExternalHTTPURL: fmt.Sprintf("http://%s:%d", host, in.Port),
 		InternalHTTPURL: fmt.Sprintf("http://%s:%d", in.ContainerName, in.Port),
@@ -462,7 +378,7 @@ func NewVerifier(in *VerifierInput, outputs []*blockchain.Output, jdInfra *jobs.
 	}, nil
 }
 
-func getAggregatorSecrets(in *VerifierInput) (map[string]string, error) {
+func getAggregatorSecrets(in *Input) (map[string]string, error) {
 	envVars := make(map[string]string)
 	var apiKey, secretKey string
 
@@ -487,7 +403,7 @@ func getAggregatorSecrets(in *VerifierInput) (map[string]string, error) {
 	return envVars, nil
 }
 
-func createVerifierDB(ctx context.Context, in *VerifierInput) error {
+func createDBContainer(ctx context.Context, in *Input) error {
 	// Create a temporary file containing the bootstrap init script.
 	// This is so that we have two databases created in the database server container, one for the verifier and one for the bootstrap.
 	bootstrapInitScriptPath, err := services.CreateBootstrapDBInitScriptFile()
@@ -531,48 +447,4 @@ func createVerifierDB(ctx context.Context, in *VerifierInput) error {
 	}
 
 	return nil
-}
-
-// ReqModifier is a function that modifies a testcontainers.ContainerRequest.
-type ReqModifier func(
-	req testcontainers.ContainerRequest,
-	verifierInput *VerifierInput,
-	outputs []*blockchain.Output,
-) (testcontainers.ContainerRequest, error)
-
-// CantonModifier is a function that modifies a testcontainers.ContainerRequest for canton.
-func CantonModifier(req testcontainers.ContainerRequest, verifierInput *VerifierInput, outputs []*blockchain.Output) (testcontainers.ContainerRequest, error) {
-	const (
-		DefaultCantonCommitteVerifierImage = "cantoncommittee-verifier:dev"
-	)
-
-	// Usage the canton image to properly read from Canton.
-	req.Image = DefaultCantonCommitteVerifierImage
-
-	// Marshal the canton config into TOML bytes.
-	cantonConfigBytes, err := hydrateAndMarshalCantonConfig(verifierInput, outputs)
-	if err != nil {
-		return req, fmt.Errorf("failed to hydrate and marshal canton config: %w", err)
-	}
-
-	// Save the canton config bytes to a temporary file.
-	confDir := util.CCVConfigDir()
-	cantonConfigFilePath := filepath.Join(confDir,
-		fmt.Sprintf("canton-%s-config-%d.toml", verifierInput.CommitteeName, verifierInput.NodeIndex+1))
-	if err := os.WriteFile(cantonConfigFilePath, cantonConfigBytes, 0o644); err != nil {
-		return req, fmt.Errorf("failed to write canton config to file: %w", err)
-	}
-
-	// Mount the canton config file.
-	req.Mounts = append(req.Mounts, testcontainers.BindMount(
-		cantonConfigFilePath,
-		canton.DefaultCantonConfigPath,
-	))
-
-	return req, nil
-}
-
-// EVMModifier is a function that modifies a testcontainers.ContainerRequest for EVM.
-func EVMModifier(req testcontainers.ContainerRequest, verifierInput *VerifierInput, outputs []*blockchain.Output) (testcontainers.ContainerRequest, error) {
-	return req, nil
 }
