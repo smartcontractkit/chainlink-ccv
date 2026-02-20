@@ -40,6 +40,12 @@ CREATE INDEX IF NOT EXISTS idx_verification_tasks_consume
     ON verification_tasks (owner_id, available_at ASC, id ASC)
     WHERE status IN ('pending', 'failed');
 
+-- Index for efficient stale job reclamation
+-- Covers stale 'processing' jobs where started_at has expired
+CREATE INDEX IF NOT EXISTS idx_verification_tasks_stale
+    ON verification_tasks (owner_id, started_at ASC, id ASC)
+    WHERE status = 'processing' AND started_at IS NOT NULL;
+
 -- Index for efficient stats queries
 CREATE INDEX IF NOT EXISTS idx_verification_tasks_status
     ON verification_tasks (owner_id, status);
@@ -111,8 +117,9 @@ CREATE TABLE IF NOT EXISTS verification_results (
     retry_deadline TIMESTAMPTZ NOT NULL,
     last_error TEXT,
 
-    -- Link to source task for traceability
-    task_job_id UUID REFERENCES verification_tasks(job_id),
+    -- Link to source task for traceability (soft reference, no FK constraint)
+    -- Tasks and results have independent lifecycles
+    task_job_id UUID,
 
     -- Constraints
     CONSTRAINT verification_results_status_check
@@ -123,6 +130,12 @@ CREATE TABLE IF NOT EXISTS verification_results (
 CREATE INDEX IF NOT EXISTS idx_verification_results_consume
     ON verification_results (owner_id, available_at ASC, id ASC)
     WHERE status IN ('pending', 'failed');
+
+-- Index for efficient stale job reclamation
+-- Covers stale 'processing' jobs where started_at has expired
+CREATE INDEX IF NOT EXISTS idx_verification_results_stale
+    ON verification_results (owner_id, started_at ASC, id ASC)
+    WHERE status = 'processing' AND started_at IS NOT NULL;
 
 -- Index for efficient stats queries
 CREATE INDEX IF NOT EXISTS idx_verification_results_status

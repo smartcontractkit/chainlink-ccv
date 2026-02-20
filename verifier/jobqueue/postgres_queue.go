@@ -148,7 +148,7 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 			  AND (
 			    (status IN ($4, $5) AND available_at <= $6)
 			    OR
-			    (status = $7 AND started_at <= $8)
+			    (status = $7 AND started_at IS NOT NULL AND started_at <= $8)
 			  )
 			ORDER BY available_at ASC, id ASC
 			LIMIT $9
