@@ -290,7 +290,7 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 			last_error = $4
 		WHERE job_id = $5
 		  AND owner_id = $6
-		RETURNING job_id, retry_deadline
+		RETURNING job_id, status
 	`, q.tableName)
 
 	tx, err := q.db.BeginTx(ctx, nil)
@@ -319,7 +319,7 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 		}
 
 		var resultJobID string
-		var retryDeadline time.Time
+		var resultStatus string
 
 		err := stmt.QueryRowContext(ctx,
 			JobStatusFailed,
@@ -328,7 +328,7 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 			errMsg,
 			jobID,
 			q.ownerID,
-		).Scan(&resultJobID, &retryDeadline)
+		).Scan(&resultJobID, &resultStatus)
 		if err != nil {
 			q.logger.Errorw("Failed to retry job",
 				"jobID", jobID,
@@ -337,7 +337,9 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 			continue
 		}
 
-		if time.Now().After(retryDeadline) || time.Now().Equal(retryDeadline) {
+		// Use the status decided by the database to avoid race condition
+		// between SQL NOW() and Go time.Now()
+		if resultStatus == string(JobStatusFailed) {
 			failed = append(failed, resultJobID)
 		} else {
 			retried = append(retried, resultJobID)
