@@ -291,10 +291,6 @@ func logChainInfo(blockchainHelper *blockchain.Helper, chainSelector protocol.Ch
 			"InternalHTTPURL", n.InternalHTTPUrl,
 		)
 	}
-
-	if nodes, err := blockchainHelper.GetAllNodes(chainSelector); err == nil {
-		lggr.Infow("📡 All nodes", "chainSelector", chainSelector, "nodeCount", len(nodes))
-	}
 }
 
 func getEnvInt(key string, defaultValue int) int {

@@ -51,20 +51,6 @@ func (bh *Helper) GetBlockchainByChainSelector(chainSelector protocol.ChainSelec
 	return nil, fmt.Errorf("selector %d not found", uint64(chainSelector))
 }
 
-// GetRPCEndpoint returns the RPC endpoint for a blockchain by chain selector
-// Returns the first available HTTP endpoint.
-func (bi *Info) GetRPCEndpoint() (string, error) {
-	if len(bi.Nodes) == 0 || bi.Nodes[0] == nil {
-		return "", fmt.Errorf("no nodes found for chain %s", bi.ChainID)
-	}
-
-	if bi.Nodes[0].ExternalHTTPUrl == "" {
-		return "", fmt.Errorf("no HTTP URL found for chain %s", bi.ChainID)
-	}
-
-	return bi.Nodes[0].ExternalHTTPUrl, nil
-}
-
 // GetAllChainSelectors returns all available chain selectors.
 func (bh *Helper) GetAllChainSelectors() []protocol.ChainSelector {
 	selectors := make([]protocol.ChainSelector, 0)
@@ -101,19 +87,6 @@ func (bi *Info) GetFirstNode() (Node, error) {
 	}
 
 	return Node{}, fmt.Errorf("no nodes found for chain %s", bi.ChainID)
-}
-
-// GetAllNodes returns all nodes for a blockchain by chain selector.
-func (bh *Helper) GetAllNodes(chainSelector protocol.ChainSelector) ([]*Node, error) {
-	info, err := bh.GetBlockchainByChainSelector(chainSelector)
-	if err != nil {
-		return nil, err
-	}
-	if info == nil {
-		return nil, fmt.Errorf("blockchain info is nil for selector %d", uint64(chainSelector))
-	}
-
-	return info.Nodes, nil
 }
 
 func (bh *Helper) GetNetworkSpecificData(chainSelector protocol.ChainSelector) (*NetworkSpecificData, error) {
