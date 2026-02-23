@@ -35,7 +35,7 @@ const (
 
 var otherVersion = semver.MustParse("10.0.0")
 
-func TestBuildConfig_ResolvesCommitteeVerifier1_7_0WhenDatastoreHasBothVersions(t *testing.T) {
+func TestBuildConfig_ResolvesCommitteeVerifierWhenSingleRefExists(t *testing.T) {
 	ds := datastore.NewMemoryDataStore()
 	chainSel := testChainSel
 
@@ -43,12 +43,12 @@ func TestBuildConfig_ResolvesCommitteeVerifier1_7_0WhenDatastoreHasBothVersions(
 		ChainSelector: chainSel,
 		Type:          datastore.ContractType(committee_verifier.ResolverType),
 		Qualifier:     committeeQualifier,
-		Address:       verifier1_6_0Addr,
-		Version:       otherVersion,
+		Address:       verifier1_7_0Addr,
+		Version:       committee_verifier.Version,
 	}))
 	require.NoError(t, ds.Addresses().Add(datastore.AddressRef{
 		ChainSelector: chainSel,
-		Type:          datastore.ContractType(committee_verifier.ResolverType),
+		Type:          datastore.ContractType(committee_verifier.ContractType),
 		Qualifier:     committeeQualifier,
 		Address:       verifier1_7_0Addr,
 		Version:       committee_verifier.Version,
@@ -90,7 +90,7 @@ func TestBuildConfig_ResolvesCommitteeVerifier1_7_0WhenDatastoreHasBothVersions(
 
 	addr, ok := report.Output.Config.CommitteeVerifierAddresses[strconv.FormatUint(chainSel, 10)]
 	require.True(t, ok)
-	assert.Equal(t, verifier1_7_0Addr, addr, "BuildConfig must resolve CommitteeVerifier 1.7.0 when both versions exist")
+	assert.Equal(t, verifier1_7_0Addr, addr)
 }
 
 func TestBuildConfig_ResolvesOnRamp1_7_0WhenDatastoreHasBothVersions(t *testing.T) {

@@ -59,17 +59,14 @@ var BuildConfig = operations.NewOperation(
 		for _, chainSelector := range input.ChainSelectors {
 			chainSelectorStr := strconv.FormatUint(chainSelector, 10)
 
-			// Lookup the committee verifier address by both the resolver type and the contract type
 			committeeVerifierAddr, err := dsutil.FindAndFormatFirstRef(ds, chainSelector, toAddress,
 				datastore.AddressRef{
 					Type:      datastore.ContractType(committee_verifier.ResolverType),
 					Qualifier: input.CommitteeQualifier,
-					Version:   committee_verifier.Version,
 				},
 				datastore.AddressRef{
 					Type:      datastore.ContractType(committee_verifier.ContractType),
 					Qualifier: input.CommitteeQualifier,
-					Version:   committee_verifier.Version,
 				},
 			)
 			if err != nil {
