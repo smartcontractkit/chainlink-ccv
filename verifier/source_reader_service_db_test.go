@@ -13,7 +13,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/jobqueue"
-	vservices "github.com/smartcontractkit/chainlink-ccv/verifier/services"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
@@ -544,6 +543,6 @@ func TestSRSDB_DisableFinalityChecker(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, ok := srs.finalityChecker.(*vservices.NoOpFinalityViolationChecker)
+	_, ok := srs.finalityChecker.(*NoOpFinalityViolationChecker)
 	require.True(t, ok, "finalityChecker should be NoOpFinalityViolationChecker when disabled")
 }

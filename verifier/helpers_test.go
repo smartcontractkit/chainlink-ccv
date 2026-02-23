@@ -165,16 +165,24 @@ func (m *noopMetricLabeler) IncrementStorageWriteErrors(ctx context.Context)    
 func (m *noopMetricLabeler) RecordSourceChainLatestBlock(ctx context.Context, blockNum int64)       {}
 func (m *noopMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64)    {}
 func (m *noopMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64)             {}
-func (m *noopMetricLabeler) IncrementHeartbeatsSent(ctx context.Context)                            {}
-func (m *noopMetricLabeler) IncrementHeartbeatsFailed(ctx context.Context)                          {}
-func (m *noopMetricLabeler) RecordHeartbeatDuration(ctx context.Context, duration time.Duration)    {}
-func (m *noopMetricLabeler) SetVerifierHeartbeatTimestamp(ctx context.Context, timestamp int64)     {}
-func (m *noopMetricLabeler) SetVerifierHeartbeatSentChainHeads(ctx context.Context, height uint64)  {}
-func (m *noopMetricLabeler) SetVerifierHeartbeatChainHeads(ctx context.Context, height uint64)      {}
-func (m *noopMetricLabeler) SetVerifierHeartbeatScore(ctx context.Context, score float64)           {}
-func (m *noopMetricLabeler) IncrementActiveRequestsCounter(ctx context.Context)                     {}
-func (m *noopMetricLabeler) IncrementHTTPRequestCounter(ctx context.Context)                        {}
-func (m *noopMetricLabeler) DecrementActiveRequestsCounter(ctx context.Context)                     {}
+func (m *noopMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool) {
+}
+
+func (m *noopMetricLabeler) SetRemoteChainCursed(ctx context.Context, localSelector, remoteSelector protocol.ChainSelector, cursed bool) {
+}
+
+func (m *noopMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool) {
+}
+func (m *noopMetricLabeler) IncrementHeartbeatsSent(ctx context.Context)                           {}
+func (m *noopMetricLabeler) IncrementHeartbeatsFailed(ctx context.Context)                         {}
+func (m *noopMetricLabeler) RecordHeartbeatDuration(ctx context.Context, duration time.Duration)   {}
+func (m *noopMetricLabeler) SetVerifierHeartbeatTimestamp(ctx context.Context, timestamp int64)    {}
+func (m *noopMetricLabeler) SetVerifierHeartbeatSentChainHeads(ctx context.Context, height uint64) {}
+func (m *noopMetricLabeler) SetVerifierHeartbeatChainHeads(ctx context.Context, height uint64)     {}
+func (m *noopMetricLabeler) SetVerifierHeartbeatScore(ctx context.Context, score float64)          {}
+func (m *noopMetricLabeler) IncrementActiveRequestsCounter(ctx context.Context)                    {}
+func (m *noopMetricLabeler) IncrementHTTPRequestCounter(ctx context.Context)                       {}
+func (m *noopMetricLabeler) DecrementActiveRequestsCounter(ctx context.Context)                    {}
 func (m *noopMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path, method string, status int) {
 }
 
@@ -400,7 +408,7 @@ func NewCoordinatorWithFastPolling(
 		return nil, errors.New("no enabled/initialized chain sources, nothing to coordinate")
 	}
 
-	curseDetector, err := createCurseDetector(lggr, config, nil, enabledSourceReaders)
+	curseDetector, err := createCurseDetector(lggr, config, nil, enabledSourceReaders, monitoring.Metrics())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create curse detector: %w", err)
 	}

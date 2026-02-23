@@ -92,7 +92,7 @@ func NewCoordinatorWithDetector(
 		return nil, errors.New("no enabled/initialized chain sources, nothing to coordinate")
 	}
 
-	curseDetector, err := createCurseDetector(lggr, config, detector, enabledSourceReaders)
+	curseDetector, err := createCurseDetector(lggr, config, detector, enabledSourceReaders, monitoring.Metrics())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create curse detector: %w", err)
 	}
@@ -430,6 +430,7 @@ func createCurseDetector(
 	config CoordinatorConfig,
 	curseDetector common.CurseCheckerService,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
+	metrics MetricLabeler,
 ) (common.CurseCheckerService, error) {
 	if len(sourceReaders) == 0 {
 		lggr.Infow("No RMN readers provided; curse detector will not be started")
@@ -445,6 +446,7 @@ func createCurseDetector(
 	}
 	newCurseDetector, err := cursecheckerimpl.NewCurseDetectorService(
 		rmnReaders, config.CursePollInterval, config.CurseRPCTimeout, lggr,
+		metrics,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create curse detector: %w", err)

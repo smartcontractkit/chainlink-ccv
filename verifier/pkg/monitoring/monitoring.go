@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 )
@@ -134,6 +135,15 @@ func (f *FakeVerifierMetricLabeler) RecordSourceChainFinalizedBlock(_ context.Co
 }
 
 func (f *FakeVerifierMetricLabeler) RecordReorgTrackedSeqNums(context.Context, int64) {}
+
+func (f *FakeVerifierMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool) {
+}
+
+func (f *FakeVerifierMetricLabeler) SetRemoteChainCursed(ctx context.Context, localSelector, remoteSelector protocol.ChainSelector, cursed bool) {
+}
+
+func (f *FakeVerifierMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool) {
+}
 
 func (f *FakeVerifierMetricLabeler) IncrementActiveRequestsCounter(context.Context) {}
 

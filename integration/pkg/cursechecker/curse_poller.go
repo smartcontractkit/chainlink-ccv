@@ -43,6 +43,7 @@ type PollerService struct {
 	pollInterval     time.Duration
 	curseRPCTimeout  time.Duration
 	lggr             logger.Logger
+	metrics          common.CurseCheckerMetrics
 	cancel           context.CancelFunc
 	wg               sync.WaitGroup
 	running          atomic.Bool
@@ -61,6 +62,7 @@ func NewCurseDetectorService(
 	pollInterval time.Duration,
 	curseRPCTimeout time.Duration,
 	lggr logger.Logger,
+	metrics common.CurseCheckerMetrics,
 ) (common.CurseCheckerService, error) {
 	if len(rmnReaders) == 0 {
 		return nil, fmt.Errorf("at least one RMN reader required")
@@ -81,6 +83,7 @@ func NewCurseDetectorService(
 		pollInterval:     pollInterval,
 		curseRPCTimeout:  curseRPCTimeout,
 		lggr:             lggr,
+		metrics:          metrics,
 	}, nil
 }
 
@@ -196,8 +199,8 @@ func (s *PollerService) pollAllChains(ctx context.Context) {
 					state.CursedRemoteChains[remoteChain] = true
 				}
 			}
-
 			s.mutex.Lock()
+			s.updateMetrics(ctx, chain, s.chainCurseStates[chain], state)
 			s.chainCurseStates[chain] = state
 			s.mutex.Unlock()
 
@@ -211,12 +214,24 @@ func (s *PollerService) pollAllChains(ctx context.Context) {
 	wg.Wait()
 }
 
-func ChainSelectorToBytes16(chainSel protocol.ChainSelector) [16]byte {
-	var result [16]byte
-	// Convert the uint64 to bytes and place it in the last 8 bytes of the array
-
-	binary.BigEndian.PutUint64(result[8:], uint64(chainSel))
-	return result
+func (s *PollerService) updateMetrics(ctx context.Context, localChain protocol.ChainSelector, oldState, newState *ChainCurseState) {
+	if newState == nil {
+		return
+	}
+	s.metrics.SetLocalChainGlobalCursed(ctx, localChain, newState.HasGlobalCurse)
+	for remoteSelector, cursed := range newState.CursedRemoteChains {
+		s.metrics.SetRemoteChainCursed(ctx, localChain, remoteSelector, cursed)
+	}
+	if oldState == nil {
+		return
+	}
+	// Unset metric if chain is no longer cursed
+	for remoteSelector, oldCursed := range oldState.CursedRemoteChains {
+		_, ok := newState.CursedRemoteChains[remoteSelector]
+		if oldCursed && !ok {
+			s.metrics.SetRemoteChainCursed(ctx, localChain, remoteSelector, false)
+		}
+	}
 }
 
 // Ready returns nil if the service is ready, or an error otherwise.
@@ -239,4 +254,12 @@ func (s *PollerService) HealthReport() map[string]error {
 // Name returns the fully qualified name of the service.
 func (s *PollerService) Name() string {
 	return "cursechecker.PollerService"
+}
+
+func ChainSelectorToBytes16(chainSel protocol.ChainSelector) [16]byte {
+	var result [16]byte
+	// Convert the uint64 to bytes and place it in the last 8 bytes of the array
+
+	binary.BigEndian.PutUint64(result[8:], uint64(chainSel))
+	return result
 }

@@ -13,7 +13,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/jobqueue"
-	vservices "github.com/smartcontractkit/chainlink-ccv/verifier/services"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
@@ -100,12 +99,13 @@ func NewSourceReaderServiceDB(
 
 	if sourceCfg.DisableFinalityChecker {
 		lggr.Infow("FinalityViolationChecker is disabled by config", "chainSelector", chainSelector)
-		finalityChecker = &vservices.NoOpFinalityViolationChecker{}
+		finalityChecker = &NoOpFinalityViolationChecker{}
 	} else {
-		finalityChecker, err = vservices.NewFinalityViolationCheckerService(
+		finalityChecker, err = NewFinalityViolationCheckerService(
 			sourceReader,
 			chainSelector,
 			logger.With(lggr, "component", "FinalityChecker", "chainID", chainSelector),
+			metrics,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create finality checker: %w", err)
