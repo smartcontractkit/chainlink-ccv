@@ -13,15 +13,19 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/jobqueue"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
 const (
+	// taskQueueRetryDuration is how long verification tasks are retried before giving up.
+	taskQueueRetryDuration = 7 * 24 * time.Hour
+	// taskQueueLockDuration is how long a task job can remain in 'processing' before being reclaimed.
+	taskQueueLockDuration = 1 * time.Minute
+
 	// resultQueueRetryDuration is how long verification results are retried before giving up.
-	resultQueueRetryDuration = 7 * 24 * time.Hour // 7 days
+	resultQueueRetryDuration = 7 * 24 * time.Hour
 	// resultQueueLockDuration is how long a job can remain in 'processing' before being reclaimed.
 	resultQueueLockDuration = 1 * time.Minute
 )
@@ -37,7 +41,7 @@ type Coordinator struct {
 	// Curse detector is created & owned by coordinator (optional)
 	curseDetector common.CurseCheckerService
 	// 1st step processor: source readers (per-chain)
-	sourceReadersServices map[protocol.ChainSelector]*SourceReaderService
+	sourceReadersServices map[protocol.ChainSelector]services.Service
 	// 2nd step processor: task verifier
 	taskVerifierProcessor services.Service
 	// 3rd step processor: storage writer
@@ -106,22 +110,12 @@ func NewCoordinatorWithDetector(
 	// Create shared writingTracker (single instance shared by SRS, TVP, and SWP)
 	writingTracker := NewPendingWritingTracker(lggr)
 
-	sourceReaderServices := createSourceReaders(
-		ctx, lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, writingTracker,
-	)
-
-	storageWriterProcessor, storageBatcher, err := createStorageWriterProcessor(
-		ctx, lggr, db, config, messageTracker, storage, writingTracker, chainStatusManager,
+	sourceReaderServices, taskVerifierProcessor, storageWriterProcessor, err := createProcessors(
+		ctx, lggr, db, config, verifier, monitoring, messageTracker, storage,
+		chainStatusManager, curseDetector, enabledSourceReaders, writingTracker,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create storage writer processor: %w", err)
-	}
-
-	taskVerifierProcessor, err := NewTaskVerifierProcessor(
-		lggr, config.VerifierID, verifier, monitoring, sourceReaderServices, storageBatcher, writingTracker,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create task verifier processor: %w", err)
+		return nil, fmt.Errorf("failed to create processors: %w", err)
 	}
 
 	var heartbeatReporter *HeartbeatReporter
@@ -157,22 +151,46 @@ func NewCoordinatorWithDetector(
 	}, nil
 }
 
-func createStorageWriterProcessor(
+// createProcessors creates all three pipeline processors (source readers, task verifier, storage writer).
+// If db is non-nil, durable PostgreSQL-backed implementations are used.
+// Otherwise, in-memory batcher-based implementations are used.
+func createProcessors(
 	ctx context.Context,
 	lggr logger.Logger,
 	db *sql.DB,
 	config CoordinatorConfig,
+	verifier Verifier,
+	monitoring Monitoring,
 	messageTracker MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
-	writingTracker *PendingWritingTracker,
 	chainStatusManager protocol.ChainStatusManager,
-) (services.Service, *batcher.Batcher[protocol.VerifierNodeResult], error) {
-	if db == nil {
-		return NewStorageBatcherProcessor(
-			ctx, lggr, config.VerifierID, messageTracker, storage, config, writingTracker, chainStatusManager,
-		)
+	curseDetector common.CurseCheckerService,
+	enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
+	writingTracker *PendingWritingTracker,
+) (map[protocol.ChainSelector]services.Service, services.Service, services.Service, error) {
+	if db != nil {
+		return createDBProcessors(ctx, lggr, db, config, verifier, monitoring, messageTracker, storage, chainStatusManager, curseDetector, enabledSourceReaders, writingTracker)
 	}
-	storageWriterQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
+	return createInMemoryProcessors(ctx, lggr, config, verifier, monitoring, messageTracker, storage, chainStatusManager, curseDetector, enabledSourceReaders, writingTracker)
+}
+
+// createDBProcessors creates durable PostgreSQL-backed processors.
+func createDBProcessors(
+	ctx context.Context,
+	lggr logger.Logger,
+	db *sql.DB,
+	config CoordinatorConfig,
+	verifier Verifier,
+	monitoring Monitoring,
+	messageTracker MessageLatencyTracker,
+	storage protocol.CCVNodeDataWriter,
+	chainStatusManager protocol.ChainStatusManager,
+	curseDetector common.CurseCheckerService,
+	enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
+	writingTracker *PendingWritingTracker,
+) (map[protocol.ChainSelector]services.Service, services.Service, services.Service, error) {
+	// Storage writer
+	resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
 		db,
 		jobqueue.QueueConfig{
 			Name:          "verification_results",
@@ -183,35 +201,110 @@ func createStorageWriterProcessor(
 		logger.With(lggr, "component", "result_queue"),
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create result queue: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to create result queue: %w", err)
 	}
 
-	// Create DB-based storage writer processor
-	storageWriterProcessor, err := NewStorageWriterProcessorDB(
-		ctx,
-		lggr,
-		config.VerifierID,
-		messageTracker,
-		storage,
-		storageWriterQueue,
-		config,
-		writingTracker,
-		chainStatusManager,
+	storageWriter, err := NewStorageWriterProcessorDB(
+		ctx, lggr, config.VerifierID, messageTracker, storage, resultQueue, config, writingTracker, chainStatusManager,
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create storage writer processor: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to create storage writer processor: %w", err)
 	}
 
-	// TaskVerifierProcessor needs to publish to the result queue
-	// We'll create a batcher that forwards results to the queue
-	storageBatcher := NewQueueBatcherAdapter(
-		ctx,
-		storageWriterQueue,
-		logger.With(lggr, "component", "queue_adapter"),
-		config.StorageBatchSize,
-		config.StorageBatchTimeout,
+	// Source readers + per-chain task queues
+	sourceReaders := make(map[protocol.ChainSelector]services.Service, len(enabledSourceReaders))
+	taskQueues := make(map[protocol.ChainSelector]jobqueue.JobQueue[VerificationTask], len(enabledSourceReaders))
+
+	for chainSelector, sourceReader := range enabledSourceReaders {
+		sourceCfg := config.SourceConfigs[chainSelector]
+		taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
+			db,
+			jobqueue.QueueConfig{
+				Name:          "verification_tasks",
+				OwnerID:       fmt.Sprintf("%s-%s", config.VerifierID, chainSelector),
+				RetryDuration: taskQueueRetryDuration,
+				LockDuration:  taskQueueLockDuration,
+			},
+			logger.With(lggr, "component", "task_queue", "chainSelector", chainSelector),
+		)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to create task queue for chain %s: %w", chainSelector, err)
+		}
+
+		filter := chainaccess.NewReceiptIssuerFilter(sourceCfg.VerifierAddress, sourceCfg.DefaultExecutorAddress)
+		srs, err := NewSourceReaderServiceDB(
+			sourceReader, chainSelector, chainStatusManager,
+			logger.With(lggr, "component", "SourceReader", "chainID", chainSelector),
+			sourceCfg, curseDetector, filter, monitoring.Metrics(), writingTracker, taskQueue,
+		)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to create SourceReaderServiceDB for chain %s: %w", chainSelector, err)
+		}
+
+		sourceReaders[chainSelector] = srs
+		taskQueues[chainSelector] = taskQueue
+	}
+
+	// Task verifier
+	taskVerifier, err := NewTaskVerifierProcessorDB(
+		lggr, config.VerifierID, &verifierDBAdapter{verifier: verifier},
+		monitoring, taskQueues, resultQueue, writingTracker,
 	)
-	return storageWriterProcessor, storageBatcher, err
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create task verifier processor: %w", err)
+	}
+
+	return sourceReaders, taskVerifier, storageWriter, nil
+}
+
+// createInMemoryProcessors creates in-memory batcher-based processors.
+func createInMemoryProcessors(
+	ctx context.Context,
+	lggr logger.Logger,
+	config CoordinatorConfig,
+	verifier Verifier,
+	monitoring Monitoring,
+	messageTracker MessageLatencyTracker,
+	storage protocol.CCVNodeDataWriter,
+	chainStatusManager protocol.ChainStatusManager,
+	curseDetector common.CurseCheckerService,
+	enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
+	writingTracker *PendingWritingTracker,
+) (map[protocol.ChainSelector]services.Service, services.Service, services.Service, error) {
+	storageWriter, storageBatcher, err := NewStorageBatcherProcessor(
+		ctx, lggr, config.VerifierID, messageTracker, storage, config, writingTracker, chainStatusManager,
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create storage writer processor: %w", err)
+	}
+
+	sourceReaders := make(map[protocol.ChainSelector]services.Service, len(enabledSourceReaders))
+	concreteSRS := make(map[protocol.ChainSelector]*SourceReaderService, len(enabledSourceReaders))
+
+	for chainSelector, sourceReader := range enabledSourceReaders {
+		sourceCfg := config.SourceConfigs[chainSelector]
+		filter := chainaccess.NewReceiptIssuerFilter(sourceCfg.VerifierAddress, sourceCfg.DefaultExecutorAddress)
+		srs, err := NewSourceReaderService(
+			ctx, sourceReader, chainSelector, chainStatusManager,
+			logger.With(lggr, "component", "SourceReader", "chainID", chainSelector),
+			sourceCfg, curseDetector, filter, monitoring.Metrics(), writingTracker,
+		)
+		if err != nil {
+			lggr.Errorw("Failed to create SourceReaderService", "chainSelector", chainSelector, "error", err)
+			continue
+		}
+		sourceReaders[chainSelector] = srs
+		concreteSRS[chainSelector] = srs
+	}
+
+	taskVerifier, err := NewTaskVerifierProcessor(
+		lggr, config.VerifierID, verifier, monitoring, concreteSRS, storageBatcher, writingTracker,
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create task verifier processor: %w", err)
+	}
+
+	return sourceReaders, taskVerifier, storageWriter, nil
 }
 
 func (vc *Coordinator) Start(_ context.Context) error {
@@ -242,12 +335,12 @@ func (vc *Coordinator) Start(_ context.Context) error {
 		}
 
 		// Start source readers (producers) - now consumers are ready to drain
-		for _, srs := range vc.sourceReadersServices {
+		for chainSelector, srs := range vc.sourceReadersServices {
 			if err := srs.Start(ctx); err != nil {
 				vc.lggr.Errorw("Failed to start SourceReaderService",
-					"chainSelector", srs.chainSelector,
+					"chainSelector", chainSelector,
 					"error", err)
-				return fmt.Errorf("failed to start SourceReaderService for chain %s: %w", srs.chainSelector, err)
+				return fmt.Errorf("failed to start SourceReaderService for chain %s: %w", chainSelector, err)
 			}
 		}
 
@@ -261,42 +354,6 @@ func (vc *Coordinator) Start(_ context.Context) error {
 		vc.lggr.Infow("Coordinator started successfully")
 		return nil
 	})
-}
-
-func createSourceReaders(ctx context.Context, lggr logger.Logger, config CoordinatorConfig, chainStatusManager protocol.ChainStatusManager, curseDetector common.CurseCheckerService, monitoring Monitoring, enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader, writingTracker *PendingWritingTracker) map[protocol.ChainSelector]*SourceReaderService {
-	sourceReaderServices := make(map[protocol.ChainSelector]*SourceReaderService)
-	for chainSelector := range enabledSourceReaders {
-		sourceReader := enabledSourceReaders[chainSelector]
-		sourceCfg := config.SourceConfigs[chainSelector]
-
-		filter := chainaccess.NewReceiptIssuerFilter(
-			sourceCfg.VerifierAddress,
-			sourceCfg.DefaultExecutorAddress,
-		)
-
-		lggr.Infow("PollInterval: ", "chainSelector", chainSelector, "interval", sourceCfg.PollInterval)
-		readerLogger := logger.With(lggr, "component", "SourceReader", "chainID", chainSelector)
-		srs, err := NewSourceReaderService(
-			ctx,
-			sourceReader,
-			chainSelector,
-			chainStatusManager,
-			readerLogger,
-			sourceCfg,
-			curseDetector,
-			filter,
-			monitoring.Metrics(),
-			writingTracker,
-		)
-		if err != nil {
-			lggr.Errorw("Failed to create SourceReaderService",
-				"chainSelector", chainSelector,
-				"error", err)
-			continue
-		}
-		sourceReaderServices[chainSelector] = srs
-	}
-	return sourceReaderServices
 }
 
 func filterOnlyEnabledSourceReaders(
@@ -366,10 +423,10 @@ func (vc *Coordinator) Close() error {
 			}
 		}
 
-		for _, srs := range vc.sourceReadersServices {
+		for chainSelector, srs := range vc.sourceReadersServices {
 			if err := srs.Close(); err != nil {
-				vc.lggr.Errorw("Failed to stop SourceReaderService", "chainSelector", srs.chainSelector, "error", err)
-				errs = append(errs, fmt.Errorf("failed to stop SourceReaderService for chain %s: %w", srs.chainSelector, err))
+				vc.lggr.Errorw("Failed to stop SourceReaderService", "chainSelector", chainSelector, "error", err)
+				errs = append(errs, fmt.Errorf("failed to stop SourceReaderService for chain %s: %w", chainSelector, err))
 			}
 		}
 
