@@ -64,10 +64,12 @@ var BuildConfig = operations.NewOperation(
 				datastore.AddressRef{
 					Type:      datastore.ContractType(committee_verifier.ResolverType),
 					Qualifier: input.CommitteeQualifier,
+					Version:   committee_verifier.Version,
 				},
 				datastore.AddressRef{
 					Type:      datastore.ContractType(committee_verifier.ContractType),
 					Qualifier: input.CommitteeQualifier,
+					Version:   committee_verifier.Version,
 				},
 			)
 			if err != nil {
@@ -76,7 +78,8 @@ var BuildConfig = operations.NewOperation(
 			committeeVerifierAddresses[chainSelectorStr] = committeeVerifierAddr
 
 			onRampAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
-				Type: datastore.ContractType(onrampoperations.ContractType),
+				Type:    datastore.ContractType(onrampoperations.ContractType),
+				Version: onrampoperations.Version,
 			}, chainSelector, toAddress)
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get on ramp address for chain %d: %w", chainSelector, err)
@@ -86,6 +89,7 @@ var BuildConfig = operations.NewOperation(
 			executorAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
 				Type:      datastore.ContractType(executor.ProxyType),
 				Qualifier: input.ExecutorQualifier,
+				Version:   executor.Version,
 			}, chainSelector, toAddress)
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get executor proxy address for chain %d: %w", chainSelector, err)
@@ -93,7 +97,8 @@ var BuildConfig = operations.NewOperation(
 			defaultExecutorOnRampAddresses[chainSelectorStr] = executorAddr
 
 			rmnRemoteAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
-				Type: datastore.ContractType(rmn_remote.ContractType),
+				Type:    datastore.ContractType(rmn_remote.ContractType),
+				Version: rmn_remote.Version,
 			}, chainSelector, toAddress)
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get rmn remote address for chain %d: %w", chainSelector, err)

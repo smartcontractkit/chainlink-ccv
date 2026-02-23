@@ -131,10 +131,12 @@ func buildQuorumConfigsFromOnChain(
 				datastore.AddressRef{
 					Type:      datastore.ContractType(committee_verifier.ResolverType),
 					Qualifier: committeeQualifier,
+					Version:   committee_verifier.Version,
 				},
 				datastore.AddressRef{
 					Type:      datastore.ContractType(committee_verifier.ContractType),
 					Qualifier: committeeQualifier,
+					Version:   committee_verifier.Version,
 				},
 			)
 			if err != nil {
@@ -172,10 +174,12 @@ func buildDestinationVerifiers(
 			datastore.AddressRef{
 				Type:      datastore.ContractType(committee_verifier.ResolverType),
 				Qualifier: committeeQualifier,
+				Version:   committee_verifier.Version,
 			},
 			datastore.AddressRef{
 				Type:      datastore.ContractType(committee_verifier.ContractType),
 				Qualifier: committeeQualifier,
+				Version:   committee_verifier.Version,
 			},
 		)
 		if err != nil {
