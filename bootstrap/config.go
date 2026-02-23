@@ -110,7 +110,7 @@ func (c *Config) validate() error {
 
 // LoadConfig loads the configuration from a path to a TOML file, in strict mode.
 func LoadConfig(path string) (Config, error) {
-	tomlBytes, err := os.ReadFile(path)
+	tomlBytes, err := os.ReadFile(path) //nolint:gosec // G304: path is provided by trusted caller
 	if err != nil {
 		return Config{}, fmt.Errorf("failed to read config file: %w", err)
 	}
