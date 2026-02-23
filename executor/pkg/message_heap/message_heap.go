@@ -2,6 +2,7 @@ package message_heap
 
 import (
 	"container/heap"
+	"errors"
 	"sync"
 	"time"
 
@@ -60,11 +61,13 @@ func (h *ReadyTimestampHeap) Pop() any {
 	return x
 }
 
-func (h *ReadyTimestampHeap) Peek() MessageHeapEntry {
+var HeapIsEmptyErr = errors.New("heap is empty")
+
+func (h *ReadyTimestampHeap) peek() (MessageHeapEntry, error) {
 	if h.Len() <= 0 {
-		return MessageHeapEntry{}
+		return MessageHeapEntry{}, HeapIsEmptyErr
 	}
-	return (*h)[0]
+	return (*h)[0], nil
 }
 
 // MessageHeap is the struct used to maintain the priority queue for timing messages in the coordinator.
@@ -109,7 +112,13 @@ func (mh *MessageHeap) PopAllReady(timestamp time.Time) []MessageWithTimestamps 
 	defer mh.mu.Unlock()
 
 	var readyMessages []MessageWithTimestamps
-	for mh.heap.Len() > 0 && !mh.heap.Peek().ReadyTime.After(timestamp) {
+
+	for mh.heap.Len() > 0 {
+		msg, err := mh.heap.peek()
+		if err != nil || msg.ReadyTime.After(timestamp) {
+			break
+		}
+
 		msg, ok := heap.Pop(&mh.heap).(MessageHeapEntry)
 		if !ok {
 			continue
@@ -131,19 +140,6 @@ func (mh *MessageHeap) Has(id protocol.Bytes32) bool {
 	defer mh.mu.RUnlock()
 	_, exists := mh.dataMap[id]
 	return exists
-}
-
-func (mh *MessageHeap) Peek() MessageWithTimestamps {
-	mh.mu.RLock()
-	defer mh.mu.RUnlock()
-	peek := mh.heap.Peek()
-	return MessageWithTimestamps{
-		MessageID:     peek.MessageID,
-		RetryInterval: mh.dataMap[peek.MessageID].RetryInterval,
-		ReadyTime:     peek.ReadyTime,
-		Message:       mh.dataMap[peek.MessageID].Message,
-		ExpiryTime:    mh.dataMap[peek.MessageID].ExpiryTime,
-	}
 }
 
 func (mh *MessageHeap) Len() int {
@@ -209,7 +205,12 @@ func (es *ExpirableMessageSet) CleanExpired(timestamp time.Time) int {
 	defer es.mu.Unlock()
 
 	expiredCount := 0
-	for es.heap.Len() > 0 && !es.heap.Peek().ReadyTime.After(timestamp) {
+	for es.heap.Len() > 0 {
+		msg, err := es.heap.peek()
+		if err != nil || msg.ReadyTime.After(timestamp) {
+			break
+		}
+
 		msg, ok := heap.Pop(&es.heap).(MessageHeapEntry)
 		if !ok {
 			continue
