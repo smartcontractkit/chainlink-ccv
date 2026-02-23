@@ -92,8 +92,9 @@ func (m *MultiSourceMessageDiscovery) merge(ctx context.Context, chans []<-chan 
 		msg common.VerifierResultWithMetadata
 	}
 	recvCh := make(chan recv, len(chans)*2)
+	wg := sync.WaitGroup{}
 	for _, ch := range chans {
-		go func() {
+		wg.Go(func() {
 			for {
 				select {
 				case <-ctx.Done():
@@ -110,15 +111,23 @@ func (m *MultiSourceMessageDiscovery) merge(ctx context.Context, chans []<-chan 
 					}
 				}
 			}
-		}()
+		})
 	}
 
+	go func() {
+		wg.Wait()
+		close(recvCh)
+	}()
 	for {
 		select {
 		case <-ctx.Done():
 			m.logger.Info("MultiSourceMessageDiscovery merge stopped due to context cancellation")
 			return
-		case r := <-recvCh:
+		case r, ok := <-recvCh:
+			if !ok {
+				m.logger.Warn("all source message discovery channels closed, stopping merge")
+				return
+			}
 			if _, found := m.seen.Get(r.msg.VerifierResult.MessageID); found {
 				m.logger.Debugw("messageID already discovered from different source, skipping", "messageID", r.msg.VerifierResult.MessageID)
 				continue
