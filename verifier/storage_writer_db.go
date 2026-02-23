@@ -60,6 +60,23 @@ func NewStorageWriterProcessorDB(
 	writingTracker *PendingWritingTracker,
 	chainStatusManager protocol.ChainStatusManager,
 ) (*StorageWriterProcessorDB, error) {
+	return NewStorageWriterProcessorDBWithPollInterval(
+		ctx, lggr, verifierID, messageTracker, storage, resultQueue, config, writingTracker, chainStatusManager, defaultPollInterval,
+	)
+}
+
+func NewStorageWriterProcessorDBWithPollInterval(
+	ctx context.Context,
+	lggr logger.Logger,
+	verifierID string,
+	messageTracker MessageLatencyTracker,
+	storage protocol.CCVNodeDataWriter,
+	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
+	config CoordinatorConfig,
+	writingTracker *PendingWritingTracker,
+	chainStatusManager protocol.ChainStatusManager,
+	pollInterval time.Duration,
+) (*StorageWriterProcessorDB, error) {
 	storageBatchSize, _, retryDelay := configWithDefaults(lggr, config)
 
 	processor := &StorageWriterProcessorDB{
@@ -71,7 +88,7 @@ func NewStorageWriterProcessorDB(
 		retryDelay:         retryDelay,
 		writingTracker:     writingTracker,
 		chainStatusManager: chainStatusManager,
-		pollInterval:       defaultPollInterval,
+		pollInterval:       pollInterval,
 		cleanupInterval:    defaultCleanupInterval,
 		retentionPeriod:    defaultRetentionPeriod,
 		batchSize:          storageBatchSize,
