@@ -39,8 +39,10 @@ func setupTestExecutor(
 		allRMNReaders[chain] = mockDR
 	}
 
+	executorMonitoring := monitoring.NewNoopExecutorMonitoring()
 	curseChecker := cursechecker.NewCachedCurseChecker(cursechecker.Params{
 		Lggr:        logger.Test(t),
+		Metrics:     executorMonitoring.Metrics(),
 		RmnReaders:  allRMNReaders,
 		CacheExpiry: 1 * time.Second,
 	})
@@ -57,7 +59,7 @@ func setupTestExecutor(
 		allDestinationReaders,
 		curseChecker,
 		vr,
-		monitoring.NewNoopExecutorMonitoring(),
+		executorMonitoring,
 		defaultExecutorAddresses,
 	)
 }

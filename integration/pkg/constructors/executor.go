@@ -122,6 +122,7 @@ func NewExecutorCoordinator(
 
 	curseChecker := cursechecker.NewCachedCurseChecker(cursechecker.Params{
 		Lggr:        lggr,
+		Metrics:     executorMonitoring.Metrics(),
 		RmnReaders:  rmnReaders,
 		CacheExpiry: cfg.ReaderCacheExpiry,
 	})
