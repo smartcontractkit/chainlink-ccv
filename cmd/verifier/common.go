@@ -277,20 +277,19 @@ func logBlockchainInfo(blockchainHelper *blockchain.Helper, lggr logger.Logger) 
 }
 
 func logChainInfo(blockchainHelper *blockchain.Helper, chainSelector protocol.ChainSelector, lggr logger.Logger) {
-	if info, err := blockchainHelper.GetBlockchainInfo(chainSelector); err == nil {
-		lggr.Infow("🔗 Blockchain available", "chainSelector", chainSelector, "info", info)
+	info, err := blockchainHelper.GetBlockchainByChainSelector(chainSelector)
+	if err == nil {
+		lggr.Infow("🔗 Blockchain available", "chainSelector", chainSelector, "info", info, "nodeCount", len(info.Nodes))
 	}
 
-	if rpcURL, err := blockchainHelper.GetRPCEndpoint(chainSelector); err == nil {
-		lggr.Infow("🌐 RPC endpoint", "chainSelector", chainSelector, "url", rpcURL)
-	}
-
-	if wsURL, err := blockchainHelper.GetWebSocketEndpoint(chainSelector); err == nil {
-		lggr.Infow("🔌 WebSocket endpoint", "chainSelector", chainSelector, "url", wsURL)
-	}
-
-	if internalURL, err := blockchainHelper.GetInternalRPCEndpoint(chainSelector); err == nil {
-		lggr.Infow("🔒 Internal RPC endpoint", "chainSelector", chainSelector, "url", internalURL)
+	n, err := info.GetFirstNode()
+	if err != nil {
+		lggr.Infow("Node Info", "chainSelector", chainSelector,
+			"ExternalWSURL", n.ExternalWSUrl,
+			"InternalWSURL", n.InternalWSUrl,
+			"ExternalHTTPURL", n.ExternalHTTPUrl,
+			"InternalHTTPURL", n.InternalHTTPUrl,
+		)
 	}
 
 	if nodes, err := blockchainHelper.GetAllNodes(chainSelector); err == nil {
