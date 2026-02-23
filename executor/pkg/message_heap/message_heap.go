@@ -61,11 +61,11 @@ func (h *ReadyTimestampHeap) Pop() any {
 	return x
 }
 
-var HeapIsEmptyErr = errors.New("heap is empty")
+var errHeapIsEmpty = errors.New("heap is empty")
 
 func (h *ReadyTimestampHeap) peek() (MessageHeapEntry, error) {
 	if h.Len() <= 0 {
-		return MessageHeapEntry{}, HeapIsEmptyErr
+		return MessageHeapEntry{}, errHeapIsEmpty
 	}
 	return (*h)[0], nil
 }
