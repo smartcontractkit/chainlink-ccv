@@ -2,6 +2,8 @@ package protocol
 
 import (
 	"crypto/ecdsa"
+	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -300,5 +302,30 @@ func TestLeftPad32_InputTooLong(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestEncodeSignaturesTooMany(t *testing.T) {
+	// 1024 signatures -> 1024 * 64 = 65536 > math.MaxUint16 (65535)
+	const n = 1024
+	sigs := make([]Data, n)
+	for i := range n {
+		var r, s [32]byte
+		r[31] = 1
+		s[31] = 2
+		sigs[i] = Data{
+			R:      r,
+			S:      s,
+			Signer: common.BigToAddress(big.NewInt(int64(i))),
+		}
+	}
+
+	_, err := EncodeSignatures(sigs)
+	if err == nil {
+		t.Fatalf("expected error for too many signatures, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "too many signatures") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
