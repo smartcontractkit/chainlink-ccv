@@ -94,9 +94,7 @@ func (m *MultiSourceMessageDiscovery) merge(ctx context.Context, chans []<-chan 
 	recvCh := make(chan recv, len(chans)*2)
 	wg := sync.WaitGroup{}
 	for _, ch := range chans {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for {
 				select {
 				case <-ctx.Done():
@@ -113,7 +111,7 @@ func (m *MultiSourceMessageDiscovery) merge(ctx context.Context, chans []<-chan 
 					}
 				}
 			}
-		}()
+		})
 	}
 
 	go func() {
