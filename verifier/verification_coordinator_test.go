@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
+	"database/sql"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -23,6 +24,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -54,6 +56,7 @@ type testSetup struct {
 	chainStatusManager *mocks.MockChainStatusManager
 	signerAddr         protocol.UnknownAddress
 	signer             verifier.MessageSigner
+	db                 *sql.DB
 }
 
 const (
@@ -87,8 +90,9 @@ func newTestSetup(t *testing.T) *testSetup {
 	chainStatusManager := mocks.NewMockChainStatusManager(t)
 	chainStatusManager.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).Return(nil, nil)
 	chainStatusManager.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).Return(nil).Maybe()
+	sqlxDB := testutil.NewTestDB(t)
 
-	return &testSetup{
+	ts := &testSetup{
 		t:                  t,
 		ctx:                ctx,
 		cancel:             cancel,
@@ -97,7 +101,10 @@ func newTestSetup(t *testing.T) *testSetup {
 		chainStatusManager: chainStatusManager,
 		signerAddr:         addr,
 		signer:             signer,
+		db:                 sqlxDB.DB,
 	}
+
+	return ts
 }
 
 // cleanup should be called in defer.
@@ -126,8 +133,11 @@ func createCoordinatorConfig(coordinatorID string, sources map[protocol.ChainSel
 	}
 
 	return verifier.CoordinatorConfig{
-		VerifierID:    coordinatorID,
-		SourceConfigs: sourceConfigs,
+		VerifierID:          coordinatorID,
+		SourceConfigs:       sourceConfigs,
+		StorageBatchSize:    50,
+		StorageBatchTimeout: 100 * time.Millisecond,
+		StorageRetryDelay:   2 * time.Second,
 	}
 }
 
@@ -153,6 +163,7 @@ func createVerificationCoordinator(
 		noopMonitoring,
 		ts.chainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
+		ts.db,
 	)
 }
 

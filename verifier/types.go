@@ -19,6 +19,11 @@ type VerificationTask struct {
 	FinalizedBlockAtRead uint64                     `json:"finalized_block_at_read"` // Finalized block number when the event was read from chain
 }
 
+// JobKey implements jobqueue.Jobable interface.
+func (t VerificationTask) JobKey() (chainSelector, messageID string) {
+	return t.Message.SourceChainSelector.String(), t.MessageID
+}
+
 // SourceConfig contains configuration for a single source chain.
 type SourceConfig struct {
 	VerifierAddress        protocol.UnknownAddress `json:"verifier_address"`

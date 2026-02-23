@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
@@ -317,9 +318,13 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 				BatchTimeout:    100 * time.Millisecond,
 			},
 		},
-		VerifierID: verifierID,
+		VerifierID:          verifierID,
+		StorageBatchSize:    50,
+		StorageBatchTimeout: 100 * time.Millisecond,
+		StorageRetryDelay:   2 * time.Second,
 	}
 
+	sqlxDB := testutil.NewTestDB(t)
 	coordinator, err := NewCoordinator(
 		t.Context(),
 		lggr,
@@ -331,6 +336,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		&noopMonitoring{},
 		mockChainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
+		sqlxDB.DB,
 	)
 	require.NoError(t, err)
 

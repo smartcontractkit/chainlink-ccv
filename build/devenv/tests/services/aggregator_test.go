@@ -192,7 +192,7 @@ func TestServiceAggregatorAuthentication(t *testing.T) {
 	// Test anonymous authentication for GetVerifierResultsForMessage
 	t.Run("GetVerifierResultsForMessage supports anonymous authentication", func(t *testing.T) {
 		req := &verifierpb.GetVerifierResultsForMessageRequest{
-			MessageIds: [][]byte{{}}, // Single empty message ID
+			MessageIds: [][]byte{make([]byte, 32)},
 		}
 
 		resp, err := verifierClient.GetVerifierResultsForMessage(ctx, req)

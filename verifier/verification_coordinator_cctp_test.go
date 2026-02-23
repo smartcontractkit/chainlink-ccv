@@ -496,6 +496,7 @@ func createCCTPCoordinator(
 		noopMonitoring,
 		ts.chainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
+		ts.db,
 	)
 }
 

@@ -94,12 +94,10 @@ func (ec *Coordinator) Start(_ context.Context) error {
 		})
 
 		// Start worker goroutines
-		ec.wg.Add(ec.workerCount)
 		for i := 0; i < ec.workerCount; i++ {
-			go func() {
-				defer ec.wg.Done()
+			ec.wg.Go(func() {
 				ec.handleMessage(c)
-			}()
+			})
 		}
 
 		ec.lggr.Infow("Coordinator started")
@@ -116,11 +114,11 @@ func (ec *Coordinator) Close() error {
 			ec.cancel()
 		}
 
-		// Close channel to signal workers to stop
-		close(ec.workerPoolTasks)
-
 		// Wait for all goroutines to finish
 		ec.wg.Wait()
+
+		// It is safe to close the channel once all goroutines have stopped.
+		close(ec.workerPoolTasks)
 
 		// Update running state to reflect in healthcheck and readiness
 		ec.running.Store(false)
@@ -204,6 +202,7 @@ func (ec *Coordinator) runProcessingLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			ec.lggr.Infow("Processing loop exiting")
 			return
 		case <-ticker.C:
 			currentTime := ec.timeProvider.GetTime()
@@ -217,8 +216,13 @@ func (ec *Coordinator) runProcessingLoop(ctx context.Context) {
 			)
 			for _, payload := range readyMessages {
 				ec.inFlightAdd(payload.MessageID)
-				// If the channel is full, we will block here, but messages will continue to be accumulate in the heap.
-				ec.workerPoolTasks <- payload
+				// If the channel is full, we will block here, but messages will continue to accumulate in the heap.
+				select {
+				case ec.workerPoolTasks <- payload:
+				case <-ctx.Done():
+					ec.lggr.Infow("Processing loop dropping payload to exit")
+					continue
+				}
 			}
 		case <-reportingTicker.C:
 			ec.monitoring.Metrics().RecordMessageHeapSize(ctx, int64(ec.delayedMessageHeap.Len()))
@@ -230,12 +234,12 @@ func (ec *Coordinator) handleMessage(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			ec.lggr.Infow("Message handler exiting")
 			return
 		case payload, ok := <-ec.workerPoolTasks:
-			if !ok {
-				return
+			if ok {
+				ec.processPayload(ctx, payload)
 			}
-			ec.processPayload(ctx, payload)
 		}
 	}
 }

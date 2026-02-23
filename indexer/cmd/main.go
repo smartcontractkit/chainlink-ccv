@@ -157,12 +157,13 @@ func createReader(lggr logger.Logger, cfg *config.VerifierConfig) (*readers.Resi
 		return readers.NewAggregatorReader(cfg.Address, lggr, cfg.Since, hmac.ClientConfig{
 			APIKey: cfg.APIKey,
 			Secret: cfg.Secret,
-		}, cfg.InsecureConnection)
+		}, cfg.InsecureConnection, config.EffectiveMaxResponseBytes(cfg.MaxResponseBytes))
 	case config.ReaderTypeRest:
 		return readers.NewRestReader(readers.RestReaderConfig{
-			BaseURL:        cfg.BaseURL,
-			RequestTimeout: time.Duration(cfg.RequestTimeout),
-			Logger:         lggr,
+			BaseURL:          cfg.BaseURL,
+			RequestTimeout:   time.Duration(cfg.RequestTimeout),
+			MaxResponseBytes: config.EffectiveMaxResponseBytes(cfg.MaxResponseBytes),
+			Logger:           lggr,
 		}), nil
 	default:
 		return nil, errors.New("unknown verifier type")
@@ -186,7 +187,7 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 		aggregator, err := readers.NewAggregatorReader(discCfg.Address, lggr, int64(persistedSinceValue), hmac.ClientConfig{
 			APIKey: discCfg.APIKey,
 			Secret: discCfg.Secret,
-		}, discCfg.InsecureConnection)
+		}, discCfg.InsecureConnection, config.EffectiveMaxResponseBytes(discCfg.MaxResponseBytes))
 		if err != nil {
 			return nil, err
 		}
