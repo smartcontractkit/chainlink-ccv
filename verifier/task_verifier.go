@@ -158,75 +158,120 @@ func (p *TaskVerifierProcessor) processReadyTasks(
 		}
 	}
 
-	errorBatch := p.verifier.VerifyMessages(ctx, tasks, p.storageBatcher)
-	p.handleVerificationErrors(ctx, chainSelector, sourceFanout, errorBatch, len(tasks))
+	results := p.verifier.VerifyMessages(ctx, tasks)
+	p.handleVerificationResults(ctx, chainSelector, sourceFanout, results)
 }
 
-// handleVerificationErrors processes and logs errors from a verification batch.
-func (p *TaskVerifierProcessor) handleVerificationErrors(
+// handleVerificationResults processes both successful results and errors from verification.
+// Successful results are added to the storage batcher, while errors are retried or marked as permanent failures.
+func (p *TaskVerifierProcessor) handleVerificationResults(
 	ctx context.Context,
 	chainSelector protocol.ChainSelector,
 	src SourceReaderFanout,
-	errorBatch batcher.BatchResult[VerificationError],
-	totalTasks int,
+	results []VerificationResult,
 ) {
-	if len(errorBatch.Items) <= 0 {
-		p.lggr.Debugw("Verification batch completed successfully",
-			"chainSelector", chainSelector,
-			"totalTasks", totalTasks)
+	if len(results) == 0 {
 		return
 	}
 
-	p.lggr.Infow("Verification batch completed with errors",
+	var successCount, errorCount int
+
+	// Process each result
+	for _, result := range results {
+		if result.Error != nil {
+			errorCount++
+			p.handleVerificationError(ctx, chainSelector, src, *result.Error)
+		} else if result.Result != nil {
+			successCount++
+			p.handleVerificationSuccess(result.Result)
+		}
+	}
+
+	p.lggr.Debugw("Verification batch completed",
 		"chainSelector", chainSelector,
-		"totalTasks", totalTasks,
-		"errorCount", len(errorBatch.Items))
+		"totalResults", len(results),
+		"successCount", successCount,
+		"errorCount", errorCount)
+}
 
-	// Log and record metrics for each error
-	for _, verificationError := range errorBatch.Items {
+// handleVerificationError processes a single verification error, either retrying or marking as permanent failure.
+func (p *TaskVerifierProcessor) handleVerificationError(
+	ctx context.Context,
+	chainSelector protocol.ChainSelector,
+	src SourceReaderFanout,
+	verificationError VerificationError,
+) {
+	message := verificationError.Task.Message
+
+	p.monitoring.Metrics().
+		With(
+			"source_chain", message.SourceChainSelector.String(),
+			"dest_chain", message.DestChainSelector.String(),
+			"verifier_id", p.verifierID,
+		).
+		IncrementMessagesVerificationFailed(ctx)
+
+	p.lggr.Errorw("Message verification failed",
+		"error", verificationError.Error,
+		"messageID", verificationError.Task.MessageID,
+		"nonce", message.SequenceNumber,
+		"sourceChain", message.SourceChainSelector,
+		"destChain", message.DestChainSelector,
+		"timestamp", verificationError.Timestamp,
+		"chainSelector", chainSelector,
+		"retryable", verificationError.Retryable,
+	)
+
+	if verificationError.Retryable {
+		p.retryVerificationTask(chainSelector, src, verificationError)
+	} else {
+		p.handlePermanentFailure(chainSelector, verificationError)
+	}
+}
+
+// retryVerificationTask attempts to re-queue a task for retry.
+func (p *TaskVerifierProcessor) retryVerificationTask(
+	chainSelector protocol.ChainSelector,
+	src SourceReaderFanout,
+	verificationError VerificationError,
+) {
+	err := src.RetryTasks(
+		verificationError.DelayOrDefault(),
+		verificationError.Task,
+	)
+	if err != nil {
 		message := verificationError.Task.Message
-
-		p.monitoring.Metrics().
-			With(
-				"source_chain", message.SourceChainSelector.String(),
-				"dest_chain", message.DestChainSelector.String(),
-				"verifier_id", p.verifierID,
-			).
-			IncrementMessagesVerificationFailed(ctx)
-
-		p.lggr.Errorw("Message verification failed",
-			"error", verificationError.Error,
+		p.lggr.Errorw("Failed to re-queue message for verification retry",
+			"error", err.Error(),
 			"messageID", verificationError.Task.MessageID,
 			"nonce", message.SequenceNumber,
 			"sourceChain", message.SourceChainSelector,
 			"destChain", message.DestChainSelector,
-			"timestamp", verificationError.Timestamp,
 			"chainSelector", chainSelector,
-			"retryable", verificationError.Retryable,
 		)
+	}
+}
 
-		if verificationError.Retryable {
-			err1 := src.RetryTasks(
-				verificationError.DelayOrDefault(),
-				verificationError.Task,
-			)
-			if err1 != nil {
-				p.lggr.Errorw("Failed to re-queue message for verification retry",
-					"error", err1.Error(),
-					"messageID", verificationError.Task.MessageID,
-					"nonce", message.SequenceNumber,
-					"sourceChain", message.SourceChainSelector,
-					"destChain", message.DestChainSelector,
-					"chainSelector", chainSelector,
-				)
-			}
-		} else {
-			// Permanent failure - remove from tracker
-			p.writingTracker.Remove(
-				chainSelector,
-				verificationError.Task.MessageID,
-			)
-		}
+// handlePermanentFailure removes a permanently failed task from the tracker.
+func (p *TaskVerifierProcessor) handlePermanentFailure(
+	chainSelector protocol.ChainSelector,
+	verificationError VerificationError,
+) {
+	p.writingTracker.Remove(
+		chainSelector,
+		verificationError.Task.MessageID,
+	)
+}
+
+// handleVerificationSuccess adds a successful result to the storage batcher.
+func (p *TaskVerifierProcessor) handleVerificationSuccess(result *protocol.VerifierNodeResult) {
+	if err := p.storageBatcher.Add(*result); err != nil {
+		p.lggr.Errorw("Failed to add verified result to storage batcher",
+			"error", err,
+			"messageID", result.MessageID.String(),
+			"sequenceNumber", result.Message.SequenceNumber,
+			"sourceChain", result.Message.SourceChainSelector,
+		)
 	}
 }
 

@@ -183,6 +183,7 @@ func NewVerificationCoordinator(
 		verifierMonitoring,
 		chainStatusManager,
 		observedHeartbeatClient,
+		nil, // Don't use it until db migration is done in the Chainlink Node
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

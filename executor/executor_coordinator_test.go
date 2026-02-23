@@ -559,3 +559,83 @@ func TestDuplicateMessageIDFromStreamWhenAlreadyInHeap_IsSkippedByHeapAndHandleM
 	time.Sleep(2 * time.Second)
 	require.True(t, mock.AssertExpectationsForObjects(t, mockExecutor))
 }
+
+// TestGracefulShutdown tests that when Close() is called while a message is being processed, the processing loop will
+// shut down gracefully. This state is simulated by blocking the HandleMessage() call until Close() is called, and then
+// asserting that we logged the message about dropping a payload to exit.
+func TestGracefulShutdown(t *testing.T) {
+	lggr, hook := logger.TestObserved(t, zapcore.InfoLevel)
+	currentTime := time.Now().UTC()
+	mockTimeProvider := mocks.NewMockTimeProvider(t)
+	mockTimeProvider.EXPECT().GetTime().Return(currentTime).Maybe()
+
+	seqNum := uint64(0)
+	messageGenerator := func() common.MessageWithMetadata {
+		seqNum++
+		return common.MessageWithMetadata{
+			Message: protocol.Message{
+				DestChainSelector:   1,
+				SourceChainSelector: 2,
+				SequenceNumber:      protocol.SequenceNumber(seqNum),
+			},
+			Metadata: common.MessageMetadata{
+				IngestionTimestamp: currentTime,
+			},
+		}
+	}
+
+	results := make(chan common.MessageWithMetadata, 1)
+	results <- messageGenerator()
+	messageSubscriber := mocks.NewMockMessageSubscriber(t)
+	messageSubscriber.EXPECT().Start(mock.Anything).Return(results, nil, nil)
+
+	unblockHandle := make(chan struct{})
+	mockExecutor := mocks.NewMockExecutor(t)
+	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
+	mockExecutor.EXPECT().CheckValidMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockExecutor.EXPECT().HandleMessage(mock.Anything, mock.Anything).Run(func(context.Context, protocol.Message) {
+		<-unblockHandle
+	}).Return(false, nil).Maybe()
+
+	leaderElector := mocks.NewMockLeaderElector(t)
+	leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything, mock.Anything).Return(currentTime).Maybe()
+	leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(time.Second).Maybe()
+
+	ec, err := executor.NewCoordinator(
+		lggr,
+		mockExecutor,
+		messageSubscriber,
+		leaderElector,
+		monitoring.NewNoopExecutorMonitoring(),
+		8*time.Hour,
+		mockTimeProvider,
+		1,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, ec)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	require.NoError(t, ec.Start(ctx))
+	time.Sleep(1 * time.Second)
+
+	// Block close for 1 second to ensure the processing loop is forced to drop a payload.
+	go func() {
+		time.Sleep(1 * time.Second)
+		close(unblockHandle)
+	}()
+	require.NoError(t, ec.Close())
+
+	// Assert that we logged the message about dropping a payload.
+	found := func() bool {
+		for _, entry := range hook.All() {
+			entryStr := fmt.Sprintf("%+v", entry)
+			if strings.Contains(entryStr, "Processing loop dropping payload to exit") {
+				return true
+			}
+		}
+		return false
+	}
+	require.Eventuallyf(t, found, 2*time.Second, 100*time.Millisecond, "executor coordinator did not stop in time")
+}

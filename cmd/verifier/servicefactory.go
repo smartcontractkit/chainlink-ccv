@@ -248,6 +248,7 @@ func (f *factory) Start(ctx context.Context, spec string, deps bootstrap.Service
 		verifierMonitoring,
 		chainStatusManager,
 		observedHeartbeatClient,
+		chainStatusDB.DB,
 	)
 	if err != nil {
 		coordinatorCancel()

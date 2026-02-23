@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 )
@@ -54,10 +55,12 @@ func (m *mockClient) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]
 	return []types.Log{}, nil
 }
 
-// TransactionByHash is a stub implementation needed for processExecutionStateChanged.
-// Returns nil for testing purposes (won't be called in reconnection tests).
 func (m *mockClient) TransactionByHash(ctx context.Context, txHash common.Hash) (*types.Transaction, error) {
-	return nil, errors.New("not implemented in mock")
+	args := m.Called(ctx, txHash)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*types.Transaction), args.Error(1)
 }
 
 // blockTimeCalculator calculates block timestamps based on block number and block time interval.
@@ -486,6 +489,67 @@ func TestBinarySearchBlockByTime(t *testing.T) {
 	maxVariance := 3 * blockInterval
 	assert.True(t, timeDiff >= -maxVariance && timeDiff <= 24*time.Hour,
 		"Found block should be close to target time, got diff: %v", timeDiff)
+}
+
+func TestProcessExecutionStateChanged_RejectsTxNotDirectlyToOffRamp(t *testing.T) {
+	offRampAddr := common.HexToAddress("0x1234567890123456789012345678901234567890")
+	wrongAddr := common.HexToAddress("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+
+	tests := []struct {
+		name      string
+		txTo      *common.Address
+		expectErr string
+	}{
+		{
+			name:      "rejects tx to different address",
+			txTo:      &wrongAddr,
+			expectErr: "does not match offramp address",
+		},
+		{
+			name:      "rejects contract creation tx with nil To",
+			txTo:      nil,
+			expectErr: "does not match offramp address",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mockCli := new(mockClient)
+			poller := setupTestPoller(t, mockCli, 24*time.Hour)
+			assert.Equal(t, offRampAddr, poller.offRampAddress)
+
+			tx := types.NewTx(&types.LegacyTx{
+				To:   tc.txTo,
+				Gas:  500_000,
+				Data: []byte{0x01, 0x02, 0x03, 0x04},
+			})
+
+			event := &offramp.OffRampExecutionStateChanged{}
+			mockCli.On("TransactionByHash", mock.Anything, event.Raw.TxHash).
+				Return(tx, nil).Once()
+
+			err := poller.processExecutionStateChanged(context.Background(), event)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.expectErr)
+			mockCli.AssertExpectations(t)
+		})
+	}
+}
+
+func TestProcessExecutionStateChanged_RejectsWhenTransactionByHashFails(t *testing.T) {
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, 24*time.Hour)
+
+	event := &offramp.OffRampExecutionStateChanged{}
+	mockCli.On("TransactionByHash", mock.Anything, event.Raw.TxHash).
+		Return(nil, errors.New("rpc error")).Once()
+
+	err := poller.processExecutionStateChanged(context.Background(), event)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to get transaction by hash")
+	mockCli.AssertExpectations(t)
 }
 
 // TestHTTPPolling_ContinuousRPCFailures tests that HTTP polling continues

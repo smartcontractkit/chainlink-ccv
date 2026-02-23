@@ -742,6 +742,9 @@ func NewEnvironment() (in *Cfg, err error) {
 	L.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 
 	topology := buildEnvironmentTopology(in, e)
+	if topology == nil {
+		return nil, fmt.Errorf("failed to build environment topology")
+	}
 
 	timeTrack.Record("[infra] deploying blockchains")
 	ds := datastore.NewMemoryDataStore()
@@ -1229,7 +1232,10 @@ func launchCLNodes(
 			return nil, fmt.Errorf("node index %d from NOPAlias %s exceeds available nodes (%d)",
 				index, ver.NOPAlias, len(nodeSpecs))
 		}
-		agg := aggByCommittee[ver.CommitteeName]
+		agg, ok := aggByCommittee[ver.CommitteeName]
+		if !ok {
+			return nil, fmt.Errorf("no aggregator found for committee %s", ver.CommitteeName)
+		}
 		apiKeys, err := agg.GetAPIKeys()
 		if err != nil {
 			return nil, fmt.Errorf("failed to get API keys for aggregator %s: %w", agg.CommitteeName, err)
