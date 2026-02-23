@@ -52,6 +52,22 @@ func NewTaskVerifierProcessorDB(
 	writingTracker *PendingWritingTracker,
 	batchSize int,
 ) (*TaskVerifierProcessorDB, error) {
+	return NewTaskVerifierProcessorDBWithPollInterval(
+		lggr, verifierID, verifier, monitoring, taskQueue, resultQueue, writingTracker, batchSize, defaultTaskPollInterval,
+	)
+}
+
+func NewTaskVerifierProcessorDBWithPollInterval(
+	lggr logger.Logger,
+	verifierID string,
+	verifier Verifier,
+	monitoring Monitoring,
+	taskQueue jobqueue.JobQueue[VerificationTask],
+	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
+	writingTracker *PendingWritingTracker,
+	batchSize int,
+	pollInterval time.Duration,
+) (*TaskVerifierProcessorDB, error) {
 	p := &TaskVerifierProcessorDB{
 		lggr:           lggr,
 		verifierID:     verifierID,
@@ -60,7 +76,7 @@ func NewTaskVerifierProcessorDB(
 		taskQueue:      taskQueue,
 		resultQueue:    resultQueue,
 		writingTracker: writingTracker,
-		pollInterval:   defaultTaskPollInterval,
+		pollInterval:   pollInterval,
 		batchSize:      batchSize,
 	}
 	return p, nil
