@@ -12,7 +12,6 @@ import (
 
 	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -81,56 +80,72 @@ func (cv *Verifier) ValidateMessage(message protocol.Message) error {
 }
 
 // VerifyMessages verifies a batch of messages using the new chain-agnostic format.
-// It processes tasks concurrently and adds results directly to the batcher.
-// Returns a BatchResult containing any verification errors that occurred.
-func (cv *Verifier) VerifyMessages(ctx context.Context, tasks []verifier.VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.VerifierNodeResult]) batcher.BatchResult[verifier.VerificationError] {
+// It processes tasks concurrently and returns all results (both successes and errors).
+// The caller is responsible for handling results (e.g., adding successes to a batcher).
+func (cv *Verifier) VerifyMessages(ctx context.Context, tasks []verifier.VerificationTask) []verifier.VerificationResult {
 	if len(tasks) == 0 {
-		return batcher.BatchResult[verifier.VerificationError]{Items: nil, Error: nil}
+		return nil
 	}
 
 	cv.lggr.Infow("Starting batch verification", "batchSize", len(tasks))
 
-	// Collect errors from concurrent verification
-	var errors []verifier.VerificationError
-	var errorsMu sync.Mutex
+	// Collect results from concurrent verification
+	results := make([]verifier.VerificationResult, len(tasks))
+	var wg sync.WaitGroup
 
 	// Process tasks concurrently
-	var wg sync.WaitGroup
-	for _, task := range tasks {
+	for i, task := range tasks {
 		wg.Add(1)
-		go func(verificationTask verifier.VerificationTask) {
+		go func(index int, verificationTask verifier.VerificationTask) {
 			defer wg.Done()
-			if err := cv.verifyMessage(ctx, verificationTask, ccvDataBatcher); err != nil {
-				errorsMu.Lock()
-				errors = append(errors, verifier.VerificationError{
+			result, err := cv.verifyMessage(ctx, verificationTask)
+			if err != nil {
+				verificationError := verifier.VerificationError{
 					Timestamp: time.Now(),
 					Error:     err,
 					Task:      verificationTask,
-				})
-				errorsMu.Unlock()
+				}
+				results[index] = verifier.VerificationResult{
+					Error: &verificationError,
+				}
+			} else {
+				results[index] = verifier.VerificationResult{
+					Result: result,
+				}
 			}
-		}(task)
+		}(i, task)
 	}
 
 	wg.Wait()
-	cv.lggr.Infow("Batch verification completed", "batchSize", len(tasks), "errorCount", len(errors))
 
-	return batcher.BatchResult[verifier.VerificationError]{
-		Items: errors,
-		Error: nil,
+	successCount := 0
+	errorCount := 0
+	for _, result := range results {
+		if result.Error != nil {
+			errorCount++
+		} else {
+			successCount++
+		}
 	}
+
+	cv.lggr.Infow("Batch verification completed",
+		"batchSize", len(tasks),
+		"successCount", successCount,
+		"errorCount", errorCount)
+
+	return results
 }
 
 // verifyMessage verifies a single message (internal helper)
-// Returns an error if verification fails, nil if successful.
-func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier.VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.VerifierNodeResult]) error {
+// Returns the VerifierNodeResult if successful, or an error if verification fails.
+func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier.VerificationTask) (*protocol.VerifierNodeResult, error) {
 	start := time.Now()
 	message := verificationTask.Message
 
 	msgIDStr := verificationTask.MessageID
 	messageID, err := protocol.NewBytes32FromString(msgIDStr)
 	if err != nil {
-		return fmt.Errorf("failed to convert messageID to Bytes32: %w", err)
+		return nil, fmt.Errorf("failed to convert messageID to Bytes32: %w", err)
 	}
 	cv.lggr.Infow("Starting message verification",
 		"messageID", msgIDStr,
@@ -142,16 +157,16 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 	// 1. Validate that the message comes from a configured source chain
 	sourceConfig, exists := cv.config.SourceConfigs[message.SourceChainSelector]
 	if !exists {
-		return fmt.Errorf("message source chain selector %d is not configured for message %s", message.SourceChainSelector, msgIDStr)
+		return nil, fmt.Errorf("message source chain selector %d is not configured for message %s", message.SourceChainSelector, msgIDStr)
 	}
 
 	// 2. Validate message format and check verifier receipts
 	if err := cv.ValidateMessage(message); err != nil {
-		return fmt.Errorf("message format validation failed for message %s: %w", msgIDStr, err)
+		return nil, fmt.Errorf("message format validation failed for message %s: %w", msgIDStr, err)
 	}
 
 	if err := ValidateMessage(&verificationTask); err != nil {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"message validation failed for message %s with verifier address %s and default executor address %s: %w",
 			msgIDStr,
 			sourceConfig.VerifierAddress.String(),
@@ -187,7 +202,7 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 			for i, receipt := range verificationTask.ReceiptBlobs {
 				issuers[i] = receipt.Issuer.String()
 			}
-			return fmt.Errorf("neither verifier nor default executor blob found for message %s, all issuers: %v, expected issuer: %s (verifier) or %s (default executor)",
+			return nil, fmt.Errorf("neither verifier nor default executor blob found for message %s, all issuers: %v, expected issuer: %s (verifier) or %s (default executor)",
 				msgIDStr,
 				issuers,
 				sourceConfig.VerifierAddress.String(),
@@ -201,12 +216,12 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 	}
 	hash, err := committee.NewSignableHash(messageID, verifierBlob)
 	if err != nil {
-		return fmt.Errorf("failed to create signable hash for message %s: %w", messageID.String(), err)
+		return nil, fmt.Errorf("failed to create signable hash for message %s: %w", messageID.String(), err)
 	}
 
 	encodedSignature, err := cv.signer.Sign(hash[:])
 	if err != nil {
-		return fmt.Errorf("failed to sign message %s: %w", msgIDStr, err)
+		return nil, fmt.Errorf("failed to sign message %s: %w", msgIDStr, err)
 	}
 
 	cv.lggr.Infow("Message signed successfully",
@@ -218,11 +233,7 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 	// 4. Create CCV node data with all required fields
 	ccvNodeData, err := CreateVerifierNodeResult(&verificationTask, encodedSignature, verifierBlob)
 	if err != nil {
-		return fmt.Errorf("failed to create CCV node data for message %s: %w", msgIDStr, err)
-	}
-
-	if err := ccvDataBatcher.Add(*ccvNodeData); err != nil {
-		return fmt.Errorf("failed to add CCV node data to batcher for message %s (sequence number: %d, source chain: %d): %w", messageID.String(), message.SequenceNumber, message.SourceChainSelector, err)
+		return nil, fmt.Errorf("failed to create CCV node data for message %s: %w", msgIDStr, err)
 	}
 
 	// Record successful message processing
@@ -233,12 +244,12 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 		With("source_chain", message.SourceChainSelector.String(), "verifier_id", cv.config.VerifierID).
 		RecordMessageVerificationDuration(ctx, time.Since(start))
 
-	cv.lggr.Infow("CCV data added to batcher for writing to storage",
+	cv.lggr.Infow("Message verification completed successfully",
 		"messageID", msgIDStr,
 		"nonce", message.SequenceNumber,
 		"sourceChain", message.SourceChainSelector,
 		"destChain", message.DestChainSelector,
 	)
 
-	return nil
+	return ccvNodeData, nil
 }

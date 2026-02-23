@@ -15,7 +15,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 )
 
@@ -194,11 +193,12 @@ func NewTestVerifier() *TestVerifier {
 func (t *TestVerifier) VerifyMessages(
 	_ context.Context,
 	tasks []VerificationTask,
-	ccvDataBatcher *batcher.Batcher[protocol.VerifierNodeResult],
-) batcher.BatchResult[VerificationError] {
+) []VerificationResult {
 	t.mu.Lock()
 	t.processedTasks = append(t.processedTasks, tasks...)
 	t.mu.Unlock()
+
+	results := make([]VerificationResult, 0, len(tasks))
 
 	// Create mock CCV node data for each task
 	for _, verificationTask := range tasks {
@@ -235,14 +235,12 @@ func (t *TestVerifier) VerifyMessages(
 			Signature:       []byte("mock-signature"),
 		}
 
-		if err := ccvDataBatcher.Add(ccvNodeData); err != nil {
-			// If context is canceled or batcher is closed, stop processing
-			return batcher.BatchResult[VerificationError]{Items: nil, Error: nil}
-		}
+		results = append(results, VerificationResult{
+			Result: &ccvNodeData,
+		})
 	}
 
-	// No errors in this test implementation
-	return batcher.BatchResult[VerificationError]{Items: nil, Error: nil}
+	return results
 }
 
 func (t *TestVerifier) GetProcessedTaskCount() int {
