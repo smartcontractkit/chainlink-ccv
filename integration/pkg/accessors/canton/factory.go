@@ -45,13 +45,14 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		return nil, fmt.Errorf("canton config not found for chain %d", chainSelector)
 	}
 
-	netData, err := f.helper.GetNetworkSpecificData(chainSelector)
+	bhi, err := f.helper.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get network specific data for chain %d: %w", chainSelector, err)
 	}
-	if netData == nil || netData.CantonEndpoints == nil {
+	if bhi == nil || bhi.NetworkSpecificData == nil || bhi.NetworkSpecificData.CantonEndpoints == nil {
 		return nil, fmt.Errorf("canton endpoints not found for chain %d", chainSelector)
 	}
+	netData := bhi.NetworkSpecificData
 
 	sourceReader, err := canton.NewSourceReader(
 		logger.Named(f.lggr, fmt.Sprintf("CantonSourceReader.%d", chainSelector)),
