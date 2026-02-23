@@ -30,7 +30,6 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 	t.Run("processes batches from queue until context cancelled with storage always succeeding", func(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
-		defer cancel()
 
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
@@ -69,6 +68,7 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 		// Start processor
 		require.NoError(t, processor.Start(ctx))
 		defer func() {
+			cancel()
 			require.NoError(t, processor.Close())
 		}()
 
@@ -104,7 +104,6 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 	t.Run("processes multiple batches concurrently", func(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
-		defer cancel()
 
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
@@ -139,6 +138,7 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 
 		require.NoError(t, processor.Start(ctx))
 		defer func() {
+			cancel()
 			require.NoError(t, processor.Close())
 		}()
 
@@ -172,7 +172,6 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 	t.Run("retries failed batches after delay", func(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
-		defer cancel()
 
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
@@ -210,6 +209,7 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 
 		require.NoError(t, processor.Start(ctx))
 		defer func() {
+			cancel()
 			require.NoError(t, processor.Close())
 		}()
 
@@ -243,7 +243,6 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 	t.Run("continues processing new batches when retry fails", func(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
-		defer cancel()
 
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
@@ -281,6 +280,7 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 
 		require.NoError(t, processor.Start(ctx))
 		defer func() {
+			cancel()
 			require.NoError(t, processor.Close())
 		}()
 
@@ -323,7 +323,6 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 	t.Run("writes checkpoint after successful storage write", func(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
-		defer cancel()
 
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
@@ -378,6 +377,7 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 
 		require.NoError(t, processor.Start(ctx))
 		defer func() {
+			cancel()
 			require.NoError(t, processor.Close())
 		}()
 
@@ -394,7 +394,6 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 	t.Run("checkpoint advances monotonically", func(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
-		defer cancel()
 
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
@@ -455,6 +454,7 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 
 		require.NoError(t, processor.Start(ctx))
 		defer func() {
+			cancel()
 			require.NoError(t, processor.Close())
 		}()
 
@@ -489,7 +489,6 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 	t.Run("multiple chains handled independently", func(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
-		defer cancel()
 
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
@@ -552,6 +551,7 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 
 		require.NoError(t, processor.Start(ctx))
 		defer func() {
+			cancel()
 			require.NoError(t, processor.Close())
 		}()
 
@@ -574,7 +574,6 @@ func TestStorageWriterProcessorDB_ContextCancellation(t *testing.T) {
 	t.Run("stops processing when context is cancelled", func(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithCancel(t.Context())
-		defer cancel()
 
 		db := testutil.NewTestDB(t)
 
