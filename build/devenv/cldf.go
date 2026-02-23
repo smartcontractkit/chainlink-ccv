@@ -191,7 +191,7 @@ func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint
 					deployerKeypairGen = cldf_stellar_provider.KeypairFromHex(hex.EncodeToString(deployerSeed[:]))
 				}
 			} else {
-				return nil, nil, fmt.Errorf("Stellar network specific data is required")
+				return nil, nil, fmt.Errorf("stellar network specific data is required")
 			}
 
 			log.Info().Msgf("Stellar network passphrase: %s", networkPassphrase)
@@ -209,7 +209,6 @@ func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint
 				SorobanRPCURL:      sorobanRPCURL,
 				DeployerKeypairGen: deployerKeypairGen,
 			}).Initialize(context.Background())
-
 			if err != nil {
 				return nil, nil, err
 			}

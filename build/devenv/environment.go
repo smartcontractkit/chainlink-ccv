@@ -156,7 +156,8 @@ func checkKeys(in *Cfg) error {
 	return nil
 }
 
-func NewProductConfigurationFromNetwork(family string, chainID string) (cciptestinterfaces.CCIP17Configuration, error) {
+// NewProductConfigurationFromNetwork creates a new product configuration from a network family and chain ID.
+func NewProductConfigurationFromNetwork(family, chainID string) (cciptestinterfaces.CCIP17Configuration, error) {
 	// TODO: remove the defaults (evm and canton) later
 	switch family {
 	case "anvil":
