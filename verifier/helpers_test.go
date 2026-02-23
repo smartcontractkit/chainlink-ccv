@@ -407,7 +407,7 @@ func NewCoordinatorWithFastPolling(
 		return nil, errors.New("no enabled/initialized chain sources, nothing to coordinate")
 	}
 
-	curseDetector, err := createCurseDetector(lggr, config, nil, enabledSourceReaders)
+	curseDetector, err := createCurseDetector(lggr, config, nil, enabledSourceReaders, monitoring.Metrics())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create curse detector: %w", err)
 	}
