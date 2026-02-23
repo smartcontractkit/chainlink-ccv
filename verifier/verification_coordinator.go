@@ -175,6 +175,8 @@ func createProcessors(
 }
 
 // createDBProcessors creates durable PostgreSQL-backed processors.
+// SourceReaderService (in-memory) is reused as-is; a forwarder goroutine bridges
+// each per-chain batcher output to the durable task queue.
 func createDBProcessors(
 	ctx context.Context,
 	lggr logger.Logger,
@@ -211,12 +213,22 @@ func createDBProcessors(
 		return nil, nil, nil, fmt.Errorf("failed to create storage writer processor: %w", err)
 	}
 
-	// Source readers + per-chain task queues
+	// Source readers (in-memory) + per-chain task queues
 	sourceReaders := make(map[protocol.ChainSelector]services.Service, len(enabledSourceReaders))
 	taskQueues := make(map[protocol.ChainSelector]jobqueue.JobQueue[VerificationTask], len(enabledSourceReaders))
 
 	for chainSelector, sourceReader := range enabledSourceReaders {
 		sourceCfg := config.SourceConfigs[chainSelector]
+		filter := chainaccess.NewReceiptIssuerFilter(sourceCfg.VerifierAddress, sourceCfg.DefaultExecutorAddress)
+		srs, err := NewSourceReaderService(
+			ctx, sourceReader, chainSelector, chainStatusManager,
+			logger.With(lggr, "component", "SourceReader", "chainID", chainSelector),
+			sourceCfg, curseDetector, filter, monitoring.Metrics(), writingTracker,
+		)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("failed to create SourceReaderService for chain %s: %w", chainSelector, err)
+		}
+
 		taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
 			db,
 			jobqueue.QueueConfig{
@@ -231,15 +243,8 @@ func createDBProcessors(
 			return nil, nil, nil, fmt.Errorf("failed to create task queue for chain %s: %w", chainSelector, err)
 		}
 
-		filter := chainaccess.NewReceiptIssuerFilter(sourceCfg.VerifierAddress, sourceCfg.DefaultExecutorAddress)
-		srs, err := NewSourceReaderServiceDB(
-			sourceReader, chainSelector, chainStatusManager,
-			logger.With(lggr, "component", "SourceReader", "chainID", chainSelector),
-			sourceCfg, curseDetector, filter, monitoring.Metrics(), writingTracker, taskQueue,
-		)
-		if err != nil {
-			return nil, nil, nil, fmt.Errorf("failed to create SourceReaderServiceDB for chain %s: %w", chainSelector, err)
-		}
+		// Forward ready tasks from the in-memory batcher to the durable task queue.
+		go forwardTasksToQueue(ctx, srs.ReadyTasksChannel(), taskQueue, logger.With(lggr, "component", "task_forwarder", "chainSelector", chainSelector))
 
 		sourceReaders[chainSelector] = srs
 		taskQueues[chainSelector] = taskQueue

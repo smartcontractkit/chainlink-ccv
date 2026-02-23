@@ -312,8 +312,6 @@ func (r *SourceReaderService) loadEvents(ctx context.Context, fromBlock *big.Int
 // processEventCycle processes a single cycle of event monitoring.
 // It queries for new MessageSent events, converts them to VerificationTasks,
 // and adds them to the pending queue, handling reorgs as needed.
-//
-//nolint:dupl // It will be removed after migration to the db version
 func (r *SourceReaderService) processEventCycle(ctx context.Context, latest, finalized *protocol.BlockHeader) {
 	r.logger.Infow("processEventCycle starting",
 		"latestBlock", latest.Number,
@@ -451,8 +449,6 @@ func (r *SourceReaderService) fallbackBlockEstimate(currentBlock uint64, lookbac
 // removing any tasks that are no longer valid due to reorg.
 // fromBlock and toBlock define the queried range - only remove messages
 // that are in this range but not found in the results.
-//
-//nolint:dupl // It will be removed after migration to the db version
 func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationTask, fromBlock *big.Int) {
 	tasksMap := make(map[string]VerificationTask)
 	for _, task := range tasks {
@@ -625,7 +621,6 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, fin
 	}
 }
 
-//nolint:dupl // It will be removed after migration to the db version
 func (r *SourceReaderService) isMessageReadyForVerification(
 	task VerificationTask,
 	latestBlock *big.Int,
