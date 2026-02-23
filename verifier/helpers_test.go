@@ -17,18 +17,19 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/jobqueue"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
+	vcommon "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 )
 
 // WaitForMessagesInStorage waits for the specified number of messages to be processed.
 // Since messages are batched, we can't rely on one notification per message.
 // Instead, we poll the storage to check if the expected count has been reached.
-func WaitForMessagesInStorage(t *testing.T, storage *common.InMemoryOffchainStorage, count int) {
+func WaitForMessagesInStorage(t *testing.T, storage *vcommon.InMemoryOffchainStorage, count int) {
 	timeout := time.After(30 * time.Second)
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
@@ -406,29 +407,34 @@ func NewCoordinatorWithFastPolling(
 
 	writingTracker := NewPendingWritingTracker(lggr)
 
-	sourceReaderServices := createSourceReaders(
-		ctx, lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, writingTracker,
-	)
-
-	var taskBatcherAdapter services.Service
 	var taskVerifierProcessor services.Service
 	var storageWriterProcessor services.Service
+	sourceReaderServices := make(map[protocol.ChainSelector]services.Service)
 
 	if db == nil {
+		inMemorySRS := createSourceReaders(
+			ctx, lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, writingTracker,
+		)
+		for chainSelector, srs := range inMemorySRS {
+			sourceReaderServices[chainSelector] = srs
+		}
 		taskVerifierProcessor, storageWriterProcessor, err = createInMemoryProcessors(
-			ctx, lggr, config, verifier, monitoring, sourceReaderServices, messageTracker, storage, writingTracker, chainStatusManager,
+			ctx, lggr, config, verifier, monitoring, inMemorySRS, messageTracker, storage, writingTracker, chainStatusManager,
 		)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		// Create with fast poll intervals for testing
-		taskBatcherAdapter, taskVerifierProcessor, storageWriterProcessor, err = createDurableProcessorsWithPollInterval(
-			ctx, lggr, db, config, verifier, monitoring, sourceReaderServices, messageTracker, storage, writingTracker, chainStatusManager, pollInterval,
+		dbSRS, tvp, swp, durableErr := createDurableProcessorsWithPollInterval(
+			ctx, lggr, db, config, verifier, monitoring, enabledSourceReaders, chainStatusManager, curseDetector, messageTracker, storage, writingTracker, pollInterval,
 		)
-		if err != nil {
-			return nil, err
+		if durableErr != nil {
+			return nil, durableErr
 		}
+		for chainSelector, srs := range dbSRS {
+			sourceReaderServices[chainSelector] = srs
+		}
+		taskVerifierProcessor, storageWriterProcessor = tvp, swp
 	}
 
 	var heartbeatReporter *HeartbeatReporter
@@ -454,9 +460,8 @@ func NewCoordinatorWithFastPolling(
 	return &Coordinator{
 		lggr:                   lggr,
 		verifierID:             config.VerifierID,
-		sourceReadersServices:  sourceReaderServices,
+		sourceReaderServices:   sourceReaderServices,
 		curseDetector:          curseDetector,
-		taskBatcherAdapter:     taskBatcherAdapter,
 		taskVerifierProcessor:  taskVerifierProcessor,
 		storageWriterProcessor: storageWriterProcessor,
 		heartbeatReporter:      heartbeatReporter,
@@ -471,14 +476,14 @@ func createDurableProcessorsWithPollInterval(
 	config CoordinatorConfig,
 	verifier Verifier,
 	monitoring Monitoring,
-	sourceReaderServices map[protocol.ChainSelector]*SourceReaderService,
+	enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
+	chainStatusManager protocol.ChainStatusManager,
+	curseDetector common.CurseCheckerService,
 	messageTracker MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
 	writingTracker *PendingWritingTracker,
-	chainStatusManager protocol.ChainStatusManager,
 	pollInterval time.Duration,
-) (services.Service, services.Service, services.Service, error) {
-	// Create verification_tasks queue
+) (map[protocol.ChainSelector]*SourceReaderServiceDB, services.Service, services.Service, error) {
 	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
 		db,
 		jobqueue.QueueConfig{
@@ -493,7 +498,6 @@ func createDurableProcessorsWithPollInterval(
 		return nil, nil, nil, fmt.Errorf("failed to create task queue: %w", err)
 	}
 
-	// Create verification_results queue
 	resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
 		db,
 		jobqueue.QueueConfig{
@@ -508,18 +512,13 @@ func createDurableProcessorsWithPollInterval(
 		return nil, nil, nil, fmt.Errorf("failed to create result queue: %w", err)
 	}
 
-	// Create adapter to forward from SRS batchers to task queue
-	taskBatcherAdapter, err := NewTaskBatcherToQueueAdapter(
-		lggr,
-		config.VerifierID,
-		taskQueue,
-		sourceReaderServices,
+	sourceReadersDB, err := createSourceReadersDB(
+		ctx, lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, writingTracker, taskQueue,
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create task batcher adapter: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to create DB source reader services: %w", err)
 	}
 
-	// Create DB-based task verifier with custom poll interval
 	taskVerifierProcessor, err := NewTaskVerifierProcessorDBWithPollInterval(
 		lggr,
 		config.VerifierID,
@@ -535,7 +534,6 @@ func createDurableProcessorsWithPollInterval(
 		return nil, nil, nil, fmt.Errorf("failed to create task verifier processor DB: %w", err)
 	}
 
-	// Create DB-based storage writer with custom poll interval
 	storageWriterProcessor, err := NewStorageWriterProcessorDBWithPollInterval(
 		ctx,
 		lggr,
@@ -552,5 +550,5 @@ func createDurableProcessorsWithPollInterval(
 		return nil, nil, nil, fmt.Errorf("failed to create storage writer processor DB: %w", err)
 	}
 
-	return taskBatcherAdapter, taskVerifierProcessor, storageWriterProcessor, nil
+	return sourceReadersDB, taskVerifierProcessor, storageWriterProcessor, nil
 }
