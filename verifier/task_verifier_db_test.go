@@ -28,7 +28,6 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 	t.Run("processes tasks from queue and publishes results", func(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
-		defer cancel()
 
 		lggr := logger.Nop()
 		ownerID := "test-" + t.Name()
@@ -75,6 +74,7 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 
 		require.NoError(t, processor.Start(ctx))
 		defer func() {
+			cancel()
 			require.NoError(t, processor.Close())
 		}()
 
@@ -111,7 +111,6 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 	t.Run("processes multiple batches concurrently", func(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
-		defer cancel()
 
 		lggr := logger.Nop()
 		ownerID := "test-" + t.Name()
@@ -158,6 +157,7 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 
 		require.NoError(t, processor.Start(ctx))
 		defer func() {
+			cancel()
 			require.NoError(t, processor.Close())
 		}()
 
@@ -201,9 +201,8 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 	t.Run("retries failed tasks after delay", func(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
-		defer cancel()
 
-		lggr := logger.Test(t)
+		lggr := logger.Nop()
 		ownerID := "test-" + t.Name()
 
 		taskQueue, err := jobqueue.NewPostgresJobQueue[verifier.VerificationTask](
@@ -259,6 +258,7 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 
 		require.NoError(t, processor.Start(ctx))
 		defer func() {
+			cancel()
 			require.NoError(t, processor.Close())
 		}()
 
@@ -278,9 +278,8 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 	t.Run("does not retry permanent failures", func(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
-		defer cancel()
 
-		lggr := logger.Test(t)
+		lggr := logger.Nop()
 		ownerID := "test-" + t.Name()
 
 		taskQueue, err := jobqueue.NewPostgresJobQueue[verifier.VerificationTask](
@@ -339,22 +338,29 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 
 		require.NoError(t, processor.Start(ctx))
 		defer func() {
+			cancel()
 			require.NoError(t, processor.Close())
 		}()
 
 		require.NoError(t, taskQueue.Publish(ctx, task))
 
-		// Wait for processing
-		time.Sleep(300 * time.Millisecond)
+		// Wait for processing and verify only one attempt
+		require.Eventually(t, func() bool {
+			return mockVerifier.Attempt(task.MessageID) >= 1
+		}, tests.WaitTimeout(t), 50*time.Millisecond, "Expected task to be attempted at least once")
 
 		// Should only attempt once (no retry)
 		require.Equal(t, 1, mockVerifier.Attempt(task.MessageID))
 
 		// Task should be marked as failed in database
-		require.Equal(t, 1, countFailedTasks(t, db, ownerID))
+		require.Eventually(t, func() bool {
+			return countFailedTasks(t, db, ownerID) == 1
+		}, tests.WaitTimeout(t), 100*time.Millisecond, "Expected 1 failed task in database")
 
 		// No results should be published
-		require.Equal(t, 0, countVerificationResults(t, db, ownerID))
+		require.Eventually(t, func() bool {
+			return countVerificationResults(t, db, ownerID) == 0
+		}, tests.WaitTimeout(t), 100*time.Millisecond, "Expected no results for permanent failure")
 	})
 }
 
@@ -369,7 +375,7 @@ func TestTaskVerifierProcessorDB_Shutdown(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
 		defer cancel()
 
-		lggr := logger.Test(t)
+		lggr := logger.Nop()
 		ownerID := "test-" + t.Name()
 
 		taskQueue, err := jobqueue.NewPostgresJobQueue[verifier.VerificationTask](
@@ -457,6 +463,7 @@ func countArchivedTasks(t *testing.T, db *sqlx.DB, ownerID string) int {
 		WHERE owner_id = $1
 	`, ownerID).Scan(&count)
 	require.NoError(t, err)
+	t.Logf("Archived tasks count: %d (ownerID: %s)", count, ownerID)
 	return count
 }
 
@@ -469,6 +476,7 @@ func countVerificationResults(t *testing.T, db *sqlx.DB, ownerID string) int {
 		WHERE owner_id = $1
 	`, ownerID).Scan(&count)
 	require.NoError(t, err)
+	t.Logf("Verification results count: %d (ownerID: %s)", count, ownerID)
 	return count
 }
 
@@ -481,6 +489,7 @@ func countFailedTasks(t *testing.T, db *sqlx.DB, ownerID string) int {
 		WHERE owner_id = $1 AND status = 'failed'
 	`, ownerID).Scan(&count)
 	require.NoError(t, err)
+	t.Logf("Failed tasks count: %d (ownerID: %s)", count, ownerID)
 	return count
 }
 
