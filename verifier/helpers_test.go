@@ -2,7 +2,10 @@ package verifier
 
 import (
 	"context"
+	"database/sql"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"math/big"
 	"sync"
 	"testing"
@@ -12,10 +15,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/services"
 
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 )
 
@@ -202,11 +208,12 @@ func NewTestVerifier() *TestVerifier {
 func (t *TestVerifier) VerifyMessages(
 	_ context.Context,
 	tasks []VerificationTask,
-	ccvDataBatcher *batcher.Batcher[protocol.VerifierNodeResult],
-) batcher.BatchResult[VerificationError] {
+) []VerificationResult {
 	t.mu.Lock()
 	t.processedTasks = append(t.processedTasks, tasks...)
 	t.mu.Unlock()
+
+	results := make([]VerificationResult, 0, len(tasks))
 
 	// Create mock CCV node data for each task
 	for _, verificationTask := range tasks {
@@ -243,14 +250,12 @@ func (t *TestVerifier) VerifyMessages(
 			Signature:       []byte("mock-signature"),
 		}
 
-		if err := ccvDataBatcher.Add(ccvNodeData); err != nil {
-			// If context is canceled or batcher is closed, stop processing
-			return batcher.BatchResult[VerificationError]{Items: nil, Error: nil}
-		}
+		results = append(results, VerificationResult{
+			Result: &ccvNodeData,
+		})
 	}
 
-	// No errors in this test implementation
-	return batcher.BatchResult[VerificationError]{Items: nil, Error: nil}
+	return results
 }
 
 func (t *TestVerifier) GetProcessedTaskCount() int {
@@ -372,4 +377,188 @@ func newTestSRS(
 	mockFC.EXPECT().IsFinalityViolated().Return(false).Maybe()
 
 	return srs, mockFC
+}
+
+// NewCoordinatorWithFastPolling creates a coordinator with fast polling intervals for testing.
+// This is useful for DB-backed tests that need responsive queue processing.
+func NewCoordinatorWithFastPolling(
+	ctx context.Context,
+	lggr logger.Logger,
+	verifier Verifier,
+	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
+	storage protocol.CCVNodeDataWriter,
+	config CoordinatorConfig,
+	messageTracker MessageLatencyTracker,
+	monitoring Monitoring,
+	chainStatusManager protocol.ChainStatusManager,
+	heartbeatClient heartbeatclient.HeartbeatSender,
+	db *sql.DB,
+	pollInterval time.Duration,
+) (*Coordinator, error) {
+	// Use the same initialization as NewCoordinator but with custom poll intervals
+	lggr = logger.With(lggr, "verifierID", config.VerifierID)
+
+	var err error
+	enabledSourceReaders, err := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, chainStatusManager)
+	if err != nil {
+		return nil, fmt.Errorf("failed to filter enabled source readers: %w", err)
+	}
+	if len(enabledSourceReaders) == 0 {
+		return nil, errors.New("no enabled/initialized chain sources, nothing to coordinate")
+	}
+
+	curseDetector, err := createCurseDetector(lggr, config, nil, enabledSourceReaders)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create curse detector: %w", err)
+	}
+
+	writingTracker := NewPendingWritingTracker(lggr)
+
+	sourceReaderServices := createSourceReaders(
+		ctx, lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, writingTracker,
+	)
+
+	var taskBatcherAdapter services.Service
+	var taskVerifierProcessor services.Service
+	var storageWriterProcessor services.Service
+
+	if db == nil {
+		taskVerifierProcessor, storageWriterProcessor, err = createInMemoryProcessors(
+			ctx, lggr, config, verifier, monitoring, sourceReaderServices, messageTracker, storage, writingTracker, chainStatusManager,
+		)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// Create with fast poll intervals for testing
+		taskBatcherAdapter, taskVerifierProcessor, storageWriterProcessor, err = createDurableProcessorsWithPollInterval(
+			ctx, lggr, db, config, verifier, monitoring, sourceReaderServices, messageTracker, storage, writingTracker, chainStatusManager, pollInterval,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var heartbeatReporter *HeartbeatReporter
+	if heartbeatClient != nil && config.HeartbeatInterval > 0 {
+		allSelectors := make([]protocol.ChainSelector, 0, len(sourceReaders))
+		for selector := range sourceReaders {
+			allSelectors = append(allSelectors, selector)
+		}
+
+		heartbeatReporter, err = NewHeartbeatReporter(
+			logger.With(lggr, "component", "HeartbeatReporter"),
+			chainStatusManager,
+			heartbeatClient,
+			allSelectors,
+			config.VerifierID,
+			config.HeartbeatInterval,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create heartbeat reporter: %w", err)
+		}
+	}
+
+	return &Coordinator{
+		lggr:                   lggr,
+		verifierID:             config.VerifierID,
+		sourceReadersServices:  sourceReaderServices,
+		curseDetector:          curseDetector,
+		taskBatcherAdapter:     taskBatcherAdapter,
+		taskVerifierProcessor:  taskVerifierProcessor,
+		storageWriterProcessor: storageWriterProcessor,
+		heartbeatReporter:      heartbeatReporter,
+	}, nil
+}
+
+// createDurableProcessorsWithPollInterval creates durable processors with custom poll intervals for testing.
+func createDurableProcessorsWithPollInterval(
+	ctx context.Context,
+	lggr logger.Logger,
+	db *sql.DB,
+	config CoordinatorConfig,
+	verifier Verifier,
+	monitoring Monitoring,
+	sourceReaderServices map[protocol.ChainSelector]*SourceReaderService,
+	messageTracker MessageLatencyTracker,
+	storage protocol.CCVNodeDataWriter,
+	writingTracker *PendingWritingTracker,
+	chainStatusManager protocol.ChainStatusManager,
+	pollInterval time.Duration,
+) (services.Service, services.Service, services.Service, error) {
+	// Create verification_tasks queue
+	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
+		db,
+		jobqueue.QueueConfig{
+			Name:          "verification_tasks",
+			OwnerID:       config.VerifierID,
+			RetryDuration: taskQueueRetryDuration,
+			LockDuration:  taskQueueLockDuration,
+		},
+		logger.With(lggr, "component", "task_queue"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create task queue: %w", err)
+	}
+
+	// Create verification_results queue
+	resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
+		db,
+		jobqueue.QueueConfig{
+			Name:          "verification_results",
+			OwnerID:       config.VerifierID,
+			RetryDuration: resultQueueRetryDuration,
+			LockDuration:  resultQueueLockDuration,
+		},
+		logger.With(lggr, "component", "result_queue"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create result queue: %w", err)
+	}
+
+	// Create adapter to forward from SRS batchers to task queue
+	taskBatcherAdapter, err := NewTaskBatcherToQueueAdapter(
+		lggr,
+		config.VerifierID,
+		taskQueue,
+		sourceReaderServices,
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create task batcher adapter: %w", err)
+	}
+
+	// Create DB-based task verifier with custom poll interval
+	taskVerifierProcessor, err := NewTaskVerifierProcessorDBWithPollInterval(
+		lggr,
+		config.VerifierID,
+		verifier,
+		monitoring,
+		taskQueue,
+		resultQueue,
+		writingTracker,
+		config.StorageBatchSize,
+		pollInterval,
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create task verifier processor DB: %w", err)
+	}
+
+	// Create DB-based storage writer with custom poll interval
+	storageWriterProcessor, err := NewStorageWriterProcessorDBWithPollInterval(
+		ctx,
+		lggr,
+		config.VerifierID,
+		messageTracker,
+		storage,
+		resultQueue,
+		config,
+		writingTracker,
+		chainStatusManager,
+		pollInterval,
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create storage writer processor DB: %w", err)
+	}
+
+	return taskBatcherAdapter, taskVerifierProcessor, storageWriterProcessor, nil
 }

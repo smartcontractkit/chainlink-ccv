@@ -20,6 +20,10 @@ import (
 )
 
 const (
+	// taskQueueRetryDuration is how long verification tasks are retried before giving up.
+	taskQueueRetryDuration = 7 * 24 * time.Hour // 7 days
+	// taskQueueLockDuration is how long a task can remain in 'processing' before being reclaimed.
+	taskQueueLockDuration = 5 * time.Minute
 	// resultQueueRetryDuration is how long verification results are retried before giving up.
 	resultQueueRetryDuration = 7 * 24 * time.Hour // 7 days
 	// resultQueueLockDuration is how long a job can remain in 'processing' before being reclaimed.
@@ -38,6 +42,8 @@ type Coordinator struct {
 	curseDetector common.CurseCheckerService
 	// 1st step processor: source readers (per-chain)
 	sourceReadersServices map[protocol.ChainSelector]*SourceReaderService
+	// Optional: adapter to flush batcher to task queue (only when db != nil)
+	taskBatcherAdapter services.Service
 	// 2nd step processor: task verifier
 	taskVerifierProcessor services.Service
 	// 3rd step processor: storage writer
@@ -90,6 +96,8 @@ func NewCoordinatorWithDetector(
 	db *sql.DB,
 ) (*Coordinator, error) {
 	lggr = logger.With(lggr, "verifierID", config.VerifierID)
+
+	var err error
 	enabledSourceReaders, err := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, chainStatusManager)
 	if err != nil {
 		return nil, fmt.Errorf("failed to filter enabled source readers: %w", err)
@@ -110,18 +118,24 @@ func NewCoordinatorWithDetector(
 		ctx, lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, writingTracker,
 	)
 
-	storageWriterProcessor, storageBatcher, err := createStorageWriterProcessor(
-		ctx, lggr, db, config, messageTracker, storage, writingTracker, chainStatusManager,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create storage writer processor: %w", err)
-	}
+	var taskBatcherAdapter services.Service
+	var taskVerifierProcessor services.Service
+	var storageWriterProcessor services.Service
 
-	taskVerifierProcessor, err := NewTaskVerifierProcessor(
-		lggr, config.VerifierID, verifier, monitoring, sourceReaderServices, storageBatcher, writingTracker,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create task verifier processor: %w", err)
+	if db == nil {
+		taskVerifierProcessor, storageWriterProcessor, err = createInMemoryProcessors(
+			ctx, lggr, config, verifier, monitoring, sourceReaderServices, messageTracker, storage, writingTracker, chainStatusManager,
+		)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		taskBatcherAdapter, taskVerifierProcessor, storageWriterProcessor, err = createDurableProcessors(
+			ctx, lggr, db, config, verifier, monitoring, sourceReaderServices, messageTracker, storage, writingTracker, chainStatusManager,
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var heartbeatReporter *HeartbeatReporter
@@ -151,28 +165,77 @@ func NewCoordinatorWithDetector(
 		verifierID:             config.VerifierID,
 		sourceReadersServices:  sourceReaderServices,
 		curseDetector:          curseDetector,
-		storageWriterProcessor: storageWriterProcessor,
+		taskBatcherAdapter:     taskBatcherAdapter,
 		taskVerifierProcessor:  taskVerifierProcessor,
+		storageWriterProcessor: storageWriterProcessor,
 		heartbeatReporter:      heartbeatReporter,
 	}, nil
 }
 
-func createStorageWriterProcessor(
+// createInMemoryProcessors creates task verifier and storage writer processors using in-memory batchers.
+func createInMemoryProcessors(
 	ctx context.Context,
 	lggr logger.Logger,
-	db *sql.DB,
 	config CoordinatorConfig,
+	verifier Verifier,
+	monitoring Monitoring,
+	sourceReaderServices map[protocol.ChainSelector]*SourceReaderService,
 	messageTracker MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
 	writingTracker *PendingWritingTracker,
 	chainStatusManager protocol.ChainStatusManager,
-) (services.Service, *batcher.Batcher[protocol.VerifierNodeResult], error) {
-	if db == nil {
-		return NewStorageBatcherProcessor(
-			ctx, lggr, config.VerifierID, messageTracker, storage, config, writingTracker, chainStatusManager,
-		)
+) (services.Service, services.Service, error) {
+	// In-memory batcher-based architecture
+	var storageBatcher *batcher.Batcher[protocol.VerifierNodeResult]
+	storageWriterProcessor, storageBatcher, err := NewStorageBatcherProcessor(
+		ctx, lggr, config.VerifierID, messageTracker, storage, config, writingTracker, chainStatusManager,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create storage writer processor: %w", err)
 	}
-	storageWriterQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
+
+	taskVerifierProcessor, err := NewTaskVerifierProcessor(
+		lggr, config.VerifierID, verifier, monitoring, sourceReaderServices, storageBatcher, writingTracker,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create task verifier processor: %w", err)
+	}
+
+	return taskVerifierProcessor, storageWriterProcessor, nil
+}
+
+// createDurableProcessors creates task verifier and storage writer processors using database-backed queues.
+func createDurableProcessors(
+	ctx context.Context,
+	lggr logger.Logger,
+	db *sql.DB,
+	config CoordinatorConfig,
+	verifier Verifier,
+	monitoring Monitoring,
+	sourceReaderServices map[protocol.ChainSelector]*SourceReaderService,
+	messageTracker MessageLatencyTracker,
+	storage protocol.CCVNodeDataWriter,
+	writingTracker *PendingWritingTracker,
+	chainStatusManager protocol.ChainStatusManager,
+) (services.Service, services.Service, services.Service, error) {
+	// DB-backed queue architecture
+	// Create verification_tasks queue
+	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
+		db,
+		jobqueue.QueueConfig{
+			Name:          "verification_tasks",
+			OwnerID:       config.VerifierID,
+			RetryDuration: taskQueueRetryDuration,
+			LockDuration:  taskQueueLockDuration,
+		},
+		logger.With(lggr, "component", "task_queue"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create task queue: %w", err)
+	}
+
+	// Create verification_results queue
+	resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
 		db,
 		jobqueue.QueueConfig{
 			Name:          "verification_results",
@@ -183,35 +246,52 @@ func createStorageWriterProcessor(
 		logger.With(lggr, "component", "result_queue"),
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create result queue: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to create result queue: %w", err)
 	}
 
-	// Create DB-based storage writer processor
+	// Create adapter to forward from SRS batchers to task queue
+	taskBatcherAdapter, err := NewTaskBatcherToQueueAdapter(
+		lggr,
+		config.VerifierID,
+		taskQueue,
+		sourceReaderServices,
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create task batcher adapter: %w", err)
+	}
+
+	// Create DB-based task verifier
+	taskVerifierProcessor, err := NewTaskVerifierProcessorDB(
+		lggr,
+		config.VerifierID,
+		verifier,
+		monitoring,
+		taskQueue,
+		resultQueue,
+		writingTracker,
+		config.StorageBatchSize, // Use as batch size for task processing
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create task verifier processor DB: %w", err)
+	}
+
+	// Create DB-based storage writer
 	storageWriterProcessor, err := NewStorageWriterProcessorDB(
 		ctx,
 		lggr,
 		config.VerifierID,
 		messageTracker,
 		storage,
-		storageWriterQueue,
+		resultQueue,
 		config,
 		writingTracker,
 		chainStatusManager,
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create storage writer processor: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to create storage writer processor DB: %w", err)
 	}
 
-	// TaskVerifierProcessor needs to publish to the result queue
-	// We'll create a batcher that forwards results to the queue
-	storageBatcher := NewQueueBatcherAdapter(
-		ctx,
-		storageWriterQueue,
-		logger.With(lggr, "component", "queue_adapter"),
-		config.StorageBatchSize,
-		config.StorageBatchTimeout,
-	)
-	return storageWriterProcessor, storageBatcher, err
+	return taskBatcherAdapter, taskVerifierProcessor, storageWriterProcessor, nil
 }
 
 func (vc *Coordinator) Start(_ context.Context) error {
@@ -236,9 +316,17 @@ func (vc *Coordinator) Start(_ context.Context) error {
 			return fmt.Errorf("failed to start storage writer processor: %w", err)
 		}
 
-		// Start task verifier processor (consumes from SRS, produces to storage writer)
+		// Start task verifier processor (consumes from task queue or SRS, produces to storage writer)
 		if err := vc.taskVerifierProcessor.Start(ctx); err != nil {
 			return fmt.Errorf("failed to start task verifier processor: %w", err)
+		}
+
+		// Start task batcher adapter if present (forwards from SRS batchers to task queue)
+		// This must start before SRS to avoid blocking
+		if vc.taskBatcherAdapter != nil {
+			if err := vc.taskBatcherAdapter.Start(ctx); err != nil {
+				return fmt.Errorf("failed to start task batcher adapter: %w", err)
+			}
 		}
 
 		// Start source readers (producers) - now consumers are ready to drain
@@ -377,6 +465,14 @@ func (vc *Coordinator) Close() error {
 		if err := vc.taskVerifierProcessor.Close(); err != nil {
 			vc.lggr.Errorw("Failed to stop verifier processor", "error", err)
 			errs = append(errs, fmt.Errorf("failed to stop verifier processor: %w", err))
+		}
+
+		// Stop task batcher adapter if present
+		if vc.taskBatcherAdapter != nil {
+			if err := vc.taskBatcherAdapter.Close(); err != nil {
+				vc.lggr.Errorw("Failed to stop task batcher adapter", "error", err)
+				errs = append(errs, fmt.Errorf("failed to stop task batcher adapter: %w", err))
+			}
 		}
 
 		// Start storage writer processor - 3rd step processor

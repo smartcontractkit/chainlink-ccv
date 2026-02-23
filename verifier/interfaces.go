@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 )
 
 // MessageSigner defines the interface for signing data.
@@ -15,11 +14,19 @@ type MessageSigner interface {
 	Sign(data []byte) (signed []byte, err error)
 }
 
+// VerificationResult contains the result of verifying a single message.
+type VerificationResult struct {
+	Result *protocol.VerifierNodeResult
+	Error  *VerificationError
+}
+
 // Verifier defines the interface for message verification logic.
 type Verifier interface {
-	// VerifyMessages performs verification of a batch of messages, adding successful results to the batcher.
-	// Returns a BatchResult containing any verification errors that occurred.
-	VerifyMessages(ctx context.Context, tasks []VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.VerifierNodeResult]) batcher.BatchResult[VerificationError]
+	// VerifyMessages performs verification of a batch of messages.
+	// Returns a slice of VerificationResult containing both successful results and errors.
+	// The caller is responsible for handling successful results (e.g., adding them to a batcher)
+	// and handling errors (e.g., retrying or logging).
+	VerifyMessages(ctx context.Context, tasks []VerificationTask) []VerificationResult
 }
 
 // MessageLatencyTracker defines the interface for tracking message latencies from with the verifier.

@@ -246,6 +246,109 @@ func TestMultiSourceMessageDiscovery_AllSourcesRunning(t *testing.T) {
 	assert.Len(t, ids, 3)
 }
 
+// newMockMessageDiscoveryWithClosingChannel returns a MockMessageDiscovery whose
+// Start channel is closed after all messages are sent. This simulates a source
+// that terminates, which exercises the merge goroutine's channel-close detection.
+func newMockMessageDiscoveryWithClosingChannel(t *testing.T, messages []common.VerifierResultWithMetadata) *mocks.MockMessageDiscovery {
+	t.Helper()
+	mockSrc := mocks.NewMockMessageDiscovery(t)
+	ch := make(chan common.VerifierResultWithMetadata, len(messages)+1)
+	mockSrc.EXPECT().Start(mock.Anything).Return(ch).Once()
+	go func() {
+		for _, msg := range messages {
+			ch <- msg
+		}
+		close(ch)
+	}()
+	mockSrc.EXPECT().Close().Return(nil).Once()
+	mockSrc.EXPECT().Replay(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	return mockSrc
+}
+
+func TestMultiSourceMessageDiscovery_MergeExitsWhenAllSourcesClosed(t *testing.T) {
+	tests := []struct {
+		name             string
+		sourceMessages   [][]common.VerifierResultWithMetadata
+		expectedCount    int
+		expectedUniqueID int
+	}{
+		{
+			name: "single source closes after sending messages",
+			sourceMessages: [][]common.VerifierResultWithMetadata{
+				{
+					createTestCCVData(1, time.Now().UnixMilli(), 1, 2),
+					createTestCCVData(2, time.Now().UnixMilli(), 1, 2),
+				},
+			},
+			expectedCount:    2,
+			expectedUniqueID: 2,
+		},
+		{
+			name: "multiple sources all close after sending messages",
+			sourceMessages: [][]common.VerifierResultWithMetadata{
+				{createTestCCVData(10, time.Now().UnixMilli(), 1, 2)},
+				{createTestCCVData(20, time.Now().UnixMilli(), 1, 2)},
+				{createTestCCVData(30, time.Now().UnixMilli(), 1, 2)},
+			},
+			expectedCount:    3,
+			expectedUniqueID: 3,
+		},
+		{
+			name: "multiple sources with duplicate across closed channels",
+			sourceMessages: [][]common.VerifierResultWithMetadata{
+				{createTestCCVData(42, time.Now().UnixMilli(), 1, 2)},
+				{createTestCCVData(42, time.Now().UnixMilli()+1, 1, 2)},
+			},
+			expectedCount:    1,
+			expectedUniqueID: 1,
+		},
+		{
+			name: "sources close immediately with no messages",
+			sourceMessages: [][]common.VerifierResultWithMetadata{
+				{},
+				{},
+			},
+			expectedCount:    0,
+			expectedUniqueID: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sources := make([]common.MessageDiscovery, 0, len(tt.sourceMessages))
+			for _, msgs := range tt.sourceMessages {
+				sources = append(sources, newMockMessageDiscoveryWithClosingChannel(t, msgs))
+			}
+
+			multi, err := NewMultiSourceMessageDiscovery(logger.Test(t), sources)
+			require.NoError(t, err)
+
+			ctx := context.Background()
+			out := multi.Start(ctx)
+
+			received := collectUntilTimeout(out, 500*time.Millisecond)
+			assert.Len(t, received, tt.expectedCount)
+
+			ids := make(map[protocol.Bytes32]struct{})
+			for _, m := range received {
+				ids[m.VerifierResult.MessageID] = struct{}{}
+			}
+			assert.Len(t, ids, tt.expectedUniqueID)
+
+			closeDone := make(chan struct{})
+			go func() {
+				assert.NoError(t, multi.Close())
+				close(closeDone)
+			}()
+			select {
+			case <-closeDone:
+			case <-time.After(2 * time.Second):
+				t.Fatal("Close() did not complete within timeout; merge goroutine likely blocked on closed channels")
+			}
+		})
+	}
+}
+
 // validMinimalConfig returns a Config with valid Scheduler and Storage so we can test Discoveries validation in isolation.
 func validMinimalConfig(discoveries []config.DiscoveryConfig) *config.Config {
 	return &config.Config{
