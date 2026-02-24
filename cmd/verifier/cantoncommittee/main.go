@@ -20,10 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-const (
-	CantonConfigPathEnv     = "CANTON_CONFIG_PATH"
-	DefaultCantonConfigPath = "/etc/canton/config.toml"
-)
+const CantonConfigPathEnv = "CANTON_CONFIG_PATH"
 
 func loadConfig(path string) (*canton.Config, error) {
 	var cfg canton.Config
@@ -43,7 +40,7 @@ func main() {
 			func(ctx context.Context, lggr logger.Logger, helper *blockchain.Helper, cfg commit.Config) (chainaccess.AccessorFactory, error) {
 				configPath, ok := os.LookupEnv(CantonConfigPathEnv)
 				if !ok {
-					configPath = DefaultCantonConfigPath
+					configPath = canton.DefaultCantonConfigPath
 				}
 
 				cantonConfig, err := loadConfig(configPath)
