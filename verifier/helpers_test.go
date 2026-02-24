@@ -528,7 +528,7 @@ func createDurableProcessorsWithPollInterval(
 		return nil, nil, nil, fmt.Errorf("failed to create task verifier processor DB: %w", err)
 	}
 
-	storageWriterProcessor, err := NewStorageWriterProcessorDBWithPollInterval(
+	storageWriterProcessor, err := NewStorageWriterProcessorWithPollInterval(
 		ctx,
 		lggr,
 		config.VerifierID,

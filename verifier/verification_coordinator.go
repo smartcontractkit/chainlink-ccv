@@ -208,7 +208,7 @@ func createDurableProcessors(
 		return nil, nil, nil, fmt.Errorf("failed to create task verifier processor DB: %w", err)
 	}
 
-	storageWriterProcessor, err := NewStorageWriterProcessorDB(
+	storageWriterProcessor, err := NewStorageWriterProcessor(
 		ctx, lggr, config.VerifierID, messageTracker, storage, resultQueue, config, writingTracker, chainStatusManager,
 	)
 	if err != nil {
