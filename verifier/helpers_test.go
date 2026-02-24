@@ -344,42 +344,6 @@ func (n *noopFilter) Filter(msg protocol.MessageSentEvent) bool {
 	return true
 }
 
-func newTestSRS(
-	t *testing.T,
-	chainSelector protocol.ChainSelector,
-	reader *mocks.MockSourceReader,
-	chainStatusMgr protocol.ChainStatusManager,
-	curseDetector *mocks.MockCurseCheckerService,
-	pollInterval time.Duration,
-	maxBlockRange uint64,
-) (*SourceReaderService, *mocks.MockFinalityViolationChecker) {
-	t.Helper()
-
-	lggr := logger.Test(t)
-
-	srs, err := NewSourceReaderService(
-		t.Context(),
-		reader,
-		chainSelector,
-		chainStatusMgr,
-		lggr,
-		SourceConfig{PollInterval: pollInterval, MaxBlockRange: maxBlockRange},
-		curseDetector,
-		&noopFilter{},
-		&noopMetricLabeler{},
-		NewPendingWritingTracker(lggr),
-	)
-	require.NoError(t, err)
-
-	// Override the internal finalityChecker with a mock.
-	mockFC := mocks.NewMockFinalityViolationChecker(t)
-	srs.finalityChecker = mockFC
-	mockFC.EXPECT().UpdateFinalized(mock.Anything, mock.Anything).Return(nil).Maybe()
-	mockFC.EXPECT().IsFinalityViolated().Return(false).Maybe()
-
-	return srs, mockFC
-}
-
 // NewCoordinatorWithFastPolling creates a coordinator with fast polling intervals for testing.
 // This is useful for DB-backed tests that need responsive queue processing.
 func NewCoordinatorWithFastPolling(
@@ -477,7 +441,7 @@ func createDurableProcessorsWithPollInterval(
 	storage protocol.CCVNodeDataWriter,
 	writingTracker *PendingWritingTracker,
 	pollInterval time.Duration,
-) (map[protocol.ChainSelector]*SourceReaderServiceDB, services.Service, services.Service, error) {
+) (map[protocol.ChainSelector]*SourceReaderService, services.Service, services.Service, error) {
 	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
 		ds,
 		jobqueue.QueueConfig{
