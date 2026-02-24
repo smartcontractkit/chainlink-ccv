@@ -204,7 +204,7 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 			AttemptCount:  attemptCount,
 			RetryDeadline: retryDeadline,
 			CreatedAt:     createdAt,
-			ChainSelector: uint64(chainSelector),
+			ChainSelector: uint64(chainSelector), // #nosec G115 -- checked above
 			MessageID:     messageID,
 		}
 

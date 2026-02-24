@@ -76,7 +76,7 @@ func BenchmarkJobQueueThroughput(b *testing.B) {
 					for j := range jobsPerBatch {
 						batch = append(batch, testJob{
 							Chain:   uint64(pid),
-							Message: []byte(fmt.Sprintf("bench-%d-%d-%d", pid, batchIdx, j)),
+							Message: fmt.Appendf(nil, "bench-%d-%d-%d", pid, batchIdx, j),
 							Data:    fmt.Sprintf("payload-%d-%d-%d", pid, batchIdx, j),
 						})
 					}

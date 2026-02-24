@@ -134,7 +134,7 @@ func TestConsumeBatchSizeLimit(t *testing.T) {
 	ctx := context.Background()
 
 	for i := range 5 {
-		require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte(fmt.Sprintf("m-%d", i)), Data: "x"}))
+		require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: fmt.Appendf(nil, "m-%d", i), Data: "x"}))
 	}
 
 	consumed, err := q.Consume(ctx, 2)
@@ -228,7 +228,7 @@ func TestConsumeReclaimMultipleStaleJobs(t *testing.T) {
 	for i := range 5 {
 		require.NoError(t, q.Publish(ctx, testJob{
 			Chain:   1,
-			Message: []byte(fmt.Sprintf("stale-%d", i)),
+			Message: fmt.Appendf(nil, "stale-%d", i),
 			Data:    "x",
 		}))
 	}
@@ -275,7 +275,7 @@ func TestConsumeReclaimConcurrentNoDuplicates(t *testing.T) {
 	for i := range numJobs {
 		require.NoError(t, q.Publish(ctx, testJob{
 			Chain:   1,
-			Message: []byte(fmt.Sprintf("concurrent-stale-%d", i)),
+			Message: fmt.Appendf(nil, "concurrent-stale-%d", i),
 			Data:    "x",
 		}))
 	}
@@ -567,7 +567,7 @@ func TestConcurrentPublishAndConsume(t *testing.T) {
 			for j := range jobsPerProducer {
 				job := testJob{
 					Chain:   uint64(producerID),
-					Message: []byte(fmt.Sprintf("msg-%d-%d", producerID, j)),
+					Message: fmt.Appendf(nil, "msg-%d-%d", producerID, j),
 					Data:    fmt.Sprintf("data-%d-%d", producerID, j),
 				}
 				// Random sleep to simulate realistic timing
@@ -641,7 +641,7 @@ func TestConcurrentConsumersNoDuplicates(t *testing.T) {
 	for i := range numJobs {
 		require.NoError(t, q.Publish(ctx, testJob{
 			Chain:   1,
-			Message: []byte(fmt.Sprintf("dup-test-%d", i)),
+			Message: fmt.Appendf(nil, "dup-test-%d", i),
 			Data:    "x",
 		}))
 	}
@@ -695,7 +695,7 @@ func TestConcurrentRetryAndFail(t *testing.T) {
 	for i := range numJobs {
 		require.NoError(t, q.Publish(ctx, testJob{
 			Chain:   1,
-			Message: []byte(fmt.Sprintf("rf-%d", i)),
+			Message: fmt.Appendf(nil, "rf-%d", i),
 			Data:    fmt.Sprintf("val-%d", i),
 		}))
 	}
@@ -820,7 +820,7 @@ func TestCleanupMixed(t *testing.T) {
 
 	// Create 3 jobs, complete all
 	for i := range 3 {
-		require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte(fmt.Sprintf("cl-%d", i)), Data: "x"}))
+		require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: fmt.Appendf(nil, "cl-%d", i), Data: "x"}))
 	}
 	consumed, err := q.Consume(ctx, 3)
 	require.NoError(t, err)
@@ -865,7 +865,7 @@ func TestConcurrentPublishStress(t *testing.T) {
 				time.Sleep(time.Duration(rand.IntN(2)) * time.Millisecond)
 				err := q.Publish(ctx, testJob{
 					Chain:   uint64(gID),
-					Message: []byte(fmt.Sprintf("stress-%d-%d", gID, j)),
+					Message: fmt.Appendf(nil, "stress-%d-%d", gID, j),
 					Data:    "payload",
 				})
 				assert.NoError(t, err)
@@ -903,7 +903,7 @@ func TestEndToEndConcurrentWithRandomWork(t *testing.T) {
 				time.Sleep(time.Duration(rng.IntN(10)) * time.Millisecond)
 				err := q.Publish(ctx, testJob{
 					Chain:   uint64(pid),
-					Message: []byte(fmt.Sprintf("e2e-%d-%d", pid, j)),
+					Message: fmt.Appendf(nil, "e2e-%d-%d", pid, j),
 					Data:    fmt.Sprintf("work-%d", j),
 				})
 				assert.NoError(t, err)
