@@ -4,13 +4,13 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
-	"database/sql"
 	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
@@ -56,7 +56,7 @@ type testSetup struct {
 	chainStatusManager *mocks.MockChainStatusManager
 	signerAddr         protocol.UnknownAddress
 	signer             verifier.MessageSigner
-	db                 *sql.DB
+	db                 sqlutil.DataSource
 }
 
 const (
@@ -101,7 +101,7 @@ func newTestSetup(t *testing.T) *testSetup {
 		chainStatusManager: chainStatusManager,
 		signerAddr:         addr,
 		signer:             signer,
-		db:                 sqlxDB.DB,
+		db:                 sqlxDB,
 	}
 
 	return ts

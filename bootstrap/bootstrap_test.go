@@ -130,25 +130,85 @@ func TestBootstrapDB_RunMigrations(t *testing.T) {
 	require.Equal(t, 2, count, "both bootstrap tables should exist")
 }
 
+// dummyAppConfig is a test-only config struct used to verify TOML parsing.
+type dummyAppConfig struct {
+	Name  string `toml:"name"`
+	Count int    `toml:"count"`
+}
+
+// spyServiceFactoryDummy implements ServiceFactory[dummyAppConfig] for TOML parsing tests.
+type spyServiceFactoryDummy struct {
+	startFn func(context.Context, dummyAppConfig, ServiceDeps) error
+	stopFn  func(context.Context) error
+}
+
+func (s *spyServiceFactoryDummy) Start(ctx context.Context, appConfig dummyAppConfig, deps ServiceDeps) error {
+	if s.startFn != nil {
+		return s.startFn(ctx, appConfig, deps)
+	}
+	return nil
+}
+
+func (s *spyServiceFactoryDummy) Stop(ctx context.Context) error {
+	if s.stopFn != nil {
+		return s.stopFn(ctx)
+	}
+	return nil
+}
+
+var _ ServiceFactory[dummyAppConfig] = (*spyServiceFactoryDummy)(nil)
+
 // --- runner tests ---
 
 func TestRunner(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 
+	t.Run("parses TOML into AppConfig", func(t *testing.T) {
+		t.Parallel()
+		fac := &spyServiceFactoryDummy{
+			startFn: func(_ context.Context, cfg dummyAppConfig, _ ServiceDeps) error {
+				require.Equal(t, "test-name", cfg.Name)
+				require.Equal(t, 42, cfg.Count)
+				return nil
+			},
+		}
+		r := &runner[dummyAppConfig]{fac: fac, deps: ServiceDeps{}}
+
+		spec := `name = "test-name"
+count = 42`
+		require.NoError(t, r.StartJob(ctx, spec))
+	})
+
+	t.Run("rejects TOML with undecoded fields", func(t *testing.T) {
+		t.Parallel()
+		fac := &spyServiceFactoryDummy{}
+		r := &runner[dummyAppConfig]{fac: fac, deps: ServiceDeps{}}
+
+		// extra field "unknown" is not in dummyAppConfig, so strict decode fails
+		spec := `name = "x"
+count = 1
+unknown = true`
+		err := r.StartJob(ctx, spec)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to parse app config toml")
+		require.Contains(t, err.Error(), "undecoded fields")
+	})
+
 	t.Run("delegates start", func(t *testing.T) {
 		t.Parallel()
 		var started bool
 		fac := &spyServiceFactory{
-			startFn: func(_ context.Context, spec string, _ ServiceDeps) error {
+			startFn: func(_ context.Context, _ any, _ ServiceDeps) error {
 				started = true
-				require.Equal(t, "my-spec", spec)
 				return nil
 			},
 		}
-		r := &runner{fac: fac, deps: ServiceDeps{}}
+		r := &runner[any]{fac: fac, deps: ServiceDeps{}}
 
-		require.NoError(t, r.StartJob(ctx, "my-spec"))
+		// runner parses spec as TOML into AppConfig, then calls fac.Start(ctx, appConfig, deps)
+		// use empty TOML so parseTomlStrict[any] succeeds (no undecoded fields)
+		require.NoError(t, r.StartJob(ctx, ""))
 		require.True(t, started)
 	})
 
@@ -161,7 +221,7 @@ func TestRunner(t *testing.T) {
 				return nil
 			},
 		}
-		r := &runner{fac: fac, deps: ServiceDeps{}}
+		r := &runner[any]{fac: fac, deps: ServiceDeps{}}
 
 		require.NoError(t, r.StopJob(ctx))
 		require.True(t, stopped)
@@ -170,12 +230,12 @@ func TestRunner(t *testing.T) {
 	t.Run("propagates start error", func(t *testing.T) {
 		t.Parallel()
 		fac := &spyServiceFactory{
-			startFn: func(context.Context, string, ServiceDeps) error {
+			startFn: func(context.Context, any, ServiceDeps) error {
 				return errors.New("boom")
 			},
 		}
-		r := &runner{fac: fac, deps: ServiceDeps{}}
-		require.EqualError(t, r.StartJob(ctx, "spec"), "boom")
+		r := &runner[any]{fac: fac, deps: ServiceDeps{}}
+		require.EqualError(t, r.StartJob(ctx, ""), "boom")
 	})
 
 	t.Run("propagates stop error", func(t *testing.T) {
@@ -185,7 +245,7 @@ func TestRunner(t *testing.T) {
 				return errors.New("stop failed")
 			},
 		}
-		r := &runner{fac: fac, deps: ServiceDeps{}}
+		r := &runner[any]{fac: fac, deps: ServiceDeps{}}
 		require.EqualError(t, r.StopJob(ctx), "stop failed")
 	})
 }
@@ -194,7 +254,7 @@ func TestRunner(t *testing.T) {
 
 type mockServiceFactory struct{}
 
-func (m *mockServiceFactory) Start(ctx context.Context, spec string, deps ServiceDeps) error {
+func (m *mockServiceFactory) Start(ctx context.Context, appConfig any, deps ServiceDeps) error {
 	return nil
 }
 
@@ -202,16 +262,16 @@ func (m *mockServiceFactory) Stop(ctx context.Context) error {
 	return nil
 }
 
-var _ ServiceFactory = (*mockServiceFactory)(nil)
+var _ ServiceFactory[any] = (*mockServiceFactory)(nil)
 
 type spyServiceFactory struct {
-	startFn func(context.Context, string, ServiceDeps) error
+	startFn func(context.Context, any, ServiceDeps) error
 	stopFn  func(context.Context) error
 }
 
-func (s *spyServiceFactory) Start(ctx context.Context, spec string, deps ServiceDeps) error {
+func (s *spyServiceFactory) Start(ctx context.Context, appConfig any, deps ServiceDeps) error {
 	if s.startFn != nil {
-		return s.startFn(ctx, spec, deps)
+		return s.startFn(ctx, appConfig, deps)
 	}
 	return nil
 }

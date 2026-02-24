@@ -28,15 +28,21 @@ import (
 //go:embed tokenVerifier.template.toml
 var tokenVerifierConfigTemplate string
 
+type TokenVerifierDBInput struct {
+	Image string `toml:"image"`
+	Name  string `toml:"name"`
+	Port  int    `toml:"port"`
+}
+
 type TokenVerifierInput struct {
-	Mode           Mode                 `toml:"mode"`
-	DB             *VerifierDBInput     `toml:"db"`
-	Out            *TokenVerifierOutput `toml:"-"`
-	Image          string               `toml:"image"`
-	SourceCodePath string               `toml:"source_code_path"`
-	RootPath       string               `toml:"root_path"`
-	ContainerName  string               `toml:"container_name"`
-	Port           int                  `toml:"port"`
+	Mode           Mode                  `toml:"mode"`
+	DB             *TokenVerifierDBInput `toml:"db"`
+	Out            *TokenVerifierOutput  `toml:"-"`
+	Image          string                `toml:"image"`
+	SourceCodePath string                `toml:"source_code_path"`
+	RootPath       string                `toml:"root_path"`
+	ContainerName  string                `toml:"container_name"`
+	Port           int                   `toml:"port"`
 
 	// GeneratedConfig stores the generated token verifier configuration from the changeset.
 	GeneratedConfig *token.Config `toml:"-"`

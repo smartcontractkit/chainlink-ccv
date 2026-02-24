@@ -2,6 +2,8 @@ package protocol
 
 import (
 	"crypto/ecdsa"
+	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -135,7 +137,7 @@ func TestEncodeSingleSignature(t *testing.T) {
 
 		_, err := EncodeSingleECDSASignature(sig)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "signature R and S cannot be zero")
+		require.Contains(t, err.Error(), "R and S must be valid curve scalars")
 	})
 
 	t.Run("zero S", func(t *testing.T) {
@@ -147,7 +149,7 @@ func TestEncodeSingleSignature(t *testing.T) {
 
 		_, err := EncodeSingleECDSASignature(sig)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "signature R and S cannot be zero")
+		require.Contains(t, err.Error(), "R and S must be valid curve scalars")
 	})
 
 	t.Run("zero signer", func(t *testing.T) {
@@ -159,6 +161,37 @@ func TestEncodeSingleSignature(t *testing.T) {
 
 		_, err := EncodeSingleECDSASignature(sig)
 		require.NoError(t, err, "signer address should not be included in the encoded signature")
+	})
+
+	// New tests: R >= secpN and S >= secpN to hit the r.Cmp(secpN) >= 0 branches
+	t.Run("R >= secpN", func(t *testing.T) {
+		b := secpN.Bytes()
+		var r [32]byte
+		copy(r[32-len(b):], b)
+		sig := Data{
+			R:      r,
+			S:      [32]byte{0x02},
+			Signer: common.HexToAddress("0x1234567890123456789012345678901234567890"),
+		}
+
+		_, err := EncodeSingleECDSASignature(sig)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "values R and S must be valid curve scalars")
+	})
+
+	t.Run("S >= secpN", func(t *testing.T) {
+		b := secpN.Bytes()
+		var s [32]byte
+		copy(s[32-len(b):], b)
+		sig := Data{
+			R:      [32]byte{0x01},
+			S:      s,
+			Signer: common.HexToAddress("0x1234567890123456789012345678901234567890"),
+		}
+
+		_, err := EncodeSingleECDSASignature(sig)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "values R and S must be valid curve scalars")
 	})
 }
 
@@ -191,7 +224,7 @@ func TestDecodeSingleSignature(t *testing.T) {
 
 		_, _, err := DecodeSingleECDSASignature(data)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "signature R and S cannot be zero")
+		require.Contains(t, err.Error(), "values R and S must be valid curve scalars")
 	})
 
 	t.Run("zero S", func(t *testing.T) {
@@ -201,7 +234,40 @@ func TestDecodeSingleSignature(t *testing.T) {
 
 		_, _, err := DecodeSingleECDSASignature(data)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "signature R and S cannot be zero")
+		require.Contains(t, err.Error(), "values R and S must be valid curve scalars")
+	})
+
+	// New tests: R >= secpN and S >= secpN to exercise the Cmp(secpN) >= 0 branches
+	t.Run("R >= secpN", func(t *testing.T) {
+		b := secpN.Bytes()
+		var r [32]byte
+		copy(r[32-len(b):], b)
+
+		data := make([]byte, SingleECDSASignatureSize)
+		copy(data[0:32], r[:])
+		// use an addressable s value and address variable
+		sSmall := [32]byte{0x02}
+		copy(data[32:64], sSmall[:])
+
+		_, _, err := DecodeSingleECDSASignature(data)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "R and S must be valid curve scalars")
+	})
+
+	t.Run("S >= secpN", func(t *testing.T) {
+		b := secpN.Bytes()
+		var s [32]byte
+		copy(s[32-len(b):], b)
+
+		data := make([]byte, SingleECDSASignatureSize)
+		// use an addressable rSmall and address variable
+		rSmall := [32]byte{0x01}
+		copy(data[0:32], rSmall[:])
+		copy(data[32:64], s[:])
+
+		_, _, err := DecodeSingleECDSASignature(data)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "R and S must be valid curve scalars")
 	})
 }
 
@@ -278,5 +344,30 @@ func TestLeftPad32_InputTooLong(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestEncodeSignaturesTooMany(t *testing.T) {
+	// 1024 signatures -> 1024 * 64 = 65536 > math.MaxUint16 (65535)
+	const n = 1024
+	sigs := make([]Data, n)
+	for i := range n {
+		var r, s [32]byte
+		r[31] = 1
+		s[31] = 2
+		sigs[i] = Data{
+			R:      r,
+			S:      s,
+			Signer: common.BigToAddress(big.NewInt(int64(i))),
+		}
+	}
+
+	_, err := EncodeSignatures(sigs)
+	if err == nil {
+		t.Fatalf("expected error for too many signatures, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "too many signatures") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

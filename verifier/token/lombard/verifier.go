@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -65,8 +64,7 @@ func NewVerifierWithConfig(
 func (v *Verifier) VerifyMessages(
 	ctx context.Context,
 	tasks []verifier.VerificationTask,
-	ccvDataBatcher *batcher.Batcher[protocol.VerifierNodeResult],
-) batcher.BatchResult[verifier.VerificationError] {
+) []verifier.VerificationResult {
 	messages := make([]protocol.Message, 0, len(tasks))
 	for _, task := range tasks {
 		messages = append(messages, task.Message)
@@ -76,15 +74,16 @@ func (v *Verifier) VerifyMessages(
 	attestations, err := v.attestationService.Fetch(ctx, messages)
 	if err != nil {
 		// Mark all tasks as retriable errors if fetching attestations failed
-		errs := make([]verifier.VerificationError, 0, len(tasks))
+		results := make([]verifier.VerificationResult, 0, len(tasks))
 		for _, task := range tasks {
-			errs = append(errs, v.errorRetry(err, task))
+			verificationError := v.errorRetry(err, task)
+			results = append(results, verifier.VerificationResult{Error: &verificationError})
 		}
-		return batcher.BatchResult[verifier.VerificationError]{Items: errs}
+		return results
 	}
 
 	// 2. Process each task, iterate and match from response
-	var errors []verifier.VerificationError
+	results := make([]verifier.VerificationResult, 0, len(tasks))
 	for _, task := range tasks {
 		lggr := logger.With(v.lggr, "messageID", task.MessageID, "txHash", task.TxHash)
 		lggr.Infow("Verifying Lombard task")
@@ -92,26 +91,29 @@ func (v *Verifier) VerifyMessages(
 		attestation, exists := attestations[task.MessageID]
 		if !exists {
 			lggr.Debugw("Attestation not found for message")
-			errors = append(errors, v.attestationErrorRetry(
+			verificationError := v.attestationErrorRetry(
 				fmt.Errorf("attestation not found for message ID: %s", task.MessageID),
 				task,
-			))
+			)
+			results = append(results, verifier.VerificationResult{Error: &verificationError})
 			continue
 		}
 
 		if !attestation.IsReady() {
 			lggr.Debugw("Attestation not ready for message")
-			errors = append(errors, v.attestationErrorRetry(
+			verificationError := v.attestationErrorRetry(
 				fmt.Errorf("attestation not ready for message ID: %s", task.MessageID),
 				task,
-			))
+			)
+			results = append(results, verifier.VerificationResult{Error: &verificationError})
 			continue
 		}
 
 		verifierFormat, err := attestation.ToVerifierFormat()
 		if err != nil {
 			lggr.Errorw("Failed to decode attestation data", "err", err)
-			errors = append(errors, v.errorRetry(err, task))
+			verificationError := v.errorRetry(err, task)
+			results = append(results, verifier.VerificationResult{Error: &verificationError})
 			continue
 		}
 
@@ -128,23 +130,17 @@ func (v *Verifier) VerifyMessages(
 		)
 		if err1 != nil {
 			lggr.Errorw("CreateVerifierNodeResult: Failed to create VerifierNodeResult", "err", err)
-			errors = append(errors, v.errorRetry(err1, task))
+			verificationError := v.errorRetry(err1, task)
+			results = append(results, verifier.VerificationResult{Error: &verificationError})
 			continue
 		}
 
-		// 2.1 Add to batcher one by one
-		if err = ccvDataBatcher.Add(*result); err != nil {
-			lggr.Errorw("VerifierResults: Failed to add to batcher", "err", err)
-			errors = append(errors, v.errorRetry(err, task))
-			continue
-		}
-		lggr.Infow("VerifierResults: Successfully added to the batcher", "signature", result.Signature)
+		// 2.1 Return successful result
+		lggr.Infow("VerifierResults: Successfully verified message", "signature", result.Signature)
+		results = append(results, verifier.VerificationResult{Result: result})
 	}
 
-	return batcher.BatchResult[verifier.VerificationError]{
-		Items: errors,
-		Error: nil,
-	}
+	return results
 }
 
 func (v *Verifier) attestationErrorRetry(err error, task verifier.VerificationTask) verifier.VerificationError {

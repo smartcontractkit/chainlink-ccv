@@ -588,8 +588,8 @@ type VerifierNodeResult struct {
 }
 
 // JobKey implements jobqueue.Jobable interface.
-func (vr VerifierNodeResult) JobKey() (chainSelector, messageID string) {
-	return vr.Message.SourceChainSelector.String(), vr.MessageID.String()
+func (vr VerifierNodeResult) JobKey() (chainSelector uint64, messageID []byte) {
+	return uint64(vr.Message.SourceChainSelector), vr.MessageID[:]
 }
 
 func (vr *VerifierResult) ValidateFieldsConsistent() error {

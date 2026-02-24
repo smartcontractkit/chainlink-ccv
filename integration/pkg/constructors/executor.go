@@ -46,6 +46,11 @@ func NewExecutorCoordinator(
 	keys map[protocol.ChainSelector]keys.RoundRobin,
 	fromAddresses map[protocol.ChainSelector][]common.Address,
 ) (*executor.Coordinator, error) {
+	if err := cfg.Validate(); err != nil {
+		lggr.Errorw("Invalid executor configuration.", "error", err)
+		return nil, fmt.Errorf("invalid executor configuration: %w", err)
+	}
+
 	lggr.Infow("Executor configuration", "config", cfg)
 
 	offRampAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress, len(cfg.ChainConfiguration))
@@ -122,6 +127,7 @@ func NewExecutorCoordinator(
 
 	curseChecker := cursechecker.NewCachedCurseChecker(cursechecker.Params{
 		Lggr:        lggr,
+		Metrics:     executorMonitoring.Metrics(),
 		RmnReaders:  rmnReaders,
 		CacheExpiry: cfg.ReaderCacheExpiry,
 	})

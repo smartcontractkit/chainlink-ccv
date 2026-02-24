@@ -32,41 +32,48 @@ const (
 
 // ServiceDeps are the dependencies passed to the services started by the bootstrapper.
 type ServiceDeps struct {
-	Logger   logger.Logger
+	// Logger is a logger that can be used by the service.
+	Logger logger.Logger
+
+	// Keystore is an initialized keystore that can be used by the service.
 	Keystore keystore.Keystore
 }
 
 // ServiceFactory is an interface implemented by the application that seeks to be bootstrapped.
-type ServiceFactory interface {
-	// Start starts the service with the spec received from JD.
-	Start(ctx context.Context, spec string, deps ServiceDeps) error
+type ServiceFactory[AppConfig any] interface {
+	// Start starts the service with the parsed config received from JD.
+	Start(ctx context.Context, appConfig AppConfig, deps ServiceDeps) error
 	// Stop stops the service.
 	Stop(ctx context.Context) error
 }
 
 // A runner adapts a [ServiceFactory] to the [lifecycle.JobRunner] interface.
-type runner struct {
-	fac  ServiceFactory
+type runner[AppConfig any] struct {
+	fac  ServiceFactory[AppConfig]
 	deps ServiceDeps
 }
 
-var _ lifecycle.JobRunner = (*runner)(nil)
+var _ lifecycle.JobRunner = (*runner[any])(nil)
 
 // StartJob implements [lifecycle.JobRunner].
-func (r *runner) StartJob(ctx context.Context, spec string) error {
-	return r.fac.Start(ctx, spec, r.deps)
+func (r *runner[AppConfig]) StartJob(ctx context.Context, spec string) error {
+	appConfig, err := parseTOMLStrict[AppConfig](spec)
+	if err != nil {
+		return fmt.Errorf("failed to parse app config toml: %w", err)
+	}
+	return r.fac.Start(ctx, appConfig, r.deps)
 }
 
 // StopJob implements [lifecycle.JobRunner].
-func (r *runner) StopJob(ctx context.Context) error {
+func (r *runner[AppConfig]) StopJob(ctx context.Context) error {
 	return r.fac.Stop(ctx)
 }
 
 // A Bootstrapper manages the lifecycle of a CCIP standalone application.
-type Bootstrapper struct {
+type Bootstrapper[AppConfig any] struct {
 	lggr logger.Logger
 	cfg  Config
-	fac  ServiceFactory
+	fac  ServiceFactory[AppConfig]
 	name string
 
 	logLevel zapcore.Level
@@ -76,12 +83,18 @@ type Bootstrapper struct {
 }
 
 // NewBootstrapper creates a new [Bootstrapper] with the given config and service factory.
-func NewBootstrapper(name string, lggr logger.Logger, cfg Config, fac ServiceFactory, opts ...Option) (*Bootstrapper, error) {
+func NewBootstrapper[AppConfig any](
+	name string,
+	lggr logger.Logger,
+	cfg Config,
+	fac ServiceFactory[AppConfig],
+	opts ...Option[AppConfig],
+) (*Bootstrapper[AppConfig], error) {
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("failed to validate config: %w", err)
 	}
 
-	b := &Bootstrapper{
+	b := &Bootstrapper[AppConfig]{
 		lggr:     lggr,
 		cfg:      cfg,
 		fac:      fac,
@@ -95,7 +108,7 @@ func NewBootstrapper(name string, lggr logger.Logger, cfg Config, fac ServiceFac
 }
 
 // Start initializes the keystore, connects to JD, and starts the lifecycle manager.
-func (b *Bootstrapper) Start(ctx context.Context) error {
+func (b *Bootstrapper[AppConfig]) Start(ctx context.Context) error {
 	db, err := b.connectToDB(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to connect to bootstrapper database: %w", err)
@@ -117,7 +130,7 @@ func (b *Bootstrapper) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to create service deps: %w", err)
 	}
 
-	jobRunner := &runner{fac: b.fac, deps: deps}
+	jobRunner := &runner[AppConfig]{fac: b.fac, deps: deps}
 	lifecycleManager, err := lifecycle.NewManager(lifecycle.Config{
 		JDClient: jdClient,
 		JobStore: jobstore.NewPostgresStore(db),
@@ -143,7 +156,7 @@ func (b *Bootstrapper) Start(ctx context.Context) error {
 }
 
 // Stop shuts down the lifecycle manager and info server.
-func (b *Bootstrapper) Stop(ctx context.Context) error {
+func (b *Bootstrapper[AppConfig]) Stop(ctx context.Context) error {
 	if err := b.lifecycleManager.Stop(); err != nil {
 		return fmt.Errorf("failed to stop lifecycle manager: %w", err)
 	}
@@ -153,7 +166,7 @@ func (b *Bootstrapper) Stop(ctx context.Context) error {
 	return nil
 }
 
-func (b *Bootstrapper) connectToDB(ctx context.Context) (*sqlx.DB, error) {
+func (b *Bootstrapper[AppConfig]) connectToDB(ctx context.Context) (*sqlx.DB, error) {
 	db, err := sqlx.ConnectContext(ctx, "postgres", b.cfg.DB.URL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to bootstrapper database: %w", err)
@@ -164,7 +177,7 @@ func (b *Bootstrapper) connectToDB(ctx context.Context) (*sqlx.DB, error) {
 	return db, nil
 }
 
-func (b *Bootstrapper) newServiceDeps(keyStore keystore.Keystore) (ServiceDeps, error) {
+func (b *Bootstrapper[AppConfig]) newServiceDeps(keyStore keystore.Keystore) (ServiceDeps, error) {
 	lggr, err := logger.NewWith(logging.DevelopmentConfig(b.logLevel))
 	if err != nil {
 		return ServiceDeps{}, fmt.Errorf("failed to create logger: %w", err)
@@ -176,7 +189,7 @@ func (b *Bootstrapper) newServiceDeps(keyStore keystore.Keystore) (ServiceDeps, 
 	}, nil
 }
 
-func (b *Bootstrapper) initializeKeystore(ctx context.Context, db *sqlx.DB) (keystore.Keystore, crypto.Signer, error) {
+func (b *Bootstrapper[AppConfig]) initializeKeystore(ctx context.Context, db *sqlx.DB) (keystore.Keystore, crypto.Signer, error) {
 	ks, err := keystore.LoadKeystore(ctx, keys.NewPGStorage(db, "default"), b.cfg.Keystore.Password)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load keystore: %w", err)
@@ -206,18 +219,22 @@ func (b *Bootstrapper) initializeKeystore(ctx context.Context, db *sqlx.DB) (key
 }
 
 // Option configures a [Bootstrapper].
-type Option func(*Bootstrapper)
+type Option[AppConfig any] func(*Bootstrapper[AppConfig])
 
 // WithLogLevel sets the log level for the logger passed to the application.
-func WithLogLevel(logLevel zapcore.Level) Option {
-	return func(b *Bootstrapper) {
+func WithLogLevel[AppConfig any](logLevel zapcore.Level) Option[AppConfig] {
+	return func(b *Bootstrapper[AppConfig]) {
 		b.logLevel = logLevel
 	}
 }
 
 // Run is a convenience function that loads config, creates a bootstrapper,
 // starts it, and blocks until SIGINT or SIGTERM is received.
-func Run(name string, fac ServiceFactory, opts ...Option) error {
+func Run[AppConfig any](
+	name string,
+	fac ServiceFactory[AppConfig],
+	opts ...Option[AppConfig],
+) error {
 	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.InfoLevel))
 	if err != nil {
 		return fmt.Errorf("failed to create logger: %w", err)

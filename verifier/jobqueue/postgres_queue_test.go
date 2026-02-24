@@ -2,7 +2,6 @@ package jobqueue_test
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -14,6 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
+
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -21,24 +23,24 @@ import (
 
 // testJob implements Jobable for testing purposes.
 type testJob struct {
-	Chain   string `json:"chain"`
-	Message string `json:"message"`
+	Chain   uint64 `json:"chain"`
+	Message []byte `json:"message"`
 	Data    string `json:"data"`
 }
 
-func (j testJob) JobKey() (chainSelector, messageID string) {
+func (j testJob) JobKey() (chainSelector uint64, messageID []byte) {
 	return j.Chain, j.Message
 }
 
 // newTestQueue creates a PostgresJobQueue[testJob] backed by a real Postgres testcontainer.
-// It uses the "verification_tasks" table which is created by migrations.
-func newTestQueue(t *testing.T, opts ...func(*jobqueue.QueueConfig)) (*jobqueue.PostgresJobQueue[testJob], *sql.DB) {
+// It uses the "ccv_task_verifier_jobs" table which is created by migrations.
+func newTestQueue(t *testing.T, opts ...func(*jobqueue.QueueConfig)) (*jobqueue.PostgresJobQueue[testJob], sqlutil.DataSource) {
 	t.Helper()
 
-	sqlxDB := testutil.NewTestDB(t)
+	db := testutil.NewTestDB(t)
 
 	cfg := jobqueue.QueueConfig{
-		Name:          "verification_tasks",
+		Name:          verifier.TaskVerifierJobsTableName,
 		OwnerID:       "test-verifier",
 		RetryDuration: time.Hour,
 		LockDuration:  time.Minute,
@@ -47,25 +49,25 @@ func newTestQueue(t *testing.T, opts ...func(*jobqueue.QueueConfig)) (*jobqueue.
 		o(&cfg)
 	}
 
-	q, err := jobqueue.NewPostgresJobQueue[testJob](sqlxDB.DB, cfg, logger.Test(t))
+	q, err := jobqueue.NewPostgresJobQueue[testJob](db, cfg, logger.Test(t))
 	require.NoError(t, err)
-	return q, sqlxDB.DB
+	return q, db
 }
 
 // countRows is a test helper that counts rows in a table with a given status filter.
-func countRows(t *testing.T, db *sql.DB, table string, status jobqueue.JobStatus) int {
+func countRows(t *testing.T, ds sqlutil.DataSource, table string, status jobqueue.JobStatus) int {
 	t.Helper()
 	var count int
-	err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE status = $1", table), string(status)).Scan(&count)
+	err := ds.QueryRowxContext(context.Background(), fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE status = $1", table), string(status)).Scan(&count)
 	require.NoError(t, err)
 	return count
 }
 
 // countAllRows is a test helper that counts all rows in a table.
-func countAllRows(t *testing.T, db *sql.DB, table string) int {
+func countAllRows(t *testing.T, ds sqlutil.DataSource, table string) int {
 	t.Helper()
 	var count int
-	err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count)
+	err := ds.QueryRowxContext(context.Background(), fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count)
 	require.NoError(t, err)
 	return count
 }
@@ -75,9 +77,9 @@ func TestPublishAndConsume(t *testing.T) {
 	ctx := context.Background()
 
 	jobs := []testJob{
-		{Chain: "1", Message: "msg-1", Data: "payload-1"},
-		{Chain: "1", Message: "msg-2", Data: "payload-2"},
-		{Chain: "2", Message: "msg-3", Data: "payload-3"},
+		{Chain: 1, Message: []byte("msg-1"), Data: "payload-1"},
+		{Chain: 1, Message: []byte("msg-2"), Data: "payload-2"},
+		{Chain: 2, Message: []byte("msg-3"), Data: "payload-3"},
 	}
 
 	// Publish
@@ -91,7 +93,7 @@ func TestPublishAndConsume(t *testing.T) {
 	// Verify payload round-trip
 	payloads := map[string]testJob{}
 	for _, j := range consumed {
-		payloads[j.Payload.Message] = j.Payload
+		payloads[string(j.Payload.Message)] = j.Payload
 		assert.Equal(t, j.Payload.Chain, j.ChainSelector)
 		assert.Equal(t, j.Payload.Message, j.MessageID)
 		assert.Equal(t, 1, j.AttemptCount)
@@ -120,7 +122,7 @@ func TestConsumeRespectsAvailableAt(t *testing.T) {
 	ctx := context.Background()
 
 	// Publish with a 1-hour delay – should NOT be consumable now
-	require.NoError(t, q.PublishWithDelay(ctx, time.Hour, testJob{Chain: "1", Message: "delayed", Data: "d"}))
+	require.NoError(t, q.PublishWithDelay(ctx, time.Hour, testJob{Chain: 1, Message: []byte("delayed"), Data: "d"}))
 
 	consumed, err := q.Consume(ctx, 10)
 	require.NoError(t, err)
@@ -132,7 +134,7 @@ func TestConsumeBatchSizeLimit(t *testing.T) {
 	ctx := context.Background()
 
 	for i := range 5 {
-		require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: fmt.Sprintf("m-%d", i), Data: "x"}))
+		require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: fmt.Appendf(nil, "m-%d", i), Data: "x"}))
 	}
 
 	consumed, err := q.Consume(ctx, 2)
@@ -144,7 +146,7 @@ func TestConsumeDoesNotReturnProcessingJobs(t *testing.T) {
 	q, _ := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
 	// First consume locks the job
 	first, err := q.Consume(ctx, 10)
@@ -162,7 +164,7 @@ func TestConsumeReclaimsStaleLock(t *testing.T) {
 	q, db := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
 	// Consume the job (LockDuration=1min won't expire naturally during the test).
 	first, err := q.Consume(ctx, 1)
@@ -172,13 +174,13 @@ func TestConsumeReclaimsStaleLock(t *testing.T) {
 	assert.Equal(t, 1, first[0].AttemptCount)
 
 	// Simulate a crashed worker by back-dating started_at to 10 minutes ago.
-	_, err = db.Exec("UPDATE verification_tasks SET started_at = NOW() - INTERVAL '10 minutes' WHERE job_id = $1", jobID)
+	_, err = db.ExecContext(ctx, "UPDATE ccv_task_verifier_jobs SET started_at = NOW() - INTERVAL '10 minutes' WHERE job_id = $1", jobID)
 	require.NoError(t, err)
 
 	// Create a second queue with a 15-minute lock on the same DB.
 	// Since the job's started_at is only 10min ago, 15min lock means it's still "fresh".
 	qLong, err := jobqueue.NewPostgresJobQueue[testJob](db, jobqueue.QueueConfig{
-		Name:          "verification_tasks",
+		Name:          verifier.TaskVerifierJobsTableName,
 		OwnerID:       "test-verifier",
 		RetryDuration: time.Hour,
 		LockDuration:  15 * time.Minute,
@@ -203,7 +205,7 @@ func TestConsumeDoesNotReclaimFreshProcessingJob(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
 	// Consume with the configured long lock duration.
 	first, err := q.Consume(ctx, 1)
@@ -225,8 +227,8 @@ func TestConsumeReclaimMultipleStaleJobs(t *testing.T) {
 	// Publish 5 jobs.
 	for i := range 5 {
 		require.NoError(t, q.Publish(ctx, testJob{
-			Chain:   "1",
-			Message: fmt.Sprintf("stale-%d", i),
+			Chain:   1,
+			Message: fmt.Appendf(nil, "stale-%d", i),
 			Data:    "x",
 		}))
 	}
@@ -238,7 +240,7 @@ func TestConsumeReclaimMultipleStaleJobs(t *testing.T) {
 
 	// Back-date started_at for only 3 of them to simulate partial crash (20min > 10min lock).
 	for _, j := range consumed[:3] {
-		_, err = db.Exec("UPDATE verification_tasks SET started_at = NOW() - INTERVAL '20 minutes' WHERE job_id = $1", j.ID)
+		_, err = db.ExecContext(ctx, "UPDATE ccv_task_verifier_jobs SET started_at = NOW() - INTERVAL '20 minutes' WHERE job_id = $1", j.ID)
 		require.NoError(t, err)
 	}
 
@@ -272,8 +274,8 @@ func TestConsumeReclaimConcurrentNoDuplicates(t *testing.T) {
 
 	for i := range numJobs {
 		require.NoError(t, q.Publish(ctx, testJob{
-			Chain:   "1",
-			Message: fmt.Sprintf("concurrent-stale-%d", i),
+			Chain:   1,
+			Message: fmt.Appendf(nil, "concurrent-stale-%d", i),
 			Data:    "x",
 		}))
 	}
@@ -283,7 +285,7 @@ func TestConsumeReclaimConcurrentNoDuplicates(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, consumed, numJobs)
 
-	_, err = db.Exec("UPDATE verification_tasks SET started_at = NOW() - INTERVAL '30 minutes'")
+	_, err = db.ExecContext(ctx, "UPDATE ccv_task_verifier_jobs SET started_at = NOW() - INTERVAL '30 minutes'")
 	require.NoError(t, err)
 
 	// Launch multiple concurrent consumers to reclaim. Each should get a unique subset.
@@ -329,7 +331,7 @@ func TestComplete(t *testing.T) {
 	q, db := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
 	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
@@ -339,8 +341,8 @@ func TestComplete(t *testing.T) {
 	require.NoError(t, q.Complete(ctx, consumed[0].ID))
 
 	// Main table should be empty, archive should have 1
-	assert.Equal(t, 0, countAllRows(t, db, "verification_tasks"))
-	assert.Equal(t, 1, countAllRows(t, db, "verification_tasks_archive"))
+	assert.Equal(t, 0, countAllRows(t, db, "ccv_task_verifier_jobs"))
+	assert.Equal(t, 1, countAllRows(t, db, "ccv_task_verifier_jobs_archive"))
 }
 
 func TestCompleteEmpty(t *testing.T) {
@@ -352,14 +354,14 @@ func TestCompleteNonExistentJob(t *testing.T) {
 	q, db := newTestQueue(t)
 	// Completing a non-existent job should not error, just affect 0 rows
 	require.NoError(t, q.Complete(context.Background(), "00000000-0000-0000-0000-000000000000"))
-	assert.Equal(t, 0, countAllRows(t, db, "verification_tasks_archive"))
+	assert.Equal(t, 0, countAllRows(t, db, "ccv_task_verifier_jobs_archive"))
 }
 
 func TestRetry(t *testing.T) {
 	q, db := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
 	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
@@ -371,7 +373,7 @@ func TestRetry(t *testing.T) {
 	require.NoError(t, q.Retry(ctx, 0, errs, jobID))
 
 	// Job should be back to pending (retry deadline not yet reached)
-	assert.Equal(t, 1, countRows(t, db, "verification_tasks", jobqueue.JobStatusPending))
+	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusPending))
 
 	// Consume again (attempt 2)
 	consumed2, err := q.Consume(ctx, 1)
@@ -386,7 +388,7 @@ func TestRetryExceedsDeadline(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
 	// Small sleep to ensure retry_deadline has passed
 	time.Sleep(5 * time.Millisecond)
@@ -400,15 +402,15 @@ func TestRetryExceedsDeadline(t *testing.T) {
 	require.NoError(t, q.Retry(ctx, 0, errs, jobID))
 
 	// Job should be marked as failed because retry deadline has passed.
-	assert.Equal(t, 1, countRows(t, db, "verification_tasks", jobqueue.JobStatusFailed))
-	assert.Equal(t, 0, countRows(t, db, "verification_tasks", jobqueue.JobStatusPending))
+	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusFailed))
+	assert.Equal(t, 0, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusPending))
 }
 
 func TestRetryWithDelay(t *testing.T) {
 	q, _ := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
 	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
@@ -428,7 +430,7 @@ func TestFail(t *testing.T) {
 	q, db := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
 	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
@@ -438,11 +440,11 @@ func TestFail(t *testing.T) {
 	errs := map[string]error{jobID: errors.New("permanent")}
 	require.NoError(t, q.Fail(ctx, errs, jobID))
 
-	assert.Equal(t, 1, countRows(t, db, "verification_tasks", jobqueue.JobStatusFailed))
+	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusFailed))
 
 	// Verify error is stored
 	var lastErr string
-	err = db.QueryRow("SELECT last_error FROM verification_tasks WHERE job_id = $1", jobID).Scan(&lastErr)
+	err = db.QueryRowxContext(ctx, "SELECT last_error FROM ccv_task_verifier_jobs WHERE job_id = $1", jobID).Scan(&lastErr)
 	require.NoError(t, err)
 	assert.Equal(t, "permanent", lastErr)
 }
@@ -452,7 +454,7 @@ func TestFailedJobsAreReconsumed(t *testing.T) {
 	q, _ := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
 	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
@@ -473,29 +475,29 @@ func TestCleanup(t *testing.T) {
 	ctx := context.Background()
 
 	// Publish, consume, and complete a job so it lands in the archive
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	require.NoError(t, q.Complete(ctx, consumed[0].ID))
 
-	assert.Equal(t, 1, countAllRows(t, db, "verification_tasks_archive"))
+	assert.Equal(t, 1, countAllRows(t, db, "ccv_task_verifier_jobs_archive"))
 
 	// Back-date the completed_at so cleanup will pick it up
-	_, err = db.Exec("UPDATE verification_tasks_archive SET completed_at = NOW() - INTERVAL '2 hours'")
+	_, err = db.ExecContext(ctx, "UPDATE ccv_task_verifier_jobs_archive SET completed_at = NOW() - INTERVAL '2 hours'")
 	require.NoError(t, err)
 
 	deleted, err := q.Cleanup(ctx, time.Hour)
 	require.NoError(t, err)
 	assert.Equal(t, 1, deleted)
-	assert.Equal(t, 0, countAllRows(t, db, "verification_tasks_archive"))
+	assert.Equal(t, 0, countAllRows(t, db, "ccv_task_verifier_jobs_archive"))
 }
 
 func TestCleanupRetainsRecentJobs(t *testing.T) {
 	q, db := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.NoError(t, q.Complete(ctx, consumed[0].ID))
@@ -504,7 +506,7 @@ func TestCleanupRetainsRecentJobs(t *testing.T) {
 	deleted, err := q.Cleanup(ctx, 24*time.Hour)
 	require.NoError(t, err)
 	assert.Equal(t, 0, deleted)
-	assert.Equal(t, 1, countAllRows(t, db, "verification_tasks_archive"))
+	assert.Equal(t, 1, countAllRows(t, db, "ccv_task_verifier_jobs_archive"))
 }
 
 func TestFullLifecycle(t *testing.T) {
@@ -512,7 +514,7 @@ func TestFullLifecycle(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Publish
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "42", Message: "lifecycle-1", Data: "step1"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 42, Message: []byte("lifecycle-1"), Data: "step1"}))
 
 	// 2. Consume (attempt 1)
 	consumed, err := q.Consume(ctx, 1)
@@ -533,11 +535,11 @@ func TestFullLifecycle(t *testing.T) {
 
 	// 5. Complete
 	require.NoError(t, q.Complete(ctx, jobID))
-	assert.Equal(t, 0, countAllRows(t, db, "verification_tasks"))
-	assert.Equal(t, 1, countAllRows(t, db, "verification_tasks_archive"))
+	assert.Equal(t, 0, countAllRows(t, db, "ccv_task_verifier_jobs"))
+	assert.Equal(t, 1, countAllRows(t, db, "ccv_task_verifier_jobs_archive"))
 
 	// 6. Back-date and cleanup
-	_, err = db.Exec("UPDATE verification_tasks_archive SET completed_at = NOW() - INTERVAL '48 hours'")
+	_, err = db.ExecContext(ctx, "UPDATE ccv_task_verifier_jobs_archive SET completed_at = NOW() - INTERVAL '48 hours'")
 	require.NoError(t, err)
 	deleted, err := q.Cleanup(ctx, time.Hour)
 	require.NoError(t, err)
@@ -564,8 +566,8 @@ func TestConcurrentPublishAndConsume(t *testing.T) {
 			defer wgPub.Done()
 			for j := range jobsPerProducer {
 				job := testJob{
-					Chain:   fmt.Sprintf("chain-%d", producerID),
-					Message: fmt.Sprintf("msg-%d-%d", producerID, j),
+					Chain:   uint64(producerID),
+					Message: fmt.Appendf(nil, "msg-%d-%d", producerID, j),
 					Data:    fmt.Sprintf("data-%d-%d", producerID, j),
 				}
 				// Random sleep to simulate realistic timing
@@ -627,8 +629,8 @@ func TestConcurrentPublishAndConsume(t *testing.T) {
 	wgCon.Wait()
 
 	assert.Equal(t, int64(totalJobs), consumed.Load())
-	assert.Equal(t, 0, countAllRows(t, db, "verification_tasks"))
-	assert.Equal(t, totalJobs, countAllRows(t, db, "verification_tasks_archive"))
+	assert.Equal(t, 0, countAllRows(t, db, "ccv_task_verifier_jobs"))
+	assert.Equal(t, totalJobs, countAllRows(t, db, "ccv_task_verifier_jobs_archive"))
 }
 
 func TestConcurrentConsumersNoDuplicates(t *testing.T) {
@@ -638,8 +640,8 @@ func TestConcurrentConsumersNoDuplicates(t *testing.T) {
 	const numJobs = 50
 	for i := range numJobs {
 		require.NoError(t, q.Publish(ctx, testJob{
-			Chain:   "1",
-			Message: fmt.Sprintf("dup-test-%d", i),
+			Chain:   1,
+			Message: fmt.Appendf(nil, "dup-test-%d", i),
 			Data:    "x",
 		}))
 	}
@@ -692,8 +694,8 @@ func TestConcurrentRetryAndFail(t *testing.T) {
 
 	for i := range numJobs {
 		require.NoError(t, q.Publish(ctx, testJob{
-			Chain:   "chain-1",
-			Message: fmt.Sprintf("rf-%d", i),
+			Chain:   1,
+			Message: fmt.Appendf(nil, "rf-%d", i),
 			Data:    fmt.Sprintf("val-%d", i),
 		}))
 	}
@@ -757,12 +759,12 @@ func TestConcurrentRetryAndFail(t *testing.T) {
 	t.Logf("completed=%d, failed=%d", completed.Load(), failed.Load())
 
 	// All jobs should have been either completed (moved to archive) or remain in the main table as failed
-	archivedCount := countAllRows(t, db, "verification_tasks_archive")
-	failedCount := countRows(t, db, "verification_tasks", jobqueue.JobStatusFailed)
+	archivedCount := countAllRows(t, db, "ccv_task_verifier_jobs_archive")
+	failedCount := countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusFailed)
 
 	// Every job should be accounted for in one of these two places
 	// Some jobs might still be pending if they were retried but workers exited before consuming them again.
-	pendingCount := countRows(t, db, "verification_tasks", jobqueue.JobStatusPending)
+	pendingCount := countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusPending)
 	totalAccountedFor := archivedCount + failedCount + pendingCount
 	assert.Equal(t, numJobs, totalAccountedFor, "all jobs should be accounted for")
 }
@@ -773,7 +775,7 @@ func TestRetryDeadlineExhaustionCycle(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "exhaust", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("exhaust"), Data: "x"}))
 
 	var jobID string
 
@@ -803,11 +805,11 @@ func TestRetryDeadlineExhaustionCycle(t *testing.T) {
 	require.NoError(t, q.Retry(ctx, 0, map[string]error{jobID: errors.New("err3")}, jobID))
 
 	// Job should now be in failed status (retry deadline passed)
-	assert.Equal(t, 1, countRows(t, db, "verification_tasks", jobqueue.JobStatusFailed))
+	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusFailed))
 
 	// Verify last_error was recorded
 	var lastErr string
-	err = db.QueryRow("SELECT last_error FROM verification_tasks WHERE job_id = $1", jobID).Scan(&lastErr)
+	err = db.QueryRowxContext(ctx, "SELECT last_error FROM ccv_task_verifier_jobs WHERE job_id = $1", jobID).Scan(&lastErr)
 	require.NoError(t, err)
 	assert.Equal(t, "err3", lastErr)
 }
@@ -818,7 +820,7 @@ func TestCleanupMixed(t *testing.T) {
 
 	// Create 3 jobs, complete all
 	for i := range 3 {
-		require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: fmt.Sprintf("cl-%d", i), Data: "x"}))
+		require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: fmt.Appendf(nil, "cl-%d", i), Data: "x"}))
 	}
 	consumed, err := q.Consume(ctx, 3)
 	require.NoError(t, err)
@@ -829,11 +831,11 @@ func TestCleanupMixed(t *testing.T) {
 		ids[i] = j.ID
 	}
 	require.NoError(t, q.Complete(ctx, ids...))
-	assert.Equal(t, 3, countAllRows(t, db, "verification_tasks_archive"))
+	assert.Equal(t, 3, countAllRows(t, db, "ccv_task_verifier_jobs_archive"))
 
 	// Back-date only 2 of them
-	_, err = db.Exec(`
-		UPDATE verification_tasks_archive
+	_, err = db.ExecContext(ctx, `
+		UPDATE ccv_task_verifier_jobs_archive
 		SET completed_at = NOW() - INTERVAL '10 hours'
 		WHERE job_id IN ($1, $2)`, ids[0], ids[1])
 	require.NoError(t, err)
@@ -842,7 +844,7 @@ func TestCleanupMixed(t *testing.T) {
 	deleted, err := q.Cleanup(ctx, time.Hour)
 	require.NoError(t, err)
 	assert.Equal(t, 2, deleted)
-	assert.Equal(t, 1, countAllRows(t, db, "verification_tasks_archive"))
+	assert.Equal(t, 1, countAllRows(t, db, "ccv_task_verifier_jobs_archive"))
 }
 
 func TestConcurrentPublishStress(t *testing.T) {
@@ -862,8 +864,8 @@ func TestConcurrentPublishStress(t *testing.T) {
 			for j := range jobsPerRoutine {
 				time.Sleep(time.Duration(rand.IntN(2)) * time.Millisecond)
 				err := q.Publish(ctx, testJob{
-					Chain:   fmt.Sprintf("chain-%d", gID),
-					Message: fmt.Sprintf("stress-%d-%d", gID, j),
+					Chain:   uint64(gID),
+					Message: fmt.Appendf(nil, "stress-%d-%d", gID, j),
 					Data:    "payload",
 				})
 				assert.NoError(t, err)
@@ -872,7 +874,7 @@ func TestConcurrentPublishStress(t *testing.T) {
 	}
 	wg.Wait()
 
-	total := countAllRows(t, db, "verification_tasks")
+	total := countAllRows(t, db, "ccv_task_verifier_jobs")
 	assert.Equal(t, goroutines*jobsPerRoutine, total)
 }
 
@@ -900,8 +902,8 @@ func TestEndToEndConcurrentWithRandomWork(t *testing.T) {
 			for j := range jobsPerProducer {
 				time.Sleep(time.Duration(rng.IntN(10)) * time.Millisecond)
 				err := q.Publish(ctx, testJob{
-					Chain:   fmt.Sprintf("e2e-chain-%d", pid),
-					Message: fmt.Sprintf("e2e-%d-%d", pid, j),
+					Chain:   uint64(pid),
+					Message: fmt.Appendf(nil, "e2e-%d-%d", pid, j),
 					Data:    fmt.Sprintf("work-%d", j),
 				})
 				assert.NoError(t, err)
@@ -970,9 +972,9 @@ func TestEndToEndConcurrentWithRandomWork(t *testing.T) {
 
 	t.Logf("completed=%d, permanently_failed=%d", completedCount.Load(), failedCount.Load())
 
-	archived := countAllRows(t, db, "verification_tasks_archive")
-	remainingFailed := countRows(t, db, "verification_tasks", jobqueue.JobStatusFailed)
-	remainingPending := countRows(t, db, "verification_tasks", jobqueue.JobStatusPending)
+	archived := countAllRows(t, db, "ccv_task_verifier_jobs_archive")
+	remainingFailed := countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusFailed)
+	remainingPending := countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusPending)
 
 	totalAccounted := archived + remainingFailed + remainingPending
 	assert.Equal(t, totalJobs, totalAccounted,

@@ -4,9 +4,11 @@ package mocks
 
 import (
 	context "context"
-	time "time"
 
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol"
 	mock "github.com/stretchr/testify/mock"
+
+	time "time"
 
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier"
 )
@@ -696,6 +698,112 @@ func (_c *MockMetricLabeler_RecordStorageWriteDuration_Call) Return() *MockMetri
 }
 
 func (_c *MockMetricLabeler_RecordStorageWriteDuration_Call) RunAndReturn(run func(context.Context, time.Duration)) *MockMetricLabeler_RecordStorageWriteDuration_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetLocalChainGlobalCursed provides a mock function with given fields: ctx, localSelector, globalCurse
+func (_m *MockMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool) {
+	_m.Called(ctx, localSelector, globalCurse)
+}
+
+// MockMetricLabeler_SetLocalChainGlobalCursed_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetLocalChainGlobalCursed'
+type MockMetricLabeler_SetLocalChainGlobalCursed_Call struct {
+	*mock.Call
+}
+
+// SetLocalChainGlobalCursed is a helper method to define mock.On call
+//   - ctx context.Context
+//   - localSelector protocol.ChainSelector
+//   - globalCurse bool
+func (_e *MockMetricLabeler_Expecter) SetLocalChainGlobalCursed(ctx interface{}, localSelector interface{}, globalCurse interface{}) *MockMetricLabeler_SetLocalChainGlobalCursed_Call {
+	return &MockMetricLabeler_SetLocalChainGlobalCursed_Call{Call: _e.mock.On("SetLocalChainGlobalCursed", ctx, localSelector, globalCurse)}
+}
+
+func (_c *MockMetricLabeler_SetLocalChainGlobalCursed_Call) Run(run func(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool)) *MockMetricLabeler_SetLocalChainGlobalCursed_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(protocol.ChainSelector), args[2].(bool))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_SetLocalChainGlobalCursed_Call) Return() *MockMetricLabeler_SetLocalChainGlobalCursed_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_SetLocalChainGlobalCursed_Call) RunAndReturn(run func(context.Context, protocol.ChainSelector, bool)) *MockMetricLabeler_SetLocalChainGlobalCursed_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetRemoteChainCursed provides a mock function with given fields: ctx, localSelector, remoteSelector, cursed
+func (_m *MockMetricLabeler) SetRemoteChainCursed(ctx context.Context, localSelector protocol.ChainSelector, remoteSelector protocol.ChainSelector, cursed bool) {
+	_m.Called(ctx, localSelector, remoteSelector, cursed)
+}
+
+// MockMetricLabeler_SetRemoteChainCursed_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetRemoteChainCursed'
+type MockMetricLabeler_SetRemoteChainCursed_Call struct {
+	*mock.Call
+}
+
+// SetRemoteChainCursed is a helper method to define mock.On call
+//   - ctx context.Context
+//   - localSelector protocol.ChainSelector
+//   - remoteSelector protocol.ChainSelector
+//   - cursed bool
+func (_e *MockMetricLabeler_Expecter) SetRemoteChainCursed(ctx interface{}, localSelector interface{}, remoteSelector interface{}, cursed interface{}) *MockMetricLabeler_SetRemoteChainCursed_Call {
+	return &MockMetricLabeler_SetRemoteChainCursed_Call{Call: _e.mock.On("SetRemoteChainCursed", ctx, localSelector, remoteSelector, cursed)}
+}
+
+func (_c *MockMetricLabeler_SetRemoteChainCursed_Call) Run(run func(ctx context.Context, localSelector protocol.ChainSelector, remoteSelector protocol.ChainSelector, cursed bool)) *MockMetricLabeler_SetRemoteChainCursed_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(protocol.ChainSelector), args[2].(protocol.ChainSelector), args[3].(bool))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_SetRemoteChainCursed_Call) Return() *MockMetricLabeler_SetRemoteChainCursed_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_SetRemoteChainCursed_Call) RunAndReturn(run func(context.Context, protocol.ChainSelector, protocol.ChainSelector, bool)) *MockMetricLabeler_SetRemoteChainCursed_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetVerifierFinalityViolated provides a mock function with given fields: ctx, selector, violated
+func (_m *MockMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool) {
+	_m.Called(ctx, selector, violated)
+}
+
+// MockMetricLabeler_SetVerifierFinalityViolated_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetVerifierFinalityViolated'
+type MockMetricLabeler_SetVerifierFinalityViolated_Call struct {
+	*mock.Call
+}
+
+// SetVerifierFinalityViolated is a helper method to define mock.On call
+//   - ctx context.Context
+//   - selector protocol.ChainSelector
+//   - violated bool
+func (_e *MockMetricLabeler_Expecter) SetVerifierFinalityViolated(ctx interface{}, selector interface{}, violated interface{}) *MockMetricLabeler_SetVerifierFinalityViolated_Call {
+	return &MockMetricLabeler_SetVerifierFinalityViolated_Call{Call: _e.mock.On("SetVerifierFinalityViolated", ctx, selector, violated)}
+}
+
+func (_c *MockMetricLabeler_SetVerifierFinalityViolated_Call) Run(run func(ctx context.Context, selector protocol.ChainSelector, violated bool)) *MockMetricLabeler_SetVerifierFinalityViolated_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(protocol.ChainSelector), args[2].(bool))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_SetVerifierFinalityViolated_Call) Return() *MockMetricLabeler_SetVerifierFinalityViolated_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_SetVerifierFinalityViolated_Call) RunAndReturn(run func(context.Context, protocol.ChainSelector, bool)) *MockMetricLabeler_SetVerifierFinalityViolated_Call {
 	_c.Run(run)
 	return _c
 }

@@ -50,6 +50,7 @@ func Command() *cobra.Command {
 	cmd.Flags().Uint64Var(&args.srcSel, "src", 0, "Source chain selector")
 	cmd.Flags().Uint64Var(&args.destSel, "dest", 0, "Destination chain selector")
 	cmd.Flags().Uint64Var(&args.finalitySel, "finality", 0, "Finality chain selector (optional, only for V3 messages)")
+	cmd.Flags().BoolVar(&args.useTestRouter, "use-test-router", false, "Look up TestRouter contract from datastore instead of regular Router")
 
 	_ = cmd.MarkFlagRequired("src")
 	_ = cmd.MarkFlagRequired("dest")
@@ -61,6 +62,7 @@ type sendArgs struct {
 	receiverQualifier string
 	receiverAddress   string
 	env               string
+	useTestRouter     bool
 
 	tokenAmount cciptestinterfaces.TokenAmount
 
@@ -123,6 +125,7 @@ func run(args sendArgs) error {
 	if err != nil {
 		return fmt.Errorf("failed to get message options: %w", err)
 	}
+	messageOptions.UseTestRouter = args.useTestRouter
 
 	result, err := impl.SendMessage(ctx, args.destSel, messageFields, messageOptions)
 	if err != nil {

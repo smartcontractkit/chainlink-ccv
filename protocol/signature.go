@@ -4,6 +4,7 @@ import (
 	"crypto/ecdsa"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"sort"
 
@@ -151,11 +152,13 @@ func EncodeSignatures(signatures []Data) ([]byte, error) {
 	SortSignaturesBySigner(sortedSignatures)
 
 	// Calculate signature length (each signature is 64 bytes: 32 R + 32 S)
-	//nolint:gosec // disable G115
-	signatureLength := uint16(len(sortedSignatures) * 64)
+	signatureLength := len(sortedSignatures) * 64
+	if signatureLength > math.MaxUint16 {
+		return nil, fmt.Errorf("too many signatures: %d exceeds max uint16", len(sortedSignatures))
+	}
 
 	// Create result buffer
-	result := make([]byte, 2+int(signatureLength))
+	result := make([]byte, 2+signatureLength)
 
 	// Write signature length as first 2 bytes (big-endian uint16)
 	result[0] = byte(signatureLength >> 8)
@@ -261,12 +264,21 @@ func RecoverECDSASigner(hash, r, s [32]byte) (common.Address, error) {
 // SingleECDSASignatureSize is the exact size of an encoded EVM signature: R(32) + S(32) = 64 bytes.
 const SingleECDSASignatureSize = 64
 
+func verifySig(rb, sb [32]byte) error {
+	r := new(big.Int).SetBytes(rb[:])
+	s := new(big.Int).SetBytes(sb[:])
+	if r.Sign() == 0 || s.Sign() == 0 || r.Cmp(secpN) >= 0 || s.Cmp(secpN) >= 0 {
+		return fmt.Errorf("values R and S must be valid curve scalars (0 < value < n)")
+	}
+	return nil
+}
+
 // EncodeSingleECDSASignature encodes a single EVM signature as R||S (64 bytes).
 // This format is used by verifiers when sending individual signatures to the aggregator.
 // Format: [32 bytes R][32 bytes S].
 func EncodeSingleECDSASignature(sig Data) ([]byte, error) {
-	if sig.R == [32]byte{} || sig.S == [32]byte{} {
-		return nil, fmt.Errorf("signature R and S cannot be zero")
+	if err := verifySig(sig.R, sig.S); err != nil {
+		return nil, fmt.Errorf("invalid signature: %w", err)
 	}
 
 	result := make([]byte, SingleECDSASignatureSize)
@@ -286,8 +298,8 @@ func DecodeSingleECDSASignature(data []byte) (r, s [32]byte, err error) {
 	copy(r[:], data[0:32])
 	copy(s[:], data[32:64])
 
-	if r == [32]byte{} || s == [32]byte{} {
-		return r, s, fmt.Errorf("signature R and S cannot be zero")
+	if err := verifySig(r, s); err != nil {
+		return r, s, fmt.Errorf("invalid signature: %w", err)
 	}
 
 	return r, s, nil

@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
@@ -75,7 +76,7 @@ func TestChaos_AggregatorOutageRecovery(t *testing.T) {
 func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 	setup := setupChaos(t, GetSmokeTestConfig())
 
-	var defaultVerifierInputs []*services.VerifierInput
+	var defaultVerifierInputs []*committeeverifier.Input
 	for _, verifier := range setup.in.Verifier {
 		if verifier.CommitteeName == devenvcommon.DefaultCommitteeVerifierQualifier {
 			defaultVerifierInputs = append(defaultVerifierInputs, verifier)

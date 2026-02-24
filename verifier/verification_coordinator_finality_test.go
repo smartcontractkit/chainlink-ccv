@@ -86,8 +86,10 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 
 	// Send message
 	setup.sentEventsCh <- finalizedEvent
-	// Wait for processing (poll interval is 100ms, add some buffer)
-	time.Sleep(200 * time.Millisecond)
+	// Wait for processing through the queue pipeline:
+	// SRS -> batcher -> adapter -> tasks_queue -> verifier -> results_queue -> storage
+	// With 50ms poll intervals, we need at least 150ms (3 polls)
+	time.Sleep(500 * time.Millisecond)
 
 	// Should have processed the finalized message
 	processedCount := setup.mockVerifier.GetProcessedTaskCount()
@@ -157,8 +159,8 @@ func TestFinality_CustomFinality(t *testing.T) {
 
 	// Send message
 	setup.sentEventsCh <- readyEvent
-	// Wait for processing (poll interval is 100ms, add some buffer)
-	time.Sleep(200 * time.Millisecond)
+	// Wait for processing through the queue pipeline
+	time.Sleep(500 * time.Millisecond)
 
 	// Should have processed the ready message
 	processedCount := setup.mockVerifier.GetProcessedTaskCount()
@@ -325,7 +327,8 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	}
 
 	sqlxDB := testutil.NewTestDB(t)
-	coordinator, err := NewCoordinator(
+	// Use fast polling coordinator for DB mode to make tests responsive
+	coordinator, err := NewCoordinatorWithFastPolling(
 		t.Context(),
 		lggr,
 		mockVerifier,
@@ -336,7 +339,8 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		&noopMonitoring{},
 		mockChainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
-		sqlxDB.DB,
+		sqlxDB,
+		50*time.Millisecond, // Fast poll interval for tests
 	)
 	require.NoError(t, err)
 
