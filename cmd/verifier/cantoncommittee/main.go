@@ -50,7 +50,7 @@ func main() {
 
 			return cantonaccessor.NewFactory(lggr, helper, cantonConfig.ReaderConfigs), nil
 		}),
-		bootstrap.WithLogLevel(zapcore.InfoLevel),
+		bootstrap.WithLogLevel[commit.JobSpec](zapcore.InfoLevel),
 	); err != nil {
 		panic(fmt.Sprintf("failed to run Canton committee verifier: %s", err.Error()))
 	}

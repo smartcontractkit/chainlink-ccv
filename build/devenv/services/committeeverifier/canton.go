@@ -49,6 +49,7 @@ func CantonModifier(req testcontainers.ContainerRequest, verifierInput *Input, o
 	}
 
 	// Mount the canton config file.
+	//nolint:staticcheck // we're still using it...
 	req.Mounts = append(req.Mounts, testcontainers.BindMount(
 		cantonConfigFilePath,
 		canton.DefaultCantonConfigPath,
