@@ -223,9 +223,21 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 
 	// Get committees
 	for qualifier, committeeConfig := range topology.NOPTopology.Committees {
-		chainCfg, ok := committeeConfig.ChainConfigs[strconv.FormatUint(selector, 10)]
-		if !ok {
-			return nil, fmt.Errorf("chain selector %d not found in committee %q", selector, qualifier)
+		// HACK: we need to get the EVM signers for this committee.
+		// Ideally setting signers should be done in ConnectContractsWithSelectors,
+		// where we will have the remote chain selectors to look up in committeeConfig.ChainConfigs.
+		cantonSelStr := strconv.FormatUint(selector, 10)
+		var chainCfg *deployments.ChainCommitteeConfig
+		for chainSelStr, chainConfig := range committeeConfig.ChainConfigs {
+			if chainSelStr == cantonSelStr {
+				continue
+			}
+
+			chainCfg = &chainConfig
+			break
+		}
+		if chainCfg == nil {
+			return nil, fmt.Errorf("EVM chain config not found for committee %q", qualifier)
 		}
 		var signers []types.TEXT
 		for _, nopAlias := range chainCfg.NOPAliases {
