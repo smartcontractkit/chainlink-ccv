@@ -1262,3 +1262,164 @@ func TestSRS_FinalizedBehindLastProcessed_QueriesAndUpdatesToFinalized(t *testin
 	require.Equal(t, int64(50), srs.lastProcessedFinalizedBlock.Load().Int64(),
 		"progress should update to finalized after querying all blocks")
 }
+
+// TestSRS_EventMonitoringLoop_ContinuesAfterPanic verifies that the event monitoring loop
+// continues processing after recovering from a panic in one iteration.
+func TestSRS_EventMonitoringLoop_ContinuesAfterPanic(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+
+	reader := mocks.NewMockSourceReader(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+
+	chainStatusMgr.EXPECT().
+		ReadChainStatuses(mock.Anything, mock.Anything).
+		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{
+			chain: {
+				ChainSelector:        chain,
+				FinalizedBlockHeight: big.NewInt(100),
+				Disabled:             false,
+			},
+		}, nil).
+		Maybe()
+
+	latest := &protocol.BlockHeader{Number: 200}
+	finalized := &protocol.BlockHeader{Number: 150}
+
+	// Track how many times LatestAndFinalizedBlock is called
+	callCount := 0
+	var mu sync.Mutex
+
+	reader.EXPECT().
+		LatestAndFinalizedBlock(mock.Anything).
+		Run(func(_ context.Context) {
+			mu.Lock()
+			defer mu.Unlock()
+			callCount++
+			// Simulate panic on the 2nd call
+			if callCount == 2 {
+				panic("simulated panic in readyToQuery")
+			}
+		}).
+		Return(latest, finalized, nil).
+		Maybe()
+
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).
+		Return([]protocol.MessageSentEvent{}, nil).
+		Maybe()
+
+	curseDetector.EXPECT().
+		IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).
+		Return(false).
+		Maybe()
+
+	// Create SRS with fast poll interval for testing
+	srs, mockFC, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 50*time.Millisecond, 5000)
+	mockFC.EXPECT().UpdateFinalized(mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockFC.EXPECT().IsFinalityViolated().Return(false).Maybe()
+
+	// Start the service
+	err := srs.Start(t.Context())
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, srs.Close())
+	}()
+
+	// Wait for multiple poll cycles to complete
+	// This gives time for:
+	// - 1st call: successful processing
+	// - 2nd call: panic and recovery
+	// - 3rd+ calls: continued processing after panic
+	time.Sleep(300 * time.Millisecond)
+
+	// Verify that the loop continued processing after the panic
+	mu.Lock()
+	actualCallCount := callCount
+	mu.Unlock()
+
+	// We should have at least 3 calls:
+	// 1. First successful call
+	// 2. Call that panicked
+	// 3. Call(s) after recovery proving the loop continued
+	assert.GreaterOrEqual(t, actualCallCount, 3,
+		"eventMonitoringLoop should continue processing after panic recovery")
+
+	t.Logf("LatestAndFinalizedBlock called %d times (including 1 panic)", actualCallCount)
+}
+
+func TestSRS_EventMonitoringLoop_PanicInProcessEventCycle(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+
+	reader := mocks.NewMockSourceReader(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+
+	chainStatusMgr.EXPECT().
+		ReadChainStatuses(mock.Anything, mock.Anything).
+		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{
+			chain: {
+				ChainSelector:        chain,
+				FinalizedBlockHeight: big.NewInt(100),
+				Disabled:             false,
+			},
+		}, nil).
+		Maybe()
+
+	latest := &protocol.BlockHeader{Number: 200}
+	finalized := &protocol.BlockHeader{Number: 150}
+
+	reader.EXPECT().
+		LatestAndFinalizedBlock(mock.Anything).
+		Return(latest, finalized, nil).
+		Maybe()
+
+	// Track how many times FetchMessageSentEvents is called
+	fetchCallCount := 0
+	var mu sync.Mutex
+
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ context.Context, _, _ *big.Int) {
+			mu.Lock()
+			defer mu.Unlock()
+			fetchCallCount++
+			// Simulate panic on the 2nd fetch call
+			if fetchCallCount == 2 {
+				panic("simulated panic in processEventCycle")
+			}
+		}).
+		Return([]protocol.MessageSentEvent{}, nil).
+		Maybe()
+
+	curseDetector.EXPECT().
+		IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).
+		Return(false).
+		Maybe()
+
+	// Create SRS with fast poll interval for testing
+	srs, mockFC, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 50*time.Millisecond, 5000)
+	mockFC.EXPECT().UpdateFinalized(mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockFC.EXPECT().IsFinalityViolated().Return(false).Maybe()
+
+	// Start the service
+	err := srs.Start(t.Context())
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, srs.Close())
+	}()
+
+	// Wait for multiple poll cycles
+	time.Sleep(300 * time.Millisecond)
+
+	// Verify that the loop continued processing after the panic
+	mu.Lock()
+	actualFetchCount := fetchCallCount
+	mu.Unlock()
+
+	// Should have at least 3 fetch calls (before, panic, after)
+	assert.GreaterOrEqual(t, actualFetchCount, 3,
+		"eventMonitoringLoop should continue processing after panic in processEventCycle")
+
+	t.Logf("FetchMessageSentEvents called %d times (including 1 panic)", actualFetchCount)
+}

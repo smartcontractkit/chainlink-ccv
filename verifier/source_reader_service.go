@@ -203,16 +203,6 @@ func (r *SourceReaderService) eventMonitoringLoop() {
 	ctx, cancel := r.stopCh.NewCtx()
 	defer cancel()
 
-	defer func() {
-		if rec := recover(); rec != nil {
-			r.logger.Errorw(
-				"Recovered from panic in event monitoring loop",
-				"panic", rec,
-				"stack", string(debug.Stack()),
-			)
-		}
-	}()
-
 	ticker := time.NewTicker(r.pollInterval)
 	defer ticker.Stop()
 
@@ -223,12 +213,25 @@ func (r *SourceReaderService) eventMonitoringLoop() {
 			return
 		case <-ticker.C:
 			if !r.disabled.Load() {
-				ready, latest, finalized := r.readyToQuery(ctx)
-				if !ready {
-					continue
-				}
-				r.processEventCycle(ctx, latest, finalized)
-				r.sendReadyMessages(ctx, latest, finalized)
+				// Protect each iteration with panic recovery to keep the loop running
+				func() {
+					defer func() {
+						if rec := recover(); rec != nil {
+							r.logger.Errorw(
+								"Recovered from panic in event monitoring loop iteration - continuing",
+								"panic", rec,
+								"stack", string(debug.Stack()),
+							)
+						}
+					}()
+
+					ready, latest, finalized := r.readyToQuery(ctx)
+					if !ready {
+						return
+					}
+					r.processEventCycle(ctx, latest, finalized)
+					r.sendReadyMessages(ctx, latest, finalized)
+				}()
 			}
 		}
 	}
