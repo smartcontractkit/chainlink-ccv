@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"time"
 
 	apiv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2"
 	adminv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2/admin"
@@ -185,6 +186,32 @@ func (c *Chain) ManuallyExecuteMessage(ctx context.Context, message protocol.Mes
 		disclosedContracts = append(disclosedContracts, verifier)
 	}
 
+	// Create context - replace with EDS
+	choiceContext := map[string]any{
+		"values": map[string]any{
+			"off-ramp": map[string]any{
+				"tag":   "AV_ContractId",
+				"value": disclosures.OffRamp.ContractId,
+			},
+			"global-config": map[string]any{
+				"tag":   "AV_ContractId",
+				"value": disclosures.GlobalConfig.ContractId,
+			},
+			"token-admin-registry": map[string]any{
+				"tag":   "AV_ContractId",
+				"value": disclosures.TokenAdminRegistry.ContractId,
+			},
+			"rmn-remote": map[string]any{
+				"tag":   "AV_ContractId",
+				"value": disclosures.RMNRemote.ContractId,
+			},
+		},
+	}
+	choiceContextValue, err := ChoiceContextFromData(choiceContext)
+	if err != nil {
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("failed to create choice context: %w", err)
+	}
+
 	res, err := participant.LedgerServices.Command.SubmitAndWaitForTransaction(ctx, &apiv2.SubmitAndWaitForTransactionRequest{
 		Commands: &apiv2.Commands{
 			CommandId: uuid.New().String(),
@@ -194,11 +221,8 @@ func (c *Chain) ManuallyExecuteMessage(ctx context.Context, message protocol.Mes
 					ContractId: receiverCid,
 					Choice:     "Execute",
 					ChoiceArgument: &apiv2.Value{Sum: &apiv2.Value_Record{Record: &apiv2.Record{Fields: []*apiv2.RecordField{
+						{Label: "context", Value: choiceContextValue},
 						{Label: "routerCid", Value: &apiv2.Value{Sum: &apiv2.Value_ContractId{ContractId: routerCid}}},
-						{Label: "offRampCid", Value: &apiv2.Value{Sum: &apiv2.Value_ContractId{ContractId: disclosures.OffRamp.GetContractId()}}},
-						{Label: "globalConfigCid", Value: &apiv2.Value{Sum: &apiv2.Value_ContractId{ContractId: disclosures.GlobalConfig.GetContractId()}}},
-						{Label: "tokenAdminRegistryCid", Value: &apiv2.Value{Sum: &apiv2.Value_ContractId{ContractId: disclosures.TokenAdminRegistry.GetContractId()}}},
-						{Label: "rmnRemoteCid", Value: &apiv2.Value{Sum: &apiv2.Value_ContractId{ContractId: disclosures.RMNRemote.GetContractId()}}},
 						{Label: "encodedMessage", Value: &apiv2.Value{Sum: &apiv2.Value_Text{Text: hex.EncodeToString(encodedMessage)}}},
 						{Label: "tokenTransfer", Value: &apiv2.Value{Sum: &apiv2.Value_Optional{Optional: &apiv2.Optional{Value: nil}}}},
 						{Label: "ccvInputs", Value: &apiv2.Value{Sum: &apiv2.Value_List{List: &apiv2.List{Elements: ccvElements}}}},
@@ -318,4 +342,102 @@ func parseExecutionStateChangedEvent(event *apiv2.CreatedEvent) (cciptestinterfa
 		State:               executionState,
 		ReturnData:          returnData,
 	}, nil
+}
+
+// This is copied from chainlink-canton, replace with EDS client once available.
+func ChoiceContextFromData(choiceContextData map[string]any) (*apiv2.Value, error) {
+	values, ok := choiceContextData["values"].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("no values found in choice context")
+	}
+
+	// ref: https://docs.digitalasset.com/build/3.5/reference/json-api/lf-value-specification.html
+	// AnyValue is a variant
+	fields := make([]*apiv2.TextMap_Entry, 0, len(values))
+	for k, v := range values {
+		f := v.(map[string]any)
+		tag := f["tag"].(string)
+		rawValue := f["value"]
+
+		var value *apiv2.Value
+		switch tag {
+		case "AV_Text":
+			valueString, ok := rawValue.(string)
+			if !ok {
+				return nil, fmt.Errorf("AV_Text value is not a string: %T", rawValue)
+			}
+			value = &apiv2.Value{Sum: &apiv2.Value_Text{Text: valueString}}
+		case "AV_Int":
+			// JSON numbers come as float64
+			valueFloat, ok := rawValue.(float64)
+			if !ok {
+				return nil, fmt.Errorf("AV_Int value is not a number: %T", rawValue)
+			}
+			value = &apiv2.Value{Sum: &apiv2.Value_Int64{Int64: int64(valueFloat)}}
+		case "AV_Decimal":
+			valueString, ok := rawValue.(string)
+			if !ok {
+				return nil, fmt.Errorf("AV_Decimal value is not a string: %T", rawValue)
+			}
+			value = &apiv2.Value{Sum: &apiv2.Value_Numeric{Numeric: valueString}}
+		case "AV_Bool":
+			valueBool, ok := rawValue.(bool)
+			if !ok {
+				return nil, fmt.Errorf("AV_Bool value is not a bool: %T", rawValue)
+			}
+			value = &apiv2.Value{Sum: &apiv2.Value_Bool{Bool: valueBool}}
+		case "AV_Date":
+			valueString, ok := rawValue.(string)
+			if !ok {
+				return nil, fmt.Errorf("AV_Date value is not a string: %T", rawValue)
+			}
+			t, err := time.Parse(time.RFC3339, valueString)
+			if err != nil {
+				return nil, fmt.Errorf("AV_Date value is not a RFC3339 time: %s", valueString)
+			}
+			value = &apiv2.Value{Sum: &apiv2.Value_Date{Date: int32(t.Unix() / 86400)}}
+		case "AV_Time":
+			valueString, ok := rawValue.(string)
+			if !ok {
+				return nil, fmt.Errorf("AV_Time value is not a string: %T", rawValue)
+			}
+			t, err := time.Parse(time.RFC3339, valueString)
+			if err != nil {
+				return nil, fmt.Errorf("AV_Date value is not a RFC3339 time: %s", valueString)
+			}
+			value = &apiv2.Value{Sum: &apiv2.Value_Timestamp{Timestamp: t.UnixMicro()}}
+		case "AV_RelTime":
+			valueFloat, ok := rawValue.(float64)
+			if !ok {
+				return nil, fmt.Errorf("AV_RelTime value is not a number: %T", rawValue)
+			}
+			value = &apiv2.Value{Sum: &apiv2.Value_Record{Record: &apiv2.Record{Fields: []*apiv2.RecordField{
+				{Label: "microseconds", Value: &apiv2.Value{Sum: &apiv2.Value_Int64{Int64: int64(valueFloat)}}},
+			}}}}
+		case "AV_ContractId":
+			valueString, ok := rawValue.(string)
+			if !ok {
+				return nil, fmt.Errorf("AV_ContractId value is not a string: %T", rawValue)
+			}
+			value = &apiv2.Value{Sum: &apiv2.Value_ContractId{ContractId: valueString}}
+		default:
+			// Add lists and maps
+			return nil, fmt.Errorf("unimplemented tag: %v", tag)
+		}
+
+		fields = append(fields, &apiv2.TextMap_Entry{
+			Key: k,
+			Value: &apiv2.Value{Sum: &apiv2.Value_Variant{Variant: &apiv2.Variant{
+				Constructor: tag,
+				Value:       value,
+			}}},
+		})
+	}
+
+	return &apiv2.Value{Sum: &apiv2.Value_Record{Record: &apiv2.Record{Fields: []*apiv2.RecordField{
+		{
+			Label: "values",
+			Value: &apiv2.Value{Sum: &apiv2.Value_TextMap{TextMap: &apiv2.TextMap{Entries: fields}}},
+		},
+	}}}}, nil
 }
