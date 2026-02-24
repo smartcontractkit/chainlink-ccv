@@ -191,10 +191,10 @@ func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers [
 				continue
 			}
 			if nop.SignerAddressByFamily[chainsel.FamilyEVM] == "" {
-				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, ver.Out.BootstrapKeys.ECDSAAddress)
+				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, ver.Out[chainsel.FamilyEVM].BootstrapKeys.ECDSAAddress)
 			}
 			if nop.SignerAddressByFamily[chainsel.FamilyCanton] == "" {
-				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyCanton, ver.Out.BootstrapKeys.ECDSAPublicKey)
+				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyCanton, ver.Out[chainsel.FamilyCanton].BootstrapKeys.ECDSAPublicKey)
 			}
 			seenAliases[ver.NOPAlias] = struct{}{}
 		}
@@ -401,7 +401,8 @@ func generateVerifierJobSpecs(
 
 			// Store the VerifierID in the output for test access
 			if ver.Out != nil {
-				ver.Out.VerifierID = verCfg.VerifierID
+				ver.Out[chainsel.FamilyEVM].VerifierID = verCfg.VerifierID
+				ver.Out[chainsel.FamilyCanton].VerifierID = verCfg.VerifierID
 			}
 
 			if sharedTLSCerts != nil && !ver.InsecureAggregatorConnection {
@@ -1282,7 +1283,7 @@ func launchStandaloneExecutors(in []*services.ExecutorInput, blockchainOutputs [
 	return outs, nil
 }
 
-func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) ([]*committeeverifier.Output, error) {
+func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) ([]map[string]*committeeverifier.Output, error) {
 	aggregatorOutputByCommittee := make(map[string]*services.AggregatorOutput)
 	for _, agg := range in.Aggregator {
 		if agg.Out != nil {
@@ -1296,7 +1297,7 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) 
 		in.Verifier[i] = &ver
 	}
 
-	var outs []*committeeverifier.Output
+	var outs []map[string]*committeeverifier.Output
 	// Start standalone verifiers if in standalone mode.
 	for _, ver := range in.Verifier {
 		if ver.Mode == services.Standalone {
@@ -1468,29 +1469,33 @@ func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*committ
 
 	for _, ver := range standaloneVerifiers {
 		g.Go(func() error {
-			if ver.Out == nil || ver.Out.BootstrapKeys.CSAPublicKey == "" {
-				return fmt.Errorf("bootstrap %s started but CSAPublicKey not available", ver.ContainerName)
-			}
+			// register all families
+			for _, family := range ver.ChainFamilies {
+				if ver.Out == nil || ver.Out[family].BootstrapKeys.CSAPublicKey == "" {
+					return fmt.Errorf("bootstrap %s started but CSAPublicKey not available", ver.ContainerName)
+				}
 
-			reg := &jobs.BootstrapJDRegistration{
-				Name:         ver.ContainerName,
-				CSAPublicKey: ver.Out.BootstrapKeys.CSAPublicKey,
-			}
-			if err := jobs.RegisterBootstrapWithJD(gCtx, jdClient, reg); err != nil {
-				return fmt.Errorf("failed to register bootstrap %s with JD: %w", ver.ContainerName, err)
-			}
+				reg := &jobs.BootstrapJDRegistration{
+					Name:         ver.ContainerName,
+					CSAPublicKey: ver.Out[family].BootstrapKeys.CSAPublicKey,
+				}
+				if err := jobs.RegisterBootstrapWithJD(gCtx, jdClient, reg); err != nil {
+					return fmt.Errorf("failed to register bootstrap %s with JD: %w", ver.ContainerName, err)
+				}
 
-			// Store the JD node ID in the verifier output for later use when proposing jobs.
-			mu.Lock()
-			ver.Out.JDNodeID = reg.NodeID
-			mu.Unlock()
+				// Store the JD node ID in the verifier output for later use when proposing jobs.
+				mu.Lock()
+				ver.Out[family].JDNodeID = reg.NodeID
+				mu.Unlock()
 
-			// Wait for bootstrap to connect to JD
-			if err := jobs.WaitForBootstrapConnection(gCtx, jdClient, reg.NodeID, 60*time.Second); err != nil {
-				return fmt.Errorf("bootstrap %s failed to connect to JD: %w", ver.ContainerName, err)
+				// Wait for bootstrap to connect to JD
+				if err := jobs.WaitForBootstrapConnection(gCtx, jdClient, reg.NodeID, 60*time.Second); err != nil {
+					return fmt.Errorf("bootstrap %s failed to connect to JD: %w", ver.ContainerName, err)
+				}
 			}
 
 			return nil
+
 		})
 	}
 
@@ -1529,38 +1534,41 @@ func proposeJobsToStandaloneVerifiers(
 
 	for _, ver := range standaloneVerifiers {
 		g.Go(func() error {
-			if ver.Out == nil || ver.Out.JDNodeID == "" {
-				return fmt.Errorf("verifier %s not registered with JD (missing JDNodeID)", ver.ContainerName)
-			}
-			nodeID := ver.Out.JDNodeID
+			// propose to all families
+			for _, family := range ver.ChainFamilies {
+				if ver.Out == nil || ver.Out[family].JDNodeID == "" {
+					return fmt.Errorf("verifier %s not registered with JD (missing JDNodeID)", ver.ContainerName)
+				}
+				nodeID := ver.Out[family].JDNodeID
 
-			// Get the base job spec
-			baseJobSpec, ok := verifierJobSpecs[ver.ContainerName]
-			if !ok {
-				return fmt.Errorf("no job spec found for verifier %s", ver.ContainerName)
-			}
+				// Get the base job spec
+				baseJobSpec, ok := verifierJobSpecs[ver.ContainerName]
+				if !ok {
+					return fmt.Errorf("no job spec found for verifier %s", ver.ContainerName)
+				}
 
-			// For standalone verifiers, we need to inject blockchain_infos into the config
-			// because they don't have CL node chain configuration
-			jobSpec, err := ver.RebuildVerifierJobSpecWithBlockchainInfos(baseJobSpec, blockchainInfos)
-			if err != nil {
-				return fmt.Errorf("failed to add blockchain infos to job spec for %s: %w", ver.ContainerName, err)
-			}
+				// For standalone verifiers, we need to inject blockchain_infos into the config
+				// because they don't have CL node chain configuration
+				jobSpec, err := ver.RebuildVerifierJobSpecWithBlockchainInfos(baseJobSpec, blockchainInfos)
+				if err != nil {
+					return fmt.Errorf("failed to add blockchain infos to job spec for %s: %w", ver.ContainerName, err)
+				}
 
-			L.Info().Msgf("Proposing job to verifier %s: %s", ver.ContainerName, jobSpec)
+				L.Info().Msgf("Proposing job to verifier %s: %s", ver.ContainerName, jobSpec)
 
-			resp, err := jdClient.ProposeJob(gCtx, &jobv1.ProposeJobRequest{
-				NodeId: nodeID,
-				Spec:   jobSpec,
-			})
-			if err != nil {
-				return fmt.Errorf("failed to propose job to verifier %s: %w", ver.ContainerName, err)
+				resp, err := jdClient.ProposeJob(gCtx, &jobv1.ProposeJobRequest{
+					NodeId: nodeID,
+					Spec:   jobSpec,
+				})
+				if err != nil {
+					return fmt.Errorf("failed to propose job to verifier %s: %w", ver.ContainerName, err)
+				}
+				L.Info().
+					Str("verifier", ver.ContainerName).
+					Str("nodeID", nodeID).
+					Str("proposalID", resp.Proposal.Id).
+					Msg("Proposed job to verifier via JD")
 			}
-			L.Info().
-				Str("verifier", ver.ContainerName).
-				Str("nodeID", nodeID).
-				Str("proposalID", resp.Proposal.Id).
-				Msg("Proposed job to verifier via JD")
 
 			return nil
 		})

@@ -28,8 +28,11 @@ func CantonModifier(req testcontainers.ContainerRequest, verifierInput *Input, o
 		DefaultCantonCommitteVerifierImage = "cantoncommittee-verifier:dev"
 	)
 
-	// Usage the canton image to properly read from Canton.
+	// Use the canton committee verifier image to properly read from Canton.
 	req.Image = DefaultCantonCommitteVerifierImage
+
+	// Update name to reflect chain family.
+	req.Name = fmt.Sprintf("canton-%s", verifierInput.ContainerName)
 
 	// Marshal the canton config into TOML bytes.
 	cantonConfigBytes, err := hydrateAndMarshalCantonConfig(verifierInput, outputs)

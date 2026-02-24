@@ -65,11 +65,11 @@ func TestE2EReorg(t *testing.T) {
 	chainStatusLggr, err := logger.New()
 	require.NoError(t, err)
 	// Build connection string from input (Out may not be populated when loading from cached config)
-	verifierDBConnectionString := in.Verifier[0].Out.DBConnectionString
+	verifierDBConnectionString := in.Verifier[0].Out[chain_selectors.FamilyEVM].DBConnectionString
 	chainStatusDB, err := sqlx.Connect("postgres", verifierDBConnectionString)
 	require.NoError(t, err, "should be able to connect to verifier's postgres database")
 
-	chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusDB, chainStatusLggr, in.Verifier[0].Out.VerifierID)
+	chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusDB, chainStatusLggr, in.Verifier[0].Out[chain_selectors.FamilyEVM].VerifierID)
 	t.Cleanup(func() {
 		_ = chainStatusDB.Close()
 	})
