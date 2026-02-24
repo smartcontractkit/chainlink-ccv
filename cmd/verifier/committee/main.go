@@ -25,40 +25,42 @@ import (
 func main() {
 	if err := bootstrap.Run(
 		"EVMCommitteeVerifier",
-		cmd.NewServiceFactory(func(ctx context.Context, lggr logger.Logger, helper *blockchain.Helper, cfg commit.Config) (chainaccess.AccessorFactory, error) {
-			// Create the chain clients then the head trackers
-			chainClients := make(map[protocol.ChainSelector]client.Client)
-			for _, selector := range helper.GetAllChainSelectors() {
-				family, err := chainsel.GetSelectorFamily(uint64(selector))
-				if err != nil {
-					lggr.Errorw("❌ Failed to get selector family - update chain-selectors library?", "chainSelector", selector, "error", err)
-					continue
+		cmd.NewServiceFactory(
+			chainsel.FamilyEVM,
+			func(ctx context.Context, lggr logger.Logger, helper *blockchain.Helper, cfg commit.Config) (chainaccess.AccessorFactory, error) {
+				// Create the chain clients then the head trackers
+				chainClients := make(map[protocol.ChainSelector]client.Client)
+				for _, selector := range helper.GetAllChainSelectors() {
+					family, err := chainsel.GetSelectorFamily(uint64(selector))
+					if err != nil {
+						lggr.Errorw("❌ Failed to get selector family - update chain-selectors library?", "chainSelector", selector, "error", err)
+						continue
+					}
+					if family != chainsel.FamilyEVM {
+						// Skip non-EVM chains in EVM registration.
+						continue
+					}
+					chainClient := pkg.CreateHealthyMultiNodeClient(ctx, helper, lggr, selector)
+					chainClients[selector] = chainClient
 				}
-				if family != chainsel.FamilyEVM {
-					// Skip non-EVM chains in EVM registration.
-					continue
-				}
-				chainClient := pkg.CreateHealthyMultiNodeClient(ctx, helper, lggr, selector)
-				chainClients[selector] = chainClient
-			}
 
-			headTrackers := make(map[protocol.ChainSelector]heads.Tracker)
-			for _, selector := range helper.GetAllChainSelectors() {
-				family, err := chainsel.GetSelectorFamily(uint64(selector))
-				if err != nil {
-					lggr.Errorw("❌ Failed to get selector family - update chain-selectors library?", "chainSelector", selector, "error", err)
-					continue
+				headTrackers := make(map[protocol.ChainSelector]heads.Tracker)
+				for _, selector := range helper.GetAllChainSelectors() {
+					family, err := chainsel.GetSelectorFamily(uint64(selector))
+					if err != nil {
+						lggr.Errorw("❌ Failed to get selector family - update chain-selectors library?", "chainSelector", selector, "error", err)
+						continue
+					}
+					if family != chainsel.FamilyEVM {
+						// Skip non-EVM chains in EVM registration.
+						continue
+					}
+					headTracker := sourcereader.NewSimpleHeadTrackerWrapper(chainClients[selector], lggr)
+					headTrackers[selector] = headTracker
 				}
-				if family != chainsel.FamilyEVM {
-					// Skip non-EVM chains in EVM registration.
-					continue
-				}
-				headTracker := sourcereader.NewSimpleHeadTrackerWrapper(chainClients[selector], lggr)
-				headTrackers[selector] = headTracker
-			}
 
-			return evmaccessor.NewFactory(lggr, helper, cfg.OnRampAddresses, cfg.RMNRemoteAddresses, headTrackers, chainClients), nil
-		}),
+				return evmaccessor.NewFactory(lggr, helper, cfg.OnRampAddresses, cfg.RMNRemoteAddresses, headTrackers, chainClients), nil
+			}),
 		bootstrap.WithLogLevel[commit.JobSpec](zapcore.InfoLevel),
 	); err != nil {
 		panic(fmt.Sprintf("failed to run EVM committee verifier: %s", err.Error()))

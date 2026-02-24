@@ -9,6 +9,7 @@ import (
 	_ "github.com/lib/pq"
 	"go.uber.org/zap/zapcore"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
 	cantonaccessor "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/canton"
@@ -37,19 +38,21 @@ func loadConfig(path string) (*canton.Config, error) {
 func main() {
 	if err := bootstrap.Run(
 		"CantonCommitteeVerifier",
-		cmd.NewServiceFactory(func(ctx context.Context, lggr logger.Logger, helper *blockchain.Helper, cfg commit.Config) (chainaccess.AccessorFactory, error) {
-			configPath, ok := os.LookupEnv(CantonConfigPathEnv)
-			if !ok {
-				configPath = DefaultCantonConfigPath
-			}
+		cmd.NewServiceFactory(
+			chainsel.FamilyCanton,
+			func(ctx context.Context, lggr logger.Logger, helper *blockchain.Helper, cfg commit.Config) (chainaccess.AccessorFactory, error) {
+				configPath, ok := os.LookupEnv(CantonConfigPathEnv)
+				if !ok {
+					configPath = DefaultCantonConfigPath
+				}
 
-			cantonConfig, err := loadConfig(configPath)
-			if err != nil {
-				return nil, fmt.Errorf("failed to load config: %w", err)
-			}
+				cantonConfig, err := loadConfig(configPath)
+				if err != nil {
+					return nil, fmt.Errorf("failed to load config: %w", err)
+				}
 
-			return cantonaccessor.NewFactory(lggr, helper, cantonConfig.ReaderConfigs), nil
-		}),
+				return cantonaccessor.NewFactory(lggr, helper, cantonConfig.ReaderConfigs), nil
+			}),
 		bootstrap.WithLogLevel[commit.JobSpec](zapcore.InfoLevel),
 	); err != nil {
 		panic(fmt.Sprintf("failed to run Canton committee verifier: %s", err.Error()))

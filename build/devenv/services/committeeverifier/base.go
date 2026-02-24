@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -182,8 +181,12 @@ func ApplyDefaults(in Input) Input {
 		in.Mode = DefaultVerifierMode
 	}
 	if in.Bootstrap == nil {
-		def := services.ApplyBootstrapDefaults(services.BootstrapInput{})
-		in.Bootstrap = map[string]*services.BootstrapInput{chainsel.FamilyEVM: &def}
+		// Apply defaults for each chain family.
+		in.Bootstrap = make(map[string]*services.BootstrapInput)
+		for _, chainFamily := range in.ChainFamilies {
+			def := services.ApplyBootstrapDefaults(services.BootstrapInput{})
+			in.Bootstrap[chainFamily] = &def
+		}
 	} else {
 		bootstraps := make(map[string]*services.BootstrapInput)
 		for chainFamily, bootstrap := range in.Bootstrap {
@@ -220,7 +223,7 @@ func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure
 	verifierOutputs := make(map[string]*Output)
 	for _, chainFamily := range in.ChainFamilies {
 		bootstrap := in.Bootstrap[chainFamily]
-		_, err := createDBContainer(ctx, in, chainFamily)
+		dbContainer, err := createDBContainer(ctx, in, chainFamily)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create verifier database: %w", err)
 		}
@@ -310,6 +313,11 @@ func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure
 			return nil, fmt.Errorf("failed to inspect container: %w", err)
 		}
 
+		dbMapped, err := dbContainer.MappedPort(ctx, "5432/tcp")
+		if err != nil {
+			return nil, fmt.Errorf("failed to get database mapped port: %w", err)
+		}
+
 		out := &Output{
 			ContainerName:   inspect.Name,
 			ExternalHTTPURL: fmt.Sprintf("http://%s:%s", host, verifierMapped.Port()),
@@ -317,8 +325,8 @@ func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure
 			DBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
 				in.ContainerName, in.ContainerName, in.DB.Port, in.ContainerName),
 			BootstrapDBURL: fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port()),
-			BootstrapDBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
-				in.ContainerName, in.ContainerName, in.DB.Port, services.DefaultBootstrapDBName),
+			BootstrapDBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%s/%s?sslmode=disable",
+				in.ContainerName, in.ContainerName, dbMapped.Port(), services.DefaultBootstrapDBName),
 			BootstrapKeys: bootstrapKeys,
 		}
 
@@ -480,7 +488,7 @@ func createDBContainer(ctx context.Context, in *Input, chainFamily string) (*pos
 				HostConfigModifier: func(h *container.HostConfig) {
 					h.PortBindings = nat.PortMap{
 						"5432/tcp": []nat.PortBinding{
-							{HostPort: strconv.Itoa(in.DB.Port)},
+							{HostPort: ""}, // Docker assigns a random free host port.
 						},
 					}
 				},

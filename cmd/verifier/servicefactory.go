@@ -14,6 +14,7 @@ import (
 	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
@@ -52,12 +53,14 @@ type factory struct {
 	coordinatorCancel context.CancelFunc
 
 	createAccessorFactoryFunc CreateAccessorFactoryFunc
+	chainFamily               string
 }
 
 // NewServiceFactory creates a new ServiceFactory for the committee verifier service.
-func NewServiceFactory(createAccessorFactoryFunc CreateAccessorFactoryFunc) bootstrap.ServiceFactory[commit.JobSpec] {
+func NewServiceFactory(chainFamily string, createAccessorFactoryFunc CreateAccessorFactoryFunc) bootstrap.ServiceFactory[commit.JobSpec] {
 	return &factory{
 		createAccessorFactoryFunc: createAccessorFactoryFunc,
+		chainFamily:               chainFamily,
 	}
 }
 
@@ -148,6 +151,20 @@ func (f *factory) Start(ctx context.Context, spec commit.JobSpec, deps bootstrap
 
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	for _, selector := range blockchainHelper.GetAllChainSelectors() {
+		family, err := chainsel.GetSelectorFamily(uint64(selector))
+		if err != nil {
+			lggr.Errorw("Failed to get selector family", "error", err, "selector", selector)
+			return fmt.Errorf("failed to get selector family: %w", err)
+		}
+		if family != f.chainFamily {
+			lggr.Warnw("Skipping chain in provided config, doesn't match expected chain family",
+				"selector", selector,
+				"family", family,
+				"expectedFamily", f.chainFamily,
+			)
+			continue
+		}
+
 		accessor, err := accessorFactory.GetAccessor(ctx, selector)
 		if err != nil {
 			lggr.Errorw("Failed to get accessor", "error", err, "selector", selector)
