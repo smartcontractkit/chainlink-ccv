@@ -185,21 +185,20 @@ func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers [
 		if _, seen := seenAliases[ver.NOPAlias]; seen {
 			continue
 		}
-		if nop, ok := cfg.NOPTopology.GetNOP(ver.NOPAlias); ok {
-			if nop.GetMode() == shared.NOPModeCL {
-				// For CL mode the signer address should be fetch from JD
-				continue
-			}
-			if nop.SignerAddressByFamily[chainsel.FamilyEVM] == "" {
-				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, ver.Out[chainsel.FamilyEVM].BootstrapKeys.ECDSAAddress)
-			}
-			if nop.SignerAddressByFamily[chainsel.FamilyCanton] == "" {
-				if ver.Out[chainsel.FamilyCanton] != nil {
-					cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyCanton, ver.Out[chainsel.FamilyCanton].BootstrapKeys.ECDSAPublicKey)
-				}
-			}
-			seenAliases[ver.NOPAlias] = struct{}{}
+		nop, ok := cfg.NOPTopology.GetNOP(ver.NOPAlias)
+		if !ok || nop.GetMode() == shared.NOPModeCL {
+			// For CL mode the signer address should be fetch from JD, or the NOP is not found
+			continue
 		}
+		if nop.SignerAddressByFamily[chainsel.FamilyEVM] == "" {
+			cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, ver.Out[chainsel.FamilyEVM].BootstrapKeys.ECDSAAddress)
+		}
+		if nop.SignerAddressByFamily[chainsel.FamilyCanton] == "" {
+			if ver.Out[chainsel.FamilyCanton] != nil {
+				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyCanton, ver.Out[chainsel.FamilyCanton].BootstrapKeys.ECDSAPublicKey)
+			}
+		}
+		seenAliases[ver.NOPAlias] = struct{}{}
 	}
 }
 
