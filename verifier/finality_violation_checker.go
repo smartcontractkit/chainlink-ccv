@@ -1,4 +1,4 @@
-package services
+package verifier
 
 import (
 	"context"
@@ -41,6 +41,7 @@ type FinalityViolationCheckerService struct {
 	sourceReader  chainaccess.SourceReader
 	chainSelector protocol.ChainSelector
 	lggr          logger.Logger
+	metrics       MetricLabeler
 
 	// Stored finalized blocks (keyed by block number)
 	finalizedBlocks map[uint64]protocol.BlockHeader
@@ -57,6 +58,7 @@ func NewFinalityViolationCheckerService(
 	sourceReader chainaccess.SourceReader,
 	chainSelector protocol.ChainSelector,
 	lggr logger.Logger,
+	metrics MetricLabeler,
 ) (*FinalityViolationCheckerService, error) {
 	if sourceReader == nil {
 		return nil, fmt.Errorf("sourceReader cannot be nil")
@@ -69,6 +71,7 @@ func NewFinalityViolationCheckerService(
 		sourceReader:      sourceReader,
 		chainSelector:     chainSelector,
 		lggr:              logger.With(lggr, "component", "FinalityViolationChecker", "chain", chainSelector),
+		metrics:           metrics,
 		finalizedBlocks:   make(map[uint64]protocol.BlockHeader),
 		lastFinalized:     0,
 		violationDetected: false,
@@ -126,7 +129,7 @@ func (f *FinalityViolationCheckerService) UpdateFinalized(ctx context.Context, f
 			return fmt.Errorf("missing header for block %d in fetched range", blockNum)
 		}
 
-		if err := f.validateAndStore(blockNum, newHeader); err != nil {
+		if err := f.validateAndStore(ctx, blockNum, newHeader); err != nil {
 			return err
 		}
 	}
@@ -160,16 +163,17 @@ func (f *FinalityViolationCheckerService) trimStoredBlocks() {
 
 // validateAndStore checks block hash consistency and parent hash continuity.
 // Returns error and sets violationDetected if a finality violation is found.
-func (f *FinalityViolationCheckerService) validateAndStore(blockNum uint64, newHeader protocol.BlockHeader) error {
+func (f *FinalityViolationCheckerService) validateAndStore(ctx context.Context, blockNum uint64, newHeader protocol.BlockHeader) error {
 	// Check if we already have this block stored
 	if storedHeader, ok := f.finalizedBlocks[blockNum]; ok {
 		if storedHeader.Hash != newHeader.Hash {
+			f.violationDetected = true
 			f.lggr.Errorw("FINALITY VIOLATION DETECTED - block hash changed",
 				"blockNumber", blockNum,
 				"storedHash", storedHeader.Hash,
 				"newHash", newHeader.Hash,
 			)
-			f.violationDetected = true
+			f.metrics.SetVerifierFinalityViolated(ctx, f.chainSelector, true)
 			return fmt.Errorf("finality violation: block %d hash changed from %s to %s",
 				blockNum, storedHeader.Hash, newHeader.Hash)
 		}
@@ -186,6 +190,7 @@ func (f *FinalityViolationCheckerService) validateAndStore(blockNum uint64, newH
 					"actualParent", newHeader.ParentHash,
 				)
 				f.violationDetected = true
+				f.metrics.SetVerifierFinalityViolated(ctx, f.chainSelector, true)
 				return fmt.Errorf("finality violation: block %d parent hash %s doesn't match block %d hash %s",
 					blockNum, newHeader.ParentHash, blockNum-1, prevHeader.Hash)
 			}
@@ -212,6 +217,7 @@ func (f *FinalityViolationCheckerService) reset() {
 	f.finalizedBlocks = make(map[uint64]protocol.BlockHeader)
 	f.lastFinalized = 0
 	f.violationDetected = false
+	f.metrics.SetVerifierFinalityViolated(context.Background(), f.chainSelector, false)
 
 	f.lggr.Infow("Finality checker state reset",
 		"chainSelector", f.chainSelector)

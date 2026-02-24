@@ -13,7 +13,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
-	vservices "github.com/smartcontractkit/chainlink-ccv/verifier/services"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
@@ -98,12 +97,13 @@ func NewSourceReaderService(
 
 	if sourceCfg.DisableFinalityChecker {
 		lggr.Infow("FinalityViolationChecker is disabled by config", "chainSelector", chainSelector)
-		finalityChecker = &vservices.NoOpFinalityViolationChecker{}
+		finalityChecker = &NoOpFinalityViolationChecker{}
 	} else {
-		finalityChecker, err = vservices.NewFinalityViolationCheckerService(
+		finalityChecker, err = NewFinalityViolationCheckerService(
 			sourceReader,
 			chainSelector,
-			logger.With(lggr, "component", "FinalityChecker", "chainID", chainSelector),
+			lggr,
+			metrics,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create finality checker: %w", err)
@@ -197,6 +197,12 @@ func (r *SourceReaderService) Close() error {
 
 func (r *SourceReaderService) Name() string {
 	return fmt.Sprintf("verifier.SourceReaderService[%s]", r.chainSelector)
+}
+
+func (r *SourceReaderService) HealthReport() map[string]error {
+	report := make(map[string]error)
+	report[r.Name()] = r.Ready()
+	return report
 }
 
 // eventMonitoringLoop should:
@@ -449,6 +455,8 @@ func (r *SourceReaderService) fallbackBlockEstimate(currentBlock uint64, lookbac
 // removing any tasks that are no longer valid due to reorg.
 // fromBlock and toBlock define the queried range - only remove messages
 // that are in this range but not found in the results.
+//
+//nolint:dupl // will be removed
 func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationTask, fromBlock *big.Int) {
 	tasksMap := make(map[string]VerificationTask)
 	for _, task := range tasks {
@@ -621,6 +629,7 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, fin
 	}
 }
 
+//nolint:dupl // will be removed
 func (r *SourceReaderService) isMessageReadyForVerification(
 	task VerificationTask,
 	latestBlock *big.Int,

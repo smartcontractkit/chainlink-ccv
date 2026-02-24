@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
@@ -132,6 +133,7 @@ func main() {
 				messageTracker,
 				verifierMonitoring,
 				monitoredChainStatusManager,
+				sqlDB.DB,
 			)
 		} else if verifierConfig.IsCCTP() {
 			coordinator = createCCTPCoordinator(
@@ -149,6 +151,7 @@ func main() {
 				messageTracker,
 				verifierMonitoring,
 				monitoredChainStatusManager,
+				sqlDB.DB,
 			)
 		} else {
 			lggr.Fatalw("Unknown verifier type", "type", verifierConfig.Type)
@@ -217,6 +220,7 @@ func createCCTPCoordinator(
 	messageTracker verifier.MessageLatencyTracker,
 	verifierMonitoring verifier.Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
+	db *sql.DB,
 ) *verifier.Coordinator {
 	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifierResolvers, rmnRemoteAddresses)
 
@@ -245,6 +249,7 @@ func createCCTPCoordinator(
 		verifierMonitoring,
 		chainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
+		db,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator for cctp", "error", err)
@@ -264,6 +269,7 @@ func createLombardCoordinator(
 	messageTracker verifier.MessageLatencyTracker,
 	verifierMonitoring verifier.Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
+	db *sql.DB,
 ) *verifier.Coordinator {
 	sourceConfigs := createSourceConfigs(lombardConfig.ParsedVerifierResolvers, rmnRemoteAddresses)
 
@@ -298,6 +304,7 @@ func createLombardCoordinator(
 		verifierMonitoring,
 		chainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
+		db,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator for lombard", "error", err)

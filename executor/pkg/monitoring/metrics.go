@@ -36,6 +36,10 @@ type ExecutorMetrics struct {
 	heartbeatSuccessCounter     metric.Int64Counter
 	heartbeatFailureCounter     metric.Int64Counter
 	lastHeartbeatTimestampGauge metric.Int64Gauge
+
+	// Chain curse metric
+	remoteChainCursed      metric.Int64Gauge
+	localChainGlobalCursed metric.Int64Gauge
 }
 
 // InitMetrics initializes all verifier metrics.
@@ -151,6 +155,22 @@ func InitMetrics() (*ExecutorMetrics, error) {
 		return nil, fmt.Errorf("failed to register last heartbeat timestamp gauge: %w", err)
 	}
 
+	vm.remoteChainCursed, err = beholder.GetMeter().Int64Gauge(
+		"executor_remote_chain_cursed",
+		metric.WithDescription("Specifies if local chain considers remote chain as cursed"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register remote chain cursed gauge: %w", err)
+	}
+
+	vm.localChainGlobalCursed, err = beholder.GetMeter().Int64Gauge(
+		"executor_local_chain_global_cursed",
+		metric.WithDescription("Specifies if local chain has global curse"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register remote chain cursed gauge: %w", err)
+	}
+
 	return vm, nil
 }
 
@@ -260,4 +280,25 @@ func (v *ExecutorMetricLabeler) IncrementHeartbeatFailure(ctx context.Context) {
 func (v *ExecutorMetricLabeler) SetLastHeartbeatTimestamp(ctx context.Context, timestamp int64) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.lastHeartbeatTimestampGauge.Record(ctx, timestamp, metric.WithAttributes(otelLabels...))
+}
+
+func (v *ExecutorMetricLabeler) SetRemoteChainCursed(ctx context.Context, localSelector, remoteSelector protocol.ChainSelector, cursed bool) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	otelLabels = append(otelLabels, attribute.String("localSelector", localSelector.String()))
+	otelLabels = append(otelLabels, attribute.String("remoteSelector", remoteSelector.String()))
+	var cursedInt int64
+	if cursed {
+		cursedInt = 1
+	}
+	v.vm.remoteChainCursed.Record(ctx, cursedInt, metric.WithAttributes(otelLabels...))
+}
+
+func (v *ExecutorMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	otelLabels = append(otelLabels, attribute.String("localSelector", localSelector.String()))
+	var cursedInt int64
+	if globalCurse {
+		cursedInt = 1
+	}
+	v.vm.localChainGlobalCursed.Record(ctx, cursedInt, metric.WithAttributes(otelLabels...))
 }

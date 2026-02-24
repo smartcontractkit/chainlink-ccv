@@ -77,9 +77,7 @@ func (ira *IndexerReaderAdapter) setActiveClientIdx(idx int) {
 }
 
 // queryWithFailover implements the common failover logic for all query methods.
-//
-//nolint:gofumpt
-func queryWithFailover[TInput any, TResponse any](
+func queryWithFailover[TInput, TResponse any](
 	ctx context.Context,
 	ira *IndexerReaderAdapter,
 	input TInput,

@@ -137,9 +137,8 @@ func (f *fakeVerifier) Attempt(key string) int {
 	return f.counter[key]
 }
 
-func (f *fakeVerifier) VerifyMessages(_ context.Context, tasks []verifier.VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.VerifierNodeResult]) batcher.BatchResult[verifier.VerificationError] {
-	errors := make([]verifier.VerificationError, 0)
-	results := make([]protocol.VerifierNodeResult, 0)
+func (f *fakeVerifier) VerifyMessages(_ context.Context, tasks []verifier.VerificationTask) []verifier.VerificationResult {
+	results := make([]verifier.VerificationResult, 0, len(tasks))
 
 	for _, task := range tasks {
 		f.mu.Lock()
@@ -152,22 +151,22 @@ func (f *fakeVerifier) VerifyMessages(_ context.Context, tasks []verifier.Verifi
 		f.mu.Unlock()
 
 		if counter <= f.passThreshold {
-			errors = append(errors, f.errors[task.MessageID])
+			verificationError := f.errors[task.MessageID]
+			results = append(results, verifier.VerificationResult{
+				Error: &verificationError,
+			})
 		} else {
 			messageID, err := protocol.NewBytes32FromString(task.MessageID)
 			if err != nil {
 				panic(err)
 			}
-			results = append(results, protocol.VerifierNodeResult{
-				MessageID: messageID,
+			results = append(results, verifier.VerificationResult{
+				Result: &protocol.VerifierNodeResult{
+					MessageID: messageID,
+				},
 			})
 		}
 	}
-	if len(results) > 0 {
-		err := ccvDataBatcher.Add(results...)
-		if err != nil {
-			panic(err)
-		}
-	}
-	return batcher.BatchResult[verifier.VerificationError]{Items: errors}
+
+	return results
 }

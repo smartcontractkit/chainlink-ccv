@@ -97,3 +97,9 @@ func (n *NoopExecutorMetricLabeler) IncrementHeartbeatSuccess(ctx context.Contex
 func (n *NoopExecutorMetricLabeler) IncrementHeartbeatFailure(ctx context.Context) {}
 
 func (n *NoopExecutorMetricLabeler) SetLastHeartbeatTimestamp(ctx context.Context, timestamp int64) {}
+
+func (n *NoopExecutorMetricLabeler) SetRemoteChainCursed(ctx context.Context, localSelector, remoteSelector protocol.ChainSelector, cursed bool) {
+}
+
+func (n *NoopExecutorMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool) {
+}

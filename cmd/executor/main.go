@@ -62,14 +62,6 @@ func main() {
 		configPath = envConfig
 	}
 
-	executorConfig, blockchainInfo, err := loadConfiguration(configPath)
-	if err != nil {
-		os.Exit(1)
-	}
-	if err = executorConfig.Validate(); err != nil {
-		os.Exit(1)
-	}
-
 	//
 	// Initialize logger
 	// ------------------------------------------------------------------------------------------------
@@ -79,6 +71,16 @@ func main() {
 		panic(fmt.Sprintf("Failed to create logger: %v", err))
 	}
 	lggr = logger.Named(lggr, "executor")
+
+	executorConfig, blockchainInfo, err := loadConfiguration(configPath)
+	if err != nil {
+		lggr.Errorw("Failed to load configuration", "path", configPath, "error", err)
+		os.Exit(1)
+	}
+	if err = executorConfig.Validate(); err != nil {
+		lggr.Errorw("Failed to validate configuration", "path", configPath, "error", err)
+		os.Exit(1)
+	}
 
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "executor",
@@ -213,6 +215,7 @@ func main() {
 	// ------------------------------------------------------------------------------------------------
 	curseChecker := cursechecker.NewCachedCurseChecker(cursechecker.Params{
 		Lggr:        lggr,
+		Metrics:     executorMonitoring.Metrics(),
 		RmnReaders:  rmnReaders,
 		CacheExpiry: executorConfig.ReaderCacheExpiry,
 	})
