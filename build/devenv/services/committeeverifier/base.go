@@ -180,6 +180,9 @@ func ApplyDefaults(in Input) Input {
 	if in.Mode == "" {
 		in.Mode = DefaultVerifierMode
 	}
+	if len(in.ChainFamilies) == 0 {
+		in.ChainFamilies = []string{chainsel.FamilyEVM}
+	}
 	if in.Bootstrap == nil {
 		// Apply defaults for each chain family.
 		in.Bootstrap = make(map[string]*services.BootstrapInput)
@@ -194,9 +197,6 @@ func ApplyDefaults(in Input) Input {
 			bootstraps[chainFamily] = &def
 		}
 		in.Bootstrap = bootstraps
-	}
-	if len(in.ChainFamilies) == 0 {
-		in.ChainFamilies = []string{chainsel.FamilyEVM}
 	}
 	return in
 }
