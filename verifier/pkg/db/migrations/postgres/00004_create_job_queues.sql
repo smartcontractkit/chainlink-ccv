@@ -4,14 +4,14 @@
 
 CREATE TABLE IF NOT EXISTS ccv_task_verifier_jobs (
     id BIGSERIAL PRIMARY KEY,
-    job_id UUID UNIQUE NOT NULL DEFAULT gen_random_uuid(),
+    job_id UUID UNIQUE NOT NULL,
 
     -- Owner identification (e.g. "CCTPVerifier", "LombardVerifier")
     -- Multiple verifiers share the same table but only consume their own jobs
     owner_id TEXT NOT NULL,
 
     -- Chain and message identification
-    chain_selector BIGINT NOT NULL,
+    chain_selector NUMERIC(20,0) NOT NULL,
     message_id BYTEA NOT NULL,
 
     -- Job payload stored as JSONB for flexibility
@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS ccv_task_verifier_jobs_archive (
     id BIGINT PRIMARY KEY,
     job_id UUID UNIQUE NOT NULL,
     owner_id TEXT NOT NULL,
-    chain_selector BIGINT NOT NULL,
+    chain_selector NUMERIC(20,0) NOT NULL,
     message_id BYTEA NOT NULL,
     task_data JSONB NOT NULL,
     status TEXT NOT NULL,
@@ -93,13 +93,13 @@ CREATE INDEX IF NOT EXISTS idx_ccv_task_verifier_jobs_archive_chain
 
 CREATE TABLE IF NOT EXISTS ccv_storage_writer_jobs (
     id BIGSERIAL PRIMARY KEY,
-    job_id UUID UNIQUE NOT NULL DEFAULT gen_random_uuid(),
+    job_id UUID UNIQUE NOT NULL,
 
     -- Owner identification (e.g. "CCTPVerifier", "LombardVerifier")
     owner_id TEXT NOT NULL,
 
     -- Chain and message identification
-    chain_selector BIGINT NOT NULL,
+    chain_selector NUMERIC(20,0) NOT NULL,
     message_id BYTEA NOT NULL,
 
     -- Job payload stored as JSONB
@@ -158,7 +158,7 @@ CREATE TABLE IF NOT EXISTS ccv_storage_writer_jobs_archive (
     id BIGINT PRIMARY KEY,
     job_id UUID UNIQUE NOT NULL,
     owner_id TEXT NOT NULL,
-    chain_selector BIGINT NOT NULL,
+    chain_selector NUMERIC(20,0) NOT NULL,
     message_id BYTEA NOT NULL,
     task_data JSONB NOT NULL,
     status TEXT NOT NULL,
