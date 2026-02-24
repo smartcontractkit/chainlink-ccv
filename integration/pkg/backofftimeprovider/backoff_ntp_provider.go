@@ -10,7 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-const maxBackoffDuration = 5 * time.Minute
+const maxFailedAttempts = 20
 
 var (
 	_ common.TimeProvider = &BackoffNTPProvider{}
@@ -92,8 +92,6 @@ func (b *BackoffNTPProvider) getFallbackTime() time.Time {
 	// localtime_now - localtime_then + ntptime_then
 	return b.lastSuccessNTPTime.Add(now.Sub(b.lastSuccessLocalTime))
 }
-
-const maxFailedAttempts = 20
 
 // calculateBackoffDuration computes exponential backoff duration based on failed attempts.
 // It uses a triangular number sequence to increase the backoff duration more aggressively with each failure.
