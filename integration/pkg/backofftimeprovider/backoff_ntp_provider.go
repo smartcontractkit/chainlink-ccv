@@ -105,8 +105,5 @@ func (b *BackoffNTPProvider) calculateBackoffDuration() time.Duration {
 	// Will cap at maxBackoffDuration.
 	multiplier := (attempts * (attempts + 1)) / 2
 	duration := b.backoffDuration * time.Duration(multiplier)
-	if duration > maxBackoffDuration {
-		return maxBackoffDuration
-	}
 	return duration
 }

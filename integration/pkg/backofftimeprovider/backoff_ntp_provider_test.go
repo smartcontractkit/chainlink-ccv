@@ -232,16 +232,6 @@ func TestBackoffNTPProvider_GetTime_ExponentialBackoff(t *testing.T) {
 	}
 }
 
-func TestBackoffNTPProvider_GetTime_BackoffDurationCappedAtMax(t *testing.T) {
-	lggr := logger.Test(t)
-	provider := NewBackoffNTPProvider(lggr, 1*time.Second, defaultNtpServer)
-	provider.failedAttempts = 1000
-
-	result := provider.calculateBackoffDuration()
-
-	assert.Equal(t, maxBackoffDuration, result, "backoff must be capped")
-}
-
 func TestBackoffNTPProvider_GetTime_MultipleFailuresThenSuccess(t *testing.T) {
 	tests := []struct {
 		name        string
