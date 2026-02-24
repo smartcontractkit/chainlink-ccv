@@ -15,6 +15,10 @@ import (
 const (
 	// defaultTaskPollInterval is how frequently the task verifier polls for new verification tasks.
 	defaultTaskPollInterval = 500 * time.Millisecond
+	// defaultTaskCleanupInterval is how frequently the task verifier cleans up archived jobs.
+	defaultTaskCleanupInterval = 4 * time.Hour
+	// defaultTaskRetentionPeriod is how long archived jobs are kept before deletion.
+	defaultTaskRetentionPeriod = 30 * 24 * time.Hour // 30 days
 )
 
 // TaskVerifierProcessor is responsible for processing read messages from SourceReaderServices,
@@ -42,8 +46,10 @@ type TaskVerifierProcessor struct {
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult]
 
 	// Configuration
-	pollInterval time.Duration
-	batchSize    int
+	pollInterval    time.Duration
+	cleanupInterval time.Duration
+	retentionPeriod time.Duration
+	batchSize       int
 }
 
 func NewTaskVerifierProcessorDB(
@@ -73,15 +79,17 @@ func NewTaskVerifierProcessorDBWithPollInterval(
 	pollInterval time.Duration,
 ) (*TaskVerifierProcessor, error) {
 	p := &TaskVerifierProcessor{
-		lggr:           lggr,
-		verifierID:     verifierID,
-		monitoring:     monitoring,
-		verifier:       verifier,
-		taskQueue:      taskQueue,
-		resultQueue:    resultQueue,
-		writingTracker: writingTracker,
-		pollInterval:   pollInterval,
-		batchSize:      batchSize,
+		lggr:            lggr,
+		verifierID:      verifierID,
+		monitoring:      monitoring,
+		verifier:        verifier,
+		taskQueue:       taskQueue,
+		resultQueue:     resultQueue,
+		writingTracker:  writingTracker,
+		pollInterval:    pollInterval,
+		cleanupInterval: defaultTaskCleanupInterval,
+		retentionPeriod: defaultTaskRetentionPeriod,
+		batchSize:       batchSize,
 	}
 	return p, nil
 }
@@ -106,6 +114,9 @@ func (p *TaskVerifierProcessor) run(ctx context.Context) {
 	ticker := time.NewTicker(p.pollInterval)
 	defer ticker.Stop()
 
+	cleanupTicker := time.NewTicker(p.cleanupInterval)
+	defer cleanupTicker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -115,6 +126,11 @@ func (p *TaskVerifierProcessor) run(ctx context.Context) {
 		case <-ticker.C:
 			if err := p.processBatch(ctx); err != nil {
 				p.lggr.Errorw("Error processing verification batch", "error", err)
+			}
+
+		case <-cleanupTicker.C:
+			if err := p.cleanup(ctx); err != nil {
+				p.lggr.Errorw("Error running cleanup", "error", err)
 			}
 		}
 	}
@@ -302,6 +318,23 @@ func (p *TaskVerifierProcessor) handleVerificationError(
 			verificationError.Task.MessageID,
 		)
 	}
+}
+
+func (p *TaskVerifierProcessor) cleanup(ctx context.Context) error {
+	// Cleanup archived jobs older than retention period
+	deleted, err := p.taskQueue.Cleanup(ctx, p.retentionPeriod)
+	if err != nil {
+		return fmt.Errorf("failed to cleanup task queue: %w", err)
+	}
+
+	if deleted > 0 {
+		p.lggr.Infow("Cleaned up archived verification tasks",
+			"count", deleted,
+			"retentionPeriod", p.retentionPeriod,
+		)
+	}
+
+	return nil
 }
 
 func (p *TaskVerifierProcessor) Name() string {
