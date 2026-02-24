@@ -179,8 +179,8 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 			retryDeadline time.Time
 			createdAt     time.Time
 			startedAt     sql.NullTime
-			chainSelector sql.NullString
-			messageID     sql.NullString
+			chainSelector int64
+			messageID     []byte
 		)
 
 		err := rows.Scan(&id, &jobID, &dataJSON, &attemptCount, &retryDeadline, &createdAt, &startedAt, &chainSelector, &messageID)
@@ -204,8 +204,8 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 			AttemptCount:  attemptCount,
 			RetryDeadline: retryDeadline,
 			CreatedAt:     createdAt,
-			ChainSelector: chainSelector.String,
-			MessageID:     messageID.String,
+			ChainSelector: uint64(chainSelector),
+			MessageID:     messageID,
 		}
 
 		if startedAt.Valid {

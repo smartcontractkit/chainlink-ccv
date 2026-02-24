@@ -11,8 +11,8 @@ CREATE TABLE IF NOT EXISTS ccv_task_verifier_jobs (
     owner_id TEXT NOT NULL,
 
     -- Chain and message identification
-    chain_selector TEXT NOT NULL,
-    message_id TEXT NOT NULL,
+    chain_selector BIGINT NOT NULL,
+    message_id BYTEA NOT NULL,
 
     -- Job payload stored as JSONB for flexibility
     -- Contains serialized VerificationTask struct
@@ -67,8 +67,8 @@ CREATE TABLE IF NOT EXISTS ccv_task_verifier_jobs_archive (
     id BIGINT PRIMARY KEY,
     job_id UUID UNIQUE NOT NULL,
     owner_id TEXT NOT NULL,
-    chain_selector TEXT NOT NULL,
-    message_id TEXT NOT NULL,
+    chain_selector BIGINT NOT NULL,
+    message_id BYTEA NOT NULL,
     task_data JSONB NOT NULL,
     status TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,
@@ -99,8 +99,8 @@ CREATE TABLE IF NOT EXISTS ccv_storage_writer_jobs (
     owner_id TEXT NOT NULL,
 
     -- Chain and message identification
-    chain_selector TEXT NOT NULL,
-    message_id TEXT NOT NULL,
+    chain_selector BIGINT NOT NULL,
+    message_id BYTEA NOT NULL,
 
     -- Job payload stored as JSONB
     -- Contains serialized VerifierNodeResult struct
@@ -158,8 +158,8 @@ CREATE TABLE IF NOT EXISTS ccv_storage_writer_jobs_archive (
     id BIGINT PRIMARY KEY,
     job_id UUID UNIQUE NOT NULL,
     owner_id TEXT NOT NULL,
-    chain_selector TEXT NOT NULL,
-    message_id TEXT NOT NULL,
+    chain_selector BIGINT NOT NULL,
+    message_id BYTEA NOT NULL,
     task_data JSONB NOT NULL,
     status TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL,

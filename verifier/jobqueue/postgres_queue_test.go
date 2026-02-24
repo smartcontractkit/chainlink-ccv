@@ -23,12 +23,12 @@ import (
 
 // testJob implements Jobable for testing purposes.
 type testJob struct {
-	Chain   string `json:"chain"`
-	Message string `json:"message"`
+	Chain   uint64 `json:"chain"`
+	Message []byte `json:"message"`
 	Data    string `json:"data"`
 }
 
-func (j testJob) JobKey() (chainSelector, messageID string) {
+func (j testJob) JobKey() (chainSelector uint64, messageID []byte) {
 	return j.Chain, j.Message
 }
 
@@ -77,9 +77,9 @@ func TestPublishAndConsume(t *testing.T) {
 	ctx := context.Background()
 
 	jobs := []testJob{
-		{Chain: "1", Message: "msg-1", Data: "payload-1"},
-		{Chain: "1", Message: "msg-2", Data: "payload-2"},
-		{Chain: "2", Message: "msg-3", Data: "payload-3"},
+		{Chain: 1, Message: []byte("msg-1"), Data: "payload-1"},
+		{Chain: 1, Message: []byte("msg-2"), Data: "payload-2"},
+		{Chain: 2, Message: []byte("msg-3"), Data: "payload-3"},
 	}
 
 	// Publish
@@ -93,7 +93,7 @@ func TestPublishAndConsume(t *testing.T) {
 	// Verify payload round-trip
 	payloads := map[string]testJob{}
 	for _, j := range consumed {
-		payloads[j.Payload.Message] = j.Payload
+		payloads[string(j.Payload.Message)] = j.Payload
 		assert.Equal(t, j.Payload.Chain, j.ChainSelector)
 		assert.Equal(t, j.Payload.Message, j.MessageID)
 		assert.Equal(t, 1, j.AttemptCount)
@@ -122,7 +122,7 @@ func TestConsumeRespectsAvailableAt(t *testing.T) {
 	ctx := context.Background()
 
 	// Publish with a 1-hour delay – should NOT be consumable now
-	require.NoError(t, q.PublishWithDelay(ctx, time.Hour, testJob{Chain: "1", Message: "delayed", Data: "d"}))
+	require.NoError(t, q.PublishWithDelay(ctx, time.Hour, testJob{Chain: 1, Message: []byte("delayed"), Data: "d"}))
 
 	consumed, err := q.Consume(ctx, 10)
 	require.NoError(t, err)
@@ -134,7 +134,7 @@ func TestConsumeBatchSizeLimit(t *testing.T) {
 	ctx := context.Background()
 
 	for i := range 5 {
-		require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: fmt.Sprintf("m-%d", i), Data: "x"}))
+		require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte(fmt.Sprintf("m-%d", i)), Data: "x"}))
 	}
 
 	consumed, err := q.Consume(ctx, 2)
@@ -146,7 +146,7 @@ func TestConsumeDoesNotReturnProcessingJobs(t *testing.T) {
 	q, _ := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
 	// First consume locks the job
 	first, err := q.Consume(ctx, 10)
@@ -164,7 +164,7 @@ func TestConsumeReclaimsStaleLock(t *testing.T) {
 	q, db := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
 	// Consume the job (LockDuration=1min won't expire naturally during the test).
 	first, err := q.Consume(ctx, 1)
@@ -205,7 +205,7 @@ func TestConsumeDoesNotReclaimFreshProcessingJob(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
 	// Consume with the configured long lock duration.
 	first, err := q.Consume(ctx, 1)
@@ -227,8 +227,8 @@ func TestConsumeReclaimMultipleStaleJobs(t *testing.T) {
 	// Publish 5 jobs.
 	for i := range 5 {
 		require.NoError(t, q.Publish(ctx, testJob{
-			Chain:   "1",
-			Message: fmt.Sprintf("stale-%d", i),
+			Chain:   1,
+			Message: []byte(fmt.Sprintf("stale-%d", i)),
 			Data:    "x",
 		}))
 	}
@@ -274,8 +274,8 @@ func TestConsumeReclaimConcurrentNoDuplicates(t *testing.T) {
 
 	for i := range numJobs {
 		require.NoError(t, q.Publish(ctx, testJob{
-			Chain:   "1",
-			Message: fmt.Sprintf("concurrent-stale-%d", i),
+			Chain:   1,
+			Message: []byte(fmt.Sprintf("concurrent-stale-%d", i)),
 			Data:    "x",
 		}))
 	}
@@ -331,7 +331,7 @@ func TestComplete(t *testing.T) {
 	q, db := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
 	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
@@ -361,7 +361,7 @@ func TestRetry(t *testing.T) {
 	q, db := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
 	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
@@ -388,7 +388,7 @@ func TestRetryExceedsDeadline(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
 	// Small sleep to ensure retry_deadline has passed
 	time.Sleep(5 * time.Millisecond)
@@ -410,7 +410,7 @@ func TestRetryWithDelay(t *testing.T) {
 	q, _ := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
 	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
@@ -430,7 +430,7 @@ func TestFail(t *testing.T) {
 	q, db := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
 	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
@@ -454,7 +454,7 @@ func TestFailedJobsAreReconsumed(t *testing.T) {
 	q, _ := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 
 	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
@@ -475,7 +475,7 @@ func TestCleanup(t *testing.T) {
 	ctx := context.Background()
 
 	// Publish, consume, and complete a job so it lands in the archive
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
@@ -497,7 +497,7 @@ func TestCleanupRetainsRecentJobs(t *testing.T) {
 	q, db := newTestQueue(t)
 	ctx := context.Background()
 
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "m1", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
 	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.NoError(t, q.Complete(ctx, consumed[0].ID))
@@ -514,7 +514,7 @@ func TestFullLifecycle(t *testing.T) {
 	ctx := context.Background()
 
 	// 1. Publish
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "42", Message: "lifecycle-1", Data: "step1"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 42, Message: []byte("lifecycle-1"), Data: "step1"}))
 
 	// 2. Consume (attempt 1)
 	consumed, err := q.Consume(ctx, 1)
@@ -566,8 +566,8 @@ func TestConcurrentPublishAndConsume(t *testing.T) {
 			defer wgPub.Done()
 			for j := range jobsPerProducer {
 				job := testJob{
-					Chain:   fmt.Sprintf("chain-%d", producerID),
-					Message: fmt.Sprintf("msg-%d-%d", producerID, j),
+					Chain:   uint64(producerID),
+					Message: []byte(fmt.Sprintf("msg-%d-%d", producerID, j)),
 					Data:    fmt.Sprintf("data-%d-%d", producerID, j),
 				}
 				// Random sleep to simulate realistic timing
@@ -640,8 +640,8 @@ func TestConcurrentConsumersNoDuplicates(t *testing.T) {
 	const numJobs = 50
 	for i := range numJobs {
 		require.NoError(t, q.Publish(ctx, testJob{
-			Chain:   "1",
-			Message: fmt.Sprintf("dup-test-%d", i),
+			Chain:   1,
+			Message: []byte(fmt.Sprintf("dup-test-%d", i)),
 			Data:    "x",
 		}))
 	}
@@ -694,8 +694,8 @@ func TestConcurrentRetryAndFail(t *testing.T) {
 
 	for i := range numJobs {
 		require.NoError(t, q.Publish(ctx, testJob{
-			Chain:   "chain-1",
-			Message: fmt.Sprintf("rf-%d", i),
+			Chain:   1,
+			Message: []byte(fmt.Sprintf("rf-%d", i)),
 			Data:    fmt.Sprintf("val-%d", i),
 		}))
 	}
@@ -775,7 +775,7 @@ func TestRetryDeadlineExhaustionCycle(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: "exhaust", Data: "x"}))
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("exhaust"), Data: "x"}))
 
 	var jobID string
 
@@ -820,7 +820,7 @@ func TestCleanupMixed(t *testing.T) {
 
 	// Create 3 jobs, complete all
 	for i := range 3 {
-		require.NoError(t, q.Publish(ctx, testJob{Chain: "1", Message: fmt.Sprintf("cl-%d", i), Data: "x"}))
+		require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte(fmt.Sprintf("cl-%d", i)), Data: "x"}))
 	}
 	consumed, err := q.Consume(ctx, 3)
 	require.NoError(t, err)
@@ -864,8 +864,8 @@ func TestConcurrentPublishStress(t *testing.T) {
 			for j := range jobsPerRoutine {
 				time.Sleep(time.Duration(rand.IntN(2)) * time.Millisecond)
 				err := q.Publish(ctx, testJob{
-					Chain:   fmt.Sprintf("chain-%d", gID),
-					Message: fmt.Sprintf("stress-%d-%d", gID, j),
+					Chain:   uint64(gID),
+					Message: []byte(fmt.Sprintf("stress-%d-%d", gID, j)),
 					Data:    "payload",
 				})
 				assert.NoError(t, err)
@@ -902,8 +902,8 @@ func TestEndToEndConcurrentWithRandomWork(t *testing.T) {
 			for j := range jobsPerProducer {
 				time.Sleep(time.Duration(rng.IntN(10)) * time.Millisecond)
 				err := q.Publish(ctx, testJob{
-					Chain:   fmt.Sprintf("e2e-chain-%d", pid),
-					Message: fmt.Sprintf("e2e-%d-%d", pid, j),
+					Chain:   uint64(pid),
+					Message: []byte(fmt.Sprintf("e2e-%d-%d", pid, j)),
 					Data:    fmt.Sprintf("work-%d", j),
 				})
 				assert.NoError(t, err)
