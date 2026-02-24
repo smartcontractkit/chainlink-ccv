@@ -437,7 +437,7 @@ func generateVerifierJobSpecs(
 					allJobSpecs = append(allJobSpecs, job.Spec)
 				}
 
-				verifierJobSpecs[ver.ContainerName] = allJobSpecs
+				verifierJobSpecs[ver.NOPAlias] = allJobSpecs
 				ver.GeneratedJobSpecs = allJobSpecs
 
 				// NodeIndex selects which aggregator this verifier targets. For
@@ -1036,9 +1036,9 @@ func NewEnvironment() (in *Cfg, err error) {
 	// single spec per container.
 	ownedJobSpecs := make(map[string]string, len(verifierJobSpecs))
 	for _, ver := range in.Verifier {
-		specs := verifierJobSpecs[ver.ContainerName]
+		specs := verifierJobSpecs[ver.NOPAlias]
 		if len(specs) > 0 {
-			ownedJobSpecs[ver.ContainerName] = specs[ver.NodeIndex%len(specs)]
+			ownedJobSpecs[ver.NOPAlias] = specs[ver.NodeIndex%len(specs)]
 		}
 	}
 
@@ -1650,34 +1650,34 @@ func proposeJobsToStandaloneVerifiers(
 		g.Go(func() error {
 			// propose to all families
 			if ver.Out == nil || ver.Out.JDNodeID == "" {
-				return fmt.Errorf("verifier %s not registered with JD (missing JDNodeID)", ver.ContainerName)
+				return fmt.Errorf("verifier %s not registered with JD (missing JDNodeID)", ver.NOPAlias)
 			}
 			nodeID := ver.Out.JDNodeID
 
 			// Get the base job spec
-			baseJobSpec, ok := verifierJobSpecs[ver.ContainerName]
+			baseJobSpec, ok := verifierJobSpecs[ver.NOPAlias]
 			if !ok {
-				return fmt.Errorf("no job spec found for verifier %s", ver.ContainerName)
+				return fmt.Errorf("no job spec found for verifier %s", ver.NOPAlias)
 			}
 
 			// For standalone verifiers, we need to inject blockchain_infos into the config
 			// because they don't have CL node chain configuration
 			jobSpec, err := ver.RebuildVerifierJobSpecWithBlockchainInfos(baseJobSpec, blockchainInfos)
 			if err != nil {
-				return fmt.Errorf("failed to add blockchain infos to job spec for %s: %w", ver.ContainerName, err)
+				return fmt.Errorf("failed to add blockchain infos to job spec for %s: %w", ver.NOPAlias, err)
 			}
 
-			L.Info().Msgf("Proposing job to verifier %s: %s", ver.ContainerName, jobSpec)
+			L.Info().Msgf("Proposing job to verifier %s: %s", ver.NOPAlias, jobSpec)
 
 			resp, err := jdClient.ProposeJob(gCtx, &jobv1.ProposeJobRequest{
 				NodeId: nodeID,
 				Spec:   jobSpec,
 			})
 			if err != nil {
-				return fmt.Errorf("failed to propose job to verifier %s: %w", ver.ContainerName, err)
+				return fmt.Errorf("failed to propose job to verifier %s: %w", ver.NOPAlias, err)
 			}
 			L.Info().
-				Str("verifier", ver.ContainerName).
+				Str("verifier", ver.NOPAlias).
 				Str("nodeID", nodeID).
 				Str("proposalID", resp.Proposal.Id).
 				Msg("Proposed job to verifier via JD")
