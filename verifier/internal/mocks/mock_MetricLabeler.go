@@ -196,7 +196,7 @@ func (_m *MockMetricLabeler) IncrementMessagesProcessed(ctx context.Context) {
 	_m.Called(ctx)
 }
 
-// MockMetricLabeler_IncrementMessagesProcessed_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementMessagesProcessed'
+// MockMetricLabeler_IncrementMessagesProcessed_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementMessagesProcessing'
 type MockMetricLabeler_IncrementMessagesProcessed_Call struct {
 	*mock.Call
 }
@@ -204,7 +204,7 @@ type MockMetricLabeler_IncrementMessagesProcessed_Call struct {
 // IncrementMessagesProcessed is a helper method to define mock.On call
 //   - ctx context.Context
 func (_e *MockMetricLabeler_Expecter) IncrementMessagesProcessed(ctx interface{}) *MockMetricLabeler_IncrementMessagesProcessed_Call {
-	return &MockMetricLabeler_IncrementMessagesProcessed_Call{Call: _e.mock.On("IncrementMessagesProcessed", ctx)}
+	return &MockMetricLabeler_IncrementMessagesProcessed_Call{Call: _e.mock.On("IncrementMessagesProcessing", ctx)}
 }
 
 func (_c *MockMetricLabeler_IncrementMessagesProcessed_Call) Run(run func(ctx context.Context)) *MockMetricLabeler_IncrementMessagesProcessed_Call {
