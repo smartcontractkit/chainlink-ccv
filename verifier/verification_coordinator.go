@@ -2,7 +2,6 @@ package verifier
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"maps"
@@ -16,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/jobqueue"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
 
 const (
@@ -58,14 +58,14 @@ func NewCoordinator(
 	monitoring Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	heartbeatClient heartbeatclient.HeartbeatSender,
-	db *sql.DB,
+	ds sqlutil.DataSource,
 ) (*Coordinator, error) {
-	if db == nil {
+	if ds == nil {
 		return nil, errors.New("db is required; in-memory implementations are no longer supported")
 	}
 	return NewCoordinatorWithDetector(
 		ctx, lggr, verifier, sourceReaders, storage, config,
-		messageTracker, monitoring, chainStatusManager, nil, heartbeatClient, db,
+		messageTracker, monitoring, chainStatusManager, nil, heartbeatClient, ds,
 	)
 }
 
@@ -81,13 +81,15 @@ func NewCoordinatorWithDetector(
 	chainStatusManager protocol.ChainStatusManager,
 	detector common.CurseCheckerService,
 	heartbeatClient heartbeatclient.HeartbeatSender,
-	db *sql.DB,
+	ds sqlutil.DataSource,
 ) (*Coordinator, error) {
-	lggr = logger.With(lggr, "verifierID", config.VerifierID)
-	if db == nil {
+	if ds == nil {
 		return nil, errors.New("db is required; in-memory implementations are no longer supported")
 	}
 
+	lggr = logger.With(lggr, "verifierID", config.VerifierID)
+
+	var err error
 	enabledSourceReaders, err := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, chainStatusManager)
 	if err != nil {
 		return nil, fmt.Errorf("failed to filter enabled source readers: %w", err)
@@ -104,10 +106,10 @@ func NewCoordinatorWithDetector(
 	writingTracker := NewPendingWritingTracker(lggr)
 
 	// Create DB-backed processors
-	dbSRS, taskVerifierProcessor, storageWriterProcessor, err := createDurableProcessors(
-		ctx, lggr, db, config, verifier, monitoring, enabledSourceReaders, chainStatusManager, curseDetector, messageTracker, storage, writingTracker,
+	dbSRS, taskVerifierProcessor, storageWriterProcessor, durableErr := createDurableProcessors(
+		ctx, lggr, ds, config, verifier, monitoring, enabledSourceReaders, chainStatusManager, curseDetector, messageTracker, storage, writingTracker,
 	)
-	if err != nil {
+	if durableErr != nil {
 		return nil, err
 	}
 
@@ -147,7 +149,7 @@ func NewCoordinatorWithDetector(
 func createDurableProcessors(
 	ctx context.Context,
 	lggr logger.Logger,
-	db *sql.DB,
+	ds sqlutil.DataSource,
 	config CoordinatorConfig,
 	verifier Verifier,
 	monitoring Monitoring,
@@ -159,7 +161,7 @@ func createDurableProcessors(
 	writingTracker *PendingWritingTracker,
 ) (map[protocol.ChainSelector]*SourceReaderServiceDB, services.Service, services.Service, error) {
 	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
-		db,
+		ds,
 		jobqueue.QueueConfig{
 			Name:          "verification_tasks",
 			OwnerID:       config.VerifierID,
@@ -173,7 +175,7 @@ func createDurableProcessors(
 	}
 
 	resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-		db,
+		ds,
 		jobqueue.QueueConfig{
 			Name:          "verification_results",
 			OwnerID:       config.VerifierID,

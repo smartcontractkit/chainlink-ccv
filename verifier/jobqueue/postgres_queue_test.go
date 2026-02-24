@@ -2,7 +2,6 @@ package jobqueue_test
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -13,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/verifier/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
@@ -32,10 +33,10 @@ func (j testJob) JobKey() (chainSelector, messageID string) {
 
 // newTestQueue creates a PostgresJobQueue[testJob] backed by a real Postgres testcontainer.
 // It uses the "verification_tasks" table which is created by migrations.
-func newTestQueue(t *testing.T, opts ...func(*jobqueue.QueueConfig)) (*jobqueue.PostgresJobQueue[testJob], *sql.DB) {
+func newTestQueue(t *testing.T, opts ...func(*jobqueue.QueueConfig)) (*jobqueue.PostgresJobQueue[testJob], sqlutil.DataSource) {
 	t.Helper()
 
-	sqlxDB := testutil.NewTestDB(t)
+	db := testutil.NewTestDB(t)
 
 	cfg := jobqueue.QueueConfig{
 		Name:          "verification_tasks",
@@ -47,25 +48,25 @@ func newTestQueue(t *testing.T, opts ...func(*jobqueue.QueueConfig)) (*jobqueue.
 		o(&cfg)
 	}
 
-	q, err := jobqueue.NewPostgresJobQueue[testJob](sqlxDB.DB, cfg, logger.Test(t))
+	q, err := jobqueue.NewPostgresJobQueue[testJob](db, cfg, logger.Test(t))
 	require.NoError(t, err)
-	return q, sqlxDB.DB
+	return q, db
 }
 
 // countRows is a test helper that counts rows in a table with a given status filter.
-func countRows(t *testing.T, db *sql.DB, table string, status jobqueue.JobStatus) int {
+func countRows(t *testing.T, ds sqlutil.DataSource, table string, status jobqueue.JobStatus) int {
 	t.Helper()
 	var count int
-	err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE status = $1", table), string(status)).Scan(&count)
+	err := ds.QueryRowxContext(context.Background(), fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE status = $1", table), string(status)).Scan(&count)
 	require.NoError(t, err)
 	return count
 }
 
 // countAllRows is a test helper that counts all rows in a table.
-func countAllRows(t *testing.T, db *sql.DB, table string) int {
+func countAllRows(t *testing.T, ds sqlutil.DataSource, table string) int {
 	t.Helper()
 	var count int
-	err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count)
+	err := ds.QueryRowxContext(context.Background(), fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count)
 	require.NoError(t, err)
 	return count
 }
@@ -172,7 +173,7 @@ func TestConsumeReclaimsStaleLock(t *testing.T) {
 	assert.Equal(t, 1, first[0].AttemptCount)
 
 	// Simulate a crashed worker by back-dating started_at to 10 minutes ago.
-	_, err = db.Exec("UPDATE verification_tasks SET started_at = NOW() - INTERVAL '10 minutes' WHERE job_id = $1", jobID)
+	_, err = db.ExecContext(ctx, "UPDATE verification_tasks SET started_at = NOW() - INTERVAL '10 minutes' WHERE job_id = $1", jobID)
 	require.NoError(t, err)
 
 	// Create a second queue with a 15-minute lock on the same DB.
@@ -238,7 +239,7 @@ func TestConsumeReclaimMultipleStaleJobs(t *testing.T) {
 
 	// Back-date started_at for only 3 of them to simulate partial crash (20min > 10min lock).
 	for _, j := range consumed[:3] {
-		_, err = db.Exec("UPDATE verification_tasks SET started_at = NOW() - INTERVAL '20 minutes' WHERE job_id = $1", j.ID)
+		_, err = db.ExecContext(ctx, "UPDATE verification_tasks SET started_at = NOW() - INTERVAL '20 minutes' WHERE job_id = $1", j.ID)
 		require.NoError(t, err)
 	}
 
@@ -283,7 +284,7 @@ func TestConsumeReclaimConcurrentNoDuplicates(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, consumed, numJobs)
 
-	_, err = db.Exec("UPDATE verification_tasks SET started_at = NOW() - INTERVAL '30 minutes'")
+	_, err = db.ExecContext(ctx, "UPDATE verification_tasks SET started_at = NOW() - INTERVAL '30 minutes'")
 	require.NoError(t, err)
 
 	// Launch multiple concurrent consumers to reclaim. Each should get a unique subset.
@@ -442,7 +443,7 @@ func TestFail(t *testing.T) {
 
 	// Verify error is stored
 	var lastErr string
-	err = db.QueryRow("SELECT last_error FROM verification_tasks WHERE job_id = $1", jobID).Scan(&lastErr)
+	err = db.QueryRowxContext(ctx, "SELECT last_error FROM verification_tasks WHERE job_id = $1", jobID).Scan(&lastErr)
 	require.NoError(t, err)
 	assert.Equal(t, "permanent", lastErr)
 }
@@ -482,7 +483,7 @@ func TestCleanup(t *testing.T) {
 	assert.Equal(t, 1, countAllRows(t, db, "verification_tasks_archive"))
 
 	// Back-date the completed_at so cleanup will pick it up
-	_, err = db.Exec("UPDATE verification_tasks_archive SET completed_at = NOW() - INTERVAL '2 hours'")
+	_, err = db.ExecContext(ctx, "UPDATE verification_tasks_archive SET completed_at = NOW() - INTERVAL '2 hours'")
 	require.NoError(t, err)
 
 	deleted, err := q.Cleanup(ctx, time.Hour)
@@ -537,7 +538,7 @@ func TestFullLifecycle(t *testing.T) {
 	assert.Equal(t, 1, countAllRows(t, db, "verification_tasks_archive"))
 
 	// 6. Back-date and cleanup
-	_, err = db.Exec("UPDATE verification_tasks_archive SET completed_at = NOW() - INTERVAL '48 hours'")
+	_, err = db.ExecContext(ctx, "UPDATE verification_tasks_archive SET completed_at = NOW() - INTERVAL '48 hours'")
 	require.NoError(t, err)
 	deleted, err := q.Cleanup(ctx, time.Hour)
 	require.NoError(t, err)
@@ -807,7 +808,7 @@ func TestRetryDeadlineExhaustionCycle(t *testing.T) {
 
 	// Verify last_error was recorded
 	var lastErr string
-	err = db.QueryRow("SELECT last_error FROM verification_tasks WHERE job_id = $1", jobID).Scan(&lastErr)
+	err = db.QueryRowxContext(ctx, "SELECT last_error FROM verification_tasks WHERE job_id = $1", jobID).Scan(&lastErr)
 	require.NoError(t, err)
 	assert.Equal(t, "err3", lastErr)
 }
@@ -832,7 +833,7 @@ func TestCleanupMixed(t *testing.T) {
 	assert.Equal(t, 3, countAllRows(t, db, "verification_tasks_archive"))
 
 	// Back-date only 2 of them
-	_, err = db.Exec(`
+	_, err = db.ExecContext(ctx, `
 		UPDATE verification_tasks_archive
 		SET completed_at = NOW() - INTERVAL '10 hours'
 		WHERE job_id IN ($1, $2)`, ids[0], ids[1])

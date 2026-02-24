@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/jmoiron/sqlx"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
@@ -172,11 +171,6 @@ func NewVerificationCoordinator(
 		verifierMonitoring,
 	)
 
-	sqlxDB, ok := ds.(*sqlx.DB)
-	if !ok {
-		return nil, fmt.Errorf("expected *sqlx.DB, got %T", ds)
-	}
-
 	// Create verification coordinator
 	verifierCoordinator, err := verifier.NewCoordinator(
 		context.TODO(),
@@ -189,7 +183,7 @@ func NewVerificationCoordinator(
 		verifierMonitoring,
 		chainStatusManager,
 		observedHeartbeatClient,
-		sqlxDB.DB,
+		ds,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

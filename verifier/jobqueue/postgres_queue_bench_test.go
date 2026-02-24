@@ -34,9 +34,9 @@ func BenchmarkJobQueueThroughput(b *testing.B) {
 		failPct        = 5   // percent of consumed jobs permanently failed
 	)
 
-	sqlxDB := testutil.NewTestDB(b)
+	db := testutil.NewTestDB(b)
 
-	q, err := jobqueue.NewPostgresJobQueue[testJob](sqlxDB.DB, jobqueue.QueueConfig{
+	q, err := jobqueue.NewPostgresJobQueue[testJob](db, jobqueue.QueueConfig{
 		Name:          "verification_tasks",
 		OwnerID:       "bench-verifier",
 		RetryDuration: time.Hour,
@@ -49,7 +49,7 @@ func BenchmarkJobQueueThroughput(b *testing.B) {
 
 	for b.Loop() {
 		// Clean tables between iterations so each iteration starts fresh.
-		_, err := sqlxDB.ExecContext(ctx, "TRUNCATE verification_tasks, verification_tasks_archive CASCADE")
+		_, err := db.ExecContext(ctx, "TRUNCATE verification_tasks, verification_tasks_archive CASCADE")
 		require.NoError(b, err)
 
 		var (
@@ -184,11 +184,11 @@ func BenchmarkJobQueueThroughput(b *testing.B) {
 		b.Logf("  Perm. failed:   %d", failed)
 
 		var remaining int
-		err = sqlxDB.QueryRow("SELECT COUNT(*) FROM verification_tasks").Scan(&remaining)
+		err = db.QueryRow("SELECT COUNT(*) FROM verification_tasks").Scan(&remaining)
 		require.NoError(b, err, "count remaining")
 
 		var archived int
-		err = sqlxDB.QueryRow("SELECT COUNT(*) FROM verification_tasks_archive").Scan(&archived)
+		err = db.QueryRow("SELECT COUNT(*) FROM verification_tasks_archive").Scan(&archived)
 		require.NoError(b, err, "count archived")
 		b.Logf("  Remaining in queue: %d, Archived: %d, Sum: %d (expected %d)",
 			remaining, archived, remaining+archived, totalExpected)

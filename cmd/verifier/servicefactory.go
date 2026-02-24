@@ -12,7 +12,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/grafana/pyroscope-go"
-	"github.com/jmoiron/sqlx"
+
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
@@ -37,7 +38,7 @@ type factory struct {
 	profiler          *pyroscope.Profiler
 	aggregatorWriter  *storageaccess.AggregatorWriter
 	heartbeatClient   *heartbeatclient.HeartbeatClient
-	chainStatusDB     *sqlx.DB
+	chainStatusDB     sqlutil.DataSource
 	coordinatorCancel context.CancelFunc
 }
 
@@ -248,7 +249,7 @@ func (f *factory) Start(ctx context.Context, spec string, deps bootstrap.Service
 		verifierMonitoring,
 		chainStatusManager,
 		observedHeartbeatClient,
-		chainStatusDB.DB,
+		chainStatusDB,
 	)
 	if err != nil {
 		coordinatorCancel()
@@ -361,14 +362,6 @@ func (f *factory) Stop(ctx context.Context) error {
 		f.coordinatorCancel()
 	}
 
-	// Close the db
-	if f.chainStatusDB != nil {
-		if err := f.chainStatusDB.Close(); err != nil {
-			f.lggr.Errorw("Chain status DB close error", "error", err)
-			allErrors = errors.Join(allErrors, err)
-		}
-	}
-
 	// Reset the state
 	f.server = nil
 	f.coordinator = nil
@@ -399,7 +392,7 @@ func loadConfiguration(spec string) (*commit.Config, map[string]*blockchain.Info
 	return &config.Config, config.BlockchainInfos, nil
 }
 
-func createChainStatusManager(lggr logger.Logger, verifierID string, monitoring verifier.Monitoring) (protocol.ChainStatusManager, *sqlx.DB, error) {
+func createChainStatusManager(lggr logger.Logger, verifierID string, monitoring verifier.Monitoring) (protocol.ChainStatusManager, sqlutil.DataSource, error) {
 	sqlDB, err := ConnectToPostgresDB(lggr)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect to Postgres DB: %w", err)

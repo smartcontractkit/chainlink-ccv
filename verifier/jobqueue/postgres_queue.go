@@ -11,12 +11,13 @@ import (
 	"github.com/lib/pq"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
 
 // PostgresJobQueue implements JobQueue interface using PostgreSQL as the backing store.
 // It uses row-level locking with SKIP LOCKED for efficient concurrent processing.
 type PostgresJobQueue[T Jobable] struct {
-	db          *sql.DB
+	ds          sqlutil.DataSource
 	config      QueueConfig
 	logger      logger.Logger
 	tableName   string
@@ -27,16 +28,16 @@ type PostgresJobQueue[T Jobable] struct {
 // NewPostgresJobQueue creates a new PostgreSQL-backed job queue.
 // The table must already exist with the appropriate schema.
 func NewPostgresJobQueue[T Jobable](
-	db *sql.DB,
+	ds sqlutil.DataSource,
 	config QueueConfig,
 	lggr logger.Logger,
 ) (*PostgresJobQueue[T], error) {
-	if db == nil {
+	if ds == nil {
 		return nil, fmt.Errorf("database connection cannot be nil")
 	}
 
 	return &PostgresJobQueue[T]{
-		db:          db,
+		ds:          ds,
 		config:      config,
 		logger:      lggr,
 		tableName:   config.Name,
@@ -59,7 +60,6 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 	availableAt := time.Now().Add(delay)
 
 	// Build bulk insert query
-	//nolint:gosec // G201: table name is from config, not user input
 	query := fmt.Sprintf(`
 		INSERT INTO %s (
 			job_id, task_data, status, available_at, created_at, attempt_count, retry_deadline,
@@ -67,55 +67,50 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`, q.tableName)
 
-	tx, err := q.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-
-	stmt, err := tx.PrepareContext(ctx, query)
-	if err != nil {
-		return fmt.Errorf("failed to prepare statement: %w", err)
-	}
-	defer func() {
-		_ = stmt.Close()
-	}()
-
-	for _, job := range jobs {
-		jobID := uuid.New().String()
-
-		// Serialize payload to JSON
-		data, err := json.Marshal(job)
+	err := sqlutil.TransactDataSource(ctx, q.ds, nil, func(tx sqlutil.DataSource) error {
+		stmt, err := tx.PrepareContext(ctx, query)
 		if err != nil {
-			return fmt.Errorf("failed to marshal job payload: %w", err)
+			return fmt.Errorf("failed to prepare statement: %w", err)
+		}
+		defer func() {
+			_ = stmt.Close()
+		}()
+
+		for _, job := range jobs {
+			jobID := uuid.New().String()
+
+			// Serialize payload to JSON
+			data, err := json.Marshal(job)
+			if err != nil {
+				return fmt.Errorf("failed to marshal job payload: %w", err)
+			}
+
+			// Extract chain selector and message ID from the job
+			chainSelector, messageID := job.JobKey()
+
+			now := time.Now()
+
+			_, err = stmt.ExecContext(ctx,
+				jobID,
+				data,
+				JobStatusPending,
+				availableAt,
+				now,
+				0, // attempt_count
+				now.Add(q.config.RetryDuration),
+				chainSelector,
+				messageID,
+				q.ownerID,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to insert job %s: %w", jobID, err)
+			}
 		}
 
-		// Extract chain selector and message ID from the job
-		chainSelector, messageID := job.JobKey()
-
-		now := time.Now()
-
-		_, err = stmt.ExecContext(ctx,
-			jobID,
-			data,
-			JobStatusPending,
-			availableAt,
-			now,
-			0, // attempt_count
-			now.Add(q.config.RetryDuration),
-			chainSelector,
-			messageID,
-			q.ownerID,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to insert job %s: %w", jobID, err)
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	q.logger.Debugw("Published jobs to queue",
@@ -136,7 +131,6 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 	// Select jobs that are:
 	// 1. pending/failed and past their available_at, OR
 	// 2. processing but started_at is older than lockDuration (stale lock from crashed worker)
-	//nolint:gosec // G201: table name is from config, not user input
 	query := fmt.Sprintf(`
 		UPDATE %s
 		SET status = $1,
@@ -157,7 +151,7 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 		RETURNING id, job_id, task_data, attempt_count, retry_deadline, created_at, started_at, chain_selector, message_id
 	`, q.tableName, q.tableName)
 
-	rows, err := q.db.QueryContext(ctx, query,
+	rows, err := q.ds.QueryContext(ctx, query,
 		JobStatusProcessing, // $1
 		now,                 // $2 started_at
 		q.ownerID,           // $3
@@ -243,7 +237,6 @@ func (q *PostgresJobQueue[T]) Complete(ctx context.Context, jobIDs ...string) er
 	// Move to archive table for audit trail
 	// Note: This query works for both verification_tasks (without task_job_id)
 	// and verification_results (with task_job_id) by selecting all columns
-	//nolint:gosec // G201: table names are from config, not user input
 	query := fmt.Sprintf(`
 		WITH completed AS (
 			DELETE FROM %s
@@ -256,7 +249,7 @@ func (q *PostgresJobQueue[T]) Complete(ctx context.Context, jobIDs ...string) er
 		FROM completed
 	`, q.tableName, q.archiveName)
 
-	result, err := q.db.ExecContext(ctx, query, pq.Array(jobIDs), q.ownerID)
+	result, err := q.ds.ExecContext(ctx, query, pq.Array(jobIDs), q.ownerID)
 	if err != nil {
 		return fmt.Errorf("failed to complete jobs: %w", err)
 	}
@@ -279,7 +272,6 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 	availableAt := time.Now().Add(delay)
 
 	// Check if retry deadline has passed
-	//nolint:gosec // G201: table name is from config, not user input
 	query := fmt.Sprintf(`
 		UPDATE %s
 		SET status = CASE
@@ -293,61 +285,56 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 		RETURNING job_id, status
 	`, q.tableName)
 
-	tx, err := q.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-
-	stmt, err := tx.PrepareContext(ctx, query)
-	if err != nil {
-		return fmt.Errorf("failed to prepare retry statement: %w", err)
-	}
-	defer func() {
-		_ = stmt.Close()
-	}()
-
 	var failed []string
 	var retried []string
 
-	for _, jobID := range jobIDs {
-		errMsg := ""
-		if err, ok := errors[jobID]; ok && err != nil {
-			errMsg = err.Error()
-		}
-
-		var resultJobID string
-		var resultStatus string
-
-		err := stmt.QueryRowContext(ctx,
-			JobStatusFailed,
-			JobStatusPending,
-			availableAt,
-			errMsg,
-			jobID,
-			q.ownerID,
-		).Scan(&resultJobID, &resultStatus)
+	err := sqlutil.TransactDataSource(ctx, q.ds, nil, func(tx sqlutil.DataSource) error {
+		stmt, err := tx.PrepareContext(ctx, query)
 		if err != nil {
-			q.logger.Errorw("Failed to retry job",
-				"jobID", jobID,
-				"error", err,
-			)
-			continue
+			return fmt.Errorf("failed to prepare retry statement: %w", err)
+		}
+		defer func() {
+			_ = stmt.Close()
+		}()
+
+		for _, jobID := range jobIDs {
+			errMsg := ""
+			if err, ok := errors[jobID]; ok && err != nil {
+				errMsg = err.Error()
+			}
+
+			var resultJobID string
+			var resultStatus string
+
+			err := stmt.QueryRowContext(ctx,
+				JobStatusFailed,
+				JobStatusPending,
+				availableAt,
+				errMsg,
+				jobID,
+				q.ownerID,
+			).Scan(&resultJobID, &resultStatus)
+			if err != nil {
+				q.logger.Errorw("Failed to retry job",
+					"jobID", jobID,
+					"error", err,
+				)
+				continue
+			}
+
+			// Use the status decided by the database to avoid race condition
+			// between SQL NOW() and Go time.Now()
+			if resultStatus == string(JobStatusFailed) {
+				failed = append(failed, resultJobID)
+			} else {
+				retried = append(retried, resultJobID)
+			}
 		}
 
-		// Use the status decided by the database to avoid race condition
-		// between SQL NOW() and Go time.Now()
-		if resultStatus == string(JobStatusFailed) {
-			failed = append(failed, resultJobID)
-		} else {
-			retried = append(retried, resultJobID)
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit retry transaction: %w", err)
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	q.logger.Infow("Retried jobs",
@@ -366,7 +353,6 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 		return nil
 	}
 
-	//nolint:gosec // G201: table name is from config, not user input
 	query := fmt.Sprintf(`
 		UPDATE %s
 		SET status = $1,
@@ -375,39 +361,34 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 		  AND owner_id = $4
 	`, q.tableName)
 
-	tx, err := q.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func() {
-		_ = tx.Rollback()
-	}()
-
-	stmt, err := tx.PrepareContext(ctx, query)
-	if err != nil {
-		return fmt.Errorf("failed to prepare fail statement: %w", err)
-	}
-	defer func() {
-		_ = stmt.Close()
-	}()
-
-	for _, jobID := range jobIDs {
-		errMsg := ""
-		if err, ok := errors[jobID]; ok && err != nil {
-			errMsg = err.Error()
-		}
-
-		_, err := stmt.ExecContext(ctx, JobStatusFailed, errMsg, jobID, q.ownerID)
+	err := sqlutil.TransactDataSource(ctx, q.ds, nil, func(tx sqlutil.DataSource) error {
+		stmt, err := tx.PrepareContext(ctx, query)
 		if err != nil {
-			q.logger.Errorw("Failed to mark job as failed",
-				"jobID", jobID,
-				"error", err,
-			)
+			return fmt.Errorf("failed to prepare fail statement: %w", err)
 		}
-	}
+		defer func() {
+			_ = stmt.Close()
+		}()
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit fail transaction: %w", err)
+		for _, jobID := range jobIDs {
+			errMsg := ""
+			if err, ok := errors[jobID]; ok && err != nil {
+				errMsg = err.Error()
+			}
+
+			_, err := stmt.ExecContext(ctx, JobStatusFailed, errMsg, jobID, q.ownerID)
+			if err != nil {
+				q.logger.Errorw("Failed to mark job as failed",
+					"jobID", jobID,
+					"error", err,
+				)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	q.logger.Infow("Failed jobs",
@@ -422,14 +403,13 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 func (q *PostgresJobQueue[T]) Cleanup(ctx context.Context, retentionPeriod time.Duration) (int, error) {
 	cutoff := time.Now().Add(-retentionPeriod)
 
-	//nolint:gosec // G201: table name is from config, not user input
 	query := fmt.Sprintf(`
 		DELETE FROM %s
 		WHERE completed_at < $1
 		  AND owner_id = $2
 	`, q.archiveName)
 
-	result, err := q.db.ExecContext(ctx, query, cutoff, q.ownerID)
+	result, err := q.ds.ExecContext(ctx, query, cutoff, q.ownerID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to cleanup archive: %w", err)
 	}

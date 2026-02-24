@@ -33,7 +33,7 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 		ownerID := "test-" + t.Name()
 
 		taskQueue, err := jobqueue.NewPostgresJobQueue[verifier.VerificationTask](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
 				Name:          "verification_tasks",
 				OwnerID:       ownerID,
@@ -45,7 +45,7 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 		require.NoError(t, err)
 
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
 				Name:          "verification_results",
 				OwnerID:       ownerID,
@@ -114,7 +114,7 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 		ownerID := "test-" + t.Name()
 
 		taskQueue, err := jobqueue.NewPostgresJobQueue[verifier.VerificationTask](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
 				Name:          "verification_tasks",
 				OwnerID:       ownerID,
@@ -126,7 +126,7 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 		require.NoError(t, err)
 
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
 				Name:          "verification_results",
 				OwnerID:       ownerID,
@@ -202,7 +202,7 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 		ownerID := "test-" + t.Name()
 
 		taskQueue, err := jobqueue.NewPostgresJobQueue[verifier.VerificationTask](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
 				Name:          "verification_tasks",
 				OwnerID:       ownerID,
@@ -214,7 +214,7 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 		require.NoError(t, err)
 
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
 				Name:          "verification_results",
 				OwnerID:       ownerID,
@@ -283,7 +283,7 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 		ownerID := "test-" + t.Name()
 
 		taskQueue, err := jobqueue.NewPostgresJobQueue[verifier.VerificationTask](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
 				Name:          "verification_tasks",
 				OwnerID:       ownerID,
@@ -295,7 +295,7 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 		require.NoError(t, err)
 
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
 				Name:          "verification_results",
 				OwnerID:       ownerID,
@@ -375,7 +375,7 @@ func TestTaskVerifierProcessorDB_Shutdown(t *testing.T) {
 		ownerID := "test-" + t.Name()
 
 		taskQueue, err := jobqueue.NewPostgresJobQueue[verifier.VerificationTask](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
 				Name:          "verification_tasks",
 				OwnerID:       ownerID,
@@ -387,7 +387,7 @@ func TestTaskVerifierProcessorDB_Shutdown(t *testing.T) {
 		require.NoError(t, err)
 
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
 				Name:          "verification_results",
 				OwnerID:       ownerID,

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
@@ -13,6 +12,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"go.uber.org/zap/zapcore"
+
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
@@ -94,19 +95,19 @@ func main() {
 		rmnRemoteAddresses[selector] = addr
 	}
 
-	sqlDB, err := cmd.ConnectToPostgresDB(lggr)
+	db, err := cmd.ConnectToPostgresDB(lggr)
 	if err != nil {
 		lggr.Errorw("Failed to connect to Postgres database", "error", err)
 		os.Exit(1)
 	}
 
-	postgresStorage := ccvstorage.NewPostgres(sqlDB, lggr)
+	postgresStorage := ccvstorage.NewPostgres(db, lggr)
 	// Wrap storage with monitoring decorator to track query durations
 	monitoredStorage := ccvstorage.NewMonitoredStorage(postgresStorage, verifierMonitoring.Metrics())
 
 	coordinators := make([]*verifier.Coordinator, 0, len(config.TokenVerifiers))
 	for _, verifierConfig := range config.TokenVerifiers {
-		chainStatusManager := chainstatus.NewPostgresChainStatusManager(sqlDB, lggr, verifierConfig.VerifierID)
+		chainStatusManager := chainstatus.NewPostgresChainStatusManager(db, lggr, verifierConfig.VerifierID)
 		// Wrap chain status manager with monitoring decorator to track query durations
 		monitoredChainStatusManager := chainstatus.NewMonitoredChainStatusManager(chainStatusManager, verifierMonitoring.Metrics())
 
@@ -133,7 +134,7 @@ func main() {
 				messageTracker,
 				verifierMonitoring,
 				monitoredChainStatusManager,
-				sqlDB.DB,
+				db,
 			)
 		} else if verifierConfig.IsCCTP() {
 			coordinator = createCCTPCoordinator(
@@ -151,7 +152,7 @@ func main() {
 				messageTracker,
 				verifierMonitoring,
 				monitoredChainStatusManager,
-				sqlDB.DB,
+				db,
 			)
 		} else {
 			lggr.Fatalw("Unknown verifier type", "type", verifierConfig.Type)
@@ -220,7 +221,7 @@ func createCCTPCoordinator(
 	messageTracker verifier.MessageLatencyTracker,
 	verifierMonitoring verifier.Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
-	db *sql.DB,
+	db sqlutil.DataSource,
 ) *verifier.Coordinator {
 	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifierResolvers, rmnRemoteAddresses)
 
@@ -269,7 +270,7 @@ func createLombardCoordinator(
 	messageTracker verifier.MessageLatencyTracker,
 	verifierMonitoring verifier.Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
-	db *sql.DB,
+	db sqlutil.DataSource,
 ) *verifier.Coordinator {
 	sourceConfigs := createSourceConfigs(lombardConfig.ParsedVerifierResolvers, rmnRemoteAddresses)
 
