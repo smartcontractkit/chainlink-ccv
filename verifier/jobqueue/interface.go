@@ -20,7 +20,9 @@ const (
 type Jobable interface {
 	// JobKey returns the chain selector and message ID for this job.
 	// These are used for database indexing, querying, and job routing.
-	JobKey() (chainSelector, messageID string)
+	// chainSelector is a uint64 representing the chain
+	// messageID is a byte slice representing the unique message identifier.
+	JobKey() (chainSelector uint64, messageID []byte)
 }
 
 // Job wraps a payload with queue metadata.
@@ -37,10 +39,10 @@ type Job[T Jobable] struct {
 	CreatedAt time.Time
 	// When processing started (nil if not started)
 	StartedAt *time.Time
-	// Chain selector for routing and monitoring
-	ChainSelector string
-	// Message ID for deduplication and tracking
-	MessageID string
+	// Chain selector for routing and monitoring (uint64)
+	ChainSelector uint64
+	// Message ID for deduplication and tracking (byte slice)
+	MessageID []byte
 }
 
 // JobQueue defines a generic durable queue interface backed by persistent storage.

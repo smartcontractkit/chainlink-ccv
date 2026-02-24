@@ -38,9 +38,9 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 
 		// Create result queue
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
-				Name:          "verification_results",
+				Name:          StorageWriterJobsTableName,
 				OwnerID:       "test-" + t.Name(),
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -109,9 +109,9 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
-				Name:          "verification_results",
+				Name:          StorageWriterJobsTableName,
 				OwnerID:       "test-" + t.Name(),
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -177,9 +177,9 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
-				Name:          "verification_results",
+				Name:          StorageWriterJobsTableName,
 				OwnerID:       "test-" + t.Name(),
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -248,9 +248,9 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
-				Name:          "verification_results",
+				Name:          StorageWriterJobsTableName,
 				OwnerID:       "test-" + t.Name(),
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -333,9 +333,9 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 		msg1 := createTrackedMessage(chain1, 100, 100, tracker)
 
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
-				Name:          "verification_results",
+				Name:          StorageWriterJobsTableName,
 				OwnerID:       "test-" + t.Name(),
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -406,9 +406,9 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 		msg3 := createTrackedMessage(chain1, 110, 110, tracker)
 
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
-				Name:          "verification_results",
+				Name:          StorageWriterJobsTableName,
 				OwnerID:       "test-" + t.Name(),
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -501,9 +501,9 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 		msg2 := createTrackedMessage(chain2, 200, 200, tracker)
 
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
-				Name:          "verification_results",
+				Name:          StorageWriterJobsTableName,
 				OwnerID:       "test-" + t.Name(),
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -575,15 +575,13 @@ func TestStorageWriterProcessorDB_ContextCancellation(t *testing.T) {
 		t.Parallel()
 		ctx, cancel := context.WithCancel(t.Context())
 
-		db := testutil.NewTestDB(t)
-
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db.DB,
+			testutil.NewTestDB(t),
 			jobqueue.QueueConfig{
-				Name:          "verification_results",
+				Name:          StorageWriterJobsTableName,
 				OwnerID:       "test-" + t.Name(),
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,

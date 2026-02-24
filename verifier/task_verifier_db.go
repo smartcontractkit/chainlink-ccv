@@ -32,9 +32,9 @@ type TaskVerifierProcessorDB struct {
 	// Pending writing tracker (shared with SRS and SWP)
 	writingTracker *PendingWritingTracker
 
-	// Consumes from verification_tasks queue
+	// Consumes from ccv_task_verifier_jobs queue
 	taskQueue jobqueue.JobQueue[VerificationTask]
-	// Produces to verification_results queue
+	// Produces to ccv_storage_writer_jobs queue
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult]
 
 	// Configuration
@@ -199,7 +199,7 @@ func (p *TaskVerifierProcessorDB) handleVerificationResults(
 		}
 	}
 
-	// Publish successful results to verification_results queue
+	// Publish successful results to ccv_storage_writer_jobs queue
 	if len(successfulResults) > 0 {
 		publishCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()

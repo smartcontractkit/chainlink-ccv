@@ -339,7 +339,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		&noopMonitoring{},
 		mockChainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
-		sqlxDB.DB,
+		sqlxDB,
 		50*time.Millisecond, // Fast poll interval for tests
 	)
 	require.NoError(t, err)

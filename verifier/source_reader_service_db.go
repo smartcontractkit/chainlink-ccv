@@ -19,7 +19,7 @@ import (
 
 // SourceReaderServiceDB is a DB-backed version of SourceReaderService.
 // Instead of pushing ready tasks into an in-memory batcher, it publishes
-// them directly to the verification_tasks job queue so that
+// them directly to the ccv_task_verifier_jobs job queue so that
 // TaskVerifierProcessorDB can pick them up durably.
 type SourceReaderServiceDB struct {
 	services.StateMachine
@@ -58,7 +58,7 @@ type SourceReaderServiceDB struct {
 }
 
 // NewSourceReaderServiceDB creates a DB-backed SourceReaderService that publishes
-// ready tasks directly to the verification_tasks job queue.
+// ready tasks directly to the ccv_task_verifier_jobs job queue.
 func NewSourceReaderServiceDB(
 	ctx context.Context,
 	sourceReader chainaccess.SourceReader,

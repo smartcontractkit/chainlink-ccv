@@ -11,6 +11,8 @@ import (
 	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
 
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
+
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
@@ -189,7 +191,7 @@ func CreateSourceReaders(
 	return readers, nil
 }
 
-func ConnectToPostgresDB(lggr logger.Logger) (*sqlx.DB, error) {
+func ConnectToPostgresDB(lggr logger.Logger) (sqlutil.DataSource, error) {
 	dbURL := os.Getenv(DatabaseURLEnvVar)
 	if dbURL == "" {
 		return nil, nil

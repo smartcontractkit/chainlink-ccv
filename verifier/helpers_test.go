@@ -2,7 +2,6 @@ package verifier
 
 import (
 	"context"
-	"database/sql"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
@@ -393,9 +393,13 @@ func NewCoordinatorWithFastPolling(
 	monitoring Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	heartbeatClient heartbeatclient.HeartbeatSender,
-	db *sql.DB,
+	ds sqlutil.DataSource,
 	pollInterval time.Duration,
 ) (*Coordinator, error) {
+	if ds == nil {
+		return nil, errors.New("db is required; in-memory implementations are no longer supported")
+	}
+
 	// Use the same initialization as NewCoordinator but with custom poll intervals
 	lggr = logger.With(lggr, "verifierID", config.VerifierID)
 
@@ -415,34 +419,16 @@ func NewCoordinatorWithFastPolling(
 
 	writingTracker := NewPendingWritingTracker(lggr)
 
-	var taskVerifierProcessor services.Service
-	var storageWriterProcessor services.Service
-	sourceReaderServices := make(map[protocol.ChainSelector]services.Service)
+	dbSRS, taskVerifierProcessor, storageWriterProcessor, durableErr := createDurableProcessorsWithPollInterval(
+		ctx, lggr, ds, config, verifier, monitoring, enabledSourceReaders, chainStatusManager, curseDetector, messageTracker, storage, writingTracker, pollInterval,
+	)
+	if durableErr != nil {
+		return nil, durableErr
+	}
 
-	if db == nil {
-		inMemorySRS := createSourceReaders(
-			ctx, lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, writingTracker,
-		)
-		for chainSelector, srs := range inMemorySRS {
-			sourceReaderServices[chainSelector] = srs
-		}
-		taskVerifierProcessor, storageWriterProcessor, err = createInMemoryProcessors(
-			ctx, lggr, config, verifier, monitoring, inMemorySRS, messageTracker, storage, writingTracker, chainStatusManager,
-		)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		dbSRS, tvp, swp, durableErr := createDurableProcessorsWithPollInterval(
-			ctx, lggr, db, config, verifier, monitoring, enabledSourceReaders, chainStatusManager, curseDetector, messageTracker, storage, writingTracker, pollInterval,
-		)
-		if durableErr != nil {
-			return nil, durableErr
-		}
-		for chainSelector, srs := range dbSRS {
-			sourceReaderServices[chainSelector] = srs
-		}
-		taskVerifierProcessor, storageWriterProcessor = tvp, swp
+	sourceReaderServices := make(map[protocol.ChainSelector]services.Service)
+	for chainSelector, srs := range dbSRS {
+		sourceReaderServices[chainSelector] = srs
 	}
 
 	var heartbeatReporter *HeartbeatReporter
@@ -480,7 +466,7 @@ func NewCoordinatorWithFastPolling(
 func createDurableProcessorsWithPollInterval(
 	ctx context.Context,
 	lggr logger.Logger,
-	db *sql.DB,
+	ds sqlutil.DataSource,
 	config CoordinatorConfig,
 	verifier Verifier,
 	monitoring Monitoring,
@@ -493,9 +479,9 @@ func createDurableProcessorsWithPollInterval(
 	pollInterval time.Duration,
 ) (map[protocol.ChainSelector]*SourceReaderServiceDB, services.Service, services.Service, error) {
 	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
-		db,
+		ds,
 		jobqueue.QueueConfig{
-			Name:          "verification_tasks",
+			Name:          TaskVerifierJobsTableName,
 			OwnerID:       config.VerifierID,
 			RetryDuration: taskQueueRetryDuration,
 			LockDuration:  taskQueueLockDuration,
@@ -507,9 +493,9 @@ func createDurableProcessorsWithPollInterval(
 	}
 
 	resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-		db,
+		ds,
 		jobqueue.QueueConfig{
-			Name:          "verification_results",
+			Name:          StorageWriterJobsTableName,
 			OwnerID:       config.VerifierID,
 			RetryDuration: resultQueueRetryDuration,
 			LockDuration:  resultQueueLockDuration,

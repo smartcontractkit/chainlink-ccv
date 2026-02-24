@@ -135,7 +135,7 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 		setup.chainStatusManager,
 		setup.mockCurseChecker,
 		heartbeatclient.NewNoopHeartbeatClient(),
-		sqlxDB.DB,
+		sqlxDB,
 	)
 	require.NoError(t, err)
 	setup.coordinator = coordinator

@@ -33,9 +33,9 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 		ownerID := "test-" + t.Name()
 
 		taskQueue, err := jobqueue.NewPostgresJobQueue[verifier.VerificationTask](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
-				Name:          "verification_tasks",
+				Name:          verifier.TaskVerifierJobsTableName,
 				OwnerID:       ownerID,
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -45,9 +45,9 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 		require.NoError(t, err)
 
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
-				Name:          "verification_results",
+				Name:          verifier.StorageWriterJobsTableName,
 				OwnerID:       ownerID,
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -114,9 +114,9 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 		ownerID := "test-" + t.Name()
 
 		taskQueue, err := jobqueue.NewPostgresJobQueue[verifier.VerificationTask](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
-				Name:          "verification_tasks",
+				Name:          verifier.TaskVerifierJobsTableName,
 				OwnerID:       ownerID,
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -126,9 +126,9 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 		require.NoError(t, err)
 
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
-				Name:          "verification_results",
+				Name:          verifier.StorageWriterJobsTableName,
 				OwnerID:       ownerID,
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -202,9 +202,9 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 		ownerID := "test-" + t.Name()
 
 		taskQueue, err := jobqueue.NewPostgresJobQueue[verifier.VerificationTask](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
-				Name:          "verification_tasks",
+				Name:          verifier.TaskVerifierJobsTableName,
 				OwnerID:       ownerID,
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -214,9 +214,9 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 		require.NoError(t, err)
 
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
-				Name:          "verification_results",
+				Name:          verifier.StorageWriterJobsTableName,
 				OwnerID:       ownerID,
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -283,9 +283,9 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 		ownerID := "test-" + t.Name()
 
 		taskQueue, err := jobqueue.NewPostgresJobQueue[verifier.VerificationTask](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
-				Name:          "verification_tasks",
+				Name:          verifier.TaskVerifierJobsTableName,
 				OwnerID:       ownerID,
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -295,9 +295,9 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 		require.NoError(t, err)
 
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
-				Name:          "verification_results",
+				Name:          verifier.StorageWriterJobsTableName,
 				OwnerID:       ownerID,
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -375,9 +375,9 @@ func TestTaskVerifierProcessorDB_Shutdown(t *testing.T) {
 		ownerID := "test-" + t.Name()
 
 		taskQueue, err := jobqueue.NewPostgresJobQueue[verifier.VerificationTask](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
-				Name:          "verification_tasks",
+				Name:          verifier.TaskVerifierJobsTableName,
 				OwnerID:       ownerID,
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -387,9 +387,9 @@ func TestTaskVerifierProcessorDB_Shutdown(t *testing.T) {
 		require.NoError(t, err)
 
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db.DB,
+			db,
 			jobqueue.QueueConfig{
-				Name:          "verification_results",
+				Name:          verifier.StorageWriterJobsTableName,
 				OwnerID:       ownerID,
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -451,7 +451,7 @@ func countArchivedTasks(t *testing.T, db *sqlx.DB, ownerID string) int {
 	t.Helper()
 	var count int
 	err := db.QueryRow(`
-		SELECT COUNT(*) FROM verification_tasks_archive 
+		SELECT COUNT(*) FROM ccv_task_verifier_jobs_archive 
 		WHERE owner_id = $1
 	`, ownerID).Scan(&count)
 	require.NoError(t, err)
@@ -463,7 +463,7 @@ func countVerificationResults(t *testing.T, db *sqlx.DB, ownerID string) int {
 	t.Helper()
 	var count int
 	err := db.QueryRow(`
-		SELECT COUNT(*) FROM verification_results 
+		SELECT COUNT(*) FROM ccv_storage_writer_jobs 
 		WHERE owner_id = $1
 	`, ownerID).Scan(&count)
 	require.NoError(t, err)
@@ -475,7 +475,7 @@ func countFailedTasks(t *testing.T, db *sqlx.DB, ownerID string) int {
 	t.Helper()
 	var count int
 	err := db.QueryRow(`
-		SELECT COUNT(*) FROM verification_tasks 
+		SELECT COUNT(*) FROM ccv_task_verifier_jobs 
 		WHERE owner_id = $1 AND status = 'failed'
 	`, ownerID).Scan(&count)
 	require.NoError(t, err)
