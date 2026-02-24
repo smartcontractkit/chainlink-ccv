@@ -30,7 +30,7 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 
 	t.Run("processes batches from queue until context cancelled with storage always succeeding", func(t *testing.T) {
 		t.Parallel()
-		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
+		ctx := t.Context()
 
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
@@ -68,10 +68,9 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 
 		// Start processor
 		require.NoError(t, processor.Start(ctx))
-		defer func() {
-			cancel()
+		t.Cleanup(func() {
 			require.NoError(t, processor.Close())
-		}()
+		})
 
 		// Publish test results
 		batch1 := []protocol.VerifierNodeResult{
@@ -104,7 +103,7 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 
 	t.Run("processes multiple batches concurrently", func(t *testing.T) {
 		t.Parallel()
-		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
+		ctx := t.Context()
 
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
@@ -138,10 +137,9 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 		require.NoError(t, err)
 
 		require.NoError(t, processor.Start(ctx))
-		defer func() {
-			cancel()
+		t.Cleanup(func() {
 			require.NoError(t, processor.Close())
-		}()
+		})
 
 		// Publish many results concurrently
 		const numJobs = 50
@@ -172,7 +170,6 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 
 	t.Run("retries failed batches after delay", func(t *testing.T) {
 		t.Parallel()
-		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
 
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
@@ -190,7 +187,7 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 		require.NoError(t, err)
 
 		processor, err := NewStorageWriterProcessor(
-			ctx,
+			t.Context(),
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
@@ -208,18 +205,17 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 		// Configure storage to fail initially
 		fakeStorage.SetError(errors.New("storage error"))
 
-		require.NoError(t, processor.Start(ctx))
-		defer func() {
-			cancel()
+		require.NoError(t, processor.Start(t.Context()))
+		t.Cleanup(func() {
 			require.NoError(t, processor.Close())
-		}()
+		})
 
 		// Publish test results
 		batch := []protocol.VerifierNodeResult{
 			createTestVerifierNodeResult(1),
 			createTestVerifierNodeResult(2),
 		}
-		require.NoError(t, resultQueue.Publish(ctx, batch...))
+		require.NoError(t, resultQueue.Publish(t.Context(), batch...))
 
 		// Wait for initial failure
 		time.Sleep(100 * time.Millisecond)
@@ -243,7 +239,6 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 
 	t.Run("continues processing new batches when retry fails", func(t *testing.T) {
 		t.Parallel()
-		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
 
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
@@ -261,7 +256,7 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 		require.NoError(t, err)
 
 		processor, err := NewStorageWriterProcessor(
-			ctx,
+			t.Context(),
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
@@ -279,15 +274,14 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 		// Configure storage to always fail
 		fakeStorage.SetError(errors.New("persistent error"))
 
-		require.NoError(t, processor.Start(ctx))
-		defer func() {
-			cancel()
+		require.NoError(t, processor.Start(t.Context()))
+		t.Cleanup(func() {
 			require.NoError(t, processor.Close())
-		}()
+		})
 
 		// Publish failing batch
 		failingBatch := createTestVerifierNodeResult(1)
-		require.NoError(t, resultQueue.Publish(ctx, failingBatch))
+		require.NoError(t, resultQueue.Publish(t.Context(), failingBatch))
 
 		// Wait for initial failure
 		time.Sleep(100 * time.Millisecond)
@@ -297,7 +291,7 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 
 		// Publish success batch
 		successBatch := createTestVerifierNodeResult(2)
-		require.NoError(t, resultQueue.Publish(ctx, successBatch))
+		require.NoError(t, resultQueue.Publish(t.Context(), successBatch))
 
 		// Wait for success batch to be processed
 		require.Eventually(t, func() bool {
@@ -315,7 +309,6 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 
 	t.Run("marks job as failed when retry deadline expires", func(t *testing.T) {
 		t.Parallel()
-		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
 
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
@@ -339,7 +332,7 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 		fakeStorage.SetError(errors.New("persistent storage error"))
 
 		processor, err := NewStorageWriterProcessor(
-			ctx,
+			t.Context(),
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
@@ -354,15 +347,14 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		require.NoError(t, processor.Start(ctx))
-		defer func() {
-			cancel()
+		require.NoError(t, processor.Start(t.Context()))
+		t.Cleanup(func() {
 			require.NoError(t, processor.Close())
-		}()
+		})
 
 		// Publish test result
 		result := createTestVerifierNodeResult(1)
-		require.NoError(t, resultQueue.Publish(ctx, result))
+		require.NoError(t, resultQueue.Publish(t.Context(), result))
 
 		// Wait for retry deadline to expire and job to be marked as failed
 		require.Eventually(t, func() bool {
@@ -387,8 +379,6 @@ func TestStorageWriterProcessorDB_Cleanup(t *testing.T) {
 
 	t.Run("cleans up archived results older than retention period", func(t *testing.T) {
 		t.Parallel()
-		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
-		defer cancel()
 
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
@@ -406,7 +396,7 @@ func TestStorageWriterProcessorDB_Cleanup(t *testing.T) {
 		require.NoError(t, err)
 
 		processor, err := NewStorageWriterProcessor(
-			ctx,
+			t.Context(),
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
@@ -421,11 +411,10 @@ func TestStorageWriterProcessorDB_Cleanup(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		require.NoError(t, processor.Start(ctx))
-		defer func() {
-			cancel()
+		require.NoError(t, processor.Start(t.Context()))
+		t.Cleanup(func() {
 			require.NoError(t, processor.Close())
-		}()
+		})
 
 		// Publish and process some results
 		results := []protocol.VerifierNodeResult{
@@ -433,7 +422,7 @@ func TestStorageWriterProcessorDB_Cleanup(t *testing.T) {
 			createTestVerifierNodeResult(2),
 			createTestVerifierNodeResult(3),
 		}
-		require.NoError(t, resultQueue.Publish(ctx, results...))
+		require.NoError(t, resultQueue.Publish(t.Context(), results...))
 
 		// Wait for results to be stored and archived
 		require.Eventually(t, func() bool {
@@ -459,7 +448,7 @@ func TestStorageWriterProcessorDB_Cleanup(t *testing.T) {
 		require.NoError(t, err)
 
 		// Run cleanup with 30 day retention
-		deleted, err := resultQueue.Cleanup(ctx, 30*24*time.Hour)
+		deleted, err := resultQueue.Cleanup(t.Context(), 30*24*time.Hour)
 		require.NoError(t, err)
 		require.Equal(t, 3, deleted, "Expected 3 old results to be deleted")
 
@@ -482,8 +471,6 @@ func TestStorageWriterProcessorDB_StaleJobRecovery(t *testing.T) {
 
 	t.Run("reclaims jobs stuck in processing state beyond lock duration", func(t *testing.T) {
 		t.Parallel()
-		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
-		defer cancel()
 
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
@@ -504,7 +491,7 @@ func TestStorageWriterProcessorDB_StaleJobRecovery(t *testing.T) {
 
 		// Publish result first
 		result := createTestVerifierNodeResult(1)
-		require.NoError(t, resultQueue.Publish(ctx, result))
+		require.NoError(t, resultQueue.Publish(t.Context(), result))
 
 		// Manually update job to processing state to simulate crashed processor
 		_, err = db.Exec(`
@@ -527,7 +514,7 @@ func TestStorageWriterProcessorDB_StaleJobRecovery(t *testing.T) {
 
 		// Now start processor - it should reclaim the stale job
 		processor, err := NewStorageWriterProcessor(
-			ctx,
+			t.Context(),
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
@@ -542,11 +529,10 @@ func TestStorageWriterProcessorDB_StaleJobRecovery(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		require.NoError(t, processor.Start(ctx))
-		defer func() {
-			cancel()
+		require.NoError(t, processor.Start(t.Context()))
+		t.Cleanup(func() {
 			require.NoError(t, processor.Close())
-		}()
+		})
 
 		// Wait for job to be reclaimed and processed
 		require.Eventually(t, func() bool {
@@ -569,7 +555,6 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 
 	t.Run("writes checkpoint after successful storage write", func(t *testing.T) {
 		t.Parallel()
-		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
 
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
@@ -592,7 +577,7 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 		require.NoError(t, err)
 
 		processor, err := NewStorageWriterProcessor(
-			ctx,
+			t.Context(),
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
@@ -622,13 +607,12 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 			Return(nil).
 			Once()
 
-		require.NoError(t, processor.Start(ctx))
-		defer func() {
-			cancel()
+		require.NoError(t, processor.Start(t.Context()))
+		t.Cleanup(func() {
 			require.NoError(t, processor.Close())
-		}()
+		})
 
-		require.NoError(t, resultQueue.Publish(ctx, msg1))
+		require.NoError(t, resultQueue.Publish(t.Context(), msg1))
 
 		require.Eventually(t, func() bool {
 			mu.Lock()
@@ -640,7 +624,6 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 
 	t.Run("checkpoint advances monotonically", func(t *testing.T) {
 		t.Parallel()
-		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
 
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
@@ -665,7 +648,7 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 		require.NoError(t, err)
 
 		processor, err := NewStorageWriterProcessor(
-			ctx,
+			t.Context(),
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
@@ -699,26 +682,25 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 			}).
 			Times(2)
 
-		require.NoError(t, processor.Start(ctx))
-		defer func() {
-			cancel()
+		require.NoError(t, processor.Start(t.Context()))
+		t.Cleanup(func() {
 			require.NoError(t, processor.Close())
-		}()
+		})
 
 		// Publish messages one by one with delays to ensure separate batch processing
-		require.NoError(t, resultQueue.Publish(ctx, msg1))
+		require.NoError(t, resultQueue.Publish(t.Context(), msg1))
 		// Wait for msg1 to be processed and checkpoint written
 		require.Eventually(t, func() bool {
 			return fakeStorage.GetStoredCount() >= 1
 		}, tests.WaitTimeout(t), 50*time.Millisecond)
 
-		require.NoError(t, resultQueue.Publish(ctx, msg2))
+		require.NoError(t, resultQueue.Publish(t.Context(), msg2))
 		// Wait for msg2 to be processed and second checkpoint written
 		require.Eventually(t, func() bool {
 			return fakeStorage.GetStoredCount() >= 2
 		}, tests.WaitTimeout(t), 50*time.Millisecond)
 
-		require.NoError(t, resultQueue.Publish(ctx, msg3))
+		require.NoError(t, resultQueue.Publish(t.Context(), msg3))
 		// Wait for msg3 to be processed
 		require.Eventually(t, func() bool {
 			return fakeStorage.GetStoredCount() >= 3
@@ -735,7 +717,6 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 
 	t.Run("multiple chains handled independently", func(t *testing.T) {
 		t.Parallel()
-		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
 
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
@@ -760,7 +741,7 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 		require.NoError(t, err)
 
 		processor, err := NewStorageWriterProcessor(
-			ctx,
+			t.Context(),
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
@@ -796,13 +777,12 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 			}).
 			Maybe()
 
-		require.NoError(t, processor.Start(ctx))
-		defer func() {
-			cancel()
+		require.NoError(t, processor.Start(t.Context()))
+		t.Cleanup(func() {
 			require.NoError(t, processor.Close())
-		}()
+		})
 
-		require.NoError(t, resultQueue.Publish(ctx, msg1, msg2))
+		require.NoError(t, resultQueue.Publish(t.Context(), msg1, msg2))
 
 		require.Eventually(t, func() bool {
 			mu.Lock()
@@ -820,7 +800,6 @@ func TestStorageWriterProcessorDB_ContextCancellation(t *testing.T) {
 
 	t.Run("stops processing when context is cancelled", func(t *testing.T) {
 		t.Parallel()
-		ctx, cancel := context.WithCancel(t.Context())
 
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
@@ -838,7 +817,7 @@ func TestStorageWriterProcessorDB_ContextCancellation(t *testing.T) {
 		require.NoError(t, err)
 
 		processor, err := NewStorageWriterProcessor(
-			ctx,
+			t.Context(),
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
@@ -853,10 +832,7 @@ func TestStorageWriterProcessorDB_ContextCancellation(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		require.NoError(t, processor.Start(ctx))
-
-		// Cancel context immediately
-		cancel()
+		require.NoError(t, processor.Start(t.Context()))
 
 		// Processor should stop cleanly
 		require.NoError(t, processor.Close())

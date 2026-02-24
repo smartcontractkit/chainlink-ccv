@@ -27,7 +27,7 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 
 	t.Run("processes tasks from queue and publishes results", func(t *testing.T) {
 		t.Parallel()
-		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
+		ctx := t.Context()
 
 		lggr := logger.Nop()
 		ownerID := "test-" + t.Name()
@@ -71,10 +71,9 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 		require.NoError(t, err)
 
 		require.NoError(t, processor.Start(ctx))
-		defer func() {
-			cancel()
+		t.Cleanup(func() {
 			require.NoError(t, processor.Close())
-		}()
+		})
 
 		// Publish test tasks
 		message1 := protocol.Message{SequenceNumber: 1, SourceChainSelector: 1337}
@@ -108,7 +107,7 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 
 	t.Run("processes multiple batches concurrently", func(t *testing.T) {
 		t.Parallel()
-		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
+		ctx := t.Context()
 
 		lggr := logger.Nop()
 		ownerID := "test-" + t.Name()
@@ -152,10 +151,9 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 		require.NoError(t, err)
 
 		require.NoError(t, processor.Start(ctx))
-		defer func() {
-			cancel()
+		t.Cleanup(func() {
 			require.NoError(t, processor.Close())
-		}()
+		})
 
 		const numTasks = 20
 		var wg sync.WaitGroup
@@ -196,7 +194,7 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 
 	t.Run("retries failed tasks after delay", func(t *testing.T) {
 		t.Parallel()
-		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
+		ctx := t.Context()
 
 		lggr := logger.Nop()
 		ownerID := "test-" + t.Name()
@@ -253,10 +251,9 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 		require.NoError(t, err)
 
 		require.NoError(t, processor.Start(ctx))
-		defer func() {
-			cancel()
+		t.Cleanup(func() {
 			require.NoError(t, processor.Close())
-		}()
+		})
 
 		require.NoError(t, taskQueue.Publish(ctx, task))
 
@@ -277,7 +274,7 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 
 	t.Run("does not retry permanent failures", func(t *testing.T) {
 		t.Parallel()
-		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
+		ctx := t.Context()
 
 		lggr := logger.Nop()
 		ownerID := "test-" + t.Name()
@@ -337,10 +334,9 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 		require.NoError(t, err)
 
 		require.NoError(t, processor.Start(ctx))
-		defer func() {
-			cancel()
+		t.Cleanup(func() {
 			require.NoError(t, processor.Close())
-		}()
+		})
 
 		require.NoError(t, taskQueue.Publish(ctx, task))
 
@@ -362,7 +358,7 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 
 	t.Run("marks job as failed when retry deadline expires", func(t *testing.T) {
 		t.Parallel()
-		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
+		ctx := t.Context()
 
 		lggr := logger.Nop()
 		ownerID := "test-" + t.Name()
@@ -422,10 +418,9 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 		require.NoError(t, err)
 
 		require.NoError(t, processor.Start(ctx))
-		defer func() {
-			cancel()
+		t.Cleanup(func() {
 			require.NoError(t, processor.Close())
-		}()
+		})
 
 		require.NoError(t, taskQueue.Publish(ctx, task))
 
@@ -450,8 +445,7 @@ func TestTaskVerifierProcessorDB_Cleanup(t *testing.T) {
 
 	t.Run("cleans up archived jobs older than retention period", func(t *testing.T) {
 		t.Parallel()
-		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
-		defer cancel()
+		ctx := t.Context()
 
 		lggr := logger.Nop()
 		ownerID := "test-" + t.Name()
@@ -495,10 +489,9 @@ func TestTaskVerifierProcessorDB_Cleanup(t *testing.T) {
 		require.NoError(t, err)
 
 		require.NoError(t, processor.Start(ctx))
-		defer func() {
-			cancel()
+		t.Cleanup(func() {
 			require.NoError(t, processor.Close())
-		}()
+		})
 
 		// Publish and process some tasks
 		msg1 := protocol.Message{SequenceNumber: 1, SourceChainSelector: 1337}
@@ -546,8 +539,7 @@ func TestTaskVerifierProcessorDB_StaleJobRecovery(t *testing.T) {
 
 	t.Run("reclaims jobs stuck in processing state beyond lock duration", func(t *testing.T) {
 		t.Parallel()
-		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
-		defer cancel()
+		ctx := t.Context()
 
 		lggr := logger.Nop()
 		ownerID := "test-" + t.Name()
@@ -623,10 +615,9 @@ func TestTaskVerifierProcessorDB_StaleJobRecovery(t *testing.T) {
 		require.NoError(t, err)
 
 		require.NoError(t, processor.Start(ctx))
-		defer func() {
-			cancel()
+		t.Cleanup(func() {
 			require.NoError(t, processor.Close())
-		}()
+		})
 
 		// Wait for job to be reclaimed and processed
 		require.Eventually(t, func() bool {
@@ -647,7 +638,7 @@ func TestTaskVerifierProcessorDB_Shutdown(t *testing.T) {
 
 	t.Run("stops processing after close", func(t *testing.T) {
 		t.Parallel()
-		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
+		ctx := t.Context()
 
 		lggr := logger.Nop()
 		ownerID := "test-" + t.Name()
@@ -706,7 +697,6 @@ func TestTaskVerifierProcessorDB_Shutdown(t *testing.T) {
 		require.Greater(t, initialCount, 0)
 
 		// Close processor
-		cancel()
 		require.NoError(t, processor.Close())
 
 		// Publish more tasks

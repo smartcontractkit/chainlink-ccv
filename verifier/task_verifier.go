@@ -30,7 +30,8 @@ const (
 // That way we give Verifier who is aware of the business logic more control over retry behavior.
 type TaskVerifierProcessor struct {
 	services.StateMachine
-	wg sync.WaitGroup
+	stopCh services.StopChan
+	wg     sync.WaitGroup
 
 	lggr       logger.Logger
 	verifierID string
@@ -90,14 +91,15 @@ func NewTaskVerifierProcessorDBWithPollInterval(
 		cleanupInterval: defaultTaskCleanupInterval,
 		retentionPeriod: defaultTaskRetentionPeriod,
 		batchSize:       batchSize,
+		stopCh:          make(chan struct{}),
 	}
 	return p, nil
 }
 
-func (p *TaskVerifierProcessor) Start(ctx context.Context) error {
+func (p *TaskVerifierProcessor) Start(context.Context) error {
 	return p.StartOnce(p.Name(), func() error {
 		p.wg.Go(func() {
-			p.run(ctx)
+			p.run()
 		})
 		return nil
 	})
@@ -105,12 +107,16 @@ func (p *TaskVerifierProcessor) Start(ctx context.Context) error {
 
 func (p *TaskVerifierProcessor) Close() error {
 	return p.StopOnce(p.Name(), func() error {
+		close(p.stopCh)
 		p.wg.Wait()
 		return nil
 	})
 }
 
-func (p *TaskVerifierProcessor) run(ctx context.Context) {
+func (p *TaskVerifierProcessor) run() {
+	ctx, cancel := p.stopCh.NewCtx()
+	defer cancel()
+
 	ticker := time.NewTicker(p.pollInterval)
 	defer ticker.Stop()
 
@@ -120,7 +126,7 @@ func (p *TaskVerifierProcessor) run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			p.lggr.Infow("TaskVerifierProcessor context cancelled, shutting down")
+			p.lggr.Infow("TaskVerifierProcessor close signal received, shutting down")
 			return
 
 		case <-ticker.C:
