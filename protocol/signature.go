@@ -276,29 +276,23 @@ func EncodeSingleECDSASignature(sig Data) ([]byte, error) {
 	result := make([]byte, SingleECDSASignatureSize)
 	copy(result[0:32], sig.R[:])
 	copy(result[32:64], sig.S[:])
-	copy(result[64:84], sig.Signer[:])
 
 	return result, nil
 }
 
 // DecodeSingleECDSASignature decodes a single EVM signature from R||S||Signer format (84 bytes).
 // Returns the R, S components and the EVM signer address.
-func DecodeSingleECDSASignature(data []byte) (r, s [32]byte, signer common.Address, err error) {
+func DecodeSingleECDSASignature(data []byte) (r, s [32]byte, err error) {
 	if len(data) != SingleECDSASignatureSize {
-		return r, s, signer, fmt.Errorf("signature data must be exactly %d bytes, got %d", SingleECDSASignatureSize, len(data))
+		return r, s, fmt.Errorf("signature data must be exactly %d bytes, got %d", SingleECDSASignatureSize, len(data))
 	}
 
 	copy(r[:], data[0:32])
 	copy(s[:], data[32:64])
-	copy(signer[:], data[64:84])
 
 	if r == [32]byte{} || s == [32]byte{} {
-		return r, s, signer, fmt.Errorf("signature R and S cannot be zero")
+		return r, s, fmt.Errorf("signature R and S cannot be zero")
 	}
 
-	if signer == (common.Address{}) {
-		return r, s, signer, fmt.Errorf("signer address cannot be zero")
-	}
-
-	return r, s, signer, nil
+	return r, s, nil
 }

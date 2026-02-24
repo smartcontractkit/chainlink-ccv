@@ -22,15 +22,19 @@ func TestECDSASigner_Sign(t *testing.T) {
 	}
 
 	hash := crypto.Keccak256([]byte("test message"))
+	var hashArray [32]byte
+	copy(hashArray[:], hash[:])
 
 	signature, err := signer.Sign(hash)
 	require.NoError(t, err)
 	require.Len(t, signature, protocol.SingleECDSASignatureSize, "signature should be 84 bytes (32 R + 32 S + 20 Signer)")
 
-	r, s, signerAddr, err := protocol.DecodeSingleECDSASignature(signature)
+	r, s, err := protocol.DecodeSingleECDSASignature(signature)
 	require.NoError(t, err)
 
 	expectedAddr := crypto.PubkeyToAddress(privateKey.PublicKey)
+	signerAddr, err := protocol.RecoverECDSASigner(hashArray, r, s)
+	require.NoError(t, err)
 	require.Equal(t, expectedAddr, signerAddr, "signer address should match")
 
 	require.NotEqual(t, [32]byte{}, r, "R should not be zero")
@@ -125,15 +129,18 @@ func TestECDSASignerWithKeystoreSigner_Sign(t *testing.T) {
 	signer := NewECDSASignerWithKeystoreSigner(mockSigner)
 
 	hash := crypto.Keccak256([]byte("test message"))
-
+	var hashArray [32]byte
+	copy(hashArray[:], hash[:])
 	signature, err := signer.Sign(hash)
 	require.NoError(t, err)
 	require.Len(t, signature, protocol.SingleECDSASignatureSize, "signature should be 84 bytes (32 R + 32 S + 20 Signer)")
 
-	r, s, signerAddr, err := protocol.DecodeSingleECDSASignature(signature)
+	r, s, err := protocol.DecodeSingleECDSASignature(signature)
 	require.NoError(t, err)
 
 	expectedAddr := crypto.PubkeyToAddress(privateKey.PublicKey)
+	signerAddr, err := protocol.RecoverECDSASigner(hashArray, r, s)
+	require.NoError(t, err)
 	require.Equal(t, expectedAddr, signerAddr, "signer address should match")
 
 	require.NotEqual(t, [32]byte{}, r, "R should not be zero")
@@ -211,17 +218,20 @@ func TestKeystoreSignerAdapter_WithECDSASignerWithKeystoreSigner(t *testing.T) {
 	signer := NewECDSASignerWithKeystoreSigner(adapter)
 
 	hash := crypto.Keccak256([]byte("test message"))
-
+	var hashArray [32]byte
+	copy(hashArray[:], hash[:])
 	signature, err := signer.Sign(hash)
 	require.NoError(t, err)
 	require.Len(t, signature, protocol.SingleECDSASignatureSize, "signature should be 84 bytes (32 R + 32 S + 20 Signer)")
 
-	r, s, signerAddr, err := protocol.DecodeSingleECDSASignature(signature)
+	r, s, err := protocol.DecodeSingleECDSASignature(signature)
 	require.NoError(t, err)
 
 	expectedPubKey, err := crypto.UnmarshalPubkey(pubKeyBytes)
 	require.NoError(t, err)
 	expectedAddr := crypto.PubkeyToAddress(*expectedPubKey)
+	signerAddr, err := protocol.RecoverECDSASigner(hashArray, r, s)
+	require.NoError(t, err)
 	require.Equal(t, expectedAddr, signerAddr, "signer address should match")
 
 	require.NotEqual(t, [32]byte{}, r, "R should not be zero")
@@ -238,11 +248,14 @@ func TestNewSignerFromKeystore(t *testing.T) {
 
 	// Test that the signer actually works
 	hash := crypto.Keccak256([]byte("test message"))
+	var hashArray [32]byte
+	copy(hashArray[:], hash[:])
 	signature, err := signer.Sign(hash)
 	require.NoError(t, err)
 	require.Len(t, signature, protocol.SingleECDSASignatureSize)
 
-	r, s, signerAddr, err := protocol.DecodeSingleECDSASignature(signature)
+	r, s, err := protocol.DecodeSingleECDSASignature(signature)
+	signerAddr, err := protocol.RecoverECDSASigner(hashArray, r, s)
 	require.NoError(t, err)
 	require.Equal(t, address.Bytes(), signerAddr.Bytes())
 	require.NotEqual(t, [32]byte{}, r)

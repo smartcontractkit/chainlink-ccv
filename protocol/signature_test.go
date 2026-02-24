@@ -175,16 +175,15 @@ func TestDecodeSingleSignature(t *testing.T) {
 		copy(data[32:64], expectedS[:])
 		copy(data[64:84], expectedSigner[:])
 
-		r, s, signer, err := DecodeSingleECDSASignature(data)
+		r, s, err := DecodeSingleECDSASignature(data)
 		require.NoError(t, err)
 		require.Equal(t, expectedR, r)
 		require.Equal(t, expectedS, s)
-		require.Equal(t, expectedSigner, signer)
 	})
 
 	t.Run("wrong length", func(t *testing.T) {
 		data := make([]byte, SingleECDSASignatureSize-1)
-		_, _, _, err := DecodeSingleECDSASignature(data)
+		_, _, err := DecodeSingleECDSASignature(data)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "signature data must be exactly 84 bytes")
 	})
@@ -196,7 +195,7 @@ func TestDecodeSingleSignature(t *testing.T) {
 		signer := common.HexToAddress("0x1234567890123456789012345678901234567890")
 		copy(data[64:84], signer[:])
 
-		_, _, _, err := DecodeSingleECDSASignature(data)
+		_, _, err := DecodeSingleECDSASignature(data)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "signature R and S cannot be zero")
 	})
@@ -208,7 +207,7 @@ func TestDecodeSingleSignature(t *testing.T) {
 		signer := common.HexToAddress("0x1234567890123456789012345678901234567890")
 		copy(data[64:84], signer[:])
 
-		_, _, _, err := DecodeSingleECDSASignature(data)
+		_, _, err := DecodeSingleECDSASignature(data)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "signature R and S cannot be zero")
 	})
@@ -220,7 +219,7 @@ func TestDecodeSingleSignature(t *testing.T) {
 		s := [32]byte{0x02}
 		copy(data[32:64], s[:])
 
-		_, _, _, err := DecodeSingleECDSASignature(data)
+		_, _, err := DecodeSingleECDSASignature(data)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "signer address cannot be zero")
 	})
@@ -244,12 +243,11 @@ func TestSingleSignatureRoundTrip(t *testing.T) {
 	encoded, err := EncodeSingleECDSASignature(sig)
 	require.NoError(t, err)
 
-	decodedR, decodedS, decodedSigner, err := DecodeSingleECDSASignature(encoded)
+	decodedR, decodedS, err := DecodeSingleECDSASignature(encoded)
 	require.NoError(t, err)
 
 	require.Equal(t, sig.R, decodedR)
 	require.Equal(t, sig.S, decodedS)
-	require.Equal(t, sig.Signer, decodedSigner)
 }
 
 // TestLeftPad32_InputTooLong verifies that leftPad32 returns an error when input exceeds 32 bytes.
