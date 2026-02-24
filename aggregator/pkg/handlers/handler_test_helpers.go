@@ -50,7 +50,7 @@ func makeAggregatedReport(msg *protocol.Message, msgID model.MessageID, sigAddr 
 	}
 	executorAddress := protocol.UnknownAddress{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14}
 
-	// Create a valid 84-byte signature (R:32 || S:32 || Signer:20)
+	// Create a valid 64-byte signature (R:32 || S:32)
 	signerAddr := common.HexToAddress(sigAddr)
 	signature := make([]byte, protocol.SingleECDSASignatureSize)
 	// R must be non-zero (32 bytes)
@@ -61,7 +61,6 @@ func makeAggregatedReport(msg *protocol.Message, msgID model.MessageID, sigAddr 
 	for i := 32; i < 64; i++ {
 		signature[i] = byte(i + 1)
 	}
-	copy(signature[64:84], signerAddr.Bytes()) // Signer (20 bytes)
 
 	// create one verification
 	ver := &model.CommitVerificationRecord{
