@@ -110,7 +110,7 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 	containerRe2 := fmt.Sprintf("(%s)", strings.Join(func() []string {
 		names := make([]string, 0, len(toStop))
 		for _, verifier := range toStop {
-			names = append(names, verifier.Out[chain_selectors.FamilyEVM].ContainerName)
+			names = append(names, verifier.Out.ContainerName)
 		}
 		return names
 	}(), "|"))

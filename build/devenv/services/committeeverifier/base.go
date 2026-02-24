@@ -53,26 +53,26 @@ type EnvConfig struct {
 }
 
 type Input struct {
-	Mode           services.Mode      `toml:"mode"`
-	DB             *DBInput           `toml:"db"`
-	Out            map[string]*Output `toml:"out"`
-	Image          string             `toml:"image"`
-	SourceCodePath string             `toml:"source_code_path"`
-	RootPath       string             `toml:"root_path"`
-	ContainerName  string             `toml:"container_name"`
-	NOPAlias       string             `toml:"nop_alias"`
-	Port           int                `toml:"port"`
-	UseCache       bool               `toml:"use_cache"`
-	Env            *EnvConfig         `toml:"env"`
-	CommitteeName  string             `toml:"committee_name"`
-	NodeIndex      int                `toml:"node_index"`
-	// ChainFamilies is a list of chain families that we should launch a verifier for.
-	// Defaults to just ["evm"] if not specified.
-	ChainFamilies []string `toml:"chain_families"`
+	Mode           services.Mode `toml:"mode"`
+	DB             *DBInput      `toml:"db"`
+	Out            *Output       `toml:"out"`
+	Image          string        `toml:"image"`
+	SourceCodePath string        `toml:"source_code_path"`
+	RootPath       string        `toml:"root_path"`
+	ContainerName  string        `toml:"container_name"`
+	NOPAlias       string        `toml:"nop_alias"`
+	Port           int           `toml:"port"`
+	UseCache       bool          `toml:"use_cache"`
+	Env            *EnvConfig    `toml:"env"`
+	CommitteeName  string        `toml:"committee_name"`
+	NodeIndex      int           `toml:"node_index"`
+	// ChainFamily is the chain family that we should launch a verifier for.
+	// Defaults to just "evm" if not specified.
+	ChainFamily string `toml:"chain_family"`
 
 	// Bootstrap is the map of chain families to bootstrap configurations.
 	// Defaults to just {"evm": {}} if not specified.
-	Bootstrap map[string]*services.BootstrapInput `toml:"bootstrap"`
+	Bootstrap *services.BootstrapInput `toml:"bootstrap"`
 
 	// CantonConfigs is the map of chain selectors to canton configurations to pass onto the verifier,
 	// only used in standalone mode and if Canton is enabled.
@@ -180,32 +180,24 @@ func ApplyDefaults(in Input) Input {
 	if in.Mode == "" {
 		in.Mode = DefaultVerifierMode
 	}
-	if len(in.ChainFamilies) == 0 {
-		in.ChainFamilies = []string{chainsel.FamilyEVM}
+	if in.ChainFamily == "" {
+		in.ChainFamily = chainsel.FamilyEVM
 	}
 	if in.Bootstrap == nil {
-		// Apply defaults for each chain family.
-		in.Bootstrap = make(map[string]*services.BootstrapInput)
-		for _, chainFamily := range in.ChainFamilies {
-			def := services.ApplyBootstrapDefaults(services.BootstrapInput{})
-			in.Bootstrap[chainFamily] = &def
-		}
+		def := services.ApplyBootstrapDefaults(services.BootstrapInput{})
+		in.Bootstrap = &def
 	} else {
-		bootstraps := make(map[string]*services.BootstrapInput)
-		for chainFamily, bootstrap := range in.Bootstrap {
-			def := services.ApplyBootstrapDefaults(*bootstrap)
-			bootstraps[chainFamily] = &def
-		}
-		in.Bootstrap = bootstraps
+		def := services.ApplyBootstrapDefaults(*in.Bootstrap)
+		in.Bootstrap = &def
 	}
 	return in
 }
 
-func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) (map[string]*Output, error) {
+func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) (*Output, error) {
 	if in == nil {
 		return nil, nil
 	}
-	if in.Out != nil && in.Out[chainsel.FamilyEVM] != nil && in.Out[chainsel.FamilyEVM].UseCache {
+	if in.Out != nil && in.Out.UseCache {
 		return in.Out, nil
 	}
 	ctx := context.Background()
@@ -214,126 +206,130 @@ func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure
 		return nil, fmt.Errorf("JD infrastructure is not set")
 	}
 
+	out, err := launchVerifier(ctx, in, outputs, jdInfra)
+	if err != nil {
+		return nil, fmt.Errorf("failed to launch verifier: %w", err)
+	}
+
+	return out, nil
+}
+
+func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) (*Output, error) {
 	// Get the JD server CSA public key
 	jdCSAKey, err := jobs.GetJDCSAPublicKey(ctx, jdInfra.OffchainClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get JD server CSA public key: %w", err)
 	}
 
-	verifierOutputs := make(map[string]*Output)
-	for _, chainFamily := range in.ChainFamilies {
-		bootstrap := in.Bootstrap[chainFamily]
-		dbContainer, err := createDBContainer(ctx, in, chainFamily)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create verifier database: %w", err)
-		}
-
-		// Update bootstrap config w/ the database and JD info.
-		// TODO: make this easier? All standalone setups will have to do the same thing.
-		bootstrap.DB.URL = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
-			in.ContainerName, in.ContainerName, dbContainerName(in.DB.Name, chainFamily), services.DefaultBootstrapDBName)
-		bootstrap.JD.ServerCSAPublicKey = jdCSAKey
-		bootstrap.JD.ServerWSRPCURL = jdInfra.JDOutput.InternalWSRPCUrl
-
-		envVars, err := getAggregatorSecrets(in)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get aggregator secrets: %w", err)
-		}
-
-		// Database connection for chain status (internal docker network address)
-		internalDBConnectionString := fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
-			in.ContainerName, in.ContainerName, dbContainerName(in.DB.Name, chainFamily), in.ContainerName)
-		envVars["CL_DATABASE_URL"] = internalDBConnectionString
-
-		// Generate and store config file.
-		bootstrapConfig, err := services.GenerateBootstrapConfig(*bootstrap)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate bootstrap config: %w", err)
-		}
-		confDir := util.CCVConfigDir()
-		bootstrapConfigFilePath := filepath.Join(confDir,
-			fmt.Sprintf("bootstrap-%s-config-%d.toml", in.CommitteeName, in.NodeIndex+1))
-		if err := os.WriteFile(bootstrapConfigFilePath, bootstrapConfig, 0o644); err != nil {
-			return nil, fmt.Errorf("failed to write bootstrap config to file: %w", err)
-		}
-
-		req, err := baseImageRequest(in, envVars, bootstrapConfigFilePath)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create base image request: %w", err)
-		}
-
-		// Get the modifier for the chain family.
-		modifier, ok := modifierPerFamily[chainFamily]
-		if !ok {
-			return nil, fmt.Errorf("no modifier found for chain family %s", chainFamily)
-		}
-
-		framework.L.Info().
-			Str("Service", in.ContainerName).
-			Str("ChainFamily", chainFamily).
-			Msg("Using modifier for chain family")
-
-		// Modify the request.
-		req, err = modifier(req, in, outputs)
-		if err != nil {
-			return nil, fmt.Errorf("failed to modify request: %w", err)
-		}
-
-		framework.L.Info().
-			Str("Service", in.ContainerName).
-			Str("ChainFamily", chainFamily).
-			Msg("Successfully modified request for chain family")
-
-		c, err := startContainer(ctx, req)
-		if err != nil {
-			return nil, fmt.Errorf("failed to start container: %w", err)
-		}
-		host, err := c.Host(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get container host: %w", err)
-		}
-
-		// Get the generated CSA key from the bootstrap server.
-		bootstrapMapped, err := c.MappedPort(ctx, services.DefaultBootstrapListenPortTCP)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get bootstrap mapped port: %w", err)
-		}
-		bootstrapURL := fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port())
-		bootstrapKeys, err := services.GetBootstrapKeys(bootstrapURL)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get bootstrap keys: %w", err)
-		}
-		verifierMapped, err := c.MappedPort(ctx, DefaultVerifierPortTCP)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get verifier mapped port: %w", err)
-		}
-
-		inspect, err := c.Inspect(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to inspect container: %w", err)
-		}
-
-		dbMapped, err := dbContainer.MappedPort(ctx, "5432/tcp")
-		if err != nil {
-			return nil, fmt.Errorf("failed to get database mapped port: %w", err)
-		}
-
-		out := &Output{
-			ContainerName:   inspect.Name,
-			ExternalHTTPURL: fmt.Sprintf("http://%s:%s", host, verifierMapped.Port()),
-			InternalHTTPURL: fmt.Sprintf("http://%s:%d", inspect.Name, DefaultVerifierPort),
-			DBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
-				in.ContainerName, in.ContainerName, in.DB.Port, in.ContainerName),
-			BootstrapDBURL: fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port()),
-			BootstrapDBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%s/%s?sslmode=disable",
-				in.ContainerName, in.ContainerName, dbMapped.Port(), services.DefaultBootstrapDBName),
-			BootstrapKeys: bootstrapKeys,
-		}
-
-		verifierOutputs[chainFamily] = out
+	bootstrap := in.Bootstrap
+	dbContainer, err := createDBContainer(ctx, in, in.ChainFamily)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create verifier database: %w", err)
 	}
 
-	return verifierOutputs, nil
+	// Update bootstrap config w/ the database and JD info.
+	// TODO: make this easier? All standalone setups will have to do the same thing.
+	bootstrap.DB.URL = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
+		in.ContainerName, in.ContainerName, dbContainerName(in.DB.Name, in.ChainFamily), services.DefaultBootstrapDBName)
+	bootstrap.JD.ServerCSAPublicKey = jdCSAKey
+	bootstrap.JD.ServerWSRPCURL = jdInfra.JDOutput.InternalWSRPCUrl
+
+	envVars, err := getAggregatorSecrets(in)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get aggregator secrets: %w", err)
+	}
+
+	// Database connection for chain status (internal docker network address)
+	internalDBConnectionString := fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
+		in.ContainerName, in.ContainerName, dbContainerName(in.DB.Name, in.ChainFamily), in.ContainerName)
+	envVars["CL_DATABASE_URL"] = internalDBConnectionString
+
+	// Generate and store config file.
+	bootstrapConfig, err := services.GenerateBootstrapConfig(*bootstrap)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate bootstrap config: %w", err)
+	}
+	confDir := util.CCVConfigDir()
+	bootstrapConfigFilePath := filepath.Join(confDir,
+		fmt.Sprintf("bootstrap-%s-config-%d.toml", in.CommitteeName, in.NodeIndex+1))
+	if err := os.WriteFile(bootstrapConfigFilePath, bootstrapConfig, 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write bootstrap config to file: %w", err)
+	}
+
+	req, err := baseImageRequest(in, envVars, bootstrapConfigFilePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create base image request: %w", err)
+	}
+
+	// Get the modifier for the chain family.
+	modifier, ok := modifierPerFamily[in.ChainFamily]
+	if !ok {
+		return nil, fmt.Errorf("no modifier found for chain family %s", in.ChainFamily)
+	}
+
+	framework.L.Info().
+		Str("Service", in.ContainerName).
+		Str("ChainFamily", in.ChainFamily).
+		Msg("Using modifier for chain family")
+
+	// Modify the request.
+	req, err = modifier(req, in, outputs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to modify request: %w", err)
+	}
+
+	framework.L.Info().
+		Str("Service", in.ContainerName).
+		Str("ChainFamily", in.ChainFamily).
+		Msg("Successfully modified request for chain family")
+
+	c, err := startContainer(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start container: %w", err)
+	}
+	host, err := c.Host(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get container host: %w", err)
+	}
+
+	// Get the generated CSA key from the bootstrap server.
+	bootstrapMapped, err := c.MappedPort(ctx, services.DefaultBootstrapListenPortTCP)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get bootstrap mapped port: %w", err)
+	}
+	bootstrapURL := fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port())
+	bootstrapKeys, err := services.GetBootstrapKeys(bootstrapURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get bootstrap keys: %w", err)
+	}
+	verifierMapped, err := c.MappedPort(ctx, DefaultVerifierPortTCP)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get verifier mapped port: %w", err)
+	}
+
+	inspect, err := c.Inspect(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect container: %w", err)
+	}
+
+	dbMapped, err := dbContainer.MappedPort(ctx, "5432/tcp")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database mapped port: %w", err)
+	}
+
+	out := &Output{
+		ContainerName:   inspect.Name,
+		ExternalHTTPURL: fmt.Sprintf("http://%s:%s", host, verifierMapped.Port()),
+		InternalHTTPURL: fmt.Sprintf("http://%s:%d", inspect.Name, DefaultVerifierPort),
+		DBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
+			in.ContainerName, in.ContainerName, in.DB.Port, in.ContainerName),
+		BootstrapDBURL: fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port()),
+		BootstrapDBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%s/%s?sslmode=disable",
+			in.ContainerName, in.ContainerName, dbMapped.Port(), services.DefaultBootstrapDBName),
+		BootstrapKeys: bootstrapKeys,
+	}
+
+	return out, nil
 }
 
 func startContainer(ctx context.Context, req testcontainers.ContainerRequest) (testcontainers.Container, error) {

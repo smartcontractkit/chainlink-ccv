@@ -191,12 +191,10 @@ func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers [
 			continue
 		}
 		if nop.SignerAddressByFamily[chainsel.FamilyEVM] == "" {
-			cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, ver.Out[chainsel.FamilyEVM].BootstrapKeys.ECDSAAddress)
+			cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, ver.Out.BootstrapKeys.ECDSAAddress)
 		}
 		if nop.SignerAddressByFamily[chainsel.FamilyCanton] == "" {
-			if ver.Out[chainsel.FamilyCanton] != nil {
-				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyCanton, ver.Out[chainsel.FamilyCanton].BootstrapKeys.ECDSAPublicKey)
-			}
+			cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyCanton, ver.Out.BootstrapKeys.ECDSAPublicKey)
 		}
 		seenAliases[ver.NOPAlias] = struct{}{}
 	}
@@ -370,92 +368,102 @@ func generateVerifierJobSpecs(
 		verifiersByCommittee[ver.CommitteeName] = append(verifiersByCommittee[ver.CommitteeName], ver)
 	}
 
-	// Generate verifier configs per committee
+	// Generate verifier configs per committee per chain family
 	for committeeName, committeeVerifiers := range verifiersByCommittee {
-		verNOPAliases := make([]shared.NOPAlias, 0, len(committeeVerifiers))
-		for _, ver := range committeeVerifiers {
-			verNOPAliases = append(verNOPAliases, shared.NOPAlias(ver.NOPAlias))
-		}
-
 		// Extract and validate DisableFinalityCheckers - all verifiers in the same
-		// committee must have the same setting since it's applied at the committee level.
-		disableFinalityCheckers, err := extractAndValidateDisableFinalityCheckers(committeeName, committeeVerifiers)
+		// committee and same chain family must have the same setting since it's applied at the committee level.
+		disableFinalityCheckersPerFamily, err := extractAndValidateDisableFinalityCheckers(committeeName, committeeVerifiers)
 		if err != nil {
 			return nil, err
 		}
 
-		cs := changesets.ApplyVerifierConfig()
-		output, err := cs.Apply(*e, changesets.ApplyVerifierConfigCfg{
-			Topology:                 topology,
-			CommitteeQualifier:       committeeName,
-			DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,
-			ChainSelectors:           selectors,
-			TargetNOPs:               verNOPAliases,
-			DisableFinalityCheckers:  disableFinalityCheckers,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate verifier configs for committee %s: %w", committeeName, err)
+		families := make(map[string]struct{})
+		for _, ver := range committeeVerifiers {
+			families[ver.ChainFamily] = struct{}{}
 		}
 
-		if err := ds.Merge(output.DataStore.Seal()); err != nil {
-			return nil, fmt.Errorf("failed to merge verifier job specs datastore: %w", err)
-		}
+		for family := range families {
+			verNOPAliases := make([]shared.NOPAlias, 0, len(committeeVerifiers))
+			for _, ver := range committeeVerifiers {
+				if ver.ChainFamily == family {
+					verNOPAliases = append(verNOPAliases, shared.NOPAlias(ver.NOPAlias))
+				}
+			}
 
-		aggNames, err := topology.GetAggregatorNamesForCommittee(committeeName)
-		if err != nil {
-			return nil, err
-		}
+			disableFinalityCheckers := disableFinalityCheckersPerFamily[family]
+			cs := changesets.ApplyVerifierConfig()
+			output, err := cs.Apply(*e, changesets.ApplyVerifierConfigCfg{
+				Topology:                 topology,
+				CommitteeQualifier:       committeeName,
+				DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,
+				ChainSelectors:           selectors,
+				TargetNOPs:               verNOPAliases,
+				DisableFinalityCheckers:  disableFinalityCheckers,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to generate verifier configs for committee %s: %w", committeeName, err)
+			}
 
-		// In HA topologies (multiple aggregators per committee) enforce a strict
-		// 1:1 verifier-to-aggregator mapping. For single-aggregator committees
-		// this constraint doesn't apply — all verifiers share the one aggregator.
-		if len(aggNames) > 1 {
-			if err := validateStandaloneVerifierNodeIndices(committeeName, committeeVerifiers, len(aggNames)); err != nil {
+			if err := ds.Merge(output.DataStore.Seal()); err != nil {
+				return nil, fmt.Errorf("failed to merge verifier job specs datastore: %w", err)
+			}
+
+			aggNames, err := topology.GetAggregatorNamesForCommittee(committeeName)
+			if err != nil {
 				return nil, err
 			}
-		}
 
-		for _, ver := range committeeVerifiers {
-			allJobSpecs := make([]string, 0, len(aggNames))
-			for _, aggName := range aggNames {
-				jobSpecID := shared.NewVerifierJobID(shared.NOPAlias(ver.NOPAlias), aggName, shared.VerifierJobScope{CommitteeQualifier: committeeName})
-				job, err := deployments.GetJob(output.DataStore.Seal(), shared.NOPAlias(ver.NOPAlias), jobSpecID.ToJobID())
+			// In HA topologies (multiple aggregators per committee) enforce a strict
+			// 1:1 verifier-to-aggregator mapping. For single-aggregator committees
+			// this constraint doesn't apply — all verifiers share the one aggregator.
+			if len(aggNames) > 1 {
+				if err := validateStandaloneVerifierNodeIndices(committeeName, committeeVerifiers, len(aggNames)); err != nil {
+					return nil, err
+				}
+			}
+
+			for _, ver := range committeeVerifiers {
+				if ver.ChainFamily != family {
+					continue
+				}
+
+				allJobSpecs := make([]string, 0, len(aggNames))
+				for _, aggName := range aggNames {
+					jobSpecID := shared.NewVerifierJobID(shared.NOPAlias(ver.NOPAlias), aggName, shared.VerifierJobScope{CommitteeQualifier: committeeName})
+					job, err := deployments.GetJob(output.DataStore.Seal(), shared.NOPAlias(ver.NOPAlias), jobSpecID.ToJobID())
+					if err != nil {
+						return nil, fmt.Errorf("failed to get verifier job spec for %s aggregator %s: %w", ver.ContainerName, aggName, err)
+					}
+					allJobSpecs = append(allJobSpecs, job.Spec)
+				}
+
+				verifierJobSpecs[ver.ContainerName] = allJobSpecs
+				ver.GeneratedJobSpecs = allJobSpecs
+
+				// NodeIndex selects which aggregator this verifier targets. For
+				// single-aggregator committees the modulo collapses to 0, so all
+				// verifiers share the one aggregator — matching the non-HA model.
+				ownedAggIdx := ver.NodeIndex % len(aggNames)
+				verCfg, err := ParseVerifierConfigFromJobSpec(allJobSpecs[ownedAggIdx])
 				if err != nil {
-					return nil, fmt.Errorf("failed to get verifier job spec for %s aggregator %s: %w", ver.ContainerName, aggName, err)
+					return nil, fmt.Errorf("failed to parse verifier config from job spec: %w", err)
 				}
-				allJobSpecs = append(allJobSpecs, job.Spec)
-			}
-
-			verifierJobSpecs[ver.ContainerName] = allJobSpecs
-			ver.GeneratedJobSpecs = allJobSpecs
-
-			// NodeIndex selects which aggregator this verifier targets. For
-			// single-aggregator committees the modulo collapses to 0, so all
-			// verifiers share the one aggregator — matching the non-HA model.
-			ownedAggIdx := ver.NodeIndex % len(aggNames)
-			verCfg, err := ParseVerifierConfigFromJobSpec(allJobSpecs[ownedAggIdx])
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse verifier config from job spec: %w", err)
-			}
-			configBytes, err := toml.Marshal(verCfg)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal verifier config: %w", err)
-			}
-			ver.GeneratedConfig = string(configBytes)
-
-			// Store the VerifierID in the output for test access
-			if ver.Out != nil {
-				if ver.Out[chainsel.FamilyEVM] != nil {
-					ver.Out[chainsel.FamilyEVM].VerifierID = verCfg.VerifierID
+				configBytes, err := toml.Marshal(verCfg)
+				if err != nil {
+					return nil, fmt.Errorf("failed to marshal verifier config: %w", err)
 				}
-				if ver.Out[chainsel.FamilyCanton] != nil {
-					ver.Out[chainsel.FamilyCanton].VerifierID = verCfg.VerifierID
+				ver.GeneratedConfig = string(configBytes)
+
+				// Store the VerifierID in the output for test access
+				if ver.Out != nil {
+					ver.Out.VerifierID = verCfg.VerifierID
+				}
+
+				if sharedTLSCerts != nil && !ver.InsecureAggregatorConnection {
+					ver.TLSCACertFile = sharedTLSCerts.CACertFile
 				}
 			}
 
-			if sharedTLSCerts != nil && !ver.InsecureAggregatorConnection {
-				ver.TLSCACertFile = sharedTLSCerts.CACertFile
-			}
 		}
 	}
 
@@ -1346,7 +1354,7 @@ func launchStandaloneExecutors(in []*services.ExecutorInput, blockchainOutputs [
 	return outs, nil
 }
 
-func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]map[string]*committeeverifier.Output, error) {
+func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]*committeeverifier.Output, error) {
 	// Collect aggregator outputs per committee in insertion order so that NodeIndex maps
 	// each verifier to the correct aggregator. A map[string]*Output would lose duplicates
 	// since HA committees have multiple aggregators under the same committee name.
@@ -1363,7 +1371,7 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, 
 		in.Verifier[i] = &ver
 	}
 
-	outs := make([]map[string]*committeeverifier.Output, 0, len(in.Verifier))
+	outs := make([]*committeeverifier.Output, 0, len(in.Verifier))
 	// Start standalone verifiers if in standalone mode.
 	for _, ver := range in.Verifier {
 		if ver.Mode != services.Standalone {
@@ -1487,25 +1495,26 @@ func ParseExecutorConfigFromJobSpec(jobSpec string) (*executor.Configuration, er
 
 // extractAndValidateDisableFinalityCheckers extracts DisableFinalityCheckers from verifiers
 // in a committee and validates that all verifiers have the same setting.
-func extractAndValidateDisableFinalityCheckers(committeeName string, verifiers []*committeeverifier.Input) ([]string, error) {
+func extractAndValidateDisableFinalityCheckers(committeeName string, verifiers []*committeeverifier.Input) (disableFinalityCheckersPerFamily map[string][]string, err error) {
 	if len(verifiers) == 0 {
 		return nil, nil
 	}
 
-	reference := verifiers[0].DisableFinalityCheckers
-	for i := 1; i < len(verifiers); i++ {
-		if !slicesEqual(reference, verifiers[i].DisableFinalityCheckers) {
-			return nil, fmt.Errorf(
-				"verifiers in committee %q have inconsistent disable_finality_checkers settings: "+
-					"verifier %q has %v, but verifier %q has %v",
-				committeeName,
-				verifiers[0].ContainerName, reference,
-				verifiers[i].ContainerName, verifiers[i].DisableFinalityCheckers,
-			)
+	disableFinalityCheckersPerFamily = make(map[string][]string)
+	for _, ver := range verifiers {
+		// if already set, check if its the same value
+		if _, ok := disableFinalityCheckersPerFamily[ver.ChainFamily]; ok {
+			if !slicesEqual(disableFinalityCheckersPerFamily[ver.ChainFamily], ver.DisableFinalityCheckers) {
+				return nil, fmt.Errorf(
+					"verifiers in committee %q within the same chain family %s have inconsistent disable_finality_checkers settings",
+					committeeName, ver.ChainFamily,
+				)
+			}
 		}
+		disableFinalityCheckersPerFamily[ver.ChainFamily] = ver.DisableFinalityCheckers
 	}
 
-	return reference, nil
+	return disableFinalityCheckersPerFamily, nil
 }
 
 // validateStandaloneVerifierNodeIndices validates that the node_index assignments for
@@ -1578,29 +1587,26 @@ func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*committ
 
 	for _, ver := range standaloneVerifiers {
 		g.Go(func() error {
-			// register all families
-			for _, family := range ver.ChainFamilies {
-				if ver.Out == nil || ver.Out[family].BootstrapKeys.CSAPublicKey == "" {
-					return fmt.Errorf("bootstrap %s started but CSAPublicKey not available", ver.ContainerName)
-				}
+			if ver.Out == nil || ver.Out.BootstrapKeys.CSAPublicKey == "" {
+				return fmt.Errorf("bootstrap %s started but CSAPublicKey not available", ver.ContainerName)
+			}
 
-				reg := &jobs.BootstrapJDRegistration{
-					Name:         ver.ContainerName,
-					CSAPublicKey: ver.Out[family].BootstrapKeys.CSAPublicKey,
-				}
-				if err := jobs.RegisterBootstrapWithJD(gCtx, jdClient, reg); err != nil {
-					return fmt.Errorf("failed to register bootstrap %s with JD: %w", ver.ContainerName, err)
-				}
+			reg := &jobs.BootstrapJDRegistration{
+				Name:         ver.ContainerName,
+				CSAPublicKey: ver.Out.BootstrapKeys.CSAPublicKey,
+			}
+			if err := jobs.RegisterBootstrapWithJD(gCtx, jdClient, reg); err != nil {
+				return fmt.Errorf("failed to register bootstrap %s with JD: %w", ver.ContainerName, err)
+			}
 
-				// Store the JD node ID in the verifier output for later use when proposing jobs.
-				mu.Lock()
-				ver.Out[family].JDNodeID = reg.NodeID
-				mu.Unlock()
+			// Store the JD node ID in the verifier output for later use when proposing jobs.
+			mu.Lock()
+			ver.Out.JDNodeID = reg.NodeID
+			mu.Unlock()
 
-				// Wait for bootstrap to connect to JD
-				if err := jobs.WaitForBootstrapConnection(gCtx, jdClient, reg.NodeID, 60*time.Second); err != nil {
-					return fmt.Errorf("bootstrap %s failed to connect to JD: %w", ver.ContainerName, err)
-				}
+			// Wait for bootstrap to connect to JD
+			if err := jobs.WaitForBootstrapConnection(gCtx, jdClient, reg.NodeID, 60*time.Second); err != nil {
+				return fmt.Errorf("bootstrap %s failed to connect to JD: %w", ver.ContainerName, err)
 			}
 
 			return nil
@@ -1643,40 +1649,38 @@ func proposeJobsToStandaloneVerifiers(
 	for _, ver := range standaloneVerifiers {
 		g.Go(func() error {
 			// propose to all families
-			for _, family := range ver.ChainFamilies {
-				if ver.Out == nil || ver.Out[family].JDNodeID == "" {
-					return fmt.Errorf("verifier %s not registered with JD (missing JDNodeID)", ver.ContainerName)
-				}
-				nodeID := ver.Out[family].JDNodeID
-
-				// Get the base job spec
-				baseJobSpec, ok := verifierJobSpecs[ver.ContainerName]
-				if !ok {
-					return fmt.Errorf("no job spec found for verifier %s", ver.ContainerName)
-				}
-
-				// For standalone verifiers, we need to inject blockchain_infos into the config
-				// because they don't have CL node chain configuration
-				jobSpec, err := ver.RebuildVerifierJobSpecWithBlockchainInfos(baseJobSpec, blockchainInfos)
-				if err != nil {
-					return fmt.Errorf("failed to add blockchain infos to job spec for %s: %w", ver.ContainerName, err)
-				}
-
-				L.Info().Msgf("Proposing job to verifier %s: %s", ver.ContainerName, jobSpec)
-
-				resp, err := jdClient.ProposeJob(gCtx, &jobv1.ProposeJobRequest{
-					NodeId: nodeID,
-					Spec:   jobSpec,
-				})
-				if err != nil {
-					return fmt.Errorf("failed to propose job to verifier %s: %w", ver.ContainerName, err)
-				}
-				L.Info().
-					Str("verifier", ver.ContainerName).
-					Str("nodeID", nodeID).
-					Str("proposalID", resp.Proposal.Id).
-					Msg("Proposed job to verifier via JD")
+			if ver.Out == nil || ver.Out.JDNodeID == "" {
+				return fmt.Errorf("verifier %s not registered with JD (missing JDNodeID)", ver.ContainerName)
 			}
+			nodeID := ver.Out.JDNodeID
+
+			// Get the base job spec
+			baseJobSpec, ok := verifierJobSpecs[ver.ContainerName]
+			if !ok {
+				return fmt.Errorf("no job spec found for verifier %s", ver.ContainerName)
+			}
+
+			// For standalone verifiers, we need to inject blockchain_infos into the config
+			// because they don't have CL node chain configuration
+			jobSpec, err := ver.RebuildVerifierJobSpecWithBlockchainInfos(baseJobSpec, blockchainInfos)
+			if err != nil {
+				return fmt.Errorf("failed to add blockchain infos to job spec for %s: %w", ver.ContainerName, err)
+			}
+
+			L.Info().Msgf("Proposing job to verifier %s: %s", ver.ContainerName, jobSpec)
+
+			resp, err := jdClient.ProposeJob(gCtx, &jobv1.ProposeJobRequest{
+				NodeId: nodeID,
+				Spec:   jobSpec,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to propose job to verifier %s: %w", ver.ContainerName, err)
+			}
+			L.Info().
+				Str("verifier", ver.ContainerName).
+				Str("nodeID", nodeID).
+				Str("proposalID", resp.Proposal.Id).
+				Msg("Proposed job to verifier via JD")
 
 			return nil
 		})
