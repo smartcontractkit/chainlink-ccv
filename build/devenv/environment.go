@@ -194,7 +194,9 @@ func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers [
 				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, ver.Out[chainsel.FamilyEVM].BootstrapKeys.ECDSAAddress)
 			}
 			if nop.SignerAddressByFamily[chainsel.FamilyCanton] == "" {
-				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyCanton, ver.Out[chainsel.FamilyCanton].BootstrapKeys.ECDSAPublicKey)
+				if ver.Out[chainsel.FamilyCanton] != nil {
+					cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyCanton, ver.Out[chainsel.FamilyCanton].BootstrapKeys.ECDSAPublicKey)
+				}
 			}
 			seenAliases[ver.NOPAlias] = struct{}{}
 		}
@@ -444,8 +446,12 @@ func generateVerifierJobSpecs(
 
 			// Store the VerifierID in the output for test access
 			if ver.Out != nil {
-				ver.Out[chainsel.FamilyEVM].VerifierID = verCfg.VerifierID
-				ver.Out[chainsel.FamilyCanton].VerifierID = verCfg.VerifierID
+				if ver.Out[chainsel.FamilyEVM] != nil {
+					ver.Out[chainsel.FamilyEVM].VerifierID = verCfg.VerifierID
+				}
+				if ver.Out[chainsel.FamilyCanton] != nil {
+					ver.Out[chainsel.FamilyCanton].VerifierID = verCfg.VerifierID
+				}
 			}
 
 			if sharedTLSCerts != nil && !ver.InsecureAggregatorConnection {

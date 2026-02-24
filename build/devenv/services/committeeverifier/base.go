@@ -220,7 +220,7 @@ func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure
 	verifierOutputs := make(map[string]*Output)
 	for _, chainFamily := range in.ChainFamilies {
 		bootstrap := in.Bootstrap[chainFamily]
-		_, err := createDBContainer(ctx, in)
+		_, err := createDBContainer(ctx, in, chainFamily)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create verifier database: %w", err)
 		}
@@ -228,7 +228,7 @@ func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure
 		// Update bootstrap config w/ the database and JD info.
 		// TODO: make this easier? All standalone setups will have to do the same thing.
 		bootstrap.DB.URL = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
-			in.ContainerName, in.ContainerName, in.DB.Name, services.DefaultBootstrapDBName)
+			in.ContainerName, in.ContainerName, dbContainerName(in.DB.Name, chainFamily), services.DefaultBootstrapDBName)
 		bootstrap.JD.ServerCSAPublicKey = jdCSAKey
 		bootstrap.JD.ServerWSRPCURL = jdInfra.JDOutput.InternalWSRPCUrl
 
@@ -239,7 +239,7 @@ func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure
 
 		// Database connection for chain status (internal docker network address)
 		internalDBConnectionString := fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
-			in.ContainerName, in.ContainerName, in.DB.Name, in.ContainerName)
+			in.ContainerName, in.ContainerName, dbContainerName(in.DB.Name, chainFamily), in.ContainerName)
 		envVars["CL_DATABASE_URL"] = internalDBConnectionString
 
 		// Generate and store config file.
@@ -335,7 +335,8 @@ func startContainer(ctx context.Context, req testcontainers.ContainerRequest) (t
 
 	// We need this retry loop because sometimes air will fail to start the server
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		var err error
+		c, err = testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 			ContainerRequest: req,
 			Started:          true,
 		})
@@ -447,7 +448,11 @@ func getAggregatorSecrets(in *Input) (map[string]string, error) {
 	return envVars, nil
 }
 
-func createDBContainer(ctx context.Context, in *Input) (*postgres.PostgresContainer, error) {
+func dbContainerName(inDBName, chainFamily string) string {
+	return fmt.Sprintf("%s-%s", chainFamily, inDBName)
+}
+
+func createDBContainer(ctx context.Context, in *Input, chainFamily string) (*postgres.PostgresContainer, error) {
 	// Create a temporary file containing the bootstrap init script.
 	// This is so that we have two databases created in the database server container, one for the verifier and one for the bootstrap.
 	bootstrapInitScriptPath, err := services.CreateBootstrapDBInitScriptFile()
@@ -455,21 +460,21 @@ func createDBContainer(ctx context.Context, in *Input) (*postgres.PostgresContai
 		return nil, fmt.Errorf("failed to create bootstrap init script file: %w", err)
 	}
 
-	/* Database */
+	containerName := dbContainerName(in.DB.Name, chainFamily)
 	c, err := postgres.Run(ctx,
 		in.DB.Image,
-		testcontainers.WithName(in.DB.Name),
+		testcontainers.WithName(containerName),
 		postgres.WithDatabase(in.ContainerName),
 		postgres.WithUsername(in.ContainerName),
 		postgres.WithPassword(in.ContainerName),
 		postgres.WithInitScripts(bootstrapInitScriptPath),
 		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 			ContainerRequest: testcontainers.ContainerRequest{
-				Name:         in.DB.Name,
+				Name:         containerName,
 				ExposedPorts: []string{"5432/tcp"},
 				Networks:     []string{framework.DefaultNetworkName},
 				NetworkAliases: map[string][]string{
-					framework.DefaultNetworkName: {in.DB.Name},
+					framework.DefaultNetworkName: {containerName},
 				},
 				Labels: framework.DefaultTCLabels(),
 				HostConfigModifier: func(h *container.HostConfig) {
