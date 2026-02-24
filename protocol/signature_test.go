@@ -91,8 +91,8 @@ func TestRecoverSigners(t *testing.T) {
 	copy(hashArray[:], hash[:])
 
 	// Sign with each private key using V27 compatibility
-	rs := make([][32]byte, 0)
-	ss := make([][32]byte, 0)
+	rs := make([][32]byte, 0, len(privateKeys))
+	ss := make([][32]byte, 0, len(privateKeys))
 	for _, pk := range privateKeys {
 		r, s, _, err := SignV27(hashArray[:], pk)
 		require.NoError(t, err)

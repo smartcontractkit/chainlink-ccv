@@ -255,6 +255,7 @@ func TestNewSignerFromKeystore(t *testing.T) {
 	require.Len(t, signature, protocol.SingleECDSASignatureSize)
 
 	r, s, err := protocol.DecodeSingleECDSASignature(signature)
+	require.NoError(t, err)
 	signerAddr, err := protocol.RecoverECDSASigner(hashArray, r, s)
 	require.NoError(t, err)
 	require.Equal(t, address.Bytes(), signerAddr.Bytes())
