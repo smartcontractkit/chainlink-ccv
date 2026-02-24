@@ -39,6 +39,12 @@ func (h *GetVerifierResultsForMessageHandler) Handle(ctx context.Context, req *v
 		return nil, grpcstatus.Errorf(codes.InvalidArgument, "too many message_ids: %d, maximum allowed: %d", len(req.GetMessageIds()), h.maxMessageIDsPerBatch)
 	}
 
+	for i, id := range req.GetMessageIds() {
+		if len(id) != protocol.MessageIDSize {
+			return nil, grpcstatus.Errorf(codes.InvalidArgument, "message_ids[%d] must be exactly %d bytes, got %d", i, protocol.MessageIDSize, len(id))
+		}
+	}
+
 	// Convert proto message IDs to model.MessageID
 	messageIDs := make([]model.MessageID, len(req.GetMessageIds()))
 	for i, messageID := range req.GetMessageIds() {

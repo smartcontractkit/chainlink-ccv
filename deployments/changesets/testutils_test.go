@@ -137,12 +137,14 @@ func newTestTopology(opts ...TopologyOption) *deployments.EnvironmentTopology {
 					},
 					ChainConfigs: map[string]deployments.ChainCommitteeConfig{
 						sel1Str: {
-							NOPAliases: []string{"nop-1", "nop-2"},
-							Threshold:  2,
+							NOPAliases:    []string{"nop-1", "nop-2"},
+							Threshold:     2,
+							FeeAggregator: "0x0000000000000000000000000000000000000001",
 						},
 						sel2Str: {
-							NOPAliases: []string{"nop-1", "nop-2"},
-							Threshold:  2,
+							NOPAliases:    []string{"nop-1", "nop-2"},
+							Threshold:     2,
+							FeeAggregator: "0x0000000000000000000000000000000000000001",
 						},
 					},
 				},
@@ -173,16 +175,16 @@ func setupVerifierDatastore(t *testing.T, ds datastore.MutableDataStore, selecto
 	t.Helper()
 	addrs := testContractAddresses
 
-	addContractToDatastore(t, ds, selectors[0], committeeQualifier, committee_verifier.ResolverType, addrs.CommitteeVerifier1)
-	addContractToDatastore(t, ds, selectors[0], "", onrampoperations.ContractType, addrs.OnRamp1)
-	addContractToDatastore(t, ds, selectors[0], executorQualifier, execcontract.ProxyType, addrs.Executor1)
-	addContractToDatastore(t, ds, selectors[0], "", rmn_remote.ContractType, addrs.RMN1)
+	addContractToDatastoreWithVersion(t, ds, selectors[0], committeeQualifier, committee_verifier.ResolverType, committee_verifier.Version, addrs.CommitteeVerifier1)
+	addContractToDatastoreWithVersion(t, ds, selectors[0], "", onrampoperations.ContractType, onrampoperations.Version, addrs.OnRamp1)
+	addContractToDatastoreWithVersion(t, ds, selectors[0], executorQualifier, execcontract.ProxyType, execcontract.Version, addrs.Executor1)
+	addContractToDatastoreWithVersion(t, ds, selectors[0], "", rmn_remote.ContractType, rmn_remote.Version, addrs.RMN1)
 
 	if len(selectors) > 1 {
-		addContractToDatastore(t, ds, selectors[1], committeeQualifier, committee_verifier.ResolverType, addrs.CommitteeVerifier2)
-		addContractToDatastore(t, ds, selectors[1], "", onrampoperations.ContractType, addrs.OnRamp2)
-		addContractToDatastore(t, ds, selectors[1], executorQualifier, execcontract.ProxyType, addrs.Executor2)
-		addContractToDatastore(t, ds, selectors[1], "", rmn_remote.ContractType, addrs.RMN2)
+		addContractToDatastoreWithVersion(t, ds, selectors[1], committeeQualifier, committee_verifier.ResolverType, committee_verifier.Version, addrs.CommitteeVerifier2)
+		addContractToDatastoreWithVersion(t, ds, selectors[1], "", onrampoperations.ContractType, onrampoperations.Version, addrs.OnRamp2)
+		addContractToDatastoreWithVersion(t, ds, selectors[1], executorQualifier, execcontract.ProxyType, execcontract.Version, addrs.Executor2)
+		addContractToDatastoreWithVersion(t, ds, selectors[1], "", rmn_remote.ContractType, rmn_remote.Version, addrs.RMN2)
 	}
 }
 
@@ -190,25 +192,29 @@ func setupExecutorDatastore(t *testing.T, ds datastore.MutableDataStore, selecto
 	t.Helper()
 	addrs := testContractAddresses
 
-	addContractToDatastore(t, ds, selectors[0], executorQualifier, execcontract.ProxyType, addrs.Executor1)
-	addContractToDatastore(t, ds, selectors[0], "", offrampoperations.ContractType, addrs.OffRamp1)
-	addContractToDatastore(t, ds, selectors[0], "", rmn_remote.ContractType, addrs.RMN1)
+	addContractToDatastoreWithVersion(t, ds, selectors[0], executorQualifier, execcontract.ProxyType, execcontract.Version, addrs.Executor1)
+	addContractToDatastoreWithVersion(t, ds, selectors[0], "", offrampoperations.ContractType, offrampoperations.Version, addrs.OffRamp1)
+	addContractToDatastoreWithVersion(t, ds, selectors[0], "", rmn_remote.ContractType, rmn_remote.Version, addrs.RMN1)
 
 	if len(selectors) > 1 {
-		addContractToDatastore(t, ds, selectors[1], executorQualifier, execcontract.ProxyType, addrs.Executor2)
-		addContractToDatastore(t, ds, selectors[1], "", offrampoperations.ContractType, addrs.OffRamp2)
-		addContractToDatastore(t, ds, selectors[1], "", rmn_remote.ContractType, addrs.RMN2)
+		addContractToDatastoreWithVersion(t, ds, selectors[1], executorQualifier, execcontract.ProxyType, execcontract.Version, addrs.Executor2)
+		addContractToDatastoreWithVersion(t, ds, selectors[1], "", offrampoperations.ContractType, offrampoperations.Version, addrs.OffRamp2)
+		addContractToDatastoreWithVersion(t, ds, selectors[1], "", rmn_remote.ContractType, rmn_remote.Version, addrs.RMN2)
 	}
 }
 
-func addContractToDatastore(t *testing.T, ds datastore.MutableDataStore, chainSelector uint64, qualifier string, contractType deployment.ContractType, addr common.Address) {
+func addContractToDatastoreWithVersion(t *testing.T, ds datastore.MutableDataStore, chainSelector uint64, qualifier string, contractType deployment.ContractType, version *semver.Version, addr common.Address) {
 	t.Helper()
-	err := ds.Addresses().Add(datastore.AddressRef{
+	ref := datastore.AddressRef{
 		ChainSelector: chainSelector,
 		Qualifier:     qualifier,
 		Type:          datastore.ContractType(contractType),
 		Address:       addr.Hex(),
-	})
+	}
+	if version != nil {
+		ref.Version = version
+	}
+	err := ds.Addresses().Add(ref)
 	require.NoError(t, err)
 }
 

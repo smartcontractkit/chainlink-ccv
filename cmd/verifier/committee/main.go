@@ -59,7 +59,7 @@ func main() {
 
 			return evmaccessor.NewFactory(lggr, helper, cfg.OnRampAddresses, cfg.RMNRemoteAddresses, headTrackers, chainClients), nil
 		}),
-		bootstrap.WithLogLevel(zapcore.InfoLevel),
+		bootstrap.WithLogLevel[commit.JobSpec](zapcore.InfoLevel),
 	); err != nil {
 		panic(fmt.Sprintf("failed to run EVM committee verifier: %s", err.Error()))
 	}

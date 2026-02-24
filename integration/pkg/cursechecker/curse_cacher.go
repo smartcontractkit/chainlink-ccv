@@ -6,6 +6,7 @@ import (
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -18,6 +19,7 @@ const curseCacheMaxEntries = 100
 // It uses an LRU cache to store the curse state for each destination chain.
 type CachedCurseChecker struct {
 	lggr       logger.Logger
+	metrics    common.CurseCheckerMetrics
 	rmnReaders map[protocol.ChainSelector]chainaccess.RMNCurseReader
 	// Cache of curse state per destination chain.
 	// The cache key is a destination chain selector, the cache value is a set of bytes16curse subjects (including global curse).
@@ -30,6 +32,7 @@ type cacheValue map[protocol.Bytes16]struct{}
 
 type Params struct {
 	Lggr        logger.Logger
+	Metrics     common.CurseCheckerMetrics
 	RmnReaders  map[protocol.ChainSelector]chainaccess.RMNCurseReader
 	CacheExpiry time.Duration
 }
@@ -39,6 +42,7 @@ func NewCachedCurseChecker(params Params) CachedCurseChecker {
 	curseCache := expirable.NewLRU[protocol.ChainSelector, cacheValue](curseCacheMaxEntries, nil, params.CacheExpiry)
 	return CachedCurseChecker{
 		lggr:       params.Lggr,
+		metrics:    params.Metrics,
 		rmnReaders: params.RmnReaders,
 		curseCache: curseCache,
 	}
@@ -53,13 +57,15 @@ func (c CachedCurseChecker) IsRemoteChainCursed(ctx context.Context, localChain,
 		c.lggr.Debugf("curse state retrieved from cache for dest chain %d with subjects %v",
 			localChain, curseInfo)
 
-		return isChainSelectorCursed(curseInfo, remoteChain)
+		return c.isChainSelectorCursed(ctx, curseInfo, localChain, remoteChain)
 	}
 
 	curseResults, err := c.rmnReaders[localChain].GetRMNCursedSubjects(ctx)
 	if err != nil {
-		c.lggr.Errorw("Failed to get cursed subjects, assuming cursed", "error", err)
-		return true
+		// If the chain is actually cursed, transaction will revert.
+		// We return early to avoid poisoning the cache.
+		c.lggr.Errorw("Failed to get cursed subjects, assuming not cursed", "error", err)
+		return false
 	}
 
 	for _, subject := range curseResults {
@@ -67,18 +73,18 @@ func (c CachedCurseChecker) IsRemoteChainCursed(ctx context.Context, localChain,
 	}
 
 	c.curseCache.Add(localChain, cursedSubjects)
-	return isChainSelectorCursed(cursedSubjects, remoteChain)
+	return c.isChainSelectorCursed(ctx, cursedSubjects, localChain, remoteChain)
 }
 
 // isChainSelectorCursed checks if the remote chain is cursed for the local chain.
 // It converts from a protocol.ChainSelector to a Bytes16 and checks if it is in the cursedSubjects set.
 // It also checks if the GlobalCurseSubject is in the cursedSubjects set.
-func isChainSelectorCursed(cursedSubjects cacheValue, remoteChain protocol.ChainSelector) bool {
-	if _, ok := cursedSubjects[GlobalCurseSubject]; ok {
-		return true
-	}
-	if _, ok := cursedSubjects[ChainSelectorToBytes16(remoteChain)]; ok {
-		return true
-	}
-	return false
+func (c CachedCurseChecker) isChainSelectorCursed(ctx context.Context, cursedSubjects cacheValue, localChain, remoteChain protocol.ChainSelector) bool {
+	_, hasGlobalCurse := cursedSubjects[GlobalCurseSubject]
+	_, remoteChainCursed := cursedSubjects[ChainSelectorToBytes16(remoteChain)]
+
+	c.metrics.SetLocalChainGlobalCursed(ctx, localChain, hasGlobalCurse)
+	c.metrics.SetRemoteChainCursed(ctx, localChain, remoteChain, remoteChainCursed)
+
+	return hasGlobalCurse || remoteChainCursed
 }

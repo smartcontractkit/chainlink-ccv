@@ -109,22 +109,24 @@ func (n *NOPConfig) GetMode() shared.NOPMode {
 }
 
 // CommitteeConfig defines a committee and its per-chain membership.
-// It contains both off-chain (aggregators, chain configs) and on-chain
-// (fee_aggregator, allowlist_admin, storage_locations) configuration.
+// It contains off-chain (aggregators, chain configs) and committee-wide
+// on-chain (storage_locations) configuration.
 type CommitteeConfig struct {
 	Qualifier        string                          `toml:"qualifier"`
 	VerifierVersion  *semver.Version                 `toml:"verifier_version"`
-	FeeAggregator    string                          `toml:"fee_aggregator,omitempty"`
-	AllowlistAdmin   string                          `toml:"allowlist_admin,omitempty"`
 	StorageLocations []string                        `toml:"storage_locations,omitempty"`
 	ChainConfigs     map[string]ChainCommitteeConfig `toml:"chain_configs"`
 	Aggregators      []AggregatorConfig              `toml:"aggregators"`
 }
 
-// ChainCommitteeConfig defines committee membership for a specific chain.
+// ChainCommitteeConfig defines committee membership and on-chain parameters
+// for a specific chain. FeeAggregator and AllowlistAdmin are per-chain because
+// address formats differ across chain families (EVM, Canton, etc.).
 type ChainCommitteeConfig struct {
-	NOPAliases []string `toml:"nop_aliases"`
-	Threshold  uint8    `toml:"threshold"`
+	NOPAliases     []string `toml:"nop_aliases"`
+	Threshold      uint8    `toml:"threshold"`
+	FeeAggregator  string   `toml:"fee_aggregator,omitempty"`
+	AllowlistAdmin string   `toml:"allowlist_admin,omitempty"`
 }
 
 // AggregatorConfig defines an aggregator instance for HA setups.

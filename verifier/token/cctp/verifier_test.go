@@ -4,14 +4,12 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
@@ -36,30 +34,25 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 		Return(testAttestation, nil).
 		Once()
 
-	ccvDataBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](ctx, 1, 1*time.Minute, 10)
-
 	v := cctp.NewVerifier(lggr, mockAttestationService)
-	vErrors := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
+	results := v.VerifyMessages(ctx, tasks)
 
-	assert.NoError(t, vErrors.Error, "Expected no batch-level error")
-	assert.Empty(t, vErrors.Items, "Expected no verification errors")
+	require.Len(t, results, 1, "Expected one result")
+	assert.Nil(t, results[0].Error, "Expected no error")
+	assert.NotNil(t, results[0].Result, "Expected successful result")
 	mockAttestationService.AssertExpectations(t)
 
 	t.Cleanup(func() {
 		cancel()
-		_ = ccvDataBatcher.Close()
 	})
-
-	results := internal.ReadResultsFromChannel(t, ccvDataBatcher.OutChannel())
-	require.Len(t, results, 1, "Expected one result in batcher")
 
 	attestation, err := testAttestation.ToVerifierFormat()
 	require.NoError(t, err)
-	assert.Equal(t, task.MessageID, results[0].MessageID.String())
-	assert.Equal(t, attestation, results[0].Signature)
-	assert.Equal(t, []protocol.UnknownAddress{internal.CCVAddress1, internal.CCVAddress2}, results[0].CCVAddresses)
-	assert.Equal(t, internal.ExecutorAddress, results[0].ExecutorAddress)
-	assert.Equal(t, ccvVerifierVersion, results[0].CCVVersion)
+	assert.Equal(t, task.MessageID, results[0].Result.MessageID.String())
+	assert.Equal(t, attestation, results[0].Result.Signature)
+	assert.Equal(t, []protocol.UnknownAddress{internal.CCVAddress1, internal.CCVAddress2}, results[0].Result.CCVAddresses)
+	assert.Equal(t, internal.ExecutorAddress, results[0].Result.ExecutorAddress)
+	assert.Equal(t, ccvVerifierVersion, results[0].Result.CCVVersion)
 }
 
 func TestVerifier_VerifyMessages_AttestationServiceFailure(t *testing.T) {
@@ -76,28 +69,25 @@ func TestVerifier_VerifyMessages_AttestationServiceFailure(t *testing.T) {
 		Return(cctp.Attestation{}, expectedErr).
 		Once()
 
-	ccvDataBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](ctx, 100, 1*time.Minute, 10)
-
 	v := cctp.NewVerifier(lggr, mockAttestationService)
-	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
+	results := v.VerifyMessages(ctx, tasks)
 
 	t.Cleanup(func() {
 		cancel()
-		_ = ccvDataBatcher.Close()
 	})
 
-	assert.NoError(t, result.Error, "Expected no batch-level error")
-	require.Len(t, result.Items, 1, "Expected one verification error")
+	require.Len(t, results, 1, "Expected one result")
+	assert.Nil(t, results[0].Result, "Expected no successful result")
+	assert.NotNil(t, results[0].Error, "Expected an error")
 
-	verificationError := result.Items[0]
+	verificationError := results[0].Error
 	assert.Equal(t, expectedErr, verificationError.Error)
 	assert.Equal(t, task.MessageID, verificationError.Task.MessageID)
 	mockAttestationService.AssertExpectations(t)
 }
 
-func TestVerifier_VerifyMessages_BatcherFailure(t *testing.T) {
+func TestVerifier_VerifyMessages_AttestationNotReady(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
 
 	lggr := logger.Test(t)
 	mockAttestationService := mocks.NewCCTPAttestationService(t)
@@ -105,29 +95,29 @@ func TestVerifier_VerifyMessages_BatcherFailure(t *testing.T) {
 	task := internal.CreateTestVerificationTask(1)
 	tasks := []verifier.VerificationTask{task}
 
-	testAttestation := createTestAttestation()
+	notReadyAttestation := cctp.Attestation{} // Empty attestation (not ready)
 
 	mockAttestationService.EXPECT().
 		Fetch(mock.Anything, task.TxHash, task.Message).
-		Return(testAttestation, nil).
+		Return(notReadyAttestation, nil).
 		Once()
 
-	ccvDataBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](ctx, 100, 1*time.Minute, 10)
-
 	v := cctp.NewVerifier(lggr, mockAttestationService)
-	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
+	results := v.VerifyMessages(ctx, tasks)
 
 	t.Cleanup(func() {
-		_ = ccvDataBatcher.Close()
+		cancel()
 	})
 
-	assert.NoError(t, result.Error, "Expected no batch-level error")
-	require.Len(t, result.Items, 1, "Expected one verification error")
+	require.Len(t, results, 1, "Expected one result")
+	assert.Nil(t, results[0].Result, "Expected no successful result")
+	assert.NotNil(t, results[0].Error, "Expected an error")
 
-	verificationError := result.Items[0]
-	assert.Error(t, verificationError.Error, "Expected error from batcher.Add")
-	assert.Contains(t, verificationError.Error.Error(), "context canceled")
+	verificationError := results[0].Error
+	assert.Error(t, verificationError.Error, "Expected error for attestation not ready")
+	assert.Contains(t, verificationError.Error.Error(), "not ready")
 	assert.Equal(t, task.MessageID, verificationError.Task.MessageID)
+	assert.True(t, verificationError.Retryable, "Should be retryable")
 	mockAttestationService.AssertExpectations(t)
 }
 
@@ -162,28 +152,32 @@ func TestVerifier_VerifyMessages_MultipleTasksWithMixedResults(t *testing.T) {
 		Return(testAttestation, nil).
 		Once()
 
-	ccvDataBatcher := batcher.NewBatcher[protocol.VerifierNodeResult](ctx, 2, 1*time.Minute, 10)
-
 	v := cctp.NewVerifier(lggr, mockAttestationService)
-	result := v.VerifyMessages(ctx, tasks, ccvDataBatcher)
+	results := v.VerifyMessages(ctx, tasks)
 
 	t.Cleanup(func() {
 		cancel()
-		_ = ccvDataBatcher.Close()
 	})
 
-	assert.NoError(t, result.Error, "Expected no batch-level error")
-	require.Len(t, result.Items, 1, "Expected one verification error (task2)")
+	require.Len(t, results, 3, "Expected three results")
 
-	verificationError := result.Items[0]
-	assert.Equal(t, expectedErr, verificationError.Error)
-	assert.Equal(t, task2.MessageID, verificationError.Task.MessageID)
+	// task1 should succeed
+	assert.Nil(t, results[0].Error, "Expected no error for task1")
+	assert.NotNil(t, results[0].Result, "Expected successful result for task1")
+	assert.Equal(t, task1.MessageID, results[0].Result.MessageID.String())
+
+	// task2 should fail
+	assert.Nil(t, results[1].Result, "Expected no result for task2")
+	assert.NotNil(t, results[1].Error, "Expected error for task2")
+	assert.Equal(t, expectedErr, results[1].Error.Error)
+	assert.Equal(t, task2.MessageID, results[1].Error.Task.MessageID)
+
+	// task3 should succeed
+	assert.Nil(t, results[2].Error, "Expected no error for task3")
+	assert.NotNil(t, results[2].Result, "Expected successful result for task3")
+	assert.Equal(t, task3.MessageID, results[2].Result.MessageID.String())
+
 	mockAttestationService.AssertExpectations(t)
-
-	results := internal.ReadResultsFromChannel(t, ccvDataBatcher.OutChannel())
-	require.Len(t, results, 2, "Expected two results in batcher")
-	assert.Equal(t, task1.MessageID, results[0].MessageID.String())
-	assert.Equal(t, task3.MessageID, results[1].MessageID.String())
 }
 
 func createTestAttestation() cctp.Attestation {

@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -59,9 +57,9 @@ func NewVerifierWithConfig(
 func (v *Verifier) VerifyMessages(
 	ctx context.Context,
 	tasks []verifier.VerificationTask,
-	ccvDataBatcher *batcher.Batcher[protocol.VerifierNodeResult],
-) batcher.BatchResult[verifier.VerificationError] {
-	var errors []verifier.VerificationError
+) []verifier.VerificationResult {
+	results := make([]verifier.VerificationResult, 0, len(tasks))
+
 	// TODO: `attestationService.Fetch` is an IO-bound operation and can be parallelized. Large number of tasks
 	//  may lead to performance bottlenecks. Consider using a worker pool or goroutines with a semaphore to limit
 	//  concurrency.
@@ -73,23 +71,26 @@ func (v *Verifier) VerifyMessages(
 		attestation, err := v.attestationService.Fetch(ctx, task.TxHash, task.Message)
 		if err != nil {
 			lggr.Warnw("Failed to fetch attestation", "err", err)
-			errors = append(errors, v.errorRetry(err, task))
+			verificationError := v.errorRetry(err, task)
+			results = append(results, verifier.VerificationResult{Error: &verificationError})
 			continue
 		}
 
 		if !attestation.IsReady() {
 			lggr.Debugw("Attestation not ready for message")
-			errors = append(errors, v.attestationErrorRetry(
+			verificationError := v.attestationErrorRetry(
 				fmt.Errorf("attestation not ready for message ID: %s", task.MessageID),
 				task,
-			))
+			)
+			results = append(results, verifier.VerificationResult{Error: &verificationError})
 			continue
 		}
 
 		verifierFormat, err := attestation.ToVerifierFormat()
 		if err != nil {
 			lggr.Errorw("Failed to decode attestation data", "err", err)
-			errors = append(errors, v.errorRetry(err, task))
+			verificationError := v.errorRetry(err, task)
+			results = append(results, verifier.VerificationResult{Error: &verificationError})
 			continue
 		}
 
@@ -108,23 +109,17 @@ func (v *Verifier) VerifyMessages(
 		)
 		if err != nil {
 			lggr.Errorw("CreateVerifierNodeResult: Failed to create VerifierNodeResult", "err", err)
-			errors = append(errors, v.errorRetry(err, task))
+			verificationError := v.errorRetry(err, task)
+			results = append(results, verifier.VerificationResult{Error: &verificationError})
 			continue
 		}
 
-		// 3. Add to batcher
-		if err = ccvDataBatcher.Add(*result); err != nil {
-			lggr.Errorw("VerifierResults: Failed to add to batcher", "err", err)
-			errors = append(errors, v.errorRetry(err, task))
-			continue
-		}
-		lggr.Infow("VerifierResults: Successfully added to the batcher", "signature", result.Signature)
+		// 3. Return successful result
+		lggr.Infow("VerifierResults: Successfully verified message", "signature", result.Signature)
+		results = append(results, verifier.VerificationResult{Result: result})
 	}
 
-	return batcher.BatchResult[verifier.VerificationError]{
-		Items: errors,
-		Error: nil,
-	}
+	return results
 }
 
 func (v *Verifier) attestationErrorRetry(err error, task verifier.VerificationTask) verifier.VerificationError {

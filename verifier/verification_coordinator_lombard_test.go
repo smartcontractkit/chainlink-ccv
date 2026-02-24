@@ -284,6 +284,7 @@ func createLombardCoordinator(
 		noopMonitoring,
 		ts.chainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
+		ts.db,
 	)
 }
 

@@ -2,7 +2,10 @@ package verifier
 
 import (
 	"context"
+	"database/sql"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"math/big"
 	"sync"
 	"testing"
@@ -12,17 +15,21 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/services"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/jobqueue"
+	vcommon "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 )
 
 // WaitForMessagesInStorage waits for the specified number of messages to be processed.
 // Since messages are batched, we can't rely on one notification per message.
 // Instead, we poll the storage to check if the expected count has been reached.
-func WaitForMessagesInStorage(t *testing.T, storage *common.InMemoryOffchainStorage, count int) {
+func WaitForMessagesInStorage(t *testing.T, storage *vcommon.InMemoryOffchainStorage, count int) {
 	timeout := time.After(30 * time.Second)
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
@@ -158,16 +165,24 @@ func (m *noopMetricLabeler) IncrementStorageWriteErrors(ctx context.Context)    
 func (m *noopMetricLabeler) RecordSourceChainLatestBlock(ctx context.Context, blockNum int64)       {}
 func (m *noopMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64)    {}
 func (m *noopMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64)             {}
-func (m *noopMetricLabeler) IncrementHeartbeatsSent(ctx context.Context)                            {}
-func (m *noopMetricLabeler) IncrementHeartbeatsFailed(ctx context.Context)                          {}
-func (m *noopMetricLabeler) RecordHeartbeatDuration(ctx context.Context, duration time.Duration)    {}
-func (m *noopMetricLabeler) SetVerifierHeartbeatTimestamp(ctx context.Context, timestamp int64)     {}
-func (m *noopMetricLabeler) SetVerifierHeartbeatSentChainHeads(ctx context.Context, height uint64)  {}
-func (m *noopMetricLabeler) SetVerifierHeartbeatChainHeads(ctx context.Context, height uint64)      {}
-func (m *noopMetricLabeler) SetVerifierHeartbeatScore(ctx context.Context, score float64)           {}
-func (m *noopMetricLabeler) IncrementActiveRequestsCounter(ctx context.Context)                     {}
-func (m *noopMetricLabeler) IncrementHTTPRequestCounter(ctx context.Context)                        {}
-func (m *noopMetricLabeler) DecrementActiveRequestsCounter(ctx context.Context)                     {}
+func (m *noopMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool) {
+}
+
+func (m *noopMetricLabeler) SetRemoteChainCursed(ctx context.Context, localSelector, remoteSelector protocol.ChainSelector, cursed bool) {
+}
+
+func (m *noopMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool) {
+}
+func (m *noopMetricLabeler) IncrementHeartbeatsSent(ctx context.Context)                           {}
+func (m *noopMetricLabeler) IncrementHeartbeatsFailed(ctx context.Context)                         {}
+func (m *noopMetricLabeler) RecordHeartbeatDuration(ctx context.Context, duration time.Duration)   {}
+func (m *noopMetricLabeler) SetVerifierHeartbeatTimestamp(ctx context.Context, timestamp int64)    {}
+func (m *noopMetricLabeler) SetVerifierHeartbeatSentChainHeads(ctx context.Context, height uint64) {}
+func (m *noopMetricLabeler) SetVerifierHeartbeatChainHeads(ctx context.Context, height uint64)     {}
+func (m *noopMetricLabeler) SetVerifierHeartbeatScore(ctx context.Context, score float64)          {}
+func (m *noopMetricLabeler) IncrementActiveRequestsCounter(ctx context.Context)                    {}
+func (m *noopMetricLabeler) IncrementHTTPRequestCounter(ctx context.Context)                       {}
+func (m *noopMetricLabeler) DecrementActiveRequestsCounter(ctx context.Context)                    {}
 func (m *noopMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path, method string, status int) {
 }
 
@@ -194,11 +209,12 @@ func NewTestVerifier() *TestVerifier {
 func (t *TestVerifier) VerifyMessages(
 	_ context.Context,
 	tasks []VerificationTask,
-	ccvDataBatcher *batcher.Batcher[protocol.VerifierNodeResult],
-) batcher.BatchResult[VerificationError] {
+) []VerificationResult {
 	t.mu.Lock()
 	t.processedTasks = append(t.processedTasks, tasks...)
 	t.mu.Unlock()
+
+	results := make([]VerificationResult, 0, len(tasks))
 
 	// Create mock CCV node data for each task
 	for _, verificationTask := range tasks {
@@ -235,14 +251,12 @@ func (t *TestVerifier) VerifyMessages(
 			Signature:       []byte("mock-signature"),
 		}
 
-		if err := ccvDataBatcher.Add(ccvNodeData); err != nil {
-			// If context is canceled or batcher is closed, stop processing
-			return batcher.BatchResult[VerificationError]{Items: nil, Error: nil}
-		}
+		results = append(results, VerificationResult{
+			Result: &ccvNodeData,
+		})
 	}
 
-	// No errors in this test implementation
-	return batcher.BatchResult[VerificationError]{Items: nil, Error: nil}
+	return results
 }
 
 func (t *TestVerifier) GetProcessedTaskCount() int {
@@ -364,4 +378,185 @@ func newTestSRS(
 	mockFC.EXPECT().IsFinalityViolated().Return(false).Maybe()
 
 	return srs, mockFC
+}
+
+// NewCoordinatorWithFastPolling creates a coordinator with fast polling intervals for testing.
+// This is useful for DB-backed tests that need responsive queue processing.
+func NewCoordinatorWithFastPolling(
+	ctx context.Context,
+	lggr logger.Logger,
+	verifier Verifier,
+	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
+	storage protocol.CCVNodeDataWriter,
+	config CoordinatorConfig,
+	messageTracker MessageLatencyTracker,
+	monitoring Monitoring,
+	chainStatusManager protocol.ChainStatusManager,
+	heartbeatClient heartbeatclient.HeartbeatSender,
+	db *sql.DB,
+	pollInterval time.Duration,
+) (*Coordinator, error) {
+	// Use the same initialization as NewCoordinator but with custom poll intervals
+	lggr = logger.With(lggr, "verifierID", config.VerifierID)
+
+	var err error
+	enabledSourceReaders, err := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, chainStatusManager)
+	if err != nil {
+		return nil, fmt.Errorf("failed to filter enabled source readers: %w", err)
+	}
+	if len(enabledSourceReaders) == 0 {
+		return nil, errors.New("no enabled/initialized chain sources, nothing to coordinate")
+	}
+
+	curseDetector, err := createCurseDetector(lggr, config, nil, enabledSourceReaders, monitoring.Metrics())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create curse detector: %w", err)
+	}
+
+	writingTracker := NewPendingWritingTracker(lggr)
+
+	var taskVerifierProcessor services.Service
+	var storageWriterProcessor services.Service
+	sourceReaderServices := make(map[protocol.ChainSelector]services.Service)
+
+	if db == nil {
+		inMemorySRS := createSourceReaders(
+			ctx, lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, writingTracker,
+		)
+		for chainSelector, srs := range inMemorySRS {
+			sourceReaderServices[chainSelector] = srs
+		}
+		taskVerifierProcessor, storageWriterProcessor, err = createInMemoryProcessors(
+			ctx, lggr, config, verifier, monitoring, inMemorySRS, messageTracker, storage, writingTracker, chainStatusManager,
+		)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		dbSRS, tvp, swp, durableErr := createDurableProcessorsWithPollInterval(
+			ctx, lggr, db, config, verifier, monitoring, enabledSourceReaders, chainStatusManager, curseDetector, messageTracker, storage, writingTracker, pollInterval,
+		)
+		if durableErr != nil {
+			return nil, durableErr
+		}
+		for chainSelector, srs := range dbSRS {
+			sourceReaderServices[chainSelector] = srs
+		}
+		taskVerifierProcessor, storageWriterProcessor = tvp, swp
+	}
+
+	var heartbeatReporter *HeartbeatReporter
+	if heartbeatClient != nil && config.HeartbeatInterval > 0 {
+		allSelectors := make([]protocol.ChainSelector, 0, len(sourceReaders))
+		for selector := range sourceReaders {
+			allSelectors = append(allSelectors, selector)
+		}
+
+		heartbeatReporter, err = NewHeartbeatReporter(
+			logger.With(lggr, "component", "HeartbeatReporter"),
+			chainStatusManager,
+			heartbeatClient,
+			allSelectors,
+			config.VerifierID,
+			config.HeartbeatInterval,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create heartbeat reporter: %w", err)
+		}
+	}
+
+	return &Coordinator{
+		lggr:                   lggr,
+		verifierID:             config.VerifierID,
+		sourceReaderServices:   sourceReaderServices,
+		curseDetector:          curseDetector,
+		taskVerifierProcessor:  taskVerifierProcessor,
+		storageWriterProcessor: storageWriterProcessor,
+		heartbeatReporter:      heartbeatReporter,
+	}, nil
+}
+
+// createDurableProcessorsWithPollInterval creates durable processors with custom poll intervals for testing.
+func createDurableProcessorsWithPollInterval(
+	ctx context.Context,
+	lggr logger.Logger,
+	db *sql.DB,
+	config CoordinatorConfig,
+	verifier Verifier,
+	monitoring Monitoring,
+	enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
+	chainStatusManager protocol.ChainStatusManager,
+	curseDetector common.CurseCheckerService,
+	messageTracker MessageLatencyTracker,
+	storage protocol.CCVNodeDataWriter,
+	writingTracker *PendingWritingTracker,
+	pollInterval time.Duration,
+) (map[protocol.ChainSelector]*SourceReaderServiceDB, services.Service, services.Service, error) {
+	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
+		db,
+		jobqueue.QueueConfig{
+			Name:          "verification_tasks",
+			OwnerID:       config.VerifierID,
+			RetryDuration: taskQueueRetryDuration,
+			LockDuration:  taskQueueLockDuration,
+		},
+		logger.With(lggr, "component", "task_queue"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create task queue: %w", err)
+	}
+
+	resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
+		db,
+		jobqueue.QueueConfig{
+			Name:          "verification_results",
+			OwnerID:       config.VerifierID,
+			RetryDuration: resultQueueRetryDuration,
+			LockDuration:  resultQueueLockDuration,
+		},
+		logger.With(lggr, "component", "result_queue"),
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create result queue: %w", err)
+	}
+
+	sourceReadersDB, err := createSourceReadersDB(
+		ctx, lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, writingTracker, taskQueue,
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create DB source reader services: %w", err)
+	}
+
+	taskVerifierProcessor, err := NewTaskVerifierProcessorDBWithPollInterval(
+		lggr,
+		config.VerifierID,
+		verifier,
+		monitoring,
+		taskQueue,
+		resultQueue,
+		writingTracker,
+		config.StorageBatchSize,
+		pollInterval,
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create task verifier processor DB: %w", err)
+	}
+
+	storageWriterProcessor, err := NewStorageWriterProcessorDBWithPollInterval(
+		ctx,
+		lggr,
+		config.VerifierID,
+		messageTracker,
+		storage,
+		resultQueue,
+		config,
+		writingTracker,
+		chainStatusManager,
+		pollInterval,
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to create storage writer processor DB: %w", err)
+	}
+
+	return sourceReadersDB, taskVerifierProcessor, storageWriterProcessor, nil
 }

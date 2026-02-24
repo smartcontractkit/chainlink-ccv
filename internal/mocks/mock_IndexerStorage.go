@@ -434,6 +434,53 @@ func (_c *MockIndexerStorage_InsertMessage_Call) RunAndReturn(run func(context.C
 	return _c
 }
 
+// PersistDiscoveryBatch provides a mock function with given fields: ctx, batch
+func (_m *MockIndexerStorage) PersistDiscoveryBatch(ctx context.Context, batch common.DiscoveryBatch) error {
+	ret := _m.Called(ctx, batch)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PersistDiscoveryBatch")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, common.DiscoveryBatch) error); ok {
+		r0 = rf(ctx, batch)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockIndexerStorage_PersistDiscoveryBatch_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PersistDiscoveryBatch'
+type MockIndexerStorage_PersistDiscoveryBatch_Call struct {
+	*mock.Call
+}
+
+// PersistDiscoveryBatch is a helper method to define mock.On call
+//   - ctx context.Context
+//   - batch common.DiscoveryBatch
+func (_e *MockIndexerStorage_Expecter) PersistDiscoveryBatch(ctx interface{}, batch interface{}) *MockIndexerStorage_PersistDiscoveryBatch_Call {
+	return &MockIndexerStorage_PersistDiscoveryBatch_Call{Call: _e.mock.On("PersistDiscoveryBatch", ctx, batch)}
+}
+
+func (_c *MockIndexerStorage_PersistDiscoveryBatch_Call) Run(run func(ctx context.Context, batch common.DiscoveryBatch)) *MockIndexerStorage_PersistDiscoveryBatch_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(common.DiscoveryBatch))
+	})
+	return _c
+}
+
+func (_c *MockIndexerStorage_PersistDiscoveryBatch_Call) Return(_a0 error) *MockIndexerStorage_PersistDiscoveryBatch_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockIndexerStorage_PersistDiscoveryBatch_Call) RunAndReturn(run func(context.Context, common.DiscoveryBatch) error) *MockIndexerStorage_PersistDiscoveryBatch_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // QueryCCVData provides a mock function with given fields: ctx, start, end, sourceChainSelectors, destChainSelectors, limit, offset
 func (_m *MockIndexerStorage) QueryCCVData(ctx context.Context, start int64, end int64, sourceChainSelectors []protocol.ChainSelector, destChainSelectors []protocol.ChainSelector, limit uint64, offset uint64) (map[string][]common.VerifierResultWithMetadata, error) {
 	ret := _m.Called(ctx, start, end, sourceChainSelectors, destChainSelectors, limit, offset)
@@ -558,54 +605,6 @@ func (_c *MockIndexerStorage_QueryMessages_Call) Return(_a0 []common.MessageWith
 }
 
 func (_c *MockIndexerStorage_QueryMessages_Call) RunAndReturn(run func(context.Context, int64, int64, []protocol.ChainSelector, []protocol.ChainSelector, uint64, uint64) ([]common.MessageWithMetadata, error)) *MockIndexerStorage_QueryMessages_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// UpdateDiscoverySequenceNumber provides a mock function with given fields: ctx, discoveryLocation, sequenceNumber
-func (_m *MockIndexerStorage) UpdateDiscoverySequenceNumber(ctx context.Context, discoveryLocation string, sequenceNumber int) error {
-	ret := _m.Called(ctx, discoveryLocation, sequenceNumber)
-
-	if len(ret) == 0 {
-		panic("no return value specified for UpdateDiscoverySequenceNumber")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, int) error); ok {
-		r0 = rf(ctx, discoveryLocation, sequenceNumber)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockIndexerStorage_UpdateDiscoverySequenceNumber_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateDiscoverySequenceNumber'
-type MockIndexerStorage_UpdateDiscoverySequenceNumber_Call struct {
-	*mock.Call
-}
-
-// UpdateDiscoverySequenceNumber is a helper method to define mock.On call
-//   - ctx context.Context
-//   - discoveryLocation string
-//   - sequenceNumber int
-func (_e *MockIndexerStorage_Expecter) UpdateDiscoverySequenceNumber(ctx interface{}, discoveryLocation interface{}, sequenceNumber interface{}) *MockIndexerStorage_UpdateDiscoverySequenceNumber_Call {
-	return &MockIndexerStorage_UpdateDiscoverySequenceNumber_Call{Call: _e.mock.On("UpdateDiscoverySequenceNumber", ctx, discoveryLocation, sequenceNumber)}
-}
-
-func (_c *MockIndexerStorage_UpdateDiscoverySequenceNumber_Call) Run(run func(ctx context.Context, discoveryLocation string, sequenceNumber int)) *MockIndexerStorage_UpdateDiscoverySequenceNumber_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(int))
-	})
-	return _c
-}
-
-func (_c *MockIndexerStorage_UpdateDiscoverySequenceNumber_Call) Return(_a0 error) *MockIndexerStorage_UpdateDiscoverySequenceNumber_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockIndexerStorage_UpdateDiscoverySequenceNumber_Call) RunAndReturn(run func(context.Context, string, int) error) *MockIndexerStorage_UpdateDiscoverySequenceNumber_Call {
 	_c.Call.Return(run)
 	return _c
 }

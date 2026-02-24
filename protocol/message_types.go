@@ -13,6 +13,7 @@ import (
 
 // Constants for CCIP v1.7.
 const (
+	MessageIDSize                 = 32 // Size of a message ID in bytes
 	MaxNumTokens                  = 1
 	MaxDataSize                   = 1024 // 1kb
 	MessageVersion                = 1    // Current message format version
@@ -584,6 +585,11 @@ type VerifierNodeResult struct {
 	CCVAddresses    []UnknownAddress `json:"ccv_addresses"`
 	ExecutorAddress UnknownAddress   `json:"executor_address"`
 	Signature       ByteSlice        `json:"signature"`
+}
+
+// JobKey implements jobqueue.Jobable interface.
+func (vr VerifierNodeResult) JobKey() (chainSelector, messageID string) {
+	return vr.Message.SourceChainSelector.String(), vr.MessageID.String()
 }
 
 func (vr *VerifierResult) ValidateFieldsConsistent() error {

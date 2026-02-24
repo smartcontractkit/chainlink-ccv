@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -115,9 +116,13 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 				PollInterval:    10 * time.Millisecond,
 			},
 		},
+		StorageBatchSize:    50,
+		StorageBatchTimeout: 100 * time.Millisecond,
+		StorageRetryDelay:   2 * time.Second,
 	}
 
 	// Create coordinator with all components, including mock curse detector
+	sqlxDB := testutil.NewTestDB(t)
 	coordinator, err := NewCoordinatorWithDetector(
 		ctx,
 		lggr,
@@ -130,6 +135,7 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 		setup.chainStatusManager,
 		setup.mockCurseChecker,
 		heartbeatclient.NewNoopHeartbeatClient(),
+		sqlxDB.DB,
 	)
 	require.NoError(t, err)
 	setup.coordinator = coordinator

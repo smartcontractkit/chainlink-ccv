@@ -15,6 +15,7 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
@@ -54,14 +55,14 @@ type factory struct {
 }
 
 // NewServiceFactory creates a new ServiceFactory for the committee verifier service.
-func NewServiceFactory(createAccessorFactoryFunc CreateAccessorFactoryFunc) bootstrap.ServiceFactory {
+func NewServiceFactory(createAccessorFactoryFunc CreateAccessorFactoryFunc) bootstrap.ServiceFactory[commit.JobSpec] {
 	return &factory{
 		createAccessorFactoryFunc: createAccessorFactoryFunc,
 	}
 }
 
 // Start implements [bootstrap.ServiceFactory].
-func (f *factory) Start(ctx context.Context, spec string, deps bootstrap.ServiceDeps) error {
+func (f *factory) Start(ctx context.Context, spec commit.JobSpec, deps bootstrap.ServiceDeps) error {
 	lggr := logger.Sugared(logger.Named(deps.Logger, "CommitteeVerifier"))
 	f.lggr = lggr
 
@@ -197,7 +198,7 @@ func (f *factory) Start(ctx context.Context, spec string, deps bootstrap.Service
 		HeartbeatInterval:   10 * time.Second, // Send heartbeat to aggregator every 10s
 	}
 
-	signer, _, signerAddress, err := commit.NewSignerFromKeystore(ctx, deps.Keystore, bootstrap.DefaultECDSASigningKeyName)
+	signer, _, signerAddress, err := commit.NewSignerFromKeystore(ctx, deps.Keystore, keys.DefaultECDSASigningKeyName)
 	if err != nil {
 		lggr.Errorw("Failed to create signer", "error", err)
 		return fmt.Errorf("failed to create signer: %w", err)
@@ -273,6 +274,7 @@ func (f *factory) Start(ctx context.Context, spec string, deps bootstrap.Service
 		verifierMonitoring,
 		chainStatusManager,
 		observedHeartbeatClient,
+		chainStatusDB.DB,
 	)
 	if err != nil {
 		coordinatorCancel()
@@ -406,16 +408,10 @@ func (f *factory) Stop(ctx context.Context) error {
 	return allErrors
 }
 
-func loadConfiguration(spec string) (*commit.Config, map[string]*blockchain.Info, error) {
-	// Decode the outer job spec first.
-	var outerSpec commit.JobSpec
-	if _, err := toml.Decode(spec, &outerSpec); err != nil {
-		return nil, nil, fmt.Errorf("failed to parse job spec: %w", err)
-	}
-
-	// Decode the inner config next.
+func loadConfiguration(spec commit.JobSpec) (*commit.Config, map[string]*blockchain.Info, error) {
+	// Decode the inner config.
 	var config commit.ConfigWithBlockchainInfos
-	if md, err := toml.Decode(outerSpec.CommitteeVerifierConfig, &config); err != nil {
+	if md, err := toml.Decode(spec.CommitteeVerifierConfig, &config); err != nil {
 		return nil, nil, fmt.Errorf("failed to decode committee verifier config: %w", err)
 	} else if len(md.Undecoded()) > 0 {
 		return nil, nil, fmt.Errorf("unknown fields in committee verifier config: %v", md.Undecoded())

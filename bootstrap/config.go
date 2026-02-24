@@ -1,11 +1,12 @@
 package bootstrap
 
 import (
-	"crypto/ed25519"
-	"encoding/hex"
 	"fmt"
+	"os"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
 )
 
 // JDConfig is the configuration for the Job Distributor.
@@ -23,19 +24,8 @@ func (c *JDConfig) validate() error {
 	if c.ServerCSAPublicKey == "" {
 		return fmt.Errorf("ServerCSAPublicKey is required")
 	}
-	if err := c.validateJDServerCSAPublicKey(); err != nil {
-		return fmt.Errorf("failed to validate ServerCSAPublicKey: %w", err)
-	}
-	return nil
-}
-
-func (c *JDConfig) validateJDServerCSAPublicKey() error {
-	publicKey, err := hex.DecodeString(c.ServerCSAPublicKey)
-	if err != nil {
-		return fmt.Errorf("failed to decode ServerCSAPublicKey: %w", err)
-	}
-	if len(publicKey) != ed25519.PublicKeySize {
-		return fmt.Errorf("ServerCSAPublicKey is not an ed25519 public key")
+	if _, err := keys.DecodeEd25519PublicKey(c.ServerCSAPublicKey); err != nil {
+		return fmt.Errorf("invalid ServerCSAPublicKey: %w", err)
 	}
 	return nil
 }
@@ -53,6 +43,7 @@ func (c *KeystoreConfig) validate() error {
 	return nil
 }
 
+// DBConfig is the configuration for the bootstrap database.
 type DBConfig struct {
 	// URL is the URL to use for saving jobs and the keystore.
 	URL string `toml:"url"`
@@ -65,6 +56,7 @@ func (c *DBConfig) validate() error {
 	return nil
 }
 
+// ServerConfig is the configuration for the HTTP info server.
 type ServerConfig struct {
 	// ListenPort is the port the HTTP server listens on.
 	ListenPort int `toml:"listen_port"`
@@ -118,16 +110,31 @@ func (c *Config) validate() error {
 
 // LoadConfig loads the configuration from a path to a TOML file, in strict mode.
 func LoadConfig(path string) (Config, error) {
-	var cfg Config
-	md, err := toml.DecodeFile(path, &cfg)
+	tomlBytes, err := os.ReadFile(path) //nolint:gosec // G304: path is provided by trusted caller
 	if err != nil {
-		return Config{}, fmt.Errorf("failed to decode config: %w", err)
+		return Config{}, fmt.Errorf("failed to read config file: %w", err)
 	}
-	if len(md.Undecoded()) > 0 {
-		return Config{}, fmt.Errorf("unknown fields in config: %v", md.Undecoded())
+	cfg, err := parseTOMLStrict[Config](string(tomlBytes))
+	if err != nil {
+		return Config{}, fmt.Errorf("failed to parse config: %w", err)
 	}
 	if err := cfg.validate(); err != nil {
 		return Config{}, fmt.Errorf("config validation failed: %w", err)
 	}
 	return cfg, nil
+}
+
+func parseTOMLStrict[T any](tomlString string) (T, error) {
+	var (
+		out   T
+		empty T
+	)
+	md, err := toml.Decode(tomlString, &out)
+	if err != nil {
+		return empty, fmt.Errorf("failed to decode toml: %w", err)
+	}
+	if len(md.Undecoded()) > 0 {
+		return empty, fmt.Errorf("strict decode failed, found undecoded fields: %+v", md.Undecoded())
+	}
+	return out, nil
 }

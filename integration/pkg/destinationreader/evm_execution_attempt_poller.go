@@ -58,6 +58,7 @@ type EvmExecutionAttemptPoller struct {
 	lggr            logger.Logger
 	chainSelector   protocol.ChainSelector
 	client          client.Client
+	offRampAddress  common.Address
 	startBlock      uint64
 	offRampFilterer offramp.OffRampFilterer
 	eventCh         chan *offramp.OffRampExecutionStateChanged
@@ -105,6 +106,7 @@ func NewEVMExecutionAttemptPoller(
 	return &EvmExecutionAttemptPoller{
 		lggr:            lggr,
 		client:          client,
+		offRampAddress:  offRampAddress,
 		offRampFilterer: *offRampFilterer,
 		eventCh:         make(chan *offramp.OffRampExecutionStateChanged),
 		attemptCache:    attemptCache,
@@ -123,7 +125,7 @@ func (p *EvmExecutionAttemptPoller) Start(ctx context.Context) error {
 			return fmt.Errorf("failed to get start block: %w", err)
 		}
 
-		runCtx, cancel := context.WithCancel(context.Background())
+		runCtx, cancel := context.WithCancel(ctx)
 		p.cancelFunc = cancel
 
 		err := p.startWSMode(runCtx)
@@ -638,6 +640,12 @@ func (p *EvmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Con
 	transaction, err := p.client.TransactionByHash(ctx, txHash)
 	if err != nil {
 		return fmt.Errorf("failed to get transaction by hash %s: %w", txHash.Hex(), err)
+	}
+
+	txTo := transaction.To()
+	if txTo == nil || *txTo != p.offRampAddress {
+		return fmt.Errorf("transaction %s destination %v does not match offramp address %s",
+			txHash.Hex(), txTo, p.offRampAddress.Hex())
 	}
 
 	executionAttempt, err := p.decodeCallDataToExecutionAttempt(transaction.Data(), transaction.Gas())

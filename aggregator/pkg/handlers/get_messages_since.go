@@ -43,7 +43,7 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *msgdiscoveryp
 		h.logger(ctx).Tracef("Report MessageID: %x, Sequence: %d, Verifications: %d", report.MessageID, report.Sequence, len(report.Verifications))
 		verifierResult, err := model.MapAggregatedReportToVerifierResultProto(report, h.committee)
 		if err != nil {
-			h.logger(ctx).Errorw("failed to map aggregated report to proto. this is likely due to invalid configuration", "messageID", report.MessageID, "error", err)
+			h.logger(ctx).Errorw("failed to map aggregated report to proto", "messageID", report.MessageID, "error", err)
 			continue
 		}
 
