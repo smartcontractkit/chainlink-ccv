@@ -210,12 +210,13 @@ execution_interval = 15_000_000_000
   committee_name = "default"
   node_index = 0
   disable_finality_checkers = ["8706591216959472610"] # Disable finality detection on Canton.
+  chain_families = ["canton", "evm"]
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-1-db"
     port = 8432
   [verifier.canton_configs]
-    [verifier.canton_configs.8706591216959472610.reader_config]
+    [verifier.canton_configs.reader_configs.8706591216959472610]
       ccip_owner_party = "participant1-localparty-1"
       ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
 
@@ -230,12 +231,13 @@ execution_interval = 15_000_000_000
   committee_name = "default"
   node_index = 1
   disable_finality_checkers = ["8706591216959472610"] # Disable finality detection on Canton.
+  chain_families = ["canton", "evm"]
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-2-db"
     port = 8433
   [verifier.canton_configs]
-    [verifier.canton_configs.8706591216959472610.reader_config]
+    [verifier.canton_configs.reader_configs.8706591216959472610]
       ccip_owner_party = "participant1-localparty-1"
       ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
 
@@ -251,12 +253,13 @@ execution_interval = 15_000_000_000
   committee_name = "secondary"
   node_index = 0
   disable_finality_checkers = ["8706591216959472610"] # Disable finality detection on Canton.
+  chain_families = ["canton", "evm"]
   [verifier.db]
     image = "postgres:16-alpine"
     name = "secondary-verifier-1-db"
     port = 8434
   [verifier.canton_configs]
-    [verifier.canton_configs.8706591216959472610.reader_config]
+    [verifier.canton_configs.reader_configs.8706591216959472610]
       ccip_owner_party = "participant1-localparty-1"
       ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
 
@@ -271,12 +274,13 @@ execution_interval = 15_000_000_000
   committee_name = "secondary"
   node_index = 1
   disable_finality_checkers = ["8706591216959472610"] # Disable finality detection on Canton.
+  chain_families = ["canton", "evm"]
   [verifier.db]
     image = "postgres:16-alpine"
     name = "secondary-verifier-2-db"
     port = 8435
   [verifier.canton_configs]
-    [verifier.canton_configs.8706591216959472610.reader_config]
+    [verifier.canton_configs.reader_configs.8706591216959472610]
       ccip_owner_party = "participant1-localparty-1"
       ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
 
@@ -292,12 +296,13 @@ execution_interval = 15_000_000_000
   committee_name = "tertiary"
   node_index = 0
   disable_finality_checkers = ["8706591216959472610"] # Disable finality detection on Canton.
+  chain_families = ["canton", "evm"]
   [verifier.db]
     image = "postgres:16-alpine"
     name = "tertiary-verifier-1-db"
     port = 8436
   [verifier.canton_configs]
-    [verifier.canton_configs.8706591216959472610.reader_config]
+    [verifier.canton_configs.reader_configs.8706591216959472610]
       ccip_owner_party = "participant1-localparty-1"
       ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
 
@@ -311,12 +316,13 @@ execution_interval = 15_000_000_000
   committee_name = "tertiary"
   node_index = 1
   disable_finality_checkers = ["8706591216959472610"] # Disable finality detection on Canton.
+  chain_families = ["canton", "evm"]
   [verifier.db]
     image = "postgres:16-alpine"
     name = "tertiary-verifier-2-db"
     port = 8437
   [verifier.canton_configs]
-    [verifier.canton_configs.8706591216959472610.reader_config]
+    [verifier.canton_configs.reader_configs.8706591216959472610]
       ccip_owner_party = "participant1-localparty-1"
       ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
 
