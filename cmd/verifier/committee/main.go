@@ -8,13 +8,14 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 )
 
 func main() {
 	if err := bootstrap.Run(
 		"CommitteeVerifier",
 		cmd.NewServiceFactory(),
-		bootstrap.WithLogLevel(zapcore.InfoLevel),
+		bootstrap.WithLogLevel[commit.JobSpec](zapcore.InfoLevel),
 	); err != nil {
 		panic(fmt.Sprintf("failed to run committee verifier: %s", err.Error()))
 	}

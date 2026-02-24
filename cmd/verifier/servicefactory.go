@@ -41,12 +41,12 @@ type factory struct {
 	coordinatorCancel context.CancelFunc
 }
 
-func NewServiceFactory() bootstrap.ServiceFactory {
+func NewServiceFactory() bootstrap.ServiceFactory[commit.JobSpec] {
 	return &factory{}
 }
 
 // Start implements [bootstrap.ServiceFactory].
-func (f *factory) Start(ctx context.Context, spec string, deps bootstrap.ServiceDeps) error {
+func (f *factory) Start(ctx context.Context, spec commit.JobSpec, deps bootstrap.ServiceDeps) error {
 	lggr := logger.Sugared(logger.Named(deps.Logger, "CommitteeVerifier"))
 	f.lggr = lggr
 
@@ -381,16 +381,10 @@ func (f *factory) Stop(ctx context.Context) error {
 	return allErrors
 }
 
-func loadConfiguration(spec string) (*commit.Config, map[string]*blockchain.Info, error) {
-	// Decode the outer job spec first.
-	var outerSpec commit.JobSpec
-	if _, err := toml.Decode(spec, &outerSpec); err != nil {
-		return nil, nil, fmt.Errorf("failed to parse job spec: %w", err)
-	}
-
-	// Decode the inner config next.
+func loadConfiguration(spec commit.JobSpec) (*commit.Config, map[string]*blockchain.Info, error) {
+	// Decode the inner config.
 	var config commit.ConfigWithBlockchainInfos
-	if md, err := toml.Decode(outerSpec.CommitteeVerifierConfig, &config); err != nil {
+	if md, err := toml.Decode(spec.CommitteeVerifierConfig, &config); err != nil {
 		return nil, nil, fmt.Errorf("failed to decode committee verifier config: %w", err)
 	} else if len(md.Undecoded()) > 0 {
 		return nil, nil, fmt.Errorf("unknown fields in committee verifier config: %v", md.Undecoded())
