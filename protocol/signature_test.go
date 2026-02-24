@@ -124,7 +124,6 @@ func TestEncodeSingleSignature(t *testing.T) {
 		require.Len(t, encoded, SingleECDSASignatureSize)
 		require.Equal(t, sig.R[:], encoded[0:32])
 		require.Equal(t, sig.S[:], encoded[32:64])
-		require.Equal(t, sig.Signer[:], encoded[64:84])
 	})
 
 	t.Run("zero R", func(t *testing.T) {
@@ -159,8 +158,7 @@ func TestEncodeSingleSignature(t *testing.T) {
 		}
 
 		_, err := EncodeSingleECDSASignature(sig)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "signer address cannot be zero")
+		require.NoError(t, err, "signer address should not be included in the encoded signature")
 	})
 }
 
@@ -168,12 +166,10 @@ func TestDecodeSingleSignature(t *testing.T) {
 	t.Run("valid signature", func(t *testing.T) {
 		expectedR := [32]byte{0x01}
 		expectedS := [32]byte{0x02}
-		expectedSigner := common.HexToAddress("0x1234567890123456789012345678901234567890")
 
 		data := make([]byte, SingleECDSASignatureSize)
 		copy(data[0:32], expectedR[:])
 		copy(data[32:64], expectedS[:])
-		copy(data[64:84], expectedSigner[:])
 
 		r, s, err := DecodeSingleECDSASignature(data)
 		require.NoError(t, err)
@@ -185,15 +181,13 @@ func TestDecodeSingleSignature(t *testing.T) {
 		data := make([]byte, SingleECDSASignatureSize-1)
 		_, _, err := DecodeSingleECDSASignature(data)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "signature data must be exactly 84 bytes")
+		require.Contains(t, err.Error(), "signature data must be exactly 64 bytes")
 	})
 
 	t.Run("zero R", func(t *testing.T) {
 		data := make([]byte, SingleECDSASignatureSize)
 		s := [32]byte{0x02}
 		copy(data[32:64], s[:])
-		signer := common.HexToAddress("0x1234567890123456789012345678901234567890")
-		copy(data[64:84], signer[:])
 
 		_, _, err := DecodeSingleECDSASignature(data)
 		require.Error(t, err)
@@ -204,24 +198,10 @@ func TestDecodeSingleSignature(t *testing.T) {
 		data := make([]byte, SingleECDSASignatureSize)
 		r := [32]byte{0x01}
 		copy(data[0:32], r[:])
-		signer := common.HexToAddress("0x1234567890123456789012345678901234567890")
-		copy(data[64:84], signer[:])
 
 		_, _, err := DecodeSingleECDSASignature(data)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "signature R and S cannot be zero")
-	})
-
-	t.Run("zero signer", func(t *testing.T) {
-		data := make([]byte, SingleECDSASignatureSize)
-		r := [32]byte{0x01}
-		copy(data[0:32], r[:])
-		s := [32]byte{0x02}
-		copy(data[32:64], s[:])
-
-		_, _, err := DecodeSingleECDSASignature(data)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "signer address cannot be zero")
 	})
 }
 
