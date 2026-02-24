@@ -441,7 +441,7 @@ func createDurableProcessorsWithPollInterval(
 	storage protocol.CCVNodeDataWriter,
 	writingTracker *PendingWritingTracker,
 	pollInterval time.Duration,
-) (map[protocol.ChainSelector]*SourceReaderServiceDB, services.Service, services.Service, error) {
+) (map[protocol.ChainSelector]*SourceReaderService, services.Service, services.Service, error) {
 	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
 		ds,
 		jobqueue.QueueConfig{

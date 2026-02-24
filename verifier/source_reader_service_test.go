@@ -19,7 +19,7 @@ import (
 )
 
 // fakeTaskQueue is an in-memory implementation of jobqueue.JobQueue[VerificationTask]
-// used to capture tasks published by SourceReaderServiceDB without needing a real DB.
+// used to capture tasks published by SourceReaderService without needing a real DB.
 type fakeTaskQueue struct {
 	mu        sync.Mutex
 	published []VerificationTask
@@ -56,7 +56,7 @@ func (q *fakeTaskQueue) Published() []VerificationTask {
 	return out
 }
 
-func newTestSRSDB(
+func newTestSRS(
 	t *testing.T,
 	chainSelector protocol.ChainSelector,
 	reader *mocks.MockSourceReader,
@@ -64,7 +64,7 @@ func newTestSRSDB(
 	curseDetector *mocks.MockCurseCheckerService,
 	pollInterval time.Duration,
 	maxBlockRange uint64,
-) (*SourceReaderServiceDB, *mocks.MockFinalityViolationChecker, *fakeTaskQueue) {
+) (*SourceReaderService, *mocks.MockFinalityViolationChecker, *fakeTaskQueue) {
 	t.Helper()
 
 	lggr := logger.Test(t)
@@ -93,7 +93,7 @@ func newTestSRSDB(
 	return srs, mockFC, queue
 }
 
-func TestSRSDB_FetchesAndQueuesMessages(t *testing.T) {
+func TestSRS_FetchesAndQueuesMessages(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
 
@@ -121,7 +121,7 @@ func TestSRSDB_FetchesAndQueuesMessages(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, _, _ := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 	srs.lastProcessedFinalizedBlock.Store(big.NewInt(95))
 
 	srs.processEventCycle(ctx, latest, finalized)
@@ -138,7 +138,7 @@ func TestSRSDB_FetchesAndQueuesMessages(t *testing.T) {
 	}
 }
 
-func TestSRSDB_DeduplicatesByMessageID(t *testing.T) {
+func TestSRS_DeduplicatesByMessageID(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
 
@@ -165,7 +165,7 @@ func TestSRSDB_DeduplicatesByMessageID(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, _, _ := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 	srs.lastProcessedFinalizedBlock.Store(big.NewInt(95))
 
 	srs.processEventCycle(ctx, latest, finalized)
@@ -175,7 +175,7 @@ func TestSRSDB_DeduplicatesByMessageID(t *testing.T) {
 	require.Len(t, srs.pendingTasks, 1, "duplicate events by MessageID should be deduped")
 }
 
-func TestSRSDB_Reorg_DropsMissingPendingAndSent(t *testing.T) {
+func TestSRS_Reorg_DropsMissingPendingAndSent(t *testing.T) {
 	chain := protocol.ChainSelector(1337)
 	reader := mocks.NewMockSourceReader(t)
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
@@ -185,7 +185,7 @@ func TestSRSDB_Reorg_DropsMissingPendingAndSent(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, _, _ := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 
 	msgs := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{100, 101, 102})
 	taskA := VerificationTask{Message: msgs[0].Message, BlockNumber: msgs[0].BlockNumber, MessageID: msgs[0].MessageID.String()}
@@ -214,7 +214,7 @@ func TestSRSDB_Reorg_DropsMissingPendingAndSent(t *testing.T) {
 	require.Len(t, srs.sentTasks, 0)
 }
 
-func TestSRSDB_Curse_DropsAtSendTime(t *testing.T) {
+func TestSRS_Curse_DropsAtSendTime(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
 	reader := mocks.NewMockSourceReader(t)
@@ -225,7 +225,7 @@ func TestSRSDB_Curse_DropsAtSendTime(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, mockFC, queue := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+	srs, mockFC, queue := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 	mockFC.EXPECT().UpdateFinalized(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockFC.EXPECT().IsFinalityViolated().Return(false).Maybe()
 
@@ -246,7 +246,7 @@ func TestSRSDB_Curse_DropsAtSendTime(t *testing.T) {
 	require.Len(t, queue.Published(), 0, "no tasks should be published to queue for cursed lanes")
 }
 
-func TestSRSDB_Readiness_DefaultFinality_PublishesToQueue(t *testing.T) {
+func TestSRS_Readiness_DefaultFinality_PublishesToQueue(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
 	reader := mocks.NewMockSourceReader(t)
@@ -264,7 +264,7 @@ func TestSRSDB_Readiness_DefaultFinality_PublishesToQueue(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, mockFC, queue := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+	srs, mockFC, queue := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 	mockFC.EXPECT().UpdateFinalized(mock.Anything, finalized.Number).Return(nil).Maybe()
 	mockFC.EXPECT().IsFinalityViolated().Return(false).Maybe()
 
@@ -292,7 +292,7 @@ func TestSRSDB_Readiness_DefaultFinality_PublishesToQueue(t *testing.T) {
 	require.Len(t, srs.sentTasks, 1)
 }
 
-func TestSRSDB_Readiness_CustomFinality_PublishesToQueue(t *testing.T) {
+func TestSRS_Readiness_CustomFinality_PublishesToQueue(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
 	reader := mocks.NewMockSourceReader(t)
@@ -309,7 +309,7 @@ func TestSRSDB_Readiness_CustomFinality_PublishesToQueue(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, _, queue := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+	srs, _, queue := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 
 	const f uint16 = 10
 	msg := CreateTestMessage(t, 1, chain, defaultDestChain, f, 300_000)
@@ -330,7 +330,7 @@ func TestSRSDB_Readiness_CustomFinality_PublishesToQueue(t *testing.T) {
 	require.Equal(t, task.MessageID, queue.Published()[0].MessageID)
 }
 
-func TestSRSDB_Readiness_NotReadyTask_NotPublished(t *testing.T) {
+func TestSRS_Readiness_NotReadyTask_NotPublished(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
 	reader := mocks.NewMockSourceReader(t)
@@ -344,7 +344,7 @@ func TestSRSDB_Readiness_NotReadyTask_NotPublished(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, _, queue := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+	srs, _, queue := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 
 	// Block 980 > finalized 950, Finality=0 — not ready yet.
 	msg := CreateTestMessage(t, 1, chain, defaultDestChain, 0, 300_000)
@@ -363,13 +363,13 @@ func TestSRSDB_Readiness_NotReadyTask_NotPublished(t *testing.T) {
 	require.Len(t, queue.Published(), 0, "nothing should be published for not-ready task")
 }
 
-func TestSRSDB_isMessageReadyForVerification(t *testing.T) {
+func TestSRS_isMessageReadyForVerification(t *testing.T) {
 	chain := protocol.ChainSelector(1337)
 	reader := mocks.NewMockSourceReader(t)
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 	curseDetector := mocks.NewMockCurseCheckerService(t)
 
-	srs, _, _ := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 
 	testCases := []struct {
 		name           string
@@ -443,7 +443,7 @@ func TestSRSDB_isMessageReadyForVerification(t *testing.T) {
 	}
 }
 
-func TestSRSDB_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
+func TestSRS_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
 	reader := mocks.NewMockSourceReader(t)
@@ -464,7 +464,7 @@ func TestSRSDB_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, mockFC, _ := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+	srs, mockFC, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 	mockFC.EXPECT().IsFinalityViolated().Unset()
 	mockFC.EXPECT().IsFinalityViolated().Return(true).Maybe()
 
@@ -489,7 +489,7 @@ func TestSRSDB_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 	require.Len(t, srs.sentTasks, 0, "sent tasks should be flushed on finality violation")
 }
 
-func TestSRSDB_Reorg_TracksSequenceNumbers(t *testing.T) {
+func TestSRS_Reorg_TracksSequenceNumbers(t *testing.T) {
 	chain := protocol.ChainSelector(1337)
 	reader := mocks.NewMockSourceReader(t)
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
@@ -499,7 +499,7 @@ func TestSRSDB_Reorg_TracksSequenceNumbers(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, _, _ := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 
 	msgs := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{100, 101})
 	taskA := VerificationTask{Message: msgs[0].Message, BlockNumber: msgs[0].BlockNumber, MessageID: msgs[0].MessageID.String()}
@@ -518,7 +518,7 @@ func TestSRSDB_Reorg_TracksSequenceNumbers(t *testing.T) {
 		"surviving message A should not require finalization")
 }
 
-func TestSRSDB_DisableFinalityChecker(t *testing.T) {
+func TestSRS_DisableFinalityChecker(t *testing.T) {
 	chain := protocol.ChainSelector(1337)
 	reader := mocks.NewMockSourceReader(t)
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
@@ -552,7 +552,7 @@ func TestSRSDB_DisableFinalityChecker(t *testing.T) {
 // Advanced Reorg Tracking Tests
 // ----------------------
 
-func TestSRSDB_Reorg_TracksSentTasksSequenceNumbers(t *testing.T) {
+func TestSRS_Reorg_TracksSentTasksSequenceNumbers(t *testing.T) {
 	chain := protocol.ChainSelector(1337)
 	reader := mocks.NewMockSourceReader(t)
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
@@ -562,7 +562,7 @@ func TestSRSDB_Reorg_TracksSentTasksSequenceNumbers(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, _, _ := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 
 	// Task A was already sent (in sentTasks)
 	msgs := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{100})
@@ -585,7 +585,7 @@ func TestSRSDB_Reorg_TracksSentTasksSequenceNumbers(t *testing.T) {
 		"reorged sent task's seqNum should be tracked")
 }
 
-func TestSRSDB_ReorgedMessage_CustomFinality_WaitsForFinalization(t *testing.T) {
+func TestSRS_ReorgedMessage_CustomFinality_WaitsForFinalization(t *testing.T) {
 	chain := protocol.ChainSelector(1337)
 	reader := mocks.NewMockSourceReader(t)
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
@@ -595,7 +595,7 @@ func TestSRSDB_ReorgedMessage_CustomFinality_WaitsForFinalization(t *testing.T) 
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, _, _ := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 
 	// Create message with custom finality of 5 blocks
 	const customFinality uint16 = 5
@@ -625,7 +625,7 @@ func TestSRSDB_ReorgedMessage_CustomFinality_WaitsForFinalization(t *testing.T) 
 	require.True(t, ready, "reorged message should be ready once finalized")
 }
 
-func TestSRSDB_NonReorgedMessage_UsesCustomFinality(t *testing.T) {
+func TestSRS_NonReorgedMessage_UsesCustomFinality(t *testing.T) {
 	chain := protocol.ChainSelector(1337)
 	reader := mocks.NewMockSourceReader(t)
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
@@ -635,7 +635,7 @@ func TestSRSDB_NonReorgedMessage_UsesCustomFinality(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, _, _ := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 
 	// Create message with custom finality of 5 blocks
 	const customFinality uint16 = 5
@@ -658,7 +658,7 @@ func TestSRSDB_NonReorgedMessage_UsesCustomFinality(t *testing.T) {
 	require.True(t, ready, "non-reorged message should use custom finality")
 }
 
-func TestSRSDB_ReorgedMessage_DifferentDest_UsesCustomFinality(t *testing.T) {
+func TestSRS_ReorgedMessage_DifferentDest_UsesCustomFinality(t *testing.T) {
 	chain := protocol.ChainSelector(1337)
 	dest1 := protocol.ChainSelector(100)
 	dest2 := protocol.ChainSelector(200)
@@ -670,7 +670,7 @@ func TestSRSDB_ReorgedMessage_DifferentDest_UsesCustomFinality(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, _, _ := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 
 	// Mark seqNum 10 for dest1 as reorged
 	srs.reorgTracker.Track(dest1, 10)
@@ -694,7 +694,7 @@ func TestSRSDB_ReorgedMessage_DifferentDest_UsesCustomFinality(t *testing.T) {
 	require.True(t, ready, "message to different dest should not be affected by other dest's reorg tracking")
 }
 
-func TestSRSDB_ReorgTracker_RemovedAfterFinalization(t *testing.T) {
+func TestSRS_ReorgTracker_RemovedAfterFinalization(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
 	reader := mocks.NewMockSourceReader(t)
@@ -705,7 +705,7 @@ func TestSRSDB_ReorgTracker_RemovedAfterFinalization(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, mockFC, queue := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+	srs, mockFC, queue := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 	mockFC.EXPECT().UpdateFinalized(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockFC.EXPECT().IsFinalityViolated().Return(false).Maybe()
 
@@ -747,7 +747,7 @@ func TestSRSDB_ReorgTracker_RemovedAfterFinalization(t *testing.T) {
 // Block Range Chunking Tests
 // ----------------------
 
-func TestSRSDB_MultiCycle_SmallRangeCompletesInOneTick(t *testing.T) {
+func TestSRS_MultiCycle_SmallRangeCompletesInOneTick(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
 
@@ -785,7 +785,7 @@ func TestSRSDB_MultiCycle_SmallRangeCompletesInOneTick(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, _, _ := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 	srs.lastProcessedFinalizedBlock.Store(big.NewInt(99))
 
 	srs.processEventCycle(ctx, latest, finalized)
@@ -798,7 +798,7 @@ func TestSRSDB_MultiCycle_SmallRangeCompletesInOneTick(t *testing.T) {
 		"progress should advance to finalized")
 }
 
-func TestSRSDB_LargeRangeChunkedInSingleCycle(t *testing.T) {
+func TestSRS_LargeRangeChunkedInSingleCycle(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
 
@@ -849,7 +849,7 @@ func TestSRSDB_LargeRangeChunkedInSingleCycle(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, _, _ := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 0)
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 0)
 	srs.lastProcessedFinalizedBlock.Store(big.NewInt(99))
 
 	srs.processEventCycle(ctx, latest, finalized)
@@ -863,7 +863,7 @@ func TestSRSDB_LargeRangeChunkedInSingleCycle(t *testing.T) {
 	require.Len(t, srs.pendingTasks, 4, "all events from all chunks should be queued")
 }
 
-func TestSRSDB_CustomMaxBlockRangeChunksCorrectly(t *testing.T) {
+func TestSRS_CustomMaxBlockRangeChunksCorrectly(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
 
@@ -912,7 +912,7 @@ func TestSRSDB_CustomMaxBlockRangeChunksCorrectly(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, _, _ := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 100)
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 100)
 	srs.sourceCfg.MaxBlockRange = 100
 	srs.lastProcessedFinalizedBlock.Store(big.NewInt(99))
 
@@ -922,7 +922,7 @@ func TestSRSDB_CustomMaxBlockRangeChunksCorrectly(t *testing.T) {
 		"should advance to finalized after processing all chunks")
 }
 
-func TestSRSDB_OneBlockChunkAdvancesProgress(t *testing.T) {
+func TestSRS_OneBlockChunkAdvancesProgress(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
 
@@ -959,7 +959,7 @@ func TestSRSDB_OneBlockChunkAdvancesProgress(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, _, _ := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 100)
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 100)
 	srs.sourceCfg.MaxBlockRange = 1
 	srs.lastProcessedFinalizedBlock.Store(big.NewInt(99))
 
@@ -973,7 +973,7 @@ func TestSRSDB_OneBlockChunkAdvancesProgress(t *testing.T) {
 // Error Handling & Recovery Tests
 // ----------------------
 
-func TestSRSDB_FailureRetriesNextTick(t *testing.T) {
+func TestSRS_FailureRetriesNextTick(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
 
@@ -1017,7 +1017,7 @@ func TestSRSDB_FailureRetriesNextTick(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, _, _ := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 	srs.lastProcessedFinalizedBlock.Store(big.NewInt(99))
 
 	// Cycle 1: fails
@@ -1041,7 +1041,7 @@ func TestSRSDB_FailureRetriesNextTick(t *testing.T) {
 	require.Len(t, srs.pendingTasks, 1, "events should be queued after retry")
 }
 
-func TestSRSDB_NoNewBlocksStaysAtSameProgress(t *testing.T) {
+func TestSRS_NoNewBlocksStaysAtSameProgress(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
 
@@ -1079,7 +1079,7 @@ func TestSRSDB_NoNewBlocksStaysAtSameProgress(t *testing.T) {
 		Return(nil, assert.AnError).
 		Once()
 
-	srs, _, _ := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 100)
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 100)
 	srs.lastProcessedFinalizedBlock.Store(big.NewInt(100))
 
 	srs.processEventCycle(ctx, latest, finalized)
@@ -1092,7 +1092,7 @@ func TestSRSDB_NoNewBlocksStaysAtSameProgress(t *testing.T) {
 		"progress should stay at 100 after failed query")
 }
 
-func TestSRSDB_FailureDoesNotDeleteExistingTasks(t *testing.T) {
+func TestSRS_FailureDoesNotDeleteExistingTasks(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
 
@@ -1124,7 +1124,7 @@ func TestSRSDB_FailureDoesNotDeleteExistingTasks(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, _, _ := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 	srs.lastProcessedFinalizedBlock.Store(big.NewInt(99))
 
 	// Pre-seed a pending task
@@ -1159,7 +1159,7 @@ func TestSRSDB_FailureDoesNotDeleteExistingTasks(t *testing.T) {
 // Edge Cases & Boundary Conditions
 // ----------------------
 
-func TestSRSDB_FromBlockAheadOfLatestResetsToFinalized(t *testing.T) {
+func TestSRS_FromBlockAheadOfLatestResetsToFinalized(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
 
@@ -1197,7 +1197,7 @@ func TestSRSDB_FromBlockAheadOfLatestResetsToFinalized(t *testing.T) {
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, _, _ := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 	srs.lastProcessedFinalizedBlock.Store(big.NewInt(1000))
 
 	srs.processEventCycle(ctx, latest, finalized)
@@ -1211,7 +1211,7 @@ func TestSRSDB_FromBlockAheadOfLatestResetsToFinalized(t *testing.T) {
 	require.Len(t, srs.pendingTasks, 0, "no tasks should be added")
 }
 
-func TestSRSDB_FinalizedBehindLastProcessed_QueriesAndUpdatesToFinalized(t *testing.T) {
+func TestSRS_FinalizedBehindLastProcessed_QueriesAndUpdatesToFinalized(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
 
@@ -1253,7 +1253,7 @@ func TestSRSDB_FinalizedBehindLastProcessed_QueriesAndUpdatesToFinalized(t *test
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
-	srs, _, _ := newTestSRSDB(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 	srs.lastProcessedFinalizedBlock.Store(big.NewInt(100))
 
 	srs.processEventCycle(ctx, latest, finalized)

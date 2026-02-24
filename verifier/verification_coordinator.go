@@ -164,7 +164,7 @@ func createDurableProcessors(
 	messageTracker MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
 	writingTracker *PendingWritingTracker,
-) (map[protocol.ChainSelector]*SourceReaderServiceDB, services.Service, services.Service, error) {
+) (map[protocol.ChainSelector]*SourceReaderService, services.Service, services.Service, error) {
 	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
 		ds,
 		jobqueue.QueueConfig{
@@ -267,8 +267,8 @@ func createSourceReadersDB(
 	enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	writingTracker *PendingWritingTracker,
 	taskQueue jobqueue.JobQueue[VerificationTask],
-) (map[protocol.ChainSelector]*SourceReaderServiceDB, error) {
-	sourceReaderServices := make(map[protocol.ChainSelector]*SourceReaderServiceDB)
+) (map[protocol.ChainSelector]*SourceReaderService, error) {
+	sourceReaderServices := make(map[protocol.ChainSelector]*SourceReaderService)
 	for chainSelector, sourceReader := range enabledSourceReaders {
 		sourceCfg := config.SourceConfigs[chainSelector]
 		filter := chainaccess.NewReceiptIssuerFilter(sourceCfg.VerifierAddress, sourceCfg.DefaultExecutorAddress)
@@ -279,7 +279,7 @@ func createSourceReadersDB(
 			sourceCfg, curseDetector, filter, monitoring.Metrics(), writingTracker, taskQueue,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create SourceReaderServiceDB for chain %s: %w", chainSelector, err)
+			return nil, fmt.Errorf("failed to create SourceReaderService for chain %s: %w", chainSelector, err)
 		}
 		sourceReaderServices[chainSelector] = srs
 	}
