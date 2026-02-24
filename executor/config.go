@@ -81,6 +81,10 @@ func (c *Configuration) Validate() error {
 		return fmt.Errorf("this_executor_id must be configured")
 	}
 
+	if len(c.ChainConfiguration) == 0 {
+		return fmt.Errorf("at least one chain must be configured")
+	}
+
 	// Validate indexer addresses - at least one must be provided
 	if len(c.IndexerAddress) < 1 {
 		return fmt.Errorf("at least one indexer address must be configured")
