@@ -29,7 +29,8 @@ const (
 // Therefore, on failure, we schedule a retry after a configured retryDelay.
 type StorageWriterProcessor struct {
 	services.StateMachine
-	wg sync.WaitGroup
+	stopCh services.StopChan
+	wg     sync.WaitGroup
 
 	lggr           logger.Logger
 	verifierID     string
@@ -95,14 +96,15 @@ func NewStorageWriterProcessorWithPollInterval(
 		cleanupInterval:    defaultCleanupInterval,
 		retentionPeriod:    defaultRetentionPeriod,
 		batchSize:          storageBatchSize,
+		stopCh:             make(chan struct{}),
 	}
 	return processor, nil
 }
 
-func (s *StorageWriterProcessor) Start(ctx context.Context) error {
+func (s *StorageWriterProcessor) Start(context.Context) error {
 	return s.StartOnce(s.Name(), func() error {
 		s.wg.Go(func() {
-			s.run(ctx)
+			s.run()
 		})
 		return nil
 	})
@@ -110,12 +112,16 @@ func (s *StorageWriterProcessor) Start(ctx context.Context) error {
 
 func (s *StorageWriterProcessor) Close() error {
 	return s.StopOnce(s.Name(), func() error {
+		close(s.stopCh)
 		s.wg.Wait()
 		return nil
 	})
 }
 
-func (s *StorageWriterProcessor) run(ctx context.Context) {
+func (s *StorageWriterProcessor) run() {
+	ctx, cancel := s.stopCh.NewCtx()
+	defer cancel()
+
 	ticker := time.NewTicker(s.pollInterval)
 	defer ticker.Stop()
 
@@ -125,7 +131,7 @@ func (s *StorageWriterProcessor) run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			s.lggr.Infow("StorageWriterProcessor context cancelled, shutting down")
+			s.lggr.Infow("StorageWriterProcessor close signal received, shutting down")
 			return
 
 		case <-ticker.C:

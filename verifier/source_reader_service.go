@@ -236,9 +236,8 @@ func (r *SourceReaderService) eventMonitoringLoop() {
 
 func (r *SourceReaderService) readyToQuery(ctx context.Context) (bool, *protocol.BlockHeader, *protocol.BlockHeader) {
 	blockCtx, cancel := context.WithTimeout(ctx, r.pollInterval)
+	defer cancel()
 	latest, finalized, err := r.sourceReader.LatestAndFinalizedBlock(blockCtx)
-	cancel()
-
 	if err != nil {
 		r.logger.Errorw("Failed to get latest block", "error", err)
 		return false, nil, nil
