@@ -626,7 +626,6 @@ func TestGracefulShutdown(t *testing.T) {
 	// Wait for the handler to be blocked to ensure we are in the state we want before calling Close().
 	select {
 	case <-handlerBlockedHandle:
-		fmt.Println("handler is now blocked, proceeding with Close()")
 	case <-t.Context().Done():
 	}
 
