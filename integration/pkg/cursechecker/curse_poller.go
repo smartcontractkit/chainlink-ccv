@@ -3,10 +3,8 @@ package cursechecker
 import (
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
@@ -46,7 +44,6 @@ type PollerService struct {
 	curseRPCTimeout  time.Duration
 	lggr             logger.Logger
 	metrics          common.CurseCheckerMetrics
-	running          atomic.Bool
 }
 
 // NewCurseDetectorService creates a new curse detector service.
@@ -94,7 +91,6 @@ func (s *PollerService) Start(ctx context.Context) error {
 		// Initial poll
 		s.pollAllChains(ctx)
 
-		s.running.Store(true)
 		s.wg.Go(func() {
 			s.pollLoop()
 		})
@@ -115,9 +111,6 @@ func (s *PollerService) Close() error {
 		// Signal the background goroutine to stop and wait for it to exit.
 		close(s.stopCh)
 		s.wg.Wait()
-
-		// Update running state to reflect in healthcheck and readiness.
-		s.running.Store(false)
 
 		s.lggr.Infow("Curse detector service stopped")
 
@@ -231,15 +224,6 @@ func (s *PollerService) updateMetrics(ctx context.Context, localChain protocol.C
 			s.metrics.SetRemoteChainCursed(ctx, localChain, remoteSelector, false)
 		}
 	}
-}
-
-// Ready returns nil if the service is ready, or an error otherwise.
-func (s *PollerService) Ready() error {
-	if !s.running.Load() {
-		return errors.New("curse detector service not running")
-	}
-
-	return nil
 }
 
 // HealthReport returns a full health report of the service.
