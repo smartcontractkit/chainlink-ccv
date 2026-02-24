@@ -312,6 +312,252 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 		require.True(t, exists, "success batch should be stored")
 		require.Equal(t, successBatch.Message.SequenceNumber, successItem.Message.SequenceNumber)
 	})
+
+	t.Run("marks job as failed when retry deadline expires", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
+
+		lggr := logger.Test(t)
+		fakeStorage := NewFakeCCVNodeDataWriter()
+
+		// Set very short retry deadline
+		shortRetryDeadline := 200 * time.Millisecond
+
+		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
+			db,
+			jobqueue.QueueConfig{
+				Name:          StorageWriterJobsTableName,
+				OwnerID:       "test-" + t.Name(),
+				RetryDuration: shortRetryDeadline,
+				LockDuration:  time.Minute,
+			},
+			lggr,
+		)
+		require.NoError(t, err)
+
+		// Configure storage to always fail
+		fakeStorage.SetError(errors.New("persistent storage error"))
+
+		processor, err := NewStorageWriterProcessor(
+			ctx,
+			lggr,
+			"test-"+t.Name(),
+			NoopLatencyTracker{},
+			fakeStorage,
+			resultQueue,
+			CoordinatorConfig{
+				StorageBatchSize:  10,
+				StorageRetryDelay: 10 * time.Millisecond, // Fast retry to exceed deadline quickly
+			},
+			NewPendingWritingTracker(lggr),
+			&noopChainStatusManager{},
+		)
+		require.NoError(t, err)
+
+		require.NoError(t, processor.Start(ctx))
+		defer func() {
+			cancel()
+			require.NoError(t, processor.Close())
+		}()
+
+		// Publish test result
+		result := createTestVerifierNodeResult(1)
+		require.NoError(t, resultQueue.Publish(ctx, result))
+
+		// Wait for retry deadline to expire and job to be marked as failed
+		require.Eventually(t, func() bool {
+			var count int
+			err := db.QueryRow(`
+				SELECT COUNT(*) FROM ccv_storage_writer_jobs 
+				WHERE owner_id = $1 AND status = 'failed'
+			`, "test-"+t.Name()).Scan(&count)
+			return err == nil && count == 1
+		}, tests.WaitTimeout(t), 50*time.Millisecond, "Expected job to be marked as failed after retry deadline")
+
+		// Verify nothing was stored
+		require.Equal(t, 0, fakeStorage.GetStoredCount(), "No data should be stored for expired job")
+	})
+}
+
+// TestStorageWriterProcessorDB_Cleanup tests cleanup of archived results.
+func TestStorageWriterProcessorDB_Cleanup(t *testing.T) {
+	t.Parallel()
+
+	db := testutil.NewTestDB(t)
+
+	t.Run("cleans up archived results older than retention period", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
+		defer cancel()
+
+		lggr := logger.Test(t)
+		fakeStorage := NewFakeCCVNodeDataWriter()
+
+		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
+			db,
+			jobqueue.QueueConfig{
+				Name:          StorageWriterJobsTableName,
+				OwnerID:       "test-" + t.Name(),
+				RetryDuration: time.Hour,
+				LockDuration:  time.Minute,
+			},
+			lggr,
+		)
+		require.NoError(t, err)
+
+		processor, err := NewStorageWriterProcessor(
+			ctx,
+			lggr,
+			"test-"+t.Name(),
+			NoopLatencyTracker{},
+			fakeStorage,
+			resultQueue,
+			CoordinatorConfig{
+				StorageBatchSize:  10,
+				StorageRetryDelay: 100 * time.Millisecond,
+			},
+			NewPendingWritingTracker(lggr),
+			&noopChainStatusManager{},
+		)
+		require.NoError(t, err)
+
+		require.NoError(t, processor.Start(ctx))
+		defer func() {
+			cancel()
+			require.NoError(t, processor.Close())
+		}()
+
+		// Publish and process some results
+		results := []protocol.VerifierNodeResult{
+			createTestVerifierNodeResult(1),
+			createTestVerifierNodeResult(2),
+			createTestVerifierNodeResult(3),
+		}
+		require.NoError(t, resultQueue.Publish(ctx, results...))
+
+		// Wait for results to be stored and archived
+		require.Eventually(t, func() bool {
+			return fakeStorage.GetStoredCount() == 3
+		}, tests.WaitTimeout(t), 100*time.Millisecond, "Expected 3 results stored")
+
+		// Wait for archive
+		require.Eventually(t, func() bool {
+			var count int
+			err := db.QueryRow(`
+				SELECT COUNT(*) FROM ccv_storage_writer_jobs_archive 
+				WHERE owner_id = $1
+			`, "test-"+t.Name()).Scan(&count)
+			return err == nil && count == 3
+		}, tests.WaitTimeout(t), 100*time.Millisecond, "Expected 3 results in archive")
+
+		// Manually update completed_at to simulate old archived results
+		_, err = db.Exec(`
+			UPDATE ccv_storage_writer_jobs_archive 
+			SET completed_at = NOW() - INTERVAL '35 days'
+			WHERE owner_id = $1
+		`, "test-"+t.Name())
+		require.NoError(t, err)
+
+		// Run cleanup with 30 day retention
+		deleted, err := resultQueue.Cleanup(ctx, 30*24*time.Hour)
+		require.NoError(t, err)
+		require.Equal(t, 3, deleted, "Expected 3 old results to be deleted")
+
+		// Verify archive is empty
+		var count int
+		err = db.QueryRow(`
+			SELECT COUNT(*) FROM ccv_storage_writer_jobs_archive 
+			WHERE owner_id = $1
+		`, "test-"+t.Name()).Scan(&count)
+		require.NoError(t, err)
+		require.Equal(t, 0, count, "Archive should be empty after cleanup")
+	})
+}
+
+// TestStorageWriterProcessorDB_StaleJobRecovery tests recovery of jobs stuck in processing state.
+func TestStorageWriterProcessorDB_StaleJobRecovery(t *testing.T) {
+	t.Parallel()
+
+	db := testutil.NewTestDB(t)
+
+	t.Run("reclaims jobs stuck in processing state beyond lock duration", func(t *testing.T) {
+		t.Parallel()
+		ctx, cancel := context.WithTimeout(t.Context(), tests.WaitTimeout(t))
+		defer cancel()
+
+		lggr := logger.Test(t)
+		fakeStorage := NewFakeCCVNodeDataWriter()
+
+		shortLockDuration := 200 * time.Millisecond
+
+		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
+			db,
+			jobqueue.QueueConfig{
+				Name:          StorageWriterJobsTableName,
+				OwnerID:       "test-" + t.Name(),
+				RetryDuration: time.Hour,
+				LockDuration:  shortLockDuration,
+			},
+			lggr,
+		)
+		require.NoError(t, err)
+
+		// Publish result first
+		result := createTestVerifierNodeResult(1)
+		require.NoError(t, resultQueue.Publish(ctx, result))
+
+		// Manually update job to processing state to simulate crashed processor
+		_, err = db.Exec(`
+			UPDATE ccv_storage_writer_jobs 
+			SET status = 'processing', 
+			    started_at = NOW() - INTERVAL '5 minutes',
+			    attempt_count = 1
+			WHERE owner_id = $1
+		`, "test-"+t.Name())
+		require.NoError(t, err)
+
+		// Verify job is in processing state
+		var status string
+		err = db.QueryRow(`
+			SELECT status FROM ccv_storage_writer_jobs 
+			WHERE owner_id = $1
+		`, "test-"+t.Name()).Scan(&status)
+		require.NoError(t, err)
+		require.Equal(t, "processing", status)
+
+		// Now start processor - it should reclaim the stale job
+		processor, err := NewStorageWriterProcessor(
+			ctx,
+			lggr,
+			"test-"+t.Name(),
+			NoopLatencyTracker{},
+			fakeStorage,
+			resultQueue,
+			CoordinatorConfig{
+				StorageBatchSize:  10,
+				StorageRetryDelay: 100 * time.Millisecond,
+			},
+			NewPendingWritingTracker(lggr),
+			&noopChainStatusManager{},
+		)
+		require.NoError(t, err)
+
+		require.NoError(t, processor.Start(ctx))
+		defer func() {
+			cancel()
+			require.NoError(t, processor.Close())
+		}()
+
+		// Wait for job to be reclaimed and processed
+		require.Eventually(t, func() bool {
+			return fakeStorage.GetStoredCount() == 1
+		}, tests.WaitTimeout(t), 100*time.Millisecond, "Expected stale job to be reclaimed and stored")
+
+		// Verify result was stored
+		stored := fakeStorage.GetStored()
+		_, exists := stored[result.MessageID]
+		require.True(t, exists, "Result should be stored after reclamation")
+	})
 }
 
 // TestStorageWriterProcessorDB_CheckpointManagement tests checkpoint functionality.
