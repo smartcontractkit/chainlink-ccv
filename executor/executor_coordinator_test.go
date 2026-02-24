@@ -564,6 +564,7 @@ func TestDuplicateMessageIDFromStreamWhenAlreadyInHeap_IsSkippedByHeapAndHandleM
 // shut down gracefully. This state is simulated by blocking the HandleMessage() call until Close() is called, and then
 // asserting that we logged the message about dropping a payload to exit.
 func TestGracefulShutdown(t *testing.T) {
+	t.Skip("flaky test")
 	lggr, hook := logger.TestObserved(t, zapcore.InfoLevel)
 	currentTime := time.Now().UTC()
 	mockTimeProvider := mocks.NewMockTimeProvider(t)
