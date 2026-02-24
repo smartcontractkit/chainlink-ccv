@@ -584,11 +584,20 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, field
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to get destination family: %w", err)
 	}
-
-	routerRef, err := m.ds.Addresses().Get(datastore.NewAddressRefKey(srcChain.Selector, datastore.ContractType(routeroperations.ContractType), semver.MustParse(routeroperations.Deploy.Version()), ""))
-	if err != nil {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to get router address: %w", err)
+	routerContractType := routeroperations.ContractType
+	if opts.UseTestRouter {
+		routerContractType = routeroperations.TestRouterContractType
 	}
+	routerVersion := semver.MustParse(routeroperations.Deploy.Version())
+	routerRefs := m.ds.Addresses().Filter(
+		datastore.AddressRefByChainSelector(srcChain.Selector),
+		datastore.AddressRefByType(datastore.ContractType(routerContractType)),
+		datastore.AddressRefByVersion(routerVersion),
+	)
+	if len(routerRefs) != 1 {
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("expected exactly one router for selector %d type %s version %s, got %d", srcChain.Selector, routerContractType, routerVersion.String(), len(routerRefs))
+	}
+	routerRef := routerRefs[0]
 
 	routerAddress := common.HexToAddress(routerRef.Address)
 	rout, err := routerwrapper.NewRouter(routerAddress, srcChain.Client)

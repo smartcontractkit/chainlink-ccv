@@ -89,6 +89,8 @@ type MessageOptions struct {
 	ExecutorArgs []byte
 	// TokenArgs are the token arguments for the message
 	TokenArgs []byte
+	// UseTestRouter when true looks up the TestRouter contract type in the datastore instead of Router.
+	UseTestRouter bool
 }
 
 // MessageSentEvent is a chain-agnostic representation of the output of a ccipSend operation.
