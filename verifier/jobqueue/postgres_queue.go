@@ -235,8 +235,8 @@ func (q *PostgresJobQueue[T]) Complete(ctx context.Context, jobIDs ...string) er
 	}
 
 	// Move to archive table for audit trail
-	// Note: This query works for both verification_tasks (without task_job_id)
-	// and verification_results (with task_job_id) by selecting all columns
+	// Note: This query works for both ccv_task_verifier_jobs (without task_job_id)
+	// and ccv_storage_writer_jobs (with task_job_id) by selecting all columns
 	query := fmt.Sprintf(`
 		WITH completed AS (
 			DELETE FROM %s

@@ -19,6 +19,11 @@ import (
 )
 
 const (
+	// TaskVerifierJobsTableName is the name of the table storing verification tasks.
+	TaskVerifierJobsTableName = "ccv_task_verifier_jobs"
+	// StorageWriterJobsTableName is the name of the table storing verification results for storage writing.
+	StorageWriterJobsTableName = "ccv_storage_writer_jobs"
+
 	// taskQueueRetryDuration is how long verification tasks are retried before giving up.
 	taskQueueRetryDuration = 7 * 24 * time.Hour // 7 days
 	// taskQueueLockDuration is how long a task can remain in 'processing' before being reclaimed.
@@ -145,7 +150,7 @@ func NewCoordinatorWithDetector(
 }
 
 // createDurableProcessors creates DB-backed source readers and processors using database-backed queues.
-// All three pipeline stages communicate via the database: SRS → verification_tasks → TVP → verification_results → SWP.
+// All three pipeline stages communicate via the database: SRS → ccv_task_verifier_jobs → TVP → ccv_storage_writer_jobs → SWP.
 func createDurableProcessors(
 	ctx context.Context,
 	lggr logger.Logger,
@@ -163,7 +168,7 @@ func createDurableProcessors(
 	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
 		ds,
 		jobqueue.QueueConfig{
-			Name:          "verification_tasks",
+			Name:          TaskVerifierJobsTableName,
 			OwnerID:       config.VerifierID,
 			RetryDuration: taskQueueRetryDuration,
 			LockDuration:  taskQueueLockDuration,
@@ -177,7 +182,7 @@ func createDurableProcessors(
 	resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
 		ds,
 		jobqueue.QueueConfig{
-			Name:          "verification_results",
+			Name:          StorageWriterJobsTableName,
 			OwnerID:       config.VerifierID,
 			RetryDuration: resultQueueRetryDuration,
 			LockDuration:  resultQueueLockDuration,

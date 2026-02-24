@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -37,7 +38,7 @@ func BenchmarkJobQueueThroughput(b *testing.B) {
 	db := testutil.NewTestDB(b)
 
 	q, err := jobqueue.NewPostgresJobQueue[testJob](db, jobqueue.QueueConfig{
-		Name:          "verification_tasks",
+		Name:          verifier.TaskVerifierJobsTableName,
 		OwnerID:       "bench-verifier",
 		RetryDuration: time.Hour,
 		LockDuration:  5 * time.Minute,
@@ -49,7 +50,7 @@ func BenchmarkJobQueueThroughput(b *testing.B) {
 
 	for b.Loop() {
 		// Clean tables between iterations so each iteration starts fresh.
-		_, err := db.ExecContext(ctx, "TRUNCATE verification_tasks, verification_tasks_archive CASCADE")
+		_, err := db.ExecContext(ctx, "TRUNCATE ccv_task_verifier_jobs, ccv_task_verifier_jobs_archive CASCADE")
 		require.NoError(b, err)
 
 		var (
@@ -184,11 +185,11 @@ func BenchmarkJobQueueThroughput(b *testing.B) {
 		b.Logf("  Perm. failed:   %d", failed)
 
 		var remaining int
-		err = db.QueryRow("SELECT COUNT(*) FROM verification_tasks").Scan(&remaining)
+		err = db.QueryRow("SELECT COUNT(*) FROM ccv_task_verifier_jobs").Scan(&remaining)
 		require.NoError(b, err, "count remaining")
 
 		var archived int
-		err = db.QueryRow("SELECT COUNT(*) FROM verification_tasks_archive").Scan(&archived)
+		err = db.QueryRow("SELECT COUNT(*) FROM ccv_task_verifier_jobs_archive").Scan(&archived)
 		require.NoError(b, err, "count archived")
 		b.Logf("  Remaining in queue: %d, Archived: %d, Sum: %d (expected %d)",
 			remaining, archived, remaining+archived, totalExpected)

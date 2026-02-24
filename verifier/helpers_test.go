@@ -481,7 +481,7 @@ func createDurableProcessorsWithPollInterval(
 	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
 		ds,
 		jobqueue.QueueConfig{
-			Name:          "verification_tasks",
+			Name:          TaskVerifierJobsTableName,
 			OwnerID:       config.VerifierID,
 			RetryDuration: taskQueueRetryDuration,
 			LockDuration:  taskQueueLockDuration,
@@ -495,7 +495,7 @@ func createDurableProcessorsWithPollInterval(
 	resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
 		ds,
 		jobqueue.QueueConfig{
-			Name:          "verification_results",
+			Name:          StorageWriterJobsTableName,
 			OwnerID:       config.VerifierID,
 			RetryDuration: resultQueueRetryDuration,
 			LockDuration:  resultQueueLockDuration,
