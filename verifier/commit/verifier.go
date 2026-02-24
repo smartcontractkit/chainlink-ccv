@@ -54,6 +54,7 @@ func (cv *Verifier) validate() error {
 	appendIfNil(cv.signer, "signer")
 	appendIfNil(cv.lggr, "lggr")
 	appendIfNil(cv.monitoring, "monitoring")
+	appendIfNil(cv.signerAddress, "signerAddress")
 
 	if len(errs) > 0 {
 		return fmt.Errorf("verifier is not fully initialized: %w", errors.Join(errs...))
