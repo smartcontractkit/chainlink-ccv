@@ -98,7 +98,7 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 				now,
 				0, // attempt_count
 				now.Add(q.config.RetryDuration),
-				chainSelector,
+				int64(chainSelector), // #nosec G115 -- postgres numeric(20,0) requires int64
 				messageID,
 				q.ownerID,
 			)
