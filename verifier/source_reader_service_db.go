@@ -17,6 +17,17 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
+const (
+	DefaultPollInterval  = 2100 * time.Millisecond
+	DefaultPollTimeout   = 10 * time.Second
+	DefaultMaxBlockRange = 5000
+)
+
+type blockRange struct {
+	fromBlock *big.Int
+	toBlock   *big.Int
+}
+
 // SourceReaderServiceDB is a DB-backed version of SourceReaderService.
 // Instead of pushing ready tasks into an in-memory batcher, it publishes
 // them directly to the ccv_task_verifier_jobs job queue so that
@@ -395,7 +406,6 @@ func (r *SourceReaderServiceDB) fallbackBlockEstimate(currentBlock uint64, lookb
 	return fallBackBlock
 }
 
-//nolint:dupl // will be removed
 func (r *SourceReaderServiceDB) addToPendingQueueHandleReorg(tasks []VerificationTask, fromBlock *big.Int) {
 	tasksMap := make(map[string]VerificationTask)
 	for _, task := range tasks {
@@ -543,7 +553,6 @@ func (r *SourceReaderServiceDB) sendReadyMessages(ctx context.Context, latest, f
 	}
 }
 
-//nolint:dupl // will be removed
 func (r *SourceReaderServiceDB) isMessageReadyForVerification(
 	task VerificationTask,
 	latestBlock *big.Int,
