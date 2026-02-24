@@ -36,6 +36,18 @@ func TestRateLimitingMiddleware_Disabled(t *testing.T) {
 	require.Equal(t, "success", resp)
 }
 
+func TestRateLimitingMiddleware_NoIdentity(t *testing.T) {
+	middleware := &RateLimitingMiddleware{enabled: true}
+	ctx := context.Background()
+	info := mockServerInfo("/test.Service/Method")
+
+	_, err := middleware.Intercept(ctx, nil, info, mockHandler)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, codes.Unavailable, st.Code())
+	require.Contains(t, st.Message(), "service temporarily unavailable")
+}
+
 func TestRateLimitingMiddleware_DefaultLimits(t *testing.T) {
 	store := memory.NewStore()
 	config := model.RateLimitingConfig{
