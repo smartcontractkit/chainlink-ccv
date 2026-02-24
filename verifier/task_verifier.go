@@ -7,13 +7,22 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/jobqueue"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
+const (
+	// defaultTaskPollInterval is how frequently the task verifier polls for new verification tasks.
+	defaultTaskPollInterval = 500 * time.Millisecond
+	// defaultTaskCleanupInterval is how frequently the task verifier cleans up archived jobs.
+	defaultTaskCleanupInterval = 4 * time.Hour
+	// defaultTaskRetentionPeriod is how long archived jobs are kept before deletion.
+	defaultTaskRetentionPeriod = 30 * 24 * time.Hour // 30 days
+)
+
 // TaskVerifierProcessor is responsible for processing read messages from SourceReaderServices,
-// verifying them using the provided Verifier, and sending the results to storageBatcher (effectively to StorageWriterProcessor).
+// verifying them using the provided Verifier, and sending the results to StorageWriterProcessor via the result queue.
 // It's the second stage in the verifier processing pipeline.
 // It spawns a goroutine per source chain to handle verification concurrently and independently.
 // Retries are handled for individual messages based on the verification result. General idea is very similar to
@@ -21,8 +30,7 @@ import (
 // That way we give Verifier who is aware of the business logic more control over retry behavior.
 type TaskVerifierProcessor struct {
 	services.StateMachine
-	wg     sync.WaitGroup
-	cancel context.CancelFunc
+	wg sync.WaitGroup
 
 	lggr       logger.Logger
 	verifierID string
@@ -32,123 +40,126 @@ type TaskVerifierProcessor struct {
 	// Pending writing tracker (shared with SRS and SWP)
 	writingTracker *PendingWritingTracker
 
-	// Consumes from
-	sourceFanouts map[protocol.ChainSelector]SourceReaderFanout
-	// produces to
-	storageBatcher *batcher.Batcher[protocol.VerifierNodeResult]
+	// Consumes from ccv_task_verifier_jobs queue
+	taskQueue jobqueue.JobQueue[VerificationTask]
+	// Produces to ccv_storage_writer_jobs queue
+	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult]
+
+	// Configuration
+	pollInterval    time.Duration
+	cleanupInterval time.Duration
+	retentionPeriod time.Duration
+	batchSize       int
 }
 
-// SourceReaderFanout defines the interface that TaskVerifierProcessor expects from SourceReaderService
-// to read ready tasks and retry failed ones. This abstraction allows TaskVerifierProcessor to not depend
-// directly on SourceReaderService implementation details.
-type SourceReaderFanout interface {
-	// RetryTasks re-queues the given tasks for retry after the specified delay. Should delegate to
-	// the underlying Batcher used by SourceReaderService.
-	RetryTasks(minDelay time.Duration, tasks ...VerificationTask) error
-	// ReadyTasksChannel provides a channel from which ready tasks can be consumed
-	ReadyTasksChannel() <-chan batcher.BatchResult[VerificationTask]
-}
-
-func NewTaskVerifierProcessor(
+func NewTaskVerifierProcessorDB(
 	lggr logger.Logger,
 	verifierID string,
 	verifier Verifier,
 	monitoring Monitoring,
-	sourceStates map[protocol.ChainSelector]*SourceReaderService,
-	storageBatcher *batcher.Batcher[protocol.VerifierNodeResult],
+	taskQueue jobqueue.JobQueue[VerificationTask],
+	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
 	writingTracker *PendingWritingTracker,
+	batchSize int,
 ) (*TaskVerifierProcessor, error) {
-	sourceFanouts := make(map[protocol.ChainSelector]SourceReaderFanout)
-	for chainSelector, srs := range sourceStates {
-		sourceFanouts[chainSelector] = srs
-	}
-
-	return NewTaskVerifierProcessorWithFanouts(
-		lggr, verifierID, verifier, monitoring, sourceFanouts, storageBatcher, writingTracker,
+	return NewTaskVerifierProcessorDBWithPollInterval(
+		lggr, verifierID, verifier, monitoring, taskQueue, resultQueue, writingTracker, batchSize, defaultTaskPollInterval,
 	)
 }
 
-func NewTaskVerifierProcessorWithFanouts(
+func NewTaskVerifierProcessorDBWithPollInterval(
 	lggr logger.Logger,
 	verifierID string,
 	verifier Verifier,
 	monitoring Monitoring,
-	sourceFanouts map[protocol.ChainSelector]SourceReaderFanout,
-	storageBatcher *batcher.Batcher[protocol.VerifierNodeResult],
+	taskQueue jobqueue.JobQueue[VerificationTask],
+	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
 	writingTracker *PendingWritingTracker,
+	batchSize int,
+	pollInterval time.Duration,
 ) (*TaskVerifierProcessor, error) {
 	p := &TaskVerifierProcessor{
-		lggr:           lggr,
-		verifierID:     verifierID,
-		monitoring:     monitoring,
-		verifier:       verifier,
-		sourceFanouts:  sourceFanouts,
-		storageBatcher: storageBatcher,
-		writingTracker: writingTracker,
+		lggr:            lggr,
+		verifierID:      verifierID,
+		monitoring:      monitoring,
+		verifier:        verifier,
+		taskQueue:       taskQueue,
+		resultQueue:     resultQueue,
+		writingTracker:  writingTracker,
+		pollInterval:    pollInterval,
+		cleanupInterval: defaultTaskCleanupInterval,
+		retentionPeriod: defaultTaskRetentionPeriod,
+		batchSize:       batchSize,
 	}
 	return p, nil
 }
 
 func (p *TaskVerifierProcessor) Start(ctx context.Context) error {
 	return p.StartOnce(p.Name(), func() error {
-		cancelCtx, cancel := context.WithCancel(ctx)
-		p.cancel = cancel
-		for sourceChainSelector, fanout := range p.sourceFanouts {
-			p.wg.Go(func() {
-				p.run(cancelCtx, sourceChainSelector, fanout)
-			})
-		}
+		p.wg.Go(func() {
+			p.run(ctx)
+		})
 		return nil
 	})
 }
 
 func (p *TaskVerifierProcessor) Close() error {
 	return p.StopOnce(p.Name(), func() error {
-		p.cancel()
 		p.wg.Wait()
 		return nil
 	})
 }
 
-func (p *TaskVerifierProcessor) run(
-	ctx context.Context,
-	selector protocol.ChainSelector,
-	sourceFanout SourceReaderFanout,
-) {
+func (p *TaskVerifierProcessor) run(ctx context.Context) {
+	ticker := time.NewTicker(p.pollInterval)
+	defer ticker.Stop()
+
+	cleanupTicker := time.NewTicker(p.cleanupInterval)
+	defer cleanupTicker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
+			p.lggr.Infow("TaskVerifierProcessor context cancelled, shutting down")
 			return
-		case batch, ok := <-sourceFanout.ReadyTasksChannel():
-			if !ok {
-				p.lggr.Infow("ReadyTasksChannel closed; exiting readyTasksLoop")
-				return
+
+		case <-ticker.C:
+			if err := p.processBatch(ctx); err != nil {
+				p.lggr.Errorw("Error processing verification batch", "error", err)
 			}
-			if batch.Error != nil {
-				p.lggr.Errorw("Error batch received from SourceReaderService",
-					"error", batch.Error)
-				continue
+
+		case <-cleanupTicker.C:
+			if err := p.cleanup(ctx); err != nil {
+				p.lggr.Errorw("Error running cleanup", "error", err)
 			}
-			p.processReadyTasks(ctx, selector, sourceFanout, batch.Items)
 		}
 	}
 }
 
-// processReadyTasks receives tasks that are already ready (finality + curses handled
-// by SRS) and fans out verification per source chain.
-func (p *TaskVerifierProcessor) processReadyTasks(
-	ctx context.Context,
-	chainSelector protocol.ChainSelector,
-	sourceFanout SourceReaderFanout,
-	tasks []VerificationTask,
-) {
-	if len(tasks) == 0 {
-		return
+func (p *TaskVerifierProcessor) processBatch(ctx context.Context) error {
+	// Consume batch of tasks from queue
+	jobs, err := p.taskQueue.Consume(ctx, p.batchSize)
+	if err != nil {
+		return fmt.Errorf("failed to consume from task queue: %w", err)
 	}
 
-	p.lggr.Debugw("Processing batch of finalized messages", "batchSize", len(tasks))
+	if len(jobs) == 0 {
+		return nil // No work to do
+	}
 
-	// Metrics: finality wait duration based on QueuedAt set in SRS
+	p.lggr.Debugw("Processing verification tasks batch",
+		"batchSize", len(jobs),
+	)
+
+	// Extract tasks and build job ID map
+	tasks := make([]VerificationTask, len(jobs))
+	jobIDMap := make(map[string]string) // messageID -> jobID
+	for i, job := range jobs {
+		tasks[i] = job.Payload
+		jobIDMap[job.Payload.MessageID] = job.ID
+	}
+
+	// Track finality wait duration metrics
 	for _, task := range tasks {
 		if !task.QueuedAt.IsZero() && p.monitoring != nil {
 			finalityWaitDuration := time.Since(task.QueuedAt)
@@ -158,48 +169,123 @@ func (p *TaskVerifierProcessor) processReadyTasks(
 		}
 	}
 
+	// Verify messages
 	results := p.verifier.VerifyMessages(ctx, tasks)
-	p.handleVerificationResults(ctx, chainSelector, sourceFanout, results)
+
+	// Process verification results
+	return p.handleVerificationResults(ctx, results, jobIDMap)
 }
 
-// handleVerificationResults processes both successful results and errors from verification.
-// Successful results are added to the storage batcher, while errors are retried or marked as permanent failures.
+// handleVerificationResults processes verification results, updating job statuses and publishing successful results.
 func (p *TaskVerifierProcessor) handleVerificationResults(
 	ctx context.Context,
-	chainSelector protocol.ChainSelector,
-	src SourceReaderFanout,
 	results []VerificationResult,
-) {
+	jobIDMap map[string]string,
+) error {
 	if len(results) == 0 {
-		return
+		return nil
 	}
 
 	var successCount, errorCount int
+	successfulResults := make([]protocol.VerifierNodeResult, 0)
+	completedJobIDs := make([]string, 0)
+	retryJobIDs := make([]string, 0)
+	retryErrors := make(map[string]error)
+	failedJobIDs := make([]string, 0)
+	failedErrors := make(map[string]error)
 
 	// Process each result
 	for _, result := range results {
+		messageID := ""
+		if result.Error != nil {
+			messageID = result.Error.Task.MessageID
+		} else if result.Result != nil {
+			messageID = result.Result.MessageID.String()
+		}
+
+		jobID, exists := jobIDMap[messageID]
+		if !exists {
+			p.lggr.Errorw("Job ID not found for message", "messageID", messageID)
+			continue
+		}
+
 		if result.Error != nil {
 			errorCount++
-			p.handleVerificationError(ctx, chainSelector, src, *result.Error)
+			p.handleVerificationError(ctx, *result.Error, jobID, &retryJobIDs, retryErrors, &failedJobIDs, failedErrors)
 		} else if result.Result != nil {
 			successCount++
-			p.handleVerificationSuccess(result.Result)
+			successfulResults = append(successfulResults, *result.Result)
+			completedJobIDs = append(completedJobIDs, jobID)
+		}
+	}
+
+	// Publish successful results to ccv_storage_writer_jobs queue
+	if len(successfulResults) > 0 {
+		publishCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+
+		if err := p.resultQueue.Publish(publishCtx, successfulResults...); err != nil {
+			p.lggr.Errorw("Failed to publish verification results to queue",
+				"error", err,
+				"count", len(successfulResults))
+			// Results are lost - consider retrying the entire batch
+			// For now, we'll retry the jobs to re-verify
+			for _, jobID := range completedJobIDs {
+				retryJobIDs = append(retryJobIDs, jobID)
+				retryErrors[jobID] = err
+			}
+			completedJobIDs = nil
+		} else {
+			p.lggr.Debugw("Published verification results to queue", "count", len(successfulResults))
+		}
+	}
+
+	// Complete successfully processed jobs
+	if len(completedJobIDs) > 0 {
+		if err := p.taskQueue.Complete(ctx, completedJobIDs...); err != nil {
+			p.lggr.Errorw("Failed to complete jobs in queue",
+				"error", err,
+				"count", len(completedJobIDs))
+		}
+	}
+
+	// Retry jobs with retryable errors
+	if len(retryJobIDs) > 0 {
+		if err := p.taskQueue.Retry(ctx, 10*time.Second, retryErrors, retryJobIDs...); err != nil {
+			p.lggr.Errorw("Failed to retry jobs",
+				"error", err,
+				"count", len(retryJobIDs))
+		}
+	}
+
+	// Fail jobs with permanent errors
+	if len(failedJobIDs) > 0 {
+		if err := p.taskQueue.Fail(ctx, failedErrors, failedJobIDs...); err != nil {
+			p.lggr.Errorw("Failed to mark jobs as failed",
+				"error", err,
+				"count", len(failedJobIDs))
 		}
 	}
 
 	p.lggr.Debugw("Verification batch completed",
-		"chainSelector", chainSelector,
 		"totalResults", len(results),
 		"successCount", successCount,
-		"errorCount", errorCount)
+		"errorCount", errorCount,
+		"retryCount", len(retryJobIDs),
+		"failedCount", len(failedJobIDs))
+
+	return nil
 }
 
-// handleVerificationError processes a single verification error, either retrying or marking as permanent failure.
+// handleVerificationError processes a single verification error, either scheduling retry or marking as permanent failure.
 func (p *TaskVerifierProcessor) handleVerificationError(
 	ctx context.Context,
-	chainSelector protocol.ChainSelector,
-	src SourceReaderFanout,
 	verificationError VerificationError,
+	jobID string,
+	retryJobIDs *[]string,
+	retryErrors map[string]error,
+	failedJobIDs *[]string,
+	failedErrors map[string]error,
 ) {
 	message := verificationError.Task.Message
 
@@ -217,62 +303,38 @@ func (p *TaskVerifierProcessor) handleVerificationError(
 		"nonce", message.SequenceNumber,
 		"sourceChain", message.SourceChainSelector,
 		"destChain", message.DestChainSelector,
-		"timestamp", verificationError.Timestamp,
-		"chainSelector", chainSelector,
 		"retryable", verificationError.Retryable,
 	)
 
 	if verificationError.Retryable {
-		p.retryVerificationTask(chainSelector, src, verificationError)
+		*retryJobIDs = append(*retryJobIDs, jobID)
+		retryErrors[jobID] = verificationError.Error
 	} else {
-		p.handlePermanentFailure(chainSelector, verificationError)
+		*failedJobIDs = append(*failedJobIDs, jobID)
+		failedErrors[jobID] = verificationError.Error
+		// Remove from pending tracker for permanent failures
+		p.writingTracker.Remove(
+			message.SourceChainSelector,
+			verificationError.Task.MessageID,
+		)
 	}
 }
 
-// retryVerificationTask attempts to re-queue a task for retry.
-func (p *TaskVerifierProcessor) retryVerificationTask(
-	chainSelector protocol.ChainSelector,
-	src SourceReaderFanout,
-	verificationError VerificationError,
-) {
-	err := src.RetryTasks(
-		verificationError.DelayOrDefault(),
-		verificationError.Task,
-	)
+func (p *TaskVerifierProcessor) cleanup(ctx context.Context) error {
+	// Cleanup archived jobs older than retention period
+	deleted, err := p.taskQueue.Cleanup(ctx, p.retentionPeriod)
 	if err != nil {
-		message := verificationError.Task.Message
-		p.lggr.Errorw("Failed to re-queue message for verification retry",
-			"error", err.Error(),
-			"messageID", verificationError.Task.MessageID,
-			"nonce", message.SequenceNumber,
-			"sourceChain", message.SourceChainSelector,
-			"destChain", message.DestChainSelector,
-			"chainSelector", chainSelector,
+		return fmt.Errorf("failed to cleanup task queue: %w", err)
+	}
+
+	if deleted > 0 {
+		p.lggr.Infow("Cleaned up archived verification tasks",
+			"count", deleted,
+			"retentionPeriod", p.retentionPeriod,
 		)
 	}
-}
 
-// handlePermanentFailure removes a permanently failed task from the tracker.
-func (p *TaskVerifierProcessor) handlePermanentFailure(
-	chainSelector protocol.ChainSelector,
-	verificationError VerificationError,
-) {
-	p.writingTracker.Remove(
-		chainSelector,
-		verificationError.Task.MessageID,
-	)
-}
-
-// handleVerificationSuccess adds a successful result to the storage batcher.
-func (p *TaskVerifierProcessor) handleVerificationSuccess(result *protocol.VerifierNodeResult) {
-	if err := p.storageBatcher.Add(*result); err != nil {
-		p.lggr.Errorw("Failed to add verified result to storage batcher",
-			"error", err,
-			"messageID", result.MessageID.String(),
-			"sequenceNumber", result.Message.SequenceNumber,
-			"sourceChain", result.Message.SourceChainSelector,
-		)
-	}
+	return nil
 }
 
 func (p *TaskVerifierProcessor) Name() string {

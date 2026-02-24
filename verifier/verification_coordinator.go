@@ -27,7 +27,7 @@ const (
 	// taskQueueRetryDuration is how long verification tasks are retried before giving up.
 	taskQueueRetryDuration = 7 * 24 * time.Hour // 7 days
 	// taskQueueLockDuration is how long a task can remain in 'processing' before being reclaimed.
-	taskQueueLockDuration = 5 * time.Minute
+	taskQueueLockDuration = 2 * time.Minute
 	// resultQueueRetryDuration is how long verification results are retried before giving up.
 	resultQueueRetryDuration = 7 * 24 * time.Hour // 7 days
 	// resultQueueLockDuration is how long a job can remain in 'processing' before being reclaimed.
@@ -208,7 +208,7 @@ func createDurableProcessors(
 		return nil, nil, nil, fmt.Errorf("failed to create task verifier processor DB: %w", err)
 	}
 
-	storageWriterProcessor, err := NewStorageWriterProcessorDB(
+	storageWriterProcessor, err := NewStorageWriterProcessor(
 		ctx, lggr, config.VerifierID, messageTracker, storage, resultQueue, config, writingTracker, chainStatusManager,
 	)
 	if err != nil {

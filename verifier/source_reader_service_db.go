@@ -20,7 +20,7 @@ import (
 // SourceReaderServiceDB is a DB-backed version of SourceReaderService.
 // Instead of pushing ready tasks into an in-memory batcher, it publishes
 // them directly to the ccv_task_verifier_jobs job queue so that
-// TaskVerifierProcessorDB can pick them up durably.
+// TaskVerifierProcessor can pick them up durably.
 type SourceReaderServiceDB struct {
 	services.StateMachine
 	stopCh services.StopChan

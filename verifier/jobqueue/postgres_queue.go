@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/google/uuid"
@@ -90,6 +91,9 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 
 			now := time.Now()
 
+			// Convert uint64 to string for postgres numeric(20,0) - avoids int64 overflow
+			chainSelectorStr := new(big.Int).SetUint64(chainSelector).String()
+
 			_, err = stmt.ExecContext(ctx,
 				jobID,
 				data,
@@ -98,7 +102,7 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 				now,
 				0, // attempt_count
 				now.Add(q.config.RetryDuration),
-				int64(chainSelector), // #nosec G115 -- postgres numeric(20,0) requires int64
+				chainSelectorStr,
 				messageID,
 				q.ownerID,
 			)
@@ -172,22 +176,33 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 	var jobs []Job[T]
 	for rows.Next() {
 		var (
-			id            int64
-			jobID         string
-			dataJSON      []byte
-			attemptCount  int
-			retryDeadline time.Time
-			createdAt     time.Time
-			startedAt     sql.NullTime
-			chainSelector int64
-			messageID     []byte
+			id               int64
+			jobID            string
+			dataJSON         []byte
+			attemptCount     int
+			retryDeadline    time.Time
+			createdAt        time.Time
+			startedAt        sql.NullTime
+			chainSelectorStr string
+			messageID        []byte
 		)
 
-		err := rows.Scan(&id, &jobID, &dataJSON, &attemptCount, &retryDeadline, &createdAt, &startedAt, &chainSelector, &messageID)
+		err := rows.Scan(&id, &jobID, &dataJSON, &attemptCount, &retryDeadline, &createdAt, &startedAt, &chainSelectorStr, &messageID)
 		if err != nil {
 			q.logger.Errorw("Failed to scan job row", "error", err)
 			continue
 		}
+
+		// Convert chain selector string to uint64
+		chainSelectorBig := new(big.Int)
+		if _, ok := chainSelectorBig.SetString(chainSelectorStr, 10); !ok {
+			q.logger.Errorw("Failed to parse chain selector",
+				"jobID", jobID,
+				"chainSelector", chainSelectorStr,
+			)
+			continue
+		}
+		chainSelector := chainSelectorBig.Uint64()
 
 		var payload T
 		if err := json.Unmarshal(dataJSON, &payload); err != nil {
@@ -204,7 +219,7 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 			AttemptCount:  attemptCount,
 			RetryDeadline: retryDeadline,
 			CreatedAt:     createdAt,
-			ChainSelector: uint64(chainSelector), // #nosec G115 -- checked above
+			ChainSelector: chainSelector,
 			MessageID:     messageID,
 		}
 
