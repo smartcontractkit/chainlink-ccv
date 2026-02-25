@@ -39,25 +39,30 @@ the bootstrapper to affect other apps.
 Below is some expected usage of the `bootstrap` library. 
 
 ```golang
-// verifierFactory implements bootstrap.ServiceFactory
-type verifierFactory struct {
+type config struct {
+    MyField1 string `toml:"myfield1"`
+    MyField2 string `toml:"myfield2"`
+}
+
+// serviceFactory implements bootstrap.ServiceFactory
+type serviceFactory struct {
     // ... fields ...
 }
 
-func (v *verifierFactory) Start(ctx context.Context, cfg string, bootstrap.ServiceDeps) error {
+func (v *serviceFactory) Start(ctx context.Context, cfg config, deps bootstrap.ServiceDeps) error {
     // TODO: implement
 }
 
-func (v *verifierFactory) Stop(ctx context.Context) error {
+func (v *serviceFactory) Stop(ctx context.Context) error {
     // TODO: implement
 }
 
 func main() {
     err := bootstrap.Run(
         "CommitteeVerifier",
-        &verifierFactory{}, 
+        &serviceFactory{}, 
         // debug logging, default is zapcore.InfoLevel
-        bootstrap.WithLogLevel(zapcore.DebugLevel),
+        bootstrap.WithLogLevel[config](zapcore.DebugLevel),
     )
     if err != nil {
         panic(fmt.Sprintf("failed to run: %w", err))

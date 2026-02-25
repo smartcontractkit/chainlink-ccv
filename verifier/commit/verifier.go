@@ -177,8 +177,8 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 
 	cv.lggr.Infow("Message validation passed",
 		"messageID", messageID,
-		"verifierAddress", sourceConfig.VerifierAddress.String(),
-		"defaultExecutorAddress", sourceConfig.DefaultExecutorAddress.String(),
+		"verifierAddress", sourceConfig.VerifierAddress,
+		"defaultExecutorAddress", sourceConfig.DefaultExecutorAddress,
 	)
 
 	var verifierBlob []byte
@@ -226,7 +226,7 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 
 	cv.lggr.Infow("Message signed successfully",
 		"messageID", msgIDStr,
-		"signer", cv.signerAddress.String(),
+		"signer", cv.signerAddress,
 		"signatureLength", len(encodedSignature),
 	)
 

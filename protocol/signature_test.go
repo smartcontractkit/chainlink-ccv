@@ -138,7 +138,7 @@ func TestEncodeSingleSignature(t *testing.T) {
 
 		_, err := EncodeSingleECDSASignature(sig)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "signature R and S cannot be zero")
+		require.Contains(t, err.Error(), "R and S must be valid curve scalars")
 	})
 
 	t.Run("zero S", func(t *testing.T) {
@@ -150,7 +150,7 @@ func TestEncodeSingleSignature(t *testing.T) {
 
 		_, err := EncodeSingleECDSASignature(sig)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "signature R and S cannot be zero")
+		require.Contains(t, err.Error(), "R and S must be valid curve scalars")
 	})
 
 	t.Run("zero signer", func(t *testing.T) {
@@ -163,6 +163,37 @@ func TestEncodeSingleSignature(t *testing.T) {
 		_, err := EncodeSingleECDSASignature(sig)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "signer address cannot be zero")
+	})
+
+	// New tests: R >= secpN and S >= secpN to hit the r.Cmp(secpN) >= 0 branches
+	t.Run("R >= secpN", func(t *testing.T) {
+		b := secpN.Bytes()
+		var r [32]byte
+		copy(r[32-len(b):], b)
+		sig := Data{
+			R:      r,
+			S:      [32]byte{0x02},
+			Signer: common.HexToAddress("0x1234567890123456789012345678901234567890"),
+		}
+
+		_, err := EncodeSingleECDSASignature(sig)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "values R and S must be valid curve scalars")
+	})
+
+	t.Run("S >= secpN", func(t *testing.T) {
+		b := secpN.Bytes()
+		var s [32]byte
+		copy(s[32-len(b):], b)
+		sig := Data{
+			R:      [32]byte{0x01},
+			S:      s,
+			Signer: common.HexToAddress("0x1234567890123456789012345678901234567890"),
+		}
+
+		_, err := EncodeSingleECDSASignature(sig)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "values R and S must be valid curve scalars")
 	})
 }
 
@@ -200,7 +231,7 @@ func TestDecodeSingleSignature(t *testing.T) {
 
 		_, _, _, err := DecodeSingleECDSASignature(data)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "signature R and S cannot be zero")
+		require.Contains(t, err.Error(), "values R and S must be valid curve scalars")
 	})
 
 	t.Run("zero S", func(t *testing.T) {
@@ -212,7 +243,7 @@ func TestDecodeSingleSignature(t *testing.T) {
 
 		_, _, _, err := DecodeSingleECDSASignature(data)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "signature R and S cannot be zero")
+		require.Contains(t, err.Error(), "values R and S must be valid curve scalars")
 	})
 
 	t.Run("zero signer", func(t *testing.T) {
@@ -225,6 +256,43 @@ func TestDecodeSingleSignature(t *testing.T) {
 		_, _, _, err := DecodeSingleECDSASignature(data)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "signer address cannot be zero")
+	})
+
+	// New tests: R >= secpN and S >= secpN to exercise the Cmp(secpN) >= 0 branches
+	t.Run("R >= secpN", func(t *testing.T) {
+		b := secpN.Bytes()
+		var r [32]byte
+		copy(r[32-len(b):], b)
+
+		data := make([]byte, SingleECDSASignatureSize)
+		copy(data[0:32], r[:])
+		// use an addressable s value and address variable
+		sSmall := [32]byte{0x02}
+		copy(data[32:64], sSmall[:])
+		addr := common.HexToAddress("0x1234567890123456789012345678901234567890")
+		copy(data[64:84], addr[:])
+
+		_, _, _, err := DecodeSingleECDSASignature(data)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "R and S must be valid curve scalars")
+	})
+
+	t.Run("S >= secpN", func(t *testing.T) {
+		b := secpN.Bytes()
+		var s [32]byte
+		copy(s[32-len(b):], b)
+
+		data := make([]byte, SingleECDSASignatureSize)
+		// use an addressable rSmall and address variable
+		rSmall := [32]byte{0x01}
+		copy(data[0:32], rSmall[:])
+		copy(data[32:64], s[:])
+		addr2 := common.HexToAddress("0x1234567890123456789012345678901234567890")
+		copy(data[64:84], addr2[:])
+
+		_, _, _, err := DecodeSingleECDSASignature(data)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "R and S must be valid curve scalars")
 	})
 }
 

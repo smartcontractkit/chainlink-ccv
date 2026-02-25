@@ -11,7 +11,6 @@ func TestConfiguration_Validate(t *testing.T) {
 	cases := []struct {
 		name            string
 		config          Configuration
-		wantErr         bool
 		wantErrContains string
 	}{
 		{
@@ -25,7 +24,6 @@ func TestConfiguration_Validate(t *testing.T) {
 					},
 				},
 			},
-			wantErr: false,
 		},
 		{
 			name: "valid_with_multiple_indexer_addresses",
@@ -38,7 +36,6 @@ func TestConfiguration_Validate(t *testing.T) {
 					},
 				},
 			},
-			wantErr: false,
 		},
 		{
 			name: "missing_executor_id_fails",
@@ -50,7 +47,6 @@ func TestConfiguration_Validate(t *testing.T) {
 					},
 				},
 			},
-			wantErr:         true,
 			wantErrContains: "this_executor_id must be configured",
 		},
 		{
@@ -63,7 +59,6 @@ func TestConfiguration_Validate(t *testing.T) {
 					},
 				},
 			},
-			wantErr:         true,
 			wantErrContains: "at least one indexer address must be configured",
 		},
 		{
@@ -77,7 +72,6 @@ func TestConfiguration_Validate(t *testing.T) {
 					},
 				},
 			},
-			wantErr:         true,
 			wantErrContains: "at least one indexer address must be configured",
 		},
 		{
@@ -91,7 +85,6 @@ func TestConfiguration_Validate(t *testing.T) {
 					},
 				},
 			},
-			wantErr:         true,
 			wantErrContains: "executor_pool must be configured",
 		},
 		{
@@ -105,8 +98,16 @@ func TestConfiguration_Validate(t *testing.T) {
 					},
 				},
 			},
-			wantErr:         true,
 			wantErrContains: "not found in executor_pool",
+		},
+		{
+			name: "invalid_with_no_configurations",
+			config: Configuration{
+				ExecutorID:         "executor-1",
+				IndexerAddress:     []string{"http://indexer1:8100"},
+				ChainConfiguration: map[string]ChainConfiguration{},
+			},
+			wantErrContains: "at least one chain must be configured",
 		},
 	}
 
@@ -114,7 +115,7 @@ func TestConfiguration_Validate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.config.Validate()
 
-			if tc.wantErr {
+			if tc.wantErrContains != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tc.wantErrContains)
 			} else {

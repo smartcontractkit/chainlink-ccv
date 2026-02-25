@@ -261,6 +261,18 @@ func RecoverECDSASigner(hash, r, s [32]byte) (common.Address, error) {
 	return signer, nil
 }
 
+func verifySig(rb, sb [32]byte, signer common.Address) error {
+	r := new(big.Int).SetBytes(rb[:])
+	s := new(big.Int).SetBytes(sb[:])
+	if r.Sign() == 0 || s.Sign() == 0 || r.Cmp(secpN) >= 0 || s.Cmp(secpN) >= 0 {
+		return fmt.Errorf("values R and S must be valid curve scalars (0 < value < n)")
+	}
+	if signer == (common.Address{}) {
+		return fmt.Errorf("signer address cannot be zero")
+	}
+	return nil
+}
+
 // SingleECDSASignatureSize is the exact size of an encoded EVM signature: R(32) + S(32) + Address(20) = 84 bytes.
 const SingleECDSASignatureSize = 84
 
@@ -268,12 +280,8 @@ const SingleECDSASignatureSize = 84
 // This format is used by verifiers when sending individual signatures to the aggregator.
 // Format: [32 bytes R][32 bytes S][20 bytes EVM Signer Address].
 func EncodeSingleECDSASignature(sig Data) ([]byte, error) {
-	if sig.R == [32]byte{} || sig.S == [32]byte{} {
-		return nil, fmt.Errorf("signature R and S cannot be zero")
-	}
-
-	if sig.Signer == (common.Address{}) {
-		return nil, fmt.Errorf("signer address cannot be zero")
+	if err := verifySig(sig.R, sig.S, sig.Signer); err != nil {
+		return nil, fmt.Errorf("invalid signature: %w", err)
 	}
 
 	result := make([]byte, SingleECDSASignatureSize)
@@ -295,12 +303,8 @@ func DecodeSingleECDSASignature(data []byte) (r, s [32]byte, signer common.Addre
 	copy(s[:], data[32:64])
 	copy(signer[:], data[64:84])
 
-	if r == [32]byte{} || s == [32]byte{} {
-		return r, s, signer, fmt.Errorf("signature R and S cannot be zero")
-	}
-
-	if signer == (common.Address{}) {
-		return r, s, signer, fmt.Errorf("signer address cannot be zero")
+	if err := verifySig(r, s, signer); err != nil {
+		return [32]byte{}, [32]byte{}, common.Address{}, fmt.Errorf("invalid signature: %w", err)
 	}
 
 	return r, s, signer, nil

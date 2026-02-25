@@ -20,8 +20,9 @@ type VerificationTask struct {
 }
 
 // JobKey implements jobqueue.Jobable interface.
-func (t VerificationTask) JobKey() (chainSelector, messageID string) {
-	return t.Message.SourceChainSelector.String(), t.MessageID
+func (t VerificationTask) JobKey() (chainSelector uint64, messageID []byte) {
+	messageIDBytes := t.Message.MustMessageID()
+	return uint64(t.Message.SourceChainSelector), messageIDBytes[:]
 }
 
 // SourceConfig contains configuration for a single source chain.

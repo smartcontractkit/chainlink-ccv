@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/BurntSushi/toml"
 
@@ -109,16 +110,31 @@ func (c *Config) validate() error {
 
 // LoadConfig loads the configuration from a path to a TOML file, in strict mode.
 func LoadConfig(path string) (Config, error) {
-	var cfg Config
-	md, err := toml.DecodeFile(path, &cfg)
+	tomlBytes, err := os.ReadFile(path) //nolint:gosec // G304: path is provided by trusted caller
 	if err != nil {
-		return Config{}, fmt.Errorf("failed to decode config: %w", err)
+		return Config{}, fmt.Errorf("failed to read config file: %w", err)
 	}
-	if len(md.Undecoded()) > 0 {
-		return Config{}, fmt.Errorf("unknown fields in config: %v", md.Undecoded())
+	cfg, err := parseTOMLStrict[Config](string(tomlBytes))
+	if err != nil {
+		return Config{}, fmt.Errorf("failed to parse config: %w", err)
 	}
 	if err := cfg.validate(); err != nil {
 		return Config{}, fmt.Errorf("config validation failed: %w", err)
 	}
 	return cfg, nil
+}
+
+func parseTOMLStrict[T any](tomlString string) (T, error) {
+	var (
+		out   T
+		empty T
+	)
+	md, err := toml.Decode(tomlString, &out)
+	if err != nil {
+		return empty, fmt.Errorf("failed to decode toml: %w", err)
+	}
+	if len(md.Undecoded()) > 0 {
+		return empty, fmt.Errorf("strict decode failed, found undecoded fields: %+v", md.Undecoded())
+	}
+	return out, nil
 }

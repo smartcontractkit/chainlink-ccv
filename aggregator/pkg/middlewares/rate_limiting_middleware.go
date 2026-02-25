@@ -97,7 +97,7 @@ func (m *RateLimitingMiddleware) Intercept(ctx context.Context, req any, info *g
 
 	identity, ok := auth.IdentityFromContext(ctx)
 	if !ok {
-		return handler(ctx, req)
+		return nil, status.Error(codes.Unavailable, "service temporarily unavailable")
 	}
 
 	if identity.IsAnonymous {
@@ -118,7 +118,7 @@ func (m *RateLimitingMiddleware) Intercept(ctx context.Context, req any, info *g
 
 	key := m.buildKey(identity.CallerID, info.FullMethod)
 
-	limiterCtx, err := limiter.New(m.store, rate).Get(ctx, key)
+	limiterCtx, err := m.store.Get(ctx, key, rate)
 	if err != nil {
 		m.lggr.Errorw("Rate limiter store error - allowing request (fail-open). Health check will fail.",
 			"error", err,
