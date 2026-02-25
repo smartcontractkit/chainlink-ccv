@@ -25,53 +25,6 @@ func (_m *MockIndexerStorage) EXPECT() *MockIndexerStorage_Expecter {
 	return &MockIndexerStorage_Expecter{mock: &_m.Mock}
 }
 
-// BatchInsertCCVData provides a mock function with given fields: ctx, ccvDataList
-func (_m *MockIndexerStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []common.VerifierResultWithMetadata) error {
-	ret := _m.Called(ctx, ccvDataList)
-
-	if len(ret) == 0 {
-		panic("no return value specified for BatchInsertCCVData")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, []common.VerifierResultWithMetadata) error); ok {
-		r0 = rf(ctx, ccvDataList)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockIndexerStorage_BatchInsertCCVData_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'BatchInsertCCVData'
-type MockIndexerStorage_BatchInsertCCVData_Call struct {
-	*mock.Call
-}
-
-// BatchInsertCCVData is a helper method to define mock.On call
-//   - ctx context.Context
-//   - ccvDataList []common.VerifierResultWithMetadata
-func (_e *MockIndexerStorage_Expecter) BatchInsertCCVData(ctx interface{}, ccvDataList interface{}) *MockIndexerStorage_BatchInsertCCVData_Call {
-	return &MockIndexerStorage_BatchInsertCCVData_Call{Call: _e.mock.On("BatchInsertCCVData", ctx, ccvDataList)}
-}
-
-func (_c *MockIndexerStorage_BatchInsertCCVData_Call) Run(run func(ctx context.Context, ccvDataList []common.VerifierResultWithMetadata)) *MockIndexerStorage_BatchInsertCCVData_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].([]common.VerifierResultWithMetadata))
-	})
-	return _c
-}
-
-func (_c *MockIndexerStorage_BatchInsertCCVData_Call) Return(_a0 error) *MockIndexerStorage_BatchInsertCCVData_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockIndexerStorage_BatchInsertCCVData_Call) RunAndReturn(run func(context.Context, []common.VerifierResultWithMetadata) error) *MockIndexerStorage_BatchInsertCCVData_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // CreateDiscoveryState provides a mock function with given fields: ctx, discoveryLocation, startingSequenceNumber
 func (_m *MockIndexerStorage) CreateDiscoveryState(ctx context.Context, discoveryLocation string, startingSequenceNumber int) error {
 	ret := _m.Called(ctx, discoveryLocation, startingSequenceNumber)
@@ -293,53 +246,6 @@ func (_c *MockIndexerStorage_GetMessage_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
-// InsertCCVData provides a mock function with given fields: ctx, ccvData
-func (_m *MockIndexerStorage) InsertCCVData(ctx context.Context, ccvData common.VerifierResultWithMetadata) error {
-	ret := _m.Called(ctx, ccvData)
-
-	if len(ret) == 0 {
-		panic("no return value specified for InsertCCVData")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, common.VerifierResultWithMetadata) error); ok {
-		r0 = rf(ctx, ccvData)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockIndexerStorage_InsertCCVData_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'InsertCCVData'
-type MockIndexerStorage_InsertCCVData_Call struct {
-	*mock.Call
-}
-
-// InsertCCVData is a helper method to define mock.On call
-//   - ctx context.Context
-//   - ccvData common.VerifierResultWithMetadata
-func (_e *MockIndexerStorage_Expecter) InsertCCVData(ctx interface{}, ccvData interface{}) *MockIndexerStorage_InsertCCVData_Call {
-	return &MockIndexerStorage_InsertCCVData_Call{Call: _e.mock.On("InsertCCVData", ctx, ccvData)}
-}
-
-func (_c *MockIndexerStorage_InsertCCVData_Call) Run(run func(ctx context.Context, ccvData common.VerifierResultWithMetadata)) *MockIndexerStorage_InsertCCVData_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(common.VerifierResultWithMetadata))
-	})
-	return _c
-}
-
-func (_c *MockIndexerStorage_InsertCCVData_Call) Return(_a0 error) *MockIndexerStorage_InsertCCVData_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockIndexerStorage_InsertCCVData_Call) RunAndReturn(run func(context.Context, common.VerifierResultWithMetadata) error) *MockIndexerStorage_InsertCCVData_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // InsertMessages provides a mock function with given fields: ctx, messages
 func (_m *MockIndexerStorage) InsertMessages(ctx context.Context, messages []common.MessageWithMetadata) error {
 	ret := _m.Called(ctx, messages)
@@ -383,6 +289,53 @@ func (_c *MockIndexerStorage_InsertMessages_Call) Return(_a0 error) *MockIndexer
 }
 
 func (_c *MockIndexerStorage_InsertMessages_Call) RunAndReturn(run func(context.Context, []common.MessageWithMetadata) error) *MockIndexerStorage_InsertMessages_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// InsertVerifierResults provides a mock function with given fields: ctx, verifierResults
+func (_m *MockIndexerStorage) InsertVerifierResults(ctx context.Context, verifierResults []common.VerifierResultWithMetadata) error {
+	ret := _m.Called(ctx, verifierResults)
+
+	if len(ret) == 0 {
+		panic("no return value specified for InsertVerifierResults")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, []common.VerifierResultWithMetadata) error); ok {
+		r0 = rf(ctx, verifierResults)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockIndexerStorage_InsertVerifierResults_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'InsertVerifierResults'
+type MockIndexerStorage_InsertVerifierResults_Call struct {
+	*mock.Call
+}
+
+// InsertVerifierResults is a helper method to define mock.On call
+//   - ctx context.Context
+//   - verifierResults []common.VerifierResultWithMetadata
+func (_e *MockIndexerStorage_Expecter) InsertVerifierResults(ctx interface{}, verifierResults interface{}) *MockIndexerStorage_InsertVerifierResults_Call {
+	return &MockIndexerStorage_InsertVerifierResults_Call{Call: _e.mock.On("InsertVerifierResults", ctx, verifierResults)}
+}
+
+func (_c *MockIndexerStorage_InsertVerifierResults_Call) Run(run func(ctx context.Context, verifierResults []common.VerifierResultWithMetadata)) *MockIndexerStorage_InsertVerifierResults_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]common.VerifierResultWithMetadata))
+	})
+	return _c
+}
+
+func (_c *MockIndexerStorage_InsertVerifierResults_Call) Return(_a0 error) *MockIndexerStorage_InsertVerifierResults_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockIndexerStorage_InsertVerifierResults_Call) RunAndReturn(run func(context.Context, []common.VerifierResultWithMetadata) error) *MockIndexerStorage_InsertVerifierResults_Call {
 	_c.Call.Return(run)
 	return _c
 }
