@@ -238,6 +238,17 @@ func (s *StorageWriterProcessor) updateCheckpoints(ctx context.Context, chains m
 			continue
 		}
 
+		// Do not advance checkpoints for disabled chains; avoid implicit re-enable after violations.
+		stMap, err := s.chainStatusManager.ReadChainStatuses(ctx, []protocol.ChainSelector{chain})
+		if err != nil {
+			s.lggr.Errorw("Failed to read chain status, skipping checkpoint update", "chain", chain, "error", err)
+			continue
+		}
+		if st, ok := stMap[chain]; ok && st.Disabled {
+			s.lggr.Infow("Skipping checkpoint update: chain disabled", "chain", chain)
+			continue
+		}
+
 		// Safely convert uint64 to *big.Int to avoid overflow issues
 		checkpointBig := new(big.Int).SetUint64(checkpoint)
 
