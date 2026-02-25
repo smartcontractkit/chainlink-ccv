@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -43,7 +42,6 @@ type restReader struct {
 	maxResponseBytes int
 	httpClient       *http.Client
 	lggr             logger.Logger
-	mu               sync.RWMutex
 }
 
 // NewRestReader creates a new REST-based reader with resilience policies.
@@ -110,9 +108,6 @@ func (r *restReader) GetVerifications(ctx context.Context, messageIDs []protocol
 
 // buildRequestURL constructs the URL for fetching CCV data.
 func (r *restReader) buildRequestURL(messageIDs []protocol.Bytes32) string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	messageIDStrings := make([]string, 0, len(messageIDs))
 	for _, id := range messageIDs {
 		messageIDStrings = append(messageIDStrings, id.String())
