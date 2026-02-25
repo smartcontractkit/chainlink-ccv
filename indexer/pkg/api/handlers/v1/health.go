@@ -31,8 +31,8 @@ func (h *HealthHandler) HandleReady(c *gin.Context) {
 	// QueryMessages with a small limit is a simple read check.
 	_, err := h.storage.QueryMessages(c.Request.Context(), 0, 0, []protocol.ChainSelector{}, []protocol.ChainSelector{}, 1, 0)
 	if err != nil {
-		h.lggr.Errorw("readiness check failed", "error", err)
-		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "error": "database unavailable"})
+		h.lggr.Errorw("failed storage call QueryMessages for health check", "error", err)
+		c.JSON(http.StatusInternalServerError, internalServerErrorResponse)
 		return
 	}
 

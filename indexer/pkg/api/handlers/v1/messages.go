@@ -81,7 +81,8 @@ func (h *MessagesHandler) Handle(c *gin.Context) {
 
 	messages, err := h.storage.QueryMessages(c.Request.Context(), startTime, endTime, req.SourceChainSelectors, req.DestChainSelectors, req.Limit, req.Offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, makeErrorResponse(http.StatusInternalServerError, err.Error()))
+		h.lggr.Errorw("failed storage call QueryMessages", "request", req, "error", err)
+		c.JSON(http.StatusInternalServerError, internalServerErrorResponse)
 		return
 	}
 

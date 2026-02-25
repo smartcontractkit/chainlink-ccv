@@ -1,6 +1,12 @@
 package v1
 
-import "fmt"
+import (
+	"fmt"
+	"net/http"
+)
+
+var internalServerErrorResponse = makeErrorResponse(http.StatusInternalServerError,
+	"An unexpected error occurred. Please try again later.")
 
 type ErrorResponse struct {
 	Success bool   `json:"success"           doc:"Indicates whether the request was successful or not."`
