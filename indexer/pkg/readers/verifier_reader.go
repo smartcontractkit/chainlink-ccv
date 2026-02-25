@@ -42,7 +42,6 @@ func NewVerifierReader(ctx context.Context, verifier protocol.VerifierResultsAPI
 		verifier: verifier,
 		demux:    common.NewDemultiplexer[protocol.Bytes32, protocol.VerifierResult](),
 		batcher: batcher.NewBatcher[protocol.Bytes32](
-			batcherCtx,
 			config.BatchSize,
 			time.Duration(config.MaxBatchWaitTime)*time.Millisecond,
 			1,
@@ -84,6 +83,10 @@ func (v *VerifierReader) ProcessMessage(messageID protocol.Bytes32) (chan common
 // Start returns immediately after spawning the background goroutine. It does not
 // wait for the goroutine to complete.
 func (v *VerifierReader) Start(ctx context.Context) error {
+	if err := v.batcher.Start(ctx); err != nil {
+		return err
+	}
+
 	runCtx, cancel := context.WithCancel(ctx)
 	v.runCancel = cancel
 	v.runWg.Go(func() {
@@ -176,6 +179,9 @@ func (v *VerifierReader) callVerifier(ctx context.Context, batch []protocol.Byte
 func (v *VerifierReader) Close() error {
 	var err error
 	v.closeOnce.Do(func() {
+		if v.batcher != nil {
+			err = v.batcher.Close()
+		}
 		// Cancel the batcher's context first, which will cause it to flush remaining
 		// items and close the batch channel, allowing the run goroutine to exit
 		if v.batcherCancel != nil {
@@ -189,11 +195,6 @@ func (v *VerifierReader) Close() error {
 
 		// Wait for the run goroutine to finish processing any in-flight batches
 		v.runWg.Wait()
-
-		// Close the batcher, which waits for its goroutine to finish
-		if v.batcher != nil {
-			err = v.batcher.Close()
-		}
 	})
 	return err
 }

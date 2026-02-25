@@ -4,20 +4,23 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
 // Batcher accumulates items and flushes them in batches based on size or time thresholds.
 // It maintains insertion order (FIFO) within batches and is thread-safe.
 // This implementation follows Go's CSP approach using channels for communication.
 type Batcher[T any] struct {
+	services.StateMachine
+	wg     sync.WaitGroup
+	stopCh services.StopChan
+
 	maxSize int
 	maxWait time.Duration
+	addCh   chan []T
 
-	addCh chan []T
 	outCh chan BatchResult[T]
-
-	ctx context.Context
-	wg  sync.WaitGroup
 }
 
 // BatchResult carries a batch of items with an optional error.
@@ -46,19 +49,35 @@ type BatchResult[T any] struct {
 // maxWait: maximum duration to wait before flushing incomplete batch
 // outChannelSize: size of the output channel buffer (0 for unbuffered, consider your use case
 // providing it the right buffer if needed).
-func NewBatcher[T any](ctx context.Context, maxSize int, maxWait time.Duration, outChannelSize int) *Batcher[T] {
+func NewBatcher[T any](maxSize int, maxWait time.Duration, outChannelSize int) *Batcher[T] {
 	b := &Batcher[T]{
 		maxSize: maxSize,
 		maxWait: maxWait,
 		outCh:   make(chan BatchResult[T], outChannelSize),
 		addCh:   make(chan []T),
-		ctx:     ctx,
+		stopCh:  make(chan struct{}),
 	}
 
-	b.wg.Add(1)
-	go b.run()
-
 	return b
+}
+
+func (b *Batcher[T]) Start(_ context.Context) error {
+	return b.StartOnce("Batcher", func() error {
+		b.wg.Go(func() { b.run() })
+		return nil
+	})
+}
+
+// Close waits for the background goroutine to finish and closes internal channels.
+// The caller should cancel the context before calling Close() to trigger final flush.
+func (b *Batcher[T]) Close() error {
+	return b.StopOnce("Batcher", func() error {
+		close(b.stopCh)
+		b.wg.Wait()
+		close(b.addCh)
+		close(b.outCh)
+		return nil
+	})
 }
 
 func (b *Batcher[T]) OutChannel() <-chan BatchResult[T] {
@@ -66,20 +85,24 @@ func (b *Batcher[T]) OutChannel() <-chan BatchResult[T] {
 }
 
 // Add adds an item to the batcher. It may trigger a flush if the batch size is reached.
-// This method is thread-safe and non-blocking.
+// This method is thread-safe and returns an error if the batcher is not running.
 func (b *Batcher[T]) Add(item ...T) error {
+	if err := b.Ready(); err != nil {
+		return err
+	}
+
 	select {
 	case b.addCh <- item:
 		return nil
-	case <-b.ctx.Done():
-		return b.ctx.Err()
+	case <-b.stopCh:
+		return b.Ready()
 	}
 }
 
 // run is the background goroutine that handles time-based flushing.
 func (b *Batcher[T]) run() {
-	defer b.wg.Done()
-	defer close(b.outCh) // Signal completion by closing output channel
+	ctx, cancel := b.stopCh.NewCtx()
+	defer cancel()
 
 	var buffer []T
 
@@ -88,9 +111,13 @@ func (b *Batcher[T]) run() {
 
 	for {
 		select {
-		case <-b.ctx.Done():
+		case <-ctx.Done():
 			return
-		case items := <-b.addCh:
+		case items, ok := <-b.addCh:
+			if !ok {
+				// addCh closed, exit
+				return
+			}
 			// Reset timer if this is the first item
 			if len(buffer) == 0 {
 				timer.Reset(b.maxWait)
@@ -98,17 +125,17 @@ func (b *Batcher[T]) run() {
 
 			buffer = append(buffer, items...)
 			if len(buffer) >= b.maxSize {
-				b.flush(&buffer, timer)
+				b.flush(ctx, &buffer, timer)
 			}
 		case <-timer.C:
-			b.flush(&buffer, timer)
+			b.flush(ctx, &buffer, timer)
 		}
 	}
 }
 
 // flush sends the current buffer as a batch if it's not empty.
 // It stops the timer and resets the buffer after flushing.
-func (b *Batcher[T]) flush(buffer *[]T, timer *time.Timer) {
+func (b *Batcher[T]) flush(ctx context.Context, buffer *[]T, timer *time.Timer) {
 	if len(*buffer) == 0 {
 		return
 	}
@@ -131,18 +158,11 @@ func (b *Batcher[T]) flush(buffer *[]T, timer *time.Timer) {
 	select {
 	case b.outCh <- batch:
 		// Successfully sent
-	case <-b.ctx.Done():
+	case <-ctx.Done():
 		// Context canceled during send, drop batch
 		return
 	}
 
 	// Reset buffer for next batch
 	*buffer = make([]T, 0, b.maxSize)
-}
-
-// Close waits for the background goroutine to finish and closes internal channels.
-// The caller should cancel the context before calling Close() to trigger final flush.
-func (b *Batcher[T]) Close() error {
-	b.wg.Wait()
-	return nil
 }

@@ -2,6 +2,7 @@ package batcher
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -9,11 +10,15 @@ import (
 )
 
 func TestBatcher_SizeBasedFlush(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
 	maxSize := 5
 	maxWait := 1 * time.Second
 
-	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
+	batcher := NewBatcher[int](maxSize, maxWait, 10)
+	err := batcher.Start(context.Background())
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, batcher.Close())
+	}()
 
 	// Add exactly maxSize items
 	for i := range maxSize {
@@ -33,19 +38,18 @@ func TestBatcher_SizeBasedFlush(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("expected batch to be flushed immediately on reaching maxSize")
 	}
-
-	// Cancel context then close batcher
-	cancel()
-	err := batcher.Close()
-	require.NoError(t, err)
 }
 
 func TestBatcher_TimeBasedFlush(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
 	maxSize := 100
 	maxWait := 50 * time.Millisecond
 
-	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
+	batcher := NewBatcher[int](maxSize, maxWait, 10)
+	err := batcher.Start(context.Background())
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, batcher.Close())
+	}()
 
 	// Add just 3 items (well below maxSize)
 	for i := range 3 {
@@ -65,19 +69,18 @@ func TestBatcher_TimeBasedFlush(t *testing.T) {
 	case <-time.After(maxWait + 50*time.Millisecond):
 		t.Fatal("expected batch to be flushed after maxWait timeout")
 	}
-
-	// Cancel context then close batcher
-	cancel()
-	err := batcher.Close()
-	require.NoError(t, err)
 }
 
 func TestBatcher_InsertionOrder(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
 	maxSize := 10
 	maxWait := 1 * time.Second
 
-	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
+	batcher := NewBatcher[int](maxSize, maxWait, 10)
+	err := batcher.Start(context.Background())
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, batcher.Close())
+	}()
 
 	// Add items in specific order
 	expectedOrder := []int{5, 3, 9, 1, 7, 2, 8, 4, 6, 0}
@@ -94,19 +97,18 @@ func TestBatcher_InsertionOrder(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("expected batch to be flushed")
 	}
-
-	// Cancel context then close batcher
-	cancel()
-	err := batcher.Close()
-	require.NoError(t, err)
 }
 
 func TestBatcher_MultipleBatches(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
 	maxSize := 3
 	maxWait := 1 * time.Second
 
-	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
+	batcher := NewBatcher[int](maxSize, maxWait, 10)
+	err := batcher.Start(context.Background())
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, batcher.Close())
+	}()
 
 	// Add items that will trigger multiple batches
 	totalItems := 9
@@ -130,21 +132,19 @@ func TestBatcher_MultipleBatches(t *testing.T) {
 			t.Fatalf("expected batch %d to be flushed", batchNum)
 		}
 	}
-
-	cancel()
-	err := batcher.Close()
-	require.NoError(t, err)
 }
 
 func TestBatcher_EmptyClose(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
 	maxSize := 10
 	maxWait := 1 * time.Second
 
-	batcher := NewBatcher[int](ctx, maxSize, maxWait, 10)
+	batcher := NewBatcher[int](maxSize, maxWait, 10)
+	err := batcher.Start(context.Background())
+	require.NoError(t, err)
 
-	// Cancel context first
-	cancel()
+	// Close immediately without adding anything
+	err = batcher.Close()
+	require.NoError(t, err)
 
 	// Should not receive any batch (empty batcher doesn't flush)
 	select {
@@ -156,45 +156,45 @@ func TestBatcher_EmptyClose(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 		// Timeout is also acceptable - no batch sent
 	}
-
-	// Now wait for goroutine to finish
-	err := batcher.Close()
-	require.NoError(t, err)
 }
 
 func TestBatcher_ConcurrentAdds(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
 	maxSize := 50
 	maxWait := 100 * time.Millisecond
 
-	batcher := NewBatcher[int](ctx, maxSize, maxWait, 100)
+	batcher := NewBatcher[int](maxSize, maxWait, 100)
+	err := batcher.Start(context.Background())
+	require.NoError(t, err)
 
 	// Concurrently add items from multiple goroutines
 	numGoroutines := 10
 	itemsPerGoroutine := 20
-	done := make(chan struct{})
+	var wg sync.WaitGroup
 
 	for range numGoroutines {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			for i := range itemsPerGoroutine {
-				_ = batcher.Add(i)
+				err := batcher.Add(i)
+				// If batcher is stopped during add, it's ok to get an error
+				if err != nil {
+					return
+				}
 			}
-			done <- struct{}{}
 		}()
 	}
 
 	// Wait for all goroutines to finish adding
-	for range numGoroutines {
-		<-done
-	}
+	wg.Wait()
 
 	// Wait for size-based flushes to complete (200 items / 50 maxSize = 4 flushes)
 	// Give time for the batcher's run loop to process all pending adds
 	time.Sleep(50 * time.Millisecond)
 
-	// Now cancel and close
-	cancel()
-	_ = batcher.Close()
+	// Now close
+	err = batcher.Close()
+	require.NoError(t, err)
 
 	totalReceived := countBatchItems(batcher.OutChannel(), 500*time.Millisecond)
 	expectedTotal := numGoroutines * itemsPerGoroutine
@@ -218,4 +218,42 @@ func countBatchItems(outCh <-chan BatchResult[int], timeout time.Duration) int {
 			return count
 		}
 	}
+}
+
+func TestBatcher_AddAfterClose(t *testing.T) {
+	maxSize := 10
+	maxWait := 1 * time.Second
+
+	batcher := NewBatcher[int](maxSize, maxWait, 10)
+	err := batcher.Start(context.Background())
+	require.NoError(t, err)
+
+	// Close the batcher
+	err = batcher.Close()
+	require.NoError(t, err)
+
+	// Try to add after close - should return an error
+	err = batcher.Add(1)
+	require.Error(t, err, "Add() should return an error after Close()")
+}
+
+func TestBatcher_AddBeforeStart(t *testing.T) {
+	maxSize := 10
+	maxWait := 1 * time.Second
+
+	batcher := NewBatcher[int](maxSize, maxWait, 10)
+
+	// Try to add before Start() - should return an error
+	err := batcher.Add(1)
+	require.Error(t, err, "Add() should return an error before Start()")
+
+	// Now start and it should work
+	err = batcher.Start(context.Background())
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, batcher.Close())
+	}()
+
+	err = batcher.Add(1)
+	require.NoError(t, err, "Add() should work after Start()")
 }
