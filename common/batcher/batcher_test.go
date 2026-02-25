@@ -172,9 +172,7 @@ func TestBatcher_ConcurrentAdds(t *testing.T) {
 	var wg sync.WaitGroup
 
 	for range numGoroutines {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for i := range itemsPerGoroutine {
 				err := batcher.Add(i)
 				// If batcher is stopped during add, it's ok to get an error
@@ -182,7 +180,7 @@ func TestBatcher_ConcurrentAdds(t *testing.T) {
 					return
 				}
 			}
-		}()
+		})
 	}
 
 	// Wait for all goroutines to finish adding
