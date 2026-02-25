@@ -42,9 +42,21 @@ type PostgresStorage struct {
 }
 
 func NewPostgresStorage(ctx context.Context, lggr logger.Logger, monitoring common.IndexerMonitoring, uri, driverName string, config pg.DBConfig) (*PostgresStorage, error) {
+	if lggr == nil {
+		return nil, fmt.Errorf("logger is required")
+	}
+	if monitoring == nil {
+		return nil, fmt.Errorf("monitoring is required")
+	}
+	if uri == "" {
+		return nil, fmt.Errorf("database URI is required")
+	}
+	if driverName == "" {
+		return nil, fmt.Errorf("database driver name is required")
+	}
 	ds, err := config.New(ctx, uri, driverName)
 	if err != nil {
-		lggr.Errorw("Failed to create database", "error", err)
+		lggr.Errorw("Failed to open database connection", "error", err)
 		return nil, err
 	}
 
