@@ -86,7 +86,7 @@ func (r *restReader) GetVerifications(ctx context.Context, messageIDs []protocol
 	defer closeHTTPResponse(response)
 
 	// Validate status code
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
+	if response.StatusCode != http.StatusOK {
 		r.lggr.Errorw("REST reader unexpected status", "url", url, "status", response.StatusCode)
 		return nil, fmt.Errorf("unexpected status code: %d", response.StatusCode)
 	}
