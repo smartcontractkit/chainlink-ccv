@@ -36,7 +36,6 @@ const (
 
 type Coordinator struct {
 	services.StateMachine
-	cancel context.CancelFunc
 
 	lggr       logger.Logger
 	verifierID string
@@ -218,12 +217,9 @@ func createDurableProcessors(
 	return sourceReadersDB, taskVerifierProcessor, storageWriterProcessor, nil
 }
 
-func (vc *Coordinator) Start(_ context.Context) error {
+func (vc *Coordinator) Start(ctx context.Context) error {
 	return vc.StartOnce(vc.Name(), func() error {
 		vc.lggr.Infow("Starting verifier coordinator")
-
-		ctx, cancel := context.WithCancel(context.Background())
-		vc.cancel = cancel
 
 		if vc.curseDetector != nil {
 			if err := vc.curseDetector.Start(ctx); err != nil {
@@ -324,8 +320,6 @@ func filterOnlyEnabledSourceReaders(
 
 func (vc *Coordinator) Close() error {
 	return vc.StopOnce(vc.Name(), func() error {
-		vc.cancel()
-
 		errs := make([]error, 0)
 
 		if vc.heartbeatReporter != nil {
