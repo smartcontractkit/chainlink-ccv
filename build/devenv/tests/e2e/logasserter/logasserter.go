@@ -8,7 +8,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/metrics"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
