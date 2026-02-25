@@ -69,12 +69,13 @@ func (b *Batcher[T]) Start(_ context.Context) error {
 }
 
 // Close waits for the background goroutine to finish and closes internal channels.
-// The caller should cancel the context before calling Close() to trigger final flush.
+// Any pending items in the buffer will be flushed before closing.
 func (b *Batcher[T]) Close() error {
 	return b.StopOnce("Batcher", func() error {
 		close(b.stopCh)
 		b.wg.Wait()
-		close(b.addCh)
+		// Safe to close outCh now that run() has exited
+		// Note: addCh is never closed, it's only drained when stopCh is closed
 		close(b.outCh)
 		return nil
 	})
@@ -108,6 +109,30 @@ func (b *Batcher[T]) run() {
 
 	timer := time.NewTimer(b.maxWait)
 	timer.Stop() // Stop initially since buffer is empty
+
+	defer func() {
+		// Ensure timer is stopped to prevent goroutine leak
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+
+		// Flush any remaining items before exiting
+		if len(buffer) > 0 {
+			batch := BatchResult[T]{
+				Items: buffer,
+				Error: nil,
+			}
+			// Use non-blocking send since we're shutting down
+			select {
+			case b.outCh <- batch:
+			default:
+				// If outCh is full, we can't block during shutdown
+			}
+		}
+	}()
 
 	for {
 		select {
