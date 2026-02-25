@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 )
 
 var (
