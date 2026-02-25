@@ -180,11 +180,15 @@ func (b *Batcher[T]) flush(ctx context.Context, buffer *[]T, timer *time.Timer) 
 		Error: nil,
 	}
 
+	// Send the batch with context awareness
+	// If context is done while sending, we'll catch it and return
+	// Otherwise, we wait until the batch can be sent
 	select {
 	case b.outCh <- batch:
-		// Successfully sent
+		// Successfully sent, continue to reset buffer
 	case <-ctx.Done():
-		// Context canceled during send, drop batch
+		// Context canceled while trying to send
+		// Don't reset buffer here - the defer will attempt to send it
 		return
 	}
 
