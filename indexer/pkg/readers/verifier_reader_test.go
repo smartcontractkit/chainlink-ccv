@@ -58,6 +58,7 @@ func TestVerifierReader_ProcessMessage_Success(t *testing.T) {
 		results: make(map[protocol.Bytes32]protocol.VerifierResult),
 	}
 	reader := newTestVerifierReader(mockVerifier, config)
+	require.NoError(t, reader.Start(t.Context()))
 	messageID := protocol.Bytes32{1, 2, 3}
 
 	resultCh, err := reader.ProcessMessage(messageID)
@@ -352,12 +353,6 @@ func TestVerifierReader_Run_ChannelClosed(t *testing.T) {
 
 	err := reader.Start(ctx)
 	require.NoError(t, err)
-
-	// Cancel the batcher's context, which will cause it to close batchCh
-	// This tests the channel-closed path in run()
-	if reader.batcherCancel != nil {
-		reader.batcherCancel()
-	}
 
 	// Close the batcher, which waits for its goroutine to finish
 	err = reader.batcher.Close()

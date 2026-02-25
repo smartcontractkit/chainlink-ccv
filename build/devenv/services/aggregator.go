@@ -18,7 +18,7 @@ import (
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/configuration"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/internal/util"
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )

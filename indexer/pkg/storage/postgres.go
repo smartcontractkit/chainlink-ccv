@@ -42,10 +42,21 @@ type PostgresStorage struct {
 }
 
 func NewPostgresStorage(ctx context.Context, lggr logger.Logger, monitoring common.IndexerMonitoring, uri, driverName string, config pg.DBConfig) (*PostgresStorage, error) {
+	if lggr == nil {
+		return nil, fmt.Errorf("logger is required")
+	}
+	if monitoring == nil {
+		return nil, fmt.Errorf("monitoring is required")
+	}
+	if uri == "" {
+		return nil, fmt.Errorf("database URI is required")
+	}
+	if driverName == "" {
+		return nil, fmt.Errorf("database driver name is required")
+	}
 	ds, err := config.New(ctx, uri, driverName)
 	if err != nil {
-		lggr.Errorw("Failed to create database", "error", err)
-		return nil, err
+		return nil, fmt.Errorf("failed to open database connection: %w", err)
 	}
 
 	return &PostgresStorage{
@@ -393,19 +404,23 @@ func buildBatchInsertMessagesQuery(messages []common.MessageWithMetadata) (strin
 	args := make([]any, 0, len(messages)*7)
 	valueClauses := make([]string, 0, len(messages))
 
+	baseIdx := 0
 	for i, msg := range messages {
 		messageJSON, err := json.Marshal(msg.Message)
 		if err != nil {
 			return "", nil, fmt.Errorf("failed to marshal message to JSON at index %d: %w", i, err)
 		}
+		msgID, err := msg.Message.MessageID()
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to get message ID at index %d: %w", i, err)
+		}
 
-		baseIdx := i * 7
 		valueClause := fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d)",
 			baseIdx+1, baseIdx+2, baseIdx+3, baseIdx+4, baseIdx+5, baseIdx+6, baseIdx+7)
 		valueClauses = append(valueClauses, valueClause)
 
 		args = append(args,
-			msg.Message.MustMessageID().String(),
+			msgID,
 			messageJSON,
 			msg.Metadata.Status.String(),
 			msg.Metadata.LastErr,
@@ -413,6 +428,8 @@ func buildBatchInsertMessagesQuery(messages []common.MessageWithMetadata) (strin
 			msg.Message.DestChainSelector,
 			msg.Metadata.IngestionTimestamp,
 		)
+
+		baseIdx += 7
 	}
 
 	for i, vc := range valueClauses {
@@ -426,8 +443,8 @@ func buildBatchInsertMessagesQuery(messages []common.MessageWithMetadata) (strin
 	return query.String(), args, nil
 }
 
-// BatchInsertMessages implements common.IndexerStorage.
-func (d *PostgresStorage) BatchInsertMessages(ctx context.Context, messages []common.MessageWithMetadata) error {
+// InsertMessages implements common.IndexerStorage.
+func (d *PostgresStorage) InsertMessages(ctx context.Context, messages []common.MessageWithMetadata) error {
 	if len(messages) == 0 {
 		return nil
 	}
@@ -455,65 +472,6 @@ func (d *PostgresStorage) BatchInsertMessages(ctx context.Context, messages []co
 		d.lggr.Warnw("Failed to get rows affected", "error", err)
 	} else {
 		d.lggr.Debugw("Batch insert messages completed", "requested", len(messages), "inserted", rowsAffected)
-	}
-
-	d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
-	return nil
-}
-
-// InsertMessage implements common.IndexerStorage.
-func (d *PostgresStorage) InsertMessage(ctx context.Context, message common.MessageWithMetadata) error {
-	startInsertMetric := time.Now()
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	// Serialize message to JSON
-	messageJSON, err := json.Marshal(message.Message)
-	if err != nil {
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opInsertMessage)
-		return fmt.Errorf("failed to marshal message to JSON: %w", err)
-	}
-
-	query := `
-		INSERT INTO indexer.messages (
-			message_id,
-			message,
-			status,
-			lastErr,
-			source_chain_selector,
-			dest_chain_selector,
-			ingestion_timestamp
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (message_id) DO NOTHING
-	`
-
-	result, err := d.execContext(ctx, query,
-		message.Message.MustMessageID().String(),
-		messageJSON,
-		message.Metadata.Status.String(),
-		message.Metadata.LastErr,
-		message.Message.SourceChainSelector,
-		message.Message.DestChainSelector,
-		message.Metadata.IngestionTimestamp,
-	)
-	if err != nil {
-		d.lggr.Errorw("Failed to insert message", "error", err, "messageID", message.Message.MustMessageID().String())
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opInsertMessage)
-		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
-		return fmt.Errorf("failed to insert message: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		d.lggr.Warnw("Failed to get rows affected", "error", err)
-		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	// If no rows were affected, it means the data already exists (ON CONFLICT DO NOTHING)
-	// This is idempotent behavior, so we don't return an error
-	if rowsAffected == 0 {
-		d.lggr.Debugw("Message already exists, skipping insert", "messageID", message.Message.MustMessageID().String())
 	}
 
 	d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))

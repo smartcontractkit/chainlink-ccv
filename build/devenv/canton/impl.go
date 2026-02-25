@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -35,15 +34,17 @@ import (
 	"github.com/smartcontractkit/chainlink-canton/bindings/generated/ccip/rmn"
 	"github.com/smartcontractkit/chainlink-canton/contracts"
 	cantonChangesets "github.com/smartcontractkit/chainlink-canton/deployment/changesets"
+	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/committee_verifier"
 	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/fee_quoter"
 	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/global_config"
 	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/offramp"
 	"github.com/smartcontractkit/chainlink-canton/deployment/operations/ccip/onramp"
 	"github.com/smartcontractkit/chainlink-canton/deployment/sequences"
+
+	cantonadapters "github.com/smartcontractkit/chainlink-ccv/build/devenv/canton/adapters"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
-	cantonadapters "github.com/smartcontractkit/chainlink-ccv/devenv/canton/adapters"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
-	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -223,39 +224,6 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 
 	// Get committees
 	for qualifier, committeeConfig := range topology.NOPTopology.Committees {
-		// HACK: we need to get the EVM signers for this committee.
-		// Ideally setting signers should be done in ConnectContractsWithSelectors,
-		// where we will have the remote chain selectors to look up in committeeConfig.ChainConfigs.
-		cantonSelStr := strconv.FormatUint(selector, 10)
-		var chainCfg *deployments.ChainCommitteeConfig
-		for chainSelStr, chainConfig := range committeeConfig.ChainConfigs {
-			if chainSelStr == cantonSelStr {
-				continue
-			}
-
-			chainCfg = &chainConfig
-			break
-		}
-		if chainCfg == nil {
-			return nil, fmt.Errorf("EVM chain config not found for committee %q", qualifier)
-		}
-		var signers []types.TEXT
-		for _, nopAlias := range chainCfg.NOPAliases {
-			nop, ok := topology.NOPTopology.GetNOP(nopAlias)
-			if !ok {
-				return nil, fmt.Errorf("NOP alias %q not found for committee %q chain %d", nopAlias, qualifier, selector)
-			}
-
-			// Get signing key from config
-			// Must use pubkey instead of signer address
-			// TODO: implement fetching from JD
-			addr, ok := nop.SignerAddressByFamily[chainsel.FamilyCanton]
-			if !ok || addr == "" {
-				return nil, fmt.Errorf("signer address for NOP alias %q family %q not found for committee %q chain %d", nopAlias, chainsel.FamilyCanton, qualifier, selector)
-			}
-
-			signers = append(signers, types.TEXT(strings.TrimPrefix(addr, "0x")))
-		}
 		var storageLocation types.TEXT // TODO, multiple storage locations
 		if len(committeeConfig.StorageLocations) > 0 {
 			storageLocation = types.TEXT(committeeConfig.StorageLocations[0])
@@ -266,13 +234,10 @@ func (c *Chain) DeployContractsForSelector(ctx context.Context, env *deployment.
 			Qualifier: qualifier,
 			Template: ccvs.CommitteeVerifier{
 				Owner:               types.PARTY(participant.PartyID), // TODO: use different ccv owner?
-				InstanceId:          "",
 				CcipOwner:           types.PARTY(participant.PartyID),
 				VersionTag:          types.TEXT("49ff34ed"),
 				MessageSentObserver: types.PARTY(participant.PartyID),
 				StorageLocation:     storageLocation,
-				Threshold:           types.INT64(chainCfg.Threshold),
-				Signers:             signers,
 			},
 		}
 		config.Config.Params.CommitteeVerifiers = append(config.Config.Params.CommitteeVerifiers, cv)
@@ -378,7 +343,7 @@ func (c *Chain) ConnectContractsWithSelectors(ctx context.Context, env *deployme
 				FeeQuoter:          feeQuoter,
 				OnRamp:             onRamp,
 				OffRamp:            offRamp,
-				CommitteeVerifiers: nil,
+				CommitteeVerifiers: []adapters.CommitteeVerifierConfig[contracts.InstanceAddress]{},
 				RemoteChains:       make(map[uint64]adapters.RemoteChainConfig[[]byte, contracts.RawInstanceAddress], len(remoteSelectors)),
 			},
 		},
@@ -433,6 +398,58 @@ func (c *Chain) ConnectContractsWithSelectors(ctx context.Context, env *deployme
 			BaseExecutionGasCost:     0,
 		}
 		config.Config.Input.RemoteChains[remoteSelector] = remoteChainConfig
+	}
+
+	for qualifier, committee := range committees.NOPTopology.Committees {
+		// Get CommitteeVerifier address for this qualifier
+		committeeVerifier, err := dsutils.FindAndFormatRef(env.DataStore, datastore.AddressRef{
+			Type:      datastore.ContractType(committee_verifier.ContractType),
+			Qualifier: qualifier,
+		}, selector, formatFunc)
+		if err != nil {
+			return fmt.Errorf("failed to get committee verifier address with qualifier %s for chain %d: %w", qualifier, selector, err)
+		}
+
+		committeeVerifierConfig := adapters.CommitteeVerifierConfig[contracts.InstanceAddress]{
+			CommitteeVerifier: []contracts.InstanceAddress{committeeVerifier},
+			RemoteChains:      make(map[uint64]adapters.CommitteeVerifierRemoteChainConfig),
+		}
+
+		// Configure all remote chains with the respective signers
+		for _, remoteSelector := range remoteSelectors {
+			chainCfg, ok := committee.ChainConfigs[strconv.FormatUint(remoteSelector, 10)]
+			if !ok {
+				return fmt.Errorf("chain selector %d not found in committee %q", remoteSelector, qualifier)
+			}
+			// For each of the NOPs in this committee, get their Canton-family signer.
+			// Since the Canton CommitteeVerifier requires the (uncompressed) signer pubkey to be set on-chain,
+			// nop.SignerAddressByFamily[chainsel.FamilyCanton] must contain the signer's pubkey, NOT address
+			signers := make([]string, 0, len(chainCfg.NOPAliases))
+			for _, alias := range chainCfg.NOPAliases {
+				nop, ok := committees.NOPTopology.GetNOP(alias)
+				if !ok {
+					return fmt.Errorf("NOP alias %q not found for committee %q chain %d", alias, qualifier, remoteSelector)
+				}
+				signer, ok := nop.SignerAddressByFamily[chainsel.FamilyCanton]
+				if !ok {
+					return fmt.Errorf("no Canton pubkey signer found for NOP alias %q", alias)
+				}
+				signers = append(signers, signer)
+			}
+			committeeVerifierConfig.RemoteChains[remoteSelector] = adapters.CommitteeVerifierRemoteChainConfig{
+				AllowlistEnabled:          false,
+				AddedAllowlistedSenders:   nil,
+				RemovedAllowlistedSenders: nil,
+				FeeUSDCents:               0,
+				GasForVerification:        0,
+				PayloadSizeBytes:          0,
+				SignatureConfig: adapters.CommitteeVerifierSignatureQuorumConfig{
+					Signers:   signers,
+					Threshold: chainCfg.Threshold,
+				},
+			}
+		}
+		config.Config.Input.CommitteeVerifiers = append(config.Config.Input.CommitteeVerifiers, committeeVerifierConfig)
 	}
 
 	_, err = cantonChangesets.ConfigureChainForLanes{}.Apply(*env, config)

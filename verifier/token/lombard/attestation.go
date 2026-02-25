@@ -99,6 +99,12 @@ func (h *HTTPAttestationService) Fetch(
 ) (map[string]Attestation, error) {
 	requests := make([]protocol.ByteSlice, 0, len(messages))
 	for _, msg := range messages {
+		if msg.TokenTransfer == nil || len(msg.TokenTransfer.ExtraData) == 0 {
+			// Defensive check: skip messages without token transfer extra data to avoid nil deref
+			h.lggr.Warnw("Skipping message without token transfer extra data",
+				"messageID", msg.MustMessageID().String())
+			continue
+		}
 		requests = append(requests, msg.TokenTransfer.ExtraData)
 	}
 
@@ -122,11 +128,22 @@ func (h *HTTPAttestationService) Fetch(
 		if err != nil {
 			return nil, fmt.Errorf("message ID extraction failed: %w", err)
 		}
+		if msg.TokenTransfer == nil {
+			h.lggr.Errorw("Missing TokenTransfer for message; marking attestation as missing", "id", id)
+			result[id.String()] = NewMissingAttestation(h.verifierVersion)
+			continue
+		}
 		extraData := msg.TokenTransfer.ExtraData.String()
 
+		// Prefer APPROVED status if multiple entries exist for the same hash
 		idx := slices.IndexFunc(attestations, func(attestation AttestationResponse) bool {
-			return attestation.MessageHash == extraData
+			return attestation.MessageHash == extraData && attestation.Status == AttestationStatusApproved
 		})
+		if idx == -1 {
+			idx = slices.IndexFunc(attestations, func(attestation AttestationResponse) bool {
+				return attestation.MessageHash == extraData
+			})
+		}
 		if idx != -1 {
 			result[id.String()] = NewAttestation(h.verifierVersion, attestations[idx])
 		} else {

@@ -41,7 +41,7 @@ func (h *VerifierResultsHandler) Handle(c *gin.Context) {
 	}
 
 	// Split by comma to get individual message IDs
-	messageIDStrings := strings.Split(messageIDsParam, ",")
+	messageIDStrings := strings.SplitN(messageIDsParam, ",", h.maxMessageIDsPerBatch+1)
 	if len(messageIDStrings) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "messageID cannot be empty"})
 		return
@@ -62,7 +62,7 @@ func (h *VerifierResultsHandler) Handle(c *gin.Context) {
 		msgID, err := protocol.NewBytes32FromString(strings.TrimSpace(msgIDStr))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": fmt.Sprintf("invalid message_id format: %s - %v", msgIDStr, err),
+				"error": "invalid messageID format",
 			})
 			return
 		}
