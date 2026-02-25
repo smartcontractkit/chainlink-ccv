@@ -63,7 +63,7 @@ func TestNewPostgresStorage_Errors(t *testing.T) {
 			lggr:          lggr,
 			monitoring:    noopMon,
 			uri:           "monsterjam://localhost:5432/db?sslmode=disable",
-			driverName:    "el torro loco",
+			driverName:    "el toro loco",
 			wantErrSubstr: "failed to open database connection",
 		},
 	}
