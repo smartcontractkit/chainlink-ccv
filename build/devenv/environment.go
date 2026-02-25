@@ -23,10 +23,6 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
-	"github.com/smartcontractkit/chainlink-ccv/deployments"
-	"github.com/smartcontractkit/chainlink-ccv/deployments/changesets"
-	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
-	"github.com/smartcontractkit/chainlink-ccv/deployments/sequences"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/canton"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
@@ -35,6 +31,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
+	"github.com/smartcontractkit/chainlink-ccv/deployments"
+	"github.com/smartcontractkit/chainlink-ccv/deployments/changesets"
+	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
+	"github.com/smartcontractkit/chainlink-ccv/deployments/sequences"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
