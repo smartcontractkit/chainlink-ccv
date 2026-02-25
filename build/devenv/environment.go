@@ -130,6 +130,7 @@ func (c *Cfg) NewAggregatorClientForCommittee(logger zerolog.Logger, committeeNa
 	}
 
 	caCertFile := c.AggregatorCACertFiles[committeeName]
+	fmt.Printf("Creating aggregator client for committee %s with endpoint %s and CA cert file %s\n", committeeName, endpoint, caCertFile)
 	return NewAggregatorClient(logger, endpoint, caCertFile)
 }
 
@@ -190,6 +191,8 @@ func NewProductConfigurationFromNetwork(family, chainID string) (cciptestinterfa
 		if !ok {
 			return nil, fmt.Errorf("unexpected implementation type %T", impl)
 		}
+
+		fmt.Printf("Returning implementation for chain ID %s and family %s: %d\n", chainID, family, details.ChainSelector)
 		return implCfg, nil
 	}
 }
@@ -701,6 +704,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		if err := jobs.ConnectNodesToJD(ctx, jdInfra, clientLookup, chainIDs); err != nil {
 			return nil, fmt.Errorf("failed to connect nodes to JD: %w", err)
 		}
+		fmt.Printf("Connected %v chains with JD\n", chainIDs)
 	}
 	timeTrack.Record("[infra] started JD infrastructure")
 
@@ -716,16 +720,19 @@ func NewEnvironment() (in *Cfg, err error) {
 	// even though aggregator containers haven't started yet.
 	/////////////////////////////////////////////
 
-	_, err = launchStandaloneVerifiers(in, blockchainOutputs, jdInfra)
+	verifierOuts, err := launchStandaloneVerifiers(in, blockchainOutputs, jdInfra)
 	if err != nil {
 		return nil, fmt.Errorf("failed to launch standalone verifiers: %w", err)
 	}
+
+	fmt.Printf("Launched %d standalone verifiers\n", len(verifierOuts))
 
 	// Register standalone verifiers with JD so they can receive job proposals.
 	if jdInfra != nil && jdInfra.OffchainClient != nil {
 		if err := registerStandaloneVerifiersWithJD(ctx, in.Verifier, jdInfra.OffchainClient); err != nil {
 			return nil, err
 		}
+		fmt.Printf("Registered %d standalone verifiers with JD\n", len(in.Verifier))
 	}
 
 	/////////////////////////////////////////////
@@ -878,8 +885,12 @@ func NewEnvironment() (in *Cfg, err error) {
 		if out.TLSCACertFile != "" {
 			in.AggregatorCACertFiles[aggregatorInput.CommitteeName] = out.TLSCACertFile
 		}
+		fmt.Printf("Created aggregator service for committee %s with endpoint %s and CA cert file %s\n", aggregatorInput.CommitteeName, out.ExternalHTTPSUrl, out.TLSCACertFile)
+		// out.GeneratedCommittee.DestinationVerifiers
 		e.DataStore = output.DataStore.Seal()
 	}
+
+	fmt.Printf("aggregator endpoints: %v\n", in.AggregatorEndpoints)
 
 	///////////////////////////////
 	// START: Launch aggregators //
@@ -1390,9 +1401,11 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, 
 		}
 	}
 
+	fmt.Printf("Applying defaults to %d verifiers\n", len(in.Verifier))
 	// Apply defaults to verifiers so that we can use them in the standalone mode.
 	for i := range in.Verifier {
 		ver := committeeverifier.ApplyDefaults(*in.Verifier[i])
+		fmt.Printf("Applying defaults to verifier with chain family %s and committee name %s\n", ver.ChainFamily, ver.CommitteeName)
 		in.Verifier[i] = &ver
 	}
 
