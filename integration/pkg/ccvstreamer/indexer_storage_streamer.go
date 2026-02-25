@@ -80,14 +80,17 @@ func (oss *IndexerStorageStreamer) IsRunning() bool {
 func (oss *IndexerStorageStreamer) Start(
 	ctx context.Context,
 ) (<-chan icommon.MessageWithMetadata, <-chan error, error) {
+	oss.mu.Lock()
 	if oss.reader == nil {
+		oss.mu.Unlock()
 		return nil, nil, fmt.Errorf("reader not set")
 	}
 	if oss.running {
+		oss.mu.Unlock()
 		return nil, nil, fmt.Errorf("IndexerStorageStreamer already running")
 	}
-
 	oss.running = true
+	oss.mu.Unlock()
 
 	// be careful closing the results channel before context is done. This might cause unintended consequences upstream.
 	results := make(chan icommon.MessageWithMetadata)
