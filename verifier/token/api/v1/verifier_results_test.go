@@ -155,7 +155,7 @@ func Test_VerifierResultsHandler(t *testing.T) {
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusBadRequest, w.Code)
-		assert.JSONEq(t, `{"error":"invalid message_id format: invalid_hex - Bytes32 must start with '0x' prefix: invalid_hex"}`, w.Body.String())
+		assert.JSONEq(t, `{"error":"invalid messageID format"}`, w.Body.String())
 	})
 
 	t.Run("multiple message IDs", func(t *testing.T) {
