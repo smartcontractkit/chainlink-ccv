@@ -307,3 +307,275 @@ func TestPostgresChainStatusManager_MultipleVerifiers_Isolation(t *testing.T) {
 	assert.NotEqual(t, result1[chainSelector].FinalizedBlockHeight, result2[chainSelector].FinalizedBlockHeight)
 	assert.NotEqual(t, result1[chainSelector].Disabled, result2[chainSelector].Disabled)
 }
+
+func TestPostgresChainStatusManager_DisabledFlagAndMonotonicity(t *testing.T) {
+	db := setupTestDB(t)
+	lggr, err := logger.New()
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	t.Run("disabled flag persists when writing with disabled=false", func(t *testing.T) {
+		manager := NewPostgresChainStatusManager(db, lggr, "test-disabled-persistence")
+		_, _ = db.Exec("DELETE FROM ccv_chain_statuses WHERE verifier_id = 'test-disabled-persistence'")
+		chainSelector := protocol.ChainSelector(1)
+
+		// Initial write: chain is enabled
+		err := manager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+			{
+				ChainSelector:        chainSelector,
+				FinalizedBlockHeight: big.NewInt(100),
+				Disabled:             false,
+			},
+		})
+		require.NoError(t, err)
+
+		// Verify initial state
+		result, err := manager.ReadChainStatuses(ctx, []protocol.ChainSelector{chainSelector})
+		require.NoError(t, err)
+		assert.False(t, result[chainSelector].Disabled)
+		assert.Equal(t, big.NewInt(100), result[chainSelector].FinalizedBlockHeight)
+
+		// Finality violation detected - disable the chain
+		err = manager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+			{
+				ChainSelector:        chainSelector,
+				FinalizedBlockHeight: big.NewInt(150),
+				Disabled:             true,
+			},
+		})
+		require.NoError(t, err)
+
+		// Verify chain is disabled
+		result, err = manager.ReadChainStatuses(ctx, []protocol.ChainSelector{chainSelector})
+		require.NoError(t, err)
+		assert.True(t, result[chainSelector].Disabled, "chain should be disabled after finality violation")
+		assert.Equal(t, big.NewInt(150), result[chainSelector].FinalizedBlockHeight)
+
+		// StorageWriterProcessor writes checkpoint with Disabled=false (zero value)
+		// This should NOT re-enable the chain
+		err = manager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+			{
+				ChainSelector:        chainSelector,
+				FinalizedBlockHeight: big.NewInt(200),
+				Disabled:             false, // Zero value from StorageWriterProcessor
+			},
+		})
+		require.NoError(t, err)
+
+		// Verify chain remains disabled (bug fix verification)
+		result, err = manager.ReadChainStatuses(ctx, []protocol.ChainSelector{chainSelector})
+		require.NoError(t, err)
+		assert.True(t, result[chainSelector].Disabled, "chain should remain disabled despite subsequent write with disabled=false")
+		assert.Equal(t, big.NewInt(200), result[chainSelector].FinalizedBlockHeight)
+	})
+
+	t.Run("block height increases normally", func(t *testing.T) {
+		manager := NewPostgresChainStatusManager(db, lggr, "test-monotonicity-increase")
+		_, _ = db.Exec("DELETE FROM ccv_chain_statuses WHERE verifier_id = 'test-monotonicity-increase'")
+		chainSelector := protocol.ChainSelector(2)
+
+		// Write initial height
+		err := manager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+			{
+				ChainSelector:        chainSelector,
+				FinalizedBlockHeight: big.NewInt(100),
+				Disabled:             false,
+			},
+		})
+		require.NoError(t, err)
+
+		// Write higher height
+		err = manager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+			{
+				ChainSelector:        chainSelector,
+				FinalizedBlockHeight: big.NewInt(200),
+				Disabled:             false,
+			},
+		})
+		require.NoError(t, err)
+
+		result, err := manager.ReadChainStatuses(ctx, []protocol.ChainSelector{chainSelector})
+		require.NoError(t, err)
+		assert.Equal(t, big.NewInt(200), result[chainSelector].FinalizedBlockHeight)
+	})
+
+	t.Run("block height does not decrease when chain is enabled", func(t *testing.T) {
+		manager := NewPostgresChainStatusManager(db, lggr, "test-monotonicity-no-decrease")
+		_, _ = db.Exec("DELETE FROM ccv_chain_statuses WHERE verifier_id = 'test-monotonicity-no-decrease'")
+		chainSelector := protocol.ChainSelector(3)
+
+		// Write initial height
+		err := manager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+			{
+				ChainSelector:        chainSelector,
+				FinalizedBlockHeight: big.NewInt(200),
+				Disabled:             false,
+			},
+		})
+		require.NoError(t, err)
+
+		// Try to write lower height with disabled=false
+		err = manager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+			{
+				ChainSelector:        chainSelector,
+				FinalizedBlockHeight: big.NewInt(150),
+				Disabled:             false,
+			},
+		})
+		require.NoError(t, err)
+
+		// Verify height did NOT decrease
+		result, err := manager.ReadChainStatuses(ctx, []protocol.ChainSelector{chainSelector})
+		require.NoError(t, err)
+		assert.Equal(t, big.NewInt(200), result[chainSelector].FinalizedBlockHeight, "height should not decrease")
+		assert.False(t, result[chainSelector].Disabled)
+	})
+
+	t.Run("block height can be set to any value when disabling chain", func(t *testing.T) {
+		manager := NewPostgresChainStatusManager(db, lggr, "test-monotonicity-disable")
+		_, _ = db.Exec("DELETE FROM ccv_chain_statuses WHERE verifier_id = 'test-monotonicity-disable'")
+		chainSelector := protocol.ChainSelector(4)
+
+		// Write initial height
+		err := manager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+			{
+				ChainSelector:        chainSelector,
+				FinalizedBlockHeight: big.NewInt(200),
+				Disabled:             false,
+			},
+		})
+		require.NoError(t, err)
+
+		// When disabling chain (finality violation), we should be able to set any height
+		err = manager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+			{
+				ChainSelector:        chainSelector,
+				FinalizedBlockHeight: big.NewInt(50), // Lower than current 200
+				Disabled:             true,
+			},
+		})
+		require.NoError(t, err)
+
+		// Verify height was updated because disabled=true
+		result, err := manager.ReadChainStatuses(ctx, []protocol.ChainSelector{chainSelector})
+		require.NoError(t, err)
+		assert.Equal(t, big.NewInt(50), result[chainSelector].FinalizedBlockHeight, "height should be updatable when disabling")
+		assert.True(t, result[chainSelector].Disabled)
+	})
+
+	t.Run("coordinator respects disabled flag after restart", func(t *testing.T) {
+		verifierID := "verifier-restart"
+		_, _ = db.Exec("DELETE FROM ccv_chain_statuses WHERE verifier_id = $1", verifierID)
+		chainSelector := protocol.ChainSelector(5)
+
+		manager1 := NewPostgresChainStatusManager(db, lggr, verifierID)
+
+		// Initial state: chain is enabled
+		err := manager1.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+			{
+				ChainSelector:        chainSelector,
+				FinalizedBlockHeight: big.NewInt(100),
+				Disabled:             false,
+			},
+		})
+		require.NoError(t, err)
+
+		// SourceReaderService detects finality violation
+		err = manager1.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+			{
+				ChainSelector:        chainSelector,
+				FinalizedBlockHeight: big.NewInt(100),
+				Disabled:             true,
+			},
+		})
+		require.NoError(t, err)
+
+		// Simulate multiple checkpoint writes from StorageWriterProcessor
+		// (with zero-value Disabled=false)
+		for i := range 5 {
+			err = manager1.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+				{
+					ChainSelector:        chainSelector,
+					FinalizedBlockHeight: big.NewInt(int64(110 + i*10)),
+					Disabled:             false, // Zero value
+				},
+			})
+			require.NoError(t, err)
+		}
+
+		// Simulate restart: create new manager instance with same verifier_id
+		// (in real scenario, this is the same verifier process restarting)
+		manager2 := NewPostgresChainStatusManager(db, lggr, verifierID)
+
+		// Coordinator reads chain status on startup
+		result, err := manager2.ReadChainStatuses(ctx, []protocol.ChainSelector{chainSelector})
+		require.NoError(t, err)
+		require.NotEmpty(t, result, "should find chain status after restart")
+
+		// Critical assertion: chain should still be disabled
+		assert.True(t, result[chainSelector].Disabled,
+			"chain must remain disabled after restart despite checkpoint writes")
+		assert.Equal(t, big.NewInt(150), result[chainSelector].FinalizedBlockHeight,
+			"height should have increased from checkpoint writes")
+	})
+
+	t.Run("multiple chains have independent disabled flags", func(t *testing.T) {
+		manager := NewPostgresChainStatusManager(db, lggr, "test-multi-chain-disabled")
+		_, _ = db.Exec("DELETE FROM ccv_chain_statuses WHERE verifier_id = 'test-multi-chain-disabled'")
+
+		chain1 := protocol.ChainSelector(6)
+		chain2 := protocol.ChainSelector(7)
+
+		// Write initial state for both chains
+		err = manager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+			{
+				ChainSelector:        chain1,
+				FinalizedBlockHeight: big.NewInt(100),
+				Disabled:             false,
+			},
+			{
+				ChainSelector:        chain2,
+				FinalizedBlockHeight: big.NewInt(200),
+				Disabled:             false,
+			},
+		})
+		require.NoError(t, err)
+
+		// Disable chain 1 due to finality violation
+		err = manager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+			{
+				ChainSelector:        chain1,
+				FinalizedBlockHeight: big.NewInt(150),
+				Disabled:             true,
+			},
+		})
+		require.NoError(t, err)
+
+		// Write checkpoint for both chains with disabled=false
+		err = manager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+			{
+				ChainSelector:        chain1,
+				FinalizedBlockHeight: big.NewInt(180),
+				Disabled:             false,
+			},
+			{
+				ChainSelector:        chain2,
+				FinalizedBlockHeight: big.NewInt(250),
+				Disabled:             false,
+			},
+		})
+		require.NoError(t, err)
+
+		// Read both chains
+		result, err := manager.ReadChainStatuses(ctx, []protocol.ChainSelector{chain1, chain2})
+		require.NoError(t, err)
+
+		// Chain 1 should remain disabled
+		assert.True(t, result[chain1].Disabled, "chain 1 should remain disabled")
+		assert.Equal(t, big.NewInt(180), result[chain1].FinalizedBlockHeight)
+
+		// Chain 2 should remain enabled
+		assert.False(t, result[chain2].Disabled, "chain 2 should remain enabled")
+		assert.Equal(t, big.NewInt(250), result[chain2].FinalizedBlockHeight)
+	})
+}

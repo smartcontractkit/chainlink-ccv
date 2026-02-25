@@ -44,8 +44,8 @@ func (m *PostgresChainStatusManager) WriteChainStatuses(ctx context.Context, sta
 			stmt := `INSERT INTO ccv_chain_statuses (chain_selector, verifier_id, finalized_block_height, disabled)
 				VALUES ($1, $2, $3, $4)
 				ON CONFLICT (chain_selector, verifier_id) DO UPDATE SET
-					finalized_block_height = EXCLUDED.finalized_block_height,
-					disabled = EXCLUDED.disabled,
+					finalized_block_height = CASE WHEN EXCLUDED.disabled = TRUE THEN EXCLUDED.finalized_block_height WHEN EXCLUDED.finalized_block_height >= ccv_chain_statuses.finalized_block_height THEN EXCLUDED.finalized_block_height ELSE ccv_chain_statuses.finalized_block_height END,
+					disabled = ccv_chain_statuses.disabled OR EXCLUDED.disabled,
 					updated_at = NOW()`
 
 			blockHeightStr := status.FinalizedBlockHeight.String()
