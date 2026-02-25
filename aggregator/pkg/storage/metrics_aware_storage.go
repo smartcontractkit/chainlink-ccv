@@ -91,9 +91,9 @@ func (s *MetricsAwareStorage) QueryAggregatedReports(ctx context.Context, sinceS
 	})
 }
 
-func (s *MetricsAwareStorage) GetCommitAggregatedReportByMessageID(ctx context.Context, messageID model.MessageID) (*model.CommitAggregatedReport, error) {
+func (s *MetricsAwareStorage) GetCommitAggregatedReportByAggregationKey(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey) (*model.CommitAggregatedReport, error) {
 	return captureMetrics(ctx, s.metrics(ctx, getCCVDataOp), s.logger(ctx), s.slowQueryThreshold, getCCVDataOp, func() (*model.CommitAggregatedReport, error) {
-		return s.inner.GetCommitAggregatedReportByMessageID(ctx, messageID)
+		return s.inner.GetCommitAggregatedReportByAggregationKey(ctx, messageID, aggregationKey)
 	})
 }
 
