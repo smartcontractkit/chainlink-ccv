@@ -21,14 +21,12 @@ const drainTimeout = 30 * time.Second
 // It provides a one-shot results channel for every call to ProcessMessage;
 // this channel will emit a message once the batch has been completed.
 type VerifierReader struct {
-	demux         *common.Demultiplexer[protocol.Bytes32, protocol.VerifierResult]
-	batcher       *batcher.Batcher[protocol.Bytes32]
-	batcherCtx    context.Context
-	batcherCancel context.CancelFunc
-	verifier      protocol.VerifierResultsAPI
-	runCancel     context.CancelFunc
-	runWg         sync.WaitGroup
-	closeOnce     sync.Once
+	demux     *common.Demultiplexer[protocol.Bytes32, protocol.VerifierResult]
+	batcher   *batcher.Batcher[protocol.Bytes32]
+	verifier  protocol.VerifierResultsAPI
+	runCancel context.CancelFunc
+	runWg     sync.WaitGroup
+	closeOnce sync.Once
 }
 
 // NewVerifierReader creates and returns a new VerifierReader instance.
@@ -36,8 +34,6 @@ type VerifierReader struct {
 // asynchronously. The context is used to control the lifetime of the internal
 // batcher goroutine.
 func NewVerifierReader(ctx context.Context, verifier protocol.VerifierResultsAPI, config *config.VerifierConfig) *VerifierReader {
-	batcherCtx, batcherCancel := context.WithCancel(ctx)
-
 	return &VerifierReader{
 		verifier: verifier,
 		demux:    common.NewDemultiplexer[protocol.Bytes32, protocol.VerifierResult](),
@@ -46,8 +42,6 @@ func NewVerifierReader(ctx context.Context, verifier protocol.VerifierResultsAPI
 			time.Duration(config.MaxBatchWaitTime)*time.Millisecond,
 			1,
 		),
-		batcherCtx:    batcherCtx,
-		batcherCancel: batcherCancel,
 	}
 }
 
@@ -179,13 +173,10 @@ func (v *VerifierReader) callVerifier(ctx context.Context, batch []protocol.Byte
 func (v *VerifierReader) Close() error {
 	var err error
 	v.closeOnce.Do(func() {
+		// Close the batcher first, which will cause it to flush remaining
+		// items and close the batch channel, allowing the run goroutine to exit
 		if v.batcher != nil {
 			err = v.batcher.Close()
-		}
-		// Cancel the batcher's context first, which will cause it to flush remaining
-		// items and close the batch channel, allowing the run goroutine to exit
-		if v.batcherCancel != nil {
-			v.batcherCancel()
 		}
 
 		// Cancel the run goroutine context to stop processing new batches
