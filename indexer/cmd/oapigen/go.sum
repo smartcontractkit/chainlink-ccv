@@ -250,10 +250,6 @@ github.com/smartcontractkit/libocr v0.0.0-20250912173940-f3ab0246e23d h1:LokA9Po
 github.com/smartcontractkit/libocr v0.0.0-20250912173940-f3ab0246e23d/go.mod h1:Acy3BTBxou83ooMESLO90s8PKSu7RvLCzwSTbxxfOK0=
 github.com/smartcontractkit/wsrpc v0.8.5-0.20250502134807-c57d3d995945 h1:zxcODLrFytOKmAd8ty8S/XK6WcIEJEgRBaL7sY/7l4Y=
 github.com/smartcontractkit/wsrpc v0.8.5-0.20250502134807-c57d3d995945/go.mod h1:m3pdp17i4bD50XgktkzWetcV5yaLsi7Gunbv4ZgN6qg=
-github.com/stellar/go-stellar-sdk v0.1.0 h1:MfV7dv4k6xQQrWeKT7npWyKhjoayphLVGwXKtTLNeH8=
-github.com/stellar/go-stellar-sdk v0.1.0/go.mod h1:fZPcxQZw1I0zZ+X76uFcVPqmQCaYbWc87lDFW/kQJaY=
-github.com/stellar/go-xdr v0.0.0-20231122183749-b53fb00bcac2 h1:OzCVd0SV5qE3ZcDeSFCmOWLZfEWZ3Oe8KtmSOYKEVWE=
-github.com/stellar/go-xdr v0.0.0-20231122183749-b53fb00bcac2/go.mod h1:yoxyU/M8nl9LKeWIoBrbDPQ7Cy+4jxRcWcOayZ4BMps=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/objx v0.1.1/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/objx v0.2.0/go.mod h1:qt09Ya8vawLte6SNmTgCsAVtYtaKzEcn8ATUoHMkEqE=
