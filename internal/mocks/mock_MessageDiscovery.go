@@ -6,6 +6,7 @@ import (
 	context "context"
 
 	common "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+
 	mock "github.com/stretchr/testify/mock"
 )
 
