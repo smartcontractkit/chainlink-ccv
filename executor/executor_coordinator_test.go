@@ -18,6 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 func TestConstructor(t *testing.T) {
@@ -641,5 +642,5 @@ func TestGracefulShutdown(t *testing.T) {
 		}
 		return false
 	}
-	require.Eventuallyf(t, found, 2*time.Second, 100*time.Millisecond, "dropped payload log never seen")
+	require.Eventuallyf(t, found, tests.WaitTimeout(t), 100*time.Millisecond, "dropped payload log never seen")
 }
