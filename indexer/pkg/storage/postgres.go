@@ -56,8 +56,7 @@ func NewPostgresStorage(ctx context.Context, lggr logger.Logger, monitoring comm
 	}
 	ds, err := config.New(ctx, uri, driverName)
 	if err != nil {
-		lggr.Errorw("Failed to open database connection", "error", err)
-		return nil, err
+		return nil, fmt.Errorf("failed to open database connection: %w", err)
 	}
 
 	return &PostgresStorage{
