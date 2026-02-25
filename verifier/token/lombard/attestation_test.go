@@ -124,4 +124,123 @@ func Test_AttestationFetch(t *testing.T) {
 		assert.False(t, attestationPayload.IsReady())
 		assert.Equal(t, AttestationStatusUnspecified, attestationPayload.status)
 	})
+
+	t.Run("skip message with nil TokenTransfer", func(t *testing.T) {
+		msgWithoutTokenTransfer := protocol.Message{
+			SourceChainSelector: sourceChain,
+			DestChainSelector:   protocol.ChainSelector(sel.ETHEREUM_MAINNET.Selector),
+			SequenceNumber:      1,
+			TokenTransfer:       nil, // No token transfer
+		}
+
+		attestation, err := attestationService.Fetch(t.Context(), []protocol.Message{msgWithoutTokenTransfer})
+		require.NoError(t, err)
+
+		// Should still return a result with missing attestation
+		assert.Len(t, attestation, 1)
+		attestationPayload, ok := attestation[msgWithoutTokenTransfer.MustMessageID().String()]
+		require.True(t, ok)
+		assert.False(t, attestationPayload.IsReady())
+		assert.Equal(t, AttestationStatusUnspecified, attestationPayload.status)
+	})
+
+	t.Run("skip message with empty ExtraData", func(t *testing.T) {
+		msgWithEmptyExtraData := protocol.Message{
+			SourceChainSelector: sourceChain,
+			DestChainSelector:   protocol.ChainSelector(sel.ETHEREUM_MAINNET.Selector),
+			SequenceNumber:      2,
+			TokenTransfer: &protocol.TokenTransfer{
+				ExtraData:       nil, // Empty extra data
+				ExtraDataLength: 0,
+			},
+		}
+
+		attestation, err := attestationService.Fetch(t.Context(), []protocol.Message{msgWithEmptyExtraData})
+		require.NoError(t, err)
+
+		// Should still return a result with missing attestation
+		assert.Len(t, attestation, 1)
+		attestationPayload, ok := attestation[msgWithEmptyExtraData.MustMessageID().String()]
+		require.True(t, ok)
+		assert.False(t, attestationPayload.IsReady())
+		assert.Equal(t, AttestationStatusUnspecified, attestationPayload.status)
+	})
+
+	t.Run("handle mixed messages with and without token transfers", func(t *testing.T) {
+		msgWithoutTokenTransfer := protocol.Message{
+			SourceChainSelector: sourceChain,
+			DestChainSelector:   protocol.ChainSelector(sel.ETHEREUM_MAINNET.Selector),
+			SequenceNumber:      3,
+			TokenTransfer:       nil,
+		}
+		msgWithEmptyExtraData := protocol.Message{
+			SourceChainSelector: sourceChain,
+			DestChainSelector:   protocol.ChainSelector(sel.ETHEREUM_MAINNET.Selector),
+			SequenceNumber:      4,
+			TokenTransfer: &protocol.TokenTransfer{
+				ExtraData:       protocol.ByteSlice{},
+				ExtraDataLength: 0,
+			},
+		}
+
+		// Mix of valid and invalid messages
+		messages := []protocol.Message{msg1, msgWithoutTokenTransfer, msg2, msgWithEmptyExtraData}
+
+		attestation, err := attestationService.Fetch(t.Context(), messages)
+		require.NoError(t, err)
+
+		// Should return attestations for all messages
+		assert.Len(t, attestation, 4)
+
+		// Valid messages should have their attestations
+		attestation1, ok := attestation[msg1.MustMessageID().String()]
+		require.True(t, ok)
+		assert.True(t, attestation1.IsReady())
+		assert.Equal(t, "0xdata1", attestation1.attestation)
+
+		attestation2, ok := attestation[msg2.MustMessageID().String()]
+		require.True(t, ok)
+		assert.False(t, attestation2.IsReady())
+		assert.Equal(t, AttestationStatusPending, attestation2.status)
+
+		// Invalid messages should have missing attestations
+		attestationMissing1, ok := attestation[msgWithoutTokenTransfer.MustMessageID().String()]
+		require.True(t, ok)
+		assert.False(t, attestationMissing1.IsReady())
+		assert.Equal(t, AttestationStatusUnspecified, attestationMissing1.status)
+
+		attestationMissing2, ok := attestation[msgWithEmptyExtraData.MustMessageID().String()]
+		require.True(t, ok)
+		assert.False(t, attestationMissing2.IsReady())
+		assert.Equal(t, AttestationStatusUnspecified, attestationMissing2.status)
+	})
+
+	t.Run("all messages without token transfers", func(t *testing.T) {
+		msgWithoutTokenTransfer1 := protocol.Message{
+			SourceChainSelector: sourceChain,
+			DestChainSelector:   protocol.ChainSelector(sel.ETHEREUM_MAINNET.Selector),
+			SequenceNumber:      5,
+			TokenTransfer:       nil,
+		}
+		msgWithoutTokenTransfer2 := protocol.Message{
+			SourceChainSelector: sourceChain,
+			DestChainSelector:   protocol.ChainSelector(sel.ETHEREUM_MAINNET.Selector),
+			SequenceNumber:      6,
+			TokenTransfer:       nil,
+		}
+
+		messages := []protocol.Message{msgWithoutTokenTransfer1, msgWithoutTokenTransfer2}
+
+		attestation, err := attestationService.Fetch(t.Context(), messages)
+		require.NoError(t, err)
+
+		// Should return missing attestations for all messages
+		assert.Len(t, attestation, 2)
+		for _, msg := range messages {
+			attestationPayload, ok := attestation[msg.MustMessageID().String()]
+			require.True(t, ok)
+			assert.False(t, attestationPayload.IsReady())
+			assert.Equal(t, AttestationStatusUnspecified, attestationPayload.status)
+		}
+	})
 }
