@@ -53,10 +53,8 @@ type MessageStorageReader interface {
 
 // MessageStorageWriter provides the interface to insert messages to storage.
 type MessageStorageWriter interface {
-	// InsertMessage inserts a message into storage.
-	InsertMessage(ctx context.Context, message MessageWithMetadata) error
-	// BatchInsertMessages appends a list of messages into storage.
-	BatchInsertMessages(ctx context.Context, messages []MessageWithMetadata) error
+	// InsertMessages appends a list of messages into storage.
+	InsertMessages(ctx context.Context, messages []MessageWithMetadata) error
 	// UpdateMessageStatus updates the status of indexing to storage.
 	UpdateMessageStatus(ctx context.Context, messageID protocol.Bytes32, status MessageStatus, lastErr string) error
 }
