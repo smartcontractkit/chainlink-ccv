@@ -1,4 +1,4 @@
-module github.com/smartcontractkit/chainlink-ccv/devenv
+module github.com/smartcontractkit/chainlink-ccv/build/devenv
 
 go 1.25.5
 
