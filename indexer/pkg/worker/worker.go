@@ -45,7 +45,7 @@ func Execute(ctx context.Context, task *Task) (*TaskResult, error) {
 	results := task.collectVerifierResults(ctx, verifierReaders)
 	if len(results) > 0 {
 		task.logger.Infof("Collected %d new verifications for the message", len(results))
-		err = task.storage.BatchInsertCCVData(ctx, results)
+		err = task.storage.InsertVerifierResults(ctx, results)
 		if err != nil {
 			return nil, err
 		}

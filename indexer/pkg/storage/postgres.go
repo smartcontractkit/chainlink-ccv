@@ -24,10 +24,8 @@ var _ common.IndexerStorage = (*PostgresStorage)(nil)
 const (
 	opGetCCVData            = "GetCCVData"
 	opQueryCCVData          = "QueryCCVData"
-	opInsertCCVData         = "InsertCCVData"
 	opBatchInsertCCVData    = "BatchInsertCCVData"
 	opBatchInsertMessages   = "BatchInsertMessages"
-	opInsertMessage         = "InsertMessage"
 	opQueryMessages         = "QueryMessages"
 	opUpdateMessageStatus   = "UpdateMessageStatus"
 	opCreateDiscoveryState  = "CreateDiscoveryState"
@@ -206,84 +204,6 @@ func (d *PostgresStorage) QueryCCVData(
 	return results, nil
 }
 
-// InsertCCVData inserts a new CCVData entry into the database.
-func (d *PostgresStorage) InsertCCVData(ctx context.Context, ccvData common.VerifierResultWithMetadata) error {
-	startInsertMetric := time.Now()
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	// Serialize message to JSON
-	messageJSON, err := json.Marshal(ccvData.VerifierResult.Message)
-	if err != nil {
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opInsertCCVData)
-		return fmt.Errorf("failed to marshal message to JSON: %w", err)
-	}
-
-	// Convert CCV addresses to hex string array
-	ccvAddressesHex := make([]string, len(ccvData.VerifierResult.MessageCCVAddresses))
-	for i, addr := range ccvData.VerifierResult.MessageCCVAddresses {
-		ccvAddressesHex[i] = addr.String()
-	}
-
-	query := `
-		INSERT INTO indexer.verifier_results (
-			message_id,
-			verifier_source_address,
-			verifier_dest_address,
-			attestation_timestamp,
-	        ingestion_timestamp,
-			source_chain_selector,
-			dest_chain_selector,
-			ccv_data,
-			message,
-			message_ccv_addresses,
-			message_executor_address
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		ON CONFLICT (message_id, verifier_source_address, verifier_dest_address) DO NOTHING
-	`
-
-	result, err := d.execContext(ctx, query,
-		ccvData.VerifierResult.MessageID.String(),
-		ccvData.VerifierResult.VerifierSourceAddress.String(),
-		ccvData.VerifierResult.VerifierDestAddress.String(),
-		ccvData.Metadata.AttestationTimestamp,
-		ccvData.Metadata.IngestionTimestamp,
-		uint64(ccvData.VerifierResult.Message.SourceChainSelector),
-		uint64(ccvData.VerifierResult.Message.DestChainSelector),
-		ccvData.VerifierResult.CCVData,
-		messageJSON,
-		pq.Array(ccvAddressesHex),
-		ccvData.VerifierResult.MessageExecutorAddress.String(),
-	)
-	if err != nil {
-		d.lggr.Errorw("Failed to insert CCV data", "error", err, "messageID", ccvData.VerifierResult.MessageID.String())
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opInsertCCVData)
-		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
-		return fmt.Errorf("failed to insert CCV data: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		d.lggr.Errorw("Failed to get rows affected", "error", err)
-		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	// If no rows were affected, it means the data already exists (ON CONFLICT DO NOTHING)
-	if rowsAffected == 0 {
-		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
-		return ErrDuplicateCCVData
-	}
-
-	d.trackUniqueMessages(ctx, []common.VerifierResultWithMetadata{ccvData})
-
-	// Increment the verification records counter
-	d.monitoring.Metrics().IncrementVerificationRecordsCounter(ctx)
-	d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
-
-	return nil
-}
-
 func buildBatchInsertCCVDataQuery(ccvDataList []common.VerifierResultWithMetadata) (string, []any, error) {
 	var query strings.Builder
 	query.WriteString(`
@@ -347,9 +267,9 @@ func buildBatchInsertCCVDataQuery(ccvDataList []common.VerifierResultWithMetadat
 	return query.String(), args, nil
 }
 
-// BatchInsertCCVData inserts multiple CCVData entries into the database efficiently using a batch insert.
-func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []common.VerifierResultWithMetadata) error {
-	if len(ccvDataList) == 0 {
+// InsertVerifierResults inserts one or more verifier result entries into the database.
+func (d *PostgresStorage) InsertVerifierResults(ctx context.Context, verifierResults []common.VerifierResultWithMetadata) error {
+	if len(verifierResults) == 0 {
 		return nil
 	}
 
@@ -357,7 +277,7 @@ func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	query, args, err := buildBatchInsertCCVDataQuery(ccvDataList)
+	query, args, err := buildBatchInsertCCVDataQuery(verifierResults)
 	if err != nil {
 		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opBatchInsertCCVData)
 		return err
@@ -365,7 +285,7 @@ func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 
 	result, err := d.execContext(ctx, query, args...)
 	if err != nil {
-		d.lggr.Errorw("Failed to batch insert CCV data", "error", err, "count", len(ccvDataList))
+		d.lggr.Errorw("Failed to batch insert CCV data", "error", err, "count", len(verifierResults))
 		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opBatchInsertCCVData)
 		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
 		return fmt.Errorf("failed to batch insert CCV data: %w", err)
@@ -375,10 +295,10 @@ func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 	if err != nil {
 		d.lggr.Errorw("Failed to get rows affected", "error", err)
 	} else {
-		d.lggr.Debugw("Batch insert completed", "requested", len(ccvDataList), "inserted", rowsAffected)
+		d.lggr.Debugw("Batch insert completed", "requested", len(verifierResults), "inserted", rowsAffected)
 	}
 
-	d.trackUniqueMessages(ctx, ccvDataList)
+	d.trackUniqueMessages(ctx, verifierResults)
 
 	for range rowsAffected {
 		d.monitoring.Metrics().IncrementVerificationRecordsCounter(ctx)
