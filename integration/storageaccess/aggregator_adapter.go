@@ -52,17 +52,31 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.VerifierNodeResult) (*committ
 	}, nil
 }
 
-// WriteCCVNodeData writes CCV data to the aggregator via gRPC.
-func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.VerifierNodeResult) error {
+// WriteCCVNodeData writes CCV data to the aggregator via gRPC and returns detailed per-request results.
+func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.VerifierNodeResult) ([]protocol.WriteResult, error) {
 	a.lggr.Infow("Storing CCV data using aggregator ", "count", len(ccvDataList))
 
+	results := make([]protocol.WriteResult, len(ccvDataList))
+
+	// Pre-populate results with input data
+	for i, ccvData := range ccvDataList {
+		results[i] = protocol.WriteResult{
+			Input:     ccvData,
+			Status:    protocol.WriteFailure,
+			Error:     nil,
+			Retryable: true, // Aggregator errors are always retryable
+		}
+	}
+
 	requests := make([]*committeepb.WriteCommitteeVerifierNodeResultRequest, 0, len(ccvDataList))
-	for _, ccvData := range ccvDataList {
+	for i, ccvData := range ccvDataList {
 		req, err := mapCCVDataToCCVNodeDataProto(ccvData)
-		// FIXME: Single bad entry shouldn't fail the whole batch, it might lead to infinitely retrying the same bad entry
-		// and making no progress
 		if err != nil {
-			return err
+			results[i].Error = fmt.Errorf("failed to create proto request: %w", err)
+			a.lggr.Errorw("Failed to map CCV data to proto", "messageID", ccvData.MessageID.String(), "error", err)
+			// Continue processing other requests
+			requests = append(requests, nil)
+			continue
 		}
 		requests = append(requests, req)
 	}
@@ -73,16 +87,23 @@ func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []p
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("error calling BatchWriteCommitteeVerifierNodeResult: %w", err)
+		// If the entire gRPC call failed, mark all as failed (still retryable)
+		batchErr := fmt.Errorf("error calling BatchWriteCommitteeVerifierNodeResult: %w", err)
+		for i := range results {
+			if results[i].Error == nil {
+				results[i].Error = batchErr
+			}
+		}
+		return results, batchErr
 	}
 
-	// FIXME: AggregatorWriter should expose underlying errors (per single ccvDataRequest) to the caller,
-	// so that caller can decide what to do with failed entries (i.e., retry only failed ones).
+	// Process individual responses
 	for i, resp := range responses.Responses {
-		messageID := "unknown"
-		if i < len(ccvDataList) {
-			messageID = ccvDataList[i].MessageID.String()
+		if i >= len(ccvDataList) {
+			continue
 		}
+
+		messageID := ccvDataList[i].MessageID.String()
 
 		if resp.Status != committeepb.WriteStatus_SUCCESS {
 			// Extract detailed error information from the Errors array if available
@@ -93,17 +114,27 @@ func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []p
 				errorCode = codes.Code(responses.Errors[i].GetCode()).String() //nolint:gosec // gRPC error codes are always non-negative.
 				errorMessage = responses.Errors[i].GetMessage()
 			}
+
+			results[i].Status = protocol.WriteFailure
+			results[i].Error = fmt.Errorf("write failed with status %s: code=%s, message=%s",
+				resp.Status.String(), errorCode, errorMessage)
+			results[i].Retryable = true // Always retryable for aggregator
+
 			a.lggr.Errorw("BatchWriteCommitteeVerifierNodeResult failed",
 				"status", resp.Status.String(),
 				"messageID", messageID,
 				"errorCode", errorCode,
 				"errorMessage", errorMessage,
 			)
-			continue
+		} else {
+			results[i].Status = protocol.WriteSuccess
+			results[i].Error = nil
+			results[i].Retryable = false // Success, no retry needed
+			a.lggr.Infow("Successfully stored CCV data", "messageID", messageID)
 		}
-		a.lggr.Infow("Successfully stored CCV data", "messageID", messageID)
 	}
-	return nil
+
+	return results, nil
 }
 
 func (a *AggregatorWriter) GetStats() map[string]any {
