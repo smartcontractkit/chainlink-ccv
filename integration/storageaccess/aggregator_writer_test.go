@@ -63,19 +63,47 @@ func TestAggregatorWriter_MessageSizeChecking(t *testing.T) {
 		}
 
 		// Create a large message that will exceed the limit
-		largeMessage := protocol.Message{
-			SourceChainSelector: protocol.ChainSelector(1),
-			// Add enough data to make the proto message > 1000 bytes
-			Data: make([]byte, 2000),
-		}
+		sender, err := protocol.RandomAddress()
+		require.NoError(t, err)
+		receiver, err := protocol.RandomAddress()
+		require.NoError(t, err)
+		onRampAddr, err := protocol.RandomAddress()
+		require.NoError(t, err)
+		offRampAddr, err := protocol.RandomAddress()
+		require.NoError(t, err)
+
+		largeMessage, err := protocol.NewMessage(
+			protocol.ChainSelector(1),
+			protocol.ChainSelector(2),
+			protocol.SequenceNumber(100),
+			onRampAddr,
+			offRampAddr,
+			10,
+			200_000,
+			100_000,
+			protocol.Bytes32{},
+			sender,
+			receiver,
+			[]byte{},
+			make([]byte, 2000), // Large data to exceed size limit
+			protocol.NewEmptyTokenTransfer(),
+		)
+		require.NoError(t, err)
 
 		messageID, err := largeMessage.MessageID()
 		require.NoError(t, err)
 
+		ccvAddr, err := protocol.NewUnknownAddressFromHex("0x1234567890123456789012345678901234567890")
+		require.NoError(t, err)
+
 		testData := []protocol.VerifierNodeResult{
 			{
-				Message:   largeMessage,
-				MessageID: messageID,
+				Message:         *largeMessage,
+				MessageID:       messageID,
+				CCVVersion:      []byte{1},
+				CCVAddresses:    []protocol.UnknownAddress{ccvAddr},
+				ExecutorAddress: ccvAddr,
+				Signature:       []byte{0x01, 0x02, 0x03},
 			},
 		}
 
@@ -154,11 +182,32 @@ func TestAggregatorWriter_MessageSizeChecking(t *testing.T) {
 func TestProtoMessageSizeCalculation(t *testing.T) {
 	t.Run("proto.Size returns reasonable values for actual messages", func(t *testing.T) {
 		// Create a realistic CCV message
-		message := protocol.Message{
-			SourceChainSelector: protocol.ChainSelector(1),
-			SequenceNumber:      100,
-			Data:                make([]byte, 1000), // 1KB of data
-		}
+		sender, err := protocol.RandomAddress()
+		require.NoError(t, err)
+		receiver, err := protocol.RandomAddress()
+		require.NoError(t, err)
+		onRampAddr, err := protocol.RandomAddress()
+		require.NoError(t, err)
+		offRampAddr, err := protocol.RandomAddress()
+		require.NoError(t, err)
+
+		message, err := protocol.NewMessage(
+			protocol.ChainSelector(1),
+			protocol.ChainSelector(2),
+			protocol.SequenceNumber(100),
+			onRampAddr,
+			offRampAddr,
+			10,
+			200_000,
+			100_000,
+			protocol.Bytes32{},
+			sender,
+			receiver,
+			[]byte{},
+			make([]byte, 1000), // 1KB of data
+			protocol.NewEmptyTokenTransfer(),
+		)
+		require.NoError(t, err)
 
 		messageID, err := message.MessageID()
 		require.NoError(t, err)
@@ -167,7 +216,7 @@ func TestProtoMessageSizeCalculation(t *testing.T) {
 		require.NoError(t, err)
 
 		ccvData := protocol.VerifierNodeResult{
-			Message:    message,
+			Message:    *message,
 			MessageID:  messageID,
 			CCVVersion: []byte{1},
 			CCVAddresses: []protocol.UnknownAddress{
@@ -240,18 +289,34 @@ func TestBatchOverheadEstimate(t *testing.T) {
 
 // Helper function to create test messages with specific data sizes.
 func createTestMessage(dataSize int) protocol.VerifierNodeResult {
-	message := protocol.Message{
-		SourceChainSelector: protocol.ChainSelector(1),
-		SequenceNumber:      100,
-		Data:                make([]byte, dataSize),
-	}
+	sender, _ := protocol.RandomAddress()
+	receiver, _ := protocol.RandomAddress()
+	onRampAddr, _ := protocol.RandomAddress()
+	offRampAddr, _ := protocol.RandomAddress()
+
+	message, _ := protocol.NewMessage(
+		protocol.ChainSelector(1),
+		protocol.ChainSelector(2),
+		protocol.SequenceNumber(100),
+		onRampAddr,
+		offRampAddr,
+		10,
+		200_000,
+		100_000,
+		protocol.Bytes32{},
+		sender,
+		receiver,
+		[]byte{},
+		make([]byte, dataSize),
+		protocol.NewEmptyTokenTransfer(),
+	)
 
 	messageID, _ := message.MessageID()
 
 	ccvAddr, _ := protocol.NewUnknownAddressFromHex("0x1234567890123456789012345678901234567890")
 
 	return protocol.VerifierNodeResult{
-		Message:    message,
+		Message:    *message,
 		MessageID:  messageID,
 		CCVVersion: []byte{1},
 		CCVAddresses: []protocol.UnknownAddress{
