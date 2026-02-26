@@ -153,10 +153,14 @@ func TestExpandForHA(t *testing.T) {
 				withAggregatorWithClients("default", 50051, 7432, 6379, 1,
 					[]*services.AggregatorClientConfig{
 						{
-							ClientID:    "verifier-1",
-							Enabled:     true,
-							Groups:      []string{"verifiers"},
-							APIKeyPairs: []*services.AggregatorAPIKeyPair{{APIKey: "key1", Secret: "sec1"}}},
+							ClientID: "verifier-1",
+							Enabled:  true,
+							Groups:   []string{"verifiers"},
+							APIKeyPairs: []*services.AggregatorAPIKeyPair{{
+								APIKey: "key1",
+								Secret: "sec1",
+							}},
+						},
 						{
 							ClientID: "indexer",
 							Enabled:  true,
