@@ -179,14 +179,15 @@ func NewExecutor(in *ExecutorInput, blockchainOutputs []*ctfblockchain.Output) (
 		},
 	}
 
+	req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
+		configFilePath,
+		executor.DefaultConfigFile,
+	))
+
 	// Note: identical code to verifier.go/executor.go -- will indexer be identical as well?
 	if in.SourceCodePath != "" {
 		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
 		req.Mounts = append(req.Mounts, GoCacheMounts()...)
-		req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
-			configFilePath,
-			executor.DefaultConfigFile,
-		))
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")

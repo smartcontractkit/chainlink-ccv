@@ -39,7 +39,6 @@ const (
 	DefaultAggregatorDBPassword     = "aggregator"
 	DefaultAggregatorDBName         = "aggregator"
 	DefaultDBContainerPort          = "5432/tcp"
-	DefaultAggregatorSQLInit        = "init.sql"
 
 	// Nginx TLS proxy constants.
 	AggregatorNginxContainerNameSuffix = "aggregator-nginx"
@@ -192,12 +191,6 @@ func validateAggregatorInput(in *AggregatorInput) error {
 	}
 	if in.CommitteeName == "" {
 		return fmt.Errorf("committee name is required for aggregator")
-	}
-	if in.SourceCodePath == "" {
-		return fmt.Errorf("source code path is required for aggregator")
-	}
-	if in.RootPath == "" {
-		return fmt.Errorf("root path is required for aggregator")
 	}
 	if in.DB == nil {
 		return fmt.Errorf("explicit database configuration is required for aggregator")
@@ -390,7 +383,6 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		postgres.WithDatabase(DefaultAggregatorDBName),
 		postgres.WithUsername(DefaultAggregatorDBUsername),
 		postgres.WithPassword(DefaultAggregatorDBPassword),
-		postgres.WithInitScripts(filepath.Join(p, DefaultAggregatorSQLInit)),
 		testcontainers.CustomizeRequest(testcontainers.GenericContainerRequest{
 			ContainerRequest: testcontainers.ContainerRequest{
 				Name: fmt.Sprintf("%s-%s", instanceName, AggregatorDBContainerNameSuffix),
@@ -502,23 +494,25 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		}
 	}
 
+	req.Files = []testcontainers.ContainerFile{
+		{
+			HostFilePath:      configFilePath,
+			ContainerFilePath: aggregator.DefaultConfigFile,
+			FileMode:          0o644,
+		},
+		{
+			HostFilePath:      generatedConfigFilePath,
+			ContainerFilePath: filepath.Join(filepath.Dir(aggregator.DefaultConfigFile), generatedConfigFileName),
+			FileMode:          0o644,
+		},
+	}
+
 	// Note: identical code to verifier.go/executor.go -- will indexer be identical as well?
 	if in.SourceCodePath != "" {
 		req.Mounts = testcontainers.Mounts()
 		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
 		req.Mounts = append(req.Mounts, GoCacheMounts()...)
-		req.Files = []testcontainers.ContainerFile{
-			{
-				HostFilePath:      configFilePath,
-				ContainerFilePath: aggregator.DefaultConfigFile,
-				FileMode:          0o644,
-			},
-			{
-				HostFilePath:      generatedConfigFilePath,
-				ContainerFilePath: filepath.Join(filepath.Dir(aggregator.DefaultConfigFile), generatedConfigFileName),
-				FileMode:          0o644,
-			},
-		}
+
 		framework.L.Info().
 			Str("Service", aggregatorContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")

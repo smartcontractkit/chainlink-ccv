@@ -6,6 +6,11 @@ import '../tools/lib/utils.justfile'
 default:
     just --list
 
+build:
+    docker build -f Dockerfile -t verifier:latest ..
+    docker build -f Dockerfile --build-arg VERIFIER_TYPE=token -t token-verifier:latest ..
+    docker build -f Dockerfile --build-arg VERIFIER_TYPE=cantoncommittee -t cantoncommittee-verifier:latest ..
+
 build-rc:
     docker build -f Dockerfile -t verifier:rc ..
     docker build -f Dockerfile --build-arg VERIFIER_TYPE=token -t token-verifier:rc ..
