@@ -723,7 +723,8 @@ func checkDockerIsRunning() {
 	}
 }
 
-func main() {
+// RunCLI is the entrypoint for the devenv CLI.
+func RunCLI() {
 	checkDockerIsRunning()
 	if len(os.Args) == 2 && (os.Args[1] == "shell" || os.Args[1] == "sh") {
 		_ = os.Setenv("CTF_CONFIGS", "env.toml") // Set default config for shell
@@ -735,6 +736,10 @@ func main() {
 		ccv.Plog.Err(err).Send()
 		os.Exit(1)
 	}
+}
+
+func main() {
+	RunCLI()
 }
 
 func isServiceLoadTest(testPattern string) bool {
