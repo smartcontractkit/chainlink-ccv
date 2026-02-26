@@ -71,5 +71,5 @@ func TestReadyEndpoint_DBDown(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	require.Equal(t, http.StatusInternalServerError, w.Code)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
 }

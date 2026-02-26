@@ -55,7 +55,7 @@ func (h *VerifierResultsByMessageIDHandler) Handle(c *gin.Context) {
 	if err != nil {
 		// Unexpected storage error -> log and return 500
 		h.lggr.Errorw("failed storage call GetCCVData for MessageID", "messageID", messageID, "error", err)
-		c.JSON(http.StatusInternalServerError, internalServerErrorResponse)
+		c.JSON(http.StatusServiceUnavailable, internalServiceUnavailable)
 		return
 	}
 
