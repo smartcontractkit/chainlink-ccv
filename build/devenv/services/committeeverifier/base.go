@@ -20,7 +20,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -79,7 +78,7 @@ type Input struct {
 	// Note that the full party ID (name + hex) is not expected in the TOML config,
 	// just the expected party name.
 	// The full party ID is hydrated from the blockchain output after the Canton participant is available.
-	CantonConfigs canton.Config `toml:"canton_configs"`
+	CantonConfigs util.OpaqueConfig `toml:"canton_configs"`
 
 	// DisableFinalityCheckers is a list of chain selectors for which the finality violation checker should be disabled.
 	// The chain selectors are formatted as strings of the chain selector.
