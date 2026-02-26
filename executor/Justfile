@@ -6,6 +6,9 @@ import '../tools/lib/utils.justfile'
 default:
     just --list
 
+build:
+    docker build -f Dockerfile -t executor:latest ..
+
 build-rc:
     docker build -f Dockerfile -t executor:rc ..
 
