@@ -120,9 +120,10 @@ func (s *InMemoryOffchainStorage) WriteCCVNodeData(ctx context.Context, ccvDataL
 	for i, ccvNodeData := range ccvDataList {
 		// Initialize result for this entry
 		results[i] = protocol.WriteResult{
-			MessageID: ccvNodeData.MessageID,
+			Input:     ccvNodeData,
 			Status:    protocol.WriteSuccess,
 			Error:     nil,
+			Retryable: false, // In-memory storage doesn't fail
 		}
 
 		// Convert CCVNodeData to CCVData for storage

@@ -162,12 +162,10 @@ func (s *StorageWriterProcessor) processBatch(ctx context.Context) error {
 		"batchSize", len(jobs),
 	)
 
-	// Extract results and build job ID map
+	// Extract results for writing
 	results := make([]protocol.VerifierNodeResult, len(jobs))
-	jobIDMap := make(map[string]string) // messageID -> jobID
 	for i, job := range jobs {
 		results[i] = job.Payload
-		jobIDMap[job.Payload.MessageID.String()] = job.ID
 	}
 
 	// Write batch to storage
@@ -199,7 +197,8 @@ func (s *StorageWriterProcessor) processBatch(ctx context.Context) error {
 
 	// Process individual results
 	successfulJobs := make([]string, 0, len(jobs))
-	failedJobs := make([]string, 0)
+	retriableFailedJobs := make([]string, 0)
+	nonRetriableFailedJobs := make([]string, 0)
 	failedErrorMap := make(map[string]error)
 	successfulResults := make([]protocol.VerifierNodeResult, 0, len(results))
 
@@ -214,21 +213,30 @@ func (s *StorageWriterProcessor) processBatch(ctx context.Context) error {
 
 		job := jobs[i]
 		jobID := job.ID
-		result := results[i]
-		messageID := result.MessageID.String()
+		messageID := writeResult.Input.MessageID.String()
 
 		if writeResult.Status == protocol.WriteSuccess {
 			successfulJobs = append(successfulJobs, jobID)
-			successfulResults = append(successfulResults, result)
+			successfulResults = append(successfulResults, writeResult.Input)
 			s.lggr.Debugw("Write succeeded for message", "messageID", messageID, "jobID", jobID)
 		} else {
-			failedJobs = append(failedJobs, jobID)
-			failedErrorMap[jobID] = writeResult.Error
-			s.lggr.Errorw("Write failed for message",
-				"messageID", messageID,
-				"jobID", jobID,
-				"error", writeResult.Error,
-			)
+			if writeResult.Retryable {
+				retriableFailedJobs = append(retriableFailedJobs, jobID)
+				failedErrorMap[jobID] = writeResult.Error
+				s.lggr.Errorw("Write failed for message (retryable)",
+					"messageID", messageID,
+					"jobID", jobID,
+					"error", writeResult.Error,
+				)
+			} else {
+				nonRetriableFailedJobs = append(nonRetriableFailedJobs, jobID)
+				failedErrorMap[jobID] = writeResult.Error
+				s.lggr.Errorw("Write failed for message (non-retryable)",
+					"messageID", messageID,
+					"jobID", jobID,
+					"error", writeResult.Error,
+				)
+			}
 		}
 	}
 
@@ -236,20 +244,35 @@ func (s *StorageWriterProcessor) processBatch(ctx context.Context) error {
 	s.lggr.Infow("CCV data batch write completed",
 		"totalRequests", len(jobs),
 		"successful", len(successfulJobs),
-		"failed", len(failedJobs),
+		"retriableFailed", len(retriableFailedJobs),
+		"nonRetriableFailed", len(nonRetriableFailedJobs),
 	)
 
-	// Schedule retry for failed jobs only
-	if len(failedJobs) > 0 {
+	// Schedule retry for retriable failed jobs only
+	if len(retriableFailedJobs) > 0 {
 		s.lggr.Infow("Scheduling retry for failed writes",
-			"failedCount", len(failedJobs),
+			"retriableFailedCount", len(retriableFailedJobs),
 			"retryDelay", s.retryDelay,
 		)
 
-		if retryErr := s.resultQueue.Retry(ctx, s.retryDelay, failedErrorMap, failedJobs...); retryErr != nil {
+		if retryErr := s.resultQueue.Retry(ctx, s.retryDelay, failedErrorMap, retriableFailedJobs...); retryErr != nil {
 			s.lggr.Errorw("Failed to schedule retry for failed writes",
 				"error", retryErr,
-				"failedCount", len(failedJobs),
+				"retriableFailedCount", len(retriableFailedJobs),
+			)
+		}
+	}
+
+	// Mark non-retryable failed jobs as failed permanently
+	if len(nonRetriableFailedJobs) > 0 {
+		s.lggr.Warnw("Marking non-retryable failed jobs as failed",
+			"nonRetriableFailedCount", len(nonRetriableFailedJobs),
+		)
+
+		if failErr := s.resultQueue.Fail(ctx, failedErrorMap, nonRetriableFailedJobs...); failErr != nil {
+			s.lggr.Errorw("Failed to mark jobs as failed",
+				"error", failErr,
+				"nonRetriableFailedCount", len(nonRetriableFailedJobs),
 			)
 		}
 	}

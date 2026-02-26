@@ -58,12 +58,13 @@ func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []p
 
 	results := make([]protocol.WriteResult, len(ccvDataList))
 
-	// Pre-populate results with message IDs
+	// Pre-populate results with input data
 	for i, ccvData := range ccvDataList {
 		results[i] = protocol.WriteResult{
-			MessageID: ccvData.MessageID,
+			Input:     ccvData,
 			Status:    protocol.WriteFailure,
 			Error:     nil,
+			Retryable: true, // Aggregator errors are always retryable
 		}
 	}
 
@@ -86,7 +87,7 @@ func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []p
 		},
 	)
 	if err != nil {
-		// If the entire gRPC call failed, mark all as failed
+		// If the entire gRPC call failed, mark all as failed (still retryable)
 		batchErr := fmt.Errorf("error calling BatchWriteCommitteeVerifierNodeResult: %w", err)
 		for i := range results {
 			if results[i].Error == nil {
@@ -117,6 +118,7 @@ func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []p
 			results[i].Status = protocol.WriteFailure
 			results[i].Error = fmt.Errorf("write failed with status %s: code=%s, message=%s",
 				resp.Status.String(), errorCode, errorMessage)
+			results[i].Retryable = true // Always retryable for aggregator
 
 			a.lggr.Errorw("BatchWriteCommitteeVerifierNodeResult failed",
 				"status", resp.Status.String(),
@@ -127,6 +129,7 @@ func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []p
 		} else {
 			results[i].Status = protocol.WriteSuccess
 			results[i].Error = nil
+			results[i].Retryable = false // Success, no retry needed
 			a.lggr.Infow("Successfully stored CCV data", "messageID", messageID)
 		}
 	}

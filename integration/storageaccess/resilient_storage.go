@@ -111,9 +111,10 @@ func (r *resilientAggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDat
 			results = make([]protocol.WriteResult, len(ccvDataList))
 			for i, data := range ccvDataList {
 				results[i] = protocol.WriteResult{
-					MessageID: data.MessageID,
+					Input:     data,
 					Status:    protocol.WriteFailure,
 					Error:     err,
+					Retryable: true, // Failsafe policy failures are retryable
 				}
 			}
 		}

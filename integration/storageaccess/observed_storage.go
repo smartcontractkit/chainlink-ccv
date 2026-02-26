@@ -40,14 +40,15 @@ func (o *observedStorageWriter) WriteCCVNodeData(ctx context.Context, ccvDataLis
 
 	// Count failures in the results
 	failureCount := 0
-	for i, result := range results {
+	for _, result := range results {
 		if result.Status == protocol.WriteFailure {
 			failureCount++
 			o.lggr.Errorw("Failed to store CCV data in batch",
-				"messageID", ccvDataList[i].MessageID,
-				"sequenceNumber", ccvDataList[i].Message.SequenceNumber,
-				"sourceChain", ccvDataList[i].Message.SourceChainSelector,
+				"messageID", result.Input.MessageID,
+				"sequenceNumber", result.Input.Message.SequenceNumber,
+				"sourceChain", result.Input.Message.SourceChainSelector,
 				"error", result.Error,
+				"retryable", result.Retryable,
 			)
 		}
 	}

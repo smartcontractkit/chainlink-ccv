@@ -1250,20 +1250,22 @@ func (f *FakeCCVNodeDataWriter) WriteCCVNodeData(_ context.Context, ccvDataList 
 
 	results := make([]protocol.WriteResult, len(ccvDataList))
 
-	// Pre-populate results with message IDs
+	// Pre-populate results with input data
 	for i, data := range ccvDataList {
 		results[i] = protocol.WriteResult{
-			MessageID: data.MessageID,
+			Input:     data,
 			Status:    protocol.WriteSuccess,
 			Error:     nil,
+			Retryable: false,
 		}
 	}
 
 	if f.errorToReturn != nil {
-		// Mark all as failed if there's an error
+		// Mark all as failed if there's an error (retryable by default for tests)
 		for i := range results {
 			results[i].Status = protocol.WriteFailure
 			results[i].Error = f.errorToReturn
+			results[i].Retryable = true
 		}
 		return results, f.errorToReturn
 	}

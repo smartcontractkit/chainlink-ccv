@@ -284,9 +284,10 @@ func (m *NoopStorage) WriteCCVNodeData(ctx context.Context, data []protocol.Veri
 	results := make([]protocol.WriteResult, len(data))
 	for i, d := range data {
 		results[i] = protocol.WriteResult{
-			MessageID: d.MessageID,
+			Input:     d,
 			Status:    protocol.WriteSuccess,
 			Error:     nil,
+			Retryable: false,
 		}
 	}
 	return results, nil

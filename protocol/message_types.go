@@ -625,13 +625,19 @@ const (
 )
 
 // WriteResult represents the result of writing a single CCV node data entry.
+// It follows the same pattern as VerificationResult, including the input data
+// to simplify client-side handling.
 type WriteResult struct {
-	// MessageID identifies which message this result corresponds to
-	MessageID Bytes32
+	// Input contains the original VerifierNodeResult that was attempted to be written
+	Input VerifierNodeResult
 	// Status indicates whether the write succeeded or failed
 	Status WriteResultStatus
 	// Error contains the error if Status is WriteFailure, nil otherwise
 	Error error
+	// Retryable indicates whether this write should be retried on failure.
+	// This allows the storage implementation to distinguish between transient errors
+	// (network issues, temporary unavailability) and permanent failures (validation errors).
+	Retryable bool
 }
 
 // CCVNodeDataWriter defines the interface for verifiers to store CCV node data.
