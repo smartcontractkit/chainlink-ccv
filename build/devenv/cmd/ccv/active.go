@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/internal/util"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 )
 
 func activeConfigPath() string {
