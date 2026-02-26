@@ -502,7 +502,6 @@ func createDurableProcessorsWithPollInterval(
 	}
 
 	storageWriterProcessor, err := NewStorageWriterProcessorWithPollInterval(
-		ctx,
 		lggr,
 		config.VerifierID,
 		messageTracker,

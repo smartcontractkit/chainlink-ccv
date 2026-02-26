@@ -54,7 +54,6 @@ type StorageWriterProcessor struct {
 }
 
 func NewStorageWriterProcessor(
-	ctx context.Context,
 	lggr logger.Logger,
 	verifierID string,
 	messageTracker MessageLatencyTracker,
@@ -65,12 +64,11 @@ func NewStorageWriterProcessor(
 	chainStatusManager protocol.ChainStatusManager,
 ) (*StorageWriterProcessor, error) {
 	return NewStorageWriterProcessorWithPollInterval(
-		ctx, lggr, verifierID, messageTracker, storage, resultQueue, config, writingTracker, chainStatusManager, defaultPollInterval,
+		lggr, verifierID, messageTracker, storage, resultQueue, config, writingTracker, chainStatusManager, defaultPollInterval,
 	)
 }
 
 func NewStorageWriterProcessorWithPollInterval(
-	ctx context.Context,
 	lggr logger.Logger,
 	verifierID string,
 	messageTracker MessageLatencyTracker,

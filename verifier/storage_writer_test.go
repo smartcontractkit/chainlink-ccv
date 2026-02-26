@@ -51,7 +51,6 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 		require.NoError(t, err)
 
 		processor, err := NewStorageWriterProcessor(
-			ctx,
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
@@ -121,7 +120,6 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 		require.NoError(t, err)
 
 		processor, err := NewStorageWriterProcessor(
-			ctx,
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
@@ -187,7 +185,6 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 		require.NoError(t, err)
 
 		processor, err := NewStorageWriterProcessor(
-			t.Context(),
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
@@ -256,7 +253,6 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 		require.NoError(t, err)
 
 		processor, err := NewStorageWriterProcessor(
-			t.Context(),
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
@@ -332,7 +328,6 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 		fakeStorage.SetError(errors.New("persistent storage error"))
 
 		processor, err := NewStorageWriterProcessor(
-			t.Context(),
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
@@ -396,7 +391,6 @@ func TestStorageWriterProcessorDB_Cleanup(t *testing.T) {
 		require.NoError(t, err)
 
 		processor, err := NewStorageWriterProcessor(
-			t.Context(),
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
@@ -514,7 +508,6 @@ func TestStorageWriterProcessorDB_StaleJobRecovery(t *testing.T) {
 
 		// Now start processor - it should reclaim the stale job
 		processor, err := NewStorageWriterProcessor(
-			t.Context(),
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
@@ -577,7 +570,6 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 		require.NoError(t, err)
 
 		processor, err := NewStorageWriterProcessor(
-			t.Context(),
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
@@ -665,7 +657,6 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 		require.NoError(t, err)
 
 		processor, err := NewStorageWriterProcessor(
-			t.Context(),
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
@@ -775,7 +766,6 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 		require.NoError(t, err)
 
 		processor, err := NewStorageWriterProcessor(
-			t.Context(),
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
@@ -872,7 +862,6 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 		require.NoError(t, err)
 
 		processor, err := NewStorageWriterProcessor(
-			t.Context(),
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
@@ -995,7 +984,6 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 		require.NoError(t, err)
 
 		processor, err := NewStorageWriterProcessor(
-			t.Context(),
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
@@ -1062,7 +1050,6 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 		require.NoError(t, err)
 
 		processor, err := NewStorageWriterProcessor(
-			t.Context(),
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
@@ -1135,7 +1122,6 @@ func TestStorageWriterProcessorDB_ContextCancellation(t *testing.T) {
 		require.NoError(t, err)
 
 		processor, err := NewStorageWriterProcessor(
-			t.Context(),
 			lggr,
 			"test-"+t.Name(),
 			NoopLatencyTracker{},
