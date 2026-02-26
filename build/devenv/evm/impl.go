@@ -46,7 +46,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/token_admin_registry"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
-	cantonadapters "github.com/smartcontractkit/chainlink-ccv/build/devenv/canton/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
@@ -1464,7 +1463,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		}
 		_, ok = tokenAdapterRegistry.GetTokenAdapter("canton", semver.MustParse(poolVersion))
 		if !ok {
-			tokenAdapterRegistry.RegisterTokenAdapter("canton", semver.MustParse(poolVersion), cantonadapters.NewTokenAdapter(&evmadapters.TokenAdapter{}))
+			l.Warn().Msg("Canton adapter not found, skipping")
 		}
 	}
 

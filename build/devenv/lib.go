@@ -10,7 +10,6 @@ import (
 	"github.com/rs/zerolog"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/canton"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
@@ -173,14 +172,16 @@ func (l *Lib) Chains(ctx context.Context) ([]ChainImpl, error) {
 				return nil, fmt.Errorf("creating CCIP17 EVM implementation for chain ID %s: %w", chainID, err)
 			}
 			impl = evmImpl
-		case chain_selectors.FamilyCanton:
-			cantonImpl, err := canton.New(ctx, *l.l, env, bc.ChainID)
-			if err != nil {
-				return nil, fmt.Errorf("creating Canton implementation for chain ID %s: %w", bc.ChainID, err)
-			}
-			impl = cantonImpl
 		default:
-			return nil, fmt.Errorf("unsupported family %s", bc.Out.Family)
+			fac, err := registry.GetImplFactory(bc.Out.Family)
+			if err != nil {
+				return nil, fmt.Errorf("getting implementation factory for family %s: %w", bc.Out.Family, err)
+			}
+			theImpl, err := fac.New(ctx, *l.l, env, bc)
+			if err != nil {
+				return nil, fmt.Errorf("creating implementation for family %s: %w", bc.Out.Family, err)
+			}
+			impl = theImpl
 		}
 
 		if err := chainImplRegistry.Register(bc.ChainID, bc.Out.Family, impl); err != nil {

@@ -18,16 +18,15 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/canton"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
@@ -159,18 +158,14 @@ func checkKeys(in *Cfg) error {
 func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Configuration, error) {
 	switch typ {
 	case "anvil":
+		// TODO: move evm to the impl factory registry.
 		return evm.NewEmptyCCIP17EVM(), nil
-	case "canton":
-		return canton.NewEmptyCCIP17Canton(
-			log.
-				Output(zerolog.ConsoleWriter{Out: os.Stderr}).
-				Level(zerolog.DebugLevel).
-				With().
-				Fields(map[string]any{"component": "Canton"}).
-				Logger(),
-		), nil
 	default:
-		return nil, errors.New("unknown devenv network type " + typ)
+		fac, err := registry.GetImplFactory(typ)
+		if err != nil {
+			return nil, fmt.Errorf("could not find impl factory for chain family %s: %w", typ, err)
+		}
+		return fac.NewEmpty(), nil
 	}
 }
 

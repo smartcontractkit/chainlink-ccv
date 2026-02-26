@@ -6,7 +6,6 @@ import (
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
-	cantonadapters "github.com/smartcontractkit/chainlink-ccv/build/devenv/canton/adapters"
 )
 
 var (
@@ -22,7 +21,6 @@ func GetGlobalChainFamilyAdapterRegistry() *adapters.ChainFamilyRegistry {
 		// Init registers default adapters.
 		// TODO: remove once chain-specific logic is moved to chain-specific repos
 		globalChainFamilyAdapterRegistry.RegisterChainFamily(chain_selectors.FamilyEVM, &evmadapters.ChainFamilyAdapter{})
-		globalChainFamilyAdapterRegistry.RegisterChainFamily(chain_selectors.FamilyCanton, cantonadapters.NewChainFamilyAdapter(&evmadapters.ChainFamilyAdapter{}))
 	})
 
 	return globalChainFamilyAdapterRegistry
