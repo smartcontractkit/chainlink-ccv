@@ -71,10 +71,10 @@ type MetricLabeler interface {
 	With(keyValues ...string) MetricLabeler
 	// RecordMessageExecutionLatency records the duration of the full ExecuteMessage operation.
 	RecordMessageExecutionLatency(ctx context.Context, duration time.Duration, destChainSelector protocol.ChainSelector)
-	// IncrementMessagesProcessed increments the counter for successfully processed messages.
-	IncrementMessagesProcessed(ctx context.Context)
-	// IncrementMessagesProcessingFailed increments the counter for failed message executions.
-	IncrementMessagesProcessingFailed(ctx context.Context)
+	// IncrementMessagesProcessing increments the counter for processed messages.
+	IncrementMessagesProcessing(ctx context.Context)
+	// IncrementMessagesProcessingError increments the counter for failed message executions.
+	IncrementMessagesProcessingError(ctx context.Context, retry bool)
 	// IncrementCCVInfoCacheHits increments the counter for cache hits in the destination reader.
 	IncrementCCVInfoCacheHits(ctx context.Context, destChainSelector protocol.ChainSelector)
 	// IncrementCCVInfoCacheMisses increments the counter for cache misses in the destination reader.

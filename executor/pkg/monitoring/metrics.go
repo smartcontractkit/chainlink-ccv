@@ -27,7 +27,8 @@ type ExecutorMetrics struct {
 	messagesProcessingErrorsCounter metric.Int64Counter
 	ccvInfoCacheHitsCounter         metric.Int64Counter
 	ccvInfoCacheMissesCounter       metric.Int64Counter
-	messageGetCCVInfoFailure        metric.Int64Counter
+	messageGetCCVInfoErrors         metric.Int64Counter
+	messageGetCCVInfoTotal          metric.Int64Counter
 	messageExpiryCounter            metric.Int64Counter
 	messageHeapSizeGauge            metric.Int64Gauge
 	alreadyExecutedMessagesCounter  metric.Int64Counter
@@ -68,15 +69,15 @@ func InitMetrics() (*ExecutorMetrics, error) {
 
 	// Message Processing Counters
 	vm.messagesProcessedCounter, err = beholder.GetMeter().Int64Counter(
-		"executor_messages_processed_total",
-		metric.WithDescription("Total number of successfully processed and stored messages"),
+		"executor_message_processing_total",
+		metric.WithDescription("Total number of processed messages"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register messages processed counter: %w", err)
 	}
 	vm.messagesProcessingErrorsCounter, err = beholder.GetMeter().Int64Counter(
-		"executor_messages_processing_errors_total",
-		metric.WithDescription("Total number of messages failed to process"),
+		"executor_messages_processing_errors",
+		metric.WithDescription("Number of messages failed to process"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register messages processing errors counter: %w", err)
@@ -98,12 +99,20 @@ func InitMetrics() (*ExecutorMetrics, error) {
 		return nil, fmt.Errorf("failed to register ccv info cache misses counter: %w", err)
 	}
 
-	vm.messageGetCCVInfoFailure, err = beholder.GetMeter().Int64Counter(
-		"executor_get_ccv_info_failure_total",
-		metric.WithDescription("Total number of failure for CCV info onchain calls"),
+	vm.messageGetCCVInfoErrors, err = beholder.GetMeter().Int64Counter(
+		"executor_get_ccv_info_errors",
+		metric.WithDescription("Number of errored CCV info onchain calls"),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register ccv info failure counter: %w", err)
+	}
+
+	vm.messageGetCCVInfoTotal, err = beholder.GetMeter().Int64Counter(
+		"executor_get_ccv_info_total",
+		metric.WithDescription("Total number of CCV info onchain calls"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register ccv info total counter: %w", err)
 	}
 
 	vm.messageExpiryCounter, err = beholder.GetMeter().Int64Counter(
@@ -214,13 +223,14 @@ func (v *ExecutorMetricLabeler) RecordMessageExecutionLatency(ctx context.Contex
 	}...), metric.WithAttributes(otelLabels...))
 }
 
-func (v *ExecutorMetricLabeler) IncrementMessagesProcessed(ctx context.Context) {
+func (v *ExecutorMetricLabeler) IncrementMessagesProcessing(ctx context.Context) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.messagesProcessedCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
-func (v *ExecutorMetricLabeler) IncrementMessagesProcessingFailed(ctx context.Context) {
+func (v *ExecutorMetricLabeler) IncrementMessagesProcessingError(ctx context.Context, retry bool) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	otelLabels = append(otelLabels, attribute.Bool("retry", retry))
 	v.vm.messagesProcessingErrorsCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
@@ -247,7 +257,7 @@ func (v *ExecutorMetricLabeler) RecordOfframpGetCCVsForMessageLatency(ctx contex
 
 func (v *ExecutorMetricLabeler) IncrementOfframpGetCCVsForMessageFailure(ctx context.Context, destChainSelector protocol.ChainSelector) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
-	v.vm.messageGetCCVInfoFailure.Add(ctx, 1, metric.WithAttributes([]attribute.KeyValue{
+	v.vm.messageGetCCVInfoErrors.Add(ctx, 1, metric.WithAttributes([]attribute.KeyValue{
 		attribute.String("destChainSelector", destChainSelector.String()),
 	}...), metric.WithAttributes(otelLabels...))
 }
