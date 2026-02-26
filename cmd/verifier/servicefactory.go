@@ -136,7 +136,13 @@ func (f *factory) Start(ctx context.Context, spec commit.JobSpec, deps bootstrap
 		Secret: secretKey,
 	}
 
-	aggregatorWriter, err := storageaccess.NewAggregatorWriter(config.AggregatorAddress, lggr, hmacConfig, config.InsecureAggregatorConnection)
+	aggregatorWriter, err := storageaccess.NewAggregatorWriter(
+		config.AggregatorAddress,
+		lggr,
+		hmacConfig,
+		config.InsecureAggregatorConnection,
+		config.AggregatorMaxRecvMsgSizeBytes,
+	)
 	if err != nil {
 		lggr.Errorw("Failed to create aggregator writer", "error", err)
 		return fmt.Errorf("failed to create aggregator writer: %w", err)
