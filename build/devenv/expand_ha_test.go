@@ -13,6 +13,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 )
 
+const sentinelValue = "mutated"
+
 func TestExpandForHA(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -150,9 +152,16 @@ func TestExpandForHA(t *testing.T) {
 			cfg: buildCfgPtr(
 				withAggregatorWithClients("default", 50051, 7432, 6379, 1,
 					[]*services.AggregatorClientConfig{
-						{ClientID: "verifier-1", Enabled: true, Groups: []string{"verifiers"},
+						{
+							ClientID:    "verifier-1",
+							Enabled:     true,
+							Groups:      []string{"verifiers"},
 							APIKeyPairs: []*services.AggregatorAPIKeyPair{{APIKey: "key1", Secret: "sec1"}}},
-						{ClientID: "indexer", Enabled: true, Groups: []string{"indexer"}},
+						{
+							ClientID: "indexer",
+							Enabled:  true,
+							Groups:   []string{"indexer"},
+						},
 					}),
 				withTopologyCommittee("default", "default", true),
 				withIndexer(8104, 6432, 0),
@@ -167,10 +176,10 @@ func TestExpandForHA(t *testing.T) {
 				assert.Equal(t, "indexer", clone.APIClients[1].ClientID)
 
 				// Mutating the clone's clients must not affect the original
-				clone.APIClients[0].ClientID = "mutated"
+				clone.APIClients[0].ClientID = sentinelValue
 				assert.Equal(t, "verifier-1", cfg.Aggregator[0].APIClients[0].ClientID)
 
-				clone.APIClients[0].Groups[0] = "mutated"
+				clone.APIClients[0].Groups[0] = sentinelValue
 				assert.Equal(t, "verifiers", cfg.Aggregator[0].APIClients[0].Groups[0])
 			},
 		},
@@ -197,7 +206,7 @@ func TestExpandForHA(t *testing.T) {
 				// Qualifier maps should be deep copies
 				require.NotNil(t, clone.CommitteeVerifierNameToQualifier)
 				assert.Equal(t, "default", clone.CommitteeVerifierNameToQualifier["CV"])
-				clone.CommitteeVerifierNameToQualifier["CV"] = "mutated"
+				clone.CommitteeVerifierNameToQualifier["CV"] = sentinelValue
 				assert.Equal(t, "default", orig.CommitteeVerifierNameToQualifier["CV"])
 
 				// Topology should have 2 indexer addresses
@@ -225,7 +234,7 @@ func TestExpandForHA(t *testing.T) {
 				require.NotNil(t, clone.IndexerConfig.Storage.Single.Postgres)
 
 				// Mutating the clone's postgres URI must not affect the original
-				clone.IndexerConfig.Storage.Single.Postgres.URI = "mutated"
+				clone.IndexerConfig.Storage.Single.Postgres.URI = sentinelValue
 				assert.NotEqual(t, "mutated", orig.IndexerConfig.Storage.Single.Postgres.URI)
 			},
 		},
