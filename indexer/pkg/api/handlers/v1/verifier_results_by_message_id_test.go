@@ -63,7 +63,7 @@ func TestVerifierResultsByMessageID_Handle(t *testing.T) {
 	}{
 		{name: "invalid id", messageID: "not-a-hex", mockData: nil, mockErr: nil, wantStatus: http.StatusBadRequest},
 		{name: "not found", messageID: validMsgID, mockData: nil, mockErr: storage.ErrCCVDataNotFound, wantStatus: http.StatusNotFound},
-		{name: "storage error", messageID: validMsgID, mockData: nil, mockErr: errors.New("db fail"), wantStatus: http.StatusInternalServerError},
+		{name: "storage error", messageID: validMsgID, mockData: nil, mockErr: errors.New("db fail"), wantStatus: http.StatusServiceUnavailable},
 		{name: "success", messageID: validMsgID, mockData: []common.VerifierResultWithMetadata{sample}, mockErr: nil, wantStatus: http.StatusOK, wantResultsLen: 1},
 	}...)
 
