@@ -102,6 +102,7 @@ func NewVerificationCoordinator(
 			lggr.Errorw("Failed to create source reader.", "error", err, "chainID", sel)
 			return nil, fmt.Errorf("failed to create source reader: %w", err)
 		}
+		fmt.Printf("EVM sourceReader created for chain selector: %d\n", sel)
 
 		observedSourceReader := sourcereader.NewObservedSourceReader(
 			sourceReader, cfg.VerifierID, sel, verifierMonitoring,

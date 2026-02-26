@@ -885,7 +885,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		if out.TLSCACertFile != "" {
 			in.AggregatorCACertFiles[aggregatorInput.CommitteeName] = out.TLSCACertFile
 		}
-		fmt.Printf("Created aggregator service for committee %s with endpoint %s and CA cert file %s\n", aggregatorInput.CommitteeName, out.ExternalHTTPSUrl, out.TLSCACertFile)
+		fmt.Printf("Created aggregator service for committee %s with endpoint %s and CA cert file %s and container name %s and host port %d and address %s\n", aggregatorInput.CommitteeName, out.ExternalHTTPSUrl, out.TLSCACertFile, out.ContainerName, aggregatorInput.HostPort, out.Address)
 		// out.GeneratedCommittee.DestinationVerifiers
 		e.DataStore = output.DataStore.Seal()
 	}
@@ -1407,6 +1407,7 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, 
 		ver := committeeverifier.ApplyDefaults(*in.Verifier[i])
 		fmt.Printf("Applying defaults to verifier with chain family %s and committee name %s\n", ver.ChainFamily, ver.CommitteeName)
 		in.Verifier[i] = &ver
+		fmt.Printf("Verifier container name: %s, image: %s, mode: %s, stellar configs: %v, port: %d, env: %v\n", ver.ContainerName, ver.Image, ver.Mode, ver.StellarConfigs, ver.Port, ver.Env)
 	}
 
 	outs := make([]*committeeverifier.Output, 0, len(in.Verifier))
