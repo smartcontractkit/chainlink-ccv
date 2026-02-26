@@ -1,28 +1,23 @@
 package registry
 
 import (
-	"sync"
-
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 )
 
-var (
-	globalChainFamilyAdapterRegistry *adapters.ChainFamilyRegistry
-	chainFamilyAdapterOnce           sync.Once
-)
+var globalChainFamilyAdapterRegistry *adapters.ChainFamilyRegistry
+
+func init() {
+	globalChainFamilyAdapterRegistry = adapters.NewChainFamilyRegistry()
+
+	// Init registers default adapters.
+	// TODO: remove once chain-specific logic is moved to chain-specific repos
+	globalChainFamilyAdapterRegistry.RegisterChainFamily(chain_selectors.FamilyEVM, &evmadapters.ChainFamilyAdapter{})
+}
 
 // GetGlobalChainFamilyAdapterRegistry returns the singleton global chain family adapter registry.
 func GetGlobalChainFamilyAdapterRegistry() *adapters.ChainFamilyRegistry {
-	chainFamilyAdapterOnce.Do(func() {
-		globalChainFamilyAdapterRegistry = adapters.NewChainFamilyRegistry()
-
-		// Init registers default adapters.
-		// TODO: remove once chain-specific logic is moved to chain-specific repos
-		globalChainFamilyAdapterRegistry.RegisterChainFamily(chain_selectors.FamilyEVM, &evmadapters.ChainFamilyAdapter{})
-	})
-
 	return globalChainFamilyAdapterRegistry
 }
 
