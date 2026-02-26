@@ -203,7 +203,7 @@ func (f *factory) Start(ctx context.Context, spec commit.JobSpec, deps bootstrap
 		sourceConfigs[selector] = verifier.SourceConfig{
 			VerifierAddress:        verifierAddresses[strSelector],
 			DefaultExecutorAddress: defaultExecutorAddresses[strSelector],
-			PollInterval:           1 * time.Second,
+			PollInterval:           10 * time.Second,
 			ChainSelector:          selector,
 			RMNRemoteAddress:       rmnRemoteAddresses[strSelector],
 			DisableFinalityChecker: slices.Contains(config.DisableFinalityCheckers, strSelector),

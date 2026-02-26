@@ -308,6 +308,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context, latest, fin
 	if err != nil {
 		r.logger.Errorw("Failed to query logs", "error", err,
 			"fromBlock", fromBlock.String(),
+			"pollTimeout", r.pollTimeout.String(),
 			"toBlock", "latest")
 		return
 	}
