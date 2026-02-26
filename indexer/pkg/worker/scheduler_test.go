@@ -1,7 +1,9 @@
 package worker
 
 import (
+	"container/heap"
 	"context"
+	"runtime"
 	"testing"
 	"time"
 
@@ -194,4 +196,41 @@ func TestScheduler_RunMovesDelayedToReady(t *testing.T) {
 	case <-time.After(500 * time.Millisecond):
 		t.Fatalf("timed out waiting for delayed task to become ready")
 	}
+}
+
+func TestScheduler_RunDoesNotLeakGoroutinesUnderBurst(t *testing.T) {
+	lggr := logger.Test(t)
+	scfg := config.SchedulerConfig{TickerInterval: 10, BaseDelay: 0, MaxDelay: 0, VerificationVisibilityWindow: 60}
+	s, err := NewScheduler(lggr, scfg)
+	require.NoError(t, err)
+
+	const taskCount = 200
+
+	s.mu.Lock()
+	for range taskCount {
+		heap.Push(s.delayHeap, &Task{
+			ttl:   time.Now().Add(time.Minute),
+			runAt: time.Now().Add(-time.Second),
+		})
+	}
+	s.mu.Unlock()
+
+	runtime.GC()
+	runtime.Gosched()
+	baselineGoroutines := runtime.NumGoroutine()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	s.Start(ctx)
+
+	// Do NOT consume from Ready — simulate backpressure from a saturated worker pool.
+	time.Sleep(100 * time.Millisecond)
+
+	peakGoroutines := runtime.NumGoroutine()
+
+	maxAllowedGrowth := 10
+	require.LessOrEqual(t, peakGoroutines-baselineGoroutines, maxAllowedGrowth,
+		"goroutine count grew by %d (from %d to %d); expected bounded growth under backpressure",
+		peakGoroutines-baselineGoroutines, baselineGoroutines, peakGoroutines)
 }

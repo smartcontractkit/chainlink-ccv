@@ -588,8 +588,8 @@ type VerifierNodeResult struct {
 }
 
 // JobKey implements jobqueue.Jobable interface.
-func (vr VerifierNodeResult) JobKey() (chainSelector, messageID string) {
-	return vr.Message.SourceChainSelector.String(), vr.MessageID.String()
+func (vr VerifierNodeResult) JobKey() (chainSelector uint64, messageID []byte) {
+	return uint64(vr.Message.SourceChainSelector), vr.MessageID[:]
 }
 
 func (vr *VerifierResult) ValidateFieldsConsistent() error {
@@ -614,10 +614,37 @@ type QueryResponse struct {
 	Data      VerifierResult `json:"data"`
 }
 
+// WriteResultStatus represents the status of a single write operation.
+type WriteResultStatus int
+
+const (
+	// WriteSuccess indicates the write operation succeeded.
+	WriteSuccess WriteResultStatus = iota
+	// WriteFailure indicates the write operation failed.
+	WriteFailure
+)
+
+// WriteResult represents the result of writing a single CCV node data entry.
+// It follows the same pattern as VerificationResult, including the input data
+// to simplify client-side handling.
+type WriteResult struct {
+	// Input contains the original VerifierNodeResult that was attempted to be written
+	Input VerifierNodeResult
+	// Status indicates whether the write succeeded or failed
+	Status WriteResultStatus
+	// Error contains the error if Status is WriteFailure, nil otherwise
+	Error error
+	// Retryable indicates whether this write should be retried on failure.
+	// This allows the storage implementation to distinguish between transient errors
+	// (network issues, temporary unavailability) and permanent failures (validation errors).
+	Retryable bool
+}
+
 // CCVNodeDataWriter defines the interface for verifiers to store CCV node data.
 type CCVNodeDataWriter interface {
-	// WriteCCVNodeData stores multiple CCV node data entries
-	WriteCCVNodeData(ctx context.Context, ccvDataList []VerifierNodeResult) error
+	// WriteCCVNodeData stores multiple CCV node data entries and returns detailed status per request.
+	// The returned slice will have the same length as ccvDataList, with results in corresponding order.
+	WriteCCVNodeData(ctx context.Context, ccvDataList []VerifierNodeResult) ([]WriteResult, error)
 }
 
 // OffchainStorageReader defines the interface for executors to query CCV data by timestamp.

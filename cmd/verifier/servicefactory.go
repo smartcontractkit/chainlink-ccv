@@ -12,14 +12,16 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/grafana/pyroscope-go"
-	"github.com/jmoiron/sqlx"
 
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
+
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
@@ -29,7 +31,18 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// TODO: extract out common code, and read/take in chain-specific config (e.g. CantonConfig).
+// CreateAccessorFactoryFunc is a function that creates an accessor factory for a given chain family.
+type CreateAccessorFactoryFunc func(
+	ctx context.Context,
+	lggr logger.Logger,
+	helper *blockchain.Helper,
+	cfg commit.Config,
+) (chainaccess.AccessorFactory, error)
+
+// factory is a ServiceFactory implementation that creates a committee verifier service.
+// NOTE: this factory supports only a single chain family at a time.
+// This is by design, since deployed CCIP apps will be built with a single chain family, but potentially
+// supporting many chains from that same family.
 type factory struct {
 	lggr              logger.Logger
 	server            *http.Server
@@ -37,12 +50,19 @@ type factory struct {
 	profiler          *pyroscope.Profiler
 	aggregatorWriter  *storageaccess.AggregatorWriter
 	heartbeatClient   *heartbeatclient.HeartbeatClient
-	chainStatusDB     *sqlx.DB
+	chainStatusDB     sqlutil.DataSource
 	coordinatorCancel context.CancelFunc
+
+	createAccessorFactoryFunc CreateAccessorFactoryFunc
+	chainFamily               string
 }
 
-func NewServiceFactory() bootstrap.ServiceFactory[commit.JobSpec] {
-	return &factory{}
+// NewServiceFactory creates a new ServiceFactory for the committee verifier service.
+func NewServiceFactory(chainFamily string, createAccessorFactoryFunc CreateAccessorFactoryFunc) bootstrap.ServiceFactory[commit.JobSpec] {
+	return &factory{
+		createAccessorFactoryFunc: createAccessorFactoryFunc,
+		chainFamily:               chainFamily,
+	}
 }
 
 // Start implements [bootstrap.ServiceFactory].
@@ -116,7 +136,13 @@ func (f *factory) Start(ctx context.Context, spec commit.JobSpec, deps bootstrap
 		Secret: secretKey,
 	}
 
-	aggregatorWriter, err := storageaccess.NewAggregatorWriter(config.AggregatorAddress, lggr, hmacConfig, config.InsecureAggregatorConnection)
+	aggregatorWriter, err := storageaccess.NewAggregatorWriter(
+		config.AggregatorAddress,
+		lggr,
+		hmacConfig,
+		config.InsecureAggregatorConnection,
+		config.AggregatorMaxRecvMsgSizeBytes,
+	)
 	if err != nil {
 		lggr.Errorw("Failed to create aggregator writer", "error", err)
 		return fmt.Errorf("failed to create aggregator writer: %w", err)
@@ -124,15 +150,39 @@ func (f *factory) Start(ctx context.Context, spec commit.JobSpec, deps bootstrap
 
 	f.aggregatorWriter = aggregatorWriter
 
-	registry := accessors.NewRegistry(blockchainHelper)
-	// TODO: if we're running one family per app, don't need to register all families.
-	RegisterEVM(ctx, registry, lggr, blockchainHelper, config.OnRampAddresses, config.RMNRemoteAddresses)
-	RegisterCanton(ctx, registry, lggr, blockchainHelper, config.CantonConfigs)
-
-	sourceReaders, err := CreateSourceReaders(ctx, lggr, registry, blockchainHelper, *config)
+	accessorFactory, err := f.createAccessorFactoryFunc(ctx, lggr, blockchainHelper, *config)
 	if err != nil {
-		lggr.Errorw("Failed to create source readers", "error", err)
-		return fmt.Errorf("failed to create source readers: %w", err)
+		lggr.Errorw("Failed to create accessor factory", "error", err)
+		return fmt.Errorf("failed to create accessor factory: %w", err)
+	}
+
+	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
+	for _, selector := range blockchainHelper.GetAllChainSelectors() {
+		family, err := chainsel.GetSelectorFamily(uint64(selector))
+		if err != nil {
+			lggr.Errorw("Failed to get selector family", "error", err, "selector", selector)
+			return fmt.Errorf("failed to get selector family: %w", err)
+		}
+		if family != f.chainFamily {
+			lggr.Warnw("Skipping chain in provided config, doesn't match expected chain family",
+				"selector", selector,
+				"family", family,
+				"expectedFamily", f.chainFamily,
+			)
+			continue
+		}
+
+		accessor, err := accessorFactory.GetAccessor(ctx, selector)
+		if err != nil {
+			lggr.Errorw("Failed to get accessor", "error", err, "selector", selector)
+			return fmt.Errorf("failed to get accessor: %w", err)
+		}
+		reader := accessor.SourceReader()
+		if reader == nil {
+			lggr.Errorw("Failed to get source reader for chain", "selector", selector)
+			return fmt.Errorf("failed to get source reader for chain: %w", err)
+		}
+		sourceReaders[selector] = reader
 	}
 
 	// Create coordinator configuration
@@ -248,7 +298,7 @@ func (f *factory) Start(ctx context.Context, spec commit.JobSpec, deps bootstrap
 		verifierMonitoring,
 		chainStatusManager,
 		observedHeartbeatClient,
-		chainStatusDB.DB,
+		chainStatusDB,
 	)
 	if err != nil {
 		coordinatorCancel()
@@ -361,14 +411,6 @@ func (f *factory) Stop(ctx context.Context) error {
 		f.coordinatorCancel()
 	}
 
-	// Close the db
-	if f.chainStatusDB != nil {
-		if err := f.chainStatusDB.Close(); err != nil {
-			f.lggr.Errorw("Chain status DB close error", "error", err)
-			allErrors = errors.Join(allErrors, err)
-		}
-	}
-
 	// Reset the state
 	f.server = nil
 	f.coordinator = nil
@@ -377,6 +419,7 @@ func (f *factory) Stop(ctx context.Context) error {
 	f.aggregatorWriter = nil
 	f.heartbeatClient = nil
 	f.lggr = nil
+	f.chainStatusDB = nil
 
 	return allErrors
 }
@@ -393,7 +436,7 @@ func loadConfiguration(spec commit.JobSpec) (*commit.Config, map[string]*blockch
 	return &config.Config, config.BlockchainInfos, nil
 }
 
-func createChainStatusManager(lggr logger.Logger, verifierID string, monitoring verifier.Monitoring) (protocol.ChainStatusManager, *sqlx.DB, error) {
+func createChainStatusManager(lggr logger.Logger, verifierID string, monitoring verifier.Monitoring) (protocol.ChainStatusManager, sqlutil.DataSource, error) {
 	sqlDB, err := ConnectToPostgresDB(lggr)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect to Postgres DB: %w", err)

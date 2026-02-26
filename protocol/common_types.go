@@ -180,12 +180,20 @@ func (h ByteSlice) String() string {
 	return "0x" + hex.EncodeToString(h)
 }
 
+func truncateForError(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "...(truncated)"
+}
+
 type Bytes16 [16]byte
 
 // NewBytes16FromString creates 16-sized bytes array from hex-encoded string or returns an error.
 func NewBytes16FromString(s string) (Bytes16, error) {
 	if len(s) > 34 { // "0x" + 32 hex chars
-		return Bytes16{}, fmt.Errorf("Bytes16 must be at most 16 bytes (32 hex chars) long: %s", s)
+		return Bytes16{}, fmt.Errorf("Bytes16 must be at most 16 bytes (32 hex chars) long, got %d chars: %s",
+			len(s), truncateForError(s, 64))
 	}
 
 	if !strings.HasPrefix(s, "0x") {
@@ -252,7 +260,8 @@ type Bytes32 [32]byte
 // NewBytes32FromString creates 32-sized bytes array from hex-encoded string or returns an error.
 func NewBytes32FromString(s string) (Bytes32, error) {
 	if len(s) > 66 { // "0x" + 64 hex chars
-		return Bytes32{}, fmt.Errorf("Bytes32 must be at most 32 bytes (64 hex chars) long: %s", s)
+		return Bytes32{}, fmt.Errorf("Bytes32 must be at most 32 bytes (64 hex chars) long, got %d chars: %s",
+			len(s), truncateForError(s, 128))
 	}
 
 	if !strings.HasPrefix(s, "0x") {

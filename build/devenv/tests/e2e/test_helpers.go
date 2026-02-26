@@ -14,11 +14,11 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
-	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/load"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/logasserter"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
+	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/load"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/logasserter"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/metrics"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"

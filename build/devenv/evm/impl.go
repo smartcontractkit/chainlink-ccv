@@ -46,12 +46,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/token_admin_registry"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
+	cantonadapters "github.com/smartcontractkit/chainlink-ccv/build/devenv/canton/adapters"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployments/changesets"
-	cantonadapters "github.com/smartcontractkit/chainlink-ccv/devenv/canton/adapters"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
-	devenvcommon "github.com/smartcontractkit/chainlink-ccv/devenv/common"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -584,11 +584,20 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, field
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to get destination family: %w", err)
 	}
-
-	routerRef, err := m.ds.Addresses().Get(datastore.NewAddressRefKey(srcChain.Selector, datastore.ContractType(routeroperations.ContractType), semver.MustParse(routeroperations.Deploy.Version()), ""))
-	if err != nil {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to get router address: %w", err)
+	routerContractType := routeroperations.ContractType
+	if opts.UseTestRouter {
+		routerContractType = routeroperations.TestRouterContractType
 	}
+	routerVersion := semver.MustParse(routeroperations.Deploy.Version())
+	routerRefs := m.ds.Addresses().Filter(
+		datastore.AddressRefByChainSelector(srcChain.Selector),
+		datastore.AddressRefByType(datastore.ContractType(routerContractType)),
+		datastore.AddressRefByVersion(routerVersion),
+	)
+	if len(routerRefs) != 1 {
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("expected exactly one router for selector %d type %s version %s, got %d", srcChain.Selector, routerContractType, routerVersion.String(), len(routerRefs))
+	}
+	routerRef := routerRefs[0]
 
 	routerAddress := common.HexToAddress(routerRef.Address)
 	rout, err := routerwrapper.NewRouter(routerAddress, srcChain.Client)

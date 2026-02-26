@@ -6,7 +6,7 @@ import (
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
-	cantonadapters "github.com/smartcontractkit/chainlink-ccv/devenv/canton/adapters"
+	cantonadapters "github.com/smartcontractkit/chainlink-ccv/build/devenv/canton/adapters"
 )
 
 var (

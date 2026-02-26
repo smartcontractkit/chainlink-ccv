@@ -8,7 +8,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
-	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
+	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )

@@ -121,7 +121,13 @@ func NewVerificationCoordinator(
 
 	// Checkpoint manager
 	// TODO: these are secrets, probably shouldn't be in config.
-	aggregatorWriter, err := storageaccess.NewAggregatorWriter(cfg.AggregatorAddress, lggr, aggregatorSecret, cfg.InsecureAggregatorConnection)
+	aggregatorWriter, err := storageaccess.NewAggregatorWriter(
+		cfg.AggregatorAddress,
+		lggr,
+		aggregatorSecret,
+		cfg.InsecureAggregatorConnection,
+		cfg.AggregatorMaxRecvMsgSizeBytes,
+	)
 	if err != nil {
 		lggr.Errorw("Failed to create aggregator writer", "error", err)
 		return nil, fmt.Errorf("failed to create aggregator writer: %w", err)
@@ -183,7 +189,7 @@ func NewVerificationCoordinator(
 		verifierMonitoring,
 		chainStatusManager,
 		observedHeartbeatClient,
-		nil, // Don't use it until db migration is done in the Chainlink Node
+		ds,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator", "error", err)

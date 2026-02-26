@@ -17,7 +17,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/internal/util"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -28,15 +28,21 @@ import (
 //go:embed tokenVerifier.template.toml
 var tokenVerifierConfigTemplate string
 
+type TokenVerifierDBInput struct {
+	Image string `toml:"image"`
+	Name  string `toml:"name"`
+	Port  int    `toml:"port"`
+}
+
 type TokenVerifierInput struct {
-	Mode           Mode                 `toml:"mode"`
-	DB             *VerifierDBInput     `toml:"db"`
-	Out            *TokenVerifierOutput `toml:"-"`
-	Image          string               `toml:"image"`
-	SourceCodePath string               `toml:"source_code_path"`
-	RootPath       string               `toml:"root_path"`
-	ContainerName  string               `toml:"container_name"`
-	Port           int                  `toml:"port"`
+	Mode           Mode                  `toml:"mode"`
+	DB             *TokenVerifierDBInput `toml:"db"`
+	Out            *TokenVerifierOutput  `toml:"-"`
+	Image          string                `toml:"image"`
+	SourceCodePath string                `toml:"source_code_path"`
+	RootPath       string                `toml:"root_path"`
+	ContainerName  string                `toml:"container_name"`
+	Port           int                   `toml:"port"`
 
 	// GeneratedConfig stores the generated token verifier configuration from the changeset.
 	GeneratedConfig *token.Config `toml:"-"`
@@ -148,15 +154,16 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 			WithPollInterval(3 * time.Second),
 	}
 
+	req.Mounts = testcontainers.Mounts()
+	req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
+		configFilePath,
+		aggregator.DefaultConfigFile, // TODO: switch to token verifier path, not aggregator path.
+	))
+
 	// Note: identical code to aggregator.go/executor.go -- will indexer be identical as well?
 	if in.SourceCodePath != "" {
-		req.Mounts = testcontainers.Mounts()
 		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
 		req.Mounts = append(req.Mounts, GoCacheMounts()...)
-		req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
-			configFilePath,
-			aggregator.DefaultConfigFile,
-		))
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")

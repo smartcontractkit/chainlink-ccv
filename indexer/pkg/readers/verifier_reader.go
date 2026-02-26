@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/batcher"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 )
 
 const drainTimeout = 30 * time.Second
@@ -21,14 +21,12 @@ const drainTimeout = 30 * time.Second
 // It provides a one-shot results channel for every call to ProcessMessage;
 // this channel will emit a message once the batch has been completed.
 type VerifierReader struct {
-	demux         *common.Demultiplexer[protocol.Bytes32, protocol.VerifierResult]
-	batcher       *batcher.Batcher[protocol.Bytes32]
-	batcherCtx    context.Context
-	batcherCancel context.CancelFunc
-	verifier      protocol.VerifierResultsAPI
-	runCancel     context.CancelFunc
-	runWg         sync.WaitGroup
-	closeOnce     sync.Once
+	demux     *common.Demultiplexer[protocol.Bytes32, protocol.VerifierResult]
+	batcher   *batcher.Batcher[protocol.Bytes32]
+	verifier  protocol.VerifierResultsAPI
+	runCancel context.CancelFunc
+	runWg     sync.WaitGroup
+	closeOnce sync.Once
 }
 
 // NewVerifierReader creates and returns a new VerifierReader instance.
@@ -36,19 +34,14 @@ type VerifierReader struct {
 // asynchronously. The context is used to control the lifetime of the internal
 // batcher goroutine.
 func NewVerifierReader(ctx context.Context, verifier protocol.VerifierResultsAPI, config *config.VerifierConfig) *VerifierReader {
-	batcherCtx, batcherCancel := context.WithCancel(ctx)
-
 	return &VerifierReader{
 		verifier: verifier,
 		demux:    common.NewDemultiplexer[protocol.Bytes32, protocol.VerifierResult](),
 		batcher: batcher.NewBatcher[protocol.Bytes32](
-			batcherCtx,
 			config.BatchSize,
 			time.Duration(config.MaxBatchWaitTime)*time.Millisecond,
 			1,
 		),
-		batcherCtx:    batcherCtx,
-		batcherCancel: batcherCancel,
 	}
 }
 
@@ -84,6 +77,10 @@ func (v *VerifierReader) ProcessMessage(messageID protocol.Bytes32) (chan common
 // Start returns immediately after spawning the background goroutine. It does not
 // wait for the goroutine to complete.
 func (v *VerifierReader) Start(ctx context.Context) error {
+	if err := v.batcher.Start(ctx); err != nil {
+		return err
+	}
+
 	runCtx, cancel := context.WithCancel(ctx)
 	v.runCancel = cancel
 	v.runWg.Go(func() {
@@ -176,10 +173,10 @@ func (v *VerifierReader) callVerifier(ctx context.Context, batch []protocol.Byte
 func (v *VerifierReader) Close() error {
 	var err error
 	v.closeOnce.Do(func() {
-		// Cancel the batcher's context first, which will cause it to flush remaining
+		// Close the batcher first, which will cause it to flush remaining
 		// items and close the batch channel, allowing the run goroutine to exit
-		if v.batcherCancel != nil {
-			v.batcherCancel()
+		if v.batcher != nil {
+			err = v.batcher.Close()
 		}
 
 		// Cancel the run goroutine context to stop processing new batches
@@ -189,11 +186,6 @@ func (v *VerifierReader) Close() error {
 
 		// Wait for the run goroutine to finish processing any in-flight batches
 		v.runWg.Wait()
-
-		// Close the batcher, which waits for its goroutine to finish
-		if v.batcher != nil {
-			err = v.batcher.Close()
-		}
 	})
 	return err
 }

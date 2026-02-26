@@ -3,10 +3,8 @@ package cursechecker
 import (
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
@@ -37,6 +35,8 @@ type ChainCurseState struct {
 // It polls configured RMN readers at regular intervals and maintains curse state.
 type PollerService struct {
 	services.StateMachine
+	stopCh           services.StopChan
+	wg               sync.WaitGroup
 	rmnReaders       map[protocol.ChainSelector]chainaccess.RMNCurseReader
 	chainCurseStates map[protocol.ChainSelector]*ChainCurseState
 	mutex            sync.RWMutex
@@ -44,9 +44,6 @@ type PollerService struct {
 	curseRPCTimeout  time.Duration
 	lggr             logger.Logger
 	metrics          common.CurseCheckerMetrics
-	cancel           context.CancelFunc
-	wg               sync.WaitGroup
-	running          atomic.Bool
 }
 
 // NewCurseDetectorService creates a new curse detector service.
@@ -84,21 +81,18 @@ func NewCurseDetectorService(
 		curseRPCTimeout:  curseRPCTimeout,
 		lggr:             lggr,
 		metrics:          metrics,
+		stopCh:           make(chan struct{}),
 	}, nil
 }
 
 // Start begins polling RMN Remote contracts for curse updates.
 func (s *PollerService) Start(ctx context.Context) error {
 	return s.StartOnce("cursechecker.PollerService", func() error {
-		c, cancel := context.WithCancel(ctx)
-		s.cancel = cancel
-
 		// Initial poll
-		s.pollAllChains(c)
+		s.pollAllChains(ctx)
 
-		s.running.Store(true)
 		s.wg.Go(func() {
-			s.pollLoop(c)
+			s.pollLoop()
 		})
 
 		s.lggr.Infow("Curse detector service started",
@@ -114,14 +108,9 @@ func (s *PollerService) Close() error {
 	return s.StopOnce("cursechecker.PollerService", func() error {
 		s.lggr.Infow("Curse detector service stopping")
 
-		// Cancel the background goroutine and wait for it to exit.
-		if s.cancel != nil {
-			s.cancel()
-		}
+		// Signal the background goroutine to stop and wait for it to exit.
+		close(s.stopCh)
 		s.wg.Wait()
-
-		// Update running state to reflect in healthcheck and readiness.
-		s.running.Store(false)
 
 		s.lggr.Infow("Curse detector service stopped")
 
@@ -147,7 +136,10 @@ func (s *PollerService) IsRemoteChainCursed(_ context.Context, localChain, remot
 }
 
 // pollLoop runs the periodic polling loop for curse updates.
-func (s *PollerService) pollLoop(ctx context.Context) {
+func (s *PollerService) pollLoop() {
+	ctx, cancel := s.stopCh.NewCtx()
+	defer cancel()
+
 	ticker := time.NewTicker(s.pollInterval)
 	defer ticker.Stop()
 
@@ -232,15 +224,6 @@ func (s *PollerService) updateMetrics(ctx context.Context, localChain protocol.C
 			s.metrics.SetRemoteChainCursed(ctx, localChain, remoteSelector, false)
 		}
 	}
-}
-
-// Ready returns nil if the service is ready, or an error otherwise.
-func (s *PollerService) Ready() error {
-	if !s.running.Load() {
-		return errors.New("curse detector service not running")
-	}
-
-	return nil
 }
 
 // HealthReport returns a full health report of the service.

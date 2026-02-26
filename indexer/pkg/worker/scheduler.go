@@ -69,9 +69,15 @@ func (s *Scheduler) run(ctx context.Context) {
 			tasks := s.delayHeap.PopAllReady()
 			s.mu.Unlock()
 			for _, task := range tasks {
-				go func(t *Task) {
-					s.ready <- t
-				}(task)
+				select {
+				case s.ready <- task:
+				case <-s.stopCh:
+					s.lggr.Info("Scheduler Exiting")
+					return
+				case <-ctx.Done():
+					s.lggr.Info("Scheduler Exiting")
+					return
+				}
 			}
 		}
 	}

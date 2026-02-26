@@ -19,6 +19,11 @@ var (
 	_ executor.MessageSubscriber = &IndexerStorageStreamer{}
 )
 
+// readMessagesTimeout is the timeout for reading messages from the indexer. This is used to prevent hanging if the
+// indexer is unresponsive. The indexer client also has its own timeout, but this is an additional safeguard in case
+// it is initialized with a very long timeout or no timeout at all.
+const readMessagesTimeout = 30 * time.Second
+
 type IndexerStorageConfig struct {
 	IndexerClient    executor.MessageReader
 	InitialQueryTime time.Time
@@ -75,14 +80,17 @@ func (oss *IndexerStorageStreamer) IsRunning() bool {
 func (oss *IndexerStorageStreamer) Start(
 	ctx context.Context,
 ) (<-chan icommon.MessageWithMetadata, <-chan error, error) {
+	oss.mu.Lock()
 	if oss.reader == nil {
+		oss.mu.Unlock()
 		return nil, nil, fmt.Errorf("reader not set")
 	}
 	if oss.running {
+		oss.mu.Unlock()
 		return nil, nil, fmt.Errorf("IndexerStorageStreamer already running")
 	}
-
 	oss.running = true
+	oss.mu.Unlock()
 
 	// be careful closing the results channel before context is done. This might cause unintended consequences upstream.
 	results := make(chan icommon.MessageWithMetadata)
@@ -107,13 +115,15 @@ func (oss *IndexerStorageStreamer) Start(
 			case <-ticker.C:
 				oss.expirableSet.CleanExpired(oss.timeProvider.GetTime())
 			case <-nextQueryTimer.C:
-				responses, err := oss.reader.ReadMessages(ctx, v1.MessagesInput{
+				queryCtx, cancel := context.WithTimeout(ctx, readMessagesTimeout)
+				responses, err := oss.reader.ReadMessages(queryCtx, v1.MessagesInput{
 					Limit:                oss.queryLimit,
 					Start:                oss.lastQueryTime.Format(time.RFC3339),
 					Offset:               oss.offset,
 					SourceChainSelectors: nil,
 					DestChainSelectors:   nil,
 				})
+				cancel()
 				oss.lggr.Debugw("IndexerStorageStreamer query results", "start", oss.lastQueryTime, "count", len(responses), "error", err)
 
 				for _, msgWithMetadata := range responses {

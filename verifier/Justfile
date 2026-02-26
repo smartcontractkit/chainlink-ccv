@@ -6,13 +6,20 @@ import '../tools/lib/utils.justfile'
 default:
     just --list
 
+build:
+    docker build -f Dockerfile -t verifier:latest ..
+    docker build -f Dockerfile --build-arg VERIFIER_TYPE=token -t token-verifier:latest ..
+    docker build -f Dockerfile --build-arg VERIFIER_TYPE=cantoncommittee -t cantoncommittee-verifier:latest ..
+
 build-rc:
     docker build -f Dockerfile -t verifier:rc ..
     docker build -f Dockerfile --build-arg VERIFIER_TYPE=token -t token-verifier:rc ..
+    docker build -f Dockerfile --build-arg VERIFIER_TYPE=cantoncommittee -t cantoncommittee-verifier:rc ..
 
 build-dev:
     docker build -f Dockerfile.dev -t verifier:dev ..
     docker build -f Dockerfile.dev --build-arg VERIFIER_TYPE=token -t token-verifier:dev ..
+    docker build -f Dockerfile --build-arg VERIFIER_TYPE=cantoncommittee -t cantoncommittee-verifier:dev ..
 
 publish-rc registry version:
     docker tag verifier:rc {{registry}}/chainlink-ccv-verifier:{{version}}-rc
@@ -24,7 +31,9 @@ publish-rc registry version:
 clean:
     docker rmi verifier:latest
     docker rmi token-verifier:latest
+    docker rmi cantoncommittee-verifier:latest
 
 clean-dev:
     docker rmi verifier:dev
     docker rmi token-verifier:dev
+    docker rmi cantoncommittee-verifier:dev

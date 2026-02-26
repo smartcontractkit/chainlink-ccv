@@ -238,7 +238,13 @@ func (h *httpClient) callAPI(
 		return nil, status, ErrUnknownResponse
 	}
 
-	payloadBytes, err := io.ReadAll(res.Body)
+	// Limit the maximum response size to prevent unbounded memory usage.
+	limit := int64(10 << 20) // 10 MiB
+	lr := &io.LimitedReader{R: res.Body, N: limit + 1}
+	payloadBytes, err := io.ReadAll(lr)
+	if int64(len(payloadBytes)) > limit {
+		return nil, http.StatusRequestEntityTooLarge, errors.New("attestation API response too large")
+	}
 	return payloadBytes, status, err
 }
 

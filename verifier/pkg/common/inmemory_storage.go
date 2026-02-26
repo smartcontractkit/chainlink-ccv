@@ -101,9 +101,9 @@ func (s *InMemoryOffchainStorage) WaitForStore(ctx context.Context) error {
 
 // WriteCCVNodeData stores multiple CCV node data entries in the offchain storage.
 // Converts CCVNodeData to CCVData format for storage.
-func (s *InMemoryOffchainStorage) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.VerifierNodeResult) error {
+func (s *InMemoryOffchainStorage) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.VerifierNodeResult) ([]protocol.WriteResult, error) {
 	if len(ccvDataList) == 0 {
-		return nil
+		return []protocol.WriteResult{}, nil
 	}
 
 	s.mu.Lock()
@@ -115,7 +115,17 @@ func (s *InMemoryOffchainStorage) WriteCCVNodeData(ctx context.Context, ccvDataL
 		"createdAt", createdAt,
 	)
 
-	for _, ccvNodeData := range ccvDataList {
+	results := make([]protocol.WriteResult, len(ccvDataList))
+
+	for i, ccvNodeData := range ccvDataList {
+		// Initialize result for this entry
+		results[i] = protocol.WriteResult{
+			Input:     ccvNodeData,
+			Status:    protocol.WriteSuccess,
+			Error:     nil,
+			Retryable: false, // In-memory storage doesn't fail
+		}
+
 		// Convert CCVNodeData to CCVData for storage
 		// In a real aggregator, this would combine multiple node data entries
 		// For the in-memory verifier storage, we just create individual CCVData entries
@@ -156,7 +166,7 @@ func (s *InMemoryOffchainStorage) WriteCCVNodeData(ctx context.Context, ccvDataL
 		// Channel full, ignore
 	}
 
-	return nil
+	return results, nil
 }
 
 // ReadCCVData fetches CCV data by timestamp.

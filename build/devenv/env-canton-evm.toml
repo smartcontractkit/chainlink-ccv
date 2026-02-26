@@ -19,33 +19,63 @@ TraceSampleRatio = 1.0
 TraceBatchTimeout = 10
 
 [[environment_topology.nop_topology.nops]]
-alias = "default-verifier-1"
-name = "default-verifier-1"
+alias = "evm-default-verifier-1"
+name = "evm-default-verifier-1"
 mode = "standalone"
 
 [[environment_topology.nop_topology.nops]]
-alias = "default-verifier-2"
-name = "default-verifier-2"
+alias = "evm-default-verifier-2"
+name = "evm-default-verifier-2"
 mode = "standalone"
 
 [[environment_topology.nop_topology.nops]]
-alias = "secondary-verifier-1"
-name = "secondary-verifier-1"
+alias = "canton-default-verifier-1"
+name = "canton-default-verifier-1"
 mode = "standalone"
 
 [[environment_topology.nop_topology.nops]]
-alias = "secondary-verifier-2"
-name = "secondary-verifier-2"
+alias = "canton-default-verifier-2"
+name = "canton-default-verifier-2"
 mode = "standalone"
 
 [[environment_topology.nop_topology.nops]]
-alias = "tertiary-verifier-1"
-name = "tertiary-verifier-1"
+alias = "evm-secondary-verifier-1"
+name = "evm-secondary-verifier-1"
 mode = "standalone"
 
 [[environment_topology.nop_topology.nops]]
-alias = "tertiary-verifier-2"
-name = "tertiary-verifier-2"
+alias = "evm-secondary-verifier-2"
+name = "evm-secondary-verifier-2"
+mode = "standalone"
+
+[[environment_topology.nop_topology.nops]]
+alias = "canton-secondary-verifier-1"
+name = "canton-secondary-verifier-1"
+mode = "standalone"
+
+[[environment_topology.nop_topology.nops]]
+alias = "canton-secondary-verifier-2"
+name = "canton-secondary-verifier-2"
+mode = "standalone"
+
+[[environment_topology.nop_topology.nops]]
+alias = "evm-tertiary-verifier-1"
+name = "evm-tertiary-verifier-1"
+mode = "standalone"
+
+[[environment_topology.nop_topology.nops]]
+alias = "evm-tertiary-verifier-2"
+name = "evm-tertiary-verifier-2"
+mode = "standalone"
+
+[[environment_topology.nop_topology.nops]]
+alias = "canton-tertiary-verifier-1"
+name = "canton-tertiary-verifier-1"
+mode = "standalone"
+
+[[environment_topology.nop_topology.nops]]
+alias = "canton-tertiary-verifier-2"
+name = "canton-tertiary-verifier-2"
 mode = "standalone"
 
 [[environment_topology.nop_topology.nops]]
@@ -73,19 +103,19 @@ address = "default-aggregator:50051"
 insecure_connection = true
 
 [environment_topology.nop_topology.committees.default.chain_configs.3379446385462418246]
-nop_aliases = ["default-verifier-1", "default-verifier-2"]
+nop_aliases = ["evm-default-verifier-1", "evm-default-verifier-2"]
 threshold = 2
 
 [environment_topology.nop_topology.committees.default.chain_configs.12922642891491394802]
-nop_aliases = ["default-verifier-1", "default-verifier-2"]
+nop_aliases = ["evm-default-verifier-1", "evm-default-verifier-2"]
 threshold = 2
 
 [environment_topology.nop_topology.committees.default.chain_configs.4793464827907405086]
-nop_aliases = ["default-verifier-1", "default-verifier-2"]
+nop_aliases = ["evm-default-verifier-1", "evm-default-verifier-2"]
 threshold = 2
 
 [environment_topology.nop_topology.committees.default.chain_configs.8706591216959472610]
-nop_aliases = ["default-verifier-1", "default-verifier-2"]
+nop_aliases = ["canton-default-verifier-1", "canton-default-verifier-2"]
 threshold = 2
 
 [environment_topology.nop_topology.committees.secondary]
@@ -98,19 +128,19 @@ address = "secondary-aggregator:50051"
 insecure_connection = true
 
 [environment_topology.nop_topology.committees.secondary.chain_configs.3379446385462418246]
-nop_aliases = ["secondary-verifier-1", "secondary-verifier-2"]
+nop_aliases = ["evm-secondary-verifier-1", "evm-secondary-verifier-2"]
 threshold = 2
 
 [environment_topology.nop_topology.committees.secondary.chain_configs.12922642891491394802]
-nop_aliases = ["secondary-verifier-1", "secondary-verifier-2"]
+nop_aliases = ["evm-secondary-verifier-1", "evm-secondary-verifier-2"]
 threshold = 2
 
 [environment_topology.nop_topology.committees.secondary.chain_configs.4793464827907405086]
-nop_aliases = ["secondary-verifier-1", "secondary-verifier-2"]
+nop_aliases = ["evm-secondary-verifier-1", "evm-secondary-verifier-2"]
 threshold = 2
 
 [environment_topology.nop_topology.committees.secondary.chain_configs.8706591216959472610]
-nop_aliases = ["secondary-verifier-1", "secondary-verifier-2"]
+nop_aliases = ["canton-secondary-verifier-1", "canton-secondary-verifier-2"]
 threshold = 2
 
 [environment_topology.nop_topology.committees.tertiary]
@@ -123,19 +153,19 @@ address = "tertiary-aggregator:50051"
 insecure_connection = true
 
 [environment_topology.nop_topology.committees.tertiary.chain_configs.3379446385462418246]
-nop_aliases = ["tertiary-verifier-1", "tertiary-verifier-2"]
+nop_aliases = ["evm-tertiary-verifier-1", "evm-tertiary-verifier-2"]
 threshold = 2
 
 [environment_topology.nop_topology.committees.tertiary.chain_configs.12922642891491394802]
-nop_aliases = ["tertiary-verifier-1", "tertiary-verifier-2"]
+nop_aliases = ["evm-tertiary-verifier-1", "evm-tertiary-verifier-2"]
 threshold = 2
 
 [environment_topology.nop_topology.committees.tertiary.chain_configs.4793464827907405086]
-nop_aliases = ["tertiary-verifier-1", "tertiary-verifier-2"]
+nop_aliases = ["evm-tertiary-verifier-1", "evm-tertiary-verifier-2"]
 threshold = 2
 
 [environment_topology.nop_topology.committees.tertiary.chain_configs.8706591216959472610]
-nop_aliases = ["tertiary-verifier-1", "tertiary-verifier-2"]
+nop_aliases = ["canton-tertiary-verifier-1", "canton-tertiary-verifier-2"]
 threshold = 2
 
 [environment_topology.executor_pools.default]
@@ -198,11 +228,112 @@ execution_interval = 15_000_000_000
     file_path = "../pricer/keystore.json"
     password = "keystore_test_password"
 
+#################
+# EVM Verifiers #
+#################
+
 ## Default Verifier Setup
 [[verifier]]
   image = "verifier:dev"
   container_name = "default-verifier-1"
-  nop_alias = "default-verifier-1"
+  nop_alias = "evm-default-verifier-1"
+  port = 8100
+  # path is relative from "devenv" dir
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 0
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-1-db"
+    port = 8432
+
+
+[[verifier]]
+  image = "verifier:dev"
+  container_name = "default-verifier-2"
+  nop_alias = "evm-default-verifier-2"
+  port = 8200
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 1
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-2-db"
+    port = 8433
+
+
+# Secondary Verifier Setup
+[[verifier]]
+  image = "verifier:dev"
+  container_name = "secondary-verifier-1"
+  nop_alias = "evm-secondary-verifier-1"
+  port = 8300
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "secondary"
+  node_index = 0
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "secondary-verifier-1-db"
+    port = 8434
+
+
+[[verifier]]
+  image = "verifier:dev"
+  container_name = "secondary-verifier-2"
+  nop_alias = "evm-secondary-verifier-2"
+  port = 8400
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "secondary"
+  node_index = 1
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "secondary-verifier-2-db"
+    port = 8435
+
+
+# Tertiary Verifier Setup
+[[verifier]]
+  image = "verifier:dev"
+  container_name = "tertiary-verifier-1"
+  nop_alias = "evm-tertiary-verifier-1"
+  port = 8500
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "tertiary"
+  node_index = 0
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "tertiary-verifier-1-db"
+    port = 8436
+
+
+[[verifier]]
+  image = "verifier:dev"
+  container_name = "tertiary-verifier-2"
+  nop_alias = "evm-tertiary-verifier-2"
+  port = 8600
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "tertiary"
+  node_index = 1
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "tertiary-verifier-2-db"
+    port = 8437
+
+####################
+# Canton Verifiers #
+####################
+
+## Default Verifier Setup
+[[verifier]]
+  image = "verifier:dev"
+  container_name = "default-verifier-1"
+  nop_alias = "canton-default-verifier-1"
   port = 8100
   # path is relative from "devenv" dir
   source_code_path = "../verifier"
@@ -210,12 +341,13 @@ execution_interval = 15_000_000_000
   committee_name = "default"
   node_index = 0
   disable_finality_checkers = ["8706591216959472610"] # Disable finality detection on Canton.
+  chain_family = "canton"
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-1-db"
     port = 8432
   [verifier.canton_configs]
-    [verifier.canton_configs.8706591216959472610.reader_config]
+    [verifier.canton_configs.reader_configs.8706591216959472610]
       ccip_owner_party = "participant1-localparty-1"
       ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
 
@@ -223,19 +355,20 @@ execution_interval = 15_000_000_000
 [[verifier]]
   image = "verifier:dev"
   container_name = "default-verifier-2"
-  nop_alias = "default-verifier-2"
+  nop_alias = "canton-default-verifier-2"
   port = 8200
   source_code_path = "../verifier"
   root_path = "../../"
   committee_name = "default"
   node_index = 1
   disable_finality_checkers = ["8706591216959472610"] # Disable finality detection on Canton.
+  chain_family = "canton"
   [verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-2-db"
     port = 8433
   [verifier.canton_configs]
-    [verifier.canton_configs.8706591216959472610.reader_config]
+    [verifier.canton_configs.reader_configs.8706591216959472610]
       ccip_owner_party = "participant1-localparty-1"
       ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
 
@@ -244,19 +377,20 @@ execution_interval = 15_000_000_000
 [[verifier]]
   image = "verifier:dev"
   container_name = "secondary-verifier-1"
-  nop_alias = "secondary-verifier-1"
+  nop_alias = "canton-secondary-verifier-1"
   port = 8300
   source_code_path = "../verifier"
   root_path = "../../"
   committee_name = "secondary"
   node_index = 0
   disable_finality_checkers = ["8706591216959472610"] # Disable finality detection on Canton.
+  chain_family = "canton"
   [verifier.db]
     image = "postgres:16-alpine"
     name = "secondary-verifier-1-db"
     port = 8434
   [verifier.canton_configs]
-    [verifier.canton_configs.8706591216959472610.reader_config]
+    [verifier.canton_configs.reader_configs.8706591216959472610]
       ccip_owner_party = "participant1-localparty-1"
       ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
 
@@ -264,19 +398,20 @@ execution_interval = 15_000_000_000
 [[verifier]]
   image = "verifier:dev"
   container_name = "secondary-verifier-2"
-  nop_alias = "secondary-verifier-2"
+  nop_alias = "canton-secondary-verifier-2"
   port = 8400
   source_code_path = "../verifier"
   root_path = "../../"
   committee_name = "secondary"
   node_index = 1
   disable_finality_checkers = ["8706591216959472610"] # Disable finality detection on Canton.
+  chain_family = "canton"
   [verifier.db]
     image = "postgres:16-alpine"
     name = "secondary-verifier-2-db"
     port = 8435
   [verifier.canton_configs]
-    [verifier.canton_configs.8706591216959472610.reader_config]
+    [verifier.canton_configs.reader_configs.8706591216959472610]
       ccip_owner_party = "participant1-localparty-1"
       ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
 
@@ -285,38 +420,40 @@ execution_interval = 15_000_000_000
 [[verifier]]
   image = "verifier:dev"
   container_name = "tertiary-verifier-1"
-  nop_alias = "tertiary-verifier-1"
+  nop_alias = "canton-tertiary-verifier-1"
   port = 8500
   source_code_path = "../verifier"
   root_path = "../../"
   committee_name = "tertiary"
   node_index = 0
   disable_finality_checkers = ["8706591216959472610"] # Disable finality detection on Canton.
+  chain_family = "canton"
   [verifier.db]
     image = "postgres:16-alpine"
     name = "tertiary-verifier-1-db"
     port = 8436
   [verifier.canton_configs]
-    [verifier.canton_configs.8706591216959472610.reader_config]
+    [verifier.canton_configs.reader_configs.8706591216959472610]
       ccip_owner_party = "participant1-localparty-1"
       ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
 
 [[verifier]]
   image = "verifier:dev"
   container_name = "tertiary-verifier-2"
-  nop_alias = "tertiary-verifier-2"
+  nop_alias = "canton-tertiary-verifier-2"
   port = 8600
   source_code_path = "../verifier"
   root_path = "../../"
   committee_name = "tertiary"
   node_index = 1
   disable_finality_checkers = ["8706591216959472610"] # Disable finality detection on Canton.
+  chain_family = "canton"
   [verifier.db]
     image = "postgres:16-alpine"
     name = "tertiary-verifier-2-db"
     port = 8437
   [verifier.canton_configs]
-    [verifier.canton_configs.8706591216959472610.reader_config]
+    [verifier.canton_configs.reader_configs.8706591216959472610]
       ccip_owner_party = "participant1-localparty-1"
       ccip_message_sent_template_id = "#json-tests:Main:CCIPMessageSent"
 

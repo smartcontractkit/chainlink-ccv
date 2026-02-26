@@ -68,8 +68,12 @@ func TestMessageHeap_PeekTime(t *testing.T) {
 				mh.Push(*msg)
 			}
 
-			if got := mh.Peek().ReadyTime; got != tt.expected {
-				t.Errorf("MessageHeap.PeekTime() = %v, want %v", got, tt.expected)
+			msg, err := mh.heap.peek()
+			if err != nil {
+				t.Fatalf("Unexpected error from peek: %v", err)
+			}
+			if msg.ReadyTime != tt.expected {
+				t.Errorf("MessageHeap.PeekTime() = %v, want %v", msg.ReadyTime, tt.expected)
 			}
 		})
 	}
@@ -196,8 +200,12 @@ func TestMessageHeap_InternalHeapIntegration(t *testing.T) {
 			MessageID: msg.MessageID,
 		})
 		// Verify heap property - should always return earliest time
-		if mh.Peek().ReadyTime != t0_5 {
-			t.Errorf("peekTime() = %v, want 50", mh.Peek().ReadyTime)
+		got, err := mh.peek()
+		if err != nil {
+			t.Fatalf("Unexpected error from peek: %v", err)
+		}
+		if got.ReadyTime != t0_5 {
+			t.Errorf("peekTime() = %v, want 50", got.ReadyTime)
 		}
 	}
 
@@ -211,8 +219,12 @@ func TestMessageHeap_InternalHeapIntegration(t *testing.T) {
 		}
 		expectedMessage := messages[expectedOrder[i]]
 
-		if mh.Peek().ReadyTime != expectedMessage.ReadyTime {
-			t.Errorf("peekTime() at iteration %v = %v, want %v", i, mh.Peek().ReadyTime, expectedMessage.ReadyTime)
+		got, err := mh.peek()
+		if err != nil {
+			t.Fatalf("Unexpected error from peek at iteration %v: %v", i, err)
+		}
+		if got.ReadyTime != expectedMessage.ReadyTime {
+			t.Errorf("peekTime() at iteration %v = %v, want %v", i, got.ReadyTime, expectedMessage.ReadyTime)
 		}
 
 		msg, ok := heap.Pop(mh).(MessageHeapEntry)

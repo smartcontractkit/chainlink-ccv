@@ -10,10 +10,10 @@ import (
 	"github.com/rs/zerolog"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/canton"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/registry"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/canton"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
