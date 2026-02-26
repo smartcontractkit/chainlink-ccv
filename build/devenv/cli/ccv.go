@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -28,7 +28,7 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cmd/ccv/send"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cli/send"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 )
 
@@ -736,10 +736,6 @@ func RunCLI() {
 		ccv.Plog.Err(err).Send()
 		os.Exit(1)
 	}
-}
-
-func main() {
-	RunCLI()
 }
 
 func isServiceLoadTest(testPattern string) bool {
