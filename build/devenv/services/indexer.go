@@ -59,6 +59,10 @@ type IndexerInput struct {
 	RootPath       string   `toml:"root_path"`
 	DB             *DBInput `toml:"db"`
 	ContainerName  string   `toml:"container_name"`
+	// RedundantIndexers is the number of additional indexer instances to spawn
+	// when Cfg.HighAvailability is true.
+	// 0 = no redundancy (default), 1 = one extra (total 2), etc.
+	RedundantIndexers int `toml:"redundant_indexers"`
 	// StorageConnectionURL is the full postgres connection string (container-to-container).
 	// When set, used for injectPostgresURI and Out.DBConnectionString (aligned with aggregator.env.storage_connection_url).
 	StorageConnectionURL             string                  `toml:"storage_connection_url"`
