@@ -410,6 +410,7 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 		return testcontainers.ContainerRequest{}, fmt.Errorf("failed to get source code path: %w", err)
 	}
 
+	req.Mounts = testcontainers.Mounts()
 	req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
 		bootstrapConfigFilePath,
 		bootstrap.DefaultConfigPath,
@@ -417,7 +418,6 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 
 	// Note: identical code to aggregator.go/executor.go -- will indexer be identical as well?
 	if in.SourceCodePath != "" {
-		req.Mounts = testcontainers.Mounts()
 		req.Mounts = append(req.Mounts, services.GoSourcePathMounts(in.RootPath, services.AppPathInsideContainer)...)
 		req.Mounts = append(req.Mounts, services.GoCacheMounts()...)
 		framework.L.Info().
