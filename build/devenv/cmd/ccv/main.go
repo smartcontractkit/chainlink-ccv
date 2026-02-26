@@ -1,9 +1,9 @@
-package ccv
+package main
 
 import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cli"
 )
 
-func RunCLI() {
+func main() {
 	cli.RunCLI()
 }
