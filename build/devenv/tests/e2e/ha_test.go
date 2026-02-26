@@ -11,15 +11,18 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
-	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
 // DefaultHATestConfig is the path to the HA environment output config.
+// When launched via `ccv up env.toml,env-HA.toml`, the output is named
+// after the base config (env.toml) → env-out.toml.
 // Override via HA_TEST_CONFIG env var.
-const DefaultHATestConfig = "../../env-HA-out.toml"
+const DefaultHATestConfig = "../../env-out.toml"
 
 func getHATestConfig() string {
 	if cfg := os.Getenv("HA_TEST_CONFIG"); cfg != "" {
@@ -40,24 +43,63 @@ type haTestSetup struct {
 	toSelector   uint64
 }
 
-// survivingClients returns a client for agg and indexer instance NOT in the killed set.
-// Returns nil if all instances are killed.
-func (s *haTestSetup) survivingClients(killedContainers ...string) (aggClient *ccv.AggregatorClient, indexerMon *ccv.IndexerMonitor) {
+// aggsByCommittee returns aggregator inputs for a given committee.
+func (s *haTestSetup) aggsByCommittee(committee string) []*services.AggregatorInput {
+	var result []*services.AggregatorInput
+	for _, agg := range s.in.Aggregator {
+		if agg.CommitteeName == committee {
+			result = append(result, agg)
+		}
+	}
+	return result
+}
+
+// findHACommittee returns the name of a committee that has more than one
+// aggregator (i.e., HA expansion happened). Fails the test if none exists.
+func (s *haTestSetup) findHACommittee(t *testing.T) string {
+	t.Helper()
+	for name, committee := range s.in.EnvironmentTopology.NOPTopology.Committees {
+		if len(committee.Aggregators) > 1 {
+			return name
+		}
+	}
+	t.Fatal("no committee with multiple aggregators found — HA expansion did not happen")
+	return ""
+}
+
+// survivingAggClient returns an aggregator client for the given committee
+// that is NOT in the killed set. Returns nil if all instances are killed.
+func (s *haTestSetup) survivingAggClient(committee string, killedContainers ...string) *ccv.AggregatorClient {
 	killed := make(map[string]bool, len(killedContainers))
 	for _, name := range killedContainers {
 		killed[name] = true
 	}
-	for name, client := range s.aggClients {
-		if !killed[name] {
-			aggClient = client
+	for _, agg := range s.in.Aggregator {
+		if agg.CommitteeName != committee || agg.Out == nil {
+			continue
 		}
+		if killed[agg.Out.ContainerName] {
+			continue
+		}
+		if client, ok := s.aggClients[agg.Out.ContainerName]; ok {
+			return client
+		}
+	}
+	return nil
+}
+
+// survivingIndexerMon returns an indexer monitor that is NOT in the killed set.
+func (s *haTestSetup) survivingIndexerMon(killedContainers ...string) *ccv.IndexerMonitor {
+	killed := make(map[string]bool, len(killedContainers))
+	for _, name := range killedContainers {
+		killed[name] = true
 	}
 	for name, mon := range s.indexerMons {
 		if !killed[name] {
-			indexerMon = mon
+			return mon
 		}
 	}
-	return aggClient, indexerMon
+	return nil
 }
 
 // sendAndAssertExecution sends a CCIP message and asserts end-to-end delivery.
@@ -91,7 +133,6 @@ func (s *haTestSetup) sendAndAssertExecution(
 	require.NoError(t, err)
 	messageID := sentEvent.MessageID
 
-	// Verify intermediate pipeline state when clients are available.
 	testCtx := NewTestingContext(t, ctx, s.chainMap, aggClient, indexerMon)
 	result, err := testCtx.AssertMessage(messageID, AssertMessageOptions{
 		TickInterval:            5 * time.Second,
@@ -110,7 +151,6 @@ func (s *haTestSetup) sendAndAssertExecution(
 			"expected exactly 1 indexed verification")
 	}
 
-	// Ground truth: the message must execute successfully on the destination chain.
 	e, err := s.chainMap[s.toSelector].WaitOneExecEventBySeqNo(
 		ctx, s.fromSelector, seqNo, defaultExecTimeout)
 	require.NoError(t, err)
@@ -123,16 +163,9 @@ func (s *haTestSetup) sendAndAssertExecution(
 // Container lifecycle helpers
 // ---------------------------------------------------------------------------
 
-// stopContainer stops a single Docker container by exact name using
-// `docker stop`.  Unlike pumba's re2 regex matching (which is unanchored and
-// can inadvertently match sibling containers), this performs an exact-name
-// stop with no ambiguity.
-//
-// A t.Cleanup handler is registered to restart the container at test teardown
-// so the environment is left in a clean state even if the test fails early.
-// If the caller restarts the container explicitly mid-test (e.g. for a
-// "recovery" phase), `docker start` is idempotent and the cleanup restart is
-// harmless.
+// stopContainer stops a single Docker container by exact name.
+// A t.Cleanup handler restarts the container at teardown so the environment
+// is left clean even if the test fails early.
 func stopContainer(t *testing.T, l *zerolog.Logger, containerName string) {
 	t.Helper()
 	l.Info().Str("container", containerName).Msg("Stopping container")
@@ -143,8 +176,6 @@ func stopContainer(t *testing.T, l *zerolog.Logger, containerName string) {
 }
 
 // restartContainer starts a stopped Docker container by exact name.
-// Calling this on an already-running container is a no-op (docker start is
-// idempotent).
 func restartContainer(t *testing.T, l *zerolog.Logger, containerName string) {
 	t.Helper()
 	l.Info().Str("container", containerName).Msg("Restarting container")
@@ -158,46 +189,80 @@ func restartContainer(t *testing.T, l *zerolog.Logger, containerName string) {
 // Tests
 // ---------------------------------------------------------------------------
 
-// TestHA_Baseline verifies that the HA environment is healthy: correct topology
-// (2 aggregators, 2 indexers, 1 committee) and that a message flows end-to-end
-// with all services running.
+// TestHA_Baseline verifies that the HA environment is healthy: expansion
+// produced the expected topology and a message flows end-to-end with all
+// services running.
 func TestHA_Baseline(t *testing.T) {
 	setup := setupHATest(t)
 
-	// Topology assertions.
-	require.Len(t, setup.in.Aggregator, 2, "expected 2 redundant aggregators")
-	require.Len(t, setup.in.Indexer, 2, "expected 2 redundant indexers")
-	require.Len(t, setup.in.Verifier, 2, "expected 2 verifiers")
-	// All aggregators serve the same committee.
-	for _, agg := range setup.in.Aggregator {
-		require.Equal(t, "default", agg.CommitteeName,
-			"all aggregators must belong to the same committee for HA")
+	// Verify HA is enabled.
+	require.True(t, setup.in.HighAvailability, "HA must be enabled")
+
+	// Verify expansion produced the expected topology.
+	// env.toml defines: default (redundant=1), secondary (redundant=1), tertiary (redundant=0)
+	// → 3 original + 2 HA clones = 5 aggregators total.
+	require.Len(t, setup.in.Aggregator, 5,
+		"expected 5 aggregators (3 original + 2 HA clones)")
+
+	// Verify indexer expansion: 1 original + 1 HA clone = 2.
+	require.Len(t, setup.in.Indexer, 2,
+		"expected 2 indexers (1 original + 1 HA clone)")
+
+	// Verify committee-level aggregator counts.
+	haCommittee := setup.findHACommittee(t)
+	committeeAggs := setup.aggsByCommittee(haCommittee)
+	require.Len(t, committeeAggs, 2,
+		"HA committee %q should have 2 aggregators", haCommittee)
+
+	// All aggregators in the HA committee must serve the same committee.
+	for _, agg := range committeeAggs {
+		require.Equal(t, haCommittee, agg.CommitteeName)
 	}
 
-	survivingAggClient, survivingIndexerMon := setup.survivingClients()
-	setup.sendAndAssertExecution(t, survivingAggClient, survivingIndexerMon)
+	// Verify the HA clone was named correctly by expansion.
+	require.Equal(t, fmt.Sprintf("%s-ha-1", haCommittee), committeeAggs[1].Name,
+		"HA clone should follow the naming convention")
+
+	// Verify the topology was updated with both aggregator entries.
+	committee := setup.in.EnvironmentTopology.NOPTopology.Committees[haCommittee]
+	require.Len(t, committee.Aggregators, 2,
+		"topology should have 2 aggregator entries for the HA committee")
+
+	// Verify indexer addresses were expanded.
+	require.GreaterOrEqual(t, len(setup.in.EnvironmentTopology.IndexerAddress), 2,
+		"topology should have at least 2 indexer addresses after expansion")
+
+	// End-to-end: send a message and verify delivery with all services up.
+	aggClient := setup.survivingAggClient(haCommittee)
+	indexerMon := setup.survivingIndexerMon()
+	require.NotNil(t, aggClient, "need at least one aggregator client for baseline")
+	setup.sendAndAssertExecution(t, aggClient, indexerMon)
 }
 
-// TestHA_SingleAggregatorDown kills one of two redundant aggregators, verifies
-// that a message still flows through the surviving aggregator, then restarts
-// the killed aggregator and confirms the system returns to full health.
+// TestHA_SingleAggregatorDown kills one of the redundant aggregators in an
+// HA-enabled committee, verifies that a message still flows through the
+// surviving aggregator, then restarts and confirms recovery.
 func TestHA_SingleAggregatorDown(t *testing.T) {
 	setup := setupHATest(t)
-	require.Len(t, setup.in.Aggregator, 2, "need 2 aggregators for this test")
 
-	killedAgg := setup.in.Aggregator[0].Out.ContainerName
+	haCommittee := setup.findHACommittee(t)
+	committeeAggs := setup.aggsByCommittee(haCommittee)
+	require.Len(t, committeeAggs, 2, "need 2 aggregators in %q for this test", haCommittee)
+
+	killedAgg := committeeAggs[0].Out.ContainerName
 	require.NotEmpty(t, killedAgg)
 
-	// Phase 1: Kill one aggregator, send a message, assert it flows.
+	// Phase 1: Kill one aggregator, send a message, assert it flows via the survivor.
 	stopContainer(t, setup.l, killedAgg)
-	survivingClient, survivingIndexerMon := setup.survivingClients(killedAgg)
-	require.NotNil(t, survivingClient, "must have a surviving aggregator client")
-	setup.sendAndAssertExecution(t, survivingClient, survivingIndexerMon)
+	survivingClient := setup.survivingAggClient(haCommittee, killedAgg)
+	require.NotNil(t, survivingClient, "must have a surviving aggregator client in committee %q", haCommittee)
+	survivingIdx := setup.survivingIndexerMon()
+	setup.sendAndAssertExecution(t, survivingClient, survivingIdx)
 
 	// Phase 2: Restart the killed aggregator, send another message to verify recovery.
 	restartContainer(t, setup.l, killedAgg)
-	time.Sleep(5 * time.Second) // allow aggregator to stabilize
-	setup.sendAndAssertExecution(t, survivingClient, survivingIndexerMon)
+	time.Sleep(5 * time.Second)
+	setup.sendAndAssertExecution(t, survivingClient, survivingIdx)
 }
 
 // TestHA_SingleIndexerDown kills one of two redundant indexers, verifies that a
@@ -209,39 +274,44 @@ func TestHA_SingleIndexerDown(t *testing.T) {
 	killedIdx := setup.in.Indexer[0].Out.ContainerName
 	require.NotEmpty(t, killedIdx)
 
+	haCommittee := setup.findHACommittee(t)
+
 	// Phase 1: Kill the first indexer, send a message, assert it flows via the second.
 	stopContainer(t, setup.l, killedIdx)
-	survivingClient, survivingIndexerMon := setup.survivingClients(killedIdx)
-	setup.sendAndAssertExecution(t, survivingClient, survivingIndexerMon)
+	aggClient := setup.survivingAggClient(haCommittee)
+	survivingIdx := setup.survivingIndexerMon(killedIdx)
+	setup.sendAndAssertExecution(t, aggClient, survivingIdx)
 
 	// Phase 2: Restart, verify recovery.
 	restartContainer(t, setup.l, killedIdx)
 	time.Sleep(5 * time.Second)
-	setup.sendAndAssertExecution(t, survivingClient, survivingIndexerMon)
+	setup.sendAndAssertExecution(t, aggClient, survivingIdx)
 }
 
 // TestHA_CrossComponentDown kills one aggregator and one indexer simultaneously,
-// verifying that the system tolerates a multi-component partial failure. This
-// proves that the remaining aggregator + remaining indexer can independently
-// carry the full pipeline.
+// verifying that the system tolerates a multi-component partial failure.
 func TestHA_CrossComponentDown(t *testing.T) {
 	setup := setupHATest(t)
-	require.Len(t, setup.in.Aggregator, 2, "need 2 aggregators for this test")
 	require.Len(t, setup.in.Indexer, 2, "need 2 indexers for this test")
 
-	killedAgg := setup.in.Aggregator[0].Out.ContainerName
-	killedIdx := setup.in.Indexer[1].Out.ContainerName
+	haCommittee := setup.findHACommittee(t)
+	committeeAggs := setup.aggsByCommittee(haCommittee)
+	require.Len(t, committeeAggs, 2, "need 2 aggregators in %q for this test", haCommittee)
+
+	killedAgg := committeeAggs[0].Out.ContainerName
+	killedIdx := setup.in.Indexer[0].Out.ContainerName
 	require.NotEmpty(t, killedAgg)
 	require.NotEmpty(t, killedIdx)
 
 	stopContainer(t, setup.l, killedAgg)
 	stopContainer(t, setup.l, killedIdx)
 
-	survivingAggClient, survivingIndexerMon := setup.survivingClients(killedAgg, killedIdx)
-	require.NotNil(t, survivingAggClient)
-	require.NotNil(t, survivingIndexerMon)
+	survivingClient := setup.survivingAggClient(haCommittee, killedAgg)
+	require.NotNil(t, survivingClient)
+	survivingIdx := setup.survivingIndexerMon(killedIdx)
+	require.NotNil(t, survivingIdx)
 
-	setup.sendAndAssertExecution(t, survivingAggClient, survivingIndexerMon)
+	setup.sendAndAssertExecution(t, survivingClient, survivingIdx)
 }
 
 // ---------------------------------------------------------------------------
@@ -271,8 +341,8 @@ func setupHATest(t *testing.T) *haTestSetup {
 	chainMap, err := lib.ChainsMap(ctx)
 	require.NoError(t, err)
 
-	// Build per-instance aggregator clients so we can selectively use a
-	// surviving instance's client when another is killed.
+	// Build per-instance aggregator clients for ALL aggregators so we can
+	// selectively use a surviving instance when another is killed.
 	aggClients := make(map[string]*ccv.AggregatorClient, len(in.Aggregator))
 	for _, agg := range in.Aggregator {
 		require.NotNil(t, agg.Out,
@@ -288,8 +358,7 @@ func setupHATest(t *testing.T) *haTestSetup {
 		t.Cleanup(func() { client.Close() })
 	}
 
-	// Build indexer monitors keyed by container name (not URI) so that
-	// survivingClients can match killed container names correctly.
+	// Build indexer monitors keyed by container name.
 	allIndexerClients, err := lib.AllIndexers()
 	require.NoError(t, err)
 	require.Equal(t, len(in.Indexer), len(allIndexerClients),

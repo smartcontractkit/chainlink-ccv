@@ -16,13 +16,13 @@ import (
 func TestExpandForHA(t *testing.T) {
 	tests := []struct {
 		name    string
-		cfg     Cfg
+		cfg     *Cfg
 		assert  func(t *testing.T, cfg *Cfg)
 		wantErr string
 	}{
 		{
 			name: "HA disabled is a no-op",
-			cfg: Cfg{
+			cfg: &Cfg{
 				HighAvailability: false,
 				Aggregator: []*services.AggregatorInput{
 					{
@@ -48,7 +48,7 @@ func TestExpandForHA(t *testing.T) {
 		},
 		{
 			name: "single committee single redundant aggregator",
-			cfg: buildCfg(
+			cfg: buildCfgPtr(
 				withAggregator("default", 50051, 7432, 6379, 1),
 				withTopologyCommittee("default", "default", true),
 				withIndexer(8104, 6432, 0),
@@ -84,7 +84,7 @@ func TestExpandForHA(t *testing.T) {
 		},
 		{
 			name: "multi committee expansion",
-			cfg: buildCfg(
+			cfg: buildCfgPtr(
 				withAggregator("default", 50051, 7432, 6379, 1),
 				withAggregator("secondary", 50052, 7433, 6380, 1),
 				withTopologyCommittee("default", "default", true),
@@ -117,7 +117,7 @@ func TestExpandForHA(t *testing.T) {
 		},
 		{
 			name: "mixed redundancy — some committees expanded, some not",
-			cfg: buildCfg(
+			cfg: buildCfgPtr(
 				withAggregator("default", 50051, 7432, 6379, 1),
 				withAggregator("secondary", 50052, 7433, 6380, 0),
 				withAggregator("tertiary", 50053, 7434, 6381, 2),
@@ -147,7 +147,7 @@ func TestExpandForHA(t *testing.T) {
 		},
 		{
 			name: "API clients are deep copied",
-			cfg: buildCfg(
+			cfg: buildCfgPtr(
 				withAggregatorWithClients("default", 50051, 7432, 6379, 1,
 					[]*services.AggregatorClientConfig{
 						{ClientID: "verifier-1", Enabled: true, Groups: []string{"verifiers"},
@@ -176,7 +176,7 @@ func TestExpandForHA(t *testing.T) {
 		},
 		{
 			name: "indexer expansion with address generation",
-			cfg: buildCfg(
+			cfg: buildCfgPtr(
 				withAggregator("default", 50051, 7432, 6379, 0),
 				withTopologyCommittee("default", "default", true),
 				withIndexerFull(8104, 6432, 1, "indexer:dev", "../indexer",
@@ -209,7 +209,7 @@ func TestExpandForHA(t *testing.T) {
 		},
 		{
 			name: "indexer config storage pointers are independent",
-			cfg: buildCfg(
+			cfg: buildCfgPtr(
 				withAggregator("default", 50051, 7432, 6379, 0),
 				withTopologyCommittee("default", "default", true),
 				withIndexerWithConfig(8104, 6432, 1),
@@ -231,7 +231,7 @@ func TestExpandForHA(t *testing.T) {
 		},
 		{
 			name: "port allocation across multiple redundancies",
-			cfg: buildCfg(
+			cfg: buildCfgPtr(
 				withAggregator("default", 50051, 7432, 6379, 2),
 				withTopologyCommittee("default", "default", true),
 				withIndexer(8104, 6432, 0),
@@ -259,7 +259,7 @@ func TestExpandForHA(t *testing.T) {
 		},
 		{
 			name: "nil topology is safe for aggregator expansion",
-			cfg: Cfg{
+			cfg: &Cfg{
 				HighAvailability: true,
 				Aggregator: []*services.AggregatorInput{
 					{CommitteeName: "default", RedundantAggregators: 1},
@@ -274,7 +274,7 @@ func TestExpandForHA(t *testing.T) {
 		},
 		{
 			name: "committee not found in topology returns error",
-			cfg: buildCfg(
+			cfg: buildCfgPtr(
 				withAggregator("nonexistent", 50051, 7432, 6379, 1),
 				withTopologyCommittee("default", "default", true),
 				withIndexer(8104, 6432, 0),
@@ -284,8 +284,8 @@ func TestExpandForHA(t *testing.T) {
 		},
 		{
 			name: "aggregator with custom Name uses Name for clone prefix",
-			cfg: func() Cfg {
-				c := buildCfg(
+			cfg: func() *Cfg {
+				c := buildCfgPtr(
 					withTopologyCommittee("default", "default", true),
 					withIndexer(8104, 6432, 0),
 					withTopologyIndexerAddresses("http://indexer-1:8100"),
@@ -310,7 +310,7 @@ func TestExpandForHA(t *testing.T) {
 		},
 		{
 			name: "indexer expansion without topology does not panic",
-			cfg: Cfg{
+			cfg: &Cfg{
 				HighAvailability: true,
 				Indexer: []*services.IndexerInput{
 					{Port: 8104, RedundantIndexers: 1, DB: &services.DBInput{HostPort: 6432}},
@@ -322,7 +322,7 @@ func TestExpandForHA(t *testing.T) {
 		},
 		{
 			name: "multiple indexers with different redundancies",
-			cfg: buildCfg(
+			cfg: buildCfgPtr(
 				withAggregator("default", 50051, 7432, 6379, 0),
 				withTopologyCommittee("default", "default", true),
 				withIndexer(8104, 6432, 2),
@@ -351,8 +351,7 @@ func TestExpandForHA(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := tt.cfg
-			err := cfg.expandForHA()
+			err := tt.cfg.expandForHA()
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
@@ -360,7 +359,7 @@ func TestExpandForHA(t *testing.T) {
 			}
 			require.NoError(t, err)
 			if tt.assert != nil {
-				tt.assert(t, &cfg)
+				tt.assert(t, tt.cfg)
 			}
 		})
 	}
@@ -372,8 +371,8 @@ func TestExpandForHA(t *testing.T) {
 
 type cfgOption func(*Cfg)
 
-func buildCfg(opts ...cfgOption) Cfg {
-	c := Cfg{
+func buildCfgPtr(opts ...cfgOption) *Cfg {
+	c := &Cfg{
 		HighAvailability: true,
 		EnvironmentTopology: &deployments.EnvironmentTopology{
 			NOPTopology: &deployments.NOPTopology{
@@ -385,7 +384,7 @@ func buildCfg(opts ...cfgOption) Cfg {
 		},
 	}
 	for _, opt := range opts {
-		opt(&c)
+		opt(c)
 	}
 	return c
 }

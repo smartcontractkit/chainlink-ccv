@@ -227,11 +227,42 @@ func (c *Cfg) expandAggregators() error {
 			}
 
 			aggContainerName := fmt.Sprintf("%s-%s", cloneName, services.AggregatorContainerNameSuffix)
+			cloneAddr := fmt.Sprintf("%s:%d", aggContainerName, services.DefaultAggregatorGRPCPort)
 			committee.Aggregators = append(committee.Aggregators, deployments.AggregatorConfig{
 				Name:                         cloneName,
-				Address:                      fmt.Sprintf("%s:%d", aggContainerName, services.DefaultAggregatorGRPCPort),
+				Address:                      cloneAddr,
 				InsecureAggregatorConnection: insecure,
 			})
+
+			// Add a Verifier entry to every indexer that verifies this committee
+			// so the indexer can pull verified data from the HA aggregator too.
+			for _, idx := range c.Indexer {
+				if idx.IndexerConfig == nil {
+					continue
+				}
+				for _, ver := range idx.IndexerConfig.Verifiers {
+					if ver.Type != config.ReaderTypeAggregator {
+						continue
+					}
+					qual, ok := idx.CommitteeVerifierNameToQualifier[ver.Name]
+					if !ok || qual != agg.CommitteeName {
+						continue
+					}
+					haVerName := fmt.Sprintf("%s (HA-%d)", ver.Name, i+1)
+					idx.IndexerConfig.Verifiers = append(idx.IndexerConfig.Verifiers, config.VerifierConfig{
+						Type:             config.ReaderTypeAggregator,
+						Name:             haVerName,
+						BatchSize:        ver.BatchSize,
+						MaxBatchWaitTime: ver.MaxBatchWaitTime,
+						AggregatorReaderConfig: config.AggregatorReaderConfig{
+							Address:            cloneAddr,
+							InsecureConnection: ver.InsecureConnection,
+						},
+					})
+					idx.CommitteeVerifierNameToQualifier[haVerName] = qual
+					break
+				}
+			}
 
 			clones = append(clones, clone)
 
@@ -316,8 +347,11 @@ func (c *Cfg) expandIndexers() error {
 
 	c.Indexer = append(c.Indexer, clones...)
 
+	// Ensure the topology has an indexer address for every indexer instance.
+	// Existing addresses are preserved; only missing entries are appended.
 	if c.EnvironmentTopology != nil {
-		for i := range c.Indexer {
+		totalIndexers := len(c.Indexer)
+		for i := len(c.EnvironmentTopology.IndexerAddress); i < totalIndexers; i++ {
 			addr := fmt.Sprintf("http://indexer-%d:%d", i+1, services.DefaultIndexerInternalPort)
 			c.EnvironmentTopology.IndexerAddress = append(c.EnvironmentTopology.IndexerAddress, addr)
 		}
@@ -1405,9 +1439,26 @@ func launchCLNodes(
 	vIn []*committeeverifier.Input,
 	aggregators []*services.AggregatorInput,
 ) (map[string][]string, error) {
-	aggByCommittee := make(map[string]*services.AggregatorInput)
+	aggsByCommittee := make(map[string][]*services.AggregatorInput)
 	for _, agg := range aggregators {
-		aggByCommittee[agg.CommitteeName] = agg
+		aggsByCommittee[agg.CommitteeName] = append(aggsByCommittee[agg.CommitteeName], agg)
+	}
+
+	// Build a lookup from (committeeName, aggIndex) → topology aggregator Name.
+	// The changeset uses the topology Name (not AggregatorInput.InstanceName()) to
+	// construct VerifierIDs, so secrets must use the same names. The ordering of
+	// aggsByCommittee[c] matches committee.Aggregators because both the original
+	// entries (TOML order) and expansion clones (appended by expandForHA) share
+	// the same insertion order.
+	topoAggNames := make(map[string][]string)
+	if in.EnvironmentTopology != nil && in.EnvironmentTopology.NOPTopology != nil {
+		for name, committee := range in.EnvironmentTopology.NOPTopology.Committees {
+			names := make([]string, len(committee.Aggregators))
+			for i, a := range committee.Aggregators {
+				names[i] = a.Name
+			}
+			topoAggNames[name] = names
+		}
 	}
 
 	// Exit early, there are no nodes configured.
@@ -1463,46 +1514,67 @@ func launchCLNodes(
 			return nil, fmt.Errorf("node index %d from NOPAlias %s exceeds available nodes (%d)",
 				index, ver.NOPAlias, len(nodeSpecs))
 		}
-		agg, ok := aggByCommittee[ver.CommitteeName]
-		if !ok {
-			return nil, fmt.Errorf("no aggregator found for committee %s", ver.CommitteeName)
+
+		committeeAggs := aggsByCommittee[ver.CommitteeName]
+		if len(committeeAggs) == 0 {
+			return nil, fmt.Errorf("no aggregators found for committee %q (verifier %s)", ver.CommitteeName, ver.ContainerName)
 		}
-		apiKeys, err := agg.GetAPIKeys()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get API keys for aggregator %s: %w", agg.CommitteeName, err)
-		}
-		Plog.Info().
-			Int("index", index).
-			Str("verifier", ver.ContainerName).
-			Str("committee", ver.CommitteeName).
-			Any("apiKeys", apiKeys).
-			Msg("getting API keys for verifier")
-		var found bool
-		for _, apiClient := range apiKeys {
-			if apiClient.ClientID == ver.ContainerName {
-				if len(apiClient.APIKeyPairs) == 0 {
-					return nil, fmt.Errorf("no API key pairs found for client %s", apiClient.ClientID)
-				}
-				apiKeyPair := apiClient.APIKeyPairs[0]
-				verifierID := fmt.Sprintf("default-%s-verifier", ver.CommitteeName)
-				Plog.Debug().
-					Int("nodeIndex", index).
-					Str("verifier", ver.ContainerName).
-					Str("committee", ver.CommitteeName).
-					Str("verifierID", verifierID).
-					Str("apiKey", apiKeyPair.APIKey[:8]+"...").
-					Msg("Passing aggregator credentials to CL node")
-				aggSecretsPerNode[index] = append(aggSecretsPerNode[index], AggregatorSecret{
-					VerifierID: verifierID,
-					APIKey:     apiKeyPair.APIKey,
-					APISecret:  apiKeyPair.Secret,
-				})
-				found = true
-				break
+		committeeTopoNames := topoAggNames[ver.CommitteeName]
+
+		for aggIdx, agg := range committeeAggs {
+			// Use the topology aggregator Name for VerifierID construction.
+			// The changeset builds VerifierIDs from topology names, so secrets
+			// must match. Fall back to InstanceName() when no topology exists.
+			aggName := agg.InstanceName()
+			if aggIdx < len(committeeTopoNames) {
+				aggName = committeeTopoNames[aggIdx]
 			}
-		}
-		if !found {
-			return nil, fmt.Errorf("failed to find API client for verifier %s on node %d", ver.ContainerName, index)
+
+			apiKeys, err := agg.GetAPIKeys()
+			if err != nil {
+				return nil, fmt.Errorf("failed to get API keys for aggregator %s: %w", agg.InstanceName(), err)
+			}
+			Plog.Info().
+				Int("index", index).
+				Str("verifier", ver.ContainerName).
+				Str("aggregator", agg.InstanceName()).
+				Str("topoName", aggName).
+				Str("committee", ver.CommitteeName).
+				Any("apiKeys", apiKeys).
+				Msg("getting API keys for verifier")
+			var found bool
+			for _, apiClient := range apiKeys {
+				if apiClient.ClientID == ver.ContainerName {
+					if len(apiClient.APIKeyPairs) == 0 {
+						return nil, fmt.Errorf("no API key pairs found for client %s on aggregator %s", apiClient.ClientID, agg.InstanceName())
+					}
+					apiKeyPair := apiClient.APIKeyPairs[0]
+					verifierID := shared.NewVerifierJobID(
+						shared.NOPAlias(ver.NOPAlias),
+						aggName,
+						shared.VerifierJobScope{CommitteeQualifier: ver.CommitteeName},
+					).GetVerifierID()
+					Plog.Debug().
+						Int("nodeIndex", index).
+						Str("verifier", ver.ContainerName).
+						Str("aggregator", agg.InstanceName()).
+						Str("topoName", aggName).
+						Str("committee", ver.CommitteeName).
+						Str("verifierID", verifierID).
+						Str("apiKey", apiKeyPair.APIKey[:8]+"...").
+						Msg("Passing aggregator credentials to CL node")
+					aggSecretsPerNode[index] = append(aggSecretsPerNode[index], AggregatorSecret{
+						VerifierID: verifierID,
+						APIKey:     apiKeyPair.APIKey,
+						APISecret:  apiKeyPair.Secret,
+					})
+					found = true
+					break
+				}
+			}
+			if !found {
+				return nil, fmt.Errorf("failed to find API client for verifier %s on aggregator %s", ver.ContainerName, agg.InstanceName())
+			}
 		}
 	}
 	idx := 0
