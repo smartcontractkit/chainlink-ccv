@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	insecuregrpc "google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/proto"
 
 	v1 "github.com/smartcontractkit/chainlink-ccv/integration/pkg/api/v1"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -19,12 +20,26 @@ import (
 
 const (
 	AdapterMinTLSVersion = tls.VersionTLS12
+	// DefaultMaxMessageSize is the default gRPC max message size (4MB).
+	DefaultMaxMessageSize = 4 * 1024 * 1024
+	// ProtoBatchOverhead is an estimate for proto encoding overhead for the batch wrapper
+	// This accounts for field tags, length prefixes, and the response structure.
+	ProtoBatchOverhead = 1024
 )
 
+// requestWithSize holds a proto request along with its size and original index.
+type requestWithSize struct {
+	req     *committeepb.WriteCommitteeVerifierNodeResultRequest
+	size    int
+	origIdx int
+	ccvData protocol.VerifierNodeResult
+}
+
 type AggregatorWriter struct {
-	client committeepb.CommitteeVerifierClient
-	conn   *grpc.ClientConn
-	lggr   logger.Logger
+	client         committeepb.CommitteeVerifierClient
+	conn           *grpc.ClientConn
+	lggr           logger.Logger
+	maxMessageSize int
 }
 
 func mapCCVDataToCCVNodeDataProto(ccvData protocol.VerifierNodeResult) (*committeepb.WriteCommitteeVerifierNodeResultRequest, error) {
@@ -50,8 +65,9 @@ func mapCCVDataToCCVNodeDataProto(ccvData protocol.VerifierNodeResult) (*committ
 }
 
 // WriteCCVNodeData writes CCV data to the aggregator via gRPC and returns detailed per-request results.
+// It automatically splits batches that would exceed the gRPC max message size limit.
 func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.VerifierNodeResult) ([]protocol.WriteResult, error) {
-	a.lggr.Infow("Storing CCV data using aggregator ", "count", len(ccvDataList))
+	a.lggr.Infow("Storing CCV data using aggregator", "count", len(ccvDataList))
 
 	results := make([]protocol.WriteResult, len(ccvDataList))
 
@@ -61,21 +77,110 @@ func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []p
 			Input:     ccvData,
 			Status:    protocol.WriteFailure,
 			Error:     nil,
-			Retryable: true, // Aggregator errors are always retryable
+			Retryable: true, // Aggregator errors are always retryable by default
 		}
 	}
 
-	requests := make([]*committeepb.WriteCommitteeVerifierNodeResultRequest, 0, len(ccvDataList))
+	// Convert to proto and calculate sizes
+	requestsWithSizes := make([]requestWithSize, 0, len(ccvDataList))
 	for i, ccvData := range ccvDataList {
 		req, err := mapCCVDataToCCVNodeDataProto(ccvData)
 		if err != nil {
 			results[i].Error = fmt.Errorf("failed to create proto request: %w", err)
+			results[i].Retryable = false // Mapping errors are not retryable
 			a.lggr.Errorw("Failed to map CCV data to proto", "messageID", ccvData.MessageID.String(), "error", err)
-			// Continue processing other requests
-			requests = append(requests, nil)
 			continue
 		}
-		requests = append(requests, req)
+
+		size := proto.Size(req)
+
+		// Check if individual message exceeds max size
+		if size+ProtoBatchOverhead > a.maxMessageSize {
+			results[i].Error = fmt.Errorf("message size %d bytes exceeds max message size %d bytes", size, a.maxMessageSize)
+			results[i].Status = protocol.WriteFailure
+			results[i].Retryable = false // Too large messages are never retryable
+			a.lggr.Errorw("Message exceeds max size limit",
+				"messageID", ccvData.MessageID.String(),
+				"messageSize", size,
+				"maxSize", a.maxMessageSize)
+			continue
+		}
+
+		requestsWithSizes = append(requestsWithSizes, requestWithSize{
+			req:     req,
+			size:    size,
+			origIdx: i,
+			ccvData: ccvData,
+		})
+	}
+
+	if len(requestsWithSizes) == 0 {
+		// All requests failed during mapping or size check
+		return results, nil
+	}
+
+	// Split into batches based on byte size
+	batches := a.splitIntoBatches(requestsWithSizes)
+
+	a.lggr.Infow("Split requests into batches",
+		"totalRequests", len(requestsWithSizes),
+		"numBatches", len(batches))
+
+	// Send each batch
+	for batchIdx, batch := range batches {
+		a.lggr.Debugw("Sending batch",
+			"batchIndex", batchIdx,
+			"batchSize", len(batch),
+			"totalBatches", len(batches))
+
+		if err := a.sendBatch(ctx, batch, results); err != nil {
+			a.lggr.Errorw("Failed to send batch",
+				"batchIndex", batchIdx,
+				"error", err)
+			// Continue with other batches even if one fails
+		}
+	}
+
+	return results, nil
+}
+
+// splitIntoBatches splits requests into batches that don't exceed maxMessageSize.
+func (a *AggregatorWriter) splitIntoBatches(requests []requestWithSize) [][]requestWithSize {
+	if len(requests) == 0 {
+		return nil
+	}
+
+	batches := make([][]requestWithSize, 0)
+	currentBatch := make([]requestWithSize, 0)
+	currentSize := ProtoBatchOverhead
+
+	for _, req := range requests {
+		// Check if adding this request would exceed the limit
+		newSize := currentSize + req.size
+		if newSize > a.maxMessageSize && len(currentBatch) > 0 {
+			// Start a new batch
+			batches = append(batches, currentBatch)
+			currentBatch = make([]requestWithSize, 0)
+			currentSize = ProtoBatchOverhead
+		}
+
+		currentBatch = append(currentBatch, req)
+		currentSize += req.size
+	}
+
+	// Add the last batch
+	if len(currentBatch) > 0 {
+		batches = append(batches, currentBatch)
+	}
+
+	return batches
+}
+
+// sendBatch sends a single batch to the aggregator and updates results.
+func (a *AggregatorWriter) sendBatch(ctx context.Context, batch []requestWithSize, results []protocol.WriteResult) error {
+	requests := make([]*committeepb.WriteCommitteeVerifierNodeResultRequest, len(batch))
+	for i, item := range batch {
+		requests[i] = item.req
 	}
 
 	responses, err := a.client.BatchWriteCommitteeVerifierNodeResult(
@@ -84,23 +189,26 @@ func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []p
 		},
 	)
 	if err != nil {
-		// If the entire gRPC call failed, mark all as failed (still retryable)
+		// If the entire gRPC call failed, mark all in this batch as failed (still retryable)
 		batchErr := fmt.Errorf("error calling BatchWriteCommitteeVerifierNodeResult: %w", err)
-		for i := range results {
-			if results[i].Error == nil {
-				results[i].Error = batchErr
+		for _, item := range batch {
+			if results[item.origIdx].Error == nil {
+				results[item.origIdx].Error = batchErr
+				results[item.origIdx].Status = protocol.WriteFailure
+				results[item.origIdx].Retryable = true
 			}
 		}
-		return results, batchErr
+		return batchErr
 	}
 
 	// Process individual responses
 	for i, resp := range responses.Responses {
-		if i >= len(ccvDataList) {
+		if i >= len(batch) {
 			continue
 		}
 
-		messageID := ccvDataList[i].MessageID.String()
+		item := batch[i]
+		messageID := item.ccvData.MessageID.String()
 
 		if resp.Status != committeepb.WriteStatus_SUCCESS {
 			// Extract detailed error information from the Errors array if available
@@ -112,10 +220,10 @@ func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []p
 				errorMessage = responses.Errors[i].GetMessage()
 			}
 
-			results[i].Status = protocol.WriteFailure
-			results[i].Error = fmt.Errorf("write failed with status %s: code=%s, message=%s",
+			results[item.origIdx].Status = protocol.WriteFailure
+			results[item.origIdx].Error = fmt.Errorf("write failed with status %s: code=%s, message=%s",
 				resp.Status.String(), errorCode, errorMessage)
-			results[i].Retryable = true // Always retryable for aggregator
+			results[item.origIdx].Retryable = true // Always retryable for aggregator
 
 			a.lggr.Errorw("BatchWriteCommitteeVerifierNodeResult failed",
 				"status", resp.Status.String(),
@@ -124,14 +232,14 @@ func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []p
 				"errorMessage", errorMessage,
 			)
 		} else {
-			results[i].Status = protocol.WriteSuccess
-			results[i].Error = nil
-			results[i].Retryable = false // Success, no retry needed
+			results[item.origIdx].Status = protocol.WriteSuccess
+			results[item.origIdx].Error = nil
+			results[item.origIdx].Retryable = false // Success, no retry needed
 			a.lggr.Infow("Successfully stored CCV data", "messageID", messageID)
 		}
 	}
 
-	return results, nil
+	return nil
 }
 
 func (a *AggregatorWriter) GetStats() map[string]any {
@@ -167,15 +275,21 @@ func buildDialOptions(hmacConfig *hmac.ClientConfig, insecure bool, maxRecvMsgSi
 
 // NewAggregatorWriter creates instance of AggregatorWriter that satisfies CCVNodeDataWriter interface.
 // If insecure is true, TLS verification is disabled (only for testing).
-func NewAggregatorWriter(address string, lggr logger.Logger, hmacConfig *hmac.ClientConfig, insecure bool) (*AggregatorWriter, error) {
-	conn, err := grpc.NewClient(address, buildDialOptions(hmacConfig, insecure, 0)...)
+// maxRecvMsgSizeBytes sets the maximum gRPC message size; if 0, uses DefaultMaxMessageSize.
+func NewAggregatorWriter(address string, lggr logger.Logger, hmacConfig *hmac.ClientConfig, insecure bool, maxRecvMsgSizeBytes int) (*AggregatorWriter, error) {
+	if maxRecvMsgSizeBytes <= 0 {
+		maxRecvMsgSizeBytes = DefaultMaxMessageSize
+	}
+
+	conn, err := grpc.NewClient(address, buildDialOptions(hmacConfig, insecure, maxRecvMsgSizeBytes)...)
 	if err != nil {
 		return nil, err
 	}
 
 	return &AggregatorWriter{
-		client: committeepb.NewCommitteeVerifierClient(conn),
-		conn:   conn,
-		lggr:   lggr,
+		client:         committeepb.NewCommitteeVerifierClient(conn),
+		conn:           conn,
+		lggr:           lggr,
+		maxMessageSize: maxRecvMsgSizeBytes,
 	}, nil
 }

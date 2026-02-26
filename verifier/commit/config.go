@@ -18,6 +18,10 @@ type Config struct {
 	// InsecureAggregatorConnection disables TLS for the aggregator gRPC connection.
 	// Only use this for testing when custom certificates cannot be injected.
 	InsecureAggregatorConnection bool `toml:"insecure_aggregator_connection"`
+	// AggregatorMaxRecvMsgSizeBytes is the maximum gRPC message size for aggregator writes.
+	// Should match or be less than the aggregator's maxRecvMsgSizeBytes setting.
+	// If 0 or not set, defaults to 4MB.
+	AggregatorMaxRecvMsgSizeBytes int `toml:"aggregator_max_recv_msg_size_bytes"`
 
 	SignerAddress string `toml:"signer_address"`
 
