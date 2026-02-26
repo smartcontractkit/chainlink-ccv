@@ -1244,19 +1244,35 @@ func NewFakeCCVNodeDataWriter() *FakeCCVNodeDataWriter {
 	}
 }
 
-func (f *FakeCCVNodeDataWriter) WriteCCVNodeData(_ context.Context, ccvDataList []protocol.VerifierNodeResult) error {
+func (f *FakeCCVNodeDataWriter) WriteCCVNodeData(_ context.Context, ccvDataList []protocol.VerifierNodeResult) ([]protocol.WriteResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	results := make([]protocol.WriteResult, len(ccvDataList))
+
+	// Pre-populate results with message IDs
+	for i, data := range ccvDataList {
+		results[i] = protocol.WriteResult{
+			MessageID: data.MessageID,
+			Status:    protocol.WriteSuccess,
+			Error:     nil,
+		}
+	}
+
 	if f.errorToReturn != nil {
-		return f.errorToReturn
+		// Mark all as failed if there's an error
+		for i := range results {
+			results[i].Status = protocol.WriteFailure
+			results[i].Error = f.errorToReturn
+		}
+		return results, f.errorToReturn
 	}
 
 	for _, data := range ccvDataList {
 		f.stored[data.MessageID] = data
 	}
 
-	return nil
+	return results, nil
 }
 
 func (f *FakeCCVNodeDataWriter) SetError(err error) {

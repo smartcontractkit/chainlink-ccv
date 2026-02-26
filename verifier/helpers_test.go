@@ -280,8 +280,16 @@ func (t *TestVerifier) GetProcessedTasks() []VerificationTask {
 // NoopStorage for testing.
 type NoopStorage struct{}
 
-func (m *NoopStorage) WriteCCVNodeData(ctx context.Context, data []protocol.VerifierNodeResult) error {
-	return nil
+func (m *NoopStorage) WriteCCVNodeData(ctx context.Context, data []protocol.VerifierNodeResult) ([]protocol.WriteResult, error) {
+	results := make([]protocol.WriteResult, len(data))
+	for i, d := range data {
+		results[i] = protocol.WriteResult{
+			MessageID: d.MessageID,
+			Status:    protocol.WriteSuccess,
+			Error:     nil,
+		}
+	}
+	return results, nil
 }
 
 func hashFromNumber(n uint64) protocol.Bytes32 {

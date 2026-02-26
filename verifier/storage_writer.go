@@ -171,8 +171,10 @@ func (s *StorageWriterProcessor) processBatch(ctx context.Context) error {
 	}
 
 	// Write batch to storage
-	if err := s.storage.WriteCCVNodeData(ctx, results); err != nil {
-		s.lggr.Errorw("Failed to write CCV data batch to storage, scheduling retry",
+	writeResults, err := s.storage.WriteCCVNodeData(ctx, results)
+	if err != nil && len(writeResults) == 0 {
+		// Catastrophic failure - no results returned at all
+		s.lggr.Errorw("Failed to write CCV data batch to storage with no results, scheduling retry",
 			"error", err,
 			"batchSize", len(results),
 			"retryDelay", s.retryDelay,
@@ -195,27 +197,84 @@ func (s *StorageWriterProcessor) processBatch(ctx context.Context) error {
 		return err
 	}
 
-	s.lggr.Infow("CCV data batch stored successfully",
-		"batchSize", len(results),
+	// Process individual results
+	successfulJobs := make([]string, 0, len(jobs))
+	failedJobs := make([]string, 0)
+	failedErrorMap := make(map[string]error)
+	successfulResults := make([]protocol.VerifierNodeResult, 0, len(results))
+
+	for i, writeResult := range writeResults {
+		if i >= len(jobs) {
+			s.lggr.Errorw("Received more write results than jobs submitted",
+				"writeResultsCount", len(writeResults),
+				"jobsCount", len(jobs),
+			)
+			break
+		}
+
+		job := jobs[i]
+		jobID := job.ID
+		result := results[i]
+		messageID := result.MessageID.String()
+
+		if writeResult.Status == protocol.WriteSuccess {
+			successfulJobs = append(successfulJobs, jobID)
+			successfulResults = append(successfulResults, result)
+			s.lggr.Debugw("Write succeeded for message", "messageID", messageID, "jobID", jobID)
+		} else {
+			failedJobs = append(failedJobs, jobID)
+			failedErrorMap[jobID] = writeResult.Error
+			s.lggr.Errorw("Write failed for message",
+				"messageID", messageID,
+				"jobID", jobID,
+				"error", writeResult.Error,
+			)
+		}
+	}
+
+	// Log summary
+	s.lggr.Infow("CCV data batch write completed",
+		"totalRequests", len(jobs),
+		"successful", len(successfulJobs),
+		"failed", len(failedJobs),
 	)
 
+	// Schedule retry for failed jobs only
+	if len(failedJobs) > 0 {
+		s.lggr.Infow("Scheduling retry for failed writes",
+			"failedCount", len(failedJobs),
+			"retryDelay", s.retryDelay,
+		)
+
+		if retryErr := s.resultQueue.Retry(ctx, s.retryDelay, failedErrorMap, failedJobs...); retryErr != nil {
+			s.lggr.Errorw("Failed to schedule retry for failed writes",
+				"error", retryErr,
+				"failedCount", len(failedJobs),
+			)
+		}
+	}
+
+	// Process successful jobs
+	if len(successfulJobs) == 0 {
+		s.lggr.Debugw("No successful writes in this batch, skipping completion")
+		return nil
+	}
+
 	// Success: complete jobs, remove from tracker, and update checkpoints
-	jobIDs := make([]string, len(jobs))
 	affectedChains := make(map[protocol.ChainSelector]struct{})
 
-	for i, job := range jobs {
-		jobIDs[i] = job.ID
-		result := job.Payload
+	for i := range successfulJobs {
+		result := successfulResults[i]
 		chain := result.Message.SourceChainSelector
 		s.writingTracker.Remove(chain, result.MessageID.String())
 		affectedChains[chain] = struct{}{}
 	}
 
-	// Mark jobs as completed in queue
-	if err := s.resultQueue.Complete(ctx, jobIDs...); err != nil {
+	// Mark successful jobs as completed in queue
+	if err := s.resultQueue.Complete(ctx, successfulJobs...); err != nil {
 		s.lggr.Errorw("Failed to complete jobs in queue",
 			"error", err,
-			"batchSize", len(jobIDs),
+			"successfulCount", len(successfulJobs),
 		)
 		// Continue anyway - data is written, tracking will catch up
 	}
@@ -224,7 +283,7 @@ func (s *StorageWriterProcessor) processBatch(ctx context.Context) error {
 	s.updateCheckpoints(ctx, affectedChains)
 
 	// Track message latencies
-	s.messageTracker.TrackMessageLatencies(ctx, results)
+	s.messageTracker.TrackMessageLatencies(ctx, successfulResults)
 
 	return nil
 }

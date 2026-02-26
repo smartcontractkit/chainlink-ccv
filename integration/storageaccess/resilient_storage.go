@@ -96,19 +96,34 @@ func NewResilientStorageWriter(
 }
 
 // WriteCCVNodeData writes CCV data with circuit breaker, timeout, rate limiting, and bulkhead protection.
-func (r *resilientAggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.VerifierNodeResult) error {
+func (r *resilientAggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.VerifierNodeResult) ([]protocol.WriteResult, error) {
 	executor := failsafe.With(r.rateLimiter, r.bulkhead, r.circuitBreaker, r.writeTimeout)
 
+	var results []protocol.WriteResult
 	err := executor.RunWithExecution(func(failsafe.Execution[any]) error {
-		return r.writer.WriteCCVNodeData(ctx, ccvDataList)
+		var writeErr error
+		results, writeErr = r.writer.WriteCCVNodeData(ctx, ccvDataList)
+		return writeErr
 	})
 	if err != nil {
-		if r.circuitBreaker.State() == circuitbreaker.OpenState {
-			return fmt.Errorf("circuit breaker is open, aggregator service unavailable: %w", err)
+		// If failsafe policies failed and we have no results, create failure results
+		if len(results) == 0 {
+			results = make([]protocol.WriteResult, len(ccvDataList))
+			for i, data := range ccvDataList {
+				results[i] = protocol.WriteResult{
+					MessageID: data.MessageID,
+					Status:    protocol.WriteFailure,
+					Error:     err,
+				}
+			}
 		}
-		return fmt.Errorf("failed to write CCV data: %w", err)
+
+		if r.circuitBreaker.State() == circuitbreaker.OpenState {
+			return results, fmt.Errorf("circuit breaker is open, aggregator service unavailable: %w", err)
+		}
+		return results, fmt.Errorf("failed to write CCV data: %w", err)
 	}
-	return nil
+	return results, nil
 }
 
 func isNetworkOrTransportError(err error) bool {

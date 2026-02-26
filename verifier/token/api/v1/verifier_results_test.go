@@ -43,7 +43,7 @@ func Test_VerifierResultsHandler(t *testing.T) {
 	messageID1, verifierResult1 := createSampleMessage(1, 2, 10)
 	messageID2, verifierResult2 := createSampleMessage(10, 20, 20)
 
-	err := ccvWriter.WriteCCVNodeData(
+	_, err := ccvWriter.WriteCCVNodeData(
 		t.Context(),
 		[]protocol.VerifierNodeResult{
 			verifierResult1,

@@ -614,10 +614,31 @@ type QueryResponse struct {
 	Data      VerifierResult `json:"data"`
 }
 
+// WriteResultStatus represents the status of a single write operation.
+type WriteResultStatus int
+
+const (
+	// WriteSuccess indicates the write operation succeeded.
+	WriteSuccess WriteResultStatus = iota
+	// WriteFailure indicates the write operation failed.
+	WriteFailure
+)
+
+// WriteResult represents the result of writing a single CCV node data entry.
+type WriteResult struct {
+	// MessageID identifies which message this result corresponds to
+	MessageID Bytes32
+	// Status indicates whether the write succeeded or failed
+	Status WriteResultStatus
+	// Error contains the error if Status is WriteFailure, nil otherwise
+	Error error
+}
+
 // CCVNodeDataWriter defines the interface for verifiers to store CCV node data.
 type CCVNodeDataWriter interface {
-	// WriteCCVNodeData stores multiple CCV node data entries
-	WriteCCVNodeData(ctx context.Context, ccvDataList []VerifierNodeResult) error
+	// WriteCCVNodeData stores multiple CCV node data entries and returns detailed status per request.
+	// The returned slice will have the same length as ccvDataList, with results in corresponding order.
+	WriteCCVNodeData(ctx context.Context, ccvDataList []VerifierNodeResult) ([]WriteResult, error)
 }
 
 // OffchainStorageReader defines the interface for executors to query CCV data by timestamp.

@@ -86,7 +86,7 @@ func TestAttestationCCVWriterAndReader_Postgres(t *testing.T) {
 			},
 		}
 
-		err := writer.WriteCCVNodeData(ctx, ccvData)
+		_, err := writer.WriteCCVNodeData(ctx, ccvData)
 		require.NoError(t, err)
 
 		// Read back the data
@@ -135,7 +135,7 @@ func TestAttestationCCVWriterAndReader_Postgres(t *testing.T) {
 			},
 		}
 
-		err := writer.WriteCCVNodeData(ctx, ccvData)
+		_, err := writer.WriteCCVNodeData(ctx, ccvData)
 		require.NoError(t, err)
 
 		// Read back both messages
@@ -173,7 +173,7 @@ func TestAttestationCCVWriterAndReader_Postgres(t *testing.T) {
 				Signature:       protocol.ByteSlice{0xaa, 0xbb},
 			},
 		}
-		err := writer.WriteCCVNodeData(ctx, ccvData)
+		_, err := writer.WriteCCVNodeData(ctx, ccvData)
 		require.NoError(t, err)
 
 		// Update with new signature
@@ -187,7 +187,7 @@ func TestAttestationCCVWriterAndReader_Postgres(t *testing.T) {
 				Signature:       protocol.ByteSlice{0xcc, 0xdd}, // Updated
 			},
 		}
-		err = writer.WriteCCVNodeData(ctx, updatedCCVData)
+		_, err = writer.WriteCCVNodeData(ctx, updatedCCVData)
 		require.NoError(t, err)
 
 		// Read back and verify update
@@ -249,7 +249,7 @@ func TestAttestationCCVWriterAndReader_Postgres(t *testing.T) {
 		}
 
 		// Should not error, but log warnings about missing addresses
-		err = writer.WriteCCVNodeData(ctx, ccvData)
+		_, err = writer.WriteCCVNodeData(ctx, ccvData)
 		require.NoError(t, err)
 
 		// Should be able to read back the data with empty verifier addresses

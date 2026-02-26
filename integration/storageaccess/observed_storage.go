@@ -33,29 +33,37 @@ func NewObservedStorageWriter(
 	}
 }
 
-func (o *observedStorageWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.VerifierNodeResult) error {
+func (o *observedStorageWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.VerifierNodeResult) ([]protocol.WriteResult, error) {
 	start := time.Now()
 
-	err := o.CCVNodeDataWriter.WriteCCVNodeData(ctx, ccvDataList)
-	if err != nil {
+	results, err := o.CCVNodeDataWriter.WriteCCVNodeData(ctx, ccvDataList)
+
+	// Count failures in the results
+	failureCount := 0
+	for i, result := range results {
+		if result.Status == protocol.WriteFailure {
+			failureCount++
+			o.lggr.Errorw("Failed to store CCV data in batch",
+				"messageID", ccvDataList[i].MessageID,
+				"sequenceNumber", ccvDataList[i].Message.SequenceNumber,
+				"sourceChain", ccvDataList[i].Message.SourceChainSelector,
+				"error", result.Error,
+			)
+		}
+	}
+
+	if failureCount > 0 {
 		o.monitoring.Metrics().IncrementStorageWriteErrors(ctx)
 		o.lggr.Errorw("Error storing CCV data batch",
 			"error", err,
 			"batchSize", len(ccvDataList),
+			"failureCount", failureCount,
 		)
-		for _, ccvData := range ccvDataList {
-			o.lggr.Errorw("Failed to store CCV data in batch",
-				"messageID", ccvData.MessageID,
-				"sequenceNumber", ccvData.Message.SequenceNumber,
-				"sourceChain", ccvData.Message.SourceChainSelector,
-			)
-		}
-		return err
 	}
 
 	o.monitoring.Metrics().
 		With("verifier_id", o.verifierID).
 		RecordStorageWriteDuration(ctx, time.Since(start))
 
-	return nil
+	return results, err
 }

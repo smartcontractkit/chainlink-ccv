@@ -37,7 +37,18 @@ func NewAttestationCCVWriter(
 func (a *AttestationCCVWriter) WriteCCVNodeData(
 	ctx context.Context,
 	ccvDataList []protocol.VerifierNodeResult,
-) error {
+) ([]protocol.WriteResult, error) {
+	results := make([]protocol.WriteResult, len(ccvDataList))
+
+	// Pre-populate results with message IDs
+	for i, ccvData := range ccvDataList {
+		results[i] = protocol.WriteResult{
+			MessageID: ccvData.MessageID,
+			Status:    protocol.WriteSuccess,
+			Error:     nil,
+		}
+	}
+
 	entries := make([]ccvstorage.Entry, len(ccvDataList))
 	for i, ccvData := range ccvDataList {
 		source, dest := a.addresses(ccvData.Message)
@@ -48,7 +59,18 @@ func (a *AttestationCCVWriter) WriteCCVNodeData(
 			Timestamp:             time.Now(),
 		}
 	}
-	return a.storage.Set(ctx, entries)
+
+	err := a.storage.Set(ctx, entries)
+	if err != nil {
+		// If the entire batch failed, mark all as failed
+		for i := range results {
+			results[i].Status = protocol.WriteFailure
+			results[i].Error = err
+		}
+		return results, err
+	}
+
+	return results, nil
 }
 
 func (a *AttestationCCVWriter) addresses(message protocol.Message) (protocol.UnknownAddress, protocol.UnknownAddress) {
