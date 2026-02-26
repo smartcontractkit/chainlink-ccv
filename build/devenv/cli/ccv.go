@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -28,7 +28,7 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cmd/ccv/send"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cli/send"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 )
 
@@ -723,7 +723,8 @@ func checkDockerIsRunning() {
 	}
 }
 
-func main() {
+// RunCLI is the entrypoint for the devenv CLI.
+func RunCLI() {
 	checkDockerIsRunning()
 	if len(os.Args) == 2 && (os.Args[1] == "shell" || os.Args[1] == "sh") {
 		_ = os.Setenv("CTF_CONFIGS", "env.toml") // Set default config for shell
