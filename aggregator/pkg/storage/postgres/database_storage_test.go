@@ -63,17 +63,14 @@ type testFixture struct {
 	Signer model.Signer
 }
 
-func newTestSigner(t *testing.T) *testFixture {
+func newTestSigner(tb testing.TB) *testFixture {
 	privateKey, err := crypto.GenerateKey()
-	require.NoError(t, err)
-
-	signerAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
-
-	signer := model.Signer{
-		Address: signerAddress.Hex(),
+	if err != nil {
+		tb.Fatalf("generate key: %v", err)
 	}
+	signerAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
 	return &testFixture{
-		Signer: signer,
+		Signer: model.Signer{Address: signerAddress.Hex()},
 		key:    privateKey,
 	}
 }
@@ -102,7 +99,8 @@ func createTestProtocolMessage() *protocol.Message {
 	}
 }
 
-func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *testFixture) *committeepb.CommitteeVerifierNodeResult {
+func createTestMessageWithCCV(tb testing.TB, message *protocol.Message, signer *testFixture) *committeepb.CommitteeVerifierNodeResult {
+	tb.Helper()
 	ccvVersion := []byte{0x01, 0x02, 0x03, 0x04}
 	ccvAddresses := [][]byte{{0x02, 0x02, 0x03, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16}}
 	executorAddress := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14}
@@ -114,9 +112,16 @@ func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *t
 	}
 	executorAddr := protocol.UnknownAddress(executorAddress)
 	ccvAndExecutorHash, err := protocol.ComputeCCVAndExecutorHash(ccvAddrs, executorAddr)
-	require.NoError(t, err)
-
-	// Create proto message with CCV data and the computed hash
+	if err != nil {
+		tb.Fatalf("compute CCV and executor hash: %v", err)
+	}
+	var tokenTransferEncoded []byte
+	if message.TokenTransfer != nil {
+		tokenTransferEncoded, err = message.TokenTransfer.Encode()
+		if err != nil {
+			tb.Fatalf("encode token transfer: %v", err)
+		}
+	}
 	msgWithCCV := &committeepb.CommitteeVerifierNodeResult{
 		Message: &verifierpb.Message{
 			Version:              uint32(message.Version),
@@ -138,63 +143,63 @@ func createTestMessageWithCCV(t *testing.T, message *protocol.Message, signer *t
 			DestBlobLength:       uint32(message.DestBlobLength),
 			DestBlob:             message.DestBlob[:],
 			TokenTransferLength:  uint32(message.TokenTransferLength),
-			TokenTransfer: func() []byte {
-				if message.TokenTransfer != nil {
-					encoded, err := message.TokenTransfer.Encode()
-					require.NoError(t, err)
-					return encoded
-				}
-				return []byte{}
-			}(),
-			DataLength: uint32(message.DataLength),
-			Data:       message.Data[:],
+			TokenTransfer:        tokenTransferEncoded,
+			DataLength:           uint32(message.DataLength),
+			Data:                 message.Data[:],
 		},
 		CcvVersion:      ccvVersion,
 		CcvAddresses:    ccvAddresses,
 		ExecutorAddress: executorAddress,
 	}
-
-	// Now compute the correct messageID from the message with CCV data
 	protocolMessage, err := ccvcommon.MapProtoMessageToProtocolMessage(msgWithCCV.Message)
-	require.NoError(t, err)
+	if err != nil {
+		tb.Fatalf("map proto message: %v", err)
+	}
 	messageID, err := protocolMessage.MessageID()
-	require.NoError(t, err)
-
-	// Sign the correct messageID
+	if err != nil {
+		tb.Fatalf("message ID: %v", err)
+	}
 	r32, s32, signerAddr, err := protocol.SignV27(messageID[:], signer.key)
-	require.NoError(t, err)
-
+	if err != nil {
+		tb.Fatalf("sign: %v", err)
+	}
 	sigData := protocol.Data{
 		R:      r32,
 		S:      s32,
 		Signer: signerAddr,
 	}
-
 	signature, err := protocol.EncodeSingleECDSASignature(sigData)
-	require.NoError(t, err)
+	if err != nil {
+		tb.Fatalf("encode signature: %v", err)
+	}
 
 	msgWithCCV.Signature = signature
 	return msgWithCCV
 }
 
 // getMessageIDFromProto is a helper to derive messageID from the proto message.
-func getMessageIDFromProto(t *testing.T, msgWithCCV *committeepb.CommitteeVerifierNodeResult) []byte {
+func getMessageIDFromProto(tb testing.TB, msgWithCCV *committeepb.CommitteeVerifierNodeResult) []byte {
+	tb.Helper()
 	protocolMessage, err := ccvcommon.MapProtoMessageToProtocolMessage(msgWithCCV.Message)
-	require.NoError(t, err)
+	if err != nil {
+		tb.Fatalf("map proto message: %v", err)
+	}
 	messageID, err := protocolMessage.MessageID()
-	require.NoError(t, err)
+	if err != nil {
+		tb.Fatalf("message ID: %v", err)
+	}
 	return messageID[:]
 }
 
-func createTestCommitVerificationRecord(t *testing.T, msgWithCCV *committeepb.CommitteeVerifierNodeResult, signer *testFixture) *model.CommitVerificationRecord {
+func createTestCommitVerificationRecord(tb testing.TB, msgWithCCV *committeepb.CommitteeVerifierNodeResult, signer *testFixture) *model.CommitVerificationRecord {
 	signerAddress := common.HexToAddress(signer.Signer.Address)
-
 	record, err := model.CommitVerificationRecordFromProto(msgWithCCV)
-	require.NoError(t, err)
+	if err != nil {
+		tb.Fatalf("commit verification record from proto: %v", err)
+	}
 	record.SignerIdentifier = &model.SignerIdentifier{
 		Identifier: signerAddress.Bytes(),
 	}
-
 	return record
 }
 
@@ -218,12 +223,14 @@ func setupTestDB(t *testing.T) (*DatabaseStorage, func()) {
 	return storage, cleanup
 }
 
-func setupTestDBWithDatabase(t *testing.T) (*DatabaseStorage, *sqlx.DB, func()) {
-	t.Helper()
-	ds, cleanup := testutil.SetupTestPostgresDB(t)
-	err := RunMigrations(ds, "postgres")
-	require.NoError(t, err)
-	storage := NewDatabaseStorage(ds, 10, 10*time.Second, logger.TestSugared(t))
+func setupTestDBWithDatabase(tb testing.TB) (*DatabaseStorage, *sqlx.DB, func()) {
+	tb.Helper()
+	ds, cleanup := testutil.SetupTestPostgresDB(tb)
+	if err := RunMigrations(ds, "postgres"); err != nil {
+		cleanup()
+		tb.Fatalf("run migrations: %v", err)
+	}
+	storage := NewDatabaseStorage(ds, 10, 10*time.Second, logger.Sugared(logger.Test(tb)))
 	return storage, ds, cleanup
 }
 
