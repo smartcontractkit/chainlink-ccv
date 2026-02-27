@@ -261,51 +261,46 @@ func RecoverECDSASigner(hash, r, s [32]byte) (common.Address, error) {
 	return signer, nil
 }
 
-func verifySig(rb, sb [32]byte, signer common.Address) error {
+// SingleECDSASignatureSize is the exact size of an encoded EVM signature: R(32) + S(32) = 64 bytes.
+const SingleECDSASignatureSize = 64
+
+func verifySig(rb, sb [32]byte) error {
 	r := new(big.Int).SetBytes(rb[:])
 	s := new(big.Int).SetBytes(sb[:])
 	if r.Sign() == 0 || s.Sign() == 0 || r.Cmp(secpN) >= 0 || s.Cmp(secpN) >= 0 {
 		return fmt.Errorf("values R and S must be valid curve scalars (0 < value < n)")
 	}
-	if signer == (common.Address{}) {
-		return fmt.Errorf("signer address cannot be zero")
-	}
 	return nil
 }
 
-// SingleECDSASignatureSize is the exact size of an encoded EVM signature: R(32) + S(32) + Address(20) = 84 bytes.
-const SingleECDSASignatureSize = 84
-
-// EncodeSingleECDSASignature encodes a single EVM signature as R||S||Signer (84 bytes).
+// EncodeSingleECDSASignature encodes a single EVM signature as R||S (64 bytes).
 // This format is used by verifiers when sending individual signatures to the aggregator.
-// Format: [32 bytes R][32 bytes S][20 bytes EVM Signer Address].
+// Format: [32 bytes R][32 bytes S].
 func EncodeSingleECDSASignature(sig Data) ([]byte, error) {
-	if err := verifySig(sig.R, sig.S, sig.Signer); err != nil {
+	if err := verifySig(sig.R, sig.S); err != nil {
 		return nil, fmt.Errorf("invalid signature: %w", err)
 	}
 
 	result := make([]byte, SingleECDSASignatureSize)
 	copy(result[0:32], sig.R[:])
 	copy(result[32:64], sig.S[:])
-	copy(result[64:84], sig.Signer[:])
 
 	return result, nil
 }
 
-// DecodeSingleECDSASignature decodes a single EVM signature from R||S||Signer format (84 bytes).
-// Returns the R, S components and the EVM signer address.
-func DecodeSingleECDSASignature(data []byte) (r, s [32]byte, signer common.Address, err error) {
+// DecodeSingleECDSASignature decodes a single EVM signature from R||S format (64 bytes).
+// Returns the R, S components.
+func DecodeSingleECDSASignature(data []byte) (r, s [32]byte, err error) {
 	if len(data) != SingleECDSASignatureSize {
-		return r, s, signer, fmt.Errorf("signature data must be exactly %d bytes, got %d", SingleECDSASignatureSize, len(data))
+		return r, s, fmt.Errorf("signature data must be exactly %d bytes, got %d", SingleECDSASignatureSize, len(data))
 	}
 
 	copy(r[:], data[0:32])
 	copy(s[:], data[32:64])
-	copy(signer[:], data[64:84])
 
-	if err := verifySig(r, s, signer); err != nil {
-		return [32]byte{}, [32]byte{}, common.Address{}, fmt.Errorf("invalid signature: %w", err)
+	if err := verifySig(r, s); err != nil {
+		return r, s, fmt.Errorf("invalid signature: %w", err)
 	}
 
-	return r, s, signer, nil
+	return r, s, nil
 }
