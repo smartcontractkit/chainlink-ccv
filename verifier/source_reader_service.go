@@ -19,7 +19,7 @@ import (
 
 const (
 	DefaultPollInterval  = 2100 * time.Millisecond
-	DefaultPollTimeout   = 10 * time.Second
+	DefaultPollTimeout   = 20 * time.Second
 	DefaultMaxBlockRange = 5000
 )
 
