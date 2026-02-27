@@ -58,7 +58,7 @@ func TestWithAddress(t *testing.T) {
 
 	value, ok := ctx.Value(addressKey).(string)
 	require.True(t, ok)
-	assert.Equal(t, "aabbccdd", value)
+	assert.Equal(t, "0xaabbccdd", value)
 }
 
 func TestWithAggregationKey(t *testing.T) {
