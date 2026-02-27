@@ -47,7 +47,7 @@ func WithMessageID(ctx context.Context, id []byte) context.Context {
 }
 
 func WithAddress(ctx context.Context, address []byte) context.Context {
-	return context.WithValue(ctx, addressKey, hex.EncodeToString(address))
+	return context.WithValue(ctx, addressKey, "0x"+hex.EncodeToString(address))
 }
 
 func WithAggregationKey(ctx context.Context, key string) context.Context {
