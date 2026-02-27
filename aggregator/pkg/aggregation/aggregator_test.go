@@ -440,8 +440,10 @@ func TestHealthCheck_ReportsStoppedAfterContextCancellation(t *testing.T) {
 	require.NoError(t, a.Ready())
 
 	cancel()
-	time.Sleep(50 * time.Millisecond)
 
+	require.Eventually(t, func() bool {
+		return a.Ready() != nil
+	}, 2*time.Second, 10*time.Millisecond)
 	err := a.Ready()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "stopped")
@@ -551,4 +553,167 @@ func TestHealthCheck_ReturnsErrorAfterConsecutiveWorkerFailures(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return a.Ready() == nil
 	}, 5*time.Second, 20*time.Millisecond, "Ready() should return nil again after a successful aggregation")
+}
+
+func TestStartBackground_Shutdown(t *testing.T) {
+	t.Run("drains buffered items and in-flight workers before signaling done", func(t *testing.T) {
+		store := mocks.NewMockCommitVerificationStore(t)
+		sink := mocks.NewMockSink(t)
+		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		metric := mocks.NewMockAggregatorMetricLabeler(t)
+		monitoring.EXPECT().Metrics().Return(metric).Maybe()
+		metric.EXPECT().With(mock.Anything, mock.Anything).Return(metric).Maybe()
+		metric.EXPECT().IncrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
+		metric.EXPECT().DecrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
+		metric.EXPECT().IncrementCompletedAggregations(mock.Anything).Maybe()
+		metric.EXPECT().RecordTimeToAggregation(mock.Anything, mock.Anything).Maybe()
+
+		var processedCount atomic.Int32
+		workerDelay := make(chan struct{})
+		store.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, _ model.MessageID, _ model.AggregationKey) ([]*model.CommitVerificationRecord, error) {
+				<-workerDelay
+				processedCount.Add(1)
+				return []*model.CommitVerificationRecord{}, nil
+			}).Maybe()
+
+		quorum := mocks.NewMockQuorumValidator(t)
+		quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(false, nil).Maybe()
+
+		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 2}}
+		channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
+		a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+
+		ctx, cancel := context.WithCancel(t.Context())
+		a.StartBackground(ctx)
+
+		_ = a.CheckAggregation(ctx, []byte{1}, "key-1", "test-client", time.Second)
+		_ = a.CheckAggregation(ctx, []byte{2}, "key-2", "test-client", time.Second)
+		_ = a.CheckAggregation(ctx, []byte{3}, "key-3", "test-client", time.Second)
+
+		time.Sleep(50 * time.Millisecond)
+		require.Equal(t, int32(0), processedCount.Load(), "no requests should be processed before drain")
+		cancel()
+		close(workerDelay)
+
+		require.Eventually(t, func() bool {
+			return a.Ready() != nil
+		}, 5*time.Second, 10*time.Millisecond, "aggregator should signal done after drain")
+
+		require.Equal(t, int32(3), processedCount.Load(), "all 3 requests should be processed during drain")
+	})
+
+	t.Run("in-flight worker completes with valid context after cancellation", func(t *testing.T) {
+		store := mocks.NewMockCommitVerificationStore(t)
+		sink := mocks.NewMockSink(t)
+		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		metric := mocks.NewMockAggregatorMetricLabeler(t)
+		monitoring.EXPECT().Metrics().Return(metric).Maybe()
+		metric.EXPECT().With(mock.Anything, mock.Anything).Return(metric).Maybe()
+		metric.EXPECT().IncrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
+		metric.EXPECT().DecrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
+
+		workerStarted := make(chan struct{})
+		var ctxWasCancelled atomic.Bool
+		store.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(ctx context.Context, _ model.MessageID, _ model.AggregationKey) ([]*model.CommitVerificationRecord, error) {
+				close(workerStarted)
+				time.Sleep(100 * time.Millisecond)
+				ctxWasCancelled.Store(ctx.Err() != nil)
+				return []*model.CommitVerificationRecord{}, nil
+			})
+
+		quorum := mocks.NewMockQuorumValidator(t)
+		quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(false, nil).Maybe()
+
+		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 1}}
+		channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
+		a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+
+		ctx, cancel := context.WithCancel(t.Context())
+		a.StartBackground(ctx)
+
+		_ = a.CheckAggregation(ctx, []byte{1}, "key-1", "test-client", time.Second)
+
+		<-workerStarted
+		cancel()
+
+		require.Eventually(t, func() bool {
+			return a.Ready() != nil
+		}, 5*time.Second, 10*time.Millisecond)
+
+		require.False(t, ctxWasCancelled.Load(), "worker context should not be cancelled (WithoutCancel)")
+	})
+
+	t.Run("drain timeout forces immediate shutdown dropping in-flight work", func(t *testing.T) {
+		store := mocks.NewMockCommitVerificationStore(t)
+		sink := mocks.NewMockSink(t)
+		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		metric := mocks.NewMockAggregatorMetricLabeler(t)
+		monitoring.EXPECT().Metrics().Return(metric).Maybe()
+		metric.EXPECT().With(mock.Anything, mock.Anything).Return(metric).Maybe()
+		metric.EXPECT().IncrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
+		metric.EXPECT().DecrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
+
+		workerStarted := make(chan struct{})
+		workerRelease := make(chan struct{})
+		store.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, _ model.MessageID, _ model.AggregationKey) ([]*model.CommitVerificationRecord, error) {
+				close(workerStarted)
+				<-workerRelease
+				return []*model.CommitVerificationRecord{}, nil
+			})
+
+		quorum := mocks.NewMockQuorumValidator(t)
+		quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(false, nil).Maybe()
+
+		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 1, DrainTimeout: 50 * time.Millisecond}}
+		channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
+		a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+
+		ctx, cancel := context.WithCancel(t.Context())
+		a.StartBackground(ctx)
+
+		_ = a.CheckAggregation(ctx, []byte{1}, "key-1", "test-client", time.Second)
+		<-workerStarted
+		cancel()
+
+		require.Eventually(t, func() bool {
+			return a.Ready() != nil
+		}, 2*time.Second, 10*time.Millisecond, "done should close after drain timeout even with in-flight work")
+
+		close(workerRelease)
+	})
+
+	t.Run("worker errors during drain are logged and shutdown completes", func(t *testing.T) {
+		store := mocks.NewMockCommitVerificationStore(t)
+		sink := mocks.NewMockSink(t)
+		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		metric := mocks.NewMockAggregatorMetricLabeler(t)
+		monitoring.EXPECT().Metrics().Return(metric).Maybe()
+		metric.EXPECT().With(mock.Anything, mock.Anything).Return(metric).Maybe()
+		metric.EXPECT().IncrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
+		metric.EXPECT().DecrementPendingAggregationsChannelBuffer(mock.Anything, 1).Maybe()
+
+		store.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, mock.Anything, mock.Anything).
+			Return(nil, errors.New("storage unavailable")).Maybe()
+
+		quorum := mocks.NewMockQuorumValidator(t)
+
+		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 1}}
+		channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
+		a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+
+		ctx, cancel := context.WithCancel(t.Context())
+		a.StartBackground(ctx)
+
+		_ = a.CheckAggregation(ctx, []byte{1}, "key-1", "test-client", time.Second)
+
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+
+		require.Eventually(t, func() bool {
+			return a.Ready() != nil
+		}, 5*time.Second, 10*time.Millisecond, "aggregator should shut down cleanly despite worker errors")
+	})
 }

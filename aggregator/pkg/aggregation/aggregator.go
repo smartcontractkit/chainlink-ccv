@@ -38,6 +38,8 @@ type CommitReportAggregator struct {
 	l                     logger.SugaredLogger
 	monitoring            common.AggregatorMonitoring
 
+	drainTimeout time.Duration
+
 	mu                   sync.RWMutex
 	done                 chan struct{}
 	maxConsecutiveErrors uint32
@@ -175,39 +177,83 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 	go func() { _ = c.channelManager.Start(ctx) }()
 	c.mu.Unlock()
 	aggregationChannel := c.channelManager.AggregationChannel
-	p := pool.New().WithMaxGoroutines(c.backgroundWorkerCount).WithContext(ctx)
+	p := pool.New().WithMaxGoroutines(c.backgroundWorkerCount).WithContext(context.WithoutCancel(ctx))
+
+	submitWork := func(request aggregationRequest) {
+		p.Go(func(poolCtx context.Context) error {
+			c.metrics(poolCtx).With("channel_key", string(request.ChannelKey)).DecrementPendingAggregationsChannelBuffer(poolCtx, 1)
+			poolCtx = scope.WithAggregationKey(poolCtx, request.AggregationKey)
+			poolCtx = scope.WithMessageID(poolCtx, request.MessageID)
+
+			return func() (err error) {
+				defer func() {
+					if r := recover(); r != nil {
+						c.logger(poolCtx).Errorw("Panic during aggregation", "panic", r)
+						c.metrics(poolCtx).IncrementPanics(poolCtx)
+						err = fmt.Errorf("panic: %v", r)
+					}
+				}()
+				err = c.checkAggregationAndSubmitComplete(poolCtx, request)
+				if err != nil {
+					c.consecutiveErrors.Add(1)
+				} else {
+					c.consecutiveErrors.Store(0)
+				}
+				return err
+			}()
+		})
+	}
+
 	go func() {
-		defer close(c.done)
 		for {
 			select {
 			case request := <-aggregationChannel:
-				p.Go(func(poolCtx context.Context) error {
-					c.metrics(poolCtx).With("channel_key", string(request.ChannelKey)).DecrementPendingAggregationsChannelBuffer(poolCtx, 1)
-					poolCtx = scope.WithAggregationKey(poolCtx, request.AggregationKey)
-					poolCtx = scope.WithMessageID(poolCtx, request.MessageID)
-
-					return func() (err error) {
-						defer func() {
-							if r := recover(); r != nil {
-								c.logger(poolCtx).Errorw("Panic during aggregation", "panic", r)
-								c.metrics(poolCtx).IncrementPanics(poolCtx)
-								err = fmt.Errorf("panic: %v", r)
-							}
-						}()
-						err = c.checkAggregationAndSubmitComplete(poolCtx, request)
-						if err != nil {
-							c.consecutiveErrors.Add(1)
-						} else {
-							c.consecutiveErrors.Store(0)
-						}
-						return err
-					}()
-				})
+				submitWork(request)
 			case <-ctx.Done():
+				c.drainAndWait(ctx, p, aggregationChannel, submitWork)
 				return
 			}
 		}
 	}()
+}
+
+func (c *CommitReportAggregator) drainAndWait(
+	ctx context.Context,
+	p *pool.ContextPool,
+	aggregationChannel <-chan aggregationRequest,
+	submitWork func(aggregationRequest),
+) {
+	lggr := c.logger(context.WithoutCancel(ctx))
+	lggr.Infow("Shutting down aggregation worker, draining remaining requests")
+
+	for {
+		select {
+		case request := <-aggregationChannel:
+			submitWork(request)
+		default:
+			// p.Wait() is not context-aware, so we run it in a goroutine and race it
+			// against drainTimeout. On timeout, in-flight work is dropped and the
+			// goroutine finishes in the background once pool workers complete.
+			waitDone := make(chan error, 1)
+			go func() { waitDone <- p.Wait() }()
+
+			timer := time.NewTimer(c.drainTimeout)
+			select {
+			case err := <-waitDone:
+				if !timer.Stop() {
+					<-timer.C
+				}
+				if err != nil {
+					lggr.Errorw("Pool workers returned errors during drain", "error", err)
+				}
+				lggr.Infow("Aggregation worker drain completed")
+			case <-timer.C:
+				lggr.Errorw("Drain timed out, dropping in-flight aggregations", "timeout", c.drainTimeout)
+			}
+			close(c.done)
+			return
+		}
+	}
 }
 
 func (c *CommitReportAggregator) Ready() error {
@@ -278,6 +324,7 @@ func NewCommitReportAggregator(storage common.CommitVerificationStore, aggregate
 		channelManager:        channelManager,
 		backgroundWorkerCount: config.Aggregation.BackgroundWorkerCount,
 		operationTimeout:      config.Aggregation.OperationTimeout,
+		drainTimeout:          config.Aggregation.DrainTimeout,
 		maxConsecutiveErrors:  config.Aggregation.MaxConsecutiveErrors,
 		quorum:                quorum,
 		monitoring:            monitoring,

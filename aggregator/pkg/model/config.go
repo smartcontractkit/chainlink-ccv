@@ -150,6 +150,9 @@ type AggregationConfig struct {
 	CheckAggregationTimeout time.Duration `toml:"checkAggregationTimeout"`
 	// OperationTimeout is the timeout for each aggregation operation (0 = no timeout)
 	OperationTimeout time.Duration `toml:"operationTimeout"`
+	// DrainTimeout bounds how long shutdown waits for in-flight aggregation workers to complete.
+	// After this duration, shutdown proceeds and in-flight work is dropped. (0 = use default 30s)
+	DrainTimeout time.Duration `toml:"drainTimeout"`
 	// MaxConsecutiveErrors is the maximum number of consecutive errors allowed before the aggregation is considered failed
 	MaxConsecutiveErrors uint32 `toml:"maxConsecutiveErrors"`
 }
@@ -529,6 +532,9 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.Aggregation.CheckAggregationTimeout == 0 {
 		c.Aggregation.CheckAggregationTimeout = 5 * time.Second
 	}
+	if c.Aggregation.DrainTimeout == 0 {
+		c.Aggregation.DrainTimeout = 10 * time.Second
+	}
 	// Initialize Storage config if nil
 	if c.Storage == nil {
 		c.Storage = &StorageConfig{}
@@ -672,6 +678,12 @@ func (c *AggregatorConfig) ValidateAggregationConfig() error {
 	}
 	if c.Aggregation.OperationTimeout < 0 {
 		return errors.New("aggregation.operationTimeout cannot be negative")
+	}
+	if c.Aggregation.DrainTimeout <= 0 {
+		return errors.New("aggregation.drainTimeout must be greater than 0")
+	}
+	if c.Aggregation.DrainTimeout > 5*time.Minute {
+		return errors.New("aggregation.drainTimeout cannot exceed 5 minutes")
 	}
 	if c.Aggregation.CheckAggregationTimeout <= 0 {
 		return errors.New("aggregation.checkAggregationTimeout must be greater than 0")
