@@ -592,6 +592,7 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		_ = a.CheckAggregation(ctx, []byte{3}, "key-3", "test-client", time.Second)
 
 		time.Sleep(50 * time.Millisecond)
+		require.Equal(t, int32(0), processedCount.Load(), "no requests should be processed before drain")
 		cancel()
 		close(workerDelay)
 
