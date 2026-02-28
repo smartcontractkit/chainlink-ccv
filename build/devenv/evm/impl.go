@@ -460,7 +460,7 @@ func (m *CCIP17EVM) ensureERC20HasBalanceAndAllowance(
 		return false, fmt.Errorf("failed to get balance: %w", err)
 	}
 	if balance.Cmp(amount) < 0 {
-		return false, fmt.Errorf("insufficient balance: have %s, need %s", balance.String(), amount.String())
+		return false, fmt.Errorf("insufficient balance for chain %d address %s: have %s, need %s", chain.Selector, owner.Hex(), balance.String(), amount.String())
 	}
 	allowance, err := tkn.Allowance(&bind.CallOpts{Context: ctx}, owner, spender)
 	if err != nil {

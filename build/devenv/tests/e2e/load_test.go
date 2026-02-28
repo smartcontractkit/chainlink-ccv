@@ -771,17 +771,20 @@ func TestStaging(t *testing.T) {
 		}
 		wg.Wait()
 
-		for _, testProfile := range testConfig.TestProfiles {
+		for idx, testProfile := range testConfig.TestProfiles {
+			if !testProfile.Enabled {
+				continue
+			}
 			wg.Add(1)
-			go func(testProfile load.TestProfileConfig) {
+			go func(testProfile load.TestProfileConfig, idx int) {
 				defer wg.Done()
 				messageRate, messageRateDuration := load.ParseMessageRate(testProfile.MessageRate)
-				gun := NewEVMTransactionGunFromTestConfig(in, testConfig, e, chainImpls)
+				gun := NewEVMTransactionGunFromTestConfig(in, &testProfile, testConfig.MessageProfiles, e, chainImpls)
 				p := wasp.NewProfile().Add(
 					wasp.NewGenerator(
 						&wasp.Config{
 							LoadType:              wasp.RPS,
-							GenName:               "multi-chain-mesh-load-test",
+							GenName:               fmt.Sprintf("multi-chain-mesh-load-test-%d", idx),
 							Schedule:              wasp.Plain(messageRate, testProfile.LoadDuration),
 							RateLimitUnitDuration: messageRateDuration,
 							Gun:                   gun,
@@ -796,7 +799,7 @@ func TestStaging(t *testing.T) {
 				p.Wait()
 				gun.CloseSentChannel()
 
-			}(testProfile)
+			}(testProfile, idx)
 
 		}
 		wg.Wait()
