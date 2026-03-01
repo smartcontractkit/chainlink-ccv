@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"math/big"
 	"time"
 
 	"github.com/Masterminds/semver/v3"
@@ -24,11 +23,6 @@ const (
 	defaultSentTimeout = 10 * time.Second
 )
 
-type tokenTransfer struct {
-	tokenAmount  cciptestinterfaces.TokenAmount
-	destTokenRef datastore.AddressRef
-}
-
 // v3TestCaseBase contains test data that can be specified w/out the environment
 // being loaded.
 type v3TestCaseBase struct {
@@ -38,7 +32,6 @@ type v3TestCaseBase struct {
 	msgData                  []byte
 	finality                 uint16
 	expectFail               bool
-	tokenTransfer            *tokenTransfer
 	numExpectedReceipts      int
 	numExpectedVerifications int
 	aggregatorQualifier      string // which aggregator to query (default, secondary, tertiary)
@@ -64,24 +57,7 @@ func (tc *v3TestCase) Name() string {
 
 func (tc *v3TestCase) Run(ctx context.Context, harness TestHarness, cfg *ccv.Cfg) error {
 	l := zerolog.Ctx(ctx)
-	var (
-		receiverStartBalance *big.Int
-		destTokenAddress     protocol.UnknownAddress
-		tokenAmount          cciptestinterfaces.TokenAmount
-	)
-	if tc.tokenTransfer != nil {
-		tokenAmount = tc.tokenTransfer.tokenAmount
-		var err error
-		destTokenAddress, err = getContractAddress(cfg, tc.dst.ChainSelector(), tc.tokenTransfer.destTokenRef.Type, tc.tokenTransfer.destTokenRef.Version.String(), tc.tokenTransfer.destTokenRef.Qualifier, "token on destination chain")
-		if err != nil {
-			return fmt.Errorf("failed to get destination token address: %w", err)
-		}
-		receiverStartBalance, err = tc.dst.GetTokenBalance(ctx, tc.receiver, destTokenAddress)
-		if err != nil {
-			return fmt.Errorf("failed to get receiver start balance: %w", err)
-		}
-		l.Info().Str("Receiver", tc.receiver.String()).Str("Token", destTokenAddress.String()).Uint64("StartBalance", receiverStartBalance.Uint64()).Msg("Receiver start balance")
-	}
+
 	seqNo, err := tc.src.GetExpectedNextSequenceNumber(ctx, tc.dst.ChainSelector())
 	if err != nil {
 		return fmt.Errorf("failed to get expected next sequence number: %w", err)
@@ -89,9 +65,8 @@ func (tc *v3TestCase) Run(ctx context.Context, harness TestHarness, cfg *ccv.Cfg
 	l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
 	sendMessageResult, err := tc.src.SendMessage(
 		ctx, tc.dst.ChainSelector(), cciptestinterfaces.MessageFields{
-			Receiver:    tc.receiver,
-			Data:        tc.msgData,
-			TokenAmount: tokenAmount,
+			Receiver: tc.receiver,
+			Data:     tc.msgData,
 		}, cciptestinterfaces.MessageOptions{
 			Version:           3,
 			ExecutionGasLimit: 200_000,
@@ -150,16 +125,7 @@ func (tc *v3TestCase) Run(ctx context.Context, harness TestHarness, cfg *ccv.Cfg
 	} else if !tc.expectFail && e.State != cciptestinterfaces.ExecutionStateSuccess {
 		return fmt.Errorf("expected execution state success, got %s", e.State)
 	}
-	if receiverStartBalance != nil {
-		receiverEndBalance, err := tc.dst.GetTokenBalance(ctx, tc.receiver, destTokenAddress)
-		if err != nil {
-			return fmt.Errorf("failed to get receiver end balance: %w", err)
-		}
-		if receiverStartBalance.Add(receiverStartBalance, tc.tokenTransfer.tokenAmount.Amount).Cmp(receiverEndBalance) != 0 {
-			return fmt.Errorf("expected receiver end balance to be %d, got %d", receiverStartBalance.Add(receiverStartBalance, tc.tokenTransfer.tokenAmount.Amount), receiverEndBalance)
-		}
-		l.Info().Str("Receiver", tc.receiver.String()).Str("Token", destTokenAddress.String()).Uint64("EndBalance", receiverEndBalance.Uint64()).Msg("t")
-	}
+
 	return nil
 }
 
@@ -179,7 +145,8 @@ func getContractAddress(ccvCfg *ccv.Cfg, chainSelector uint64, contractType data
 	return protocol.NewUnknownAddressFromHex(ref.Address)
 }
 
-func AllBasicExtraArgsV3(src, dest cciptestinterfaces.CCIP17) []TestCase {
+// AllBasicMessagingExtraArgsV3 returns all the test cases for basic messaging with ExtraArgsV3.
+func AllBasicMessagingExtraArgsV3(src, dest cciptestinterfaces.CCIP17) []TestCase {
 	return append(
 		append(
 			[]TestCase{customExecutorTestCase(src, dest)},

@@ -20,9 +20,9 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
 const (
@@ -53,130 +53,53 @@ type v3TestCase struct {
 }
 
 func TestE2ESmoke_Basic(t *testing.T) {
-	smokeTestConfig := GetSmokeTestConfig()
-	in, err := ccv.LoadOutput[ccv.Cfg](smokeTestConfig)
+	cfg, err := ccv.LoadOutput[ccv.Cfg](GetSmokeTestConfig())
 	require.NoError(t, err)
+
 	ctx := ccv.Plog.WithContext(t.Context())
 	l := zerolog.Ctx(ctx)
 
-	// Only load EVM chains for now, as more chains become supported we can add them.
-	lib, err := ccv.NewLib(l, smokeTestConfig, chain_selectors.FamilyEVM)
+	harness, err := tcapi.NewTestHarness(
+		ctx,
+		GetSmokeTestConfig(),
+		cfg,
+		chain_selectors.FamilyEVM,
+	)
 	require.NoError(t, err)
-	chains, err := lib.Chains(ctx)
+
+	chains, err := harness.Lib.Chains(ctx)
+	require.NoError(t, err)
+	chainMap, err := harness.Lib.ChainsMap(ctx)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(chains), 2, "expected at least 2 chains for this test in the environment")
-	chainMap, err := lib.ChainsMap(ctx)
-	require.NoError(t, err)
 
-	t.Cleanup(func() {
-		_, err := framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
-		require.NoError(t, err)
-	})
-
-	aggregatorClients := SetupAggregatorClients(t, ctx, in)
-	defaultAggregatorClient := aggregatorClients[common.DefaultCommitteeVerifierQualifier]
-
-	indexerMonitor := SetupIndexerMonitor(t, ctx, lib)
-
-	sel0, sel1 := chains[0].Details.ChainSelector,
-		chains[1].Details.ChainSelector
+	src, dest := chains[0].CCIP17, chains[1].CCIP17
 
 	t.Run("extra args v3 messaging", func(t *testing.T) {
-		src, dest := chains[0].Details.ChainSelector, chains[1].Details.ChainSelector
-		mvtcsSrcToDest := multiVerifierTestCases(t, src, dest, in, chainMap)
-		// add one test case the other way around (dest->src) to test the reverse lane.
-		mvtcsDestToSrc := multiVerifierTestCases(t, dest, src, in, chainMap)
-		dataSizeTcs := dataSizeTestCases(t, src, dest, in, chainMap)
-		customExecTc := customExecutorTestCase(t, src, dest, in)
-
-		tcs := make([]v3TestCase, 0, len(mvtcsSrcToDest)+1+len(dataSizeTcs)+1)
-		tcs = append(tcs, mvtcsSrcToDest...)
-		tcs = append(tcs, mvtcsDestToSrc[0])
-		tcs = append(tcs, dataSizeTcs...)
-		tcs = append(tcs, customExecTc)
-		for _, tc := range tcs {
-			t.Run(tc.name, func(t *testing.T) {
-				var receiverStartBalance *big.Int
-				var destTokenAddress protocol.UnknownAddress
-				var tokenAmount cciptestinterfaces.TokenAmount
-				if tc.tokenTransfer != nil {
-					tokenAmount = tc.tokenTransfer.tokenAmount
-					destTokenAddress = getContractAddress(t, in, tc.dstSelector, tc.tokenTransfer.destTokenRef.Type, tc.tokenTransfer.destTokenRef.Version.String(), tc.tokenTransfer.destTokenRef.Qualifier, "token on destination chain")
-					receiverStartBalance, err = chainMap[tc.dstSelector].GetTokenBalance(ctx, tc.receiver, destTokenAddress)
-					require.NoError(t, err)
-					l.Info().Str("Receiver", tc.receiver.String()).Str("Token", destTokenAddress.String()).Uint64("StartBalance", receiverStartBalance.Uint64()).Msg("Receiver start balance")
-				}
-				seqNo, err := chainMap[tc.srcSelector].GetExpectedNextSequenceNumber(ctx, tc.dstSelector)
-				require.NoError(t, err)
-				l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
-				sendMessageResult, err := chainMap[tc.srcSelector].SendMessage(
-					ctx, tc.dstSelector, cciptestinterfaces.MessageFields{
-						Receiver:    tc.receiver,
-						Data:        tc.msgData,
-						TokenAmount: tokenAmount,
-					}, cciptestinterfaces.MessageOptions{
-						Version:           3,
-						ExecutionGasLimit: 200_000,
-						FinalityConfig:    tc.finality,
-						Executor:          tc.executor,
-						CCVs:              tc.ccvs,
-					})
-				require.NoError(t, err)
-				require.Lenf(t, sendMessageResult.ReceiptIssuers, tc.numExpectedReceipts, "expected %d receipt issuers, got %d", tc.numExpectedReceipts, len(sendMessageResult.ReceiptIssuers))
-				sentEvent, err := chainMap[tc.srcSelector].WaitOneSentEventBySeqNo(ctx, tc.dstSelector, seqNo, defaultSentTimeout)
-				require.NoError(t, err)
-				messageID := sentEvent.MessageID
-
-				// Select the appropriate aggregator client based on the test case's aggregatorQualifier
-				aggregatorClient := defaultAggregatorClient
-				if tc.aggregatorQualifier != "" && tc.aggregatorQualifier != common.DefaultCommitteeVerifierQualifier {
-					if client, ok := aggregatorClients[tc.aggregatorQualifier]; ok {
-						aggregatorClient = client
-					}
-				}
-				testCtx := NewTestingContext(t, t.Context(), chainMap, aggregatorClient, indexerMonitor)
-				result, err := testCtx.AssertMessage(messageID, AssertMessageOptions{
-					TickInterval:            1 * time.Second,
-					ExpectedVerifierResults: tc.numExpectedVerifications,
-					Timeout:                 defaultExecTimeout,
-					AssertVerifierLogs:      false,
-					AssertExecutorLogs:      false,
+		for _, tc := range tcapi.AllBasicMessagingExtraArgsV3(src, dest) {
+			if tc.HavePrerequisites(ctx, cfg) {
+				t.Run(tc.Name(), func(t *testing.T) {
+					require.NoError(t, tc.Run(ctx, harness, cfg))
 				})
-				require.NoError(t, err)
-				require.NotNil(t, result.AggregatedResult)
-				require.Len(t, result.IndexedVerifications.Results, tc.numExpectedVerifications)
-
-				e, err := chainMap[tc.dstSelector].WaitOneExecEventBySeqNo(ctx, tc.srcSelector, seqNo, defaultExecTimeout)
-				require.NoError(t, err)
-				require.NotNil(t, e)
-				if tc.expectFail {
-					require.Equal(t, cciptestinterfaces.ExecutionStateFailure, e.State)
-				} else {
-					require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, e.State, "unexpected state, return data: %x", e.ReturnData)
-				}
-				if receiverStartBalance != nil {
-					receiverEndBalance, err := chainMap[tc.dstSelector].GetTokenBalance(ctx, tc.receiver, destTokenAddress)
-					require.NoError(t, err)
-					require.Equal(t, receiverStartBalance.Add(receiverStartBalance, tc.tokenTransfer.tokenAmount.Amount), receiverEndBalance)
-					l.Info().Str("Receiver", tc.receiver.String()).Str("Token", destTokenAddress.String()).Uint64("EndBalance", receiverEndBalance.Uint64()).Msg("t")
-				}
-			})
+			} else {
+				t.Logf("Skipping %s because current environment does not have the prerequisites", tc.Name())
+			}
 		}
 	})
 
 	t.Run("extra args v3 token transfer", func(t *testing.T) {
 		var (
-			sourceSelector = sel0
+			sourceSelector = src.ChainSelector()
 			sourceChain    = chainMap[sourceSelector]
-			destSelector   = sel1
+			destSelector   = dest.ChainSelector()
 			destChain      = chainMap[destSelector]
 		)
 
 		runTokenTransferTestCase := func(t *testing.T, combo common.TokenCombination, finalityConfig uint16, receiver protocol.UnknownAddress) {
 			sender := mustGetSenderAddress(t, sourceChain)
 
-			srcToken := getTokenAddress(t, in, sourceSelector, combo.SourcePoolAddressRef().Qualifier)
-			destToken := getTokenAddress(t, in, destSelector, combo.DestPoolAddressRef().Qualifier)
+			srcToken := getTokenAddress(t, cfg, sourceSelector, combo.SourcePoolAddressRef().Qualifier)
+			destToken := getTokenAddress(t, cfg, destSelector, combo.DestPoolAddressRef().Qualifier)
 
 			startBal, err := destChain.GetTokenBalance(ctx, receiver, destToken)
 			require.NoError(t, err)
@@ -194,7 +117,7 @@ func TestE2ESmoke_Basic(t *testing.T) {
 				Version:           3,
 				ExecutionGasLimit: 200_000,
 				FinalityConfig:    finalityConfig,
-				Executor:          getContractAddress(t, in, sel0, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
+				Executor:          getContractAddress(t, cfg, sourceSelector, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
 			}
 
 			sendRes, err := sourceChain.SendMessage(
@@ -216,7 +139,7 @@ func TestE2ESmoke_Basic(t *testing.T) {
 			require.NoError(t, err)
 			msgID := sentEvt.MessageID
 
-			testCtx := NewTestingContext(t, ctx, chainMap, defaultAggregatorClient, indexerMonitor)
+			testCtx := NewTestingContext(t, ctx, chainMap, harness.AggregatorClients[common.DefaultCommitteeVerifierQualifier], harness.IndexerMonitor)
 
 			res, err := testCtx.AssertMessage(msgID, AssertMessageOptions{
 				TickInterval:            1 * time.Second,
@@ -255,7 +178,7 @@ func TestE2ESmoke_Basic(t *testing.T) {
 			receiver := mustGetEOAReceiverAddress(t, destChain)
 			mockReceiver := getContractAddress(
 				t,
-				in,
+				cfg,
 				destSelector,
 				datastore.ContractType(mock_receiver.ContractType),
 				mock_receiver.Deploy.Version(),
