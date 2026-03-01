@@ -1,4 +1,4 @@
-package tcapi
+package token_transfer
 
 import (
 	"context"
@@ -7,12 +7,13 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
@@ -20,7 +21,6 @@ import (
 const tokenTransferAmount = 1000
 const tokenTransferExecTimeout = 45 * time.Second
 
-// tokenTransferV3TestCaseBase contains test data that can be specified without the environment.
 type tokenTransferV3TestCaseBase struct {
 	name            string
 	src             cciptestinterfaces.CCIP17
@@ -28,31 +28,26 @@ type tokenTransferV3TestCaseBase struct {
 	combo           common.TokenCombination
 	finalityConfig  uint16
 	useEOAReceiver  bool
-	numExpectedRecv int // combo.ExpectedReceiptIssuers()
-	numExpectedVer  int // combo.ExpectedVerifierResults()
+	numExpectedRecv int
+	numExpectedVer  int
 }
 
-// tokenTransferV3TestCase is a TestCase for token transfers using ExtraArgs v3.
 type tokenTransferV3TestCase struct {
 	tokenTransferV3TestCaseBase
-
-	// Hydrated from the environment.
 	sender    protocol.UnknownAddress
 	receiver  protocol.UnknownAddress
 	srcToken  protocol.UnknownAddress
 	destToken protocol.UnknownAddress
 	executor  protocol.UnknownAddress
-
-	hydrate func(ctx context.Context, tc *tokenTransferV3TestCase, cfg *ccv.Cfg) bool
+	hydrate   func(ctx context.Context, tc *tokenTransferV3TestCase, cfg *ccv.Cfg) bool
 }
 
 func (tc *tokenTransferV3TestCase) Name() string {
 	return tc.name
 }
 
-func (tc *tokenTransferV3TestCase) Run(ctx context.Context, harness TestHarness, cfg *ccv.Cfg) error {
+func (tc *tokenTransferV3TestCase) Run(ctx context.Context, harness tcapi.TestHarness, cfg *ccv.Cfg) error {
 	l := zerolog.Ctx(ctx)
-
 	startBal, err := tc.dst.GetTokenBalance(ctx, tc.receiver, tc.destToken)
 	if err != nil {
 		return fmt.Errorf("get receiver start balance: %w", err)
@@ -94,7 +89,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context, harness TestHarness,
 		return fmt.Errorf("expected %d receipt issuers, got %d", tc.numExpectedRecv, len(sendRes.ReceiptIssuers))
 	}
 
-	sentEvt, err := tc.src.WaitOneSentEventBySeqNo(ctx, tc.dst.ChainSelector(), seqNo, defaultSentTimeout)
+	sentEvt, err := tc.src.WaitOneSentEventBySeqNo(ctx, tc.dst.ChainSelector(), seqNo, tcapi.DefaultSentTimeout)
 	if err != nil {
 		return fmt.Errorf("wait for sent event: %w", err)
 	}
@@ -105,10 +100,10 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context, harness TestHarness,
 	if err != nil {
 		return fmt.Errorf("get chains map: %w", err)
 	}
-	testCtx, cleanupFn := NewTestingContext(ctx, chainMap, aggregatorClient, harness.IndexerMonitor)
+	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, harness.IndexerMonitor)
 	defer cleanupFn()
 
-	res, err := testCtx.AssertMessage(msgID, AssertMessageOptions{
+	res, err := testCtx.AssertMessage(msgID, tcapi.AssertMessageOptions{
 		TickInterval:            1 * time.Second,
 		Timeout:                 tokenTransferExecTimeout,
 		ExpectedVerifierResults: tc.numExpectedVer,
@@ -158,16 +153,20 @@ func (tc *tokenTransferV3TestCase) HavePrerequisites(ctx context.Context, cfg *c
 	return tc.hydrate(ctx, tc, cfg)
 }
 
-// getTokenAddress returns the token address for the given chain and pool qualifier (burn_mint_erc20_with_drip).
 func getTokenAddress(cfg *ccv.Cfg, chainSelector uint64, qualifier string) (protocol.UnknownAddress, error) {
-	return getContractAddress(cfg, chainSelector,
+	return tcapi.GetContractAddress(cfg, chainSelector,
 		datastore.ContractType(burn_mint_erc20_with_drip.ContractType),
 		burn_mint_erc20_with_drip.Deploy.Version(),
 		qualifier,
 		"burn mint erc677")
 }
 
-func tokenTransferTestCase(src, dest cciptestinterfaces.CCIP17, combo common.TokenCombination, finalityConfig uint16, useEOAReceiver bool, name string) *tokenTransferV3TestCase {
+// TokenTransfer returns a single token transfer test case for the given combo, finality, receiver type, and name.
+func TokenTransfer(src, dest cciptestinterfaces.CCIP17, combo common.TokenCombination, finalityConfig uint16, useEOAReceiver bool, name string) tcapi.TestCase {
+	return tokenTransferCase(src, dest, combo, finalityConfig, useEOAReceiver, name)
+}
+
+func tokenTransferCase(src, dest cciptestinterfaces.CCIP17, combo common.TokenCombination, finalityConfig uint16, useEOAReceiver bool, name string) *tokenTransferV3TestCase {
 	return &tokenTransferV3TestCase{
 		tokenTransferV3TestCaseBase: tokenTransferV3TestCaseBase{
 			name:            name,
@@ -189,7 +188,7 @@ func tokenTransferTestCase(src, dest cciptestinterfaces.CCIP17, combo common.Tok
 			if tc.useEOAReceiver {
 				tc.receiver, err = tc.dst.GetEOAReceiverAddress()
 			} else {
-				tc.receiver, err = getContractAddress(cfg, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), common.DefaultReceiverQualifier, "default mock receiver")
+				tc.receiver, err = tcapi.GetContractAddress(cfg, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), common.DefaultReceiverQualifier, "default mock receiver")
 			}
 			if err != nil {
 				return false
@@ -206,7 +205,7 @@ func tokenTransferTestCase(src, dest cciptestinterfaces.CCIP17, combo common.Tok
 				return false
 			}
 
-			tc.executor, err = getContractAddress(cfg, tc.src.ChainSelector(), datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor")
+			tc.executor, err = tcapi.GetContractAddress(cfg, tc.src.ChainSelector(), datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor")
 			if err != nil {
 				return false
 			}
@@ -215,25 +214,25 @@ func tokenTransferTestCase(src, dest cciptestinterfaces.CCIP17, combo common.Tok
 	}
 }
 
-// AllTokenTransferV3 returns test cases for all token combinations with EOA receiver and combo finality.
-func AllTokenTransferV3(src, dest cciptestinterfaces.CCIP17) []TestCase {
-	out := make([]TestCase, 0, len(common.AllTokenCombinations()))
+// All returns test cases for all token combinations with EOA receiver and combo finality.
+func All(src, dest cciptestinterfaces.CCIP17) []tcapi.TestCase {
+	out := make([]tcapi.TestCase, 0, len(common.AllTokenCombinations()))
 	for _, combo := range common.AllTokenCombinations() {
 		name := fmt.Sprintf("token transfer EOA (%s)", combo.SourcePoolAddressRef().Qualifier)
-		out = append(out, tokenTransferTestCase(src, dest, combo, combo.FinalityConfig(), true, name))
+		out = append(out, tokenTransferCase(src, dest, combo, combo.FinalityConfig(), true, name))
 	}
 	return out
 }
 
-// All17TokenTransferV3 returns test cases for 1.7.0 token combinations: EOA and mock receiver with default finality (0).
-func All17TokenTransferV3(src, dest cciptestinterfaces.CCIP17) []TestCase {
+// All17 returns test cases for 1.7.0 token combinations: EOA and mock receiver with default finality (0).
+func All17(src, dest cciptestinterfaces.CCIP17) []tcapi.TestCase {
 	combos := common.All17TokenCombinations()
-	out := make([]TestCase, 0, len(combos)*2)
+	out := make([]tcapi.TestCase, 0, len(combos)*2)
 	for _, combo := range combos {
 		qual := combo.SourcePoolAddressRef().Qualifier
 		out = append(out,
-			tokenTransferTestCase(src, dest, combo, 0, true, fmt.Sprintf("token transfer 1.7.0 EOA default finality (%s)", qual)),
-			tokenTransferTestCase(src, dest, combo, 0, false, fmt.Sprintf("token transfer 1.7.0 mock receiver default finality (%s)", qual)),
+			tokenTransferCase(src, dest, combo, 0, true, fmt.Sprintf("token transfer 1.7.0 EOA default finality (%s)", qual)),
+			tokenTransferCase(src, dest, combo, 0, false, fmt.Sprintf("token transfer 1.7.0 mock receiver default finality (%s)", qual)),
 		)
 	}
 	return out

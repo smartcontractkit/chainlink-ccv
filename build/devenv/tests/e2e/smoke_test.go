@@ -13,6 +13,8 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi/basic"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi/token_transfer"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
@@ -43,7 +45,7 @@ func TestE2ESmoke_Basic(t *testing.T) {
 	src, dest := chains[0].CCIP17, chains[1].CCIP17
 
 	t.Run("extra args v3 messaging", func(t *testing.T) {
-		for _, tc := range tcapi.AllBasicMessagingExtraArgsV3(src, dest) {
+		for _, tc := range basic.All(src, dest) {
 			if tc.HavePrerequisites(ctx, cfg) {
 				t.Run(tc.Name(), func(t *testing.T) {
 					require.NoError(t, tc.Run(ctx, harness, cfg))
@@ -55,7 +57,7 @@ func TestE2ESmoke_Basic(t *testing.T) {
 	})
 
 	t.Run("extra args v3 token transfer", func(t *testing.T) {
-		for _, tc := range tcapi.AllTokenTransferV3(src, dest) {
+		for _, tc := range token_transfer.All(src, dest) {
 			if tc.HavePrerequisites(ctx, cfg) {
 				t.Run(tc.Name(), func(t *testing.T) {
 					require.NoError(t, tc.Run(ctx, harness, cfg))
@@ -64,7 +66,7 @@ func TestE2ESmoke_Basic(t *testing.T) {
 				t.Logf("Skipping %s because current environment does not have the prerequisites", tc.Name())
 			}
 		}
-		for _, tc := range tcapi.All17TokenTransferV3(src, dest) {
+		for _, tc := range token_transfer.All17(src, dest) {
 			if tc.HavePrerequisites(ctx, cfg) {
 				t.Run(tc.Name(), func(t *testing.T) {
 					require.NoError(t, tc.Run(ctx, harness, cfg))
