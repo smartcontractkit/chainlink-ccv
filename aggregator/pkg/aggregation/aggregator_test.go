@@ -18,10 +18,11 @@ import (
 )
 
 func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
-	ctx := context.Background()
 	messageID := model.MessageID{1, 2, 3}
+	aggregationKey := model.AggregationKey("test-agg-key")
 
 	t.Run("should not skip when aggregated store is nil", func(t *testing.T) {
+		ctx := t.Context()
 		store := mocks.NewMockCommitVerificationStore(t)
 		sink := mocks.NewMockSink(t)
 		quorum := mocks.NewMockQuorumValidator(t)
@@ -49,11 +50,12 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 			channelManager,
 		)
 
-		shouldSkip := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
+		shouldSkip := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, aggregationKey)
 		assert.False(t, shouldSkip)
 	})
 
 	t.Run("should not skip when no existing report", func(t *testing.T) {
+		ctx := t.Context()
 		store := mocks.NewMockCommitVerificationStore(t)
 		aggStore := mocks.NewMockCommitVerificationAggregatedStore(t)
 		sink := mocks.NewMockSink(t)
@@ -62,7 +64,7 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		metricLabeler := mocks.NewMockAggregatorMetricLabeler(t)
 
 		monitoring.EXPECT().Metrics().Return(metricLabeler).Maybe()
-		aggStore.EXPECT().GetCommitAggregatedReportByMessageID(ctx, messageID).Return(nil, common.ErrNotFound)
+		aggStore.EXPECT().GetCommitAggregatedReportByAggregationKey(ctx, messageID, aggregationKey).Return(nil, common.ErrNotFound)
 
 		config := &model.AggregatorConfig{
 			Aggregation: model.AggregationConfig{
@@ -83,11 +85,12 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 			channelManager,
 		)
 
-		shouldSkip := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
+		shouldSkip := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, aggregationKey)
 		assert.False(t, shouldSkip)
 	})
 
 	t.Run("should skip when existing report meets quorum", func(t *testing.T) {
+		ctx := t.Context()
 		store := mocks.NewMockCommitVerificationStore(t)
 		aggStore := mocks.NewMockCommitVerificationAggregatedStore(t)
 		sink := mocks.NewMockSink(t)
@@ -105,11 +108,12 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		}
 
 		existingReport := &model.CommitAggregatedReport{
-			MessageID:     messageID,
-			Verifications: []*model.CommitVerificationRecord{},
+			MessageID:      messageID,
+			AggregationKey: aggregationKey,
+			Verifications:  []*model.CommitVerificationRecord{},
 		}
 
-		aggStore.EXPECT().GetCommitAggregatedReportByMessageID(ctx, messageID).Return(existingReport, nil)
+		aggStore.EXPECT().GetCommitAggregatedReportByAggregationKey(ctx, messageID, aggregationKey).Return(existingReport, nil)
 		quorum.EXPECT().CheckQuorum(ctx, existingReport).Return(true, nil)
 
 		channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
@@ -124,12 +128,13 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 			channelManager,
 		)
 
-		shouldSkip := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
+		shouldSkip := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, aggregationKey)
 		assert.True(t, shouldSkip)
 		quorum.AssertExpectations(t)
 	})
 
 	t.Run("should not skip when existing report does not meet quorum", func(t *testing.T) {
+		ctx := t.Context()
 		store := mocks.NewMockCommitVerificationStore(t)
 		aggStore := mocks.NewMockCommitVerificationAggregatedStore(t)
 		sink := mocks.NewMockSink(t)
@@ -147,11 +152,12 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		}
 
 		existingReport := &model.CommitAggregatedReport{
-			MessageID:     messageID,
-			Verifications: []*model.CommitVerificationRecord{},
+			MessageID:      messageID,
+			AggregationKey: aggregationKey,
+			Verifications:  []*model.CommitVerificationRecord{},
 		}
 
-		aggStore.EXPECT().GetCommitAggregatedReportByMessageID(ctx, messageID).Return(existingReport, nil)
+		aggStore.EXPECT().GetCommitAggregatedReportByAggregationKey(ctx, messageID, aggregationKey).Return(existingReport, nil)
 		quorum.EXPECT().CheckQuorum(ctx, existingReport).Return(false, nil)
 
 		channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
@@ -166,11 +172,12 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 			channelManager,
 		)
 
-		shouldSkip := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
+		shouldSkip := aggregator.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, aggregationKey)
 		assert.False(t, shouldSkip)
 	})
 
-	t.Run("should not skip when GetCommitAggregatedReportByMessageID errors", func(t *testing.T) {
+	t.Run("should not skip when GetCommitAggregatedReportByAggregationKey errors", func(t *testing.T) {
+		ctx := t.Context()
 		store := mocks.NewMockCommitVerificationStore(t)
 		aggStore := mocks.NewMockCommitVerificationAggregatedStore(t)
 		sink := mocks.NewMockSink(t)
@@ -179,16 +186,17 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 		metricLabeler := mocks.NewMockAggregatorMetricLabeler(t)
 
 		monitoring.EXPECT().Metrics().Return(metricLabeler).Maybe()
-		aggStore.EXPECT().GetCommitAggregatedReportByMessageID(ctx, messageID).Return(nil, errors.New("boom"))
+		aggStore.EXPECT().GetCommitAggregatedReportByAggregationKey(ctx, messageID, aggregationKey).Return(nil, errors.New("boom"))
 
 		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}}
 		channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
 		a := NewCommitReportAggregator(store, aggStore, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
-		shouldSkip := a.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
+		shouldSkip := a.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, aggregationKey)
 		assert.False(t, shouldSkip)
 	})
 
 	t.Run("should not skip when quorum check errors", func(t *testing.T) {
+		ctx := t.Context()
 		store := mocks.NewMockCommitVerificationStore(t)
 		aggStore := mocks.NewMockCommitVerificationAggregatedStore(t)
 		sink := mocks.NewMockSink(t)
@@ -198,14 +206,33 @@ func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 
 		monitoring.EXPECT().Metrics().Return(metricLabeler).Maybe()
 
-		existingReport := &model.CommitAggregatedReport{MessageID: messageID}
-		aggStore.EXPECT().GetCommitAggregatedReportByMessageID(ctx, messageID).Return(existingReport, nil)
+		existingReport := &model.CommitAggregatedReport{MessageID: messageID, AggregationKey: aggregationKey}
+		aggStore.EXPECT().GetCommitAggregatedReportByAggregationKey(ctx, messageID, aggregationKey).Return(existingReport, nil)
 		quorum.EXPECT().CheckQuorum(ctx, existingReport).Return(false, errors.New("boom"))
 
 		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}}
 		channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
 		a := NewCommitReportAggregator(store, aggStore, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
-		shouldSkip := a.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
+		shouldSkip := a.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, aggregationKey)
+		assert.False(t, shouldSkip)
+	})
+
+	t.Run("should not skip when no report exists for requested aggregation key", func(t *testing.T) {
+		ctx := t.Context()
+		store := mocks.NewMockCommitVerificationStore(t)
+		aggStore := mocks.NewMockCommitVerificationAggregatedStore(t)
+		sink := mocks.NewMockSink(t)
+		quorum := mocks.NewMockQuorumValidator(t)
+		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		metricLabeler := mocks.NewMockAggregatorMetricLabeler(t)
+
+		monitoring.EXPECT().Metrics().Return(metricLabeler).Maybe()
+		aggStore.EXPECT().GetCommitAggregatedReportByAggregationKey(ctx, messageID, aggregationKey).Return(nil, common.ErrNotFound)
+
+		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}}
+		channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
+		a := NewCommitReportAggregator(store, aggStore, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+		shouldSkip := a.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, aggregationKey)
 		assert.False(t, shouldSkip)
 	})
 }
@@ -240,7 +267,7 @@ func TestHealthCheck(t *testing.T) {
 			a := NewCommitReportAggregator(store, nil, sink, mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
 
 			for i := 0; i < tc.pending; i++ {
-				_ = channelManager.Enqueue(context.Background(), "test-client", aggregationRequest{}, time.Millisecond)
+				_ = channelManager.Enqueue(t.Context(), "test-client", aggregationRequest{}, time.Millisecond)
 			}
 			if tc.stopped {
 				a.done = make(chan struct{})
@@ -272,7 +299,7 @@ func TestCheckAggregation_EnqueueAndFull(t *testing.T) {
 		channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
 		a := NewCommitReportAggregator(store, nil, sink, mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
 
-		err := a.CheckAggregation(context.Background(), []byte{1}, "test-key", "test-client", time.Millisecond)
+		err := a.CheckAggregation(t.Context(), []byte{1}, "test-key", "test-client", time.Millisecond)
 		require.NoError(t, err)
 	})
 
@@ -287,16 +314,16 @@ func TestCheckAggregation_EnqueueAndFull(t *testing.T) {
 		channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
 		a := NewCommitReportAggregator(store, nil, sink, mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
 
-		_ = channelManager.Enqueue(context.Background(), "test-client", aggregationRequest{}, time.Millisecond)
+		_ = channelManager.Enqueue(t.Context(), "test-client", aggregationRequest{}, time.Millisecond)
 
-		err := a.CheckAggregation(context.Background(), []byte{1}, "test-key", "test-client", time.Millisecond)
+		err := a.CheckAggregation(t.Context(), []byte{1}, "test-key", "test-client", time.Millisecond)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, common.ErrAggregationChannelFull)
 	})
 }
 
 func TestCheckAggregationAndSubmitComplete(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	msgID := model.MessageID{0x1}
 	aggregationKey := "key"
 
@@ -407,7 +434,7 @@ func TestHealthCheck_ReportsStoppedAfterContextCancellation(t *testing.T) {
 	channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
 	a := NewCommitReportAggregator(store, nil, sink, mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	a.StartBackground(ctx)
 
 	require.NoError(t, a.Ready())

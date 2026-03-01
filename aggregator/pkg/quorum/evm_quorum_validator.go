@@ -115,7 +115,7 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *mode
 		return nil, err
 	}
 
-	r, s, _, err := protocol.DecodeSingleECDSASignature(record.Signature)
+	r, s, err := protocol.DecodeSingleECDSASignature(record.Signature)
 	if err != nil {
 		q.logger(ctx).Errorw("Failed to decode single signature", "error", err)
 		return nil, fmt.Errorf("failed to decode single signature: %w", err)

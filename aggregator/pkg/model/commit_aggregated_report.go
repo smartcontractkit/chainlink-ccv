@@ -12,9 +12,10 @@ import (
 
 // CommitAggregatedReport represents a report of aggregated commit verifications.
 type CommitAggregatedReport struct {
-	MessageID     MessageID
-	Verifications []*CommitVerificationRecord
-	Sequence      int64
+	MessageID      MessageID
+	AggregationKey AggregationKey
+	Verifications  []*CommitVerificationRecord
+	Sequence       int64
 	// WrittenAt represents when the aggregated report was written to storage.
 	// This field is used for ordering in the GetMessagesSince API to return reports
 	// in the order they were finalized/stored, not the order of individual verifications.

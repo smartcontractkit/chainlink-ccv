@@ -125,9 +125,3 @@ const allVerificationRecordColumns = `message_id, signer_identifier, aggregation
 
 const allVerificationRecordColumnsQualified = `cvr.message_id, cvr.signer_identifier, cvr.aggregation_key,
 	cvr.ccv_version, cvr.signature, cvr.message_ccv_addresses, cvr.message_executor_address, cvr.message_data, cvr.id, cvr.created_at`
-
-func mustParseUint64(s string) uint64 {
-	var result uint64
-	_, _ = fmt.Sscanf(s, "%d", &result)
-	return result
-}
