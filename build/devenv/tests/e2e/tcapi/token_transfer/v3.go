@@ -7,9 +7,10 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
+
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
@@ -18,8 +19,10 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
 
-const tokenTransferAmount = 1000
-const tokenTransferExecTimeout = 45 * time.Second
+const (
+	tokenTransferAmount      = 1000
+	tokenTransferExecTimeout = 45 * time.Second
+)
 
 type tokenTransferV3TestCaseBase struct {
 	name            string

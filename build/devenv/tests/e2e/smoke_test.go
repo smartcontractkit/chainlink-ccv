@@ -48,7 +48,8 @@ func TestE2ESmoke_Basic(t *testing.T) {
 		for _, tc := range basic.All(src, dest) {
 			if tc.HavePrerequisites(ctx, cfg) {
 				t.Run(tc.Name(), func(t *testing.T) {
-					require.NoError(t, tc.Run(ctx, harness, cfg))
+					subtestCtx := ccv.Plog.WithContext(t.Context())
+					require.NoError(t, tc.Run(subtestCtx, harness, cfg))
 				})
 			} else {
 				t.Logf("Skipping %s because current environment does not have the prerequisites", tc.Name())
@@ -60,7 +61,8 @@ func TestE2ESmoke_Basic(t *testing.T) {
 		for _, tc := range token_transfer.All(src, dest) {
 			if tc.HavePrerequisites(ctx, cfg) {
 				t.Run(tc.Name(), func(t *testing.T) {
-					require.NoError(t, tc.Run(ctx, harness, cfg))
+					subtestCtx := ccv.Plog.WithContext(t.Context())
+					require.NoError(t, tc.Run(subtestCtx, harness, cfg))
 				})
 			} else {
 				t.Logf("Skipping %s because current environment does not have the prerequisites", tc.Name())
@@ -69,7 +71,8 @@ func TestE2ESmoke_Basic(t *testing.T) {
 		for _, tc := range token_transfer.All17(src, dest) {
 			if tc.HavePrerequisites(ctx, cfg) {
 				t.Run(tc.Name(), func(t *testing.T) {
-					require.NoError(t, tc.Run(ctx, harness, cfg))
+					subtestCtx := ccv.Plog.WithContext(t.Context())
+					require.NoError(t, tc.Run(subtestCtx, harness, cfg))
 				})
 			} else {
 				t.Logf("Skipping %s because current environment does not have the prerequisites", tc.Name())

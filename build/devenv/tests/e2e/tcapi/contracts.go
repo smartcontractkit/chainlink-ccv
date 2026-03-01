@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
