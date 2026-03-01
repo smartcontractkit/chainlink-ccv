@@ -2,6 +2,7 @@ package cciptestinterfaces
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"sync/atomic"
 	"time"
@@ -113,6 +114,21 @@ const (
 	ExecutionStateFailure
 )
 
+func (m MessageExecutionState) String() string {
+	switch m {
+	case ExecutionStateUntouched:
+		return "UNTOUCHED"
+	case ExecutionStateInProgress:
+		return "IN_PROGRESS"
+	case ExecutionStateSuccess:
+		return "SUCCESS"
+	case ExecutionStateFailure:
+		return "FAILURE"
+	default:
+		return fmt.Sprintf("unknown execution state %d", m)
+	}
+}
+
 // ExecutionStateChangedEvent is a chain-agnostic representation of the output of a ccip message execution operation.
 type ExecutionStateChangedEvent struct {
 	SourceChainSelector protocol.ChainSelector
@@ -152,6 +168,8 @@ type Chain interface {
 	Uncurse(ctx context.Context, subjects [][16]byte) error
 	// GetRoundRobinSendingKey gets the round robin sending key for the chain.
 	GetRoundRobinUser() func() *bind.TransactOpts
+	// ChainSelector gets the selector for this chain.
+	ChainSelector() uint64
 }
 
 type OnChainCommittees struct {

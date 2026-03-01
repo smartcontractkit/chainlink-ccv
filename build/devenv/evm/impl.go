@@ -187,6 +187,10 @@ func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Envi
 	}, nil
 }
 
+func (m *CCIP17EVM) ChainSelector() uint64 {
+	return m.chainDetails.ChainSelector
+}
+
 func (m *CCIP17EVM) getOrCreateOnRampPoller() (*eventPoller[cciptestinterfaces.MessageSentEvent], error) {
 	m.pollersMu.Lock()
 	defer m.pollersMu.Unlock()
