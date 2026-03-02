@@ -12,7 +12,6 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/logasserter"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/metrics"
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
@@ -176,10 +175,6 @@ func NewTestingContext(ctx context.Context, impl map[uint64]cciptestinterfaces.C
 	}
 
 	return tc, cleanupFunc
-}
-
-func (tc *TestingContext) enrichMetrics(metrics []metrics.MessageMetrics) {
-	tc.LogAsserter.EnrichMetrics(metrics)
 }
 
 type AssertionResult struct {

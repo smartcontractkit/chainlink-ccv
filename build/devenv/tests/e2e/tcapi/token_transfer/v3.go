@@ -209,10 +209,7 @@ func tokenTransferCase(src, dest cciptestinterfaces.CCIP17, combo common.TokenCo
 			}
 
 			tc.executor, err = tcapi.GetContractAddress(cfg, tc.src.ChainSelector(), datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor")
-			if err != nil {
-				return false
-			}
-			return true
+			return err == nil
 		},
 	}
 }
