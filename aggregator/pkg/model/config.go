@@ -151,7 +151,7 @@ type AggregationConfig struct {
 	// OperationTimeout is the timeout for each aggregation operation (0 = no timeout)
 	OperationTimeout time.Duration `toml:"operationTimeout"`
 	// DrainTimeout bounds how long shutdown waits for in-flight aggregation workers to complete.
-	// After this duration, shutdown proceeds and in-flight work is dropped. (0 = use default 30s)
+	// After this duration, shutdown proceeds and in-flight work is dropped. (0 = use default 10s)
 	DrainTimeout time.Duration `toml:"drainTimeout"`
 	// MaxConsecutiveErrors is the maximum number of consecutive errors allowed before the aggregation is considered failed
 	MaxConsecutiveErrors uint32 `toml:"maxConsecutiveErrors"`

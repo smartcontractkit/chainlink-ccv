@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 )
 
@@ -341,4 +342,126 @@ func TestStart_FairSchedulingPreventsBusyClientStarvation(t *testing.T) {
 		ChannelKey: "quiet",
 		MessageID:  model.MessageID{0xFF},
 	}, "quiet client request should be received")
+}
+
+func TestEnqueue_RejectsAfterShutdown(t *testing.T) {
+	manager := NewChannelManager([]model.ChannelKey{"client1"}, 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	startDone := make(chan struct{})
+	go func() {
+		_ = manager.Start(ctx)
+		close(startDone)
+	}()
+
+	time.Sleep(10 * time.Millisecond)
+	cancel()
+	<-startDone
+
+	err := manager.Enqueue(context.Background(), "client1", aggregationRequest{ChannelKey: "client1"}, time.Second)
+	assert.ErrorIs(t, err, common.ErrShuttingDown)
+}
+
+func TestStart_DrainsFairlyOnShutdown(t *testing.T) {
+	manager := NewChannelManager([]model.ChannelKey{"client1", "client2"}, 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	for i := range 3 {
+		err := manager.Enqueue(ctx, "client1", aggregationRequest{
+			ChannelKey: "client1",
+			MessageID:  model.MessageID{byte(i)},
+		}, time.Second)
+		require.NoError(t, err)
+	}
+	for i := range 3 {
+		err := manager.Enqueue(ctx, "client2", aggregationRequest{
+			ChannelKey: "client2",
+			MessageID:  model.MessageID{byte(i + 100)},
+		}, time.Second)
+		require.NoError(t, err)
+	}
+
+	cancel()
+
+	received := make([]aggregationRequest, 0, 6)
+
+	startDone := make(chan struct{})
+	go func() {
+		_ = manager.Start(ctx)
+		close(startDone)
+	}()
+
+	timeout := time.After(5 * time.Second)
+	for len(received) < 6 {
+		select {
+		case req := <-manager.AggregationChannel:
+			received = append(received, req)
+		case <-timeout:
+			t.Fatalf("timed out: received only %d of 6 expected items", len(received))
+		}
+	}
+
+	<-startDone
+
+	assert.Len(t, received, 6)
+
+	client1Count, client2Count := 0, 0
+	for _, req := range received {
+		switch req.ChannelKey {
+		case "client1":
+			client1Count++
+		case "client2":
+			client2Count++
+		}
+	}
+	assert.Equal(t, 3, client1Count)
+	assert.Equal(t, 3, client2Count)
+}
+
+func TestStart_ForwardsMidSendItemOnShutdown(t *testing.T) {
+	manager := NewChannelManager([]model.ChannelKey{"client1"}, 10)
+
+	err := manager.Enqueue(context.Background(), "client1", aggregationRequest{
+		ChannelKey: "client1",
+		MessageID:  model.MessageID{1},
+	}, time.Second)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	startDone := make(chan struct{})
+	go func() {
+		_ = manager.Start(ctx)
+		close(startDone)
+	}()
+
+	<-startDone
+
+	select {
+	case req := <-manager.AggregationChannel:
+		assert.Equal(t, model.MessageID{1}, req.MessageID)
+	default:
+		t.Fatal("expected item to be forwarded to aggregation channel during drain")
+	}
+}
+
+func TestStart_SetsClosedOnEmptyClientOrder(t *testing.T) {
+	manager := NewChannelManager([]model.ChannelKey{}, 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	startDone := make(chan struct{})
+	go func() {
+		_ = manager.Start(ctx)
+		close(startDone)
+	}()
+
+	time.Sleep(10 * time.Millisecond)
+	cancel()
+	<-startDone
+
+	assert.True(t, manager.closed.Load())
 }

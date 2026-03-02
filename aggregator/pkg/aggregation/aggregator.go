@@ -204,55 +204,45 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 		})
 	}
 
+	drainDeadline := make(chan struct{})
 	go func() {
+		<-ctx.Done()
+		time.Sleep(c.drainTimeout)
+		close(drainDeadline)
+	}()
+
+	go func() {
+		defer close(c.done)
+		lggr := c.logger(context.Background())
 		for {
 			select {
-			case request := <-aggregationChannel:
+			case request, ok := <-aggregationChannel:
+				if !ok {
+					c.waitForPool(lggr, p, drainDeadline)
+					return
+				}
 				submitWork(request)
-			case <-ctx.Done():
-				c.drainAndWait(ctx, p, aggregationChannel, submitWork)
+			case <-drainDeadline:
+				lggr.Errorw("Drain timed out, dropping in-flight work", "timeout", c.drainTimeout)
 				return
 			}
 		}
 	}()
 }
 
-func (c *CommitReportAggregator) drainAndWait(
-	ctx context.Context,
-	p *pool.ContextPool,
-	aggregationChannel <-chan aggregationRequest,
-	submitWork func(aggregationRequest),
-) {
-	lggr := c.logger(context.WithoutCancel(ctx))
-	lggr.Infow("Shutting down aggregation worker, draining remaining requests")
-
-	for {
-		select {
-		case request := <-aggregationChannel:
-			submitWork(request)
-		default:
-			// p.Wait() is not context-aware, so we run it in a goroutine and race it
-			// against drainTimeout. On timeout, in-flight work is dropped and the
-			// goroutine finishes in the background once pool workers complete.
-			waitDone := make(chan error, 1)
-			go func() { waitDone <- p.Wait() }()
-
-			timer := time.NewTimer(c.drainTimeout)
-			select {
-			case err := <-waitDone:
-				if !timer.Stop() {
-					<-timer.C
-				}
-				if err != nil {
-					lggr.Errorw("Pool workers returned errors during drain", "error", err)
-				}
-				lggr.Infow("Aggregation worker drain completed")
-			case <-timer.C:
-				lggr.Errorw("Drain timed out, dropping in-flight aggregations", "timeout", c.drainTimeout)
-			}
-			close(c.done)
-			return
+func (c *CommitReportAggregator) waitForPool(lggr logger.SugaredLogger, p *pool.ContextPool, drainDeadline <-chan struct{}) {
+	lggr.Infow("Channel drained, waiting for in-flight workers")
+	poolDone := make(chan error, 1)
+	go func() { poolDone <- p.Wait() }()
+	select {
+	case poolErr := <-poolDone:
+		if poolErr != nil {
+			lggr.Errorw("Pool workers returned errors during shutdown", "error", poolErr)
+		} else {
+			lggr.Infow("Aggregation worker shutdown completed cleanly")
 		}
+	case <-drainDeadline:
+		lggr.Errorw("Drain timed out waiting for in-flight workers", "timeout", c.drainTimeout)
 	}
 }
 

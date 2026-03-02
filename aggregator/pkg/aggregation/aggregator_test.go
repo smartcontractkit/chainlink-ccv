@@ -580,7 +580,7 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		quorum := mocks.NewMockQuorumValidator(t)
 		quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(false, nil).Maybe()
 
-		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 2}}
+		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 2, DrainTimeout: 5 * time.Second}}
 		channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
 		a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
 
@@ -626,7 +626,7 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		quorum := mocks.NewMockQuorumValidator(t)
 		quorum.EXPECT().CheckQuorum(mock.Anything, mock.Anything).Return(false, nil).Maybe()
 
-		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 1}}
+		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 1, DrainTimeout: 5 * time.Second}}
 		channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
 		a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
 
@@ -700,7 +700,7 @@ func TestStartBackground_Shutdown(t *testing.T) {
 
 		quorum := mocks.NewMockQuorumValidator(t)
 
-		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 1}}
+		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 10, BackgroundWorkerCount: 1, DrainTimeout: 5 * time.Second}}
 		channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
 		a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
 
