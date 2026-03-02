@@ -2,6 +2,7 @@ package cciptestinterfaces
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"sync/atomic"
@@ -24,6 +25,11 @@ This package contains interfaces for devenv to load chain-specific product imple
 Since 1.6/1.7 CCIP versions are incompatible for the time being we'll have 2 sets of interfaces that are mostly common
 for CCIP16 and CCIP17
 */
+
+// ErrInsufficientNativeBalance is returned by TransferNative when the from account does not hold
+// enough native balance to cover the gas cost of the transfer. Callers can use errors.Is to
+// distinguish this case from other transfer failures (e.g. to skip rather than abort).
+var ErrInsufficientNativeBalance = errors.New("insufficient native balance to cover gas cost")
 
 // CCIP17 is the main interface for interacting with the CCIP17 protocol.
 type CCIP17 interface {
@@ -170,6 +176,13 @@ type Chain interface {
 	GetRoundRobinUser() func() *bind.TransactOpts
 	// ChainSelector gets the selector for this chain.
 	ChainSelector() uint64
+	// NativeBalance returns the native token balance of the given address on this chain.
+	NativeBalance(ctx context.Context, address protocol.UnknownAddress) (*big.Int, error)
+	// TransferNative sends native tokens from a configured account to any destination address.
+	// The from address must match one of the accounts provisioned in the environment (the deployer
+	// key or one of the user keys); if it does not, an error is returned.
+	// When amount is nil the full spendable balance (balance minus estimated gas cost) is swept.
+	TransferNative(ctx context.Context, from, to protocol.UnknownAddress, amount *big.Int) error
 }
 
 type OnChainCommittees struct {
