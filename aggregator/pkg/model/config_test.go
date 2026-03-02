@@ -78,7 +78,7 @@ func TestSetDefaults(t *testing.T) {
 		assert.Equal(t, "8080", cfg.HealthCheck.Port)
 		assert.Equal(t, 10*time.Second, cfg.Server.RequestTimeout)
 		assert.Equal(t, 5*time.Second, cfg.Aggregation.CheckAggregationTimeout)
-		assert.Equal(t, DefaultDrainTimeout, cfg.Aggregation.DrainTimeout)
+		assert.Equal(t, 10*time.Second, cfg.Aggregation.DrainTimeout)
 		assert.Equal(t, 5*time.Second, cfg.OrphanRecovery.CheckAggregationTimeout)
 		assert.Equal(t, 10*time.Second, cfg.Storage.QueryTimeout)
 		assert.Equal(t, uint(3), cfg.OrphanRecovery.MaxConsecutiveErrors)
