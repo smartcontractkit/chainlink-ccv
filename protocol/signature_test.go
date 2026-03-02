@@ -93,8 +93,8 @@ func TestRecoverSigners(t *testing.T) {
 	copy(hashArray[:], hash[:])
 
 	// Sign with each private key using V27 compatibility
-	rs := make([][32]byte, 0)
-	ss := make([][32]byte, 0)
+	rs := make([][32]byte, 0, len(privateKeys))
+	ss := make([][32]byte, 0, len(privateKeys))
 	for _, pk := range privateKeys {
 		r, s, _, err := SignV27(hashArray[:], pk)
 		require.NoError(t, err)
@@ -126,7 +126,6 @@ func TestEncodeSingleSignature(t *testing.T) {
 		require.Len(t, encoded, SingleECDSASignatureSize)
 		require.Equal(t, sig.R[:], encoded[0:32])
 		require.Equal(t, sig.S[:], encoded[32:64])
-		require.Equal(t, sig.Signer[:], encoded[64:84])
 	})
 
 	t.Run("zero R", func(t *testing.T) {
@@ -161,8 +160,7 @@ func TestEncodeSingleSignature(t *testing.T) {
 		}
 
 		_, err := EncodeSingleECDSASignature(sig)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "signer address cannot be zero")
+		require.NoError(t, err, "signer address should not be included in the encoded signature")
 	})
 
 	// New tests: R >= secpN and S >= secpN to hit the r.Cmp(secpN) >= 0 branches
@@ -201,35 +199,30 @@ func TestDecodeSingleSignature(t *testing.T) {
 	t.Run("valid signature", func(t *testing.T) {
 		expectedR := [32]byte{0x01}
 		expectedS := [32]byte{0x02}
-		expectedSigner := common.HexToAddress("0x1234567890123456789012345678901234567890")
 
 		data := make([]byte, SingleECDSASignatureSize)
 		copy(data[0:32], expectedR[:])
 		copy(data[32:64], expectedS[:])
-		copy(data[64:84], expectedSigner[:])
 
-		r, s, signer, err := DecodeSingleECDSASignature(data)
+		r, s, err := DecodeSingleECDSASignature(data)
 		require.NoError(t, err)
 		require.Equal(t, expectedR, r)
 		require.Equal(t, expectedS, s)
-		require.Equal(t, expectedSigner, signer)
 	})
 
 	t.Run("wrong length", func(t *testing.T) {
 		data := make([]byte, SingleECDSASignatureSize-1)
-		_, _, _, err := DecodeSingleECDSASignature(data)
+		_, _, err := DecodeSingleECDSASignature(data)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "signature data must be exactly 84 bytes")
+		require.Contains(t, err.Error(), "signature data must be exactly 64 bytes")
 	})
 
 	t.Run("zero R", func(t *testing.T) {
 		data := make([]byte, SingleECDSASignatureSize)
 		s := [32]byte{0x02}
 		copy(data[32:64], s[:])
-		signer := common.HexToAddress("0x1234567890123456789012345678901234567890")
-		copy(data[64:84], signer[:])
 
-		_, _, _, err := DecodeSingleECDSASignature(data)
+		_, _, err := DecodeSingleECDSASignature(data)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "values R and S must be valid curve scalars")
 	})
@@ -238,24 +231,10 @@ func TestDecodeSingleSignature(t *testing.T) {
 		data := make([]byte, SingleECDSASignatureSize)
 		r := [32]byte{0x01}
 		copy(data[0:32], r[:])
-		signer := common.HexToAddress("0x1234567890123456789012345678901234567890")
-		copy(data[64:84], signer[:])
 
-		_, _, _, err := DecodeSingleECDSASignature(data)
+		_, _, err := DecodeSingleECDSASignature(data)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "values R and S must be valid curve scalars")
-	})
-
-	t.Run("zero signer", func(t *testing.T) {
-		data := make([]byte, SingleECDSASignatureSize)
-		r := [32]byte{0x01}
-		copy(data[0:32], r[:])
-		s := [32]byte{0x02}
-		copy(data[32:64], s[:])
-
-		_, _, _, err := DecodeSingleECDSASignature(data)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "signer address cannot be zero")
 	})
 
 	// New tests: R >= secpN and S >= secpN to exercise the Cmp(secpN) >= 0 branches
@@ -269,10 +248,8 @@ func TestDecodeSingleSignature(t *testing.T) {
 		// use an addressable s value and address variable
 		sSmall := [32]byte{0x02}
 		copy(data[32:64], sSmall[:])
-		addr := common.HexToAddress("0x1234567890123456789012345678901234567890")
-		copy(data[64:84], addr[:])
 
-		_, _, _, err := DecodeSingleECDSASignature(data)
+		_, _, err := DecodeSingleECDSASignature(data)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "R and S must be valid curve scalars")
 	})
@@ -287,10 +264,8 @@ func TestDecodeSingleSignature(t *testing.T) {
 		rSmall := [32]byte{0x01}
 		copy(data[0:32], rSmall[:])
 		copy(data[32:64], s[:])
-		addr2 := common.HexToAddress("0x1234567890123456789012345678901234567890")
-		copy(data[64:84], addr2[:])
 
-		_, _, _, err := DecodeSingleECDSASignature(data)
+		_, _, err := DecodeSingleECDSASignature(data)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "R and S must be valid curve scalars")
 	})
@@ -314,12 +289,11 @@ func TestSingleSignatureRoundTrip(t *testing.T) {
 	encoded, err := EncodeSingleECDSASignature(sig)
 	require.NoError(t, err)
 
-	decodedR, decodedS, decodedSigner, err := DecodeSingleECDSASignature(encoded)
+	decodedR, decodedS, err := DecodeSingleECDSASignature(encoded)
 	require.NoError(t, err)
 
 	require.Equal(t, sig.R, decodedR)
 	require.Equal(t, sig.S, decodedS)
-	require.Equal(t, sig.Signer, decodedSigner)
 }
 
 // TestLeftPad32_InputTooLong verifies that leftPad32 returns an error when input exceeds 32 bytes.
