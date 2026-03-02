@@ -28,6 +28,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/chainconfig"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
@@ -1943,12 +1944,6 @@ func proposeJobsToStandaloneVerifiers(
 		return nil
 	}
 
-	// Convert blockchain outputs to infos for standalone verifier config
-	blockchainInfos, err := services.ConvertBlockchainOutputsToInfo(blockchainOutputs)
-	if err != nil {
-		return fmt.Errorf("failed to convert blockchain outputs to infos: %w", err)
-	}
-
 	// Use errgroup for parallel job proposals
 	g, gCtx := errgroup.WithContext(ctx)
 
@@ -1959,6 +1954,16 @@ func proposeJobsToStandaloneVerifiers(
 				return fmt.Errorf("verifier %s not registered with JD (missing JDNodeID)", ver.NOPAlias)
 			}
 			nodeID := ver.Out.JDNodeID
+
+			loader, err := chainconfig.GetChainConfigLoader(ver.ChainFamily)
+			if err != nil {
+				return fmt.Errorf("failed to get chain config loader for family %s: %w", ver.ChainFamily, err)
+			}
+
+			blockchainInfos, err := loader(blockchainOutputs)
+			if err != nil {
+				return fmt.Errorf("failed to load chain config for family %s: %w", ver.ChainFamily, err)
+			}
 
 			// Get the base job spec
 			baseJobSpec, ok := verifierJobSpecs[ver.NOPAlias]
