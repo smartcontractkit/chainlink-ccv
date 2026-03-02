@@ -798,7 +798,6 @@ func TestStaging(t *testing.T) {
 
 				p.Wait()
 				gun.CloseSentChannel()
-
 			}(testProfile, idx)
 
 		}

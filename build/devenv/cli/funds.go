@@ -104,7 +104,7 @@ each chain the primary account is listed first, followed by user accounts in ord
 //   - selectors: resolved chain selectors to operate on
 //   - primaryAddr: address of the primary/deployer account (from PRIVATE_KEY)
 //   - senderAddrs: addresses of all secondary accounts (from PRIVATE_KEY_1, PRIVATE_KEY_2, ...)
-//   - chains: fully initialised chain implementations indexed by selector
+//   - chains: fully initialized chain implementations indexed by selector
 func parseFundsArgs(cmd *cobra.Command) (
 	selectors []uint64,
 	primaryAddr protocol.UnknownAddress,
@@ -345,9 +345,7 @@ func reclaimFundsOnChain(
 		errs   []error
 	)
 	for _, senderAddr := range senders {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			err := chain.TransferNative(ctx, senderAddr, primaryAddr, nil)
 			if errors.Is(err, cciptestinterfaces.ErrInsufficientNativeBalance) {
 				ccv.Plog.Warn().
@@ -363,7 +361,7 @@ func reclaimFundsOnChain(
 					common.BytesToAddress(senderAddr).Hex(), selector, err))
 				errsMu.Unlock()
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -400,15 +398,13 @@ func runForEachChain(
 		if !ok {
 			return fmt.Errorf("chain selector %d not found in the loaded environment", selector)
 		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if err := fn(ctx, impl, selector); err != nil {
 				errsMu.Lock()
 				errs = append(errs, fmt.Errorf("chain selector %d: %w", selector, err))
 				errsMu.Unlock()
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	return errors.Join(errs...)
