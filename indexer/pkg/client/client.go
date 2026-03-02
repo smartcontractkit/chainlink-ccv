@@ -57,6 +57,7 @@ func (ic *IndexerClient) Health(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("health check request error: %w", err)
 	}
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("health check failed with status %d", resp.StatusCode)
@@ -174,19 +175,16 @@ func maybeGetBody(body io.ReadCloser, maxBody int) ([]byte, error) {
 	if body == nil {
 		return nil, fmt.Errorf("nil reader detected")
 	}
+	defer func() { _ = body.Close() }()
 
 	lr := io.LimitReader(body, int64(maxBody+1))
 	b, err := io.ReadAll(lr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read body: %v", err)
+		return nil, fmt.Errorf("failed to read body: %w", err)
 	}
 
 	if len(b) > maxBody {
 		return nil, ErrResponseTooLarge
-	}
-
-	if err = body.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close body: %v", err)
 	}
 
 	return b, nil
