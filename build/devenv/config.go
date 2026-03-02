@@ -144,8 +144,7 @@ func getNetworkPrivateKey() string {
 	return pk
 }
 
-func getUserPrivateKeys() []string {
-	// populate the first user with the deployer key
+func GetUserPrivateKeys() []string {
 	userPrivateKeys, idx := []string{getNetworkPrivateKey()}, 0
 	for {
 		idx++

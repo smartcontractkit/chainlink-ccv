@@ -703,6 +703,14 @@ func init() {
 	rootCmd.AddCommand(generateHMACSecretCmd)
 	generateHMACSecretCmd.Flags().Int("count", 1, "Number of HMAC credential pairs to generate")
 
+	// funds management: ccv funds distribute / ccv funds reclaim
+	fundsCmd.PersistentFlags().String("selectors", "", "Comma-separated list of chain selectors (omit to use all EVM chains in the environment)")
+	fundsCmd.PersistentFlags().String("env", "out", "Select environment file to use (e.g., 'staging' for env-staging.toml, defaults to env-out.toml)")
+	fundsCmd.AddCommand(fundsDistributeCmd)
+	fundsCmd.AddCommand(fundsReclaimCmd)
+	fundsCmd.AddCommand(fundsBalancesCmd)
+	rootCmd.AddCommand(fundsCmd)
+
 	// dump logs
 	rootCmd.AddCommand(dumpLogsCmd)
 	dumpLogsCmd.Flags().String("dir-suffix", "", "Suffix to add to the logs directory")
