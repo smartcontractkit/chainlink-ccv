@@ -107,7 +107,7 @@ func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint
 							PreferredURLScheme: rpcclient.URLSchemePreferenceHTTP,
 						},
 					},
-					UsersTransactorGen: GenerateUserTransactors(getUserPrivateKeys()),
+					UsersTransactorGen: GenerateUserTransactors(GetUserPrivateKeys()),
 					ConfirmFunctor:     confirmer,
 				},
 			).Initialize(context.Background())

@@ -95,8 +95,7 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []u
 	}
 }
 
-func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testConfig *load.TOMLLoadTestRoot, e *deployment.Environment, impls map[uint64]cciptestinterfaces.CCIP17) *EVMTXGun {
-	testProfile := testConfig.TestProfiles[0]
+func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testProfile *load.TestProfileConfig, messageProfiles []load.MessageProfileConfig, e *deployment.Environment, impls map[uint64]cciptestinterfaces.CCIP17) *EVMTXGun {
 	selectors := make([]uint64, 0, len(testProfile.ChainsAsSource)+len(testProfile.ChainsAsDest))
 	srcSelectors := make([]uint64, 0, len(testProfile.ChainsAsSource))
 	destSelectors := make([]uint64, 0, len(testProfile.ChainsAsDest))
@@ -118,7 +117,7 @@ func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testConfig *load.TOMLLoadT
 
 	return &EVMTXGun{
 		cfg:             cfg,
-		testConfig:      &testProfile,
+		testConfig:      testProfile,
 		e:               e,
 		selectors:       selectors,
 		impl:            impls,
@@ -127,7 +126,7 @@ func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testConfig *load.TOMLLoadT
 		nonce:           make(map[NonceKey]*atomic.Uint64),
 		srcSelectors:    srcSelectors,
 		destSelectors:   destSelectors,
-		messageProfiles: testConfig.MessageProfiles,
+		messageProfiles: messageProfiles,
 		userSelector:    userSelector,
 	}
 }
