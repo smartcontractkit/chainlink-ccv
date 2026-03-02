@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -153,7 +152,8 @@ type Chain interface {
 	// SendMessage sends a CCIP message to the specified destination chain with the specified message options.
 	SendMessage(ctx context.Context, dest uint64, fields MessageFields, opts MessageOptions) (MessageSentEvent, error)
 	// SendMessageWithNonce sends a CCIP message to the specified destination chain with the specified message options and nonce.
-	SendMessageWithNonce(ctx context.Context, dest uint64, fields MessageFields, opts MessageOptions, sender *bind.TransactOpts, nonce *atomic.Uint64, disableTokenAmountCheck bool) (MessageSentEvent, error)
+	// A nil nonce instructs the client to use the pending nonce from the RPC node.
+	SendMessageWithNonce(ctx context.Context, dest uint64, fields MessageFields, opts MessageOptions, sender *bind.TransactOpts, nonce *uint64, disableTokenAmountCheck bool) (MessageSentEvent, error)
 	// GetUserNonce returns the nonce for the given user address on this chain.
 	GetUserNonce(ctx context.Context, userAddress protocol.UnknownAddress) (uint64, error)
 	// GetExpectedNextSequenceNumber gets an expected sequence number for message to the specified destination chain.

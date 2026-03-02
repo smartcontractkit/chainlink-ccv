@@ -754,22 +754,28 @@ func TestStaging(t *testing.T) {
 		require.NoError(t, err)
 
 		var wg sync.WaitGroup
-		for _, testProfile := range testConfig.TestProfiles {
-			for _, chainInfo := range testProfile.ChainsAsSource {
-				wg.Add(1)
-				go func(chainInfo load.ChainProfileConfig) {
-					defer wg.Done()
-					chainSelector, err := strconv.ParseUint(chainInfo.Selector, 10, 64)
-					if err != nil {
-						t.Logf("failed to parse chain selector: %v", err)
-						return
-					}
-					chain := e.BlockChains.EVMChains()[chainSelector]
-					ensureWETHBalanceAndApproval(ctx, t, *l, e, chain, big.NewInt(requiredWETHBalance))
-				}(chainInfo)
-			}
-		}
-		wg.Wait()
+		// for _, testProfile := range testConfig.TestProfiles {
+		// 	if !testProfile.Enabled {
+		// 		continue
+		// 	}
+		// 	for _, chainInfo := range testProfile.ChainsAsSource {
+		// 		wg.Add(1)
+		// 		go func(chainInfo load.ChainProfileConfig) {
+		// 			defer wg.Done()
+		// 			chainSelector, err := strconv.ParseUint(chainInfo.Selector, 10, 64)
+		// 			if err != nil {
+		// 				t.Logf("failed to parse chain selector: %v", err)
+		// 				return
+		// 			}
+		// 			chain := e.BlockChains.EVMChains()[chainSelector]
+		// 			ensureWETHBalanceAndApproval(ctx, t, *l, e, chain, big.NewInt(requiredWETHBalance))
+		// 		}(chainInfo)
+		// 	}
+		// }
+		// wg.Wait()
+
+		// // Wait for old txns and nonces to settled before we start the load test
+		// time.Sleep(2 * time.Minute)
 
 		for idx, testProfile := range testConfig.TestProfiles {
 			if !testProfile.Enabled {
