@@ -3,6 +3,7 @@ package aggregation
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
@@ -14,6 +15,7 @@ type ChannelManager struct {
 	clientOrder        []model.ChannelKey
 	AggregationChannel chan aggregationRequest
 	wakeUp             chan struct{}
+	closed             atomic.Bool
 }
 
 func NewChannelManager(keys []model.ChannelKey, bufferSize int) *ChannelManager {
@@ -31,7 +33,7 @@ func NewChannelManager(keys []model.ChannelKey, bufferSize int) *ChannelManager 
 }
 
 func NewChannelManagerFromConfig(config *model.AggregatorConfig) *ChannelManager {
-	keys := make([]model.ChannelKey, 0)
+	keys := make([]model.ChannelKey, 0, len(config.APIClients)+1)
 	for _, client := range config.APIClients {
 		keys = append(keys, model.ChannelKey(client.ClientID))
 	}
@@ -40,6 +42,9 @@ func NewChannelManagerFromConfig(config *model.AggregatorConfig) *ChannelManager
 }
 
 func (m *ChannelManager) Enqueue(ctx context.Context, key model.ChannelKey, req aggregationRequest, maxBlockTime time.Duration) error {
+	if m.closed.Load() {
+		return common.ErrShuttingDown
+	}
 	ch, ok := m.clientChannel[key]
 	if !ok {
 		return fmt.Errorf("channel not found for key: %s", key)
@@ -65,9 +70,15 @@ func (m *ChannelManager) Enqueue(ctx context.Context, key model.ChannelKey, req 
 // preventing any client from starving others regardless of request volume.
 // The wakeUp channel avoids busy-waiting when all client channels are empty -
 // Enqueue signals it after adding work, allowing Start to sleep until there's something to process.
+//
+// On context cancellation, Start sets the closed flag to reject new Enqueue calls,
+// then fair-drains all remaining items from client channels into AggregationChannel
+// before returning.
 func (m *ChannelManager) Start(ctx context.Context) error {
 	if len(m.clientOrder) == 0 {
 		<-ctx.Done()
+		m.closed.Store(true)
+		close(m.AggregationChannel)
 		return nil
 	}
 
@@ -83,6 +94,10 @@ func (m *ChannelManager) Start(ctx context.Context) error {
 				select {
 				case m.AggregationChannel <- req:
 				case <-ctx.Done():
+					m.closed.Store(true)
+					m.AggregationChannel <- req
+					m.drainClientChannels()
+					close(m.AggregationChannel)
 					return nil
 				}
 				foundWork = true
@@ -94,9 +109,28 @@ func (m *ChannelManager) Start(ctx context.Context) error {
 		if !foundWork {
 			select {
 			case <-ctx.Done():
+				m.closed.Store(true)
+				m.drainClientChannels()
+				close(m.AggregationChannel)
 				return nil
 			case <-m.wakeUp:
 			}
+		}
+	}
+}
+
+func (m *ChannelManager) drainClientChannels() {
+	for {
+		foundWork := false
+		for _, key := range m.clientOrder {
+			ch := m.clientChannel[key]
+			if len(ch) > 0 {
+				m.AggregationChannel <- <-ch
+				foundWork = true
+			}
+		}
+		if !foundWork {
+			return
 		}
 	}
 }
