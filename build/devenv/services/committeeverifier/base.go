@@ -19,7 +19,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
-	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -106,7 +105,7 @@ type Input struct {
 // added to the inner config. This is needed for standalone verifiers which require blockchain
 // connection information (CL nodes get this from their own chain config).
 // TODO: we stick with the job spec so that there isn't special logic for standalone verifiers.
-func (v *Input) RebuildVerifierJobSpecWithBlockchainInfos(jobSpec string, blockchainInfos map[string]*ccvblockchain.Info) (string, error) {
+func (v *Input) RebuildVerifierJobSpecWithBlockchainInfos(jobSpec string, blockchainInfos map[string]any) (string, error) {
 	// Parse the outer job spec first.
 	var spec commit.JobSpec
 	if _, err := toml.Decode(jobSpec, &spec); err != nil {
@@ -119,7 +118,6 @@ func (v *Input) RebuildVerifierJobSpecWithBlockchainInfos(jobSpec string, blockc
 		return "", fmt.Errorf("failed to parse verifier config from job spec: %w", err)
 	}
 
-	// Create config with blockchain infos
 	configWithInfos := commit.ConfigWithBlockchainInfos{
 		Config:          cfg,
 		BlockchainInfos: blockchainInfos,

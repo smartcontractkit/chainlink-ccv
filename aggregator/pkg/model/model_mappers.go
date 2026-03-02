@@ -33,7 +33,7 @@ func signaturesByAddress(report *CommitAggregatedReport) (map[string]protocol.Da
 			return nil, fmt.Errorf("missing SignerIdentifier in verification record")
 		}
 
-		r, s, _, err := protocol.DecodeSingleECDSASignature(verification.Signature)
+		r, s, err := protocol.DecodeSingleECDSASignature(verification.Signature)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decode signature: %w", err)
 		}

@@ -27,7 +27,8 @@ func main() {
 		"EVMCommitteeVerifier",
 		cmd.NewServiceFactory(
 			chainsel.FamilyEVM,
-			func(ctx context.Context, lggr logger.Logger, helper *blockchain.Helper, cfg commit.Config) (chainaccess.AccessorFactory, error) {
+			func(ctx context.Context, lggr logger.Logger, blockchainInfos map[string]*blockchain.Info, cfg commit.Config) (chainaccess.AccessorFactory, error) {
+				helper := blockchain.NewHelper(blockchainInfos)
 				// Create the chain clients then the head trackers
 				chainClients := make(map[protocol.ChainSelector]client.Client)
 				for _, selector := range helper.GetAllChainSelectors() {
