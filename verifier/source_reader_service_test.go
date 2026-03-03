@@ -804,7 +804,7 @@ func TestSRS_LargeRangeChunkedInSingleCycle(t *testing.T) {
 
 	reader := mocks.NewMockSourceReader(t)
 
-	// Large range: 100 to 12000 (11900 blocks, > 5000 default)
+	// Large range: 100 to 12000 (11900 blocks, > 1500 default)
 	latest := &protocol.BlockHeader{Number: 12000}
 	finalized := &protocol.BlockHeader{Number: 11000}
 
@@ -813,24 +813,53 @@ func TestSRS_LargeRangeChunkedInSingleCycle(t *testing.T) {
 		Return(latest, finalized, nil).
 		Maybe()
 
-	events1 := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{500, 2000})
+	// Split events so each falls in the chunk matching its block number.
+	// maxBlockRange=1500: chunks are [99,1599],[1600,3100],[3101,4601],[4602,6102],[6103,7603],[7604,9104],[9105,10605],[10606,nil]
+	event500 := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{500})
+	event2000 := createTestMessageSentEvents(t, 2, chain, defaultDestChain, []uint64{2000})
 	events2 := createTestMessageSentEvents(t, 10, chain, defaultDestChain, []uint64{6000})
 	events3 := createTestMessageSentEvents(t, 20, chain, defaultDestChain, []uint64{11500})
 
 	nilBigInt := mock.MatchedBy(func(arg *big.Int) bool { return arg == nil })
 
-	// All chunks processed in a single cycle
+	// chunk 1: [99, 1599]  (99 + 1500 = 1599) — block 500 falls here
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, big.NewInt(99), big.NewInt(5099)).
-		Return(events1, nil).
+		FetchMessageSentEvents(mock.Anything, big.NewInt(99), big.NewInt(1599)).
+		Return(event500, nil).
 		Once()
+	// chunk 2: [1600, 3100]  (1600 + 1500 = 3100) — block 2000 falls here
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, big.NewInt(5100), big.NewInt(10100)).
+		FetchMessageSentEvents(mock.Anything, big.NewInt(1600), big.NewInt(3100)).
+		Return(event2000, nil).
+		Once()
+	// chunk 3: [3101, 4601]
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(3101), big.NewInt(4601)).
+		Return([]protocol.MessageSentEvent{}, nil).
+		Once()
+	// chunk 4: [4602, 6102]  — block 6000 falls here
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(4602), big.NewInt(6102)).
 		Return(events2, nil).
 		Once()
-	// Last chunk uses nil toBlock
+	// chunk 5: [6103, 7603]
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, big.NewInt(10101), nilBigInt).
+		FetchMessageSentEvents(mock.Anything, big.NewInt(6103), big.NewInt(7603)).
+		Return([]protocol.MessageSentEvent{}, nil).
+		Once()
+	// chunk 6: [7604, 9104]
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(7604), big.NewInt(9104)).
+		Return([]protocol.MessageSentEvent{}, nil).
+		Once()
+	// chunk 7: [9105, 10605]
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(9105), big.NewInt(10605)).
+		Return([]protocol.MessageSentEvent{}, nil).
+		Once()
+	// chunk 8: [10606, nil]  (10606 + 1500 = 12106 >= 12000) — block 11500 falls here
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(10606), nilBigInt).
 		Return(events3, nil).
 		Once()
 
