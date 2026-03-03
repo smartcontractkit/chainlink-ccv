@@ -63,8 +63,7 @@ type EVMTXGun struct {
 	seqNosMu        sync.Mutex
 	sentMsgCh       chan SentMessage // Channel for real-time message notifications
 	closeOnce       sync.Once        // Ensure channel is closed only once
-	nonceMu         sync.Mutex
-	nonce           map[NonceKey]*atomic.Uint64
+	nonce           sync.Map         // map[NonceKey]*uint64
 	messageProfiles []load.MessageProfileConfig
 	userSelector    map[uint64]func() *bind.TransactOpts
 }
@@ -88,7 +87,6 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []u
 		impl:          impls,
 		sentMsgSet:    make(map[SentMessage]struct{}),
 		sentMsgCh:     make(chan SentMessage, sentMessageChannelBufferSize),
-		nonce:         make(map[NonceKey]*atomic.Uint64),
 		srcSelectors:  srcSelectors,
 		destSelectors: destSelectors,
 		userSelector:  userSelector,
@@ -123,7 +121,6 @@ func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testProfile *load.TestProf
 		impl:            impls,
 		sentMsgSet:      make(map[SentMessage]struct{}),
 		sentMsgCh:       make(chan SentMessage, sentMessageChannelBufferSize),
-		nonce:           make(map[NonceKey]*atomic.Uint64),
 		srcSelectors:    srcSelectors,
 		destSelectors:   destSelectors,
 		messageProfiles: messageProfiles,
@@ -132,10 +129,7 @@ func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testProfile *load.TestProf
 }
 
 func (m *EVMTXGun) initNonce(key NonceKey, userAddress common.Address) error {
-	m.nonceMu.Lock()
-	defer m.nonceMu.Unlock()
-
-	if m.nonce[key] != nil {
+	if _, loaded := m.nonce.Load(key); loaded {
 		return nil
 	}
 
@@ -144,8 +138,12 @@ func (m *EVMTXGun) initNonce(key NonceKey, userAddress common.Address) error {
 		return fmt.Errorf("failed to get pending nonce for selector %d: %w", key.Selector, err)
 	}
 
-	m.nonce[key] = &atomic.Uint64{}
-	m.nonce[key].Store(n)
+	// Allocate a pointer so the stored value can be incremented atomically across
+	// goroutines without replacing the map entry. LoadOrStore ensures exactly one
+	// pointer wins even if multiple goroutines race through initialization.
+	ptr := new(uint64)
+	*ptr = n
+	m.nonce.LoadOrStore(key, ptr)
 	return nil
 }
 
@@ -174,6 +172,15 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: err.Error(), Failed: true}
 	}
 
+	nonceVal, ok := m.nonce.Load(nonceKey)
+	if !ok {
+		return &wasp.Response{Error: fmt.Sprintf("nonce not initialized for key %+v", nonceKey), Failed: true}
+	}
+	noncePtr := nonceVal.(*uint64)
+	// Atomically claim the next nonce. AddUint64 returns the new value, so
+	// subtracting 1 gives us the nonce we own exclusively for this send.
+	currentNonce := atomic.AddUint64(noncePtr, 1) - 1
+
 	b := ccv.NewDefaultCLDFBundle(m.e)
 	m.e.OperationsBundle = b
 
@@ -182,7 +189,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: "impl is not CCIP17EVM", Failed: true}
 	}
 
-	sentEvent, err := c.SendMessageWithNonce(ctx, destSelector, fields, opts, sender, m.nonce[nonceKey], true)
+	sentEvent, err := c.SendMessageWithNonce(ctx, destSelector, fields, opts, sender, &currentNonce, true)
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("failed to send message: %w", err).Error(), Failed: true}
 	}

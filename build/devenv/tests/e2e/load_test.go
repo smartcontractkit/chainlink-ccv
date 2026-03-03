@@ -755,6 +755,9 @@ func TestStaging(t *testing.T) {
 
 		var wg sync.WaitGroup
 		for _, testProfile := range testConfig.TestProfiles {
+			if !testProfile.Enabled {
+				continue
+			}
 			for _, chainInfo := range testProfile.ChainsAsSource {
 				wg.Add(1)
 				go func(chainInfo load.ChainProfileConfig) {
@@ -770,6 +773,9 @@ func TestStaging(t *testing.T) {
 			}
 		}
 		wg.Wait()
+
+		// Wait for old txns and nonces to settled before we start the load test
+		time.Sleep(30 * time.Second)
 
 		for idx, testProfile := range testConfig.TestProfiles {
 			if !testProfile.Enabled {

@@ -576,7 +576,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, dest uint64, fields cciptes
 	return m.SendMessageWithNonce(ctx, dest, fields, opts, nil, nil, false)
 }
 
-func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions, sender *bind.TransactOpts, nonce *atomic.Uint64, disableTokenAmountCheck bool) (cciptestinterfaces.MessageSentEvent, error) {
+func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions, sender *bind.TransactOpts, nonce *uint64, disableTokenAmountCheck bool) (cciptestinterfaces.MessageSentEvent, error) {
 	l := m.logger
 	srcChain := m.chain
 	if sender == nil {
@@ -640,9 +640,9 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, field
 		return cciptestinterfaces.MessageSentEvent{}, err
 	}
 
-	var loadNonce *big.Int = nil
+	var loadNonce *big.Int
 	if nonce != nil {
-		loadNonce = big.NewInt(int64(nonce.Load()))
+		loadNonce = new(big.Int).SetUint64(*nonce)
 	}
 	senderKeyCopy := &bind.TransactOpts{
 		From:   sender.From,
@@ -650,13 +650,9 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, field
 		Nonce:  loadNonce,
 		Value:  msgValue,
 	}
-	fmt.Printf("sender: %s, srcChain: %d, nonce: %s\n", senderKeyCopy.From.String(), srcChain.Selector, loadNonce.String())
 	tx, err := rout.CcipSend(senderKeyCopy, dest, msg)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to send CCIP message: %w, extraArgs: %x", err, extraArgs)
-	}
-	if nonce != nil {
-		nonce.Add(1)
 	}
 	txHash := tx.Hash()
 
