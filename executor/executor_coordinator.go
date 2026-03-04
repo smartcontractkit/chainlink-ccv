@@ -120,11 +120,16 @@ func (ec *Coordinator) Close() error {
 		// It is safe to close the channel once all goroutines have stopped.
 		close(ec.workerPoolTasks)
 
+		executorCloseErr := ec.executor.Close()
+		if executorCloseErr != nil {
+			ec.lggr.Errorw("failed to close executor", "error", executorCloseErr)
+		}
+
 		// Update running state to reflect in healthcheck and readiness
 		ec.running.Store(false)
 
 		ec.lggr.Infow("Coordinator stopped")
-		return nil
+		return executorCloseErr
 	})
 }
 
