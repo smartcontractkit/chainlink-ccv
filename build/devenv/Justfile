@@ -54,7 +54,6 @@ build-docker:
 
 # Build all the services (hot-reload dev mode but with default JD image)
 build-docker-dev-ci:
-    @just build-jd-docker
     @just ../../build/devenv/fakes/build-dev
     @just ../../pricer/build-dev
     @just ../../verifier/build-dev
