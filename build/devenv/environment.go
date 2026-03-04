@@ -927,6 +927,8 @@ func NewEnvironment() (in *Cfg, err error) {
 		NodeSets: in.NodeSets,
 	})
 	if err != nil {
+		L.Error().Msg("Unable to start JD infrastructure." +
+			"Make sure the container has been built with 'just build-jd-docker'.")
 		return nil, fmt.Errorf("failed to start JD infrastructure: %w", err)
 	}
 	in.JDInfra = jdInfra
