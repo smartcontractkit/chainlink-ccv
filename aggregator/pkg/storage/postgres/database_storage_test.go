@@ -1749,6 +1749,76 @@ func TestMigrationDataConsistency_OldSchemaDataSurvivesMigration(t *testing.T) {
 	require.Len(t, batchReport.Verifications, 2)
 }
 
+const migrationVersionBeforeSigTruncation = 3
+
+func TestMigration_LegacySignaturesTruncatedToStripAddress(t *testing.T) {
+	ds, cleanup := testutil.SetupTestPostgresDB(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	migrationsPath := findMigrationsPath(t)
+
+	require.NoError(t, goose.SetDialect("postgres"))
+	require.NoError(t, goose.UpTo(ds.DB, migrationsPath, migrationVersionBeforeSigTruncation))
+
+	legacySigner := newTestSigner(t)
+	currentSigner := newTestSigner(t)
+	message := createTestProtocolMessage()
+
+	insertVerification := `INSERT INTO commit_verification_records
+		(message_id, signer_identifier, aggregation_key,
+		 ccv_version, signature, message_ccv_addresses, message_executor_address, message_data)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id`
+
+	legacyMsg := createTestMessageWithCCV(t, message, legacySigner)
+	legacyRecord := createTestCommitVerificationRecord(t, legacyMsg, legacySigner)
+	legacyParams, err := recordToInsertParams(legacyRecord, "agg-key")
+	require.NoError(t, err)
+
+	legacySigRS := legacyParams["signature"].([]byte)
+	legacySig := append(legacySigRS, common.HexToAddress(legacySigner.Signer.Address).Bytes()...)
+	require.Len(t, legacySig, 84)
+
+	var legacyID int64
+	require.NoError(t, ds.GetContext(ctx, &legacyID, insertVerification,
+		legacyParams["message_id"], legacyParams["signer_identifier"], legacyParams["aggregation_key"],
+		legacyParams["ccv_version"], legacySig, legacyParams["message_ccv_addresses"],
+		legacyParams["message_executor_address"], legacyParams["message_data"],
+	))
+
+	currentMsg := createTestMessageWithCCV(t, message, currentSigner)
+	currentRecord := createTestCommitVerificationRecord(t, currentMsg, currentSigner)
+	currentParams, err := recordToInsertParams(currentRecord, "agg-key")
+	require.NoError(t, err)
+
+	currentSigRS := currentParams["signature"].([]byte)
+	require.Len(t, currentSigRS, protocol.SingleECDSASignatureSize)
+
+	var currentID int64
+	require.NoError(t, ds.GetContext(ctx, &currentID, insertVerification,
+		currentParams["message_id"], currentParams["signer_identifier"], currentParams["aggregation_key"],
+		currentParams["ccv_version"], currentSigRS, currentParams["message_ccv_addresses"],
+		currentParams["message_executor_address"], currentParams["message_data"],
+	))
+
+	require.NoError(t, goose.Up(ds.DB, migrationsPath))
+
+	var truncatedSig []byte
+	require.NoError(t, ds.GetContext(ctx, &truncatedSig,
+		`SELECT signature FROM commit_verification_records WHERE id = $1`, legacyID))
+	require.Len(t, truncatedSig, protocol.SingleECDSASignatureSize)
+	require.Equal(t, legacySigRS, truncatedSig)
+	_, _, err = protocol.DecodeSingleECDSASignature(truncatedSig)
+	require.NoError(t, err)
+
+	var unchangedSig []byte
+	require.NoError(t, ds.GetContext(ctx, &unchangedSig,
+		`SELECT signature FROM commit_verification_records WHERE id = $1`, currentID))
+	require.Len(t, unchangedSig, protocol.SingleECDSASignatureSize)
+	require.Equal(t, currentSigRS, unchangedSig)
+}
+
 func findMigrationsPath(t *testing.T) string {
 	t.Helper()
 	candidates := []string{
