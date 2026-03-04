@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/BurntSushi/toml"
 	"github.com/grafana/pyroscope-go"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
@@ -18,7 +17,6 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -32,18 +30,34 @@ import (
 )
 
 // CreateAccessorFactoryFunc is a function that creates an accessor factory for a given chain family.
-type CreateAccessorFactoryFunc func(
+// The blockchain infos map is keyed by chain selector (as string); the callback may build a
+// family-specific helper from it (e.g. blockchain.NewHelper for EVM).
+type CreateAccessorFactoryFunc[T any] func(
 	ctx context.Context,
 	lggr logger.Logger,
-	helper *blockchain.Helper,
+	blockchainInfos map[string]*T,
 	cfg commit.Config,
 ) (chainaccess.AccessorFactory, error)
 
+// chainSelectorsFromMap returns chain selectors parsed from the keys of a map keyed by selector string.
+func chainSelectorsFromMap[T any](m map[string]*T) []protocol.ChainSelector {
+	out := make([]protocol.ChainSelector, 0, len(m))
+	for sel := range m {
+		u, err := strconv.ParseUint(sel, 10, 64)
+		if err != nil {
+			continue
+		}
+		out = append(out, protocol.ChainSelector(u))
+	}
+	return out
+}
+
 // factory is a ServiceFactory implementation that creates a committee verifier service.
+// T is the chain config type for this family (e.g. blockchain.Info for EVM).
 // NOTE: this factory supports only a single chain family at a time.
 // This is by design, since deployed CCIP apps will be built with a single chain family, but potentially
 // supporting many chains from that same family.
-type factory struct {
+type factory[T any] struct {
 	lggr              logger.Logger
 	server            *http.Server
 	coordinator       *verifier.Coordinator
@@ -53,30 +67,32 @@ type factory struct {
 	chainStatusDB     sqlutil.DataSource
 	coordinatorCancel context.CancelFunc
 
-	createAccessorFactoryFunc CreateAccessorFactoryFunc
+	createAccessorFactoryFunc CreateAccessorFactoryFunc[T]
 	chainFamily               string
 }
 
 // NewServiceFactory creates a new ServiceFactory for the committee verifier service.
-func NewServiceFactory(chainFamily string, createAccessorFactoryFunc CreateAccessorFactoryFunc) bootstrap.ServiceFactory[commit.JobSpec] {
-	return &factory{
+// T is the chain config type for this family (e.g. blockchain.Info for EVM).
+func NewServiceFactory[T any](chainFamily string, createAccessorFactoryFunc CreateAccessorFactoryFunc[T]) bootstrap.ServiceFactory[commit.JobSpec] {
+	return &factory[T]{
 		createAccessorFactoryFunc: createAccessorFactoryFunc,
 		chainFamily:               chainFamily,
 	}
 }
 
 // Start implements [bootstrap.ServiceFactory].
-func (f *factory) Start(ctx context.Context, spec commit.JobSpec, deps bootstrap.ServiceDeps) error {
+func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootstrap.ServiceDeps) error {
 	lggr := logger.Sugared(logger.Named(deps.Logger, "CommitteeVerifier"))
 	f.lggr = lggr
 
 	lggr.Infow("Starting verifier service", "spec", spec)
 
-	config, blockchainInfos, err := loadConfiguration(spec)
+	config, blockchainInfos, err := commit.LoadConfigWithBlockchainInfos[T](spec)
 	if err != nil {
 		lggr.Errorw("Failed to load configuration", "error", err)
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
+	lggr.Infow("Using blockchain information from config", "chainCount", len(blockchainInfos))
 
 	// TODO: this should be passed in via the config maybe?
 	apiKey := os.Getenv("VERIFIER_AGGREGATOR_API_KEY")
@@ -109,7 +125,7 @@ func (f *factory) Start(ctx context.Context, spec commit.JobSpec, deps bootstrap
 	}
 	f.profiler = profiler
 
-	blockchainHelper := LoadBlockchainInfo(ctx, lggr, blockchainInfos)
+	chainSelectors := chainSelectorsFromMap(blockchainInfos)
 
 	// Create verifier addresses before source readers setup
 	verifierAddresses := make(map[string]protocol.UnknownAddress)
@@ -136,7 +152,13 @@ func (f *factory) Start(ctx context.Context, spec commit.JobSpec, deps bootstrap
 		Secret: secretKey,
 	}
 
-	aggregatorWriter, err := storageaccess.NewAggregatorWriter(config.AggregatorAddress, lggr, hmacConfig, config.InsecureAggregatorConnection)
+	aggregatorWriter, err := storageaccess.NewAggregatorWriter(
+		config.AggregatorAddress,
+		lggr,
+		hmacConfig,
+		config.InsecureAggregatorConnection,
+		config.AggregatorMaxRecvMsgSizeBytes,
+	)
 	if err != nil {
 		lggr.Errorw("Failed to create aggregator writer", "error", err)
 		return fmt.Errorf("failed to create aggregator writer: %w", err)
@@ -144,14 +166,14 @@ func (f *factory) Start(ctx context.Context, spec commit.JobSpec, deps bootstrap
 
 	f.aggregatorWriter = aggregatorWriter
 
-	accessorFactory, err := f.createAccessorFactoryFunc(ctx, lggr, blockchainHelper, *config)
+	accessorFactory, err := f.createAccessorFactoryFunc(ctx, lggr, blockchainInfos, *config)
 	if err != nil {
 		lggr.Errorw("Failed to create accessor factory", "error", err)
 		return fmt.Errorf("failed to create accessor factory: %w", err)
 	}
 
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
-	for _, selector := range blockchainHelper.GetAllChainSelectors() {
+	for _, selector := range chainSelectors {
 		family, err := chainsel.GetSelectorFamily(uint64(selector))
 		if err != nil {
 			lggr.Errorw("Failed to get selector family", "error", err, "selector", selector)
@@ -191,7 +213,7 @@ func (f *factory) Start(ctx context.Context, spec commit.JobSpec, deps bootstrap
 		rmnRemoteAddresses[selector] = addr
 	}
 
-	for _, selector := range blockchainHelper.GetAllChainSelectors() {
+	for _, selector := range chainSelectors {
 		strSelector := strconv.FormatUint(uint64(selector), 10)
 
 		sourceConfigs[selector] = verifier.SourceConfig{
@@ -357,7 +379,7 @@ func (f *factory) Start(ctx context.Context, spec commit.JobSpec, deps bootstrap
 }
 
 // Stop implements [bootstrap.ServiceFactory].
-func (f *factory) Stop(ctx context.Context) error {
+func (f *factory[T]) Stop(ctx context.Context) error {
 	var allErrors error
 	// Stop HTTP server
 	if f.server != nil {
@@ -416,18 +438,6 @@ func (f *factory) Stop(ctx context.Context) error {
 	f.chainStatusDB = nil
 
 	return allErrors
-}
-
-func loadConfiguration(spec commit.JobSpec) (*commit.Config, map[string]*blockchain.Info, error) {
-	// Decode the inner config.
-	var config commit.ConfigWithBlockchainInfos
-	if md, err := toml.Decode(spec.CommitteeVerifierConfig, &config); err != nil {
-		return nil, nil, fmt.Errorf("failed to decode committee verifier config: %w", err)
-	} else if len(md.Undecoded()) > 0 {
-		return nil, nil, fmt.Errorf("unknown fields in committee verifier config: %v", md.Undecoded())
-	}
-
-	return &config.Config, config.BlockchainInfos, nil
 }
 
 func createChainStatusManager(lggr logger.Logger, verifierID string, monitoring verifier.Monitoring) (protocol.ChainStatusManager, sqlutil.DataSource, error) {

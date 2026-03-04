@@ -70,9 +70,10 @@ func (n *NoopExecutorMetricLabeler) With(keyValues ...string) executor.MetricLab
 func (n *NoopExecutorMetricLabeler) RecordMessageExecutionLatency(ctx context.Context, duration time.Duration, destChainSelector protocol.ChainSelector) {
 }
 
-func (n *NoopExecutorMetricLabeler) IncrementMessagesProcessed(ctx context.Context) {}
+func (n *NoopExecutorMetricLabeler) IncrementMessagesProcessing(ctx context.Context) {}
 
-func (n *NoopExecutorMetricLabeler) IncrementMessagesProcessingFailed(ctx context.Context) {}
+func (n *NoopExecutorMetricLabeler) IncrementMessagesProcessingError(ctx context.Context, retry bool) {
+}
 
 func (n *NoopExecutorMetricLabeler) IncrementCCVInfoCacheHits(ctx context.Context, destChainSelector protocol.ChainSelector) {
 }

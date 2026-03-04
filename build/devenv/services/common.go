@@ -12,7 +12,6 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain/canton"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
@@ -112,30 +111,6 @@ func ConvertBlockchainOutputsToInfo(outputs []*ctfblockchain.Output) (map[string
 					ExternalWSUrl:   node.ExternalWSUrl,
 					InternalWSUrl:   node.InternalWSUrl,
 				})
-			}
-		}
-
-		// Add network-specific data (e.g. Canton endpoints, Stellar network info)
-		if output.NetworkSpecificData != nil {
-			info.NetworkSpecificData = &ccvblockchain.NetworkSpecificData{}
-			switch output.Family {
-			case chainsel.FamilyCanton:
-				// TODO: support multiple participants?
-				// Different verifiers may connect to different participants, how do we best represent that?
-				info.NetworkSpecificData.CantonEndpoints = &canton.Endpoints{
-					GRPCLedgerAPIURL: fmt.Sprintf("%s:8080", output.ContainerName), // TODO: 8080 is hardcoded, should get it programmatically via blockchain.Output?
-					JWT:              output.NetworkSpecificData.CantonEndpoints.Participants[0].JWT,
-				}
-			case chainsel.FamilyStellar:
-				if output.NetworkSpecificData.StellarNetwork != nil {
-					info.NetworkSpecificData.StellarNetwork = &ccvblockchain.StellarNetworkInfo{
-						NetworkPassphrase: output.NetworkSpecificData.StellarNetwork.NetworkPassphrase,
-						FriendbotURL:      output.NetworkSpecificData.StellarNetwork.FriendbotURL,
-						SorobanRPCURL:     output.Nodes[0].ExternalHTTPUrl,
-					}
-				}
-			default:
-				return nil, fmt.Errorf("unsupported family %s for network specific data", output.Family)
 			}
 		}
 

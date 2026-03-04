@@ -110,7 +110,7 @@ func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint
 							PreferredURLScheme: rpcclient.URLSchemePreferenceHTTP,
 						},
 					},
-					UsersTransactorGen: GenerateUserTransactors(getUserPrivateKeys()),
+					UsersTransactorGen: GenerateUserTransactors(GetUserPrivateKeys()),
 					ConfirmFunctor:     confirmer,
 				},
 			).Initialize(context.Background())
@@ -126,10 +126,10 @@ func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint
 			selectors = append(selectors, d.ChainSelector)
 
 			providerConfig := cldf_canton_provider.RPCChainProviderConfig{
-				Participants: make([]cldf_canton_provider.ParticipantConfig, len(b.Out.NetworkSpecificData.CantonEndpoints.Participants)),
+				Participants: make([]cldf_canton_provider.ParticipantConfig, len(b.Out.NetworkSpecificData.CantonData.ExternalEndpoints.Participants)),
 			}
 
-			for i, config := range b.Out.NetworkSpecificData.CantonEndpoints.Participants {
+			for i, config := range b.Out.NetworkSpecificData.CantonData.ExternalEndpoints.Participants {
 				authProvider := authentication.NewInsecureStaticProvider(config.JWT)
 				// Get Primary Party for user
 				ledgerApiConn, err := grpc.NewClient(
@@ -152,13 +152,21 @@ func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint
 				_ = ledgerApiConn.Close()
 
 				providerConfig.Participants[i] = cldf_canton_provider.ParticipantConfig{
-					JSONLedgerAPIURL: config.JSONLedgerAPIURL,
-					GRPCLedgerAPIURL: config.GRPCLedgerAPIURL,
-					AdminAPIURL:      config.AdminAPIURL,
-					ValidatorAPIURL:  config.ValidatorAPIURL,
-					UserID:           config.UserID,
-					PartyID:          party,
-					AuthProvider:     authProvider,
+					Endpoints: cldf_canton_provider.Endpoints{
+						JSONLedgerAPIURL: config.JSONLedgerAPIURL,
+						GRPCLedgerAPIURL: config.GRPCLedgerAPIURL,
+						AdminAPIURL:      config.AdminAPIURL,
+						ValidatorAPIURL:  config.ValidatorAPIURL,
+					},
+					InternalEndpoints: &cldf_canton_provider.Endpoints{
+						JSONLedgerAPIURL: b.Out.NetworkSpecificData.CantonData.InternalEndpoints.Participants[i].JSONLedgerAPIURL,
+						GRPCLedgerAPIURL: b.Out.NetworkSpecificData.CantonData.InternalEndpoints.Participants[i].GRPCLedgerAPIURL,
+						AdminAPIURL:      b.Out.NetworkSpecificData.CantonData.InternalEndpoints.Participants[i].AdminAPIURL,
+						ValidatorAPIURL:  b.Out.NetworkSpecificData.CantonData.InternalEndpoints.Participants[i].ValidatorAPIURL,
+					},
+					UserID:       config.UserID,
+					PartyID:      party,
+					AuthProvider: authProvider,
 				}
 			}
 			p, err := cldf_canton_provider.NewRPCChainProvider(d.ChainSelector, providerConfig).Initialize(context.TODO())

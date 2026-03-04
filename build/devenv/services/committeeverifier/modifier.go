@@ -22,7 +22,6 @@ func RegisterModifier(chainFamily string, modifier ReqModifier) {
 }
 
 func init() {
-	// NOTE: these wil eventually be removed as modifiers are moved to chain implementation repos.
+	// NOTE: these will eventually be removed as modifiers are moved to chain implementation repos.
 	RegisterModifier(chainsel.FamilyEVM, EVMModifier)
-	RegisterModifier(chainsel.FamilyCanton, CantonModifier)
 }

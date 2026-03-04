@@ -17,7 +17,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/internal/util"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -154,15 +154,16 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 			WithPollInterval(3 * time.Second),
 	}
 
+	req.Mounts = testcontainers.Mounts()
+	req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
+		configFilePath,
+		aggregator.DefaultConfigFile, // TODO: switch to token verifier path, not aggregator path.
+	))
+
 	// Note: identical code to aggregator.go/executor.go -- will indexer be identical as well?
 	if in.SourceCodePath != "" {
-		req.Mounts = testcontainers.Mounts()
 		req.Mounts = append(req.Mounts, GoSourcePathMounts(in.RootPath, AppPathInsideContainer)...)
 		req.Mounts = append(req.Mounts, GoCacheMounts()...)
-		req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
-			configFilePath,
-			aggregator.DefaultConfigFile,
-		))
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")

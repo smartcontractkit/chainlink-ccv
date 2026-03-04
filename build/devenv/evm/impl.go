@@ -46,7 +46,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/token_admin_registry"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
-	cantonadapters "github.com/smartcontractkit/chainlink-ccv/build/devenv/canton/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
@@ -186,6 +185,10 @@ func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Envi
 		offRampPoller: &offRampPoller,
 		onRampPoller:  &onRampPoller,
 	}, nil
+}
+
+func (m *CCIP17EVM) ChainSelector() uint64 {
+	return m.chainDetails.ChainSelector
 }
 
 func (m *CCIP17EVM) getOrCreateOnRampPoller() (*eventPoller[cciptestinterfaces.MessageSentEvent], error) {
@@ -461,7 +464,7 @@ func (m *CCIP17EVM) ensureERC20HasBalanceAndAllowance(
 		return false, fmt.Errorf("failed to get balance: %w", err)
 	}
 	if balance.Cmp(amount) < 0 {
-		return false, fmt.Errorf("insufficient balance: have %s, need %s", balance.String(), amount.String())
+		return false, fmt.Errorf("insufficient balance for chain %d address %s: have %s, need %s", chain.Selector, owner.Hex(), balance.String(), amount.String())
 	}
 	allowance, err := tkn.Allowance(&bind.CallOpts{Context: ctx}, owner, spender)
 	if err != nil {
@@ -539,7 +542,7 @@ func (m *CCIP17EVM) haveEnoughFeeTokens(ctx context.Context, chain evm.Chain, au
 func (m *CCIP17EVM) validateTokenBalances(ctx context.Context, srcChain evm.Chain, routerAddress common.Address, fields cciptestinterfaces.MessageFields, fee *big.Int, tokenAmounts []routeroperations.EVMTokenAmount, validateBalances bool, l zerolog.Logger) (*big.Int, error) {
 	haveEnoughFeeTokens, msgValue, err := m.haveEnoughFeeTokens(ctx, srcChain, srcChain.DeployerKey, routerAddress, common.HexToAddress(fields.FeeToken.String()), fee)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check if have enough tokens: %w", err)
+		return nil, fmt.Errorf("failed to check if have enough fee tokens: %w", err)
 	}
 
 	if !validateBalances {
@@ -553,7 +556,7 @@ func (m *CCIP17EVM) validateTokenBalances(ctx context.Context, srcChain evm.Chai
 	if len(tokenAmounts) > 0 {
 		haveEnoughTransferTokens, err := m.haveEnoughTransferTokens(ctx, srcChain, srcChain.DeployerKey, routerAddress, common.HexToAddress(tokenAmounts[0].Token.String()), tokenAmounts[0].Amount)
 		if err != nil {
-			return nil, fmt.Errorf("failed to check if have enough tokens: %w", err)
+			return nil, fmt.Errorf("failed to check if have enough transfer tokens: %w", err)
 		}
 		if !haveEnoughTransferTokens {
 			return nil, fmt.Errorf("not enough tokens to send in a message, token: %s, amount: %s", tokenAmounts[0].Token.String(), tokenAmounts[0].Amount.String())
@@ -573,7 +576,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, dest uint64, fields cciptes
 	return m.SendMessageWithNonce(ctx, dest, fields, opts, nil, nil, false)
 }
 
-func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions, sender *bind.TransactOpts, nonce *atomic.Uint64, disableTokenAmountCheck bool) (cciptestinterfaces.MessageSentEvent, error) {
+func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions, sender *bind.TransactOpts, nonce *uint64, disableTokenAmountCheck bool) (cciptestinterfaces.MessageSentEvent, error) {
 	l := m.logger
 	srcChain := m.chain
 	if sender == nil {
@@ -637,9 +640,9 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, field
 		return cciptestinterfaces.MessageSentEvent{}, err
 	}
 
-	var loadNonce *big.Int = nil
+	var loadNonce *big.Int
 	if nonce != nil {
-		loadNonce = big.NewInt(int64(nonce.Load()))
+		loadNonce = new(big.Int).SetUint64(*nonce)
 	}
 	senderKeyCopy := &bind.TransactOpts{
 		From:   sender.From,
@@ -647,13 +650,9 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, field
 		Nonce:  loadNonce,
 		Value:  msgValue,
 	}
-	fmt.Printf("sender: %s, srcChain: %d, nonce: %s\n", senderKeyCopy.From.String(), srcChain.Selector, loadNonce.String())
 	tx, err := rout.CcipSend(senderKeyCopy, dest, msg)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to send CCIP message: %w, extraArgs: %x", err, extraArgs)
-	}
-	if nonce != nil {
-		nonce.Add(1)
 	}
 	txHash := tx.Hash()
 
@@ -1466,7 +1465,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		}
 		_, ok = tokenAdapterRegistry.GetTokenAdapter("canton", semver.MustParse(poolVersion))
 		if !ok {
-			tokenAdapterRegistry.RegisterTokenAdapter("canton", semver.MustParse(poolVersion), cantonadapters.NewTokenAdapter(&evmadapters.TokenAdapter{}))
+			l.Warn().Msg("Canton adapter not found, skipping")
 		}
 		// TODO: add stellar token adapter support.
 	}
@@ -1894,4 +1893,121 @@ func (m *CCIP17EVM) GetRoundRobinUser() func() *bind.TransactOpts {
 		index.Add(1)
 		return selectedSender
 	}
+}
+
+// NativeBalance returns the native token balance of the given address on this chain.
+func (m *CCIP17EVM) NativeBalance(ctx context.Context, address protocol.UnknownAddress) (*big.Int, error) {
+	return m.chain.Client.BalanceAt(ctx, common.BytesToAddress(address), nil)
+}
+
+// EstimateNativeTransferCost returns the estimated cost in wei for one native token transfer.
+// A safety multiplier is applied on top of the current suggested base fee to buffer gas spikes.
+func (m *CCIP17EVM) EstimateNativeTransferCost(ctx context.Context) (*big.Int, error) {
+	feeCap, err := m.chain.Client.SuggestGasPrice(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to suggest gas price: %w", err)
+	}
+	cost := new(big.Int).Mul(feeCap, big.NewInt(DefaultNativeTransferGasLimit))
+	cost.Mul(cost, big.NewInt(2))
+	return cost, nil
+}
+
+// TransferNative sends native tokens from a configured account (deployer or a user key) to
+// any destination address on this chain. If from is not one of the provisioned accounts an
+// error is returned. When amount is nil, the full spendable balance (minus gas cost) is swept.
+func (m *CCIP17EVM) TransferNative(ctx context.Context, from, to protocol.UnknownAddress, amount *big.Int) error {
+	fromAddr := common.BytesToAddress(from)
+	toAddr := common.BytesToAddress(to)
+
+	auth := m.transactorForAddress(fromAddr)
+	if auth == nil {
+		return fmt.Errorf("address %s is not a configured account in this environment", fromAddr.Hex())
+	}
+
+	sendAmount := amount
+	if sendAmount == nil {
+		balance, err := m.chain.Client.BalanceAt(ctx, fromAddr, nil)
+		if err != nil {
+			return fmt.Errorf("failed to query balance of %s: %w", fromAddr.Hex(), err)
+		}
+		cost, err := m.EstimateNativeTransferCost(ctx)
+		if err != nil {
+			return err
+		}
+		if balance.Cmp(cost) <= 0 {
+			return fmt.Errorf("%w: address %s has %s wei, estimated gas cost is %s wei",
+				cciptestinterfaces.ErrInsufficientNativeBalance, fromAddr.Hex(), balance, cost)
+		}
+		sendAmount = new(big.Int).Sub(balance, cost)
+	}
+
+	chainIDUint64, err := chainsel.ChainIdFromSelector(m.chainDetails.ChainSelector)
+	if err != nil {
+		return fmt.Errorf("failed to resolve chain ID for selector %d: %w", m.chainDetails.ChainSelector, err)
+	}
+	chainID := new(big.Int).SetUint64(chainIDUint64)
+
+	nonce, err := m.chain.Client.PendingNonceAt(ctx, fromAddr)
+	if err != nil {
+		return fmt.Errorf("failed to fetch nonce for %s: %w", fromAddr.Hex(), err)
+	}
+	feeCap, err := m.chain.Client.SuggestGasPrice(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to suggest gas price: %w", err)
+	}
+	tipCap, err := m.chain.Client.SuggestGasTipCap(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to suggest tip cap: %w", err)
+	}
+	// SuggestGasPrice is a legacy RPC that may return a value below the current miner tip on
+	// EIP-1559 chains, causing "max priority fee per gas higher than max fee per gas" reverts.
+	// Clamp feeCap to be at least as large as tipCap before building the transaction.
+	if tipCap.Cmp(feeCap) > 0 {
+		feeCap = new(big.Int).Set(tipCap)
+	}
+
+	tx := types.NewTx(&types.DynamicFeeTx{
+		ChainID:   chainID,
+		Nonce:     nonce,
+		To:        &toAddr,
+		Value:     sendAmount,
+		Gas:       DefaultNativeTransferGasLimit,
+		GasFeeCap: feeCap,
+		GasTipCap: tipCap,
+	})
+
+	m.logger.Info().
+		Str("from", fromAddr.Hex()).
+		Str("to", toAddr.Hex()).
+		Str("amountWei", sendAmount.String()).
+		Str("gasFeeCap", feeCap.String()).
+		Str("gasTipCap", tipCap.String()).
+		Uint64("chainSelector", m.chainDetails.ChainSelector)
+
+	signedTx, err := auth.Signer(fromAddr, tx)
+	if err != nil {
+		return fmt.Errorf("failed to sign native transfer from %s: %w", fromAddr.Hex(), err)
+	}
+	if err := m.chain.Client.SendTransaction(ctx, signedTx); err != nil {
+		return fmt.Errorf("failed to send native transfer from %s: %w", fromAddr.Hex(), err)
+	}
+	if _, err := m.chain.Confirm(signedTx); err != nil {
+		return fmt.Errorf("failed to confirm native transfer from %s: %w", fromAddr.Hex(), err)
+	}
+
+	return nil
+}
+
+// transactorForAddress returns the *bind.TransactOpts whose From address equals addr, searching
+// first the deployer key then the user keys. Returns nil if no match is found.
+func (m *CCIP17EVM) transactorForAddress(addr common.Address) *bind.TransactOpts {
+	if m.chain.DeployerKey.From == addr {
+		return m.chain.DeployerKey
+	}
+	for _, u := range m.chain.Users {
+		if u.From == addr {
+			return u
+		}
+	}
+	return nil
 }

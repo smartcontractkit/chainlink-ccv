@@ -6,3 +6,5 @@ import "errors"
 var ErrAggregationChannelFull = errors.New("aggregation channel is full")
 
 var ErrNotFound = errors.New("not found")
+
+var ErrShuttingDown = errors.New("channel manager is shutting down")

@@ -40,10 +40,10 @@ func TestExecute_NoMissingVerifiers_NoBatchInsert(t *testing.T) {
 
 	// Storage returns existing verifier matching the message CCV
 	vr := common.VerifierResultWithMetadata{VerifierResult: protocol.VerifierResult{VerifierSourceAddress: addr}, Metadata: common.VerifierResultMetadata{}}
-	ms.On("GetCCVData", mock.Anything, mock.Anything).Return([]common.VerifierResultWithMetadata{vr}, nil)
+	ms.EXPECT().GetCCVData(mock.Anything, mock.Anything).Return([]common.VerifierResultWithMetadata{vr}, nil)
 
 	// Ensure BatchInsertCCVData is not called
-	ms.On("BatchInsertCCVData", mock.Anything, mock.Anything).Return(nil).Maybe()
+	ms.EXPECT().InsertVerifierResults(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	msg := protocol.VerifierResult{MessageCCVAddresses: []protocol.UnknownAddress{addr}}
 	// Use a real logger

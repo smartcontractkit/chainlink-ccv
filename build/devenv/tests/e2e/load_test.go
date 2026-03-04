@@ -752,10 +752,12 @@ func TestStaging(t *testing.T) {
 
 		err = verifyTestConfig(e, testConfig)
 		require.NoError(t, err)
-		testProfile := testConfig.TestProfiles[0]
 
 		var wg sync.WaitGroup
 		for _, testProfile := range testConfig.TestProfiles {
+			if !testProfile.Enabled {
+				continue
+			}
 			for _, chainInfo := range testProfile.ChainsAsSource {
 				wg.Add(1)
 				go func(chainInfo load.ChainProfileConfig) {
@@ -772,27 +774,42 @@ func TestStaging(t *testing.T) {
 		}
 		wg.Wait()
 
-		messageRate, messageRateDuration := load.ParseMessageRate(testProfile.MessageRate)
-		gun := NewEVMTransactionGunFromTestConfig(in, testConfig, e, chainImpls)
-		p := wasp.NewProfile().Add(
-			wasp.NewGenerator(
-				&wasp.Config{
-					LoadType:              wasp.RPS,
-					GenName:               "multi-chain-mesh-load-test",
-					Schedule:              wasp.Plain(messageRate, testProfile.LoadDuration),
-					RateLimitUnitDuration: messageRateDuration,
-					Gun:                   gun,
-					Labels:                map[string]string{"go_test_name": "multi-chain-load"},
-					LokiConfig:            nil,
-				}),
-		)
+		// Wait for old txns and nonces to settled before we start the load test
+		time.Sleep(30 * time.Second)
 
-		_, err = p.Run(true)
-		require.NoError(t, err)
+		for idx, testProfile := range testConfig.TestProfiles {
+			if !testProfile.Enabled {
+				continue
+			}
+			wg.Add(1)
+			go func(testProfile load.TestProfileConfig, idx int) {
+				defer wg.Done()
+				messageRate, messageRateDuration := load.ParseMessageRate(testProfile.MessageRate)
+				gun := NewEVMTransactionGunFromTestConfig(in, &testProfile, testConfig.MessageProfiles, e, chainImpls)
+				p := wasp.NewProfile().Add(
+					wasp.NewGenerator(
+						&wasp.Config{
+							LoadType:              wasp.RPS,
+							GenName:               fmt.Sprintf("multi-chain-mesh-load-test-%d", idx),
+							Schedule:              wasp.Plain(messageRate, testProfile.LoadDuration),
+							RateLimitUnitDuration: messageRateDuration,
+							Gun:                   gun,
+							Labels:                map[string]string{"go_test_name": "multi-chain-load"},
+							LokiConfig:            nil,
+						}),
+				)
 
-		p.Wait()
+				_, err = p.Run(true)
+				require.NoError(t, err)
+
+				p.Wait()
+				gun.CloseSentChannel()
+			}(testProfile, idx)
+
+		}
+		wg.Wait()
+
 		time.Sleep(postTestVerificationDelay)
-		gun.CloseSentChannel()
 		// we don't need to wait for metrics because we can rely on staging metrics
 	})
 }

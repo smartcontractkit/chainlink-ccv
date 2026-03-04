@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain/canton"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
+<<<<<<< HEAD
 // StellarNetworkInfo contains Stellar network-specific configuration for blockchain info.
 type StellarNetworkInfo struct {
 	NetworkPassphrase string `json:"network_passphrase"`
@@ -20,6 +20,13 @@ type NetworkSpecificData struct {
 	StellarNetwork  *StellarNetworkInfo `json:"stellar_network"`
 }
 
+||||||| e73f3a16
+type NetworkSpecificData struct {
+	CantonEndpoints *canton.Endpoints `json:"canton_endpoints"`
+}
+
+=======
+>>>>>>> main
 // Node represents a blockchain node with connection information.
 type Node struct {
 	ExternalHTTPUrl string `json:"external_http_url"`
@@ -30,12 +37,11 @@ type Node struct {
 
 // Info represents blockchain connection information.
 type Info struct {
-	ChainID             string               `json:"chain_id"`
-	Type                string               `json:"type"`
-	Family              string               `json:"family"`
-	UniqueChainName     string               `json:"unique_chain_name"`
-	Nodes               []*Node              `json:"nodes"`
-	NetworkSpecificData *NetworkSpecificData `json:"network_specific_data"`
+	ChainID         string  `json:"chain_id"`
+	Type            string  `json:"type"`
+	Family          string  `json:"family"`
+	UniqueChainName string  `json:"unique_chain_name"`
+	Nodes           []*Node `json:"nodes"`
 }
 
 // Helper provides utilities for working with blockchain information.
@@ -80,8 +86,8 @@ func (bi *Info) String() string {
 	} else {
 		rpcURL = "N/A"
 	}
-	return fmt.Sprintf("Chain ID: %s, Type: %s, Family: %s, ChainName: %s, Nodes: %d, RPC: %s, NetworkSpecificData: %+v",
-		bi.ChainID, bi.Type, bi.Family, bi.UniqueChainName, nodeCount, rpcURL, bi.NetworkSpecificData)
+	return fmt.Sprintf("Chain ID: %s, Type: %s, Family: %s, ChainName: %s, Nodes: %d, RPC: %s",
+		bi.ChainID, bi.Type, bi.Family, bi.UniqueChainName, nodeCount, rpcURL)
 }
 
 func (bi *Info) GetFirstNode() (Node, error) {
@@ -95,16 +101,4 @@ func (bi *Info) GetFirstNode() (Node, error) {
 	}
 
 	return Node{}, fmt.Errorf("no nodes found for chain %s", bi.ChainID)
-}
-
-func (bh *Helper) GetNetworkSpecificData(chainSelector protocol.ChainSelector) (*NetworkSpecificData, error) {
-	bi, err := bh.GetBlockchainByChainSelector(chainSelector)
-	if err != nil {
-		return nil, err
-	}
-	if bi == nil {
-		return nil, fmt.Errorf("blockchain info is nil for selector %d", uint64(chainSelector))
-	}
-
-	return bi.NetworkSpecificData, nil
 }

@@ -38,6 +38,7 @@ type ChainTestConfig struct {
 
 // TestProfileConfig represents each [test_profiles] block in the TOML config file.
 type TestProfileConfig struct {
+	Enabled        bool                 `toml:"enabled"`
 	ChainsAsSource []ChainProfileConfig `toml:"chains_as_source"`
 	ChainsAsDest   []ChainProfileConfig `toml:"chains_as_dest"`
 	Chains         []ChainTestConfig    `toml:"chains"`

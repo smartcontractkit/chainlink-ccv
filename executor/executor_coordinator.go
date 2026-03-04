@@ -268,11 +268,10 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 			MessageID:     id,
 		})
 	}
+	ec.monitoring.Metrics().IncrementMessagesProcessing(ctx)
 	if err != nil {
-		ec.lggr.Errorw("failed to handle message", "messageID", id, "error", err)
-		ec.monitoring.Metrics().IncrementMessagesProcessingFailed(ctx)
-	} else {
-		ec.monitoring.Metrics().IncrementMessagesProcessed(ctx)
+		ec.lggr.Errorw("failed to handle message", "messageID", id, "error", err, "shouldRetry", shouldRetry)
+		ec.monitoring.Metrics().IncrementMessagesProcessingError(ctx, shouldRetry)
 	}
 }
 

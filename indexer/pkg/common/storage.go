@@ -37,10 +37,8 @@ type VerifierResultsStorageReader interface {
 
 // VerifierResultsStorageWriter provides the interface for inserting verifications to storage.
 type VerifierResultsStorageWriter interface {
-	// InsertCCVData appends a new CCVData to the storage for the given messageID
-	InsertCCVData(ctx context.Context, ccvData VerifierResultWithMetadata) error
-	// BatchInsertCCVData appends a list of CCVData to the storage
-	BatchInsertCCVData(ctx context.Context, ccvDataList []VerifierResultWithMetadata) error
+	// InsertVerifierResults appends a list of verifier results to the storage
+	InsertVerifierResults(ctx context.Context, verifierResults []VerifierResultWithMetadata) error
 }
 
 // MessageStorageReader provides the interface to retrieve messages from storage.

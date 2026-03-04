@@ -1686,3 +1686,82 @@ func TestSourceVerifierInCCVAddresses_MetadataPopulated(t *testing.T) {
 		})
 	}
 }
+
+func TestAggregatedReport_DoesNotMixVerificationRecordsFromDifferentAggregationKeys(t *testing.T) {
+	t.Parallel()
+
+	testFunc := func(t *testing.T) {
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "compromised-node")
+		signer2 := testutil.NewSignerFixture(t, "honest-node1")
+		signer3 := testutil.NewSignerFixture(t, "honest-node2")
+		committeeConfig := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer, signer3.Signer)
+		testutil.UpdateCommitteeQuorumWithThreshold(committeeConfig, sourceVerifierAddress, 3, signer1.Signer, signer2.Signer, signer3.Signer)
+
+		aggregatorClient, ccvDataClient, _, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committeeConfig))
+		t.Cleanup(cleanup)
+		require.NoError(t, err, "failed to create server and client")
+
+		message := testutil.NewProtocolMessage(t)
+		versionA := []byte{0x01, 0x02, 0x03, 0x04}
+		versionB := []byte{0x05, 0x06, 0x07, 0x08}
+
+		// Signer1 submits with versionA first
+		ccvNodeData1a, messageId := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithCcvVersion(versionA),
+			testutil.WithSignatureFrom(t, signer1))
+		resp, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1a))
+		require.NoError(t, err)
+		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp.Status)
+
+		// Signer1 submits again with versionB (higher seq_num)
+		ccvNodeData1b, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithCcvVersion(versionB),
+			testutil.WithSignatureFrom(t, signer1))
+		resp, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1b))
+		require.NoError(t, err)
+		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp.Status)
+
+		// Signer2 and signer3 submit with versionA
+		ccvNodeData2, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithCcvVersion(versionA),
+			testutil.WithSignatureFrom(t, signer2))
+		resp, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
+		require.NoError(t, err)
+		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp.Status)
+
+		ccvNodeData3, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithCcvVersion(versionA),
+			testutil.WithSignatureFrom(t, signer3))
+		resp, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData3))
+		require.NoError(t, err)
+		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp.Status)
+
+		// Verify that the aggregated report has a single CCV version (all versionA)
+		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+			batchResp, err := ccvDataClient.GetVerifierResultsForMessage(t.Context(), &verifierpb.GetVerifierResultsForMessageRequest{
+				MessageIds: [][]byte{messageId[:]},
+			})
+			require.NoError(collect, err, "GetVerifierResultsForMessage failed")
+			require.NotNil(collect, batchResp, "response should not be nil")
+			require.Len(collect, batchResp.Results, 1, "should have 1 result")
+			require.Equal(collect, int32(0), batchResp.Errors[0].Code, "should be success")
+
+			result := batchResp.Results[0]
+			require.NotNil(collect, result.CcvData, "CcvData should not be nil")
+			require.GreaterOrEqual(collect, len(result.CcvData), committee.VerifierVersionLength,
+				"CcvData should be at least VerifierVersionLength bytes")
+			require.Equal(collect, versionA, result.CcvData[:committee.VerifierVersionLength],
+				"aggregated report CCV version must be versionA, not mixed")
+		}, 5*time.Second, 100*time.Millisecond, "aggregated report should contain only versionA records")
+
+		assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData1a.GetMessage(),
+			sourceVerifierAddress, destVerifierAddress,
+			WithValidSignatureFrom(signer1), WithValidSignatureFrom(signer2), WithValidSignatureFrom(signer3))
+	}
+
+	t.Run("postgres", func(t *testing.T) {
+		t.Parallel()
+		testFunc(t)
+	})
+}

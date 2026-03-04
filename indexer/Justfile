@@ -6,6 +6,9 @@ import '../tools/lib/utils.justfile'
 default:
     just --list
 
+build:
+    docker build -f Dockerfile -t indexer:latest ..
+
 build-rc:
     docker build -f Dockerfile -t indexer:rc ..
 
@@ -24,4 +27,3 @@ clean-dev:
 
 create-migration name:
     goose create {{name}} sql -dir ./migrations
-

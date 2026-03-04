@@ -16,11 +16,9 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	bootstrap "github.com/smartcontractkit/chainlink-ccv/bootstrap"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/internal/util"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
-	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -79,7 +77,7 @@ type Input struct {
 	// Note that the full party ID (name + hex) is not expected in the TOML config,
 	// just the expected party name.
 	// The full party ID is hydrated from the blockchain output after the Canton participant is available.
-	CantonConfigs canton.Config `toml:"canton_configs"`
+	CantonConfigs util.OpaqueConfig `toml:"canton_configs"`
 
 	// StellarConfigs is the map of chain selectors to Stellar configurations to pass onto the verifier,
 	// only used in standalone mode and if Stellar is enabled.
@@ -111,7 +109,7 @@ type Input struct {
 // added to the inner config. This is needed for standalone verifiers which require blockchain
 // connection information (CL nodes get this from their own chain config).
 // TODO: we stick with the job spec so that there isn't special logic for standalone verifiers.
-func (v *Input) RebuildVerifierJobSpecWithBlockchainInfos(jobSpec string, blockchainInfos map[string]*ccvblockchain.Info) (string, error) {
+func (v *Input) RebuildVerifierJobSpecWithBlockchainInfos(jobSpec string, blockchainInfos map[string]any) (string, error) {
 	// Parse the outer job spec first.
 	var spec commit.JobSpec
 	if _, err := toml.Decode(jobSpec, &spec); err != nil {
@@ -124,7 +122,6 @@ func (v *Input) RebuildVerifierJobSpecWithBlockchainInfos(jobSpec string, blockc
 		return "", fmt.Errorf("failed to parse verifier config from job spec: %w", err)
 	}
 
-	// Create config with blockchain infos
 	configWithInfos := commit.ConfigWithBlockchainInfos{
 		Config:          cfg,
 		BlockchainInfos: blockchainInfos,
@@ -414,15 +411,16 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 		return testcontainers.ContainerRequest{}, fmt.Errorf("failed to get source code path: %w", err)
 	}
 
+	req.Mounts = testcontainers.Mounts()
+	req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
+		bootstrapConfigFilePath,
+		bootstrap.DefaultConfigPath,
+	))
+
 	// Note: identical code to aggregator.go/executor.go -- will indexer be identical as well?
 	if in.SourceCodePath != "" {
-		req.Mounts = testcontainers.Mounts()
 		req.Mounts = append(req.Mounts, services.GoSourcePathMounts(in.RootPath, services.AppPathInsideContainer)...)
 		req.Mounts = append(req.Mounts, services.GoCacheMounts()...)
-		req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
-			bootstrapConfigFilePath,
-			bootstrap.DefaultConfigPath,
-		))
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")

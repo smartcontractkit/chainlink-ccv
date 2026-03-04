@@ -167,7 +167,7 @@ func (s *Server) Start(lis net.Listener) error {
 		aggregatorCancel()
 	})
 
-	if s.config.OrphanRecovery.Enabled {
+	if s.config.OrphanRecovery.Enabled && s.recoverer != nil {
 		recovererCtx, recovererCancel := context.WithCancel(context.Background())
 		g.Add(func() error {
 			return s.recoverer.Start(recovererCtx)
@@ -408,13 +408,14 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	grpcOpts = append(grpcOpts, grpc.ChainUnaryInterceptor(interceptorChain...))
 	grpcServer := grpc.NewServer(grpcOpts...)
 
-	recoverer := NewOrphanRecoverer(store, agg, config, l, aggMonitoring.Metrics())
+	var recoverer *OrphanRecoverer
 
 	healthManager := health.NewManager()
 	healthManager.Register(store)
 	healthManager.Register(rateLimitingMiddleware)
 	healthManager.Register(agg)
 	if config.OrphanRecovery.Enabled {
+		recoverer = NewOrphanRecoverer(store, agg, config, l, aggMonitoring.Metrics())
 		healthManager.Register(recoverer)
 	}
 

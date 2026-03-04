@@ -18,6 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 func TestConstructor(t *testing.T) {
@@ -564,7 +565,6 @@ func TestDuplicateMessageIDFromStreamWhenAlreadyInHeap_IsSkippedByHeapAndHandleM
 // shut down gracefully. This state is simulated by blocking the HandleMessage() call until Close() is called, and then
 // asserting that we logged the message about dropping a payload to exit.
 func TestGracefulShutdown(t *testing.T) {
-	t.Skip("flaky test")
 	lggr, hook := logger.TestObserved(t, zapcore.InfoLevel)
 	currentTime := time.Now().UTC()
 	mockTimeProvider := mocks.NewMockTimeProvider(t)
@@ -586,17 +586,21 @@ func TestGracefulShutdown(t *testing.T) {
 	}
 
 	results := make(chan common.MessageWithMetadata, 1)
-	results <- messageGenerator()
+	go func() {
+		results <- messageGenerator() // will be blocked in HandleMessage.
+		results <- messageGenerator() // will be stuck in the executor heap and trigger the "dropping payload" log.
+	}()
 	messageSubscriber := mocks.NewMockMessageSubscriber(t)
 	messageSubscriber.EXPECT().Start(mock.Anything).Return(results, nil, nil)
 
-	unblockHandle := make(chan struct{})
+	handlerBlockedHandle := make(chan struct{})
 	mockExecutor := mocks.NewMockExecutor(t)
 	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
 	mockExecutor.EXPECT().CheckValidMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
-	mockExecutor.EXPECT().HandleMessage(mock.Anything, mock.Anything).Run(func(context.Context, protocol.Message) {
-		<-unblockHandle
-	}).Return(false, nil).Maybe()
+	mockExecutor.EXPECT().HandleMessage(mock.Anything, mock.Anything).Run(func(ctx context.Context, msg protocol.Message) {
+		close(handlerBlockedHandle)
+		<-ctx.Done() // the coordinator will cancel the context when Close() is called, which will unblock this
+	}).Return(false, context.Canceled)
 
 	leaderElector := mocks.NewMockLeaderElector(t)
 	leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything, mock.Anything).Return(currentTime).Maybe()
@@ -619,13 +623,13 @@ func TestGracefulShutdown(t *testing.T) {
 	defer cancel()
 
 	require.NoError(t, ec.Start(ctx))
-	time.Sleep(1 * time.Second)
 
-	// Block close for 1 second to ensure the processing loop is forced to drop a payload.
-	go func() {
-		time.Sleep(1 * time.Second)
-		close(unblockHandle)
-	}()
+	// Wait for the handler to be blocked to ensure we are in the state we want before calling Close().
+	select {
+	case <-handlerBlockedHandle:
+	case <-t.Context().Done():
+	}
+
 	require.NoError(t, ec.Close())
 
 	// Assert that we logged the message about dropping a payload.
@@ -638,5 +642,5 @@ func TestGracefulShutdown(t *testing.T) {
 		}
 		return false
 	}
-	require.Eventuallyf(t, found, 2*time.Second, 100*time.Millisecond, "executor coordinator did not stop in time")
+	require.Eventuallyf(t, found, tests.WaitTimeout(t), 100*time.Millisecond, "dropped payload log never seen")
 }

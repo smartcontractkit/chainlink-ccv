@@ -208,7 +208,7 @@ func createDurableProcessors(
 	}
 
 	storageWriterProcessor, err := NewStorageWriterProcessor(
-		ctx, lggr, config.VerifierID, messageTracker, storage, resultQueue, config, writingTracker, chainStatusManager,
+		lggr, config.VerifierID, messageTracker, storage, resultQueue, config, writingTracker, chainStatusManager,
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to create storage writer processor DB: %w", err)

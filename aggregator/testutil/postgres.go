@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -15,10 +14,10 @@ import (
 	_ "github.com/lib/pq" // PostgreSQL driver registration
 )
 
-func SetupTestPostgresDB(t *testing.T) (*sqlx.DB, func()) {
-	t.Helper()
+func SetupTestPostgresDB(tb testing.TB) (*sqlx.DB, func()) {
+	tb.Helper()
 	if testing.Short() {
-		t.Skip("skipping docker test in short mode")
+		tb.Skip("skipping docker test in short mode")
 	}
 
 	ctx := context.Background()
@@ -32,20 +31,26 @@ func SetupTestPostgresDB(t *testing.T) (*sqlx.DB, func()) {
 				WithOccurrence(2).
 				WithStartupTimeout(30*time.Second)),
 	)
-	require.NoError(t, err)
+	if err != nil {
+		tb.Fatalf("failed to start postgres container: %v", err)
+	}
 
 	connStr, err := postgresContainer.ConnectionString(ctx, "sslmode=disable")
-	require.NoError(t, err)
+	if err != nil {
+		tb.Fatalf("failed to get connection string: %v", err)
+	}
 
 	db, err := sql.Open("postgres", connStr)
-	require.NoError(t, err)
+	if err != nil {
+		tb.Fatalf("failed to open database: %v", err)
+	}
 
 	ds := sqlx.NewDb(db, "postgres")
 
 	cleanup := func() {
 		_ = ds.Close()
 		if termErr := postgresContainer.Terminate(context.Background()); termErr != nil {
-			t.Logf("failed to terminate postgres container: %v", termErr)
+			tb.Logf("failed to terminate postgres container: %v", termErr)
 		}
 	}
 	return ds, cleanup

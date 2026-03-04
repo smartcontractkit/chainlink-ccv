@@ -39,7 +39,7 @@ func TestMessagesHandler_Handle(t *testing.T) {
 		{name: "bad selectors", query: "sourceChainSelectors=not-a-number", mockData: nil, mockErr: nil, wantStatus: http.StatusBadRequest},
 		{name: "bad dest selectors", query: "destChainSelectors=not-a-number", mockData: nil, mockErr: nil, wantStatus: http.StatusBadRequest},
 		{name: "limit exceeds max returns 400 and storage not called", query: "limit=5000", mockData: nil, mockErr: nil, wantStatus: http.StatusBadRequest, wantBodyContains: []string{"limit exceeds maximum", "1000"}},
-		{name: "storage error", query: "", mockData: nil, mockErr: errors.New("db fail"), wantStatus: http.StatusInternalServerError},
+		{name: "storage error", query: "", mockData: nil, mockErr: errors.New("db fail"), wantStatus: http.StatusServiceUnavailable},
 		{name: "success", query: "", mockData: []common.MessageWithMetadata{msg}, mockErr: nil, wantStatus: http.StatusOK, wantCount: 1},
 		{name: "limit equals max accepted and storage called with limit 1000", query: "limit=1000", mockData: []common.MessageWithMetadata{msg}, mockErr: nil, wantStatus: http.StatusOK, wantCount: 1},
 	}
