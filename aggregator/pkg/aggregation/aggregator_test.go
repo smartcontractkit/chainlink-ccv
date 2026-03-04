@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
 func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
@@ -497,7 +498,7 @@ func TestHealthCheck_RecoversPanicEmitsMetricAndKeepsRunning(t *testing.T) {
 	cancel()
 	require.Eventually(t, func() bool {
 		return a.Ready() != nil
-	}, 5*time.Second, 10*time.Millisecond, "aggregator should shut down before test exits")
+	}, tests.WaitTimeout(t), 10*time.Millisecond, "aggregator should shut down before test exits")
 }
 
 func TestHealthCheck_ReturnsErrorAfterConsecutiveWorkerFailures(t *testing.T) {
@@ -562,7 +563,7 @@ func TestHealthCheck_ReturnsErrorAfterConsecutiveWorkerFailures(t *testing.T) {
 	cancel()
 	require.Eventually(t, func() bool {
 		return a.Ready() != nil
-	}, 5*time.Second, 10*time.Millisecond, "aggregator should shut down before test exits")
+	}, tests.WaitTimeout(t), 10*time.Millisecond, "aggregator should shut down before test exits")
 }
 
 func TestStartBackground_Shutdown(t *testing.T) {
