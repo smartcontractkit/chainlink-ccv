@@ -17,6 +17,7 @@ const (
 	ntpServerDefault         = "time.google.com"
 	workerCountDefault       = 100
 	IndexerQueryLimitDefault = 100
+	IndexerQueryLimitMax     = 10000
 )
 
 type ConfigWithBlockchainInfo struct {
@@ -85,13 +86,39 @@ func (c *Configuration) Validate() error {
 		return fmt.Errorf("at least one chain must be configured")
 	}
 
-	// Validate indexer addresses - at least one must be provided
 	if len(c.IndexerAddress) < 1 {
 		return fmt.Errorf("at least one indexer address must be configured")
 	}
+	for _, addr := range c.IndexerAddress {
+		if addr == "" {
+			return fmt.Errorf("indexer address must not be empty")
+		}
+	}
+
+	if c.WorkerCount < 0 {
+		return fmt.Errorf("worker_count must not be negative, got %d", c.WorkerCount)
+	}
+	if c.BackoffDuration < 0 {
+		return fmt.Errorf("source_backoff_duration must not be negative")
+	}
+	if c.LookbackWindow < 0 {
+		return fmt.Errorf("startup_lookback_window must not be negative")
+	}
+	if c.IndexerQueryLimit > IndexerQueryLimitMax {
+		return fmt.Errorf("indexer_query_limit must not exceed %d, got %d", IndexerQueryLimitMax, c.IndexerQueryLimit)
+	}
+
+	if err := c.Monitoring.Validate(); err != nil {
+		return fmt.Errorf("monitoring config validation failed: %w", err)
+	}
 
 	for chainSel, chainConfig := range c.ChainConfiguration {
-		// can ignore nil check because len of nil slice is 0.
+		if chainConfig.RmnAddress == "" {
+			return fmt.Errorf("rmn_address must be configured for chain %s", chainSel)
+		}
+		if chainConfig.OffRampAddress == "" {
+			return fmt.Errorf("off_ramp_address must be configured for chain %s", chainSel)
+		}
 		if len(chainConfig.ExecutorPool) == 0 {
 			return fmt.Errorf("executor_pool must be configured for chain %s", chainSel)
 		}
