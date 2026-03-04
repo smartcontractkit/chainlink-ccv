@@ -131,7 +131,8 @@ func (ec *Coordinator) Close() error {
 func (ec *Coordinator) runStorageStream(ctx context.Context) {
 	indexerResults, componentErrors, err := ec.messageSubscriber.Start(ctx)
 	if err != nil {
-		ec.lggr.Errorw("failed to start ccv result streamer", "error", err)
+		ec.lggr.Errorw("failed to start ccv result streamer, shutting down coordinator", "error", err)
+		ec.cancel()
 		return
 	}
 
