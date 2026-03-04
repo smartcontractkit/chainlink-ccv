@@ -177,7 +177,7 @@ func (l *Lib) Chains(ctx context.Context) ([]ChainImpl, error) {
 			if err != nil {
 				return nil, fmt.Errorf("getting implementation factory for family %s: %w", bc.Out.Family, err)
 			}
-			theImpl, err := fac.New(ctx, l.cfg, *l.l, env, bc, details.ChainSelector)
+			theImpl, err := fac.New(ctx, l.cfg, *l.l, env, bc)
 			if err != nil {
 				return nil, fmt.Errorf("creating implementation for family %s: %w", bc.Out.Family, err)
 			}

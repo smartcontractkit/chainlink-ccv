@@ -25,7 +25,6 @@ type ImplFactory interface {
 		lggr zerolog.Logger,
 		env *deployment.Environment,
 		bc *blockchain.Input,
-		selector uint64,
 	) (cciptestinterfaces.CCIP17, error)
 }
 
