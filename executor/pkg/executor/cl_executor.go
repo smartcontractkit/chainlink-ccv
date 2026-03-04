@@ -417,6 +417,18 @@ func (cle *ChainlinkExecutor) Validate() error {
 	if cle.lggr == nil {
 		return fmt.Errorf("logger is required")
 	}
+	if cle.curseChecker == nil {
+		return fmt.Errorf("curse checker is required")
+	}
+	if cle.verifierResultsReader == nil {
+		return fmt.Errorf("verifier results reader is required")
+	}
+	if cle.monitoring == nil {
+		return fmt.Errorf("monitoring is required")
+	}
+	if cle.defaultExecutorAddress == nil {
+		return fmt.Errorf("default executor address map is required")
+	}
 	chainSetA := make(map[protocol.ChainSelector]struct{})
 	chainSetB := make(map[protocol.ChainSelector]struct{})
 	if cle.contractTransmitters == nil {
