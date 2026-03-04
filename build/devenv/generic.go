@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/rs/zerolog"
+
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
