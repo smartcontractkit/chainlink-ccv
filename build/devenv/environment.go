@@ -121,6 +121,9 @@ type Cfg struct {
 	JDInfra *jobs.JDInfrastructure `toml:"-"`
 	// ClientLookup provides ChainlinkClient lookup by NOP alias (populated at runtime).
 	ClientLookup *jobs.NodeSetClientLookup `toml:"-"`
+
+	// GenericServices is a list of generic service configurations.
+	GenericServices []*GenericServiceDefinition `toml:"generic_services" validate:"required"`
 }
 
 // expandForHA clones AggregatorInput / IndexerInput entries based on their
@@ -1063,6 +1066,18 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	/////////////////////////////////////////
 	// END: Connect chains to each other //
+	/////////////////////////////////////////
+
+	/////////////////////////////////////////
+	// START: Launch generic services //
+	/////////////////////////////////////////
+
+	if err := launchGenericServices(ctx, in, e, blockchainOutputs); err != nil {
+		return nil, fmt.Errorf("failed to launch generic services: %w", err)
+	}
+
+	/////////////////////////////////////////
+	// END: Launch generic services //
 	/////////////////////////////////////////
 
 	///////////////////////////////
