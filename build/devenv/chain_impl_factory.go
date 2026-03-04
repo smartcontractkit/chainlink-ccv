@@ -1,4 +1,4 @@
-package registry
+package ccv
 
 import (
 	"context"
@@ -19,13 +19,20 @@ type ImplFactory interface {
 	NewEmpty() cciptestinterfaces.CCIP17Configuration
 	// New creates a new cciptestinterfaces.CCIP17 object, this is primarily used in
 	// tests.
-	New(ctx context.Context, lggr zerolog.Logger, env *deployment.Environment, bc *blockchain.Input) (cciptestinterfaces.CCIP17, error)
+	New(
+		ctx context.Context,
+		cfg *Cfg,
+		lggr zerolog.Logger,
+		env *deployment.Environment,
+		bc *blockchain.Input,
+		selector uint64,
+	) (cciptestinterfaces.CCIP17, error)
 }
 
 var (
 	// implFactories is a map of chain family to implementation factory.
-	implFactories map[string]ImplFactory
-	mu            sync.Mutex
+	implFactories   map[string]ImplFactory
+	implFactoriesMu sync.Mutex
 )
 
 func init() {
@@ -35,8 +42,8 @@ func init() {
 // RegisterImplFactory registers a new implementation factory for a given chain family.
 // If the family is already registered, the call is a no-op.
 func RegisterImplFactory(family string, factory ImplFactory) {
-	mu.Lock()
-	defer mu.Unlock()
+	implFactoriesMu.Lock()
+	defer implFactoriesMu.Unlock()
 	if _, ok := implFactories[family]; ok {
 		return
 	}
@@ -45,8 +52,8 @@ func RegisterImplFactory(family string, factory ImplFactory) {
 
 // GetImplFactory returns the implementation factory for a given chain family.
 func GetImplFactory(family string) (ImplFactory, error) {
-	mu.Lock()
-	defer mu.Unlock()
+	implFactoriesMu.Lock()
+	defer implFactoriesMu.Unlock()
 	fac, ok := implFactories[family]
 	if !ok {
 		return nil, fmt.Errorf("implementation factory for family %s not found", family)
