@@ -308,6 +308,11 @@ func (ec *Coordinator) validate() error {
 	appendIfNil(ec.lggr, "logger")
 	appendIfNil(ec.messageSubscriber, "messageSubscriber")
 	appendIfNil(ec.monitoring, "monitoring")
+	appendIfNil(ec.timeProvider, "timeProvider")
+
+	if ec.workerCount <= 0 {
+		errs = append(errs, fmt.Errorf("workerCount must be greater than 0"))
+	}
 
 	return errors.Join(errs...)
 }
