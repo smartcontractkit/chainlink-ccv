@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/rs/zerolog"
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -60,7 +61,9 @@ type Launcher interface {
 }
 
 func launchGenericServices(ctx context.Context, in *Cfg, e *deployment.Environment, chains []*blockchain.Output) error {
+	l := zerolog.Ctx(ctx)
 	for _, definition := range in.GenericServices {
+		l.Info().Uint64("ChainSelector", definition.ChainSelector).Msg("Launching generic service")
 		chainFamily, err := chainsel.GetSelectorFamily(definition.ChainSelector)
 		if err != nil {
 			return fmt.Errorf("failed to get chain family for chain selector %d: %w", definition.ChainSelector, err)
