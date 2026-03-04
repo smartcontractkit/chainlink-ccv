@@ -476,7 +476,7 @@ func TestHealthCheck_RecoversPanicEmitsMetricAndKeepsRunning(t *testing.T) {
 	channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
 	a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
 
-	ctx := t.Context()
+	ctx, cancel := context.WithCancel(t.Context())
 	a.StartBackground(ctx)
 
 	require.NoError(t, a.Ready())
@@ -493,6 +493,11 @@ func TestHealthCheck_RecoversPanicEmitsMetricAndKeepsRunning(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	require.NoError(t, a.Ready())
+
+	cancel()
+	require.Eventually(t, func() bool {
+		return a.Ready() != nil
+	}, 5*time.Second, 10*time.Millisecond, "aggregator should shut down before test exits")
 }
 
 func TestHealthCheck_ReturnsErrorAfterConsecutiveWorkerFailures(t *testing.T) {
@@ -529,7 +534,7 @@ func TestHealthCheck_ReturnsErrorAfterConsecutiveWorkerFailures(t *testing.T) {
 	channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
 	a := NewCommitReportAggregator(store, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
 
-	ctx := t.Context()
+	ctx, cancel := context.WithCancel(t.Context())
 	a.StartBackground(ctx)
 
 	time.Sleep(50 * time.Millisecond)
@@ -553,6 +558,11 @@ func TestHealthCheck_ReturnsErrorAfterConsecutiveWorkerFailures(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return a.Ready() == nil
 	}, 5*time.Second, 20*time.Millisecond, "Ready() should return nil again after a successful aggregation")
+
+	cancel()
+	require.Eventually(t, func() bool {
+		return a.Ready() != nil
+	}, 5*time.Second, 10*time.Millisecond, "aggregator should shut down before test exits")
 }
 
 func TestStartBackground_Shutdown(t *testing.T) {
@@ -658,10 +668,14 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		workerStarted := make(chan struct{})
 		workerRelease := make(chan struct{})
 		store.EXPECT().ListCommitVerificationByAggregationKey(mock.Anything, mock.Anything, mock.Anything).
-			RunAndReturn(func(_ context.Context, _ model.MessageID, _ model.AggregationKey) ([]*model.CommitVerificationRecord, error) {
+			RunAndReturn(func(ctx context.Context, _ model.MessageID, _ model.AggregationKey) ([]*model.CommitVerificationRecord, error) {
 				close(workerStarted)
-				<-workerRelease
-				return []*model.CommitVerificationRecord{}, nil
+				select {
+				case <-workerRelease:
+					return []*model.CommitVerificationRecord{}, nil
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
 			})
 
 		quorum := mocks.NewMockQuorumValidator(t)
