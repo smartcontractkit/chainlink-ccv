@@ -465,12 +465,12 @@ func Test_orderCCVData(t *testing.T) {
 	otherAddr, err := protocol.RandomAddress()
 	assert.NoError(t, err)
 
-	reqData1 := protocol.VerifierResult{VerifierDestAddress: reqAddr1, CCVData: []byte("req1"), Timestamp: time.UnixMilli(10)}
-	reqData2 := protocol.VerifierResult{VerifierDestAddress: reqAddr2, CCVData: []byte("req2"), Timestamp: time.UnixMilli(20)}
-	optData1 := protocol.VerifierResult{VerifierDestAddress: optAddr1, CCVData: []byte("opt1"), Timestamp: time.UnixMilli(5)}
-	optData2 := protocol.VerifierResult{VerifierDestAddress: optAddr2, CCVData: []byte("opt2"), Timestamp: time.UnixMilli(25)}
-	optData3 := protocol.VerifierResult{VerifierDestAddress: optAddr3, CCVData: []byte("opt3"), Timestamp: time.UnixMilli(15)}
-	otherData := protocol.VerifierResult{VerifierDestAddress: otherAddr, CCVData: []byte("other"), Timestamp: time.UnixMilli(100)}
+	reqData1 := protocol.VerifierResult{VerifierDestAddress: reqAddr1, CCVData: []byte("req1"), Timestamp: time.Unix(10, 0)}
+	reqData2 := protocol.VerifierResult{VerifierDestAddress: reqAddr2, CCVData: []byte("req2"), Timestamp: time.Unix(20, 0)}
+	optData1 := protocol.VerifierResult{VerifierDestAddress: optAddr1, CCVData: []byte("opt1"), Timestamp: time.Unix(5, 0)}
+	optData2 := protocol.VerifierResult{VerifierDestAddress: optAddr2, CCVData: []byte("opt2"), Timestamp: time.Unix(25, 0)}
+	optData3 := protocol.VerifierResult{VerifierDestAddress: optAddr3, CCVData: []byte("opt3"), Timestamp: time.Unix(15, 0)}
+	otherData := protocol.VerifierResult{VerifierDestAddress: otherAddr, CCVData: []byte("other"), Timestamp: time.Unix(100, 0)}
 
 	testcases := []struct {
 		name                string
