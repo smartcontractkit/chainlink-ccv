@@ -265,12 +265,16 @@ func main() {
 	//
 	// Initialize leader elector
 	// ------------------------------------------------------------------------------------------------
-	le := leaderelector.NewHashBasedLeaderElector(
+	le, err := leaderelector.NewHashBasedLeaderElector(
 		lggr,
 		execPool,
 		executorConfig.ExecutorID,
 		execIntervals,
 	)
+	if err != nil {
+		lggr.Errorw("Failed to create leader elector", "error", err)
+		os.Exit(1)
+	}
 	timeProvider := backofftimeprovider.NewBackoffNTPProvider(lggr, executorConfig.BackoffDuration, executorConfig.NtpServer)
 
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(

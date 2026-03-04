@@ -156,12 +156,15 @@ func NewExecutorCoordinator(
 	)
 
 	// create hash-based leader elector
-	le := leaderelector.NewHashBasedLeaderElector(
+	le, err := leaderelector.NewHashBasedLeaderElector(
 		lggr,
 		execPool,
 		cfg.ExecutorID,
 		execIntervals,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("leader elector: %w", err)
+	}
 	backoffProvider := timeprovider.NewBackoffNTPProvider(lggr, cfg.BackoffDuration, cfg.NtpServer)
 
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
