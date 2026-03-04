@@ -38,39 +38,39 @@ type = "redis"
 [rateLimiting.storage.redis]
 key_prefix = "ratelimit"
 
-# Default rate limits (applied to all callers unless overridden)
+# Default rate limits (applied to all callers unless overridden, 1s window)
 [rateLimiting.defaultLimits]
-"/chainlink_ccv.message_discovery.v1.MessageDiscovery/GetMessagesSince" = { limit_per_minute = 1200 }
-"/chainlink_ccv.verifier.v1.Verifier/GetVerifierResultsForMessage" = { limit_per_minute = 6000 }
-"/chainlink_ccv.heartbeat.v1.HeartbeatService/SendHeartbeat" = { limit_per_minute = 6000 }
+"/chainlink_ccv.message_discovery.v1.MessageDiscovery/GetMessagesSince" = { limit_per_second = 20 }
+"/chainlink_ccv.verifier.v1.Verifier/GetVerifierResultsForMessage" = { limit_per_second = 100 }
+"/chainlink_ccv.heartbeat.v1.HeartbeatService/SendHeartbeat" = { limit_per_second = 100 }
 
 # Limit shared across all anonymous callers
 [rateLimiting.globalAnonymousLimits]
-"/chainlink_ccv.verifier.v1.Verifier/GetVerifierResultsForMessage" = { limit_per_minute = 6000 }
+"/chainlink_ccv.verifier.v1.Verifier/GetVerifierResultsForMessage" = { limit_per_second = 100 }
 
 # Group-based rate limits (more restrictive than defaults for specific groups)
 # WriteCommitteeVerifierNodeResult is not needed for verifiers as they use BatchWriteCommitteeVerifierNodeResult instead.
 [rateLimiting.groupLimits.verifiers]
-"/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/BatchWriteCommitteeVerifierNodeResult" = { limit_per_minute = 150 }
-"/chainlink_ccv.heartbeat.v1.HeartbeatService/SendHeartbeat" = { limit_per_minute = 6000 }
+"/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/BatchWriteCommitteeVerifierNodeResult" = { limit_per_second = 3 }
+"/chainlink_ccv.heartbeat.v1.HeartbeatService/SendHeartbeat" = { limit_per_second = 100 }
 
 # Higher rate limit group for service tests-1
 [rateLimiting.groupLimits.service-tests-1]
-"/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/WriteCommitteeVerifierNodeResult" = { limit_per_minute = 150 }
-"/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/BatchWriteCommitteeVerifierNodeResult" = { limit_per_minute = 150 }
-"/chainlink_ccv.heartbeat.v1.HeartbeatService/SendHeartbeat" = { limit_per_minute = 6000 }
+"/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/WriteCommitteeVerifierNodeResult" = { limit_per_second = 3 }
+"/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/BatchWriteCommitteeVerifierNodeResult" = { limit_per_second = 3 }
+"/chainlink_ccv.heartbeat.v1.HeartbeatService/SendHeartbeat" = { limit_per_second = 100 }
 
 # Low rate limit group for service tests-2
 [rateLimiting.groupLimits.service-tests-2]
-"/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/WriteCommitteeVerifierNodeResult" = { limit_per_minute = 50 }
-"/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/BatchWriteCommitteeVerifierNodeResult" = { limit_per_minute = 10 }
+"/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/WriteCommitteeVerifierNodeResult" = { limit_per_second = 1 }
+"/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/BatchWriteCommitteeVerifierNodeResult" = { limit_per_second = 1 }
 
 [rateLimiting.groupLimits.monitoring]
-"/chainlink_ccv.message_discovery.v1.MessageDiscovery/GetMessagesSince" = { limit_per_minute = 200 }
+"/chainlink_ccv.message_discovery.v1.MessageDiscovery/GetMessagesSince" = { limit_per_second = 4 }
 
 [rateLimiting.groupLimits.indexer]
-"/chainlink_ccv.verifier.v1.Verifier/GetVerifierResultsForMessage" = { limit_per_minute = 6000 }
-"/chainlink_ccv.message_discovery.v1.MessageDiscovery/GetMessagesSince" = { limit_per_minute = 1200 }
+"/chainlink_ccv.verifier.v1.Verifier/GetVerifierResultsForMessage" = { limit_per_second = 100 }
+"/chainlink_ccv.message_discovery.v1.MessageDiscovery/GetMessagesSince" = { limit_per_second = 20 }
 
 
 [Monitoring]
