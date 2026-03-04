@@ -102,8 +102,8 @@ func TestHashBasedLeaderElectorSingleChain(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, elector)
 
-			actualTimestamp := elector.GetReadyTimestamp(tc.messageID, tc.chainSel, tc.baseTimestamp)
-
+			actualTimestamp, err := elector.GetReadyTimestamp(tc.messageID, tc.chainSel, tc.baseTimestamp)
+			require.NoError(t, err)
 			require.Equal(t, tc.readyTimestamp, actualTimestamp)
 
 			// We can check the bounds and consistency
@@ -117,7 +117,8 @@ func TestHashBasedLeaderElectorSingleChain(t *testing.T) {
 				"Ready timestamp should not exceed baseTimestamp + (numExecutors-1)*executionInterval")
 
 			// Run it again to check consistency
-			readyTimestamp2 := elector.GetReadyTimestamp(tc.messageID, tc.chainSel, tc.baseTimestamp)
+			readyTimestamp2, err := elector.GetReadyTimestamp(tc.messageID, tc.chainSel, tc.baseTimestamp)
+			require.NoError(t, err)
 			require.Equal(t, actualTimestamp, readyTimestamp2, "Results should be deterministic for the same inputs")
 		})
 	}
@@ -143,13 +144,17 @@ func TestHashBasedLeaderElector_DeterministicBehavior(t *testing.T) {
 	// Check message1 ordering
 	msg1Times := make(map[string]time.Time)
 	for id, elector := range electors {
-		msg1Times[id] = elector.GetReadyTimestamp(messageID1, sel, baseTimestamp)
+		ts, err := elector.GetReadyTimestamp(messageID1, sel, baseTimestamp)
+		require.NoError(t, err)
+		msg1Times[id] = ts
 	}
 
 	// Check message2 ordering
 	msg2Times := make(map[string]time.Time)
 	for id, elector := range electors {
-		msg2Times[id] = elector.GetReadyTimestamp(messageID2, sel, baseTimestamp)
+		ts, err := elector.GetReadyTimestamp(messageID2, sel, baseTimestamp)
+		require.NoError(t, err)
+		msg2Times[id] = ts
 	}
 
 	// Verify different messages create different orderings
@@ -163,8 +168,10 @@ func TestHashBasedLeaderElector_DeterministicBehavior(t *testing.T) {
 
 	// Verify consistent results across multiple calls
 	for _, elector := range electors {
-		result1 := elector.GetReadyTimestamp(messageID1, sel, baseTimestamp)
-		result2 := elector.GetReadyTimestamp(messageID1, sel, baseTimestamp)
+		result1, err := elector.GetReadyTimestamp(messageID1, sel, baseTimestamp)
+		require.NoError(t, err)
+		result2, err := elector.GetReadyTimestamp(messageID1, sel, baseTimestamp)
+		require.NoError(t, err)
 		require.Equal(t, result1, result2, "Same elector should return consistent results")
 	}
 }
@@ -201,22 +208,15 @@ func getExecutorOrderFromTimestamps(timestamps map[string]time.Time) []string {
 	return result
 }
 
-func TestHashBasedLeaderElector_ExecutorNotInList(t *testing.T) {
+func TestHashBasedLeaderElector_ExecutorNotInList_ConstructorReturnsError(t *testing.T) {
 	sel := protocol.ChainSelector(1)
 	executorIds := map[protocol.ChainSelector][]string{sel: {"executor-a", "executor-b"}}
 	thisExecutorId := "executor-not-in-list"
 	executionInterval := map[protocol.ChainSelector]time.Duration{sel: 30 * time.Second}
-	messageID := protocol.Bytes32{0x01, 0x02, 0x03}
-	baseTimestamp := time.Unix(1000, 0)
 
-	elector, err := NewHashBasedLeaderElector(logger.Test(t), executorIds, thisExecutorId, executionInterval)
-	require.NoError(t, err)
-
-	readyTimestamp := elector.GetReadyTimestamp(messageID, sel, baseTimestamp)
-
-	expectedTimestamp := baseTimestamp
-	require.Equal(t, expectedTimestamp, readyTimestamp,
-		"When executor not in list, should return baseTimestamp + minWaitPeriod")
+	_, err := NewHashBasedLeaderElector(logger.Test(t), executorIds, thisExecutorId, executionInterval)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not found in executor pool")
 }
 
 func TestHashBasedLeaderElector_ExecutorIndexCalculation_MultiSelector(t *testing.T) {
@@ -513,7 +513,8 @@ func TestHashBasedLeaderElector_GetRetryDelay(t *testing.T) {
 				thisID,
 				map[protocol.ChainSelector]time.Duration{tc.chainSel: tc.executionInterval})
 			require.NoError(t, err)
-			retryDelay := le.GetRetryDelay(tc.chainSel)
+			retryDelay, err := le.GetRetryDelay(tc.chainSel)
+			require.NoError(t, err)
 			require.Equal(t, tc.expectedDelay, retryDelay, "unexpected retry delay for case %s", tc.name)
 		})
 	}
