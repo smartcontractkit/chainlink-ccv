@@ -79,7 +79,7 @@ func (ec *Coordinator) Start(_ context.Context) error {
 			ec.lggr.Errorf("unable to start executor coordinator due to error: %w", err)
 			return err
 		}
-		ec.delayedMessageHeap = *message_heap.NewMessageHeap()
+		ec.delayedMessageHeap = *message_heap.NewMessageHeap(ec.lggr)
 		ec.inFlight = make(map[protocol.Bytes32]struct{})
 		ec.running.Store(true)
 
@@ -183,13 +183,15 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 				"readyTimestamp", readyTimestamp,
 			)
 
-			ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
+			if !ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 				Message:       &msg,
 				ReadyTime:     readyTimestamp,
 				ExpiryTime:    readyTimestamp.Add(ec.expiryDuration),
 				RetryInterval: ec.leaderElector.GetRetryDelay(msg.DestChainSelector),
 				MessageID:     id,
-			})
+			}) {
+				ec.lggr.Infow("duplicate message rejected by heap", "messageID", id)
+			}
 		}
 	}
 }
@@ -260,13 +262,15 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 	shouldRetry, err := ec.executor.HandleMessage(ctx, message)
 	if shouldRetry {
 		ec.lggr.Infow("message should be retried, putting back in heap", "messageID", id)
-		ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
+		if !ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 			Message:       &message,
 			ReadyTime:     payload.ReadyTime.Add(payload.RetryInterval),
 			ExpiryTime:    payload.ExpiryTime,
 			RetryInterval: payload.RetryInterval,
 			MessageID:     id,
-		})
+		}) {
+			ec.lggr.Warnw("retry push rejected, message already in heap", "messageID", id)
+		}
 	}
 	ec.monitoring.Metrics().IncrementMessagesProcessing(ctx)
 	if err != nil {
