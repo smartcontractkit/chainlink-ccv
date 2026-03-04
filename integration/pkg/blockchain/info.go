@@ -7,26 +7,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-<<<<<<< HEAD
-// StellarNetworkInfo contains Stellar network-specific configuration for blockchain info.
-type StellarNetworkInfo struct {
-	NetworkPassphrase string `json:"network_passphrase"`
-	FriendbotURL      string `json:"friendbot_url"`
-	SorobanRPCURL     string `json:"soroban_rpc_url"`
-}
-
-type NetworkSpecificData struct {
-	CantonEndpoints *canton.Endpoints   `json:"canton_endpoints"`
-	StellarNetwork  *StellarNetworkInfo `json:"stellar_network"`
-}
-
-||||||| e73f3a16
-type NetworkSpecificData struct {
-	CantonEndpoints *canton.Endpoints `json:"canton_endpoints"`
-}
-
-=======
->>>>>>> main
 // Node represents a blockchain node with connection information.
 type Node struct {
 	ExternalHTTPUrl string `json:"external_http_url"`
