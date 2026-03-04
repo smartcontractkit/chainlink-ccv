@@ -70,46 +70,68 @@ func Test_ChainlinkExecutor_Validate(t *testing.T) {
 	address2, err := protocol.RandomAddress()
 	assert.NoError(t, err)
 
+	validExecutor := func(t *testing.T) *ChainlinkExecutor {
+		ct := map[protocol.ChainSelector]*mocks.MockContractTransmitter{
+			1: mocks.NewMockContractTransmitter(t),
+			2: mocks.NewMockContractTransmitter(t),
+		}
+		dr := map[protocol.ChainSelector]*mocks.MockDestinationReader{
+			1: mocks.NewMockDestinationReader(t),
+			2: mocks.NewMockDestinationReader(t),
+		}
+		vr := mocks.NewMockVerifierResultReader(t)
+		return setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
+	}
+
 	testcases := []struct {
-		name        string
-		ctChains    []protocol.ChainSelector
-		drChains    []protocol.ChainSelector
-		expectError bool
+		name            string
+		modify          func(*ChainlinkExecutor)
+		wantErrContains string
 	}{
 		{
-			name:        "valid case - matching chains",
-			ctChains:    []protocol.ChainSelector{1, 2},
-			drChains:    []protocol.ChainSelector{1, 2},
-			expectError: false,
+			name:   "valid case - matching chains",
+			modify: func(_ *ChainlinkExecutor) {},
 		},
 		{
-			name:        "mismatched supported chains should error",
-			ctChains:    []protocol.ChainSelector{1},
-			drChains:    []protocol.ChainSelector{1, 2},
-			expectError: true,
+			name: "mismatched supported chains should error",
+			modify: func(e *ChainlinkExecutor) {
+				e.contractTransmitters = map[protocol.ChainSelector]chainaccess.ContractTransmitter{
+					1: mocks.NewMockContractTransmitter(t),
+				}
+			},
+			wantErrContains: "must support the same chains",
+		},
+		{
+			name:            "nil curse checker should error",
+			modify:          func(e *ChainlinkExecutor) { e.curseChecker = nil },
+			wantErrContains: "curse checker is required",
+		},
+		{
+			name:            "nil verifier results reader should error",
+			modify:          func(e *ChainlinkExecutor) { e.verifierResultsReader = nil },
+			wantErrContains: "verifier results reader is required",
+		},
+		{
+			name:            "nil monitoring should error",
+			modify:          func(e *ChainlinkExecutor) { e.monitoring = nil },
+			wantErrContains: "monitoring is required",
+		},
+		{
+			name:            "nil default executor address map should error",
+			modify:          func(e *ChainlinkExecutor) { e.defaultExecutorAddress = nil },
+			wantErrContains: "default executor address map is required",
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			ct := make(map[protocol.ChainSelector]*mocks.MockContractTransmitter)
-			for _, chain := range tc.ctChains {
-				mockCT := mocks.NewMockContractTransmitter(t)
-				ct[chain] = mockCT
-			}
+			ex := validExecutor(t)
+			tc.modify(ex)
 
-			dr := make(map[protocol.ChainSelector]*mocks.MockDestinationReader)
-			for _, chain := range tc.drChains {
-				mockDR := mocks.NewMockDestinationReader(t)
-				dr[chain] = mockDR
-			}
-
-			vr := mocks.NewMockVerifierResultReader(t)
-			executor := setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
-
-			err := executor.Validate()
-			if tc.expectError {
+			err := ex.Validate()
+			if tc.wantErrContains != "" {
 				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErrContains)
 			} else {
 				assert.NoError(t, err)
 			}
