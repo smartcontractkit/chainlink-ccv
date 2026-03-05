@@ -117,7 +117,7 @@ func TestSRS_FetchesAndQueuesMessages(t *testing.T) {
 	chainStatusMgr.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -161,7 +161,7 @@ func TestSRS_DeduplicatesByMessageID(t *testing.T) {
 		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{}, nil).Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -181,7 +181,7 @@ func TestSRS_Reorg_DropsMissingPendingAndSent(t *testing.T) {
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -221,7 +221,7 @@ func TestSRS_Curse_DropsAtSendTime(t *testing.T) {
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(true).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(true, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -260,7 +260,7 @@ func TestSRS_Readiness_DefaultFinality_PublishesToQueue(t *testing.T) {
 	chainStatusMgr.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -305,7 +305,7 @@ func TestSRS_Readiness_CustomFinality_PublishesToQueue(t *testing.T) {
 		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{}, nil).Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -340,7 +340,7 @@ func TestSRS_Readiness_NotReadyTask_NotPublished(t *testing.T) {
 
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -460,7 +460,7 @@ func TestSRS_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 		}).Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -495,7 +495,7 @@ func TestSRS_Reorg_TracksSequenceNumbers(t *testing.T) {
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -558,7 +558,7 @@ func TestSRS_Reorg_TracksSentTasksSequenceNumbers(t *testing.T) {
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -591,7 +591,7 @@ func TestSRS_ReorgedMessage_CustomFinality_WaitsForFinalization(t *testing.T) {
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -631,7 +631,7 @@ func TestSRS_NonReorgedMessage_UsesCustomFinality(t *testing.T) {
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -666,7 +666,7 @@ func TestSRS_ReorgedMessage_DifferentDest_UsesCustomFinality(t *testing.T) {
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -701,7 +701,7 @@ func TestSRS_ReorgTracker_RemovedAfterFinalization(t *testing.T) {
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -781,7 +781,7 @@ func TestSRS_MultiCycle_SmallRangeCompletesInOneTick(t *testing.T) {
 		Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -874,7 +874,7 @@ func TestSRS_LargeRangeChunkedInSingleCycle(t *testing.T) {
 		Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -937,7 +937,7 @@ func TestSRS_CustomMaxBlockRangeChunksCorrectly(t *testing.T) {
 		Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -984,7 +984,7 @@ func TestSRS_OneBlockChunkAdvancesProgress(t *testing.T) {
 		Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -1042,7 +1042,7 @@ func TestSRS_FailureRetriesNextTick(t *testing.T) {
 		Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -1096,7 +1096,7 @@ func TestSRS_NoNewBlocksStaysAtSameProgress(t *testing.T) {
 		Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -1149,7 +1149,7 @@ func TestSRS_FailureDoesNotDeleteExistingTasks(t *testing.T) {
 		Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -1222,7 +1222,7 @@ func TestSRS_FromBlockAheadOfLatestResetsToFinalized(t *testing.T) {
 		Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -1278,7 +1278,7 @@ func TestSRS_FinalizedBehindLastProcessed_QueriesAndUpdatesToFinalized(t *testin
 		Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -1340,7 +1340,7 @@ func TestSRS_EventMonitoringLoop_ContinuesAfterPanic(t *testing.T) {
 
 	curseDetector.EXPECT().
 		IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).
-		Return(false).
+		Return(false, nil).
 		Maybe()
 
 	// Create SRS with fast poll interval for testing
@@ -1423,7 +1423,7 @@ func TestSRS_EventMonitoringLoop_PanicInProcessEventCycle(t *testing.T) {
 
 	curseDetector.EXPECT().
 		IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).
-		Return(false).
+		Return(false, nil).
 		Maybe()
 
 	// Create SRS with fast poll interval for testing
