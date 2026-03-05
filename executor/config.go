@@ -89,10 +89,8 @@ func (c *Configuration) Validate() error {
 	if len(c.IndexerAddress) < 1 {
 		return fmt.Errorf("at least one indexer address must be configured")
 	}
-	for _, addr := range c.IndexerAddress {
-		if addr == "" {
-			return fmt.Errorf("indexer address must not be empty")
-		}
+	if slices.Contains(c.IndexerAddress, "") {
+		return fmt.Errorf("indexer address must not be empty")
 	}
 
 	if c.WorkerCount < 0 {
