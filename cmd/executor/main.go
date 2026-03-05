@@ -261,6 +261,11 @@ func main() {
 	// Initialize Message Handler
 	// ------------------------------------------------------------------------------------------------
 	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, curseChecker, verifierResultReader, executorMonitoring, defaultExecutorAddresses)
+	if err := ex.Validate(); err != nil {
+		lggr.Errorw("Failed to validate chainlink executor", "error", err)
+		os.Exit(1)
+		return
+	}
 
 	//
 	// Initialize leader elector
