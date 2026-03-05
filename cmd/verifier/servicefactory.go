@@ -58,14 +58,13 @@ func chainSelectorsFromMap[T any](m map[string]*T) []protocol.ChainSelector {
 // This is by design, since deployed CCIP apps will be built with a single chain family, but potentially
 // supporting many chains from that same family.
 type factory[T any] struct {
-	lggr              logger.Logger
-	server            *http.Server
-	coordinator       *verifier.Coordinator
-	profiler          *pyroscope.Profiler
-	aggregatorWriter  *storageaccess.AggregatorWriter
-	heartbeatClient   *heartbeatclient.HeartbeatClient
-	chainStatusDB     sqlutil.DataSource
-	coordinatorCancel context.CancelFunc
+	lggr             logger.Logger
+	server           *http.Server
+	coordinator      *verifier.Coordinator
+	profiler         *pyroscope.Profiler
+	aggregatorWriter *storageaccess.AggregatorWriter
+	heartbeatClient  *heartbeatclient.HeartbeatClient
+	chainStatusDB    sqlutil.DataSource
 
 	createAccessorFactoryFunc CreateAccessorFactoryFunc[T]
 	chainFamily               string
@@ -298,13 +297,7 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 		verifierMonitoring,
 	)
 
-	// Create verification coordinator
-	// TODO: we shouldn't have to create a long-lived context here, the context below
-	// is being used in downstream components and ends up getting canceled due to only
-	// being for startup rather than long-lived.
-	coordinatorCtx, coordinatorCancel := context.WithCancel(context.Background())
 	coordinator, err := verifier.NewCoordinator(
-		coordinatorCtx,
 		lggr,
 		commitVerifier,
 		sourceReaders,
@@ -317,11 +310,9 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 		chainStatusDB,
 	)
 	if err != nil {
-		coordinatorCancel()
 		lggr.Errorw("Failed to create verification coordinator", "error", err)
 		return fmt.Errorf("failed to create verification coordinator: %w", err)
 	}
-	f.coordinatorCancel = coordinatorCancel
 
 	// Start the verification coordinator
 	lggr.Infow("Starting Verification Coordinator",
@@ -422,15 +413,8 @@ func (f *factory[T]) Stop(ctx context.Context) error {
 		}
 	}
 
-	// Cancel the coordinator context
-	if f.coordinatorCancel != nil {
-		f.coordinatorCancel()
-	}
-
-	// Reset the state
 	f.server = nil
 	f.coordinator = nil
-	f.coordinatorCancel = nil
 	f.profiler = nil
 	f.aggregatorWriter = nil
 	f.heartbeatClient = nil
