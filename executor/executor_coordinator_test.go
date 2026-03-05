@@ -447,7 +447,6 @@ func TestDuplicateMessageIDFromStreamWhileInFlight_IsSkippedAndHandleMessageCall
 	defer cancel()
 
 	require.NoError(t, ec.Start(ctx))
-	defer func() { _ = ec.Close() }()
 
 	results <- testMessage
 	time.Sleep(1500 * time.Millisecond)
@@ -458,6 +457,7 @@ func TestDuplicateMessageIDFromStreamWhileInFlight_IsSkippedAndHandleMessageCall
 	close(unblockHandle)
 	time.Sleep(500 * time.Millisecond)
 
+	require.NoError(t, ec.Close())
 	require.True(t, mock.AssertExpectationsForObjects(t, mockExecutor))
 	found := func(s string) bool {
 		for _, entry := range hook.All() {
@@ -561,9 +561,9 @@ func TestDuplicateMessageIDFromStreamWhenAlreadyInHeap_IsSkippedByHeapAndHandleM
 	defer cancel()
 
 	require.NoError(t, ec.Start(ctx))
-	defer func() { _ = ec.Close() }()
 
 	time.Sleep(2 * time.Second)
+	require.NoError(t, ec.Close())
 	require.True(t, mock.AssertExpectationsForObjects(t, mockExecutor))
 }
 
