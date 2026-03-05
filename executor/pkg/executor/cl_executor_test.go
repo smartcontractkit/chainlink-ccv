@@ -148,7 +148,7 @@ func Test_ChainlinkExecutor_HandleMessage_CurseCheck(t *testing.T) {
 			msg := generateFakeMessage(1, 2, 1, nil, address2)
 
 			curseChecker := mocks.NewMockCurseChecker(t)
-			curseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(tc.isCursed).Once()
+			curseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(tc.isCursed, nil).Once()
 			executor := setupTestExecutor(t, ct, dr, vr, address1, address2)
 			executor.curseChecker = curseChecker
 
