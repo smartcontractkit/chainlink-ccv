@@ -62,6 +62,12 @@ func SetupMonitoring(lggr logger.Logger, config verifier.MonitoringConfig) verif
 		MetricViews: monitoring.MetricViews(),
 	}
 
+	// If monitoring is not enabled, return a fake monitoring implementation that does nothing.
+	if !config.Enabled {
+		verifierMonitoring := monitoring.NewFakeVerifierMonitoring()
+		return verifierMonitoring
+	}
+
 	// Create the beholder client
 	beholderClient, err := beholder.NewClient(beholderConfig)
 	if err != nil {
