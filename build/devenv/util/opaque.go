@@ -34,7 +34,7 @@ func OpaqueToConcreteStrict[T any](opaque OpaqueConfig) (*T, error) {
 }
 
 // ConcreteToOpaque converts a concrete configuration to an OpaqueConfig suitable
-// for marshalling to TOML.
+// for marshaling to TOML.
 func ConcreteToOpaque[T any](concrete T) (OpaqueConfig, error) {
 	// marshal the concrete config to TOML bytes first.
 	var buf bytes.Buffer
