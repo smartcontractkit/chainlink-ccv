@@ -19,8 +19,8 @@ import (
 )
 
 var (
-	_                           protocol.HealthReporter = (*RateLimitingMiddleware)(nil)
-	globalAnonymousKey                                  = "__GLOBAL_ANONYMOUS_KEY__"
+	_                  protocol.HealthReporter = (*RateLimitingMiddleware)(nil)
+	globalAnonymousKey                         = "__GLOBAL_ANONYMOUS_KEY__"
 	// We are not using ResourceExhausted as this is a shared limit between all anonymous callers.
 	ErrGlobalAnonymousLimitReached = status.Error(codes.Unavailable, "service temporarily unavailable")
 )
