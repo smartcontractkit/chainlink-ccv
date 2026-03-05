@@ -54,16 +54,16 @@ key_prefix = "ratelimit"
 "/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/BatchWriteCommitteeVerifierNodeResult" = { limit_per_second = 3 }
 "/chainlink_ccv.heartbeat.v1.HeartbeatService/SendHeartbeat" = { limit_per_second = 100 }
 
-# Higher rate limit group for service tests-1
+# Higher rate limit group for service tests-1 (honest verifiers should never be rate-limited in tests)
 [rateLimiting.groupLimits.service-tests-1]
-"/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/WriteCommitteeVerifierNodeResult" = { limit_per_second = 3 }
-"/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/BatchWriteCommitteeVerifierNodeResult" = { limit_per_second = 3 }
+"/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/WriteCommitteeVerifierNodeResult" = { limit_per_second = 100 }
+"/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/BatchWriteCommitteeVerifierNodeResult" = { limit_per_second = 100 }
 "/chainlink_ccv.heartbeat.v1.HeartbeatService/SendHeartbeat" = { limit_per_second = 100 }
 
-# Low rate limit group for service tests-2
+# Low rate limit group for service tests-2 (malicious-verifier; 100 concurrent requests trigger rate-limiting, ~16 sequential subtests still fit in one window)
 [rateLimiting.groupLimits.service-tests-2]
-"/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/WriteCommitteeVerifierNodeResult" = { limit_per_second = 1 }
-"/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/BatchWriteCommitteeVerifierNodeResult" = { limit_per_second = 1 }
+"/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/WriteCommitteeVerifierNodeResult" = { limit_per_second = 20 }
+"/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/BatchWriteCommitteeVerifierNodeResult" = { limit_per_second = 20 }
 
 [rateLimiting.groupLimits.monitoring]
 "/chainlink_ccv.message_discovery.v1.MessageDiscovery/GetMessagesSince" = { limit_per_second = 4 }
