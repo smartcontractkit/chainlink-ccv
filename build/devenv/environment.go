@@ -26,7 +26,6 @@ import (
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/chainconfig"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
@@ -121,6 +120,9 @@ type Cfg struct {
 	JDInfra *jobs.JDInfrastructure `toml:"-"`
 	// ClientLookup provides ChainlinkClient lookup by NOP alias (populated at runtime).
 	ClientLookup *jobs.NodeSetClientLookup `toml:"-"`
+
+	// GenericServices is a map of chain selector to its generic service definition.
+	GenericServices map[uint64]*GenericServiceDefinition `toml:"generic_services" validate:"required"`
 }
 
 // expandForHA clones AggregatorInput / IndexerInput entries based on their
@@ -431,7 +433,7 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Co
 		// TODO: move evm to the impl factory registry.
 		return evm.NewEmptyCCIP17EVM(), nil
 	default:
-		fac, err := registry.GetImplFactory(typ)
+		fac, err := GetImplFactory(typ)
 		if err != nil {
 			return nil, fmt.Errorf("could not find impl factory for chain family %s: %w", typ, err)
 		}
@@ -1063,6 +1065,18 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	/////////////////////////////////////////
 	// END: Connect chains to each other //
+	/////////////////////////////////////////
+
+	/////////////////////////////////////////
+	// START: Launch generic services //
+	/////////////////////////////////////////
+
+	if err := launchGenericServices(ctx, in, e, blockchainOutputs); err != nil {
+		return nil, fmt.Errorf("failed to launch generic services: %w", err)
+	}
+
+	/////////////////////////////////////////
+	// END: Launch generic services //
 	/////////////////////////////////////////
 
 	///////////////////////////////
