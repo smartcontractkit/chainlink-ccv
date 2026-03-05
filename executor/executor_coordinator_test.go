@@ -31,7 +31,7 @@ func TestConstructor(t *testing.T) {
 		sub          executor.MessageSubscriber
 		le           executor.LeaderElector
 		mon          executor.Monitoring
-		timeProvider interface{}
+		timeProvider any
 		workerCount  int
 	}
 
