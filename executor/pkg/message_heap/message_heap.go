@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 // ExpiryWithMessage is the struct used to maintain data of a message, not used directly for priority queue.
@@ -77,23 +78,29 @@ type MessageHeap struct {
 	heap    ReadyTimestampHeap
 	dataMap map[protocol.Bytes32]ExpiryWithMessage
 	mu      *sync.RWMutex
+	lggr    logger.Logger
 }
 
-func NewMessageHeap() *MessageHeap {
+func NewMessageHeap(lggr logger.Logger) *MessageHeap {
 	h := &ReadyTimestampHeap{}
 	heap.Init(h)
 	msgHeap := MessageHeap{
 		heap:    *h,
 		dataMap: make(map[protocol.Bytes32]ExpiryWithMessage),
 		mu:      &sync.RWMutex{},
+		lggr:    lggr,
 	}
 
 	return &msgHeap
 }
 
-func (mh *MessageHeap) Push(msg MessageWithTimestamps) {
+func (mh *MessageHeap) Push(msg MessageWithTimestamps) bool {
 	mh.mu.Lock()
 	defer mh.mu.Unlock()
+
+	if _, exists := mh.dataMap[msg.MessageID]; exists {
+		return false
+	}
 
 	heap.Push(&mh.heap, MessageHeapEntry{
 		ReadyTime: msg.ReadyTime,
@@ -105,6 +112,7 @@ func (mh *MessageHeap) Push(msg MessageWithTimestamps) {
 		ExpiryTime:    msg.ExpiryTime,
 		RetryInterval: msg.RetryInterval,
 	}
+	return true
 }
 
 func (mh *MessageHeap) PopAllReady(timestamp time.Time) []MessageWithTimestamps {
@@ -114,23 +122,28 @@ func (mh *MessageHeap) PopAllReady(timestamp time.Time) []MessageWithTimestamps 
 	var readyMessages []MessageWithTimestamps
 
 	for mh.heap.Len() > 0 {
-		msg, err := mh.heap.peek()
-		if err != nil || msg.ReadyTime.After(timestamp) {
+		peeked, err := mh.heap.peek()
+		if err != nil || peeked.ReadyTime.After(timestamp) {
 			break
 		}
 
-		msg, ok := heap.Pop(&mh.heap).(MessageHeapEntry)
+		entry, ok := heap.Pop(&mh.heap).(MessageHeapEntry)
 		if !ok {
 			continue
 		}
+		data, exists := mh.dataMap[entry.MessageID]
+		if !exists {
+			mh.lggr.Errorw("orphaned heap entry: messageID present in heap but missing from dataMap", "messageID", entry.MessageID)
+			continue
+		}
 		readyMessages = append(readyMessages, MessageWithTimestamps{
-			MessageID:     msg.MessageID,
-			RetryInterval: mh.dataMap[msg.MessageID].RetryInterval,
-			ReadyTime:     msg.ReadyTime,
-			Message:       mh.dataMap[msg.MessageID].Message,
-			ExpiryTime:    mh.dataMap[msg.MessageID].ExpiryTime,
+			MessageID:     entry.MessageID,
+			RetryInterval: data.RetryInterval,
+			ReadyTime:     entry.ReadyTime,
+			Message:       data.Message,
+			ExpiryTime:    data.ExpiryTime,
 		})
-		delete(mh.dataMap, msg.MessageID)
+		delete(mh.dataMap, entry.MessageID)
 	}
 	return readyMessages
 }
