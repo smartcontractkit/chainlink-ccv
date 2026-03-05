@@ -21,8 +21,8 @@ import (
 var (
 	_                  protocol.HealthReporter = (*RateLimitingMiddleware)(nil)
 	globalAnonymousKey                         = "__GLOBAL_ANONYMOUS_KEY__"
-	// We are not using ResourceExhausted as this is a shared limit between all anonynous caller.
-	ErrGlobalAnonynousLimitReached = status.Error(codes.Unavailable, "service temporarily unavailable")
+	// We are not using ResourceExhausted as this is a shared limit between all anonymous callers.
+	ErrGlobalAnonymousLimitReached = status.Error(codes.Unavailable, "service temporarily unavailable")
 )
 
 type RateLimitingMiddleware struct {
@@ -69,8 +69,8 @@ func (m *RateLimitingMiddleware) handleGlobalLimitAnonymous(ctx context.Context,
 	if limitConfig, ok := m.config.GlobalAnonymousLimits[fullMethod]; ok {
 		globalKey := m.buildKey(globalAnonymousKey, fullMethod)
 		rate := limiter.Rate{
-			Period: time.Minute,
-			Limit:  int64(limitConfig.LimitPerMinute),
+			Period: time.Second,
+			Limit:  int64(limitConfig.LimitPerSecond),
 		}
 		limiterCtx, err := limiter.New(m.store, rate).Get(ctx, globalKey)
 		if err != nil {
@@ -78,15 +78,16 @@ func (m *RateLimitingMiddleware) handleGlobalLimitAnonymous(ctx context.Context,
 				"error", err,
 				"callerID", globalAnonymousKey,
 				"method", fullMethod)
+			return nil
 		}
 
 		if limiterCtx.Reached {
-			return ErrGlobalAnonynousLimitReached
+			return ErrGlobalAnonymousLimitReached
 		}
 
 		return nil
 	}
-	return ErrGlobalAnonynousLimitReached
+	return ErrGlobalAnonymousLimitReached
 }
 
 // Intercept implements the gRPC unary server interceptor for rate limiting.
@@ -108,12 +109,12 @@ func (m *RateLimitingMiddleware) Intercept(ctx context.Context, req any, info *g
 
 	limitConfig, hasLimit := m.getLimitConfig(identity.CallerID, info.FullMethod)
 	if !hasLimit {
-		limitConfig = model.RateLimitConfig{LimitPerMinute: 0}
+		limitConfig = model.RateLimitConfig{LimitPerSecond: 0}
 	}
 
 	rate := limiter.Rate{
-		Period: time.Minute,
-		Limit:  int64(limitConfig.LimitPerMinute),
+		Period: time.Second,
+		Limit:  int64(limitConfig.LimitPerSecond),
 	}
 
 	key := m.buildKey(identity.CallerID, info.FullMethod)
@@ -140,7 +141,7 @@ func (m *RateLimitingMiddleware) Intercept(ctx context.Context, req any, info *g
 		m.lggr.Warnf("Rate limit exceeded for caller %s on method %s", identity.CallerID, info.FullMethod)
 		return nil, status.Errorf(
 			codes.ResourceExhausted,
-			"rate limit exceeded: %d requests per minute (resets at %v) for caller: %s, method: %s",
+			"rate limit exceeded: %d requests per second (resets at %v) for caller: %s, method: %s",
 			limiterCtx.Limit,
 			time.Unix(limiterCtx.Reset, 0).Format(time.RFC3339),
 			identity.CallerID,
@@ -182,7 +183,7 @@ func (m *RateLimitingMiddleware) Ready() error {
 	defer cancel()
 
 	rate := limiter.Rate{
-		Period: time.Minute,
+		Period: time.Second,
 		Limit:  1,
 	}
 
