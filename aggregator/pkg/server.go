@@ -372,7 +372,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	aggMonitoring.Metrics().IncrementPendingAggregationsChannelBuffer(context.Background(), config.Aggregation.ChannelBufferSize) // Pre-increment the buffer size metric
 	grpcPanicRecoveryHandler := func(p any) (err error) {
 		l.Error("recovered from panic", "panic", p, "stack", debug.Stack())
-		return status.Errorf(codes.Internal, "%s", p)
+		return status.Error(codes.Internal, "internal server error")
 	}
 
 	grpcOpts := buildGRPCServerOptions(config.Server)
