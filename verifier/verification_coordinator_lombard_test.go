@@ -274,7 +274,6 @@ func createLombardCoordinator(
 	)
 
 	return verifier.NewCoordinator(
-		ts.ctx,
 		ts.logger,
 		lombardVerifier,
 		sourceReaders,

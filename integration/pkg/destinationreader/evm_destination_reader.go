@@ -9,7 +9,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/hashicorp/golang-lru/v2/expirable"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/rmn_remote"
@@ -32,12 +31,6 @@ var (
 	EvmDestinationReaderServiceName = "evm.destinationreader.Service"
 )
 
-type verifierQuorumCacheKey struct {
-	sourceChainSelector  protocol.ChainSelector
-	receiverAddress      string
-	tokenTransferAddress common.Address
-}
-
 type EvmDestinationReader struct {
 	services.StateMachine
 	cancelFunc             context.CancelFunc
@@ -46,7 +39,6 @@ type EvmDestinationReader struct {
 	lggr                   logger.Logger
 	client                 bind.ContractCaller
 	chainSelector          protocol.ChainSelector
-	ccvCache               *expirable.LRU[verifierQuorumCacheKey, protocol.CCVAddressInfo]
 	executionAttemptPoller *EvmExecutionAttemptPoller
 	monitoring             executor.Monitoring
 }
@@ -101,9 +93,6 @@ func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
 		return nil, fmt.Errorf("failed to create rmn remote caller for chain %d: %w", params.ChainSelector, err)
 	}
 
-	// Create cache with max 1000 entries and configurable expiry for verifier quorum info.
-	ccvCache := expirable.NewLRU[verifierQuorumCacheKey, protocol.CCVAddressInfo](VerifierQuorumCacheMaxEntries, nil, params.CacheExpiry)
-
 	// Create execution attempt poller to track execution attempts
 	executionAttemptPoller, err := NewEVMExecutionAttemptPoller(
 		offRampAddr,
@@ -121,7 +110,6 @@ func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
 		lggr:                   params.Lggr,
 		chainSelector:          params.ChainSelector,
 		client:                 params.ChainClient,
-		ccvCache:               ccvCache,
 		executionAttemptPoller: executionAttemptPoller,
 		monitoring:             params.Monitoring,
 	}, nil
@@ -169,21 +157,6 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 		tokenTransferAddress = common.BytesToAddress(message.TokenTransfer.DestTokenAddress)
 	}
 
-	// Try to get CCV info from cache first
-	ccvInfo, found := dr.ccvCache.Peek(
-		verifierQuorumCacheKey{
-			sourceChainSelector:  sourceSelector,
-			receiverAddress:      receiverAddress.String(),
-			tokenTransferAddress: tokenTransferAddress,
-		})
-	if found {
-		dr.lggr.Debugf("CCV info retrieved from cache for receiver %s and dest token %s on source chain %d",
-			receiverAddress.String(), tokenTransferAddress.String(), sourceSelector)
-		dr.monitoring.Metrics().IncrementCCVInfoCacheHits(ctx, dr.chainSelector)
-		return ccvInfo, nil
-	}
-	dr.monitoring.Metrics().IncrementCCVInfoCacheMisses(ctx, dr.chainSelector)
-
 	encodedMsg, err := message.Encode()
 	if err != nil {
 		return protocol.CCVAddressInfo{}, fmt.Errorf("failed to encode message: %w", err)
@@ -210,7 +183,7 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 		optionalCCVs = append(optionalCCVs, protocol.UnknownAddress(addr.Bytes()))
 	}
 
-	ccvInfo = protocol.CCVAddressInfo{
+	ccvInfo := protocol.CCVAddressInfo{
 		RequiredCCVs:      requiredCCVs,
 		OptionalCCVs:      optionalCCVs,
 		OptionalThreshold: optThreshold,
@@ -223,18 +196,6 @@ func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message p
 		"chain", dr.chainSelector,
 		"ccvInfo", ccvInfo,
 	)
-
-	// Store in expirable cache for future use
-	dr.ccvCache.Add(
-		verifierQuorumCacheKey{
-			sourceChainSelector:  sourceSelector,
-			receiverAddress:      receiverAddress.String(),
-			tokenTransferAddress: tokenTransferAddress,
-		},
-		ccvInfo,
-	)
-	dr.lggr.Debugf("CCV info cached for receiver %s on source chain %d with token transfer address %s: %+v",
-		receiverAddress.String(), sourceSelector, tokenTransferAddress.String(), ccvInfo)
 
 	return ccvInfo, nil
 }

@@ -232,7 +232,6 @@ func createCCTPCoordinator(
 	}
 
 	coordinator, err := verifier.NewCoordinator(
-		ctx,
 		lggr,
 		cctp.NewVerifier(lggr, attestationService),
 		sourceReaders,
@@ -287,7 +286,6 @@ func createLombardCoordinator(
 	}
 
 	coordinator, err := verifier.NewCoordinator(
-		ctx,
 		lggr,
 		lombardVerifier,
 		sourceReaders,

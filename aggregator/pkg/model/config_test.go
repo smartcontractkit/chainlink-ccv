@@ -828,7 +828,7 @@ func TestGetEffectiveLimit(t *testing.T) {
 			name: "returns caller-specific limit when exists",
 			config: RateLimitingConfig{
 				Limits: map[string]map[string]RateLimitConfig{
-					"caller1": {"method1": {LimitPerMinute: 100}},
+					"caller1": {"method1": {LimitPerSecond: 100}},
 				},
 			},
 			callerID:      "caller1",
@@ -839,7 +839,7 @@ func TestGetEffectiveLimit(t *testing.T) {
 			name: "returns group limit when no caller limit",
 			config: RateLimitingConfig{
 				GroupLimits: map[string]map[string]RateLimitConfig{
-					"group1": {"method1": {LimitPerMinute: 50}},
+					"group1": {"method1": {LimitPerSecond: 50}},
 				},
 			},
 			callerID:      "caller1",
@@ -851,8 +851,8 @@ func TestGetEffectiveLimit(t *testing.T) {
 			name: "returns most restrictive group limit",
 			config: RateLimitingConfig{
 				GroupLimits: map[string]map[string]RateLimitConfig{
-					"group1": {"method1": {LimitPerMinute: 100}},
-					"group2": {"method1": {LimitPerMinute: 50}},
+					"group1": {"method1": {LimitPerSecond: 100}},
+					"group2": {"method1": {LimitPerSecond: 50}},
 				},
 			},
 			callerID:      "caller1",
@@ -864,7 +864,7 @@ func TestGetEffectiveLimit(t *testing.T) {
 			name: "returns default limit when no caller or group limit",
 			config: RateLimitingConfig{
 				DefaultLimits: map[string]RateLimitConfig{
-					"method1": {LimitPerMinute: 25},
+					"method1": {LimitPerSecond: 25},
 				},
 			},
 			callerID:      "caller1",
@@ -882,10 +882,10 @@ func TestGetEffectiveLimit(t *testing.T) {
 			name: "caller limit takes priority over group limit",
 			config: RateLimitingConfig{
 				Limits: map[string]map[string]RateLimitConfig{
-					"caller1": {"method1": {LimitPerMinute: 200}},
+					"caller1": {"method1": {LimitPerSecond: 200}},
 				},
 				GroupLimits: map[string]map[string]RateLimitConfig{
-					"group1": {"method1": {LimitPerMinute: 50}},
+					"group1": {"method1": {LimitPerSecond: 50}},
 				},
 			},
 			callerID:      "caller1",
@@ -908,7 +908,7 @@ func TestGetEffectiveLimit(t *testing.T) {
 				assert.Nil(t, result)
 			} else {
 				require.NotNil(t, result)
-				assert.Equal(t, *tt.expectedLimit, result.LimitPerMinute)
+				assert.Equal(t, *tt.expectedLimit, result.LimitPerSecond)
 			}
 		})
 	}
@@ -1385,21 +1385,21 @@ func TestRateLimitingConfig_Validate(t *testing.T) {
 				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeMemory},
 				Limits: map[string]map[string]RateLimitConfig{
 					"client1": {
-						"method1": {LimitPerMinute: 100},
-						"method2": {LimitPerMinute: 200},
+						"method1": {LimitPerSecond: 100},
+						"method2": {LimitPerSecond: 200},
 					},
 				},
 			},
 			expectError: false,
 		},
 		{
-			name: "rate limiting config with 0 limit per minute is valid",
+			name: "rate limiting config with 0 limit per second is valid",
 			config: RateLimitingConfig{
 				Enabled: true,
 				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeMemory},
 				Limits: map[string]map[string]RateLimitConfig{
 					"client1": {
-						"method1": {LimitPerMinute: 0},
+						"method1": {LimitPerSecond: 0},
 					},
 				},
 			},
@@ -1412,12 +1412,12 @@ func TestRateLimitingConfig_Validate(t *testing.T) {
 				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeMemory},
 				Limits: map[string]map[string]RateLimitConfig{
 					"client1": {
-						"method1": {LimitPerMinute: -1},
+						"method1": {LimitPerSecond: -1},
 					},
 				},
 			},
 			expectError: true,
-			errorMsg:    "limit validation failed for client client1 method method1: limitPerMinute must be greater than or equal to 0",
+			errorMsg:    "limit validation failed for client client1 method method1: limitPerSecond must be greater than or equal to 0",
 		},
 		{
 			name: "rate limiting config with group limits is valid",
@@ -1426,8 +1426,8 @@ func TestRateLimitingConfig_Validate(t *testing.T) {
 				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeMemory},
 				GroupLimits: map[string]map[string]RateLimitConfig{
 					"group1": {
-						"method1": {LimitPerMinute: 100},
-						"method2": {LimitPerMinute: 200},
+						"method1": {LimitPerSecond: 100},
+						"method2": {LimitPerSecond: 200},
 					},
 				},
 			},
@@ -1440,12 +1440,12 @@ func TestRateLimitingConfig_Validate(t *testing.T) {
 				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeMemory},
 				GroupLimits: map[string]map[string]RateLimitConfig{
 					"group1": {
-						"method1": {LimitPerMinute: -1},
+						"method1": {LimitPerSecond: -1},
 					},
 				},
 			},
 			expectError: true,
-			errorMsg:    "limit validation failed for group group1 method method1: limitPerMinute must be greater than or equal to 0",
+			errorMsg:    "limit validation failed for group group1 method method1: limitPerSecond must be greater than or equal to 0",
 		},
 		{
 			name: "rate limiting config with default limits is valid",
@@ -1453,7 +1453,7 @@ func TestRateLimitingConfig_Validate(t *testing.T) {
 				Enabled: true,
 				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeMemory},
 				DefaultLimits: map[string]RateLimitConfig{
-					"method1": {LimitPerMinute: 100},
+					"method1": {LimitPerSecond: 100},
 				},
 			},
 			expectError: false,
@@ -1464,11 +1464,11 @@ func TestRateLimitingConfig_Validate(t *testing.T) {
 				Enabled: true,
 				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeMemory},
 				DefaultLimits: map[string]RateLimitConfig{
-					"method1": {LimitPerMinute: -1},
+					"method1": {LimitPerSecond: -1},
 				},
 			},
 			expectError: true,
-			errorMsg:    "limit validation failed for method method1: limitPerMinute must be greater than or equal to 0",
+			errorMsg:    "limit validation failed for method method1: limitPerSecond must be greater than or equal to 0",
 		},
 		{
 			name: "rate limiting config with global anonymous limits is valid",
@@ -1476,7 +1476,7 @@ func TestRateLimitingConfig_Validate(t *testing.T) {
 				Enabled: true,
 				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeMemory},
 				GlobalAnonymousLimits: map[string]RateLimitConfig{
-					"method1": {LimitPerMinute: 100},
+					"method1": {LimitPerSecond: 100},
 				},
 			},
 			expectError: false,
@@ -1487,11 +1487,11 @@ func TestRateLimitingConfig_Validate(t *testing.T) {
 				Enabled: true,
 				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeMemory},
 				GlobalAnonymousLimits: map[string]RateLimitConfig{
-					"method1": {LimitPerMinute: -1},
+					"method1": {LimitPerSecond: -1},
 				},
 			},
 			expectError: true,
-			errorMsg:    "limit validation failed for method method1: limitPerMinute must be greater than or equal to 0",
+			errorMsg:    "limit validation failed for method method1: limitPerSecond must be greater than or equal to 0",
 		},
 	}
 
