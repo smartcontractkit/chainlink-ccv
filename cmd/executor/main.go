@@ -177,7 +177,6 @@ func main() {
 				ChainClient:               chainClient,
 				OfframpAddress:            chainConfig.OffRampAddress,
 				RmnRemoteAddress:          chainConfig.RmnAddress,
-				CacheExpiry:               executorConfig.ReaderCacheExpiry,
 				ExecutionVisabilityWindow: executorConfig.MaxRetryDuration,
 				Monitoring:                executorMonitoring,
 			})
