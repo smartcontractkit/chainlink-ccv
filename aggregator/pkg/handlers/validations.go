@@ -45,9 +45,10 @@ func validateWriteRequest(req *committeepb.WriteCommitteeVerifierNodeResultReque
 		return fmt.Errorf("failed to map proto message: %w", err)
 	}
 
-	if message.SourceChainSelector == message.DestChainSelector {
-		return fmt.Errorf("source_chain_selector and dest_chain_selector cannot be equal")
-	}
+	// We should consider allowing same source and destination chain selectors for testing purposes
+	//if message.SourceChainSelector == message.DestChainSelector {
+	//	return fmt.Errorf("source_chain_selector and dest_chain_selector cannot be equal")
+	//}
 
 	_, err = message.MessageID()
 	if err != nil {
