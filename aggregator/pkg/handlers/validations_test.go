@@ -71,34 +71,33 @@ func TestValidateWriteRequest_Errors(t *testing.T) {
 		require.Contains(t, err.Error(), "ccv_addresses cannot be empty")
 	})
 
-	// We should consider allowing same source and destination chain selectors for testing purposes
-	//t.Run("source_equals_destination_chain_selector", func(t *testing.T) {
-	//	msg := makeTestMessage(protocol.ChainSelector(1), protocol.ChainSelector(1), protocol.SequenceNumber(1), []byte{})
-	//	pbMsg, err := ccvcommon.MapProtocolMessageToProtoMessage(msg)
-	//	require.NoError(t, err)
-	//
-	//	executorAddr := makeTestExecutorAddress()
-	//	ccvAddresses := [][]byte{make([]byte, 20)} // 20 bytes for EVM address
-	//	hash, err := protocol.ComputeCCVAndExecutorHash(
-	//		[]protocol.UnknownAddress{ccvAddresses[0]},
-	//		executorAddr,
-	//	)
-	//	require.NoError(t, err)
-	//	pbMsg.CcvAndExecutorHash = hash[:]
-	//
-	//	req := &committeepb.WriteCommitteeVerifierNodeResultRequest{
-	//		CommitteeVerifierNodeResult: &committeepb.CommitteeVerifierNodeResult{
-	//			Signature:       []byte{0x1},
-	//			CcvVersion:      []byte{0x1, 0x2, 0x3, 0x4},
-	//			Message:         pbMsg,
-	//			CcvAddresses:    ccvAddresses,
-	//			ExecutorAddress: executorAddr,
-	//		},
-	//	}
-	//	err = validateWriteRequest(req)
-	//	require.Error(t, err)
-	//	require.Contains(t, err.Error(), "source_chain_selector and dest_chain_selector cannot be equal")
-	//})
+	t.Run("source_equals_destination_chain_selector", func(t *testing.T) {
+		msg := makeTestMessage(protocol.ChainSelector(1), protocol.ChainSelector(1), protocol.SequenceNumber(1), []byte{})
+		pbMsg, err := ccvcommon.MapProtocolMessageToProtoMessage(msg)
+		require.NoError(t, err)
+
+		executorAddr := makeTestExecutorAddress()
+		ccvAddresses := [][]byte{make([]byte, 20)} // 20 bytes for EVM address
+		hash, err := protocol.ComputeCCVAndExecutorHash(
+			[]protocol.UnknownAddress{ccvAddresses[0]},
+			executorAddr,
+		)
+		require.NoError(t, err)
+		pbMsg.CcvAndExecutorHash = hash[:]
+
+		req := &committeepb.WriteCommitteeVerifierNodeResultRequest{
+			CommitteeVerifierNodeResult: &committeepb.CommitteeVerifierNodeResult{
+				Signature:       []byte{0x1},
+				CcvVersion:      []byte{0x1, 0x2, 0x3, 0x4},
+				Message:         pbMsg,
+				CcvAddresses:    ccvAddresses,
+				ExecutorAddress: executorAddr,
+			},
+		}
+		err = validateWriteRequest(req)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "source_chain_selector and dest_chain_selector cannot be equal")
+	})
 }
 
 func TestValidateAddressBounds(t *testing.T) {
