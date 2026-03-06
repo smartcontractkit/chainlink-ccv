@@ -114,7 +114,7 @@ func (s *Server) Start(lis net.Listener) error {
 	g := &run.Group{}
 
 	g.Add(func() error {
-		s.l.Info("gRPC server started")
+		s.l.Infof("gRPC server started %s", s.config.Server.Address)
 		err := s.grpcServer.Serve(lis)
 		if err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 			s.l.Errorw("gRPC server stopped with error", "error", err)
