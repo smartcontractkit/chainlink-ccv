@@ -25,9 +25,6 @@ var (
 	// Ensure EvmDestinationReader implements the DestinationReader interface.
 	_ = chainaccess.DestinationReader(&EvmDestinationReader{})
 
-	// This 1000 number is arbitrary, it can be adjusted as needed depending on usage pattern.
-	VerifierQuorumCacheMaxEntries = 1000
-
 	EvmDestinationReaderServiceName = "evm.destinationreader.Service"
 )
 
@@ -56,7 +53,6 @@ type Params struct {
 	ChainClient               client.Client
 	OfframpAddress            string
 	RmnRemoteAddress          string
-	CacheExpiry               time.Duration
 	ExecutionVisabilityWindow time.Duration
 	Monitoring                executor.Monitoring
 }
@@ -72,7 +68,6 @@ func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
 	appendIfNil(params.ChainSelector, "chainSelector")
 	appendIfNil(params.OfframpAddress, "offrampAddress")
 	appendIfNil(params.RmnRemoteAddress, "rmnRemoteAddress")
-	appendIfNil(params.CacheExpiry, "cacheExpiry")
 	appendIfNil(params.ChainClient, "chainClient")
 	appendIfNil(params.Lggr, "logger")
 	appendIfNil(params.ExecutionVisabilityWindow, "executionVisabilityWindow")
