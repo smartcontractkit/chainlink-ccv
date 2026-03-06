@@ -62,7 +62,10 @@ func ScanOnChainTopology(
 	)
 
 	if len(refs) == 0 {
-		return nil, fmt.Errorf("no CommitteeVerifier contracts found in datastore")
+		env.Logger.Warnw("no CommitteeVerifier contracts found in datastore, returning empty topology")
+		return &OnChainTopology{
+			Committees: make(map[string][]*OnChainCommitteeState),
+		}, nil
 	}
 
 	var mu sync.Mutex

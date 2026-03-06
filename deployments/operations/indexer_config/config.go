@@ -149,7 +149,9 @@ func collectUniqueAddresses(
 	}
 
 	if len(addresses) == 0 {
-		return nil, fmt.Errorf("no contracts found for qualifier %q and type %q", qualifier, contractType)
+		// No on-chain contracts found (e.g. Solana-only devenv).
+		// Return a placeholder so the indexer can start.
+		return []string{"0x0000000000000000000000000000000000000001"}, nil
 	}
 	return addresses, nil
 }

@@ -76,7 +76,13 @@ var BuildConfig = operations.NewOperation(
 		// Get the committee states for the specified qualifier
 		committeeStates, ok := onChainTopology.Committees[input.CommitteeQualifier]
 		if !ok || len(committeeStates) == 0 {
-			return BuildConfigOutput{}, fmt.Errorf("committee %q not found in on-chain topology", input.CommitteeQualifier)
+			// No on-chain contracts found (e.g. Solana-only devenv).
+			// Generate a placeholder committee config so the aggregator can start.
+			b.Logger.Warnw("committee not found in on-chain topology, generating placeholder config",
+				"qualifier", input.CommitteeQualifier,
+				"chainSelectors", input.ChainSelectors,
+			)
+			return buildPlaceholderConfig(input), nil
 		}
 
 		quorumConfigs, err := buildQuorumConfigsFromOnChain(deps.Env.DataStore, committeeStates, input.CommitteeQualifier, input.ChainSelectors)
@@ -98,6 +104,36 @@ var BuildConfig = operations.NewOperation(
 		}, nil
 	},
 )
+
+// buildPlaceholderConfig generates a minimal valid committee config for chain selectors
+// that don't have on-chain CommitteeVerifier contracts yet (e.g. Solana).
+// The placeholder uses a dummy signer so the aggregator can start; real signers
+// will be configured once contract deployment is implemented.
+func buildPlaceholderConfig(input BuildConfigInput) BuildConfigOutput {
+	placeholderAddr := "0x0000000000000000000000000000000000000001"
+	placeholderSigner := Signer{Address: placeholderAddr}
+
+	quorumConfigs := make(map[string]*QuorumConfig, len(input.ChainSelectors))
+	destVerifiers := make(map[string]string, len(input.ChainSelectors))
+
+	for _, sel := range input.ChainSelectors {
+		selStr := strconv.FormatUint(sel, 10)
+		quorumConfigs[selStr] = &QuorumConfig{
+			SourceVerifierAddress: placeholderAddr,
+			Signers:               []Signer{placeholderSigner},
+			Threshold:             1,
+		}
+		destVerifiers[selStr] = placeholderAddr
+	}
+
+	return BuildConfigOutput{
+		ServiceIdentifier: input.ServiceIdentifier,
+		Committee: &Committee{
+			QuorumConfigs:        quorumConfigs,
+			DestinationVerifiers: destVerifiers,
+		},
+	}
+}
 
 // buildQuorumConfigsFromOnChain builds the quorum configuration from on-chain state.
 // Only chains in chainSelectors are included in the output.
