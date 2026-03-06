@@ -82,8 +82,9 @@ func (p *EvmExecutionAttemptPoller) Name() string {
 }
 
 // NewEVMExecutionAttemptPoller creates a new execution attempt poller for the given offramp address.
-// The poller watches for ExecutionStateChanged events and caches execution attempts.
-// If WebSocket is not available, it will fall back to HTTP polling.
+// On startup the poller performs an initial HTTP backfill over the lookback window to populate the
+// cache with historical execution attempts, then switches to WebSocket subscription mode for
+// ongoing events. If WebSocket is unavailable, HTTP polling continues from the backfill position.
 func NewEVMExecutionAttemptPoller(
 	offRampAddress common.Address,
 	client client.Client,
@@ -117,10 +118,11 @@ func NewEVMExecutionAttemptPoller(
 }
 
 // Start starts the poller service. It implements the services.Service interface.
-// It first tries to use WebSocket subscription, and falls back to HTTP polling if WebSocket is not available.
+// It performs an initial synchronous HTTP backfill from the lookback window to the latest block,
+// then attempts to switch to WebSocket subscription mode. If WebSocket is unavailable, HTTP
+// polling continues from wherever the backfill left off.
 func (p *EvmExecutionAttemptPoller) Start(ctx context.Context) error {
 	return p.StartOnce(evmExecutionAttemptPollerServiceName, func() error {
-		// Find the starting block before starting the poller
 		if err := p.getStartBlock(ctx, p.lookbackWindow); err != nil {
 			return fmt.Errorf("failed to get start block: %w", err)
 		}
@@ -128,14 +130,36 @@ func (p *EvmExecutionAttemptPoller) Start(ctx context.Context) error {
 		runCtx, cancel := context.WithCancel(ctx)
 		p.cancelFunc = cancel
 
-		err := p.startWSMode(runCtx)
-		if err != nil {
-			// if WS unavailable, we'll poll via HTTP
+		if err := p.runBackfill(runCtx); err != nil {
+			p.lggr.Errorw("Initial HTTP backfill failed, continuing without complete history", "error", err)
+			p.lastPolledBlock = p.startBlock
+		}
+
+		if err := p.startWSMode(runCtx); err != nil {
 			p.startHTTPMode(runCtx)
 		}
 
 		return nil
 	})
+}
+
+// runBackfill performs a one-shot synchronous HTTP poll covering the full lookback window
+// (from startBlock to the current latest block). It positions lastPolledBlock just before
+// startBlock so that pollForEvents picks up all events in the window.
+func (p *EvmExecutionAttemptPoller) runBackfill(ctx context.Context) error {
+	p.lggr.Infow("Starting HTTP backfill", "startBlock", p.startBlock, "lookbackWindow", p.lookbackWindow)
+
+	if p.startBlock > 0 {
+		p.lastPolledBlock = p.startBlock - 1
+	}
+	// When startBlock == 0, lastPolledBlock stays at 0 so pollForEvents begins from block 1.
+
+	if err := p.pollForEvents(ctx); err != nil {
+		return fmt.Errorf("backfill failed: %w", err)
+	}
+
+	p.lggr.Infow("HTTP backfill complete", "lastPolledBlock", p.lastPolledBlock)
+	return nil
 }
 
 // blockRange represents a range of blocks to search.
@@ -309,19 +333,23 @@ func (p *EvmExecutionAttemptPoller) verifyAndSetStartBlock(ctx context.Context, 
 }
 
 func (p *EvmExecutionAttemptPoller) startHTTPMode(ctx context.Context) {
-	p.lggr.Infow("WebSocket subscription not available, falling back to HTTP polling", "startBlock", p.startBlock)
-	p.lastPolledBlock = p.startBlock
+	// lastPolledBlock is already positioned correctly by runBackfill (or its fallback),
+	// so HTTP polling continues from where history coverage ended.
+	p.lggr.Infow("WebSocket subscription not available, continuing with HTTP polling", "lastPolledBlock", p.lastPolledBlock)
 
 	p.runWg.Go(func() {
 		p.runPolling(ctx)
 	})
 
-	p.lggr.Infow("Execution attempt poller started in polling mode")
+	p.lggr.Infow("Execution attempt poller started in HTTP polling mode")
 }
 
 func (p *EvmExecutionAttemptPoller) startWSMode(ctx context.Context) error {
+	// Use lastPolledBlock as the subscription start so the WS stream begins exactly
+	// where the backfill left off, preventing duplicate or missed events.
+	startBlock := p.lastPolledBlock
 	subscription, err := p.offRampFilterer.WatchExecutionStateChanged(
-		&bind.WatchOpts{Start: &p.startBlock, Context: ctx},
+		&bind.WatchOpts{Start: &startBlock, Context: ctx},
 		p.eventCh, nil, nil, nil,
 	)
 	if err != nil {
@@ -337,7 +365,7 @@ func (p *EvmExecutionAttemptPoller) startWSMode(ctx context.Context) error {
 		p.monitorSubscription(ctx)
 	})
 
-	p.lggr.Infow("execution attempt poller started in WebSocket mode")
+	p.lggr.Infow("Execution attempt poller started in WebSocket mode", "startBlock", startBlock)
 	return nil
 }
 
@@ -494,8 +522,8 @@ func (p *EvmExecutionAttemptPoller) reconnectSubscription(ctx context.Context) e
 		p.subscription = nil
 	}
 
-	// Get the current block to resume from where we left off
-	// We'll use the last polled block or start block as the starting point
+	// Resume from lastPolledBlock; fall back to startBlock only as a safety guard if
+	// lastPolledBlock is somehow behind (e.g. WS mode started before backfill completed).
 	startBlock := max(p.lastPolledBlock, p.startBlock)
 
 	// Create a new subscription
