@@ -276,7 +276,7 @@ func (cle *ChainlinkExecutor) getVerifierResultsAndQuorum(ctx context.Context, m
 			errGroupCtx,
 			message,
 		)
-		if err != nil && len(res.RequiredCCVs) == 0 {
+		if err != nil {
 			return fmt.Errorf("failed to get Verifier Quorum for message %s: %w", messageID.String(), err)
 		}
 		ccvInfo = res
