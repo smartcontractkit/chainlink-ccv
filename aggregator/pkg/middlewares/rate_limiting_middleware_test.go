@@ -64,7 +64,7 @@ func TestRateLimitingMiddleware_DefaultLimits(t *testing.T) {
 	}
 	clientProvider := &mockClientProvider{
 		clientsByAPIKey: map[string]*mockClientEntry{},
-		clientsByID: map[string]auth.ClientConfig{
+		clientByID: map[string]*mockClientConfig{
 			"test-caller": client,
 		},
 	}
@@ -106,7 +106,7 @@ func TestRateLimitingMiddleware_DefaultLimitsWhenAnonymous(t *testing.T) {
 
 	clientProvider := &mockClientProvider{
 		clientsByAPIKey: map[string]*mockClientEntry{},
-		clientsByID:     map[string]auth.ClientConfig{},
+		clientByID:      map[string]*mockClientConfig{},
 	}
 
 	middleware := NewRateLimitingMiddleware(store, config, clientProvider, logger.TestSugared(t))
@@ -143,7 +143,7 @@ func TestRateLimitingMiddleware_GlobalLimitReachedImmediatlyWhenNotConfigured(t 
 
 	clientProvider := &mockClientProvider{
 		clientsByAPIKey: map[string]*mockClientEntry{},
-		clientsByID:     map[string]auth.ClientConfig{},
+		clientByID:      map[string]*mockClientConfig{},
 	}
 
 	middleware := NewRateLimitingMiddleware(store, config, clientProvider, logger.TestSugared(t))
@@ -175,7 +175,7 @@ func TestRateLimitingMiddleware_AnonymousLimits(t *testing.T) {
 
 	clientProvider := &mockClientProvider{
 		clientsByAPIKey: map[string]*mockClientEntry{},
-		clientsByID:     map[string]auth.ClientConfig{},
+		clientByID:      map[string]*mockClientConfig{},
 	}
 
 	middleware := NewRateLimitingMiddleware(store, config, clientProvider, logger.TestSugared(t))
@@ -224,7 +224,7 @@ func TestRateLimitingMiddleware_GroupLimits(t *testing.T) {
 	}
 	clientProvider := &mockClientProvider{
 		clientsByAPIKey: map[string]*mockClientEntry{},
-		clientsByID: map[string]auth.ClientConfig{
+		clientByID: map[string]*mockClientConfig{
 			"test-caller": client,
 		},
 	}
@@ -276,7 +276,7 @@ func TestRateLimitingMiddleware_MostRestrictiveGroup(t *testing.T) {
 	}
 	clientProvider := &mockClientProvider{
 		clientsByAPIKey: map[string]*mockClientEntry{},
-		clientsByID: map[string]auth.ClientConfig{
+		clientByID: map[string]*mockClientConfig{
 			"test-caller": client,
 		},
 	}
@@ -330,7 +330,7 @@ func TestRateLimitingMiddleware_CallerSpecificOverridesGroup(t *testing.T) {
 	}
 	clientProvider := &mockClientProvider{
 		clientsByAPIKey: map[string]*mockClientEntry{},
-		clientsByID: map[string]auth.ClientConfig{
+		clientByID: map[string]*mockClientConfig{
 			"test-caller": client,
 		},
 	}

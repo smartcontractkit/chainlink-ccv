@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/aggregation"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/handlers"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/health"
@@ -352,7 +353,12 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	scopingMiddleware := middlewares.NewScopingMiddleware()
 
 	// Initialize authentication middlewares
-	hmacAuthMiddleware := middlewares.NewHMACAuthMiddleware(config, l)
+	hmacClientProvider := auth.ClientProvider(config)
+	if config.MaxConsecutiveHMACFailuresBeforeDisable > 0 {
+		tracker := auth.NewHMACFailureTracker(config.MaxConsecutiveHMACFailuresBeforeDisable, config.DisableClientByID)
+		hmacClientProvider = &auth.ClientProviderWithHMACRecorder{ClientProvider: config, Recorder: tracker}
+	}
+	hmacAuthMiddleware := middlewares.NewHMACAuthMiddleware(hmacClientProvider, l)
 	anonymousAuthMiddleware, err := middlewares.NewAnonymousAuthMiddleware(config.AnonymousAuth.TrustedProxies, l)
 	if err != nil {
 		l.Fatalf("Failed to initialize anonymous auth middleware: %v", err)
