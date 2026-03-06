@@ -222,6 +222,10 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	)
 	err = cle.contractTransmitters[destinationChain].ConvertAndWriteMessageToChain(ctx, aggregatedReport)
 	if err != nil {
+		if errors.Is(err, executor.ErrMessageEncoding) {
+			cle.lggr.Warnw("skipping retry due to message encoding error", "messageID", messageID, "error", err)
+			return false, err
+		}
 		cle.lggr.Warnw("will retry execution due to failed ConvertAndWriteMessageToChain", "messageID", messageID)
 		return true, err
 	}
