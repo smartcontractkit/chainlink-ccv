@@ -559,7 +559,7 @@ func TestProcessExecutionStateChanged_RejectsWhenTransactionByHashFails(t *testi
 	mockCli.AssertExpectations(t)
 }
 
-// TestRunBackfill covers the behaviour of runBackfill under various conditions.
+// TestRunBackfill covers the behavior of runBackfill under various conditions.
 func TestRunBackfill(t *testing.T) {
 	tests := []struct {
 		name                string
@@ -585,11 +585,11 @@ func TestRunBackfill(t *testing.T) {
 			wantLastPolledBlock: 1000,
 		},
 		{
-			name:                "backfill fails when latest block header cannot be fetched",
-			startBlock:          1000,
-			headerErr:           errors.New("rpc unavailable"),
-			wantErr:             true,
-			wantErrContains:     "backfill failed",
+			name:            "backfill fails when latest block header cannot be fetched",
+			startBlock:      1000,
+			headerErr:       errors.New("rpc unavailable"),
+			wantErr:         true,
+			wantErrContains: "backfill failed",
 		},
 	}
 
@@ -625,22 +625,22 @@ func TestRunBackfill(t *testing.T) {
 	}
 }
 
-// TestRunBackfill_InitialBlockPositioning verifies that runBackfill correctly initialises
+// TestRunBackfill_InitialBlockPositioning verifies that runBackfill correctly initializes
 // lastPolledBlock before calling pollForEvents so that the filter covers the full window.
 func TestRunBackfill_InitialBlockPositioning(t *testing.T) {
 	tests := []struct {
-		name                    string
-		startBlock              uint64
+		name                     string
+		startBlock               uint64
 		wantLastPolledBeforePoll uint64
 	}{
 		{
-			name:                    "startBlock > 0 sets lastPolledBlock to startBlock-1",
-			startBlock:              500,
+			name:                     "startBlock > 0 sets lastPolledBlock to startBlock-1",
+			startBlock:               500,
 			wantLastPolledBeforePoll: 499,
 		},
 		{
-			name:                    "startBlock == 0 leaves lastPolledBlock at 0",
-			startBlock:              0,
+			name:                     "startBlock == 0 leaves lastPolledBlock at 0",
+			startBlock:               0,
 			wantLastPolledBeforePoll: 0,
 		},
 	}
