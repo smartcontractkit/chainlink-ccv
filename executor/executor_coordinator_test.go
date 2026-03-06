@@ -333,7 +333,7 @@ func TestMessageExpiration(t *testing.T) {
 
 			// Set up leader elector mock
 			leaderElector := mocks.NewMockLeaderElector(t)
-			leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything, mock.Anything).Return(currentTime.Add(tc.initialReadyDelay), nil).Maybe()
+			leaderElector.EXPECT().GetReadyDelay(mock.Anything, mock.Anything).Return(tc.initialReadyDelay, nil).Maybe()
 			leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(tc.retryDelay, nil).Maybe()
 
 			// Create coordinator with test expiry duration
@@ -423,7 +423,7 @@ func TestDuplicateMessageIDFromStreamWhileInFlight_IsSkippedAndHandleMessageCall
 	}).Return(false, nil).Once()
 
 	leaderElector := mocks.NewMockLeaderElector(t)
-	leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything, mock.Anything).Return(currentTime, nil).Maybe()
+	leaderElector.EXPECT().GetReadyDelay(mock.Anything, mock.Anything).Return(time.Duration(0), nil).Maybe()
 	leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(time.Second, nil).Maybe()
 
 	ec, err := executor.NewCoordinator(
@@ -535,7 +535,7 @@ func TestDuplicateMessageIDFromStreamWhenAlreadyInHeap_IsSkippedByHeapAndHandleM
 	mockExecutor.EXPECT().HandleMessage(mock.Anything, mock.Anything).Return(false, nil).Once()
 
 	leaderElector := mocks.NewMockLeaderElector(t)
-	leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything, mock.Anything).Return(currentTime, nil).Maybe()
+	leaderElector.EXPECT().GetReadyDelay(mock.Anything, mock.Anything).Return(time.Duration(0), nil).Maybe()
 	leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(time.Second, nil).Maybe()
 
 	ec, err := executor.NewCoordinator(
@@ -603,7 +603,7 @@ func TestGracefulShutdown(t *testing.T) {
 	}).Return(false, context.Canceled)
 
 	leaderElector := mocks.NewMockLeaderElector(t)
-	leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything, mock.Anything).Return(currentTime, nil).Maybe()
+	leaderElector.EXPECT().GetReadyDelay(mock.Anything, mock.Anything).Return(time.Duration(0), nil).Maybe()
 	leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(time.Second, nil).Maybe()
 
 	ec, err := executor.NewCoordinator(

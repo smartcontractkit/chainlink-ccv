@@ -97,25 +97,23 @@ func validateElectorInputs(
 	return errors.Join(errs...)
 }
 
-// GetReadyTimestamp implements the LeaderElector interface.
-// It returns: baseTimestamp + (arrayIndex * executionInterval).
-func (h *HashBasedLeaderElector) GetReadyTimestamp(
+// GetReadyDelay implements the LeaderElector interface.
+// It returns the delay from base time until this executor's turn: arrayIndex * executionInterval.
+func (h *HashBasedLeaderElector) GetReadyDelay(
 	messageID protocol.Bytes32,
 	chainSel protocol.ChainSelector,
-	baseTime time.Time,
-) (time.Time, error) {
-	execIndex := h.executorIndices[chainSel]
+) (time.Duration, error) {
+	execIndex, ok := h.executorIndices[chainSel]
+	if !ok {
+		return 0, fmt.Errorf("executor %q has no index for chain %d", h.thisExecutorID, chainSel)
+	}
 	execPool, hasPool := h.executorIDs[chainSel]
 	if !hasPool || len(execPool) == 0 {
-		return time.Time{}, fmt.Errorf("chain %d not configured in elector", chainSel)
-	}
-	if execIndex == -1 {
-		// This executor is not in the list, should not happen if config is validated
-		return baseTime, nil
+		return 0, fmt.Errorf("chain %d not configured in elector", chainSel)
 	}
 	interval, hasInterval := h.executionIntervals[chainSel]
 	if !hasInterval || interval <= 0 {
-		return time.Time{}, fmt.Errorf("execution interval for chain %d not configured or invalid", chainSel)
+		return 0, fmt.Errorf("execution interval for chain %d not configured or invalid", chainSel)
 	}
 
 	// Convert first 8 bytes of hash to uint64 for consistent ordering
@@ -131,16 +129,13 @@ func (h *HashBasedLeaderElector) GetReadyTimestamp(
 
 	// Calculate time until our turn again (number of executors in queue * executionInterval)
 	delay := time.Duration(queueSize) * interval
-	// Add delay to our base time to get the next execution time
-	readyTime := baseTime.Add(delay)
 
-	h.lggr.Debugw("calculated ready timestamp",
+	h.lggr.Debugw("calculated ready delay",
 		"messageID", messageID.String(),
 		"queueSize", queueSize,
 		"executionInterval", interval,
-		"delay", delay.String(),
-		"readyTime", readyTime.String())
-	return readyTime, nil
+		"delay", delay.String())
+	return delay, nil
 }
 
 func getSliceIncreasingDistance(sliceLen, startIndex, selectedIndex int) int {

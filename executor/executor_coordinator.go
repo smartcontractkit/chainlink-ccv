@@ -172,14 +172,12 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 				continue
 			}
 
-			readyTimestamp, err := ec.leaderElector.GetReadyTimestamp(
-				id,
-				msg.DestChainSelector,
-				streamResult.Metadata.IngestionTimestamp)
+			readyDelay, err := ec.leaderElector.GetReadyDelay(id, msg.DestChainSelector)
 			if err != nil {
 				ec.lggr.Errorw("leader elector failed for message, skipping", "messageID", id, "chainSel", msg.DestChainSelector, "error", err)
 				continue
 			}
+			readyTimestamp := streamResult.Metadata.IngestionTimestamp.Add(readyDelay)
 
 			retryDelay, err := ec.leaderElector.GetRetryDelay(msg.DestChainSelector)
 			if err != nil {

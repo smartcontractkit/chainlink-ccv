@@ -51,9 +51,9 @@ type Executor interface {
 }
 
 type LeaderElector interface {
-	// GetReadyTimestamp to determine when a message is ready to be executed by this executor
+	// GetReadyDelay returns the delay from base time until this executor's turn for the message.
 	// We need chain selector as well as messageID because messageID is hashed and we cannot use it to get message information.
-	GetReadyTimestamp(messageID protocol.Bytes32, chainSel protocol.ChainSelector, baseTime time.Time) (time.Time, error)
+	GetReadyDelay(messageID protocol.Bytes32, chainSel protocol.ChainSelector) (time.Duration, error)
 	// GetRetryDelay returns the delay in seconds to retry a message. It uses destination chain because some executors may not support all chains
 	GetRetryDelay(destinationChain protocol.ChainSelector) (time.Duration, error)
 }

@@ -22,27 +22,27 @@ func (_m *MockLeaderElector) EXPECT() *MockLeaderElector_Expecter {
 	return &MockLeaderElector_Expecter{mock: &_m.Mock}
 }
 
-// GetReadyTimestamp provides a mock function with given fields: messageID, chainSel, baseTime
-func (_m *MockLeaderElector) GetReadyTimestamp(messageID protocol.Bytes32, chainSel protocol.ChainSelector, baseTime time.Time) (time.Time, error) {
-	ret := _m.Called(messageID, chainSel, baseTime)
+// GetReadyDelay provides a mock function with given fields: messageID, chainSel
+func (_m *MockLeaderElector) GetReadyDelay(messageID protocol.Bytes32, chainSel protocol.ChainSelector) (time.Duration, error) {
+	ret := _m.Called(messageID, chainSel)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetReadyTimestamp")
+		panic("no return value specified for GetReadyDelay")
 	}
 
-	var r0 time.Time
+	var r0 time.Duration
 	var r1 error
-	if rf, ok := ret.Get(0).(func(protocol.Bytes32, protocol.ChainSelector, time.Time) (time.Time, error)); ok {
-		return rf(messageID, chainSel, baseTime)
+	if rf, ok := ret.Get(0).(func(protocol.Bytes32, protocol.ChainSelector) (time.Duration, error)); ok {
+		return rf(messageID, chainSel)
 	}
-	if rf, ok := ret.Get(0).(func(protocol.Bytes32, protocol.ChainSelector, time.Time) time.Time); ok {
-		r0 = rf(messageID, chainSel, baseTime)
+	if rf, ok := ret.Get(0).(func(protocol.Bytes32, protocol.ChainSelector) time.Duration); ok {
+		r0 = rf(messageID, chainSel)
 	} else {
-		r0 = ret.Get(0).(time.Time)
+		r0 = ret.Get(0).(time.Duration)
 	}
 
-	if rf, ok := ret.Get(1).(func(protocol.Bytes32, protocol.ChainSelector, time.Time) error); ok {
-		r1 = rf(messageID, chainSel, baseTime)
+	if rf, ok := ret.Get(1).(func(protocol.Bytes32, protocol.ChainSelector) error); ok {
+		r1 = rf(messageID, chainSel)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -50,32 +50,31 @@ func (_m *MockLeaderElector) GetReadyTimestamp(messageID protocol.Bytes32, chain
 	return r0, r1
 }
 
-// MockLeaderElector_GetReadyTimestamp_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetReadyTimestamp'
-type MockLeaderElector_GetReadyTimestamp_Call struct {
+// MockLeaderElector_GetReadyDelay_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetReadyDelay'
+type MockLeaderElector_GetReadyDelay_Call struct {
 	*mock.Call
 }
 
-// GetReadyTimestamp is a helper method to define mock.On call
+// GetReadyDelay is a helper method to define mock.On call
 //   - messageID protocol.Bytes32
 //   - chainSel protocol.ChainSelector
-//   - baseTime time.Time
-func (_e *MockLeaderElector_Expecter) GetReadyTimestamp(messageID interface{}, chainSel interface{}, baseTime interface{}) *MockLeaderElector_GetReadyTimestamp_Call {
-	return &MockLeaderElector_GetReadyTimestamp_Call{Call: _e.mock.On("GetReadyTimestamp", messageID, chainSel, baseTime)}
+func (_e *MockLeaderElector_Expecter) GetReadyDelay(messageID interface{}, chainSel interface{}) *MockLeaderElector_GetReadyDelay_Call {
+	return &MockLeaderElector_GetReadyDelay_Call{Call: _e.mock.On("GetReadyDelay", messageID, chainSel)}
 }
 
-func (_c *MockLeaderElector_GetReadyTimestamp_Call) Run(run func(messageID protocol.Bytes32, chainSel protocol.ChainSelector, baseTime time.Time)) *MockLeaderElector_GetReadyTimestamp_Call {
+func (_c *MockLeaderElector_GetReadyDelay_Call) Run(run func(messageID protocol.Bytes32, chainSel protocol.ChainSelector)) *MockLeaderElector_GetReadyDelay_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(protocol.Bytes32), args[1].(protocol.ChainSelector), args[2].(time.Time))
+		run(args[0].(protocol.Bytes32), args[1].(protocol.ChainSelector))
 	})
 	return _c
 }
 
-func (_c *MockLeaderElector_GetReadyTimestamp_Call) Return(_a0 time.Time, _a1 error) *MockLeaderElector_GetReadyTimestamp_Call {
+func (_c *MockLeaderElector_GetReadyDelay_Call) Return(_a0 time.Duration, _a1 error) *MockLeaderElector_GetReadyDelay_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockLeaderElector_GetReadyTimestamp_Call) RunAndReturn(run func(protocol.Bytes32, protocol.ChainSelector, time.Time) (time.Time, error)) *MockLeaderElector_GetReadyTimestamp_Call {
+func (_c *MockLeaderElector_GetReadyDelay_Call) RunAndReturn(run func(protocol.Bytes32, protocol.ChainSelector) (time.Duration, error)) *MockLeaderElector_GetReadyDelay_Call {
 	_c.Call.Return(run)
 	return _c
 }
