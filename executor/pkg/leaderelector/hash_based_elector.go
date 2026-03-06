@@ -103,12 +103,19 @@ func (h *HashBasedLeaderElector) GetReadyTimestamp(
 	messageID protocol.Bytes32,
 	chainSel protocol.ChainSelector,
 	baseTime time.Time,
-) time.Time {
+) (time.Time, error) {
 	execIndex := h.executorIndices[chainSel]
-	execPool := h.executorIDs[chainSel]
+	execPool, hasPool := h.executorIDs[chainSel]
+	if !hasPool || len(execPool) == 0 {
+		return time.Time{}, fmt.Errorf("chain %d not configured in elector", chainSel)
+	}
 	if execIndex == -1 {
 		// This executor is not in the list, should not happen if config is validated
-		return baseTime
+		return baseTime, nil
+	}
+	interval, hasInterval := h.executionIntervals[chainSel]
+	if !hasInterval || interval <= 0 {
+		return time.Time{}, fmt.Errorf("execution interval for chain %d not configured or invalid", chainSel)
 	}
 
 	// Convert first 8 bytes of hash to uint64 for consistent ordering
@@ -123,17 +130,17 @@ func (h *HashBasedLeaderElector) GetReadyTimestamp(
 	queueSize := getSliceIncreasingDistance(len(execPool), startIndex, execIndex)
 
 	// Calculate time until our turn again (number of executors in queue * executionInterval)
-	delay := time.Duration(queueSize) * h.executionIntervals[chainSel]
+	delay := time.Duration(queueSize) * interval
 	// Add delay to our base time to get the next execution time
 	readyTime := baseTime.Add(delay)
 
 	h.lggr.Debugw("calculated ready timestamp",
 		"messageID", messageID.String(),
 		"queueSize", queueSize,
-		"executionInterval", h.executionIntervals[chainSel],
+		"executionInterval", interval,
 		"delay", delay.String(),
 		"readyTime", readyTime.String())
-	return readyTime
+	return readyTime, nil
 }
 
 func getSliceIncreasingDistance(sliceLen, startIndex, selectedIndex int) int {
@@ -154,6 +161,14 @@ func getSliceIncreasingDistance(sliceLen, startIndex, selectedIndex int) int {
 	return selectedIndex - startIndex
 }
 
-func (h *HashBasedLeaderElector) GetRetryDelay(sel protocol.ChainSelector) time.Duration {
-	return time.Duration(len(h.executorIDs[sel])) * h.executionIntervals[sel]
+func (h *HashBasedLeaderElector) GetRetryDelay(sel protocol.ChainSelector) (time.Duration, error) {
+	pool, ok := h.executorIDs[sel]
+	if !ok || len(pool) == 0 {
+		return 0, fmt.Errorf("chain %d not configured for retry delay", sel)
+	}
+	interval, ok := h.executionIntervals[sel]
+	if !ok || interval <= 0 {
+		return 0, fmt.Errorf("execution interval for chain %d not configured or invalid", sel)
+	}
+	return time.Duration(len(pool)) * interval, nil
 }

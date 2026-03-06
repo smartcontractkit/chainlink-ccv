@@ -172,11 +172,20 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 				continue
 			}
 
-			// get message delay from leader elector using indexer's ingestion timestamp
-			readyTimestamp := ec.leaderElector.GetReadyTimestamp(
+			readyTimestamp, err := ec.leaderElector.GetReadyTimestamp(
 				id,
 				msg.DestChainSelector,
 				streamResult.Metadata.IngestionTimestamp)
+			if err != nil {
+				ec.lggr.Errorw("leader elector failed for message, skipping", "messageID", id, "chainSel", msg.DestChainSelector, "error", err)
+				continue
+			}
+
+			retryDelay, err := ec.leaderElector.GetRetryDelay(msg.DestChainSelector)
+			if err != nil {
+				ec.lggr.Errorw("leader elector retry delay failed for message, skipping", "messageID", id, "chainSel", msg.DestChainSelector, "error", err)
+				continue
+			}
 
 			ec.lggr.Infow("pushing message to delayed heap",
 				"messageID", id,
@@ -188,7 +197,7 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 				Message:       &msg,
 				ReadyTime:     readyTimestamp,
 				ExpiryTime:    readyTimestamp.Add(ec.expiryDuration),
-				RetryInterval: ec.leaderElector.GetRetryDelay(msg.DestChainSelector),
+				RetryInterval: retryDelay,
 				MessageID:     id,
 			}) {
 				ec.lggr.Infow("duplicate message rejected by heap", "messageID", id)
