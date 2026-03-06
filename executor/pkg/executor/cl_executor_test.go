@@ -62,6 +62,43 @@ func setupTestExecutor(
 	)
 }
 
+func Test_ChainlinkExecutor_Start_ClosesStartedReadersOnFailure(t *testing.T) {
+	address1, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+	address2, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+
+	successReader := mocks.NewMockDestinationReader(t)
+	successReader.EXPECT().Start(mock.Anything).Return(nil).Once()
+	successReader.EXPECT().Close().Return(nil).Once()
+
+	failReader := mocks.NewMockDestinationReader(t)
+	failReader.EXPECT().Start(mock.Anything).Return(errors.New("start failed")).Once()
+
+	ct := map[protocol.ChainSelector]*mocks.MockContractTransmitter{
+		1: mocks.NewMockContractTransmitter(t),
+		2: mocks.NewMockContractTransmitter(t),
+	}
+	dr := map[protocol.ChainSelector]*mocks.MockDestinationReader{
+		1: mocks.NewMockDestinationReader(t),
+		2: mocks.NewMockDestinationReader(t),
+	}
+	vr := mocks.NewMockVerifierResultReader(t)
+	executor := setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
+
+	executor.destinationReaders = map[protocol.ChainSelector]chainaccess.DestinationReader{
+		1: successReader,
+		2: failReader,
+	}
+
+	err = executor.Start(context.Background())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "start failed")
+
+	successReader.AssertExpectations(t)
+	failReader.AssertExpectations(t)
+}
+
 func Test_ChainlinkExecutor_Validate(t *testing.T) {
 	address1, err := protocol.RandomAddress()
 	assert.NoError(t, err)
