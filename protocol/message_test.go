@@ -201,18 +201,15 @@ func TestMessageDecodingErrors(t *testing.T) {
 		{
 			name: "invalid_address_length",
 			data: func() []byte {
-				// Create minimal valid header
-				data := make([]byte, 27) // minimum size
-				data[0] = 1              // version
-				// Set chain selectors and nonce (8 bytes each)
-				binary.BigEndian.PutUint64(data[1:9], 1)   // source chain
-				binary.BigEndian.PutUint64(data[9:17], 2)  // dest chain
-				binary.BigEndian.PutUint64(data[17:25], 3) // nonce
-				data[25] = 10                              // claim 10 bytes for on-ramp address
-				data[26] = 0                               // but only provide 0 bytes for off-ramp
+				data := make([]byte, MinSizeRequiredMsgFields)
+				data[0] = 1
+				binary.BigEndian.PutUint64(data[1:9], 1)
+				binary.BigEndian.PutUint64(data[9:17], 2)
+				binary.BigEndian.PutUint64(data[17:25], 3)
+				data[67] = 10
 				return data
 			}(),
-			expectErr: "failed to read execution gas limit",
+			expectErr: "failed to read on-ramp address",
 		},
 	}
 
