@@ -817,9 +817,9 @@ func TestListOrphanedKeys_PaginationReturnsAllResults(t *testing.T) {
 
 	require.Len(t, orphanedKeys, totalOrphans, "Paginated scan must return all orphans")
 
-	for j := 0; j < totalOrphans; j++ {
+	for j := range totalOrphans {
 		expectedMessageID := insertedMessageIDs[totalOrphans-1-j]
-		require.Equal(t, expectedMessageID, []byte(orphanedKeys[j].MessageID),
+		require.Equal(t, expectedMessageID, orphanedKeys[j].MessageID,
 			"Result at position %d must be the %d-th-from-last inserted (newest first)", j, j+1)
 	}
 }
