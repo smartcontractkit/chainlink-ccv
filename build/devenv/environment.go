@@ -1694,7 +1694,7 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, 
 		ver := committeeverifier.ApplyDefaults(*in.Verifier[i])
 		fmt.Printf("Applying defaults to verifier with chain family %s and committee name %s\n", ver.ChainFamily, ver.CommitteeName)
 		in.Verifier[i] = &ver
-		fmt.Printf("Verifier container name: %s, image: %s, mode: %s, stellar configs: %v, port: %d, env: %v\n", ver.ContainerName, ver.Image, ver.Mode, ver.StellarConfigs, ver.Port, ver.Env)
+		fmt.Printf("Verifier container name: %s, image: %s, mode: %s, port: %d, env: %v\n", ver.ContainerName, ver.Image, ver.Mode, ver.Port, ver.Env)
 	}
 
 	outs := make([]*committeeverifier.Output, 0, len(in.Verifier))
