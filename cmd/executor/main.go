@@ -261,6 +261,11 @@ func main() {
 	// Initialize Message Handler
 	// ------------------------------------------------------------------------------------------------
 	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, curseChecker, verifierResultReader, executorMonitoring, defaultExecutorAddresses)
+	if err := ex.Validate(); err != nil {
+		lggr.Errorw("Failed to validate chainlink executor", "error", err)
+		os.Exit(1)
+		return
+	}
 
 	//
 	// Initialize leader elector
@@ -320,12 +325,21 @@ func main() {
 	lggr.Infow("🛑 Shutdown signal received, stopping verifier...")
 
 	// Graceful shutdown
-	_, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
-	// Stop execution coordinator
-	if err := coordinator.Close(); err != nil {
-		lggr.Errorw("Execution coordinator stop error", "error", err)
+	done := make(chan error, 1)
+	go func() {
+		done <- coordinator.Close()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			lggr.Errorw("Execution coordinator stop error", "error", err)
+		}
+	case <-shutdownCtx.Done():
+		lggr.Errorw("Execution coordinator shutdown timed out")
 	}
 
 	lggr.Infow("✅ Execution service stopped gracefully")

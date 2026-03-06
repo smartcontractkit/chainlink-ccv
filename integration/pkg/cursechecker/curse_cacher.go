@@ -60,7 +60,12 @@ func (c CachedCurseChecker) IsRemoteChainCursed(ctx context.Context, localChain,
 		return c.isChainSelectorCursed(ctx, curseInfo, localChain, remoteChain)
 	}
 
-	curseResults, err := c.rmnReaders[localChain].GetRMNCursedSubjects(ctx)
+	reader, ok := c.rmnReaders[localChain]
+	if !ok {
+		c.lggr.Errorw("no RMN reader configured for chain, assuming not cursed", "localChain", localChain)
+		return false
+	}
+	curseResults, err := reader.GetRMNCursedSubjects(ctx)
 	if err != nil {
 		// If the chain is actually cursed, transaction will revert.
 		// We return early to avoid poisoning the cache.

@@ -177,7 +177,8 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 	go func() { _ = c.channelManager.Start(ctx) }()
 	c.mu.Unlock()
 	aggregationChannel := c.channelManager.AggregationChannel
-	p := pool.New().WithMaxGoroutines(c.backgroundWorkerCount).WithContext(context.WithoutCancel(ctx))
+	poolCtx, poolCancel := context.WithCancel(context.WithoutCancel(ctx))
+	p := pool.New().WithMaxGoroutines(c.backgroundWorkerCount).WithContext(poolCtx)
 
 	submitWork := func(request aggregationRequest) {
 		p.Go(func(poolCtx context.Context) error {
@@ -213,24 +214,27 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 
 	go func() {
 		defer close(c.done)
+		defer poolCancel()
 		lggr := c.logger(context.Background())
 		for {
 			select {
 			case request, ok := <-aggregationChannel:
 				if !ok {
-					c.waitForPool(lggr, p, drainDeadline)
+					c.waitForPool(lggr, p, drainDeadline, poolCancel)
 					return
 				}
 				submitWork(request)
 			case <-drainDeadline:
 				lggr.Errorw("Drain timed out, dropping in-flight work", "timeout", c.drainTimeout)
+				poolCancel()
+				_ = p.Wait()
 				return
 			}
 		}
 	}()
 }
 
-func (c *CommitReportAggregator) waitForPool(lggr logger.SugaredLogger, p *pool.ContextPool, drainDeadline <-chan struct{}) {
+func (c *CommitReportAggregator) waitForPool(lggr logger.SugaredLogger, p *pool.ContextPool, drainDeadline <-chan struct{}, poolCancel context.CancelFunc) {
 	lggr.Infow("Channel drained, waiting for in-flight workers")
 	poolDone := make(chan error, 1)
 	go func() { poolDone <- p.Wait() }()
@@ -243,6 +247,10 @@ func (c *CommitReportAggregator) waitForPool(lggr logger.SugaredLogger, p *pool.
 		}
 	case <-drainDeadline:
 		lggr.Errorw("Drain timed out waiting for in-flight workers", "timeout", c.drainTimeout)
+		poolCancel()
+		if poolErr := <-poolDone; poolErr != nil {
+			lggr.Errorw("Pool workers returned errors after forced cancellation", "error", poolErr)
+		}
 	}
 }
 

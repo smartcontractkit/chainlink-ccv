@@ -215,8 +215,7 @@ func TestHashBasedLeaderElector_ExecutorNotInList_ConstructorReturnsError(t *tes
 	executionInterval := map[protocol.ChainSelector]time.Duration{sel: 30 * time.Second}
 
 	_, err := NewHashBasedLeaderElector(logger.Test(t), executorIds, thisExecutorId, executionInterval)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "not found in executor pool")
+	require.ErrorContains(t, err, "this executor ID \"executor-not-in-list\" not found in executor pool for chain 1")
 }
 
 func TestHashBasedLeaderElector_ExecutorIndexCalculation_MultiSelector(t *testing.T) {

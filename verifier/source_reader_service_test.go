@@ -71,7 +71,6 @@ func newTestSRS(
 	queue := &fakeTaskQueue{}
 
 	srs, err := NewSourceReaderServiceDB(
-		t.Context(),
 		reader,
 		chainSelector,
 		chainStatusMgr,
@@ -526,7 +525,6 @@ func TestSRS_DisableFinalityChecker(t *testing.T) {
 	lggr := logger.Test(t)
 
 	srs, err := NewSourceReaderServiceDB(
-		context.Background(),
 		reader,
 		chain,
 		chainStatusMgr,

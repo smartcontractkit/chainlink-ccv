@@ -329,6 +329,91 @@ func TestStart_ContextCancellation(t *testing.T) {
 	}
 }
 
+// TestConsumeReader_ReturnsImmediatelyWhenContextAlreadyCancelled verifies consumeReader returns without blocking when ctx is already canceled.
+func TestConsumeReader_ReturnsImmediatelyWhenContextAlreadyCancelled(t *testing.T) {
+	ts := setupMessageDiscoveryTest(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	done := make(chan struct{})
+	go func() {
+		ts.Discovery.consumeReader(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("consumeReader should return immediately when context is already cancelled")
+	}
+}
+
+// TestConsumeReader_ExitsWhenContextCancelledDuringLoop verifies consumeReader exits when context is canceled between loop iterations.
+func TestConsumeReader_ExitsWhenContextCancelledDuringLoop(t *testing.T) {
+	ts := setupMessageDiscoveryTestNoTimeout(t, defaultTestConfig())
+
+	ts.MockReader = internal.NewMockReader(internal.MockReaderConfig{
+		EmitEmptyResponses: false,
+		MaxMessages:        10,
+		MessageGenerator: func(messageNumber int) common.VerifierResultWithMetadata {
+			return createTestCCVData(messageNumber, time.Now().UnixMilli(), 1, 2)
+		},
+	})
+	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, readers.DefaultResilienceConfig())
+	ts.Discovery.aggregatorReader = ts.Reader
+	ts.Discovery.discoveryPriority = 0
+	ts.Discovery.messageCh = make(chan common.VerifierResultWithMetadata, 100)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		ts.Discovery.consumeReader(ctx)
+		close(done)
+	}()
+
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("consumeReader should exit when context is cancelled during loop")
+	}
+}
+
+// TestConsumeReader_RespectsContextDuringPrioritySleep verifies consumeReader returns when context is canceled during the priority sleep in callReader.
+func TestConsumeReader_RespectsContextDuringPrioritySleep(t *testing.T) {
+	ts := setupMessageDiscoveryTestNoTimeout(t, defaultTestConfig())
+
+	ts.MockReader = internal.NewMockReader(internal.MockReaderConfig{
+		EmitEmptyResponses: false,
+		MaxMessages:        1,
+		MessageGenerator: func(messageNumber int) common.VerifierResultWithMetadata {
+			return createTestCCVData(messageNumber, time.Now().UnixMilli(), 1, 2)
+		},
+	})
+	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, readers.DefaultResilienceConfig())
+	ts.Discovery.aggregatorReader = ts.Reader
+	ts.Discovery.discoveryPriority = 1
+	ts.Discovery.messageCh = make(chan common.VerifierResultWithMetadata, 10)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		ts.Discovery.consumeReader(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("consumeReader should return when context expires during priority sleep, not after full 5s")
+	}
+}
+
 // TestMessageDiscovery_SingleMessage tests discovering and emitting a single message.
 func TestMessageDiscovery_SingleMessage(t *testing.T) {
 	ts := setupMessageDiscoveryTest(t)
