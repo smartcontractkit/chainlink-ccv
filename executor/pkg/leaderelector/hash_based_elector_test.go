@@ -206,17 +206,9 @@ func TestHashBasedLeaderElector_ExecutorNotInList(t *testing.T) {
 	executorIds := map[protocol.ChainSelector][]string{sel: {"executor-a", "executor-b"}}
 	thisExecutorId := "executor-not-in-list"
 	executionInterval := map[protocol.ChainSelector]time.Duration{sel: 30 * time.Second}
-	messageID := protocol.Bytes32{0x01, 0x02, 0x03}
-	baseTimestamp := time.Unix(1000, 0)
 
-	elector, err := NewHashBasedLeaderElector(logger.Test(t), executorIds, thisExecutorId, executionInterval)
-	require.NoError(t, err)
-
-	readyTimestamp := elector.GetReadyTimestamp(messageID, sel, baseTimestamp)
-
-	expectedTimestamp := baseTimestamp
-	require.Equal(t, expectedTimestamp, readyTimestamp,
-		"When executor not in list, should return baseTimestamp + minWaitPeriod")
+	_, err := NewHashBasedLeaderElector(logger.Test(t), executorIds, thisExecutorId, executionInterval)
+	require.ErrorContains(t, err, "this executor ID \"executor-not-in-list\" not found in executor pool for chain 1")
 }
 
 func TestHashBasedLeaderElector_ExecutorIndexCalculation_MultiSelector(t *testing.T) {
