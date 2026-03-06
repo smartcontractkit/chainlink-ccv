@@ -792,6 +792,7 @@ func TestListOrphanedKeys_PaginationReturnsAllResults(t *testing.T) {
 
 	const totalOrphans = 7
 
+	insertedMessageIDs := make([][]byte, 0, totalOrphans)
 	for i := range totalOrphans {
 		message := createTestProtocolMessage()
 		message.SequenceNumber = protocol.SequenceNumber(i + 1)
@@ -801,6 +802,7 @@ func TestListOrphanedKeys_PaginationReturnsAllResults(t *testing.T) {
 		record := createTestCommitVerificationRecord(t, msgWithCCV, signer)
 		err := storage.SaveCommitVerification(ctx, record, aggregationKey)
 		require.NoError(t, err)
+		insertedMessageIDs = append(insertedMessageIDs, messageID)
 	}
 
 	// Use pageSize=2 so pagination is exercised with a small number of records
@@ -815,10 +817,10 @@ func TestListOrphanedKeys_PaginationReturnsAllResults(t *testing.T) {
 
 	require.Len(t, orphanedKeys, totalOrphans, "Paginated scan must return all orphans")
 
-	for i := 1; i < len(orphanedKeys); i++ {
-		prev := protocol.ByteSlice(orphanedKeys[i-1].MessageID).String() + orphanedKeys[i-1].AggregationKey
-		curr := protocol.ByteSlice(orphanedKeys[i].MessageID).String() + orphanedKeys[i].AggregationKey
-		require.True(t, prev < curr, "Results must be in sorted order: %s >= %s", prev, curr)
+	for j := 0; j < totalOrphans; j++ {
+		expectedMessageID := insertedMessageIDs[totalOrphans-1-j]
+		require.Equal(t, expectedMessageID, []byte(orphanedKeys[j].MessageID),
+			"Result at position %d must be the %d-th-from-last inserted (newest first)", j, j+1)
 	}
 }
 
