@@ -35,11 +35,16 @@ func (_m *MockLeaderElector) GetReadyTimestamp(messageID protocol.Bytes32, chain
 	if rf, ok := ret.Get(0).(func(protocol.Bytes32, protocol.ChainSelector, time.Time) (time.Time, error)); ok {
 		return rf(messageID, chainSel, baseTime)
 	}
-	if ret.Get(0) != nil {
+	if rf, ok := ret.Get(0).(func(protocol.Bytes32, protocol.ChainSelector, time.Time) time.Time); ok {
+		r0 = rf(messageID, chainSel, baseTime)
+	} else {
 		r0 = ret.Get(0).(time.Time)
 	}
-	if ret.Get(1) != nil {
-		r1 = ret.Get(1).(error)
+
+	if rf, ok := ret.Get(1).(func(protocol.Bytes32, protocol.ChainSelector, time.Time) error); ok {
+		r1 = rf(messageID, chainSel, baseTime)
+	} else {
+		r1 = ret.Error(1)
 	}
 
 	return r0, r1
@@ -88,11 +93,16 @@ func (_m *MockLeaderElector) GetRetryDelay(destinationChain protocol.ChainSelect
 	if rf, ok := ret.Get(0).(func(protocol.ChainSelector) (time.Duration, error)); ok {
 		return rf(destinationChain)
 	}
-	if ret.Get(0) != nil {
+	if rf, ok := ret.Get(0).(func(protocol.ChainSelector) time.Duration); ok {
+		r0 = rf(destinationChain)
+	} else {
 		r0 = ret.Get(0).(time.Duration)
 	}
-	if ret.Get(1) != nil {
-		r1 = ret.Get(1).(error)
+
+	if rf, ok := ret.Get(1).(func(protocol.ChainSelector) error); ok {
+		r1 = rf(destinationChain)
+	} else {
+		r1 = ret.Error(1)
 	}
 
 	return r0, r1
