@@ -1,4 +1,4 @@
-package verifier
+package main
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/grafana/pyroscope-go"
 
+	verifier2 "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -70,9 +71,12 @@ type factory[T any] struct {
 	chainFamily               string
 }
 
-// NewServiceFactory creates a new ServiceFactory for the committee verifier service.
+// NewCommitteeVerifierServiceFactory creates a new ServiceFactory for the committee verifier service.
 // T is the chain config type for this family (e.g. blockchain.Info for EVM).
-func NewServiceFactory[T any](chainFamily string, createAccessorFactoryFunc CreateAccessorFactoryFunc[T]) bootstrap.ServiceFactory[commit.JobSpec] {
+func NewCommitteeVerifierServiceFactory[T any](
+	chainFamily string,
+	createAccessorFactoryFunc CreateAccessorFactoryFunc[T],
+) bootstrap.ServiceFactory[commit.JobSpec] {
 	return &factory[T]{
 		createAccessorFactoryFunc: createAccessorFactoryFunc,
 		chainFamily:               chainFamily,
@@ -84,7 +88,7 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 	lggr := logger.Sugared(logger.Named(deps.Logger, "CommitteeVerifier"))
 	f.lggr = lggr
 
-	lggr.Infow("Starting verifier service", "spec", spec)
+	lggr.Infow("Starting committee verifier service", "spec", spec)
 
 	config, blockchainInfos, err := commit.LoadConfigWithBlockchainInfos[T](spec)
 	if err != nil {
@@ -117,7 +121,7 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 	}
 	lggr.Infow("Loaded VERIFIER_AGGREGATOR_SECRET_KEY from environment")
 
-	profiler, err := StartPyroscope(lggr, config.PyroscopeURL, "verifier")
+	profiler, err := verifier2.StartPyroscope(lggr, config.PyroscopeURL, "verifier")
 	if err != nil {
 		lggr.Errorw("Failed to start pyroscope", "error", err)
 		return fmt.Errorf("failed to start pyroscope: %w", err)
@@ -245,7 +249,7 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 	}
 	lggr.Infow("Using signer address", "address", signerAddress)
 
-	verifierMonitoring := SetupMonitoring(lggr, config.Monitoring)
+	verifierMonitoring := verifier2.SetupMonitoring(lggr, config.Monitoring)
 
 	// Create chain status manager (PostgreSQL storage) with monitoring decorator
 	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr, config.VerifierID, verifierMonitoring)
@@ -426,7 +430,7 @@ func (f *factory[T]) Stop(ctx context.Context) error {
 }
 
 func createChainStatusManager(lggr logger.Logger, verifierID string, monitoring verifier.Monitoring) (protocol.ChainStatusManager, sqlutil.DataSource, error) {
-	sqlDB, err := ConnectToPostgresDB(lggr)
+	sqlDB, err := verifier2.ConnectToPostgresDB(lggr)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect to Postgres DB: %w", err)
 	}

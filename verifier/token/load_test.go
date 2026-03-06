@@ -1,4 +1,4 @@
-package commit
+package token
 
 import (
 	"testing"
@@ -19,14 +19,25 @@ type testChainInfo struct {
 func TestLoadConfigWithBlockchainInfos_Success(t *testing.T) {
 	// Minimal valid config TOML with one entry in blockchain_infos
 	tomlConfig := `
-verifier_id = "test-verifier"
-aggregator_address = "aggregator:443"
-signer_address = "0x1234567890123456789012345678901234567890"
 pyroscope_url = ""
-committee_verifier_addresses = { "1" = "0xabc" }
 on_ramp_addresses = { "1" = "0xdef" }
-default_executor_on_ramp_addresses = { "1" = "0xghi" }
 rmn_remote_addresses = { "1" = "0xjkl" }
+
+[[token_verifiers]]
+verifier_id = "cctp-verifier"
+type = "cctp"
+version = "2.0"
+attestation_api = "http://circle.com/attestation"
+attestation_api_timeout = "1s"
+attestation_api_interval = "111ms"
+
+[[token_verifiers]]
+verifier_id = "lombard-verifier"
+type = "lombard"
+version = "1.0"
+attestation_api = "http://lombard.com/attestation"
+attestation_api_timeout = "2s"
+attestation_api_interval = "222ms"
 
 [blockchain_infos."1"]
 ChainID = "1"
@@ -34,16 +45,34 @@ Type = "evm"
 Family = "evm"
 UniqueChainName = "chain-1"
 `
-	spec := JobSpec{CommitteeVerifierConfig: tomlConfig}
+	spec := JobSpec{TokenVerifierConfig: tomlConfig}
 
 	cfg, infos, err := LoadConfigWithBlockchainInfos[testChainInfo](spec)
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	require.NotNil(t, infos)
 
-	assert.Equal(t, "test-verifier", cfg.VerifierID)
-	assert.Equal(t, "aggregator:443", cfg.AggregatorAddress)
-	assert.Len(t, infos, 1)
+	assert.Len(t, cfg.TokenVerifiers, 2)
+	for _, v := range cfg.TokenVerifiers {
+		switch v.Type {
+		case "cctp":
+			assert.Equal(t, "cctp-verifier", v.VerifierID)
+			assert.Equal(t, "2.0", v.Version)
+			assert.NotNil(t, v.CCTPConfig)
+			assert.Equal(t, "http://circle.com/attestation", v.CCTPConfig.AttestationAPI)
+			assert.Equal(t, 1, int(v.CCTPConfig.AttestationAPITimeout.Seconds()))
+			assert.Equal(t, 111, int(v.CCTPConfig.AttestationAPIInterval.Milliseconds()))
+		case "lombard":
+			assert.Equal(t, "lombard-verifier", v.VerifierID)
+			assert.Equal(t, "1.0", v.Version)
+			assert.NotNil(t, v.LombardConfig)
+			assert.Equal(t, "http://lombard.com/attestation", v.LombardConfig.AttestationAPI)
+			assert.Equal(t, 2, int(v.LombardConfig.AttestationAPITimeout.Seconds()))
+			assert.Equal(t, 222, int(v.LombardConfig.AttestationAPIInterval.Milliseconds()))
+		default:
+			t.Errorf("unexpected verifier type: %s", v.Type)
+		}
+	}
 
 	info, ok := infos["1"]
 	require.True(t, ok, "blockchain_infos should contain key \"1\"")
@@ -58,7 +87,7 @@ func TestLoadConfigWithBlockchainInfos_UnknownTopLevelKey_ReturnsError(t *testin
 	tomlConfig := `
 typo_key = "should fail"
 `
-	spec := JobSpec{CommitteeVerifierConfig: tomlConfig}
+	spec := JobSpec{TokenVerifierConfig: tomlConfig}
 
 	_, _, err := LoadConfigWithBlockchainInfos[testChainInfo](spec)
 	require.Error(t, err)
@@ -71,7 +100,7 @@ func TestLoadConfigWithBlockchainInfos_UnknownKeyUnderBlockchainInfos_ReturnsErr
 [blockchain_infos."1"]
 UnknownField = "should fail"
 `
-	spec := JobSpec{CommitteeVerifierConfig: tomlConfig}
+	spec := JobSpec{TokenVerifierConfig: tomlConfig}
 
 	_, _, err := LoadConfigWithBlockchainInfos[testChainInfo](spec)
 	require.Error(t, err)
@@ -81,7 +110,7 @@ UnknownField = "should fail"
 
 func TestLoadConfigWithBlockchainInfos_EmptyBlockchainInfos(t *testing.T) {
 	tomlConfig := ``
-	spec := JobSpec{CommitteeVerifierConfig: tomlConfig}
+	spec := JobSpec{TokenVerifierConfig: tomlConfig}
 
 	cfg, infos, err := LoadConfigWithBlockchainInfos[testChainInfo](spec)
 	require.NoError(t, err)
