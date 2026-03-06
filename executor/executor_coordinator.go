@@ -227,10 +227,10 @@ func (ec *Coordinator) runProcessingLoop(ctx context.Context) {
 				"readyMessages", readyMessages,
 			)
 			for _, payload := range readyMessages {
-				ec.inFlightAdd(payload.MessageID)
 				// If the channel is full, we will block here, but messages will continue to accumulate in the heap.
 				select {
 				case ec.workerPoolTasks <- payload:
+					ec.inFlightAdd(payload.MessageID)
 				case <-ctx.Done():
 					ec.lggr.Infow("Processing loop dropping payload to exit")
 					continue
