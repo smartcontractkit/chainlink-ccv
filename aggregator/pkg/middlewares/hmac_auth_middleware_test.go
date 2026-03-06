@@ -25,6 +25,8 @@ var (
 	testCredentials2, _ = hmacutil.GenerateCredentials()
 )
 
+const testGRPCMethod = "/Aggregator/ReadChainStatus"
+
 type mockAPIKeyPair struct {
 	apiKey string
 	secret string
@@ -45,7 +47,7 @@ func (m *mockClientConfig) IsEnabled() bool     { return m.enabled }
 
 type mockClientProvider struct {
 	clientsByAPIKey map[string]*mockClientEntry
-	clientsByID     map[string]auth.ClientConfig
+	clientByID      map[string]*mockClientConfig
 }
 
 type mockClientEntry struct {
@@ -55,16 +57,25 @@ type mockClientEntry struct {
 
 func (m *mockClientProvider) GetClientByAPIKey(apiKey string) (auth.ClientConfig, auth.APIKeyPair, bool) {
 	if entry, ok := m.clientsByAPIKey[apiKey]; ok {
+		if entry.config != nil && !entry.config.IsEnabled() {
+			return nil, nil, false
+		}
 		return entry.config, entry.pair, true
 	}
 	return nil, nil, false
 }
 
 func (m *mockClientProvider) GetClientByClientID(clientID string) (auth.ClientConfig, bool) {
-	if config, ok := m.clientsByID[clientID]; ok {
-		return config, true
+	if c, ok := m.clientByID[clientID]; ok && c != nil && c.IsEnabled() {
+		return c, true
 	}
 	return nil, false
+}
+
+func (m *mockClientProvider) DisableClientByID(clientID string) {
+	if c, ok := m.clientByID[clientID]; ok {
+		c.enabled = false
+	}
 }
 
 func generateTestSignature(
@@ -102,11 +113,36 @@ func createTestClientProvider() *mockClientProvider {
 				pair:   &mockAPIKeyPair{apiKey: testCredentials2.APIKey, secret: testCredentials2.Secret},
 			},
 		},
-		clientsByID: map[string]auth.ClientConfig{
-			"client-1": client1,
-			"client-2": client2,
-		},
+		clientByID: map[string]*mockClientConfig{"client-1": client1, "client-2": client2},
 	}
+}
+
+func createRecorderClientProvider(threshold int) *auth.ClientProviderWithHMACRecorder {
+	client1 := &mockClientConfig{
+		clientID: "client-1",
+		groups:   nil,
+		enabled:  true,
+	}
+	client2 := &mockClientConfig{
+		clientID: "client-2",
+		groups:   nil,
+		enabled:  true,
+	}
+	provider := &mockClientProvider{
+		clientsByAPIKey: map[string]*mockClientEntry{
+			testCredentials1.APIKey: {
+				config: client1,
+				pair:   &mockAPIKeyPair{apiKey: testCredentials1.APIKey, secret: testCredentials1.Secret},
+			},
+			testCredentials2.APIKey: {
+				config: client2,
+				pair:   &mockAPIKeyPair{apiKey: testCredentials2.APIKey, secret: testCredentials2.Secret},
+			},
+		},
+		clientByID: map[string]*mockClientConfig{"client-1": client1, "client-2": client2},
+	}
+	tracker := auth.NewHMACFailureTracker(threshold, provider.DisableClientByID)
+	return &auth.ClientProviderWithHMACRecorder{ClientProvider: provider, Recorder: tracker}
 }
 
 type contextCapturingHandler struct {
@@ -124,8 +160,7 @@ func TestHMACAuthMiddleware(t *testing.T) {
 	middleware := NewHMACAuthMiddleware(clientProvider, lggr)
 
 	req := &committeepb.ReadChainStatusRequest{}
-	method := "/Aggregator/ReadChainStatus"
-	info := &grpc.UnaryServerInfo{FullMethod: method}
+	info := &grpc.UnaryServerInfo{FullMethod: testGRPCMethod}
 
 	tests := []struct {
 		name              string
@@ -142,7 +177,7 @@ func TestHMACAuthMiddleware(t *testing.T) {
 				timestampMs := time.Now().UnixMilli()
 				apiKey := testCredentials1.APIKey
 				secret := testCredentials1.Secret
-				signature := generateTestSignature(t, secret, method, req, apiKey, timestampMs)
+				signature := generateTestSignature(t, secret, testGRPCMethod, req, apiKey, timestampMs)
 				return metadata.New(map[string]string{
 					hmacutil.HeaderAuthorization: apiKey,
 					hmacutil.HeaderTimestamp:     strconv.FormatInt(timestampMs, 10),
@@ -232,7 +267,7 @@ func TestHMACAuthMiddleware(t *testing.T) {
 				timestampMs := time.Now().UnixMilli()
 				apiKey := "invalid-api-key"
 				secret := testCredentials1.Secret
-				signature := generateTestSignature(t, secret, method, req, apiKey, timestampMs)
+				signature := generateTestSignature(t, secret, testGRPCMethod, req, apiKey, timestampMs)
 				return metadata.New(map[string]string{
 					hmacutil.HeaderAuthorization: apiKey,
 					hmacutil.HeaderTimestamp:     strconv.FormatInt(timestampMs, 10),
@@ -250,7 +285,7 @@ func TestHMACAuthMiddleware(t *testing.T) {
 				expiredTimestamp := time.Now().Add(-20 * time.Second).UnixMilli()
 				apiKey := testCredentials1.APIKey
 				secret := testCredentials1.Secret
-				signature := generateTestSignature(t, secret, method, req, apiKey, expiredTimestamp)
+				signature := generateTestSignature(t, secret, testGRPCMethod, req, apiKey, expiredTimestamp)
 				return metadata.New(map[string]string{
 					hmacutil.HeaderAuthorization: apiKey,
 					hmacutil.HeaderTimestamp:     strconv.FormatInt(expiredTimestamp, 10),
@@ -268,7 +303,7 @@ func TestHMACAuthMiddleware(t *testing.T) {
 				timestampMs := time.Now().UnixMilli()
 				apiKey := testCredentials2.APIKey
 				secret := testCredentials2.Secret
-				signature := generateTestSignature(t, secret, method, req, apiKey, timestampMs)
+				signature := generateTestSignature(t, secret, testGRPCMethod, req, apiKey, timestampMs)
 				return metadata.New(map[string]string{
 					hmacutil.HeaderAuthorization: apiKey,
 					hmacutil.HeaderTimestamp:     strconv.FormatInt(timestampMs, 10),
@@ -313,4 +348,81 @@ func TestHMACAuthMiddleware(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHMACAuthMiddleware_ConsecutiveFailuresDisableClient(t *testing.T) {
+	const threshold = 2
+	provider := createRecorderClientProvider(threshold)
+	lggr := logger.Test(t)
+	middleware := NewHMACAuthMiddleware(provider, lggr)
+	req := &committeepb.ReadChainStatusRequest{}
+	info := &grpc.UnaryServerInfo{FullMethod: testGRPCMethod}
+	capturingHandler := &contextCapturingHandler{}
+
+	invalidSigMD := func() metadata.MD {
+		timestampMs := time.Now().UnixMilli()
+		return metadata.New(map[string]string{
+			hmacutil.HeaderAuthorization: testCredentials1.APIKey,
+			hmacutil.HeaderTimestamp:     strconv.FormatInt(timestampMs, 10),
+			hmacutil.HeaderSignature:     "invalid_signature",
+		})
+	}
+
+	for range threshold {
+		ctx := metadata.NewIncomingContext(context.Background(), invalidSigMD())
+		_, err := middleware.Intercept(ctx, req, info, capturingHandler.Handle)
+		require.Error(t, err)
+		st, _ := status.FromError(err)
+		require.Equal(t, codes.Unauthenticated, st.Code())
+		require.Contains(t, st.Message(), "invalid signature")
+	}
+
+	ctx := metadata.NewIncomingContext(context.Background(), invalidSigMD())
+	_, err := middleware.Intercept(ctx, req, info, capturingHandler.Handle)
+	require.Error(t, err)
+	st, _ := status.FromError(err)
+	require.Equal(t, codes.Unauthenticated, st.Code())
+	require.Contains(t, st.Message(), "invalid credentials", "client should be disabled after N consecutive failures")
+}
+
+func TestHMACAuthMiddleware_SuccessResetsConsecutiveFailureCount(t *testing.T) {
+	const threshold = 2
+	provider := createRecorderClientProvider(threshold)
+	lggr := logger.Test(t)
+	middleware := NewHMACAuthMiddleware(provider, lggr)
+	req := &committeepb.ReadChainStatusRequest{}
+	info := &grpc.UnaryServerInfo{FullMethod: testGRPCMethod}
+	capturingHandler := &contextCapturingHandler{}
+
+	invalidSigMD := func() metadata.MD {
+		timestampMs := time.Now().UnixMilli()
+		return metadata.New(map[string]string{
+			hmacutil.HeaderAuthorization: testCredentials1.APIKey,
+			hmacutil.HeaderTimestamp:     strconv.FormatInt(timestampMs, 10),
+			hmacutil.HeaderSignature:     "invalid_signature",
+		})
+	}
+	validSigMD := func() metadata.MD {
+		timestampMs := time.Now().UnixMilli()
+		sig := generateTestSignature(t, testCredentials1.Secret, testGRPCMethod, req, testCredentials1.APIKey, timestampMs)
+		return metadata.New(map[string]string{
+			hmacutil.HeaderAuthorization: testCredentials1.APIKey,
+			hmacutil.HeaderTimestamp:     strconv.FormatInt(timestampMs, 10),
+			hmacutil.HeaderSignature:     sig,
+		})
+	}
+
+	ctx := metadata.NewIncomingContext(context.Background(), invalidSigMD())
+	_, err := middleware.Intercept(ctx, req, info, capturingHandler.Handle)
+	require.Error(t, err)
+
+	ctx = metadata.NewIncomingContext(context.Background(), validSigMD())
+	_, err = middleware.Intercept(ctx, req, info, capturingHandler.Handle)
+	require.NoError(t, err)
+
+	ctx = metadata.NewIncomingContext(context.Background(), invalidSigMD())
+	_, err = middleware.Intercept(ctx, req, info, capturingHandler.Handle)
+	require.Error(t, err)
+	st, _ := status.FromError(err)
+	require.Contains(t, st.Message(), "invalid signature", "count was reset so client should not be disabled yet")
 }

@@ -408,6 +408,7 @@ type AggregatorConfig struct {
 	PyroscopeURL                                string               `toml:"pyroscope_url"`
 	MaxMessageIDsPerBatch                       int                  `toml:"maxMessageIDsPerBatch"`
 	MaxCommitVerifierNodeResultRequestsPerBatch int                  `toml:"maxCommitVerifierNodeResultRequestsPerBatch"`
+	MaxConsecutiveHMACFailuresBeforeDisable     int                  `toml:"maxConsecutiveHMACFailuresBeforeDisable"`
 }
 
 type APIKeyPairEnv struct {
@@ -501,6 +502,16 @@ func (c *AggregatorConfig) GetClientByClientID(clientID string) (auth.ClientConf
 		}
 	}
 	return nil, false
+}
+
+// DisableClientByID sets the client's Enabled to false. Used by HMAC failure tracking when threshold is reached.
+func (c *AggregatorConfig) DisableClientByID(clientID string) {
+	for _, client := range c.APIClients {
+		if client.ClientID == clientID {
+			client.Enabled = false
+			return
+		}
+	}
 }
 
 // SetDefaults sets default values for the configuration.
@@ -754,6 +765,14 @@ func (c *AggregatorConfig) ValidateOrphanRecoveryConfig() error {
 	return nil
 }
 
+// ValidateHMACFailureConfig validates the HMAC failure disable configuration.
+func (c *AggregatorConfig) ValidateHMACFailureConfig() error {
+	if c.MaxConsecutiveHMACFailuresBeforeDisable < 0 {
+		return errors.New("maxConsecutiveHMACFailuresBeforeDisable cannot be negative")
+	}
+	return nil
+}
+
 // ValidateRateLimitingConfig validates the rate limiting configuration.
 func (c *AggregatorConfig) ValidateRateLimitingConfig() error {
 	if err := c.RateLimiting.Validate(); err != nil {
@@ -898,6 +917,11 @@ func (c *AggregatorConfig) Validate() error {
 	// Validate rate limiting configuration
 	if err := c.ValidateRateLimitingConfig(); err != nil {
 		return fmt.Errorf("rate limiting configuration error: %w", err)
+	}
+
+	// Validate HMAC failure configuration
+	if err := c.ValidateHMACFailureConfig(); err != nil {
+		return fmt.Errorf("HMAC failure configuration error: %w", err)
 	}
 
 	return nil

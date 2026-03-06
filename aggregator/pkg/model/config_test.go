@@ -1020,6 +1020,58 @@ func TestGetClientByClientID(t *testing.T) {
 	})
 }
 
+func TestAggregatorConfig_DisableClientByID(t *testing.T) {
+	t.Run("disables client with matching ID", func(t *testing.T) {
+		client := &ClientConfig{ClientID: "c1", Enabled: true, APIKeyPairs: []*APIKeyPairEnv{}}
+		cfg := &AggregatorConfig{APIClients: []*ClientConfig{client}}
+
+		cfg.DisableClientByID("c1")
+		assert.False(t, client.Enabled)
+	})
+
+	t.Run("leaves other clients enabled", func(t *testing.T) {
+		c1 := &ClientConfig{ClientID: "c1", Enabled: true, APIKeyPairs: []*APIKeyPairEnv{}}
+		c2 := &ClientConfig{ClientID: "c2", Enabled: true, APIKeyPairs: []*APIKeyPairEnv{}}
+		cfg := &AggregatorConfig{APIClients: []*ClientConfig{c1, c2}}
+
+		cfg.DisableClientByID("c1")
+		assert.False(t, c1.Enabled)
+		assert.True(t, c2.Enabled)
+	})
+
+	t.Run("no-op for unknown client ID", func(t *testing.T) {
+		client := &ClientConfig{ClientID: "c1", Enabled: true, APIKeyPairs: []*APIKeyPairEnv{}}
+		cfg := &AggregatorConfig{APIClients: []*ClientConfig{client}}
+
+		cfg.DisableClientByID("unknown")
+		assert.True(t, client.Enabled)
+	})
+}
+
+func TestValidateHMACFailureConfig(t *testing.T) {
+	tests := []struct {
+		name        string
+		config      AggregatorConfig
+		expectError bool
+		errorMsg    string
+	}{
+		{"zero threshold is valid", AggregatorConfig{MaxConsecutiveHMACFailuresBeforeDisable: 0}, false, ""},
+		{"positive threshold is valid", AggregatorConfig{MaxConsecutiveHMACFailuresBeforeDisable: 5}, false, ""},
+		{"negative threshold is invalid", AggregatorConfig{MaxConsecutiveHMACFailuresBeforeDisable: -1}, true, "cannot be negative"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.ValidateHMACFailureConfig()
+			if tt.expectError {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errorMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestAPIKeyPairEnv_Validate(t *testing.T) {
 	creds, _ := hmacutil.GenerateCredentials()
 

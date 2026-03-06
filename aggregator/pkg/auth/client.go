@@ -25,3 +25,13 @@ type ClientProvider interface {
 	// GetClientByClientID looks up a client by their client ID.
 	GetClientByClientID(clientID string) (ClientConfig, bool)
 }
+
+// HMACFailureRecorder is an interface for recording HMAC verification outcomes.
+// When implemented by a ClientProvider, the HMAC middleware uses it to track consecutive
+// signature failures and may disable clients after a threshold.
+type HMACFailureRecorder interface {
+	// RecordHMACVerificationFailure records a signature failure; returns true if the client was disabled.
+	RecordHMACVerificationFailure(clientID string) (clientWasDisabled bool)
+	// RecordHMACVerificationSuccess resets the consecutive failure count for the client.
+	RecordHMACVerificationSuccess(clientID string)
+}

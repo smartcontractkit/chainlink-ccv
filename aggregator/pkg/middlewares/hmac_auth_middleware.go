@@ -78,8 +78,17 @@ func (m *HMACAuthMiddleware) Intercept(ctx context.Context, req any, info *grpc.
 	stringToSign := hmac.GenerateStringToSign(hmac.HTTPMethodPost, info.FullMethod, bodyHash, apiKey, timestamp)
 
 	if !hmac.ValidateSignature(stringToSign, providedSignature, pair.GetSecret()) {
+		if recorder, ok := m.clientProvider.(auth.HMACFailureRecorder); ok {
+			if recorder.RecordHMACVerificationFailure(client.GetClientID()) {
+				m.logger.Errorf("Client %s disabled due to consecutive HMAC verification failures", client.GetClientID())
+			}
+		}
 		m.logger.Warnf("Authentication failed for client %s: invalid signature", client.GetClientID())
 		return nil, status.Error(codes.Unauthenticated, "invalid signature")
+	}
+
+	if recorder, ok := m.clientProvider.(auth.HMACFailureRecorder); ok {
+		recorder.RecordHMACVerificationSuccess(client.GetClientID())
 	}
 
 	identity := auth.CreateCallerIdentity(client.GetClientID(), false)
