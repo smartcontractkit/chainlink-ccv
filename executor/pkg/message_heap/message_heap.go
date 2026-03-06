@@ -3,6 +3,7 @@ package message_heap
 import (
 	"container/heap"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -127,9 +128,10 @@ func (mh *MessageHeap) PopAllReady(timestamp time.Time) []MessageWithTimestamps 
 			break
 		}
 
-		entry, ok := heap.Pop(&mh.heap).(MessageHeapEntry)
+		popped := heap.Pop(&mh.heap)
+		entry, ok := popped.(MessageHeapEntry)
 		if !ok {
-			continue
+			panic(fmt.Sprintf("ReadyTimestampHeap: Pop returned %T, expected MessageHeapEntry", popped))
 		}
 		data, exists := mh.dataMap[entry.MessageID]
 		if !exists {
@@ -219,16 +221,17 @@ func (es *ExpirableMessageSet) CleanExpired(timestamp time.Time) int {
 
 	expiredCount := 0
 	for es.heap.Len() > 0 {
-		msg, err := es.heap.peek()
-		if err != nil || msg.ReadyTime.After(timestamp) {
+		peeked, err := es.heap.peek()
+		if err != nil || peeked.ReadyTime.After(timestamp) {
 			break
 		}
 
-		msg, ok := heap.Pop(&es.heap).(MessageHeapEntry)
+		popped := heap.Pop(&es.heap)
+		entry, ok := popped.(MessageHeapEntry)
 		if !ok {
-			continue
+			panic(fmt.Sprintf("ReadyTimestampHeap: Pop returned %T, expected MessageHeapEntry", popped))
 		}
-		delete(es.dataMap, msg.MessageID)
+		delete(es.dataMap, entry.MessageID)
 		expiredCount++
 	}
 	return expiredCount
