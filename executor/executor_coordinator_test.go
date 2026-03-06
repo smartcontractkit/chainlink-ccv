@@ -126,6 +126,7 @@ func TestLifecycle(t *testing.T) {
 
 	executorMock := mocks.NewMockExecutor(t)
 	executorMock.EXPECT().Start(mock.Anything).Return(nil)
+	executorMock.EXPECT().Close().Return(nil)
 
 	ec, err := executor.NewCoordinator(
 		lggr,
@@ -158,6 +159,7 @@ func TestSubscribeMessagesError(t *testing.T) {
 
 	mockExecutor := mocks.NewMockExecutor(t)
 	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
+	mockExecutor.EXPECT().Close().Return(nil)
 
 	ec, err := executor.NewCoordinator(
 		lggr,
@@ -328,6 +330,7 @@ func TestMessageExpiration(t *testing.T) {
 			// Set up executor mock
 			mockExecutor := mocks.NewMockExecutor(t)
 			mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
+			mockExecutor.EXPECT().Close().Return(nil)
 			mockExecutor.EXPECT().CheckValidMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
 			mockExecutor.EXPECT().HandleMessage(mock.Anything, mock.Anything).Return(false, nil).Maybe()
 
@@ -417,6 +420,7 @@ func TestDuplicateMessageIDFromStreamWhileInFlight_IsSkippedAndHandleMessageCall
 	unblockHandle := make(chan struct{})
 	mockExecutor := mocks.NewMockExecutor(t)
 	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
+	mockExecutor.EXPECT().Close().Return(nil)
 	mockExecutor.EXPECT().CheckValidMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockExecutor.EXPECT().HandleMessage(mock.Anything, mock.Anything).Run(func(context.Context, protocol.Message) {
 		<-unblockHandle
@@ -443,7 +447,6 @@ func TestDuplicateMessageIDFromStreamWhileInFlight_IsSkippedAndHandleMessageCall
 	defer cancel()
 
 	require.NoError(t, ec.Start(ctx))
-	defer func() { _ = ec.Close() }()
 
 	results <- testMessage
 	time.Sleep(1500 * time.Millisecond)
@@ -454,6 +457,7 @@ func TestDuplicateMessageIDFromStreamWhileInFlight_IsSkippedAndHandleMessageCall
 	close(unblockHandle)
 	time.Sleep(500 * time.Millisecond)
 
+	require.NoError(t, ec.Close())
 	require.True(t, mock.AssertExpectationsForObjects(t, mockExecutor))
 	found := func(s string) bool {
 		for _, entry := range hook.All() {
@@ -480,6 +484,7 @@ func TestClose_StopsReportingTickerOnContextDone(t *testing.T) {
 
 	mockExecutor := mocks.NewMockExecutor(t)
 	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
+	mockExecutor.EXPECT().Close().Return(nil)
 
 	ec, err := executor.NewCoordinator(
 		lggr,
@@ -531,6 +536,7 @@ func TestDuplicateMessageIDFromStreamWhenAlreadyInHeap_IsSkippedByHeapAndHandleM
 
 	mockExecutor := mocks.NewMockExecutor(t)
 	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
+	mockExecutor.EXPECT().Close().Return(nil)
 	mockExecutor.EXPECT().CheckValidMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockExecutor.EXPECT().HandleMessage(mock.Anything, mock.Anything).Return(false, nil).Once()
 
@@ -555,9 +561,9 @@ func TestDuplicateMessageIDFromStreamWhenAlreadyInHeap_IsSkippedByHeapAndHandleM
 	defer cancel()
 
 	require.NoError(t, ec.Start(ctx))
-	defer func() { _ = ec.Close() }()
 
 	time.Sleep(2 * time.Second)
+	require.NoError(t, ec.Close())
 	require.True(t, mock.AssertExpectationsForObjects(t, mockExecutor))
 }
 
@@ -596,6 +602,7 @@ func TestGracefulShutdown(t *testing.T) {
 	handlerBlockedHandle := make(chan struct{})
 	mockExecutor := mocks.NewMockExecutor(t)
 	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
+	mockExecutor.EXPECT().Close().Return(nil)
 	mockExecutor.EXPECT().CheckValidMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockExecutor.EXPECT().HandleMessage(mock.Anything, mock.Anything).Run(func(ctx context.Context, msg protocol.Message) {
 		close(handlerBlockedHandle)
