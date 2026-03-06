@@ -77,10 +77,6 @@ func main() {
 		lggr.Errorw("Failed to load configuration", "path", configPath, "error", err)
 		os.Exit(1)
 	}
-	if err = executorConfig.Validate(); err != nil {
-		lggr.Errorw("Failed to validate configuration", "path", configPath, "error", err)
-		os.Exit(1)
-	}
 
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "executor",
