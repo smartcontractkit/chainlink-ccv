@@ -49,6 +49,12 @@ const (
 )
 
 func SetupMonitoring(lggr logger.Logger, config verifier.MonitoringConfig) verifier.Monitoring {
+	// If monitoring is not enabled, return a fake monitoring implementation that does nothing.
+	if !config.Enabled {
+		verifierMonitoring := monitoring.NewFakeVerifierMonitoring()
+		return verifierMonitoring
+	}
+
 	beholderConfig := beholder.Config{
 		InsecureConnection:       config.Beholder.InsecureConnection,
 		CACertFile:               config.Beholder.CACertFile,
