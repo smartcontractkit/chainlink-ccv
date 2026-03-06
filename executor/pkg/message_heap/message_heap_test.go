@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 func createTestMessage(nonce, sourceChain, destChain uint64) *protocol.Message {
@@ -62,7 +63,7 @@ func TestMessageHeap_PeekTime(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Initialize heap to maintain heap property
-			mh := NewMessageHeap()
+			mh := NewMessageHeap(logger.Test(t))
 
 			for _, msg := range tt.messages {
 				mh.Push(*msg)
@@ -146,7 +147,7 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Initialize heap to maintain heap property
-			mh := NewMessageHeap()
+			mh := NewMessageHeap(logger.Test(t))
 			for _, msg := range tt.messages {
 				mh.Push(*msg)
 			}
@@ -253,6 +254,140 @@ func TestMessageHeap_InternalHeapIntegration(t *testing.T) {
 	// Verify heap is empty
 	if mh.Len() != 0 {
 		t.Errorf("Heap should be empty after popping all elements")
+	}
+}
+
+func TestMessageHeap_DuplicatePushIsRejected(t *testing.T) {
+	t1 := time.Unix(100, 0)
+	t2 := time.Unix(200, 0)
+	tPop := time.Unix(300, 0)
+
+	msg := createMessageWithTimestamp(t1, 1)
+
+	mh := NewMessageHeap(logger.Test(t))
+	if !mh.Push(*msg) {
+		t.Fatal("first Push should return true")
+	}
+
+	dupMsg := *msg
+	dupMsg.ReadyTime = t2
+	if mh.Push(dupMsg) {
+		t.Fatal("duplicate Push with same MessageID should return false")
+	}
+
+	if mh.Len() != 1 {
+		t.Errorf("expected Len()=1 after duplicate Push, got %d", mh.Len())
+	}
+
+	results := mh.PopAllReady(tPop)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result from PopAllReady, got %d", len(results))
+	}
+	if results[0].Message == nil {
+		t.Fatal("popped Message must not be nil")
+	}
+	if uint64(results[0].Message.SequenceNumber) != 1 {
+		t.Errorf("expected SequenceNumber=1, got %d", results[0].Message.SequenceNumber)
+	}
+	if results[0].ReadyTime != t1 {
+		t.Errorf("expected ReadyTime from first push (%v), got %v", t1, results[0].ReadyTime)
+	}
+}
+
+func TestMessageHeap_PopAllReadySkipsOrphanedEntries(t *testing.T) {
+	t1 := time.Unix(100, 0)
+	t2 := time.Unix(200, 0)
+	tPop := time.Unix(300, 0)
+
+	msg1 := createMessageWithTimestamp(t1, 1)
+	msg2 := createMessageWithTimestamp(t2, 2)
+
+	mh := NewMessageHeap(logger.Test(t))
+	mh.Push(*msg1)
+	mh.Push(*msg2)
+
+	delete(mh.dataMap, msg1.MessageID)
+
+	results := mh.PopAllReady(tPop)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result (orphaned entry skipped), got %d", len(results))
+	}
+	if results[0].Message == nil {
+		t.Fatal("popped Message must not be nil")
+	}
+	if uint64(results[0].Message.SequenceNumber) != 2 {
+		t.Errorf("expected SequenceNumber=2, got %d", results[0].Message.SequenceNumber)
+	}
+}
+
+func TestMessageHeap_PopAllReadySkipsOrphanInMiddle(t *testing.T) {
+	t1 := time.Unix(100, 0)
+	t2 := time.Unix(200, 0)
+	t3 := time.Unix(300, 0)
+	tPop := time.Unix(400, 0)
+
+	msg1 := createMessageWithTimestamp(t1, 1)
+	msg2 := createMessageWithTimestamp(t2, 2)
+	msg3 := createMessageWithTimestamp(t3, 3)
+
+	mh := NewMessageHeap(logger.Test(t))
+	mh.Push(*msg1)
+	mh.Push(*msg2)
+	mh.Push(*msg3)
+
+	delete(mh.dataMap, msg2.MessageID)
+
+	results := mh.PopAllReady(tPop)
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results (orphan skipped), got %d", len(results))
+	}
+	if uint64(results[0].Message.SequenceNumber) != 1 || uint64(results[1].Message.SequenceNumber) != 3 {
+		t.Errorf("expected nonces [1,3], got [%d,%d]", results[0].Message.SequenceNumber, results[1].Message.SequenceNumber)
+	}
+}
+
+func TestMessageHeap_PopAllReadyAllOrphaned(t *testing.T) {
+	t1 := time.Unix(100, 0)
+	t2 := time.Unix(200, 0)
+	tPop := time.Unix(300, 0)
+
+	msg1 := createMessageWithTimestamp(t1, 1)
+	msg2 := createMessageWithTimestamp(t2, 2)
+
+	mh := NewMessageHeap(logger.Test(t))
+	mh.Push(*msg1)
+	mh.Push(*msg2)
+
+	delete(mh.dataMap, msg1.MessageID)
+	delete(mh.dataMap, msg2.MessageID)
+
+	results := mh.PopAllReady(tPop)
+	if len(results) != 0 {
+		t.Fatalf("expected 0 results when all entries orphaned, got %d", len(results))
+	}
+}
+
+func TestMessageHeap_PushSucceedsAfterPop(t *testing.T) {
+	t1 := time.Unix(100, 0)
+	tPop := time.Unix(200, 0)
+
+	msg := createMessageWithTimestamp(t1, 1)
+	mh := NewMessageHeap(logger.Test(t))
+
+	if !mh.Push(*msg) {
+		t.Fatal("first Push should succeed")
+	}
+
+	results := mh.PopAllReady(tPop)
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	if !mh.Push(*msg) {
+		t.Fatal("re-push after PopAllReady should succeed")
+	}
+	if mh.Len() != 1 {
+		t.Errorf("expected Len()=1 after re-push, got %d", mh.Len())
 	}
 }
 

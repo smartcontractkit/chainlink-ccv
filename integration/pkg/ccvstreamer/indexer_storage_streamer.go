@@ -130,9 +130,14 @@ func (oss *IndexerStorageStreamer) Start(
 					if msgWithMetadata.Metadata.IngestionTimestamp.After(oss.lastQueryTime) {
 						oss.latestSeenTime = msgWithMetadata.Metadata.IngestionTimestamp
 					}
-					netNewMessage := oss.expirableSet.PushUnlessExists(msgWithMetadata.Message.MustMessageID(), msgWithMetadata.Metadata.IngestionTimestamp)
+					msgID, err := msgWithMetadata.Message.MessageID()
+					if err != nil {
+						oss.lggr.Errorw("dropping message with invalid ID", "error", err)
+						continue
+					}
+					netNewMessage := oss.expirableSet.PushUnlessExists(msgID, msgWithMetadata.Metadata.IngestionTimestamp)
 					if netNewMessage {
-						oss.lggr.Infow("Found net new message from Indexer", "messageID", msgWithMetadata.Message.MustMessageID(), "msgWithMetadata", msgWithMetadata)
+						oss.lggr.Infow("Found net new message from Indexer", "messageID", msgID, "msgWithMetadata", msgWithMetadata)
 						results <- msgWithMetadata
 					}
 				}

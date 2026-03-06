@@ -70,7 +70,6 @@ type SourceReaderService struct {
 // NewSourceReaderServiceDB creates a DB-backed SourceReaderService that publishes
 // ready tasks directly to the ccv_task_verifier_jobs job queue.
 func NewSourceReaderServiceDB(
-	ctx context.Context,
 	sourceReader chainaccess.SourceReader,
 	chainSelector protocol.ChainSelector,
 	chainStatusManager protocol.ChainStatusManager,
