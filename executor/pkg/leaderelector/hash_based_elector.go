@@ -2,6 +2,8 @@ package leaderelector
 
 import (
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -31,16 +33,17 @@ func NewHashBasedLeaderElector(
 	executorIDs map[protocol.ChainSelector][]string,
 	thisExecutorID string,
 	executionIntervals map[protocol.ChainSelector]time.Duration,
-) *HashBasedLeaderElector {
-	// Create a sorted copy of executor IDs for deterministic ordering
+) (*HashBasedLeaderElector, error) {
+	if err := validateElectorInputs(executorIDs, thisExecutorID, executionIntervals); err != nil {
+		return nil, err
+	}
+
 	sortedExecutorIDs := make(map[protocol.ChainSelector][]string, len(executorIDs))
 	executorIndices := make(map[protocol.ChainSelector]int, len(executorIDs))
 	for chainSel, ids := range executorIDs {
 		sortedExecutorIDs[chainSel] = make([]string, len(ids))
 		copy(sortedExecutorIDs[chainSel], ids)
 		slices.Sort(sortedExecutorIDs[chainSel])
-
-		// Find this executor's position in the sorted array
 		executorIndices[chainSel] = slices.Index(sortedExecutorIDs[chainSel], thisExecutorID)
 	}
 
@@ -50,7 +53,48 @@ func NewHashBasedLeaderElector(
 		thisExecutorID:     thisExecutorID,
 		executionIntervals: executionIntervals,
 		executorIndices:    executorIndices,
+	}, nil
+}
+
+func validateElectorInputs(
+	executorIDs map[protocol.ChainSelector][]string,
+	thisExecutorID string,
+	executionIntervals map[protocol.ChainSelector]time.Duration,
+) error {
+	var errs []error
+	if thisExecutorID == "" {
+		errs = append(errs, errors.New("this executor ID must not be empty"))
 	}
+	if len(executorIDs) == 0 {
+		errs = append(errs, errors.New("executor IDs map must not be empty"))
+	}
+	for chainSel, ids := range executorIDs {
+		if len(ids) == 0 {
+			errs = append(errs, fmt.Errorf("executor pool for chain %d must not be empty", chainSel))
+			continue
+		}
+		seen := make(map[string]struct{}, len(ids))
+		for _, id := range ids {
+			if _, ok := seen[id]; ok {
+				errs = append(errs, fmt.Errorf("executor pool for chain %d contains duplicate ID %q", chainSel, id))
+				break
+			}
+			seen[id] = struct{}{}
+		}
+		if !slices.Contains(ids, thisExecutorID) {
+			errs = append(errs, fmt.Errorf("this executor ID %q not found in executor pool for chain %d", thisExecutorID, chainSel))
+		}
+		interval, ok := executionIntervals[chainSel]
+		if !ok || interval <= 0 {
+			errs = append(errs, fmt.Errorf("execution interval for chain %d must be positive", chainSel))
+		}
+	}
+	for chainSel := range executionIntervals {
+		if _, ok := executorIDs[chainSel]; !ok {
+			errs = append(errs, fmt.Errorf("execution interval configured for unknown chain %d", chainSel))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // GetReadyTimestamp implements the LeaderElector interface.
