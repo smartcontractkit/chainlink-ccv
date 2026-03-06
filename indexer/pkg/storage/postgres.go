@@ -558,6 +558,7 @@ func (d *PostgresStorage) CreateDiscoveryState(ctx context.Context, discoveryLoc
 		d.lggr.Errorw("Failed to create discovery state record", "error", err, "discoveryLocation", discoveryLocation, "sequenceNumber", startingSequenceNumber)
 		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opCreateDiscoveryState)
 		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
+		return fmt.Errorf("failed to create discovery state: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
@@ -568,7 +569,7 @@ func (d *PostgresStorage) CreateDiscoveryState(ctx context.Context, discoveryLoc
 	}
 
 	if rowsAffected == 0 {
-		d.lggr.Warnw("Discovery Record already exisits for source", "discoveryLocation", discoveryLocation)
+		d.lggr.Warnw("Discovery record already exists for source", "discoveryLocation", discoveryLocation)
 		return nil
 	}
 
