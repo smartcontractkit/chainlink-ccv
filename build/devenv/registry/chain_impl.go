@@ -32,7 +32,9 @@ func (r *ChainImplRegistry) Register(chainID, family string, impl cciptestinterf
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	fmt.Printf("Registering chain implementation for chain ID %s and family %s: %d\n", chainID, family, details.ChainSelector)
 	r.impls[details.ChainSelector] = chainImplEntry{Impl: impl, Details: details}
+	fmt.Printf("%d registered chain implementations\n", len(r.impls))
 	return nil
 }
 

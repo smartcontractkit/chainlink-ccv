@@ -6,6 +6,8 @@ replace github.com/smartcontractkit/chainlink-ccv => ../..
 
 replace github.com/smartcontractkit/chainlink-ccv/deployments => ../../deployments
 
+// replace github.com/smartcontractkit/chainlink-deployments-framework => ../../../chainlink-deployments-framework
+
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/Masterminds/semver/v3 v3.4.0

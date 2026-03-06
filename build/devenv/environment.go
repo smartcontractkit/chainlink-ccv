@@ -400,6 +400,7 @@ func (c *Cfg) NewAggregatorClientForCommittee(logger zerolog.Logger, committeeNa
 	}
 
 	caCertFile := c.AggregatorCACertFiles[committeeName]
+	fmt.Printf("Creating aggregator client for committee %s with endpoint %s and CA cert file %s\n", committeeName, endpoint, caCertFile)
 	return NewAggregatorClient(logger, endpoint, caCertFile)
 }
 
@@ -427,15 +428,17 @@ func checkKeys(in *Cfg) error {
 	return nil
 }
 
-func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Configuration, error) {
-	switch typ {
+// NewProductConfigurationFromNetwork creates a new product configuration from a network family and chain ID.
+func NewProductConfigurationFromNetwork(family, chainID string) (cciptestinterfaces.CCIP17Configuration, error) {
+	// TODO: remove the defaults (evm and canton) later
+	switch family {
 	case "anvil":
 		// TODO: move evm to the impl factory registry.
 		return evm.NewEmptyCCIP17EVM(), nil
 	default:
-		fac, err := GetImplFactory(typ)
+		fac, err := GetImplFactory(family)
 		if err != nil {
-			return nil, fmt.Errorf("could not find impl factory for chain family %s: %w", typ, err)
+			return nil, fmt.Errorf("could not find impl factory for chain family %s: %w", family, err)
 		}
 		return fac.NewEmpty(), nil
 	}
@@ -462,6 +465,9 @@ func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers [
 		}
 		if nop.SignerAddressByFamily[chainsel.FamilyCanton] == "" {
 			cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyCanton, ver.Out.BootstrapKeys.ECDSAPublicKey)
+		}
+		if nop.SignerAddressByFamily[chainsel.FamilyStellar] == "" {
+			cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyStellar, ver.Out.BootstrapKeys.EdDSAPublicKey)
 		}
 		seenAliases[ver.NOPAlias] = struct{}{}
 	}
@@ -594,8 +600,9 @@ func generateExecutorJobSpecs(
 	}
 	Plog.Info().Any("Addresses", addresses).Int("ImplsLen", len(impls)).Msg("Funding executors")
 	for i, impl := range impls {
-		if in.Blockchains[i].Type == blockchain.TypeCanton {
-			// Executor doesn't support Canton.
+		// Executor doesn't support non-EVM chains yet.
+		nonSupportedChains := []string{blockchain.TypeCanton, blockchain.TypeStellar}
+		if slices.Contains(nonSupportedChains, in.Blockchains[i].Type) {
 			continue
 		}
 
@@ -798,7 +805,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	impls := make([]cciptestinterfaces.CCIP17Configuration, 0)
 	for _, bc := range in.Blockchains {
 		var impl cciptestinterfaces.CCIP17Configuration
-		impl, err = NewProductConfigurationFromNetwork(bc.Type)
+		impl, err = NewProductConfigurationFromNetwork(bc.Type, bc.ChainID)
 		if err != nil {
 			return nil, err
 		}
@@ -857,7 +864,8 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	if in.Pricer != nil {
 		for i, impl := range impls {
-			if in.Blockchains[i].Type == blockchain.TypeCanton {
+			// Skip non-EVM chains for pricer funding (pricer uses EVM addresses)
+			if in.Blockchains[i].Type == blockchain.TypeCanton || in.Blockchains[i].Type == blockchain.TypeStellar {
 				continue
 			}
 			Plog.Info().Int("ImplIndex", i).Msg("Funding pricer key")
@@ -949,6 +957,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		if err := jobs.ConnectNodesToJD(ctx, jdInfra, clientLookup, chainIDs); err != nil {
 			return nil, fmt.Errorf("failed to connect nodes to JD: %w", err)
 		}
+		fmt.Printf("Connected %v chains with JD\n", chainIDs)
 	}
 	timeTrack.Record("[infra] started JD infrastructure")
 
@@ -964,16 +973,19 @@ func NewEnvironment() (in *Cfg, err error) {
 	// even though aggregator containers haven't started yet.
 	/////////////////////////////////////////////
 
-	_, err = launchStandaloneVerifiers(in, blockchainOutputs, jdInfra)
+	verifierOuts, err := launchStandaloneVerifiers(in, blockchainOutputs, jdInfra)
 	if err != nil {
 		return nil, fmt.Errorf("failed to launch standalone verifiers: %w", err)
 	}
+
+	fmt.Printf("Launched %d standalone verifiers\n", len(verifierOuts))
 
 	// Register standalone verifiers with JD so they can receive job proposals.
 	if jdInfra != nil && jdInfra.OffchainClient != nil {
 		if err := registerStandaloneVerifiersWithJD(ctx, in.Verifier, jdInfra.OffchainClient); err != nil {
 			return nil, err
 		}
+		fmt.Printf("Registered %d standalone verifiers with JD\n", len(in.Verifier))
 	}
 
 	/////////////////////////////////////////////
@@ -1138,8 +1150,12 @@ func NewEnvironment() (in *Cfg, err error) {
 		if out.TLSCACertFile != "" {
 			in.AggregatorCACertFiles[aggregatorInput.CommitteeName] = out.TLSCACertFile
 		}
+		fmt.Printf("Created aggregator service for committee %s with endpoint %s and CA cert file %s and container name %s and host port %d and address %s\n", aggregatorInput.CommitteeName, out.ExternalHTTPSUrl, out.TLSCACertFile, out.ContainerName, aggregatorInput.HostPort, out.Address)
+		// out.GeneratedCommittee.DestinationVerifiers
 		e.DataStore = output.DataStore.Seal()
 	}
+
+	fmt.Printf("aggregator endpoints: %v\n", in.AggregatorEndpoints)
 
 	///////////////////////////////
 	// START: Launch aggregators //
@@ -1688,10 +1704,13 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, 
 		}
 	}
 
+	fmt.Printf("Applying defaults to %d verifiers\n", len(in.Verifier))
 	// Apply defaults to verifiers so that we can use them in the standalone mode.
 	for i := range in.Verifier {
 		ver := committeeverifier.ApplyDefaults(*in.Verifier[i])
+		fmt.Printf("Applying defaults to verifier with chain family %s and committee name %s\n", ver.ChainFamily, ver.CommitteeName)
 		in.Verifier[i] = &ver
+		fmt.Printf("Verifier container name: %s, image: %s, mode: %s, port: %d, env: %v\n", ver.ContainerName, ver.Image, ver.Mode, ver.Port, ver.Env)
 	}
 
 	outs := make([]*committeeverifier.Output, 0, len(in.Verifier))
