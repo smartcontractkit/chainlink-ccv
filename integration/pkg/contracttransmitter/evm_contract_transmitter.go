@@ -3,6 +3,7 @@ package contracttransmitter
 import (
 	"context"
 	"crypto/ecdsa"
+	"errors"
 	"fmt"
 	"math/big"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -106,7 +108,7 @@ func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Cont
 	ct.mu.Lock()
 	defer ct.mu.Unlock()
 
-	contractCcvs := make([]common.Address, 0)
+	contractCcvs := make([]common.Address, 0, len(report.CCVS))
 	for _, ccv := range report.CCVS {
 		contractCcvs = append(contractCcvs, common.HexToAddress(ccv.String()))
 	}
@@ -118,7 +120,7 @@ func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Cont
 	encodedMsg, err := report.Message.Encode()
 	if err != nil {
 		ct.lggr.Errorw("unable to submit txn: invalid message encoding", "error", err, "messageID", report.Message.MustMessageID())
-		return fmt.Errorf("unable to submit txn: invalid message encoding %s", err)
+		return errors.Join(executor.ErrMessageEncoding, fmt.Errorf("unable to submit txn: invalid message encoding %s", err))
 	}
 	tx, err := ct.OffRamp.Execute(opts, encodedMsg, contractCcvs, report.CCVData, DefaultGasLimitOverride)
 	if err != nil {

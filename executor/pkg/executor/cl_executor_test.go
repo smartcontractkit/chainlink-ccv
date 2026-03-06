@@ -393,6 +393,12 @@ func Test_ChainlinkExecutor_HandleMessage_ConvertAndWrite(t *testing.T) {
 			expectedError:      true,
 		},
 		{
+			name:               "ConvertAndWriteMessageToChain encoding error - should not retry",
+			convertAndWriteErr: errors.Join(coordinator.ErrMessageEncoding, errors.New("unable to submit txn: invalid message encoding")),
+			expectedRetry:      false,
+			expectedError:      true,
+		},
+		{
 			name:               "ConvertAndWriteMessageToChain with correct report structure",
 			convertAndWriteErr: nil,
 			expectedRetry:      false,
