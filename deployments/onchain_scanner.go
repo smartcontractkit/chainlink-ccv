@@ -17,6 +17,20 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 )
 
+// ChainScanner reads committee verifier state for a specific chain family.
+type ChainScanner func(ctx context.Context, env deployment.Environment, ref datastore.AddressRef) (*OnChainCommitteeState, error)
+
+var chainScanners = map[string]ChainScanner{}
+
+// RegisterChainScanner registers a scanner for a given chain family.
+func RegisterChainScanner(family string, scanner ChainScanner) {
+	chainScanners[family] = scanner
+}
+
+func init() {
+	RegisterChainScanner(chainsel.FamilyEVM, scanCommitteeVerifier)
+}
+
 // OnChainCommitteeState represents the actual on-chain state of a committee verifier.
 type OnChainCommitteeState struct {
 	// Qualifier is the committee qualifier from the datastore.
@@ -62,10 +76,7 @@ func ScanOnChainTopology(
 	)
 
 	if len(refs) == 0 {
-		env.Logger.Warnw("no CommitteeVerifier contracts found in datastore, returning empty topology")
-		return &OnChainTopology{
-			Committees: make(map[string][]*OnChainCommitteeState),
-		}, nil
+		return nil, fmt.Errorf("no CommitteeVerifier contracts found in datastore")
 	}
 
 	var mu sync.Mutex
@@ -80,25 +91,23 @@ func ScanOnChainTopology(
 		if err != nil {
 			return nil, fmt.Errorf("failed to get chain family for selector %d: %w", ref.ChainSelector, err)
 		}
-		switch chainFamily {
-		case chainsel.FamilyEVM:
-			g.Go(func() error {
-				state, err := scanCommitteeVerifier(ctx, env, ref)
-				if err != nil {
-					return fmt.Errorf("failed to scan committee verifier %s on chain %d: %w",
-						ref.Address, ref.ChainSelector, err)
-				}
-
-				mu.Lock()
-				topology.Committees[state.Qualifier] = append(topology.Committees[state.Qualifier], state)
-				mu.Unlock()
-				return nil
-			})
-		default:
-			// Skip other chain families for now
-			env.Logger.Warnw("skipping CommitteeVerifier scan on unsupported chain family", "family", chainFamily, "selector", ref.ChainSelector)
+		scanner, ok := chainScanners[chainFamily]
+		if !ok {
+			env.Logger.Warnw("no scanner registered for chain family, skipping", "family", chainFamily, "selector", ref.ChainSelector)
 			continue
 		}
+		g.Go(func() error {
+			state, err := scanner(ctx, env, ref)
+			if err != nil {
+				return fmt.Errorf("failed to scan committee verifier %s on chain %d: %w",
+					ref.Address, ref.ChainSelector, err)
+			}
+
+			mu.Lock()
+			topology.Committees[state.Qualifier] = append(topology.Committees[state.Qualifier], state)
+			mu.Unlock()
+			return nil
+		})
 	}
 
 	if err := g.Wait(); err != nil {
