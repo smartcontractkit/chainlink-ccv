@@ -2,6 +2,7 @@ package evm
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,10 +34,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/create2_factory"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/erc20_lock_box"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/fee_quoter"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/lock_release_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/fee_quoter"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
@@ -45,7 +46,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/link_token"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/token_admin_registry"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
@@ -64,14 +65,15 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
+	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/offramp"
+	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/onramp"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
 	evmchangesets "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/changesets"
-	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/offramp"
-	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/onramp"
 	feequoterwrapper "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/fee_quoter"
 	routeroperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	routerwrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_2_0/router"
 	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
+	changesetsutils "github.com/smartcontractkit/chainlink-ccip/deployment/utils"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 )
 
@@ -1265,25 +1267,17 @@ func (m *CCIP17EVMConfig) configureTokenForTransfer(
 
 		tokensRemoteChains[rs] = tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
 			RemotePool: &remoteRef,
-			DefaultFinalityInboundRateLimiterConfig: tokenscore.RateLimiterConfig{
+			DefaultFinalityInboundRateLimiterConfig: tokenscore.RateLimiterConfigFloatInput{
 				IsEnabled: false,
-				Capacity:  big.NewInt(0),
-				Rate:      big.NewInt(0),
 			},
-			DefaultFinalityOutboundRateLimiterConfig: tokenscore.RateLimiterConfig{
+			DefaultFinalityOutboundRateLimiterConfig: tokenscore.RateLimiterConfigFloatInput{
 				IsEnabled: false,
-				Capacity:  big.NewInt(0),
-				Rate:      big.NewInt(0),
 			},
-			CustomFinalityInboundRateLimiterConfig: tokenscore.RateLimiterConfig{
+			CustomFinalityInboundRateLimiterConfig: tokenscore.RateLimiterConfigFloatInput{
 				IsEnabled: false,
-				Capacity:  big.NewInt(0),
-				Rate:      big.NewInt(0),
 			},
-			CustomFinalityOutboundRateLimiterConfig: tokenscore.RateLimiterConfig{
+			CustomFinalityOutboundRateLimiterConfig: tokenscore.RateLimiterConfigFloatInput{
 				IsEnabled: false,
-				Capacity:  big.NewInt(0),
-				Rate:      big.NewInt(0),
 			},
 			OutboundCCVs: ccvRefs,
 			InboundCCVs:  ccvRefs,
@@ -1339,7 +1333,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 			return fmt.Errorf("unsupported family %s for chain %d", family, rs)
 		}
 
-		remoteChains[rs] = adapters.RemoteChainConfig[datastore.AddressRef, datastore.AddressRef]{
+		remoteChains[rs] = lanes.RemoteChainConfig[datastore.AddressRef, datastore.AddressRef]{
 			AllowTrafficFrom: true,
 			OnRamps: []datastore.AddressRef{
 				{
@@ -1374,7 +1368,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 				Version:   semver.MustParse(executor.DeployProxy.Version()),
 				Qualifier: devenvcommon.DefaultExecutorQualifier,
 			},
-			FeeQuoterDestChainConfig: adapters.FeeQuoterDestChainConfig{
+			FeeQuoterDestChainConfig: lanes.FeeQuoterDestChainConfig{
 				IsEnabled:                   true,
 				MaxDataBytes:                30_000,
 				MaxPerMsgGasLimit:           3_000_000,
@@ -1384,11 +1378,11 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 				DefaultTokenDestGasOverhead: 90_000,
 				DefaultTxGasLimit:           200_000,
 				NetworkFeeUSDCents:          10,
-				ChainFamilySelector:         [4]byte{0x28, 0x12, 0xd5, 0x2c}, // EVM
+				ChainFamilySelector:         binary.BigEndian.Uint32(changesetsutils.GetSelectorHex(selector)[:]),
 				LinkFeeMultiplierPercent:    90,
 				USDPerUnitGas:               big.NewInt(1e6),
 			},
-			ExecutorDestChainConfig: adapters.ExecutorDestChainConfig{
+			ExecutorDestChainConfig: lanes.ExecutorDestChainConfig{
 				Enabled:     true,
 				USDCentsFee: 0, // TODO: set proper fee
 			},
@@ -1417,7 +1411,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 
 	mcmsReaderRegistry := changesetscore.GetRegistry()
 	// Use the global chain family registry. We expect the relevant chain families to be already registered.
-	chainFamilyRegistry := registry.GetGlobalChainFamilyAdapterRegistry()
+	chainFamilyRegistry := lanes.GetLaneAdapterRegistry()
 
 	_, err := ccvchangesets.ConfigureChainsForLanesFromTopology(chainFamilyRegistry, mcmsReaderRegistry).Apply(*e, ccvchangesets.ConfigureChainsForLanesFromTopologyConfig{
 		Topology: topology,
@@ -1504,7 +1498,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 	for _, rs := range remoteSelectors {
 		destChainSelectorsToAdd = append(destChainSelectorsToAdd, executor.RemoteChainConfigArgs{
 			DestChainSelector: rs,
-			Config: adapters.ExecutorDestChainConfig{
+			Config: lanes.ExecutorDestChainConfig{
 				Enabled:     true,
 				USDCentsFee: 0, // TODO: set proper fee
 			},
