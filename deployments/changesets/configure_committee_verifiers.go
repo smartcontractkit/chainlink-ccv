@@ -5,11 +5,12 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/Masterminds/semver/v3"
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/fetch_signing_keys"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -56,6 +57,16 @@ type PartialChainConfig struct {
 	FeeQuoter datastore.AddressRef
 	// The OffRamp on the chain being configured
 	OffRamp datastore.AddressRef
+	// The addresses of CCVs that will be applied to messages FROM this chain if no receiver is specified.
+	DefaultInboundCCVs []datastore.AddressRef
+	// Addresses of any CCVs that must always be used for messages FROM this chain.
+	LaneMandatedInboundCCVs []datastore.AddressRef
+	// Addresses of CCVs that will be used for messages TO this chain if none are specified.
+	DefaultOutboundCCVs []datastore.AddressRef
+	// Addresses of CCVs that will always be applied to messages TO this chain.
+	LaneMandatedOutboundCCVs []datastore.AddressRef
+	// The Executor address that will be used for messages TO this chain if none is specified.
+	DefaultExecutor datastore.AddressRef
 	// The configuration for each remote chain that we want to connect to.
 	RemoteChains map[uint64]lanes.ChainDefinition
 }
@@ -97,7 +108,7 @@ func ConfigureChainsForLanesFromTopology(laneAdapterRegistry *lanes.LaneAdapterR
 
 		signingKeysByNOP := fetchAllSigningKeysForTopology(e, cfg.Topology)
 
-		chains := make([]lanes.ChainDefinition, 0, len(cfg.Chains))
+		chains := make([]lanes.LaneConfig, 0, len(cfg.Chains))
 		for _, chain := range cfg.Chains {
 			committeeVerifiers := make([]lanes.CommitteeVerifierConfig[datastore.AddressRef], 0, len(chain.CommitteeVerifiers))
 			for _, committeeVerifier := range chain.CommitteeVerifiers {
@@ -152,16 +163,24 @@ func ConfigureChainsForLanesFromTopology(laneAdapterRegistry *lanes.LaneAdapterR
 					RemoteChains: remoteChains,
 				})
 			}
-			chains = append(chains, lanes.ChainDefinition{
-				ChainSelector:      chain.ChainSelector,
-				RemoteChains:       chain.RemoteChains,
-				CommitteeVerifiers: committeeVerifiers,
+			for _, remoteChainConfig := range chain.RemoteChains {
+			chains = append(chains, lanes.LaneConfig{
+				ChainA: lanes.ChainDefinition{
+					Selector: chain.ChainSelector,
+					CommitteeVerifiers: committeeVerifiers,
+					DefaultInboundCCVs: chain.DefaultInboundCCVs,
+					DefaultOutboundCCVs: chain.DefaultOutboundCCVs,
+					DefaultExecutor:    chain.DefaultExecutor,
+				},
+				ChainB: remoteChainConfig,
+				Version: semver.MustParse("2.0.0"),
 			})
+		}
 		}
 
 		return lanes.ConnectChains(laneAdapterRegistry, mcmsRegistry).Apply(e, lanes.ConnectChainsConfig{
-			Chains: chains,
-			MCMS:   cfg.MCMS,
+			Lanes: chains,
+			MCMS:  cfg.MCMS,
 		})
 	}
 

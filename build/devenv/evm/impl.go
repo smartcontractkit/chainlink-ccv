@@ -49,7 +49,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployments/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -1316,7 +1315,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 	)
 	e.OperationsBundle = bundle
 
-	remoteChains := make(map[uint64]adapters.RemoteChainConfig[datastore.AddressRef, datastore.AddressRef])
+	remoteChains := make(map[uint64]lanes.ChainDefinition)
 	for _, rs := range remoteSelectors {
 		// TODO: should be moved to the ChainFamily interface.
 		var addressBytesLength uint8
@@ -1333,41 +1332,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 			return fmt.Errorf("unsupported family %s for chain %d", family, rs)
 		}
 
-		remoteChains[rs] = lanes.RemoteChainConfig[datastore.AddressRef, datastore.AddressRef]{
-			AllowTrafficFrom: true,
-			OnRamps: []datastore.AddressRef{
-				{
-					Type:    datastore.ContractType(onrampoperations.ContractType),
-					Version: semver.MustParse(onrampoperations.Deploy.Version()),
-				},
-			},
-			OffRamp: datastore.AddressRef{
-				Type:    datastore.ContractType(offrampoperations.ContractType),
-				Version: semver.MustParse(offrampoperations.Deploy.Version()),
-			},
-			DefaultInboundCCVs: []datastore.AddressRef{
-				{
-					Type:          datastore.ContractType(committee_verifier.ResolverType),
-					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-					ChainSelector: selector,
-					Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier, // TODO: pull this from committees param?
-				},
-			},
-			// LaneMandatedInboundCCVs: []datastore.AddressRef{},
-			DefaultOutboundCCVs: []datastore.AddressRef{
-				{
-					Type:          datastore.ContractType(committee_verifier.ResolverType),
-					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
-					ChainSelector: selector,
-					Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier, // TODO: pull this from committees param?
-				},
-			},
-			// LaneMandatedOutboundCCVs: []datastore.AddressRef{},
-			DefaultExecutor: datastore.AddressRef{
-				Type:      datastore.ContractType(executor.ProxyType),
-				Version:   semver.MustParse(executor.DeployProxy.Version()),
-				Qualifier: devenvcommon.DefaultExecutorQualifier,
-			},
+		remoteChains[rs] = lanes.ChainDefinition{
 			FeeQuoterDestChainConfig: lanes.FeeQuoterDestChainConfig{
 				IsEnabled:                   true,
 				MaxDataBytes:                30_000,
@@ -1435,6 +1400,29 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 				Router: datastore.AddressRef{
 					Type:    datastore.ContractType(routeroperations.ContractType),
 					Version: semver.MustParse(routeroperations.Deploy.Version()),
+				},
+				DefaultInboundCCVs: []datastore.AddressRef{
+					{
+						Type:          datastore.ContractType(committee_verifier.ResolverType),
+						Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+						ChainSelector: selector,
+						Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier, // TODO: pull this from committees param?
+					},
+				},
+				// LaneMandatedInboundCCVs: []datastore.AddressRef{},
+				DefaultOutboundCCVs: []datastore.AddressRef{
+					{
+						Type:          datastore.ContractType(committee_verifier.ResolverType),
+						Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+						ChainSelector: selector,
+						Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier, // TODO: pull this from committees param?
+					},
+				},
+				// LaneMandatedOutboundCCVs: []datastore.AddressRef{},
+				DefaultExecutor: datastore.AddressRef{
+					Type:      datastore.ContractType(executor.ProxyType),
+					Version:   semver.MustParse(executor.DeployProxy.Version()),
+					Qualifier: devenvcommon.DefaultExecutorQualifier,
 				},
 			},
 		},
