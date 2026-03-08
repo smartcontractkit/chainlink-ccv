@@ -144,6 +144,8 @@ func (m *CCIP17EVMConfig) deployCCTPChain(
 				StorageLocations:  []string{"https://test.chain.link.fake"},
 				FastFinalityBps:   100,
 				DeployerContract:  create2Factory.Address,
+				USDCType:          adapters.Canonical,
+				TokenDecimals:     6,
 			},
 		},
 	})
@@ -213,6 +215,8 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(
 			FastFinalityBps:   100,
 			DeployerContract:  create2.Address,
 			RemoteChains:      remoteChains,
+			USDCType:          adapters.Canonical,
+			TokenDecimals:     6,
 		},
 	}
 	for chainSelector, poolRef := range usdcTokenPoolRefs {

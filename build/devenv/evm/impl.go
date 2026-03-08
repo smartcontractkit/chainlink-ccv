@@ -1338,6 +1338,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		}
 
 		remoteChains[rs] = lanes.ChainDefinition{
+			Selector: rs,
 			FeeQuoterDestChainConfig: lanes.FeeQuoterDestChainConfig{
 				IsEnabled:                   true,
 				MaxDataBytes:                30_000,
@@ -1613,7 +1614,7 @@ func (m *CCIP17EVMConfig) fundLockReleaseTokenPool(
 	// Get lock box from datastore
 	// TODO: Qualifier should match that of the pool, need to update chainlink-ccip
 	// This only works currently because there is only one lock release pool deployed per chain
-	lockBoxRef, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(selector, datastore.ContractType(erc20_lock_box.ContractType), erc20_lock_box.Version, ""))
+	lockBoxRef, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(selector, datastore.ContractType(erc20_lock_box.ContractType), erc20_lock_box.Version, tokenPoolRef.Qualifier))
 	if err != nil {
 		return fmt.Errorf("failed to get lock box address: %w", err)
 	}
