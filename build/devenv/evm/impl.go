@@ -1190,6 +1190,11 @@ func (m *CCIP17EVMConfig) deployTokenAndPool(
 					Version: semver.MustParse(routeroperations.Deploy.Version()),
 				},
 				ThresholdAmountForAdditionalCCVs: big.NewInt(0),
+				TokenAdminRegistryRef: datastore.AddressRef{
+					ChainSelector: selector,
+					Type:          datastore.ContractType(token_admin_registry.ContractType),
+					Version:       token_admin_registry.Version,
+				},
 			},
 		})
 	}
@@ -1385,22 +1390,6 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 				ChainSelector:      selector,
 				RemoteChains:       remoteChains,
 				CommitteeVerifiers: committeeVerifiers,
-				FeeQuoter: datastore.AddressRef{
-					Type:    datastore.ContractType(fee_quoter.ContractType),
-					Version: semver.MustParse(fee_quoter.Deploy.Version()),
-				},
-				OnRamp: datastore.AddressRef{
-					Type:    datastore.ContractType(onrampoperations.ContractType),
-					Version: semver.MustParse(onrampoperations.Deploy.Version()),
-				},
-				OffRamp: datastore.AddressRef{
-					Type:    datastore.ContractType(offrampoperations.ContractType),
-					Version: semver.MustParse(offrampoperations.Deploy.Version()),
-				},
-				Router: datastore.AddressRef{
-					Type:    datastore.ContractType(routeroperations.ContractType),
-					Version: semver.MustParse(routeroperations.Deploy.Version()),
-				},
 				DefaultInboundCCVs: []datastore.AddressRef{
 					{
 						Type:          datastore.ContractType(committee_verifier.ResolverType),
