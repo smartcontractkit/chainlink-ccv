@@ -22,6 +22,8 @@ type ApplyExecutorConfigCfg struct {
 	ChainSelectors []uint64
 	// TargetNOPs limits which NOPs to update. Defaults to all in pool.
 	TargetNOPs []shared.NOPAlias
+	// RevokeOrphanedJobs when true revokes and cleans up orphaned jobs; default false.
+	RevokeOrphanedJobs bool
 }
 
 type ExecutorApplyDeps struct {
@@ -138,17 +140,11 @@ func ApplyExecutorConfigWithDeps(deps ExecutorApplyDeps, cfg ApplyExecutorConfig
 		sequences.ManageJobProposals,
 		sequences.ManageJobProposalsDeps{Env: deps.Env},
 		sequences.ManageJobProposalsInput{
-			JobSpecs:      report.Output.JobSpecs,
-			AffectedScope: report.Output.AffectedScope,
-			Labels: map[string]string{
-				"job_type": "executor",
-				"executor": cfg.ExecutorQualifier,
-			},
-			NOPs: sequences.NOPContext{
-				Modes:      nopModes,
-				TargetNOPs: cfg.TargetNOPs,
-				AllNOPs:    getAllNOPAliases(cfg.Topology.NOPTopology.NOPs),
-			},
+			JobSpecs:           report.Output.JobSpecs,
+			AffectedScope:      report.Output.AffectedScope,
+			Labels:             map[string]string{"job_type": "executor", "executor": cfg.ExecutorQualifier},
+			NOPs:               sequences.NOPContext{Modes: nopModes, TargetNOPs: cfg.TargetNOPs, AllNOPs: getAllNOPAliases(cfg.Topology.NOPTopology.NOPs)},
+			RevokeOrphanedJobs: cfg.RevokeOrphanedJobs,
 		},
 	)
 	if err != nil {

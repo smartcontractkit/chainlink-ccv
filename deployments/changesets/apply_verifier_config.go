@@ -29,6 +29,8 @@ type ApplyVerifierConfigCfg struct {
 	// DisableFinalityCheckers is a list of chain selectors (as strings) for which
 	// the finality violation checker should be disabled.
 	DisableFinalityCheckers []string
+	// RevokeOrphanedJobs when true revokes and cleans up orphaned jobs; default false.
+	RevokeOrphanedJobs bool
 }
 
 type VerifierApplyDeps struct {
@@ -159,17 +161,11 @@ func ApplyVerifierConfigWithDeps(deps VerifierApplyDeps, cfg ApplyVerifierConfig
 		sequences.ManageJobProposals,
 		sequences.ManageJobProposalsDeps{Env: deps.Env},
 		sequences.ManageJobProposalsInput{
-			JobSpecs:      report.Output.JobSpecs,
-			AffectedScope: report.Output.AffectedScope,
-			Labels: map[string]string{
-				"job_type":  "verifier",
-				"committee": cfg.CommitteeQualifier,
-			},
-			NOPs: sequences.NOPContext{
-				Modes:      buildNOPModes(cfg.Topology.NOPTopology.NOPs),
-				TargetNOPs: cfg.TargetNOPs,
-				AllNOPs:    getAllNOPAliases(cfg.Topology.NOPTopology.NOPs),
-			},
+			JobSpecs:           report.Output.JobSpecs,
+			AffectedScope:      report.Output.AffectedScope,
+			Labels:             map[string]string{"job_type": "verifier", "committee": cfg.CommitteeQualifier},
+			NOPs:               sequences.NOPContext{Modes: buildNOPModes(cfg.Topology.NOPTopology.NOPs), TargetNOPs: cfg.TargetNOPs, AllNOPs: getAllNOPAliases(cfg.Topology.NOPTopology.NOPs)},
+			RevokeOrphanedJobs: cfg.RevokeOrphanedJobs,
 		},
 	)
 	if err != nil {
