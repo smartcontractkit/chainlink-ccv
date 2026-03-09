@@ -111,7 +111,7 @@ func TestApplyExecutorConfig_ValidatesExecutorPoolNOPs(t *testing.T) {
 
 	topology := newTestTopology(
 		WithExecutorPool(testDefaultQualifier, deployments.ExecutorPoolConfig{
-			NOPAliases: []string{},
+			ChainConfigs: map[string]deployments.ChainExecutorPoolConfig{},
 		}),
 	)
 
@@ -120,7 +120,7 @@ func TestApplyExecutorConfig_ValidatesExecutorPoolNOPs(t *testing.T) {
 		ExecutorQualifier: testDefaultQualifier,
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "executor pool \"default\" has no NOPs")
+	assert.Contains(t, err.Error(), "has no chain configs")
 }
 
 func TestApplyExecutorConfig_PyroscopeNotAllowedInProduction(t *testing.T) {
@@ -237,9 +237,10 @@ func TestApplyExecutorConfig_RemovesOrphanedJobSpecs(t *testing.T) {
 
 	cs := changesets.ApplyExecutorConfig()
 	output, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
-		Topology:          newTestTopology(),
-		ExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:    defaultSelectors,
+		Topology:           newTestTopology(),
+		ExecutorQualifier:  testDefaultQualifier,
+		ChainSelectors:     defaultSelectors,
+		RevokeOrphanedJobs: true,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
@@ -252,6 +253,36 @@ func TestApplyExecutorConfig_RemovesOrphanedJobSpecs(t *testing.T) {
 	otherQualifierJob, err := deployments.GetJob(outputSealed, "nop-1", "nop-1-custom-executor")
 	require.NoError(t, err, "job spec for other qualifier should be preserved")
 	assert.Equal(t, "other-qualifier-job-spec", otherQualifierJob.Spec)
+}
+
+func TestApplyExecutorConfig_PreservesOrphanedJobSpecsWhenRevokeOrphanedJobsFalse(t *testing.T) {
+	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, defaultSelectors)
+	setupExecutorDatastore(t, ds, defaultSelectors, testDefaultQualifier)
+
+	err := deployments.SaveJob(ds, shared.JobInfo{
+		Spec:     "orphaned-job-spec",
+		JobID:    "removed-nop-default-executor",
+		NOPAlias: "removed-nop",
+		Mode:     shared.NOPModeStandalone,
+	})
+	require.NoError(t, err)
+
+	env.DataStore = ds.Seal()
+
+	cs := changesets.ApplyExecutorConfig()
+	output, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
+		Topology:          newTestTopology(),
+		ExecutorQualifier: testDefaultQualifier,
+		ChainSelectors:    defaultSelectors,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, output.DataStore)
+
+	outputSealed := output.DataStore.Seal()
+
+	orphanedJob, err := deployments.GetJob(outputSealed, "removed-nop", "removed-nop-default-executor")
+	require.NoError(t, err, "orphaned job spec should be preserved when RevokeOrphanedJobs is false")
+	assert.Equal(t, "orphaned-job-spec", orphanedJob.Spec)
 }
 
 func TestApplyExecutorConfig_TargetNOPsScoping(t *testing.T) {
@@ -288,6 +319,7 @@ func TestApplyExecutorConfig_TargetNOPsScoping(t *testing.T) {
 	job, err := deployments.GetJob(outputSealed, "nop-1", "nop-1-default-executor")
 	require.NoError(t, err, "nop-1 executor job spec should exist")
 	assert.NotEqual(t, "nop-1-job-spec", job.Spec, "nop-1 job spec should be updated")
+	assert.Contains(t, job.Spec, "nop-2", "nop-1 job spec executor_pool should still include non-targeted nop-2")
 
 	nop2Job, err := deployments.GetJob(outputSealed, "nop-2", "nop-2-default-executor")
 	require.NoError(t, err, "nop-2 executor job spec should be preserved when not in scope")
@@ -336,10 +368,7 @@ func TestApplyExecutorConfig_PoolMembershipIncludedInJobSpec(t *testing.T) {
 			{Alias: "nop-2", Name: "nop-2", Mode: shared.NOPModeStandalone},
 			{Alias: "nop-3", Name: "nop-3", Mode: shared.NOPModeStandalone},
 		}),
-		WithExecutorPool(testDefaultQualifier, deployments.ExecutorPoolConfig{
-			NOPAliases:        []string{"nop-1", "nop-2", "nop-3"},
-			ExecutionInterval: 15 * time.Second,
-		}),
+		WithExecutorPool(testDefaultQualifier, executorPoolConfigForSelectors(selectors, []string{"nop-1", "nop-2", "nop-3"}, 15*time.Second)),
 	)
 
 	cs := changesets.ApplyExecutorConfig()
@@ -356,6 +385,106 @@ func TestApplyExecutorConfig_PoolMembershipIncludedInJobSpec(t *testing.T) {
 	assert.Contains(t, job.Spec, "nop-1", "job spec should include nop-1 in pool")
 	assert.Contains(t, job.Spec, "nop-2", "job spec should include nop-2 in pool")
 	assert.Contains(t, job.Spec, "nop-3", "job spec should include nop-3 in pool")
+}
+
+func TestApplyExecutorConfig_PerChainPoolMembershipAndIntervalInJobSpec(t *testing.T) {
+	sel1Str := strconv.FormatUint(defaultSelectors[0], 10)
+	sel2Str := strconv.FormatUint(defaultSelectors[1], 10)
+	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, defaultSelectors)
+	setupExecutorDatastore(t, ds, defaultSelectors, testDefaultQualifier)
+	env.DataStore = ds.Seal()
+
+	topology := newTestTopology(
+		WithNOPs([]deployments.NOPConfig{
+			{Alias: "nop-1", Name: "nop-1", Mode: shared.NOPModeStandalone},
+			{Alias: "nop-2", Name: "nop-2", Mode: shared.NOPModeStandalone},
+			{Alias: "nop-3", Name: "nop-3", Mode: shared.NOPModeStandalone},
+		}),
+		WithExecutorPool(testDefaultQualifier, deployments.ExecutorPoolConfig{
+			ChainConfigs: map[string]deployments.ChainExecutorPoolConfig{
+				sel1Str: {
+					NOPAliases:        []string{"nop-1", "nop-2"},
+					ExecutionInterval: 10 * time.Second,
+				},
+				sel2Str: {
+					NOPAliases:        []string{"nop-2", "nop-3"},
+					ExecutionInterval: 20 * time.Second,
+				},
+			},
+		}),
+	)
+
+	cs := changesets.ApplyExecutorConfig()
+	output, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
+		Topology:          topology,
+		ExecutorQualifier: testDefaultQualifier,
+		ChainSelectors:    defaultSelectors,
+	})
+	require.NoError(t, err)
+
+	nop1Job, err := deployments.GetJob(output.DataStore.Seal(), "nop-1", "nop-1-default-executor")
+	require.NoError(t, err)
+	assert.Contains(t, nop1Job.Spec, sel1Str, "nop-1 should have chain 1 only")
+	assert.NotContains(t, nop1Job.Spec, sel2Str, "nop-1 should not have chain 2")
+	assert.Contains(t, nop1Job.Spec, `executor_pool = ["nop-1", "nop-2"]`)
+	assert.Contains(t, nop1Job.Spec, `execution_interval = "10s"`)
+
+	nop2Job, err := deployments.GetJob(output.DataStore.Seal(), "nop-2", "nop-2-default-executor")
+	require.NoError(t, err)
+	assert.Contains(t, nop2Job.Spec, sel1Str, "nop-2 should have chain 1")
+	assert.Contains(t, nop2Job.Spec, sel2Str, "nop-2 should have chain 2")
+	assert.Contains(t, nop2Job.Spec, `executor_pool = ["nop-1", "nop-2"]`)
+	assert.Contains(t, nop2Job.Spec, `executor_pool = ["nop-2", "nop-3"]`)
+	assert.Contains(t, nop2Job.Spec, `execution_interval = "10s"`)
+	assert.Contains(t, nop2Job.Spec, `execution_interval = "20s"`)
+
+	nop3Job, err := deployments.GetJob(output.DataStore.Seal(), "nop-3", "nop-3-default-executor")
+	require.NoError(t, err)
+	assert.NotContains(t, nop3Job.Spec, sel1Str, "nop-3 should not have chain 1")
+	assert.Contains(t, nop3Job.Spec, sel2Str, "nop-3 should have chain 2 only")
+	assert.Contains(t, nop3Job.Spec, `executor_pool = ["nop-2", "nop-3"]`)
+	assert.Contains(t, nop3Job.Spec, `execution_interval = "20s"`)
+}
+
+func TestApplyExecutorConfig_FailsWhenPoolChainHasNoDeployedContracts(t *testing.T) {
+	selectors := []uint64{chainsel.TEST_90000001.Selector}
+	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, selectors)
+	setupExecutorDatastore(t, ds, selectors, testDefaultQualifier)
+	env.DataStore = ds.Seal()
+
+	topology := newTestTopology(
+		WithExecutorPool(testDefaultQualifier, executorPoolConfigForSelectors(
+			defaultSelectors,
+			[]string{"nop-1", "nop-2"},
+			15*time.Second,
+		)),
+	)
+
+	cs := changesets.ApplyExecutorConfig()
+	_, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
+		Topology:          topology,
+		ExecutorQualifier: testDefaultQualifier,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no deployed contracts")
+}
+
+func TestApplyExecutorConfig_FailsWhenRequestedChainHasNoDeployedContracts(t *testing.T) {
+	selectors := []uint64{chainsel.TEST_90000001.Selector}
+	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, selectors)
+	setupExecutorDatastore(t, ds, selectors, testDefaultQualifier)
+	env.DataStore = ds.Seal()
+
+	topology := newTestTopology()
+
+	cs := changesets.ApplyExecutorConfig()
+	_, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
+		Topology:          topology,
+		ExecutorQualifier: testDefaultQualifier,
+		ChainSelectors:    defaultSelectors,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no deployed contracts")
 }
 
 func TestApplyExecutorConfig_UpdatesJobsWhenChainRemoved(t *testing.T) {
@@ -407,10 +536,7 @@ func TestApplyExecutorConfig_AllNOPsUpdatedWhenMemberAddedToPool(t *testing.T) {
 			{Alias: "nop-1", Name: "nop-1", Mode: shared.NOPModeStandalone},
 			{Alias: "nop-2", Name: "nop-2", Mode: shared.NOPModeStandalone},
 		}),
-		WithExecutorPool(testDefaultQualifier, deployments.ExecutorPoolConfig{
-			NOPAliases:        []string{"nop-1", "nop-2"},
-			ExecutionInterval: 15 * time.Second,
-		}),
+		WithExecutorPool(testDefaultQualifier, executorPoolConfigForSelectors(selectors, []string{"nop-1", "nop-2"}, 15*time.Second)),
 	)
 
 	cs := changesets.ApplyExecutorConfig()
@@ -440,10 +566,7 @@ func TestApplyExecutorConfig_AllNOPsUpdatedWhenMemberAddedToPool(t *testing.T) {
 			{Alias: "nop-2", Name: "nop-2", Mode: shared.NOPModeStandalone},
 			{Alias: "nop-3", Name: "nop-3", Mode: shared.NOPModeStandalone},
 		}),
-		WithExecutorPool(testDefaultQualifier, deployments.ExecutorPoolConfig{
-			NOPAliases:        []string{"nop-1", "nop-2", "nop-3"},
-			ExecutionInterval: 15 * time.Second,
-		}),
+		WithExecutorPool(testDefaultQualifier, executorPoolConfigForSelectors(selectors, []string{"nop-1", "nop-2", "nop-3"}, 15*time.Second)),
 	)
 
 	env.DataStore = firstSealedDS
@@ -480,10 +603,7 @@ func TestApplyExecutorConfig_AllNOPsUpdatedWhenMemberRemovedFromPool(t *testing.
 			{Alias: "nop-2", Name: "nop-2", Mode: shared.NOPModeStandalone},
 			{Alias: "nop-3", Name: "nop-3", Mode: shared.NOPModeStandalone},
 		}),
-		WithExecutorPool(testDefaultQualifier, deployments.ExecutorPoolConfig{
-			NOPAliases:        []string{"nop-1", "nop-2", "nop-3"},
-			ExecutionInterval: 15 * time.Second,
-		}),
+		WithExecutorPool(testDefaultQualifier, executorPoolConfigForSelectors(selectors, []string{"nop-1", "nop-2", "nop-3"}, 15*time.Second)),
 	)
 
 	cs := changesets.ApplyExecutorConfig()
@@ -509,17 +629,15 @@ func TestApplyExecutorConfig_AllNOPsUpdatedWhenMemberRemovedFromPool(t *testing.
 			{Alias: "nop-2", Name: "nop-2", Mode: shared.NOPModeStandalone},
 			{Alias: "nop-3", Name: "nop-3", Mode: shared.NOPModeStandalone},
 		}),
-		WithExecutorPool(testDefaultQualifier, deployments.ExecutorPoolConfig{
-			NOPAliases:        []string{"nop-1", "nop-2"},
-			ExecutionInterval: 15 * time.Second,
-		}),
+		WithExecutorPool(testDefaultQualifier, executorPoolConfigForSelectors(selectors, []string{"nop-1", "nop-2"}, 15*time.Second)),
 	)
 
 	env.DataStore = firstSealedDS
 	secondOutput, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
-		Topology:          reducedTopology,
-		ExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:    selectors,
+		Topology:           reducedTopology,
+		ExecutorQualifier:  testDefaultQualifier,
+		ChainSelectors:     selectors,
+		RevokeOrphanedJobs: true,
 	})
 	require.NoError(t, err)
 

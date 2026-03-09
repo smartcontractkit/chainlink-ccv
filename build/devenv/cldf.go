@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
 
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/canton/provider/authentication"
@@ -23,31 +24,14 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
-	solrpc "github.com/gagliardetto/solana-go/rpc"
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
 	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
 	cldf_canton_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/canton/provider"
 	cldf_evm_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider"
-	cldf_solana "github.com/smartcontractkit/chainlink-deployments-framework/chain/solana"
 )
 
 var Plog = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel).With().Fields(map[string]any{"component": "ccv"}).Logger()
-
-// CLDFProviderFactory creates a CLDF BlockChain provider from a blockchain.Input.
-type CLDFProviderFactory func(b *blockchain.Input) (cldf_chain.BlockChain, uint64, error)
-
-var (
-	cldfProviderFactories   = map[string]CLDFProviderFactory{}
-	cldfProviderFactoriesMu sync.Mutex
-)
-
-// RegisterCLDFProviderFactory registers a CLDF provider factory for a given chain family.
-func RegisterCLDFProviderFactory(family string, factory CLDFProviderFactory) {
-	cldfProviderFactoriesMu.Lock()
-	defer cldfProviderFactoriesMu.Unlock()
-	cldfProviderFactories[family] = factory
-}
 
 type CLDF struct {
 	mu        sync.Mutex          `toml:"-"`
@@ -189,37 +173,17 @@ func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint
 				return nil, nil, err
 			}
 			providers = append(providers, p)
-		case chainsel.FamilySolana:
-			d, err := chainsel.GetChainDetailsByChainIDAndFamily(b.Out.ChainID, chainsel.FamilySolana)
-			if err != nil {
-				return nil, nil, fmt.Errorf("get Solana chain details for %s: %w", b.Out.ChainID, err)
-			}
-			selectors = append(selectors, d.ChainSelector)
-
-			rpcURL := b.Out.Nodes[0].ExternalHTTPUrl
-			wsURL := b.Out.Nodes[0].ExternalWSUrl
-
-			solClient := solrpc.New(rpcURL)
-			chain := cldf_solana.Chain{
-				Selector: d.ChainSelector,
-				Client:   solClient,
-				URL:      rpcURL,
-				WSURL:    wsURL,
-			}
-			providers = append(providers, chain)
 		default:
-			cldfProviderFactoriesMu.Lock()
-			factory, ok := cldfProviderFactories[b.Out.Family]
-			cldfProviderFactoriesMu.Unlock()
+			factory, ok := registry.GetGlobalCLDFProviderRegistry().Get(b.Out.Family)
 			if !ok {
-				return nil, nil, fmt.Errorf("unsupported blockchain family: %s", b.Out.Family)
+				return nil, nil, fmt.Errorf("unsupported blockchain family, missing CLDF provider factory: %s", b.Out.Family)
 			}
-			p, selector, err := factory(b)
+			provider, selector, err := factory(context.Background(), b)
 			if err != nil {
-				return nil, nil, fmt.Errorf("failed to create CLDF provider for family %s: %w", b.Out.Family, err)
+				return nil, nil, err
 			}
 			selectors = append(selectors, selector)
-			providers = append(providers, p)
+			providers = append(providers, provider)
 		}
 	}
 

@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/stretchr/testify/assert"
@@ -315,6 +316,7 @@ func TestApplyVerifierConfig_RemovesOrphanedJobSpecs(t *testing.T) {
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
 		ChainSelectors:           defaultSelectors,
+		RevokeOrphanedJobs:       true,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
@@ -327,6 +329,37 @@ func TestApplyVerifierConfig_RemovesOrphanedJobSpecs(t *testing.T) {
 	otherCommitteeJob, err := deployments.GetJob(outputSealed, "nop-1", "nop-1-instance-1-other-committee-verifier")
 	require.NoError(t, err, "job spec for other committee should be preserved")
 	assert.Equal(t, "other-committee-job-spec", otherCommitteeJob.Spec)
+}
+
+func TestApplyVerifierConfig_PreservesOrphanedJobSpecsWhenRevokeOrphanedJobsFalse(t *testing.T) {
+	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, defaultSelectors)
+	setupVerifierDatastore(t, ds, defaultSelectors, testCommittee, testDefaultQualifier)
+
+	err := deployments.SaveJob(ds, shared.JobInfo{
+		Spec:     "orphaned-job-spec",
+		JobID:    "removed-nop-instance-1-test-committee-verifier",
+		NOPAlias: "removed-nop",
+		Mode:     shared.NOPModeStandalone,
+	})
+	require.NoError(t, err)
+
+	env.DataStore = ds.Seal()
+
+	cs := changesets.ApplyVerifierConfig()
+	output, err := cs.Apply(env, changesets.ApplyVerifierConfigCfg{
+		Topology:                 newTestTopology(),
+		CommitteeQualifier:       testCommittee,
+		DefaultExecutorQualifier: testDefaultQualifier,
+		ChainSelectors:           defaultSelectors,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, output.DataStore)
+
+	outputSealed := output.DataStore.Seal()
+
+	orphanedJob, err := deployments.GetJob(outputSealed, "removed-nop", "removed-nop-instance-1-test-committee-verifier")
+	require.NoError(t, err, "orphaned job spec should be preserved when RevokeOrphanedJobs is false")
+	assert.Equal(t, "orphaned-job-spec", orphanedJob.Spec)
 }
 
 func TestApplyVerifierConfig_TargetNOPsScoping(t *testing.T) {
@@ -478,9 +511,7 @@ func TestApplyVerifierConfig_SkipsNOPsNotInAnyChainConfig(t *testing.T) {
 				sel1Str: {NOPAliases: []string{"nop-1"}, Threshold: 1},
 			},
 		}),
-		WithExecutorPool(testDefaultQualifier, deployments.ExecutorPoolConfig{
-			NOPAliases: []string{"nop-1", "nop-not-in-committee"},
-		}),
+		WithExecutorPool(testDefaultQualifier, executorPoolConfigForSelectors(selectors, []string{"nop-1", "nop-not-in-committee"}, 15*time.Second)),
 	)
 
 	cs := changesets.ApplyVerifierConfig()
@@ -632,6 +663,7 @@ func TestApplyVerifierConfig_RemovesJobWhenNOPRemovedFromCommittee(t *testing.T)
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
 		ChainSelectors:           defaultSelectors,
+		RevokeOrphanedJobs:       true,
 	})
 	require.NoError(t, err)
 
