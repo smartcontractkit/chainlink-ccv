@@ -321,7 +321,7 @@ func main() {
 	// Wait for shutdown signal
 	// ------------------------------------------------------------------------------------------------
 	<-sigCh
-	lggr.Infow("🛑 Shutdown signal received, stopping verifier...")
+	lggr.Infow("Shutdown signal received, stopping executor...")
 
 	// Graceful shutdown
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -341,7 +341,7 @@ func main() {
 		lggr.Errorw("Execution coordinator shutdown timed out")
 	}
 
-	lggr.Infow("✅ Execution service stopped gracefully")
+	lggr.Infow("Execution service stopped gracefully")
 }
 
 func loadConfiguration(filepath string) (*executor.Configuration, map[string]*blockchain.Info, error) {

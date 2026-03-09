@@ -7,3 +7,6 @@ packages:
   github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared:
     interfaces:
       JDClient:
+  github.com/smartcontractkit/chainlink-deployments-framework/offchain:
+    interfaces:
+      Client:
