@@ -91,8 +91,37 @@ func ScanOnChainTopology(
 				mu.Unlock()
 				return nil
 			})
+		case chainsel.FamilySolana:
+			// TODO: There's no on-chain CommitteeVerifier contract for Solana yet so this builds
+			//   dummy SignatureConfigs referencing every other chain as a source so the aggregator
+			//   quorum config is populated. This shoudl be removed when we have onchain verifiers for
+			//   Solana as well.
+			allSelectors := make(map[uint64]struct{})
+			for _, ref := range refs {
+				allSelectors[ref.ChainSelector] = struct{}{}
+			}
+
+			placeholderSigner := common.HexToAddress("0x0000000000000000000000000000000000000001")
+			var sigConfigs []OnChainSignatureConfig
+			for sel := range allSelectors {
+				if sel == ref.ChainSelector {
+					continue
+				}
+				sigConfigs = append(sigConfigs, OnChainSignatureConfig{
+					SourceChainSelector: sel,
+					Signers:             []common.Address{placeholderSigner},
+					Threshold:           1,
+				})
+			}
+			mu.Lock()
+			topology.Committees[ref.Qualifier] = append(topology.Committees[ref.Qualifier], &OnChainCommitteeState{
+				Qualifier:        ref.Qualifier,
+				ChainSelector:    ref.ChainSelector,
+				Address:          ref.Address,
+				SignatureConfigs: sigConfigs,
+			})
+			mu.Unlock()
 		default:
-			// Skip other chain families for now
 			env.Logger.Warnw("skipping CommitteeVerifier scan on unsupported chain family", "family", chainFamily, "selector", ref.ChainSelector)
 			continue
 		}
