@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	jobpb "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/job"
 	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
@@ -79,17 +80,6 @@ func TestApplyExecutorConfig_Validation(t *testing.T) {
 			},
 			expectedErr: "not found in executor pool",
 		},
-		{
-			name: "chain selector not in environment",
-			setupEnv: func(t *testing.T) changesets.ApplyExecutorConfigCfg {
-				return changesets.ApplyExecutorConfigCfg{
-					Topology:          newTestTopology(),
-					ExecutorQualifier: testDefaultQualifier,
-					ChainSelectors:    []uint64{999999999},
-				}
-			},
-			expectedErr: "selector 999999999 is not available in environment",
-		},
 	}
 
 	for _, tt := range tests {
@@ -139,6 +129,29 @@ func TestApplyExecutorConfig_PyroscopeNotAllowedInProduction(t *testing.T) {
 	assert.Contains(t, err.Error(), "pyroscope URL is not supported for production environments")
 }
 
+func TestApplyExecutorConfig_SucceedsWhenChainNotInBlockChainsButInDataStore(t *testing.T) {
+	envBlockChains := []uint64{chainsel.TEST_90000001.Selector}
+	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, envBlockChains)
+	setupExecutorDatastore(t, ds, defaultSelectors, testDefaultQualifier)
+	env.DataStore = ds.Seal()
+
+	sel1Str := strconv.FormatUint(defaultSelectors[0], 10)
+	sel2Str := strconv.FormatUint(defaultSelectors[1], 10)
+
+	cs := changesets.ApplyExecutorConfig()
+	output, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
+		Topology:          newTestTopology(),
+		ExecutorQualifier: testDefaultQualifier,
+	})
+	require.NoError(t, err)
+
+	job, err := deployments.GetJob(output.DataStore.Seal(), "nop-1", "nop-1-default-executor")
+	require.NoError(t, err)
+
+	assert.Contains(t, job.Spec, sel1Str, "chain in both BlockChains and DataStore should be in job spec")
+	assert.Contains(t, job.Spec, sel2Str, "chain only in DataStore should still be in job spec")
+}
+
 func TestApplyExecutorConfig_GeneratesValidJobSpec(t *testing.T) {
 	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, defaultSelectors)
 	setupExecutorDatastore(t, ds, defaultSelectors, testDefaultQualifier)
@@ -157,7 +170,6 @@ func TestApplyExecutorConfig_GeneratesValidJobSpec(t *testing.T) {
 	output, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
 		Topology:          topology,
 		ExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:    defaultSelectors,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
@@ -198,7 +210,6 @@ func TestApplyExecutorConfig_PreservesExistingJobSpecs(t *testing.T) {
 	output, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
 		Topology:          newTestTopology(),
 		ExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:    defaultSelectors,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
@@ -239,7 +250,6 @@ func TestApplyExecutorConfig_RemovesOrphanedJobSpecs(t *testing.T) {
 	output, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
 		Topology:           newTestTopology(),
 		ExecutorQualifier:  testDefaultQualifier,
-		ChainSelectors:     defaultSelectors,
 		RevokeOrphanedJobs: true,
 	})
 	require.NoError(t, err)
@@ -273,7 +283,6 @@ func TestApplyExecutorConfig_PreservesOrphanedJobSpecsWhenRevokeOrphanedJobsFals
 	output, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
 		Topology:          newTestTopology(),
 		ExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:    defaultSelectors,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
@@ -308,7 +317,6 @@ func TestApplyExecutorConfig_TargetNOPsScoping(t *testing.T) {
 	output, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
 		Topology:          newTestTopology(),
 		ExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:    defaultSelectors,
 		TargetNOPs:        []shared.NOPAlias{"nop-1"},
 	})
 	require.NoError(t, err)
@@ -326,7 +334,7 @@ func TestApplyExecutorConfig_TargetNOPsScoping(t *testing.T) {
 	assert.Equal(t, "nop-2-job-spec", nop2Job.Spec, "nop-2 job spec should be unchanged")
 }
 
-func TestApplyExecutorConfig_UsesDeployedChainsWhenEmptyChainSelectors(t *testing.T) {
+func TestApplyExecutorConfig_OnlyIncludesDeployedChains(t *testing.T) {
 	selectors := []uint64{
 		chainsel.TEST_90000001.Selector,
 		chainsel.TEST_90000002.Selector,
@@ -344,7 +352,6 @@ func TestApplyExecutorConfig_UsesDeployedChainsWhenEmptyChainSelectors(t *testin
 	output, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
 		Topology:          newTestTopology(),
 		ExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:    nil,
 	})
 	require.NoError(t, err)
 
@@ -375,7 +382,6 @@ func TestApplyExecutorConfig_PoolMembershipIncludedInJobSpec(t *testing.T) {
 	output, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
 		Topology:          topology,
 		ExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:    selectors,
 	})
 	require.NoError(t, err)
 
@@ -418,7 +424,6 @@ func TestApplyExecutorConfig_PerChainPoolMembershipAndIntervalInJobSpec(t *testi
 	output, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
 		Topology:          topology,
 		ExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:    defaultSelectors,
 	})
 	require.NoError(t, err)
 
@@ -469,25 +474,7 @@ func TestApplyExecutorConfig_FailsWhenPoolChainHasNoDeployedContracts(t *testing
 	assert.Contains(t, err.Error(), "no deployed contracts")
 }
 
-func TestApplyExecutorConfig_FailsWhenRequestedChainHasNoDeployedContracts(t *testing.T) {
-	selectors := []uint64{chainsel.TEST_90000001.Selector}
-	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, selectors)
-	setupExecutorDatastore(t, ds, selectors, testDefaultQualifier)
-	env.DataStore = ds.Seal()
-
-	topology := newTestTopology()
-
-	cs := changesets.ApplyExecutorConfig()
-	_, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
-		Topology:          topology,
-		ExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:    defaultSelectors,
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no deployed contracts")
-}
-
-func TestApplyExecutorConfig_UpdatesJobsWhenChainRemoved(t *testing.T) {
+func TestApplyExecutorConfig_UpdatesJobsWhenChainRemovedFromTopology(t *testing.T) {
 	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, defaultSelectors)
 	setupExecutorDatastore(t, ds, defaultSelectors, testDefaultQualifier)
 	env.DataStore = ds.Seal()
@@ -498,7 +485,6 @@ func TestApplyExecutorConfig_UpdatesJobsWhenChainRemoved(t *testing.T) {
 	firstOutput, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
 		Topology:          topology,
 		ExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:    defaultSelectors,
 	})
 	require.NoError(t, err)
 
@@ -510,11 +496,18 @@ func TestApplyExecutorConfig_UpdatesJobsWhenChainRemoved(t *testing.T) {
 	assert.True(t, strings.Contains(firstJob.Spec, sel1Str) && strings.Contains(firstJob.Spec, sel2Str),
 		"first job should contain both chains")
 
+	topologyWithOneChain := newTestTopology(
+		WithExecutorPool(testDefaultQualifier, executorPoolConfigForSelectors(
+			[]uint64{defaultSelectors[0]},
+			[]string{"nop-1", "nop-2"},
+			15*time.Second,
+		)),
+	)
+
 	env.DataStore = firstOutput.DataStore.Seal()
 	secondOutput, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
-		Topology:          topology,
+		Topology:          topologyWithOneChain,
 		ExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:    []uint64{defaultSelectors[0]},
 	})
 	require.NoError(t, err)
 
@@ -543,7 +536,6 @@ func TestApplyExecutorConfig_AllNOPsUpdatedWhenMemberAddedToPool(t *testing.T) {
 	firstOutput, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
 		Topology:          initialTopology,
 		ExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:    selectors,
 	})
 	require.NoError(t, err)
 
@@ -573,7 +565,6 @@ func TestApplyExecutorConfig_AllNOPsUpdatedWhenMemberAddedToPool(t *testing.T) {
 	secondOutput, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
 		Topology:          expandedTopology,
 		ExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:    selectors,
 	})
 	require.NoError(t, err)
 
@@ -610,7 +601,6 @@ func TestApplyExecutorConfig_AllNOPsUpdatedWhenMemberRemovedFromPool(t *testing.
 	firstOutput, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
 		Topology:          initialTopology,
 		ExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:    selectors,
 	})
 	require.NoError(t, err)
 
@@ -634,9 +624,9 @@ func TestApplyExecutorConfig_AllNOPsUpdatedWhenMemberRemovedFromPool(t *testing.
 
 	env.DataStore = firstSealedDS
 	secondOutput, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
-		Topology:           reducedTopology,
-		ExecutorQualifier:  testDefaultQualifier,
-		ChainSelectors:     selectors,
+		Topology:          reducedTopology,
+		ExecutorQualifier: testDefaultQualifier,
+
 		RevokeOrphanedJobs: true,
 	})
 	require.NoError(t, err)
@@ -707,10 +697,16 @@ func TestApplyExecutorConfig_FailsWhenNOPMissingChainSupport(t *testing.T) {
 		NodeIDs:  []string{"node-1", "node-2"},
 	}
 
+	topology := newTestTopology(
+		WithNOPs([]deployments.NOPConfig{
+			{Alias: "nop-1", Name: "nop-1", Mode: shared.NOPModeCL},
+			{Alias: "nop-2", Name: "nop-2", Mode: shared.NOPModeCL},
+		}),
+	)
+
 	cfg := changesets.ApplyExecutorConfigCfg{
-		Topology:          newTestTopology(),
+		Topology:          topology,
 		ExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:    defaultSelectors,
 	}
 
 	_, err := changesets.ApplyExecutorConfigWithDeps(deps, cfg)
@@ -724,7 +720,7 @@ func TestApplyExecutorConfig_PassesWhenNOPSupportsExtraChains(t *testing.T) {
 	setupExecutorDatastore(t, ds, defaultSelectors, testDefaultQualifier)
 	env.DataStore = ds.Seal()
 
-	mockJD := deploymocks.NewMockJDClient(t)
+	mockJD := deploymocks.NewMockClient(t)
 	mockJD.EXPECT().ListNodes(mock.Anything, mock.Anything).Return(
 		&nodev1.ListNodesResponse{
 			Nodes: []*nodev1.Node{
@@ -774,6 +770,19 @@ func TestApplyExecutorConfig_PassesWhenNOPSupportsExtraChains(t *testing.T) {
 			},
 		}, nil,
 	)
+	mockJD.EXPECT().ProposeJob(mock.Anything, mock.Anything).Return(
+		&jobpb.ProposeJobResponse{Proposal: &jobpb.Proposal{Id: "p1", Status: jobpb.ProposalStatus_PROPOSAL_STATUS_PENDING}}, nil,
+	)
+
+	topology := newTestTopology(
+		WithNOPs([]deployments.NOPConfig{
+			{Alias: "nop-1", Name: "nop-1", Mode: shared.NOPModeCL},
+			{Alias: "nop-2", Name: "nop-2", Mode: shared.NOPModeCL},
+		}),
+	)
+
+	env.Offchain = mockJD
+	env.NodeIDs = []string{"node-1", "node-2"}
 
 	deps := changesets.ExecutorApplyDeps{
 		Env:      env,
@@ -782,9 +791,31 @@ func TestApplyExecutorConfig_PassesWhenNOPSupportsExtraChains(t *testing.T) {
 	}
 
 	cfg := changesets.ApplyExecutorConfigCfg{
+		Topology:          topology,
+		ExecutorQualifier: testDefaultQualifier,
+	}
+
+	output, err := changesets.ApplyExecutorConfigWithDeps(deps, cfg)
+	require.NoError(t, err)
+	require.NotNil(t, output.DataStore)
+}
+
+func TestApplyExecutorConfig_SkipsChainSupportValidationForStandaloneNOPs(t *testing.T) {
+	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, defaultSelectors)
+	setupExecutorDatastore(t, ds, defaultSelectors, testDefaultQualifier)
+	env.DataStore = ds.Seal()
+
+	mockJD := deploymocks.NewMockJDClient(t)
+
+	deps := changesets.ExecutorApplyDeps{
+		Env:      env,
+		JDClient: mockJD,
+		NodeIDs:  []string{},
+	}
+
+	cfg := changesets.ApplyExecutorConfigCfg{
 		Topology:          newTestTopology(),
 		ExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:    defaultSelectors,
 	}
 
 	output, err := changesets.ApplyExecutorConfigWithDeps(deps, cfg)
@@ -797,7 +828,7 @@ func TestApplyExecutorConfig_PassesWhenNonTargetNOPMissingChainSupport(t *testin
 	setupExecutorDatastore(t, ds, defaultSelectors, testDefaultQualifier)
 	env.DataStore = ds.Seal()
 
-	mockJD := deploymocks.NewMockJDClient(t)
+	mockJD := deploymocks.NewMockClient(t)
 	mockJD.EXPECT().ListNodes(mock.Anything, mock.Anything).Return(
 		&nodev1.ListNodesResponse{
 			Nodes: []*nodev1.Node{
@@ -825,17 +856,29 @@ func TestApplyExecutorConfig_PassesWhenNonTargetNOPMissingChainSupport(t *testin
 			},
 		}, nil,
 	)
+	mockJD.EXPECT().ProposeJob(mock.Anything, mock.Anything).Return(
+		&jobpb.ProposeJobResponse{Proposal: &jobpb.Proposal{Id: "p1", Status: jobpb.ProposalStatus_PROPOSAL_STATUS_PENDING}}, nil,
+	)
+
+	topology := newTestTopology(
+		WithNOPs([]deployments.NOPConfig{
+			{Alias: "nop-1", Name: "nop-1", Mode: shared.NOPModeCL},
+			{Alias: "nop-2", Name: "nop-2", Mode: shared.NOPModeCL},
+		}),
+	)
+
+	env.Offchain = mockJD
+	env.NodeIDs = []string{"node-1", "node-2"}
 
 	deps := changesets.ExecutorApplyDeps{
 		Env:      env,
 		JDClient: mockJD,
-		NodeIDs:  []string{"node-1", "node-2"},
+		NodeIDs:  []string{"node-1"},
 	}
 
 	cfg := changesets.ApplyExecutorConfigCfg{
-		Topology:          newTestTopology(),
+		Topology:          topology,
 		ExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:    defaultSelectors,
 		TargetNOPs:        []shared.NOPAlias{"nop-1"},
 	}
 
