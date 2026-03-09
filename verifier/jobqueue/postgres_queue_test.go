@@ -509,6 +509,76 @@ func TestCleanupRetainsRecentJobs(t *testing.T) {
 	assert.Equal(t, 1, countAllRows(t, db, "ccv_task_verifier_jobs_archive"))
 }
 
+func TestSize(t *testing.T) {
+	q, _ := newTestQueue(t)
+	ctx := context.Background()
+
+	// Initially empty
+	size, err := q.Size(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 0, size)
+
+	// Publish 5 jobs
+	jobs := []testJob{
+		{Chain: 1, Message: []byte("msg-1"), Data: "data1"},
+		{Chain: 2, Message: []byte("msg-2"), Data: "data2"},
+		{Chain: 3, Message: []byte("msg-3"), Data: "data3"},
+		{Chain: 4, Message: []byte("msg-4"), Data: "data4"},
+		{Chain: 5, Message: []byte("msg-5"), Data: "data5"},
+	}
+	require.NoError(t, q.Publish(ctx, jobs...))
+
+	// Size should be 5 (all pending)
+	size, err = q.Size(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 5, size)
+
+	// Consume 3 jobs (now processing)
+	consumed, err := q.Consume(ctx, 3)
+	require.NoError(t, err)
+	require.Len(t, consumed, 3)
+
+	// Size should still be 5 (2 pending + 3 processing)
+	size, err = q.Size(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 5, size)
+
+	// Complete 2 jobs
+	require.NoError(t, q.Complete(ctx, consumed[0].ID, consumed[1].ID))
+
+	// Size should be 3 (2 pending + 1 processing)
+	size, err = q.Size(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 3, size)
+
+	// Fail the last consumed job (it stays in failed status)
+	require.NoError(t, q.Fail(ctx, map[string]error{consumed[2].ID: errors.New("test error")}, consumed[2].ID))
+
+	// Size should be 2 (2 pending only - failed jobs are excluded from Size)
+	size, err = q.Size(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 2, size)
+
+	// Consume remaining jobs - Consume WILL pick up failed jobs for retry
+	// So this returns: 2 pending + 1 failed (that becomes processing)
+	consumed2, err := q.Consume(ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, consumed2, 3) // 2 pending + 1 previously failed
+
+	// Size should be 3 (all are now processing, and processing IS counted in Size)
+	size, err = q.Size(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 3, size)
+
+	// Complete all remaining
+	require.NoError(t, q.Complete(ctx, consumed2[0].ID, consumed2[1].ID, consumed2[2].ID))
+
+	// Size should be 0
+	size, err = q.Size(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 0, size)
+}
+
 func TestFullLifecycle(t *testing.T) {
 	q, db := newTestQueue(t)
 	ctx := context.Background()

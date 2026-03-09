@@ -77,6 +77,10 @@ type JobQueue[T Jobable] interface {
 	// Cleanup archives or deletes jobs older than the retention period.
 	// Should be called periodically to prevent unbounded table growth.
 	Cleanup(ctx context.Context, retentionPeriod time.Duration) (int, error)
+	// Size returns the count of jobs that are pending or processing.
+	// This is useful for monitoring queue health and capacity.
+	// Failed jobs and archived jobs are excluded from the count.
+	Size(ctx context.Context) (int, error)
 	// Name returns the queue name for logging and monitoring
 	Name() string
 }
