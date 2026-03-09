@@ -21,3 +21,6 @@ indexer/secrets.toml
 .go-version
 
 .cache/
+
+# Ignore the build output of the ccv development environment
+build/devenv/ccv

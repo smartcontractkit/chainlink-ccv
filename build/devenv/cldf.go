@@ -34,6 +34,21 @@ import (
 
 var Plog = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel).With().Fields(map[string]any{"component": "ccv"}).Logger()
 
+// CLDFProviderFactory creates a CLDF BlockChain provider from a blockchain.Input.
+type CLDFProviderFactory func(b *blockchain.Input) (cldf_chain.BlockChain, uint64, error)
+
+var (
+	cldfProviderFactories   = map[string]CLDFProviderFactory{}
+	cldfProviderFactoriesMu sync.Mutex
+)
+
+// RegisterCLDFProviderFactory registers a CLDF provider factory for a given chain family.
+func RegisterCLDFProviderFactory(family string, factory CLDFProviderFactory) {
+	cldfProviderFactoriesMu.Lock()
+	defer cldfProviderFactoriesMu.Unlock()
+	cldfProviderFactories[family] = factory
+}
+
 type CLDF struct {
 	mu        sync.Mutex          `toml:"-"`
 	Addresses []string            `toml:"addresses"`
@@ -193,7 +208,18 @@ func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint
 			}
 			providers = append(providers, chain)
 		default:
-			return nil, nil, fmt.Errorf("unsupported blockchain family: %s", b.Out.Family)
+			cldfProviderFactoriesMu.Lock()
+			factory, ok := cldfProviderFactories[b.Out.Family]
+			cldfProviderFactoriesMu.Unlock()
+			if !ok {
+				return nil, nil, fmt.Errorf("unsupported blockchain family: %s", b.Out.Family)
+			}
+			p, selector, err := factory(b)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to create CLDF provider for family %s: %w", b.Out.Family, err)
+			}
+			selectors = append(selectors, selector)
+			providers = append(providers, p)
 		}
 	}
 

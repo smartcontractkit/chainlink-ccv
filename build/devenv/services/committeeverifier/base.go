@@ -15,7 +15,8 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	bootstrap "github.com/smartcontractkit/chainlink-ccv/bootstrap"
+
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
@@ -78,6 +79,10 @@ type Input struct {
 	// just the expected party name.
 	// The full party ID is hydrated from the blockchain output after the Canton participant is available.
 	CantonConfigs util.OpaqueConfig `toml:"canton_configs"`
+
+	// SolanaConfigs is the map of chain selectors to Solana configurations to pass onto the verifier,
+	// only used in standalone mode and if Solana is enabled.
+	SolanaConfigs util.OpaqueConfig `toml:"solana_configs"`
 
 	// DisableFinalityCheckers is a list of chain selectors for which the finality violation checker should be disabled.
 	// The chain selectors are formatted as strings of the chain selector.
