@@ -517,7 +517,17 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, fin
 	toBeDeleted := make([]string, 0)
 
 	for msgID, task := range r.pendingTasks {
-		if r.curseDetector.IsRemoteChainCursed(ctx, task.Message.SourceChainSelector, task.Message.DestChainSelector) {
+		cursed, err := r.curseDetector.IsRemoteChainCursed(ctx, task.Message.SourceChainSelector, task.Message.DestChainSelector)
+		if err != nil {
+			r.logger.Warnw("Dropping task - failed to check curse status",
+				"messageID", msgID,
+				"sourceChain", task.Message.SourceChainSelector,
+				"destChain", task.Message.DestChainSelector,
+				"error", err)
+			toBeDeleted = append(toBeDeleted, msgID)
+			continue
+		}
+		if cursed {
 			r.logger.Warnw("Dropping task - lane is cursed",
 				"messageID", msgID,
 				"sourceChain", task.Message.SourceChainSelector,

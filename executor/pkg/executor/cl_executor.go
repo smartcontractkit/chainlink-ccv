@@ -142,7 +142,11 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	destinationChain := message.DestChainSelector
 	messageID := message.MustMessageID()
 
-	cursed := cle.curseChecker.IsRemoteChainCursed(ctx, message.DestChainSelector, message.SourceChainSelector)
+	cursed, err := cle.curseChecker.IsRemoteChainCursed(ctx, message.DestChainSelector, message.SourceChainSelector)
+	if err != nil {
+		cle.lggr.Warnw("delaying execution due to failed curse check", "messageID", messageID, "error", err)
+		return true, err
+	}
 	if cursed {
 		cle.lggr.Infow("delaying execution due to curse", "messageID", messageID, "cursed", cursed)
 		return true, nil

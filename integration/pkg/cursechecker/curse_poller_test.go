@@ -65,16 +65,24 @@ func TestCurseDetectorService_LaneSpecificCurse(t *testing.T) {
 	defer svc.Close()
 
 	// Chain A -> Chain B should be cursed
-	assert.True(t, svc.IsRemoteChainCursed(ctx, chainA, chainB), "chainA->chainB should be cursed")
+	cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainB)
+	require.NoError(t, err)
+	assert.True(t, cursed, "chainA->chainB should be cursed")
 
 	// Chain A -> Chain C should not be cursed
-	assert.False(t, svc.IsRemoteChainCursed(ctx, chainA, chainC), "chainA->chainC should not be cursed")
+	cursed, err = svc.IsRemoteChainCursed(ctx, chainA, chainC)
+	require.NoError(t, err)
+	assert.False(t, cursed, "chainA->chainC should not be cursed")
 
 	// Chain B -> Chain A should not be cursed - in most real scenarios we curse on both sides but this tests one-way curse
-	assert.False(t, svc.IsRemoteChainCursed(ctx, chainB, chainA), "chainB->chainA should not be cursed")
+	cursed, err = svc.IsRemoteChainCursed(ctx, chainB, chainA)
+	require.NoError(t, err)
+	assert.False(t, cursed, "chainB->chainA should not be cursed")
 
 	// Chain B -> Chain C should not be cursed
-	assert.False(t, svc.IsRemoteChainCursed(ctx, chainB, chainC), "chainB->chainC should not be cursed")
+	cursed, err = svc.IsRemoteChainCursed(ctx, chainB, chainC)
+	require.NoError(t, err)
+	assert.False(t, cursed, "chainB->chainC should not be cursed")
 
 	// lift the curse
 	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).Unset()
@@ -85,16 +93,24 @@ func TestCurseDetectorService_LaneSpecificCurse(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Chain A -> Chain B should no longer be cursed
-	assert.False(t, svc.IsRemoteChainCursed(ctx, chainA, chainB), "chainA->chainB should not be cursed")
+	cursed, err = svc.IsRemoteChainCursed(ctx, chainA, chainB)
+	require.NoError(t, err)
+	assert.False(t, cursed, "chainA->chainB should not be cursed")
 
 	// Chain A -> Chain C should not be cursed
-	assert.False(t, svc.IsRemoteChainCursed(ctx, chainA, chainC), "chainA->chainC should not be cursed")
+	cursed, err = svc.IsRemoteChainCursed(ctx, chainA, chainC)
+	require.NoError(t, err)
+	assert.False(t, cursed, "chainA->chainC should not be cursed")
 
 	// Chain B -> Chain A should not be cursed - in most real scenarios we curse on both sides but this tests one-way curse
-	assert.False(t, svc.IsRemoteChainCursed(ctx, chainB, chainA), "chainB->chainA should not be cursed")
+	cursed, err = svc.IsRemoteChainCursed(ctx, chainB, chainA)
+	require.NoError(t, err)
+	assert.False(t, cursed, "chainB->chainA should not be cursed")
 
 	// Chain B -> Chain C should not be cursed
-	assert.False(t, svc.IsRemoteChainCursed(ctx, chainB, chainC), "chainB->chainC should not be cursed")
+	cursed, err = svc.IsRemoteChainCursed(ctx, chainB, chainC)
+	require.NoError(t, err)
+	assert.False(t, cursed, "chainB->chainC should not be cursed")
 }
 
 func TestCurseDetectorService_GlobalCurse(t *testing.T) {
@@ -140,12 +156,22 @@ func TestCurseDetectorService_GlobalCurse(t *testing.T) {
 	defer svc.Close()
 
 	// Chain A has global curse, so all remotes are considered cursed
-	assert.True(t, svc.IsRemoteChainCursed(ctx, chainA, chainB), "chainA has global curse, chainA->chainB should be cursed")
-	assert.True(t, svc.IsRemoteChainCursed(ctx, chainA, chainC), "chainA has global curse, chainA->chainC should be cursed")
+	cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainB)
+	require.NoError(t, err)
+	assert.True(t, cursed, "chainA has global curse, chainA->chainB should be cursed")
+
+	cursed, err = svc.IsRemoteChainCursed(ctx, chainA, chainC)
+	require.NoError(t, err)
+	assert.True(t, cursed, "chainA has global curse, chainA->chainC should be cursed")
 
 	// Chain B has no global curse
-	assert.False(t, svc.IsRemoteChainCursed(ctx, chainB, chainA), "chainB->chainA should not be cursed")
-	assert.False(t, svc.IsRemoteChainCursed(ctx, chainB, chainC), "chainB->chainC should not be cursed")
+	cursed, err = svc.IsRemoteChainCursed(ctx, chainB, chainA)
+	require.NoError(t, err)
+	assert.False(t, cursed, "chainB->chainA should not be cursed")
+
+	cursed, err = svc.IsRemoteChainCursed(ctx, chainB, chainC)
+	require.NoError(t, err)
+	assert.False(t, cursed, "chainB->chainC should not be cursed")
 
 	// lift the curse
 	mockReaderA.EXPECT().GetRMNCursedSubjects(mock.Anything).Unset()
@@ -156,12 +182,22 @@ func TestCurseDetectorService_GlobalCurse(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Chain A has no global curse
-	assert.False(t, svc.IsRemoteChainCursed(ctx, chainA, chainB), "chainA has global curse, chainA->chainB should be cursed")
-	assert.False(t, svc.IsRemoteChainCursed(ctx, chainA, chainC), "chainA has global curse, chainA->chainC should be cursed")
+	cursed, err = svc.IsRemoteChainCursed(ctx, chainA, chainB)
+	require.NoError(t, err)
+	assert.False(t, cursed, "chainA has global curse, chainA->chainB should be cursed")
+
+	cursed, err = svc.IsRemoteChainCursed(ctx, chainA, chainC)
+	require.NoError(t, err)
+	assert.False(t, cursed, "chainA has global curse, chainA->chainC should be cursed")
 
 	// Chain B has no global curse
-	assert.False(t, svc.IsRemoteChainCursed(ctx, chainB, chainA), "chainB->chainA should not be cursed")
-	assert.False(t, svc.IsRemoteChainCursed(ctx, chainB, chainC), "chainB->chainC should not be cursed")
+	cursed, err = svc.IsRemoteChainCursed(ctx, chainB, chainA)
+	require.NoError(t, err)
+	assert.False(t, cursed, "chainB->chainA should not be cursed")
+
+	cursed, err = svc.IsRemoteChainCursed(ctx, chainB, chainC)
+	require.NoError(t, err)
+	assert.False(t, cursed, "chainB->chainC should not be cursed")
 }
 
 func TestNewCurseDetectorService_Validation(t *testing.T) {
@@ -263,11 +299,15 @@ func TestCurseDetectorService_ReaderErrorHandling(t *testing.T) {
 	require.NoError(t, err)
 	defer svc.Close()
 
-	// Chain A should have no curse state (error during fetch)
-	assert.False(t, svc.IsRemoteChainCursed(ctx, chainA, chainB), "chainA should have no curse state due to error")
+	// Chain A should return error on synchronous call (error during fetch)
+	cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainB)
+	assert.Error(t, err, "chainA should return error due to RPC failure")
+	assert.False(t, cursed)
 
 	// Chain B should work correctly
-	assert.True(t, svc.IsRemoteChainCursed(ctx, chainB, chainA), "chainB should report chainA as cursed")
+	cursed, err = svc.IsRemoteChainCursed(ctx, chainB, chainA)
+	require.NoError(t, err)
+	assert.True(t, cursed, "chainB should report chainA as cursed")
 }
 
 func TestCurseDetectorService_NilCursedSubjects(t *testing.T) {
@@ -301,7 +341,9 @@ func TestCurseDetectorService_NilCursedSubjects(t *testing.T) {
 	defer svc.Close()
 
 	// Nil cursed subjects should be treated as no curses
-	assert.False(t, svc.IsRemoteChainCursed(ctx, chainA, chainB), "nil cursed subjects should mean no curses")
+	cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainB)
+	require.NoError(t, err)
+	assert.False(t, cursed, "nil cursed subjects should mean no curses")
 }
 
 // TestCurseDetectorService_RPCTimeout tests that hanging RPC calls timeout and don't block other chains.
@@ -354,11 +396,15 @@ func TestCurseDetectorService_RPCTimeout(t *testing.T) {
 	// Wait a bit for the first poll to complete
 	time.Sleep(150 * time.Millisecond)
 
-	// Chain A should have no curse state (timeout during fetch)
-	assert.False(t, svc.IsRemoteChainCursed(ctx, chainA, chainB), "chainA should have no state due to timeout")
+	// Chain A should return error on synchronous call (timeout during fetch)
+	cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainB)
+	assert.Error(t, err, "chainA should return error due to timeout")
+	assert.False(t, cursed)
 
 	// Chain B should work correctly despite Chain A timing out
-	assert.True(t, svc.IsRemoteChainCursed(ctx, chainB, chainA), "chainB should report chainA as cursed")
+	cursed, err = svc.IsRemoteChainCursed(ctx, chainB, chainA)
+	require.NoError(t, err)
+	assert.True(t, cursed, "chainB should report chainA as cursed")
 }
 
 // TestCurseDetectorService_AllChainsTimeout tests that if all chains timeout, the service continues polling.
@@ -433,7 +479,9 @@ func TestCurseDetectorService_AllChainsTimeout(t *testing.T) {
 	assert.GreaterOrEqual(t, count, 3, "polling should continue despite timeouts")
 
 	// Eventually Chain A should report Chain B as cursed
-	assert.True(t, svc.IsRemoteChainCursed(ctx, chainA, chainB), "chainA should eventually report chainB as cursed")
+	cursed, err := svc.IsRemoteChainCursed(ctx, chainA, chainB)
+	require.NoError(t, err)
+	assert.True(t, cursed, "chainA should eventually report chainB as cursed")
 }
 
 // TestCurseDetectorService_ContextCancellation tests that RPC timeout respects parent context cancellation.

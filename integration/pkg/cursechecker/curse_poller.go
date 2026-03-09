@@ -122,17 +122,78 @@ func (s *PollerService) Close() error {
 // Returns true if:
 //   - remoteChain appears in localChain's cursed subjects, OR
 //   - localChain has a global curse
-func (s *PollerService) IsRemoteChainCursed(_ context.Context, localChain, remoteChain protocol.ChainSelector) bool {
+//
+// If curse state for localChain is not yet available (initial background poll hasn't completed),
+// this method will perform a synchronous RPC call to fetch the curse state immediately.
+// Returns an error if:
+//   - The RMN reader is not configured for localChain
+//   - The synchronous RPC call fails when state is unavailable
+func (s *PollerService) IsRemoteChainCursed(ctx context.Context, localChain, remoteChain protocol.ChainSelector) (bool, error) {
 	s.mutex.RLock()
-	defer s.mutex.RUnlock()
-
 	state := s.chainCurseStates[localChain]
+	s.mutex.RUnlock()
+
+	// If state is nil, we need to perform a synchronous poll
 	if state == nil {
-		return false
+		s.lggr.Infow("Curse state not available, performing synchronous poll",
+			"localChain", localChain,
+			"remoteChain", remoteChain)
+
+		reader, ok := s.rmnReaders[localChain]
+		if !ok {
+			return false, fmt.Errorf("RMN reader not configured for chain %d", localChain)
+		}
+
+		// Create a timeout context to prevent hanging RPC calls
+		timeoutCtx, cancel := context.WithTimeout(ctx, s.curseRPCTimeout)
+		defer cancel()
+
+		subjects, err := reader.GetRMNCursedSubjects(timeoutCtx)
+		if err != nil {
+			return false, fmt.Errorf("failed to get cursed subjects for chain %d: %w", localChain, err)
+		}
+
+		// Build the state from the synchronous call
+		state = s.parseCurseSubjects(localChain, subjects)
+
+		// Store the state for future use
+		s.mutex.Lock()
+		s.updateMetrics(ctx, localChain, s.chainCurseStates[localChain], state)
+		s.chainCurseStates[localChain] = state
+		s.mutex.Unlock()
+
+		s.lggr.Infow("Synchronous curse state update completed",
+			"localChain", localChain,
+			"globalCurse", state.HasGlobalCurse,
+			"cursedRemoteChains", len(state.CursedRemoteChains))
 	}
 
 	// Match RMN contract logic: contains(remoteChain) || contains(GLOBAL_CURSE)
-	return state.CursedRemoteChains[remoteChain] || state.HasGlobalCurse
+	return state.CursedRemoteChains[remoteChain] || state.HasGlobalCurse, nil
+}
+
+// parseCurseSubjects converts RMN curse subjects into ChainCurseState.
+// It identifies global curses and extracts remote chain selectors from curse subjects.
+func (s *PollerService) parseCurseSubjects(localChain protocol.ChainSelector, subjects []protocol.Bytes16) *ChainCurseState {
+	state := &ChainCurseState{
+		CursedRemoteChains: make(map[protocol.ChainSelector]bool),
+		HasGlobalCurse:     false,
+	}
+
+	for _, subject := range subjects {
+		if subject == GlobalCurseSubject {
+			state.HasGlobalCurse = true
+			s.lggr.Warnw("Global curse detected",
+				"chain", localChain)
+		} else {
+			// Extract chain selector from last 8 bytes (big-endian)
+			remoteChain := protocol.ChainSelector(
+				binary.BigEndian.Uint64(subject[8:]))
+			state.CursedRemoteChains[remoteChain] = true
+		}
+	}
+
+	return state
 }
 
 // pollLoop runs the periodic polling loop for curse updates.
@@ -174,23 +235,8 @@ func (s *PollerService) pollAllChains(ctx context.Context) {
 				return
 			}
 
-			state := &ChainCurseState{
-				CursedRemoteChains: make(map[protocol.ChainSelector]bool),
-				HasGlobalCurse:     false,
-			}
+			state := s.parseCurseSubjects(chain, subjects)
 
-			for _, subject := range subjects {
-				if subject == GlobalCurseSubject {
-					state.HasGlobalCurse = true
-					s.lggr.Warnw("Global curse detected",
-						"chain", chain)
-				} else {
-					// Extract chain selector from last 8 bytes (big-endian)
-					remoteChain := protocol.ChainSelector(
-						binary.BigEndian.Uint64(subject[8:]))
-					state.CursedRemoteChains[remoteChain] = true
-				}
-			}
 			s.mutex.Lock()
 			s.updateMetrics(ctx, chain, s.chainCurseStates[chain], state)
 			s.chainCurseStates[chain] = state

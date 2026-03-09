@@ -16,10 +16,17 @@ type CurseChecker interface {
 	//   - remoteChain appears in localChain's cursed subjects, OR
 	//   - localChain has a global curse
 	//
+	// If curse state is not available (initial poll hasn't completed), this method will
+	// perform a synchronous RPC call to fetch the curse state.
+	//
+	// Returns an error if:
+	//   - The RMN reader is not configured for localChain
+	//   - The synchronous RPC call fails when state is unavailable
+	//
 	// Usage:
 	//   Verifier: IsRemoteChainCursed(sourceChain, destChain)
 	//   Executor: IsRemoteChainCursed(destChain, sourceChain)
-	IsRemoteChainCursed(ctx context.Context, localChain, remoteChain protocol.ChainSelector) bool
+	IsRemoteChainCursed(ctx context.Context, localChain, remoteChain protocol.ChainSelector) (bool, error)
 }
 
 // CurseCheckerService is an interface that combines a CurseChecker and a Service.
