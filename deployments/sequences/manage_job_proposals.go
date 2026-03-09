@@ -22,10 +22,10 @@ type NOPContext struct {
 }
 
 type ManageJobProposalsInput struct {
-	JobSpecs           shared.NOPJobSpecs
-	AffectedScope      shared.JobScope
-	Labels             map[string]string
-	NOPs               NOPContext
+	JobSpecs      shared.NOPJobSpecs
+	AffectedScope shared.JobScope
+	Labels        map[string]string
+	NOPs          NOPContext
 	// RevokeOrphanedJobs when true runs orphan collection, JD revoke, and datastore cleanup; default false.
 	RevokeOrphanedJobs bool
 }
