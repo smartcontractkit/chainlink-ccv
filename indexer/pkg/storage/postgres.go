@@ -30,6 +30,14 @@ const (
 	opUpdateMessageStatus   = "UpdateMessageStatus"
 	opCreateDiscoveryState  = "CreateDiscoveryState"
 	opPersistDiscoveryBatch = "PersistDiscoveryBatch"
+
+	// maxBatchSizeCCVData is the maximum number of CCV data rows that can be inserted in a single query
+	// to avoid Postgres bind parameter overflow (65535 limit). With 11 parameters per row, 5000 rows = 55000 parameters.
+	maxBatchSizeCCVData = 5000
+
+	// maxBatchSizeMessages is the maximum number of message rows that can be inserted in a single query
+	// to avoid Postgres bind parameter overflow (65535 limit). With 7 parameters per row, 5000 rows = 35000 parameters.
+	maxBatchSizeMessages = 5000
 )
 
 type PostgresStorage struct {
@@ -586,28 +594,41 @@ func (d *PostgresStorage) PersistDiscoveryBatch(ctx context.Context, batch commo
 	var verificationsInserted int64
 
 	err := sqlutil.TransactDataSource(ctx, d.ds, nil, func(tx sqlutil.DataSource) error {
+		// Chunk messages to avoid Postgres bind parameter overflow
 		if len(batch.Messages) > 0 {
-			query, args, err := buildBatchInsertMessagesQuery(batch.Messages)
-			if err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx, query, args...); err != nil {
-				return fmt.Errorf("failed to batch insert messages: %w", err)
+			for i := 0; i < len(batch.Messages); i += maxBatchSizeMessages {
+				end := min(i+maxBatchSizeMessages, len(batch.Messages))
+				chunk := batch.Messages[i:end]
+
+				query, args, err := buildBatchInsertMessagesQuery(chunk)
+				if err != nil {
+					return err
+				}
+				if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+					return fmt.Errorf("failed to batch insert messages chunk: %w", err)
+				}
 			}
 		}
 
+		// Chunk verifications to avoid Postgres bind parameter overflow
 		if len(batch.Verifications) > 0 {
-			query, args, err := buildBatchInsertCCVDataQuery(batch.Verifications)
-			if err != nil {
-				return err
-			}
-			result, err := tx.ExecContext(ctx, query, args...)
-			if err != nil {
-				return fmt.Errorf("failed to batch insert CCV data: %w", err)
-			}
-			verificationsInserted, err = result.RowsAffected()
-			if err != nil {
-				return fmt.Errorf("failed to get rows affected for CCV insert: %w", err)
+			for i := 0; i < len(batch.Verifications); i += maxBatchSizeCCVData {
+				end := min(i+maxBatchSizeCCVData, len(batch.Verifications))
+				chunk := batch.Verifications[i:end]
+
+				query, args, err := buildBatchInsertCCVDataQuery(chunk)
+				if err != nil {
+					return err
+				}
+				result, err := tx.ExecContext(ctx, query, args...)
+				if err != nil {
+					return fmt.Errorf("failed to batch insert CCV data chunk: %w", err)
+				}
+				rowsAffected, err := result.RowsAffected()
+				if err != nil {
+					return fmt.Errorf("failed to get rows affected for CCV insert: %w", err)
+				}
+				verificationsInserted += rowsAffected
 			}
 		}
 
@@ -636,7 +657,6 @@ func (d *PostgresStorage) PersistDiscoveryBatch(ctx context.Context, batch commo
 	}
 
 	if len(batch.Verifications) > 0 {
-		d.trackUniqueMessages(ctx, batch.Verifications)
 		for range verificationsInserted {
 			d.monitoring.Metrics().IncrementVerificationRecordsCounter(ctx)
 		}
