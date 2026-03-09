@@ -439,6 +439,25 @@ func (q *PostgresJobQueue[T]) Cleanup(ctx context.Context, retentionPeriod time.
 	return int(affected), nil
 }
 
+// Size returns the count of jobs that are pending or processing.
+// Failed jobs and archived jobs are excluded from the count.
+func (q *PostgresJobQueue[T]) Size(ctx context.Context) (int, error) {
+	query := fmt.Sprintf(`
+		SELECT COUNT(*)
+		FROM %s
+		WHERE owner_id = $1
+		  AND status IN ($2, $3)
+	`, q.tableName)
+
+	var count int
+	err := q.ds.QueryRowxContext(ctx, query, q.ownerID, JobStatusPending, JobStatusProcessing).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get queue size: %w", err)
+	}
+
+	return count, nil
+}
+
 // Name returns the queue name.
 func (q *PostgresJobQueue[T]) Name() string {
 	return q.config.Name
