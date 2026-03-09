@@ -23,9 +23,9 @@ type ObservabilityDecorator[T Jobable] struct {
 	stopCh services.StopChan
 	wg     sync.WaitGroup
 
-	queue            JobQueue[T]
-	logger           logger.Logger
+	lggr             logger.Logger
 	interval         time.Duration
+	queue            JobQueue[T]
 	recordSizeMetric func(ctx context.Context, size int64)
 }
 
@@ -54,7 +54,7 @@ func NewObservabilityDecorator[T Jobable](
 	return &ObservabilityDecorator[T]{
 		stopCh:           make(chan struct{}),
 		queue:            queue,
-		logger:           lggr,
+		lggr:             lggr,
 		interval:         interval,
 		recordSizeMetric: recordSizeMetric,
 	}, nil
@@ -63,11 +63,11 @@ func NewObservabilityDecorator[T Jobable](
 // Start begins the observability monitoring loop.
 func (d *ObservabilityDecorator[T]) Start(ctx context.Context) error {
 	return d.StartOnce(d.Name(), func() error {
-		d.logger.Infow("Starting JobQueue observability monitoring",
+		d.lggr.Infow("Starting JobQueue observability monitoring",
 			"queue", d.queue.Name(),
 			"interval", d.interval,
 		)
-		d.wg.Go(func() { d.monitorLoop() })
+		d.wg.Go(d.monitorLoop)
 		return nil
 	})
 }
@@ -75,12 +75,12 @@ func (d *ObservabilityDecorator[T]) Start(ctx context.Context) error {
 // Close stops the observability monitoring loop.
 func (d *ObservabilityDecorator[T]) Close() error {
 	return d.StopOnce(d.Name(), func() error {
-		d.logger.Infow("Stopping JobQueue observability monitoring",
+		d.lggr.Infow("Stopping JobQueue observability monitoring",
 			"queue", d.queue.Name(),
 		)
 		close(d.stopCh)
 		d.wg.Wait()
-		d.logger.Infow("JobQueue observability monitoring stopped",
+		d.lggr.Infow("JobQueue observability monitoring stopped",
 			"queue", d.queue.Name(),
 		)
 		return nil
@@ -115,7 +115,7 @@ func (d *ObservabilityDecorator[T]) monitorLoop() {
 	for {
 		select {
 		case <-ctx.Done():
-			d.logger.Infow("Observability monitoring loop stopped",
+			d.lggr.Infow("Observability monitoring loop stopped",
 				"queue", d.queue.Name(),
 			)
 			return
@@ -129,14 +129,14 @@ func (d *ObservabilityDecorator[T]) monitorLoop() {
 func (d *ObservabilityDecorator[T]) logQueueSize(ctx context.Context) {
 	size, err := d.queue.Size(ctx)
 	if err != nil {
-		d.logger.Errorw("Failed to get queue size",
+		d.lggr.Errorw("Failed to get queue size",
 			"queue", d.queue.Name(),
 			"error", err,
 		)
 		return
 	}
 
-	d.logger.Infow("JobQueue size",
+	d.lggr.Infow("JobQueue size",
 		"queue", d.queue.Name(),
 		"size", size,
 	)
