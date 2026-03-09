@@ -159,8 +159,8 @@ func (m *noopMetricLabeler) RecordFinalityWaitDuration(ctx context.Context, dura
 func (m *noopMetricLabeler) RecordMessageVerificationDuration(ctx context.Context, duration time.Duration) {
 }
 func (m *noopMetricLabeler) RecordStorageWriteDuration(ctx context.Context, duration time.Duration) {}
-func (m *noopMetricLabeler) RecordFinalityQueueSize(ctx context.Context, size int64)                {}
-func (m *noopMetricLabeler) RecordCCVDataChannelSize(ctx context.Context, size int64)               {}
+func (m *noopMetricLabeler) RecordTaskVerificationQueueSize(ctx context.Context, size int64)        {}
+func (m *noopMetricLabeler) RecordStorageWriteQueueSize(ctx context.Context, size int64)            {}
 func (m *noopMetricLabeler) IncrementStorageWriteErrors(ctx context.Context)                        {}
 func (m *noopMetricLabeler) RecordSourceChainLatestBlock(ctx context.Context, blockNum int64)       {}
 func (m *noopMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64)    {}

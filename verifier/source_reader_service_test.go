@@ -47,6 +47,7 @@ func (q *fakeTaskQueue) Retry(_ context.Context, _ time.Duration, _ map[string]e
 func (q *fakeTaskQueue) Fail(_ context.Context, _ map[string]error, _ ...string) error { return nil }
 func (q *fakeTaskQueue) Cleanup(_ context.Context, _ time.Duration) (int, error)       { return 0, nil }
 func (q *fakeTaskQueue) Name() string                                                  { return "fake-task-queue" }
+func (q *fakeTaskQueue) Size(_ context.Context) (int, error)                           { return 0, nil }
 
 func (q *fakeTaskQueue) Published() []VerificationTask {
 	q.mu.Lock()
