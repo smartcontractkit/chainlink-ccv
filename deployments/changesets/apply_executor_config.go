@@ -3,6 +3,8 @@ package changesets
 import (
 	"fmt"
 	"slices"
+	"strconv"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -63,13 +65,17 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigCfg] {
 			return fmt.Errorf("executor pool %q not found in topology", cfg.ExecutorQualifier)
 		}
 
-		if len(pool.NOPAliases) == 0 {
-			return fmt.Errorf("executor pool %q has no NOPs", cfg.ExecutorQualifier)
+		if len(pool.ChainConfigs) == 0 {
+			return fmt.Errorf("executor pool %q has no chain configs", cfg.ExecutorQualifier)
 		}
 
-		poolNOPs := shared.ConvertStringToNopAliases(pool.NOPAliases)
+		poolNOPs, err := cfg.Topology.GetNOPsForPool(cfg.ExecutorQualifier)
+		if err != nil {
+			return err
+		}
+		poolNOPAliases := shared.ConvertStringToNopAliases(poolNOPs)
 		for _, alias := range cfg.TargetNOPs {
-			if !slices.Contains(poolNOPs, alias) {
+			if !slices.Contains(poolNOPAliases, alias) {
 				return fmt.Errorf("NOP alias %q not found in executor pool %q", alias, cfg.ExecutorQualifier)
 			}
 		}
@@ -104,12 +110,20 @@ func ApplyExecutorConfigWithDeps(deps ExecutorApplyDeps, cfg ApplyExecutorConfig
 
 	pool := cfg.Topology.ExecutorPools[cfg.ExecutorQualifier]
 
-	nopsToValidate := cfg.TargetNOPs
-	if len(nopsToValidate) == 0 {
-		nopsToValidate = shared.ConvertStringToNopAliases(pool.NOPAliases)
+	if err := validatePoolChainsDeployed(pool, selectors, deployedChains, cfg.ChainSelectors); err != nil {
+		return deployment.ChangesetOutput{}, err
 	}
 
-	if err := validateExecutorChainSupport(deps, nopsToValidate, selectors); err != nil {
+	nopsToValidate := cfg.TargetNOPs
+	if len(nopsToValidate) == 0 {
+		poolNOPs, err := cfg.Topology.GetNOPsForPool(cfg.ExecutorQualifier)
+		if err != nil {
+			return deployment.ChangesetOutput{}, err
+		}
+		nopsToValidate = shared.ConvertStringToNopAliases(poolNOPs)
+	}
+
+	if err := validateExecutorChainSupport(deps, cfg.Topology.ExecutorPools[cfg.ExecutorQualifier], nopsToValidate, selectors); err != nil {
 		return deployment.ChangesetOutput{}, err
 	}
 
@@ -163,22 +177,66 @@ func ApplyExecutorConfigWithDeps(deps ExecutorApplyDeps, cfg ApplyExecutorConfig
 	}, nil
 }
 
+func validatePoolChainsDeployed(
+	pool deployments.ExecutorPoolConfig,
+	selectors []uint64,
+	deployedChains []uint64,
+	requestedChainSelectors []uint64,
+) error {
+	deployedSet := make(map[uint64]struct{}, len(deployedChains))
+	for _, s := range deployedChains {
+		deployedSet[s] = struct{}{}
+	}
+
+	if len(requestedChainSelectors) == 0 {
+		for chainSelectorStr := range pool.ChainConfigs {
+			sel, err := strconv.ParseUint(chainSelectorStr, 10, 64)
+			if err != nil {
+				return fmt.Errorf("executor pool chain_configs key %q is not a valid chain selector: %w", chainSelectorStr, err)
+			}
+			if _, ok := deployedSet[sel]; !ok {
+				return fmt.Errorf("executor pool references chain %d which has no deployed contracts; use ChainSelectors to target a subset", sel)
+			}
+		}
+	} else {
+		selectorSet := make(map[uint64]struct{}, len(selectors))
+		for _, s := range selectors {
+			selectorSet[s] = struct{}{}
+		}
+		for _, requested := range requestedChainSelectors {
+			if _, ok := selectorSet[requested]; !ok {
+				return fmt.Errorf("chain selector %d has no deployed contracts for this executor pool", requested)
+			}
+		}
+	}
+
+	return nil
+}
+
 func convertTopologyExecutorPool(pool deployments.ExecutorPoolConfig) executorconfig.ExecutorPoolInput {
+	chainNOPAliases := make(map[string][]shared.NOPAlias, len(pool.ChainConfigs))
+	chainExecutionIntervals := make(map[string]time.Duration, len(pool.ChainConfigs))
+	for chainSelector, chainCfg := range pool.ChainConfigs {
+		chainNOPAliases[chainSelector] = shared.ConvertStringToNopAliases(chainCfg.NOPAliases)
+		chainExecutionIntervals[chainSelector] = chainCfg.ExecutionInterval
+	}
 	return executorconfig.ExecutorPoolInput{
-		NOPAliases:        shared.ConvertStringToNopAliases(pool.NOPAliases),
-		ExecutionInterval: pool.ExecutionInterval,
-		NtpServer:         pool.NtpServer,
-		IndexerQueryLimit: pool.IndexerQueryLimit,
-		BackoffDuration:   pool.BackoffDuration,
-		LookbackWindow:    pool.LookbackWindow,
-		ReaderCacheExpiry: pool.ReaderCacheExpiry,
-		MaxRetryDuration:  pool.MaxRetryDuration,
-		WorkerCount:       pool.WorkerCount,
+		NOPAliases:              shared.ConvertStringToNopAliases(pool.NOPAliasesUnion()),
+		ChainNOPAliases:         chainNOPAliases,
+		ChainExecutionIntervals: chainExecutionIntervals,
+		NtpServer:               pool.NtpServer,
+		IndexerQueryLimit:       pool.IndexerQueryLimit,
+		BackoffDuration:         pool.BackoffDuration,
+		LookbackWindow:          pool.LookbackWindow,
+		ReaderCacheExpiry:       pool.ReaderCacheExpiry,
+		MaxRetryDuration:        pool.MaxRetryDuration,
+		WorkerCount:             pool.WorkerCount,
 	}
 }
 
 func validateExecutorChainSupport(
 	deps ExecutorApplyDeps,
+	pool deployments.ExecutorPoolConfig,
 	nopsToValidate []shared.NOPAlias,
 	selectors []uint64,
 ) error {
@@ -193,11 +251,29 @@ func validateExecutorChainSupport(
 		return nil
 	}
 
+	selectorSet := make(map[uint64]struct{}, len(selectors))
+	for _, s := range selectors {
+		selectorSet[s] = struct{}{}
+	}
+
 	var validationResults []shared.ChainValidationResult
 	for _, nopAlias := range nopsToValidate {
+		var requiredChains []uint64
+		for chainSelectorStr, chainCfg := range pool.ChainConfigs {
+			if !slices.Contains(chainCfg.NOPAliases, string(nopAlias)) {
+				continue
+			}
+			sel, err := strconv.ParseUint(chainSelectorStr, 10, 64)
+			if err != nil {
+				return fmt.Errorf("executor pool chain_configs key %q is not a valid chain selector: %w", chainSelectorStr, err)
+			}
+			if _, inScope := selectorSet[sel]; inScope {
+				requiredChains = append(requiredChains, sel)
+			}
+		}
 		result := shared.ValidateNOPChainSupport(
 			string(nopAlias),
-			selectors,
+			requiredChains,
 			supportedChains[string(nopAlias)],
 		)
 		if result != nil {

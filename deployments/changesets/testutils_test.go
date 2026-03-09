@@ -100,6 +100,25 @@ func WithExecutorPool(name string, cfg deployments.ExecutorPoolConfig) TopologyO
 	}
 }
 
+func executorPoolConfigForChains(chainSelectorStrs, nopAliases []string, executionInterval time.Duration) deployments.ExecutorPoolConfig {
+	chainConfigs := make(map[string]deployments.ChainExecutorPoolConfig, len(chainSelectorStrs))
+	for _, selStr := range chainSelectorStrs {
+		chainConfigs[selStr] = deployments.ChainExecutorPoolConfig{
+			NOPAliases:        nopAliases,
+			ExecutionInterval: executionInterval,
+		}
+	}
+	return deployments.ExecutorPoolConfig{ChainConfigs: chainConfigs}
+}
+
+func executorPoolConfigForSelectors(selectors []uint64, nopAliases []string, executionInterval time.Duration) deployments.ExecutorPoolConfig {
+	chainStrs := make([]string, len(selectors))
+	for i, s := range selectors {
+		chainStrs[i] = strconv.FormatUint(s, 10)
+	}
+	return executorPoolConfigForChains(chainStrs, nopAliases, executionInterval)
+}
+
 func WithIndexerAddress(address []string) TopologyOption {
 	return func(t *deployments.EnvironmentTopology) {
 		t.IndexerAddress = address
@@ -152,8 +171,16 @@ func newTestTopology(opts ...TopologyOption) *deployments.EnvironmentTopology {
 		},
 		ExecutorPools: map[string]deployments.ExecutorPoolConfig{
 			testDefaultQualifier: {
-				NOPAliases:        []string{"nop-1", "nop-2"},
-				ExecutionInterval: 15 * time.Second,
+				ChainConfigs: map[string]deployments.ChainExecutorPoolConfig{
+					sel1Str: {
+						NOPAliases:        []string{"nop-1", "nop-2"},
+						ExecutionInterval: 15 * time.Second,
+					},
+					sel2Str: {
+						NOPAliases:        []string{"nop-1", "nop-2"},
+						ExecutionInterval: 15 * time.Second,
+					},
+				},
 			},
 		},
 	}
