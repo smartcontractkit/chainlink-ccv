@@ -1349,7 +1349,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 				DefaultTokenDestGasOverhead: 90_000,
 				DefaultTxGasLimit:           200_000,
 				NetworkFeeUSDCents:          10,
-				ChainFamilySelector:         binary.BigEndian.Uint32(changesetsutils.GetSelectorHex(selector)[:]),
+				ChainFamilySelector:         binary.BigEndian.Uint32(changesetsutils.GetSelectorHex(rs)[:]),
 				LinkFeeMultiplierPercent:    90,
 				USDPerUnitGas:               big.NewInt(1e6),
 			},
@@ -1357,8 +1357,30 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 				Enabled:     true,
 				USDCentsFee: 0, // TODO: set proper fee
 			},
-			AddressBytesLength:   addressBytesLength, // TODO: set proper address bytes length, should be evm-agnostic
-			BaseExecutionGasCost: 150_000,            // TODO: set proper base execution gas cost
+			AddressBytesLength:   addressBytesLength,
+			BaseExecutionGasCost: 150_000, // TODO: set proper base execution gas cost
+			DefaultExecutor: datastore.AddressRef{
+				Type:          datastore.ContractType(executor.ProxyType),
+				Version:       semver.MustParse(executor.DeployProxy.Version()),
+				Qualifier:     devenvcommon.DefaultExecutorQualifier,
+				ChainSelector: rs,
+			},
+			DefaultInboundCCVs: []datastore.AddressRef{
+				{
+					Type:          datastore.ContractType(committee_verifier.ResolverType),
+					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+					ChainSelector: rs,
+					Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
+				},
+			},
+			DefaultOutboundCCVs: []datastore.AddressRef{
+				{
+					Type:          datastore.ContractType(committee_verifier.ResolverType),
+					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+					ChainSelector: rs,
+					Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
+				},
+			},
 		}
 	}
 
@@ -1399,7 +1421,6 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 						Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier, // TODO: pull this from committees param?
 					},
 				},
-				// LaneMandatedInboundCCVs: []datastore.AddressRef{},
 				DefaultOutboundCCVs: []datastore.AddressRef{
 					{
 						Type:          datastore.ContractType(committee_verifier.ResolverType),
@@ -1408,12 +1429,32 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 						Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier, // TODO: pull this from committees param?
 					},
 				},
-				// LaneMandatedOutboundCCVs: []datastore.AddressRef{},
 				DefaultExecutor: datastore.AddressRef{
-					Type:      datastore.ContractType(executor.ProxyType),
-					Version:   semver.MustParse(executor.DeployProxy.Version()),
-					Qualifier: devenvcommon.DefaultExecutorQualifier,
+					Type:          datastore.ContractType(executor.ProxyType),
+					Version:       semver.MustParse(executor.DeployProxy.Version()),
+					Qualifier:     devenvcommon.DefaultExecutorQualifier,
+					ChainSelector: selector,
 				},
+				FeeQuoterDestChainConfig: lanes.FeeQuoterDestChainConfig{
+					IsEnabled:                   true,
+					MaxDataBytes:                30_000,
+					MaxPerMsgGasLimit:           3_000_000,
+					DestGasOverhead:             300_000,
+					DefaultTokenFeeUSDCents:     25,
+					DestGasPerPayloadByteBase:   16,
+					DefaultTokenDestGasOverhead: 90_000,
+					DefaultTxGasLimit:           200_000,
+					NetworkFeeUSDCents:          10,
+					ChainFamilySelector:         binary.BigEndian.Uint32(changesetsutils.GetSelectorHex(selector)[:]),
+					LinkFeeMultiplierPercent:    90,
+					USDPerUnitGas:               big.NewInt(1e6),
+				},
+				ExecutorDestChainConfig: lanes.ExecutorDestChainConfig{
+					Enabled:     true,
+					USDCentsFee: 0,
+				},
+				AddressBytesLength:   20,      // EVM address length
+				BaseExecutionGasCost: 150_000, // TODO: set proper base execution gas cost
 			},
 		},
 	})

@@ -44,19 +44,9 @@ type CommitteeVerifierConfig struct {
 type PartialChainConfig struct {
 	// The selector of the chain being configured.
 	ChainSelector uint64
-	// The Router on the chain being configured.
-	// We assume that all connections defined will use the same router, either test or production.
-	Router datastore.AddressRef
-	// The OnRamp on the chain being configured.
-	// Similarly, we assume that all connections will use the same OnRamp.
-	OnRamp datastore.AddressRef
 	// The CommitteeVerifiers on the chain being configured.
 	// There can be multiple committee verifiers on a chain, each controlled by a different entity.
 	CommitteeVerifiers []CommitteeVerifierConfig
-	// The FeeQuoter on the chain being configured.
-	FeeQuoter datastore.AddressRef
-	// The OffRamp on the chain being configured
-	OffRamp datastore.AddressRef
 	// The addresses of CCVs that will be applied to messages FROM this chain if no receiver is specified.
 	DefaultInboundCCVs []datastore.AddressRef
 	// Addresses of any CCVs that must always be used for messages FROM this chain.
@@ -67,6 +57,14 @@ type PartialChainConfig struct {
 	LaneMandatedOutboundCCVs []datastore.AddressRef
 	// The Executor address that will be used for messages TO this chain if none is specified.
 	DefaultExecutor datastore.AddressRef
+	// FeeQuoterDestChainConfig describes this chain when it acts as a destination.
+	FeeQuoterDestChainConfig lanes.FeeQuoterDestChainConfig
+	// ExecutorDestChainConfig describes this chain when it acts as a destination.
+	ExecutorDestChainConfig lanes.ExecutorDestChainConfig
+	// AddressBytesLength is the length of addresses on this chain.
+	AddressBytesLength uint8
+	// BaseExecutionGasCost is the base gas cost for execution on this chain.
+	BaseExecutionGasCost uint32
 	// The configuration for each remote chain that we want to connect to.
 	RemoteChains map[uint64]lanes.ChainDefinition
 }
@@ -164,18 +162,24 @@ func ConfigureChainsForLanesFromTopology(laneAdapterRegistry *lanes.LaneAdapterR
 				})
 			}
 			for _, remoteChainConfig := range chain.RemoteChains {
-			chains = append(chains, lanes.LaneConfig{
-				ChainA: lanes.ChainDefinition{
-					Selector: chain.ChainSelector,
-					CommitteeVerifiers: committeeVerifiers,
-					DefaultInboundCCVs: chain.DefaultInboundCCVs,
-					DefaultOutboundCCVs: chain.DefaultOutboundCCVs,
-					DefaultExecutor:    chain.DefaultExecutor,
-				},
-				ChainB: remoteChainConfig,
-				Version: semver.MustParse("2.0.0"),
-			})
-		}
+				chains = append(chains, lanes.LaneConfig{
+					ChainA: lanes.ChainDefinition{
+						Selector:                 chain.ChainSelector,
+						CommitteeVerifiers:       committeeVerifiers,
+						DefaultInboundCCVs:       chain.DefaultInboundCCVs,
+						LaneMandatedInboundCCVs:  chain.LaneMandatedInboundCCVs,
+						DefaultOutboundCCVs:      chain.DefaultOutboundCCVs,
+						LaneMandatedOutboundCCVs: chain.LaneMandatedOutboundCCVs,
+						DefaultExecutor:          chain.DefaultExecutor,
+						FeeQuoterDestChainConfig: chain.FeeQuoterDestChainConfig,
+						ExecutorDestChainConfig:  chain.ExecutorDestChainConfig,
+						AddressBytesLength:       chain.AddressBytesLength,
+						BaseExecutionGasCost:     chain.BaseExecutionGasCost,
+					},
+					ChainB:  remoteChainConfig,
+					Version: semver.MustParse("2.0.0"),
+				})
+			}
 		}
 
 		return lanes.ConnectChains(laneAdapterRegistry, mcmsRegistry).Apply(e, lanes.ConnectChainsConfig{
