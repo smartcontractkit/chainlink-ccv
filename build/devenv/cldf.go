@@ -72,6 +72,8 @@ func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint
 	providers := make([]cldf_chain.BlockChain, 0)
 	selectors := make([]uint64, 0)
 	defaultTxTimeout := 30 * time.Second
+
+	// TODO: remove EVM and Canton from here and use the registry instead
 	for _, b := range cfg.Blockchains {
 		switch b.Out.Family {
 		case blockchain.FamilyEVM:
