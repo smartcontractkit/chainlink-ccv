@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
 
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/canton/provider/authentication"
@@ -70,6 +71,8 @@ func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint
 	providers := make([]cldf_chain.BlockChain, 0)
 	selectors := make([]uint64, 0)
 	defaultTxTimeout := 30 * time.Second
+
+	// TODO: remove EVM and Canton from here and use the registry instead
 	for _, b := range cfg.Blockchains {
 		switch b.Out.Family {
 		case blockchain.FamilyEVM:
@@ -172,7 +175,16 @@ func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint
 			}
 			providers = append(providers, p)
 		default:
-			return nil, nil, fmt.Errorf("unsupported blockchain family: %s", b.Out.Family)
+			factory, ok := registry.GetGlobalCLDFProviderRegistry().Get(b.Out.Family)
+			if !ok {
+				return nil, nil, fmt.Errorf("unsupported blockchain family, missing CLDF provider factory: %s", b.Out.Family)
+			}
+			provider, selector, err := factory(context.Background(), b)
+			if err != nil {
+				return nil, nil, err
+			}
+			selectors = append(selectors, selector)
+			providers = append(providers, provider)
 		}
 	}
 
