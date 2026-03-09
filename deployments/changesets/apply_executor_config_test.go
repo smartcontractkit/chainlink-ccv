@@ -288,6 +288,7 @@ func TestApplyExecutorConfig_TargetNOPsScoping(t *testing.T) {
 	job, err := deployments.GetJob(outputSealed, "nop-1", "nop-1-default-executor")
 	require.NoError(t, err, "nop-1 executor job spec should exist")
 	assert.NotEqual(t, "nop-1-job-spec", job.Spec, "nop-1 job spec should be updated")
+	assert.Contains(t, job.Spec, "nop-2", "nop-1 job spec executor_pool should still include non-targeted nop-2")
 
 	nop2Job, err := deployments.GetJob(outputSealed, "nop-2", "nop-2-default-executor")
 	require.NoError(t, err, "nop-2 executor job spec should be preserved when not in scope")
@@ -412,6 +413,47 @@ func TestApplyExecutorConfig_PerChainPoolMembershipAndIntervalInJobSpec(t *testi
 	assert.Contains(t, nop3Job.Spec, sel2Str, "nop-3 should have chain 2 only")
 	assert.Contains(t, nop3Job.Spec, `executor_pool = ["nop-2", "nop-3"]`)
 	assert.Contains(t, nop3Job.Spec, `execution_interval = "20s"`)
+}
+
+func TestApplyExecutorConfig_FailsWhenPoolChainHasNoDeployedContracts(t *testing.T) {
+	selectors := []uint64{chainsel.TEST_90000001.Selector}
+	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, selectors)
+	setupExecutorDatastore(t, ds, selectors, testDefaultQualifier)
+	env.DataStore = ds.Seal()
+
+	topology := newTestTopology(
+		WithExecutorPool(testDefaultQualifier, executorPoolConfigForSelectors(
+			defaultSelectors,
+			[]string{"nop-1", "nop-2"},
+			15*time.Second,
+		)),
+	)
+
+	cs := changesets.ApplyExecutorConfig()
+	_, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
+		Topology:          topology,
+		ExecutorQualifier: testDefaultQualifier,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no deployed contracts")
+}
+
+func TestApplyExecutorConfig_FailsWhenRequestedChainHasNoDeployedContracts(t *testing.T) {
+	selectors := []uint64{chainsel.TEST_90000001.Selector}
+	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, selectors)
+	setupExecutorDatastore(t, ds, selectors, testDefaultQualifier)
+	env.DataStore = ds.Seal()
+
+	topology := newTestTopology()
+
+	cs := changesets.ApplyExecutorConfig()
+	_, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
+		Topology:          topology,
+		ExecutorQualifier: testDefaultQualifier,
+		ChainSelectors:    defaultSelectors,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no deployed contracts")
 }
 
 func TestApplyExecutorConfig_UpdatesJobsWhenChainRemoved(t *testing.T) {

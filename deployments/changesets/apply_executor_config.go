@@ -108,6 +108,10 @@ func ApplyExecutorConfigWithDeps(deps ExecutorApplyDeps, cfg ApplyExecutorConfig
 
 	pool := cfg.Topology.ExecutorPools[cfg.ExecutorQualifier]
 
+	if err := validatePoolChainsDeployed(pool, selectors, deployedChains, cfg.ChainSelectors); err != nil {
+		return deployment.ChangesetOutput{}, err
+	}
+
 	nopsToValidate := cfg.TargetNOPs
 	if len(nopsToValidate) == 0 {
 		poolNOPs, err := cfg.Topology.GetNOPsForPool(cfg.ExecutorQualifier)
@@ -175,6 +179,42 @@ func ApplyExecutorConfigWithDeps(deps ExecutorApplyDeps, cfg ApplyExecutorConfig
 		Reports:   report.ExecutionReports,
 		DataStore: manageReport.Output.DataStore,
 	}, nil
+}
+
+func validatePoolChainsDeployed(
+	pool deployments.ExecutorPoolConfig,
+	selectors []uint64,
+	deployedChains []uint64,
+	requestedChainSelectors []uint64,
+) error {
+	deployedSet := make(map[uint64]struct{}, len(deployedChains))
+	for _, s := range deployedChains {
+		deployedSet[s] = struct{}{}
+	}
+
+	if len(requestedChainSelectors) == 0 {
+		for chainSelectorStr := range pool.ChainConfigs {
+			sel, err := strconv.ParseUint(chainSelectorStr, 10, 64)
+			if err != nil {
+				return fmt.Errorf("executor pool chain_configs key %q is not a valid chain selector: %w", chainSelectorStr, err)
+			}
+			if _, ok := deployedSet[sel]; !ok {
+				return fmt.Errorf("executor pool references chain %d which has no deployed contracts; use ChainSelectors to target a subset", sel)
+			}
+		}
+	} else {
+		selectorSet := make(map[uint64]struct{}, len(selectors))
+		for _, s := range selectors {
+			selectorSet[s] = struct{}{}
+		}
+		for _, requested := range requestedChainSelectors {
+			if _, ok := selectorSet[requested]; !ok {
+				return fmt.Errorf("chain selector %d has no deployed contracts for this executor pool", requested)
+			}
+		}
+	}
+
+	return nil
 }
 
 func convertTopologyExecutorPool(pool deployments.ExecutorPoolConfig) executorconfig.ExecutorPoolInput {
