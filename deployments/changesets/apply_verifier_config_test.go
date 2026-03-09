@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	jobpb "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/job"
 	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
@@ -770,8 +771,25 @@ func TestApplyVerifierConfig_FailsWhenNOPMissingChainSupport(t *testing.T) {
 		NodeIDs:  []string{"node-1", "node-2"},
 	}
 
+	topology := newTestTopology(
+		WithNOPs([]deployments.NOPConfig{
+			{
+				Alias:                 "nop-1",
+				Name:                  "nop-1",
+				SignerAddressByFamily: map[string]string{chainsel.FamilyEVM: "0xABCDEF1234567890ABCDEF1234567890ABCDEF12"},
+				Mode:                  shared.NOPModeCL,
+			},
+			{
+				Alias:                 "nop-2",
+				Name:                  "nop-2",
+				SignerAddressByFamily: map[string]string{chainsel.FamilyEVM: "0x1234567890ABCDEF1234567890ABCDEF12345678"},
+				Mode:                  shared.NOPModeCL,
+			},
+		}),
+	)
+
 	cfg := changesets.ApplyVerifierConfigCfg{
-		Topology:                 newTestTopology(),
+		Topology:                 topology,
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
 	}
@@ -787,7 +805,7 @@ func TestApplyVerifierConfig_PassesWhenNOPSupportsExtraChains(t *testing.T) {
 	setupVerifierDatastore(t, ds, defaultSelectors, testCommittee, testDefaultQualifier)
 	env.DataStore = ds.Seal()
 
-	mockJD := deploymocks.NewMockJDClient(t)
+	mockJD := deploymocks.NewMockClient(t)
 	mockJD.EXPECT().ListNodes(mock.Anything, mock.Anything).Return(
 		&nodev1.ListNodesResponse{
 			Nodes: []*nodev1.Node{
@@ -837,11 +855,58 @@ func TestApplyVerifierConfig_PassesWhenNOPSupportsExtraChains(t *testing.T) {
 			},
 		}, nil,
 	)
+	mockJD.EXPECT().ProposeJob(mock.Anything, mock.Anything).Return(
+		&jobpb.ProposeJobResponse{Proposal: &jobpb.Proposal{Id: "p1", Status: jobpb.ProposalStatus_PROPOSAL_STATUS_PENDING}}, nil,
+	)
+
+	topology := newTestTopology(
+		WithNOPs([]deployments.NOPConfig{
+			{
+				Alias:                 "nop-1",
+				Name:                  "nop-1",
+				SignerAddressByFamily: map[string]string{chainsel.FamilyEVM: "0xABCDEF1234567890ABCDEF1234567890ABCDEF12"},
+				Mode:                  shared.NOPModeCL,
+			},
+			{
+				Alias:                 "nop-2",
+				Name:                  "nop-2",
+				SignerAddressByFamily: map[string]string{chainsel.FamilyEVM: "0x1234567890ABCDEF1234567890ABCDEF12345678"},
+				Mode:                  shared.NOPModeCL,
+			},
+		}),
+	)
+
+	env.Offchain = mockJD
+	env.NodeIDs = []string{"node-1", "node-2"}
 
 	deps := changesets.VerifierApplyDeps{
 		Env:      env,
 		JDClient: mockJD,
 		NodeIDs:  []string{"node-1", "node-2"},
+	}
+
+	cfg := changesets.ApplyVerifierConfigCfg{
+		Topology:                 topology,
+		CommitteeQualifier:       testCommittee,
+		DefaultExecutorQualifier: testDefaultQualifier,
+	}
+
+	output, err := changesets.ApplyVerifierConfigWithDeps(deps, cfg)
+	require.NoError(t, err)
+	require.NotNil(t, output.DataStore)
+}
+
+func TestApplyVerifierConfig_SkipsChainSupportValidationForStandaloneNOPs(t *testing.T) {
+	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, defaultSelectors)
+	setupVerifierDatastore(t, ds, defaultSelectors, testCommittee, testDefaultQualifier)
+	env.DataStore = ds.Seal()
+
+	mockJD := deploymocks.NewMockJDClient(t)
+
+	deps := changesets.VerifierApplyDeps{
+		Env:      env,
+		JDClient: mockJD,
+		NodeIDs:  []string{},
 	}
 
 	cfg := changesets.ApplyVerifierConfigCfg{
@@ -860,7 +925,7 @@ func TestApplyVerifierConfig_PassesWhenNonTargetNOPMissingChainSupport(t *testin
 	setupVerifierDatastore(t, ds, defaultSelectors, testCommittee, testDefaultQualifier)
 	env.DataStore = ds.Seal()
 
-	mockJD := deploymocks.NewMockJDClient(t)
+	mockJD := deploymocks.NewMockClient(t)
 	mockJD.EXPECT().ListNodes(mock.Anything, mock.Anything).Return(
 		&nodev1.ListNodesResponse{
 			Nodes: []*nodev1.Node{
@@ -888,15 +953,38 @@ func TestApplyVerifierConfig_PassesWhenNonTargetNOPMissingChainSupport(t *testin
 			},
 		}, nil,
 	)
+	mockJD.EXPECT().ProposeJob(mock.Anything, mock.Anything).Return(
+		&jobpb.ProposeJobResponse{Proposal: &jobpb.Proposal{Id: "p1", Status: jobpb.ProposalStatus_PROPOSAL_STATUS_PENDING}}, nil,
+	)
+
+	topology := newTestTopology(
+		WithNOPs([]deployments.NOPConfig{
+			{
+				Alias:                 "nop-1",
+				Name:                  "nop-1",
+				SignerAddressByFamily: map[string]string{chainsel.FamilyEVM: "0xABCDEF1234567890ABCDEF1234567890ABCDEF12"},
+				Mode:                  shared.NOPModeCL,
+			},
+			{
+				Alias:                 "nop-2",
+				Name:                  "nop-2",
+				SignerAddressByFamily: map[string]string{chainsel.FamilyEVM: "0x1234567890ABCDEF1234567890ABCDEF12345678"},
+				Mode:                  shared.NOPModeCL,
+			},
+		}),
+	)
+
+	env.Offchain = mockJD
+	env.NodeIDs = []string{"node-1", "node-2"}
 
 	deps := changesets.VerifierApplyDeps{
 		Env:      env,
 		JDClient: mockJD,
-		NodeIDs:  []string{"node-1", "node-2"},
+		NodeIDs:  []string{"node-1"},
 	}
 
 	cfg := changesets.ApplyVerifierConfigCfg{
-		Topology:                 newTestTopology(),
+		Topology:                 topology,
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
 		TargetNOPs:               []shared.NOPAlias{"nop-1"},

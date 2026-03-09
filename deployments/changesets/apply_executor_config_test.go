@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	jobpb "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/job"
 	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
@@ -699,10 +700,16 @@ func TestApplyExecutorConfig_FailsWhenNOPMissingChainSupport(t *testing.T) {
 		NodeIDs:  []string{"node-1", "node-2"},
 	}
 
-	cfg := changesets.ApplyExecutorConfigCfg{
-		Topology:          newTestTopology(),
-		ExecutorQualifier: testDefaultQualifier,
+	topology := newTestTopology(
+		WithNOPs([]deployments.NOPConfig{
+			{Alias: "nop-1", Name: "nop-1", Mode: shared.NOPModeCL},
+			{Alias: "nop-2", Name: "nop-2", Mode: shared.NOPModeCL},
+		}),
+	)
 
+	cfg := changesets.ApplyExecutorConfigCfg{
+		Topology:          topology,
+		ExecutorQualifier: testDefaultQualifier,
 	}
 
 	_, err := changesets.ApplyExecutorConfigWithDeps(deps, cfg)
@@ -716,7 +723,7 @@ func TestApplyExecutorConfig_PassesWhenNOPSupportsExtraChains(t *testing.T) {
 	setupExecutorDatastore(t, ds, defaultSelectors, testDefaultQualifier)
 	env.DataStore = ds.Seal()
 
-	mockJD := deploymocks.NewMockJDClient(t)
+	mockJD := deploymocks.NewMockClient(t)
 	mockJD.EXPECT().ListNodes(mock.Anything, mock.Anything).Return(
 		&nodev1.ListNodesResponse{
 			Nodes: []*nodev1.Node{
@@ -766,6 +773,19 @@ func TestApplyExecutorConfig_PassesWhenNOPSupportsExtraChains(t *testing.T) {
 			},
 		}, nil,
 	)
+	mockJD.EXPECT().ProposeJob(mock.Anything, mock.Anything).Return(
+		&jobpb.ProposeJobResponse{Proposal: &jobpb.Proposal{Id: "p1", Status: jobpb.ProposalStatus_PROPOSAL_STATUS_PENDING}}, nil,
+	)
+
+	topology := newTestTopology(
+		WithNOPs([]deployments.NOPConfig{
+			{Alias: "nop-1", Name: "nop-1", Mode: shared.NOPModeCL},
+			{Alias: "nop-2", Name: "nop-2", Mode: shared.NOPModeCL},
+		}),
+	)
+
+	env.Offchain = mockJD
+	env.NodeIDs = []string{"node-1", "node-2"}
 
 	deps := changesets.ExecutorApplyDeps{
 		Env:      env,
@@ -774,9 +794,31 @@ func TestApplyExecutorConfig_PassesWhenNOPSupportsExtraChains(t *testing.T) {
 	}
 
 	cfg := changesets.ApplyExecutorConfigCfg{
+		Topology:          topology,
+		ExecutorQualifier: testDefaultQualifier,
+	}
+
+	output, err := changesets.ApplyExecutorConfigWithDeps(deps, cfg)
+	require.NoError(t, err)
+	require.NotNil(t, output.DataStore)
+}
+
+func TestApplyExecutorConfig_SkipsChainSupportValidationForStandaloneNOPs(t *testing.T) {
+	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, defaultSelectors)
+	setupExecutorDatastore(t, ds, defaultSelectors, testDefaultQualifier)
+	env.DataStore = ds.Seal()
+
+	mockJD := deploymocks.NewMockJDClient(t)
+
+	deps := changesets.ExecutorApplyDeps{
+		Env:      env,
+		JDClient: mockJD,
+		NodeIDs:  []string{},
+	}
+
+	cfg := changesets.ApplyExecutorConfigCfg{
 		Topology:          newTestTopology(),
 		ExecutorQualifier: testDefaultQualifier,
-
 	}
 
 	output, err := changesets.ApplyExecutorConfigWithDeps(deps, cfg)
@@ -789,7 +831,7 @@ func TestApplyExecutorConfig_PassesWhenNonTargetNOPMissingChainSupport(t *testin
 	setupExecutorDatastore(t, ds, defaultSelectors, testDefaultQualifier)
 	env.DataStore = ds.Seal()
 
-	mockJD := deploymocks.NewMockJDClient(t)
+	mockJD := deploymocks.NewMockClient(t)
 	mockJD.EXPECT().ListNodes(mock.Anything, mock.Anything).Return(
 		&nodev1.ListNodesResponse{
 			Nodes: []*nodev1.Node{
@@ -817,17 +859,29 @@ func TestApplyExecutorConfig_PassesWhenNonTargetNOPMissingChainSupport(t *testin
 			},
 		}, nil,
 	)
+	mockJD.EXPECT().ProposeJob(mock.Anything, mock.Anything).Return(
+		&jobpb.ProposeJobResponse{Proposal: &jobpb.Proposal{Id: "p1", Status: jobpb.ProposalStatus_PROPOSAL_STATUS_PENDING}}, nil,
+	)
+
+	topology := newTestTopology(
+		WithNOPs([]deployments.NOPConfig{
+			{Alias: "nop-1", Name: "nop-1", Mode: shared.NOPModeCL},
+			{Alias: "nop-2", Name: "nop-2", Mode: shared.NOPModeCL},
+		}),
+	)
+
+	env.Offchain = mockJD
+	env.NodeIDs = []string{"node-1", "node-2"}
 
 	deps := changesets.ExecutorApplyDeps{
 		Env:      env,
 		JDClient: mockJD,
-		NodeIDs:  []string{"node-1", "node-2"},
+		NodeIDs:  []string{"node-1"},
 	}
 
 	cfg := changesets.ApplyExecutorConfigCfg{
-		Topology:          newTestTopology(),
+		Topology:          topology,
 		ExecutorQualifier: testDefaultQualifier,
-
 		TargetNOPs:        []shared.NOPAlias{"nop-1"},
 	}
 

@@ -114,7 +114,8 @@ func ApplyVerifierConfigWithDeps(deps VerifierApplyDeps, cfg ApplyVerifierConfig
 		nopsToValidate = shared.ConvertStringToNopAliases(getCommitteeNOPAliases(committee))
 	}
 
-	if err := validateVerifierChainSupport(deps, nopsToValidate, committee); err != nil {
+	clNOPs := filterCLModeNOPs(nopsToValidate, cfg.Topology.NOPTopology.NOPs)
+	if err := validateVerifierChainSupport(deps, clNOPs, committee); err != nil {
 		return deployment.ChangesetOutput{}, err
 	}
 

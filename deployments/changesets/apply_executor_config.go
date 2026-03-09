@@ -108,7 +108,8 @@ func ApplyExecutorConfigWithDeps(deps ExecutorApplyDeps, cfg ApplyExecutorConfig
 		nopsToValidate = shared.ConvertStringToNopAliases(poolNOPs)
 	}
 
-	if err := validateExecutorChainSupport(deps, cfg.Topology.ExecutorPools[cfg.ExecutorQualifier], nopsToValidate); err != nil {
+	clNOPs := filterCLModeNOPs(nopsToValidate, cfg.Topology.NOPTopology.NOPs)
+	if err := validateExecutorChainSupport(deps, cfg.Topology.ExecutorPools[cfg.ExecutorQualifier], clNOPs); err != nil {
 		return deployment.ChangesetOutput{}, err
 	}
 

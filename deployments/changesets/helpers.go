@@ -41,6 +41,17 @@ func buildNOPModes(nops []deployments.NOPConfig) map[shared.NOPAlias]shared.NOPM
 	return nopModes
 }
 
+func filterCLModeNOPs(aliases []shared.NOPAlias, nops []deployments.NOPConfig) []shared.NOPAlias {
+	modeByAlias := buildNOPModes(nops)
+	filtered := make([]shared.NOPAlias, 0, len(aliases))
+	for _, alias := range aliases {
+		if mode, ok := modeByAlias[alias]; ok && mode == shared.NOPModeCL {
+			filtered = append(filtered, alias)
+		}
+	}
+	return filtered
+}
+
 func getAllNOPAliases(nops []deployments.NOPConfig) []shared.NOPAlias {
 	aliases := make([]shared.NOPAlias, len(nops))
 	for i, nop := range nops {
