@@ -13,6 +13,9 @@ import (
 const (
 	// DefaultObservabilityInterval is how often to log queue size metrics.
 	DefaultObservabilityInterval = 10 * time.Second
+	// queueSizeQueryTimeout is the maximum time to wait for a queue size query.
+	// This prevents the monitoring loop from hanging if the database is under high pressure.
+	queueSizeQueryTimeout = 2 * time.Second
 )
 
 // ObservabilityDecorator wraps a JobQueue and adds observability capabilities.
@@ -127,7 +130,11 @@ func (d *ObservabilityDecorator[T]) monitorLoop() {
 
 // logQueueSize retrieves and logs the current queue size.
 func (d *ObservabilityDecorator[T]) logQueueSize(ctx context.Context) {
-	size, err := d.queue.Size(ctx)
+	// Create a context with timeout to prevent hanging if database is under pressure
+	queryCtx, cancel := context.WithTimeout(ctx, queueSizeQueryTimeout)
+	defer cancel()
+
+	size, err := d.queue.Size(queryCtx)
 	if err != nil {
 		d.lggr.Errorw("Failed to get queue size",
 			"queue", d.queue.Name(),
