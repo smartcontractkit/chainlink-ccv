@@ -1018,6 +1018,14 @@ func NewEnvironment() (in *Cfg, err error) {
 			return nil, err
 		}
 		L.Info().Uint64("Selector", networkInfo.ChainSelector).Msg("Deployed chain selector")
+		// The goal here is to shift the nonce for the deployer to intentionally create different contract addresses on each chain.
+		// This helps catch a class of bugs that occur if we assume all chains have the same contract addresses.
+		// In practice we want to use CREATE2 and share the same contract addresses across chains. However not all chains support CREATE2.
+		if bumper, ok := impl.(cciptestinterfaces.DeployerNonceBumper); ok && i > 0 {
+			if err := bumper.BumpDeployerNonce(ctx, e, networkInfo.ChainSelector, i); err != nil {
+				return nil, fmt.Errorf("failed to bump deployer nonce for chain %d: %w", networkInfo.ChainSelector, err)
+			}
+		}
 		var dsi datastore.DataStore
 		dsi, err = impl.DeployContractsForSelector(ctx, e, networkInfo.ChainSelector, topology)
 		if err != nil {

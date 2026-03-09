@@ -204,6 +204,14 @@ type OnChainConfigurable interface {
 	ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, topology *deployments.EnvironmentTopology) error
 }
 
+// DeployerNonceBumper is an optional interface. When implemented, devenv calls it before
+// DeployContractsForSelector so that contract addresses differ across chains (e.g. by sending
+// dummy self-transfers to bump the deployer nonce). This helps smoke tests catch bugs where
+// code looks up addresses using the wrong chain selector.
+type DeployerNonceBumper interface {
+	BumpDeployerNonce(ctx context.Context, env *deployment.Environment, selector uint64, count int) error
+}
+
 // OffChainConfigurable defines methods that allows to
 // deploy a local blockchain network for tests and configure CL nodes for Chainlink product.
 type OffChainConfigurable interface {

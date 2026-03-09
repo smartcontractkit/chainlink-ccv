@@ -886,6 +886,63 @@ func (m *CCIP17EVMConfig) ChainFamily() string {
 	return chainsel.FamilyEVM
 }
 
+// BumpDeployerNonce sends count zero-value self-transfers from the deployer so that subsequent
+// contract deployments get different addresses than on chains with a lower index. Implements
+// cciptestinterfaces.DeployerNonceBumper.
+func (m *CCIP17EVMConfig) BumpDeployerNonce(ctx context.Context, env *deployment.Environment, selector uint64, count int) error {
+	if count <= 0 {
+		return nil
+	}
+	chain, ok := env.BlockChains.EVMChains()[selector]
+	if !ok {
+		return fmt.Errorf("no EVM chain for selector %d", selector)
+	}
+	fromAddr := chain.DeployerKey.From
+	chainIDUint64, err := chainsel.ChainIdFromSelector(selector)
+	if err != nil {
+		return fmt.Errorf("chain ID from selector %d: %w", selector, err)
+	}
+	chainID := new(big.Int).SetUint64(chainIDUint64)
+	for i := 0; i < count; i++ {
+		nonce, err := chain.Client.PendingNonceAt(ctx, fromAddr)
+		if err != nil {
+			return fmt.Errorf("pending nonce (bump %d/%d): %w", i+1, count, err)
+		}
+		feeCap, err := chain.Client.SuggestGasPrice(ctx)
+		if err != nil {
+			return fmt.Errorf("suggest gas price (bump %d/%d): %w", i+1, count, err)
+		}
+		tipCap, err := chain.Client.SuggestGasTipCap(ctx)
+		if err != nil {
+			return fmt.Errorf("suggest gas tip cap (bump %d/%d): %w", i+1, count, err)
+		}
+		if tipCap.Cmp(feeCap) > 0 {
+			feeCap = new(big.Int).Set(tipCap)
+		}
+		tx := types.NewTx(&types.DynamicFeeTx{
+			ChainID:   chainID,
+			Nonce:     nonce,
+			To:        &fromAddr,
+			Value:     big.NewInt(0),
+			Gas:       DefaultNativeTransferGasLimit,
+			GasFeeCap: feeCap,
+			GasTipCap: tipCap,
+		})
+		signedTx, err := chain.DeployerKey.Signer(fromAddr, tx)
+		if err != nil {
+			return fmt.Errorf("sign bump tx %d/%d: %w", i+1, count, err)
+		}
+		if err := chain.Client.SendTransaction(ctx, signedTx); err != nil {
+			return fmt.Errorf("send bump tx %d/%d: %w", i+1, count, err)
+		}
+		if _, err := chain.Confirm(signedTx); err != nil {
+			return fmt.Errorf("confirm bump tx %d/%d: %w", i+1, count, err)
+		}
+		m.logger.Debug().Uint64("selector", selector).Int("bump", i+1).Int("total", count).Msg("bumped deployer nonce")
+	}
+	return nil
+}
+
 func (m *CCIP17EVMConfig) DeployLocalNetwork(ctx context.Context, bc *blockchain.Input) (*blockchain.Output, error) {
 	l := m.logger
 	l.Info().Msg("Deploying EVM networks")

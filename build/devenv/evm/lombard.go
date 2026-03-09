@@ -222,7 +222,19 @@ func (m *CCIP17EVMConfig) configureLombardForTransfer(
 		return fmt.Errorf("failed to get lombard token address ref for chain %d: %w", selector, err)
 	}
 
-	_, err = changesets.DeployLombardChains(lombardChainRegistry, registry).Apply(*e, changesets.DeployLombardChainsConfig{
+	scopedDS := datastore.NewMemoryDataStore()
+	for _, sel := range append([]uint64{selector}, remoteSelectors...) {
+		refsForSel := e.DataStore.Addresses().Filter(datastore.AddressRefByChainSelector(sel))
+		for _, ref := range refsForSel {
+			if err := scopedDS.Addresses().Add(ref); err != nil {
+				return fmt.Errorf("failed to add address ref to scoped datastore for chain %d: %w", sel, err)
+			}
+		}
+	}
+	envWithScopedDS := *e
+	envWithScopedDS.DataStore = scopedDS.Seal()
+
+	_, err = changesets.DeployLombardChains(lombardChainRegistry, registry).Apply(envWithScopedDS, changesets.DeployLombardChainsConfig{
 		Chains: map[uint64]changesets.LombardChainConfig{
 			selector: {
 				Token:          tokenRef.Address,
