@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/stretchr/testify/assert"
@@ -478,9 +479,7 @@ func TestApplyVerifierConfig_SkipsNOPsNotInAnyChainConfig(t *testing.T) {
 				sel1Str: {NOPAliases: []string{"nop-1"}, Threshold: 1},
 			},
 		}),
-		WithExecutorPool(testDefaultQualifier, deployments.ExecutorPoolConfig{
-			NOPAliases: []string{"nop-1", "nop-not-in-committee"},
-		}),
+		WithExecutorPool(testDefaultQualifier, executorPoolConfigForSelectors(selectors, []string{"nop-1", "nop-not-in-committee"}, 15*time.Second)),
 	)
 
 	cs := changesets.ApplyVerifierConfig()
