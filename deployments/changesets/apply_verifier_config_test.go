@@ -73,28 +73,6 @@ func TestApplyVerifierConfig_Validation(t *testing.T) {
 			},
 			expectedErr: "NOP alias \"non-existent-nop\" not found in topology",
 		},
-		{
-			name: "topology chain not in environment",
-			cfg: changesets.ApplyVerifierConfigCfg{
-				Topology: newTestTopology(
-					WithCommittee(testCommittee, deployments.CommitteeConfig{
-						Qualifier: testCommittee,
-						Aggregators: []deployments.AggregatorConfig{
-							{Name: testAggregatorName, Address: testAggregatorAddress, InsecureAggregatorConnection: true},
-						},
-						ChainConfigs: map[string]deployments.ChainCommitteeConfig{
-							strconv.FormatUint(chainsel.TEST_90000003.Selector, 10): {
-								NOPAliases: []string{"nop-1", "nop-2"},
-								Threshold:  2,
-							},
-						},
-					}),
-				),
-				CommitteeQualifier:       testCommittee,
-				DefaultExecutorQualifier: testDefaultQualifier,
-			},
-			expectedErr: "which is not available in the environment",
-		},
 	}
 
 	for _, tt := range tests {
@@ -150,6 +128,45 @@ func TestApplyVerifierConfig_PyroscopeNotAllowedInProduction(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pyroscope URL is not supported for production environments")
+}
+
+func TestApplyVerifierConfig_SucceedsWhenChainNotInBlockChainsButInDataStore(t *testing.T) {
+	envBlockChains := []uint64{chainsel.TEST_90000001.Selector}
+	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, envBlockChains)
+	setupVerifierDatastore(t, ds, defaultSelectors, testCommittee, testDefaultQualifier)
+	env.DataStore = ds.Seal()
+
+	sel1Str := strconv.FormatUint(defaultSelectors[0], 10)
+	sel2Str := strconv.FormatUint(defaultSelectors[1], 10)
+
+	cs := changesets.ApplyVerifierConfig()
+	output, err := cs.Apply(env, changesets.ApplyVerifierConfigCfg{
+		Topology:                 newTestTopology(),
+		CommitteeQualifier:       testCommittee,
+		DefaultExecutorQualifier: testDefaultQualifier,
+	})
+	require.NoError(t, err)
+
+	job, err := deployments.GetJob(output.DataStore.Seal(), "nop-1", "nop-1-instance-1-test-committee-verifier")
+	require.NoError(t, err)
+
+	assert.Contains(t, job.Spec, sel1Str, "chain in both BlockChains and DataStore should be in job spec")
+	assert.Contains(t, job.Spec, sel2Str, "chain only in DataStore should still be in job spec")
+}
+
+func TestApplyVerifierConfig_FailsWhenCommitteeChainNotInDataStore(t *testing.T) {
+	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, defaultSelectors[:1])
+	setupVerifierDatastore(t, ds, defaultSelectors[:1], testCommittee, testDefaultQualifier)
+	env.DataStore = ds.Seal()
+
+	cs := changesets.ApplyVerifierConfig()
+	_, err := cs.Apply(env, changesets.ApplyVerifierConfigCfg{
+		Topology:                 newTestTopology(),
+		CommitteeQualifier:       testCommittee,
+		DefaultExecutorQualifier: testDefaultQualifier,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to get committee verifier address for chain")
 }
 
 func TestApplyVerifierConfig_GeneratesValidJobSpec(t *testing.T) {

@@ -46,35 +46,20 @@ func getAllNOPAliases(nops []deployments.NOPConfig) []shared.NOPAlias {
 	for i, nop := range nops {
 		aliases[i] = shared.NOPAlias(nop.Alias)
 	}
+
 	return aliases
 }
 
-func getCommitteeChainSelectors(committee deployments.CommitteeConfig) []uint64 {
+func getCommitteeChainSelectors(committee deployments.CommitteeConfig) ([]uint64, error) {
 	selectors := make([]uint64, 0, len(committee.ChainConfigs))
 	for chainStr := range committee.ChainConfigs {
-		if sel, err := strconv.ParseUint(chainStr, 10, 64); err == nil {
-			selectors = append(selectors, sel)
-		}
-	}
-	return selectors
-}
-
-func validateTopologyChainsInEnvironment(topologyChainKeys []string, envSelectors []uint64, contextLabel string) error {
-	envSet := make(map[uint64]struct{}, len(envSelectors))
-	for _, s := range envSelectors {
-		envSet[s] = struct{}{}
-	}
-
-	for _, chainStr := range topologyChainKeys {
 		sel, err := strconv.ParseUint(chainStr, 10, 64)
 		if err != nil {
-			return fmt.Errorf("%s references invalid chain selector %q: %w", contextLabel, chainStr, err)
+			return nil, fmt.Errorf("committee chain_configs key %q is not a valid chain selector: %w", chainStr, err)
 		}
-		if _, ok := envSet[sel]; !ok {
-			return fmt.Errorf("%s references chain %d which is not available in the environment", contextLabel, sel)
-		}
+		selectors = append(selectors, sel)
 	}
-	return nil
+	return selectors, nil
 }
 
 func getExecutorDeployedChains(ds datastore.DataStore, qualifier string) []uint64 {

@@ -3,6 +3,7 @@ package changesets
 import (
 	"fmt"
 	"slices"
+	"strconv"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -72,18 +73,6 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigCfg] {
 			return fmt.Errorf("at least one aggregator is required for committee %q", cfg.CommitteeQualifier)
 		}
 
-		committeeChainKeys := make([]string, 0, len(committee.ChainConfigs))
-		for k := range committee.ChainConfigs {
-			committeeChainKeys = append(committeeChainKeys, k)
-		}
-		if err := validateTopologyChainsInEnvironment(
-			committeeChainKeys,
-			e.BlockChains.ListChainSelectors(),
-			fmt.Sprintf("committee %q", cfg.CommitteeQualifier),
-		); err != nil {
-			return err
-		}
-
 		nopSet := make(map[string]bool)
 		for _, nop := range cfg.Topology.NOPTopology.NOPs {
 			nopSet[nop.Alias] = true
@@ -114,7 +103,10 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigCfg] {
 
 func ApplyVerifierConfigWithDeps(deps VerifierApplyDeps, cfg ApplyVerifierConfigCfg) (deployment.ChangesetOutput, error) {
 	committee := cfg.Topology.NOPTopology.Committees[cfg.CommitteeQualifier]
-	selectors := getCommitteeChainSelectors(committee)
+	selectors, err := getCommitteeChainSelectors(committee)
+	if err != nil {
+		return deployment.ChangesetOutput{}, err
+	}
 	signingKeysByNOP := fetchSigningKeysForNOPs(deps, cfg.Topology.NOPTopology.NOPs)
 
 	nopsToValidate := cfg.TargetNOPs
@@ -301,7 +293,10 @@ func validateVerifierChainSupport(
 
 	var validationResults []shared.ChainValidationResult
 	for _, nopAlias := range nopsToValidate {
-		requiredChains := getRequiredChainsForNOP(string(nopAlias), committee)
+		requiredChains, err := getRequiredChainsForNOP(string(nopAlias), committee)
+		if err != nil {
+			return err
+		}
 		result := shared.ValidateNOPChainSupport(
 			string(nopAlias),
 			requiredChains,
@@ -339,24 +334,16 @@ func fetchNodeChainSupportForNOPs(deps VerifierApplyDeps, nopAliases []string) (
 	return report.Output.SupportedChains, nil
 }
 
-func getRequiredChainsForNOP(nopAlias string, committee deployments.CommitteeConfig) []uint64 {
+func getRequiredChainsForNOP(nopAlias string, committee deployments.CommitteeConfig) ([]uint64, error) {
 	var requiredChains []uint64
 	for chainSelectorStr, chainConfig := range committee.ChainConfigs {
 		if slices.Contains(chainConfig.NOPAliases, nopAlias) {
-			chainSelector := parseChainSelector(chainSelectorStr)
-			if chainSelector != 0 {
-				requiredChains = append(requiredChains, chainSelector)
+			sel, err := strconv.ParseUint(chainSelectorStr, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("committee chain_configs key %q is not a valid chain selector: %w", chainSelectorStr, err)
 			}
+			requiredChains = append(requiredChains, sel)
 		}
 	}
-	return requiredChains
-}
-
-func parseChainSelector(s string) uint64 {
-	var selector uint64
-	_, err := fmt.Sscanf(s, "%d", &selector)
-	if err != nil {
-		return 0
-	}
-	return selector
+	return requiredChains, nil
 }

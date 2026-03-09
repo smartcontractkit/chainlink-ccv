@@ -79,21 +79,6 @@ func TestApplyExecutorConfig_Validation(t *testing.T) {
 			},
 			expectedErr: "not found in executor pool",
 		},
-		{
-			name: "topology chain not in environment",
-			setupEnv: func(t *testing.T) changesets.ApplyExecutorConfigCfg {
-				sel3Str := strconv.FormatUint(chainsel.TEST_90000003.Selector, 10)
-				return changesets.ApplyExecutorConfigCfg{
-					Topology: newTestTopology(
-						WithExecutorPool(testDefaultQualifier, executorPoolConfigForChains(
-							[]string{sel3Str}, []string{"nop-1"}, 15*time.Second,
-						)),
-					),
-					ExecutorQualifier: testDefaultQualifier,
-				}
-			},
-			expectedErr: "which is not available in the environment",
-		},
 	}
 
 	for _, tt := range tests {
@@ -141,6 +126,29 @@ func TestApplyExecutorConfig_PyroscopeNotAllowedInProduction(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pyroscope URL is not supported for production environments")
+}
+
+func TestApplyExecutorConfig_SucceedsWhenChainNotInBlockChainsButInDataStore(t *testing.T) {
+	envBlockChains := []uint64{chainsel.TEST_90000001.Selector}
+	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, envBlockChains)
+	setupExecutorDatastore(t, ds, defaultSelectors, testDefaultQualifier)
+	env.DataStore = ds.Seal()
+
+	sel1Str := strconv.FormatUint(defaultSelectors[0], 10)
+	sel2Str := strconv.FormatUint(defaultSelectors[1], 10)
+
+	cs := changesets.ApplyExecutorConfig()
+	output, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
+		Topology:          newTestTopology(),
+		ExecutorQualifier: testDefaultQualifier,
+	})
+	require.NoError(t, err)
+
+	job, err := deployments.GetJob(output.DataStore.Seal(), "nop-1", "nop-1-default-executor")
+	require.NoError(t, err)
+
+	assert.Contains(t, job.Spec, sel1Str, "chain in both BlockChains and DataStore should be in job spec")
+	assert.Contains(t, job.Spec, sel2Str, "chain only in DataStore should still be in job spec")
 }
 
 func TestApplyExecutorConfig_GeneratesValidJobSpec(t *testing.T) {

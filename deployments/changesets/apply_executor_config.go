@@ -67,18 +67,6 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigCfg] {
 			return fmt.Errorf("executor pool %q has no chain configs", cfg.ExecutorQualifier)
 		}
 
-		poolChainKeys := make([]string, 0, len(pool.ChainConfigs))
-		for k := range pool.ChainConfigs {
-			poolChainKeys = append(poolChainKeys, k)
-		}
-		if err := validateTopologyChainsInEnvironment(
-			poolChainKeys,
-			e.BlockChains.ListChainSelectors(),
-			fmt.Sprintf("executor pool %q", cfg.ExecutorQualifier),
-		); err != nil {
-			return err
-		}
-
 		poolNOPs, err := cfg.Topology.GetNOPsForPool(cfg.ExecutorQualifier)
 		if err != nil {
 			return err
