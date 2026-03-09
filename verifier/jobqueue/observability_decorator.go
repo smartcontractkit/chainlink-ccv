@@ -23,16 +23,20 @@ type ObservabilityDecorator[T Jobable] struct {
 	stopCh services.StopChan
 	wg     sync.WaitGroup
 
-	queue    JobQueue[T]
-	logger   logger.Logger
-	interval time.Duration
+	queue            JobQueue[T]
+	logger           logger.Logger
+	interval         time.Duration
+	recordSizeMetric func(ctx context.Context, size int64)
 }
 
 // NewObservabilityDecorator creates a new observability decorator for a JobQueue.
+// The recordSizeMetric function is required and will be called with the queue size
+// on each monitoring cycle to record metrics.
 func NewObservabilityDecorator[T Jobable](
 	queue JobQueue[T],
 	lggr logger.Logger,
 	interval time.Duration,
+	recordSizeMetric func(ctx context.Context, size int64),
 ) (*ObservabilityDecorator[T], error) {
 	if queue == nil {
 		return nil, fmt.Errorf("queue cannot be nil")
@@ -40,15 +44,19 @@ func NewObservabilityDecorator[T Jobable](
 	if lggr == nil {
 		return nil, fmt.Errorf("logger cannot be nil")
 	}
+	if recordSizeMetric == nil {
+		return nil, fmt.Errorf("recordSizeMetric cannot be nil")
+	}
 	if interval == 0 {
 		interval = DefaultObservabilityInterval
 	}
 
 	return &ObservabilityDecorator[T]{
-		stopCh:   make(chan struct{}),
-		queue:    queue,
-		logger:   lggr,
-		interval: interval,
+		stopCh:           make(chan struct{}),
+		queue:            queue,
+		logger:           lggr,
+		interval:         interval,
+		recordSizeMetric: recordSizeMetric,
 	}, nil
 }
 
@@ -132,6 +140,8 @@ func (d *ObservabilityDecorator[T]) logQueueSize(ctx context.Context) {
 		"queue", d.queue.Name(),
 		"size", size,
 	)
+
+	d.recordSizeMetric(ctx, int64(size))
 }
 
 // Delegate all JobQueue interface methods to the underlying queue

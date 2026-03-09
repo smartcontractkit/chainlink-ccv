@@ -2,6 +2,7 @@ package jobqueue_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,27 +14,35 @@ import (
 )
 
 func TestObservabilityDecorator(t *testing.T) {
+	// Helper function for tests that don't care about metrics
+	noopMetric := func(context.Context, int64) {}
+
 	t.Run("NewObservabilityDecorator validation", func(t *testing.T) {
 		q, _ := newTestQueue(t)
 		lggr := logger.Test(t)
 
 		// Happy path
-		decorator, err := jobqueue.NewObservabilityDecorator(q, lggr, time.Second)
+		decorator, err := jobqueue.NewObservabilityDecorator(q, lggr, time.Second, noopMetric)
 		require.NoError(t, err)
 		require.NotNil(t, decorator)
 
 		// Nil queue
-		_, err = jobqueue.NewObservabilityDecorator[testJob](nil, lggr, time.Second)
+		_, err = jobqueue.NewObservabilityDecorator[testJob](nil, lggr, time.Second, noopMetric)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "queue cannot be nil")
 
 		// Nil logger
-		_, err = jobqueue.NewObservabilityDecorator(q, nil, time.Second)
+		_, err = jobqueue.NewObservabilityDecorator(q, nil, time.Second, noopMetric)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "logger cannot be nil")
 
+		// Nil recordSizeMetric
+		_, err = jobqueue.NewObservabilityDecorator(q, lggr, time.Second, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "recordSizeMetric cannot be nil")
+
 		// Zero interval should use default
-		decorator, err = jobqueue.NewObservabilityDecorator(q, lggr, 0)
+		decorator, err = jobqueue.NewObservabilityDecorator(q, lggr, 0, noopMetric)
 		require.NoError(t, err)
 		require.NotNil(t, decorator)
 	})
@@ -42,7 +51,7 @@ func TestObservabilityDecorator(t *testing.T) {
 		q, _ := newTestQueue(t)
 		lggr := logger.Test(t)
 
-		decorator, err := jobqueue.NewObservabilityDecorator(q, lggr, 100*time.Millisecond)
+		decorator, err := jobqueue.NewObservabilityDecorator(q, lggr, 100*time.Millisecond, noopMetric)
 		require.NoError(t, err)
 
 		ctx := context.Background()
@@ -67,7 +76,7 @@ func TestObservabilityDecorator(t *testing.T) {
 		q, _ := newTestQueue(t)
 		lggr := logger.Test(t)
 
-		decorator, err := jobqueue.NewObservabilityDecorator(q, lggr, time.Second)
+		decorator, err := jobqueue.NewObservabilityDecorator(q, lggr, time.Second, noopMetric)
 		require.NoError(t, err)
 
 		ctx := context.Background()
@@ -138,8 +147,19 @@ func TestObservabilityDecorator(t *testing.T) {
 		q, _ := newTestQueue(t)
 		lggr := logger.Test(t)
 
+		// Track metric calls
+		var metricCallCount int
+		var lastSize int64
+		var mu sync.Mutex
+		metricFunc := func(ctx context.Context, size int64) {
+			mu.Lock()
+			defer mu.Unlock()
+			metricCallCount++
+			lastSize = size
+		}
+
 		// Use a short interval for testing
-		decorator, err := jobqueue.NewObservabilityDecorator(q, lggr, 100*time.Millisecond)
+		decorator, err := jobqueue.NewObservabilityDecorator(q, lggr, 100*time.Millisecond, metricFunc)
 		require.NoError(t, err)
 
 		ctx := context.Background()
@@ -177,6 +197,12 @@ func TestObservabilityDecorator(t *testing.T) {
 		err = decorator.Close()
 		require.NoError(t, err)
 
+		// Verify metric function was called multiple times
+		mu.Lock()
+		assert.Greater(t, metricCallCount, 5, "metric function should have been called at least 6 times")
+		assert.Equal(t, int64(1), lastSize, "last recorded size should be 1")
+		mu.Unlock()
+
 		// Verify final size
 		size, err := decorator.Size(ctx)
 		require.NoError(t, err)
@@ -187,7 +213,7 @@ func TestObservabilityDecorator(t *testing.T) {
 		q, _ := newTestQueue(t)
 		lggr := logger.Test(t)
 
-		decorator, err := jobqueue.NewObservabilityDecorator(q, lggr, time.Second)
+		decorator, err := jobqueue.NewObservabilityDecorator(q, lggr, time.Second, noopMetric)
 		require.NoError(t, err)
 
 		ctx := context.Background()

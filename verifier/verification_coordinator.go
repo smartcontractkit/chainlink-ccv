@@ -32,6 +32,8 @@ const (
 	resultQueueRetryDuration = 7 * 24 * time.Hour // 7 days
 	// resultQueueLockDuration is how long a job can remain in 'processing' before being reclaimed.
 	resultQueueLockDuration = 1 * time.Minute
+	// queueObservabilityInterval is how often queue size metrics are logged and recorded.
+	queueObservabilityInterval = 10 * time.Second
 )
 
 type Coordinator struct {
@@ -175,7 +177,8 @@ func createDurableProcessors(
 	taskQueueObserver, err := jobqueue.NewObservabilityDecorator(
 		taskQueue,
 		logger.With(lggr, "component", "task_queue_observer"),
-		10*time.Second, // Log queue size every 10 seconds
+		queueObservabilityInterval,
+		monitoring.Metrics().RecordTaskVerificationQueueSize,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create task queue observer: %w", err)
@@ -199,7 +202,8 @@ func createDurableProcessors(
 	resultQueueObserver, err := jobqueue.NewObservabilityDecorator(
 		resultQueue,
 		logger.With(lggr, "component", "result_queue_observer"),
-		10*time.Second, // Log queue size every 10 seconds
+		queueObservabilityInterval,
+		monitoring.Metrics().RecordStorageWriteQueueSize,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create result queue observer: %w", err)
