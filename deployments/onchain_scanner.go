@@ -11,6 +11,8 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
+	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
+
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	cv "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/committee_verifier"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -92,16 +94,27 @@ func ScanOnChainTopology(
 				return nil
 			})
 		case chainsel.FamilySolana:
-			// TODO: There's no on-chain CommitteeVerifier contract for Solana yet so this builds
-			//   dummy SignatureConfigs referencing every other chain as a source so the aggregator
-			//   quorum config is populated. This shoudl be removed when we have onchain verifiers for
-			//   Solana as well.
+			// TODO: No on-chain CommitteeVerifier contract for Solana yet. Build
+			// SignatureConfigs referencing every other chain as a source,
+			// using the real NOP signer addresses from the JD so the
+			// aggregator accepts verifier signatures.
 			allSelectors := make(map[uint64]struct{})
-			for _, ref := range refs {
-				allSelectors[ref.ChainSelector] = struct{}{}
+			for _, r := range refs {
+				allSelectors[r.ChainSelector] = struct{}{}
 			}
 
-			placeholderSigner := common.HexToAddress("0x0000000000000000000000000000000000000001")
+			// TODO: remove fetchSignersFromJD once we have CommitteeVerifier contracts deployed on Solana. The signer
+			// addresses will be registered onchain at which point we should add a Solana-equivalenet of scanCommitteeVerifier
+			signers, err := fetchSignersFromJD(ctx, env)
+			if err != nil {
+				env.Logger.Warnw("failed to fetch signers from JD, using placeholder", "error", err)
+				signers = []common.Address{common.HexToAddress("0x0000000000000000000000000000000000000001")}
+			}
+			if len(signers) == 0 {
+				env.Logger.Warnw("no signers found in JD, using placeholder")
+				signers = []common.Address{common.HexToAddress("0x0000000000000000000000000000000000000001")}
+			}
+
 			var sigConfigs []OnChainSignatureConfig
 			for sel := range allSelectors {
 				if sel == ref.ChainSelector {
@@ -109,7 +122,7 @@ func ScanOnChainTopology(
 				}
 				sigConfigs = append(sigConfigs, OnChainSignatureConfig{
 					SourceChainSelector: sel,
-					Signers:             []common.Address{placeholderSigner},
+					Signers:             signers,
 					Threshold:           1,
 				})
 			}
@@ -132,6 +145,49 @@ func ScanOnChainTopology(
 	}
 
 	return topology, nil
+}
+
+// fetchSignersFromJD queries the Job Distributor for EVM ECDSA signer addresses
+// across all nodes. These are the same keys the verifiers use to sign messages.
+func fetchSignersFromJD(ctx context.Context, env deployment.Environment) ([]common.Address, error) {
+	if env.Offchain == nil {
+		return nil, fmt.Errorf("offchain client (JD) not available")
+	}
+	if len(env.NodeIDs) == 0 {
+		return nil, fmt.Errorf("no node IDs configured")
+	}
+
+	resp, err := env.Offchain.ListNodeChainConfigs(ctx, &nodev1.ListNodeChainConfigsRequest{
+		Filter: &nodev1.ListNodeChainConfigsRequest_Filter{
+			NodeIds: env.NodeIDs,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ListNodeChainConfigs: %w", err)
+	}
+
+	seen := make(map[common.Address]struct{})
+	var signers []common.Address
+	for _, cfg := range resp.ChainConfigs {
+		if cfg.Chain == nil || cfg.Chain.Type != nodev1.ChainType_CHAIN_TYPE_EVM {
+			continue
+		}
+		if cfg.Ocr2Config == nil || cfg.Ocr2Config.OcrKeyBundle == nil {
+			continue
+		}
+		addr := cfg.Ocr2Config.OcrKeyBundle.OnchainSigningAddress
+		if addr == "" {
+			continue
+		}
+		a := common.HexToAddress(addr)
+		if _, ok := seen[a]; ok {
+			continue
+		}
+		seen[a] = struct{}{}
+		signers = append(signers, a)
+	}
+
+	return signers, nil
 }
 
 // scanCommitteeVerifier reads the on-chain state of a single CommitteeVerifier contract.
