@@ -94,7 +94,7 @@ func ScanOnChainTopology(
 				return nil
 			})
 		case chainsel.FamilySolana:
-			// TODO: No on-chain CommitteeVerifier contract for Solana yet. Build
+			// No on-chain CommitteeVerifier contract for Solana yet. Build
 			// SignatureConfigs referencing every other chain as a source,
 			// using the real NOP signer addresses from the JD so the
 			// aggregator accepts verifier signatures.
@@ -148,18 +148,30 @@ func ScanOnChainTopology(
 }
 
 // fetchSignersFromJD queries the Job Distributor for EVM ECDSA signer addresses
-// across all nodes. These are the same keys the verifiers use to sign messages.
+// across all registered nodes. These are the same keys the verifiers use to sign messages.
 func fetchSignersFromJD(ctx context.Context, env deployment.Environment) ([]common.Address, error) {
 	if env.Offchain == nil {
 		return nil, fmt.Errorf("offchain client (JD) not available")
 	}
-	if len(env.NodeIDs) == 0 {
-		return nil, fmt.Errorf("no node IDs configured")
+
+	// Discover node IDs: prefer env.NodeIDs, fall back to listing all nodes from JD.
+	nodeIDs := env.NodeIDs
+	if len(nodeIDs) == 0 {
+		nodesResp, err := env.Offchain.ListNodes(ctx, &nodev1.ListNodesRequest{})
+		if err != nil {
+			return nil, fmt.Errorf("ListNodes: %w", err)
+		}
+		for _, n := range nodesResp.Nodes {
+			nodeIDs = append(nodeIDs, n.Id)
+		}
+		if len(nodeIDs) == 0 {
+			return nil, fmt.Errorf("no nodes registered in JD")
+		}
 	}
 
 	resp, err := env.Offchain.ListNodeChainConfigs(ctx, &nodev1.ListNodeChainConfigsRequest{
 		Filter: &nodev1.ListNodeChainConfigsRequest_Filter{
-			NodeIds: env.NodeIDs,
+			NodeIds: nodeIDs,
 		},
 	})
 	if err != nil {
