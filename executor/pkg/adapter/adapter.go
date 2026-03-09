@@ -88,8 +88,9 @@ func queryWithFailover[TInput, TResponse any](
 	// Call active client
 	status, resp, err := callFn(ira.clients[activeIdx], ctx, input)
 
-	// If active client succeeds, return immediately
-	if status != 0 {
+	// If active client succeeds, return results immediately
+	// we consider 200 success and 404 means indexer hasn't seen the message yet
+	if status == 200 || status == 404 {
 		ira.lggr.Debugw("Active indexer returned result",
 			"activeIdx", activeIdx,
 			"status", status,

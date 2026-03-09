@@ -2,11 +2,13 @@ package contracttransmitter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -46,7 +48,7 @@ func (ct *TXMEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.C
 	encodedMsg, err := report.Message.Encode()
 	if err != nil {
 		ct.lggr.Errorw("unable to submit txn: invalid message encoding", "error", err, "messageID", report.Message.MustMessageID())
-		return fmt.Errorf("unable to submit txn: invalid message encoding %s", err)
+		return errors.Join(executor.ErrMessageEncoding, fmt.Errorf("unable to submit txn: invalid message encoding %s", err))
 	}
 
 	contractCcvs := make([]common.Address, 0)

@@ -288,74 +288,6 @@ func (_c *MockMetricLabeler_IncrementStorageWriteErrors_Call) RunAndReturn(run f
 	return _c
 }
 
-// RecordCCVDataChannelSize provides a mock function with given fields: ctx, size
-func (_m *MockMetricLabeler) RecordCCVDataChannelSize(ctx context.Context, size int64) {
-	_m.Called(ctx, size)
-}
-
-// MockMetricLabeler_RecordCCVDataChannelSize_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordCCVDataChannelSize'
-type MockMetricLabeler_RecordCCVDataChannelSize_Call struct {
-	*mock.Call
-}
-
-// RecordCCVDataChannelSize is a helper method to define mock.On call
-//   - ctx context.Context
-//   - size int64
-func (_e *MockMetricLabeler_Expecter) RecordCCVDataChannelSize(ctx interface{}, size interface{}) *MockMetricLabeler_RecordCCVDataChannelSize_Call {
-	return &MockMetricLabeler_RecordCCVDataChannelSize_Call{Call: _e.mock.On("RecordCCVDataChannelSize", ctx, size)}
-}
-
-func (_c *MockMetricLabeler_RecordCCVDataChannelSize_Call) Run(run func(ctx context.Context, size int64)) *MockMetricLabeler_RecordCCVDataChannelSize_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(int64))
-	})
-	return _c
-}
-
-func (_c *MockMetricLabeler_RecordCCVDataChannelSize_Call) Return() *MockMetricLabeler_RecordCCVDataChannelSize_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *MockMetricLabeler_RecordCCVDataChannelSize_Call) RunAndReturn(run func(context.Context, int64)) *MockMetricLabeler_RecordCCVDataChannelSize_Call {
-	_c.Run(run)
-	return _c
-}
-
-// RecordFinalityQueueSize provides a mock function with given fields: ctx, size
-func (_m *MockMetricLabeler) RecordFinalityQueueSize(ctx context.Context, size int64) {
-	_m.Called(ctx, size)
-}
-
-// MockMetricLabeler_RecordFinalityQueueSize_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordFinalityQueueSize'
-type MockMetricLabeler_RecordFinalityQueueSize_Call struct {
-	*mock.Call
-}
-
-// RecordFinalityQueueSize is a helper method to define mock.On call
-//   - ctx context.Context
-//   - size int64
-func (_e *MockMetricLabeler_Expecter) RecordFinalityQueueSize(ctx interface{}, size interface{}) *MockMetricLabeler_RecordFinalityQueueSize_Call {
-	return &MockMetricLabeler_RecordFinalityQueueSize_Call{Call: _e.mock.On("RecordFinalityQueueSize", ctx, size)}
-}
-
-func (_c *MockMetricLabeler_RecordFinalityQueueSize_Call) Run(run func(ctx context.Context, size int64)) *MockMetricLabeler_RecordFinalityQueueSize_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(int64))
-	})
-	return _c
-}
-
-func (_c *MockMetricLabeler_RecordFinalityQueueSize_Call) Return() *MockMetricLabeler_RecordFinalityQueueSize_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *MockMetricLabeler_RecordFinalityQueueSize_Call) RunAndReturn(run func(context.Context, int64)) *MockMetricLabeler_RecordFinalityQueueSize_Call {
-	_c.Run(run)
-	return _c
-}
-
 // RecordFinalityWaitDuration provides a mock function with given fields: ctx, duration
 func (_m *MockMetricLabeler) RecordFinalityWaitDuration(ctx context.Context, duration time.Duration) {
 	_m.Called(ctx, duration)
@@ -696,6 +628,74 @@ func (_c *MockMetricLabeler_RecordStorageWriteDuration_Call) Return() *MockMetri
 }
 
 func (_c *MockMetricLabeler_RecordStorageWriteDuration_Call) RunAndReturn(run func(context.Context, time.Duration)) *MockMetricLabeler_RecordStorageWriteDuration_Call {
+	_c.Run(run)
+	return _c
+}
+
+// RecordStorageWriteQueueSize provides a mock function with given fields: ctx, size
+func (_m *MockMetricLabeler) RecordStorageWriteQueueSize(ctx context.Context, size int64) {
+	_m.Called(ctx, size)
+}
+
+// MockMetricLabeler_RecordStorageWriteQueueSize_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordStorageWriteQueueSize'
+type MockMetricLabeler_RecordStorageWriteQueueSize_Call struct {
+	*mock.Call
+}
+
+// RecordStorageWriteQueueSize is a helper method to define mock.On call
+//   - ctx context.Context
+//   - size int64
+func (_e *MockMetricLabeler_Expecter) RecordStorageWriteQueueSize(ctx interface{}, size interface{}) *MockMetricLabeler_RecordStorageWriteQueueSize_Call {
+	return &MockMetricLabeler_RecordStorageWriteQueueSize_Call{Call: _e.mock.On("RecordStorageWriteQueueSize", ctx, size)}
+}
+
+func (_c *MockMetricLabeler_RecordStorageWriteQueueSize_Call) Run(run func(ctx context.Context, size int64)) *MockMetricLabeler_RecordStorageWriteQueueSize_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int64))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordStorageWriteQueueSize_Call) Return() *MockMetricLabeler_RecordStorageWriteQueueSize_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordStorageWriteQueueSize_Call) RunAndReturn(run func(context.Context, int64)) *MockMetricLabeler_RecordStorageWriteQueueSize_Call {
+	_c.Run(run)
+	return _c
+}
+
+// RecordTaskVerificationQueueSize provides a mock function with given fields: ctx, size
+func (_m *MockMetricLabeler) RecordTaskVerificationQueueSize(ctx context.Context, size int64) {
+	_m.Called(ctx, size)
+}
+
+// MockMetricLabeler_RecordTaskVerificationQueueSize_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordTaskVerificationQueueSize'
+type MockMetricLabeler_RecordTaskVerificationQueueSize_Call struct {
+	*mock.Call
+}
+
+// RecordTaskVerificationQueueSize is a helper method to define mock.On call
+//   - ctx context.Context
+//   - size int64
+func (_e *MockMetricLabeler_Expecter) RecordTaskVerificationQueueSize(ctx interface{}, size interface{}) *MockMetricLabeler_RecordTaskVerificationQueueSize_Call {
+	return &MockMetricLabeler_RecordTaskVerificationQueueSize_Call{Call: _e.mock.On("RecordTaskVerificationQueueSize", ctx, size)}
+}
+
+func (_c *MockMetricLabeler_RecordTaskVerificationQueueSize_Call) Run(run func(ctx context.Context, size int64)) *MockMetricLabeler_RecordTaskVerificationQueueSize_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int64))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordTaskVerificationQueueSize_Call) Return() *MockMetricLabeler_RecordTaskVerificationQueueSize_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordTaskVerificationQueueSize_Call) RunAndReturn(run func(context.Context, int64)) *MockMetricLabeler_RecordTaskVerificationQueueSize_Call {
 	_c.Run(run)
 	return _c
 }

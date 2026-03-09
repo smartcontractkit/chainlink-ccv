@@ -172,11 +172,20 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 				continue
 			}
 
-			// get message delay from leader elector using indexer's ingestion timestamp
-			readyTimestamp := ec.leaderElector.GetReadyTimestamp(
+			readyTimestamp, err := ec.leaderElector.GetReadyTimestamp(
 				id,
 				msg.DestChainSelector,
 				streamResult.Metadata.IngestionTimestamp)
+			if err != nil {
+				ec.lggr.Errorw("leader elector failed for message, skipping", "messageID", id, "chainSel", msg.DestChainSelector, "error", err)
+				continue
+			}
+
+			retryDelay, err := ec.leaderElector.GetRetryDelay(msg.DestChainSelector)
+			if err != nil {
+				ec.lggr.Errorw("leader elector retry delay failed for message, skipping", "messageID", id, "chainSel", msg.DestChainSelector, "error", err)
+				continue
+			}
 
 			ec.lggr.Infow("pushing message to delayed heap",
 				"messageID", id,
@@ -188,7 +197,7 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 				Message:       &msg,
 				ReadyTime:     readyTimestamp,
 				ExpiryTime:    readyTimestamp.Add(ec.expiryDuration),
-				RetryInterval: ec.leaderElector.GetRetryDelay(msg.DestChainSelector),
+				RetryInterval: retryDelay,
 				MessageID:     id,
 			}) {
 				ec.lggr.Infow("duplicate message rejected by heap", "messageID", id)
@@ -218,10 +227,10 @@ func (ec *Coordinator) runProcessingLoop(ctx context.Context) {
 				"readyMessages", readyMessages,
 			)
 			for _, payload := range readyMessages {
-				ec.inFlightAdd(payload.MessageID)
 				// If the channel is full, we will block here, but messages will continue to accumulate in the heap.
 				select {
 				case ec.workerPoolTasks <- payload:
+					ec.inFlightAdd(payload.MessageID)
 				case <-ctx.Done():
 					ec.lggr.Infow("Processing loop dropping payload to exit")
 					continue
@@ -313,6 +322,11 @@ func (ec *Coordinator) validate() error {
 	appendIfNil(ec.lggr, "logger")
 	appendIfNil(ec.messageSubscriber, "messageSubscriber")
 	appendIfNil(ec.monitoring, "monitoring")
+	appendIfNil(ec.timeProvider, "timeProvider")
+
+	if ec.workerCount <= 0 {
+		errs = append(errs, fmt.Errorf("workerCount must be greater than 0"))
+	}
 
 	return errors.Join(errs...)
 }

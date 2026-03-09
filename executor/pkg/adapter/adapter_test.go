@@ -38,11 +38,12 @@ func newTestAdapter(ctx context.Context, t *testing.T, clients []client.IndexerC
 
 func TestGetVerifierResults_ActiveClientSuccess(t *testing.T) {
 	tests := []struct {
-		name            string
-		activeStatus    int
-		activeErr       error
-		expectedResults int
-		expectError     bool
+		name                     string
+		activeStatus             int
+		activeErr                error
+		expectedResults          int
+		expectedAlternateResults int
+		expectError              bool
 	}{
 		{
 			name:            "Active returns 200 (alternates not called)",
@@ -59,11 +60,12 @@ func TestGetVerifierResults_ActiveClientSuccess(t *testing.T) {
 			expectError:     true,
 		},
 		{
-			name:            "Active returns 500 (alternates not called)",
-			activeStatus:    500,
-			activeErr:       errors.New("server error"),
-			expectedResults: 0,
-			expectError:     true,
+			name:                     "Active returns 500 (alternates called)",
+			activeStatus:             500,
+			activeErr:                errors.New("server error"),
+			expectedResults:          0,
+			expectedAlternateResults: 2,
+			expectError:              true,
 		},
 	}
 
@@ -85,6 +87,17 @@ func TestGetVerifierResults_ActiveClientSuccess(t *testing.T) {
 			}
 			if tt.activeErr != nil {
 				activeResp = v1.VerifierResultsByMessageIDResponse{}
+			}
+
+			if tt.expectedAlternateResults > 0 {
+				alternateResp := v1.VerifierResultsByMessageIDResponse{
+					Results: []common.VerifierResultWithMetadata{
+						{VerifierResult: protocol.VerifierResult{}},
+						{VerifierResult: protocol.VerifierResult{}},
+					},
+				}
+				activeClient.On("Health", mock.Anything).Return(nil)
+				alternateClient.On("VerifierResultsByMessageID", ctx, mock.Anything).Return(200, alternateResp, nil)
 			}
 
 			activeClient.On("VerifierResultsByMessageID", ctx, mock.Anything).Return(tt.activeStatus, activeResp, tt.activeErr)

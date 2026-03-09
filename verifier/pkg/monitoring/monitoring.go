@@ -120,9 +120,9 @@ func (f *FakeVerifierMetricLabeler) RecordMessageVerificationDuration(context.Co
 
 func (f *FakeVerifierMetricLabeler) RecordStorageWriteDuration(context.Context, time.Duration) {}
 
-func (f *FakeVerifierMetricLabeler) RecordFinalityQueueSize(context.Context, int64) {}
+func (f *FakeVerifierMetricLabeler) RecordTaskVerificationQueueSize(context.Context, int64) {}
 
-func (f *FakeVerifierMetricLabeler) RecordCCVDataChannelSize(context.Context, int64) {}
+func (f *FakeVerifierMetricLabeler) RecordStorageWriteQueueSize(context.Context, int64) {}
 
 func (f *FakeVerifierMetricLabeler) IncrementStorageWriteErrors(context.Context) {}
 
