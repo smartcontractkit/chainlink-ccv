@@ -82,7 +82,7 @@ func InitMetrics() (*VerifierMetrics, error) {
 
 	// Message Processing Counters
 	vm.messagesProcessedCounter, err = beholder.GetMeter().Int64Counter(
-		"verifier_messages_processed_total",
+		"verifier_messages_verification_total",
 		metric.WithDescription("Total number of successfully processed and stored messages"),
 	)
 	if err != nil {
@@ -90,7 +90,7 @@ func InitMetrics() (*VerifierMetrics, error) {
 	}
 
 	vm.messagesVerificationFailed, err = beholder.GetMeter().Int64Counter(
-		"verifier_messages_verification_failed_total",
+		"verifier_messages_verification_errors",
 		metric.WithDescription("Total number of messages that failed verification"),
 	)
 	if err != nil {
@@ -144,7 +144,7 @@ func InitMetrics() (*VerifierMetrics, error) {
 
 	// Error Tracking
 	vm.storageWriteErrorsCounter, err = beholder.GetMeter().Int64Counter(
-		"verifier_storage_write_errors_total",
+		"verifier_storage_write_errors",
 		metric.WithDescription("Total number of errors when writing to offchain storage"),
 	)
 	if err != nil {
