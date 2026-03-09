@@ -132,6 +132,16 @@ func NewVerificationCoordinator(
 		return nil, fmt.Errorf("failed to create aggregator writer: %w", err)
 	}
 
+	observedStorageWriter := storageaccess.NewObservedStorageWriter(
+		storageaccess.NewDefaultResilientStorageWriter(
+			aggregatorWriter,
+			lggr,
+		),
+		cfg.VerifierID,
+		lggr,
+		verifierMonitoring,
+	)
+
 	// Create chain status manager using postgres
 	chainStatusManager := chainstatus.NewPostgresChainStatusManager(ds, lggr, cfg.VerifierID)
 
@@ -180,7 +190,7 @@ func NewVerificationCoordinator(
 		lggr,
 		commitVerifier,
 		sourceReaders,
-		aggregatorWriter,
+		observedStorageWriter,
 		coordinatorConfig,
 		messageTracker,
 		verifierMonitoring,
