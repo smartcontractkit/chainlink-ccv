@@ -7,4 +7,3 @@ type JobSpec struct {
 	Type           string `toml:"type"`
 	ExecutorConfig string `toml:"executorConfig"`
 }
-
