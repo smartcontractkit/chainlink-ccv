@@ -20,8 +20,6 @@ type ApplyExecutorConfigCfg struct {
 	Topology *deployments.EnvironmentTopology
 	// ExecutorQualifier identifies which executor pool from topology to use
 	ExecutorQualifier string
-	// ChainSelectors limits which chains to configure. Defaults to all.
-	ChainSelectors []uint64
 	// TargetNOPs limits which NOPs to update. Defaults to all in pool.
 	TargetNOPs []shared.NOPAlias
 	// RevokeOrphanedJobs when true revokes and cleans up orphaned jobs; default false.
@@ -69,6 +67,18 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigCfg] {
 			return fmt.Errorf("executor pool %q has no chain configs", cfg.ExecutorQualifier)
 		}
 
+		poolChainKeys := make([]string, 0, len(pool.ChainConfigs))
+		for k := range pool.ChainConfigs {
+			poolChainKeys = append(poolChainKeys, k)
+		}
+		if err := validateTopologyChainsInEnvironment(
+			poolChainKeys,
+			e.BlockChains.ListChainSelectors(),
+			fmt.Sprintf("executor pool %q", cfg.ExecutorQualifier),
+		); err != nil {
+			return err
+		}
+
 		poolNOPs, err := cfg.Topology.GetNOPsForPool(cfg.ExecutorQualifier)
 		if err != nil {
 			return err
@@ -77,13 +87,6 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigCfg] {
 		for _, alias := range cfg.TargetNOPs {
 			if !slices.Contains(poolNOPAliases, alias) {
 				return fmt.Errorf("NOP alias %q not found in executor pool %q", alias, cfg.ExecutorQualifier)
-			}
-		}
-
-		envSelectors := e.BlockChains.ListChainSelectors()
-		for _, s := range cfg.ChainSelectors {
-			if !slices.Contains(envSelectors, s) {
-				return fmt.Errorf("selector %d is not available in environment", s)
 			}
 		}
 
@@ -100,19 +103,13 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigCfg] {
 
 func ApplyExecutorConfigWithDeps(deps ExecutorApplyDeps, cfg ApplyExecutorConfigCfg) (deployment.ChangesetOutput, error) {
 	deployedChains := getExecutorDeployedChains(deps.Env.DataStore, cfg.ExecutorQualifier)
-
-	selectors := cfg.ChainSelectors
-	if len(selectors) == 0 {
-		selectors = deployedChains
-	} else {
-		selectors = filterChains(selectors, deployedChains)
-	}
-
 	pool := cfg.Topology.ExecutorPools[cfg.ExecutorQualifier]
 
-	if err := validatePoolChainsDeployed(pool, selectors, deployedChains, cfg.ChainSelectors); err != nil {
+	if err := validatePoolChainsDeployed(pool, deployedChains); err != nil {
 		return deployment.ChangesetOutput{}, err
 	}
+
+	selectors := deployedChains
 
 	nopsToValidate := cfg.TargetNOPs
 	if len(nopsToValidate) == 0 {
@@ -123,7 +120,7 @@ func ApplyExecutorConfigWithDeps(deps ExecutorApplyDeps, cfg ApplyExecutorConfig
 		nopsToValidate = shared.ConvertStringToNopAliases(poolNOPs)
 	}
 
-	if err := validateExecutorChainSupport(deps, cfg.Topology.ExecutorPools[cfg.ExecutorQualifier], nopsToValidate, selectors); err != nil {
+	if err := validateExecutorChainSupport(deps, cfg.Topology.ExecutorPools[cfg.ExecutorQualifier], nopsToValidate); err != nil {
 		return deployment.ChangesetOutput{}, err
 	}
 
@@ -179,34 +176,20 @@ func ApplyExecutorConfigWithDeps(deps ExecutorApplyDeps, cfg ApplyExecutorConfig
 
 func validatePoolChainsDeployed(
 	pool deployments.ExecutorPoolConfig,
-	selectors []uint64,
 	deployedChains []uint64,
-	requestedChainSelectors []uint64,
 ) error {
 	deployedSet := make(map[uint64]struct{}, len(deployedChains))
 	for _, s := range deployedChains {
 		deployedSet[s] = struct{}{}
 	}
 
-	if len(requestedChainSelectors) == 0 {
-		for chainSelectorStr := range pool.ChainConfigs {
-			sel, err := strconv.ParseUint(chainSelectorStr, 10, 64)
-			if err != nil {
-				return fmt.Errorf("executor pool chain_configs key %q is not a valid chain selector: %w", chainSelectorStr, err)
-			}
-			if _, ok := deployedSet[sel]; !ok {
-				return fmt.Errorf("executor pool references chain %d which has no deployed contracts; use ChainSelectors to target a subset", sel)
-			}
+	for chainSelectorStr := range pool.ChainConfigs {
+		sel, err := strconv.ParseUint(chainSelectorStr, 10, 64)
+		if err != nil {
+			return fmt.Errorf("executor pool chain_configs key %q is not a valid chain selector: %w", chainSelectorStr, err)
 		}
-	} else {
-		selectorSet := make(map[uint64]struct{}, len(selectors))
-		for _, s := range selectors {
-			selectorSet[s] = struct{}{}
-		}
-		for _, requested := range requestedChainSelectors {
-			if _, ok := selectorSet[requested]; !ok {
-				return fmt.Errorf("chain selector %d has no deployed contracts for this executor pool", requested)
-			}
+		if _, ok := deployedSet[sel]; !ok {
+			return fmt.Errorf("executor pool references chain %d which has no deployed contracts", sel)
 		}
 	}
 
@@ -238,7 +221,6 @@ func validateExecutorChainSupport(
 	deps ExecutorApplyDeps,
 	pool deployments.ExecutorPoolConfig,
 	nopsToValidate []shared.NOPAlias,
-	selectors []uint64,
 ) error {
 	if deps.JDClient == nil {
 		deps.Env.Logger.Debugw("Offchain client not available, skipping chain support validation")
@@ -246,14 +228,12 @@ func validateExecutorChainSupport(
 	}
 
 	nopAliasStrings := shared.ConvertNopAliasToString(nopsToValidate)
-	supportedChains := fetchExecutorNodeChainSupport(deps, nopAliasStrings)
+	supportedChains, err := fetchExecutorNodeChainSupport(deps, nopAliasStrings)
+	if err != nil {
+		return fmt.Errorf("failed to fetch node chain support: %w", err)
+	}
 	if supportedChains == nil {
 		return nil
-	}
-
-	selectorSet := make(map[uint64]struct{}, len(selectors))
-	for _, s := range selectors {
-		selectorSet[s] = struct{}{}
 	}
 
 	var validationResults []shared.ChainValidationResult
@@ -267,9 +247,7 @@ func validateExecutorChainSupport(
 			if err != nil {
 				return fmt.Errorf("executor pool chain_configs key %q is not a valid chain selector: %w", chainSelectorStr, err)
 			}
-			if _, inScope := selectorSet[sel]; inScope {
-				requiredChains = append(requiredChains, sel)
-			}
+			requiredChains = append(requiredChains, sel)
 		}
 		result := shared.ValidateNOPChainSupport(
 			string(nopAlias),
@@ -284,13 +262,9 @@ func validateExecutorChainSupport(
 	return shared.FormatChainValidationError(validationResults)
 }
 
-func fetchExecutorNodeChainSupport(deps ExecutorApplyDeps, nopAliases []string) shared.ChainSupportByNOP {
-	if deps.JDClient == nil {
-		return nil
-	}
-
+func fetchExecutorNodeChainSupport(deps ExecutorApplyDeps, nopAliases []string) (shared.ChainSupportByNOP, error) {
 	if len(nopAliases) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	report, err := operations.ExecuteOperation(
@@ -306,9 +280,8 @@ func fetchExecutorNodeChainSupport(deps ExecutorApplyDeps, nopAliases []string) 
 		},
 	)
 	if err != nil {
-		deps.Env.Logger.Warnw("Failed to fetch node chain support from JD", "error", err)
-		return nil
+		return nil, fmt.Errorf("failed to fetch node chain support from JD: %w", err)
 	}
 
-	return report.Output.SupportedChains
+	return report.Output.SupportedChains, nil
 }

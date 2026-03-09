@@ -1,6 +1,7 @@
 package changesets
 
 import (
+	"fmt"
 	"strconv"
 
 	execcontract "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
@@ -58,19 +59,22 @@ func getCommitteeChainSelectors(committee deployments.CommitteeConfig) []uint64 
 	return selectors
 }
 
-func filterChains(input, allowed []uint64) []uint64 {
-	allowedSet := make(map[uint64]bool, len(allowed))
-	for _, c := range allowed {
-		allowedSet[c] = true
+func validateTopologyChainsInEnvironment(topologyChainKeys []string, envSelectors []uint64, contextLabel string) error {
+	envSet := make(map[uint64]struct{}, len(envSelectors))
+	for _, s := range envSelectors {
+		envSet[s] = struct{}{}
 	}
 
-	filtered := make([]uint64, 0, len(input))
-	for _, sel := range input {
-		if allowedSet[sel] {
-			filtered = append(filtered, sel)
+	for _, chainStr := range topologyChainKeys {
+		sel, err := strconv.ParseUint(chainStr, 10, 64)
+		if err != nil {
+			return fmt.Errorf("%s references invalid chain selector %q: %w", contextLabel, chainStr, err)
+		}
+		if _, ok := envSet[sel]; !ok {
+			return fmt.Errorf("%s references chain %d which is not available in the environment", contextLabel, sel)
 		}
 	}
-	return filtered
+	return nil
 }
 
 func getExecutorDeployedChains(ds datastore.DataStore, qualifier string) []uint64 {

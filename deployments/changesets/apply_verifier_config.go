@@ -22,8 +22,6 @@ type ApplyVerifierConfigCfg struct {
 	CommitteeQualifier string
 	// DefaultExecutorQualifier is the qualifier of the default executor
 	DefaultExecutorQualifier string
-	// ChainSelectors limits which chains to configure. Defaults to all.
-	ChainSelectors []uint64
 	// TargetNOPs limits which NOPs to update. Defaults to all in committee.
 	TargetNOPs []shared.NOPAlias
 	// DisableFinalityCheckers is a list of chain selectors (as strings) for which
@@ -74,6 +72,18 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigCfg] {
 			return fmt.Errorf("at least one aggregator is required for committee %q", cfg.CommitteeQualifier)
 		}
 
+		committeeChainKeys := make([]string, 0, len(committee.ChainConfigs))
+		for k := range committee.ChainConfigs {
+			committeeChainKeys = append(committeeChainKeys, k)
+		}
+		if err := validateTopologyChainsInEnvironment(
+			committeeChainKeys,
+			e.BlockChains.ListChainSelectors(),
+			fmt.Sprintf("committee %q", cfg.CommitteeQualifier),
+		); err != nil {
+			return err
+		}
+
 		nopSet := make(map[string]bool)
 		for _, nop := range cfg.Topology.NOPTopology.NOPs {
 			nopSet[nop.Alias] = true
@@ -87,17 +97,6 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigCfg] {
 		for _, alias := range nopAliases {
 			if !nopSet[string(alias)] {
 				return fmt.Errorf("NOP alias %q not found in topology", alias)
-			}
-		}
-
-		envSelectors := e.BlockChains.ListChainSelectors()
-		committeeChains := getCommitteeChainSelectors(committee)
-		for _, s := range cfg.ChainSelectors {
-			if !slices.Contains(envSelectors, s) {
-				return fmt.Errorf("selector %d is not available in environment", s)
-			}
-			if !slices.Contains(committeeChains, s) {
-				return fmt.Errorf("chain %d not configured in committee %q", s, cfg.CommitteeQualifier)
 			}
 		}
 
@@ -115,14 +114,7 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigCfg] {
 
 func ApplyVerifierConfigWithDeps(deps VerifierApplyDeps, cfg ApplyVerifierConfigCfg) (deployment.ChangesetOutput, error) {
 	committee := cfg.Topology.NOPTopology.Committees[cfg.CommitteeQualifier]
-	committeeChains := getCommitteeChainSelectors(committee)
-
-	selectors := cfg.ChainSelectors
-	if len(selectors) == 0 {
-		selectors = committeeChains
-	} else {
-		selectors = filterChains(selectors, committeeChains)
-	}
+	selectors := getCommitteeChainSelectors(committee)
 	signingKeysByNOP := fetchSigningKeysForNOPs(deps, cfg.Topology.NOPTopology.NOPs)
 
 	nopsToValidate := cfg.TargetNOPs
@@ -130,7 +122,7 @@ func ApplyVerifierConfigWithDeps(deps VerifierApplyDeps, cfg ApplyVerifierConfig
 		nopsToValidate = shared.ConvertStringToNopAliases(getCommitteeNOPAliases(committee))
 	}
 
-	if err := validateVerifierChainSupport(deps, nopsToValidate, committee, selectors); err != nil {
+	if err := validateVerifierChainSupport(deps, nopsToValidate, committee); err != nil {
 		return deployment.ChangesetOutput{}, err
 	}
 
@@ -292,7 +284,6 @@ func validateVerifierChainSupport(
 	deps VerifierApplyDeps,
 	nopsToValidate []shared.NOPAlias,
 	committee deployments.CommitteeConfig,
-	selectors []uint64,
 ) error {
 	if deps.JDClient == nil {
 		deps.Env.Logger.Debugw("Offchain client not available, skipping chain support validation")
@@ -300,14 +291,17 @@ func validateVerifierChainSupport(
 	}
 
 	nopAliasStrings := shared.ConvertNopAliasToString(nopsToValidate)
-	supportedChains := fetchNodeChainSupportForNOPs(deps, nopAliasStrings)
+	supportedChains, err := fetchNodeChainSupportForNOPs(deps, nopAliasStrings)
+	if err != nil {
+		return fmt.Errorf("failed to fetch node chain support: %w", err)
+	}
 	if supportedChains == nil {
 		return nil
 	}
 
 	var validationResults []shared.ChainValidationResult
 	for _, nopAlias := range nopsToValidate {
-		requiredChains := getRequiredChainsForNOP(string(nopAlias), committee, selectors)
+		requiredChains := getRequiredChainsForNOP(string(nopAlias), committee)
 		result := shared.ValidateNOPChainSupport(
 			string(nopAlias),
 			requiredChains,
@@ -321,13 +315,9 @@ func validateVerifierChainSupport(
 	return shared.FormatChainValidationError(validationResults)
 }
 
-func fetchNodeChainSupportForNOPs(deps VerifierApplyDeps, nopAliases []string) shared.ChainSupportByNOP {
-	if deps.JDClient == nil {
-		return nil
-	}
-
+func fetchNodeChainSupportForNOPs(deps VerifierApplyDeps, nopAliases []string) (shared.ChainSupportByNOP, error) {
 	if len(nopAliases) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	report, err := operations.ExecuteOperation(
@@ -343,24 +333,18 @@ func fetchNodeChainSupportForNOPs(deps VerifierApplyDeps, nopAliases []string) s
 		},
 	)
 	if err != nil {
-		deps.Env.Logger.Warnw("Failed to fetch node chain support from JD", "error", err)
-		return nil
+		return nil, fmt.Errorf("failed to fetch node chain support from JD: %w", err)
 	}
 
-	return report.Output.SupportedChains
+	return report.Output.SupportedChains, nil
 }
 
-func getRequiredChainsForNOP(nopAlias string, committee deployments.CommitteeConfig, selectors []uint64) []uint64 {
-	selectorSet := make(map[uint64]bool, len(selectors))
-	for _, s := range selectors {
-		selectorSet[s] = true
-	}
-
+func getRequiredChainsForNOP(nopAlias string, committee deployments.CommitteeConfig) []uint64 {
 	var requiredChains []uint64
 	for chainSelectorStr, chainConfig := range committee.ChainConfigs {
 		if slices.Contains(chainConfig.NOPAliases, nopAlias) {
 			chainSelector := parseChainSelector(chainSelectorStr)
-			if chainSelector != 0 && selectorSet[chainSelector] {
+			if chainSelector != 0 {
 				requiredChains = append(requiredChains, chainSelector)
 			}
 		}

@@ -74,14 +74,26 @@ func TestApplyVerifierConfig_Validation(t *testing.T) {
 			expectedErr: "NOP alias \"non-existent-nop\" not found in topology",
 		},
 		{
-			name: "chain selector not in environment",
+			name: "topology chain not in environment",
 			cfg: changesets.ApplyVerifierConfigCfg{
-				Topology:                 newTestTopology(),
+				Topology: newTestTopology(
+					WithCommittee(testCommittee, deployments.CommitteeConfig{
+						Qualifier: testCommittee,
+						Aggregators: []deployments.AggregatorConfig{
+							{Name: testAggregatorName, Address: testAggregatorAddress, InsecureAggregatorConnection: true},
+						},
+						ChainConfigs: map[string]deployments.ChainCommitteeConfig{
+							strconv.FormatUint(chainsel.TEST_90000003.Selector, 10): {
+								NOPAliases: []string{"nop-1", "nop-2"},
+								Threshold:  2,
+							},
+						},
+					}),
+				),
 				CommitteeQualifier:       testCommittee,
 				DefaultExecutorQualifier: testDefaultQualifier,
-				ChainSelectors:           []uint64{999999999},
 			},
-			expectedErr: "selector 999999999 is not available in environment",
+			expectedErr: "which is not available in the environment",
 		},
 	}
 
@@ -123,26 +135,6 @@ func TestApplyVerifierConfig_ValidatesAggregators(t *testing.T) {
 	assert.Contains(t, err.Error(), "at least one aggregator is required")
 }
 
-func TestApplyVerifierConfig_ValidatesChainNotInCommittee(t *testing.T) {
-	changeset := changesets.ApplyVerifierConfig()
-
-	selectors := []uint64{
-		chainsel.TEST_90000001.Selector,
-		chainsel.TEST_90000002.Selector,
-		chainsel.TEST_90000003.Selector,
-	}
-	env := newTestEnvironment(t, selectors)
-
-	err := changeset.VerifyPreconditions(env, changesets.ApplyVerifierConfigCfg{
-		Topology:                 newTestTopology(),
-		CommitteeQualifier:       testCommittee,
-		DefaultExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:           []uint64{chainsel.TEST_90000003.Selector},
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not configured in committee")
-}
-
 func TestApplyVerifierConfig_PyroscopeNotAllowedInProduction(t *testing.T) {
 	changeset := changesets.ApplyVerifierConfig()
 
@@ -178,7 +170,6 @@ func TestApplyVerifierConfig_GeneratesValidJobSpec(t *testing.T) {
 		Topology:                 topology,
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:           defaultSelectors,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
@@ -224,7 +215,6 @@ func TestApplyVerifierConfig_PreservesExistingJobSpecs(t *testing.T) {
 		Topology:                 newTestTopology(),
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:           defaultSelectors,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
@@ -268,7 +258,6 @@ func TestApplyVerifierConfig_MultipleAggregators(t *testing.T) {
 		Topology:                 topology,
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:           defaultSelectors,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
@@ -315,7 +304,6 @@ func TestApplyVerifierConfig_RemovesOrphanedJobSpecs(t *testing.T) {
 		Topology:                 newTestTopology(),
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:           defaultSelectors,
 		RevokeOrphanedJobs:       true,
 	})
 	require.NoError(t, err)
@@ -350,7 +338,6 @@ func TestApplyVerifierConfig_PreservesOrphanedJobSpecsWhenRevokeOrphanedJobsFals
 		Topology:                 newTestTopology(),
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:           defaultSelectors,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
@@ -386,7 +373,6 @@ func TestApplyVerifierConfig_TargetNOPsScoping(t *testing.T) {
 		Topology:                 newTestTopology(),
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:           defaultSelectors,
 		TargetNOPs:               []shared.NOPAlias{"nop-1"},
 	})
 	require.NoError(t, err)
@@ -403,7 +389,7 @@ func TestApplyVerifierConfig_TargetNOPsScoping(t *testing.T) {
 	assert.Equal(t, "nop-2-job-spec", nop2Job.Spec, "nop-2 job spec should be unchanged")
 }
 
-func TestApplyVerifierConfig_UsesCommitteeChainsWhenEmptyChainSelectors(t *testing.T) {
+func TestApplyVerifierConfig_OnlyIncludesCommitteeChains(t *testing.T) {
 	selectors := []uint64{
 		chainsel.TEST_90000001.Selector,
 		chainsel.TEST_90000002.Selector,
@@ -422,7 +408,6 @@ func TestApplyVerifierConfig_UsesCommitteeChainsWhenEmptyChainSelectors(t *testi
 		Topology:                 newTestTopology(),
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:           nil,
 	})
 	require.NoError(t, err)
 
@@ -461,7 +446,6 @@ func TestApplyVerifierConfig_FiltersChainsPerNOPMembership(t *testing.T) {
 		Topology:                 topology,
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:           defaultSelectors,
 	})
 	require.NoError(t, err)
 
@@ -519,7 +503,6 @@ func TestApplyVerifierConfig_SkipsNOPsNotInAnyChainConfig(t *testing.T) {
 		Topology:                 topology,
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:           selectors,
 		TargetNOPs:               []shared.NOPAlias{"nop-1", "nop-not-in-committee"},
 	})
 	require.NoError(t, err)
@@ -543,7 +526,6 @@ func TestApplyVerifierConfig_SkipsUnchangedJobSpecs(t *testing.T) {
 		Topology:                 topology,
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:           defaultSelectors,
 	})
 	require.NoError(t, err)
 
@@ -556,7 +538,6 @@ func TestApplyVerifierConfig_SkipsUnchangedJobSpecs(t *testing.T) {
 		Topology:                 topology,
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:           defaultSelectors,
 	})
 	require.NoError(t, err)
 
@@ -578,7 +559,6 @@ func TestApplyVerifierConfig_UpdatesJobsWhenChainRemoved(t *testing.T) {
 		Topology:                 topology,
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:           defaultSelectors,
 	})
 	require.NoError(t, err)
 
@@ -608,7 +588,6 @@ func TestApplyVerifierConfig_UpdatesJobsWhenChainRemoved(t *testing.T) {
 		Topology:                 topologyWithOneChain,
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:           []uint64{defaultSelectors[0]},
 	})
 	require.NoError(t, err)
 
@@ -634,7 +613,6 @@ func TestApplyVerifierConfig_RemovesJobWhenNOPRemovedFromCommittee(t *testing.T)
 		Topology:                 topologyWithBothNOPs,
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:           defaultSelectors,
 	})
 	require.NoError(t, err)
 
@@ -662,7 +640,6 @@ func TestApplyVerifierConfig_RemovesJobWhenNOPRemovedFromCommittee(t *testing.T)
 		Topology:                 topologyWithNOP1Only,
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:           defaultSelectors,
 		RevokeOrphanedJobs:       true,
 	})
 	require.NoError(t, err)
@@ -701,7 +678,6 @@ func TestApplyVerifierConfig_CreatesJobWhenNOPAddedToCommittee(t *testing.T) {
 		Topology:                 topologyWithNOP1Only,
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:           defaultSelectors,
 	})
 	require.NoError(t, err)
 
@@ -717,7 +693,6 @@ func TestApplyVerifierConfig_CreatesJobWhenNOPAddedToCommittee(t *testing.T) {
 		Topology:                 topologyWithBothNOPs,
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:           defaultSelectors,
 	})
 	require.NoError(t, err)
 
@@ -782,7 +757,6 @@ func TestApplyVerifierConfig_FailsWhenNOPMissingChainSupport(t *testing.T) {
 		Topology:                 newTestTopology(),
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:           defaultSelectors,
 	}
 
 	_, err := changesets.ApplyVerifierConfigWithDeps(deps, cfg)
@@ -857,7 +831,6 @@ func TestApplyVerifierConfig_PassesWhenNOPSupportsExtraChains(t *testing.T) {
 		Topology:                 newTestTopology(),
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:           defaultSelectors,
 	}
 
 	output, err := changesets.ApplyVerifierConfigWithDeps(deps, cfg)
@@ -909,7 +882,6 @@ func TestApplyVerifierConfig_PassesWhenNonTargetNOPMissingChainSupport(t *testin
 		Topology:                 newTestTopology(),
 		CommitteeQualifier:       testCommittee,
 		DefaultExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:           defaultSelectors,
 		TargetNOPs:               []shared.NOPAlias{"nop-1"},
 	}
 
