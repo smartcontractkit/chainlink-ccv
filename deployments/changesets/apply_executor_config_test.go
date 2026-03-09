@@ -536,7 +536,6 @@ func TestApplyExecutorConfig_AllNOPsUpdatedWhenMemberAddedToPool(t *testing.T) {
 	firstOutput, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
 		Topology:          initialTopology,
 		ExecutorQualifier: testDefaultQualifier,
-
 	})
 	require.NoError(t, err)
 
@@ -566,7 +565,6 @@ func TestApplyExecutorConfig_AllNOPsUpdatedWhenMemberAddedToPool(t *testing.T) {
 	secondOutput, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
 		Topology:          expandedTopology,
 		ExecutorQualifier: testDefaultQualifier,
-
 	})
 	require.NoError(t, err)
 
@@ -603,7 +601,6 @@ func TestApplyExecutorConfig_AllNOPsUpdatedWhenMemberRemovedFromPool(t *testing.
 	firstOutput, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
 		Topology:          initialTopology,
 		ExecutorQualifier: testDefaultQualifier,
-
 	})
 	require.NoError(t, err)
 
@@ -627,8 +624,8 @@ func TestApplyExecutorConfig_AllNOPsUpdatedWhenMemberRemovedFromPool(t *testing.
 
 	env.DataStore = firstSealedDS
 	secondOutput, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
-		Topology:           reducedTopology,
-		ExecutorQualifier:  testDefaultQualifier,
+		Topology:          reducedTopology,
+		ExecutorQualifier: testDefaultQualifier,
 
 		RevokeOrphanedJobs: true,
 	})
