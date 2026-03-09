@@ -31,8 +31,8 @@ type VerifierMetrics struct {
 	storageWriteDurationSeconds        metric.Float64Histogram
 
 	// Queue Health
-	finalityQueueSizeGauge  metric.Int64Gauge
-	ccvDataChannelSizeGauge metric.Int64Gauge
+	taskVerificationQueueSizeGauge metric.Int64Gauge
+	storageWriteQueueSizeGauge     metric.Int64Gauge
 
 	// Error Tracking
 	storageWriteErrorsCounter metric.Int64Counter
@@ -126,20 +126,20 @@ func InitMetrics() (*VerifierMetrics, error) {
 	}
 
 	// Queue Health
-	vm.finalityQueueSizeGauge, err = beholder.GetMeter().Int64Gauge(
-		"verifier_finality_queue_size",
-		metric.WithDescription("Current size of the finality queue"),
+	vm.taskVerificationQueueSizeGauge, err = beholder.GetMeter().Int64Gauge(
+		"verifier_task_verification_queue_size",
+		metric.WithDescription("Current size of the task verification queue (pending + processing jobs)"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to register finality queue size gauge: %w", err)
+		return nil, fmt.Errorf("failed to register task verification queue size gauge: %w", err)
 	}
 
-	vm.ccvDataChannelSizeGauge, err = beholder.GetMeter().Int64Gauge(
-		"verifier_ccv_data_channel_size",
-		metric.WithDescription("Current size of the CCV data channel buffer"),
+	vm.storageWriteQueueSizeGauge, err = beholder.GetMeter().Int64Gauge(
+		"verifier_storage_write_queue_size",
+		metric.WithDescription("Current size of the storage write queue (pending + processing jobs)"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to register ccv data channel size gauge: %w", err)
+		return nil, fmt.Errorf("failed to register storage write queue size gauge: %w", err)
 	}
 
 	// Error Tracking
@@ -395,14 +395,14 @@ func (v *VerifierMetricLabeler) RecordStorageWriteDuration(ctx context.Context, 
 	v.vm.storageWriteDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
 }
 
-func (v *VerifierMetricLabeler) RecordFinalityQueueSize(ctx context.Context, size int64) {
+func (v *VerifierMetricLabeler) RecordTaskVerificationQueueSize(ctx context.Context, size int64) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
-	v.vm.finalityQueueSizeGauge.Record(ctx, size, metric.WithAttributes(otelLabels...))
+	v.vm.taskVerificationQueueSizeGauge.Record(ctx, size, metric.WithAttributes(otelLabels...))
 }
 
-func (v *VerifierMetricLabeler) RecordCCVDataChannelSize(ctx context.Context, size int64) {
+func (v *VerifierMetricLabeler) RecordStorageWriteQueueSize(ctx context.Context, size int64) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
-	v.vm.ccvDataChannelSizeGauge.Record(ctx, size, metric.WithAttributes(otelLabels...))
+	v.vm.storageWriteQueueSizeGauge.Record(ctx, size, metric.WithAttributes(otelLabels...))
 }
 
 func (v *VerifierMetricLabeler) IncrementStorageWriteErrors(ctx context.Context) {
