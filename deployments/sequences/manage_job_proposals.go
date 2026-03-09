@@ -26,6 +26,8 @@ type ManageJobProposalsInput struct {
 	AffectedScope shared.JobScope
 	Labels        map[string]string
 	NOPs          NOPContext
+	// RevokeOrphanedJobs when true runs orphan collection, JD revoke, and datastore cleanup; default false.
+	RevokeOrphanedJobs bool
 }
 
 type ManageJobProposalsOutput struct {
@@ -98,50 +100,54 @@ var ManageJobProposals = operations.NewSequence(
 
 		expectedJobsByNOP := extractExpectedJobsByNOP(jobs)
 
-		orphanedJobs, err := deployments.CollectOrphanedJobs(
-			ds.Seal(),
-			input.AffectedScope,
-			expectedJobsByNOP,
-			shared.NOPAliasSliceToSet(input.NOPs.TargetNOPs),
-			shared.NOPAliasSliceToSet(input.NOPs.AllNOPs),
-		)
-		if err != nil {
-			e.Logger.Warnw("Failed to collect orphaned jobs", "error", err)
-			orphanedJobs = nil
-		}
-
 		revokedJobs := make([]shared.JobInfo, 0)
-		if len(orphanedJobs) > 0 {
-			clOrphanedJobs := filterCLModeJobs(orphanedJobs)
-			if len(clOrphanedJobs) > 0 && e.Offchain != nil {
-				revokeReport, revokeErr := operations.ExecuteOperation(
-					b,
-					revoke_jobs.RevokeJobs,
-					revoke_jobs.RevokeJobsDeps{
-						JDClient: e.Offchain,
-						Logger:   e.Logger,
-						NodeIDs:  e.NodeIDs,
-					},
-					revoke_jobs.RevokeJobsInput{
-						Jobs: clOrphanedJobs,
-					},
-				)
-				if revokeErr != nil {
+		if input.RevokeOrphanedJobs {
+			orphanedJobs, err := deployments.CollectOrphanedJobs(
+				ds.Seal(),
+				input.AffectedScope,
+				expectedJobsByNOP,
+				shared.NOPAliasSliceToSet(input.NOPs.TargetNOPs),
+				shared.NOPAliasSliceToSet(input.NOPs.AllNOPs),
+			)
+			if err != nil {
+				e.Logger.Warnw("Failed to collect orphaned jobs", "error", err)
+				orphanedJobs = nil
+			}
+
+			if len(orphanedJobs) > 0 {
+				clOrphanedJobs := filterCLModeJobs(orphanedJobs)
+				if len(clOrphanedJobs) > 0 && e.Offchain != nil {
+					revokeReport, revokeErr := operations.ExecuteOperation(
+						b,
+						revoke_jobs.RevokeJobs,
+						revoke_jobs.RevokeJobsDeps{
+							JDClient: e.Offchain,
+							Logger:   e.Logger,
+							NodeIDs:  e.NodeIDs,
+						},
+						revoke_jobs.RevokeJobsInput{
+							Jobs: clOrphanedJobs,
+						},
+					)
+					if revokeErr != nil {
+						return ManageJobProposalsOutput{
+							Jobs:      jobs,
+							DataStore: ds,
+						}, fmt.Errorf("failed to revoke orphaned CL mode jobs: %w", revokeErr)
+					}
+					e.Logger.Infow("Revoked orphaned jobs", "count", len(revokeReport.Output.RevokedJobs))
+				}
+
+				if cleanupErr := deployments.CleanupOrphanedJobs(ds, orphanedJobs); cleanupErr != nil {
 					return ManageJobProposalsOutput{
 						Jobs:      jobs,
 						DataStore: ds,
-					}, fmt.Errorf("failed to revoke orphaned CL mode jobs: %w", revokeErr)
+					}, fmt.Errorf("failed to cleanup orphaned jobs: %w", cleanupErr)
 				}
-				e.Logger.Infow("Revoked orphaned jobs", "count", len(revokeReport.Output.RevokedJobs))
+				revokedJobs = orphanedJobs
 			}
-
-			if cleanupErr := deployments.CleanupOrphanedJobs(ds, orphanedJobs); cleanupErr != nil {
-				return ManageJobProposalsOutput{
-					Jobs:      jobs,
-					DataStore: ds,
-				}, fmt.Errorf("failed to cleanup orphaned jobs: %w", cleanupErr)
-			}
-			revokedJobs = orphanedJobs
+		} else {
+			e.Logger.Debugw("Skipping orphaned job revocation", "revoke_orphaned_jobs", false)
 		}
 
 		return ManageJobProposalsOutput{

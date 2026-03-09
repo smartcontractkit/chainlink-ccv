@@ -237,9 +237,10 @@ func TestApplyExecutorConfig_RemovesOrphanedJobSpecs(t *testing.T) {
 
 	cs := changesets.ApplyExecutorConfig()
 	output, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
-		Topology:          newTestTopology(),
-		ExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:    defaultSelectors,
+		Topology:           newTestTopology(),
+		ExecutorQualifier:  testDefaultQualifier,
+		ChainSelectors:     defaultSelectors,
+		RevokeOrphanedJobs: true,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, output.DataStore)
@@ -252,6 +253,36 @@ func TestApplyExecutorConfig_RemovesOrphanedJobSpecs(t *testing.T) {
 	otherQualifierJob, err := deployments.GetJob(outputSealed, "nop-1", "nop-1-custom-executor")
 	require.NoError(t, err, "job spec for other qualifier should be preserved")
 	assert.Equal(t, "other-qualifier-job-spec", otherQualifierJob.Spec)
+}
+
+func TestApplyExecutorConfig_PreservesOrphanedJobSpecsWhenRevokeOrphanedJobsFalse(t *testing.T) {
+	env, ds := testutils.NewSimulatedEVMEnvironmentWithDataStore(t, defaultSelectors)
+	setupExecutorDatastore(t, ds, defaultSelectors, testDefaultQualifier)
+
+	err := deployments.SaveJob(ds, shared.JobInfo{
+		Spec:     "orphaned-job-spec",
+		JobID:    "removed-nop-default-executor",
+		NOPAlias: "removed-nop",
+		Mode:     shared.NOPModeStandalone,
+	})
+	require.NoError(t, err)
+
+	env.DataStore = ds.Seal()
+
+	cs := changesets.ApplyExecutorConfig()
+	output, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
+		Topology:          newTestTopology(),
+		ExecutorQualifier: testDefaultQualifier,
+		ChainSelectors:    defaultSelectors,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, output.DataStore)
+
+	outputSealed := output.DataStore.Seal()
+
+	orphanedJob, err := deployments.GetJob(outputSealed, "removed-nop", "removed-nop-default-executor")
+	require.NoError(t, err, "orphaned job spec should be preserved when RevokeOrphanedJobs is false")
+	assert.Equal(t, "orphaned-job-spec", orphanedJob.Spec)
 }
 
 func TestApplyExecutorConfig_TargetNOPsScoping(t *testing.T) {
@@ -517,9 +548,10 @@ func TestApplyExecutorConfig_AllNOPsUpdatedWhenMemberRemovedFromPool(t *testing.
 
 	env.DataStore = firstSealedDS
 	secondOutput, err := cs.Apply(env, changesets.ApplyExecutorConfigCfg{
-		Topology:          reducedTopology,
-		ExecutorQualifier: testDefaultQualifier,
-		ChainSelectors:    selectors,
+		Topology:           reducedTopology,
+		ExecutorQualifier:  testDefaultQualifier,
+		ChainSelectors:     selectors,
+		RevokeOrphanedJobs: true,
 	})
 	require.NoError(t, err)
 
