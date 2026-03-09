@@ -29,6 +29,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/chainconfig"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
+	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	"github.com/smartcontractkit/chainlink-ccv/deployments/changesets"
@@ -94,7 +95,7 @@ type Cfg struct {
 	Fake               *services.FakeInput            `toml:"fake"                  validate:"required"`
 	Verifier           []*committeeverifier.Input     `toml:"verifier"              validate:"required"`
 	TokenVerifier      []*services.TokenVerifierInput `toml:"token_verifier"`
-	Executor           []*services.ExecutorInput      `toml:"executor"              validate:"required"`
+	Executor           []*executorsvc.Input            `toml:"executor"              validate:"required"`
 	Indexer            []*services.IndexerInput       `toml:"indexer"               validate:"required"`
 	Aggregator         []*services.AggregatorInput    `toml:"aggregator"            validate:"required"`
 	JD                 *jd.Input                      `toml:"jd"                    validate:"required"`
@@ -526,7 +527,7 @@ func generateExecutorJobSpecs(
 	}
 
 	// Group executors by qualifier
-	executorsByQualifier := make(map[string][]*services.ExecutorInput)
+	executorsByQualifier := make(map[string][]*executorsvc.Input)
 	for _, exec := range in.Executor {
 		qualifier := exec.ExecutorQualifier
 		if qualifier == "" {
@@ -581,7 +582,7 @@ func generateExecutorJobSpecs(
 	}
 
 	// Set transmitter keys for standalone mode
-	_, err := services.SetTransmitterPrivateKey(in.Executor)
+	_, err := executorsvc.SetTransmitterPrivateKey(in.Executor)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set transmitter private key: %w", err)
 	}
@@ -771,7 +772,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// Executor config...
 	if in.Executor != nil {
 		for _, exec := range in.Executor {
-			services.ApplyExecutorDefaults(exec)
+			executorsvc.ApplyDefaults(exec)
 		}
 	}
 
@@ -1660,12 +1661,12 @@ func launchCLNodes(
 	return onchainPublicKeys, nil
 }
 
-func launchStandaloneExecutors(in []*services.ExecutorInput, blockchainOutputs []*blockchain.Output) ([]*services.ExecutorOutput, error) {
-	var outs []*services.ExecutorOutput
+func launchStandaloneExecutors(in []*executorsvc.Input, blockchainOutputs []*blockchain.Output) ([]*executorsvc.Output, error) {
+	var outs []*executorsvc.Output
 	// Start standalone executors if they are in standalone mode.
 	for _, exec := range in {
 		if exec != nil && exec.Mode == services.Standalone {
-			out, err := services.NewExecutor(exec, blockchainOutputs)
+			out, err := executorsvc.NewStandalone(exec, blockchainOutputs)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create executor service: %w", err)
 			}
