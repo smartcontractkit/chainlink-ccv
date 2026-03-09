@@ -20,7 +20,7 @@ import (
 // ChainScanner reads committee verifier state for a specific chain family.
 type ChainScanner func(ctx context.Context, env deployment.Environment, ref datastore.AddressRef) (*OnChainCommitteeState, error)
 
-var chainScanners = map[string]ChainScanner{}
+var chainScanners = make(map[string]ChainScanner)
 
 // RegisterChainScanner registers a scanner for a given chain family.
 func RegisterChainScanner(family string, scanner ChainScanner) {
