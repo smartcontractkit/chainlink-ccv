@@ -1,6 +1,6 @@
 module github.com/smartcontractkit/chainlink-ccv/deployments
 
-go 1.25.7
+go 1.25.6
 
 replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlink-tron/relayer/gotron-sdk v0.0.5-0.20251014124537-af6b1684fe15
 
@@ -16,10 +16,10 @@ require (
 	github.com/evanphx/json-patch/v5 v5.9.11
 	github.com/google/uuid v1.6.0
 	github.com/smartcontractkit/chain-selectors v1.0.97
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260310151708-bfda539829be
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260310151708-bfda539829be
-	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20260310151708-bfda539829be
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260310151708-bfda539829be
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260310170228-195216133625
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260310170228-195216133625
+	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20260310170228-195216133625
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260310170228-195216133625
 	github.com/smartcontractkit/chainlink-ccv v0.0.0-20260218133052-8e7fe2f457f9
 	github.com/smartcontractkit/chainlink-common v0.10.1-0.20260217084735-307a5770c4f6
 	github.com/smartcontractkit/chainlink-deployments-framework v0.85.0
@@ -231,7 +231,7 @@ require (
 	github.com/sigurn/crc16 v0.0.0-20211026045750-20ab5afb07e3 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/smartcontractkit/chainlink-aptos v0.0.0-20251024142440-51f2ad2652a2 // indirect
-	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20260310151708-bfda539829be // indirect
+	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20260310170228-195216133625 // indirect
 	github.com/smartcontractkit/chainlink-ccip/chains/solana v0.0.0-20260121163256-85accaf3d28d // indirect
 	github.com/smartcontractkit/chainlink-ccip/chains/solana/gobindings v0.0.0-20250912190424-fd2e35d7deb5 // indirect
 	github.com/smartcontractkit/chainlink-common/pkg/chipingress v0.0.10 // indirect

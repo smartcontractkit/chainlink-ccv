@@ -1048,6 +1048,21 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Connect chains to each other //
 	/////////////////////////////////////////
 
+	// ConfigureTokensForTransfers must run first so token pools (including those used by CCTP/Lombard)
+	// have remote chain allowlists set. Otherwise sends can revert with custom error 0xa9902c7e (chain
+	// not allowed), where the error argument is the destination chain selector.
+	allTokenConfigs := tokenconfig.BuildTokenTransferConfigs(topology, selectors)
+	if len(allTokenConfigs) > 0 {
+		tokenAdapterRegistry := tokenscore.GetTokenAdapterRegistry()
+		mcmsReaderRegistry := changesetscore.GetRegistry()
+		_, err = tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*e, tokenscore.ConfigureTokensForTransfersConfig{
+			Tokens: allTokenConfigs,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("configure tokens for transfers: %w", err)
+		}
+	}
+
 	for i, impl := range impls {
 		var networkInfo chainsel.ChainDetails
 		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
@@ -1063,20 +1078,6 @@ func NewEnvironment() (in *Cfg, err error) {
 		err = impl.ConnectContractsWithSelectors(ctx, e, networkInfo.ChainSelector, selsToConnect, topology)
 		if err != nil {
 			return nil, err
-		}
-	}
-
-	// ConfigureTokensForTransfers must be called once with all chains defined in the input.
-	// Token transfer configs are built chain-agnostically from topology and selectors.
-	allTokenConfigs := tokenconfig.BuildTokenTransferConfigs(topology, selectors)
-	if len(allTokenConfigs) > 0 {
-		tokenAdapterRegistry := tokenscore.GetTokenAdapterRegistry()
-		mcmsReaderRegistry := changesetscore.GetRegistry()
-		_, err = tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*e, tokenscore.ConfigureTokensForTransfersConfig{
-			Tokens: allTokenConfigs,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("configure tokens for transfers: %w", err)
 		}
 	}
 

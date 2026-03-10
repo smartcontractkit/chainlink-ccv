@@ -10,7 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/committee_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -71,12 +71,12 @@ func ConfigureCommitVerifierOnSelectorForLanes(e *deployment.Environment, select
 }
 
 // DeployReceiverForSelector deploys a new mock receiver to the given chain selector.
-func DeployReceiverForSelector(e *deployment.Environment, selector uint64, args mock_receiver.ConstructorArgs) (datastore.AddressRef, error) {
+func DeployReceiverForSelector(e *deployment.Environment, selector uint64, args mock_receiver_v2.ConstructorArgs) (datastore.AddressRef, error) {
 	chain, ok := e.BlockChains.EVMChains()[selector]
 	if !ok {
 		return datastore.AddressRef{}, fmt.Errorf("no EVM chain found for selector %d", selector)
 	}
-	report, err := operations.ExecuteOperation(e.OperationsBundle, mock_receiver.Deploy, chain, contract.DeployInput[mock_receiver.ConstructorArgs]{
+	report, err := operations.ExecuteOperation(e.OperationsBundle, mock_receiver_v2.Deploy, chain, contract.DeployInput[mock_receiver_v2.ConstructorArgs]{
 		ChainSelector: chain.Selector,
 		Args:          args,
 	})
@@ -212,7 +212,7 @@ func NewV3ExtraArgs(finalityConfig uint16, gasLimit uint32, execAddr string, exe
 	return buf.Bytes(), nil
 }
 
-func DeployMockReceiver(ctx context.Context, e *deployment.Environment, addresses []string, selector uint64, args mock_receiver.ConstructorArgs) ([]string, error) {
+func DeployMockReceiver(ctx context.Context, e *deployment.Environment, addresses []string, selector uint64, args mock_receiver_v2.ConstructorArgs) ([]string, error) {
 	bundle := operations.NewBundle(
 		func() context.Context { return context.Background() },
 		e.Logger,

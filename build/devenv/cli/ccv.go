@@ -19,7 +19,7 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/committee_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -301,10 +301,10 @@ var deployReceiverCmd = &cobra.Command{
 			}
 		}
 
-		constructorArgs := mock_receiver.ConstructorArgs{
-			RequiredVerifiers: required,
-			OptionalVerifiers: optional,
-			OptionalThreshold: uint8(optionalThreshold),
+		constructorArgs := mock_receiver_v2.ConstructorArgs{
+			Required:  required,
+			Optional:  optional,
+			Threshold: uint8(optionalThreshold),
 		}
 
 		_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)

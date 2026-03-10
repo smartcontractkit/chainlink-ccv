@@ -8,8 +8,8 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
@@ -146,7 +146,7 @@ func customExecutor(src, dest cciptestinterfaces.CCIP17) *v3TestCase {
 			numExpectedVerifications: 1,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase, cfg *ccv.Cfg) bool {
-			receiver, err := tcapi.GetContractAddress(cfg, dest.ChainSelector(), datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), common.DefaultReceiverQualifier, "default mock receiver")
+			receiver, err := tcapi.GetContractAddress(cfg, dest.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.DefaultReceiverQualifier, "default mock receiver")
 			if err != nil {
 				return false
 			}
@@ -262,7 +262,7 @@ func receiverSecondaryVerifierRequired(src, dest cciptestinterfaces.CCIP17) *v3T
 			aggregatorQualifier:      common.SecondaryCommitteeVerifierQualifier,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase, cfg *ccv.Cfg) bool {
-			receiver, err := tcapi.GetContractAddress(cfg, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), common.SecondaryReceiverQualifier, "secondary mock receiver")
+			receiver, err := tcapi.GetContractAddress(cfg, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.SecondaryReceiverQualifier, "secondary mock receiver")
 			if err != nil {
 				return false
 			}
@@ -300,7 +300,7 @@ func receiverSecondaryRequiredTertiaryOptionalThreshold1(src, dest cciptestinter
 			aggregatorQualifier:      common.SecondaryCommitteeVerifierQualifier,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase, cfg *ccv.Cfg) bool {
-			receiver, err := tcapi.GetContractAddress(cfg, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), common.SecondaryReceiverQualifier, "secondary mock receiver")
+			receiver, err := tcapi.GetContractAddress(cfg, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.SecondaryReceiverQualifier, "secondary mock receiver")
 			if err != nil {
 				return false
 			}
@@ -341,7 +341,7 @@ func receiverQuaternaryAllThreeVerifiers(src, dest cciptestinterfaces.CCIP17) *v
 			numExpectedVerifications: 3,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase, cfg *ccv.Cfg) bool {
-			receiver, err := tcapi.GetContractAddress(cfg, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), common.QuaternaryReceiverQualifier, "quaternary mock receiver")
+			receiver, err := tcapi.GetContractAddress(cfg, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.QuaternaryReceiverQualifier, "quaternary mock receiver")
 			if err != nil {
 				return false
 			}
@@ -386,7 +386,7 @@ func receiverQuaternaryDefaultAndSecondary(src, dest cciptestinterfaces.CCIP17) 
 			numExpectedVerifications: 2,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase, cfg *ccv.Cfg) bool {
-			receiver, err := tcapi.GetContractAddress(cfg, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), common.QuaternaryReceiverQualifier, "quaternary mock receiver")
+			receiver, err := tcapi.GetContractAddress(cfg, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.QuaternaryReceiverQualifier, "quaternary mock receiver")
 			if err != nil {
 				return false
 			}
@@ -427,7 +427,7 @@ func receiverQuaternaryDefaultAndTertiary(src, dest cciptestinterfaces.CCIP17) *
 			numExpectedVerifications: 2,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase, cfg *ccv.Cfg) bool {
-			receiver, err := tcapi.GetContractAddress(cfg, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), common.QuaternaryReceiverQualifier, "quaternary mock receiver")
+			receiver, err := tcapi.GetContractAddress(cfg, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.QuaternaryReceiverQualifier, "quaternary mock receiver")
 			if err != nil {
 				return false
 			}
@@ -473,7 +473,7 @@ func maxDataSize(src, dest cciptestinterfaces.CCIP17) *v3TestCase {
 				return false
 			}
 			tc.msgData = bytes.Repeat([]byte("a"), int(maxDataBytes))
-			receiver, err := tcapi.GetContractAddress(cfg, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), common.DefaultReceiverQualifier, "default mock receiver")
+			receiver, err := tcapi.GetContractAddress(cfg, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.DefaultReceiverQualifier, "default mock receiver")
 			if err != nil {
 				return false
 			}

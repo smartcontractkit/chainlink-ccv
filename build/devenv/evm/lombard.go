@@ -7,9 +7,9 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/common"
 
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/mock_receiver_v2"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/lombard_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_lombard_bridge"
 	evm_contract "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
@@ -267,13 +267,13 @@ func (m *CCIP17EVMConfig) deployLombardMockReceiver(
 	receiverQualifier := devenvcommon.LombardPrimaryReceiverQualifier
 	deployReceiverReport, err1 := cldf_ops.ExecuteOperation(
 		env.OperationsBundle,
-		mock_receiver.Deploy,
+		mock_receiver_v2.Deploy,
 		env.BlockChains.EVMChains()[selector],
-		evm_contract.DeployInput[mock_receiver.ConstructorArgs]{
-			TypeAndVersion: deployment.NewTypeAndVersion(mock_receiver.ContractType, *mock_receiver.Version),
+		evm_contract.DeployInput[mock_receiver_v2.ConstructorArgs]{
+			TypeAndVersion: deployment.NewTypeAndVersion(mock_receiver_v2.ContractType, *mock_receiver_v2.Version),
 			ChainSelector:  selector,
-			Args: mock_receiver.ConstructorArgs{
-				RequiredVerifiers: []common.Address{
+			Args: mock_receiver_v2.ConstructorArgs{
+				Required: []common.Address{
 					common.HexToAddress(committeeVerifier.Address),
 					common.HexToAddress(lombardVerifier.Address),
 				},

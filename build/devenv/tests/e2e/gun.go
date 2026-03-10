@@ -14,7 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -233,8 +233,8 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 	mockReceiverRef, err := m.e.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
 			destSelector,
-			datastore.ContractType(mock_receiver.ContractType),
-			semver.MustParse(mock_receiver.Deploy.Version()),
+			datastore.ContractType(mock_receiver_v2.ContractType),
+			semver.MustParse(mock_receiver_v2.Deploy.Version()),
 			devenvcommon.DefaultReceiverQualifier))
 	if err != nil {
 		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("could not find mock receiver address in datastore: %w", err)

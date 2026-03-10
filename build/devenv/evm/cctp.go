@@ -8,11 +8,11 @@ import (
 	gethcommon "github.com/ethereum/go-ethereum/common"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/usdc_token_pool_proxy"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/create2_factory"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_messenger"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_transmitter"
@@ -292,13 +292,13 @@ func (m *CCIP17EVMConfig) deployCCTPMockReceivers(
 
 		deployReceiverReport, err1 := operations.ExecuteOperation(
 			env.OperationsBundle,
-			mock_receiver.Deploy,
+			mock_receiver_v2.Deploy,
 			env.BlockChains.EVMChains()[selector],
-			contract.DeployInput[mock_receiver.ConstructorArgs]{
-				TypeAndVersion: deployment.NewTypeAndVersion(mock_receiver.ContractType, *mock_receiver.Version),
+			contract.DeployInput[mock_receiver_v2.ConstructorArgs]{
+				TypeAndVersion: deployment.NewTypeAndVersion(mock_receiver_v2.ContractType, *mock_receiver_v2.Version),
 				ChainSelector:  selector,
-				Args: mock_receiver.ConstructorArgs{
-					RequiredVerifiers: requiredVerifiers,
+				Args: mock_receiver_v2.ConstructorArgs{
+					Required: requiredVerifiers,
 				},
 				Qualifier: &r.Qualifier,
 			})

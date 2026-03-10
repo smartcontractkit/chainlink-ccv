@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
@@ -72,8 +72,8 @@ func TestE2ESmoke_TokenVerification(t *testing.T) {
 				t,
 				in,
 				destSelector,
-				datastore.ContractType(mock_receiver.ContractType),
-				mock_receiver.Deploy.Version(),
+				datastore.ContractType(mock_receiver_v2.ContractType),
+				mock_receiver_v2.Deploy.Version(),
 				common.CCTPPrimaryReceiverQualifier,
 				"",
 			)
@@ -81,8 +81,8 @@ func TestE2ESmoke_TokenVerification(t *testing.T) {
 				t,
 				in,
 				destSelector,
-				datastore.ContractType(mock_receiver.ContractType),
-				mock_receiver.Deploy.Version(),
+				datastore.ContractType(mock_receiver_v2.ContractType),
+				mock_receiver_v2.Deploy.Version(),
 				common.CCTPSecondaryReceiverQualifier,
 				"",
 			)
@@ -147,8 +147,8 @@ func TestE2ESmoke_TokenVerification(t *testing.T) {
 				t,
 				in,
 				destSelector,
-				datastore.ContractType(mock_receiver.ContractType),
-				mock_receiver.Deploy.Version(),
+				datastore.ContractType(mock_receiver_v2.ContractType),
+				mock_receiver_v2.Deploy.Version(),
 				common.LombardPrimaryReceiverQualifier,
 				"",
 			)
@@ -224,6 +224,10 @@ func runUSDCTestCase(
 		Executor:          getContractAddress(t, in, sourceSelector, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
 	}
 
+	// If SendMessage fails with "custom error 0xa9902c7e: ...<chain selector hex>", the token pool
+	// (or router) is reverting with "destination chain not allowed": the destination chain selector
+	// is not in the pool's allowlist. Ensure ConfigureTokensForTransfers runs before ConnectContractsWithSelectors
+	// and that the CCTP/USDC pool gets its remote chains configured (e.g. via configureUSDCForTransfer).
 	sendRes, err := sourceChain.SendMessage(
 		ctx, destSelector,
 		cciptestinterfaces.MessageFields{

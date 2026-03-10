@@ -13,8 +13,8 @@ import (
 	"github.com/spf13/cobra"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/mock_receiver_v2"
 	executor_operations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -109,8 +109,8 @@ func run(args sendArgs) error {
 		mockReceiver, err := ds.Addresses().Get(
 			datastore.NewAddressRefKey(
 				args.destSel,
-				datastore.ContractType(mock_receiver.ContractType),
-				semver.MustParse(mock_receiver.Deploy.Version()),
+				datastore.ContractType(mock_receiver_v2.ContractType),
+				semver.MustParse(mock_receiver_v2.Deploy.Version()),
 				args.receiverQualifier))
 		if err != nil {
 			return fmt.Errorf("failed to get mock receiver address: %w", err)
