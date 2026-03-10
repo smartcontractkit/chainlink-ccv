@@ -25,8 +25,6 @@ type ExecutorMetrics struct {
 	// Message Processing Counters
 	messagesProcessedCounter        metric.Int64Counter
 	messagesProcessingErrorsCounter metric.Int64Counter
-	ccvInfoCacheHitsCounter         metric.Int64Counter
-	ccvInfoCacheMissesCounter       metric.Int64Counter
 	messageGetCCVInfoErrors         metric.Int64Counter
 	messageGetCCVInfoTotal          metric.Int64Counter
 	messageExpiryCounter            metric.Int64Counter
@@ -81,22 +79,6 @@ func InitMetrics() (*ExecutorMetrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register messages processing errors counter: %w", err)
-	}
-
-	vm.ccvInfoCacheHitsCounter, err = beholder.GetMeter().Int64Counter(
-		"executor_get_ccv_info_cache_hits_total",
-		metric.WithDescription("Total number of cache hits for CCV info"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to register ccv info cache hits counter: %w", err)
-	}
-
-	vm.ccvInfoCacheMissesCounter, err = beholder.GetMeter().Int64Counter(
-		"executor_get_ccv_info_cache_misses_total",
-		metric.WithDescription("Total number of cache misses for CCV info"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to register ccv info cache misses counter: %w", err)
 	}
 
 	vm.messageGetCCVInfoErrors, err = beholder.GetMeter().Int64Counter(
@@ -232,20 +214,6 @@ func (v *ExecutorMetricLabeler) IncrementMessagesProcessingError(ctx context.Con
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	otelLabels = append(otelLabels, attribute.Bool("retry", retry))
 	v.vm.messagesProcessingErrorsCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
-}
-
-func (v *ExecutorMetricLabeler) IncrementCCVInfoCacheHits(ctx context.Context, destChainSelector protocol.ChainSelector) {
-	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
-	v.vm.ccvInfoCacheHitsCounter.Add(ctx, 1, metric.WithAttributes([]attribute.KeyValue{
-		attribute.String("destChainSelector", destChainSelector.String()),
-	}...), metric.WithAttributes(otelLabels...))
-}
-
-func (v *ExecutorMetricLabeler) IncrementCCVInfoCacheMisses(ctx context.Context, destChainSelector protocol.ChainSelector) {
-	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
-	v.vm.ccvInfoCacheMissesCounter.Add(ctx, 1, metric.WithAttributes([]attribute.KeyValue{
-		attribute.String("destChainSelector", destChainSelector.String()),
-	}...), metric.WithAttributes(otelLabels...))
 }
 
 func (v *ExecutorMetricLabeler) RecordOfframpGetCCVsForMessageLatency(ctx context.Context, duration time.Duration, destChainSelector protocol.ChainSelector) {

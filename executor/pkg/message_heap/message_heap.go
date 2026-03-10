@@ -64,11 +64,11 @@ func (h *ReadyTimestampHeap) Pop() any {
 
 var errHeapIsEmpty = errors.New("heap is empty")
 
-func (h *ReadyTimestampHeap) peek() (MessageHeapEntry, error) {
+func (h *ReadyTimestampHeap) peek() (*MessageHeapEntry, error) {
 	if h.Len() <= 0 {
-		return MessageHeapEntry{}, errHeapIsEmpty
+		return nil, errHeapIsEmpty
 	}
-	return (*h)[0], nil
+	return &(*h)[0], nil
 }
 
 // MessageHeap is the struct used to maintain the priority queue for timing messages in the coordinator.
@@ -123,7 +123,7 @@ func (mh *MessageHeap) PopAllReady(timestamp time.Time) []MessageWithTimestamps 
 
 	for mh.heap.Len() > 0 {
 		peeked, err := mh.heap.peek()
-		if err != nil || peeked.ReadyTime.After(timestamp) {
+		if err != nil || peeked == nil || peeked.ReadyTime.After(timestamp) {
 			break
 		}
 
@@ -219,8 +219,8 @@ func (es *ExpirableMessageSet) CleanExpired(timestamp time.Time) int {
 
 	expiredCount := 0
 	for es.heap.Len() > 0 {
-		msg, err := es.heap.peek()
-		if err != nil || msg.ReadyTime.After(timestamp) {
+		peeked, err := es.heap.peek()
+		if err != nil || peeked == nil || peeked.ReadyTime.After(timestamp) {
 			break
 		}
 

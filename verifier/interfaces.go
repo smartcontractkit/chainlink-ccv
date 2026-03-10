@@ -72,10 +72,10 @@ type MetricLabeler interface {
 
 	// Queue health metrics
 
-	// RecordFinalityQueueSize records the current size of the finality queue.
-	RecordFinalityQueueSize(ctx context.Context, size int64)
-	// RecordCCVDataChannelSize records the current size of the CCV data channel buffer.
-	RecordCCVDataChannelSize(ctx context.Context, size int64)
+	// RecordTaskVerificationQueueSize records the current size of the task verification queue.
+	RecordTaskVerificationQueueSize(ctx context.Context, size int64)
+	// RecordStorageWriteQueueSize records the current size of the storage write queue.
+	RecordStorageWriteQueueSize(ctx context.Context, size int64)
 
 	// Error tracking
 

@@ -12,6 +12,7 @@ import (
 	"go.uber.org/goleak"
 	"go.uber.org/zap/zapcore"
 
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
@@ -25,11 +26,13 @@ func TestConstructor(t *testing.T) {
 	lggr := logger.Test(t)
 
 	type args struct {
-		lggr logger.Logger
-		exec executor.Executor
-		sub  executor.MessageSubscriber
-		le   executor.LeaderElector
-		mon  executor.Monitoring
+		lggr         logger.Logger
+		exec         executor.Executor
+		sub          executor.MessageSubscriber
+		le           executor.LeaderElector
+		mon          executor.Monitoring
+		timeProvider any
+		workerCount  int
 	}
 
 	testcases := []struct {
@@ -45,61 +48,99 @@ func TestConstructor(t *testing.T) {
 		{
 			name: "happy",
 			args: args{
-				lggr: lggr,
-				exec: mocks.NewMockExecutor(t),
-				sub:  mocks.NewMockMessageSubscriber(t),
-				le:   mocks.NewMockLeaderElector(t),
-				mon:  monitoring.NewNoopExecutorMonitoring(),
+				lggr:         lggr,
+				exec:         mocks.NewMockExecutor(t),
+				sub:          mocks.NewMockMessageSubscriber(t),
+				le:           mocks.NewMockLeaderElector(t),
+				mon:          monitoring.NewNoopExecutorMonitoring(),
+				timeProvider: mocks.NewMockTimeProvider(t),
+				workerCount:  100,
 			},
 			expectErr: false,
 		},
 		{
 			name: "missing executor",
 			args: args{
-				lggr: lggr,
-				sub:  mocks.NewMockMessageSubscriber(t),
-				le:   mocks.NewMockLeaderElector(t),
-				mon:  monitoring.NewNoopExecutorMonitoring(),
+				lggr:         lggr,
+				sub:          mocks.NewMockMessageSubscriber(t),
+				le:           mocks.NewMockLeaderElector(t),
+				mon:          monitoring.NewNoopExecutorMonitoring(),
+				timeProvider: mocks.NewMockTimeProvider(t),
+				workerCount:  100,
 			},
 			expectErr: true,
 		},
 		{
 			name: "missing logger",
 			args: args{
-				exec: mocks.NewMockExecutor(t),
-				sub:  mocks.NewMockMessageSubscriber(t),
-				le:   mocks.NewMockLeaderElector(t),
-				mon:  monitoring.NewNoopExecutorMonitoring(),
+				exec:         mocks.NewMockExecutor(t),
+				sub:          mocks.NewMockMessageSubscriber(t),
+				le:           mocks.NewMockLeaderElector(t),
+				mon:          monitoring.NewNoopExecutorMonitoring(),
+				timeProvider: mocks.NewMockTimeProvider(t),
+				workerCount:  100,
 			},
 			expectErr: true,
 		},
 		{
 			name: "missing leaderElector",
 			args: args{
-				lggr: lggr,
-				exec: mocks.NewMockExecutor(t),
-				sub:  mocks.NewMockMessageSubscriber(t),
-				mon:  monitoring.NewNoopExecutorMonitoring(),
+				lggr:         lggr,
+				exec:         mocks.NewMockExecutor(t),
+				sub:          mocks.NewMockMessageSubscriber(t),
+				mon:          monitoring.NewNoopExecutorMonitoring(),
+				timeProvider: mocks.NewMockTimeProvider(t),
+				workerCount:  100,
 			},
 			expectErr: true,
 		},
 		{
 			name: "missing MessageSubscriber",
 			args: args{
-				lggr: lggr,
-				exec: mocks.NewMockExecutor(t),
-				le:   mocks.NewMockLeaderElector(t),
-				mon:  monitoring.NewNoopExecutorMonitoring(),
+				lggr:         lggr,
+				exec:         mocks.NewMockExecutor(t),
+				le:           mocks.NewMockLeaderElector(t),
+				mon:          monitoring.NewNoopExecutorMonitoring(),
+				timeProvider: mocks.NewMockTimeProvider(t),
+				workerCount:  100,
 			},
 			expectErr: true,
 		},
 		{
 			name: "missing Monitoring",
 			args: args{
-				lggr: lggr,
-				exec: mocks.NewMockExecutor(t),
-				sub:  mocks.NewMockMessageSubscriber(t),
-				le:   mocks.NewMockLeaderElector(t),
+				lggr:         lggr,
+				exec:         mocks.NewMockExecutor(t),
+				sub:          mocks.NewMockMessageSubscriber(t),
+				le:           mocks.NewMockLeaderElector(t),
+				timeProvider: mocks.NewMockTimeProvider(t),
+				workerCount:  100,
+			},
+			expectErr: true,
+		},
+		{
+			name: "missing timeProvider",
+			args: args{
+				lggr:         lggr,
+				exec:         mocks.NewMockExecutor(t),
+				sub:          mocks.NewMockMessageSubscriber(t),
+				le:           mocks.NewMockLeaderElector(t),
+				mon:          monitoring.NewNoopExecutorMonitoring(),
+				timeProvider: nil,
+				workerCount:  100,
+			},
+			expectErr: true,
+		},
+		{
+			name: "workerCount zero",
+			args: args{
+				lggr:         lggr,
+				exec:         mocks.NewMockExecutor(t),
+				sub:          mocks.NewMockMessageSubscriber(t),
+				le:           mocks.NewMockLeaderElector(t),
+				mon:          monitoring.NewNoopExecutorMonitoring(),
+				timeProvider: mocks.NewMockTimeProvider(t),
+				workerCount:  0,
 			},
 			expectErr: true,
 		},
@@ -107,7 +148,11 @@ func TestConstructor(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := executor.NewCoordinator(tc.args.lggr, tc.args.exec, tc.args.sub, tc.args.le, tc.args.mon, 8*time.Hour, mocks.NewMockTimeProvider(t), 100)
+			var tp ccvcommon.TimeProvider
+			if tc.args.timeProvider != nil {
+				tp = tc.args.timeProvider.(ccvcommon.TimeProvider)
+			}
+			_, err := executor.NewCoordinator(tc.args.lggr, tc.args.exec, tc.args.sub, tc.args.le, tc.args.mon, 8*time.Hour, tp, tc.args.workerCount)
 
 			if tc.expectErr {
 				require.Error(t, err)

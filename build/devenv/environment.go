@@ -546,7 +546,6 @@ func generateExecutorJobSpecs(
 		output, err := cs.Apply(*e, changesets.ApplyExecutorConfigCfg{
 			Topology:          topology,
 			ExecutorQualifier: qualifier,
-			ChainSelectors:    selectors,
 			TargetNOPs:        shared.ConvertStringToNopAliases(execNOPAliases),
 		})
 		if err != nil {
@@ -663,7 +662,6 @@ func generateVerifierJobSpecs(
 				Topology:                 topology,
 				CommitteeQualifier:       committeeName,
 				DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,
-				ChainSelectors:           selectors,
 				TargetNOPs:               verNOPAliases,
 				DisableFinalityCheckers:  disableFinalityCheckers,
 			})

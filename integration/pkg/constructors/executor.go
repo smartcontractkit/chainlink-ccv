@@ -112,7 +112,6 @@ func NewExecutorCoordinator(
 				ChainClient:               chain.Client(),
 				OfframpAddress:            offRampAddresses[sel].String(), // TODO: use UnknownAddress instead of string?
 				RmnRemoteAddress:          rmnAddresses[sel].String(),
-				CacheExpiry:               cfg.ReaderCacheExpiry,
 				ExecutionVisabilityWindow: cfg.MaxRetryDuration,
 				Monitoring:                executorMonitoring,
 			})

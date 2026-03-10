@@ -74,10 +74,6 @@ type MetricLabeler interface {
 	IncrementMessagesProcessing(ctx context.Context)
 	// IncrementMessagesProcessingError increments the counter for failed message executions.
 	IncrementMessagesProcessingError(ctx context.Context, retry bool)
-	// IncrementCCVInfoCacheHits increments the counter for cache hits in the destination reader.
-	IncrementCCVInfoCacheHits(ctx context.Context, destChainSelector protocol.ChainSelector)
-	// IncrementCCVInfoCacheMisses increments the counter for cache misses in the destination reader.
-	IncrementCCVInfoCacheMisses(ctx context.Context, destChainSelector protocol.ChainSelector)
 	// RecordOfframpGetCCVsForMessageLatency records the duration of the GetCCVSForMessage onchain call.
 	RecordOfframpGetCCVsForMessageLatency(ctx context.Context, duration time.Duration, destChainSelector protocol.ChainSelector)
 	// IncrementOfframpGetCCVsForMessageFailure increments the counter of failed GetCCVSForMessage onchain calls.

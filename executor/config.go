@@ -46,8 +46,7 @@ type Configuration struct {
 	ExecutorID string `toml:"executor_id"`
 	// Monitoring is the configuration for how Executor emits metrics.
 	Monitoring MonitoringConfig `toml:"Monitoring"`
-	// ReaderCacheExpiry is the duration to cache CCV information for each destination chain.
-	// Cached information includes the Verifier Quorum per receiver address.
+	// ReaderCacheExpiry is the duration for the curse checker cache (RMN cursed state per chain).
 	// Defaults to 5 minutes.
 	ReaderCacheExpiry time.Duration `toml:"reader_cache_expiry"`
 	// MaxRetryDuration is the maximum duration the executor cluster will retry a message before giving up.

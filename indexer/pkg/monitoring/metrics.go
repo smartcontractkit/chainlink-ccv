@@ -22,7 +22,6 @@ type IndexerMetrics struct {
 	requestDurationSeconds      metric.Float64Histogram
 
 	// Storage Metrics
-	uniqueMessagesCounter       metric.Int64Counter
 	verificationRecordsCounter  metric.Int64Counter
 	storageQueryDurationSeconds metric.Float64Histogram
 	storageWriteDurationSeconds metric.Float64Histogram
@@ -54,14 +53,6 @@ func InitMetrics() (im *IndexerMetrics, err error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register http request duration histogram: %w", err)
-	}
-
-	im.uniqueMessagesCounter, err = beholder.GetMeter().Int64Counter(
-		"indexer_unique_messages_total",
-		metric.WithDescription("Total number of unique messages"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to register unique messages counter: %w", err)
 	}
 
 	im.verificationRecordsCounter, err = beholder.GetMeter().Int64Counter(
@@ -211,11 +202,6 @@ func (c *IndexerMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, du
 		attribute.String("method", method),
 		attribute.Int("status", status),
 	}...), metric.WithAttributes(otelLabels...))
-}
-
-func (c *IndexerMetricLabeler) IncrementUniqueMessagesCounter(ctx context.Context) {
-	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.im.uniqueMessagesCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
 func (c *IndexerMetricLabeler) IncrementVerificationRecordsCounter(ctx context.Context) {

@@ -32,6 +32,8 @@ const (
 	resultQueueRetryDuration = 7 * 24 * time.Hour // 7 days
 	// resultQueueLockDuration is how long a job can remain in 'processing' before being reclaimed.
 	resultQueueLockDuration = 1 * time.Minute
+	// queueObservabilityInterval is how often queue size metrics are logged and recorded.
+	queueObservabilityInterval = 10 * time.Second
 )
 
 type Coordinator struct {
@@ -47,6 +49,10 @@ type Coordinator struct {
 	taskVerifierProcessor  services.Service
 	storageWriterProcessor services.Service
 	heartbeatReporter      *HeartbeatReporter
+
+	// Observability wrappers for queues
+	taskQueueObserver   services.Service
+	resultQueueObserver services.Service
 }
 
 func NewCoordinator(
@@ -105,7 +111,7 @@ func NewCoordinatorWithDetector(
 		}
 		vc.curseDetector = curseDetector
 		writingTracker := NewPendingWritingTracker(lggr)
-		dbSRS, taskVerifierProcessor, storageWriterProcessor, err := createDurableProcessors(
+		dbSRS, taskVerifierProcessor, storageWriterProcessor, taskQueueObs, resultQueueObs, err := createDurableProcessors(
 			lggr, ds, config, verifier, monitoring, enabledSourceReaders, chainStatusManager, vc.curseDetector, messageTracker, storage, writingTracker,
 		)
 		if err != nil {
@@ -113,6 +119,8 @@ func NewCoordinatorWithDetector(
 		}
 		vc.taskVerifierProcessor = taskVerifierProcessor
 		vc.storageWriterProcessor = storageWriterProcessor
+		vc.taskQueueObserver = taskQueueObs
+		vc.resultQueueObserver = resultQueueObs
 		vc.sourceReaderServices = make(map[protocol.ChainSelector]services.Service)
 		for chainSelector, srs := range dbSRS {
 			vc.sourceReaderServices[chainSelector] = srs
@@ -150,7 +158,7 @@ func createDurableProcessors(
 	messageTracker MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
 	writingTracker *PendingWritingTracker,
-) (map[protocol.ChainSelector]*SourceReaderService, services.Service, services.Service, error) {
+) (map[protocol.ChainSelector]*SourceReaderService, services.Service, services.Service, services.Service, services.Service, error) {
 	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
 		ds,
 		jobqueue.QueueConfig{
@@ -162,7 +170,18 @@ func createDurableProcessors(
 		logger.With(lggr, "component", "task_queue"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create task queue: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create task queue: %w", err)
+	}
+
+	// Wrap task queue with observability decorator
+	taskQueueObserver, err := jobqueue.NewObservabilityDecorator(
+		taskQueue,
+		logger.With(lggr, "component", "task_queue_observer"),
+		queueObservabilityInterval,
+		monitoring.Metrics().RecordTaskVerificationQueueSize,
+	)
+	if err != nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create task queue observer: %w", err)
 	}
 
 	resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
@@ -176,31 +195,42 @@ func createDurableProcessors(
 		logger.With(lggr, "component", "result_queue"),
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create result queue: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create result queue: %w", err)
+	}
+
+	// Wrap result queue with observability decorator
+	resultQueueObserver, err := jobqueue.NewObservabilityDecorator(
+		resultQueue,
+		logger.With(lggr, "component", "result_queue_observer"),
+		queueObservabilityInterval,
+		monitoring.Metrics().RecordStorageWriteQueueSize,
+	)
+	if err != nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create result queue observer: %w", err)
 	}
 
 	sourceReadersDB, err := createSourceReadersDB(
-		lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, writingTracker, taskQueue,
+		lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, writingTracker, taskQueueObserver,
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create DB source reader services: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create DB source reader services: %w", err)
 	}
 
 	taskVerifierProcessor, err := NewTaskVerifierProcessorDB(
-		lggr, config.VerifierID, verifier, monitoring, taskQueue, resultQueue, writingTracker, config.StorageBatchSize,
+		lggr, config.VerifierID, verifier, monitoring, taskQueueObserver, resultQueueObserver, writingTracker, config.StorageBatchSize,
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create task verifier processor DB: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create task verifier processor DB: %w", err)
 	}
 
 	storageWriterProcessor, err := NewStorageWriterProcessor(
-		lggr, config.VerifierID, messageTracker, storage, resultQueue, config, writingTracker, chainStatusManager,
+		lggr, config.VerifierID, messageTracker, storage, resultQueueObserver, config, writingTracker, chainStatusManager,
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to create storage writer processor DB: %w", err)
+		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create storage writer processor DB: %w", err)
 	}
 
-	return sourceReadersDB, taskVerifierProcessor, storageWriterProcessor, nil
+	return sourceReadersDB, taskVerifierProcessor, storageWriterProcessor, taskQueueObserver, resultQueueObserver, nil
 }
 
 func (vc *Coordinator) Start(ctx context.Context) error {
@@ -216,6 +246,19 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 		if vc.curseDetector != nil {
 			if err := vc.curseDetector.Start(ctx); err != nil {
 				return fmt.Errorf("failed to start curse detector: %w", err)
+			}
+		}
+
+		// Start observability decorators for queues
+		if vc.taskQueueObserver != nil {
+			if err := vc.taskQueueObserver.Start(ctx); err != nil {
+				return fmt.Errorf("failed to start task queue observer: %w", err)
+			}
+		}
+
+		if vc.resultQueueObserver != nil {
+			if err := vc.resultQueueObserver.Start(ctx); err != nil {
+				return fmt.Errorf("failed to start result queue observer: %w", err)
 			}
 		}
 
@@ -346,6 +389,19 @@ func (vc *Coordinator) Close() error {
 		if vc.storageWriterProcessor != nil {
 			if err := vc.storageWriterProcessor.Close(); err != nil {
 				errs = append(errs, fmt.Errorf("failed to stop storage writer processor: %w", err))
+			}
+		}
+
+		// Stop observability decorators after all processors that use them
+		if vc.resultQueueObserver != nil {
+			if err := vc.resultQueueObserver.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to stop result queue observer: %w", err))
+			}
+		}
+
+		if vc.taskQueueObserver != nil {
+			if err := vc.taskQueueObserver.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to stop task queue observer: %w", err))
 			}
 		}
 
