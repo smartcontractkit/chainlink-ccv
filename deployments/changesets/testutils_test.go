@@ -202,6 +202,8 @@ func setupVerifierDatastore(t *testing.T, ds datastore.MutableDataStore, selecto
 	t.Helper()
 	addrs := testContractAddresses
 
+	require.NoError(t, ds.EnvMetadata().Set(datastore.EnvMetadata{Metadata: map[string]any{}}))
+
 	addContractToDatastoreWithVersion(t, ds, selectors[0], committeeQualifier, committee_verifier.ResolverType, committee_verifier.Version, addrs.CommitteeVerifier1)
 	addContractToDatastoreWithVersion(t, ds, selectors[0], "", onrampoperations.ContractType, onrampoperations.Version, addrs.OnRamp1)
 	addContractToDatastoreWithVersion(t, ds, selectors[0], executorQualifier, execcontract.ProxyType, execcontract.Version, addrs.Executor1)
@@ -218,6 +220,8 @@ func setupVerifierDatastore(t *testing.T, ds datastore.MutableDataStore, selecto
 func setupExecutorDatastore(t *testing.T, ds datastore.MutableDataStore, selectors []uint64, executorQualifier string) {
 	t.Helper()
 	addrs := testContractAddresses
+
+	require.NoError(t, ds.EnvMetadata().Set(datastore.EnvMetadata{Metadata: map[string]any{}}))
 
 	addContractToDatastoreWithVersion(t, ds, selectors[0], executorQualifier, execcontract.ProxyType, execcontract.Version, addrs.Executor1)
 	addContractToDatastoreWithVersion(t, ds, selectors[0], "", offrampoperations.ContractType, offrampoperations.Version, addrs.OffRamp1)
