@@ -49,28 +49,26 @@ func NewCachedCurseChecker(params Params) CachedCurseChecker {
 }
 
 // IsRemoteChainCursed checks if the remote chain is cursed for the local chain.
-func (c CachedCurseChecker) IsRemoteChainCursed(ctx context.Context, localChain, remoteChain protocol.ChainSelector) bool {
+// Returns (true, ErrCurseStateUnknown) on RPC failure (fail closed).
+func (c CachedCurseChecker) IsRemoteChainCursed(ctx context.Context, localChain, remoteChain protocol.ChainSelector) (bool, error) {
 	cursedSubjects := make(map[protocol.Bytes16]struct{})
-	// Use Peek instead of Get to avoid refreshing the cache entry.
 	curseInfo, found := c.curseCache.Peek(localChain)
 	if found {
 		c.lggr.Debugf("curse state retrieved from cache for dest chain %d with subjects %v",
 			localChain, curseInfo)
 
-		return c.isChainSelectorCursed(ctx, curseInfo, localChain, remoteChain)
+		return c.isChainSelectorCursed(ctx, curseInfo, localChain, remoteChain), nil
 	}
 
 	reader, ok := c.rmnReaders[localChain]
 	if !ok {
 		c.lggr.Errorw("no RMN reader configured for chain, assuming not cursed", "localChain", localChain)
-		return false
+		return false, nil
 	}
 	curseResults, err := reader.GetRMNCursedSubjects(ctx)
 	if err != nil {
-		// If the chain is actually cursed, transaction will revert.
-		// We return early to avoid poisoning the cache.
-		c.lggr.Errorw("Failed to get cursed subjects, assuming not cursed", "error", err)
-		return false
+		c.lggr.Errorw("Failed to get cursed subjects, blocking lane", "localChain", localChain, "error", err)
+		return true, common.ErrCurseStateUnknown
 	}
 
 	for _, subject := range curseResults {
@@ -78,7 +76,7 @@ func (c CachedCurseChecker) IsRemoteChainCursed(ctx context.Context, localChain,
 	}
 
 	c.curseCache.Add(localChain, cursedSubjects)
-	return c.isChainSelectorCursed(ctx, cursedSubjects, localChain, remoteChain)
+	return c.isChainSelectorCursed(ctx, cursedSubjects, localChain, remoteChain), nil
 }
 
 // isChainSelectorCursed checks if the remote chain is cursed for the local chain.
