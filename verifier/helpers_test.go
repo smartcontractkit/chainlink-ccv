@@ -159,8 +159,8 @@ func (m *noopMetricLabeler) RecordFinalityWaitDuration(ctx context.Context, dura
 func (m *noopMetricLabeler) RecordMessageVerificationDuration(ctx context.Context, duration time.Duration) {
 }
 func (m *noopMetricLabeler) RecordStorageWriteDuration(ctx context.Context, duration time.Duration) {}
-func (m *noopMetricLabeler) RecordFinalityQueueSize(ctx context.Context, size int64)                {}
-func (m *noopMetricLabeler) RecordCCVDataChannelSize(ctx context.Context, size int64)               {}
+func (m *noopMetricLabeler) RecordTaskVerificationQueueSize(ctx context.Context, size int64)        {}
+func (m *noopMetricLabeler) RecordStorageWriteQueueSize(ctx context.Context, size int64)            {}
 func (m *noopMetricLabeler) IncrementStorageWriteErrors(ctx context.Context)                        {}
 func (m *noopMetricLabeler) RecordSourceChainLatestBlock(ctx context.Context, blockNum int64)       {}
 func (m *noopMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64)    {}
@@ -353,10 +353,12 @@ func (n *noopFilter) Filter(msg protocol.MessageSentEvent) bool {
 	return true
 }
 
-// NewCoordinatorWithFastPolling creates a coordinator with fast polling intervals for testing.
-// This is useful for DB-backed tests that need responsive queue processing.
+// NewCoordinatorWithFastPolling creates a coordinator with services pre-initialized and fast polling intervals for testing.
+// Unlike NewCoordinator/NewCoordinatorWithDetector, it does not set initFn: all services (curse detector, source readers,
+// task verifier, storage writer, optional heartbeat) are built in the constructor. Start(ctx) therefore skips init
+// and only starts the already-constructed services. Use this for DB-backed tests that need responsive queue processing
+// without running deferred init (e.g. filterOnlyEnabledSourceReaders) at Start time.
 func NewCoordinatorWithFastPolling(
-	ctx context.Context,
 	lggr logger.Logger,
 	verifier Verifier,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
@@ -372,12 +374,13 @@ func NewCoordinatorWithFastPolling(
 	if ds == nil {
 		return nil, errors.New("db is required; in-memory implementations are no longer supported")
 	}
+	if verifier == nil {
+		return nil, errors.New("verifier is required")
+	}
 
-	// Use the same initialization as NewCoordinator but with custom poll intervals
 	lggr = logger.With(lggr, "verifierID", config.VerifierID)
 
-	var err error
-	enabledSourceReaders, err := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, chainStatusManager)
+	enabledSourceReaders, err := filterOnlyEnabledSourceReaders(context.Background(), lggr, config, sourceReaders, chainStatusManager)
 	if err != nil {
 		return nil, fmt.Errorf("failed to filter enabled source readers: %w", err)
 	}
@@ -393,7 +396,7 @@ func NewCoordinatorWithFastPolling(
 	writingTracker := NewPendingWritingTracker(lggr)
 
 	dbSRS, taskVerifierProcessor, storageWriterProcessor, durableErr := createDurableProcessorsWithPollInterval(
-		ctx, lggr, ds, config, verifier, monitoring, enabledSourceReaders, chainStatusManager, curseDetector, messageTracker, storage, writingTracker, pollInterval,
+		lggr, ds, config, verifier, monitoring, enabledSourceReaders, chainStatusManager, curseDetector, messageTracker, storage, writingTracker, pollInterval,
 	)
 	if durableErr != nil {
 		return nil, durableErr
@@ -437,7 +440,6 @@ func NewCoordinatorWithFastPolling(
 
 // createDurableProcessorsWithPollInterval creates durable processors with custom poll intervals for testing.
 func createDurableProcessorsWithPollInterval(
-	ctx context.Context,
 	lggr logger.Logger,
 	ds sqlutil.DataSource,
 	config CoordinatorConfig,
@@ -480,7 +482,7 @@ func createDurableProcessorsWithPollInterval(
 	}
 
 	sourceReadersDB, err := createSourceReadersDB(
-		ctx, lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, writingTracker, taskQueue,
+		lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, writingTracker, taskQueue,
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to create DB source reader services: %w", err)

@@ -53,10 +53,9 @@ type Executor interface {
 type LeaderElector interface {
 	// GetReadyTimestamp to determine when a message is ready to be executed by this executor
 	// We need chain selector as well as messageID because messageID is hashed and we cannot use it to get message information.
-	// todo: align so both functions are either return delay or return timestamp.
-	GetReadyTimestamp(messageID protocol.Bytes32, chainSel protocol.ChainSelector, baseTime time.Time) time.Time
+	GetReadyTimestamp(messageID protocol.Bytes32, chainSel protocol.ChainSelector, baseTime time.Time) (time.Time, error)
 	// GetRetryDelay returns the delay in seconds to retry a message. It uses destination chain because some executors may not support all chains
-	GetRetryDelay(destinationChain protocol.ChainSelector) time.Duration
+	GetRetryDelay(destinationChain protocol.ChainSelector) (time.Duration, error)
 }
 
 // Monitoring provides all core monitoring functionality for the executor. Also can be implemented as a no-op.
@@ -75,10 +74,6 @@ type MetricLabeler interface {
 	IncrementMessagesProcessing(ctx context.Context)
 	// IncrementMessagesProcessingError increments the counter for failed message executions.
 	IncrementMessagesProcessingError(ctx context.Context, retry bool)
-	// IncrementCCVInfoCacheHits increments the counter for cache hits in the destination reader.
-	IncrementCCVInfoCacheHits(ctx context.Context, destChainSelector protocol.ChainSelector)
-	// IncrementCCVInfoCacheMisses increments the counter for cache misses in the destination reader.
-	IncrementCCVInfoCacheMisses(ctx context.Context, destChainSelector protocol.ChainSelector)
 	// RecordOfframpGetCCVsForMessageLatency records the duration of the GetCCVSForMessage onchain call.
 	RecordOfframpGetCCVsForMessageLatency(ctx context.Context, duration time.Duration, destChainSelector protocol.ChainSelector)
 	// IncrementOfframpGetCCVsForMessageFailure increments the counter of failed GetCCVSForMessage onchain calls.

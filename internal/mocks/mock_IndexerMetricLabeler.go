@@ -91,39 +91,6 @@ func (_c *MockIndexerMetricLabeler_IncrementActiveRequestsCounter_Call) RunAndRe
 	return _c
 }
 
-// IncrementUniqueMessagesCounter provides a mock function with given fields: ctx
-func (_m *MockIndexerMetricLabeler) IncrementUniqueMessagesCounter(ctx context.Context) {
-	_m.Called(ctx)
-}
-
-// MockIndexerMetricLabeler_IncrementUniqueMessagesCounter_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementUniqueMessagesCounter'
-type MockIndexerMetricLabeler_IncrementUniqueMessagesCounter_Call struct {
-	*mock.Call
-}
-
-// IncrementUniqueMessagesCounter is a helper method to define mock.On call
-//   - ctx context.Context
-func (_e *MockIndexerMetricLabeler_Expecter) IncrementUniqueMessagesCounter(ctx interface{}) *MockIndexerMetricLabeler_IncrementUniqueMessagesCounter_Call {
-	return &MockIndexerMetricLabeler_IncrementUniqueMessagesCounter_Call{Call: _e.mock.On("IncrementUniqueMessagesCounter", ctx)}
-}
-
-func (_c *MockIndexerMetricLabeler_IncrementUniqueMessagesCounter_Call) Run(run func(ctx context.Context)) *MockIndexerMetricLabeler_IncrementUniqueMessagesCounter_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context))
-	})
-	return _c
-}
-
-func (_c *MockIndexerMetricLabeler_IncrementUniqueMessagesCounter_Call) Return() *MockIndexerMetricLabeler_IncrementUniqueMessagesCounter_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *MockIndexerMetricLabeler_IncrementUniqueMessagesCounter_Call) RunAndReturn(run func(context.Context)) *MockIndexerMetricLabeler_IncrementUniqueMessagesCounter_Call {
-	_c.Run(run)
-	return _c
-}
-
 // IncrementVerificationRecordsCounter provides a mock function with given fields: ctx
 func (_m *MockIndexerMetricLabeler) IncrementVerificationRecordsCounter(ctx context.Context) {
 	_m.Called(ctx)

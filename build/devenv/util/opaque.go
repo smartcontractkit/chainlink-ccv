@@ -32,3 +32,21 @@ func OpaqueToConcreteStrict[T any](opaque OpaqueConfig) (*T, error) {
 
 	return &concrete, nil
 }
+
+// ConcreteToOpaque converts a concrete configuration to an OpaqueConfig suitable
+// for marshaling to TOML.
+func ConcreteToOpaque[T any](concrete T) (OpaqueConfig, error) {
+	// marshal the concrete config to TOML bytes first.
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(concrete); err != nil {
+		return nil, fmt.Errorf("failed to encode concrete config: %w", err)
+	}
+
+	// unmarshal the bytes into an OpaqueConfig.
+	var opaque OpaqueConfig
+	if err := toml.Unmarshal(buf.Bytes(), &opaque); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal concrete config: %w", err)
+	}
+
+	return opaque, nil
+}

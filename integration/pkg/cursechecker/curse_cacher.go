@@ -60,7 +60,12 @@ func (c CachedCurseChecker) IsRemoteChainCursed(ctx context.Context, localChain,
 		return c.isChainSelectorCursed(ctx, curseInfo, localChain, remoteChain), nil
 	}
 
-	curseResults, err := c.rmnReaders[localChain].GetRMNCursedSubjects(ctx)
+	reader, ok := c.rmnReaders[localChain]
+	if !ok {
+		c.lggr.Errorw("no RMN reader configured for chain, assuming not cursed", "localChain", localChain)
+		return false
+	}
+	curseResults, err := reader.GetRMNCursedSubjects(ctx)
 	if err != nil {
 		c.lggr.Errorw("Failed to get cursed subjects, blocking lane", "localChain", localChain, "error", err)
 		return true, common.ErrCurseStateUnknown

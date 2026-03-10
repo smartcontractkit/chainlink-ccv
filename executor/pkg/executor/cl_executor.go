@@ -226,6 +226,10 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	)
 	err = cle.contractTransmitters[destinationChain].ConvertAndWriteMessageToChain(ctx, aggregatedReport)
 	if err != nil {
+		if errors.Is(err, executor.ErrMessageEncoding) {
+			cle.lggr.Warnw("skipping retry due to message encoding error", "messageID", messageID, "error", err)
+			return false, err
+		}
 		cle.lggr.Warnw("will retry execution due to failed ConvertAndWriteMessageToChain", "messageID", messageID)
 		return true, err
 	}
@@ -237,7 +241,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 }
 
 func (cle *ChainlinkExecutor) getVerifierResultsAndQuorum(ctx context.Context, message protocol.Message, messageID protocol.Bytes32) ([]protocol.VerifierResult, protocol.CCVAddressInfo, error) {
-	destinationChain := message.DestChainSelector
+	destinationChain, sourceSelector := message.DestChainSelector, message.SourceChainSelector
 
 	// Fetch CCV data from the indexer and CCV info from the destination reader concurrently.
 	g, errGroupCtx := errgroup.WithContext(ctx)
@@ -248,17 +252,13 @@ func (cle *ChainlinkExecutor) getVerifierResultsAndQuorum(ctx context.Context, m
 			return fmt.Errorf("failed to get Verifier Results for message %s: %w", messageID.String(), err)
 		}
 
-		expectedAddr, ok := cle.defaultExecutorAddress[destinationChain]
-		if !ok {
-			return fmt.Errorf("no default executor address configured for destination chain %d", destinationChain)
-		}
-
 		for _, r := range res {
-			if !r.MessageExecutorAddress.Equal(expectedAddr) {
+			if !r.MessageExecutorAddress.Equal(cle.defaultExecutorAddress[sourceSelector]) {
 				cle.lggr.Warnw("Verifier Result did not specify our executor",
 					"verifierResult", r,
-					"defaultExecutorAddress", expectedAddr.String(),
+					"defaultExecutorAddress", cle.defaultExecutorAddress[sourceSelector].String(),
 				)
+				// continue here because it's possible to still meet verifier quorum with some invalid verifier results.
 				continue
 			}
 			if err := r.ValidateFieldsConsistent(); err != nil {
@@ -453,11 +453,6 @@ func (cle *ChainlinkExecutor) Validate() error {
 	for chainID := range chainSetA {
 		if _, ok := chainSetB[chainID]; !ok {
 			return fmt.Errorf("contract transmitters and destination readers must support the same chains")
-		}
-	}
-	for chainSel := range cle.destinationReaders {
-		if _, ok := cle.defaultExecutorAddress[chainSel]; !ok {
-			return fmt.Errorf("default executor address required for destination chain %d", chainSel)
 		}
 	}
 	return nil

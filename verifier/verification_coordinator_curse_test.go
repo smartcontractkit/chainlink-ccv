@@ -124,7 +124,6 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 	// Create coordinator with all components, including mock curse detector
 	sqlxDB := testutil.NewTestDB(t)
 	coordinator, err := NewCoordinatorWithDetector(
-		ctx,
 		lggr,
 		setup.testVerifier,
 		map[protocol.ChainSelector]chainaccess.SourceReader{sourceChain: setup.mockSourceReader},

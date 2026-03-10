@@ -200,6 +200,9 @@ func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 }
 
 func (a *AggregatorMessageDiscovery) consumeReader(ctx context.Context) {
+	if ctx.Err() != nil {
+		return
+	}
 	// We can be in a situation where multiple calls to consumeReader are running concurrently due to the ticker.
 	// This might happen during high load, or other situations where the ticker is running faster than the reader.
 	// This lock is used to prevent concurrent access to the reader from the ticker.
@@ -208,29 +211,34 @@ func (a *AggregatorMessageDiscovery) consumeReader(ctx context.Context) {
 	a.readerLock.Lock()
 	defer a.readerLock.Unlock()
 
-	select {
-	case <-ctx.Done():
-		a.logger.Infof("Aggregator timed out, cancelling consumeReader")
-		return
-	default:
-		for {
-			found, err := a.callReader(ctx)
-			if err != nil {
-				a.logger.Errorw("Error calling Aggregator", "error", err)
+	for {
+		if ctx.Err() != nil {
+			a.logger.Infof("Aggregator timed out, cancelling consumeReader")
+			return
+		}
+		found, err := a.callReader(ctx)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return
 			}
+			a.logger.Errorw("Error calling Aggregator", "error", err)
+			return
+		}
 
-			// If data is found, we'll try again after a small delay to prevent
-			// duplicate data when processing faster than 1 second.
-			// If no data is found, return and wait for the next tick.
-			if !found {
-				return
-			}
+		// If data is found, we'll try again after a small delay to prevent
+		// duplicate data when processing faster than 1 second.
+		// If no data is found, return and wait for the next tick.
+		if !found {
+			return
 		}
 	}
 }
 
 func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, error) {
+	if ctx.Err() != nil {
+		return false, ctx.Err()
+	}
+
 	startingSequence, ableToSetSinceValue := a.aggregatorReader.GetSinceValue()
 	var queryResponse []protocol.QueryResponse
 	discoveryStartTime := time.Now()
@@ -280,11 +288,21 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 		messages = append(messages, message)
 		allVerifications = append(allVerifications, verifierResultWithMetadata)
 	}
-	// use a time.Sleep rather than an async function call so we don't send on a closed channel.
-	// the delay is handled gracefully by consumeReader.
+
 	// We use a discovery priority for the multi-source scenario where we want to ensure data consistency.
-	//
-	time.Sleep(time.Duration(a.discoveryPriority) * 5 * time.Second)
+	// The delay is applied after reading so the aggregator is queried immediately, but persisting
+	// and channel emission are deferred, giving higher-priority sources time to persist first.
+	// Uses a context-aware sleep instead of time.Sleep so we don't block past the timeout.
+	delay := time.Duration(a.discoveryPriority) * 5 * time.Second
+	if delay > 0 {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-timer.C:
+		}
+	}
 
 	if len(messages) > 0 || len(persistedVerifications) > 0 {
 		if err := a.persistBatch(ctx, messages, persistedVerifications, ableToSetSinceValue); err != nil {

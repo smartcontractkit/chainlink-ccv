@@ -153,7 +153,6 @@ func createVerificationCoordinator(
 	require.NoError(ts.t, err)
 
 	return verifier.NewCoordinator(
-		ts.ctx,
 		ts.logger,
 		commitVerifier,
 		sourceReaders,

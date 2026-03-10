@@ -1,6 +1,7 @@
 package changesets
 
 import (
+	"fmt"
 	"strconv"
 
 	execcontract "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
@@ -40,37 +41,36 @@ func buildNOPModes(nops []deployments.NOPConfig) map[shared.NOPAlias]shared.NOPM
 	return nopModes
 }
 
+func filterCLModeNOPs(aliases []shared.NOPAlias, nops []deployments.NOPConfig) []shared.NOPAlias {
+	modeByAlias := buildNOPModes(nops)
+	filtered := make([]shared.NOPAlias, 0, len(aliases))
+	for _, alias := range aliases {
+		if mode, ok := modeByAlias[alias]; ok && mode == shared.NOPModeCL {
+			filtered = append(filtered, alias)
+		}
+	}
+	return filtered
+}
+
 func getAllNOPAliases(nops []deployments.NOPConfig) []shared.NOPAlias {
 	aliases := make([]shared.NOPAlias, len(nops))
 	for i, nop := range nops {
 		aliases[i] = shared.NOPAlias(nop.Alias)
 	}
+
 	return aliases
 }
 
-func getCommitteeChainSelectors(committee deployments.CommitteeConfig) []uint64 {
+func getCommitteeChainSelectors(committee deployments.CommitteeConfig) ([]uint64, error) {
 	selectors := make([]uint64, 0, len(committee.ChainConfigs))
 	for chainStr := range committee.ChainConfigs {
-		if sel, err := strconv.ParseUint(chainStr, 10, 64); err == nil {
-			selectors = append(selectors, sel)
+		sel, err := strconv.ParseUint(chainStr, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("committee chain_configs key %q is not a valid chain selector: %w", chainStr, err)
 		}
+		selectors = append(selectors, sel)
 	}
-	return selectors
-}
-
-func filterChains(input, allowed []uint64) []uint64 {
-	allowedSet := make(map[uint64]bool, len(allowed))
-	for _, c := range allowed {
-		allowedSet[c] = true
-	}
-
-	filtered := make([]uint64, 0, len(input))
-	for _, sel := range input {
-		if allowedSet[sel] {
-			filtered = append(filtered, sel)
-		}
-	}
-	return filtered
+	return selectors, nil
 }
 
 func getExecutorDeployedChains(ds datastore.DataStore, qualifier string) []uint64 {

@@ -329,7 +329,6 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	sqlxDB := testutil.NewTestDB(t)
 	// Use fast polling coordinator for DB mode to make tests responsive
 	coordinator, err := NewCoordinatorWithFastPolling(
-		t.Context(),
 		lggr,
 		mockVerifier,
 		map[protocol.ChainSelector]chainaccess.SourceReader{1337: mockSourceReader},
@@ -340,7 +339,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		mockChainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
 		sqlxDB,
-		50*time.Millisecond, // Fast poll interval for tests
+		50*time.Millisecond,
 	)
 	require.NoError(t, err)
 

@@ -75,12 +75,6 @@ func (n *NoopExecutorMetricLabeler) IncrementMessagesProcessing(ctx context.Cont
 func (n *NoopExecutorMetricLabeler) IncrementMessagesProcessingError(ctx context.Context, retry bool) {
 }
 
-func (n *NoopExecutorMetricLabeler) IncrementCCVInfoCacheHits(ctx context.Context, destChainSelector protocol.ChainSelector) {
-}
-
-func (n *NoopExecutorMetricLabeler) IncrementCCVInfoCacheMisses(ctx context.Context, destChainSelector protocol.ChainSelector) {
-}
-
 func (n *NoopExecutorMetricLabeler) RecordOfframpGetCCVsForMessageLatency(ctx context.Context, duration time.Duration, destChainSelector protocol.ChainSelector) {
 }
 

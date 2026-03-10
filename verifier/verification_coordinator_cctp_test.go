@@ -486,7 +486,6 @@ func createCCTPCoordinator(
 	)
 
 	return verifier.NewCoordinator(
-		ts.ctx,
 		ts.logger,
 		cctp.NewVerifierWithConfig(ts.logger, attestationService, 100*time.Millisecond, 100*time.Millisecond),
 		sourceReaders,

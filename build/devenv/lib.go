@@ -173,11 +173,11 @@ func (l *Lib) Chains(ctx context.Context) ([]ChainImpl, error) {
 			}
 			impl = evmImpl
 		default:
-			fac, err := registry.GetImplFactory(bc.Out.Family)
+			fac, err := GetImplFactory(bc.Out.Family)
 			if err != nil {
 				return nil, fmt.Errorf("getting implementation factory for family %s: %w", bc.Out.Family, err)
 			}
-			theImpl, err := fac.New(ctx, *l.l, env, bc)
+			theImpl, err := fac.New(ctx, l.cfg, *l.l, env, bc)
 			if err != nil {
 				return nil, fmt.Errorf("creating implementation for family %s: %w", bc.Out.Family, err)
 			}
