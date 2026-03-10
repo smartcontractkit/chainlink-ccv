@@ -600,6 +600,10 @@ func TestBatcher_OutChannelBufferFull(t *testing.T) {
 		require.NoError(t, err)
 	}
 
+	// Give the consumer time to drain the channel before closing.
+	// This ensures the third batch can be flushed successfully.
+	time.Sleep(100 * time.Millisecond)
+
 	// Close and wait for consumer
 	err = batcher.Close()
 	require.NoError(t, err)

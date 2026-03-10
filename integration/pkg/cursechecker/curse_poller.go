@@ -119,20 +119,25 @@ func (s *PollerService) Close() error {
 }
 
 // IsRemoteChainCursed checks if remoteChain is cursed according to localChain's RMN Remote.
-// Returns true if:
-//   - remoteChain appears in localChain's cursed subjects, OR
-//   - localChain has a global curse
-func (s *PollerService) IsRemoteChainCursed(_ context.Context, localChain, remoteChain protocol.ChainSelector) bool {
+// Returns (true, nil) if cursed, (false, nil) if not cursed.
+// Returns (true, ErrCurseStateUnknown) when state is unknown (no successful poll yet).
+func (s *PollerService) IsRemoteChainCursed(_ context.Context, localChain, remoteChain protocol.ChainSelector) (bool, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
 	state := s.chainCurseStates[localChain]
 	if state == nil {
-		return false
+		// Log when checking a chain that was never registered
+		if _, exists := s.rmnReaders[localChain]; !exists {
+			s.lggr.Warnw("IsRemoteChainCursed called with unregistered local chain",
+				"localChain", localChain,
+				"remoteChain", remoteChain)
+		}
+		return true, common.ErrCurseStateUnknown
 	}
 
-	// Match RMN contract logic: contains(remoteChain) || contains(GLOBAL_CURSE)
-	return state.CursedRemoteChains[remoteChain] || state.HasGlobalCurse
+	cursed := state.CursedRemoteChains[remoteChain] || state.HasGlobalCurse
+	return cursed, nil
 }
 
 // pollLoop runs the periodic polling loop for curse updates.

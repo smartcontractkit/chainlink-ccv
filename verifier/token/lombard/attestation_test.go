@@ -11,6 +11,7 @@ import (
 
 	sel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/internal"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -44,31 +45,13 @@ const response = `{
 
 func Test_AttestationFetch(t *testing.T) {
 	sourceChain := protocol.ChainSelector(sel.GETH_TESTNET.Selector)
+	resolverAddress := internal.MustUnknownAddressFromHex("0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350")
 
-	msg1 := protocol.Message{
-		TokenTransfer: &protocol.TokenTransfer{
-			ExtraData:       internal.MustByteSliceFromHex(hash1),
-			ExtraDataLength: 32,
-		},
-	}
-	msg2 := protocol.Message{
-		TokenTransfer: &protocol.TokenTransfer{
-			ExtraData:       internal.MustByteSliceFromHex(hash2),
-			ExtraDataLength: 32,
-		},
-	}
-	msg3 := protocol.Message{
-		TokenTransfer: &protocol.TokenTransfer{
-			ExtraData:       internal.MustByteSliceFromHex(hash3),
-			ExtraDataLength: 32,
-		},
-	}
-	msg4 := protocol.Message{
-		TokenTransfer: &protocol.TokenTransfer{
-			ExtraData:       internal.MustByteSliceFromHex(hash4),
-			ExtraDataLength: 32,
-		},
-	}
+	// Create verification tasks with ReceiptBlobs containing the hashes
+	task1 := createTestTask(sourceChain, 1, resolverAddress, internal.MustByteSliceFromHex(hash1))
+	task2 := createTestTask(sourceChain, 2, resolverAddress, internal.MustByteSliceFromHex(hash2))
+	task3 := createTestTask(sourceChain, 3, resolverAddress, internal.MustByteSliceFromHex(hash3))
+	task4 := createTestTask(sourceChain, 4, resolverAddress, internal.MustByteSliceFromHex(hash4))
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/bridge/v1/deposits/getByHash" {
@@ -86,161 +69,183 @@ func Test_AttestationFetch(t *testing.T) {
 			AttestationAPI:        server.URL,
 			AttestationAPITimeout: 1 * time.Minute,
 			ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
-				sourceChain: internal.MustUnknownAddressFromHex("0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350"),
+				sourceChain: resolverAddress,
 			},
 		})
 	require.NoError(t, err)
 
 	t.Run("successful single message fetch", func(t *testing.T) {
-		attestation, err := attestationService.Fetch(t.Context(), []protocol.Message{msg1})
+		attestation, err := attestationService.Fetch(t.Context(), []verifier.VerificationTask{task1})
 		require.NoError(t, err)
 
 		assert.Len(t, attestation, 1)
-		attestationPayload, ok := attestation[msg1.MustMessageID().String()]
+		attestationPayload, ok := attestation[task1.MessageID]
 		require.True(t, ok)
 		assert.True(t, attestationPayload.IsReady())
 		assert.Equal(t, "0xdata1", attestationPayload.attestation)
 	})
 
 	t.Run("successful fetch for multiple messages with not ready state", func(t *testing.T) {
-		attestation, err := attestationService.Fetch(t.Context(), []protocol.Message{msg2, msg3})
+		attestation, err := attestationService.Fetch(t.Context(), []verifier.VerificationTask{task2, task3})
 		require.NoError(t, err)
 
 		assert.Len(t, attestation, 2)
-		for _, msg := range []protocol.Message{msg2, msg3} {
-			attestationPayload, ok := attestation[msg.MustMessageID().String()]
+		for _, task := range []verifier.VerificationTask{task2, task3} {
+			attestationPayload, ok := attestation[task.MessageID]
 			require.True(t, ok)
 			assert.False(t, attestationPayload.IsReady())
 		}
 	})
 
 	t.Run("return unspecified status for unknown message", func(t *testing.T) {
-		attestation, err := attestationService.Fetch(t.Context(), []protocol.Message{msg4})
+		attestation, err := attestationService.Fetch(t.Context(), []verifier.VerificationTask{task4})
 		require.NoError(t, err)
 
 		assert.Len(t, attestation, 1)
-		attestationPayload, ok := attestation[msg4.MustMessageID().String()]
+		attestationPayload, ok := attestation[task4.MessageID]
 		require.True(t, ok)
 		assert.False(t, attestationPayload.IsReady())
 		assert.Equal(t, AttestationStatusUnspecified, attestationPayload.status)
 	})
 
-	t.Run("skip message with nil TokenTransfer", func(t *testing.T) {
-		msgWithoutTokenTransfer := protocol.Message{
-			SourceChainSelector: sourceChain,
-			DestChainSelector:   protocol.ChainSelector(sel.ETHEREUM_MAINNET.Selector),
-			SequenceNumber:      1,
-			TokenTransfer:       nil, // No token transfer
-		}
+	t.Run("skip task with no matching receipt blob", func(t *testing.T) {
+		taskWithoutMatchingBlob := createTestTaskWithoutMatchingBlob(sourceChain, 5)
 
-		attestation, err := attestationService.Fetch(t.Context(), []protocol.Message{msgWithoutTokenTransfer})
+		attestation, err := attestationService.Fetch(t.Context(), []verifier.VerificationTask{taskWithoutMatchingBlob})
 		require.NoError(t, err)
 
 		// Should still return a result with missing attestation
 		assert.Len(t, attestation, 1)
-		attestationPayload, ok := attestation[msgWithoutTokenTransfer.MustMessageID().String()]
+		attestationPayload, ok := attestation[taskWithoutMatchingBlob.MessageID]
 		require.True(t, ok)
 		assert.False(t, attestationPayload.IsReady())
 		assert.Equal(t, AttestationStatusUnspecified, attestationPayload.status)
 	})
 
-	t.Run("skip message with empty ExtraData", func(t *testing.T) {
-		msgWithEmptyExtraData := protocol.Message{
-			SourceChainSelector: sourceChain,
-			DestChainSelector:   protocol.ChainSelector(sel.ETHEREUM_MAINNET.Selector),
-			SequenceNumber:      2,
-			TokenTransfer: &protocol.TokenTransfer{
-				ExtraData:       nil, // Empty extra data
-				ExtraDataLength: 0,
-			},
-		}
+	t.Run("skip task with empty ReceiptBlobs", func(t *testing.T) {
+		taskWithEmptyReceipts := createTestTaskWithEmptyReceipts(sourceChain, 6)
 
-		attestation, err := attestationService.Fetch(t.Context(), []protocol.Message{msgWithEmptyExtraData})
+		attestation, err := attestationService.Fetch(t.Context(), []verifier.VerificationTask{taskWithEmptyReceipts})
 		require.NoError(t, err)
 
 		// Should still return a result with missing attestation
 		assert.Len(t, attestation, 1)
-		attestationPayload, ok := attestation[msgWithEmptyExtraData.MustMessageID().String()]
+		attestationPayload, ok := attestation[taskWithEmptyReceipts.MessageID]
 		require.True(t, ok)
 		assert.False(t, attestationPayload.IsReady())
 		assert.Equal(t, AttestationStatusUnspecified, attestationPayload.status)
 	})
 
-	t.Run("handle mixed messages with and without token transfers", func(t *testing.T) {
-		msgWithoutTokenTransfer := protocol.Message{
-			SourceChainSelector: sourceChain,
-			DestChainSelector:   protocol.ChainSelector(sel.ETHEREUM_MAINNET.Selector),
-			SequenceNumber:      3,
-			TokenTransfer:       nil,
-		}
-		msgWithEmptyExtraData := protocol.Message{
-			SourceChainSelector: sourceChain,
-			DestChainSelector:   protocol.ChainSelector(sel.ETHEREUM_MAINNET.Selector),
-			SequenceNumber:      4,
-			TokenTransfer: &protocol.TokenTransfer{
-				ExtraData:       protocol.ByteSlice{},
-				ExtraDataLength: 0,
-			},
-		}
+	t.Run("handle mixed tasks with and without matching blobs", func(t *testing.T) {
+		taskWithoutMatchingBlob := createTestTaskWithoutMatchingBlob(sourceChain, 7)
+		taskWithEmptyReceipts := createTestTaskWithEmptyReceipts(sourceChain, 8)
 
-		// Mix of valid and invalid messages
-		messages := []protocol.Message{msg1, msgWithoutTokenTransfer, msg2, msgWithEmptyExtraData}
+		// Mix of valid and invalid tasks
+		tasks := []verifier.VerificationTask{task1, taskWithoutMatchingBlob, task2, taskWithEmptyReceipts}
 
-		attestation, err := attestationService.Fetch(t.Context(), messages)
+		attestation, err := attestationService.Fetch(t.Context(), tasks)
 		require.NoError(t, err)
 
-		// Should return attestations for all messages
+		// Should return attestations for all tasks
 		assert.Len(t, attestation, 4)
 
-		// Valid messages should have their attestations
-		attestation1, ok := attestation[msg1.MustMessageID().String()]
+		// Valid tasks should have their attestations
+		attestation1, ok := attestation[task1.MessageID]
 		require.True(t, ok)
 		assert.True(t, attestation1.IsReady())
 		assert.Equal(t, "0xdata1", attestation1.attestation)
 
-		attestation2, ok := attestation[msg2.MustMessageID().String()]
+		attestation2, ok := attestation[task2.MessageID]
 		require.True(t, ok)
 		assert.False(t, attestation2.IsReady())
 		assert.Equal(t, AttestationStatusPending, attestation2.status)
 
-		// Invalid messages should have missing attestations
-		attestationMissing1, ok := attestation[msgWithoutTokenTransfer.MustMessageID().String()]
+		// Invalid tasks should have missing attestations
+		attestationMissing1, ok := attestation[taskWithoutMatchingBlob.MessageID]
 		require.True(t, ok)
 		assert.False(t, attestationMissing1.IsReady())
 		assert.Equal(t, AttestationStatusUnspecified, attestationMissing1.status)
 
-		attestationMissing2, ok := attestation[msgWithEmptyExtraData.MustMessageID().String()]
+		attestationMissing2, ok := attestation[taskWithEmptyReceipts.MessageID]
 		require.True(t, ok)
 		assert.False(t, attestationMissing2.IsReady())
 		assert.Equal(t, AttestationStatusUnspecified, attestationMissing2.status)
 	})
 
-	t.Run("all messages without token transfers", func(t *testing.T) {
-		msgWithoutTokenTransfer1 := protocol.Message{
-			SourceChainSelector: sourceChain,
-			DestChainSelector:   protocol.ChainSelector(sel.ETHEREUM_MAINNET.Selector),
-			SequenceNumber:      5,
-			TokenTransfer:       nil,
-		}
-		msgWithoutTokenTransfer2 := protocol.Message{
-			SourceChainSelector: sourceChain,
-			DestChainSelector:   protocol.ChainSelector(sel.ETHEREUM_MAINNET.Selector),
-			SequenceNumber:      6,
-			TokenTransfer:       nil,
-		}
+	t.Run("all tasks without matching blobs", func(t *testing.T) {
+		taskWithoutMatchingBlob1 := createTestTaskWithoutMatchingBlob(sourceChain, 9)
+		taskWithoutMatchingBlob2 := createTestTaskWithoutMatchingBlob(sourceChain, 10)
 
-		messages := []protocol.Message{msgWithoutTokenTransfer1, msgWithoutTokenTransfer2}
+		tasks := []verifier.VerificationTask{taskWithoutMatchingBlob1, taskWithoutMatchingBlob2}
 
-		attestation, err := attestationService.Fetch(t.Context(), messages)
+		attestation, err := attestationService.Fetch(t.Context(), tasks)
 		require.NoError(t, err)
 
-		// Should return missing attestations for all messages
+		// Should return missing attestations for all tasks
 		assert.Len(t, attestation, 2)
-		for _, msg := range messages {
-			attestationPayload, ok := attestation[msg.MustMessageID().String()]
+		for _, task := range tasks {
+			attestationPayload, ok := attestation[task.MessageID]
 			require.True(t, ok)
 			assert.False(t, attestationPayload.IsReady())
 			assert.Equal(t, AttestationStatusUnspecified, attestationPayload.status)
 		}
 	})
+}
+
+// Helper function to create a test verification task with a matching receipt blob.
+func createTestTask(sourceChain protocol.ChainSelector, seqNum int, resolverAddress protocol.UnknownAddress, blob protocol.ByteSlice) verifier.VerificationTask {
+	msg := protocol.Message{
+		SourceChainSelector: sourceChain,
+		DestChainSelector:   protocol.ChainSelector(sel.ETHEREUM_MAINNET.Selector),
+		SequenceNumber:      protocol.SequenceNumber(seqNum),
+	}
+
+	return verifier.VerificationTask{
+		MessageID: msg.MustMessageID().String(),
+		Message:   msg,
+		ReceiptBlobs: []protocol.ReceiptWithBlob{
+			{Issuer: internal.CCVAddress1, Blob: []byte("ccv1-blob")},
+			{Issuer: resolverAddress, Blob: blob}, // Matching blob
+			{Issuer: internal.ExecutorAddress, Blob: []byte("executor-blob")},
+			{Issuer: internal.RouterAddress, Blob: []byte("router-blob")},
+		},
+	}
+}
+
+// Helper function to create a test verification task without a matching receipt blob.
+func createTestTaskWithoutMatchingBlob(sourceChain protocol.ChainSelector, seqNum int) verifier.VerificationTask {
+	msg := protocol.Message{
+		SourceChainSelector: sourceChain,
+		DestChainSelector:   protocol.ChainSelector(sel.ETHEREUM_MAINNET.Selector),
+		SequenceNumber:      protocol.SequenceNumber(seqNum),
+	}
+
+	// Different issuer that doesn't match resolverAddress
+	differentIssuer := internal.MustUnknownAddressFromHex("0xffffffffffffffffffffffffffffffffffffffff")
+
+	return verifier.VerificationTask{
+		MessageID: msg.MustMessageID().String(),
+		Message:   msg,
+		ReceiptBlobs: []protocol.ReceiptWithBlob{
+			{Issuer: internal.CCVAddress1, Blob: []byte("ccv1-blob")},
+			{Issuer: differentIssuer, Blob: []byte("some-other-blob")}, // Non-matching issuer
+			{Issuer: internal.ExecutorAddress, Blob: []byte("executor-blob")},
+			{Issuer: internal.RouterAddress, Blob: []byte("router-blob")},
+		},
+	}
+}
+
+// Helper function to create a test verification task with empty receipt blobs.
+func createTestTaskWithEmptyReceipts(sourceChain protocol.ChainSelector, seqNum int) verifier.VerificationTask {
+	msg := protocol.Message{
+		SourceChainSelector: sourceChain,
+		DestChainSelector:   protocol.ChainSelector(sel.ETHEREUM_MAINNET.Selector),
+		SequenceNumber:      protocol.SequenceNumber(seqNum),
+	}
+
+	return verifier.VerificationTask{
+		MessageID:    msg.MustMessageID().String(),
+		Message:      msg,
+		ReceiptBlobs: []protocol.ReceiptWithBlob{}, // Empty receipt blobs
+	}
 }

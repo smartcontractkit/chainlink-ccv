@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/lombard_verifier"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
@@ -358,7 +359,29 @@ func runLombardTestCase(
 
 	msgID := sentEvt.MessageID
 
-	messageHash := sentEvt.Message.TokenTransfer.ExtraData
+	// Get the Lombard verifier resolver address to find the matching blob
+	lombardVerifierResolver := getContractAddress(
+		t,
+		in,
+		sourceSelector,
+		datastore.ContractType(lombard_verifier.ResolverType),
+		lombard_verifier.Deploy.Version(),
+		common.LombardContractsQualifier,
+		"",
+	)
+
+	// Find the blob corresponding to the Lombard verifier resolver by matching issuers
+	var messageHash protocol.ByteSlice
+	for i, issuer := range sentEvt.ReceiptIssuers {
+		if issuer.Equal(lombardVerifierResolver) {
+			if i < len(sentEvt.VerifierBlobs) {
+				messageHash = sentEvt.VerifierBlobs[i]
+				break
+			}
+		}
+	}
+	require.NotEmpty(t, messageHash, "Lombard verifier blob not found in VerifierBlobs")
+
 	attestation := buildLombardAttestation(msgID)
 	registerLombardAttestation(t, in.Fake.Out.ExternalHTTPURL, messageHash, attestation, "NOTARIZATION_STATUS_SESSION_APPROVED")
 	l.Info().Str("MessageHash", messageHash.String()).Str("MessageID", hex.EncodeToString(msgID[:])).Msg("Registered Lombard attestation")

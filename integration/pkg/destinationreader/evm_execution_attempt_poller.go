@@ -29,7 +29,7 @@ const (
 	// functionSelectorLength is the length of an Ethereum function selector in bytes.
 	functionSelectorLength = 4
 	// expectedParamCount is the expected number of parameters for the execute function.
-	expectedParamCount = 3
+	expectedParamCount = 4
 	// executeMethodName is the name of the execute method in the offramp ABI.
 	executeMethodName = "execute"
 	// evmExecutionAttemptPollerServiceName is the name of the service.
