@@ -1,6 +1,6 @@
 module github.com/smartcontractkit/devenv/ccip17/fakes
 
-go 1.25.8
+go 1.25.7
 
 replace github.com/smartcontractkit/chainlink-ccv => ../../..
 
