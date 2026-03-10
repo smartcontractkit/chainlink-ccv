@@ -29,21 +29,21 @@ const (
 	messageContextWindow             = 9 * time.Hour
 )
 
-// ExecutorChainComponents holds chain-specific components created by the callback.
-type ExecutorChainComponents struct {
+// ServiceComponents holds service-specific components created by the callback.
+type ServiceComponents struct {
 	ContractTransmitters map[protocol.ChainSelector]chainaccess.ContractTransmitter
 	DestinationReaders   map[protocol.ChainSelector]chainaccess.DestinationReader
 	RMNCurseReaders      map[protocol.ChainSelector]chainaccess.RMNCurseReader
 }
 
-// CreateExecutorComponentsFunc is a function that creates chain-specific executor components.
+// CreateServiceComponentsFunc is a function that creates service-specific components.
 // T is the chain config type for this family (e.g. blockchain.Info for EVM).
 type CreateExecutorComponentsFunc[T any] func(
 	ctx context.Context,
 	lggr logger.Logger,
 	blockchainInfos map[string]*T,
 	cfg executor.Configuration,
-) (*ExecutorChainComponents, error)
+) (*ServiceComponents, error)
 
 // factory is a ServiceFactory implementation that creates an executor service.
 // T is the chain config type for this family (e.g. blockchain.Info for EVM).
