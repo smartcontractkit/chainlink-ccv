@@ -1337,8 +1337,6 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 			addressBytesLength = 20
 		case chainsel.FamilyCanton, chainsel.FamilyStellar:
 			addressBytesLength = 32
-		case chainsel.FamilyStellar:
-			addressBytesLength = 32
 		default:
 			return fmt.Errorf("unsupported family %s for chain %d", family, rs)
 		}
