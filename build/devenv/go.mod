@@ -1,6 +1,6 @@
 module github.com/smartcontractkit/chainlink-ccv/build/devenv
 
-go 1.26.0
+go 1.25.8
 
 replace github.com/smartcontractkit/chainlink-ccv => ../..
 
