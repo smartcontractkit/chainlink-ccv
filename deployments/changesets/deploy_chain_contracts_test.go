@@ -81,8 +81,9 @@ func testContractParamsPerChain(t *testing.T, create2Factory common.Address) cha
 		},
 		MockReceivers: []sequences.MockReceiverParams{
 			{
-				Version:   semver.MustParse("1.7.0"),
-				Qualifier: "default",
+				MinimumBlockDepth: 1,
+				Version:           semver.MustParse("2.0.0"),
+				Qualifier:         "default",
 			},
 		},
 	}

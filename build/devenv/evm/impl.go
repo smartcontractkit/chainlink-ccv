@@ -964,6 +964,7 @@ func buildMockReceivers(topology *deployments.EnvironmentTopology, selector uint
 	// One receiver per committee: required verifier only.
 	if has(devenvcommon.DefaultCommitteeVerifierQualifier) {
 		receivers = append(receivers, sequences.MockReceiverParams{
+			MinimumBlockDepth: 1,
 			Version:           receiverVersion,
 			RequiredVerifiers: []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
 			Qualifier:         devenvcommon.DefaultReceiverQualifier,
@@ -971,6 +972,7 @@ func buildMockReceivers(topology *deployments.EnvironmentTopology, selector uint
 	}
 	if has(devenvcommon.SecondaryCommitteeVerifierQualifier) {
 		receivers = append(receivers, sequences.MockReceiverParams{
+			MinimumBlockDepth: 1,
 			Version:           receiverVersion,
 			RequiredVerifiers: []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
 			Qualifier:         devenvcommon.SecondaryReceiverQualifier,
@@ -980,6 +982,7 @@ func buildMockReceivers(topology *deployments.EnvironmentTopology, selector uint
 	// Multi-committee receivers — only created when all referenced committees exist.
 	if has(devenvcommon.SecondaryCommitteeVerifierQualifier) && has(devenvcommon.TertiaryCommitteeVerifierQualifier) {
 		receivers = append(receivers, sequences.MockReceiverParams{
+			MinimumBlockDepth: 1,
 			Version:           receiverVersion,
 			RequiredVerifiers: []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
 			OptionalVerifiers: []datastore.AddressRef{verifierRef(devenvcommon.TertiaryCommitteeVerifierQualifier)},
@@ -991,6 +994,7 @@ func buildMockReceivers(topology *deployments.EnvironmentTopology, selector uint
 		has(devenvcommon.SecondaryCommitteeVerifierQualifier) &&
 		has(devenvcommon.TertiaryCommitteeVerifierQualifier) {
 		receivers = append(receivers, sequences.MockReceiverParams{
+			MinimumBlockDepth: 1,
 			Version:           receiverVersion,
 			RequiredVerifiers: []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
 			OptionalVerifiers: []datastore.AddressRef{
