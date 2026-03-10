@@ -19,8 +19,8 @@ func TestAggregatorWriter_MessageSizeChecking(t *testing.T) {
 
 	t.Run("splitIntoBatches respects byte size limits", func(t *testing.T) {
 		writer := &AggregatorWriter{
-			lggr:           lggr,
-			maxMessageSize: 10 * 1024, // 10KB limit
+			lggr:               lggr,
+			maxSendMessageSize: 10 * 1024, // 10KB limit
 		}
 
 		// Create test requests with known sizes
@@ -41,8 +41,8 @@ func TestAggregatorWriter_MessageSizeChecking(t *testing.T) {
 			for _, req := range batch {
 				totalSize += req.size
 			}
-			assert.LessOrEqual(t, totalSize, writer.maxMessageSize,
-				"batch %d exceeds max size: %d > %d", i, totalSize, writer.maxMessageSize)
+			assert.LessOrEqual(t, totalSize, writer.maxSendMessageSize,
+				"batch %d exceeds max size: %d > %d", i, totalSize, writer.maxSendMessageSize)
 		}
 
 		// Verify all requests are included
@@ -58,8 +58,8 @@ func TestAggregatorWriter_MessageSizeChecking(t *testing.T) {
 	t.Run("WriteCCVNodeData rejects oversized individual messages", func(t *testing.T) {
 		ctx := context.Background()
 		writer := &AggregatorWriter{
-			lggr:           lggr,
-			maxMessageSize: 1000, // Very small limit for testing
+			lggr:               lggr,
+			maxSendMessageSize: 1000, // Very small limit for testing
 		}
 
 		// Create a large message that will exceed the limit
@@ -116,13 +116,13 @@ func TestAggregatorWriter_MessageSizeChecking(t *testing.T) {
 		assert.Equal(t, protocol.WriteFailure, results[0].Status)
 		assert.NotNil(t, results[0].Error)
 		assert.False(t, results[0].Retryable, "oversized messages should not be retryable")
-		assert.Contains(t, results[0].Error.Error(), "exceeds max message size")
+		assert.Contains(t, results[0].Error.Error(), "exceeds max send message size")
 	})
 
 	t.Run("splitIntoBatches handles empty requests", func(t *testing.T) {
 		writer := &AggregatorWriter{
-			lggr:           lggr,
-			maxMessageSize: 10 * 1024,
+			lggr:               lggr,
+			maxSendMessageSize: 10 * 1024,
 		}
 
 		batches := writer.splitIntoBatches(nil)
@@ -134,8 +134,8 @@ func TestAggregatorWriter_MessageSizeChecking(t *testing.T) {
 
 	t.Run("splitIntoBatches creates single batch when all fit", func(t *testing.T) {
 		writer := &AggregatorWriter{
-			lggr:           lggr,
-			maxMessageSize: 20 * 1024, // 20KB limit
+			lggr:               lggr,
+			maxSendMessageSize: 20 * 1024, // 20KB limit
 		}
 
 		requests := []requestWithSize{
@@ -152,8 +152,8 @@ func TestAggregatorWriter_MessageSizeChecking(t *testing.T) {
 
 	t.Run("splitIntoBatches creates multiple batches when needed", func(t *testing.T) {
 		writer := &AggregatorWriter{
-			lggr:           lggr,
-			maxMessageSize: 3 * 1024, // 3KB limit
+			lggr:               lggr,
+			maxSendMessageSize: 3 * 1024, // 3KB limit
 		}
 
 		// Each request is ~2KB, plus overhead means max 1 per batch
