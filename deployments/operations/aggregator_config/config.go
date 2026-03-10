@@ -6,7 +6,8 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
 	dsutils "github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -128,7 +129,7 @@ func buildQuorumConfigsFromOnChain(
 
 			sourceVerifierAddr, err := dsutils.FindAndFormatFirstRef(ds, sigConfig.SourceChainSelector, func(r datastore.AddressRef) (string, error) { return r.Address, nil },
 				datastore.AddressRef{
-					Type:      datastore.ContractType(committee_verifier.ResolverType),
+					Type:      datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
 					Qualifier: committeeQualifier,
 				},
 				datastore.AddressRef{
@@ -168,7 +169,7 @@ func buildDestinationVerifiers(
 	for _, chainSelector := range destChainSelectors {
 		addr, err := dsutils.FindAndFormatFirstRef(ds, chainSelector, func(r datastore.AddressRef) (string, error) { return r.Address, nil },
 			datastore.AddressRef{
-				Type:      datastore.ContractType(committee_verifier.ResolverType),
+				Type:      datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
 				Qualifier: committeeQualifier,
 			},
 			datastore.AddressRef{

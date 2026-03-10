@@ -9,7 +9,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
@@ -43,7 +43,7 @@ func DeployCommitVerifierForSelector(
 }
 
 // ConfigureCommitVerifierOnSelectorForLanes configures an existing verifier on the given chain selector for the given lanes.
-func ConfigureCommitVerifierOnSelectorForLanes(e *deployment.Environment, selector uint64, committeeVerifier common.Address, remoteChainConfigArgs []committee_verifier.RemoteChainConfigArgs, signatureConfigArgs committee_verifier.SignatureConfigArgs) error {
+func ConfigureCommitVerifierOnSelectorForLanes(e *deployment.Environment, selector uint64, committeeVerifier common.Address, remoteChainConfigArgs []committee_verifier.RemoteChainConfigArgs, signatureConfigArgs committee_verifier.ApplySignatureConfigsArgs) error {
 	chain, ok := e.BlockChains.EVMChains()[selector]
 	if !ok {
 		return fmt.Errorf("no EVM chain found for selector %d", selector)
@@ -58,7 +58,7 @@ func ConfigureCommitVerifierOnSelectorForLanes(e *deployment.Environment, select
 		return fmt.Errorf("failed to apply dest chain config updates to CommitteeVerifier(%s) on chain %s: %w", committeeVerifier, chain, err)
 	}
 
-	_, err = operations.ExecuteOperation(e.OperationsBundle, committee_verifier.ApplySignatureConfigs, chain, contract.FunctionInput[committee_verifier.SignatureConfigArgs]{
+	_, err = operations.ExecuteOperation(e.OperationsBundle, committee_verifier.ApplySignatureConfigs, chain, contract.FunctionInput[committee_verifier.ApplySignatureConfigsArgs]{
 		ChainSelector: chain.Selector,
 		Address:       committeeVerifier,
 		Args:          signatureConfigArgs,
@@ -264,14 +264,14 @@ func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environme
 		allAddrs = append(allAddrs, addrs...)
 	}
 
-	var signatureConfigArgs committee_verifier.SignatureConfigArgs
+	var signatureConfigArgs committee_verifier.ApplySignatureConfigsArgs
 	for sel := range signatureConfigBySelector {
 		var remoteChainConfigArgs []committee_verifier.RemoteChainConfigArgs
 		for remoteSel, signatureConfig := range signatureConfigBySelector {
 			if remoteSel == sel {
 				continue
 			}
-			signatureConfigArgs.SignatureConfigUpdates = append(signatureConfigArgs.SignatureConfigUpdates, signatureConfig)
+			signatureConfigArgs.SignatureConfigs = append(signatureConfigArgs.SignatureConfigs, signatureConfig)
 			remoteChainConfigArgs = append(remoteChainConfigArgs, committee_verifier.RemoteChainConfigArgs{
 				AllowlistEnabled:    false,
 				Router:              MustGetContractAddressForSelector(addresses, sel, router.ContractType),

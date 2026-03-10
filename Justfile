@@ -78,6 +78,9 @@ bump-chainlink-ccip sha:
     @echo "Bumping chainlink-ccip dependencies in build/devenv..."
     (cd build/devenv && go get github.com/smartcontractkit/chainlink-ccip@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/deployment@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm@{{sha}})
 
+    @echo "Bumping chainlink-ccip dependencies in deployments..."
+    (cd deployments && go get github.com/smartcontractkit/chainlink-ccip@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/deployment@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm@{{sha}})
+
     @just tidy
 
 sh:

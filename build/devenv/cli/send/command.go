@@ -13,9 +13,9 @@ import (
 	"github.com/spf13/cobra"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	executor_operations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
@@ -50,6 +50,7 @@ func Command() *cobra.Command {
 	cmd.Flags().Uint64Var(&args.srcSel, "src", 0, "Source chain selector")
 	cmd.Flags().Uint64Var(&args.destSel, "dest", 0, "Destination chain selector")
 	cmd.Flags().Uint64Var(&args.finalitySel, "finality", 0, "Finality chain selector (optional, only for V3 messages)")
+	cmd.Flags().BoolVar(&args.omitCommittee, "omit-committee", false, "Omit committee verifier from CCVs (e.g. for CCTP-only sends)")
 	cmd.Flags().BoolVar(&args.useTestRouter, "use-test-router", false, "Look up TestRouter contract from datastore instead of regular Router")
 
 	_ = cmd.MarkFlagRequired("src")
@@ -63,6 +64,7 @@ type sendArgs struct {
 	receiverAddress   string
 	env               string
 	useTestRouter     bool
+	omitCommittee     bool
 
 	tokenAmount cciptestinterfaces.TokenAmount
 
@@ -148,15 +150,6 @@ func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptest
 	}
 
 	// V3 format with finality config
-	committeeVerifierProxyRef, err := addrs.Get(
-		datastore.NewAddressRefKey(
-			args.srcSel,
-			datastore.ContractType(committee_verifier.ResolverType),
-			semver.MustParse(committee_verifier.Deploy.Version()),
-			devenvcommon.DefaultCommitteeVerifierQualifier))
-	if err != nil {
-		return cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to get committee verifier proxy address: %w", err)
-	}
 	executorRef, err := addrs.Get(
 		datastore.NewAddressRefKey(
 			args.srcSel,
@@ -166,20 +159,34 @@ func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptest
 	if err != nil {
 		return cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to get executor address: %w", err)
 	}
-	return cciptestinterfaces.MessageOptions{
+	opts := cciptestinterfaces.MessageOptions{
 		Version:        3,
 		FinalityConfig: uint16(args.finalitySel),
-		Executor:       common.HexToAddress(executorRef.Address).Bytes(), // executor address
+		Executor:       common.HexToAddress(executorRef.Address).Bytes(),
 		ExecutorArgs:   nil,
 		TokenArgs:      nil,
-		CCVs: []protocol.CCV{
-			{
-				CCVAddress: common.HexToAddress(committeeVerifierProxyRef.Address).Bytes(),
-				Args:       []byte{},
-				ArgsLen:    0,
-			},
+	}
+	if args.omitCommittee {
+		opts.CCVs = nil
+		return opts, nil
+	}
+	committeeVerifierProxyRef, err := addrs.Get(
+		datastore.NewAddressRefKey(
+			args.srcSel,
+			datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+			versioned_verifier_resolver.Version,
+			devenvcommon.DefaultCommitteeVerifierQualifier))
+	if err != nil {
+		return cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to get committee verifier proxy address: %w", err)
+	}
+	opts.CCVs = []protocol.CCV{
+		{
+			CCVAddress: common.HexToAddress(committeeVerifierProxyRef.Address).Bytes(),
+			Args:       []byte{},
+			ArgsLen:    0,
 		},
-	}, nil
+	}
+	return opts, nil
 }
 
 func parseTokenAmount(input string) (cciptestinterfaces.TokenAmount, error) {

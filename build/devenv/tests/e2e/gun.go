@@ -14,8 +14,8 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -253,8 +253,8 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 	committeeVerifierProxyRef, err := m.e.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
 			srcSelector,
-			datastore.ContractType(committee_verifier.ResolverType),
-			semver.MustParse(committee_verifier.Deploy.Version()),
+			datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+			versioned_verifier_resolver.Version,
 			devenvcommon.DefaultCommitteeVerifierQualifier))
 	if err != nil {
 		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("could not find committee verifier proxy address in datastore: %w", err)

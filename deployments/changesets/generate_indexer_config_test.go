@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
@@ -70,9 +70,9 @@ func TestGenerateIndexerConfig_GeneratesCorrectConfigWithMultipleVerifiers(t *te
 			err := ds.Addresses().Add(datastore.AddressRef{
 				ChainSelector: sel,
 				Qualifier:     qualifier,
-				Type:          datastore.ContractType(committee_verifier.ResolverType),
+				Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
 				Address:       fmt.Sprintf("0x%s_%d", qualifier, sel),
-				Version:       committee_verifier.Version,
+				Version:       versioned_verifier_resolver.Version,
 			})
 			require.NoError(t, err)
 		}
@@ -119,9 +119,9 @@ func TestGenerateIndexerConfig_PreservesExistingAggregatorConfig(t *testing.T) {
 		err := ds.Addresses().Add(datastore.AddressRef{
 			ChainSelector: sel,
 			Qualifier:     committee,
-			Type:          datastore.ContractType(committee_verifier.ResolverType),
+			Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
 			Address:       fmt.Sprintf("0xverifier_%d", sel),
-			Version:       committee_verifier.Version,
+			Version:       versioned_verifier_resolver.Version,
 		})
 		require.NoError(t, err)
 	}

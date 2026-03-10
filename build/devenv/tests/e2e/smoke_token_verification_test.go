@@ -202,20 +202,20 @@ func runUSDCTestCase(
 ) {
 	sender := mustGetSenderAddress(t, sourceChain)
 
-	srcToken := getTokenAddress(t, in, sourceSelector, common.CCTPContractsQualifier)
-	destToken := getTokenAddress(t, in, destSelector, common.CCTPContractsQualifier)
+	srcToken := getTokenAddress(t, in, sourceSelector, "")
+	destToken := getTokenAddress(t, in, destSelector, "")
 
 	startBal, err := destChain.GetTokenBalance(ctx, tc.receiver, destToken)
 	require.NoError(t, err)
-	l.Info().Str("Receiver", tc.receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", common.CCTPContractsQualifier).Msg("receiver start balance")
+	l.Info().Str("Receiver", tc.receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", "").Msg("receiver start balance")
 
 	srcStartBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
 	require.NoError(t, err)
-	l.Info().Str("Sender", sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Str("Token", common.CCTPContractsQualifier).Msg("sender start balance")
+	l.Info().Str("Sender", sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Str("Token", "").Msg("sender start balance")
 
 	seqNo, err := sourceChain.GetExpectedNextSequenceNumber(ctx, destSelector)
 	require.NoError(t, err)
-	l.Info().Uint64("SeqNo", seqNo).Str("Token", common.CCTPContractsQualifier).Msg("expecting sequence number")
+	l.Info().Uint64("SeqNo", seqNo).Str("Token", "").Msg("expecting sequence number")
 
 	messageOptions := cciptestinterfaces.MessageOptions{
 		Version:           3,
@@ -237,7 +237,7 @@ func runUSDCTestCase(
 	)
 	require.NoError(t, err)
 	require.NotNil(t, sendRes)
-	require.Len(t, sendRes.ReceiptIssuers, tc.expectedReceiptIssuers, "expected %d receipt issuers for %s token", tc.expectedReceiptIssuers, common.CCTPContractsQualifier)
+	require.Len(t, sendRes.ReceiptIssuers, tc.expectedReceiptIssuers, "expected %d receipt issuers for %s token", tc.expectedReceiptIssuers, "")
 
 	sentEvt, err := sourceChain.WaitOneSentEventBySeqNo(ctx, destSelector, seqNo, defaultSentTimeout)
 	require.NoError(t, err)
@@ -250,7 +250,7 @@ func runUSDCTestCase(
 		sourceSelector,
 		datastore.ContractType(cctp_verifier.ContractType),
 		cctp_verifier.Deploy.Version(),
-		common.CCTPContractsQualifier,
+		"",
 		"",
 	)
 	registerCCTPAttestation(t, in.Fake.Out.ExternalHTTPURL, msgID, cctpMessageSender, tc.receiver, "complete")
@@ -285,12 +285,12 @@ func runUSDCTestCase(
 
 	// We always mint 1 tiny coin on a dest from CCTPTokenMessenger
 	require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), big.NewInt(1)), endBal)
-	l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", common.CCTPContractsQualifier).Msg("receiver end balance")
+	l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", "").Msg("receiver end balance")
 
 	srcEndBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
 	require.NoError(t, err)
 	require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), tc.transferAmount), srcEndBal)
-	l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", common.CCTPContractsQualifier).Msg("sender end balance")
+	l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", "").Msg("sender end balance")
 }
 
 func runLombardTestCase(
@@ -347,7 +347,7 @@ func runLombardTestCase(
 
 	require.NoError(t, err)
 	require.NotNil(t, sendRes)
-	require.Len(t, sendRes.ReceiptIssuers, tc.expectedReceiptIssuers, "expected %d receipt issuers for %s token", tc.expectedReceiptIssuers, common.CCTPContractsQualifier)
+	require.Len(t, sendRes.ReceiptIssuers, tc.expectedReceiptIssuers, "expected %d receipt issuers for %s token", tc.expectedReceiptIssuers, "")
 
 	sentEvt, err := sourceChain.WaitOneSentEventBySeqNo(ctx, destSelector, seqNo, defaultSentTimeout)
 	require.NoError(t, err)

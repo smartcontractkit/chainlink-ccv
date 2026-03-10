@@ -29,12 +29,12 @@ import (
 	changesets_1_6_1 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/changesets"
 	rmn_remote_binding "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/erc20_lock_box"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/lock_release_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/create2_factory"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/erc20_lock_box"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/lock_release_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/fee_quoter"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
@@ -87,7 +87,7 @@ var (
 
 	tokenPoolVersions = []string{
 		"1.6.1",
-		"1.7.0",
+		"2.0.0",
 	}
 )
 
@@ -958,8 +958,8 @@ func buildMockReceivers(topology *deployments.EnvironmentTopology, selector uint
 
 	verifierRef := func(qualifier string) datastore.AddressRef {
 		return datastore.AddressRef{
-			Type:          datastore.ContractType(committee_verifier.ResolverType),
-			Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+			Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+			Version:       versioned_verifier_resolver.Version,
 			ChainSelector: selector,
 			Qualifier:     qualifier,
 		}
@@ -1246,23 +1246,22 @@ func (m *CCIP17EVM) GetMaxDataBytes(ctx context.Context, remoteChainSelector uin
 	return destChainConfig.MaxDataBytes, nil
 }
 
-func (m *CCIP17EVMConfig) configureTokenForTransfer(
-	e *deployment.Environment,
-	tokenAdapterRegistry *tokenscore.TokenAdapterRegistry,
-	mcmsReaderRegistry *changesetscore.MCMSReaderRegistry,
+// buildTokenTransferConfig builds a single TokenTransferConfig for use with ConfigureTokensForTransfers.
+// Used both by CollectTokenTransferConfigs (called from environment.go) and by tests.
+func (m *CCIP17EVMConfig) buildTokenTransferConfig(
 	selector uint64,
 	remoteSelectors []uint64,
 	localRef datastore.AddressRef,
 	remoteRef datastore.AddressRef,
 	ccvQualifiers []string,
-) error {
+) tokenscore.TokenTransferConfig {
 	tokensRemoteChains := make(map[uint64]tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef])
 	for _, rs := range remoteSelectors {
 		ccvRefs := make([]datastore.AddressRef, 0, len(ccvQualifiers))
 		for _, qualifier := range ccvQualifiers {
 			ccvRefs = append(ccvRefs, datastore.AddressRef{
-				Type:      datastore.ContractType(committee_verifier.ResolverType),
-				Version:   semver.MustParse(committee_verifier.Deploy.Version()),
+				Type:      datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+				Version:   versioned_verifier_resolver.Version,
 				Qualifier: qualifier,
 			})
 		}
@@ -1294,25 +1293,30 @@ func (m *CCIP17EVMConfig) configureTokenForTransfer(
 		}
 	}
 
-	_, err := tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*e, tokenscore.ConfigureTokensForTransfersConfig{
-		Tokens: []tokenscore.TokenTransferConfig{
-			{
-				ChainSelector: selector,
-				TokenPoolRef:  localRef,
-				RegistryRef: datastore.AddressRef{
-					Type:    datastore.ContractType(token_admin_registry.ContractType),
-					Version: semver.MustParse(token_admin_registry.Deploy.Version()),
-				},
-				RemoteChains:     tokensRemoteChains,
-				MinFinalityValue: 1,
-			},
+	return tokenscore.TokenTransferConfig{
+		ChainSelector: selector,
+		TokenPoolRef:  localRef,
+		RegistryRef: datastore.AddressRef{
+			Type:    datastore.ContractType(token_admin_registry.ContractType),
+			Version: semver.MustParse(token_admin_registry.Deploy.Version()),
 		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to configure %s token for transfers: %w", localRef.Qualifier, err)
+		RemoteChains:     tokensRemoteChains,
+		MinFinalityValue: 1,
 	}
+}
 
-	return nil
+// CollectTokenTransferConfigs returns token transfer configs for this chain so that environment.go can
+// call ConfigureTokensForTransfers once with all chains' configs (required for correct behavior).
+func (m *CCIP17EVMConfig) CollectTokenTransferConfigs(e *deployment.Environment, selector uint64, remoteSelectors []uint64, topology *deployments.EnvironmentTopology) ([]tokenscore.TokenTransferConfig, error) {
+	applicableCombos := filterTokenCombinations(devenvcommon.AllTokenCombinations(), topology)
+	var configs []tokenscore.TokenTransferConfig
+	for _, combo := range applicableCombos {
+		configs = append(configs,
+			m.buildTokenTransferConfig(selector, remoteSelectors, combo.SourcePoolAddressRef(), combo.DestPoolAddressRef(), combo.SourcePoolCCVQualifiers()),
+			m.buildTokenTransferConfig(selector, remoteSelectors, combo.DestPoolAddressRef(), combo.SourcePoolAddressRef(), combo.DestPoolCCVQualifiers()),
+		)
+	}
+	return configs, nil
 }
 
 // TODO: How to generate all the default/secondary/tertiary things from the committee param?
@@ -1357,8 +1361,8 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 			},
 			DefaultInboundCCVs: []datastore.AddressRef{
 				{
-					Type:          datastore.ContractType(committee_verifier.ResolverType),
-					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+					Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+					Version:       versioned_verifier_resolver.Version,
 					ChainSelector: selector,
 					Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier, // TODO: pull this from committees param?
 				},
@@ -1366,8 +1370,8 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 			// LaneMandatedInboundCCVs: []datastore.AddressRef{},
 			DefaultOutboundCCVs: []datastore.AddressRef{
 				{
-					Type:          datastore.ContractType(committee_verifier.ResolverType),
-					Version:       semver.MustParse(committee_verifier.Deploy.Version()),
+					Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+					Version:       versioned_verifier_resolver.Version,
 					ChainSelector: selector,
 					Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier, // TODO: pull this from committees param?
 				},
@@ -1471,26 +1475,10 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		}
 	}
 
-	applicableCombos := filterTokenCombinations(devenvcommon.AllTokenCombinations(), topology)
-	for _, combo := range applicableCombos {
-		// For any given token combination, every chain needs to support the source and destination pools.
-		l.Info().Str("Token", combo.SourcePoolAddressRef().Qualifier).Msg("Configuring source token for transfer")
-		if err := m.configureTokenForTransfer(e, tokenAdapterRegistry, mcmsReaderRegistry, selector, remoteSelectors, combo.SourcePoolAddressRef(), combo.DestPoolAddressRef(), combo.SourcePoolCCVQualifiers()); err != nil {
-			return fmt.Errorf("failed to configure %s tokens for transfers: %w", combo.SourcePoolAddressRef().Qualifier, err)
-		}
-		l.Info().Str("Token", combo.DestPoolAddressRef().Qualifier).Msg("Configuring destination token for transfer")
-		if err := m.configureTokenForTransfer(e, tokenAdapterRegistry, mcmsReaderRegistry, selector, remoteSelectors, combo.DestPoolAddressRef(), combo.SourcePoolAddressRef(), combo.DestPoolCCVQualifiers()); err != nil {
-			return fmt.Errorf("failed to configure %s tokens for transfers: %w", combo.DestPoolAddressRef().Qualifier, err)
-		}
-	}
-
-	if err := m.configureUSDCForTransfer(e, mcmsReaderRegistry, selector, remoteSelectors); err != nil {
-		return fmt.Errorf("failed to configure USDC tokens for transfers: %w", err)
-	}
-
-	if err := m.configureLombardForTransfer(e, mcmsReaderRegistry, selector, remoteSelectors); err != nil {
-		return fmt.Errorf("failed to configure Lombard tokens for transfers: %w", err)
-	}
+	// Token transfer configs are collected per chain and applied once in environment.go via ConfigureTokensForTransfers
+	// so that all chains are defined in the input (required for ConfigureTokensForTransfers to work correctly).
+	// USDC and Lombard are configured after ConfigureTokensForTransfers in environment.go so that token pools
+	// have remote chain config before CCTP/Lombard code reads from them (e.g. get supported chains from pool).
 
 	// Configure the custom executor for the dest chain manually.
 	customExecutor, err := e.DataStore.Addresses().Get(
@@ -1530,6 +1518,19 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		return fmt.Errorf("failed to apply dest chain updates to custom executor: %w", err)
 	}
 
+	return nil
+}
+
+// ConfigureUSDCAndLombardForTransfer configures CCTP/USDC and Lombard lanes. Must be called after
+// ConfigureTokensForTransfers so that token pools have remote chain config before CCTP/Lombard read from them.
+func (m *CCIP17EVMConfig) ConfigureUSDCAndLombardForTransfer(e *deployment.Environment, selector uint64, remoteSelectors []uint64) error {
+	mcmsReaderRegistry := changesetscore.GetRegistry()
+	if err := m.configureUSDCForTransfer(e, mcmsReaderRegistry, selector, remoteSelectors); err != nil {
+		return fmt.Errorf("failed to configure USDC tokens for transfers: %w", err)
+	}
+	if err := m.configureLombardForTransfer(e, mcmsReaderRegistry, selector, remoteSelectors); err != nil {
+		return fmt.Errorf("failed to configure Lombard tokens for transfers: %w", err)
+	}
 	return nil
 }
 

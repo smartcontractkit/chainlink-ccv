@@ -6,9 +6,10 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/committee_verifier"
 	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/onramp"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	dsutil "github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -61,7 +62,7 @@ var BuildConfig = operations.NewOperation(
 
 			committeeVerifierAddr, err := dsutil.FindAndFormatFirstRef(ds, chainSelector, toAddress,
 				datastore.AddressRef{
-					Type:      datastore.ContractType(committee_verifier.ResolverType),
+					Type:      datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
 					Qualifier: input.CommitteeQualifier,
 				},
 				datastore.AddressRef{

@@ -8,9 +8,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/lombard_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_lombard_bridge"
 	evm_contract "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
@@ -256,8 +256,8 @@ func (m *CCIP17EVMConfig) deployLombardMockReceiver(
 
 	committeeVerifier, err := ds.Addresses().Get(datastore.NewAddressRefKey(
 		selector,
-		datastore.ContractType(committee_verifier.ResolverType),
-		semver.MustParse(committee_verifier.Deploy.Version()),
+		datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+		versioned_verifier_resolver.Version,
 		devenvcommon.DefaultCommitteeVerifierQualifier,
 	))
 	if err != nil {

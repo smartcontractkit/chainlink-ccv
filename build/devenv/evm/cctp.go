@@ -8,12 +8,12 @@ import (
 	gethcommon "github.com/ethereum/go-ethereum/common"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/usdc_token_pool_proxy"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/create2_factory"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/usdc_token_pool_proxy"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_messenger"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_transmitter"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
@@ -184,7 +184,7 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(
 		selector,
 		datastore.ContractType(burnminterc677ops.ContractType),
 		semver.MustParse(burnminterc677ops.Deploy.Version()),
-		common.CCTPContractsQualifier,
+		"",
 	))
 	if err != nil {
 		return err
@@ -249,7 +249,7 @@ func (m *CCIP17EVMConfig) deployCCTPMockReceivers(
 		selector,
 		datastore.ContractType(cctp_verifier.ResolverType),
 		semver.MustParse(cctp_verifier.Deploy.Version()),
-		common.CCTPContractsQualifier,
+		"",
 	))
 	if err != nil {
 		return fmt.Errorf("failed to find CCTP verifier for chain %d: %w", selector, err)
@@ -257,8 +257,8 @@ func (m *CCIP17EVMConfig) deployCCTPMockReceivers(
 
 	committeeVerifier, err := ds.Addresses().Get(datastore.NewAddressRefKey(
 		selector,
-		datastore.ContractType(committee_verifier.ResolverType),
-		semver.MustParse(committee_verifier.Deploy.Version()),
+		datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+		versioned_verifier_resolver.Version,
 		common.DefaultCommitteeVerifierQualifier,
 	))
 	if err != nil {
@@ -342,7 +342,7 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 		Type:          datastore.ContractType(burnminterc677ops.ContractType),
 		Version:       burnminterc677ops.Version,
 		Address:       usdcTokenAddr.Hex(),
-		Qualifier:     common.CCTPContractsQualifier,
+		Qualifier:     "",
 	})
 	if err != nil {
 		return empty, empty, empty, fmt.Errorf("failed to add USDC token contract: %w", err)
@@ -371,7 +371,7 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 		Type:          "MockE2EUSDCTransmitter",
 		Version:       semver.MustParse("1.0.0"),
 		Address:       messageTransmitterAddr.Hex(),
-		Qualifier:     common.CCTPContractsQualifier,
+		Qualifier:     "",
 	})
 	if err != nil {
 		return empty, empty, empty, fmt.Errorf("failed to add USDC message transmitter contract: %w", err)
@@ -394,7 +394,7 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 		Type:          "MockE2EUSDCTokenMessenger",
 		Version:       semver.MustParse("1.0.0"),
 		Address:       tokenMessengerAddr.Hex(),
-		Qualifier:     common.CCTPContractsQualifier,
+		Qualifier:     "",
 	})
 	if err != nil {
 		return empty, empty, empty, fmt.Errorf("failed to add USDC tijen messenger contract: %w", err)
@@ -426,7 +426,6 @@ func usdcTokenPoolProxies(sourceSelector uint64, remoteSelectors []uint64) map[u
 			ChainSelector: selector,
 			Type:          datastore.ContractType(usdc_token_pool_proxy.ContractType),
 			Version:       semver.MustParse(usdc_token_pool_proxy.Deploy.Version()),
-			Qualifier:     common.CCTPContractsQualifier,
 		}
 	}
 	return references

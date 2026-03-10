@@ -8,7 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
@@ -26,10 +27,10 @@ func TestBuildDestinationVerifiers_ResolvesCommitteeVerifierWhenSingleRefExists(
 
 	require.NoError(t, ds.Addresses().Add(datastore.AddressRef{
 		ChainSelector: chainSel,
-		Type:          datastore.ContractType(committee_verifier.ResolverType),
+		Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
 		Qualifier:     qualifier,
 		Address:       aggregatorVerifier1_7_0Addr,
-		Version:       committee_verifier.Version,
+		Version:       versioned_verifier_resolver.Version,
 	}))
 	require.NoError(t, ds.Addresses().Add(datastore.AddressRef{
 		ChainSelector: chainSel,
@@ -53,10 +54,10 @@ func TestBuildQuorumConfigsFromOnChain_ResolvesCommitteeVerifierWhenSingleRefExi
 
 	require.NoError(t, ds.Addresses().Add(datastore.AddressRef{
 		ChainSelector: chainSel,
-		Type:          datastore.ContractType(committee_verifier.ResolverType),
+		Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
 		Qualifier:     qualifier,
 		Address:       aggregatorVerifier1_7_0Addr,
-		Version:       committee_verifier.Version,
+		Version:       versioned_verifier_resolver.Version,
 	}))
 	require.NoError(t, ds.Addresses().Add(datastore.AddressRef{
 		ChainSelector: chainSel,

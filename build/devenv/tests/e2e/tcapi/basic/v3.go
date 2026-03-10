@@ -8,9 +8,9 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
@@ -121,7 +121,7 @@ func (tc *v3TestCase) HavePrerequisites(ctx context.Context, cfg *ccv.Cfg) bool 
 }
 
 func getCommitteeCCV(cfg *ccv.Cfg, srcChainSelector uint64, qualifier, contractName string) (protocol.CCV, error) {
-	addr, err := tcapi.GetContractAddress(cfg, srcChainSelector, datastore.ContractType(committee_verifier.ResolverType), committee_verifier.Deploy.Version(), qualifier, contractName)
+	addr, err := tcapi.GetContractAddress(cfg, srcChainSelector, datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType), versioned_verifier_resolver.Version.String(), qualifier, contractName)
 	if err != nil {
 		return protocol.CCV{}, err
 	}
@@ -151,7 +151,7 @@ func customExecutor(src, dest cciptestinterfaces.CCIP17) *v3TestCase {
 				return false
 			}
 			tc.receiver = receiver
-			ccvAddr, err := tcapi.GetContractAddress(cfg, src.ChainSelector(), datastore.ContractType(committee_verifier.ResolverType), committee_verifier.Deploy.Version(), common.DefaultCommitteeVerifierQualifier, "committee verifier proxy")
+			ccvAddr, err := tcapi.GetContractAddress(cfg, src.ChainSelector(), datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType), versioned_verifier_resolver.Version.String(), common.DefaultCommitteeVerifierQualifier, "committee verifier proxy")
 			if err != nil {
 				return false
 			}

@@ -439,7 +439,7 @@ func withTopologyCommittee(name, qualifier string, insecure bool) cfgOption {
 	return func(c *Cfg) {
 		c.EnvironmentTopology.NOPTopology.Committees[name] = deployments.CommitteeConfig{
 			Qualifier:       qualifier,
-			VerifierVersion: semver.MustParse("1.7.0"),
+			VerifierVersion: semver.MustParse("2.0.0"),
 			Aggregators: []deployments.AggregatorConfig{
 				{
 					Name:                         "default",

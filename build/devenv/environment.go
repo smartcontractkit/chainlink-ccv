@@ -22,6 +22,8 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
+	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
+	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
@@ -1063,6 +1065,61 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
+	// ConfigureTokensForTransfers must be called once with all chains defined in the input.
+	var allTokenConfigs []tokenscore.TokenTransferConfig
+	for i, impl := range impls {
+		var networkInfo chainsel.ChainDetails
+		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
+		if err != nil {
+			return nil, err
+		}
+		selsToConnect := make([]uint64, 0)
+		for _, sel := range selectors {
+			if sel != networkInfo.ChainSelector {
+				selsToConnect = append(selsToConnect, sel)
+			}
+		}
+		if evmConfig, ok := impl.(*evm.CCIP17EVMConfig); ok {
+			var configs []tokenscore.TokenTransferConfig
+			configs, err = evmConfig.CollectTokenTransferConfigs(e, networkInfo.ChainSelector, selsToConnect, topology)
+			if err != nil {
+				return nil, fmt.Errorf("collect token transfer configs for chain %d: %w", networkInfo.ChainSelector, err)
+			}
+			allTokenConfigs = append(allTokenConfigs, configs...)
+		}
+	}
+	if len(allTokenConfigs) > 0 {
+		tokenAdapterRegistry := tokenscore.GetTokenAdapterRegistry()
+		mcmsReaderRegistry := changesetscore.GetRegistry()
+		_, err = tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*e, tokenscore.ConfigureTokensForTransfersConfig{
+			Tokens: allTokenConfigs,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("configure tokens for transfers: %w", err)
+		}
+	}
+
+	// USDC/CCTP and Lombard must be configured after ConfigureTokensForTransfers so token pools have remote chain config
+	// before CCTP/Lombard code reads from them (e.g. get supported chains from active pool).
+	for i, impl := range impls {
+		var networkInfo chainsel.ChainDetails
+		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
+		if err != nil {
+			return nil, err
+		}
+		selsToConnect := make([]uint64, 0)
+		for _, sel := range selectors {
+			if sel != networkInfo.ChainSelector {
+				selsToConnect = append(selsToConnect, sel)
+			}
+		}
+		if evmConfig, ok := impl.(*evm.CCIP17EVMConfig); ok {
+			if err = evmConfig.ConfigureUSDCAndLombardForTransfer(e, networkInfo.ChainSelector, selsToConnect); err != nil {
+				return nil, fmt.Errorf("configure USDC/Lombard for chain %d: %w", networkInfo.ChainSelector, err)
+			}
+		}
+	}
+
 	/////////////////////////////////////////
 	// END: Connect chains to each other //
 	/////////////////////////////////////////
@@ -1382,7 +1439,6 @@ func NewEnvironment() (in *Cfg, err error) {
 			},
 			CCTP: sequences.CCTPConfigInput{
 				VerifierID:     "CCTPVerifier",
-				Qualifier:      devenvcommon.CCTPContractsQualifier,
 				AttestationAPI: fakeOut.InternalHTTPURL + "/cctp",
 			},
 		})
