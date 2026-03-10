@@ -744,6 +744,8 @@ func serializeExtraArgs(opts cciptestinterfaces.MessageOptions, destFamily strin
 		default:
 			panic(fmt.Sprintf("unsupported message extra args version: %d", opts.Version))
 		}
+	case chainsel.FamilyStellar:
+		return serializeExtraArgsV3(opts)
 	case chainsel.FamilySolana:
 		switch opts.Version {
 		case 1: // SVMExtraArgsV1
@@ -1333,7 +1335,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		switch family {
 		case chainsel.FamilyEVM:
 			addressBytesLength = 20
-		case chainsel.FamilyCanton:
+		case chainsel.FamilyCanton, chainsel.FamilyStellar:
 			addressBytesLength = 32
 		case chainsel.FamilyStellar:
 			addressBytesLength = 32
