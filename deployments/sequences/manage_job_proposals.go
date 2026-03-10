@@ -57,7 +57,7 @@ var ManageJobProposals = operations.NewSequence(
 		existingJobs, err := deployments.GetAllJobs(ds.Seal())
 		if err != nil {
 			e.Logger.Warnw("Failed to load existing jobs, will propose all jobs", "error", err)
-			existingJobs = nil
+			return ManageJobProposalsOutput{}, fmt.Errorf("failed to load existing jobs: %w", err)
 		}
 
 		jobs := buildJobsFromJobSpecs(input.JobSpecs, input.NOPs.Modes)
