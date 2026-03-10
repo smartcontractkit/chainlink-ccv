@@ -1705,6 +1705,7 @@ func launchBootstrappedExecutors(in []*executorsvc.Input, blockchainOutputs []*b
 			if err != nil {
 				return nil, fmt.Errorf("failed to create bootstrapped executor %s: %w", exec.ContainerName, err)
 			}
+			exec.Out = out
 			outs = append(outs, out)
 		}
 	}
