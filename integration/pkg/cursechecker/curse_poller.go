@@ -128,6 +128,12 @@ func (s *PollerService) IsRemoteChainCursed(_ context.Context, localChain, remot
 
 	state := s.chainCurseStates[localChain]
 	if state == nil {
+		// Log when checking a chain that was never registered
+		if _, exists := s.rmnReaders[localChain]; !exists {
+			s.lggr.Warnw("IsRemoteChainCursed called with unregistered local chain",
+				"localChain", localChain,
+				"remoteChain", remoteChain)
+		}
 		return false
 	}
 

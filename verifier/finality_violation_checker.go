@@ -234,7 +234,7 @@ func (f *FinalityViolationCheckerService) fetchSingleBlock(ctx context.Context, 
 		return nil, fmt.Errorf("received nil headers map")
 	}
 
-	header, exists := headers[blockNumbers[0]]
+	header, exists := headers[blockNum]
 	if !exists {
 		return nil, fmt.Errorf("block header not found in response")
 	}
@@ -263,17 +263,14 @@ func (f *FinalityViolationCheckerService) fetchBlockRange(ctx context.Context, s
 		return nil, fmt.Errorf("received nil headers map")
 	}
 
-	// Build map keyed by block number
-	blockMap := make(map[uint64]protocol.BlockHeader)
-	for _, blockNum := range blockNumbers {
-		header, exists := headers[blockNum]
-		if !exists {
-			return nil, fmt.Errorf("missing block header for block %s", blockNum.String())
+	// Verify all requested blocks are present
+	for i := startBlock; i <= endBlock; i++ {
+		if _, exists := headers[i]; !exists {
+			return nil, fmt.Errorf("missing block header for block %d", i)
 		}
-		blockMap[header.Number] = header
 	}
 
-	return blockMap, nil
+	return headers, nil
 }
 
 // NoOpFinalityViolationChecker is a dummy implementation that does nothing.
