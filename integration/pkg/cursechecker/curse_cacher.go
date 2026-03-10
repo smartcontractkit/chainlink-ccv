@@ -63,7 +63,7 @@ func (c CachedCurseChecker) IsRemoteChainCursed(ctx context.Context, localChain,
 	reader, ok := c.rmnReaders[localChain]
 	if !ok {
 		c.lggr.Errorw("no RMN reader configured for chain, assuming not cursed", "localChain", localChain)
-		return false
+		return false, nil
 	}
 	curseResults, err := reader.GetRMNCursedSubjects(ctx)
 	if err != nil {
