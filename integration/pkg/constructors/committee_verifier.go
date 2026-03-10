@@ -125,6 +125,7 @@ func NewVerificationCoordinator(
 		lggr,
 		aggregatorSecret,
 		cfg.InsecureAggregatorConnection,
+		cfg.AggregatorMaxSendMsgSizeBytes,
 		cfg.AggregatorMaxRecvMsgSizeBytes,
 	)
 	if err != nil {

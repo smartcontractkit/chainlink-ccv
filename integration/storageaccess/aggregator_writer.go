@@ -36,10 +36,11 @@ type requestWithSize struct {
 }
 
 type AggregatorWriter struct {
-	client         committeepb.CommitteeVerifierClient
-	conn           *grpc.ClientConn
-	lggr           logger.Logger
-	maxMessageSize int
+	client             committeepb.CommitteeVerifierClient
+	conn               *grpc.ClientConn
+	lggr               logger.Logger
+	maxSendMessageSize int
+	maxRecvMessageSize int
 }
 
 func mapCCVDataToCCVNodeDataProto(ccvData protocol.VerifierNodeResult) (*committeepb.WriteCommitteeVerifierNodeResultRequest, error) {
@@ -94,15 +95,15 @@ func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []p
 
 		size := proto.Size(req)
 
-		// Check if individual message exceeds max size
-		if size+ProtoBatchOverhead > a.maxMessageSize {
-			results[i].Error = fmt.Errorf("message size %d bytes exceeds max message size %d bytes", size, a.maxMessageSize)
+		// Check if individual message exceeds max send size
+		if size+ProtoBatchOverhead > a.maxSendMessageSize {
+			results[i].Error = fmt.Errorf("message size %d bytes exceeds max send message size %d bytes", size, a.maxSendMessageSize)
 			results[i].Status = protocol.WriteFailure
 			results[i].Retryable = false // Too large messages are never retryable
-			a.lggr.Errorw("Message exceeds max size limit",
+			a.lggr.Errorw("Message exceeds max send size limit",
 				"messageID", ccvData.MessageID.String(),
 				"messageSize", size,
-				"maxSize", a.maxMessageSize)
+				"maxSendSize", a.maxSendMessageSize)
 			continue
 		}
 
@@ -144,7 +145,7 @@ func (a *AggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []p
 	return results, nil
 }
 
-// splitIntoBatches splits requests into batches that don't exceed maxMessageSize.
+// splitIntoBatches splits requests into batches that don't exceed maxSendMessageSize.
 func (a *AggregatorWriter) splitIntoBatches(requests []requestWithSize) [][]requestWithSize {
 	if len(requests) == 0 {
 		return nil
@@ -157,7 +158,7 @@ func (a *AggregatorWriter) splitIntoBatches(requests []requestWithSize) [][]requ
 	for _, req := range requests {
 		// Check if adding this request would exceed the limit
 		newSize := currentSize + req.size
-		if newSize > a.maxMessageSize && len(currentBatch) > 0 {
+		if newSize > a.maxSendMessageSize && len(currentBatch) > 0 {
 			// Start a new batch
 			batches = append(batches, currentBatch)
 			currentBatch = make([]requestWithSize, 0)
@@ -254,7 +255,7 @@ func (a *AggregatorWriter) Close() error {
 	return nil
 }
 
-func buildDialOptions(hmacConfig *hmac.ClientConfig, insecure bool, maxRecvMsgSizeBytes int) []grpc.DialOption {
+func buildDialOptions(hmacConfig *hmac.ClientConfig, insecure bool, maxSendMsgSizeBytes, maxRecvMsgSizeBytes int) []grpc.DialOption {
 	var opts []grpc.DialOption
 	if insecure {
 		opts = append(opts, grpc.WithTransportCredentials(insecuregrpc.NewCredentials()))
@@ -266,8 +267,15 @@ func buildDialOptions(hmacConfig *hmac.ClientConfig, insecure bool, maxRecvMsgSi
 		opts = append(opts, grpc.WithUnaryInterceptor(hmac.NewClientInterceptor(hmacConfig)))
 	}
 
+	var callOpts []grpc.CallOption
+	if maxSendMsgSizeBytes > 0 {
+		callOpts = append(callOpts, grpc.MaxCallSendMsgSize(maxSendMsgSizeBytes))
+	}
 	if maxRecvMsgSizeBytes > 0 {
-		opts = append(opts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxRecvMsgSizeBytes)))
+		callOpts = append(callOpts, grpc.MaxCallRecvMsgSize(maxRecvMsgSizeBytes))
+	}
+	if len(callOpts) > 0 {
+		opts = append(opts, grpc.WithDefaultCallOptions(callOpts...))
 	}
 
 	return opts
@@ -275,21 +283,26 @@ func buildDialOptions(hmacConfig *hmac.ClientConfig, insecure bool, maxRecvMsgSi
 
 // NewAggregatorWriter creates instance of AggregatorWriter that satisfies CCVNodeDataWriter interface.
 // If insecure is true, TLS verification is disabled (only for testing).
-// maxRecvMsgSizeBytes sets the maximum gRPC message size; if 0, uses DefaultMaxMessageSize.
-func NewAggregatorWriter(address string, lggr logger.Logger, hmacConfig *hmac.ClientConfig, insecure bool, maxRecvMsgSizeBytes int) (*AggregatorWriter, error) {
+// maxSendMsgSizeBytes sets the maximum gRPC send message size for batch splitting; if 0, uses DefaultMaxMessageSize.
+// maxRecvMsgSizeBytes sets the maximum gRPC receive message size; if 0, uses DefaultMaxMessageSize.
+func NewAggregatorWriter(address string, lggr logger.Logger, hmacConfig *hmac.ClientConfig, insecure bool, maxSendMsgSizeBytes, maxRecvMsgSizeBytes int) (*AggregatorWriter, error) {
+	if maxSendMsgSizeBytes <= 0 {
+		maxSendMsgSizeBytes = DefaultMaxMessageSize
+	}
 	if maxRecvMsgSizeBytes <= 0 {
 		maxRecvMsgSizeBytes = DefaultMaxMessageSize
 	}
 
-	conn, err := grpc.NewClient(address, buildDialOptions(hmacConfig, insecure, maxRecvMsgSizeBytes)...)
+	conn, err := grpc.NewClient(address, buildDialOptions(hmacConfig, insecure, maxSendMsgSizeBytes, maxRecvMsgSizeBytes)...)
 	if err != nil {
 		return nil, err
 	}
 
 	return &AggregatorWriter{
-		client:         committeepb.NewCommitteeVerifierClient(conn),
-		conn:           conn,
-		lggr:           lggr,
-		maxMessageSize: maxRecvMsgSizeBytes,
+		client:             committeepb.NewCommitteeVerifierClient(conn),
+		conn:               conn,
+		lggr:               lggr,
+		maxSendMessageSize: maxSendMsgSizeBytes,
+		maxRecvMessageSize: maxRecvMsgSizeBytes,
 	}, nil
 }
