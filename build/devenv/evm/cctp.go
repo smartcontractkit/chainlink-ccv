@@ -138,6 +138,8 @@ func (m *CCIP17EVMConfig) deployCCTPChain(
 	out, err := changesets.DeployCCTPChains(cctpChainRegistry, registry).Apply(*env, changesets.DeployCCTPChainsConfig{
 		Chains: map[uint64]changesets.CCTPChainConfig{
 			selector: {
+				USDCType:          adapters.Canonical,
+				TokenDecimals:     6,
 				TokenMessengerV2:  messenger.Hex(),
 				USDCToken:         usdc.Hex(),
 				RegisteredPoolRef: usdcTokokenPoolRefs[selector],
@@ -206,6 +208,8 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(
 	usdcTokenPoolRefs := usdcTokenPoolProxies(selector, remoteSelectors)
 	config := map[uint64]changesets.CCTPChainConfig{
 		selector: {
+			USDCType:          adapters.Canonical,
+			TokenDecimals:     6,
 			USDCToken:         usdc.Address,
 			RegisteredPoolRef: usdcTokenPoolRefs[selector],
 			StorageLocations:  []string{"https://test.chain.link.fake"},
@@ -220,6 +224,8 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(
 			continue
 		}
 		config[chainSelector] = changesets.CCTPChainConfig{
+			USDCType:          adapters.Canonical,
+			TokenDecimals:     6,
 			RegisteredPoolRef: poolRef,
 		}
 	}
