@@ -65,13 +65,8 @@ func (v *Verifier) VerifyMessages(
 	ctx context.Context,
 	tasks []verifier.VerificationTask,
 ) []verifier.VerificationResult {
-	messages := make([]protocol.Message, 0, len(tasks))
-	for _, task := range tasks {
-		messages = append(messages, task.Message)
-	}
-
 	// 1. Fetch attestations in batch
-	attestations, err := v.attestationService.Fetch(ctx, messages)
+	attestations, err := v.attestationService.Fetch(ctx, tasks)
 	if err != nil {
 		// Mark all tasks as retriable errors if fetching attestations failed
 		results := make([]verifier.VerificationResult, 0, len(tasks))

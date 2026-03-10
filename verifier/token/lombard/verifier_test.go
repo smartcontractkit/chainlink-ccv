@@ -44,7 +44,7 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	}
 
 	mockAttestationService.EXPECT().
-		Fetch(ctx, []protocol.Message{task1.Message, task2.Message}).
+		Fetch(ctx, tasks).
 		Return(attestations, nil).
 		Once()
 
@@ -112,7 +112,7 @@ func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
 	}
 
 	mockAttestationService.EXPECT().
-		Fetch(ctx, []protocol.Message{task1.Message, task2.Message, task3.Message}).
+		Fetch(ctx, tasks).
 		Return(attestations, nil).
 		Once()
 
