@@ -1189,6 +1189,10 @@ func (m *CCIP17EVMConfig) deployTokenAndPool(
 					Version: semver.MustParse(routeroperations.Deploy.Version()),
 				},
 				ThresholdAmountForAdditionalCCVs: big.NewInt(0),
+				TokenAdminRegistryRef: datastore.AddressRef{
+					Type:    datastore.ContractType(token_admin_registry.ContractType),
+					Version: semver.MustParse(token_admin_registry.Deploy.Version()),
+				},
 			},
 		})
 	}
