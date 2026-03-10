@@ -299,17 +299,11 @@ func createLombardTestMessage(
 	messageHash protocol.ByteSlice,
 ) protocol.MessageSentEvent {
 	t.Helper()
-
-	// Create a message with token transfer
 	message := verifier.CreateTestMessage(t, sequenceNumber, sourceChainSelector, destChainSelector, 0, 300_000)
-	message.TokenTransfer = &protocol.TokenTransfer{
-		ExtraDataLength: uint16(len(messageHash)),
-	}
 	messageID, _ := message.MessageID()
 
-	// Create executor and router addresses
 	executorAddr := make([]byte, 20)
-	executorAddr[0] = 0x22
+	executorAddr[0] = 0x22 // Must match CreateTestMessage
 
 	routerAddr := make([]byte, 20)
 	routerAddr[0] = 0x44
