@@ -8,6 +8,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
@@ -34,6 +35,7 @@ type EVMSourceReader struct {
 	ccipMessageSentTopic string
 	chainSelector        protocol.ChainSelector
 	lggr                 logger.Logger
+	onRampABI            *abi.ABI // Cached ABI to avoid re-parsing
 }
 
 func NewEVMSourceReader(
@@ -80,6 +82,12 @@ func NewEVMSourceReader(
 			rmnRemoteAddress.Hex(), err)
 	}
 
+	// Get and cache the OnRamp ABI once during initialization
+	onRampABI, err := onramp.OnRampMetaData.GetAbi()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get OnRamp ABI: %w", err)
+	}
+
 	return &EVMSourceReader{
 		chainClient:          chainClient,
 		headTracker:          headTracker,
@@ -89,12 +97,13 @@ func NewEVMSourceReader(
 		ccipMessageSentTopic: ccipMessageSentTopic,
 		chainSelector:        chainSelector,
 		lggr:                 lggr,
+		onRampABI:            onRampABI,
 	}, nil
 }
 
 // GetBlocksHeaders TODO: Should use batch requests for efficiency ticket: CCIP-7766.
-func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
-	headers := make(map[*big.Int]protocol.BlockHeader)
+func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*big.Int) (map[uint64]protocol.BlockHeader, error) {
+	headers := make(map[uint64]protocol.BlockHeader)
 	for _, blockNumber := range blockNumbers {
 		header, err := r.chainClient.HeadByNumber(ctx, blockNumber)
 		if err != nil {
@@ -104,8 +113,9 @@ func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*
 		if header.Number < 0 {
 			return nil, fmt.Errorf("block number cannot be negative: %d", header.Number)
 		}
-		headers[blockNumber] = protocol.BlockHeader{
-			Number:     uint64(header.Number),
+		blockNum := uint64(header.Number)
+		headers[blockNum] = protocol.BlockHeader{
+			Number:     blockNum,
 			Hash:       protocol.Bytes32(header.Hash),
 			ParentHash: protocol.Bytes32(header.ParentHash),
 			Timestamp:  header.Timestamp,
@@ -144,29 +154,32 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 		var sender common.Address
 		var messageID [32]byte
 
-		if len(log.Topics) >= 4 {
-			destChainSelector = binary.BigEndian.Uint64(log.Topics[1][24:]) // Last 8 bytes
-			sender = common.BytesToAddress(log.Topics[2][12:])              // Last 20 bytes for address
-			copy(messageID[:], log.Topics[3][:])                            // Full 32 bytes
-
-			r.lggr.Infow("Event details",
-				"sourceChainSelector", r.chainSelector,
-				"destChainSelector", destChainSelector,
-				"sender", sender,
-				"messageId", common.Bytes2Hex(messageID[:]))
+		// Explicitly check for the expected number of topics
+		if len(log.Topics) < 4 {
+			r.lggr.Errorw("CCIPMessageSent event has insufficient topics",
+				"expected", 4,
+				"actual", len(log.Topics),
+				"blockNumber", log.BlockNumber,
+				"txHash", log.TxHash.Hex())
+			continue // to next message
 		}
 
-		// Parse the event data using the ABI
+		destChainSelector = binary.BigEndian.Uint64(log.Topics[1][24:]) // Last 8 bytes
+		sender = common.BytesToAddress(log.Topics[2][12:])              // Last 20 bytes for address
+		copy(messageID[:], log.Topics[3][:])                            // Full 32 bytes
+
+		r.lggr.Infow("Event details",
+			"sourceChainSelector", r.chainSelector,
+			"destChainSelector", destChainSelector,
+			"sender", sender,
+			"messageId", common.Bytes2Hex(messageID[:]))
+
+		// Parse the event data using the cached ABI
 		event := &onramp.OnRampCCIPMessageSent{}
 		event.DestChainSelector = destChainSelector
 		event.MessageId = messageID
 		event.Sender = sender
-		abi, err := onramp.OnRampMetaData.GetAbi()
-		if err != nil {
-			r.lggr.Errorw("Failed to get ABI", "error", err)
-			continue // to next message
-		}
-		err = abi.UnpackIntoInterface(event, "CCIPMessageSent", log.Data)
+		err = r.onRampABI.UnpackIntoInterface(event, "CCIPMessageSent", log.Data)
 		if err != nil {
 			r.lggr.Errorw("Failed to unpack CCIPMessageSent event payload", "error", err)
 			continue // to next message
@@ -179,15 +192,16 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 			"ReceiptsCount", len(event.Receipts),
 			"verifierBlobsCount", len(event.VerifierBlobs))
 
-		if len(event.Receipts) < 2 {
-			// The executor receipt is at Receipts[len-2], so we need at least two receipts
-			r.lggr.Errorw("Executor receipt is missing.", "count", len(event.Receipts))
+		// Check minimum receipt count: at least 1 CCV + executor + network fees = 3 receipts
+		if len(event.Receipts) < 3 {
+			r.lggr.Errorw("Insufficient receipts. Expected at least 3 (1 CCV + executor + network fees)",
+				"count", len(event.Receipts),
+				"messageId", common.Bytes2Hex(event.MessageId[:]))
 			continue // to next message
 		}
 
-		// Log verifier receipts
 		for i, vr := range event.Receipts {
-			r.lggr.Infow("Verifier Receipt",
+			r.lggr.Infow("Receipt",
 				"index", i,
 				"issuer", vr.Issuer.Hex(),
 				"destGasLimit", vr.DestGasLimit,
