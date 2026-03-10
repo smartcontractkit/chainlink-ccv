@@ -91,6 +91,23 @@ var (
 	}
 )
 
+// init registers evm token adapters for pool versions 1.6.1 and 2.0.0 so that ConfigureTokensForTransfers
+// (called from environment.go) can process token configs that reference these pool versions.
+func init() {
+	tokenAdapterRegistry := tokenscore.GetTokenAdapterRegistry()
+	for _, poolVersion := range tokenPoolVersions {
+		var tokenAdapter tokenscore.TokenAdapter
+		tokenAdapter = &evmadapters.TokenAdapter{}
+		if poolVersion == "1.6.1" {
+			tokenAdapter = &adapters_1_6_1.TokenAdapter{}
+		}
+		_, ok := tokenAdapterRegistry.GetTokenAdapter("evm", semver.MustParse(poolVersion))
+		if !ok {
+			tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(poolVersion), tokenAdapter)
+		}
+	}
+}
+
 type CCIP17EVMConfig struct {
 	logger zerolog.Logger
 }
@@ -1360,23 +1377,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		return err
 	}
 
-	tokenAdapterRegistry := tokenscore.GetTokenAdapterRegistry()
-	for _, poolVersion := range tokenPoolVersions {
-		var tokenAdapter tokenscore.TokenAdapter
-
-		tokenAdapter = &evmadapters.TokenAdapter{}
-		if poolVersion == "1.6.1" {
-			tokenAdapter = &adapters_1_6_1.TokenAdapter{}
-		}
-		_, ok := tokenAdapterRegistry.GetTokenAdapter("evm", semver.MustParse(poolVersion))
-		if !ok {
-			tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(poolVersion), tokenAdapter)
-		}
-		_, ok = tokenAdapterRegistry.GetTokenAdapter("canton", semver.MustParse(poolVersion))
-		if !ok {
-			l.Warn().Msg("Canton adapter not found, skipping")
-		}
-	}
+	// Token adapters are registered in environment.go before ConfigureTokensForTransfers via RegisterTokenAdapters().
 
 	// Token transfer configs are collected per chain and applied once in environment.go via ConfigureTokensForTransfers
 	// so that all chains are defined in the input (required for ConfigureTokensForTransfers to work correctly).
