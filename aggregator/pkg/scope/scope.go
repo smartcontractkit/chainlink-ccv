@@ -2,12 +2,12 @@ package scope
 
 import (
 	"context"
-	"encoding/hex"
 
 	"github.com/google/uuid"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -42,12 +42,12 @@ func WithRequestID(ctx context.Context) context.Context {
 }
 
 func WithMessageID(ctx context.Context, id []byte) context.Context {
-	msgID := "0x" + hex.EncodeToString(id)
+	msgID := protocol.ByteSlice(id)
 	return context.WithValue(ctx, messageIDKey, msgID)
 }
 
 func WithAddress(ctx context.Context, address []byte) context.Context {
-	return context.WithValue(ctx, addressKey, "0x"+hex.EncodeToString(address))
+	return context.WithValue(ctx, addressKey, protocol.ByteSlice(address))
 }
 
 func WithAggregationKey(ctx context.Context, key string) context.Context {
