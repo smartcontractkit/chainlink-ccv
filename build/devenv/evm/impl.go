@@ -922,30 +922,6 @@ func (m *CCIP17EVMConfig) ConfigureNodes(ctx context.Context, bc *blockchain.Inp
 	), nil
 }
 
-// filterTokenCombinations returns only the token combinations whose CCV qualifiers
-// all exist as committees in the topology. This ensures that environments with fewer
-// committees (e.g. HA topology with only "default") don't attempt to deploy or
-// configure token pools referencing non-existent committee verifiers.
-func filterTokenCombinations(combos []devenvcommon.TokenCombination, topology *deployments.EnvironmentTopology) []devenvcommon.TokenCombination {
-	filtered := make([]devenvcommon.TokenCombination, 0, len(combos))
-	for _, combo := range combos {
-		if qualifiersAvailable(combo.SourcePoolCCVQualifiers(), topology) &&
-			qualifiersAvailable(combo.DestPoolCCVQualifiers(), topology) {
-			filtered = append(filtered, combo)
-		}
-	}
-	return filtered
-}
-
-func qualifiersAvailable(qualifiers []string, topology *deployments.EnvironmentTopology) bool {
-	for _, q := range qualifiers {
-		if _, ok := topology.NOPTopology.Committees[q]; !ok {
-			return false
-		}
-	}
-	return true
-}
-
 // buildMockReceivers constructs MockReceiverParams dynamically from the topology.
 // For each committee qualifier in the topology, a receiver requiring that committee's
 // verifier is created. Multi-committee receivers (requiring one committee with optional
@@ -1115,7 +1091,7 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 	}
 	env.DataStore = runningDS.Seal()
 
-	applicableCombos := filterTokenCombinations(devenvcommon.AllTokenCombinations(), topology)
+	applicableCombos := devenvcommon.FilterTokenCombinations(devenvcommon.AllTokenCombinations(), topology)
 	for _, combo := range applicableCombos {
 		// For any given token combination, every chain needs to support the source and destination pools.
 		if err := m.deployTokenAndPool(env, mcmsReaderRegistry, runningDS, selector, combo.SourcePoolAddressRef()); err != nil {
@@ -1244,79 +1220,6 @@ func (m *CCIP17EVM) GetMaxDataBytes(ctx context.Context, remoteChainSelector uin
 		return 0, fmt.Errorf("failed to get dest chain config: %w", err)
 	}
 	return destChainConfig.MaxDataBytes, nil
-}
-
-// buildTokenTransferConfig builds a single TokenTransferConfig for use with ConfigureTokensForTransfers.
-// Used both by CollectTokenTransferConfigs (called from environment.go) and by tests.
-func (m *CCIP17EVMConfig) buildTokenTransferConfig(
-	selector uint64,
-	remoteSelectors []uint64,
-	localRef datastore.AddressRef,
-	remoteRef datastore.AddressRef,
-	ccvQualifiers []string,
-) tokenscore.TokenTransferConfig {
-	tokensRemoteChains := make(map[uint64]tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef])
-	for _, rs := range remoteSelectors {
-		ccvRefs := make([]datastore.AddressRef, 0, len(ccvQualifiers))
-		for _, qualifier := range ccvQualifiers {
-			ccvRefs = append(ccvRefs, datastore.AddressRef{
-				Type:      datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
-				Version:   versioned_verifier_resolver.Version,
-				Qualifier: qualifier,
-			})
-		}
-
-		tokensRemoteChains[rs] = tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
-			RemotePool: &remoteRef,
-			DefaultFinalityInboundRateLimiterConfig: tokenscore.RateLimiterConfigFloatInput{
-				IsEnabled: false,
-				Capacity:  0,
-				Rate:      0,
-			},
-			DefaultFinalityOutboundRateLimiterConfig: tokenscore.RateLimiterConfigFloatInput{
-				IsEnabled: false,
-				Capacity:  0,
-				Rate:      0,
-			},
-			CustomFinalityInboundRateLimiterConfig: tokenscore.RateLimiterConfigFloatInput{
-				IsEnabled: false,
-				Capacity:  0,
-				Rate:      0,
-			},
-			CustomFinalityOutboundRateLimiterConfig: tokenscore.RateLimiterConfigFloatInput{
-				IsEnabled: false,
-				Capacity:  0,
-				Rate:      0,
-			},
-			OutboundCCVs: ccvRefs,
-			InboundCCVs:  ccvRefs,
-		}
-	}
-
-	return tokenscore.TokenTransferConfig{
-		ChainSelector: selector,
-		TokenPoolRef:  localRef,
-		RegistryRef: datastore.AddressRef{
-			Type:    datastore.ContractType(token_admin_registry.ContractType),
-			Version: semver.MustParse(token_admin_registry.Deploy.Version()),
-		},
-		RemoteChains:     tokensRemoteChains,
-		MinFinalityValue: 1,
-	}
-}
-
-// CollectTokenTransferConfigs returns token transfer configs for this chain so that environment.go can
-// call ConfigureTokensForTransfers once with all chains' configs (required for correct behavior).
-func (m *CCIP17EVMConfig) CollectTokenTransferConfigs(e *deployment.Environment, selector uint64, remoteSelectors []uint64, topology *deployments.EnvironmentTopology) ([]tokenscore.TokenTransferConfig, error) {
-	applicableCombos := filterTokenCombinations(devenvcommon.AllTokenCombinations(), topology)
-	var configs []tokenscore.TokenTransferConfig
-	for _, combo := range applicableCombos {
-		configs = append(configs,
-			m.buildTokenTransferConfig(selector, remoteSelectors, combo.SourcePoolAddressRef(), combo.DestPoolAddressRef(), combo.SourcePoolCCVQualifiers()),
-			m.buildTokenTransferConfig(selector, remoteSelectors, combo.DestPoolAddressRef(), combo.SourcePoolAddressRef(), combo.DestPoolCCVQualifiers()),
-		)
-	}
-	return configs, nil
 }
 
 // TODO: How to generate all the default/secondary/tertiary things from the committee param?
@@ -1477,8 +1380,11 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 
 	// Token transfer configs are collected per chain and applied once in environment.go via ConfigureTokensForTransfers
 	// so that all chains are defined in the input (required for ConfigureTokensForTransfers to work correctly).
-	// USDC and Lombard are configured after ConfigureTokensForTransfers in environment.go so that token pools
-	// have remote chain config before CCTP/Lombard code reads from them (e.g. get supported chains from pool).
+
+	// CCTP/USDC and Lombard lane configuration; does not depend on ConfigureTokensForTransfers.
+	if err = m.ConfigureUSDCAndLombardForTransfer(e, selector, remoteSelectors); err != nil {
+		return fmt.Errorf("configure USDC/Lombard for transfer: %w", err)
+	}
 
 	// Configure the custom executor for the dest chain manually.
 	customExecutor, err := e.DataStore.Addresses().Get(
@@ -1521,8 +1427,8 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 	return nil
 }
 
-// ConfigureUSDCAndLombardForTransfer configures CCTP/USDC and Lombard lanes. Must be called after
-// ConfigureTokensForTransfers so that token pools have remote chain config before CCTP/Lombard read from them.
+// ConfigureUSDCAndLombardForTransfer configures CCTP/USDC and Lombard lanes. Called from ConnectContractsWithSelectors;
+// does not depend on ConfigureTokensForTransfers.
 func (m *CCIP17EVMConfig) ConfigureUSDCAndLombardForTransfer(e *deployment.Environment, selector uint64, remoteSelectors []uint64) error {
 	mcmsReaderRegistry := changesetscore.GetRegistry()
 	if err := m.configureUSDCForTransfer(e, mcmsReaderRegistry, selector, remoteSelectors); err != nil {
