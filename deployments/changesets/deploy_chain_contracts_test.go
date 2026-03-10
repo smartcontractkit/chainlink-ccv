@@ -428,7 +428,7 @@ func TestBuildCommitteeVerifierParams_MapsAllCommittees(t *testing.T) {
 			Committees: map[string]deployments.CommitteeConfig{
 				"alpha": {
 					Qualifier:        "alpha",
-					VerifierVersion:  semver.MustParse("1.7.0"),
+					VerifierVersion:  semver.MustParse("2.0.0"),
 					StorageLocations: []string{"https://store1.test"},
 					ChainConfigs: map[string]deployments.ChainCommitteeConfig{
 						selStr: {
@@ -441,7 +441,7 @@ func TestBuildCommitteeVerifierParams_MapsAllCommittees(t *testing.T) {
 				},
 				"beta": {
 					Qualifier:        "beta",
-					VerifierVersion:  semver.MustParse("1.7.0"),
+					VerifierVersion:  semver.MustParse("2.0.0"),
 					StorageLocations: []string{"https://store2.test"},
 					ChainConfigs: map[string]deployments.ChainCommitteeConfig{
 						selStr: {
@@ -487,7 +487,7 @@ func TestBuildCommitteeVerifierParams_SkipsCommitteesWithoutChainConfig(t *testi
 			Committees: map[string]deployments.CommitteeConfig{
 				"present": {
 					Qualifier:       "present",
-					VerifierVersion: semver.MustParse("1.7.0"),
+					VerifierVersion: semver.MustParse("2.0.0"),
 					ChainConfigs: map[string]deployments.ChainCommitteeConfig{
 						selStr: {
 							NOPAliases:    []string{"nop-1"},
@@ -498,7 +498,7 @@ func TestBuildCommitteeVerifierParams_SkipsCommitteesWithoutChainConfig(t *testi
 				},
 				"absent": {
 					Qualifier:       "absent",
-					VerifierVersion: semver.MustParse("1.7.0"),
+					VerifierVersion: semver.MustParse("2.0.0"),
 					ChainConfigs: map[string]deployments.ChainCommitteeConfig{
 						strconv.FormatUint(otherSel, 10): {
 							NOPAliases:    []string{"nop-1"},
@@ -609,7 +609,7 @@ func TestBuildCommitteeVerifierParams_AddressValidation(t *testing.T) {
 					Committees: map[string]deployments.CommitteeConfig{
 						"test": {
 							Qualifier:       "test",
-							VerifierVersion: semver.MustParse("1.7.0"),
+							VerifierVersion: semver.MustParse("2.0.0"),
 							ChainConfigs: map[string]deployments.ChainCommitteeConfig{
 								selStr: {
 									NOPAliases:     []string{"nop-1"},

@@ -258,7 +258,7 @@ func TestApplyVerifierConfig_MultipleAggregators(t *testing.T) {
 	topology := newTestTopology(
 		WithCommittee(testCommittee, deployments.CommitteeConfig{
 			Qualifier:       testCommittee,
-			VerifierVersion: semver.MustParse("1.7.0"),
+			VerifierVersion: semver.MustParse("2.0.0"),
 			Aggregators: []deployments.AggregatorConfig{
 				{Name: "agg-primary", Address: "aggregator-primary:443", InsecureAggregatorConnection: true},
 				{Name: "agg-secondary", Address: "aggregator-secondary:443", InsecureAggregatorConnection: true},
@@ -448,7 +448,7 @@ func TestApplyVerifierConfig_FiltersChainsPerNOPMembership(t *testing.T) {
 	topology := newTestTopology(
 		WithCommittee(testCommittee, deployments.CommitteeConfig{
 			Qualifier:       testCommittee,
-			VerifierVersion: semver.MustParse("1.7.0"),
+			VerifierVersion: semver.MustParse("2.0.0"),
 			Aggregators: []deployments.AggregatorConfig{
 				{Name: "instance-1", Address: "aggregator-1:443", InsecureAggregatorConnection: true},
 			},
@@ -505,7 +505,7 @@ func TestApplyVerifierConfig_SkipsNOPsNotInAnyChainConfig(t *testing.T) {
 		}),
 		WithCommittee(testCommittee, deployments.CommitteeConfig{
 			Qualifier:       testCommittee,
-			VerifierVersion: semver.MustParse("1.7.0"),
+			VerifierVersion: semver.MustParse("2.0.0"),
 			Aggregators: []deployments.AggregatorConfig{
 				{Name: "instance-1", Address: "aggregator-1:443", InsecureAggregatorConnection: true},
 			},
@@ -591,7 +591,7 @@ func TestApplyVerifierConfig_UpdatesJobsWhenChainRemoved(t *testing.T) {
 	topologyWithOneChain := newTestTopology(
 		WithCommittee(testCommittee, deployments.CommitteeConfig{
 			Qualifier:       testCommittee,
-			VerifierVersion: semver.MustParse("1.7.0"),
+			VerifierVersion: semver.MustParse("2.0.0"),
 			Aggregators: []deployments.AggregatorConfig{
 				{Name: "instance-1", Address: "aggregator-1:443", InsecureAggregatorConnection: true},
 			},
@@ -642,7 +642,7 @@ func TestApplyVerifierConfig_RemovesJobWhenNOPRemovedFromCommittee(t *testing.T)
 	topologyWithNOP1Only := newTestTopology(
 		WithCommittee(testCommittee, deployments.CommitteeConfig{
 			Qualifier:       testCommittee,
-			VerifierVersion: semver.MustParse("1.7.0"),
+			VerifierVersion: semver.MustParse("2.0.0"),
 			Aggregators: []deployments.AggregatorConfig{
 				{Name: testAggregatorName, Address: testAggregatorAddress, InsecureAggregatorConnection: true},
 			},
@@ -680,7 +680,7 @@ func TestApplyVerifierConfig_CreatesJobWhenNOPAddedToCommittee(t *testing.T) {
 	topologyWithNOP1Only := newTestTopology(
 		WithCommittee(testCommittee, deployments.CommitteeConfig{
 			Qualifier:       testCommittee,
-			VerifierVersion: semver.MustParse("1.7.0"),
+			VerifierVersion: semver.MustParse("2.0.0"),
 			Aggregators: []deployments.AggregatorConfig{
 				{Name: testAggregatorName, Address: testAggregatorAddress, InsecureAggregatorConnection: true},
 			},
