@@ -30,7 +30,7 @@ func LoadConfigWithBlockchainInfos[T any](spec JobSpec) (*Configuration, map[str
 		return nil, nil, fmt.Errorf("unknown fields in executor config: %v", md.Undecoded())
 	}
 
-	normalized, err := decodeTarget.Configuration.GetNormalizedConfig()
+	normalized, err := decodeTarget.GetNormalizedConfig()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to normalize executor config: %w", err)
 	}
