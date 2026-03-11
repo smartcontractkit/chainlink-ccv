@@ -68,14 +68,22 @@ func NewChainlinkExecutor(
 func (cle *ChainlinkExecutor) Start(ctx context.Context) error {
 	return cle.StartOnce(chainlinkExecutorServiceName, func() error {
 		cle.lggr.Info("Starting Chainlink Executor")
-		var errs []error
+		var startedReaders []chainaccess.DestinationReader
+		var startErrs []error
 		for chainSelector, reader := range cle.destinationReaders {
 			if err := reader.Start(ctx); err != nil {
-				errs = append(errs, fmt.Errorf("failed to start destination reader for chain %d: %w", chainSelector, err))
+				startErrs = append(startErrs, fmt.Errorf("failed to start destination reader for chain %d: %w", chainSelector, err))
+			} else {
+				startedReaders = append(startedReaders, reader)
 			}
 		}
-		if len(errs) > 0 {
-			return errors.Join(errs...)
+		if len(startErrs) > 0 {
+			for _, reader := range startedReaders {
+				if closeErr := reader.Close(); closeErr != nil {
+					startErrs = append(startErrs, closeErr)
+				}
+			}
+			return errors.Join(startErrs...)
 		}
 		return nil
 	})
