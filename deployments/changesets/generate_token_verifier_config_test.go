@@ -383,8 +383,8 @@ func TestGenerateTokenVerifierConfig_UsesDefaultVerifierVersion(t *testing.T) {
 		case verifierTypeLombard:
 			require.NotNil(t, v.LombardConfig, "Lombard config should not be nil")
 			assert.NotEmpty(t, v.LombardConfig.VerifierVersion, "Lombard verifier version should not be empty")
-			// Should use the default Lombard version (0xf0f3a135)
-			assert.Equal(t, []byte{0xf0, 0xf3, 0xa1, 0x35}, []byte(v.LombardConfig.VerifierVersion))
+			// Should use the default Lombard version (0xeba55588)
+			assert.Equal(t, []byte{0xeb, 0xa5, 0x55, 0x88}, []byte(v.LombardConfig.VerifierVersion))
 		}
 	}
 }

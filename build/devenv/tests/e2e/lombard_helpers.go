@@ -17,7 +17,7 @@ import (
 //
 // 1. The test calls buildLombardAttestation(messageID) which creates the attestation:
 //    Format: [rawPayloadLength (2 bytes)][rawPayload (36 bytes)][proofLength (2 bytes)][proof (0 bytes)]
-//    Where rawPayload = versionTag (0xf0f3a135) + messageId (32 bytes)
+//    Where rawPayload = versionTag (0xeba55588) + messageId (32 bytes)
 //
 // 2. This attestation is registered with the fake HTTP service via registerLombardAttestation()
 //
@@ -34,7 +34,7 @@ import (
 // 7. The mock mailbox returns the rawPayload as the bridgedMessage (for testing purposes)
 //
 // 8. The contract validates that bridgedMessage is exactly 36 bytes and contains:
-//    - versionTag (4 bytes): 0xf0f3a135
+//    - versionTag (4 bytes): 0xeba55588
 //    - messageId (32 bytes): matches the expected message ID
 
 // registerLombardAttestation registers a Lombard attestation response with the fake service.
@@ -76,7 +76,7 @@ func registerLombardAttestation(
 //
 // The rawPayload is what gets passed to deliverAndHandle() on the mock mailbox.
 // The mock mailbox should return a "bridged message" that is exactly 36 bytes:
-// - VERSION_TAG_V1_7_0 (4 bytes): 0xf0f3a135
+// - VERSION_TAG_V1_7_0 (4 bytes): 0xeba55588
 // - messageId (32 bytes).
 func buildLombardAttestation(messageID protocol.Bytes32) string {
 	// Version tag for LombardVerifier 1.7.0

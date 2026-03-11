@@ -2,8 +2,10 @@ package e2e
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -14,6 +16,8 @@ import (
 )
 
 // registerCCTPAttestation registers a CCTP attestation response with the fake service.
+// sourceSelector and destSelector are used to set sourceDomain and destinationDomain in the binary
+// message so the contract's InvalidSourceDomain check passes (contract expects e.g. 100 for GETH_TESTNET).
 func registerCCTPAttestation(
 	t *testing.T,
 	httpUrl string,
@@ -21,19 +25,23 @@ func registerCCTPAttestation(
 	messageSender protocol.UnknownAddress,
 	receiver protocol.UnknownAddress,
 	status string,
+	sourceSelector, destSelector uint64,
 ) {
 	messageIDHex := "0x" + hex.EncodeToString(messageID[:])
 
-	// Build CCTP message (412 bytes total)
-	// Verifier version (4 bytes) + CCTP message header (148 bytes) + message body (228 bytes) + hook data (36 bytes)
-	message := buildCCTPMessage(messageID, messageSender, receiver)
+	sourceDomain, ok := cctp.Domains[sourceSelector]
+	require.True(t, ok, "source chain selector %d must have CCTP domain (see cctp.Domains)", sourceSelector)
+	destDomain, ok := cctp.Domains[destSelector]
+	require.True(t, ok, "dest chain selector %d must have CCTP domain (see cctp.Domains)", destSelector)
+
+	// Build CCTP message (412 bytes total) with sourceDomain/destDomain set so contract does not revert InvalidSourceDomain
+	message := buildCCTPMessage(messageID, messageSender, receiver, sourceDomain, destDomain)
 
 	// Build attestation (65 bytes minimum - ECDSA signature with recovery byte)
-	// For testing purposes, we can use a dummy signature
 	attestation := buildCCTPAttestation()
 
 	reqBody := map[string]string{
-		"sourceDomain":  "100",
+		"sourceDomain":  fmt.Sprintf("%d", sourceDomain),
 		"messageID":     messageIDHex,
 		"status":        status,
 		"messageSender": messageSender.String(),
@@ -78,11 +86,12 @@ func registerCCTPAttestation(
 //   - hookData (36 bytes):
 //   - verifierVersion (4 bytes): cctp.DefaultVerifierVersion (0x35a25838)
 //   - messageId (32 bytes): bytes32
-func buildCCTPMessage(messageID [32]byte, messageSender, receiver protocol.UnknownAddress) string {
+func buildCCTPMessage(messageID [32]byte, messageSender, receiver protocol.UnknownAddress, sourceDomain, destDomain uint32) string {
 	message := make([]byte, 412)
 
-	// Most fields filled with zeros for testing
-	// We only set the required fields according to the spec
+	// sourceDomain (bytes 4-7) and destinationDomain (bytes 8-11) so contract InvalidSourceDomain check passes
+	binary.BigEndian.PutUint32(message[4:8], sourceDomain)
+	binary.BigEndian.PutUint32(message[8:12], destDomain)
 
 	// Fill mintRecipient field (offset 116 + 36, left-padded to 32 bytes)
 	// Solidity extraction: address(bytes20(message[116 + 36 + 12:116 + 36 + 12 + 20]))

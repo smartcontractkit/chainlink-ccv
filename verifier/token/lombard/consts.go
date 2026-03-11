@@ -8,7 +8,7 @@ import (
 
 // DefaultVerifierVersionHex is the default hex-encoded version of the 1.7 LombardVerifier contract (with 0x prefix).
 // bytes4(keccak256("LombardVerifier 1.7.0")).
-const DefaultVerifierVersionHex = "0xf0f3a135"
+const DefaultVerifierVersionHex = "0xeba55588"
 
 // DefaultVerifierVersion is the version of the 1.7 LombardVerifier contract.
 var DefaultVerifierVersion = mustDecodeHex(DefaultVerifierVersionHex)

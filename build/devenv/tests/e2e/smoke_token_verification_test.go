@@ -258,7 +258,7 @@ func runUSDCTestCase(
 		"",
 		"",
 	)
-	registerCCTPAttestation(t, in.Fake.Out.ExternalHTTPURL, msgID, cctpMessageSender, tc.receiver, "complete")
+	registerCCTPAttestation(t, in.Fake.Out.ExternalHTTPURL, msgID, cctpMessageSender, tc.receiver, "complete", sourceSelector, destSelector)
 	l.Info().Str("MessageID", hex.EncodeToString(msgID[:])).Msg("Registered CCTP attestation")
 
 	var aggregatorClient *ccv.AggregatorClient
