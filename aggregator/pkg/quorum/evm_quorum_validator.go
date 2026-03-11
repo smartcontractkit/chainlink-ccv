@@ -41,6 +41,17 @@ func (q *EVMQuorumValidator) CheckQuorum(ctx context.Context, aggregatedReport *
 		return false, fmt.Errorf("failed to get quorum config for source selector: %d", aggregatedReport.GetSourceChainSelector())
 	}
 
+	// Reject aggregation when the report is not message-discovery,
+	// and the source verifier is not in the message's CCV addresses (uses first verification; hash check ensures consistency).
+	sourceVerifierAddr := quorumConfig.GetSourceVerifierAddress()
+	if sourceVerifierAddr != nil && !bytes.Equal(aggregatedReport.GetVersion(), protocol.MessageDiscoveryVersion) {
+		messageCCVAddresses := aggregatedReport.GetMessageCCVAddresses()
+		if !model.IsSourceVerifierInCCVAddresses(sourceVerifierAddr, messageCCVAddresses) {
+			q.logger(ctx).Warnw("Source verifier address not in message CCV addresses, skipping aggregation")
+			return false, nil
+		}
+	}
+
 	if len(aggregatedReport.Verifications) < int(quorumConfig.Threshold) {
 		q.logger(ctx).Debugf("Not enough verifications to meet quorum: have %d, need %d", len(aggregatedReport.Verifications), quorumConfig.Threshold)
 		return false, nil
