@@ -233,7 +233,7 @@ func (ec *Coordinator) runProcessingLoop(ctx context.Context) {
 					ec.inFlightAdd(payload.MessageID)
 				case <-ctx.Done():
 					ec.lggr.Infow("Processing loop dropping payload to exit")
-					continue
+					return
 				}
 			}
 		case <-reportingTicker.C:

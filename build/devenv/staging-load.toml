@@ -6,7 +6,6 @@ message_profiles=[
 [[test_profiles]]
     enabled=true
     chains_as_source=[
-        {selector="16281711391670634445", ratio=1}, # polygon amoy
         {selector="14767482510784806043", ratio=1}, # avalanche fuji
         {selector="16015286601757825753", ratio=1}, # ethereum sepolia
         {selector="10344971235874465080", ratio=1}, # arbitrum sepolia
@@ -20,8 +19,8 @@ message_profiles=[
         {selector="3478487238524512106", ratio=1}, # base sepolia
     ]
     messages=[
-        {ratio=100, message_profile="data only"},
-        # {ratio=35, message_profile="PTT"},
+        # {ratio=100, message_profile="data only"},
+        {ratio=35, message_profile="PTT"},
         # {ratio=53, message_profile="token only"}
     ]
     test_duration = "2m"
@@ -43,8 +42,8 @@ message_profiles=[
         {selector="3478487238524512106", ratio=1}, # base sepolia
     ]
     messages=[
-        {ratio=100, message_profile="data only"},
-        # {ratio=35, message_profile="PTT"},
+        # {ratio=100, message_profile="data only"},
+        {ratio=35, message_profile="PTT"},
         # {ratio=53, message_profile="token only"}
     ]
     test_duration = "2m"
@@ -64,8 +63,8 @@ message_profiles=[
         {selector="14767482510784806043", ratio=1}, # avalanche fuji
     ]
     messages=[
-        {ratio=100, message_profile="data only"},
-        # {ratio=35, message_profile="PTT"},
+        # {ratio=100, message_profile="data only"},
+        {ratio=35, message_profile="PTT"},
         # {ratio=53, message_profile="token only"}
     ]
     test_duration = "2m"
