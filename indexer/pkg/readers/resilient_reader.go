@@ -123,7 +123,7 @@ func createPolicies[T any](config ResilienceConfig, lggr logger.Logger, name str
 		Build()
 
 	return executorPolicies[T]{
-		executor:       failsafe.With(rl, bh, cb, to),
+		executor:       failsafe.With(cb, rl, bh, to),
 		circuitBreaker: cb,
 	}
 }
