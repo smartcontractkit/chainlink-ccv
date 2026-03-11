@@ -311,7 +311,6 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context, latest, fin
 		return
 	}
 
-	now := time.Now()
 	tasks := make([]VerificationTask, 0, len(events))
 	for _, event := range events {
 		if r.filter != nil && !r.filter.Filter(event) {
@@ -337,7 +336,6 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context, latest, fin
 			BlockNumber:          event.BlockNumber,
 			MessageID:            onchainMessageID,
 			TxHash:               event.TxHash,
-			FirstSeenAt:          now,
 			FinalizedBlockAtRead: finalized.Number,
 		}
 		tasks = append(tasks, task)
@@ -463,7 +461,6 @@ func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationT
 				"blockNumber", task.BlockNumber)
 			continue
 		}
-		task.QueuedAt = time.Now()
 		r.pendingTasks[task.MessageID] = task
 		r.logger.Infow("Added message to pending queue",
 			"messageID", task.MessageID,
@@ -536,6 +533,9 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, fin
 		}
 
 		if r.isMessageReadyForVerification(task, latestBlock, latestFinalizedBlock) {
+			// Set the timestamp when message became ready for verification
+			// This is the finalized block timestamp which represents when the message met finality criteria
+			task.ReadyForVerificationAt = finalized.Timestamp
 			ready = append(ready, task)
 			r.sentTasks[msgID] = task
 			toBeDeleted = append(toBeDeleted, msgID)
@@ -555,6 +555,12 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, fin
 		"ready", len(ready),
 		"pending", len(r.pendingTasks),
 		"sentTasks", len(r.sentTasks))
+
+	// Set PushedToVerificationQueueAt timestamp when pushing to task verifier queue for queue latency tracking
+	publishTime := time.Now()
+	for i := range ready {
+		ready[i].PushedToVerificationQueueAt = publishTime
+	}
 
 	// Publish directly to the DB-backed task queue instead of the batcher
 	if err := r.taskQueue.Publish(ctx, ready...); err != nil {

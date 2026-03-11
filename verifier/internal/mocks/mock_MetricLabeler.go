@@ -735,6 +735,40 @@ func (_c *MockMetricLabeler_RecordTaskVerificationQueueSize_Call) RunAndReturn(r
 	return _c
 }
 
+// RecordVerificationQueueLatency provides a mock function with given fields: ctx, duration
+func (_m *MockMetricLabeler) RecordVerificationQueueLatency(ctx context.Context, duration time.Duration) {
+	_m.Called(ctx, duration)
+}
+
+// MockMetricLabeler_RecordVerificationQueueLatency_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordVerificationQueueLatency'
+type MockMetricLabeler_RecordVerificationQueueLatency_Call struct {
+	*mock.Call
+}
+
+// RecordVerificationQueueLatency is a helper method to define mock.On call
+//   - ctx context.Context
+//   - duration time.Duration
+func (_e *MockMetricLabeler_Expecter) RecordVerificationQueueLatency(ctx interface{}, duration interface{}) *MockMetricLabeler_RecordVerificationQueueLatency_Call {
+	return &MockMetricLabeler_RecordVerificationQueueLatency_Call{Call: _e.mock.On("RecordVerificationQueueLatency", ctx, duration)}
+}
+
+func (_c *MockMetricLabeler_RecordVerificationQueueLatency_Call) Run(run func(ctx context.Context, duration time.Duration)) *MockMetricLabeler_RecordVerificationQueueLatency_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(time.Duration))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordVerificationQueueLatency_Call) Return() *MockMetricLabeler_RecordVerificationQueueLatency_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordVerificationQueueLatency_Call) RunAndReturn(run func(context.Context, time.Duration)) *MockMetricLabeler_RecordVerificationQueueLatency_Call {
+	_c.Run(run)
+	return _c
+}
+
 // SetLocalChainGlobalCursed provides a mock function with given fields: ctx, localSelector, globalCurse
 func (_m *MockMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool) {
 	_m.Called(ctx, localSelector, globalCurse)

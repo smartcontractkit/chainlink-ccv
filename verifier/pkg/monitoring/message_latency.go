@@ -44,17 +44,20 @@ func NewMessageLatencyTracker(
 func (m *inmemoryMessageLatencyTracker) MarkMessageAsSeen(task *verifier.VerificationTask) {
 	messageID := task.MessageID
 
-	// Track message creation time for E2E latency measurement
-	if task.FirstSeenAt.IsZero() {
-		// If FirstSeenAt was not set by source reader, set it now
-		task.FirstSeenAt = time.Now()
+	// Track message ready time for E2E latency measurement using block timestamp when finalized
+	var trackingTime time.Time
+	if !task.ReadyForVerificationAt.IsZero() {
+		trackingTime = task.ReadyForVerificationAt
+	} else {
+		// If timestamp is not set, use current time as fallback
+		trackingTime = time.Now()
 	}
 
 	// Make it idempotent, don't overwrite existing timestamp if it's already in the cache
 	if _, ok := m.messageTimestamps.Get(messageID); ok {
 		return
 	}
-	m.messageTimestamps.SetDefault(messageID, task.FirstSeenAt)
+	m.messageTimestamps.SetDefault(messageID, trackingTime)
 }
 
 func (m *inmemoryMessageLatencyTracker) TrackMessageLatencies(ctx context.Context, messages []protocol.VerifierNodeResult) {

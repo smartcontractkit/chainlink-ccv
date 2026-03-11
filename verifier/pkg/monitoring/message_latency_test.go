@@ -35,10 +35,10 @@ func Test_MessageLatency(t *testing.T) {
 		expectedLatencies []E2ELatencyCall
 	}{
 		{
-			name: "messages with firstSeenAt are tracked correctly",
+			name: "messages with ReadyForVerificationAt are tracked correctly",
 			tasks: []verifier.VerificationTask{
-				{Message: message1, MessageID: msgID1, FirstSeenAt: twoSeconds},
-				{Message: message2, MessageID: msgID2, FirstSeenAt: tenMinutes},
+				{Message: message1, MessageID: msgID1, ReadyForVerificationAt: twoSeconds},
+				{Message: message2, MessageID: msgID2, ReadyForVerificationAt: tenMinutes},
 			},
 			messages: []protocol.VerifierNodeResult{
 				messageToCCVNodeData(message1, msgID1),
@@ -56,7 +56,7 @@ func Test_MessageLatency(t *testing.T) {
 			},
 		},
 		{
-			name: "messages without firstSeenAt are tracked as they just happened",
+			name: "messages without ReadyForVerificationAt are tracked as they just happened",
 			tasks: []verifier.VerificationTask{
 				{Message: message1, MessageID: msgID1},
 			},
@@ -73,7 +73,7 @@ func Test_MessageLatency(t *testing.T) {
 		{
 			name: "messages not marked as seen are ignored",
 			tasks: []verifier.VerificationTask{
-				{Message: message1, MessageID: msgID1, FirstSeenAt: twoSeconds},
+				{Message: message1, MessageID: msgID1, ReadyForVerificationAt: twoSeconds},
 			},
 			messages: []protocol.VerifierNodeResult{
 				messageToCCVNodeData(message2, msgID2),
@@ -84,8 +84,8 @@ func Test_MessageLatency(t *testing.T) {
 		{
 			name: "latencies are tracked once even if message appears the same with different seenAt",
 			tasks: []verifier.VerificationTask{
-				{Message: message1, MessageID: msgID1, FirstSeenAt: twoSeconds},
-				{Message: message1, MessageID: msgID1, FirstSeenAt: tenMinutes},
+				{Message: message1, MessageID: msgID1, ReadyForVerificationAt: twoSeconds},
+				{Message: message1, MessageID: msgID1, ReadyForVerificationAt: tenMinutes},
 			},
 			messages: []protocol.VerifierNodeResult{
 				messageToCCVNodeData(message1, msgID1),
@@ -145,9 +145,9 @@ func Test_UnderlyingCacheTTL(t *testing.T) {
 	message := generateMessage(t)
 	msgID := message.MustMessageID().String()
 	task := verifier.VerificationTask{
-		Message:     message,
-		MessageID:   msgID,
-		FirstSeenAt: time.Now(),
+		Message:                message,
+		MessageID:              msgID,
+		ReadyForVerificationAt: time.Now(),
 	}
 	tracker.MarkMessageAsSeen(&task)
 

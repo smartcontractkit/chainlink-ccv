@@ -26,9 +26,9 @@ type VerifierMetrics struct {
 	messagesVerificationFailed metric.Int64Counter
 
 	// Fine-Grained Latency Breakdown
-	finalityWaitDurationSeconds     metric.Float64Histogram
 	taskVerificationDurationSeconds metric.Float64Histogram
 	storageWriteDurationSeconds     metric.Float64Histogram
+	verificationQueueLatencySeconds metric.Float64Histogram
 
 	// Queue Health
 	taskVerificationQueueSizeGauge metric.Int64Gauge
@@ -99,15 +99,6 @@ func InitMetrics() (*VerifierMetrics, error) {
 	}
 
 	// Fine-Grained Latency Breakdown
-	vm.finalityWaitDurationSeconds, err = beholder.GetMeter().Float64Histogram(
-		"verifier_finality_wait_duration_seconds",
-		metric.WithDescription("Time a message spent waiting in the finality queue"),
-		metric.WithUnit("seconds"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to register finality wait duration histogram: %w", err)
-	}
-
 	vm.taskVerificationDurationSeconds, err = beholder.GetMeter().Float64Histogram(
 		"verifier_task_verification_duration_seconds",
 		metric.WithDescription("Duration of the full VerifyMessage operation"),
@@ -124,6 +115,15 @@ func InitMetrics() (*VerifierMetrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register storage write duration histogram: %w", err)
+	}
+
+	vm.verificationQueueLatencySeconds, err = beholder.GetMeter().Float64Histogram(
+		"verifier_verification_queue_latency_seconds",
+		metric.WithDescription("Time a message spent in the verification queue from push to poll"),
+		metric.WithUnit("seconds"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register verification queue latency histogram: %w", err)
 	}
 
 	// Queue Health
@@ -389,11 +389,6 @@ func (v *VerifierMetricLabeler) IncrementMessagesVerificationFailed(ctx context.
 	v.vm.messagesVerificationFailed.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
-func (v *VerifierMetricLabeler) RecordFinalityWaitDuration(ctx context.Context, duration time.Duration) {
-	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
-	v.vm.finalityWaitDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
-}
-
 func (v *VerifierMetricLabeler) RecordMessageVerificationDuration(ctx context.Context, duration time.Duration) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.taskVerificationDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
@@ -402,6 +397,11 @@ func (v *VerifierMetricLabeler) RecordMessageVerificationDuration(ctx context.Co
 func (v *VerifierMetricLabeler) RecordStorageWriteDuration(ctx context.Context, duration time.Duration) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.storageWriteDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) RecordVerificationQueueLatency(ctx context.Context, duration time.Duration) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.verificationQueueLatencySeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
 }
 
 func (v *VerifierMetricLabeler) RecordTaskVerificationQueueSize(ctx context.Context, size int64) {

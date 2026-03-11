@@ -33,10 +33,11 @@ type TaskVerifierProcessor struct {
 	stopCh services.StopChan
 	wg     sync.WaitGroup
 
-	lggr       logger.Logger
-	verifierID string
-	monitoring Monitoring
-	verifier   Verifier
+	lggr           logger.Logger
+	verifierID     string
+	monitoring     Monitoring
+	verifier       Verifier
+	messageTracker MessageLatencyTracker
 
 	// Pending writing tracker (shared with SRS and SWP)
 	writingTracker *PendingWritingTracker
@@ -58,13 +59,14 @@ func NewTaskVerifierProcessorDB(
 	verifierID string,
 	verifier Verifier,
 	monitoring Monitoring,
+	messageTracker MessageLatencyTracker,
 	taskQueue jobqueue.JobQueue[VerificationTask],
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
 	writingTracker *PendingWritingTracker,
 	batchSize int,
 ) (*TaskVerifierProcessor, error) {
 	return NewTaskVerifierProcessorDBWithPollInterval(
-		lggr, verifierID, verifier, monitoring, taskQueue, resultQueue, writingTracker, batchSize, defaultTaskPollInterval,
+		lggr, verifierID, verifier, monitoring, messageTracker, taskQueue, resultQueue, writingTracker, batchSize, defaultTaskPollInterval,
 	)
 }
 
@@ -73,6 +75,7 @@ func NewTaskVerifierProcessorDBWithPollInterval(
 	verifierID string,
 	verifier Verifier,
 	monitoring Monitoring,
+	messageTracker MessageLatencyTracker,
 	taskQueue jobqueue.JobQueue[VerificationTask],
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
 	writingTracker *PendingWritingTracker,
@@ -84,6 +87,7 @@ func NewTaskVerifierProcessorDBWithPollInterval(
 		verifierID:      verifierID,
 		monitoring:      monitoring,
 		verifier:        verifier,
+		messageTracker:  messageTracker,
 		taskQueue:       taskQueue,
 		resultQueue:     resultQueue,
 		writingTracker:  writingTracker,
@@ -157,21 +161,18 @@ func (p *TaskVerifierProcessor) processBatch(ctx context.Context) error {
 		"batchSize", len(jobs),
 	)
 
-	// Extract tasks and build job ID map
+	// Extract tasks and build job ID map and task map for metrics
 	tasks := make([]VerificationTask, len(jobs))
-	jobIDMap := make(map[string]string) // messageID -> jobID
+	jobIDMap := make(map[string]string)          // messageID -> jobID
+	taskMap := make(map[string]VerificationTask) // messageID -> task (for accessing timestamps)
 	for i, job := range jobs {
 		tasks[i] = job.Payload
 		jobIDMap[job.Payload.MessageID] = job.ID
-	}
+		taskMap[job.Payload.MessageID] = job.Payload
 
-	// Track finality wait duration metrics
-	for _, task := range tasks {
-		if !task.QueuedAt.IsZero() && p.monitoring != nil {
-			finalityWaitDuration := time.Since(task.QueuedAt)
-			p.monitoring.Metrics().
-				With("source_chain", task.Message.SourceChainSelector.String(), "verifier_id", p.verifierID).
-				RecordFinalityWaitDuration(ctx, finalityWaitDuration)
+		// Mark message as seen for E2E latency tracking
+		if p.messageTracker != nil {
+			p.messageTracker.MarkMessageAsSeen(&tasks[i])
 		}
 	}
 
@@ -182,7 +183,7 @@ func (p *TaskVerifierProcessor) processBatch(ctx context.Context) error {
 	results := p.verifier.VerifyMessages(ctx, tasks)
 
 	// Process verification results
-	return p.handleVerificationResults(ctx, results, jobIDMap, verificationStartTime)
+	return p.handleVerificationResults(ctx, results, jobIDMap, taskMap, verificationStartTime)
 }
 
 // handleVerificationResults processes verification results, updating job statuses and publishing successful results.
@@ -190,6 +191,7 @@ func (p *TaskVerifierProcessor) handleVerificationResults(
 	ctx context.Context,
 	results []VerificationResult,
 	jobIDMap map[string]string,
+	taskMap map[string]VerificationTask,
 	verificationStartTime time.Time,
 ) error {
 	if len(results) == 0 {
@@ -203,6 +205,9 @@ func (p *TaskVerifierProcessor) handleVerificationResults(
 	retryErrors := make(map[string]error)
 	failedJobIDs := make([]string, 0)
 	failedErrors := make(map[string]error)
+
+	// Record when results are processed (for queue latency calculation)
+	processedAt := time.Now()
 
 	// Process each result
 	for _, result := range results {
@@ -241,6 +246,14 @@ func (p *TaskVerifierProcessor) handleVerificationResults(
 			p.monitoring.Metrics().
 				With("source_chain", message.SourceChainSelector.String(), "verifier_id", p.verifierID).
 				RecordMessageVerificationDuration(ctx, verificationDuration)
+
+			// Track verification queue latency (time from push to successful verification, including retries)
+			if task, taskExists := taskMap[messageID]; taskExists && !task.PushedToVerificationQueueAt.IsZero() {
+				queueLatency := processedAt.Sub(task.PushedToVerificationQueueAt)
+				p.monitoring.Metrics().
+					With("source_chain", message.SourceChainSelector.String(), "verifier_id", p.verifierID).
+					RecordVerificationQueueLatency(ctx, queueLatency)
+			}
 		}
 	}
 

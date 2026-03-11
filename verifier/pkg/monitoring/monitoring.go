@@ -113,12 +113,12 @@ func (f *FakeVerifierMetricLabeler) SetVerifierHeartbeatChainHeads(context.Conte
 
 func (f *FakeVerifierMetricLabeler) SetVerifierHeartbeatScore(context.Context, float64) {}
 
-func (f *FakeVerifierMetricLabeler) RecordFinalityWaitDuration(context.Context, time.Duration) {}
-
 func (f *FakeVerifierMetricLabeler) RecordMessageVerificationDuration(context.Context, time.Duration) {
 }
 
 func (f *FakeVerifierMetricLabeler) RecordStorageWriteDuration(context.Context, time.Duration) {}
+
+func (f *FakeVerifierMetricLabeler) RecordVerificationQueueLatency(context.Context, time.Duration) {}
 
 func (f *FakeVerifierMetricLabeler) RecordTaskVerificationQueueSize(context.Context, int64) {}
 
