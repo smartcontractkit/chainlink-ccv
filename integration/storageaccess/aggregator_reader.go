@@ -27,7 +27,8 @@ type AggregatorReader struct {
 // If insecure is true, TLS verification is disabled (only for testing).
 // maxRecvMsgSizeBytes limits the maximum gRPC response size; 0 uses the gRPC default (4MB).
 func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacConfig *hmac.ClientConfig, insecure bool, maxRecvMsgSizeBytes int) (*AggregatorReader, error) {
-	conn, err := grpc.NewClient(address, buildDialOptions(hmacConfig, insecure, maxRecvMsgSizeBytes)...)
+	// Reader doesn't send large batches, so use 0 for maxSendMsgSizeBytes (default)
+	conn, err := grpc.NewClient(address, buildDialOptions(hmacConfig, insecure, 0, maxRecvMsgSizeBytes)...)
 	if err != nil {
 		return nil, err
 	}

@@ -35,7 +35,8 @@ type VerifierMetrics struct {
 	storageWriteQueueSizeGauge     metric.Int64Gauge
 
 	// Error Tracking
-	storageWriteErrorsCounter metric.Int64Counter
+	taskVerificationPermanentErrors metric.Int64Counter
+	storageWriteErrorsCounter       metric.Int64Counter
 
 	// Heartbeat Tracking
 	heartbeatsSentCounter           metric.Int64Counter
@@ -53,7 +54,7 @@ type VerifierMetrics struct {
 	remoteChainCursed              metric.Int64Gauge
 	localChainGlobalCursed         metric.Int64Gauge
 
-	// Reorg Tracking
+	// Reorg/Finality  Tracking
 	reorgTrackedSeqNumsGauge metric.Int64Gauge
 
 	// HTTP API Metrics
@@ -259,6 +260,14 @@ func InitMetrics() (*VerifierMetrics, error) {
 		return nil, fmt.Errorf("failed to register reorg tracked seqnums gauge: %w", err)
 	}
 
+	vm.taskVerificationPermanentErrors, err = beholder.GetMeter().Int64Counter(
+		"verifier_task_verification_permanent_errors_total",
+		metric.WithDescription("Total number of non-retryable errors during task verification"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register task verification permanent errors counter: %w", err)
+	}
+
 	// HTTP API Metrics
 	vm.httpActiveRequestsUpDownCounter, err = beholder.GetMeter().Int64UpDownCounter(
 		"verifier_http_active_requests",
@@ -408,6 +417,11 @@ func (v *VerifierMetricLabeler) RecordStorageWriteQueueSize(ctx context.Context,
 func (v *VerifierMetricLabeler) IncrementStorageWriteErrors(ctx context.Context) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.storageWriteErrorsCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) IncrementTaskVerificationPermanentErrors(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.taskVerificationPermanentErrors.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
 func (v *VerifierMetricLabeler) IncrementHeartbeatsSent(ctx context.Context) {

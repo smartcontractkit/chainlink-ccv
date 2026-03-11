@@ -32,7 +32,7 @@ MetricReaderInterval = 5
 TraceSampleRatio = 1.0
 TraceBatchTimeout = 10
 
-[executor_pools.default]
+[executor_pools.default.chain_configs."16015286601757825753"]
 nop_aliases = ["nop-1", "nop-2"]
 execution_interval = "15s"
 
@@ -84,8 +84,10 @@ insecure_connection = false
 
 	require.Len(t, cfg.ExecutorPools, 1)
 	pool := cfg.ExecutorPools["default"]
-	assert.Equal(t, []string{"nop-1", "nop-2"}, pool.NOPAliases)
-	assert.Equal(t, 15*time.Second, pool.ExecutionInterval)
+	require.Len(t, pool.ChainConfigs, 1)
+	chainCfg := pool.ChainConfigs["16015286601757825753"]
+	assert.Equal(t, []string{"nop-1", "nop-2"}, chainCfg.NOPAliases)
+	assert.Equal(t, 15*time.Second, chainCfg.ExecutionInterval)
 }
 
 func TestWriteEnvironmentTopology_WritesValidConfig(t *testing.T) {
@@ -125,8 +127,12 @@ func TestWriteEnvironmentTopology_WritesValidConfig(t *testing.T) {
 		},
 		ExecutorPools: map[string]deployments.ExecutorPoolConfig{
 			"default": {
-				NOPAliases:        []string{"nop-1", "nop-2"},
-				ExecutionInterval: 15 * time.Second,
+				ChainConfigs: map[string]deployments.ChainExecutorPoolConfig{
+					"16015286601757825753": {
+						NOPAliases:        []string{"nop-1", "nop-2"},
+						ExecutionInterval: 15 * time.Second,
+					},
+				},
 			},
 		},
 	}
@@ -155,7 +161,11 @@ func TestEnvironmentTopology_GetNOPsForPool(t *testing.T) {
 			Committees: map[string]deployments.CommitteeConfig{},
 		},
 		ExecutorPools: map[string]deployments.ExecutorPoolConfig{
-			"default": {NOPAliases: []string{"nop-1", "nop-2"}},
+			"default": {
+				ChainConfigs: map[string]deployments.ChainExecutorPoolConfig{
+					"123": {NOPAliases: []string{"nop-1", "nop-2"}},
+				},
+			},
 		},
 	}
 
@@ -238,12 +248,21 @@ func TestEnvironmentTopology_GetPoolsForNOP(t *testing.T) {
 		NOPTopology: &deployments.NOPTopology{
 			NOPs: []deployments.NOPConfig{
 				{Alias: "nop-1", Name: "NOP One"},
+				{Alias: "nop-2", Name: "NOP Two"},
 			},
 			Committees: map[string]deployments.CommitteeConfig{},
 		},
 		ExecutorPools: map[string]deployments.ExecutorPoolConfig{
-			"pool-a": {NOPAliases: []string{"nop-1"}},
-			"pool-b": {NOPAliases: []string{"nop-1", "nop-2"}},
+			"pool-a": {
+				ChainConfigs: map[string]deployments.ChainExecutorPoolConfig{
+					"123": {NOPAliases: []string{"nop-1"}},
+				},
+			},
+			"pool-b": {
+				ChainConfigs: map[string]deployments.ChainExecutorPoolConfig{
+					"123": {NOPAliases: []string{"nop-1", "nop-2"}},
+				},
+			},
 		},
 	}
 

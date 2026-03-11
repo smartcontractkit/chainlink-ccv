@@ -30,6 +30,14 @@ const (
 	opUpdateMessageStatus   = "UpdateMessageStatus"
 	opCreateDiscoveryState  = "CreateDiscoveryState"
 	opPersistDiscoveryBatch = "PersistDiscoveryBatch"
+
+	// maxBatchSizeCCVData is the maximum number of CCV data rows that can be inserted in a single query
+	// to avoid Postgres bind parameter overflow (65535 limit). With 11 parameters per row, 5000 rows = 55000 parameters.
+	maxBatchSizeCCVData = 5000
+
+	// maxBatchSizeMessages is the maximum number of message rows that can be inserted in a single query
+	// to avoid Postgres bind parameter overflow (65535 limit). With 7 parameters per row, 5000 rows = 35000 parameters.
+	maxBatchSizeMessages = 5000
 )
 
 type PostgresStorage struct {
@@ -297,8 +305,6 @@ func (d *PostgresStorage) InsertVerifierResults(ctx context.Context, verifierRes
 	} else {
 		d.lggr.Debugw("Batch insert completed", "requested", len(verifierResults), "inserted", rowsAffected)
 	}
-
-	d.trackUniqueMessages(ctx, verifierResults)
 
 	for range rowsAffected {
 		d.monitoring.Metrics().IncrementVerificationRecordsCounter(ctx)
@@ -586,28 +592,41 @@ func (d *PostgresStorage) PersistDiscoveryBatch(ctx context.Context, batch commo
 	var verificationsInserted int64
 
 	err := sqlutil.TransactDataSource(ctx, d.ds, nil, func(tx sqlutil.DataSource) error {
+		// Chunk messages to avoid Postgres bind parameter overflow
 		if len(batch.Messages) > 0 {
-			query, args, err := buildBatchInsertMessagesQuery(batch.Messages)
-			if err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx, query, args...); err != nil {
-				return fmt.Errorf("failed to batch insert messages: %w", err)
+			for i := 0; i < len(batch.Messages); i += maxBatchSizeMessages {
+				end := min(i+maxBatchSizeMessages, len(batch.Messages))
+				chunk := batch.Messages[i:end]
+
+				query, args, err := buildBatchInsertMessagesQuery(chunk)
+				if err != nil {
+					return err
+				}
+				if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+					return fmt.Errorf("failed to batch insert messages chunk: %w", err)
+				}
 			}
 		}
 
+		// Chunk verifications to avoid Postgres bind parameter overflow
 		if len(batch.Verifications) > 0 {
-			query, args, err := buildBatchInsertCCVDataQuery(batch.Verifications)
-			if err != nil {
-				return err
-			}
-			result, err := tx.ExecContext(ctx, query, args...)
-			if err != nil {
-				return fmt.Errorf("failed to batch insert CCV data: %w", err)
-			}
-			verificationsInserted, err = result.RowsAffected()
-			if err != nil {
-				return fmt.Errorf("failed to get rows affected for CCV insert: %w", err)
+			for i := 0; i < len(batch.Verifications); i += maxBatchSizeCCVData {
+				end := min(i+maxBatchSizeCCVData, len(batch.Verifications))
+				chunk := batch.Verifications[i:end]
+
+				query, args, err := buildBatchInsertCCVDataQuery(chunk)
+				if err != nil {
+					return err
+				}
+				result, err := tx.ExecContext(ctx, query, args...)
+				if err != nil {
+					return fmt.Errorf("failed to batch insert CCV data chunk: %w", err)
+				}
+				rowsAffected, err := result.RowsAffected()
+				if err != nil {
+					return fmt.Errorf("failed to get rows affected for CCV insert: %w", err)
+				}
+				verificationsInserted += rowsAffected
 			}
 		}
 
@@ -636,7 +655,6 @@ func (d *PostgresStorage) PersistDiscoveryBatch(ctx context.Context, batch commo
 	}
 
 	if len(batch.Verifications) > 0 {
-		d.trackUniqueMessages(ctx, batch.Verifications)
 		for range verificationsInserted {
 			d.monitoring.Metrics().IncrementVerificationRecordsCounter(ctx)
 		}
@@ -669,40 +687,6 @@ func (d *PostgresStorage) GetDiscoverySequenceNumber(ctx context.Context, discov
 	}
 
 	return sequenceNumber, nil
-}
-
-func (d *PostgresStorage) trackUniqueMessages(ctx context.Context, verifications []common.VerifierResultWithMetadata) {
-	seen := make(map[protocol.Bytes32]struct{}, len(verifications))
-	for _, v := range verifications {
-		seen[v.VerifierResult.MessageID] = struct{}{}
-	}
-	for messageID := range seen {
-		if err := d.trackUniqueMessage(ctx, messageID); err != nil {
-			d.lggr.Warnw("Failed to track unique message", "error", err, "messageID", messageID.String())
-		}
-	}
-}
-
-func (d *PostgresStorage) trackUniqueMessage(ctx context.Context, messageID protocol.Bytes32) error {
-	// Check whether exactly one row exists for this message_id. If so,
-	// this indicates the message was first-seen by the storage insert that preceded this call.
-	query := `
-		SELECT COUNT(*) = 1 as is_first
-		FROM indexer.verifier_results
-		WHERE message_id = $1
-	`
-
-	var isFirst bool
-	err := d.queryRowContext(ctx, query, messageID.String()).Scan(&isFirst)
-	if err != nil {
-		return fmt.Errorf("failed to check unique message: %w", err)
-	}
-
-	if isFirst {
-		d.monitoring.Metrics().IncrementUniqueMessagesCounter(ctx)
-	}
-
-	return nil
 }
 
 // scanCCVData scans a database row into a CCVData struct.

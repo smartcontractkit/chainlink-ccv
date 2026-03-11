@@ -39,8 +39,16 @@ const (
 )
 
 func main() {
-	// Debug level currently spams a lot of logs from the RPC callers.
-	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.InfoLevel))
+	logLevelStr := os.Getenv("LOG_LEVEL")
+	if logLevelStr == "" {
+		logLevelStr = "info"
+	}
+	var zapLevel zapcore.Level
+	if err := zapLevel.UnmarshalText([]byte(logLevelStr)); err != nil {
+		fmt.Fprintf(os.Stderr, "Invalid LOG_LEVEL '%s', defaulting to 'info'\n", logLevelStr)
+		zapLevel = zapcore.InfoLevel
+	}
+	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapLevel))
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create logger: %v", err))
 	}

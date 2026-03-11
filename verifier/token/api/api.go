@@ -34,7 +34,12 @@ func NewHTTPAPI(
 		apimiddleware.VerificationsPathNormalizer,
 		lggr,
 	))
-
+	// Apply rate limiting with defaults (10 req/s per IP)
+	v1Group.Use(middleware.RateLimit(lggr, middleware.RateLimitConfig{
+		Enabled: true,
+		Period:  0, // Will use DefaultRateLimit.Period (1 second)
+		Limit:   0, // Will use DefaultRateLimit.Limit (10 requests)
+	}))
 	verifierResultsHandler := v1.NewVerifierResultsHandler(lggr, storage)
 	v1Group.GET("/verifications", verifierResultsHandler.Handle)
 

@@ -86,23 +86,23 @@ func (_c *MockSourceReader_FetchMessageSentEvents_Call) RunAndReturn(run func(co
 }
 
 // GetBlocksHeaders provides a mock function with given fields: ctx, blockNumber
-func (_m *MockSourceReader) GetBlocksHeaders(ctx context.Context, blockNumber []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
+func (_m *MockSourceReader) GetBlocksHeaders(ctx context.Context, blockNumber []*big.Int) (map[uint64]protocol.BlockHeader, error) {
 	ret := _m.Called(ctx, blockNumber)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetBlocksHeaders")
 	}
 
-	var r0 map[*big.Int]protocol.BlockHeader
+	var r0 map[uint64]protocol.BlockHeader
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, []*big.Int) (map[*big.Int]protocol.BlockHeader, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, []*big.Int) (map[uint64]protocol.BlockHeader, error)); ok {
 		return rf(ctx, blockNumber)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, []*big.Int) map[*big.Int]protocol.BlockHeader); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, []*big.Int) map[uint64]protocol.BlockHeader); ok {
 		r0 = rf(ctx, blockNumber)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(map[*big.Int]protocol.BlockHeader)
+			r0 = ret.Get(0).(map[uint64]protocol.BlockHeader)
 		}
 	}
 
@@ -134,12 +134,12 @@ func (_c *MockSourceReader_GetBlocksHeaders_Call) Run(run func(ctx context.Conte
 	return _c
 }
 
-func (_c *MockSourceReader_GetBlocksHeaders_Call) Return(_a0 map[*big.Int]protocol.BlockHeader, _a1 error) *MockSourceReader_GetBlocksHeaders_Call {
+func (_c *MockSourceReader_GetBlocksHeaders_Call) Return(_a0 map[uint64]protocol.BlockHeader, _a1 error) *MockSourceReader_GetBlocksHeaders_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockSourceReader_GetBlocksHeaders_Call) RunAndReturn(run func(context.Context, []*big.Int) (map[*big.Int]protocol.BlockHeader, error)) *MockSourceReader_GetBlocksHeaders_Call {
+func (_c *MockSourceReader_GetBlocksHeaders_Call) RunAndReturn(run func(context.Context, []*big.Int) (map[uint64]protocol.BlockHeader, error)) *MockSourceReader_GetBlocksHeaders_Call {
 	_c.Call.Return(run)
 	return _c
 }

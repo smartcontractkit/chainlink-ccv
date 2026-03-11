@@ -2,6 +2,7 @@ package executor_config
 
 import (
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -15,10 +16,12 @@ import (
 
 // ExecutorPoolInput defines the configuration for an executor pool.
 type ExecutorPoolInput struct {
-	// NOPAliases is the list of NOP aliases that are members of this executor pool.
+	// NOPAliases is the union of all per-chain NOPs (for TargetNOPs defaulting).
 	NOPAliases []shared.NOPAlias
-	// ExecutionInterval is the interval between execution cycles.
-	ExecutionInterval time.Duration
+	// ChainNOPAliases maps chain selector (as string) to the list of NOP aliases that are pool members on that chain.
+	ChainNOPAliases map[string][]shared.NOPAlias
+	// ChainExecutionIntervals maps chain selector (as string) to the execution interval for that chain.
+	ChainExecutionIntervals map[string]time.Duration
 	// NtpServer is the NTP server address for time synchronization (optional).
 	NtpServer string
 	// IndexerQueryLimit is the maximum number of records to fetch from the indexer per query.
@@ -67,15 +70,39 @@ var BuildJobSpecs = operations.NewOperation(
 		}
 
 		for _, nopAlias := range nopAliases {
+			nopChains := getNOPChainMembership(nopAlias, input.ExecutorPool.ChainNOPAliases)
+			if len(input.ExecutorPool.ChainNOPAliases) > 0 && len(nopChains) == 0 {
+				continue
+			}
+
 			chainConfigs := make(map[string]executor.ChainConfiguration)
 			for chainSelectorStr, genCfg := range input.GeneratedConfig.ChainConfigs {
+				if len(nopChains) > 0 && !nopChains[chainSelectorStr] {
+					continue
+				}
+				poolNOPs := input.ExecutorPool.NOPAliases
+				execInterval := time.Duration(0)
+				if input.ExecutorPool.ChainNOPAliases != nil {
+					if pn, ok := input.ExecutorPool.ChainNOPAliases[chainSelectorStr]; ok {
+						poolNOPs = pn
+					}
+				}
+				if input.ExecutorPool.ChainExecutionIntervals != nil {
+					if ei, ok := input.ExecutorPool.ChainExecutionIntervals[chainSelectorStr]; ok {
+						execInterval = ei
+					}
+				}
 				chainConfigs[chainSelectorStr] = executor.ChainConfiguration{
 					OffRampAddress:         genCfg.OffRampAddress,
 					RmnAddress:             genCfg.RmnAddress,
 					DefaultExecutorAddress: genCfg.ExecutorProxyAddress,
-					ExecutorPool:           shared.ConvertNopAliasToString(input.ExecutorPool.NOPAliases),
-					ExecutionInterval:      input.ExecutorPool.ExecutionInterval,
+					ExecutorPool:           shared.ConvertNopAliasToString(poolNOPs),
+					ExecutionInterval:      execInterval,
 				}
+			}
+
+			if len(chainConfigs) == 0 {
+				continue
 			}
 
 			jobSpecID := shared.NewExecutorJobID(nopAlias, scope)
@@ -137,4 +164,17 @@ func convertMonitoringInput(cfg shared.MonitoringInput) executor.MonitoringConfi
 			TraceBatchTimeout:        cfg.Beholder.TraceBatchTimeout,
 		},
 	}
+}
+
+func getNOPChainMembership(nopAlias shared.NOPAlias, chainNOPAliases map[string][]shared.NOPAlias) map[string]bool {
+	chains := make(map[string]bool)
+	if chainNOPAliases == nil {
+		return chains
+	}
+	for chainSelector, nops := range chainNOPAliases {
+		if slices.Contains(nops, nopAlias) {
+			chains[chainSelector] = true
+		}
+	}
+	return chains
 }

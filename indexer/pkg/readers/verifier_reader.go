@@ -31,9 +31,8 @@ type VerifierReader struct {
 
 // NewVerifierReader creates and returns a new VerifierReader instance.
 // The returned reader batches message verification requests and processes them
-// asynchronously. The context is used to control the lifetime of the internal
-// batcher goroutine.
-func NewVerifierReader(ctx context.Context, verifier protocol.VerifierResultsAPI, config *config.VerifierConfig) *VerifierReader {
+// asynchronously. Use Start() to begin processing requests.
+func NewVerifierReader(verifier protocol.VerifierResultsAPI, config *config.VerifierConfig) *VerifierReader {
 	return &VerifierReader{
 		verifier: verifier,
 		demux:    common.NewDemultiplexer[protocol.Bytes32, protocol.VerifierResult](),

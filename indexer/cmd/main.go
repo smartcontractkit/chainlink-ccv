@@ -130,7 +130,7 @@ func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierR
 		return err
 	}
 
-	verifierReader := readers.NewVerifierReader(ctx, reader, verifierConfig)
+	verifierReader := readers.NewVerifierReader(reader, verifierConfig)
 
 	if err := verifierReader.Start(ctx); err != nil {
 		return err

@@ -78,7 +78,6 @@ The storage implementation integrates with `IndexerMonitoring` to track:
 - `StorageWriteDuration`: Time to insert data
 - `StorageQueryDuration`: Time to query data
 - `VerificationRecordsCounter`: Total number of CCV data entries
-- `UniqueMessagesCounter`: Number of unique message IDs
 - `StorageInsertErrorsCounter`: Write failures
 
 ## Thread Safety

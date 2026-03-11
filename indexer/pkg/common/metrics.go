@@ -21,8 +21,6 @@ type IndexerMetricLabeler interface {
 	DecrementActiveRequestsCounter(ctx context.Context)
 	// RecordHTTPRequestDuration records the HTTP request duration.
 	RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path, method string, status int)
-	// IncrementUniqueMessagesCounter increments the unique messages counter.
-	IncrementUniqueMessagesCounter(ctx context.Context)
 	// IncrementVerificationRecordsCounter increments the verification records counter.
 	IncrementVerificationRecordsCounter(ctx context.Context)
 	// RecordStorageQueryDuration records the storage query duration.

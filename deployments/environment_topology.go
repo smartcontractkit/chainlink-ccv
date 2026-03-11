@@ -137,16 +137,23 @@ type AggregatorConfig struct {
 }
 
 // ExecutorPoolConfig defines executor pool membership and configuration.
+// Pool-wide settings (indexer, backoff, etc.) are at this level; per-chain
+// membership and execution interval are in ChainConfigs.
 type ExecutorPoolConfig struct {
+	ChainConfigs      map[string]ChainExecutorPoolConfig `toml:"chain_configs"`
+	IndexerQueryLimit uint64                             `toml:"indexer_query_limit"`
+	BackoffDuration   time.Duration                      `toml:"backoff_duration"`
+	LookbackWindow    time.Duration                      `toml:"lookback_window"`
+	ReaderCacheExpiry time.Duration                      `toml:"reader_cache_expiry"`
+	MaxRetryDuration  time.Duration                      `toml:"max_retry_duration"`
+	WorkerCount       int                                `toml:"worker_count"`
+	NtpServer         string                             `toml:"ntp_server"`
+}
+
+// ChainExecutorPoolConfig defines executor pool membership and execution interval for a single chain.
+type ChainExecutorPoolConfig struct {
 	NOPAliases        []string      `toml:"nop_aliases"`
 	ExecutionInterval time.Duration `toml:"execution_interval"`
-	IndexerQueryLimit uint64        `toml:"indexer_query_limit"`
-	BackoffDuration   time.Duration `toml:"backoff_duration"`
-	LookbackWindow    time.Duration `toml:"lookback_window"`
-	ReaderCacheExpiry time.Duration `toml:"reader_cache_expiry"`
-	MaxRetryDuration  time.Duration `toml:"max_retry_duration"`
-	WorkerCount       int           `toml:"worker_count"`
-	NtpServer         string        `toml:"ntp_server"`
 }
 
 // MonitoringConfig provides monitoring configuration shared across services.
@@ -300,26 +307,50 @@ func (c *CommitteeConfig) Validate(topology *NOPTopology) error {
 
 // Validate validates the ExecutorPoolConfig.
 func (p *ExecutorPoolConfig) Validate(poolName string, topology *NOPTopology) error {
-	if len(p.NOPAliases) == 0 {
-		return fmt.Errorf("executor pool requires at least one NOP")
+	if len(p.ChainConfigs) == 0 {
+		return fmt.Errorf("executor pool requires at least one chain config")
 	}
 
-	for _, alias := range p.NOPAliases {
-		if !topology.HasNOP(alias) {
-			return fmt.Errorf("executor pool references unknown NOP alias %q", alias)
+	for chainSelector, chainCfg := range p.ChainConfigs {
+		if len(chainCfg.NOPAliases) == 0 {
+			return fmt.Errorf("executor pool chain %q requires at least one NOP", chainSelector)
+		}
+		for _, alias := range chainCfg.NOPAliases {
+			if !topology.HasNOP(alias) {
+				return fmt.Errorf("executor pool chain %q references unknown NOP alias %q", chainSelector, alias)
+			}
 		}
 	}
 
 	return nil
 }
 
-// GetNOPsForPool returns the NOP aliases for a given executor pool.
+func getExecutorPoolNOPAliases(pool ExecutorPoolConfig) []string {
+	aliasSet := make(map[string]struct{})
+	for _, chainCfg := range pool.ChainConfigs {
+		for _, alias := range chainCfg.NOPAliases {
+			aliasSet[alias] = struct{}{}
+		}
+	}
+	aliases := make([]string, 0, len(aliasSet))
+	for alias := range aliasSet {
+		aliases = append(aliases, alias)
+	}
+	return aliases
+}
+
+// NOPAliasesUnion returns the union of all NOP aliases across this pool's chain configs.
+func (p *ExecutorPoolConfig) NOPAliasesUnion() []string {
+	return getExecutorPoolNOPAliases(*p)
+}
+
+// GetNOPsForPool returns the NOP aliases for a given executor pool (union across all chains).
 func (c *EnvironmentTopology) GetNOPsForPool(poolName string) ([]string, error) {
 	pool, ok := c.ExecutorPools[poolName]
 	if !ok {
 		return nil, fmt.Errorf("executor pool %q not found", poolName)
 	}
-	return pool.NOPAliases, nil
+	return pool.NOPAliasesUnion(), nil
 }
 
 // GetNOPsForCommittee returns the NOP aliases that are members of a committee on any chain.
@@ -358,12 +389,15 @@ func (c *EnvironmentTopology) GetCommitteesForNOP(nopAlias string) []string {
 	return committees
 }
 
-// GetPoolsForNOP returns the executor pool names that include a NOP.
+// GetPoolsForNOP returns the executor pool names that include a NOP on any chain.
 func (c *EnvironmentTopology) GetPoolsForNOP(nopAlias string) []string {
 	var pools []string
 	for poolName, pool := range c.ExecutorPools {
-		if slices.Contains(pool.NOPAliases, nopAlias) {
-			pools = append(pools, poolName)
+		for _, chainCfg := range pool.ChainConfigs {
+			if slices.Contains(chainCfg.NOPAliases, nopAlias) {
+				pools = append(pools, poolName)
+				break
+			}
 		}
 	}
 	return pools

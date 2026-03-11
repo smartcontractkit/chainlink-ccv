@@ -81,6 +81,8 @@ type MetricLabeler interface {
 
 	// IncrementStorageWriteErrors increments the counter for storage write errors.
 	IncrementStorageWriteErrors(ctx context.Context)
+	// IncrementTaskVerificationPermanentErrors increments the counter for non-retryable verification errors.
+	IncrementTaskVerificationPermanentErrors(ctx context.Context)
 
 	// Heartbeat tracking
 

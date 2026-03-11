@@ -29,7 +29,6 @@ func (m *mockVerifierResultsAPI) GetVerifications(ctx context.Context, messageID
 
 // newMockVerifierReader creates a new VerifierReader instance for testing.
 func newMockVerifierReader() *readers.VerifierReader {
-	ctx := context.Background()
 	mockVerifier := &mockVerifierResultsAPI{
 		results: make(map[protocol.Bytes32]protocol.VerifierResult),
 	}
@@ -37,7 +36,7 @@ func newMockVerifierReader() *readers.VerifierReader {
 		BatchSize:        10,
 		MaxBatchWaitTime: 100,
 	}
-	return readers.NewVerifierReader(ctx, mockVerifier, config)
+	return readers.NewVerifierReader(mockVerifier, config)
 }
 
 func TestNewVerifierRegistry(t *testing.T) {

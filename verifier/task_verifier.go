@@ -175,11 +175,14 @@ func (p *TaskVerifierProcessor) processBatch(ctx context.Context) error {
 		}
 	}
 
+	// Record verification start time for duration tracking
+	verificationStartTime := time.Now()
+
 	// Verify messages
 	results := p.verifier.VerifyMessages(ctx, tasks)
 
 	// Process verification results
-	return p.handleVerificationResults(ctx, results, jobIDMap)
+	return p.handleVerificationResults(ctx, results, jobIDMap, verificationStartTime)
 }
 
 // handleVerificationResults processes verification results, updating job statuses and publishing successful results.
@@ -187,6 +190,7 @@ func (p *TaskVerifierProcessor) handleVerificationResults(
 	ctx context.Context,
 	results []VerificationResult,
 	jobIDMap map[string]string,
+	verificationStartTime time.Time,
 ) error {
 	if len(results) == 0 {
 		return nil
@@ -222,6 +226,21 @@ func (p *TaskVerifierProcessor) handleVerificationResults(
 			successCount++
 			successfulResults = append(successfulResults, *result.Result)
 			completedJobIDs = append(completedJobIDs, jobID)
+
+			// Record successful verification metrics
+			message := result.Result.Message
+			verificationDuration := time.Since(verificationStartTime)
+			p.monitoring.Metrics().
+				With(
+					"source_chain", message.SourceChainSelector.String(),
+					"dest_chain", message.DestChainSelector.String(),
+					"verifier_id", p.verifierID,
+				).
+				IncrementMessagesProcessed(ctx)
+
+			p.monitoring.Metrics().
+				With("source_chain", message.SourceChainSelector.String(), "verifier_id", p.verifierID).
+				RecordMessageVerificationDuration(ctx, verificationDuration)
 		}
 	}
 
@@ -316,6 +335,15 @@ func (p *TaskVerifierProcessor) handleVerificationError(
 		*retryJobIDs = append(*retryJobIDs, jobID)
 		retryErrors[jobID] = verificationError.Error
 	} else {
+		// Increment permanent error metric
+		p.monitoring.Metrics().
+			With(
+				"source_chain", message.SourceChainSelector.String(),
+				"dest_chain", message.DestChainSelector.String(),
+				"verifier_id", p.verifierID,
+			).
+			IncrementTaskVerificationPermanentErrors(ctx)
+
 		*failedJobIDs = append(*failedJobIDs, jobID)
 		failedErrors[jobID] = verificationError.Error
 		// Remove from pending tracker for permanent failures

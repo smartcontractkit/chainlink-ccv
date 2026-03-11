@@ -102,10 +102,10 @@ func SetupMockSourceReader(t *testing.T) *MockSourceReaderSetup {
 	// Mock GetBlocksHeaders to return proper block headers for the reorg detector
 	// The reorg detector builds an initial tail from finalized to latest block
 	mockReader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).RunAndReturn(
-		func(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
-			headers := make(map[*big.Int]protocol.BlockHeader)
+		func(ctx context.Context, blockNumbers []*big.Int) (map[uint64]protocol.BlockHeader, error) {
+			headers := make(map[uint64]protocol.BlockHeader)
 			for _, blockNum := range blockNumbers {
-				headers[blockNum] = protocol.BlockHeader{
+				headers[blockNum.Uint64()] = protocol.BlockHeader{
 					Number:     blockNum.Uint64(),
 					Hash:       protocol.Bytes32{byte(blockNum.Uint64() % 256)},
 					ParentHash: protocol.Bytes32{byte((blockNum.Uint64() - 1) % 256)},
@@ -162,9 +162,11 @@ func (m *noopMetricLabeler) RecordStorageWriteDuration(ctx context.Context, dura
 func (m *noopMetricLabeler) RecordTaskVerificationQueueSize(ctx context.Context, size int64)        {}
 func (m *noopMetricLabeler) RecordStorageWriteQueueSize(ctx context.Context, size int64)            {}
 func (m *noopMetricLabeler) IncrementStorageWriteErrors(ctx context.Context)                        {}
+func (m *noopMetricLabeler) IncrementTaskVerificationPermanentErrors(ctx context.Context)           {}
 func (m *noopMetricLabeler) RecordSourceChainLatestBlock(ctx context.Context, blockNum int64)       {}
 func (m *noopMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64)    {}
 func (m *noopMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64)             {}
+
 func (m *noopMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool) {
 }
 

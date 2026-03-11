@@ -156,6 +156,7 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 		lggr,
 		hmacConfig,
 		config.InsecureAggregatorConnection,
+		config.AggregatorMaxSendMsgSizeBytes,
 		config.AggregatorMaxRecvMsgSizeBytes,
 	)
 	if err != nil {
