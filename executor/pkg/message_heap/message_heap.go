@@ -3,7 +3,6 @@ package message_heap
 import (
 	"container/heap"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -50,7 +49,7 @@ func (h ReadyTimestampHeap) Swap(i, j int) {
 func (h *ReadyTimestampHeap) Push(x any) {
 	val, ok := x.(MessageHeapEntry)
 	if !ok {
-		panic(fmt.Sprintf("ReadyTimestampHeap.Push: expected MessageHeapEntry, got %T", x))
+		return
 	}
 	*h = append(*h, val)
 }
