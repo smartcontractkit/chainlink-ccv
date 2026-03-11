@@ -230,6 +230,7 @@ func (m *CCIP17EVMConfig) configureLombardForTransfer(
 	}
 	for _, rs := range remoteSelectors {
 		// TODO: THIS LOGIC ASSUMES THAT DESTINATION TOKEN ADDRESS IS ON AN EVM CHAIN
+		// If an address comes from a remote chain, we should always ask said remote chain how to convert string -> bytes
 		token, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
 			rs,
 			datastore.ContractType(burn_mint_erc20_with_drip.ContractType),

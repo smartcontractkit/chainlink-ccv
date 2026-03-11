@@ -7,11 +7,11 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-// DefaultVerifierVersionHex is the default hex-encoded version of the 1.7 CCTPVerifier contract (with 0x prefix).
-// bytes4(keccak256("CCTPVerifier 1.7.0")).
+// DefaultVerifierVersionHex is the default hex-encoded version of the 2.0 CCTPVerifier contract (with 0x prefix).
+// bytes4(keccak256("CCTPVerifier 2.0.0")).
 const DefaultVerifierVersionHex = "0x35a25838"
 
-// DefaultVerifierVersion is the version of the 1.7 CCTPVerifier contract.
+// DefaultVerifierVersion is the version of the 2.0 CCTPVerifier contract.
 var DefaultVerifierVersion = mustDecodeHex(DefaultVerifierVersionHex)
 
 // Domains represent mapping between ChainSelector and Circle specific

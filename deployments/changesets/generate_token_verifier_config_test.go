@@ -22,6 +22,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/deployments/testutils"
 	idxconfig "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	tokenverifier "github.com/smartcontractkit/chainlink-ccv/verifier/token"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
 )
 
 const (
@@ -372,19 +374,17 @@ func TestGenerateTokenVerifierConfig_UsesDefaultVerifierVersion(t *testing.T) {
 	cfg, err := deployments.GetTokenVerifierConfig(output.DataStore.Seal(), testServiceIdentifier)
 	require.NoError(t, err)
 
-	// Verify default verifier versions are used
+	// Verify default verifier versions are used (from verifier/token/cctp and verifier/token/lombard)
 	for _, v := range cfg.TokenVerifiers {
 		switch v.Type {
 		case verifierTypeCCTP:
 			require.NotNil(t, v.CCTPConfig, "CCTP config should not be nil")
 			assert.NotEmpty(t, v.CCTPConfig.VerifierVersion, "CCTP verifier version should not be empty")
-			// Should use the default CCTP version (0x35a25838)
-			assert.Equal(t, []byte{0x35, 0xa2, 0x58, 0x38}, []byte(v.CCTPConfig.VerifierVersion))
+			assert.Equal(t, []byte(cctp.DefaultVerifierVersion), []byte(v.CCTPConfig.VerifierVersion), "CCTP should use cctp.DefaultVerifierVersion")
 		case verifierTypeLombard:
 			require.NotNil(t, v.LombardConfig, "Lombard config should not be nil")
 			assert.NotEmpty(t, v.LombardConfig.VerifierVersion, "Lombard verifier version should not be empty")
-			// Should use the default Lombard version (0xeba55588)
-			assert.Equal(t, []byte{0xeb, 0xa5, 0x55, 0x88}, []byte(v.LombardConfig.VerifierVersion))
+			assert.Equal(t, []byte(lombard.DefaultVerifierVersion), []byte(v.LombardConfig.VerifierVersion), "Lombard should use lombard.DefaultVerifierVersion")
 		}
 	}
 }
