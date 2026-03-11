@@ -138,8 +138,7 @@ func (cv *Verifier) VerifyMessages(ctx context.Context, tasks []verifier.Verific
 
 // verifyMessage verifies a single message (internal helper)
 // Returns the VerifierNodeResult if successful, or an error if verification fails.
-func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier.VerificationTask) (*protocol.VerifierNodeResult, error) {
-	start := time.Now()
+func (cv *Verifier) verifyMessage(_ context.Context, verificationTask verifier.VerificationTask) (*protocol.VerifierNodeResult, error) {
 	message := verificationTask.Message
 
 	msgIDStr := verificationTask.MessageID
@@ -235,14 +234,6 @@ func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CCV node data for message %s: %w", msgIDStr, err)
 	}
-
-	// Record successful message processing
-	cv.monitoring.Metrics().
-		With("source_chain", message.SourceChainSelector.String(), "dest_chain", message.DestChainSelector.String(), "verifier_id", cv.config.VerifierID).
-		IncrementMessagesProcessed(ctx)
-	cv.monitoring.Metrics().
-		With("source_chain", message.SourceChainSelector.String(), "verifier_id", cv.config.VerifierID).
-		RecordMessageVerificationDuration(ctx, time.Since(start))
 
 	cv.lggr.Infow("Message verification completed successfully",
 		"messageID", msgIDStr,
