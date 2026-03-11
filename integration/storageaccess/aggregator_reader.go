@@ -74,19 +74,21 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 	results := make([]protocol.QueryResponse, 0, len(resp.Results))
 	tempSince := a.since.Load()
 	for i, resultWithSeq := range resp.Results {
+		sequence := resultWithSeq.Sequence
+		if sequence >= tempSince {
+			tempSince = sequence + 1
+		}
+
 		if resultWithSeq.VerifierResult == nil {
-			return nil, fmt.Errorf("nil VerifierResults at index %d", i)
+			a.lggr.Warnw("Dropping invalid verifier result from aggregator response", "index", i, "sequence", sequence, "reason", "nil verifier result")
+			continue
 		}
 
 		result := v1.VerifierResult{VerifierResult: resultWithSeq.VerifierResult}
 		verifierResult, err1 := result.ToVerifierResult()
 		if err1 != nil {
-			return nil, fmt.Errorf("error converting VerifierResults at index %d: %w", i, err1)
-		}
-
-		sequence := resultWithSeq.Sequence
-		if sequence >= tempSince {
-			tempSince = sequence + 1
+			a.lggr.Warnw("Dropping invalid verifier result from aggregator response", "index", i, "sequence", sequence, "reason", err1)
+			continue
 		}
 
 		results = append(results, protocol.QueryResponse{
