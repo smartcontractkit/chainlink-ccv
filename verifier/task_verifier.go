@@ -316,6 +316,15 @@ func (p *TaskVerifierProcessor) handleVerificationError(
 		*retryJobIDs = append(*retryJobIDs, jobID)
 		retryErrors[jobID] = verificationError.Error
 	} else {
+		// Increment permanent error metric
+		p.monitoring.Metrics().
+			With(
+				"source_chain", message.SourceChainSelector.String(),
+				"dest_chain", message.DestChainSelector.String(),
+				"verifier_id", p.verifierID,
+			).
+			IncrementTaskVerificationPermanentErrors(ctx)
+
 		*failedJobIDs = append(*failedJobIDs, jobID)
 		failedErrors[jobID] = verificationError.Error
 		// Remove from pending tracker for permanent failures

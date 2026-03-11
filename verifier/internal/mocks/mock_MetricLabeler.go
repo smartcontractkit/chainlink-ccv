@@ -92,6 +92,40 @@ func (_c *MockMetricLabeler_IncrementActiveRequestsCounter_Call) RunAndReturn(ru
 	return _c
 }
 
+// IncrementFinalityViolated provides a mock function with given fields: ctx, selector
+func (_m *MockMetricLabeler) IncrementFinalityViolated(ctx context.Context, selector protocol.ChainSelector) {
+	_m.Called(ctx, selector)
+}
+
+// MockMetricLabeler_IncrementFinalityViolated_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementFinalityViolated'
+type MockMetricLabeler_IncrementFinalityViolated_Call struct {
+	*mock.Call
+}
+
+// IncrementFinalityViolated is a helper method to define mock.On call
+//   - ctx context.Context
+//   - selector protocol.ChainSelector
+func (_e *MockMetricLabeler_Expecter) IncrementFinalityViolated(ctx interface{}, selector interface{}) *MockMetricLabeler_IncrementFinalityViolated_Call {
+	return &MockMetricLabeler_IncrementFinalityViolated_Call{Call: _e.mock.On("IncrementFinalityViolated", ctx, selector)}
+}
+
+func (_c *MockMetricLabeler_IncrementFinalityViolated_Call) Run(run func(ctx context.Context, selector protocol.ChainSelector)) *MockMetricLabeler_IncrementFinalityViolated_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(protocol.ChainSelector))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_IncrementFinalityViolated_Call) Return() *MockMetricLabeler_IncrementFinalityViolated_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_IncrementFinalityViolated_Call) RunAndReturn(run func(context.Context, protocol.ChainSelector)) *MockMetricLabeler_IncrementFinalityViolated_Call {
+	_c.Run(run)
+	return _c
+}
+
 // IncrementHTTPRequestCounter provides a mock function with given fields: ctx
 func (_m *MockMetricLabeler) IncrementHTTPRequestCounter(ctx context.Context) {
 	_m.Called(ctx)
@@ -286,6 +320,39 @@ func (_c *MockMetricLabeler_IncrementStorageWriteErrors_Call) Return() *MockMetr
 }
 
 func (_c *MockMetricLabeler_IncrementStorageWriteErrors_Call) RunAndReturn(run func(context.Context)) *MockMetricLabeler_IncrementStorageWriteErrors_Call {
+	_c.Run(run)
+	return _c
+}
+
+// IncrementTaskVerificationPermanentErrors provides a mock function with given fields: ctx
+func (_m *MockMetricLabeler) IncrementTaskVerificationPermanentErrors(ctx context.Context) {
+	_m.Called(ctx)
+}
+
+// MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementTaskVerificationPermanentErrors'
+type MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call struct {
+	*mock.Call
+}
+
+// IncrementTaskVerificationPermanentErrors is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockMetricLabeler_Expecter) IncrementTaskVerificationPermanentErrors(ctx interface{}) *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call {
+	return &MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call{Call: _e.mock.On("IncrementTaskVerificationPermanentErrors", ctx)}
+}
+
+func (_c *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call) Run(run func(ctx context.Context)) *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call) Return() *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call) RunAndReturn(run func(context.Context)) *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call {
 	_c.Run(run)
 	return _c
 }

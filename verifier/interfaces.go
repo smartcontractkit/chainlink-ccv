@@ -81,6 +81,8 @@ type MetricLabeler interface {
 
 	// IncrementStorageWriteErrors increments the counter for storage write errors.
 	IncrementStorageWriteErrors(ctx context.Context)
+	// IncrementTaskVerificationPermanentErrors increments the counter for non-retryable verification errors.
+	IncrementTaskVerificationPermanentErrors(ctx context.Context)
 
 	// Heartbeat tracking
 
@@ -107,6 +109,8 @@ type MetricLabeler interface {
 	RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64)
 	// RecordReorgTrackedSeqNums records the number of sequence numbers being tracked due to reorg.
 	RecordReorgTrackedSeqNums(ctx context.Context, count int64)
+	// IncrementFinalityViolated increments the counter when finality is violated for a chain.
+	IncrementFinalityViolated(ctx context.Context, selector protocol.ChainSelector)
 	// SetVerifierFinalityViolated sets value 1 if finality violated
 	SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool)
 	// SetRemoteChainCursed sets value 1 if source chain is cursed

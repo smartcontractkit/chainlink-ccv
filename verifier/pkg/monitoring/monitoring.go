@@ -126,6 +126,8 @@ func (f *FakeVerifierMetricLabeler) RecordStorageWriteQueueSize(context.Context,
 
 func (f *FakeVerifierMetricLabeler) IncrementStorageWriteErrors(context.Context) {}
 
+func (f *FakeVerifierMetricLabeler) IncrementTaskVerificationPermanentErrors(context.Context) {}
+
 func (f *FakeVerifierMetricLabeler) RecordSourceChainLatestBlock(_ context.Context, blockNum int64) {
 	f.SourceChainLatestBLock.Store(blockNum)
 }
@@ -135,6 +137,9 @@ func (f *FakeVerifierMetricLabeler) RecordSourceChainFinalizedBlock(_ context.Co
 }
 
 func (f *FakeVerifierMetricLabeler) RecordReorgTrackedSeqNums(context.Context, int64) {}
+
+func (f *FakeVerifierMetricLabeler) IncrementFinalityViolated(ctx context.Context, selector protocol.ChainSelector) {
+}
 
 func (f *FakeVerifierMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool) {
 }
