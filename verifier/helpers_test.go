@@ -166,8 +166,6 @@ func (m *noopMetricLabeler) IncrementTaskVerificationPermanentErrors(ctx context
 func (m *noopMetricLabeler) RecordSourceChainLatestBlock(ctx context.Context, blockNum int64)       {}
 func (m *noopMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64)    {}
 func (m *noopMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64)             {}
-func (m *noopMetricLabeler) IncrementFinalityViolated(ctx context.Context, selector protocol.ChainSelector) {
-}
 
 func (m *noopMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool) {
 }

@@ -136,10 +136,7 @@ func (f *FakeVerifierMetricLabeler) RecordSourceChainFinalizedBlock(_ context.Co
 	f.SourceChainFinalizedBlock.Store(blockNum)
 }
 
-func (f *FakeVerifierMetricLabeler) RecordReorgTrackedSeqNums(context.Context, int64) {}
-
-func (f *FakeVerifierMetricLabeler) IncrementFinalityViolated(ctx context.Context, selector protocol.ChainSelector) {
-}
+func (f *FakeVerifierMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64) {}
 
 func (f *FakeVerifierMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool) {
 }

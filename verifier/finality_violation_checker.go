@@ -173,7 +173,6 @@ func (f *FinalityViolationCheckerService) validateAndStore(ctx context.Context, 
 				"storedHash", storedHeader.Hash,
 				"newHash", newHeader.Hash,
 			)
-			f.metrics.IncrementFinalityViolated(ctx, f.chainSelector)
 			f.metrics.SetVerifierFinalityViolated(ctx, f.chainSelector, true)
 			return fmt.Errorf("finality violation: block %d hash changed from %s to %s",
 				blockNum, storedHeader.Hash, newHeader.Hash)
@@ -191,7 +190,6 @@ func (f *FinalityViolationCheckerService) validateAndStore(ctx context.Context, 
 					"actualParent", newHeader.ParentHash,
 				)
 				f.violationDetected = true
-				f.metrics.IncrementFinalityViolated(ctx, f.chainSelector)
 				f.metrics.SetVerifierFinalityViolated(ctx, f.chainSelector, true)
 				return fmt.Errorf("finality violation: block %d parent hash %s doesn't match block %d hash %s",
 					blockNum, newHeader.ParentHash, blockNum-1, prevHeader.Hash)

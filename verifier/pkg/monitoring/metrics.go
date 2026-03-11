@@ -55,7 +55,6 @@ type VerifierMetrics struct {
 	localChainGlobalCursed         metric.Int64Gauge
 
 	// Reorg/Finality  Tracking
-	finalityViolatedCounter  metric.Int64Counter
 	reorgTrackedSeqNumsGauge metric.Int64Gauge
 
 	// HTTP API Metrics
@@ -259,14 +258,6 @@ func InitMetrics() (*VerifierMetrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register reorg tracked seqnums gauge: %w", err)
-	}
-
-	vm.finalityViolatedCounter, err = beholder.GetMeter().Int64Counter(
-		"verifier_finality_violated_total",
-		metric.WithDescription("Total number of finality violations detected per source chain"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to register finality violated counter: %w", err)
 	}
 
 	vm.taskVerificationPermanentErrors, err = beholder.GetMeter().Int64Counter(
@@ -481,12 +472,6 @@ func (v *VerifierMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Cont
 func (v *VerifierMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.reorgTrackedSeqNumsGauge.Record(ctx, count, metric.WithAttributes(otelLabels...))
-}
-
-func (v *VerifierMetricLabeler) IncrementFinalityViolated(ctx context.Context, selector protocol.ChainSelector) {
-	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
-	otelLabels = append(otelLabels, attribute.String("sourceChainSelector", selector.String()))
-	v.vm.finalityViolatedCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
 func (v *VerifierMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool) {
