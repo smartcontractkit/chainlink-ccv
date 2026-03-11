@@ -25,8 +25,8 @@ func Test_MessageLatency(t *testing.T) {
 	msgID2 := message2.MustMessageID().String()
 	msgID3 := message3.MustMessageID().String()
 
-	twoSeconds := time.Now().Add(time.Second * 2)
-	tenMinutes := time.Now().Add(time.Minute * 10)
+	twoSecondsAgo := time.Now().Add(-time.Second * 2)
+	tenMinutesAgo := time.Now().Add(-time.Minute * 10)
 
 	tests := []struct {
 		name              string
@@ -37,8 +37,8 @@ func Test_MessageLatency(t *testing.T) {
 		{
 			name: "messages with ReadyForVerificationAt are tracked correctly",
 			tasks: []verifier.VerificationTask{
-				{Message: message1, MessageID: msgID1, ReadyForVerificationAt: twoSeconds},
-				{Message: message2, MessageID: msgID2, ReadyForVerificationAt: tenMinutes},
+				{Message: message1, MessageID: msgID1, ReadyForVerificationAt: twoSecondsAgo},
+				{Message: message2, MessageID: msgID2, ReadyForVerificationAt: tenMinutesAgo},
 			},
 			messages: []protocol.VerifierNodeResult{
 				messageToCCVNodeData(message1, msgID1),
@@ -47,11 +47,11 @@ func Test_MessageLatency(t *testing.T) {
 			expectedLatencies: []E2ELatencyCall{
 				{
 					Labels:  []string{"source_chain", message1.SourceChainSelector.String(), "verifier_id", "verifier-1"},
-					Latency: time.Since(twoSeconds),
+					Latency: time.Since(twoSecondsAgo),
 				},
 				{
 					Labels:  []string{"source_chain", message2.SourceChainSelector.String(), "verifier_id", "verifier-1"},
-					Latency: time.Since(tenMinutes),
+					Latency: time.Since(tenMinutesAgo),
 				},
 			},
 		},
@@ -73,7 +73,7 @@ func Test_MessageLatency(t *testing.T) {
 		{
 			name: "messages not marked as seen are ignored",
 			tasks: []verifier.VerificationTask{
-				{Message: message1, MessageID: msgID1, ReadyForVerificationAt: twoSeconds},
+				{Message: message1, MessageID: msgID1, ReadyForVerificationAt: twoSecondsAgo},
 			},
 			messages: []protocol.VerifierNodeResult{
 				messageToCCVNodeData(message2, msgID2),
@@ -84,8 +84,8 @@ func Test_MessageLatency(t *testing.T) {
 		{
 			name: "latencies are tracked once even if message appears the same with different seenAt",
 			tasks: []verifier.VerificationTask{
-				{Message: message1, MessageID: msgID1, ReadyForVerificationAt: twoSeconds},
-				{Message: message1, MessageID: msgID1, ReadyForVerificationAt: tenMinutes},
+				{Message: message1, MessageID: msgID1, ReadyForVerificationAt: twoSecondsAgo},
+				{Message: message1, MessageID: msgID1, ReadyForVerificationAt: tenMinutesAgo},
 			},
 			messages: []protocol.VerifierNodeResult{
 				messageToCCVNodeData(message1, msgID1),
@@ -93,7 +93,7 @@ func Test_MessageLatency(t *testing.T) {
 			expectedLatencies: []E2ELatencyCall{
 				{
 					Labels:  []string{"source_chain", message1.SourceChainSelector.String(), "verifier_id", "verifier-1"},
-					Latency: time.Since(twoSeconds),
+					Latency: time.Since(twoSecondsAgo),
 				},
 			},
 		},
