@@ -388,6 +388,13 @@ func (r *VerifierResultMessage) ToMessage() (protocol.Message, error) {
 	ccvAndExecutorHash := protocol.Bytes32{}
 
 	if r.CcvAndExecutorHash != nil {
+		if len(r.CcvAndExecutorHash) != len(ccvAndExecutorHash) {
+			return protocol.Message{}, fmt.Errorf(
+				"field CcvAndExecutorHash has invalid length %d (expected %d)",
+				len(r.CcvAndExecutorHash),
+				len(ccvAndExecutorHash),
+			)
+		}
 		ccvAndExecutorHash = protocol.Bytes32(r.CcvAndExecutorHash)
 	}
 
