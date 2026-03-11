@@ -323,40 +323,6 @@ func (_c *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call) RunAn
 	return _c
 }
 
-// RecordFinalityWaitDuration provides a mock function with given fields: ctx, duration
-func (_m *MockMetricLabeler) RecordFinalityWaitDuration(ctx context.Context, duration time.Duration) {
-	_m.Called(ctx, duration)
-}
-
-// MockMetricLabeler_RecordFinalityWaitDuration_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordFinalityWaitDuration'
-type MockMetricLabeler_RecordFinalityWaitDuration_Call struct {
-	*mock.Call
-}
-
-// RecordFinalityWaitDuration is a helper method to define mock.On call
-//   - ctx context.Context
-//   - duration time.Duration
-func (_e *MockMetricLabeler_Expecter) RecordFinalityWaitDuration(ctx interface{}, duration interface{}) *MockMetricLabeler_RecordFinalityWaitDuration_Call {
-	return &MockMetricLabeler_RecordFinalityWaitDuration_Call{Call: _e.mock.On("RecordFinalityWaitDuration", ctx, duration)}
-}
-
-func (_c *MockMetricLabeler_RecordFinalityWaitDuration_Call) Run(run func(ctx context.Context, duration time.Duration)) *MockMetricLabeler_RecordFinalityWaitDuration_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(time.Duration))
-	})
-	return _c
-}
-
-func (_c *MockMetricLabeler_RecordFinalityWaitDuration_Call) Return() *MockMetricLabeler_RecordFinalityWaitDuration_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *MockMetricLabeler_RecordFinalityWaitDuration_Call) RunAndReturn(run func(context.Context, time.Duration)) *MockMetricLabeler_RecordFinalityWaitDuration_Call {
-	_c.Run(run)
-	return _c
-}
-
 // RecordHTTPRequestDuration provides a mock function with given fields: ctx, duration, path, method, status
 func (_m *MockMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path string, method string, status int) {
 	_m.Called(ctx, duration, path, method, status)
