@@ -1,6 +1,8 @@
 package tokenconfig
 
 import (
+	"maps"
+
 	"github.com/Masterminds/semver/v3"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
@@ -52,9 +54,7 @@ func BuildTokenTransferConfigs(topology *deployments.EnvironmentTopology, select
 					merged[key] = cfg
 					continue
 				}
-				for rs, rc := range cfg.RemoteChains {
-					existing.RemoteChains[rs] = rc
-				}
+				maps.Copy(existing.RemoteChains, cfg.RemoteChains)
 				merged[key] = existing
 			}
 		}
