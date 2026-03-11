@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
+	sharedmiddleware "github.com/smartcontractkit/chainlink-ccv/integration/pkg/api/middleware"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -39,7 +40,12 @@ func TestRateLimit_HandlerEnabledAndDisabled(t *testing.T) {
 	// Disabled case: middleware should be no-op and allow request through
 	cfgOff := &config.Config{API: config.APIConfig{RateLimit: config.RateLimitConfig{Enabled: false}}}
 	r := gin.New()
-	r.Use(RateLimit(lggr, cfgOff))
+	rateLimitCfgOff := sharedmiddleware.RateLimitConfig{
+		Enabled: cfgOff.API.RateLimit.Enabled,
+		Period:  0, // Will use defaults
+		Limit:   0, // Will use defaults
+	}
+	r.Use(sharedmiddleware.RateLimit(lggr, rateLimitCfgOff))
 	r.GET("/", func(c *gin.Context) { c.String(200, "ok") })
 
 	rec := httptest.NewRecorder()
@@ -50,7 +56,12 @@ func TestRateLimit_HandlerEnabledAndDisabled(t *testing.T) {
 	// Enabled case: should also allow a request under rate limit
 	cfgOn := &config.Config{API: config.APIConfig{RateLimit: config.RateLimitConfig{Enabled: true}}}
 	r2 := gin.New()
-	r2.Use(RateLimit(lggr, cfgOn))
+	rateLimitCfgOn := sharedmiddleware.RateLimitConfig{
+		Enabled: cfgOn.API.RateLimit.Enabled,
+		Period:  0, // Will use defaults
+		Limit:   0, // Will use defaults
+	}
+	r2.Use(sharedmiddleware.RateLimit(lggr, rateLimitCfgOn))
 	r2.GET("/", func(c *gin.Context) { c.String(200, "ok") })
 
 	rec2 := httptest.NewRecorder()
