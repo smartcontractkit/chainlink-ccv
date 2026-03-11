@@ -76,7 +76,7 @@ func registerCCTPAttestation(
 //   - feeExecuted (32 bytes): uint256
 //   - expirationBlock (32 bytes): uint256
 //   - hookData (36 bytes):
-//   - verifierVersion (4 bytes): cctp.DefaultVerifierVersion (0x8e1d1a9d)
+//   - verifierVersion (4 bytes): cctp.DefaultVerifierVersion (0x35a25838)
 //   - messageId (32 bytes): bytes32
 func buildCCTPMessage(messageID [32]byte, messageSender, receiver protocol.UnknownAddress) string {
 	message := make([]byte, 412)

@@ -1051,15 +1051,26 @@ func NewEnvironment() (in *Cfg, err error) {
 	// ConfigureTokensForTransfers must run first so token pools (including those used by CCTP/Lombard)
 	// have remote chain allowlists set. Otherwise sends can revert with custom error 0xa9902c7e (chain
 	// not allowed), where the error argument is the destination chain selector.
+	// Call it once per pool-identity group (e.g. all chains' configs for "BurnMintTokenPool 2.0.0 default"):
+	// an internal mapping is keyed such that the last config in the list gets the index for a given chain
+	// selector, so we invoke once per setup with all counterpart configs (same pool type on every chain)
+	// so remote tokens and mapping slots are correct.
 	allTokenConfigs := tokenconfig.BuildTokenTransferConfigs(topology, selectors)
 	if len(allTokenConfigs) > 0 {
+		byPoolIdentity := make(map[string][]tokenscore.TokenTransferConfig)
+		for i := range allTokenConfigs {
+			key := tokenconfig.PoolIdentityKey(&allTokenConfigs[i])
+			byPoolIdentity[key] = append(byPoolIdentity[key], allTokenConfigs[i])
+		}
 		tokenAdapterRegistry := tokenscore.GetTokenAdapterRegistry()
 		mcmsReaderRegistry := changesetscore.GetRegistry()
-		_, err = tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*e, tokenscore.ConfigureTokensForTransfersConfig{
-			Tokens: allTokenConfigs,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("configure tokens for transfers: %w", err)
+		for _, group := range byPoolIdentity {
+			_, err = tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*e, tokenscore.ConfigureTokensForTransfersConfig{
+				Tokens: group,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("configure tokens for transfers: %w", err)
+			}
 		}
 	}
 

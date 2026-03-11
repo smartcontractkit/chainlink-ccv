@@ -378,8 +378,8 @@ func TestGenerateTokenVerifierConfig_UsesDefaultVerifierVersion(t *testing.T) {
 		case verifierTypeCCTP:
 			require.NotNil(t, v.CCTPConfig, "CCTP config should not be nil")
 			assert.NotEmpty(t, v.CCTPConfig.VerifierVersion, "CCTP verifier version should not be empty")
-			// Should use the default CCTP version (0x8e1d1a9d)
-			assert.Equal(t, []byte{0x8e, 0x1d, 0x1a, 0x9d}, []byte(v.CCTPConfig.VerifierVersion))
+			// Should use the default CCTP version (0x35a25838)
+			assert.Equal(t, []byte{0x35, 0xa2, 0x58, 0x38}, []byte(v.CCTPConfig.VerifierVersion))
 		case verifierTypeLombard:
 			require.NotNil(t, v.LombardConfig, "Lombard config should not be nil")
 			assert.NotEmpty(t, v.LombardConfig.VerifierVersion, "Lombard verifier version should not be empty")

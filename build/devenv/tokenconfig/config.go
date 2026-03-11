@@ -12,11 +12,22 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 )
 
+// poolConfigKey uniquely identifies a token pool (for merging configs per chain).
+type poolConfigKey struct {
+	chainSelector uint64
+	poolType      datastore.ContractType
+	poolVersion   string
+	poolQualifier string
+}
+
 // BuildTokenTransferConfigs returns token transfer configs for all chains implied by selectors,
-// based on topology and token combinations. Chain-agnostic: no EVM or other chain impl is used.
+// based on topology and token combinations. Configs for the same (chain, pool) are merged so
+// each pool has one config with all remote chains (remote tokens included). Caller should call
+// ConfigureTokensForTransfers once per pool-identity group (all chains' configs for that pool type)
+// so each setup gets its own mapping slot. Chain-agnostic: no EVM or other chain impl is used.
 func BuildTokenTransferConfigs(topology *deployments.EnvironmentTopology, selectors []uint64) []tokenscore.TokenTransferConfig {
 	applicableCombos := common.FilterTokenCombinations(common.AllTokenCombinations(), topology)
-	var configs []tokenscore.TokenTransferConfig
+	merged := make(map[poolConfigKey]tokenscore.TokenTransferConfig)
 	for _, selector := range selectors {
 		remoteSelectors := make([]uint64, 0, len(selectors)-1)
 		for _, s := range selectors {
@@ -25,13 +36,44 @@ func BuildTokenTransferConfigs(topology *deployments.EnvironmentTopology, select
 			}
 		}
 		for _, combo := range applicableCombos {
-			configs = append(configs,
+			// Both directions so LockRelease<->BurnMint: local LockRelease has remote BurnMint, local BurnMint has remote LockRelease.
+			for _, cfg := range []tokenscore.TokenTransferConfig{
 				buildTokenTransferConfig(selector, remoteSelectors, combo.SourcePoolAddressRef(), combo.DestPoolAddressRef(), combo.SourcePoolCCVQualifiers()),
 				buildTokenTransferConfig(selector, remoteSelectors, combo.DestPoolAddressRef(), combo.SourcePoolAddressRef(), combo.DestPoolCCVQualifiers()),
-			)
+			} {
+				key := poolConfigKey{
+					chainSelector: cfg.ChainSelector,
+					poolType:      cfg.TokenPoolRef.Type,
+					poolVersion:   cfg.TokenPoolRef.Version.String(),
+					poolQualifier: cfg.TokenPoolRef.Qualifier,
+				}
+				existing, ok := merged[key]
+				if !ok {
+					merged[key] = cfg
+					continue
+				}
+				for rs, rc := range cfg.RemoteChains {
+					existing.RemoteChains[rs] = rc
+				}
+				merged[key] = existing
+			}
 		}
 	}
+	configs := make([]tokenscore.TokenTransferConfig, 0, len(merged))
+	for _, cfg := range merged {
+		configs = append(configs, cfg)
+	}
 	return configs
+}
+
+// PoolIdentityKey returns a key that identifies the pool type (same across chains). Used to group
+// configs so ConfigureTokensForTransfers is called once per setup with all counterpart configs.
+func PoolIdentityKey(cfg *tokenscore.TokenTransferConfig) string {
+	v := ""
+	if cfg.TokenPoolRef.Version != nil {
+		v = cfg.TokenPoolRef.Version.String()
+	}
+	return string(cfg.TokenPoolRef.Type) + "\x00" + v + "\x00" + cfg.TokenPoolRef.Qualifier
 }
 
 func buildTokenTransferConfig(

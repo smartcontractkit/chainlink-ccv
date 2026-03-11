@@ -1381,13 +1381,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		return err
 	}
 
-	// Token adapters are registered in environment.go before ConfigureTokensForTransfers via RegisterTokenAdapters().
-
-	// Token transfer configs are collected per chain and applied once in environment.go via ConfigureTokensForTransfers
-	// so that all chains are defined in the input (required for ConfigureTokensForTransfers to work correctly).
-
-	// CCTP/USDC and Lombard lane configuration; does not depend on ConfigureTokensForTransfers.
-	if err = m.ConfigureUSDCAndLombardForTransfer(e, selector, remoteSelectors); err != nil {
+	if err := m.ConfigureUSDCAndLombardForTransfer(e, selector, remoteSelectors); err != nil {
 		return fmt.Errorf("configure USDC/Lombard for transfer: %w", err)
 	}
 
