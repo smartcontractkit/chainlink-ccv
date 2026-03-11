@@ -382,7 +382,13 @@ func runLombardTestCase(
 	}
 	require.NotEmpty(t, messageHash, "Lombard verifier blob not found in VerifierBlobs")
 
-	attestation := buildLombardAttestation(msgID)
+	attestation := buildLombardAttestation(LombardAttestationArgs{
+		Sender:    sender.Bytes(),
+		DestToken: destToken.Bytes(),
+		Receiver:  tc.receiver.Bytes(),
+		Amount:    tc.transferAmount,
+		MessageID: msgID,
+	})
 	registerLombardAttestation(t, in.Fake.Out.ExternalHTTPURL, messageHash, attestation, "NOTARIZATION_STATUS_SESSION_APPROVED")
 	l.Info().Str("MessageHash", messageHash.String()).Str("MessageID", hex.EncodeToString(msgID[:])).Msg("Registered Lombard attestation")
 
