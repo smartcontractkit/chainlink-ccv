@@ -11,6 +11,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/message_heap"
 	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 	icommon "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -25,14 +26,15 @@ var (
 const readMessagesTimeout = 30 * time.Second
 
 type IndexerStorageConfig struct {
-	IndexerClient    executor.MessageReader
-	InitialQueryTime time.Time
-	PollingInterval  time.Duration
-	Backoff          time.Duration
-	QueryLimit       uint64
-	ExpiryDuration   time.Duration
-	CleanInterval    time.Duration
-	TimeProvider     common.TimeProvider
+	IndexerClient     executor.MessageReader
+	InitialQueryTime  time.Time
+	PollingInterval   time.Duration
+	Backoff           time.Duration
+	QueryLimit        uint64
+	ExpiryDuration    time.Duration
+	CleanInterval     time.Duration
+	TimeProvider      common.TimeProvider
+	EnabledDestChains []protocol.ChainSelector
 }
 
 func NewIndexerStorageStreamer(
@@ -41,32 +43,34 @@ func NewIndexerStorageStreamer(
 ) *IndexerStorageStreamer {
 	expirableSet := message_heap.NewExpirableSet(indexerConfig.ExpiryDuration)
 	return &IndexerStorageStreamer{
-		reader:          indexerConfig.IndexerClient,
-		lggr:            lggr,
-		queryLimit:      indexerConfig.QueryLimit,
-		lastQueryTime:   indexerConfig.InitialQueryTime,
-		pollingInterval: indexerConfig.PollingInterval,
-		backoff:         indexerConfig.Backoff,
-		expirableSet:    expirableSet,
-		cleanInterval:   indexerConfig.CleanInterval,
-		timeProvider:    indexerConfig.TimeProvider,
+		reader:            indexerConfig.IndexerClient,
+		lggr:              lggr,
+		queryLimit:        indexerConfig.QueryLimit,
+		lastQueryTime:     indexerConfig.InitialQueryTime,
+		pollingInterval:   indexerConfig.PollingInterval,
+		backoff:           indexerConfig.Backoff,
+		expirableSet:      expirableSet,
+		cleanInterval:     indexerConfig.CleanInterval,
+		timeProvider:      indexerConfig.TimeProvider,
+		enabledDestChains: indexerConfig.EnabledDestChains,
 	}
 }
 
 type IndexerStorageStreamer struct {
-	reader          executor.MessageReader
-	lggr            logger.Logger
-	lastQueryTime   time.Time
-	latestSeenTime  time.Time
-	pollingInterval time.Duration
-	backoff         time.Duration
-	queryLimit      uint64
-	offset          uint64
-	mu              sync.RWMutex
-	running         bool
-	expirableSet    *message_heap.ExpirableMessageSet
-	cleanInterval   time.Duration
-	timeProvider    common.TimeProvider
+	reader            executor.MessageReader
+	lggr              logger.Logger
+	lastQueryTime     time.Time
+	latestSeenTime    time.Time
+	pollingInterval   time.Duration
+	backoff           time.Duration
+	queryLimit        uint64
+	offset            uint64
+	mu                sync.RWMutex
+	running           bool
+	expirableSet      *message_heap.ExpirableMessageSet
+	cleanInterval     time.Duration
+	timeProvider      common.TimeProvider
+	enabledDestChains []protocol.ChainSelector
 }
 
 func (oss *IndexerStorageStreamer) IsRunning() bool {
@@ -121,7 +125,7 @@ func (oss *IndexerStorageStreamer) Start(
 					Start:                oss.lastQueryTime.Format(time.RFC3339),
 					Offset:               oss.offset,
 					SourceChainSelectors: nil,
-					DestChainSelectors:   nil,
+					DestChainSelectors:   oss.enabledDestChains,
 				})
 				cancel()
 				oss.lggr.Debugw("IndexerStorageStreamer query results", "start", oss.lastQueryTime, "count", len(responses), "error", err)

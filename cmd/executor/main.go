@@ -160,6 +160,7 @@ func main() {
 	// ------------------------------------------------------------------------------------------------
 	contractTransmitters := make(map[protocol.ChainSelector]chainaccess.ContractTransmitter)
 	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
+	enabledDestChains := make([]protocol.ChainSelector, 0)
 	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
 	for strSel, chain := range blockchainInfo {
 		chainConfig := executorConfig.ChainConfiguration[strSel]
@@ -207,6 +208,7 @@ func main() {
 			rmnReaders[protocol.ChainSelector(selector)] = dr
 		}
 		contractTransmitters[protocol.ChainSelector(selector)] = ct
+		enabledDestChains = append(enabledDestChains, protocol.ChainSelector(selector))
 	}
 
 	//
@@ -284,14 +286,15 @@ func main() {
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
 		lggr,
 		ccvstreamer.IndexerStorageConfig{
-			IndexerClient:    verifierResultReader,
-			InitialQueryTime: time.Now().Add(-1 * executorConfig.LookbackWindow),
-			PollingInterval:  indexerPollingInterval,
-			Backoff:          executorConfig.BackoffDuration,
-			QueryLimit:       executorConfig.IndexerQueryLimit,
-			ExpiryDuration:   messageContextWindow,
-			CleanInterval:    indexerGarbageCollectionInterval,
-			TimeProvider:     timeProvider,
+			IndexerClient:     verifierResultReader,
+			InitialQueryTime:  time.Now().Add(-1 * executorConfig.LookbackWindow),
+			PollingInterval:   indexerPollingInterval,
+			Backoff:           executorConfig.BackoffDuration,
+			QueryLimit:        executorConfig.IndexerQueryLimit,
+			ExpiryDuration:    messageContextWindow,
+			CleanInterval:     indexerGarbageCollectionInterval,
+			TimeProvider:      timeProvider,
+			EnabledDestChains: enabledDestChains,
 		})
 
 	//
