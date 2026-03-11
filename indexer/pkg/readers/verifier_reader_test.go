@@ -30,8 +30,7 @@ func (m *mockVerifierResultsAPI) GetVerifications(ctx context.Context, messageID
 
 // newTestVerifierReader creates a new VerifierReader instance for testing.
 func newTestVerifierReader(mockVerifier *mockVerifierResultsAPI, config *config.VerifierConfig) *VerifierReader {
-	ctx := context.Background()
-	return NewVerifierReader(ctx, mockVerifier, config)
+	return NewVerifierReader(mockVerifier, config)
 }
 
 func TestNewVerifierReader(t *testing.T) {
@@ -75,7 +74,6 @@ func TestVerifierReader_ProcessMessage_Success(t *testing.T) {
 }
 
 func TestVerifierReader_ProcessMessage_BatcherClosed(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
 	config := &config.VerifierConfig{
 		BatchSize:        100,
 		MaxBatchWaitTime: 100,
@@ -83,10 +81,9 @@ func TestVerifierReader_ProcessMessage_BatcherClosed(t *testing.T) {
 	mockVerifier := &mockVerifierResultsAPI{
 		results: make(map[protocol.Bytes32]protocol.VerifierResult),
 	}
-	reader := NewVerifierReader(ctx, mockVerifier, config)
-
-	// Cancel context to close batcher
-	cancel()
+	reader := NewVerifierReader(mockVerifier, config)
+	require.NoError(t, reader.Start(t.Context()))
+	require.NoError(t, reader.Close())
 
 	// Wait a bit for batcher to process cancellation
 	time.Sleep(50 * time.Millisecond)
@@ -144,7 +141,7 @@ func TestVerifierReader_Run_ProcessesBatches(t *testing.T) {
 			messageID2: ccvData2,
 		},
 	}
-	reader := NewVerifierReader(ctx, mockVerifier, config)
+	reader := NewVerifierReader(mockVerifier, config)
 
 	err := reader.Start(ctx)
 	require.NoError(t, err)
@@ -206,7 +203,7 @@ func TestVerifierReader_Run_HandlesVerifierError(t *testing.T) {
 		results: make(map[protocol.Bytes32]protocol.VerifierResult),
 		err:     expectedError,
 	}
-	reader := NewVerifierReader(ctx, mockVerifier, config)
+	reader := NewVerifierReader(mockVerifier, config)
 
 	err := reader.Start(ctx)
 	require.NoError(t, err)
@@ -349,7 +346,7 @@ func TestVerifierReader_Run_ChannelClosed(t *testing.T) {
 	mockVerifier := &mockVerifierResultsAPI{
 		results: make(map[protocol.Bytes32]protocol.VerifierResult),
 	}
-	reader := NewVerifierReader(ctx, mockVerifier, config)
+	reader := NewVerifierReader(mockVerifier, config)
 
 	err := reader.Start(ctx)
 	require.NoError(t, err)

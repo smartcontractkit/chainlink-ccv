@@ -178,7 +178,7 @@ func TestGetExistingVerifiers_NotFoundReturnsEmpty(t *testing.T) {
 // returns quickly and deterministically.
 func makeReader(vf protocol.VerifierResultsAPI) *readers.VerifierReader {
 	cfg := &config.VerifierConfig{BatchSize: 1, MaxBatchWaitTime: 1}
-	r := readers.NewVerifierReader(context.Background(), vf, cfg)
+	r := readers.NewVerifierReader(vf, cfg)
 	_ = r.Start(context.Background())
 	// Allow the background goroutine to start and begin reading batches.
 	// This small sleep avoids a race where ProcessMessage adds to the batch
