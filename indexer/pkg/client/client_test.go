@@ -103,26 +103,85 @@ func TestProcessResponse(t *testing.T) {
 	}
 }
 
+type trackingCloser struct {
+	io.Reader
+	closed bool
+}
+
+func (tc *trackingCloser) Close() error {
+	tc.closed = true
+	return nil
+}
+
+type failingReader struct{}
+
+func (f *failingReader) Read([]byte) (int, error) {
+	return 0, errors.New("simulated read failure")
+}
+
 func TestMaybeGetBody(t *testing.T) {
-	// nil reader
-	require.Error(t, func() error {
-		_, err := maybeGetBody(nil, 10)
-		return err
-	}())
-
-	// small body
-	small := io.NopCloser(bytes.NewReader([]byte("hello")))
-	b, err := maybeGetBody(small, 10)
-	require.NoError(t, err)
-	require.Equal(t, "hello", string(b))
-
-	// oversized body
-	big := make([]byte, MaxBodySize+1)
-	for i := range big {
-		big[i] = 'x'
+	cases := []struct {
+		name       string
+		body       func() *trackingCloser
+		maxBody    int
+		wantErr    string
+		wantClosed bool
+		wantData   string
+	}{
+		{
+			name:       "happy_path_closes_body",
+			body:       func() *trackingCloser { return &trackingCloser{Reader: bytes.NewReader([]byte("hello"))} },
+			maxBody:    10,
+			wantClosed: true,
+			wantData:   "hello",
+		},
+		{
+			name:       "body_exactly_at_max_closes_body",
+			body:       func() *trackingCloser { return &trackingCloser{Reader: bytes.NewReader(make([]byte, 10))} },
+			maxBody:    10,
+			wantClosed: true,
+			wantData:   string(make([]byte, 10)),
+		},
+		{
+			name: "oversized_body_closes_body",
+			body: func() *trackingCloser {
+				big := make([]byte, 16)
+				return &trackingCloser{Reader: bytes.NewReader(big)}
+			},
+			maxBody:    10,
+			wantErr:    ErrResponseTooLarge.Error(),
+			wantClosed: true,
+		},
+		{
+			name:       "read_failure_closes_body",
+			body:       func() *trackingCloser { return &trackingCloser{Reader: &failingReader{}} },
+			maxBody:    10,
+			wantErr:    "failed to read body",
+			wantClosed: true,
+		},
 	}
-	_, err = maybeGetBody(io.NopCloser(bytes.NewReader(big)), MaxBodySize)
-	require.True(t, errors.Is(err, ErrResponseTooLarge), "expected ErrResponseTooLarge, got: %v", err)
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := tc.body()
+			b, err := maybeGetBody(body, tc.maxBody)
+
+			require.Equal(t, tc.wantClosed, body.closed, "body.Close() called")
+
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Equal(t, tc.wantData, string(b))
+		})
+	}
+
+	t.Run("nil_reader_returns_error", func(t *testing.T) {
+		_, err := maybeGetBody(nil, 10)
+		require.ErrorContains(t, err, "nil reader detected")
+	})
 }
 
 func TestParseVerifierResultsParams(t *testing.T) {
