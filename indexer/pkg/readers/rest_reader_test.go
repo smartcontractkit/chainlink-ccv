@@ -2,11 +2,19 @@ package readers
 
 import (
 	"bytes"
+	"context"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 func TestReadLimitedBody(t *testing.T) {
@@ -77,6 +85,69 @@ func TestReadLimitedBody(t *testing.T) {
 			assert.Len(t, b, tt.wantLen)
 		})
 	}
+}
+
+func TestBuildRequestURL(t *testing.T) {
+	messageID1 := protocol.Bytes32{0x1}
+	messageID2 := protocol.Bytes32{0x2}
+
+	r := &restReader{baseURL: "http://localhost:8080"}
+	got := r.buildRequestURL([]protocol.Bytes32{messageID1, messageID2})
+
+	expected := "http://localhost:8080/verifications?" + url.Values{"messageID": []string{messageID1.String() + "," + messageID2.String()}}.Encode()
+	assert.Equal(t, expected, got)
+}
+
+func TestBuildRequestURLWithVersionedBaseURL(t *testing.T) {
+	messageID := protocol.Bytes32{0x3}
+
+	r := &restReader{baseURL: "http://localhost:8080/v1"}
+	got := r.buildRequestURL([]protocol.Bytes32{messageID})
+
+	expected := "http://localhost:8080/v1/verifications?" + url.Values{"messageID": []string{messageID.String()}}.Encode()
+	assert.Equal(t, expected, got)
+}
+
+func TestGetVerificationsWithEmptyMessageIDsReturnsNilWithoutCallingAPI(t *testing.T) {
+	reader := &restReader{
+		baseURL:          "http://unused",
+		maxResponseBytes: 1024,
+		httpClient:       &http.Client{Timeout: time.Second},
+		lggr:             logger.Test(t),
+	}
+	results, err := reader.GetVerifications(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Nil(t, results)
+
+	results, err = reader.GetVerifications(context.Background(), []protocol.Bytes32{})
+	require.NoError(t, err)
+	assert.Nil(t, results)
+}
+
+func TestGetVerificationsUsesTokenVerifierEndpoint(t *testing.T) {
+	messageID := protocol.Bytes32{0xAA}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		assert.Equal(t, "/verifications", req.URL.Path)
+		assert.Equal(t, messageID.String(), req.URL.Query().Get("messageID"))
+		assert.Equal(t, jsonContentType, req.Header.Get("Accept"))
+		assert.Equal(t, userAgent, req.Header.Get("User-Agent"))
+
+		w.Header().Set("Content-Type", jsonContentType)
+		_, _ = w.Write([]byte(`{"results":[],"errors":[]}`))
+	}))
+	defer ts.Close()
+
+	reader := &restReader{
+		baseURL:          ts.URL,
+		maxResponseBytes: 1024,
+		httpClient:       &http.Client{Timeout: time.Second},
+		lggr:             logger.Test(t),
+	}
+
+	results, err := reader.GetVerifications(context.Background(), []protocol.Bytes32{messageID})
+	require.NoError(t, err)
+	assert.Empty(t, results)
 }
 
 type failingReader struct{}

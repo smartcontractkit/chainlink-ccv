@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -63,11 +64,14 @@ func NewRestReader(config RestReaderConfig) *ResilientReader {
 }
 
 func (r *restReader) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.VerifierResult, error) {
-	url := r.buildRequestURL(messageIDs)
-	r.lggr.Debugw("REST reader calling token verifier", "url", url)
+	if len(messageIDs) == 0 {
+		return nil, nil
+	}
+	requestURL := r.buildRequestURL(messageIDs)
+	r.lggr.Debugw("REST reader calling token verifier", "url", requestURL)
 
 	// Create HTTP request
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -78,28 +82,28 @@ func (r *restReader) GetVerifications(ctx context.Context, messageIDs []protocol
 	// Execute HTTP request
 	response, err := r.httpClient.Do(req)
 	if err != nil {
-		r.lggr.Errorw("REST reader HTTP request failed", "url", url, "error", err)
+		r.lggr.Errorw("REST reader HTTP request failed", "url", requestURL, "error", err)
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
 	defer closeHTTPResponse(response)
 
 	// Validate status code
 	if response.StatusCode != http.StatusOK {
-		r.lggr.Errorw("REST reader unexpected status", "url", url, "status", response.StatusCode)
+		r.lggr.Errorw("REST reader unexpected status", "url", requestURL, "status", response.StatusCode)
 		return nil, fmt.Errorf("unexpected status code: %d", response.StatusCode)
 	}
 
 	body, err := readLimitedBody(response.Body, r.maxResponseBytes)
 	if err != nil {
 		if errors.Is(err, ErrResponseTooLarge) {
-			r.lggr.Warnw("REST reader response exceeded size limit", "url", url, "limitBytes", r.maxResponseBytes)
+			r.lggr.Warnw("REST reader response exceeded size limit", "url", requestURL, "limitBytes", r.maxResponseBytes)
 		}
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	var queryResponses v1.VerifierResultsResponse
 	if err := json.Unmarshal(body, &queryResponses); err != nil {
-		r.lggr.Errorw("REST reader parse failed", "url", url, "body", string(body), "error", err)
+		r.lggr.Errorw("REST reader parse failed", "url", requestURL, "bodyLen", len(body), "error", err)
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
@@ -112,9 +116,9 @@ func (r *restReader) buildRequestURL(messageIDs []protocol.Bytes32) string {
 	for _, id := range messageIDs {
 		messageIDStrings = append(messageIDStrings, id.String())
 	}
-
-	queryParams := strings.Join(messageIDStrings, "&messageID=")
-	return fmt.Sprintf("%s/verifications?messageID=%s", r.baseURL, queryParams)
+	queryVal := strings.Join(messageIDStrings, ",")
+	v := url.Values{"messageID": []string{queryVal}}
+	return fmt.Sprintf("%s/verifications?%s", r.baseURL, v.Encode())
 }
 
 // readLimitedBody reads up to maxBytes from r. maxBytes must be positive.
