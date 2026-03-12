@@ -382,6 +382,10 @@ func runLombardTestCase(
 	}
 	require.NotEmpty(t, messageHash, "Lombard verifier blob not found in VerifierBlobs")
 
+	// Set the destination chain's Lombard mock mailbox to return verifier version + messageID (36 bytes)
+	// so LombardVerifier.verifyMessage's deliverAndHandle check passes.
+	SetLombardMailboxBridgedMessageIfSupported(ctx, t, destChain, msgID)
+
 	attestation := buildLombardAttestation(LombardAttestationArgs{
 		Sender:    sender.Bytes(),
 		DestToken: destToken.Bytes(),

@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"math/big"
@@ -12,6 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
 )
@@ -34,6 +36,22 @@ import (
 //
 // 5. LombardVerifier.verifyMessage(..., ccvData) runs _validatePayload(rawPayload, ...) then
 //    deliverAndHandle(rawPayload, proof); the mock must return (?, true, versionTag||messageId).
+//    The test calls SetLombardMailboxBridgedMessageIfSupported on the destination chain so the mock
+//    mailbox returns exactly 36 bytes (avoids InvalidMessageLength 0xc2fdac98).
+
+// SetLombardMailboxBridgedMessageIfSupported writes verifier version + messageID (36 bytes) to the Lombard
+// mock mailbox on the given chain (destination). Gets the mailbox via bridge.Mailbox(), then calls
+// setMessageId on it. If the chain implements LombardMailboxBridgedMessageSetter (e.g. EVM), this
+// runs before building the attestation so deliverAndHandle returns the expected bridged message.
+func SetLombardMailboxBridgedMessageIfSupported(ctx context.Context, t *testing.T, destChain cciptestinterfaces.CCIP17, messageID [32]byte) {
+	setter, ok := destChain.(cciptestinterfaces.LombardMailboxBridgedMessageSetter)
+	if !ok {
+		t.Logf("Chain does not implement LombardMailboxBridgedMessageSetter, skipping setMessageId on mailbox")
+		return
+	}
+	err := setter.SetLombardMailboxBridgedMessage(ctx, messageID)
+	require.NoError(t, err, "SetLombardMailboxBridgedMessage on destination chain")
+}
 
 // registerLombardAttestation registers a Lombard attestation response with the fake service.
 func registerLombardAttestation(

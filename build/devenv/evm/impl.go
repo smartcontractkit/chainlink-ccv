@@ -8,12 +8,14 @@ import (
 	"math"
 	"math/big"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/accounts/abi"
+	bindv1 "github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
@@ -37,6 +39,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/fee_quoter"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_lombard_bridge"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
@@ -52,6 +55,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/deployments"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployments/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -1909,6 +1913,51 @@ func (m *CCIP17EVM) transactorForAddress(addr common.Address) *bind.TransactOpts
 		if u.From == addr {
 			return u
 		}
+	}
+	return nil
+}
+
+// SetLombardMailboxBridgedMessage sets the mock Lombard mailbox's execution result to verifier version + messageID
+// (36 bytes) so that when LombardVerifier.verifyMessage calls deliverAndHandle, the mailbox returns that value
+// and the contract's InvalidMessageLength check passes. Implements cciptestinterfaces.LombardMailboxBridgedMessageSetter.
+func (m *CCIP17EVM) SetLombardMailboxBridgedMessage(ctx context.Context, messageID [32]byte) error {
+	bridgeRef, err := m.ds.Addresses().Get(datastore.NewAddressRefKey(
+		m.chainDetails.ChainSelector,
+		datastore.ContractType("MockLombardBridge"),
+		semver.MustParse("1.7.0"),
+		devenvcommon.LombardContractsQualifier,
+	))
+	if err != nil {
+		return fmt.Errorf("get MockLombardBridge address: %w", err)
+	}
+	bridge, err := mock_lombard_bridge.NewMockLombardBridge(common.HexToAddress(bridgeRef.Address), m.chain.Client)
+	if err != nil {
+		return fmt.Errorf("new MockLombardBridge: %w", err)
+	}
+	mailboxAddr, err := bridge.Mailbox(&bindv1.CallOpts{Context: ctx})
+	if err != nil {
+		return fmt.Errorf("bridge.Mailbox: %w", err)
+	}
+	// MockLombardMailbox.setMessageId(bytes calldata optionalMessage) — we pass verifier version (4) + messageID (32) = 36 bytes
+	versionTag := lombard.DefaultVerifierVersion
+	bridgedMessage := append(append([]byte(nil), versionTag...), messageID[:]...)
+	mailboxABI, err := abi.JSON(strings.NewReader(`[{"type":"function","name":"setMessageId","inputs":[{"name":"optionalMessage","type":"bytes"}]}]`))
+	if err != nil {
+		return fmt.Errorf("mailbox ABI: %w", err)
+	}
+	boundMailbox := bindv1.NewBoundContract(mailboxAddr, mailboxABI, m.chain.Client, m.chain.Client, m.chain.Client)
+	opts := &bindv1.TransactOpts{
+		Context: ctx,
+		From:    m.chain.DeployerKey.From,
+		Signer:  m.chain.DeployerKey.Signer,
+	}
+	tx, err := boundMailbox.Transact(opts, "setMessageId", bridgedMessage)
+	if err != nil {
+		return fmt.Errorf("transact setMessageId: %w", err)
+	}
+	_, err = m.chain.Confirm(tx)
+	if err != nil {
+		return fmt.Errorf("confirm setMessageId tx: %w", err)
 	}
 	return nil
 }
