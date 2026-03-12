@@ -279,6 +279,14 @@ func NewBytes32FromString(s string) (Bytes32, error) {
 	return res, nil
 }
 
+// NewBytes32FromSlice creates a Bytes32 from a byte slice. Returns an error if the slice length is not 32.
+func NewBytes32FromSlice(b []byte) (Bytes32, error) {
+	if len(b) != len(Bytes32{}) {
+		return Bytes32{}, fmt.Errorf("Bytes32 requires exactly %d bytes, got %d", len(Bytes32{}), len(b))
+	}
+	return Bytes32(b), nil
+}
+
 func (b Bytes32) String() string {
 	return "0x" + hex.EncodeToString(b[:])
 }
