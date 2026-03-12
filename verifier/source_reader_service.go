@@ -278,18 +278,21 @@ func (r *SourceReaderService) getBlockRanges(fromBlock, latest uint64) []blockRa
 	return blockRanges
 }
 
-func (r *SourceReaderService) loadEvents(ctx context.Context, fromBlock *big.Int, latest *protocol.BlockHeader) ([]protocol.MessageSentEvent, error) {
+func (r *SourceReaderService) loadEvents(ctx context.Context, fromBlock *big.Int, latest *protocol.BlockHeader) ([]protocol.MessageSentEvent, *big.Int, error) {
 	blockRanges := r.getBlockRanges(fromBlock.Uint64(), latest.Number)
 
 	allEvents := make([]protocol.MessageSentEvent, 0)
+	finalQueriedBlock := fromBlock
 	for _, br := range blockRanges {
 		events, err := r.sourceReader.FetchMessageSentEvents(ctx, br.fromBlock, br.toBlock)
 		if err != nil {
-			return nil, err
+			// Return all events so far to avoid losing progress
+			return allEvents, finalQueriedBlock, err
 		}
 		allEvents = append(allEvents, events...)
+		finalQueriedBlock = br.toBlock
 	}
-	return allEvents, nil
+	return allEvents, finalQueriedBlock, nil
 }
 
 func (r *SourceReaderService) processEventCycle(ctx context.Context, latest, finalized *protocol.BlockHeader) {
@@ -303,12 +306,11 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context, latest, fin
 	fromBlock := r.lastProcessedFinalizedBlock.Load()
 
 	r.logger.Infow("Querying from block", "fromBlock", fromBlock.String())
-	events, err := r.loadEvents(logsCtx, fromBlock, latest)
+	events, lastQueriedBlock, err := r.loadEvents(logsCtx, fromBlock, latest)
 	if err != nil {
-		r.logger.Errorw("Failed to query logs", "error", err,
+		r.logger.Warnw("Error when querying logs", "error", err,
 			"fromBlock", fromBlock.String(),
 			"toBlock", "latest")
-		return
 	}
 
 	tasks := make([]VerificationTask, 0, len(events))
@@ -343,15 +345,28 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context, latest, fin
 		r.writingTracker.Add(r.chainSelector, onchainMessageID, finalized.Number)
 	}
 
-	r.addToPendingQueueHandleReorg(tasks, fromBlock)
+	r.addToPendingQueueHandleReorg(tasks, fromBlock, lastQueriedBlock)
 
 	if len(events) == 0 {
 		r.logger.Debugw("No events found in range",
 			"fromBlock", fromBlock.String(),
-			"toBlock", "latest")
+			"toBlock", lastQueriedBlock)
 	}
 
-	newBlock := new(big.Int).SetUint64(finalized.Number)
+	// Always store a valid block pointer in lastProcessedFinalizedBlock.
+	// If we successfully processed, advance to finalized.
+	// If partial read (err != nil but lastQueriedBlock >= fromBlock), advance to lastQueriedBlock.
+	// If total failure (err != nil, no progress), do not advance.
+	var newBlock *big.Int
+	switch {
+	case err == nil:
+		newBlock = new(big.Int).SetUint64(finalized.Number)
+	case lastQueriedBlock != nil && lastQueriedBlock.Cmp(fromBlock) >= 0:
+		newBlock = new(big.Int).Set(lastQueriedBlock)
+	default:
+		// If we get here, err != nil and no chunks fetched: don't update lastProcessedFinalizedBlock.
+		return
+	}
 	r.lastProcessedFinalizedBlock.Store(newBlock)
 
 	r.logger.Debugw("Processed block range",
@@ -404,7 +419,7 @@ func (r *SourceReaderService) fallbackBlockEstimate(currentBlock uint64, lookbac
 	return fallBackBlock
 }
 
-func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationTask, fromBlock *big.Int) {
+func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationTask, fromBlock *big.Int, toBlock *big.Int) {
 	tasksMap := make(map[string]VerificationTask)
 	for _, task := range tasks {
 		tasksMap[task.MessageID] = task
@@ -419,7 +434,7 @@ func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationT
 
 	for msgID, existing := range r.pendingTasks {
 		existingBlock := new(big.Int).SetUint64(existing.BlockNumber)
-		if existingBlock.Cmp(fromBlock) >= 0 {
+		if existingBlock.Cmp(fromBlock) >= 0 && (toBlock == nil || existingBlock.Cmp(toBlock) <= 0) {
 			if _, exists := tasksMap[msgID]; !exists {
 				r.logger.Warnw("Removing task from pending queue due to reorg",
 					"messageID", msgID,
@@ -437,7 +452,7 @@ func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationT
 
 	for msgID, task := range r.sentTasks {
 		taskBlock := new(big.Int).SetUint64(task.BlockNumber)
-		if taskBlock.Cmp(fromBlock) >= 0 {
+		if taskBlock.Cmp(fromBlock) >= 0 && (toBlock == nil || taskBlock.Cmp(toBlock) <= 0) {
 			if _, exists := tasksMap[msgID]; !exists {
 				r.logger.Warnw("Removing task from sentTasks due to reorg",
 					"messageID", msgID,
