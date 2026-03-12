@@ -1318,14 +1318,16 @@ func TestVerifierResultMessage_NilChecks(t *testing.T) {
 		msg := &VerifierResultMessage{Message: &v1.Message{CcvAndExecutorHash: make([]byte, 31)}}
 		_, err := msg.ToMessage()
 		require.Error(t, err)
-		require.ErrorContains(t, err, "field CcvAndExecutorHash has invalid length")
+		require.ErrorContains(t, err, "field CcvAndExecutorHash")
+		require.ErrorContains(t, err, "32 bytes, got 31")
 	})
 
 	t.Run("ToMessage returns error when CcvAndExecutorHash length is greater than 32 bytes", func(t *testing.T) {
 		msg := &VerifierResultMessage{Message: &v1.Message{CcvAndExecutorHash: make([]byte, 33)}}
 		_, err := msg.ToMessage()
 		require.Error(t, err)
-		require.ErrorContains(t, err, "field CcvAndExecutorHash has invalid length")
+		require.ErrorContains(t, err, "field CcvAndExecutorHash")
+		require.ErrorContains(t, err, "32 bytes, got 33")
 	})
 }
 

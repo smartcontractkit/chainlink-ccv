@@ -388,14 +388,11 @@ func (r *VerifierResultMessage) ToMessage() (protocol.Message, error) {
 	ccvAndExecutorHash := protocol.Bytes32{}
 
 	if r.CcvAndExecutorHash != nil {
-		if len(r.CcvAndExecutorHash) != len(ccvAndExecutorHash) {
-			return protocol.Message{}, fmt.Errorf(
-				"field CcvAndExecutorHash has invalid length %d (expected %d)",
-				len(r.CcvAndExecutorHash),
-				len(ccvAndExecutorHash),
-			)
+		var err error
+		ccvAndExecutorHash, err = protocol.NewBytes32FromSlice(r.CcvAndExecutorHash)
+		if err != nil {
+			return protocol.Message{}, fmt.Errorf("field CcvAndExecutorHash: %w", err)
 		}
-		ccvAndExecutorHash = protocol.Bytes32(r.CcvAndExecutorHash)
 	}
 
 	var tokenTransfer *protocol.TokenTransfer
