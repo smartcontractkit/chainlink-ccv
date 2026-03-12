@@ -62,17 +62,18 @@ func (a *AggregatorReader) Close() error {
 
 // ReadCCVData returns the next available CCV data entries.
 func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse, error) {
+	sinceVal := a.since.Load()
 	resp, err := a.messageDiscoveryClient.GetMessagesSince(ctx, &msgdiscoverypb.GetMessagesSinceRequest{
-		SinceSequence: a.since.Load(),
+		SinceSequence: sinceVal,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error calling GetMessagesSince: %w", err)
 	}
 
-	a.lggr.Debugw("Got messages since", "count", len(resp.Results), "since", a.since.Load())
+	a.lggr.Debugw("Got messages since", "count", len(resp.Results), "since", sinceVal)
 	// Convert the response to []types.QueryResponse
 	results := make([]protocol.QueryResponse, 0, len(resp.Results))
-	tempSince := a.since.Load()
+	tempSince := sinceVal
 	for i, resultWithSeq := range resp.Results {
 		if resultWithSeq.VerifierResult == nil {
 			return nil, fmt.Errorf("nil VerifierResults at index %d", i)
@@ -85,6 +86,10 @@ func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryRes
 		}
 
 		sequence := resultWithSeq.Sequence
+		if sequence < sinceVal {
+			a.lggr.Errorw("Aggregator returned result with sequence less than requested since",
+				"sequence", sequence, "since", sinceVal)
+		}
 		if sequence >= tempSince {
 			tempSince = sequence + 1
 		}

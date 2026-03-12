@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/lib/pq"
@@ -44,7 +43,6 @@ type PostgresStorage struct {
 	ds         sqlutil.DataSource
 	lggr       logger.Logger
 	monitoring common.IndexerMonitoring
-	mu         sync.RWMutex
 }
 
 func NewPostgresStorage(ctx context.Context, lggr logger.Logger, monitoring common.IndexerMonitoring, uri, driverName string, config pg.DBConfig) (*PostgresStorage, error) {
@@ -76,8 +74,6 @@ func NewPostgresStorage(ctx context.Context, lggr logger.Logger, monitoring comm
 func (d *PostgresStorage) GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]common.VerifierResultWithMetadata, error) {
 	startQueryMetric := time.Now()
 	var err error
-	d.mu.RLock()
-	defer d.mu.RUnlock()
 	defer func() {
 		d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), opGetCCVData, err != nil)
 	}()
@@ -139,8 +135,6 @@ func (d *PostgresStorage) QueryCCVData(
 ) (map[string][]common.VerifierResultWithMetadata, error) {
 	startQueryMetric := time.Now()
 	var err error
-	d.mu.RLock()
-	defer d.mu.RUnlock()
 	defer func() {
 		d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), opQueryCCVData, err != nil)
 	}()
@@ -282,8 +276,6 @@ func (d *PostgresStorage) InsertVerifierResults(ctx context.Context, verifierRes
 	}
 
 	startInsertMetric := time.Now()
-	d.mu.Lock()
-	defer d.mu.Unlock()
 
 	query, args, err := buildBatchInsertCCVDataQuery(verifierResults)
 	if err != nil {
@@ -376,8 +368,6 @@ func (d *PostgresStorage) InsertMessages(ctx context.Context, messages []common.
 	}
 
 	startInsertMetric := time.Now()
-	d.mu.Lock()
-	defer d.mu.Unlock()
 
 	query, args, err := buildBatchInsertMessagesQuery(messages)
 	if err != nil {
@@ -406,9 +396,6 @@ func (d *PostgresStorage) InsertMessages(ctx context.Context, messages []common.
 
 // GetMessage performs a lookup by messageID in the database.
 func (d *PostgresStorage) GetMessage(ctx context.Context, messageID protocol.Bytes32) (common.MessageWithMetadata, error) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-
 	query := `
 		SELECT 
 			message_id,
@@ -444,8 +431,6 @@ func (d *PostgresStorage) QueryMessages(
 ) ([]common.MessageWithMetadata, error) {
 	startQueryMetric := time.Now()
 	var err error
-	d.mu.RLock()
-	defer d.mu.RUnlock()
 	defer func() {
 		d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), opQueryMessages, err != nil)
 	}()
@@ -510,8 +495,6 @@ func (d *PostgresStorage) QueryMessages(
 // UpdateMessageStatus implements common.IndexerStorage.
 func (d *PostgresStorage) UpdateMessageStatus(ctx context.Context, messageID protocol.Bytes32, status common.MessageStatus, lastErr string) error {
 	startUpdateMetric := time.Now()
-	d.mu.Lock()
-	defer d.mu.Unlock()
 
 	query := `
 		UPDATE indexer.messages
@@ -545,8 +528,6 @@ func (d *PostgresStorage) UpdateMessageStatus(ctx context.Context, messageID pro
 
 func (d *PostgresStorage) CreateDiscoveryState(ctx context.Context, discoveryLocation string, startingSequenceNumber int) error {
 	startInsertMetric := time.Now()
-	d.mu.Lock()
-	defer d.mu.Unlock()
 
 	query := `
     INSERT INTO indexer.discovery_state (
@@ -671,9 +652,6 @@ func (d *PostgresStorage) PersistDiscoveryBatch(ctx context.Context, batch commo
 }
 
 func (d *PostgresStorage) GetDiscoverySequenceNumber(ctx context.Context, discoveryLocation string) (int, error) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-
 	query := `SELECT last_sequence_number FROM indexer.discovery_state WHERE discovery_location = $1`
 	row := d.queryRowContext(ctx, query, discoveryLocation)
 
