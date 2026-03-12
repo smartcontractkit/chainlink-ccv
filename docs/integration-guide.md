@@ -73,16 +73,16 @@ sequenceDiagram
     participant Test as E2E Tests
 
     ChainIntegration->>CLI: CTF_CONFIGS=tests/env/env-{chain}.toml
-    CLI->>CLI: Load[Cfg](configs) -- parse + merge TOML
+    CLI->>CLI: Load[Cfg](configs) to parse + merge TOML
     CLI->>Docker: Deploy blockchains (Anvil, {chain} node)
     CLI->>Docker: Deploy contracts (via CCIP17Configuration)
     CLI->>Docker: Launch services (verifier, aggregator, indexer, executor)
-    CLI->>Out: Store() -- write env-{chain}-out.toml
+    CLI->>Out: Store() - write env-{chain}-out.toml
     Note over Out: Contains deployed addresses,<br/>RPC URLs, service endpoints,<br/>CLDF datastore
 
-    Test->>Out: LoadOutput[Cfg](path) -- read + hydrate DataStore
+    Test->>Out: LoadOutput[Cfg](path) - read + hydrate DataStore
     Test->>Test: NewLib(logger, path, families...)
-    Test->>Test: lib.Chains(ctx) -- ImplFactory.New() per family
+    Test->>Test: lib.Chains(ctx) - ImplFactory.New() per family
     Test->>Test: SendMessage(), assert events, etc.
 ```
 
@@ -437,21 +437,21 @@ The E2E test lifecycle has two distinct phases: environment creation (via the de
 ```mermaid
 graph TD
     subgraph phase1 ["Phase 1: Environment Setup (make up)"]
-        MakeUp["make up\n(runs devenv CLI)"]
-        Register1["Register{Chain}Components()\nin init()"]
-        CCVUP["ccv up\nLoad config, deploy all"]
-        OutputTOML["env-{chain}-out.toml\n(deployed addresses, endpoints)"]
+        MakeUp["make up <br/> (alias to run devenv CLI)"]
+        Register1["Register{Chain}Components() <br/> in init()"]
+        CCVUP["ccv up <br/> Load config, deploy all"]
+        OutputTOML["env-{chain}-out.toml <br/> (deployed addresses, endpoints)"]
 
         MakeUp --> Register1 --> CCVUP --> OutputTOML
     end
 
     subgraph phase2 ["Phase 2: Test Execution (go test)"]
         GoTest["go test ./tests/e2e/..."]
-        Register2["Register{Chain}Components()\nin test setup"]
-        LoadCfg["LoadOutput -- read output TOML"]
-        CreateLib["NewLib() -- create Lib"]
-        GetChains["Lib.Chains()\nEVM: built-in\nOthers: ImplFactory.New()"]
-        RunTests["SendMessage(), assert events,\ncheck aggregator, indexer"]
+        Register2["Register{Chain}Components() <br/> in test setup"]
+        LoadCfg["LoadOutput - read output TOML"]
+        CreateLib["NewLib() - create Lib"]
+        GetChains["Lib.Chains() <br/> EVM: built-in <br/> Others: ImplFactory.New()"]
+        RunTests["SendMessage(), assert events, <br/> check aggregator, indexer"]
 
         GoTest --> Register2 --> LoadCfg --> CreateLib --> GetChains --> RunTests
     end
@@ -467,6 +467,47 @@ When `Lib.Chains()` iterates over the blockchains in the config:
 - **All other families** are resolved via `GetImplFactory(family)` which looks up the factory you registered, then calls `factory.New(ctx, cfg, logger, env, blockchainInput)`
 
 This is the key dispatch mechanism. If your `ImplFactory` is not registered before `Chains()` is called, it will fail with `"implementation factory for family {X} not found"`.
+
+
+### DevEnv Requirements by E2E Case
+
+#### {chain}ToEVM (arbitrary messaging)
+
+(basic requirements - not fully E2E)
+
+1. `ChainImplFactory`
+  * Contract deployment for selector
+  * Adding the EVM OffRamp address as a valid destination
+
+2. `SourceReader`
+  * ...
+3. Registration
+  * ConfigLoader
+  * 
+3. `Verifier` service
+  * This can be the base verifier image `verifier:dev` in the topology file at this stage.
+
+(full E2E - with verifier service)
+
+4. A bootstrapped `CommitteeVerifier` as a docker image
+5. A modifier for the CommitteeVerifier
+  * Must be registered as a service modifier
+
+
+#### EVMTo{chain} (arbitrary messaging)
+
+.... TODO
+
+
+#### {chain}ToEVM (token transfer)
+
+.... TODO
+
+
+#### EVMTo{chain} (token transfer)
+
+.... TODO
+
 
 ### Writing E2E Tests
 
@@ -513,17 +554,17 @@ Use this checklist as a tracking tool when integrating a new chain family.
 ### Core Implementation
 
 - [ ] Implement `CCIP17Configuration` (chain impl factory):
-  - [ ] `DeployLocalNetwork()` -- start chain node in Docker
-  - [ ] `DeployContractsForSelector()` -- deploy CCIP contracts, return datastore
-  - [ ] `ConnectContractsWithSelectors()` -- wire OnRamp to remote chains
-  - [ ] `ConfigureNodes()` -- return CL node TOML config
-  - [ ] `FundNodes()` and `FundAddresses()` -- fund accounts
+  - [ ] `DeployLocalNetwork()` - start chain node in Docker
+  - [ ] `DeployContractsForSelector()` - deploy CCIP contracts, return datastore
+  - [ ] `ConnectContractsWithSelectors()` - wire OnRamp to remote chains
+  - [ ] `ConfigureNodes()` - return CL node TOML config
+  - [ ] `FundNodes()` and `FundAddresses()` - fund accounts
 - [ ] Implement `CCIP17` in `ccv/chain/chain.go`:
-  - [ ] `SendMessage()` -- send CCIP message via OnRamp
-  - [ ] `WaitOneSentEventBySeqNo()` -- wait for sent event
-  - [ ] `WaitOneExecEventBySeqNo()` -- wait for execution event
+  - [ ] `SendMessage()` - send CCIP message via OnRamp
+  - [ ] `WaitOneSentEventBySeqNo()` - wait for sent event
+  - [ ] `WaitOneExecEventBySeqNo()` - wait for execution event
   - [ ] `ChainSelector()`, `GetExpectedNextSequenceNumber()`, etc.
-  - [ ] `ExposeMetrics()` -- Prometheus metrics
+  - [ ] `ExposeMetrics()` - Prometheus metrics
 
 ### Registration Points
 
@@ -555,7 +596,7 @@ Use this checklist as a tracking tool when integrating a new chain family.
 
 | Component | Path |
 |-----------|------|
-| Registration entry point | `ccv/devenv/register.go` -- `RegisterStellarComponents()` |
+| Registration entry point | `ccv/devenv/register.go` - `RegisterStellarComponents()` |
 | ImplFactory | `ccv/chain/impl_factory.go` |
 | Chain implementation (CCIP17) | `ccv/chain/chain.go` |
 | ChainFamilyAdapter | `ccv/chain/adapter.go` |
@@ -570,13 +611,13 @@ Use this checklist as a tracking tool when integrating a new chain family.
 
 | Component | Path |
 |-----------|------|
-| Registration (inline in CLI) | `ccip/devenv/cmd/ccv/main.go` -- `init()` |
+| Registration (inline in CLI) | `ccip/devenv/cmd/ccv/main.go` - `init()` |
 | ImplFactory | `ccip/devenv/impl.go` |
 | ChainFamilyAdapter | `ccip/devenv/adapters/adapters.go` |
 | Verifier modifier | `ccip/devenv/modifier.go` |
 | E2E tests | `ccip/devenv/tests/e2e/` |
 
-> **Note:** Canton registers components directly in the CLI `init()` rather than using a separate `Register*Components()` function. Both patterns work -- the Stellar approach with a dedicated registration function is preferred for reuse across CLI and test entry points.
+> **Note:** Canton registers components directly in the CLI `init()` rather than using a separate `Register*Components()` function. Both patterns work - the Stellar approach with a dedicated registration function is preferred for reuse across CLI and test entry points.
 
 ### CCV Core Registries (`chainlink-ccv`)
 
