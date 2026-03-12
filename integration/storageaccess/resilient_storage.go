@@ -100,9 +100,9 @@ func (r *resilientAggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDat
 	executor := failsafe.With(r.rateLimiter, r.bulkhead, r.circuitBreaker, r.writeTimeout)
 
 	var results []protocol.WriteResult
-	err := executor.RunWithExecution(func(failsafe.Execution[any]) error {
+	err := executor.WithContext(ctx).RunWithExecution(func(exec failsafe.Execution[any]) error {
 		var writeErr error
-		results, writeErr = r.writer.WriteCCVNodeData(ctx, ccvDataList)
+		results, writeErr = r.writer.WriteCCVNodeData(exec.Context(), ccvDataList)
 		return writeErr
 	})
 	if err != nil {
