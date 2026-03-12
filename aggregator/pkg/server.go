@@ -21,7 +21,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/keepalive"
-	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/aggregation"
@@ -450,11 +449,6 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	msgdiscoverypb.RegisterMessageDiscoveryServer(grpcServer, server)
 	committeepb.RegisterCommitteeVerifierServer(grpcServer, server)
 	heartbeatpb.RegisterHeartbeatServiceServer(grpcServer, server)
-
-	if os.Getenv("AGGREGATOR_GRPC_REFLECTION_ENABLED") == "true" {
-		reflection.Register(grpcServer)
-		l.Info("gRPC reflection enabled")
-	}
 
 	return server
 }
