@@ -50,6 +50,7 @@ func (h readyTimestampHeap) Swap(i, j int) {
 func (h *readyTimestampHeap) Push(x any) {
 	val, ok := x.(MessageHeapEntry)
 	if !ok {
+		log.Print("message_heap: push rejected: element is not MessageHeapEntry")
 		return
 	}
 	*h = append(*h, val)
