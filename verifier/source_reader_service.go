@@ -353,19 +353,12 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context, latest, fin
 			"toBlock", lastQueriedBlock)
 	}
 
-	// Always store a valid block pointer in lastProcessedFinalizedBlock.
-	// If we successfully processed, advance to finalized.
-	// If partial read (err != nil but lastQueriedBlock >= fromBlock), advance to lastQueriedBlock.
-	// If total failure (err != nil, no progress), do not advance.
-	var newBlock *big.Int
-	switch {
-	case err == nil:
-		newBlock = new(big.Int).SetUint64(finalized.Number)
-	case lastQueriedBlock != nil && lastQueriedBlock.Cmp(fromBlock) >= 0:
-		newBlock = new(big.Int).Set(lastQueriedBlock)
-	default:
-		// If we get here, err != nil and no chunks fetched: don't update lastProcessedFinalizedBlock.
-		return
+	// Advance to min(lastQueriedBlock, finalized). A nil lastQueriedBlock means
+	// the last chunk had no explicit upper bound (queried up to latest), so we
+	// treat it as ∞ and always take finalized.
+	newBlock := new(big.Int).SetUint64(finalized.Number)
+	if lastQueriedBlock != nil && lastQueriedBlock.Cmp(newBlock) < 0 {
+		newBlock = lastQueriedBlock
 	}
 	r.lastProcessedFinalizedBlock.Store(newBlock)
 
@@ -419,7 +412,7 @@ func (r *SourceReaderService) fallbackBlockEstimate(currentBlock uint64, lookbac
 	return fallBackBlock
 }
 
-func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationTask, fromBlock *big.Int, toBlock *big.Int) {
+func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationTask, fromBlock, toBlock *big.Int) {
 	tasksMap := make(map[string]VerificationTask)
 	for _, task := range tasks {
 		tasksMap[task.MessageID] = task

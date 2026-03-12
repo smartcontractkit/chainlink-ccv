@@ -1456,11 +1456,14 @@ func TestSRS_EventMonitoringLoop_PanicInProcessEventCycle(t *testing.T) {
 // Partial Read Tests
 //
 // These tests cover the behaviour introduced by returning accumulated events on
-// fetch error in loadEvents, and the 3-way progress logic in processEventCycle:
+// fetch error in loadEvents, and the min-progress formula in processEventCycle:
 //
-//   • err == nil            → advance to finalized (normal)
-//   • err != nil, fetched ≥ fromBlock → advance to toBlock of last successful chunk (partial read)
-//   • err != nil, no chunks fetched  → stay at fromBlock (total failure, retry next tick)
+//   newBlock = min(lastQueriedBlock, finalized)
+//
+//   • nil lastQueriedBlock (full success)     → finalized
+//   • lastQueriedBlock < finalized (partial)  → lastQueriedBlock (chunk toBlock)
+//   • lastQueriedBlock ≥ finalized (partial)  → finalized (capped — new behaviour)
+//   • lastQueriedBlock == fromBlock (failure) → fromBlock (no progress)
 // ----------------------
 
 // TestSRS_PartialRead_EventsFromSuccessfulChunksQueued verifies that when a
@@ -1711,6 +1714,64 @@ func TestSRS_PartialRead_SuccessfulReadAlwaysAdvancesToFinalized(t *testing.T) {
 	srs.mu.RLock()
 	defer srs.mu.RUnlock()
 	require.Len(t, srs.pendingTasks, 1, "the single event should be queued")
+}
+
+// TestSRS_PartialRead_ProgressCapsAtFinalizedWhenChunkBoundExceedsIt verifies that
+// when a partial read's last successful chunk ends above the finalized block, progress
+// is capped at finalized — not advanced past it. This prevents lastProcessedFinalizedBlock
+// from leaping into non-finalized territory.
+func TestSRS_PartialRead_ProgressCapsAtFinalizedWhenChunkBoundExceedsIt(t *testing.T) {
+	ctx := context.Background()
+	chain := protocol.ChainSelector(1337)
+
+	reader := mocks.NewMockSourceReader(t)
+
+	// maxBlockRange=400 splits [100, 1000) into chunks [100,500], [501,901], [902,nil].
+	// finalized is 600, so the successful chunk 2 boundary (901) exceeds finalized.
+	latest := &protocol.BlockHeader{Number: 1000}
+	finalized := &protocol.BlockHeader{Number: 600}
+	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil).Maybe()
+
+	eventsChunk1 := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{200})
+	eventsChunk2 := createTestMessageSentEvents(t, 10, chain, defaultDestChain, []uint64{700})
+	nilBigInt := mock.MatchedBy(func(b *big.Int) bool { return b == nil })
+
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(500)).
+		Return(eventsChunk1, nil).Once()
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(501), big.NewInt(901)).
+		Return(eventsChunk2, nil).Once()
+	// Third chunk fails — lastQueriedBlock lands at 901, which is > finalized (600).
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(902), nilBigInt).
+		Return(nil, assert.AnError).Once()
+
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).
+		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{}, nil).Maybe()
+
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
+	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
+	curseDetector.EXPECT().Close().Return(nil).Maybe()
+
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 400)
+	srs.lastProcessedFinalizedBlock.Store(big.NewInt(100))
+
+	srs.processEventCycle(ctx, latest, finalized)
+
+	// lastQueriedBlock = 901 > finalized = 600 → min(901, 600) = 600.
+	// Progress must NOT advance past finalized even though we successfully fetched beyond it.
+	require.Equal(t, int64(600), srs.lastProcessedFinalizedBlock.Load().Int64(),
+		"progress must be capped at finalized when the last successful chunk boundary exceeds it")
+
+	srs.mu.RLock()
+	defer srs.mu.RUnlock()
+
+	allExpected := append(eventsChunk1, eventsChunk2...)
+	require.Len(t, srs.pendingTasks, len(allExpected),
+		"events from both successful chunks should still be queued despite capping progress at finalized")
 }
 
 // ----------------------
