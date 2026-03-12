@@ -78,7 +78,7 @@ func TestVerifierConfigValidate_MaxResponseBytes(t *testing.T) {
 					Address: "localhost:50051",
 				},
 				RestReaderConfig: RestReaderConfig{
-					BaseURL: "http://localhost:8080",
+					BaseURL: "http://localhost:8080/v1",
 				},
 			}
 			err := cfg.Validate(0)

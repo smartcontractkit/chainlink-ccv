@@ -537,12 +537,10 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, fin
 			// This is the finalized block timestamp which represents when the message met finality criteria
 			task.ReadyForVerificationAt = latest.Timestamp
 			ready = append(ready, task)
-			r.sentTasks[msgID] = task
-			toBeDeleted = append(toBeDeleted, msgID)
-			r.reorgTracker.Remove(task.Message.DestChainSelector, task.Message.SequenceNumber)
 		}
 	}
 
+	// Delete cursed tasks immediately (these are being dropped, not queued)
 	for _, msgID := range toBeDeleted {
 		delete(r.pendingTasks, msgID)
 	}
@@ -563,9 +561,28 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, fin
 	}
 
 	// Publish directly to the DB-backed task queue instead of the batcher
+	// Only update in-memory state AFTER successful DB write to prevent data loss.
+	// If Publish fails due to transient DB issues, tasks remain in pendingTasks and will be
+	// retried on the next cycle. This ensures no messages are lost if the DB goes offline.
 	if err := r.taskQueue.Publish(ctx, ready...); err != nil {
-		r.logger.Errorw("Failed to publish tasks to job queue", "error", err, "count", len(ready))
+		r.logger.Errorw("Failed to publish tasks to job queue - tasks will remain in pending queue for retry",
+			"error", err,
+			"count", len(ready))
+		return
 	}
+
+	// Success - now it's safe to update in-memory state
+	for _, task := range ready {
+		msgID := task.MessageID
+		r.sentTasks[msgID] = task
+		delete(r.pendingTasks, msgID)
+		r.reorgTracker.Remove(task.Message.DestChainSelector, task.Message.SequenceNumber)
+	}
+
+	r.logger.Infow("Successfully published and tracked tasks",
+		"published", len(ready),
+		"remainingPending", len(r.pendingTasks),
+		"totalSent", len(r.sentTasks))
 }
 
 func (r *SourceReaderService) isMessageReadyForVerification(

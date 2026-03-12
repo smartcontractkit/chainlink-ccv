@@ -68,14 +68,22 @@ func NewChainlinkExecutor(
 func (cle *ChainlinkExecutor) Start(ctx context.Context) error {
 	return cle.StartOnce(chainlinkExecutorServiceName, func() error {
 		cle.lggr.Info("Starting Chainlink Executor")
-		var errs []error
+		var startedReaders []chainaccess.DestinationReader
+		var startErrs []error
 		for chainSelector, reader := range cle.destinationReaders {
 			if err := reader.Start(ctx); err != nil {
-				errs = append(errs, fmt.Errorf("failed to start destination reader for chain %d: %w", chainSelector, err))
+				startErrs = append(startErrs, fmt.Errorf("failed to start destination reader for chain %d: %w", chainSelector, err))
+			} else {
+				startedReaders = append(startedReaders, reader)
 			}
 		}
-		if len(errs) > 0 {
-			return errors.Join(errs...)
+		if len(startErrs) > 0 {
+			for _, reader := range startedReaders {
+				if closeErr := reader.Close(); closeErr != nil {
+					startErrs = append(startErrs, closeErr)
+				}
+			}
+			return errors.Join(startErrs...)
 		}
 		return nil
 	})
@@ -155,7 +163,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	executionSuccess, err := cle.destinationReaders[destinationChain].GetMessageSuccess(ctx, message)
 	if err != nil {
 		// If we can't get execution state, don't execute, but put back in heap to retry later.
-		// this usually only happens due to rpc issues, other nodes will try and this node will expec to see status SUCCESS later.
+		// this usually only happens due to rpc issues, other nodes will try and this node will expect to see status SUCCESS later.
 		cle.lggr.Warnw("delaying execution due to failed check GetMessageExecutionState", "messageID", messageID)
 		return true, err
 	}
@@ -280,7 +288,7 @@ func (cle *ChainlinkExecutor) getVerifierResultsAndQuorum(ctx context.Context, m
 			errGroupCtx,
 			message,
 		)
-		if err != nil && len(res.RequiredCCVs) == 0 {
+		if err != nil {
 			return fmt.Errorf("failed to get Verifier Quorum for message %s: %w", messageID.String(), err)
 		}
 		ccvInfo = res
@@ -404,8 +412,8 @@ func orderCCVData(
 	// metrics: determine the latest timestamp of all the CCV datas.
 	if receiverCCVInfo.OptionalThreshold > 0 {
 		slices.Sort(optionalCCVTimestamps)
-		minSignificantOptionalCCVTimestamp := optionalCCVTimestamps[receiverCCVInfo.OptionalThreshold-1]
-		latestCCVTimestamp = max(lastRequiredCCVTimestamp, minSignificantOptionalCCVTimestamp)
+		maxSignificantOptionalCCVTimestamp := optionalCCVTimestamps[receiverCCVInfo.OptionalThreshold-1]
+		latestCCVTimestamp = max(lastRequiredCCVTimestamp, maxSignificantOptionalCCVTimestamp)
 	} else {
 		latestCCVTimestamp = lastRequiredCCVTimestamp
 	}
@@ -424,6 +432,18 @@ func toStrSlice[T fmt.Stringer](slice []T) []string {
 func (cle *ChainlinkExecutor) Validate() error {
 	if cle.lggr == nil {
 		return fmt.Errorf("logger is required")
+	}
+	if cle.curseChecker == nil {
+		return fmt.Errorf("curse checker is required")
+	}
+	if cle.verifierResultsReader == nil {
+		return fmt.Errorf("verifier results reader is required")
+	}
+	if cle.monitoring == nil {
+		return fmt.Errorf("monitoring is required")
+	}
+	if cle.defaultExecutorAddress == nil {
+		return fmt.Errorf("default executor address map is required")
 	}
 	chainSetA := make(map[protocol.ChainSelector]struct{})
 	chainSetB := make(map[protocol.ChainSelector]struct{})

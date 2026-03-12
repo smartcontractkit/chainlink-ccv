@@ -1546,7 +1546,8 @@ func TestGetVerifierResultsForMessage_ReturnsNotFoundWhenSourceVerifierNotInCCVA
 
 // TestGetMessagesSince_ReturnsNilMetadataWhenSourceVerifierNotInCCVAddresses verifies that
 // GetMessagesSince returns nil VerifierSourceAddress and VerifierDestAddress when source verifier
-// is not in the ccvAddresses.
+// is not in the message's ccvAddresses. Uses MessageDiscoveryVersion so aggregation is allowed
+// (source verifier check is bypassed for message discovery) and the report is created.
 func TestGetMessagesSince_ReturnsNilMetadataWhenSourceVerifierNotInCCVAddresses(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
@@ -1562,13 +1563,82 @@ func TestGetMessagesSince_ReturnsNilMetadataWhenSourceVerifierNotInCCVAddresses(
 
 		message := testutil.NewProtocolMessage(t)
 
-		// Create a different address that is NOT the source verifier
 		differentAddress := make([]byte, 20)
 		for i := range differentAddress {
 			differentAddress[i] = 0xCD
 		}
 
-		// Create ccvNodeData with ccvAddresses that do NOT include the source verifier
+		ccvNodeData1, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithCcvAddresses(t, [][]byte{differentAddress}),
+			testutil.WithCcvVersion(protocol.MessageDiscoveryVersion),
+			testutil.WithSignatureFrom(t, signer1))
+
+		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
+		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
+		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS")
+
+		ccvNodeData2, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithCcvAddresses(t, [][]byte{differentAddress}),
+			testutil.WithCcvVersion(protocol.MessageDiscoveryVersion),
+			testutil.WithSignatureFrom(t, signer2))
+
+		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
+		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
+		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
+
+		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+			resp, err := messageDiscoveryClient.GetMessagesSince(t.Context(), &msgdiscoverypb.GetMessagesSinceRequest{
+				SinceSequence: 0,
+			})
+			require.NoError(collect, err, "GetMessagesSince should succeed")
+			require.Len(collect, resp.Results, 1, "should have 1 result")
+
+			result := resp.Results[0]
+			require.NotNil(collect, result.VerifierResult, "VerifierResult should not be nil")
+			require.NotNil(collect, result.VerifierResult.Metadata, "Metadata should not be nil")
+			require.Nil(collect, result.VerifierResult.Metadata.VerifierSourceAddress, "VerifierSourceAddress should be nil when source verifier not in ccvAddresses")
+			require.Nil(collect, result.VerifierResult.Metadata.VerifierDestAddress, "VerifierDestAddress should be nil when source verifier not in ccvAddresses")
+			require.NotNil(collect, result.VerifierResult.Message, "Message should still be present")
+			require.NotNil(collect, result.VerifierResult.CcvData, "CcvData should still be present")
+			require.GreaterOrEqual(collect, len(result.VerifierResult.CcvData), protocol.MessageDiscoveryVersionLength,
+				"CcvData should be at least version length bytes")
+			require.True(collect, bytes.Equal(protocol.MessageDiscoveryVersion, result.VerifierResult.CcvData[:protocol.MessageDiscoveryVersionLength]),
+				"CCV version in result should be MessageDiscoveryVersion")
+		}, 5*time.Second, 100*time.Millisecond, "should return nil metadata addresses when source verifier not in ccvAddresses")
+	}
+
+	for _, storageType := range storageTypes {
+		t.Run(storageType, func(t *testing.T) {
+			t.Parallel()
+			testFunc(t)
+		})
+	}
+}
+
+// TestGetMessagesSince_ReturnsNoResultsWhenSourceVerifierNotInCCVAddressesAndRegularVersion verifies that
+// when source verifier is not in the message's ccvAddresses and the message uses the regular CCV version
+// (not MessageDiscoveryVersion), CheckQuorum rejects aggregation so no report is created and
+// GetMessagesSince returns no results.
+func TestGetMessagesSince_ReturnsNoResultsWhenSourceVerifierNotInCCVAddressesAndRegularVersion(t *testing.T) {
+	t.Parallel()
+	storageTypes := []string{"postgres"}
+
+	testFunc := func(t *testing.T) {
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "node1")
+		signer2 := testutil.NewSignerFixture(t, "node2")
+		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
+		aggregatorClient, _, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
+		t.Cleanup(cleanup)
+		require.NoError(t, err, "failed to create server and client")
+
+		message := testutil.NewProtocolMessage(t)
+
+		differentAddress := make([]byte, 20)
+		for i := range differentAddress {
+			differentAddress[i] = 0xCD
+		}
+
 		ccvNodeData1, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
 			testutil.WithCcvAddresses(t, [][]byte{differentAddress}),
 			testutil.WithSignatureFrom(t, signer1))
@@ -1585,26 +1655,13 @@ func TestGetMessagesSince_ReturnsNilMetadataWhenSourceVerifierNotInCCVAddresses(
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
 
-		// GetMessagesSince should return the message but with nil metadata addresses
 		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
 			resp, err := messageDiscoveryClient.GetMessagesSince(t.Context(), &msgdiscoverypb.GetMessagesSinceRequest{
 				SinceSequence: 0,
 			})
 			require.NoError(collect, err, "GetMessagesSince should succeed")
-			require.Len(collect, resp.Results, 1, "should have 1 result")
-
-			result := resp.Results[0]
-			require.NotNil(collect, result.VerifierResult, "VerifierResults should not be nil")
-			require.NotNil(collect, result.VerifierResult.Metadata, "Metadata should not be nil")
-
-			// Verify metadata addresses are nil because source verifier is not in ccvAddresses
-			require.Nil(collect, result.VerifierResult.Metadata.VerifierSourceAddress, "VerifierSourceAddress should be nil when source verifier not in ccvAddresses")
-			require.Nil(collect, result.VerifierResult.Metadata.VerifierDestAddress, "VerifierDestAddress should be nil when source verifier not in ccvAddresses")
-
-			// Verify the rest of the data is still present
-			require.NotNil(collect, result.VerifierResult.Message, "Message should still be present")
-			require.NotNil(collect, result.VerifierResult.CcvData, "CcvData should still be present")
-		}, 5*time.Second, 100*time.Millisecond, "should return nil metadata addresses when source verifier not in ccvAddresses")
+			require.Len(collect, resp.Results, 0, "should have 0 results because aggregation was rejected (source verifier not in ccvAddresses with regular version)")
+		}, 5*time.Second, 100*time.Millisecond, "should return no results when source verifier not in ccvAddresses and regular version")
 	}
 
 	for _, storageType := range storageTypes {

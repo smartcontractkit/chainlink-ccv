@@ -9,6 +9,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	msgdiscoverypb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery/v1"
@@ -40,10 +41,10 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *msgdiscoveryp
 
 	records := make([]*msgdiscoverypb.VerifierResultWithSequence, 0, len(batch.Reports))
 	for _, report := range batch.Reports {
-		h.logger(ctx).Tracef("Report MessageID: %x, Sequence: %d, Verifications: %d", report.MessageID, report.Sequence, len(report.Verifications))
+		h.logger(ctx).Tracef("Report MessageID: %x, Sequence: %d, Verifications: %d", protocol.ByteSlice(report.MessageID), report.Sequence, len(report.Verifications))
 		verifierResult, err := model.MapAggregatedReportToVerifierResultProto(report, h.committee)
 		if err != nil {
-			h.logger(ctx).Errorw("failed to map aggregated report to proto", "messageID", report.MessageID, "error", err)
+			h.logger(ctx).Errorw("failed to map aggregated report to proto", "messageID", protocol.ByteSlice(report.MessageID), "error", err)
 			continue
 		}
 

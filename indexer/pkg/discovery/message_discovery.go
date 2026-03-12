@@ -98,7 +98,7 @@ func NewAggregatorMessageDiscovery(opts ...Option) (common.MessageDiscovery, err
 		opt(a)
 	}
 
-	// Validata the configuration
+	// Validate the configuration
 	if err := a.validate(); err != nil {
 		return nil, err
 	}
@@ -276,6 +276,7 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 		message := common.MessageWithMetadata{
 			Message: response.Data.Message,
 			Metadata: common.MessageMetadata{
+				Status:             common.MessageProcessing,
 				IngestionTimestamp: ingestionTimestamp,
 			},
 		}
