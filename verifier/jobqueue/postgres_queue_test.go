@@ -401,9 +401,12 @@ func TestRetryExceedsDeadline(t *testing.T) {
 	errs := map[string]error{jobID: errors.New("fatal")}
 	require.NoError(t, q.Retry(ctx, 0, errs, jobID))
 
-	// Job should be marked as failed because retry deadline has passed.
-	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusFailed))
+	// Job should be archived (not in active table) because retry deadline has passed
+	assert.Equal(t, 0, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusFailed))
 	assert.Equal(t, 0, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusPending))
+
+	// Job should be in the archive
+	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs_archive", jobqueue.JobStatusFailed))
 }
 
 func TestRetryWithDelay(t *testing.T) {
@@ -440,18 +443,22 @@ func TestFail(t *testing.T) {
 	errs := map[string]error{jobID: errors.New("permanent")}
 	require.NoError(t, q.Fail(ctx, errs, jobID))
 
-	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusFailed))
+	// Failed job should NOT be in the active table
+	assert.Equal(t, 0, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusFailed))
 
-	// Verify error is stored
+	// Failed job should be in the archive
+	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs_archive", jobqueue.JobStatusFailed))
+
+	// Verify error is stored in the archive
 	var lastErr string
-	err = db.QueryRowxContext(ctx, "SELECT last_error FROM ccv_task_verifier_jobs WHERE job_id = $1", jobID).Scan(&lastErr)
+	err = db.QueryRowxContext(ctx, "SELECT last_error FROM ccv_task_verifier_jobs_archive WHERE job_id = $1", jobID).Scan(&lastErr)
 	require.NoError(t, err)
 	assert.Equal(t, "permanent", lastErr)
 }
 
-// Failed jobs are re-consumable by the Consume query (status IN ('pending','failed')).
-func TestFailedJobsAreReconsumed(t *testing.T) {
-	q, _ := newTestQueue(t)
+// Failed jobs are NOT re-consumable and should be archived.
+func TestFailedJobsAreNotReconsumed(t *testing.T) {
+	q, db := newTestQueue(t)
 	ctx := context.Background()
 
 	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
@@ -459,15 +466,21 @@ func TestFailedJobsAreReconsumed(t *testing.T) {
 	consumed, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
+	jobID := consumed[0].ID
 
 	// Mark as failed
-	require.NoError(t, q.Fail(ctx, map[string]error{consumed[0].ID: errors.New("err")}, consumed[0].ID))
+	require.NoError(t, q.Fail(ctx, map[string]error{jobID: errors.New("err")}, jobID))
 
-	// Should be consumable again
-	consumed2, err := q.Consume(ctx, 1)
+	// Failed job should NOT be in the active table
+	assert.Equal(t, 0, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusFailed))
+
+	// Failed job should be in the archive
+	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs_archive", jobqueue.JobStatusFailed))
+
+	// Should NOT be consumable again
+	consumed2, err := q.Consume(ctx, 10)
 	require.NoError(t, err)
-	require.Len(t, consumed2, 1)
-	assert.Equal(t, consumed[0].ID, consumed2[0].ID)
+	assert.Empty(t, consumed2, "failed jobs should not be consumed")
 }
 
 func TestCleanup(t *testing.T) {
@@ -551,27 +564,27 @@ func TestSize(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 3, size)
 
-	// Fail the last consumed job (it stays in failed status)
+	// Fail the last consumed job (it is archived immediately)
 	require.NoError(t, q.Fail(ctx, map[string]error{consumed[2].ID: errors.New("test error")}, consumed[2].ID))
 
-	// Size should be 2 (2 pending only - failed jobs are excluded from Size)
+	// Size should be 2 (2 pending only - failed jobs are archived, not in active table)
 	size, err = q.Size(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, 2, size)
 
-	// Consume remaining jobs - Consume WILL pick up failed jobs for retry
-	// So this returns: 2 pending + 1 failed (that becomes processing)
+	// Consume remaining jobs - should only get the 2 pending jobs
+	// Failed jobs are archived and NOT consumed
 	consumed2, err := q.Consume(ctx, 10)
 	require.NoError(t, err)
-	require.Len(t, consumed2, 3) // 2 pending + 1 previously failed
+	require.Len(t, consumed2, 2) // Only 2 pending jobs (failed job was archived)
 
-	// Size should be 3 (all are now processing, and processing IS counted in Size)
+	// Size should be 2 (2 processing)
 	size, err = q.Size(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, 3, size)
+	assert.Equal(t, 2, size)
 
 	// Complete all remaining
-	require.NoError(t, q.Complete(ctx, consumed2[0].ID, consumed2[1].ID, consumed2[2].ID))
+	require.NoError(t, q.Complete(ctx, consumed2[0].ID, consumed2[1].ID))
 
 	// Size should be 0
 	size, err = q.Size(ctx)
@@ -828,15 +841,17 @@ func TestConcurrentRetryAndFail(t *testing.T) {
 
 	t.Logf("completed=%d, failed=%d", completed.Load(), failed.Load())
 
-	// All jobs should have been either completed (moved to archive) or remain in the main table as failed
+	// All jobs should be archived (either completed or failed)
+	// Some jobs might still be pending if they were retried but workers exited before consuming them again
 	archivedCount := countAllRows(t, db, "ccv_task_verifier_jobs_archive")
-	failedCount := countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusFailed)
-
-	// Every job should be accounted for in one of these two places
-	// Some jobs might still be pending if they were retried but workers exited before consuming them again.
 	pendingCount := countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusPending)
-	totalAccountedFor := archivedCount + failedCount + pendingCount
-	assert.Equal(t, numJobs, totalAccountedFor, "all jobs should be accounted for")
+
+	// Failed jobs should be in archive, not in active table
+	failedInActiveTable := countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusFailed)
+	assert.Equal(t, 0, failedInActiveTable, "failed jobs should be archived, not in active table")
+
+	totalAccountedFor := archivedCount + pendingCount
+	assert.Equal(t, numJobs, totalAccountedFor, "all jobs should be either archived or pending")
 }
 
 func TestRetryDeadlineExhaustionCycle(t *testing.T) {
@@ -867,19 +882,23 @@ func TestRetryDeadlineExhaustionCycle(t *testing.T) {
 	// Wait for the retry deadline to expire
 	time.Sleep(60 * time.Millisecond)
 
-	// Attempt 3: consume → retry (deadline has now passed, should fail permanently)
+	// Attempt 3: consume → retry (deadline has now passed, should fail permanently and archive)
 	consumed, err = q.Consume(ctx, 1)
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 	assert.Equal(t, 3, consumed[0].AttemptCount)
 	require.NoError(t, q.Retry(ctx, 0, map[string]error{jobID: errors.New("err3")}, jobID))
 
-	// Job should now be in failed status (retry deadline passed)
-	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusFailed))
+	// Job should now be archived (not in active table) because retry deadline passed
+	assert.Equal(t, 0, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusFailed))
+	assert.Equal(t, 0, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusPending))
 
-	// Verify last_error was recorded
+	// Job should be in the archive with failed status
+	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs_archive", jobqueue.JobStatusFailed))
+
+	// Verify last_error was recorded in the archive
 	var lastErr string
-	err = db.QueryRowxContext(ctx, "SELECT last_error FROM ccv_task_verifier_jobs WHERE job_id = $1", jobID).Scan(&lastErr)
+	err = db.QueryRowxContext(ctx, "SELECT last_error FROM ccv_task_verifier_jobs_archive WHERE job_id = $1", jobID).Scan(&lastErr)
 	require.NoError(t, err)
 	assert.Equal(t, "err3", lastErr)
 }
@@ -1046,8 +1065,11 @@ func TestEndToEndConcurrentWithRandomWork(t *testing.T) {
 	remainingFailed := countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusFailed)
 	remainingPending := countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusPending)
 
-	totalAccounted := archived + remainingFailed + remainingPending
+	// Failed jobs should be archived, not in active table
+	assert.Equal(t, 0, remainingFailed, "failed jobs should be archived, not in active table")
+
+	totalAccounted := archived + remainingPending
 	assert.Equal(t, totalJobs, totalAccounted,
-		"all %d jobs should be archived (%d) + failed (%d) + pending (%d)",
-		totalJobs, archived, remainingFailed, remainingPending)
+		"all %d jobs should be archived (%d) + pending (%d)",
+		totalJobs, archived, remainingPending)
 }

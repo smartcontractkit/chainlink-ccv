@@ -133,8 +133,9 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 	staleBefore := now.Add(-q.config.LockDuration)
 
 	// Select jobs that are:
-	// 1. pending/failed and past their available_at, OR
+	// 1. pending and past their available_at, OR
 	// 2. processing but started_at is older than lockDuration (stale lock from crashed worker)
+	// Note: Failed jobs are NOT consumed - they remain in the table until archived or cleaned up.
 	query := fmt.Sprintf(`
 		UPDATE %s
 		SET status = $1,
@@ -144,12 +145,12 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 			SELECT id FROM %s
 			WHERE owner_id = $3
 			  AND (
-			    (status IN ($4, $5) AND available_at <= $6)
+			    (status = $4 AND available_at <= $5)
 			    OR
-			    (status = $7 AND started_at IS NOT NULL AND started_at <= $8)
+			    (status = $6 AND started_at IS NOT NULL AND started_at <= $7)
 			  )
 			ORDER BY available_at ASC, id ASC
-			LIMIT $9
+			LIMIT $8
 			FOR UPDATE SKIP LOCKED
 		)
 		RETURNING id, job_id, task_data, attempt_count, retry_deadline, created_at, started_at, chain_selector, message_id
@@ -160,11 +161,10 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 		now,                 // $2 started_at
 		q.ownerID,           // $3
 		JobStatusPending,    // $4
-		JobStatusFailed,     // $5
-		now,                 // $6 available_at <=
-		JobStatusProcessing, // $7 stale processing
-		staleBefore,         // $8 started_at <=
-		batchSize,           // $9
+		now,                 // $5 available_at <=
+		JobStatusProcessing, // $6 stale processing
+		staleBefore,         // $7 started_at <=
+		batchSize,           // $8
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to consume jobs: %w", err)
@@ -279,6 +279,7 @@ func (q *PostgresJobQueue[T]) Complete(ctx context.Context, jobIDs ...string) er
 }
 
 // Retry schedules jobs for retry after delay.
+// If the retry deadline has been exceeded, jobs are marked as failed and archived.
 func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, errors map[string]error, jobIDs ...string) error {
 	if len(jobIDs) == 0 {
 		return nil
@@ -352,6 +353,34 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 		return err
 	}
 
+	// Archive jobs that exceeded the retry deadline
+	if len(failed) > 0 {
+		archiveQuery := fmt.Sprintf(`
+			WITH failed AS (
+				DELETE FROM %s
+				WHERE job_id = ANY($1)
+				  AND owner_id = $2
+				  AND status = $3
+				RETURNING *
+			)
+			INSERT INTO %s
+			SELECT *, NOW() as completed_at
+			FROM failed
+		`, q.tableName, q.archiveName)
+
+		result, err := q.ds.ExecContext(ctx, archiveQuery, pq.Array(failed), q.ownerID, JobStatusFailed)
+		if err != nil {
+			q.logger.Errorw("Failed to archive jobs that exceeded retry deadline",
+				"error", err,
+				"count", len(failed))
+		} else {
+			affected, _ := result.RowsAffected()
+			q.logger.Infow("Archived jobs that exceeded retry deadline",
+				"queue", q.config.Name,
+				"count", affected)
+		}
+	}
+
 	q.logger.Infow("Retried jobs",
 		"queue", q.config.Name,
 		"retried", len(retried),
@@ -362,13 +391,15 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 	return nil
 }
 
-// Fail marks jobs as permanently failed.
+// Fail marks jobs as permanently failed and moves them to the archive.
+// This ensures failed jobs don't remain in the active queue indefinitely.
 func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error, jobIDs ...string) error {
 	if len(jobIDs) == 0 {
 		return nil
 	}
 
-	query := fmt.Sprintf(`
+	// First, update the last_error for each job
+	updateQuery := fmt.Sprintf(`
 		UPDATE %s
 		SET status = $1,
 			last_error = $2
@@ -377,7 +408,7 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 	`, q.tableName)
 
 	err := sqlutil.TransactDataSource(ctx, q.ds, nil, func(tx sqlutil.DataSource) error {
-		stmt, err := tx.PrepareContext(ctx, query)
+		stmt, err := tx.PrepareContext(ctx, updateQuery)
 		if err != nil {
 			return fmt.Errorf("failed to prepare fail statement: %w", err)
 		}
@@ -406,9 +437,29 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 		return err
 	}
 
-	q.logger.Infow("Failed jobs",
+	// Now move failed jobs to archive
+	archiveQuery := fmt.Sprintf(`
+		WITH failed AS (
+			DELETE FROM %s
+			WHERE job_id = ANY($1)
+			  AND owner_id = $2
+			  AND status = $3
+			RETURNING *
+		)
+		INSERT INTO %s
+		SELECT *, NOW() as completed_at
+		FROM failed
+	`, q.tableName, q.archiveName)
+
+	result, err := q.ds.ExecContext(ctx, archiveQuery, pq.Array(jobIDs), q.ownerID, JobStatusFailed)
+	if err != nil {
+		return fmt.Errorf("failed to archive failed jobs: %w", err)
+	}
+
+	affected, _ := result.RowsAffected()
+	q.logger.Infow("Failed and archived jobs",
 		"queue", q.config.Name,
-		"count", len(jobIDs),
+		"count", affected,
 	)
 
 	return nil
