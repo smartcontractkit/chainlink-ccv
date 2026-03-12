@@ -287,17 +287,15 @@ func TestTokenTransferDecodingErrors(t *testing.T) {
 		},
 		{
 			name:      "truncated_amount",
-			data:      make([]byte, 10), // Less than 34 bytes minimum
+			data:      make([]byte, 10),
 			expectErr: "data too short",
 		},
 		{
 			name: "invalid_length_mismatch",
 			data: func() []byte {
-				// Create valid header but with mismatched length
-				data := make([]byte, 34)
-				data[0] = 1   // version
-				data[33] = 10 // claim 10 bytes for source pool address
-				// but don't provide 10 bytes
+				data := make([]byte, MinSizeRequiredMsgTokenFields)
+				data[0] = 1
+				data[33] = 10
 				return data
 			}(),
 			expectErr: "failed to read source pool address",

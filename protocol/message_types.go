@@ -17,8 +17,8 @@ const (
 	MaxNumTokens                  = 1
 	MaxDataSize                   = 1024 // 1kb
 	MessageVersion                = 1    // Current message format version
-	MinSizeRequiredMsgFields      = 27   // Minimum size for required fields in Message
-	MinSizeRequiredMsgTokenFields = 34   // Minimum size for required fields in TokenTransfer
+	MinSizeRequiredMsgFields      = 77   // Minimum size for required fields in Message
+	MinSizeRequiredMsgTokenFields = 39   // Minimum size for required fields in TokenTransfer
 	MaxCCVsPerMessage             = 255  // Maximum number of CCV addresses per message (limited by uint8)
 	MaxUnknownAddressBytes        = 255  // Maximum size of any UnknownAddress in bytes (limited by uint8)
 )
@@ -120,7 +120,7 @@ func (tt *TokenTransfer) validateLengthFields() error {
 
 // DecodeTokenTransfer decodes a TokenTransfer from bytes.
 func DecodeTokenTransfer(data []byte) (*TokenTransfer, error) {
-	if len(data) < MinSizeRequiredMsgTokenFields { // minimum size: version(1) + amount(32) + length(1)
+	if len(data) < MinSizeRequiredMsgTokenFields {
 		return nil, fmt.Errorf("data too short for token transfer")
 	}
 
