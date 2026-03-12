@@ -1455,14 +1455,14 @@ func TestSRS_EventMonitoringLoop_PanicInProcessEventCycle(t *testing.T) {
 // ----------------------
 // Partial Read Tests
 //
-// These tests cover the behaviour introduced by returning accumulated events on
+// These tests cover the behavior introduced by returning accumulated events on
 // fetch error in loadEvents, and the min-progress formula in processEventCycle:
 //
 //   newBlock = min(lastQueriedBlock, finalized)
 //
 //   • nil lastQueriedBlock (full success)     → finalized
 //   • lastQueriedBlock < finalized (partial)  → lastQueriedBlock (chunk toBlock)
-//   • lastQueriedBlock ≥ finalized (partial)  → finalized (capped — new behaviour)
+//   • lastQueriedBlock ≥ finalized (partial)  → finalized (capped — new behavior)
 //   • lastQueriedBlock == fromBlock (failure) → fromBlock (no progress)
 // ----------------------
 
@@ -1823,7 +1823,7 @@ func TestSRS_Reorg_TasksBeyondToBlockNotDropped(t *testing.T) {
 
 // TestSRS_Reorg_NilToBlock_UnboundedWindow verifies that passing nil as toBlock
 // is treated as an unbounded upper end: any existing task at block ≥ fromBlock
-// that is absent from the new event set is removed, matching the pre-bound behaviour.
+// that is absent from the new event set is removed, matching the pre-bound behavior.
 func TestSRS_Reorg_NilToBlock_UnboundedWindow(t *testing.T) {
 	chain := protocol.ChainSelector(1337)
 	reader := mocks.NewMockSourceReader(t)
