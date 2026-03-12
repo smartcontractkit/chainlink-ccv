@@ -71,6 +71,38 @@ func TestValidateWriteRequest_Errors(t *testing.T) {
 		require.Contains(t, err.Error(), "ccv_addresses cannot be empty")
 	})
 
+	t.Run("empty_executor_address", func(t *testing.T) {
+		req := makeValidWriteReq()
+		req.CommitteeVerifierNodeResult.ExecutorAddress = []byte{}
+		err := validateWriteRequest(req)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "executor_address is required and cannot be empty")
+	})
+
+	t.Run("nil_executor_address", func(t *testing.T) {
+		req := makeValidWriteReq()
+		req.CommitteeVerifierNodeResult.ExecutorAddress = nil
+		err := validateWriteRequest(req)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "executor_address is required and cannot be empty")
+	})
+
+	t.Run("empty_ccv_address_entry", func(t *testing.T) {
+		req := makeValidWriteReq()
+		req.CommitteeVerifierNodeResult.CcvAddresses = [][]byte{make([]byte, 20), []byte{}}
+		err := validateWriteRequest(req)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "ccv_addresses[1] cannot be nil or empty")
+	})
+
+	t.Run("nil_ccv_address_entry", func(t *testing.T) {
+		req := makeValidWriteReq()
+		req.CommitteeVerifierNodeResult.CcvAddresses = [][]byte{make([]byte, 20), nil}
+		err := validateWriteRequest(req)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "ccv_addresses[1] cannot be nil or empty")
+	})
+
 	t.Run("source_equals_destination_chain_selector", func(t *testing.T) {
 		msg := makeTestMessage(protocol.ChainSelector(1), protocol.ChainSelector(1), protocol.SequenceNumber(1), []byte{})
 		pbMsg, err := ccvcommon.MapProtocolMessageToProtoMessage(msg)
@@ -141,6 +173,34 @@ func TestValidateAddressBounds(t *testing.T) {
 				req.CommitteeVerifierNodeResult.ExecutorAddress = make([]byte, protocol.MaxUnknownAddressBytes)
 			},
 			expectError: "",
+		},
+		{
+			name: "rejects_empty_executor_address",
+			mutate: func(req *committeepb.WriteCommitteeVerifierNodeResultRequest) {
+				req.CommitteeVerifierNodeResult.ExecutorAddress = []byte{}
+			},
+			expectError: "executor_address is required and cannot be empty",
+		},
+		{
+			name: "rejects_nil_executor_address",
+			mutate: func(req *committeepb.WriteCommitteeVerifierNodeResultRequest) {
+				req.CommitteeVerifierNodeResult.ExecutorAddress = nil
+			},
+			expectError: "executor_address is required and cannot be empty",
+		},
+		{
+			name: "rejects_empty_ccv_address_entry",
+			mutate: func(req *committeepb.WriteCommitteeVerifierNodeResultRequest) {
+				req.CommitteeVerifierNodeResult.CcvAddresses = [][]byte{make([]byte, 20), []byte{}}
+			},
+			expectError: "ccv_addresses[1] cannot be nil or empty",
+		},
+		{
+			name: "rejects_nil_ccv_address_entry",
+			mutate: func(req *committeepb.WriteCommitteeVerifierNodeResultRequest) {
+				req.CommitteeVerifierNodeResult.CcvAddresses = [][]byte{make([]byte, 20), nil}
+			},
+			expectError: "ccv_addresses[1] cannot be nil or empty",
 		},
 	}
 
