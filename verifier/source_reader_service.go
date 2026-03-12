@@ -535,7 +535,7 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, fin
 		if r.isMessageReadyForVerification(task, latestBlock, latestFinalizedBlock) {
 			// Set the timestamp when message became ready for verification
 			// This is the finalized block timestamp which represents when the message met finality criteria
-			task.ReadyForVerificationAt = finalized.Timestamp
+			task.ReadyForVerificationAt = latest.Timestamp
 			ready = append(ready, task)
 			r.sentTasks[msgID] = task
 			toBeDeleted = append(toBeDeleted, msgID)
