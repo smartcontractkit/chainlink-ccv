@@ -164,7 +164,7 @@ func Test_VerifierResultsHandler(t *testing.T) {
 
 		messageID1Hex := messageID1.String()
 		messageID2Hex := messageID2.String()
-		req, _ := http.NewRequest("GET", "/verifications?messageID="+messageID1Hex+","+messageID2Hex, nil)
+		req, _ := http.NewRequest("GET", "/verifications?messageID="+messageID1Hex+"&messageID="+messageID2Hex, nil)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
@@ -266,7 +266,7 @@ func Test_VerifierResultsHandler(t *testing.T) {
 
 		router.ServeHTTP(w, req)
 
-		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, http.StatusNotFound, w.Code)
 
 		var response v1.VerifierResultsResponse
 		err := json.Unmarshal(w.Body.Bytes(), &response)
@@ -279,6 +279,121 @@ func Test_VerifierResultsHandler(t *testing.T) {
 		expectedJSON := `{
 			"results": [],
 			"errors": ["message not found: ` + messageIDHex + `"]
+		}`
+		assert.JSONEq(t, expectedJSON, w.Body.String())
+	})
+
+	t.Run("one message found, one missing", func(t *testing.T) {
+		router := gin.New()
+		router.GET("/verifications", handler.Handle)
+
+		// messageID1 exists in storage, messageID3 does not
+		messageID3, _ := createSampleMessage(100, 200, 300)
+		messageID1Hex := messageID1.String()
+		messageID3Hex := messageID3.String()
+
+		req, _ := http.NewRequest("GET", "/verifications?messageID="+messageID1Hex+"&messageID="+messageID3Hex, nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response v1.VerifierResultsResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		// Should have 1 result and 1 error
+		assert.Len(t, response.Results, 1)
+		assert.Len(t, response.Errors, 1)
+
+		// Verify the found message
+		assert.Equal(t, uint64(1), response.Results[0].Message.SourceChainSelector)
+		assert.Equal(t, uint64(2), response.Results[0].Message.DestChainSelector)
+		assert.Equal(t, uint64(10), response.Results[0].Message.SequenceNumber)
+
+		// Verify the error for the missing message
+		assert.Contains(t, response.Errors[0].Message, "message not found")
+		assert.Contains(t, response.Errors[0].Message, messageID3Hex)
+
+		expectedJSON := `{
+			"results": [{
+				"message": {
+					"version": 1,
+					"source_chain_selector": 1,
+					"dest_chain_selector": 2,
+					"sequence_number": 10,
+					"on_ramp_address": "0x010203",
+					"on_ramp_address_length": 3,
+					"off_ramp_address": "0x040506",
+					"off_ramp_address_length": 3,
+					"finality": 10,
+					"execution_gas_limit": 200000,
+					"ccip_receive_gas_limit": 150000,
+					"ccv_and_executor_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+					"sender": "0x070809",
+					"sender_length": 3,
+					"receiver": "0x0a0b0c",
+					"receiver_length": 3,
+					"dest_blob": "0x0d0e0f",
+					"dest_blob_length": 3,
+					"token_transfer": null,
+					"token_transfer_length": 0,
+					"data": "0x101112",
+					"data_length": 3
+				},
+				"message_ccv_addresses": ["0x131415"],
+				"message_executor_address": "0x161718",
+				"ccv_data": "0x191a1b",
+				"metadata": {
+					"timestamp": ` + fmt.Sprint(response.Results[0].Metadata.Timestamp) + `,
+					"verifier_source_address": "0x010203",
+					"verifier_dest_address": "0x040506"
+				}
+			}],
+			"errors": ["message not found: ` + messageID3Hex + `"]
+		}`
+		assert.JSONEq(t, expectedJSON, w.Body.String())
+	})
+
+	t.Run("all messages not found", func(t *testing.T) {
+		router := gin.New()
+		router.GET("/verifications", handler.Handle)
+
+		// Both messages don't exist in storage
+		messageID3, _ := createSampleMessage(100, 200, 300)
+		messageID4, _ := createSampleMessage(101, 201, 400)
+		messageID3Hex := messageID3.String()
+		messageID4Hex := messageID4.String()
+
+		req, _ := http.NewRequest("GET", "/verifications?messageID="+messageID3Hex+"&messageID="+messageID4Hex, nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		// When ALL messages are not found, should return 404
+		assert.Equal(t, http.StatusNotFound, w.Code)
+
+		var response v1.VerifierResultsResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		// Should have 0 results and 2 errors
+		assert.Len(t, response.Results, 0)
+		assert.Len(t, response.Errors, 2)
+
+		// Verify both errors
+		assert.Contains(t, response.Errors[0].Message, "message not found")
+		assert.Contains(t, response.Errors[0].Message, messageID3Hex)
+		assert.Contains(t, response.Errors[1].Message, "message not found")
+		assert.Contains(t, response.Errors[1].Message, messageID4Hex)
+
+		expectedJSON := `{
+			"results": [],
+			"errors": [
+				"message not found: ` + messageID3Hex + `",
+				"message not found: ` + messageID4Hex + `"
+			]
 		}`
 		assert.JSONEq(t, expectedJSON, w.Body.String())
 	})
