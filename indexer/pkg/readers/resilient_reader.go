@@ -30,8 +30,8 @@ type ResilienceConfig struct {
 	DiscoveryRetryPolicyErrorHandler    func([]protocol.QueryResponse, error) bool
 
 	// Shared configuration
-	FailureThreshold      uint
-	SuccessThreshold      uint
+	FailureThreshold      uint32
+	SuccessThreshold      uint32
 	CircuitBreakerDelay   time.Duration
 	CircuitBreakerTimeout time.Duration
 	RequestTimeout        time.Duration
@@ -66,8 +66,8 @@ type ResilientReader struct {
 	verificationsPolicies executorPolicies[map[protocol.Bytes32]protocol.VerifierResult]
 
 	lggr                 logger.Logger
-	consecutiveErrors    atomic.Int32
-	maxConsecutiveErrors int32
+	consecutiveErrors    atomic.Uint32
+	maxConsecutiveErrors uint32
 }
 
 // NewResilientReader wraps a reader with resiliency policies.
@@ -75,7 +75,7 @@ func NewResilientReader(underlying protocol.VerifierResultsAPI, lggr logger.Logg
 	rr := &ResilientReader{
 		underlying:           underlying,
 		lggr:                 lggr,
-		maxConsecutiveErrors: int32(config.FailureThreshold),
+		maxConsecutiveErrors: config.FailureThreshold,
 	}
 
 	rr.verificationsPolicies = createPolicies(config, lggr, "GetVerifications", config.CircuitBreakerErrorHandler)
@@ -106,8 +106,8 @@ func createPolicies[T any](config ResilienceConfig, lggr logger.Logger, name str
 		OnClose(func(circuitbreaker.StateChangedEvent) {
 			lggr.Infow(name+" circuit breaker closed", "successes", config.SuccessThreshold)
 		}).
-		WithFailureThreshold(config.FailureThreshold).
-		WithSuccessThreshold(config.SuccessThreshold).
+		WithFailureThreshold(uint(config.FailureThreshold)).
+		WithSuccessThreshold(uint(config.SuccessThreshold)).
 		Build()
 
 	rl := ratelimiter.NewBursty[T](config.MaxRequestsPerSecond, time.Second)
