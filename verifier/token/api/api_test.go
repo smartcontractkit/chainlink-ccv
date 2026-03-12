@@ -29,13 +29,14 @@ func TestRateLimitingAppliedToVerificationsEndpoint(t *testing.T) {
 	// Use a valid messageID format (64 hex chars with 0x prefix)
 	validMessageID := "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 
-	// First 10 requests should succeed (default rate limit is 10 req/s per IP)
+	// First 10 requests should return 404 Not Found (message doesn't exist in storage)
+	// But they should not be rate limited
 	for i := range 10 {
 		w := httptest.NewRecorder()
 		req, err := http.NewRequest("GET", "/v1/verifications?messageID="+validMessageID, nil)
 		require.NoError(t, err)
 		router.ServeHTTP(w, req)
-		assert.Equal(t, http.StatusOK, w.Code, "Request %d should succeed", i)
+		assert.Equal(t, http.StatusNotFound, w.Code, "Request %d should return 404 (message not found)", i)
 	}
 
 	// 11th request should be rate limited
