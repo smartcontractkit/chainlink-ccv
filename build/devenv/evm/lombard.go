@@ -9,7 +9,6 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/common"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/mock_receiver_v2"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/lombard_verifier"
@@ -21,7 +20,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
-	devenvregistry "github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -32,15 +30,6 @@ var (
 	LombardContractsQualifier = devenvcommon.LombardContractsQualifier
 	LombardTokenQualifier     = "LBTC"
 )
-
-func init() {
-	devenvregistry.DefaultLombardRegistry.RegisterConverter(chainsel.FamilyEVM, evmLombardAddressToBytes32)
-}
-
-// evmLombardAddressToBytes32 converts an EVM hex address string to [32]byte (left-padded) for Lombard.
-func evmLombardAddressToBytes32(address string) ([32]byte, error) {
-	return toBytes32LeftPad(common.LeftPadBytes(common.HexToAddress(address).Bytes(), 32))
-}
 
 func (m *CCIP17EVMConfig) deployLombardTokenAndPool(
 	env *deployment.Environment,
@@ -240,15 +229,25 @@ func (m *CCIP17EVMConfig) configureLombardForTransfer(
 		return fmt.Errorf("failed to create lombard bridge for chain %d: %w", selector, err)
 	}
 	for _, rs := range remoteSelectors {
-		destinationToken, err := devenvregistry.DefaultLombardRegistry.GetDestinationToken(e.DataStore, rs)
+		// TODO: THIS LOGIC ASSUMES THAT DESTINATION TOKEN ADDRESS IS ON AN EVM CHAIN
+		token, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+			rs,
+			datastore.ContractType(burn_mint_erc20_with_drip.ContractType),
+			semver.MustParse(burn_mint_erc20_with_drip.Deploy.Version()),
+			LombardContractsQualifier,
+		))
 		if err != nil {
-			return fmt.Errorf("get destination token for chain %d: %w", rs, err)
+			return fmt.Errorf("failed to get lombard token address ref for chain %d: %w", rs, err)
+		}
+		destinationToken, err := toBytes32LeftPad(common.LeftPadBytes(common.HexToAddress(token.Address).Bytes(), 32))
+		if err != nil {
+			return fmt.Errorf("failed to pad destination token for chain %d: %w", rs, err)
 		}
 		paddedLombardChainID, err := paddedLombardChainID(uint32(rs))
 		if err != nil {
 			return fmt.Errorf("failed to pad lombard chain id for chain %d: %w", rs, err)
 		}
-		_, err = lombardBridge.SetAllowedDestinationToken(chain.DeployerKey, paddedLombardChainID, common.HexToAddress(tokenRef.Address), destinationToken)
+		_, err = lombardBridge.SetAllowedDestinationToken(chain.DeployerKey, paddedLombardChainID, common.HexToAddress(token.Address), destinationToken)
 		if err != nil {
 			return fmt.Errorf("failed to set allowed destination tokens on lombard bridge on chain %s: %w", chain, err)
 		}
