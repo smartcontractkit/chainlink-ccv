@@ -185,6 +185,13 @@ type Chain interface {
 	TransferNative(ctx context.Context, from, to protocol.UnknownAddress, amount *big.Int) error
 }
 
+// LombardMailboxBridgedMessageSetter is optionally implemented by chain implementations (e.g. EVM)
+// that can set the Lombard mock mailbox's bridged message (verifier version + message ID) on the
+// destination chain so deliverAndHandle returns exactly 36 bytes and LombardVerifier.verifyMessage succeeds.
+type LombardMailboxBridgedMessageSetter interface {
+	SetLombardMailboxBridgedMessage(ctx context.Context, messageID [32]byte) error
+}
+
 type OnChainCommittees struct {
 	CommitteeQualifier string
 	Signers            [][]byte

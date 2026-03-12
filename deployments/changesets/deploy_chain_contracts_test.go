@@ -11,19 +11,19 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/create2_factory"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/fee_quoter"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/onramp"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/create2_factory"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/fee_quoter"
 	contract_utils "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/link"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/rmn_proxy"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/link_token"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/token_admin_registry"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/registry_module_owner_custom"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
@@ -81,8 +81,9 @@ func testContractParamsPerChain(t *testing.T, create2Factory common.Address) cha
 		},
 		MockReceivers: []sequences.MockReceiverParams{
 			{
-				Version:   semver.MustParse("1.7.0"),
-				Qualifier: "default",
+				MinimumBlockDepth: 1,
+				Version:           semver.MustParse("2.0.0"),
+				Qualifier:         "default",
 			},
 		},
 	}
@@ -245,7 +246,7 @@ func TestDeployChainContractsFromTopology_Validate(t *testing.T) {
 
 var allExpectedContractTypes = []datastore.ContractType{
 	datastore.ContractType(weth.ContractType),
-	datastore.ContractType(link_token.ContractType),
+	datastore.ContractType(link.ContractType),
 	datastore.ContractType(rmn_remote.ContractType),
 	datastore.ContractType(rmn_proxy.ContractType),
 	datastore.ContractType(router.ContractType),
@@ -257,7 +258,7 @@ var allExpectedContractTypes = []datastore.ContractType{
 	datastore.ContractType(committee_verifier.ContractType),
 	datastore.ContractType(executor.ContractType),
 	datastore.ContractType(executor.ProxyType),
-	datastore.ContractType(mock_receiver.ContractType),
+	datastore.ContractType(mock_receiver_v2.ContractType),
 }
 
 func assertAllExpectedContractsDeployed(t *testing.T, addrs []datastore.AddressRef, sel uint64) {
@@ -349,7 +350,7 @@ func TestDeployChainContractsFromTopology_Apply_ExistingAddressesArePreserved(t 
 	}))
 	require.NoError(t, ds.Addresses().Add(datastore.AddressRef{
 		ChainSelector: sel,
-		Type:          datastore.ContractType(link_token.ContractType),
+		Type:          datastore.ContractType(link.ContractType),
 		Version:       semver.MustParse("1.0.0"),
 		Address:       linkAddr.Hex(),
 	}))
@@ -378,7 +379,7 @@ func TestDeployChainContractsFromTopology_Apply_ExistingAddressesArePreserved(t 
 		if ref.ChainSelector == sel && ref.Type == datastore.ContractType(weth.ContractType) {
 			assert.Equal(t, wethAddr.Hex(), ref.Address, "existing WETH address should be preserved")
 		}
-		if ref.ChainSelector == sel && ref.Type == datastore.ContractType(link_token.ContractType) {
+		if ref.ChainSelector == sel && ref.Type == datastore.ContractType(link.ContractType) {
 			assert.Equal(t, linkAddr.Hex(), ref.Address, "existing LINK address should be preserved")
 		}
 	}
@@ -428,7 +429,7 @@ func TestBuildCommitteeVerifierParams_MapsAllCommittees(t *testing.T) {
 			Committees: map[string]deployments.CommitteeConfig{
 				"alpha": {
 					Qualifier:        "alpha",
-					VerifierVersion:  semver.MustParse("1.7.0"),
+					VerifierVersion:  semver.MustParse("2.0.0"),
 					StorageLocations: []string{"https://store1.test"},
 					ChainConfigs: map[string]deployments.ChainCommitteeConfig{
 						selStr: {
@@ -441,7 +442,7 @@ func TestBuildCommitteeVerifierParams_MapsAllCommittees(t *testing.T) {
 				},
 				"beta": {
 					Qualifier:        "beta",
-					VerifierVersion:  semver.MustParse("1.7.0"),
+					VerifierVersion:  semver.MustParse("2.0.0"),
 					StorageLocations: []string{"https://store2.test"},
 					ChainConfigs: map[string]deployments.ChainCommitteeConfig{
 						selStr: {
@@ -487,7 +488,7 @@ func TestBuildCommitteeVerifierParams_SkipsCommitteesWithoutChainConfig(t *testi
 			Committees: map[string]deployments.CommitteeConfig{
 				"present": {
 					Qualifier:       "present",
-					VerifierVersion: semver.MustParse("1.7.0"),
+					VerifierVersion: semver.MustParse("2.0.0"),
 					ChainConfigs: map[string]deployments.ChainCommitteeConfig{
 						selStr: {
 							NOPAliases:    []string{"nop-1"},
@@ -498,7 +499,7 @@ func TestBuildCommitteeVerifierParams_SkipsCommitteesWithoutChainConfig(t *testi
 				},
 				"absent": {
 					Qualifier:       "absent",
-					VerifierVersion: semver.MustParse("1.7.0"),
+					VerifierVersion: semver.MustParse("2.0.0"),
 					ChainConfigs: map[string]deployments.ChainCommitteeConfig{
 						strconv.FormatUint(otherSel, 10): {
 							NOPAliases:    []string{"nop-1"},
@@ -609,7 +610,7 @@ func TestBuildCommitteeVerifierParams_AddressValidation(t *testing.T) {
 					Committees: map[string]deployments.CommitteeConfig{
 						"test": {
 							Qualifier:       "test",
-							VerifierVersion: semver.MustParse("1.7.0"),
+							VerifierVersion: semver.MustParse("2.0.0"),
 							ChainConfigs: map[string]deployments.ChainCommitteeConfig{
 								selStr: {
 									NOPAliases:     []string{"nop-1"},

@@ -9,6 +9,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -46,9 +47,9 @@ func TestWithMessageID(t *testing.T) {
 	messageID := []byte{0x01, 0x02, 0x03, 0x04}
 	ctx = WithMessageID(ctx, messageID)
 
-	value, ok := ctx.Value(messageIDKey).(string)
+	value, ok := ctx.Value(messageIDKey).(protocol.ByteSlice)
 	require.True(t, ok)
-	assert.Equal(t, "0x01020304", value)
+	assert.Equal(t, "0x01020304", value.String())
 }
 
 func TestWithAddress(t *testing.T) {
@@ -56,9 +57,9 @@ func TestWithAddress(t *testing.T) {
 	address := []byte{0xaa, 0xbb, 0xcc, 0xdd}
 	ctx = WithAddress(ctx, address)
 
-	value, ok := ctx.Value(addressKey).(string)
+	value, ok := ctx.Value(addressKey).(protocol.ByteSlice)
 	require.True(t, ok)
-	assert.Equal(t, "0xaabbccdd", value)
+	assert.Equal(t, "0xaabbccdd", value.String())
 }
 
 func TestWithAggregationKey(t *testing.T) {

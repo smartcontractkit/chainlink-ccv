@@ -6,13 +6,14 @@ import (
 	"slices"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 type AttestationService interface {
-	// Fetch retrieves the attestations for a given message batch. It should slice batch into smaller
-	// requests if number of messages exceeds allowed limit.
-	Fetch(ctx context.Context, message []protocol.Message) (map[string]Attestation, error)
+	// Fetch retrieves the attestations for a given verification task batch. It should slice batch into smaller
+	// requests if number of tasks exceeds allowed limit.
+	Fetch(ctx context.Context, tasks []verifier.VerificationTask) (map[string]Attestation, error)
 }
 
 // Attestation represents a Lombard attestation along with related data
@@ -73,7 +74,8 @@ type HTTPAttestationService struct {
 	verifierVersion protocol.ByteSlice
 	// batchSize defines maximum number of messages to request in a single API call.
 	// 0 or negative value means no limit.
-	batchSize int
+	batchSize         int
+	verifierResolvers map[protocol.ChainSelector]protocol.UnknownAddress
 }
 
 func NewAttestationService(
@@ -86,26 +88,47 @@ func NewAttestationService(
 	}
 
 	return &HTTPAttestationService{
-		lggr:            lggr,
-		client:          client,
-		verifierVersion: config.VerifierVersion,
-		batchSize:       config.AttestationAPIBatchSize,
+		lggr:              lggr,
+		client:            client,
+		verifierVersion:   config.VerifierVersion,
+		batchSize:         config.AttestationAPIBatchSize,
+		verifierResolvers: config.ParsedVerifierResolvers,
 	}, nil
 }
 
 func (h *HTTPAttestationService) Fetch(
 	ctx context.Context,
-	messages []protocol.Message,
+	tasks []verifier.VerificationTask,
 ) (map[string]Attestation, error) {
-	requests := make([]protocol.ByteSlice, 0, len(messages))
-	for _, msg := range messages {
-		if msg.TokenTransfer == nil || len(msg.TokenTransfer.ExtraData) == 0 {
-			// Defensive check: skip messages without token transfer extra data to avoid nil deref
-			h.lggr.Warnw("Skipping message without token transfer extra data",
-				"messageID", msg.MustMessageID().String())
+	requests := make([]protocol.ByteSlice, 0, len(tasks))
+	for _, task := range tasks {
+		// Find the blob issued by one of the verifier resolvers
+		var blob protocol.ByteSlice
+		sourceChain := task.Message.SourceChainSelector
+		expectedIssuer, ok := h.verifierResolvers[sourceChain]
+		if !ok {
+			h.lggr.Warnw("No verifier resolver configured for source chain, skipping task",
+				"messageID", task.MessageID,
+				"sourceChain", sourceChain)
 			continue
 		}
-		requests = append(requests, msg.TokenTransfer.ExtraData)
+
+		for _, receipt := range task.ReceiptBlobs {
+			if receipt.Issuer.Equal(expectedIssuer) {
+				blob = receipt.Blob
+				break
+			}
+		}
+
+		if len(blob) == 0 {
+			h.lggr.Warnw("No matching blob found for task in ReceiptBlobs",
+				"messageID", task.MessageID,
+				"expectedIssuer", expectedIssuer.String(),
+				"sourceChain", sourceChain)
+			continue
+		}
+
+		requests = append(requests, blob)
 	}
 
 	attestations := make([]AttestationResponse, 0, len(requests))
@@ -123,32 +146,51 @@ func (h *HTTPAttestationService) Fetch(
 
 	// Map attestations back to messageIDs
 	result := make(map[string]Attestation)
-	for _, msg := range messages {
-		id, err := msg.MessageID()
-		if err != nil {
-			return nil, fmt.Errorf("message ID extraction failed: %w", err)
-		}
-		if msg.TokenTransfer == nil {
-			h.lggr.Errorw("Missing TokenTransfer for message; marking attestation as missing", "id", id)
-			result[id.String()] = NewMissingAttestation(h.verifierVersion)
+	for _, task := range tasks {
+		// Find the blob for this task
+		var blob protocol.ByteSlice
+		sourceChain := task.Message.SourceChainSelector
+		expectedIssuer, ok := h.verifierResolvers[sourceChain]
+		if !ok {
+			h.lggr.Errorw("No verifier resolver configured for source chain; marking attestation as missing",
+				"messageID", task.MessageID,
+				"sourceChain", sourceChain)
+			result[task.MessageID] = NewMissingAttestation(h.verifierVersion)
 			continue
 		}
-		extraData := msg.TokenTransfer.ExtraData.String()
+
+		for _, receipt := range task.ReceiptBlobs {
+			if receipt.Issuer.Equal(expectedIssuer) {
+				blob = receipt.Blob
+				break
+			}
+		}
+
+		if len(blob) == 0 {
+			h.lggr.Errorw("No matching blob found for task; marking attestation as missing",
+				"messageID", task.MessageID,
+				"expectedIssuer", expectedIssuer.String())
+			result[task.MessageID] = NewMissingAttestation(h.verifierVersion)
+			continue
+		}
+
+		blobStr := blob.String()
 
 		// Prefer APPROVED status if multiple entries exist for the same hash
 		idx := slices.IndexFunc(attestations, func(attestation AttestationResponse) bool {
-			return attestation.MessageHash == extraData && attestation.Status == AttestationStatusApproved
+			return attestation.MessageHash == blobStr && attestation.Status == AttestationStatusApproved
 		})
 		if idx == -1 {
 			idx = slices.IndexFunc(attestations, func(attestation AttestationResponse) bool {
-				return attestation.MessageHash == extraData
+				return attestation.MessageHash == blobStr
 			})
 		}
 		if idx != -1 {
-			result[id.String()] = NewAttestation(h.verifierVersion, attestations[idx])
+			result[task.MessageID] = NewAttestation(h.verifierVersion, attestations[idx])
 		} else {
-			h.lggr.Errorw("Failed to find attestation for message in the response", "id", id)
-			result[id.String()] = NewMissingAttestation(h.verifierVersion)
+			h.lggr.Errorw("Failed to find attestation for task in the response",
+				"messageID", task.MessageID)
+			result[task.MessageID] = NewMissingAttestation(h.verifierVersion)
 		}
 	}
 	return result, nil

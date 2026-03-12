@@ -29,11 +29,12 @@ func setupMockSourceReaderForFinality(t *testing.T, blocks map[uint64]protocol.B
 
 	// Mock GetBlocksHeaders to return headers from the provided blocks map
 	mockReader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).RunAndReturn(
-		func(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
-			headers := make(map[*big.Int]protocol.BlockHeader)
+		func(ctx context.Context, blockNumbers []*big.Int) (map[uint64]protocol.BlockHeader, error) {
+			headers := make(map[uint64]protocol.BlockHeader)
 			for _, blockNum := range blockNumbers {
-				if header, exists := blocks[blockNum.Uint64()]; exists {
-					headers[blockNum] = header
+				blockNumUint := blockNum.Uint64()
+				if header, exists := blocks[blockNumUint]; exists {
+					headers[blockNumUint] = header
 				}
 			}
 			return headers, nil
@@ -120,11 +121,12 @@ func TestFinalityViolationChecker_DetectsViolation(t *testing.T) {
 	blocks[101] = protocol.BlockHeader{Number: 101, Hash: makeBytes32("DIFFERENT"), ParentHash: makeBytes32("hash100")}
 	// Re-setup the mock expectation with updated blocks
 	mockSetup.Reader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).RunAndReturn(
-		func(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
-			headers := make(map[*big.Int]protocol.BlockHeader)
+		func(ctx context.Context, blockNumbers []*big.Int) (map[uint64]protocol.BlockHeader, error) {
+			headers := make(map[uint64]protocol.BlockHeader)
 			for _, blockNum := range blockNumbers {
-				if header, exists := blocks[blockNum.Uint64()]; exists {
-					headers[blockNum] = header
+				blockNumUint := blockNum.Uint64()
+				if header, exists := blocks[blockNumUint]; exists {
+					headers[blockNumUint] = header
 				}
 			}
 			return headers, nil
@@ -274,11 +276,12 @@ func TestFinalityViolationChecker_SameHeightHashChange(t *testing.T) {
 	blocks[100] = protocol.BlockHeader{Number: 100, Hash: makeBytes32("DIFFERENT"), ParentHash: makeBytes32("hash99")}
 	// Re-setup the mock expectation with updated blocks
 	mockSetup.Reader.EXPECT().GetBlocksHeaders(mock.Anything, mock.Anything).RunAndReturn(
-		func(ctx context.Context, blockNumbers []*big.Int) (map[*big.Int]protocol.BlockHeader, error) {
-			headers := make(map[*big.Int]protocol.BlockHeader)
+		func(ctx context.Context, blockNumbers []*big.Int) (map[uint64]protocol.BlockHeader, error) {
+			headers := make(map[uint64]protocol.BlockHeader)
 			for _, blockNum := range blockNumbers {
-				if header, exists := blocks[blockNum.Uint64()]; exists {
-					headers[blockNum] = header
+				blockNumUint := blockNum.Uint64()
+				if header, exists := blocks[blockNumUint]; exists {
+					headers[blockNumUint] = header
 				}
 			}
 			return headers, nil

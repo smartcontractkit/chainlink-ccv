@@ -225,13 +225,17 @@ func (r *VerifierResult) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("message field is required but was missing")
 	}
 
+	if len(aux.MessageCcvAddresses) > protocol.MaxCCVsPerMessage {
+		return fmt.Errorf("too many CCV addresses: %d (max %d)", len(aux.MessageCcvAddresses), protocol.MaxCCVsPerMessage)
+	}
+
 	messageCcvAddresses := make([][]byte, len(aux.MessageCcvAddresses))
 	for i, addr := range aux.MessageCcvAddresses {
 		messageCcvAddresses[i] = addr.Bytes()
 	}
 
 	var metadata *v1.VerifierResultMetadata
-	if aux.Metadata != nil {
+	if aux.Metadata != nil && aux.Metadata.VerifierResultMetadata != nil {
 		metadata = aux.Metadata.VerifierResultMetadata
 	} else {
 		metadata = &v1.VerifierResultMetadata{}
@@ -381,10 +385,9 @@ func (r *VerifierResultMessage) ToMessage() (protocol.Message, error) {
 		return protocol.Message{}, fmt.Errorf("message field is nil")
 	}
 
-	ccvAndExecutorHash := protocol.Bytes32{}
-
-	if r.CcvAndExecutorHash != nil {
-		ccvAndExecutorHash = protocol.Bytes32(r.CcvAndExecutorHash)
+	ccvAndExecutorHash, err := protocol.NewBytes32FromSlice(r.CcvAndExecutorHash)
+	if err != nil {
+		return protocol.Message{}, fmt.Errorf("field CcvAndExecutorHash: %w", err)
 	}
 
 	var tokenTransfer *protocol.TokenTransfer

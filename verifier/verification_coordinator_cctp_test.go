@@ -57,7 +57,7 @@ const (
 				  "mintRecipient": "0xdoesntmatter",
 				  "amount": "5000",
 				  "messageSender": "0x1100000000000000000000000000000000000000",
-				  "hookData": "0x8e1d1a9d42fdceb59007e3a5aee1f4a6b2d92f2922e5ae879257aaea310aae61bf1bb993"
+				  "hookData": "0x35a2583842fdceb59007e3a5aee1f4a6b2d92f2922e5ae879257aaea310aae61bf1bb993"
 				}
 			  },
 			  "cctpVersion": "2",
@@ -85,7 +85,7 @@ const (
 				  "mintRecipient": "0xdoesntmatter",
 				  "amount": "5000",
 				  "messageSender": "0x1100000000000000000000000000000000000000",
-				  "hookData": "0x8e1d1a9d42fdceb59007e3a5aee1f4a6b2d92f2922e5ae879257aaea310aae61bf1bb993"
+				  "hookData": "0x35a2583842fdceb59007e3a5aee1f4a6b2d92f2922e5ae879257aaea310aae61bf1bb993"
 				}
 			  },
 			  "cctpVersion": "2",
@@ -113,7 +113,7 @@ const (
 				  "mintRecipient": "0xdoesntmatter",
 				  "amount": "5000",
 				  "messageSender": "0x1100000000000000000000000000000000000000",
-				  "hookData": "0x8e1d1a9da912928643f3adf7fefe08dcbc40a1ca831ee861de1d65cca2c6e8a1a2bcda7a"
+				  "hookData": "0x35a25838a912928643f3adf7fefe08dcbc40a1ca831ee861de1d65cca2c6e8a1a2bcda7a"
 				}
 			  },
 			  "cctpVersion": "2",
@@ -142,7 +142,7 @@ const (
 				  "mintRecipient": "0xdoesntmatter",
 				  "amount": "5000",
 				  "messageSender": "0x2222222200000000000000000000000000000000",
-				  "hookData": "0x8e1d1a9d78bd0517e2f4167315be5921f215f8d12d8ba1b91d7884ec7fced62d1123f943"
+				  "hookData": "0x35a2583878bd0517e2f4167315be5921f215f8d12d8ba1b91d7884ec7fced62d1123f943"
 				}
 			  },
 			  "cctpVersion": "2",
@@ -168,9 +168,9 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 	require.NoError(t, err)
 
 	// Version + encoded msgs + attestation
-	ccvData1, err := protocol.NewByteSliceFromHex("0x8e1d1a9dcccccc22aaaaaa22")
+	ccvData1, err := protocol.NewByteSliceFromHex("0x35a25838cccccc22aaaaaa22")
 	require.NoError(t, err)
-	ccvData2, err := protocol.NewByteSliceFromHex("0x8e1d1a9dbbbbbb22aaaaaa11")
+	ccvData2, err := protocol.NewByteSliceFromHex("0x35a25838bbbbbb22aaaaaa11")
 	require.NoError(t, err)
 
 	server := createFakeCCTPServer(t, attestationResponse)
@@ -265,9 +265,9 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 	destVerifier, err := protocol.NewUnknownAddressFromHex("0x2222222200000000000000000000000000000000")
 	require.NoError(t, err)
 
-	ccvData1, err := protocol.NewByteSliceFromHex("0x8e1d1a9dcccccc22aaaaaa22")
+	ccvData1, err := protocol.NewByteSliceFromHex("0x35a25838cccccc22aaaaaa22")
 	require.NoError(t, err)
-	ccvData2, err := protocol.NewByteSliceFromHex("0x8e1d1a9dbbbbbb55aaaaaa55")
+	ccvData2, err := protocol.NewByteSliceFromHex("0x35a25838bbbbbb55aaaaaa55")
 	require.NoError(t, err)
 
 	server := createFakeCCTPServer(t, attestationResponse)
@@ -378,7 +378,7 @@ func Test_CCTPMessages_RetryingAttestation(t *testing.T) {
 	require.NoError(t, err)
 
 	// Version + encoded msgs + attestation
-	ccvData, err := protocol.NewByteSliceFromHex("0x8e1d1a9dcccccc22aaaaaa22")
+	ccvData, err := protocol.NewByteSliceFromHex("0x35a25838cccccc22aaaaaa22")
 	require.NoError(t, err)
 
 	config := createCoordinatorConfig(

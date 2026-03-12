@@ -176,7 +176,7 @@ type AggregatorReaderConfig struct {
 
 // RestReaderConfig allows you to change the rest reader used by the indexer.
 type RestReaderConfig struct {
-	// BaseURL is the base URL for the rest reader.
+	// BaseURL is the base URL for the rest reader including the API version.
 	BaseURL string `toml:"BaseURL"`
 	// RequestTimeout is the timeout in seconds for the rest reader.
 	RequestTimeout int64 `toml:"RequestTimeout"`

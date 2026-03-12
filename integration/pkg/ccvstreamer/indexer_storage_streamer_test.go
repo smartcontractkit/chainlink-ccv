@@ -10,6 +10,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
@@ -33,11 +34,12 @@ func TestOffchainStorageStreamerLifecycle(t *testing.T) {
 	timeProvider := mocks.NewMockTimeProvider(t)
 	timeProvider.EXPECT().GetTime().Return(time.Now()).Maybe()
 	oss := ccvstreamer.NewIndexerStorageStreamer(lggr, ccvstreamer.IndexerStorageConfig{
-		IndexerClient:   &reader,
-		PollingInterval: 150 * time.Millisecond,
-		TimeProvider:    timeProvider,
-		ExpiryDuration:  10 * time.Second,
-		CleanInterval:   1 * time.Second,
+		IndexerClient:     &reader,
+		EnabledDestChains: []protocol.ChainSelector{1},
+		PollingInterval:   150 * time.Millisecond,
+		TimeProvider:      timeProvider,
+		ExpiryDuration:    10 * time.Second,
+		CleanInterval:     1 * time.Second,
 	})
 
 	ctx, cancel := context.WithCancel(t.Context())

@@ -10,7 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	cldfevm "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -220,7 +221,7 @@ func deployAndConfigureVerifier(
 					FeeAggregator:  chain.DeployerKey.From,
 					AllowlistAdmin: chain.DeployerKey.From,
 				},
-				RMN: rmnAddress,
+				Rmn: rmnAddress,
 			},
 			Qualifier: &qualifier,
 		},
@@ -242,11 +243,11 @@ func deployAndConfigureVerifier(
 		bundle,
 		committee_verifier.ApplySignatureConfigs,
 		chain,
-		contract.FunctionInput[committee_verifier.SignatureConfigArgs]{
+		contract.FunctionInput[committee_verifier.ApplySignatureConfigsArgs]{
 			ChainSelector: chain.Selector,
 			Address:       contractAddr,
-			Args: committee_verifier.SignatureConfigArgs{
-				SignatureConfigUpdates: signatureUpdates,
+			Args: committee_verifier.ApplySignatureConfigsArgs{
+				SignatureConfigs: signatureUpdates,
 			},
 		},
 	)
@@ -270,9 +271,9 @@ func addVerifierToDatastore(t *testing.T, ds *datastore.MemoryDataStore, selecto
 	err = ds.Addresses().Add(datastore.AddressRef{
 		ChainSelector: selector,
 		Qualifier:     qualifier,
-		Type:          datastore.ContractType(committee_verifier.ResolverType),
+		Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
 		Address:       addr.Hex(),
-		Version:       committee_verifier.Version,
+		Version:       versioned_verifier_resolver.Version,
 	})
 	require.NoError(t, err)
 }

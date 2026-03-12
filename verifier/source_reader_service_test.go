@@ -117,7 +117,7 @@ func TestSRS_FetchesAndQueuesMessages(t *testing.T) {
 	chainStatusMgr.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -161,7 +161,7 @@ func TestSRS_DeduplicatesByMessageID(t *testing.T) {
 		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{}, nil).Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -181,7 +181,7 @@ func TestSRS_Reorg_DropsMissingPendingAndSent(t *testing.T) {
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -201,7 +201,7 @@ func TestSRS_Reorg_DropsMissingPendingAndSent(t *testing.T) {
 	msgsD := createTestMessageSentEvents(t, 10, chain, defaultDestChain, []uint64{103})
 	taskD := VerificationTask{Message: msgsD[0].Message, BlockNumber: msgsD[0].BlockNumber, MessageID: msgsD[0].MessageID.String()}
 
-	srs.addToPendingQueueHandleReorg([]VerificationTask{taskA, taskD}, big.NewInt(100))
+	srs.addToPendingQueueHandleReorg([]VerificationTask{taskA, taskD}, big.NewInt(100), big.NewInt(103))
 
 	srs.mu.RLock()
 	defer srs.mu.RUnlock()
@@ -221,7 +221,7 @@ func TestSRS_Curse_DropsAtSendTime(t *testing.T) {
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(true).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(true, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -234,7 +234,7 @@ func TestSRS_Curse_DropsAtSendTime(t *testing.T) {
 		{Message: events[0].Message, BlockNumber: events[0].BlockNumber, MessageID: events[0].MessageID.String()},
 		{Message: events[1].Message, BlockNumber: events[1].BlockNumber, MessageID: events[1].MessageID.String()},
 	}
-	srs.addToPendingQueueHandleReorg(tasks, big.NewInt(100))
+	srs.addToPendingQueueHandleReorg(tasks, big.NewInt(100), big.NewInt(101))
 
 	latest := &protocol.BlockHeader{Number: 150}
 	finalized := &protocol.BlockHeader{Number: 120}
@@ -260,7 +260,7 @@ func TestSRS_Readiness_DefaultFinality_PublishesToQueue(t *testing.T) {
 	chainStatusMgr.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -305,7 +305,7 @@ func TestSRS_Readiness_CustomFinality_PublishesToQueue(t *testing.T) {
 		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{}, nil).Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -340,7 +340,7 @@ func TestSRS_Readiness_NotReadyTask_NotPublished(t *testing.T) {
 
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -460,7 +460,7 @@ func TestSRS_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 		}).Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -495,7 +495,7 @@ func TestSRS_Reorg_TracksSequenceNumbers(t *testing.T) {
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -510,7 +510,7 @@ func TestSRS_Reorg_TracksSequenceNumbers(t *testing.T) {
 	srs.mu.Unlock()
 
 	// Reorg: only A survives; B is dropped
-	srs.addToPendingQueueHandleReorg([]VerificationTask{taskA}, big.NewInt(100))
+	srs.addToPendingQueueHandleReorg([]VerificationTask{taskA}, big.NewInt(100), big.NewInt(101))
 
 	require.True(t, srs.reorgTracker.RequiresFinalization(defaultDestChain, taskB.Message.SequenceNumber),
 		"reorged message B should require finalization")
@@ -557,7 +557,7 @@ func TestSRS_Reorg_TracksSentTasksSequenceNumbers(t *testing.T) {
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -574,7 +574,7 @@ func TestSRS_Reorg_TracksSentTasksSequenceNumbers(t *testing.T) {
 	// New query results: A is gone (reorged after being sent)
 	newTasks := []VerificationTask{}
 
-	srs.addToPendingQueueHandleReorg(newTasks, big.NewInt(100))
+	srs.addToPendingQueueHandleReorg(newTasks, big.NewInt(100), big.NewInt(100))
 
 	srs.mu.RLock()
 	defer srs.mu.RUnlock()
@@ -590,7 +590,7 @@ func TestSRS_ReorgedMessage_CustomFinality_WaitsForFinalization(t *testing.T) {
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -630,7 +630,7 @@ func TestSRS_NonReorgedMessage_UsesCustomFinality(t *testing.T) {
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -665,7 +665,7 @@ func TestSRS_ReorgedMessage_DifferentDest_UsesCustomFinality(t *testing.T) {
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -700,7 +700,7 @@ func TestSRS_ReorgTracker_RemovedAfterFinalization(t *testing.T) {
 	chainStatusMgr := mocks.NewMockChainStatusManager(t)
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -780,7 +780,7 @@ func TestSRS_MultiCycle_SmallRangeCompletesInOneTick(t *testing.T) {
 		Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -873,7 +873,7 @@ func TestSRS_LargeRangeChunkedInSingleCycle(t *testing.T) {
 		Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -936,7 +936,7 @@ func TestSRS_CustomMaxBlockRangeChunksCorrectly(t *testing.T) {
 		Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -983,7 +983,7 @@ func TestSRS_OneBlockChunkAdvancesProgress(t *testing.T) {
 		Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -1041,7 +1041,7 @@ func TestSRS_FailureRetriesNextTick(t *testing.T) {
 		Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -1095,7 +1095,7 @@ func TestSRS_NoNewBlocksStaysAtSameProgress(t *testing.T) {
 		Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -1148,7 +1148,7 @@ func TestSRS_FailureDoesNotDeleteExistingTasks(t *testing.T) {
 		Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -1221,7 +1221,7 @@ func TestSRS_FromBlockAheadOfLatestResetsToFinalized(t *testing.T) {
 		Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -1277,7 +1277,7 @@ func TestSRS_FinalizedBehindLastProcessed_QueriesAndUpdatesToFinalized(t *testin
 		Maybe()
 
 	curseDetector := mocks.NewMockCurseCheckerService(t)
-	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	curseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -1339,7 +1339,7 @@ func TestSRS_EventMonitoringLoop_ContinuesAfterPanic(t *testing.T) {
 
 	curseDetector.EXPECT().
 		IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).
-		Return(false).
+		Return(false, nil).
 		Maybe()
 
 	// Create SRS with fast poll interval for testing
@@ -1422,7 +1422,7 @@ func TestSRS_EventMonitoringLoop_PanicInProcessEventCycle(t *testing.T) {
 
 	curseDetector.EXPECT().
 		IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).
-		Return(false).
+		Return(false, nil).
 		Maybe()
 
 	// Create SRS with fast poll interval for testing
@@ -1450,4 +1450,411 @@ func TestSRS_EventMonitoringLoop_PanicInProcessEventCycle(t *testing.T) {
 		"eventMonitoringLoop should continue processing after panic in processEventCycle")
 
 	t.Logf("FetchMessageSentEvents called %d times (including 1 panic)", actualFetchCount)
+}
+
+// ----------------------
+// Partial Read Tests
+//
+// These tests cover the behavior introduced by returning accumulated events on
+// fetch error in loadEvents, and the min-progress formula in processEventCycle:
+//
+//   newBlock = min(lastQueriedBlock, finalized)
+//
+//   • nil lastQueriedBlock (full success)     → finalized
+//   • lastQueriedBlock < finalized (partial)  → lastQueriedBlock (chunk toBlock)
+//   • lastQueriedBlock ≥ finalized (partial)  → finalized (capped — new behavior)
+//   • lastQueriedBlock == fromBlock (failure) → fromBlock (no progress)
+// ----------------------
+
+// TestSRS_PartialRead_EventsFromSuccessfulChunksQueued verifies that when a
+// multi-chunk fetch fails partway through, the events already retrieved from
+// the completed chunks are still queued as pending tasks — not discarded.
+func TestSRS_PartialRead_EventsFromSuccessfulChunksQueued(t *testing.T) {
+	ctx := context.Background()
+	chain := protocol.ChainSelector(1337)
+
+	reader := mocks.NewMockSourceReader(t)
+
+	// maxBlockRange=500 splits [100, 700) into two chunks: [100,600] and [601,nil].
+	latest := &protocol.BlockHeader{Number: 700}
+	finalized := &protocol.BlockHeader{Number: 600}
+	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil).Maybe()
+
+	eventsChunk1 := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{200, 400})
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(600)).
+		Return(eventsChunk1, nil).
+		Once()
+
+	nilBigInt := mock.MatchedBy(func(b *big.Int) bool { return b == nil })
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(601), nilBigInt).
+		Return(nil, assert.AnError).
+		Once()
+
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).
+		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{}, nil).Maybe()
+
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
+	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
+	curseDetector.EXPECT().Close().Return(nil).Maybe()
+
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 500)
+	srs.lastProcessedFinalizedBlock.Store(big.NewInt(100))
+
+	srs.processEventCycle(ctx, latest, finalized)
+
+	srs.mu.RLock()
+	defer srs.mu.RUnlock()
+
+	require.Len(t, srs.pendingTasks, len(eventsChunk1),
+		"events from the successful chunk should be queued despite the later chunk failure")
+	for _, ev := range eventsChunk1 {
+		_, ok := srs.pendingTasks[ev.MessageID.String()]
+		require.True(t, ok, "task for message %s should be in pending queue", ev.MessageID.String())
+	}
+}
+
+// TestSRS_PartialRead_ProgressAdvancesToLastSuccessfulChunkBound verifies that
+// when a multi-chunk fetch partially fails, progress advances to the toBlock of
+// the last successfully completed chunk — not the finalized block and not the
+// block of the final event within the chunk.
+func TestSRS_PartialRead_ProgressAdvancesToLastSuccessfulChunkBound(t *testing.T) {
+	ctx := context.Background()
+	chain := protocol.ChainSelector(1337)
+
+	reader := mocks.NewMockSourceReader(t)
+
+	// maxBlockRange=500 splits [100, 700) into [100,600] and [601,nil].
+	latest := &protocol.BlockHeader{Number: 700}
+	finalized := &protocol.BlockHeader{Number: 600}
+	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil).Maybe()
+
+	// Events at blocks 200 and 400 — the chunk boundary (toBlock) is 600.
+	eventsChunk1 := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{200, 400})
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(600)).
+		Return(eventsChunk1, nil).
+		Once()
+
+	nilBigInt := mock.MatchedBy(func(b *big.Int) bool { return b == nil })
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(601), nilBigInt).
+		Return(nil, assert.AnError).
+		Once()
+
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).
+		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{}, nil).Maybe()
+
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
+	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
+	curseDetector.EXPECT().Close().Return(nil).Maybe()
+
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 500)
+	srs.lastProcessedFinalizedBlock.Store(big.NewInt(100))
+
+	srs.processEventCycle(ctx, latest, finalized)
+
+	// err != nil, finalQueriedBlock (chunk 1 toBlock = 600) >= fromBlock (100)
+	// → partial-read branch → progress = 600.
+	// Progress must NOT stay at fromBlock (100) as if it were a total failure.
+	require.Equal(t, int64(600), srs.lastProcessedFinalizedBlock.Load().Int64(),
+		"progress should advance to the toBlock of the last successful chunk, not stay at fromBlock")
+}
+
+// TestSRS_PartialRead_MultipleChunksSucceedBeforeFailure verifies that events from
+// all chunks that complete before the first failure are accumulated and queued,
+// and that progress advances to the highest block from those combined results.
+func TestSRS_PartialRead_MultipleChunksSucceedBeforeFailure(t *testing.T) {
+	ctx := context.Background()
+	chain := protocol.ChainSelector(1337)
+
+	reader := mocks.NewMockSourceReader(t)
+
+	// maxBlockRange=300 splits [100, 1000) into three chunks:
+	// [100,400], [401,701], [702,nil].
+	latest := &protocol.BlockHeader{Number: 1000}
+	finalized := &protocol.BlockHeader{Number: 800}
+	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil).Maybe()
+
+	eventsChunk1 := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{150, 300})
+	eventsChunk2 := createTestMessageSentEvents(t, 10, chain, defaultDestChain, []uint64{500, 650})
+	nilBigInt := mock.MatchedBy(func(b *big.Int) bool { return b == nil })
+
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(400)).
+		Return(eventsChunk1, nil).
+		Once()
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(401), big.NewInt(701)).
+		Return(eventsChunk2, nil).
+		Once()
+	// Third chunk fails — no further chunks should be fetched.
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(702), nilBigInt).
+		Return(nil, assert.AnError).
+		Once()
+
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).
+		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{}, nil).Maybe()
+
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
+	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
+	curseDetector.EXPECT().Close().Return(nil).Maybe()
+
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 300)
+	srs.lastProcessedFinalizedBlock.Store(big.NewInt(100))
+
+	srs.processEventCycle(ctx, latest, finalized)
+
+	srs.mu.RLock()
+	defer srs.mu.RUnlock()
+
+	allExpected := append(eventsChunk1, eventsChunk2...)
+	require.Len(t, srs.pendingTasks, len(allExpected),
+		"events from all chunks that completed before the failure should be queued")
+	for _, ev := range allExpected {
+		_, ok := srs.pendingTasks[ev.MessageID.String()]
+		require.True(t, ok, "task for message %s should be in pending queue", ev.MessageID.String())
+	}
+
+	// finalQueriedBlock = toBlock of last successful chunk = 701 (chunk 2 boundary).
+	// err != nil, 701 >= fromBlock(100) → partial-read branch → progress=701.
+	require.Equal(t, int64(701), srs.lastProcessedFinalizedBlock.Load().Int64(),
+		"progress should advance to the toBlock of the last successful chunk, not to finalized or last event block")
+}
+
+// TestSRS_PartialRead_TotalFailureDoesNotAdvanceProgress verifies that when the
+// very first chunk fails (returning no events), progress stays at fromBlock so
+// the identical range is retried on the next tick without losing any ground.
+func TestSRS_PartialRead_TotalFailureDoesNotAdvanceProgress(t *testing.T) {
+	ctx := context.Background()
+	chain := protocol.ChainSelector(1337)
+
+	reader := mocks.NewMockSourceReader(t)
+
+	latest := &protocol.BlockHeader{Number: 700}
+	finalized := &protocol.BlockHeader{Number: 600}
+	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil).Maybe()
+
+	// Chunk 1 fails immediately — no events, no subsequent chunk calls.
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(600)).
+		Return(nil, assert.AnError).
+		Once()
+	// Chunk 2 must NOT be called: testify will fail the test on any unexpected call.
+
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).
+		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{}, nil).Maybe()
+
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
+	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
+	curseDetector.EXPECT().Close().Return(nil).Maybe()
+
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 500)
+	srs.lastProcessedFinalizedBlock.Store(big.NewInt(100))
+
+	srs.processEventCycle(ctx, latest, finalized)
+
+	srs.mu.RLock()
+	defer srs.mu.RUnlock()
+
+	require.Len(t, srs.pendingTasks, 0, "no tasks should be queued when the first chunk fails")
+	require.Equal(t, int64(100), srs.lastProcessedFinalizedBlock.Load().Int64(),
+		"progress must not advance when the fetch fails with no events; same range retried next tick")
+}
+
+// TestSRS_PartialRead_SuccessfulReadAlwaysAdvancesToFinalized verifies that when
+// all chunks complete without error, progress advances to finalized even if the
+// last event block is lower than finalized (e.g. quiet period on a chain).
+func TestSRS_PartialRead_SuccessfulReadAlwaysAdvancesToFinalized(t *testing.T) {
+	ctx := context.Background()
+	chain := protocol.ChainSelector(1337)
+
+	reader := mocks.NewMockSourceReader(t)
+
+	latest := &protocol.BlockHeader{Number: 300}
+	finalized := &protocol.BlockHeader{Number: 200}
+	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil).Maybe()
+
+	// Single chunk [100, nil]; event at block 120 — well below finalized (200).
+	events := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{120})
+	nilBigInt := mock.MatchedBy(func(b *big.Int) bool { return b == nil })
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(100), nilBigInt).
+		Return(events, nil).
+		Once()
+
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).
+		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{}, nil).Maybe()
+
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
+	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
+	curseDetector.EXPECT().Close().Return(nil).Maybe()
+
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+	srs.lastProcessedFinalizedBlock.Store(big.NewInt(100))
+
+	srs.processEventCycle(ctx, latest, finalized)
+
+	// No error → always advance to finalized, regardless of where events landed.
+	require.Equal(t, int64(200), srs.lastProcessedFinalizedBlock.Load().Int64(),
+		"successful read must advance progress to finalized, not just to the last event block")
+
+	srs.mu.RLock()
+	defer srs.mu.RUnlock()
+	require.Len(t, srs.pendingTasks, 1, "the single event should be queued")
+}
+
+// TestSRS_PartialRead_ProgressCapsAtFinalizedWhenChunkBoundExceedsIt verifies that
+// when a partial read's last successful chunk ends above the finalized block, progress
+// is capped at finalized — not advanced past it. This prevents lastProcessedFinalizedBlock
+// from leaping into non-finalized territory.
+func TestSRS_PartialRead_ProgressCapsAtFinalizedWhenChunkBoundExceedsIt(t *testing.T) {
+	ctx := context.Background()
+	chain := protocol.ChainSelector(1337)
+
+	reader := mocks.NewMockSourceReader(t)
+
+	// maxBlockRange=400 splits [100, 1000) into chunks [100,500], [501,901], [902,nil].
+	// finalized is 600, so the successful chunk 2 boundary (901) exceeds finalized.
+	latest := &protocol.BlockHeader{Number: 1000}
+	finalized := &protocol.BlockHeader{Number: 600}
+	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil).Maybe()
+
+	eventsChunk1 := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{200})
+	eventsChunk2 := createTestMessageSentEvents(t, 10, chain, defaultDestChain, []uint64{700})
+	nilBigInt := mock.MatchedBy(func(b *big.Int) bool { return b == nil })
+
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(500)).
+		Return(eventsChunk1, nil).Once()
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(501), big.NewInt(901)).
+		Return(eventsChunk2, nil).Once()
+	// Third chunk fails — lastQueriedBlock lands at 901, which is > finalized (600).
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(902), nilBigInt).
+		Return(nil, assert.AnError).Once()
+
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).
+		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{}, nil).Maybe()
+
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
+	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
+	curseDetector.EXPECT().Close().Return(nil).Maybe()
+
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 400)
+	srs.lastProcessedFinalizedBlock.Store(big.NewInt(100))
+
+	srs.processEventCycle(ctx, latest, finalized)
+
+	// lastQueriedBlock = 901 > finalized = 600 → min(901, 600) = 600.
+	// Progress must NOT advance past finalized even though we successfully fetched beyond it.
+	require.Equal(t, int64(600), srs.lastProcessedFinalizedBlock.Load().Int64(),
+		"progress must be capped at finalized when the last successful chunk boundary exceeds it")
+
+	srs.mu.RLock()
+	defer srs.mu.RUnlock()
+
+	allExpected := append(eventsChunk1, eventsChunk2...)
+	require.Len(t, srs.pendingTasks, len(allExpected),
+		"events from both successful chunks should still be queued despite capping progress at finalized")
+}
+
+// ----------------------
+// Bounded Reorg Window Tests
+//
+// These tests cover the toBlock guard introduced in addToPendingQueueHandleReorg:
+// a task is only considered for reorg removal when its block falls within
+// [fromBlock, toBlock]. Tasks at blocks strictly above toBlock are left untouched,
+// and a nil toBlock is treated as unbounded (covers any block ≥ fromBlock).
+// ----------------------
+
+// TestSRS_Reorg_TasksBeyondToBlockNotDropped verifies that an existing pending
+// task whose block is strictly above toBlock is preserved even though it does not
+// appear in the new event set, because it lies outside the queried window.
+func TestSRS_Reorg_TasksBeyondToBlockNotDropped(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+	reader := mocks.NewMockSourceReader(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
+	curseDetector.EXPECT().Close().Return(nil).Maybe()
+
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+
+	// Task at block 200 sits beyond the queried range [100, 150].
+	msgs := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{200})
+	taskFuture := VerificationTask{
+		Message:     msgs[0].Message,
+		BlockNumber: msgs[0].BlockNumber,
+		MessageID:   msgs[0].MessageID.String(),
+	}
+
+	srs.mu.Lock()
+	srs.pendingTasks = map[string]VerificationTask{taskFuture.MessageID: taskFuture}
+	srs.mu.Unlock()
+
+	// New query over [100, 150] returns nothing — taskFuture was NOT in this range.
+	srs.addToPendingQueueHandleReorg([]VerificationTask{}, big.NewInt(100), big.NewInt(150))
+
+	srs.mu.RLock()
+	defer srs.mu.RUnlock()
+
+	require.Len(t, srs.pendingTasks, 1,
+		"task at block 200 must not be dropped when queried window only covers [100, 150]")
+	_, ok := srs.pendingTasks[taskFuture.MessageID]
+	require.True(t, ok, "task at block 200 should still be in pending queue")
+}
+
+// TestSRS_Reorg_NilToBlock_UnboundedWindow verifies that passing nil as toBlock
+// is treated as an unbounded upper end: any existing task at block ≥ fromBlock
+// that is absent from the new event set is removed, matching the pre-bound behavior.
+func TestSRS_Reorg_NilToBlock_UnboundedWindow(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+	reader := mocks.NewMockSourceReader(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
+	curseDetector.EXPECT().Close().Return(nil).Maybe()
+
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+
+	// Task at block 200 — far above fromBlock (100), but toBlock is nil (unbounded).
+	msgs := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{200})
+	taskFuture := VerificationTask{
+		Message:     msgs[0].Message,
+		BlockNumber: msgs[0].BlockNumber,
+		MessageID:   msgs[0].MessageID.String(),
+	}
+
+	srs.mu.Lock()
+	srs.pendingTasks = map[string]VerificationTask{taskFuture.MessageID: taskFuture}
+	srs.mu.Unlock()
+
+	// nil toBlock → window is [100, ∞) → taskFuture (200) is inside → should be dropped.
+	srs.addToPendingQueueHandleReorg([]VerificationTask{}, big.NewInt(100), nil)
+
+	srs.mu.RLock()
+	defer srs.mu.RUnlock()
+
+	require.Len(t, srs.pendingTasks, 0,
+		"task at block 200 must be dropped when toBlock is nil (unbounded window)")
+	require.True(t, srs.reorgTracker.RequiresFinalization(defaultDestChain, taskFuture.Message.SequenceNumber),
+		"reorged task's seqNum should be tracked for finalization when using nil toBlock")
 }

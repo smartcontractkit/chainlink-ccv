@@ -167,8 +167,7 @@ func (t *Task) getExistingVerifiers(ctx context.Context) (existing []string, err
 }
 
 func (t *Task) getVerifiers() []string {
-	verifiers := []string{}
-	// Extract verifiers from MessageCCVAddresses
+	verifiers := make([]string, 0, len(t.message.MessageCCVAddresses))
 	for _, addr := range t.message.MessageCCVAddresses {
 		verifiers = append(verifiers, strings.ToLower(addr.String()))
 	}

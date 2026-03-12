@@ -76,14 +76,20 @@ func validateWriteRequest(req *committeepb.WriteCommitteeVerifierNodeResultReque
 }
 
 func validateAddressBounds(record *committeepb.CommitteeVerifierNodeResult) error {
+	if len(record.ExecutorAddress) == 0 {
+		return fmt.Errorf("executor_address is required and cannot be empty")
+	}
+	if len(record.ExecutorAddress) > protocol.MaxUnknownAddressBytes {
+		return fmt.Errorf("executor_address size %d bytes exceeds maximum %d", len(record.ExecutorAddress), protocol.MaxUnknownAddressBytes)
+	}
+
 	for i, addr := range record.CcvAddresses {
+		if len(addr) == 0 {
+			return fmt.Errorf("ccv_addresses[%d] cannot be nil or empty", i)
+		}
 		if len(addr) > protocol.MaxUnknownAddressBytes {
 			return fmt.Errorf("ccv_addresses[%d] size %d bytes exceeds maximum %d", i, len(addr), protocol.MaxUnknownAddressBytes)
 		}
-	}
-
-	if len(record.ExecutorAddress) > protocol.MaxUnknownAddressBytes {
-		return fmt.Errorf("executor_address size %d bytes exceeds maximum %d", len(record.ExecutorAddress), protocol.MaxUnknownAddressBytes)
 	}
 
 	return nil

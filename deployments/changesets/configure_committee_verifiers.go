@@ -7,7 +7,8 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
@@ -138,7 +139,7 @@ func ConfigureChainsForLanesFromTopology(laneAdapterRegistry *lanes.LaneAdapterR
 
 				committeeVerifierResolverAddresses := e.DataStore.Addresses().Filter(
 					datastore.AddressRefByChainSelector(chain.ChainSelector),
-					datastore.AddressRefByType(datastore.ContractType(committee_verifier.ResolverType)),
+					datastore.AddressRefByType(datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType)),
 					datastore.AddressRefByQualifier(committeeVerifier.CommitteeQualifier),
 				)
 				if len(committeeVerifierResolverAddresses) == 0 {
