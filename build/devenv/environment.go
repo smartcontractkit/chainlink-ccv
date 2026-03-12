@@ -22,21 +22,23 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
+	_ "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
 	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
+	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
+	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
+	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain/shared"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/offchainloader"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/chainconfig"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tokenconfig"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
-	"github.com/smartcontractkit/chainlink-ccv/deployments"
-	"github.com/smartcontractkit/chainlink-ccv/deployments/changesets"
-	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
-	"github.com/smartcontractkit/chainlink-ccv/deployments/sequences"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -118,7 +120,7 @@ type Cfg struct {
 	// IndexerInternalEndpoints holds internal Docker network URLs for all indexers.
 	IndexerInternalEndpoints []string `toml:"indexer_internal_endpoints"`
 	// EnvironmentTopology is the shared environment configuration for NOPs, committees, and executor pools.
-	EnvironmentTopology *deployments.EnvironmentTopology `toml:"environment_topology" validate:"required"`
+	EnvironmentTopology *ccipOffchain.EnvironmentTopology `toml:"environment_topology" validate:"required"`
 	// JDInfra holds the runtime JD infrastructure (not from config, populated at runtime).
 	JDInfra *jobs.JDInfrastructure `toml:"-"`
 	// ClientLookup provides ChainlinkClient lookup by NOP alias (populated at runtime).
@@ -233,7 +235,7 @@ func (c *Cfg) expandAggregators() error {
 
 			aggContainerName := fmt.Sprintf("%s-%s", cloneName, services.AggregatorContainerNameSuffix)
 			cloneAddr := fmt.Sprintf("%s:%d", aggContainerName, services.DefaultAggregatorGRPCPort)
-			committee.Aggregators = append(committee.Aggregators, deployments.AggregatorConfig{
+			committee.Aggregators = append(committee.Aggregators, ccipOffchain.AggregatorConfig{
 				Name:                         cloneName,
 				Address:                      cloneAddr,
 				InsecureAggregatorConnection: insecure,
@@ -449,7 +451,7 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Co
 // Each verifier's NOPAlias identifies which NOP in the topology it belongs to.
 // Only the first verifier for each NOP sets the signer address (subsequent verifiers with the
 // same NOPAlias are ignored to avoid overwriting with wrong keys due to round-robin wrap-around).
-func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers []*committeeverifier.Input) {
+func enrichEnvironmentTopology(cfg *ccipOffchain.EnvironmentTopology, verifiers []*committeeverifier.Input) {
 	seenAliases := make(map[string]struct{})
 	for _, ver := range verifiers {
 		if _, seen := seenAliases[ver.NOPAlias]; seen {
@@ -475,7 +477,7 @@ func enrichEnvironmentTopology(cfg *deployments.EnvironmentTopology, verifiers [
 // and verifier changesets as the single source of truth.
 // For each chain_config entry that lacks a FeeAggregator, the corresponding
 // chain's deployer key is used as a fallback.
-func buildEnvironmentTopology(in *Cfg, e *deployment.Environment) *deployments.EnvironmentTopology {
+func buildEnvironmentTopology(in *Cfg, e *deployment.Environment) *ccipOffchain.EnvironmentTopology {
 	if in.EnvironmentTopology == nil {
 		return nil
 	}
@@ -519,7 +521,7 @@ func generateExecutorJobSpecs(
 	in *Cfg,
 	selectors []uint64,
 	impls []cciptestinterfaces.CCIP17Configuration,
-	topology *deployments.EnvironmentTopology,
+	topology *ccipOffchain.EnvironmentTopology,
 	ds datastore.MutableDataStore,
 ) (map[string]string, error) {
 	executorJobSpecs := make(map[string]string)
@@ -545,8 +547,8 @@ func generateExecutorJobSpecs(
 			execNOPAliases = append(execNOPAliases, exec.NOPAlias)
 		}
 
-		cs := changesets.ApplyExecutorConfig()
-		output, err := cs.Apply(*e, changesets.ApplyExecutorConfigCfg{
+		cs := ccipChangesets.ApplyExecutorConfig(ccipAdapters.GetExecutorConfigRegistry())
+		output, err := cs.Apply(*e, ccipChangesets.ApplyExecutorConfigInput{
 			Topology:          topology,
 			ExecutorQualifier: qualifier,
 			TargetNOPs:        shared.ConvertStringToNopAliases(execNOPAliases),
@@ -561,7 +563,7 @@ func generateExecutorJobSpecs(
 
 		for _, exec := range qualifierExecutors {
 			jobSpecID := shared.NewExecutorJobID(shared.NOPAlias(exec.NOPAlias), shared.ExecutorJobScope{ExecutorQualifier: qualifier})
-			job, err := deployments.GetJob(output.DataStore.Seal(), shared.NOPAlias(exec.NOPAlias), jobSpecID.ToJobID())
+			job, err := ccipOffchain.GetJob(output.DataStore.Seal(), shared.NOPAlias(exec.NOPAlias), jobSpecID.ToJobID())
 			if err != nil {
 				return nil, fmt.Errorf("failed to get executor job spec for %s: %w", exec.ContainerName, err)
 			}
@@ -621,7 +623,7 @@ func generateVerifierJobSpecs(
 	e *deployment.Environment,
 	in *Cfg,
 	selectors []uint64,
-	topology *deployments.EnvironmentTopology,
+	topology *ccipOffchain.EnvironmentTopology,
 	sharedTLSCerts *services.TLSCertPaths,
 	ds datastore.MutableDataStore,
 ) (map[string][]string, error) {
@@ -660,8 +662,8 @@ func generateVerifierJobSpecs(
 			}
 
 			disableFinalityCheckers := disableFinalityCheckersPerFamily[family]
-			cs := changesets.ApplyVerifierConfig()
-			output, err := cs.Apply(*e, changesets.ApplyVerifierConfigCfg{
+			cs := ccipChangesets.ApplyVerifierConfig(ccipAdapters.GetVerifierJobConfigRegistry())
+			output, err := cs.Apply(*e, ccipChangesets.ApplyVerifierConfigInput{
 				Topology:                 topology,
 				CommitteeQualifier:       committeeName,
 				DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,
@@ -698,7 +700,7 @@ func generateVerifierJobSpecs(
 				allJobSpecs := make([]string, 0, len(aggNames))
 				for _, aggName := range aggNames {
 					jobSpecID := shared.NewVerifierJobID(shared.NOPAlias(ver.NOPAlias), aggName, shared.VerifierJobScope{CommitteeQualifier: committeeName})
-					job, err := deployments.GetJob(output.DataStore.Seal(), shared.NOPAlias(ver.NOPAlias), jobSpecID.ToJobID())
+					job, err := ccipOffchain.GetJob(output.DataStore.Seal(), shared.NOPAlias(ver.NOPAlias), jobSpecID.ToJobID())
 					if err != nil {
 						return nil, fmt.Errorf("failed to get verifier job spec for %s aggregator %s: %w", ver.ContainerName, aggName, err)
 					}
@@ -1140,8 +1142,8 @@ func NewEnvironment() (in *Cfg, err error) {
 
 		// Use changeset to generate committee config from on-chain state
 		instanceName := aggregatorInput.InstanceName()
-		cs := changesets.GenerateAggregatorConfig()
-		output, err := cs.Apply(*e, changesets.GenerateAggregatorConfigCfg{
+		cs := ccipChangesets.GenerateAggregatorConfig(ccipAdapters.GetAggregatorConfigRegistry())
+		output, err := cs.Apply(*e, ccipChangesets.GenerateAggregatorConfigInput{
 			ServiceIdentifier:  instanceName + "-aggregator",
 			CommitteeQualifier: aggregatorInput.CommitteeName,
 			ChainSelectors:     selectors,
@@ -1151,7 +1153,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 
 		// Get generated config from output datastore
-		aggCfg, err := deployments.GetAggregatorConfig(output.DataStore.Seal(), instanceName+"-aggregator")
+		aggCfg, err := offchainloader.GetAggregatorConfig(output.DataStore.Seal(), instanceName+"-aggregator")
 		if err != nil {
 			return nil, fmt.Errorf("failed to get aggregator config from output: %w", err)
 		}
@@ -1181,8 +1183,8 @@ func NewEnvironment() (in *Cfg, err error) {
 	// One shared config is generated; all indexers use the same config and duplicated secrets/auth.
 	if len(in.Aggregator) > 0 && len(in.Indexer) > 0 {
 		firstIdx := in.Indexer[0]
-		cs := changesets.GenerateIndexerConfig()
-		output, err := cs.Apply(*e, changesets.GenerateIndexerConfigCfg{
+		cs := ccipChangesets.GenerateIndexerConfig(ccipAdapters.GetIndexerConfigRegistry())
+		output, err := cs.Apply(*e, ccipChangesets.GenerateIndexerConfigInput{
 			ServiceIdentifier:                "indexer",
 			CommitteeVerifierNameToQualifier: firstIdx.CommitteeVerifierNameToQualifier,
 			CCTPVerifierNameToQualifier:      firstIdx.CCTPVerifierNameToQualifier,
@@ -1193,7 +1195,7 @@ func NewEnvironment() (in *Cfg, err error) {
 			return nil, fmt.Errorf("failed to generate indexer config: %w", err)
 		}
 
-		idxCfg, err := deployments.GetIndexerConfig(output.DataStore.Seal(), "indexer")
+		idxCfg, err := offchainloader.GetIndexerConfig(output.DataStore.Seal(), "indexer")
 		if err != nil {
 			return nil, fmt.Errorf("failed to get indexer config from output: %w", err)
 		}
@@ -1385,8 +1387,8 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 
 		// Use changeset to generate token verifier config from on-chain state
-		cs := changesets.GenerateTokenVerifierConfig()
-		output, err := cs.Apply(*e, changesets.GenerateTokenVerifierConfigCfg{
+		cs := ccipChangesets.GenerateTokenVerifierConfig(ccipAdapters.GetTokenVerifierConfigRegistry())
+		output, err := cs.Apply(*e, ccipChangesets.GenerateTokenVerifierConfigInput{
 			ServiceIdentifier: "TokenVerifier",
 			ChainSelectors:    selectors,
 			PyroscopeURL:      template.PyroscopeURL,
@@ -1404,12 +1406,12 @@ func NewEnvironment() (in *Cfg, err error) {
 					TraceBatchTimeout:        template.Monitoring.Beholder.TraceBatchTimeout,
 				},
 			},
-			Lombard: sequences.LombardConfigInput{
+			Lombard: ccipChangesets.LombardConfigInput{
 				VerifierID:     "LombardVerifier",
 				Qualifier:      devenvcommon.LombardContractsQualifier,
 				AttestationAPI: fakeOut.InternalHTTPURL + "/lombard",
 			},
-			CCTP: sequences.CCTPConfigInput{
+			CCTP: ccipChangesets.CCTPConfigInput{
 				VerifierID:     "CCTPVerifier",
 				AttestationAPI: fakeOut.InternalHTTPURL + "/cctp",
 			},
@@ -1419,7 +1421,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 
 		// Get generated config from output datastore
-		tokenVerifierCfg, err := deployments.GetTokenVerifierConfig(
+		tokenVerifierCfg, err := offchainloader.GetTokenVerifierConfig(
 			output.DataStore.Seal(), "TokenVerifier",
 		)
 		if err != nil {

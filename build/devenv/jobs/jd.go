@@ -22,9 +22,9 @@ import (
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 	sdkclient "github.com/smartcontractkit/chainlink/deployment/environment/web/sdk/client"
 
-	"github.com/smartcontractkit/chainlink-ccv/deployments"
-	"github.com/smartcontractkit/chainlink-ccv/deployments/changesets"
-	"github.com/smartcontractkit/chainlink-ccv/deployments/operations/shared"
+	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
+	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain/shared"
 )
 
 type JDInfrastructure struct {
@@ -415,7 +415,7 @@ func SyncAndVerifyJobProposals(e *deployment.Environment) error {
 		return fmt.Errorf("datastore is required for job proposal verification")
 	}
 
-	allJobs, err := deployments.GetAllJobs(e.DataStore)
+	allJobs, err := ccipOffchain.GetAllJobs(e.DataStore)
 	if err != nil {
 		return fmt.Errorf("failed to get all jobs: %w", err)
 	}
@@ -434,12 +434,12 @@ func SyncAndVerifyJobProposals(e *deployment.Environment) error {
 		return nil
 	}
 
-	output, err := changesets.SyncJobProposals().Apply(*e, changesets.SyncJobProposalsCfg{})
+	output, err := ccipChangesets.SyncJobProposals().Apply(*e, ccipChangesets.SyncJobProposalsInput{})
 	if err != nil {
 		return fmt.Errorf("failed to sync job proposals: %w", err)
 	}
 
-	updatedJobs, err := deployments.GetAllJobs(output.DataStore.Seal())
+	updatedJobs, err := ccipOffchain.GetAllJobs(output.DataStore.Seal())
 	if err != nil {
 		return fmt.Errorf("failed to get updated jobs: %w", err)
 	}
