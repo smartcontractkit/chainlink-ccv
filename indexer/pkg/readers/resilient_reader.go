@@ -75,7 +75,7 @@ func NewResilientReader(underlying protocol.VerifierResultsAPI, lggr logger.Logg
 	rr := &ResilientReader{
 		underlying:           underlying,
 		lggr:                 lggr,
-		maxConsecutiveErrors: 10,
+		maxConsecutiveErrors: int32(config.FailureThreshold),
 	}
 
 	rr.verificationsPolicies = createPolicies(config, lggr, "GetVerifications", config.CircuitBreakerErrorHandler)
@@ -165,8 +165,8 @@ func (r *ResilientReader) GetDiscoveryCircuitBreakerState() circuitbreaker.State
 
 func (r *ResilientReader) recordError() {
 	count := r.consecutiveErrors.Add(1)
-	if count >= r.maxConsecutiveErrors {
-		r.lggr.Warnw("Max consecutive write errors reached", "consecutive_errors", count)
+	if count == r.maxConsecutiveErrors {
+		r.lggr.Warnw("Max consecutive read errors reached", "consecutive_errors", count)
 	}
 }
 

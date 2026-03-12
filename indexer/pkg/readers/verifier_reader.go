@@ -14,6 +14,11 @@ import (
 
 const drainTimeout = 30 * time.Second
 
+var (
+	ErrVerifierNotSet       = errors.New("verifier not set")
+	ErrVerificationNotFound = errors.New("verification not found")
+)
+
 // VerifierReader provides the link between the workers and the verifier.
 // The reader batches up requests from multiple workers for a best effort
 // attempt at batching the requests into a single network call.
@@ -142,7 +147,7 @@ func (v *VerifierReader) callVerifier(ctx context.Context, batch []protocol.Byte
 	if v.verifier == nil {
 		// If verifier is not set, return error for all items
 		for _, messageID := range batch {
-			respMap[messageID] = common.NewResult(protocol.VerifierResult{}, context.DeadlineExceeded)
+			respMap[messageID] = common.NewResult(protocol.VerifierResult{}, ErrVerifierNotSet)
 		}
 		return respMap
 	}
@@ -156,7 +161,7 @@ func (v *VerifierReader) callVerifier(ctx context.Context, batch []protocol.Byte
 		case err != nil:
 			respMap[messageID] = common.NewResult(value, err)
 		case !ok:
-			respMap[messageID] = common.NewResult(value, errors.New("verification not found"))
+			respMap[messageID] = common.NewResult(value, ErrVerificationNotFound)
 		default:
 			respMap[messageID] = common.NewResult(value, nil)
 		}
