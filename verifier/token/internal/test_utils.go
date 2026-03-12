@@ -71,8 +71,8 @@ func CreateTestVerificationTask(sequenceNumber int) verifier.VerificationTask {
 			{Issuer: ExecutorAddress, Blob: []byte("executor-blob")},
 			{Issuer: RouterAddress, Blob: []byte("router-blob")},
 		},
-		BlockNumber: 12345,
-		FirstSeenAt: time.Now(),
-		QueuedAt:    time.Now(),
+		BlockNumber:                 12345,
+		ReadyForVerificationAt:      time.Now(),
+		PushedToVerificationQueueAt: time.Now(),
 	}
 }

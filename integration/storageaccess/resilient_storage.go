@@ -20,8 +20,8 @@ import (
 
 var _ protocol.CCVNodeDataWriter = (*resilientAggregatorWriter)(nil)
 
-// resilientAggregatorWriter decorates protocol.CCVNodeDataWriter
-// with failsafe-go policies: circuit breaker, timeout, rate limiter, and bulkhead.
+// resilientAggregatorWriter decorates protocol.CCVNodeDataWriter with failsafe-go policies
+// applied in fail-fast order: circuit breaker, rate limiter, bulkhead, timeout.
 type resilientAggregatorWriter struct {
 	writer protocol.CCVNodeDataWriter
 	lggr   logger.Logger
@@ -97,7 +97,7 @@ func NewResilientStorageWriter(
 
 // WriteCCVNodeData writes CCV data with circuit breaker, timeout, rate limiting, and bulkhead protection.
 func (r *resilientAggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.VerifierNodeResult) ([]protocol.WriteResult, error) {
-	executor := failsafe.With(r.rateLimiter, r.bulkhead, r.circuitBreaker, r.writeTimeout)
+	executor := failsafe.With(r.circuitBreaker, r.rateLimiter, r.bulkhead, r.writeTimeout)
 
 	var results []protocol.WriteResult
 	err := executor.WithContext(ctx).RunWithExecution(func(exec failsafe.Execution[any]) error {
