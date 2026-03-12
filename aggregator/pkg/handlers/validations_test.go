@@ -89,7 +89,7 @@ func TestValidateWriteRequest_Errors(t *testing.T) {
 
 	t.Run("empty_ccv_address_entry", func(t *testing.T) {
 		req := makeValidWriteReq()
-		req.CommitteeVerifierNodeResult.CcvAddresses = [][]byte{make([]byte, 20), []byte{}}
+		req.CommitteeVerifierNodeResult.CcvAddresses = [][]byte{make([]byte, 20), {}}
 		err := validateWriteRequest(req)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "ccv_addresses[1] cannot be nil or empty")
@@ -191,7 +191,7 @@ func TestValidateAddressBounds(t *testing.T) {
 		{
 			name: "rejects_empty_ccv_address_entry",
 			mutate: func(req *committeepb.WriteCommitteeVerifierNodeResultRequest) {
-				req.CommitteeVerifierNodeResult.CcvAddresses = [][]byte{make([]byte, 20), []byte{}}
+				req.CommitteeVerifierNodeResult.CcvAddresses = [][]byte{make([]byte, 20), {}}
 			},
 			expectError: "ccv_addresses[1] cannot be nil or empty",
 		},
