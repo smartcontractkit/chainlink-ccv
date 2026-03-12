@@ -30,7 +30,6 @@ type AggregatorMessageDiscovery struct {
 	timeProvider      ccvcommon.TimeProvider
 	messageCh         chan common.VerifierResultWithMetadata
 	doneCh            chan struct{}
-	readerLock        *sync.Mutex
 	wg                sync.WaitGroup
 	cancelFunc        context.CancelFunc
 	discoveryPriority int
@@ -88,9 +87,8 @@ func WithDiscoveryPriority(discoveryPriority int) Option {
 
 func NewAggregatorMessageDiscovery(opts ...Option) (common.MessageDiscovery, error) {
 	a := &AggregatorMessageDiscovery{
-		messageCh:  make(chan common.VerifierResultWithMetadata),
-		doneCh:     make(chan struct{}),
-		readerLock: &sync.Mutex{},
+		messageCh: make(chan common.VerifierResultWithMetadata),
+		doneCh:    make(chan struct{}),
 	}
 
 	// Apply all options
@@ -203,13 +201,6 @@ func (a *AggregatorMessageDiscovery) consumeReader(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
-	// We can be in a situation where multiple calls to consumeReader are running concurrently due to the ticker.
-	// This might happen during high load, or other situations where the ticker is running faster than the reader.
-	// This lock is used to prevent concurrent access to the reader from the ticker.
-	// If the lock is already held, the ticker channel will be blocked until the lock is released.
-	// Subsequent ticks are then dropped, so there won't be any backpressure on the reader.
-	a.readerLock.Lock()
-	defer a.readerLock.Unlock()
 
 	for {
 		if ctx.Err() != nil {
