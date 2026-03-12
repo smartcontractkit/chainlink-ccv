@@ -53,10 +53,9 @@ type Executor interface {
 type LeaderElector interface {
 	// GetReadyTimestamp to determine when a message is ready to be executed by this executor
 	// We need chain selector as well as messageID because messageID is hashed and we cannot use it to get message information.
-	// todo: align so both functions are either return delay or return timestamp.
-	GetReadyTimestamp(messageID protocol.Bytes32, chainSel protocol.ChainSelector, baseTime time.Time) time.Time
+	GetReadyTimestamp(messageID protocol.Bytes32, chainSel protocol.ChainSelector, baseTime time.Time) (time.Time, error)
 	// GetRetryDelay returns the delay in seconds to retry a message. It uses destination chain because some executors may not support all chains
-	GetRetryDelay(destinationChain protocol.ChainSelector) time.Duration
+	GetRetryDelay(destinationChain protocol.ChainSelector) (time.Duration, error)
 }
 
 // Monitoring provides all core monitoring functionality for the executor. Also can be implemented as a no-op.
@@ -71,14 +70,10 @@ type MetricLabeler interface {
 	With(keyValues ...string) MetricLabeler
 	// RecordMessageExecutionLatency records the duration of the full ExecuteMessage operation.
 	RecordMessageExecutionLatency(ctx context.Context, duration time.Duration, destChainSelector protocol.ChainSelector)
-	// IncrementMessagesProcessed increments the counter for successfully processed messages.
-	IncrementMessagesProcessed(ctx context.Context)
-	// IncrementMessagesProcessingFailed increments the counter for failed message executions.
-	IncrementMessagesProcessingFailed(ctx context.Context)
-	// IncrementCCVInfoCacheHits increments the counter for cache hits in the destination reader.
-	IncrementCCVInfoCacheHits(ctx context.Context, destChainSelector protocol.ChainSelector)
-	// IncrementCCVInfoCacheMisses increments the counter for cache misses in the destination reader.
-	IncrementCCVInfoCacheMisses(ctx context.Context, destChainSelector protocol.ChainSelector)
+	// IncrementMessagesProcessing increments the counter for processed messages.
+	IncrementMessagesProcessing(ctx context.Context)
+	// IncrementMessagesProcessingError increments the counter for failed message executions.
+	IncrementMessagesProcessingError(ctx context.Context, retry bool)
 	// RecordOfframpGetCCVsForMessageLatency records the duration of the GetCCVSForMessage onchain call.
 	RecordOfframpGetCCVsForMessageLatency(ctx context.Context, duration time.Duration, destChainSelector protocol.ChainSelector)
 	// IncrementOfframpGetCCVsForMessageFailure increments the counter of failed GetCCVSForMessage onchain calls.
@@ -95,4 +90,8 @@ type MetricLabeler interface {
 	IncrementHeartbeatFailure(ctx context.Context)
 	// SetLastHeartbeatTimestamp sets the timestamp of the last successful heartbeat.
 	SetLastHeartbeatTimestamp(ctx context.Context, timestamp int64)
+	// SetRemoteChainCursed sets value 1 if source chain is cursed
+	SetRemoteChainCursed(ctx context.Context, localSelector, remoteSelector protocol.ChainSelector, cursed bool)
+	// SetLocalChainGlobalCursed sets value 1 if source chain is cursed
+	SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool)
 }

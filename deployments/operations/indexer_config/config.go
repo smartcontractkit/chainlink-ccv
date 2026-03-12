@@ -64,7 +64,7 @@ var BuildConfig = operations.NewOperation(
 
 		for name, qualifier := range input.CommitteeVerifierNameToQualifier {
 			addresses, err := collectUniqueAddresses(
-				ds, input.ChainSelectors, qualifier, committee_verifier.ResolverType)
+				ds, input.ChainSelectors, qualifier, committee_verifier.ResolverType, committee_verifier.Version)
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get resolver addresses for verifier %q (qualifier %q): %w", name, qualifier, err)
 			}
@@ -73,7 +73,7 @@ var BuildConfig = operations.NewOperation(
 
 		for name, qualifier := range input.CCTPVerifierNameToQualifier {
 			addresses, err := collectUniqueAddresses(
-				ds, input.ChainSelectors, qualifier, cctp_verifier.ResolverType)
+				ds, input.ChainSelectors, qualifier, cctp_verifier.ResolverType, cctp_verifier.Version)
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get resolver addresses for verifier %q (qualifier %q): %w", name, qualifier, err)
 			}
@@ -82,7 +82,7 @@ var BuildConfig = operations.NewOperation(
 
 		for name, qualifier := range input.LombardVerifierNameToQualifier {
 			addresses, err := collectUniqueAddresses(
-				ds, input.ChainSelectors, qualifier, lombard_verifier.ResolverType)
+				ds, input.ChainSelectors, qualifier, lombard_verifier.ResolverType, lombard_verifier.Version)
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get resolver addresses for verifier %q (qualifier %q): %w", name, qualifier, err)
 			}
@@ -119,16 +119,27 @@ func collectUniqueAddresses(
 	chainSelectors []uint64,
 	qualifier string,
 	contractType deployment.ContractType,
+	version *semver.Version,
 ) ([]string, error) {
 	seen := make(map[string]bool)
 	addresses := make([]string, 0)
 
 	for _, chainSelector := range chainSelectors {
-		refs := ds.Addresses().Filter(
-			datastore.AddressRefByChainSelector(chainSelector),
-			datastore.AddressRefByQualifier(qualifier),
-			datastore.AddressRefByType(datastore.ContractType(contractType)),
-		)
+		var refs []datastore.AddressRef
+		if version == nil {
+			refs = ds.Addresses().Filter(
+				datastore.AddressRefByChainSelector(chainSelector),
+				datastore.AddressRefByQualifier(qualifier),
+				datastore.AddressRefByType(datastore.ContractType(contractType)),
+			)
+		} else {
+			refs = ds.Addresses().Filter(
+				datastore.AddressRefByChainSelector(chainSelector),
+				datastore.AddressRefByQualifier(qualifier),
+				datastore.AddressRefByType(datastore.ContractType(contractType)),
+				datastore.AddressRefByVersion(version),
+			)
+		}
 		for _, r := range refs {
 			if !seen[r.Address] {
 				seen[r.Address] = true

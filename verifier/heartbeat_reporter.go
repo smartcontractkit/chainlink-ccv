@@ -76,7 +76,7 @@ func (hr *HeartbeatReporter) Start(ctx context.Context) error {
 	return hr.StartOnce(hr.Name(), func() error {
 		hr.logger.Infow("Starting heartbeat reporter", "interval", hr.interval)
 		hr.wg.Add(1)
-		go hr.reportLoop(ctx)
+		go hr.reportLoop()
 		return nil
 	})
 }
@@ -105,8 +105,11 @@ func (hr *HeartbeatReporter) HealthReport() map[string]error {
 }
 
 // reportLoop is the main loop that periodically sends heartbeats with chain statuses.
-func (hr *HeartbeatReporter) reportLoop(ctx context.Context) {
+func (hr *HeartbeatReporter) reportLoop() {
 	defer hr.wg.Done()
+
+	ctx, cancel := hr.stopCh.NewCtx()
+	defer cancel()
 
 	ticker := time.NewTicker(hr.interval)
 	defer ticker.Stop()
@@ -116,11 +119,8 @@ func (hr *HeartbeatReporter) reportLoop(ctx context.Context) {
 
 	for {
 		select {
-		case <-hr.stopCh:
-			hr.logger.Infow("Heartbeat reporter loop stopped")
-			return
 		case <-ctx.Done():
-			hr.logger.Infow("Heartbeat reporter context cancelled")
+			hr.logger.Infow("Heartbeat reporter loop stopped")
 			return
 		case <-ticker.C:
 			hr.sendHeartbeat(ctx)

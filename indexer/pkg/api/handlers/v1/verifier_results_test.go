@@ -41,7 +41,7 @@ func TestVerifierResultsHandler_Handle(t *testing.T) {
 		{name: "bad selectors", query: "sourceChainSelectors=bad", mockData: nil, mockErr: nil, wantStatus: http.StatusBadRequest},
 		{name: "bad dest selectors", query: "destChainSelectors=bad", mockData: nil, mockErr: nil, wantStatus: http.StatusBadRequest},
 		{name: "limit exceeds max returns 400 and storage not called", query: "limit=5000", mockData: nil, mockErr: nil, wantStatus: http.StatusBadRequest, wantBodyContains: []string{"limit exceeds maximum", "1000"}},
-		{name: "storage error", query: "", mockData: nil, mockErr: errors.New("db fail"), wantStatus: http.StatusInternalServerError},
+		{name: "storage error", query: "", mockData: nil, mockErr: errors.New("db fail"), wantStatus: http.StatusServiceUnavailable},
 		{name: "success", query: "", mockData: sampleMap, mockErr: nil, wantStatus: http.StatusOK, wantCount: 1},
 		{name: "limit equals max accepted and storage called with limit 1000", query: "limit=1000", mockData: sampleMap, mockErr: nil, wantStatus: http.StatusOK, wantCount: 1},
 	}

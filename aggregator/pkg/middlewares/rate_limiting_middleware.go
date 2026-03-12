@@ -8,7 +8,6 @@ import (
 	"github.com/ulule/limiter/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
@@ -21,8 +20,8 @@ import (
 var (
 	_                  protocol.HealthReporter = (*RateLimitingMiddleware)(nil)
 	globalAnonymousKey                         = "__GLOBAL_ANONYMOUS_KEY__"
-	// We are not using ResourceExhausted as this is a shared limit between all anonynous caller.
-	ErrGlobalAnonynousLimitReached = status.Error(codes.Unavailable, "service temporarily unavailable")
+	// We are not using ResourceExhausted as this is a shared limit between all anonymous callers.
+	ErrGlobalAnonymousLimitReached = status.Error(codes.Unavailable, "service temporarily unavailable")
 )
 
 type RateLimitingMiddleware struct {
@@ -69,8 +68,8 @@ func (m *RateLimitingMiddleware) handleGlobalLimitAnonymous(ctx context.Context,
 	if limitConfig, ok := m.config.GlobalAnonymousLimits[fullMethod]; ok {
 		globalKey := m.buildKey(globalAnonymousKey, fullMethod)
 		rate := limiter.Rate{
-			Period: time.Minute,
-			Limit:  int64(limitConfig.LimitPerMinute),
+			Period: time.Second,
+			Limit:  int64(limitConfig.LimitPerSecond),
 		}
 		limiterCtx, err := limiter.New(m.store, rate).Get(ctx, globalKey)
 		if err != nil {
@@ -78,15 +77,16 @@ func (m *RateLimitingMiddleware) handleGlobalLimitAnonymous(ctx context.Context,
 				"error", err,
 				"callerID", globalAnonymousKey,
 				"method", fullMethod)
+			return nil
 		}
 
 		if limiterCtx.Reached {
-			return ErrGlobalAnonynousLimitReached
+			return ErrGlobalAnonymousLimitReached
 		}
 
 		return nil
 	}
-	return ErrGlobalAnonynousLimitReached
+	return ErrGlobalAnonymousLimitReached
 }
 
 // Intercept implements the gRPC unary server interceptor for rate limiting.
@@ -97,7 +97,7 @@ func (m *RateLimitingMiddleware) Intercept(ctx context.Context, req any, info *g
 
 	identity, ok := auth.IdentityFromContext(ctx)
 	if !ok {
-		return handler(ctx, req)
+		return nil, status.Error(codes.Unavailable, "service temporarily unavailable")
 	}
 
 	if identity.IsAnonymous {
@@ -108,17 +108,17 @@ func (m *RateLimitingMiddleware) Intercept(ctx context.Context, req any, info *g
 
 	limitConfig, hasLimit := m.getLimitConfig(identity.CallerID, info.FullMethod)
 	if !hasLimit {
-		limitConfig = model.RateLimitConfig{LimitPerMinute: 0}
+		limitConfig = model.RateLimitConfig{LimitPerSecond: 0}
 	}
 
 	rate := limiter.Rate{
-		Period: time.Minute,
-		Limit:  int64(limitConfig.LimitPerMinute),
+		Period: time.Second,
+		Limit:  int64(limitConfig.LimitPerSecond),
 	}
 
 	key := m.buildKey(identity.CallerID, info.FullMethod)
 
-	limiterCtx, err := limiter.New(m.store, rate).Get(ctx, key)
+	limiterCtx, err := m.store.Get(ctx, key, rate)
 	if err != nil {
 		m.lggr.Errorw("Rate limiter store error - allowing request (fail-open). Health check will fail.",
 			"error", err,
@@ -127,20 +127,11 @@ func (m *RateLimitingMiddleware) Intercept(ctx context.Context, req any, info *g
 		return handler(ctx, req)
 	}
 
-	header := metadata.Pairs(
-		"X-RateLimit-Limit", fmt.Sprintf("%d", limiterCtx.Limit),
-		"X-RateLimit-Remaining", fmt.Sprintf("%d", limiterCtx.Remaining),
-		"X-RateLimit-Reset", fmt.Sprintf("%d", limiterCtx.Reset),
-	)
-	if err := grpc.SendHeader(ctx, header); err != nil {
-		m.lggr.Errorf("Failed to send rate limit headers: %v", err)
-	}
-
 	if limiterCtx.Reached {
 		m.lggr.Warnf("Rate limit exceeded for caller %s on method %s", identity.CallerID, info.FullMethod)
 		return nil, status.Errorf(
 			codes.ResourceExhausted,
-			"rate limit exceeded: %d requests per minute (resets at %v) for caller: %s, method: %s",
+			"rate limit exceeded: %d requests per second (resets at %v) for caller: %s, method: %s",
 			limiterCtx.Limit,
 			time.Unix(limiterCtx.Reset, 0).Format(time.RFC3339),
 			identity.CallerID,
@@ -182,7 +173,7 @@ func (m *RateLimitingMiddleware) Ready() error {
 	defer cancel()
 
 	rate := limiter.Rate{
-		Period: time.Minute,
+		Period: time.Second,
 		Limit:  1,
 	}
 

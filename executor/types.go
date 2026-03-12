@@ -8,6 +8,7 @@ import (
 
 var (
 	ErrInsufficientVerifiers = fmt.Errorf("insufficient verifiers for message")
+	ErrMessageEncoding       = fmt.Errorf("message encoding failed")
 	NtpServer                = "time.google.com"
 )
 

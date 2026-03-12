@@ -5,6 +5,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -143,9 +145,15 @@ func applyLombardDefaults(cfg sequences.LombardConfigInput, isProd bool) sequenc
 		attestationAPIBatchSize = 20
 	}
 
+	verifierVersion := cfg.VerifierVersion
+	if len(verifierVersion) == 0 {
+		verifierVersion = lombard.DefaultVerifierVersion
+	}
+
 	return sequences.LombardConfigInput{
 		Qualifier:               cfg.Qualifier,
 		VerifierID:              cfg.VerifierID,
+		VerifierVersion:         verifierVersion,
 		AttestationAPI:          attestationAPI,
 		AttestationAPITimeout:   attestationAPITimeout,
 		AttestationAPInterval:   attestationAPIInterval,
@@ -179,9 +187,15 @@ func applyCCTPDefaults(cfg sequences.CCTPConfigInput, isProd bool) sequences.CCT
 		attestationAPICooldown = 5 * time.Minute
 	}
 
+	verifierVersion := cfg.VerifierVersion
+	if len(verifierVersion) == 0 {
+		verifierVersion = cctp.DefaultVerifierVersion
+	}
+
 	return sequences.CCTPConfigInput{
 		Qualifier:              cfg.Qualifier,
 		VerifierID:             cfg.VerifierID,
+		VerifierVersion:        verifierVersion,
 		AttestationAPI:         attestationAPI,
 		AttestationAPITimeout:  attestationAPITimeout,
 		AttestationAPInterval:  attestationAPIInterval,

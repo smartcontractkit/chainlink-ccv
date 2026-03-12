@@ -13,6 +13,8 @@ import (
 	"github.com/BurntSushi/toml"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
+
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
@@ -37,8 +39,16 @@ const (
 )
 
 func main() {
-	// Debug level currently spams a lot of logs from the RPC callers.
-	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.InfoLevel))
+	logLevelStr := os.Getenv("LOG_LEVEL")
+	if logLevelStr == "" {
+		logLevelStr = "info"
+	}
+	var zapLevel zapcore.Level
+	if err := zapLevel.UnmarshalText([]byte(logLevelStr)); err != nil {
+		fmt.Fprintf(os.Stderr, "Invalid LOG_LEVEL '%s', defaulting to 'info'\n", logLevelStr)
+		zapLevel = zapcore.InfoLevel
+	}
+	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapLevel))
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create logger: %v", err))
 	}
@@ -69,7 +79,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	cmd.StartPyroscope(lggr, config.PyroscopeURL, "tokenVerifier")
+	_, err = cmd.StartPyroscope(lggr, config.PyroscopeURL, "tokenVerifier")
+	if err != nil {
+		lggr.Errorw("Failed to start pyroscope", "error", err)
+		os.Exit(1)
+	}
 	blockchainHelper := cmd.LoadBlockchainInfo(ctx, lggr, blockchainInfos)
 
 	registry := accessors.NewRegistry(blockchainHelper)
@@ -89,19 +103,19 @@ func main() {
 		rmnRemoteAddresses[selector] = addr
 	}
 
-	sqlDB, err := cmd.ConnectToPostgresDB(lggr)
+	db, err := cmd.ConnectToPostgresDB(lggr)
 	if err != nil {
 		lggr.Errorw("Failed to connect to Postgres database", "error", err)
 		os.Exit(1)
 	}
 
-	postgresStorage := ccvstorage.NewPostgres(sqlDB, lggr)
+	postgresStorage := ccvstorage.NewPostgres(db, lggr)
 	// Wrap storage with monitoring decorator to track query durations
 	monitoredStorage := ccvstorage.NewMonitoredStorage(postgresStorage, verifierMonitoring.Metrics())
 
 	coordinators := make([]*verifier.Coordinator, 0, len(config.TokenVerifiers))
 	for _, verifierConfig := range config.TokenVerifiers {
-		chainStatusManager := chainstatus.NewPostgresChainStatusManager(sqlDB, lggr, verifierConfig.VerifierID)
+		chainStatusManager := chainstatus.NewPostgresChainStatusManager(db, lggr, verifierConfig.VerifierID)
 		// Wrap chain status manager with monitoring decorator to track query durations
 		monitoredChainStatusManager := chainstatus.NewMonitoredChainStatusManager(chainStatusManager, verifierMonitoring.Metrics())
 
@@ -128,6 +142,7 @@ func main() {
 				messageTracker,
 				verifierMonitoring,
 				monitoredChainStatusManager,
+				db,
 			)
 		} else if verifierConfig.IsCCTP() {
 			coordinator = createCCTPCoordinator(
@@ -145,6 +160,7 @@ func main() {
 				messageTracker,
 				verifierMonitoring,
 				monitoredChainStatusManager,
+				db,
 			)
 		} else {
 			lggr.Fatalw("Unknown verifier type", "type", verifierConfig.Type)
@@ -213,6 +229,7 @@ func createCCTPCoordinator(
 	messageTracker verifier.MessageLatencyTracker,
 	verifierMonitoring verifier.Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
+	db sqlutil.DataSource,
 ) *verifier.Coordinator {
 	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifierResolvers, rmnRemoteAddresses)
 
@@ -223,7 +240,6 @@ func createCCTPCoordinator(
 	}
 
 	coordinator, err := verifier.NewCoordinator(
-		ctx,
 		lggr,
 		cctp.NewVerifier(lggr, attestationService),
 		sourceReaders,
@@ -241,6 +257,7 @@ func createCCTPCoordinator(
 		verifierMonitoring,
 		chainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
+		db,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator for cctp", "error", err)
@@ -260,6 +277,7 @@ func createLombardCoordinator(
 	messageTracker verifier.MessageLatencyTracker,
 	verifierMonitoring verifier.Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
+	db sqlutil.DataSource,
 ) *verifier.Coordinator {
 	sourceConfigs := createSourceConfigs(lombardConfig.ParsedVerifierResolvers, rmnRemoteAddresses)
 
@@ -276,7 +294,6 @@ func createLombardCoordinator(
 	}
 
 	coordinator, err := verifier.NewCoordinator(
-		ctx,
 		lggr,
 		lombardVerifier,
 		sourceReaders,
@@ -294,6 +311,7 @@ func createLombardCoordinator(
 		verifierMonitoring,
 		chainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
+		db,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create verification coordinator for lombard", "error", err)

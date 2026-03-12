@@ -61,8 +61,8 @@ shellcheck:
 mod-download: ensure-go
     go mod download
 
-test: ensure-go
-    gomods -w go test -fullpath -shuffle on -v -race ./...
+test short="": ensure-go
+    gomods -w go test -fullpath -shuffle on {{ if short != "" { "-short" } else { "" } }} -v -race ./...
 
 test-coverage coverage_file="coverage.out" short="":
     # coverage_file := env_var_or_default('COVERAGE_FILE', 'coverage.out')

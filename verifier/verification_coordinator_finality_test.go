@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
@@ -85,8 +86,10 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 
 	// Send message
 	setup.sentEventsCh <- finalizedEvent
-	// Wait for processing (poll interval is 100ms, add some buffer)
-	time.Sleep(200 * time.Millisecond)
+	// Wait for processing through the queue pipeline:
+	// SRS -> batcher -> adapter -> tasks_queue -> verifier -> results_queue -> storage
+	// With 50ms poll intervals, we need at least 150ms (3 polls)
+	time.Sleep(500 * time.Millisecond)
 
 	// Should have processed the finalized message
 	processedCount := setup.mockVerifier.GetProcessedTaskCount()
@@ -156,8 +159,8 @@ func TestFinality_CustomFinality(t *testing.T) {
 
 	// Send message
 	setup.sentEventsCh <- readyEvent
-	// Wait for processing (poll interval is 100ms, add some buffer)
-	time.Sleep(200 * time.Millisecond)
+	// Wait for processing through the queue pipeline
+	time.Sleep(500 * time.Millisecond)
 
 	// Should have processed the ready message
 	processedCount := setup.mockVerifier.GetProcessedTaskCount()
@@ -317,11 +320,15 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 				BatchTimeout:    100 * time.Millisecond,
 			},
 		},
-		VerifierID: verifierID,
+		VerifierID:          verifierID,
+		StorageBatchSize:    50,
+		StorageBatchTimeout: 100 * time.Millisecond,
+		StorageRetryDelay:   2 * time.Second,
 	}
 
-	coordinator, err := NewCoordinator(
-		t.Context(),
+	sqlxDB := testutil.NewTestDB(t)
+	// Use fast polling coordinator for DB mode to make tests responsive
+	coordinator, err := NewCoordinatorWithFastPolling(
 		lggr,
 		mockVerifier,
 		map[protocol.ChainSelector]chainaccess.SourceReader{1337: mockSourceReader},
@@ -331,6 +338,8 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		&noopMonitoring{},
 		mockChainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
+		sqlxDB,
+		50*time.Millisecond,
 	)
 	require.NoError(t, err)
 

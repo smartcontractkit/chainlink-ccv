@@ -22,16 +22,22 @@ import (
 var _ common.IndexerStorage = (*PostgresStorage)(nil)
 
 const (
-	opGetCCVData                    = "GetCCVData"
-	opQueryCCVData                  = "QueryCCVData"
-	opInsertCCVData                 = "InsertCCVData"
-	opBatchInsertCCVData            = "BatchInsertCCVData"
-	opBatchInsertMessages           = "BatchInsertMessages"
-	opInsertMessage                 = "InsertMessage"
-	opQueryMessages                 = "QueryMessages"
-	opUpdateMessageStatus           = "UpdateMessageStatus"
-	opCreateDiscoveryState          = "CreateDiscoveryState"
-	opUpdateDiscoverySequenceNumber = "UpdateDiscoverySequenceNumber"
+	opGetCCVData            = "GetCCVData"
+	opQueryCCVData          = "QueryCCVData"
+	opBatchInsertCCVData    = "BatchInsertCCVData"
+	opBatchInsertMessages   = "BatchInsertMessages"
+	opQueryMessages         = "QueryMessages"
+	opUpdateMessageStatus   = "UpdateMessageStatus"
+	opCreateDiscoveryState  = "CreateDiscoveryState"
+	opPersistDiscoveryBatch = "PersistDiscoveryBatch"
+
+	// maxBatchSizeCCVData is the maximum number of CCV data rows that can be inserted in a single query
+	// to avoid Postgres bind parameter overflow (65535 limit). With 11 parameters per row, 5000 rows = 55000 parameters.
+	maxBatchSizeCCVData = 5000
+
+	// maxBatchSizeMessages is the maximum number of message rows that can be inserted in a single query
+	// to avoid Postgres bind parameter overflow (65535 limit). With 7 parameters per row, 5000 rows = 35000 parameters.
+	maxBatchSizeMessages = 5000
 )
 
 type PostgresStorage struct {
@@ -42,10 +48,21 @@ type PostgresStorage struct {
 }
 
 func NewPostgresStorage(ctx context.Context, lggr logger.Logger, monitoring common.IndexerMonitoring, uri, driverName string, config pg.DBConfig) (*PostgresStorage, error) {
+	if lggr == nil {
+		return nil, fmt.Errorf("logger is required")
+	}
+	if monitoring == nil {
+		return nil, fmt.Errorf("monitoring is required")
+	}
+	if uri == "" {
+		return nil, fmt.Errorf("database URI is required")
+	}
+	if driverName == "" {
+		return nil, fmt.Errorf("database driver name is required")
+	}
 	ds, err := config.New(ctx, uri, driverName)
 	if err != nil {
-		lggr.Errorw("Failed to create database", "error", err)
-		return nil, err
+		return nil, fmt.Errorf("failed to open database connection: %w", err)
 	}
 
 	return &PostgresStorage{
@@ -195,99 +212,7 @@ func (d *PostgresStorage) QueryCCVData(
 	return results, nil
 }
 
-// InsertCCVData inserts a new CCVData entry into the database.
-func (d *PostgresStorage) InsertCCVData(ctx context.Context, ccvData common.VerifierResultWithMetadata) error {
-	startInsertMetric := time.Now()
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	// Serialize message to JSON
-	messageJSON, err := json.Marshal(ccvData.VerifierResult.Message)
-	if err != nil {
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opInsertCCVData)
-		return fmt.Errorf("failed to marshal message to JSON: %w", err)
-	}
-
-	// Convert CCV addresses to hex string array
-	ccvAddressesHex := make([]string, len(ccvData.VerifierResult.MessageCCVAddresses))
-	for i, addr := range ccvData.VerifierResult.MessageCCVAddresses {
-		ccvAddressesHex[i] = addr.String()
-	}
-
-	query := `
-		INSERT INTO indexer.verifier_results (
-			message_id,
-			verifier_source_address,
-			verifier_dest_address,
-			attestation_timestamp,
-	        ingestion_timestamp,
-			source_chain_selector,
-			dest_chain_selector,
-			ccv_data,
-			message,
-			message_ccv_addresses,
-			message_executor_address
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		ON CONFLICT (message_id, verifier_source_address, verifier_dest_address) DO NOTHING
-	`
-
-	result, err := d.execContext(ctx, query,
-		ccvData.VerifierResult.MessageID.String(),
-		ccvData.VerifierResult.VerifierSourceAddress.String(),
-		ccvData.VerifierResult.VerifierDestAddress.String(),
-		ccvData.Metadata.AttestationTimestamp,
-		ccvData.Metadata.IngestionTimestamp,
-		uint64(ccvData.VerifierResult.Message.SourceChainSelector),
-		uint64(ccvData.VerifierResult.Message.DestChainSelector),
-		ccvData.VerifierResult.CCVData,
-		messageJSON,
-		pq.Array(ccvAddressesHex),
-		ccvData.VerifierResult.MessageExecutorAddress.String(),
-	)
-	if err != nil {
-		d.lggr.Errorw("Failed to insert CCV data", "error", err, "messageID", ccvData.VerifierResult.MessageID.String())
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opBatchInsertCCVData)
-		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
-		return fmt.Errorf("failed to insert CCV data: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		d.lggr.Errorw("Failed to get rows affected", "error", err)
-		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	// If no rows were affected, it means the data already exists (ON CONFLICT DO NOTHING)
-	if rowsAffected == 0 {
-		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
-		return ErrDuplicateCCVData
-	}
-
-	// Check if this is a new unique message
-	if err := d.trackUniqueMessage(ctx, ccvData.VerifierResult.MessageID); err != nil {
-		d.lggr.Warnw("Failed to track unique message", "error", err, "messageID", ccvData.VerifierResult.MessageID.String())
-		// Don't fail the insert if we can't track the unique message
-	}
-
-	// Increment the verification records counter
-	d.monitoring.Metrics().IncrementVerificationRecordsCounter(ctx)
-	d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
-
-	return nil
-}
-
-// BatchInsertCCVData inserts multiple CCVData entries into the database efficiently using a batch insert.
-func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []common.VerifierResultWithMetadata) error {
-	if len(ccvDataList) == 0 {
-		return nil
-	}
-
-	startInsertMetric := time.Now()
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	// Build batch insert query with multiple value sets
+func buildBatchInsertCCVDataQuery(ccvDataList []common.VerifierResultWithMetadata) (string, []any, error) {
 	var query strings.Builder
 	query.WriteString(`
 		INSERT INTO indexer.verifier_results (
@@ -295,41 +220,35 @@ func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 			verifier_source_address,
 			verifier_dest_address,
 			attestation_timestamp,
-            ingestion_timestamp,
+			ingestion_timestamp,
 			source_chain_selector,
 			dest_chain_selector,
 			ccv_data,
 			message,
 			message_ccv_addresses,
 			message_executor_address
-		) VALUES
-	`)
+		) VALUES `)
 
 	args := make([]any, 0, len(ccvDataList)*11)
 	valueClauses := make([]string, 0, len(ccvDataList))
 
 	for i, ccvData := range ccvDataList {
-		// Serialize message to JSON
 		messageJSON, err := json.Marshal(ccvData.VerifierResult.Message)
 		if err != nil {
-			d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opBatchInsertCCVData)
-			return fmt.Errorf("failed to marshal message to JSON at index %d: %w", i, err)
+			return "", nil, fmt.Errorf("failed to marshal message to JSON at index %d: %w", i, err)
 		}
 
-		// Convert CCV addresses to hex string array
 		ccvAddressesHex := make([]string, len(ccvData.VerifierResult.MessageCCVAddresses))
 		for j, addr := range ccvData.VerifierResult.MessageCCVAddresses {
 			ccvAddressesHex[j] = addr.String()
 		}
 
-		// Calculate parameter positions for this row
 		baseIdx := i * 11
 		valueClause := fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
 			baseIdx+1, baseIdx+2, baseIdx+3, baseIdx+4, baseIdx+5, baseIdx+6,
 			baseIdx+7, baseIdx+8, baseIdx+9, baseIdx+10, baseIdx+11)
 		valueClauses = append(valueClauses, valueClause)
 
-		// Add arguments for this row
 		args = append(args,
 			ccvData.VerifierResult.MessageID.String(),
 			ccvData.VerifierResult.VerifierSourceAddress.String(),
@@ -345,7 +264,6 @@ func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 		)
 	}
 
-	// Complete the query with all value clauses and conflict resolution
 	for i, vc := range valueClauses {
 		if i > 0 {
 			query.WriteString(", ")
@@ -354,10 +272,28 @@ func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 	}
 	query.WriteString(" ON CONFLICT (message_id, verifier_source_address, verifier_dest_address) DO NOTHING")
 
-	// Execute the batch insert
-	result, err := d.execContext(ctx, query.String(), args...)
+	return query.String(), args, nil
+}
+
+// InsertVerifierResults inserts one or more verifier result entries into the database.
+func (d *PostgresStorage) InsertVerifierResults(ctx context.Context, verifierResults []common.VerifierResultWithMetadata) error {
+	if len(verifierResults) == 0 {
+		return nil
+	}
+
+	startInsertMetric := time.Now()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	query, args, err := buildBatchInsertCCVDataQuery(verifierResults)
 	if err != nil {
-		d.lggr.Errorw("Failed to batch insert CCV data", "error", err, "count", len(ccvDataList))
+		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opBatchInsertCCVData)
+		return err
+	}
+
+	result, err := d.execContext(ctx, query, args...)
+	if err != nil {
+		d.lggr.Errorw("Failed to batch insert CCV data", "error", err, "count", len(verifierResults))
 		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opBatchInsertCCVData)
 		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
 		return fmt.Errorf("failed to batch insert CCV data: %w", err)
@@ -367,27 +303,9 @@ func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 	if err != nil {
 		d.lggr.Errorw("Failed to get rows affected", "error", err)
 	} else {
-		d.lggr.Debugw("Batch insert completed", "requested", len(ccvDataList), "inserted", rowsAffected)
+		d.lggr.Debugw("Batch insert completed", "requested", len(verifierResults), "inserted", rowsAffected)
 	}
 
-	// Track unique messages and update metrics
-	uniqueMessages := make(map[string]bool)
-	for _, ccvData := range ccvDataList {
-		uniqueMessages[ccvData.VerifierResult.MessageID.String()] = true
-	}
-
-	// Check which message IDs are new
-	for messageID := range uniqueMessages {
-		msgBytes32, err := protocol.NewBytes32FromString(messageID)
-		if err != nil {
-			continue
-		}
-		if err := d.trackUniqueMessage(ctx, msgBytes32); err != nil {
-			d.lggr.Warnw("Failed to track unique message", "error", err, "messageID", messageID)
-		}
-	}
-
-	// Increment the verification records counter by the number of rows actually inserted
 	for range rowsAffected {
 		d.monitoring.Metrics().IncrementVerificationRecordsCounter(ctx)
 	}
@@ -396,17 +314,7 @@ func (d *PostgresStorage) BatchInsertCCVData(ctx context.Context, ccvDataList []
 	return nil
 }
 
-// BatchInsertMessages implements common.IndexerStorage.
-func (d *PostgresStorage) BatchInsertMessages(ctx context.Context, messages []common.MessageWithMetadata) error {
-	if len(messages) == 0 {
-		return nil
-	}
-
-	startInsertMetric := time.Now()
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	// Build batch insert query with multiple value sets
+func buildBatchInsertMessagesQuery(messages []common.MessageWithMetadata) (string, []any, error) {
 	var query strings.Builder
 	query.WriteString(`
 		INSERT INTO indexer.messages (
@@ -417,29 +325,28 @@ func (d *PostgresStorage) BatchInsertMessages(ctx context.Context, messages []co
 			source_chain_selector,
 			dest_chain_selector,
 			ingestion_timestamp
-		) VALUES
-	`)
+		) VALUES `)
 
 	args := make([]any, 0, len(messages)*7)
 	valueClauses := make([]string, 0, len(messages))
 
+	baseIdx := 0
 	for i, msg := range messages {
-		// Serialize message to JSON
 		messageJSON, err := json.Marshal(msg.Message)
 		if err != nil {
-			d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opBatchInsertMessages)
-			return fmt.Errorf("failed to marshal message to JSON at index %d: %w", i, err)
+			return "", nil, fmt.Errorf("failed to marshal message to JSON at index %d: %w", i, err)
+		}
+		msgID, err := msg.Message.MessageID()
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to get message ID at index %d: %w", i, err)
 		}
 
-		// Calculate parameter positions for this row
-		baseIdx := i * 7
 		valueClause := fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d)",
 			baseIdx+1, baseIdx+2, baseIdx+3, baseIdx+4, baseIdx+5, baseIdx+6, baseIdx+7)
 		valueClauses = append(valueClauses, valueClause)
 
-		// Add arguments for this row
 		args = append(args,
-			msg.Message.MustMessageID().String(),
+			msgID,
 			messageJSON,
 			msg.Metadata.Status.String(),
 			msg.Metadata.LastErr,
@@ -447,9 +354,10 @@ func (d *PostgresStorage) BatchInsertMessages(ctx context.Context, messages []co
 			msg.Message.DestChainSelector,
 			msg.Metadata.IngestionTimestamp,
 		)
+
+		baseIdx += 7
 	}
 
-	// Complete the query with all value clauses and conflict resolution
 	for i, vc := range valueClauses {
 		if i > 0 {
 			query.WriteString(", ")
@@ -458,8 +366,26 @@ func (d *PostgresStorage) BatchInsertMessages(ctx context.Context, messages []co
 	}
 	query.WriteString(" ON CONFLICT (message_id) DO NOTHING")
 
-	// Execute the batch insert
-	result, err := d.execContext(ctx, query.String(), args...)
+	return query.String(), args, nil
+}
+
+// InsertMessages implements common.IndexerStorage.
+func (d *PostgresStorage) InsertMessages(ctx context.Context, messages []common.MessageWithMetadata) error {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	startInsertMetric := time.Now()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	query, args, err := buildBatchInsertMessagesQuery(messages)
+	if err != nil {
+		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opBatchInsertMessages)
+		return err
+	}
+
+	result, err := d.execContext(ctx, query, args...)
 	if err != nil {
 		d.lggr.Errorw("Failed to batch insert messages", "error", err, "count", len(messages))
 		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opBatchInsertMessages)
@@ -472,65 +398,6 @@ func (d *PostgresStorage) BatchInsertMessages(ctx context.Context, messages []co
 		d.lggr.Warnw("Failed to get rows affected", "error", err)
 	} else {
 		d.lggr.Debugw("Batch insert messages completed", "requested", len(messages), "inserted", rowsAffected)
-	}
-
-	d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
-	return nil
-}
-
-// InsertMessage implements common.IndexerStorage.
-func (d *PostgresStorage) InsertMessage(ctx context.Context, message common.MessageWithMetadata) error {
-	startInsertMetric := time.Now()
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	// Serialize message to JSON
-	messageJSON, err := json.Marshal(message.Message)
-	if err != nil {
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opInsertMessage)
-		return fmt.Errorf("failed to marshal message to JSON: %w", err)
-	}
-
-	query := `
-		INSERT INTO indexer.messages (
-			message_id,
-			message,
-			status,
-			lastErr,
-			source_chain_selector,
-			dest_chain_selector,
-			ingestion_timestamp
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (message_id) DO NOTHING
-	`
-
-	result, err := d.execContext(ctx, query,
-		message.Message.MustMessageID().String(),
-		messageJSON,
-		message.Metadata.Status.String(),
-		message.Metadata.LastErr,
-		message.Message.SourceChainSelector,
-		message.Message.DestChainSelector,
-		message.Metadata.IngestionTimestamp,
-	)
-	if err != nil {
-		d.lggr.Errorw("Failed to insert message", "error", err, "messageID", message.Message.MustMessageID().String())
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opInsertMessage)
-		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
-		return fmt.Errorf("failed to insert message: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		d.lggr.Warnw("Failed to get rows affected", "error", err)
-		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
-		return fmt.Errorf("failed to get rows affected: %w", err)
-	}
-
-	// If no rows were affected, it means the data already exists (ON CONFLICT DO NOTHING)
-	// This is idempotent behavior, so we don't return an error
-	if rowsAffected == 0 {
-		d.lggr.Debugw("Message already exists, skipping insert", "messageID", message.Message.MustMessageID().String())
 	}
 
 	d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
@@ -697,6 +564,7 @@ func (d *PostgresStorage) CreateDiscoveryState(ctx context.Context, discoveryLoc
 		d.lggr.Errorw("Failed to create discovery state record", "error", err, "discoveryLocation", discoveryLocation, "sequenceNumber", startingSequenceNumber)
 		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opCreateDiscoveryState)
 		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
+		return fmt.Errorf("failed to create discovery state: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
@@ -707,7 +575,7 @@ func (d *PostgresStorage) CreateDiscoveryState(ctx context.Context, discoveryLoc
 	}
 
 	if rowsAffected == 0 {
-		d.lggr.Warnw("Discovery Record already exisits for source", "discoveryLocation", discoveryLocation)
+		d.lggr.Warnw("Discovery record already exists for source", "discoveryLocation", discoveryLocation)
 		return nil
 	}
 
@@ -715,38 +583,90 @@ func (d *PostgresStorage) CreateDiscoveryState(ctx context.Context, discoveryLoc
 	return nil
 }
 
-func (d *PostgresStorage) UpdateDiscoverySequenceNumber(ctx context.Context, discoveryLocation string, sequenceNumber int) error {
-	startUpdateMetric := time.Now()
-	d.mu.Lock()
-	defer d.mu.Unlock()
+func (d *PostgresStorage) PersistDiscoveryBatch(ctx context.Context, batch common.DiscoveryBatch) error {
+	if len(batch.Messages) == 0 && len(batch.Verifications) == 0 {
+		return nil
+	}
 
-	query := `
-    UPDATE indexer.discovery_state
-    SET last_sequence_number = $1
-    WHERE discovery_location = $2
-	`
+	startMetric := time.Now()
 
-	result, err := d.execContext(ctx, query, sequenceNumber, discoveryLocation)
+	var verificationsInserted int64
+
+	err := sqlutil.TransactDataSource(ctx, d.ds, nil, func(tx sqlutil.DataSource) error {
+		// Chunk messages to avoid Postgres bind parameter overflow
+		if len(batch.Messages) > 0 {
+			for i := 0; i < len(batch.Messages); i += maxBatchSizeMessages {
+				end := min(i+maxBatchSizeMessages, len(batch.Messages))
+				chunk := batch.Messages[i:end]
+
+				query, args, err := buildBatchInsertMessagesQuery(chunk)
+				if err != nil {
+					return err
+				}
+				if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+					return fmt.Errorf("failed to batch insert messages chunk: %w", err)
+				}
+			}
+		}
+
+		// Chunk verifications to avoid Postgres bind parameter overflow
+		if len(batch.Verifications) > 0 {
+			for i := 0; i < len(batch.Verifications); i += maxBatchSizeCCVData {
+				end := min(i+maxBatchSizeCCVData, len(batch.Verifications))
+				chunk := batch.Verifications[i:end]
+
+				query, args, err := buildBatchInsertCCVDataQuery(chunk)
+				if err != nil {
+					return err
+				}
+				result, err := tx.ExecContext(ctx, query, args...)
+				if err != nil {
+					return fmt.Errorf("failed to batch insert CCV data chunk: %w", err)
+				}
+				rowsAffected, err := result.RowsAffected()
+				if err != nil {
+					return fmt.Errorf("failed to get rows affected for CCV insert: %w", err)
+				}
+				verificationsInserted += rowsAffected
+			}
+		}
+
+		if batch.SequenceNumber != common.SequenceNumberNotSupported {
+			query := `UPDATE indexer.discovery_state SET last_sequence_number = $1 WHERE discovery_location = $2`
+			result, err := tx.ExecContext(ctx, query, batch.SequenceNumber, batch.DiscoveryLocation)
+			if err != nil {
+				return fmt.Errorf("failed to update discovery sequence: %w", err)
+			}
+			rowsAffected, err := result.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("failed to get rows affected for discovery sequence: %w", err)
+			}
+			if rowsAffected == 0 {
+				return fmt.Errorf("discovery record not found: %s", batch.DiscoveryLocation)
+			}
+		}
+
+		return nil
+	})
 	if err != nil {
-		d.lggr.Errorw("Failed to update discovery state record", "error", err, "discoveryLocation", discoveryLocation, "sequenceNumber", sequenceNumber)
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opUpdateDiscoverySequenceNumber)
-		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startUpdateMetric))
-		return fmt.Errorf("failed to update discovery state record: %w", err)
+		d.lggr.Errorw("Failed to persist discovery batch", "error", err)
+		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opPersistDiscoveryBatch)
+		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startMetric))
+		return err
 	}
 
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		d.lggr.Warnw("Failed to get rows affected", "error", err)
-		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startUpdateMetric))
-		return fmt.Errorf("failed to get rows affected: %w", err)
+	if len(batch.Verifications) > 0 {
+		for range verificationsInserted {
+			d.monitoring.Metrics().IncrementVerificationRecordsCounter(ctx)
+		}
 	}
 
-	if rowsAffected == 0 {
-		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startUpdateMetric))
-		return fmt.Errorf("discovery record not found: %s", discoveryLocation)
-	}
-
-	d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startUpdateMetric))
+	d.lggr.Debugw("Discovery batch persisted",
+		"messages", len(batch.Messages),
+		"verifications", len(batch.Verifications),
+		"sequenceNumber", batch.SequenceNumber,
+	)
+	d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startMetric))
 	return nil
 }
 
@@ -768,30 +688,6 @@ func (d *PostgresStorage) GetDiscoverySequenceNumber(ctx context.Context, discov
 	}
 
 	return sequenceNumber, nil
-}
-
-// trackUniqueMessage checks if this is the first time we're seeing this message ID
-// and increments the unique messages counter if so.
-func (d *PostgresStorage) trackUniqueMessage(ctx context.Context, messageID protocol.Bytes32) error {
-	// Check whether exactly one row exists for this message_id. If so,
-	// this indicates the message was first-seen by the storage insert that preceded this call.
-	query := `
-		SELECT COUNT(*) = 1 as is_first
-		FROM indexer.verifier_results
-		WHERE message_id = $1
-	`
-
-	var isFirst bool
-	err := d.queryRowContext(ctx, query, messageID.String()).Scan(&isFirst)
-	if err != nil {
-		return fmt.Errorf("failed to check unique message: %w", err)
-	}
-
-	if isFirst {
-		d.monitoring.Metrics().IncrementUniqueMessagesCounter(ctx)
-	}
-
-	return nil
 }
 
 // scanCCVData scans a database row into a CCVData struct.

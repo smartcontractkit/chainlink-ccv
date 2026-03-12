@@ -9,10 +9,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	adapter "github.com/smartcontractkit/chainlink-ccv/executor/pkg/adapter"
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	timeprovider "github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
@@ -35,6 +35,8 @@ var (
 	// We store messages for messageContextWindow, cleaning up old messages every indexerGarbageCollectionInterval.
 	// These values should be set based on the indexer's message retry duration.
 	messageContextWindow = 24 * time.Hour
+
+	ntpBackoffDuration = 2 * time.Second
 )
 
 // NewExecutorCoordinator initializes the executor coordinator object.
@@ -46,6 +48,11 @@ func NewExecutorCoordinator(
 	keys map[protocol.ChainSelector]keys.RoundRobin,
 	fromAddresses map[protocol.ChainSelector][]common.Address,
 ) (*executor.Coordinator, error) {
+	if err := cfg.Validate(); err != nil {
+		lggr.Errorw("Invalid executor configuration.", "error", err)
+		return nil, fmt.Errorf("invalid executor configuration: %w", err)
+	}
+
 	lggr.Infow("Executor configuration", "config", cfg)
 
 	offRampAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress, len(cfg.ChainConfiguration))
@@ -85,6 +92,7 @@ func NewExecutorCoordinator(
 	transmitters := make(map[protocol.ChainSelector]chainaccess.ContractTransmitter)
 	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
 	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
+	enabledDestChains := make([]protocol.ChainSelector, 0)
 	for sel, chain := range relayers {
 		if _, ok := offRampAddresses[sel]; !ok {
 			lggr.Warnw("No offramp configured for chain, skipping.", "chainID", sel)
@@ -107,7 +115,6 @@ func NewExecutorCoordinator(
 				ChainClient:               chain.Client(),
 				OfframpAddress:            offRampAddresses[sel].String(), // TODO: use UnknownAddress instead of string?
 				RmnRemoteAddress:          rmnAddresses[sel].String(),
-				CacheExpiry:               cfg.ReaderCacheExpiry,
 				ExecutionVisabilityWindow: cfg.MaxRetryDuration,
 				Monitoring:                executorMonitoring,
 			})
@@ -118,23 +125,28 @@ func NewExecutorCoordinator(
 
 		destReaders[sel] = evmDestReader
 		rmnReaders[sel] = evmDestReader
+		enabledDestChains = append(enabledDestChains, sel)
 	}
 
 	curseChecker := cursechecker.NewCachedCurseChecker(cursechecker.Params{
 		Lggr:        lggr,
+		Metrics:     executorMonitoring.Metrics(),
 		RmnReaders:  rmnReaders,
 		CacheExpiry: cfg.ReaderCacheExpiry,
 	})
 
-	// create indexer client which implements MessageReader and VerifierResultReader
-	indexerClient, err := client.NewIndexerClient(cfg.IndexerAddress, &http.Client{
-		Timeout: 30 * time.Second,
-	})
+	// create indexer adapter which queries multiple indexers concurrently
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	indexerAdapter, err := adapter.NewIndexerReaderAdapter(
+		cfg.IndexerAddress,
+		httpClient,
+		executorMonitoring,
+		lggr,
+	)
 	if err != nil {
-		lggr.Errorw("Failed to create indexer client", "error", err)
-		return nil, fmt.Errorf("failed to create indexer client: %w", err)
+		lggr.Errorw("Failed to create indexer adapter", "error", err)
+		return nil, fmt.Errorf("failed to create indexer adapter: %w", err)
 	}
-	indexerAdapter := executor.NewIndexerReaderAdapter(indexerClient, executorMonitoring)
 
 	ex := x.NewChainlinkExecutor(
 		logger.With(lggr, "component", "Executor"),
@@ -147,25 +159,30 @@ func NewExecutorCoordinator(
 	)
 
 	// create hash-based leader elector
-	le := leaderelector.NewHashBasedLeaderElector(
+	le, err := leaderelector.NewHashBasedLeaderElector(
 		lggr,
 		execPool,
 		cfg.ExecutorID,
 		execIntervals,
 	)
-	backoffProvider := timeprovider.NewBackoffNTPProvider(lggr, cfg.BackoffDuration, cfg.NtpServer)
+	if err != nil {
+		return nil, fmt.Errorf("leader elector: %w", err)
+	}
+	// ntp is an external service call with special rate limits, we use a different backoff duration for it.
+	backoffProvider := timeprovider.NewBackoffNTPProvider(lggr, ntpBackoffDuration, cfg.NtpServer)
 
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
 		lggr,
 		ccvstreamer.IndexerStorageConfig{
-			IndexerClient:    indexerAdapter,
-			InitialQueryTime: time.Now().Add(-1 * cfg.LookbackWindow),
-			PollingInterval:  indexerPollingInterval,
-			Backoff:          cfg.BackoffDuration,
-			QueryLimit:       cfg.IndexerQueryLimit,
-			ExpiryDuration:   messageContextWindow,
-			CleanInterval:    indexerGarbageCollectionInterval,
-			TimeProvider:     backoffProvider,
+			IndexerClient:     indexerAdapter,
+			InitialQueryTime:  time.Now().Add(-1 * cfg.LookbackWindow),
+			PollingInterval:   indexerPollingInterval,
+			Backoff:           cfg.BackoffDuration,
+			QueryLimit:        cfg.IndexerQueryLimit,
+			ExpiryDuration:    messageContextWindow,
+			CleanInterval:     indexerGarbageCollectionInterval,
+			TimeProvider:      backoffProvider,
+			EnabledDestChains: enabledDestChains,
 		})
 
 	exec, err := executor.NewCoordinator(

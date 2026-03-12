@@ -2,6 +2,7 @@ package aggregation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -37,6 +38,8 @@ type CommitReportAggregator struct {
 	l                     logger.SugaredLogger
 	monitoring            common.AggregatorMonitoring
 
+	drainTimeout time.Duration
+
 	mu                   sync.RWMutex
 	done                 chan struct{}
 	maxConsecutiveErrors uint32
@@ -50,17 +53,17 @@ type aggregationRequest struct {
 }
 
 // CheckAggregation enqueues a new aggregation request for the specified message ID.
-func (c *CommitReportAggregator) CheckAggregation(messageID model.MessageID, aggregationKey model.AggregationKey, channelKey model.ChannelKey, maxBlockTime time.Duration) error {
+func (c *CommitReportAggregator) CheckAggregation(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey, channelKey model.ChannelKey, maxBlockTime time.Duration) error {
 	request := aggregationRequest{
 		MessageID:      messageID,
 		AggregationKey: aggregationKey,
 		ChannelKey:     channelKey,
 	}
-	err := c.channelManager.Enqueue(channelKey, request, maxBlockTime)
+	err := c.channelManager.Enqueue(ctx, channelKey, request, maxBlockTime)
 	if err != nil {
 		return err
 	}
-	c.metrics(context.Background()).With("channel_key", string(channelKey)).IncrementPendingAggregationsChannelBuffer(context.Background(), 1)
+	c.metrics(ctx).With("channel_key", string(channelKey)).IncrementPendingAggregationsChannelBuffer(ctx, 1)
 	return nil
 }
 
@@ -77,7 +80,7 @@ func (c *CommitReportAggregator) metrics(ctx context.Context) common.AggregatorM
 // shouldSkipAggregationDueToExistingQuorum checks if we should skip creating a new aggregation
 // because an existing aggregated report already meets quorum requirements.
 // Returns true if aggregation should be skipped, false otherwise.
-func (c *CommitReportAggregator) shouldSkipAggregationDueToExistingQuorum(ctx context.Context, messageID model.MessageID) bool {
+func (c *CommitReportAggregator) shouldSkipAggregationDueToExistingQuorum(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey) bool {
 	lggr := c.logger(ctx)
 
 	if c.aggregatedStore == nil {
@@ -85,8 +88,11 @@ func (c *CommitReportAggregator) shouldSkipAggregationDueToExistingQuorum(ctx co
 		return false
 	}
 
-	existingReport, err := c.aggregatedStore.GetCommitAggregatedReportByMessageID(ctx, messageID)
+	existingReport, err := c.aggregatedStore.GetCommitAggregatedReportByAggregationKey(ctx, messageID, aggregationKey)
 	if err != nil {
+		if errors.Is(err, common.ErrNotFound) {
+			return false
+		}
 		lggr.Warnw("Failed to check for existing aggregated report", "error", err)
 		return false
 	}
@@ -111,7 +117,7 @@ func (c *CommitReportAggregator) shouldSkipAggregationDueToExistingQuorum(ctx co
 	return false
 }
 
-func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, request aggregationRequest) (*model.CommitAggregatedReport, error) {
+func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.Context, request aggregationRequest) error {
 	if c.operationTimeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, c.operationTimeout)
@@ -121,22 +127,23 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 	lggr := c.logger(ctx)
 	lggr.Info("Checking aggregation for message")
 
-	shouldSkip := c.shouldSkipAggregationDueToExistingQuorum(ctx, request.MessageID)
+	shouldSkip := c.shouldSkipAggregationDueToExistingQuorum(ctx, request.MessageID, request.AggregationKey)
 	if shouldSkip {
-		return nil, nil
+		return nil
 	}
 
 	verifications, err := c.storage.ListCommitVerificationByAggregationKey(ctx, request.MessageID, request.AggregationKey)
 	if err != nil {
 		lggr.Errorw("Failed to list verifications", "error", err)
-		return nil, err
+		return err
 	}
 
 	lggr.Debugw("Verifications retrieved", "count", len(verifications))
 
 	aggregatedReport := &model.CommitAggregatedReport{
-		MessageID:     request.MessageID,
-		Verifications: verifications,
+		MessageID:      request.MessageID,
+		AggregationKey: request.AggregationKey,
+		Verifications:  verifications,
 	}
 
 	lggr.Debugw("Aggregated report created", "verificationCount", len(verifications))
@@ -144,13 +151,13 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 	quorumMet, err := c.quorum.CheckQuorum(ctx, aggregatedReport)
 	if err != nil {
 		lggr.Errorw("Failed to check quorum", "error", err)
-		return nil, err
+		return err
 	}
 
 	if quorumMet {
 		if err := c.sink.SubmitAggregatedReport(ctx, aggregatedReport); err != nil {
 			lggr.Errorw("Failed to submit report", "error", err)
-			return nil, err
+			return err
 		}
 		timeToAggregation := aggregatedReport.CalculateTimeToAggregation(time.Now())
 		lggr.Infow("Report submitted successfully", "verifications", len(verifications), "timeToAggregation", timeToAggregation)
@@ -160,7 +167,7 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 		lggr.Infow("Quorum not met, not submitting report", "verifications", len(verifications))
 	}
 
-	return nil, nil
+	return nil
 }
 
 // StartBackground begins processing aggregation requests in the background.
@@ -170,39 +177,81 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 	go func() { _ = c.channelManager.Start(ctx) }()
 	c.mu.Unlock()
 	aggregationChannel := c.channelManager.AggregationChannel
-	p := pool.New().WithMaxGoroutines(c.backgroundWorkerCount).WithContext(ctx)
+	poolCtx, poolCancel := context.WithCancel(context.WithoutCancel(ctx))
+	p := pool.New().WithMaxGoroutines(c.backgroundWorkerCount).WithContext(poolCtx)
+
+	submitWork := func(request aggregationRequest) {
+		p.Go(func(poolCtx context.Context) error {
+			c.metrics(poolCtx).With("channel_key", string(request.ChannelKey)).DecrementPendingAggregationsChannelBuffer(poolCtx, 1)
+			poolCtx = scope.WithAggregationKey(poolCtx, request.AggregationKey)
+			poolCtx = scope.WithMessageID(poolCtx, request.MessageID)
+
+			return func() (err error) {
+				defer func() {
+					if r := recover(); r != nil {
+						c.logger(poolCtx).Errorw("Panic during aggregation", "panic", r)
+						c.metrics(poolCtx).IncrementPanics(poolCtx)
+						err = fmt.Errorf("panic: %v", r)
+					}
+				}()
+				err = c.checkAggregationAndSubmitComplete(poolCtx, request)
+				if err != nil {
+					c.consecutiveErrors.Add(1)
+				} else {
+					c.consecutiveErrors.Store(0)
+				}
+				return err
+			}()
+		})
+	}
+
+	drainDeadline := make(chan struct{})
+	go func() {
+		<-ctx.Done()
+		time.Sleep(c.drainTimeout)
+		close(drainDeadline)
+	}()
+
 	go func() {
 		defer close(c.done)
+		defer poolCancel()
+		lggr := c.logger(context.Background())
 		for {
 			select {
-			case request := <-aggregationChannel:
-				p.Go(func(poolCtx context.Context) error {
-					c.metrics(poolCtx).With("channel_key", string(request.ChannelKey)).DecrementPendingAggregationsChannelBuffer(poolCtx, 1)
-					poolCtx = scope.WithAggregationKey(poolCtx, request.AggregationKey)
-					poolCtx = scope.WithMessageID(poolCtx, request.MessageID)
-
-					return func() (err error) {
-						defer func() {
-							if r := recover(); r != nil {
-								c.logger(poolCtx).Errorw("Panic during aggregation", "panic", r)
-								c.metrics(poolCtx).IncrementPanics(poolCtx)
-								err = fmt.Errorf("panic: %v", r)
-							}
-						}()
-						_, err = c.checkAggregationAndSubmitComplete(poolCtx, request)
-						if err != nil {
-							c.consecutiveErrors.Add(1)
-						} else {
-							c.consecutiveErrors.Store(0)
-						}
-						return err
-					}()
-				})
-			case <-ctx.Done():
+			case request, ok := <-aggregationChannel:
+				if !ok {
+					c.waitForPool(lggr, p, drainDeadline, poolCancel)
+					return
+				}
+				submitWork(request)
+			case <-drainDeadline:
+				lggr.Errorw("Drain timed out, dropping in-flight work", "timeout", c.drainTimeout)
+				poolCancel()
+				_ = p.Wait()
 				return
 			}
 		}
 	}()
+}
+
+func (c *CommitReportAggregator) waitForPool(lggr logger.SugaredLogger, p *pool.ContextPool, drainDeadline <-chan struct{}, poolCancel context.CancelFunc) {
+	lggr.Infow("Channel drained, waiting for in-flight workers")
+	poolDone := make(chan error, 1)
+	go func() { poolDone <- p.Wait() }()
+	select {
+	case poolErr := <-poolDone:
+		if poolErr != nil {
+			lggr.Errorw("Pool workers returned errors during shutdown", "error", poolErr)
+		} else {
+			lggr.Infow("Aggregation worker shutdown completed cleanly")
+		}
+	case <-drainDeadline:
+		lggr.Errorw("Drain timed out waiting for in-flight workers", "timeout", c.drainTimeout)
+		poolCancel()
+		if poolErr := <-poolDone; poolErr != nil {
+			lggr.Errorw("Pool workers returned errors after forced cancellation", "error", poolErr)
+		}
+	}
 }
 
 func (c *CommitReportAggregator) Ready() error {
@@ -273,6 +322,7 @@ func NewCommitReportAggregator(storage common.CommitVerificationStore, aggregate
 		channelManager:        channelManager,
 		backgroundWorkerCount: config.Aggregation.BackgroundWorkerCount,
 		operationTimeout:      config.Aggregation.OperationTimeout,
+		drainTimeout:          config.Aggregation.DrainTimeout,
 		maxConsecutiveErrors:  config.Aggregation.MaxConsecutiveErrors,
 		quorum:                quorum,
 		monitoring:            monitoring,

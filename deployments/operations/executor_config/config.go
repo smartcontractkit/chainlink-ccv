@@ -59,14 +59,16 @@ var BuildConfig = operations.NewOperation(
 			chainSelectorStr := strconv.FormatUint(chainSelector, 10)
 
 			offRampAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
-				Type: datastore.ContractType(offrampoperations.ContractType),
+				Type:    datastore.ContractType(offrampoperations.ContractType),
+				Version: offrampoperations.Version,
 			}, chainSelector, toAddress)
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get off ramp address for chain %d: %w", chainSelector, err)
 			}
 
 			rmnRemoteAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
-				Type: datastore.ContractType(rmn_remote.ContractType),
+				Type:    datastore.ContractType(rmn_remote.ContractType),
+				Version: rmn_remote.Version,
 			}, chainSelector, toAddress)
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get rmn remote address for chain %d: %w", chainSelector, err)
@@ -75,6 +77,7 @@ var BuildConfig = operations.NewOperation(
 			executorAddr, err := dsutil.FindAndFormatRef(ds, datastore.AddressRef{
 				Type:      datastore.ContractType(execcontract.ProxyType),
 				Qualifier: input.ExecutorQualifier,
+				Version:   execcontract.Version,
 			}, chainSelector, toAddress)
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get executor proxy address for chain %d: %w", chainSelector, err)

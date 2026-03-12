@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/Masterminds/semver/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -73,7 +72,7 @@ func TestGenerateIndexerConfig_GeneratesCorrectConfigWithMultipleVerifiers(t *te
 				Qualifier:     qualifier,
 				Type:          datastore.ContractType(committee_verifier.ResolverType),
 				Address:       fmt.Sprintf("0x%s_%d", qualifier, sel),
-				Version:       semver.MustParse("1.0.0"),
+				Version:       committee_verifier.Version,
 			})
 			require.NoError(t, err)
 		}
@@ -122,7 +121,7 @@ func TestGenerateIndexerConfig_PreservesExistingAggregatorConfig(t *testing.T) {
 			Qualifier:     committee,
 			Type:          datastore.ContractType(committee_verifier.ResolverType),
 			Address:       fmt.Sprintf("0xverifier_%d", sel),
-			Version:       semver.MustParse("1.0.0"),
+			Version:       committee_verifier.Version,
 		})
 		require.NoError(t, err)
 	}

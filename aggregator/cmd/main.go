@@ -47,13 +47,13 @@ func main() {
 	}
 	config, err := configuration.LoadConfig(filePath, sugaredLggr)
 	if err != nil {
-		lggr.Errorw("Failed to load configuration", "error", err)
+		lggr.Errorw("Failed to load configuration", "path", filePath, "error", err)
 		os.Exit(1)
 	}
 	lggr.Infow("Loaded configuration", "config", config)
 
 	if err := config.LoadFromEnvironment(); err != nil {
-		lggr.Errorw("Failed to load configuration from environment", "error", err)
+		lggr.Errorw("Failed to load configuration from environment", "path", filePath, "error", err)
 		os.Exit(1)
 	}
 	lggr.Infow("Successfully loaded configuration from environment variables")

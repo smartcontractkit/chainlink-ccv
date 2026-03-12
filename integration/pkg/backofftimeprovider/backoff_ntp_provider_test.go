@@ -178,28 +178,40 @@ func TestBackoffNTPProvider_GetTime_ExponentialBackoff(t *testing.T) {
 		expectedBackoffMulti int // multiplier for backoff duration
 	}{
 		{
-			name:                 "first failure - 1x backoff",
+			name:                 "1x backoff",
 			backoffDur:           1 * time.Second,
 			failedAttempts:       1,
 			expectedBackoffMulti: 1,
 		},
 		{
-			name:                 "second failure - 3x backoff",
+			name:                 "3x backoff",
 			backoffDur:           1 * time.Second,
 			failedAttempts:       2,
 			expectedBackoffMulti: 3,
 		},
 		{
-			name:                 "third failure - 6x backoff",
+			name:                 "6x backoff",
 			backoffDur:           1 * time.Second,
 			failedAttempts:       3,
 			expectedBackoffMulti: 6,
 		},
 		{
-			name:                 "fourth failure - 10x backoff",
+			name:                 "10x backoff",
 			backoffDur:           1 * time.Second,
 			failedAttempts:       4,
 			expectedBackoffMulti: 10,
+		},
+		{
+			name:                 "20x backoff",
+			backoffDur:           1 * time.Second,
+			failedAttempts:       20,
+			expectedBackoffMulti: 3*60 + 30,
+		},
+		{
+			name:                 "21x backoff capped at max",
+			backoffDur:           1 * time.Second,
+			failedAttempts:       21,
+			expectedBackoffMulti: 3*60 + 30,
 		},
 	}
 
@@ -218,16 +230,6 @@ func TestBackoffNTPProvider_GetTime_ExponentialBackoff(t *testing.T) {
 			assert.Equal(t, expected, result)
 		})
 	}
-}
-
-func TestBackoffNTPProvider_GetTime_BackoffDurationCappedAtMax(t *testing.T) {
-	lggr := logger.Test(t)
-	provider := NewBackoffNTPProvider(lggr, 1*time.Second, defaultNtpServer)
-	provider.failedAttempts = 1000
-
-	result := provider.calculateBackoffDuration()
-
-	assert.Equal(t, maxBackoffDuration, result, "backoff must be capped")
 }
 
 func TestBackoffNTPProvider_GetTime_MultipleFailuresThenSuccess(t *testing.T) {

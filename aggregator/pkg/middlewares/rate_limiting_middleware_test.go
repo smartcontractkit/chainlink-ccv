@@ -36,12 +36,24 @@ func TestRateLimitingMiddleware_Disabled(t *testing.T) {
 	require.Equal(t, "success", resp)
 }
 
+func TestRateLimitingMiddleware_NoIdentity(t *testing.T) {
+	middleware := &RateLimitingMiddleware{enabled: true}
+	ctx := context.Background()
+	info := mockServerInfo("/test.Service/Method")
+
+	_, err := middleware.Intercept(ctx, nil, info, mockHandler)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, codes.Unavailable, st.Code())
+	require.Contains(t, st.Message(), "service temporarily unavailable")
+}
+
 func TestRateLimitingMiddleware_DefaultLimits(t *testing.T) {
 	store := memory.NewStore()
 	config := model.RateLimitingConfig{
 		Enabled: true,
 		DefaultLimits: map[string]model.RateLimitConfig{
-			"/test.Service/Method": {LimitPerMinute: 5},
+			"/test.Service/Method": {LimitPerSecond: 5},
 		},
 	}
 
@@ -80,15 +92,15 @@ func TestRateLimitingMiddleware_DefaultLimits(t *testing.T) {
 	require.Contains(t, st.Message(), "rate limit exceeded")
 }
 
-func TestRateLimitingMiddleware_DefaultLimitsWhenAnonynous(t *testing.T) {
+func TestRateLimitingMiddleware_DefaultLimitsWhenAnonymous(t *testing.T) {
 	store := memory.NewStore()
 	config := model.RateLimitingConfig{
 		Enabled: true,
 		DefaultLimits: map[string]model.RateLimitConfig{
-			"/test.Service/Method": {LimitPerMinute: 5},
+			"/test.Service/Method": {LimitPerSecond: 5},
 		},
 		GlobalAnonymousLimits: map[string]model.RateLimitConfig{
-			"/test.Service/Method": {LimitPerMinute: 100},
+			"/test.Service/Method": {LimitPerSecond: 100},
 		},
 	}
 
@@ -125,7 +137,7 @@ func TestRateLimitingMiddleware_GlobalLimitReachedImmediatlyWhenNotConfigured(t 
 	config := model.RateLimitingConfig{
 		Enabled: true,
 		DefaultLimits: map[string]model.RateLimitConfig{
-			"/test.Service/Method": {LimitPerMinute: 5},
+			"/test.Service/Method": {LimitPerSecond: 5},
 		},
 	}
 
@@ -154,10 +166,10 @@ func TestRateLimitingMiddleware_AnonymousLimits(t *testing.T) {
 	config := model.RateLimitingConfig{
 		Enabled: true,
 		DefaultLimits: map[string]model.RateLimitConfig{
-			"/test.Service/Method": {LimitPerMinute: 10},
+			"/test.Service/Method": {LimitPerSecond: 10},
 		},
 		GlobalAnonymousLimits: map[string]model.RateLimitConfig{
-			"/test.Service/Method": {LimitPerMinute: 5},
+			"/test.Service/Method": {LimitPerSecond: 5},
 		},
 	}
 
@@ -197,11 +209,11 @@ func TestRateLimitingMiddleware_GroupLimits(t *testing.T) {
 		Enabled: true,
 		GroupLimits: map[string]map[string]model.RateLimitConfig{
 			"verifiers": {
-				"/test.Service/Method": {LimitPerMinute: 3},
+				"/test.Service/Method": {LimitPerSecond: 3},
 			},
 		},
 		DefaultLimits: map[string]model.RateLimitConfig{
-			"/test.Service/Method": {LimitPerMinute: 10},
+			"/test.Service/Method": {LimitPerSecond: 10},
 		},
 	}
 
@@ -246,14 +258,14 @@ func TestRateLimitingMiddleware_MostRestrictiveGroup(t *testing.T) {
 		Enabled: true,
 		GroupLimits: map[string]map[string]model.RateLimitConfig{
 			"group1": {
-				"/test.Service/Method": {LimitPerMinute: 5},
+				"/test.Service/Method": {LimitPerSecond: 5},
 			},
 			"group2": {
-				"/test.Service/Method": {LimitPerMinute: 2}, // More restrictive
+				"/test.Service/Method": {LimitPerSecond: 2}, // More restrictive
 			},
 		},
 		DefaultLimits: map[string]model.RateLimitConfig{
-			"/test.Service/Method": {LimitPerMinute: 10},
+			"/test.Service/Method": {LimitPerSecond: 10},
 		},
 	}
 
@@ -298,16 +310,16 @@ func TestRateLimitingMiddleware_CallerSpecificOverridesGroup(t *testing.T) {
 		Enabled: true,
 		Limits: map[string]map[string]model.RateLimitConfig{
 			"test-caller": {
-				"/test.Service/Method": {LimitPerMinute: 1}, // Most specific - should override group
+				"/test.Service/Method": {LimitPerSecond: 1}, // Most specific - should override group
 			},
 		},
 		GroupLimits: map[string]map[string]model.RateLimitConfig{
 			"verifiers": {
-				"/test.Service/Method": {LimitPerMinute: 5},
+				"/test.Service/Method": {LimitPerSecond: 5},
 			},
 		},
 		DefaultLimits: map[string]model.RateLimitConfig{
-			"/test.Service/Method": {LimitPerMinute: 10},
+			"/test.Service/Method": {LimitPerSecond: 10},
 		},
 	}
 

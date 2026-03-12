@@ -4,9 +4,11 @@ package mocks
 
 import (
 	context "context"
-	time "time"
 
+	protocol "github.com/smartcontractkit/chainlink-ccv/protocol"
 	mock "github.com/stretchr/testify/mock"
+
+	time "time"
 
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier"
 )
@@ -288,70 +290,35 @@ func (_c *MockMetricLabeler_IncrementStorageWriteErrors_Call) RunAndReturn(run f
 	return _c
 }
 
-// RecordCCVDataChannelSize provides a mock function with given fields: ctx, size
-func (_m *MockMetricLabeler) RecordCCVDataChannelSize(ctx context.Context, size int64) {
-	_m.Called(ctx, size)
+// IncrementTaskVerificationPermanentErrors provides a mock function with given fields: ctx
+func (_m *MockMetricLabeler) IncrementTaskVerificationPermanentErrors(ctx context.Context) {
+	_m.Called(ctx)
 }
 
-// MockMetricLabeler_RecordCCVDataChannelSize_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordCCVDataChannelSize'
-type MockMetricLabeler_RecordCCVDataChannelSize_Call struct {
+// MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementTaskVerificationPermanentErrors'
+type MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call struct {
 	*mock.Call
 }
 
-// RecordCCVDataChannelSize is a helper method to define mock.On call
+// IncrementTaskVerificationPermanentErrors is a helper method to define mock.On call
 //   - ctx context.Context
-//   - size int64
-func (_e *MockMetricLabeler_Expecter) RecordCCVDataChannelSize(ctx interface{}, size interface{}) *MockMetricLabeler_RecordCCVDataChannelSize_Call {
-	return &MockMetricLabeler_RecordCCVDataChannelSize_Call{Call: _e.mock.On("RecordCCVDataChannelSize", ctx, size)}
+func (_e *MockMetricLabeler_Expecter) IncrementTaskVerificationPermanentErrors(ctx interface{}) *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call {
+	return &MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call{Call: _e.mock.On("IncrementTaskVerificationPermanentErrors", ctx)}
 }
 
-func (_c *MockMetricLabeler_RecordCCVDataChannelSize_Call) Run(run func(ctx context.Context, size int64)) *MockMetricLabeler_RecordCCVDataChannelSize_Call {
+func (_c *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call) Run(run func(ctx context.Context)) *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(int64))
+		run(args[0].(context.Context))
 	})
 	return _c
 }
 
-func (_c *MockMetricLabeler_RecordCCVDataChannelSize_Call) Return() *MockMetricLabeler_RecordCCVDataChannelSize_Call {
+func (_c *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call) Return() *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call {
 	_c.Call.Return()
 	return _c
 }
 
-func (_c *MockMetricLabeler_RecordCCVDataChannelSize_Call) RunAndReturn(run func(context.Context, int64)) *MockMetricLabeler_RecordCCVDataChannelSize_Call {
-	_c.Run(run)
-	return _c
-}
-
-// RecordFinalityQueueSize provides a mock function with given fields: ctx, size
-func (_m *MockMetricLabeler) RecordFinalityQueueSize(ctx context.Context, size int64) {
-	_m.Called(ctx, size)
-}
-
-// MockMetricLabeler_RecordFinalityQueueSize_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordFinalityQueueSize'
-type MockMetricLabeler_RecordFinalityQueueSize_Call struct {
-	*mock.Call
-}
-
-// RecordFinalityQueueSize is a helper method to define mock.On call
-//   - ctx context.Context
-//   - size int64
-func (_e *MockMetricLabeler_Expecter) RecordFinalityQueueSize(ctx interface{}, size interface{}) *MockMetricLabeler_RecordFinalityQueueSize_Call {
-	return &MockMetricLabeler_RecordFinalityQueueSize_Call{Call: _e.mock.On("RecordFinalityQueueSize", ctx, size)}
-}
-
-func (_c *MockMetricLabeler_RecordFinalityQueueSize_Call) Run(run func(ctx context.Context, size int64)) *MockMetricLabeler_RecordFinalityQueueSize_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(int64))
-	})
-	return _c
-}
-
-func (_c *MockMetricLabeler_RecordFinalityQueueSize_Call) Return() *MockMetricLabeler_RecordFinalityQueueSize_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *MockMetricLabeler_RecordFinalityQueueSize_Call) RunAndReturn(run func(context.Context, int64)) *MockMetricLabeler_RecordFinalityQueueSize_Call {
+func (_c *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call) RunAndReturn(run func(context.Context)) *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call {
 	_c.Run(run)
 	return _c
 }
@@ -696,6 +663,180 @@ func (_c *MockMetricLabeler_RecordStorageWriteDuration_Call) Return() *MockMetri
 }
 
 func (_c *MockMetricLabeler_RecordStorageWriteDuration_Call) RunAndReturn(run func(context.Context, time.Duration)) *MockMetricLabeler_RecordStorageWriteDuration_Call {
+	_c.Run(run)
+	return _c
+}
+
+// RecordStorageWriteQueueSize provides a mock function with given fields: ctx, size
+func (_m *MockMetricLabeler) RecordStorageWriteQueueSize(ctx context.Context, size int64) {
+	_m.Called(ctx, size)
+}
+
+// MockMetricLabeler_RecordStorageWriteQueueSize_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordStorageWriteQueueSize'
+type MockMetricLabeler_RecordStorageWriteQueueSize_Call struct {
+	*mock.Call
+}
+
+// RecordStorageWriteQueueSize is a helper method to define mock.On call
+//   - ctx context.Context
+//   - size int64
+func (_e *MockMetricLabeler_Expecter) RecordStorageWriteQueueSize(ctx interface{}, size interface{}) *MockMetricLabeler_RecordStorageWriteQueueSize_Call {
+	return &MockMetricLabeler_RecordStorageWriteQueueSize_Call{Call: _e.mock.On("RecordStorageWriteQueueSize", ctx, size)}
+}
+
+func (_c *MockMetricLabeler_RecordStorageWriteQueueSize_Call) Run(run func(ctx context.Context, size int64)) *MockMetricLabeler_RecordStorageWriteQueueSize_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int64))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordStorageWriteQueueSize_Call) Return() *MockMetricLabeler_RecordStorageWriteQueueSize_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordStorageWriteQueueSize_Call) RunAndReturn(run func(context.Context, int64)) *MockMetricLabeler_RecordStorageWriteQueueSize_Call {
+	_c.Run(run)
+	return _c
+}
+
+// RecordTaskVerificationQueueSize provides a mock function with given fields: ctx, size
+func (_m *MockMetricLabeler) RecordTaskVerificationQueueSize(ctx context.Context, size int64) {
+	_m.Called(ctx, size)
+}
+
+// MockMetricLabeler_RecordTaskVerificationQueueSize_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordTaskVerificationQueueSize'
+type MockMetricLabeler_RecordTaskVerificationQueueSize_Call struct {
+	*mock.Call
+}
+
+// RecordTaskVerificationQueueSize is a helper method to define mock.On call
+//   - ctx context.Context
+//   - size int64
+func (_e *MockMetricLabeler_Expecter) RecordTaskVerificationQueueSize(ctx interface{}, size interface{}) *MockMetricLabeler_RecordTaskVerificationQueueSize_Call {
+	return &MockMetricLabeler_RecordTaskVerificationQueueSize_Call{Call: _e.mock.On("RecordTaskVerificationQueueSize", ctx, size)}
+}
+
+func (_c *MockMetricLabeler_RecordTaskVerificationQueueSize_Call) Run(run func(ctx context.Context, size int64)) *MockMetricLabeler_RecordTaskVerificationQueueSize_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int64))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordTaskVerificationQueueSize_Call) Return() *MockMetricLabeler_RecordTaskVerificationQueueSize_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordTaskVerificationQueueSize_Call) RunAndReturn(run func(context.Context, int64)) *MockMetricLabeler_RecordTaskVerificationQueueSize_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetLocalChainGlobalCursed provides a mock function with given fields: ctx, localSelector, globalCurse
+func (_m *MockMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool) {
+	_m.Called(ctx, localSelector, globalCurse)
+}
+
+// MockMetricLabeler_SetLocalChainGlobalCursed_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetLocalChainGlobalCursed'
+type MockMetricLabeler_SetLocalChainGlobalCursed_Call struct {
+	*mock.Call
+}
+
+// SetLocalChainGlobalCursed is a helper method to define mock.On call
+//   - ctx context.Context
+//   - localSelector protocol.ChainSelector
+//   - globalCurse bool
+func (_e *MockMetricLabeler_Expecter) SetLocalChainGlobalCursed(ctx interface{}, localSelector interface{}, globalCurse interface{}) *MockMetricLabeler_SetLocalChainGlobalCursed_Call {
+	return &MockMetricLabeler_SetLocalChainGlobalCursed_Call{Call: _e.mock.On("SetLocalChainGlobalCursed", ctx, localSelector, globalCurse)}
+}
+
+func (_c *MockMetricLabeler_SetLocalChainGlobalCursed_Call) Run(run func(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool)) *MockMetricLabeler_SetLocalChainGlobalCursed_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(protocol.ChainSelector), args[2].(bool))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_SetLocalChainGlobalCursed_Call) Return() *MockMetricLabeler_SetLocalChainGlobalCursed_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_SetLocalChainGlobalCursed_Call) RunAndReturn(run func(context.Context, protocol.ChainSelector, bool)) *MockMetricLabeler_SetLocalChainGlobalCursed_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetRemoteChainCursed provides a mock function with given fields: ctx, localSelector, remoteSelector, cursed
+func (_m *MockMetricLabeler) SetRemoteChainCursed(ctx context.Context, localSelector protocol.ChainSelector, remoteSelector protocol.ChainSelector, cursed bool) {
+	_m.Called(ctx, localSelector, remoteSelector, cursed)
+}
+
+// MockMetricLabeler_SetRemoteChainCursed_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetRemoteChainCursed'
+type MockMetricLabeler_SetRemoteChainCursed_Call struct {
+	*mock.Call
+}
+
+// SetRemoteChainCursed is a helper method to define mock.On call
+//   - ctx context.Context
+//   - localSelector protocol.ChainSelector
+//   - remoteSelector protocol.ChainSelector
+//   - cursed bool
+func (_e *MockMetricLabeler_Expecter) SetRemoteChainCursed(ctx interface{}, localSelector interface{}, remoteSelector interface{}, cursed interface{}) *MockMetricLabeler_SetRemoteChainCursed_Call {
+	return &MockMetricLabeler_SetRemoteChainCursed_Call{Call: _e.mock.On("SetRemoteChainCursed", ctx, localSelector, remoteSelector, cursed)}
+}
+
+func (_c *MockMetricLabeler_SetRemoteChainCursed_Call) Run(run func(ctx context.Context, localSelector protocol.ChainSelector, remoteSelector protocol.ChainSelector, cursed bool)) *MockMetricLabeler_SetRemoteChainCursed_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(protocol.ChainSelector), args[2].(protocol.ChainSelector), args[3].(bool))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_SetRemoteChainCursed_Call) Return() *MockMetricLabeler_SetRemoteChainCursed_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_SetRemoteChainCursed_Call) RunAndReturn(run func(context.Context, protocol.ChainSelector, protocol.ChainSelector, bool)) *MockMetricLabeler_SetRemoteChainCursed_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetVerifierFinalityViolated provides a mock function with given fields: ctx, selector, violated
+func (_m *MockMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool) {
+	_m.Called(ctx, selector, violated)
+}
+
+// MockMetricLabeler_SetVerifierFinalityViolated_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetVerifierFinalityViolated'
+type MockMetricLabeler_SetVerifierFinalityViolated_Call struct {
+	*mock.Call
+}
+
+// SetVerifierFinalityViolated is a helper method to define mock.On call
+//   - ctx context.Context
+//   - selector protocol.ChainSelector
+//   - violated bool
+func (_e *MockMetricLabeler_Expecter) SetVerifierFinalityViolated(ctx interface{}, selector interface{}, violated interface{}) *MockMetricLabeler_SetVerifierFinalityViolated_Call {
+	return &MockMetricLabeler_SetVerifierFinalityViolated_Call{Call: _e.mock.On("SetVerifierFinalityViolated", ctx, selector, violated)}
+}
+
+func (_c *MockMetricLabeler_SetVerifierFinalityViolated_Call) Run(run func(ctx context.Context, selector protocol.ChainSelector, violated bool)) *MockMetricLabeler_SetVerifierFinalityViolated_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(protocol.ChainSelector), args[2].(bool))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_SetVerifierFinalityViolated_Call) Return() *MockMetricLabeler_SetVerifierFinalityViolated_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_SetVerifierFinalityViolated_Call) RunAndReturn(run func(context.Context, protocol.ChainSelector, bool)) *MockMetricLabeler_SetVerifierFinalityViolated_Call {
 	_c.Run(run)
 	return _c
 }

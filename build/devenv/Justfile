@@ -35,12 +35,22 @@ clean-docker-dev:
 
 # Build all the services (hot-reload dev mode)
 build-docker-dev:
+    @just build-jd-docker
     @just ../../build/devenv/fakes/build-dev
     @just ../../pricer/build-dev
     @just ../../verifier/build-dev
     @just ../../executor/build-dev
     @just ../../indexer/build-dev
     @just ../../aggregator/build-dev
+
+build-docker:
+    @just build-jd-docker
+    @just ../../build/devenv/fakes/build
+    @just ../../pricer/build
+    @just ../../verifier/build
+    @just ../../executor/build
+    @just ../../indexer/build
+    @just ../../aggregator/build
 
 # Build all the services (hot-reload dev mode but with default JD image)
 build-docker-dev-ci:
@@ -66,13 +76,13 @@ cli:
 
 # Rebuild all (optionally pass config, defaults to env.toml)
 rebuild-all config="env.toml":
+    @just build-jd-docker
     echo "Building CLI and all services"
     @just cli
     ccv down
     echo "Cleaning up old images..."
     @just clean-docker-dev
     @just build-docker-dev
-    @just build-jd-docker
     ccv up {{ config }}
 
 # Clone and build job-distributor Docker image

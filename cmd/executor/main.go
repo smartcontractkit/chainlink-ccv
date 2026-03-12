@@ -16,10 +16,10 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	adapter "github.com/smartcontractkit/chainlink-ccv/executor/pkg/adapter"
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
@@ -62,14 +62,6 @@ func main() {
 		configPath = envConfig
 	}
 
-	executorConfig, blockchainInfo, err := loadConfiguration(configPath)
-	if err != nil {
-		os.Exit(1)
-	}
-	if err = executorConfig.Validate(); err != nil {
-		os.Exit(1)
-	}
-
 	//
 	// Initialize logger
 	// ------------------------------------------------------------------------------------------------
@@ -79,6 +71,12 @@ func main() {
 		panic(fmt.Sprintf("Failed to create logger: %v", err))
 	}
 	lggr = logger.Named(lggr, "executor")
+
+	executorConfig, blockchainInfo, err := loadConfiguration(configPath)
+	if err != nil {
+		lggr.Errorw("Failed to load configuration", "path", configPath, "error", err)
+		os.Exit(1)
+	}
 
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "executor",
@@ -158,6 +156,7 @@ func main() {
 	// ------------------------------------------------------------------------------------------------
 	contractTransmitters := make(map[protocol.ChainSelector]chainaccess.ContractTransmitter)
 	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
+	enabledDestChains := make([]protocol.ChainSelector, 0)
 	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
 	for strSel, chain := range blockchainInfo {
 		chainConfig := executorConfig.ChainConfiguration[strSel]
@@ -175,7 +174,6 @@ func main() {
 				ChainClient:               chainClient,
 				OfframpAddress:            chainConfig.OffRampAddress,
 				RmnRemoteAddress:          chainConfig.RmnAddress,
-				CacheExpiry:               executorConfig.ReaderCacheExpiry,
 				ExecutionVisabilityWindow: executorConfig.MaxRetryDuration,
 				Monitoring:                executorMonitoring,
 			})
@@ -206,6 +204,7 @@ func main() {
 			rmnReaders[protocol.ChainSelector(selector)] = dr
 		}
 		contractTransmitters[protocol.ChainSelector(selector)] = ct
+		enabledDestChains = append(enabledDestChains, protocol.ChainSelector(selector))
 	}
 
 	//
@@ -213,21 +212,25 @@ func main() {
 	// ------------------------------------------------------------------------------------------------
 	curseChecker := cursechecker.NewCachedCurseChecker(cursechecker.Params{
 		Lggr:        lggr,
+		Metrics:     executorMonitoring.Metrics(),
 		RmnReaders:  rmnReaders,
 		CacheExpiry: executorConfig.ReaderCacheExpiry,
 	})
 
 	//
-	// Initialize indexer client
+	// Initialize indexer adapter with multiple clients (supports concurrent queries)
 	// ------------------------------------------------------------------------------------------------
-	indexerClient, err := client.NewIndexerClient(executorConfig.IndexerAddress, &http.Client{
-		Timeout: 30 * time.Second,
-	})
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	verifierResultReader, err := adapter.NewIndexerReaderAdapter(
+		executorConfig.IndexerAddress,
+		httpClient,
+		executorMonitoring,
+		lggr,
+	)
 	if err != nil {
-		lggr.Errorw("Failed to create indexer client", "error", err)
+		lggr.Errorw("Failed to create indexer adapter", "error", err)
 		os.Exit(1)
 	}
-	verifierResultReader := executor.NewIndexerReaderAdapter(indexerClient, executorMonitoring)
 
 	//
 	// Parse per chain configuration from executor configuration
@@ -255,29 +258,39 @@ func main() {
 	// Initialize Message Handler
 	// ------------------------------------------------------------------------------------------------
 	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, curseChecker, verifierResultReader, executorMonitoring, defaultExecutorAddresses)
+	if err := ex.Validate(); err != nil {
+		lggr.Errorw("Failed to validate chainlink executor", "error", err)
+		os.Exit(1)
+		return
+	}
 
 	//
 	// Initialize leader elector
 	// ------------------------------------------------------------------------------------------------
-	le := leaderelector.NewHashBasedLeaderElector(
+	le, err := leaderelector.NewHashBasedLeaderElector(
 		lggr,
 		execPool,
 		executorConfig.ExecutorID,
 		execIntervals,
 	)
+	if err != nil {
+		lggr.Errorw("Failed to create leader elector", "error", err)
+		os.Exit(1)
+	}
 	timeProvider := backofftimeprovider.NewBackoffNTPProvider(lggr, executorConfig.BackoffDuration, executorConfig.NtpServer)
 
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
 		lggr,
 		ccvstreamer.IndexerStorageConfig{
-			IndexerClient:    verifierResultReader,
-			InitialQueryTime: time.Now().Add(-1 * executorConfig.LookbackWindow),
-			PollingInterval:  indexerPollingInterval,
-			Backoff:          executorConfig.BackoffDuration,
-			QueryLimit:       executorConfig.IndexerQueryLimit,
-			ExpiryDuration:   messageContextWindow,
-			CleanInterval:    indexerGarbageCollectionInterval,
-			TimeProvider:     timeProvider,
+			IndexerClient:     verifierResultReader,
+			InitialQueryTime:  time.Now().Add(-1 * executorConfig.LookbackWindow),
+			PollingInterval:   indexerPollingInterval,
+			Backoff:           executorConfig.BackoffDuration,
+			QueryLimit:        executorConfig.IndexerQueryLimit,
+			ExpiryDuration:    messageContextWindow,
+			CleanInterval:     indexerGarbageCollectionInterval,
+			TimeProvider:      timeProvider,
+			EnabledDestChains: enabledDestChains,
 		})
 
 	//
@@ -307,15 +320,24 @@ func main() {
 	// Wait for shutdown signal
 	// ------------------------------------------------------------------------------------------------
 	<-sigCh
-	lggr.Infow("🛑 Shutdown signal received, stopping verifier...")
+	lggr.Infow("🛑 Shutdown signal received, stopping executor...")
 
 	// Graceful shutdown
-	_, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
-	// Stop execution coordinator
-	if err := coordinator.Close(); err != nil {
-		lggr.Errorw("Execution coordinator stop error", "error", err)
+	done := make(chan error, 1)
+	go func() {
+		done <- coordinator.Close()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			lggr.Errorw("Execution coordinator stop error", "error", err)
+		}
+	case <-shutdownCtx.Done():
+		lggr.Errorw("Execution coordinator shutdown timed out")
 	}
 
 	lggr.Infow("✅ Execution service stopped gracefully")

@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
@@ -13,7 +13,7 @@ func TestServiceExecutor(t *testing.T) {
 	// Minimal valid executor config for testing
 	generatedConfig := `
 executor_id = "executor-test"
-indexer_address = "http://localhost:8100"
+indexer_address = ["http://localhost:8100"]
 
 [chain_configuration]
 [chain_configuration."1"]

@@ -69,7 +69,7 @@ func TestInMemoryOffchainStorage_WriteCCVNodeData(t *testing.T) {
 	}
 
 	// Write data
-	err := storage.WriteCCVNodeData(ctx, testData)
+	_, err := storage.WriteCCVNodeData(ctx, testData)
 	require.NoError(t, err)
 
 	// Retrieve and verify
@@ -114,7 +114,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 		}
 
 		// Store first data at baseTime
-		err := storage.WriteCCVNodeData(ctx, testData1)
+		_, err := storage.WriteCCVNodeData(ctx, testData1)
 		require.NoError(t, err)
 
 		// Update time provider for second batch
@@ -132,7 +132,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 			},
 		}
 
-		err = storage.WriteCCVNodeData(ctx, testData2)
+		_, err = storage.WriteCCVNodeData(ctx, testData2)
 		require.NoError(t, err)
 
 		// Update time provider for third batch
@@ -150,7 +150,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 			},
 		}
 
-		err = storage.WriteCCVNodeData(ctx, testData3)
+		_, err = storage.WriteCCVNodeData(ctx, testData3)
 		require.NoError(t, err)
 
 		return storage
@@ -261,7 +261,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByMessageID(t *testing.T) {
 	}
 
 	// Store data
-	err := storage.WriteCCVNodeData(ctx, testData)
+	_, err := storage.WriteCCVNodeData(ctx, testData)
 	require.NoError(t, err)
 
 	// Test finding existing message
@@ -318,10 +318,10 @@ func TestInMemoryOffchainStorage_MultipleVerifiers(t *testing.T) {
 	}
 
 	// Write data for both verifiers
-	err := storage.WriteCCVNodeData(ctx, data1)
+	_, err := storage.WriteCCVNodeData(ctx, data1)
 	require.NoError(t, err)
 
-	err = storage.WriteCCVNodeData(ctx, data2)
+	_, err = storage.WriteCCVNodeData(ctx, data2)
 	require.NoError(t, err)
 
 	// Verify all data stored (GetAllCCVData returns all data, not filtered by verifier)
@@ -354,7 +354,7 @@ func TestInMemoryOffchainStorage_Clear(t *testing.T) {
 		},
 	}
 
-	err := storage.WriteCCVNodeData(ctx, testData)
+	_, err := storage.WriteCCVNodeData(ctx, testData)
 	require.NoError(t, err)
 
 	// Verify data exists
@@ -388,7 +388,7 @@ func TestInMemoryOffchainStorage_EmptyData(t *testing.T) {
 	ctx := context.Background()
 
 	// Write empty data should not error
-	err := storage.WriteCCVNodeData(ctx, []protocol.VerifierNodeResult{})
+	_, err := storage.WriteCCVNodeData(ctx, []protocol.VerifierNodeResult{})
 	require.NoError(t, err)
 
 	// Get all data (should be empty)
@@ -421,7 +421,7 @@ func TestInMemoryOffchainStorage_TimestampHandling(t *testing.T) {
 		},
 	}
 
-	err := storage.WriteCCVNodeData(ctx, testData)
+	_, err := storage.WriteCCVNodeData(ctx, testData)
 	require.NoError(t, err)
 
 	// Verify data was stored - timestamp is managed internally by storage entries
@@ -457,7 +457,7 @@ func TestInMemoryOffchainStorage_ReaderWriterViews(t *testing.T) {
 	}
 
 	// Store data directly using CCVNodeDataWriter interface
-	err := storage.WriteCCVNodeData(ctx, testData)
+	_, err := storage.WriteCCVNodeData(ctx, testData)
 	require.NoError(t, err)
 
 	// Read data using reader view
@@ -496,7 +496,7 @@ func setupReaderWithMessagesfunc(t *testing.T, baseTime int64, numMessages int, 
 		}
 
 		// Store first data at baseTime
-		err := storage.WriteCCVNodeData(t.Context(), testData1)
+		_, err := storage.WriteCCVNodeData(t.Context(), testData1)
 		require.NoError(t, err)
 	}
 
@@ -595,7 +595,7 @@ func TestEmptyReadsAndReadAfterEmpty(t *testing.T) {
 				Signature:       []byte("sig1"),
 			},
 		}
-		err := storage.WriteCCVNodeData(t.Context(), testData1)
+		_, err := storage.WriteCCVNodeData(t.Context(), testData1)
 		require.NoError(t, err)
 
 		// Next read should return the new message
@@ -647,7 +647,7 @@ func TestInMemoryOffchainStorage_DestinationChainOrganization(t *testing.T) {
 	}
 
 	// Store data
-	err := storage.WriteCCVNodeData(ctx, testData)
+	_, err := storage.WriteCCVNodeData(ctx, testData)
 	require.NoError(t, err)
 
 	// Query for both destination chains

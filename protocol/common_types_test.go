@@ -2,6 +2,8 @@ package protocol
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -451,5 +453,57 @@ func TestBytes32_UnmarshalJSON_DirectCall(t *testing.T) {
 				require.NoError(t, err)
 			}
 		})
+	}
+}
+
+func TestNewBytes16FromString_ErrorTruncation(t *testing.T) {
+	// create a string much longer than the allowed 34 chars so truncation is triggered
+	s := "0x" + strings.Repeat("ab", 99) // 0x + 198 hex chars => len(s) = 200
+	if len(s) <= 34 {
+		t.Fatalf("test setup invalid: len(s)=%d", len(s))
+	}
+
+	_, err := NewBytes16FromString(s)
+	if err == nil {
+		t.Fatal("expected error for too-long input, got nil")
+	}
+
+	msg := err.Error()
+	// Check the canonical prefix of the error and presence of truncation marker
+	if !strings.Contains(msg, "Bytes16 must be at most 16 bytes (32 hex chars) long") {
+		t.Fatalf("unexpected error message: %s", msg)
+	}
+	if !strings.Contains(msg, "...(truncated)") {
+		t.Fatalf("expected truncation marker in error message, got: %s", msg)
+	}
+	// ensure the original length is reported
+	expectedLen := fmt.Sprintf("%d", len(s))
+	if !strings.Contains(msg, expectedLen) {
+		t.Fatalf("expected length %s in error message, got: %s", expectedLen, msg)
+	}
+}
+
+func TestNewBytes32FromString_ErrorTruncation(t *testing.T) {
+	// create a string much longer than the allowed 66 chars so truncation is triggered
+	s := "0x" + strings.Repeat("ff", 150) // 0x + 300 hex chars => len(s) = 302
+	if len(s) <= 66 {
+		t.Fatalf("test setup invalid: len(s)=%d", len(s))
+	}
+
+	_, err := NewBytes32FromString(s)
+	if err == nil {
+		t.Fatal("expected error for too-long input, got nil")
+	}
+
+	msg := err.Error()
+	if !strings.Contains(msg, "Bytes32 must be at most 32 bytes (64 hex chars) long") {
+		t.Fatalf("unexpected error message: %s", msg)
+	}
+	if !strings.Contains(msg, "...(truncated)") {
+		t.Fatalf("expected truncation marker in error message, got: %s", msg)
+	}
+	expectedLen := fmt.Sprintf("%d", len(s))
+	if !strings.Contains(msg, expectedLen) {
+		t.Fatalf("expected length %s in error message, got: %s", expectedLen, msg)
 	}
 }

@@ -3,12 +3,16 @@ package cursechecker
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -72,9 +76,8 @@ func TestCachedCurseChecker_CacheHit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			lggr, err := logger.New()
-			assert.NoError(t, err)
+			ctx := t.Context()
+			lggr := logger.Test(t)
 
 			// Create mock reader
 			mockReader := mocks.NewMockRMNCurseReader(t)
@@ -85,29 +88,40 @@ func TestCachedCurseChecker_CacheHit(t *testing.T) {
 				Return(tt.firstCallResult, tt.firstCallError).
 				Once()
 
+			globalCursed := slices.Contains(tt.firstCallResult, protocol.Bytes16(GlobalCurseSubject))
+			remoteChainCursed := slices.Contains(tt.firstCallResult, protocol.Bytes16(ChainSelectorToBytes16(tt.remoteChain)))
+			metrics := mocks.NewMockCurseCheckerMetrics(t)
+			metrics.EXPECT().
+				SetLocalChainGlobalCursed(mock.Anything, tt.localChain, globalCursed).
+				Times(3)
+			metrics.EXPECT().
+				SetRemoteChainCursed(mock.Anything, tt.localChain, tt.remoteChain, remoteChainCursed).
+				Times(3)
+
 			// Create cached curse checker
 			checker := NewCachedCurseChecker(Params{
-				Lggr: lggr,
+				Lggr:    lggr,
+				Metrics: metrics,
 				RmnReaders: map[protocol.ChainSelector]chainaccess.RMNCurseReader{
 					tt.localChain: mockReader,
 				},
 				CacheExpiry: tt.cacheExpiry,
 			})
 
-			// First call - should hit the reader
-			result1 := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			result1, err := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expectedFirstResult, result1)
 
 			if tt.sleepBetweenCalls > 0 {
 				time.Sleep(tt.sleepBetweenCalls)
 			}
 
-			// Second call - should hit the cache, not the reader
-			result2 := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			result2, err := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expectedFirstResult, result2)
 
-			// Third call - verify cache is still being used
-			result3 := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			result3, err := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expectedFirstResult, result3)
 
 			// Mock assertions will verify GetRMNCursedSubjects was only called once
@@ -164,9 +178,8 @@ func TestCachedCurseChecker_CacheExpiry(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			lggr, err := logger.New()
-			assert.NoError(t, err)
+			ctx := t.Context()
+			lggr := logger.Test(t)
 
 			// Create mock reader
 			mockReader := mocks.NewMockRMNCurseReader(t)
@@ -183,24 +196,63 @@ func TestCachedCurseChecker_CacheExpiry(t *testing.T) {
 				Return(tt.secondCallResult, nil).
 				Once()
 
+			metrics := mocks.NewMockCurseCheckerMetrics(t)
+
+			firstGlobalCursed := slices.Contains(tt.firstCallResult, protocol.Bytes16(GlobalCurseSubject))
+			secondGlobalCursed := slices.Contains(tt.secondCallResult, protocol.Bytes16(GlobalCurseSubject))
+			if firstGlobalCursed && secondGlobalCursed {
+				metrics.EXPECT().
+					SetLocalChainGlobalCursed(mock.Anything, tt.localChain, true).
+					Twice()
+			} else if firstGlobalCursed || secondGlobalCursed {
+				metrics.EXPECT().
+					SetLocalChainGlobalCursed(mock.Anything, tt.localChain, false).
+					Once()
+				metrics.EXPECT().
+					SetLocalChainGlobalCursed(mock.Anything, tt.localChain, true).
+					Once()
+			} else {
+				metrics.EXPECT().
+					SetLocalChainGlobalCursed(mock.Anything, tt.localChain, false).
+					Twice()
+			}
+			firstRemoteChainCursed := slices.Contains(tt.firstCallResult, protocol.Bytes16(ChainSelectorToBytes16(tt.remoteChain)))
+			secondRemoteChainCursed := slices.Contains(tt.secondCallResult, protocol.Bytes16(ChainSelectorToBytes16(tt.remoteChain)))
+			if firstRemoteChainCursed && secondRemoteChainCursed {
+				metrics.EXPECT().
+					SetRemoteChainCursed(mock.Anything, tt.localChain, tt.remoteChain, true).
+					Twice()
+			} else if firstRemoteChainCursed || secondRemoteChainCursed {
+				metrics.EXPECT().
+					SetRemoteChainCursed(mock.Anything, tt.localChain, tt.remoteChain, false).
+					Once()
+				metrics.EXPECT().
+					SetRemoteChainCursed(mock.Anything, tt.localChain, tt.remoteChain, true).
+					Once()
+			} else {
+				metrics.EXPECT().
+					SetRemoteChainCursed(mock.Anything, tt.localChain, tt.remoteChain, false).
+					Twice()
+			}
+
 			// Create cached curse checker
 			checker := NewCachedCurseChecker(Params{
-				Lggr: lggr,
+				Lggr:    lggr,
+				Metrics: metrics,
 				RmnReaders: map[protocol.ChainSelector]chainaccess.RMNCurseReader{
 					tt.localChain: mockReader,
 				},
 				CacheExpiry: tt.cacheExpiry,
 			})
 
-			// First call - should hit the reader
-			result1 := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			result1, err := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expectedFirstResult, result1)
 
-			// Sleep to let cache expire
 			time.Sleep(tt.sleepBetweenCalls)
 
-			// Second call - cache expired, should hit the reader again
-			result2 := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			result2, err := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expectedSecondResult, result2)
 
 			// Mock assertions will verify GetRMNCursedSubjects was called twice
@@ -218,7 +270,7 @@ func TestCachedCurseChecker_ErrorHandling(t *testing.T) {
 		secondResult      []protocol.Bytes16
 	}{
 		{
-			name:              "reader error - assumes cursed and doesn't poison cache",
+			name:              "reader error - fail closed (cursed) and doesn't poison cache",
 			localChain:        1,
 			remoteChain:       2,
 			expectedErrorRes:  true,
@@ -238,8 +290,7 @@ func TestCachedCurseChecker_ErrorHandling(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			lggr, err := logger.New()
-			assert.NoError(t, err)
+			lggr := logger.Test(t)
 
 			mockReader := mocks.NewMockRMNCurseReader(t)
 
@@ -256,22 +307,31 @@ func TestCachedCurseChecker_ErrorHandling(t *testing.T) {
 				Return(tt.secondResult, nil).
 				Once()
 
+			globalCursed := slices.Contains(tt.secondResult, protocol.Bytes16(GlobalCurseSubject))
+			remoteChainCursed := slices.Contains(tt.secondResult, protocol.Bytes16(ChainSelectorToBytes16(tt.remoteChain)))
+			metrics := mocks.NewMockCurseCheckerMetrics(t)
+			metrics.EXPECT().
+				SetLocalChainGlobalCursed(mock.Anything, tt.localChain, globalCursed).
+				Once()
+			metrics.EXPECT().
+				SetRemoteChainCursed(mock.Anything, tt.localChain, tt.remoteChain, remoteChainCursed).
+				Once()
+
 			checker := NewCachedCurseChecker(Params{
-				Lggr: lggr,
+				Lggr:    lggr,
+				Metrics: metrics,
 				RmnReaders: map[protocol.ChainSelector]chainaccess.RMNCurseReader{
 					tt.localChain: mockReader,
 				},
 				CacheExpiry: 1 * time.Second,
 			})
 
-			// First call should assume cursed since the reader errors,
-			// and must not populate the cache, so another underlying call will happen next time.
-			res1 := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
-			assert.Equal(t, tt.expectedErrorRes, res1, "should return expected result on reader error")
+			res1, err1 := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			assert.Equal(t, tt.expectedErrorRes, res1, "should return expected result on reader error (fail closed)")
+			assert.ErrorIs(t, err1, common.ErrCurseStateUnknown)
 
-			// Now, the next call to IsRemoteChainCursed should trigger a new call to the reader,
-			// since error results were not cached.
-			res2 := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			res2, err2 := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			require.NoError(t, err2)
 			assert.Equal(t, tt.expectedSecondRes, res2, "should return actual result and not cache error")
 		})
 	}
@@ -315,8 +375,7 @@ func TestCachedCurseChecker_MultipleChains(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			lggr, err := logger.New()
-			assert.NoError(t, err)
+			lggr := logger.Test(t)
 
 			// Create mock readers for each chain
 			mockReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
@@ -329,23 +388,26 @@ func TestCachedCurseChecker_MultipleChains(t *testing.T) {
 				mockReaders[chain] = mockReader
 			}
 
+			metrics := monitoring.NewNoopExecutorMetricLabeler()
+
 			// Create cached curse checker
 			checker := NewCachedCurseChecker(Params{
 				Lggr:        lggr,
+				Metrics:     metrics,
 				RmnReaders:  mockReaders,
 				CacheExpiry: tt.cacheExpiry,
 			})
 
-			// Perform all checks
 			for _, check := range tt.checks {
-				result := checker.IsRemoteChainCursed(ctx, check.localChain, check.remoteChain)
+				result, err := checker.IsRemoteChainCursed(ctx, check.localChain, check.remoteChain)
+				require.NoError(t, err)
 				assert.Equal(t, check.expectedResult, result,
 					"unexpected result for localChain=%d, remoteChain=%d", check.localChain, check.remoteChain)
 			}
 
-			// Call again to verify cache is being used
 			for _, check := range tt.checks {
-				result := checker.IsRemoteChainCursed(ctx, check.localChain, check.remoteChain)
+				result, err := checker.IsRemoteChainCursed(ctx, check.localChain, check.remoteChain)
+				require.NoError(t, err)
 				assert.Equal(t, check.expectedResult, result,
 					"unexpected cached result for localChain=%d, remoteChain=%d", check.localChain, check.remoteChain)
 			}
@@ -412,18 +474,21 @@ func TestCachedCurseChecker_GlobalCurseDetection(t *testing.T) {
 				Return(tt.cursedSubjects, nil).
 				Once()
 
+			metrics := monitoring.NewNoopExecutorMetricLabeler()
+
 			// Create cached curse checker
 			checker := NewCachedCurseChecker(Params{
-				Lggr: lggr,
+				Lggr:    lggr,
+				Metrics: metrics,
 				RmnReaders: map[protocol.ChainSelector]chainaccess.RMNCurseReader{
 					tt.localChain: mockReader,
 				},
 				CacheExpiry: 1 * time.Second,
 			})
 
-			// Check each chain
 			for i, remoteChain := range tt.checkChains {
-				result := checker.IsRemoteChainCursed(ctx, tt.localChain, remoteChain)
+				result, err := checker.IsRemoteChainCursed(ctx, tt.localChain, remoteChain)
+				require.NoError(t, err)
 				assert.Equal(t, tt.expectedResults[i], result,
 					"unexpected result for remoteChain=%d", remoteChain)
 			}
@@ -450,9 +515,8 @@ func TestCachedCurseChecker_NilCursedSubjects(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			lggr, err := logger.New()
-			assert.NoError(t, err)
+			ctx := t.Context()
+			lggr := logger.Test(t)
 
 			// Create mock reader
 			mockReader := mocks.NewMockRMNCurseReader(t)
@@ -461,21 +525,24 @@ func TestCachedCurseChecker_NilCursedSubjects(t *testing.T) {
 				Return(nil, nil).
 				Once()
 
+			metrics := monitoring.NewNoopExecutorMetricLabeler()
+
 			// Create cached curse checker
 			checker := NewCachedCurseChecker(Params{
-				Lggr: lggr,
+				Lggr:    lggr,
+				Metrics: metrics,
 				RmnReaders: map[protocol.ChainSelector]chainaccess.RMNCurseReader{
 					tt.localChain: mockReader,
 				},
 				CacheExpiry: 1 * time.Second,
 			})
 
-			// Call should return false (no curses)
-			result := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			result, err := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expectedResult, result)
 
-			// Call again to verify cache works with nil results
-			result2 := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			result2, err := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expectedResult, result2)
 
 			// Mock assertions will verify GetRMNCursedSubjects was only called once
@@ -487,6 +554,7 @@ func TestIsChainSelectorCursed(t *testing.T) {
 	tests := []struct {
 		name           string
 		cursedSubjects cacheValue
+		localChain     protocol.ChainSelector
 		remoteChain    protocol.ChainSelector
 		expectedResult bool
 	}{
@@ -495,6 +563,7 @@ func TestIsChainSelectorCursed(t *testing.T) {
 			cursedSubjects: cacheValue{
 				GlobalCurseSubject: struct{}{},
 			},
+			localChain:     1,
 			remoteChain:    42,
 			expectedResult: true,
 		},
@@ -503,6 +572,7 @@ func TestIsChainSelectorCursed(t *testing.T) {
 			cursedSubjects: cacheValue{
 				ChainSelectorToBytes16(42): struct{}{},
 			},
+			localChain:     1,
 			remoteChain:    42,
 			expectedResult: true,
 		},
@@ -511,18 +581,21 @@ func TestIsChainSelectorCursed(t *testing.T) {
 			cursedSubjects: cacheValue{
 				ChainSelectorToBytes16(100): struct{}{},
 			},
+			localChain:     1,
 			remoteChain:    42,
 			expectedResult: false,
 		},
 		{
 			name:           "empty curse set returns false",
 			cursedSubjects: cacheValue{},
+			localChain:     1,
 			remoteChain:    42,
 			expectedResult: false,
 		},
 		{
 			name:           "nil curse set returns false",
 			cursedSubjects: nil,
+			localChain:     1,
 			remoteChain:    42,
 			expectedResult: false,
 		},
@@ -530,7 +603,27 @@ func TestIsChainSelectorCursed(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := isChainSelectorCursed(tt.cursedSubjects, tt.remoteChain)
+			lggr := logger.Test(t)
+			// Create mock reader
+			mockReader := mocks.NewMockRMNCurseReader(t)
+			mockReader.EXPECT().
+				GetRMNCursedSubjects(mock.Anything).
+				Return(nil, nil).
+				Maybe()
+
+			metrics := monitoring.NewNoopExecutorMetricLabeler()
+
+			// Create cached curse checker
+			checker := NewCachedCurseChecker(Params{
+				Lggr:    lggr,
+				Metrics: metrics,
+				RmnReaders: map[protocol.ChainSelector]chainaccess.RMNCurseReader{
+					tt.localChain: mockReader,
+				},
+				CacheExpiry: 1 * time.Second,
+			})
+
+			result := checker.isChainSelectorCursed(t.Context(), tt.cursedSubjects, tt.localChain, tt.remoteChain)
 			assert.Equal(t, tt.expectedResult, result)
 		})
 	}

@@ -31,19 +31,12 @@ func NewVerifierResultsHandler(
 }
 
 // Handle processes GET requests with messageID as query parameters
-// Expected query parameter format: ?messageID=0x123abc,0x456def,...
+// Expected query parameter format: ?messageID=0x123abc&messageID=0x456def&...
 func (h *VerifierResultsHandler) Handle(c *gin.Context) {
-	// Get messageID from query parameters
-	messageIDsParam := c.Query("messageID")
-	if messageIDsParam == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "messageID query parameter is required"})
-		return
-	}
-
-	// Split by comma to get individual message IDs
-	messageIDStrings := strings.Split(messageIDsParam, ",")
+	// Get messageID from query parameters (supports multiple values)
+	messageIDStrings := c.QueryArray("messageID")
 	if len(messageIDStrings) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "messageID cannot be empty"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "messageID query parameter is required"})
 		return
 	}
 
@@ -62,7 +55,7 @@ func (h *VerifierResultsHandler) Handle(c *gin.Context) {
 		msgID, err := protocol.NewBytes32FromString(strings.TrimSpace(msgIDStr))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": fmt.Sprintf("invalid message_id format: %s - %v", msgIDStr, err),
+				"error": "invalid messageID format",
 			})
 			return
 		}
@@ -99,5 +92,11 @@ func (h *VerifierResultsHandler) Handle(c *gin.Context) {
 		errors,
 	)
 
-	c.JSON(http.StatusOK, response)
+	// If no results were found at all, return 404 Not Found
+	// If at least one result was found (partial success), return 200 OK
+	if len(apiResults) == 0 && len(errors) > 0 {
+		c.JSON(http.StatusNotFound, response)
+	} else {
+		c.JSON(http.StatusOK, response)
+	}
 }

@@ -126,7 +126,6 @@ func buildQuorumConfigsFromOnChain(
 				continue
 			}
 
-			// Lookup the committee verifier address by both the resolver type and the contract type
 			sourceVerifierAddr, err := dsutils.FindAndFormatFirstRef(ds, sigConfig.SourceChainSelector, func(r datastore.AddressRef) (string, error) { return r.Address, nil },
 				datastore.AddressRef{
 					Type:      datastore.ContractType(committee_verifier.ResolverType),
@@ -167,7 +166,6 @@ func buildDestinationVerifiers(
 	destVerifiers := make(map[string]string)
 
 	for _, chainSelector := range destChainSelectors {
-		// Lookup the committee verifier address by both the resolver type and the contract type
 		addr, err := dsutils.FindAndFormatFirstRef(ds, chainSelector, func(r datastore.AddressRef) (string, error) { return r.Address, nil },
 			datastore.AddressRef{
 				Type:      datastore.ContractType(committee_verifier.ResolverType),

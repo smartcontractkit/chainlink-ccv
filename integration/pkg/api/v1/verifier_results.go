@@ -225,13 +225,17 @@ func (r *VerifierResult) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("message field is required but was missing")
 	}
 
+	if len(aux.MessageCcvAddresses) > protocol.MaxCCVsPerMessage {
+		return fmt.Errorf("too many CCV addresses: %d (max %d)", len(aux.MessageCcvAddresses), protocol.MaxCCVsPerMessage)
+	}
+
 	messageCcvAddresses := make([][]byte, len(aux.MessageCcvAddresses))
 	for i, addr := range aux.MessageCcvAddresses {
 		messageCcvAddresses[i] = addr.Bytes()
 	}
 
 	var metadata *v1.VerifierResultMetadata
-	if aux.Metadata != nil {
+	if aux.Metadata != nil && aux.Metadata.VerifierResultMetadata != nil {
 		metadata = aux.Metadata.VerifierResultMetadata
 	} else {
 		metadata = &v1.VerifierResultMetadata{}

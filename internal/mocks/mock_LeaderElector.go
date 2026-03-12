@@ -23,7 +23,7 @@ func (_m *MockLeaderElector) EXPECT() *MockLeaderElector_Expecter {
 }
 
 // GetReadyTimestamp provides a mock function with given fields: messageID, chainSel, baseTime
-func (_m *MockLeaderElector) GetReadyTimestamp(messageID protocol.Bytes32, chainSel protocol.ChainSelector, baseTime time.Time) time.Time {
+func (_m *MockLeaderElector) GetReadyTimestamp(messageID protocol.Bytes32, chainSel protocol.ChainSelector, baseTime time.Time) (time.Time, error) {
 	ret := _m.Called(messageID, chainSel, baseTime)
 
 	if len(ret) == 0 {
@@ -31,13 +31,23 @@ func (_m *MockLeaderElector) GetReadyTimestamp(messageID protocol.Bytes32, chain
 	}
 
 	var r0 time.Time
+	var r1 error
+	if rf, ok := ret.Get(0).(func(protocol.Bytes32, protocol.ChainSelector, time.Time) (time.Time, error)); ok {
+		return rf(messageID, chainSel, baseTime)
+	}
 	if rf, ok := ret.Get(0).(func(protocol.Bytes32, protocol.ChainSelector, time.Time) time.Time); ok {
 		r0 = rf(messageID, chainSel, baseTime)
 	} else {
 		r0 = ret.Get(0).(time.Time)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(protocol.Bytes32, protocol.ChainSelector, time.Time) error); ok {
+		r1 = rf(messageID, chainSel, baseTime)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // MockLeaderElector_GetReadyTimestamp_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetReadyTimestamp'
@@ -60,18 +70,18 @@ func (_c *MockLeaderElector_GetReadyTimestamp_Call) Run(run func(messageID proto
 	return _c
 }
 
-func (_c *MockLeaderElector_GetReadyTimestamp_Call) Return(_a0 time.Time) *MockLeaderElector_GetReadyTimestamp_Call {
-	_c.Call.Return(_a0)
+func (_c *MockLeaderElector_GetReadyTimestamp_Call) Return(_a0 time.Time, _a1 error) *MockLeaderElector_GetReadyTimestamp_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockLeaderElector_GetReadyTimestamp_Call) RunAndReturn(run func(protocol.Bytes32, protocol.ChainSelector, time.Time) time.Time) *MockLeaderElector_GetReadyTimestamp_Call {
+func (_c *MockLeaderElector_GetReadyTimestamp_Call) RunAndReturn(run func(protocol.Bytes32, protocol.ChainSelector, time.Time) (time.Time, error)) *MockLeaderElector_GetReadyTimestamp_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // GetRetryDelay provides a mock function with given fields: destinationChain
-func (_m *MockLeaderElector) GetRetryDelay(destinationChain protocol.ChainSelector) time.Duration {
+func (_m *MockLeaderElector) GetRetryDelay(destinationChain protocol.ChainSelector) (time.Duration, error) {
 	ret := _m.Called(destinationChain)
 
 	if len(ret) == 0 {
@@ -79,13 +89,23 @@ func (_m *MockLeaderElector) GetRetryDelay(destinationChain protocol.ChainSelect
 	}
 
 	var r0 time.Duration
+	var r1 error
+	if rf, ok := ret.Get(0).(func(protocol.ChainSelector) (time.Duration, error)); ok {
+		return rf(destinationChain)
+	}
 	if rf, ok := ret.Get(0).(func(protocol.ChainSelector) time.Duration); ok {
 		r0 = rf(destinationChain)
 	} else {
 		r0 = ret.Get(0).(time.Duration)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(protocol.ChainSelector) error); ok {
+		r1 = rf(destinationChain)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // MockLeaderElector_GetRetryDelay_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetRetryDelay'
@@ -106,12 +126,12 @@ func (_c *MockLeaderElector_GetRetryDelay_Call) Run(run func(destinationChain pr
 	return _c
 }
 
-func (_c *MockLeaderElector_GetRetryDelay_Call) Return(_a0 time.Duration) *MockLeaderElector_GetRetryDelay_Call {
-	_c.Call.Return(_a0)
+func (_c *MockLeaderElector_GetRetryDelay_Call) Return(_a0 time.Duration, _a1 error) *MockLeaderElector_GetRetryDelay_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockLeaderElector_GetRetryDelay_Call) RunAndReturn(run func(protocol.ChainSelector) time.Duration) *MockLeaderElector_GetRetryDelay_Call {
+func (_c *MockLeaderElector_GetRetryDelay_Call) RunAndReturn(run func(protocol.ChainSelector) (time.Duration, error)) *MockLeaderElector_GetRetryDelay_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -7,7 +7,7 @@ import (
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
 
-	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 )
 
 // ChainImplEntry holds a registered CCIP17 implementation along with its chain details.

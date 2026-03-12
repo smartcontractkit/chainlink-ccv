@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -143,8 +144,15 @@ func TestRowToCommitVerificationRecord(t *testing.T) {
 	require.Equal(t, []byte("signature_data"), record.Signature)
 }
 
+func mustParseUint64(t *testing.T, s string) uint64 {
+	t.Helper()
+	var result uint64
+	_, _ = fmt.Sscanf(s, "%d", &result)
+	return result
+}
+
 func TestMustParseUint64(t *testing.T) {
-	require.Equal(t, uint64(123), mustParseUint64("123"))
-	require.Equal(t, uint64(0), mustParseUint64("0"))
-	require.Equal(t, uint64(18446744073709551615), mustParseUint64("18446744073709551615"))
+	require.Equal(t, uint64(123), mustParseUint64(t, "123"))
+	require.Equal(t, uint64(0), mustParseUint64(t, "0"))
+	require.Equal(t, uint64(18446744073709551615), mustParseUint64(t, "18446744073709551615"))
 }

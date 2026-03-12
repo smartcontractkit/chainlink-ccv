@@ -81,29 +81,29 @@ func (_c *MockCommitVerificationAggregatedStore_GetBatchAggregatedReportByMessag
 	return _c
 }
 
-// GetCommitAggregatedReportByMessageID provides a mock function with given fields: ctx, messageID
-func (_m *MockCommitVerificationAggregatedStore) GetCommitAggregatedReportByMessageID(ctx context.Context, messageID []byte) (*model.CommitAggregatedReport, error) {
-	ret := _m.Called(ctx, messageID)
+// GetCommitAggregatedReportByAggregationKey provides a mock function with given fields: ctx, messageID, aggregationKey
+func (_m *MockCommitVerificationAggregatedStore) GetCommitAggregatedReportByAggregationKey(ctx context.Context, messageID []byte, aggregationKey string) (*model.CommitAggregatedReport, error) {
+	ret := _m.Called(ctx, messageID, aggregationKey)
 
 	if len(ret) == 0 {
-		panic("no return value specified for GetCommitAggregatedReportByMessageID")
+		panic("no return value specified for GetCommitAggregatedReportByAggregationKey")
 	}
 
 	var r0 *model.CommitAggregatedReport
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, []byte) (*model.CommitAggregatedReport, error)); ok {
-		return rf(ctx, messageID)
+	if rf, ok := ret.Get(0).(func(context.Context, []byte, string) (*model.CommitAggregatedReport, error)); ok {
+		return rf(ctx, messageID, aggregationKey)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, []byte) *model.CommitAggregatedReport); ok {
-		r0 = rf(ctx, messageID)
+	if rf, ok := ret.Get(0).(func(context.Context, []byte, string) *model.CommitAggregatedReport); ok {
+		r0 = rf(ctx, messageID, aggregationKey)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*model.CommitAggregatedReport)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, []byte) error); ok {
-		r1 = rf(ctx, messageID)
+	if rf, ok := ret.Get(1).(func(context.Context, []byte, string) error); ok {
+		r1 = rf(ctx, messageID, aggregationKey)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -111,31 +111,32 @@ func (_m *MockCommitVerificationAggregatedStore) GetCommitAggregatedReportByMess
 	return r0, r1
 }
 
-// MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByMessageID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCommitAggregatedReportByMessageID'
-type MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByMessageID_Call struct {
+// MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByAggregationKey_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCommitAggregatedReportByAggregationKey'
+type MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByAggregationKey_Call struct {
 	*mock.Call
 }
 
-// GetCommitAggregatedReportByMessageID is a helper method to define mock.On call
+// GetCommitAggregatedReportByAggregationKey is a helper method to define mock.On call
 //   - ctx context.Context
 //   - messageID []byte
-func (_e *MockCommitVerificationAggregatedStore_Expecter) GetCommitAggregatedReportByMessageID(ctx interface{}, messageID interface{}) *MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByMessageID_Call {
-	return &MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByMessageID_Call{Call: _e.mock.On("GetCommitAggregatedReportByMessageID", ctx, messageID)}
+//   - aggregationKey string
+func (_e *MockCommitVerificationAggregatedStore_Expecter) GetCommitAggregatedReportByAggregationKey(ctx interface{}, messageID interface{}, aggregationKey interface{}) *MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByAggregationKey_Call {
+	return &MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByAggregationKey_Call{Call: _e.mock.On("GetCommitAggregatedReportByAggregationKey", ctx, messageID, aggregationKey)}
 }
 
-func (_c *MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByMessageID_Call) Run(run func(ctx context.Context, messageID []byte)) *MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByMessageID_Call {
+func (_c *MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByAggregationKey_Call) Run(run func(ctx context.Context, messageID []byte, aggregationKey string)) *MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByAggregationKey_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].([]byte))
+		run(args[0].(context.Context), args[1].([]byte), args[2].(string))
 	})
 	return _c
 }
 
-func (_c *MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByMessageID_Call) Return(_a0 *model.CommitAggregatedReport, _a1 error) *MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByMessageID_Call {
+func (_c *MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByAggregationKey_Call) Return(_a0 *model.CommitAggregatedReport, _a1 error) *MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByAggregationKey_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByMessageID_Call) RunAndReturn(run func(context.Context, []byte) (*model.CommitAggregatedReport, error)) *MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByMessageID_Call {
+func (_c *MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByAggregationKey_Call) RunAndReturn(run func(context.Context, []byte, string) (*model.CommitAggregatedReport, error)) *MockCommitVerificationAggregatedStore_GetCommitAggregatedReportByAggregationKey_Call {
 	_c.Call.Return(run)
 	return _c
 }

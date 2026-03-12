@@ -8,6 +8,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
@@ -25,16 +26,17 @@ type VerifierMetrics struct {
 	messagesVerificationFailed metric.Int64Counter
 
 	// Fine-Grained Latency Breakdown
-	finalityWaitDurationSeconds        metric.Float64Histogram
-	messageVerificationDurationSeconds metric.Float64Histogram
-	storageWriteDurationSeconds        metric.Float64Histogram
+	finalityWaitDurationSeconds     metric.Float64Histogram
+	taskVerificationDurationSeconds metric.Float64Histogram
+	storageWriteDurationSeconds     metric.Float64Histogram
 
 	// Queue Health
-	finalityQueueSizeGauge  metric.Int64Gauge
-	ccvDataChannelSizeGauge metric.Int64Gauge
+	taskVerificationQueueSizeGauge metric.Int64Gauge
+	storageWriteQueueSizeGauge     metric.Int64Gauge
 
 	// Error Tracking
-	storageWriteErrorsCounter metric.Int64Counter
+	taskVerificationPermanentErrors metric.Int64Counter
+	storageWriteErrorsCounter       metric.Int64Counter
 
 	// Heartbeat Tracking
 	heartbeatsSentCounter           metric.Int64Counter
@@ -48,8 +50,11 @@ type VerifierMetrics struct {
 	// Chain State
 	sourceChainLatestBlockGauge    metric.Int64Gauge
 	sourceChainFinalizedBlockGauge metric.Int64Gauge
+	finalityViolated               metric.Int64Gauge
+	remoteChainCursed              metric.Int64Gauge
+	localChainGlobalCursed         metric.Int64Gauge
 
-	// Reorg Tracking
+	// Reorg/Finality  Tracking
 	reorgTrackedSeqNumsGauge metric.Int64Gauge
 
 	// HTTP API Metrics
@@ -78,7 +83,7 @@ func InitMetrics() (*VerifierMetrics, error) {
 
 	// Message Processing Counters
 	vm.messagesProcessedCounter, err = beholder.GetMeter().Int64Counter(
-		"verifier_messages_processed_total",
+		"verifier_messages_verification_total",
 		metric.WithDescription("Total number of successfully processed and stored messages"),
 	)
 	if err != nil {
@@ -86,7 +91,7 @@ func InitMetrics() (*VerifierMetrics, error) {
 	}
 
 	vm.messagesVerificationFailed, err = beholder.GetMeter().Int64Counter(
-		"verifier_messages_verification_failed_total",
+		"verifier_messages_verification_errors",
 		metric.WithDescription("Total number of messages that failed verification"),
 	)
 	if err != nil {
@@ -103,8 +108,8 @@ func InitMetrics() (*VerifierMetrics, error) {
 		return nil, fmt.Errorf("failed to register finality wait duration histogram: %w", err)
 	}
 
-	vm.messageVerificationDurationSeconds, err = beholder.GetMeter().Float64Histogram(
-		"verifier_message_verification_duration_seconds",
+	vm.taskVerificationDurationSeconds, err = beholder.GetMeter().Float64Histogram(
+		"verifier_task_verification_duration_seconds",
 		metric.WithDescription("Duration of the full VerifyMessage operation"),
 		metric.WithUnit("seconds"),
 	)
@@ -122,25 +127,25 @@ func InitMetrics() (*VerifierMetrics, error) {
 	}
 
 	// Queue Health
-	vm.finalityQueueSizeGauge, err = beholder.GetMeter().Int64Gauge(
-		"verifier_finality_queue_size",
-		metric.WithDescription("Current size of the finality queue"),
+	vm.taskVerificationQueueSizeGauge, err = beholder.GetMeter().Int64Gauge(
+		"verifier_task_verification_queue_size",
+		metric.WithDescription("Current size of the task verification queue (pending + processing jobs)"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to register finality queue size gauge: %w", err)
+		return nil, fmt.Errorf("failed to register task verification queue size gauge: %w", err)
 	}
 
-	vm.ccvDataChannelSizeGauge, err = beholder.GetMeter().Int64Gauge(
-		"verifier_ccv_data_channel_size",
-		metric.WithDescription("Current size of the CCV data channel buffer"),
+	vm.storageWriteQueueSizeGauge, err = beholder.GetMeter().Int64Gauge(
+		"verifier_storage_write_queue_size",
+		metric.WithDescription("Current size of the storage write queue (pending + processing jobs)"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to register ccv data channel size gauge: %w", err)
+		return nil, fmt.Errorf("failed to register storage write queue size gauge: %w", err)
 	}
 
 	// Error Tracking
 	vm.storageWriteErrorsCounter, err = beholder.GetMeter().Int64Counter(
-		"verifier_storage_write_errors_total",
+		"verifier_storage_write_errors",
 		metric.WithDescription("Total number of errors when writing to offchain storage"),
 	)
 	if err != nil {
@@ -222,6 +227,30 @@ func InitMetrics() (*VerifierMetrics, error) {
 		return nil, fmt.Errorf("failed to register source chain finalized block gauge: %w", err)
 	}
 
+	vm.finalityViolated, err = beholder.GetMeter().Int64Gauge(
+		"verifier_source_chain_finality_violated",
+		metric.WithDescription("Specifies if source chain finality was violated"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register finality violated gauge: %w", err)
+	}
+
+	vm.remoteChainCursed, err = beholder.GetMeter().Int64Gauge(
+		"verifier_remote_chain_cursed",
+		metric.WithDescription("Specifies if local chain considers remote chain as cursed"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register remote chain cursed gauge: %w", err)
+	}
+
+	vm.localChainGlobalCursed, err = beholder.GetMeter().Int64Gauge(
+		"verifier_local_chain_global_cursed",
+		metric.WithDescription("Specifies if local chain has global curse"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register remote chain cursed gauge: %w", err)
+	}
+
 	// Reorg Tracking
 	vm.reorgTrackedSeqNumsGauge, err = beholder.GetMeter().Int64Gauge(
 		"verifier_reorg_tracked_seqnums",
@@ -229,6 +258,14 @@ func InitMetrics() (*VerifierMetrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register reorg tracked seqnums gauge: %w", err)
+	}
+
+	vm.taskVerificationPermanentErrors, err = beholder.GetMeter().Int64Counter(
+		"verifier_task_verification_permanent_errors_total",
+		metric.WithDescription("Total number of non-retryable errors during task verification"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register task verification permanent errors counter: %w", err)
 	}
 
 	// HTTP API Metrics
@@ -359,7 +396,7 @@ func (v *VerifierMetricLabeler) RecordFinalityWaitDuration(ctx context.Context, 
 
 func (v *VerifierMetricLabeler) RecordMessageVerificationDuration(ctx context.Context, duration time.Duration) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
-	v.vm.messageVerificationDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
+	v.vm.taskVerificationDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
 }
 
 func (v *VerifierMetricLabeler) RecordStorageWriteDuration(ctx context.Context, duration time.Duration) {
@@ -367,19 +404,24 @@ func (v *VerifierMetricLabeler) RecordStorageWriteDuration(ctx context.Context, 
 	v.vm.storageWriteDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
 }
 
-func (v *VerifierMetricLabeler) RecordFinalityQueueSize(ctx context.Context, size int64) {
+func (v *VerifierMetricLabeler) RecordTaskVerificationQueueSize(ctx context.Context, size int64) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
-	v.vm.finalityQueueSizeGauge.Record(ctx, size, metric.WithAttributes(otelLabels...))
+	v.vm.taskVerificationQueueSizeGauge.Record(ctx, size, metric.WithAttributes(otelLabels...))
 }
 
-func (v *VerifierMetricLabeler) RecordCCVDataChannelSize(ctx context.Context, size int64) {
+func (v *VerifierMetricLabeler) RecordStorageWriteQueueSize(ctx context.Context, size int64) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
-	v.vm.ccvDataChannelSizeGauge.Record(ctx, size, metric.WithAttributes(otelLabels...))
+	v.vm.storageWriteQueueSizeGauge.Record(ctx, size, metric.WithAttributes(otelLabels...))
 }
 
 func (v *VerifierMetricLabeler) IncrementStorageWriteErrors(ctx context.Context) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.storageWriteErrorsCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) IncrementTaskVerificationPermanentErrors(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.taskVerificationPermanentErrors.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
 func (v *VerifierMetricLabeler) IncrementHeartbeatsSent(ctx context.Context) {
@@ -430,6 +472,37 @@ func (v *VerifierMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Cont
 func (v *VerifierMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.reorgTrackedSeqNumsGauge.Record(ctx, count, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	otelLabels = append(otelLabels, attribute.String("sourceChainSelector", selector.String()))
+	var violatedInt int64
+	if violated {
+		violatedInt = 1
+	}
+	v.vm.finalityViolated.Record(ctx, violatedInt, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) SetRemoteChainCursed(ctx context.Context, localSelector, remoteSelector protocol.ChainSelector, cursed bool) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	otelLabels = append(otelLabels, attribute.String("localSelector", localSelector.String()))
+	otelLabels = append(otelLabels, attribute.String("remoteSelector", remoteSelector.String()))
+	var cursedInt int64
+	if cursed {
+		cursedInt = 1
+	}
+	v.vm.remoteChainCursed.Record(ctx, cursedInt, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	otelLabels = append(otelLabels, attribute.String("localSelector", localSelector.String()))
+	var cursedInt int64
+	if globalCurse {
+		cursedInt = 1
+	}
+	v.vm.localChainGlobalCursed.Record(ctx, cursedInt, metric.WithAttributes(otelLabels...))
 }
 
 func (v *VerifierMetricLabeler) IncrementActiveRequestsCounter(ctx context.Context) {

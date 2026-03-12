@@ -7,12 +7,16 @@ import (
 	"sync"
 	"time"
 
+	adminv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2/admin"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"go.uber.org/zap/zapcore"
+	"google.golang.org/grpc"
 
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain/canton/provider/authentication"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider/rpcclient"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -22,7 +26,6 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
-	cldf_canton "github.com/smartcontractkit/chainlink-deployments-framework/chain/canton"
 	cldf_canton_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/canton/provider"
 	cldf_evm_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider"
 )
@@ -60,9 +63,16 @@ func NewCLDFOperationsEnvironment(bc []*blockchain.Input, dataStore datastore.Da
 }
 
 func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint64, *deployment.Environment, error) {
+	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.DebugLevel))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create logger: %w", err)
+	}
+
 	providers := make([]cldf_chain.BlockChain, 0)
 	selectors := make([]uint64, 0)
 	defaultTxTimeout := 30 * time.Second
+
+	// TODO: remove EVM and Canton from here and use the registry instead
 	for _, b := range cfg.Blockchains {
 		switch b.Out.Family {
 		case blockchain.FamilyEVM:
@@ -100,7 +110,7 @@ func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint
 							PreferredURLScheme: rpcclient.URLSchemePreferenceHTTP,
 						},
 					},
-					UsersTransactorGen: GenerateUserTransactors(getUserPrivateKeys()),
+					UsersTransactorGen: GenerateUserTransactors(GetUserPrivateKeys()),
 					ConfirmFunctor:     confirmer,
 				},
 			).Initialize(context.Background())
@@ -115,39 +125,70 @@ func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint
 			}
 			selectors = append(selectors, d.ChainSelector)
 
-			var (
-				endpoints    []cldf_canton.ParticipantEndpoints
-				jwtProviders []cldf_canton.JWTProvider
-			)
-			for _, p := range b.Out.NetworkSpecificData.CantonEndpoints.Participants {
-				endpoints = append(endpoints, cldf_canton.ParticipantEndpoints{
-					JSONLedgerAPIURL: p.JSONLedgerAPIURL,
-					GRPCLedgerAPIURL: p.GRPCLedgerAPIURL,
-					AdminAPIURL:      p.AdminAPIURL,
-					ValidatorAPIURL:  p.ValidatorAPIURL,
-				})
-				jwtProviders = append(jwtProviders, cldf_canton.NewStaticJWTProvider(p.JWT))
+			providerConfig := cldf_canton_provider.RPCChainProviderConfig{
+				Participants: make([]cldf_canton_provider.ParticipantConfig, len(b.Out.NetworkSpecificData.CantonData.ExternalEndpoints.Participants)),
 			}
 
-			p, err := cldf_canton_provider.NewRPCChainProvider(d.ChainSelector, cldf_canton_provider.RPCChainProviderConfig{
-				Endpoints:    endpoints,
-				JWTProviders: jwtProviders,
-			}).Initialize(context.TODO())
+			for i, config := range b.Out.NetworkSpecificData.CantonData.ExternalEndpoints.Participants {
+				authProvider := authentication.NewInsecureStaticProvider(config.JWT)
+				// Get Primary Party for user
+				ledgerApiConn, err := grpc.NewClient(
+					config.GRPCLedgerAPIURL,
+					grpc.WithTransportCredentials(authProvider.TransportCredentials()),
+					grpc.WithPerRPCCredentials(authProvider.PerRPCCredentials()),
+				)
+				if err != nil {
+					return nil, nil, fmt.Errorf("failed to create gRPC connection to Ledger API for Canton participant %d: %w", i+1, err)
+				}
+				userResp, err := adminv2.NewUserManagementServiceClient(ledgerApiConn).GetUser(context.Background(), &adminv2.GetUserRequest{UserId: config.UserID})
+				if err != nil {
+					return nil, nil, fmt.Errorf("failed to get user info for user %s for Canton participant %d: %w", config.UserID, i+1, err)
+				}
+				party := userResp.GetUser().GetPrimaryParty()
+				if party == "" {
+					return nil, nil, fmt.Errorf("no primary party found for user %s for Canton participant %d", config.UserID, i+1)
+				}
+				lggr.Debugw("No party specified for Canton participant, using primary party of the user", "user", config.UserID, "party", party, "participantIndex", i)
+				_ = ledgerApiConn.Close()
+
+				providerConfig.Participants[i] = cldf_canton_provider.ParticipantConfig{
+					Endpoints: cldf_canton_provider.Endpoints{
+						JSONLedgerAPIURL: config.JSONLedgerAPIURL,
+						GRPCLedgerAPIURL: config.GRPCLedgerAPIURL,
+						AdminAPIURL:      config.AdminAPIURL,
+						ValidatorAPIURL:  config.ValidatorAPIURL,
+					},
+					InternalEndpoints: &cldf_canton_provider.Endpoints{
+						JSONLedgerAPIURL: b.Out.NetworkSpecificData.CantonData.InternalEndpoints.Participants[i].JSONLedgerAPIURL,
+						GRPCLedgerAPIURL: b.Out.NetworkSpecificData.CantonData.InternalEndpoints.Participants[i].GRPCLedgerAPIURL,
+						AdminAPIURL:      b.Out.NetworkSpecificData.CantonData.InternalEndpoints.Participants[i].AdminAPIURL,
+						ValidatorAPIURL:  b.Out.NetworkSpecificData.CantonData.InternalEndpoints.Participants[i].ValidatorAPIURL,
+					},
+					UserID:       config.UserID,
+					PartyID:      party,
+					AuthProvider: authProvider,
+				}
+			}
+			p, err := cldf_canton_provider.NewRPCChainProvider(d.ChainSelector, providerConfig).Initialize(context.TODO())
 			if err != nil {
 				return nil, nil, err
 			}
 			providers = append(providers, p)
 		default:
-			return nil, nil, fmt.Errorf("unsupported blockchain family: %s", b.Out.Family)
+			factory, ok := registry.GetGlobalCLDFProviderRegistry().Get(b.Out.Family)
+			if !ok {
+				return nil, nil, fmt.Errorf("unsupported blockchain family, missing CLDF provider factory: %s", b.Out.Family)
+			}
+			provider, selector, err := factory(context.Background(), b)
+			if err != nil {
+				return nil, nil, err
+			}
+			selectors = append(selectors, selector)
+			providers = append(providers, provider)
 		}
 	}
 
 	blockchains := cldf_chain.NewBlockChainsFromSlice(providers)
-
-	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.DebugLevel))
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create logger: %w", err)
-	}
 
 	getCtx := func() context.Context { return context.Background() }
 	e := deployment.Environment{

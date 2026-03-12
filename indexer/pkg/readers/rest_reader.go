@@ -3,11 +3,11 @@ package readers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -21,22 +21,27 @@ const (
 	jsonContentType = "application/json"
 )
 
-var _ protocol.VerifierResultsAPI = (*restReader)(nil)
+var (
+	_ protocol.VerifierResultsAPI = (*restReader)(nil)
+
+	ErrResponseTooLarge = errors.New("response body exceeds maximum allowed size")
+)
 
 type RestReaderConfig struct {
-	BaseURL        string        // Base URL for the REST API
-	Since          int64         // Starting timestamp
-	RequestTimeout time.Duration // Timeout for HTTP requests (default: 10s)
-	HTTPClient     *http.Client  // Custom HTTP client (optional)
-	Logger         logger.Logger // Logger instance (required)
+	BaseURL          string        // Base URL for the REST API
+	Since            int64         // Starting timestamp
+	RequestTimeout   time.Duration // Timeout for HTTP requests (default: 10s)
+	MaxResponseBytes int           // Maximum response body size in bytes (0 = use default)
+	HTTPClient       *http.Client  // Custom HTTP client (optional)
+	Logger           logger.Logger // Logger instance (required)
 }
 
 type restReader struct {
-	baseURL    string
-	since      int64
-	httpClient *http.Client
-	lggr       logger.Logger
-	mu         sync.RWMutex
+	baseURL          string
+	since            int64
+	maxResponseBytes int
+	httpClient       *http.Client
+	lggr             logger.Logger
 }
 
 // NewRestReader creates a new REST-based reader with resilience policies.
@@ -47,10 +52,11 @@ func NewRestReader(config RestReaderConfig) *ResilientReader {
 	}
 
 	underlying := &restReader{
-		baseURL:    config.BaseURL,
-		since:      config.Since,
-		httpClient: httpClient,
-		lggr:       config.Logger,
+		baseURL:          config.BaseURL,
+		since:            config.Since,
+		maxResponseBytes: config.MaxResponseBytes,
+		httpClient:       httpClient,
+		lggr:             config.Logger,
 	}
 
 	return NewResilientReader(underlying, config.Logger, DefaultResilienceConfig())
@@ -78,14 +84,16 @@ func (r *restReader) GetVerifications(ctx context.Context, messageIDs []protocol
 	defer closeHTTPResponse(response)
 
 	// Validate status code
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
+	if response.StatusCode != http.StatusOK {
 		r.lggr.Errorw("REST reader unexpected status", "url", url, "status", response.StatusCode)
 		return nil, fmt.Errorf("unexpected status code: %d", response.StatusCode)
 	}
 
-	// Read and parse response body
-	body, err := io.ReadAll(response.Body)
+	body, err := readLimitedBody(response.Body, r.maxResponseBytes)
 	if err != nil {
+		if errors.Is(err, ErrResponseTooLarge) {
+			r.lggr.Warnw("REST reader response exceeded size limit", "url", url, "limitBytes", r.maxResponseBytes)
+		}
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
@@ -100,9 +108,6 @@ func (r *restReader) GetVerifications(ctx context.Context, messageIDs []protocol
 
 // buildRequestURL constructs the URL for fetching CCV data.
 func (r *restReader) buildRequestURL(messageIDs []protocol.Bytes32) string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	messageIDStrings := make([]string, 0, len(messageIDs))
 	for _, id := range messageIDs {
 		messageIDStrings = append(messageIDStrings, id.String())
@@ -110,6 +115,24 @@ func (r *restReader) buildRequestURL(messageIDs []protocol.Bytes32) string {
 
 	queryParams := strings.Join(messageIDStrings, "&messageID=")
 	return fmt.Sprintf("%s/verifications?messageID=%s", r.baseURL, queryParams)
+}
+
+// readLimitedBody reads up to maxBytes from r. maxBytes must be positive.
+// If the body exceeds maxBytes, ErrResponseTooLarge is returned.
+// The caller is responsible for closing the underlying reader.
+func readLimitedBody(r io.Reader, maxBytes int) ([]byte, error) {
+	if maxBytes <= 0 {
+		return nil, fmt.Errorf("maxBytes must be positive, got %d", maxBytes)
+	}
+	lr := io.LimitReader(r, int64(maxBytes+1))
+	b, err := io.ReadAll(lr)
+	if err != nil {
+		return nil, err
+	}
+	if len(b) > maxBytes {
+		return nil, ErrResponseTooLarge
+	}
+	return b, nil
 }
 
 // closeHTTPResponse safely closes the HTTP response body.

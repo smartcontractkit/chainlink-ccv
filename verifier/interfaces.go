@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/batcher"
 )
 
 // MessageSigner defines the interface for signing data.
@@ -15,11 +14,19 @@ type MessageSigner interface {
 	Sign(data []byte) (signed []byte, err error)
 }
 
+// VerificationResult contains the result of verifying a single message.
+type VerificationResult struct {
+	Result *protocol.VerifierNodeResult
+	Error  *VerificationError
+}
+
 // Verifier defines the interface for message verification logic.
 type Verifier interface {
-	// VerifyMessages performs verification of a batch of messages, adding successful results to the batcher.
-	// Returns a BatchResult containing any verification errors that occurred.
-	VerifyMessages(ctx context.Context, tasks []VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.VerifierNodeResult]) batcher.BatchResult[VerificationError]
+	// VerifyMessages performs verification of a batch of messages.
+	// Returns a slice of VerificationResult containing both successful results and errors.
+	// The caller is responsible for handling successful results (e.g., adding them to a batcher)
+	// and handling errors (e.g., retrying or logging).
+	VerifyMessages(ctx context.Context, tasks []VerificationTask) []VerificationResult
 }
 
 // MessageLatencyTracker defines the interface for tracking message latencies from with the verifier.
@@ -65,15 +72,17 @@ type MetricLabeler interface {
 
 	// Queue health metrics
 
-	// RecordFinalityQueueSize records the current size of the finality queue.
-	RecordFinalityQueueSize(ctx context.Context, size int64)
-	// RecordCCVDataChannelSize records the current size of the CCV data channel buffer.
-	RecordCCVDataChannelSize(ctx context.Context, size int64)
+	// RecordTaskVerificationQueueSize records the current size of the task verification queue.
+	RecordTaskVerificationQueueSize(ctx context.Context, size int64)
+	// RecordStorageWriteQueueSize records the current size of the storage write queue.
+	RecordStorageWriteQueueSize(ctx context.Context, size int64)
 
 	// Error tracking
 
 	// IncrementStorageWriteErrors increments the counter for storage write errors.
 	IncrementStorageWriteErrors(ctx context.Context)
+	// IncrementTaskVerificationPermanentErrors increments the counter for non-retryable verification errors.
+	IncrementTaskVerificationPermanentErrors(ctx context.Context)
 
 	// Heartbeat tracking
 
@@ -100,6 +109,12 @@ type MetricLabeler interface {
 	RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64)
 	// RecordReorgTrackedSeqNums records the number of sequence numbers being tracked due to reorg.
 	RecordReorgTrackedSeqNums(ctx context.Context, count int64)
+	// SetVerifierFinalityViolated sets value 1 if finality violated
+	SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool)
+	// SetRemoteChainCursed sets value 1 if source chain is cursed
+	SetRemoteChainCursed(ctx context.Context, localSelector, remoteSelector protocol.ChainSelector, cursed bool)
+	// SetLocalChainGlobalCursed sets value 1 if source chain is cursed
+	SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool)
 
 	// HTTP API metrics
 

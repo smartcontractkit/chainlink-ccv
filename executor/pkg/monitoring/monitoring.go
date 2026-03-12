@@ -70,14 +70,9 @@ func (n *NoopExecutorMetricLabeler) With(keyValues ...string) executor.MetricLab
 func (n *NoopExecutorMetricLabeler) RecordMessageExecutionLatency(ctx context.Context, duration time.Duration, destChainSelector protocol.ChainSelector) {
 }
 
-func (n *NoopExecutorMetricLabeler) IncrementMessagesProcessed(ctx context.Context) {}
+func (n *NoopExecutorMetricLabeler) IncrementMessagesProcessing(ctx context.Context) {}
 
-func (n *NoopExecutorMetricLabeler) IncrementMessagesProcessingFailed(ctx context.Context) {}
-
-func (n *NoopExecutorMetricLabeler) IncrementCCVInfoCacheHits(ctx context.Context, destChainSelector protocol.ChainSelector) {
-}
-
-func (n *NoopExecutorMetricLabeler) IncrementCCVInfoCacheMisses(ctx context.Context, destChainSelector protocol.ChainSelector) {
+func (n *NoopExecutorMetricLabeler) IncrementMessagesProcessingError(ctx context.Context, retry bool) {
 }
 
 func (n *NoopExecutorMetricLabeler) RecordOfframpGetCCVsForMessageLatency(ctx context.Context, duration time.Duration, destChainSelector protocol.ChainSelector) {
@@ -97,3 +92,9 @@ func (n *NoopExecutorMetricLabeler) IncrementHeartbeatSuccess(ctx context.Contex
 func (n *NoopExecutorMetricLabeler) IncrementHeartbeatFailure(ctx context.Context) {}
 
 func (n *NoopExecutorMetricLabeler) SetLastHeartbeatTimestamp(ctx context.Context, timestamp int64) {}
+
+func (n *NoopExecutorMetricLabeler) SetRemoteChainCursed(ctx context.Context, localSelector, remoteSelector protocol.ChainSelector, cursed bool) {
+}
+
+func (n *NoopExecutorMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool) {
+}

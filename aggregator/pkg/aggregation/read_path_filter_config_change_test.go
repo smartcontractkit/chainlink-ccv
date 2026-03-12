@@ -85,7 +85,7 @@ func TestConfigChange_ReadPathFiltering(t *testing.T) {
 			initialThreshold:      2,
 			configSignerNames:     []string{"node1", "node2", "node3"},
 			configThreshold:       3,
-			expectedSignerNames:   []string{"node1", "node2"},
+			expectedSignerNames:   nil,
 			expectSkipAggregation: false,
 		},
 		{
@@ -103,7 +103,7 @@ func TestConfigChange_ReadPathFiltering(t *testing.T) {
 			initialThreshold:      2,
 			configSignerNames:     []string{"node1", "node2"},
 			configThreshold:       3,
-			expectedSignerNames:   []string{"node1", "node2"},
+			expectedSignerNames:   nil,
 			expectSkipAggregation: false,
 		},
 		{
@@ -112,7 +112,7 @@ func TestConfigChange_ReadPathFiltering(t *testing.T) {
 			initialThreshold:      2,
 			configSignerNames:     []string{"node2", "node3"},
 			configThreshold:       2,
-			expectedSignerNames:   []string{"node2"},
+			expectedSignerNames:   nil,
 			expectSkipAggregation: false,
 		},
 		{
@@ -149,6 +149,7 @@ func TestConfigChange_ReadPathFiltering(t *testing.T) {
 
 			records := make([]*model.CommitVerificationRecord, 0, len(initialSigners))
 			var messageID model.MessageID
+			var reportAggKey model.AggregationKey
 			for _, signer := range initialSigners {
 				protoMsg, msgID := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddr, testutil.WithSignatureFrom(t, signer))
 				record, err := model.CommitVerificationRecordFromProto(protoMsg)
@@ -166,11 +167,13 @@ func TestConfigChange_ReadPathFiltering(t *testing.T) {
 
 				records = append(records, record)
 				messageID = msgID[:]
+				reportAggKey = aggKey
 			}
 
 			initialAggregatedReport := &model.CommitAggregatedReport{
-				MessageID:     messageID,
-				Verifications: records,
+				MessageID:      messageID,
+				AggregationKey: reportAggKey,
+				Verifications:  records,
 			}
 			err := storage.SubmitAggregatedReport(ctx, initialAggregatedReport)
 			require.NoError(t, err)
@@ -183,11 +186,11 @@ func TestConfigChange_ReadPathFiltering(t *testing.T) {
 				quorum:          validator,
 				l:               logger.Sugared(logger.Test(t)),
 			}
-			skipAggregation := agg.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
+			skipAggregation := agg.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, reportAggKey)
 			require.Equal(t, tc.expectSkipAggregation, skipAggregation,
 				"shouldSkipAggregationDueToExistingQuorum mismatch")
 
-			report, err := storage.GetCommitAggregatedReportByMessageID(ctx, messageID)
+			report, err := storage.GetCommitAggregatedReportByAggregationKey(ctx, messageID, reportAggKey)
 			require.NoError(t, err)
 			require.NotNil(t, report)
 			require.Len(t, report.Verifications, len(tc.initialSignerNames),
@@ -195,7 +198,7 @@ func TestConfigChange_ReadPathFiltering(t *testing.T) {
 
 			if len(tc.expectedSignerNames) == 0 {
 				_, mapErr := model.MapAggregatedReportToVerifierResultProto(report, committeeObj)
-				require.Error(t, mapErr, "expected error when no valid signatures remain")
+				require.Error(t, mapErr, "expected error when valid signatures do not meet quorum threshold")
 				return
 			}
 
@@ -267,7 +270,7 @@ func TestConfigChange_MultipleReportRows_UsesLatestReport(t *testing.T) {
 			initialThreshold:        2,
 			configSignerNames:       []string{"node2", "node3", "node4"},
 			configThreshold:         3,
-			expectedSignerNames:     []string{"node2", "node3"},
+			expectedSignerNames:     nil,
 			expectSkipAggregation:   false,
 			expectedLatestestAggregatedReportVerifications: 3,
 		},
@@ -300,7 +303,7 @@ func TestConfigChange_MultipleReportRows_UsesLatestReport(t *testing.T) {
 			initialThreshold:        1,
 			configSignerNames:       []string{"node1", "node2", "node3"},
 			configThreshold:         2,
-			expectedSignerNames:     []string{"node3"},
+			expectedSignerNames:     nil,
 			expectSkipAggregation:   false,
 			expectedLatestestAggregatedReportVerifications: 1,
 		},
@@ -333,6 +336,7 @@ func TestConfigChange_MultipleReportRows_UsesLatestReport(t *testing.T) {
 
 			allRecordsByName := make(map[string]*model.CommitVerificationRecord, len(initialSignerNames))
 			var messageID model.MessageID
+			var reportAggKey model.AggregationKey
 			for _, name := range initialSignerNames {
 				signer := signersByName[name]
 				protoMsg, msgID := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddr, testutil.WithSignatureFrom(t, signer))
@@ -351,6 +355,7 @@ func TestConfigChange_MultipleReportRows_UsesLatestReport(t *testing.T) {
 
 				allRecordsByName[name] = record
 				messageID = msgID[:]
+				reportAggKey = aggKey
 			}
 
 			firstRecords := make([]*model.CommitVerificationRecord, 0, len(tc.firstReportSignerNames))
@@ -358,8 +363,9 @@ func TestConfigChange_MultipleReportRows_UsesLatestReport(t *testing.T) {
 				firstRecords = append(firstRecords, allRecordsByName[name])
 			}
 			err := storage.SubmitAggregatedReport(ctx, &model.CommitAggregatedReport{
-				MessageID:     messageID,
-				Verifications: firstRecords,
+				MessageID:      messageID,
+				AggregationKey: reportAggKey,
+				Verifications:  firstRecords,
 			})
 			require.NoError(t, err)
 
@@ -368,8 +374,9 @@ func TestConfigChange_MultipleReportRows_UsesLatestReport(t *testing.T) {
 				secondRecords = append(secondRecords, allRecordsByName[name])
 			}
 			err = storage.SubmitAggregatedReport(ctx, &model.CommitAggregatedReport{
-				MessageID:     messageID,
-				Verifications: secondRecords,
+				MessageID:      messageID,
+				AggregationKey: reportAggKey,
+				Verifications:  secondRecords,
 			})
 			require.NoError(t, err)
 
@@ -381,19 +388,19 @@ func TestConfigChange_MultipleReportRows_UsesLatestReport(t *testing.T) {
 				quorum:          validator,
 				l:               logger.Sugared(logger.Test(t)),
 			}
-			skipAggregation := agg.shouldSkipAggregationDueToExistingQuorum(ctx, messageID)
+			skipAggregation := agg.shouldSkipAggregationDueToExistingQuorum(ctx, messageID, reportAggKey)
 			require.Equal(t, tc.expectSkipAggregation, skipAggregation,
 				"shouldSkipAggregationDueToExistingQuorum mismatch")
 
-			report, err := storage.GetCommitAggregatedReportByMessageID(ctx, messageID)
+			report, err := storage.GetCommitAggregatedReportByAggregationKey(ctx, messageID, reportAggKey)
 			require.NoError(t, err)
 			require.NotNil(t, report)
 			require.Len(t, report.Verifications, tc.expectedLatestestAggregatedReportVerifications,
-				"GetCommitAggregatedReportByMessageID should return only the latest report's verifications")
+				"GetCommitAggregatedReportByAggregationKey should return only the latest report's verifications")
 
 			if len(tc.expectedSignerNames) == 0 {
 				_, mapErr := model.MapAggregatedReportToVerifierResultProto(report, committeeObj)
-				require.Error(t, mapErr, "expected error when no valid signatures remain")
+				require.Error(t, mapErr, "expected error when valid signatures do not meet quorum threshold")
 				return
 			}
 

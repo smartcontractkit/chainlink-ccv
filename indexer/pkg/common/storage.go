@@ -23,6 +23,8 @@ type IndexerStorageWriter interface {
 	VerifierResultsStorageWriter
 	MessageStorageWriter
 	DiscoveryStateWriter
+	// PersistDiscoveryBatch atomically persists messages, verifications, and the discovery sequence number.
+	PersistDiscoveryBatch(ctx context.Context, batch DiscoveryBatch) error
 }
 
 // VerifierResultsStorageReader provides the interface to retrieve verification results from storage.
@@ -35,10 +37,8 @@ type VerifierResultsStorageReader interface {
 
 // VerifierResultsStorageWriter provides the interface for inserting verifications to storage.
 type VerifierResultsStorageWriter interface {
-	// InsertCCVData appends a new CCVData to the storage for the given messageID
-	InsertCCVData(ctx context.Context, ccvData VerifierResultWithMetadata) error
-	// BatchInsertCCVData appends a list of CCVData to the storage
-	BatchInsertCCVData(ctx context.Context, ccvDataList []VerifierResultWithMetadata) error
+	// InsertVerifierResults appends a list of verifier results to the storage
+	InsertVerifierResults(ctx context.Context, verifierResults []VerifierResultWithMetadata) error
 }
 
 // MessageStorageReader provides the interface to retrieve messages from storage.
@@ -51,10 +51,8 @@ type MessageStorageReader interface {
 
 // MessageStorageWriter provides the interface to insert messages to storage.
 type MessageStorageWriter interface {
-	// InsertMessage inserts a message into storage.
-	InsertMessage(ctx context.Context, message MessageWithMetadata) error
-	// BatchInsertMessages appends a list of messages into storage.
-	BatchInsertMessages(ctx context.Context, messages []MessageWithMetadata) error
+	// InsertMessages appends a list of messages into storage.
+	InsertMessages(ctx context.Context, messages []MessageWithMetadata) error
 	// UpdateMessageStatus updates the status of indexing to storage.
 	UpdateMessageStatus(ctx context.Context, messageID protocol.Bytes32, status MessageStatus, lastErr string) error
 }
@@ -69,6 +67,4 @@ type DiscoveryStateReader interface {
 type DiscoveryStateWriter interface {
 	// CreateDiscoveryState creates a new record containing metadata about the discovery source.
 	CreateDiscoveryState(ctx context.Context, discoveryLocation string, startingSequenceNumber int) error
-	// UpdateDiscoverySequenceNumber updates the latest sequence number for that discovery source.
-	UpdateDiscoverySequenceNumber(ctx context.Context, discoveryLocation string, sequenceNumber int) error
 }

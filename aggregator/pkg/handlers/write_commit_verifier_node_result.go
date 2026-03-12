@@ -27,7 +27,7 @@ type SignatureValidator interface {
 // AggregationTriggerer defines an interface for triggering aggregation checks.
 type AggregationTriggerer interface {
 	// CheckAggregation triggers the aggregation process for the specified aggregation key.
-	CheckAggregation(model.MessageID, model.AggregationKey, model.ChannelKey, time.Duration) error
+	CheckAggregation(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey, channelKey model.ChannelKey, maxBlockTime time.Duration) error
 }
 
 // WriteCommitVerifierNodeResultHandler handles requests to write commit verification records.
@@ -108,7 +108,7 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 	)
 	metrics.IncrementVerificationsTotal(ctx)
 
-	if err := h.aggregator.CheckAggregation(record.MessageID, aggregationKey, model.ChannelKey(identity.CallerID), h.checkAggregationTimeout); err != nil {
+	if err := h.aggregator.CheckAggregation(ctx, record.MessageID, aggregationKey, model.ChannelKey(identity.CallerID), h.checkAggregationTimeout); err != nil {
 		if err == common.ErrAggregationChannelFull {
 			reqLogger.Errorf("Aggregation channel is full")
 			return &committeepb.WriteCommitteeVerifierNodeResultResponse{

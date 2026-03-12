@@ -14,11 +14,11 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
-	ccv "github.com/smartcontractkit/chainlink-ccv/devenv"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/load"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/logasserter"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/tests/e2e/metrics"
+	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/load"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/logasserter"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/metrics"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
@@ -71,18 +71,31 @@ func SetupIndexerMonitor(
 	ctx context.Context,
 	lib *ccv.Lib,
 ) *ccv.IndexerMonitor {
-	indexerClient, err := lib.Indexer()
+	for _, indexer := range SetupAllIndexerMonitors(t, ctx, lib) {
+		return indexer
+	}
+	return nil
+}
+
+func SetupAllIndexerMonitors(
+	t *testing.T,
+	ctx context.Context,
+	lib *ccv.Lib,
+) map[string]*ccv.IndexerMonitor {
+	indexerClients, err := lib.AllIndexers()
 	if err != nil {
 		return nil
 	}
-
-	indexerMonitor, err := ccv.NewIndexerMonitor(
-		zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(),
-		indexerClient)
-	require.NoError(t, err)
-	require.NotNil(t, indexerMonitor)
-
-	return indexerMonitor
+	indexers := make(map[string]*ccv.IndexerMonitor)
+	for _, indexer := range indexerClients {
+		indexerMonitor, err := ccv.NewIndexerMonitor(
+			zerolog.Ctx(ctx).With().Str("component", fmt.Sprintf("indexer-client-%s", indexer.URI())).Logger(),
+			indexer)
+		require.NoError(t, err)
+		require.NotNil(t, indexerMonitor)
+		indexers[indexer.URI()] = indexerMonitor
+	}
+	return indexers
 }
 
 type TestingContext struct {

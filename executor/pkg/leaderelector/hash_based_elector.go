@@ -2,6 +2,8 @@ package leaderelector
 
 import (
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -31,16 +33,17 @@ func NewHashBasedLeaderElector(
 	executorIDs map[protocol.ChainSelector][]string,
 	thisExecutorID string,
 	executionIntervals map[protocol.ChainSelector]time.Duration,
-) *HashBasedLeaderElector {
-	// Create a sorted copy of executor IDs for deterministic ordering
+) (*HashBasedLeaderElector, error) {
+	if err := validateElectorInputs(executorIDs, thisExecutorID, executionIntervals); err != nil {
+		return nil, err
+	}
+
 	sortedExecutorIDs := make(map[protocol.ChainSelector][]string, len(executorIDs))
 	executorIndices := make(map[protocol.ChainSelector]int, len(executorIDs))
 	for chainSel, ids := range executorIDs {
 		sortedExecutorIDs[chainSel] = make([]string, len(ids))
 		copy(sortedExecutorIDs[chainSel], ids)
 		slices.Sort(sortedExecutorIDs[chainSel])
-
-		// Find this executor's position in the sorted array
 		executorIndices[chainSel] = slices.Index(sortedExecutorIDs[chainSel], thisExecutorID)
 	}
 
@@ -50,7 +53,48 @@ func NewHashBasedLeaderElector(
 		thisExecutorID:     thisExecutorID,
 		executionIntervals: executionIntervals,
 		executorIndices:    executorIndices,
+	}, nil
+}
+
+func validateElectorInputs(
+	executorIDs map[protocol.ChainSelector][]string,
+	thisExecutorID string,
+	executionIntervals map[protocol.ChainSelector]time.Duration,
+) error {
+	var errs []error
+	if thisExecutorID == "" {
+		errs = append(errs, errors.New("this executor ID must not be empty"))
 	}
+	if len(executorIDs) == 0 {
+		errs = append(errs, errors.New("executor IDs map must not be empty"))
+	}
+	for chainSel, ids := range executorIDs {
+		if len(ids) == 0 {
+			errs = append(errs, fmt.Errorf("executor pool for chain %d must not be empty", chainSel))
+			continue
+		}
+		seen := make(map[string]struct{}, len(ids))
+		for _, id := range ids {
+			if _, ok := seen[id]; ok {
+				errs = append(errs, fmt.Errorf("executor pool for chain %d contains duplicate ID %q", chainSel, id))
+				break
+			}
+			seen[id] = struct{}{}
+		}
+		if !slices.Contains(ids, thisExecutorID) {
+			errs = append(errs, fmt.Errorf("this executor ID %q not found in executor pool for chain %d", thisExecutorID, chainSel))
+		}
+		interval, ok := executionIntervals[chainSel]
+		if !ok || interval <= 0 {
+			errs = append(errs, fmt.Errorf("execution interval for chain %d must be positive", chainSel))
+		}
+	}
+	for chainSel := range executionIntervals {
+		if _, ok := executorIDs[chainSel]; !ok {
+			errs = append(errs, fmt.Errorf("execution interval configured for unknown chain %d", chainSel))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // GetReadyTimestamp implements the LeaderElector interface.
@@ -59,12 +103,19 @@ func (h *HashBasedLeaderElector) GetReadyTimestamp(
 	messageID protocol.Bytes32,
 	chainSel protocol.ChainSelector,
 	baseTime time.Time,
-) time.Time {
+) (time.Time, error) {
 	execIndex := h.executorIndices[chainSel]
-	execPool := h.executorIDs[chainSel]
+	execPool, hasPool := h.executorIDs[chainSel]
+	if !hasPool || len(execPool) == 0 {
+		return time.Time{}, fmt.Errorf("chain %d not configured in elector", chainSel)
+	}
 	if execIndex == -1 {
 		// This executor is not in the list, should not happen if config is validated
-		return baseTime
+		return baseTime, nil
+	}
+	interval, hasInterval := h.executionIntervals[chainSel]
+	if !hasInterval || interval <= 0 {
+		return time.Time{}, fmt.Errorf("execution interval for chain %d not configured or invalid", chainSel)
 	}
 
 	// Convert first 8 bytes of hash to uint64 for consistent ordering
@@ -79,17 +130,17 @@ func (h *HashBasedLeaderElector) GetReadyTimestamp(
 	queueSize := getSliceIncreasingDistance(len(execPool), startIndex, execIndex)
 
 	// Calculate time until our turn again (number of executors in queue * executionInterval)
-	delay := time.Duration(queueSize) * h.executionIntervals[chainSel]
+	delay := time.Duration(queueSize) * interval
 	// Add delay to our base time to get the next execution time
 	readyTime := baseTime.Add(delay)
 
 	h.lggr.Debugw("calculated ready timestamp",
 		"messageID", messageID.String(),
 		"queueSize", queueSize,
-		"executionInterval", h.executionIntervals[chainSel],
+		"executionInterval", interval,
 		"delay", delay.String(),
 		"readyTime", readyTime.String())
-	return readyTime
+	return readyTime, nil
 }
 
 func getSliceIncreasingDistance(sliceLen, startIndex, selectedIndex int) int {
@@ -110,6 +161,14 @@ func getSliceIncreasingDistance(sliceLen, startIndex, selectedIndex int) int {
 	return selectedIndex - startIndex
 }
 
-func (h *HashBasedLeaderElector) GetRetryDelay(sel protocol.ChainSelector) time.Duration {
-	return time.Duration(len(h.executorIDs[sel])) * h.executionIntervals[sel]
+func (h *HashBasedLeaderElector) GetRetryDelay(sel protocol.ChainSelector) (time.Duration, error) {
+	pool, ok := h.executorIDs[sel]
+	if !ok || len(pool) == 0 {
+		return 0, fmt.Errorf("chain %d not configured for retry delay", sel)
+	}
+	interval, ok := h.executionIntervals[sel]
+	if !ok || interval <= 0 {
+		return 0, fmt.Errorf("execution interval for chain %d not configured or invalid", sel)
+	}
+	return time.Duration(len(pool)) * interval, nil
 }

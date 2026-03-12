@@ -32,9 +32,49 @@ func TestGetBatchCCVDataForMessageHandler_ValidationErrors(t *testing.T) {
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 
 	// too many
-	_, err = h.Handle(context.Background(), &verifierpb.GetVerifierResultsForMessageRequest{MessageIds: [][]byte{{}, {}, {}}})
+	_, err = h.Handle(context.Background(), &verifierpb.GetVerifierResultsForMessageRequest{MessageIds: [][]byte{make([]byte, 32), make([]byte, 32), make([]byte, 32)}})
 	require.Error(t, err)
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
+}
+
+func TestGetBatchCCVDataForMessageHandler_RejectsInvalidMessageIDLength(t *testing.T) {
+	t.Parallel()
+
+	lggr := logger.TestSugared(t)
+	store := mocks.NewMockCommitVerificationAggregatedStore(t)
+	committee := &model.Committee{}
+	h := NewGetVerifierResultsForMessageHandler(store, committee, 10, lggr)
+
+	tests := []struct {
+		name       string
+		messageIDs [][]byte
+	}{
+		{
+			name:       "rejects_empty_message_id",
+			messageIDs: [][]byte{{}},
+		},
+		{
+			name:       "rejects_too_short_message_id",
+			messageIDs: [][]byte{make([]byte, 16)},
+		},
+		{
+			name:       "rejects_too_long_message_id",
+			messageIDs: [][]byte{make([]byte, 64)},
+		},
+		{
+			name:       "rejects_batch_with_one_invalid_id",
+			messageIDs: [][]byte{make([]byte, 32), make([]byte, 1)},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := h.Handle(context.Background(), &verifierpb.GetVerifierResultsForMessageRequest{MessageIds: tc.messageIDs})
+			require.Error(t, err)
+			require.Equal(t, codes.InvalidArgument, status.Code(err))
+			require.Contains(t, err.Error(), "must be exactly 32 bytes")
+		})
+	}
 }
 
 func TestGetBatchCCVDataForMessageHandler_MixedResults(t *testing.T) {
@@ -71,8 +111,10 @@ func TestGetBatchCCVDataForMessageHandler_MixedResults(t *testing.T) {
 		protocol.ByteSlice(m2ID[:]).String(): report2, // will map error
 	}, nil)
 
+	missingID := make([]byte, 32)
+	missingID[0] = 0xFF
 	resp, err := h.Handle(context.Background(), &verifierpb.GetVerifierResultsForMessageRequest{MessageIds: [][]byte{
-		m1ID[:], m2ID[:], {0xFF}, // missing
+		m1ID[:], m2ID[:], missingID,
 	}})
 	require.NoError(t, err)
 	require.NotNil(t, resp)
@@ -102,7 +144,7 @@ func TestGetBatchCCVDataForMessageHandler_StorageError(t *testing.T) {
 
 	store.EXPECT().GetBatchAggregatedReportByMessageIDs(mock.Anything, mock.Anything).Return(nil, status.Error(codes.Internal, "boom"))
 
-	_, err := h.Handle(context.Background(), &verifierpb.GetVerifierResultsForMessageRequest{MessageIds: [][]byte{{1}}})
+	_, err := h.Handle(context.Background(), &verifierpb.GetVerifierResultsForMessageRequest{MessageIds: [][]byte{make([]byte, 32)}})
 	require.Error(t, err)
 	require.Equal(t, codes.Internal, status.Code(err))
 }

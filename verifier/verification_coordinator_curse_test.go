@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -71,7 +72,7 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 	mockCurseDetector := mocks.NewMockCurseCheckerService(t)
 
 	// Setup default behavior: no curses initially
-	mockCurseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	mockCurseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 	mockCurseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
 	mockCurseDetector.EXPECT().Close().Return(nil).Maybe()
 
@@ -115,11 +116,14 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 				PollInterval:    10 * time.Millisecond,
 			},
 		},
+		StorageBatchSize:    50,
+		StorageBatchTimeout: 100 * time.Millisecond,
+		StorageRetryDelay:   2 * time.Second,
 	}
 
 	// Create coordinator with all components, including mock curse detector
+	sqlxDB := testutil.NewTestDB(t)
 	coordinator, err := NewCoordinatorWithDetector(
-		ctx,
 		lggr,
 		setup.testVerifier,
 		map[protocol.ChainSelector]chainaccess.SourceReader{sourceChain: setup.mockSourceReader},
@@ -130,6 +134,7 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 		setup.chainStatusManager,
 		setup.mockCurseChecker,
 		heartbeatclient.NewNoopHeartbeatClient(),
+		sqlxDB,
 	)
 	require.NoError(t, err)
 	setup.coordinator = coordinator
@@ -158,25 +163,25 @@ func (s *curseTestSetup) curseLane(destChain protocol.ChainSelector) {
 	s.t.Logf("🔒 Cursing lane: %d -> %d", s.sourceChain, destChain)
 	// Update mock to return true for this specific lane
 	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Unset()
-	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, s.sourceChain, destChain).Return(true).Maybe()
+	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, s.sourceChain, destChain).Return(true, nil).Maybe()
 	// Keep other lanes uncursed
 	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, s.sourceChain, mock.MatchedBy(func(chain protocol.ChainSelector) bool {
 		return chain != destChain
-	})).Return(false).Maybe()
+	})).Return(false, nil).Maybe()
 }
 
 func (s *curseTestSetup) curseGlobally() {
 	s.t.Logf("🔒 Applying global curse on source chain: %d", s.sourceChain)
 	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Unset()
 	// Global curse: all destinations from this source are cursed
-	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, s.sourceChain, mock.Anything).Return(true)
+	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, s.sourceChain, mock.Anything).Return(true, nil)
 }
 
 func (s *curseTestSetup) liftCurse() {
 	s.t.Log("🔓 Lifting curse")
 	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Unset()
 	// Reset to no curses
-	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
+	s.mockCurseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 }
 
 func (s *curseTestSetup) sendEvents(events []protocol.MessageSentEvent) {

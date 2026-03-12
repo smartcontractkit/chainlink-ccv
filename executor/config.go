@@ -17,6 +17,7 @@ const (
 	ntpServerDefault         = "time.google.com"
 	workerCountDefault       = 100
 	IndexerQueryLimitDefault = 100
+	IndexerQueryLimitMax     = 10000
 )
 
 type ConfigWithBlockchainInfo struct {
@@ -27,8 +28,9 @@ type ConfigWithBlockchainInfo struct {
 // Configuration is the complete set of information an executor needs to operate normally.
 // We can use time.Duration directly in this config because burntSushi can parse duration from strings.
 type Configuration struct {
-	// IndexerAddress is the URL of the indexer to receive messages + verifications from.
-	IndexerAddress string `toml:"indexer_address"`
+	// IndexerAddress is the list of indexer URLs to receive messages + verifications from.
+	// The executor will use these for failover if one indexer becomes unavailable.
+	IndexerAddress []string `toml:"indexer_address"`
 	// BackoffDuration is the duration to back off after a failed request to the Indexer.
 	// Defaults to 15 seconds.
 	BackoffDuration time.Duration `toml:"source_backoff_duration"`
@@ -44,8 +46,7 @@ type Configuration struct {
 	ExecutorID string `toml:"executor_id"`
 	// Monitoring is the configuration for how Executor emits metrics.
 	Monitoring MonitoringConfig `toml:"Monitoring"`
-	// ReaderCacheExpiry is the duration to cache CCV information for each destination chain.
-	// Cached information includes the Verifier Quorum per receiver address.
+	// ReaderCacheExpiry is the duration for the curse checker cache (RMN cursed state per chain).
 	// Defaults to 5 minutes.
 	ReaderCacheExpiry time.Duration `toml:"reader_cache_expiry"`
 	// MaxRetryDuration is the maximum duration the executor cluster will retry a message before giving up.
@@ -80,8 +81,41 @@ func (c *Configuration) Validate() error {
 		return fmt.Errorf("this_executor_id must be configured")
 	}
 
+	if len(c.ChainConfiguration) == 0 {
+		return fmt.Errorf("at least one chain must be configured")
+	}
+
+	if len(c.IndexerAddress) < 1 {
+		return fmt.Errorf("at least one indexer address must be configured")
+	}
+	if slices.Contains(c.IndexerAddress, "") {
+		return fmt.Errorf("indexer address must not be empty")
+	}
+
+	if c.WorkerCount < 0 {
+		return fmt.Errorf("worker_count must not be negative, got %d", c.WorkerCount)
+	}
+	if c.BackoffDuration < 0 {
+		return fmt.Errorf("source_backoff_duration must not be negative")
+	}
+	if c.LookbackWindow < 0 {
+		return fmt.Errorf("startup_lookback_window must not be negative")
+	}
+	if c.IndexerQueryLimit > IndexerQueryLimitMax {
+		return fmt.Errorf("indexer_query_limit must not exceed %d, got %d", IndexerQueryLimitMax, c.IndexerQueryLimit)
+	}
+
+	if err := c.Monitoring.Validate(); err != nil {
+		return fmt.Errorf("monitoring config validation failed: %w", err)
+	}
+
 	for chainSel, chainConfig := range c.ChainConfiguration {
-		// can ignore nil check because len of nil slice is 0.
+		if chainConfig.RmnAddress == "" {
+			return fmt.Errorf("rmn_address must be configured for chain %s", chainSel)
+		}
+		if chainConfig.OffRampAddress == "" {
+			return fmt.Errorf("off_ramp_address must be configured for chain %s", chainSel)
+		}
 		if len(chainConfig.ExecutorPool) == 0 {
 			return fmt.Errorf("executor_pool must be configured for chain %s", chainSel)
 		}
@@ -102,6 +136,7 @@ func (c *Configuration) GetNormalizedConfig() (*Configuration, error) {
 	if err := normalized.Validate(); err != nil {
 		return nil, err
 	}
+
 	if c.NtpServer == "" {
 		normalized.NtpServer = ntpServerDefault
 	}

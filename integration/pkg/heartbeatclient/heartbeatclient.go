@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	MinTLSVersion = tls.VersionTLS13
+	MinTLSVersion = tls.VersionTLS12
 )
 
 // HeartbeatClient provides methods to send heartbeats to the aggregator service.

@@ -3,6 +3,7 @@ package storageaccess
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/failsafe-go/failsafe-go"
@@ -10,6 +11,8 @@ import (
 	"github.com/failsafe-go/failsafe-go/circuitbreaker"
 	"github.com/failsafe-go/failsafe-go/ratelimiter"
 	"github.com/failsafe-go/failsafe-go/timeout"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -47,8 +50,7 @@ func NewResilientStorageWriter(
 	lggr logger.Logger,
 	config aggregatorResilienceConfig,
 ) protocol.CCVNodeDataWriter {
-	// TODO: Consider making error handler to react only upon network errors.
-	handleIf := func(_ any, err error) bool { return err != nil }
+	handleIf := func(_ any, err error) bool { return err != nil && isNetworkOrTransportError(err) }
 	if config.CircuitBreakerErrorHandler != nil {
 		handleIf = config.CircuitBreakerErrorHandler
 	}
@@ -94,19 +96,55 @@ func NewResilientStorageWriter(
 }
 
 // WriteCCVNodeData writes CCV data with circuit breaker, timeout, rate limiting, and bulkhead protection.
-func (r *resilientAggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.VerifierNodeResult) error {
+func (r *resilientAggregatorWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.VerifierNodeResult) ([]protocol.WriteResult, error) {
 	executor := failsafe.With(r.rateLimiter, r.bulkhead, r.circuitBreaker, r.writeTimeout)
 
-	err := executor.RunWithExecution(func(failsafe.Execution[any]) error {
-		return r.writer.WriteCCVNodeData(ctx, ccvDataList)
+	var results []protocol.WriteResult
+	err := executor.WithContext(ctx).RunWithExecution(func(exec failsafe.Execution[any]) error {
+		var writeErr error
+		results, writeErr = r.writer.WriteCCVNodeData(exec.Context(), ccvDataList)
+		return writeErr
 	})
 	if err != nil {
-		if r.circuitBreaker.State() == circuitbreaker.OpenState {
-			return fmt.Errorf("circuit breaker is open, aggregator service unavailable: %w", err)
+		// If failsafe policies failed and we have no results, create failure results
+		if len(results) == 0 {
+			results = make([]protocol.WriteResult, len(ccvDataList))
+			for i, data := range ccvDataList {
+				results[i] = protocol.WriteResult{
+					Input:     data,
+					Status:    protocol.WriteFailure,
+					Error:     err,
+					Retryable: true, // Failsafe policy failures are retryable
+				}
+			}
 		}
-		return fmt.Errorf("failed to write CCV data: %w", err)
+
+		if r.circuitBreaker.State() == circuitbreaker.OpenState {
+			return results, fmt.Errorf("circuit breaker is open, aggregator service unavailable: %w", err)
+		}
+		return results, fmt.Errorf("failed to write CCV data: %w", err)
 	}
-	return nil
+	return results, nil
+}
+
+func isNetworkOrTransportError(err error) bool {
+	if err == nil {
+		return false
+	}
+	switch status.Code(err) {
+	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled, codes.ResourceExhausted:
+		return true
+	case codes.Unknown:
+		msg := strings.ToLower(err.Error())
+		return strings.Contains(msg, "dial") ||
+			strings.Contains(msg, "connection refused") ||
+			strings.Contains(msg, "connection reset") ||
+			strings.Contains(msg, "i/o timeout") ||
+			strings.Contains(msg, "timeout") ||
+			strings.Contains(msg, "connection")
+	default:
+		return false
+	}
 }
 
 // aggregatorResilienceConfig contains configuration for aggregator writer resiliency policies.

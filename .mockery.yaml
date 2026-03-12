@@ -33,6 +33,7 @@ packages:
       CurseChecker:
       CurseCheckerService:
       TimeProvider:
+      CurseCheckerMetrics:
 
   github.com/smartcontractkit/chainlink-ccv/protocol:
     interfaces:
@@ -78,6 +79,9 @@ packages:
       IndexerMonitoring:
       IndexerMetricLabeler:
       MessageDiscovery:
+  github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client:
+    interfaces:
+      IndexerClientInterface:
   github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client/internal:
     interfaces:
       ClientInterface:

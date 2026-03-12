@@ -288,74 +288,116 @@ func TestCommitVerificationRecord_ProtoRoundTrip(t *testing.T) {
 	assert.Equal(t, originalID, convertedID)
 }
 
-func TestFindAllSignaturesValidInConfig(t *testing.T) {
+func TestFilterSignaturesByQuorum(t *testing.T) {
 	signerAddr1 := ethcommon.HexToAddress("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 	signerAddr2 := ethcommon.HexToAddress("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
 	signerAddr3 := ethcommon.HexToAddress("0xcccccccccccccccccccccccccccccccccccccccc")
 
 	addressSignatures := map[string]protocol.Data{
-		signerAddr1.Hex(): {R: [32]byte{1}, S: [32]byte{2}, Signer: signerAddr1},
-		signerAddr2.Hex(): {R: [32]byte{3}, S: [32]byte{4}, Signer: signerAddr2},
+		normalizeHexAddress(signerAddr1.Hex()): {R: [32]byte{1}, S: [32]byte{2}, Signer: signerAddr1},
+		normalizeHexAddress(signerAddr2.Hex()): {R: [32]byte{3}, S: [32]byte{4}, Signer: signerAddr2},
 	}
 
-	t.Run("finds matching signatures", func(t *testing.T) {
-		config := &QuorumConfig{
-			Signers: []Signer{
-				{Address: signerAddr1.Hex()},
-				{Address: signerAddr2.Hex()},
+	tests := []struct {
+		name        string
+		sigs        map[string]protocol.Data
+		config      *QuorumConfig
+		expectCount int
+		expectErr   string
+	}{
+		{
+			name: "returns_all_matching_signatures_at_threshold",
+			sigs: addressSignatures,
+			config: &QuorumConfig{
+				Signers:   []Signer{{Address: signerAddr1.Hex()}, {Address: signerAddr2.Hex()}},
+				Threshold: 2,
 			},
-		}
-
-		result := findAllSignaturesValidInConfig(addressSignatures, config)
-		assert.Len(t, result, 2)
-	})
-
-	t.Run("handles address without 0x prefix", func(t *testing.T) {
-		config := &QuorumConfig{
-			Signers: []Signer{
-				{Address: signerAddr1.Hex()[2:]}, // Without 0x
+			expectCount: 2,
+		},
+		{
+			name: "returns_matching_signatures_above_threshold",
+			sigs: addressSignatures,
+			config: &QuorumConfig{
+				Signers:   []Signer{{Address: signerAddr1.Hex()}, {Address: signerAddr2.Hex()}},
+				Threshold: 1,
 			},
-		}
-
-		result := findAllSignaturesValidInConfig(addressSignatures, config)
-		assert.Len(t, result, 1)
-	})
-
-	t.Run("case insensitive matching", func(t *testing.T) {
-		lowerCaseSignatures := map[string]protocol.Data{
-			"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {R: [32]byte{1}, S: [32]byte{2}, Signer: signerAddr1},
-		}
-
-		config := &QuorumConfig{
-			Signers: []Signer{
-				{Address: "0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+			expectCount: 2,
+		},
+		{
+			name: "handles_address_without_0x_prefix",
+			sigs: addressSignatures,
+			config: &QuorumConfig{
+				Signers:   []Signer{{Address: signerAddr1.Hex()[2:]}},
+				Threshold: 1,
 			},
-		}
-
-		result := findAllSignaturesValidInConfig(lowerCaseSignatures, config)
-		assert.Len(t, result, 1)
-	})
-
-	t.Run("skips signers not in signatures map", func(t *testing.T) {
-		config := &QuorumConfig{
-			Signers: []Signer{
-				{Address: signerAddr1.Hex()},
-				{Address: signerAddr3.Hex()}, // Not in signatures map
+			expectCount: 1,
+		},
+		{
+			name: "case_insensitive_matching",
+			sigs: map[string]protocol.Data{
+				"0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {R: [32]byte{1}, S: [32]byte{2}, Signer: signerAddr1},
 			},
-		}
-
-		result := findAllSignaturesValidInConfig(addressSignatures, config)
-		assert.Len(t, result, 1)
-	})
-
-	t.Run("returns empty for no matches", func(t *testing.T) {
-		config := &QuorumConfig{
-			Signers: []Signer{
-				{Address: signerAddr3.Hex()},
+			config: &QuorumConfig{
+				Signers:   []Signer{{Address: "0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}},
+				Threshold: 1,
 			},
-		}
+			expectCount: 1,
+		},
+		{
+			name: "skips_signers_not_in_map_still_meets_threshold",
+			sigs: addressSignatures,
+			config: &QuorumConfig{
+				Signers:   []Signer{{Address: signerAddr1.Hex()}, {Address: signerAddr3.Hex()}},
+				Threshold: 1,
+			},
+			expectCount: 1,
+		},
+		{
+			name: "deduplicates_config_signers_with_same_address",
+			sigs: addressSignatures,
+			config: &QuorumConfig{
+				Signers:   []Signer{{Address: signerAddr1.Hex()}, {Address: signerAddr1.Hex()}},
+				Threshold: 1,
+			},
+			expectCount: 1,
+		},
+		{
+			name: "errors_when_valid_signatures_below_threshold",
+			sigs: addressSignatures,
+			config: &QuorumConfig{
+				Signers:   []Signer{{Address: signerAddr1.Hex()}},
+				Threshold: 2,
+			},
+			expectErr: "below quorum threshold",
+		},
+		{
+			name: "errors_when_no_signatures_match",
+			sigs: addressSignatures,
+			config: &QuorumConfig{
+				Signers:   []Signer{{Address: signerAddr3.Hex()}},
+				Threshold: 1,
+			},
+			expectErr: "below quorum threshold",
+		},
+		{
+			name:      "errors_when_config_is_nil",
+			sigs:      addressSignatures,
+			config:    nil,
+			expectErr: "quorum config is nil",
+		},
+	}
 
-		result := findAllSignaturesValidInConfig(addressSignatures, config)
-		assert.Empty(t, result)
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := filterSignaturesByQuorum(tt.sigs, tt.config)
+			if tt.expectErr != "" {
+				require.Error(t, err)
+				assert.Nil(t, result)
+				assert.Contains(t, err.Error(), tt.expectErr)
+			} else {
+				require.NoError(t, err)
+				assert.Len(t, result, tt.expectCount)
+			}
+		})
+	}
 }

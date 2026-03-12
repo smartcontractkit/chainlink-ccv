@@ -49,7 +49,7 @@ func TestJDConfig_validate(t *testing.T) {
 				ServerCSAPublicKey: "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
 			},
 			wantErr:     true,
-			errContains: []string{"failed to decode ServerCSAPublicKey"},
+			errContains: []string{"invalid ServerCSAPublicKey", "failed to decode public key"},
 		},
 		{
 			name: "invalid ServerCSAPublicKey wrong length",
@@ -58,7 +58,7 @@ func TestJDConfig_validate(t *testing.T) {
 				ServerCSAPublicKey: "0123456789abcdef", // 16 hex chars = 8 bytes, need 32
 			},
 			wantErr:     true,
-			errContains: []string{"ServerCSAPublicKey is not an ed25519 public key"},
+			errContains: []string{"invalid ServerCSAPublicKey", "not an ed25519 public key"},
 		},
 	}
 	for _, tt := range tests {
@@ -144,6 +144,40 @@ func TestDBConfig_validate(t *testing.T) {
 	}
 }
 
+func TestServerConfig_validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		config      *ServerConfig
+		wantErr     bool
+		errContains []string
+	}{
+		{
+			name:    "valid",
+			config:  &ServerConfig{ListenPort: 9988},
+			wantErr: false,
+		},
+		{
+			name:        "missing listen port",
+			config:      &ServerConfig{ListenPort: 0},
+			wantErr:     true,
+			errContains: []string{"field 'listen_port' is required"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				for _, sub := range tt.errContains {
+					require.Contains(t, err.Error(), sub)
+				}
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestConfig_validate(t *testing.T) {
 	validJD := JDConfig{
 		ServerWSRPCURL:     "ws://localhost:8080/ws",
@@ -151,6 +185,7 @@ func TestConfig_validate(t *testing.T) {
 	}
 	validKeystore := KeystoreConfig{Password: "secret"}
 	validDB := DBConfig{URL: "postgres://localhost:5432/mydb"}
+	validServer := ServerConfig{ListenPort: 9988}
 
 	tests := []struct {
 		name        string
@@ -160,7 +195,7 @@ func TestConfig_validate(t *testing.T) {
 	}{
 		{
 			name:    "valid",
-			config:  &Config{JD: validJD, Keystore: validKeystore, DB: validDB},
+			config:  &Config{JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer},
 			wantErr: false,
 		},
 		{
@@ -169,6 +204,7 @@ func TestConfig_validate(t *testing.T) {
 				JD:       JDConfig{ServerWSRPCURL: "", ServerCSAPublicKey: validEd25519PublicKeyHex},
 				Keystore: validKeystore,
 				DB:       validDB,
+				Server:   validServer,
 			},
 			wantErr:     true,
 			errContains: []string{"failed to validate 'jd' section", "ServerWSRPCURL"},
@@ -179,6 +215,7 @@ func TestConfig_validate(t *testing.T) {
 				JD:       validJD,
 				Keystore: KeystoreConfig{Password: ""},
 				DB:       validDB,
+				Server:   validServer,
 			},
 			wantErr:     true,
 			errContains: []string{"failed to validate 'keystore' section", "password"},
@@ -189,9 +226,21 @@ func TestConfig_validate(t *testing.T) {
 				JD:       validJD,
 				Keystore: validKeystore,
 				DB:       DBConfig{URL: ""},
+				Server:   validServer,
 			},
 			wantErr:     true,
 			errContains: []string{"failed to validate 'db' section", "url"},
+		},
+		{
+			name: "invalid server section",
+			config: &Config{
+				JD:       validJD,
+				Keystore: validKeystore,
+				DB:       validDB,
+				Server:   ServerConfig{ListenPort: 0},
+			},
+			wantErr:     true,
+			errContains: []string{"failed to validate 'server' section", "listen_port"},
 		},
 	}
 	for _, tt := range tests {

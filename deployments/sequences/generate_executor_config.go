@@ -22,7 +22,7 @@ type GenerateExecutorConfigInput struct {
 	// ExecutorPool is the executor pool configuration containing pool membership and execution parameters.
 	ExecutorPool executorconfig.ExecutorPoolInput
 	// IndexerAddress is the address of the indexer service used by executors.
-	IndexerAddress string
+	IndexerAddress []string
 	// PyroscopeURL is the URL of the Pyroscope server for profiling (optional).
 	PyroscopeURL string
 	// Monitoring is the monitoring configuration containing beholder settings.

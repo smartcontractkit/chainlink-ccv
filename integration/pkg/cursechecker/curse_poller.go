@@ -3,10 +3,8 @@ package cursechecker
 import (
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
@@ -37,15 +35,15 @@ type ChainCurseState struct {
 // It polls configured RMN readers at regular intervals and maintains curse state.
 type PollerService struct {
 	services.StateMachine
+	stopCh           services.StopChan
+	wg               sync.WaitGroup
 	rmnReaders       map[protocol.ChainSelector]chainaccess.RMNCurseReader
 	chainCurseStates map[protocol.ChainSelector]*ChainCurseState
 	mutex            sync.RWMutex
 	pollInterval     time.Duration
 	curseRPCTimeout  time.Duration
 	lggr             logger.Logger
-	cancel           context.CancelFunc
-	wg               sync.WaitGroup
-	running          atomic.Bool
+	metrics          common.CurseCheckerMetrics
 }
 
 // NewCurseDetectorService creates a new curse detector service.
@@ -61,6 +59,7 @@ func NewCurseDetectorService(
 	pollInterval time.Duration,
 	curseRPCTimeout time.Duration,
 	lggr logger.Logger,
+	metrics common.CurseCheckerMetrics,
 ) (common.CurseCheckerService, error) {
 	if len(rmnReaders) == 0 {
 		return nil, fmt.Errorf("at least one RMN reader required")
@@ -81,21 +80,19 @@ func NewCurseDetectorService(
 		pollInterval:     pollInterval,
 		curseRPCTimeout:  curseRPCTimeout,
 		lggr:             lggr,
+		metrics:          metrics,
+		stopCh:           make(chan struct{}),
 	}, nil
 }
 
 // Start begins polling RMN Remote contracts for curse updates.
 func (s *PollerService) Start(ctx context.Context) error {
 	return s.StartOnce("cursechecker.PollerService", func() error {
-		c, cancel := context.WithCancel(ctx)
-		s.cancel = cancel
-
 		// Initial poll
-		s.pollAllChains(c)
+		s.pollAllChains(ctx)
 
-		s.running.Store(true)
 		s.wg.Go(func() {
-			s.pollLoop(c)
+			s.pollLoop()
 		})
 
 		s.lggr.Infow("Curse detector service started",
@@ -111,14 +108,9 @@ func (s *PollerService) Close() error {
 	return s.StopOnce("cursechecker.PollerService", func() error {
 		s.lggr.Infow("Curse detector service stopping")
 
-		// Cancel the background goroutine and wait for it to exit.
-		if s.cancel != nil {
-			s.cancel()
-		}
+		// Signal the background goroutine to stop and wait for it to exit.
+		close(s.stopCh)
 		s.wg.Wait()
-
-		// Update running state to reflect in healthcheck and readiness.
-		s.running.Store(false)
 
 		s.lggr.Infow("Curse detector service stopped")
 
@@ -127,24 +119,32 @@ func (s *PollerService) Close() error {
 }
 
 // IsRemoteChainCursed checks if remoteChain is cursed according to localChain's RMN Remote.
-// Returns true if:
-//   - remoteChain appears in localChain's cursed subjects, OR
-//   - localChain has a global curse
-func (s *PollerService) IsRemoteChainCursed(_ context.Context, localChain, remoteChain protocol.ChainSelector) bool {
+// Returns (true, nil) if cursed, (false, nil) if not cursed.
+// Returns (true, ErrCurseStateUnknown) when state is unknown (no successful poll yet).
+func (s *PollerService) IsRemoteChainCursed(_ context.Context, localChain, remoteChain protocol.ChainSelector) (bool, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
 	state := s.chainCurseStates[localChain]
 	if state == nil {
-		return false
+		// Log when checking a chain that was never registered
+		if _, exists := s.rmnReaders[localChain]; !exists {
+			s.lggr.Warnw("IsRemoteChainCursed called with unregistered local chain",
+				"localChain", localChain,
+				"remoteChain", remoteChain)
+		}
+		return true, common.ErrCurseStateUnknown
 	}
 
-	// Match RMN contract logic: contains(remoteChain) || contains(GLOBAL_CURSE)
-	return state.CursedRemoteChains[remoteChain] || state.HasGlobalCurse
+	cursed := state.CursedRemoteChains[remoteChain] || state.HasGlobalCurse
+	return cursed, nil
 }
 
 // pollLoop runs the periodic polling loop for curse updates.
-func (s *PollerService) pollLoop(ctx context.Context) {
+func (s *PollerService) pollLoop() {
+	ctx, cancel := s.stopCh.NewCtx()
+	defer cancel()
+
 	ticker := time.NewTicker(s.pollInterval)
 	defer ticker.Stop()
 
@@ -196,8 +196,8 @@ func (s *PollerService) pollAllChains(ctx context.Context) {
 					state.CursedRemoteChains[remoteChain] = true
 				}
 			}
-
 			s.mutex.Lock()
+			s.updateMetrics(ctx, chain, s.chainCurseStates[chain], state)
 			s.chainCurseStates[chain] = state
 			s.mutex.Unlock()
 
@@ -211,21 +211,24 @@ func (s *PollerService) pollAllChains(ctx context.Context) {
 	wg.Wait()
 }
 
-func ChainSelectorToBytes16(chainSel protocol.ChainSelector) [16]byte {
-	var result [16]byte
-	// Convert the uint64 to bytes and place it in the last 8 bytes of the array
-
-	binary.BigEndian.PutUint64(result[8:], uint64(chainSel))
-	return result
-}
-
-// Ready returns nil if the service is ready, or an error otherwise.
-func (s *PollerService) Ready() error {
-	if !s.running.Load() {
-		return errors.New("curse detector service not running")
+func (s *PollerService) updateMetrics(ctx context.Context, localChain protocol.ChainSelector, oldState, newState *ChainCurseState) {
+	if newState == nil {
+		return
 	}
-
-	return nil
+	s.metrics.SetLocalChainGlobalCursed(ctx, localChain, newState.HasGlobalCurse)
+	for remoteSelector, cursed := range newState.CursedRemoteChains {
+		s.metrics.SetRemoteChainCursed(ctx, localChain, remoteSelector, cursed)
+	}
+	if oldState == nil {
+		return
+	}
+	// Unset metric if chain is no longer cursed
+	for remoteSelector, oldCursed := range oldState.CursedRemoteChains {
+		_, ok := newState.CursedRemoteChains[remoteSelector]
+		if oldCursed && !ok {
+			s.metrics.SetRemoteChainCursed(ctx, localChain, remoteSelector, false)
+		}
+	}
 }
 
 // HealthReport returns a full health report of the service.
@@ -239,4 +242,12 @@ func (s *PollerService) HealthReport() map[string]error {
 // Name returns the fully qualified name of the service.
 func (s *PollerService) Name() string {
 	return "cursechecker.PollerService"
+}
+
+func ChainSelectorToBytes16(chainSel protocol.ChainSelector) [16]byte {
+	var result [16]byte
+	// Convert the uint64 to bytes and place it in the last 8 bytes of the array
+
+	binary.BigEndian.PutUint64(result[8:], uint64(chainSel))
+	return result
 }

@@ -27,7 +27,7 @@ func TestAggregationHappyPath(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -63,7 +63,7 @@ func TestAggregationHappyPath(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -72,7 +72,7 @@ func TestAggregationHappyPath_NoQuorumWhenBlobDataIsDifferent(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -115,7 +115,7 @@ func TestAggregationHappyPath_NoQuorumWhenBlobDataIsDifferent(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -124,7 +124,7 @@ func TestIdempotency(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -159,7 +159,7 @@ func TestIdempotency(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -168,7 +168,7 @@ func TestKeyRotation(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer1Address1 := common.HexToAddress(signer1.Signer.Address)
@@ -208,8 +208,8 @@ func TestKeyRotation(t *testing.T) {
 				SinceSequence: 0,
 			})
 			require.NoError(collect, err)
-			require.Len(collect, getResp.Results, 2, "Should have 2 aggregation records after key rotation")
-		}, 5*time.Second, 100*time.Millisecond, "should have 2 aggregation records after key rotation")
+			require.Len(collect, getResp.Results, 1, "Should have 1 aggregation record after key rotation (old report fails quorum threshold)")
+		}, 5*time.Second, 100*time.Millisecond, "should have 1 aggregation record after key rotation")
 
 		ccvNodeData4, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer1Rotated))
 		resp4, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData4))
@@ -221,8 +221,8 @@ func TestKeyRotation(t *testing.T) {
 				SinceSequence: 0,
 			})
 			require.NoError(collect, err)
-			require.Len(collect, getResp2.Results, 2, "Should still have 2 aggregation records")
-		}, 5*time.Second, 100*time.Millisecond, "should still have 2 aggregation records")
+			require.Len(collect, getResp2.Results, 1, "Should still have 1 aggregation record (old report fails quorum threshold)")
+		}, 5*time.Second, 100*time.Millisecond, "should still have 1 aggregation record")
 
 		readResp1, err := aggregatorClient.ReadCommitteeVerifierNodeResult(t.Context(), &committeepb.ReadCommitteeVerifierNodeResultRequest{
 			MessageId: messageId[:],
@@ -244,7 +244,7 @@ func TestKeyRotation(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -293,7 +293,7 @@ func assertCCVDataNotFound(t *testing.T, ctx context.Context, ccvDataClient veri
 	}, 500*time.Millisecond, 50*time.Millisecond, "CCV data should not be found")
 }
 
-func assertCCVDataFound(t *testing.T, ctx context.Context, ccvDataClient verifierpb.VerifierClient, messageId protocol.Bytes32, message *verifierpb.Message, sourceVerifierAddress, destVerifierAddress []byte, options ...SignatureValidationOption) *verifierpb.VerifierResult {
+func assertCCVDataFound(t *testing.T, ctx context.Context, ccvDataClient verifierpb.VerifierClient, messageId protocol.Bytes32, message *verifierpb.Message, sourceVerifierAddress, destVerifierAddress []byte, options ...SignatureValidationOption) {
 	var respCcvData *verifierpb.VerifierResult
 	require.EventuallyWithTf(t, func(collect *assert.CollectT) {
 		response, err := ccvDataClient.GetVerifierResultsForMessage(ctx, &verifierpb.GetVerifierResultsForMessageRequest{
@@ -333,8 +333,6 @@ func assertCCVDataFound(t *testing.T, ctx context.Context, ccvDataClient verifie
 			validateSignatures(collect, respCcvData.CcvData, messageId, options...)
 		}
 	}, 5*time.Second, 100*time.Millisecond, "CCV data not found within timeout")
-
-	return respCcvData
 }
 
 // validateSignatures decodes the CCV data and validates signatures from expected signers.
@@ -413,7 +411,7 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -457,7 +455,7 @@ func TestChangingCommitteeBeforeAggregation(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -466,7 +464,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -499,7 +497,17 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 		// Change committee to remove signer1 and add signer3
 		testutil.UpdateCommitteeQuorum(committee, sourceVerifierAddress, signer2.Signer, signer3.Signer)
 
-		assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData2.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer2), WithExactNumberOfSignatures(1))
+		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+			response, err := ccvDataClient.GetVerifierResultsForMessage(t.Context(), &verifierpb.GetVerifierResultsForMessageRequest{
+				MessageIds: [][]byte{messageId[:]},
+			})
+			require.NoError(collect, err)
+			require.NotNil(collect, response)
+			require.Len(collect, response.Results, 1)
+			require.Len(collect, response.Errors, 1)
+			require.Equal(collect, int32(codes.Internal), response.Errors[0].Code,
+				"expected Internal error when valid signatures below quorum threshold after committee change")
+		}, 5*time.Second, 100*time.Millisecond, "old report should fail quorum threshold after committee change")
 
 		// Ensure that we can still write new signatures with the updated committee
 		ccvNodeData3, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer3))
@@ -514,7 +522,7 @@ func TestChangingCommitteeAfterAggregation(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -524,7 +532,7 @@ func TestPaginationWithVariousPageSizes(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		testCases := []struct {
 			name          string
 			numMessages   int
@@ -551,7 +559,7 @@ func TestPaginationWithVariousPageSizes(t *testing.T) {
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Logf("Running test case: %s - %s", tc.name, tc.description)
-				runPaginationTest(t, tc.numMessages, tc.pageSize, storageType, tc.expectedPages)
+				runPaginationTest(t, tc.numMessages, tc.pageSize, tc.expectedPages)
 			})
 		}
 	}
@@ -559,12 +567,12 @@ func TestPaginationWithVariousPageSizes(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
 
-func runPaginationTest(t *testing.T, numMessages, pageSize int, storageType string, expectedPages int) {
+func runPaginationTest(t *testing.T, numMessages, pageSize, expectedPages int) {
 	sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 	signer1 := testutil.NewSignerFixture(t, "node1")
 	signer2 := testutil.NewSignerFixture(t, "node2")
@@ -691,7 +699,7 @@ func TestSequenceOrdering(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -773,7 +781,7 @@ func TestSequenceOrdering(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -785,7 +793,7 @@ func TestStopAggregationAfterQuorum(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -882,7 +890,7 @@ func TestStopAggregationAfterQuorum(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -892,7 +900,7 @@ func TestBatchGetVerifierResult_HappyPath(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"} // DynamoDB not implemented for batch operations
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -983,7 +991,7 @@ func TestBatchGetVerifierResult_HappyPath(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -993,7 +1001,7 @@ func TestBatchGetVerifierResult_DuplicateMessageIDs(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -1049,7 +1057,7 @@ func TestBatchGetVerifierResult_DuplicateMessageIDs(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -1059,7 +1067,7 @@ func TestBatchGetVerifierResult_MissingMessages(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -1127,7 +1135,7 @@ func TestBatchGetVerifierResult_MissingMessages(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -1137,7 +1145,7 @@ func TestBatchGetVerifierResult_EmptyRequest(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -1159,7 +1167,7 @@ func TestBatchGetVerifierResult_EmptyRequest(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -1168,7 +1176,7 @@ func TestBatchWriteCommitteeVerifierNodeResult_MixedSuccessFailure(t *testing.T)
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -1231,7 +1239,7 @@ func TestBatchWriteCommitteeVerifierNodeResult_MixedSuccessFailure(t *testing.T)
 
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -1240,7 +1248,7 @@ func TestBatchGetVerifierResult_MixedSuccessFailure(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -1322,7 +1330,7 @@ func TestBatchGetVerifierResult_MixedSuccessFailure(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -1334,7 +1342,7 @@ func TestReadCommitteeVerifierNodeResult_ReturnsLatestAggregationKey(t *testing.
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 
@@ -1385,7 +1393,7 @@ func TestReadCommitteeVerifierNodeResult_ReturnsLatestAggregationKey(t *testing.
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -1400,7 +1408,7 @@ func TestKeyRotation_StopAggregationAfterQuorumThenRotate(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -1468,7 +1476,7 @@ func TestKeyRotation_StopAggregationAfterQuorumThenRotate(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -1479,7 +1487,7 @@ func TestGetVerifierResultsForMessage_ReturnsNotFoundWhenSourceVerifierNotInCCVA
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -1531,19 +1539,20 @@ func TestGetVerifierResultsForMessage_ReturnsNotFoundWhenSourceVerifierNotInCCVA
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
 
 // TestGetMessagesSince_ReturnsNilMetadataWhenSourceVerifierNotInCCVAddresses verifies that
 // GetMessagesSince returns nil VerifierSourceAddress and VerifierDestAddress when source verifier
-// is not in the ccvAddresses.
+// is not in the message's ccvAddresses. Uses MessageDiscoveryVersion so aggregation is allowed
+// (source verifier check is bypassed for message discovery) and the report is created.
 func TestGetMessagesSince_ReturnsNilMetadataWhenSourceVerifierNotInCCVAddresses(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -1554,13 +1563,82 @@ func TestGetMessagesSince_ReturnsNilMetadataWhenSourceVerifierNotInCCVAddresses(
 
 		message := testutil.NewProtocolMessage(t)
 
-		// Create a different address that is NOT the source verifier
 		differentAddress := make([]byte, 20)
 		for i := range differentAddress {
 			differentAddress[i] = 0xCD
 		}
 
-		// Create ccvNodeData with ccvAddresses that do NOT include the source verifier
+		ccvNodeData1, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithCcvAddresses(t, [][]byte{differentAddress}),
+			testutil.WithCcvVersion(protocol.MessageDiscoveryVersion),
+			testutil.WithSignatureFrom(t, signer1))
+
+		resp1, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1))
+		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
+		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp1.Status, "expected WriteStatus_SUCCESS")
+
+		ccvNodeData2, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithCcvAddresses(t, [][]byte{differentAddress}),
+			testutil.WithCcvVersion(protocol.MessageDiscoveryVersion),
+			testutil.WithSignatureFrom(t, signer2))
+
+		resp2, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
+		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
+		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
+
+		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+			resp, err := messageDiscoveryClient.GetMessagesSince(t.Context(), &msgdiscoverypb.GetMessagesSinceRequest{
+				SinceSequence: 0,
+			})
+			require.NoError(collect, err, "GetMessagesSince should succeed")
+			require.Len(collect, resp.Results, 1, "should have 1 result")
+
+			result := resp.Results[0]
+			require.NotNil(collect, result.VerifierResult, "VerifierResult should not be nil")
+			require.NotNil(collect, result.VerifierResult.Metadata, "Metadata should not be nil")
+			require.Nil(collect, result.VerifierResult.Metadata.VerifierSourceAddress, "VerifierSourceAddress should be nil when source verifier not in ccvAddresses")
+			require.Nil(collect, result.VerifierResult.Metadata.VerifierDestAddress, "VerifierDestAddress should be nil when source verifier not in ccvAddresses")
+			require.NotNil(collect, result.VerifierResult.Message, "Message should still be present")
+			require.NotNil(collect, result.VerifierResult.CcvData, "CcvData should still be present")
+			require.GreaterOrEqual(collect, len(result.VerifierResult.CcvData), protocol.MessageDiscoveryVersionLength,
+				"CcvData should be at least version length bytes")
+			require.True(collect, bytes.Equal(protocol.MessageDiscoveryVersion, result.VerifierResult.CcvData[:protocol.MessageDiscoveryVersionLength]),
+				"CCV version in result should be MessageDiscoveryVersion")
+		}, 5*time.Second, 100*time.Millisecond, "should return nil metadata addresses when source verifier not in ccvAddresses")
+	}
+
+	for _, storageType := range storageTypes {
+		t.Run(storageType, func(t *testing.T) {
+			t.Parallel()
+			testFunc(t)
+		})
+	}
+}
+
+// TestGetMessagesSince_ReturnsNoResultsWhenSourceVerifierNotInCCVAddressesAndRegularVersion verifies that
+// when source verifier is not in the message's ccvAddresses and the message uses the regular CCV version
+// (not MessageDiscoveryVersion), CheckQuorum rejects aggregation so no report is created and
+// GetMessagesSince returns no results.
+func TestGetMessagesSince_ReturnsNoResultsWhenSourceVerifierNotInCCVAddressesAndRegularVersion(t *testing.T) {
+	t.Parallel()
+	storageTypes := []string{"postgres"}
+
+	testFunc := func(t *testing.T) {
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "node1")
+		signer2 := testutil.NewSignerFixture(t, "node2")
+		committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer)
+		aggregatorClient, _, messageDiscoveryClient, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committee))
+		t.Cleanup(cleanup)
+		require.NoError(t, err, "failed to create server and client")
+
+		message := testutil.NewProtocolMessage(t)
+
+		differentAddress := make([]byte, 20)
+		for i := range differentAddress {
+			differentAddress[i] = 0xCD
+		}
+
 		ccvNodeData1, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
 			testutil.WithCcvAddresses(t, [][]byte{differentAddress}),
 			testutil.WithSignatureFrom(t, signer1))
@@ -1577,32 +1655,19 @@ func TestGetMessagesSince_ReturnsNilMetadataWhenSourceVerifierNotInCCVAddresses(
 		require.NoError(t, err, "WriteCommitteeVerifierNodeResult failed")
 		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp2.Status, "expected WriteStatus_SUCCESS")
 
-		// GetMessagesSince should return the message but with nil metadata addresses
 		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
 			resp, err := messageDiscoveryClient.GetMessagesSince(t.Context(), &msgdiscoverypb.GetMessagesSinceRequest{
 				SinceSequence: 0,
 			})
 			require.NoError(collect, err, "GetMessagesSince should succeed")
-			require.Len(collect, resp.Results, 1, "should have 1 result")
-
-			result := resp.Results[0]
-			require.NotNil(collect, result.VerifierResult, "VerifierResults should not be nil")
-			require.NotNil(collect, result.VerifierResult.Metadata, "Metadata should not be nil")
-
-			// Verify metadata addresses are nil because source verifier is not in ccvAddresses
-			require.Nil(collect, result.VerifierResult.Metadata.VerifierSourceAddress, "VerifierSourceAddress should be nil when source verifier not in ccvAddresses")
-			require.Nil(collect, result.VerifierResult.Metadata.VerifierDestAddress, "VerifierDestAddress should be nil when source verifier not in ccvAddresses")
-
-			// Verify the rest of the data is still present
-			require.NotNil(collect, result.VerifierResult.Message, "Message should still be present")
-			require.NotNil(collect, result.VerifierResult.CcvData, "CcvData should still be present")
-		}, 5*time.Second, 100*time.Millisecond, "should return nil metadata addresses when source verifier not in ccvAddresses")
+			require.Len(collect, resp.Results, 0, "should have 0 results because aggregation was rejected (source verifier not in ccvAddresses with regular version)")
+		}, 5*time.Second, 100*time.Millisecond, "should return no results when source verifier not in ccvAddresses and regular version")
 	}
 
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
 }
@@ -1613,7 +1678,7 @@ func TestSourceVerifierInCCVAddresses_MetadataPopulated(t *testing.T) {
 	t.Parallel()
 	storageTypes := []string{"postgres"}
 
-	testFunc := func(t *testing.T, storageType string) {
+	testFunc := func(t *testing.T) {
 		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
 		signer1 := testutil.NewSignerFixture(t, "node1")
 		signer2 := testutil.NewSignerFixture(t, "node2")
@@ -1674,7 +1739,86 @@ func TestSourceVerifierInCCVAddresses_MetadataPopulated(t *testing.T) {
 	for _, storageType := range storageTypes {
 		t.Run(storageType, func(t *testing.T) {
 			t.Parallel()
-			testFunc(t, storageType)
+			testFunc(t)
 		})
 	}
+}
+
+func TestAggregatedReport_DoesNotMixVerificationRecordsFromDifferentAggregationKeys(t *testing.T) {
+	t.Parallel()
+
+	testFunc := func(t *testing.T) {
+		sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+		signer1 := testutil.NewSignerFixture(t, "compromised-node")
+		signer2 := testutil.NewSignerFixture(t, "honest-node1")
+		signer3 := testutil.NewSignerFixture(t, "honest-node2")
+		committeeConfig := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer1.Signer, signer2.Signer, signer3.Signer)
+		testutil.UpdateCommitteeQuorumWithThreshold(committeeConfig, sourceVerifierAddress, 3, signer1.Signer, signer2.Signer, signer3.Signer)
+
+		aggregatorClient, ccvDataClient, _, cleanup, err := CreateServerAndClient(t, WithCommitteeConfig(committeeConfig))
+		t.Cleanup(cleanup)
+		require.NoError(t, err, "failed to create server and client")
+
+		message := testutil.NewProtocolMessage(t)
+		versionA := []byte{0x01, 0x02, 0x03, 0x04}
+		versionB := []byte{0x05, 0x06, 0x07, 0x08}
+
+		// Signer1 submits with versionA first
+		ccvNodeData1a, messageId := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithCcvVersion(versionA),
+			testutil.WithSignatureFrom(t, signer1))
+		resp, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1a))
+		require.NoError(t, err)
+		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp.Status)
+
+		// Signer1 submits again with versionB (higher seq_num)
+		ccvNodeData1b, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithCcvVersion(versionB),
+			testutil.WithSignatureFrom(t, signer1))
+		resp, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData1b))
+		require.NoError(t, err)
+		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp.Status)
+
+		// Signer2 and signer3 submit with versionA
+		ccvNodeData2, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithCcvVersion(versionA),
+			testutil.WithSignatureFrom(t, signer2))
+		resp, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData2))
+		require.NoError(t, err)
+		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp.Status)
+
+		ccvNodeData3, _ := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress,
+			testutil.WithCcvVersion(versionA),
+			testutil.WithSignatureFrom(t, signer3))
+		resp, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(ccvNodeData3))
+		require.NoError(t, err)
+		require.Equal(t, committeepb.WriteStatus_SUCCESS, resp.Status)
+
+		// Verify that the aggregated report has a single CCV version (all versionA)
+		require.EventuallyWithTf(t, func(collect *assert.CollectT) {
+			batchResp, err := ccvDataClient.GetVerifierResultsForMessage(t.Context(), &verifierpb.GetVerifierResultsForMessageRequest{
+				MessageIds: [][]byte{messageId[:]},
+			})
+			require.NoError(collect, err, "GetVerifierResultsForMessage failed")
+			require.NotNil(collect, batchResp, "response should not be nil")
+			require.Len(collect, batchResp.Results, 1, "should have 1 result")
+			require.Equal(collect, int32(0), batchResp.Errors[0].Code, "should be success")
+
+			result := batchResp.Results[0]
+			require.NotNil(collect, result.CcvData, "CcvData should not be nil")
+			require.GreaterOrEqual(collect, len(result.CcvData), committee.VerifierVersionLength,
+				"CcvData should be at least VerifierVersionLength bytes")
+			require.Equal(collect, versionA, result.CcvData[:committee.VerifierVersionLength],
+				"aggregated report CCV version must be versionA, not mixed")
+		}, 5*time.Second, 100*time.Millisecond, "aggregated report should contain only versionA records")
+
+		assertCCVDataFound(t, t.Context(), ccvDataClient, messageId, ccvNodeData1a.GetMessage(),
+			sourceVerifierAddress, destVerifierAddress,
+			WithValidSignatureFrom(signer1), WithValidSignatureFrom(signer2), WithValidSignatureFrom(signer3))
+	}
+
+	t.Run("postgres", func(t *testing.T) {
+		t.Parallel()
+		testFunc(t)
+	})
 }

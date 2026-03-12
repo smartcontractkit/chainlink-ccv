@@ -143,6 +143,11 @@ func (c *chainPendingState) calculateCheckpoint() uint64 {
 		"minPendingLevel", minLevel,
 		"totalPendingLevels", len(c.byFinalized))
 
+	// Guard against underflow when the minimum pending level is 0.
+	if minLevel == 0 {
+		return 0
+	}
+
 	return minLevel - 1
 }
 

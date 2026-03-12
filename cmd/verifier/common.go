@@ -11,15 +11,15 @@ import (
 	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
 
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
+
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
-	cantonaccessor "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/canton"
 	evmaccessor "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
@@ -49,6 +49,12 @@ const (
 )
 
 func SetupMonitoring(lggr logger.Logger, config verifier.MonitoringConfig) verifier.Monitoring {
+	// If monitoring is not enabled, return a fake monitoring implementation that does nothing.
+	if !config.Enabled {
+		verifierMonitoring := monitoring.NewFakeVerifierMonitoring()
+		return verifierMonitoring
+	}
+
 	beholderConfig := beholder.Config{
 		InsecureConnection:       config.Beholder.InsecureConnection,
 		CACertFile:               config.Beholder.CACertFile,
@@ -154,14 +160,6 @@ func RegisterEVM(ctx context.Context, registry *accessors.Registry, lggr logger.
 	registry.Register(chainsel.FamilyEVM, evmaccessor.NewFactory(lggr, helper, onRampAddresses, rmnRemoteAddresses, headTrackers, chainClients))
 }
 
-func RegisterCanton(ctx context.Context, registry *accessors.Registry, lggr logger.Logger, helper *blockchain.Helper, cantonConfigs map[string]commit.CantonConfig) {
-	readerConfigs := make(map[string]canton.ReaderConfig)
-	for selector, config := range cantonConfigs {
-		readerConfigs[selector] = config.ReaderConfig
-	}
-	registry.Register(chainsel.FamilyCanton, cantonaccessor.NewFactory(lggr, helper, readerConfigs))
-}
-
 func CreateSourceReaders(
 	ctx context.Context,
 	lggr logger.Logger,
@@ -189,7 +187,7 @@ func CreateSourceReaders(
 	return readers, nil
 }
 
-func ConnectToPostgresDB(lggr logger.Logger) (*sqlx.DB, error) {
+func ConnectToPostgresDB(lggr logger.Logger) (sqlutil.DataSource, error) {
 	dbURL := os.Getenv(DatabaseURLEnvVar)
 	if dbURL == "" {
 		return nil, nil
@@ -249,8 +247,8 @@ func LoadBlockchainInfo(
 	return blockchainHelper
 }
 
-func StartPyroscope(lggr logger.Logger, pyroscopeAddress, serviceName string) {
-	if _, err := pyroscope.Start(pyroscope.Config{
+func StartPyroscope(lggr logger.Logger, pyroscopeAddress, serviceName string) (*pyroscope.Profiler, error) {
+	profiler, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: serviceName,
 		ServerAddress:   pyroscopeAddress,
 		Logger:          nil, // Disable pyroscope logging - so noisy
@@ -262,9 +260,12 @@ func StartPyroscope(lggr logger.Logger, pyroscopeAddress, serviceName string) {
 			pyroscope.ProfileBlockDuration,
 			pyroscope.ProfileMutexDuration,
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		lggr.Errorw("Failed to start pyroscope", "error", err)
+		return nil, fmt.Errorf("failed to start pyroscope: %w", err)
 	}
+	return profiler, nil
 }
 
 func logBlockchainInfo(blockchainHelper *blockchain.Helper, lggr logger.Logger) {
@@ -274,24 +275,19 @@ func logBlockchainInfo(blockchainHelper *blockchain.Helper, lggr logger.Logger) 
 }
 
 func logChainInfo(blockchainHelper *blockchain.Helper, chainSelector protocol.ChainSelector, lggr logger.Logger) {
-	if info, err := blockchainHelper.GetBlockchainInfo(chainSelector); err == nil {
-		lggr.Infow("🔗 Blockchain available", "chainSelector", chainSelector, "info", info)
+	info, err := blockchainHelper.GetBlockchainByChainSelector(chainSelector)
+	if err == nil {
+		lggr.Infow("🔗 Blockchain available", "chainSelector", chainSelector, "info", info, "nodeCount", len(info.Nodes))
 	}
 
-	if rpcURL, err := blockchainHelper.GetRPCEndpoint(chainSelector); err == nil {
-		lggr.Infow("🌐 RPC endpoint", "chainSelector", chainSelector, "url", rpcURL)
-	}
-
-	if wsURL, err := blockchainHelper.GetWebSocketEndpoint(chainSelector); err == nil {
-		lggr.Infow("🔌 WebSocket endpoint", "chainSelector", chainSelector, "url", wsURL)
-	}
-
-	if internalURL, err := blockchainHelper.GetInternalRPCEndpoint(chainSelector); err == nil {
-		lggr.Infow("🔒 Internal RPC endpoint", "chainSelector", chainSelector, "url", internalURL)
-	}
-
-	if nodes, err := blockchainHelper.GetAllNodes(chainSelector); err == nil {
-		lggr.Infow("📡 All nodes", "chainSelector", chainSelector, "nodeCount", len(nodes))
+	n, err := info.GetFirstNode()
+	if err != nil {
+		lggr.Infow("Node Info", "chainSelector", chainSelector,
+			"ExternalWSURL", n.ExternalWSUrl,
+			"InternalWSURL", n.InternalWSUrl,
+			"ExternalHTTPURL", n.ExternalHTTPUrl,
+			"InternalHTTPURL", n.InternalHTTPUrl,
+		)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 )
@@ -119,11 +120,13 @@ func (f *FakeVerifierMetricLabeler) RecordMessageVerificationDuration(context.Co
 
 func (f *FakeVerifierMetricLabeler) RecordStorageWriteDuration(context.Context, time.Duration) {}
 
-func (f *FakeVerifierMetricLabeler) RecordFinalityQueueSize(context.Context, int64) {}
+func (f *FakeVerifierMetricLabeler) RecordTaskVerificationQueueSize(context.Context, int64) {}
 
-func (f *FakeVerifierMetricLabeler) RecordCCVDataChannelSize(context.Context, int64) {}
+func (f *FakeVerifierMetricLabeler) RecordStorageWriteQueueSize(context.Context, int64) {}
 
 func (f *FakeVerifierMetricLabeler) IncrementStorageWriteErrors(context.Context) {}
+
+func (f *FakeVerifierMetricLabeler) IncrementTaskVerificationPermanentErrors(context.Context) {}
 
 func (f *FakeVerifierMetricLabeler) RecordSourceChainLatestBlock(_ context.Context, blockNum int64) {
 	f.SourceChainLatestBLock.Store(blockNum)
@@ -133,7 +136,16 @@ func (f *FakeVerifierMetricLabeler) RecordSourceChainFinalizedBlock(_ context.Co
 	f.SourceChainFinalizedBlock.Store(blockNum)
 }
 
-func (f *FakeVerifierMetricLabeler) RecordReorgTrackedSeqNums(context.Context, int64) {}
+func (f *FakeVerifierMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64) {}
+
+func (f *FakeVerifierMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool) {
+}
+
+func (f *FakeVerifierMetricLabeler) SetRemoteChainCursed(ctx context.Context, localSelector, remoteSelector protocol.ChainSelector, cursed bool) {
+}
+
+func (f *FakeVerifierMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool) {
+}
 
 func (f *FakeVerifierMetricLabeler) IncrementActiveRequestsCounter(context.Context) {}
 

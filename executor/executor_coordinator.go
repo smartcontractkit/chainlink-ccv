@@ -69,16 +69,17 @@ func NewCoordinator(
 	return ec, nil
 }
 
-func (ec *Coordinator) Start(ctx context.Context) error {
+// Start starts the executor coordinator. Context is required to be passed in to satisfy the ServiceCtx interface.
+func (ec *Coordinator) Start(_ context.Context) error {
 	return ec.StartOnce("executor.Coordinator", func() error {
-		if err := ec.executor.Start(ctx); err != nil {
+		c, cancel := context.WithCancel(context.Background())
+		ec.cancel = cancel
+
+		if err := ec.executor.Start(c); err != nil {
 			ec.lggr.Errorf("unable to start executor coordinator due to error: %w", err)
 			return err
 		}
-
-		c, cancel := context.WithCancel(context.Background())
-		ec.cancel = cancel
-		ec.delayedMessageHeap = *message_heap.NewMessageHeap()
+		ec.delayedMessageHeap = *message_heap.NewMessageHeap(ec.lggr)
 		ec.inFlight = make(map[protocol.Bytes32]struct{})
 		ec.running.Store(true)
 
@@ -93,12 +94,10 @@ func (ec *Coordinator) Start(ctx context.Context) error {
 		})
 
 		// Start worker goroutines
-		ec.wg.Add(ec.workerCount)
 		for i := 0; i < ec.workerCount; i++ {
-			go func() {
-				defer ec.wg.Done()
+			ec.wg.Go(func() {
 				ec.handleMessage(c)
-			}()
+			})
 		}
 
 		ec.lggr.Infow("Coordinator started")
@@ -115,24 +114,30 @@ func (ec *Coordinator) Close() error {
 			ec.cancel()
 		}
 
-		// Close channel to signal workers to stop
-		close(ec.workerPoolTasks)
-
 		// Wait for all goroutines to finish
 		ec.wg.Wait()
+
+		// It is safe to close the channel once all goroutines have stopped.
+		close(ec.workerPoolTasks)
+
+		executorCloseErr := ec.executor.Close()
+		if executorCloseErr != nil {
+			ec.lggr.Errorw("failed to close executor", "error", executorCloseErr)
+		}
 
 		// Update running state to reflect in healthcheck and readiness
 		ec.running.Store(false)
 
 		ec.lggr.Infow("Coordinator stopped")
-		return nil
+		return executorCloseErr
 	})
 }
 
 func (ec *Coordinator) runStorageStream(ctx context.Context) {
 	indexerResults, componentErrors, err := ec.messageSubscriber.Start(ctx)
 	if err != nil {
-		ec.lggr.Errorw("failed to start ccv result streamer", "error", err)
+		ec.lggr.Errorw("failed to start ccv result streamer, shutting down coordinator", "error", err)
+		ec.cancel()
 		return
 	}
 
@@ -150,8 +155,8 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 		case streamResult, ok := <-indexerResults:
 			if !ok {
 				ec.lggr.Warnw("streamerResults closed")
-				continue
-				// TODO: handle reconnection logic
+				// indexerResults channel will only close if context is done.
+				return
 			}
 
 			msg := streamResult.Message
@@ -172,11 +177,20 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 				continue
 			}
 
-			// get message delay from leader elector using indexer's ingestion timestamp
-			readyTimestamp := ec.leaderElector.GetReadyTimestamp(
+			readyTimestamp, err := ec.leaderElector.GetReadyTimestamp(
 				id,
 				msg.DestChainSelector,
 				streamResult.Metadata.IngestionTimestamp)
+			if err != nil {
+				ec.lggr.Errorw("leader elector failed for message, skipping", "messageID", id, "chainSel", msg.DestChainSelector, "error", err)
+				continue
+			}
+
+			retryDelay, err := ec.leaderElector.GetRetryDelay(msg.DestChainSelector)
+			if err != nil {
+				ec.lggr.Errorw("leader elector retry delay failed for message, skipping", "messageID", id, "chainSel", msg.DestChainSelector, "error", err)
+				continue
+			}
 
 			ec.lggr.Infow("pushing message to delayed heap",
 				"messageID", id,
@@ -184,13 +198,15 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 				"readyTimestamp", readyTimestamp,
 			)
 
-			ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
+			if !ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 				Message:       &msg,
 				ReadyTime:     readyTimestamp,
 				ExpiryTime:    readyTimestamp.Add(ec.expiryDuration),
-				RetryInterval: ec.leaderElector.GetRetryDelay(msg.DestChainSelector),
+				RetryInterval: retryDelay,
 				MessageID:     id,
-			})
+			}) {
+				ec.lggr.Infow("duplicate message rejected by heap", "messageID", id)
+			}
 		}
 	}
 }
@@ -203,6 +219,7 @@ func (ec *Coordinator) runProcessingLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			ec.lggr.Infow("Processing loop exiting")
 			return
 		case <-ticker.C:
 			currentTime := ec.timeProvider.GetTime()
@@ -215,9 +232,14 @@ func (ec *Coordinator) runProcessingLoop(ctx context.Context) {
 				"readyMessages", readyMessages,
 			)
 			for _, payload := range readyMessages {
-				ec.inFlightAdd(payload.MessageID)
-				// If the channel is full, we will block here, but messages will continue to be accumulate in the heap.
-				ec.workerPoolTasks <- payload
+				// If the channel is full, we will block here, but messages will continue to accumulate in the heap.
+				select {
+				case ec.workerPoolTasks <- payload:
+					ec.inFlightAdd(payload.MessageID)
+				case <-ctx.Done():
+					ec.lggr.Infow("Processing loop dropping payload to exit")
+					return
+				}
 			}
 		case <-reportingTicker.C:
 			ec.monitoring.Metrics().RecordMessageHeapSize(ctx, int64(ec.delayedMessageHeap.Len()))
@@ -229,12 +251,12 @@ func (ec *Coordinator) handleMessage(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			ec.lggr.Infow("Message handler exiting")
 			return
 		case payload, ok := <-ec.workerPoolTasks:
-			if !ok {
-				return
+			if ok {
+				ec.processPayload(ctx, payload)
 			}
-			ec.processPayload(ctx, payload)
 		}
 	}
 }
@@ -255,19 +277,20 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 	shouldRetry, err := ec.executor.HandleMessage(ctx, message)
 	if shouldRetry {
 		ec.lggr.Infow("message should be retried, putting back in heap", "messageID", id)
-		ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
+		if !ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 			Message:       &message,
 			ReadyTime:     payload.ReadyTime.Add(payload.RetryInterval),
 			ExpiryTime:    payload.ExpiryTime,
 			RetryInterval: payload.RetryInterval,
 			MessageID:     id,
-		})
+		}) {
+			ec.lggr.Warnw("retry push rejected, message already in heap", "messageID", id)
+		}
 	}
+	ec.monitoring.Metrics().IncrementMessagesProcessing(ctx)
 	if err != nil {
-		ec.lggr.Errorw("failed to handle message", "messageID", id, "error", err)
-		ec.monitoring.Metrics().IncrementMessagesProcessingFailed(ctx)
-	} else {
-		ec.monitoring.Metrics().IncrementMessagesProcessed(ctx)
+		ec.lggr.Errorw("failed to handle message", "messageID", id, "error", err, "shouldRetry", shouldRetry)
+		ec.monitoring.Metrics().IncrementMessagesProcessingError(ctx, shouldRetry)
 	}
 }
 
@@ -304,6 +327,11 @@ func (ec *Coordinator) validate() error {
 	appendIfNil(ec.lggr, "logger")
 	appendIfNil(ec.messageSubscriber, "messageSubscriber")
 	appendIfNil(ec.monitoring, "monitoring")
+	appendIfNil(ec.timeProvider, "timeProvider")
+
+	if ec.workerCount <= 0 {
+		errs = append(errs, fmt.Errorf("workerCount must be greater than 0"))
+	}
 
 	return errors.Join(errs...)
 }

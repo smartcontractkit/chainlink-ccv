@@ -1,67 +1,20 @@
 package storage
 
 import (
-	"context"
-	"database/sql"
 	"testing"
 	"time"
 
-	"github.com/jmoiron/sqlx"
-	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/ccvstorage"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func setupTestDB(t *testing.T) *sqlx.DB {
-	if testing.Short() {
-		t.Skip("skipping docker test in short mode")
-	}
-	t.Helper()
-	ctx := context.Background()
-
-	postgresContainer, err := postgres.Run(ctx,
-		"postgres:15-alpine",
-		postgres.WithDatabase("test_chainstatus_db"),
-		postgres.WithUsername("test_user"),
-		postgres.WithPassword("test_password"),
-		testcontainers.WithWaitStrategy(
-			wait.ForLog("database system is ready to accept connections").
-				WithOccurrence(2).
-				WithStartupTimeout(30*time.Second)),
-	)
-	require.NoError(t, err)
-
-	connectionString, err := postgresContainer.ConnectionString(ctx, "sslmode=disable")
-	require.NoError(t, err)
-
-	dbx, err := sql.Open("postgres", connectionString)
-	require.NoError(t, err)
-
-	sqlxDB := sqlx.NewDb(dbx, "postgres")
-
-	err = db.RunPostgresMigrations(sqlxDB)
-	require.NoError(t, err)
-
-	t.Cleanup(func() {
-		_ = sqlxDB.Close()
-		if err := postgresContainer.Terminate(context.Background()); err != nil {
-			t.Logf("failed to terminate postgres container: %v", err)
-		}
-	})
-
-	return sqlxDB
-}
-
 func TestAttestationCCVWriterAndReader_Postgres(t *testing.T) {
-	db := setupTestDB(t)
+	db := testutil.NewTestDB(t)
 	lggr := logger.Test(t)
 
 	storage := ccvstorage.NewPostgres(db, lggr)
@@ -133,7 +86,7 @@ func TestAttestationCCVWriterAndReader_Postgres(t *testing.T) {
 			},
 		}
 
-		err := writer.WriteCCVNodeData(ctx, ccvData)
+		_, err := writer.WriteCCVNodeData(ctx, ccvData)
 		require.NoError(t, err)
 
 		// Read back the data
@@ -182,7 +135,7 @@ func TestAttestationCCVWriterAndReader_Postgres(t *testing.T) {
 			},
 		}
 
-		err := writer.WriteCCVNodeData(ctx, ccvData)
+		_, err := writer.WriteCCVNodeData(ctx, ccvData)
 		require.NoError(t, err)
 
 		// Read back both messages
@@ -220,7 +173,7 @@ func TestAttestationCCVWriterAndReader_Postgres(t *testing.T) {
 				Signature:       protocol.ByteSlice{0xaa, 0xbb},
 			},
 		}
-		err := writer.WriteCCVNodeData(ctx, ccvData)
+		_, err := writer.WriteCCVNodeData(ctx, ccvData)
 		require.NoError(t, err)
 
 		// Update with new signature
@@ -234,7 +187,7 @@ func TestAttestationCCVWriterAndReader_Postgres(t *testing.T) {
 				Signature:       protocol.ByteSlice{0xcc, 0xdd}, // Updated
 			},
 		}
-		err = writer.WriteCCVNodeData(ctx, updatedCCVData)
+		_, err = writer.WriteCCVNodeData(ctx, updatedCCVData)
 		require.NoError(t, err)
 
 		// Read back and verify update
@@ -296,7 +249,7 @@ func TestAttestationCCVWriterAndReader_Postgres(t *testing.T) {
 		}
 
 		// Should not error, but log warnings about missing addresses
-		err = writer.WriteCCVNodeData(ctx, ccvData)
+		_, err = writer.WriteCCVNodeData(ctx, ccvData)
 		require.NoError(t, err)
 
 		// Should be able to read back the data with empty verifier addresses

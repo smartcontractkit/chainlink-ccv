@@ -10,10 +10,9 @@ import (
 	"github.com/rs/zerolog"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/canton"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/evm"
-	"github.com/smartcontractkit/chainlink-ccv/devenv/registry"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
@@ -96,22 +95,36 @@ func (l *Lib) DataStore() (datastore.DataStore, error) {
 }
 
 func (l *Lib) Indexer() (*client.IndexerClient, error) {
+	allIndexers, err := l.AllIndexers()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all indexer clients: %w", err)
+	}
+	if len(allIndexers) == 0 {
+		return nil, fmt.Errorf("no indexer clients found")
+	}
+	return allIndexers[0], nil
+}
+
+func (l *Lib) AllIndexers() ([]*client.IndexerClient, error) {
 	if err := l.verify(); err != nil {
 		return nil, fmt.Errorf("failed to initialize indexer client: %w", err)
 	}
 	if len(l.cfg.IndexerEndpoints) == 0 {
 		return nil, fmt.Errorf("no indexer endpoints configured")
 	}
+	indexers := make([]*client.IndexerClient, 0, len(l.cfg.IndexerEndpoints))
 	httpClient := &http.Client{
 		Timeout: 10 * time.Second,
 	}
-
-	ic, err := client.NewIndexerClient(l.cfg.IndexerEndpoints[0], httpClient)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create IndexerMonitor: %w", err)
+	for _, endpoint := range l.cfg.IndexerEndpoints {
+		ic, err := client.NewIndexerClient(endpoint, httpClient)
+		if err != nil {
+			l.l.Error().Err(err).Str("endpoint", endpoint).Msg("failed to create IndexerClient")
+			continue
+		}
+		indexers = append(indexers, ic)
 	}
-
-	return ic, nil
+	return indexers, nil
 }
 
 // Chains returns a slice of Chains in Blockchain cfg order, followed by any
@@ -159,14 +172,16 @@ func (l *Lib) Chains(ctx context.Context) ([]ChainImpl, error) {
 				return nil, fmt.Errorf("creating CCIP17 EVM implementation for chain ID %s: %w", chainID, err)
 			}
 			impl = evmImpl
-		case chain_selectors.FamilyCanton:
-			cantonImpl, err := canton.New(ctx, *l.l, env, bc.ChainID)
-			if err != nil {
-				return nil, fmt.Errorf("creating Canton implementation for chain ID %s: %w", bc.ChainID, err)
-			}
-			impl = cantonImpl
 		default:
-			return nil, fmt.Errorf("unsupported family %s", bc.Out.Family)
+			fac, err := GetImplFactory(bc.Out.Family)
+			if err != nil {
+				return nil, fmt.Errorf("getting implementation factory for family %s: %w", bc.Out.Family, err)
+			}
+			theImpl, err := fac.New(ctx, l.cfg, *l.l, env, bc)
+			if err != nil {
+				return nil, fmt.Errorf("creating implementation for family %s: %w", bc.Out.Family, err)
+			}
+			impl = theImpl
 		}
 
 		if err := chainImplRegistry.Register(bc.ChainID, bc.Out.Family, impl); err != nil {

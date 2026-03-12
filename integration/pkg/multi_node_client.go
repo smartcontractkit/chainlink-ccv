@@ -40,8 +40,10 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *blockcha
 	finalizedBlockPollInterval := time.Second * 10
 	newHeadsPollInterval := time.Second * 1
 	confirmationTimeout := time.Second * 60
-	wsURL, _ := blockchainInfo.GetInternalWebsocketEndpoint()
-	httpURL, _ := blockchainInfo.GetInternalRPCEndpoint()
+	// TODO: there could be multiple nodes configured, why aren't we registering all of them?
+	n, _ := blockchainInfo.GetFirstNode()
+	wsURL := n.InternalWSUrl
+	httpURL := n.InternalHTTPUrl
 	nodeConfigs := []client.NodeConfig{
 		{
 			Name:    ptr(blockchainInfo.UniqueChainName),

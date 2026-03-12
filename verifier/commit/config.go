@@ -3,20 +3,12 @@ package commit
 import (
 	"fmt"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader/canton"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 )
 
 type ConfigWithBlockchainInfos struct {
 	Config
-	BlockchainInfos map[string]*blockchain.Info `toml:"blockchain_infos"`
-}
-
-// CantonConfig is the configuration required for verifiers that read from Canton.
-type CantonConfig struct {
-	// ReaderConfig is the configuration for the canton source reader.
-	ReaderConfig canton.ReaderConfig `toml:"reader_config"`
+	BlockchainInfos map[string]any `toml:"blockchain_infos"`
 }
 
 type Config struct {
@@ -25,6 +17,15 @@ type Config struct {
 	// InsecureAggregatorConnection disables TLS for the aggregator gRPC connection.
 	// Only use this for testing when custom certificates cannot be injected.
 	InsecureAggregatorConnection bool `toml:"insecure_aggregator_connection"`
+	// AggregatorMaxSendMsgSizeBytes is the maximum gRPC message size for sending requests to the aggregator.
+	// The batch-splitting logic uses this value to ensure outgoing batches don't exceed this limit.
+	// Should match or be less than the aggregator's server maxRecvMsgSizeBytes setting.
+	// If 0 or not set, defaults to 4MB.
+	AggregatorMaxSendMsgSizeBytes int `toml:"aggregator_max_send_msg_size_bytes"`
+	// AggregatorMaxRecvMsgSizeBytes is the maximum gRPC message size for receiving responses from the aggregator.
+	// Should match or be less than the aggregator's server maxSendMsgSizeBytes setting.
+	// If 0 or not set, defaults to 4MB.
+	AggregatorMaxRecvMsgSizeBytes int `toml:"aggregator_max_recv_msg_size_bytes"`
 
 	SignerAddress string `toml:"signer_address"`
 
@@ -40,8 +41,6 @@ type Config struct {
 	// RMNRemoteAddresses is a map of RMN Remote contract addresses for each chain selector.
 	// Required for curse detection.
 	RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
-	// CantonConfigs is a map of chain selector to Canton configuration.
-	CantonConfigs map[string]CantonConfig `toml:"canton_configs"`
 	// DisableFinalityCheckers is a list of chain selectors for which the finality violation checker should be disabled.
 	// The chain selectors are formatted as strings of the chain selector.
 	DisableFinalityCheckers []string                  `toml:"disable_finality_checkers"`

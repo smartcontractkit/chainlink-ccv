@@ -41,6 +41,7 @@ func RunMigrations(db *sqlx.DB, dbType string) error {
 		fmt.Sprintf("../../migrations/%s", migrationsSubdir),                  // From pkg/<subpackage> (tests)
 		fmt.Sprintf("../../../migrations/%s", migrationsSubdir),               // From pkg/storage/postgres (tests)
 		fmt.Sprintf("../../../../aggregator/migrations/%s", migrationsSubdir), // From deep test paths
+		fmt.Sprintf("aggregator/migrations/%s", migrationsSubdir),             // From chainlink-cvv
 	}
 
 	for _, candidate := range candidates {

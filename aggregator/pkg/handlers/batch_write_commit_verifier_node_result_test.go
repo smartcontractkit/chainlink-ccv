@@ -75,7 +75,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_BatchSizeValidation(t *testing.T) {
 					Signer: signer,
 				}, nil).Maybe()
 				sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil).Maybe()
-				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, testChannelKey, time.Millisecond).Return(nil).Maybe()
+				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, testChannelKey, time.Millisecond).Return(nil).Maybe()
 				store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 			}
 
@@ -131,7 +131,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 	}, nil)
 	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil)
 
-	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, testChannelKey, time.Millisecond).Return(nil).Maybe()
+	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, testChannelKey, time.Millisecond).Return(nil).Maybe()
 
 	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
@@ -165,4 +165,58 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 	require.Equal(t, committeepb.WriteStatus_FAILED, resp.Responses[1].Status)
 	require.NotNil(t, resp.Errors[1])
 	require.Equal(t, int32(codes.InvalidArgument), resp.Errors[1].Code)
+}
+
+func TestBatchWriteCommitCCVNodeDataHandler_CancelledContextReturnsImmediately(t *testing.T) {
+	t.Parallel()
+
+	const testCallerID = "test-caller"
+	const testChannelKey model.ChannelKey = "test-caller"
+	blockDuration := 5 * time.Second
+
+	lggr := logger.TestSugared(t)
+	store := mocks.NewMockCommitVerificationStore(t)
+	agg := mocks.NewMockAggregationTriggerer(t)
+	sig := mocks.NewMockSignatureValidator(t)
+
+	signer := &model.SignerIdentifier{Identifier: []byte{0xAA}}
+	sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(&model.SignatureValidationResult{
+		Signer: signer,
+	}, nil).Maybe()
+	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil).Maybe()
+	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, testChannelKey, blockDuration).
+		RunAndReturn(func(ctx context.Context, _ model.MessageID, _ model.AggregationKey, _ model.ChannelKey, _ time.Duration) error {
+			<-ctx.Done()
+			return ctx.Err()
+		}).Maybe()
+
+	mon := mocks.NewMockAggregatorMonitoring(t)
+	labeler := mocks.NewMockAggregatorMetricLabeler(t)
+	mon.EXPECT().Metrics().Return(labeler).Maybe()
+	labeler.EXPECT().With(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(labeler).Maybe()
+	labeler.EXPECT().IncrementVerificationsTotal(mock.Anything).Maybe()
+
+	writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, blockDuration)
+	batchHandler := NewBatchWriteCommitVerifierNodeResultHandler(writeHandler, 10)
+
+	ctx, cancel := context.WithCancel(auth.ToContext(context.Background(), auth.CreateCallerIdentity(testCallerID, false)))
+	defer cancel()
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	resp, err := batchHandler.Handle(ctx, &committeepb.BatchWriteCommitteeVerifierNodeResultRequest{
+		Requests: []*committeepb.WriteCommitteeVerifierNodeResultRequest{makeValidProtoRequest()},
+	})
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	require.Equal(t, codes.Canceled, status.Code(err))
+	require.Nil(t, resp)
+	require.Less(t, elapsed, blockDuration, "handler should return promptly on context cancellation, not block for maxBlockTime")
 }

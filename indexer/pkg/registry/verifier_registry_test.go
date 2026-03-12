@@ -29,7 +29,6 @@ func (m *mockVerifierResultsAPI) GetVerifications(ctx context.Context, messageID
 
 // newMockVerifierReader creates a new VerifierReader instance for testing.
 func newMockVerifierReader() *readers.VerifierReader {
-	ctx := context.Background()
 	mockVerifier := &mockVerifierResultsAPI{
 		results: make(map[protocol.Bytes32]protocol.VerifierResult),
 	}
@@ -37,7 +36,7 @@ func newMockVerifierReader() *readers.VerifierReader {
 		BatchSize:        10,
 		MaxBatchWaitTime: 100,
 	}
-	return readers.NewVerifierReader(ctx, mockVerifier, config)
+	return readers.NewVerifierReader(mockVerifier, config)
 }
 
 func TestNewVerifierRegistry(t *testing.T) {
@@ -67,19 +66,32 @@ func TestAddVerifier_Success(t *testing.T) {
 	assert.Equal(t, mockVerifier, retrieved)
 }
 
-func TestAddVerifier_Duplicate(t *testing.T) {
+func TestAddVerifier_MultipleReadersForSameAddress(t *testing.T) {
 	reg := NewVerifierRegistry()
 	addr, err := protocol.NewUnknownAddressFromHex("0x1234")
 	require.NoError(t, err)
 
-	mockVerifier := newMockVerifierReader()
-	defer mockVerifier.Close()
-	err = reg.AddVerifier(addr, "Test", mockVerifier)
+	reader1 := newMockVerifierReader()
+	defer reader1.Close()
+	reader2 := newMockVerifierReader()
+	defer reader2.Close()
+
+	err = reg.AddVerifier(addr, "Primary", reader1)
+	require.NoError(t, err)
+	err = reg.AddVerifier(addr, "Primary-HA", reader2)
 	require.NoError(t, err)
 
-	err = reg.AddVerifier(addr, "Test", mockVerifier)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "verifier already exists")
+	// GetVerifier returns the first registered reader.
+	assert.Equal(t, reader1, reg.GetVerifier(addr))
+
+	// GetVerifiers returns all readers for the address.
+	all := reg.GetVerifiers(addr)
+	require.Len(t, all, 2)
+	assert.Equal(t, reader1, all[0])
+	assert.Equal(t, reader2, all[1])
+
+	// The first registered name is preserved.
+	assert.Equal(t, "Primary", reg.GetVerifierNameFromAddress(addr))
 }
 
 func TestAddVerifier_NilVerifier(t *testing.T) {
