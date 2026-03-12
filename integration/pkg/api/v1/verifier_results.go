@@ -235,7 +235,7 @@ func (r *VerifierResult) UnmarshalJSON(data []byte) error {
 	}
 
 	var metadata *v1.VerifierResultMetadata
-	if aux.Metadata != nil {
+	if aux.Metadata != nil && aux.Metadata.VerifierResultMetadata != nil {
 		metadata = aux.Metadata.VerifierResultMetadata
 	} else {
 		metadata = &v1.VerifierResultMetadata{}
