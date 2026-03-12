@@ -284,9 +284,7 @@ func NewBytes32FromSlice(b []byte) (Bytes32, error) {
 	if len(b) != len(Bytes32{}) {
 		return Bytes32{}, fmt.Errorf("Bytes32 requires exactly %d bytes, got %d", len(Bytes32{}), len(b))
 	}
-	var result Bytes32
-	copy(result[:], b)
-	return result, nil
+	return Bytes32(b), nil
 }
 
 func (b Bytes32) String() string {

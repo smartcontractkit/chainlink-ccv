@@ -385,14 +385,9 @@ func (r *VerifierResultMessage) ToMessage() (protocol.Message, error) {
 		return protocol.Message{}, fmt.Errorf("message field is nil")
 	}
 
-	ccvAndExecutorHash := protocol.Bytes32{}
-
-	if r.CcvAndExecutorHash != nil {
-		var err error
-		ccvAndExecutorHash, err = protocol.NewBytes32FromSlice(r.CcvAndExecutorHash)
-		if err != nil {
-			return protocol.Message{}, fmt.Errorf("field CcvAndExecutorHash: %w", err)
-		}
+	ccvAndExecutorHash, err := protocol.NewBytes32FromSlice(r.CcvAndExecutorHash)
+	if err != nil {
+		return protocol.Message{}, fmt.Errorf("field CcvAndExecutorHash: %w", err)
 	}
 
 	var tokenTransfer *protocol.TokenTransfer
