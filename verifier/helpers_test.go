@@ -151,21 +151,22 @@ func (m *noopMonitoring) Metrics() MetricLabeler { return &noopMetricLabeler{} }
 
 type noopMetricLabeler struct{}
 
-func (m *noopMetricLabeler) With(keyValues ...string) MetricLabeler                                 { return m }
-func (m *noopMetricLabeler) RecordMessageE2ELatency(ctx context.Context, duration time.Duration)    {}
-func (m *noopMetricLabeler) IncrementMessagesProcessed(ctx context.Context)                         {}
-func (m *noopMetricLabeler) IncrementMessagesVerificationFailed(ctx context.Context)                {}
-func (m *noopMetricLabeler) RecordFinalityWaitDuration(ctx context.Context, duration time.Duration) {}
+func (m *noopMetricLabeler) With(keyValues ...string) MetricLabeler                              { return m }
+func (m *noopMetricLabeler) RecordMessageE2ELatency(ctx context.Context, duration time.Duration) {}
+func (m *noopMetricLabeler) IncrementMessagesProcessed(ctx context.Context)                      {}
+func (m *noopMetricLabeler) IncrementMessagesVerificationFailed(ctx context.Context)             {}
 func (m *noopMetricLabeler) RecordMessageVerificationDuration(ctx context.Context, duration time.Duration) {
 }
 func (m *noopMetricLabeler) RecordStorageWriteDuration(ctx context.Context, duration time.Duration) {}
-func (m *noopMetricLabeler) RecordTaskVerificationQueueSize(ctx context.Context, size int64)        {}
-func (m *noopMetricLabeler) RecordStorageWriteQueueSize(ctx context.Context, size int64)            {}
-func (m *noopMetricLabeler) IncrementStorageWriteErrors(ctx context.Context)                        {}
-func (m *noopMetricLabeler) IncrementTaskVerificationPermanentErrors(ctx context.Context)           {}
-func (m *noopMetricLabeler) RecordSourceChainLatestBlock(ctx context.Context, blockNum int64)       {}
-func (m *noopMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64)    {}
-func (m *noopMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64)             {}
+func (m *noopMetricLabeler) RecordVerificationQueueLatency(ctx context.Context, duration time.Duration) {
+}
+func (m *noopMetricLabeler) RecordTaskVerificationQueueSize(ctx context.Context, size int64)     {}
+func (m *noopMetricLabeler) RecordStorageWriteQueueSize(ctx context.Context, size int64)         {}
+func (m *noopMetricLabeler) IncrementStorageWriteErrors(ctx context.Context)                     {}
+func (m *noopMetricLabeler) IncrementTaskVerificationPermanentErrors(ctx context.Context)        {}
+func (m *noopMetricLabeler) RecordSourceChainLatestBlock(ctx context.Context, blockNum int64)    {}
+func (m *noopMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64) {}
+func (m *noopMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64)          {}
 
 func (m *noopMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool) {
 }
@@ -495,6 +496,7 @@ func createDurableProcessorsWithPollInterval(
 		config.VerifierID,
 		verifier,
 		monitoring,
+		messageTracker,
 		taskQueue,
 		resultQueue,
 		writingTracker,
