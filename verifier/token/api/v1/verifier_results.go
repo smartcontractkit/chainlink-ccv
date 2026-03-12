@@ -92,5 +92,11 @@ func (h *VerifierResultsHandler) Handle(c *gin.Context) {
 		errors,
 	)
 
-	c.JSON(http.StatusOK, response)
+	// If no results were found at all, return 404 Not Found
+	// If at least one result was found (partial success), return 200 OK
+	if len(apiResults) == 0 && len(errors) > 0 {
+		c.JSON(http.StatusNotFound, response)
+	} else {
+		c.JSON(http.StatusOK, response)
+	}
 }

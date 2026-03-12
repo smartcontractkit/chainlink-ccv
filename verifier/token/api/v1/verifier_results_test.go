@@ -266,7 +266,7 @@ func Test_VerifierResultsHandler(t *testing.T) {
 
 		router.ServeHTTP(w, req)
 
-		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, http.StatusNotFound, w.Code)
 
 		var response v1.VerifierResultsResponse
 		err := json.Unmarshal(w.Body.Bytes(), &response)
@@ -352,6 +352,48 @@ func Test_VerifierResultsHandler(t *testing.T) {
 				}
 			}],
 			"errors": ["message not found: ` + messageID3Hex + `"]
+		}`
+		assert.JSONEq(t, expectedJSON, w.Body.String())
+	})
+
+	t.Run("all messages not found", func(t *testing.T) {
+		router := gin.New()
+		router.GET("/verifications", handler.Handle)
+
+		// Both messages don't exist in storage
+		messageID3, _ := createSampleMessage(100, 200, 300)
+		messageID4, _ := createSampleMessage(101, 201, 400)
+		messageID3Hex := messageID3.String()
+		messageID4Hex := messageID4.String()
+
+		req, _ := http.NewRequest("GET", "/verifications?messageID="+messageID3Hex+"&messageID="+messageID4Hex, nil)
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+
+		// When ALL messages are not found, should return 404
+		assert.Equal(t, http.StatusNotFound, w.Code)
+
+		var response v1.VerifierResultsResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		// Should have 0 results and 2 errors
+		assert.Len(t, response.Results, 0)
+		assert.Len(t, response.Errors, 2)
+
+		// Verify both errors
+		assert.Contains(t, response.Errors[0].Message, "message not found")
+		assert.Contains(t, response.Errors[0].Message, messageID3Hex)
+		assert.Contains(t, response.Errors[1].Message, "message not found")
+		assert.Contains(t, response.Errors[1].Message, messageID4Hex)
+
+		expectedJSON := `{
+			"results": [],
+			"errors": [
+				"message not found: ` + messageID3Hex + `",
+				"message not found: ` + messageID4Hex + `"
+			]
 		}`
 		assert.JSONEq(t, expectedJSON, w.Body.String())
 	})
