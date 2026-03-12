@@ -41,9 +41,11 @@ const (
 */
 
 func main() {
+	// TODO: add a "direct config" mode to bootstrap that skips JD. It should automatically parse
+	//       the expected config file from the bootstrap config location and pass the result as an.
 	err := bootstrap.Run("TokenVerifier", &tokenVerifierFactory{})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to run token verifier: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "Failed to run token verifier: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -88,7 +90,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 	}
 	var zapLevel zapcore.Level
 	if err := zapLevel.UnmarshalText([]byte(logLevelStr)); err != nil {
-		fmt.Fprintf(os.Stderr, "Invalid LOG_LEVEL '%s', defaulting to 'info'\n", logLevelStr)
+		_, _ = fmt.Fprintf(os.Stderr, "Invalid LOG_LEVEL '%s', defaulting to 'info'\n", logLevelStr)
 		zapLevel = zapcore.InfoLevel
 	}
 	var err error
