@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
+	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/offramp"
+	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/onramp"
 	execcontract "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
-	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/offramp"
-	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/onramp"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -150,7 +150,7 @@ func newTestTopology(opts ...TopologyOption) *deployments.EnvironmentTopology {
 			Committees: map[string]deployments.CommitteeConfig{
 				testCommittee: {
 					Qualifier:       testCommittee,
-					VerifierVersion: semver.MustParse("1.7.0"),
+					VerifierVersion: semver.MustParse("2.0.0"),
 					Aggregators: []deployments.AggregatorConfig{
 						{Name: testAggregatorName, Address: testAggregatorAddress, InsecureAggregatorConnection: true},
 					},
@@ -202,13 +202,13 @@ func setupVerifierDatastore(t *testing.T, ds datastore.MutableDataStore, selecto
 	t.Helper()
 	addrs := testContractAddresses
 
-	addContractToDatastoreWithVersion(t, ds, selectors[0], committeeQualifier, committee_verifier.ResolverType, committee_verifier.Version, addrs.CommitteeVerifier1)
+	addContractToDatastoreWithVersion(t, ds, selectors[0], committeeQualifier, versioned_verifier_resolver.CommitteeVerifierResolverType, versioned_verifier_resolver.Version, addrs.CommitteeVerifier1)
 	addContractToDatastoreWithVersion(t, ds, selectors[0], "", onrampoperations.ContractType, onrampoperations.Version, addrs.OnRamp1)
 	addContractToDatastoreWithVersion(t, ds, selectors[0], executorQualifier, execcontract.ProxyType, execcontract.Version, addrs.Executor1)
 	addContractToDatastoreWithVersion(t, ds, selectors[0], "", rmn_remote.ContractType, rmn_remote.Version, addrs.RMN1)
 
 	if len(selectors) > 1 {
-		addContractToDatastoreWithVersion(t, ds, selectors[1], committeeQualifier, committee_verifier.ResolverType, committee_verifier.Version, addrs.CommitteeVerifier2)
+		addContractToDatastoreWithVersion(t, ds, selectors[1], committeeQualifier, versioned_verifier_resolver.CommitteeVerifierResolverType, versioned_verifier_resolver.Version, addrs.CommitteeVerifier2)
 		addContractToDatastoreWithVersion(t, ds, selectors[1], "", onrampoperations.ContractType, onrampoperations.Version, addrs.OnRamp2)
 		addContractToDatastoreWithVersion(t, ds, selectors[1], executorQualifier, execcontract.ProxyType, execcontract.Version, addrs.Executor2)
 		addContractToDatastoreWithVersion(t, ds, selectors[1], "", rmn_remote.ContractType, rmn_remote.Version, addrs.RMN2)

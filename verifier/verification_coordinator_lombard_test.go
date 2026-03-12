@@ -69,9 +69,9 @@ func Test_LombardMessages_Success(t *testing.T) {
 	extraData2, err := protocol.NewByteSliceFromHex("0x2222")
 	require.NoError(t, err)
 	// Lombard Verifier Version + attestation payload
-	ccvData1, err := protocol.NewByteSliceFromHex("0xf0f3a13500aa")
+	ccvData1, err := protocol.NewByteSliceFromHex("0xeba5558800aa")
 	require.NoError(t, err)
-	ccvData2, err := protocol.NewByteSliceFromHex("0xf0f3a13500bb")
+	ccvData2, err := protocol.NewByteSliceFromHex("0xeba5558800bb")
 	require.NoError(t, err)
 
 	server := createFakeLombardServer(t, lombardAttestation)
@@ -155,9 +155,9 @@ func Test_LombardMessages_RetryingAttestation(t *testing.T) {
 	extraData2, err := protocol.NewByteSliceFromHex("0x2222")
 	require.NoError(t, err)
 	// Lombard Verifier Version + attestation payload
-	ccvData1, err := protocol.NewByteSliceFromHex("0xf0f3a13500aa")
+	ccvData1, err := protocol.NewByteSliceFromHex("0xeba5558800aa")
 	require.NoError(t, err)
-	ccvData2, err := protocol.NewByteSliceFromHex("0xf0f3a13500bb")
+	ccvData2, err := protocol.NewByteSliceFromHex("0xeba5558800bb")
 	require.NoError(t, err)
 
 	// This server will return a pending attestation twice, then a completed one

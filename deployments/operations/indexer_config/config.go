@@ -6,8 +6,8 @@ import (
 	"github.com/Masterminds/semver/v3"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/lombard_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -64,7 +64,7 @@ var BuildConfig = operations.NewOperation(
 
 		for name, qualifier := range input.CommitteeVerifierNameToQualifier {
 			addresses, err := collectUniqueAddresses(
-				ds, input.ChainSelectors, qualifier, committee_verifier.ResolverType, committee_verifier.Version)
+				ds, input.ChainSelectors, qualifier, versioned_verifier_resolver.CommitteeVerifierResolverType, versioned_verifier_resolver.Version)
 			if err != nil {
 				return BuildConfigOutput{}, fmt.Errorf("failed to get resolver addresses for verifier %q (qualifier %q): %w", name, qualifier, err)
 			}

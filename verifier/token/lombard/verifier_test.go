@@ -70,13 +70,13 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	mockAttestationService.AssertExpectations(t)
 
 	assert.Equal(t, task1.MessageID, results[0].Result.MessageID.String())
-	assert.Equal(t, "0xf0f3a135abcdef", results[0].Result.Signature.String())
+	assert.Equal(t, "0xeba55588abcdef", results[0].Result.Signature.String())
 	assert.Equal(t, []protocol.UnknownAddress{internal.CCVAddress1, internal.CCVAddress2}, results[0].Result.CCVAddresses)
 	assert.Equal(t, internal.ExecutorAddress, results[0].Result.ExecutorAddress)
 	assert.Equal(t, lombard.DefaultVerifierVersion, results[0].Result.CCVVersion)
 
 	assert.Equal(t, task2.MessageID, results[1].Result.MessageID.String())
-	assert.Equal(t, "0xf0f3a135123456", results[1].Result.Signature.String())
+	assert.Equal(t, "0xeba55588123456", results[1].Result.Signature.String())
 	assert.Equal(t, []protocol.UnknownAddress{internal.CCVAddress1, internal.CCVAddress2}, results[1].Result.CCVAddresses)
 	assert.Equal(t, internal.ExecutorAddress, results[1].Result.ExecutorAddress)
 	assert.Equal(t, lombard.DefaultVerifierVersion, results[1].Result.CCVVersion)

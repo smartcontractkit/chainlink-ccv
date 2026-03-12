@@ -9,8 +9,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -43,7 +43,7 @@ func DeployCommitVerifierForSelector(
 }
 
 // ConfigureCommitVerifierOnSelectorForLanes configures an existing verifier on the given chain selector for the given lanes.
-func ConfigureCommitVerifierOnSelectorForLanes(e *deployment.Environment, selector uint64, committeeVerifier common.Address, remoteChainConfigArgs []committee_verifier.RemoteChainConfigArgs, signatureConfigArgs committee_verifier.SignatureConfigArgs) error {
+func ConfigureCommitVerifierOnSelectorForLanes(e *deployment.Environment, selector uint64, committeeVerifier common.Address, remoteChainConfigArgs []committee_verifier.RemoteChainConfigArgs, signatureConfigArgs committee_verifier.ApplySignatureConfigsArgs) error {
 	chain, ok := e.BlockChains.EVMChains()[selector]
 	if !ok {
 		return fmt.Errorf("no EVM chain found for selector %d", selector)
@@ -58,7 +58,7 @@ func ConfigureCommitVerifierOnSelectorForLanes(e *deployment.Environment, select
 		return fmt.Errorf("failed to apply dest chain config updates to CommitteeVerifier(%s) on chain %s: %w", committeeVerifier, chain, err)
 	}
 
-	_, err = operations.ExecuteOperation(e.OperationsBundle, committee_verifier.ApplySignatureConfigs, chain, contract.FunctionInput[committee_verifier.SignatureConfigArgs]{
+	_, err = operations.ExecuteOperation(e.OperationsBundle, committee_verifier.ApplySignatureConfigs, chain, contract.FunctionInput[committee_verifier.ApplySignatureConfigsArgs]{
 		ChainSelector: chain.Selector,
 		Address:       committeeVerifier,
 		Args:          signatureConfigArgs,
@@ -71,17 +71,26 @@ func ConfigureCommitVerifierOnSelectorForLanes(e *deployment.Environment, select
 }
 
 // DeployReceiverForSelector deploys a new mock receiver to the given chain selector.
-func DeployReceiverForSelector(e *deployment.Environment, selector uint64, args mock_receiver.ConstructorArgs) (datastore.AddressRef, error) {
+func DeployReceiverForSelector(e *deployment.Environment, selector uint64, args mock_receiver_v2.ConstructorArgs) (datastore.AddressRef, error) {
 	chain, ok := e.BlockChains.EVMChains()[selector]
 	if !ok {
 		return datastore.AddressRef{}, fmt.Errorf("no EVM chain found for selector %d", selector)
 	}
-	report, err := operations.ExecuteOperation(e.OperationsBundle, mock_receiver.Deploy, chain, contract.DeployInput[mock_receiver.ConstructorArgs]{
+	report, err := operations.ExecuteOperation(e.OperationsBundle, mock_receiver_v2.Deploy, chain, contract.DeployInput[mock_receiver_v2.ConstructorArgs]{
 		ChainSelector: chain.Selector,
 		Args:          args,
 	})
 	if err != nil {
 		return datastore.AddressRef{}, fmt.Errorf("failed to deploy MockReceiver: %w", err)
+	}
+	// Set minimum block depth to 1
+	_, err = operations.ExecuteOperation(e.OperationsBundle, mock_receiver_v2.SetMinBlockDepth, chain, contract.FunctionInput[uint16]{
+		Address:       common.HexToAddress(report.Output.Address),
+		ChainSelector: selector,
+		Args:          1,
+	})
+	if err != nil {
+		return datastore.AddressRef{}, fmt.Errorf("failed to set minimum block depth for mock receiver on chain %d: %w", selector, err)
 	}
 	return report.Output, nil
 }
@@ -212,7 +221,7 @@ func NewV3ExtraArgs(finalityConfig uint16, gasLimit uint32, execAddr string, exe
 	return buf.Bytes(), nil
 }
 
-func DeployMockReceiver(ctx context.Context, e *deployment.Environment, addresses []string, selector uint64, args mock_receiver.ConstructorArgs) ([]string, error) {
+func DeployMockReceiver(ctx context.Context, e *deployment.Environment, addresses []string, selector uint64, args mock_receiver_v2.ConstructorArgs) ([]string, error) {
 	bundle := operations.NewBundle(
 		func() context.Context { return context.Background() },
 		e.Logger,
@@ -264,14 +273,14 @@ func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environme
 		allAddrs = append(allAddrs, addrs...)
 	}
 
-	var signatureConfigArgs committee_verifier.SignatureConfigArgs
+	var signatureConfigArgs committee_verifier.ApplySignatureConfigsArgs
 	for sel := range signatureConfigBySelector {
 		var remoteChainConfigArgs []committee_verifier.RemoteChainConfigArgs
 		for remoteSel, signatureConfig := range signatureConfigBySelector {
 			if remoteSel == sel {
 				continue
 			}
-			signatureConfigArgs.SignatureConfigUpdates = append(signatureConfigArgs.SignatureConfigUpdates, signatureConfig)
+			signatureConfigArgs.SignatureConfigs = append(signatureConfigArgs.SignatureConfigs, signatureConfig)
 			remoteChainConfigArgs = append(remoteChainConfigArgs, committee_verifier.RemoteChainConfigArgs{
 				AllowlistEnabled:    false,
 				Router:              MustGetContractAddressForSelector(addresses, sel, router.ContractType),

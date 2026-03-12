@@ -120,6 +120,7 @@ func DeployChainContractsFromTopology(
 				ChainSelector:     sel,
 				CREATE2Factory:    perChain.CREATE2Factory,
 				ExistingAddresses: existingAddresses,
+				DeployerKeyOwned:  true,
 				ContractParams: sequences.ContractParams{
 					RMNRemote:          perChain.RMNRemote,
 					OffRamp:            perChain.OffRamp,
