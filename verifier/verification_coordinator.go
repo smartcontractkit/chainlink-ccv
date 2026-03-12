@@ -217,7 +217,7 @@ func createDurableProcessors(
 	}
 
 	taskVerifierProcessor, err := NewTaskVerifierProcessorDB(
-		lggr, config.VerifierID, verifier, monitoring, taskQueueObserver, resultQueueObserver, writingTracker, config.StorageBatchSize,
+		lggr, config.VerifierID, verifier, monitoring, messageTracker, taskQueueObserver, resultQueueObserver, writingTracker, config.StorageBatchSize,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create task verifier processor DB: %w", err)

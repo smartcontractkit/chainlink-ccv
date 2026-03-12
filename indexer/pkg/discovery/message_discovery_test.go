@@ -238,7 +238,6 @@ func TestNewAggregatorMessageDiscovery(t *testing.T) {
 	assert.Equal(t, resilientReader, aggDiscovery.aggregatorReader)
 	assert.Equal(t, config, aggDiscovery.config)
 	assert.NotNil(t, aggDiscovery.messageCh)
-	assert.NotNil(t, aggDiscovery.readerLock)
 }
 
 // TestStart_ReturnsChannel tests that Start returns a message channel.
