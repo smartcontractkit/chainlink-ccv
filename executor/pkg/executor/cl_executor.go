@@ -163,7 +163,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	executionSuccess, err := cle.destinationReaders[destinationChain].GetMessageSuccess(ctx, message)
 	if err != nil {
 		// If we can't get execution state, don't execute, but put back in heap to retry later.
-		// this usually only happens due to rpc issues, other nodes will try and this node will expec to see status SUCCESS later.
+		// this usually only happens due to rpc issues, other nodes will try and this node will expect to see status SUCCESS later.
 		cle.lggr.Warnw("delaying execution due to failed check GetMessageExecutionState", "messageID", messageID)
 		return true, err
 	}
@@ -412,8 +412,8 @@ func orderCCVData(
 	// metrics: determine the latest timestamp of all the CCV datas.
 	if receiverCCVInfo.OptionalThreshold > 0 {
 		slices.Sort(optionalCCVTimestamps)
-		minSignificantOptionalCCVTimestamp := optionalCCVTimestamps[receiverCCVInfo.OptionalThreshold-1]
-		latestCCVTimestamp = max(lastRequiredCCVTimestamp, minSignificantOptionalCCVTimestamp)
+		maxSignificantOptionalCCVTimestamp := optionalCCVTimestamps[receiverCCVInfo.OptionalThreshold-1]
+		latestCCVTimestamp = max(lastRequiredCCVTimestamp, maxSignificantOptionalCCVTimestamp)
 	} else {
 		latestCCVTimestamp = lastRequiredCCVTimestamp
 	}
