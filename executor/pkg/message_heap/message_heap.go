@@ -3,6 +3,7 @@ package message_heap
 import (
 	"container/heap"
 	"errors"
+	"log"
 	"sync"
 	"time"
 
@@ -32,21 +33,21 @@ type MessageHeapEntry struct {
 	MessageID protocol.Bytes32
 }
 
-type ReadyTimestampHeap []MessageHeapEntry
+type readyTimestampHeap []MessageHeapEntry
 
-func (h ReadyTimestampHeap) Len() int {
+func (h readyTimestampHeap) Len() int {
 	return len(h)
 }
 
-func (h ReadyTimestampHeap) Less(i, j int) bool {
+func (h readyTimestampHeap) Less(i, j int) bool {
 	return h[i].ReadyTime.Before(h[j].ReadyTime)
 }
 
-func (h ReadyTimestampHeap) Swap(i, j int) {
+func (h readyTimestampHeap) Swap(i, j int) {
 	h[i], h[j] = h[j], h[i]
 }
 
-func (h *ReadyTimestampHeap) Push(x any) {
+func (h *readyTimestampHeap) Push(x any) {
 	val, ok := x.(MessageHeapEntry)
 	if !ok {
 		return
@@ -54,7 +55,7 @@ func (h *ReadyTimestampHeap) Push(x any) {
 	*h = append(*h, val)
 }
 
-func (h *ReadyTimestampHeap) Pop() any {
+func (h *readyTimestampHeap) Pop() any {
 	old := *h
 	n := len(old)
 	x := old[n-1]
@@ -64,7 +65,7 @@ func (h *ReadyTimestampHeap) Pop() any {
 
 var errHeapIsEmpty = errors.New("heap is empty")
 
-func (h *ReadyTimestampHeap) peek() (*MessageHeapEntry, error) {
+func (h *readyTimestampHeap) peek() (*MessageHeapEntry, error) {
 	if h.Len() <= 0 {
 		return nil, errHeapIsEmpty
 	}
@@ -75,14 +76,14 @@ func (h *ReadyTimestampHeap) peek() (*MessageHeapEntry, error) {
 // Internally, it uses a heap for timing, and a separate map for the data of the message.
 // This is to reduce the amount of data and locking overhead when pushing and popping messages and fixing the heap.
 type MessageHeap struct {
-	heap    ReadyTimestampHeap
+	heap    readyTimestampHeap
 	dataMap map[protocol.Bytes32]ExpiryWithMessage
 	mu      *sync.RWMutex
 	lggr    logger.Logger
 }
 
 func NewMessageHeap(lggr logger.Logger) *MessageHeap {
-	h := &ReadyTimestampHeap{}
+	h := &readyTimestampHeap{}
 	heap.Init(h)
 	msgHeap := MessageHeap{
 		heap:    *h,
@@ -129,6 +130,7 @@ func (mh *MessageHeap) PopAllReady(timestamp time.Time) []MessageWithTimestamps 
 
 		entry, ok := heap.Pop(&mh.heap).(MessageHeapEntry)
 		if !ok {
+			mh.lggr.Errorw("heap corrupted: popped entry is not MessageHeapEntry")
 			continue
 		}
 		data, exists := mh.dataMap[entry.MessageID]
@@ -164,14 +166,14 @@ func (mh *MessageHeap) Len() int {
 // ExpirableMessageSet is a set of messageIDs associated with an expiry time.
 // It's used in the indexer storage streamer to deduplicate messages, but only hold for 24 hours.
 type ExpirableMessageSet struct {
-	heap           ReadyTimestampHeap
+	heap           readyTimestampHeap
 	dataMap        map[protocol.Bytes32]struct{}
 	expiryDuration time.Duration
 	mu             *sync.RWMutex
 }
 
 func NewExpirableSet(expiryDuration time.Duration) *ExpirableMessageSet {
-	h := &ReadyTimestampHeap{}
+	h := &readyTimestampHeap{}
 	heap.Init(h)
 	msgHeap := ExpirableMessageSet{
 		heap:           *h,
@@ -226,6 +228,7 @@ func (es *ExpirableMessageSet) CleanExpired(timestamp time.Time) int {
 
 		msg, ok := heap.Pop(&es.heap).(MessageHeapEntry)
 		if !ok {
+			log.Print("message_heap: heap corrupted: popped entry is not MessageHeapEntry in ExpirableMessageSet")
 			continue
 		}
 		delete(es.dataMap, msg.MessageID)
