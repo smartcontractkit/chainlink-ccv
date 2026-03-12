@@ -22,7 +22,7 @@ import (
 //
 // 1. The test calls buildLombardAttestation(args) which creates the attestation with a rawPayload
 //    that matches LombardVerifier.sol verifyMessage() and _validatePayload():
-//    - rawPayload = [versionTag (4 bytes)] + abi.encode(bytes32, uint256, bytes32, address, address, bytes msgBody)
+//    - rawPayload = [versionTag (4 bytes)] + abi.encode(bytes32, uint256, bytes32, address, bytes msgBody)
 //    - msgBody = [1 byte padding][destToken 32][sender 32][receiver 32][amount 32][messageId 32] (161 bytes).
 //      The contract uses mload(add(msgBody, 0x21)) for token (bytes 1-32), 0x41/0x61/0x81 for sender/recipient/amount.
 //    - deliverAndHandle(rawPayload, proof) must return bridgedMessage = versionTag (4) + messageId (32);
@@ -100,7 +100,7 @@ type LombardAttestationArgs struct {
 
 // buildLombardAttestation constructs a Lombard attestation whose rawPayload is compatible with
 // LombardVerifier.sol verifyMessage(): _validatePayload(rawPayload, ...) decodes rawPayload[4:]
-// as (bytes32, uint256, bytes32, address, address, bytes msgBody). The contract reads with
+// as (bytes32, uint256, bytes32, address, bytes msgBody). The contract reads with
 // mload(add(msgBody, 0x21)) for token (bytes 1-32 of msgBody data), 0x41 for sender, 0x61 for
 // recipient, 0x81 for amount. So we prepend one byte so token is at indices 1-32.
 // msgBody = [1 byte][token 32][sender 32][receiver 32][amount 32][messageId 32] = 161 bytes.
@@ -120,7 +120,7 @@ func buildLombardAttestation(args LombardAttestationArgs) string {
 	args.Amount.FillBytes(msgBody[97:129])
 	copy(msgBody[129:161], args.MessageID[:])
 
-	// rawPayload[4:] = abi.encode(bytes32, uint256, bytes32, address, address, bytes)
+	// rawPayload[4:] = abi.encode(bytes32, uint256, bytes32, address, bytes)
 	// So rawPayload = [4 byte version tag] + abiEncodedTuple.
 	zeroBytes32 := [32]byte{}
 	zeroAddr := common.Address{}
