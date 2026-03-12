@@ -147,7 +147,10 @@ func (s *StorageWriterProcessor) run() {
 
 func (s *StorageWriterProcessor) processBatch(ctx context.Context) error {
 	// Consume batch of results from queue
-	jobs, err := s.resultQueue.Consume(ctx, s.batchSize)
+	consumeCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+	defer cancel()
+
+	jobs, err := s.resultQueue.Consume(consumeCtx, s.batchSize)
 	if err != nil {
 		return fmt.Errorf("failed to consume from result queue: %w", err)
 	}
@@ -184,7 +187,10 @@ func (s *StorageWriterProcessor) processBatch(ctx context.Context) error {
 			errorMap[job.ID] = err
 		}
 
-		if retryErr := s.resultQueue.Retry(ctx, s.retryDelay, errorMap, jobIDs...); retryErr != nil {
+		retryCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+		defer cancel()
+
+		if retryErr := s.resultQueue.Retry(retryCtx, s.retryDelay, errorMap, jobIDs...); retryErr != nil {
 			s.lggr.Errorw("Failed to schedule retry for CCV data batch",
 				"error", retryErr,
 				"batchSize", len(jobs),
@@ -253,7 +259,10 @@ func (s *StorageWriterProcessor) processBatch(ctx context.Context) error {
 			"retryDelay", s.retryDelay,
 		)
 
-		if retryErr := s.resultQueue.Retry(ctx, s.retryDelay, failedErrorMap, retriableFailedJobs...); retryErr != nil {
+		retryCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+		defer cancel()
+
+		if retryErr := s.resultQueue.Retry(retryCtx, s.retryDelay, failedErrorMap, retriableFailedJobs...); retryErr != nil {
 			s.lggr.Errorw("Failed to schedule retry for failed writes",
 				"error", retryErr,
 				"retriableFailedCount", len(retriableFailedJobs),
@@ -267,7 +276,10 @@ func (s *StorageWriterProcessor) processBatch(ctx context.Context) error {
 			"nonRetriableFailedCount", len(nonRetriableFailedJobs),
 		)
 
-		if failErr := s.resultQueue.Fail(ctx, failedErrorMap, nonRetriableFailedJobs...); failErr != nil {
+		failCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+		defer cancel()
+
+		if failErr := s.resultQueue.Fail(failCtx, failedErrorMap, nonRetriableFailedJobs...); failErr != nil {
 			s.lggr.Errorw("Failed to mark jobs as failed",
 				"error", failErr,
 				"nonRetriableFailedCount", len(nonRetriableFailedJobs),
@@ -292,7 +304,10 @@ func (s *StorageWriterProcessor) processBatch(ctx context.Context) error {
 	}
 
 	// Mark successful jobs as completed in queue
-	if err := s.resultQueue.Complete(ctx, successfulJobs...); err != nil {
+	completeCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+	defer cancel()
+
+	if err := s.resultQueue.Complete(completeCtx, successfulJobs...); err != nil {
 		s.lggr.Errorw("Failed to complete jobs in queue",
 			"error", err,
 			"successfulCount", len(successfulJobs),
@@ -350,8 +365,11 @@ func (s *StorageWriterProcessor) updateCheckpoints(ctx context.Context, chains m
 }
 
 func (s *StorageWriterProcessor) cleanup(ctx context.Context) error {
+	cleanupCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+	defer cancel()
+
 	// Cleanup archived jobs older than retention period
-	deleted, err := s.resultQueue.Cleanup(ctx, s.retentionPeriod)
+	deleted, err := s.resultQueue.Cleanup(cleanupCtx, s.retentionPeriod)
 	if err != nil {
 		return fmt.Errorf("failed to cleanup result queue: %w", err)
 	}

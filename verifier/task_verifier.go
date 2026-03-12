@@ -144,7 +144,10 @@ func (p *TaskVerifierProcessor) run() {
 
 func (p *TaskVerifierProcessor) processBatch(ctx context.Context) error {
 	// Consume batch of tasks from queue
-	jobs, err := p.taskQueue.Consume(ctx, p.batchSize)
+	consumeCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+	defer cancel()
+
+	jobs, err := p.taskQueue.Consume(consumeCtx, p.batchSize)
 	if err != nil {
 		return fmt.Errorf("failed to consume from task queue: %w", err)
 	}
@@ -201,6 +204,7 @@ func (p *TaskVerifierProcessor) handleVerificationResults(
 	completedJobIDs := make([]string, 0)
 	retryJobIDs := make([]string, 0)
 	retryErrors := make(map[string]error)
+	retryDelays := make(map[string]time.Duration)
 	failedJobIDs := make([]string, 0)
 	failedErrors := make(map[string]error)
 
@@ -221,7 +225,7 @@ func (p *TaskVerifierProcessor) handleVerificationResults(
 
 		if result.Error != nil {
 			errorCount++
-			p.handleVerificationError(ctx, *result.Error, jobID, &retryJobIDs, retryErrors, &failedJobIDs, failedErrors)
+			p.handleVerificationError(ctx, *result.Error, jobID, &retryJobIDs, retryErrors, retryDelays, &failedJobIDs, failedErrors)
 		} else if result.Result != nil {
 			successCount++
 			successfulResults = append(successfulResults, *result.Result)
@@ -246,49 +250,78 @@ func (p *TaskVerifierProcessor) handleVerificationResults(
 
 	// Publish successful results to ccv_storage_writer_jobs queue
 	if len(successfulResults) > 0 {
-		publishCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		publishCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
 		defer cancel()
 
 		if err := p.resultQueue.Publish(publishCtx, successfulResults...); err != nil {
-			p.lggr.Errorw("Failed to publish verification results to queue",
+			p.lggr.Errorw("Failed to publish verification results to queue - jobs will remain in processing state and be reclaimed as stale locks",
 				"error", err,
 				"count", len(successfulResults))
-			// Results are lost - consider retrying the entire batch
-			// For now, we'll retry the jobs to re-verify
-			for _, jobID := range completedJobIDs {
-				retryJobIDs = append(retryJobIDs, jobID)
-				retryErrors[jobID] = err
-			}
-			completedJobIDs = nil
-		} else {
-			p.lggr.Debugw("Published verification results to queue", "count", len(successfulResults))
+			// Don't complete these jobs - leave them in 'processing' state
+			// They will be reclaimed as stale locks and re-processed (re-verified and published)
+			// This is a rare case (DB failure), and relying on stale lock reclaim is acceptable
+			return fmt.Errorf("failed to publish %d verification results: %w", len(successfulResults), err)
 		}
+		p.lggr.Debugw("Published verification results to queue", "count", len(successfulResults))
 	}
 
 	// Complete successfully processed jobs
 	if len(completedJobIDs) > 0 {
-		if err := p.taskQueue.Complete(ctx, completedJobIDs...); err != nil {
-			p.lggr.Errorw("Failed to complete jobs in queue",
+		completeCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+		defer cancel()
+
+		if err := p.taskQueue.Complete(completeCtx, completedJobIDs...); err != nil {
+			p.lggr.Errorw("Failed to complete jobs - they will remain in processing state and be reclaimed as stale locks",
 				"error", err,
 				"count", len(completedJobIDs))
+			// Don't fail the batch - let stale lock reclaim handle it
+			// This is a rare case (DB failure), and we want to continue processing other jobs
 		}
 	}
 
 	// Retry jobs with retryable errors
 	if len(retryJobIDs) > 0 {
-		if err := p.taskQueue.Retry(ctx, 10*time.Second, retryErrors, retryJobIDs...); err != nil {
-			p.lggr.Errorw("Failed to retry jobs",
-				"error", err,
-				"count", len(retryJobIDs))
+		// Group jobs by retry delay to minimize Retry() calls
+		jobsByDelay := make(map[time.Duration][]string)
+		errorsByDelay := make(map[time.Duration]map[string]error)
+
+		for _, jobID := range retryJobIDs {
+			delay := retryDelays[jobID]
+			if jobsByDelay[delay] == nil {
+				jobsByDelay[delay] = make([]string, 0)
+				errorsByDelay[delay] = make(map[string]error)
+			}
+			jobsByDelay[delay] = append(jobsByDelay[delay], jobID)
+			errorsByDelay[delay][jobID] = retryErrors[jobID]
+		}
+
+		// Retry jobs grouped by delay
+		for delay, jobIDs := range jobsByDelay {
+			retryCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+
+			if err := p.taskQueue.Retry(retryCtx, delay, errorsByDelay[delay], jobIDs...); err != nil {
+				p.lggr.Errorw("Failed to retry jobs - they will remain in processing state and be reclaimed as stale locks",
+					"error", err,
+					"count", len(jobIDs),
+					"delay", delay)
+				// Don't fail the batch - let stale lock reclaim handle it
+				// This is a rare case (DB failure), and we want to continue processing other jobs
+			}
+			cancel() // Call cancel immediately after Retry, not deferred
 		}
 	}
 
 	// Fail jobs with permanent errors
 	if len(failedJobIDs) > 0 {
-		if err := p.taskQueue.Fail(ctx, failedErrors, failedJobIDs...); err != nil {
-			p.lggr.Errorw("Failed to mark jobs as failed",
+		failCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+		defer cancel()
+
+		if err := p.taskQueue.Fail(failCtx, failedErrors, failedJobIDs...); err != nil {
+			p.lggr.Errorw("Failed to mark jobs as failed - they will remain in processing state and be reclaimed as stale locks",
 				"error", err,
 				"count", len(failedJobIDs))
+			// Don't fail the batch - let stale lock reclaim handle it
+			// This is a rare case (DB failure), and we want to continue processing other jobs
 		}
 	}
 
@@ -309,6 +342,7 @@ func (p *TaskVerifierProcessor) handleVerificationError(
 	jobID string,
 	retryJobIDs *[]string,
 	retryErrors map[string]error,
+	retryDelays map[string]time.Duration,
 	failedJobIDs *[]string,
 	failedErrors map[string]error,
 ) {
@@ -334,6 +368,7 @@ func (p *TaskVerifierProcessor) handleVerificationError(
 	if verificationError.Retryable {
 		*retryJobIDs = append(*retryJobIDs, jobID)
 		retryErrors[jobID] = verificationError.Error
+		retryDelays[jobID] = verificationError.DelayOrDefault()
 	} else {
 		// Increment permanent error metric
 		p.monitoring.Metrics().
@@ -355,8 +390,11 @@ func (p *TaskVerifierProcessor) handleVerificationError(
 }
 
 func (p *TaskVerifierProcessor) cleanup(ctx context.Context) error {
+	cleanupCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+	defer cancel()
+
 	// Cleanup archived jobs older than retention period
-	deleted, err := p.taskQueue.Cleanup(ctx, p.retentionPeriod)
+	deleted, err := p.taskQueue.Cleanup(cleanupCtx, p.retentionPeriod)
 	if err != nil {
 		return fmt.Errorf("failed to cleanup task queue: %w", err)
 	}

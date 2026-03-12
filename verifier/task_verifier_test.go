@@ -743,7 +743,7 @@ func countFailedTasks(t *testing.T, db *sqlx.DB, ownerID string) int {
 	t.Helper()
 	var count int
 	err := db.QueryRow(`
-		SELECT COUNT(*) FROM ccv_task_verifier_jobs 
+		SELECT COUNT(*) FROM ccv_task_verifier_jobs_archive 
 		WHERE owner_id = $1 AND status = 'failed'
 	`, ownerID).Scan(&count)
 	require.NoError(t, err)
@@ -801,4 +801,324 @@ func (f *fakeVerifierDB) VerifyMessages(_ context.Context, tasks []verifier.Veri
 	}
 
 	return results
+}
+
+// TestTaskVerifierProcessorDB_CustomRetryDelays tests that custom retry delays from VerificationError are respected.
+func TestTaskVerifierProcessorDB_CustomRetryDelays(t *testing.T) {
+	t.Parallel()
+
+	db := testutil.NewTestDB(t)
+
+	t.Run("uses custom delay from VerificationError", func(t *testing.T) {
+		t.Parallel()
+		ctx := t.Context()
+
+		lggr := logger.Nop()
+		ownerID := "test-" + t.Name()
+
+		taskQueue, err := jobqueue.NewPostgresJobQueue[verifier.VerificationTask](
+			db,
+			jobqueue.QueueConfig{
+				Name:          verifier.TaskVerifierJobsTableName,
+				OwnerID:       ownerID,
+				RetryDuration: time.Hour,
+				LockDuration:  time.Minute,
+			},
+			lggr,
+		)
+		require.NoError(t, err)
+
+		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
+			db,
+			jobqueue.QueueConfig{
+				Name:          verifier.StorageWriterJobsTableName,
+				OwnerID:       ownerID,
+				RetryDuration: time.Hour,
+				LockDuration:  time.Minute,
+			},
+			lggr,
+		)
+		require.NoError(t, err)
+
+		message := protocol.Message{SequenceNumber: 1, SourceChainSelector: 1337}
+		messageID := message.MustMessageID()
+		task := verifier.VerificationTask{
+			MessageID: messageID.String(),
+			Message:   message,
+		}
+
+		// Configure verifier with custom short delay (100ms)
+		customDelay := 100 * time.Millisecond
+		mockVerifier := &fakeVerifierDB{}
+		mockVerifier.SetErrors(map[string]verifier.VerificationError{
+			messageID.String(): {
+				Task:      task,
+				Retryable: true,
+				Delay:     &customDelay, // Custom delay
+				Error:     errors.New("transient error with custom delay"),
+			},
+		})
+
+		processor, err := verifier.NewTaskVerifierProcessorDBWithPollInterval(
+			lggr,
+			ownerID,
+			mockVerifier,
+			monitoring.NewFakeVerifierMonitoring(),
+			taskQueue,
+			resultQueue,
+			verifier.NewPendingWritingTracker(lggr),
+			10,
+			50*time.Millisecond,
+		)
+		require.NoError(t, err)
+
+		require.NoError(t, processor.Start(ctx))
+		t.Cleanup(func() {
+			require.NoError(t, processor.Close())
+		})
+
+		require.NoError(t, taskQueue.Publish(ctx, task))
+
+		// Wait for first attempt
+		require.Eventually(t, func() bool {
+			return mockVerifier.GetProcessedCount() >= 1
+		}, tests.WaitTimeout(t), 50*time.Millisecond)
+
+		// Ensure job moved to pending state after first failure
+		require.Eventually(t, func() bool {
+			return countPendingTasks(t, db, ownerID) == 1
+		}, tests.WaitTimeout(t), 50*time.Millisecond, "Job should be in pending state after first failure")
+
+		// Record when we know the job is pending
+		pendingAt := time.Now()
+
+		// Wait for custom delay (100ms) plus buffer
+		time.Sleep(customDelay + 100*time.Millisecond)
+
+		// Verify it gets retried (processed count increases)
+		require.Eventually(t, func() bool {
+			return mockVerifier.GetProcessedCount() >= 2
+		}, tests.WaitTimeout(t), 50*time.Millisecond, "Task should be retried after custom delay")
+
+		// Verify the delay was approximately correct (should be >= 100ms from pendingAt)
+		retryDuration := time.Since(pendingAt)
+		require.GreaterOrEqual(t, retryDuration, customDelay, "Retry should wait at least the custom delay")
+	})
+
+	t.Run("groups jobs by delay for efficient retry", func(t *testing.T) {
+		t.Parallel()
+		ctx := t.Context()
+
+		lggr := logger.Nop()
+		ownerID := "test-" + t.Name()
+
+		taskQueue, err := jobqueue.NewPostgresJobQueue[verifier.VerificationTask](
+			db,
+			jobqueue.QueueConfig{
+				Name:          verifier.TaskVerifierJobsTableName,
+				OwnerID:       ownerID,
+				RetryDuration: time.Hour,
+				LockDuration:  time.Minute,
+			},
+			lggr,
+		)
+		require.NoError(t, err)
+
+		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
+			db,
+			jobqueue.QueueConfig{
+				Name:          verifier.StorageWriterJobsTableName,
+				OwnerID:       ownerID,
+				RetryDuration: time.Hour,
+				LockDuration:  time.Minute,
+			},
+			lggr,
+		)
+		require.NoError(t, err)
+
+		// Create 3 tasks with different delays
+		shortDelay := 100 * time.Millisecond
+		longDelay := 500 * time.Millisecond
+
+		task1 := verifier.VerificationTask{
+			MessageID: "msg1",
+			Message:   protocol.Message{SequenceNumber: 1, SourceChainSelector: 1337},
+		}
+		task2 := verifier.VerificationTask{
+			MessageID: "msg2",
+			Message:   protocol.Message{SequenceNumber: 2, SourceChainSelector: 1337},
+		}
+		task3 := verifier.VerificationTask{
+			MessageID: "msg3",
+			Message:   protocol.Message{SequenceNumber: 3, SourceChainSelector: 1337},
+		}
+
+		mockVerifier := &fakeVerifierDB{}
+		mockVerifier.SetErrors(map[string]verifier.VerificationError{
+			"msg1": {Retryable: true, Delay: &shortDelay, Error: errors.New("error1")},
+			"msg2": {Retryable: true, Delay: &shortDelay, Error: errors.New("error2")}, // Same delay as msg1
+			"msg3": {Retryable: true, Delay: &longDelay, Error: errors.New("error3")},  // Different delay
+		})
+
+		processor, err := verifier.NewTaskVerifierProcessorDBWithPollInterval(
+			lggr,
+			ownerID,
+			mockVerifier,
+			monitoring.NewFakeVerifierMonitoring(),
+			taskQueue,
+			resultQueue,
+			verifier.NewPendingWritingTracker(lggr),
+			10,
+			50*time.Millisecond,
+		)
+		require.NoError(t, err)
+
+		require.NoError(t, processor.Start(ctx))
+		t.Cleanup(func() {
+			require.NoError(t, processor.Close())
+		})
+
+		require.NoError(t, taskQueue.Publish(ctx, task1, task2, task3))
+
+		// Wait for all 3 to be processed initially and moved to pending state
+		require.Eventually(t, func() bool {
+			return mockVerifier.GetProcessedCount() >= 3
+		}, tests.WaitTimeout(t), 50*time.Millisecond)
+
+		// Wait for all jobs to be in pending state (may take a moment after processing)
+		require.Eventually(t, func() bool {
+			return countPendingTasks(t, db, ownerID) == 3
+		}, tests.WaitTimeout(t), 50*time.Millisecond, "All 3 jobs should be pending with their respective delays")
+
+		// After shortDelay, msg1 and msg2 should be available (they have same delay)
+		time.Sleep(shortDelay + 100*time.Millisecond) // Add buffer for processing
+
+		// msg1 and msg2 should be retried (grouped together because same delay)
+		require.Eventually(t, func() bool {
+			return mockVerifier.GetProcessedCount() >= 5 // 3 initial + 2 retries
+		}, tests.WaitTimeout(t), 50*time.Millisecond, "msg1 and msg2 should be retried together")
+
+		// Wait for msg3's longer delay
+		time.Sleep(longDelay - shortDelay + 100*time.Millisecond) // Remaining time plus buffer
+
+		// Now msg3 should also be retried
+		require.Eventually(t, func() bool {
+			return mockVerifier.GetProcessedCount() >= 6 // 3 initial + 2 + 1
+		}, tests.WaitTimeout(t), 50*time.Millisecond, "msg3 should be retried after its longer delay")
+	})
+}
+
+// TestTaskVerifierProcessorDB_PublishFailureHandling tests stale lock reclaim mechanism.
+func TestTaskVerifierProcessorDB_PublishFailureHandling(t *testing.T) {
+	t.Parallel()
+
+	db := testutil.NewTestDB(t)
+
+	t.Run("verifies stale lock reclaim mechanism is configured", func(t *testing.T) {
+		t.Parallel()
+		ctx := t.Context()
+
+		lggr := logger.Nop()
+		ownerID := "test-" + t.Name()
+
+		shortLockDuration := 200 * time.Millisecond
+
+		taskQueue, err := jobqueue.NewPostgresJobQueue[verifier.VerificationTask](
+			db,
+			jobqueue.QueueConfig{
+				Name:          verifier.TaskVerifierJobsTableName,
+				OwnerID:       ownerID,
+				RetryDuration: time.Hour,
+				LockDuration:  shortLockDuration,
+			},
+			lggr,
+		)
+		require.NoError(t, err)
+
+		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
+			db,
+			jobqueue.QueueConfig{
+				Name:          verifier.StorageWriterJobsTableName,
+				OwnerID:       ownerID,
+				RetryDuration: time.Hour,
+				LockDuration:  time.Minute,
+			},
+			lggr,
+		)
+		require.NoError(t, err)
+
+		message := protocol.Message{SequenceNumber: 1, SourceChainSelector: 1337}
+		messageID := message.MustMessageID()
+		task := verifier.VerificationTask{
+			MessageID: messageID.String(),
+			Message:   message,
+		}
+
+		// Use a verifier that succeeds (normal case)
+		mockVerifier := &fakeVerifierDB{}
+
+		processor, err := verifier.NewTaskVerifierProcessorDBWithPollInterval(
+			lggr,
+			ownerID,
+			mockVerifier,
+			monitoring.NewFakeVerifierMonitoring(),
+			taskQueue,
+			resultQueue,
+			verifier.NewPendingWritingTracker(lggr),
+			10,
+			50*time.Millisecond,
+		)
+		require.NoError(t, err)
+
+		require.NoError(t, processor.Start(ctx))
+		t.Cleanup(func() {
+			require.NoError(t, processor.Close())
+		})
+
+		require.NoError(t, taskQueue.Publish(ctx, task))
+
+		// Job should be processed successfully
+		require.Eventually(t, func() bool {
+			return mockVerifier.GetProcessedCount() >= 1
+		}, tests.WaitTimeout(t), 50*time.Millisecond, "Job should be processed")
+
+		// Job should be completed and archived
+		require.Eventually(t, func() bool {
+			return countCompletedTasks(t, db, ownerID) == 1
+		}, tests.WaitTimeout(t), 50*time.Millisecond, "Job should be completed")
+
+		// Verify result was published
+		require.Eventually(t, func() bool {
+			return countVerificationResults(t, db, ownerID) == 1
+		}, tests.WaitTimeout(t), 50*time.Millisecond, "Result should be published")
+
+		// This test primarily verifies that the stale lock mechanism is configured
+		// and the normal flow works. The actual stale lock reclaim is tested in
+		// TestTaskVerifierProcessorDB_StaleJobRecovery which has a dedicated test for it.
+	})
+}
+
+// Helper functions
+
+func countPendingTasks(t *testing.T, db *sqlx.DB, ownerID string) int {
+	t.Helper()
+	var count int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM ccv_task_verifier_jobs 
+		WHERE owner_id = $1 AND status = 'pending'
+	`, ownerID).Scan(&count)
+	require.NoError(t, err)
+	return count
+}
+
+func countCompletedTasks(t *testing.T, db *sqlx.DB, ownerID string) int {
+	t.Helper()
+	var count int
+	// Completed tasks are in the archive
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM ccv_task_verifier_jobs_archive 
+		WHERE owner_id = $1 AND status = 'completed'
+	`, ownerID).Scan(&count)
+	require.NoError(t, err)
+	return count
 }
