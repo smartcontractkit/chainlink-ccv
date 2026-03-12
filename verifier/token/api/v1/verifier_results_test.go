@@ -164,7 +164,7 @@ func Test_VerifierResultsHandler(t *testing.T) {
 
 		messageID1Hex := messageID1.String()
 		messageID2Hex := messageID2.String()
-		req, _ := http.NewRequest("GET", "/verifications?messageID="+messageID1Hex+","+messageID2Hex, nil)
+		req, _ := http.NewRequest("GET", "/verifications?messageID="+messageID1Hex+"&messageID="+messageID2Hex, nil)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)

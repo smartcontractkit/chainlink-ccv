@@ -31,19 +31,12 @@ func NewVerifierResultsHandler(
 }
 
 // Handle processes GET requests with messageID as query parameters
-// Expected query parameter format: ?messageID=0x123abc,0x456def,...
+// Expected query parameter format: ?messageID=0x123abc&messageID=0x456def&...
 func (h *VerifierResultsHandler) Handle(c *gin.Context) {
-	// Get messageID from query parameters
-	messageIDsParam := c.Query("messageID")
-	if messageIDsParam == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "messageID query parameter is required"})
-		return
-	}
-
-	// Split by comma to get individual message IDs
-	messageIDStrings := strings.SplitN(messageIDsParam, ",", h.maxMessageIDsPerBatch+1)
+	// Get messageID from query parameters (supports multiple values)
+	messageIDStrings := c.QueryArray("messageID")
 	if len(messageIDStrings) == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "messageID cannot be empty"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "messageID query parameter is required"})
 		return
 	}
 
