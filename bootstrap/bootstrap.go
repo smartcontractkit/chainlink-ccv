@@ -77,8 +77,8 @@ type Bootstrapper[AppConfig any] struct {
 	lggr logger.Logger
 
 	// bootstrapper component configs
-	jdConfigPath     string
-	jdConfig         *Config
+	configPath       string
+	config           *Config
 	lifecycleManager *lifecycle.Manager
 	infoServer       *infoServer
 
@@ -110,24 +110,24 @@ func NewBootstrapper[AppConfig any](
 	}
 
 	// If no configuration is provided, default to JD lifecycle manager with config loaded from the default path.
-	if b.appCfg == nil && b.jdConfig == nil {
-		b.jdConfig = &Config{}
+	if b.appCfg == nil && b.config == nil {
+		b.config = &Config{}
 	}
 
-	if b.jdConfig != nil {
+	if b.config != nil {
 		// Use provided config path if set by an option.
-		if b.jdConfigPath == "" {
+		if b.configPath == "" {
 			// If no config path is provided by an option, check the environment variable.
-			b.jdConfigPath = os.Getenv(ConfigPathEnv)
-			if b.jdConfigPath == "" {
+			b.configPath = os.Getenv(ConfigPathEnv)
+			if b.configPath == "" {
 				// If the environment variable is not set, use the default config path.
-				b.jdConfigPath = DefaultConfigPath
+				b.configPath = DefaultConfigPath
 			}
 		}
 
-		err := LoadAndValidateConfig(b.jdConfigPath, b.jdConfig)
+		err := LoadAndValidateConfig(b.configPath, b.config)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load bootstrap config (%s): %w", b.jdConfigPath, err)
+			return nil, fmt.Errorf("failed to load bootstrap config (%s): %w", b.configPath, err)
 		}
 
 		// not logging config because it contains secrets.
@@ -144,21 +144,21 @@ func (b *Bootstrapper[AppConfig]) startWithAppConfig(ctx context.Context) error 
 
 // startWithJDLifecycle initializes all components required for the JD lifecycle manager and starts it.
 func (b *Bootstrapper[AppConfig]) startWithJDLifecycle(ctx context.Context) error {
-	db, err := connectToDB(ctx, b.jdConfig.DB.URL)
+	db, err := connectToDB(ctx, b.config.DB.URL)
 	if err != nil {
 		return fmt.Errorf("failed to connect to bootstrapper database: %w", err)
 	}
 
-	keyStore, csaSigner, err := initializeKeystore(ctx, b.lggr, db, b.jdConfig.Keystore.Password)
+	keyStore, csaSigner, err := initializeKeystore(ctx, b.lggr, db, b.config.Keystore.Password)
 	if err != nil {
 		return fmt.Errorf("failed to initialize keystore: %w", err)
 	}
 
-	jdPublicKey, err := keys.DecodeEd25519PublicKey(b.jdConfig.JD.ServerCSAPublicKey)
+	jdPublicKey, err := keys.DecodeEd25519PublicKey(b.config.JD.ServerCSAPublicKey)
 	if err != nil {
 		return fmt.Errorf("failed to get JD public key: %w", err)
 	}
-	jdClient := jdclient.New(csaSigner, jdPublicKey, b.jdConfig.JD.ServerWSRPCURL, b.lggr)
+	jdClient := jdclient.New(csaSigner, jdPublicKey, b.config.JD.ServerWSRPCURL, b.lggr)
 
 	deps, err := newServiceDeps(keyStore, b.logLevel, b.name)
 	if err != nil {
@@ -181,7 +181,7 @@ func (b *Bootstrapper[AppConfig]) startWithJDLifecycle(ctx context.Context) erro
 	}
 	b.lifecycleManager = lifecycleManager
 
-	infoServer := newInfoServer(b.lggr, keyStore, b.jdConfig.Server.ListenPort)
+	infoServer := newInfoServer(b.lggr, keyStore, b.config.Server.ListenPort)
 	if err := infoServer.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start info server: %w", err)
 	}
@@ -192,7 +192,7 @@ func (b *Bootstrapper[AppConfig]) startWithJDLifecycle(ctx context.Context) erro
 
 // Start initializes the keystore, connects to JD, and starts the lifecycle manager.
 func (b *Bootstrapper[AppConfig]) Start(ctx context.Context) error {
-	if b.jdConfig != nil {
+	if b.config != nil {
 		return b.startWithJDLifecycle(ctx)
 	}
 	if b.appCfg != nil {
@@ -280,17 +280,17 @@ func WithLogLevel[AppConfig any](logLevel zapcore.Level) Option[AppConfig] {
 // This is the default option if no AppConfig is provided.
 func WithJD[AppConfig any]() Option[AppConfig] {
 	return func(b *Bootstrapper[AppConfig]) error {
-		b.jdConfig = &Config{}
+		b.config = &Config{}
 		return nil
 	}
 }
 
-// WithJDConfigPath sets the file path for the JD config. If not set, the bootstrapper will look
+// WithBootstrapperConfigPath sets the bootstrapper config file path. If not set, the bootstrapper will look
 // for the config path in the BOOTSTRAPPER_CONFIG_PATH environment variable, and if that is not
 // set, it will default to DefaultConfigPath.
-func WithJDConfigPath[AppConfig any](path string) Option[AppConfig] {
+func WithBootstrapperConfigPath[AppConfig any](path string) Option[AppConfig] {
 	return func(b *Bootstrapper[AppConfig]) error {
-		b.jdConfigPath = path
+		b.configPath = path
 		return nil
 	}
 }

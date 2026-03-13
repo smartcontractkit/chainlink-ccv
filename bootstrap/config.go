@@ -129,7 +129,7 @@ func LoadAndValidateConfig(path string, cfg *Config) error {
 }
 
 func parseTOMLStrict[T any](tomlString string, out T) error {
-	md, err := toml.Decode(tomlString, &out)
+	md, err := toml.Decode(tomlString, out)
 	if err != nil {
 		return fmt.Errorf("failed to decode toml: %w", err)
 	}
