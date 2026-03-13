@@ -60,12 +60,14 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 
 	availableAt := time.Now().Add(delay)
 
-	// Build bulk insert query
+	// Build bulk insert query with ON CONFLICT DO NOTHING to avoid duplicates
+	// when the verifier is restarted (Issue #6)
 	query := fmt.Sprintf(`
 		INSERT INTO %s (
 			job_id, task_data, status, available_at, created_at, attempt_count, retry_deadline,
 			chain_selector, message_id, owner_id
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		ON CONFLICT (owner_id, chain_selector, message_id) DO NOTHING
 	`, q.tableName)
 
 	err := sqlutil.TransactDataSource(ctx, q.ds, nil, func(tx sqlutil.DataSource) error {
