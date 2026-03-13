@@ -115,6 +115,9 @@ func NewVerificationCoordinator(
 			RMNRemoteAddress:       rmnRemoteAddrs[sel],
 		}
 	}
+	if len(sourceReaders) == 0 {
+		return nil, fmt.Errorf("no source readers configured: ensure at least one chain has matching onramp and verifier addresses")
+	}
 
 	// Initialize other required services and configs.
 
