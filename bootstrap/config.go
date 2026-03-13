@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -93,48 +94,47 @@ type Config struct {
 }
 
 func (c *Config) validate() error {
+	var errs []error
 	if err := c.JD.validate(); err != nil {
-		return fmt.Errorf("failed to validate 'jd' section: %w", err)
+		errs = append(errs, fmt.Errorf("failed to validate 'jd' section: %w", err))
 	}
 	if err := c.Keystore.validate(); err != nil {
-		return fmt.Errorf("failed to validate 'keystore' section: %w", err)
+		errs = append(errs, fmt.Errorf("failed to validate 'keystore' section: %w", err))
 	}
 	if err := c.DB.validate(); err != nil {
-		return fmt.Errorf("failed to validate 'db' section: %w", err)
+		errs = append(errs, fmt.Errorf("failed to validate 'db' section: %w", err))
 	}
 	if err := c.Server.validate(); err != nil {
-		return fmt.Errorf("failed to validate 'server' section: %w", err)
+		errs = append(errs, fmt.Errorf("failed to validate 'server' section: %w", err))
+	}
+	return errors.Join(errs...)
+}
+
+// LoadAndValidateConfig loads the configuration from a path to a TOML file, in strict mode.
+func LoadAndValidateConfig(path string, cfg *Config) error {
+	tomlBytes, err := os.ReadFile(path) //nolint:gosec // G304: path is provided by trusted caller
+	if err != nil {
+		return fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	err = parseTOMLStrict(string(tomlBytes), cfg)
+	if err != nil {
+		return fmt.Errorf("failed to parse config: %w", err)
+	}
+
+	if err := cfg.validate(); err != nil {
+		return fmt.Errorf("config validation failed: %w", err)
 	}
 	return nil
 }
 
-// LoadConfig loads the configuration from a path to a TOML file, in strict mode.
-func LoadConfig(path string) (Config, error) {
-	tomlBytes, err := os.ReadFile(path) //nolint:gosec // G304: path is provided by trusted caller
-	if err != nil {
-		return Config{}, fmt.Errorf("failed to read config file: %w", err)
-	}
-	cfg, err := parseTOMLStrict[Config](string(tomlBytes))
-	if err != nil {
-		return Config{}, fmt.Errorf("failed to parse config: %w", err)
-	}
-	if err := cfg.validate(); err != nil {
-		return Config{}, fmt.Errorf("config validation failed: %w", err)
-	}
-	return cfg, nil
-}
-
-func parseTOMLStrict[T any](tomlString string) (T, error) {
-	var (
-		out   T
-		empty T
-	)
+func parseTOMLStrict[T any](tomlString string, out T) error {
 	md, err := toml.Decode(tomlString, &out)
 	if err != nil {
-		return empty, fmt.Errorf("failed to decode toml: %w", err)
+		return fmt.Errorf("failed to decode toml: %w", err)
 	}
 	if len(md.Undecoded()) > 0 {
-		return empty, fmt.Errorf("strict decode failed, found undecoded fields: %+v", md.Undecoded())
+		return fmt.Errorf("strict decode failed, found undecoded fields: %+v", md.Undecoded())
 	}
-	return out, nil
+	return nil
 }
