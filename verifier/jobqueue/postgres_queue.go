@@ -287,24 +287,24 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 
 	availableAt := time.Now().Add(delay)
 
-	// Check if retry deadline has passed
-	query := fmt.Sprintf(`
-		UPDATE %s
-		SET status = CASE
-				WHEN NOW() >= retry_deadline THEN $1
-				ELSE $2
-			END,
-			available_at = $3,
-			last_error = $4
-		WHERE job_id = $5
-		  AND owner_id = $6
-		RETURNING job_id, status
-	`, q.tableName)
-
 	var failed []string
 	var retried []string
 
 	err := sqlutil.TransactDataSource(ctx, q.ds, nil, func(tx sqlutil.DataSource) error {
+		// Check if retry deadline has passed
+		query := fmt.Sprintf(`
+			UPDATE %s
+			SET status = CASE
+					WHEN NOW() >= retry_deadline THEN $1
+					ELSE $2
+				END,
+				available_at = $3,
+				last_error = $4
+			WHERE job_id = $5
+			  AND owner_id = $6
+			RETURNING job_id, status
+		`, q.tableName)
+
 		stmt, err := tx.PrepareContext(ctx, query)
 		if err != nil {
 			return fmt.Errorf("failed to prepare retry statement: %w", err)
@@ -347,38 +347,36 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 			}
 		}
 
-		return nil
-	})
-	if err != nil {
-		return err
-	}
+		// Archive jobs that exceeded the retry deadline within the same transaction
+		if len(failed) > 0 {
+			archiveQuery := fmt.Sprintf(`
+				WITH failed AS (
+					DELETE FROM %s
+					WHERE job_id = ANY($1)
+					  AND owner_id = $2
+					  AND status = $3
+					RETURNING *
+				)
+				INSERT INTO %s
+				SELECT *, NOW() as completed_at
+				FROM failed
+			`, q.tableName, q.archiveName)
 
-	// Archive jobs that exceeded the retry deadline
-	if len(failed) > 0 {
-		archiveQuery := fmt.Sprintf(`
-			WITH failed AS (
-				DELETE FROM %s
-				WHERE job_id = ANY($1)
-				  AND owner_id = $2
-				  AND status = $3
-				RETURNING *
-			)
-			INSERT INTO %s
-			SELECT *, NOW() as completed_at
-			FROM failed
-		`, q.tableName, q.archiveName)
+			result, err := tx.ExecContext(ctx, archiveQuery, pq.Array(failed), q.ownerID, JobStatusFailed)
+			if err != nil {
+				return fmt.Errorf("failed to archive jobs that exceeded retry deadline: %w", err)
+			}
 
-		result, err := q.ds.ExecContext(ctx, archiveQuery, pq.Array(failed), q.ownerID, JobStatusFailed)
-		if err != nil {
-			q.logger.Errorw("Failed to archive jobs that exceeded retry deadline",
-				"error", err,
-				"count", len(failed))
-		} else {
 			affected, _ := result.RowsAffected()
 			q.logger.Infow("Archived jobs that exceeded retry deadline",
 				"queue", q.config.Name,
 				"count", affected)
 		}
+
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	q.logger.Infow("Retried jobs",
@@ -398,16 +396,18 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 		return nil
 	}
 
-	// First, update the last_error for each job
-	updateQuery := fmt.Sprintf(`
-		UPDATE %s
-		SET status = $1,
-			last_error = $2
-		WHERE job_id = $3
-		  AND owner_id = $4
-	`, q.tableName)
+	var affected int64
 
 	err := sqlutil.TransactDataSource(ctx, q.ds, nil, func(tx sqlutil.DataSource) error {
+		// First, update the last_error for each job
+		updateQuery := fmt.Sprintf(`
+			UPDATE %s
+			SET status = $1,
+				last_error = $2
+			WHERE job_id = $3
+			  AND owner_id = $4
+		`, q.tableName)
+
 		stmt, err := tx.PrepareContext(ctx, updateQuery)
 		if err != nil {
 			return fmt.Errorf("failed to prepare fail statement: %w", err)
@@ -431,32 +431,32 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 			}
 		}
 
+		// Now move failed jobs to archive within the same transaction
+		archiveQuery := fmt.Sprintf(`
+			WITH failed AS (
+				DELETE FROM %s
+				WHERE job_id = ANY($1)
+				  AND owner_id = $2
+				  AND status = $3
+				RETURNING *
+			)
+			INSERT INTO %s
+			SELECT *, NOW() as completed_at
+			FROM failed
+		`, q.tableName, q.archiveName)
+
+		result, err := tx.ExecContext(ctx, archiveQuery, pq.Array(jobIDs), q.ownerID, JobStatusFailed)
+		if err != nil {
+			return fmt.Errorf("failed to archive failed jobs: %w", err)
+		}
+
+		affected, _ = result.RowsAffected()
 		return nil
 	})
 	if err != nil {
 		return err
 	}
 
-	// Now move failed jobs to archive
-	archiveQuery := fmt.Sprintf(`
-		WITH failed AS (
-			DELETE FROM %s
-			WHERE job_id = ANY($1)
-			  AND owner_id = $2
-			  AND status = $3
-			RETURNING *
-		)
-		INSERT INTO %s
-		SELECT *, NOW() as completed_at
-		FROM failed
-	`, q.tableName, q.archiveName)
-
-	result, err := q.ds.ExecContext(ctx, archiveQuery, pq.Array(jobIDs), q.ownerID, JobStatusFailed)
-	if err != nil {
-		return fmt.Errorf("failed to archive failed jobs: %w", err)
-	}
-
-	affected, _ := result.RowsAffected()
 	q.logger.Infow("Failed and archived jobs",
 		"queue", q.config.Name,
 		"count", affected,
