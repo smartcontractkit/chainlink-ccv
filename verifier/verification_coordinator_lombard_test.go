@@ -211,12 +211,17 @@ func Test_LombardMessages_RetryingAttestation(t *testing.T) {
 	mockLatestBlocks(mockSetup.Reader)
 
 	inMem := ccvstorage.NewInMemory()
-	v, err := createLombardCoordinator(
+	// Use shorter retry intervals for the test to avoid timeouts
+	// The test server returns pending attestations twice, then completed ones
+	// With 100ms retry delay, this should complete in ~300ms instead of 60+ seconds
+	v, err := createLombardCoordinatorWithRetryConfig(
 		ts,
 		&lombardConfig,
 		config,
 		sourceReaders,
 		inMem,
+		100*time.Millisecond, // attestationNotReadyRetry
+		100*time.Millisecond, // anyErrorRetry
 	)
 	require.NoError(t, err)
 
@@ -256,14 +261,48 @@ func createLombardCoordinator(
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	inMemStorage *ccvstorage.InMemoryCCVStorage,
 ) (*verifier.Coordinator, error) {
+	return createLombardCoordinatorWithRetryConfig(
+		ts,
+		lombardConfig,
+		config,
+		sourceReaders,
+		inMemStorage,
+		0, // use default retry intervals
+		0,
+	)
+}
+
+func createLombardCoordinatorWithRetryConfig(
+	ts *testSetup,
+	lombardConfig *lombard.LombardConfig,
+	config verifier.CoordinatorConfig,
+	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
+	inMemStorage *ccvstorage.InMemoryCCVStorage,
+	attestationNotReadyRetry time.Duration,
+	anyErrorRetry time.Duration,
+) (*verifier.Coordinator, error) {
 	noopMonitoring := monitoring.NewFakeVerifierMonitoring()
 	noopLatencyTracker := verifier.NoopLatencyTracker{}
 
 	attestationService, err := lombard.NewAttestationService(ts.logger, *lombardConfig)
 	require.NoError(ts.t, err)
 
-	lombardVerifier, err := lombard.NewVerifier(ts.logger, *lombardConfig, attestationService)
-	require.NoError(ts.t, err)
+	var lombardVerifier verifier.Verifier
+	if attestationNotReadyRetry > 0 || anyErrorRetry > 0 {
+		// Use custom retry intervals for tests
+		lombardVerifier = lombard.NewVerifierWithConfig(
+			ts.logger,
+			attestationService,
+			lombardConfig.VerifierVersion,
+			attestationNotReadyRetry,
+			anyErrorRetry,
+		)
+	} else {
+		// Use default retry intervals
+		var err error
+		lombardVerifier, err = lombard.NewVerifier(ts.logger, *lombardConfig, attestationService)
+		require.NoError(ts.t, err)
+	}
 
 	ccvWriter := storage.NewAttestationCCVWriter(
 		ts.logger,
