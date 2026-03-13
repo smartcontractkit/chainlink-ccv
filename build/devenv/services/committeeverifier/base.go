@@ -73,9 +73,9 @@ type Input struct {
 	// Defaults to just {"evm": {}} if not specified.
 	Bootstrap *services.BootstrapInput `toml:"bootstrap"`
 
-	// Configs is a map of chain family name to opaque configuration to pass onto the verifier,
+	// OpaqueConfigs is a map of chain family name to opaque configuration to pass onto the verifier,
 	// only used in standalone mode.
-	Configs map[string]util.OpaqueConfig `toml:"opaque_configs"`
+	OpaqueConfigs map[string]util.OpaqueConfig `toml:"opaque_configs"`
 
 	// DisableFinalityCheckers is a list of chain selectors for which the finality violation checker should be disabled.
 	// The chain selectors are formatted as strings of the chain selector.
