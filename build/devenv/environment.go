@@ -820,11 +820,12 @@ func NewEnvironment() (in *Cfg, err error) {
 	// END: Deploy blockchains //
 	/////////////////////////////
 
-	///////////////////////////////////////////
-	// START: Generate Aggregator Credentials //
+	//////////////////////////////////////////////////
+	// START: Generate Aggregator Credentials       //
+	//////////////////////////////////////////////////
+
 	// Generate HMAC credentials for all aggregator clients before launching
 	// CL nodes, so they can receive the credentials via secrets.
-	///////////////////////////////////////////
 	for _, agg := range in.Aggregator {
 		creds, err := agg.EnsureClientCredentials()
 		if err != nil {
@@ -845,22 +846,19 @@ func NewEnvironment() (in *Cfg, err error) {
 				Msg("Generated aggregator credentials")
 		}
 	}
-	/////////////////////////////////////////
+	//////////////////////////////////////////
 	// END: Generate Aggregator Credentials //
-	/////////////////////////////////////////
+	//////////////////////////////////////////
 
-	///////////////////////////////
+	//////////////////////////////////
 	// START: Deploy Pricer service //
-	///////////////////////////////
+	//////////////////////////////////
 	if _, err := services.NewPricer(in.Pricer); err != nil {
 		return nil, fmt.Errorf("failed to setup pricer service: %w", err)
 	}
 
 	if in.Pricer != nil {
 		for i, impl := range impls {
-			if in.Blockchains[i].Type == blockchain.TypeCanton {
-				continue
-			}
 			Plog.Info().Int("ImplIndex", i).Msg("Funding pricer key")
 			err = impl.FundAddresses(
 				ctx,
@@ -875,19 +873,19 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
-	///////////////////////////////
+	////////////////////////////////
 	// END: Deploy Pricer service //
-	///////////////////////////////
+	////////////////////////////////
 
 	////////////////////////////
 	// START: Launch CL Nodes //
+	////////////////////////////
+
 	// We launch the CL nodes first because they don't require any configuration from
 	// the rest of the system to be up and running.
 	// In addition, if we need to launch the nodes (i.e if some services are not standalone),
 	// we need to launch the nodes first to get the onchain public keys which will then
 	// be used to configure the rest of the system (aggregator, onchain committees, etc.).
-	////////////////////////////
-
 	timeTrack.Record("[infra] deploying CL nodes")
 	_, err = launchCLNodes(ctx, in, impls, in.Verifier, in.Aggregator)
 	if err != nil {
@@ -899,9 +897,9 @@ func NewEnvironment() (in *Cfg, err error) {
 	// END: Launch CL Nodes //
 	//////////////////////////
 
-	///////////////////////////////////////
+	//////////////////////////////////////
 	// START: Start JD Infrastructure   //
-	///////////////////////////////////////
+	//////////////////////////////////////
 
 	timeTrack.Record("[infra] starting JD infrastructure")
 
