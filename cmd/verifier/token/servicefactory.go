@@ -347,13 +347,3 @@ func createSourceConfigs(
 	}
 	return sourceConfigs
 }
-
-/*
-func loadConfiguration(filepath string) (*token.Config, map[string]*blockchain.Info, error) {
-	var config token.ConfigWithBlockchainInfos
-	if _, err := toml.DecodeFile(filepath, &config); err != nil {
-		return nil, err
-	}
-	return &config.Config, config.BlockchainInfos, nil
-}
-*/
