@@ -247,7 +247,7 @@ func (m *CCIP17EVMConfig) configureLombardForTransfer(
 		if err != nil {
 			return fmt.Errorf("failed to pad lombard chain id for chain %d: %w", rs, err)
 		}
-		_, err = lombardBridge.SetAllowedDestinationToken(chain.DeployerKey, paddedLombardChainID, common.HexToAddress(token.Address), destinationToken)
+		_, err = lombardBridge.SetAllowedDestinationToken(chain.DeployerKey, paddedLombardChainID, common.HexToAddress(tokenRef.Address), destinationToken)
 		if err != nil {
 			return fmt.Errorf("failed to set allowed destination tokens on lombard bridge on chain %s: %w", chain, err)
 		}
