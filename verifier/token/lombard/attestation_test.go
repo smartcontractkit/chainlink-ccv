@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -248,4 +249,186 @@ func createTestTaskWithEmptyReceipts(sourceChain protocol.ChainSelector, seqNum 
 		Message:      msg,
 		ReceiptBlobs: []protocol.ReceiptWithBlob{}, // Empty receipt blobs
 	}
+}
+
+func Test_ToVerifierFormat(t *testing.T) {
+	verifierVersion := protocol.ByteSlice{0x01, 0x02, 0x03, 0x04}
+
+	// Helper function to ABI encode payload and proof
+	encodeAttestationData := func(rawPayload, proof []byte) ([]byte, error) {
+		bytesType, err := abi.NewType("bytes", "", nil)
+		if err != nil {
+			return nil, err
+		}
+		args := abi.Arguments{
+			{Type: bytesType},
+			{Type: bytesType},
+		}
+		return args.Pack(rawPayload, proof)
+	}
+
+	t.Run("successfully converts approved attestation to verifier format", func(t *testing.T) {
+		rawPayload := []byte{0xaa, 0xbb, 0xcc, 0xdd}
+		proof := []byte{0x11, 0x22, 0x33}
+
+		attestationBytes, err := encodeAttestationData(rawPayload, proof)
+		require.NoError(t, err)
+
+		attestation := Attestation{
+			verifierVersion: verifierVersion,
+			attestation:     protocol.ByteSlice(attestationBytes).String(),
+			status:          AttestationStatusApproved,
+		}
+
+		result, err := attestation.ToVerifierFormat()
+		require.NoError(t, err)
+
+		// Expected format: [versionTag (4)][rawPayloadLength (2)][rawPayload][proofLength (2)][proof]
+		rawPayloadLength := uint16(len(rawPayload))
+		proofLength := uint16(len(proof))
+
+		expected := protocol.ByteSlice{}
+		expected = append(expected, verifierVersion...)
+		expected = append(expected, byte(rawPayloadLength>>8), byte(rawPayloadLength))
+		expected = append(expected, rawPayload...)
+		expected = append(expected, byte(proofLength>>8), byte(proofLength))
+		expected = append(expected, proof...)
+
+		assert.Equal(t, expected, result)
+		assert.Len(t, result, 4+2+len(rawPayload)+2+len(proof))
+	})
+
+	t.Run("handles empty proof", func(t *testing.T) {
+		rawPayload := []byte{0xaa, 0xbb, 0xcc, 0xdd}
+		proof := []byte{}
+
+		attestationBytes, err := encodeAttestationData(rawPayload, proof)
+		require.NoError(t, err)
+
+		attestation := Attestation{
+			verifierVersion: verifierVersion,
+			attestation:     protocol.ByteSlice(attestationBytes).String(),
+			status:          AttestationStatusApproved,
+		}
+
+		result, err := attestation.ToVerifierFormat()
+		require.NoError(t, err)
+
+		rawPayloadLength := uint16(len(rawPayload))
+		proofLength := uint16(len(proof))
+
+		expected := protocol.ByteSlice{}
+		expected = append(expected, verifierVersion...)
+		expected = append(expected, byte(rawPayloadLength>>8), byte(rawPayloadLength))
+		expected = append(expected, rawPayload...)
+		expected = append(expected, byte(proofLength>>8), byte(proofLength))
+
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("handles empty payload", func(t *testing.T) {
+		rawPayload := []byte{}
+		proof := []byte{0x11, 0x22, 0x33}
+
+		attestationBytes, err := encodeAttestationData(rawPayload, proof)
+		require.NoError(t, err)
+
+		attestation := Attestation{
+			verifierVersion: verifierVersion,
+			attestation:     protocol.ByteSlice(attestationBytes).String(),
+			status:          AttestationStatusApproved,
+		}
+
+		result, err := attestation.ToVerifierFormat()
+		require.NoError(t, err)
+
+		rawPayloadLength := uint16(len(rawPayload))
+		proofLength := uint16(len(proof))
+
+		expected := protocol.ByteSlice{}
+		expected = append(expected, verifierVersion...)
+		expected = append(expected, byte(rawPayloadLength>>8), byte(rawPayloadLength))
+		expected = append(expected, byte(proofLength>>8), byte(proofLength))
+		expected = append(expected, proof...)
+
+		assert.Equal(t, expected, result)
+	})
+
+	t.Run("handles large payload and proof", func(t *testing.T) {
+		// Create payload and proof larger than 255 bytes to test 2-byte length encoding
+		rawPayload := make([]byte, 300)
+		for i := range rawPayload {
+			rawPayload[i] = byte(i % 256)
+		}
+		proof := make([]byte, 400)
+		for i := range proof {
+			proof[i] = byte((i + 100) % 256)
+		}
+
+		attestationBytes, err := encodeAttestationData(rawPayload, proof)
+		require.NoError(t, err)
+
+		attestation := Attestation{
+			verifierVersion: verifierVersion,
+			attestation:     protocol.ByteSlice(attestationBytes).String(),
+			status:          AttestationStatusApproved,
+		}
+
+		result, err := attestation.ToVerifierFormat()
+		require.NoError(t, err)
+
+		rawPayloadLength := uint16(len(rawPayload))
+		proofLength := uint16(len(proof))
+
+		// Verify structure
+		assert.Equal(t, verifierVersion, result[0:4])
+		// Verify rawPayloadLength
+		assert.Equal(t, byte(rawPayloadLength>>8), result[4])
+		assert.Equal(t, byte(rawPayloadLength), result[5])
+		// Verify rawPayload
+		assert.Equal(t, rawPayload, []byte(result[6:6+rawPayloadLength]))
+		// Verify proofLength
+		proofLengthOffset := 6 + rawPayloadLength
+		assert.Equal(t, byte(proofLength>>8), result[proofLengthOffset])
+		assert.Equal(t, byte(proofLength), result[proofLengthOffset+1])
+		// Verify proof
+		assert.Equal(t, proof, []byte(result[proofLengthOffset+2:]))
+	})
+
+	t.Run("returns error when attestation is not ready", func(t *testing.T) {
+		attestation := Attestation{
+			verifierVersion: verifierVersion,
+			attestation:     "0x1234",
+			status:          AttestationStatusPending,
+		}
+
+		_, err := attestation.ToVerifierFormat()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "attestation is not ready")
+	})
+
+	t.Run("returns error for invalid hex", func(t *testing.T) {
+		attestation := Attestation{
+			verifierVersion: verifierVersion,
+			attestation:     "not-valid-hex",
+			status:          AttestationStatusApproved,
+		}
+
+		_, err := attestation.ToVerifierFormat()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to decode attestation hex")
+	})
+
+	t.Run("returns error for invalid ABI encoding", func(t *testing.T) {
+		// Create invalid ABI data - just some random bytes
+		attestation := Attestation{
+			verifierVersion: verifierVersion,
+			attestation:     "0x0102030405", // Not valid ABI encoding
+			status:          AttestationStatusApproved,
+		}
+
+		_, err := attestation.ToVerifierFormat()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to ABI decode attestation")
+	})
 }
