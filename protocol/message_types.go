@@ -14,8 +14,6 @@ import (
 // Constants for CCIP v1.7.
 const (
 	MessageIDSize                 = 32 // Size of a message ID in bytes
-	MaxNumTokens                  = 1
-	MaxDataSize                   = 1024 // 1kb
 	MessageVersion                = 1    // Current message format version
 	MinSizeRequiredMsgFields      = 77   // Minimum size for required fields in Message
 	MinSizeRequiredMsgTokenFields = 39   // Minimum size for required fields in TokenTransfer
