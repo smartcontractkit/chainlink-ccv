@@ -10,8 +10,8 @@ import (
 	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
-	"github.com/smartcontractkit/chainlink-ccv/deployments"
 )
 
 // poolConfigKey uniquely identifies a token pool (for merging configs per chain).
@@ -27,7 +27,7 @@ type poolConfigKey struct {
 // each pool has one config with all remote chains (remote tokens included). Caller should call
 // ConfigureTokensForTransfers once per pool-identity group (all chains' configs for that pool type)
 // so each setup gets its own mapping slot. Chain-agnostic: no EVM or other chain impl is used.
-func BuildTokenTransferConfigs(topology *deployments.EnvironmentTopology, selectors []uint64) []tokenscore.TokenTransferConfig {
+func BuildTokenTransferConfigs(topology *offchain.EnvironmentTopology, selectors []uint64) []tokenscore.TokenTransferConfig {
 	applicableCombos := common.FilterTokenCombinations(common.AllTokenCombinations(), topology)
 	merged := make(map[poolConfigKey]tokenscore.TokenTransferConfig)
 	for _, selector := range selectors {
