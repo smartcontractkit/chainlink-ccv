@@ -1751,6 +1751,70 @@ func TestMigrationDataConsistency_OldSchemaDataSurvivesMigration(t *testing.T) {
 	require.Len(t, batchReport.Verifications, 2)
 }
 
+func TestQueryAggregatedReports_ExcludesReportWithCorruptedVerification(t *testing.T) {
+	storage, db, cleanup := setupTestDBWithDatabase(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	signer1 := newTestSigner(t)
+	signer2 := newTestSigner(t)
+
+	healthyMsg := createTestProtocolMessage()
+	healthyMsg.SequenceNumber = 1
+	healthyMsgWithCCV := createTestMessageWithCCV(t, healthyMsg, signer1)
+	healthyRecord := createTestCommitVerificationRecord(t, healthyMsgWithCCV, signer1)
+	healthyMessageID := getMessageIDFromProto(t, healthyMsgWithCCV)
+	healthyAggKey := protocol.ByteSlice(healthyMessageID).String()
+
+	require.NoError(t, storage.SaveCommitVerification(ctx, healthyRecord, healthyAggKey))
+	require.NoError(t, storage.SubmitAggregatedReport(ctx, &model.CommitAggregatedReport{
+		MessageID:      healthyMessageID,
+		AggregationKey: healthyAggKey,
+		Verifications:  []*model.CommitVerificationRecord{healthyRecord},
+	}))
+
+	corruptedMsg := createTestProtocolMessage()
+	corruptedMsg.SequenceNumber = 2
+	corruptedMsgWithCCV1 := createTestMessageWithCCV(t, corruptedMsg, signer1)
+	corruptedRecord1 := createTestCommitVerificationRecord(t, corruptedMsgWithCCV1, signer1)
+	corruptedMessageID := getMessageIDFromProto(t, corruptedMsgWithCCV1)
+	corruptedAggKey := protocol.ByteSlice(corruptedMessageID).String()
+
+	corruptedMsgWithCCV2 := createTestMessageWithCCV(t, corruptedMsg, signer2)
+	corruptedRecord2 := createTestCommitVerificationRecord(t, corruptedMsgWithCCV2, signer2)
+	corruptedRecord2.MessageID = corruptedMessageID
+
+	require.NoError(t, storage.SaveCommitVerification(ctx, corruptedRecord1, corruptedAggKey))
+	require.NoError(t, storage.SaveCommitVerification(ctx, corruptedRecord2, corruptedAggKey))
+	require.NoError(t, storage.SubmitAggregatedReport(ctx, &model.CommitAggregatedReport{
+		MessageID:      corruptedMessageID,
+		AggregationKey: corruptedAggKey,
+		Verifications:  []*model.CommitVerificationRecord{corruptedRecord1, corruptedRecord2},
+	}))
+
+	corruptedID, err := corruptedRecord2.GetID()
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `UPDATE commit_verification_records SET signer_identifier = 'not-valid-hex' WHERE id = $1`, *corruptedID)
+	require.NoError(t, err)
+
+	batch, err := storage.QueryAggregatedReports(ctx, 0)
+	require.NoError(t, err)
+	require.Len(t, batch.Reports, 1, "report with corrupted verification should be excluded entirely")
+	require.Equal(t, healthyMessageID[:], batch.Reports[0].MessageID)
+	require.Len(t, batch.Reports[0].Verifications, 1)
+
+	corruptedMessageIDHex := protocol.ByteSlice(corruptedMessageID).String()
+	batchResult, err := storage.GetBatchAggregatedReportByMessageIDs(ctx, []model.MessageID{healthyMessageID, corruptedMessageID})
+	require.NoError(t, err)
+	_, ok := batchResult[corruptedMessageIDHex]
+	require.False(t, ok, "corrupted report should not appear in batch result")
+	healthyMessageIDHex := protocol.ByteSlice(healthyMessageID).String()
+	healthyBatchReport, ok := batchResult[healthyMessageIDHex]
+	require.True(t, ok, "healthy report should still appear in batch result")
+	require.Len(t, healthyBatchReport.Verifications, 1)
+}
+
 func findMigrationsPath(t *testing.T) string {
 	t.Helper()
 	candidates := []string{
