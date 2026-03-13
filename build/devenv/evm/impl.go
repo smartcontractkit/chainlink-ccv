@@ -924,7 +924,7 @@ func (m *CCIP17EVMConfig) BumpDeployerNonce(ctx context.Context, env *deployment
 		return fmt.Errorf("chain ID from selector %d: %w", selector, err)
 	}
 	chainID := new(big.Int).SetUint64(chainIDUint64)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		nonce, err := chain.Client.PendingNonceAt(ctx, fromAddr)
 		if err != nil {
 			return fmt.Errorf("pending nonce (bump %d/%d): %w", i+1, count, err)
