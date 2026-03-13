@@ -96,8 +96,6 @@ func newVerifiableTask(
 	}
 }
 
-// ---------- NewCommitVerifier tests ----------
-
 func TestNewCommitVerifier_Success(t *testing.T) {
 	signer, addr := newTestSigner(t)
 	config := newSingleChainConfig(1, addr, protocol.UnknownAddress([]byte{0xEE}))
@@ -133,8 +131,6 @@ func TestNewCommitVerifier_NilMonitoring(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "monitoring")
 }
-
-// ---------- ValidateMessage tests ----------
 
 func TestCommitVerifier_ValidateMessage_Success(t *testing.T) {
 	signer, addr := newTestSigner(t)
@@ -190,8 +186,6 @@ func TestCommitVerifier_ValidateMessage_EmptyReceiver(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "receiver cannot be empty")
 }
-
-// ---------- VerifyMessages tests ----------
 
 func TestVerifyMessages_NilTasks_ReturnsNil(t *testing.T) {
 	signer, addr := newTestSigner(t)
