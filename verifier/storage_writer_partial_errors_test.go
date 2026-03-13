@@ -18,13 +18,9 @@ import (
 )
 
 func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
-	t.Parallel()
-
 	db := testutil.NewTestDB(t)
 
 	t.Run("retries only failed requests in a partially failed batch", func(t *testing.T) {
-		t.Parallel()
-
 		lggr := logger.Test(t)
 		selectiveStorage := NewSelectiveFailureStorage()
 
@@ -107,8 +103,6 @@ func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
 	})
 
 	t.Run("handles non-retryable failures without retry", func(t *testing.T) {
-		t.Parallel()
-
 		lggr := logger.Test(t)
 		nonRetryableStorage := NewNonRetryableFailureStorage()
 
@@ -189,8 +183,6 @@ func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
 	})
 
 	t.Run("processes mixed batch with retryable and non-retryable failures", func(t *testing.T) {
-		t.Parallel()
-
 		lggr := logger.Test(t)
 		mixedStorage := NewMixedFailureStorage()
 

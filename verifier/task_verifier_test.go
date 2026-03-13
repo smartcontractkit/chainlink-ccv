@@ -21,12 +21,9 @@ import (
 
 // TestTaskVerifierProcessorDB_ProcessTasksSuccessfully tests successful task processing.
 func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
-	t.Parallel()
-
 	db := testutil.NewTestDB(t)
 
 	t.Run("processes tasks from queue and publishes results", func(t *testing.T) {
-		t.Parallel()
 		ctx := t.Context()
 
 		lggr := logger.Nop()
@@ -107,7 +104,6 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 	})
 
 	t.Run("processes multiple batches concurrently", func(t *testing.T) {
-		t.Parallel()
 		ctx := t.Context()
 
 		lggr := logger.Nop()
@@ -190,12 +186,9 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 
 // TestTaskVerifierProcessorDB_RetryFailedTasks tests retry logic.
 func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
-	t.Parallel()
-
 	db := testutil.NewTestDB(t)
 
 	t.Run("retries failed tasks after delay", func(t *testing.T) {
-		t.Parallel()
 		ctx := t.Context()
 
 		lggr := logger.Nop()
@@ -276,7 +269,6 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 	})
 
 	t.Run("does not retry permanent failures", func(t *testing.T) {
-		t.Parallel()
 		ctx := t.Context()
 
 		lggr := logger.Nop()
@@ -361,7 +353,6 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 	})
 
 	t.Run("marks job as failed when retry deadline expires", func(t *testing.T) {
-		t.Parallel()
 		ctx := t.Context()
 
 		lggr := logger.Nop()
@@ -444,12 +435,9 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 
 // TestTaskVerifierProcessorDB_Cleanup tests cleanup of archived jobs.
 func TestTaskVerifierProcessorDB_Cleanup(t *testing.T) {
-	t.Parallel()
-
 	db := testutil.NewTestDB(t)
 
 	t.Run("cleans up archived jobs older than retention period", func(t *testing.T) {
-		t.Parallel()
 		ctx := t.Context()
 
 		lggr := logger.Nop()
@@ -539,12 +527,9 @@ func TestTaskVerifierProcessorDB_Cleanup(t *testing.T) {
 
 // TestTaskVerifierProcessorDB_StaleJobRecovery tests recovery of jobs stuck in processing state.
 func TestTaskVerifierProcessorDB_StaleJobRecovery(t *testing.T) {
-	t.Parallel()
-
 	db := testutil.NewTestDB(t)
 
 	t.Run("reclaims jobs stuck in processing state beyond lock duration", func(t *testing.T) {
-		t.Parallel()
 		ctx := t.Context()
 
 		lggr := logger.Nop()
@@ -639,12 +624,9 @@ func TestTaskVerifierProcessorDB_StaleJobRecovery(t *testing.T) {
 
 // TestTaskVerifierProcessorDB_Shutdown tests graceful shutdown.
 func TestTaskVerifierProcessorDB_Shutdown(t *testing.T) {
-	t.Parallel()
-
 	db := testutil.NewTestDB(t)
 
 	t.Run("stops processing after close", func(t *testing.T) {
-		t.Parallel()
 		ctx := t.Context()
 
 		lggr := logger.Nop()
@@ -813,12 +795,9 @@ func (f *fakeVerifierDB) VerifyMessages(_ context.Context, tasks []verifier.Veri
 
 // TestTaskVerifierProcessorDB_CustomRetryDelays tests that custom retry delays from VerificationError are respected.
 func TestTaskVerifierProcessorDB_CustomRetryDelays(t *testing.T) {
-	t.Parallel()
-
 	db := testutil.NewTestDB(t)
 
 	t.Run("uses custom delay from VerificationError", func(t *testing.T) {
-		t.Parallel()
 		ctx := t.Context()
 
 		lggr := logger.Nop()
@@ -915,7 +894,6 @@ func TestTaskVerifierProcessorDB_CustomRetryDelays(t *testing.T) {
 	})
 
 	t.Run("groups jobs by delay for efficient retry", func(t *testing.T) {
-		t.Parallel()
 		ctx := t.Context()
 
 		lggr := logger.Nop()
@@ -1020,12 +998,9 @@ func TestTaskVerifierProcessorDB_CustomRetryDelays(t *testing.T) {
 
 // TestTaskVerifierProcessorDB_PublishFailureHandling tests stale lock reclaim mechanism.
 func TestTaskVerifierProcessorDB_PublishFailureHandling(t *testing.T) {
-	t.Parallel()
-
 	db := testutil.NewTestDB(t)
 
 	t.Run("verifies stale lock reclaim mechanism is configured", func(t *testing.T) {
-		t.Parallel()
 		ctx := t.Context()
 
 		lggr := logger.Nop()

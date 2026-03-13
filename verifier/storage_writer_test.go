@@ -23,13 +23,10 @@ import (
 
 // TestStorageWriterProcessorDB_ProcessBatchesSuccessfully tests successful batch processing.
 func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
-	t.Parallel()
-
 	// Shared DB instance for all subtests - unique OwnerIDs prevent collisions
 	db := testutil.NewTestDB(t)
 
 	t.Run("processes batches from queue until context cancelled with storage always succeeding", func(t *testing.T) {
-		t.Parallel()
 		ctx := t.Context()
 
 		lggr := logger.Test(t)
@@ -101,7 +98,6 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 	})
 
 	t.Run("processes multiple batches concurrently", func(t *testing.T) {
-		t.Parallel()
 		ctx := t.Context()
 
 		lggr := logger.Test(t)
@@ -161,14 +157,10 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 
 // TestStorageWriterProcessorDB_RetryFailedBatches tests retry logic.
 func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
-	t.Parallel()
-
 	// Shared DB instance for all subtests
 	db := testutil.NewTestDB(t)
 
 	t.Run("retries failed batches after delay", func(t *testing.T) {
-		t.Parallel()
-
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
@@ -235,8 +227,6 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 	})
 
 	t.Run("continues processing new batches when retry fails", func(t *testing.T) {
-		t.Parallel()
-
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
@@ -304,8 +294,6 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 	})
 
 	t.Run("marks job as failed when retry deadline expires", func(t *testing.T) {
-		t.Parallel()
-
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
@@ -368,13 +356,9 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 
 // TestStorageWriterProcessorDB_Cleanup tests cleanup of archived results.
 func TestStorageWriterProcessorDB_Cleanup(t *testing.T) {
-	t.Parallel()
-
 	db := testutil.NewTestDB(t)
 
 	t.Run("cleans up archived results older than retention period", func(t *testing.T) {
-		t.Parallel()
-
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
@@ -459,13 +443,9 @@ func TestStorageWriterProcessorDB_Cleanup(t *testing.T) {
 
 // TestStorageWriterProcessorDB_StaleJobRecovery tests recovery of jobs stuck in processing state.
 func TestStorageWriterProcessorDB_StaleJobRecovery(t *testing.T) {
-	t.Parallel()
-
 	db := testutil.NewTestDB(t)
 
 	t.Run("reclaims jobs stuck in processing state beyond lock duration", func(t *testing.T) {
-		t.Parallel()
-
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
@@ -541,14 +521,10 @@ func TestStorageWriterProcessorDB_StaleJobRecovery(t *testing.T) {
 
 // TestStorageWriterProcessorDB_CheckpointManagement tests checkpoint functionality.
 func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
-	t.Parallel()
-
 	// Shared DB instance for all subtests
 	db := testutil.NewTestDB(t)
 
 	t.Run("writes checkpoint after successful storage write", func(t *testing.T) {
-		t.Parallel()
-
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
 		mockChainStatus := mocks.NewMockChainStatusManager(t)
@@ -632,8 +608,6 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 	})
 
 	t.Run("checkpoint advances monotonically", func(t *testing.T) {
-		t.Parallel()
-
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
 		mockChainStatus := mocks.NewMockChainStatusManager(t)
@@ -741,8 +715,6 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 	})
 
 	t.Run("multiple chains handled independently", func(t *testing.T) {
-		t.Parallel()
-
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
 		mockChainStatus := mocks.NewMockChainStatusManager(t)
@@ -835,8 +807,6 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 	})
 
 	t.Run("skips checkpoint update for disabled chains", func(t *testing.T) {
-		t.Parallel()
-
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
 		mockChainStatus := mocks.NewMockChainStatusManager(t)
@@ -961,8 +931,6 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 	})
 
 	t.Run("handles error when reading chain status and skips checkpoint update", func(t *testing.T) {
-		t.Parallel()
-
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
 		mockChainStatus := mocks.NewMockChainStatusManager(t)
@@ -1027,8 +995,6 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 	})
 
 	t.Run("handles missing chain in ReadChainStatuses response and skips checkpoint update", func(t *testing.T) {
-		t.Parallel()
-
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
 		mockChainStatus := mocks.NewMockChainStatusManager(t)
@@ -1101,11 +1067,7 @@ func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
 
 // TestStorageWriterProcessorDB_ContextCancellation tests graceful shutdown.
 func TestStorageWriterProcessorDB_ContextCancellation(t *testing.T) {
-	t.Parallel()
-
 	t.Run("stops processing when context is cancelled", func(t *testing.T) {
-		t.Parallel()
-
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
 
