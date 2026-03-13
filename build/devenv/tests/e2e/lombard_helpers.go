@@ -109,7 +109,7 @@ type LombardAttestationArgs struct {
 //
 // The attestation returned is ABI-encoded as abi.encode(bytes rawPayload, bytes proof).
 // The Go verifier's ToVerifierFormat() will decode this and create the final format:
-// [versionTag (4)][rawPayloadLength (2)][rawPayload][proofLength (2)][proof]
+// [versionTag (4)][rawPayloadLength (2)][rawPayload][proofLength (2)][proof].
 func buildLombardAttestation(args LombardAttestationArgs) string {
 	versionTag := lombard.DefaultVerifierVersion // VERSION_TAG_V2_0_0 = bytes4(keccak256("LombardVerifier 2.0.0"))
 
