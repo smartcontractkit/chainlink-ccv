@@ -22,20 +22,22 @@ import (
 )
 
 // Please see lombard/attestation.go to see how the CCV data is created and how TokenTransfer.ExtraData is used
-// CCVData: <4 byte verifier version><attestation> (set by offchain)
+// CCVData: <4 byte verifier version><2 byte rawPayloadLength><rawPayload><2 byte proofLength><proof> (set by offchain)
 // TokenTransfer.ExtraData: <message_hash> (set by onchain).
+// The attestation from Lombard API is ABI-encoded as abi.encode(bytes, bytes) where first bytes is rawPayload and second bytes is proof.
 const (
+	// ABI-encoded attestation with rawPayload=0xaa and proof=0xbb.
 	lombardAttestation = `
 		{
 			"attestations": [
 				{
 					"message_hash": "0x1111",
-					"attestation": "0x00aa",
+					"attestation": "0x000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000001aa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001bb00000000000000000000000000000000000000000000000000000000000000",
 					"status": "NOTARIZATION_STATUS_SESSION_APPROVED"
 				},
 				{
 					"message_hash": "0x2222",
-					"attestation": "0x00bb",
+					"attestation": "0x000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000001cc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001dd00000000000000000000000000000000000000000000000000000000000000",
 					"status": "NOTARIZATION_STATUS_SESSION_APPROVED"
 				}
 			]
@@ -45,12 +47,12 @@ const (
 			"attestations": [
 				{
 					"message_hash": "0x1111",
-					"attestation": "0xdeadbeef",
+					"attestation": "0x000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000001aa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001bb00000000000000000000000000000000000000000000000000000000000000",
 					"status": "NOTARIZATION_STATUS_PENDING"
 				},
 				{
 					"message_hash": "0x2222",
-					"attestation": "0xdeadbeef",
+					"attestation": "0x000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000001cc000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001dd00000000000000000000000000000000000000000000000000000000000000",
 					"status": "NOTARIZATION_STATUS_PENDING"
 				}
 			]
@@ -68,10 +70,13 @@ func Test_LombardMessages_Success(t *testing.T) {
 	require.NoError(t, err)
 	extraData2, err := protocol.NewByteSliceFromHex("0x2222")
 	require.NoError(t, err)
-	// Lombard Verifier Version + attestation payload
-	ccvData1, err := protocol.NewByteSliceFromHex("0xeba5558800aa")
+	// Lombard Verifier Version + rawPayloadLength + rawPayload + proofLength + proof
+	// Format: [version(4 bytes)][rawPayloadLen(2 bytes)][rawPayload][proofLen(2 bytes)][proof]
+	// ccvData1: eba55588 (version) + 0001 (len=1) + aa (payload) + 0001 (len=1) + bb (proof)
+	ccvData1, err := protocol.NewByteSliceFromHex("0xeba555880001aa0001bb")
 	require.NoError(t, err)
-	ccvData2, err := protocol.NewByteSliceFromHex("0xeba5558800bb")
+	// ccvData2: eba55588 (version) + 0001 (len=1) + cc (payload) + 0001 (len=1) + dd (proof)
+	ccvData2, err := protocol.NewByteSliceFromHex("0xeba555880001cc0001dd")
 	require.NoError(t, err)
 
 	server := createFakeLombardServer(t, lombardAttestation)
@@ -154,10 +159,13 @@ func Test_LombardMessages_RetryingAttestation(t *testing.T) {
 	require.NoError(t, err)
 	extraData2, err := protocol.NewByteSliceFromHex("0x2222")
 	require.NoError(t, err)
-	// Lombard Verifier Version + attestation payload
-	ccvData1, err := protocol.NewByteSliceFromHex("0xeba5558800aa")
+	// Lombard Verifier Version + rawPayloadLength + rawPayload + proofLength + proof
+	// Format: [version(4 bytes)][rawPayloadLen(2 bytes)][rawPayload][proofLen(2 bytes)][proof]
+	// ccvData1: eba55588 (version) + 0001 (len=1) + aa (payload) + 0001 (len=1) + bb (proof)
+	ccvData1, err := protocol.NewByteSliceFromHex("0xeba555880001aa0001bb")
 	require.NoError(t, err)
-	ccvData2, err := protocol.NewByteSliceFromHex("0xeba5558800bb")
+	// ccvData2: eba55588 (version) + 0001 (len=1) + cc (payload) + 0001 (len=1) + dd (proof)
+	ccvData2, err := protocol.NewByteSliceFromHex("0xeba555880001cc0001dd")
 	require.NoError(t, err)
 
 	// This server will return a pending attestation twice, then a completed one

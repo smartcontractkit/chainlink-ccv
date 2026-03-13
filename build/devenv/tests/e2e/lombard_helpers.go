@@ -27,12 +27,14 @@ import (
 //      The contract uses mload(add(msgBody, 0x21)) for token (bytes 1-32), 0x41/0x61/0x81 for sender/recipient/amount.
 //    - deliverAndHandle(rawPayload, proof) must return bridgedMessage = versionTag (4) + messageId (32);
 //      messageId is at msgBody[129:161].
+//    - The attestation is ABI-encoded as abi.encode(bytes rawPayload, bytes proof)
 //
-// 2. This attestation is registered with the fake HTTP service via registerLombardAttestation()
+// 2. This ABI-encoded attestation is registered with the fake HTTP service via registerLombardAttestation()
 //
-// 3. The Go verifier fetches the attestation and ToVerifierFormat() prepends the 4-byte version tag.
+// 3. The Go verifier fetches the attestation and ToVerifierFormat() decodes the ABI encoding and
+//    reformats it to: [versionTag (4)][rawPayloadLength (2)][rawPayload][proofLength (2)][proof]
 //
-// 4. Final ccvData: [versionTag (4)][rawPayloadLength (2)][rawPayload][proofLength (2)][proof]
+// 4. Final ccvData sent to LombardVerifier.verifyMessage(): [versionTag (4)][rawPayloadLength (2)][rawPayload][proofLength (2)][proof]
 //
 // 5. LombardVerifier.verifyMessage(..., ccvData) runs _validatePayload(rawPayload, ...) then
 //    deliverAndHandle(rawPayload, proof); the mock must return (?, true, versionTag||messageId).
@@ -104,6 +106,10 @@ type LombardAttestationArgs struct {
 // mload(add(msgBody, 0x21)) for token (bytes 1-32 of msgBody data), 0x41 for sender, 0x61 for
 // recipient, 0x81 for amount. So we prepend one byte so token is at indices 1-32.
 // msgBody = [1 byte][token 32][sender 32][receiver 32][amount 32][messageId 32] = 161 bytes.
+//
+// The attestation returned is ABI-encoded as abi.encode(bytes rawPayload, bytes proof).
+// The Go verifier's ToVerifierFormat() will decode this and create the final format:
+// [versionTag (4)][rawPayloadLength (2)][rawPayload][proofLength (2)][proof].
 func buildLombardAttestation(args LombardAttestationArgs) string {
 	versionTag := lombard.DefaultVerifierVersion // VERSION_TAG_V2_0_0 = bytes4(keccak256("LombardVerifier 2.0.0"))
 
@@ -155,15 +161,19 @@ func buildLombardAttestation(args LombardAttestationArgs) string {
 
 	rawPayload := append(append([]byte(nil), versionTag...), packed...)
 
+	// Create a proof (empty for now, but structure is in place)
 	proof := []byte{}
 
-	var attestation []byte
-	rawPayloadLength := uint16(len(rawPayload))
-	attestation = append(attestation, byte(rawPayloadLength>>8), byte(rawPayloadLength))
-	attestation = append(attestation, rawPayload...)
-	proofLength := uint16(len(proof))
-	attestation = append(attestation, byte(proofLength>>8), byte(proofLength))
-	attestation = append(attestation, proof...)
+	// ABI encode the attestation as abi.encode(bytes, bytes)
+	// This matches what the Lombard API returns and what ToVerifierFormat() expects
+	attestationArgs := abi.Arguments{
+		{Type: bytesType},
+		{Type: bytesType},
+	}
+	attestation, err := attestationArgs.Pack(rawPayload, proof)
+	if err != nil {
+		panic("lombard attestation ABI pack: " + err.Error())
+	}
 
 	return "0x" + hex.EncodeToString(attestation)
 }
