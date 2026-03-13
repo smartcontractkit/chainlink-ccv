@@ -61,7 +61,7 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 	availableAt := time.Now().Add(delay)
 
 	// Build bulk insert query with ON CONFLICT DO NOTHING to avoid duplicates
-	// when the verifier is restarted (Issue #6)
+	// when the verifier is restarted
 	query := fmt.Sprintf(`
 		INSERT INTO %s (
 			job_id, task_data, status, available_at, created_at, attempt_count, retry_deadline,
@@ -176,6 +176,10 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 	}()
 
 	var jobs []Job[T]
+	// Track jobs that fail to deserialize - they need to be marked as failed
+	// to prevent them from being stuck in 'processing' state forever (Issue #9)
+	failedToDeserialize := make(map[string]error)
+
 	for rows.Next() {
 		var (
 			id               int64
@@ -192,16 +196,20 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 		err := rows.Scan(&id, &jobID, &dataJSON, &attemptCount, &retryDeadline, &createdAt, &startedAt, &chainSelectorStr, &messageID)
 		if err != nil {
 			q.logger.Errorw("Failed to scan job row", "error", err)
+			// We can't get jobID if scan failed, so we can't mark it as failed
+			// This should be extremely rare (database corruption)
 			continue
 		}
 
 		// Convert chain selector string to uint64
 		chainSelectorBig := new(big.Int)
 		if _, ok := chainSelectorBig.SetString(chainSelectorStr, 10); !ok {
+			scanErr := fmt.Errorf("failed to parse chain selector: %s", chainSelectorStr)
 			q.logger.Errorw("Failed to parse chain selector",
 				"jobID", jobID,
 				"chainSelector", chainSelectorStr,
 			)
+			failedToDeserialize[jobID] = scanErr
 			continue
 		}
 		chainSelector := chainSelectorBig.Uint64()
@@ -212,6 +220,7 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 				"jobID", jobID,
 				"error", err,
 			)
+			failedToDeserialize[jobID] = fmt.Errorf("failed to unmarshal payload: %w", err)
 			continue
 		}
 
@@ -234,6 +243,28 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating job rows: %w", err)
+	}
+
+	// Mark jobs that failed to deserialize as permanently failed
+	// This prevents them from being stuck in 'processing' state forever
+	if len(failedToDeserialize) > 0 {
+		failedJobIDs := make([]string, 0, len(failedToDeserialize))
+		for jobID := range failedToDeserialize {
+			failedJobIDs = append(failedJobIDs, jobID)
+		}
+
+		q.logger.Errorw("Jobs failed to deserialize, marking as failed",
+			"count", len(failedJobIDs),
+			"queue", q.config.Name,
+		)
+
+		// Mark them as failed immediately (don't wait for caller)
+		if err := q.Fail(ctx, failedToDeserialize, failedJobIDs...); err != nil {
+			q.logger.Errorw("Failed to mark deserialization-failed jobs as failed",
+				"error", err,
+				"count", len(failedJobIDs),
+			)
+		}
 	}
 
 	q.logger.Debugw("Consumed jobs from queue",

@@ -470,6 +470,54 @@ func TestFailedJobsAreReconsumed(t *testing.T) {
 	assert.Equal(t, consumed[0].ID, consumed2[0].ID)
 }
 
+// TestConsumeMarksDeserializationFailuresAsFailed ensures that jobs with malformed JSON
+// are marked as failed instead of being stuck in processing state forever.
+func TestConsumeMarksDeserializationFailuresAsFailed(t *testing.T) {
+	q, db := newTestQueue(t)
+	ctx := context.Background()
+
+	// Insert a job with incompatible JSON directly into the database
+	// This simulates a scenario where the payload schema changed (breaking change)
+	// Use an array instead of an object - valid JSON but incompatible with testJob struct
+	malformedJobID := "00000000-0000-0000-0000-000000000001"
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO ccv_task_verifier_jobs (
+			job_id, task_data, status, available_at, created_at, attempt_count, 
+			retry_deadline, chain_selector, message_id, owner_id
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`,
+		malformedJobID,
+		[]byte(`["this", "is", "an", "array", "not", "an", "object"]`), // Valid JSON but incompatible type
+		jobqueue.JobStatusPending,
+		time.Now(),
+		time.Now(),
+		0,
+		time.Now().Add(time.Hour),
+		"1",
+		[]byte("malformed-msg"),
+		"test-verifier",
+	)
+	require.NoError(t, err)
+
+	// Also insert a valid job to verify it's still consumed
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 2, Message: []byte("valid-msg"), Data: "valid"}))
+
+	// Consume - should get only the valid job
+	consumed, err := q.Consume(ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, consumed, 1, "Should only consume the valid job")
+	assert.Equal(t, "valid", consumed[0].Payload.Data)
+
+	// Verify the malformed job was marked as failed (not stuck in processing)
+	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusFailed))
+
+	// Verify the malformed job has an error message
+	var lastError string
+	err = db.QueryRowxContext(ctx, "SELECT last_error FROM ccv_task_verifier_jobs WHERE job_id = $1", malformedJobID).Scan(&lastError)
+	require.NoError(t, err)
+	assert.Contains(t, lastError, "failed to unmarshal payload")
+}
+
 func TestCleanup(t *testing.T) {
 	q, db := newTestQueue(t)
 	ctx := context.Background()
