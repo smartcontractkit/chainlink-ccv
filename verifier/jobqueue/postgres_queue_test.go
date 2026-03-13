@@ -486,6 +486,145 @@ func Test_PostgresQueueOps(t *testing.T) {
 		assert.Equal(t, 0, deleted)
 		assert.Equal(t, 1, countAllRowsWithOwner(t, db, "ccv_task_verifier_jobs_archive", t.Name()))
 	})
+
+	t.Run("Size", func(t *testing.T) {
+		q := newQueue(t)
+
+		// Initially empty
+		size, err := q.Size(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, 0, size)
+
+		// Publish 5 jobs
+		jobs := []testJob{
+			{Chain: 1, Message: []byte("msg-1"), Data: "data1"},
+			{Chain: 2, Message: []byte("msg-2"), Data: "data2"},
+			{Chain: 3, Message: []byte("msg-3"), Data: "data3"},
+			{Chain: 4, Message: []byte("msg-4"), Data: "data4"},
+			{Chain: 5, Message: []byte("msg-5"), Data: "data5"},
+		}
+		require.NoError(t, q.Publish(ctx, jobs...))
+
+		// Size should be 5 (all pending)
+		size, err = q.Size(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, 5, size)
+
+		// Consume 3 jobs (now processing)
+		consumed, err := q.Consume(ctx, 3)
+		require.NoError(t, err)
+		require.Len(t, consumed, 3)
+
+		// Size should still be 5 (2 pending + 3 processing)
+		size, err = q.Size(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, 5, size)
+
+		// Complete 2 jobs
+		require.NoError(t, q.Complete(ctx, consumed[0].ID, consumed[1].ID))
+
+		// Size should be 3 (2 pending + 1 processing)
+		size, err = q.Size(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, 3, size)
+
+		// Fail the last consumed job (it is archived immediately)
+		require.NoError(t, q.Fail(ctx, map[string]error{consumed[2].ID: errors.New("test error")}, consumed[2].ID))
+
+		// Size should be 2 (2 pending only - failed jobs are archived, not in active table)
+		size, err = q.Size(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, 2, size)
+
+		// Consume remaining jobs - should only get the 2 pending jobs
+		// Failed jobs are archived and NOT consumed
+		consumed2, err := q.Consume(ctx, 10)
+		require.NoError(t, err)
+		require.Len(t, consumed2, 2) // Only 2 pending jobs (failed job was archived)
+
+		// Size should be 2 (2 processing)
+		size, err = q.Size(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, 2, size)
+
+		// Complete all remaining
+		require.NoError(t, q.Complete(ctx, consumed2[0].ID, consumed2[1].ID))
+
+		// Size should be 0
+		size, err = q.Size(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, 0, size)
+	})
+
+	t.Run("FullLifecycle", func(t *testing.T) {
+		q := newQueue(t)
+
+		// 1. Publish
+		require.NoError(t, q.Publish(ctx, testJob{Chain: 42, Message: []byte("lifecycle-1"), Data: "step1"}))
+
+		// 2. Consume (attempt 1)
+		consumed, err := q.Consume(ctx, 1)
+		require.NoError(t, err)
+		require.Len(t, consumed, 1)
+		jobID := consumed[0].ID
+		assert.Equal(t, 1, consumed[0].AttemptCount)
+
+		// 3. Retry (simulate transient failure)
+		require.NoError(t, q.Retry(ctx, 0, map[string]error{jobID: errors.New("timeout")}, jobID))
+
+		// 4. Consume (attempt 2)
+		consumed2, err := q.Consume(ctx, 1)
+		require.NoError(t, err)
+		require.Len(t, consumed2, 1)
+		assert.Equal(t, jobID, consumed2[0].ID)
+		assert.Equal(t, 2, consumed2[0].AttemptCount)
+
+		// 5. Complete
+		require.NoError(t, q.Complete(ctx, jobID))
+		assert.Equal(t, 0, countAllRowsWithOwner(t, db, "ccv_task_verifier_jobs", t.Name()))
+		assert.Equal(t, 1, countAllRowsWithOwner(t, db, "ccv_task_verifier_jobs_archive", t.Name()))
+
+		// 6. Back-date and cleanup
+		_, err = db.ExecContext(ctx,
+			"UPDATE ccv_task_verifier_jobs_archive SET completed_at = NOW() - INTERVAL '48 hours' WHERE owner_id = $1",
+			t.Name())
+		require.NoError(t, err)
+		deleted, err := q.Cleanup(ctx, time.Hour)
+		require.NoError(t, err)
+		assert.Equal(t, 1, deleted)
+	})
+
+	t.Run("CleanupMixed", func(t *testing.T) {
+		q := newQueue(t)
+
+		// Create 3 jobs, complete all
+		for i := range 3 {
+			require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: fmt.Appendf(nil, "cl-%d", i), Data: "x"}))
+		}
+		consumed, err := q.Consume(ctx, 3)
+		require.NoError(t, err)
+		require.Len(t, consumed, 3)
+
+		ids := make([]string, 3)
+		for i, j := range consumed {
+			ids[i] = j.ID
+		}
+		require.NoError(t, q.Complete(ctx, ids...))
+		assert.Equal(t, 3, countAllRowsWithOwner(t, db, "ccv_task_verifier_jobs_archive", t.Name()))
+
+		// Back-date only 2 of them
+		_, err = db.ExecContext(ctx, `
+			UPDATE ccv_task_verifier_jobs_archive
+			SET completed_at = NOW() - INTERVAL '10 hours'
+			WHERE job_id IN ($1, $2) AND owner_id = $3`, ids[0], ids[1], t.Name())
+		require.NoError(t, err)
+
+		// Cleanup with 1-hour retention: should delete only the 2 old ones
+		deleted, err := q.Cleanup(ctx, time.Hour)
+		require.NoError(t, err)
+		assert.Equal(t, 2, deleted)
+		assert.Equal(t, 1, countAllRowsWithOwner(t, db, "ccv_task_verifier_jobs_archive", t.Name()))
+	})
 }
 
 func TestConsumeReclaimConcurrentNoDuplicates(t *testing.T) {
@@ -549,113 +688,6 @@ func TestConsumeReclaimConcurrentNoDuplicates(t *testing.T) {
 	var count int
 	seen.Range(func(_, _ any) bool { count++; return true })
 	assert.Equal(t, numJobs, count, "all stale jobs should have been reclaimed exactly once")
-}
-
-func TestSize(t *testing.T) {
-	q, _ := newTestQueue(t)
-	ctx := context.Background()
-
-	// Initially empty
-	size, err := q.Size(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, 0, size)
-
-	// Publish 5 jobs
-	jobs := []testJob{
-		{Chain: 1, Message: []byte("msg-1"), Data: "data1"},
-		{Chain: 2, Message: []byte("msg-2"), Data: "data2"},
-		{Chain: 3, Message: []byte("msg-3"), Data: "data3"},
-		{Chain: 4, Message: []byte("msg-4"), Data: "data4"},
-		{Chain: 5, Message: []byte("msg-5"), Data: "data5"},
-	}
-	require.NoError(t, q.Publish(ctx, jobs...))
-
-	// Size should be 5 (all pending)
-	size, err = q.Size(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, 5, size)
-
-	// Consume 3 jobs (now processing)
-	consumed, err := q.Consume(ctx, 3)
-	require.NoError(t, err)
-	require.Len(t, consumed, 3)
-
-	// Size should still be 5 (2 pending + 3 processing)
-	size, err = q.Size(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, 5, size)
-
-	// Complete 2 jobs
-	require.NoError(t, q.Complete(ctx, consumed[0].ID, consumed[1].ID))
-
-	// Size should be 3 (2 pending + 1 processing)
-	size, err = q.Size(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, 3, size)
-
-	// Fail the last consumed job (it is archived immediately)
-	require.NoError(t, q.Fail(ctx, map[string]error{consumed[2].ID: errors.New("test error")}, consumed[2].ID))
-
-	// Size should be 2 (2 pending only - failed jobs are archived, not in active table)
-	size, err = q.Size(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, 2, size)
-
-	// Consume remaining jobs - should only get the 2 pending jobs
-	// Failed jobs are archived and NOT consumed
-	consumed2, err := q.Consume(ctx, 10)
-	require.NoError(t, err)
-	require.Len(t, consumed2, 2) // Only 2 pending jobs (failed job was archived)
-
-	// Size should be 2 (2 processing)
-	size, err = q.Size(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, 2, size)
-
-	// Complete all remaining
-	require.NoError(t, q.Complete(ctx, consumed2[0].ID, consumed2[1].ID))
-
-	// Size should be 0
-	size, err = q.Size(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, 0, size)
-}
-
-func TestFullLifecycle(t *testing.T) {
-	q, db := newTestQueue(t)
-	ctx := context.Background()
-
-	// 1. Publish
-	require.NoError(t, q.Publish(ctx, testJob{Chain: 42, Message: []byte("lifecycle-1"), Data: "step1"}))
-
-	// 2. Consume (attempt 1)
-	consumed, err := q.Consume(ctx, 1)
-	require.NoError(t, err)
-	require.Len(t, consumed, 1)
-	jobID := consumed[0].ID
-	assert.Equal(t, 1, consumed[0].AttemptCount)
-
-	// 3. Retry (simulate transient failure)
-	require.NoError(t, q.Retry(ctx, 0, map[string]error{jobID: errors.New("timeout")}, jobID))
-
-	// 4. Consume (attempt 2)
-	consumed2, err := q.Consume(ctx, 1)
-	require.NoError(t, err)
-	require.Len(t, consumed2, 1)
-	assert.Equal(t, jobID, consumed2[0].ID)
-	assert.Equal(t, 2, consumed2[0].AttemptCount)
-
-	// 5. Complete
-	require.NoError(t, q.Complete(ctx, jobID))
-	assert.Equal(t, 0, countAllRows(t, db, "ccv_task_verifier_jobs"))
-	assert.Equal(t, 1, countAllRows(t, db, "ccv_task_verifier_jobs_archive"))
-
-	// 6. Back-date and cleanup
-	_, err = db.ExecContext(ctx, "UPDATE ccv_task_verifier_jobs_archive SET completed_at = NOW() - INTERVAL '48 hours'")
-	require.NoError(t, err)
-	deleted, err := q.Cleanup(ctx, time.Hour)
-	require.NoError(t, err)
-	assert.Equal(t, 1, deleted)
 }
 
 func TestConcurrentPublishAndConsume(t *testing.T) {
@@ -930,39 +962,6 @@ func TestRetryDeadlineExhaustionCycle(t *testing.T) {
 	err = db.QueryRowxContext(ctx, "SELECT last_error FROM ccv_task_verifier_jobs_archive WHERE job_id = $1", jobID).Scan(&lastErr)
 	require.NoError(t, err)
 	assert.Equal(t, "err3", lastErr)
-}
-
-func TestCleanupMixed(t *testing.T) {
-	q, db := newTestQueue(t)
-	ctx := context.Background()
-
-	// Create 3 jobs, complete all
-	for i := range 3 {
-		require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: fmt.Appendf(nil, "cl-%d", i), Data: "x"}))
-	}
-	consumed, err := q.Consume(ctx, 3)
-	require.NoError(t, err)
-	require.Len(t, consumed, 3)
-
-	ids := make([]string, 3)
-	for i, j := range consumed {
-		ids[i] = j.ID
-	}
-	require.NoError(t, q.Complete(ctx, ids...))
-	assert.Equal(t, 3, countAllRows(t, db, "ccv_task_verifier_jobs_archive"))
-
-	// Back-date only 2 of them
-	_, err = db.ExecContext(ctx, `
-		UPDATE ccv_task_verifier_jobs_archive
-		SET completed_at = NOW() - INTERVAL '10 hours'
-		WHERE job_id IN ($1, $2)`, ids[0], ids[1])
-	require.NoError(t, err)
-
-	// Cleanup with 1-hour retention: should delete only the 2 old ones
-	deleted, err := q.Cleanup(ctx, time.Hour)
-	require.NoError(t, err)
-	assert.Equal(t, 2, deleted)
-	assert.Equal(t, 1, countAllRows(t, db, "ccv_task_verifier_jobs_archive"))
 }
 
 func TestConcurrentPublishStress(t *testing.T) {
