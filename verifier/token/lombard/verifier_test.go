@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -15,6 +16,22 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+func createABIEncodedAttestation(rawPayload, proof []byte) string {
+	bytesType, err := abi.NewType("bytes", "", nil)
+	if err != nil {
+		panic(err)
+	}
+	args := abi.Arguments{
+		{Type: bytesType},
+		{Type: bytesType},
+	}
+	encoded, err := args.Pack(rawPayload, proof)
+	if err != nil {
+		panic(err)
+	}
+	return protocol.ByteSlice(encoded).String()
+}
+
 func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	lggr := logger.Test(t)
@@ -24,13 +41,17 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 	task2 := internal.CreateTestVerificationTask(2)
 	tasks := []verifier.VerificationTask{task1, task2}
 
+	// Create properly ABI-encoded attestation data with proof
+	attestationData1 := createABIEncodedAttestation([]byte{0xab, 0xcd, 0xef}, []byte{0x11, 0x22})
+	attestationData2 := createABIEncodedAttestation([]byte{0x12, 0x34, 0x56}, []byte{0x33, 0x44, 0x55})
+
 	attestations := map[string]lombard.Attestation{
 		task1.Message.MustMessageID().String(): lombard.NewAttestation(
 			lombard.DefaultVerifierVersion,
 			lombard.AttestationResponse{
 				MessageHash: "0xdeadbeef",
 				Status:      lombard.AttestationStatusApproved,
-				Data:        "0xabcdef",
+				Data:        attestationData1,
 			},
 		),
 		task2.Message.MustMessageID().String(): lombard.NewAttestation(
@@ -38,7 +59,7 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 			lombard.AttestationResponse{
 				MessageHash: "0xdeadbeef",
 				Status:      lombard.AttestationStatusApproved,
-				Data:        "0x123456",
+				Data:        attestationData2,
 			},
 		),
 	}
@@ -69,14 +90,19 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 
 	mockAttestationService.AssertExpectations(t)
 
+	// Verify results - the signature should be [versionTag (4)][len (2)][payload][len (2)][proof]
 	assert.Equal(t, task1.MessageID, results[0].Result.MessageID.String())
-	assert.Equal(t, "0xeba55588abcdef", results[0].Result.Signature.String())
+	// Version tag (0xeba55588) + length prefix (0x0003) + payload (0xabcdef) + length prefix (0x0002) + proof (0x1122)
+	expectedSig1 := "0xeba555880003abcdef00021122"
+	assert.Equal(t, expectedSig1, results[0].Result.Signature.String())
 	assert.Equal(t, []protocol.UnknownAddress{internal.CCVAddress1, internal.CCVAddress2}, results[0].Result.CCVAddresses)
 	assert.Equal(t, internal.ExecutorAddress, results[0].Result.ExecutorAddress)
 	assert.Equal(t, lombard.DefaultVerifierVersion, results[0].Result.CCVVersion)
 
 	assert.Equal(t, task2.MessageID, results[1].Result.MessageID.String())
-	assert.Equal(t, "0xeba55588123456", results[1].Result.Signature.String())
+	// Version tag (0xeba55588) + length prefix (0x0003) + payload (0x123456) + length prefix (0x0003) + proof (0x334455)
+	expectedSig2 := "0xeba5558800031234560003334455"
+	assert.Equal(t, expectedSig2, results[1].Result.Signature.String())
 	assert.Equal(t, []protocol.UnknownAddress{internal.CCVAddress1, internal.CCVAddress2}, results[1].Result.CCVAddresses)
 	assert.Equal(t, internal.ExecutorAddress, results[1].Result.ExecutorAddress)
 	assert.Equal(t, lombard.DefaultVerifierVersion, results[1].Result.CCVVersion)
@@ -92,13 +118,16 @@ func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
 	task3 := internal.CreateTestVerificationTask(3)
 	tasks := []verifier.VerificationTask{task1, task2, task3}
 
+	// Create properly ABI-encoded attestation data with proof
+	attestationData1 := createABIEncodedAttestation([]byte{0xab, 0xcd, 0xef}, []byte{0xaa, 0xbb})
+
 	attestations := map[string]lombard.Attestation{
 		task1.Message.MustMessageID().String(): lombard.NewAttestation(
 			lombard.DefaultVerifierVersion,
 			lombard.AttestationResponse{
 				MessageHash: "0xdeadbeef",
 				Status:      lombard.AttestationStatusApproved,
-				Data:        "0xabcdef",
+				Data:        attestationData1,
 			},
 		),
 		task2.Message.MustMessageID().String(): lombard.NewAttestation(
@@ -106,7 +135,7 @@ func TestVerifier_VerifyMessages_NotReadyMessages(t *testing.T) {
 			lombard.AttestationResponse{
 				MessageHash: "0xdeadbeef",
 				Status:      lombard.AttestationStatusPending,
-				Data:        "0x123456",
+				Data:        "0x123456", // This won't be used since status is pending
 			},
 		),
 	}
