@@ -101,6 +101,12 @@ func (c *Configuration) Validate() error {
 	if c.LookbackWindow < 0 {
 		return fmt.Errorf("startup_lookback_window must not be negative")
 	}
+	if c.ReaderCacheExpiry < 0 {
+		return fmt.Errorf("reader_cache_expiry must not be negative")
+	}
+	if c.MaxRetryDuration < 0 {
+		return fmt.Errorf("max_retry_duration must not be negative")
+	}
 	if c.IndexerQueryLimit > IndexerQueryLimitMax {
 		return fmt.Errorf("indexer_query_limit must not exceed %d, got %d", IndexerQueryLimitMax, c.IndexerQueryLimit)
 	}
@@ -115,6 +121,12 @@ func (c *Configuration) Validate() error {
 		}
 		if chainConfig.OffRampAddress == "" {
 			return fmt.Errorf("off_ramp_address must be configured for chain %s", chainSel)
+		}
+		if chainConfig.DefaultExecutorAddress == "" {
+			return fmt.Errorf("default_executor_address must be configured for chain %s", chainSel)
+		}
+		if chainConfig.ExecutionInterval < 0 {
+			return fmt.Errorf("execution_interval must not be negative for chain %s", chainSel)
 		}
 		if len(chainConfig.ExecutorPool) == 0 {
 			return fmt.Errorf("executor_pool must be configured for chain %s", chainSel)
