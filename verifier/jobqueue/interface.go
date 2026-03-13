@@ -61,8 +61,8 @@ type JobQueue[T Jobable] interface {
 	// are considered stale (e.g. from a crashed worker) and are automatically reclaimed.
 	// Returns empty slice if no jobs are available.
 	//
-	// Note: Jobs in 'failed' status are NOT consumed. They remain in the active table
-	// until archived by Cleanup or manually investigated.
+	// Note: Jobs in 'failed' status are NOT consumed.
+	// Failed jobs are moved to the archive by Fail() or Retry() when retry deadline is exceeded.
 	//
 	// The implementation should use SELECT FOR UPDATE SKIP LOCKED to ensure
 	// concurrent consumers don't compete for the same jobs.
