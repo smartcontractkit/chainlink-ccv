@@ -2,6 +2,7 @@ package sourcereader
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -27,13 +28,19 @@ func NewObservedSourceReader(
 	verifierID string,
 	chainSelector protocol.ChainSelector,
 	monitoring verifier.Monitoring,
-) chainaccess.SourceReader {
+) (chainaccess.SourceReader, error) {
+	if delegate == nil {
+		return nil, fmt.Errorf("delegate cannot be nil")
+	}
+	if monitoring == nil {
+		return nil, fmt.Errorf("monitoring cannot be nil")
+	}
 	return observedSourceReader{
 		SourceReader:  delegate,
 		verifierID:    verifierID,
 		chainSelector: chainSelector.String(),
 		monitoring:    monitoring,
-	}
+	}, nil
 }
 
 func (o observedSourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *protocol.BlockHeader, err error) {
