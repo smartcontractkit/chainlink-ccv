@@ -70,8 +70,13 @@ type factory[T any] struct {
 	chainFamily               string
 }
 
-// NewServiceFactory deprecated use NewCommitteeVerifierServiceFactory instead.
-var NewServiceFactory = NewCommitteeVerifierServiceFactory
+// NewServiceFactory is deprecated use NewCommitteeVerifierServiceFactory instead.
+func NewServiceFactory[T any](
+	chainFamily string,
+	createAccessorFactoryFunc CreateAccessorFactoryFunc[T],
+) bootstrap.ServiceFactory[commit.JobSpec] {
+	return NewCommitteeVerifierServiceFactory(chainFamily, createAccessorFactoryFunc)
+}
 
 // NewCommitteeVerifierServiceFactory creates a new ServiceFactory for the committee verifier service.
 // T is the chain config type for this family (e.g. blockchain.Info for EVM).
