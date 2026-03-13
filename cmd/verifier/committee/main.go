@@ -9,6 +9,7 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
 	evmaccessor "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
@@ -24,7 +25,7 @@ import (
 func main() {
 	if err := bootstrap.Run(
 		"EVMCommitteeVerifier",
-		NewCommitteeVerifierServiceFactory(
+		cmd.NewCommitteeVerifierServiceFactory(
 			chainsel.FamilyEVM,
 			func(ctx context.Context, lggr logger.Logger, blockchainInfos map[string]*blockchain.Info, cfg commit.Config) (chainaccess.AccessorFactory, error) {
 				helper := blockchain.NewHelper(blockchainInfos)
