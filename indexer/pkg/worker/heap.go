@@ -25,23 +25,15 @@ type DelayHeap []*Task
 // Len returns the number of tasks in the heap.
 func (h DelayHeap) Len() int { return len(h) }
 
-// Less reports whether the task at index i should sort before the task at index j.
-// Tasks are ordered by their runAt time, with earlier times sorting first.
-func (h DelayHeap) Less(i, j int) bool { return h[i].runAt.Before(h[j].runAt) }
-
-// Swap swaps the tasks at indices i and j and updates their index fields
-// to maintain consistency with the heap structure.
-func (h DelayHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i]; h[i].index, h[j].index = i, j }
-
 // Push adds a task to the heap. The task's index field will be updated
 // by this method before appending. Push should be called through heap.Push,
 // not directly.
 func (h *DelayHeap) Push(x any) {
 	task, ok := x.(*Task)
 	if !ok {
+		// This should never happen, but we'll panic to be safe.
 		panic("DelayHeap.Push: expected *Task")
 	}
-	// assign index to the new element's position (append position)
 	task.index = len(*h)
 	*h = append(*h, task)
 }
