@@ -126,6 +126,9 @@ func (s *Scheduler) DLQ() <-chan *Task {
 }
 
 func (s *Scheduler) Enqueue(ctx context.Context, t *Task) error {
+	if t == nil {
+		return errors.New("cannot enqueue nil task")
+	}
 	shouldEnqueue, delay := s.shouldEnqueue(t)
 	if !shouldEnqueue {
 		s.dlq <- t
