@@ -85,21 +85,6 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 	// Use SugaredLogger for better API
 	tvf.lggr = logger.Sugared(tvf.lggr)
 
-	/*
-		filePath := verifier.DefaultConfigFile
-		if len(os.Args) > 1 {
-			filePath = os.Args[1]
-		}
-		envConfig := os.Getenv(ConfigPath)
-		if envConfig != "" {
-			filePath = envConfig
-		}
-		config, blockchainInfos, err := loadConfiguration(filePath)
-		if err != nil {
-			tvf.lggr.Errorw("Failed to load configuration", "error", err)
-			os.Exit(1)
-		}
-	*/
 	// TODO: validate config?
 	config := appConfig.Config
 	blockchainInfos := appConfig.BlockchainInfos

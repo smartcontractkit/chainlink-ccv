@@ -1,4 +1,4 @@
-package main
+package verifier
 
 import (
 	"context"
@@ -12,7 +12,6 @@ import (
 
 	"github.com/grafana/pyroscope-go"
 
-	verifier2 "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -121,7 +120,7 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 	}
 	lggr.Infow("Loaded VERIFIER_AGGREGATOR_SECRET_KEY from environment")
 
-	profiler, err := verifier2.StartPyroscope(lggr, config.PyroscopeURL, "verifier")
+	profiler, err := StartPyroscope(lggr, config.PyroscopeURL, "verifier")
 	if err != nil {
 		lggr.Errorw("Failed to start pyroscope", "error", err)
 		return fmt.Errorf("failed to start pyroscope: %w", err)
@@ -249,7 +248,7 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 	}
 	lggr.Infow("Using signer address", "address", signerAddress)
 
-	verifierMonitoring := verifier2.SetupMonitoring(lggr, config.Monitoring)
+	verifierMonitoring := SetupMonitoring(lggr, config.Monitoring)
 
 	// Create chain status manager (PostgreSQL storage) with monitoring decorator
 	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr, config.VerifierID, verifierMonitoring)
@@ -430,7 +429,7 @@ func (f *factory[T]) Stop(ctx context.Context) error {
 }
 
 func createChainStatusManager(lggr logger.Logger, verifierID string, monitoring verifier.Monitoring) (protocol.ChainStatusManager, sqlutil.DataSource, error) {
-	sqlDB, err := verifier2.ConnectToPostgresDB(lggr)
+	sqlDB, err := ConnectToPostgresDB(lggr)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect to Postgres DB: %w", err)
 	}
