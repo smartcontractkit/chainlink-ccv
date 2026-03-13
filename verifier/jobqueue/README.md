@@ -229,24 +229,6 @@ log.Printf("Queue size: %d", size)
 - **Multiple Consumers**: Safe - `SELECT FOR UPDATE SKIP LOCKED` ensures no duplicate consumption
 - **Concurrent Operations**: Safe - all operations use database transactions
 
-## Error Handling Best Practices
-
-### Transient Errors (Should Retry)
-- Network timeouts
-- Temporary database unavailability
-- Rate limit errors
-- 503 Service Unavailable
-
-**Action**: Call `Retry()` with appropriate delay
-
-### Permanent Errors (Should Fail)
-- Invalid data format
-- Authorization failures
-- 404 Not Found
-- Business logic violations
-
-**Action**: Call `Fail()` to archive immediately
-
 ### Retry Strategy Example
 
 ```go
