@@ -416,10 +416,9 @@ func TestRun_PoolFull_EnqueuesTask(t *testing.T) {
 	p.Stop()
 }
 
-func TestRun_PoolFull_EnqueueToDLQOnTTLExpired(t *testing.T) {
+func TestHandleDLQ_SetsMessageTimeoutOnExpiredTask(t *testing.T) {
 	lggr := logger.Test(t)
 
-	// Create a scheduler with ready channel
 	s := &Scheduler{
 		lggr:   lggr,
 		ready:  make(chan *Task, 1),
@@ -427,20 +426,19 @@ func TestRun_PoolFull_EnqueueToDLQOnTTLExpired(t *testing.T) {
 		config: config.SchedulerConfig{TickerInterval: 50, BaseDelay: 0, MaxDelay: 0, VerificationVisibilityWindow: 60},
 	}
 
-	// DLQ behavior: directly enqueue an expired task and ensure scheduler sends it to DLQ
 	storageMock := mocks.NewMockIndexerStorage(t)
 	discoveryCh := make(chan common.VerifierResultWithMetadata, 1)
-	p2, err := NewWorkerPool(lggr, config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}, discoveryCh, s, registry.NewVerifierRegistry(), storageMock)
+	p, err := NewWorkerPool(lggr, config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}, discoveryCh, s, registry.NewVerifierRegistry(), storageMock)
 	require.NoError(t, err)
 
 	msg := protocol.VerifierResult{}
-	task, err := NewTask(lggr, msg, p2.registry, p2.storage, time.Second)
+	task, err := NewTask(lggr, msg, p.registry, p.storage, time.Second)
 	require.NoError(t, err)
 	task.ttl = time.Now().Add(-time.Minute)
+	task.lastErr = errors.New("simulated failure")
 
-	// Expect UpdateMessageStatus called when sent to DLQ
 	dlqCalled := make(chan struct{})
-	storageMock.On("UpdateMessageStatus", mock.Anything, mock.Anything, common.MessageTimeout, mock.Anything).Run(func(args mock.Arguments) {
+	storageMock.On("UpdateMessageStatus", mock.Anything, mock.Anything, common.MessageTimeout, "simulated failure").Run(func(args mock.Arguments) {
 		select {
 		case <-dlqCalled:
 		default:
@@ -448,23 +446,22 @@ func TestRun_PoolFull_EnqueueToDLQOnTTLExpired(t *testing.T) {
 		}
 	}).Return(nil)
 
-	err = s.Enqueue(context.Background(), task)
-	require.Error(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	// task should be on DLQ channel
-	select {
-	case dl := <-s.DLQ():
-		require.Equal(t, task, dl)
-	case <-time.After(3 * time.Second):
-		t.Fatalf("timed out waiting for task in DLQ")
-	}
+	p.wg.Add(1)
+	go p.handleDLQ(ctx)
+
+	err = s.Enqueue(ctx, task)
+	require.Error(t, err)
 
 	select {
 	case <-dlqCalled:
-		// ok
-	case <-time.After(3 * time.Second):
-		t.Fatalf("timed out waiting for UpdateMessageStatus for DLQ task")
+		// handleDLQ consumed the task and called UpdateMessageStatus
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("timed out waiting for UpdateMessageStatus from handleDLQ")
 	}
-	// stop p2 if started (it's unused)
-	_ = p2
+
+	cancel()
+	p.wg.Wait()
 }

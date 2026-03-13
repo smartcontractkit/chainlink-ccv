@@ -29,7 +29,7 @@ Since = 0
 [[Verifier]]
 Type = "rest"
 IssuerAddresses = ["0x0987654321098765432109876543210987654321"]
-BaseURL = "http://verifier:8080"
+BaseURL = "http://verifier:8080/v1"
 RequestTimeout = 10
 
 [Storage]

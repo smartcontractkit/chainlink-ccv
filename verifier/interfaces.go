@@ -63,12 +63,12 @@ type MetricLabeler interface {
 
 	// Fine-grained latency breakdown for debugging
 
-	// RecordFinalityWaitDuration records the time a message spent waiting in the finality queue.
-	RecordFinalityWaitDuration(ctx context.Context, duration time.Duration)
 	// RecordMessageVerificationDuration records the duration of the full VerifyMessage operation.
 	RecordMessageVerificationDuration(ctx context.Context, duration time.Duration)
 	// RecordStorageWriteDuration records the duration of writing to offchain storage.
 	RecordStorageWriteDuration(ctx context.Context, duration time.Duration)
+	// RecordVerificationQueueLatency records the time a message spent in the verification queue (push to poll).
+	RecordVerificationQueueLatency(ctx context.Context, duration time.Duration)
 
 	// Queue health metrics
 
@@ -81,6 +81,8 @@ type MetricLabeler interface {
 
 	// IncrementStorageWriteErrors increments the counter for storage write errors.
 	IncrementStorageWriteErrors(ctx context.Context)
+	// IncrementTaskVerificationPermanentErrors increments the counter for non-retryable verification errors.
+	IncrementTaskVerificationPermanentErrors(ctx context.Context)
 
 	// Heartbeat tracking
 

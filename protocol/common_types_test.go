@@ -90,6 +90,38 @@ func TestNewBytes16FromString_LeftPadding(t *testing.T) {
 	}
 }
 
+func TestNewBytes32FromSlice_ValidLengthReturnsBytes32(t *testing.T) {
+	b := make([]byte, 32)
+	for i := range b {
+		b[i] = byte(i)
+	}
+	result, err := NewBytes32FromSlice(b)
+	require.NoError(t, err)
+	require.Len(t, result, 32)
+	var expected Bytes32
+	copy(expected[:], b)
+	require.Equal(t, expected, result)
+}
+
+func TestNewBytes32FromSlice_InvalidLengthReturnsError(t *testing.T) {
+	tests := []struct {
+		name string
+		b    []byte
+	}{
+		{"nil", nil},
+		{"empty", []byte{}},
+		{"too short", make([]byte, 31)},
+		{"too long", make([]byte, 33)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewBytes32FromSlice(tt.b)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "Bytes32 requires exactly 32 bytes")
+		})
+	}
+}
+
 func TestNewBytes32FromString_LeftPadding(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -69,9 +69,9 @@ func Test_LombardMessages_Success(t *testing.T) {
 	extraData2, err := protocol.NewByteSliceFromHex("0x2222")
 	require.NoError(t, err)
 	// Lombard Verifier Version + attestation payload
-	ccvData1, err := protocol.NewByteSliceFromHex("0xf0f3a13500aa")
+	ccvData1, err := protocol.NewByteSliceFromHex("0xeba5558800aa")
 	require.NoError(t, err)
-	ccvData2, err := protocol.NewByteSliceFromHex("0xf0f3a13500bb")
+	ccvData2, err := protocol.NewByteSliceFromHex("0xeba5558800bb")
 	require.NoError(t, err)
 
 	server := createFakeLombardServer(t, lombardAttestation)
@@ -118,14 +118,9 @@ func Test_LombardMessages_Success(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = v.Close() })
 
-	msg1 := createTestMessageSentEventWithToken(t, 100, chain1337, chain2337, 0, 300_000, 900, &protocol.TokenTransfer{
-		ExtraData:       extraData1,
-		ExtraDataLength: uint16(len(extraData1)),
-	})
-	msg2 := createTestMessageSentEventWithToken(t, 200, chain1337, chain2337, 0, 300_000, 901, &protocol.TokenTransfer{
-		ExtraData:       extraData2,
-		ExtraDataLength: uint16(len(extraData2)),
-	})
+	// Create messages with token transfers and set the Lombard message hash in the receipt blob
+	msg1 := createLombardTestMessage(t, 100, chain1337, chain2337, 900, testCCVAddr, extraData1)
+	msg2 := createLombardTestMessage(t, 200, chain1337, chain2337, 901, testCCVAddr, extraData2)
 	testEvents := []protocol.MessageSentEvent{msg1, msg2}
 
 	var messagesSent atomic.Int32
@@ -160,9 +155,9 @@ func Test_LombardMessages_RetryingAttestation(t *testing.T) {
 	extraData2, err := protocol.NewByteSliceFromHex("0x2222")
 	require.NoError(t, err)
 	// Lombard Verifier Version + attestation payload
-	ccvData1, err := protocol.NewByteSliceFromHex("0xf0f3a13500aa")
+	ccvData1, err := protocol.NewByteSliceFromHex("0xeba5558800aa")
 	require.NoError(t, err)
-	ccvData2, err := protocol.NewByteSliceFromHex("0xf0f3a13500bb")
+	ccvData2, err := protocol.NewByteSliceFromHex("0xeba5558800bb")
 	require.NoError(t, err)
 
 	// This server will return a pending attestation twice, then a completed one
@@ -221,14 +216,9 @@ func Test_LombardMessages_RetryingAttestation(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = v.Close() })
 
-	msg1 := createTestMessageSentEventWithToken(t, 100, chain1337, chain2337, 0, 300_000, 900, &protocol.TokenTransfer{
-		ExtraData:       extraData1,
-		ExtraDataLength: uint16(len(extraData1)),
-	})
-	msg2 := createTestMessageSentEventWithToken(t, 200, chain1337, chain2337, 0, 300_000, 901, &protocol.TokenTransfer{
-		ExtraData:       extraData2,
-		ExtraDataLength: uint16(len(extraData2)),
-	})
+	// Create messages with token transfers and set the Lombard message hash in the receipt blob
+	msg1 := createLombardTestMessage(t, 100, chain1337, chain2337, 900, testCCVAddr, extraData1)
+	msg2 := createLombardTestMessage(t, 200, chain1337, chain2337, 901, testCCVAddr, extraData2)
 	testEvents := []protocol.MessageSentEvent{msg1, msg2}
 
 	var messagesSent atomic.Int32
@@ -296,4 +286,57 @@ func createFakeLombardServer(t *testing.T, response string) *httptest.Server {
 		}
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
+}
+
+// createLombardTestMessage creates a MessageSentEvent with proper receipt blob structure for Lombard tests.
+// The message hash (blob) is placed in the receipt issued by the lombardIssuer (verifier resolver).
+func createLombardTestMessage(
+	t *testing.T,
+	sequenceNumber protocol.SequenceNumber,
+	sourceChainSelector, destChainSelector protocol.ChainSelector,
+	blockNumber uint64,
+	lombardIssuer protocol.UnknownAddress,
+	messageHash protocol.ByteSlice,
+) protocol.MessageSentEvent {
+	t.Helper()
+	message := verifier.CreateTestMessage(t, sequenceNumber, sourceChainSelector, destChainSelector, 0, 300_000)
+	messageID, _ := message.MessageID()
+
+	executorAddr := make([]byte, 20)
+	executorAddr[0] = 0x22 // Must match CreateTestMessage
+
+	routerAddr := make([]byte, 20)
+	routerAddr[0] = 0x44
+
+	return protocol.MessageSentEvent{
+		MessageID: messageID,
+		Message:   message,
+		Receipts: []protocol.ReceiptWithBlob{
+			{
+				// Lombard verifier resolver receipt with the message hash as the blob
+				Issuer:            lombardIssuer,
+				DestGasLimit:      300000,
+				DestBytesOverhead: 100,
+				Blob:              messageHash, // This is the key change - message hash goes in the blob
+				ExtraArgs:         []byte("test-extra-args"),
+			},
+			{
+				// Executor receipt
+				Issuer:            protocol.UnknownAddress(executorAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte{},
+				ExtraArgs:         []byte{},
+			},
+			{
+				// Network fee receipt
+				Issuer:            protocol.UnknownAddress(routerAddr),
+				DestGasLimit:      0,
+				DestBytesOverhead: 0,
+				Blob:              []byte("router-blob"),
+				ExtraArgs:         []byte{},
+			},
+		},
+		BlockNumber: blockNumber,
+	}
 }
