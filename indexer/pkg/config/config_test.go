@@ -205,7 +205,7 @@ func TestConfig_Validate_MergeBufferSize(t *testing.T) {
 				BaseDelay:                    1000,
 				MaxDelay:                     5000,
 			},
-			Discoveries:    []DiscoveryConfig{validDiscovery},
+			Discoveries:     []DiscoveryConfig{validDiscovery},
 			MergeBufferSize: mergeBufferSize,
 			Storage: StorageConfig{
 				Strategy: StorageStrategySingle,
