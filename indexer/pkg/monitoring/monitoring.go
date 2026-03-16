@@ -15,8 +15,8 @@ import (
 var _ common.IndexerMonitoring = (*IndexerBeholderMonitoring)(nil)
 
 type IndexerBeholderMonitoring struct {
-	metrics        common.IndexerMetricLabeler
-	serviceMetrics commonmetrics.ServiceMetrics
+	metrics common.IndexerMetricLabeler
+	commonmetrics.ServiceMetrics
 }
 
 func InitMonitoring(config beholder.Config) (common.IndexerMonitoring, error) {
@@ -61,7 +61,7 @@ func InitMonitoring(config beholder.Config) (common.IndexerMonitoring, error) {
 
 	return &IndexerBeholderMonitoring{
 		metrics:        NewIndexerMetricLabeler(metrics.NewLabeler(), indexerMetrics),
-		serviceMetrics: serviceMetrics,
+		ServiceMetrics: serviceMetrics,
 	}, nil
 }
 
@@ -69,24 +69,25 @@ func (i *IndexerBeholderMonitoring) Metrics() common.IndexerMetricLabeler {
 	return i.metrics
 }
 
-func (i *IndexerBeholderMonitoring) RecordServiceStarted(ctx context.Context) {
-	i.serviceMetrics.RecordServiceStarted(ctx)
-}
+// noopServiceMetrics implements commonmetrics.ServiceMetrics with no-op behavior for noop monitoring.
+type noopServiceMetrics struct{}
+
+func (noopServiceMetrics) RecordServiceStarted(context.Context) {}
 
 // NoopIndexerMonitoring provides a no-op implementation of IndexerMonitoring.
 type NoopIndexerMonitoring struct {
 	noop common.IndexerMetricLabeler
+	commonmetrics.ServiceMetrics
 }
 
 // NewNoopIndexerMonitoring creates a new noop monitoring instance.
 func NewNoopIndexerMonitoring() common.IndexerMonitoring {
 	return &NoopIndexerMonitoring{
-		noop: NewNoopIndexerMetricLabeler(),
+		noop:           NewNoopIndexerMetricLabeler(),
+		ServiceMetrics: noopServiceMetrics{},
 	}
 }
 
 func (n *NoopIndexerMonitoring) Metrics() common.IndexerMetricLabeler {
 	return n.noop
 }
-
-func (n *NoopIndexerMonitoring) RecordServiceStarted(context.Context) {}

@@ -1,20 +1,19 @@
 package monitoring
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/grafana/pyroscope-go"
 
-	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
+	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 )
 
 type AggregatorBeholderMonitoring struct {
-	metrics        common.AggregatorMetricLabeler
-	serviceMetrics commonmetrics.ServiceMetrics
+	metrics common.AggregatorMetricLabeler
+	commonmetrics.ServiceMetrics
 }
 
 func InitMonitoring(config beholder.Config) (common.AggregatorMonitoring, error) {
@@ -59,14 +58,10 @@ func InitMonitoring(config beholder.Config) (common.AggregatorMonitoring, error)
 
 	return &AggregatorBeholderMonitoring{
 		metrics:        NewAggregatorMetricLabeler(metrics.NewLabeler(), aggregatorMetrics),
-		serviceMetrics: serviceMetrics,
+		ServiceMetrics: serviceMetrics,
 	}, nil
 }
 
 func (m *AggregatorBeholderMonitoring) Metrics() common.AggregatorMetricLabeler {
 	return m.metrics
-}
-
-func (m *AggregatorBeholderMonitoring) RecordServiceStarted(ctx context.Context) {
-	m.serviceMetrics.RecordServiceStarted(ctx)
 }

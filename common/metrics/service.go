@@ -3,9 +3,10 @@ package metrics
 import (
 	"context"
 
+	"go.opentelemetry.io/otel/metric"
+
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
-	"go.opentelemetry.io/otel/metric"
 )
 
 const (

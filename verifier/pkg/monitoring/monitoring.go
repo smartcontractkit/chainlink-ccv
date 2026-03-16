@@ -17,8 +17,8 @@ var _ verifier.Monitoring = (*VerifierBeholderMonitoring)(nil)
 
 // VerifierBeholderMonitoring provides beholder-based monitoring for the verifier.
 type VerifierBeholderMonitoring struct {
-	metrics        verifier.MetricLabeler
-	serviceMetrics commonmetrics.ServiceMetrics
+	metrics verifier.MetricLabeler
+	commonmetrics.ServiceMetrics
 }
 
 // InitMonitoring initializes the beholder monitoring system for the verifier.
@@ -36,7 +36,7 @@ func InitMonitoring(verifierServiceName string) (verifier.Monitoring, error) {
 
 	return &VerifierBeholderMonitoring{
 		metrics:        NewVerifierMetricLabeler(metrics.NewLabeler(), verifierMetrics),
-		serviceMetrics: serviceMetrics,
+		ServiceMetrics: serviceMetrics,
 	}, nil
 }
 
@@ -44,28 +44,29 @@ func (v *VerifierBeholderMonitoring) Metrics() verifier.MetricLabeler {
 	return v.metrics
 }
 
-func (v *VerifierBeholderMonitoring) RecordServiceStarted(ctx context.Context) {
-	v.serviceMetrics.RecordServiceStarted(ctx)
-}
-
 var (
 	_ verifier.Monitoring    = (*FakeVerifierMonitoring)(nil)
 	_ verifier.MetricLabeler = (*FakeVerifierMetricLabeler)(nil)
 )
 
+// noopServiceMetrics implements commonmetrics.ServiceMetrics with no-op behavior for tests/fakes.
+type noopServiceMetrics struct{}
+
+func (noopServiceMetrics) RecordServiceStarted(context.Context) {}
+
 type FakeVerifierMonitoring struct {
 	Fake *FakeVerifierMetricLabeler
+	commonmetrics.ServiceMetrics
 }
 
 func (f FakeVerifierMonitoring) Metrics() verifier.MetricLabeler {
 	return f.Fake
 }
 
-func (f FakeVerifierMonitoring) RecordServiceStarted(context.Context) {}
-
 func NewFakeVerifierMonitoring() *FakeVerifierMonitoring {
 	return &FakeVerifierMonitoring{
-		Fake: &FakeVerifierMetricLabeler{},
+		Fake:           &FakeVerifierMetricLabeler{},
+		ServiceMetrics: noopServiceMetrics{},
 	}
 }
 

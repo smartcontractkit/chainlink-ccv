@@ -26,7 +26,7 @@ func InitMonitoring() (executor.Monitoring, error) {
 
 	return &ExecutorBeholderMonitoring{
 		metrics:        NewExecutorMetricLabeler(metrics.NewLabeler(), executorMetrics),
-		serviceMetrics: serviceMetrics,
+		ServiceMetrics: serviceMetrics,
 	}, nil
 }
 
@@ -37,35 +37,36 @@ var (
 
 // ExecutorBeholderMonitoring provides beholder-based monitoring for the executor.
 type ExecutorBeholderMonitoring struct {
-	metrics        executor.MetricLabeler
-	serviceMetrics commonmetrics.ServiceMetrics
+	metrics executor.MetricLabeler
+	commonmetrics.ServiceMetrics
 }
 
 func (v *ExecutorBeholderMonitoring) Metrics() executor.MetricLabeler {
 	return v.metrics
 }
 
-func (v *ExecutorBeholderMonitoring) RecordServiceStarted(ctx context.Context) {
-	v.serviceMetrics.RecordServiceStarted(ctx)
-}
+// noopServiceMetrics implements commonmetrics.ServiceMetrics with no-op behavior for noop monitoring.
+type noopServiceMetrics struct{}
+
+func (noopServiceMetrics) RecordServiceStarted(context.Context) {}
 
 // NoopExecutorMonitoring provides a no-op implementation of ExecutorMonitoring.
 type NoopExecutorMonitoring struct {
 	noop executor.MetricLabeler
+	commonmetrics.ServiceMetrics
 }
 
 // NewNoopExecutorMonitoring creates a new noop monitoring instance.
 func NewNoopExecutorMonitoring() executor.Monitoring {
 	return &NoopExecutorMonitoring{
-		noop: NewNoopExecutorMetricLabeler(),
+		noop:           NewNoopExecutorMetricLabeler(),
+		ServiceMetrics: noopServiceMetrics{},
 	}
 }
 
 func (n *NoopExecutorMonitoring) Metrics() executor.MetricLabeler {
 	return n.noop
 }
-
-func (n *NoopExecutorMonitoring) RecordServiceStarted(context.Context) {}
 
 var _ executor.MetricLabeler = (*NoopExecutorMetricLabeler)(nil)
 
