@@ -56,10 +56,13 @@ type JobQueue[T Jobable] interface {
 	// Useful for implementing retry backoff strategies.
 	PublishWithDelay(ctx context.Context, delay time.Duration, jobs ...T) error
 	// Consume retrieves and locks up to batchSize jobs for processing.
-	// Jobs in 'pending' or 'failed' status that are past their available_at time are eligible.
+	// Jobs in 'pending' status that are past their available_at time are eligible.
 	// Additionally, jobs stuck in 'processing' for longer than the configured LockDuration
 	// are considered stale (e.g. from a crashed worker) and are automatically reclaimed.
 	// Returns empty slice if no jobs are available.
+	//
+	// Note: Jobs in 'failed' status are NOT consumed.
+	// Failed jobs are moved to the archive by Fail() or Retry() when retry deadline is exceeded.
 	//
 	// The implementation should use SELECT FOR UPDATE SKIP LOCKED to ensure
 	// concurrent consumers don't compete for the same jobs.
@@ -69,10 +72,10 @@ type JobQueue[T Jobable] interface {
 	Complete(ctx context.Context, jobIDs ...string) error
 	// Retry schedules jobs for retry after the specified delay.
 	// Increments attempt count and records the error message.
-	// If max attempts is exceeded, jobs are moved to failed status.
+	// If the retry deadline has been exceeded, jobs are marked as failed and archived.
 	Retry(ctx context.Context, delay time.Duration, errors map[string]error, jobIDs ...string) error
-	// Fail marks jobs as permanently failed.
-	// These jobs will not be retried and should be investigated.
+	// Fail marks jobs as permanently failed and moves them to the archive.
+	// These jobs will not be retried and should be investigated via the archive table.
 	Fail(ctx context.Context, errors map[string]error, jobIDs ...string) error
 	// Cleanup archives or deletes jobs older than the retention period.
 	// Should be called periodically to prevent unbounded table growth.

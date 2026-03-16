@@ -549,7 +549,11 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, fin
 	}
 
 	// Delete cursed tasks immediately (these are being dropped, not queued)
+	// Also remove from writingTracker so checkpoints can advance
 	for _, msgID := range toBeDeleted {
+		if task, exists := r.pendingTasks[msgID]; exists {
+			r.writingTracker.Remove(task.Message.SourceChainSelector, msgID)
+		}
 		delete(r.pendingTasks, msgID)
 	}
 

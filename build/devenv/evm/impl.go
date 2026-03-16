@@ -2,6 +2,7 @@ package evm
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -48,12 +49,12 @@ import (
 	burnminterc677ops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/token_admin_registry"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
@@ -76,6 +77,7 @@ import (
 	routeroperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	routerwrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_2_0/router"
 	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
+	changesetsutils "github.com/smartcontractkit/chainlink-ccip/deployment/utils"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 )
 
@@ -1315,7 +1317,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 	)
 	e.OperationsBundle = bundle
 
-	remoteChains := make(map[uint64]adapters.RemoteChainConfig[datastore.AddressRef, datastore.AddressRef])
+	remoteChains := make(map[uint64]lanes.ChainDefinition)
 	for _, rs := range remoteSelectors {
 		// TODO: should be moved to the ChainFamily interface.
 		var addressBytesLength uint8
@@ -1332,42 +1334,9 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 			return fmt.Errorf("unsupported family %s for chain %d", family, rs)
 		}
 
-		remoteChains[rs] = adapters.RemoteChainConfig[datastore.AddressRef, datastore.AddressRef]{
-			AllowTrafficFrom: true,
-			OnRamps: []datastore.AddressRef{
-				{
-					Type:    datastore.ContractType(onrampoperations.ContractType),
-					Version: semver.MustParse(onrampoperations.Deploy.Version()),
-				},
-			},
-			OffRamp: datastore.AddressRef{
-				Type:    datastore.ContractType(offrampoperations.ContractType),
-				Version: semver.MustParse(offrampoperations.Deploy.Version()),
-			},
-			DefaultInboundCCVs: []datastore.AddressRef{
-				{
-					Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
-					Version:       versioned_verifier_resolver.Version,
-					ChainSelector: selector,
-					Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier, // TODO: pull this from committees param?
-				},
-			},
-			// LaneMandatedInboundCCVs: []datastore.AddressRef{},
-			DefaultOutboundCCVs: []datastore.AddressRef{
-				{
-					Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
-					Version:       versioned_verifier_resolver.Version,
-					ChainSelector: selector,
-					Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier, // TODO: pull this from committees param?
-				},
-			},
-			// LaneMandatedOutboundCCVs: []datastore.AddressRef{},
-			DefaultExecutor: datastore.AddressRef{
-				Type:      datastore.ContractType(executor.ProxyType),
-				Version:   semver.MustParse(executor.DeployProxy.Version()),
-				Qualifier: devenvcommon.DefaultExecutorQualifier,
-			},
-			FeeQuoterDestChainConfig: adapters.FeeQuoterDestChainConfig{
+		remoteChains[rs] = lanes.ChainDefinition{
+			Selector: rs,
+			FeeQuoterDestChainConfig: lanes.FeeQuoterDestChainConfig{
 				IsEnabled:                   true,
 				MaxDataBytes:                30_000,
 				MaxPerMsgGasLimit:           3_000_000,
@@ -1377,16 +1346,40 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 				DefaultTokenDestGasOverhead: 90_000,
 				DefaultTxGasLimit:           200_000,
 				NetworkFeeUSDCents:          10,
-				ChainFamilySelector:         [4]byte{0x28, 0x12, 0xd5, 0x2c}, // EVM
-				LinkFeeMultiplierPercent:    90,
-				USDPerUnitGas:               big.NewInt(1e6),
+				ChainFamilySelector:         binary.BigEndian.Uint32(changesetsutils.GetSelectorHex(rs)[:]),
+				V2Params: &lanes.FeeQuoterV2Params{
+					LinkFeeMultiplierPercent: 90,
+					USDPerUnitGas:            big.NewInt(1e6),
+				},
 			},
-			ExecutorDestChainConfig: adapters.ExecutorDestChainConfig{
+			ExecutorDestChainConfig: lanes.ExecutorDestChainConfig{
 				Enabled:     true,
 				USDCentsFee: 0, // TODO: set proper fee
 			},
-			AddressBytesLength:   addressBytesLength, // TODO: set proper address bytes length, should be evm-agnostic
-			BaseExecutionGasCost: 150_000,            // TODO: set proper base execution gas cost
+			AddressBytesLength:   addressBytesLength,
+			BaseExecutionGasCost: 150_000, // TODO: set proper base execution gas cost
+			DefaultExecutor: datastore.AddressRef{
+				Type:          datastore.ContractType(executor.ProxyType),
+				Version:       semver.MustParse(executor.DeployProxy.Version()),
+				Qualifier:     devenvcommon.DefaultExecutorQualifier,
+				ChainSelector: rs,
+			},
+			DefaultInboundCCVs: []datastore.AddressRef{
+				{
+					Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+					Version:       versioned_verifier_resolver.Version,
+					ChainSelector: rs,
+					Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
+				},
+			},
+			DefaultOutboundCCVs: []datastore.AddressRef{
+				{
+					Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+					Version:       versioned_verifier_resolver.Version,
+					ChainSelector: rs,
+					Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
+				},
+			},
 		}
 	}
 
@@ -1409,31 +1402,59 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 	}
 
 	mcmsReaderRegistry := changesetscore.GetRegistry()
-	chainFamilyRegistry := registry.GetGlobalChainFamilyAdapterRegistry()
+	laneAdapterRegistry := lanes.GetLaneAdapterRegistry()
 
-	_, err := ccipChangesets.ConfigureChainsForLanesFromTopology(adapters.GetCommitteeVerifierContractRegistry(), chainFamilyRegistry, mcmsReaderRegistry).Apply(*e, ccipChangesets.ConfigureChainsForLanesFromTopologyConfig{
+	_, err := ccipChangesets.ConfigureChainsForLanesFromTopology(adapters.GetCommitteeVerifierContractRegistry(), laneAdapterRegistry, mcmsReaderRegistry).Apply(*e, ccipChangesets.ConfigureChainsForLanesFromTopologyConfig{
 		Topology: topology,
 		Chains: []ccipChangesets.PartialChainConfig{
 			{
 				ChainSelector:      selector,
 				RemoteChains:       remoteChains,
 				CommitteeVerifiers: committeeVerifiers,
-				FeeQuoter: datastore.AddressRef{
-					Type:    datastore.ContractType(fee_quoter.ContractType),
-					Version: semver.MustParse(fee_quoter.Deploy.Version()),
+				DefaultInboundCCVs: []datastore.AddressRef{
+					{
+						Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+						Version:       versioned_verifier_resolver.Version,
+						ChainSelector: selector,
+						Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier, // TODO: pull this from committees param?
+					},
 				},
-				OnRamp: datastore.AddressRef{
-					Type:    datastore.ContractType(onrampoperations.ContractType),
-					Version: semver.MustParse(onrampoperations.Deploy.Version()),
+				DefaultOutboundCCVs: []datastore.AddressRef{
+					{
+						Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+						Version:       versioned_verifier_resolver.Version,
+						ChainSelector: selector,
+						Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier, // TODO: pull this from committees param?
+					},
 				},
-				OffRamp: datastore.AddressRef{
-					Type:    datastore.ContractType(offrampoperations.ContractType),
-					Version: semver.MustParse(offrampoperations.Deploy.Version()),
+				DefaultExecutor: datastore.AddressRef{
+					Type:          datastore.ContractType(executor.ProxyType),
+					Version:       semver.MustParse(executor.DeployProxy.Version()),
+					Qualifier:     devenvcommon.DefaultExecutorQualifier,
+					ChainSelector: selector,
 				},
-				Router: datastore.AddressRef{
-					Type:    datastore.ContractType(routeroperations.ContractType),
-					Version: semver.MustParse(routeroperations.Deploy.Version()),
+				FeeQuoterDestChainConfig: lanes.FeeQuoterDestChainConfig{
+					IsEnabled:                   true,
+					MaxDataBytes:                30_000,
+					MaxPerMsgGasLimit:           3_000_000,
+					DestGasOverhead:             300_000,
+					DefaultTokenFeeUSDCents:     25,
+					DestGasPerPayloadByteBase:   16,
+					DefaultTokenDestGasOverhead: 90_000,
+					DefaultTxGasLimit:           200_000,
+					NetworkFeeUSDCents:          10,
+					ChainFamilySelector:         binary.BigEndian.Uint32(changesetsutils.GetSelectorHex(selector)[:]),
+					V2Params: &lanes.FeeQuoterV2Params{
+						LinkFeeMultiplierPercent: 90,
+						USDPerUnitGas:            big.NewInt(1e6),
+					},
 				},
+				ExecutorDestChainConfig: lanes.ExecutorDestChainConfig{
+					Enabled:     true,
+					USDCentsFee: 0,
+				},
+				AddressBytesLength:   20,      // EVM address length
+				BaseExecutionGasCost: 150_000, // TODO: set proper base execution gas cost
 			},
 		},
 	})
@@ -1461,7 +1482,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 	for _, rs := range remoteSelectors {
 		destChainSelectorsToAdd = append(destChainSelectorsToAdd, executor.RemoteChainConfigArgs{
 			DestChainSelector: rs,
-			Config: adapters.ExecutorDestChainConfig{
+			Config: lanes.ExecutorDestChainConfig{
 				Enabled:     true,
 				USDCentsFee: 0, // TODO: set proper fee
 			},

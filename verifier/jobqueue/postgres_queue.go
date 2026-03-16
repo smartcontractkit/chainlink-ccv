@@ -135,8 +135,9 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 	staleBefore := now.Add(-q.config.LockDuration)
 
 	// Select jobs that are:
-	// 1. pending/failed and past their available_at, OR
+	// 1. pending and past their available_at, OR
 	// 2. processing but started_at is older than lockDuration (stale lock from crashed worker)
+	// Note: Failed jobs are NOT consumed - they remain in the table until archived or cleaned up.
 	query := fmt.Sprintf(`
 		UPDATE %s
 		SET status = $1,
@@ -146,12 +147,12 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 			SELECT id FROM %s
 			WHERE owner_id = $3
 			  AND (
-			    (status IN ($4, $5) AND available_at <= $6)
+			    (status = $4 AND available_at <= $5)
 			    OR
-			    (status = $7 AND started_at IS NOT NULL AND started_at <= $8)
+			    (status = $6 AND started_at IS NOT NULL AND started_at <= $7)
 			  )
 			ORDER BY available_at ASC, id ASC
-			LIMIT $9
+			LIMIT $8
 			FOR UPDATE SKIP LOCKED
 		)
 		RETURNING id, job_id, task_data, attempt_count, retry_deadline, created_at, started_at, chain_selector, message_id
@@ -162,11 +163,10 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 		now,                 // $2 started_at
 		q.ownerID,           // $3
 		JobStatusPending,    // $4
-		JobStatusFailed,     // $5
-		now,                 // $6 available_at <=
-		JobStatusProcessing, // $7 stale processing
-		staleBefore,         // $8 started_at <=
-		batchSize,           // $9
+		now,                 // $5 available_at <=
+		JobStatusProcessing, // $6 stale processing
+		staleBefore,         // $7 started_at <=
+		batchSize,           // $8
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to consume jobs: %w", err)
@@ -282,27 +282,49 @@ func (q *PostgresJobQueue[T]) Complete(ctx context.Context, jobIDs ...string) er
 		return nil
 	}
 
-	// Move to archive table for audit trail
-	// Note: This query works for both ccv_task_verifier_jobs (without task_job_id)
-	// and ccv_storage_writer_jobs (with task_job_id) by selecting all columns
-	query := fmt.Sprintf(`
-		WITH completed AS (
-			DELETE FROM %s
-			WHERE job_id = ANY($1)
-			  AND owner_id = $2
-			RETURNING *
-		)
-		INSERT INTO %s
-		SELECT *, NOW() as completed_at
-		FROM completed
-	`, q.tableName, q.archiveName)
+	var affected int64
 
-	result, err := q.ds.ExecContext(ctx, query, pq.Array(jobIDs), q.ownerID)
+	err := sqlutil.TransactDataSource(ctx, q.ds, nil, func(tx sqlutil.DataSource) error {
+		// First, update the status to completed
+		updateQuery := fmt.Sprintf(`
+			UPDATE %s
+			SET status = $1
+			WHERE job_id = ANY($2)
+			  AND owner_id = $3
+		`, q.tableName)
+
+		_, err := tx.ExecContext(ctx, updateQuery, JobStatusCompleted, pq.Array(jobIDs), q.ownerID)
+		if err != nil {
+			return fmt.Errorf("failed to update job status to completed: %w", err)
+		}
+
+		// Move to archive table for audit trail
+		// Note: This query works for both ccv_task_verifier_jobs (without task_job_id)
+		// and ccv_storage_writer_jobs (with task_job_id) by selecting all columns
+		archiveQuery := fmt.Sprintf(`
+			WITH completed AS (
+				DELETE FROM %s
+				WHERE job_id = ANY($1)
+				  AND owner_id = $2
+				RETURNING *
+			)
+			INSERT INTO %s
+			SELECT *, NOW() as completed_at
+			FROM completed
+		`, q.tableName, q.archiveName)
+
+		result, err := tx.ExecContext(ctx, archiveQuery, pq.Array(jobIDs), q.ownerID)
+		if err != nil {
+			return fmt.Errorf("failed to archive completed jobs: %w", err)
+		}
+
+		affected, _ = result.RowsAffected()
+		return nil
+	})
 	if err != nil {
-		return fmt.Errorf("failed to complete jobs: %w", err)
+		return err
 	}
 
-	affected, _ := result.RowsAffected()
 	q.logger.Debugw("Completed jobs",
 		"queue", q.config.Name,
 		"count", affected,
@@ -312,6 +334,7 @@ func (q *PostgresJobQueue[T]) Complete(ctx context.Context, jobIDs ...string) er
 }
 
 // Retry schedules jobs for retry after delay.
+// If the retry deadline has been exceeded, jobs are marked as failed and archived.
 func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, errors map[string]error, jobIDs ...string) error {
 	if len(jobIDs) == 0 {
 		return nil
@@ -319,24 +342,24 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 
 	availableAt := time.Now().Add(delay)
 
-	// Check if retry deadline has passed
-	query := fmt.Sprintf(`
-		UPDATE %s
-		SET status = CASE
-				WHEN NOW() >= retry_deadline THEN $1
-				ELSE $2
-			END,
-			available_at = $3,
-			last_error = $4
-		WHERE job_id = $5
-		  AND owner_id = $6
-		RETURNING job_id, status
-	`, q.tableName)
-
 	var failed []string
 	var retried []string
 
 	err := sqlutil.TransactDataSource(ctx, q.ds, nil, func(tx sqlutil.DataSource) error {
+		// Check if retry deadline has passed
+		query := fmt.Sprintf(`
+			UPDATE %s
+			SET status = CASE
+					WHEN NOW() >= retry_deadline THEN $1
+					ELSE $2
+				END,
+				available_at = $3,
+				last_error = $4
+			WHERE job_id = $5
+			  AND owner_id = $6
+			RETURNING job_id, status
+		`, q.tableName)
+
 		stmt, err := tx.PrepareContext(ctx, query)
 		if err != nil {
 			return fmt.Errorf("failed to prepare retry statement: %w", err)
@@ -379,6 +402,32 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 			}
 		}
 
+		// Archive jobs that exceeded the retry deadline within the same transaction
+		if len(failed) > 0 {
+			archiveQuery := fmt.Sprintf(`
+				WITH failed AS (
+					DELETE FROM %s
+					WHERE job_id = ANY($1)
+					  AND owner_id = $2
+					  AND status = $3
+					RETURNING *
+				)
+				INSERT INTO %s
+				SELECT *, NOW() as completed_at
+				FROM failed
+			`, q.tableName, q.archiveName)
+
+			result, err := tx.ExecContext(ctx, archiveQuery, pq.Array(failed), q.ownerID, JobStatusFailed)
+			if err != nil {
+				return fmt.Errorf("failed to archive jobs that exceeded retry deadline: %w", err)
+			}
+
+			affected, _ := result.RowsAffected()
+			q.logger.Infow("Archived jobs that exceeded retry deadline",
+				"queue", q.config.Name,
+				"count", affected)
+		}
+
 		return nil
 	})
 	if err != nil {
@@ -395,22 +444,26 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 	return nil
 }
 
-// Fail marks jobs as permanently failed.
+// Fail marks jobs as permanently failed and moves them to the archive.
+// This ensures failed jobs don't remain in the active queue indefinitely.
 func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error, jobIDs ...string) error {
 	if len(jobIDs) == 0 {
 		return nil
 	}
 
-	query := fmt.Sprintf(`
-		UPDATE %s
-		SET status = $1,
-			last_error = $2
-		WHERE job_id = $3
-		  AND owner_id = $4
-	`, q.tableName)
+	var affected int64
 
 	err := sqlutil.TransactDataSource(ctx, q.ds, nil, func(tx sqlutil.DataSource) error {
-		stmt, err := tx.PrepareContext(ctx, query)
+		// First, update the last_error for each job
+		updateQuery := fmt.Sprintf(`
+			UPDATE %s
+			SET status = $1,
+				last_error = $2
+			WHERE job_id = $3
+			  AND owner_id = $4
+		`, q.tableName)
+
+		stmt, err := tx.PrepareContext(ctx, updateQuery)
 		if err != nil {
 			return fmt.Errorf("failed to prepare fail statement: %w", err)
 		}
@@ -433,15 +486,35 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 			}
 		}
 
+		// Now move failed jobs to archive within the same transaction
+		archiveQuery := fmt.Sprintf(`
+			WITH failed AS (
+				DELETE FROM %s
+				WHERE job_id = ANY($1)
+				  AND owner_id = $2
+				  AND status = $3
+				RETURNING *
+			)
+			INSERT INTO %s
+			SELECT *, NOW() as completed_at
+			FROM failed
+		`, q.tableName, q.archiveName)
+
+		result, err := tx.ExecContext(ctx, archiveQuery, pq.Array(jobIDs), q.ownerID, JobStatusFailed)
+		if err != nil {
+			return fmt.Errorf("failed to archive failed jobs: %w", err)
+		}
+
+		affected, _ = result.RowsAffected()
 		return nil
 	})
 	if err != nil {
 		return err
 	}
 
-	q.logger.Infow("Failed jobs",
+	q.logger.Infow("Failed and archived jobs",
 		"queue", q.config.Name,
-		"count", len(jobIDs),
+		"count", affected,
 	)
 
 	return nil
