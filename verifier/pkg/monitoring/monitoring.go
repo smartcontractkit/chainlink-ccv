@@ -22,14 +22,14 @@ type VerifierBeholderMonitoring struct {
 }
 
 // InitMonitoring initializes the beholder monitoring system for the verifier.
-func InitMonitoring() (verifier.Monitoring, error) {
+func InitMonitoring(verifierServiceName string) (verifier.Monitoring, error) {
 	// Initialize the verifier metrics
 	verifierMetrics, err := InitMetrics()
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize verifier metrics: %w", err)
 	}
 
-	serviceMetrics, err := commonmetrics.NewServiceMetrics(metrics.NewLabeler(), "verifier")
+	serviceMetrics, err := commonmetrics.NewServiceMetrics(metrics.NewLabeler(), verifierServiceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create service metrics: %w", err)
 	}
