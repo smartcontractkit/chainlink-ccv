@@ -94,6 +94,10 @@ func (p *Pool) run(ctx context.Context) {
 				p.logger.Error("Scheduler ready channel closed; exiting worker pool run loop")
 				return
 			}
+			if task == nil {
+				p.logger.Error("Received nil task from scheduler, skipping")
+				continue
+			}
 
 			workerCtx, cancel := context.WithTimeout(ctx, time.Duration(p.config.WorkerTimeout)*time.Second)
 			p.logger.Infof("Starting Worker for %s", task.messageID.String())
