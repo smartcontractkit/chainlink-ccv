@@ -80,7 +80,6 @@ func newTestSRS(
 		curseDetector,
 		&noopFilter{},
 		&noopMetricLabeler{},
-		NewPendingWritingTracker(lggr),
 		queue,
 	)
 	require.NoError(t, err)
@@ -89,6 +88,13 @@ func newTestSRS(
 	srs.finalityChecker = mockFC
 	mockFC.EXPECT().UpdateFinalized(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockFC.EXPECT().IsFinalityViolated().Return(false).Maybe()
+
+	// SRS now writes checkpoints after every successful publish/cycle.
+	// Allow WriteChainStatuses on any mock passed in so individual tests don't
+	// have to set this up unless they specifically want to assert on it.
+	if mockCSM, ok := chainStatusMgr.(*mocks.MockChainStatusManager); ok {
+		mockCSM.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).Return(nil).Maybe()
+	}
 
 	return srs, mockFC, queue
 }
@@ -538,7 +544,6 @@ func TestSRS_DisableFinalityChecker(t *testing.T) {
 		curseDetector,
 		&noopFilter{},
 		&noopMetricLabeler{},
-		NewPendingWritingTracker(lggr),
 		&fakeTaskQueue{},
 	)
 	require.NoError(t, err)

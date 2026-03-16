@@ -3,7 +3,6 @@ package verifier
 import (
 	"context"
 	"fmt"
-	"math/big"
 	"sync"
 	"time"
 
@@ -39,12 +38,6 @@ type StorageWriterProcessor struct {
 	storage     protocol.CCVNodeDataWriter
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult]
 
-	// Pending writing tracker (shared with SRS and TVP)
-	writingTracker *PendingWritingTracker
-
-	// ChainStatus management for checkpoint writing
-	chainStatusManager protocol.ChainStatusManager
-
 	// Configuration
 	pollInterval    time.Duration
 	cleanupInterval time.Duration
@@ -60,11 +53,9 @@ func NewStorageWriterProcessor(
 	storage protocol.CCVNodeDataWriter,
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
 	config CoordinatorConfig,
-	writingTracker *PendingWritingTracker,
-	chainStatusManager protocol.ChainStatusManager,
 ) (*StorageWriterProcessor, error) {
 	return NewStorageWriterProcessorWithPollInterval(
-		lggr, verifierID, messageTracker, storage, resultQueue, config, writingTracker, chainStatusManager, defaultPollInterval,
+		lggr, verifierID, messageTracker, storage, resultQueue, config, defaultPollInterval,
 	)
 }
 
@@ -75,26 +66,22 @@ func NewStorageWriterProcessorWithPollInterval(
 	storage protocol.CCVNodeDataWriter,
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
 	config CoordinatorConfig,
-	writingTracker *PendingWritingTracker,
-	chainStatusManager protocol.ChainStatusManager,
 	pollInterval time.Duration,
 ) (*StorageWriterProcessor, error) {
 	storageBatchSize, _, retryDelay := configWithDefaults(lggr, config)
 
 	processor := &StorageWriterProcessor{
-		lggr:               lggr,
-		verifierID:         verifierID,
-		messageTracker:     messageTracker,
-		storage:            storage,
-		resultQueue:        resultQueue,
-		retryDelay:         retryDelay,
-		writingTracker:     writingTracker,
-		chainStatusManager: chainStatusManager,
-		pollInterval:       pollInterval,
-		cleanupInterval:    defaultCleanupInterval,
-		retentionPeriod:    defaultRetentionPeriod,
-		batchSize:          storageBatchSize,
-		stopCh:             make(chan struct{}),
+		lggr:            lggr,
+		verifierID:      verifierID,
+		messageTracker:  messageTracker,
+		storage:         storage,
+		resultQueue:     resultQueue,
+		retryDelay:      retryDelay,
+		pollInterval:    pollInterval,
+		cleanupInterval: defaultCleanupInterval,
+		retentionPeriod: defaultRetentionPeriod,
+		batchSize:       storageBatchSize,
+		stopCh:          make(chan struct{}),
 	}
 	return processor, nil
 }
@@ -293,16 +280,6 @@ func (s *StorageWriterProcessor) processBatch(ctx context.Context) error {
 		return nil
 	}
 
-	// Success: complete jobs, remove from tracker, and update checkpoints
-	affectedChains := make(map[protocol.ChainSelector]struct{})
-
-	for i := range successfulJobs {
-		result := successfulResults[i]
-		chain := result.Message.SourceChainSelector
-		s.writingTracker.Remove(chain, result.MessageID.String())
-		affectedChains[chain] = struct{}{}
-	}
-
 	// Mark successful jobs as completed in queue
 	completeCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
 	defer cancel()
@@ -315,53 +292,10 @@ func (s *StorageWriterProcessor) processBatch(ctx context.Context) error {
 		// Continue anyway - data is written, tracking will catch up
 	}
 
-	// Update checkpoints
-	s.updateCheckpoints(ctx, affectedChains)
-
 	// Track message latencies
 	s.messageTracker.TrackMessageLatencies(ctx, successfulResults)
 
 	return nil
-}
-
-func (s *StorageWriterProcessor) updateCheckpoints(ctx context.Context, chains map[protocol.ChainSelector]struct{}) {
-	statuses := make([]protocol.ChainStatusInfo, 0, len(chains))
-
-	for chain := range chains {
-		checkpoint, shouldWrite := s.writingTracker.CheckpointIfAdvanced(chain)
-		if !shouldWrite {
-			continue
-		}
-
-		// Do not advance checkpoints for disabled chains; avoid implicit re-enable after violations.
-		stMap, err := s.chainStatusManager.ReadChainStatuses(ctx, []protocol.ChainSelector{chain})
-		if err != nil {
-			s.lggr.Errorw("Failed to read chain status, skipping checkpoint update", "chain", chain, "error", err)
-			continue
-		}
-		if st, ok := stMap[chain]; ok && st.Disabled {
-			s.lggr.Infow("Skipping checkpoint update: chain disabled", "chain", chain)
-			continue
-		}
-
-		// Safely convert uint64 to *big.Int to avoid overflow issues
-		checkpointBig := new(big.Int).SetUint64(checkpoint)
-
-		statuses = append(statuses, protocol.ChainStatusInfo{
-			ChainSelector:        chain,
-			FinalizedBlockHeight: checkpointBig,
-		})
-
-		s.lggr.Infow("Checkpoint advanced",
-			"chain", chain,
-			"checkpoint", checkpoint)
-	}
-
-	if len(statuses) > 0 {
-		if err := s.chainStatusManager.WriteChainStatuses(ctx, statuses); err != nil {
-			s.lggr.Errorw("Failed to write checkpoint", "error", err)
-		}
-	}
 }
 
 func (s *StorageWriterProcessor) cleanup(ctx context.Context) error {

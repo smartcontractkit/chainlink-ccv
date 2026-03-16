@@ -39,9 +39,6 @@ type TaskVerifierProcessor struct {
 	verifier       Verifier
 	messageTracker MessageLatencyTracker
 
-	// Pending writing tracker (shared with SRS and SWP)
-	writingTracker *PendingWritingTracker
-
 	// Consumes from ccv_task_verifier_jobs queue
 	taskQueue jobqueue.JobQueue[VerificationTask]
 	// Produces to ccv_storage_writer_jobs queue
@@ -62,11 +59,10 @@ func NewTaskVerifierProcessorDB(
 	messageTracker MessageLatencyTracker,
 	taskQueue jobqueue.JobQueue[VerificationTask],
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
-	writingTracker *PendingWritingTracker,
 	batchSize int,
 ) (*TaskVerifierProcessor, error) {
 	return NewTaskVerifierProcessorDBWithPollInterval(
-		lggr, verifierID, verifier, monitoring, messageTracker, taskQueue, resultQueue, writingTracker, batchSize, defaultTaskPollInterval,
+		lggr, verifierID, verifier, monitoring, messageTracker, taskQueue, resultQueue, batchSize, defaultTaskPollInterval,
 	)
 }
 
@@ -78,7 +74,6 @@ func NewTaskVerifierProcessorDBWithPollInterval(
 	messageTracker MessageLatencyTracker,
 	taskQueue jobqueue.JobQueue[VerificationTask],
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
-	writingTracker *PendingWritingTracker,
 	batchSize int,
 	pollInterval time.Duration,
 ) (*TaskVerifierProcessor, error) {
@@ -90,7 +85,6 @@ func NewTaskVerifierProcessorDBWithPollInterval(
 		messageTracker:  messageTracker,
 		taskQueue:       taskQueue,
 		resultQueue:     resultQueue,
-		writingTracker:  writingTracker,
 		pollInterval:    pollInterval,
 		cleanupInterval: defaultTaskCleanupInterval,
 		retentionPeriod: defaultTaskRetentionPeriod,
@@ -394,11 +388,6 @@ func (p *TaskVerifierProcessor) handleVerificationError(
 
 		*failedJobIDs = append(*failedJobIDs, jobID)
 		failedErrors[jobID] = verificationError.Error
-		// Remove from pending tracker for permanent failures
-		p.writingTracker.Remove(
-			message.SourceChainSelector,
-			verificationError.Task.MessageID,
-		)
 	}
 }
 

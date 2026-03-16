@@ -46,8 +46,6 @@ func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
 				StorageBatchSize:  10,
 				StorageRetryDelay: 50 * time.Millisecond,
 			},
-			NewPendingWritingTracker(lggr),
-			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
 
@@ -128,8 +126,6 @@ func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
 				StorageBatchSize:  10,
 				StorageRetryDelay: 50 * time.Millisecond,
 			},
-			NewPendingWritingTracker(lggr),
-			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
 
@@ -208,8 +204,6 @@ func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
 				StorageBatchSize:  10,
 				StorageRetryDelay: 50 * time.Millisecond,
 			},
-			NewPendingWritingTracker(lggr),
-			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
 
