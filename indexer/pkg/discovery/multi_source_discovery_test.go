@@ -149,6 +149,27 @@ func TestMultiSourceMessageDiscovery_SingleSource(t *testing.T) {
 	assert.Len(t, received, 2, "single source: all messages emitted")
 }
 
+func TestMultiSourceMessageDiscovery_WithMergeBufferSizeAcceptsOptionAndDeliversMessages(t *testing.T) {
+	msg1 := createTestCCVData(1, time.Now().UnixMilli(), 1, 2)
+	msg2 := createTestCCVData(2, time.Now().UnixMilli(), 1, 2)
+	single := newMockMessageDiscoveryWithMessages(t, []common.VerifierResultWithMetadata{msg1, msg2})
+
+	multi, err := NewMultiSourceMessageDiscovery(
+		logger.Test(t),
+		[]common.MessageDiscovery{single},
+		WithMergeBufferSize(100),
+	)
+	require.NoError(t, err)
+	defer func() { _ = multi.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out := multi.Start(ctx)
+
+	received := collectUntilTimeout(out, 500*time.Millisecond)
+	assert.Len(t, received, 2, "WithMergeBufferSize: messages still delivered")
+}
+
 func TestMultiSourceMessageDiscovery_CloseStopsAll(t *testing.T) {
 	msg := createTestCCVData(1, time.Now().UnixMilli(), 1, 2)
 	sourceA := newMockMessageDiscoveryWithMessages(t, []common.VerifierResultWithMetadata{msg})
@@ -396,6 +417,7 @@ func TestConfig_Validate_Discoveries(t *testing.T) {
 					AggregatorReaderConfig: config.AggregatorReaderConfig{Address: "http://agg1", Since: 0},
 					PollInterval:           100,
 					Timeout:                200,
+					NtpServer:              "time.google.com",
 				},
 			},
 			wantErr: false,
@@ -407,11 +429,13 @@ func TestConfig_Validate_Discoveries(t *testing.T) {
 					AggregatorReaderConfig: config.AggregatorReaderConfig{Address: "http://agg1", Since: 0},
 					PollInterval:           100,
 					Timeout:                200,
+					NtpServer:              "time.google.com",
 				},
 				{
 					AggregatorReaderConfig: config.AggregatorReaderConfig{Address: "http://agg2", Since: 0},
 					PollInterval:           100,
 					Timeout:                200,
+					NtpServer:              "time.google.com",
 				},
 			},
 			wantErr: false,
@@ -423,6 +447,37 @@ func TestConfig_Validate_Discoveries(t *testing.T) {
 					AggregatorReaderConfig: config.AggregatorReaderConfig{Address: "", Since: 0},
 					PollInterval:           100,
 					Timeout:                200,
+					NtpServer:              "time.google.com",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "discovery with empty NtpServer fails",
+			discoveries: []config.DiscoveryConfig{
+				{
+					AggregatorReaderConfig: config.AggregatorReaderConfig{Address: "http://agg1", Since: 0},
+					PollInterval:           100,
+					Timeout:                200,
+					NtpServer:              "",
+				},
+			},
+			wantErr: true,
+		},
+		{
+			name: "two discoveries with same address returns duplicate error",
+			discoveries: []config.DiscoveryConfig{
+				{
+					AggregatorReaderConfig: config.AggregatorReaderConfig{Address: "http://agg1", Since: 0},
+					PollInterval:           100,
+					Timeout:                200,
+					NtpServer:              "time.google.com",
+				},
+				{
+					AggregatorReaderConfig: config.AggregatorReaderConfig{Address: "http://agg1", Since: 0},
+					PollInterval:           100,
+					Timeout:                200,
+					NtpServer:              "time.google.com",
 				},
 			},
 			wantErr: true,
@@ -434,6 +489,10 @@ func TestConfig_Validate_Discoveries(t *testing.T) {
 			err := cfg.Validate()
 			if tt.wantErr {
 				require.Error(t, err)
+				if tt.name == "two discoveries with same address returns duplicate error" {
+					assert.Contains(t, err.Error(), "duplicate")
+					assert.Contains(t, err.Error(), "http://agg1")
+				}
 				return
 			}
 			require.NoError(t, err)

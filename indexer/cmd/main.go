@@ -179,6 +179,7 @@ func createReader(lggr logger.Logger, cfg *config.VerifierConfig) (*readers.Resi
 func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring, registry *registry.VerifierRegistry) (common.MessageDiscovery, error) {
 	configs := cfg.DiscoveryConfigs()
 	sources := make([]common.MessageDiscovery, 0, len(configs))
+	ntpProviders := make(map[string]*backofftimeprovider.BackoffNTPProvider)
 
 	for i, discCfg := range configs {
 		persistedSinceValue, err := storage.GetDiscoverySequenceNumber(ctx, discCfg.Address)
@@ -198,7 +199,11 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 			return nil, err
 		}
 
-		timeProvider := backofftimeprovider.NewBackoffNTPProvider(lggr, time.Duration(discCfg.Timeout)*time.Second, discCfg.NtpServer)
+		timeProvider, ok := ntpProviders[discCfg.NtpServer]
+		if !ok {
+			timeProvider = backofftimeprovider.NewBackoffNTPProvider(lggr, time.Duration(discCfg.Timeout)*time.Second, discCfg.NtpServer)
+			ntpProviders[discCfg.NtpServer] = timeProvider
+		}
 
 		aggDiscovery, err := discovery.NewAggregatorMessageDiscovery(
 			discovery.WithAggregator(aggregator),
@@ -219,8 +224,11 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 	if len(sources) == 1 {
 		return sources[0], nil
 	}
-	return discovery.NewMultiSourceMessageDiscovery(
-		lggr, sources)
+	opts := []discovery.MultiSourceOption{}
+	if cfg.MergeBufferSize > 0 {
+		opts = append(opts, discovery.WithMergeBufferSize(cfg.MergeBufferSize))
+	}
+	return discovery.NewMultiSourceMessageDiscovery(lggr, sources, opts...)
 }
 
 // createStorage creates the storage backend connection based on the configuration.

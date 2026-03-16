@@ -25,24 +25,36 @@ var _ common.MessageDiscovery = (*MultiSourceMessageDiscovery)(nil)
 // MultiSourceMessageDiscovery merges multiple MessageDiscovery sources and deduplicates
 // by messageID (first discovery wins). It implements common.MessageDiscovery.
 type MultiSourceMessageDiscovery struct {
-	logger    logger.Logger
-	sources   []common.MessageDiscovery
-	messageCh chan common.VerifierResultWithMetadata
-	seen      *lru.LRU[protocol.Bytes32, struct{}]
-	wg        sync.WaitGroup
-	cancel    context.CancelFunc
+	logger          logger.Logger
+	sources         []common.MessageDiscovery
+	messageCh       chan common.VerifierResultWithMetadata
+	seen            *lru.LRU[protocol.Bytes32, struct{}]
+	mergeBufferSize int
+	wg              sync.WaitGroup
+	cancel          context.CancelFunc
 }
 
 // MultiSourceOption configures MultiSourceMessageDiscovery.
 type MultiSourceOption func(*MultiSourceMessageDiscovery)
 
+// WithMergeBufferSize sets the capacity of the internal channel that merges messages from all sources.
+// If <= 0, defaults to len(sources)*2. Increase under peak load if the indexer is slow relative to aggregators.
+func WithMergeBufferSize(size int) MultiSourceOption {
+	return func(m *MultiSourceMessageDiscovery) {
+		m.mergeBufferSize = size
+	}
+}
+
 // NewMultiSourceMessageDiscovery builds a MultiSourceMessageDiscovery from the given options.
-func NewMultiSourceMessageDiscovery(lggr logger.Logger, sources []common.MessageDiscovery) (common.MessageDiscovery, error) {
+func NewMultiSourceMessageDiscovery(lggr logger.Logger, sources []common.MessageDiscovery, opts ...MultiSourceOption) (common.MessageDiscovery, error) {
 	m := &MultiSourceMessageDiscovery{
 		logger:    lggr,
 		sources:   sources,
 		messageCh: make(chan common.VerifierResultWithMetadata),
 		seen:      lru.NewLRU[protocol.Bytes32, struct{}](seenCacheMaxSize, nil, seenMessageIDTTL),
+	}
+	for _, opt := range opts {
+		opt(m)
 	}
 	if err := m.validate(); err != nil {
 		return nil, err
@@ -91,7 +103,11 @@ func (m *MultiSourceMessageDiscovery) merge(ctx context.Context, chans []<-chan 
 	type recv struct {
 		msg common.VerifierResultWithMetadata
 	}
-	recvCh := make(chan recv, len(chans)*2)
+	bufferSize := m.mergeBufferSize
+	if bufferSize <= 0 {
+		bufferSize = len(chans) * 2
+	}
+	recvCh := make(chan recv, bufferSize)
 	wg := sync.WaitGroup{}
 	for _, ch := range chans {
 		wg.Go(func() {
