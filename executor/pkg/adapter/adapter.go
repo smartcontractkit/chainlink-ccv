@@ -16,8 +16,9 @@ import (
 )
 
 // IndexerReaderAdapter adapts multiple IndexerClients to conform to the VerifierResultsReader and MessageReader interface.
-// It uses the active client first. If the active client returns status 0 (unreachable), it concurrently checks the active
-// client's health and queries alternate clients, falling over to the first healthy alternate. Once failed over, it persists on that client.
+// It uses the active client first. If the active client returns a non-success status (anything other than 200 or 404),
+// it concurrently checks the active client's health and queries alternate clients, falling over to the first healthy alternate.
+// Once failed over, it persists on that client.
 type IndexerReaderAdapter struct {
 	clients         []client.IndexerClientInterface
 	monitoring      executor.Monitoring
@@ -76,6 +77,10 @@ func (ira *IndexerReaderAdapter) setActiveClientIdx(idx int) {
 	ira.activeClientIdx = idx
 }
 
+func isSuccessStatus(status int) bool {
+	return status == 200 || status == 404
+}
+
 // queryWithFailover implements the common failover logic for all query methods.
 func queryWithFailover[TInput, TResponse any](
 	ctx context.Context,
@@ -88,9 +93,7 @@ func queryWithFailover[TInput, TResponse any](
 	// Call active client
 	status, resp, err := callFn(ira.clients[activeIdx], ctx, input)
 
-	// If active client succeeds, return results immediately
-	// we consider 200 success and 404 means indexer hasn't seen the message yet
-	if status == 200 || status == 404 {
+	if isSuccessStatus(status) {
 		ira.lggr.Debugw("Active indexer returned result",
 			"activeIdx", activeIdx,
 			"status", status,
@@ -98,9 +101,9 @@ func queryWithFailover[TInput, TResponse any](
 		return activeIdx, resp, err
 	}
 
-	// Active client unreachable - check health and query alternates concurrently
-	ira.lggr.Warnw("Active indexer unreachable, checking health and querying alternates",
+	ira.lggr.Warnw("Active indexer returned non-success status, checking health and querying alternates",
 		"activeIdx", activeIdx,
+		"status", status,
 		"error", err)
 
 	var wg sync.WaitGroup
@@ -130,10 +133,10 @@ func queryWithFailover[TInput, TResponse any](
 	}
 	wg.Wait()
 
-	// If health check passed, use active client result despite status 0
 	if healthErr == nil {
-		ira.lggr.Infow("Active indexer health check passed, using result despite status 0",
-			"activeIdx", activeIdx)
+		ira.lggr.Infow("Active indexer health check passed, using active result",
+			"activeIdx", activeIdx,
+			"status", status)
 		return activeIdx, resp, err
 	}
 
@@ -146,7 +149,7 @@ func queryWithFailover[TInput, TResponse any](
 		if i == activeIdx {
 			continue
 		}
-		if result.status != 0 {
+		if isSuccessStatus(result.status) {
 			ira.lggr.Infow("Selected healthy alternate indexer",
 				"clientIdx", i,
 				"status", result.status)
