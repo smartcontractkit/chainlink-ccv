@@ -39,6 +39,12 @@ func NewTask(lggr logger.Logger, message protocol.VerifierResult, registry *regi
 	if lggr == nil {
 		return nil, fmt.Errorf("logger is required")
 	}
+	if registry == nil {
+		return nil, fmt.Errorf("registry is required")
+	}
+	if storage == nil {
+		return nil, fmt.Errorf("storage is required")
+	}
 	return &Task{
 		logger:    logger.Named(logger.With(lggr, "messageID", message.MessageID), "Task"),
 		messageID: message.MessageID,
