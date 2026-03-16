@@ -764,9 +764,9 @@ func TestRetryExceedsDeadline(t *testing.T) {
 	errs := map[string]error{jobID: errors.New("fatal")}
 	require.NoError(t, q.Retry(ctx, 0, errs, jobID))
 
-	// Job should be marked as failed because retry deadline has passed.
-	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusFailed))
-	assert.Equal(t, 0, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusPending))
+	// Job exceeded retry deadline → immediately moved to archive as failed.
+	assert.Equal(t, 0, countAllRows(t, db, "ccv_task_verifier_jobs"))
+	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs_archive", jobqueue.JobStatusFailed))
 }
 
 func TestRetryWithDelay(t *testing.T) {
@@ -803,17 +803,20 @@ func TestFail(t *testing.T) {
 	errs := map[string]error{jobID: errors.New("permanent")}
 	require.NoError(t, q.Fail(ctx, errs, jobID))
 
-	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusFailed))
+	// Job is permanently failed → moved to archive immediately; main table must be empty.
+	assert.Equal(t, 0, countAllRows(t, db, "ccv_task_verifier_jobs"))
+	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs_archive", jobqueue.JobStatusFailed))
 
-	// Verify error is stored
+	// Verify error is stored in archive
 	var lastErr string
-	err = db.QueryRowxContext(ctx, "SELECT last_error FROM ccv_task_verifier_jobs WHERE job_id = $1", jobID).Scan(&lastErr)
+	err = db.QueryRowxContext(ctx, "SELECT last_error FROM ccv_task_verifier_jobs_archive WHERE job_id = $1", jobID).Scan(&lastErr)
 	require.NoError(t, err)
 	assert.Equal(t, "permanent", lastErr)
 }
 
-// Failed jobs are re-consumable by the Consume query (status IN ('pending','failed')).
-func TestFailedJobsAreReconsumed(t *testing.T) {
+// TestFailedJobsAreNotReconsumed verifies that permanently failed jobs are archived immediately
+// and cannot be picked up again by Consume. We never want to retry what is permanently failed.
+func TestFailedJobsAreNotReconsumed(t *testing.T) {
 	q, _ := newTestQueue(t)
 	ctx := context.Background()
 
@@ -823,14 +826,13 @@ func TestFailedJobsAreReconsumed(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, consumed, 1)
 
-	// Mark as failed
+	// Mark as permanently failed
 	require.NoError(t, q.Fail(ctx, map[string]error{consumed[0].ID: errors.New("err")}, consumed[0].ID))
 
-	// Should be consumable again
+	// Must NOT be consumable again — it is already in the archive.
 	consumed2, err := q.Consume(ctx, 1)
 	require.NoError(t, err)
-	require.Len(t, consumed2, 1)
-	assert.Equal(t, consumed[0].ID, consumed2[0].ID)
+	require.Empty(t, consumed2)
 }
 
 // TestConsumeMarksDeserializationFailuresAsFailed ensures that jobs with malformed JSON
@@ -871,12 +873,13 @@ func TestConsumeMarksDeserializationFailuresAsFailed(t *testing.T) {
 	require.Len(t, consumed, 1, "Should only consume the valid job")
 	assert.Equal(t, "valid", consumed[0].Payload.Data)
 
-	// Verify the malformed job was marked as failed (not stuck in processing)
-	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusFailed))
+	// Verify the malformed job was moved to archive as failed (not stuck in processing)
+	assert.Equal(t, 0, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusFailed))
+	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs_archive", jobqueue.JobStatusFailed))
 
-	// Verify the malformed job has an error message
+	// Verify error is stored in archive
 	var lastError string
-	err = db.QueryRowxContext(ctx, "SELECT last_error FROM ccv_task_verifier_jobs WHERE job_id = $1", malformedJobID).Scan(&lastError)
+	err = db.QueryRowxContext(ctx, "SELECT last_error FROM ccv_task_verifier_jobs_archive WHERE job_id = $1", malformedJobID).Scan(&lastError)
 	require.NoError(t, err)
 	assert.Contains(t, lastError, "failed to unmarshal payload")
 }
@@ -962,27 +965,26 @@ func TestSize(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 3, size)
 
-	// Fail the last consumed job (it stays in failed status)
+	// Fail the last consumed job — it is permanently failed and immediately archived.
 	require.NoError(t, q.Fail(ctx, map[string]error{consumed[2].ID: errors.New("test error")}, consumed[2].ID))
 
-	// Size should be 2 (2 pending only - failed jobs are excluded from Size)
+	// Size should be 2 (2 pending; failed job was archived and is no longer in the active queue)
 	size, err = q.Size(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, 2, size)
 
-	// Consume remaining jobs - Consume WILL pick up failed jobs for retry
-	// So this returns: 2 pending + 1 failed (that becomes processing)
+	// Consume remaining jobs — only the 2 pending jobs; the failed job is gone.
 	consumed2, err := q.Consume(ctx, 10)
 	require.NoError(t, err)
-	require.Len(t, consumed2, 3) // 2 pending + 1 previously failed
+	require.Len(t, consumed2, 2) // 2 pending only
 
-	// Size should be 3 (all are now processing, and processing IS counted in Size)
+	// Size should be 2 (both are now processing)
 	size, err = q.Size(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, 3, size)
+	assert.Equal(t, 2, size)
 
 	// Complete all remaining
-	require.NoError(t, q.Complete(ctx, consumed2[0].ID, consumed2[1].ID, consumed2[2].ID))
+	require.NoError(t, q.Complete(ctx, consumed2[0].ID, consumed2[1].ID))
 
 	// Size should be 0
 	size, err = q.Size(ctx)

@@ -177,7 +177,7 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 
 	var jobs []Job[T]
 	// Track jobs that fail to deserialize - they need to be marked as failed
-	// to prevent them from being stuck in 'processing' state forever (Issue #9)
+	// to prevent them from being stuck in 'processing' state forever
 	failedToDeserialize := make(map[string]error)
 
 	for rows.Next() {
