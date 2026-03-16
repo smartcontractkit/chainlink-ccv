@@ -439,6 +439,7 @@ func NewCoordinatorWithFastPolling(
 		taskVerifierProcessor:  taskVerifierProcessor,
 		storageWriterProcessor: storageWriterProcessor,
 		heartbeatReporter:      heartbeatReporter,
+		monitoring:             monitoring,
 	}, nil
 }
 
