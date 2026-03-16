@@ -1,5 +1,11 @@
 -- +goose Up
 
+-- Drop task_job_id column from ccv_storage_writer_jobs and its archive table.
+-- The column was never used and removing it makes the schema identical to ccv_task_verifier_jobs.
+ALTER TABLE ccv_storage_writer_jobs DROP COLUMN IF EXISTS task_job_id;
+ALTER TABLE ccv_storage_writer_jobs_archive DROP COLUMN IF EXISTS task_job_id;
+
+
 -- Failed jobs should not be consumed, so they don't need to be in the index
 -- This improves query performance by reducing the index size
 
@@ -32,6 +38,10 @@ ALTER TABLE ccv_storage_writer_jobs
 
 
 -- +goose Down
+
+-- Restore task_job_id column
+ALTER TABLE ccv_storage_writer_jobs ADD COLUMN IF NOT EXISTS task_job_id UUID;
+ALTER TABLE ccv_storage_writer_jobs_archive ADD COLUMN IF NOT EXISTS task_job_id UUID;
 
 -- Remove unique constraints
 ALTER TABLE ccv_storage_writer_jobs

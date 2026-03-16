@@ -276,55 +276,40 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 	return jobs, nil
 }
 
-// Complete marks jobs as successfully processed.
+// Complete marks jobs as successfully processed and moves them to the archive.
 func (q *PostgresJobQueue[T]) Complete(ctx context.Context, jobIDs ...string) error {
 	if len(jobIDs) == 0 {
 		return nil
 	}
 
-	var affected int64
+	// Single atomic operation: delete from the active table and insert into the archive
+	// with status overridden to 'completed'. All job queue tables share the same schema
+	// so we can enumerate columns explicitly.
+	query := fmt.Sprintf(`
+		WITH completed AS (
+			DELETE FROM %s
+			WHERE job_id = ANY($1)
+			  AND owner_id = $2
+			RETURNING id, job_id, owner_id, chain_selector, message_id, task_data,
+			          created_at, available_at, started_at, attempt_count, retry_deadline, last_error
+		)
+		INSERT INTO %s (
+			id, job_id, owner_id, chain_selector, message_id, task_data,
+			status, created_at, available_at, started_at, attempt_count, retry_deadline, last_error,
+			completed_at
+		)
+		SELECT id, job_id, owner_id, chain_selector, message_id, task_data,
+		       $3, created_at, available_at, started_at, attempt_count, retry_deadline, last_error,
+		       NOW()
+		FROM completed
+	`, q.tableName, q.archiveName)
 
-	err := sqlutil.TransactDataSource(ctx, q.ds, nil, func(tx sqlutil.DataSource) error {
-		// First, update the status to completed
-		updateQuery := fmt.Sprintf(`
-			UPDATE %s
-			SET status = $1
-			WHERE job_id = ANY($2)
-			  AND owner_id = $3
-		`, q.tableName)
-
-		_, err := tx.ExecContext(ctx, updateQuery, JobStatusCompleted, pq.Array(jobIDs), q.ownerID)
-		if err != nil {
-			return fmt.Errorf("failed to update job status to completed: %w", err)
-		}
-
-		// Move to archive table for audit trail
-		// Note: This query works for both ccv_task_verifier_jobs (without task_job_id)
-		// and ccv_storage_writer_jobs (with task_job_id) by selecting all columns
-		archiveQuery := fmt.Sprintf(`
-			WITH completed AS (
-				DELETE FROM %s
-				WHERE job_id = ANY($1)
-				  AND owner_id = $2
-				RETURNING *
-			)
-			INSERT INTO %s
-			SELECT *, NOW() as completed_at
-			FROM completed
-		`, q.tableName, q.archiveName)
-
-		result, err := tx.ExecContext(ctx, archiveQuery, pq.Array(jobIDs), q.ownerID)
-		if err != nil {
-			return fmt.Errorf("failed to archive completed jobs: %w", err)
-		}
-
-		affected, _ = result.RowsAffected()
-		return nil
-	})
+	result, err := q.ds.ExecContext(ctx, query, pq.Array(jobIDs), q.ownerID, JobStatusCompleted)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to complete and archive jobs: %w", err)
 	}
 
+	affected, _ := result.RowsAffected()
 	q.logger.Debugw("Completed jobs",
 		"queue", q.config.Name,
 		"count", affected,
