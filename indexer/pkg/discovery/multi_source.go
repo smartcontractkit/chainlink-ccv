@@ -30,6 +30,7 @@ type MultiSourceMessageDiscovery struct {
 	messageCh chan common.VerifierResultWithMetadata
 	seen      *lru.LRU[protocol.Bytes32, struct{}]
 	wg        sync.WaitGroup
+	once      sync.Once
 	cancel    context.CancelFunc
 }
 
@@ -54,6 +55,11 @@ func (m *MultiSourceMessageDiscovery) validate() error {
 	if len(m.sources) < 1 {
 		return errors.New("at least one discovery source is required")
 	}
+	for _, src := range m.sources {
+		if src == nil {
+			return errors.New("source is nil")
+		}
+	}
 	if m.logger == nil {
 		return errors.New("logger is required")
 	}
@@ -63,17 +69,19 @@ func (m *MultiSourceMessageDiscovery) validate() error {
 // Start starts all source discoveries and returns a single channel that emits deduplicated
 // VerifierResultWithMetadata (first discovery per messageID wins).
 func (m *MultiSourceMessageDiscovery) Start(ctx context.Context) chan common.VerifierResultWithMetadata {
-	childCtx, cancel := context.WithCancel(ctx)
-	m.cancel = cancel
+	m.once.Do(func() {
+		childCtx, cancel := context.WithCancel(ctx)
+		m.cancel = cancel
 
-	chans := make([]<-chan common.VerifierResultWithMetadata, 0, len(m.sources))
-	for _, src := range m.sources {
-		chans = append(chans, src.Start(childCtx))
-	}
+		chans := make([]<-chan common.VerifierResultWithMetadata, 0, len(m.sources))
+		for _, src := range m.sources {
+			chans = append(chans, src.Start(childCtx))
+		}
 
-	m.wg.Add(1)
-	go m.merge(childCtx, chans)
-	m.logger.Info("MultiSourceMessageDiscovery started")
+		m.wg.Add(1)
+		go m.merge(childCtx, chans)
+		m.logger.Info("MultiSourceMessageDiscovery started")
+	})
 	return m.messageCh
 }
 

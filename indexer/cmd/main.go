@@ -180,6 +180,12 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 	configs := cfg.DiscoveryConfigs()
 	sources := make([]common.MessageDiscovery, 0, len(configs))
 
+	cleanupOnError := func() {
+		for _, src := range sources {
+			_ = src.Close()
+		}
+	}
+
 	for i, discCfg := range configs {
 		persistedSinceValue, err := storage.GetDiscoverySequenceNumber(ctx, discCfg.Address)
 		if err != nil {
@@ -195,6 +201,7 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 			Secret: discCfg.Secret,
 		}, discCfg.InsecureConnection, config.EffectiveMaxResponseBytes(discCfg.MaxResponseBytes))
 		if err != nil {
+			cleanupOnError()
 			return nil, err
 		}
 
@@ -211,6 +218,7 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 			discovery.WithDiscoveryPriority(i),
 		)
 		if err != nil {
+			cleanupOnError()
 			return nil, err
 		}
 		sources = append(sources, aggDiscovery)
@@ -219,8 +227,12 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 	if len(sources) == 1 {
 		return sources[0], nil
 	}
-	return discovery.NewMultiSourceMessageDiscovery(
-		lggr, sources)
+	multiDiscovery, err := discovery.NewMultiSourceMessageDiscovery(lggr, sources)
+	if err != nil {
+		cleanupOnError()
+		return nil, err
+	}
+	return multiDiscovery, nil
 }
 
 // createStorage creates the storage backend connection based on the configuration.
