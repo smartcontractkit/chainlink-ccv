@@ -116,11 +116,9 @@ func (m *MultiSourceMessageDiscovery) merge(ctx context.Context, chans []<-chan 
 		bufferSize = len(chans) * 2
 	}
 	recvCh := make(chan recv, bufferSize)
-	var fwd sync.WaitGroup
+	wg := sync.WaitGroup{}
 	for _, ch := range chans {
-		fwd.Add(1)
-		go func(ch <-chan common.VerifierResultWithMetadata) {
-			defer fwd.Done()
+		wg.Go(func() {
 			for {
 				select {
 				case <-ctx.Done():
@@ -137,11 +135,11 @@ func (m *MultiSourceMessageDiscovery) merge(ctx context.Context, chans []<-chan 
 					}
 				}
 			}
-		}(ch)
+		})
 	}
 
 	go func() {
-		fwd.Wait()
+		wg.Wait()
 		close(recvCh)
 	}()
 	for {
