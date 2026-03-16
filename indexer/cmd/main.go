@@ -206,10 +206,11 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 			return nil, err
 		}
 
-		timeProvider, ok := ntpProviders[discCfg.NtpServer]
+		ntpKey := fmt.Sprintf("%s|%d", discCfg.NtpServer, discCfg.Timeout)
+		timeProvider, ok := ntpProviders[ntpKey]
 		if !ok {
 			timeProvider = backofftimeprovider.NewBackoffNTPProvider(lggr, time.Duration(discCfg.Timeout)*time.Second, discCfg.NtpServer)
-			ntpProviders[discCfg.NtpServer] = timeProvider
+			ntpProviders[ntpKey] = timeProvider
 		}
 
 		aggDiscovery, err := discovery.NewAggregatorMessageDiscovery(
