@@ -175,7 +175,7 @@ func (h *ByteSlice) UnmarshalJSON(data []byte) error {
 // String returns the hex representation with 0x prefix.
 func (h ByteSlice) String() string {
 	if len(h) == 0 {
-		return "0x"
+		return ""
 	}
 	return "0x" + hex.EncodeToString(h)
 }

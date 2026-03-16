@@ -14,6 +14,39 @@ func TestNilUnknownAddress(t *testing.T) {
 	require.Equal(t, []byte(nil), ua.Bytes())
 }
 
+func TestUnknownAddress_String_EmptyAndNonEmpty(t *testing.T) {
+	tests := []struct {
+		name     string
+		addr     UnknownAddress
+		expected string
+	}{
+		{"empty address returns empty string", UnknownAddress{}, ""},
+		{"non-empty address returns hex with 0x prefix", UnknownAddress{0xab, 0xcd}, "0xabcd"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, tt.addr.String())
+		})
+	}
+}
+
+func TestByteSlice_String_EmptyAndNonEmpty(t *testing.T) {
+	tests := []struct {
+		name     string
+		bs       ByteSlice
+		expected string
+	}{
+		{"empty slice returns empty string", ByteSlice{}, ""},
+		{"nil slice returns empty string", ByteSlice(nil), ""},
+		{"non-empty slice returns hex with 0x prefix", ByteSlice{0xab, 0xcd}, "0xabcd"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, tt.bs.String())
+		})
+	}
+}
+
 func TestBytes16_RoundTrip(t *testing.T) {
 	original, err := NewBytes16FromString("0x0102030405060708090a0b0c0d0e0f10")
 	require.NoError(t, err)
