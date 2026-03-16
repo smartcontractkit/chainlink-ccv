@@ -496,6 +496,7 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, fin
 	advanceCheckpointTo := func() uint64 {
 		r.mu.Lock()
 		defer r.mu.Unlock()
+		hasCurseUnknown := false
 
 		if r.disabled.Load() {
 			return 0
@@ -520,12 +521,15 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, fin
 						"sourceChain", task.Message.SourceChainSelector,
 						"destChain", task.Message.DestChainSelector,
 						"error", curseErr)
-				} else {
-					r.logger.Warnw("Dropping task - lane is cursed",
-						"messageID", msgID,
-						"sourceChain", task.Message.SourceChainSelector,
-						"destChain", task.Message.DestChainSelector)
+					hasCurseUnknown = true
+					// In this particular case we can't make a decision, so we'll just skip the task
+					// Curse err should be transient so the next poll is likely to have the information
+					continue
 				}
+				r.logger.Warnw("Dropping task - lane is cursed",
+					"messageID", msgID,
+					"sourceChain", task.Message.SourceChainSelector,
+					"destChain", task.Message.DestChainSelector)
 				toBeDeleted = append(toBeDeleted, msgID)
 				continue
 			}
@@ -550,6 +554,12 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, fin
 		safeCheckpoint := latestFinalizedBlock.Uint64()
 		if lp := r.lastProcessedFinalizedBlock.Load(); lp != nil {
 			safeCheckpoint = lp.Uint64()
+		}
+
+		if hasCurseUnknown {
+			// When curse state is unknown we need to keep the checkpoint unchanged to avoid skipping messages
+			r.logger.Warnw("Curse state unknown, keeping checkpoint unchanged to avoid skipped messages")
+			safeCheckpoint = 0
 		}
 
 		if len(ready) == 0 {
