@@ -397,10 +397,8 @@ func NewCoordinatorWithFastPolling(
 		return nil, fmt.Errorf("failed to create curse detector: %w", err)
 	}
 
-	writingTracker := NewPendingWritingTracker(lggr)
-
 	dbSRS, taskVerifierProcessor, storageWriterProcessor, durableErr := createDurableProcessorsWithPollInterval(
-		lggr, ds, config, verifier, monitoring, enabledSourceReaders, chainStatusManager, curseDetector, messageTracker, storage, writingTracker, pollInterval,
+		lggr, ds, config, verifier, monitoring, enabledSourceReaders, chainStatusManager, curseDetector, messageTracker, storage, pollInterval,
 	)
 	if durableErr != nil {
 		return nil, durableErr
@@ -455,7 +453,6 @@ func createDurableProcessorsWithPollInterval(
 	curseDetector common.CurseCheckerService,
 	messageTracker MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
-	writingTracker *PendingWritingTracker,
 	pollInterval time.Duration,
 ) (map[protocol.ChainSelector]*SourceReaderService, services.Service, services.Service, error) {
 	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
@@ -487,7 +484,7 @@ func createDurableProcessorsWithPollInterval(
 	}
 
 	sourceReadersDB, err := createSourceReadersDB(
-		lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, writingTracker, taskQueue,
+		lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, taskQueue,
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to create DB source reader services: %w", err)
@@ -501,7 +498,6 @@ func createDurableProcessorsWithPollInterval(
 		messageTracker,
 		taskQueue,
 		resultQueue,
-		writingTracker,
 		config.StorageBatchSize,
 		pollInterval,
 	)
@@ -516,8 +512,6 @@ func createDurableProcessorsWithPollInterval(
 		storage,
 		resultQueue,
 		config,
-		writingTracker,
-		chainStatusManager,
 		pollInterval,
 	)
 	if err != nil {

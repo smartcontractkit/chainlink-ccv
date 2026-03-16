@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/jobqueue"
@@ -80,7 +81,6 @@ func newTestSRS(
 		curseDetector,
 		&noopFilter{},
 		&noopMetricLabeler{},
-		NewPendingWritingTracker(lggr),
 		queue,
 	)
 	require.NoError(t, err)
@@ -89,6 +89,13 @@ func newTestSRS(
 	srs.finalityChecker = mockFC
 	mockFC.EXPECT().UpdateFinalized(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockFC.EXPECT().IsFinalityViolated().Return(false).Maybe()
+
+	// SRS now writes checkpoints after every successful publish/cycle.
+	// Allow WriteChainStatuses on any mock passed in so individual tests don't
+	// have to set this up unless they specifically want to assert on it.
+	if mockCSM, ok := chainStatusMgr.(*mocks.MockChainStatusManager); ok {
+		mockCSM.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).Return(nil).Maybe()
+	}
 
 	return srs, mockFC, queue
 }
@@ -212,6 +219,66 @@ func TestSRS_Reorg_DropsMissingPendingAndSent(t *testing.T) {
 	require.True(t, hasA)
 	require.True(t, hasD)
 	require.Len(t, srs.sentTasks, 0)
+}
+
+func TestSRS_CurseStateUnknown_RetainsTaskAndBlocksCheckpointUntilResolved(t *testing.T) {
+	ctx := context.Background()
+	chain := protocol.ChainSelector(1337)
+	reader := mocks.NewMockSourceReader(t)
+
+	var checkpointWriteCount int
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	chainStatusMgr.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ []protocol.ChainStatusInfo) error {
+			checkpointWriteCount++
+			return nil
+		}).Maybe()
+
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
+	curseDetector.EXPECT().Close().Return(nil).Maybe()
+
+	srs, mockFC, queue := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+	mockFC.EXPECT().UpdateFinalized(mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockFC.EXPECT().IsFinalityViolated().Return(false).Maybe()
+
+	msg := CreateTestMessage(t, 1, chain, defaultDestChain, 0, 300_000)
+	msgID, _ := msg.MessageID()
+	task := VerificationTask{Message: msg, BlockNumber: 940, MessageID: msgID.String()}
+
+	srs.mu.Lock()
+	srs.pendingTasks[msgID.String()] = task
+	srs.mu.Unlock()
+
+	latest := &protocol.BlockHeader{Number: 1000}
+	finalized := &protocol.BlockHeader{Number: 950}
+
+	// Tick 1: curse state unknown — task must be retained, checkpoint must NOT advance
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, chain, defaultDestChain).
+		Return(true, common.ErrCurseStateUnknown).Once()
+
+	srs.sendReadyMessages(ctx, latest, finalized)
+
+	srs.mu.RLock()
+	assert.Len(t, srs.pendingTasks, 1, "task must remain in pendingTasks when curse state is unknown")
+	assert.Len(t, srs.sentTasks, 0, "task must not be moved to sentTasks")
+	srs.mu.RUnlock()
+	assert.Len(t, queue.Published(), 0, "no tasks should be published when curse state is unknown")
+	assert.Equal(t, 0, checkpointWriteCount, "checkpoint must not be written when curse state is unknown")
+
+	// Tick 2: curse resolved (lane is NOT cursed) — task should be published and checkpoint should advance
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, chain, defaultDestChain).
+		Return(false, nil).Once()
+
+	srs.sendReadyMessages(ctx, latest, finalized)
+
+	srs.mu.RLock()
+	assert.Len(t, srs.pendingTasks, 0, "task should be removed from pendingTasks after curse resolves")
+	assert.Len(t, srs.sentTasks, 1, "task should be moved to sentTasks after publish")
+	srs.mu.RUnlock()
+	assert.Len(t, queue.Published(), 1, "task should be published after curse resolves")
+	assert.Equal(t, task.MessageID, queue.Published()[0].MessageID)
+	assert.Equal(t, 1, checkpointWriteCount, "checkpoint should be written after curse resolves")
 }
 
 func TestSRS_Curse_DropsAtSendTime(t *testing.T) {
@@ -538,7 +605,6 @@ func TestSRS_DisableFinalityChecker(t *testing.T) {
 		curseDetector,
 		&noopFilter{},
 		&noopMetricLabeler{},
-		NewPendingWritingTracker(lggr),
 		&fakeTaskQueue{},
 	)
 	require.NoError(t, err)

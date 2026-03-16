@@ -139,6 +139,13 @@ func ComputeHMAC(secret, stringToSign string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+func abs(x int64) int64 {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
 // ValidateTimestamp checks if the timestamp is within acceptable window.
 func ValidateTimestamp(timestampStr string) error {
 	timestampMs, err := strconv.ParseInt(timestampStr, 10, 64)
@@ -148,8 +155,7 @@ func ValidateTimestamp(timestampStr string) error {
 
 	now := time.Now().UnixMilli()
 	diff := now - timestampMs
-
-	if diff > DefaultTimeWindow.Milliseconds() || diff < -DefaultTimeWindow.Milliseconds() {
+	if abs(diff) > DefaultTimeWindow.Milliseconds() {
 		return fmt.Errorf("timestamp outside acceptable window: %d ms difference", diff)
 	}
 

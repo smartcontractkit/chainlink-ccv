@@ -62,7 +62,6 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 			verifier.NoopLatencyTracker{},
 			taskQueue,
 			resultQueue,
-			verifier.NewPendingWritingTracker(lggr),
 			10,
 			50*time.Millisecond,
 		)
@@ -142,7 +141,6 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 			verifier.NoopLatencyTracker{},
 			taskQueue,
 			resultQueue,
-			verifier.NewPendingWritingTracker(lggr),
 			5,
 			50*time.Millisecond,
 		)
@@ -240,7 +238,6 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 			verifier.NoopLatencyTracker{},
 			taskQueue,
 			resultQueue,
-			verifier.NewPendingWritingTracker(lggr),
 			10,
 			50*time.Millisecond,
 		)
@@ -323,7 +320,6 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 			verifier.NoopLatencyTracker{},
 			taskQueue,
 			resultQueue,
-			verifier.NewPendingWritingTracker(lggr),
 			10,
 			50*time.Millisecond,
 		)
@@ -407,7 +403,6 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 			verifier.NoopLatencyTracker{},
 			taskQueue,
 			resultQueue,
-			verifier.NewPendingWritingTracker(lggr),
 			10,
 			50*time.Millisecond,
 		)
@@ -476,7 +471,6 @@ func TestTaskVerifierProcessorDB_Cleanup(t *testing.T) {
 			verifier.NoopLatencyTracker{},
 			taskQueue,
 			resultQueue,
-			verifier.NewPendingWritingTracker(lggr),
 			10,
 			50*time.Millisecond,
 		)
@@ -600,7 +594,6 @@ func TestTaskVerifierProcessorDB_StaleJobRecovery(t *testing.T) {
 			verifier.NoopLatencyTracker{},
 			taskQueue,
 			resultQueue,
-			verifier.NewPendingWritingTracker(lggr),
 			10,
 			50*time.Millisecond,
 		)
@@ -665,7 +658,6 @@ func TestTaskVerifierProcessorDB_Shutdown(t *testing.T) {
 			verifier.NoopLatencyTracker{},
 			taskQueue,
 			resultQueue,
-			verifier.NewPendingWritingTracker(lggr),
 			10,
 			50*time.Millisecond,
 		)
@@ -854,7 +846,6 @@ func TestTaskVerifierProcessorDB_CustomRetryDelays(t *testing.T) {
 			verifier.NoopLatencyTracker{},
 			taskQueue,
 			resultQueue,
-			verifier.NewPendingWritingTracker(lggr),
 			10,
 			50*time.Millisecond,
 		)
@@ -955,7 +946,6 @@ func TestTaskVerifierProcessorDB_CustomRetryDelays(t *testing.T) {
 			verifier.NoopLatencyTracker{},
 			taskQueue,
 			resultQueue,
-			verifier.NewPendingWritingTracker(lggr),
 			10,
 			50*time.Millisecond,
 		)
@@ -1050,7 +1040,6 @@ func TestTaskVerifierProcessorDB_PublishFailureHandling(t *testing.T) {
 			verifier.NoopLatencyTracker{},
 			taskQueue,
 			resultQueue,
-			verifier.NewPendingWritingTracker(lggr),
 			10,
 			50*time.Millisecond,
 		)

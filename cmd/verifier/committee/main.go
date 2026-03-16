@@ -25,7 +25,7 @@ import (
 func main() {
 	if err := bootstrap.Run(
 		"EVMCommitteeVerifier",
-		cmd.NewServiceFactory(
+		cmd.NewCommitteeVerifierServiceFactory(
 			chainsel.FamilyEVM,
 			func(ctx context.Context, lggr logger.Logger, blockchainInfos map[string]*blockchain.Info, cfg commit.Config) (chainaccess.AccessorFactory, error) {
 				helper := blockchain.NewHelper(blockchainInfos)

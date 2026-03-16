@@ -113,9 +113,8 @@ func NewCoordinatorWithDetector(
 			return fmt.Errorf("failed to create curse detector: %w", err)
 		}
 		vc.curseDetector = curseDetector
-		writingTracker := NewPendingWritingTracker(lggr)
 		dbSRS, taskVerifierProcessor, storageWriterProcessor, taskQueueObs, resultQueueObs, err := createDurableProcessors(
-			lggr, ds, config, verifier, monitoring, enabledSourceReaders, chainStatusManager, vc.curseDetector, messageTracker, storage, writingTracker,
+			lggr, ds, config, verifier, monitoring, enabledSourceReaders, chainStatusManager, vc.curseDetector, messageTracker, storage,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to create durable processors: %w", err)
@@ -160,7 +159,6 @@ func createDurableProcessors(
 	curseDetector common.CurseCheckerService,
 	messageTracker MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
-	writingTracker *PendingWritingTracker,
 ) (map[protocol.ChainSelector]*SourceReaderService, services.Service, services.Service, services.Service, services.Service, error) {
 	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
 		ds,
@@ -213,21 +211,21 @@ func createDurableProcessors(
 	}
 
 	sourceReadersDB, err := createSourceReadersDB(
-		lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, writingTracker, taskQueueObserver,
+		lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, taskQueueObserver,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create DB source reader services: %w", err)
 	}
 
 	taskVerifierProcessor, err := NewTaskVerifierProcessorDB(
-		lggr, config.VerifierID, verifier, monitoring, messageTracker, taskQueueObserver, resultQueueObserver, writingTracker, config.StorageBatchSize,
+		lggr, config.VerifierID, verifier, monitoring, messageTracker, taskQueueObserver, resultQueueObserver, config.StorageBatchSize,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create task verifier processor DB: %w", err)
 	}
 
 	storageWriterProcessor, err := NewStorageWriterProcessor(
-		lggr, config.VerifierID, messageTracker, storage, resultQueueObserver, config, writingTracker, chainStatusManager,
+		lggr, config.VerifierID, messageTracker, storage, resultQueueObserver, config,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create storage writer processor DB: %w", err)
@@ -304,7 +302,6 @@ func createSourceReadersDB(
 	curseDetector common.CurseCheckerService,
 	monitoring Monitoring,
 	enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
-	writingTracker *PendingWritingTracker,
 	taskQueue jobqueue.JobQueue[VerificationTask],
 ) (map[protocol.ChainSelector]*SourceReaderService, error) {
 	sourceReaderServices := make(map[protocol.ChainSelector]*SourceReaderService)
@@ -315,7 +312,7 @@ func createSourceReadersDB(
 		srs, err := NewSourceReaderServiceDB(
 			sourceReader, chainSelector, chainStatusManager,
 			logger.With(lggr, "component", "SourceReaderDB", "chainID", chainSelector),
-			sourceCfg, curseDetector, filter, monitoring.Metrics(), writingTracker, taskQueue,
+			sourceCfg, curseDetector, filter, monitoring.Metrics(), taskQueue,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create SourceReaderService for chain %s: %w", chainSelector, err)

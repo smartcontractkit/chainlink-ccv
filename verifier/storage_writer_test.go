@@ -4,16 +4,12 @@ import (
 	"context"
 	"errors"
 	"maps"
-	"math/big"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
@@ -31,8 +27,6 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
-		mockChainStatus := &noopChainStatusManager{}
-		tracker := NewPendingWritingTracker(lggr)
 
 		// Create result queue
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
@@ -57,8 +51,6 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 				StorageBatchSize:  10,
 				StorageRetryDelay: 100 * time.Millisecond,
 			},
-			tracker,
-			mockChainStatus,
 		)
 		require.NoError(t, err)
 
@@ -125,8 +117,6 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 				StorageBatchSize:  5,
 				StorageRetryDelay: 100 * time.Millisecond,
 			},
-			NewPendingWritingTracker(lggr),
-			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
 
@@ -186,8 +176,6 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 				StorageBatchSize:  10,
 				StorageRetryDelay: 50 * time.Millisecond,
 			},
-			NewPendingWritingTracker(lggr),
-			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
 
@@ -252,8 +240,6 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 				StorageBatchSize:  10,
 				StorageRetryDelay: 50 * time.Millisecond,
 			},
-			NewPendingWritingTracker(lggr),
-			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
 
@@ -325,8 +311,6 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 				StorageBatchSize:  10,
 				StorageRetryDelay: 10 * time.Millisecond, // Fast retry to exceed deadline quickly
 			},
-			NewPendingWritingTracker(lggr),
-			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
 
@@ -384,8 +368,6 @@ func TestStorageWriterProcessorDB_Cleanup(t *testing.T) {
 				StorageBatchSize:  10,
 				StorageRetryDelay: 100 * time.Millisecond,
 			},
-			NewPendingWritingTracker(lggr),
-			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
 
@@ -497,8 +479,6 @@ func TestStorageWriterProcessorDB_StaleJobRecovery(t *testing.T) {
 				StorageBatchSize:  10,
 				StorageRetryDelay: 100 * time.Millisecond,
 			},
-			NewPendingWritingTracker(lggr),
-			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
 
@@ -516,552 +496,6 @@ func TestStorageWriterProcessorDB_StaleJobRecovery(t *testing.T) {
 		stored := fakeStorage.GetStored()
 		_, exists := stored[result.MessageID]
 		require.True(t, exists, "Result should be stored after reclamation")
-	})
-}
-
-// TestStorageWriterProcessorDB_CheckpointManagement tests checkpoint functionality.
-func TestStorageWriterProcessorDB_CheckpointManagement(t *testing.T) {
-	// Shared DB instance for all subtests
-	db := testutil.NewTestDB(t)
-
-	t.Run("writes checkpoint after successful storage write", func(t *testing.T) {
-		lggr := logger.Test(t)
-		fakeStorage := NewFakeCCVNodeDataWriter()
-		mockChainStatus := mocks.NewMockChainStatusManager(t)
-		tracker := NewPendingWritingTracker(lggr)
-
-		chain1 := protocol.ChainSelector(1)
-		msg1 := createTrackedMessage(chain1, 100, 100, tracker)
-
-		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db,
-			jobqueue.QueueConfig{
-				Name:          StorageWriterJobsTableName,
-				OwnerID:       "test-" + t.Name(),
-				RetryDuration: time.Hour,
-				LockDuration:  time.Minute,
-			},
-			lggr,
-		)
-		require.NoError(t, err)
-
-		processor, err := NewStorageWriterProcessor(
-			lggr,
-			"test-"+t.Name(),
-			NoopLatencyTracker{},
-			fakeStorage,
-			resultQueue,
-			CoordinatorConfig{
-				StorageBatchSize:  10,
-				StorageRetryDelay: 100 * time.Millisecond,
-			},
-			tracker,
-			mockChainStatus,
-		)
-		require.NoError(t, err)
-
-		var mu sync.Mutex
-		callCount := 0
-
-		// Mock ReadChainStatuses to return enabled chain
-		mockChainStatus.EXPECT().
-			ReadChainStatuses(mock.Anything, mock.Anything).
-			RunAndReturn(func(ctx context.Context, chains []protocol.ChainSelector) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
-				result := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
-				for _, chain := range chains {
-					result[chain] = &protocol.ChainStatusInfo{
-						ChainSelector:        chain,
-						FinalizedBlockHeight: big.NewInt(0),
-						Disabled:             false,
-					}
-				}
-				return result, nil
-			}).
-			Maybe()
-
-		// Expect checkpoint at 99 (100 - 1)
-		mockChainStatus.EXPECT().
-			WriteChainStatuses(mock.Anything, mock.MatchedBy(func(statuses []protocol.ChainStatusInfo) bool {
-				mu.Lock()
-				callCount++
-				mu.Unlock()
-				return len(statuses) == 1 &&
-					statuses[0].ChainSelector == chain1 &&
-					statuses[0].FinalizedBlockHeight.Cmp(big.NewInt(99)) == 0
-			})).
-			Return(nil).
-			Once()
-
-		require.NoError(t, processor.Start(t.Context()))
-		t.Cleanup(func() {
-			require.NoError(t, processor.Close())
-		})
-
-		require.NoError(t, resultQueue.Publish(t.Context(), msg1))
-
-		require.Eventually(t, func() bool {
-			mu.Lock()
-			count := callCount
-			mu.Unlock()
-			return count == 1 && mockChainStatus.AssertExpectations(t)
-		}, tests.WaitTimeout(t), 50*time.Millisecond)
-	})
-
-	t.Run("checkpoint advances monotonically", func(t *testing.T) {
-		lggr := logger.Test(t)
-		fakeStorage := NewFakeCCVNodeDataWriter()
-		mockChainStatus := mocks.NewMockChainStatusManager(t)
-		tracker := NewPendingWritingTracker(lggr)
-
-		chain1 := protocol.ChainSelector(1)
-		msg1 := createTrackedMessage(chain1, 100, 100, tracker)
-		msg2 := createTrackedMessage(chain1, 105, 105, tracker)
-		msg3 := createTrackedMessage(chain1, 110, 110, tracker)
-
-		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db,
-			jobqueue.QueueConfig{
-				Name:          StorageWriterJobsTableName,
-				OwnerID:       "test-" + t.Name(),
-				RetryDuration: time.Hour,
-				LockDuration:  time.Minute,
-			},
-			lggr,
-		)
-		require.NoError(t, err)
-
-		processor, err := NewStorageWriterProcessor(
-			lggr,
-			"test-"+t.Name(),
-			NoopLatencyTracker{},
-			fakeStorage,
-			resultQueue,
-			CoordinatorConfig{
-				StorageBatchSize:  10,
-				StorageRetryDelay: 100 * time.Millisecond,
-			},
-			tracker,
-			mockChainStatus,
-		)
-		require.NoError(t, err)
-
-		var mu sync.Mutex
-		callCount := 0
-
-		// Mock ReadChainStatuses to return enabled chain
-		mockChainStatus.EXPECT().
-			ReadChainStatuses(mock.Anything, mock.Anything).
-			RunAndReturn(func(ctx context.Context, chains []protocol.ChainSelector) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
-				result := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
-				for _, chain := range chains {
-					result[chain] = &protocol.ChainStatusInfo{
-						ChainSelector:        chain,
-						FinalizedBlockHeight: big.NewInt(0),
-						Disabled:             false,
-					}
-				}
-				return result, nil
-			}).
-			Maybe()
-
-		// Expect checkpoints in order: 104, 109
-		mockChainStatus.EXPECT().
-			WriteChainStatuses(mock.Anything, mock.Anything).
-			RunAndReturn(func(_ context.Context, statuses []protocol.ChainStatusInfo) error {
-				mu.Lock()
-				callCount++
-				currentCount := callCount
-				mu.Unlock()
-				require.Len(t, statuses, 1)
-				require.Equal(t, chain1, statuses[0].ChainSelector)
-
-				expectedCheckpoints := map[int]int64{1: 104, 2: 109}
-				require.Equal(t, expectedCheckpoints[currentCount], statuses[0].FinalizedBlockHeight.Int64())
-				return nil
-			}).
-			Times(2)
-
-		require.NoError(t, processor.Start(t.Context()))
-		t.Cleanup(func() {
-			require.NoError(t, processor.Close())
-		})
-
-		// Publish messages one by one with delays to ensure separate batch processing
-		require.NoError(t, resultQueue.Publish(t.Context(), msg1))
-		// Wait for msg1 to be processed and checkpoint written
-		require.Eventually(t, func() bool {
-			return fakeStorage.GetStoredCount() >= 1
-		}, tests.WaitTimeout(t), 50*time.Millisecond)
-
-		require.NoError(t, resultQueue.Publish(t.Context(), msg2))
-		// Wait for msg2 to be processed and second checkpoint written
-		require.Eventually(t, func() bool {
-			return fakeStorage.GetStoredCount() >= 2
-		}, tests.WaitTimeout(t), 50*time.Millisecond)
-
-		require.NoError(t, resultQueue.Publish(t.Context(), msg3))
-		// Wait for msg3 to be processed
-		require.Eventually(t, func() bool {
-			return fakeStorage.GetStoredCount() >= 3
-		}, tests.WaitTimeout(t), 50*time.Millisecond)
-
-		// Now wait for both checkpoint calls
-		require.Eventually(t, func() bool {
-			mu.Lock()
-			count := callCount
-			mu.Unlock()
-			return count == 2 && mockChainStatus.AssertExpectations(t)
-		}, tests.WaitTimeout(t), 50*time.Millisecond)
-	})
-
-	t.Run("multiple chains handled independently", func(t *testing.T) {
-		lggr := logger.Test(t)
-		fakeStorage := NewFakeCCVNodeDataWriter()
-		mockChainStatus := mocks.NewMockChainStatusManager(t)
-		tracker := NewPendingWritingTracker(lggr)
-
-		chain1 := protocol.ChainSelector(1)
-		chain2 := protocol.ChainSelector(2)
-		msg1 := createTrackedMessage(chain1, 100, 100, tracker)
-		msg2 := createTrackedMessage(chain2, 200, 200, tracker)
-
-		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db,
-			jobqueue.QueueConfig{
-				Name:          StorageWriterJobsTableName,
-				OwnerID:       "test-" + t.Name(),
-				RetryDuration: time.Hour,
-				LockDuration:  time.Minute,
-			},
-			lggr,
-		)
-		require.NoError(t, err)
-
-		processor, err := NewStorageWriterProcessor(
-			lggr,
-			"test-"+t.Name(),
-			NoopLatencyTracker{},
-			fakeStorage,
-			resultQueue,
-			CoordinatorConfig{
-				StorageBatchSize:  10,
-				StorageRetryDelay: 100 * time.Millisecond,
-			},
-			tracker,
-			mockChainStatus,
-		)
-		require.NoError(t, err)
-
-		var mu sync.Mutex
-		chain1Written, chain2Written := false, false
-
-		// Mock ReadChainStatuses to return enabled chains
-		mockChainStatus.EXPECT().
-			ReadChainStatuses(mock.Anything, mock.Anything).
-			RunAndReturn(func(ctx context.Context, chains []protocol.ChainSelector) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
-				result := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
-				for _, chain := range chains {
-					result[chain] = &protocol.ChainStatusInfo{
-						ChainSelector:        chain,
-						FinalizedBlockHeight: big.NewInt(0),
-						Disabled:             false,
-					}
-				}
-				return result, nil
-			}).
-			Maybe()
-
-		mockChainStatus.EXPECT().
-			WriteChainStatuses(mock.Anything, mock.Anything).
-			RunAndReturn(func(_ context.Context, statuses []protocol.ChainStatusInfo) error {
-				mu.Lock()
-				for _, status := range statuses {
-					switch status.ChainSelector {
-					case chain1:
-						assert.Equal(t, int64(99), status.FinalizedBlockHeight.Int64())
-						chain1Written = true
-					case chain2:
-						assert.Equal(t, int64(199), status.FinalizedBlockHeight.Int64())
-						chain2Written = true
-					}
-				}
-				mu.Unlock()
-				return nil
-			}).
-			Maybe()
-
-		require.NoError(t, processor.Start(t.Context()))
-		t.Cleanup(func() {
-			require.NoError(t, processor.Close())
-		})
-
-		require.NoError(t, resultQueue.Publish(t.Context(), msg1, msg2))
-
-		require.Eventually(t, func() bool {
-			mu.Lock()
-			c1 := chain1Written
-			c2 := chain2Written
-			mu.Unlock()
-			return c1 && c2 && mockChainStatus.AssertExpectations(t)
-		}, tests.WaitTimeout(t), 50*time.Millisecond)
-	})
-
-	t.Run("skips checkpoint update for disabled chains", func(t *testing.T) {
-		lggr := logger.Test(t)
-		fakeStorage := NewFakeCCVNodeDataWriter()
-		mockChainStatus := mocks.NewMockChainStatusManager(t)
-		tracker := NewPendingWritingTracker(lggr)
-
-		enabledChain := protocol.ChainSelector(1)
-		disabledChain := protocol.ChainSelector(2)
-
-		// Create messages for both enabled and disabled chains
-		msgEnabled := createTrackedMessage(enabledChain, 100, 100, tracker)
-		msgDisabled := createTrackedMessage(disabledChain, 200, 200, tracker)
-
-		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db,
-			jobqueue.QueueConfig{
-				Name:          StorageWriterJobsTableName,
-				OwnerID:       "test-" + t.Name(),
-				RetryDuration: time.Hour,
-				LockDuration:  time.Minute,
-			},
-			lggr,
-		)
-		require.NoError(t, err)
-
-		processor, err := NewStorageWriterProcessor(
-			lggr,
-			"test-"+t.Name(),
-			NoopLatencyTracker{},
-			fakeStorage,
-			resultQueue,
-			CoordinatorConfig{
-				StorageBatchSize:  10,
-				StorageRetryDelay: 100 * time.Millisecond,
-			},
-			tracker,
-			mockChainStatus,
-		)
-		require.NoError(t, err)
-
-		var mu sync.Mutex
-		var readStatusCallCount int
-		var writeStatusCallCount int
-
-		// Mock ReadChainStatuses - return disabled status for disabledChain
-		mockChainStatus.EXPECT().
-			ReadChainStatuses(mock.Anything, mock.Anything).
-			RunAndReturn(func(ctx context.Context, chains []protocol.ChainSelector) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
-				mu.Lock()
-				readStatusCallCount++
-				mu.Unlock()
-
-				result := make(map[protocol.ChainSelector]*protocol.ChainStatusInfo)
-				for _, chain := range chains {
-					switch chain {
-					case disabledChain:
-						result[chain] = &protocol.ChainStatusInfo{
-							ChainSelector:        chain,
-							FinalizedBlockHeight: big.NewInt(0),
-							Disabled:             true, // Chain is disabled
-						}
-					case enabledChain:
-						result[chain] = &protocol.ChainStatusInfo{
-							ChainSelector:        chain,
-							FinalizedBlockHeight: big.NewInt(0),
-							Disabled:             false, // Chain is enabled
-						}
-					}
-				}
-				return result, nil
-			}).
-			Maybe() // Called multiple times
-
-		// Expect WriteChainStatuses only for enabled chain
-		mockChainStatus.EXPECT().
-			WriteChainStatuses(mock.Anything, mock.MatchedBy(func(statuses []protocol.ChainStatusInfo) bool {
-				mu.Lock()
-				defer mu.Unlock()
-				writeStatusCallCount++
-
-				// Should only contain enabled chain
-				if len(statuses) != 1 {
-					return false
-				}
-				if statuses[0].ChainSelector != enabledChain {
-					return false
-				}
-				// Checkpoint should be 99 (100 - 1)
-				return statuses[0].FinalizedBlockHeight.Cmp(big.NewInt(99)) == 0
-			})).
-			Return(nil).
-			Once()
-
-		require.NoError(t, processor.Start(t.Context()))
-		t.Cleanup(func() {
-			require.NoError(t, processor.Close())
-		})
-
-		// Publish both messages
-		require.NoError(t, resultQueue.Publish(t.Context(), msgEnabled, msgDisabled))
-
-		// Wait for both messages to be stored
-		require.Eventually(t, func() bool {
-			return fakeStorage.GetStoredCount() == 2
-		}, tests.WaitTimeout(t), 50*time.Millisecond)
-
-		// Wait a bit for checkpoint processing
-		time.Sleep(200 * time.Millisecond)
-
-		// Verify expectations
-		mu.Lock()
-		finalReadCount := readStatusCallCount
-		finalWriteCount := writeStatusCallCount
-		mu.Unlock()
-
-		// Should have called ReadChainStatuses (at least once for each chain)
-		require.Greater(t, finalReadCount, 0, "ReadChainStatuses should be called")
-
-		// Should have called WriteChainStatuses exactly once (only for enabled chain)
-		require.Equal(t, 1, finalWriteCount, "WriteChainStatuses should be called once for enabled chain only")
-
-		mockChainStatus.AssertExpectations(t)
-	})
-
-	t.Run("handles error when reading chain status and skips checkpoint update", func(t *testing.T) {
-		lggr := logger.Test(t)
-		fakeStorage := NewFakeCCVNodeDataWriter()
-		mockChainStatus := mocks.NewMockChainStatusManager(t)
-		tracker := NewPendingWritingTracker(lggr)
-
-		chain := protocol.ChainSelector(1)
-		msg := createTrackedMessage(chain, 100, 100, tracker)
-
-		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db,
-			jobqueue.QueueConfig{
-				Name:          StorageWriterJobsTableName,
-				OwnerID:       "test-" + t.Name(),
-				RetryDuration: time.Hour,
-				LockDuration:  time.Minute,
-			},
-			lggr,
-		)
-		require.NoError(t, err)
-
-		processor, err := NewStorageWriterProcessor(
-			lggr,
-			"test-"+t.Name(),
-			NoopLatencyTracker{},
-			fakeStorage,
-			resultQueue,
-			CoordinatorConfig{
-				StorageBatchSize:  10,
-				StorageRetryDelay: 100 * time.Millisecond,
-			},
-			tracker,
-			mockChainStatus,
-		)
-		require.NoError(t, err)
-
-		// Mock ReadChainStatuses to return error
-		mockChainStatus.EXPECT().
-			ReadChainStatuses(mock.Anything, mock.Anything).
-			Return(nil, errors.New("database error")).
-			Maybe()
-
-		// WriteChainStatuses should NOT be called when read fails - no expectation means it should not be called
-
-		require.NoError(t, processor.Start(t.Context()))
-		t.Cleanup(func() {
-			require.NoError(t, processor.Close())
-		})
-
-		// Publish message
-		require.NoError(t, resultQueue.Publish(t.Context(), msg))
-
-		// Wait for message to be stored
-		require.Eventually(t, func() bool {
-			return fakeStorage.GetStoredCount() == 1
-		}, tests.WaitTimeout(t), 50*time.Millisecond)
-
-		// Wait a bit to ensure no checkpoint write happens
-		time.Sleep(200 * time.Millisecond)
-
-		// AssertExpectations will fail if WriteChainStatuses was called (since we didn't set up an expectation)
-		mockChainStatus.AssertExpectations(t)
-	})
-
-	t.Run("handles missing chain in ReadChainStatuses response and skips checkpoint update", func(t *testing.T) {
-		lggr := logger.Test(t)
-		fakeStorage := NewFakeCCVNodeDataWriter()
-		mockChainStatus := mocks.NewMockChainStatusManager(t)
-		tracker := NewPendingWritingTracker(lggr)
-
-		chain := protocol.ChainSelector(1)
-		msg := createTrackedMessage(chain, 100, 100, tracker)
-
-		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
-			db,
-			jobqueue.QueueConfig{
-				Name:          StorageWriterJobsTableName,
-				OwnerID:       "test-" + t.Name(),
-				RetryDuration: time.Hour,
-				LockDuration:  time.Minute,
-			},
-			lggr,
-		)
-		require.NoError(t, err)
-
-		processor, err := NewStorageWriterProcessor(
-			lggr,
-			"test-"+t.Name(),
-			NoopLatencyTracker{},
-			fakeStorage,
-			resultQueue,
-			CoordinatorConfig{
-				StorageBatchSize:  10,
-				StorageRetryDelay: 100 * time.Millisecond,
-			},
-			tracker,
-			mockChainStatus,
-		)
-		require.NoError(t, err)
-
-		// Mock ReadChainStatuses to return empty map (chain not found)
-		mockChainStatus.EXPECT().
-			ReadChainStatuses(mock.Anything, mock.Anything).
-			Return(make(map[protocol.ChainSelector]*protocol.ChainStatusInfo), nil).
-			Maybe()
-
-		// WriteChainStatuses should still be called since missing chain is not disabled
-		mockChainStatus.EXPECT().
-			WriteChainStatuses(mock.Anything, mock.MatchedBy(func(statuses []protocol.ChainStatusInfo) bool {
-				// Should still write checkpoint for the chain
-				return len(statuses) == 1 && statuses[0].ChainSelector == chain
-			})).
-			Return(nil).
-			Once()
-
-		require.NoError(t, processor.Start(t.Context()))
-		t.Cleanup(func() {
-			require.NoError(t, processor.Close())
-		})
-
-		// Publish message
-		require.NoError(t, resultQueue.Publish(t.Context(), msg))
-
-		// Wait for message to be stored
-		require.Eventually(t, func() bool {
-			return fakeStorage.GetStoredCount() == 1
-		}, tests.WaitTimeout(t), 50*time.Millisecond)
-
-		// Wait for checkpoint processing
-		time.Sleep(200 * time.Millisecond)
-
-		mockChainStatus.AssertExpectations(t)
 	})
 }
 
@@ -1093,8 +527,6 @@ func TestStorageWriterProcessorDB_ContextCancellation(t *testing.T) {
 				StorageBatchSize:  10,
 				StorageRetryDelay: 100 * time.Millisecond,
 			},
-			NewPendingWritingTracker(lggr),
-			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
 
@@ -1103,25 +535,6 @@ func TestStorageWriterProcessorDB_ContextCancellation(t *testing.T) {
 		// Processor should stop cleanly
 		require.NoError(t, processor.Close())
 	})
-}
-
-// noopChainStatusManager is a no-op implementation for testing.
-type noopChainStatusManager struct{}
-
-func (n *noopChainStatusManager) GetChainStatus(ctx context.Context, chain protocol.ChainSelector) (protocol.ChainStatusInfo, error) {
-	return protocol.ChainStatusInfo{}, nil
-}
-
-func (n *noopChainStatusManager) SetChainStatus(ctx context.Context, statuses []protocol.ChainStatusInfo) error {
-	return nil
-}
-
-func (n *noopChainStatusManager) ReadChainStatuses(ctx context.Context, chains []protocol.ChainSelector) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
-	return make(map[protocol.ChainSelector]*protocol.ChainStatusInfo), nil
-}
-
-func (n *noopChainStatusManager) WriteChainStatuses(ctx context.Context, statuses []protocol.ChainStatusInfo) error {
-	return nil
 }
 
 func TestConfigWithDefaults(t *testing.T) {
@@ -1172,9 +585,9 @@ func TestConfigWithDefaults(t *testing.T) {
 			lggr := logger.Test(t)
 			batchSize, batchTimeout, retryDelay := configWithDefaults(lggr, tt.config)
 
-			assert.Equal(t, tt.expectedBatchSize, batchSize)
-			assert.Equal(t, tt.expectedBatchTime, batchTimeout)
-			assert.Equal(t, tt.expectedRetryDelay, retryDelay)
+			require.Equal(t, tt.expectedBatchSize, batchSize)
+			require.Equal(t, tt.expectedBatchTime, batchTimeout)
+			require.Equal(t, tt.expectedRetryDelay, retryDelay)
 		})
 	}
 }
@@ -1272,22 +685,3 @@ func createTestVerifierNodeResult(sequenceNumber uint64) protocol.VerifierNodeRe
 
 // createTrackedMessage creates a message and tracks it properly
 // Returns the VerifierNodeResult with correct MessageID that matches tracker entry.
-func createTrackedMessage(chain protocol.ChainSelector, seqNum, finalizedBlock uint64, tracker *PendingWritingTracker) protocol.VerifierNodeResult {
-	msg := protocol.Message{
-		SourceChainSelector: chain,
-		SequenceNumber:      protocol.SequenceNumber(seqNum),
-	}
-	msgID := msg.MustMessageID()
-
-	// Track with actual MessageID string - this will match what SWP calls Remove() with
-	tracker.Add(chain, msgID.String(), finalizedBlock)
-
-	return protocol.VerifierNodeResult{
-		MessageID:       msgID,
-		Message:         msg,
-		CCVVersion:      []byte{1},
-		CCVAddresses:    []protocol.UnknownAddress{},
-		ExecutorAddress: protocol.UnknownAddress{},
-		Signature:       []byte{},
-	}
-}

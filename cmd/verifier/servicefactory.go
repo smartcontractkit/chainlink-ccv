@@ -70,9 +70,20 @@ type factory[T any] struct {
 	chainFamily               string
 }
 
-// NewServiceFactory creates a new ServiceFactory for the committee verifier service.
+// NewServiceFactory is deprecated use NewCommitteeVerifierServiceFactory instead.
+func NewServiceFactory[T any](
+	chainFamily string,
+	createAccessorFactoryFunc CreateAccessorFactoryFunc[T],
+) bootstrap.ServiceFactory[commit.JobSpec] {
+	return NewCommitteeVerifierServiceFactory(chainFamily, createAccessorFactoryFunc)
+}
+
+// NewCommitteeVerifierServiceFactory creates a new ServiceFactory for the committee verifier service.
 // T is the chain config type for this family (e.g. blockchain.Info for EVM).
-func NewServiceFactory[T any](chainFamily string, createAccessorFactoryFunc CreateAccessorFactoryFunc[T]) bootstrap.ServiceFactory[commit.JobSpec] {
+func NewCommitteeVerifierServiceFactory[T any](
+	chainFamily string,
+	createAccessorFactoryFunc CreateAccessorFactoryFunc[T],
+) bootstrap.ServiceFactory[commit.JobSpec] {
 	return &factory[T]{
 		createAccessorFactoryFunc: createAccessorFactoryFunc,
 		chainFamily:               chainFamily,
@@ -84,7 +95,7 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 	lggr := logger.Sugared(logger.Named(deps.Logger, "CommitteeVerifier"))
 	f.lggr = lggr
 
-	lggr.Infow("Starting verifier service", "spec", spec)
+	lggr.Infow("Starting committee verifier service", "spec", spec)
 
 	config, blockchainInfos, err := commit.LoadConfigWithBlockchainInfos[T](spec)
 	if err != nil {

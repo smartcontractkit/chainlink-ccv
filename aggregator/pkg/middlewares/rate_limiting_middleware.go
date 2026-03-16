@@ -71,7 +71,7 @@ func (m *RateLimitingMiddleware) handleGlobalLimitAnonymous(ctx context.Context,
 			Period: time.Second,
 			Limit:  int64(limitConfig.LimitPerSecond),
 		}
-		limiterCtx, err := limiter.New(m.store, rate).Get(ctx, globalKey)
+		limiterCtx, err := m.store.Get(ctx, globalKey, rate)
 		if err != nil {
 			m.lggr.Errorw("Rate limiter store error - allowing request (fail-open). Health check will fail.",
 				"error", err,
