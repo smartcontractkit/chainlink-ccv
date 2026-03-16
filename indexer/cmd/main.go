@@ -61,18 +61,24 @@ func main() {
 	defer stop()
 
 	// Setup OTEL Monitoring (via beholder)
-	indexerMonitoring, err := monitoring.InitMonitoring(beholder.Config{
-		InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
-		CACertFile:               config.Monitoring.Beholder.CACertFile,
-		OtelExporterHTTPEndpoint: config.Monitoring.Beholder.OtelExporterHTTPEndpoint,
-		OtelExporterGRPCEndpoint: config.Monitoring.Beholder.OtelExporterGRPCEndpoint,
-		LogStreamingEnabled:      config.Monitoring.Beholder.LogStreamingEnabled,
-		MetricReaderInterval:     time.Second * time.Duration(config.Monitoring.Beholder.MetricReaderInterval),
-		TraceSampleRatio:         config.Monitoring.Beholder.TraceSampleRatio,
-		TraceBatchTimeout:        time.Second * time.Duration(config.Monitoring.Beholder.TraceBatchTimeout),
-	})
-	if err != nil {
-		lggr.Fatalf("Failed to initialize indexer monitoring: %v", err)
+	var indexerMonitoring common.IndexerMonitoring
+	if config.Monitoring.Enabled {
+		indexerMonitoring, err = monitoring.InitMonitoring(beholder.Config{
+			InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
+			CACertFile:               config.Monitoring.Beholder.CACertFile,
+			OtelExporterHTTPEndpoint: config.Monitoring.Beholder.OtelExporterHTTPEndpoint,
+			OtelExporterGRPCEndpoint: config.Monitoring.Beholder.OtelExporterGRPCEndpoint,
+			LogStreamingEnabled:      config.Monitoring.Beholder.LogStreamingEnabled,
+			MetricReaderInterval:     time.Second * time.Duration(config.Monitoring.Beholder.MetricReaderInterval),
+			TraceSampleRatio:         config.Monitoring.Beholder.TraceSampleRatio,
+			TraceBatchTimeout:        time.Second * time.Duration(config.Monitoring.Beholder.TraceBatchTimeout),
+		})
+		if err != nil {
+			lggr.Fatalf("Failed to initialize indexer monitoring: %v", err)
+		}
+	} else {
+		lggr.Infow("Monitoring disabled, using noop implementation")
+		indexerMonitoring = monitoring.NewNoopIndexerMonitoring()
 	}
 
 	// Initialize the indexer storage
