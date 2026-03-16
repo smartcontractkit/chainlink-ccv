@@ -17,6 +17,8 @@ func (m *NoopAggregatorMonitoring) Metrics() common.AggregatorMetricLabeler {
 	return NewNoopAggregatorMetricLabeler()
 }
 
+func (m *NoopAggregatorMonitoring) RecordServiceStarted(context.Context) {}
+
 type NoopAggregatorMetricLabeler struct{}
 
 func NewNoopAggregatorMetricLabeler() *NoopAggregatorMetricLabeler {

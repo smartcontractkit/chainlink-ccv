@@ -62,6 +62,8 @@ type LeaderElector interface {
 type Monitoring interface {
 	// Metrics returns the metrics labeler for the executor.
 	Metrics() MetricLabeler
+	// RecordServiceStarted records that the executor service has started (common ccip_service_started gauge).
+	RecordServiceStarted(ctx context.Context)
 }
 
 // MetricLabeler provides all metric recording functionality for the indexer.

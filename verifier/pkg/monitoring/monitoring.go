@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
@@ -16,7 +17,8 @@ var _ verifier.Monitoring = (*VerifierBeholderMonitoring)(nil)
 
 // VerifierBeholderMonitoring provides beholder-based monitoring for the verifier.
 type VerifierBeholderMonitoring struct {
-	metrics verifier.MetricLabeler
+	metrics        verifier.MetricLabeler
+	serviceMetrics commonmetrics.ServiceMetrics
 }
 
 // InitMonitoring initializes the beholder monitoring system for the verifier.
@@ -27,13 +29,23 @@ func InitMonitoring() (verifier.Monitoring, error) {
 		return nil, fmt.Errorf("failed to initialize verifier metrics: %w", err)
 	}
 
+	serviceMetrics, err := commonmetrics.NewServiceMetrics(metrics.NewLabeler(), "verifier")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create service metrics: %w", err)
+	}
+
 	return &VerifierBeholderMonitoring{
-		metrics: NewVerifierMetricLabeler(metrics.NewLabeler(), verifierMetrics),
+		metrics:        NewVerifierMetricLabeler(metrics.NewLabeler(), verifierMetrics),
+		serviceMetrics: serviceMetrics,
 	}, nil
 }
 
 func (v *VerifierBeholderMonitoring) Metrics() verifier.MetricLabeler {
 	return v.metrics
+}
+
+func (v *VerifierBeholderMonitoring) RecordServiceStarted(ctx context.Context) {
+	v.serviceMetrics.RecordServiceStarted(ctx)
 }
 
 var (
@@ -48,6 +60,8 @@ type FakeVerifierMonitoring struct {
 func (f FakeVerifierMonitoring) Metrics() verifier.MetricLabeler {
 	return f.Fake
 }
+
+func (f FakeVerifierMonitoring) RecordServiceStarted(context.Context) {}
 
 func NewFakeVerifierMonitoring() *FakeVerifierMonitoring {
 	return &FakeVerifierMonitoring{

@@ -9,6 +9,8 @@ import (
 type IndexerMonitoring interface {
 	// Metrics returns the metrics labeler for the indexer.
 	Metrics() IndexerMetricLabeler
+	// RecordServiceStarted records that the indexer service has started (common ccip_service_started gauge).
+	RecordServiceStarted(ctx context.Context)
 }
 
 // IndexerMetricLabeler provides all metric recording functionality for the indexer.

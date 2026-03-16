@@ -1,10 +1,12 @@
 package monitoring
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/grafana/pyroscope-go"
 
+	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
@@ -13,7 +15,8 @@ import (
 var _ common.IndexerMonitoring = (*IndexerBeholderMonitoring)(nil)
 
 type IndexerBeholderMonitoring struct {
-	metrics common.IndexerMetricLabeler
+	metrics        common.IndexerMetricLabeler
+	serviceMetrics commonmetrics.ServiceMetrics
 }
 
 func InitMonitoring(config beholder.Config) (common.IndexerMonitoring, error) {
@@ -36,6 +39,11 @@ func InitMonitoring(config beholder.Config) (common.IndexerMonitoring, error) {
 		return nil, fmt.Errorf("failed to initialize indexer metrics: %w", err)
 	}
 
+	serviceMetrics, err := commonmetrics.NewServiceMetrics(metrics.NewLabeler(), "indexer")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create service metrics: %w", err)
+	}
+
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "indexer",
 		ServerAddress:   "http://pyroscope:4040",
@@ -52,12 +60,17 @@ func InitMonitoring(config beholder.Config) (common.IndexerMonitoring, error) {
 	}
 
 	return &IndexerBeholderMonitoring{
-		metrics: NewIndexerMetricLabeler(metrics.NewLabeler(), indexerMetrics),
+		metrics:        NewIndexerMetricLabeler(metrics.NewLabeler(), indexerMetrics),
+		serviceMetrics: serviceMetrics,
 	}, nil
 }
 
 func (i *IndexerBeholderMonitoring) Metrics() common.IndexerMetricLabeler {
 	return i.metrics
+}
+
+func (i *IndexerBeholderMonitoring) RecordServiceStarted(ctx context.Context) {
+	i.serviceMetrics.RecordServiceStarted(ctx)
 }
 
 // NoopIndexerMonitoring provides a no-op implementation of IndexerMonitoring.
@@ -75,3 +88,5 @@ func NewNoopIndexerMonitoring() common.IndexerMonitoring {
 func (n *NoopIndexerMonitoring) Metrics() common.IndexerMetricLabeler {
 	return n.noop
 }
+
+func (n *NoopIndexerMonitoring) RecordServiceStarted(context.Context) {}

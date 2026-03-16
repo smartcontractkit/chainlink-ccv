@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -177,7 +178,7 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 	}
 	config.Storage = storageConfig
 
-	s := agg.NewServer(sugaredLggr, config)
+	s := agg.NewServer(sugaredLggr, config, &monitoring.NoopAggregatorMonitoring{})
 	err = s.Start(buf)
 	if err != nil {
 		t.Fatalf("failed to start server: %v", err)

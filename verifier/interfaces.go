@@ -42,6 +42,8 @@ type MessageLatencyTracker interface {
 type Monitoring interface {
 	// Metrics returns the metrics labeler for the verifier.
 	Metrics() MetricLabeler
+	// RecordServiceStarted records that the verifier service has started (common ccip_service_started gauge).
+	RecordServiceStarted(ctx context.Context)
 }
 
 // MetricLabeler provides all metric recording functionality for the verifier.

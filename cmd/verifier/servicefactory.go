@@ -245,7 +245,7 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 	}
 	lggr.Infow("Using signer address", "address", signerAddress)
 
-	verifierMonitoring := SetupMonitoring(lggr, config.Monitoring)
+	verifierMonitoring := SetupMonitoring(lggr, config.Monitoring, "committee_verifier")
 
 	// Create chain status manager (PostgreSQL storage) with monitoring decorator
 	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr, config.VerifierID, verifierMonitoring)
@@ -325,6 +325,8 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 		lggr.Errorw("Failed to start verification coordinator", "error", err)
 		return fmt.Errorf("failed to start verification coordinator: %w", err)
 	}
+
+	verifierMonitoring.RecordServiceStarted(ctx)
 
 	// Setup HTTP server for health checks and status
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

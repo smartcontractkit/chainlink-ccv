@@ -9,6 +9,8 @@ import (
 type AggregatorMonitoring interface {
 	// Metrics returns an AggregatorMetricLabeler for recording metrics.
 	Metrics() AggregatorMetricLabeler
+	// RecordServiceStarted records that the aggregator service has started (common ccip_service_started gauge).
+	RecordServiceStarted(ctx context.Context)
 }
 
 // AggregatorMetricLabeler provides methods for recording various aggregator metrics.

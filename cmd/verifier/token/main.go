@@ -91,7 +91,7 @@ func main() {
 
 	sourceReaders := cmd.LoadBlockchainReadersForToken(ctx, lggr, registry, blockchainHelper, *config)
 
-	verifierMonitoring := cmd.SetupMonitoring(lggr, config.Monitoring)
+	verifierMonitoring := cmd.SetupMonitoring(lggr, config.Monitoring, "token_verifier")
 
 	rmnRemoteAddresses := make(map[string]protocol.UnknownAddress)
 	for selector, address := range config.RMNRemoteAddresses {

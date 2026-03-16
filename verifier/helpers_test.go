@@ -147,7 +147,8 @@ const (
 // noopMonitoring is a simple noop monitoring implementation for tests.
 type noopMonitoring struct{}
 
-func (m *noopMonitoring) Metrics() MetricLabeler { return &noopMetricLabeler{} }
+func (m *noopMonitoring) Metrics() MetricLabeler               { return &noopMetricLabeler{} }
+func (m *noopMonitoring) RecordServiceStarted(context.Context) {}
 
 type noopMetricLabeler struct{}
 
