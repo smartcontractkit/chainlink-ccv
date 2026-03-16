@@ -343,7 +343,7 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 		require.Eventually(t, func() bool {
 			var count int
 			err := db.QueryRow(`
-				SELECT COUNT(*) FROM ccv_storage_writer_jobs 
+				SELECT COUNT(*) FROM ccv_storage_writer_jobs_archive 
 				WHERE owner_id = $1 AND status = 'failed'
 			`, "test-"+t.Name()).Scan(&count)
 			return err == nil && count == 1
