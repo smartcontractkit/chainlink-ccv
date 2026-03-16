@@ -13,14 +13,12 @@ import (
 
 // Constants for CCIP v1.7.
 const (
-	MessageIDSize                 = 32 // Size of a message ID in bytes
-	MaxNumTokens                  = 1
-	MaxDataSize                   = 1024 // 1kb
-	MessageVersion                = 1    // Current message format version
-	MinSizeRequiredMsgFields      = 77   // Minimum size for required fields in Message
-	MinSizeRequiredMsgTokenFields = 39   // Minimum size for required fields in TokenTransfer
-	MaxCCVsPerMessage             = 255  // Maximum number of CCV addresses per message (limited by uint8)
-	MaxUnknownAddressBytes        = 255  // Maximum size of any UnknownAddress in bytes (limited by uint8)
+	MessageIDSize                 = 32  // Size of a message ID in bytes
+	MessageVersion                = 1   // Current message format version
+	MinSizeRequiredMsgFields      = 77  // Minimum size for required fields in Message
+	MinSizeRequiredMsgTokenFields = 39  // Minimum size for required fields in TokenTransfer
+	MaxCCVsPerMessage             = 255 // Maximum number of CCV addresses per message (limited by uint8)
+	MaxUnknownAddressBytes        = 255 // Maximum size of any UnknownAddress in bytes (limited by uint8)
 )
 
 var (

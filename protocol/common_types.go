@@ -175,7 +175,7 @@ func (h *ByteSlice) UnmarshalJSON(data []byte) error {
 // String returns the hex representation with 0x prefix.
 func (h ByteSlice) String() string {
 	if len(h) == 0 {
-		return "0x"
+		return ""
 	}
 	return "0x" + hex.EncodeToString(h)
 }
@@ -277,14 +277,6 @@ func NewBytes32FromString(s string) (Bytes32, error) {
 	// Copy to the end of the array so that leading zeros are at the beginning (left-padded)
 	copy(res[32-len(b):], b)
 	return res, nil
-}
-
-// NewBytes32FromSlice creates a Bytes32 from a byte slice. Returns an error if the slice length is not 32.
-func NewBytes32FromSlice(b []byte) (Bytes32, error) {
-	if len(b) != len(Bytes32{}) {
-		return Bytes32{}, fmt.Errorf("Bytes32 requires exactly %d bytes, got %d", len(Bytes32{}), len(b))
-	}
-	return Bytes32(b), nil
 }
 
 func (b Bytes32) String() string {

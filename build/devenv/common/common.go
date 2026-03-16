@@ -9,7 +9,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/lock_release_token_pool"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
-	"github.com/smartcontractkit/chainlink-ccv/deployments"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
 )
 
 const (
@@ -207,7 +207,7 @@ func All17TokenCombinations() []TokenCombination {
 }
 
 // qualifiersAvailable returns true if all qualifiers exist as committees in the topology.
-func qualifiersAvailable(qualifiers []string, topology *deployments.EnvironmentTopology) bool {
+func qualifiersAvailable(qualifiers []string, topology *offchain.EnvironmentTopology) bool {
 	if topology == nil || topology.NOPTopology == nil {
 		return len(qualifiers) == 0
 	}
@@ -223,7 +223,7 @@ func qualifiersAvailable(qualifiers []string, topology *deployments.EnvironmentT
 // all exist as committees in the topology. This ensures that environments with fewer
 // committees (e.g. HA topology with only "default") don't attempt to deploy or
 // configure token pools referencing non-existent committee verifiers.
-func FilterTokenCombinations(combos []TokenCombination, topology *deployments.EnvironmentTopology) []TokenCombination {
+func FilterTokenCombinations(combos []TokenCombination, topology *offchain.EnvironmentTopology) []TokenCombination {
 	filtered := make([]TokenCombination, 0, len(combos))
 	for _, combo := range combos {
 		if qualifiersAvailable(combo.SourcePoolCCVQualifiers(), topology) &&

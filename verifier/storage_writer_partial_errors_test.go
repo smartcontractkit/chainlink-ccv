@@ -18,13 +18,9 @@ import (
 )
 
 func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
-	t.Parallel()
-
 	db := testutil.NewTestDB(t)
 
 	t.Run("retries only failed requests in a partially failed batch", func(t *testing.T) {
-		t.Parallel()
-
 		lggr := logger.Test(t)
 		selectiveStorage := NewSelectiveFailureStorage()
 
@@ -50,8 +46,6 @@ func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
 				StorageBatchSize:  10,
 				StorageRetryDelay: 50 * time.Millisecond,
 			},
-			NewPendingWritingTracker(lggr),
-			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
 
@@ -107,8 +101,6 @@ func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
 	})
 
 	t.Run("handles non-retryable failures without retry", func(t *testing.T) {
-		t.Parallel()
-
 		lggr := logger.Test(t)
 		nonRetryableStorage := NewNonRetryableFailureStorage()
 
@@ -134,8 +126,6 @@ func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
 				StorageBatchSize:  10,
 				StorageRetryDelay: 50 * time.Millisecond,
 			},
-			NewPendingWritingTracker(lggr),
-			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
 
@@ -177,20 +167,18 @@ func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
 		stored = nonRetryableStorage.GetStored()
 		require.NotContains(t, stored, batch[1].MessageID, "Seq 2 should never be stored (non-retryable)")
 
-		// Verify job was marked as failed in the database
+		// Verify job was marked as failed and moved to archive
 		require.Eventually(t, func() bool {
 			var count int
 			err := db.QueryRow(`
-				SELECT COUNT(*) FROM ccv_storage_writer_jobs 
+				SELECT COUNT(*) FROM ccv_storage_writer_jobs_archive 
 				WHERE owner_id = $1 AND status = 'failed'
 			`, "test-"+t.Name()).Scan(&count)
-			return err == nil && count == 1 // Seq 2 should be failed
+			return err == nil && count == 1 // Seq 2 should be failed in archive
 		}, tests.WaitTimeout(t), 50*time.Millisecond)
 	})
 
 	t.Run("processes mixed batch with retryable and non-retryable failures", func(t *testing.T) {
-		t.Parallel()
-
 		lggr := logger.Test(t)
 		mixedStorage := NewMixedFailureStorage()
 
@@ -216,8 +204,6 @@ func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
 				StorageBatchSize:  10,
 				StorageRetryDelay: 50 * time.Millisecond,
 			},
-			NewPendingWritingTracker(lggr),
-			&noopChainStatusManager{},
 		)
 		require.NoError(t, err)
 

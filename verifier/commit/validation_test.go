@@ -37,6 +37,30 @@ func TestValidateMessageErrors(t *testing.T) {
 			defaultExecutor: protocol.UnknownAddress{},
 			expectErr:       "unsupported message version",
 		},
+		{
+			name: "empty_receipt_blobs",
+			task: &verifier.VerificationTask{
+				Message: protocol.Message{
+					Version: protocol.MessageVersion,
+				},
+				ReceiptBlobs: []protocol.ReceiptWithBlob{},
+			},
+			verifier:        protocol.UnknownAddress{},
+			defaultExecutor: protocol.UnknownAddress{},
+			expectErr:       "receipt blobs list is empty",
+		},
+		{
+			name: "nil_receipt_blobs",
+			task: &verifier.VerificationTask{
+				Message: protocol.Message{
+					Version: protocol.MessageVersion,
+				},
+				ReceiptBlobs: nil,
+			},
+			verifier:        protocol.UnknownAddress{},
+			defaultExecutor: protocol.UnknownAddress{},
+			expectErr:       "receipt blobs list is empty",
+		},
 	}
 
 	for _, tt := range tests {

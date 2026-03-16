@@ -311,12 +311,15 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 		return nil, fmt.Errorf("error iterating rows: %w", err)
 	}
 
+	corruptedReports := make(map[string]bool)
 	for reportKey, verRows := range verificationRowsByReport {
 		report := reportsMap[reportKey]
 		for _, verRow := range verRows {
 			verification, err := rowToCommitVerificationRecord(verRow)
 			if err != nil {
-				return nil, fmt.Errorf("failed to convert row to record: %w", err)
+				d.logger(ctx).Errorw("corrupted verification row, excluding entire report", "error", err, "report_key", reportKey, "verification_id", verRow.ID)
+				corruptedReports[reportKey] = true
+				break
 			}
 			report.Verifications = append(report.Verifications, verification)
 		}
@@ -333,6 +336,9 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 
 	reports := make([]*model.CommitAggregatedReport, 0, len(reportOrder))
 	for _, key := range reportOrder {
+		if corruptedReports[key] {
+			continue
+		}
 		reports = append(reports, reportsMap[key])
 	}
 
@@ -553,7 +559,9 @@ func (d *DatabaseStorage) GetBatchAggregatedReportByMessageIDs(ctx context.Conte
 		for _, verRow := range verRows {
 			verification, err := rowToCommitVerificationRecord(verRow)
 			if err != nil {
-				return nil, fmt.Errorf("failed to convert row to record: %w", err)
+				d.logger(ctx).Errorw("corrupted verification row in batch report, excluding entire report", "error", err, "message_id", messageID, "verification_id", verRow.ID)
+				delete(reports, messageID)
+				break
 			}
 			report.Verifications = append(report.Verifications, verification)
 		}

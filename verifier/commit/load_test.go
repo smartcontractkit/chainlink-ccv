@@ -56,22 +56,7 @@ UniqueChainName = "chain-1"
 
 func TestLoadConfigWithBlockchainInfos_UnknownTopLevelKey_ReturnsError(t *testing.T) {
 	tomlConfig := `
-verifier_id = "test-verifier"
-aggregator_address = "aggregator:443"
-signer_address = "0x1234567890123456789012345678901234567890"
-pyroscope_url = ""
-committee_verifier_addresses = { "1" = "0xabc" }
-on_ramp_addresses = { "1" = "0xdef" }
-default_executor_on_ramp_addresses = { "1" = "0xghi" }
-rmn_remote_addresses = { "1" = "0xjkl" }
-
 typo_key = "should fail"
-
-[blockchain_infos."1"]
-ChainID = "1"
-Type = "evm"
-Family = "evm"
-UniqueChainName = "chain-1"
 `
 	spec := JobSpec{CommitteeVerifierConfig: tomlConfig}
 
@@ -83,20 +68,7 @@ UniqueChainName = "chain-1"
 
 func TestLoadConfigWithBlockchainInfos_UnknownKeyUnderBlockchainInfos_ReturnsError(t *testing.T) {
 	tomlConfig := `
-verifier_id = "test-verifier"
-aggregator_address = "aggregator:443"
-signer_address = "0x1234567890123456789012345678901234567890"
-pyroscope_url = ""
-committee_verifier_addresses = { "1" = "0xabc" }
-on_ramp_addresses = { "1" = "0xdef" }
-default_executor_on_ramp_addresses = { "1" = "0xghi" }
-rmn_remote_addresses = { "1" = "0xjkl" }
-
 [blockchain_infos."1"]
-ChainID = "1"
-Type = "evm"
-Family = "evm"
-UniqueChainName = "chain-1"
 UnknownField = "should fail"
 `
 	spec := JobSpec{CommitteeVerifierConfig: tomlConfig}
@@ -108,21 +80,11 @@ UnknownField = "should fail"
 }
 
 func TestLoadConfigWithBlockchainInfos_EmptyBlockchainInfos(t *testing.T) {
-	tomlConfig := `
-verifier_id = "test-verifier"
-aggregator_address = "aggregator:443"
-signer_address = "0x1234567890123456789012345678901234567890"
-pyroscope_url = ""
-committee_verifier_addresses = {}
-on_ramp_addresses = {}
-default_executor_on_ramp_addresses = {}
-rmn_remote_addresses = {}
-`
+	tomlConfig := ``
 	spec := JobSpec{CommitteeVerifierConfig: tomlConfig}
 
 	cfg, infos, err := LoadConfigWithBlockchainInfos[testChainInfo](spec)
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	assert.Empty(t, infos, "blockchain_infos should be nil or empty when key is absent")
-	assert.Equal(t, "test-verifier", cfg.VerifierID)
 }

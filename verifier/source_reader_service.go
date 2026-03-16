@@ -50,9 +50,6 @@ type SourceReaderService struct {
 	// DB-backed task queue
 	taskQueue jobqueue.JobQueue[VerificationTask]
 
-	// Pending writing tracker (shared with TVP and SWP)
-	writingTracker *PendingWritingTracker
-
 	// mutable per-chain state
 	mu                          sync.RWMutex
 	lastProcessedFinalizedBlock atomic.Pointer[big.Int]
@@ -78,7 +75,6 @@ func NewSourceReaderServiceDB(
 	curseDetector common.CurseCheckerService,
 	filter chainaccess.MessageFilter,
 	metrics MetricLabeler,
-	writingTracker *PendingWritingTracker,
 	taskQueue jobqueue.JobQueue[VerificationTask],
 ) (*SourceReaderService, error) {
 	if sourceReader == nil {
@@ -95,9 +91,6 @@ func NewSourceReaderServiceDB(
 	}
 	if metrics == nil {
 		return nil, fmt.Errorf("metrics cannot be nil")
-	}
-	if writingTracker == nil {
-		return nil, fmt.Errorf("writingTracker cannot be nil")
 	}
 	if taskQueue == nil {
 		return nil, fmt.Errorf("taskQueue cannot be nil")
@@ -148,12 +141,10 @@ func NewSourceReaderServiceDB(
 		sourceCfg:          sourceCfg,
 		maxBlockRange:      maxBlockRange,
 		taskQueue:          taskQueue,
-		pendingTasks:       make(map[string]VerificationTask),
-		sentTasks:          make(map[string]VerificationTask),
-		reorgTracker:       NewReorgTracker(logger.With(lggr, "component", "ReorgTracker"), metrics),
-		stopCh:             make(chan struct{}),
-		filter:             filter,
-		writingTracker:     writingTracker,
+		pendingTasks:       make(map[string]VerificationTask), sentTasks: make(map[string]VerificationTask),
+		reorgTracker: NewReorgTracker(logger.With(lggr, "component", "ReorgTracker"), metrics),
+		stopCh:       make(chan struct{}),
+		filter:       filter,
 	}, nil
 }
 
@@ -341,8 +332,6 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context, latest, fin
 			FinalizedBlockAtRead: finalized.Number,
 		}
 		tasks = append(tasks, task)
-
-		r.writingTracker.Add(r.chainSelector, onchainMessageID, finalized.Number)
 	}
 
 	r.addToPendingQueueHandleReorg(tasks, fromBlock, lastQueriedBlock)
@@ -436,7 +425,6 @@ func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationT
 					"destChain", existing.Message.DestChainSelector,
 					"fromBlock", fromBlock.String(),
 				)
-				r.writingTracker.Remove(r.chainSelector, msgID)
 				r.reorgTracker.Track(existing.Message.DestChainSelector, existing.Message.SequenceNumber)
 				delete(r.pendingTasks, msgID)
 			}
@@ -452,7 +440,6 @@ func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationT
 					"seqNum", task.Message.SequenceNumber,
 					"destChain", task.Message.DestChainSelector,
 				)
-				r.writingTracker.Remove(r.chainSelector, msgID)
 				r.reorgTracker.Track(task.Message.DestChainSelector, task.Message.SequenceNumber)
 				delete(r.sentTasks, msgID)
 			}
@@ -504,93 +491,138 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, fin
 	latestBlock := new(big.Int).SetUint64(latest.Number)
 	latestFinalizedBlock := new(big.Int).SetUint64(finalized.Number)
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	// advanceCheckpointTo captures the block value that should be checkpointed after releasing
+	// the mutex. Zero means no checkpoint should be written this cycle.
+	advanceCheckpointTo := func() uint64 {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		hasCurseUnknown := false
 
-	if r.disabled.Load() {
-		return
-	}
-
-	for msgID, task := range r.sentTasks {
-		taskBlock := new(big.Int).SetUint64(task.BlockNumber)
-		if taskBlock.Cmp(latestFinalizedBlock) < 0 {
-			delete(r.sentTasks, msgID)
+		if r.disabled.Load() {
+			return 0
 		}
-	}
 
-	ready := make([]VerificationTask, 0, len(r.pendingTasks))
-	toBeDeleted := make([]string, 0)
+		for msgID, task := range r.sentTasks {
+			taskBlock := new(big.Int).SetUint64(task.BlockNumber)
+			if taskBlock.Cmp(latestFinalizedBlock) < 0 {
+				delete(r.sentTasks, msgID)
+			}
+		}
 
-	for msgID, task := range r.pendingTasks {
-		cursed, curseErr := r.curseDetector.IsRemoteChainCursed(ctx, task.Message.SourceChainSelector, task.Message.DestChainSelector)
-		if cursed {
-			if curseErr != nil {
-				r.logger.Warnw("Blocking lane - curse state unknown",
-					"messageID", msgID,
-					"sourceChain", task.Message.SourceChainSelector,
-					"destChain", task.Message.DestChainSelector,
-					"error", curseErr)
-			} else {
+		ready := make([]VerificationTask, 0, len(r.pendingTasks))
+		toBeDeleted := make([]string, 0)
+
+		for msgID, task := range r.pendingTasks {
+			cursed, curseErr := r.curseDetector.IsRemoteChainCursed(ctx, task.Message.SourceChainSelector, task.Message.DestChainSelector)
+			if cursed {
+				if curseErr != nil {
+					r.logger.Warnw("Blocking lane - curse state unknown",
+						"messageID", msgID,
+						"sourceChain", task.Message.SourceChainSelector,
+						"destChain", task.Message.DestChainSelector,
+						"error", curseErr)
+					hasCurseUnknown = true
+					// In this particular case we can't make a decision, so we'll just skip the task
+					// Curse err should be transient so the next poll is likely to have the information
+					continue
+				}
 				r.logger.Warnw("Dropping task - lane is cursed",
 					"messageID", msgID,
 					"sourceChain", task.Message.SourceChainSelector,
 					"destChain", task.Message.DestChainSelector)
+				toBeDeleted = append(toBeDeleted, msgID)
+				continue
 			}
-			toBeDeleted = append(toBeDeleted, msgID)
-			continue
+
+			if r.isMessageReadyForVerification(task, latestBlock, latestFinalizedBlock) {
+				// Set the timestamp when message became ready for verification
+				// This is the finalized block timestamp which represents when the message met finality criteria
+				task.ReadyForVerificationAt = latest.Timestamp
+				ready = append(ready, task)
+			}
 		}
 
-		if r.isMessageReadyForVerification(task, latestBlock, latestFinalizedBlock) {
-			// Set the timestamp when message became ready for verification
-			// This is the finalized block timestamp which represents when the message met finality criteria
-			task.ReadyForVerificationAt = latest.Timestamp
-			ready = append(ready, task)
+		// Delete cursed tasks immediately (these are being dropped, not queued)
+		for _, msgID := range toBeDeleted {
+			delete(r.pendingTasks, msgID)
 		}
+
+		// Use lastProcessedFinalizedBlock as the safe checkpoint: it tracks how far SRS has
+		// successfully scanned from chain (may be less than finalized if there were fetch errors).
+		// Fall back to latestFinalizedBlock if not yet initialized (e.g. in unit tests that call
+		// sendReadyMessages directly without starting the service first).
+		safeCheckpoint := latestFinalizedBlock.Uint64()
+		if lp := r.lastProcessedFinalizedBlock.Load(); lp != nil {
+			safeCheckpoint = lp.Uint64()
+		}
+
+		if hasCurseUnknown {
+			// When curse state is unknown we need to keep the checkpoint unchanged to avoid skipping messages
+			r.logger.Warnw("Curse state unknown, keeping checkpoint unchanged to avoid skipped messages")
+			safeCheckpoint = 0
+		}
+
+		if len(ready) == 0 {
+			// No messages to publish this cycle; we can still advance the checkpoint because
+			// all finalized messages have already been queued in previous cycles or dropped.
+			return safeCheckpoint
+		}
+
+		r.logger.Infow("Publishing ready tasks to job queue",
+			"ready", len(ready),
+			"pending", len(r.pendingTasks),
+			"sentTasks", len(r.sentTasks))
+
+		// Set PushedToVerificationQueueAt timestamp when pushing to task verifier queue for queue latency tracking
+		publishTime := time.Now()
+		for i := range ready {
+			ready[i].PushedToVerificationQueueAt = publishTime
+		}
+
+		// Publish directly to the DB-backed task queue instead of the batcher
+		// Only update in-memory state AFTER successful DB write to prevent data loss.
+		// If Publish fails due to transient DB issues, tasks remain in pendingTasks and will be
+		// retried on the next cycle. This ensures no messages are lost if the DB goes offline.
+		if err := r.taskQueue.Publish(ctx, ready...); err != nil {
+			r.logger.Errorw("Failed to publish tasks to job queue - tasks will remain in pending queue for retry",
+				"error", err,
+				"count", len(ready))
+			return 0 // Do not advance checkpoint on publish failure
+		}
+
+		// Success - now it's safe to update in-memory state
+		for _, task := range ready {
+			msgID := task.MessageID
+			r.sentTasks[msgID] = task
+			delete(r.pendingTasks, msgID)
+			r.reorgTracker.Remove(task.Message.DestChainSelector, task.Message.SequenceNumber)
+		}
+
+		r.logger.Infow("Successfully published and tracked tasks",
+			"published", len(ready),
+			"remainingPending", len(r.pendingTasks),
+			"totalSent", len(r.sentTasks))
+
+		return safeCheckpoint
+	}()
+
+	if advanceCheckpointTo > 0 {
+		r.writeCheckpoint(ctx, advanceCheckpointTo)
 	}
+}
 
-	// Delete cursed tasks immediately (these are being dropped, not queued)
-	for _, msgID := range toBeDeleted {
-		delete(r.pendingTasks, msgID)
+// writeCheckpoint persists the finalized block checkpoint for this chain.
+// It is called outside any mutex so the DB write does not block in-memory state operations.
+func (r *SourceReaderService) writeCheckpoint(ctx context.Context, finalizedBlock uint64) {
+	checkpoint := new(big.Int).SetUint64(finalizedBlock)
+	if err := r.chainStatusManager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{{
+		ChainSelector:        r.chainSelector,
+		FinalizedBlockHeight: checkpoint,
+	}}); err != nil {
+		r.logger.Errorw("Failed to write checkpoint", "error", err, "finalizedBlock", finalizedBlock)
+	} else {
+		r.logger.Infow("Checkpoint advanced", "finalizedBlock", finalizedBlock)
 	}
-
-	if len(ready) == 0 {
-		return
-	}
-
-	r.logger.Infow("Publishing ready tasks to job queue",
-		"ready", len(ready),
-		"pending", len(r.pendingTasks),
-		"sentTasks", len(r.sentTasks))
-
-	// Set PushedToVerificationQueueAt timestamp when pushing to task verifier queue for queue latency tracking
-	publishTime := time.Now()
-	for i := range ready {
-		ready[i].PushedToVerificationQueueAt = publishTime
-	}
-
-	// Publish directly to the DB-backed task queue instead of the batcher
-	// Only update in-memory state AFTER successful DB write to prevent data loss.
-	// If Publish fails due to transient DB issues, tasks remain in pendingTasks and will be
-	// retried on the next cycle. This ensures no messages are lost if the DB goes offline.
-	if err := r.taskQueue.Publish(ctx, ready...); err != nil {
-		r.logger.Errorw("Failed to publish tasks to job queue - tasks will remain in pending queue for retry",
-			"error", err,
-			"count", len(ready))
-		return
-	}
-
-	// Success - now it's safe to update in-memory state
-	for _, task := range ready {
-		msgID := task.MessageID
-		r.sentTasks[msgID] = task
-		delete(r.pendingTasks, msgID)
-		r.reorgTracker.Remove(task.Message.DestChainSelector, task.Message.SequenceNumber)
-	}
-
-	r.logger.Infow("Successfully published and tracked tasks",
-		"published", len(ready),
-		"remainingPending", len(r.pendingTasks),
-		"totalSent", len(r.sentTasks))
 }
 
 func (r *SourceReaderService) isMessageReadyForVerification(

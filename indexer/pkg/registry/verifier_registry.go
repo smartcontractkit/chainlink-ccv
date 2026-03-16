@@ -2,6 +2,7 @@ package registry
 
 import (
 	"errors"
+	"slices"
 	"sync"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
@@ -47,6 +48,9 @@ func (v *VerifierRegistry) AddVerifier(address protocol.UnknownAddress, name str
 	defer v.mu.Unlock()
 
 	key := address.String()
+	if slices.Contains(v.verifiers[key], verifier) {
+		return errors.New("verifier already registered for this address")
+	}
 	v.verifiers[key] = append(v.verifiers[key], verifier)
 
 	// Keep the first name registered for this address.
@@ -103,7 +107,13 @@ func (v *VerifierRegistry) GetVerifiers(address protocol.UnknownAddress) []*read
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 
-	return v.verifiers[address.String()]
+	internal := v.verifiers[address.String()]
+	if len(internal) == 0 {
+		return nil
+	}
+	cp := make([]*readers.VerifierReader, len(internal))
+	copy(cp, internal)
+	return cp
 }
 
 // GetVerifierNameFromAddress returns the name associated with the verifier.

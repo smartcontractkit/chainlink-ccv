@@ -14,6 +14,39 @@ func TestNilUnknownAddress(t *testing.T) {
 	require.Equal(t, []byte(nil), ua.Bytes())
 }
 
+func TestUnknownAddress_String_EmptyAndNonEmpty(t *testing.T) {
+	tests := []struct {
+		name     string
+		addr     UnknownAddress
+		expected string
+	}{
+		{"empty address returns empty string", UnknownAddress{}, ""},
+		{"non-empty address returns hex with 0x prefix", UnknownAddress{0xab, 0xcd}, "0xabcd"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, tt.addr.String())
+		})
+	}
+}
+
+func TestByteSlice_String_EmptyAndNonEmpty(t *testing.T) {
+	tests := []struct {
+		name     string
+		bs       ByteSlice
+		expected string
+	}{
+		{"empty slice returns empty string", ByteSlice{}, ""},
+		{"nil slice returns empty string", ByteSlice(nil), ""},
+		{"non-empty slice returns hex with 0x prefix", ByteSlice{0xab, 0xcd}, "0xabcd"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, tt.bs.String())
+		})
+	}
+}
+
 func TestBytes16_RoundTrip(t *testing.T) {
 	original, err := NewBytes16FromString("0x0102030405060708090a0b0c0d0e0f10")
 	require.NoError(t, err)
@@ -86,38 +119,6 @@ func TestNewBytes16FromString_LeftPadding(t *testing.T) {
 			result, err := NewBytes16FromString(tt.input)
 			require.NoError(t, err)
 			require.Equal(t, tt.expected, result, "Expected %v, got %v", tt.expected, result)
-		})
-	}
-}
-
-func TestNewBytes32FromSlice_ValidLengthReturnsBytes32(t *testing.T) {
-	b := make([]byte, 32)
-	for i := range b {
-		b[i] = byte(i)
-	}
-	result, err := NewBytes32FromSlice(b)
-	require.NoError(t, err)
-	require.Len(t, result, 32)
-	var expected Bytes32
-	copy(expected[:], b)
-	require.Equal(t, expected, result)
-}
-
-func TestNewBytes32FromSlice_InvalidLengthReturnsError(t *testing.T) {
-	tests := []struct {
-		name string
-		b    []byte
-	}{
-		{"nil", nil},
-		{"empty", []byte{}},
-		{"too short", make([]byte, 31)},
-		{"too long", make([]byte, 33)},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewBytes32FromSlice(tt.b)
-			require.Error(t, err)
-			require.Contains(t, err.Error(), "Bytes32 requires exactly 32 bytes")
 		})
 	}
 }

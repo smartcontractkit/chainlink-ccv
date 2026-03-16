@@ -64,7 +64,7 @@ func NewObservabilityDecorator[T Jobable](
 }
 
 // Start begins the observability monitoring loop.
-func (d *ObservabilityDecorator[T]) Start(ctx context.Context) error {
+func (d *ObservabilityDecorator[T]) Start(_ context.Context) error {
 	return d.StartOnce(d.Name(), func() error {
 		d.lggr.Infow("Starting JobQueue observability monitoring",
 			"queue", d.queue.Name(),

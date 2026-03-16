@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/ethereum/go-ethereum/accounts/abi"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -45,9 +47,53 @@ func NewMissingAttestation(
 	}
 }
 
+// decodeABIAttestation decodes the ABI-encoded attestation to extract payload and proof.
+// The attestation is expected to be encoded as abi.encode(bytes, bytes).
+func decodeABIAttestation(attestationBytes []byte) (rawPayload, proof []byte, err error) {
+	// Create ABI types for abi.decode(bytes, bytes)
+	bytesType, err := abi.NewType("bytes", "", nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create bytes ABI type: %w", err)
+	}
+
+	args := abi.Arguments{
+		{Type: bytesType},
+		{Type: bytesType},
+	}
+
+	// Decode the attestation
+	unpacked, err := args.Unpack(attestationBytes)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to ABI decode attestation: %w", err)
+	}
+
+	if len(unpacked) != 2 {
+		return nil, nil, fmt.Errorf("expected 2 values from ABI decode, got %d", len(unpacked))
+	}
+
+	rawPayload, ok := unpacked[0].([]byte)
+	if !ok {
+		return nil, nil, fmt.Errorf("first decoded value is not bytes")
+	}
+
+	proof, ok = unpacked[1].([]byte)
+	if !ok {
+		return nil, nil, fmt.Errorf("second decoded value is not bytes")
+	}
+
+	return rawPayload, proof, nil
+}
+
 // ToVerifierFormat converts the attestation into format expected by the verifier on the dest:
-// <4 byte verifier version><lombard attestation>
-// <lombard attestation> := abi.encode(payload, proof) as per Lombard spec, but offchain doesn't need to know the details.
+// [versionTag (4 bytes)][rawPayloadLength (2 bytes)][rawPayload (variable)][proofLength (2 bytes)][proof (variable)]
+//
+// The attestation from Lombard API is ABI-encoded as abi.encode(bytes, bytes) where:
+// - First bytes: rawPayload
+// - Second bytes: proof
+//
+// So we need to:
+// 1. ABI decode the attestation to extract rawPayload and proof
+// 2. Construct the verifier format with 4-byte version tag and 2-byte length prefixes.
 func (a *Attestation) ToVerifierFormat() (protocol.ByteSlice, error) {
 	if !a.IsReady() {
 		return nil, fmt.Errorf("attestation is not ready, status: %s", a.status)
@@ -58,9 +104,37 @@ func (a *Attestation) ToVerifierFormat() (protocol.ByteSlice, error) {
 		return nil, fmt.Errorf("failed to decode attestation hex: %w", err)
 	}
 
+	rawPayload, proof, err := decodeABIAttestation(attestationBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check for overflow before casting to uint16
+	if len(rawPayload) > 0xFFFF {
+		return nil, fmt.Errorf("rawPayload too large: %d bytes (max 65535)", len(rawPayload))
+	}
+	if len(proof) > 0xFFFF {
+		return nil, fmt.Errorf("proof too large: %d bytes (max 65535)", len(proof))
+	}
+
+	// Build output: [versionTag (4)][rawPayloadLength (2)][rawPayload][proofLength (2)][proof]
+	// #nosec G115 -- overflow checked above, safe to cast to uint16
+	rawPayloadLength := uint16(len(rawPayload))
+	// #nosec G115 -- overflow checked above, safe to cast to uint16
+	proofLength := uint16(len(proof))
+
 	var output protocol.ByteSlice
+	// Add version tag (4 bytes)
 	output = append(output, a.verifierVersion...)
-	output = append(output, attestationBytes...)
+	// Add rawPayloadLength (2 bytes, big-endian)
+	output = append(output, byte(rawPayloadLength>>8), byte(rawPayloadLength))
+	// Add rawPayload
+	output = append(output, rawPayload...)
+	// Add proofLength (2 bytes, big-endian)
+	output = append(output, byte(proofLength>>8), byte(proofLength))
+	// Add proof
+	output = append(output, proof...)
+
 	return output, nil
 }
 

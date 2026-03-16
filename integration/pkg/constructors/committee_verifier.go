@@ -102,9 +102,13 @@ func NewVerificationCoordinator(
 			return nil, fmt.Errorf("failed to create source reader: %w", err)
 		}
 
-		observedSourceReader := sourcereader.NewObservedSourceReader(
+		observedSourceReader, err := sourcereader.NewObservedSourceReader(
 			sourceReader, cfg.VerifierID, sel, verifierMonitoring,
 		)
+		if err != nil {
+			lggr.Errorw("Failed to create observed source reader.", "error", err, "chainID", sel)
+			return nil, fmt.Errorf("failed to create observed source reader: %w", err)
+		}
 
 		sourceReaders[sel] = observedSourceReader
 		sourceConfigs[sel] = verifier.SourceConfig{
@@ -114,6 +118,9 @@ func NewVerificationCoordinator(
 			ChainSelector:          sel,
 			RMNRemoteAddress:       rmnRemoteAddrs[sel],
 		}
+	}
+	if len(sourceReaders) == 0 {
+		return nil, fmt.Errorf("no source readers configured: ensure at least one chain has matching onramp and verifier addresses")
 	}
 
 	// Initialize other required services and configs.

@@ -120,6 +120,7 @@ func NewExecutorCoordinator(
 			})
 		if err != nil {
 			lggr.Errorw("Failed to create destination reader", "error", err, "chainSelector", sel)
+			delete(transmitters, sel)
 			continue
 		}
 
@@ -157,6 +158,9 @@ func NewExecutorCoordinator(
 		executorMonitoring,
 		defaultExecutorAddresses,
 	)
+	if err := ex.Validate(); err != nil {
+		return nil, fmt.Errorf("executor validation failed: %w", err)
+	}
 
 	// create hash-based leader elector
 	le, err := leaderelector.NewHashBasedLeaderElector(
