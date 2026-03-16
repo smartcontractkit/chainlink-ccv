@@ -249,27 +249,49 @@ func (q *PostgresJobQueue[T]) Complete(ctx context.Context, jobIDs ...string) er
 		return nil
 	}
 
-	// Move to archive table for audit trail
-	// Note: This query works for both ccv_task_verifier_jobs (without task_job_id)
-	// and ccv_storage_writer_jobs (with task_job_id) by selecting all columns
-	query := fmt.Sprintf(`
-		WITH completed AS (
-			DELETE FROM %s
-			WHERE job_id = ANY($1)
-			  AND owner_id = $2
-			RETURNING *
-		)
-		INSERT INTO %s
-		SELECT *, NOW() as completed_at
-		FROM completed
-	`, q.tableName, q.archiveName)
+	var affected int64
 
-	result, err := q.ds.ExecContext(ctx, query, pq.Array(jobIDs), q.ownerID)
+	err := sqlutil.TransactDataSource(ctx, q.ds, nil, func(tx sqlutil.DataSource) error {
+		// First, update the status to completed
+		updateQuery := fmt.Sprintf(`
+			UPDATE %s
+			SET status = $1
+			WHERE job_id = ANY($2)
+			  AND owner_id = $3
+		`, q.tableName)
+
+		_, err := tx.ExecContext(ctx, updateQuery, JobStatusCompleted, pq.Array(jobIDs), q.ownerID)
+		if err != nil {
+			return fmt.Errorf("failed to update job status to completed: %w", err)
+		}
+
+		// Move to archive table for audit trail
+		// Note: This query works for both ccv_task_verifier_jobs (without task_job_id)
+		// and ccv_storage_writer_jobs (with task_job_id) by selecting all columns
+		archiveQuery := fmt.Sprintf(`
+			WITH completed AS (
+				DELETE FROM %s
+				WHERE job_id = ANY($1)
+				  AND owner_id = $2
+				RETURNING *
+			)
+			INSERT INTO %s
+			SELECT *, NOW() as completed_at
+			FROM completed
+		`, q.tableName, q.archiveName)
+
+		result, err := tx.ExecContext(ctx, archiveQuery, pq.Array(jobIDs), q.ownerID)
+		if err != nil {
+			return fmt.Errorf("failed to archive completed jobs: %w", err)
+		}
+
+		affected, _ = result.RowsAffected()
+		return nil
+	})
 	if err != nil {
-		return fmt.Errorf("failed to complete jobs: %w", err)
+		return err
 	}
 
-	affected, _ := result.RowsAffected()
 	q.logger.Debugw("Completed jobs",
 		"queue", q.config.Name,
 		"count", affected,
