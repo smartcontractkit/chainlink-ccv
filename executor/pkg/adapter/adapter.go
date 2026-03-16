@@ -88,13 +88,14 @@ func queryWithFailover[TInput, TResponse any](
 	// Call active client
 	status, resp, err := callFn(ira.clients[activeIdx], ctx, input)
 
-	// If active client succeeds, return results immediately
-	// we consider 200 success and 404 means indexer hasn't seen the message yet
-	if status == 200 || status == 404 {
+	// 200 = success, 404 = indexer hasn't seen this data yet (healthy, no failover needed)
+	if status == http.StatusOK || status == http.StatusNotFound {
 		ira.lggr.Debugw("Active indexer returned result",
 			"activeIdx", activeIdx,
-			"status", status,
-			"hasError", err != nil)
+			"status", status)
+		if status == http.StatusNotFound {
+			err = nil
+		}
 		return activeIdx, resp, err
 	}
 
@@ -130,15 +131,22 @@ func queryWithFailover[TInput, TResponse any](
 	}
 	wg.Wait()
 
-	// If health check passed, use active client result despite status 0
+	// Health check passed — the initial failure was transient, retry the query
 	if healthErr == nil {
-		ira.lggr.Infow("Active indexer health check passed, using result despite status 0",
-			"activeIdx", activeIdx)
-		return activeIdx, resp, err
+		ira.lggr.Infow("Active indexer health check passed, retrying query", "activeIdx", activeIdx)
+		retryStatus, retryResp, retryErr := callFn(ira.clients[activeIdx], ctx, input)
+		if retryStatus == http.StatusOK || retryStatus == http.StatusNotFound {
+			if retryStatus == http.StatusNotFound {
+				retryErr = nil
+			}
+			return activeIdx, retryResp, retryErr
+		}
+		ira.lggr.Warnw("Retry on active indexer also failed after health check passed",
+			"activeIdx", activeIdx, "retryStatus", retryStatus, "retryError", retryErr)
 	}
 
-	// Active client unhealthy - select first healthy alternate
-	ira.lggr.Warnw("Active indexer unhealthy, selecting alternate",
+	// Active client failed - select first healthy alternate
+	ira.lggr.Warnw("Active indexer unavailable, selecting alternate",
 		"activeIdx", activeIdx,
 		"healthError", healthErr)
 
@@ -151,7 +159,11 @@ func queryWithFailover[TInput, TResponse any](
 				"clientIdx", i,
 				"status", result.status)
 			ira.setActiveClientIdx(i)
-			return i, result.response, result.err
+			altErr := result.err
+			if result.status == http.StatusNotFound {
+				altErr = nil
+			}
+			return i, result.response, altErr
 		}
 	}
 	// No healthy alternates found, return active client result

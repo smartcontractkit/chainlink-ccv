@@ -78,7 +78,25 @@ func TestConfiguration_Validate(t *testing.T) {
 				c.IndexerAddress = []string{"http://indexer1:8100", ""}
 				return c
 			}(),
-			wantErrContains: "indexer address must not be empty",
+			wantErrContains: "must have a scheme and host",
+		},
+		{
+			name: "malformed_indexer_url_missing_scheme_fails",
+			config: func() Configuration {
+				c := validConfig()
+				c.IndexerAddress = []string{"indexer1:8100"}
+				return c
+			}(),
+			wantErrContains: "must have a scheme and host",
+		},
+		{
+			name: "duplicate_indexer_address_fails",
+			config: func() Configuration {
+				c := validConfig()
+				c.IndexerAddress = []string{"http://indexer1:8100", "http://indexer1:8100"}
+				return c
+			}(),
+			wantErrContains: "duplicate indexer address",
 		},
 		{
 			name: "empty_executor_pool_fails",

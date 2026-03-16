@@ -53,19 +53,19 @@ func TestGetVerifierResults_ActiveClientSuccess(t *testing.T) {
 			expectError:     false,
 		},
 		{
-			name:            "Active returns 404 (alternates not called)",
+			name:            "Active returns 404 returns empty results without error (alternates not called)",
 			activeStatus:    404,
 			activeErr:       errors.New("not found"),
 			expectedResults: 0,
-			expectError:     true,
+			expectError:     false,
 		},
 		{
-			name:                     "Active returns 500 (alternates called)",
+			name:                     "Active returns 500 falls over to healthy alternate",
 			activeStatus:             500,
 			activeErr:                errors.New("server error"),
-			expectedResults:          0,
+			expectedResults:          2,
 			expectedAlternateResults: 2,
-			expectError:              true,
+			expectError:              false,
 		},
 	}
 
@@ -122,36 +122,120 @@ func TestGetVerifierResults_ActiveClientSuccess(t *testing.T) {
 	}
 }
 
-func TestGetVerifierResults_ActiveUnreachableButHealthy(t *testing.T) {
+func TestGetVerifierResults_ActiveUnreachableButHealthyRetriesSuccessfully(t *testing.T) {
 	ctx := context.Background()
 	messageID := protocol.Bytes32{}
 
-	// Setup mocks
 	client0 := mocks.NewMockIndexerClientInterface(t)
 	client1 := mocks.NewMockIndexerClientInterface(t)
 
-	// Active client returns status 0 (unreachable)
-	client0.On("VerifierResultsByMessageID", ctx, mock.Anything).Return(0, v1.VerifierResultsByMessageIDResponse{}, errors.New("connection refused"))
-	// But health check passes
+	retryResp := v1.VerifierResultsByMessageIDResponse{
+		Results: []common.VerifierResultWithMetadata{
+			{VerifierResult: protocol.VerifierResult{}},
+			{VerifierResult: protocol.VerifierResult{}},
+		},
+	}
+
+	// First call: unreachable (status 0). Retry after health check: succeeds.
+	client0.On("VerifierResultsByMessageID", ctx, mock.Anything).
+		Return(0, v1.VerifierResultsByMessageIDResponse{}, errors.New("connection refused")).Once()
+	client0.On("VerifierResultsByMessageID", ctx, mock.Anything).
+		Return(200, retryResp, nil).Once()
 	client0.On("Health", mock.Anything).Return(nil)
 
-	// Alternate SHOULD be called concurrently with health check when active status is 0
+	// Alternate queried concurrently during failover window
 	client1.On("VerifierResultsByMessageID", ctx, mock.Anything).Return(200, v1.VerifierResultsByMessageIDResponse{
 		Results: []common.VerifierResultWithMetadata{
 			{VerifierResult: protocol.VerifierResult{}},
 		},
 	}, nil)
 
-	// Create adapter with test helper
 	adapter := newTestAdapter(ctx, t, []client.IndexerClientInterface{client0, client1})
 
-	// Execute - should use active despite status 0 because health check passes
-	_, err := adapter.GetVerifierResults(ctx, messageID)
+	results, err := adapter.GetVerifierResults(ctx, messageID)
 
-	// Assert - should return active client's error
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "connection refused")
+	require.NoError(t, err)
+	assert.Len(t, results, 2, "Should return retry result from active indexer")
 	assert.Equal(t, 0, adapter.getActiveClientIdx(), "Should stay on client 0")
+}
+
+func TestGetVerifierResults_ActiveHealthyButRetryFailsFallsToAlternate(t *testing.T) {
+	ctx := context.Background()
+	messageID := protocol.Bytes32{}
+
+	client0 := mocks.NewMockIndexerClientInterface(t)
+	client1 := mocks.NewMockIndexerClientInterface(t)
+
+	// First call and retry both fail on active
+	client0.On("VerifierResultsByMessageID", ctx, mock.Anything).
+		Return(0, v1.VerifierResultsByMessageIDResponse{}, errors.New("connection refused"))
+	client0.On("Health", mock.Anything).Return(nil)
+
+	alternateResp := v1.VerifierResultsByMessageIDResponse{
+		Results: []common.VerifierResultWithMetadata{
+			{VerifierResult: protocol.VerifierResult{}},
+		},
+	}
+	client1.On("VerifierResultsByMessageID", ctx, mock.Anything).Return(200, alternateResp, nil)
+
+	adapter := newTestAdapter(ctx, t, []client.IndexerClientInterface{client0, client1})
+
+	results, err := adapter.GetVerifierResults(ctx, messageID)
+
+	require.NoError(t, err)
+	assert.Len(t, results, 1)
+	assert.Equal(t, 1, adapter.getActiveClientIdx(), "Should have failed over to client 1")
+}
+
+func TestGetVerifierResults_ActiveHealthyRetryReturns404(t *testing.T) {
+	ctx := context.Background()
+	messageID := protocol.Bytes32{}
+
+	client0 := mocks.NewMockIndexerClientInterface(t)
+	client1 := mocks.NewMockIndexerClientInterface(t)
+
+	// First call: unreachable. Retry after health check: 404 (not found yet).
+	client0.On("VerifierResultsByMessageID", ctx, mock.Anything).
+		Return(0, v1.VerifierResultsByMessageIDResponse{}, errors.New("connection refused")).Once()
+	client0.On("VerifierResultsByMessageID", ctx, mock.Anything).
+		Return(404, v1.VerifierResultsByMessageIDResponse{}, errors.New("not found")).Once()
+	client0.On("Health", mock.Anything).Return(nil)
+
+	client1.On("VerifierResultsByMessageID", ctx, mock.Anything).Return(200, v1.VerifierResultsByMessageIDResponse{
+		Results: []common.VerifierResultWithMetadata{{VerifierResult: protocol.VerifierResult{}}},
+	}, nil)
+
+	adapter := newTestAdapter(ctx, t, []client.IndexerClientInterface{client0, client1})
+
+	results, err := adapter.GetVerifierResults(ctx, messageID)
+
+	require.NoError(t, err, "404 on retry should not be treated as an error")
+	assert.Empty(t, results)
+	assert.Equal(t, 0, adapter.getActiveClientIdx(), "Should stay on client 0")
+}
+
+func TestGetVerifierResults_UnhealthyFailoverAlternateReturns404(t *testing.T) {
+	ctx := context.Background()
+	messageID := protocol.Bytes32{}
+
+	client0 := mocks.NewMockIndexerClientInterface(t)
+	client1 := mocks.NewMockIndexerClientInterface(t)
+
+	client0.On("VerifierResultsByMessageID", ctx, mock.Anything).
+		Return(0, v1.VerifierResultsByMessageIDResponse{}, errors.New("connection refused"))
+	client0.On("Health", mock.Anything).Return(errors.New("unhealthy"))
+
+	// Alternate returns 404 — healthy but hasn't seen the data yet
+	client1.On("VerifierResultsByMessageID", ctx, mock.Anything).
+		Return(404, v1.VerifierResultsByMessageIDResponse{}, errors.New("not found"))
+
+	adapter := newTestAdapter(ctx, t, []client.IndexerClientInterface{client0, client1})
+
+	results, err := adapter.GetVerifierResults(ctx, messageID)
+
+	require.NoError(t, err, "404 from alternate should not be treated as an error")
+	assert.Empty(t, results)
+	assert.Equal(t, 1, adapter.getActiveClientIdx(), "Should have switched to client 1")
 }
 
 func TestGetVerifierResults_ActiveUnhealthyFailover(t *testing.T) {
