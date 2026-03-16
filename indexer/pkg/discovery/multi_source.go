@@ -100,9 +100,9 @@ func (m *MultiSourceMessageDiscovery) merge(ctx context.Context, chans []<-chan 
 		msg common.VerifierResultWithMetadata
 	}
 	recvCh := make(chan recv, len(chans)*2)
-	wg := sync.WaitGroup{}
+	perSourceWg := sync.WaitGroup{}
 	for _, ch := range chans {
-		wg.Go(func() {
+		perSourceWg.Go(func() {
 			for {
 				select {
 				case <-ctx.Done():
@@ -121,9 +121,13 @@ func (m *MultiSourceMessageDiscovery) merge(ctx context.Context, chans []<-chan 
 			}
 		})
 	}
+	// Wait for per-source readers to exit before merge returns. Defers run LIFO, so this runs
+	// before m.wg.Done(); thus Close()'s m.wg.Wait() only returns after no goroutine is still
+	// reading from source channels, and src.Close() is safe.
+	defer perSourceWg.Wait()
 
 	go func() {
-		wg.Wait()
+		perSourceWg.Wait()
 		close(recvCh)
 	}()
 	for {
@@ -156,8 +160,10 @@ func (m *MultiSourceMessageDiscovery) Close() error {
 		m.cancel()
 	}
 	m.wg.Wait()
-	for _, src := range m.sources {
-		_ = src.Close()
+	for i, src := range m.sources {
+		if err := src.Close(); err != nil {
+			m.logger.Warnw("source discovery Close returned error", "source", i, "error", err)
+		}
 	}
 	m.logger.Info("MultiSourceMessageDiscovery stopped")
 	return nil
