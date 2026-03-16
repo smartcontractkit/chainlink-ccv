@@ -690,6 +690,345 @@ func TestConsumeReclaimConcurrentNoDuplicates(t *testing.T) {
 	assert.Equal(t, numJobs, count, "all stale jobs should have been reclaimed exactly once")
 }
 
+func TestComplete(t *testing.T) {
+	q, db := newTestQueue(t)
+	ctx := context.Background()
+
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
+
+	consumed, err := q.Consume(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, consumed, 1)
+
+	// Complete the job
+	require.NoError(t, q.Complete(ctx, consumed[0].ID))
+
+	// Main table should be empty, archive should have 1
+	assert.Equal(t, 0, countAllRows(t, db, "ccv_task_verifier_jobs"))
+	assert.Equal(t, 1, countAllRows(t, db, "ccv_task_verifier_jobs_archive"))
+}
+
+func TestCompleteEmpty(t *testing.T) {
+	q, _ := newTestQueue(t)
+	require.NoError(t, q.Complete(context.Background()))
+}
+
+func TestCompleteNonExistentJob(t *testing.T) {
+	q, db := newTestQueue(t)
+	// Completing a non-existent job should not error, just affect 0 rows
+	require.NoError(t, q.Complete(context.Background(), "00000000-0000-0000-0000-000000000000"))
+	assert.Equal(t, 0, countAllRows(t, db, "ccv_task_verifier_jobs_archive"))
+}
+
+func TestRetry(t *testing.T) {
+	q, db := newTestQueue(t)
+	ctx := context.Background()
+
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
+
+	consumed, err := q.Consume(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, consumed, 1)
+	jobID := consumed[0].ID
+
+	// Retry with an error message
+	errs := map[string]error{jobID: errors.New("transient failure")}
+	require.NoError(t, q.Retry(ctx, 0, errs, jobID))
+
+	// Job should be back to pending (retry deadline not yet reached)
+	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusPending))
+
+	// Consume again (attempt 2)
+	consumed2, err := q.Consume(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, consumed2, 1)
+	assert.Equal(t, 2, consumed2[0].AttemptCount)
+}
+
+func TestRetryExceedsDeadline(t *testing.T) {
+	q, db := newTestQueue(t, func(c *jobqueue.QueueConfig) {
+		c.RetryDuration = time.Millisecond // expires almost immediately
+	})
+	ctx := context.Background()
+
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
+
+	// Small sleep to ensure retry_deadline has passed
+	time.Sleep(5 * time.Millisecond)
+
+	consumed, err := q.Consume(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, consumed, 1)
+	jobID := consumed[0].ID
+
+	errs := map[string]error{jobID: errors.New("fatal")}
+	require.NoError(t, q.Retry(ctx, 0, errs, jobID))
+
+	// Job exceeded retry deadline → immediately moved to archive as failed.
+	assert.Equal(t, 0, countAllRows(t, db, "ccv_task_verifier_jobs"))
+	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs_archive", jobqueue.JobStatusFailed))
+}
+
+func TestRetryWithDelay(t *testing.T) {
+	q, _ := newTestQueue(t)
+	ctx := context.Background()
+
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
+
+	consumed, err := q.Consume(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, consumed, 1)
+
+	// Retry with 1-hour delay
+	errs := map[string]error{consumed[0].ID: errors.New("oops")}
+	require.NoError(t, q.Retry(ctx, time.Hour, errs, consumed[0].ID))
+
+	// Job is pending but available_at is in the future → not consumable
+	second, err := q.Consume(ctx, 10)
+	require.NoError(t, err)
+	assert.Empty(t, second)
+}
+
+func TestFail(t *testing.T) {
+	q, db := newTestQueue(t)
+	ctx := context.Background()
+
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
+
+	consumed, err := q.Consume(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, consumed, 1)
+	jobID := consumed[0].ID
+
+	errs := map[string]error{jobID: errors.New("permanent")}
+	require.NoError(t, q.Fail(ctx, errs, jobID))
+
+	// Job is permanently failed → moved to archive immediately; main table must be empty.
+	assert.Equal(t, 0, countAllRows(t, db, "ccv_task_verifier_jobs"))
+	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs_archive", jobqueue.JobStatusFailed))
+
+	// Verify error is stored in archive
+	var lastErr string
+	err = db.QueryRowxContext(ctx, "SELECT last_error FROM ccv_task_verifier_jobs_archive WHERE job_id = $1", jobID).Scan(&lastErr)
+	require.NoError(t, err)
+	assert.Equal(t, "permanent", lastErr)
+}
+
+// TestFailedJobsAreNotReconsumed verifies that permanently failed jobs are archived immediately
+// and cannot be picked up again by Consume. We never want to retry what is permanently failed.
+func TestFailedJobsAreNotReconsumed(t *testing.T) {
+	q, _ := newTestQueue(t)
+	ctx := context.Background()
+
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
+
+	consumed, err := q.Consume(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, consumed, 1)
+
+	// Mark as permanently failed
+	require.NoError(t, q.Fail(ctx, map[string]error{consumed[0].ID: errors.New("err")}, consumed[0].ID))
+
+	// Must NOT be consumable again — it is already in the archive.
+	consumed2, err := q.Consume(ctx, 1)
+	require.NoError(t, err)
+	require.Empty(t, consumed2)
+}
+
+// TestConsumeMarksDeserializationFailuresAsFailed ensures that jobs with malformed JSON
+// are marked as failed instead of being stuck in processing state forever.
+func TestConsumeMarksDeserializationFailuresAsFailed(t *testing.T) {
+	q, db := newTestQueue(t)
+	ctx := context.Background()
+
+	// Insert a job with incompatible JSON directly into the database
+	// This simulates a scenario where the payload schema changed (breaking change)
+	// Use an array instead of an object - valid JSON but incompatible with testJob struct
+	malformedJobID := "00000000-0000-0000-0000-000000000001"
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO ccv_task_verifier_jobs (
+			job_id, task_data, status, available_at, created_at, attempt_count, 
+			retry_deadline, chain_selector, message_id, owner_id
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`,
+		malformedJobID,
+		[]byte(`["this", "is", "an", "array", "not", "an", "object"]`), // Valid JSON but incompatible type
+		jobqueue.JobStatusPending,
+		time.Now(),
+		time.Now(),
+		0,
+		time.Now().Add(time.Hour),
+		"1",
+		[]byte("malformed-msg"),
+		"test-verifier",
+	)
+	require.NoError(t, err)
+
+	// Also insert a valid job to verify it's still consumed
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 2, Message: []byte("valid-msg"), Data: "valid"}))
+
+	// Consume - should get only the valid job
+	consumed, err := q.Consume(ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, consumed, 1, "Should only consume the valid job")
+	assert.Equal(t, "valid", consumed[0].Payload.Data)
+
+	// Verify the malformed job was moved to archive as failed (not stuck in processing)
+	assert.Equal(t, 0, countRows(t, db, "ccv_task_verifier_jobs", jobqueue.JobStatusFailed))
+	assert.Equal(t, 1, countRows(t, db, "ccv_task_verifier_jobs_archive", jobqueue.JobStatusFailed))
+
+	// Verify error is stored in archive
+	var lastError string
+	err = db.QueryRowxContext(ctx, "SELECT last_error FROM ccv_task_verifier_jobs_archive WHERE job_id = $1", malformedJobID).Scan(&lastError)
+	require.NoError(t, err)
+	assert.Contains(t, lastError, "failed to unmarshal payload")
+}
+
+func TestCleanup(t *testing.T) {
+	q, db := newTestQueue(t)
+	ctx := context.Background()
+
+	// Publish, consume, and complete a job so it lands in the archive
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
+	consumed, err := q.Consume(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, consumed, 1)
+	require.NoError(t, q.Complete(ctx, consumed[0].ID))
+
+	assert.Equal(t, 1, countAllRows(t, db, "ccv_task_verifier_jobs_archive"))
+
+	// Back-date the completed_at so cleanup will pick it up
+	_, err = db.ExecContext(ctx, "UPDATE ccv_task_verifier_jobs_archive SET completed_at = NOW() - INTERVAL '2 hours'")
+	require.NoError(t, err)
+
+	deleted, err := q.Cleanup(ctx, time.Hour)
+	require.NoError(t, err)
+	assert.Equal(t, 1, deleted)
+	assert.Equal(t, 0, countAllRows(t, db, "ccv_task_verifier_jobs_archive"))
+}
+
+func TestCleanupRetainsRecentJobs(t *testing.T) {
+	q, db := newTestQueue(t)
+	ctx := context.Background()
+
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 1, Message: []byte("m1"), Data: "x"}))
+	consumed, err := q.Consume(ctx, 1)
+	require.NoError(t, err)
+	require.NoError(t, q.Complete(ctx, consumed[0].ID))
+
+	// Cleanup with very long retention – nothing should be deleted
+	deleted, err := q.Cleanup(ctx, 24*time.Hour)
+	require.NoError(t, err)
+	assert.Equal(t, 0, deleted)
+	assert.Equal(t, 1, countAllRows(t, db, "ccv_task_verifier_jobs_archive"))
+}
+
+func TestSize(t *testing.T) {
+	q, _ := newTestQueue(t)
+	ctx := context.Background()
+
+	// Initially empty
+	size, err := q.Size(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 0, size)
+
+	// Publish 5 jobs
+	jobs := []testJob{
+		{Chain: 1, Message: []byte("msg-1"), Data: "data1"},
+		{Chain: 2, Message: []byte("msg-2"), Data: "data2"},
+		{Chain: 3, Message: []byte("msg-3"), Data: "data3"},
+		{Chain: 4, Message: []byte("msg-4"), Data: "data4"},
+		{Chain: 5, Message: []byte("msg-5"), Data: "data5"},
+	}
+	require.NoError(t, q.Publish(ctx, jobs...))
+
+	// Size should be 5 (all pending)
+	size, err = q.Size(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 5, size)
+
+	// Consume 3 jobs (now processing)
+	consumed, err := q.Consume(ctx, 3)
+	require.NoError(t, err)
+	require.Len(t, consumed, 3)
+
+	// Size should still be 5 (2 pending + 3 processing)
+	size, err = q.Size(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 5, size)
+
+	// Complete 2 jobs
+	require.NoError(t, q.Complete(ctx, consumed[0].ID, consumed[1].ID))
+
+	// Size should be 3 (2 pending + 1 processing)
+	size, err = q.Size(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 3, size)
+
+	// Fail the last consumed job — it is permanently failed and immediately archived.
+	require.NoError(t, q.Fail(ctx, map[string]error{consumed[2].ID: errors.New("test error")}, consumed[2].ID))
+
+	// Size should be 2 (2 pending; failed job was archived and is no longer in the active queue)
+	size, err = q.Size(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 2, size)
+
+	// Consume remaining jobs — only the 2 pending jobs; the failed job is gone.
+	consumed2, err := q.Consume(ctx, 10)
+	require.NoError(t, err)
+	require.Len(t, consumed2, 2) // 2 pending only
+
+	// Size should be 2 (both are now processing)
+	size, err = q.Size(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 2, size)
+
+	// Complete all remaining
+	require.NoError(t, q.Complete(ctx, consumed2[0].ID, consumed2[1].ID))
+
+	// Size should be 0
+	size, err = q.Size(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 0, size)
+}
+
+func TestFullLifecycle(t *testing.T) {
+	q, db := newTestQueue(t)
+	ctx := context.Background()
+
+	// 1. Publish
+	require.NoError(t, q.Publish(ctx, testJob{Chain: 42, Message: []byte("lifecycle-1"), Data: "step1"}))
+
+	// 2. Consume (attempt 1)
+	consumed, err := q.Consume(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, consumed, 1)
+	jobID := consumed[0].ID
+	assert.Equal(t, 1, consumed[0].AttemptCount)
+
+	// 3. Retry (simulate transient failure)
+	require.NoError(t, q.Retry(ctx, 0, map[string]error{jobID: errors.New("timeout")}, jobID))
+
+	// 4. Consume (attempt 2)
+	consumed2, err := q.Consume(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, consumed2, 1)
+	assert.Equal(t, jobID, consumed2[0].ID)
+	assert.Equal(t, 2, consumed2[0].AttemptCount)
+
+	// 5. Complete
+	require.NoError(t, q.Complete(ctx, jobID))
+	assert.Equal(t, 0, countAllRows(t, db, "ccv_task_verifier_jobs"))
+	assert.Equal(t, 1, countAllRows(t, db, "ccv_task_verifier_jobs_archive"))
+
+	// 6. Back-date and cleanup
+	_, err = db.ExecContext(ctx, "UPDATE ccv_task_verifier_jobs_archive SET completed_at = NOW() - INTERVAL '48 hours'")
+	require.NoError(t, err)
+	deleted, err := q.Cleanup(ctx, time.Hour)
+	require.NoError(t, err)
+	assert.Equal(t, 1, deleted)
+}
+
 func TestConcurrentPublishAndConsume(t *testing.T) {
 	q, db := newTestQueue(t)
 	ctx := context.Background()
