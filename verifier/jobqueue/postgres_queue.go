@@ -387,7 +387,9 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 			}
 		}
 
-		// Archive jobs that exceeded the retry deadline within the same transaction
+		// Archive jobs that exceeded the retry deadline within the same transaction.
+		// Uses explicit column names (not SELECT *) so the query is robust to future
+		// schema changes on the active table.
 		if len(failed) > 0 {
 			archiveQuery := fmt.Sprintf(`
 				WITH failed AS (
@@ -395,10 +397,17 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 					WHERE job_id = ANY($1)
 					  AND owner_id = $2
 					  AND status = $3
-					RETURNING *
+					RETURNING id, job_id, owner_id, chain_selector, message_id, task_data,
+					          status, created_at, available_at, started_at, attempt_count, retry_deadline, last_error
 				)
-				INSERT INTO %s
-				SELECT *, NOW() as completed_at
+				INSERT INTO %s (
+					id, job_id, owner_id, chain_selector, message_id, task_data,
+					status, created_at, available_at, started_at, attempt_count, retry_deadline, last_error,
+					completed_at
+				)
+				SELECT id, job_id, owner_id, chain_selector, message_id, task_data,
+				       status, created_at, available_at, started_at, attempt_count, retry_deadline, last_error,
+				       NOW()
 				FROM failed
 			`, q.tableName, q.archiveName)
 
@@ -431,24 +440,40 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 
 // Fail marks jobs as permanently failed and moves them to the archive.
 // This ensures failed jobs don't remain in the active queue indefinitely.
+//
+// Each job is archived in a single atomic CTE (DELETE→INSERT), mirroring the Complete() approach.
 func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error, jobIDs ...string) error {
 	if len(jobIDs) == 0 {
 		return nil
 	}
 
-	var affected int64
+	// Single atomic operation per job: delete from the active table and insert into
+	// the archive with status='failed' and the caller-supplied error message.
+	// Using explicit column names (not SELECT *) so the query stays correct if
+	// columns are ever added to the active table.
+	query := fmt.Sprintf(`
+		WITH to_fail AS (
+			DELETE FROM %s
+			WHERE job_id = $1
+			  AND owner_id = $2
+			RETURNING id, job_id, owner_id, chain_selector, message_id, task_data,
+			          created_at, available_at, started_at, attempt_count, retry_deadline
+		)
+		INSERT INTO %s (
+			id, job_id, owner_id, chain_selector, message_id, task_data,
+			status, created_at, available_at, started_at, attempt_count, retry_deadline,
+			last_error, completed_at
+		)
+		SELECT id, job_id, owner_id, chain_selector, message_id, task_data,
+		       $3, created_at, available_at, started_at, attempt_count, retry_deadline,
+		       $4, NOW()
+		FROM to_fail
+	`, q.tableName, q.archiveName)
+
+	var totalAffected int64
 
 	err := sqlutil.TransactDataSource(ctx, q.ds, nil, func(tx sqlutil.DataSource) error {
-		// First, update the last_error for each job
-		updateQuery := fmt.Sprintf(`
-			UPDATE %s
-			SET status = $1,
-				last_error = $2
-			WHERE job_id = $3
-			  AND owner_id = $4
-		`, q.tableName)
-
-		stmt, err := tx.PrepareContext(ctx, updateQuery)
+		stmt, err := tx.PrepareContext(ctx, query)
 		if err != nil {
 			return fmt.Errorf("failed to prepare fail statement: %w", err)
 		}
@@ -458,39 +483,19 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 
 		for _, jobID := range jobIDs {
 			errMsg := ""
-			if err, ok := errors[jobID]; ok && err != nil {
-				errMsg = err.Error()
+			if e, ok := errors[jobID]; ok && e != nil {
+				errMsg = e.Error()
 			}
 
-			_, err := stmt.ExecContext(ctx, JobStatusFailed, errMsg, jobID, q.ownerID)
+			result, err := stmt.ExecContext(ctx, jobID, q.ownerID, JobStatusFailed, errMsg)
 			if err != nil {
-				q.logger.Errorw("Failed to mark job as failed",
-					"jobID", jobID,
-					"error", err,
-				)
+				return fmt.Errorf("failed to fail and archive job %s: %w", jobID, err)
 			}
+
+			n, _ := result.RowsAffected()
+			totalAffected += n
 		}
 
-		// Now move failed jobs to archive within the same transaction
-		archiveQuery := fmt.Sprintf(`
-			WITH failed AS (
-				DELETE FROM %s
-				WHERE job_id = ANY($1)
-				  AND owner_id = $2
-				  AND status = $3
-				RETURNING *
-			)
-			INSERT INTO %s
-			SELECT *, NOW() as completed_at
-			FROM failed
-		`, q.tableName, q.archiveName)
-
-		result, err := tx.ExecContext(ctx, archiveQuery, pq.Array(jobIDs), q.ownerID, JobStatusFailed)
-		if err != nil {
-			return fmt.Errorf("failed to archive failed jobs: %w", err)
-		}
-
-		affected, _ = result.RowsAffected()
 		return nil
 	})
 	if err != nil {
@@ -499,7 +504,7 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 
 	q.logger.Infow("Failed and archived jobs",
 		"queue", q.config.Name,
-		"count", affected,
+		"count", totalAffected,
 	)
 
 	return nil
