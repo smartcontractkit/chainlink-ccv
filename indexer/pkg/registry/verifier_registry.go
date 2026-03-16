@@ -2,6 +2,7 @@ package registry
 
 import (
 	"errors"
+	"slices"
 	"sync"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
@@ -47,10 +48,8 @@ func (v *VerifierRegistry) AddVerifier(address protocol.UnknownAddress, name str
 	defer v.mu.Unlock()
 
 	key := address.String()
-	for _, existing := range v.verifiers[key] {
-		if existing == verifier {
-			return errors.New("verifier already registered for this address")
-		}
+	if slices.Contains(v.verifiers[key], verifier) {
+		return errors.New("verifier already registered for this address")
 	}
 	v.verifiers[key] = append(v.verifiers[key], verifier)
 
