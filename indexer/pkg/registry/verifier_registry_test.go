@@ -132,7 +132,7 @@ func TestRemoveVerifier_NonExistent(t *testing.T) {
 }
 
 // TestAddVerifier_DuplicateReader verifies that registering the same VerifierReader
-// pointer twice for the same address is rejected (L2 fix).
+// pointer twice for the same address is rejected.
 func TestAddVerifier_DuplicateReader(t *testing.T) {
 	reg := NewVerifierRegistry()
 	addr, err := protocol.NewUnknownAddressFromHex("0x1234")
@@ -154,7 +154,7 @@ func TestAddVerifier_DuplicateReader(t *testing.T) {
 }
 
 // TestGetVerifiers_ReturnsCopy verifies that mutating the slice returned by
-// GetVerifiers does not affect the registry's internal state (L1 fix).
+// GetVerifiers does not affect the registry's internal state.
 func TestGetVerifiers_ReturnsCopy(t *testing.T) {
 	reg := NewVerifierRegistry()
 	addr, err := protocol.NewUnknownAddressFromHex("0x1234")
