@@ -181,6 +181,12 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 	sources := make([]common.MessageDiscovery, 0, len(configs))
 	ntpProviders := make(map[string]*backofftimeprovider.BackoffNTPProvider)
 
+	cleanupOnError := func() {
+		for _, src := range sources {
+			_ = src.Close()
+		}
+	}
+
 	for i, discCfg := range configs {
 		persistedSinceValue, err := storage.GetDiscoverySequenceNumber(ctx, discCfg.Address)
 		if err != nil {
@@ -196,6 +202,7 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 			Secret: discCfg.Secret,
 		}, discCfg.InsecureConnection, config.EffectiveMaxResponseBytes(discCfg.MaxResponseBytes))
 		if err != nil {
+			cleanupOnError()
 			return nil, err
 		}
 
@@ -216,6 +223,7 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 			discovery.WithDiscoveryPriority(i),
 		)
 		if err != nil {
+			cleanupOnError()
 			return nil, err
 		}
 		sources = append(sources, aggDiscovery)
@@ -228,7 +236,12 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 	if cfg.MergeBufferSize > 0 {
 		opts = append(opts, discovery.WithMergeBufferSize(cfg.MergeBufferSize))
 	}
-	return discovery.NewMultiSourceMessageDiscovery(lggr, sources, opts...)
+	multiDiscovery, err := discovery.NewMultiSourceMessageDiscovery(lggr, sources, opts...)
+	if err != nil {
+		cleanupOnError()
+		return nil, err
+	}
+	return multiDiscovery, nil
 }
 
 // createStorage creates the storage backend connection based on the configuration.
