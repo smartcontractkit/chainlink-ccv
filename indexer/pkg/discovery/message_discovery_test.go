@@ -96,6 +96,7 @@ func setupMessageDiscoveryTest(t *testing.T) *testSetup {
 	return setupMessageDiscoveryTestWithConfig(t, config.DiscoveryConfig{
 		PollInterval: 50,
 		Timeout:      500,
+		NtpServer:    "time.google.com",
 	})
 }
 
