@@ -1795,7 +1795,8 @@ func TestQueryAggregatedReports_ExcludesReportWithCorruptedVerification(t *testi
 
 	corruptedID, err := corruptedRecord2.GetID()
 	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, `UPDATE commit_verification_records SET signer_identifier = 'not-valid-hex' WHERE id = $1`, *corruptedID)
+	corruptedMessageIDHex := protocol.ByteSlice(corruptedMessageID).String()
+	_, err = db.ExecContext(ctx, `UPDATE commit_verification_records SET signer_identifier = 'not-valid-hex' WHERE message_id = $1 AND signer_identifier = $2`, corruptedMessageIDHex, corruptedID.Address.String())
 	require.NoError(t, err)
 
 	batch, err := storage.QueryAggregatedReports(ctx, 0)
@@ -1804,7 +1805,6 @@ func TestQueryAggregatedReports_ExcludesReportWithCorruptedVerification(t *testi
 	require.Equal(t, healthyMessageID[:], batch.Reports[0].MessageID)
 	require.Len(t, batch.Reports[0].Verifications, 1)
 
-	corruptedMessageIDHex := protocol.ByteSlice(corruptedMessageID).String()
 	batchResult, err := storage.GetBatchAggregatedReportByMessageIDs(ctx, []model.MessageID{healthyMessageID, corruptedMessageID})
 	require.NoError(t, err)
 	_, ok := batchResult[corruptedMessageIDHex]
