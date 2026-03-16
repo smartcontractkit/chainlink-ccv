@@ -349,6 +349,88 @@ func TestMultiSourceMessageDiscovery_MergeExitsWhenAllSourcesClosed(t *testing.T
 	}
 }
 
+func TestMultiSourceMessageDiscovery_StartIsExecutedOnce(t *testing.T) {
+	msg := createTestCCVData(1, time.Now().UnixMilli(), 1, 2)
+	sourceA := newMockMessageDiscoveryWithMessages(t, []common.VerifierResultWithMetadata{msg})
+	sourceB := newMockMessageDiscoveryWithMessages(t, []common.VerifierResultWithMetadata{msg})
+
+	multi, err := NewMultiSourceMessageDiscovery(
+		logger.Test(t),
+		[]common.MessageDiscovery{sourceA, sourceB},
+	)
+	require.NoError(t, err)
+	defer func() { _ = multi.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	ch1 := multi.Start(ctx)
+	ch2 := multi.Start(ctx)
+
+	assert.Equal(t, ch1, ch2, "second Start() must return the same channel")
+
+	received := collectUntilTimeout(ch1, 500*time.Millisecond)
+	assert.NotEmpty(t, received, "messages should still be emitted after Start() is executed once")
+}
+
+func TestMultiSourceMessageDiscovery_RejectsNilSources(t *testing.T) {
+	validSource := newMockMessageDiscoveryWithMessages(t, nil)
+	validSource.EXPECT().Close().Unset()
+
+	tests := []struct {
+		name    string
+		sources []common.MessageDiscovery
+		wantErr string
+	}{
+		{
+			name:    "single nil source",
+			sources: []common.MessageDiscovery{nil},
+			wantErr: "source is nil",
+		},
+		{
+			name:    "nil source among valid sources",
+			sources: []common.MessageDiscovery{validSource, nil},
+			wantErr: "source is nil",
+		},
+		{
+			name:    "empty sources",
+			sources: []common.MessageDiscovery{},
+			wantErr: "at least one discovery source is required",
+		},
+		{
+			name:    "nil sources slice",
+			sources: nil,
+			wantErr: "at least one discovery source is required",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewMultiSourceMessageDiscovery(logger.Test(t), tt.sources)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestMultiSourceMessageDiscovery_RejectsNilLogger(t *testing.T) {
+	source := newMockMessageDiscoveryWithMessages(t, nil)
+	source.EXPECT().Close().Unset()
+
+	_, err := NewMultiSourceMessageDiscovery(nil, []common.MessageDiscovery{source})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "logger is required")
+}
+
+func TestMultiSourceMessageDiscovery_ValidationErrorDoesNotStartSources(t *testing.T) {
+	source := mocks.NewMockMessageDiscovery(t)
+	source.EXPECT().Close().Return(nil).Maybe()
+
+	_, err := NewMultiSourceMessageDiscovery(nil, []common.MessageDiscovery{source, nil})
+	require.Error(t, err)
+
+	source.AssertNotCalled(t, "Start", mock.Anything)
+}
+
 // validMinimalConfig returns a Config with valid Scheduler and Storage so we can test Discoveries validation in isolation.
 func validMinimalConfig(discoveries []config.DiscoveryConfig) *config.Config {
 	return &config.Config{
