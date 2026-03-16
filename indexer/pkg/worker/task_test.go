@@ -26,7 +26,7 @@ func mustAddr(t *testing.T, hex string) protocol.UnknownAddress {
 	return addr
 }
 
-// TestNewTask_NilValidations verifies that NewTask rejects nil dependencies (L3 fix).
+// TestNewTask_NilValidations verifies that NewTask rejects nil dependencies.
 func TestNewTask_NilValidations(t *testing.T) {
 	lggr := logger.Test(t)
 	msg := protocol.VerifierResult{}
