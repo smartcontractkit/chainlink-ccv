@@ -415,6 +415,24 @@ func TestReadMessages_ActiveOnClient1(t *testing.T) {
 	assert.Equal(t, 1, adapter.getActiveClientIdx(), "Should stay on client 1")
 }
 
+func TestReadMessages_404ReturnsError(t *testing.T) {
+	ctx := context.Background()
+	queryData := v1.MessagesInput{}
+
+	client0 := mocks.NewMockIndexerClientInterface(t)
+	client1 := mocks.NewMockIndexerClientInterface(t)
+
+	client0.On("Messages", ctx, queryData).
+		Return(404, v1.MessagesResponse{}, errors.New("not found"))
+
+	adapter := newTestAdapter(t, []client.IndexerClientInterface{client0, client1})
+
+	_, err := adapter.ReadMessages(ctx, queryData)
+
+	require.Error(t, err, "404 on Messages indicates a misconfigured route, not missing data")
+	assert.Contains(t, err.Error(), "not found")
+}
+
 func TestGetVerifierResults_ServerErrorTriggersFailover(t *testing.T) {
 	tests := []struct {
 		name              string
