@@ -54,8 +54,8 @@ func parseFirstListRow(listOutput string) (chainSelector string, ok bool) {
 	if strings.Contains(listOutput, "No chain status rows found.") {
 		return "", false
 	}
-	lines := strings.Split(listOutput, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(listOutput, "\n")
+	for line := range lines {
 		if !strings.Contains(line, "|") {
 			continue
 		}
