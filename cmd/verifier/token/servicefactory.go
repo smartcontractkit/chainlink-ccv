@@ -24,10 +24,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/storage"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
-	tokenapi "github.com/smartcontractkit/chainlink-ccv/verifier/token/api"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
+	tokenapi "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/api"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 

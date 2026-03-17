@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/http"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/http"
 )
 
 // MockHTTPClient is a mock implementation of httputil.Client.

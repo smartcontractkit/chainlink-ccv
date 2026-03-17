@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	httputil "github.com/smartcontractkit/chainlink-ccv/verifier/token/http"
+	httputil "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/http"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 

@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
 )
 
 func Test_Config_Deserialization(t *testing.T) {

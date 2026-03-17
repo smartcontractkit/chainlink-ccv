@@ -8,7 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	cctpclient "github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
+	cctpclient "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/fake"
 )
 
